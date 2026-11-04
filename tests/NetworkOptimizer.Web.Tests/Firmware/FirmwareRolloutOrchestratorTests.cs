@@ -1389,7 +1389,7 @@ public class FirmwareRolloutOrchestratorTests
     }
 
     private static string Moved(DateTime start, DateTime previous, DateTime now) =>
-        RolloutScopeCopy.Moved(Document(Wave(1, PlanStep(ApMac))), devices: 1, start, previous, now, TimeZoneInfo.Local);
+        RolloutScopeCopy.Moved(Document(Wave(1, PlanStep(ApMac))), devices: 1, start, previous, now, TimeZoneInfo.Local, DisplayFormat.Fallback);
 
     [Fact]
     public async Task MovingTheStart_RestatesTheOpenAlertsWithTheNewTime()
@@ -1462,7 +1462,7 @@ public class FirmwareRolloutOrchestratorTests
         harness.Bus.Published.Should().ContainSingle(e => e.EventType == RolloutAlerts.PostponedHealth)
             .Which.Message.Should().Be(
                 "The rollout did not start because a critical alert is open (WAN Outage). "
-                + $"It will try again at {RolloutScopeCopy.AlertStartLabel(start, null, TimeZoneInfo.Local)}.");
+                + $"It will try again at {RolloutScopeCopy.AlertStartLabel(start, null, TimeZoneInfo.Local, DisplayFormat.Fallback)}.");
     }
 
     [Fact]

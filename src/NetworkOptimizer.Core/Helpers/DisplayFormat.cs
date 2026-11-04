@@ -1,4 +1,4 @@
-namespace NetworkOptimizer.Web.Services;
+namespace NetworkOptimizer.Core.Helpers;
 
 /// <summary>12-hour or 24-hour time.</summary>
 public enum ClockStyle
@@ -23,8 +23,8 @@ public enum DateOrder
 public sealed record DisplayFormat(ClockStyle Clock, DateOrder Order)
 {
     /// <summary>
-    /// For text with no viewer (alerts, stored reports, plan titles), and a viewer whose browser
-    /// has not said: 24-hour, month first.
+    /// 24-hour, month first: text with no viewer (alerts, stored reports, plan titles) on an install
+    /// with no default format, and a viewer whose browser has not said.
     /// </summary>
     public static readonly DisplayFormat Fallback = new(ClockStyle.TwentyFourHour, DateOrder.MonthFirst);
 
@@ -72,6 +72,24 @@ public sealed record DisplayFormat(ClockStyle Clock, DateOrder Order)
 
     /// <summary>The cookie and preference value: "24-mdy", "12-dmy".</summary>
     public string Code => $"{(H24 ? "24" : "12")}-{(DayFirst ? "dmy" : "mdy")}";
+
+    /// <summary>
+    /// Each half (time format, date order) from the first layer that sets it, else from
+    /// <paramref name="fallback"/>: a user's own choice over the install default, for instance.
+    /// </summary>
+    /// <param name="fallback">What stands where no layer sets a half.</param>
+    /// <param name="layers">Stored values, first wins: "12"/"24" and "mdy"/"dmy", each null for unset.</param>
+    public static DisplayFormat Layered(DisplayFormat fallback, params (string? Clock, string? Order)[] layers)
+    {
+        ClockStyle? clock = null;
+        DateOrder? order = null;
+        foreach (var (c, o) in layers)
+        {
+            clock ??= ParseCode(c).Clock;
+            order ??= ParseCode(o).Order;
+        }
+        return new DisplayFormat(clock ?? fallback.Clock, order ?? fallback.Order);
+    }
 
     /// <summary>Reads <see cref="Code"/>, or either half of it; null for anything else.</summary>
     public static (ClockStyle? Clock, DateOrder? Order) ParseCode(string? code)

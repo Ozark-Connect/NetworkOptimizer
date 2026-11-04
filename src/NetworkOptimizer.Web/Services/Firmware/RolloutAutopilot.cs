@@ -320,6 +320,7 @@ public class RolloutAutopilot : IRolloutAutopilot
     {
         var devices = RolloutPlanComposer.LiveStepCount(result);
         var zone = _timeZones == null ? TimeZoneInfo.Local : await _timeZones.ResolveAsync(_siteSlug, cancellationToken);
+        var format = _timeZones == null ? DisplayFormat.Fallback : await _timeZones.ResolveFormatAsync(cancellationToken);
 
         await _eventBus.PublishAsync(new AlertEvent
         {
@@ -331,7 +332,7 @@ public class RolloutAutopilot : IRolloutAutopilot
             Title = $"Firmware Rollout Scheduled{_siteSuffix}",
             Message =
                 $"{RolloutScopeCopy.Sentence(RolloutScopeCopy.Subject(result.Document, devices))} will be upgraded starting "
-                + $"{RolloutScopeCopy.AlertStartLabel(startAtUtc, window.TimeZoneId, zone)}, "
+                + $"{RolloutScopeCopy.AlertStartLabel(startAtUtc, window.TimeZoneId, zone, format)}, "
                 + $"{RolloutScopeCopy.StartsIn(startAtUtc - Now)} - chosen from {window.Basis}. "
                 + "Open Firmware Rollout to postpone or stop it.",
             SourceUrl = RolloutAlerts.SourceUrl,

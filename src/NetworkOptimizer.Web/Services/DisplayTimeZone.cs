@@ -18,9 +18,15 @@ public interface ITimeZonePreferenceSource
 
     /// <summary>
     /// The current caller's own time format ("12" or "24") and date order ("mdy" or "dmy"), each
-    /// null when they have not chosen; their browser's locale decides then.
+    /// null when they have not chosen; the install default, then their browser's locale, decides then.
     /// </summary>
     Task<(string? Clock, string? Order)> GetOwnFormatAsync();
+
+    /// <summary>
+    /// The install default time format and date order a caller with no choice of their own reads in,
+    /// and the format alert text is written in; each null for none.
+    /// </summary>
+    Task<(string? Clock, string? Order)> GetInheritedFormatAsync();
 }
 
 /// <inheritdoc />
@@ -32,10 +38,16 @@ public sealed class TimeZonePreferenceSource : ITimeZonePreferenceSource
     /// </summary>
     public const string Key = "display.time_zone";
 
-    /// <summary>A user's own time format, "12" or "24", through <see cref="IUserPreferences"/>.</summary>
+    /// <summary>
+    /// Time format, "12" or "24". The install default is stored under it directly; a user's own value
+    /// goes through <see cref="IUserPreferences"/>.
+    /// </summary>
     public const string ClockKey = "display.clock";
 
-    /// <summary>A user's own date order, "mdy" or "dmy", through <see cref="IUserPreferences"/>.</summary>
+    /// <summary>
+    /// Date order, "mdy" or "dmy". The install default is stored under it directly; a user's own value
+    /// goes through <see cref="IUserPreferences"/>.
+    /// </summary>
     public const string DateOrderKey = "display.date_order";
 
     private readonly ISystemSettingsService _settings;
@@ -62,6 +74,10 @@ public sealed class TimeZonePreferenceSource : ITimeZonePreferenceSource
             ? (await _settings.GetGlobalAsync(UserDismissals.UserKey(ClockKey, userId)),
                await _settings.GetGlobalAsync(UserDismissals.UserKey(DateOrderKey, userId)))
             : (null, null);
+
+    /// <inheritdoc />
+    public async Task<(string? Clock, string? Order)> GetInheritedFormatAsync() =>
+        (await _settings.GetGlobalAsync(ClockKey), await _settings.GetGlobalAsync(DateOrderKey));
 }
 
 /// <summary>
@@ -78,7 +94,7 @@ public interface IDisplayTimeZone
     /// <summary>The resolved zone.</summary>
     TimeZoneInfo Zone { get; }
 
-    /// <summary>How the viewer reads dates and times: their own choice, else their browser's locale.</summary>
+    /// <summary>How the viewer reads dates and times: their own choice, else the install default, else their browser's locale.</summary>
     DisplayFormat Format { get; }
 
     /// <summary>What the viewer's browser locale reads, for naming what "Default" means.</summary>
@@ -133,6 +149,18 @@ public static class DisplayTimeExtensions
     /// <inheritdoc cref="ToLocalTime(DateTime, IDisplayTimeZone)"/>
     public static DateTimeOffset ToLocalTime(this DateTimeOffset instant, IDisplayTimeZone displayTime) =>
         TimeZoneInfo.ConvertTime(instant, displayTime.Zone);
+
+    /// <summary>
+    /// An instant as a chart x on the viewer's wall clock: their local time, marked UTC so the chart
+    /// serializer sends it unshifted. Pairs with <see cref="ChartTimeFormat.ApplyTimeAxis"/>, which puts
+    /// ApexCharts' own time scale on those values (display-time.js toChart is the browser twin).
+    /// </summary>
+    public static DateTime ToChart(this IDisplayTimeZone displayTime, DateTime utc) =>
+        DateTime.SpecifyKind(displayTime.ToLocal(utc), DateTimeKind.Utc);
+
+    /// <summary>The instant a wall-clock chart x stands for; the inverse of <see cref="ToChart"/>.</summary>
+    public static DateTime FromChart(this IDisplayTimeZone displayTime, DateTime chartX) =>
+        displayTime.ToUtc(DateTime.SpecifyKind(chartX, DateTimeKind.Unspecified));
 }
 
 /// <inheritdoc />
@@ -266,10 +294,8 @@ public sealed class DisplayTimeZone : IDisplayTimeZone
         {
             _chosen = ResolveLayer(await _source.GetOwnAsync())
                 ?? ResolveLayer(await _source.GetInheritedAsync());
-            var (clock, order) = await _source.GetOwnFormatAsync();
-            Format = new DisplayFormat(
-                DisplayFormat.ParseCode(clock).Clock ?? BrowserFormat.Clock,
-                DisplayFormat.ParseCode(order).Order ?? BrowserFormat.Order);
+            // Like the zone: the user's own choice, then the install default, then the browser's locale.
+            Format = DisplayFormat.Layered(BrowserFormat, await _source.GetOwnFormatAsync(), await _source.GetInheritedFormatAsync());
         }
         catch (Exception ex)
         {

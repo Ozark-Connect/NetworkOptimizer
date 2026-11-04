@@ -454,6 +454,7 @@ public class AlertProcessingService : BackgroundService
         // Resolved on the first channel that sends, inside its error handling: an alert no channel
         // takes costs no lookup, and a failed one is recorded like any other delivery error.
         TimeZoneInfo? timeZone = null;
+        DisplayFormat? format = null;
 
         foreach (var channel in channels)
         {
@@ -476,7 +477,10 @@ public class AlertProcessingService : BackgroundService
                 timeZone ??= _timeZones == null
                     ? TimeZoneInfo.Local
                     : await _timeZones.ResolveAsync(alertEvent.SiteSlug, cancellationToken);
-                var success = await handler.SendAsync(alertEvent, historyEntry, channel, timeZone, cancellationToken);
+                format ??= _timeZones == null
+                    ? DisplayFormat.Fallback
+                    : await _timeZones.ResolveFormatAsync(cancellationToken);
+                var success = await handler.SendAsync(alertEvent, historyEntry, channel, timeZone, format, cancellationToken);
                 if (success)
                 {
                     deliveredTo.Add(channel.Id);

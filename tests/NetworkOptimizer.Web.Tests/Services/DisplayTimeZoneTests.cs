@@ -14,12 +14,13 @@ public class DisplayTimeZoneTests
 
     private static DisplayTimeZone Build(string? own, string? inherited, string? siteZone = null,
         Func<string>? slug = null, Mock<ISiteTimeZones>? siteZones = null,
-        string? browserFormat = null, (string?, string?) ownFormat = default)
+        string? browserFormat = null, (string?, string?) ownFormat = default, (string?, string?) inheritedFormat = default)
     {
         var source = new Mock<ITimeZonePreferenceSource>();
         source.Setup(s => s.GetOwnAsync()).ReturnsAsync(own);
         source.Setup(s => s.GetInheritedAsync()).ReturnsAsync(inherited);
         source.Setup(s => s.GetOwnFormatAsync()).ReturnsAsync(ownFormat);
+        source.Setup(s => s.GetInheritedFormatAsync()).ReturnsAsync(inheritedFormat);
         if (siteZones == null)
         {
             siteZones = new Mock<ISiteTimeZones>();
@@ -47,6 +48,53 @@ public class DisplayTimeZoneTests
         await display.ResolveAsync();
 
         display.Format.Should().Be(new DisplayFormat(ClockStyle.TwentyFourHour, DateOrder.DayFirst));
+    }
+
+    [Fact]
+    public async Task The_install_default_format_beats_the_browser_where_the_user_has_not_chosen()
+    {
+        var display = Build(null, null, browserFormat: "24-mdy", inheritedFormat: ("12", "dmy"));
+        await display.ResolveAsync();
+
+        display.Format.Should().Be(new DisplayFormat(ClockStyle.TwelveHour, DateOrder.DayFirst));
+        // "Default - this browser" still names what the browser itself reads.
+        display.BrowserFormat.Should().Be(new DisplayFormat(ClockStyle.TwentyFourHour, DateOrder.MonthFirst));
+    }
+
+    [Fact]
+    public async Task The_users_own_format_beats_the_install_default_half_by_half()
+    {
+        var display = Build(null, null, browserFormat: "24-mdy", ownFormat: (null, "mdy"), inheritedFormat: ("12", "dmy"));
+        await display.ResolveAsync();
+
+        display.Format.Should().Be(new DisplayFormat(ClockStyle.TwelveHour, DateOrder.MonthFirst));
+    }
+
+    [Fact]
+    public async Task An_unknown_install_default_format_falls_through_to_the_browser()
+    {
+        var display = Build(null, null, browserFormat: "12-dmy", inheritedFormat: ("13", "ymd"));
+        await display.ResolveAsync();
+
+        display.Format.Should().Be(new DisplayFormat(ClockStyle.TwelveHour, DateOrder.DayFirst));
+    }
+
+    [Fact]
+    public void ToChart_and_FromChart_round_trip_on_the_viewers_clock()
+    {
+        var display = new Mock<IDisplayTimeZone>();
+        var tokyo = TimeZoneInfo.FindSystemTimeZoneById(Tokyo);
+        display.Setup(d => d.ToLocal(It.IsAny<DateTime>()))
+            .Returns<DateTime>(u => TimeZoneInfo.ConvertTimeFromUtc(DateTime.SpecifyKind(u, DateTimeKind.Utc), tokyo));
+        display.Setup(d => d.ToUtc(It.IsAny<DateTime>()))
+            .Returns<DateTime>(l => TimeZoneInfo.ConvertTimeToUtc(l, tokyo));
+        var instant = new DateTime(2026, 11, 3, 15, 0, 0, DateTimeKind.Utc);   // midnight Nov 4 in Tokyo
+
+        var chartX = display.Object.ToChart(instant);
+
+        chartX.Should().Be(new DateTime(2026, 11, 4, 0, 0, 0, DateTimeKind.Utc));
+        chartX.Kind.Should().Be(DateTimeKind.Utc);
+        display.Object.FromChart(chartX).Should().Be(instant);
     }
 
     [Theory]

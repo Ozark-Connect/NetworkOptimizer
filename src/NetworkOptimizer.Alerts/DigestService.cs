@@ -5,6 +5,7 @@ using NetworkOptimizer.Alerts.Delivery;
 using NetworkOptimizer.Alerts.Interfaces;
 using NetworkOptimizer.Alerts.Models;
 using NetworkOptimizer.Core;
+using NetworkOptimizer.Core.Helpers;
 
 namespace NetworkOptimizer.Alerts;
 
@@ -170,7 +171,10 @@ public class DigestService : BackgroundService
                 var timeZone = _timeZones == null
                     ? TimeZoneInfo.Local
                     : await _timeZones.ResolveAsync(siteKey == DefaultSiteKey ? null : siteKey, cancellationToken);
-                var success = await handler.SendDigestAsync(collapsedAlerts, channel, summary, timeZone, cancellationToken);
+                var format = _timeZones == null
+                    ? DisplayFormat.Fallback
+                    : await _timeZones.ResolveFormatAsync(cancellationToken);
+                var success = await handler.SendDigestAsync(collapsedAlerts, channel, summary, timeZone, format, cancellationToken);
                 if (success)
                 {
                     await MarkSentAsync(stateStore, siteKey, channel.Id, cancellationToken);

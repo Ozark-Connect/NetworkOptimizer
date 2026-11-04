@@ -12,9 +12,9 @@
 // Nothing streams in that mode; live calls are ignored until the next live mount.
 
 import ApexCharts from '/_content/Blazor-ApexCharts/js/apexcharts.esm.js';
-import { valueSortedTooltip } from './chart-tooltip.js?v=19';
+import { valueSortedTooltip } from './chart-tooltip.js?v=20';
 import { downloadColor, uploadColor } from './chart-colors.js?v=2';
-import { createMarkLayer } from './chart-event-marks.js?v=12';
+import { createMarkLayer } from './chart-event-marks.js?v=13';
 import { createAxisDateCaption } from './chart-axis-date.js?v=5';
 import { formatBps } from './chart-format.js?v=1';
 
@@ -108,8 +108,9 @@ function buildOpts() {
             min: Date.now() - HISTORY_MINUTES * 60000,
             max: Date.now(),
             // Built-in labels re-pick their ticks as the window slides; time labels are drawn as
-            // annotations on a fixed grid instead (buildTimeTicks).
-            labels: { show: false },
+            // annotations on a fixed grid instead (buildTimeTicks). datetimeUTC false marks the x values
+            // as real instants for the shared tooltip and marks (noTime.onWallClock); ApexCharts defaults it to true.
+            labels: { show: false, datetimeUTC: false },
             axisBorder: { show: false },
             axisTicks: { show: false },
         },
@@ -291,8 +292,7 @@ function trim() {
 }
 
 // ---- History mode ----
-
-const DATE_TIME = { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' };
+// Drawn on the viewer's wall clock (noTime.toChart), where live mode keeps real-time x.
 
 // The live chart's options as they are, so the totals, the WAN pair, and their fills draw the same
 // in both modes. Only the time axis, the tooltip's time, and the empty text differ.
@@ -313,9 +313,9 @@ function buildHistoryOpts(history, caption) {
     opts.fill.gradient.opacityTo = [...opts.fill.gradient.opacityTo, 0, 0];
     opts.xaxis = {
         type: 'datetime',
-        min: new Date(history.from).getTime(),
-        max: new Date(history.to).getTime(),
-        labels: { datetimeUTC: false, style: { colors: '#9ca3af', fontSize: '10px' }, formatter: noTime.axisFormatter() },
+        min: noTime.toChart(new Date(history.from).getTime()),
+        max: noTime.toChart(new Date(history.to).getTime()),
+        labels: noTime.timeAxisLabels({ style: { colors: '#9ca3af', fontSize: '10px' } }),
         axisBorder: { show: false },
         axisTicks: { show: false },
         tooltip: { enabled: false },
@@ -324,24 +324,28 @@ function buildHistoryOpts(history, caption) {
     opts.grid.padding = { left: 3, right: 12, top: -8, bottom: 0 };
     opts.responsive = [{ breakpoint: 1024, options: { grid: { padding: { left: -8, right: 4, top: -8, bottom: 0 } } } }];
     // A window is labeled by its start; the date matters once the range spans days.
-    opts.tooltip.x = { formatter: (val) => noTime.string(val, DATE_TIME) };
+    opts.tooltip.x = { formatter: noTime.chartTooltipFormatter(false) };
     opts.tooltip.y = [bpsFormatter, bpsFormatter, bpsFormatter, bpsFormatter, bpsFormatter, bpsFormatter];
     opts.noData = { text: 'No throughput recorded in this range', style: { color: '#64748b', fontSize: '13px' } };
     return opts;
 }
 
 // A missing window is a client that was gone, so the lines break there instead of bridging it.
+// Gaps are measured in real time; the points come out in chart x.
 function withGaps(points, windowMs, pick) {
     const out = [];
     let prev = null;
     for (const p of points) {
         const t = new Date(p.time).getTime();
-        if (prev != null && t - prev > windowMs * 1.5) out.push({ x: prev + windowMs, y: null });
-        out.push({ x: t, y: pick(p) });
+        if (prev != null && t - prev > windowMs * 1.5) out.push({ x: noTime.toChart(prev + windowMs), y: null });
+        out.push({ x: noTime.toChart(t), y: pick(p) });
         prev = t;
     }
     return out;
 }
+
+// reshapeWanSeries works in real time (live mode draws it as is), so history maps its output after.
+const onChart = pts => pts.map(p => ({ ...p, x: noTime.toChart(p.x) }));
 
 function historySeries(history) {
     const pts = history.points || [];
@@ -355,8 +359,8 @@ function historySeries(history) {
     return [
         { name: 'Download',      data: totalsShown() ? withGaps(pts, w, p => p.downloadBps) : [] },
         { name: 'Upload',        data: totalsShown() ? withGaps(pts, w, p => p.uploadBps) : [] },
-        { name: 'WAN Download',  data: reshapeWanSeries(wanPts, totals, 'wanDown', 'down', w * 1.5) },
-        { name: 'WAN Upload',    data: reshapeWanSeries(wanPts, totals, 'wanUp', 'up', w * 1.5) },
+        { name: 'WAN Download',  data: onChart(reshapeWanSeries(wanPts, totals, 'wanDown', 'down', w * 1.5)) },
+        { name: 'WAN Upload',    data: onChart(reshapeWanSeries(wanPts, totals, 'wanUp', 'up', w * 1.5)) },
         { name: 'Peak Download', data: history.hasPeaks && totalsShown() ? withGaps(pts, w, p => p.peakDownloadBps) : [] },
         { name: 'Peak Upload',   data: history.hasPeaks && totalsShown() ? withGaps(pts, w, p => p.peakUploadBps) : [] },
     ];
@@ -409,7 +413,7 @@ export function updateHistory(history) {
     if (!chart || mode !== 'history' || tooltipShowing()) return;
     currentHistory = history;
     chart.updateOptions({
-        xaxis: { min: new Date(history.from).getTime(), max: new Date(history.to).getTime() },
+        xaxis: { min: noTime.toChart(new Date(history.from).getTime()), max: noTime.toChart(new Date(history.to).getTime()) },
     }, false, false, false);
     chart.updateSeries(historySeries(history), false);
     // The caption before the marks: its redraw recreates the label nodes the marks bind to.

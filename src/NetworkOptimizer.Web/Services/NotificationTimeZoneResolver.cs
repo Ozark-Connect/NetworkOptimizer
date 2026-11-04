@@ -7,7 +7,9 @@ namespace NetworkOptimizer.Web.Services;
 /// the server's. Alert readers are often not users (a channel, a mailing list), so the site's own
 /// hours are the clock that needs no viewer. The default fills in for a site whose console cannot
 /// give a zone, and is read through <see cref="ITimeZonePreferenceSource.GetInheritedAsync"/>, so a
-/// host that decorates that seam changes notifications too. Singleton, like the alert pipeline.
+/// host that decorates that seam changes notifications too. The format is the install default
+/// format (<see cref="ITimeZonePreferenceSource.GetInheritedFormatAsync"/>), each half falling back
+/// to <see cref="DisplayFormat.Fallback"/>. Singleton, like the alert pipeline.
 /// </summary>
 public sealed class NotificationTimeZoneResolver : INotificationTimeZoneResolver
 {
@@ -41,6 +43,22 @@ public sealed class NotificationTimeZoneResolver : INotificationTimeZoneResolver
         {
             _logger.LogDebug(ex, "Could not resolve the notification time zone for site {Site}; using the server's", siteSlug);
             return TimeZoneInfo.Local;
+        }
+    }
+
+    /// <inheritdoc />
+    public async Task<DisplayFormat> ResolveFormatAsync(CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            using var scope = _scopeFactory.CreateScope();
+            var inherited = await scope.ServiceProvider.GetRequiredService<ITimeZonePreferenceSource>().GetInheritedFormatAsync();
+            return DisplayFormat.Layered(DisplayFormat.Fallback, inherited);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogDebug(ex, "Could not resolve the notification format; using the fallback");
+            return DisplayFormat.Fallback;
         }
     }
 }

@@ -98,6 +98,41 @@
         return t;
     }
 
+    // Offsets change only at DST transitions, which fall on whole quarter hours in every zone, so one
+    // read per quarter hour covers a series of any length.
+    const QUARTER_HOUR = 900000;
+    const offsets = new Map();
+    function offsetAt(ms) {
+        const bucket = Math.floor(ms / QUARTER_HOUR);
+        const key = (zone() || '') + '|' + bucket;
+        let off = offsets.get(key);
+        if (off === undefined) {
+            if (offsets.size > 20000) offsets.clear();
+            off = offsetMs(bucket * QUARTER_HOUR);
+            offsets.set(key, off);
+        }
+        return off;
+    }
+
+    /** An instant as a wall-clock chart x: the viewer's clock read as if it were UTC. */
+    function toChart(ms) {
+        return ms == null || !Number.isFinite(+ms) ? ms : +ms + offsetAt(+ms);
+    }
+
+    /** The instant a wall-clock chart x stands for. Two passes settle the offset either side of a DST change. */
+    function fromChart(x) {
+        if (x == null || !Number.isFinite(+x)) return x;
+        const guess = +x - offsetAt(+x);
+        return +x - offsetAt(guess);
+    }
+
+    // A chart drawn on the viewer's wall clock says so with datetimeUTC: ApexCharts then reads its x
+    // values with UTC getters, so its own time scale places ticks on the viewer's midnights and hours.
+    // ApexCharts defaults datetimeUTC to true, so a chart on real instants must set it false.
+    function onWallClock(w) {
+        return w?.config?.xaxis?.labels?.datetimeUTC === true;
+    }
+
     const pad = n => String(n).padStart(2, '0');
     const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
@@ -113,16 +148,17 @@
     }
 
     /**
-     * An x-axis tick: the date at midnight, else the time. ApexCharts places ticks on the browser's
-     * hours; while the viewer's zone differs, a multi-day window labels every tick with its date,
-     * since those ticks no longer fall on the viewer's midnights.
+     * ApexCharts' datetimeFormatter in the viewer's format, for a wall-clock chart. Its own time scale
+     * still picks every tick and every day, month, and year break; only the text follows the viewer.
+     * Never pair it with xaxis.labels.formatter: any label formatter turns that time scale off, and
+     * ApexCharts then spaces ticks evenly with no breaks at all.
      */
-    function axisLabel(timestamp, opts) {
-        const p = parts(timestamp);
-        const w = opts?.w?.globals;
-        const spanMs = w ? (w.maxX - w.minX) : 0;
-        if ((p.hour === 0 && p.minute === 0) || (zone() && spanMs > 3 * 86400000)) return dayText(p);
-        return timeText(p, false);
+    function datetimeFormatter() {
+        const { h24, dayFirst } = format();
+        const time = h24 ? 'HH:mm' : 'h:mm TT';
+        const seconds = h24 ? 'HH:mm:ss' : 'h:mm:ss TT';
+        // Year and month are ApexCharts' own defaults, which no format setting changes.
+        return { year: 'yyyy', month: "MMM 'yy", day: dayFirst ? 'dd MMM' : 'MMM dd', hour: time, minute: seconds, second: seconds };
     }
 
     /** A tooltip header: "Nov 3, 14:05[:09]", or the time alone. */
@@ -174,14 +210,28 @@
             return fromWallClock(next.getUTCFullYear(), next.getUTCMonth() + 1, next.getUTCDate(), 0, 0);
         },
 
-        /** An ApexCharts xaxis.labels.formatter in the viewer's clock and format. */
-        axisFormatter: () => (value, timestamp, opts) => axisLabel(timestamp ?? value, opts),
+        toChart,
+        fromChart,
+        onWallClock,
 
-        /** An ApexCharts tooltip.x.formatter in the viewer's clock and format. */
-        tooltipFormatter: (seconds = true) => value => tooltipLabel(value, seconds),
+        /** An instant as an x on the chart `w`: wall clock for a wall-clock chart, else as is. */
+        chartX: (ms, w) => (onWallClock(w) ? toChart(ms) : ms),
+
+        /** The instant an x on the chart `w` stands for. */
+        instantOf: (x, w) => (onWallClock(w) ? fromChart(x) : x),
+
+        datetimeFormatter,
+
+        /**
+         * xaxis.labels for a time axis on the viewer's wall clock and in their format, merged over
+         * `extra` (style, rotation). Its series must carry toChart x values.
+         */
+        timeAxisLabels: (extra) => ({ ...(extra || {}), datetimeUTC: true, datetimeFormatter: datetimeFormatter() }),
+
+        /** An ApexCharts tooltip.x.formatter for a wall-clock chart, in the viewer's format. */
+        chartTooltipFormatter: (seconds = true) => value => tooltipLabel(fromChart(value), seconds),
 
         // For chart options serialized from C# (ChartTimeFormat).
-        axisLabel,
         tooltipLabel,
         /** A day on its own: "Nov 3" or "3 Nov". */
         dateLabel: value => dayText(parts(value)),

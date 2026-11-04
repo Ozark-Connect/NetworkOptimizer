@@ -120,10 +120,20 @@ public class RolloutScopeCopyTests
     {
         var start = new DateTime(2026, 10, 11, 11, 0, 0, DateTimeKind.Utc);
 
-        RolloutScopeCopy.AlertStartLabel(start, "America/New_York", Zone("America/Chicago"))
+        RolloutScopeCopy.AlertStartLabel(start, "America/New_York", Zone("America/Chicago"), DisplayFormat.Fallback)
             .Should().Be("Sun Oct 11, 06:00 CDT (07:00 at-site)");
-        RolloutScopeCopy.AlertStartLabel(start, "America/New_York", Zone("America/New_York"))
+        RolloutScopeCopy.AlertStartLabel(start, "America/New_York", Zone("America/New_York"), DisplayFormat.Fallback)
             .Should().Be("Sun Oct 11, 07:00 EDT");
+    }
+
+    [Fact]
+    public void AnAlertStart_FollowsTheNotificationFormat_AsideIncluded()
+    {
+        var start = new DateTime(2026, 10, 11, 11, 0, 0, DateTimeKind.Utc);
+        var twelveDayFirst = new DisplayFormat(ClockStyle.TwelveHour, DateOrder.DayFirst);
+
+        RolloutScopeCopy.AlertStartLabel(start, "America/New_York", Zone("America/Chicago"), twelveDayFirst)
+            .Should().Be("Sun 11 Oct, 6:00 AM CDT (7:00 AM at-site)");
     }
 
     [Theory]
@@ -142,7 +152,7 @@ public class RolloutScopeCopyTests
         var previous = now.AddDays(2);
         var start = now.AddDays(3);
 
-        var message = RolloutScopeCopy.Moved(Doc(), devices: 3, start, previous, now, Zone("America/Chicago"));
+        var message = RolloutScopeCopy.Moved(Doc(), devices: 3, start, previous, now, Zone("America/Chicago"), DisplayFormat.Fallback);
 
         message.Should().Be(
             "3 devices will be upgraded starting Wed Oct 14, 06:00 CDT, in about 3 days. "
@@ -156,7 +166,7 @@ public class RolloutScopeCopyTests
         var doc = Doc();
         doc.TimeZoneId = "America/New_York";
 
-        RolloutScopeCopy.Moved(doc, devices: 1, now.AddDays(1), now, now, Zone("America/Chicago"))
+        RolloutScopeCopy.Moved(doc, devices: 1, now.AddDays(1), now, now, Zone("America/Chicago"), DisplayFormat.Fallback)
             .Should().Contain("Mon Oct 12, 06:00 CDT (07:00 at-site)")
             .And.Contain("moved from Sun Oct 11, 06:00 CDT (07:00 at-site)");
     }
@@ -166,7 +176,7 @@ public class RolloutScopeCopyTests
     {
         var now = new DateTime(2026, 10, 11, 11, 0, 0, DateTimeKind.Utc);
 
-        RolloutScopeCopy.Moved(Doc(os: true), devices: 0, now.AddHours(5), now.AddHours(2), now, Zone("America/Chicago"))
+        RolloutScopeCopy.Moved(Doc(os: true), devices: 0, now.AddHours(5), now.AddHours(2), now, Zone("America/Chicago"), DisplayFormat.Fallback)
             .Should().StartWith("UniFi OS will be upgraded starting ");
     }
 }

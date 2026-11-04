@@ -1,3 +1,4 @@
+using NetworkOptimizer.Core.Helpers;
 using NetworkOptimizer.Alerts.Events;
 using NetworkOptimizer.Alerts.Models;
 using NetworkOptimizer.Core.Enums;
@@ -30,16 +31,17 @@ public interface IAlertDeliveryChannel
     DeliveryChannelType ChannelType { get; }
 
     /// <summary>
-    /// Send a single alert notification. Times in the text are shown on <paramref name="timeZone"/>.
+    /// Send a single alert notification. Times in the text are shown on <paramref name="timeZone"/>,
+    /// in <paramref name="format"/>.
     /// </summary>
-    Task<bool> SendAsync(AlertEvent alertEvent, AlertHistoryEntry historyEntry, DeliveryChannel channel, TimeZoneInfo timeZone, CancellationToken cancellationToken = default);
+    Task<bool> SendAsync(AlertEvent alertEvent, AlertHistoryEntry historyEntry, DeliveryChannel channel, TimeZoneInfo timeZone, DisplayFormat format, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Send a digest summary of multiple alerts.
     /// <paramref name="summary"/> contains pre-collapse counts for accurate totals. Times in the
-    /// text are shown on <paramref name="timeZone"/>.
+    /// text are shown on <paramref name="timeZone"/>, in <paramref name="format"/>.
     /// </summary>
-    Task<bool> SendDigestAsync(IReadOnlyList<AlertHistoryEntry> alerts, DeliveryChannel channel, DigestSummary summary, TimeZoneInfo timeZone, CancellationToken cancellationToken = default);
+    Task<bool> SendDigestAsync(IReadOnlyList<AlertHistoryEntry> alerts, DeliveryChannel channel, DigestSummary summary, TimeZoneInfo timeZone, DisplayFormat format, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Send a test notification to verify channel configuration.

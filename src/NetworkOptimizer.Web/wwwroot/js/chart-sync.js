@@ -22,15 +22,16 @@ export function syncIdentity(group) {
 }
 
 /**
- * The first and last instant across every array given, as {minX, maxX} - or null when they are all
- * empty. Arrays are time-ordered, so only their ends are read.
+ * The first and last instant across every array given, as {minX, maxX} in wall-clock chart x
+ * (noTime.toChart), the space alignedPoints draws in - or null when they are all empty. Arrays are
+ * time-ordered, so only their ends are read.
  */
 export function extentsOf(pointArrays, timeKey = 'time') {
     let minX = null, maxX = null;
     for (const pts of pointArrays) {
         if (!pts?.length) continue;
-        const first = new Date(pts[0][timeKey]).getTime();
-        const last = new Date(pts[pts.length - 1][timeKey]).getTime();
+        const first = noTime.toChart(new Date(pts[0][timeKey]).getTime());
+        const last = noTime.toChart(new Date(pts[pts.length - 1][timeKey]).getTime());
         if (!Number.isFinite(first) || !Number.isFinite(last)) continue;
         minX = minX == null ? first : Math.min(minX, first);
         maxX = maxX == null ? last : Math.max(maxX, last);

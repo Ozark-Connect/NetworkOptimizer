@@ -339,14 +339,14 @@
                                                  Items="@(IsWanVisible(wan) ? wan.DownloadData : _hiddenChartData)"
                                                  Name="@($"{wan.DisplayName} ↓")"
                                                  SeriesType="SeriesType.Area"
-                                                 XValue="e => e.Timestamp"
+                                                 XValue="e => DisplayTime.ToChart(e.Timestamp)"
                                                  YValue="e => e.Y"
                                                  OrderBy="e => e.X" />
                                 <ApexPointSeries TItem="WanChartDataPoint"
                                                  Items="@(IsWanVisible(wan) ? wan.UploadData : _hiddenChartData)"
                                                  Name="@($"{wan.DisplayName} ↑")"
                                                  SeriesType="SeriesType.Area"
-                                                 XValue="e => e.Timestamp"
+                                                 XValue="e => DisplayTime.ToChart(e.Timestamp)"
                                                  YValue="e => e.Y"
                                                  OrderBy="e => e.X" />
                             }
@@ -367,7 +367,7 @@
                                                  Items="@(IsWanVisible(wan) ? wan.LatencyData : _hiddenChartData)"
                                                  Name="@($"{wan.DisplayName}")"
                                                  SeriesType="SeriesType.Line"
-                                                 XValue="e => e.Timestamp"
+                                                 XValue="e => DisplayTime.ToChart(e.Timestamp)"
                                                  YValue="e => e.Y"
                                                  OrderBy="e => e.X" />
                             }
@@ -399,21 +399,21 @@
                                                  Items="@(IsWanVisible(wan) ? wan.LoadedLatencyBaseData : _hiddenChartData)"
                                                  Name="@($"{wan.DisplayName} Base")"
                                                  SeriesType="SeriesType.Line"
-                                                 XValue="e => e.Timestamp"
+                                                 XValue="e => DisplayTime.ToChart(e.Timestamp)"
                                                  YValue="e => e.Y"
                                                  OrderBy="e => e.X" />
                                 <ApexPointSeries TItem="WanChartDataPoint"
                                                  Items="@(IsWanVisible(wan) ? wan.LoadedLatencyDownData : _hiddenChartData)"
                                                  Name="@($"{wan.DisplayName} Loaded ↓")"
                                                  SeriesType="SeriesType.Line"
-                                                 XValue="e => e.Timestamp"
+                                                 XValue="e => DisplayTime.ToChart(e.Timestamp)"
                                                  YValue="e => e.Y"
                                                  OrderBy="e => e.X" />
                                 <ApexPointSeries TItem="WanChartDataPoint"
                                                  Items="@(IsWanVisible(wan) ? wan.LoadedLatencyUpData : _hiddenChartData)"
                                                  Name="@($"{wan.DisplayName} Loaded ↑")"
                                                  SeriesType="SeriesType.Line"
-                                                 XValue="e => e.Timestamp"
+                                                 XValue="e => DisplayTime.ToChart(e.Timestamp)"
                                                  YValue="e => e.Y"
                                                  OrderBy="e => e.X" />
                             }
@@ -434,7 +434,7 @@
                                                  Items="@(IsWanVisible(wan) ? wan.JitterData : _hiddenChartData)"
                                                  Name="@($"{wan.DisplayName}")"
                                                  SeriesType="SeriesType.Line"
-                                                 XValue="e => e.Timestamp"
+                                                 XValue="e => DisplayTime.ToChart(e.Timestamp)"
                                                  YValue="e => e.Y"
                                                  OrderBy="e => e.X" />
                             }
@@ -466,21 +466,21 @@
                                                  Items="@(IsWanVisible(wan) ? wan.IdleLossData : _hiddenChartData)"
                                                  Name="@($"{wan.DisplayName} Idle")"
                                                  SeriesType="SeriesType.Line"
-                                                 XValue="e => e.Timestamp"
+                                                 XValue="e => DisplayTime.ToChart(e.Timestamp)"
                                                  YValue="e => e.Y"
                                                  OrderBy="e => e.X" />
                                 <ApexPointSeries TItem="WanChartDataPoint"
                                                  Items="@(IsWanVisible(wan) ? wan.DownloadLossData : _hiddenChartData)"
                                                  Name="@($"{wan.DisplayName} Loaded ↓")"
                                                  SeriesType="SeriesType.Line"
-                                                 XValue="e => e.Timestamp"
+                                                 XValue="e => DisplayTime.ToChart(e.Timestamp)"
                                                  YValue="e => e.Y"
                                                  OrderBy="e => e.X" />
                                 <ApexPointSeries TItem="WanChartDataPoint"
                                                  Items="@(IsWanVisible(wan) ? wan.UploadLossData : _hiddenChartData)"
                                                  Name="@($"{wan.DisplayName} Loaded ↑")"
                                                  SeriesType="SeriesType.Line"
-                                                 XValue="e => e.Timestamp"
+                                                 XValue="e => DisplayTime.ToChart(e.Timestamp)"
                                                  YValue="e => e.Y"
                                                  OrderBy="e => e.X" />
                             }
@@ -1355,10 +1355,7 @@
                 Type = XAxisType.Datetime,
                 Labels = new XAxisLabels
                 {
-                    Style = new AxisLabelStyle { Colors = "#9ca3af" },
-                    DatetimeUTC = false,
-                    DatetimeFormatter = new DatetimeFormatter { Hour = "HH:mm", Day = "MMM dd" },
-                    Formatter = ChartTimeFormat.Axis
+                    Style = new AxisLabelStyle { Colors = "#9ca3af" }
                 },
                 AxisBorder = new AxisBorder { Show = false },
                 AxisTicks = new AxisTicks { Show = false }
@@ -1412,12 +1409,13 @@
                 }
             }
         };
+        ChartTimeFormat.ApplyTimeAxis(_chartOptions.Xaxis.Labels, DisplayTime);
     }
 
     private ApexChartOptions<WanChartDataPoint> CreateMsChartOptions(string unit, int decimals = 1)
     {
         var suffix = unit == "%" ? "%" : " " + unit;
-        return new ApexChartOptions<WanChartDataPoint>
+        var options = new ApexChartOptions<WanChartDataPoint>
         {
             Chart = new Chart
             {
@@ -1438,10 +1436,7 @@
                 Type = XAxisType.Datetime,
                 Labels = new XAxisLabels
                 {
-                    Style = new AxisLabelStyle { Colors = "#9ca3af" },
-                    DatetimeUTC = false,
-                    DatetimeFormatter = new DatetimeFormatter { Hour = "HH:mm", Day = "MMM dd" },
-                    Formatter = ChartTimeFormat.Axis
+                    Style = new AxisLabelStyle { Colors = "#9ca3af" }
                 },
                 AxisBorder = new AxisBorder { Show = false },
                 AxisTicks = new AxisTicks { Show = false }
@@ -1483,6 +1478,8 @@
                 Hover = new MarkersHover { SizeOffset = 5 }
             }
         };
+        ChartTimeFormat.ApplyTimeAxis(options.Xaxis.Labels, DisplayTime);
+        return options;
     }
 
     private void InitializeLatencyChartOptions()

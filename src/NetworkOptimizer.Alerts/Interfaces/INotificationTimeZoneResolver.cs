@@ -1,3 +1,5 @@
+using NetworkOptimizer.Core.Helpers;
+
 namespace NetworkOptimizer.Alerts.Interfaces;
 
 /// <summary>
@@ -15,4 +17,10 @@ public interface INotificationTimeZoneResolver
     /// (main) site. Never throws; falls back to the server's zone.
     /// </summary>
     Task<TimeZoneInfo> ResolveAsync(string? siteSlug, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// The date and time format for that text: the install default format, each half falling back to
+    /// <see cref="DisplayFormat.Fallback"/>. Install-wide, so it takes no site. Never throws.
+    /// </summary>
+    Task<DisplayFormat> ResolveFormatAsync(CancellationToken cancellationToken = default);
 }

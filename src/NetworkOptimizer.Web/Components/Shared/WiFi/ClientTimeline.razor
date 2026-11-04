@@ -320,7 +320,7 @@
                                          Items="_signalData"
                                          Name="Signal (dBm)"
                                          SeriesType="SeriesType.Area"
-                                         XValue="e => e.Timestamp"
+                                         XValue="e => DisplayTime.ToChart(e.Timestamp)"
                                          YValue="e => e.Value"
                                          OrderBy="e => e.X" />
                     }
@@ -330,7 +330,7 @@
                                          Items="_txRetryData"
                                          Name="TX Retries %"
                                          SeriesType="SeriesType.Line"
-                                         XValue="e => e.Timestamp"
+                                         XValue="e => DisplayTime.ToChart(e.Timestamp)"
                                          YValue="e => e.Value"
                                          OrderBy="e => e.X" />
                     }
@@ -448,8 +448,11 @@
         var points = _signalData.Concat(_txRetryData).ToList();
         if (points.Count == 0) return;
 
-        await _signalChart.ZoomXAsync(points.Min(p => p.X), points.Max(p => p.X));
+        await _signalChart.ZoomXAsync(ChartMs(points.Min(p => p.Timestamp)), ChartMs(points.Max(p => p.Timestamp)));
     }
+
+    /// <summary>An instant as this chart's x in milliseconds, on the viewer's wall clock.</summary>
+    private long ChartMs(DateTime utc) => new DateTimeOffset(DisplayTime.ToChart(utc)).ToUnixTimeMilliseconds();
     private List<AnnotationsXAxis> _roamAnnotations = new();
     private List<ClientChartPoint> _signalData = new();
     private List<ClientChartPoint> _txRetryData = new();
@@ -497,10 +500,7 @@
                 Type = XAxisType.Datetime,
                 Labels = new XAxisLabels
                 {
-                    Style = new AxisLabelStyle { Colors = "#9ca3af" },
-                    DatetimeUTC = false,
-                    DatetimeFormatter = new DatetimeFormatter { Hour = "HH:mm", Day = "MMM dd" },
-                    Formatter = ChartTimeFormat.Axis
+                    Style = new AxisLabelStyle { Colors = "#9ca3af" }
                 }
             },
             Grid = new Grid { BorderColor = "#374151", StrokeDashArray = 3 },
@@ -512,6 +512,7 @@
                 X = new TooltipX { Format = "MMM dd, HH:mm", Formatter = ChartTimeFormat.TooltipMinutes }
             }
         };
+        ChartTimeFormat.ApplyTimeAxis(_signalChartOptions.Xaxis.Labels, DisplayTime);
 
         // Set up Y-axes, colors, and fill based on initial filter state
         UpdateChartOptionsForVisibleSeries();
@@ -676,7 +677,7 @@
 
             annotations.Add(new AnnotationsXAxis
             {
-                X = evt.Timestamp.ToUnixTimeMilliseconds(),
+                X = ChartMs(evt.Timestamp.UtcDateTime),
                 BorderColor = "#64748b",
                 Label = new Label
                 {

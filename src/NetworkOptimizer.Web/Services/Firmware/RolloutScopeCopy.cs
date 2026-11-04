@@ -147,24 +147,26 @@ public static class RolloutScopeCopy
     /// <param name="previousUtc">The start it replaced.</param>
     /// <param name="nowUtc">The current time.</param>
     /// <param name="zone">The notification clock (<see cref="Alerts.Interfaces.INotificationTimeZoneResolver"/>).</param>
+    /// <param name="format">The notification format (<see cref="Alerts.Interfaces.INotificationTimeZoneResolver.ResolveFormatAsync"/>).</param>
     public static string Moved(
-        RolloutPlanDocument document, int devices, DateTime startUtc, DateTime previousUtc, DateTime nowUtc, TimeZoneInfo zone) =>
-        $"{Sentence(Subject(document, devices))} will be upgraded starting {AlertStartLabel(startUtc, document.TimeZoneId, zone)}, "
-        + $"{StartsIn(startUtc - nowUtc)}. The start moved from {AlertStartLabel(previousUtc, document.TimeZoneId, zone)}. "
+        RolloutPlanDocument document, int devices, DateTime startUtc, DateTime previousUtc, DateTime nowUtc,
+        TimeZoneInfo zone, DisplayFormat format) =>
+        $"{Sentence(Subject(document, devices))} will be upgraded starting {AlertStartLabel(startUtc, document.TimeZoneId, zone, format)}, "
+        + $"{StartsIn(startUtc - nowUtc)}. The start moved from {AlertStartLabel(previousUtc, document.TimeZoneId, zone, format)}. "
         + "Open Firmware Rollout to postpone or stop it.";
 
     /// <summary>
-    /// A start time in an alert: "Tue Oct 27, 15:00 CDT" on the notification clock, in the format text
-    /// with no viewer uses (<see cref="DisplayFormat.Fallback"/>), plus the
-    /// <see cref="SiteAside"/> when the site keeps other hours. An alert is read out of context, and
-    /// whether a 3 AM reboot bothers anyone is a question about the site's hours.
+    /// A start time in an alert: "Tue Oct 27, 15:00 CDT" on the notification clock and in the
+    /// notification format, plus the <see cref="SiteAside"/> when the site keeps other hours. An alert
+    /// is read out of context, and whether a 3 AM reboot bothers anyone is a question about the site's hours.
     /// </summary>
     /// <param name="startUtc">The start.</param>
     /// <param name="siteTimeZoneId">The site's timezone, as the console reports it.</param>
     /// <param name="zone">The notification clock (<see cref="Alerts.Interfaces.INotificationTimeZoneResolver"/>).</param>
-    public static string AlertStartLabel(DateTime startUtc, string? siteTimeZoneId, TimeZoneInfo zone) =>
-        $"{DateTimeUtilities.ToZone(startUtc, zone).ToString(DisplayFormat.Fallback.WeekdayDayTime, DisplayFormat.Culture)} {DateTimeUtilities.ZoneAbbreviation(zone, startUtc)}"
-        + SiteAside(siteTimeZoneId, startUtc, zone, DisplayFormat.Fallback);
+    /// <param name="format">The notification format (<see cref="Alerts.Interfaces.INotificationTimeZoneResolver.ResolveFormatAsync"/>).</param>
+    public static string AlertStartLabel(DateTime startUtc, string? siteTimeZoneId, TimeZoneInfo zone, DisplayFormat format) =>
+        $"{DateTimeUtilities.ToZone(startUtc, zone).ToString(format.WeekdayDayTime, DisplayFormat.Culture)} {DateTimeUtilities.ZoneAbbreviation(zone, startUtc)}"
+        + SiteAside(siteTimeZoneId, startUtc, zone, format);
 
     /// <summary>
     /// The site's own reading of an instant, or empty when the site keeps <paramref name="serverZone"/>'s

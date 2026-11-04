@@ -4,10 +4,10 @@
 
 import ApexCharts from '/_content/Blazor-ApexCharts/js/apexcharts.esm.js';
 import { computeStats, renderStatsTable as renderTable } from './chart-stats.js?v=9';
-import { valueSortedTooltip, tooltipHeld, alignedPoints } from './chart-tooltip.js?v=19';
+import { valueSortedTooltip, tooltipHeld, alignedPoints } from './chart-tooltip.js?v=20';
 import { renderFilterReset, isFiltered } from './chart-filter.js?v=6';
 import { createAxisDateCaption } from './chart-axis-date.js?v=5';
-import { syncIdentity } from './chart-sync.js?v=7';
+import { syncIdentity } from './chart-sync.js?v=8';
 import { awaitContainer } from './chart-mount.js?v=1';
 import { loadWindowHours, saveWindowHours, markActiveRange, notifyWindowMoved } from './chart-window.js?v=2';
 import { detailsTableHtml, fmtUptime } from './detail-table.js?v=1';
@@ -69,12 +69,7 @@ function baseOpts(height, yTitle, yFormatter, extra, group = SYNC_GROUP) {
         dataLabels: { enabled: false },
         xaxis: {
             type: 'datetime',
-            labels: {
-                style: { colors: '#9ca3af' },
-                datetimeUTC: false,
-                datetimeFormatter: { hour: 'HH:mm', day: 'MMM dd' },
-                formatter: noTime.axisFormatter(),
-            },
+            labels: noTime.timeAxisLabels({ style: { colors: '#9ca3af' } }),
             title: axisDate.option(),
         },
         yaxis: {
@@ -83,7 +78,7 @@ function baseOpts(height, yTitle, yFormatter, extra, group = SYNC_GROUP) {
         },
         grid: { borderColor: '#374151', strokeDashArray: 3 },
         legend: { show: false },
-        tooltip: { theme: 'dark', shared: true, x: { format: 'MMM dd, HH:mm:ss', formatter: noTime.tooltipFormatter() }, custom: valueSortedTooltip },
+        tooltip: { theme: 'dark', shared: true, x: { formatter: noTime.chartTooltipFormatter() }, custom: valueSortedTooltip },
         noData: { text: 'No data in this time range', style: { color: '#64748b' } },
         ...extra,
     };
@@ -341,8 +336,9 @@ function applyDragZoom(xaxis) {
     notifyWindowMoved();
     const container = document.getElementById(containerId);
     if (container && xaxis && Number.isFinite(xaxis.min) && Number.isFinite(xaxis.max) && xaxis.min < xaxis.max) {
-        customFrom = new Date(xaxis.min);
-        customTo = new Date(xaxis.max);
+        // The selection is in the chart's wall-clock x; the window is real instants.
+        customFrom = new Date(noTime.fromChart(xaxis.min));
+        customTo = new Date(noTime.fromChart(xaxis.max));
         isCustomRange = true;
         windowOffset = 0;
         container.querySelectorAll('[data-range]').forEach(b => b.classList.remove('active'));

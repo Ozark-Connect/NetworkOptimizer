@@ -8,6 +8,7 @@ using NetworkOptimizer.Alerts.Events;
 using NetworkOptimizer.Alerts.Interfaces;
 using NetworkOptimizer.Alerts.Models;
 using NetworkOptimizer.Core.Enums;
+using NetworkOptimizer.Core.Helpers;
 using Xunit;
 
 namespace NetworkOptimizer.Alerts.Tests;
@@ -73,20 +74,35 @@ public class AlertDeliveryTimeZoneTests
     }
 
     [Fact]
-    public async Task The_zone_is_looked_up_once_per_alert_and_handed_to_the_channel()
+    public async Task The_zone_and_format_are_looked_up_once_per_alert_and_handed_to_the_channel()
     {
         var tokyo = TimeZoneInfo.FindSystemTimeZoneById("Asia/Tokyo");
+        var format = new DisplayFormat(ClockStyle.TwelveHour, DateOrder.DayFirst);
         Channels(
             new DeliveryChannel { Id = 1, Name = "A", ChannelType = DeliveryChannelType.Webhook },
             new DeliveryChannel { Id = 2, Name = "B", ChannelType = DeliveryChannelType.Webhook });
         _timeZones.Setup(t => t.ResolveAsync(It.IsAny<string?>(), It.IsAny<CancellationToken>())).ReturnsAsync(tokyo);
+        _timeZones.Setup(t => t.ResolveFormatAsync(It.IsAny<CancellationToken>())).ReturnsAsync(format);
         _webhook.Setup(c => c.SendAsync(It.IsAny<AlertEvent>(), It.IsAny<AlertHistoryEntry>(), It.IsAny<DeliveryChannel>(),
-            tokyo, It.IsAny<CancellationToken>())).ReturnsAsync(true);
+            tokyo, format, It.IsAny<CancellationToken>())).ReturnsAsync(true);
         var history = new AlertHistoryEntry();
 
         await Build().DeliverAsync(Event(), history, _repository.Object, CancellationToken.None);
 
         history.DeliverySucceeded.Should().BeTrue();
         _timeZones.Verify(t => t.ResolveAsync(It.IsAny<string?>(), It.IsAny<CancellationToken>()), Times.Once);
+        _timeZones.Verify(t => t.ResolveFormatAsync(It.IsAny<CancellationToken>()), Times.Once);
+        _webhook.Verify(c => c.SendAsync(It.IsAny<AlertEvent>(), It.IsAny<AlertHistoryEntry>(), It.IsAny<DeliveryChannel>(),
+            tokyo, format, It.IsAny<CancellationToken>()), Times.Exactly(2));
+    }
+
+    [Fact]
+    public async Task An_alert_no_channel_takes_costs_no_format_lookup_either()
+    {
+        Channels(new DeliveryChannel { Id = 1, Name = "Critical only", ChannelType = DeliveryChannelType.Webhook, MinSeverity = AlertSeverity.Critical });
+
+        await Build().DeliverAsync(Event(), new AlertHistoryEntry(), _repository.Object, CancellationToken.None);
+
+        _timeZones.Verify(t => t.ResolveFormatAsync(It.IsAny<CancellationToken>()), Times.Never);
     }
 }

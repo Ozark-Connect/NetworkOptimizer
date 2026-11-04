@@ -1,3 +1,4 @@
+using NetworkOptimizer.Core.Helpers;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
@@ -27,7 +28,7 @@ public class NtfyDeliveryChannel : IAlertDeliveryChannel
         _secretDecryptor = secretDecryptor;
     }
 
-    public async Task<bool> SendAsync(AlertEvent alertEvent, AlertHistoryEntry historyEntry, DeliveryChannel channel, TimeZoneInfo timeZone, CancellationToken cancellationToken = default)
+    public async Task<bool> SendAsync(AlertEvent alertEvent, AlertHistoryEntry historyEntry, DeliveryChannel channel, TimeZoneInfo timeZone, DisplayFormat format, CancellationToken cancellationToken = default)
     {
         var config = JsonSerializer.Deserialize<NtfyChannelConfig>(channel.ConfigJson);
         if (config == null || string.IsNullOrEmpty(config.Topic)) return false;
@@ -47,7 +48,7 @@ public class NtfyDeliveryChannel : IAlertDeliveryChannel
         return await PostAsync(config, payload, cancellationToken);
     }
 
-    public async Task<bool> SendDigestAsync(IReadOnlyList<AlertHistoryEntry> alerts, DeliveryChannel channel, DigestSummary summary, TimeZoneInfo timeZone, CancellationToken cancellationToken = default)
+    public async Task<bool> SendDigestAsync(IReadOnlyList<AlertHistoryEntry> alerts, DeliveryChannel channel, DigestSummary summary, TimeZoneInfo timeZone, DisplayFormat format, CancellationToken cancellationToken = default)
     {
         var config = JsonSerializer.Deserialize<NtfyChannelConfig>(channel.ConfigJson);
         if (config == null || string.IsNullOrEmpty(config.Topic)) return false;
@@ -63,7 +64,7 @@ public class NtfyDeliveryChannel : IAlertDeliveryChannel
 
         foreach (var alert in alerts.OrderByDescending(a => a.Severity).Take(10))
         {
-            sb.AppendLine($"- **{alert.Title}** - {alert.Source} ({TimestampFormatter.FormatLocalShort(alert.TriggeredAt, timeZone)})");
+            sb.AppendLine($"- **{alert.Title}** - {alert.Source} ({TimestampFormatter.FormatLocalShort(alert.TriggeredAt, timeZone, format)})");
         }
 
         if (alerts.Count > 10)

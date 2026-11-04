@@ -317,11 +317,13 @@ export function createMarkLayer({ charts, onAction }) {
             for (const [chart, el] of charts()) {
                 if (!chart) continue;
                 untag(el);
+                // Placed on this chart's own x: a wall-clock chart draws the viewer's clock.
+                const placed = xaxis.map(a => ({ ...a, x: noTime.chartX(a.x, chart.w) }));
                 // Wrapped rather than chained directly: the labels only exist once the update
                 // has rendered, and updateOptions is not promise-returning in every build.
                 // Fourth argument false: grouped charts otherwise take each other's options,
                 // and these marks belong to the chart they were measured against.
-                Promise.resolve(chart.updateOptions({ annotations: { xaxis } }, false, false, false))
+                Promise.resolve(chart.updateOptions({ annotations: { xaxis: placed } }, false, false, false))
                     .then(() => tag(el, clusters))
                     .catch(e => console.warn('Chart event marks failed to draw', e));
             }

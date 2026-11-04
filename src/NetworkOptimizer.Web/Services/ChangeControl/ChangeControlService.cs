@@ -67,12 +67,13 @@ public sealed partial class ChangeControlService : IChangeControlService
 
     /// <summary>
     /// "Oct 20, 16:42 CDT": a time stored with a plan, which everyone reads later, so it is written
-    /// on the site's clock (as alerts are), labeled, and in the fallback format, since no one viewer owns it.
+    /// on the site's clock and in the notification format (as alerts are), labeled, since no one viewer owns it.
     /// </summary>
     private async Task<string> StoredTimeAsync(DateTime utc, CancellationToken ct)
     {
         var zone = await SiteZoneAsync(ct);
-        return $"{TimeFormatHelper.FormatLocalDateTime(utc, zone, DisplayFormat.Fallback)} {DateTimeUtilities.ZoneAbbreviation(zone, utc)}";
+        var format = _siteClock == null ? DisplayFormat.Fallback : await _siteClock.ResolveFormatAsync(ct);
+        return $"{TimeFormatHelper.FormatLocalDateTime(utc, zone, format)} {DateTimeUtilities.ZoneAbbreviation(zone, utc)}";
     }
 
     private ChangeControlSiteEngine Engine => _registry.GetFor(_site.Slug);

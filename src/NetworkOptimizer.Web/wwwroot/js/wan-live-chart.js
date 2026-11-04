@@ -4,7 +4,7 @@
 
 import ApexCharts from '/_content/Blazor-ApexCharts/js/apexcharts.esm.js';
 import * as flowData from './lan-flow-data.js?v=18';
-import { valueSortedTooltip } from './chart-tooltip.js?v=19';
+import { valueSortedTooltip } from './chart-tooltip.js?v=20';
 import { downloadColor, uploadColor } from './chart-colors.js?v=2';
 import { formatBps } from './chart-format.js?v=1';
 
@@ -279,8 +279,9 @@ function buildOpts() {
             // the window slides, so the labels kept swapping between
             // :00 | :20 | :40 and :10 | :30 | :50 alignments. Time labels are
             // drawn as annotations pinned to a fixed 20s grid instead (see
-            // buildTimeTicks).
-            labels: { show: false },
+            // buildTimeTicks). datetimeUTC false marks the x values as real instants, not wall clock,
+            // for the shared tooltip and marks (noTime.onWallClock); ApexCharts defaults it to true.
+            labels: { show: false, datetimeUTC: false },
             axisBorder: { show: false },
             axisTicks: { show: false },
         },

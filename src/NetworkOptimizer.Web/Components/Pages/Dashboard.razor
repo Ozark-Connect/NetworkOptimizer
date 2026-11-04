@@ -251,6 +251,7 @@
 
     protected override async Task OnInitializedAsync()
     {
+        ChartTimeFormat.ApplyTimeAxis(_threatSparklineOptions.Xaxis.Labels, DisplayTime);
         NavigationManager.LocationChanged += OnLocationChanged;
         ConnectionService.OnConnectionChanged += OnConnectionChanged;
         PtrState.RefreshCallback = () => Task.WhenAll(
@@ -586,7 +587,7 @@
                                          Items="_threatTrend"
                                          Name="Events"
                                          SeriesType="SeriesType.Area"
-                                         XValue="e => e.Hour"
+                                         XValue="e => DisplayTime.ToChart(e.Hour)"
                                          YValue="e => (decimal)e.Count"
                                          OrderBy="e => e.X" />
                     </ApexChart>
@@ -1316,7 +1317,7 @@
             Xaxis = new XAxis
             {
                 Type = XAxisType.Datetime,
-                Labels = new XAxisLabels { DatetimeUTC = false, Formatter = ChartTimeFormat.AxisDayFirst }
+                Labels = new XAxisLabels()
             },
             Yaxis = new List<YAxis> { new YAxis { Min = 0 } }
         };

@@ -20,19 +20,19 @@
         </div>
     }
     <div class="form-group">
-        <label class="form-label" for="@($"{Id}-clock")">Time format</label>
+        <label class="form-label" for="@($"{Id}-clock")">Your time format</label>
         <select id="@($"{Id}-clock")" class="form-control" data-autosave value="@(_clock ?? "")" @onchange="e => SaveFormatAsync(TimeZonePreferenceSource.ClockKey, e.Value?.ToString())">
-            <option value="">Default - this browser: @Example(DisplayTime.BrowserFormat.Time)</option>
-            <option value="12">12-hour (@Example("h:mm tt"))</option>
-            <option value="24">24-hour (@Example("HH:mm"))</option>
+            <option value="">@ClockDefaultLabel</option>
+            <option value="12">@ClockLabel(ClockStyle.TwelveHour)</option>
+            <option value="24">@ClockLabel(ClockStyle.TwentyFourHour)</option>
         </select>
     </div>
     <div class="form-group">
-        <label class="form-label" for="@($"{Id}-date")">Date format</label>
+        <label class="form-label" for="@($"{Id}-date")">Your date format</label>
         <select id="@($"{Id}-date")" class="form-control" data-autosave value="@(_order ?? "")" @onchange="e => SaveFormatAsync(TimeZonePreferenceSource.DateOrderKey, e.Value?.ToString())">
-            <option value="">Default - this browser: @Example(DisplayTime.BrowserFormat.Date)</option>
-            <option value="mdy">@Example("MMM d, yyyy")</option>
-            <option value="dmy">@Example("d MMM yyyy")</option>
+            <option value="">@DateDefaultLabel</option>
+            <option value="mdy">@DateLabel(DateOrder.MonthFirst)</option>
+            <option value="dmy">@DateLabel(DateOrder.DayFirst)</option>
         </select>
     </div>
 }
@@ -40,10 +40,7 @@
 @code {
     [Parameter] public string Id { get; set; } = "time-zone-personal";
 
-    /// <summary>
-    /// False where the time zone select is not offered (a one-user install sets the Default time
-    /// zone instead); the formats are still the user's own.
-    /// </summary>
+    /// <summary>False where the time zone select is not offered; the formats are still the user's own.</summary>
     [Parameter] public bool ShowZone { get; set; } = true;
 
     // A fixed afternoon, so the 12-hour and 24-hour examples differ at a glance.
@@ -55,13 +52,38 @@
     private string? _order;
     private string _inheritLabel = "Default";
 
+    // The install default format, each half null when an admin set none.
+    private ClockStyle? _inheritedClock;
+    private DateOrder? _inheritedOrder;
+
     private static string Example(string format) =>
         Sample.ToString(format, System.Globalization.CultureInfo.InvariantCulture);
+
+    /// <summary>"12-hour (2:05 PM)", as the choice and as the install default it names.</summary>
+    public static string ClockLabel(ClockStyle clock) => clock == ClockStyle.TwelveHour
+        ? $"12-hour ({Example("h:mm tt")})"
+        : $"24-hour ({Example("HH:mm")})";
+
+    /// <summary>"Nov 3, 2026" or "3 Nov 2026".</summary>
+    public static string DateLabel(DateOrder order) =>
+        Example(new DisplayFormat(ClockStyle.TwentyFourHour, order).Date);
+
+    // Names the layer that applies with no choice of their own, as the time zone's "Default - ..." does.
+    private string ClockDefaultLabel => _inheritedClock is { } c
+        ? $"Default - {ClockLabel(c)}"
+        : $"Default - this browser: {Example(DisplayTime.BrowserFormat.Time)}";
+
+    private string DateDefaultLabel => _inheritedOrder is { } o
+        ? $"Default - {DateLabel(o)}"
+        : $"Default - this browser: {Example(DisplayTime.BrowserFormat.Date)}";
 
     protected override async Task OnInitializedAsync()
     {
         _own = await TimeZonePreferences.GetOwnAsync();
         (_clock, _order) = await TimeZonePreferences.GetOwnFormatAsync();
+        var (inheritedClock, inheritedOrder) = await TimeZonePreferences.GetInheritedFormatAsync();
+        _inheritedClock = DisplayFormat.ParseCode(inheritedClock).Clock;
+        _inheritedOrder = DisplayFormat.ParseCode(inheritedOrder).Order;
         var inherited = await TimeZonePreferences.GetInheritedAsync();
         var now = DateTime.UtcNow;
         // Names the layer that applies with no choice of their own, so the effective zone is always visible.

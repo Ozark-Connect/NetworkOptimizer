@@ -360,35 +360,35 @@ else
                                      Items="@(ShowSev5 ? _timeline : _emptyTimeline)"
                                      Name="Critical"
                                      SeriesType="SeriesType.Area"
-                                     XValue="e => DateTime.SpecifyKind(e.Hour, DateTimeKind.Utc)"
+                                     XValue="e => DisplayTime.ToChart(e.Hour)"
                                      YValue="e => (decimal)e.Severity5"
                                      OrderBy="e => e.X" />
                     <ApexPointSeries TItem="TimelineBucket"
                                      Items="@(ShowSev4 ? _timeline : _emptyTimeline)"
                                      Name="High"
                                      SeriesType="SeriesType.Area"
-                                     XValue="e => DateTime.SpecifyKind(e.Hour, DateTimeKind.Utc)"
+                                     XValue="e => DisplayTime.ToChart(e.Hour)"
                                      YValue="e => (decimal)e.Severity4"
                                      OrderBy="e => e.X" />
                     <ApexPointSeries TItem="TimelineBucket"
                                      Items="@(ShowSev3 ? _timeline : _emptyTimeline)"
                                      Name="Medium"
                                      SeriesType="SeriesType.Area"
-                                     XValue="e => DateTime.SpecifyKind(e.Hour, DateTimeKind.Utc)"
+                                     XValue="e => DisplayTime.ToChart(e.Hour)"
                                      YValue="e => (decimal)e.Severity3"
                                      OrderBy="e => e.X" />
                     <ApexPointSeries TItem="TimelineBucket"
                                      Items="@(ShowSev2 ? _timeline : _emptyTimeline)"
                                      Name="Low"
                                      SeriesType="SeriesType.Area"
-                                     XValue="e => DateTime.SpecifyKind(e.Hour, DateTimeKind.Utc)"
+                                     XValue="e => DisplayTime.ToChart(e.Hour)"
                                      YValue="e => (decimal)e.Severity2"
                                      OrderBy="e => e.X" />
                     <ApexPointSeries TItem="TimelineBucket"
                                      Items="@(ShowSev1 ? _timeline : _emptyTimeline)"
                                      Name="Info"
                                      SeriesType="SeriesType.Area"
-                                     XValue="e => DateTime.SpecifyKind(e.Hour, DateTimeKind.Utc)"
+                                     XValue="e => DisplayTime.ToChart(e.Hour)"
                                      YValue="e => (decimal)e.Severity1"
                                      OrderBy="e => e.X" />
                 </ApexChart>
@@ -2590,6 +2590,7 @@ else
 
     protected override async Task OnInitializedAsync()
     {
+        ChartTimeFormat.ApplyTimeAxis(_timelineChartOptions.Xaxis.Labels, DisplayTime);
         await ResolveThreatPermissionsAsync();
 
         // Parse initial state from URL
@@ -2903,8 +2904,8 @@ else
                 {
                     var minHour = _timeline[0].Hour;
                     var maxHour = _timeline[^1].Hour;
-                    _timelineChartOptions.Xaxis.Min = new DateTimeOffset(DateTime.SpecifyKind(minHour, DateTimeKind.Utc)).ToUnixTimeMilliseconds();
-                    _timelineChartOptions.Xaxis.Max = new DateTimeOffset(DateTime.SpecifyKind(maxHour, DateTimeKind.Utc)).ToUnixTimeMilliseconds();
+                    _timelineChartOptions.Xaxis.Min = new DateTimeOffset(DisplayTime.ToChart(minHour)).ToUnixTimeMilliseconds();
+                    _timelineChartOptions.Xaxis.Max = new DateTimeOffset(DisplayTime.ToChart(maxHour)).ToUnixTimeMilliseconds();
                 }
 
                 // Charts already in the DOM need an explicit update.
@@ -3585,10 +3586,7 @@ else
                 Type = XAxisType.Datetime,
                 Labels = new XAxisLabels
                 {
-                    Style = new AxisLabelStyle { Colors = "#9ca3af" },
-                    DatetimeUTC = false,
-                    DatetimeFormatter = new DatetimeFormatter { Hour = "HH:mm", Day = "MMM dd" },
-                    Formatter = ChartTimeFormat.Axis
+                    Style = new AxisLabelStyle { Colors = "#9ca3af" }
                 },
                 AxisBorder = new AxisBorder { Show = false },
                 AxisTicks = new AxisTicks { Show = false }

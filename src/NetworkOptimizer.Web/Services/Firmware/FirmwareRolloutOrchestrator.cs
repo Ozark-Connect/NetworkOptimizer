@@ -982,6 +982,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
 
         var devices = document.Waves.Sum(w => w.Steps.Count);
         var zone = _timeZones == null ? TimeZoneInfo.Local : await _timeZones.ResolveAsync(_siteSlug, cancellationToken);
+        var format = _timeZones == null ? DisplayFormat.Fallback : await _timeZones.ResolveFormatAsync(cancellationToken);
 
         await PublishAsync(
             RolloutAlerts.StartingSoon,
@@ -990,7 +991,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
             AlertSeverity.Warning,
             $"Firmware Rollout Starting Soon{_siteSuffix}",
             $"{RolloutScopeCopy.Sentence(RolloutScopeCopy.Subject(document, devices))} will be upgraded starting "
-                + $"{RolloutScopeCopy.AlertStartLabel(start, document.TimeZoneId, zone)}, "
+                + $"{RolloutScopeCopy.AlertStartLabel(start, document.TimeZoneId, zone, format)}, "
                 + $"{RolloutScopeCopy.StartsIn(start - now)}. "
                 + "Open Firmware Rollout to postpone or stop it.",
             null, null, cancellationToken);
@@ -1176,12 +1177,13 @@ public class FirmwareRolloutOrchestrator : BackgroundService
 
         // The retry time on the notification clock, labeled, as every other rollout alert writes it.
         var zone = _timeZones == null ? TimeZoneInfo.Local : await _timeZones.ResolveAsync(_siteSlug, cancellationToken);
+        var format = _timeZones == null ? DisplayFormat.Fallback : await _timeZones.ResolveFormatAsync(cancellationToken);
         await PublishAsync(
             RolloutAlerts.PostponedHealth,
             AlertSeverity.Info,
             $"Firmware Rollout Postponed{_siteSuffix}",
             $"The rollout did not start because {reason}. It will try again at "
-                + $"{RolloutScopeCopy.AlertStartLabel(start, ParseDocument(plan).TimeZoneId, zone)}.",
+                + $"{RolloutScopeCopy.AlertStartLabel(start, ParseDocument(plan).TimeZoneId, zone, format)}.",
             null, null, cancellationToken);
 
         _logger.LogInformation(
@@ -1201,7 +1203,8 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         try
         {
             var zone = _timeZones == null ? TimeZoneInfo.Local : await _timeZones.ResolveAsync(_siteSlug, cancellationToken);
-            var message = RolloutScopeCopy.Moved(document, document.Waves.Sum(w => w.Steps.Count), start, previous, Now, zone);
+            var format = _timeZones == null ? DisplayFormat.Fallback : await _timeZones.ResolveFormatAsync(cancellationToken);
+            var message = RolloutScopeCopy.Moved(document, document.Waves.Sum(w => w.Steps.Count), start, previous, Now, zone, format);
             await _alertEditor.RewriteOpenAsync([RolloutAlerts.Upcoming, RolloutAlerts.StartingSoon], message, cancellationToken);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)

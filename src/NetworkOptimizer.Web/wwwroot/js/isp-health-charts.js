@@ -3,7 +3,7 @@
 // render as shaded x-axis ranges, path shifts as annotation lines.
 
 import ApexCharts from '/_content/Blazor-ApexCharts/js/apexcharts.esm.js';
-import { valueSortedTooltip, tooltipHeld, alignedPoints } from './chart-tooltip.js?v=19';
+import { valueSortedTooltip, tooltipHeld, alignedPoints } from './chart-tooltip.js?v=20';
 import { renderFilterReset, isFiltered } from './chart-filter.js?v=6';
 
 const PALETTE = ['#2ba89a', '#3b82f6', '#a78bfa', '#ef5858', '#f59e0b', '#10b981'];
@@ -55,11 +55,12 @@ function buildOpts() {
             animations: { enabled: false },
             events: {
                 zoomed: (ctx, opts) => {
+                    // zoomWindow stays in chart x for zoomX; the panel is told real instants.
                     const min = opts?.xaxis?.min, max = opts?.xaxis?.max;
                     zoomWindow = min != null ? { min, max } : null;
                     if (restoringZoom) return;
                     setZoomed(min != null);
-                    notifyZoom(min, max);
+                    notifyZoom(noTime.fromChart(min), noTime.fromChart(max));
                 },
             },
         },
@@ -69,12 +70,7 @@ function buildOpts() {
         dataLabels: { enabled: false },
         xaxis: {
             type: 'datetime',
-            labels: {
-                style: { colors: '#9ca3af' },
-                datetimeUTC: false,
-                datetimeFormatter: { hour: 'HH:mm', day: 'MMM dd' },
-                formatter: noTime.axisFormatter(),
-            },
+            labels: noTime.timeAxisLabels({ style: { colors: '#9ca3af' } }),
         },
         yaxis: {
             min: 0,
@@ -107,7 +103,7 @@ function buildOpts() {
         tooltip: {
             theme: 'dark',
             shared: true,
-            x: { format: 'MMM dd, HH:mm', formatter: noTime.tooltipFormatter(false) },
+            x: { formatter: noTime.chartTooltipFormatter(false) },
             // The shared renderer: rows ordered by value so they match the vertical order of the
             // lines, plus a hover dot on each. Its own format because this axis prints a bare
             // number under an "ms" title while the tooltip has always carried the unit.
@@ -150,8 +146,8 @@ function buildAnnotations(events) {
         if (!onVisibleSeries(e, visible)) continue;
         if (e.type === 'congestion') {
             xaxis.push({
-                x: new Date(e.start).getTime(),
-                x2: new Date(e.end).getTime(),
+                x: noTime.toChart(new Date(e.start).getTime()),
+                x2: noTime.toChart(new Date(e.end).getTime()),
                 fillColor: e.shared ? '#ef5858' : '#f59e0b',
                 opacity: 0.12,
                 label: {
@@ -161,8 +157,8 @@ function buildAnnotations(events) {
             });
         } else if (e.type === 'unreachable') {
             xaxis.push({
-                x: new Date(e.start).getTime(),
-                x2: e.end ? new Date(e.end).getTime() : undefined,
+                x: noTime.toChart(new Date(e.start).getTime()),
+                x2: e.end ? noTime.toChart(new Date(e.end).getTime()) : undefined,
                 fillColor: '#a78bfa',
                 opacity: 0.12,
                 label: {
@@ -172,7 +168,7 @@ function buildAnnotations(events) {
             });
         } else {
             xaxis.push({
-                x: new Date(e.start).getTime(),
+                x: noTime.toChart(new Date(e.start).getTime()),
                 borderColor: '#4797ff',
                 strokeDashArray: 4,
                 label: {
@@ -423,14 +419,14 @@ export function setHiddenTypes(types) {
 export function currentView() {
     let min = null, max = null;
     if (zoomWindow?.min != null) {
-        min = zoomWindow.min;
-        max = zoomWindow.max;
+        min = noTime.fromChart(zoomWindow.min);
+        max = noTime.fromChart(zoomWindow.max);
     } else if (win?.from && win?.to) {
         min = new Date(win.from).getTime();
         max = new Date(win.to).getTime();
     } else {
         const g = chart?.w?.globals;
-        if (g && g.maxX > g.minX) { min = g.minX; max = g.maxX; }
+        if (g && g.maxX > g.minX) { min = noTime.fromChart(g.minX); max = noTime.fromChart(g.maxX); }
     }
     if (min == null || max == null || !(max > min)) return null;
     return { atIso: new Date((min + max) / 2).toISOString(), spanMs: Math.round(max - min) };

@@ -12,6 +12,11 @@
     <InternalsVisibleTo Include="NetworkOptimizer.Web.Tests" />
   </ItemGroup>
 
+  <!-- DisplayFormat lives in Core so alert delivery can format times too; every page and service reads it. -->
+  <ItemGroup>
+    <Using Include="NetworkOptimizer.Core.Helpers" />
+  </ItemGroup>
+
   <ItemGroup>
     <ProjectReference Include="..\NetworkOptimizer.Core\NetworkOptimizer.Core.csproj" />
     <ProjectReference Include="..\NetworkOptimizer.Storage\NetworkOptimizer.Storage.csproj" />

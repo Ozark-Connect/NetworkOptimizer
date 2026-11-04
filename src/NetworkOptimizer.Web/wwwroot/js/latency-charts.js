@@ -6,11 +6,11 @@
 
 import ApexCharts from '/_content/Blazor-ApexCharts/js/apexcharts.esm.js';
 import { computeStats, renderStatsTable as renderTable } from './chart-stats.js?v=9';
-import { valueSortedTooltip, tooltipHeld } from './chart-tooltip.js?v=19';
+import { valueSortedTooltip, tooltipHeld } from './chart-tooltip.js?v=20';
 import { renderFilterReset, renderInactiveToggle, isFiltered } from './chart-filter.js?v=6';
 import { downloadColor, uploadColor } from './chart-colors.js?v=2';
 import { createAxisDateCaption } from './chart-axis-date.js?v=5';
-import { syncIdentity, extentsOf, spanTo } from './chart-sync.js?v=7';
+import { syncIdentity, extentsOf, spanTo } from './chart-sync.js?v=8';
 import { awaitContainer } from './chart-mount.js?v=1';
 import { loadWindowHours, saveWindowHours, markActiveRange } from './chart-window.js?v=2';
 import { formatBps } from './chart-format.js?v=1';
@@ -173,8 +173,8 @@ function buildInvestigateAnnotations() {
     const labelBg = loaded ? '#78350f' : '#1e3a5f';
     return {
         xaxis: [{
-            x: startMs - bucketMs,
-            x2: endMs,
+            x: noTime.toChart(startMs - bucketMs),
+            x2: noTime.toChart(endMs),
             fillColor: color,
             opacity: 0.15,
             borderColor: color,
@@ -213,12 +213,7 @@ function baseChartOpts(type, yTitle, yFormatter, extraOpts, group = SYNC_GROUP) 
         dataLabels: { enabled: false },
         xaxis: {
             type: 'datetime',
-            labels: {
-                style: { colors: '#9ca3af' },
-                datetimeUTC: false,
-                datetimeFormatter: { hour: 'HH:mm', day: 'MMM dd' },
-                formatter: noTime.axisFormatter(),
-            },
+            labels: noTime.timeAxisLabels({ style: { colors: '#9ca3af' } }),
             title: axisDate.option(),
         },
         yaxis: {
@@ -234,7 +229,7 @@ function baseChartOpts(type, yTitle, yFormatter, extraOpts, group = SYNC_GROUP) 
         tooltip: {
             theme: 'dark',
             shared: true,
-            x: { format: 'MMM dd, HH:mm:ss', formatter: noTime.tooltipFormatter() },
+            x: { formatter: noTime.chartTooltipFormatter() },
             custom: valueSortedTooltip,
         },
         noData: { text: 'No data in this time range', style: { color: '#64748b' } },
@@ -424,7 +419,7 @@ function updateChartVisibility() {
         // Faded rather than dashed for the ones nothing is probing: the dash pattern already says
         // which WAN a series belongs to in comparison mode, and one pattern cannot mean two things.
         color: t.inactive ? dimmed(hashColor(t.name)) : hashColor(t.name),
-        data: (t[key] || []).map(p => ({ x: new Date(p.time).getTime(), y: p.value })),
+        data: (t[key] || []).map(p => ({ x: noTime.toChart(new Date(p.time).getTime()), y: p.value })),
     }));
 
     rttChart.updateSeries(spanTo(seriesOf('rtt'), groupExtents), false);
@@ -571,7 +566,7 @@ async function loadAndUpdate() {
 
         // Its own samples, at its own cadence - only the extents are trimmed and padded to the
         // group's, which is all the hover sync asks for.
-        const points = (pts) => (pts || []).map(p => ({ x: new Date(p.time).getTime(), y: p.value }));
+        const points = (pts) => (pts || []).map(p => ({ x: noTime.toChart(new Date(p.time).getTime()), y: p.value }));
 
         try {
             const fetched = await Promise.all(keys.map(async (key) => {
@@ -777,8 +772,9 @@ function applyDragZoom(xaxis) {
     const container = document.getElementById(containerId);
     if (container && xaxis && Number.isFinite(xaxis.min) && Number.isFinite(xaxis.max) && xaxis.min < xaxis.max) {
         notifyTimelineMoved();
-        customFrom = new Date(xaxis.min);
-        customTo = new Date(xaxis.max);
+        // The selection is in the chart's wall-clock x; the window is real instants.
+        customFrom = new Date(noTime.fromChart(xaxis.min));
+        customTo = new Date(noTime.fromChart(xaxis.max));
         isCustomRange = true;
         windowOffset = 0;
         container.querySelectorAll('[data-range]').forEach(b => b.classList.remove('active'));

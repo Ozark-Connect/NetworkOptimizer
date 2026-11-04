@@ -181,14 +181,14 @@
                                                      Items="@(IsSeriesVisible(series) ? series.DownloadData : _hiddenChartData)"
                                                      Name="@($"{series.DisplayName} ↓")"
                                                      SeriesType="SeriesType.Area"
-                                                     XValue="e => e.Timestamp"
+                                                     XValue="e => DisplayTime.ToChart(e.Timestamp)"
                                                      YValue="e => e.Y"
                                                      OrderBy="e => e.X" />
                                     <ApexPointSeries TItem="ChartPoint"
                                                      Items="@(IsSeriesVisible(series) ? series.UploadData : _hiddenChartData)"
                                                      Name="@($"{series.DisplayName} ↑")"
                                                      SeriesType="SeriesType.Area"
-                                                     XValue="e => e.Timestamp"
+                                                     XValue="e => DisplayTime.ToChart(e.Timestamp)"
                                                      YValue="e => e.Y"
                                                      OrderBy="e => e.X" />
                                 }
@@ -209,7 +209,7 @@
                                                      Items="@(IsSeriesVisible(series) ? series.LatencyData : _hiddenChartData)"
                                                      Name="@series.DisplayName"
                                                      SeriesType="SeriesType.Line"
-                                                     XValue="e => e.Timestamp"
+                                                     XValue="e => DisplayTime.ToChart(e.Timestamp)"
                                                      YValue="e => e.Y"
                                                      OrderBy="e => e.X" />
                                 }
@@ -230,7 +230,7 @@
                                                      Items="@(IsSeriesVisible(series) ? series.JitterData : _hiddenChartData)"
                                                      Name="@series.DisplayName"
                                                      SeriesType="SeriesType.Line"
-                                                     XValue="e => e.Timestamp"
+                                                     XValue="e => DisplayTime.ToChart(e.Timestamp)"
                                                      YValue="e => e.Y"
                                                      OrderBy="e => e.X" />
                                 }
@@ -990,10 +990,7 @@
                 Type = XAxisType.Datetime,
                 Labels = new XAxisLabels
                 {
-                    Style = new AxisLabelStyle { Colors = "#9ca3af" },
-                    DatetimeUTC = false,
-                    DatetimeFormatter = new DatetimeFormatter { Hour = "HH:mm", Day = "MMM dd" },
-                    Formatter = ChartTimeFormat.Axis
+                    Style = new AxisLabelStyle { Colors = "#9ca3af" }
                 },
                 AxisBorder = new AxisBorder { Show = false },
                 AxisTicks = new AxisTicks { Show = false }
@@ -1030,6 +1027,7 @@
                 Gradient = new FillGradient { ShadeIntensity = 0.3, OpacityFrom = 0.4, OpacityTo = 0.05 }
             }
         };
+        ChartTimeFormat.ApplyTimeAxis(_speedChartOptions.Xaxis.Labels, DisplayTime);
 
         _latencyChartOptions = CreateMsChartOptions("ms");
         _jitterChartOptions = CreateMsChartOptions("ms");
@@ -1037,7 +1035,7 @@
 
     private ApexChartOptions<ChartPoint> CreateMsChartOptions(string unit)
     {
-        return new ApexChartOptions<ChartPoint>
+        var options = new ApexChartOptions<ChartPoint>
         {
             Chart = new Chart
             {
@@ -1053,10 +1051,7 @@
                 Type = XAxisType.Datetime,
                 Labels = new XAxisLabels
                 {
-                    Style = new AxisLabelStyle { Colors = "#9ca3af" },
-                    DatetimeUTC = false,
-                    DatetimeFormatter = new DatetimeFormatter { Hour = "HH:mm", Day = "MMM dd" },
-                    Formatter = ChartTimeFormat.Axis
+                    Style = new AxisLabelStyle { Colors = "#9ca3af" }
                 },
                 AxisBorder = new AxisBorder { Show = false },
                 AxisTicks = new AxisTicks { Show = false }
@@ -1086,6 +1081,8 @@
             },
             Markers = new Markers { Size = 0, Hover = new MarkersHover { SizeOffset = 5 } }
         };
+        ChartTimeFormat.ApplyTimeAxis(options.Xaxis.Labels, DisplayTime);
+        return options;
     }
 
     private void TransformChartData()

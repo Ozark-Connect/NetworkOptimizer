@@ -22,11 +22,31 @@
                     <TimeZoneSelect Id="time-zone-default" Value="@_default" ValueChanged="SaveDefaultAsync" InheritLabel="@_siteLabel" />
                     <p class="form-help">For everyone who has not chosen their own. Alerts use each site's time zone.</p>
                 </div>
+                <div class="form-group">
+                    <label class="form-label" for="time-zone-default-clock">Default time format</label>
+                    <select id="time-zone-default-clock" class="form-control" data-autosave value="@(_defaultClock ?? "")" @onchange="e => SaveDefaultFormatAsync(TimeZonePreferenceSource.ClockKey, e.Value?.ToString())">
+                        <option value="">Each viewer's browser</option>
+                        <option value="12">@PersonalTimeZoneField.ClockLabel(ClockStyle.TwelveHour)</option>
+                        <option value="24">@PersonalTimeZoneField.ClockLabel(ClockStyle.TwentyFourHour)</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="time-zone-default-date">Default date format</label>
+                    <select id="time-zone-default-date" class="form-control" data-autosave value="@(_defaultOrder ?? "")" @onchange="e => SaveDefaultFormatAsync(TimeZonePreferenceSource.DateOrderKey, e.Value?.ToString())">
+                        <option value="">Each viewer's browser</option>
+                        <option value="mdy">@PersonalTimeZoneField.DateLabel(DateOrder.MonthFirst)</option>
+                        <option value="dmy">@PersonalTimeZoneField.DateLabel(DateOrder.DayFirst)</option>
+                    </select>
+                    <p class="form-help">For everyone who has not chosen their own. Alerts use these formats too, or 24-hour and month first when none is set.</p>
+                </div>
             }
         </AuthorizeView>
 
-        @* A one-user install sets the Default time zone above; the formats are still that user's own. *@
-        <PersonalTimeZoneField ShowZone="@_severalUsers" />
+        @* Like the zone, a one-user install sets the defaults above and has no personal layer to offer. *@
+        @if (_severalUsers)
+        {
+            <PersonalTimeZoneField />
+        }
     </div>
 </div>
 
@@ -34,11 +54,14 @@
     private bool _loaded;
     private bool _severalUsers;
     private string? _default;
+    private string? _defaultClock;
+    private string? _defaultOrder;
     private string _siteLabel = "";
 
     protected override async Task OnInitializedAsync()
     {
         _default = await TimeZonePreferences.GetInheritedAsync();
+        (_defaultClock, _defaultOrder) = await TimeZonePreferences.GetInheritedFormatAsync();
         var now = DateTime.UtcNow;
         _siteLabel = DisplayTime.SiteZone is { } site
             ? $"Each site's time zone - this site: {TimeZoneCatalog.Describe(TimeZoneCatalog.ToIana(site), now)}"
@@ -62,6 +85,17 @@
         _default = value;
         await SettingsAdmin.SetGlobalAsync(TimeZonePreferenceSource.Key, value);
         // Reloads so the page, and the personal field's "Default - ..." label, read the new default.
+        Navigation.NavigateTo(Navigation.Uri, forceLoad: true);
+    }
+
+    private async Task SaveDefaultFormatAsync(string key, string? value)
+    {
+        value = string.IsNullOrEmpty(value) ? null : value;
+        var (clock, order) = DisplayFormat.ParseCode(value);
+        var valid = key == TimeZonePreferenceSource.ClockKey ? clock != null : order != null;
+        if (value != null && !valid) return;
+        await SettingsAdmin.SetGlobalAsync(key, value);
+        // Every time on the page was formatted the old way; the new circuit reads the new default.
         Navigation.NavigateTo(Navigation.Uri, forceLoad: true);
     }
 }
