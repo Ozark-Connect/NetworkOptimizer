@@ -207,7 +207,8 @@
         for (const [unit, n] of STEPS) {
             // A window of several days reads by the day; one of several hours by the hour or half hour.
             if (unit === 'm' && spanMs > (n === 30 ? 12 : 3) * HOUR) continue;
-            if (unit === 'h' && spanMs > 3 * DAY) continue;
+            // Midday marks (12h) reach a week: they place a spike in the morning or the afternoon.
+            if (unit === 'h' && spanMs > (n === 12 ? 8 : 3) * DAY) continue;
             if (spanMs / (STEP_MS[unit] * n) <= maxLabels) return [unit, n];
         }
         return ['y', 1];
@@ -254,8 +255,8 @@
         const day = pad(d.getUTCDate());
         if (unit === 'y' || (unit === 'M' && major)) return String(d.getUTCFullYear());
         if (unit === 'M') return month;
-        // A day axis marks the month change as ApexCharts does: "Nov '26", and the year on January 1st.
-        if (unit === 'd' && d.getUTCDate() === 1) {
+        // The month change reads as ApexCharts marks it, "Nov '26", and January 1st as the year.
+        if ((unit === 'd' || major) && d.getUTCDate() === 1) {
             return d.getUTCMonth() === 0 ? String(d.getUTCFullYear()) : `${month} '${String(d.getUTCFullYear()).slice(2)}`;
         }
         if (unit === 'd' || major) return format().dayFirst ? `${day} ${month}` : `${month} ${day}`;
@@ -304,7 +305,8 @@
         const color = Array.isArray(labels.style?.colors) ? labels.style.colors[0] : (labels.style?.colors || '#9ca3af');
         const fontSize = ref?.getAttribute('font-size') || labels.style?.fontSize || '12px';
         const fontFamily = ref?.getAttribute('font-family') || 'Helvetica, Arial, sans-serif';
-        const fontWeight = ref?.getAttribute('font-weight') || '400';
+        // Not from ApexCharts' first label: that one is bold whenever it is a day change.
+        const fontWeight = String(labels.style?.fontWeight || 400);
         const textY = ref ? parseFloat(ref.getAttribute('y')) + offsetY : g.gridHeight + 18;
         const ticksOn = w.config.xaxis.axisTicks?.show !== false;
         const tickColor = w.config.xaxis.axisTicks?.color || '#78909C';
