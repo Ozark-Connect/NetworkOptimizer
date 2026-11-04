@@ -29,4 +29,19 @@ public static class StarlinkHealthThresholds
 
     /// <summary>Outage seconds per day that is clearly degraded (~5 min/day of dead air).</summary>
     public const double OutageSecondsPerDayPoor = 300;
+
+    /// <summary>The dish alert code for signal weaker than the dish's own prediction.</summary>
+    public const string LowerSignalThanPredictedAlert = "lower_signal_than_predicted";
+
+    /// <summary>
+    /// Whether the dish's own readings back up <see cref="LowerSignalThanPredictedAlert"/>: low SNR,
+    /// or obstruction past the excellent bar. The flag alone stays raised for many hours after
+    /// weather has passed, while every other reading is healthy, so on its own it is not a fault.
+    /// </summary>
+    /// <remarks>
+    /// Never add <c>is_snr_above_noise_floor</c>: proto3 reads an absent bool as false, so a
+    /// firmware that stops sending it would corroborate every poll.
+    /// </remarks>
+    public static bool IsLowSignalCorroborated(double? fractionObstructed, bool? snrPersistentlyLow) =>
+        snrPersistentlyLow == true || fractionObstructed >= ObstructionFractionGood;
 }
