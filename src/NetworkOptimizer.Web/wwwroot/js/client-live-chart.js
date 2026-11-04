@@ -12,7 +12,7 @@
 // Nothing streams in that mode; live calls are ignored until the next live mount.
 
 import ApexCharts from '/_content/Blazor-ApexCharts/js/apexcharts.esm.js';
-import { valueSortedTooltip } from './chart-tooltip.js?v=20';
+import { valueSortedTooltip } from './chart-tooltip.js?v=21';
 import { downloadColor, uploadColor } from './chart-colors.js?v=2';
 import { createMarkLayer } from './chart-event-marks.js?v=13';
 import { createAxisDateCaption } from './chart-axis-date.js?v=5';

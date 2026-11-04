@@ -3,11 +3,11 @@
 // device-health-charts, and future chart sets share one implementation.
 import ApexCharts from '/_content/Blazor-ApexCharts/js/apexcharts.esm.js';
 import { computeStats, renderStatsTable as renderTable } from './chart-stats.js?v=9';
-import { valueSortedTooltip, tooltipHeld, alignedPoints } from './chart-tooltip.js?v=20';
+import { valueSortedTooltip, tooltipHeld, alignedPoints } from './chart-tooltip.js?v=21';
 import { renderFilterReset, isFiltered } from './chart-filter.js?v=6';
 import { createMarkLayer } from './chart-event-marks.js?v=13';
 import { createAxisDateCaption } from './chart-axis-date.js?v=5';
-import { syncIdentity, extentsOf, spanTo } from './chart-sync.js?v=8';
+import { syncIdentity, extentsOf, spanTo } from './chart-sync.js?v=9';
 import { awaitContainer } from './chart-mount.js?v=1';
 import { loadWindowHours, saveWindowHours, markActiveRange } from './chart-window.js?v=2';
 import { downloadColor, uploadColor } from './chart-colors.js?v=2';
@@ -618,7 +618,7 @@ function updateCustomLabel(container) {
 function applyDragZoom(xaxis) {
     const container = document.getElementById(containerId);
     if (container && xaxis && Number.isFinite(xaxis.min) && Number.isFinite(xaxis.max) && xaxis.min < xaxis.max) {
-        // The selection is in the chart's wall-clock x; the window is real instants.
+        // The selection is in chart x (noTime.toChart); the window is real instants.
         customFrom = new Date(noTime.fromChart(xaxis.min));
         customTo = new Date(noTime.fromChart(xaxis.max));
         isCustomRange = true;

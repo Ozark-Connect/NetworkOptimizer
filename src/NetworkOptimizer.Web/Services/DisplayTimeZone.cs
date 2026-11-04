@@ -151,16 +151,28 @@ public static class DisplayTimeExtensions
         TimeZoneInfo.ConvertTime(instant, displayTime.Zone);
 
     /// <summary>
-    /// An instant as a chart x on the viewer's wall clock: their local time, marked UTC so the chart
-    /// serializer sends it unshifted. Pairs with <see cref="ChartTimeFormat.ApplyTimeAxis"/>, which puts
-    /// ApexCharts' own time scale on those values (display-time.js toChart is the browser twin).
+    /// Whether a time chart draws on the viewer's wall clock: only when their zone is not the browser's,
+    /// or the browser has not said. Otherwise the chart is ApexCharts' own local mode on real instants.
+    /// The twin of display-time.js toChart, which decides by the same two zone ids.
+    /// </summary>
+    public static bool ChartsOnWallClock(this IDisplayTimeZone displayTime) =>
+        displayTime.BrowserZone is not { } browser || TimeZoneCatalog.ToIana(browser) != displayTime.ZoneId;
+
+    /// <summary>
+    /// An instant as a time chart's x: the instant itself, or on a wall-clock chart
+    /// (<see cref="ChartsOnWallClock"/>) the viewer's local time marked UTC so the chart serializer
+    /// sends it unshifted. Pairs with <see cref="ChartTimeFormat.ApplyTimeAxis"/>.
     /// </summary>
     public static DateTime ToChart(this IDisplayTimeZone displayTime, DateTime utc) =>
-        DateTime.SpecifyKind(displayTime.ToLocal(utc), DateTimeKind.Utc);
+        displayTime.ChartsOnWallClock()
+            ? DateTime.SpecifyKind(displayTime.ToLocal(utc), DateTimeKind.Utc)
+            : DateTimeUtilities.AsUtc(utc);
 
-    /// <summary>The instant a wall-clock chart x stands for; the inverse of <see cref="ToChart"/>.</summary>
+    /// <summary>The instant a time chart x stands for; the inverse of <see cref="ToChart"/>.</summary>
     public static DateTime FromChart(this IDisplayTimeZone displayTime, DateTime chartX) =>
-        displayTime.ToUtc(DateTime.SpecifyKind(chartX, DateTimeKind.Unspecified));
+        displayTime.ChartsOnWallClock()
+            ? displayTime.ToUtc(DateTime.SpecifyKind(chartX, DateTimeKind.Unspecified))
+            : DateTimeUtilities.AsUtc(chartX);
 }
 
 /// <inheritdoc />

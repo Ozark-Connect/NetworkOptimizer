@@ -22,7 +22,7 @@ export function syncIdentity(group) {
 }
 
 /**
- * The first and last instant across every array given, as {minX, maxX} in wall-clock chart x
+ * The first and last instant across every array given, as {minX, maxX} in chart x
  * (noTime.toChart), the space alignedPoints draws in - or null when they are all empty. Arrays are
  * time-ordered, so only their ends are read.
  */

@@ -298,7 +298,7 @@ function medianDelta(pts) {
     return deltas[deltas.length >> 1];
 }
 
-// x values are wall-clock chart x (noTime.toChart): every caller draws on a noTime.timeAxisLabels axis.
+// x values are chart x (noTime.toChart): every caller draws on a noTime.timeAxisLabels axis.
 export function alignedPoints(pts, sel, timeKey = 'time', gapBridgeMs = 0, interpolateNulls = true) {
     if (!pts?.some(p => sel(p) != null)) return [];
     const out = pts.map(p => ({ x: noTime.toChart(new Date(p[timeKey]).getTime()), y: sel(p) ?? null }));
