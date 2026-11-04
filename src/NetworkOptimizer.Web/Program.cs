@@ -755,6 +755,8 @@ builder.Services.AddScoped(sp => sp.GetRequiredService<NetworkOptimizer.Web.Serv
 // Scoped - forwards to the current site's Influx client and database.
 builder.Services.AddScoped<NetworkOptimizer.Web.Services.Monitoring.FlakyTargetService>();
 builder.Services.AddScoped<NetworkOptimizer.Web.Services.Monitoring.MonitoringPathView>();
+// One WAN-to-counter resolution for the WAN live chart and Device Stats' WAN Throughput.
+builder.Services.AddScoped<NetworkOptimizer.Web.Services.Monitoring.WanCounterInterfaces>();
 // Transient: every live-tile surface keeps its own selection state and re-render callback.
 builder.Services.AddTransient<NetworkOptimizer.Web.Services.Monitoring.LiveWanScope>();
 // Per-user teaching hints that retire once seen (UiHintKeys).
