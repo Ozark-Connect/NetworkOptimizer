@@ -43,7 +43,8 @@ public class SiteSwitchService
     /// </summary>
     /// <param name="slug">Slug of the site to switch to.</param>
     /// <param name="targetUrl">
-    /// Page to land on, defaulting to the current URL. Any #fragment is preserved so
+    /// Page to land on, defaulting to the current URL without its site-bound parameters
+    /// (<see cref="StripSiteBoundParams"/>). Any #fragment is preserved so
     /// switching sites from an anchored spot (e.g. a highlighted setting) lands on the
     /// same spot on the new site; the changed ?site= query guarantees the full reload.
     /// </param>
@@ -52,7 +53,8 @@ public class SiteSwitchService
         await _js.InvokeVoidAsync("eval",
             $"document.cookie = '{SiteContextService.CookieName}={slug}; path=/; max-age=31536000; SameSite=Lax'");
 
-        var target = targetUrl ?? _navigation.Uri;
+        // A caller's own targetUrl is built for the new site, so it keeps whatever it carries.
+        var target = targetUrl ?? StripSiteBoundParams(_navigation.Uri);
 
         // Settings only opens on a site you administer, so switching from it to a site you do not
         // would land on a refusal rather than the site you asked for. Nobody switches sites in order
@@ -61,6 +63,40 @@ public class SiteSwitchService
             target = _navigation.BaseUri;
 
         _navigation.NavigateTo(SiteContextService.WithSiteParam(target, slug), forceLoad: true);
+    }
+
+    // Parameters that name something on one site: a WAN, a device, a client, a target ID, a DB row.
+    // Carried across a switch they point at nothing, or at an unrelated row with the same ID.
+    // Keyed by page because names collide: /network-tools ?target= is a host, which every site shares.
+    private static readonly string[] SiteBoundEverywhere = ["wan"];
+
+    private static readonly Dictionary<string, string[]> SiteBoundByPath = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["/monitoring"] = ["target", "device", "client", "sfp", "modem", "cm", "ont", "starlink", "mifip"],
+        ["/network-tools"] = ["from"],
+        ["/wifi-optimizer"] = ["client", "ap", "edge"],
+        ["/client-dashboard"] = ["ip"],
+        ["/alerts"] = ["alert"],
+        ["/speedtest"] = ["result"],
+        ["/wan-speedtest"] = ["result"],
+        ["/client-speedtest"] = ["result"],
+    };
+
+    /// <summary>
+    /// Returns the URL without the query parameters that only mean something on the site being left,
+    /// so the page lands in its default view on the new site instead of on a missing device or WAN.
+    /// Time ranges, tabs, categories, and external hosts or IPs are kept.
+    /// </summary>
+    /// <param name="url">Absolute URL of the page being carried across the switch.</param>
+    public static string StripSiteBoundParams(string url)
+    {
+        var path = new Uri(url).AbsolutePath.TrimEnd('/');
+        var names = SiteBoundByPath.TryGetValue(path, out var forPage)
+            ? SiteBoundEverywhere.Concat(forPage)
+            : SiteBoundEverywhere;
+        foreach (var name in names)
+            url = SiteContextService.RemoveQueryParam(url, name);
+        return url;
     }
 
     /// <summary>
