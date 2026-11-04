@@ -711,9 +711,14 @@ public class ThreatCollectionService : BackgroundService
         var window = Blocking.PublicListContact.DuplicateWindow;
         var contactPairs = contacts.Select(c => (c.SourceIp, c.DestIp)).ToHashSet();
         var alertedPairs = new HashSet<(string, string)>();
+        List<Blocking.BlockingException> exceptions = contacts.Count == 0 ? [] : await LoadActiveExceptionsAsync(settings, alertSiteSlug, cancellationToken);
         foreach (var contact in contacts.GroupBy(c => (c.SourceIp, c.DestIp, c.Action)).Select(g => g.First()))
         {
             if (noiseFilters.Any(f => f.Matches(contact.SourceIp, contact.DestIp, contact.DestPort)))
+                continue;
+            // An allowed contact that a Blocking exception lets through is the traffic the user approved.
+            if (contact.Action != ThreatAction.Blocked && exceptions.Any(x => x.Matches(Blocking.ExceptionDirection.Outbound,
+                    contact.SourceIp, contact.DestIp, contact.Protocol, contact.DestPort)))
                 continue;
             try
             {
@@ -775,6 +780,21 @@ public class ThreatCollectionService : BackgroundService
             {
                 _logger.LogDebug(ex, "Failed to publish alert for threat event");
             }
+        }
+    }
+
+    /// <summary>The site's Blocking exceptions in force now, or none when they cannot be read (null site = default site).</summary>
+    private async Task<List<Blocking.BlockingException>> LoadActiveExceptionsAsync(IThreatSettingsAccessor settings, string? site,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            return Blocking.BlockingExceptions.Active(await Blocking.BlockingExceptions.LoadAsync(settings, site, cancellationToken), DateTime.UtcNow);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogDebug(ex, "Failed to load blocking exceptions, alerting on every public block list contact");
+            return [];
         }
     }
 
