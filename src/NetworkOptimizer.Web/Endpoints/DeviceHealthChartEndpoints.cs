@@ -471,6 +471,6 @@ public static class DeviceHealthChartEndpoints
     }
 
     /// <summary>Strips MAC separators and case so spellings from different sources compare equal.</summary>
-    private static string NormalizeMac(string mac) =>
+    internal static string NormalizeMac(string mac) =>
         mac.Replace(":", "").Replace("-", "").ToLowerInvariant();
 }

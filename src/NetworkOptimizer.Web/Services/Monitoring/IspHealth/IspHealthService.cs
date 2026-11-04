@@ -873,14 +873,16 @@ public class IspHealthService
             && earliestSample > windowStart.AddMinutes(15))
             return new ComputeOutcome(IspHealthStatus.InsufficientData, null, new List<AsnSeries>());
 
-        var (firstHop, firstHopTargetId) = PickFirstCleanHop(ispTargets, ispSeries);
-        // Public access hops only - the loaded-latency worst-hop scan must not include a
-        // CPE-LAN-side gateway (RFC1918), which sits before the access bottleneck and
-        // never sees access congestion.
+        var (lowestHop, firstHopTargetId) = PickFirstCleanHop(ispTargets, ispSeries);
+        // Every access hop, private addresses included: CPE-side hops never become AccessIsp
+        // targets, and CGNAT and 10.0.0.0/8 hops are ISP side. Feeds the loaded-latency
+        // agreement vote and the access floor.
         var accessHopSeries = ispTargets
-            .Where(t => ispSeries.ContainsKey(t.TargetId) && !NetworkUtilities.IsPrivateIpAddress(t.Address))
+            .Where(t => ispSeries.ContainsKey(t.TargetId))
             .Select(t => ispSeries[t.TargetId])
             .ToList();
+        // Access latency is the floor across those hops, not one hop: see AccessFloor.
+        var firstHop = AccessFloor.Build(accessHopSeries, lowestHop);
         var ispTargetSeries = ispTargets
             .Where(t => ispSeries.ContainsKey(t.TargetId))
             .Select(t => new AsnSeries

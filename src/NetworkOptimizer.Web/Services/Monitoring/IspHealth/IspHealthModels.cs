@@ -161,6 +161,19 @@ public class IspAsnHealth
     public int CongestionEventCount { get; init; }
 }
 
+/// <summary>The access floor's own readings, shown above the ISP hops on the ISP Network card.</summary>
+public class AccessFloorHealth
+{
+    /// <summary>Winsorized mean RTT of the floor, as the hop rows show theirs.</summary>
+    public double? RttMs { get; init; }
+
+    /// <summary>The floor's jitter at the scoring percentile, as the hop rows show theirs.</summary>
+    public double? JitterMs { get; init; }
+
+    /// <summary>Access hops the floor is taken across.</summary>
+    public int HopCount { get; init; }
+}
+
 /// <summary>One monitored ISP-network target, broken out on the ISP Network card.</summary>
 public class IspTargetHealth
 {
@@ -214,7 +227,7 @@ public class IspTargetHealth
     /// <summary>RTT beyond this ASN's nearest hop (0 for the nearest). Drives the soft reach ceiling.</summary>
     public double? ReachDeltaMs { get; init; }
 
-    /// <summary>True for the first clean hop, the target the access layer idle latency comes from.</summary>
+    /// <summary>True for the lowest-median access hop, the access floor's fallback where too few hops report.</summary>
     public bool IsGradedHop { get; init; }
 
     /// <summary>
@@ -643,6 +656,10 @@ public class IspHealthReport
     public List<IspAsnHealth> TransitAsns { get; init; } = new();
     public List<IspAsnHealth> IspAsns { get; init; } = new();
     public List<IspTargetHealth> IspTargets { get; init; } = new();
+
+    /// <summary>The access floor the Access Layer idle latency is measured from; null with fewer than two access hops.</summary>
+    public AccessFloorHealth? AccessFloor { get; init; }
+
     public List<IspHealthIssue> Issues { get; init; } = new();
     public List<CongestionEvent> CongestionEvents { get; init; } = new();
     public List<PathShiftEvent> PathShifts { get; init; } = new();
@@ -812,17 +829,19 @@ public class IspHealthInputs
     public DateTime WindowStart { get; init; }
     public DateTime WindowEnd { get; init; }
 
-    /// <summary>Series of the first clean ISP hop (lowest-median enabled AccessIsp target).</summary>
+    /// <summary>
+    /// The access floor (<see cref="AccessFloor"/>): the lowest RTT across the access hops at each
+    /// timestamp, or the lowest-median hop's own series where too few hops report.
+    /// </summary>
     public List<LatencySample> FirstHopSeries { get; init; } = new();
 
-    /// <summary>TargetId of the first clean hop, for marking it in the breakout.</summary>
+    /// <summary>TargetId of the lowest-median AccessIsp hop, the floor's fallback.</summary>
     public string? FirstHopTargetId { get; init; }
 
     /// <summary>
-    /// One series per public AccessIsp hop (RFC1918 / CPE-LAN-side excluded). Loaded
-    /// latency takes the worst loaded delta across these, because access congestion can
-    /// surface on any access hop (e.g. the OLT), not just the nearest one, and a given
-    /// hop may miss a brief spike depending on probe timing.
+    /// One series per enabled AccessIsp hop. Loaded latency votes across these at each instant,
+    /// because access congestion can surface on any access hop (e.g. the OLT), not just the
+    /// nearest one, and a given hop may miss a brief spike depending on probe timing.
     /// </summary>
     public List<List<LatencySample>> AccessHopSeries { get; init; } = new();
 

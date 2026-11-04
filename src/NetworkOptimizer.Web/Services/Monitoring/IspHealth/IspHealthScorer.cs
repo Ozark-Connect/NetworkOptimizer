@@ -202,7 +202,7 @@ public class IspHealthScorer
         // absolved per-hop and routes-through-gated (a transit ASN or deeper ISP hop only
         // absolves a hop it is proven downstream of), so a divergent clean transit can't
         // clear a congested hop it never traverses. Hops further out on the same ISP also
-        // get a soft intra-ASN reach ceiling. Access layer idle latency still uses FirstHopSeries.
+        // get a soft intra-ASN reach ceiling. Access layer idle latency uses the access floor (FirstHopSeries).
         var ispHopGrades = GradeIspHops(inputs.IspAsnSeries, inputs.TransitAsnSeries, transitAsns, witnessDestinations, inputs.CongestionEvents, jitterFloor, inputs.HopOrderKnown, accessMedianRtt, inputs.InternetMedianDeltaMs);
         // Collapse the per-hop grades to one entry per ASN for the Networks on Your Path card.
         var ispAsns = AggregateIspAsns(ispHopGrades, inputs.CongestionEvents, _options.JitterAssimilationMinDeltaMs);
@@ -371,6 +371,7 @@ public class IspHealthScorer
             TransitAsns = transitAsns,
             IspAsns = ispAsns,
             IspTargets = inputs.IspTargetSeries.Select(s => BuildIspTargetHealth(s, inputs.FirstHopTargetId, ispHopGrades, _options.RttWinsorPercentile, inputs.NotTracedTargetIds, inputs.TargetAddresses)).ToList(),
+            AccessFloor = BuildAccessFloorHealth(inputs),
             CongestionEvents = inputs.CongestionEvents,
             PathShifts = inputs.PathShifts,
             Outages = inputs.Outages,
@@ -2276,6 +2277,21 @@ public class IspHealthScorer
     /// real deficit, not noise. Combined with "off the traced path" to avoid nagging on clean hops.
     /// </summary>
     private const int DisableSuggestMaxJitterScore = 70;
+
+    /// <summary>The access floor's RTT and jitter, read as the hop rows read theirs; null below two access hops.</summary>
+    private AccessFloorHealth? BuildAccessFloorHealth(IspHealthInputs inputs)
+    {
+        var hops = inputs.AccessHopSeries.Count(s => s.Any(x => x.RttAvgMs.HasValue));
+        if (hops < AccessFloor.MinTargets) return null;
+        var rtts = inputs.FirstHopSeries.Where(s => s.RttAvgMs.HasValue).Select(s => s.RttAvgMs!.Value).ToList();
+        var jitters = inputs.FirstHopSeries.Where(s => s.JitterMs.HasValue).Select(s => s.JitterMs!.Value).ToList();
+        return new AccessFloorHealth
+        {
+            RttMs = SeriesStats.WinsorizedMean(rtts, _options.RttWinsorPercentile),
+            JitterMs = SeriesStats.Percentile(jitters, _options.AsnJitterScoringPercentile),
+            HopCount = hops
+        };
+    }
 
     private IspTargetHealth BuildIspTargetHealth(AsnSeries series, string? firstHopTargetId, List<IspAsnHealth> hopGrades, double winsorPercentile, IReadOnlySet<string> notTracedTargetIds, IReadOnlyDictionary<string, string> targetAddresses)
     {

@@ -20413,11 +20413,6 @@ a.isp-outage-ack:hover {
     letter-spacing: 0.04em;
 }
 
-.isp-target-graded {
-    background: rgba(5, 80, 181, 0.25);
-    color: var(--primary-hover);
-}
-
 .isp-target-disable-hint {
     border: none;
     background: rgba(231, 150, 19, 0.2);

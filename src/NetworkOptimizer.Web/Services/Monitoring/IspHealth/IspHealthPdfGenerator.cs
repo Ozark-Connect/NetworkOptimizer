@@ -486,11 +486,20 @@ public class IspHealthPdfGenerator
 
                 HeaderRow(table, "Hop", "Score", "RTT", "P90 Jitter", "Loss", "Limiting factor");
 
+                if (report.AccessFloor is { } floor)
+                {
+                    CellLines(table, "Access floor", $"Lowest RTT across {floor.HopCount} access hops; access-layer idle latency is measured from it");
+                    Cell(table, "");
+                    Cell(table, IspHealthPresentation.FormatRtt(floor.RttMs));
+                    Cell(table, IspHealthPresentation.FormatJitter(floor.JitterMs));
+                    Cell(table, "");
+                    Cell(table, "");
+                }
+
                 foreach (var target in hops)
                 {
                     var badges = new[]
                         {
-                            target.IsGradedHop ? "lowest RTT" : null,
                             target.NotOnTracedPath ? "not on path" : null
                         }
                         .Where(b => b != null);
