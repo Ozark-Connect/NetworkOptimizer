@@ -54,6 +54,8 @@ public sealed class ChangeControlSiteEngine : BackgroundService
     private static readonly TimeSpan UnexplainedCfgQuiet = TimeSpan.FromMinutes(5);
 
     private readonly string _slug;
+    // The site's console zone, or null when not known; the daily snapshot runs on the site's hours.
+    private readonly Func<TimeZoneInfo?>? _siteZone;
     private readonly IUniFiConfigApi _api;
     private readonly IChangeControlRepositoryAccessor _repos;
     private readonly ConfigSnapshotStore _store;
@@ -102,9 +104,10 @@ public sealed class ChangeControlSiteEngine : BackgroundService
         string slug, IUniFiConfigApi api, IChangeControlRepositoryAccessor repos, IConfigBlobStore blobs,
         ILogger logger, IAuditLogger? audit = null, Func<CancellationToken, Task<bool>>? isRolloutActive = null,
         Func<bool>? isAgentSite = null, Func<CancellationToken, Task<bool>>? wasRolloutRecent = null,
-        Func<bool>? hasNoConsole = null)
+        Func<bool>? hasNoConsole = null, Func<TimeZoneInfo?>? siteZone = null)
     {
         _hasNoConsole = hasNoConsole;
+        _siteZone = siteZone;
         _wasRolloutRecent = wasRolloutRecent;
         _slug = slug;
         _api = api;
@@ -333,7 +336,7 @@ public sealed class ChangeControlSiteEngine : BackgroundService
         }
 
         var hasAny = await _repos.UseAsync(async (r, c) => await r.GetLatestSnapshotAsync(c) != null, ct);
-        var dailyDue = DailyDue(settings, state, now);
+        var dailyDue = DailyDue(settings, state, now, _siteZone?.Invoke() ?? TimeZoneInfo.Local);
         ConfigSnapshotTrigger? trigger =
             !hasAny ? ConfigSnapshotTrigger.Initial
             : appChanged ? ConfigSnapshotTrigger.NetworkAppUpgrade
@@ -401,13 +404,15 @@ public sealed class ChangeControlSiteEngine : BackgroundService
     /// <summary>Changes and incidents are related within this window, either side (spec "Changes and incidents").</summary>
     public static readonly TimeSpan IncidentWindow = TimeSpan.FromHours(2);
 
-    private static bool DailyDue(ChangeControlSettings settings, ChangeDetectionState state, DateTime nowUtc)
+    /// <param name="tz">The site's zone: the hour in Settings is the site's, as every page shows it.</param>
+    internal static bool DailyDue(ChangeControlSettings settings, ChangeDetectionState state, DateTime nowUtc, TimeZoneInfo tz)
     {
-        var tz = TimeZoneInfo.Local;
-        var nowLocal = TimeZoneInfo.ConvertTimeFromUtc(nowUtc, tz);
-        var slotLocal = nowLocal.Date.AddHours(settings.DailySnapshotHour).AddMinutes(settings.DailySnapshotMinute);
+        var nowLocal = TimeZoneInfo.ConvertTimeFromUtc(DateTime.SpecifyKind(nowUtc, DateTimeKind.Utc), tz);
+        var slotLocal = DateTime.SpecifyKind(nowLocal.Date.AddHours(settings.DailySnapshotHour).AddMinutes(settings.DailySnapshotMinute), DateTimeKind.Unspecified);
         if (nowLocal < slotLocal) slotLocal = slotLocal.AddDays(-1);
-        var slotUtc = TimeZoneInfo.ConvertTimeToUtc(DateTime.SpecifyKind(slotLocal, DateTimeKind.Unspecified), tz);
+        // A slot inside a spring-forward gap does not exist that day; ConvertTimeToUtc throws on it.
+        while (tz.IsInvalidTime(slotLocal)) slotLocal = slotLocal.AddMinutes(30);
+        var slotUtc = TimeZoneInfo.ConvertTimeToUtc(slotLocal, tz);
         return state.LastDailySnapshotAt == null || state.LastDailySnapshotAt < slotUtc;
     }
 

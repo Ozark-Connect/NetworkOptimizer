@@ -1,5 +1,6 @@
 @using NetworkOptimizer.Web.Services.ChangeControl
 @using System.Globalization
+@inject IDisplayTimeZone DisplayTime
 
 @* One timeline track: up to two series (or stacked areas) on a shared axis, incident and gap bands, change markers,
    and the selected change's line. Positions are percentages of the range, so tracks line up. *@
@@ -9,7 +10,7 @@
     {
         var left = CcFormat.Pct(p.Start, From, To);
         <div class="cc-health-zone" style="left:@F(left)%;width:@F(Math.Max(0.2, CcFormat.Pct(p.End, From, To) - left))%"
-             data-tooltip="@($"{CcFormat.Time(p.Start)}: {p.Tip ?? (p.Health is { } h ? $"Health {h:0.#}" : "No data")}")"></div>
+             data-tooltip="@($"{CcFormat.Time(DisplayTime, p.Start)}: {p.Tip ?? (p.Health is { } h ? $"Health {h:0.#}" : "No data")}")"></div>
     }
     @foreach (var band in Bands)
     {
@@ -64,7 +65,7 @@
         {
             <button type="button" class="cc-marker @CcFormat.Marker(m) @(m.Id == SelectedId ? "selected" : "")"
                     style="left:@F(CcFormat.Pct(m.OccurredAt, From, To))%"
-                    data-tooltip="@($"{CcFormat.Time(m.OccurredAt)}: {m.Summary} ({m.Who})")"
+                    data-tooltip="@($"{CcFormat.Time(DisplayTime, m.OccurredAt)}: {m.Summary} ({m.Who})")"
                     aria-label="@m.Summary"
                     @onclick="() => OnMarker.InvokeAsync(m)" @onclick:stopPropagation></button>
         }
@@ -121,10 +122,10 @@
     private static string F(double v) => v.ToString("0.###", CultureInfo.InvariantCulture);
 
     /// <summary>"Device Offline: [AP] Back Yard, Oct 19, 11:25 AM to 11:40 AM".</summary>
-    private static string BandTip(TimelineBand band)
+    private string BandTip(TimelineBand band)
     {
-        var end = CcFormat.Local(band.End).Date == CcFormat.Local(band.Start).Date
-            ? CcFormat.Local(band.End).ToString("h:mm tt") : CcFormat.Time(band.End);
-        return $"{band.Label}, {CcFormat.Time(band.Start)} to {end}";
+        var end = CcFormat.Local(DisplayTime, band.End).Date == CcFormat.Local(DisplayTime, band.Start).Date
+            ? CcFormat.Local(DisplayTime, band.End).ToString(DisplayTime.Format.Time, DisplayFormat.Culture) : CcFormat.Time(DisplayTime, band.End);
+        return $"{band.Label}, {CcFormat.Time(DisplayTime, band.Start)} to {end}";
     }
 }

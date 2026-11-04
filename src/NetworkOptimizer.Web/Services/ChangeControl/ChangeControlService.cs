@@ -32,8 +32,11 @@ public sealed partial class ChangeControlService : IChangeControlService
     public ChangeControlService(ChangeControlRegistry registry, SiteContextService site, Identity.ICallerContext caller,
         IEffectiveSiteRoleResolver roles, IDbContextFactory<NetworkOptimizerDbContext> mainDb, MonitoringInfluxClient influx,
         IspHealthService isp, ConfigTemplateStore templates, NetworkOptimizer.Alerts.Interfaces.IAlertRepository alerts,
-        ISiteAccessFilter access, Gates.IAuditContext audit, IServiceScopeFactory scopes, ILogger<ChangeControlService> logger)
+        ISiteAccessFilter access, Gates.IAuditContext audit, IServiceScopeFactory scopes, ILogger<ChangeControlService> logger,
+        IDisplayTimeZone? displayTime = null, NetworkOptimizer.Alerts.Interfaces.INotificationTimeZoneResolver? siteClock = null)
     {
+        _displayTime = displayTime;
+        _siteClock = siteClock;
         _scopes = scopes;
         _access = access;
         _audit = audit;
@@ -47,6 +50,30 @@ public sealed partial class ChangeControlService : IChangeControlService
         _isp = isp;
         _templates = templates;
         _logger = logger;
+    }
+
+    private readonly IDisplayTimeZone? _displayTime;
+    private readonly NetworkOptimizer.Alerts.Interfaces.INotificationTimeZoneResolver? _siteClock;
+
+    /// <summary>The viewer's clock, for text built for the page in front of them.</summary>
+    private TimeZoneInfo Viewer => _displayTime?.Zone ?? TimeZoneInfo.Local;
+
+    /// <summary>How the viewer reads dates and times, for the same text.</summary>
+    private DisplayFormat ViewerFormat => _displayTime?.Format ?? DisplayFormat.Fallback;
+
+    /// <summary>The site's clock: the hours its traffic and its people keep.</summary>
+    private async Task<TimeZoneInfo> SiteZoneAsync(CancellationToken ct) =>
+        _siteClock == null ? TimeZoneInfo.Local : await _siteClock.ResolveAsync(_site.Slug, ct);
+
+    /// <summary>
+    /// "Oct 20, 16:42 CDT": a time stored with a plan, which everyone reads later, so it is written
+    /// on the site's clock and in the notification format (as alerts are), labeled, since no one viewer owns it.
+    /// </summary>
+    private async Task<string> StoredTimeAsync(DateTime utc, CancellationToken ct)
+    {
+        var zone = await SiteZoneAsync(ct);
+        var format = _siteClock == null ? DisplayFormat.Fallback : await _siteClock.ResolveFormatAsync(ct);
+        return $"{TimeFormatHelper.FormatLocalDateTime(utc, zone, format)} {DateTimeUtilities.ZoneAbbreviation(zone, utc)}";
     }
 
     private ChangeControlSiteEngine Engine => _registry.GetFor(_site.Slug);
@@ -489,10 +516,10 @@ public sealed partial class ChangeControlService : IChangeControlService
             _ => text.ToLowerInvariant() + " snapshot",
         });
         var detail = string.Join(", ", tags);
-        return (state, TimeFormatHelper.FormatLocalDateTime(snap.TakenAt), char.ToUpperInvariant(detail[0]) + detail[1..]);
+        return (state, TimeFormatHelper.FormatLocalDateTime(snap.TakenAt, Viewer, ViewerFormat), char.ToUpperInvariant(detail[0]) + detail[1..]);
     }
 
-    private static DateTime Local(DateTime utc) => TimeFormatHelper.ToLocal(utc);
+    private DateTime Local(DateTime utc) => TimeFormatHelper.ToLocal(utc, Viewer);
 
     public async Task<CompareView> CompareAsync(int? fromSnapshotId, int? toSnapshotId, CancellationToken cancellationToken = default)
     {
@@ -514,7 +541,7 @@ public sealed partial class ChangeControlService : IChangeControlService
                 string? whenWho = null, note = null;
                 if (latest is { } l)
                 {
-                    whenWho = $"{TimeFormatHelper.FormatLocalDate(l.Change.OccurredAt)}, {Who(l.Change)}";
+                    whenWho = $"{TimeFormatHelper.FormatLocalDate(l.Change.OccurredAt, Viewer, ViewerFormat)}, {Who(l.Change)}";
                     if (l.Change.ActorKind is ConfigChangeActorKind.LikelyUniFi or ConfigChangeActorKind.NoAdminRecorded && ChangeDescriber.IsUpgradeSummary(l.Change.Summary))
                         note = "During a Network app upgrade. No AUDIT event matches.";
                 }
@@ -756,7 +783,7 @@ public sealed partial class ChangeControlService : IChangeControlService
     {
         var snap = await Repo.UseAsync((r, c) => r.GetSnapshotAsync(snapshotId, c), cancellationToken) ?? throw new InvalidOperationException("Snapshot not found.");
         var state = await Engine.LoadSnapshotStateAsync(snapshotId, cancellationToken) ?? throw new InvalidOperationException("Snapshot content not found.");
-        var label = TimeFormatHelper.FormatLocalDateTime(snap.TakenAt);
+        var label = await StoredTimeAsync(snap.TakenAt, cancellationToken);
         var plan = await Plans.CreateAsync(ConfigPlanKind.RollbackSnapshot, $"Roll Back {await SiteNameAsync(cancellationToken)} to {label}",
             $"Snapshot, {label}", snapshotId, null, state, new PlanOptions { ForgetClients = true }, Actor, cancellationToken,
             doc =>
@@ -780,7 +807,7 @@ public sealed partial class ChangeControlService : IChangeControlService
         var state = await Engine.LoadSnapshotStateAsync(prev, cancellationToken) ?? throw new InvalidOperationException("Snapshot content not found.");
         var only = objects.Where(o => !o.ObjectId.StartsWith("order:", StringComparison.Ordinal)).Select(o => (o.Collection, o.ObjectId)).ToHashSet();
         var plan = await Plans.CreateAsync(ConfigPlanKind.RollbackChange, $"Roll Back: {change.Summary}",
-            $"Change, {TimeFormatHelper.FormatLocalDateTime(change.OccurredAt)}", prev, null, state,
+            $"Change, {await StoredTimeAsync(change.OccurredAt, cancellationToken)}", prev, null, state,
             new PlanOptions { OnlyObjects = only, Collections = objects.Select(o => o.Collection).ToHashSet(), ForgetClients = true }, Actor, cancellationToken,
             rollsBackChangeId: change.Id);
         return plan.Id;
@@ -838,7 +865,7 @@ public sealed partial class ChangeControlService : IChangeControlService
         var baseline = await Repo.UseAsync((r, c) => r.GetBaselineSnapshotAsync(c), ct);
         if (baseline == null) return null;
         var state = await Engine.LoadSnapshotStateAsync(baseline.Id, ct);
-        return state == null ? null : (state, $"Baseline, {TimeFormatHelper.FormatLocalDateTime(baseline.TakenAt)}", new PlanOptions { ForgetClients = true }, baseline.Id);
+        return state == null ? null : (state, $"Baseline, {await StoredTimeAsync(baseline.TakenAt, ct)}", new PlanOptions { ForgetClients = true }, baseline.Id);
     }
 
     public async Task<PlanView?> GetPlanAsync(int planId, CancellationToken cancellationToken = default)
@@ -876,15 +903,19 @@ public sealed partial class ChangeControlService : IChangeControlService
         var now = DateTime.UtcNow;
         var throughput = await new SiteMetricsReader(_influx, _isp, _logger).WanThroughputAsync(now.AddDays(-14), now, ct);
         if (throughput.Count < 24) return null;
+        // The site's hours: its traffic follows its own day, whoever is reading the plan.
+        var zone = await SiteZoneAsync(ct);
         var byHour = throughput
             .Where(p => p.Down != null)
-            .GroupBy(p => Local(p.Time).Hour)
+            .GroupBy(p => TimeFormatHelper.ToLocal(p.Time, zone).Hour)
             .Select(g => (Hour: g.Key, Mean: g.Average(p => (p.Down ?? 0) + (p.Up ?? 0))))
             .OrderBy(x => x.Mean).FirstOrDefault();
-        var localNow = Local(now);
-        var next = localNow.Date.AddHours(byHour.Hour);
+        var localNow = TimeFormatHelper.ToLocal(now, zone);
+        var next = DateTime.SpecifyKind(localNow.Date.AddHours(byHour.Hour), DateTimeKind.Unspecified);
         if (next <= localNow) next = next.AddDays(1);
-        return TimeZoneInfo.ConvertTimeToUtc(DateTime.SpecifyKind(next, DateTimeKind.Unspecified), TimeZoneInfo.Local);
+        // An hour skipped by a spring-forward change does not exist; ConvertTimeToUtc throws on it.
+        while (zone.IsInvalidTime(next)) next = next.AddMinutes(30);
+        return TimeZoneInfo.ConvertTimeToUtc(next, zone);
     }
 
     /// <summary>Removes write bodies before a plan leaves the service: they can hold secrets.</summary>
@@ -918,10 +949,12 @@ public sealed partial class ChangeControlService : IChangeControlService
     {
         var name = await SiteNameAsync(cancellationToken);
         var plans = await Repo.UseAsync((r, c) => r.GetPlansAsync(inProgressOnly ? ConfigPlanStatuses.InProgress : null, 100, c), cancellationToken);
-        return plans.Select(p => Summary(p, _site.Slug, name)).ToList();
+        return plans.Select(p => Summary(p, _site.Slug, name, Viewer, ViewerFormat)).ToList();
     }
 
-    internal static PlanSummaryView Summary(ConfigPlan p, string slug, string siteName) => new()
+    /// <param name="zone">The viewer's clock, for the times in <see cref="PlanSummaryView.Detail"/>.</param>
+    /// <param name="format">How the viewer reads those times.</param>
+    internal static PlanSummaryView Summary(ConfigPlan p, string slug, string siteName, TimeZoneInfo zone, DisplayFormat format) => new()
     {
         Id = p.Id,
         SiteSlug = slug,
@@ -932,10 +965,10 @@ public sealed partial class ChangeControlService : IChangeControlService
         StartedAt = p.CompletedAt,
         Detail = p.Status switch
         {
-            ConfigPlanStatus.PendingApproval => $"{TimeFormatHelper.Pluralize(p.ObjectCount, "object")}{(p.ScheduledFor is { } s ? $", scheduled {TimeFormatHelper.FormatLocalDateTime(s)}" : "")}",
-            ConfigPlanStatus.Scheduled or ConfigPlanStatus.Approved => p.ScheduledFor is { } s2 ? $"Scheduled {TimeFormatHelper.FormatLocalDateTime(s2)}" : "Approved, ready to apply",
-            ConfigPlanStatus.Watching => $"Commit-confirmed until {Local(p.WatchUntil ?? DateTime.UtcNow):h:mm tt}",
-            ConfigPlanStatus.Applied => $"Applied {TimeFormatHelper.FormatLocalDateTime(p.CompletedAt ?? p.UpdatedAt)}",
+            ConfigPlanStatus.PendingApproval => $"{TimeFormatHelper.Pluralize(p.ObjectCount, "object")}{(p.ScheduledFor is { } s ? $", scheduled {TimeFormatHelper.FormatLocalDateTime(s, zone, format)}" : "")}",
+            ConfigPlanStatus.Scheduled or ConfigPlanStatus.Approved => p.ScheduledFor is { } s2 ? $"Scheduled {TimeFormatHelper.FormatLocalDateTime(s2, zone, format)}" : "Approved, ready to apply",
+            ConfigPlanStatus.Watching => $"Commit-confirmed until {TimeFormatHelper.ToLocal(p.WatchUntil ?? DateTime.UtcNow, zone).ToString(format.Time, DisplayFormat.Culture)}",
+            ConfigPlanStatus.Applied => $"Applied {TimeFormatHelper.FormatLocalDateTime(p.CompletedAt ?? p.UpdatedAt, zone, format)}",
             ConfigPlanStatus.Reverted => p.Message ?? "Reverted",
             ConfigPlanStatus.Failed => p.Message ?? "Failed",
             _ => $"{TimeFormatHelper.Pluralize(p.ObjectCount, "object")}, {TimeFormatHelper.Pluralize(p.DeviceCount, "device")}",
@@ -991,7 +1024,7 @@ public sealed partial class ChangeControlService : IChangeControlService
     {
         var plan = await Repo.UseAsync((r, c) => r.GetPlanAsync(planId, c), cancellationToken);
         var report = RolloutReport.Parse(plan?.ReportJson);
-        return report == null ? null : new RolloutReportPdfGenerator().GenerateReportBytes(report, await SiteNameAsync(cancellationToken));
+        return report == null ? null : new RolloutReportPdfGenerator(timeZone: Viewer, format: ViewerFormat).GenerateReportBytes(report, await SiteNameAsync(cancellationToken));
     }
 
     // ---------- Settings, Baseline, drift ----------

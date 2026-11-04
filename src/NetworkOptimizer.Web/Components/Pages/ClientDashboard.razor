@@ -31,6 +31,7 @@
 @inject MonitoringReadinessService Readiness
 @inject MonitoringLiveStatsRegistry LiveStatsRegistry
 @inject CircuitReconnectNotifier CircuitReconnect
+@inject IDisplayTimeZone DisplayTime
 
 <PageTitle>Client Performance - Network Optimizer</PageTitle>
 
@@ -622,7 +623,7 @@
                             </div>
                             <div class="speed-hero-meta">
                                 <span>Latest in range</span>
-                                <span>@_latestSpeedResult.TestTime.ToLocalTime().ToString("g")</span>
+                                <span>@_latestSpeedResult.TestTime.ToLocalTime(DisplayTime).ToString(DisplayTime.Format.DateTime, DisplayFormat.Culture)</span>
                                 <span>@_latestSpeedResult.DurationSeconds s test</span>
                             </div>
                         </div>
@@ -651,14 +652,14 @@
                                                      Items="_speedDownloadData"
                                                      Name="Download"
                                                      SeriesType="SeriesType.Area"
-                                                     XValue="e => e.Timestamp"
+                                                     XValue="e => DisplayTime.ToChart(e.Timestamp)"
                                                      YValue="e => e.Value"
                                                      OrderBy="e => e.X" />
                                     <ApexPointSeries TItem="SpeedChartPoint"
                                                      Items="_speedUploadData"
                                                      Name="Upload"
                                                      SeriesType="SeriesType.Area"
-                                                     XValue="e => e.Timestamp"
+                                                     XValue="e => DisplayTime.ToChart(e.Timestamp)"
                                                      YValue="e => e.Value"
                                                      OrderBy="e => e.X" />
                                 </ApexChart>
@@ -677,14 +678,14 @@
                                                      Items="_latencyPingData"
                                                      Name="Ping"
                                                      SeriesType="SeriesType.Line"
-                                                     XValue="e => e.Timestamp"
+                                                     XValue="e => DisplayTime.ToChart(e.Timestamp)"
                                                      YValue="e => e.Value"
                                                      OrderBy="e => e.X" />
                                     <ApexPointSeries TItem="SpeedChartPoint"
                                                      Items="_latencyJitterData"
                                                      Name="Jitter"
                                                      SeriesType="SeriesType.Line"
-                                                     XValue="e => e.Timestamp"
+                                                     XValue="e => DisplayTime.ToChart(e.Timestamp)"
                                                      YValue="e => e.Value"
                                                      OrderBy="e => e.X" />
                                 </ApexChart>
@@ -859,28 +860,28 @@
                                                      Items="_signalChartData"
                                                      Name="Signal"
                                                      SeriesType="SeriesType.Area"
-                                                     XValue="e => e.Timestamp"
+                                                     XValue="e => DisplayTime.ToChart(e.Timestamp)"
                                                      YValue="e => e.Value"
                                                      OrderBy="e => e.X" />
                                     <ApexPointSeries TItem="SignalChartPoint"
                                                      Items="_signalChannelData"
                                                      Name="Channel"
                                                      SeriesType="SeriesType.Line"
-                                                     XValue="e => e.Timestamp"
+                                                     XValue="e => DisplayTime.ToChart(e.Timestamp)"
                                                      YValue="e => e.Value"
                                                      OrderBy="e => e.X" />
                                     <ApexPointSeries TItem="SignalChartPoint"
                                                      Items="_signalApData"
                                                      Name="AP"
                                                      SeriesType="SeriesType.Line"
-                                                     XValue="e => e.Timestamp"
+                                                     XValue="e => DisplayTime.ToChart(e.Timestamp)"
                                                      YValue="e => e.Value"
                                                      OrderBy="e => e.X" />
                                     <ApexPointSeries TItem="SignalChartPoint"
                                                      Items="_signalBandData"
                                                      Name="Band"
                                                      SeriesType="SeriesType.Line"
-                                                     XValue="e => e.Timestamp"
+                                                     XValue="e => DisplayTime.ToChart(e.Timestamp)"
                                                      YValue="e => e.Value"
                                                      OrderBy="e => e.X" />
                                 </ApexChart>
@@ -916,7 +917,7 @@
                                                     @if (row.IsRange)
                                                     {
                                                         @FormatSignalTime(entry.Timestamp)
-                                                        <span class="time-range-indicator">- @(entry.Timestamp.ToLocalTime().Date == row.EndTime.ToLocalTime().Date ? row.EndTime.ToLocalTime().ToString("HH:mm:ss") : FormatSignalTime(row.EndTime))</span>
+                                                        <span class="time-range-indicator">- @(entry.Timestamp.ToLocalTime(DisplayTime).Date == row.EndTime.ToLocalTime(DisplayTime).Date ? row.EndTime.ToLocalTime(DisplayTime).ToString(DisplayTime.Format.TimeSeconds, DisplayFormat.Culture) : FormatSignalTime(row.EndTime))</span>
                                                         <span class="row-count">(@row.Count)</span>
                                                     }
                                                     else
@@ -978,7 +979,7 @@
                                                      Items="_connectionChartData"
                                                      Name="AP"
                                                      SeriesType="SeriesType.Scatter"
-                                                     XValue="e => e.Timestamp"
+                                                     XValue="e => DisplayTime.ToChart(e.Timestamp)"
                                                      YValue="e => e.ApIndex"
                                                      OrderBy="e => e.X" />
                                 </ApexChart>
@@ -1010,7 +1011,7 @@
                                         @foreach (var evt in GetPagedConnectionEvents())
                                         {
                                             <tr class="@GetEventRowClass(evt.Type)">
-                                                <td>@evt.Timestamp.ToLocalTime().ToString("g")</td>
+                                                <td>@evt.Timestamp.ToLocalTime(DisplayTime).ToString(DisplayTime.Format.DateTime, DisplayFormat.Culture)</td>
                                                 <td>
                                                     <span class="event-badge @GetEventBadgeClass(evt.Type)">
                                                         @FormatEventType(evt.Type)
@@ -1211,9 +1212,9 @@
                                            Options="_usageChartOptions"
                                            Height="@("220px")">
                                     <ApexPointSeries TItem="SpeedChartPoint" Items="@(_usageView == "lan" ? _lanDownData : _wanDownData)" Name="Download"
-                                                     SeriesType="SeriesType.Bar" XValue="e => e.Timestamp" YValue="e => e.Value" OrderBy="e => e.X" />
+                                                     SeriesType="SeriesType.Bar" XValue="e => DisplayTime.ToChart(e.Timestamp)" YValue="e => e.Value" OrderBy="e => e.X" />
                                     <ApexPointSeries TItem="SpeedChartPoint" Items="@(_usageView == "lan" ? _lanUpData : _wanUpData)" Name="Upload"
-                                                     SeriesType="SeriesType.Bar" XValue="e => e.Timestamp" YValue="e => e.Value" OrderBy="e => e.X" />
+                                                     SeriesType="SeriesType.Bar" XValue="e => DisplayTime.ToChart(e.Timestamp)" YValue="e => e.Value" OrderBy="e => e.X" />
                                 </ApexChart>
                             </div>
                         </div>
@@ -1660,6 +1661,10 @@
         ConfigureLatencyChart();
         ConfigureSignalChart();
         _usageChartOptions = CreateUsageChartOptions();
+        ChartTimeFormat.ApplyTimeAxis(_speedChartOptions.Xaxis.Labels, DisplayTime);
+        ChartTimeFormat.ApplyTimeAxis(_latencyChartOptions.Xaxis.Labels, DisplayTime);
+        ChartTimeFormat.ApplyTimeAxis(_signalChartOptions.Xaxis.Labels, DisplayTime);
+        ChartTimeFormat.ApplyTimeAxis(_usageChartOptions.Xaxis.Labels, DisplayTime);
 
         // Wait for UniFi controller connection (needed for client identity + AP data on signal map)
         await ConnectionService.WaitForConnectionAsync();
@@ -2914,7 +2919,9 @@
             _dataUsage = usage;
             _dataLoadedAt = DateTime.UtcNow;
             // A day bar is a date; a time on it only says which midnight the day began at.
-            _usageChartOptions.Tooltip!.X!.Format = usage.Bucket >= TimeSpan.FromDays(1) ? "MMM dd" : "MMM dd, HH:mm";
+            var dayBars = usage.Bucket >= TimeSpan.FromDays(1);
+            _usageChartOptions.Tooltip!.X!.Format = dayBars ? "MMM dd" : "MMM dd, HH:mm";
+            _usageChartOptions.Tooltip.X.Formatter = dayBars ? ChartTimeFormat.TooltipDay : ChartTimeFormat.TooltipMinutes;
             // Keep the user's pick unless that side has nothing to plot.
             if (_usageView == "wan" && _dataUsage.Wan.Count == 0 && _dataUsage.Lan.Count > 0) _usageView = "lan";
             else if (_usageView == "lan" && _dataUsage.Lan.Count == 0 && _dataUsage.Wan.Count > 0) _usageView = "wan";
@@ -3106,7 +3113,7 @@
         _signalChartOptions.Tooltip = new Tooltip
         {
             Theme = Mode.Dark,
-            X = new TooltipX { Format = "MMM dd, HH:mm" },
+            X = new TooltipX { Format = "MMM dd, HH:mm", Formatter = ChartTimeFormat.TooltipMinutes },
             Y = new TooltipY
             {
                 Formatter = $@"function(val, opts) {{
@@ -3146,7 +3153,7 @@
 
         foreach (var entry in _signalHistory)
         {
-            var ts = new DateTimeOffset(entry.Timestamp, TimeSpan.Zero).ToUnixTimeMilliseconds();
+            var ts = new DateTimeOffset(DisplayTime.ToChart(entry.Timestamp)).ToUnixTimeMilliseconds();
             bool added = false;
 
             // Detect band change - use band-specific colors
@@ -3912,11 +3919,7 @@
             Xaxis = new XAxis
             {
                 Type = XAxisType.Datetime,
-                Labels = new XAxisLabels
-                {
-                    DatetimeUTC = false,
-                    DatetimeFormatter = new DatetimeFormatter { Hour = "HH:mm", Day = "MMM dd" }
-                }
+                Labels = new XAxisLabels()
             },
             Yaxis = new List<YAxis>
             {
@@ -3942,7 +3945,7 @@
                 Theme = Mode.Dark,
                 Shared = true,
                 Intersect = false,
-                X = new TooltipX { Format = "MMM dd, HH:mm" },
+                X = new TooltipX { Format = "MMM dd, HH:mm", Formatter = ChartTimeFormat.TooltipMinutes },
                 // The shared Monitoring tooltip, via its window hook (a serialized function
                 // string cannot import the module): after LTTB the two legs no longer share x
                 // values, and the stock shared tooltip then resolves only the hovered series.
@@ -3973,11 +3976,7 @@
             Xaxis = new XAxis
             {
                 Type = XAxisType.Datetime,
-                Labels = new XAxisLabels
-                {
-                    DatetimeUTC = false,
-                    DatetimeFormatter = new DatetimeFormatter { Hour = "HH:mm", Day = "MMM dd" }
-                },
+                Labels = new XAxisLabels(),
                 // On a datetime axis the hover band spans the gap between points, well past the
                 // bar pair; the shared tooltip already says which bucket is under the cursor.
                 Crosshairs = new AxisCrosshairs { Show = false }
@@ -4001,7 +4000,7 @@
                 Theme = Mode.Dark,
                 Shared = true,
                 Intersect = false,
-                X = new TooltipX { Format = "MMM dd, HH:mm" },
+                X = new TooltipX { Format = "MMM dd, HH:mm", Formatter = ChartTimeFormat.TooltipMinutes },
                 Y = new TooltipY
                 {
                     Formatter = @"function(v) { const k = 1024; if (v >= k*k*k) return (v/(k*k*k)).toFixed(2) + ' GB'; if (v >= k*k) return (v/(k*k)).toFixed(1) + ' MB'; if (v >= k) return (v/k).toFixed(0) + ' KB'; return v + ' B'; }"
@@ -4026,11 +4025,7 @@
             Xaxis = new XAxis
             {
                 Type = XAxisType.Datetime,
-                Labels = new XAxisLabels
-                {
-                    DatetimeUTC = false,
-                    DatetimeFormatter = new DatetimeFormatter { Hour = "HH:mm", Day = "MMM dd" }
-                }
+                Labels = new XAxisLabels()
             },
             Yaxis = new List<YAxis>
             {
@@ -4042,7 +4037,7 @@
             Tooltip = new Tooltip
             {
                 Theme = Mode.Dark,
-                X = new TooltipX { Format = "MMM dd, HH:mm" }
+                X = new TooltipX { Format = "MMM dd, HH:mm", Formatter = ChartTimeFormat.TooltipMinutes }
             },
             Legend = new Legend { Show = true, Position = LegendPosition.Top }
         };
@@ -4062,11 +4057,7 @@
             Xaxis = new XAxis
             {
                 Type = XAxisType.Datetime,
-                Labels = new XAxisLabels
-                {
-                    DatetimeUTC = false,
-                    DatetimeFormatter = new DatetimeFormatter { Hour = "HH:mm", Day = "MMM dd" }
-                }
+                Labels = new XAxisLabels()
             },
             Yaxis = new List<YAxis>
             {
@@ -4101,7 +4092,7 @@
             Tooltip = new Tooltip
             {
                 Theme = Mode.Dark,
-                X = new TooltipX { Format = "MMM dd, HH:mm" }
+                X = new TooltipX { Format = "MMM dd, HH:mm", Formatter = ChartTimeFormat.TooltipMinutes }
             },
             Legend = new Legend { Show = false }
         };
@@ -4157,20 +4148,20 @@
         _ => proto ?? "—"
     };
 
-    private static string FormatSignalTime(DateTime utcTimestamp)
+    private string FormatSignalTime(DateTime utcTimestamp)
     {
-        var local = utcTimestamp.ToLocalTime();
-        return local.Date == DateTime.Now.Date
-            ? local.ToString("HH:mm:ss")
-            : local.ToString("MMM dd HH:mm:ss");
+        var local = utcTimestamp.ToLocalTime(DisplayTime);
+        return local.Date == DisplayTime.Now.Date
+            ? local.ToString(DisplayTime.Format.TimeSeconds, DisplayFormat.Culture)
+            : local.ToString(DisplayTime.Format.DayTimeSeconds, DisplayFormat.Culture);
     }
 
-    private static string FormatTimeShort(DateTime utcTimestamp)
+    private string FormatTimeShort(DateTime utcTimestamp)
     {
-        var local = utcTimestamp.ToLocalTime();
-        return local.Date == DateTime.Now.Date
-            ? local.ToString("HH:mm")
-            : local.ToString("MMM dd HH:mm");
+        var local = utcTimestamp.ToLocalTime(DisplayTime);
+        return local.Date == DisplayTime.Now.Date
+            ? local.ToString(DisplayTime.Format.Time, DisplayFormat.Culture)
+            : local.ToString(DisplayTime.Format.DayTime, DisplayFormat.Culture);
     }
 
     /// <summary>
@@ -4353,11 +4344,7 @@
             Xaxis = new XAxis
             {
                 Type = XAxisType.Datetime,
-                Labels = new XAxisLabels
-                {
-                    DatetimeUTC = false,
-                    DatetimeFormatter = new DatetimeFormatter { Hour = "HH:mm", Day = "MMM dd" }
-                }
+                Labels = new XAxisLabels()
             },
             Yaxis = new List<YAxis>
             {
@@ -4379,9 +4366,10 @@
             Colors = new List<string> { "#3b82f6" },
             Markers = new Markers { Size = 8 },
             Grid = new Grid { BorderColor = "rgba(255,255,255,0.08)" },
-            Tooltip = new Tooltip { Theme = Mode.Dark },
+            Tooltip = new Tooltip { Theme = Mode.Dark, X = new TooltipX { Format = "MMM dd, HH:mm", Formatter = ChartTimeFormat.TooltipMinutes } },
             Legend = new Legend { Show = false }
         };
+        ChartTimeFormat.ApplyTimeAxis(_connectionChartOptions.Xaxis.Labels, DisplayTime);
     }
 
     // The device list comes from the console; on an agent site it connects after the page has

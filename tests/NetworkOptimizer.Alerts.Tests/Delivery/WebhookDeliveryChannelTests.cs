@@ -7,6 +7,7 @@ using NetworkOptimizer.Alerts.Delivery;
 using NetworkOptimizer.Alerts.Events;
 using NetworkOptimizer.Alerts.Models;
 using NetworkOptimizer.Core.Enums;
+using NetworkOptimizer.Core.Helpers;
 using Xunit;
 
 namespace NetworkOptimizer.Alerts.Tests.Delivery;
@@ -104,7 +105,7 @@ public class WebhookDeliveryChannelTests
         var alerts = new List<AlertHistoryEntry> { new() { Title = "A", Source = "test", Severity = AlertSeverity.Warning, TriggeredAt = stored } };
         var (channel, handler) = Build();
 
-        await channel.SendDigestAsync(alerts, Hook, DigestSummary.FromAlerts(alerts));
+        await channel.SendDigestAsync(alerts, Hook, DigestSummary.FromAlerts(alerts), TimeZoneInfo.Utc, DisplayFormat.Fallback);
 
         Posted(handler).GetProperty("alerts")[0].GetProperty("triggered_at").GetString()
             .Should().Be("2026-11-04T13:41:58.0000000Z");
@@ -119,7 +120,7 @@ public class WebhookDeliveryChannelTests
         var alert = new AlertEvent { EventType = "test.event", Source = "test", Title = "A", Timestamp = at };
         var (channel, handler) = Build();
 
-        await channel.SendAsync(alert, new AlertHistoryEntry(), Hook);
+        await channel.SendAsync(alert, new AlertHistoryEntry(), Hook, TimeZoneInfo.Utc, DisplayFormat.Fallback);
 
         Posted(handler).GetProperty("timestamp").GetString().Should().Be("2026-11-04T13:41:58.0000000Z");
     }

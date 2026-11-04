@@ -19,12 +19,26 @@ public class SiteConnectionRegistry : IDisposable, ISiteScopedRegistry
         _serviceProvider = serviceProvider;
     }
 
+    /// <summary>Raised with a site's slug whenever its console connection reports itself connected.</summary>
+    public event Action<string>? Connected;
+
     /// <summary>Connection instance for a site by slug.</summary>
     public UniFiConnectionService GetFor(string slug)
     {
         return _connections.GetOrAdd(slug, s =>
-            ActivatorUtilities.CreateInstance<UniFiConnectionService>(_serviceProvider, s));
+        {
+            var connection = ActivatorUtilities.CreateInstance<UniFiConnectionService>(_serviceProvider, s);
+            connection.OnConnectionChanged += () =>
+            {
+                if (connection.IsConnected) Connected?.Invoke(s);
+            };
+            return connection;
+        });
     }
+
+    /// <summary>A site's connection if one already exists, without creating one.</summary>
+    public bool TryGetExisting(string slug, [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out UniFiConnectionService? connection) =>
+        _connections.TryGetValue(slug, out connection);
 
     /// <summary>The default site's connection.</summary>
     public UniFiConnectionService GetDefault() => GetFor(SiteManagementService.DefaultSiteSlug);

@@ -404,6 +404,14 @@ all - it is collected and never shown. Either surface it or drop the field.
 - **Affected code:** `Alerts.razor: FormatStartTime()`, `UtcToLocalTimeOnly()`, `ParseTimeInput()`
 - **Options:** Store IANA timezone per schedule, use `TimeZoneInfo.ConvertTimeFromUtc`, or store local time + timezone
 
+### Default date and time format for alert text
+- Alert text is written once, for no viewer, so its times are 24-hour on every install
+- Settings has an install-wide **Default time zone**, which the notification clock already falls back to (`NotificationTimeZoneResolver`); the time format and date order have no install default, only each user's own choice (`ITimeZonePreferenceSource.GetOwnFormatAsync`)
+- Two places format alert times without a viewer:
+  - Rollout alert copy (`RolloutScopeCopy.AlertStartLabel`, `Moved`) uses `DisplayFormat.Fallback` (24-hour, month first)
+  - The Email, Slack, Teams, Discord, and ntfy channels stamp times with `TimestampFormatter`, which hard-codes `yyyy-MM-dd HH:mm:ss` and `HH:mm`
+- **Fix:** add a default time format and date order beside **Default time zone**, resolve it with the notification clock, and use it in both places
+
 ### Threat Alert Dedup Tuning (if users report noise)
 
 Current state (as of v1.5.x): Dedup is working - event-level dedup via InnerAlertId, pattern-level dedup via DedupKey with 6h merge window, rule-level cooldown at 1h. No spam reported yet, but here are levers to pull if it gets noisy:

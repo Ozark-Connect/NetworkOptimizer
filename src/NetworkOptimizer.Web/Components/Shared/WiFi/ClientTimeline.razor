@@ -6,6 +6,7 @@
 @inject WiFiOptimizerService WiFiService
 @inject UniFiConnectionService ConnectionService
 @inject ILogger<ClientTimeline> Logger
+@inject IDisplayTimeZone DisplayTime
 
 <div class="client-timeline-container wifi-sections">
     <div class="client-timeline-controls">
@@ -319,7 +320,7 @@
                                          Items="_signalData"
                                          Name="Signal (dBm)"
                                          SeriesType="SeriesType.Area"
-                                         XValue="e => e.Timestamp"
+                                         XValue="e => DisplayTime.ToChart(e.Timestamp)"
                                          YValue="e => e.Value"
                                          OrderBy="e => e.X" />
                     }
@@ -329,7 +330,7 @@
                                          Items="_txRetryData"
                                          Name="TX Retries %"
                                          SeriesType="SeriesType.Line"
-                                         XValue="e => e.Timestamp"
+                                         XValue="e => DisplayTime.ToChart(e.Timestamp)"
                                          YValue="e => e.Value"
                                          OrderBy="e => e.X" />
                     }
@@ -367,7 +368,7 @@
                                 <div class="event-title">@GetEventTitle(evt)</div>
                                 <div class="event-details">@GetEventDetails(evt)</div>
                             </div>
-                            <div class="event-time">@evt.Timestamp.ToLocalTime().ToString("MMM d, h:mm tt")</div>
+                            <div class="event-time">@evt.Timestamp.ToLocalTime(DisplayTime).ToString(DisplayTime.Format.DayTime, DisplayFormat.Culture)</div>
                         </div>
                     }
                 </div>
@@ -447,8 +448,11 @@
         var points = _signalData.Concat(_txRetryData).ToList();
         if (points.Count == 0) return;
 
-        await _signalChart.ZoomXAsync(points.Min(p => p.X), points.Max(p => p.X));
+        await _signalChart.ZoomXAsync(ChartMs(points.Min(p => p.Timestamp)), ChartMs(points.Max(p => p.Timestamp)));
     }
+
+    /// <summary>An instant as this chart's x in milliseconds, on the viewer's wall clock.</summary>
+    private long ChartMs(DateTime utc) => new DateTimeOffset(DisplayTime.ToChart(utc)).ToUnixTimeMilliseconds();
     private List<AnnotationsXAxis> _roamAnnotations = new();
     private List<ClientChartPoint> _signalData = new();
     private List<ClientChartPoint> _txRetryData = new();
@@ -496,9 +500,7 @@
                 Type = XAxisType.Datetime,
                 Labels = new XAxisLabels
                 {
-                    Style = new AxisLabelStyle { Colors = "#9ca3af" },
-                    DatetimeUTC = false,
-                    DatetimeFormatter = new DatetimeFormatter { Hour = "HH:mm", Day = "MMM dd" }
+                    Style = new AxisLabelStyle { Colors = "#9ca3af" }
                 }
             },
             Grid = new Grid { BorderColor = "#374151", StrokeDashArray = 3 },
@@ -507,9 +509,10 @@
             Tooltip = new Tooltip
             {
                 Theme = Mode.Dark,
-                X = new TooltipX { Format = "MMM dd, HH:mm" }
+                X = new TooltipX { Format = "MMM dd, HH:mm", Formatter = ChartTimeFormat.TooltipMinutes }
             }
         };
+        ChartTimeFormat.ApplyTimeAxis(_signalChartOptions.Xaxis.Labels, DisplayTime);
 
         // Set up Y-axes, colors, and fill based on initial filter state
         UpdateChartOptionsForVisibleSeries();
@@ -674,7 +677,7 @@
 
             annotations.Add(new AnnotationsXAxis
             {
-                X = evt.Timestamp.ToUnixTimeMilliseconds(),
+                X = ChartMs(evt.Timestamp.UtcDateTime),
                 BorderColor = "#64748b",
                 Label = new Label
                 {

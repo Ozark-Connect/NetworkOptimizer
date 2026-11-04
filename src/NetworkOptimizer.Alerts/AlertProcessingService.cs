@@ -29,6 +29,7 @@ public class AlertProcessingService : BackgroundService
     private readonly AlertCooldownTracker _cooldownTracker;
     private readonly IAlertSiteNameResolver _siteNameResolver;
     private readonly NetworkOptimizer.Core.ISiteWorkGate? _siteWorkGate;
+    private readonly INotificationTimeZoneResolver? _timeZones;
     private readonly string? _appBaseUrl;
 
     // In-memory rule cache (refreshed periodically)
@@ -49,9 +50,11 @@ public class AlertProcessingService : BackgroundService
         AlertCooldownTracker cooldownTracker,
         IAlertSiteNameResolver siteNameResolver,
         IConfiguration configuration,
-        NetworkOptimizer.Core.ISiteWorkGate? siteWorkGate = null)
+        NetworkOptimizer.Core.ISiteWorkGate? siteWorkGate = null,
+        INotificationTimeZoneResolver? timeZones = null)
     {
         _siteWorkGate = siteWorkGate;
+        _timeZones = timeZones;
         _logger = logger;
         _eventBus = eventBus;
         _scopeFactory = scopeFactory;
@@ -428,7 +431,7 @@ public class AlertProcessingService : BackgroundService
         await DeliverAsync(deliveryEvent, historyEntry, repository, cancellationToken);
     }
 
-    private async Task DeliverAsync(
+    internal async Task DeliverAsync(
         AlertEvent alertEvent,
         AlertHistoryEntry historyEntry,
         IAlertRepository repository,
@@ -448,6 +451,10 @@ public class AlertProcessingService : BackgroundService
 
         var deliveredTo = new List<int>();
         var errors = new List<string>();
+        // Resolved on the first channel that sends, inside its error handling: an alert no channel
+        // takes costs no lookup, and a failed one is recorded like any other delivery error.
+        TimeZoneInfo? timeZone = null;
+        DisplayFormat? format = null;
 
         foreach (var channel in channels)
         {
@@ -467,7 +474,13 @@ public class AlertProcessingService : BackgroundService
 
             try
             {
-                var success = await handler.SendAsync(alertEvent, historyEntry, channel, cancellationToken);
+                timeZone ??= _timeZones == null
+                    ? TimeZoneInfo.Local
+                    : await _timeZones.ResolveAsync(alertEvent.SiteSlug, cancellationToken);
+                format ??= _timeZones == null
+                    ? DisplayFormat.Fallback
+                    : await _timeZones.ResolveFormatAsync(cancellationToken);
+                var success = await handler.SendAsync(alertEvent, historyEntry, channel, timeZone, format, cancellationToken);
                 if (success)
                 {
                     deliveredTo.Add(channel.Id);

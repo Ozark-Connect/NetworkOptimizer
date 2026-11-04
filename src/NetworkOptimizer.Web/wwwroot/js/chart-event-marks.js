@@ -42,7 +42,7 @@ const DATE_TIME = { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-
 const TIME_ONLY = { hour: '2-digit', minute: '2-digit' };
 
 function formatTime(time, opts) {
-    return new Date(time).toLocaleString(undefined, opts);
+    return noTime.string(time, opts);
 }
 
 function row(label, value) {
@@ -77,7 +77,8 @@ function singleTooltip(mark) {
 
 function foldedTooltip(marks) {
     // Time alone is ambiguous once a fold spans days, which it will at the 30d range.
-    const days = new Set(marks.map(m => new Date(m.time).toDateString()));
+    // Days on the viewer's clock, the one the labels are written on.
+    const days = new Set(marks.map(m => { const p = noTime.parts(m.time); return `${p.year}-${p.month}-${p.day}`; }));
     const opts = days.size > 1 ? DATE_TIME : TIME_ONLY;
 
     const items = marks.map(mark => {
@@ -316,11 +317,13 @@ export function createMarkLayer({ charts, onAction }) {
             for (const [chart, el] of charts()) {
                 if (!chart) continue;
                 untag(el);
+                // Placed on this chart's own x: a wall-clock chart draws the viewer's clock.
+                const placed = xaxis.map(a => ({ ...a, x: noTime.chartX(a.x, chart.w) }));
                 // Wrapped rather than chained directly: the labels only exist once the update
                 // has rendered, and updateOptions is not promise-returning in every build.
                 // Fourth argument false: grouped charts otherwise take each other's options,
                 // and these marks belong to the chart they were measured against.
-                Promise.resolve(chart.updateOptions({ annotations: { xaxis } }, false, false, false))
+                Promise.resolve(chart.updateOptions({ annotations: { xaxis: placed } }, false, false, false))
                     .then(() => tag(el, clusters))
                     .catch(e => console.warn('Chart event marks failed to draw', e));
             }

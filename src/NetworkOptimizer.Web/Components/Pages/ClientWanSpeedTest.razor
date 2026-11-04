@@ -19,6 +19,7 @@
 @inject NavigationManager NavigationManager
 @inject IJSRuntime JS
 @inject PullToRefreshState PtrState
+@inject IDisplayTimeZone DisplayTime
 
 <PageTitle>Client WAN Speed Test - Network Optimizer</PageTitle>
 
@@ -180,14 +181,14 @@
                                                      Items="@(IsSeriesVisible(series) ? series.DownloadData : _hiddenChartData)"
                                                      Name="@($"{series.DisplayName} ↓")"
                                                      SeriesType="SeriesType.Area"
-                                                     XValue="e => e.Timestamp"
+                                                     XValue="e => DisplayTime.ToChart(e.Timestamp)"
                                                      YValue="e => e.Y"
                                                      OrderBy="e => e.X" />
                                     <ApexPointSeries TItem="ChartPoint"
                                                      Items="@(IsSeriesVisible(series) ? series.UploadData : _hiddenChartData)"
                                                      Name="@($"{series.DisplayName} ↑")"
                                                      SeriesType="SeriesType.Area"
-                                                     XValue="e => e.Timestamp"
+                                                     XValue="e => DisplayTime.ToChart(e.Timestamp)"
                                                      YValue="e => e.Y"
                                                      OrderBy="e => e.X" />
                                 }
@@ -208,7 +209,7 @@
                                                      Items="@(IsSeriesVisible(series) ? series.LatencyData : _hiddenChartData)"
                                                      Name="@series.DisplayName"
                                                      SeriesType="SeriesType.Line"
-                                                     XValue="e => e.Timestamp"
+                                                     XValue="e => DisplayTime.ToChart(e.Timestamp)"
                                                      YValue="e => e.Y"
                                                      OrderBy="e => e.X" />
                                 }
@@ -229,7 +230,7 @@
                                                      Items="@(IsSeriesVisible(series) ? series.JitterData : _hiddenChartData)"
                                                      Name="@series.DisplayName"
                                                      SeriesType="SeriesType.Line"
-                                                     XValue="e => e.Timestamp"
+                                                     XValue="e => DisplayTime.ToChart(e.Timestamp)"
                                                      YValue="e => e.Y"
                                                      OrderBy="e => e.X" />
                                 }
@@ -305,7 +306,7 @@
                                     <tr id="result-@result.Id"
                                         class="history-row-clickable @(isExpanded ? "history-row-expanded" : "")"
                                         @onclick="@(() => ToggleExpand(result.Id))">
-                                        <td>@result.TestTime.ToLocalTime().ToString("MMM dd HH:mm")</td>
+                                        <td>@result.TestTime.ToLocalTime(DisplayTime).ToString(DisplayTime.Format.DayTime, DisplayFormat.Culture)</td>
                                         <td>
                                             @{
                                                 var isDeviceFiltered = string.Equals(_deviceFilter, result.DeviceHost, StringComparison.OrdinalIgnoreCase);
@@ -989,9 +990,7 @@
                 Type = XAxisType.Datetime,
                 Labels = new XAxisLabels
                 {
-                    Style = new AxisLabelStyle { Colors = "#9ca3af" },
-                    DatetimeUTC = false,
-                    DatetimeFormatter = new DatetimeFormatter { Hour = "HH:mm", Day = "MMM dd" }
+                    Style = new AxisLabelStyle { Colors = "#9ca3af" }
                 },
                 AxisBorder = new AxisBorder { Show = false },
                 AxisTicks = new AxisTicks { Show = false }
@@ -1016,7 +1015,7 @@
                 Theme = Mode.Dark,
                 Intersect = false,
                 Shared = true,
-                X = new TooltipX { Format = "MMM dd, HH:mm" },
+                X = new TooltipX { Format = "MMM dd, HH:mm", Formatter = ChartTimeFormat.TooltipMinutes },
                 // The shared Monitoring tooltip, via its window hook (a serialized function string
                 // cannot import the module): rows ordered as the lines sit, and a dot on every one.
                 Custom = @"function(ctx) { return window.netoptValueSortedTooltip ? window.netoptValueSortedTooltip(ctx, { format: function(v) { return (+v).toFixed(1) + ' Mbps'; }, omitSeconds: true }) : ''; }"
@@ -1028,6 +1027,7 @@
                 Gradient = new FillGradient { ShadeIntensity = 0.3, OpacityFrom = 0.4, OpacityTo = 0.05 }
             }
         };
+        ChartTimeFormat.ApplyTimeAxis(_speedChartOptions.Xaxis.Labels, DisplayTime);
 
         _latencyChartOptions = CreateMsChartOptions("ms");
         _jitterChartOptions = CreateMsChartOptions("ms");
@@ -1035,7 +1035,7 @@
 
     private ApexChartOptions<ChartPoint> CreateMsChartOptions(string unit)
     {
-        return new ApexChartOptions<ChartPoint>
+        var options = new ApexChartOptions<ChartPoint>
         {
             Chart = new Chart
             {
@@ -1051,9 +1051,7 @@
                 Type = XAxisType.Datetime,
                 Labels = new XAxisLabels
                 {
-                    Style = new AxisLabelStyle { Colors = "#9ca3af" },
-                    DatetimeUTC = false,
-                    DatetimeFormatter = new DatetimeFormatter { Hour = "HH:mm", Day = "MMM dd" }
+                    Style = new AxisLabelStyle { Colors = "#9ca3af" }
                 },
                 AxisBorder = new AxisBorder { Show = false },
                 AxisTicks = new AxisTicks { Show = false }
@@ -1078,11 +1076,13 @@
                 Theme = Mode.Dark,
                 Intersect = false,
                 Shared = true,
-                X = new TooltipX { Format = "MMM dd, HH:mm" },
+                X = new TooltipX { Format = "MMM dd, HH:mm", Formatter = ChartTimeFormat.TooltipMinutes },
                 Custom = @"function(ctx) { return window.netoptValueSortedTooltip ? window.netoptValueSortedTooltip(ctx, { format: function(v) { return (+v).toFixed(1) + ' " + unit + @"'; }, omitSeconds: true }) : ''; }"
             },
             Markers = new Markers { Size = 0, Hover = new MarkersHover { SizeOffset = 5 } }
         };
+        ChartTimeFormat.ApplyTimeAxis(options.Xaxis.Labels, DisplayTime);
+        return options;
     }
 
     private void TransformChartData()

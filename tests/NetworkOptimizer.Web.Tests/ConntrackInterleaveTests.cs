@@ -22,7 +22,7 @@ public class ConntrackInterleaveTests
         var measured = new List<MonitoringInfluxClient.ClientWanPoint> { new(T0.AddMinutes(10), 900, 300) };
         var coverage = new Dictionary<DateTime, long> { [T0] = 3600 };
 
-        var result = ClientDashboardService.InterleaveWanBuckets(dpi, measured, coverage, TimeSpan.FromHours(1), T0.AddHours(1));
+        var result = ClientDashboardService.InterleaveWanBuckets(dpi, measured, coverage, TimeSpan.FromHours(1), T0.AddHours(1), TimeZoneInfo.Utc);
 
         var bucket = result.Should().ContainSingle().Subject;
         bucket.DownloadBytes.Should().Be(900);
@@ -36,7 +36,7 @@ public class ConntrackInterleaveTests
         var coverage = new Dictionary<DateTime, long> { [T0] = 3600 };
 
         var result = ClientDashboardService.InterleaveWanBuckets(
-            dpi, Array.Empty<MonitoringInfluxClient.ClientWanPoint>(), coverage, TimeSpan.FromHours(1), T0.AddHours(1));
+            dpi, Array.Empty<MonitoringInfluxClient.ClientWanPoint>(), coverage, TimeSpan.FromHours(1), T0.AddHours(1), TimeZoneInfo.Utc);
 
         var bucket = result.Should().ContainSingle().Subject;
         bucket.DownloadBytes.Should().Be(0);
@@ -51,7 +51,7 @@ public class ConntrackInterleaveTests
         var measured = new List<MonitoringInfluxClient.ClientWanPoint> { new(T0.AddHours(1).AddMinutes(5), 40, 10) };
         var coverage = new Dictionary<DateTime, long> { [T0.AddHours(1)] = 3600 };
 
-        var result = ClientDashboardService.InterleaveWanBuckets(dpi, measured, coverage, TimeSpan.FromHours(1), T0.AddHours(2));
+        var result = ClientDashboardService.InterleaveWanBuckets(dpi, measured, coverage, TimeSpan.FromHours(1), T0.AddHours(2), TimeZoneInfo.Utc);
 
         result.Should().HaveCount(2);
         result[0].DownloadBytes.Should().Be(500); // uncovered hour: DPI
@@ -65,7 +65,7 @@ public class ConntrackInterleaveTests
         var measured = new List<MonitoringInfluxClient.ClientWanPoint> { new(T0.AddMinutes(50), 40, 10) };
         var coverage = new Dictionary<DateTime, long> { [T0] = 600 }; // 10 min of a full hour
 
-        var result = ClientDashboardService.InterleaveWanBuckets(dpi, measured, coverage, TimeSpan.FromHours(1), T0.AddHours(1));
+        var result = ClientDashboardService.InterleaveWanBuckets(dpi, measured, coverage, TimeSpan.FromHours(1), T0.AddHours(1), TimeZoneInfo.Utc);
 
         result.Should().ContainSingle().Subject.DownloadBytes.Should().Be(500);
     }
@@ -78,7 +78,7 @@ public class ConntrackInterleaveTests
         var measured = new List<MonitoringInfluxClient.ClientWanPoint> { new(T0.AddMinutes(5), 40, 10) };
 
         var result = ClientDashboardService.InterleaveWanBuckets(
-            new List<UsageBucket> { new(T0, 500, 100) }, measured, coverage, TimeSpan.FromHours(1), T0.AddMinutes(12));
+            new List<UsageBucket> { new(T0, 500, 100) }, measured, coverage, TimeSpan.FromHours(1), T0.AddMinutes(12), TimeZoneInfo.Utc);
 
         result.Should().ContainSingle().Subject.DownloadBytes.Should().Be(40);
     }
@@ -94,7 +94,7 @@ public class ConntrackInterleaveTests
         var dpi = new List<UsageBucket> { new(T0.AddMinutes(5), 500, 100) };
 
         var result = ClientDashboardService.InterleaveWanBuckets(
-            dpi, measured, coverage, TimeSpan.FromMinutes(5), T0.AddMinutes(12));
+            dpi, measured, coverage, TimeSpan.FromMinutes(5), T0.AddMinutes(12), TimeZoneInfo.Utc);
 
         result.Should().ContainSingle().Subject.DownloadBytes.Should().Be(40);
     }
@@ -106,7 +106,7 @@ public class ConntrackInterleaveTests
         var dpi = new List<UsageBucket> { new(T0.AddMinutes(5), 500, 100) };
 
         var result = ClientDashboardService.InterleaveWanBuckets(
-            dpi, Array.Empty<MonitoringInfluxClient.ClientWanPoint>(), coverage, TimeSpan.FromMinutes(5), T0.AddMinutes(12));
+            dpi, Array.Empty<MonitoringInfluxClient.ClientWanPoint>(), coverage, TimeSpan.FromMinutes(5), T0.AddMinutes(12), TimeZoneInfo.Utc);
 
         result.Should().ContainSingle().Subject.DownloadBytes.Should().Be(500);
     }

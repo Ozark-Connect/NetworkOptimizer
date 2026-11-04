@@ -13,6 +13,7 @@
 @inject Microsoft.AspNetCore.Mvc.ViewFeatures.IFileVersionProvider FileVersionProvider
 @inject ILogger<CcChanges> Logger
 @inject NetworkOptimizer.Web.Services.Identity.IUserPreferences UserPreferences
+@inject IDisplayTimeZone DisplayTime
 
 <div class="card cc-toolbar-card">
     <div class="cc-toolbar">
@@ -47,7 +48,7 @@
                 <button class="time-btn @(_range == key ? "active" : "")" @onclick="() => SetRangeAsync(key)">@label</button>
             }
             <button class="time-btn custom-range-btn @(_range == "custom" ? "active" : "")" @onclick="ToggleCustomPopover"
-                    data-tooltip="@(_range == "custom" ? $"{_customFrom:MMM d h:mm tt} - {_customTo:MMM d h:mm tt}" : "Custom date range")" data-tooltip-hover-only>
+                    data-tooltip="@(_range == "custom" ? $"{_customFrom.ToString(DisplayTime.Format.DayTime, DisplayFormat.Culture)} - {_customTo.ToString(DisplayTime.Format.DayTime, DisplayFormat.Culture)}" : "Custom date range")" data-tooltip-hover-only>
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2" /><line x1="16" y1="2" x2="16" y2="6" /><line x1="8" y1="2" x2="8" y2="6" /><line x1="3" y1="10" x2="21" y2="10" /></svg>
             </button>
             <div class="custom-range-popover @(_showCustomPopover ? "open" : "")">
@@ -73,7 +74,7 @@
 
 <div class="card" data-tour="cc-timeline">
     <div class="card-header">
-        <h3 class="card-title">Timeline<span class="card-title-suffix">@CcFormat.Local(_from).ToString("MMM d") - @CcFormat.Local(_to).ToString("MMM d")</span></h3>
+        <h3 class="card-title">Timeline<span class="card-title-suffix">@CcFormat.Local(DisplayTime, _from).ToString(DisplayTime.Format.Day, DisplayFormat.Culture) - @CcFormat.Local(DisplayTime, _to).ToString(DisplayTime.Format.Day, DisplayFormat.Culture)</span></h3>
         <div class="cc-legend">
             <span><span class="cc-dot person"></span>Person</span>
             <span data-tooltip="@CcFormat.UnattributedTip"><span class="cc-dot unattributed"></span>Unattributed</span>
@@ -97,7 +98,7 @@
                 <div class="cc-tl-axis-labels">
                     @foreach (var tick in Ticks())
                     {
-                        <span style="left:@F(CcFormat.Pct(tick, _from, _to))%"><span class="hide-mobile">@CcFormat.Local(tick).ToString(_to - _from > TimeSpan.FromDays(2) ? "MMM d" : "h tt")</span><span class="show-mobile">@CcFormat.Local(tick).ToString(_to - _from > TimeSpan.FromDays(2) ? "%d" : "%h")</span></span>
+                        <span style="left:@F(CcFormat.Pct(tick, _from, _to))%"><span class="hide-mobile">@CcFormat.Local(DisplayTime, tick).ToString(_to - _from > TimeSpan.FromDays(2) ? DisplayTime.Format.Day : DisplayTime.Format.Hour, DisplayFormat.Culture)</span><span class="show-mobile">@CcFormat.Local(DisplayTime, tick).ToString(_to - _from > TimeSpan.FromDays(2) ? "%d" : DisplayTime.Format.Clock == ClockStyle.TwentyFourHour ? "%H" : "%h")</span></span>
                     }
                 </div>
                 <span></span>
@@ -228,7 +229,7 @@
                 var shown = _shown?.Id == c.Id && _shown.SiteSlug == c.SiteSlug;
                 <div class="cc-change-card history-row-clickable @(isOpen ? "history-row-expanded" : "")" @onclick="() => SelectAsync(c)">
                     <div class="cc-change-card-head">
-                        <span class="muted-text">@CcFormat.Time(c.OccurredAt)@(_sites.Count > 1 ? $" - {c.SiteName}" : "")</span>
+                        <span class="muted-text">@CcFormat.Time(DisplayTime, c.OccurredAt)@(_sites.Count > 1 ? $" - {c.SiteName}" : "")</span>
                         <span><span class="cc-dot @CcFormat.Marker(c)"></span> @c.Who</span>
                     </div>
                     <div>@((MarkupString)Bold(c.Summary))</div>
@@ -273,7 +274,7 @@
                         var isOpen = _selected?.Id == c.Id && _selected.SiteSlug == c.SiteSlug;
                         var shown = _shown?.Id == c.Id && _shown.SiteSlug == c.SiteSlug;
                         <tr id="change-@c.SiteSlug-@c.Id" class="history-row-clickable @(isOpen ? "history-row-expanded" : "")" @onclick="() => SelectAsync(c)">
-                            <td class="col-time">@CcFormat.Time(c.OccurredAt)</td>
+                            <td class="col-time">@CcFormat.Time(DisplayTime, c.OccurredAt)</td>
                             @if (_sites.Count > 1)
                             {
                                 <td class="hide-mobile">@c.SiteName</td>
@@ -457,8 +458,8 @@
         // Seed the fields from the range on screen, so a custom range starts from what is shown.
         if (_showCustomPopover)
         {
-            _pickFrom = CcFormat.Local(_from);
-            _pickTo = CcFormat.Local(_to);
+            _pickFrom = CcFormat.Local(DisplayTime, _from);
+            _pickTo = CcFormat.Local(DisplayTime, _to);
         }
     }
 
@@ -480,9 +481,10 @@
         "90d" => "90 days",
         _ => "same length of time",
     };
-    // Local wall-clock times. The pick fields are the popover's edits until Apply copies them over.
-    private DateTime _customFrom = DateTime.Today.AddDays(-14);
-    private DateTime _customTo = DateTime.Now;
+    // Wall-clock times on the viewer's clock. The pick fields are the popover's edits until Apply
+    // copies them over. Seeded in OnInitializedAsync, where the clock is available.
+    private DateTime _customFrom;
+    private DateTime _customTo;
     private DateTime _pickFrom;
     private DateTime _pickTo;
     private bool _showCustomPopover;
@@ -502,6 +504,8 @@
 
     protected override async Task OnInitializedAsync()
     {
+        _customTo = DisplayTime.Now;
+        _customFrom = _customTo.Date.AddDays(-14);
         _sites = await Fleet.GetSitesAsync();
         // Open on the site in context; All sites is a choice in the picker.
         if (_sites.FirstOrDefault(s => string.Equals(s.Slug, SiteCtx.Slug, StringComparison.OrdinalIgnoreCase)) is { } current)
@@ -589,8 +593,8 @@
             "24h" => (now.AddHours(-24), now),
             "30d" => (now.AddDays(-30), now),
             "90d" => (now.AddDays(-90), now),
-            "custom" => (DateTime.SpecifyKind(_customFrom, DateTimeKind.Local).ToUniversalTime(),
-                Min(DateTime.SpecifyKind(_customTo, DateTimeKind.Local).ToUniversalTime(), now)),
+            "custom" => (DisplayTime.ToUtc(_customFrom),
+                Min(DisplayTime.ToUtc(_customTo), now)),
             _ => (now.AddDays(-7), now),
         };
     }
@@ -773,9 +777,9 @@
     {
         var sb = new StringBuilder("Time,Site,Change,Who,Regressions,Incidents after\n");
         foreach (var c in _changes?.Where(Visible) ?? [])
-            sb.Append(Csv(CcFormat.Local(c.OccurredAt).ToString("yyyy-MM-dd HH:mm"))).Append(',').Append(Csv(c.SiteName)).Append(',')
+            sb.Append(Csv(CcFormat.Local(DisplayTime, c.OccurredAt).ToString("yyyy-MM-dd HH:mm"))).Append(',').Append(Csv(c.SiteName)).Append(',')
               .Append(Csv(c.Summary)).Append(',').Append(Csv(c.Who)).Append(',').Append(c.RegressionCount).Append(',').Append(c.IncidentsAfter).Append('\n');
-        await JS.InvokeVoidAsync("downloadFile", $"changes-{DateTime.Now:yyyyMMdd}.csv", "text/csv", Convert.ToBase64String(Encoding.UTF8.GetBytes(sb.ToString())));
+        await JS.InvokeVoidAsync("downloadFile", $"changes-{DisplayTime.Now:yyyyMMdd}.csv", "text/csv", Convert.ToBase64String(Encoding.UTF8.GetBytes(sb.ToString())));
     }
 
     private static string Csv(string s) => s.Contains(',') || s.Contains('"') ? $"\"{s.Replace("\"", "\"\"")}\"" : s;
@@ -803,18 +807,18 @@
     private IEnumerable<DateTime> Ticks()
     {
         var span = _to - _from;
-        var tz = TimeZoneInfo.Local;
+        var tz = DisplayTime.Zone;
         if (span <= TimeSpan.FromDays(2))
         {
-            var start = CcFormat.Local(_from);
+            var start = CcFormat.Local(DisplayTime, _from);
             var first = start.Date.AddHours(Math.Ceiling(start.Hour / 4.0) * 4);
-            for (var t = first; t <= CcFormat.Local(_to); t = t.AddHours(4))
+            for (var t = first; t <= CcFormat.Local(DisplayTime, _to); t = t.AddHours(4))
                 yield return TimeZoneInfo.ConvertTimeToUtc(DateTime.SpecifyKind(t, DateTimeKind.Unspecified), tz);
             yield break;
         }
         var days = (int)Math.Ceiling(span.TotalDays);
         var step = Math.Max(1, (int)Math.Ceiling(days / 8.0));
-        for (var d = CcFormat.Local(_from).Date.AddDays(1); d <= CcFormat.Local(_to); d = d.AddDays(step))
+        for (var d = CcFormat.Local(DisplayTime, _from).Date.AddDays(1); d <= CcFormat.Local(DisplayTime, _to); d = d.AddDays(step))
             yield return TimeZoneInfo.ConvertTimeToUtc(DateTime.SpecifyKind(d, DateTimeKind.Unspecified), tz);
     }
 

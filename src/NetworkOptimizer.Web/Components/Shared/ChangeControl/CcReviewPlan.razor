@@ -8,6 +8,7 @@
 @inject IJSRuntime JS
 @inject ILogger<CcReviewPlan> Logger
 @inject UniFiConnectionService ConnectionService
+@inject IDisplayTimeZone DisplayTime
 
 <PageTitle>Review Plan - Network Optimizer</PageTitle>
 
@@ -442,7 +443,7 @@ else
                                 <input type="date" class="form-control" @bind="_date" @bind:after="Changed" />
                             </div>
                             <div class="form-group">
-                                <label class="form-label">Time</label>
+                                <label class="form-label">Time (@DisplayTime.Abbreviation(DateTime.UtcNow))</label>
                                 <input type="time" class="form-control" @bind="_time" @bind:after="Changed" />
                                 @if (_view.QuietestHourSuggestion != null)
                                 {
@@ -553,7 +554,7 @@ else
                 }
                 @if (plan.Status == ConfigPlanStatus.Watching && plan.WatchUntil is { } until)
                 {
-                    <div class="warning-text" style="font-size:0.875rem">Watching until @CcFormat.Local(until).ToString("h:mm tt")</div>
+                    <div class="warning-text" style="font-size:0.875rem">Watching until @CcFormat.Local(DisplayTime, until).ToString(DisplayTime.Format.Time, DisplayFormat.Culture)</div>
                 }
             </div>
             @if (ConnectionService.IsConnected)
@@ -631,7 +632,8 @@ else
     private readonly HashSet<string> _openSteps = [];
     private bool _showDirect;
     private bool _schedule;
-    private DateTime _date = DateTime.Today;
+    // The schedule pickers are on the viewer's clock; seeded in OnInitializedAsync, where it is available.
+    private DateTime _date;
     private TimeOnly _time = new(2, 0);
     private bool _busy;
     private bool _ok;
@@ -644,6 +646,7 @@ else
     protected override async Task OnInitializedAsync()
     {
         ConnectionService.OnConnectionChanged += OnConnectionChanged;
+        _date = DisplayTime.Now.Date;
         await LoadAsync();
         // A plan that is applying or watching changes on its own; keep the page current.
         _refresh = new Timer(_ => InvokeAsync(async () =>
@@ -668,13 +671,13 @@ else
             if (_view.Plan.ScheduledFor is { } at)
             {
                 _schedule = true;
-                var local = CcFormat.Local(at);
+                var local = CcFormat.Local(DisplayTime, at);
                 _date = local.Date;
                 _time = TimeOnly.FromDateTime(local);
             }
             else if (_view.QuietestHourSuggestion is { } quiet)
             {
-                var local = CcFormat.Local(quiet);
+                var local = CcFormat.Local(DisplayTime, quiet);
                 _date = local.Date;
                 _time = TimeOnly.FromDateTime(local);
             }
@@ -770,7 +773,7 @@ else
     private void SetSchedule(bool on) => _schedule = on;
 
     private DateTime? ScheduledUtc() =>
-        _schedule ? TimeZoneInfo.ConvertTimeToUtc(DateTime.SpecifyKind(_date.Date + _time.ToTimeSpan(), DateTimeKind.Unspecified), TimeZoneInfo.Local) : null;
+        _schedule ? DisplayTime.ToUtc(_date.Date + _time.ToTimeSpan()) : null;
 
     // The action RunAsync is running, so its button shows a spinner: an apply or revert can take a while.
     private string? _running;

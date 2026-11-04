@@ -1,0 +1,95 @@
+@inject IDisplayTimeZone DisplayTime
+
+@* A select of time zones. The first option stores nothing and inherits; its label names what it
+   inherits, so the effective zone is always visible. Then the zones a reader most likely means (this
+   browser's, this site's, and the server's, which follows the server's TZ), then every zone west to
+   east by its current offset. *@
+
+<select id="@Id" class="form-control" data-autosave value="@(Value ?? "")" @onchange="OnChangedAsync" disabled="@Disabled">
+    <option value="">@InheritLabel</option>
+    @if (_unlisted is { } unlisted)
+    {
+        <option value="@unlisted">@unlisted</option>
+    }
+    <optgroup label="Suggested">
+        @foreach (var (id, label) in _suggested)
+        {
+            <option value="@id">@label</option>
+        }
+    </optgroup>
+    <optgroup label="All time zones">
+        @foreach (var (id, label) in _all)
+        {
+            <option value="@id">@label</option>
+        }
+    </optgroup>
+</select>
+
+@code {
+    [Parameter] public string? Id { get; set; }
+
+    /// <summary>The stored IANA id or <see cref="TimeZoneCatalog.ServerToken"/>, or null to inherit.</summary>
+    [Parameter] public string? Value { get; set; }
+
+    [Parameter] public EventCallback<string?> ValueChanged { get; set; }
+
+    /// <summary>Label of the inherit option, e.g. "Default - America/Chicago (UTC-05:00)".</summary>
+    [Parameter] public string InheritLabel { get; set; } = "Default";
+
+    [Parameter] public bool Disabled { get; set; }
+
+    private readonly List<(string Id, string Label)> _suggested = [];
+    private List<(string Id, string Label)> _all = [];
+
+    /// <summary>A stored id the catalog does not list (a legacy alias), kept selectable.</summary>
+    private string? _unlisted;
+
+    protected override void OnInitialized()
+    {
+        var now = DateTime.UtcNow;
+        // Every zone appears once: two options sharing a value make the select show the first of them
+        // after a save, whichever was picked. A matching browser and site merge into one entry.
+        var browserId = DisplayTime.BrowserZone is { } browser ? TimeZoneCatalog.ToIana(browser) : null;
+        var siteId = DisplayTime.SiteZone is { } site ? TimeZoneCatalog.ToIana(site) : null;
+        if (browserId != null && browserId == siteId)
+            _suggested.Add(Suggest("Your browser and this site", browserId, now));
+        else
+        {
+            if (browserId != null) _suggested.Add(Suggest("This browser", browserId, now));
+            if (siteId != null) _suggested.Add(Suggest("This site", siteId, now));
+        }
+        // Stored as the token, not the city, so it follows the server's TZ if that changes.
+        _suggested.Add((TimeZoneCatalog.ServerToken, $"Server - {TimeZoneCatalog.Describe(TimeZoneCatalog.ServerZoneId, now)}"));
+
+        _all = TimeZoneCatalog.Options
+            .Where(o => _suggested.All(s => s.Id != o.Id))
+            .Select(o => (Option: o, Offset: TimeZoneCatalog.TryResolve(o.Id, out var zone) ? zone.GetUtcOffset(now) : TimeSpan.Zero,
+                City: o.Name.Split('/')[^1]))
+            .OrderBy(x => x.Offset)
+            .ThenBy(x => x.City, StringComparer.OrdinalIgnoreCase)
+            .Select(x => (x.Option.Id, x.Option.Region == x.City
+                ? $"({OffsetText(x.Offset)}) {x.City}"
+                : $"({OffsetText(x.Offset)}) {x.City}, {x.Option.Region}"))
+            .ToList();
+    }
+
+    private static (string Id, string Label) Suggest(string what, string id, DateTime now) =>
+        (id, $"{what} - {TimeZoneCatalog.Describe(id, now)}");
+
+    private static string OffsetText(TimeSpan offset) => $"UTC{(offset < TimeSpan.Zero ? "-" : "+")}{offset:hh\\:mm}";
+
+    protected override void OnParametersSet()
+    {
+        _unlisted = !string.IsNullOrEmpty(Value)
+            && !string.Equals(Value, TimeZoneCatalog.ServerToken, StringComparison.OrdinalIgnoreCase)
+            && TimeZoneCatalog.Options.All(o => o.Id != Value)
+            && _suggested.All(s => s.Id != Value)
+                ? Value : null;
+    }
+
+    private Task OnChangedAsync(ChangeEventArgs e)
+    {
+        var value = e.Value?.ToString();
+        return ValueChanged.InvokeAsync(string.IsNullOrEmpty(value) ? null : value);
+    }
+}

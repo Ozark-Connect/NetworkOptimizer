@@ -5,15 +5,17 @@ namespace NetworkOptimizer.Web.Services;
 /// </summary>
 public static class TimeFormatHelper
 {
-    /// <summary>A UTC time in the server's local time zone, whatever its Kind says.</summary>
-    public static DateTime ToLocal(DateTime utc) =>
-        TimeZoneInfo.ConvertTimeFromUtc(DateTime.SpecifyKind(utc, DateTimeKind.Utc), TimeZoneInfo.Local);
+    /// <summary>A UTC time on <paramref name="zone"/>'s clock, whatever its Kind says.</summary>
+    public static DateTime ToLocal(DateTime utc, TimeZoneInfo zone) =>
+        TimeZoneInfo.ConvertTimeFromUtc(DateTime.SpecifyKind(utc, DateTimeKind.Utc), zone);
 
-    /// <summary>"Oct 20, 4:42 PM", in local time.</summary>
-    public static string FormatLocalDateTime(DateTime utc) => ToLocal(utc).ToString("MMM d, h:mm tt");
+    /// <summary>A day and time ("Oct 20, 16:42") on <paramref name="zone"/>'s clock, in <paramref name="format"/>.</summary>
+    public static string FormatLocalDateTime(DateTime utc, TimeZoneInfo zone, DisplayFormat format) =>
+        ToLocal(utc, zone).ToString(format.DayTime, DisplayFormat.Culture);
 
-    /// <summary>"Oct 20", in local time.</summary>
-    public static string FormatLocalDate(DateTime utc) => ToLocal(utc).ToString("MMM d");
+    /// <summary>A day ("Oct 20") on <paramref name="zone"/>'s clock, in <paramref name="format"/>.</summary>
+    public static string FormatLocalDate(DateTime utc, TimeZoneInfo zone, DisplayFormat format) =>
+        ToLocal(utc, zone).ToString(format.Day, DisplayFormat.Culture);
 
     /// <summary>
     /// Append the unit to a count, pluralized (e.g., "1 day", "2 days").
@@ -69,9 +71,10 @@ public static class TimeFormatHelper
     }
 
     /// <summary>
-    /// Format a UTC time as a relative string (e.g., "5 minutes ago", "1 hour ago").
+    /// Format a UTC time as a relative string (e.g., "5 minutes ago", "1 hour ago"). A week or more
+    /// ago shows the date on <paramref name="zone"/>'s clock, in <paramref name="format"/>.
     /// </summary>
-    public static string FormatRelativeTime(DateTime utcTime)
+    public static string FormatRelativeTime(DateTime utcTime, TimeZoneInfo zone, DisplayFormat format)
     {
         var elapsed = DateTime.UtcNow - utcTime;
 
@@ -87,7 +90,7 @@ public static class TimeFormatHelper
         if (elapsed.TotalDays < 7)
             return $"{Pluralize((int)elapsed.TotalDays, "day")} ago";
 
-        return utcTime.ToLocalTime().ToString("MMM dd, yyyy");
+        return TimeZoneCatalog.ToZone(utcTime, zone).ToString(format.Date, DisplayFormat.Culture);
     }
 
     /// <summary>
@@ -115,9 +118,10 @@ public static class TimeFormatHelper
     /// <summary>
     /// Format a UTC time as a terse relative string for alert and schedule lists: "Just now",
     /// "5m ago", "3h ago", "2d ago", or for a future time "Any moment", "in 5m", "in 3h 10m",
-    /// "in 2d". A week or more either way shows the date ("Sep 25, 2026").
+    /// "in 2d". A week or more either way shows the date ("Sep 25, 2026") on <paramref name="zone"/>'s
+    /// clock, in <paramref name="format"/>.
     /// </summary>
-    public static string FormatRelativeTimeTerse(DateTime utcTime, DateTime? nowUtc = null)
+    public static string FormatRelativeTimeTerse(DateTime utcTime, TimeZoneInfo zone, DisplayFormat format, DateTime? nowUtc = null)
     {
         var elapsed = (nowUtc ?? DateTime.UtcNow) - utcTime;
         if (elapsed.TotalSeconds < 0)
@@ -127,13 +131,13 @@ public static class TimeFormatHelper
             if (until.TotalMinutes < 60) return $"in {(int)until.TotalMinutes}m";
             if (until.TotalHours < 24) return $"in {(int)until.TotalHours}h {until.Minutes}m";
             if (until.TotalDays < 7) return $"in {(int)until.TotalDays}d";
-            return utcTime.ToString("MMM d, yyyy", System.Globalization.CultureInfo.InvariantCulture);
+            return ToLocal(utcTime, zone).ToString(format.Date, System.Globalization.CultureInfo.InvariantCulture);
         }
         if (elapsed.TotalMinutes < 1) return "Just now";
         if (elapsed.TotalMinutes < 60) return $"{(int)elapsed.TotalMinutes}m ago";
         if (elapsed.TotalHours < 24) return $"{(int)elapsed.TotalHours}h ago";
         if (elapsed.TotalDays < 7) return $"{(int)elapsed.TotalDays}d ago";
-        return utcTime.ToString("MMM d, yyyy", System.Globalization.CultureInfo.InvariantCulture);
+        return ToLocal(utcTime, zone).ToString(format.Date, System.Globalization.CultureInfo.InvariantCulture);
     }
 
     /// <summary>

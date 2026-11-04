@@ -1,3 +1,5 @@
+using NetworkOptimizer.Core.Helpers;
+
 namespace NetworkOptimizer.Web.Services.Firmware;
 
 /// <summary>
@@ -138,48 +140,44 @@ public static class RolloutScopeCopy
 
     private static string Count(int count, string noun) => $"{count} {noun}{(count == 1 ? "" : "s")}";
 
-    /// <summary>
-    /// A rollout's start as every rollout alert writes it: the server's clock, plus the site's own
-    /// reading when the two differ.
-    /// </summary>
-    /// <param name="timeZoneId">The site's timezone, as the console reports it.</param>
-    /// <param name="startUtc">The start.</param>
-    public static string StartTime(string? timeZoneId, DateTime startUtc)
-    {
-        var instant = DateTime.SpecifyKind(startUtc, DateTimeKind.Utc);
-        return $"{instant.ToLocalTime():ddd MMM d, h:mm tt}{SiteAside(timeZoneId, instant)}";
-    }
-
     /// <summary>What the open Scheduled and Starting Soon alerts say once a waiting rollout's start moves.</summary>
     /// <param name="document">The plan document.</param>
     /// <param name="devices">Devices the rollout will touch.</param>
     /// <param name="startUtc">The new start.</param>
     /// <param name="previousUtc">The start it replaced.</param>
     /// <param name="nowUtc">The current time.</param>
-    public static string Moved(RolloutPlanDocument document, int devices, DateTime startUtc, DateTime previousUtc, DateTime nowUtc) =>
-        $"{Sentence(Subject(document, devices))} will be upgraded starting {StartTime(document.TimeZoneId, startUtc)}, "
-        + $"{StartsIn(startUtc - nowUtc)}. The start moved from {StartTime(document.TimeZoneId, previousUtc)}. "
+    /// <param name="zone">The notification clock (<see cref="Alerts.Interfaces.INotificationTimeZoneResolver"/>).</param>
+    /// <param name="format">The notification format (<see cref="Alerts.Interfaces.INotificationTimeZoneResolver.ResolveFormatAsync"/>).</param>
+    public static string Moved(
+        RolloutPlanDocument document, int devices, DateTime startUtc, DateTime previousUtc, DateTime nowUtc,
+        TimeZoneInfo zone, DisplayFormat format) =>
+        $"{Sentence(Subject(document, devices))} will be upgraded starting {AlertStartLabel(startUtc, document.TimeZoneId, zone, format)}, "
+        + $"{StartsIn(startUtc - nowUtc)}. The start moved from {AlertStartLabel(previousUtc, document.TimeZoneId, zone, format)}. "
         + "Open Firmware Rollout to postpone or stop it.";
 
     /// <summary>
-    /// The site's own reading of an instant, for the one place it matters most: an alert is read
-    /// out of context, and whether a 3 AM reboot bothers anyone is a question about the site's
-    /// hours. Empty when the site keeps the server's, which is every single-site install.
+    /// A start time in an alert: "Tue Oct 27, 15:00 CDT" on the notification clock and in the
+    /// notification format, plus the <see cref="SiteAside"/> when the site keeps other hours. An alert
+    /// is read out of context, and whether a 3 AM reboot bothers anyone is a question about the site's hours.
     /// </summary>
-    /// <param name="timeZoneId">The site's timezone, as the console reports it.</param>
-    /// <param name="instantUtc">The instant to read at the site.</param>
-    public static string SiteAside(string? timeZoneId, DateTime instantUtc) =>
-        SiteAside(timeZoneId, instantUtc, TimeZoneInfo.Local);
+    /// <param name="startUtc">The start.</param>
+    /// <param name="siteTimeZoneId">The site's timezone, as the console reports it.</param>
+    /// <param name="zone">The notification clock (<see cref="Alerts.Interfaces.INotificationTimeZoneResolver"/>).</param>
+    /// <param name="format">The notification format (<see cref="Alerts.Interfaces.INotificationTimeZoneResolver.ResolveFormatAsync"/>).</param>
+    public static string AlertStartLabel(DateTime startUtc, string? siteTimeZoneId, TimeZoneInfo zone, DisplayFormat format) =>
+        $"{DateTimeUtilities.ToZone(startUtc, zone).ToString(format.WeekdayDayTime, DisplayFormat.Culture)} {DateTimeUtilities.ZoneAbbreviation(zone, startUtc)}"
+        + SiteAside(siteTimeZoneId, startUtc, zone, format);
 
     /// <summary>
-    /// <see cref="SiteAside(string?, DateTime)"/> against a given server zone. The two clocks are
-    /// compared at the instant, not by base offset: zones with one base offset still differ while
-    /// only one of them is on DST (Phoenix and Denver in summer).
+    /// The site's own reading of an instant, or empty when the site keeps <paramref name="serverZone"/>'s
+    /// hours. The two clocks are compared at the instant, not by base offset: zones with one base
+    /// offset still differ while only one of them is on DST (Phoenix and Denver in summer).
     /// </summary>
     /// <param name="timeZoneId">The site's timezone, as the console reports it.</param>
     /// <param name="instantUtc">The instant to read at the site.</param>
-    /// <param name="serverZone">The zone every other time on the page is shown in.</param>
-    public static string SiteAside(string? timeZoneId, DateTime instantUtc, TimeZoneInfo serverZone)
+    /// <param name="serverZone">The zone every other time beside it is shown in.</param>
+    /// <param name="format">The reader's format; <see cref="DisplayFormat.Fallback"/> when null.</param>
+    public static string SiteAside(string? timeZoneId, DateTime instantUtc, TimeZoneInfo serverZone, DisplayFormat? format = null)
     {
         if (string.IsNullOrWhiteSpace(timeZoneId)) return string.Empty;
 
@@ -190,7 +188,7 @@ public static class RolloutScopeCopy
             if (tz.GetUtcOffset(instant) == serverZone.GetUtcOffset(instant)) return string.Empty;
 
             var at = TimeZoneInfo.ConvertTimeFromUtc(instant, tz);
-            return $" ({at:h:mm tt} at-site)";
+            return $" ({at.ToString((format ?? DisplayFormat.Fallback).Time, DisplayFormat.Culture)} at-site)";
         }
         catch (Exception ex) when (ex is TimeZoneNotFoundException or InvalidTimeZoneException)
         {

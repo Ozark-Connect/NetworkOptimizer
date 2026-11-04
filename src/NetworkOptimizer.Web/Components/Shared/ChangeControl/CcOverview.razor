@@ -5,6 +5,7 @@
 @inject ChangeControlRegistry Registry
 @inject CcNavigator Navigator
 @inject ILogger<CcOverview> Logger
+@inject IDisplayTimeZone DisplayTime
 
 @if (_view == null)
 {
@@ -85,10 +86,10 @@ else
                             }
                             <span>@item.Title</span>
                         </div>
-                        <div class="cc-item-detail">@CcFormat.Time(item.At). @item.Detail</div>
+                        <div class="cc-item-detail">@CcFormat.Time(DisplayTime, item.At). @item.Detail</div>
                         @if (item.DismissedAt is { } dismissedAt)
                         {
-                            <div class="cc-item-detail">Dismissed by @item.DismissedBy, @CcFormat.Time(dismissedAt).</div>
+                            <div class="cc-item-detail">Dismissed by @item.DismissedBy, @CcFormat.Time(DisplayTime, dismissedAt).</div>
                         }
                     </div>
                     <div class="cc-item-actions">
@@ -166,7 +167,7 @@ else
                                 <tr class="history-row-clickable" @onclick="@(() => Navigator.TabAsync(s.Slug, "changes"))">
                                     <td><span class="cc-dot @(s.Online ? "online" : "offline")" data-tooltip="@(s.Online ? "Connected" : s.AgentOffline ? "Agent offline" : "UniFi Console unreachable")"></span> @s.Name</td>
                                     <td><span class="health-@Level(s.Health24h)" data-tooltip="@(s.HealthIssue ?? "No issues")">@(s.Health24h is { } h ? h.ToString("0.#") : "--")</span></td>
-                                    <td>@(s.LastSnapshotAt is { } t ? CcFormat.Time(t) : "None yet")</td>
+                                    <td>@(s.LastSnapshotAt is { } t ? CcFormat.Time(DisplayTime, t) : "None yet")</td>
                                     <td>@s.Changes7d</td>
                                     <td><span class="status-badge @(s.Regressions > 0 ? "status-error" : "badge-muted")">@s.Regressions</span></td>
                                     <td>
@@ -227,7 +228,7 @@ else
                             @foreach (var u in _view.Upgrades)
                             {
                                 <div class="cc-kv">
-                                    <span>@(sites.Count > 1 ? $"{u.SiteName}, " : "")@CcFormat.Day(u.At)</span>
+                                    <span>@(sites.Count > 1 ? $"{u.SiteName}, " : "")@CcFormat.Day(DisplayTime, u.At)</span>
                                     <span>
                                         @u.From to @u.To, @(u.ObjectsChanged == 0 ? "no config changes" : CcFormat.Plural(u.ObjectsChanged, "object changed", "objects changed"))@if (u.Regressions > 0)
                                         {

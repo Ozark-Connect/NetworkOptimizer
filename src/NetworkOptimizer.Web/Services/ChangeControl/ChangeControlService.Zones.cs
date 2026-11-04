@@ -35,7 +35,7 @@ public sealed partial class ChangeControlService
             && await Engine.Repositories.UseAsync((r, c) => r.GetLatestSnapshotWithAsync("firewallrule", c), cancellationToken) is { } legacy)
         {
             board.LegacySnapshotId = legacy.Id;
-            board.LegacySnapshotLabel = Local(legacy.TakenAt).ToString("MMM d, yyyy h:mm tt");
+            board.LegacySnapshotLabel = Local(legacy.TakenAt).ToString(ViewerFormat.DateTime, DisplayFormat.Culture);
         }
         if (runChecks && !board.LegacyFirewall && Engine.Evaluator != null)
         {
@@ -109,7 +109,7 @@ public sealed partial class ChangeControlService
 
         // Firewall only, nothing deleted: policies UniFi's own move created stay, and same-named ones are updated.
         var translation = LegacyFirewallTranslator.Translate(state, live, deleteMissing: false);
-        var label = TimeFormatHelper.FormatLocalDateTime(snap!.TakenAt);
+        var label = await StoredTimeAsync(snap!.TakenAt, cancellationToken);
         var plan = await Plans.CreateAsync(ConfigPlanKind.Zones, $"Translate legacy firewall rules ({label}) on {await SiteNameAsync(cancellationToken)}",
             $"Snapshot, {label}", snapshotId, null, translation.Desired,
             new PlanOptions { Collections = new HashSet<string> { "firewall_zone", "firewall_policy", "firewallgroup" }, DeleteMissing = false },

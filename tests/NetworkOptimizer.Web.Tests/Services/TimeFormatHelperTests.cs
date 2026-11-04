@@ -6,6 +6,24 @@ namespace NetworkOptimizer.Web.Tests.Services;
 
 public class TimeFormatHelperTests
 {
+    [Fact]
+    public void A_twelve_hour_time_keeps_its_designator_under_any_server_culture()
+    {
+        // German has no AM/PM designator; the viewer's format must not lose it on such a server.
+        var previous = System.Globalization.CultureInfo.CurrentCulture;
+        System.Globalization.CultureInfo.CurrentCulture = new System.Globalization.CultureInfo("de-DE");
+        try
+        {
+            var us = new DisplayFormat(ClockStyle.TwelveHour, DateOrder.MonthFirst);
+            TimeFormatHelper.FormatLocalDateTime(new DateTime(2026, 11, 3, 14, 5, 0, DateTimeKind.Utc), TimeZoneInfo.Utc, us)
+                .Should().Be("Nov 3, 2:05 PM");
+        }
+        finally
+        {
+            System.Globalization.CultureInfo.CurrentCulture = previous;
+        }
+    }
+
     private static readonly DateTime Now = new(2026, 9, 25, 12, 0, 0, DateTimeKind.Utc);
 
     [Theory]
@@ -20,7 +38,17 @@ public class TimeFormatHelperTests
     [InlineData(2 * 86400, "in 2d")]
     public void FormatRelativeTimeTerse_ReturnsExpected(int offsetSeconds, string expected)
     {
-        TimeFormatHelper.FormatRelativeTimeTerse(Now.AddSeconds(offsetSeconds), Now).Should().Be(expected);
+        TimeFormatHelper.FormatRelativeTimeTerse(Now.AddSeconds(offsetSeconds), TimeZoneInfo.Utc, DisplayFormat.Fallback, Now).Should().Be(expected);
+    }
+
+    [Fact]
+    public void FormatRelativeTimeTerse_PastAWeek_ShowsTheDateOnTheGivenClock()
+    {
+        var tokyo = TimeZoneInfo.FindSystemTimeZoneById("Asia/Tokyo");
+        // 20:00 UTC on Sep 17 is already Sep 18 in Tokyo.
+        var lateEvening = new DateTime(2026, 9, 17, 20, 0, 0, DateTimeKind.Utc);
+
+        TimeFormatHelper.FormatRelativeTimeTerse(lateEvening, tokyo, DisplayFormat.Fallback, Now).Should().Be("Sep 18, 2026");
     }
 
     [Theory]

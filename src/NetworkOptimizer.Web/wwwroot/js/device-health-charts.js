@@ -3,11 +3,11 @@
 // device-health-charts, and future chart sets share one implementation.
 import ApexCharts from '/_content/Blazor-ApexCharts/js/apexcharts.esm.js';
 import { computeStats, renderStatsTable as renderTable } from './chart-stats.js?v=9';
-import { valueSortedTooltip, tooltipHeld, alignedPoints } from './chart-tooltip.js?v=18';
+import { valueSortedTooltip, tooltipHeld, alignedPoints } from './chart-tooltip.js?v=21';
 import { renderFilterReset, isFiltered } from './chart-filter.js?v=6';
-import { createMarkLayer } from './chart-event-marks.js?v=10';
-import { createAxisDateCaption } from './chart-axis-date.js?v=4';
-import { syncIdentity, extentsOf, spanTo } from './chart-sync.js?v=7';
+import { createMarkLayer } from './chart-event-marks.js?v=13';
+import { createAxisDateCaption } from './chart-axis-date.js?v=5';
+import { syncIdentity, extentsOf, spanTo } from './chart-sync.js?v=9';
 import { awaitContainer } from './chart-mount.js?v=1';
 import { loadWindowHours, saveWindowHours, markActiveRange } from './chart-window.js?v=2';
 import { downloadColor, uploadColor } from './chart-colors.js?v=2';
@@ -105,11 +105,7 @@ function baseOpts(height, yTitle, yFormatter, extra, group = SYNC_GROUP) {
         dataLabels: { enabled: false },
         xaxis: {
             type: 'datetime',
-            labels: {
-                style: { colors: '#9ca3af' },
-                datetimeUTC: false,
-                datetimeFormatter: { hour: 'HH:mm', day: 'MMM dd' },
-            },
+            labels: noTime.timeAxisLabels({ style: { colors: '#9ca3af' } }),
             title: axisDate.option(),
         },
         yaxis: {
@@ -119,7 +115,7 @@ function baseOpts(height, yTitle, yFormatter, extra, group = SYNC_GROUP) {
         },
         grid: { borderColor: '#374151', strokeDashArray: 3 },
         legend: { show: false },
-        tooltip: { theme: 'dark', shared: true, x: { format: 'MMM dd, HH:mm:ss' }, custom: valueSortedTooltip },
+        tooltip: { theme: 'dark', shared: true, x: { formatter: noTime.chartTooltipFormatter() }, custom: valueSortedTooltip },
         noData: { text: 'No data in this time range', style: { color: '#64748b' } },
         ...extra,
     };
@@ -152,7 +148,7 @@ function gatewaySolo() {
 
 function wanSeries() {
     const wan = lastData?.wanThroughput;
-    const pts = arr => (arr || []).map(p => ({ x: new Date(p.time).getTime(), y: p.value }));
+    const pts = arr => (arr || []).map(p => ({ x: noTime.toChart(new Date(p.time).getTime()), y: p.value }));
     return padFirst([
         { name: 'Download', color: downloadColor(), data: pts(wan?.download) },
         { name: 'Upload', color: uploadColor(), data: pts(wan?.upload) },
@@ -281,11 +277,11 @@ function drawSeries() {
 }
 
 function customPoints(d, field) {
-    return (d.custom?.[field] || []).map(p => ({ x: new Date(p.time).getTime(), y: p.value }));
+    return (d.custom?.[field] || []).map(p => ({ x: noTime.toChart(new Date(p.time).getTime()), y: p.value }));
 }
 
 function checkPoints(d, field) {
-    return (d.checks?.[field] || []).map(p => ({ x: new Date(p.time).getTime(), y: p.value }));
+    return (d.checks?.[field] || []).map(p => ({ x: noTime.toChart(new Date(p.time).getTime()), y: p.value }));
 }
 
 // The device lines first, then the threshold spanning the group's window - drawn last so the
@@ -297,11 +293,11 @@ function checkSeries(def, devices) {
         data: checkPoints(d, def.fieldName),
     })));
     const ext = groupExtents;
-    if (ext && Number.isFinite(ext.min) && Number.isFinite(ext.max) && ext.max > ext.min) {
+    if (ext && Number.isFinite(ext.minX) && Number.isFinite(ext.maxX) && ext.maxX > ext.minX) {
         series.push({
             name: `Threshold (${def.op} ${def.threshold}${def.unit || ''})`,
             color: THRESHOLD_COLOR,
-            data: [{ x: ext.min, y: def.threshold }, { x: ext.max, y: def.threshold }],
+            data: [{ x: ext.minX, y: def.threshold }, { x: ext.maxX, y: def.threshold }],
         });
     }
     return series;
@@ -562,8 +558,7 @@ function startPoll() {
 function stopPoll() { if (pollTimer) { clearInterval(pollTimer); pollTimer = null; } }
 
 function toLocalDatetimeString(d) {
-    const pad = n => String(n).padStart(2, '0');
-    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    return noTime.inputValue(d);
 }
 
 // A plain preset keeps no explicit bounds - getEffectiveFrom/To answer null for it - so its window
@@ -598,7 +593,7 @@ function updateCustomLabel(container) {
         btn.classList.add('active');
         const from = getEffectiveFrom(), to = getEffectiveTo();
         if (from && to) {
-            const fmt = d => d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+            const fmt = d => noTime.date(d, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
             btn.setAttribute('data-tooltip', `${fmt(from)} - ${fmt(to)}`);
         }
         if (!clearBtn) {
@@ -623,8 +618,9 @@ function updateCustomLabel(container) {
 function applyDragZoom(xaxis) {
     const container = document.getElementById(containerId);
     if (container && xaxis && Number.isFinite(xaxis.min) && Number.isFinite(xaxis.max) && xaxis.min < xaxis.max) {
-        customFrom = new Date(xaxis.min);
-        customTo = new Date(xaxis.max);
+        // The selection is in chart x (noTime.toChart); the window is real instants.
+        customFrom = new Date(noTime.fromChart(xaxis.min));
+        customTo = new Date(noTime.fromChart(xaxis.max));
         isCustomRange = true;
         windowOffset = 0;
         container.querySelectorAll('[data-range]').forEach(b => b.classList.remove('active'));
@@ -775,8 +771,8 @@ export async function mount(elId) {
     });
 
     container.querySelector('[data-action="apply-custom"]')?.addEventListener('click', () => {
-        const from = fromInput?.value ? new Date(fromInput.value) : null;
-        const to = toInput?.value ? new Date(toInput.value) : null;
+        const from = fromInput?.value ? noTime.fromInputValue(fromInput.value) : null;
+        const to = toInput?.value ? noTime.fromInputValue(toInput.value) : null;
         if (!from || !to || isNaN(from) || isNaN(to) || from >= to) return;
         customFrom = from;
         customTo = to;

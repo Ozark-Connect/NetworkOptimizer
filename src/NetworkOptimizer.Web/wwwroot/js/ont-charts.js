@@ -3,12 +3,12 @@
 
 import ApexCharts from '/_content/Blazor-ApexCharts/js/apexcharts.esm.js';
 import { computeStats, renderStatsTable as renderTable } from './chart-stats.js?v=9';
-import { valueSortedTooltip, tooltipHeld, alignedPoints } from './chart-tooltip.js?v=18';
+import { valueSortedTooltip, tooltipHeld, alignedPoints } from './chart-tooltip.js?v=21';
 import { renderFilterReset, isFiltered } from './chart-filter.js?v=6';
-import { createMarkLayer } from './chart-event-marks.js?v=10';
-import { createAxisDateCaption } from './chart-axis-date.js?v=4';
-import { ponSeriesFor, ponDetailsHtml, ponErrorTotalsHtml, updatePonCard } from './pon-section.js?v=7';
-import { syncIdentity } from './chart-sync.js?v=7';
+import { createMarkLayer } from './chart-event-marks.js?v=13';
+import { createAxisDateCaption } from './chart-axis-date.js?v=5';
+import { ponSeriesFor, ponDetailsHtml, ponErrorTotalsHtml, updatePonCard } from './pon-section.js?v=10';
+import { syncIdentity } from './chart-sync.js?v=9';
 import { awaitContainer } from './chart-mount.js?v=1';
 import { loadWindowHours, saveWindowHours, markActiveRange, notifyWindowMoved } from './chart-window.js?v=2';
 
@@ -72,11 +72,7 @@ function baseOpts(height, yTitle, yFormatter, extra, group = SYNC_GROUP) {
         dataLabels: { enabled: false },
         xaxis: {
             type: 'datetime',
-            labels: {
-                style: { colors: '#9ca3af' },
-                datetimeUTC: false,
-                datetimeFormatter: { hour: 'HH:mm', day: 'MMM dd' },
-            },
+            labels: noTime.timeAxisLabels({ style: { colors: '#9ca3af' } }),
             title: axisDate.option(),
         },
         yaxis: {
@@ -85,7 +81,7 @@ function baseOpts(height, yTitle, yFormatter, extra, group = SYNC_GROUP) {
         },
         grid: { borderColor: '#374151', strokeDashArray: 3 },
         legend: { show: false },
-        tooltip: { theme: 'dark', shared: true, x: { format: 'MMM dd, HH:mm:ss' }, custom: valueSortedTooltip },
+        tooltip: { theme: 'dark', shared: true, x: { formatter: noTime.chartTooltipFormatter() }, custom: valueSortedTooltip },
         noData: { text: 'No data in this time range', style: { color: '#64748b' } },
     };
     if (extra?.yaxis) {
@@ -371,8 +367,7 @@ function startPoll() {
 function stopPoll() { if (pollTimer) { clearInterval(pollTimer); pollTimer = null; } }
 
 function toLocalDatetimeString(d) {
-    const pad = n => String(n).padStart(2, '0');
-    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    return noTime.inputValue(d);
 }
 
 // A plain preset keeps no explicit bounds - getEffectiveFrom/To answer null for it - so its window
@@ -407,7 +402,7 @@ function updateCustomLabel(container) {
         btn.classList.add('active');
         const from = getEffectiveFrom(), to = getEffectiveTo();
         if (from && to) {
-            const fmt = d => d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+            const fmt = d => noTime.date(d, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
             btn.setAttribute('data-tooltip', `${fmt(from)} - ${fmt(to)}`);
         }
         if (!clearBtn) {
@@ -433,8 +428,9 @@ function applyDragZoom(xaxis) {
     notifyWindowMoved();
     const container = document.getElementById(containerId);
     if (container && xaxis && Number.isFinite(xaxis.min) && Number.isFinite(xaxis.max) && xaxis.min < xaxis.max) {
-        customFrom = new Date(xaxis.min);
-        customTo = new Date(xaxis.max);
+        // The selection is in chart x (noTime.toChart); the window is real instants.
+        customFrom = new Date(noTime.fromChart(xaxis.min));
+        customTo = new Date(noTime.fromChart(xaxis.max));
         isCustomRange = true;
         windowOffset = 0;
         container.querySelectorAll('[data-range]').forEach(b => b.classList.remove('active'));
@@ -607,8 +603,8 @@ export async function mount(elId) {
 
     container.querySelector('[data-action="apply-custom"]')?.addEventListener('click', () => {
         notifyWindowMoved();
-        const from = fromInput?.value ? new Date(fromInput.value) : null;
-        const to = toInput?.value ? new Date(toInput.value) : null;
+        const from = fromInput?.value ? noTime.fromInputValue(fromInput.value) : null;
+        const to = toInput?.value ? noTime.fromInputValue(toInput.value) : null;
         if (!from || !to || isNaN(from) || isNaN(to) || from >= to) return;
         customFrom = from;
         customTo = to;

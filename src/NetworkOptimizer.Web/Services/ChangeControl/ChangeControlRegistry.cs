@@ -205,6 +205,7 @@ public sealed class ChangeControlRegistry : BackgroundService, ISiteScopedRegist
             isRolloutActive: async ct => await rollout.UseAsync(async (r, c) => await r.GetActivePlanAsync(c) is { Status: FirmwareRolloutStatus.Running }, ct),
             isAgentSite: () => connection.IsViaAgent || connection.IsAwaitingAgent,
             hasNoConsole: () => connection.HasNoConsole,
+            siteZone: () => _sp.GetService<ISiteTimeZones>()?.Cached(slug),
             // A rollout running, or one that ran in the last hour: the Network app finishes its upgrade after the plan does.
             wasRolloutRecent: async ct => await rollout.UseAsync(async (r, c) =>
                 (await r.GetPlanHistoryAsync(5, c)).Any(p => p.Status == FirmwareRolloutStatus.Running

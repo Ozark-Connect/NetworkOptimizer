@@ -3,6 +3,7 @@
 @inject IChangeControlService Site
 @inject IJSRuntime JS
 @inject ILogger<CcConsoleBackups> Logger
+@inject IDisplayTimeZone DisplayTime
 
 @* UniFi's own Network app backups, copied and kept encrypted. Restoring one stays UniFi's job: this hands over the file. *@
 <SiteAdminOnly>
@@ -24,7 +25,7 @@
             {
                 <div class="cc-setting-row">
                     <span>
-                        @CcFormat.Time(b.TakenAt)@(b.NetworkAppVersion != null ? $", Network {b.NetworkAppVersion}" : ""), @CcFormat.Bytes(b.SizeBytes)
+                        @CcFormat.Time(DisplayTime, b.TakenAt)@(b.NetworkAppVersion != null ? $", Network {b.NetworkAppVersion}" : ""), @CcFormat.Bytes(b.SizeBytes)
                         @if (b.FirmwareRollout) { <span class="status-badge badge-muted">Firmware Rollout</span> }
                     </span>
                     <button class="btn btn-contrast btn-sm" disabled="@_busy" @onclick="() => DownloadAsync(b)" aria-label="Download Backup"><CcIcon /> Backup</button>

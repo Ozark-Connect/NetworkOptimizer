@@ -3,9 +3,9 @@
 // planned (preview: scrub or play the sequence over estimated times) and live
 // (actual step states with a now marker). No chart library - DOM + the map canvas.
 
-import * as map2d from './lan-flow-map-2d.js?v=56'; // bump v= when lan-flow-map-2d.js changes
+import * as map2d from './lan-flow-map-2d.js?v=57'; // bump v= when lan-flow-map-2d.js changes
 // KEEP IN SYNC with lan-flow-map-2d.js: the same specifier, so both share one store.
-import * as flowData from './lan-flow-data.js?v=17';
+import * as flowData from './lan-flow-data.js?v=18';
 
 function cssVar(name, fallback) {
     const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
@@ -56,7 +56,7 @@ let _liveStartMs = null;
 let _apiBase = '/api/monitoring/lan-flow-map';
 let _windowStartMs = null;   // wall clock the preview plays back from
 let _plannedStartMs = null;  // when the rollout would actually run
-let _timeZoneId = null;      // the server's zone: one clock across every site, as everywhere else
+let _timeZoneId = null;      // the viewer's zone: one clock across every site, as everywhere else
 let _historicGen = 0;
 let _lastHistoricMs = 0;
 
@@ -533,18 +533,11 @@ function positionPlayhead() {
     if (clock) clock.textContent = plannedClock(sec);
 }
 
-/// Wall-clock time of a point in the plan, in the site's own timezone.
+/// Wall-clock time of a point in the plan, on the viewer's clock.
 function plannedClock(sec) {
     if (_mode !== 'planned' || !_plannedStartMs) return '';
-    const at = new Date(_plannedStartMs + sec * 1000);
-    try {
-        return new Intl.DateTimeFormat(undefined, {
-            weekday: 'short', hour: 'numeric', minute: '2-digit',
-            ...(_timeZoneId ? { timeZone: _timeZoneId } : {}),
-        }).format(at);
-    } catch {
-        return new Intl.DateTimeFormat(undefined, { weekday: 'short', hour: 'numeric', minute: '2-digit' }).format(at);
-    }
+    // In the viewer's time format too; window.noTime reads the same zone the page passed in.
+    return noTime.string(_plannedStartMs + sec * 1000, { weekday: 'short', hour: 'numeric', minute: '2-digit' });
 }
 
 function updatePlayButton() {

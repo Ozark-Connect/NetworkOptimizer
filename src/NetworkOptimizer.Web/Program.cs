@@ -273,6 +273,11 @@ builder.Services.AddScoped<IScopeBadgeText, InstanceScopeBadgeText>();
 // Registered twice so pages can subscribe to the same instance the circuit calls.
 builder.Services.AddScoped<CircuitReconnectNotifier>();
 builder.Services.AddScoped<Microsoft.AspNetCore.Components.Server.Circuits.CircuitHandler>(sp => sp.GetRequiredService<CircuitReconnectNotifier>());
+// The viewer's clock. The preference source is the seam a host decorates to add a layer between
+// the user's own choice and the install default.
+builder.Services.AddScoped<ITimeZonePreferenceSource, TimeZonePreferenceSource>();
+builder.Services.AddScoped<IDisplayTimeZone, DisplayTimeZone>();
+builder.Services.AddScoped<Microsoft.AspNetCore.Components.Server.Circuits.CircuitHandler, DisplayTimeZoneCircuitHandler>();
 
 // In-app search. Not a mutating service: it holds no state and returns only navigation metadata
 // compiled into the app. Each provider filters its own entries against the caller, so adding an
@@ -281,11 +286,18 @@ builder.Services.AddScoped<NetworkOptimizer.Web.Services.Search.IAppSearchServic
     NetworkOptimizer.Web.Services.Search.AppSearchService>();
 builder.Services.AddScoped<NetworkOptimizer.Web.Services.Search.IAppSearchProvider,
     NetworkOptimizer.Web.Services.Search.SettingsSearchProvider>();
+builder.Services.AddScoped<NetworkOptimizer.Web.Services.Search.IAppSearchProvider,
+    NetworkOptimizer.Web.Services.Search.AccountSearchProvider>();
 // The alert pipeline pins its scope to an event's originating site through this seam.
 builder.Services.AddScoped<NetworkOptimizer.Alerts.Interfaces.IAlertSiteScope>(sp =>
     sp.GetRequiredService<SiteContextService>());
 // Resolves a site's display name so delivered alerts name their originating site.
 builder.Services.AddSingleton<NetworkOptimizer.Alerts.Interfaces.IAlertSiteNameResolver, AlertSiteNameResolver>();
+// Each site's console zone, cached: the site layer of both the viewer's clock and the notification clock.
+builder.Services.AddSingleton<ISiteTimeZones, SiteTimeZones>();
+// The clock for text written with no viewer (alerts, digests, stored reports). A host decorates it
+// to put its own zone first.
+builder.Services.AddSingleton<NetworkOptimizer.Alerts.Interfaces.INotificationTimeZoneResolver, NotificationTimeZoneResolver>();
 builder.Services.AddSingleton<AgentEnrollmentService>();
 // Which of a site's agents hosts the LAN speed test - one pick shared by the client target, the
 // Settings hint, and path analysis.
@@ -1434,6 +1446,10 @@ app.Services.GetRequiredService<NetworkOptimizer.Storage.Services.ICredentialPro
 // Initialize GeoLite2 enrichment (looks for .mmdb files in data directory)
 var geoDataPath = Path.GetDirectoryName(dbPath)!;
 app.Services.GetRequiredService<NetworkOptimizer.Threats.Enrichment.GeoEnrichmentService>().Initialize(geoDataPath);
+
+// Created before any console connects, so it reads each site's time zone as its connection comes up,
+// and loaded with the zones read before the restart, so no schedule starts on the server's clock.
+await app.Services.GetRequiredService<ISiteTimeZones>().LoadRememberedAsync();
 
 // Register schedule executor delegates (bridges Alerts project to Web project services)
 app.RegisterScheduleExecutors();

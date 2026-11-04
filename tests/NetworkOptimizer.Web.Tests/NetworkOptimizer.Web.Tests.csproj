@@ -29,6 +29,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <Using Include="NetworkOptimizer.Core.Helpers" />
+  </ItemGroup>
+
+  <ItemGroup>
     <Content Include="IspHealth\Fixtures\*.csv">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
