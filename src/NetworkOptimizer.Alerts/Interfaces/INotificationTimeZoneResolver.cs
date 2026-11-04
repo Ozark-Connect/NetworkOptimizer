@@ -19,8 +19,9 @@ public interface INotificationTimeZoneResolver
     Task<TimeZoneInfo> ResolveAsync(string? siteSlug, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// The date and time format for that text: the install default format, each half falling back to
-    /// <see cref="DisplayFormat.Fallback"/>. Install-wide, so it takes no site. Never throws.
+    /// The date and time format for text about <paramref name="siteSlug"/>: the install default
+    /// format, each half falling back to <see cref="DisplayFormat.Fallback"/>. The install has one
+    /// format for every site; the site is for a host that decorates it per site. Never throws.
     /// </summary>
-    Task<DisplayFormat> ResolveFormatAsync(CancellationToken cancellationToken = default);
+    Task<DisplayFormat> ResolveFormatAsync(string? siteSlug, CancellationToken cancellationToken = default);
 }

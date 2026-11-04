@@ -982,7 +982,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
 
         var devices = document.Waves.Sum(w => w.Steps.Count);
         var zone = _timeZones == null ? TimeZoneInfo.Local : await _timeZones.ResolveAsync(_siteSlug, cancellationToken);
-        var format = _timeZones == null ? DisplayFormat.Fallback : await _timeZones.ResolveFormatAsync(cancellationToken);
+        var format = _timeZones == null ? DisplayFormat.Fallback : await _timeZones.ResolveFormatAsync(_siteSlug, cancellationToken);
 
         await PublishAsync(
             RolloutAlerts.StartingSoon,
@@ -1177,7 +1177,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
 
         // The retry time on the notification clock, labeled, as every other rollout alert writes it.
         var zone = _timeZones == null ? TimeZoneInfo.Local : await _timeZones.ResolveAsync(_siteSlug, cancellationToken);
-        var format = _timeZones == null ? DisplayFormat.Fallback : await _timeZones.ResolveFormatAsync(cancellationToken);
+        var format = _timeZones == null ? DisplayFormat.Fallback : await _timeZones.ResolveFormatAsync(_siteSlug, cancellationToken);
         await PublishAsync(
             RolloutAlerts.PostponedHealth,
             AlertSeverity.Info,
@@ -1203,7 +1203,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         try
         {
             var zone = _timeZones == null ? TimeZoneInfo.Local : await _timeZones.ResolveAsync(_siteSlug, cancellationToken);
-            var format = _timeZones == null ? DisplayFormat.Fallback : await _timeZones.ResolveFormatAsync(cancellationToken);
+            var format = _timeZones == null ? DisplayFormat.Fallback : await _timeZones.ResolveFormatAsync(_siteSlug, cancellationToken);
             var message = RolloutScopeCopy.Moved(document, document.Waves.Sum(w => w.Steps.Count), start, previous, Now, zone, format);
             await _alertEditor.RewriteOpenAsync([RolloutAlerts.Upcoming, RolloutAlerts.StartingSoon], message, cancellationToken);
         }

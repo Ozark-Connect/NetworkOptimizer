@@ -173,7 +173,7 @@ public class DigestService : BackgroundService
                     : await _timeZones.ResolveAsync(siteKey == DefaultSiteKey ? null : siteKey, cancellationToken);
                 var format = _timeZones == null
                     ? DisplayFormat.Fallback
-                    : await _timeZones.ResolveFormatAsync(cancellationToken);
+                    : await _timeZones.ResolveFormatAsync(siteKey == DefaultSiteKey ? null : siteKey, cancellationToken);
                 var success = await handler.SendDigestAsync(collapsedAlerts, channel, summary, timeZone, format, cancellationToken);
                 if (success)
                 {

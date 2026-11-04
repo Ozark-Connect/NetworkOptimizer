@@ -47,7 +47,7 @@ public sealed class NotificationTimeZoneResolver : INotificationTimeZoneResolver
     }
 
     /// <inheritdoc />
-    public async Task<DisplayFormat> ResolveFormatAsync(CancellationToken cancellationToken = default)
+    public async Task<DisplayFormat> ResolveFormatAsync(string? siteSlug, CancellationToken cancellationToken = default)
     {
         try
         {

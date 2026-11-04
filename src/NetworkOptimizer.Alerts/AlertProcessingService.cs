@@ -479,7 +479,7 @@ public class AlertProcessingService : BackgroundService
                     : await _timeZones.ResolveAsync(alertEvent.SiteSlug, cancellationToken);
                 format ??= _timeZones == null
                     ? DisplayFormat.Fallback
-                    : await _timeZones.ResolveFormatAsync(cancellationToken);
+                    : await _timeZones.ResolveFormatAsync(alertEvent.SiteSlug, cancellationToken);
                 var success = await handler.SendAsync(alertEvent, historyEntry, channel, timeZone, format, cancellationToken);
                 if (success)
                 {

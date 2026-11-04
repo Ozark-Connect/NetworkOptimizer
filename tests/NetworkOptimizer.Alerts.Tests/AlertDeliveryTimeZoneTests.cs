@@ -82,7 +82,7 @@ public class AlertDeliveryTimeZoneTests
             new DeliveryChannel { Id = 1, Name = "A", ChannelType = DeliveryChannelType.Webhook },
             new DeliveryChannel { Id = 2, Name = "B", ChannelType = DeliveryChannelType.Webhook });
         _timeZones.Setup(t => t.ResolveAsync(It.IsAny<string?>(), It.IsAny<CancellationToken>())).ReturnsAsync(tokyo);
-        _timeZones.Setup(t => t.ResolveFormatAsync(It.IsAny<CancellationToken>())).ReturnsAsync(format);
+        _timeZones.Setup(t => t.ResolveFormatAsync(It.IsAny<string?>(), It.IsAny<CancellationToken>())).ReturnsAsync(format);
         _webhook.Setup(c => c.SendAsync(It.IsAny<AlertEvent>(), It.IsAny<AlertHistoryEntry>(), It.IsAny<DeliveryChannel>(),
             tokyo, format, It.IsAny<CancellationToken>())).ReturnsAsync(true);
         var history = new AlertHistoryEntry();
@@ -90,8 +90,8 @@ public class AlertDeliveryTimeZoneTests
         await Build().DeliverAsync(Event(), history, _repository.Object, CancellationToken.None);
 
         history.DeliverySucceeded.Should().BeTrue();
-        _timeZones.Verify(t => t.ResolveAsync(It.IsAny<string?>(), It.IsAny<CancellationToken>()), Times.Once);
-        _timeZones.Verify(t => t.ResolveFormatAsync(It.IsAny<CancellationToken>()), Times.Once);
+        _timeZones.Verify(t => t.ResolveAsync(null, It.IsAny<CancellationToken>()), Times.Once);
+        _timeZones.Verify(t => t.ResolveFormatAsync(null, It.IsAny<CancellationToken>()), Times.Once);
         _webhook.Verify(c => c.SendAsync(It.IsAny<AlertEvent>(), It.IsAny<AlertHistoryEntry>(), It.IsAny<DeliveryChannel>(),
             tokyo, format, It.IsAny<CancellationToken>()), Times.Exactly(2));
     }
@@ -103,6 +103,6 @@ public class AlertDeliveryTimeZoneTests
 
         await Build().DeliverAsync(Event(), new AlertHistoryEntry(), _repository.Object, CancellationToken.None);
 
-        _timeZones.Verify(t => t.ResolveFormatAsync(It.IsAny<CancellationToken>()), Times.Never);
+        _timeZones.Verify(t => t.ResolveFormatAsync(It.IsAny<string?>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 }

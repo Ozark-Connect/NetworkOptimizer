@@ -72,7 +72,7 @@ public sealed partial class ChangeControlService : IChangeControlService
     private async Task<string> StoredTimeAsync(DateTime utc, CancellationToken ct)
     {
         var zone = await SiteZoneAsync(ct);
-        var format = _siteClock == null ? DisplayFormat.Fallback : await _siteClock.ResolveFormatAsync(ct);
+        var format = _siteClock == null ? DisplayFormat.Fallback : await _siteClock.ResolveFormatAsync(_site.Slug, ct);
         return $"{TimeFormatHelper.FormatLocalDateTime(utc, zone, format)} {DateTimeUtilities.ZoneAbbreviation(zone, utc)}";
     }
 

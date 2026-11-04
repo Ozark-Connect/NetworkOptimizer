@@ -320,7 +320,7 @@ public class RolloutAutopilot : IRolloutAutopilot
     {
         var devices = RolloutPlanComposer.LiveStepCount(result);
         var zone = _timeZones == null ? TimeZoneInfo.Local : await _timeZones.ResolveAsync(_siteSlug, cancellationToken);
-        var format = _timeZones == null ? DisplayFormat.Fallback : await _timeZones.ResolveFormatAsync(cancellationToken);
+        var format = _timeZones == null ? DisplayFormat.Fallback : await _timeZones.ResolveFormatAsync(_siteSlug, cancellationToken);
 
         await _eventBus.PublishAsync(new AlertEvent
         {

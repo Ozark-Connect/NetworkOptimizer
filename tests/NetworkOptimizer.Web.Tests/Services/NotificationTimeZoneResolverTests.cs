@@ -45,22 +45,22 @@ public class NotificationTimeZoneResolverTests
     [Fact]
     public async Task With_no_install_default_format_alerts_read_the_fallback()
     {
-        (await Build(null, readConsoleZone: null).ResolveFormatAsync()).Should().Be(DisplayFormat.Fallback);
+        (await Build(null, readConsoleZone: null).ResolveFormatAsync(null)).Should().Be(DisplayFormat.Fallback);
     }
 
     [Fact]
     public async Task The_install_default_format_sets_the_notification_format_half_by_half()
     {
-        (await Build(null, readConsoleZone: null, installFormat: ("12", "dmy")).ResolveFormatAsync())
+        (await Build(null, readConsoleZone: null, installFormat: ("12", "dmy")).ResolveFormatAsync("branch-office"))
             .Should().Be(new DisplayFormat(ClockStyle.TwelveHour, DateOrder.DayFirst));
-        (await Build(null, readConsoleZone: null, installFormat: ("12", null)).ResolveFormatAsync())
+        (await Build(null, readConsoleZone: null, installFormat: ("12", null)).ResolveFormatAsync(null))
             .Should().Be(new DisplayFormat(ClockStyle.TwelveHour, DisplayFormat.Fallback.Order));
     }
 
     [Fact]
     public async Task A_failed_format_read_falls_back_rather_than_throwing()
     {
-        (await Build(null, readConsoleZone: null, formatReadThrows: true).ResolveFormatAsync()).Should().Be(DisplayFormat.Fallback);
+        (await Build(null, readConsoleZone: null, formatReadThrows: true).ResolveFormatAsync(null)).Should().Be(DisplayFormat.Fallback);
     }
 
     [Fact]
