@@ -152,6 +152,7 @@ public static class SfpChartEndpoints
                 return new
                 {
                     id = key,
+                    deviceMac = s.DeviceMac.Replace("-", ":").ToLowerInvariant(),
                     label,
                     category = (int)s.Category,
                     sfpPart = s.SfpPart,
@@ -180,14 +181,23 @@ public static class SfpChartEndpoints
 
             var events = await BuildSfpEventsAsync(db, modulesById, artifactTimes, queryFrom, queryTo, ct);
 
-            return Results.Ok(new { modules = result, events });
+            // The host devices' own reboots, remedies, and alerts, keyed by device MAC. The chart
+            // draws them only while every module on screen sits on one device.
+            var hostsByNormalized = sfps
+                .Select(s => s.DeviceMac.Replace("-", ":").ToLowerInvariant())
+                .Distinct()
+                .ToDictionary(mac => mac, mac => (Key: mac, Name: nameMap.TryGetValue(mac, out var hn) ? hn : mac));
+            var deviceEvents = await DeviceHealthChartEndpoints.BuildAnnotationsAsync(
+                influx, db, hostsByNormalized, queryFrom, queryTo, ct, HostEventTypesMarkedHere);
+
+            return Results.Ok(new { modules = result, events, deviceEvents });
         });
     }
 
     /// <summary>
     /// The SFP alerts, and only those. A restart or a device-wide alert belongs to the device
-    /// rather than to any one module, so it is left to Device Stats instead of being repeated
-    /// against every module the device happens to carry.
+    /// rather than to any one module; those come down separately as deviceEvents, drawn only while
+    /// one host device is on screen so they are never repeated against every module it carries.
     /// </summary>
     private static readonly HashSet<string> SfpEventTypes = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -202,6 +212,10 @@ public static class SfpChartEndpoints
     /// against.
     /// </summary>
     private const string PonLinkDownEventType = "ont.pon_link_down";
+
+    /// <summary>Alert types this endpoint already marks per module, kept out of the host device events.</summary>
+    private static readonly HashSet<string> HostEventTypesMarkedHere =
+        new(SfpEventTypes.Concat(ChartEventMarks.OntEventTypes), StringComparer.OrdinalIgnoreCase);
 
     /// <summary>Marks every chart on the tab.</summary>
     private const string ScopeAll = "all";
