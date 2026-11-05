@@ -2186,11 +2186,12 @@ a.stat-card-link:active {
     opacity: 0;
 }
 
-/* Inside the chart's oldest corner: below it, a short gauge leaves no room before the card edge. */
+/* Under the chart's oldest end, just above the bottom of the box (--spark-floor is the gap
+   from the chart down to it). */
 .signal-spark-span {
     position: absolute;
     left: 0;
-    bottom: 0;
+    bottom: calc(6px - var(--spark-floor, 0px));
     font-size: 0.6875rem;
     font-weight: 600;
     line-height: 1;

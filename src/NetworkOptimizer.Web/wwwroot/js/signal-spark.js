@@ -141,6 +141,8 @@ function setGeometry(section, { top, left, width, height, shift, roomy }) {
     style.setProperty('--spark-left', `${left}px`);
     style.setProperty('--spark-width', `${Math.max(0, width)}px`);
     style.setProperty('--spark-shift', `${shift}px`);
+    // From the chart's bottom to the host's, so a caption can sit on the box rather than the chart.
+    style.setProperty('--spark-floor', `${Math.max(0, section.clientHeight - top - height)}px`);
     if (roomy) section.dataset.sparkRoomy = '';
     else delete section.dataset.sparkRoomy;
 }
