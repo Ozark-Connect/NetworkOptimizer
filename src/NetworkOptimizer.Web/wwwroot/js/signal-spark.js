@@ -10,7 +10,9 @@
 
 const bound = new WeakMap();
 
-const GAP_BEFORE_ANCHOR = 10;
+const ANCHOR_OVERLAP = 1;
+// Half the line's 1.75px stroke: edges, not the stroke's center, meet a fill top or a bar root.
+const HALF_STROKE = 0.875;
 const GAP_BEFORE_NAV = 16;
 const MIN_CHART_WIDTH = 72;
 
@@ -54,7 +56,7 @@ function layout(section) {
         return;
     }
     const fill = section.querySelector('[data-spark-fill]');
-    const ok = fill ? layoutBox(section, fill) : layoutHero(section);
+    const ok = fill ? layoutBox(section, fill) : layoutHero(section, chart);
     if (!ok) {
         delete section.dataset.sparkReady;
         return;
@@ -82,7 +84,7 @@ function layoutBox(section, fill) {
     return true;
 }
 
-function layoutHero(section) {
+function layoutHero(section, chart) {
     const anchor = section.querySelector('[data-spark-anchor]');
     const group = section.querySelector('[data-spark-value]');
     if (!anchor || !group) return false;
@@ -93,16 +95,44 @@ function layoutHero(section) {
     const box = section.getBoundingClientRect();
     const a = anchor.getBoundingClientRect();
     const g = group.getBoundingClientRect();
-    const top = a.top - box.top - section.clientTop;
     const groupLeft = offsetWithin(group, section, 'left');
-    const anchorInGroup = a.left - g.left;
+    const root = anchor.dataset.sparkAnchor === 'root';
+    // A bar stack is met at its first bar, not its container: a global .signal-bars rule pads it.
+    const edge = root ? (anchor.firstElementChild ?? anchor) : anchor;
+    const anchorInGroup = edge.getBoundingClientRect().left - g.left;
 
     const style = getComputedStyle(section);
     const padLeft = parseFloat(style.paddingLeft) || 0;
     const padRight = parseFloat(style.paddingRight) || 0;
-    const rowMid = top + a.height / 2;
+    const padTop = parseFloat(style.paddingTop) || 0;
+    const padBottom = parseFloat(style.paddingBottom) || 0;
+
+    // A gauge: the chart is the gauge's own box. A bar stack (root): the bars move on hover, so
+    // they are measured by layout offsets, and the chart takes the box height below a bar stack's
+    // worth of headroom, so the bars can rise until their root meets any point of the line and
+    // still stay inside the box.
+    let top, height, lift = 0;
+    const anchorTop = root ? offsetWithin(anchor, section, 'top') : a.top - box.top - section.clientTop;
+    const anchorHeight = root ? anchor.offsetHeight : a.height;
+    if (root) {
+        top = Math.max(padTop, anchorHeight + 4);
+        height = section.clientHeight - padBottom - top;
+        if (height < 16) {
+            top = padTop;
+            height = section.clientHeight - padTop - padBottom;
+        }
+        const endY = parseFloat(chart.dataset.endY);
+        // The root lands on the stroke's bottom edge, so the whole line sits inside the first bar.
+        if (Number.isFinite(endY)) lift = top + (endY / 100) * height + HALF_STROKE - (anchorTop + anchorHeight);
+    } else {
+        // A fill gauge (cable modem SNR) is read at the fill's top edge: the stroke's top edge
+        // meets it, so the line enters the lit fill rather than riding on top of it.
+        top = anchorTop + (anchor.dataset.sparkAnchor === 'fill' ? HALF_STROKE : 0);
+        height = anchorHeight;
+    }
+    const rowMid = anchorTop + anchorHeight / 2;
     const onRow = el => el && el.offsetWidth > 0
-        && Math.abs(offsetWithin(el, section, 'top') + el.offsetHeight / 2 - rowMid) < a.height / 2;
+        && Math.abs(offsetWithin(el, section, 'top') + el.offsetHeight / 2 - rowMid) < anchorHeight / 2;
 
     // The group stops short of the paging buttons (they stay put under the cursor); with none
     // on its row, it takes the model's place at the right edge.
@@ -119,7 +149,8 @@ function layoutHero(section) {
 
     const shift = Math.max(0, targetRight - group.offsetWidth - groupLeft);
     const anchorFinal = groupLeft + shift + anchorInGroup;
-    const width = anchorFinal - GAP_BEFORE_ANCHOR - padLeft;
+    // The line runs into the anchor: a pixel under the gauge's edge, or onto the first bar's root.
+    const width = anchorFinal + ANCHOR_OVERLAP - padLeft;
     const roomy = width >= MIN_CHART_WIDTH;
 
     // Without room to slide, the chart is a backdrop across the row and the hover does nothing.
@@ -127,10 +158,13 @@ function layoutHero(section) {
         top,
         left: padLeft,
         width: roomy ? width : targetRight - padLeft,
-        height: a.height,
+        height,
         shift: roomy ? shift : 0,
         roomy,
     });
+    section.style.setProperty('--spark-lift', `${roomy ? lift : 0}px`);
+    // The tail thickens to the first bar's height where it meets the root.
+    if (root) section.style.setProperty('--spark-root-h', `${edge.getBoundingClientRect().height}px`);
     return true;
 }
 

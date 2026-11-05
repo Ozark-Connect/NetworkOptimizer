@@ -107,10 +107,12 @@
 
         <!-- Signal Quality Bar -->
         <div class="signal-quality-section signal-spark-host">
-            <SignalSparkline Points="_spark" Current="modemStats.SignalQuality" DomainLow="0" DomainHigh="100"
-                             Stops="SignalGauge.QualityStops" EndClass="@QualityClass(modemStats.SignalQuality)" />
+            @{ var qFloor = QualityFloor(_spark, modemStats.SignalQuality); }
+            <SignalSparkline Points="_spark" Current="modemStats.SignalQuality" DomainLow="qFloor" DomainHigh="100"
+                             Stops="SignalGauge.QualityStops(qFloor)" EndClass="@QualityClass(modemStats.SignalQuality)" Join="SignalSparkline.SparkJoin.Level"
+                             TaperFill="currentColor" TaperUp="calc(var(--spark-root-h, 5.6px) - 0.875px)" />
             <div class="cell-spark-hero" data-spark-value>
-                <div class="signal-bars" data-spark-anchor>
+                <div class="signal-bars @QualityClass(modemStats.SignalQuality)" data-spark-anchor="root">
                     @for (int i = 1; i <= 5; i++)
                     {
                         <div class="signal-bar @(i <= GetSignalBars() ? "active" : "")"></div>
@@ -373,6 +375,13 @@
     .signal-bar.active {
         background: var(--success-color, #22c55e);
     }
+
+    /* Lit bars take the reading's grade, the same color the hero sparkline ends in where it meets them. */
+    .signal-bars.signal-excellent .signal-bar.active { background: var(--signal-excellent); }
+    .signal-bars.signal-good .signal-bar.active { background: var(--signal-good); }
+    .signal-bars.signal-fair .signal-bar.active { background: var(--signal-fair); }
+    .signal-bars.signal-weak .signal-bar.active { background: var(--signal-weak); }
+    .signal-bars.signal-poor .signal-bar.active { background: var(--signal-poor); }
 
     .signal-quality-text {
         display: flex;
@@ -935,6 +944,16 @@
             @($"{rsrp.Value:F1} dBm")
         </span>
     };
+
+    /// <summary>
+    /// The bottom of the hero sparkline's quality scale: 50%, so a healthy modem's day fills the box,
+    /// or lower in steps of 10 when the day dipped below it.
+    /// </summary>
+    internal static double QualityFloor(IReadOnlyList<SparkPoint>? points, int current)
+    {
+        var low = Math.Min(current, points is { Count: > 0 } ? points.Min(p => p.Value) : current);
+        return low >= 50 ? 50 : Math.Max(0, Math.Floor((low - 5) / 10) * 10);
+    }
 
     /// <summary>The signal-* grade of a quality reading, at the same steps where <see cref="GetSignalBars"/> adds a bar.</summary>
     private static string QualityClass(int quality) => quality switch

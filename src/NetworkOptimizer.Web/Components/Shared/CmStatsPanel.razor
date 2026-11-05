@@ -113,13 +113,14 @@
             @if (_stats.DownstreamSnrAvgDb.HasValue)
             {
                 <SignalSparkline Points="_spark" Current="_stats.DownstreamSnrAvgDb" DomainLow="SnrDomainLow" DomainHigh="SnrDomainHigh"
-                                 Stops="SnrStops" EndClass="@GetSnrClass(_stats.DownstreamSnrAvgDb)" />
+                                 Stops="SnrStops" EndClass="@GetSnrClass(_stats.DownstreamSnrAvgDb)" Join="SignalSparkline.SparkJoin.Level"
+                                 TaperFill="@SnrTrack" TaperDown="14px" />
             }
             <div class="signal-hero" data-spark-value>
                 @if (_stats.DownstreamSnrAvgDb.HasValue)
                 {
                     var snrPos = SignalGauge.Position(_stats.DownstreamSnrAvgDb.Value, SnrDomainLow, SnrDomainHigh);
-                    <div class="signal-gauge" data-spark-anchor style="background: @SnrTrack">
+                    <div class="signal-gauge" data-spark-anchor="fill" style="background: @SnrTrack">
                         <div class="gauge-shade" style="height: @($"{100 - snrPos:0.#}")%"></div>
                     </div>
                 }

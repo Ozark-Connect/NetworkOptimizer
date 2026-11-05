@@ -10,7 +10,7 @@
 *@
 @if (_path.Line.Length > 0 || _path.EndY.HasValue)
 {
-    <div class="signal-spark @EndClass" aria-hidden="true" @ref="_chart">
+    <div class="signal-spark join-@Join.ToString().ToLowerInvariant() @EndClass" aria-hidden="true" @ref="_chart" data-end-y="@(_path.EndY?.ToString("0.##", CultureInfo.InvariantCulture))">
         <svg class="signal-spark-svg" viewBox="0 0 100 100" preserveAspectRatio="none" focusable="false">
             <defs>
                 <linearGradient id="@_inkId" gradientUnits="userSpaceOnUse" x1="0" y1="100" x2="0" y2="0">
@@ -49,7 +49,16 @@
         @if (_path.EndY is double endY && _path.EndX is double endX)
         {
             <span class="signal-spark-level" style="top: @Pct(endY); width: @Pct(endX)"></span>
-            <span class="signal-spark-dot @EndClass" style="top: @Pct(endY); left: @Pct(endX)"></span>
+            @if (Join == SparkJoin.Level && TaperFill != null)
+            {
+                @* The held end thickens into what it meets, in that element's own fill. *@
+                <span class="signal-spark-taper"
+                      style="width: @Pct(Landing * (1 - SparklinePath.LandingReach)); --taper-fill: @TaperFill; clip-path: @SparklinePath.TaperPolygon(endY, TaperUp, TaperDown); transform-origin: right @SparklinePath.TaperOrigin(endY)"></span>
+            }
+            @if (Join == SparkJoin.Dot)
+            {
+                <span class="signal-spark-dot @EndClass" style="top: @Pct(endY); left: @Pct(endX)"></span>
+            }
         }
         <span class="signal-spark-span">24h</span>
     </div>
@@ -74,6 +83,28 @@
     /// <summary>The signal-* class of the live reading, which colors the end dot and the fill under the line.</summary>
     [Parameter] public string? EndClass { get; set; }
 
+    /// <summary>How the line's newest end meets what is beside it.</summary>
+    [Parameter] public SparkJoin Join { get; set; } = SparkJoin.Dot;
+
+    /// <summary>
+    /// The background of the element the line meets (a gauge track, or the bars' color). Set, the
+    /// held end of the line thickens into it; null keeps the plain stroke.
+    /// </summary>
+    [Parameter] public string? TaperFill { get; set; }
+
+    /// <summary>
+    /// How far above the line the taper reaches where it meets the gauge, as a CSS length. The taper
+    /// element is padded past the chart by SparklinePath.TaperPad, so a share of the chart is written
+    /// against the chart: calc(0.09 * (100% - 2 * 16px)).
+    /// </summary>
+    [Parameter] public string TaperUp { get; set; } = "0.875px";
+
+    /// <summary>How far below the line the taper reaches where it meets the gauge.</summary>
+    [Parameter] public string TaperDown { get; set; } = "0.875px";
+
+    // Share of the width kept for the reach to the live reading, when the line meets a gauge.
+    private double Landing => Join == SparkJoin.Level ? 6 : 0;
+
     // Unique per instance: two heroes on one page must not resolve each other's gradient.
     private readonly string _inkId, _fadeId, _maskId, _pastId, _pastMaskId;
     private SparklinePath.Result _path;
@@ -86,7 +117,8 @@
 
     protected override void OnParametersSet() =>
         _path = SparklinePath.Build(Points, Current, DateTime.UtcNow, SignalSparklineService.Window,
-            DomainLow, DomainHigh, maxGap: TimeSpan.FromMinutes(45));
+            DomainLow, DomainHigh, maxGap: TimeSpan.FromMinutes(45),
+            landing: Landing);
 
     private ElementReference _chart;
     private IJSObjectReference? _module;
@@ -110,5 +142,20 @@
         catch (JSDisconnectedException) { }
     }
 
+
     private static string Pct(double v) => v.ToString("0.##", CultureInfo.InvariantCulture) + "%";
+}
+
+@code {
+    /// <summary>How a sparkline's newest end meets the element beside it.</summary>
+    public enum SparkJoin
+    {
+        /// <summary>An end dot, for a chart with no gauge beside it (the 5G NR and LTE boxes).</summary>
+        Dot,
+        /// <summary>
+        /// Runs straight into the element beside it at the same level: a gauge's lit window (ONT,
+        /// cable modem), or the root of a bar stack, which moves to meet it (cellular).
+        /// </summary>
+        Level,
+    }
 }

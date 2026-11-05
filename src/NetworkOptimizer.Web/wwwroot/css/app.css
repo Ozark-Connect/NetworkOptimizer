@@ -2166,6 +2166,22 @@ a.stat-card-link:active {
     opacity: 0;
 }
 
+/* The held end of the line, thickening into the gauge's lit window, fill, or first bar. Its
+   shape (clip-path) and fill come from SignalSparkline; it covers the line's last stretch. */
+/* right: -2px runs it under the first bar's 2px corner radius; on a gauge the overlap is the
+   gauge's own gradient, so it does not show. It reaches 16px past the chart top and bottom
+   (SparklinePath.TaperPad), since a reading at a scale end thickens past the chart's box; the
+   fill is sized to the chart itself, so a gauge gradient stays on the gauge's scale. */
+.signal-spark-taper {
+    position: absolute;
+    top: -16px;
+    bottom: -16px;
+    right: -2px;
+    background: var(--taper-fill) no-repeat 0 16px / 100% calc(100% - 32px);
+    opacity: 0;
+    transform: scaleY(0.1);
+}
+
 .signal-spark-dot {
     position: absolute;
     width: 7px;
@@ -2186,12 +2202,13 @@ a.stat-card-link:active {
     opacity: 0;
 }
 
-/* Under the chart's oldest end, just above the bottom of the box (--spark-floor is the gap
-   from the chart down to it). */
+
+/* Square in the box's bottom-left corner: the chart starts on the box's left padding, and
+   --spark-floor is the gap from the chart down to the box's bottom. */
 .signal-spark-span {
     position: absolute;
     left: 0;
-    bottom: calc(6px - var(--spark-floor, 0px));
+    bottom: calc(0.75rem - var(--spark-floor, 0px));
     font-size: 0.6875rem;
     font-weight: 600;
     line-height: 1;
@@ -2235,6 +2252,16 @@ a.stat-card-link:active {
 
     .signal-spark-host[data-spark-roomy]:hover:not(:has([data-spark-model]:hover)) [data-spark-value] {
         transform: translateX(var(--spark-shift, 0));
+    }
+
+    /* Only while the chart is forward does its end thicken into the gauge. */
+    .signal-spark-host[data-spark-roomy]:hover:not(:has([data-spark-model]:hover)) .signal-spark-taper {
+        opacity: 1;
+        transform: none;
+    }
+
+    .signal-spark-host[data-spark-roomy]:hover:not(:has([data-spark-model]:hover)) [data-spark-anchor="root"] {
+        transform: translateY(var(--spark-lift, 0));
     }
 
     .signal-spark-host[data-spark-roomy]:hover:not(:has([data-spark-model]:hover)) [data-spark-model] {
@@ -2301,6 +2328,20 @@ a.stat-card-link:active {
     [data-spark-ready] .signal-spark-svg {
         animation: signal-spark-reveal 1.2s cubic-bezier(0.65, 0, 0.35, 1) backwards;
         transition: filter 0.45s ease;
+    }
+
+    /* Out: the taper collapses first. In: it swells once the gauge has slid into place. */
+    .signal-spark-taper {
+        transition: opacity 0.15s ease, transform 0.2s ease;
+    }
+
+    .signal-spark-host:hover:not(:has([data-spark-model]:hover)) .signal-spark-taper {
+        transition: opacity 0.2s ease 0.45s, transform 0.45s cubic-bezier(0.34, 1.3, 0.64, 1) 0.45s;
+    }
+
+    /* Cellular: the bars rise or drop as they slide, landing with their root on the line's end. */
+    .signal-spark-host [data-spark-anchor="root"] {
+        transition: transform 0.62s cubic-bezier(0.22, 1, 0.36, 1);
     }
 
     .signal-spark-host [data-spark-value] {

@@ -29,6 +29,26 @@ public class SparklinePathTests
     }
 
     [Fact]
+    public void ALanding_KeepsTheLastShareOfTheWidthForTheReachToTheLiveReading()
+    {
+        var r = SparklinePath.Build(Every15Min(62, 62), current: 55, Now, Day, 0, 100, Gap, landing: 6);
+
+        // The last mean (15 minutes old) sits at 93 of the 94 history keeps, not at 99; the line then
+        // reaches the live reading early in the landing and holds it flat to 100.
+        r.Line.Should().Contain(" 93.02,38").And.Contain(" 94.9,45").And.EndWith(" 100,45");
+        r.EndX.Should().Be(100);
+        r.EndY.Should().BeApproximately(45, 1e-9);
+    }
+    [Fact]
+    public void TaperPolygon_StartsAtTheStrokeAndEndsAtTheGaugesReach()
+    {
+        var poly = SparklinePath.TaperPolygon(40, up: "9%", down: "9%", steps: 2);
+
+        poly.Should().StartWith("polygon(0% calc(16px + 0.4 * (100% - 2 * 16px) - (0.875px + 0 * (9% - 0.875px)))");
+        poly.Should().Contain("100% calc(16px + 0.4 * (100% - 2 * 16px) - (0.875px + 1 * (9% - 0.875px)))");
+        poly.Should().EndWith("0% calc(16px + 0.4 * (100% - 2 * 16px) + (0.875px + 0 * (9% - 0.875px))))");
+    }
+    [Fact]
     public void NothingDraws_WithoutData()
     {
         var r = SparklinePath.Build(null, current: null, Now, Day, 0, 100, Gap);
@@ -95,7 +115,10 @@ public class SparklinePathTests
     [Fact]
     public void QualityStops_ChangeColorWhereTheBarsChangeCount()
     {
-        SignalGauge.QualityStops.Select(s => s.Position).Should().Equal(0, 20, 40, 60, 80, 100);
+        SignalGauge.QualityStops().Select(s => s.Position).Should().Equal(0, 20, 20, 40, 40, 60, 60, 80, 80, 100);
+        // Rescaled to a 50-100 day, the steps stay at the same qualities: 60 and 80 land at 20% and 60%.
+        SignalGauge.QualityStops(50).Select(s => s.Position).Should().Equal(0, 0, 0, 0, 0, 20, 20, 60, 60, 100);
+        SignalGauge.QualityStops()[4].Color.Should().Be("var(--signal-fair)", "a 55% reading is fair, like its bars");
     }
 
     [Fact]

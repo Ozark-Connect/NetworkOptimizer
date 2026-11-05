@@ -63,12 +63,23 @@ public static class SignalGauge
     }
 
     /// <summary>
-    /// Cellular signal quality, 0 to 100, colored at the thresholds where the hero's signal bars
-    /// light one more bar, so a sparkline on that scale changes color where the bars change count.
+    /// Cellular signal quality, 0 to 100, in hard steps at the thresholds where the hero's signal
+    /// bars light one more bar. The lit bars take one flat grade color, so a sparkline on this
+    /// scale has to change color at the same bounds, not blend across them, to match them.
     /// </summary>
-    public static readonly IReadOnlyList<GaugeStop> QualityStops =
-        [new(0, Poor), new(20, Weak), new(40, Fair), new(60, Good), new(80, Excellent), new(100, Excellent)];
-
+    /// <param name="floor">The quality at the bottom of the scale; the hero rescales to its day's range.</param>
+    public static IReadOnlyList<GaugeStop> QualityStops(double floor = 0)
+    {
+        double P(double q) => Position(q, floor, 100);
+        return
+        [
+            new(0, Poor), new(P(20), Poor),
+            new(P(20), Weak), new(P(40), Weak),
+            new(P(40), Fair), new(P(60), Fair),
+            new(P(60), Good), new(P(80), Good),
+            new(P(80), Excellent), new(100, Excellent),
+        ];
+    }
     /// <summary>
     /// Rising track for cellular RSRP: poor below <paramref name="fair"/>, fair up to
     /// <paramref name="good"/>, good above it, matching the grades the 5G NR and LTE boxes color by.

@@ -655,13 +655,17 @@ else
         }
     };
 
+    /// <summary>Half the gauge's lit window (SignalGauge.WindowEdges' 9%), measured on the chart's own height.</summary>
+    private static readonly string WindowHalf = $"calc(0.09 * (100% - 2 * {SparklinePath.TaperPad}))";
+
     /// <summary>The last 24 hours of Rx power behind the hero, on the gauge's own scale.</summary>
     private RenderFragment RxSpark(double? rxDbm, OpticalBands bands, string rxClass) => __builder =>
     {
         if (rxDbm.HasValue)
         {
             <SignalSparkline Points="_spark" Current="rxDbm" DomainLow="bands.DomainLow" DomainHigh="bands.DomainHigh"
-                             Stops="SignalGauge.OpticalStops(bands)" EndClass="@rxClass" />
+                             Stops="SignalGauge.OpticalStops(bands)" EndClass="@rxClass" Join="SignalSparkline.SparkJoin.Level"
+                             TaperFill="@SignalGauge.OpticalTrack(bands)" TaperUp="@WindowHalf" TaperDown="@WindowHalf" />
         }
     };
 
