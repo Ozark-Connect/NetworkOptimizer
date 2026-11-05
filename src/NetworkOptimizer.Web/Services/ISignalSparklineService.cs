@@ -4,11 +4,11 @@ using NetworkOptimizer.Web.Services.Gates;
 namespace NetworkOptimizer.Web.Services;
 
 /// <summary>
-/// The last 24 hours of the reading each Dashboard signal hero shows (ONT Rx power, cable modem
-/// downstream SNR, cellular signal quality), drawn behind it as a sparkline. Read from InfluxDB
-/// history; null when there is none.
+/// History drawn behind a reading as a sparkline: the last 24 hours of each Dashboard signal hero
+/// (ONT Rx power, cable modem downstream SNR, cellular signal quality and RSRP), and the last hour
+/// of Live View's tiles. Read from InfluxDB history; null when there is none.
 ///
-/// Site-scoped, Viewer: the Dashboard cards that show these are open to any role.
+/// Site-scoped, Viewer: the Dashboard and Live View cards that show these are open to any role.
 /// </summary>
 [MutatingService(SiteScoped = true)]
 public interface ISignalSparklineService
@@ -33,28 +33,46 @@ public interface ISignalSparklineService
     [RequireRole(Roles.Viewer)]
     Task<IReadOnlyList<SparkPoint>?> GetCellularQualityAsync(int modemId);
 
-    /// <summary>A device's health reading over the last hour: CPU, memory, or temperature (Live View's gateway tiles).</summary>
-    [RequireRole(Roles.Viewer)]
-    Task<IReadOnlyList<SparkPoint>?> GetDeviceHealthAsync(string deviceMac, DeviceHealthField field);
-
-    /// <summary>A monitoring target's average RTT (ms) or packet loss (%) over the last hour, across every vantage and WAN that probes it.</summary>
-    [RequireRole(Roles.Viewer)]
-    Task<IReadOnlyList<SparkPoint>?> GetTargetLatencyAsync(string targetId, LatencyField field);
-
     /// <summary>
-    /// RTT or loss over the last hour across a set of targets, combined per minute as Live View's ISP
-    /// and Transit tiles combine them live: <paramref name="nearest"/> takes the lowest (ISP, read as
-    /// its nearest hop), otherwise the mean (Transit).
+    /// The last hour of every Live View tile at once, from two queries: one for all the latency tiles
+    /// (Gateway, ISP, Transit; RTT and loss) and one for the gateway's health. Every tile passes the
+    /// same request, and callers asking at the same time share one fetch.
     /// </summary>
     [RequireRole(Roles.Viewer)]
-    Task<IReadOnlyList<SparkPoint>?> GetTargetGroupLatencyAsync(IReadOnlyList<string> targetIds, LatencyField field, bool nearest);
+    Task<LiveViewSparklines> GetLiveViewAsync(LiveViewSparkRequest request);
 }
 
-/// <summary>The device_health fields a sparkline can draw.</summary>
-public enum DeviceHealthField { Cpu, Memory, Temperature }
+/// <summary>
+/// What Live View's tiles read: the gateway, its fabric target, and the ISP and Transit targets in the
+/// current WAN scope.
+/// </summary>
+public sealed record LiveViewSparkRequest(
+    string? GatewayMac,
+    string? GatewayTargetId,
+    IReadOnlyList<string> IspTargetIds,
+    IReadOnlyList<string> TransitTargetIds)
+{
+    /// <summary>Identity for caching: the same tiles in the same scope ask for the same thing.</summary>
+    public string Key =>
+        $"{GatewayMac}|{GatewayTargetId}|{string.Join(",", IspTargetIds.Order(StringComparer.Ordinal))}|{string.Join(",", TransitTargetIds.Order(StringComparer.Ordinal))}";
+}
 
-/// <summary>The latency fields a sparkline can draw.</summary>
-public enum LatencyField { Rtt, Loss }
+/// <summary>The Live View tiles that carry a sparkline.</summary>
+public enum LiveViewSpark
+{
+    GatewayRtt, GatewayLoss, GatewayCpu, GatewayMemory, GatewayTemperature,
+    IspRtt, IspLoss, TransitRtt, TransitLoss,
+}
+
+/// <summary>Each Live View tile's last hour; a tile with no history has no entry.</summary>
+public sealed record LiveViewSparklines(IReadOnlyDictionary<LiveViewSpark, IReadOnlyList<SparkPoint>> Series)
+{
+    /// <summary>No history for any tile.</summary>
+    public static readonly LiveViewSparklines Empty = new(new Dictionary<LiveViewSpark, IReadOnlyList<SparkPoint>>());
+
+    /// <summary>The tile's points, or null.</summary>
+    public IReadOnlyList<SparkPoint>? For(LiveViewSpark tile) => Series.TryGetValue(tile, out var v) ? v : null;
+}
 
 /// <summary>One sparkline sample: the mean of a reading over one window.</summary>
 public readonly record struct SparkPoint(DateTime Time, double Value);

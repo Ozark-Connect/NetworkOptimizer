@@ -307,7 +307,7 @@
             </div>
             @{ var ispTarget = ScopedTargetStats(MonitoringTargetType.AccessIsp, meanAcrossTargets: false); var ispIds = ScopedTargetIds(MonitoringTargetType.AccessIsp); }
             <div class="monitoring-stat-card clickable-stat-card signal-spark-host" @onclick="@(() => JumpToAnalysis(AccessIspCategory))">
-                <StatTileSparkline Source="StatTileSparkline.StatSparkSource.Rtt" TargetIds="ispIds" Nearest="true" Current="ispTarget.rtt" Live="@(_mapHistoricAt == null && _historicSnapshot == null && !LiveWan.IsComparing)" />
+                <StatTileSparkline Spark="LiveViewSpark.IspRtt" Request="@LiveSparkRequest()" Current="ispTarget.rtt" Live="@(_mapHistoricAt == null && _historicSnapshot == null && !LiveWan.IsComparing)" />
                 @if (LiveWan.IsComparing)
                 {
                     <div class="stat-value stat-value-stacked">
@@ -328,7 +328,7 @@
                 <div class="stat-label">ISP RTT</div>
             </div>
             <div class="monitoring-stat-card clickable-stat-card signal-spark-host" @onclick="@(() => JumpToAnalysis(AccessIspCategory))">
-                <StatTileSparkline Source="StatTileSparkline.StatSparkSource.Loss" TargetIds="ispIds" Nearest="true" Current="@(ispIds.Count > 0 ? ispTarget.loss : null)" Live="@(_mapHistoricAt == null && _historicSnapshot == null && !LiveWan.IsComparing)" />
+                <StatTileSparkline Spark="LiveViewSpark.IspLoss" Request="@LiveSparkRequest()" Current="@(ispIds.Count > 0 ? ispTarget.loss : null)" Live="@(_mapHistoricAt == null && _historicSnapshot == null && !LiveWan.IsComparing)" />
                 @if (LiveWan.IsComparing)
                 {
                     <div class="stat-value stat-value-stacked">
@@ -350,7 +350,7 @@
             </div>
             @{ var transitTarget = ScopedTargetStats(MonitoringTargetType.Transit, meanAcrossTargets: true); var transitIds = ScopedTargetIds(MonitoringTargetType.Transit); }
             <div class="monitoring-stat-card clickable-stat-card stat-card-no-minheight signal-spark-host" @onclick="@(() => JumpToAnalysis(TransitCategory))">
-                <StatTileSparkline Source="StatTileSparkline.StatSparkSource.Rtt" TargetIds="transitIds" Current="transitTarget.rtt" Live="@(_mapHistoricAt == null && _historicSnapshot == null && !LiveWan.IsComparing)" />
+                <StatTileSparkline Spark="LiveViewSpark.TransitRtt" Request="@LiveSparkRequest()" Current="transitTarget.rtt" Live="@(_mapHistoricAt == null && _historicSnapshot == null && !LiveWan.IsComparing)" />
                 @if (LiveWan.IsComparing)
                 {
                     <div class="stat-value stat-value-stacked">
@@ -371,7 +371,7 @@
                 <div class="stat-label">Transit RTT</div>
             </div>
             <div class="monitoring-stat-card clickable-stat-card stat-card-no-minheight signal-spark-host" @onclick="@(() => JumpToAnalysis(TransitCategory))">
-                <StatTileSparkline Source="StatTileSparkline.StatSparkSource.Loss" TargetIds="transitIds" Current="@(transitIds.Count > 0 ? transitTarget.loss : null)" Live="@(_mapHistoricAt == null && _historicSnapshot == null && !LiveWan.IsComparing)" />
+                <StatTileSparkline Spark="LiveViewSpark.TransitLoss" Request="@LiveSparkRequest()" Current="@(transitIds.Count > 0 ? transitTarget.loss : null)" Live="@(_mapHistoricAt == null && _historicSnapshot == null && !LiveWan.IsComparing)" />
                 @if (LiveWan.IsComparing)
                 {
                     <div class="stat-value stat-value-stacked">
@@ -5104,27 +5104,27 @@
         <div class="monitoring-stat-cards" style="margin-top: 0.5rem;">
             @{ var gwTargetId = GetGatewayFabricTargetId(); }
             <div class="monitoring-stat-card clickable-stat-card signal-spark-host" @onclick="@(() => NavigationManager.NavigateTo(gwFabricUrl))">
-                <StatTileSparkline Source="StatTileSparkline.StatSparkSource.Rtt" TargetId="@gwTargetId" Current="gwLatency.rtt" Live="_mapHistoricAt == null" />
+                <StatTileSparkline Spark="LiveViewSpark.GatewayRtt" Request="@LiveSparkRequest()" Current="gwLatency.rtt" Live="_mapHistoricAt == null" />
                 <div class="stat-value">@FormatRtt(gwLatency.rtt)</div>
                 <div class="stat-label">Gateway RTT</div>
             </div>
             <div class="monitoring-stat-card clickable-stat-card signal-spark-host" @onclick="@(() => NavigationManager.NavigateTo(gwFabricUrl))">
-                <StatTileSparkline Source="StatTileSparkline.StatSparkSource.Loss" TargetId="@gwTargetId" Current="@(gwTargetId != null ? gwLatency.loss : null)" Live="_mapHistoricAt == null" />
+                <StatTileSparkline Spark="LiveViewSpark.GatewayLoss" Request="@LiveSparkRequest()" Current="@(gwTargetId != null ? gwLatency.loss : null)" Live="_mapHistoricAt == null" />
                 <div class="stat-value @(gwLatency.loss > 0 ? "stat-danger" : "")">@FormatLoss(gwLatency.loss)</div>
                 <div class="stat-label">Gateway Loss</div>
             </div>
             <div class="monitoring-stat-card clickable-stat-card signal-spark-host" @onclick="@(() => NavigationManager.NavigateTo(gwDeviceUrl))">
-                <StatTileSparkline Source="StatTileSparkline.StatSparkSource.Cpu" DeviceMac="@_gatewayMac" Current="gwStats?.CpuPercent" Live="_mapHistoricAt == null" />
+                <StatTileSparkline Spark="LiveViewSpark.GatewayCpu" Request="@LiveSparkRequest()" Current="gwStats?.CpuPercent" Live="_mapHistoricAt == null" />
                 <div class="stat-value">@FormatPercent(gwStats?.CpuPercent)</div>
                 <div class="stat-label">Gateway CPU</div>
             </div>
             <div class="monitoring-stat-card clickable-stat-card signal-spark-host" @onclick="@(() => NavigationManager.NavigateTo(gwDeviceUrl))">
-                <StatTileSparkline Source="StatTileSparkline.StatSparkSource.Memory" DeviceMac="@_gatewayMac" Current="gwStats?.MemoryUsedPercent" Live="_mapHistoricAt == null" />
+                <StatTileSparkline Spark="LiveViewSpark.GatewayMemory" Request="@LiveSparkRequest()" Current="gwStats?.MemoryUsedPercent" Live="_mapHistoricAt == null" />
                 <div class="stat-value">@FormatPercent(gwStats?.MemoryUsedPercent)</div>
                 <div class="stat-label">Gateway Memory</div>
             </div>
             <div class="monitoring-stat-card clickable-stat-card signal-spark-host" @onclick="@(() => NavigationManager.NavigateTo(gwDeviceUrl))">
-                <StatTileSparkline Source="StatTileSparkline.StatSparkSource.Temperature" DeviceMac="@_gatewayMac" Current="gwStats?.TemperatureC" Live="_mapHistoricAt == null" />
+                <StatTileSparkline Spark="LiveViewSpark.GatewayTemperature" Request="@LiveSparkRequest()" Current="gwStats?.TemperatureC" Live="_mapHistoricAt == null" />
                 <div class="stat-value">@FormatTemp(gwStats?.TemperatureC)</div>
                 <div class="stat-label">Gateway Temp</div>
             </div>
@@ -5197,28 +5197,9 @@
         }
         var targets = _targets.Where(t => t.TargetType == type && t.Enabled).ToList();
         if (targets.Count == 0) return (null, 0);
-
-        // Pick the target with the lowest RTT (nearest ISP infrastructure).
-        double? bestRtt = null;
-        double bestLoss = 0;
-        var freshLosses = new List<double>();
-        var freshAfter = DateTime.UtcNow - Services.MonitoringLiveStats.LiveReadingMaxAge;
-        foreach (var t in targets)
-        {
-            var s = LiveStats.GetTargetStats(t.TargetId);
-            // Current readings only - a target that stopped reporting must not keep presenting
-            // the reading it carried before it went quiet.
-            if (s == null || s.LastUpdate < freshAfter) continue;
-            freshLosses.Add(s.LossPercent);
-            if (s.RttAvgMs != null && (bestRtt == null || s.RttAvgMs.Value < bestRtt.Value))
-            {
-                bestRtt = s.RttAvgMs;
-                bestLoss = s.LossPercent;
-            }
-        }
-        // Nothing answered, so there is no nearest hop to read loss off; the mean of what did
-        // report is the honest figure, and 0% would read as a healthy connection mid-outage.
-        return (bestRtt, bestRtt == null ? (freshLosses.Count > 0 ? freshLosses.Average() : 0) : bestLoss);
+        // The access floor, as ISP Health reads the access layer; see MonitoringLiveStats.GetIspAccessFloorLive.
+        var (rtt, loss) = LiveStats.GetIspAccessFloorLive(targets.Select(t => t.TargetId));
+        return (rtt, loss ?? 0);
     }
 
 
@@ -5281,6 +5262,10 @@
         NetworkOptimizer.UniFi.GatewayWanHelper.SplitWanLabel(
             wan.Label, NetworkOptimizer.UniFi.GatewayWanHelper.WanIndexFromKey(wan.Key)).WanToken ?? wan.Label;
 
+    /// <summary>What every Live View tile's sparkline reads; the same for all of them, so they share one fetch.</summary>
+    private LiveViewSparkRequest LiveSparkRequest() => new(
+        _gatewayMac, GetGatewayFabricTargetId(),
+        ScopedTargetIds(MonitoringTargetType.AccessIsp), ScopedTargetIds(MonitoringTargetType.Transit));
     /// <summary>The targets an ISP or Transit tile reads right now: the selected WAN's own, or every enabled one.</summary>
     private IReadOnlyList<string> ScopedTargetIds(MonitoringTargetType type)
     {
@@ -5312,8 +5297,6 @@
             {
                 var rtts = new List<double>();
                 var losses = new List<double>();
-                double? best = null;
-                double bestLoss = 0;
                 var freshAfter = DateTime.UtcNow - Services.MonitoringLiveStats.LiveReadingMaxAge;
                 foreach (var t in targets)
                 {
@@ -5324,21 +5307,20 @@
                     losses.Add(st.LossPercent);
                     if (st.RttAvgMs == null) continue;
                     rtts.Add(st.RttAvgMs.Value);
-                    if (best == null || st.RttAvgMs.Value < best.Value)
-                    {
-                        best = st.RttAvgMs;
-                        bestLoss = st.LossPercent;
-                    }
                 }
-                // Transit reads as the mean of its hops; the access ISP reads as its nearest clean
-                // hop. Same choice the single-WAN tiles have always made, kept per WAN.
-                rtt = meanAcrossTargets ? (rtts.Count > 0 ? rtts.Average() : null) : best;
-                // With no hop answering there is no nearest hop to read loss off, and taking it
-                // from one anyway left the tile reporting that hop's last loss - 0% - through an
-                // outage where every hop was dark. Fall back to the mean of what did report.
-                loss = meanAcrossTargets || best == null
-                    ? (losses.Count > 0 ? losses.Average() : 0)
-                    : bestLoss;
+                if (meanAcrossTargets)
+                {
+                    // Transit reads as the mean of its hops.
+                    rtt = rtts.Count > 0 ? rtts.Average() : null;
+                    loss = losses.Count > 0 ? losses.Average() : 0;
+                }
+                else
+                {
+                    // The access ISP reads as its access floor, as ISP Health does.
+                    var floor = LiveStats.GetIspAccessFloorLive(targets.Select(t => t.TargetId));
+                    rtt = floor.RttAvgMs;
+                    loss = floor.LossPercent ?? 0;
+                }
             }
             rows.Add((WanRowLabel(wan), rtt, loss));
         }

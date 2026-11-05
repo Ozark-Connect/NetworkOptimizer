@@ -13,6 +13,48 @@ public class AccessFloorTests
         TestSeries.Flat(T0, Hour, rtt, jitter, loss);
 
     [Fact]
+    public void Live_TwoReportingHops_TakesTheLowestRtt_WithTheLowestMedianHopsLoss()
+    {
+        var (rtt, loss) = AccessFloor.Live([("a", 2.0, 0), ("b", 1.8, 5)], lowestMedianId: "a");
+
+        rtt.Should().Be(1.8);
+        loss.Should().Be(0, "loss comes from the lowest-median hop, as in Build");
+    }
+
+    [Fact]
+    public void Live_OneReportingHop_IsTheLowestMedianHopsOwnReading()
+    {
+        var (rtt, loss) = AccessFloor.Live([("a", 2.4, 1), ("b", null, 100)], lowestMedianId: "a");
+
+        rtt.Should().Be(2.4);
+        loss.Should().Be(1);
+    }
+
+    [Fact]
+    public void Live_NoRttAnywhere_ReportsTheMeanLoss_NotZero()
+    {
+        var (rtt, loss) = AccessFloor.Live([("a", null, 100), ("b", null, 50)], lowestMedianId: "a");
+
+        rtt.Should().BeNull();
+        loss.Should().Be(75);
+    }
+
+    [Fact]
+    public void Live_UnknownLowestMedianHop_FallsBackToTheFloorHop()
+    {
+        var (rtt, loss) = AccessFloor.Live([("a", 2.0, 3), ("b", 1.8, 4)], lowestMedianId: null);
+
+        rtt.Should().Be(1.8);
+        loss.Should().Be(4);
+    }
+
+    [Fact]
+    public void Live_NothingFresh_IsNull()
+    {
+        AccessFloor.Live([], "a").Should().Be(((double?)null, (double?)null));
+    }
+
+    [Fact]
     public void Build_TakesLowestRttAtEachTimestamp()
     {
         var a = Hop(2.0);

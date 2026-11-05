@@ -3,61 +3,54 @@
 
 @*
     The last hour behind a Live View tile (ISP and Transit RTT and Loss; Gateway RTT, Loss, CPU, Mem,
-    Temp). The tile
-    takes .signal-spark-host; this renders the chart and the strip it fills, both as its children.
+    Temp). The tile takes .signal-spark-host; this renders the chart and the strip it fills, both as its
+    children. Every tile on the page passes the same Request, so they share one fetch.
 *@
 @if (Live && _points != null && Current.HasValue)
 {
-    var (lo, hi) = SparklinePath.AutoDomain(_points, Current, MinSpan, floorZero: Source == StatSparkSource.Loss);
+    var (lo, hi) = SparklinePath.AutoDomain(_points, Current, MinSpan, floorZero: IsLoss);
     <SignalSparkline Points="_points" Current="Current" DomainLow="lo" DomainHigh="hi"
                      Stops="_stops" Tint="@Tint" Window="SignalSparklineService.TileWindow" />
     <div class="stat-spark-area" data-spark-area></div>
 }
 
 @code {
-    /// <summary>Which reading the tile shows.</summary>
-    [Parameter, EditorRequired] public StatSparkSource Source { get; set; }
+    /// <summary>Which tile this is.</summary>
+    [Parameter, EditorRequired] public LiveViewSpark Spark { get; set; }
 
-    /// <summary>The gateway's MAC, for CPU, memory, and temperature.</summary>
-    [Parameter] public string? DeviceMac { get; set; }
-
-    /// <summary>The gateway's fabric target, for RTT and loss.</summary>
-    [Parameter] public string? TargetId { get; set; }
-
-    /// <summary>
-    /// The targets an ISP or Transit tile reads, for RTT and loss across them; set, it is used
-    /// instead of <see cref="TargetId"/>.
-    /// </summary>
-    [Parameter] public IReadOnlyList<string>? TargetIds { get; set; }
-
-    /// <summary>With <see cref="TargetIds"/>: the lowest of the targets (the ISP's nearest hop), not their mean.</summary>
-    [Parameter] public bool Nearest { get; set; }
+    /// <summary>What the page's tiles read; the same for every tile on it.</summary>
+    [Parameter, EditorRequired] public LiveViewSparkRequest Request { get; set; } = default!;
 
     /// <summary>The tile's live value; the line ends on it.</summary>
     [Parameter] public double? Current { get; set; }
 
-    /// <summary>False while Live View shows a past moment: a line ending now would not match the tile.</summary>
+    /// <summary>
+    /// False while Live View shows a past moment or compares WANs: a single line ending now would not
+    /// match the tile.
+    /// </summary>
     [Parameter] public bool Live { get; set; } = true;
 
     private IReadOnlyList<SparkPoint>? _points;
     private IReadOnlyList<GaugeStop> _stops = [];
 
+    private bool IsLoss => Spark is LiveViewSpark.GatewayLoss or LiveViewSpark.IspLoss or LiveViewSpark.TransitLoss;
+    private bool IsRtt => Spark is LiveViewSpark.GatewayRtt or LiveViewSpark.IspRtt or LiveViewSpark.TransitRtt;
+
     // RTT and loss take the live WAN chart's colors (wan-live-chart.js); the rest, the graph palette.
-    private string Tint => Source switch
+    private string Tint => Spark switch
     {
-        StatSparkSource.Rtt => "#d946ef",
-        StatSparkSource.Loss => "#ef4444",
-        StatSparkSource.Cpu => "#3b82f6",
-        StatSparkSource.Memory => "#a78bfa",
+        _ when IsRtt => "#d946ef",
+        _ when IsLoss => "#ef4444",
+        LiveViewSpark.GatewayCpu => "#3b82f6",
+        LiveViewSpark.GatewayMemory => "#a78bfa",
         _ => "#f59e0b",
     };
 
     // The least span the scale shows, so a steady reading's noise stays a near-flat line.
-    private double MinSpan => Source switch
+    private double MinSpan => Spark switch
     {
-        StatSparkSource.Rtt => 2,
-        StatSparkSource.Loss => 2,
-        StatSparkSource.Temperature => 5,
+        _ when IsRtt || IsLoss => 2,
+        LiveViewSpark.GatewayTemperature => 5,
         _ => 10,
     };
 
@@ -67,29 +60,12 @@
         if (!Live) return;
         try
         {
-            // The service caches each series for two minutes, so the tile's 10-second renders are cheap.
-            _points = Source switch
-            {
-                StatSparkSource.Rtt or StatSparkSource.Loss when TargetIds != null =>
-                    await SparkService.GetTargetGroupLatencyAsync(TargetIds, Source == StatSparkSource.Rtt ? LatencyField.Rtt : LatencyField.Loss, Nearest),
-                StatSparkSource.Rtt or StatSparkSource.Loss when !string.IsNullOrEmpty(TargetId) =>
-                    await SparkService.GetTargetLatencyAsync(TargetId, Source == StatSparkSource.Rtt ? LatencyField.Rtt : LatencyField.Loss),
-                StatSparkSource.Cpu or StatSparkSource.Memory or StatSparkSource.Temperature when !string.IsNullOrEmpty(DeviceMac) =>
-                    await SparkService.GetDeviceHealthAsync(DeviceMac, Source switch
-                    {
-                        StatSparkSource.Cpu => DeviceHealthField.Cpu,
-                        StatSparkSource.Memory => DeviceHealthField.Memory,
-                        _ => DeviceHealthField.Temperature,
-                    }),
-                _ => null,
-            };
+            // Cached for 30 seconds and shared across the tiles, so the 10-second renders are cheap.
+            _points = (await SparkService.GetLiveViewAsync(Request)).For(Spark);
         }
         catch
         {
             _points = null;
         }
     }
-
-    /// <summary>The gateway tile readings that carry a sparkline.</summary>
-    public enum StatSparkSource { Rtt, Loss, Cpu, Memory, Temperature }
 }

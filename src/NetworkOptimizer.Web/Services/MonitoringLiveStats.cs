@@ -4,6 +4,7 @@ using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.Storage.Services;
 using NetworkOptimizer.UniFi;
 using NetworkOptimizer.Web.Services.Monitoring;
+using NetworkOptimizer.Web.Services.Monitoring.IspHealth;
 
 namespace NetworkOptimizer.Web.Services;
 
@@ -495,6 +496,64 @@ public class MonitoringLiveStats
             Success = success,
             LastUpdate = timestamp
         };
+        if (rttAvgMs is double rtt)
+        {
+            var history = _targetRttHistory.GetOrAdd(targetId, _ => new Queue<(DateTime, double)>());
+            lock (history)
+            {
+                history.Enqueue((timestamp, rtt));
+                var cutoff = timestamp - MedianWindow;
+                while (history.Count > 0 && history.Peek().Item1 < cutoff) history.Dequeue();
+            }
+        }
+    }
+
+    /// <summary>How far back a hop's RTT counts toward its median, for picking the access floor's loss hop.</summary>
+    public static readonly TimeSpan MedianWindow = TimeSpan.FromHours(1);
+
+    // Each target's RTT probes over the last MedianWindow; a few hundred values per target at most.
+    private readonly ConcurrentDictionary<string, Queue<(DateTime At, double Rtt)>> _targetRttHistory = new();
+
+    /// <summary>
+    /// Of <paramref name="targetIds"/>, the one with the lowest median RTT over the last hour, or
+    /// null with no history yet. The access floor's fallback hop and the source of its loss, as in
+    /// ISP Health.
+    /// </summary>
+    public string? LowestMedianTarget(IEnumerable<string> targetIds)
+    {
+        var cutoff = DateTime.UtcNow - MedianWindow;
+        string? best = null;
+        var bestMedian = double.MaxValue;
+        foreach (var id in targetIds)
+        {
+            if (!_targetRttHistory.TryGetValue(id, out var history)) continue;
+            List<double> rtts;
+            lock (history) rtts = history.Where(h => h.At >= cutoff).Select(h => h.Rtt).ToList();
+            if (rtts.Count == 0) continue;
+            rtts.Sort();
+            var median = rtts.Count % 2 == 1 ? rtts[rtts.Count / 2] : (rtts[rtts.Count / 2 - 1] + rtts[rtts.Count / 2]) / 2;
+            if (median < bestMedian) (best, bestMedian) = (id, median);
+        }
+        return best;
+    }
+
+    /// <summary>
+    /// The ISP access layer right now, read as ISP Health reads it (<see cref="AccessFloor.Live"/>):
+    /// the lowest RTT across the fresh access hops, with loss from the lowest-median hop. Null RTT and
+    /// loss with no fresh hop.
+    /// </summary>
+    public (double? RttAvgMs, double? LossPercent) GetIspAccessFloorLive(IEnumerable<string> ispTargetIds)
+    {
+        var ids = ispTargetIds as IReadOnlyCollection<string> ?? ispTargetIds.ToList();
+        var stale = DateTime.UtcNow - LiveReadingMaxAge;
+        var fresh = new List<(string, double?, double)>();
+        foreach (var id in ids)
+        {
+            var st = GetTargetStats(id);
+            if (st == null || st.LastUpdate < stale) continue;
+            fresh.Add((id, st.RttAvgMs, st.LossPercent));
+        }
+        return AccessFloor.Live(fresh, LowestMedianTarget(ids));
     }
 
     /// <summary>Cached list of enabled ISP+Transit monitoring targets. Refreshed every 30s.</summary>
@@ -526,10 +585,10 @@ public class MonitoringLiveStats
     }
 
     /// <summary>
-    /// Combined ISP+Transit live latency as plotted by the WAN live chart: RTT and
-    /// loss averaged per target type, then the mean of the two types. Loss is
+    /// Combined ISP+Transit live latency as plotted by the WAN live chart: the ISP access floor
+    /// (<see cref="GetIspAccessFloorLive"/>) and the Transit mean, then the mean of the two. Loss is
     /// combined over the types that have loss samples, independent of RTT presence,
-    /// mirroring the historic series (QueryMeanIspTransitLatencyAsync) - during a
+    /// mirroring the historic series (WanLatencySeries) - during a
     /// full outage RTT goes null while loss pegs at 100, and gating loss on RTT
     /// blanked the chart exactly when loss mattered most. Shared by the live-stats
     /// endpoint and the LAN flow map WAN globes so both always show the same number.
@@ -562,8 +621,6 @@ public class MonitoringLiveStats
                 StringComparison.OrdinalIgnoreCase))
             .ToList();
 
-        var ispRtts = new List<double>();
-        var ispLosses = new List<double>();
         var transitRtts = new List<double>();
         var transitLosses = new List<double>();
 
@@ -580,20 +637,17 @@ public class MonitoringLiveStats
             var st = GetTargetStats(t.TargetId);
             if (st == null || st.LastUpdate < stale) continue;
 
-            if (t.TargetType == MonitoringTargetType.AccessIsp)
-            {
-                if (st.RttAvgMs != null) ispRtts.Add(st.RttAvgMs.Value);
-                ispLosses.Add(st.LossPercent);
-            }
-            else
+            if (t.TargetType != MonitoringTargetType.AccessIsp)
             {
                 if (st.RttAvgMs != null) transitRtts.Add(st.RttAvgMs.Value);
                 transitLosses.Add(st.LossPercent);
             }
         }
 
-        var ispRtt = ispRtts.Count > 0 ? ispRtts.Average() : (double?)null;
-        var ispLoss = ispLosses.Count > 0 ? ispLosses.Average() : (double?)null;
+        // The ISP half is the access floor, as ISP Health reads the access layer: one hop's slow
+        // control-plane replies no longer lift it. It still carries half the weight, as the mean did.
+        var (ispRtt, ispLoss) = GetIspAccessFloorLive(
+            targets.Where(t => t.TargetType == MonitoringTargetType.AccessIsp).Select(t => t.TargetId));
         var transitRtt = transitRtts.Count > 0 ? transitRtts.Average() : (double?)null;
         var transitLoss = transitLosses.Count > 0 ? transitLosses.Average() : (double?)null;
 
