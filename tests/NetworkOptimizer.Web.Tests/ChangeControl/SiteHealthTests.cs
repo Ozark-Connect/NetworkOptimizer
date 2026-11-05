@@ -1,5 +1,6 @@
 using FluentAssertions;
 using NetworkOptimizer.Core.Enums;
+using NetworkOptimizer.Core.Helpers;
 using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.Storage.Services;
 using NetworkOptimizer.UniFi;
@@ -79,7 +80,7 @@ public class SiteHealthTests
         h.Wifi.Should().BeApproximately(0.15, 0.0001);
         h.WirelessShare.Should().Be(0.5);
         h.Health.Should().BeApproximately(92.5, 0.05);
-        h.Worst.Should().Be("Wi-Fi: AP1 5 GHz, 20% of samples under 80");
+        h.Worst.Should().Be("Wi-Fi: AP1 5 GHz, 20% of client satisfaction under 80");
     }
 
     [Fact]
@@ -149,8 +150,25 @@ public class SiteHealthTests
         var series = SiteHealthSeriesBuilder.Build(hours, T, T.AddDays(30));
         series.Points.Count.Should().BeLessThanOrEqualTo(200);
         series.TopArea.Should().Be("Wi-Fi");
-        series.TopIssue.Should().Be("Wi-Fi: AP1 5 GHz, 20% of samples under 80 (costs 5 points)");
+        series.TopIssue.Should().Be("Wi-Fi: AP1 5 GHz (avg 5 health points)");
+        series.TopDetail.Should().Be("20% of client satisfaction under 80");
+        series.TopDetailAt.Should().Be(hours.Last(h => h.DetailsJson != null).HourStart);
         series.TopShort.Should().Be("Wi-Fi: AP1 5 GHz");
+        series.Describe(TimeZoneInfo.Utc, DisplayFormat.Fallback).Should()
+            .StartWith("Wi-Fi: AP1 5 GHz (avg 5 health points). Latest, ").And.EndWith(": 20% of client satisfaction under 80");
+    }
+
+    [Fact]
+    public void Series_KeepsANonWiFiIssueWhole()
+    {
+        var hours = Enumerable.Range(0, 24).Select(i => Hour(i,
+            i == 8 ? ("Internet", 0.047, "WAN outage, 3 min (ISP)") : null)).ToList();
+
+        var series = SiteHealthSeriesBuilder.Build(hours, T, T.AddDays(1));
+
+        series.TopIssue.Should().Be("Internet: WAN outage, 3 min (ISP) (avg < 1 health point)");
+        series.TopDetail.Should().BeNull();
+        series.Describe(TimeZoneInfo.Utc, DisplayFormat.Fallback).Should().Be(series.TopIssue);
     }
 
     [Fact]
@@ -158,9 +176,9 @@ public class SiteHealthTests
     {
         var hours = Enumerable.Range(0, 24).Select(i => Hour(i,
             i == 8 ? ("Internet", 0.047, "partial WAN outage, 4 of 27 targets, 19 min (ISP)") : null,
-            ("Wi-Fi", 0.0012, "AP1 5 GHz, 1% of samples under 80"))).ToList();
+            ("Wi-Fi", 0.0012, "AP1 5 GHz, 1% of client satisfaction under 80"))).ToList();
 
-        var (area, text, _) = SiteHealthSeriesBuilder.TopIssue(hours);
+        var (area, text, _, _) = SiteHealthSeriesBuilder.TopIssue(hours);
 
         area.Should().Be("Internet");
         text.Should().Be("partial WAN outage, 4 of 27 targets, 19 min (ISP)");
@@ -169,7 +187,7 @@ public class SiteHealthTests
     [Fact]
     public void TopIssue_SteadyNoiseUnderBothBarsStaysHidden()
     {
-        var hours = Enumerable.Range(0, 24).Select(i => Hour(i, ("Wi-Fi", 0.004, "AP1 5 GHz, 1% of samples under 80"))).ToList();
+        var hours = Enumerable.Range(0, 24).Select(i => Hour(i, ("Wi-Fi", 0.004, "AP1 5 GHz, 1% of client satisfaction under 80"))).ToList();
 
         SiteHealthSeriesBuilder.TopIssue(hours).Area.Should().BeNull();
     }
@@ -177,7 +195,7 @@ public class SiteHealthTests
     [Fact]
     public void TopIssue_ASteadyIssueThatNeverPeaksStillShows()
     {
-        var hours = Enumerable.Range(0, 24).Select(i => Hour(i, ("Wi-Fi", 0.015, "AP1 5 GHz, 15% of samples under 80"))).ToList();
+        var hours = Enumerable.Range(0, 24).Select(i => Hour(i, ("Wi-Fi", 0.015, "AP1 5 GHz, 15% of client satisfaction under 80"))).ToList();
 
         SiteHealthSeriesBuilder.TopIssue(hours).Area.Should().Be("Wi-Fi");
     }

@@ -11,6 +11,7 @@
 @inject SiteRegistryChangeNotifier ChangeNotifier
 @inject NetworkOptimizer.Web.Services.Identity.IUserPreferences UserPreferences
 @inject ILogger<SitesHealthPanel> Logger
+@inject IDisplayTimeZone DisplayTime
 
 @* The Dashboard's Sites panel: which site needs you and why, worst first. Renders nothing until
    multi-site is on with more than one site, so it sits on the Dashboard unconditionally. Reads only
@@ -95,7 +96,7 @@
                     @if (s.Online && s.Health.TopIssue != null && s.Health.TopHref is { } issueHref)
                     {
                         <a class="shp-issue shp-count-link" href="@SiteContextService.WithSiteParam(issueHref, s.Slug)" data-site-switch="@s.Slug"
-                           data-tooltip="@($"{s.Health.TopIssue}. Open {s.Health.TopHrefLabel}")">@s.Health.TopIssue</a>
+                           data-tooltip="@($"{s.Health.Describe(DisplayTime.Zone, DisplayTime.Format)}. Open {s.Health.TopHrefLabel}")">@s.Health.TopIssue</a>
                     }
                     else
                     {
@@ -217,8 +218,11 @@
         : s.Health.TopIssue;
 
     /// <summary>The tile's hover: the issue, then the rollout, since the pill sits inside the tile's tooltip.</summary>
-    private static string TileTip(SiteHealthSummary s) =>
-        s.Rollout is { } r ? $"{Issue(s) ?? "No issues"}. {r.Describe(DateTime.UtcNow)}" : Issue(s) ?? "No issues";
+    private string TileTip(SiteHealthSummary s)
+    {
+        var issue = (s.Online ? s.Health.Describe(DisplayTime.Zone, DisplayTime.Format) : Issue(s)) ?? "No issues";
+        return s.Rollout is { } r ? $"{issue}. {r.Describe(DateTime.UtcNow)}" : issue;
+    }
 
     private static string? ShortIssue(SiteHealthSummary s) => !s.Online
         ? (s.AgentOffline ? "Agent offline" : "Console unreachable")

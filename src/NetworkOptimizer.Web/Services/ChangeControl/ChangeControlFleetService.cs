@@ -226,7 +226,7 @@ public sealed class ChangeControlFleetService : IChangeControlFleetService
             DriftObjects = drift,
             NetworkAppVersion = state.NetworkAppVersion,
             Health24h = health.Average,
-            HealthIssue = health.TopIssue,
+            HealthIssue = health.Describe(Viewer, ViewerFormat),
         };
     }
 

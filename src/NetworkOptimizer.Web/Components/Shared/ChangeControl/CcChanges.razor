@@ -118,7 +118,7 @@
                     <CcTrack From="_from" To="_to" Health="row.Health.Points" Markers="markers" Bands="row.Bands"
                              SelectedId="_selected?.Id" OnMarker="SelectAsync" />
                     <div class="cc-tl-counts">
-                        <div data-tooltip="@(row.Health.TopIssue ?? "Site Health: the share of user-time with good service")">
+                        <div data-tooltip="@(row.Health.Describe(DisplayTime.Zone, DisplayTime.Format) ?? "Site Health: the share of user-time with good service")">
                             @if (row.Health.Average is { } avg)
                             {
                                 <b class="cc-health-@HealthLevel(avg)">@avg.ToString("0.#")</b> <span>health</span>

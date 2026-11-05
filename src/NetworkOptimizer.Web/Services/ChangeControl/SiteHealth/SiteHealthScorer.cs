@@ -132,8 +132,8 @@ public static class SiteHealthScorer
         var wifiWeighted = (wifi ?? 0) * (wirelessShare ?? 1);
         if (wifiWeighted > 0)
             contributors.Add(new("Wi-Fi", wifiWeighted, x.WorstRadio is { } radio
-                ? $"{radio}, {x.WorstRadioShare * 100:0}% of samples under {GoodSatisfaction}"
-                : $"{(double)x.WifiBelow80 / Math.Max(1, x.WifiSamples) * 100:0}% of samples under {GoodSatisfaction}"));
+                ? $"{radio}, {x.WorstRadioShare * 100:0}% of client satisfaction under {GoodSatisfaction}"
+                : $"{(double)x.WifiBelow80 / Math.Max(1, x.WifiSamples) * 100:0}% of client satisfaction under {GoodSatisfaction}"));
 
         var availability = Math.Clamp(x.Availability, 0, 1);
         if (availability > 0) contributors.Add(new("Availability", availability, x.AvailabilityText ?? "devices offline"));

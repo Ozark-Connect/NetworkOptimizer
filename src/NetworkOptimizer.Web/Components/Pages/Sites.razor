@@ -106,7 +106,7 @@ else
                 </div>
                 @if (_health.TryGetValue(site.Slug, out var health) && (health.Health.Latest ?? health.Health.Average) is { } siteHealth)
                 {
-                    <div class="site-card-health" data-tooltip="@(health.Health.TopIssue ?? "No issues in the last 24 hours")">
+                    <div class="site-card-health" data-tooltip="@(health.Health.Describe(DisplayTime.Zone, DisplayTime.Format) ?? "No issues in the last 24 hours")">
                         <span class="health-@NetworkOptimizer.Web.Services.ChangeControl.SiteHealth.SiteHealthSeriesBuilder.Level(siteHealth)">@siteHealth.ToString("0.#")</span>
                         <span>Site Health@(health.Health.Average is { } avg ? $", {avg:0.#} over 24 hours" : "")</span>
                     </div>
