@@ -69,6 +69,13 @@ public static class SignalGauge
     public static readonly IReadOnlyList<GaugeStop> QualityStops =
         [new(0, Poor), new(20, Weak), new(40, Fair), new(60, Good), new(80, Excellent), new(100, Excellent)];
 
+    /// <summary>
+    /// Rising track for cellular RSRP: poor below <paramref name="fair"/>, fair up to
+    /// <paramref name="good"/>, good above it, matching the grades the 5G NR and LTE boxes color by.
+    /// </summary>
+    public static IReadOnlyList<GaugeStop> RsrpStops(double domainLow, double domainHigh, double fair, double good) =>
+        [new(0, Poor), new(Position(fair, domainLow, domainHigh), Fair), new(Position(good, domainLow, domainHigh), Good), new(100, Excellent)];
+
     private static string Css(IEnumerable<GaugeStop> stops) =>
         "linear-gradient(to top, " +
         string.Join(", ", stops.Select(s => $"{s.Color} {s.Position.ToString("0.#", CultureInfo.InvariantCulture)}%")) + ")";

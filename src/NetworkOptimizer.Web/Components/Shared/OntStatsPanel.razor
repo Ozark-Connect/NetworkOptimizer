@@ -38,9 +38,9 @@ else if (IsShowingExternal && _externalOntStats != null)
 
     <div class="signal-quality-section signal-with-model signal-spark-host">
         @RxSpark(_externalOntStats.RxPowerDbm, OpticalBands.ExternalOnt, ExternalRxClass())
-        <div class="signal-hero">
+        <div class="signal-hero" data-spark-value>
             @RxGauge(_externalOntStats.RxPowerDbm, OpticalBands.ExternalOnt)
-            <div class="ont-rx-gauge" data-spark-value>
+            <div class="ont-rx-gauge">
                 <span class="rx-power-value @ExternalRxClass()">
                     @(_externalOntStats.RxPowerDbm.HasValue ? $"{_externalOntStats.RxPowerDbm.Value:0.0#} dBm" : "-")
                 </span>
@@ -244,9 +244,9 @@ else
 
     <div class="signal-quality-section signal-with-model signal-spark-host">
         @RxSpark(stats?.RxPowerDbm, BandsFor(current.Category), rxClass)
-        <div class="signal-hero">
+        <div class="signal-hero" data-spark-value>
             @RxGauge(stats?.RxPowerDbm, BandsFor(current.Category))
-            <div class="ont-rx-gauge" data-spark-value>
+            <div class="ont-rx-gauge">
                 <span class="rx-power-value @rxClass">
                     @(stats?.RxPowerDbm.HasValue == true ? $"{stats.RxPowerDbm.Value:0.0#} dBm" : "-")
                 </span>

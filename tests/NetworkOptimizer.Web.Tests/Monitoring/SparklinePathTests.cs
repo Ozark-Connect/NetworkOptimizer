@@ -99,6 +99,16 @@ public class SparklinePathTests
     }
 
     [Fact]
+    public void RsrpStops_ChangeColorAtTheBoxGrades()
+    {
+        var stops = SignalGauge.RsrpStops(-125, -65, fair: -100, good: -90);
+
+        stops.Select(s => s.Position).Should().Equal(0, SignalGauge.Position(-100, -125, -65), SignalGauge.Position(-90, -125, -65), 100);
+        stops[1].Color.Should().Be("var(--signal-fair)");
+        stops[2].Color.Should().Be("var(--signal-good)");
+    }
+
+    [Fact]
     public void OpticalStops_AreTheTracksStops()
     {
         var stops = SignalGauge.OpticalStops(OpticalBands.Pon);

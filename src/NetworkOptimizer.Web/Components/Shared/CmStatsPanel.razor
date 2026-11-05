@@ -115,7 +115,7 @@
                 <SignalSparkline Points="_spark" Current="_stats.DownstreamSnrAvgDb" DomainLow="SnrDomainLow" DomainHigh="SnrDomainHigh"
                                  Stops="SnrStops" EndClass="@GetSnrClass(_stats.DownstreamSnrAvgDb)" />
             }
-            <div class="signal-hero">
+            <div class="signal-hero" data-spark-value>
                 @if (_stats.DownstreamSnrAvgDb.HasValue)
                 {
                     var snrPos = SignalGauge.Position(_stats.DownstreamSnrAvgDb.Value, SnrDomainLow, SnrDomainHigh);
@@ -123,7 +123,7 @@
                         <div class="gauge-shade" style="height: @($"{100 - snrPos:0.#}")%"></div>
                     </div>
                 }
-                <div class="ont-rx-gauge" data-spark-value>
+                <div class="ont-rx-gauge">
                     <span class="rx-power-value @GetSnrClass(_stats.DownstreamSnrAvgDb)">
                         @(_stats.DownstreamSnrAvgDb.HasValue ? $"{_stats.DownstreamSnrAvgDb.Value:F1} dB" : "-")
                     </span>

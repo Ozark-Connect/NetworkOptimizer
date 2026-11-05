@@ -25,6 +25,10 @@ public interface ISignalSparklineService
     [RequireRole(Roles.Viewer)]
     Task<IReadOnlyList<SparkPoint>?> GetCmSnrAsync(int cmId);
 
+    /// <summary>RSRP of a cellular modem's 5G NR leg (<paramref name="nr"/>) or LTE leg, in dBm.</summary>
+    [RequireRole(Roles.Viewer)]
+    Task<IReadOnlyList<SparkPoint>?> GetCellularRsrpAsync(int modemId, bool nr);
+
     /// <summary>Signal quality of a cellular modem, 0 to 100.</summary>
     [RequireRole(Roles.Viewer)]
     Task<IReadOnlyList<SparkPoint>?> GetCellularQualityAsync(int modemId);

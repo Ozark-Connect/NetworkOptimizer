@@ -4130,6 +4130,7 @@ from(bucket: ""{_longtermBucket}"")
     /// both network modes, or a module seen under two device types, still draws one line.
     /// </summary>
     /// <param name="tags">Exact tag matches that pick the device, e.g. ("cm_id", "3").</param>
+    /// <param name="excludeTags">Tag values to leave out, e.g. ("network_mode", "LTE") for a modem's NR leg.</param>
     public async Task<List<(DateTime Time, double Value)>> QueryFieldSeriesAsync(
         string measurement,
         IReadOnlyList<(string Tag, string Value)> tags,
@@ -4137,6 +4138,7 @@ from(bucket: ""{_longtermBucket}"")
         DateTime from,
         DateTime to,
         TimeSpan window,
+        IReadOnlyList<(string Tag, string Value)>? excludeTags = null,
         CancellationToken ct = default)
     {
         if (!IsConfigured) await ReconfigureAsync(ct);
@@ -4145,6 +4147,8 @@ from(bucket: ""{_longtermBucket}"")
         // device_mac is written normalized, so a caller's dashed or uppercase MAC is matched the same way.
         var tagFilter = string.Join(" and ", tags.Select(t =>
             $@"r.{SanitizeFluxIdentifier(t.Tag)} == ""{(t.Tag == "device_mac" ? NormalizeMac(t.Value) : SanitizeFluxString(t.Value))}"""));
+        foreach (var t in excludeTags ?? [])
+            tagFilter += $@" and r.{SanitizeFluxIdentifier(t.Tag)} != ""{SanitizeFluxString(t.Value)}""";
         var flux = $@"
 from(bucket: ""{_longtermBucket}"")
   |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})

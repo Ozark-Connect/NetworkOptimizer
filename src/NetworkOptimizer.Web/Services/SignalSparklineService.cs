@@ -47,11 +47,20 @@ public class SignalSparklineService : ISignalSparklineService
     public Task<IReadOnlyList<SparkPoint>?> GetCellularQualityAsync(int modemId) =>
         CachedAsync($"cell:{modemId}", "cellular", new[] { ("modem_id", modemId.ToString()) }, "signal_quality");
 
+    /// <inheritdoc />
+    /// <remarks>The LTE leg is written with network_mode "LTE"; the NR leg under the mode's own label ("5G NSA", "5G SA").</remarks>
+    public Task<IReadOnlyList<SparkPoint>?> GetCellularRsrpAsync(int modemId, bool nr) =>
+        nr
+            ? CachedAsync($"cell-rsrp:{modemId}:nr", "cellular", new[] { ("modem_id", modemId.ToString()) }, "rsrp",
+                excludeTags: new[] { ("network_mode", "LTE") })
+            : CachedAsync($"cell-rsrp:{modemId}:lte", "cellular", new[] { ("modem_id", modemId.ToString()), ("network_mode", "LTE") }, "rsrp");
+
     // Resolved per call, like the sibling site-scoped services: the circuit's site can change.
     private MonitoringInfluxClient Influx => _influxRegistry.GetFor(_siteContext.Slug);
 
     private async Task<IReadOnlyList<SparkPoint>?> CachedAsync(
-        string key, string measurement, (string, string)[] tags, string field)
+        string key, string measurement, (string, string)[] tags, string field,
+        (string, string)[]? excludeTags = null)
     {
         key = $"{_siteContext.Slug}|{key}";
         var now = DateTime.UtcNow;
@@ -61,7 +70,7 @@ public class SignalSparklineService : ISignalSparklineService
         IReadOnlyList<SparkPoint>? value;
         try
         {
-            var rows = await Influx.QueryFieldSeriesAsync(measurement, tags, field, now - Window, now, Bucket);
+            var rows = await Influx.QueryFieldSeriesAsync(measurement, tags, field, now - Window, now, Bucket, excludeTags);
             // Two points is the least that draws a line.
             value = rows.Count >= 2 ? rows.Select(r => new SparkPoint(r.Time, r.Value)).ToList() : null;
         }

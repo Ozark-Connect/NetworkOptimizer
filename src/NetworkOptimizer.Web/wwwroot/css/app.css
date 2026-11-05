@@ -2110,9 +2110,9 @@ a.stat-card-link:active {
 
 /* Signal hero sparklines (SignalSparkline.razor). signal-spark.js sets the --spark-* geometry
    to the hero's gauge or bar stack, and the data-spark-* attributes; at rest the last 24 hours
-   sit faintly behind the text. On hover the model fades, the value slides right, and the chart
-   comes up to full strength on the gauge's own scale. Pointing at the model itself keeps it (and
-   its tooltip) in place. */
+   sit faintly behind the text. On hover the model fades, the gauge and its value slide right
+   together, and the chart comes up to full strength on the gauge's own scale, ending level with
+   the gauge's reading. Pointing at the model itself keeps it (and its tooltip) in place. */
 .signal-spark-host {
     position: relative;
     isolation: isolate;
@@ -2186,17 +2186,45 @@ a.stat-card-link:active {
     opacity: 0;
 }
 
+/* Inside the chart's oldest corner: below it, a short gauge leaves no room before the card edge. */
 .signal-spark-span {
     position: absolute;
     left: 0;
-    top: calc(100% + 3px);
-    font-size: 0.625rem;
+    bottom: 0;
+    font-size: 0.6875rem;
     font-weight: 600;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
+    line-height: 1;
     color: var(--text-muted);
     opacity: 0;
-    transform: translateY(-3px);
+    transform: translateY(3px);
+}
+
+/* The 5G NR / LTE boxes: the chart covers the rows, which step aside on hover for it and a
+   live RSRP readout in the box's top right. */
+.signal-spark-host > .spark-box-readout {
+    position: absolute;
+    top: 0.75rem;
+    right: 0.75rem;
+    display: flex;
+    align-items: baseline;
+    gap: 0.4rem;
+    font-family: monospace;
+    font-size: 0.85rem;
+    font-weight: 600;
+    opacity: 0;
+    transform: translateX(8px);
+    pointer-events: none;
+}
+
+.spark-box-readout-label {
+    font-family: var(--font-sans);
+    font-size: 0.6875rem;
+    font-weight: 600;
+    color: var(--text-muted);
+}
+
+.metric-box .signal-spark-span {
+    display: none;
 }
 
 @media (hover: hover) and (pointer: fine) {
@@ -2232,6 +2260,17 @@ a.stat-card-link:active {
         opacity: 1;
         transform: none;
     }
+
+    .signal-spark-host[data-spark-roomy]:hover [data-spark-fill] {
+        opacity: 0;
+        transform: translateY(4px);
+        filter: blur(4px);
+    }
+
+    .signal-spark-host[data-spark-roomy]:hover > .spark-box-readout {
+        opacity: 1;
+        transform: none;
+    }
 }
 
 .signal-spark.signal-excellent { --spark-glow: var(--signal-excellent); }
@@ -2244,6 +2283,18 @@ a.stat-card-link:active {
 @media (prefers-reduced-motion: no-preference) {
     [data-spark-ready] > .signal-spark {
         transition: opacity 0.45s ease;
+    }
+
+    .signal-spark-host [data-spark-fill] {
+        transition: opacity 0.3s ease, transform 0.45s cubic-bezier(0.22, 1, 0.36, 1), filter 0.3s ease;
+    }
+
+    .signal-spark-host > .spark-box-readout {
+        transition: opacity 0.2s ease, transform 0.2s ease;
+    }
+
+    .signal-spark-host:hover > .spark-box-readout {
+        transition: opacity 0.35s ease 0.15s, transform 0.5s cubic-bezier(0.22, 1, 0.36, 1) 0.15s;
     }
 
     [data-spark-ready] .signal-spark-svg {
