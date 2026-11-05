@@ -65,7 +65,7 @@ public sealed class PlanOptions
 
     /// <summary>
     /// The WAN network groups ("WAN", "WAN2") the gateway carries traffic on, from its device data; null when unknown,
-    /// which counts every WAN. A WAN record outside it (UniFi Network's unused default WAN profile) is not the agent's path.
+    /// which counts every WAN. A WAN record outside it (UniFi Network's unused default WAN profile) carries no traffic today.
     /// </summary>
     public IReadOnlySet<string>? LiveWanGroups { get; set; }
 
@@ -206,6 +206,13 @@ public static class PlanBuilder
                 }
         }
         InternetCutChecker.Check(live, planned, doc);
+        InternetCutChecker.CheckWans(live, planned, doc, options);
+        RefuseWanZoneMoves(doc, live);
+        // A device list without a gateway is a switch-only site; an unread one counts as having one.
+        var hasGateway = options.TargetHasGateway && (!live.Collections.ContainsKey("device")
+            || live.Get("device").Any(d => d[ConfigCollections.DeviceMetaField]?["type"]?.ToString() is "ugw" or "udm" or "uxg"));
+        foreach (var op in doc.Operations)
+            op.ProvisionsGateway = op.NeedsGateway || (op.Collection == "networkconf" && hasGateway);
 
         Order(doc);
         doc.WatchDevices = doc.Operations.Any(o => o.ManagementPath);
@@ -213,6 +220,26 @@ public static class PlanBuilder
         doc.Collections = doc.Operations.Select(o => o.Collection).Distinct().ToList();
         doc.DeviceMap = options.DeviceMap.ToDictionary(k => k.Key, k => k.Value);
         return doc;
+    }
+
+    /// <summary>
+    /// UniFi Network's UI keeps every WAN in the External zone; its API takes any zone, and the Security Audit and the
+    /// firewall read External from the WANs. A write that moves a WAN to another zone is refused; one back to External is not.
+    /// </summary>
+    private static void RefuseWanZoneMoves(PlanDocument doc, ConfigState live)
+    {
+        if (live.Get("firewall_zone").FirstOrDefault(z => z["zone_key"]?.ToString() == "external") is not { } external) return;
+        var externalId = ConfigState.IdOf(external);
+        foreach (var op in doc.Operations.Where(o => o.Collection == "networkconf" && o.Action != PlanAction.Delete && o.Body is JsonObject))
+        {
+            var liveNet = op.ObjectId == null ? null : live.Get("networkconf").FirstOrDefault(n => ConfigState.IdOf(n) == op.ObjectId);
+            if ((op.Body!["purpose"] ?? liveNet?["purpose"])?.ToString() != "wan") continue;
+            if (op.Body!["firewall_zone_id"]?.ToString() is not { Length: > 0 } zone
+                || string.Equals(zone, externalId, StringComparison.OrdinalIgnoreCase)
+                || string.Equals(zone, liveNet?["firewall_zone_id"]?.ToString(), StringComparison.OrdinalIgnoreCase)) continue;
+            var error = $"WAN {op.ObjectName}: UniFi Network keeps every WAN in the External zone. Set its Firewall Zone back to External.";
+            if (!doc.Errors.Contains(error)) doc.Errors.Add(error);
+        }
     }
 
     /// <summary>
@@ -1411,14 +1438,14 @@ public static class PlanBuilder
 
     private static WriteStep Step(List<PlanOperation> ops, string group)
     {
-        var gateway = ops.Any(o => o.NeedsGateway) ? "One gateway provision" : null;
+        var gateway = ops.Any(o => o.NeedsGateway || o.ProvisionsGateway) ? "One gateway provision" : null;
         var detail = group switch
         {
             "last" => "Management path: changes that can cut a device off",
             "delete" => "Deletes, after their referrers change",
             "firewall" => gateway ?? "Firewall",
             "devices" => "Devices re-provision",
-            "base" => ops.Any(o => o.NeedsGateway) ? "One gateway provision" : "No dependencies",
+            "base" => gateway ?? "No dependencies",
             _ => gateway ?? "",
         };
         var groups = ops.GroupBy(o => o.Collection)

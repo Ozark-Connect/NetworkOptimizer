@@ -408,8 +408,15 @@ public static class LockoutChecker
     }
 
     // The WAN fields that decide which WAN carries traffic: changing one can move the agent onto an unused WAN.
-    private static readonly string[] WanRoutingFields =
+    internal static readonly string[] WanRoutingFields =
         ["enabled", "wan_networkgroup", "wan_failover_priority", "wan_load_balance_type", "wan_load_balance_weight"];
+
+    /// <summary>
+    /// Whether the gateway carries traffic on a live WAN record. Unknown live WANs, or a record with no network group,
+    /// count as carried.
+    /// </summary>
+    internal static bool CarriesWan(JsonObject? liveNet, IReadOnlySet<string>? liveWanGroups) =>
+        liveWanGroups == null || liveNet == null || Str(liveNet["wan_networkgroup"]) is not { Length: > 0 } group || liveWanGroups.Contains(group);
 
     /// <summary>
     /// Whether a WAN record's change can break the agent's path: the gateway carries traffic on that WAN, or the change
@@ -417,12 +424,11 @@ public static class LockoutChecker
     /// </summary>
     internal static bool IsAgentWanPath(ConfigState live, ConfigState planned, PlanOperation op, IReadOnlySet<string>? liveWanGroups)
     {
-        if (liveWanGroups == null) return true;
         var liveNet = live.Get("networkconf").FirstOrDefault(n => ConfigState.IdOf(n) == op.ObjectId);
-        if (liveNet == null || Str(liveNet["wan_networkgroup"]) is not { Length: > 0 } group || liveWanGroups.Contains(group)) return true;
+        if (CarriesWan(liveNet, liveWanGroups)) return true;
         if (op.Action == PlanAction.Delete) return false;
         var plannedNet = planned.Get("networkconf").FirstOrDefault(n => ConfigState.IdOf(n) == op.ObjectId);
-        return plannedNet == null || WanRoutingFields.Any(f => Str(liveNet[f]) != Str(plannedNet[f]));
+        return plannedNet == null || WanRoutingFields.Any(f => Str(liveNet![f]) != Str(plannedNet[f]));
     }
 
     private static string? Str(JsonNode? n) => n switch

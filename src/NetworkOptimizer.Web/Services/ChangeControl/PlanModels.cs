@@ -90,6 +90,12 @@ public sealed class PlanOperation
     /// <summary>The plan writes this collection only after the gateway is adopted (blank-console restore).</summary>
     public bool NeedsGateway { get; set; }
 
+    /// <summary>
+    /// The write provisions the gateway. Wider than <see cref="NeedsGateway"/>: a network write provisions the gateway
+    /// where there is one, but a switch-only site takes it as well. False on plans built before it.
+    /// </summary>
+    public bool ProvisionsGateway { get; set; }
+
     /// <summary>Keys of writes that must run first, beyond the creates the body references (a zone's new home for a network it gives up).</summary>
     public List<string> After { get; set; } = [];
 

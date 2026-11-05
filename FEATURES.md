@@ -315,6 +315,7 @@ Gateway tweaks for UCG-Fiber, UXG-Fiber, UCG-Max, and UXG-Max (Gateway SSH).
   - Edit a saved template the same way
 - **Review Plan** - every write before it runs, with Security Audit impact, lockout checks, and acknowledgements
   - Flags a firewall change that cuts a network off its DNS server or the internet, or devices off the UniFi Console
+  - Flags a WAN change that can take the site offline (VLAN, connection type, PPPoE, zone), and refuses a WAN outside the External zone
   - Approvals, scheduled applies, commit-confirmed watch with automatic revert, and a before/after report
   - On agent sites the [On-Site Agent](#on-site-agent) holds the revert if the tunnel drops (On-Site Agent)
 - **Migrate**

@@ -212,7 +212,7 @@ public sealed partial class ChangeControlService
                 Key = op.Key + HoneypotsOffSuffix, Collection = op.Collection, Action = PlanAction.Update,
                 ObjectId = op.ObjectId, ObjectName = op.ObjectName, Body = off,
                 WriteFields = ["honeypot", "honeypot_enabled"], ChangeText = "Honeypots off until the networks move",
-                Tier = PlanTiers.Direct, Order = 1, NeedsGateway = op.NeedsGateway,
+                Tier = PlanTiers.Direct, Order = 1, NeedsGateway = op.NeedsGateway, ProvisionsGateway = op.ProvisionsGateway,
             });
             if (op.Body is JsonObject body && !body.ContainsKey("honeypot_enabled")) body["honeypot_enabled"] = true;
         }

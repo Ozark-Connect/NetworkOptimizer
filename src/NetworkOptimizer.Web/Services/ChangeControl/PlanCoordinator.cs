@@ -169,13 +169,13 @@ public sealed class PlanCoordinator
             if (GatewayConsole != null && await GatewayConsole(ct) is { } console)
                 (opts.GatewayConsoleAddress, opts.GatewayConsolePort) = console;
         }
-        if (opts.AgentSite && LiveWanGroups != null && (opts.Collections == null || opts.Collections.Contains("networkconf")))
+        if (LiveWanGroups != null && (opts.Collections == null || opts.Collections.Contains("networkconf")))
         {
             try { opts.LiveWanGroups = await LiveWanGroups(ct); }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
                 // Unknown counts every WAN, as before.
-                _logger.LogWarning(ex, "Could not read the gateway's live WANs for the lockout check; every WAN counts");
+                _logger.LogWarning(ex, "Could not read the gateway's live WANs for the WAN checks; every WAN counts");
             }
         }
         var doc = PlanBuilder.Build(desired, live, opts);
