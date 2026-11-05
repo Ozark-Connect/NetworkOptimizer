@@ -56,7 +56,7 @@
                 <span class="signal-spark-dot @EndClass" style="top: @Pct(endY); left: @Pct(endX)"></span>
             }
         }
-        <span class="signal-spark-span">24h</span>
+        <span class="signal-spark-span">@SpanLabel</span>
     </div>
     @if (_path.Area.Length > 0)
     {
@@ -159,6 +159,11 @@
         catch (JSDisconnectedException) { }
     }
 
+
+    // "24h", "1h": the window the chart covers, in the time-range buttons' own format.
+    private string SpanLabel => Window.TotalHours >= 1
+        ? $"{Window.TotalHours:0}h"
+        : $"{Window.TotalMinutes:0}m";
 
     private static string Pct(double v) => v.ToString("0.##", CultureInfo.InvariantCulture) + "%";
 }

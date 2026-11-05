@@ -2135,7 +2135,8 @@ a.stat-card-link:active {
 .signal-spark-host .signal-quality-text .quality-label,
 .signal-spark-host .cm-model .cm-model-number,
 .monitoring-stat-card.signal-spark-host .stat-label,
-.metric-box.signal-spark-host .metric-row .metric-label {
+.metric-box.signal-spark-host .metric-row .metric-label,
+.signal-spark-host .signal-spark .signal-spark-span {
     color: color-mix(in srgb, var(--text-muted) 55%, var(--text-secondary));
 }
 
@@ -2289,8 +2290,12 @@ a.stat-card-link:active {
     pointer-events: none;
 }
 
+/* On a tile the span caption sits in the tile's upper-left corner, out of the chart strip:
+   --spark-top/--spark-left place the strip within the tile, so subtracting them lands on the tile. */
 .monitoring-stat-card.signal-spark-host .signal-spark-span {
-    display: none;
+    top: calc(0.5rem - var(--spark-top, 0px));
+    bottom: auto;
+    left: calc(0.6rem - var(--spark-left, 0px));
 }
 
 @media (hover: hover) and (pointer: fine) {
