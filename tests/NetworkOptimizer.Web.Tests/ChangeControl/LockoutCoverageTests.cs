@@ -193,4 +193,62 @@ public class LockoutCoverageTests
         ConfigDiffEngine.Compare(before, after).IsEmpty.Should().BeTrue("super_identity.hostname is the console's OS hostname");
         PlanBuilder.Build(after, before, new PlanOptions()).Lockouts.Should().BeEmpty();
     }
+
+    // A site with the active WAN on WAN2 and UniFi Network's unused default profile on WAN.
+    private static ConfigState WanSite()
+    {
+        var s = Site();
+        s.Collections["networkconf"].Add(new JsonObject
+        {
+            ["_id"] = "n-wan1", ["name"] = "Internet 1", ["purpose"] = "wan", ["enabled"] = true, ["wan_networkgroup"] = "WAN",
+            ["wan_failover_priority"] = 2, ["wan_load_balance_type"] = "failover-only",
+        });
+        s.Collections["networkconf"].Add(new JsonObject
+        {
+            ["_id"] = "n-wan2", ["name"] = "Fiber", ["purpose"] = "wan", ["enabled"] = true, ["wan_networkgroup"] = "WAN2",
+            ["wan_failover_priority"] = 1, ["wan_load_balance_type"] = "weighted",
+        });
+        return s;
+    }
+
+    private static PlanDocument WanPlan(Action<ConfigState> change, IReadOnlySet<string>? liveWans)
+    {
+        var desired = WanSite();
+        change(desired);
+        return PlanBuilder.Build(desired, WanSite(), new PlanOptions { AgentSite = true, ManagementAddresses = ["192.0.2.50"], LiveWanGroups = liveWans });
+    }
+
+    private static JsonObject Wan(ConfigState s, string id) => s.Collections["networkconf"].Single(n => (string?)n["_id"] == id);
+
+    private static bool FlagsWan(PlanDocument doc, string name) => doc.Lockouts.Any(l => l.Title == $"WAN {name} changes on a site reached through the On-Site Agent");
+
+    [Fact]
+    public void UnusedWanProfile_ChangeThatMovesNoTraffic_IsNotALockout()
+    {
+        var doc = WanPlan(s => Wan(s, "n-wan1")["name"] = "Spare", new HashSet<string> { "WAN2" });
+        doc.Operations.Should().Contain(o => o.ObjectId == "n-wan1");
+        FlagsWan(doc, "Spare").Should().BeFalse();
+    }
+
+    [Theory]
+    [InlineData("enabled", false)]
+    [InlineData("wan_failover_priority", 1)]
+    [InlineData("wan_load_balance_type", "weighted")]
+    public void UnusedWanProfile_ChangeThatCanMoveTraffic_IsALockout(string field, object value)
+    {
+        var doc = WanPlan(s => Wan(s, "n-wan1")[field] = JsonValue.Create(value), new HashSet<string> { "WAN2" });
+        FlagsWan(doc, "Internet 1").Should().BeTrue();
+    }
+
+    [Fact]
+    public void LiveWan_AnyChange_IsALockout()
+    {
+        FlagsWan(WanPlan(s => Wan(s, "n-wan2")["name"] = "Fiber 2", new HashSet<string> { "WAN2" }), "Fiber 2").Should().BeTrue();
+    }
+
+    [Fact]
+    public void UnknownLiveWans_EveryWanCounts()
+    {
+        FlagsWan(WanPlan(s => Wan(s, "n-wan1")["name"] = "Spare", liveWans: null), "Spare").Should().BeTrue();
+    }
 }

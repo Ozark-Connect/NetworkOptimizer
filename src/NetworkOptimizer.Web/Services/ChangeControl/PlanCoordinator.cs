@@ -146,6 +146,9 @@ public sealed class PlanCoordinator
     /// </summary>
     public Func<CancellationToken, Task<(string Address, int Port)?>>? GatewayConsole { get; set; }
 
+    /// <summary>The WAN network groups the gateway carries traffic on; null when unknown.</summary>
+    public Func<CancellationToken, Task<IReadOnlySet<string>?>>? LiveWanGroups { get; set; }
+
     /// <summary>
     /// Builds a plan against live, runs its impact, and stores it as a Draft. <paramref name="runImpact"/> false
     /// skips the Security Audit, only for a change no audit rule reads (a lease time).
@@ -165,6 +168,15 @@ public sealed class PlanCoordinator
             opts.InformAddresses = await InformAddressesAsync(ct);
             if (GatewayConsole != null && await GatewayConsole(ct) is { } console)
                 (opts.GatewayConsoleAddress, opts.GatewayConsolePort) = console;
+        }
+        if (opts.AgentSite && LiveWanGroups != null && (opts.Collections == null || opts.Collections.Contains("networkconf")))
+        {
+            try { opts.LiveWanGroups = await LiveWanGroups(ct); }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                // Unknown counts every WAN, as before.
+                _logger.LogWarning(ex, "Could not read the gateway's live WANs for the lockout check; every WAN counts");
+            }
         }
         var doc = PlanBuilder.Build(desired, live, opts);
         if (SiteName != null) doc.ConfirmationPhrase = await SiteName(ct);

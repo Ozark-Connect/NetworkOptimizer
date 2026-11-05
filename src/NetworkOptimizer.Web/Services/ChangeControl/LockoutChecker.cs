@@ -282,6 +282,8 @@ public static class LockoutChecker
         if (options.AgentSite)
         {
             foreach (var op in doc.Operations.Where(o => o.Collection == "networkconf" && o.WanPath && o.Action != PlanAction.Create))
+            {
+                if (!IsAgentWanPath(live, planned, op, options.LiveWanGroups)) continue;
                 findings.Add(new LockoutFinding
                 {
                     Kind = "certain",
@@ -290,6 +292,7 @@ public static class LockoutChecker
                     Devices = gateways,
                     OperationKeys = [op.Key],
                 });
+            }
             foreach (var op in doc.Operations.Where(o => o.Collection == "networkconf" && o.Action != PlanAction.Create && managementNetworks.Contains(o.ObjectId ?? "")))
             {
                 var liveNet = live.Get("networkconf").FirstOrDefault(n => ConfigState.IdOf(n) == op.ObjectId);
@@ -402,6 +405,24 @@ public static class LockoutChecker
     {
         using var doc = System.Text.Json.JsonDocument.Parse(rule.ToJsonString());
         return Audit.Dns.DnatDnsAnalyzer.IsDnsRedirect(doc.RootElement, ZonePaths.FirewallGroups(state));
+    }
+
+    // The WAN fields that decide which WAN carries traffic: changing one can move the agent onto an unused WAN.
+    private static readonly string[] WanRoutingFields =
+        ["enabled", "wan_networkgroup", "wan_failover_priority", "wan_load_balance_type", "wan_load_balance_weight"];
+
+    /// <summary>
+    /// Whether a WAN record's change can break the agent's path: the gateway carries traffic on that WAN, or the change
+    /// touches what decides which WAN does. With <paramref name="liveWanGroups"/> unknown, every WAN counts.
+    /// </summary>
+    internal static bool IsAgentWanPath(ConfigState live, ConfigState planned, PlanOperation op, IReadOnlySet<string>? liveWanGroups)
+    {
+        if (liveWanGroups == null) return true;
+        var liveNet = live.Get("networkconf").FirstOrDefault(n => ConfigState.IdOf(n) == op.ObjectId);
+        if (liveNet == null || Str(liveNet["wan_networkgroup"]) is not { Length: > 0 } group || liveWanGroups.Contains(group)) return true;
+        if (op.Action == PlanAction.Delete) return false;
+        var plannedNet = planned.Get("networkconf").FirstOrDefault(n => ConfigState.IdOf(n) == op.ObjectId);
+        return plannedNet == null || WanRoutingFields.Any(f => Str(liveNet[f]) != Str(plannedNet[f]));
     }
 
     private static string? Str(JsonNode? n) => n switch

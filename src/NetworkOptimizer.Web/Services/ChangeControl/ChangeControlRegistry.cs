@@ -246,6 +246,11 @@ public sealed class ChangeControlRegistry : BackgroundService, ISiteScopedRegist
             : proxy?.DialAgent(slug) is { } dial ? AgentReachAddresses(dial)
             : coordinator.ManagementAddresses();
         coordinator.GatewayConsole = ct => GatewayConsoleAsync(slug, connection, proxy, ct);
+        // The same device-data WANs the Security Audit's Gateway Firewall check uses, so the two agree on which WAN is live.
+        coordinator.LiveWanGroups = async ct =>
+            (await connection.GetAllWanInterfacesAsync(ct)) is { Count: > 0 } wans
+                ? wans.Select(w => w.NetworkGroup).ToHashSet(StringComparer.OrdinalIgnoreCase)
+                : null;
         coordinator.MoveSettings = (moves, remote, ct) => ReaddressSettingsAsync(slug, moves, remote, apply: true, ct);
         coordinator.ZonesChanged = _ =>
         {

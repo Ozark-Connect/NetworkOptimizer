@@ -63,6 +63,12 @@ public sealed class PlanOptions
     /// <summary>The console's port with <see cref="GatewayConsoleAddress"/>, from the Console URL.</summary>
     public int? GatewayConsolePort { get; set; }
 
+    /// <summary>
+    /// The WAN network groups ("WAN", "WAN2") the gateway carries traffic on, from its device data; null when unknown,
+    /// which counts every WAN. A WAN record outside it (UniFi Network's unused default WAN profile) is not the agent's path.
+    /// </summary>
+    public IReadOnlySet<string>? LiveWanGroups { get; set; }
+
     /// <summary>The target has no gateway adopted yet: gateway-bound collections wait.</summary>
     public bool TargetHasGateway { get; init; } = true;
 
