@@ -110,9 +110,9 @@ public class SignalSparklineService : ISignalSparklineService
 
             Put(LiveViewSpark.GatewayRtt, Target(request.GatewayTargetId, RttField));
             Put(LiveViewSpark.GatewayLoss, Target(request.GatewayTargetId, LossField));
-            var floor = IspAccessFloor(latency, request.IspTargetIds);
+            var (floor, floorLoss) = IspAccessFloor(latency, request.IspTargetIds);
             Put(LiveViewSpark.IspRtt, floor.Where(s => s.RttAvgMs.HasValue).Select(s => (s.Time, s.RttAvgMs!.Value)));
-            Put(LiveViewSpark.IspLoss, floor.Where(s => s.LossPercent.HasValue).Select(s => (s.Time, s.LossPercent!.Value)));
+            Put(LiveViewSpark.IspLoss, floorLoss);
             Put(LiveViewSpark.TransitRtt, MeanAcrossTargets(latency, request.TransitTargetIds, RttField));
             Put(LiveViewSpark.TransitLoss, MeanAcrossTargets(latency, request.TransitTargetIds, LossField));
             Put(LiveViewSpark.GatewayCpu, health.GetValueOrDefault(CpuField));
@@ -137,9 +137,10 @@ public class SignalSparklineService : ISignalSparklineService
     /// <summary>
     /// The access layer's latency exactly as ISP Health reads it (<see cref="AccessFloor"/>): per
     /// window, the lowest RTT across the access hops, with loss from the lowest-median hop. Built the
-    /// same way as SiteHealthJob's access floor.
+    /// same way as SiteHealthJob's access floor. Loss falls back to the hops' mean where that hop has no
+    /// reading (<see cref="AccessFloor.LossSeries"/>), so its line does not start where that hop's history does.
     /// </summary>
-    internal static List<LatencySample> IspAccessFloor(
+    internal static (List<LatencySample> Floor, List<(DateTime Time, double LossPercent)> Loss) IspAccessFloor(
         IReadOnlyDictionary<(string TargetId, string Field), List<(DateTime Time, double Value)>> perTarget,
         IEnumerable<string> targetIds)
     {
@@ -157,9 +158,9 @@ public class SignalSparklineService : ISignalSparklineService
             })
             .Where(s => s.Any(p => p.RttAvgMs != null))
             .ToList();
-        if (hops.Count == 0) return [];
+        if (hops.Count == 0) return ([], []);
         var lowest = hops.MinBy(s => SeriesStats.Median(s.Where(p => p.RttAvgMs != null).Select(p => p.RttAvgMs!.Value).ToList()) ?? double.MaxValue)!;
-        return AccessFloor.Build(hops, lowest);
+        return (AccessFloor.Build(hops, lowest), AccessFloor.LossSeries(hops, lowest));
     }
 
     /// <summary>The mean across targets per window, as the Transit tiles read their hops. Windows no target reported in are left out.</summary>

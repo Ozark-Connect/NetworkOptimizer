@@ -48,12 +48,15 @@ public static class WanLatencySeries
         }
 
         var floor = new Dictionary<DateTime, LatencySample>();
+        var floorLoss = new Dictionary<DateTime, double>();
         var hops = isp.Where(s => s.Any(p => p.RttAvgMs != null)).ToList();
         if (hops.Count > 0)
         {
             var lowest = hops.MinBy(s => SeriesStats.Median(
                 s.Where(p => p.RttAvgMs != null).Select(p => p.RttAvgMs!.Value).ToList()) ?? double.MaxValue)!;
             foreach (var s in AccessFloor.Build(hops, lowest)) floor[s.Time] = s;
+            // Before the lowest-median hop's first reading (a hop added mid-range), the hops' mean.
+            foreach (var (time, loss) in AccessFloor.LossSeries(hops, lowest)) floorLoss[time] = loss;
         }
         // A WAN whose ISP hops never answered still reports their loss: a blackhole is what that looks like.
         var ispLossOnly = hops.Count == 0 && isp.Count > 0
@@ -70,7 +73,8 @@ public static class WanLatencySeries
             transitByTime.TryGetValue(time, out var tr);
             var transitRtt = tr?.Where(p => p.RttAvgMs != null).Select(p => p.RttAvgMs!.Value).DefaultIfEmpty(double.NaN).Average();
             var transitLoss = tr?.Where(p => p.LossPercent != null).Select(p => p.LossPercent!.Value).DefaultIfEmpty(double.NaN).Average();
-            var ispLoss = f?.LossPercent ?? (ispLossOnly.TryGetValue(time, out var l) ? l : null);
+            var ispLoss = floorLoss.TryGetValue(time, out var fl) ? fl
+                : ispLossOnly.TryGetValue(time, out var l) ? l : (double?)null;
 
             var rtt = MeanOf(f?.RttAvgMs, Finite(transitRtt));
             var loss = MeanOf(ispLoss, Finite(transitLoss));

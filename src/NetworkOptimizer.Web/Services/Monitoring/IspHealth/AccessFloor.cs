@@ -50,6 +50,29 @@ public static class AccessFloor
     }
 
     /// <summary>
+    /// The floor's loss as a series for display: the lowest-median hop's loss, as in
+    /// <see cref="Build"/>, and where that hop has no reading at a timestamp, the mean loss of
+    /// the hops that do. Build leaves those timestamps without loss, which ISP Health's scoring
+    /// expects; a chart drawn from it lost its loss line wherever that one hop was missing (a hop
+    /// newer than the window, most often).
+    /// </summary>
+    public static List<(DateTime Time, double LossPercent)> LossSeries(
+        IReadOnlyList<IReadOnlyList<LatencySample>> series,
+        IReadOnlyList<LatencySample> fallback)
+    {
+        var own = new Dictionary<DateTime, double>();
+        foreach (var s in fallback)
+            if (s.LossPercent is double l) own[s.Time] = l;
+
+        return series.SelectMany(s => s)
+            .Where(s => s.LossPercent.HasValue)
+            .GroupBy(s => s.Time)
+            .OrderBy(g => g.Key)
+            .Select(g => (g.Key, own.TryGetValue(g.Key, out var l) ? l : g.Average(s => s.LossPercent!.Value)))
+            .ToList();
+    }
+
+    /// <summary>
     /// The floor at one instant, from each access hop's latest reading: the live ISP tiles and the
     /// WAN live chart's tick, so they read the access layer the way <see cref="Build"/> does.
     /// With <paramref name="minTargets"/> or more hops reporting an RTT, the lowest of them, with

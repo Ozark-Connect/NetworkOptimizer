@@ -106,9 +106,26 @@ public class WanLatencySeriesTests
             [("b", "loss_percent")] = [(T0, 9.0), (T0.AddMinutes(1), 9.0)],
         };
 
-        var floor = SignalSparklineService.IspAccessFloor(perTarget, ["a", "b"]);
+        var (floor, loss) = SignalSparklineService.IspAccessFloor(perTarget, ["a", "b"]);
 
         floor.Select(s => s.RttAvgMs).Should().Equal(2.0, 1.5);
-        floor.Select(s => s.LossPercent).Should().Equal(0.0, 0.0);
+        loss.Select(l => l.LossPercent).Should().Equal(0.0, 0.0);
+    }
+
+    [Fact]
+    public void Sparkline_IspLoss_WhereTheLowestMedianHopHasNoReading_IsTheHopsMean()
+    {
+        // b is the lowest-median hop but only started reporting at minute 2 (a hop added mid-hour).
+        var perTarget = new Dictionary<(string TargetId, string Field), List<(DateTime Time, double Value)>>
+        {
+            [("a", "rtt_avg_ms")] = [(T0, 5.0), (T0.AddMinutes(1), 5.0), (T0.AddMinutes(2), 5.0), (T0.AddMinutes(3), 5.0)],
+            [("a", "loss_percent")] = [(T0, 4.0), (T0.AddMinutes(1), 4.0), (T0.AddMinutes(2), 4.0), (T0.AddMinutes(3), 4.0)],
+            [("b", "rtt_avg_ms")] = [(T0.AddMinutes(2), 1.0), (T0.AddMinutes(3), 1.0)],
+            [("b", "loss_percent")] = [(T0.AddMinutes(2), 0.0), (T0.AddMinutes(3), 0.0)],
+        };
+
+        var (_, loss) = SignalSparklineService.IspAccessFloor(perTarget, ["a", "b"]);
+
+        loss.Select(l => l.LossPercent).Should().Equal(4.0, 4.0, 0.0, 0.0);
     }
 }
