@@ -6,10 +6,10 @@
     Temp). The tile takes .signal-spark-host; this renders the chart and the strip it fills, both as its
     children. Every tile on the page passes the same Request, so they share one fetch.
 *@
-@if (Live && _points != null && Current.HasValue)
+@if (Live && _points != null && _end.HasValue)
 {
-    var (lo, hi) = SparklinePath.AutoDomain(_points, Current, MinSpan, floorZero: IsLoss);
-    <SignalSparkline Points="_points" Current="Current" DomainLow="lo" DomainHigh="hi"
+    var (lo, hi) = SparklinePath.AutoDomain(_points, _end, MinSpan, floorZero: IsLoss);
+    <SignalSparkline Points="_points" Current="_end" DomainLow="lo" DomainHigh="hi"
                      Stops="_stops" Tint="@Tint" Window="SignalSparklineService.TileWindow" />
     <div class="stat-spark-area" data-spark-area></div>
 }
@@ -31,6 +31,8 @@
     [Parameter] public bool Live { get; set; } = true;
 
     private IReadOnlyList<SparkPoint>? _points;
+    private double? _end;
+    private DateTime _seenAt;
     private IReadOnlyList<GaugeStop> _stops = [];
 
     private bool IsLoss => Spark is LiveViewSpark.GatewayLoss or LiveViewSpark.IspLoss or LiveViewSpark.TransitLoss;
@@ -58,14 +60,33 @@
     {
         _stops = [new(0, Tint), new(100, Tint)];
         if (!Live) return;
+        IReadOnlyList<SparkPoint>? points;
         try
         {
             // Cached for 30 seconds and shared across the tiles, so the 10-second renders are cheap.
-            _points = (await SparkService.GetLiveViewAsync(Request)).For(Spark);
+            points = (await SparkService.GetLiveViewAsync(Request)).For(Spark);
         }
         catch
         {
-            _points = null;
+            points = null;
+        }
+
+        // A short gap in the reading or the history (an agent tunnel or console reconnect) keeps the
+        // last chart: removing it and drawing it again cancels the hover under a still pointer.
+        // Past a live reading's own lifetime the chart goes, as the reading does.
+        var now = DateTime.UtcNow;
+        if (Current.HasValue && points != null)
+        {
+            (_points, _end, _seenAt) = (points, Current, now);
+        }
+        else if (now - _seenAt > MonitoringLiveStats.LiveReadingMaxAge)
+        {
+            (_points, _end) = (null, null);
+        }
+        else
+        {
+            _points = points ?? _points;
+            _end = Current ?? _end;
         }
     }
 }

@@ -614,7 +614,9 @@ else
             try
             {
                 var devices = await ConnectionService.GetDiscoveredDevicesAsync();
-                if (devices != null)
+                // A disconnected console returns an empty list, not null: keep the known gateway
+                // through it, or every gateway tile blanks for the length of a tunnel reconnect.
+                if (devices is { Count: > 0 })
                 {
                     var gw = devices.FirstOrDefault(d =>
                         d.Type == DeviceType.Gateway || d.HardwareType == DeviceType.Gateway);
