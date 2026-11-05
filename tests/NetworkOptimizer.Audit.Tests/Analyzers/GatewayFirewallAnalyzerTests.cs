@@ -195,6 +195,33 @@ public class GatewayFirewallAnalyzerTests
     }
 
     [Fact]
+    public void UntaggedRuleNamedForThePolicy_InItsZonePair_Counts()
+    {
+        // UniFi tags only some compiled rules with their policy ID; the rest carry the policy's name.
+        const string untaggedId = "55555555-5555-4555-8555-555555555555";
+        var policies = Policies.Append(Policy(untaggedId, " Net. Opt. Exception", InternalZone, ExternalZone)).ToList();
+        var udapi = Udapi.Replace("{\"id\":1,", "{\"id\":9,\"description\":\"Net. Opt. Exception\"},{\"id\":1,");
+
+        Run(udapi: udapi, policies: policies).Should().NotContain(i => i.Type == IssueTypes.GatewayPolicyNotEnforced);
+        Run(udapi: udapi.Replace("\"LAN_WAN\"", "\"LAN_LAN2\""), policies: policies)
+            .Should().ContainSingle(i => i.Type == IssueTypes.GatewayPolicyNotEnforced)
+            .Which.Message.Should().Contain("Net. Opt. Exception");
+    }
+
+    [Fact]
+    public void OneUntaggedRule_VouchesForOnlyOnePolicyOfThatName()
+    {
+        var policies = Policies
+            .Append(Policy("66666666-6666-4666-8666-666666666666", "Net. Opt. Exception", InternalZone, ExternalZone))
+            .Append(Policy("77777777-7777-4777-8777-777777777777", "Net. Opt. Exception", InternalZone, ExternalZone))
+            .ToList();
+        var udapi = Udapi.Replace("{\"id\":1,", "{\"id\":9,\"description\":\"Net. Opt. Exception\"},{\"id\":1,");
+
+        Run(udapi: udapi, policies: policies).Should().ContainSingle(i => i.Type == IssueTypes.GatewayPolicyNotEnforced)
+            .Which.Message.Should().StartWith("1 enabled firewall policy");
+    }
+
+    [Fact]
     public void PolicyInTheWrongZonePair_IsFlagged()
     {
         var udapi = Udapi.Replace("\"LAN_WAN\"", "\"LAN_LAN2\"");

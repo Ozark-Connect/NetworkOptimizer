@@ -90,7 +90,7 @@ public partial class GatewayFirewallAnalyzer
             AddWanZoneIssues(issues, v4, zones, networks, wanInterfaces, gatewayName);
             AddNetworkZoneIssues(issues, v4, zones, networks, tokens, gatewayName);
             if (udapi != null)
-                AddPolicyIssues(issues, udapi, v4, policies, tokens, gatewayName);
+                AddPolicyIssues(issues, udapi, v4, policies, tokens, gatewayName, _logger);
         }
 
         if (blocklist != null && v4.HasRules)
@@ -194,7 +194,7 @@ public partial class GatewayFirewallAnalyzer
     // === Policies ===
 
     private static void AddPolicyIssues(List<AuditIssue> issues, UdapiFilter udapi, IptablesDump v4,
-        IReadOnlyList<FirewallRule>? policies, ZoneTokens tokens, string? gatewayName)
+        IReadOnlyList<FirewallRule>? policies, ZoneTokens tokens, string? gatewayName, ILogger logger)
     {
         var missing = new List<string>();
         var stillOn = new List<string>();
@@ -208,8 +208,14 @@ public partial class GatewayFirewallAnalyzer
                 continue;
             }
             if (tokens.Of(policy.SourceZoneId) is not { } src || tokens.Of(policy.DestinationZoneId) is not { } dst) continue;
-            if (!chains.Contains($"{src}_{dst}"))
+            var chain = $"{src}_{dst}";
+            if (!chains.Contains(chain) && !udapi.TakeUntaggedRuleNamed(chain, policy.Name))
+            {
                 missing.Add(policy.Name ?? policy.Id);
+                logger.LogDebug("Gateway firewall: policy '{Name}' ({Id}, {SrcZone} to {DstZone}, IP {Version}) expected in {Chain}; tagged in [{Tagged}], named in [{Named}]",
+                    policy.Name, policy.Id, policy.SourceZoneId, policy.DestinationZoneId, policy.IpVersion ?? "both", chain,
+                    string.Join(", ", chains), string.Join(", ", udapi.ChainsWithUntaggedRuleNamed(policy.Name)));
+            }
         }
 
         if (missing.Count > 0)
@@ -537,10 +543,33 @@ public partial class GatewayFirewallAnalyzer
         private static partial Regex InputDispatchRegex();
     }
 
-    /// <summary>The live udapi firewall filter: which chains hold each policy's rules.</summary>
+    /// <summary>
+    /// The live udapi firewall filter: which chains hold each policy's rules. UniFi tags only some compiled rules
+    /// with their policy ID (every logged policy, not every unlogged one), so untagged rules are also kept by
+    /// description, which is the policy's name.
+    /// </summary>
     internal sealed class UdapiFilter
     {
         private readonly Dictionary<string, HashSet<string>> _chainsByPolicy = new(StringComparer.OrdinalIgnoreCase);
+        // Untagged rules per chain, counted by description: policies often share a name (Net. Opt. Exception).
+        private readonly Dictionary<string, Dictionary<string, int>> _untaggedByChain = new(StringComparer.Ordinal);
+
+        /// <summary>
+        /// Claims one untagged rule in <paramref name="chain"/> described as <paramref name="policyName"/>. Each rule
+        /// vouches for one policy, so a present policy never covers for a missing one of the same name.
+        /// </summary>
+        public bool TakeUntaggedRuleNamed(string chain, string? policyName)
+        {
+            if (string.IsNullOrWhiteSpace(policyName) || !_untaggedByChain.TryGetValue(chain, out var names)
+                || !names.TryGetValue(policyName.Trim(), out var left) || left == 0) return false;
+            names[policyName.Trim()] = left - 1;
+            return true;
+        }
+
+        /// <summary>Every chain holding an untagged rule described as <paramref name="policyName"/>.</summary>
+        public IEnumerable<string> ChainsWithUntaggedRuleNamed(string? policyName) =>
+            string.IsNullOrWhiteSpace(policyName) ? []
+            : _untaggedByChain.Where(kv => kv.Value.ContainsKey(policyName.Trim())).Select(kv => kv.Key).OrderBy(c => c, StringComparer.Ordinal);
 
         /// <summary>Chains that hold at least one user policy.</summary>
         public HashSet<string> PolicyChains { get; } = new(StringComparer.Ordinal);
@@ -564,7 +593,16 @@ public partial class GatewayFirewallAnalyzer
                     if (!chain.TryGetProperty("rules", out var rules) || rules.ValueKind != JsonValueKind.Array) continue;
                     foreach (var rule in rules.EnumerateArray())
                     {
-                        if (!rule.TryGetProperty("triggerTag", out var tag) || tag.ValueKind != JsonValueKind.Object) continue;
+                        if (!rule.TryGetProperty("triggerTag", out var tag) || tag.ValueKind != JsonValueKind.Object)
+                        {
+                            if (rule.TryGetProperty("description", out var descEl) && descEl.GetString()?.Trim() is { Length: > 0 } desc)
+                            {
+                                if (!filter._untaggedByChain.TryGetValue(name, out var names))
+                                    filter._untaggedByChain[name] = names = new(StringComparer.Ordinal);
+                                names[desc] = names.GetValueOrDefault(desc) + 1;
+                            }
+                            continue;
+                        }
                         if (!tag.TryGetProperty("type", out var type) || type.GetString() != "FIREWALL_POLICY") continue;
                         if (!tag.TryGetProperty("id", out var idEl) || idEl.GetString() is not { Length: > 0 } id) continue;
                         if (!filter._chainsByPolicy.TryGetValue(id, out var set)) filter._chainsByPolicy[id] = set = new(StringComparer.Ordinal);
