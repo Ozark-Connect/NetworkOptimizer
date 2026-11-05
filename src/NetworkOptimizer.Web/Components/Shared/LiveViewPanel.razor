@@ -108,8 +108,9 @@ else
                     <div class="isp-tile-bar"><div class="isp-tile-bar-fill" style="width: @(ispHealth.Score)%"></div></div>
                 }
             </div>
-            @{ var ispTarget = ScopedTargetStats(MonitoringTargetType.AccessIsp, meanAcrossTargets: false); }
-            <div class="monitoring-stat-card clickable-stat-card" @onclick="@(() => JumpToAnalysis(AccessIspCategory))">
+            @{ var ispTarget = ScopedTargetStats(MonitoringTargetType.AccessIsp, meanAcrossTargets: false); var ispIds = ScopedTargetIds(MonitoringTargetType.AccessIsp); }
+            <div class="monitoring-stat-card clickable-stat-card signal-spark-host" @onclick="@(() => JumpToAnalysis(AccessIspCategory))">
+                <StatTileSparkline Source="StatTileSparkline.StatSparkSource.Rtt" TargetIds="ispIds" Nearest="true" Current="ispTarget.rtt" Live="@(true && !LiveWan.IsComparing)" />
                 @if (LiveWan.IsComparing)
                 {
                     <div class="stat-value stat-value-stacked">
@@ -125,7 +126,8 @@ else
                 }
                 <div class="stat-label">ISP RTT</div>
             </div>
-            <div class="monitoring-stat-card clickable-stat-card" @onclick="@(() => JumpToAnalysis(AccessIspCategory))">
+            <div class="monitoring-stat-card clickable-stat-card signal-spark-host" @onclick="@(() => JumpToAnalysis(AccessIspCategory))">
+                <StatTileSparkline Source="StatTileSparkline.StatSparkSource.Loss" TargetIds="ispIds" Nearest="true" Current="@(ispIds.Count > 0 ? ispTarget.loss : null)" Live="@(true && !LiveWan.IsComparing)" />
                 @if (LiveWan.IsComparing)
                 {
                     <div class="stat-value stat-value-stacked">
@@ -141,8 +143,9 @@ else
                 }
                 <div class="stat-label">ISP Loss</div>
             </div>
-            @{ var transitTarget = ScopedTargetStats(MonitoringTargetType.Transit, meanAcrossTargets: true); }
-            <div class="monitoring-stat-card clickable-stat-card stat-card-no-minheight" @onclick="@(() => JumpToAnalysis(TransitCategory))">
+            @{ var transitTarget = ScopedTargetStats(MonitoringTargetType.Transit, meanAcrossTargets: true); var transitIds = ScopedTargetIds(MonitoringTargetType.Transit); }
+            <div class="monitoring-stat-card clickable-stat-card stat-card-no-minheight signal-spark-host" @onclick="@(() => JumpToAnalysis(TransitCategory))">
+                <StatTileSparkline Source="StatTileSparkline.StatSparkSource.Rtt" TargetIds="transitIds" Current="transitTarget.rtt" Live="@(true && !LiveWan.IsComparing)" />
                 @if (LiveWan.IsComparing)
                 {
                     <div class="stat-value stat-value-stacked">
@@ -158,7 +161,8 @@ else
                 }
                 <div class="stat-label">Transit RTT</div>
             </div>
-            <div class="monitoring-stat-card clickable-stat-card stat-card-no-minheight" @onclick="@(() => JumpToAnalysis(TransitCategory))">
+            <div class="monitoring-stat-card clickable-stat-card stat-card-no-minheight signal-spark-host" @onclick="@(() => JumpToAnalysis(TransitCategory))">
+                <StatTileSparkline Source="StatTileSparkline.StatSparkSource.Loss" TargetIds="transitIds" Current="@(transitIds.Count > 0 ? transitTarget.loss : null)" Live="@(true && !LiveWan.IsComparing)" />
                 @if (LiveWan.IsComparing)
                 {
                     <div class="stat-value stat-value-stacked">
@@ -778,6 +782,15 @@ else
         return (row.Rtt, row.Loss);
     }
 
+    /// <summary>The targets an ISP or Transit tile reads right now: the selected WAN's own, or every enabled one.</summary>
+    private IReadOnlyList<string> ScopedTargetIds(MonitoringTargetType type)
+    {
+        var wan = LiveWan.Selected;
+        var targets = wan == null
+            ? _targets.Where(t => t.TargetType == type && t.Enabled).ToList()
+            : TargetsForWan(type, wan.Key, wan.IsPrimary);
+        return targets.Select(t => t.TargetId).ToList();
+    }
     private List<(string Label, double? Rtt, double Loss)> PerWanTargetStats(MonitoringTargetType type, bool meanAcrossTargets)
     {
         var rows = new List<(string, double?, double)>();

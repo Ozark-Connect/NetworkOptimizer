@@ -56,6 +56,10 @@ function layout(section) {
         delete section.dataset.sparkReady;
         return;
     }
+    // The text halo has to be the card's actual background, which differs by page (the gateway
+    // tiles are not the same color on the Dashboard as on Monitoring - Live View).
+    section.style.setProperty('--spark-halo', backgroundOf(section));
+
     // A box's rows ([data-spark-fill], hidden on hover) or a tile's strip ([data-spark-area]).
     const fill = section.querySelector('[data-spark-fill], [data-spark-area]');
     const ok = fill ? layoutBox(section, fill) : layoutHero(section, chart);
@@ -182,6 +186,15 @@ function setGeometry(section, { top, left, width, height, shift, roomy }) {
     if (roomy) section.dataset.sparkRoomy = '';
     else delete section.dataset.sparkRoomy;
 }
+/** The first opaque background color from the element up; a transparent card shows its parent's. */
+function backgroundOf(el) {
+    for (let n = el; n && n !== document.documentElement; n = n.parentElement) {
+        const bg = getComputedStyle(n).backgroundColor;
+        if (bg && bg !== 'transparent' && !/rgba\(.*,\s*0\)$/.test(bg)) return bg;
+    }
+    return getComputedStyle(document.body).backgroundColor;
+}
+
 function offsetWithin(el, ancestor, side) {
     let v = 0;
     for (let n = el; n && n !== ancestor; n = n.offsetParent) {

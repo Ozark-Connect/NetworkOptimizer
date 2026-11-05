@@ -40,6 +40,14 @@ public interface ISignalSparklineService
     /// <summary>A monitoring target's average RTT (ms) or packet loss (%) over the last hour, across every vantage and WAN that probes it.</summary>
     [RequireRole(Roles.Viewer)]
     Task<IReadOnlyList<SparkPoint>?> GetTargetLatencyAsync(string targetId, LatencyField field);
+
+    /// <summary>
+    /// RTT or loss over the last hour across a set of targets, combined per minute as Live View's ISP
+    /// and Transit tiles combine them live: <paramref name="nearest"/> takes the lowest (ISP, read as
+    /// its nearest hop), otherwise the mean (Transit).
+    /// </summary>
+    [RequireRole(Roles.Viewer)]
+    Task<IReadOnlyList<SparkPoint>?> GetTargetGroupLatencyAsync(IReadOnlyList<string> targetIds, LatencyField field, bool nearest);
 }
 
 /// <summary>The device_health fields a sparkline can draw.</summary>

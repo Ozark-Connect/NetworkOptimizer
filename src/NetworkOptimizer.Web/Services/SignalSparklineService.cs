@@ -83,6 +83,32 @@ public class SignalSparklineService : ISignalSparklineService
         return CachedAsync($"latency:{targetId}:{name}", "latency", new[] { ("target_id", targetId) }, name, longterm: false, tile: true);
     }
 
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<SparkPoint>?> GetTargetGroupLatencyAsync(IReadOnlyList<string> targetIds, LatencyField field, bool nearest)
+    {
+        if (targetIds.Count == 0) return null;
+        var name = field == LatencyField.Rtt ? "rtt_avg_ms" : "loss_percent";
+        var ids = targetIds.Distinct(StringComparer.Ordinal).OrderBy(i => i, StringComparer.Ordinal).ToList();
+        var key = $"{_siteContext.Slug}|latency-group:{(nearest ? "min" : "mean")}:{name}:{string.Join(",", ids)}";
+        var now = DateTime.UtcNow;
+        if (_cache.TryGetValue(key, out var hit) && now - hit.At < TileCacheFor)
+            return hit.Value;
+
+        IReadOnlyList<SparkPoint>? value;
+        try
+        {
+            var rows = await Influx.QueryTargetsCombinedSeriesAsync(ids, name, nearest, now - TileWindow, now, TileBucket);
+            value = rows.Count >= 2 ? rows.Select(r => new SparkPoint(r.Time, r.Value)).ToList() : null;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Signal sparkline unavailable for {Key}", key);
+            value = null;
+        }
+        _cache[key] = (now, value);
+        return value;
+    }
+
     // Resolved per call, like the sibling site-scoped services: the circuit's site can change.
     private MonitoringInfluxClient Influx => _influxRegistry.GetFor(_siteContext.Slug);
 

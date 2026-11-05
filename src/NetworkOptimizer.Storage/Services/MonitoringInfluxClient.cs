@@ -4173,6 +4173,49 @@ from(bucket: ""{bucket}"")
         return results;
     }
 
+    /// <summary>
+    /// One latency field across a set of targets, combined per window the way Live View's ISP and
+    /// Transit tiles combine their live readings: <paramref name="nearest"/> takes the lowest of the
+    /// targets' window means (the access ISP reads as its nearest hop), otherwise their mean. Fast bucket.
+    /// </summary>
+    public async Task<List<(DateTime Time, double Value)>> QueryTargetsCombinedSeriesAsync(
+        IReadOnlyList<string> targetIds,
+        string field,
+        bool nearest,
+        DateTime from,
+        DateTime to,
+        TimeSpan window,
+        CancellationToken ct = default)
+    {
+        if (!IsConfigured) await ReconfigureAsync(ct);
+        if (!IsConfigured || targetIds.Count == 0) return new List<(DateTime, double)>();
+
+        var idFilter = string.Join(" or ", targetIds.Distinct(StringComparer.Ordinal)
+            .Select(id => $@"r.target_id == ""{SanitizeFluxString(id)}"""));
+        // Each series (target, vantage, WAN) is reduced to its window mean first, stamped at the window
+        // start, then the targets are combined per window across every series that landed in it.
+        var flux = $@"
+from(bucket: ""{_bucket}"")
+  |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
+  |> filter(fn: (r) => r._measurement == ""latency"" and r._field == ""{SanitizeFluxString(field)}"")
+  |> filter(fn: (r) => {idFilter})
+  |> toFloat()
+  |> aggregateWindow(every: {ToFluxDuration(window)}, fn: mean, createEmpty: false, timeSrc: ""_start"")
+  |> group(columns: [""_time""])
+  |> {(nearest ? "min()" : "mean()")}
+  |> group()
+";
+        var results = new List<(DateTime Time, double Value)>();
+        await foreach (var record in QueryFluxAsync(flux, ct))
+        {
+            if (AsDoubleOrNull(record.GetValue()) is double v && double.IsFinite(v)
+                && record.GetTimeInDateTime() is DateTime t)
+                results.Add((ToUtc(t), v));
+        }
+        results.Sort((a, b) => a.Time.CompareTo(b.Time));
+        return results;
+    }
+
     /// <summary>A tag name for a Flux record member: letters, digits, and underscores only.</summary>
     private static string SanitizeFluxIdentifier(string name) =>
         new(name.Where(c => char.IsAsciiLetterOrDigit(c) || c == '_').ToArray());

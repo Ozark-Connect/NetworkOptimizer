@@ -2,7 +2,8 @@
 @inject ISignalSparklineService SparkService
 
 @*
-    The last hour behind a Live View gateway tile (Gateway RTT, Loss, CPU, Mem, Temp). The tile
+    The last hour behind a Live View tile (ISP and Transit RTT and Loss; Gateway RTT, Loss, CPU, Mem,
+    Temp). The tile
     takes .signal-spark-host; this renders the chart and the strip it fills, both as its children.
 *@
 @if (Live && _points != null && Current.HasValue)
@@ -23,6 +24,15 @@
     /// <summary>The gateway's fabric target, for RTT and loss.</summary>
     [Parameter] public string? TargetId { get; set; }
 
+    /// <summary>
+    /// The targets an ISP or Transit tile reads, for RTT and loss across them; set, it is used
+    /// instead of <see cref="TargetId"/>.
+    /// </summary>
+    [Parameter] public IReadOnlyList<string>? TargetIds { get; set; }
+
+    /// <summary>With <see cref="TargetIds"/>: the lowest of the targets (the ISP's nearest hop), not their mean.</summary>
+    [Parameter] public bool Nearest { get; set; }
+
     /// <summary>The tile's live value; the line ends on it.</summary>
     [Parameter] public double? Current { get; set; }
 
@@ -32,11 +42,11 @@
     private IReadOnlyList<SparkPoint>? _points;
     private IReadOnlyList<GaugeStop> _stops = [];
 
-    // The app's graph line palette, one color per reading.
+    // RTT and loss take the live WAN chart's colors (wan-live-chart.js); the rest, the graph palette.
     private string Tint => Source switch
     {
-        StatSparkSource.Rtt => "#2ba89a",
-        StatSparkSource.Loss => "#ef5858",
+        StatSparkSource.Rtt => "#d946ef",
+        StatSparkSource.Loss => "#ef4444",
         StatSparkSource.Cpu => "#3b82f6",
         StatSparkSource.Memory => "#a78bfa",
         _ => "#f59e0b",
@@ -60,6 +70,8 @@
             // The service caches each series for two minutes, so the tile's 10-second renders are cheap.
             _points = Source switch
             {
+                StatSparkSource.Rtt or StatSparkSource.Loss when TargetIds != null =>
+                    await SparkService.GetTargetGroupLatencyAsync(TargetIds, Source == StatSparkSource.Rtt ? LatencyField.Rtt : LatencyField.Loss, Nearest),
                 StatSparkSource.Rtt or StatSparkSource.Loss when !string.IsNullOrEmpty(TargetId) =>
                     await SparkService.GetTargetLatencyAsync(TargetId, Source == StatSparkSource.Rtt ? LatencyField.Rtt : LatencyField.Loss),
                 StatSparkSource.Cpu or StatSparkSource.Memory or StatSparkSource.Temperature when !string.IsNullOrEmpty(DeviceMac) =>

@@ -36,10 +36,6 @@
                 </mask>
             </defs>
             <g mask="url(#@_pastMaskId)">
-                @if (_path.Area.Length > 0)
-                {
-                    <path class="signal-spark-area" d="@_path.Area" fill="currentColor" mask="url(#@_maskId)" />
-                }
                 @if (_path.Line.Length > 0)
                 {
                     <path class="signal-spark-line" d="@_path.Line" stroke="url(#@_inkId)" vector-effect="non-scaling-stroke" />
@@ -62,6 +58,18 @@
         }
         <span class="signal-spark-span">24h</span>
     </div>
+    @if (_path.Area.Length > 0)
+    {
+        @* The fill sits above the host's text as a faint wash; the line stays below it. The text's
+           halo then cuts out only the line, where a fill underneath showed as a darker patch. *@
+        <div class="signal-spark-wash @EndClass" aria-hidden="true" style="@(Tint != null ? $"color: {Tint}" : null)">
+            <svg class="signal-spark-svg" viewBox="0 0 100 100" preserveAspectRatio="none" focusable="false">
+                <g mask="url(#@_pastMaskId)">
+                    <path class="signal-spark-area" d="@_path.Area" fill="currentColor" mask="url(#@_maskId)" />
+                </g>
+            </svg>
+        </div>
+    }
 }
 
 @code {

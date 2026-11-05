@@ -2138,7 +2138,8 @@ a.stat-card-link:active {
         0 0 4px var(--spark-halo), 0 0 6px var(--spark-halo);
 }
 
-.signal-spark {
+.signal-spark,
+.signal-spark-host > .signal-spark-wash {
     position: absolute;
     z-index: 0;
     top: var(--spark-top, 0);
@@ -2149,7 +2150,13 @@ a.stat-card-link:active {
     opacity: 0;
 }
 
-[data-spark-ready] > .signal-spark {
+.signal-spark-host > .signal-spark-wash {
+    z-index: 2;
+    text-shadow: none;
+}
+
+[data-spark-ready] > .signal-spark,
+[data-spark-ready] > .signal-spark-wash {
     opacity: 0.28;
 }
 
@@ -2264,8 +2271,8 @@ a.stat-card-link:active {
    hover the label steps aside and the value lifts clear of the line. */
 .signal-spark-host > .stat-spark-area {
     position: absolute;
-    left: 0.75rem;
-    right: 0.75rem;
+    left: 0.3rem;
+    right: 0.3rem;
     bottom: 0.55rem;
     height: 42%;
     pointer-events: none;
@@ -2294,7 +2301,8 @@ a.stat-card-link:active {
 }
 
 @media (hover: hover) and (pointer: fine) {
-    .signal-spark-host[data-spark-roomy]:hover:not(:has([data-spark-model]:hover)) > .signal-spark {
+    .signal-spark-host[data-spark-roomy]:hover:not(:has([data-spark-model]:hover)) > .signal-spark,
+    .signal-spark-host[data-spark-roomy]:hover:not(:has([data-spark-model]:hover)) > .signal-spark-wash {
         opacity: 1;
     }
 
@@ -2357,7 +2365,8 @@ a.stat-card-link:active {
 
 /* Motion only where it is welcome; without it the same states swap in place. */
 @media (prefers-reduced-motion: no-preference) {
-    [data-spark-ready] > .signal-spark {
+    [data-spark-ready] > .signal-spark,
+    [data-spark-ready] > .signal-spark-wash {
         transition: opacity 0.45s ease;
     }
 
