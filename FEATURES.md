@@ -92,7 +92,9 @@ Time-series monitoring on your own InfluxDB, fed by SNMP polling (InfluxDB).
 ### Live View
 
 - Live stat tiles: **WAN Download**, **WAN Upload**, **ISP Health**, ISP and transit RTT and loss
+  - ISP RTT and loss read the access floor across access hops, as ISP Health does
 - Gateway tiles: RTT, loss, CPU, memory, temperature, **Fabric Ingress**, **Fabric Egress**
+- Last-hour sparkline behind the ISP, transit, and gateway tiles; hover to bring it forward (InfluxDB)
 - WAN pill selector - one WAN, several to compare, or all
 - Live WAN throughput chart
 - **3D LAN Flow Map** - live 3D topology with animated download and upload flows for all LAN traffic
