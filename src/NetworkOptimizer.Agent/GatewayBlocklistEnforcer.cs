@@ -334,9 +334,10 @@ public sealed class GatewayBlocklistEnforcer
             Check(Run(tool, ["-w", LockWaitSeconds, .. rule.Split(' ')], null), $"{tool} {rule}");
     }
 
-    // One jump at the top of FORWARD and INPUT for both families. True when all four are in place.
-    // Counted from a listing taken under the xtables lock (-w): a failed or locked read inserts nothing,
-    // since a "-C" that fails while UniFi holds the lock reads as absent and stacked a second jump.
+    // Exactly one jump at the top of FORWARD and INPUT for both families. True when all four are in place.
+    // Counted from a listing taken under the xtables lock (-w), so a read that fails or times out on the lock
+    // inserts nothing: an unreadable chain must never read as a missing jump. Every insert, extra removed,
+    // and failed read is logged, so a duplicate that comes back shows whether this agent added it.
     private static bool EnsureHooks(out int inserted)
     {
         inserted = 0;
@@ -348,19 +349,31 @@ public sealed class GatewayBlocklistEnforcer
                 var listing = Run(tool, ["-w", LockWaitSeconds, "-S", builtin], null);
                 if (listing.Exit != 0)
                 {
+                    Console.Error.WriteLine($"Gateway blocklist: could not read {tool} {builtin} (exit {listing.Exit}): {listing.Stderr.Trim()}");
                     all = false;
                     continue;
                 }
                 var jumps = GatewayBlocklistRules.CountJumps(listing.Stdout, builtin, Chain);
                 if (jumps == 0)
                 {
-                    if (Run(tool, ["-w", LockWaitSeconds, "-I", builtin, "1", "-j", Chain], null).Exit == 0)
+                    var insert = Run(tool, ["-w", LockWaitSeconds, "-I", builtin, "1", "-j", Chain], null);
+                    if (insert.Exit == 0)
+                    {
                         inserted++;
+                        Console.WriteLine($"Gateway blocklist: inserted the {tool} {builtin} jump to {Chain}");
+                    }
                     else
+                    {
+                        Console.Error.WriteLine($"Gateway blocklist: could not insert the {tool} {builtin} jump (exit {insert.Exit}): {insert.Stderr.Trim()}");
                         all = false;
+                    }
                 }
-                for (var extra = jumps; extra > 1; extra--)
-                    Run(tool, ["-w", LockWaitSeconds, "-D", builtin, "-j", Chain], null);
+                if (jumps > 1)
+                {
+                    for (var extra = jumps; extra > 1; extra--)
+                        Run(tool, ["-w", LockWaitSeconds, "-D", builtin, "-j", Chain], null);
+                    Console.WriteLine($"Gateway blocklist: removed {jumps - 1} extra {tool} {builtin} jump(s) to {Chain}");
+                }
             }
         }
         return all;
