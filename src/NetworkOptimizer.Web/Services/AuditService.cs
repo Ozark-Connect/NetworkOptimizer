@@ -59,6 +59,8 @@ public partial class AuditService : IAuditScanService
     private readonly SiteContextService _siteContext;
     private readonly Licensing.LicenseStateService _licenseState;
     private readonly SiteTunnelRouting? _tunnelRouting;
+    private readonly Ssh.IGatewaySshService? _gatewaySsh;
+    private readonly NetworkOptimizer.Threats.Blocking.IGatewayAgentBlocklist? _gatewayBlocklist;
 
     public AuditService(
         ILogger<AuditService> logger,
@@ -75,8 +77,12 @@ public partial class AuditService : IAuditScanService
         IAlertEventBus? alertEventBus = null,
         IThreatRepository? threatRepository = null,
         SiteTunnelRouting? tunnelRouting = null,
-        Alerts.Interfaces.INotificationTimeZoneResolver? timeZones = null)
+        Alerts.Interfaces.INotificationTimeZoneResolver? timeZones = null,
+        Ssh.IGatewaySshService? gatewaySsh = null,
+        NetworkOptimizer.Threats.Blocking.IGatewayAgentBlocklist? gatewayBlocklist = null)
     {
+        _gatewaySsh = gatewaySsh;
+        _gatewayBlocklist = gatewayBlocklist;
         _timeZones = timeZones;
         _siteContext = siteContext;
         _tunnelRouting = tunnelRouting;
@@ -286,8 +292,17 @@ public partial class AuditService : IAuditScanService
         Audit.IssueTypes.MgmtNoFixedIps or Audit.IssueTypes.DnsDeviceMisconfigured => issue.CurrentNetwork ?? "",
         // One per console; the list of credentials and their ages change between audits
         Audit.IssueTypes.UnusedApiKeys or Audit.IssueTypes.UnusedLocalAdmins => "",
+        // One per gateway; the interfaces, policies, and sets named change between audits
+        _ when IsGatewayFirewallIssue(issue.Type) => "",
         _ => null
     };
+
+    private static bool IsGatewayFirewallIssue(string type) => type is
+        Audit.IssueTypes.GatewayWanNotExternal or Audit.IssueTypes.GatewayNetworkZoneMismatch or
+        Audit.IssueTypes.GatewayPolicyNotEnforced or Audit.IssueTypes.GatewayDisabledPolicyEnforced or
+        Audit.IssueTypes.GatewayZonePairUnwired or Audit.IssueTypes.GatewayWanZoneReference or
+        Audit.IssueTypes.GatewayBlocklistNotHooked or Audit.IssueTypes.GatewayBlocklistHookDuplicated or
+        Audit.IssueTypes.GatewayBlocklistChainDrift or Audit.IssueTypes.GatewayBlocklistSetEmpty;
 
     /// <summary>
     /// Dismiss an issue (excludes it from counts, persisted to database)
@@ -1639,6 +1654,23 @@ public partial class AuditService : IAuditScanService
                 _logger.LogWarning(ex, "Failed to fetch firewall zones for zone validation");
             }
 
+            // The gateway's own firewall, to check it enforces what UniFi Network says. Skipped without gateway SSH.
+            Audit.Models.GatewayFirewallSnapshot? gatewayFirewall = null;
+            List<Audit.Models.GatewayWanPath>? gatewayWans = null;
+            if (_gatewaySsh != null)
+            {
+                try
+                {
+                    gatewayFirewall = await new Ssh.GatewayFirewallReader(_gatewaySsh, _logger).ReadAsync();
+                    if (gatewayFirewall != null)
+                        gatewayWans = await GatewayWanPathsAsync(networkConfigs);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to read the gateway's firewall; the gateway firewall check is skipped");
+                }
+            }
+
             // A read on a dropped connection either throws (logged and skipped above) or comes back empty.
             // Scoring either one reports the missing firewall policies and port profiles as findings.
             if (ConsoleConnectionLost(_connectionService.IsConnected, _connectionService.Client, auditClient))
@@ -1720,7 +1752,10 @@ public partial class AuditService : IAuditScanService
                 ConnectedUsername = _connectionService.Client?.SignInUsername,
                 FirewallZones = firewallZones,
                 NetworkPurposeOverrides = options.NetworkPurposeOverrides,
-                ThreatContext = threatContext
+                ThreatContext = threatContext,
+                GatewayFirewall = gatewayFirewall,
+                GatewayWanInterfaces = gatewayWans,
+                GatewayBlocklist = gatewayFirewall == null ? null : Ssh.GatewayFirewallReader.Expectation(_gatewayBlocklist, _siteContext.Slug),
             });
 
             // Convert audit result to web models
@@ -1780,6 +1815,30 @@ public partial class AuditService : IAuditScanService
             };
         }
     }
+
+    /// <summary>The page that fixes a finding: the site's agents in Settings - Multi-Site for an agent upgrade.</summary>
+    internal static string? ActionHrefFor(Audit.Models.AuditIssue issue, string? siteSlug) =>
+        issue.Metadata?.TryGetValue(Audit.Analyzers.GatewayFirewallAnalyzer.ActionKey, out var action) == true
+        && Audit.Analyzers.GatewayFirewallAnalyzer.UpgradeAgentAction.Equals(action?.ToString(), StringComparison.Ordinal)
+            ? $"/settings?tab=multisite&configure={Uri.EscapeDataString(siteSlug ?? "")}"
+            : null;
+
+    /// <summary>Each WAN network with the interface its traffic uses on the gateway, for the gateway firewall check.</summary>
+    private async Task<List<Audit.Models.GatewayWanPath>> GatewayWanPathsAsync(List<NetworkOptimizer.UniFi.Models.UniFiNetworkConfig>? networkConfigs)
+    {
+        var interfaces = await _connectionService.GetAllWanInterfacesAsync();
+        return GatewayWanPaths(networkConfigs, interfaces);
+    }
+
+    /// <summary>Pairs each WAN network with its WAN group's data-path interface (the physical port when it has none).</summary>
+    internal static List<Audit.Models.GatewayWanPath> GatewayWanPaths(
+        IReadOnlyList<NetworkOptimizer.UniFi.Models.UniFiNetworkConfig>? networkConfigs, IReadOnlyList<PrimaryWanInterfaces> interfaces) =>
+        (networkConfigs ?? [])
+            .Where(n => n.Enabled && string.Equals(n.Purpose, "wan", StringComparison.OrdinalIgnoreCase) && !string.IsNullOrEmpty(n.WanNetworkgroup))
+            .Select(n => (Network: n, Wan: interfaces.FirstOrDefault(i => string.Equals(i.NetworkGroup, n.WanNetworkgroup, StringComparison.OrdinalIgnoreCase))))
+            .Where(p => (p.Wan?.UplinkIfName ?? p.Wan?.PhysicalIfName) is { Length: > 0 })
+            .Select(p => new Audit.Models.GatewayWanPath(p.Network.Id, p.Network.Name, p.Wan!.UplinkIfName ?? p.Wan.PhysicalIfName!))
+            .ToList();
 
     /// <summary>
     /// True when the console connection the audit started on is no longer the live, connected one.
@@ -1843,6 +1902,8 @@ public partial class AuditService : IAuditScanService
                 Description = issue.Message,
                 DismissalScope = GetDismissalScope(issue),
                 Recommendation = issue.RecommendedAction ?? GetDefaultRecommendation(issue.Type),
+                ActionHref = ActionHrefFor(issue, _siteContext.Slug),
+                ActionLabel = ActionHrefFor(issue, _siteContext.Slug) == null ? null : "Upgrade Agent",
                 // Context fields
                 DeviceName = issue.DeviceName,
                 DeviceMac = issue.DeviceMac,
@@ -2112,6 +2173,8 @@ public partial class AuditService : IAuditScanService
 
         Audit.IssueTypes.UnusedApiKeys or Audit.IssueTypes.UnusedLocalAdmins => "Console Access",
 
+        _ when IsGatewayFirewallIssue(issueType) => "Gateway Firewall",
+
         _ => "General"
     };
 
@@ -2236,6 +2299,18 @@ public partial class AuditService : IAuditScanService
             // Console access
             Audit.IssueTypes.UnusedApiKeys => "Console Access: Unused API Keys",
             Audit.IssueTypes.UnusedLocalAdmins => "Console Access: Unused Local Admin Accounts",
+
+            // Gateway firewall: what the gateway enforces against UniFi Network
+            Audit.IssueTypes.GatewayWanNotExternal => "Gateway Firewall: WAN Not in External Zone",
+            Audit.IssueTypes.GatewayNetworkZoneMismatch => "Gateway Firewall: Network in a Different Zone",
+            Audit.IssueTypes.GatewayPolicyNotEnforced => "Gateway Firewall: Policies Missing on Gateway",
+            Audit.IssueTypes.GatewayDisabledPolicyEnforced => "Gateway Firewall: Disabled Policies Still Enforced",
+            Audit.IssueTypes.GatewayZonePairUnwired => "Gateway Firewall: Zone Policies Not Reached",
+            Audit.IssueTypes.GatewayWanZoneReference => "Gateway Firewall: WAN Zone Missing in UniFi Network",
+            Audit.IssueTypes.GatewayBlocklistNotHooked => "Automatic Blocking: Not in Effect on Gateway",
+            Audit.IssueTypes.GatewayBlocklistHookDuplicated => "Automatic Blocking: Duplicate Gateway Hooks",
+            Audit.IssueTypes.GatewayBlocklistChainDrift => "Automatic Blocking: Gateway Rules Changed",
+            Audit.IssueTypes.GatewayBlocklistSetEmpty => "Automatic Blocking: Gateway Blocklist Empty",
 
             _ => message.Split('.').FirstOrDefault() ?? type
         };
@@ -2552,6 +2627,12 @@ public class AuditIssue
     /// If set, UI shows a link to configure this setting
     /// </summary>
     public string? ConfigurableSetting { get; set; }
+
+    /// <summary>A page that fixes the finding, shown as a button under the recommendation; null for none.</summary>
+    public string? ActionHref { get; set; }
+
+    /// <summary>The button's label, as the target page names the action.</summary>
+    public string? ActionLabel { get; set; }
 
     /// <summary>
     /// Firewall/DNAT rules contributing partial coverage for this finding (with covered networks).
