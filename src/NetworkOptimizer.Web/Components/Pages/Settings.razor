@@ -3687,7 +3687,8 @@
                 settings.
             </p>
 
-            @if (!_multiSiteEnabled)
+            @* Not before the flag is read: the field starts false, so an enabled instance would offer the switch. *@
+            @if (_multiSiteLoaded && !_multiSiteEnabled)
             {
                 <p class="section-description">
                     Multi-WAN monitoring needs this on as well: the agent that probes a second WAN
@@ -4547,6 +4548,7 @@
     </button>;
 
     private bool _multiSiteEnabled = false;
+    private bool _multiSiteLoaded;
     private List<Site> _sites = new();
     private string _multiSiteMessage = "";
     private string _multiSiteMessageClass = "";
@@ -4554,6 +4556,7 @@
     private async Task LoadMultiSiteSettings()
     {
         _multiSiteEnabled = await SiteManagement.IsMultiSiteEnabledAsync();
+        _multiSiteLoaded = true;
         if (_multiSiteEnabled)
         {
             _sites = await SiteManagement.GetSitesAsync();
@@ -5711,6 +5714,9 @@
         _canEditInstanceSettings = authState is not null
             && (await Authz.AuthorizeAsync(authState.User, Policies.RequireAdmin)).Succeeded;
 
+        // Before the loads below: one of them calls the console live, and multi-site is a database read.
+        await LoadMultiSiteSettings();
+
         // Pre-release update notifications default ON (global/instance-wide); only an explicit "false" opts out.
         var prereleaseSetting = await SystemSettings.GetGlobalAsync("updates.include_prereleases");
         receivePrereleaseUpdates = prereleaseSetting is null || (bool.TryParse(prereleaseSetting, out var prPre) && prPre);
@@ -5753,7 +5759,6 @@
         await LoadThreatSettings();
         await LoadMonitoringSettings();
         await LoadMapboxToken();
-        await LoadMultiSiteSettings();
         SiteChangeNotifier.SitesChanged += OnSiteRegistryChanged;
 
         if (_multiSiteEnabled)
