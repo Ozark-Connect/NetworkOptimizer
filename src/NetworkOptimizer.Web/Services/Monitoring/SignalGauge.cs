@@ -1,3 +1,5 @@
+using System.Globalization;
+
 namespace NetworkOptimizer.Web.Services.Monitoring;
 
 /// <summary>
@@ -8,7 +10,7 @@ namespace NetworkOptimizer.Web.Services.Monitoring;
 /// Two shapes, because the two readings are not the same kind of scale. DOCSIS
 /// SNR only rises: more is better, all the way up. Optical Rx power is a band -
 /// a receiver above the top of it is overloaded, which is a fault, so the track
-/// has to run back to red at BOTH ends. Never reuse the rising track for optical.
+/// falls off from green in BOTH directions. Never reuse the rising track for optical.
 /// </summary>
 public static class SignalGauge
 {
@@ -47,45 +49,90 @@ public static class SignalGauge
     /// Rising track for DOCSIS downstream SNR: red at the bottom through to green
     /// at the top. Thresholds are the lower bounds for each grade.
     /// </summary>
-    public static string SnrTrack(double domainLow, double domainHigh, double fair, double good, double excellent)
+    public static string SnrTrack(double domainLow, double domainHigh, double fair, double good, double excellent) =>
+        Css(SnrStops(domainLow, domainHigh, fair, good, excellent));
+
+    /// <summary>The stops of <see cref="SnrTrack"/>, for a sparkline drawn on the same scale.</summary>
+    public static IReadOnlyList<GaugeStop> SnrStops(double domainLow, double domainHigh, double fair, double good, double excellent)
     {
         var f = Position(fair, domainLow, domainHigh);
         var g = Position(good, domainLow, domainHigh);
         var e = Position(excellent, domainLow, domainHigh);
 
-        return "linear-gradient(to top, " +
-               $"{Poor} 0%, {Weak} {f / 2:0.#}%, {Fair} {f:0.#}%, {Good} {g:0.#}%, {Excellent} {e:0.#}%, {Excellent} 100%)";
+        return [new(0, Poor), new(f / 2, Weak), new(f, Fair), new(g, Good), new(e, Excellent), new(100, Excellent)];
     }
 
     /// <summary>
-    /// Band track for optical Rx power: red at both ends, peaking green at the
-    /// middle of the excellent band and easing out through good and fair either
-    /// side of it. The upper red is the point of the whole thing - it is what
-    /// tells a user their receiver is being overdriven rather than doing well.
+    /// Cellular signal quality, 0 to 100, in hard steps at the thresholds where the hero's signal
+    /// bars light one more bar. The lit bars take one flat grade color, so a sparkline on this
+    /// scale has to change color at the same bounds, not blend across them, to match them.
+    /// </summary>
+    /// <param name="floor">The quality at the bottom of the scale; the hero rescales to its day's range.</param>
+    public static IReadOnlyList<GaugeStop> QualityStops(double floor = 0)
+    {
+        double P(double q) => Position(q, floor, 100);
+        return
+        [
+            new(0, Poor), new(P(20), Poor),
+            new(P(20), Weak), new(P(40), Weak),
+            new(P(40), Fair), new(P(60), Fair),
+            new(P(60), Good), new(P(80), Good),
+            new(P(80), Excellent), new(100, Excellent),
+        ];
+    }
+    /// <summary>
+    /// Rising track for cellular RSRP: poor below <paramref name="fair"/>, fair up to
+    /// <paramref name="good"/>, good above it, matching the grades the 5G NR and LTE boxes color by.
+    /// </summary>
+    public static IReadOnlyList<GaugeStop> RsrpStops(double domainLow, double domainHigh, double fair, double good) =>
+        [new(0, Poor), new(Position(fair, domainLow, domainHigh), Fair), new(Position(good, domainLow, domainHigh), Good), new(100, Excellent)];
+
+    private static string Css(IEnumerable<GaugeStop> stops) =>
+        "linear-gradient(to top, " +
+        string.Join(", ", stops.Select(s => $"{s.Color} {s.Position.ToString("0.#", CultureInfo.InvariantCulture)}%")) + ")";
+
+    /// <summary>
+    /// Band track for optical Rx power, peaking green at the peak and easing out through
+    /// good and fair either side of it, so a hot link shows the color turning above the peak
+    /// as a weak one does below it.
     ///
     /// Green peaks at a point rather than holding flat across the whole excellent
     /// band: the eye reads the taper as "how much room is left", which a plateau
     /// hides.
     /// </summary>
-    public static string OpticalTrack(OpticalBands bands)
+    public static string OpticalTrack(OpticalBands bands) => Css(OpticalStops(bands));
+
+    /// <summary>
+    /// The stops of <see cref="OpticalTrack"/>, for a sparkline drawn on the same scale. Each sits
+    /// at its own dBm bound; a bound past the track's ends is dropped rather than piled onto the
+    /// edge, where it would paint a hairline of its color, and the edge keeps the last color inside.
+    /// </summary>
+    public static IReadOnlyList<GaugeStop> OpticalStops(OpticalBands bands)
     {
-        var lo = bands.DomainLow;
-        var hi = bands.DomainHigh;
+        var span = bands.DomainHigh - bands.DomainLow;
+        double Raw(double v) => span > 0 ? (v - bands.DomainLow) / span * 100 : 0;
 
-        double P(double v) => Position(v, lo, hi);
+        var inner = new[]
+        {
+            new GaugeStop(Raw(bands.FairLow), Weak),
+            new GaugeStop(Raw(bands.GoodLow), Fair),
+            new GaugeStop(Raw(bands.ExcellentLow), Good),
+            new GaugeStop(Raw(bands.Peak), Excellent),
+            new GaugeStop(Raw(bands.ExcellentHigh), Good),
+            new GaugeStop(Raw(bands.GoodHigh), Fair),
+            new GaugeStop(Raw(bands.FairHigh), Weak),
+        }.Where(s => s.Position >= 0 && s.Position <= 100).ToList();
 
-        return "linear-gradient(to top, " +
-               $"{Poor} 0%, " +
-               $"{Weak} {P(bands.FairLow):0.#}%, " +
-               $"{Fair} {P(bands.GoodLow):0.#}%, " +
-               $"{Good} {P(bands.ExcellentLow):0.#}%, " +
-               $"{Excellent} {P(bands.Peak):0.#}%, " +
-               $"{Good} {P(bands.ExcellentHigh):0.#}%, " +
-               $"{Fair} {P(bands.GoodHigh):0.#}%, " +
-               $"{Weak} {P(bands.FairHigh):0.#}%, " +
-               $"{Poor} 100%)";
+        var stops = new List<GaugeStop>();
+        if (inner.Count == 0 || inner[0].Position > 0) stops.Add(new(0, Poor));
+        stops.AddRange(inner);
+        if (inner.Count == 0 || inner[^1].Position < 100) stops.Add(new(100, Poor));
+        return stops;
     }
 }
+
+/// <summary>One color stop on a gauge track: a CSS color at a position from 0 (bottom) to 100 (top).</summary>
+public readonly record struct GaugeStop(double Position, string Color);
 
 /// <summary>
 /// Optical Rx power grading bounds, in dBm. Every grade is a range with a floor
@@ -116,22 +163,18 @@ public readonly record struct OpticalBands(
     /// </summary>
     public static readonly OpticalBands ExternalOnt = new(-22.5, -8, -25, -6, -27, -4, Peak: -18);
 
-    /// <summary>
-    /// Half the track's span. Taken as the wider of the two sides so the domain is
-    /// symmetric about <see cref="Peak"/> and neither graded end gets clipped.
-    /// </summary>
-    private double HalfSpan => Math.Max(Peak - (FairLow - 2), (FairHigh + 2) - Peak);
 
     /// <summary>
-    /// Bottom of the track. Placed so the peak sits at dead center: the graded bounds
-    /// are not symmetric around it (PON runs -28 to -4 either side of a -18 peak), and
-    /// deriving the ends from those bounds alone put the best reading below the middle
-    /// of the bar.
+    /// Bottom of the track: the fair floor (-28 dBm for PON). The track spans only the readings a
+    /// working link shows, so a day's movement fills the gauge and its sparkline; a reading past
+    /// either end pins there, which is a fault worth seeing at a glance. It used to be mirrored
+    /// about <see cref="Peak"/>, which put the PON floor at -34 dBm and its ceiling at -2. Every
+    /// color stop sits at its dBm bound, so the colors do not move with the ends.
     /// </summary>
-    public double DomainLow => Peak - HalfSpan;
+    public double DomainLow => FairLow;
 
-    /// <summary>Top of the track, the same distance past the peak as <see cref="DomainLow"/> is below it.</summary>
-    public double DomainHigh => Peak + HalfSpan;
+    /// <summary>Top of the track: the good ceiling (-6 dBm for PON); hotter pins to the top.</summary>
+    public double DomainHigh => GoodHigh;
 
     /// <summary>The signal-* class for a reading, or empty when there is none.</summary>
     public string ClassFor(double? rxDbm)

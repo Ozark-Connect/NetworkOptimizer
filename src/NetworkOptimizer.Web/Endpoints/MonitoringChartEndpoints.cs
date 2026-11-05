@@ -236,7 +236,7 @@ public static class MonitoringChartEndpoints
             // No targets on this WAN means no latency history for it - an empty query would read
             // as the site's, so it is skipped and the series stays empty.
             var rttTask = targetIds.Count > 0
-                ? influx.QueryMeanIspTransitLatencyAsync(queryFrom, queryTo, targetIds, wanScope: latencyScope, ct: ct)
+                ? NetworkOptimizer.Web.Services.Monitoring.WanLatencySeries.QueryAsync(influx, queryFrom, queryTo, targetIds, latencyScope, ct)
                 : Task.FromResult<IReadOnlyList<MonitoringInfluxClient.LatencyPoint>>(Array.Empty<MonitoringInfluxClient.LatencyPoint>());
 
             await Task.WhenAll(wanTask, rttTask);

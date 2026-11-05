@@ -1024,7 +1024,8 @@ export function frameTrailing(category) {
     container.querySelectorAll('[data-category]').forEach(b => {
         b.classList.toggle('active', b.dataset.category === currentCategory);
     });
-    selectPresetRange(container, 0);
+    // The trailing hour, the same span the Live View tiles' sparklines show.
+    selectPresetRange(container, 1);
 }
 
 /**

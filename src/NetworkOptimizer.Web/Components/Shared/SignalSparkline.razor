@@ -1,0 +1,183 @@
+@using System.Globalization
+@using NetworkOptimizer.Web.Services.Monitoring
+@implements IAsyncDisposable
+@inject IJSRuntime JS
+@inject Microsoft.AspNetCore.Mvc.ViewFeatures.IFileVersionProvider FileVersionProvider
+
+@*
+    The last 24 hours behind a signal hero. Geometry comes from signal-spark.js, which sizes this
+    to the hero's own gauge (or bar stack) so the line shares its scale; until then it stays hidden.
+*@
+@if (_path.Line.Length > 0 || _path.EndY.HasValue)
+{
+    <div class="signal-spark join-@Join.ToString().ToLowerInvariant() @EndClass" aria-hidden="true" @ref="_chart" style="@(Tint != null ? $"color: {Tint}" : null)" data-end-y="@(_path.EndY?.ToString("0.##", CultureInfo.InvariantCulture))">
+        <svg class="signal-spark-svg" viewBox="0 0 100 100" preserveAspectRatio="none" focusable="false">
+            <defs>
+                <linearGradient id="@_inkId" gradientUnits="userSpaceOnUse" x1="0" y1="100" x2="0" y2="0">
+                    @foreach (var stop in Stops)
+                    {
+                        <stop offset="@Pct(stop.Position)" style="stop-color: @stop.Color" />
+                    }
+                </linearGradient>
+                <linearGradient id="@_fadeId" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0" stop-color="#fff" stop-opacity="0.9" />
+                    <stop offset="0.8" stop-color="#fff" stop-opacity="0" />
+                </linearGradient>
+                <mask id="@_maskId" maskUnits="userSpaceOnUse" x="0" y="0" width="100" height="100">
+                    <rect x="0" y="0" width="100" height="100" fill="url(#@_fadeId)" />
+                </mask>
+                @* The oldest hours fade in from the gauge rather than starting on a hard edge. *@
+                <linearGradient id="@_pastId" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="14" y2="0">
+                    <stop offset="0" stop-color="#fff" stop-opacity="0" />
+                    <stop offset="1" stop-color="#fff" stop-opacity="1" />
+                </linearGradient>
+                <mask id="@_pastMaskId" maskUnits="userSpaceOnUse" x="-5" y="-20" width="110" height="140">
+                    <rect x="-5" y="-20" width="110" height="140" fill="url(#@_pastId)" />
+                </mask>
+            </defs>
+            <g mask="url(#@_pastMaskId)">
+                @if (_path.Line.Length > 0)
+                {
+                    <path class="signal-spark-line" d="@_path.Line" stroke="url(#@_inkId)" vector-effect="non-scaling-stroke" />
+                }
+            </g>
+        </svg>
+        @if (_path.EndY is double endY && _path.EndX is double endX)
+        {
+            <span class="signal-spark-level" style="top: @Pct(endY); width: @Pct(endX)"></span>
+            @if (Join == SparkJoin.Level && TaperFill != null)
+            {
+                @* The held end thickens into what it meets, in that element's own fill. *@
+                <span class="signal-spark-taper"
+                      style="width: @Pct(Landing * (1 - SparklinePath.LandingReach)); --taper-fill: @TaperFill; clip-path: @SparklinePath.TaperPolygon(endY, TaperUp, TaperDown); transform-origin: right @SparklinePath.TaperOrigin(endY)"></span>
+            }
+            @if (Join == SparkJoin.Dot)
+            {
+                <span class="signal-spark-dot @EndClass" style="top: @Pct(endY); left: @Pct(endX)"></span>
+            }
+        }
+        <span class="signal-spark-span">@SpanLabel</span>
+    </div>
+    @if (_path.Area.Length > 0)
+    {
+        @* The fill sits above the host's text as a faint wash; the line stays below it. The text's
+           halo then cuts out only the line, where a fill underneath showed as a darker patch. *@
+        <div class="signal-spark-wash @EndClass" aria-hidden="true" style="@(Tint != null ? $"color: {Tint}" : null)">
+            <svg class="signal-spark-svg" viewBox="0 0 100 100" preserveAspectRatio="none" focusable="false">
+                <g mask="url(#@_pastMaskId)">
+                    <path class="signal-spark-area" d="@_path.Area" fill="currentColor" mask="url(#@_maskId)" />
+                </g>
+            </svg>
+        </div>
+    }
+}
+
+@code {
+    /// <summary>History, oldest first; the live reading is appended as <see cref="Current"/>.</summary>
+    [Parameter] public IReadOnlyList<SparkPoint>? Points { get; set; }
+
+    /// <summary>The reading the hero is showing now; the line ends on it.</summary>
+    [Parameter] public double? Current { get; set; }
+
+    /// <summary>The span the chart covers, ending now. A longer gap than 1/32 of it breaks the line.</summary>
+    [Parameter] public TimeSpan Window { get; set; } = SignalSparklineService.Window;
+
+    /// <summary>The bottom of the hero gauge's scale.</summary>
+    [Parameter] public double DomainLow { get; set; }
+
+    /// <summary>The top of the hero gauge's scale.</summary>
+    [Parameter] public double DomainHigh { get; set; } = 100;
+
+    /// <summary>The gauge's color stops, so the line takes the track's color at its own height.</summary>
+    [Parameter] public IReadOnlyList<GaugeStop> Stops { get; set; } = [];
+
+    /// <summary>The signal-* class of the live reading, which colors the end dot and the fill under the line.</summary>
+    [Parameter] public string? EndClass { get; set; }
+
+    /// <summary>
+    /// One color for a reading with no gauge to borrow from (Live View's gateway tiles): the line,
+    /// fill, and end dot all take it. Overrides <see cref="EndClass"/>'s color.
+    /// </summary>
+    [Parameter] public string? Tint { get; set; }
+
+    /// <summary>How the line's newest end meets what is beside it.</summary>
+    [Parameter] public SparkJoin Join { get; set; } = SparkJoin.Dot;
+
+    /// <summary>
+    /// The background of the element the line meets (a gauge track, or the bars' color). Set, the
+    /// held end of the line thickens into it; null keeps the plain stroke.
+    /// </summary>
+    [Parameter] public string? TaperFill { get; set; }
+
+    /// <summary>
+    /// How far above the line the taper reaches where it meets the gauge, as a CSS length. The taper
+    /// element is padded past the chart by SparklinePath.TaperPad, so a share of the chart is written
+    /// against the chart: calc(0.09 * (100% - 2 * 16px)).
+    /// </summary>
+    [Parameter] public string TaperUp { get; set; } = "0.875px";
+
+    /// <summary>How far below the line the taper reaches where it meets the gauge.</summary>
+    [Parameter] public string TaperDown { get; set; } = "0.875px";
+
+    // Share of the width kept for the reach to the live reading, when the line meets a gauge.
+    private double Landing => Join == SparkJoin.Level ? 6 : 0;
+
+    // Unique per instance: two heroes on one page must not resolve each other's gradient.
+    private readonly string _inkId, _fadeId, _maskId, _pastId, _pastMaskId;
+    private SparklinePath.Result _path;
+
+    public SignalSparkline()
+    {
+        var id = $"spark-{Guid.NewGuid():N}"[..14];
+        (_inkId, _fadeId, _maskId, _pastId, _pastMaskId) = ($"{id}-ink", $"{id}-fade", $"{id}-mask", $"{id}-past", $"{id}-pastmask");
+    }
+
+    protected override void OnParametersSet() =>
+        _path = SparklinePath.Build(Points, Current, DateTime.UtcNow, Window,
+            DomainLow, DomainHigh, maxGap: Window / 32,
+            landing: Landing);
+
+    private ElementReference _chart;
+    private IJSObjectReference? _module;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        // Every render: the value beside the chart changes width as its text changes.
+        if (_path.Line.Length == 0 && !_path.EndY.HasValue) return;
+        try
+        {
+            _module ??= await JS.InvokeAsync<IJSObjectReference>("import", FileVersionProvider.AddFileVersionToPath("", "/js/signal-spark.js"));
+            await _module.InvokeVoidAsync("bind", _chart);
+        }
+        catch (JSDisconnectedException) { }
+        catch (TaskCanceledException) { }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        try { if (_module != null) await _module.DisposeAsync(); }
+        catch (JSDisconnectedException) { }
+    }
+
+
+    // "24h", "1h": the window the chart covers, in the time-range buttons' own format.
+    private string SpanLabel => Window.TotalHours >= 1
+        ? $"{Window.TotalHours:0}h"
+        : $"{Window.TotalMinutes:0}m";
+
+    private static string Pct(double v) => v.ToString("0.##", CultureInfo.InvariantCulture) + "%";
+}
+
+@code {
+    /// <summary>How a sparkline's newest end meets the element beside it.</summary>
+    public enum SparkJoin
+    {
+        /// <summary>An end dot, for a chart with no gauge beside it (the 5G NR and LTE boxes).</summary>
+        Dot,
+        /// <summary>
+        /// Runs straight into the element beside it at the same level: a gauge's lit window (ONT,
+        /// cable modem), or the root of a bar stack, which moves to meet it (cellular).
+        /// </summary>
+        Level,
+    }
+}

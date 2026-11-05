@@ -1,0 +1,71 @@
+@using NetworkOptimizer.Web.Services.Monitoring
+@inject ISignalSparklineService SparkService
+
+@*
+    The last hour behind a Live View tile (ISP and Transit RTT and Loss; Gateway RTT, Loss, CPU, Mem,
+    Temp). The tile takes .signal-spark-host; this renders the chart and the strip it fills, both as its
+    children. Every tile on the page passes the same Request, so they share one fetch.
+*@
+@if (Live && _points != null && Current.HasValue)
+{
+    var (lo, hi) = SparklinePath.AutoDomain(_points, Current, MinSpan, floorZero: IsLoss);
+    <SignalSparkline Points="_points" Current="Current" DomainLow="lo" DomainHigh="hi"
+                     Stops="_stops" Tint="@Tint" Window="SignalSparklineService.TileWindow" />
+    <div class="stat-spark-area" data-spark-area></div>
+}
+
+@code {
+    /// <summary>Which tile this is.</summary>
+    [Parameter, EditorRequired] public LiveViewSpark Spark { get; set; }
+
+    /// <summary>What the page's tiles read; the same for every tile on it.</summary>
+    [Parameter, EditorRequired] public LiveViewSparkRequest Request { get; set; } = default!;
+
+    /// <summary>The tile's live value; the line ends on it.</summary>
+    [Parameter] public double? Current { get; set; }
+
+    /// <summary>
+    /// False while Live View shows a past moment or compares WANs: a single line ending now would not
+    /// match the tile.
+    /// </summary>
+    [Parameter] public bool Live { get; set; } = true;
+
+    private IReadOnlyList<SparkPoint>? _points;
+    private IReadOnlyList<GaugeStop> _stops = [];
+
+    private bool IsLoss => Spark is LiveViewSpark.GatewayLoss or LiveViewSpark.IspLoss or LiveViewSpark.TransitLoss;
+    private bool IsRtt => Spark is LiveViewSpark.GatewayRtt or LiveViewSpark.IspRtt or LiveViewSpark.TransitRtt;
+
+    // RTT and loss take the live WAN chart's colors (wan-live-chart.js); the rest, the graph palette.
+    private string Tint => Spark switch
+    {
+        _ when IsRtt => "#d946ef",
+        _ when IsLoss => "#ef4444",
+        LiveViewSpark.GatewayCpu => "#3b82f6",
+        LiveViewSpark.GatewayMemory => "#a78bfa",
+        _ => "#f59e0b",
+    };
+
+    // The least span the scale shows, so a steady reading's noise stays a near-flat line.
+    private double MinSpan => Spark switch
+    {
+        _ when IsRtt || IsLoss => 2,
+        LiveViewSpark.GatewayTemperature => 5,
+        _ => 10,
+    };
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _stops = [new(0, Tint), new(100, Tint)];
+        if (!Live) return;
+        try
+        {
+            // Cached for 30 seconds and shared across the tiles, so the 10-second renders are cheap.
+            _points = (await SparkService.GetLiveViewAsync(Request)).For(Spark);
+        }
+        catch
+        {
+            _points = null;
+        }
+    }
+}

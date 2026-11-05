@@ -48,4 +48,33 @@ public static class AccessFloor
         }
         return result;
     }
+
+    /// <summary>
+    /// The floor at one instant, from each access hop's latest reading: the live ISP tiles and the
+    /// WAN live chart's tick, so they read the access layer the way <see cref="Build"/> does.
+    /// With <paramref name="minTargets"/> or more hops reporting an RTT, the lowest of them, with
+    /// loss from <paramref name="lowestMedianId"/> (the hop <see cref="Build"/> is given as its
+    /// fallback). With fewer, that hop's own reading. When it is not reporting either, what did
+    /// report stands in, and with no RTT anywhere the mean loss: no reading is not the same claim
+    /// as no loss, and reading 0% through an outage is the error this keeps out.
+    /// </summary>
+    /// <param name="fresh">Each hop's current reading; stale hops are left out by the caller.</param>
+    /// <param name="lowestMedianId">The hop with the lowest median RTT over the recent hour, if known.</param>
+    public static (double? RttAvgMs, double? LossPercent) Live(
+        IReadOnlyList<(string Id, double? RttAvgMs, double LossPercent)> fresh,
+        string? lowestMedianId,
+        int minTargets = MinTargets)
+    {
+        if (fresh.Count == 0) return (null, null);
+        var own = fresh.Where(f => f.Id == lowestMedianId).Select(f => ((double? Rtt, double Loss)?)(f.RttAvgMs, f.LossPercent)).FirstOrDefault();
+        var reporting = fresh.Where(f => f.RttAvgMs.HasValue).OrderBy(f => f.RttAvgMs!.Value).ToList();
+
+        if (reporting.Count >= minTargets)
+            return (reporting[0].RttAvgMs, own?.Loss ?? reporting[0].LossPercent);
+        if (own is { Rtt: not null } o)
+            return (o.Rtt, o.Loss);
+        return reporting.Count > 0
+            ? (reporting[0].RttAvgMs, reporting[0].LossPercent)
+            : (null, fresh.Average(f => f.LossPercent));
+    }
 }

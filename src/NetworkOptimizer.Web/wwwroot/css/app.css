@@ -2108,6 +2108,371 @@ a.stat-card-link:active {
     overflow-wrap: anywhere;
 }
 
+/* Signal hero sparklines (SignalSparkline.razor). signal-spark.js sets the --spark-* geometry
+   to the hero's gauge or bar stack, and the data-spark-* attributes; at rest the last 24 hours
+   sit faintly behind the text. On hover the model fades, the gauge and its value slide right
+   together, and the chart comes up to full strength on the gauge's own scale, ending level with
+   the gauge's reading. Pointing at the model itself keeps it (and its tooltip) in place. */
+.signal-spark-host {
+    position: relative;
+    isolation: isolate;
+}
+
+/* A halo in the card's own background behind the text: a line crossing the letters breaks up
+   their shapes, which reads as faded text even at full color. --spark-halo is the host's background. */
+.signal-spark-host {
+    --spark-halo: var(--bg-tertiary);
+}
+
+.monitoring-stat-card.signal-spark-host {
+    --spark-halo: var(--bg-card);
+}
+
+/* Muted labels a shade brighter where a chart sits behind them, so the eye still finds them.
+   Context selectors outrank the component style blocks (ClientDashboard-style, loaded after
+   app.css) that set these labels to --text-muted. */
+.signal-spark-host .ont-rx-gauge .rx-power-label,
+.signal-spark-host .signal-quality-text .quality-label,
+.signal-spark-host .cm-model .cm-model-number,
+.monitoring-stat-card.signal-spark-host .stat-label,
+.metric-box.signal-spark-host .metric-row .metric-label,
+.signal-spark-host .signal-spark .signal-spark-span {
+    color: color-mix(in srgb, var(--text-muted) 55%, var(--text-secondary));
+}
+
+.signal-spark-host > :not(.signal-spark) {
+    position: relative;
+    z-index: 1;
+    /* Stacked: one soft shadow is mostly transparent and leaves the line showing through. */
+    text-shadow:
+        0 0 1px var(--spark-halo), 0 0 1px var(--spark-halo), 0 0 2px var(--spark-halo),
+        0 0 2px var(--spark-halo), 0 0 3px var(--spark-halo), 0 0 3px var(--spark-halo),
+        0 0 4px var(--spark-halo), 0 0 6px var(--spark-halo);
+}
+
+.signal-spark,
+.signal-spark-host > .signal-spark-wash {
+    position: absolute;
+    z-index: 0;
+    top: var(--spark-top, 0);
+    left: var(--spark-left, 0);
+    width: var(--spark-width, 0);
+    height: var(--spark-height, 0);
+    pointer-events: none;
+    opacity: 0;
+}
+
+.signal-spark-host > .signal-spark-wash {
+    z-index: 2;
+    text-shadow: none;
+}
+
+[data-spark-ready] > .signal-spark,
+[data-spark-ready] > .signal-spark-wash {
+    opacity: 0.28;
+}
+
+.signal-spark-svg {
+    display: block;
+    width: 100%;
+    height: 100%;
+    overflow: visible;
+}
+
+.signal-spark-line {
+    fill: none;
+    stroke-width: 1.75;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+.signal-spark-area {
+    opacity: 0.32;
+}
+
+.signal-spark-level {
+    position: absolute;
+    left: 0;
+    height: 0;
+    border-top: 1px dashed color-mix(in srgb, var(--text-secondary) 45%, transparent);
+    transform: translateY(-0.5px) scaleX(0);
+    transform-origin: left center;
+    opacity: 0;
+}
+
+/* The held end of the line, thickening into the gauge's lit window, fill, or first bar. Its
+   shape (clip-path) and fill come from SignalSparkline; it covers the line's last stretch. */
+/* right: -2px runs it under the first bar's 2px corner radius; on a gauge the overlap is the
+   gauge's own gradient, so it does not show. It reaches 16px past the chart top and bottom
+   (SparklinePath.TaperPad), since a reading at a scale end thickens past the chart's box; the
+   fill is sized to the chart itself, so a gauge gradient stays on the gauge's scale. */
+.signal-spark-taper {
+    position: absolute;
+    top: -16px;
+    bottom: -16px;
+    right: -2px;
+    background: var(--taper-fill) no-repeat 0 16px / 100% calc(100% - 32px);
+    opacity: 0;
+    transform: scaleY(0.1);
+}
+
+.signal-spark-dot {
+    position: absolute;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: currentColor;
+    box-shadow: 0 0 0 2px var(--bg-tertiary), 0 0 12px currentColor;
+    transform: translate(-50%, -50%) scale(0.4);
+    opacity: 0;
+}
+
+.signal-spark-dot::after {
+    content: "";
+    position: absolute;
+    inset: -5px;
+    border-radius: 50%;
+    border: 1.5px solid currentColor;
+    opacity: 0;
+}
+
+
+/* Square in the box's bottom-left corner: the chart starts on the box's left padding, and
+   --spark-floor is the gap from the chart down to the box's bottom. */
+.signal-spark-span {
+    position: absolute;
+    left: 0;
+    bottom: calc(0.75rem - var(--spark-floor, 0px));
+    font-size: 0.6875rem;
+    font-weight: 600;
+    line-height: 1;
+    color: var(--text-muted);
+    opacity: 0;
+    transform: translateY(3px);
+}
+
+/* The 5G NR / LTE boxes: the chart covers the rows, which step aside on hover for it and a
+   live RSRP readout in the box's top right. */
+.signal-spark-host > .spark-box-readout {
+    position: absolute;
+    top: 0.75rem;
+    right: 0.75rem;
+    display: flex;
+    align-items: baseline;
+    gap: 0.4rem;
+    font-family: monospace;
+    font-size: 0.85rem;
+    font-weight: 600;
+    opacity: 0;
+    transform: translateX(8px);
+    pointer-events: none;
+}
+
+.spark-box-readout-label {
+    font-family: var(--font-sans);
+    font-size: 0.6875rem;
+    font-weight: 600;
+    color: var(--text-muted);
+}
+
+.metric-box .signal-spark-span {
+    display: none;
+}
+
+/* Live View's gateway tiles (StatTileSparkline): the chart takes the lower strip of the tile. On
+   hover the label steps aside and the value lifts clear of the line. */
+.signal-spark-host > .stat-spark-area {
+    position: absolute;
+    left: 0.3rem;
+    right: 0.3rem;
+    bottom: 0.55rem;
+    height: 42%;
+    pointer-events: none;
+}
+
+/* On a tile the span caption sits in the tile's upper-left corner, out of the chart strip:
+   --spark-top/--spark-left place the strip within the tile, so subtracting them lands on the tile. */
+.monitoring-stat-card.signal-spark-host .signal-spark-span {
+    top: calc(0.5rem - var(--spark-top, 0px));
+    bottom: auto;
+    left: calc(0.6rem - var(--spark-left, 0px));
+}
+
+@media (hover: hover) and (pointer: fine) {
+    .monitoring-stat-card.signal-spark-host[data-spark-roomy]:hover .stat-label {
+        opacity: 0;
+        transform: translateY(6px);
+    }
+
+    .monitoring-stat-card.signal-spark-host[data-spark-roomy]:hover .stat-value {
+        transform: translateY(-9px);
+    }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+    .monitoring-stat-card.signal-spark-host .stat-label,
+    .monitoring-stat-card.signal-spark-host .stat-value {
+        transition: opacity 0.25s ease, transform 0.45s cubic-bezier(0.22, 1, 0.36, 1);
+    }
+}
+
+@media (hover: hover) and (pointer: fine) {
+    .signal-spark-host[data-spark-roomy]:hover:not(:has([data-spark-model]:hover)) > .signal-spark,
+    .signal-spark-host[data-spark-roomy]:hover:not(:has([data-spark-model]:hover)) > .signal-spark-wash {
+        opacity: 1;
+    }
+
+    .signal-spark-host[data-spark-roomy]:hover:not(:has([data-spark-model]:hover)) [data-spark-value] {
+        transform: translateX(var(--spark-shift, 0));
+    }
+
+    /* Only while the chart is forward does its end thicken into the gauge. */
+    .signal-spark-host[data-spark-roomy]:hover:not(:has([data-spark-model]:hover)) .signal-spark-taper {
+        opacity: 1;
+        transform: none;
+    }
+
+    .signal-spark-host[data-spark-roomy]:hover:not(:has([data-spark-model]:hover)) [data-spark-anchor="root"] {
+        transform: translateY(var(--spark-lift, 0));
+    }
+
+    .signal-spark-host[data-spark-roomy]:hover:not(:has([data-spark-model]:hover)) [data-spark-model] {
+        opacity: 0;
+        transform: translateX(14px) scale(0.96);
+        filter: blur(6px);
+    }
+
+    .signal-spark-host[data-spark-roomy]:hover:not(:has([data-spark-model]:hover)) .signal-spark-svg {
+        filter: drop-shadow(0 0 6px color-mix(in srgb, var(--spark-glow, var(--signal-good)) 45%, transparent));
+    }
+
+    .signal-spark-host[data-spark-roomy]:hover:not(:has([data-spark-model]:hover)) .signal-spark-level {
+        opacity: 1;
+        transform: translateY(-0.5px) scaleX(1);
+    }
+
+    .signal-spark-host[data-spark-roomy]:hover:not(:has([data-spark-model]:hover)) .signal-spark-dot {
+        opacity: 1;
+        transform: translate(-50%, -50%) scale(1);
+    }
+
+    .signal-spark-host[data-spark-roomy]:hover:not(:has([data-spark-model]:hover)) .signal-spark-span {
+        opacity: 1;
+        transform: none;
+    }
+
+    .signal-spark-host[data-spark-roomy]:hover [data-spark-fill] {
+        opacity: 0;
+        transform: translateY(4px);
+        filter: blur(4px);
+    }
+
+    .signal-spark-host[data-spark-roomy]:hover > .spark-box-readout {
+        opacity: 1;
+        transform: none;
+    }
+}
+
+.signal-spark.signal-excellent { --spark-glow: var(--signal-excellent); }
+.signal-spark.signal-good { --spark-glow: var(--signal-good); }
+.signal-spark.signal-fair { --spark-glow: var(--signal-fair); }
+.signal-spark.signal-weak { --spark-glow: var(--signal-weak); }
+.signal-spark.signal-poor { --spark-glow: var(--signal-poor); }
+
+/* Motion only where it is welcome; without it the same states swap in place. */
+@media (prefers-reduced-motion: no-preference) {
+    [data-spark-ready] > .signal-spark,
+    [data-spark-ready] > .signal-spark-wash {
+        transition: opacity 0.45s ease;
+    }
+
+    .signal-spark-host [data-spark-fill] {
+        transition: opacity 0.3s ease, transform 0.45s cubic-bezier(0.22, 1, 0.36, 1), filter 0.3s ease;
+    }
+
+    .signal-spark-host > .spark-box-readout {
+        transition: opacity 0.2s ease, transform 0.2s ease;
+    }
+
+    .signal-spark-host:hover > .spark-box-readout {
+        transition: opacity 0.35s ease 0.15s, transform 0.5s cubic-bezier(0.22, 1, 0.36, 1) 0.15s;
+    }
+
+    [data-spark-ready] .signal-spark-svg {
+        animation: signal-spark-reveal 1.2s cubic-bezier(0.65, 0, 0.35, 1) backwards;
+        transition: filter 0.45s ease;
+    }
+
+    /* Out: the taper collapses first. In: it swells while the gauge slides in (0.62s) and is
+       full before the gauge lands, so the two arrive together. */
+    .signal-spark-taper {
+        transition: opacity 0.15s ease, transform 0.2s ease;
+    }
+
+    .signal-spark-host:hover:not(:has([data-spark-model]:hover)) .signal-spark-taper {
+        transition: opacity 0.15s ease 0.12s, transform 0.4s cubic-bezier(0.22, 1, 0.36, 1) 0.12s;
+    }
+
+    /* Cellular: the bars rise or drop as they slide, landing with their root on the line's end. */
+    .signal-spark-host [data-spark-anchor="root"] {
+        transition: transform 0.62s cubic-bezier(0.22, 1, 0.36, 1);
+    }
+
+    .signal-spark-host [data-spark-value] {
+        transition: transform 0.62s cubic-bezier(0.22, 1, 0.36, 1);
+        will-change: transform;
+    }
+
+    /* Out: the model waits for the value to clear its spot. In: it leaves at once. */
+    .signal-spark-host [data-spark-model] {
+        transition: opacity 0.34s ease 0.18s, transform 0.5s cubic-bezier(0.22, 1, 0.36, 1) 0.14s, filter 0.34s ease 0.18s;
+    }
+
+    .signal-spark-host[data-spark-roomy]:hover:not(:has([data-spark-model]:hover)) [data-spark-model] {
+        transition: opacity 0.2s ease, transform 0.4s cubic-bezier(0.22, 1, 0.36, 1), filter 0.2s ease;
+    }
+
+    .signal-spark-level {
+        transition: transform 0.2s ease, opacity 0.2s ease;
+    }
+
+    .signal-spark-host:hover:not(:has([data-spark-model]:hover)) .signal-spark-level {
+        transition: transform 0.8s cubic-bezier(0.22, 1, 0.36, 1) 0.12s, opacity 0.3s ease 0.12s;
+    }
+
+    .signal-spark-dot {
+        transition: transform 0.3s ease, opacity 0.2s ease;
+    }
+
+    .signal-spark-host:hover:not(:has([data-spark-model]:hover)) .signal-spark-dot {
+        transition: transform 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) 0.42s, opacity 0.25s ease 0.42s;
+    }
+
+    .signal-spark-host[data-spark-roomy]:hover:not(:has([data-spark-model]:hover)) .signal-spark-dot::after {
+        animation: signal-spark-ping 2s cubic-bezier(0, 0, 0.2, 1) 0.9s infinite;
+    }
+
+    .signal-spark-span {
+        transition: opacity 0.2s ease, transform 0.2s ease;
+    }
+
+    .signal-spark-host:hover:not(:has([data-spark-model]:hover)) .signal-spark-span {
+        transition: opacity 0.35s ease 0.3s, transform 0.45s cubic-bezier(0.22, 1, 0.36, 1) 0.3s;
+    }
+}
+
+/* Overdrawn vertically so the stroke and glow at the box edges are never cut mid-reveal;
+   the fill mode is backwards, so no clip is left on the chart once it has drawn. */
+@keyframes signal-spark-reveal {
+    from { clip-path: inset(-50% 100% -50% -10%); }
+    to { clip-path: inset(-50% -10% -50% -10%); }
+}
+
+@keyframes signal-spark-ping {
+    0% { transform: scale(0.5); opacity: 0.7; }
+    75%, 100% { transform: scale(1.9); opacity: 0; }
+}
+
 /* Channel Spectrum (CM Stats): the latest poll's channels by frequency. Axis and grid colors
    match the ApexCharts charts above it. Grade classes are cmsp-* because .grade-* is global. */
 .cm-spectrum-card {
