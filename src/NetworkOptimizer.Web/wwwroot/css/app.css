@@ -2283,7 +2283,7 @@ a.stat-card-link:active {
    hover the label steps aside and the value lifts clear of the line. */
 .signal-spark-host > .stat-spark-area {
     position: absolute;
-    left: 0.3rem;
+    left: 0.1rem;
     right: 0.3rem;
     bottom: 0.55rem;
     height: 42%;
