@@ -1,7 +1,9 @@
 @using NetworkOptimizer.Web.Services
 @using NetworkOptimizer.Monitoring.Models
+@using NetworkOptimizer.Web.Services.Monitoring
 @using Microsoft.JSInterop
 @inject ICellularModemService ModemService
+@inject ISignalSparklineService SparkService
 @inject IJSRuntime JS
 @implements IDisposable
 @inject IDisplayTimeZone DisplayTime
@@ -104,14 +106,16 @@
         </div>
 
         <!-- Signal Quality Bar -->
-        <div class="signal-quality-section">
-            <div class="signal-bars">
+        <div class="signal-quality-section signal-spark-host">
+            <SignalSparkline Points="_spark" Current="modemStats.SignalQuality" DomainLow="0" DomainHigh="100"
+                             Stops="SignalGauge.QualityStops" EndClass="@QualityClass(modemStats.SignalQuality)" />
+            <div class="signal-bars" data-spark-anchor>
                 @for (int i = 1; i <= 5; i++)
                 {
                     <div class="signal-bar @(i <= GetSignalBars() ? "active" : "")"></div>
                 }
             </div>
-            <div class="signal-quality-text">
+            <div class="signal-quality-text" data-spark-value>
                 <span class="quality-value">@modemStats.SignalQuality%</span>
                 <span class="quality-label">Signal Quality</span>
             </div>
@@ -123,7 +127,7 @@
                     <button class="nav-btn" @onclick="NextModem" @onclick:stopPropagation disabled="@(currentModemIndex >= configuredModems.Count - 1)">›</button>
                 }
             </div>
-            <div class="modem-identity" data-tour="cellular-identity" data-tooltip="@DeviceTooltip()" data-tooltip-wide @onclick:stopPropagation>
+            <div class="modem-identity" data-spark-model data-tour="cellular-identity" data-tooltip="@DeviceTooltip()" data-tooltip-wide @onclick:stopPropagation>
                 @if (DeviceBrand() != null)
                 {
                     <div class="cm-model">
@@ -592,6 +596,7 @@
                             modemStats = newStats;
                             pollError = null;
                         }
+                        await RefreshSparkAsync();
                     }
                     StateHasChanged();
                 }
@@ -637,6 +642,7 @@
                         modemStats = await ModemService.GetCachedStatsAsync(modem.Id);
                     }
                 }
+                await RefreshSparkAsync();
             }
         }
         finally
@@ -760,6 +766,8 @@
             var cached = await ModemService.GetCachedStatsAsync(modem.Id);
             modemStats = cached;
             pollError = null;
+            _spark = null;
+            await RefreshSparkAsync();
             StateHasChanged();
 
             if (cached == null)
@@ -877,6 +885,26 @@
         if (snr >= 10) return "fair";
         return "poor";
     }
+
+    /// <summary>The last 24 hours of signal quality for the shown modem; null draws no sparkline.</summary>
+    private IReadOnlyList<SparkPoint>? _spark;
+
+    private async Task RefreshSparkAsync()
+    {
+        if (configuredModems.Count == 0 || currentModemIndex >= configuredModems.Count) { _spark = null; return; }
+        try { _spark = await SparkService.GetCellularQualityAsync(configuredModems[currentModemIndex].Id); }
+        catch { _spark = null; }
+    }
+
+    /// <summary>The signal-* grade of a quality reading, at the same steps where <see cref="GetSignalBars"/> adds a bar.</summary>
+    private static string QualityClass(int quality) => quality switch
+    {
+        >= 80 => "signal-excellent",
+        >= 60 => "signal-good",
+        >= 40 => "signal-fair",
+        >= 20 => "signal-weak",
+        _ => "signal-poor",
+    };
 
     private int GetSignalBars()
     {

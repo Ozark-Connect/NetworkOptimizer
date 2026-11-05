@@ -4125,6 +4125,50 @@ from(bucket: ""{_longtermBucket}"")
     }
 
     /// <summary>
+    /// One numeric field of one longterm device, as a mean per window: the Dashboard signal
+    /// sparklines. Every matching series is merged first, so a modem that writes the field under
+    /// both network modes, or a module seen under two device types, still draws one line.
+    /// </summary>
+    /// <param name="tags">Exact tag matches that pick the device, e.g. ("cm_id", "3").</param>
+    public async Task<List<(DateTime Time, double Value)>> QueryFieldSeriesAsync(
+        string measurement,
+        IReadOnlyList<(string Tag, string Value)> tags,
+        string field,
+        DateTime from,
+        DateTime to,
+        TimeSpan window,
+        CancellationToken ct = default)
+    {
+        if (!IsConfigured) await ReconfigureAsync(ct);
+        if (!IsConfigured || tags.Count == 0) return new List<(DateTime, double)>();
+
+        // device_mac is written normalized, so a caller's dashed or uppercase MAC is matched the same way.
+        var tagFilter = string.Join(" and ", tags.Select(t =>
+            $@"r.{SanitizeFluxIdentifier(t.Tag)} == ""{(t.Tag == "device_mac" ? NormalizeMac(t.Value) : SanitizeFluxString(t.Value))}"""));
+        var flux = $@"
+from(bucket: ""{_longtermBucket}"")
+  |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
+  |> filter(fn: (r) => r._measurement == ""{SanitizeFluxString(measurement)}"" and r._field == ""{SanitizeFluxString(field)}"")
+  |> filter(fn: (r) => {tagFilter})
+  |> toFloat()
+  |> group()
+  |> aggregateWindow(every: {ToFluxDuration(window)}, fn: mean, createEmpty: false)
+";
+        var results = new List<(DateTime Time, double Value)>();
+        await foreach (var record in QueryFluxAsync(flux, ct))
+        {
+            if (AsDoubleOrNull(record.GetValue()) is double v && double.IsFinite(v))
+                results.Add((ToUtc(record.GetTimeInDateTime() ?? DateTime.UtcNow), v));
+        }
+        results.Sort((a, b) => a.Time.CompareTo(b.Time));
+        return results;
+    }
+
+    /// <summary>A tag name for a Flux record member: letters, digits, and underscores only.</summary>
+    private static string SanitizeFluxIdentifier(string name) =>
+        new(name.Where(c => char.IsAsciiLetterOrDigit(c) || c == '_').ToArray());
+
+    /// <summary>
     /// Query cellular modem signal metrics over time. Groups by modem_id + network_mode
     /// so LTE and NR5G are separate series (important for NSA dual-connectivity).
     /// Reads from the longterm bucket.

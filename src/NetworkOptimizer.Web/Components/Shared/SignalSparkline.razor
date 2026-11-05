@@ -1,0 +1,114 @@
+@using System.Globalization
+@using NetworkOptimizer.Web.Services.Monitoring
+@implements IAsyncDisposable
+@inject IJSRuntime JS
+@inject Microsoft.AspNetCore.Mvc.ViewFeatures.IFileVersionProvider FileVersionProvider
+
+@*
+    The last 24 hours behind a signal hero. Geometry comes from signal-spark.js, which sizes this
+    to the hero's own gauge (or bar stack) so the line shares its scale; until then it stays hidden.
+*@
+@if (_path.Line.Length > 0 || _path.EndY.HasValue)
+{
+    <div class="signal-spark @EndClass" aria-hidden="true" @ref="_chart">
+        <svg class="signal-spark-svg" viewBox="0 0 100 100" preserveAspectRatio="none" focusable="false">
+            <defs>
+                <linearGradient id="@_inkId" gradientUnits="userSpaceOnUse" x1="0" y1="100" x2="0" y2="0">
+                    @foreach (var stop in Stops)
+                    {
+                        <stop offset="@Pct(stop.Position)" style="stop-color: @stop.Color" />
+                    }
+                </linearGradient>
+                <linearGradient id="@_fadeId" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0" stop-color="#fff" stop-opacity="0.9" />
+                    <stop offset="0.8" stop-color="#fff" stop-opacity="0" />
+                </linearGradient>
+                <mask id="@_maskId" maskUnits="userSpaceOnUse" x="0" y="0" width="100" height="100">
+                    <rect x="0" y="0" width="100" height="100" fill="url(#@_fadeId)" />
+                </mask>
+                @* The oldest hours fade in from the gauge rather than starting on a hard edge. *@
+                <linearGradient id="@_pastId" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="14" y2="0">
+                    <stop offset="0" stop-color="#fff" stop-opacity="0" />
+                    <stop offset="1" stop-color="#fff" stop-opacity="1" />
+                </linearGradient>
+                <mask id="@_pastMaskId" maskUnits="userSpaceOnUse" x="-5" y="-20" width="110" height="140">
+                    <rect x="-5" y="-20" width="110" height="140" fill="url(#@_pastId)" />
+                </mask>
+            </defs>
+            <g mask="url(#@_pastMaskId)">
+                @if (_path.Area.Length > 0)
+                {
+                    <path class="signal-spark-area" d="@_path.Area" fill="currentColor" mask="url(#@_maskId)" />
+                }
+                @if (_path.Line.Length > 0)
+                {
+                    <path class="signal-spark-line" d="@_path.Line" stroke="url(#@_inkId)" vector-effect="non-scaling-stroke" />
+                }
+            </g>
+        </svg>
+        @if (_path.EndY is double endY && _path.EndX is double endX)
+        {
+            <span class="signal-spark-level" style="top: @Pct(endY); width: @Pct(endX)"></span>
+            <span class="signal-spark-dot @EndClass" style="top: @Pct(endY); left: @Pct(endX)"></span>
+        }
+        <span class="signal-spark-span">24h</span>
+    </div>
+}
+
+@code {
+    /// <summary>History, oldest first; the live reading is appended as <see cref="Current"/>.</summary>
+    [Parameter] public IReadOnlyList<SparkPoint>? Points { get; set; }
+
+    /// <summary>The reading the hero is showing now; the line ends on it.</summary>
+    [Parameter] public double? Current { get; set; }
+
+    /// <summary>The bottom of the hero gauge's scale.</summary>
+    [Parameter] public double DomainLow { get; set; }
+
+    /// <summary>The top of the hero gauge's scale.</summary>
+    [Parameter] public double DomainHigh { get; set; } = 100;
+
+    /// <summary>The gauge's color stops, so the line takes the track's color at its own height.</summary>
+    [Parameter] public IReadOnlyList<GaugeStop> Stops { get; set; } = [];
+
+    /// <summary>The signal-* class of the live reading, which colors the end dot and the fill under the line.</summary>
+    [Parameter] public string? EndClass { get; set; }
+
+    // Unique per instance: two heroes on one page must not resolve each other's gradient.
+    private readonly string _inkId, _fadeId, _maskId, _pastId, _pastMaskId;
+    private SparklinePath.Result _path;
+
+    public SignalSparkline()
+    {
+        var id = $"spark-{Guid.NewGuid():N}"[..14];
+        (_inkId, _fadeId, _maskId, _pastId, _pastMaskId) = ($"{id}-ink", $"{id}-fade", $"{id}-mask", $"{id}-past", $"{id}-pastmask");
+    }
+
+    protected override void OnParametersSet() =>
+        _path = SparklinePath.Build(Points, Current, DateTime.UtcNow, SignalSparklineService.Window,
+            DomainLow, DomainHigh, maxGap: TimeSpan.FromMinutes(45));
+
+    private ElementReference _chart;
+    private IJSObjectReference? _module;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        // Every render: the value beside the chart changes width as its text changes.
+        if (_path.Line.Length == 0 && !_path.EndY.HasValue) return;
+        try
+        {
+            _module ??= await JS.InvokeAsync<IJSObjectReference>("import", FileVersionProvider.AddFileVersionToPath("", "/js/signal-spark.js"));
+            await _module.InvokeVoidAsync("bind", _chart);
+        }
+        catch (JSDisconnectedException) { }
+        catch (TaskCanceledException) { }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        try { if (_module != null) await _module.DisposeAsync(); }
+        catch (JSDisconnectedException) { }
+    }
+
+    private static string Pct(double v) => v.ToString("0.##", CultureInfo.InvariantCulture) + "%";
+}

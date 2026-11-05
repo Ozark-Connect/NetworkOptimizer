@@ -10,6 +10,7 @@
 @inject UniFiConnectionService ConnectionService
 @inject IOntMonitorService ExternalOntService
 @inject IErrorCounterWindowService ErrorWindow
+@inject ISignalSparklineService SparkService
 @inject ISfpModulePollService SfpPoller
 @inject IDisplayTimeZone DisplayTime
 
@@ -35,10 +36,11 @@ else if (IsShowingExternal && _externalOntStats != null)
         }
     </div>
 
-    <div class="signal-quality-section signal-with-model">
+    <div class="signal-quality-section signal-with-model signal-spark-host">
+        @RxSpark(_externalOntStats.RxPowerDbm, OpticalBands.ExternalOnt, ExternalRxClass())
         <div class="signal-hero">
             @RxGauge(_externalOntStats.RxPowerDbm, OpticalBands.ExternalOnt)
-            <div class="ont-rx-gauge">
+            <div class="ont-rx-gauge" data-spark-value>
                 <span class="rx-power-value @ExternalRxClass()">
                     @(_externalOntStats.RxPowerDbm.HasValue ? $"{_externalOntStats.RxPowerDbm.Value:0.0#} dBm" : "-")
                 </span>
@@ -240,10 +242,11 @@ else
         }
     </div>
 
-    <div class="signal-quality-section signal-with-model">
+    <div class="signal-quality-section signal-with-model signal-spark-host">
+        @RxSpark(stats?.RxPowerDbm, BandsFor(current.Category), rxClass)
         <div class="signal-hero">
             @RxGauge(stats?.RxPowerDbm, BandsFor(current.Category))
-            <div class="ont-rx-gauge">
+            <div class="ont-rx-gauge" data-spark-value>
                 <span class="rx-power-value @rxClass">
                     @(stats?.RxPowerDbm.HasValue == true ? $"{stats.RxPowerDbm.Value:0.0#} dBm" : "-")
                 </span>
@@ -445,6 +448,7 @@ else
                     catch { }
                     await RefreshExternalStatsAsync();
                     await RefreshErrorTotalsAsync();
+                    await RefreshSparkAsync();
                     StateHasChanged();
                 });
             }
@@ -472,6 +476,7 @@ else
             await RefreshExternalStatsAsync();
             _limitErrorsTo24h = (await db.MonitoringSettings.AsNoTracking().FirstOrDefaultAsync())?.OntErrorCountersLast24h ?? true;
             await RefreshErrorTotalsAsync();
+            await RefreshSparkAsync();
 
             try
             {
@@ -533,13 +538,13 @@ else
 
     private async Task Previous()
     {
-        if (_currentIndex > 0) { _currentIndex--; _errorTotals = null; _pollError = null; await RefreshExternalStatsAsync(); await RefreshErrorTotalsAsync(); }
+        if (_currentIndex > 0) { _currentIndex--; _errorTotals = null; _spark = null; _pollError = null; await RefreshExternalStatsAsync(); await RefreshErrorTotalsAsync(); await RefreshSparkAsync(); }
         StateHasChanged();
     }
 
     private async Task Next()
     {
-        if (_currentIndex < TotalCount - 1) { _currentIndex++; _errorTotals = null; _pollError = null; await RefreshExternalStatsAsync(); await RefreshErrorTotalsAsync(); }
+        if (_currentIndex < TotalCount - 1) { _currentIndex++; _errorTotals = null; _spark = null; _pollError = null; await RefreshExternalStatsAsync(); await RefreshErrorTotalsAsync(); await RefreshSparkAsync(); }
         StateHasChanged();
     }
 
@@ -643,10 +648,20 @@ else
         {
             var pos = SignalGauge.Position(rxDbm.Value, bands.DomainLow, bands.DomainHigh);
             var (above, below) = SignalGauge.WindowEdges(pos);
-            <div class="signal-gauge" style="background: @SignalGauge.OpticalTrack(bands)">
+            <div class="signal-gauge" data-spark-anchor style="background: @SignalGauge.OpticalTrack(bands)">
                 <div class="gauge-shade" style="height: @($"{above:0.#}")%"></div>
                 <div class="gauge-shade gauge-shade-low" style="height: @($"{below:0.#}")%"></div>
             </div>
+        }
+    };
+
+    /// <summary>The last 24 hours of Rx power behind the hero, on the gauge's own scale.</summary>
+    private RenderFragment RxSpark(double? rxDbm, OpticalBands bands, string rxClass) => __builder =>
+    {
+        if (rxDbm.HasValue)
+        {
+            <SignalSparkline Points="_spark" Current="rxDbm" DomainLow="bands.DomainLow" DomainHigh="bands.DomainHigh"
+                             Stops="SignalGauge.OpticalStops(bands)" EndClass="@rxClass" />
         }
     };
 
@@ -664,7 +679,7 @@ else
 
         if (!string.IsNullOrEmpty(name))
         {
-            <div class="cm-model">
+            <div class="cm-model" data-spark-model>
                 <span class="cm-model-name">@name</span>
                 @if (!string.IsNullOrEmpty(number))
                 {
@@ -745,6 +760,31 @@ else
         }
         catch { }
         _errorTotals = totals;
+    }
+
+    /// <summary>The last 24 hours of Rx power for the shown item; null draws no sparkline.</summary>
+    private IReadOnlyList<SparkPoint>? _spark;
+
+    /// <summary>Assigned once at the end, like the error totals, so a render mid-refresh keeps the last line.</summary>
+    private async Task RefreshSparkAsync()
+    {
+        IReadOnlyList<SparkPoint>? spark = null;
+        try
+        {
+            if (IsShowingExternal)
+            {
+                var extIdx = _currentIndex - _monitoredOnts.Count;
+                if (extIdx >= 0 && extIdx < _externalOnts.Count)
+                    spark = await SparkService.GetOntRxAsync(_externalOnts[extIdx].Id);
+            }
+            else if (_currentIndex < _monitoredOnts.Count)
+            {
+                var sfp = _monitoredOnts[_currentIndex];
+                spark = await SparkService.GetSfpRxAsync(sfp.DeviceMac, sfp.PortName);
+            }
+        }
+        catch { }
+        _spark = spark;
     }
 
     /// <summary>

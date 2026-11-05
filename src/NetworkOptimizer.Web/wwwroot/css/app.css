@@ -2108,6 +2108,204 @@ a.stat-card-link:active {
     overflow-wrap: anywhere;
 }
 
+/* Signal hero sparklines (SignalSparkline.razor). signal-spark.js sets the --spark-* geometry
+   to the hero's gauge or bar stack, and the data-spark-* attributes; at rest the last 24 hours
+   sit faintly behind the text. On hover the model fades, the value slides right, and the chart
+   comes up to full strength on the gauge's own scale. Pointing at the model itself keeps it (and
+   its tooltip) in place. */
+.signal-spark-host {
+    position: relative;
+    isolation: isolate;
+}
+
+.signal-spark-host > :not(.signal-spark) {
+    position: relative;
+    z-index: 1;
+}
+
+.signal-spark {
+    position: absolute;
+    z-index: 0;
+    top: var(--spark-top, 0);
+    left: var(--spark-left, 0);
+    width: var(--spark-width, 0);
+    height: var(--spark-height, 0);
+    pointer-events: none;
+    opacity: 0;
+}
+
+[data-spark-ready] > .signal-spark {
+    opacity: 0.28;
+}
+
+.signal-spark-svg {
+    display: block;
+    width: 100%;
+    height: 100%;
+    overflow: visible;
+}
+
+.signal-spark-line {
+    fill: none;
+    stroke-width: 1.75;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+.signal-spark-area {
+    opacity: 0.32;
+}
+
+.signal-spark-level {
+    position: absolute;
+    left: 0;
+    height: 0;
+    border-top: 1px dashed color-mix(in srgb, var(--text-secondary) 45%, transparent);
+    transform: translateY(-0.5px) scaleX(0);
+    transform-origin: left center;
+    opacity: 0;
+}
+
+.signal-spark-dot {
+    position: absolute;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: currentColor;
+    box-shadow: 0 0 0 2px var(--bg-tertiary), 0 0 12px currentColor;
+    transform: translate(-50%, -50%) scale(0.4);
+    opacity: 0;
+}
+
+.signal-spark-dot::after {
+    content: "";
+    position: absolute;
+    inset: -5px;
+    border-radius: 50%;
+    border: 1.5px solid currentColor;
+    opacity: 0;
+}
+
+.signal-spark-span {
+    position: absolute;
+    left: 0;
+    top: calc(100% + 3px);
+    font-size: 0.625rem;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    opacity: 0;
+    transform: translateY(-3px);
+}
+
+@media (hover: hover) and (pointer: fine) {
+    .signal-spark-host[data-spark-roomy]:hover:not(:has([data-spark-model]:hover)) > .signal-spark {
+        opacity: 1;
+    }
+
+    .signal-spark-host[data-spark-roomy]:hover:not(:has([data-spark-model]:hover)) [data-spark-value] {
+        transform: translateX(var(--spark-shift, 0));
+    }
+
+    .signal-spark-host[data-spark-roomy]:hover:not(:has([data-spark-model]:hover)) [data-spark-model] {
+        opacity: 0;
+        transform: translateX(14px) scale(0.96);
+        filter: blur(6px);
+    }
+
+    .signal-spark-host[data-spark-roomy]:hover:not(:has([data-spark-model]:hover)) .signal-spark-svg {
+        filter: drop-shadow(0 0 6px color-mix(in srgb, var(--spark-glow, var(--signal-good)) 45%, transparent));
+    }
+
+    .signal-spark-host[data-spark-roomy]:hover:not(:has([data-spark-model]:hover)) .signal-spark-level {
+        opacity: 1;
+        transform: translateY(-0.5px) scaleX(1);
+    }
+
+    .signal-spark-host[data-spark-roomy]:hover:not(:has([data-spark-model]:hover)) .signal-spark-dot {
+        opacity: 1;
+        transform: translate(-50%, -50%) scale(1);
+    }
+
+    .signal-spark-host[data-spark-roomy]:hover:not(:has([data-spark-model]:hover)) .signal-spark-span {
+        opacity: 1;
+        transform: none;
+    }
+}
+
+.signal-spark.signal-excellent { --spark-glow: var(--signal-excellent); }
+.signal-spark.signal-good { --spark-glow: var(--signal-good); }
+.signal-spark.signal-fair { --spark-glow: var(--signal-fair); }
+.signal-spark.signal-weak { --spark-glow: var(--signal-weak); }
+.signal-spark.signal-poor { --spark-glow: var(--signal-poor); }
+
+/* Motion only where it is welcome; without it the same states swap in place. */
+@media (prefers-reduced-motion: no-preference) {
+    [data-spark-ready] > .signal-spark {
+        transition: opacity 0.45s ease;
+    }
+
+    [data-spark-ready] .signal-spark-svg {
+        animation: signal-spark-reveal 1.2s cubic-bezier(0.65, 0, 0.35, 1) backwards;
+        transition: filter 0.45s ease;
+    }
+
+    .signal-spark-host [data-spark-value] {
+        transition: transform 0.62s cubic-bezier(0.22, 1, 0.36, 1);
+        will-change: transform;
+    }
+
+    /* Out: the model waits for the value to clear its spot. In: it leaves at once. */
+    .signal-spark-host [data-spark-model] {
+        transition: opacity 0.34s ease 0.18s, transform 0.5s cubic-bezier(0.22, 1, 0.36, 1) 0.14s, filter 0.34s ease 0.18s;
+    }
+
+    .signal-spark-host[data-spark-roomy]:hover:not(:has([data-spark-model]:hover)) [data-spark-model] {
+        transition: opacity 0.2s ease, transform 0.4s cubic-bezier(0.22, 1, 0.36, 1), filter 0.2s ease;
+    }
+
+    .signal-spark-level {
+        transition: transform 0.2s ease, opacity 0.2s ease;
+    }
+
+    .signal-spark-host:hover:not(:has([data-spark-model]:hover)) .signal-spark-level {
+        transition: transform 0.8s cubic-bezier(0.22, 1, 0.36, 1) 0.12s, opacity 0.3s ease 0.12s;
+    }
+
+    .signal-spark-dot {
+        transition: transform 0.3s ease, opacity 0.2s ease;
+    }
+
+    .signal-spark-host:hover:not(:has([data-spark-model]:hover)) .signal-spark-dot {
+        transition: transform 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) 0.42s, opacity 0.25s ease 0.42s;
+    }
+
+    .signal-spark-host[data-spark-roomy]:hover:not(:has([data-spark-model]:hover)) .signal-spark-dot::after {
+        animation: signal-spark-ping 2s cubic-bezier(0, 0, 0.2, 1) 0.9s infinite;
+    }
+
+    .signal-spark-span {
+        transition: opacity 0.2s ease, transform 0.2s ease;
+    }
+
+    .signal-spark-host:hover:not(:has([data-spark-model]:hover)) .signal-spark-span {
+        transition: opacity 0.35s ease 0.3s, transform 0.45s cubic-bezier(0.22, 1, 0.36, 1) 0.3s;
+    }
+}
+
+/* Overdrawn vertically so the stroke and glow at the box edges are never cut mid-reveal;
+   the fill mode is backwards, so no clip is left on the chart once it has drawn. */
+@keyframes signal-spark-reveal {
+    from { clip-path: inset(-50% 100% -50% -10%); }
+    to { clip-path: inset(-50% -10% -50% -10%); }
+}
+
+@keyframes signal-spark-ping {
+    0% { transform: scale(0.5); opacity: 0.7; }
+    75%, 100% { transform: scale(1.9); opacity: 0; }
+}
+
 /* Channel Spectrum (CM Stats): the latest poll's channels by frequency. Axis and grid colors
    match the ApexCharts charts above it. Grade classes are cmsp-* because .grade-* is global. */
 .cm-spectrum-card {

@@ -33,6 +33,7 @@ an On-Site Agent, AP Telemetry, InfluxDB, or HTTPS.
   - **Cellular Stats (5G / LTE)** - RSRP, RSRQ, SNR, band, cell, tower, neighbors; **Reset Radio** when stuck off 5G
   - **Starlink Stats** - obstruction sky map, loss, power, Ethernet speed, uptime, GPS, last outage
   - Cable modem and ONT error counts cover the last 24 hours, or since reboot (InfluxDB)
+  - Last-24-hour sparkline behind the signal reading (downstream SNR, Rx optical power, cellular signal quality), on the gauge's own scale; hover to bring it forward (InfluxDB)
 - Sites overview (multi-site): site, agent, and agents-online counts
 
 ## Multi-Site

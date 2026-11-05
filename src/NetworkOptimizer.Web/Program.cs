@@ -925,6 +925,7 @@ builder.Services.AddMutatingService<IMonitoringInterfaceDeploymentService, Monit
 builder.Services.AddMutatingService<IMonitoringTargetService, MonitoringTargetService>();
 builder.Services.AddMutatingService<IMonitoringSettingsService, MonitoringSettingsService>();
 builder.Services.AddMutatingService<IErrorCounterWindowService, ErrorCounterWindowService>();
+builder.Services.AddMutatingService<ISignalSparklineService, SignalSparklineService>();
 builder.Services.AddMutatingService<IUpstreamDiscoveryService, UpstreamDiscoveryService>();
 
 // Register WiFi Optimizer rules and engine

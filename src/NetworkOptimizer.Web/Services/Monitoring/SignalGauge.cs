@@ -1,3 +1,5 @@
+using System.Globalization;
+
 namespace NetworkOptimizer.Web.Services.Monitoring;
 
 /// <summary>
@@ -47,15 +49,29 @@ public static class SignalGauge
     /// Rising track for DOCSIS downstream SNR: red at the bottom through to green
     /// at the top. Thresholds are the lower bounds for each grade.
     /// </summary>
-    public static string SnrTrack(double domainLow, double domainHigh, double fair, double good, double excellent)
+    public static string SnrTrack(double domainLow, double domainHigh, double fair, double good, double excellent) =>
+        Css(SnrStops(domainLow, domainHigh, fair, good, excellent));
+
+    /// <summary>The stops of <see cref="SnrTrack"/>, for a sparkline drawn on the same scale.</summary>
+    public static IReadOnlyList<GaugeStop> SnrStops(double domainLow, double domainHigh, double fair, double good, double excellent)
     {
         var f = Position(fair, domainLow, domainHigh);
         var g = Position(good, domainLow, domainHigh);
         var e = Position(excellent, domainLow, domainHigh);
 
-        return "linear-gradient(to top, " +
-               $"{Poor} 0%, {Weak} {f / 2:0.#}%, {Fair} {f:0.#}%, {Good} {g:0.#}%, {Excellent} {e:0.#}%, {Excellent} 100%)";
+        return [new(0, Poor), new(f / 2, Weak), new(f, Fair), new(g, Good), new(e, Excellent), new(100, Excellent)];
     }
+
+    /// <summary>
+    /// Cellular signal quality, 0 to 100, colored at the thresholds where the hero's signal bars
+    /// light one more bar, so a sparkline on that scale changes color where the bars change count.
+    /// </summary>
+    public static readonly IReadOnlyList<GaugeStop> QualityStops =
+        [new(0, Poor), new(20, Weak), new(40, Fair), new(60, Good), new(80, Excellent), new(100, Excellent)];
+
+    private static string Css(IEnumerable<GaugeStop> stops) =>
+        "linear-gradient(to top, " +
+        string.Join(", ", stops.Select(s => $"{s.Color} {s.Position.ToString("0.#", CultureInfo.InvariantCulture)}%")) + ")";
 
     /// <summary>
     /// Band track for optical Rx power: red at both ends, peaking green at the
@@ -67,25 +83,30 @@ public static class SignalGauge
     /// band: the eye reads the taper as "how much room is left", which a plateau
     /// hides.
     /// </summary>
-    public static string OpticalTrack(OpticalBands bands)
+    public static string OpticalTrack(OpticalBands bands) => Css(OpticalStops(bands));
+
+    /// <summary>The stops of <see cref="OpticalTrack"/>, for a sparkline drawn on the same scale.</summary>
+    public static IReadOnlyList<GaugeStop> OpticalStops(OpticalBands bands)
     {
-        var lo = bands.DomainLow;
-        var hi = bands.DomainHigh;
+        double P(double v) => Position(v, bands.DomainLow, bands.DomainHigh);
 
-        double P(double v) => Position(v, lo, hi);
-
-        return "linear-gradient(to top, " +
-               $"{Poor} 0%, " +
-               $"{Weak} {P(bands.FairLow):0.#}%, " +
-               $"{Fair} {P(bands.GoodLow):0.#}%, " +
-               $"{Good} {P(bands.ExcellentLow):0.#}%, " +
-               $"{Excellent} {P(bands.Peak):0.#}%, " +
-               $"{Good} {P(bands.ExcellentHigh):0.#}%, " +
-               $"{Fair} {P(bands.GoodHigh):0.#}%, " +
-               $"{Weak} {P(bands.FairHigh):0.#}%, " +
-               $"{Poor} 100%)";
+        return
+        [
+            new(0, Poor),
+            new(P(bands.FairLow), Weak),
+            new(P(bands.GoodLow), Fair),
+            new(P(bands.ExcellentLow), Good),
+            new(P(bands.Peak), Excellent),
+            new(P(bands.ExcellentHigh), Good),
+            new(P(bands.GoodHigh), Fair),
+            new(P(bands.FairHigh), Weak),
+            new(100, Poor),
+        ];
     }
 }
+
+/// <summary>One color stop on a gauge track: a CSS color at a position from 0 (bottom) to 100 (top).</summary>
+public readonly record struct GaugeStop(double Position, string Color);
 
 /// <summary>
 /// Optical Rx power grading bounds, in dBm. Every grade is a range with a floor
