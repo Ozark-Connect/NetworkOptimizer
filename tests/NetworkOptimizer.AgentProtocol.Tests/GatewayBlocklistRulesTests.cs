@@ -44,4 +44,33 @@ public class GatewayBlocklistRulesTests
         // Jumps go before the chain, or -X refuses a chain still referenced.
         script.IndexOf("-D $c", StringComparison.Ordinal).Should().BeLessThan(script.IndexOf("-X NETOPT_BLOCK", StringComparison.Ordinal));
     }
+
+    private const string InputListing = """
+        -P INPUT ACCEPT
+        -A INPUT -j TOR
+        -A INPUT -j NETOPT_BLOCK
+        -A INPUT -j NETOPT_BLOCK
+        -A INPUT -i lo -j LO_IPS
+        -A INPUT -j UBIOS_INPUT_JUMP
+        """;
+
+    [Fact]
+    public void CountJumps_CountsEachUnconditionalJump()
+    {
+        GatewayBlocklistRules.CountJumps(InputListing, "INPUT", "NETOPT_BLOCK").Should().Be(2);
+    }
+
+    [Fact]
+    public void CountJumps_IgnoresOtherBuiltinsChainsAndConditionalJumps()
+    {
+        const string listing = "-A FORWARD -j NETOPT_BLOCK\n-A INPUT -i br0 -j NETOPT_BLOCK\n-A INPUT -j NETOPT_BLOCK_X\n";
+        GatewayBlocklistRules.CountJumps(listing, "INPUT", "NETOPT_BLOCK").Should().Be(0);
+        GatewayBlocklistRules.CountJumps(listing, "FORWARD", "NETOPT_BLOCK").Should().Be(1);
+    }
+
+    [Fact]
+    public void CountJumps_ReadsCrlfListings()
+    {
+        GatewayBlocklistRules.CountJumps("-A INPUT -j NETOPT_BLOCK\r\n", "INPUT", "NETOPT_BLOCK").Should().Be(1);
+    }
 }

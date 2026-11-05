@@ -3,6 +3,28 @@ namespace NetworkOptimizer.AgentProtocol;
 /// <summary>The iptables rules of the gateway agent's blocklist chain, in order (iptables -S form).</summary>
 public static class GatewayBlocklistRules
 {
+    /// <summary>The agent's chain, jumped to from FORWARD and INPUT.</summary>
+    public const string ChainName = "NETOPT_BLOCK";
+    public const string BlockV4 = "netopt_block_v4";
+    public const string BlockV6 = "netopt_block_v6";
+    public const string FeedV4 = "netopt_feed_v4";
+    public const string FeedV6 = "netopt_feed_v6";
+    public const string GuardV4 = "netopt_guard_v4";
+    public const string GuardV6 = "netopt_guard_v6";
+    public const string OutV4 = "netopt_out_v4";
+    public const string OutV6 = "netopt_out_v6";
+    /// <summary>Kernel log prefix of an outbound drop.</summary>
+    public const string OutLogPrefix = "NETOPT_OUT:";
+    public const int OutLogPerMinute = 30;
+
+    /// <summary>
+    /// The chain as the agent installs it for one family, without the site's exceptions: what the Security
+    /// Audit compares the gateway against. Exception RETURNs sit ahead of these rules and are not compared.
+    /// </summary>
+    public static string[] CoreChain(bool feedsSplit, bool v6) =>
+        Chain(ChainName, v6 ? GuardV6 : GuardV4, v6 ? BlockV6 : BlockV4, v6 ? OutV6 : OutV4, OutLogPrefix, OutLogPerMinute,
+            feedsSplit ? (v6 ? FeedV6 : FeedV4) : null, exceptions: null, v6);
+
     /// <summary>
     /// Traffic to an outbound-blocked destination is logged (rate limited) and dropped in every state;
     /// then the server's own addresses are exempt; then new connections from a blocked source are
@@ -70,6 +92,16 @@ public static class GatewayBlocklistRules
             if (states != null) rule.Append(" -m conntrack --ctstate ").Append(states);
             yield return rule.Append(" -j RETURN").ToString();
         }
+    }
+
+    /// <summary>
+    /// How many times <paramref name="builtin"/> jumps to <paramref name="chain"/> in an <c>iptables -S</c>
+    /// listing (unconditional jumps only, as the agent inserts them).
+    /// </summary>
+    public static int CountJumps(string listing, string builtin, string chain)
+    {
+        var jump = $"-A {builtin} -j {chain}";
+        return listing.Split('\n', StringSplitOptions.TrimEntries).Count(line => line == jump);
     }
 
     private static string WithPrefix(string address, bool v6) => address.Contains('/') ? address : address + (v6 ? "/128" : "/32");
