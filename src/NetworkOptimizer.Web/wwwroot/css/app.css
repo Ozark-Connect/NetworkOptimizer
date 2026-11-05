@@ -2128,6 +2128,17 @@ a.stat-card-link:active {
     --spark-halo: var(--bg-card);
 }
 
+/* Muted labels a shade brighter where a chart sits behind them, so the eye still finds them.
+   Context selectors outrank the component style blocks (ClientDashboard-style, loaded after
+   app.css) that set these labels to --text-muted. */
+.signal-spark-host .ont-rx-gauge .rx-power-label,
+.signal-spark-host .signal-quality-text .quality-label,
+.signal-spark-host .cm-model .cm-model-number,
+.monitoring-stat-card.signal-spark-host .stat-label,
+.metric-box.signal-spark-host .metric-row .metric-label {
+    color: color-mix(in srgb, var(--text-muted) 55%, var(--text-secondary));
+}
+
 .signal-spark-host > :not(.signal-spark) {
     position: relative;
     z-index: 1;
