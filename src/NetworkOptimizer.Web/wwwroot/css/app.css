@@ -2290,6 +2290,15 @@ a.stat-card-link:active {
     pointer-events: none;
 }
 
+/* Narrow tiles give the line nearly every pixel: from the left edge, with a hair on the right
+   so the end dot clears the border. */
+@media (max-width: 768px) {
+    .signal-spark-host > .stat-spark-area {
+        left: 0;
+        right: 0.2rem;
+    }
+}
+
 /* On a tile the span caption sits in the tile's upper-left corner, out of the chart strip:
    --spark-top/--spark-left place the strip within the tile, so subtracting them lands on the tile. */
 .monitoring-stat-card.signal-spark-host .signal-spark-span {
