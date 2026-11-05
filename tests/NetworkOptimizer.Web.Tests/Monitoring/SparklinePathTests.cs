@@ -83,6 +83,21 @@ public class SparklinePathTests
     }
 
     [Fact]
+    public void ADeviceReportingEveryFewMinutes_DrawsOneLine_AndAnOutageStillBreaksIt()
+    {
+        // One-minute windows over an hour, from a gateway that reports about every three minutes.
+        var hour = TimeSpan.FromHours(1);
+        var steady = Enumerable.Range(0, 18).Select(i => new SparkPoint(Now.AddMinutes(-57 + i * 3), 60 + i % 2)).ToList();
+
+        SparklinePath.Build(steady, current: 61, Now, hour, 50, 70, maxGap: hour / 32)
+            .Line.Count(c => c == 'M').Should().Be(1);
+
+        var withOutage = steady.Where(p => p.Time < Now.AddMinutes(-40) || p.Time > Now.AddMinutes(-20)).ToList();
+        SparklinePath.Build(withOutage, current: 61, Now, hour, 50, 70, maxGap: hour / 32)
+            .Line.Count(c => c == 'M').Should().Be(2, "twenty silent minutes is an outage at any rhythm");
+    }
+
+    [Fact]
     public void PointsOutsideTheWindow_AreDropped()
     {
         var points = new List<SparkPoint> { new(Now.AddHours(-30), 10), new(Now.AddHours(-1), 50) };

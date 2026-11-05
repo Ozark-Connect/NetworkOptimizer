@@ -63,6 +63,9 @@ public static class SparklinePath
         var historyWidth = hasCurrent ? 100 - Math.Clamp(landing, 0, 50) : 100;
         var start = now - window;
         var all = (points ?? []).Where(p => p.Time >= start && p.Time < now).ToList();
+        // An outage is a gap long against the series' own rhythm: a device that reports every few
+        // minutes leaves empty one-minute windows that are not outages, and broke its line at each.
+        maxGap = Max(maxGap, TimeSpan.FromTicks(MedianSpacing(all).Ticks * 3));
         if (current is double c && double.IsFinite(c)) all.Add(new SparkPoint(now, c));
         if (all.Count == 0) return new Result("", "", null, null);
 
@@ -163,6 +166,16 @@ public static class SparklinePath
 
     private static double Secant((double X, double Y) a, (double X, double Y) b) =>
         b.X > a.X ? (b.Y - a.Y) / (b.X - a.X) : 0;
+
+    /// <summary>The median time between consecutive samples, or zero with fewer than two gaps to judge by.</summary>
+    private static TimeSpan MedianSpacing(IReadOnlyList<SparkPoint> points)
+    {
+        if (points.Count < 3) return TimeSpan.Zero;
+        var gaps = points.Zip(points.Skip(1), (a, b) => (b.Time - a.Time).Ticks).Order().ToList();
+        return TimeSpan.FromTicks(gaps[gaps.Count / 2]);
+    }
+
+    private static TimeSpan Max(TimeSpan a, TimeSpan b) => a > b ? a : b;
 
     private static string F(double v) => v.ToString("0.##", CultureInfo.InvariantCulture);
 }
