@@ -10,7 +10,7 @@
 *@
 @if (_path.Line.Length > 0 || _path.EndY.HasValue)
 {
-    <div class="signal-spark join-@Join.ToString().ToLowerInvariant() @EndClass" aria-hidden="true" @ref="_chart" data-end-y="@(_path.EndY?.ToString("0.##", CultureInfo.InvariantCulture))">
+    <div class="signal-spark join-@Join.ToString().ToLowerInvariant() @EndClass" aria-hidden="true" @ref="_chart" style="@(Tint != null ? $"color: {Tint}" : null)" data-end-y="@(_path.EndY?.ToString("0.##", CultureInfo.InvariantCulture))">
         <svg class="signal-spark-svg" viewBox="0 0 100 100" preserveAspectRatio="none" focusable="false">
             <defs>
                 <linearGradient id="@_inkId" gradientUnits="userSpaceOnUse" x1="0" y1="100" x2="0" y2="0">
@@ -82,6 +82,12 @@
 
     /// <summary>The signal-* class of the live reading, which colors the end dot and the fill under the line.</summary>
     [Parameter] public string? EndClass { get; set; }
+
+    /// <summary>
+    /// One color for a reading with no gauge to borrow from (Live View's gateway tiles): the line,
+    /// fill, and end dot all take it. Overrides <see cref="EndClass"/>'s color.
+    /// </summary>
+    [Parameter] public string? Tint { get; set; }
 
     /// <summary>How the line's newest end meets what is beside it.</summary>
     [Parameter] public SparkJoin Join { get; set; } = SparkJoin.Dot;

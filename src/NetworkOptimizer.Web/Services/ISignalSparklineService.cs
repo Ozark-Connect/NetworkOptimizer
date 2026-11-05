@@ -32,7 +32,21 @@ public interface ISignalSparklineService
     /// <summary>Signal quality of a cellular modem, 0 to 100.</summary>
     [RequireRole(Roles.Viewer)]
     Task<IReadOnlyList<SparkPoint>?> GetCellularQualityAsync(int modemId);
+
+    /// <summary>A device's health reading: CPU, memory, or temperature (Live View's gateway tiles).</summary>
+    [RequireRole(Roles.Viewer)]
+    Task<IReadOnlyList<SparkPoint>?> GetDeviceHealthAsync(string deviceMac, DeviceHealthField field);
+
+    /// <summary>A monitoring target's average RTT (ms) or packet loss (%), across every vantage and WAN that probes it.</summary>
+    [RequireRole(Roles.Viewer)]
+    Task<IReadOnlyList<SparkPoint>?> GetTargetLatencyAsync(string targetId, LatencyField field);
 }
+
+/// <summary>The device_health fields a sparkline can draw.</summary>
+public enum DeviceHealthField { Cpu, Memory, Temperature }
+
+/// <summary>The latency fields a sparkline can draw.</summary>
+public enum LatencyField { Rtt, Loss }
 
 /// <summary>One sparkline sample: the mean of a reading over one window.</summary>
 public readonly record struct SparkPoint(DateTime Time, double Value);

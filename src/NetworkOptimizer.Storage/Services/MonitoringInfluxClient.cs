@@ -4125,12 +4125,13 @@ from(bucket: ""{_longtermBucket}"")
     }
 
     /// <summary>
-    /// One numeric field of one longterm device, as a mean per window: the Dashboard signal
+    /// One numeric field of one device or target, as a mean per window: the Dashboard and Live View
     /// sparklines. Every matching series is merged first, so a modem that writes the field under
     /// both network modes, or a module seen under two device types, still draws one line.
     /// </summary>
     /// <param name="tags">Exact tag matches that pick the device, e.g. ("cm_id", "3").</param>
     /// <param name="excludeTags">Tag values to leave out, e.g. ("network_mode", "LTE") for a modem's NR leg.</param>
+    /// <param name="longterm">Read the longterm bucket; false reads the fast one.</param>
     public async Task<List<(DateTime Time, double Value)>> QueryFieldSeriesAsync(
         string measurement,
         IReadOnlyList<(string Tag, string Value)> tags,
@@ -4139,10 +4140,14 @@ from(bucket: ""{_longtermBucket}"")
         DateTime to,
         TimeSpan window,
         IReadOnlyList<(string Tag, string Value)>? excludeTags = null,
+        bool longterm = true,
         CancellationToken ct = default)
     {
         if (!IsConfigured) await ReconfigureAsync(ct);
         if (!IsConfigured || tags.Count == 0) return new List<(DateTime, double)>();
+        // Device telemetry and latency are written to the fast bucket; the access-network readings
+        // (cellular, cable modem, ONT, SFP) to the longterm one.
+        var bucket = longterm ? _longtermBucket : _bucket;
 
         // device_mac is written normalized, so a caller's dashed or uppercase MAC is matched the same way.
         var tagFilter = string.Join(" and ", tags.Select(t =>
@@ -4150,7 +4155,7 @@ from(bucket: ""{_longtermBucket}"")
         foreach (var t in excludeTags ?? [])
             tagFilter += $@" and r.{SanitizeFluxIdentifier(t.Tag)} != ""{SanitizeFluxString(t.Value)}""";
         var flux = $@"
-from(bucket: ""{_longtermBucket}"")
+from(bucket: ""{bucket}"")
   |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
   |> filter(fn: (r) => r._measurement == ""{SanitizeFluxString(measurement)}"" and r._field == ""{SanitizeFluxString(field)}"")
   |> filter(fn: (r) => {tagFilter})

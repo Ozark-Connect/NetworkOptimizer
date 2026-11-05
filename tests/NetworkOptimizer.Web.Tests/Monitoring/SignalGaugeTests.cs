@@ -29,12 +29,14 @@ public class SignalGaugeTests
     }
 
     [Fact]
-    public void OpticalTrack_EndsRedAtBothEnds()
+    public void OpticalTrack_EndsInTheColorOfItsOwnEdges()
     {
+        // -28 is the fair floor and -6 the good ceiling: no off-scale stop piles onto either edge.
         var track = SignalGauge.OpticalTrack(OpticalBands.Pon);
 
-        track.Should().StartWith("linear-gradient(to top, var(--signal-poor) 0%");
-        track.Should().EndWith("var(--signal-poor) 100%)");
+        track.Should().StartWith("linear-gradient(to top, var(--signal-weak) 0%");
+        track.Should().EndWith("var(--signal-fair) 100%)");
+        track.Should().NotContain("var(--signal-poor)");
     }
 
     [Fact]
@@ -114,11 +116,12 @@ public class SignalGaugeTests
     }
 
     [Theory]
-    [InlineData("pon")]
-    [InlineData("ae")]
-    [InlineData("external")]
-    public void ThePeakSitsAtTheCentreOfTheTrack(string which)
+    [InlineData("pon", -28, -6)]
+    [InlineData("ae", -14, 0)]
+    [InlineData("external", -27, -6)]
+    public void TheTrackRunsFromTheFairFloorToTheGoodCeiling(string which, double low, double high)
     {
+        // Not mirrored about the peak: that put the PON floor at -34 dBm, where no link runs.
         var bands = which switch
         {
             "ae" => OpticalBands.ActiveEthernet,
@@ -126,16 +129,17 @@ public class SignalGaugeTests
             _ => OpticalBands.Pon,
         };
 
-        SignalGauge.Position(bands.Peak, bands.DomainLow, bands.DomainHigh).Should().Be(50);
+        bands.DomainLow.Should().Be(low);
+        bands.DomainHigh.Should().Be(high);
     }
 
     [Fact]
-    public void TheTrackStillCoversEveryGradedBound()
+    public void TheTrackStartsAtTheFairFloor()
     {
         var bands = OpticalBands.Pon;
 
-        bands.DomainLow.Should().BeLessThan(bands.FairLow);
-        bands.DomainHigh.Should().BeGreaterThan(bands.FairHigh);
+        bands.DomainLow.Should().BeLessThanOrEqualTo(bands.FairLow);
+        bands.DomainHigh.Should().Be(bands.GoodHigh);
     }
 
     [Fact]

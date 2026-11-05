@@ -136,8 +136,8 @@ public class SparklinePathTests
     {
         var stops = SignalGauge.OpticalStops(OpticalBands.Pon);
 
-        stops.Should().HaveCount(9);
-        stops[0].Color.Should().Be(stops[^1].Color, "red at both ends of a band track");
         stops.Select(s => s.Position).Should().BeInAscendingOrder();
+        stops.Should().OnlyContain(s => s.Position >= 0 && s.Position <= 100);
+        stops.Select(s => s.Color).Should().ContainInOrder("var(--signal-good)", "var(--signal-excellent)", "var(--signal-good)");
     }
 }

@@ -55,12 +55,31 @@ public class SignalSparklineService : ISignalSparklineService
                 excludeTags: new[] { ("network_mode", "LTE") })
             : CachedAsync($"cell-rsrp:{modemId}:lte", "cellular", new[] { ("modem_id", modemId.ToString()), ("network_mode", "LTE") }, "rsrp");
 
+    /// <inheritdoc />
+    public Task<IReadOnlyList<SparkPoint>?> GetDeviceHealthAsync(string deviceMac, DeviceHealthField field)
+    {
+        var name = field switch
+        {
+            DeviceHealthField.Cpu => "cpu_percent",
+            DeviceHealthField.Memory => "memory_used_percent",
+            _ => "temperature_c",
+        };
+        return CachedAsync($"health:{deviceMac}:{name}", "device_health", new[] { ("device_mac", deviceMac) }, name, longterm: false);
+    }
+
+    /// <inheritdoc />
+    public Task<IReadOnlyList<SparkPoint>?> GetTargetLatencyAsync(string targetId, LatencyField field)
+    {
+        var name = field == LatencyField.Rtt ? "rtt_avg_ms" : "loss_percent";
+        return CachedAsync($"latency:{targetId}:{name}", "latency", new[] { ("target_id", targetId) }, name, longterm: false);
+    }
+
     // Resolved per call, like the sibling site-scoped services: the circuit's site can change.
     private MonitoringInfluxClient Influx => _influxRegistry.GetFor(_siteContext.Slug);
 
     private async Task<IReadOnlyList<SparkPoint>?> CachedAsync(
         string key, string measurement, (string, string)[] tags, string field,
-        (string, string)[]? excludeTags = null)
+        (string, string)[]? excludeTags = null, bool longterm = true)
     {
         key = $"{_siteContext.Slug}|{key}";
         var now = DateTime.UtcNow;
@@ -70,7 +89,7 @@ public class SignalSparklineService : ISignalSparklineService
         IReadOnlyList<SparkPoint>? value;
         try
         {
-            var rows = await Influx.QueryFieldSeriesAsync(measurement, tags, field, now - Window, now, Bucket, excludeTags);
+            var rows = await Influx.QueryFieldSeriesAsync(measurement, tags, field, now - Window, now, Bucket, excludeTags, longterm);
             // Two points is the least that draws a line.
             value = rows.Count >= 2 ? rows.Select(r => new SparkPoint(r.Time, r.Value)).ToList() : null;
         }

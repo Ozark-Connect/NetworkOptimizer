@@ -2245,6 +2245,39 @@ a.stat-card-link:active {
     display: none;
 }
 
+/* Live View's gateway tiles (StatTileSparkline): the chart takes the lower strip of the tile. On
+   hover the label steps aside and the value lifts clear of the line. */
+.signal-spark-host > .stat-spark-area {
+    position: absolute;
+    left: 0.75rem;
+    right: 0.75rem;
+    bottom: 0.55rem;
+    height: 42%;
+    pointer-events: none;
+}
+
+.monitoring-stat-card.signal-spark-host .signal-spark-span {
+    display: none;
+}
+
+@media (hover: hover) and (pointer: fine) {
+    .monitoring-stat-card.signal-spark-host[data-spark-roomy]:hover .stat-label {
+        opacity: 0;
+        transform: translateY(6px);
+    }
+
+    .monitoring-stat-card.signal-spark-host[data-spark-roomy]:hover .stat-value {
+        transform: translateY(-9px);
+    }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+    .monitoring-stat-card.signal-spark-host .stat-label,
+    .monitoring-stat-card.signal-spark-host .stat-value {
+        transition: opacity 0.25s ease, transform 0.45s cubic-bezier(0.22, 1, 0.36, 1);
+    }
+}
+
 @media (hover: hover) and (pointer: fine) {
     .signal-spark-host[data-spark-roomy]:hover:not(:has([data-spark-model]:hover)) > .signal-spark {
         opacity: 1;
@@ -2330,13 +2363,14 @@ a.stat-card-link:active {
         transition: filter 0.45s ease;
     }
 
-    /* Out: the taper collapses first. In: it swells once the gauge has slid into place. */
+    /* Out: the taper collapses first. In: it swells while the gauge slides in (0.62s) and is
+       full before the gauge lands, so the two arrive together. */
     .signal-spark-taper {
         transition: opacity 0.15s ease, transform 0.2s ease;
     }
 
     .signal-spark-host:hover:not(:has([data-spark-model]:hover)) .signal-spark-taper {
-        transition: opacity 0.2s ease 0.45s, transform 0.45s cubic-bezier(0.34, 1.3, 0.64, 1) 0.45s;
+        transition: opacity 0.15s ease 0.12s, transform 0.4s cubic-bezier(0.22, 1, 0.36, 1) 0.12s;
     }
 
     /* Cellular: the bars rise or drop as they slide, landing with their root on the line's end. */

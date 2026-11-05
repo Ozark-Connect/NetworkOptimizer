@@ -5,6 +5,7 @@
 //    point meets the gauge at its own level. The slide distance depends on rendered text widths,
 //    so it is measured here.
 //  - A box ([data-spark-fill]): the chart covers that element, the rows it hides on hover.
+//  - A stat tile ([data-spark-area]): the chart covers that strip; the tile's value stays.
 // Everything is set as CSS variables and data attributes on the host: Blazor never renders
 // either, so a re-render cannot wipe them.
 
@@ -55,7 +56,8 @@ function layout(section) {
         delete section.dataset.sparkReady;
         return;
     }
-    const fill = section.querySelector('[data-spark-fill]');
+    // A box's rows ([data-spark-fill], hidden on hover) or a tile's strip ([data-spark-area]).
+    const fill = section.querySelector('[data-spark-fill], [data-spark-area]');
     const ok = fill ? layoutBox(section, fill) : layoutHero(section, chart);
     if (!ok) {
         delete section.dataset.sparkReady;

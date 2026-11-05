@@ -1,0 +1,83 @@
+@using NetworkOptimizer.Web.Services.Monitoring
+@inject ISignalSparklineService SparkService
+
+@*
+    The last 24 hours behind a Live View gateway tile (Gateway RTT, Loss, CPU, Mem, Temp). The tile
+    takes .signal-spark-host; this renders the chart and the strip it fills, both as its children.
+*@
+@if (Live && _points != null && Current.HasValue)
+{
+    var (lo, hi) = SparklinePath.AutoDomain(_points, Current, MinSpan, floorZero: Source == StatSparkSource.Loss);
+    <SignalSparkline Points="_points" Current="Current" DomainLow="lo" DomainHigh="hi"
+                     Stops="_stops" Tint="@Tint" />
+    <div class="stat-spark-area" data-spark-area></div>
+}
+
+@code {
+    /// <summary>Which reading the tile shows.</summary>
+    [Parameter, EditorRequired] public StatSparkSource Source { get; set; }
+
+    /// <summary>The gateway's MAC, for CPU, memory, and temperature.</summary>
+    [Parameter] public string? DeviceMac { get; set; }
+
+    /// <summary>The gateway's fabric target, for RTT and loss.</summary>
+    [Parameter] public string? TargetId { get; set; }
+
+    /// <summary>The tile's live value; the line ends on it.</summary>
+    [Parameter] public double? Current { get; set; }
+
+    /// <summary>False while Live View shows a past moment: a line ending now would not match the tile.</summary>
+    [Parameter] public bool Live { get; set; } = true;
+
+    private IReadOnlyList<SparkPoint>? _points;
+    private IReadOnlyList<GaugeStop> _stops = [];
+
+    // The app's graph line palette, one color per reading.
+    private string Tint => Source switch
+    {
+        StatSparkSource.Rtt => "#2ba89a",
+        StatSparkSource.Loss => "#ef5858",
+        StatSparkSource.Cpu => "#3b82f6",
+        StatSparkSource.Memory => "#a78bfa",
+        _ => "#f59e0b",
+    };
+
+    // The least span the scale shows, so a steady reading's noise stays a near-flat line.
+    private double MinSpan => Source switch
+    {
+        StatSparkSource.Rtt => 2,
+        StatSparkSource.Loss => 2,
+        StatSparkSource.Temperature => 5,
+        _ => 10,
+    };
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _stops = [new(0, Tint), new(100, Tint)];
+        if (!Live) return;
+        try
+        {
+            // The service caches each series for two minutes, so the tile's 10-second renders are cheap.
+            _points = Source switch
+            {
+                StatSparkSource.Rtt or StatSparkSource.Loss when !string.IsNullOrEmpty(TargetId) =>
+                    await SparkService.GetTargetLatencyAsync(TargetId, Source == StatSparkSource.Rtt ? LatencyField.Rtt : LatencyField.Loss),
+                StatSparkSource.Cpu or StatSparkSource.Memory or StatSparkSource.Temperature when !string.IsNullOrEmpty(DeviceMac) =>
+                    await SparkService.GetDeviceHealthAsync(DeviceMac, Source switch
+                    {
+                        StatSparkSource.Cpu => DeviceHealthField.Cpu,
+                        StatSparkSource.Memory => DeviceHealthField.Memory,
+                        _ => DeviceHealthField.Temperature,
+                    }),
+                _ => null,
+            };
+        }
+        catch
+        {
+            _points = null;
+        }
+    }
+
+    /// <summary>The gateway tile readings that carry a sparkline.</summary>
+    public enum StatSparkSource { Rtt, Loss, Cpu, Memory, Temperature }
+}

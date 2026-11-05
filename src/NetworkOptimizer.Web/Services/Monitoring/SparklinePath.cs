@@ -13,6 +13,29 @@ public static class SparklinePath
     /// <summary>The line and area paths, and where the line ends; empty paths when nothing draws.</summary>
     public readonly record struct Result(string Line, string Area, double? EndX, double? EndY);
 
+    /// <summary>
+    /// A scale for a reading with no gauge (Live View's gateway tiles): the day's range plus a
+    /// little headroom, so the line uses the box. <paramref name="minSpan"/> keeps a steady
+    /// reading from turning sensor noise into a full-height line; <paramref name="floorZero"/>
+    /// pins the bottom for readings where 0 means something (loss).
+    /// </summary>
+    public static (double Low, double High) AutoDomain(
+        IReadOnlyList<SparkPoint>? points, double? current, double minSpan, bool floorZero = false)
+    {
+        var values = (points ?? []).Select(p => p.Value).ToList();
+        if (current is double c && double.IsFinite(c)) values.Add(c);
+        if (values.Count == 0) return (0, minSpan);
+        var lo = floorZero ? 0 : values.Min();
+        var hi = values.Max();
+        var pad = Math.Max(hi - lo, minSpan) * 0.15;
+        if (hi - lo < minSpan)
+        {
+            var mid = floorZero ? minSpan / 2 : (hi + lo) / 2;
+            (lo, hi) = (mid - minSpan / 2, mid + minSpan / 2);
+        }
+        return (floorZero ? 0 : lo - pad, hi + pad);
+    }
+
     /// <summary>Where, within the landing, the line has reached the live reading and holds it (0-1).</summary>
     public const double LandingReach = 0.15;
 

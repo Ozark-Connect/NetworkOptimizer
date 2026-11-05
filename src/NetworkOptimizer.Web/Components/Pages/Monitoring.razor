@@ -5098,23 +5098,29 @@
         var gwFabricUrl = FabricTarget(GetGatewayFabricTargetId(), CurrentAtToken(), LiveWan);
         var gwLatency = GetGatewayLatency();
         <div class="monitoring-stat-cards" style="margin-top: 0.5rem;">
-            <div class="monitoring-stat-card clickable-stat-card" @onclick="@(() => NavigationManager.NavigateTo(gwFabricUrl))">
+            @{ var gwTargetId = GetGatewayFabricTargetId(); }
+            <div class="monitoring-stat-card clickable-stat-card signal-spark-host" @onclick="@(() => NavigationManager.NavigateTo(gwFabricUrl))">
+                <StatTileSparkline Source="StatTileSparkline.StatSparkSource.Rtt" TargetId="@gwTargetId" Current="gwLatency.rtt" Live="_mapHistoricAt == null" />
                 <div class="stat-value">@FormatRtt(gwLatency.rtt)</div>
                 <div class="stat-label">Gateway RTT</div>
             </div>
-            <div class="monitoring-stat-card clickable-stat-card" @onclick="@(() => NavigationManager.NavigateTo(gwFabricUrl))">
+            <div class="monitoring-stat-card clickable-stat-card signal-spark-host" @onclick="@(() => NavigationManager.NavigateTo(gwFabricUrl))">
+                <StatTileSparkline Source="StatTileSparkline.StatSparkSource.Loss" TargetId="@gwTargetId" Current="@(gwTargetId != null ? gwLatency.loss : null)" Live="_mapHistoricAt == null" />
                 <div class="stat-value @(gwLatency.loss > 0 ? "stat-danger" : "")">@FormatLoss(gwLatency.loss)</div>
                 <div class="stat-label">Gateway Loss</div>
             </div>
-            <div class="monitoring-stat-card clickable-stat-card" @onclick="@(() => NavigationManager.NavigateTo(gwDeviceUrl))">
+            <div class="monitoring-stat-card clickable-stat-card signal-spark-host" @onclick="@(() => NavigationManager.NavigateTo(gwDeviceUrl))">
+                <StatTileSparkline Source="StatTileSparkline.StatSparkSource.Cpu" DeviceMac="@_gatewayMac" Current="gwStats?.CpuPercent" Live="_mapHistoricAt == null" />
                 <div class="stat-value">@FormatPercent(gwStats?.CpuPercent)</div>
                 <div class="stat-label">Gateway CPU</div>
             </div>
-            <div class="monitoring-stat-card clickable-stat-card" @onclick="@(() => NavigationManager.NavigateTo(gwDeviceUrl))">
+            <div class="monitoring-stat-card clickable-stat-card signal-spark-host" @onclick="@(() => NavigationManager.NavigateTo(gwDeviceUrl))">
+                <StatTileSparkline Source="StatTileSparkline.StatSparkSource.Memory" DeviceMac="@_gatewayMac" Current="gwStats?.MemoryUsedPercent" Live="_mapHistoricAt == null" />
                 <div class="stat-value">@FormatPercent(gwStats?.MemoryUsedPercent)</div>
                 <div class="stat-label">Gateway Memory</div>
             </div>
-            <div class="monitoring-stat-card clickable-stat-card" @onclick="@(() => NavigationManager.NavigateTo(gwDeviceUrl))">
+            <div class="monitoring-stat-card clickable-stat-card signal-spark-host" @onclick="@(() => NavigationManager.NavigateTo(gwDeviceUrl))">
+                <StatTileSparkline Source="StatTileSparkline.StatSparkSource.Temperature" DeviceMac="@_gatewayMac" Current="gwStats?.TemperatureC" Live="_mapHistoricAt == null" />
                 <div class="stat-value">@FormatTemp(gwStats?.TemperatureC)</div>
                 <div class="stat-label">Gateway Temp</div>
             </div>
