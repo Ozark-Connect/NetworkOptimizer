@@ -108,6 +108,7 @@ public partial class GatewayFirewallAnalyzer
     {
         var wrong = new List<string>();
         var enforced = new List<string>();
+        var wrongNames = new List<string>();
         foreach (var wan in wanInterfaces ?? [])
         {
             var forward = v4.ForwardZones(wan.Interface);
@@ -115,7 +116,10 @@ public partial class GatewayFirewallAnalyzer
             if (forward.SetEquals(["WAN"]) && input.SetEquals(["WAN"]))
                 enforced.Add(wan.NetworkName);
             else
+            {
                 wrong.Add($"{wan.NetworkName} ({wan.Interface})");
+                wrongNames.Add(wan.NetworkName);
+            }
         }
 
         if (wrong.Count > 0)
@@ -141,16 +145,20 @@ public partial class GatewayFirewallAnalyzer
         if (dangling.Count > 0)
         {
             var names = dangling.Select(n => n.Name).ToList();
-            var held = names.All(enforced.Contains);
+            // Only WANs the gateway carries were checked; an unused WAN profile has no interface there and says nothing.
+            var held = names.Where(enforced.Contains).ToList();
+            var notHeld = names.Where(wrongNames.Contains).ToList();
+            var verdict = notHeld.Count > 0
+                ? $" See the WAN Not in External Zone finding for {Join(notHeld)}."
+                : held.Count > 0
+                    ? $" The gateway still treats {Join(held)} as part of the External zone, so your policies are enforced."
+                    : "";
             issues.Add(new AuditIssue
             {
                 Type = IssueTypes.GatewayWanZoneReference,
                 Severity = AuditSeverity.Informational,
                 DeviceName = gatewayName,
-                Message = $"UniFi Network's settings for {Join(names)} point at a firewall zone that does not exist ({dangling[0].FirewallZoneId})."
-                    + (held
-                        ? " The gateway still treats them as part of the External zone, so your policies are enforced."
-                        : " Check the WAN Not in External Zone finding."),
+                Message = $"UniFi Network's settings for {Join(names)} point at a firewall zone that does not exist ({dangling[0].FirewallZoneId})." + verdict,
                 RecommendedAction = "Nothing to change in Network Optimizer. The WAN zone assignment is locked in UniFi Network, so report it to Ubiquiti if it persists.",
                 RuleId = "GW-FW-006",
                 ScoreImpact = 0,

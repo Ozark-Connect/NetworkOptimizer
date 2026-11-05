@@ -164,7 +164,25 @@ public class GatewayFirewallAnalyzerTests
         var issue = Run(networks: networks).Should().ContainSingle(i => i.Type == IssueTypes.GatewayWanZoneReference).Subject;
 
         issue.Severity.Should().Be(AuditSeverity.Informational);
-        issue.Message.Should().Contain("zone-gone").And.Contain("still treats them as part of the External zone");
+        issue.Message.Should().Contain("zone-gone").And.Contain("still treats Internet 1 as part of the External zone");
+    }
+
+    [Fact]
+    public void WanZoneNote_IgnoresAnUnusedWanProfile_AndPointsAtTheFindingOnlyWhenOneWasRaised()
+    {
+        // The second WAN profile has no interface on the gateway, so the WAN zone check never ran for it.
+        var networks = Networks.Where(n => n.Purpose != "wan").Concat(
+        [
+            new UniFiNetworkConfig { Id = "net-wan", Name = "Internet 1", Purpose = "wan", FirewallZoneId = "zone-gone" },
+            new UniFiNetworkConfig { Id = "net-wan2", Name = "Spare", Purpose = "wan", FirewallZoneId = "zone-gone" },
+        ]).ToList();
+
+        Run(networks: networks).Should().ContainSingle(i => i.Type == IssueTypes.GatewayWanZoneReference)
+            .Which.Message.Should().Contain("Internet 1 and Spare point at").And.Contain("still treats Internet 1 as part of the External zone")
+            .And.NotContain("See the WAN Not in External Zone finding");
+
+        Run(Iptables(wanZone: "LAN"), networks: networks).Should().ContainSingle(i => i.Type == IssueTypes.GatewayWanZoneReference)
+            .Which.Message.Should().Contain("See the WAN Not in External Zone finding for Internet 1");
     }
 
     [Fact]
