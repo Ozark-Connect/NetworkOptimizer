@@ -2,14 +2,14 @@
 @inject ISignalSparklineService SparkService
 
 @*
-    The last 24 hours behind a Live View gateway tile (Gateway RTT, Loss, CPU, Mem, Temp). The tile
+    The last hour behind a Live View gateway tile (Gateway RTT, Loss, CPU, Mem, Temp). The tile
     takes .signal-spark-host; this renders the chart and the strip it fills, both as its children.
 *@
 @if (Live && _points != null && Current.HasValue)
 {
     var (lo, hi) = SparklinePath.AutoDomain(_points, Current, MinSpan, floorZero: Source == StatSparkSource.Loss);
     <SignalSparkline Points="_points" Current="Current" DomainLow="lo" DomainHigh="hi"
-                     Stops="_stops" Tint="@Tint" />
+                     Stops="_stops" Tint="@Tint" Window="SignalSparklineService.TileWindow" />
     <div class="stat-spark-area" data-spark-area></div>
 }
 

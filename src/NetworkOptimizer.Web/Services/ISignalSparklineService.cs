@@ -33,11 +33,11 @@ public interface ISignalSparklineService
     [RequireRole(Roles.Viewer)]
     Task<IReadOnlyList<SparkPoint>?> GetCellularQualityAsync(int modemId);
 
-    /// <summary>A device's health reading: CPU, memory, or temperature (Live View's gateway tiles).</summary>
+    /// <summary>A device's health reading over the last hour: CPU, memory, or temperature (Live View's gateway tiles).</summary>
     [RequireRole(Roles.Viewer)]
     Task<IReadOnlyList<SparkPoint>?> GetDeviceHealthAsync(string deviceMac, DeviceHealthField field);
 
-    /// <summary>A monitoring target's average RTT (ms) or packet loss (%), across every vantage and WAN that probes it.</summary>
+    /// <summary>A monitoring target's average RTT (ms) or packet loss (%) over the last hour, across every vantage and WAN that probes it.</summary>
     [RequireRole(Roles.Viewer)]
     Task<IReadOnlyList<SparkPoint>?> GetTargetLatencyAsync(string targetId, LatencyField field);
 }

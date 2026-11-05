@@ -71,6 +71,9 @@
     /// <summary>The reading the hero is showing now; the line ends on it.</summary>
     [Parameter] public double? Current { get; set; }
 
+    /// <summary>The span the chart covers, ending now. A longer gap than 1/32 of it breaks the line.</summary>
+    [Parameter] public TimeSpan Window { get; set; } = SignalSparklineService.Window;
+
     /// <summary>The bottom of the hero gauge's scale.</summary>
     [Parameter] public double DomainLow { get; set; }
 
@@ -122,8 +125,8 @@
     }
 
     protected override void OnParametersSet() =>
-        _path = SparklinePath.Build(Points, Current, DateTime.UtcNow, SignalSparklineService.Window,
-            DomainLow, DomainHigh, maxGap: TimeSpan.FromMinutes(45),
+        _path = SparklinePath.Build(Points, Current, DateTime.UtcNow, Window,
+            DomainLow, DomainHigh, maxGap: Window / 32,
             landing: Landing);
 
     private ElementReference _chart;

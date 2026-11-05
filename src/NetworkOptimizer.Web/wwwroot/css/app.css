@@ -2118,9 +2118,24 @@ a.stat-card-link:active {
     isolation: isolate;
 }
 
+/* A halo in the card's own background behind the text: a line crossing the letters breaks up
+   their shapes, which reads as faded text even at full color. --spark-halo is the host's background. */
+.signal-spark-host {
+    --spark-halo: var(--bg-tertiary);
+}
+
+.monitoring-stat-card.signal-spark-host {
+    --spark-halo: var(--bg-card);
+}
+
 .signal-spark-host > :not(.signal-spark) {
     position: relative;
     z-index: 1;
+    /* Stacked: one soft shadow is mostly transparent and leaves the line showing through. */
+    text-shadow:
+        0 0 1px var(--spark-halo), 0 0 1px var(--spark-halo), 0 0 2px var(--spark-halo),
+        0 0 2px var(--spark-halo), 0 0 3px var(--spark-halo), 0 0 3px var(--spark-halo),
+        0 0 4px var(--spark-halo), 0 0 6px var(--spark-halo);
 }
 
 .signal-spark {

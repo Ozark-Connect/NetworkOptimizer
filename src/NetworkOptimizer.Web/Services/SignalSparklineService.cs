@@ -7,8 +7,17 @@ namespace NetworkOptimizer.Web.Services;
 /// <inheritdoc />
 public class SignalSparklineService : ISignalSparklineService
 {
-    /// <summary>How far back a sparkline reaches.</summary>
+    /// <summary>How far back an access-network sparkline reaches (ONT, cable modem, cellular).</summary>
     public static readonly TimeSpan Window = TimeSpan.FromHours(24);
+
+    /// <summary>
+    /// How far back a Live View gateway tile reaches. Gateway health moves in minutes, and the
+    /// tile opens the full series on a click.
+    /// </summary>
+    public static readonly TimeSpan TileWindow = TimeSpan.FromHours(1);
+
+    private static readonly TimeSpan TileBucket = TimeSpan.FromMinutes(1);
+    private static readonly TimeSpan TileCacheFor = TimeSpan.FromSeconds(30);
 
     // 96 points across the card. The panel appends the live reading as the last point, so a
     // cache this long never leaves the line behind the value beside it.
@@ -64,14 +73,14 @@ public class SignalSparklineService : ISignalSparklineService
             DeviceHealthField.Memory => "memory_used_percent",
             _ => "temperature_c",
         };
-        return CachedAsync($"health:{deviceMac}:{name}", "device_health", new[] { ("device_mac", deviceMac) }, name, longterm: false);
+        return CachedAsync($"health:{deviceMac}:{name}", "device_health", new[] { ("device_mac", deviceMac) }, name, longterm: false, tile: true);
     }
 
     /// <inheritdoc />
     public Task<IReadOnlyList<SparkPoint>?> GetTargetLatencyAsync(string targetId, LatencyField field)
     {
         var name = field == LatencyField.Rtt ? "rtt_avg_ms" : "loss_percent";
-        return CachedAsync($"latency:{targetId}:{name}", "latency", new[] { ("target_id", targetId) }, name, longterm: false);
+        return CachedAsync($"latency:{targetId}:{name}", "latency", new[] { ("target_id", targetId) }, name, longterm: false, tile: true);
     }
 
     // Resolved per call, like the sibling site-scoped services: the circuit's site can change.
@@ -79,17 +88,18 @@ public class SignalSparklineService : ISignalSparklineService
 
     private async Task<IReadOnlyList<SparkPoint>?> CachedAsync(
         string key, string measurement, (string, string)[] tags, string field,
-        (string, string)[]? excludeTags = null, bool longterm = true)
+        (string, string)[]? excludeTags = null, bool longterm = true, bool tile = false)
     {
         key = $"{_siteContext.Slug}|{key}";
         var now = DateTime.UtcNow;
-        if (_cache.TryGetValue(key, out var hit) && now - hit.At < CacheFor)
+        var (window, bucket, cacheFor) = tile ? (TileWindow, TileBucket, TileCacheFor) : (Window, Bucket, CacheFor);
+        if (_cache.TryGetValue(key, out var hit) && now - hit.At < cacheFor)
             return hit.Value;
 
         IReadOnlyList<SparkPoint>? value;
         try
         {
-            var rows = await Influx.QueryFieldSeriesAsync(measurement, tags, field, now - Window, now, Bucket, excludeTags, longterm);
+            var rows = await Influx.QueryFieldSeriesAsync(measurement, tags, field, now - window, now, bucket, excludeTags, longterm);
             // Two points is the least that draws a line.
             value = rows.Count >= 2 ? rows.Select(r => new SparkPoint(r.Time, r.Value)).ToList() : null;
         }
