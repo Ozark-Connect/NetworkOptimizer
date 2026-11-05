@@ -206,7 +206,6 @@ public static class PlanBuilder
                 }
         }
         InternetCutChecker.Check(live, planned, doc);
-        InternetCutChecker.CheckWans(live, planned, doc, options);
         RefuseWanZoneMoves(doc, live);
         // A device list without a gateway is a switch-only site; an unread one counts as having one.
         var hasGateway = options.TargetHasGateway && (!live.Collections.ContainsKey("device")

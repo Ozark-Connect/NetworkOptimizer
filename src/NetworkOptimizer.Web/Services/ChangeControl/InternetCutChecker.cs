@@ -56,43 +56,6 @@ public static class InternetCutChecker
         }
     }
 
-    // How a WAN reaches the ISP: the IPv4 fields of the YAML's "WAN connection" group, plus enabled, the zone, and the MAC override.
-    internal static readonly string[] WanUplinkFields =
-    [
-        "enabled", "firewall_zone_id", "wan_networkgroup", "ifname", "wan_type", "wan_ip", "wan_netmask", "wan_gateway",
-        "wan_username", "x_wan_password", "wan_pppoe_username_enabled", "wan_pppoe_password_enabled", "wan_pppoe_rfc4638_enabled",
-        "wan_ipip_username", "x_wan_ipip_password", "wan_vlan_enabled", "wan_vlan", "wan_egress_qos", "wan_dhcp_options", "wan_dhcp_cos",
-        "mac_override_enabled", "mac_override",
-    ];
-
-    /// <summary>
-    /// Marks WAN record writes that can take the site off the internet: Acknowledge tier. A WAN the gateway carries counts on
-    /// any uplink field or a delete; one it does not (UniFi Network's unused default WAN profile) only on the fields that
-    /// decide which WAN carries traffic. On an agent site the lockout check already holds these as certain.
-    /// </summary>
-    public static void CheckWans(ConfigState live, ConfigState planned, PlanDocument doc, PlanOptions options)
-    {
-        if (options.AgentSite) return;
-        foreach (var op in doc.Operations.Where(o => o.Collection == "networkconf" && o.Action != PlanAction.Create))
-        {
-            var liveNet = live.Get("networkconf").FirstOrDefault(n => ConfigState.IdOf(n) == op.ObjectId);
-            if (liveNet == null || Str(liveNet["purpose"]) != "wan") continue;
-            var carried = LockoutChecker.CarriesWan(liveNet, options.LiveWanGroups);
-            if (!carried && op.Action == PlanAction.Delete) continue;
-            var plannedNet = op.Action == PlanAction.Delete ? null : planned.Get("networkconf").FirstOrDefault(n => ConfigState.IdOf(n) == op.ObjectId);
-            var changed = plannedNet == null ? []
-                : (carried ? WanUplinkFields : LockoutChecker.WanRoutingFields).Where(f => !CanonicalJson.DeepEquals(liveNet[f], plannedNet[f])).ToList();
-            if (plannedNet != null && changed.Count == 0) continue;
-
-            var fields = ChangeDescriber.JoinAnd(changed.Select(f => ChangeDescriber.LabelFor(f)).Distinct().ToList());
-            var reason = op.Action == PlanAction.Delete ? $"Deletes WAN {op.ObjectName}, which the gateway carries traffic on"
-                : carried ? $"Changes how WAN {op.ObjectName} connects ({fields}). A wrong value takes the WAN offline"
-                : $"Changes which WAN carries traffic ({fields}). The gateway can move traffic onto WAN {op.ObjectName}, which it does not use today";
-            if (!op.Reasons.Contains(reason)) op.Reasons.Add(reason);
-            op.Tier = Math.Max(op.Tier, PlanTiers.Acknowledge);
-        }
-    }
-
     /// <summary>The writes behind a network's cut: the zone move that takes it, else the policies on its zone's path to External.</summary>
     private static IEnumerable<PlanOperation> Causes(PlanDocument doc, string network, string zone, string? external,
         Dictionary<string, JsonObject> liveById)

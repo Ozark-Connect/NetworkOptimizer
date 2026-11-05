@@ -64,63 +64,64 @@ public class WanPreflightTests
     [InlineData("wan_vlan_enabled", false)]
     [InlineData("wan_type", "pppoe")]
     [InlineData("enabled", false)]
-    public void LiveWan_UplinkChange_IsAcknowledged(string field, object value)
+    public void LiveWan_UplinkChange_IsAPossibleLockout(string field, object value)
     {
-        var op = Op(Plan(s => Wan(s, "n-wan2")[field] = JsonValue.Create(value), OnWan2), "n-wan2");
+        var doc = Plan(s => Wan(s, "n-wan2")[field] = JsonValue.Create(value), OnWan2);
 
-        op.Tier.Should().BeGreaterThanOrEqualTo(PlanTiers.Acknowledge);
-        op.Reasons.Should().Contain(r => r.StartsWith("Changes how WAN Fiber connects (", StringComparison.Ordinal));
+        doc.Lockouts.Should().ContainSingle(l => l.Kind == "possible" && l.Title == "WAN Fiber can go offline"
+            && l.Detail.StartsWith("This changes how it connects (", StringComparison.Ordinal));
+        Op(doc, "n-wan2").Tier.Should().Be(PlanTiers.Lockout);
+    }
+
+    [Fact]
+    public void LiveWan_VlanChange_NamesTheField()
+    {
+        var doc = Plan(s => Wan(s, "n-wan2")["wan_vlan"] = 202, OnWan2);
+
+        doc.Lockouts.Single().Detail.Should().Be("This changes how it connects (WAN VLAN). A wrong value takes the WAN offline.");
     }
 
     [Fact]
     public void LiveWan_ChangeOffTheUplink_IsNotFlagged()
     {
-        var op = Op(Plan(s => Wan(s, "n-wan2")["wan_smartq_enabled"] = true, OnWan2), "n-wan2");
-
-        op.Reasons.Should().NotContain(r => r.Contains("connects (", StringComparison.Ordinal));
+        Plan(s => Wan(s, "n-wan2")["wan_smartq_enabled"] = true, OnWan2).Lockouts.Should().BeEmpty();
     }
 
     [Fact]
-    public void LiveWan_Delete_IsAcknowledged()
+    public void LiveWan_Delete_IsAPossibleLockout()
     {
-        var op = Op(Plan(s => s.Collections["networkconf"].RemoveAll(n => (string?)n["_id"] == "n-wan2"), OnWan2), "n-wan2");
+        var doc = Plan(s => s.Collections["networkconf"].RemoveAll(n => (string?)n["_id"] == "n-wan2"), OnWan2);
 
-        op.Tier.Should().BeGreaterThanOrEqualTo(PlanTiers.Acknowledge);
-        op.Reasons.Should().Contain("Deletes WAN Fiber, which the gateway carries traffic on");
+        doc.Lockouts.Should().ContainSingle(l => l.Title == "WAN Fiber is deleted");
     }
 
     [Fact]
     public void UnusedWanProfile_UplinkChange_IsNotFlagged()
     {
-        var op = Op(Plan(s => Wan(s, "n-wan1")["wan_type"] = "pppoe", OnWan2), "n-wan1");
-
-        op.Reasons.Should().NotContain(r => r.Contains("WAN Internet 1", StringComparison.Ordinal));
+        Plan(s => Wan(s, "n-wan1")["wan_type"] = "pppoe", OnWan2).Lockouts.Should().BeEmpty();
     }
 
     [Fact]
-    public void UnusedWanProfile_RoutingChange_IsAcknowledged()
+    public void UnusedWanProfile_RoutingChange_IsAPossibleLockout()
     {
-        var op = Op(Plan(s => Wan(s, "n-wan1")["wan_failover_priority"] = 1, OnWan2), "n-wan1");
+        var doc = Plan(s => Wan(s, "n-wan1")["wan_failover_priority"] = 1, OnWan2);
 
-        op.Tier.Should().BeGreaterThanOrEqualTo(PlanTiers.Acknowledge);
-        op.Reasons.Should().Contain(r => r.StartsWith("Changes which WAN carries traffic (", StringComparison.Ordinal));
+        doc.Lockouts.Should().ContainSingle(l => l.Title == "WAN Internet 1 can start carrying traffic");
     }
 
     [Fact]
     public void UnknownLiveWans_EveryWanCounts()
     {
-        var op = Op(Plan(s => Wan(s, "n-wan1")["wan_type"] = "pppoe", liveWans: null), "n-wan1");
-
-        op.Reasons.Should().Contain(r => r.StartsWith("Changes how WAN Internet 1 connects (", StringComparison.Ordinal));
+        Plan(s => Wan(s, "n-wan1")["wan_type"] = "pppoe", liveWans: null).Lockouts
+            .Should().ContainSingle(l => l.Title == "WAN Internet 1 can go offline");
     }
 
     [Fact]
-    public void AgentSite_IsLeftToTheLockoutCheck()
+    public void AgentSite_KeepsTheCertainFindingOnly()
     {
         var doc = Plan(s => Wan(s, "n-wan2")["wan_vlan"] = 202, OnWan2, agent: true);
 
-        doc.Lockouts.Should().ContainSingle(l => l.Title == "WAN Fiber changes on a site reached through the On-Site Agent");
-        Op(doc, "n-wan2").Reasons.Should().NotContain(r => r.Contains("connects (", StringComparison.Ordinal));
+        doc.Lockouts.Should().ContainSingle().Which.Title.Should().Be("WAN Fiber changes on a site reached through the On-Site Agent");
     }
 
     [Fact]

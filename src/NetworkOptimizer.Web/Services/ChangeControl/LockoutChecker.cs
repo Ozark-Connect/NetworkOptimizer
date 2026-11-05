@@ -11,8 +11,8 @@ namespace NetworkOptimizer.Web.Services.ChangeControl;
 /// uplink ports still carry each downstream device's management VLAN; static device IPs stay in
 /// their management subnet; the inform host and the console's local DNS still resolve; DHCP stays
 /// on where devices use it; management subnets; firewall policies that could block Network
-/// Optimizer from the gateway; and, on agent sites, the agent's own WAN path. Only what the plan
-/// changes is reported.
+/// Optimizer from the gateway; and WAN records: on agent sites as the agent's own path, elsewhere as the
+/// site's internet. Only what the plan changes is reported.
 /// </summary>
 [VendorSpecific("UniFi", "port_overrides tagged_vlan_mgmt / native_networkconf_id / excluded_networkconf_ids; super_mgmt inform override")]
 public static class LockoutChecker
@@ -311,6 +311,9 @@ public static class LockoutChecker
                 });
             }
         }
+        // 7b. On a direct site Network Optimizer keeps the console over the LAN, so a WAN that can drop is possible, not certain.
+        else
+            findings.AddRange(WanFindings(live, planned, doc, options.LiveWanGroups, gateways));
 
         // 8. Zone-based firewall paths: a network that reaches its DNS resolver or the inform host today
         //    still does. Devices stay online when DNS breaks, so the commit-confirmed revert never sees it.
@@ -410,6 +413,48 @@ public static class LockoutChecker
     // The WAN fields that decide which WAN carries traffic: changing one can move the agent onto an unused WAN.
     internal static readonly string[] WanRoutingFields =
         ["enabled", "wan_networkgroup", "wan_failover_priority", "wan_load_balance_type", "wan_load_balance_weight"];
+
+    // How a WAN reaches the ISP: the IPv4 fields of the YAML's "WAN connection" group, plus enabled, the zone, and the MAC override.
+    internal static readonly string[] WanUplinkFields =
+    [
+        "enabled", "firewall_zone_id", "wan_networkgroup", "ifname", "wan_type", "wan_ip", "wan_netmask", "wan_gateway",
+        "wan_username", "x_wan_password", "wan_pppoe_username_enabled", "wan_pppoe_password_enabled", "wan_pppoe_rfc4638_enabled",
+        "wan_ipip_username", "x_wan_ipip_password", "wan_vlan_enabled", "wan_vlan", "wan_egress_qos", "wan_dhcp_options", "wan_dhcp_cos",
+        "mac_override_enabled", "mac_override",
+    ];
+
+    /// <summary>
+    /// WAN record writes that can take the site off the internet. A WAN the gateway carries counts on any uplink field or a
+    /// delete; one it does not (UniFi Network's unused default WAN profile) only on the fields that decide which WAN carries traffic.
+    /// </summary>
+    private static IEnumerable<LockoutFinding> WanFindings(ConfigState live, ConfigState planned, PlanDocument doc,
+        IReadOnlySet<string>? liveWanGroups, List<string> gateways)
+    {
+        foreach (var op in doc.Operations.Where(o => o.Collection == "networkconf" && o.Action != PlanAction.Create))
+        {
+            var liveNet = live.Get("networkconf").FirstOrDefault(n => ConfigState.IdOf(n) == op.ObjectId);
+            if (liveNet == null || Str(liveNet["purpose"]) != "wan") continue;
+            var carried = CarriesWan(liveNet, liveWanGroups);
+            if (!carried && op.Action == PlanAction.Delete) continue;
+            var plannedNet = op.Action == PlanAction.Delete ? null : planned.Get("networkconf").FirstOrDefault(n => ConfigState.IdOf(n) == op.ObjectId);
+            var changed = plannedNet == null ? []
+                : (carried ? WanUplinkFields : WanRoutingFields).Where(f => !CanonicalJson.DeepEquals(liveNet[f], plannedNet[f])).ToList();
+            if (plannedNet != null && changed.Count == 0) continue;
+
+            var fields = ChangeDescriber.JoinAnd(changed.Select(f => ChangeDescriber.LabelFor(f)).Distinct().ToList());
+            yield return new LockoutFinding
+            {
+                Kind = "possible",
+                Title = op.Action == PlanAction.Delete ? $"WAN {op.ObjectName} is deleted"
+                    : carried ? $"WAN {op.ObjectName} can go offline" : $"WAN {op.ObjectName} can start carrying traffic",
+                Detail = op.Action == PlanAction.Delete ? "The gateway carries traffic on this WAN."
+                    : carried ? $"This changes how it connects ({fields}). A wrong value takes the WAN offline."
+                    : $"This changes which WAN carries traffic ({fields}). The gateway does not use this WAN today.",
+                Devices = gateways,
+                OperationKeys = [op.Key],
+            };
+        }
+    }
 
     /// <summary>
     /// Whether the gateway carries traffic on a live WAN record. Unknown live WANs, or a record with no network group,
