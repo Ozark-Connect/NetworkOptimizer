@@ -4385,6 +4385,14 @@ select.form-control {
     color: var(--text-primary);
 }
 
+.issue-recommendation a.issue-action-link,
+.issue-type-recommendation a.issue-action-link {
+    display: flex;
+    width: fit-content;
+    margin-top: 0.5rem;
+    text-decoration: none;
+}
+
 .issue-investigate {
     margin-top: 0.5rem;
     font-size: 0.875rem;

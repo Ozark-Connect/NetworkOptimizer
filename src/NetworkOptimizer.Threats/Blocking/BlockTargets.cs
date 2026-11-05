@@ -153,7 +153,19 @@ public interface IGatewayAgentBlocklist
 
     /// <summary>Whether every connected gateway agent of the site enforces exceptions; true when it has none.</summary>
     bool EnforcesExceptions(string? site);
+
+    /// <summary>
+    /// What the site's gateway agents were last sent, counted per set; null when the site does not block through a
+    /// connected gateway agent. The Security Audit checks the gateway holds it.
+    /// </summary>
+    GatewayAgentSent? LastSent(string? site) => null;
 }
+
+/// <summary>
+/// The entries a gateway agent was last sent, per family. <see cref="FeedsSplit"/> false means the public lists went
+/// into the block set (an agent without exceptions), so the feed counts are 0.
+/// </summary>
+public sealed record GatewayAgentSent(bool FeedsSplit, int BlockV4, int BlockV6, int OutV4, int OutV6, int FeedV4, int FeedV6);
 
 /// <summary>A site's gateway, through <see cref="IGatewayBlocklistWriter"/>.</summary>
 public sealed class GatewayBlockTarget(IGatewayBlocklistWriter writer, string? site) : IBlockTarget

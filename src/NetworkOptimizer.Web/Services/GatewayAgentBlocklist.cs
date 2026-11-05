@@ -81,6 +81,24 @@ public sealed class GatewayAgentBlocklist : IGatewayAgentBlocklist
 
     public bool EnforcesExceptions(string? site) => Capable(Slug(site)).All(c => c.HasCapability(ExceptionsCapability));
 
+    public GatewayAgentSent? LastSent(string? site)
+    {
+        var slug = Slug(site);
+        if (!_desired.TryGetValue(slug, out var desired) || !desired.Enabled || Capable(slug).Count == 0) return null;
+        var now = DateTime.UtcNow;
+        var split = EnforcesExceptions(slug);
+        (int V4, int V6) Count(IEnumerable<GatewayAgentEntry> entries)
+        {
+            var live = entries.Where(e => e.ExpiresAt > now).ToList();
+            var v6 = live.Count(e => e.Address.Contains(':'));
+            return (live.Count - v6, v6);
+        }
+        var block = Count(split ? desired.Entries : desired.Entries.Concat(desired.Feeds));
+        var outbound = Count(desired.Outbound);
+        var feeds = split ? Count(desired.Feeds) : (V4: 0, V6: 0);
+        return new GatewayAgentSent(split, block.V4, block.V6, outbound.V4, outbound.V6, feeds.V4, feeds.V6);
+    }
+
     public string? Problem(string? site, string fingerprint)
     {
         var now = DateTime.UtcNow;

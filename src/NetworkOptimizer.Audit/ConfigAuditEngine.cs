@@ -31,6 +31,7 @@ public class ConfigAuditEngine
     private readonly DnsSecurityAnalyzer _dnsAnalyzer;
     private readonly UpnpSecurityAnalyzer _upnpAnalyzer;
     private readonly ConsoleAccessAnalyzer _consoleAccessAnalyzer;
+    private readonly GatewayFirewallAnalyzer _gatewayFirewallAnalyzer;
     private readonly AuditScorer _scorer;
 
     /// <summary>
@@ -61,6 +62,9 @@ public class ConfigAuditEngine
         public List<UniFiOsUser>? ConsoleUsers { get; init; }
         public List<UniFiOsApiKey>? ConsoleApiKeys { get; init; }
         public string? ConnectedUsername { get; init; }
+        public GatewayFirewallSnapshot? GatewayFirewall { get; init; }
+        public List<GatewayWanPath>? GatewayWanInterfaces { get; init; }
+        public GatewayBlocklistExpectation? GatewayBlocklist { get; init; }
 
         // Populated by phases
         public List<NetworkInfo> Networks { get; set; } = [];
@@ -168,6 +172,7 @@ public class ConfigAuditEngine
         _dnsAnalyzer = new DnsSecurityAnalyzer(loggerFactory.CreateLogger<DnsSecurityAnalyzer>(), thirdPartyDetector);
         _upnpAnalyzer = new UpnpSecurityAnalyzer(loggerFactory.CreateLogger<UpnpSecurityAnalyzer>());
         _consoleAccessAnalyzer = new ConsoleAccessAnalyzer(loggerFactory.CreateLogger<ConsoleAccessAnalyzer>());
+        _gatewayFirewallAnalyzer = new GatewayFirewallAnalyzer(loggerFactory.CreateLogger<GatewayFirewallAnalyzer>());
         _scorer = new AuditScorer(loggerFactory.CreateLogger<AuditScorer>());
     }
 
@@ -326,6 +331,7 @@ public class ConfigAuditEngine
         ExecutePhase5c_AnalyzeUpnpSecurity(ctx);
         ExecutePhase5d_AnalyzeThreatExposure(ctx);
         ExecutePhase5e_AnalyzeConsoleAccess(ctx);
+        ExecutePhase5f_AnalyzeGatewayFirewall(ctx);
         ExecutePhase6_AnalyzeHardeningMeasures(ctx);
 
         // Build and score the final result
@@ -449,6 +455,9 @@ public class ConfigAuditEngine
             ConsoleUsers = request.ConsoleUsers,
             ConsoleApiKeys = request.ConsoleApiKeys,
             ConnectedUsername = request.ConnectedUsername,
+            GatewayFirewall = request.GatewayFirewall,
+            GatewayWanInterfaces = request.GatewayWanInterfaces,
+            GatewayBlocklist = request.GatewayBlocklist,
             FirewallZones = request.FirewallZones,
             ZoneLookup = zoneLookup,
             ExternalZoneId = externalZoneId,
@@ -1139,6 +1148,21 @@ public class ConfigAuditEngine
         _logger.LogInformation("Phase 5e: Analyzing console access");
         ctx.AllIssues.AddRange(_consoleAccessAnalyzer.Analyze(
             ctx.ConsoleUsers, ctx.ConsoleApiKeys, DateTimeOffset.UtcNow, ctx.ConnectedUsername));
+    }
+
+    /// <summary>
+    /// Phase 5f: the gateway's own firewall against UniFi Network's configuration. Skipped when the gateway
+    /// could not be read over SSH.
+    /// </summary>
+    private void ExecutePhase5f_AnalyzeGatewayFirewall(AuditContext ctx)
+    {
+        if (ctx.GatewayFirewall == null)
+            return;
+
+        _logger.LogInformation("Phase 5f: Analyzing the gateway's firewall");
+        var gatewayName = ctx.Switches.FirstOrDefault(s => s.IsGateway)?.Name ?? "Gateway";
+        ctx.AllIssues.AddRange(_gatewayFirewallAnalyzer.Analyze(ctx.GatewayFirewall, ctx.FirewallRules, ctx.FirewallZones,
+            ctx.NetworkConfigs, ctx.GatewayWanInterfaces, ctx.GatewayBlocklist, gatewayName));
     }
 
     /// <summary>

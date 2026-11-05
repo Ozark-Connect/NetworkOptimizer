@@ -359,6 +359,10 @@
                                         {
                                             <div class="issue-recommendation">
                                                 <strong>Recommendation:</strong> @FormatIssueText(issue.Recommendation)
+                                                @if (!string.IsNullOrEmpty(issue.ActionHref))
+                                                {
+                                                    <a class="btn btn-sm btn-primary issue-action-link" href="@issue.ActionHref">@issue.ActionLabel</a>
+                                                }
                                             </div>
                                         }
                                     </div>
@@ -483,6 +487,10 @@
                                             {
                                                 <div class="issue-type-recommendation">
                                                     <strong>Recommendation:</strong> @FormatIssueText(firstIssue.Recommendation)
+                                                @if (!string.IsNullOrEmpty(firstIssue.ActionHref))
+                                                {
+                                                    <a class="btn btn-sm btn-primary issue-action-link" href="@firstIssue.ActionHref" @onclick:stopPropagation="true">@firstIssue.ActionLabel</a>
+                                                }
                                                 </div>
                                             }
                                         </div>
