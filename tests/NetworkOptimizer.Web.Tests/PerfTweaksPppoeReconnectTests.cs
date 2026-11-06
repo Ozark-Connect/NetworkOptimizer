@@ -134,6 +134,24 @@ public class PerfTweaksPppoeReconnectTests
     }
 
     [Fact]
+    public async Task StatusProbe_EndsWithACommandThatCannotFail()
+    {
+        // The probe's exit code is its last command's; before the first reconnect there is no
+        // last-run record, and a failing cat would turn the whole status read into an error.
+        string? command = null;
+        var ssh = new Mock<IGatewaySshService>();
+        ssh.Setup(s => s.RunCommandAsync(It.IsAny<string>(), It.IsAny<TimeSpan?>(), It.IsAny<CancellationToken>()))
+            .Callback<string, TimeSpan?, CancellationToken>((c, _, _) => command = c)
+            .ReturnsAsync((false, "unreachable"));
+        var service = new PerfTweaksDeploymentService(Mock.Of<ILogger<PerfTweaksDeploymentService>>(), ssh.Object,
+            null!, null!, null!, null!, new NetworkOptimizer.Web.Services.Firmware.RolloutSuppressionRegistry());
+
+        await service.CheckAllStatusAsync();
+
+        command.Should().EndWith("/data/pppoe-reconnect/last-run 2>/dev/null || true");
+    }
+
+    [Fact]
     public async Task SetTime_RejectsAnInvalidTimeWithoutTouchingTheGateway()
     {
         var ssh = new Mock<IGatewaySshService>(MockBehavior.Strict);

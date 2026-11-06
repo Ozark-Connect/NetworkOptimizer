@@ -298,7 +298,8 @@ public class PerfTweaksDeploymentService : IPerfTweaksDeploymentService
                 $"echo '---PPPOE_RC_TIME---'; cat {PppoeReconnectDir}/time 2>/dev/null; " +
                 "echo '---PPPOE_RC_TZ---'; cat /etc/timezone 2>/dev/null || date +%Z; " +
                 "echo '---PPPOE_RC_WANS---'; for f in /etc/ppp/peers/ppp[0-9]*; do [ -f \"$f\" ] && basename \"$f\"; done; " +
-                $"echo '---PPPOE_RC_LAST---'; cat {PppoeReconnectDir}/last-run 2>/dev/null";
+                // Last in the probe: a missing record (no run yet) must not fail the whole status read
+                $"echo '---PPPOE_RC_LAST---'; cat {PppoeReconnectDir}/last-run 2>/dev/null || true";
 
             var result = await RunCommandAsync(combinedCommand, TimeSpan.FromSeconds(25));
             if (!result.success)
