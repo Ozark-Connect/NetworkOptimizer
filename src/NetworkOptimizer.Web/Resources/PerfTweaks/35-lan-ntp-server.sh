@@ -20,7 +20,7 @@
 # 123 to the gateway; WAN requests stay dropped by UniFi's firewall. Point DHCP
 # option 42 at the gateway in UniFi Network yourself.
 #
-# Files: /data/lan-ntp-server/bin/{chronyd,chronyc}, /data/lan-ntp-server/helper.sh,
+# Files: /data/lan-ntp-server/bin/{chronyd,chronyc}, /data/lan-ntp-server/{helper.sh,chrony.sha256},
 #        /etc/systemd/system/lan-ntp-server{,-refresh}.service and
 #        lan-ntp-server-refresh.timer (recreated at boot),
 #        /run/lan-ntp-server/{chrony.conf,chronyd.sock} (RAM only).
@@ -29,6 +29,7 @@ LOG_TAG="lan-ntp-server"
 DIR="/data/lan-ntp-server"
 BIN="$DIR/bin"
 HELPER="$DIR/helper.sh"
+HASHES="$DIR/chrony.sha256"
 UNIT="/etc/systemd/system/lan-ntp-server.service"
 REFRESH_UNIT="/etc/systemd/system/lan-ntp-server-refresh.service"
 REFRESH_TIMER="/etc/systemd/system/lan-ntp-server-refresh.timer"
@@ -64,14 +65,48 @@ else
     RUN_USER="nobody"
 fi
 RUN_GROUP=$(id -gn "$RUN_USER" 2>/dev/null) || { log "No group for $RUN_USER."; exit 1; }
+# systemd needs an absolute path in ExecStartPre
+SHA256SUM=$(command -v sha256sum)
 
 mkdir -p "$BIN" || { log "Creating $BIN failed."; exit 1; }
 chmod 755 "$DIR" "$BIN"
 
+# Writes stdin to $1 (mode $2) only when the content differs, so a reboot writes nothing to
+# the eMMC: the comparison copy lives on tmpfs. Prints "changed" when it wrote; fails without
+# touching $1 when any step fails.
+install_if_changed() {
+    local target="$1" mode="$2" tmp
+    tmp=$(mktemp /run/lan-ntp-server-install.XXXXXX) || return 1
+    if ! cat > "$tmp"; then
+        rm -f "$tmp"
+        return 1
+    fi
+    if [ -f "$target" ] && cmp -s "$tmp" "$target"; then
+        rm -f "$tmp"
+        chmod "$mode" "$target"
+        return
+    fi
+    if install -m "$mode" "$tmp" "$target.new" && mv -f "$target.new" "$target"; then
+        rm -f "$tmp"
+        echo "changed"
+        return 0
+    fi
+    rm -f "$tmp" "$target.new"
+    return 1
+}
+
+# The pinned hashes as a file, so the unit checks the binaries before every start as well
+if ! install_if_changed "$HASHES" 644 >/dev/null <<EOF
+$CHRONYD_SHA256  $BIN/chronyd
+$CHRONYC_SHA256  $BIN/chronyc
+EOF
+then
+    log "Writing $HASHES failed."
+    exit 1
+fi
+
 binaries_ok() {
-    [ -x "$BIN/chronyd" ] && [ -x "$BIN/chronyc" ] \
-        && printf '%s  %s\n%s  %s\n' "$CHRONYD_SHA256" "$BIN/chronyd" "$CHRONYC_SHA256" "$BIN/chronyc" \
-            | sha256sum -c --strict --status
+    [ -x "$BIN/chronyd" ] && [ -x "$BIN/chronyc" ] && "$SHA256SUM" -c --strict --status "$HASHES"
 }
 
 # Downloads the pinned .deb and extracts chronyd and chronyc. Only on first deploy, after a
@@ -99,6 +134,12 @@ fetch_chrony() {
         rm -rf "$work" "$BIN/chronyd.new" "$BIN/chronyc.new"
         return 1
     fi
+    # A new version that does not run on this firmware must not replace one that does
+    if ! "$BIN/chronyd.new" -v >/dev/null 2>&1; then
+        log "The downloaded chronyd does not run on this firmware, keeping the current one."
+        rm -rf "$work" "$BIN/chronyd.new" "$BIN/chronyc.new"
+        return 1
+    fi
     mv -f "$BIN/chronyd.new" "$BIN/chronyd" && mv -f "$BIN/chronyc.new" "$BIN/chronyc"
     local rc=$?
     rm -rf "$work"
@@ -119,35 +160,13 @@ fi
 # A firmware update can drop a library chronyd links against
 if ! VERSION_OUT=$("$BIN/chronyd" -v 2>&1); then
     log "chronyd does not run on this firmware: $VERSION_OUT"
+    # Restart=always would otherwise retry every 30 seconds until the next boot
+    systemctl stop lan-ntp-server >/dev/null 2>&1
     exit 1
 fi
 
 # The prototype's Python daemon, if an earlier build left it behind
 rm -f "$DIR/lan-ntp-server.py"
-
-# Writes stdin to $1 (mode $2) only when the content differs, so a reboot writes nothing to
-# the eMMC: the comparison copy lives on tmpfs. Prints "changed" when it wrote; fails without
-# touching $1 when any step fails.
-install_if_changed() {
-    local target="$1" mode="$2" tmp
-    tmp=$(mktemp /run/lan-ntp-server-install.XXXXXX) || return 1
-    if ! cat > "$tmp"; then
-        rm -f "$tmp"
-        return 1
-    fi
-    if [ -f "$target" ] && cmp -s "$tmp" "$target"; then
-        rm -f "$tmp"
-        chmod "$mode" "$target"
-        return
-    fi
-    if install -m "$mode" "$tmp" "$target.new" && mv -f "$target.new" "$target"; then
-        rm -f "$tmp"
-        echo "changed"
-        return 0
-    fi
-    rm -f "$tmp" "$target.new"
-    return 1
-}
 
 if ! HELPER_CHANGED=$(install_if_changed "$HELPER" 755 <<'HELPEREOF'
 #!/bin/sh
@@ -169,9 +188,9 @@ print_conf() {
     servers=$(sed -n 's/^Servers=//p' "$UDAPI_CONF" 2>/dev/null | tail -n 1)
     [ -n "$servers" ] || servers="0.ubnt.pool.ntp.org 1.ubnt.pool.ntp.org"
     for s in $servers; do
-        case "$s" in *[!A-Za-z0-9.:-]*) continue ;; esac
+        case "$s" in *[!A-Za-z0-9.:-]*|-*) continue ;; esac
         # Never poll ourselves, should the gateway's NTP setting point at the gateway
-        if printf '%s\n' "$local_addrs" | grep -qxF "$s"; then
+        if printf '%s\n' "$local_addrs" | grep -qxF -- "$s"; then
             continue
         fi
         # Sources on private addresses (a GPS box, the Starlink dish) are the user's own:
@@ -268,8 +287,10 @@ StartLimitIntervalSec=0
 [Service]
 User=$RUN_USER
 Group=$RUN_GROUP
+ExecStartPre=$SHA256SUM -c --strict --status $HASHES
 ExecStartPre=$HELPER wait-sync
-ExecStartPre=$HELPER write-conf
+# +: as root, like the refresh timer, so both build the config from the same view
+ExecStartPre=+$HELPER write-conf
 # -x: never touch the system clock, timesyncd keeps it. -U: start without root.
 ExecStart=$BIN/chronyd -x -U -d -u $RUN_USER -f /run/lan-ntp-server/chrony.conf
 TimeoutStartSec=180

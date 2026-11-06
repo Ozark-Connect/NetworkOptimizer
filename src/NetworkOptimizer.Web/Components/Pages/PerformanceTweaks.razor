@@ -615,6 +615,12 @@
                         <strong>Note:</strong> Removal will briefly stop UniFi Network while copying the PostgreSQL data back from SSD to eMMC, then restart it. The SSD copy and the backups are kept.
                     </div>
                 }
+                else if (_pendingRemoveTweakId == "lan-ntp-server")
+                {
+                    <div class="alert alert-warning" style="margin-top: 0.75rem;">
+                        <strong>Note:</strong> Clients that get the gateway as NTP server through DHCP keep asking it. Change the networks' NTP Server DHCP option back first.
+                    </div>
+                }
             </div>
             <div class="pt-modal-footer">
                 <button class="btn btn-secondary btn-sm" @onclick="CancelRemove">Cancel</button>

@@ -294,13 +294,16 @@ public class PerfTweaksDeploymentService : IPerfTweaksDeploymentService
                 "echo '---SFP_LOG---'; tail -3 /var/log/sfp-sgmiiplus.log 2>/dev/null || echo 'no log'; " +
                 // LAN NTP server: chronyd answers chronyc on its Unix socket; the journal only when it is not running
                 $"echo '---NTP_SRV_BOOT_SCRIPT---'; test -f {OnBootDir}/35-lan-ntp-server.sh && echo 'exists' || echo 'missing'; " +
+                // Gateways without the tweak skip the rest
+                $"if [ -f {OnBootDir}/35-lan-ntp-server.sh ] || [ -f /etc/systemd/system/lan-ntp-server.service ]; then " +
                 "echo '---NTP_SRV_SERVICE---'; systemctl show -p SubState --value lan-ntp-server 2>/dev/null || echo 'dead'; " +
                 $"echo '---NTP_SRV_TRACKING---'; timeout 5 {LanNtpChronyc} tracking 2>&1 || echo 'failed'; " +
                 $"echo '---NTP_SRV_STATS---'; timeout 5 {LanNtpChronyc} serverstats 2>&1 || echo 'failed'; " +
                 "echo '---NTP_SRV_SOCKETS---'; /data/lan-ntp-server/helper.sh check-sockets 2>&1; " +
                 "echo '---NTP_SRV_TIMER---'; systemctl is-active lan-ntp-server-refresh.timer 2>/dev/null || true; " +
                 "echo '---NTP_SRV_LOG---'; systemctl is-active --quiet lan-ntp-server || journalctl -u lan-ntp-server -n 2 -o cat --no-pager 2>/dev/null; " +
-                "echo '---NTP_SRV_NOW---'; date +%s";
+                "echo '---NTP_SRV_NOW---'; date +%s; " +
+                "fi";
 
             var result = await RunCommandAsync(combinedCommand, TimeSpan.FromSeconds(25));
             if (!result.success)
@@ -657,15 +660,18 @@ public class PerfTweaksDeploymentService : IPerfTweaksDeploymentService
     // UniFi Network is the user's to undo.
     private const string LanNtpServerRemoveCommand =
         $"rm -f {OnBootDir}/35-lan-ntp-server.sh; " +
-        "systemctl disable --now lan-ntp-server-refresh.timer lan-ntp-server 2>/dev/null; " +
+        // The refresh first: a run already under way could otherwise restart chronyd mid-removal
+        "systemctl disable --now lan-ntp-server-refresh.timer 2>/dev/null; " +
         "systemctl stop lan-ntp-server-refresh.service 2>/dev/null; " +
+        "systemctl disable --now lan-ntp-server 2>/dev/null; " +
         "rm -f /etc/systemd/system/lan-ntp-server.service /etc/systemd/system/lan-ntp-server-refresh.service " +
         "/etc/systemd/system/lan-ntp-server-refresh.timer; " +
         "systemctl daemon-reload; " +
         "rm -rf /data/lan-ntp-server /run/lan-ntp-server; " +
         $"if [ ! -e {OnBootDir}/35-lan-ntp-server.sh ] && [ ! -e /etc/systemd/system/lan-ntp-server.service ] " +
         "&& [ ! -e /etc/systemd/system/lan-ntp-server-refresh.timer ] && [ ! -e /data/lan-ntp-server ] " +
-        "&& ! systemctl is-active --quiet lan-ntp-server; then echo 'removed'; fi";
+        "&& case \"$(systemctl is-active lan-ntp-server 2>/dev/null)\" in active|activating|deactivating|reloading) false ;; esac; " +
+        "then echo 'removed'; fi";
 
     private static TweakDeploymentStatus ParseLanNtpServerStatus(Dictionary<string, string> sections)
     {
@@ -681,7 +687,9 @@ public class PerfTweaksDeploymentService : IPerfTweaksDeploymentService
 
         if (waiting)
         {
+            // Normal for up to two minutes after a boot, not an issue
             tweak.HealthChecks.Add(new("Service", "Waiting for the gateway's first time sync", HealthCheckStatus.Warning));
+            tweak.IsActive = tweak.BootScriptDeployed;
             return tweak;
         }
         if (!running)

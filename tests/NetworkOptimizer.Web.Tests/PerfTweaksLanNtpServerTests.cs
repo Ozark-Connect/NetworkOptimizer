@@ -129,11 +129,12 @@ public class PerfTweaksLanNtpServerTests
     }
 
     [Fact]
-    public void WaitingForTheFirstTimeSync_IsAWarning()
+    public void WaitingForTheFirstTimeSync_IsActiveWithAWarning()
     {
         var tweak = Parse(Deployed(subState: "start-pre"));
 
-        tweak.IsActive.Should().BeFalse();
+        tweak.IsActive.Should().BeTrue();
+        tweak.IssueDescription.Should().BeNullOrEmpty();
         tweak.HealthChecks.Should().ContainSingle().Which.Should().Be(
             new HealthCheckResult("Service", "Waiting for the gateway's first time sync", HealthCheckStatus.Warning));
     }
@@ -245,7 +246,7 @@ public class PerfTweaksLanNtpServerDeployTests : IDisposable
         {
             _ when c.Contains("base64 -d >") => (true, "deployed"),
             RunBootScript => (false, "[lan-ntp-server] UDP 123 is already in use"),
-            _ when c.Contains("disable --now lan-ntp-server-refresh.timer lan-ntp-server") => (true, "removed"),
+            _ when c.Contains("rm -rf /data/lan-ntp-server") => (true, "removed"),
             _ => (true, ""),
         });
 
@@ -254,7 +255,25 @@ public class PerfTweaksLanNtpServerDeployTests : IDisposable
         success.Should().BeFalse();
         message.Should().Contain("Service did not start").And.Contain("UDP 123 is already in use");
         message.Should().Contain("tweak removed again");
-        _commands.Should().Contain(c => c.Contains("disable --now lan-ntp-server-refresh.timer lan-ntp-server"));
+        _commands.Should().Contain(c => c.Contains("rm -rf /data/lan-ntp-server"));
+    }
+
+    [Fact]
+    public async Task Deploy_UpdateNotFinishing_KeepsTheInstalledTweak()
+    {
+        var service = Build(c => c switch
+        {
+            _ when c.Contains("test -f /data/on_boot.d/35-lan-ntp-server.sh && echo 'installed'") => (true, "installed"),
+            _ when c.Contains("base64 -d >") => (true, "deployed"),
+            RunBootScript => (false, "[lan-ntp-server] Installing chrony failed."),
+            _ => (true, ""),
+        });
+
+        var (success, message, _) = await service.DeployTweakAsync("lan-ntp-server");
+
+        success.Should().BeFalse();
+        message.Should().Contain("the tweak stays installed").And.Contain("Installing chrony failed");
+        _commands.Should().NotContain(c => c.Contains("rm -rf /data/lan-ntp-server"));
     }
 
     [Fact]
@@ -282,8 +301,12 @@ public class PerfTweaksLanNtpServerDeployTests : IDisposable
 
         success.Should().BeTrue();
         var command = _commands.Single();
-        command.IndexOf("disable --now lan-ntp-server-refresh.timer lan-ntp-server", StringComparison.Ordinal)
-            .Should().BeLessThan(command.IndexOf("rm -rf /data/lan-ntp-server", StringComparison.Ordinal));
+        // The refresh service before chronyd, so a refresh run under way cannot restart it
+        var stopRefresh = command.IndexOf("systemctl stop lan-ntp-server-refresh.service", StringComparison.Ordinal);
+        var stopService = command.IndexOf("disable --now lan-ntp-server 2>", StringComparison.Ordinal);
+        stopRefresh.Should().BeGreaterThan(command.IndexOf("disable --now lan-ntp-server-refresh.timer", StringComparison.Ordinal));
+        stopService.Should().BeGreaterThan(stopRefresh);
+        command.IndexOf("rm -rf /data/lan-ntp-server", StringComparison.Ordinal).Should().BeGreaterThan(stopService);
     }
 
     [Fact]
