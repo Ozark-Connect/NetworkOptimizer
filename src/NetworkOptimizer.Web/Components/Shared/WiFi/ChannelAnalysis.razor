@@ -314,7 +314,7 @@
                                     }
                                 </div>
                                 <div class="rec-col rec-score-col">
-                                    <span class="@GetScoreClass(rec.CurrentScore)">@FormatScore(rec.CurrentScore)</span>
+                                    <span class="@GetScoreClass(rec.CurrentScore, rec.Band)">@FormatScore(rec.CurrentScore)</span>
                                 </div>
                                 <div class="rec-col rec-channels-col">
                                     @if (rec.IsChanged)
@@ -360,7 +360,7 @@
                                     }
                                 </div>
                                 <div class="rec-col rec-score-col">
-                                    <span class="@GetScoreClass(rec.RecommendedScore)">@FormatScore(rec.RecommendedScore)</span>
+                                    <span class="@GetScoreClass(rec.RecommendedScore, rec.Band)">@FormatScore(rec.RecommendedScore)</span>
                                 </div>
                             </div>
                         }
@@ -1475,14 +1475,26 @@
                "so the new channel can prove itself on measured data.";
     }
 
-    private static string GetScoreClass(double score) => score switch
+    /// <summary>
+    /// Upper bounds for excellent, good, fair, and poor per band (lower is better; above the last is
+    /// bad). A score that is ordinary on crowded 2.4 GHz is very poor on 6 GHz.
+    /// </summary>
+    private static readonly Dictionary<RadioBand, double[]> ScoreClassBounds = new()
     {
-        <= 0.5 => "score-excellent",
-        <= 1.5 => "score-good",
-        <= 3.0 => "score-fair",
-        <= 5.0 => "score-poor",
-        _ => "score-bad"
+        [RadioBand.Band2_4GHz] = [2.0, 4.0, 6.5, 9.0],
+        [RadioBand.Band5GHz] = [0.5, 1.5, 3.0, 5.0],
+        [RadioBand.Band6GHz] = [0.25, 0.75, 1.5, 2.5],
     };
+
+    private static readonly string[] ScoreClasses = ["score-excellent", "score-good", "score-fair", "score-poor"];
+
+    private static string GetScoreClass(double score, RadioBand band)
+    {
+        var bounds = ScoreClassBounds.GetValueOrDefault(band) ?? ScoreClassBounds[RadioBand.Band5GHz];
+        for (var i = 0; i < bounds.Length; i++)
+            if (score <= bounds[i]) return ScoreClasses[i];
+        return "score-bad";
+    }
 
     private class WidthGroupInfo
     {
