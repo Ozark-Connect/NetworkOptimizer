@@ -412,7 +412,7 @@ public class ConfigAuditEngine
             _logger.LogInformation("Firewall zone data available: {ZoneCount} zones", request.FirewallZones.Count);
 
         // Determine external zone ID from WAN network or legacy rules
-        var externalZoneId = DetermineExternalZoneId(request.NetworkConfigs, request.FirewallRules);
+        var externalZoneId = DetermineExternalZoneId(request.NetworkConfigs, request.FirewallRules, zoneLookup, _logger);
 
         // Validate zone assumptions if we have both zone lookup and external zone ID
         if (zoneLookup.HasZoneData && externalZoneId != null)
@@ -470,8 +470,11 @@ public class ConfigAuditEngine
     /// Determine the External/WAN firewall zone ID from network configurations or firewall rules.
     /// First tries to find zone ID from WAN network configs (v2 zone-based).
     /// Falls back to synthetic legacy zone ID for legacy systems without zone IDs.
+    /// A WAN zone ID that matches no zone (UniFi Network's data left it dangling) yields the zone list's External zone;
+    /// the Gateway Firewall check reports the inconsistency.
     /// </summary>
-    private string? DetermineExternalZoneId(List<UniFiNetworkConfig>? networkConfigs, List<FirewallRule>? firewallRules)
+    internal static string? DetermineExternalZoneId(List<UniFiNetworkConfig>? networkConfigs, List<FirewallRule>? firewallRules,
+        FirewallZoneLookup zoneLookup, ILogger logger)
     {
         // Try to find zone ID from network configs first (v2 zone-based systems)
         if (networkConfigs != null && networkConfigs.Count > 0)
@@ -481,7 +484,14 @@ public class ConfigAuditEngine
 
             if (wanNetwork?.FirewallZoneId != null)
             {
-                _logger.LogDebug("Determined External Zone ID from WAN network '{Name}': {ZoneId}",
+                if (zoneLookup.HasZoneData && zoneLookup.GetZoneById(wanNetwork.FirewallZoneId) == null
+                    && zoneLookup.GetExternalZoneId() is { } external)
+                {
+                    logger.LogWarning("WAN network '{Name}' points at firewall zone {ZoneId}, which does not exist; using the External zone {External}",
+                        wanNetwork.Name, wanNetwork.FirewallZoneId, external);
+                    return external;
+                }
+                logger.LogDebug("Determined External Zone ID from WAN network '{Name}': {ZoneId}",
                     wanNetwork.Name, wanNetwork.FirewallZoneId);
                 return wanNetwork.FirewallZoneId;
             }
@@ -490,12 +500,12 @@ public class ConfigAuditEngine
             // Use synthetic legacy zone ID for firewall rule analysis
             if (wanNetwork != null)
             {
-                _logger.LogDebug("WAN network '{Name}' has no firewall_zone_id (legacy system), using synthetic legacy zone ID",
+                logger.LogDebug("WAN network '{Name}' has no firewall_zone_id (legacy system), using synthetic legacy zone ID",
                     wanNetwork.Name);
                 return FirewallRuleParser.LegacyExternalZoneId;
             }
 
-            _logger.LogDebug("No WAN network found in {Count} network configs", networkConfigs.Count);
+            logger.LogDebug("No WAN network found in {Count} network configs", networkConfigs.Count);
         }
 
         // Fall back to synthetic legacy zone ID if any rules already use it
@@ -504,7 +514,7 @@ public class ConfigAuditEngine
                 r.DestinationZoneId == FirewallRuleParser.LegacyExternalZoneId ||
                 r.SourceZoneId == FirewallRuleParser.LegacyExternalZoneId))
         {
-            _logger.LogDebug("Using synthetic legacy External Zone ID from firewall rules");
+            logger.LogDebug("Using synthetic legacy External Zone ID from firewall rules");
             return FirewallRuleParser.LegacyExternalZoneId;
         }
 
