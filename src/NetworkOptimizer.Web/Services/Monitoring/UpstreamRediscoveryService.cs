@@ -46,6 +46,13 @@ public class UpstreamRediscoveryService : BackgroundService
 
     private readonly NetworkOptimizer.Core.ISiteWorkGate _siteWorkGate;
     private readonly SiteVantageDnsResolver? _dnsResolver;
+    private readonly UpstreamDiscoveryGate? _healthGate;
+    private readonly Auditing.IAuditLogger? _audit;
+
+    // A run where more than this share of candidates failed reachability, after a committed run
+    // where fewer than DegradedBaselineShare did, measured the WAN's state, not the path.
+    internal const double DegradedFailShare = 0.5;
+    internal const double DegradedBaselineShare = 0.2;
 
     public UpstreamRediscoveryService(
         IDbContextFactory<NetworkOptimizerDbContext> dbFactory,
@@ -54,8 +61,12 @@ public class UpstreamRediscoveryService : BackgroundService
         NetworkOptimizer.Core.ISiteWorkGate siteWorkGate,
         NetworkOptimizer.Web.Services.AgentTunnelRegistry tunnelRegistry,
         ILogger<UpstreamRediscoveryService> logger,
-        SiteVantageDnsResolver? dnsResolver = null)
+        SiteVantageDnsResolver? dnsResolver = null,
+        UpstreamDiscoveryGate? healthGate = null,
+        Auditing.IAuditLogger? audit = null)
     {
+        _healthGate = healthGate;
+        _audit = audit;
         _dnsResolver = dnsResolver;
         _tunnelRegistry = tunnelRegistry;
         _dbFactory = dbFactory;
@@ -167,6 +178,8 @@ public class UpstreamRediscoveryService : BackgroundService
         var sinceLast = DateTime.UtcNow - settings.LastUpstreamDiscoveryAt.Value;
         if (sinceLast < threshold) return;
 
+        if (!await HealthGateAllowsAsync(slug, null, "the primary WAN", ct)) return;
+
         _logger.LogInformation("Running scheduled upstream re-discovery (last commit {Days:0.0} days ago)", sinceLast.TotalDays);
 
         await tracer.StartDiscoveryAsync(ct);
@@ -177,6 +190,14 @@ public class UpstreamRediscoveryService : BackgroundService
         if (tracer.State.Step != TracerStep.ReviewingResults)
         {
             _logger.LogInformation("Re-discovery finished in state {Step}; no review flag set", tracer.State.Step);
+            return;
+        }
+
+        // Left unflagged and Idle, so the next tick retries and the panel shows the committed state.
+        if (await IsDegradedRunAsync(db, tracer.State, tracer.State.WanInterface ?? "wan", ct))
+        {
+            LogDegradedRun(slug, "the primary WAN", tracer.State);
+            tracer.ResetToIdle();
             return;
         }
 
@@ -212,6 +233,9 @@ public class UpstreamRediscoveryService : BackgroundService
 
     /// <summary>
     /// Discovers the upstream path of every WAN that has a context, one WAN at a time.
+    ///
+    /// Each run waits for the health gate, and a run that comes back degraded is not committed.
+    /// The commit is automatic, so it never pauses an existing target on reachability alone.
     ///
     /// Each context traces the WAN it names, bound the way its targets are probed, and its
     /// access/transit targets are committed straight away rather than staged for review: the
@@ -259,6 +283,9 @@ public class UpstreamRediscoveryService : BackgroundService
             }
             try
             {
+                var label = $"WAN context '{context.Name}' ({context.WanInterface})";
+                if (!await HealthGateAllowsAsync(slug, context.WanInterface, label, ct)) continue;
+
                 var tracer = _tracerRegistry.GetForContext(slug, context);
                 _logger.LogInformation("Running upstream discovery for WAN context '{Context}' ({Wan}) on site {Slug}",
                     context.Name, context.WanInterface, slug);
@@ -270,7 +297,32 @@ public class UpstreamRediscoveryService : BackgroundService
                         context.Name, context.WanInterface, tracer.State.Step, tracer.State.FailureMessage ?? "no candidates");
                     continue;
                 }
-                await tracer.CommitResultsAsync(ct);
+                if (await IsDegradedRunAsync(db, tracer.State, context.WanInterface!, ct))
+                {
+                    LogDegradedRun(slug, label, tracer.State);
+                    tracer.ResetToIdle();
+                    continue;
+                }
+
+                // Counted before the commit, which clears the review lists.
+                var detail = new
+                {
+                    wan = context.WanInterface,
+                    accessHops = tracer.State.AccessHops.Count(h => h.Enabled),
+                    transitAsns = tracer.State.TransitAsns.Count(t => t.Enabled),
+                    unreachable = tracer.State.ReachabilityFailed,
+                    checkedCandidates = tracer.State.ReachabilityChecked,
+                };
+                await tracer.CommitResultsAsync(automatic: true, ct);
+                // Same action as an operator's commit, so both show together in the Audit Log.
+                _audit?.Log(Auditing.AuditEventBuilder.FromSystem(
+                    NetworkOptimizer.Storage.Models.Identity.AuditCategories.Action,
+                    NetworkOptimizer.Storage.Models.Identity.AuditActions.MonitoringSetupChanged,
+                    targetType: "upstream_discovery",
+                    targetId: context.Id.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                    targetName: context.Name,
+                    siteSlug: slug,
+                    details: detail));
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested) { return; }
             catch (Exception ex)
@@ -305,6 +357,69 @@ public class UpstreamRediscoveryService : BackgroundService
         // Not connected: let the run start and fail on its own terms rather than blaming the agent
         // version for an absence.
         return connection == null || connection.SupportsSourceBind == true;
+    }
+
+    /// <summary>
+    /// Whether the health gate lets an automatic run start on this WAN. A blocked run logs why and
+    /// moves no timestamp, so the next hourly tick tries again.
+    /// </summary>
+    private async Task<bool> HealthGateAllowsAsync(string slug, string? wanInterface, string label, CancellationToken ct)
+    {
+        if (_healthGate == null) return true;
+        var verdict = await _healthGate.EvaluateAsync(slug, wanInterface, ct);
+        if (verdict.Ok) return true;
+        _logger.LogInformation("Postponing upstream discovery for {Label} on site {Slug}: the WAN is busy ({Reason}). Retrying next hour",
+            label, slug, verdict.Reason);
+        return false;
+    }
+
+    private void LogDegradedRun(string slug, string label, UpstreamTracerState state) =>
+        _logger.LogInformation(
+            "Discarding upstream discovery for {Label} on site {Slug}: {Failed} of {Checked} candidate(s) did not answer, "
+            + "far more than the last committed run. Retrying next hour",
+            label, slug, state.ReachabilityFailed, state.ReachabilityChecked);
+
+    private static async Task<bool> IsDegradedRunAsync(
+        NetworkOptimizerDbContext db, UpstreamTracerState state, string wanInterface, CancellationToken ct) =>
+        IsDegradedRun(state.ReachabilityFailed, state.ReachabilityChecked, await LoadUnreachableShareAsync(db, wanInterface, ct));
+
+    /// <summary>
+    /// Whether a completed run's reachability results describe a degraded WAN rather than the path:
+    /// more than <see cref="DegradedFailShare"/> of its candidates failed where the last committed run
+    /// had under <see cref="DegradedBaselineShare"/>. No baseline means no verdict.
+    /// </summary>
+    /// <param name="failed">Candidates that did not answer this run.</param>
+    /// <param name="checkedCount">Candidates pinged this run.</param>
+    /// <param name="lastCommittedShare">The last committed run's failed share, or null when none is recorded.</param>
+    internal static bool IsDegradedRun(int failed, int checkedCount, double? lastCommittedShare) =>
+        checkedCount > 0
+        && lastCommittedShare is double last && last < DegradedBaselineShare
+        && (double)failed / checkedCount > DegradedFailShare;
+
+    private static string UnreachableShareKey(string wanInterface) =>
+        SystemSettingKeys.UpstreamUnreachableSharePrefix + wanInterface;
+
+    /// <summary>The last committed run's failed reachability share for the WAN, or null when none is recorded.</summary>
+    internal static async Task<double?> LoadUnreachableShareAsync(NetworkOptimizerDbContext db, string wanInterface, CancellationToken ct)
+    {
+        var row = await db.SystemSettings.AsNoTracking().FirstOrDefaultAsync(s => s.Key == UnreachableShareKey(wanInterface), ct);
+        return double.TryParse(row?.Value, System.Globalization.NumberStyles.Float,
+            System.Globalization.CultureInfo.InvariantCulture, out var share) ? share : null;
+    }
+
+    /// <summary>Records a committed run's failed reachability share for the WAN. Does not SaveChanges; the caller's does.</summary>
+    internal static async Task SaveUnreachableShareAsync(NetworkOptimizerDbContext db, string wanInterface, double share, CancellationToken ct)
+    {
+        var key = UnreachableShareKey(wanInterface);
+        var value = share.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture);
+        var row = await db.SystemSettings.FirstOrDefaultAsync(s => s.Key == key, ct);
+        if (row == null)
+            db.SystemSettings.Add(new SystemSetting { Key = key, Value = value, CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow });
+        else
+        {
+            row.Value = value;
+            row.UpdatedAt = DateTime.UtcNow;
+        }
     }
 
     /// <summary>

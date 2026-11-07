@@ -2208,6 +2208,24 @@ public class IspHealthService
             .ToList();
     }
 
+    /// <summary>
+    /// Loss across this WAN's loss pool over a span, percent: each pool target's mean, then the median
+    /// across targets, as Site Health reads the pool. Null when no pool target reported, which a caller
+    /// must read as "could not tell", never as clean.
+    /// </summary>
+    public async Task<double?> GetPoolLossPercentAsync(DateTime from, DateTime to, CancellationToken ct = default)
+    {
+        var ids = await GetLossPoolTargetIdsAsync(ct);
+        if (ids.Count == 0 || to <= from) return null;
+        var scope = await GetLatencyWanScopeAsync(ct);
+        var rows = await _influx.QueryTargetLatencyMeansAsync(from, to, ids, null, to - from, scope, ct);
+        var perTarget = rows.Where(r => r.LossPercent != null)
+            .GroupBy(r => r.TargetId)
+            .Select(g => g.Average(r => r.LossPercent!.Value))
+            .ToList();
+        return SeriesStats.Median(perTarget);
+    }
+
     /// <summary>Which WAN the report scored, as the console names it. Display only.</summary>
     private record WanIdentity(string? Name, string? NetworkGroup, string? Interface);
 

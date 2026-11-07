@@ -20,10 +20,16 @@ public interface IUpstreamDiscoveryService
     /// Traces the upstream path and proposes targets for review. <paramref name="tracer"/>
     /// runs a specific tracer instance (a WAN context's own, from the panel's per-WAN view);
     /// null runs the site's primary tracer, exactly as before.
+    /// <para>
+    /// Checks the WAN's health first. When the health gate objects and
+    /// <paramref name="overrideHealthGate"/> is false, nothing starts and the result carries the
+    /// reason, so the caller can warn and ask again with the override.
+    /// </para>
     /// </summary>
     [RequireRole(Roles.Operator)]
     [AuditAction(AuditActions.MonitoringSetupChanged, TargetType = "upstream_discovery")]
-    Task StartAsync(Monitoring.UpstreamTracerService? tracer = null, CancellationToken ct = default);
+    Task<UpstreamDiscoveryStart> StartAsync(Monitoring.UpstreamTracerService? tracer = null, bool overrideHealthGate = false,
+        CancellationToken ct = default);
 
     /// <summary>
     /// Commits the reviewed discovery, writing its hops as monitoring targets. Same tracer
@@ -33,3 +39,8 @@ public interface IUpstreamDiscoveryService
     [AuditAction(AuditActions.MonitoringSetupChanged, TargetType = "upstream_discovery")]
     Task CommitAsync(Monitoring.UpstreamTracerService? tracer = null, CancellationToken ct = default);
 }
+
+/// <summary>The outcome of a discovery start.</summary>
+/// <param name="Started">Whether a run is under way.</param>
+/// <param name="BusyReason">What the health gate objected to, or null when it did not.</param>
+public sealed record UpstreamDiscoveryStart(bool Started, string? BusyReason);

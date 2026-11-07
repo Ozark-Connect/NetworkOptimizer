@@ -67,6 +67,9 @@ public class UpstreamTracerService
     /// <summary>The WAN context this tracer discovers for, or null when it is the site's primary tracer.</summary>
     public WanProbeBinding? Binding => _binding;
 
+    /// <summary>The site this tracer discovers for.</summary>
+    public string SiteSlug => _siteSlug;
+
     // IPs that belong to *our* gateway (LAN side, WAN side, management VLANs).
     // Used to keep our own gateway out of the access-ISP hop list when the
     // traceroute's first hop is a private/CGNAT address. Collected during
@@ -469,7 +472,14 @@ public class UpstreamTracerService
     /// Kick off discovery. Idempotent: if a run is already in progress, returns without
     /// starting another. The UI polls <see cref="State"/> for live progress.
     /// </summary>
-    public async Task StartDiscoveryAsync(CancellationToken ct = default)
+    public Task StartDiscoveryAsync(CancellationToken ct = default) => StartDiscoveryAsync(null, ct);
+
+    /// <summary>
+    /// Kick off discovery, recording what the health gate objected to when it is started anyway.
+    /// A non-null <paramref name="healthGateReason"/> makes the review keep already-monitored targets
+    /// that fail reachability checked.
+    /// </summary>
+    public async Task StartDiscoveryAsync(string? healthGateReason, CancellationToken ct = default)
     {
         await _stateLock.WaitAsync(ct);
         try
@@ -490,7 +500,8 @@ public class UpstreamTracerService
                 Step = TracerStep.DetectingPublicIp,
                 StartedAt = DateTime.UtcNow,
                 CurrentActivity = "Reading WAN configuration from gateway...",
-                AccessTechnology = preservedTech
+                AccessTechnology = preservedTech,
+                HealthGateReason = healthGateReason
             };
             _runningTask = Task.Run(() => RunAsync(ct), ct);
         }
@@ -611,6 +622,24 @@ public class UpstreamTracerService
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "Could not apply the metered probe budget; leaving candidates as discovered");
+            }
+
+            if (State.HealthGateReason != null)
+            {
+                try
+                {
+                    await using var keepDb = await CreateDbAsync(ct);
+                    var kept = await KeepMonitoredUnansweredCheckedAsync(keepDb, State,
+                        _binding?.WanInterface ?? State.WanInterface ?? "wan", _binding == null, ct);
+                    if (kept > 0)
+                        _logger.LogInformation("Discovery ran while the WAN was busy ({Reason}); kept {Count} monitored target(s) that did not answer checked",
+                            State.HealthGateReason, kept);
+                }
+                catch (OperationCanceledException) { throw; }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Could not keep monitored targets checked after a busy run");
+                }
             }
 
             State.Step = TracerStep.ReviewingResults;
@@ -2010,6 +2039,9 @@ public class UpstreamTracerService
             }
         }
 
+        State.ReachabilityChecked = allTargets.Count;
+        State.ReachabilityFailed = unreachable;
+
         // With verified RTTs in hand, refine the provisional per-clump picks: enable
         // the lowest-RTT hop that cleared the gate in each of an ASN's clumps (near
         // ingress + far egress), instead of blindly keeping the lowest hop number.
@@ -2661,7 +2693,15 @@ public class UpstreamTracerService
                 buckets[b][i](false);
     }
 
-    public async Task CommitResultsAsync(CancellationToken ct = default)
+    /// <summary>Commits the reviewed candidates as an operator's commit.</summary>
+    public Task CommitResultsAsync(CancellationToken ct = default) => CommitResultsAsync(automatic: false, ct);
+
+    /// <summary>
+    /// Commits the reviewed candidates as monitoring targets for this run's WAN.
+    /// <paramref name="automatic"/> is true for a commit the app makes with no review: it never pauses
+    /// an existing row on reachability alone.
+    /// </summary>
+    public async Task CommitResultsAsync(bool automatic, CancellationToken ct = default)
     {
         if (State.Step != TracerStep.ReviewingResults) return;
 
@@ -2708,18 +2748,7 @@ public class UpstreamTracerService
             await UpsertTargetAsync(db, hop, wanInterface, wanContextId, ct, probePlan.PollIntervalSeconds, isUnboundRun);
         }
         foreach (var hop in State.AccessHops.Where(h => !h.Enabled))
-        {
-            // With per-WAN twin rows an address can have several rows; pause only the one this
-            // WAN owns (another WAN's row - and its measuring - is that WAN's to manage).
-            var existing = (await db.MonitoringTargets.Where(t => t.Address == hop.Address).ToListAsync(ct))
-                .FirstOrDefault(t => OwnsTargetRow(t.WanInterface, wanInterface, isUnboundRun));
-            if (existing != null)
-            {
-                existing.Enabled = false;
-                existing.Name = hop.Label;
-                if (!string.IsNullOrEmpty(hop.AsnName)) existing.AsnName = CleanAsnName(hop.AsnName);
-            }
-        }
+            await PauseUnselectedAccessHopAsync(db, hop, wanInterface, isUnboundRun, automatic, ct);
         foreach (var transit in State.TransitAsns.Where(t => t.Enabled))
         {
             _logger.LogDebug("Commit transit: id={TargetId} label='{Label}' addr={Address} method={Method}",
@@ -2739,17 +2768,7 @@ public class UpstreamTracerService
                     pollIntervalSeconds: probePlan.PollIntervalSeconds, isUnboundRun: isUnboundRun);
                 continue;
             }
-            var addr = transit.HopAddress ?? transit.PathProxyTarget;
-            if (string.IsNullOrEmpty(addr)) continue;
-            // Same per-WAN row selection as the access-hop pause above.
-            var existing = (await db.MonitoringTargets.Where(t => t.Address == addr).ToListAsync(ct))
-                .FirstOrDefault(t => OwnsTargetRow(t.WanInterface, wanInterface, isUnboundRun));
-            if (existing != null)
-            {
-                existing.Enabled = false;
-                existing.Name = transit.Label ?? transit.AsnName;
-                if (!string.IsNullOrEmpty(transit.AsnName)) existing.AsnName = transit.AsnName;
-            }
+            await PauseUnselectedTransitAsync(db, transit, wanInterface, isUnboundRun, automatic, ct);
         }
 
         // Confirmed off-path transit ASNs the user didn't re-check: pause every enabled Transit
@@ -2801,6 +2820,12 @@ public class UpstreamTracerService
         ctxRow.NeedsReview = false;
         ctxRow.UpdatedAt = DateTime.UtcNow;
 
+        // The baseline the scheduler's degraded-run check compares against. A run started over the
+        // health gate is not a baseline: its failures are the busy WAN's.
+        if (State.HealthGateReason == null && State.ReachabilityChecked > 0)
+            await UpstreamRediscoveryService.SaveUnreachableShareAsync(db, wanInterface,
+                (double)State.ReachabilityFailed / State.ReachabilityChecked, ct);
+
         // MonitoringSettings holds the LEGACY single-WAN timestamp and review flag, which the
         // primary run owns. A context run must leave them alone: clearing the review flag here
         // would dismiss a pending review of the primary WAN that nobody has looked at.
@@ -2851,6 +2876,77 @@ public class UpstreamTracerService
 
         State.Step = TracerStep.Done;
         State.CurrentActivity = "Targets committed. The agent will start probing on the next latency-tier cycle.";
+    }
+
+    /// <summary>
+    /// Whether committing a candidate left unchecked pauses its existing row. An automatic commit
+    /// skips a candidate whose only reason is that it did not answer: a target that really stopped
+    /// answering is the Flaky Monitoring Targets card's to surface, not discovery's.
+    /// </summary>
+    internal static bool PausesExistingRow(bool unreachable, bool offPath, bool automatic) =>
+        !(automatic && unreachable && !offPath);
+
+    /// <summary>Pauses the row this WAN owns for an access hop left unchecked. Does not SaveChanges.</summary>
+    internal static async Task PauseUnselectedAccessHopAsync(NetworkOptimizerDbContext db, AccessHopCandidate hop,
+        string wanInterface, bool isUnboundRun, bool automatic, CancellationToken ct)
+    {
+        // With per-WAN twin rows an address can have several rows; pause only the one this
+        // WAN owns (another WAN's row - and its measuring - is that WAN's to manage).
+        var existing = (await db.MonitoringTargets.Where(t => t.Address == hop.Address).ToListAsync(ct))
+            .FirstOrDefault(t => OwnsTargetRow(t.WanInterface, wanInterface, isUnboundRun));
+        if (existing == null) return;
+        if (PausesExistingRow(hop.Unreachable, offPath: false, automatic)) existing.Enabled = false;
+        existing.Name = hop.Label;
+        if (!string.IsNullOrEmpty(hop.AsnName)) existing.AsnName = CleanAsnName(hop.AsnName);
+    }
+
+    /// <summary>Pauses the row this WAN owns for a transit router left unchecked. Does not SaveChanges.</summary>
+    internal static async Task PauseUnselectedTransitAsync(NetworkOptimizerDbContext db, TransitAsnCandidate transit,
+        string wanInterface, bool isUnboundRun, bool automatic, CancellationToken ct)
+    {
+        var addr = transit.HopAddress ?? transit.PathProxyTarget;
+        if (string.IsNullOrEmpty(addr)) return;
+        // Same per-WAN row selection as the access-hop pause.
+        var existing = (await db.MonitoringTargets.Where(t => t.Address == addr).ToListAsync(ct))
+            .FirstOrDefault(t => OwnsTargetRow(t.WanInterface, wanInterface, isUnboundRun));
+        if (existing == null) return;
+        if (PausesExistingRow(transit.Unreachable, transit.OffPath, automatic)) existing.Enabled = false;
+        existing.Name = transit.Label ?? transit.AsnName;
+        if (!string.IsNullOrEmpty(transit.AsnName)) existing.AsnName = transit.AsnName;
+    }
+
+    /// <summary>
+    /// For a run started while the WAN was busy: re-checks every candidate that failed reachability
+    /// (off-path hops excepted) whose row on this WAN is enabled, and marks it for the review's note.
+    /// The busy WAN, not the target, is the likely reason it did not answer. Returns how many.
+    /// </summary>
+    internal static async Task<int> KeepMonitoredUnansweredCheckedAsync(NetworkOptimizerDbContext db,
+        UpstreamTracerState state, string wanInterface, bool isUnboundRun, CancellationToken ct)
+    {
+        var unanswered = state.AccessHops.Where(h => h.Unreachable)
+            .Select(h => (h.Address, Keep: (Action)(() => { h.Enabled = true; h.UnansweredWhileBusy = true; })))
+            .Concat(state.TransitAsns.Where(t => t.Unreachable && !t.OffPath && t.HopAddress != null)
+                .Select(t => (Address: t.HopAddress!, Keep: (Action)(() => { t.Enabled = true; t.UnansweredWhileBusy = true; }))))
+            .ToList();
+        if (unanswered.Count == 0) return 0;
+
+        var addresses = unanswered.Select(u => u.Address).ToList();
+        var rows = await db.MonitoringTargets.AsNoTracking()
+            .Where(t => t.Enabled && addresses.Contains(t.Address))
+            .Select(t => new { t.Address, t.WanInterface })
+            .ToListAsync(ct);
+        var monitored = rows.Where(r => OwnsTargetRow(r.WanInterface, wanInterface, isUnboundRun))
+            .Select(r => r.Address)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        var kept = 0;
+        foreach (var (address, keep) in unanswered)
+        {
+            if (!monitored.Contains(address)) continue;
+            keep();
+            kept++;
+        }
+        return kept;
     }
 
     /// <summary>

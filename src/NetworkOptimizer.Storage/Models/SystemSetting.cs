@@ -119,6 +119,10 @@ public static class SystemSettingKeys
     // later ISP change is confirmed (fresh baseline).
     public const string UpstreamDeclinedAccessAsnPrefix = "upstream.declined_access_asn.";
 
+    // Per-WAN share of candidates that failed the reachability gate in the last committed discovery
+    // run. The full key is this prefix + WanInterface; the value is a fraction (0-1, invariant).
+    public const string UpstreamUnreachableSharePrefix = "upstream.unreachable_share.";
+
     // Map / Satellite settings
     public const string MapboxApiKey = "map.mapbox_token";
 
