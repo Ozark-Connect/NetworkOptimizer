@@ -4,8 +4,10 @@ namespace NetworkOptimizer.Web.Services.Monitoring.PathLocalization;
 
 /// <summary>One degraded target of an episode, as <see cref="PathShiftMatch"/> reads it.</summary>
 /// <param name="Name">Display name, for the Path shift built from a step-only episode.</param>
+/// <param name="IsDestination">An InternetService target, as <see cref="PathShiftEvent.IsDestination"/> reads.</param>
 public sealed record EpisodeTargetLevels(string TargetId, double? BaselineRttMs, double? PeakRttMs, double? PeakLossPct,
-    double? BaselineJitterMs = null, double? PeakJitterMs = null, string? Name = null, int? AsnNumber = null);
+    double? BaselineJitterMs = null, double? PeakJitterMs = null, string? Name = null, int? AsnNumber = null,
+    bool IsDestination = false);
 
 /// <summary>
 /// Whether a Path shift explains an episode. A sustained RTT step trips the degradation trigger the same
@@ -37,7 +39,7 @@ public static class PathShiftMatch
         foreach (var e in episodes)
         {
             var levels = e.Degraded.Select(t => new EpisodeTargetLevels(t.TargetId, t.BaselineRttMs, t.PeakRttMs, t.PeakLossPct,
-                t.BaselineJitterMs, t.PeakJitterMs, t.Name)).ToList();
+                t.BaselineJitterMs, t.PeakJitterMs, t.Name, t.AsnNumber, t.IsDestination)).ToList();
             if (Explaining(e.OpenedAt, levels, shifts, options) is { } shift)
                 matched[e.Id] = shift;
         }
@@ -76,7 +78,7 @@ public static class PathShiftMatch
             BeforeMedianMs = lead.BaselineRttMs!.Value,
             AfterMedianMs = lead.PeakRttMs!.Value,
             CorrelatedTargetCount = ordered.Count,
-            IsDestination = true,
+            IsDestination = lead.IsDestination,
             Members = ordered.Count > 1
                 ? ordered.Select(t => new PathShiftMember(t.Name ?? t.TargetId, t.BaselineRttMs!.Value, t.PeakRttMs!.Value,
                     new List<string> { t.TargetId })).ToList()

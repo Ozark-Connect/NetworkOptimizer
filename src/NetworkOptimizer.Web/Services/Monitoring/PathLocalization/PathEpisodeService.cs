@@ -153,7 +153,7 @@ public sealed class PathEpisodeService : IPathEpisodeService
             return new PathEpisodeTargetView(t.MonitoringTargetId, mt?.TargetId ?? "", name, t.Role,
                 t.BaselineRttMs, t.PeakRttMs, t.BaselineLossPct, t.PeakLossPct, t.BottleneckLabel,
                 mt == null ? MonitoringLinks.CustomCategory : MonitoringLinks.CategoryFor(mt.TargetType),
-                t.BaselineJitterMs, t.PeakJitterMs);
+                t.BaselineJitterMs, t.PeakJitterMs, mt?.AsnNumber, mt?.TargetType == MonitoringTargetType.InternetService);
         }
 
         return new PathEpisodeView

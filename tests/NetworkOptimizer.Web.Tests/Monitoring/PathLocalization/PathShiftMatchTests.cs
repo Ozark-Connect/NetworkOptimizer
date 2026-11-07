@@ -282,6 +282,32 @@ public class PathShiftMatchTests
         row.Members.Should().Equal("CDN - 18 to 34.2 ms", "AWS us-west-1 - 58.2 to 71 ms");
     }
 
+    private static PathEpisodeView StepEpisodeView(int asn, bool isDestination) => new()
+    {
+        Id = 8,
+        OpenedAt = Step,
+        ClosedAt = Step.AddHours(2),
+        Disposition = CongestionDisposition.Unverifiable,
+        Label = "Slowed down.",
+        Degraded = new[]
+        {
+            new PathEpisodeTargetView(1, "t1", "Hop", PathEpisodeTargetRole.Degraded, 18.0, 34.2, 0.5, 0, null,
+                BaselineJitterMs: 0.3, PeakJitterMs: 0.5, AsnNumber: asn, IsDestination: isDestination)
+        }
+    };
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void StepShift_CarriesTheLeadTargetsAsnAndType(bool isDestination)
+    {
+        var episode = StepEpisodeView(64500, isDestination);
+        var shift = PathEpisodePresentation.FoldIntoShifts(new[] { episode }, Report(), Options).TraceByShift.Keys.Single();
+
+        shift.AsnNumber.Should().Be(64500, "the row labels the network as a detected shift does");
+        shift.IsDestination.Should().Be(isDestination, "only an InternetService target is a destination");
+    }
+
     [Fact]
     public void Fold_WithoutAReport_ExplainsNothing()
     {
