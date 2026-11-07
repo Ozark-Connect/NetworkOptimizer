@@ -29,6 +29,7 @@
                         <option value="12">@PersonalTimeZoneField.ClockLabel(ClockStyle.TwelveHour)</option>
                         <option value="24">@PersonalTimeZoneField.ClockLabel(ClockStyle.TwentyFourHour)</option>
                     </select>
+                    <p class="form-help">For everyone who has not chosen their own. Alerts use this format too, or 24-hour when none is set.</p>
                 </div>
                 <div class="form-group">
                     <label class="form-label" for="time-zone-default-date">Default date format</label>
@@ -37,7 +38,7 @@
                         <option value="mdy">@PersonalTimeZoneField.DateLabel(DateOrder.MonthFirst)</option>
                         <option value="dmy">@PersonalTimeZoneField.DateLabel(DateOrder.DayFirst)</option>
                     </select>
-                    <p class="form-help">For everyone who has not chosen their own. Alerts use these formats too, or 24-hour and month first when none is set.</p>
+                    <p class="form-help">For everyone who has not chosen their own. Alerts use this format too, or month first when none is set.</p>
                 </div>
             }
         </AuthorizeView>
