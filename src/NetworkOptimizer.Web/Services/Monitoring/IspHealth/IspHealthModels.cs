@@ -383,6 +383,10 @@ public class CongestionEvent
     /// (used for a dead-end hop whose confirmed sibling proves the network is really degrading).</summary>
     public bool ConfirmedBySibling { get; set; }
 
+    /// <summary>True when this hop rose well above a line-wide load floor and was judged against that
+    /// floor: its downstream rose too, but only by the floor, never literally "clean".</summary>
+    public bool AboveLoadFloor { get; set; }
+
     /// <summary>Localizer confidence 0-100; lowest for <see cref="CongestionDisposition.Unverifiable"/> / <see cref="CongestionScope.Unlocalized"/>.</summary>
     public int Confidence { get; set; } = 50;
 

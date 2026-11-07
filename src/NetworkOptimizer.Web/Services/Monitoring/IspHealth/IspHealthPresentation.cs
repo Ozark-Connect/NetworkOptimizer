@@ -109,6 +109,10 @@ public static class IspHealthPresentation
                 CongestionDisposition.SelfInflicted => ("Loaded Latency", "isp-event-badge-congestion-soft",
                     $"{lead} Everything slowed together under load, so the limit was your access link, not one hop - bufferbloat or a congested shared-access network.",
                     (string?)"Latency rose under your own WAN load - likely your access link, not ISP congestion."),
+                // Above a load floor the next hop rose too, just no more than everything else.
+                CongestionDisposition.ControlPlaneNoise when evt.AboveLoadFloor => ("Congestion", "isp-event-badge-congestion-soft",
+                    $"{lead} Its next hop rose only as much as everything else, so this is the hop's own ICMP handling.",
+                    "This hop was slow to answer pings, but traffic through it slowed no more than everything else. Not confirmed as real congestion."),
                 CongestionDisposition.ControlPlaneNoise => ("Congestion", "isp-event-badge-congestion-soft",
                     $"{lead} Its next hop stayed clean, so this is the hop's own ICMP handling, not a forwarding bottleneck.",
                     "This hop deprioritized ping replies while forwarding stayed clean - not confirmed as real congestion."),
