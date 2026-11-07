@@ -851,19 +851,15 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
             aps = aps.Where(d => d.Mac.Equals(apMac, StringComparison.OrdinalIgnoreCase)).ToList();
         }
 
-        // Get our own BSSIDs to identify own networks
-        var ownBssids = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        // Our own BSSIDs (VAPs and MAC-derived), and which AP broadcasts each
+        var siteBssids = new SiteBssidLookup();
         foreach (var ap in aps)
         {
+            siteBssids.AddAccessPoint(ap.Mac, ap.Name);
             if (ap.VapTable != null)
             {
                 foreach (var vap in ap.VapTable)
-                {
-                    if (!string.IsNullOrEmpty(vap.Bssid))
-                    {
-                        ownBssids.Add(vap.Bssid);
-                    }
-                }
+                    siteBssids.AddVap(vap.Bssid, ap.Mac, ap.Name, vap.Essid);
             }
         }
 
@@ -960,20 +956,22 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
 
                     foreach (var neighbor in deduplicated)
                     {
-                        result.Neighbors.Add(new NeighborNetwork
+                        var added = new NeighborNetwork
                         {
                             Ssid = neighbor.Essid,
                             Bssid = neighbor.Bssid,
                             Channel = neighbor.Channel,
                             Width = neighbor.Width,
                             Signal = neighbor.Signal,
-                            IsOwnNetwork = neighbor.IsUbnt || ownBssids.Contains(neighbor.Bssid),
                             Security = neighbor.Security,
                             LastSeen = neighbor.LastSeen.HasValue
                                 ? DateTimeOffset.FromUnixTimeSeconds(neighbor.LastSeen.Value)
                                 : null,
                             Oui = neighbor.Oui
-                        });
+                        };
+                        // Own-ness comes from the site lookup only; a neighbor's UniFi AP also sets is_ubnt.
+                        siteBssids.Stamp(added);
+                        result.Neighbors.Add(added);
                     }
                 }
 
@@ -1018,6 +1016,7 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
             if (meshApMacs.Contains(result.ApMac))
                 continue; // Skip mesh APs for the consensus
 
+            // Site BSSIDs stay in: a wired AP's reading of a sibling's channel corrects a mesh AP's as well.
             foreach (var neighbor in result.Neighbors)
             {
                 var key = (neighbor.Bssid.ToLowerInvariant(), result.Band);
