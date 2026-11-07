@@ -372,9 +372,6 @@ public sealed partial class ChangeControlService : IChangeControlService
     internal static (List<StoredField> Fields, List<OrderMove>? Moves) DisplayFields(ConfigChangeObject o)
     {
         var stored = JsonSerializer.Deserialize<List<StoredField>>(o.FieldsJson) ?? [];
-        // A field made read-only after rows were recorded is never shown as a change, those rows included.
-        if (ConfigCollections.Get(o.Collection) is { } def)
-            stored.RemoveAll(f => !f.Path.StartsWith('_') && def.IsReadOnly(null, TopLevelField().Match(f.Path).Value));
         // Labels are saved at detection; relabel from the path so rows recorded earlier get today's names.
         // What only the object at detection could name is kept from the saved label: a port's given name
         // ("Port 2 (Desk)") and a suppressed alert's signature. A synthetic row (_security) keeps its own.
@@ -390,10 +387,6 @@ public sealed partial class ChangeControlService : IChangeControlService
         }
         return (ChangeDescriber.ForDisplay(stored), OrderMovesOf(o, stored));
     }
-
-    // A stored row's top-level field: "port_overrides" in "port_overrides[port_idx=4].name".
-    [System.Text.RegularExpressions.GeneratedRegex(@"^[^.\[]+")]
-    private static partial System.Text.RegularExpressions.Regex TopLevelField();
 
     // "Suppressed Signature 1" at the start of a label LabelFor writes without the setting in hand.
     [System.Text.RegularExpressions.GeneratedRegex(@"^Suppressed Signature \d+(?=: )")]
