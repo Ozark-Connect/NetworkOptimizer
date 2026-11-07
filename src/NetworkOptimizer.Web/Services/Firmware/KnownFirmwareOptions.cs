@@ -185,12 +185,11 @@ public static class KnownFirmwareOptions
     /// <summary>
     /// UniFi Network builds newer than what runs that this console can actually install: a package
     /// some console of the same platform really downloaded (its real URL), or the console's own
-    /// offer, which its own update installs. A version known only by number is left out: the URL
-    /// derivable from it exists for public releases only.
+    /// offer with no URL, which its own update installs. A version known only by number is left out.
     /// </summary>
     private static IEnumerable<KnownFirmwareBuild> NetworkBuilds(KnownFirmwareConsole console, IReadOnlyList<SharedNetworkAppPackage> packages)
     {
-        var urls = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var urls = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
         if (!console.StandaloneConsole && !string.IsNullOrWhiteSpace(console.PackagePlatform))
         {
             foreach (var package in packages.Where(p =>
@@ -199,12 +198,10 @@ public static class KnownFirmwareOptions
         }
 
         var offered = console.OfferedNetworkVersion;
+        // Installed by the console's own update, which takes its offer. No URL is derived from the
+        // version: that path holds public releases for some platforms only.
         if (!string.IsNullOrWhiteSpace(offered) && !urls.Keys.Any(v => FirmwareVersionFormat.SameBuild(v, offered)))
-        {
-            // Installed by the console's own update, which takes its offer; the URL is only a fallback.
-            var file = console.StandaloneConsole ? "unifi_sysvinit_all" : "unifi-native_sysvinit";
-            urls[offered] = $"https://dl.ui.com/unifi/{offered}/{file}.deb";
-        }
+            urls[offered] = null;
 
         foreach (var (version, url) in urls)
         {

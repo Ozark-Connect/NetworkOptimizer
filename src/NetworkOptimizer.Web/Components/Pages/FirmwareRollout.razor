@@ -703,7 +703,11 @@ else
             </div>
         </div>
         <div class="card-body">
-            @if (!_report.IsReady)
+            @if (!_report.IsReady && _report.Status == FirmwareRolloutStatus.Aborted)
+            {
+                <p class="firmware-rollout-note">This rollout was stopped before it finished, so it has no report.</p>
+            }
+            else if (!_report.IsReady)
             {
                 <p class="firmware-rollout-note">This rollout is still soaking - the report compares resource use well after each device settled, so it is worth the wait.</p>
             }
@@ -2468,7 +2472,15 @@ else
                     // The wizard can be open over a scheduled plan it will replace; it owns the map.
                     if (_wizardOpen) return;
                     var wasActive = _active != null;
+                    var before = (_active?.Id, _active?.Status);
                     _active = await RolloutService.GetActivePlanAsync();
+                    // A report left open from another plan reads as this rollout's once it moves on.
+                    if (_report != null && before != (_active?.Id, _active?.Status)
+                        && _report.PlanId != before.Id && _report.PlanId != _active?.Id)
+                    {
+                        _report = null;
+                        _reportTyped = null;
+                    }
                     if (_active == null && wasActive)
                     {
                         _history = await RolloutService.GetPlanHistoryAsync();
@@ -2509,11 +2521,13 @@ else
     }
 
     // A skip settles as AbortedSku like a model abort, but nothing failed: it shows its own reason, neutral.
+    // So does an admin stop, including steps stored as AbortedSku before AbortedByAdmin existed.
     private static string ChipLabel(RolloutStepView step) =>
-        IsSkip(step) ? step.Error! : ChipLabel(step.State, step.FromVersion, step.ToVersion);
+        RolloutSkipReasons.IsAdminStop(step.State, step.Error) ? "Stopped"
+        : IsSkip(step) ? step.Error! : ChipLabel(step.State, step.FromVersion, step.ToVersion);
 
     private static string ChipClass(RolloutStepView step) =>
-        IsSkip(step) ? "chip-muted" : ChipClass(step.State);
+        RolloutSkipReasons.IsAdminStop(step.State, step.Error) || IsSkip(step) ? "chip-muted" : ChipClass(step.State);
 
     private static bool IsSkip(RolloutStepView step) =>
         step.State == FirmwareRolloutStepState.AbortedSku && RolloutSkipReasons.IsSkip(step.Error);
@@ -2536,6 +2550,7 @@ else
         FirmwareRolloutStepState.SkippedExcluded => "Excluded",
         FirmwareRolloutStepState.AbortedSku => "Skipped (model aborted)",
         FirmwareRolloutStepState.AbortedInFlight => "Aborted mid-upgrade",
+        FirmwareRolloutStepState.AbortedByAdmin => "Stopped",
         _ => state.ToString(),
     };
 

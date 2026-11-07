@@ -157,8 +157,7 @@ public static class RolloutReportBuilder
                 ToVersion = document.NetworkAppUpdate.TargetVersion,
                 Outcome = appOutcome,
                 Issue = document.NetworkAppUpdate.Outcome == "refused"
-                    ? $"UniFi Network {document.NetworkAppUpdate.TargetVersion} was not installed"
-                      + (string.IsNullOrWhiteSpace(document.NetworkAppUpdate.Error) ? "." : $": {document.NetworkAppUpdate.Error}")
+                    ? FirmwareRolloutOrchestrator.NetworkAppRefusedIssue(document)
                     : null,
             });
         }
@@ -192,7 +191,8 @@ public static class RolloutReportBuilder
             FirmwareRolloutStepState.LitmusPassed => RolloutOutcomes.Upgraded,
             FirmwareRolloutStepState.RegressionFlagged => RolloutOutcomes.RegressionFlagged,
             FirmwareRolloutStepState.Failed => RolloutOutcomes.Failed,
-            FirmwareRolloutStepState.SkippedExcluded or FirmwareRolloutStepState.AbortedSku => RolloutOutcomes.Skipped,
+            FirmwareRolloutStepState.SkippedExcluded or FirmwareRolloutStepState.AbortedSku
+                or FirmwareRolloutStepState.AbortedByAdmin => RolloutOutcomes.Skipped,
             FirmwareRolloutStepState.Held or FirmwareRolloutStepState.Pending => RolloutOutcomes.Held,
             _ => RolloutOutcomes.InProgress,
         };

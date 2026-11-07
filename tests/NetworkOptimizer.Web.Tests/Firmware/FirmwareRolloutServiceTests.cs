@@ -159,7 +159,13 @@ public class FirmwareRolloutServiceTests
         harness.Commands.SnapshotConsoleInfoPerRead = true;
         // The console has not noticed the update itself; the shared catalog is offering it.
         harness.Commands.ConsoleInfo!.NetworkApplication!.UpdateAvailable = null;
-        await harness.SharedCatalog.UpsertNetworkAppBuildAsync("release", "9.1.0", null);
+        harness.Commands.NetworkPackages = new ConsoleNetworkPackages("uos-deb13-arm64", []);
+        await harness.SharedCatalog.UpsertNetworkAppBuildAsync("uos-deb13-arm64", "release", "9.1.0", null);
+        await harness.SharedCatalog.UpsertNetworkAppPackagesAsync([new SharedNetworkAppPackage
+        {
+            Platform = "uos-deb13-arm64", Version = "9.1.0",
+            Url = "https://fw-download.example.test/data/unifi-native/aaaa-uos-deb13-arm64-9.1.0-1-1-00000000.deb",
+        }]);
 
         var preview = await harness.Service.BuildPreviewAsync(Settings(s => s.IncludeUniFiNetwork = true));
 
@@ -751,7 +757,8 @@ public class FirmwareRolloutServiceTests
 
         (await harness.Repository.GetPlanAsync(planId))!.Status.Should().Be(FirmwareRolloutStatus.Aborted);
         (await harness.Repository.GetStepsAsync(planId))
-            .Should().OnlyContain(s => s.State == FirmwareRolloutStepState.AbortedSku);
+            .Should().OnlyContain(s => s.State == FirmwareRolloutStepState.AbortedByAdmin
+                                       && RolloutSkipReasons.IsAdminStop(s.State, s.Error));
     }
 
     [Fact]
