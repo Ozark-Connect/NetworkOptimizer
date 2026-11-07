@@ -1646,16 +1646,20 @@ public class IspHealthService
         }
     }
 
-    /// <summary>Whether a path shift explains a stored episode (<see cref="PathLocalization.PathShiftMatch"/>).</summary>
+    /// <summary>Whether a path shift explains a stored episode, or the episode is a step on its own
+    /// (<see cref="PathLocalization.PathShiftMatch"/>).</summary>
     internal static bool ExplainedByShift(PathEpisode e, IReadOnlyDictionary<int, string> targetIdById,
         IReadOnlyList<PathShiftEvent> pathShifts, IspHealthOptions options)
     {
         var degraded = e.Targets.Where(t => t.Role == PathEpisodeTargetRole.Degraded).ToList();
         if (degraded.Any(t => !targetIdById.ContainsKey(t.MonitoringTargetId))) return false;
         var levels = degraded
-            .Select(t => new PathLocalization.EpisodeTargetLevels(targetIdById[t.MonitoringTargetId], t.BaselineRttMs, t.PeakRttMs, t.PeakLossPct))
+            .Select(t => new PathLocalization.EpisodeTargetLevels(targetIdById[t.MonitoringTargetId], t.BaselineRttMs, t.PeakRttMs, t.PeakLossPct,
+                t.BaselineJitterMs, t.JitterP95Ms))
             .ToList();
-        return PathLocalization.PathShiftMatch.Explaining(PathLocalization.PathEpisodeTraceMapping.Utc(e.OpenedAt), levels, pathShifts, options) != null;
+        var until = e.ClosedAt is DateTime c ? PathLocalization.PathEpisodeTraceMapping.Utc(c) : DateTime.UtcNow;
+        return PathLocalization.PathShiftMatch.Explaining(PathLocalization.PathEpisodeTraceMapping.Utc(e.OpenedAt), levels, pathShifts, options,
+            until, e.ConcurrentCongestion) != null;
     }
 
     /// <summary>

@@ -176,6 +176,229 @@ public class PathShiftMatchTests
         row.EpisodeId.Should().Be(3);
     }
 
+    // ---- A target that joins after the open: two targets stepping 45 min apart, levels from a real episode ----
+
+    private static readonly DateTime Opened = new(2026, 11, 5, 16, 50, 0, DateTimeKind.Utc);
+    private static readonly DateTime Closed = new(2026, 11, 5, 23, 5, 0, DateTimeKind.Utc);
+    private static readonly PathShiftEvent CdnStep = Shift(Opened.AddMinutes(-5), 17.98, 33.92, "path-cdn-as64500");
+    private static readonly PathShiftEvent WestStep = Shift(Opened.AddMinutes(40), 56.69, 70.23, "aws-us-west-1");
+    private static readonly EpisodeTargetLevels CdnLevels = Levels(18.01, 34.20, target: "path-cdn-as64500");
+    private static readonly EpisodeTargetLevels WestLevels = Levels(58.19, 70.97, target: "aws-us-west-1");
+
+    [Fact]
+    public void TargetThatDegradedAfterTheOpen_MatchesItsLaterShift()
+    {
+        PathShiftMatch.Explaining(Opened, new[] { WestLevels }, new[] { WestStep }, Options, Closed).Should().BeSameAs(WestStep);
+        PathShiftMatch.Explaining(Opened, new[] { WestLevels }, new[] { WestStep }, Options)
+            .Should().BeNull("without the episode's span only the open is looked at");
+    }
+
+    [Fact]
+    public void StepOutsideTheEpisodeSpan_DoesNotExplainIt()
+    {
+        var late = Shift(Closed.AddMinutes(30), 56.69, 70.23, "aws-us-west-1");
+        PathShiftMatch.Explaining(Opened, new[] { WestLevels }, new[] { late }, Options, Closed).Should().BeNull();
+    }
+
+    [Fact]
+    public void RevertInsideTheSpan_KeepsTheLevelTheTargetOpenedAt()
+    {
+        var up = Shift(Step, 1.6, 17.7);
+        var down = Shift(Step.AddHours(2), 17.7, 1.6);
+        PathShiftMatch.Explaining(Step.AddMinutes(10), new[] { Levels() }, new[] { up, down }, Options, Step.AddHours(3))
+            .Should().BeSameAs(up);
+    }
+
+    [Fact]
+    public void TwoTargetsSteppingFortyFiveMinutesApart_Fold()
+    {
+        var shifts = new[] { CdnStep, WestStep };
+        PathShiftMatch.Explaining(Opened, new[] { CdnLevels, WestLevels }, shifts, Options, Closed).Should().BeSameAs(CdnStep);
+
+        var episode = new PathEpisodeView
+        {
+            Id = 2,
+            OpenedAt = Opened,
+            ClosedAt = Closed,
+            Disposition = CongestionDisposition.Unverifiable,
+            Label = "Both slowed down together.",
+            Degraded = new[]
+            {
+                new PathEpisodeTargetView(1, "aws-us-west-1", "AWS us-west-1", PathEpisodeTargetRole.Degraded, 58.19, 70.97, 0.5, 0, null),
+                new PathEpisodeTargetView(2, "path-cdn-as64500", "CDN", PathEpisodeTargetRole.Degraded, 18.01, 34.20, 0.5, 0, null)
+            }
+        };
+        var report = Report(CdnStep, WestStep);
+        PathEpisodePresentation.FoldIntoShifts(new[] { episode }, report, Options).Explained.Should().Equal(2);
+    }
+
+    // ---- Step-only episodes: no detected shift, RTT rose on its own with loss and jitter at baseline ----
+
+    private static EpisodeTargetLevels StepLevels(string target, string name, double baseline, double peak,
+        double baseJitter = 0.4, double jitterP95 = 0.6, double loss = 0) =>
+        new(target, baseline, peak, loss, baseJitter, jitterP95, name);
+
+    private static readonly EpisodeTargetLevels West = StepLevels("aws-us-west-1", "AWS us-west-1", 58.2, 71.0);
+    private static readonly EpisodeTargetLevels Anycast = StepLevels("path-cdn-as64500", "CDN", 18.0, 34.2);
+
+    [Fact]
+    public void StepOnlyEpisode_WithNoDetectedShift_IsAPathShift()
+    {
+        var shift = Explaining(Step, Array.Empty<PathShiftEvent>(), West, Anycast);
+
+        shift.Should().NotBeNull();
+        shift!.Time.Should().Be(Step);
+        shift.Direction.Should().Be(PathShiftDirection.Up);
+        shift.AsnName.Should().Be("CDN", "the lowest before-level names it, as a correlated shift is named");
+        shift.BeforeMedianMs.Should().Be(18.0);
+        shift.AfterMedianMs.Should().Be(34.2);
+        shift.CorrelatedTargetCount.Should().Be(2);
+        shift.Members.Select(m => (m.Name, m.BeforeMedianMs, m.AfterMedianMs))
+            .Should().Equal(("CDN", 18.0, 34.2), ("AWS us-west-1", 58.2, 71.0));
+    }
+
+    [Fact]
+    public void WideningJitter_StaysCongestion()
+    {
+        // Twice the baseline and over 0.8 ms above it: a queue, not a longer route.
+        var queued = StepLevels("aws-us-west-1", "AWS us-west-1", 58.2, 71.0, baseJitter: 0.4, jitterP95: 1.9);
+        PathShiftMatch.IsStep(queued, Options).Should().BeFalse();
+        Explaining(Step, Array.Empty<PathShiftEvent>(), queued, Anycast).Should().BeNull("every degraded target must be a step");
+    }
+
+    [Fact]
+    public void SmallJitterRiseOnALowBaseline_IsStillAStep()
+    {
+        // 0.15 to 0.81 ms on a real 9.7 to 23.8 ms route change: under the 0.8 ms floor over baseline.
+        PathShiftMatch.IsStep(StepLevels("t", "T", 9.7, 23.8, baseJitter: 0.15, jitterP95: 0.81), Options).Should().BeTrue();
+    }
+
+    [Fact]
+    public void LossOnAStep_StaysCongestion()
+    {
+        PathShiftMatch.IsStep(StepLevels("t", "T", 18, 34, loss: 3), Options).Should().BeFalse();
+    }
+
+    [Fact]
+    public void WithoutJitterReadings_NotJudgedAStep()
+    {
+        // Episodes stored before jitter was kept, or a probe that reports none, stay congestion.
+        PathShiftMatch.IsStep(Levels(), Options).Should().BeFalse();
+        PathShiftMatch.IsStep(new EpisodeTargetLevels("t", 18, 34, 0, 0.4, null), Options).Should().BeFalse();
+    }
+
+    [Fact]
+    public void ConcurrentCongestion_BlocksTheStepShift_NotADetectedOne()
+    {
+        Explaining(Step, Array.Empty<PathShiftEvent>(), West, Anycast).Should().NotBeNull();
+        PathShiftMatch.Explaining(Step, new[] { West, Anycast }, Array.Empty<PathShiftEvent>(), Options, concurrentCongestion: true)
+            .Should().BeNull("another target queued on the WAN while it ran");
+
+        var detected = Shift(Step, 1.6, 17.7);
+        PathShiftMatch.Explaining(Step, new[] { StepLevels(Target, "Cloudflare", 1.63, 17.72) }, new[] { detected }, Options,
+            concurrentCongestion: true).Should().BeSameAs(detected);
+    }
+
+    [Fact]
+    public void DetectedShift_WinsOverTheStepShift()
+    {
+        var detected = Shift(Step, 1.6, 17.7);
+        Explaining(Step, new[] { detected }, StepLevels(Target, "Cloudflare", 1.63, 17.72)).Should().BeSameAs(detected);
+    }
+
+    [Fact]
+    public void RisePastADetectedStep_WithFlatJitter_IsStillAPathShift()
+    {
+        // The detected shift does not explain a peak of 30, but nothing queued: the route changed further.
+        var shift = Explaining(Step, new[] { Shift(Step, 1.6, 17.7) }, StepLevels(Target, "Cloudflare", 1.63, 30));
+        shift.Should().NotBeNull();
+        shift!.AfterMedianMs.Should().Be(30);
+    }
+
+    [Fact]
+    public void Fold_DrawsAStepOnlyEpisodeAsAPathShiftRow_WithItsTrace()
+    {
+        var report = Report();
+        var episodes = new[]
+        {
+            new PathEpisodeView
+            {
+                Id = 7,
+                OpenedAt = Step,
+                ClosedAt = Step.AddHours(6),
+                Disposition = CongestionDisposition.Unverifiable,
+                Label = "Both slowed down together.",
+                Degraded = new[]
+                {
+                    new PathEpisodeTargetView(1, "aws-us-west-1", "AWS us-west-1", PathEpisodeTargetRole.Degraded, 58.2, 71.0, 0.5, 0, null,
+                        BaselineJitterMs: 0.4, JitterP95Ms: 0.6),
+                    new PathEpisodeTargetView(2, "path-cdn-as64500", "CDN", PathEpisodeTargetRole.Degraded, 18.0, 34.2, 0.5, 0, null,
+                        BaselineJitterMs: 0.3, JitterP95Ms: 0.5)
+                }
+            }
+        };
+
+        var fold = PathEpisodePresentation.FoldIntoShifts(episodes, report, Options);
+
+        fold.Explained.Should().Equal(7);
+        fold.Unexplained(episodes, e => e.Id).Should().BeEmpty("no congestion row, finding, or banner");
+        var rows = IspHealthPresentation.EventTimeline(report, fold.TraceByShift).ToList();
+        var row = rows.Single();
+        row.Badge.Should().Be("Path shift");
+        row.EpisodeId.Should().Be(7);
+        row.Text.Should().StartWith("RTT stepped up 16.2 ms on CDN (18 to 34.2 ms), seen on 2 paths.");
+        row.Members.Should().Equal("CDN - 18 to 34.2 ms", "AWS us-west-1 - 58.2 to 71 ms");
+    }
+
+    private static PathEpisodeView StepEpisodeView(int asn, bool isDestination) => new()
+    {
+        Id = 8,
+        OpenedAt = Step,
+        ClosedAt = Step.AddHours(2),
+        Disposition = CongestionDisposition.Unverifiable,
+        Label = "Slowed down.",
+        Degraded = new[]
+        {
+            new PathEpisodeTargetView(1, "t1", "Hop", PathEpisodeTargetRole.Degraded, 18.0, 34.2, 0.5, 0, null,
+                BaselineJitterMs: 0.3, JitterP95Ms: 0.5, AsnNumber: asn, IsDestination: isDestination)
+        }
+    };
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void StepShift_CarriesTheLeadTargetsAsnAndType(bool isDestination)
+    {
+        var episode = StepEpisodeView(64500, isDestination);
+        var shift = PathEpisodePresentation.FoldIntoShifts(new[] { episode }, Report(), Options).TraceByShift.Keys.Single();
+
+        shift.AsnNumber.Should().Be(64500, "the row labels the network as a detected shift does");
+        shift.IsDestination.Should().Be(isDestination, "only an InternetService target is a destination");
+    }
+
+    [Fact]
+    public void ChartBand_ExplainedEpisodesArePathShifts_TheRestStayCongestion()
+    {
+        var report = Report(Shift(Step, 1.6, 17.7));
+        var detected = Episode(3, Step.AddMinutes(-5), 1.63, 17.72);
+        var stepOnly = StepEpisodeView(64500, isDestination: true);
+        var congestion = Episode(5, Step.AddHours(9), 1.65, 40);
+        var episodes = new[] { detected, stepOnly, congestion };
+
+        var fold = PathEpisodePresentation.FoldIntoShifts(episodes, report, Options);
+
+        PathEpisodePresentation.ChartBand(detected, fold).Should().Be(("path-shift", "Path shift"));
+        PathEpisodePresentation.ChartBand(stepOnly, fold).Should().Be(("path-shift", "Path shift"));
+        PathEpisodePresentation.ChartBand(congestion, fold).Should().Be(("congestion", PathEpisodePresentation.BadgeLabel(congestion)));
+    }
+
+    [Fact]
+    public void ChartBand_WithoutAReport_IsCongestion()
+    {
+        var e = Episode(3, Step, 1.63, 17.72);
+        PathEpisodePresentation.ChartBand(e, PathEpisodePresentation.ShiftFold.None).Type.Should().Be("congestion");
+    }
+
     [Fact]
     public void Fold_WithoutAReport_ExplainsNothing()
     {

@@ -178,20 +178,25 @@ public static class IspHealthEndpoints
                         targets = e.TargetIds
                     })));
 
-                // Path Localization episodes, as congestion marks on the lines they traced: the
-                // events list files them under Congestion too, so the one filter governs both.
+                // Path Localization episodes, as bands on the lines they traced, filed as the events
+                // list files them: a route change under Path shift, anything else under Congestion.
                 try
                 {
                     var isPrimary = string.IsNullOrEmpty(wan) || ReferenceEquals(ispHealth, ispHealthRegistry.GetFor(siteContext.Slug, null));
                     var episodes = await pathEpisodes.GetEpisodesAsync(report.WindowStart, to ?? DateTime.UtcNow, wan, isPrimary, ct);
-                    events.AddRange(episodes.Select(e => (object)new
+                    var fold = Services.Monitoring.PathLocalization.PathEpisodePresentation.FoldIntoShifts(episodes, report, ispHealth.Options);
+                    events.AddRange(episodes.Select(e =>
                     {
-                        type = "congestion",
-                        start = e.OpenedAt.ToString("o"),
-                        end = (e.ClosedAt ?? DateTime.UtcNow).ToString("o"),
-                        label = Services.Monitoring.PathLocalization.PathEpisodePresentation.BadgeLabel(e),
-                        shared = false,
-                        targets = e.Degraded.Select(t => t.TargetId).Where(id => id.Length > 0).ToList()
+                        var (type, label) = Services.Monitoring.PathLocalization.PathEpisodePresentation.ChartBand(e, fold);
+                        return (object)new
+                        {
+                            type,
+                            start = e.OpenedAt.ToString("o"),
+                            end = (e.ClosedAt ?? DateTime.UtcNow).ToString("o"),
+                            label,
+                            shared = false,
+                            targets = e.Degraded.Select(t => t.TargetId).Where(id => id.Length > 0).ToList()
+                        };
                     }));
                 }
                 catch (Exception ex) when (!ct.IsCancellationRequested)

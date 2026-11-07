@@ -81,7 +81,8 @@ public static class PathEpisodePresentation
         public IEnumerable<T> Unexplained<T>(IEnumerable<T> episodes, Func<T, int> id) => episodes.Where(e => !Explained.Contains(id(e)));
     }
 
-    /// <summary>Folds the episodes the report's Path shifts explain; <see cref="ShiftFold.None"/> without a report.</summary>
+    /// <summary>Folds the episodes the report's Path shifts explain, and step-only episodes into a shift built
+    /// from their own levels; <see cref="ShiftFold.None"/> without a report.</summary>
     public static ShiftFold FoldIntoShifts(IReadOnlyList<PathEpisodeView> episodes, IspHealthReport? report, IspHealthOptions options)
     {
         if (report == null || episodes.Count == 0) return ShiftFold.None;
@@ -94,6 +95,14 @@ public static class PathEpisodePresentation
                 (IEqualityComparer<PathShiftEvent>)ReferenceEqualityComparer.Instance);
         return new ShiftFold(traceByShift, matched.Keys.ToHashSet());
     }
+
+    /// <summary>
+    /// An episode's band on the ISP Health chart: a Path shift's when the fold explains it (a detected shift
+    /// or a step on its own), else congestion under its badge.
+    /// </summary>
+    /// <returns>The chart event type and its label.</returns>
+    public static (string Type, string Label) ChartBand(PathEpisodeView e, ShiftFold fold) =>
+        fold.Explained.Contains(e.Id) ? ("path-shift", "Path shift") : ("congestion", BadgeLabel(e));
 
     /// <summary>An episode's badge: tracing while rounds run, Ongoing while the problem outlasts them, then Congestion.</summary>
     public static string BadgeLabel(PathEpisodeView e) => e.Tracing ? "Tracing now" : e.Ongoing ? "Ongoing" : "Congestion";

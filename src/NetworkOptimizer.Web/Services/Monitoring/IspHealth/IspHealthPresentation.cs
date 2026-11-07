@@ -49,7 +49,8 @@ public static class IspHealthPresentation
     /// their disposition-specific wording, then path shifts and route changes, in time order.
     /// </summary>
     /// <param name="traceByShift">The Path Localization episode each path shift carries the hop table of,
-    /// when the shift explains it.</param>
+    /// when the shift explains it. A shift built from a step-only episode is not in the report's list, so
+    /// it is drawn from here.</param>
     public static IEnumerable<TimelineEntry> EventTimeline(IspHealthReport r,
         IReadOnlyDictionary<PathShiftEvent, int>? traceByShift = null)
     {
@@ -135,7 +136,9 @@ public static class IspHealthPresentation
                 TargetIds: group.SelectMany(e => e.TargetIds.Concat(e.WitnessTargetIds))
                     .Distinct(StringComparer.OrdinalIgnoreCase).ToList()));
         }
-        foreach (var shift in r.PathShifts)
+        var shifts = traceByShift == null ? r.PathShifts
+            : r.PathShifts.Concat(traceByShift.Keys.Where(k => !r.PathShifts.Contains(k))).ToList();
+        foreach (var shift in shifts)
         {
             var where = PathLabel(shift, r);
             if (shift.IsUnreachable)

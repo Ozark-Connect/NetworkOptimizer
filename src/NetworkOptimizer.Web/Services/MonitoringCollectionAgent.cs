@@ -1729,7 +1729,7 @@ public class MonitoringCollectionAgent : BackgroundService
 
             // Path Localization watches the same result from the same vantage and bind it was taken with.
             _pathEpisodes.Observe(target, wanContext, new Monitoring.PathLocalization.PathVantage(null, wanContext?.ProbeSourceIp),
-                ping.Timestamp, ping.RttAvgMs, ping.Sent, ping.Received);
+                ping.Timestamp, ping.RttAvgMs, ping.Sent, ping.Received, ping.JitterMs);
 
             // Surface fabric probe results on the dashboard's device cards (5.6). Other
             // target types (WAN, transit) feed cloud nodes on the 3D map; the per-device

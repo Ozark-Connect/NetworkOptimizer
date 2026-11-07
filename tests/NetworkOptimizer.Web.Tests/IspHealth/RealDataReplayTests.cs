@@ -1,5 +1,6 @@
 using System.Globalization;
 using NetworkOptimizer.Web.Services.Monitoring.IspHealth;
+using NetworkOptimizer.Web.Services.Monitoring.PathLocalization;
 using Xunit;
 using Xunit.Abstractions;
 
@@ -60,6 +61,54 @@ public class RealDataReplayTests
                         $"rtt {e.BaselineRttMs:0.#} -> {e.PeakRttMs:0.#} ms, jitter {e.BaselineJitterMs:0.#} -> {e.PeakJitterMs:0.#} ms");
                 }
             }
+        }
+    }
+
+    /// <summary>
+    /// Runs Path Localization's degradation trigger over every exported target, all fed in time order as
+    /// the episode watcher feeds them, and prints each degraded run with its RTT, loss, and jitter against
+    /// baseline, and whether it reads as a route change: <see cref="PathShiftMatch.IsStep"/>, and no other
+    /// target queued while it ran (<see cref="TargetDegradation.QueuedSince"/>). Congestion exports should
+    /// print congestion; shift exports, steps.
+    /// </summary>
+    [Fact]
+    public void Replay_path_degradation_step_or_congestion()
+    {
+        if (ReplayDir == null) return;
+        var options = new IspHealthOptions();
+        foreach (var file in Directory.GetFiles(ReplayDir, "*.csv"))
+        {
+            var allSeries = LoadSeries(file);
+            if (allSeries.Count == 0 || allSeries.All(s => s.Samples.All(x => x.JitterMs == null))) continue;
+            _output.WriteLine($"=== {Path.GetFileName(file)} ===");
+            var trackers = allSeries.ToDictionary(s => s.TargetIds[0], s => new TargetDegradation(s.TargetIds[0], options));
+            var open = new Dictionary<string, (DateTime Since, double? BaseRtt, double? BaseJitter)>();
+            void Report(string id, DateTime end)
+            {
+                var t = trackers[id];
+                var (since, baseRtt, baseJitter) = open[id];
+                var levels = new EpisodeTargetLevels(id, baseRtt, t.PeakRttMs, t.PeakLossPct, baseJitter, t.JitterP95Since(since));
+                var step = PathShiftMatch.IsStep(levels, options);
+                var queued = trackers.Any(o => o.Key != id && o.Value.QueuedSince(since));
+                _output.WriteLine(
+                    $"  {id} {since:MM-dd HH:mm} -> {end:HH:mm} rtt {baseRtt:0.#} -> {t.PeakRttMs:0.#} ms, " +
+                    $"jitter {baseJitter:0.##} -> p95 {t.JitterP95Since(since):0.##} ms, loss {t.PeakLossPct:0.#}%" +
+                    $"{(queued ? ", another target queued" : "")} => {(step && !queued ? "STEP" : "congestion")}");
+                open.Remove(id);
+            }
+            var samples = allSeries.SelectMany(s => s.Samples.Select(x => (Id: s.TargetIds[0], Sample: x))).OrderBy(x => x.Sample.Time);
+            foreach (var (id, s) in samples)
+            {
+                var tracker = trackers[id];
+                // Pooled loss reads the same at any probe count; 100 per point keeps the probe floor met.
+                var received = 100 - (int)Math.Round(s.LossPercent ?? 0);
+                tracker.Record(s.Time, s.RttAvgMs, 100, received, () => tracker.Degraded, s.JitterMs);
+                if (tracker.Degraded && !open.ContainsKey(id))
+                    open[id] = (tracker.DegradedSince!.Value, tracker.BaselineRttMs, tracker.BaselineJitterMs);
+                else if (!tracker.Degraded && open.ContainsKey(id))
+                    Report(id, s.Time);
+            }
+            foreach (var id in open.Keys.ToList()) Report(id, allSeries.Max(s => s.Samples[^1].Time));
         }
     }
 

@@ -2326,7 +2326,8 @@ public class AgentProbeResultSink
             var bind = ResolveSpecSourceIp(context, connection.AgentId);
             pathEpisodes.Observe(target, context,
                 new Monitoring.PathLocalization.PathVantage(connection.AgentId, string.IsNullOrEmpty(bind) ? null : bind),
-                timestamp, result.HasRttAvgMs ? result.RttAvgMs : null, result.Sent, result.Received);
+                timestamp, result.HasRttAvgMs ? result.RttAvgMs : null, result.Sent, result.Received,
+                result.HasJitterMs ? result.JitterMs : null);
 
             // The site's live caches mirror what the local latency tier
             // records: fabric probes surface on that device's card, and every

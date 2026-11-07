@@ -21,8 +21,9 @@ public enum DegradationSignal
 /// <param name="Signal">What was over baseline. Always None while the target has no baseline yet.</param>
 /// <param name="Excluded">Kept out of the baseline: an outage, or an episode the target was degraded in.</param>
 /// <param name="Judged">Whether a baseline existed to judge it against.</param>
+/// <param name="JitterMs">Median of the window's per-burst jitter; null when too few bursts reported it.</param>
 public sealed record DegradationWindow(DateTime Start, double? MedianRttMs, double LossPct, int Probes,
-    DegradationSignal Signal, bool Excluded, bool Judged);
+    DegradationSignal Signal, bool Excluded, bool Judged, double? JitterMs = null);
 
 /// <summary>
 /// A monitored target's degradation state against its OWN baseline, fed one ping burst at a time.
@@ -50,6 +51,7 @@ public sealed class TargetDegradation
 
     private DateTime? _openStart;
     private readonly List<double> _openRtts = new();
+    private readonly List<double> _openJitters = new();
     private int _openSent;
     private int _openReceived;
 
@@ -90,6 +92,51 @@ public sealed class TargetDegradation
 
     /// <summary>Worst window median RTT since <see cref="DegradedSince"/>.</summary>
     public double? PeakRttMs { get; private set; }
+
+    /// <summary>Baseline median of the windows' jitter as of the last closed window; null until enough windows carry it.</summary>
+    public double? BaselineJitterMs { get; private set; }
+
+    /// <summary>
+    /// 95th percentile of window jitter over an episode: its degraded windows from <paramref name="from"/> on,
+    /// plus seeded windows, which stand in for the span after a restart. Taken from the episode's open, not
+    /// <see cref="DegradedSince"/>, so a target that clears and degrades again keeps the whole span. Queueing
+    /// widens it; a route change does not, and one window shared with every target does not move it. Null
+    /// when no window in the span carried jitter.
+    /// </summary>
+    public double? JitterP95Since(DateTime from) => SeriesStats.Percentile(_windows
+        .Where(w => w.Start >= from && w.JitterMs.HasValue && (!w.Judged || w.Signal != DegradationSignal.None))
+        .Select(w => w.JitterMs!.Value)
+        .ToList(), 0.95);
+
+    /// <summary>
+    /// Whether, from <paramref name="from"/> on, a run of degraded windows long enough to degrade the target
+    /// carried real loss or jitter over the congestion detector's elevated line: a queue, not a route change.
+    /// </summary>
+    public bool QueuedSince(DateTime from)
+    {
+        var need = Math.Max(1, _options.PathDegradationConsecutiveWindows);
+        int run = 0;
+        var queued = false;
+        foreach (var w in _windows)
+        {
+            if (w.Start + _windowLength <= from) continue;
+            if (!w.Judged || w.Signal == DegradationSignal.None)
+            {
+                run = 0;
+                queued = false;
+                continue;
+            }
+            run++;
+            queued |= w.Signal.HasFlag(DegradationSignal.Loss) || JitterElevated(w.JitterMs);
+            if (queued && run >= need) return true;
+        }
+        return false;
+    }
+
+    /// <summary>The congestion detector's line: over its factor of baseline and its floor above it.</summary>
+    private bool JitterElevated(double? jitter) =>
+        jitter is double j && BaselineJitterMs is double b
+        && j > b * _options.CongestionJitterFactor && j - b >= _options.CongestionJitterMinDeltaMs;
 
     public DegradationWindow? LastWindow => _windows.Last?.Value;
 
@@ -158,13 +205,14 @@ public sealed class TargetDegradation
     /// Seeded windows only feed the baseline; they never move the degraded state. Samples recorded
     /// before the seed arrived win: history is only laid in ahead of the first window already held.
     /// </summary>
-    /// <param name="windows">Window start, mean RTT, mean loss.</param>
+    /// <param name="windows">Window start, mean RTT, mean loss, mean jitter. The mean stands in for a live
+    /// window's median.</param>
     /// <param name="excluded">Spans to leave out of the baseline (past episodes).</param>
-    public void Seed(IEnumerable<(DateTime Start, double? RttMs, double? LossPct)> windows,
+    public void Seed(IEnumerable<(DateTime Start, double? RttMs, double? LossPct, double? JitterMs)> windows,
         IReadOnlyList<(DateTime Start, DateTime End)> excluded)
     {
         var before = _windows.First?.Value.Start ?? _openStart ?? DateTime.MaxValue;
-        foreach (var (start, rtt, loss) in windows.Where(w => w.Start < before).OrderByDescending(w => w.Start))
+        foreach (var (start, rtt, loss, jitter) in windows.Where(w => w.Start < before).OrderByDescending(w => w.Start))
         {
             if (rtt is null && loss is null) continue;
             if (_windows.First is { } first && start >= first.Value.Start) continue;
@@ -172,7 +220,7 @@ public sealed class TargetDegradation
             var inEpisode = excluded.Any(e => start < e.End && start + _windowLength > e.Start);
             // A seeded window stands for a full window of bursts, so its loss reads as if it had them.
             _windows.AddFirst(new DegradationWindow(start, rtt, lossPct, _options.PathLossMinProbes,
-                DegradationSignal.None, inEpisode || lossPct >= OutageLossPct, Judged: false));
+                DegradationSignal.None, inEpisode || lossPct >= OutageLossPct, Judged: false, jitter));
         }
         Trim();
         RefreshBaseline(DateTime.MaxValue);
@@ -183,7 +231,9 @@ public sealed class TargetDegradation
     /// A sample older than the open window is dropped: replayed backlog says nothing about now.
     /// </summary>
     /// <param name="excludeClosing">Asked once when a window closes: keep it out of the baseline?</param>
-    public DegradationWindow? Record(DateTime time, double? rttAvgMs, int sent, int received, Func<bool> excludeClosing)
+    /// <param name="jitterMs">The burst's jitter, when the probe reported one.</param>
+    public DegradationWindow? Record(DateTime time, double? rttAvgMs, int sent, int received, Func<bool> excludeClosing,
+        double? jitterMs = null)
     {
         var start = CongestionDetector.FloorTime(time, _windowLength);
         if (_openStart is DateTime open && start < open) return null;
@@ -196,10 +246,12 @@ public sealed class TargetDegradation
         {
             _openStart = start;
             _openRtts.Clear();
+            _openJitters.Clear();
             _openSent = 0;
             _openReceived = 0;
         }
         if (rttAvgMs is double r) _openRtts.Add(r);
+        if (jitterMs is double j) _openJitters.Add(j);
         _openSent += Math.Max(0, sent);
         _openReceived += Math.Clamp(received, 0, Math.Max(0, sent));
         LastSampleAt = time;
@@ -211,6 +263,7 @@ public sealed class TargetDegradation
         // Judged against the baseline as it stood BEFORE this window, so it never grades itself.
         RefreshBaseline(start);
         var median = _openRtts.Count >= MinRttSamples ? SeriesStats.Median(_openRtts) : null;
+        var jitter = _openJitters.Count >= MinRttSamples ? SeriesStats.Median(_openJitters) : null;
         var loss = _openSent == 0 ? 0 : 100.0 * (_openSent - _openReceived) / _openSent;
         var judged = HasBaseline;
 
@@ -228,7 +281,7 @@ public sealed class TargetDegradation
         }
 
         var window = new DegradationWindow(start, median, loss, _openSent, signal,
-            exclude || loss >= OutageLossPct, judged);
+            exclude || loss >= OutageLossPct, judged, jitter);
         _windows.AddLast(window);
         Trim();
         Advance(window);
@@ -313,10 +366,13 @@ public sealed class TargetDegradation
         {
             BaselineRttMs = null;
             BaselineLossPct = null;
+            BaselineJitterMs = null;
             return;
         }
         BaselineRttMs = SeriesStats.Median(usable.Where(w => w.MedianRttMs.HasValue).Select(w => w.MedianRttMs!.Value).ToList());
         BaselineLossPct = usable.Average(w => w.LossPct);
+        var jitters = usable.Where(w => w.JitterMs.HasValue).Select(w => w.JitterMs!.Value).ToList();
+        BaselineJitterMs = jitters.Count >= _options.PathBaselineMinWindows ? SeriesStats.Median(jitters) : null;
     }
 
     private void Trim()

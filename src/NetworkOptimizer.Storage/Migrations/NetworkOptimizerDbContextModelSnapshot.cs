@@ -3513,6 +3513,9 @@ namespace NetworkOptimizer.Storage.Migrations
                     b.Property<DateTime?>("ClosedAt")
                         .HasColumnType("TEXT");
 
+                    b.Property<bool>("ConcurrentCongestion")
+                        .HasColumnType("INTEGER");
+
                     b.Property<string>("Disposition")
                         .IsRequired()
                         .HasMaxLength(16)
@@ -3563,6 +3566,9 @@ namespace NetworkOptimizer.Storage.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("INTEGER");
 
+                    b.Property<double?>("BaselineJitterMs")
+                        .HasColumnType("REAL");
+
                     b.Property<double?>("BaselineLossPct")
                         .HasColumnType("REAL");
 
@@ -3586,6 +3592,9 @@ namespace NetworkOptimizer.Storage.Migrations
 
                     b.Property<int>("EpisodeId")
                         .HasColumnType("INTEGER");
+
+                    b.Property<double?>("JitterP95Ms")
+                        .HasColumnType("REAL");
 
                     b.Property<int>("MonitoringTargetId")
                         .HasColumnType("INTEGER");
