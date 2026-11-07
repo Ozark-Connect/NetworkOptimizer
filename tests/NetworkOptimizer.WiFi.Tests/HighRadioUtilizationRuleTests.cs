@@ -126,7 +126,10 @@ public class HighRadioUtilizationRuleTests
     {
         var off = Evaluate(Ap("AP-1", RadioBand.Band2_4GHz, measured: 60, self: 50, other: 5), Wlan(steering: false)).Single();
         off.Title.Should().Be("High Radio Utilization From Own Clients");
-        off.Recommendation.Should().Be("Spread clients across more APs, or turn on band steering so capable clients move to 5 GHz or 6 GHz.");
+        off.Recommendation.Should().Be("Move fixed devices to a less busy AP with Lock to AP in UniFi Network, or turn on band steering so capable clients move to 5 GHz or 6 GHz.");
+
+        Evaluate(Ap("AP-1", RadioBand.Band5GHz, measured: 60, self: 50, other: 5), Wlan(steering: false)).Single().Recommendation
+            .Should().Be("Move fixed devices to a less busy AP with Lock to AP in UniFi Network, and check Client Performance for one client doing most of the talking.");
 
         var on = Evaluate(Ap("AP-1", RadioBand.Band2_4GHz, measured: 60, self: 50, other: 5), Wlan(steering: true)).Single();
         on.Recommendation.Should().StartWith("Band steering is already on, so the clients still on 2.4 GHz are likely 2.4 GHz-only.");
@@ -137,7 +140,7 @@ public class HighRadioUtilizationRuleTests
     {
         var issue = Evaluate(Ap("AP-1", measured: 70, self: 35, other: 30)).Single();
         issue.Title.Should().Be("High Radio Utilization");
-        issue.Recommendation.Should().Be("Other networks and this radio's own clients are both using the air. Run the Channel Recommendation, and spread clients across more APs.");
+        issue.Recommendation.Should().Be("Try a quieter channel first: run the Channel Recommendation. If it stays busy, use Lock to AP in UniFi Network to move fixed devices to a less busy AP.");
     }
 
     [Fact]

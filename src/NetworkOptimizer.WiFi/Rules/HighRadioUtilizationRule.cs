@@ -143,12 +143,12 @@ public class HighRadioUtilizationRule : IWiFiOptimizerRule
                     : move;
             case Cause.OwnClients:
                 if (band != RadioBand.Band2_4GHz)
-                    return "Spread clients across more APs, and check Client Performance for one client doing most of the talking.";
+                    return "Move fixed devices to a less busy AP with Lock to AP in UniFi Network, and check Client Performance for one client doing most of the talking.";
                 return steeringOnEverywhere
                     ? "Band steering is already on, so the clients still on 2.4 GHz are likely 2.4 GHz-only. Check Client Performance for which ones, and for one client doing most of the talking."
-                    : "Spread clients across more APs, or turn on band steering so capable clients move to 5 GHz or 6 GHz.";
+                    : "Move fixed devices to a less busy AP with Lock to AP in UniFi Network, or turn on band steering so capable clients move to 5 GHz or 6 GHz.";
             case Cause.Mixed:
-                return "Other networks and this radio's own clients are both using the air. Run the Channel Recommendation, and spread clients across more APs.";
+                return "Try a quieter channel first: run the Channel Recommendation. If it stays busy, use Lock to AP in UniFi Network to move fixed devices to a less busy AP.";
             default:
                 return "Check RF Environment for networks on this channel, and Client Performance for heavy clients on this radio.";
         }
