@@ -118,7 +118,7 @@ public static class IspHealthPresentation
                 _ when evt.ConfirmedBySibling => ("Congestion", "isp-event-badge-congestion",
                     $"{lead}", null),
                 _ when evt.LoadCoincident && evt.CleanParallelPaths > 0 => ("Congestion", "isp-event-badge-congestion",
-                    $"{lead} {evt.CleanParallelPaths} other monitored paths stayed clean under the same load, so it was this hop's own capacity, not your access link.", null),
+                    $"{lead} {TimeFormatHelper.Pluralize(evt.CleanParallelPaths, "other monitored path")} stayed clean under the same load, so it was this hop's own capacity, not your access link.", null),
                 _ => ("Congestion", "isp-event-badge-congestion",
                     $"{lead}", null)
             };

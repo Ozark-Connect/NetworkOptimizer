@@ -297,8 +297,8 @@ public static class CongestionLocalizer
             .FirstOrDefault();
 
         var reason = loadCoincident
-            ? $"{elevated.Count} monitored paths rose together under heavy WAN load, so the limit was your access link (bufferbloat or a congested shared-access network), not one hop."
-            : $"{elevated.Count} monitored paths across independent networks rose together with no heavy local load - a shared upstream bottleneck lifting the whole path, not one hop.";
+            ? $"{TimeFormatHelper.Pluralize(elevated.Count, "monitored path")} rose together under heavy WAN load, so the limit was your access link (bufferbloat or a congested shared-access network), not one hop."
+            : $"{TimeFormatHelper.Pluralize(elevated.Count, "monitored path")} across independent networks rose together with no heavy local load - a shared upstream bottleneck lifting the whole path, not one hop.";
         if (worst != null && worst != owner && worst.AsnName is { Length: > 0 } worstName)
             reason += $" Worst at {worstName}.";
 
@@ -421,7 +421,7 @@ public static class CongestionLocalizer
             reason = "Elevation propagates to monitored hops downstream of this bottleneck.";
             if (loadCoincident)
                 reason += cleanParallelPaths > 0
-                    ? $" It coincided with heavy WAN load, but {cleanParallelPaths} other monitored paths stayed clean under the same load, so it was this hop's own capacity, not your access egress."
+                    ? $" It coincided with heavy WAN load, but {TimeFormatHelper.Pluralize(cleanParallelPaths, "other monitored path")} stayed clean under the same load, so it was this hop's own capacity, not your access egress."
                     : " It coincided with heavy WAN load (load-induced), but localizes to a specific hop rather than your access egress.";
         }
         else if (hasDescendant)
