@@ -155,6 +155,18 @@ function buildAnnotations(events) {
                     style: { color: '#ededef', background: e.shared ? '#7f1d1d' : '#78350f', fontSize: '10px' },
                 },
             });
+        } else if (e.type === 'path-shift' && e.end) {
+            // A traced route change: its episode's span, in the Path shift line's blue.
+            xaxis.push({
+                x: noTime.toChart(new Date(e.start).getTime()),
+                x2: noTime.toChart(new Date(e.end).getTime()),
+                fillColor: '#4797ff',
+                opacity: 0.12,
+                label: {
+                    text: e.label,
+                    style: { color: '#ededef', background: '#1e3a5f', fontSize: '10px' },
+                },
+            });
         } else if (e.type === 'unreachable') {
             xaxis.push({
                 x: noTime.toChart(new Date(e.start).getTime()),

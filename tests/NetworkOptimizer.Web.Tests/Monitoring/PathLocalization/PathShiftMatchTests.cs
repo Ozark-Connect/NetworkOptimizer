@@ -309,6 +309,29 @@ public class PathShiftMatchTests
     }
 
     [Fact]
+    public void ChartBand_ExplainedEpisodesArePathShifts_TheRestStayCongestion()
+    {
+        var report = Report(Shift(Step, 1.6, 17.7));
+        var detected = Episode(3, Step.AddMinutes(-5), 1.63, 17.72);
+        var stepOnly = StepEpisodeView(64500, isDestination: true);
+        var congestion = Episode(5, Step.AddHours(9), 1.65, 40);
+        var episodes = new[] { detected, stepOnly, congestion };
+
+        var fold = PathEpisodePresentation.FoldIntoShifts(episodes, report, Options);
+
+        PathEpisodePresentation.ChartBand(detected, fold).Should().Be(("path-shift", "Path shift"));
+        PathEpisodePresentation.ChartBand(stepOnly, fold).Should().Be(("path-shift", "Path shift"));
+        PathEpisodePresentation.ChartBand(congestion, fold).Should().Be(("congestion", PathEpisodePresentation.BadgeLabel(congestion)));
+    }
+
+    [Fact]
+    public void ChartBand_WithoutAReport_IsCongestion()
+    {
+        var e = Episode(3, Step, 1.63, 17.72);
+        PathEpisodePresentation.ChartBand(e, PathEpisodePresentation.ShiftFold.None).Type.Should().Be("congestion");
+    }
+
+    [Fact]
     public void Fold_WithoutAReport_ExplainsNothing()
     {
         var episodes = new[] { Episode(3, Step, 1.63, 17.72) };
