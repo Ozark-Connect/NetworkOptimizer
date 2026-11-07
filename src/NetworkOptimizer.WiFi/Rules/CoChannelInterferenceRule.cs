@@ -26,6 +26,9 @@ public class CoChannelInterferenceRule : IWiFiOptimizerRule
     /// <summary>Any radio in the group at or over this measured airtime: they are taking turns.</summary>
     private const int BusyAirtimePct = 40;
 
+    /// <summary>Impact of a scored overlap group.</summary>
+    private const int OverlapImpact = -5;
+
     /// <summary>One radio on the band, with the spectrum it occupies.</summary>
     private sealed record BandRadio(AccessPointSnapshot Ap, RadioSnapshot Radio, (int Low, int High) Span)
     {
@@ -46,6 +49,19 @@ public class CoChannelInterferenceRule : IWiFiOptimizerRule
                         ChannelSpanHelper.GetChannelSpan(band, r.Channel!.Value, r.ChannelWidth ?? 20, r.CenterChannel))))
                 .ToList();
 
+            var nonOverlappingChannels = band switch
+            {
+                RadioBand.Band2_4GHz => 3,   // Channels 1, 6, 11
+                RadioBand.Band5GHz => 9,     // UNII-1 + UNII-3 without DFS
+                RadioBand.Band6GHz => 14,    // 80 MHz non-overlapping channels in 6 GHz
+                _ => 3
+            };
+            // More radios than channels makes some overlap structurally unavoidable. On 2.4 GHz that
+            // holds whether or not the APs are placed; elsewhere it stays the floor plan's density signal.
+            var isDenseDeployment = radiosInBand.Count > nonOverlappingChannels
+                && (band == RadioBand.Band2_4GHz || ctx.PropagationContext != null);
+
+            var bandIssues = new List<(HealthIssue Issue, int Pairs)>();
             foreach (var group in GroupByOverlap(radiosInBand))
             {
                 // An AP normally has one radio per band; one with two takes its first radio's
@@ -87,20 +103,6 @@ public class CoChannelInterferenceRule : IWiFiOptimizerRule
                 if (hasUnplacedAps)
                     recommendation += " Place your APs on the Signal Map for more accurate interference analysis based on physical distance and wall attenuation.";
 
-                // Dense deployment check: when APs are placed on the floor plan map, compare
-                // the total number of radios on this band against the number of non-overlapping
-                // channels available. If there are more APs than channels, some co-channel
-                // overlap is structurally unavoidable regardless of channel assignment.
-                // Only applies when the floor plan is set up (empirical density signal).
-                var nonOverlappingChannels = band switch
-                {
-                    RadioBand.Band2_4GHz => 3,   // Channels 1, 6, 11
-                    RadioBand.Band5GHz => 9,     // UNII-1 + UNII-3 without DFS
-                    RadioBand.Band6GHz => 14,    // 80 MHz non-overlapping channels in 6 GHz
-                    _ => 3
-                };
-                var isDenseDeployment = ctx.PropagationContext != null
-                    && radiosInBand.Count > nonOverlappingChannels;
                 var denseNote = $" With {radiosInBand.Count} APs on {band.ToDisplayString()} and only {nonOverlappingChannels} non-overlapping channels, some overlap is unavoidable.";
 
                 string title, description;
@@ -124,8 +126,10 @@ public class CoChannelInterferenceRule : IWiFiOptimizerRule
                 // overlap nobody is using costs little, one both sides are busy on is the warning.
                 // A group with an unmeasured radio is not graded, because "quiet" cannot be
                 // asserted for a radio nobody measured.
-                var severity = isDenseDeployment ? HealthIssueSeverity.Info : HealthIssueSeverity.Warning;
-                var impact = isDenseDeployment ? -1 : -5;
+                // 2.4 GHz scores only the overlap beyond the structural minimum, across the band below.
+                var scoresExcess = isDenseDeployment && band == RadioBand.Band2_4GHz;
+                var severity = isDenseDeployment && !scoresExcess ? HealthIssueSeverity.Info : HealthIssueSeverity.Warning;
+                var impact = isDenseDeployment && !scoresExcess ? -1 : OverlapImpact;
                 var measured = reported.Select(r => r.Radio.MeasuredUtilization).ToList();
                 if (measured.All(m => m.HasValue))
                 {
@@ -158,9 +162,36 @@ public class CoChannelInterferenceRule : IWiFiOptimizerRule
                 // Measured overlap keeps its severity; the hint only says whose choice the channels were.
                 if (reported.All(r => r.Radio.ChannelIsFixed))
                     RadioIntent.AppendHint(issue, RadioIntent.ChannelHint);
-                yield return issue;
+                bandIssues.Add((issue, OverlappingPairs(reported)));
             }
+
+            // With more radios than channels, radios minus channels co-channel pairs are free. Each
+            // group keeps its share of the excess, so a band at its structural minimum costs nothing.
+            if (isDenseDeployment && band == RadioBand.Band2_4GHz)
+            {
+                var pairs = bandIssues.Sum(b => b.Pairs);
+                var excess = Math.Max(0, pairs - (radiosInBand.Count - nonOverlappingChannels));
+                foreach (var (issue, _) in bandIssues)
+                {
+                    issue.ScoreImpact = pairs > 0 ? (int)Math.Round((double)issue.ScoreImpact * excess / pairs) : 0;
+                    if (issue.ScoreImpact == 0) issue.Severity = HealthIssueSeverity.Info;
+                }
+            }
+
+            foreach (var (issue, _) in bandIssues)
+                yield return issue;
         }
+    }
+
+    /// <summary>Co-channel pairs in a reported group: radio pairs whose spans overlap.</summary>
+    private static int OverlappingPairs(List<BandRadio> radios)
+    {
+        var pairs = 0;
+        for (var i = 0; i < radios.Count; i++)
+            for (var j = i + 1; j < radios.Count; j++)
+                if (ChannelSpanHelper.SpansOverlap(radios[i].Span, radios[j].Span))
+                    pairs++;
+        return pairs;
     }
 
     /// <summary>

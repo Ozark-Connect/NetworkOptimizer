@@ -189,7 +189,9 @@ public class WiFiOptimizerService : IWiFiScanService
                 return null;
             }
 
-            await ApplyRadioHourAsync(_cachedAps.Where(ap => ap.IsOnline).ToList());
+            var scoredAps = _cachedAps.Where(ap => ap.IsOnline).ToList();
+            await ApplyRadioHourAsync(scoredAps);
+            await ApplyQuietestChannelsAsync(scoredAps);
 
             // Build into a local score and only publish it to the shared field once fully
             // assembled - never mutate _cachedHealthScore in place, or a caller could observe
@@ -329,6 +331,55 @@ public class WiFiOptimizerService : IWiFiScanService
                 }
             }
         }
+    }
+
+    private Dictionary<(string Mac, RadioBand Band), int>? _quietestChannels;
+    private DateTime _quietestChannelsAt = DateTime.MinValue;
+
+    /// <summary>
+    /// Sets each radio's quietest achievable utilization: the lowest spectrum-scan reading among
+    /// the channels the recommender would consider for it, under the console's DFS preference.
+    /// The health score measures each radio from there, so busy air the site cannot escape costs
+    /// nothing. A radio without a scan keeps null and is scored the old way.
+    /// </summary>
+    private async Task ApplyQuietestChannelsAsync(List<AccessPointSnapshot> aps)
+    {
+        if (aps.Count == 0) return;
+
+        if (_quietestChannels == null || DateTime.UtcNow - _quietestChannelsAt > RadioHourCacheFor)
+        {
+            var quietest = new Dictionary<(string, RadioBand), int>();
+            try
+            {
+                var scans = await GetChannelScanResultsAsync(
+                    startTime: DateTimeOffset.UtcNow.AddHours(-ChannelRecommendationService.ScanLookbackHours));
+                var regulatory = await GetRegulatoryChannelsAsync();
+                var dfs = await GetDefaultDfsPreferenceAsync();
+                foreach (var ap in aps)
+                {
+                    foreach (var radio in ap.Radios.Where(r => r.Channel.HasValue))
+                    {
+                        var scan = scans
+                            .Where(s => s.Band == radio.Band && s.ApMac.Equals(ap.Mac, StringComparison.OrdinalIgnoreCase) && s.Channels.Count > 0)
+                            .OrderByDescending(s => s.SpectrumTableTime)
+                            .FirstOrDefault();
+                        if (_channelRecommendationService.QuietestCandidateUtilization(radio.Band, radio, scan, regulatory, dfs) is { } best)
+                            quietest[(ap.Mac.ToLowerInvariant(), radio.Band)] = best;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Spectrum scans unavailable; Channel Health scores radios without their quietest channel (site {Site})", _siteSlug);
+            }
+            _quietestChannels = quietest;
+            _quietestChannelsAt = DateTime.UtcNow;
+        }
+
+        foreach (var ap in aps)
+            foreach (var radio in ap.Radios)
+                if (_quietestChannels.TryGetValue((ap.Mac.ToLowerInvariant(), radio.Band), out var best))
+                    radio.QuietestChannelUtilization = best;
     }
 
     /// <summary>

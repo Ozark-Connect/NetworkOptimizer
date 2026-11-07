@@ -107,6 +107,21 @@ public class HighRadioUtilizationRuleTests
     }
 
     [Fact]
+    public void Other_networks_on_24_GHz_at_its_quietest_channel_is_Info_with_no_impact()
+    {
+        var ap = Ap("AP-1", RadioBand.Band2_4GHz, hourAvg: 80, measured: 50, self: 5, other: 40);
+        ap.Radios[0].QuietestChannelUtilization = 77;
+
+        var issue = Evaluate(ap).Single();
+        issue.Severity.Should().Be(HealthIssueSeverity.Info);
+        issue.ScoreImpact.Should().Be(0);
+        issue.Recommendation.Should().EndWith("some of this may be unavoidable.");
+
+        ap.Radios[0].QuietestChannelUtilization = 40;
+        Evaluate(ap).Single().Severity.Should().Be(HealthIssueSeverity.Warning, "a quieter channel exists");
+    }
+
+    [Fact]
     public void Own_clients_on_24_GHz_depends_on_band_steering()
     {
         var off = Evaluate(Ap("AP-1", RadioBand.Band2_4GHz, measured: 60, self: 50, other: 5), Wlan(steering: false)).Single();

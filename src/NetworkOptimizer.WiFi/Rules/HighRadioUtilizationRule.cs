@@ -28,6 +28,9 @@ public class HighRadioUtilizationRule : IWiFiOptimizerRule
     /// <summary>Clients on the radio from which busy air is a Warning; below it, Info with no impact.</summary>
     private const int WarningClientCount = 3;
 
+    /// <summary>Points above the quietest candidate channel's utilization that still count as on it.</summary>
+    private const double QuietestChannelTolerancePct = 5;
+
     private const int WarningImpact = -8;
     private const int CriticalImpact = -10;
 
@@ -51,12 +54,17 @@ public class HighRadioUtilizationRule : IWiFiOptimizerRule
                 if (clients == 0) continue;
 
                 var cause = CauseOf(radio);
-                var severity = clients < WarningClientCount ? HealthIssueSeverity.Info
+                // Other networks on 2.4 GHz, on the quietest channel the radio could use: nothing to
+                // close, so it is said but not scored.
+                var unavoidable = cause == Cause.OtherNetworks && radio.Band == RadioBand.Band2_4GHz
+                    && radio.QuietestChannelUtilization is { } quietest
+                    && utilization - quietest <= QuietestChannelTolerancePct;
+                var severity = clients < WarningClientCount || unavoidable ? HealthIssueSeverity.Info
                     : utilization > CriticalUtilization ? HealthIssueSeverity.Critical
                     : HealthIssueSeverity.Warning;
 
                 var description = Describe(ap, radio, utilization, clients, cause);
-                if (severity == HealthIssueSeverity.Info)
+                if (clients < WarningClientCount)
                     description += clients == 1
                         ? " Only 1 client uses this radio, so the impact is small."
                         : $" Only {clients} clients use this radio, so the impact is small.";
