@@ -117,10 +117,14 @@ public class UpstreamUnansweredTargetsTests : IDisposable
         foreach (var hours in new[] { 0, 6, 12 }) await RunAsync(HopState(answered: false), hours);
         (await EnabledAsync(row)).Should().BeFalse();
 
-        var outcome = await RunAsync(HopState(answered: true), 18);
+        // The candidate arrives unchecked, copied from the paused row.
+        var state = HopState(answered: true);
+        state.AccessHops[0].Enabled = false;
+        var outcome = await RunAsync(state, 18);
 
         outcome.Resumed.Should().ContainSingle(t => t.Id == row.Id);
         (await EnabledAsync(row)).Should().BeTrue();
+        state.AccessHops[0].Enabled.Should().BeTrue();
     }
 
     [Fact]

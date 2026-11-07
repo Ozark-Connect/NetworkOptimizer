@@ -554,7 +554,8 @@ public class UpstreamRediscoveryService : BackgroundService
     /// rows on this WAN once <see cref="UnansweredRunsBeforePause"/> are counted. A target the counter
     /// paused resumes when a later run reaches it. Hand-added targets are never counted, and an
     /// admin who resumes a paused target keeps it until it answers once. Off-path candidates are
-    /// left to the off-path counter. Does not SaveChanges; the caller's does.
+    /// left to the off-path counter. A resume also checks the run's candidate, so the commit that
+    /// follows keeps it. Does not SaveChanges; the caller's does.
     /// </summary>
     internal static async Task<UnansweredOutcome> RecordUnansweredTargetsAsync(NetworkOptimizerDbContext db,
         UpstreamTracerState state, string wanInterface, bool isUnboundRun, DateTime nowUtc, CancellationToken ct)
@@ -604,11 +605,16 @@ public class UpstreamRediscoveryService : BackgroundService
                     if (answered)
                     {
                         if (mark == UnansweredPausedMark)
+                        {
                             foreach (var row in owned.Where(r => !r.Enabled))
                             {
                                 row.Enabled = true;
                                 outcome.Resumed.Add(row);
                             }
+                            // The candidate copied the paused row's checkbox; left unchecked, the
+                            // commit (or the review) would pause the row again.
+                            CheckCandidates(state, address);
+                        }
                         marks.Remove(address);
                     }
                     else if (mark == UnansweredPausedMark && owned.Any(r => r.Enabled))
@@ -641,6 +647,15 @@ public class UpstreamRediscoveryService : BackgroundService
             : JsonSerializer.Serialize(nextCounts.ToDictionary(kv => kv.Key, kv => new { c = kv.Value.Count, t = kv.Value.LastIncrementUtc })), ct);
         await SaveSettingAsync(db, UnansweredPausedKey(wanInterface), marks.Count == 0 ? null : JsonSerializer.Serialize(marks), ct);
         return outcome;
+    }
+
+    private static void CheckCandidates(UpstreamTracerState state, string address)
+    {
+        foreach (var hop in state.AccessHops.Where(h => string.Equals(h.Address, address, StringComparison.OrdinalIgnoreCase)))
+            hop.Enabled = true;
+        foreach (var transit in state.TransitAsns.Where(t =>
+                     string.Equals(t.HopAddress ?? t.PathProxyTarget, address, StringComparison.OrdinalIgnoreCase)))
+            transit.Enabled = true;
     }
 
     /// <summary>WANs with an unanswered count in flight, which re-check on <see cref="PendingRecheckInterval"/>.</summary>
