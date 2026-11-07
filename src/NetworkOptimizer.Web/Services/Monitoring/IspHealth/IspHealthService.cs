@@ -1657,7 +1657,8 @@ public class IspHealthService
             .Select(t => new PathLocalization.EpisodeTargetLevels(targetIdById[t.MonitoringTargetId], t.BaselineRttMs, t.PeakRttMs, t.PeakLossPct,
                 t.BaselineJitterMs, t.PeakJitterMs))
             .ToList();
-        return PathLocalization.PathShiftMatch.Explaining(PathLocalization.PathEpisodeTraceMapping.Utc(e.OpenedAt), levels, pathShifts, options) != null;
+        var until = e.ClosedAt is DateTime c ? PathLocalization.PathEpisodeTraceMapping.Utc(c) : DateTime.UtcNow;
+        return PathLocalization.PathShiftMatch.Explaining(PathLocalization.PathEpisodeTraceMapping.Utc(e.OpenedAt), levels, pathShifts, options, until) != null;
     }
 
     /// <summary>

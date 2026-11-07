@@ -24,11 +24,13 @@ public static class PathShiftMatch
 {
     /// <summary>The shift that explains the episode, or null when any degraded target is not on one.</summary>
     /// <param name="openedAt">When the degradation began (the episode's open time), UTC.</param>
+    /// <param name="until">When the episode closed, or now while it is open, UTC. A target that degraded after
+    /// the open is matched to a step inside this span; null looks only at the open.</param>
     public static PathShiftEvent? Explaining(DateTime openedAt, IReadOnlyList<EpisodeTargetLevels> degraded,
-        IReadOnlyList<PathShiftEvent> shifts, IspHealthOptions options)
+        IReadOnlyList<PathShiftEvent> shifts, IspHealthOptions options, DateTime? until = null)
     {
         if (degraded.Count == 0) return null;
-        return Detected(openedAt, degraded, shifts, options) ?? StepShift(openedAt, degraded, options);
+        return Detected(openedAt, until, degraded, shifts, options) ?? StepShift(openedAt, degraded, options);
     }
 
     /// <summary>Each explained episode's shift, by episode id.</summary>
@@ -40,7 +42,7 @@ public static class PathShiftMatch
         {
             var levels = e.Degraded.Select(t => new EpisodeTargetLevels(t.TargetId, t.BaselineRttMs, t.PeakRttMs, t.PeakLossPct,
                 t.BaselineJitterMs, t.PeakJitterMs, t.Name, t.AsnNumber, t.IsDestination)).ToList();
-            if (Explaining(e.OpenedAt, levels, shifts, options) is { } shift)
+            if (Explaining(e.OpenedAt, levels, shifts, options, e.ClosedAt ?? DateTime.UtcNow) is { } shift)
                 matched[e.Id] = shift;
         }
         return matched;
@@ -87,21 +89,21 @@ public static class PathShiftMatch
     }
 
     /// <summary>The step detector's shift that explains the episode, or null.</summary>
-    private static PathShiftEvent? Detected(DateTime openedAt, IReadOnlyList<EpisodeTargetLevels> degraded,
+    private static PathShiftEvent? Detected(DateTime openedAt, DateTime? until, IReadOnlyList<EpisodeTargetLevels> degraded,
         IReadOnlyList<PathShiftEvent> shifts, IspHealthOptions options)
     {
         if (shifts.Count == 0) return null;
         PathShiftEvent? first = null;
         foreach (var target in degraded)
         {
-            var shift = ShiftFor(target, openedAt, shifts, options);
+            var shift = ShiftFor(target, openedAt, until, shifts, options);
             if (shift == null) return null;
             first ??= shift;
         }
         return first;
     }
 
-    private static PathShiftEvent? ShiftFor(EpisodeTargetLevels target, DateTime openedAt,
+    private static PathShiftEvent? ShiftFor(EpisodeTargetLevels target, DateTime openedAt, DateTime? until,
         IReadOnlyList<PathShiftEvent> shifts, IspHealthOptions options)
     {
         if (target.BaselineRttMs is not double baseline || target.PeakRttMs is not double peak) return null;
@@ -109,19 +111,27 @@ public static class PathShiftMatch
 
         // The step is placed on a step-window boundary, so the degradation can begin up to a window ahead
         // of it. The latest shift on the target is the level it sits at; an earlier one was superseded.
-        var latest = openedAt + TimeSpan.FromMinutes(options.StepWindowMinutes);
-        var shift = shifts
-            .Where(s => !s.IsUnreachable && s.Time <= latest && Covers(s, target.TargetId))
-            .MaxBy(s => s.Time);
-        if (shift == null) return null;
+        var atOpen = openedAt + TimeSpan.FromMinutes(options.StepWindowMinutes);
+        var covering = shifts.Where(s => !s.IsUnreachable && Covers(s, target.TargetId)).ToList();
+        var shift = covering.Where(s => s.Time <= atOpen).MaxBy(s => s.Time);
+        if (shift != null && Fits(shift, target.TargetId, baseline, peak, options)) return shift;
 
-        var (before, after) = Levels(shift, target.TargetId);
-        var step = after - before;
-        if (step <= 0) return null;
-        var tolerance = Math.Max(options.PathRttMinDeltaMs / 2, step * 0.25);
-        return Math.Abs(baseline - before) <= tolerance && peak <= after + tolerance && peak >= before + step / 2
-            ? shift
+        // A target can join after the open: its own step then lands inside the episode. Only an up-step that
+        // fits counts, so a revert inside the span never displaces the level the target opened at.
+        return until is DateTime end
+            ? covering.Where(s => s.Time > atOpen && s.Time <= end).OrderBy(s => s.Time)
+                .FirstOrDefault(s => Fits(s, target.TargetId, baseline, peak, options))
             : null;
+    }
+
+    /// <summary>Baseline at the shift's before-level and peak at its after-level, on an up-step.</summary>
+    private static bool Fits(PathShiftEvent shift, string targetId, double baseline, double peak, IspHealthOptions options)
+    {
+        var (before, after) = Levels(shift, targetId);
+        var step = after - before;
+        if (step <= 0) return false;
+        var tolerance = Math.Max(options.PathRttMinDeltaMs / 2, step * 0.25);
+        return Math.Abs(baseline - before) <= tolerance && peak <= after + tolerance && peak >= before + step / 2;
     }
 
     private static bool Covers(PathShiftEvent s, string targetId) =>

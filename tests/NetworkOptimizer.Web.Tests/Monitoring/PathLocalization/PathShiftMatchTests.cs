@@ -176,6 +176,62 @@ public class PathShiftMatchTests
         row.EpisodeId.Should().Be(3);
     }
 
+    // ---- A target that joins after the open: two targets stepping 45 min apart, levels from a real episode ----
+
+    private static readonly DateTime Opened = new(2026, 11, 5, 16, 50, 0, DateTimeKind.Utc);
+    private static readonly DateTime Closed = new(2026, 11, 5, 23, 5, 0, DateTimeKind.Utc);
+    private static readonly PathShiftEvent CdnStep = Shift(Opened.AddMinutes(-5), 17.98, 33.92, "path-cdn-as64500");
+    private static readonly PathShiftEvent WestStep = Shift(Opened.AddMinutes(40), 56.69, 70.23, "aws-us-west-1");
+    private static readonly EpisodeTargetLevels CdnLevels = Levels(18.01, 34.20, target: "path-cdn-as64500");
+    private static readonly EpisodeTargetLevels WestLevels = Levels(58.19, 70.97, target: "aws-us-west-1");
+
+    [Fact]
+    public void TargetThatDegradedAfterTheOpen_MatchesItsLaterShift()
+    {
+        PathShiftMatch.Explaining(Opened, new[] { WestLevels }, new[] { WestStep }, Options, Closed).Should().BeSameAs(WestStep);
+        PathShiftMatch.Explaining(Opened, new[] { WestLevels }, new[] { WestStep }, Options)
+            .Should().BeNull("without the episode's span only the open is looked at");
+    }
+
+    [Fact]
+    public void StepOutsideTheEpisodeSpan_DoesNotExplainIt()
+    {
+        var late = Shift(Closed.AddMinutes(30), 56.69, 70.23, "aws-us-west-1");
+        PathShiftMatch.Explaining(Opened, new[] { WestLevels }, new[] { late }, Options, Closed).Should().BeNull();
+    }
+
+    [Fact]
+    public void RevertInsideTheSpan_KeepsTheLevelTheTargetOpenedAt()
+    {
+        var up = Shift(Step, 1.6, 17.7);
+        var down = Shift(Step.AddHours(2), 17.7, 1.6);
+        PathShiftMatch.Explaining(Step.AddMinutes(10), new[] { Levels() }, new[] { up, down }, Options, Step.AddHours(3))
+            .Should().BeSameAs(up);
+    }
+
+    [Fact]
+    public void TwoTargetsSteppingFortyFiveMinutesApart_Fold()
+    {
+        var shifts = new[] { CdnStep, WestStep };
+        PathShiftMatch.Explaining(Opened, new[] { CdnLevels, WestLevels }, shifts, Options, Closed).Should().BeSameAs(CdnStep);
+
+        var episode = new PathEpisodeView
+        {
+            Id = 2,
+            OpenedAt = Opened,
+            ClosedAt = Closed,
+            Disposition = CongestionDisposition.Unverifiable,
+            Label = "Both slowed down together.",
+            Degraded = new[]
+            {
+                new PathEpisodeTargetView(1, "aws-us-west-1", "AWS us-west-1", PathEpisodeTargetRole.Degraded, 58.19, 70.97, 0.5, 0, null),
+                new PathEpisodeTargetView(2, "path-cdn-as64500", "CDN", PathEpisodeTargetRole.Degraded, 18.01, 34.20, 0.5, 0, null)
+            }
+        };
+        var report = Report(CdnStep, WestStep);
+        PathEpisodePresentation.FoldIntoShifts(new[] { episode }, report, Options).Explained.Should().Equal(2);
+    }
+
     // ---- Step-only episodes: no detected shift, RTT rose on its own with loss and jitter at baseline ----
 
     private static EpisodeTargetLevels StepLevels(string target, string name, double baseline, double peak,
