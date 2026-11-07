@@ -11,7 +11,7 @@ using NetworkOptimizer.Storage.Models;
 namespace NetworkOptimizer.Storage.Migrations
 {
     [DbContext(typeof(NetworkOptimizerDbContext))]
-    [Migration("20261107165546_AddPathEpisodeTargetJitter")]
+    [Migration("20261107182504_AddPathEpisodeTargetJitter")]
     partial class AddPathEpisodeTargetJitter
     {
         /// <inheritdoc />
@@ -3516,6 +3516,9 @@ namespace NetworkOptimizer.Storage.Migrations
                     b.Property<DateTime?>("ClosedAt")
                         .HasColumnType("TEXT");
 
+                    b.Property<bool>("ConcurrentCongestion")
+                        .HasColumnType("INTEGER");
+
                     b.Property<string>("Disposition")
                         .IsRequired()
                         .HasMaxLength(16)
@@ -3593,11 +3596,11 @@ namespace NetworkOptimizer.Storage.Migrations
                     b.Property<int>("EpisodeId")
                         .HasColumnType("INTEGER");
 
+                    b.Property<double?>("JitterP95Ms")
+                        .HasColumnType("REAL");
+
                     b.Property<int>("MonitoringTargetId")
                         .HasColumnType("INTEGER");
-
-                    b.Property<double?>("PeakJitterMs")
-                        .HasColumnType("REAL");
 
                     b.Property<double?>("PeakLossPct")
                         .HasColumnType("REAL");

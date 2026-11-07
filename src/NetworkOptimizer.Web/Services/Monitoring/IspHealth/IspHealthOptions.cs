@@ -477,7 +477,7 @@ public class IspHealthOptions
     public double PathRttDeltaFraction { get; set; } = 0.20;
 
     /// <summary>
-    /// An RTT-only degradation whose worst window jitter stays under this multiple of baseline (or
+    /// An RTT-only degradation whose 95th-percentile window jitter stays under this multiple of baseline (or
     /// <see cref="PathStepJitterMinDeltaMs"/> over it, whichever is larger) is a route change: queues widen jitter.
     /// Matches <see cref="CongestionJitterFactor"/>, so a step is jitter the congestion detector would not call elevated.
     /// </summary>

@@ -96,8 +96,47 @@ public sealed class TargetDegradation
     /// <summary>Baseline median of the windows' jitter as of the last closed window; null until enough windows carry it.</summary>
     public double? BaselineJitterMs { get; private set; }
 
-    /// <summary>Worst window jitter since <see cref="DegradedSince"/>. Queueing widens it; a route change does not.</summary>
-    public double? PeakJitterMs { get; private set; }
+    /// <summary>
+    /// 95th percentile of window jitter over an episode: its degraded windows from <paramref name="from"/> on,
+    /// plus seeded windows, which stand in for the span after a restart. Taken from the episode's open, not
+    /// <see cref="DegradedSince"/>, so a target that clears and degrades again keeps the whole span. Queueing
+    /// widens it; a route change does not, and one window shared with every target does not move it. Null
+    /// when no window in the span carried jitter.
+    /// </summary>
+    public double? JitterP95Since(DateTime from) => SeriesStats.Percentile(_windows
+        .Where(w => w.Start >= from && w.JitterMs.HasValue && (!w.Judged || w.Signal != DegradationSignal.None))
+        .Select(w => w.JitterMs!.Value)
+        .ToList(), 0.95);
+
+    /// <summary>
+    /// Whether, from <paramref name="from"/> on, a run of degraded windows long enough to degrade the target
+    /// carried real loss or jitter over the congestion detector's elevated line: a queue, not a route change.
+    /// </summary>
+    public bool QueuedSince(DateTime from)
+    {
+        var need = Math.Max(1, _options.PathDegradationConsecutiveWindows);
+        int run = 0;
+        var queued = false;
+        foreach (var w in _windows)
+        {
+            if (w.Start + _windowLength <= from) continue;
+            if (!w.Judged || w.Signal == DegradationSignal.None)
+            {
+                run = 0;
+                queued = false;
+                continue;
+            }
+            run++;
+            queued |= w.Signal.HasFlag(DegradationSignal.Loss) || JitterElevated(w.JitterMs);
+            if (queued && run >= need) return true;
+        }
+        return false;
+    }
+
+    /// <summary>The congestion detector's line: over its factor of baseline and its floor above it.</summary>
+    private bool JitterElevated(double? jitter) =>
+        jitter is double j && BaselineJitterMs is double b
+        && j > b * _options.CongestionJitterFactor && j - b >= _options.CongestionJitterMinDeltaMs;
 
     public DegradationWindow? LastWindow => _windows.Last?.Value;
 
@@ -142,13 +181,12 @@ public sealed class TargetDegradation
     /// </summary>
     /// <param name="since">When the degradation began (the episode's open time).</param>
     /// <param name="now">Counts as the last sample, so the target is not taken for silent before its first one.</param>
-    public void ResumeDegraded(DateTime since, double? peakLossPct, double? peakRttMs, DateTime now, double? peakJitterMs = null)
+    public void ResumeDegraded(DateTime since, double? peakLossPct, double? peakRttMs, DateTime now)
     {
         Degraded = true;
         DegradedSince = since;
         PeakLossPct = peakLossPct ?? 0;
         PeakRttMs = peakRttMs;
-        PeakJitterMs = peakJitterMs;
         _degradedRun = 0;
         _cleanRun = 0;
         LastSampleAt ??= now;
@@ -290,7 +328,6 @@ public sealed class TargetDegradation
                 DegradedSince = _runStart;
                 PeakLossPct = 0;
                 PeakRttMs = null;
-                PeakJitterMs = null;
                 foreach (var run in _windows.Where(x => x.Start >= _runStart))
                     TrackPeak(run);
             }
@@ -316,7 +353,6 @@ public sealed class TargetDegradation
     {
         if (w.Signal.HasFlag(DegradationSignal.Loss) && w.LossPct > PeakLossPct) PeakLossPct = w.LossPct;
         if (w.MedianRttMs is double m && (PeakRttMs is null || m > PeakRttMs)) PeakRttMs = m;
-        if (w.JitterMs is double j && (PeakJitterMs is null || j > PeakJitterMs)) PeakJitterMs = j;
     }
 
     /// <param name="before">Windows starting before this count; <see cref="DateTime.MaxValue"/> for all of them.</param>

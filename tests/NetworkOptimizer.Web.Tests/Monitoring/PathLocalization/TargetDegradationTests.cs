@@ -34,7 +34,7 @@ public class TargetDegradationTests
 
     private static bool IsStep(TargetDegradation t) =>
         PathShiftMatch.IsStep(new EpisodeTargetLevels(t.TargetId, t.BaselineRttMs, t.PeakRttMs, t.PeakLossPct,
-            t.BaselineJitterMs, t.PeakJitterMs), Options);
+            t.BaselineJitterMs, t.JitterP95Since(t.DegradedSince!.Value)), Options);
 
     [Fact]
     public void FlatStep_NoLossSameJitter_ReadsAsARouteChange()
@@ -45,7 +45,7 @@ public class TargetDegradationTests
         t.Degraded.Should().BeTrue();
         t.LastWindow!.Signal.Should().Be(DegradationSignal.Rtt);
         t.BaselineJitterMs.Should().Be(0.4);
-        t.PeakJitterMs.Should().Be(0.45);
+        t.JitterP95Since(t.DegradedSince!.Value).Should().BeApproximately(0.45, 1e-9);
         IsStep(t).Should().BeTrue();
     }
 
@@ -54,12 +54,89 @@ public class TargetDegradationTests
     {
         var t = WithBaseline(out var now, rtt: 58, jitter: 0.4);
         now = Feed(t, now, TimeSpan.FromMinutes(20), 71, jitter: 0.45);
-        // One later window queues: its jitter, not the episode's average, decides.
-        Feed(t, now, TimeSpan.FromMinutes(10), 75, jitter: 3.0);
+        // Half an hour of queueing is well over a twentieth of the span.
+        Feed(t, now, TimeSpan.FromMinutes(30), 75, jitter: 3.0);
 
         t.Degraded.Should().BeTrue();
-        t.PeakJitterMs.Should().Be(3.0);
+        t.JitterP95Since(t.DegradedSince!.Value).Should().BeApproximately(3.0, 1e-9);
         IsStep(t).Should().BeFalse();
+    }
+
+    [Fact]
+    public void OneJitterBlipInALongStep_IsStillAStep()
+    {
+        // Two hours flat with one 5-minute blip: the 95th percentile looks past it, the worst window would not.
+        var t = WithBaseline(out var now, rtt: 58, jitter: 0.26);
+        now = Feed(t, now, TimeSpan.FromMinutes(60), 70, jitter: 0.3);
+        now = Feed(t, now, TimeSpan.FromMinutes(5), 70, jitter: 1.7);
+        Feed(t, now, TimeSpan.FromMinutes(60), 70, jitter: 0.3);
+
+        t.Degraded.Should().BeTrue();
+        t.JitterP95Since(t.DegradedSince!.Value).Should().BeLessThan(0.5);
+        IsStep(t).Should().BeTrue();
+    }
+
+    [Fact]
+    public void AfterARestart_SeededWindowsGiveThePercentile_OrNullWithoutJitter()
+    {
+        var opened = T0.AddHours(20);
+        var history = Enumerable.Range(0, 288)
+            .Select(i => T0.AddMinutes(5 * i))
+            .Select(s => (s, (double?)(s >= opened ? 70.0 : 58.0), (double?)0.0, (double?)(s >= opened ? 0.5 : 0.4)))
+            .ToList();
+        var t = new TargetDegradation("x", Options);
+        t.Seed(history, new[] { (opened, T0.AddHours(25)) });
+        t.ResumeDegraded(opened, 0, 70, T0.AddHours(24));
+        t.JitterP95Since(opened).Should().BeApproximately(0.5, 1e-9);
+
+        var bare = new TargetDegradation("y", Options);
+        bare.Seed(history.Select(h => (h.Item1, h.Item2, h.Item3, (double?)null)), new[] { (opened, T0.AddHours(25)) });
+        bare.ResumeDegraded(opened, 0, 70, T0.AddHours(24));
+        bare.JitterP95Since(opened).Should().BeNull();
+    }
+
+    [Fact]
+    public void JitterPercentile_FromTheEpisodesOpen_KeepsARunBeforeAClear()
+    {
+        // Queued for half an hour, cleared, then degraded again flat: the episode's span still holds the queue.
+        var t = WithBaseline(out var now, rtt: 58, jitter: 0.3);
+        var opened = now;
+        now = Feed(t, now, TimeSpan.FromMinutes(30), 75, jitter: 3.0);
+        now = Feed(t, now, TimeSpan.FromMinutes(20), 58, jitter: 0.3);
+        t.Degraded.Should().BeFalse();
+        Feed(t, now, TimeSpan.FromMinutes(30), 70, jitter: 0.3);
+
+        t.Degraded.Should().BeTrue();
+        t.JitterP95Since(t.DegradedSince!.Value).Should().BeApproximately(0.3, 1e-9);
+        t.JitterP95Since(opened).Should().BeApproximately(3.0, 1e-9);
+    }
+
+    [Fact]
+    public void QueuedSince_SustainedLossOrElevatedJitter_IsAQueue()
+    {
+        var lossy = WithBaseline(out var now, jitter: 0.3);
+        var from = now;
+        Feed(lossy, now, TimeSpan.FromMinutes(20), 42, lostPerBurst: 1, jitter: 0.3);
+        lossy.QueuedSince(from).Should().BeTrue();
+
+        var jittery = WithBaseline(out now, jitter: 0.3);
+        Feed(jittery, now, TimeSpan.FromMinutes(20), 60, jitter: 2.0);
+        jittery.QueuedSince(from).Should().BeTrue();
+    }
+
+    [Fact]
+    public void QueuedSince_AFlatStepOrOneLossyWindow_IsNotAQueue()
+    {
+        var flat = WithBaseline(out var now, jitter: 0.3);
+        var from = now;
+        Feed(flat, now, TimeSpan.FromMinutes(30), 60, jitter: 0.35);
+        flat.QueuedSince(from).Should().BeFalse("a route change on another target is not a queue");
+
+        // One lossy window never makes a degraded run, so it is noise, not congestion.
+        var blip = WithBaseline(out now, jitter: 0.3);
+        now = Feed(blip, now, TimeSpan.FromMinutes(5), 42, lostPerBurst: 1, jitter: 0.3);
+        Feed(blip, now, TimeSpan.FromMinutes(30), 42, jitter: 0.3);
+        blip.QueuedSince(from).Should().BeFalse();
     }
 
     [Fact]
@@ -82,14 +159,6 @@ public class TargetDegradationTests
         t.Degraded.Should().BeTrue();
         t.BaselineJitterMs.Should().BeNull();
         IsStep(t).Should().BeFalse();
-    }
-
-    [Fact]
-    public void ResumeDegraded_KeepsThePeakJitter()
-    {
-        var t = WithBaseline(out var now, jitter: 0.4);
-        t.ResumeDegraded(now, 0, 60, now, peakJitterMs: 2.5);
-        t.PeakJitterMs.Should().Be(2.5);
     }
 
     [Fact]

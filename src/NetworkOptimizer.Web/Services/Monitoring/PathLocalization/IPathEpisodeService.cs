@@ -8,12 +8,12 @@ namespace NetworkOptimizer.Web.Services.Monitoring.PathLocalization;
 /// <summary>A target on an episode, as the event row names it.</summary>
 /// <param name="Category">The Network Performance chart category it is drawn under.</param>
 /// <param name="BaselineJitterMs">Window jitter before the episode, for <see cref="PathShiftMatch.IsStep"/>.</param>
-/// <param name="PeakJitterMs">Worst window jitter while degraded.</param>
+/// <param name="JitterP95Ms">95th percentile of window jitter while degraded.</param>
 /// <param name="AsnNumber">The monitoring target's network, for the Path shift row's label.</param>
 /// <param name="IsDestination">An InternetService target, as the step detector marks its series.</param>
 public sealed record PathEpisodeTargetView(int MonitoringTargetId, string TargetId, string Name, PathEpisodeTargetRole Role,
     double? BaselineRttMs, double? PeakRttMs, double? BaselineLossPct, double? PeakLossPct, string? Label,
-    string Category = MonitoringLinks.CustomCategory, double? BaselineJitterMs = null, double? PeakJitterMs = null,
+    string Category = MonitoringLinks.CustomCategory, double? BaselineJitterMs = null, double? JitterP95Ms = null,
     int? AsnNumber = null, bool IsDestination = false);
 
 /// <summary>One episode, for the Path &amp; Congestion Events row.</summary>
@@ -39,6 +39,8 @@ public sealed record PathEpisodeView
     public string? Label { get; init; }
     public string? Summary { get; init; }
     public ReturnPathFinding ReturnFinding { get; init; }
+    /// <summary>Another target on the WAN queued while it ran, so it is never a step on its own.</summary>
+    public bool ConcurrentCongestion { get; init; }
     public IReadOnlyList<PathEpisodeTargetView> Degraded { get; init; } = Array.Empty<PathEpisodeTargetView>();
     public IReadOnlyList<PathEpisodeTargetView> Controls { get; init; } = Array.Empty<PathEpisodeTargetView>();
 }

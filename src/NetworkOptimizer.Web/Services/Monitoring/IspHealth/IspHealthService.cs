@@ -1655,10 +1655,11 @@ public class IspHealthService
         if (degraded.Any(t => !targetIdById.ContainsKey(t.MonitoringTargetId))) return false;
         var levels = degraded
             .Select(t => new PathLocalization.EpisodeTargetLevels(targetIdById[t.MonitoringTargetId], t.BaselineRttMs, t.PeakRttMs, t.PeakLossPct,
-                t.BaselineJitterMs, t.PeakJitterMs))
+                t.BaselineJitterMs, t.JitterP95Ms))
             .ToList();
         var until = e.ClosedAt is DateTime c ? PathLocalization.PathEpisodeTraceMapping.Utc(c) : DateTime.UtcNow;
-        return PathLocalization.PathShiftMatch.Explaining(PathLocalization.PathEpisodeTraceMapping.Utc(e.OpenedAt), levels, pathShifts, options, until) != null;
+        return PathLocalization.PathShiftMatch.Explaining(PathLocalization.PathEpisodeTraceMapping.Utc(e.OpenedAt), levels, pathShifts, options,
+            until, e.ConcurrentCongestion) != null;
     }
 
     /// <summary>

@@ -17,10 +17,17 @@ namespace NetworkOptimizer.Storage.Migrations
                 nullable: true);
 
             migrationBuilder.AddColumn<double>(
-                name: "PeakJitterMs",
+                name: "JitterP95Ms",
                 table: "PathEpisodeTargets",
                 type: "REAL",
                 nullable: true);
+
+            migrationBuilder.AddColumn<bool>(
+                name: "ConcurrentCongestion",
+                table: "PathEpisodes",
+                type: "INTEGER",
+                nullable: false,
+                defaultValue: false);
         }
 
         /// <inheritdoc />
@@ -31,8 +38,12 @@ namespace NetworkOptimizer.Storage.Migrations
                 table: "PathEpisodeTargets");
 
             migrationBuilder.DropColumn(
-                name: "PeakJitterMs",
+                name: "JitterP95Ms",
                 table: "PathEpisodeTargets");
+
+            migrationBuilder.DropColumn(
+                name: "ConcurrentCongestion",
+                table: "PathEpisodes");
         }
     }
 }

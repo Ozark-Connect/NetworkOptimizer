@@ -235,8 +235,8 @@ public class PathShiftMatchTests
     // ---- Step-only episodes: no detected shift, RTT rose on its own with loss and jitter at baseline ----
 
     private static EpisodeTargetLevels StepLevels(string target, string name, double baseline, double peak,
-        double baseJitter = 0.4, double peakJitter = 0.6, double loss = 0) =>
-        new(target, baseline, peak, loss, baseJitter, peakJitter, name);
+        double baseJitter = 0.4, double jitterP95 = 0.6, double loss = 0) =>
+        new(target, baseline, peak, loss, baseJitter, jitterP95, name);
 
     private static readonly EpisodeTargetLevels West = StepLevels("aws-us-west-1", "AWS us-west-1", 58.2, 71.0);
     private static readonly EpisodeTargetLevels Anycast = StepLevels("path-cdn-as64500", "CDN", 18.0, 34.2);
@@ -261,7 +261,7 @@ public class PathShiftMatchTests
     public void WideningJitter_StaysCongestion()
     {
         // Twice the baseline and over 0.8 ms above it: a queue, not a longer route.
-        var queued = StepLevels("aws-us-west-1", "AWS us-west-1", 58.2, 71.0, baseJitter: 0.4, peakJitter: 1.9);
+        var queued = StepLevels("aws-us-west-1", "AWS us-west-1", 58.2, 71.0, baseJitter: 0.4, jitterP95: 1.9);
         PathShiftMatch.IsStep(queued, Options).Should().BeFalse();
         Explaining(Step, Array.Empty<PathShiftEvent>(), queued, Anycast).Should().BeNull("every degraded target must be a step");
     }
@@ -270,7 +270,7 @@ public class PathShiftMatchTests
     public void SmallJitterRiseOnALowBaseline_IsStillAStep()
     {
         // 0.15 to 0.81 ms on a real 9.7 to 23.8 ms route change: under the 0.8 ms floor over baseline.
-        PathShiftMatch.IsStep(StepLevels("t", "T", 9.7, 23.8, baseJitter: 0.15, peakJitter: 0.81), Options).Should().BeTrue();
+        PathShiftMatch.IsStep(StepLevels("t", "T", 9.7, 23.8, baseJitter: 0.15, jitterP95: 0.81), Options).Should().BeTrue();
     }
 
     [Fact]
@@ -285,6 +285,18 @@ public class PathShiftMatchTests
         // Episodes stored before jitter was kept, or a probe that reports none, stay congestion.
         PathShiftMatch.IsStep(Levels(), Options).Should().BeFalse();
         PathShiftMatch.IsStep(new EpisodeTargetLevels("t", 18, 34, 0, 0.4, null), Options).Should().BeFalse();
+    }
+
+    [Fact]
+    public void ConcurrentCongestion_BlocksTheStepShift_NotADetectedOne()
+    {
+        Explaining(Step, Array.Empty<PathShiftEvent>(), West, Anycast).Should().NotBeNull();
+        PathShiftMatch.Explaining(Step, new[] { West, Anycast }, Array.Empty<PathShiftEvent>(), Options, concurrentCongestion: true)
+            .Should().BeNull("another target queued on the WAN while it ran");
+
+        var detected = Shift(Step, 1.6, 17.7);
+        PathShiftMatch.Explaining(Step, new[] { StepLevels(Target, "Cloudflare", 1.63, 17.72) }, new[] { detected }, Options,
+            concurrentCongestion: true).Should().BeSameAs(detected);
     }
 
     [Fact]
@@ -319,9 +331,9 @@ public class PathShiftMatchTests
                 Degraded = new[]
                 {
                     new PathEpisodeTargetView(1, "aws-us-west-1", "AWS us-west-1", PathEpisodeTargetRole.Degraded, 58.2, 71.0, 0.5, 0, null,
-                        BaselineJitterMs: 0.4, PeakJitterMs: 0.6),
+                        BaselineJitterMs: 0.4, JitterP95Ms: 0.6),
                     new PathEpisodeTargetView(2, "path-cdn-as64500", "CDN", PathEpisodeTargetRole.Degraded, 18.0, 34.2, 0.5, 0, null,
-                        BaselineJitterMs: 0.3, PeakJitterMs: 0.5)
+                        BaselineJitterMs: 0.3, JitterP95Ms: 0.5)
                 }
             }
         };
@@ -348,7 +360,7 @@ public class PathShiftMatchTests
         Degraded = new[]
         {
             new PathEpisodeTargetView(1, "t1", "Hop", PathEpisodeTargetRole.Degraded, 18.0, 34.2, 0.5, 0, null,
-                BaselineJitterMs: 0.3, PeakJitterMs: 0.5, AsnNumber: asn, IsDestination: isDestination)
+                BaselineJitterMs: 0.3, JitterP95Ms: 0.5, AsnNumber: asn, IsDestination: isDestination)
         }
     };
 

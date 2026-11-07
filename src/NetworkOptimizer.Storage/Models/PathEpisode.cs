@@ -78,6 +78,10 @@ public class PathEpisode
 
     public ReturnPathFinding ReturnPathFinding { get; set; }
 
+    /// <summary>Another target on the same WAN queued (real loss, or jitter the congestion detector calls
+    /// elevated) while this episode ran, so its RTT-only rise is not taken for a route change. Never cleared.</summary>
+    public bool ConcurrentCongestion { get; set; }
+
     /// <summary>One or two sentences on what the evidence says, for the event row.</summary>
     public string? Summary { get; set; }
 
@@ -113,8 +117,8 @@ public class PathEpisodeTarget
     /// <summary>The target's baseline window jitter when the episode opened.</summary>
     public double? BaselineJitterMs { get; set; }
 
-    /// <summary>Worst window jitter while degraded. Near baseline with no loss, the rise was a route change.</summary>
-    public double? PeakJitterMs { get; set; }
+    /// <summary>95th percentile of window jitter while degraded. Near baseline with no loss, the rise was a route change.</summary>
+    public double? JitterP95Ms { get; set; }
 
     public string? Scope { get; set; }
 

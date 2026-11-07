@@ -6,7 +6,7 @@ namespace NetworkOptimizer.Web.Services.Monitoring.PathLocalization;
 /// <param name="Name">Display name, for the Path shift built from a step-only episode.</param>
 /// <param name="IsDestination">An InternetService target, as <see cref="PathShiftEvent.IsDestination"/> reads.</param>
 public sealed record EpisodeTargetLevels(string TargetId, double? BaselineRttMs, double? PeakRttMs, double? PeakLossPct,
-    double? BaselineJitterMs = null, double? PeakJitterMs = null, string? Name = null, int? AsnNumber = null,
+    double? BaselineJitterMs = null, double? JitterP95Ms = null, string? Name = null, int? AsnNumber = null,
     bool IsDestination = false);
 
 /// <summary>
@@ -18,7 +18,8 @@ public sealed record EpisodeTargetLevels(string TargetId, double? BaselineRttMs,
 ///
 /// An episode the step detector has no shift for is still a route change when every degraded target rose
 /// on RTT alone, with loss under the floor and jitter near its baseline (<see cref="IsStep"/>): queues widen
-/// jitter, a longer route does not. It is reported as a Path shift built from the episode's own levels.
+/// jitter, a longer route does not. It is reported as a Path shift built from the episode's own levels,
+/// unless another target on the WAN queued while it ran.
 /// </summary>
 public static class PathShiftMatch
 {
@@ -26,11 +27,14 @@ public static class PathShiftMatch
     /// <param name="openedAt">When the degradation began (the episode's open time), UTC.</param>
     /// <param name="until">When the episode closed, or now while it is open, UTC. A target that degraded after
     /// the open is matched to a step inside this span; null looks only at the open.</param>
+    /// <param name="concurrentCongestion">Another target on the WAN queued while the episode ran: a rise alongside
+    /// a queue is not a step on its own. A detected shift still explains it.</param>
     public static PathShiftEvent? Explaining(DateTime openedAt, IReadOnlyList<EpisodeTargetLevels> degraded,
-        IReadOnlyList<PathShiftEvent> shifts, IspHealthOptions options, DateTime? until = null)
+        IReadOnlyList<PathShiftEvent> shifts, IspHealthOptions options, DateTime? until = null, bool concurrentCongestion = false)
     {
         if (degraded.Count == 0) return null;
-        return Detected(openedAt, until, degraded, shifts, options) ?? StepShift(openedAt, degraded, options);
+        return Detected(openedAt, until, degraded, shifts, options)
+            ?? (concurrentCongestion ? null : StepShift(openedAt, degraded, options));
     }
 
     /// <summary>Each explained episode's shift, by episode id.</summary>
@@ -41,24 +45,24 @@ public static class PathShiftMatch
         foreach (var e in episodes)
         {
             var levels = e.Degraded.Select(t => new EpisodeTargetLevels(t.TargetId, t.BaselineRttMs, t.PeakRttMs, t.PeakLossPct,
-                t.BaselineJitterMs, t.PeakJitterMs, t.Name, t.AsnNumber, t.IsDestination)).ToList();
-            if (Explaining(e.OpenedAt, levels, shifts, options, e.ClosedAt ?? DateTime.UtcNow) is { } shift)
+                t.BaselineJitterMs, t.JitterP95Ms, t.Name, t.AsnNumber, t.IsDestination)).ToList();
+            if (Explaining(e.OpenedAt, levels, shifts, options, e.ClosedAt ?? DateTime.UtcNow, e.ConcurrentCongestion) is { } shift)
                 matched[e.Id] = shift;
         }
         return matched;
     }
 
     /// <summary>
-    /// A degraded target that rose on RTT alone: loss under the floor, and its worst window's jitter within
-    /// <see cref="IspHealthOptions.PathStepJitterFactor"/> of baseline or
+    /// A degraded target that rose on RTT alone: loss under the floor, and the 95th percentile of its window
+    /// jitter within <see cref="IspHealthOptions.PathStepJitterFactor"/> of baseline or
     /// <see cref="IspHealthOptions.PathStepJitterMinDeltaMs"/> over it. Without both jitter readings it is
     /// not judged a step.
     /// </summary>
     public static bool IsStep(EpisodeTargetLevels t, IspHealthOptions options) =>
         t.BaselineRttMs is double baseline && t.PeakRttMs is double peak && peak > baseline
         && (t.PeakLossPct ?? 0) < options.PathLossMinPct
-        && t.BaselineJitterMs is double baseJitter && t.PeakJitterMs is double peakJitter
-        && peakJitter <= Math.Max(baseJitter * options.PathStepJitterFactor, baseJitter + options.PathStepJitterMinDeltaMs);
+        && t.BaselineJitterMs is double baseJitter && t.JitterP95Ms is double jitter
+        && jitter <= Math.Max(baseJitter * options.PathStepJitterFactor, baseJitter + options.PathStepJitterMinDeltaMs);
 
     /// <summary>
     /// The Path shift a step-only episode stands for: an up-step at the episode's open, each degraded target

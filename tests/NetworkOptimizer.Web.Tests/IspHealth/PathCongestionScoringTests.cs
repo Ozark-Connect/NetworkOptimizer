@@ -75,13 +75,13 @@ public class PathCongestionScoringTests
     }
 
     /// <summary>Two networks rising on RTT alone with no detected shift; the second target's peak jitter varies.</summary>
-    private static PathEpisode JitterEpisode(double secondPeakJitter)
+    private static PathEpisode JitterEpisode(double secondJitterP95)
     {
         var e = StepEpisode(peakLoss: 0);
         foreach (var t in e.Targets)
         {
             t.BaselineJitterMs = 0.4;
-            t.PeakJitterMs = t.MonitoringTargetId == 3 ? secondPeakJitter : 0.5;
+            t.JitterP95Ms = t.MonitoringTargetId == 3 ? secondJitterP95 : 0.5;
         }
         return e;
     }
@@ -89,15 +89,25 @@ public class PathCongestionScoringTests
     [Fact]
     public void AllStepEpisode_WithNoDetectedShift_CostsNothing()
     {
-        var e = JitterEpisode(secondPeakJitter: 0.6);
+        var e = JitterEpisode(secondJitterP95: 0.6);
         IspHealthService.ExplainedByShift(e, TargetIdById, new List<PathShiftEvent>(), new IspHealthOptions())
             .Should().BeTrue("RTT rose on both with no loss and no wider jitter: a route change, which never scores");
     }
 
     [Fact]
+    public void AllStepEpisode_WhileAnotherTargetQueued_StillScores()
+    {
+        var e = JitterEpisode(secondJitterP95: 0.6);
+        e.ConcurrentCongestion = true;
+        IspHealthService.ExplainedByShift(e, TargetIdById, new List<PathShiftEvent>(), new IspHealthOptions())
+            .Should().BeFalse("a rise alongside a queue elsewhere on the WAN is not a route change on its own");
+        Score(e).Should().ContainSingle();
+    }
+
+    [Fact]
     public void MixedEpisode_OneTargetQueued_StillScores()
     {
-        var e = JitterEpisode(secondPeakJitter: 3.0);
+        var e = JitterEpisode(secondJitterP95: 3.0);
         IspHealthService.ExplainedByShift(e, TargetIdById, new List<PathShiftEvent>(), new IspHealthOptions())
             .Should().BeFalse();
         Score(e).Should().ContainSingle();

@@ -387,8 +387,7 @@ public sealed class PathEpisodeWatcher
                         if (!_trackers.TryGetValue(d.Target.TargetId, out var tracker))
                             _trackers[d.Target.TargetId] = tracker = new TargetDegradation(d.Target.TargetId, _options);
                         var stored = run.Row.Targets.FirstOrDefault(x => x.MonitoringTargetId == d.Target.Id && x.Role == PathEpisodeTargetRole.Degraded);
-                        tracker.ResumeDegraded(PathEpisodeTraceMapping.Utc(run.Row.OpenedAt), stored?.PeakLossPct, stored?.PeakRttMs, now,
-                            stored?.PeakJitterMs);
+                        tracker.ResumeDegraded(PathEpisodeTraceMapping.Utc(run.Row.OpenedAt), stored?.PeakLossPct, stored?.PeakRttMs, now);
                     }
                 }
             }
@@ -712,7 +711,7 @@ public sealed class PathEpisodeWatcher
             Summary = "Tracing the degraded paths."
         };
         foreach (var t in traced)
-            row.Targets.Add(TargetRow(t, PathEpisodeTargetRole.Degraded, trackers[t.TargetId]));
+            row.Targets.Add(TargetRow(t, PathEpisodeTargetRole.Degraded, trackers[t.TargetId], PathEpisodeTraceMapping.Utc(row.OpenedAt)));
         if (control != null)
             row.Targets.Add(new PathEpisodeTarget { MonitoringTargetId = control.Id, Role = PathEpisodeTargetRole.Control });
 
@@ -744,7 +743,8 @@ public sealed class PathEpisodeWatcher
         lock (_lock) return targets.ToDictionary(t => t.TargetId, t => _trackers[t.TargetId], StringComparer.OrdinalIgnoreCase);
     }
 
-    private static PathEpisodeTarget TargetRow(Watched t, PathEpisodeTargetRole role, TargetDegradation tracker) => new()
+    /// <param name="openedAt">The episode's open, UTC: the start of the span its jitter percentile covers.</param>
+    private static PathEpisodeTarget TargetRow(Watched t, PathEpisodeTargetRole role, TargetDegradation tracker, DateTime openedAt) => new()
     {
         MonitoringTargetId = t.Id,
         Role = role,
@@ -753,7 +753,7 @@ public sealed class PathEpisodeWatcher
         PeakRttMs = tracker.PeakRttMs,
         PeakLossPct = tracker.PeakLossPct,
         BaselineJitterMs = tracker.BaselineJitterMs,
-        PeakJitterMs = tracker.PeakJitterMs
+        JitterP95Ms = tracker.JitterP95Since(openedAt)
     };
 
     /// <summary>
@@ -1281,6 +1281,8 @@ public sealed class PathEpisodeWatcher
 
         lock (_lock)
         {
+            row.ConcurrentCongestion |= OtherTargetQueued(run);
+            var openedAt = PathEpisodeTraceMapping.Utc(row.OpenedAt);
             foreach (var d in run.Degraded)
             {
                 var tracker = _trackers.GetValueOrDefault(d.Target.TargetId);
@@ -1288,7 +1290,7 @@ public sealed class PathEpisodeWatcher
                 var stored = row.Targets.FirstOrDefault(t => t.MonitoringTargetId == d.Target.Id && t.Role == PathEpisodeTargetRole.Degraded);
                 if (stored == null)
                 {
-                    stored = tracker != null ? TargetRow(d.Target, PathEpisodeTargetRole.Degraded, tracker)
+                    stored = tracker != null ? TargetRow(d.Target, PathEpisodeTargetRole.Degraded, tracker, openedAt)
                         : new PathEpisodeTarget { MonitoringTargetId = d.Target.Id, Role = PathEpisodeTargetRole.Degraded };
                     row.Targets.Add(stored);
                 }
@@ -1296,7 +1298,8 @@ public sealed class PathEpisodeWatcher
                 {
                     stored.PeakLossPct = Math.Max(stored.PeakLossPct ?? 0, tracker.PeakLossPct);
                     if (tracker.PeakRttMs is double p) stored.PeakRttMs = Math.Max(stored.PeakRttMs ?? 0, p);
-                    if (tracker.PeakJitterMs is double j) stored.PeakJitterMs = Math.Max(stored.PeakJitterMs ?? 0, j);
+                    // The tracker holds the whole span (seeded across a restart), so its percentile replaces the stored one.
+                    if (tracker.JitterP95Since(openedAt) is double j) stored.JitterP95Ms = j;
                 }
                 if (v == null) continue;
                 stored.Scope = v.Scope.ToString();
@@ -1309,6 +1312,18 @@ public sealed class PathEpisodeWatcher
 
         await using var db = _siteDb.CreateForSite(_slug, _isDefault);
         await new PathEpisodeRepository(db).UpdateAsync(row, ct);
+    }
+
+    /// <summary>
+    /// Whether another watched target on the episode's WAN context queued while it ran
+    /// (<see cref="TargetDegradation.QueuedSince"/>). Caller holds _lock.
+    /// </summary>
+    private bool OtherTargetQueued(EpisodeRun run)
+    {
+        var from = PathEpisodeTraceMapping.Utc(run.Row.OpenedAt);
+        var own = run.Degraded.Select(d => d.Target.TargetId).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        return _watched.Values.Any(w => w.ContextKey == run.ContextKey && !own.Contains(w.TargetId)
+            && _trackers.TryGetValue(w.TargetId, out var t) && t.QueuedSince(from));
     }
 
     private static TargetTraces ToTraces(RunTarget t) =>
