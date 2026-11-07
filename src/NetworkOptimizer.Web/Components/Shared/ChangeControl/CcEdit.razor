@@ -51,12 +51,12 @@
                     <CcIcon Name="upload" /> YAML
                     <InputFile OnChange="UploadAsync" accept=".yaml,.yml,.txt" style="display:none" />
                 </label>
-                <button class="btn btn-contrast btn-sm" @onclick="() => DownloadAsync(false)" aria-label="Download YAML"><CcIcon /> YAML</button>
+                <button class="btn btn-contrast btn-sm" disabled="@(_downloading != null)" @onclick="() => DownloadAsync(false)" aria-label="Download YAML">@DownloadIcon(false) YAML</button>
                 @if (TemplateId == null)
                 {
                     <SiteAdminOnly>
-                        <button class="btn btn-contrast btn-sm" @onclick="() => DownloadAsync(true)"
-                                data-tooltip="Clear-text secrets: Wi-Fi passphrases, VPN keys, RADIUS secrets. Store it like a password. The export is audited." aria-label="Download YAML with Secrets"><CcIcon /> YAML w/ Secrets</button>
+                        <button class="btn btn-contrast btn-sm" disabled="@(_downloading != null)" @onclick="() => DownloadAsync(true)"
+                                data-tooltip="Clear-text secrets: Wi-Fi passphrases, VPN keys, RADIUS secrets. Store it like a password. The export is audited." aria-label="Download YAML with Secrets">@DownloadIcon(true) YAML w/ Secrets</button>
                     </SiteAdminOnly>
                 }
                 <button class="btn btn-contrast btn-sm" disabled="@(_edited.Count == 0)" @onclick="DiscardAsync">Discard Edits</button>
@@ -210,7 +210,7 @@
                             <CcIcon Name="upload" /> YAML
                             <InputFile OnChange="UploadAsync" accept=".yaml,.yml,.txt" style="display:none" />
                         </label>
-                        <button class="btn btn-contrast cc-phone-inline" @onclick="() => DownloadAsync(false)" aria-label="Download YAML"><CcIcon /> YAML</button>
+                        <button class="btn btn-contrast cc-phone-inline" disabled="@(_downloading != null)" @onclick="() => DownloadAsync(false)" aria-label="Download YAML">@DownloadIcon(false) YAML</button>
                         <button class="btn btn-contrast cc-phone-inline" disabled="@_loading" @onclick="DownloadCollectionAsync" aria-label="Download Collection YAML"><CcIcon /> Collection YAML</button>
                     </div>
                 </div>
@@ -974,16 +974,34 @@
         }
     }
 
+    // The export being built (false: plain, true: with secrets); null when none is.
+    private bool? _downloading;
+
+    private RenderFragment DownloadIcon(bool withSecrets) =>
+        _downloading == withSecrets ? @<span class="spinner-sm"></span> : @<CcIcon />;
+
     private async Task DownloadAsync(bool withSecrets)
     {
-        if (CurrentTemplate is { } template)
+        if (_downloading != null) return;
+        _downloading = withSecrets;
+        try
         {
-            var text = await Templates.GetYamlAsync(template.Id);
-            await SaveYamlAsync($"template-{TemplateSlug(template)}", text);
-            return;
+            // Building the export can take seconds; draw the spinner before it starts.
+            StateHasChanged();
+            await Task.Yield();
+            if (CurrentTemplate is { } template)
+            {
+                var text = await Templates.GetYamlAsync(template.Id);
+                await SaveYamlAsync($"template-{TemplateSlug(template)}", text);
+                return;
+            }
+            var yaml = withSecrets ? await Site.DownloadYamlWithSecretsAsync(SnapshotId) : await Site.DownloadYamlAsync(SnapshotId);
+            await SaveYamlAsync($"{SiteCtx.Slug}-config{(withSecrets ? "-with-secrets" : "")}", yaml);
         }
-        var yaml = withSecrets ? await Site.DownloadYamlWithSecretsAsync(SnapshotId) : await Site.DownloadYamlAsync(SnapshotId);
-        await SaveYamlAsync($"{SiteCtx.Slug}-config{(withSecrets ? "-with-secrets" : "")}", yaml);
+        finally
+        {
+            _downloading = null;
+        }
     }
 
     /// <summary>The open collection as the editor shows it: edits included, secrets masked.</summary>

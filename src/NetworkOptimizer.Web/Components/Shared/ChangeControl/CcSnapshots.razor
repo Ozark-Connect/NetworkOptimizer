@@ -476,9 +476,22 @@ else if (_compare != null)
 
     /// <summary>The download icon plus "YAML"; a null id is the live config.</summary>
     private RenderFragment YamlButton(int? snapshotId, string tooltip) =>
-        @<button class="cc-link-btn" data-tooltip="@tooltip" aria-label="Download YAML" @onclick="() => DownloadYamlAsync(snapshotId)">
-            <CcIcon /> YAML
+        @<button class="cc-link-btn" data-tooltip="@tooltip" aria-label="Download YAML" disabled="@(_downloading != null)" @onclick="() => DownloadYamlAsync(snapshotId)">
+            @if (_downloading == YamlKey(snapshotId))
+            {
+                <span class="spinner-sm"></span>
+            }
+            else
+            {
+                <CcIcon />
+            }
+            YAML
         </button>;
+
+    // The YAML export being built, by YamlKey; null when none is.
+    private string? _downloading;
+
+    private static string YamlKey(int? snapshotId) => snapshotId?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "live";
 
     private static RenderFragment PinIcon(bool filled) =>
         @<svg width="14" height="14" viewBox="0 0 24 24" fill="@(filled ? "currentColor" : "none")" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px" aria-hidden="true">
@@ -491,9 +504,21 @@ else if (_compare != null)
 
     private async Task DownloadYamlAsync(int? snapshotId)
     {
-        var yaml = await Site.DownloadYamlAsync(snapshotId);
-        await JS.InvokeVoidAsync("downloadFile", $"{SiteCtx.Slug}-config-{DisplayTime.Now:yyyyMMdd-HHmm}.yaml", "application/yaml",
-            Convert.ToBase64String(Encoding.UTF8.GetBytes(yaml)));
+        if (_downloading != null) return;
+        _downloading = YamlKey(snapshotId);
+        try
+        {
+            // Building the export can take seconds; draw the spinner before it starts.
+            StateHasChanged();
+            await Task.Yield();
+            var yaml = await Site.DownloadYamlAsync(snapshotId);
+            await JS.InvokeVoidAsync("downloadFile", $"{SiteCtx.Slug}-config-{DisplayTime.Now:yyyyMMdd-HHmm}.yaml", "application/yaml",
+                Convert.ToBase64String(Encoding.UTF8.GetBytes(yaml)));
+        }
+        finally
+        {
+            _downloading = null;
+        }
     }
 
     private async Task DownloadDiffAsync()
