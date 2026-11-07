@@ -466,9 +466,7 @@ public static class ConfigCollections
                 Key = "networkconf", DisplayName = "Networks", Noun = "Network", Group = "Networks",
                 FieldGroups = ConfigFieldOrder.NetworkFields,
                 Scope = UniFiApiScope.SiteV1, ReadPath = "rest/networkconf", Order = 2,
-                // lte_lan_enabled_devices is the LAN-connected 5G/LTE modem UniFi fills in on every network;
-                // another console's modem MAC must never be written.
-                ReadOnlyFields = Set([.. CommonReadOnly, "lte_lan_enabled_devices"]),
+                ReadOnlyFields = CommonReadOnly,
                 // Not x_-prefixed, but carry keys: the WireGuard config file holds the PrivateKey line.
                 ExtraSecretFields = Set("wireguard_client_preshared_key", "wireguard_client_configuration_file", "openvpn_configuration"),
                 SetArrays = Set("dhcpd_dns", "nat_outbound_ip_addresses"),
