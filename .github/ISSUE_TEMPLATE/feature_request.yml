@@ -1,0 +1,45 @@
+name: Feature request
+description: Something Network Optimizer could do, or do better.
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Describe the problem first, then the change you have in mind. The problem is what lets us find the right fix, even when it ends up different from the first idea.
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before you file
+      options:
+        - label: I searched [existing issues](https://github.com/Ozark-Connect/NetworkOptimizer/issues?q=is%3Aissue), open and closed.
+          required: true
+        - label: I checked the [latest release and preview notes](https://github.com/Ozark-Connect/NetworkOptimizer/releases) and [FEATURES.md](https://github.com/Ozark-Connect/NetworkOptimizer/blob/main/FEATURES.md) for what already exists.
+          required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What you are trying to do, and what stops you today.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you have in mind
+      description: How it could work, and where in the app you would expect to find it.
+
+  - type: textarea
+    id: setup
+    attributes:
+      label: Your setup
+      description: UniFi devices, UniFi Network version, and install method, where they matter to the request.
+
+  - type: checkboxes
+    id: contribute
+    attributes:
+      label: Contributing
+      options:
+        - label: I'd like to open the PR for this myself. We agree on the approach here first, per [CONTRIBUTING.md](https://github.com/Ozark-Connect/NetworkOptimizer/blob/main/CONTRIBUTING.md).

@@ -4,7 +4,11 @@ Network Optimizer is source-available, not open source. The code is public under
 
 ## Issues are open to everyone
 
-Bug reports and feature requests go in [GitHub Issues](https://github.com/Ozark-Connect/NetworkOptimizer/issues), and I read and reply to every one. Include your UniFi device models, your UniFi Network and UniFi OS versions, and how you run Network Optimizer (Docker, Windows, macOS, Proxmox). Sanitize credentials and IP addresses before attaching logs.
+Bug reports and feature requests go in [GitHub Issues](https://github.com/Ozark-Connect/NetworkOptimizer/issues), and I read and reply to every one. The issue forms ask for what I need: your Network Optimizer version, your UniFi device models, your UniFi Network and UniFi OS versions, and how you run Network Optimizer (Docker, Windows, macOS, Proxmox). Sanitize credentials and IP addresses before attaching logs.
+
+Before you file, search existing issues (open and closed) and check the latest [release and preview notes](https://github.com/Ozark-Connect/NetworkOptimizer/releases). A fix often ships in a preview before the next stable release, so your bug may already be fixed there.
+
+Install, upgrade, and setup questions go to the [Network Optimizer Discord](https://discord.gg/pHrmzbBCY3). Issues are for confirmed bugs and feature requests.
 
 A good issue is the most useful thing you can send: logs, traces, and a clear repro have driven a lot of what's in this project, and they get credited in the release notes.
 
