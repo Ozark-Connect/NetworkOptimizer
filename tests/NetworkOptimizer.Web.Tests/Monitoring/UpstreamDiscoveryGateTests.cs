@@ -17,6 +17,10 @@ public class UpstreamDiscoveryGateTests : IDisposable
 {
     private const double Loaded = 0.50;
 
+    // Acceptable idle loss, percent: a fiber-like profile and a lossy medium's.
+    private const double FiberAcceptable = 0.05;
+    private const double LossyAcceptable = 1.0;
+
     private readonly NetworkOptimizerDbContext _db;
 
     public UpstreamDiscoveryGateTests()
@@ -35,7 +39,7 @@ public class UpstreamDiscoveryGateTests : IDisposable
     [Fact]
     public void Clean_inputs_pass()
     {
-        var verdict = UpstreamDiscoveryGate.Judge(false, 0.10, 0.0, Loaded);
+        var verdict = UpstreamDiscoveryGate.Judge(false, 0.10, 0.0, Loaded, FiberAcceptable);
 
         verdict.Ok.Should().BeTrue();
         verdict.Reason.Should().BeNull();
@@ -44,13 +48,13 @@ public class UpstreamDiscoveryGateTests : IDisposable
     [Fact]
     public void Unknown_inputs_never_block()
     {
-        UpstreamDiscoveryGate.Judge(false, null, null, Loaded).Ok.Should().BeTrue();
+        UpstreamDiscoveryGate.Judge(false, null, null, Loaded, FiberAcceptable).Ok.Should().BeTrue();
     }
 
     [Fact]
     public void Open_outage_blocks()
     {
-        var verdict = UpstreamDiscoveryGate.Judge(true, null, null, Loaded);
+        var verdict = UpstreamDiscoveryGate.Judge(true, null, null, Loaded, FiberAcceptable);
 
         verdict.Ok.Should().BeFalse();
         verdict.Reason.Should().Be("an outage is in progress");
@@ -59,13 +63,13 @@ public class UpstreamDiscoveryGateTests : IDisposable
     [Fact]
     public void Outage_is_named_ahead_of_load_and_loss()
     {
-        UpstreamDiscoveryGate.Judge(true, 0.9, 5.0, Loaded).Reason.Should().Be("an outage is in progress");
+        UpstreamDiscoveryGate.Judge(true, 0.9, 5.0, Loaded, FiberAcceptable).Reason.Should().Be("an outage is in progress");
     }
 
     [Fact]
     public void Load_at_the_loaded_threshold_blocks()
     {
-        var verdict = UpstreamDiscoveryGate.Judge(false, 0.73, 0.0, Loaded);
+        var verdict = UpstreamDiscoveryGate.Judge(false, 0.73, 0.0, Loaded, FiberAcceptable);
 
         verdict.Ok.Should().BeFalse();
         verdict.Reason.Should().Be("running at 73% of plan");
@@ -75,22 +79,41 @@ public class UpstreamDiscoveryGateTests : IDisposable
     public void Load_below_the_loaded_threshold_passes()
     {
         // A busy business network sits just under the loaded line all day; it must still discover.
-        UpstreamDiscoveryGate.Judge(false, 0.49, 0.0, Loaded).Ok.Should().BeTrue();
+        UpstreamDiscoveryGate.Judge(false, 0.49, 0.0, Loaded, FiberAcceptable).Ok.Should().BeTrue();
     }
 
     [Fact]
-    public void Loss_above_the_noticeable_floor_blocks()
+    public void Loss_above_the_profiles_acceptable_loss_blocks()
     {
-        var verdict = UpstreamDiscoveryGate.Judge(false, 0.05, 2.34, Loaded);
+        var verdict = UpstreamDiscoveryGate.Judge(false, 0.05, 2.34, Loaded, FiberAcceptable);
 
         verdict.Ok.Should().BeFalse();
         verdict.Reason.Should().Be("2.3% packet loss in the last 10 minutes");
     }
 
     [Fact]
-    public void Loss_at_the_noticeable_floor_passes()
+    public void Half_a_percent_loss_blocks_on_a_fiber_like_profile()
     {
-        UpstreamDiscoveryGate.Judge(false, 0.05, 0.25, Loaded).Ok.Should().BeTrue();
+        UpstreamDiscoveryGate.Judge(false, 0.05, 0.5, Loaded, FiberAcceptable).Ok.Should().BeFalse();
+    }
+
+    [Fact]
+    public void Half_a_percent_loss_passes_on_a_lossy_medium()
+    {
+        // Starlink, cellular, and fixed wireless idle above a fiber line; a fixed floor would never let them discover.
+        UpstreamDiscoveryGate.Judge(false, 0.05, 0.5, Loaded, LossyAcceptable).Ok.Should().BeTrue();
+    }
+
+    [Fact]
+    public void Loss_at_the_acceptable_line_passes()
+    {
+        UpstreamDiscoveryGate.Judge(false, 0.05, 1.0, Loaded, LossyAcceptable).Ok.Should().BeTrue();
+    }
+
+    [Fact]
+    public void Unknown_acceptable_loss_never_blocks_on_loss()
+    {
+        UpstreamDiscoveryGate.Judge(false, 0.05, 5.0, Loaded, acceptableLossPct: null).Ok.Should().BeTrue();
     }
 
     // ---- HasOpenOutage ----

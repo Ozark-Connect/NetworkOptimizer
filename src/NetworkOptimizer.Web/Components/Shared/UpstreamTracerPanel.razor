@@ -56,15 +56,13 @@
         }
         @if (_busyReason != null && CanDiscover)
         {
-            <div class="alert alert-warning" style="margin-top: 0;">
-                <div>
-                    The WAN is busy right now (@_busyReason), so some hops may not answer and look unreachable.
-                    Results are more reliable when the connection is quiet.
-                </div>
-                <div class="action-buttons" style="margin-top: 0.75rem;">
-                    <button class="btn btn-primary" @onclick="RunAnywayAsync">Run Anyway</button>
-                    <button class="btn btn-secondary" @onclick="CancelBusyWarning">Cancel</button>
-                </div>
+            <div class="alert alert-warning">
+                The WAN is busy right now (@_busyReason), so some hops may not answer and look unreachable.
+                Results are more reliable when the connection is quiet.
+            </div>
+            <div class="action-buttons">
+                <button class="btn btn-primary" @onclick="RunAnywayAsync">Run Anyway</button>
+                <button class="btn btn-secondary" @onclick="CancelBusyWarning">Cancel</button>
             </div>
         }
         @if (!CanDiscover)

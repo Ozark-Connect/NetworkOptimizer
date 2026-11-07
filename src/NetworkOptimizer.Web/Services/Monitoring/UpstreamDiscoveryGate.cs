@@ -3,7 +3,6 @@ using NetworkOptimizer.Alerts.Interfaces;
 using NetworkOptimizer.Alerts.Models;
 using NetworkOptimizer.Core.Enums;
 using NetworkOptimizer.UniFi;
-using NetworkOptimizer.Web.Services.ChangeControl.SiteHealth;
 using NetworkOptimizer.Web.Services.Monitoring.IspHealth;
 
 namespace NetworkOptimizer.Web.Services.Monitoring;
@@ -80,24 +79,34 @@ public class UpstreamDiscoveryGate
             _logger.LogDebug(ex, "Upstream discovery gate: could not read loss for site {Slug}", slug);
         }
 
-        return Judge(outage, utilization, loss, isp.Options.LoadedThresholdFraction);
+        double? acceptableLoss = null;
+        try { acceptableLoss = (await isp.GetAccessProfileAsync(ct)).IdleLossAcceptablePct; }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogDebug(ex, "Upstream discovery gate: could not read the access profile for site {Slug}", slug);
+        }
+
+        return Judge(outage, utilization, loss, isp.Options.LoadedThresholdFraction, acceptableLoss);
     }
 
     /// <summary>
-    /// The verdict over the gate's inputs. Load blocks at ISP Health's loaded threshold, not below it:
-    /// busy networks run near it all day and would never discover. Null load or loss never blocks.
+    /// The verdict over the gate's inputs. Load blocks at ISP Health's loaded threshold and loss above
+    /// the access profile's acceptable idle loss, not below either: busy networks and lossy media
+    /// (Starlink, cellular) sit near them all day and would never discover. A null input never blocks.
     /// </summary>
     /// <param name="outageOpen">An outage or partial-outage alert is open for the WAN.</param>
     /// <param name="utilization">Median utilization, fraction of plan (worst direction), or null.</param>
     /// <param name="lossPct">Loss pool loss, percent, or null.</param>
     /// <param name="loadedFraction">ISP Health's loaded threshold.</param>
-    internal static UpstreamDiscoveryGateVerdict Judge(bool outageOpen, double? utilization, double? lossPct, double loadedFraction)
+    /// <param name="acceptableLossPct">The access profile's acceptable idle loss, percent, or null when unknown.</param>
+    internal static UpstreamDiscoveryGateVerdict Judge(bool outageOpen, double? utilization, double? lossPct, double loadedFraction,
+        double? acceptableLossPct)
     {
         if (outageOpen)
             return new(false, "an outage is in progress");
         if (utilization is double u && u >= loadedFraction)
             return new(false, $"running at {(u * 100).ToString("0", CultureInfo.InvariantCulture)}% of plan");
-        if (lossPct is double l && l > SiteHealthScorer.NoticeableLossPct)
+        if (lossPct is double l && acceptableLossPct is double acceptable && l > acceptable)
             return new(false, $"{l.ToString("0.#", CultureInfo.InvariantCulture)}% packet loss in the last 10 minutes");
         return UpstreamDiscoveryGateVerdict.Clear;
     }
