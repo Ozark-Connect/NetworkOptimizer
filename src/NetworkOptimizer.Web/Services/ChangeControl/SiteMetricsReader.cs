@@ -141,9 +141,9 @@ public sealed class SiteMetricsReader
             var byStamp = new Dictionary<DateTime, LoadWindow>();
             foreach (var r in rates)
                 if (load.TryGetValue(CongestionDetector.FloorTime(r.Time, loadWindow), out var cls)) byStamp[r.Time] = cls;
-            bool Loaded(DateTime t) => byStamp.TryGetValue(t, out var w) && (w.IsLoadedDown || w.IsLoadedUp);
-            bool Idle(DateTime t) => !byStamp.TryGetValue(t, out var w) || w.IsIdle;
 
+            var (idleRtt, loadedRtt) = SplitByLoad(latency.Select(p => (p.Time, p.Rtt)).ToList(), byStamp);
+            var (idleLoss, loadedLoss) = SplitByLoad(latency.Select(p => (p.Time, p.Loss)).ToList(), byStamp);
             lanes.Add(new TimelineLane
             {
                 Key = "latency",
@@ -151,8 +151,8 @@ public sealed class SiteMetricsReader
                 Subtitle = "Idle vs loaded, ms",
                 SeriesAName = "idle",
                 SeriesBName = "loaded",
-                SeriesA = latency.Select(p => (p.Time, Idle(p.Time) ? p.Rtt : null)).ToList(),
-                SeriesB = latency.Select(p => (p.Time, Loaded(p.Time) ? p.Rtt : null)).ToList(),
+                SeriesA = idleRtt,
+                SeriesB = loadedRtt,
             });
             lanes.Add(new TimelineLane
             {
@@ -161,8 +161,8 @@ public sealed class SiteMetricsReader
                 Subtitle = "Idle vs loaded, %",
                 SeriesAName = "idle",
                 SeriesBName = "loaded",
-                SeriesA = latency.Select(p => (p.Time, Idle(p.Time) ? p.Loss : null)).ToList(),
-                SeriesB = latency.Select(p => (p.Time, Loaded(p.Time) ? p.Loss : null)).ToList(),
+                SeriesA = idleLoss,
+                SeriesB = loadedLoss,
             });
             lanes.Add(new TimelineLane
             {
@@ -209,6 +209,22 @@ public sealed class SiteMetricsReader
             LatestB = Format(l.Key, l.SeriesB.LastOrDefault(p => p.Value != null).Value),
         }).ToList();
     }
+
+    /// <summary>A window on the loaded series: live loaded in either direction (isolated windows already demoted).</summary>
+    internal static bool OnLoadedSeries(IReadOnlyDictionary<DateTime, LoadWindow> byStamp, DateTime t) =>
+        byStamp.TryGetValue(t, out var w) && (w.IsLoadedDown || w.IsLoadedUp);
+
+    /// <summary>
+    /// Every other window draws on the idle series: idle, middle-band, SQM-excluded, or no rate sample. ISP Health
+    /// leaves those out of its idle/loaded judgment; the lane is display only and must not gap on them.
+    /// </summary>
+    internal static bool OnIdleSeries(IReadOnlyDictionary<DateTime, LoadWindow> byStamp, DateTime t) => !OnLoadedSeries(byStamp, t);
+
+    /// <summary>One measurement split into the idle and loaded series: each point lands on exactly one, null on the other.</summary>
+    internal static (List<(DateTime Time, double? Value)> Idle, List<(DateTime Time, double? Value)> Loaded) SplitByLoad(
+        IReadOnlyList<(DateTime Time, double? Value)> points, IReadOnlyDictionary<DateTime, LoadWindow> byStamp) =>
+        (points.Select(p => (p.Time, OnIdleSeries(byStamp, p.Time) ? p.Value : null)).ToList(),
+         points.Select(p => (p.Time, OnLoadedSeries(byStamp, p.Time) ? p.Value : null)).ToList());
 
     private static readonly (string Band, string Name, string Color)[] Bands =
         [("2.4ghz", "2.4 GHz", "var(--band-24-color)"), ("5ghz", "5 GHz", "var(--band-5-color)"), ("6ghz", "6 GHz", "var(--band-6-color)")];
@@ -319,25 +335,34 @@ public sealed class SiteMetricsReader
         {
             var beforeTask = LanesAsync(at - hour, at, ct);
             var afterTask = LanesAsync(at, Min(at + hour, DateTime.UtcNow), ct);
-            var before = await beforeTask;
-            var after = await afterTask;
-            void Add(string label, string key, bool b, string unit, string fmt)
-            {
-                var x = Mean(before, key, b);
-                var y = Mean(after, key, b);
-                if (x == null && y == null) return;
-                var worse = x != null && y != null && y > x * 1.1;
-                result.Add(new MetricDelta(label, x?.ToString(fmt) ?? "-", (y?.ToString(fmt) ?? "-") + unit, worse));
-            }
-            // No Wi-Fi client count: it follows the time of day, and Site Health's Wi-Fi row already rates the Wi-Fi.
-            Add("Loaded latency", "latency", true, " ms", "0");
-            Add("Loaded loss", "loss", true, "%", "0.0");
-            Add("Gateway CPU", "cpu", false, "%", "0");
+            result = Deltas(await beforeTask, await afterTask);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             _logger.LogDebug(ex, "Before/after metrics could not be read");
         }
+        return result;
+    }
+
+    /// <summary>
+    /// The before/after rows from each side's lanes. Latency and loss read the loaded series only, which holds live
+    /// loaded windows and nothing else, so a middle-band window never enters the comparison.
+    /// </summary>
+    internal static List<MetricDelta> Deltas(List<TimelineLane> before, List<TimelineLane> after)
+    {
+        var result = new List<MetricDelta>();
+        void Add(string label, string key, bool b, string unit, string fmt)
+        {
+            var x = Mean(before, key, b);
+            var y = Mean(after, key, b);
+            if (x == null && y == null) return;
+            var worse = x != null && y != null && y > x * 1.1;
+            result.Add(new MetricDelta(label, x?.ToString(fmt) ?? "-", (y?.ToString(fmt) ?? "-") + unit, worse));
+        }
+        // No Wi-Fi client count: it follows the time of day, and Site Health's Wi-Fi row already rates the Wi-Fi.
+        Add("Loaded latency", "latency", true, " ms", "0");
+        Add("Loaded loss", "loss", true, "%", "0.0");
+        Add("Gateway CPU", "cpu", false, "%", "0");
         return result;
     }
 
