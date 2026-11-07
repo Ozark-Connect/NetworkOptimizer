@@ -189,6 +189,8 @@ public class WiFiOptimizerService : IWiFiScanService
                 return null;
             }
 
+            await ApplyRadioHourAsync(_cachedAps.Where(ap => ap.IsOnline).ToList());
+
             // Build into a local score and only publish it to the shared field once fully
             // assembled - never mutate _cachedHealthScore in place, or a caller could observe
             // (or a racing refresh could double up) a half-populated Issues list.
@@ -264,6 +266,68 @@ public class WiFiOptimizerService : IWiFiScanService
         finally
         {
             _healthScoreLock.Release();
+        }
+    }
+
+    /// <summary>How long the last hour's per-radio utilization is reused before the console is asked again.</summary>
+    private static readonly TimeSpan RadioHourCacheFor = TimeSpan.FromMinutes(5);
+
+    /// <summary>Hard bound on that read; on timeout the radios keep their latest reading only.</summary>
+    private static readonly TimeSpan RadioHourQueryTimeout = TimeSpan.FromSeconds(10);
+
+    private Dictionary<(string Mac, RadioBand Band), (double Avg, double Peak)>? _radioHour;
+    private DateTime _radioHourAt = DateTime.MinValue;
+
+    /// <summary>
+    /// Sets each radio's utilization average and peak over the last hour, from the console's
+    /// 5-minute AP stats. The busy-radio issue gates on the average, never one spiky reading; a
+    /// radio the console has no rows for keeps both null and the issue falls back to its latest.
+    /// </summary>
+    private async Task ApplyRadioHourAsync(List<AccessPointSnapshot> aps)
+    {
+        if (aps.Count == 0 || _connectionService.Client == null) return;
+
+        if (_radioHour == null || DateTime.UtcNow - _radioHourAt > RadioHourCacheFor)
+        {
+            var hour = new Dictionary<(string, RadioBand), (double, double)>();
+            try
+            {
+                using var timeout = new CancellationTokenSource(RadioHourQueryTimeout);
+                var provider = CreateProvider();
+                var end = DateTimeOffset.UtcNow;
+                var fetched = await Task.WhenAll(aps.Select(async ap => (ap.Mac,
+                    Rows: await provider.GetApMetricsAsync(new[] { ap.Mac }, end.AddHours(-1), end, MetricGranularity.FiveMinutes, timeout.Token))));
+                foreach (var (mac, rows) in fetched)
+                {
+                    foreach (var band in new[] { RadioBand.Band2_4GHz, RadioBand.Band5GHz, RadioBand.Band6GHz })
+                    {
+                        var values = rows
+                            .Select(r => r.ByBand.TryGetValue(band, out var b) ? b.ChannelUtilization : null)
+                            .OfType<double>()
+                            .ToList();
+                        if (values.Count > 0)
+                            hour[(mac.ToLowerInvariant(), band)] = (values.Average(), values.Max());
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Last hour's radio utilization unavailable; busy-radio issues use the latest reading (site {Site})", _siteSlug);
+            }
+            _radioHour = hour;
+            _radioHourAt = DateTime.UtcNow;
+        }
+
+        foreach (var ap in aps)
+        {
+            foreach (var radio in ap.Radios)
+            {
+                if (_radioHour.TryGetValue((ap.Mac.ToLowerInvariant(), radio.Band), out var h))
+                {
+                    radio.HourUtilizationAvg = h.Avg;
+                    radio.HourUtilizationPeak = h.Peak;
+                }
+            }
         }
     }
 

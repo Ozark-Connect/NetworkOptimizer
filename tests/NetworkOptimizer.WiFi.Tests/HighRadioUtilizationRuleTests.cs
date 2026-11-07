@@ -1,4 +1,5 @@
 using FluentAssertions;
+using NetworkOptimizer.WiFi.Analyzers;
 using NetworkOptimizer.WiFi.Models;
 using NetworkOptimizer.WiFi.Rules;
 using Xunit;
@@ -9,65 +10,137 @@ public class HighRadioUtilizationRuleTests
 {
     private readonly HighRadioUtilizationRule _rule = new();
 
-    private static AccessPointSnapshot Ap(string mac, string name, int consoleUtil, int? measured = null, int? self = null, int? other = null) => new()
+    private static AccessPointSnapshot Ap(
+        string name, RadioBand band = RadioBand.Band5GHz, int? consoleUtil = 50, double? hourAvg = 75, double? hourPeak = 88,
+        int clients = 6, int? measured = null, int? self = null, int? other = null) => new()
     {
-        Mac = mac,
+        Mac = "aa:bb:cc:dd:ee:01",
         Name = name,
         Radios = new()
         {
             new RadioSnapshot
             {
-                Band = RadioBand.Band5GHz, Channel = 36, ChannelWidth = 80,
-                ChannelUtilization = consoleUtil,
+                Band = band, Channel = band == RadioBand.Band2_4GHz ? 6 : 36, ChannelWidth = band == RadioBand.Band2_4GHz ? 20 : 80,
+                ChannelUtilization = consoleUtil, HourUtilizationAvg = hourAvg, HourUtilizationPeak = hourPeak,
+                ClientCount = clients,
                 MeasuredUtilization = measured, MeasuredSelfAirtime = self, MeasuredInterference = other
             }
         }
     };
 
-    private static WiFiOptimizerContext Context(params AccessPointSnapshot[] aps) => new()
+    private static WlanConfiguration Wlan(bool steering) => new()
     {
-        AccessPoints = aps.ToList(), Clients = [], Wlans = [], Networks = [], LegacyClients = [], SteerableClients = []
+        Name = "Home", Enabled = true, BandSteeringEnabled = steering,
+        EnabledBands = [RadioBand.Band2_4GHz, RadioBand.Band5GHz]
     };
 
-    [Fact]
-    public void Without_measurements_the_original_issue_names_every_busy_radio()
+    private static WiFiOptimizerContext Context(AccessPointSnapshot ap, params WlanConfiguration[] wlans) => new()
     {
-        var issues = _rule.EvaluateAll(Context(
-            Ap("aa:bb:cc:dd:ee:01", "AP-1", 80),
-            Ap("aa:bb:cc:dd:ee:02", "AP-2", 75),
-            Ap("aa:bb:cc:dd:ee:03", "AP-3", 20))).ToList();
+        AccessPoints = [ap], Clients = [], Wlans = wlans.ToList(), Networks = [], LegacyClients = [], SteerableClients = []
+    };
+
+    private List<HealthIssue> Evaluate(AccessPointSnapshot ap, params WlanConfiguration[] wlans) =>
+        _rule.EvaluateAll(Context(ap, wlans)).ToList();
+
+    [Fact]
+    public void A_busy_radio_raises_one_issue_where_the_scorer_used_to_raise_a_second()
+    {
+        var ap = Ap("Back Yard", RadioBand.Band2_4GHz, consoleUtil: 79, hourAvg: 74, measured: 36, self: 6, other: 30);
+
+        var scored = new SiteHealthScorer().Calculate([ap], []);
+        var issues = scored.Issues.Concat(Evaluate(ap)).Where(i => i.Dimensions.Contains(HealthDimension.ChannelHealth)).ToList();
 
         var issue = issues.Should().ContainSingle().Subject;
-        issue.Title.Should().Be("High Radio Utilization Detected");
-        issue.Description.Should().Be("2 radio(s) have utilization above 70%. Clients may experience slow speeds and higher latency during busy periods.");
-        issue.AffectedEntity.Should().Be("AP-1 (5 GHz 80%), AP-2 (5 GHz 75%)");
-        issue.ScoreImpact.Should().Be(-8);
-        issue.Class.Should().Be(HealthIssueClass.Measured);
+        issue.Key.Should().Be("WIFI-HIGH-UTILIZATION-001|aa:bb:cc:dd:ee:01/ng");
     }
 
     [Fact]
-    public void Measured_radios_split_by_cause_and_the_rest_keep_the_original_issue()
+    public void The_gate_is_the_hours_average_not_the_latest_reading()
     {
-        var issues = _rule.EvaluateAll(Context(
-            Ap("aa:bb:cc:dd:ee:01", "AP-Own", 80, measured: 78, self: 71, other: 5),
-            Ap("aa:bb:cc:dd:ee:02", "AP-Other", 82, measured: 82, self: 10, other: 65),
-            Ap("aa:bb:cc:dd:ee:03", "AP-Mixed", 75, measured: 75, self: 40, other: 35))).ToList();
+        Evaluate(Ap("AP-1", consoleUtil: 95, hourAvg: 40)).Should().BeEmpty("one busy reading in a quiet hour is not a busy radio");
+        Evaluate(Ap("AP-1", consoleUtil: 30, hourAvg: 75)).Should().ContainSingle();
+    }
 
-        issues.Should().HaveCount(3);
-        var own = issues[0];
-        own.Title.Should().Be("High Radio Utilization From Own Clients");
-        own.Description.Should().Be("1 radio(s) are busier than 70%, and most of that airtime is their own clients' traffic: AP-Own (5 GHz 78% busy, 71% own).");
-        own.ScoreImpact.Should().Be(-8);
+    [Fact]
+    public void Without_an_hourly_average_the_latest_reading_gates_and_is_quoted()
+    {
+        var issue = Evaluate(Ap("AP-1", consoleUtil: 80, hourAvg: null, hourPeak: null)).Should().ContainSingle().Subject;
+        issue.Description.Should().Be("AP-1 5 GHz is 80% busy right now, with 6 clients on it.");
+    }
 
-        var other = issues[1];
-        other.Title.Should().Be("High Radio Utilization From Interference");
-        other.Description.Should().Be("1 radio(s) are busier than 70%, and most of that airtime is not theirs: AP-Other (5 GHz 82% busy, 65% from other transmitters). Counted once against the health score with the issue above.");
-        other.ScoreImpact.Should().Be(0, "one impact for the rule");
+    [Fact]
+    public void Client_tiers_none_few_and_many()
+    {
+        Evaluate(Ap("AP-1", clients: 0)).Should().BeEmpty("a radio nobody uses pays nothing for busy air");
 
-        var generic = issues[2];
-        generic.Title.Should().Be("High Radio Utilization Detected");
-        generic.AffectedEntity.Should().Be("AP-Mixed (5 GHz 75%)");
+        var few = Evaluate(Ap("AP-1", clients: 1)).Should().ContainSingle().Subject;
+        few.Severity.Should().Be(HealthIssueSeverity.Info);
+        few.ScoreImpact.Should().Be(0);
+        few.Description.Should().EndWith("with 1 client on it. Only 1 client uses this radio, so the impact is small.");
 
-        issues.Select(i => i.Key).Should().OnlyHaveUniqueItems();
+        Evaluate(Ap("AP-1", clients: 2)).Single().Description.Should().EndWith("Only 2 clients use this radio, so the impact is small.");
+
+        var many = Evaluate(Ap("AP-1", clients: 3)).Should().ContainSingle().Subject;
+        many.Severity.Should().Be(HealthIssueSeverity.Warning);
+        many.ScoreImpact.Should().BeNegative();
+
+        Evaluate(Ap("AP-1", hourAvg: 92, hourPeak: 97)).Single().Severity.Should().Be(HealthIssueSeverity.Critical);
+    }
+
+    [Fact]
+    public void Other_networks_split_names_both_parts_of_the_same_average()
+    {
+        var issue = Evaluate(Ap("Back Yard", hourAvg: 74, hourPeak: 88, measured: 36, self: 6, other: 30)).Single();
+
+        issue.Title.Should().Be("High Radio Utilization From Interference");
+        // 74 points split 30:6 between other networks and own clients.
+        issue.Description.Should().Be("Back Yard 5 GHz averaged 74% busy over the last hour (peak 88%). 62 points are other networks and 12 are its 6 clients.");
+        issue.Recommendation.Should().Be("Run the Channel Recommendation on Channels to find a quieter channel, and check RF Environment for the networks on this one.");
+        issue.LinkUrl.Should().Be("./wifi-optimizer?tab=metrics&ap=aa%3Abb%3Acc%3Add%3Aee%3A01&band=5&range=1h");
+    }
+
+    [Fact]
+    public void Other_networks_on_24_GHz_adds_the_three_channel_qualifier()
+    {
+        var issue = Evaluate(Ap("AP-1", RadioBand.Band2_4GHz, measured: 50, self: 5, other: 40)).Single();
+        issue.Recommendation.Should().EndWith(" 2.4 GHz has only three non-overlapping channels, so with neighbors on all three, some of this may be unavoidable.");
+    }
+
+    [Fact]
+    public void Own_clients_on_24_GHz_depends_on_band_steering()
+    {
+        var off = Evaluate(Ap("AP-1", RadioBand.Band2_4GHz, measured: 60, self: 50, other: 5), Wlan(steering: false)).Single();
+        off.Title.Should().Be("High Radio Utilization From Own Clients");
+        off.Recommendation.Should().Be("Spread clients across more APs, or turn on band steering so capable clients move to 5 GHz or 6 GHz.");
+
+        var on = Evaluate(Ap("AP-1", RadioBand.Band2_4GHz, measured: 60, self: 50, other: 5), Wlan(steering: true)).Single();
+        on.Recommendation.Should().StartWith("Band steering is already on, so the clients still on 2.4 GHz are likely 2.4 GHz-only.");
+    }
+
+    [Fact]
+    public void Mixed_split_names_both_actions()
+    {
+        var issue = Evaluate(Ap("AP-1", measured: 70, self: 35, other: 30)).Single();
+        issue.Title.Should().Be("High Radio Utilization");
+        issue.Recommendation.Should().Be("Other networks and this radio's own clients are both using the air. Run the Channel Recommendation, and spread clients across more APs.");
+    }
+
+    [Fact]
+    public void Without_an_agent_split_the_average_and_peak_stand_alone()
+    {
+        var issue = Evaluate(Ap("AP-1", hourAvg: 75.4, hourPeak: 90.2)).Single();
+        issue.Title.Should().Be("High Radio Utilization");
+        issue.Description.Should().Be("AP-1 5 GHz averaged 75% busy over the last hour (peak 90%), with 6 clients on it.");
+        issue.Recommendation.Should().Be("Check RF Environment for networks on this channel, and Client Performance for heavy clients on this radio.");
+    }
+
+    [Fact]
+    public void The_key_is_the_radio_whatever_the_cause()
+    {
+        var own = Evaluate(Ap("AP-1", measured: 70, self: 60, other: 5)).Single();
+        var other = Evaluate(Ap("AP-1", measured: 70, self: 5, other: 60)).Single();
+        var none = Evaluate(Ap("AP-1")).Single();
+
+        own.Key.Should().Be(other.Key).And.Be(none.Key).And.Be("WIFI-HIGH-UTILIZATION-001|aa:bb:cc:dd:ee:01/na");
     }
 }

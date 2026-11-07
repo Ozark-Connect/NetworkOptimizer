@@ -21,7 +21,7 @@ public static class TimeFormatHelper
     /// Append the unit to a count, pluralized (e.g., "1 day", "2 days").
     /// </summary>
     public static string Pluralize(int value, string unit) =>
-        $"{value} {unit}{(value == 1 ? "" : "s")}";
+        NetworkOptimizer.Core.Helpers.StringUtilities.Pluralize(value, unit);
 
     /// <summary>
     /// Format a duration in long form with the two largest meaningful units

@@ -507,33 +507,8 @@ public class SiteHealthScorer
             });
         }
 
-        // Channel utilization issues
-        var highUtilRadios = aps
-            .SelectMany(a => a.Radios.Select(r => (Ap: a, Radio: r)))
-            .Where(x => x.Radio.ChannelUtilization > _options.HighUtilizationThreshold)
-            .ToList();
-
-        foreach (var (ap, radio) in highUtilRadios.Take(5))
-        {
-            // Tailor recommendation based on band
-            var recommendation = radio.Band == RadioBand.Band2_4GHz
-                ? "Enable band steering to move capable clients to 5 GHz or 6 GHz"
-                : "Try a different channel or reduce channel width";
-
-            score.Issues.Add(new HealthIssue
-            {
-                Severity = radio.ChannelUtilization > 90 ? HealthIssueSeverity.Critical : HealthIssueSeverity.Warning,
-                Dimensions = { HealthDimension.ChannelHealth, HealthDimension.AirtimeEfficiency },
-                RuleId = "WIFI-CHANNEL-UTIL-001",
-                Class = HealthIssueClass.Measured,
-                Key = HealthIssueKeys.For("WIFI-CHANNEL-UTIL-001", HealthIssueKeys.Radio(ap.Mac, radio.Band)),
-                Title = "High channel utilization",
-                Description = $"{radio.Band.ToDisplayString()} radio at {radio.ChannelUtilization}% utilization",
-                AffectedEntity = ap.Name,
-                Recommendation = recommendation,
-                ScoreImpact = -10
-            });
-        }
+        // A busy radio is HighRadioUtilizationRule's alone: it knows the cause and the band steering
+        // state, and one radio raising two issues for one busy channel is what it replaced.
 
         // Roaming issues: flag edges whose roam success rate falls below the healthy
         // threshold (95%, matching the dimension scorer) rather than the raw failure

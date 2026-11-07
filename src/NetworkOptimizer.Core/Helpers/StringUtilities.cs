@@ -10,6 +10,13 @@ namespace NetworkOptimizer.Core.Helpers;
 public static partial class StringUtilities
 {
     /// <summary>
+    /// Append the unit to a count, pluralized with an "s" (e.g., "1 client", "2 clients"). Lives in
+    /// Core so analyzers below the web project share it; the web project reaches it through
+    /// <c>TimeFormatHelper.Pluralize</c>.
+    /// </summary>
+    public static string Pluralize(int value, string unit) =>
+        $"{value} {unit}{(value == 1 ? "" : "s")}";
+    /// <summary>
     /// Whether a value is a valid site slug as produced by <see cref="ToSlug"/>:
     /// lowercase alphanumeric with inner hyphens, at most 64 characters.
     /// </summary>

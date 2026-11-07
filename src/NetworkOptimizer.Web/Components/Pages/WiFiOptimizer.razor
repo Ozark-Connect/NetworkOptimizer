@@ -235,7 +235,7 @@
         <!-- Metrics - Time Series Charts -->
         <div class="card card-full-width">
             <div class="card-body">
-                <NetworkOptimizer.Web.Components.Shared.WiFi.Metrics InitialApMac="@_initialApMac" InitialBand="@_initialBand" />
+                <NetworkOptimizer.Web.Components.Shared.WiFi.Metrics InitialApMac="@_initialApMac" InitialBand="@_initialBand" InitialRange="@_initialRange" />
             </div>
         </div>
     }
@@ -894,6 +894,10 @@
     [SupplyParameterFromQuery(Name = "recommend")]
     public bool? RecommendQueryParam { get; set; }
 
+    /// <summary>A Metrics time range preset to open on ("1h", "1D", ...).</summary>
+    [SupplyParameterFromQuery(Name = "range")]
+    public string? RangeQueryParam { get; set; }
+
     [SupplyParameterFromQuery(Name = "edge")]
     public string? EdgeQueryParam { get; set; }
 
@@ -908,6 +912,7 @@
     private int? _initialChannel;
     private bool _autoRunRecommendation;
     private string? _initialEdge;
+    private string? _initialRange;
 
     private static readonly HashSet<string> ValidTabs = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -932,6 +937,7 @@
         _initialBand = null;
         _initialChannel = null;
         _initialEdge = null;
+        _initialRange = null;
         _autoRunRecommendation = false;
 
         // Reload AP markers when entering Speed Map tab (may have been edited on Signal Map)
@@ -951,6 +957,7 @@
         _initialBand = band;
         _initialChannel = channel;
         _initialClientMac = null;
+        _initialRange = null;
         _autoRunRecommendation = false;
 
         // Build URL with filter params
@@ -1162,6 +1169,7 @@
             _initialChannel = ChannelQueryParam;
             _autoRunRecommendation = RecommendQueryParam == true;
             _initialEdge = EdgeQueryParam;
+            _initialRange = RangeQueryParam;
         }
         else
         {
@@ -1239,6 +1247,7 @@
                 _initialChannel = ChannelQueryParam;
                 _autoRunRecommendation = RecommendQueryParam == true;
                 _initialEdge = EdgeQueryParam;
+                _initialRange = RangeQueryParam;
 
                 StateHasChanged();
             }
