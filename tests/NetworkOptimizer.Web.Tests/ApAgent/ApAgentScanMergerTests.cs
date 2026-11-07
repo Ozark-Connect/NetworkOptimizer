@@ -93,6 +93,34 @@ public class ApAgentScanMergerTests
         result.Neighbors.Single(n => n.Bssid == "02:00:00:aa:00:01").IsOwnNetwork.Should().BeTrue();
     }
 
+    [Fact]
+    public void A_row_older_than_five_minutes_counts_only_when_it_is_a_site_bssid()
+    {
+        var payload = Payload();
+        foreach (var e in payload.Radios[0].Scan) e.AgeSeconds = 1800;
+        var result = Result(Ap, RadioBand.Band5GHz);
+
+        ApAgentScanMerger.Apply([result], _ => payload, Now, Site("02:00:00:AA:00:01"));
+
+        result.Neighbors.Should().ContainSingle()
+            .Which.Bssid.Should().Be("02:00:00:aa:00:01", "an old external neighbor is dropped, an old sibling kept");
+        result.Neighbors[0].IsSiteBssid.Should().BeTrue();
+    }
+
+    [Fact]
+    public void An_old_row_never_updates_an_external_consoles_row()
+    {
+        var payload = Payload();
+        foreach (var e in payload.Radios[0].Scan) e.AgeSeconds = 1800;
+        var console = new NeighborNetwork { Bssid = "02:00:00:AA:00:02", Ssid = "Other-5", Channel = 149, Signal = -90 };
+        var result = Result(Ap, RadioBand.Band5GHz, console);
+
+        ApAgentScanMerger.Apply([result], _ => payload, Now);
+
+        console.Signal.Should().Be(-90);
+        result.Neighbors.Should().ContainSingle();
+    }
+
     private const string Sibling = "aa:bb:cc:dd:ee:02";
 
     private static SiteBssidLookup Site(string bssid, string essid = "Home")

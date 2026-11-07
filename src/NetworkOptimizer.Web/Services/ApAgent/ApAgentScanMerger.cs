@@ -16,6 +16,13 @@ public static class ApAgentScanMerger
     /// <summary>A reading older than this is not merged; the console's scan stands.</summary>
     public static readonly TimeSpan FreshWindow = TimeSpan.FromMinutes(5);
 
+    /// <summary>
+    /// A scan row the AP last heard longer ago than this counts only when it is one of the site's
+    /// own BSSIDs: a sibling on another channel is heard only between off-channel scans, while an
+    /// old external neighbor would overstate the band's load.
+    /// </summary>
+    public const int ExternalMaxAgeSeconds = 300;
+
     /// <summary>Applies the merge in place. Returns how many (AP, band) results took agent data.</summary>
     /// <param name="siteBssids">Resolves the site's own BSSIDs to their owners, so a sibling AP the radio
     /// hears is never an external neighbor: the recommender already charges siblings as internal
@@ -68,6 +75,9 @@ public static class ApAgentScanMerger
             foreach (var e in radio.Scan)
             {
                 if (string.IsNullOrEmpty(e.Bssid) || BandOf(e.Band) != result.Band) continue;
+                if (e.AgeSeconds > ExternalMaxAgeSeconds
+                    && (siteBssids == null || !siteBssids.TryResolve(e.Bssid, e.Essid, out _)))
+                    continue;
                 var seenAt = readAt.AddSeconds(-Math.Max(0, e.AgeSeconds));
 
                 if (byBssid.TryGetValue(e.Bssid, out var existing))

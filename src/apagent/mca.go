@@ -194,9 +194,10 @@ type RadioScan struct {
 	Spectrum   []SpectrumEntry `json:"spectrum_table"`
 }
 
-// maxScanEntryAge drops neighbors the AP has not heard for this long: serving a stale sighting is
-// the console's under-detection problem in the other direction.
-const maxScanEntryAge = 300
+// maxScanEntryAge drops neighbors the AP has not heard for this long. Rows older than 5 minutes
+// are forwarded with their age so the server can keep the site's own APs, which a radio on another
+// channel hears only between off-channel scans; the server drops old external neighbors.
+const maxScanEntryAge = 3600
 
 // McaSnapshot is one mca-dump pass, reduced to the fields this agent serves. The 142 KB document
 // is never retained: only what is parsed out of it stays in memory.
