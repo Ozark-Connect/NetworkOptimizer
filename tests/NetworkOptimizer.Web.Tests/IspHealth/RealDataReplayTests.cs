@@ -1,5 +1,6 @@
 using System.Globalization;
 using NetworkOptimizer.Web.Services.Monitoring.IspHealth;
+using NetworkOptimizer.Web.Services.Monitoring.PathLocalization;
 using Xunit;
 using Xunit.Abstractions;
 
@@ -59,6 +60,57 @@ public class RealDataReplayTests
                         $"{(e.IsShared ? "SHARED " : "")}{string.Join("+", e.AsnNames)} " +
                         $"rtt {e.BaselineRttMs:0.#} -> {e.PeakRttMs:0.#} ms, jitter {e.BaselineJitterMs:0.#} -> {e.PeakJitterMs:0.#} ms");
                 }
+            }
+        }
+    }
+
+    /// <summary>
+    /// Runs Path Localization's degradation trigger over every exported target and prints each degraded
+    /// run with its RTT, loss, and jitter against baseline, and whether it reads as a route change
+    /// (<see cref="PathShiftMatch.IsStep"/>). Congestion exports should print congestion; shift exports, steps.
+    /// </summary>
+    [Fact]
+    public void Replay_path_degradation_step_or_congestion()
+    {
+        if (ReplayDir == null) return;
+        var options = new IspHealthOptions();
+        foreach (var file in Directory.GetFiles(ReplayDir, "*.csv"))
+        {
+            var allSeries = LoadSeries(file);
+            if (allSeries.Count == 0 || allSeries.All(s => s.Samples.All(x => x.JitterMs == null))) continue;
+            _output.WriteLine($"=== {Path.GetFileName(file)} ===");
+            foreach (var series in allSeries)
+            {
+                var tracker = new TargetDegradation(series.TargetIds[0], options);
+                DateTime? since = null;
+                double? baseRtt = null, baseJitter = null;
+                void Report(DateTime end)
+                {
+                    var levels = new EpisodeTargetLevels(series.TargetIds[0], baseRtt, tracker.PeakRttMs, tracker.PeakLossPct,
+                        baseJitter, tracker.PeakJitterMs);
+                    _output.WriteLine(
+                        $"  {series.AsnName} {since:MM-dd HH:mm} -> {end:HH:mm} rtt {baseRtt:0.#} -> {tracker.PeakRttMs:0.#} ms, " +
+                        $"jitter {baseJitter:0.##} -> {tracker.PeakJitterMs:0.##} ms, loss {tracker.PeakLossPct:0.#}% " +
+                        $"=> {(PathShiftMatch.IsStep(levels, options) ? "STEP" : "congestion")}");
+                }
+                foreach (var s in series.Samples)
+                {
+                    // Pooled loss reads the same at any probe count; 100 per point keeps the probe floor met.
+                    var received = 100 - (int)Math.Round(s.LossPercent ?? 0);
+                    tracker.Record(s.Time, s.RttAvgMs, 100, received, () => tracker.Degraded, s.JitterMs);
+                    if (tracker.Degraded && since == null)
+                    {
+                        since = tracker.DegradedSince;
+                        baseRtt = tracker.BaselineRttMs;
+                        baseJitter = tracker.BaselineJitterMs;
+                    }
+                    else if (!tracker.Degraded && since != null)
+                    {
+                        Report(s.Time);
+                        since = null;
+                    }
+                }
+                if (since != null) Report(series.Samples[^1].Time);
             }
         }
     }

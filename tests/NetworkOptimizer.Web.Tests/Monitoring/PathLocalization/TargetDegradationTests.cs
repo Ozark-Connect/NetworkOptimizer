@@ -16,19 +16,80 @@ public class TargetDegradationTests
     private static readonly DateTime T0 = new(2026, 10, 29, 0, 0, 0, DateTimeKind.Utc);
 
     /// <summary>Feeds bursts every 15 s for a span; each burst loses <paramref name="lostPerBurst"/> of 5.</summary>
-    private static DateTime Feed(TargetDegradation t, DateTime from, TimeSpan span, double rtt, int lostPerBurst = 0, bool exclude = false)
+    private static DateTime Feed(TargetDegradation t, DateTime from, TimeSpan span, double rtt, int lostPerBurst = 0, bool exclude = false,
+        double? jitter = null)
     {
         var at = from;
         for (; at < from + span; at += TimeSpan.FromSeconds(15))
-            t.Record(at, rtt, 5, 5 - lostPerBurst, () => exclude);
+            t.Record(at, rtt, 5, 5 - lostPerBurst, () => exclude, jitter);
         return at;
     }
 
-    private static TargetDegradation WithBaseline(out DateTime now, double rtt = 42)
+    private static TargetDegradation WithBaseline(out DateTime now, double rtt = 42, double? jitter = null)
     {
         var t = new TargetDegradation("aws-us-east-1", Options);
-        now = Feed(t, T0, TimeSpan.FromHours(2), rtt);
+        now = Feed(t, T0, TimeSpan.FromHours(2), rtt, jitter: jitter);
         return t;
+    }
+
+    private static bool IsStep(TargetDegradation t) =>
+        PathShiftMatch.IsStep(new EpisodeTargetLevels(t.TargetId, t.BaselineRttMs, t.PeakRttMs, t.PeakLossPct,
+            t.BaselineJitterMs, t.PeakJitterMs), Options);
+
+    [Fact]
+    public void FlatStep_NoLossSameJitter_ReadsAsARouteChange()
+    {
+        var t = WithBaseline(out var now, rtt: 58, jitter: 0.4);
+        Feed(t, now, TimeSpan.FromMinutes(30), 71, jitter: 0.45);
+
+        t.Degraded.Should().BeTrue();
+        t.LastWindow!.Signal.Should().Be(DegradationSignal.Rtt);
+        t.BaselineJitterMs.Should().Be(0.4);
+        t.PeakJitterMs.Should().Be(0.45);
+        IsStep(t).Should().BeTrue();
+    }
+
+    [Fact]
+    public void WideningJitter_ReadsAsCongestion()
+    {
+        var t = WithBaseline(out var now, rtt: 58, jitter: 0.4);
+        now = Feed(t, now, TimeSpan.FromMinutes(20), 71, jitter: 0.45);
+        // One later window queues: its jitter, not the episode's average, decides.
+        Feed(t, now, TimeSpan.FromMinutes(10), 75, jitter: 3.0);
+
+        t.Degraded.Should().BeTrue();
+        t.PeakJitterMs.Should().Be(3.0);
+        IsStep(t).Should().BeFalse();
+    }
+
+    [Fact]
+    public void LossOnTheRise_ReadsAsCongestion()
+    {
+        var t = WithBaseline(out var now, rtt: 58, jitter: 0.4);
+        Feed(t, now, TimeSpan.FromMinutes(30), 71, lostPerBurst: 1, jitter: 0.45);
+
+        t.Degraded.Should().BeTrue();
+        t.PeakLossPct.Should().BeApproximately(20, 0.01);
+        IsStep(t).Should().BeFalse();
+    }
+
+    [Fact]
+    public void NoJitterReported_HasNoJitterBaseline_AndIsNotAStep()
+    {
+        var t = WithBaseline(out var now, rtt: 58);
+        Feed(t, now, TimeSpan.FromMinutes(30), 71);
+
+        t.Degraded.Should().BeTrue();
+        t.BaselineJitterMs.Should().BeNull();
+        IsStep(t).Should().BeFalse();
+    }
+
+    [Fact]
+    public void ResumeDegraded_KeepsThePeakJitter()
+    {
+        var t = WithBaseline(out var now, jitter: 0.4);
+        t.ResumeDegraded(now, 0, 60, now, peakJitterMs: 2.5);
+        t.PeakJitterMs.Should().Be(2.5);
     }
 
     [Fact]
@@ -131,15 +192,16 @@ public class TargetDegradationTests
     {
         var t = new TargetDegradation("x", Options);
         var history = Enumerable.Range(0, 288)
-            .Select(i => (T0.AddMinutes(5 * i), (double?)33.0, (double?)0.0))
+            .Select(i => (T0.AddMinutes(5 * i), (double?)33.0, (double?)0.0, (double?)0.4))
             .ToList();
         // One past episode span carrying 85 ms is left out.
-        history[100] = (history[100].Item1, 85.0, 10.0);
+        history[100] = (history[100].Item1, 85.0, 10.0, 6.0);
         t.Seed(history, new[] { (T0.AddMinutes(500), T0.AddMinutes(505)) });
 
         t.HasBaseline.Should().BeTrue();
         t.BaselineRttMs.Should().Be(33);
         t.BaselineLossPct.Should().Be(0);
+        t.BaselineJitterMs.Should().Be(0.4);
         t.Degraded.Should().BeFalse();
     }
 

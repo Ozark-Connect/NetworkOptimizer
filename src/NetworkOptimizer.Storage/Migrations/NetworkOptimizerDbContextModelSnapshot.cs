@@ -3563,6 +3563,9 @@ namespace NetworkOptimizer.Storage.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("INTEGER");
 
+                    b.Property<double?>("BaselineJitterMs")
+                        .HasColumnType("REAL");
+
                     b.Property<double?>("BaselineLossPct")
                         .HasColumnType("REAL");
 
@@ -3589,6 +3592,9 @@ namespace NetworkOptimizer.Storage.Migrations
 
                     b.Property<int>("MonitoringTargetId")
                         .HasColumnType("INTEGER");
+
+                    b.Property<double?>("PeakJitterMs")
+                        .HasColumnType("REAL");
 
                     b.Property<double?>("PeakLossPct")
                         .HasColumnType("REAL");

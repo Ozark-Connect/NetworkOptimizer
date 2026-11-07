@@ -152,7 +152,8 @@ public sealed class PathEpisodeService : IPathEpisodeService
             var name = mt == null ? "Removed target" : string.IsNullOrEmpty(mt.Name) ? mt.Address : mt.Name;
             return new PathEpisodeTargetView(t.MonitoringTargetId, mt?.TargetId ?? "", name, t.Role,
                 t.BaselineRttMs, t.PeakRttMs, t.BaselineLossPct, t.PeakLossPct, t.BottleneckLabel,
-                mt == null ? MonitoringLinks.CustomCategory : MonitoringLinks.CategoryFor(mt.TargetType));
+                mt == null ? MonitoringLinks.CustomCategory : MonitoringLinks.CategoryFor(mt.TargetType),
+                t.BaselineJitterMs, t.PeakJitterMs);
         }
 
         return new PathEpisodeView

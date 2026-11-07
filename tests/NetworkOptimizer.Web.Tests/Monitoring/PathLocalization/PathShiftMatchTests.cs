@@ -176,6 +176,112 @@ public class PathShiftMatchTests
         row.EpisodeId.Should().Be(3);
     }
 
+    // ---- Step-only episodes: no detected shift, RTT rose on its own with loss and jitter at baseline ----
+
+    private static EpisodeTargetLevels StepLevels(string target, string name, double baseline, double peak,
+        double baseJitter = 0.4, double peakJitter = 0.6, double loss = 0) =>
+        new(target, baseline, peak, loss, baseJitter, peakJitter, name);
+
+    private static readonly EpisodeTargetLevels West = StepLevels("aws-us-west-1", "AWS us-west-1", 58.2, 71.0);
+    private static readonly EpisodeTargetLevels Anycast = StepLevels("path-cdn-as64500", "CDN", 18.0, 34.2);
+
+    [Fact]
+    public void StepOnlyEpisode_WithNoDetectedShift_IsAPathShift()
+    {
+        var shift = Explaining(Step, Array.Empty<PathShiftEvent>(), West, Anycast);
+
+        shift.Should().NotBeNull();
+        shift!.Time.Should().Be(Step);
+        shift.Direction.Should().Be(PathShiftDirection.Up);
+        shift.AsnName.Should().Be("CDN", "the lowest before-level names it, as a correlated shift is named");
+        shift.BeforeMedianMs.Should().Be(18.0);
+        shift.AfterMedianMs.Should().Be(34.2);
+        shift.CorrelatedTargetCount.Should().Be(2);
+        shift.Members.Select(m => (m.Name, m.BeforeMedianMs, m.AfterMedianMs))
+            .Should().Equal(("CDN", 18.0, 34.2), ("AWS us-west-1", 58.2, 71.0));
+    }
+
+    [Fact]
+    public void WideningJitter_StaysCongestion()
+    {
+        // Twice the baseline and over 0.8 ms above it: a queue, not a longer route.
+        var queued = StepLevels("aws-us-west-1", "AWS us-west-1", 58.2, 71.0, baseJitter: 0.4, peakJitter: 1.9);
+        PathShiftMatch.IsStep(queued, Options).Should().BeFalse();
+        Explaining(Step, Array.Empty<PathShiftEvent>(), queued, Anycast).Should().BeNull("every degraded target must be a step");
+    }
+
+    [Fact]
+    public void SmallJitterRiseOnALowBaseline_IsStillAStep()
+    {
+        // 0.15 to 0.81 ms on a real 9.7 to 23.8 ms route change: under the 0.8 ms floor over baseline.
+        PathShiftMatch.IsStep(StepLevels("t", "T", 9.7, 23.8, baseJitter: 0.15, peakJitter: 0.81), Options).Should().BeTrue();
+    }
+
+    [Fact]
+    public void LossOnAStep_StaysCongestion()
+    {
+        PathShiftMatch.IsStep(StepLevels("t", "T", 18, 34, loss: 3), Options).Should().BeFalse();
+    }
+
+    [Fact]
+    public void WithoutJitterReadings_NotJudgedAStep()
+    {
+        // Episodes stored before jitter was kept, or a probe that reports none, stay congestion.
+        PathShiftMatch.IsStep(Levels(), Options).Should().BeFalse();
+        PathShiftMatch.IsStep(new EpisodeTargetLevels("t", 18, 34, 0, 0.4, null), Options).Should().BeFalse();
+    }
+
+    [Fact]
+    public void DetectedShift_WinsOverTheStepShift()
+    {
+        var detected = Shift(Step, 1.6, 17.7);
+        Explaining(Step, new[] { detected }, StepLevels(Target, "Cloudflare", 1.63, 17.72)).Should().BeSameAs(detected);
+    }
+
+    [Fact]
+    public void RisePastADetectedStep_WithFlatJitter_IsStillAPathShift()
+    {
+        // The detected shift does not explain a peak of 30, but nothing queued: the route changed further.
+        var shift = Explaining(Step, new[] { Shift(Step, 1.6, 17.7) }, StepLevels(Target, "Cloudflare", 1.63, 30));
+        shift.Should().NotBeNull();
+        shift!.AfterMedianMs.Should().Be(30);
+    }
+
+    [Fact]
+    public void Fold_DrawsAStepOnlyEpisodeAsAPathShiftRow_WithItsTrace()
+    {
+        var report = Report();
+        var episodes = new[]
+        {
+            new PathEpisodeView
+            {
+                Id = 7,
+                OpenedAt = Step,
+                ClosedAt = Step.AddHours(6),
+                Disposition = CongestionDisposition.Unverifiable,
+                Label = "Both slowed down together.",
+                Degraded = new[]
+                {
+                    new PathEpisodeTargetView(1, "aws-us-west-1", "AWS us-west-1", PathEpisodeTargetRole.Degraded, 58.2, 71.0, 0.5, 0, null,
+                        BaselineJitterMs: 0.4, PeakJitterMs: 0.6),
+                    new PathEpisodeTargetView(2, "path-cdn-as64500", "CDN", PathEpisodeTargetRole.Degraded, 18.0, 34.2, 0.5, 0, null,
+                        BaselineJitterMs: 0.3, PeakJitterMs: 0.5)
+                }
+            }
+        };
+
+        var fold = PathEpisodePresentation.FoldIntoShifts(episodes, report, Options);
+
+        fold.Explained.Should().Equal(7);
+        fold.Unexplained(episodes, e => e.Id).Should().BeEmpty("no congestion row, finding, or banner");
+        var rows = IspHealthPresentation.EventTimeline(report, fold.TraceByShift).ToList();
+        var row = rows.Single();
+        row.Badge.Should().Be("Path shift");
+        row.EpisodeId.Should().Be(7);
+        row.Text.Should().StartWith("RTT stepped up 16.2 ms on CDN (18 to 34.2 ms), seen on 2 paths.");
+        row.Members.Should().Equal("CDN - 18 to 34.2 ms", "AWS us-west-1 - 58.2 to 71 ms");
+    }
+
     [Fact]
     public void Fold_WithoutAReport_ExplainsNothing()
     {

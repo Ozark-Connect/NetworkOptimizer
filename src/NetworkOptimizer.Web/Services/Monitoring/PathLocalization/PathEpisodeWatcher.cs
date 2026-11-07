@@ -201,7 +201,7 @@ public sealed class PathEpisodeWatcher
     /// and, when a window closes on a degraded path target, starts a gate evaluation in the background.
     /// </summary>
     public void Observe(MonitoringTarget target, WanContext? context, PathVantage vantage,
-        DateTime timestamp, double? rttAvgMs, int sent, int received)
+        DateTime timestamp, double? rttAvgMs, int sent, int received, double? jitterMs = null)
     {
         var role = RoleOf(target);
         if (role == null) return;
@@ -225,7 +225,8 @@ public sealed class PathEpisodeWatcher
             if (!_trackers.TryGetValue(target.TargetId, out var tracker))
                 _trackers[target.TargetId] = tracker = new TargetDegradation(target.TargetId, _options);
             var closed = tracker.Record(timestamp, rttAvgMs, sent, received,
-                () => _alerts.GetFor(_slug).Targets.IsWanOutageOpen(context?.WanInterface) || InOpenEpisode(target.TargetId, now));
+                () => _alerts.GetFor(_slug).Targets.IsWanOutageOpen(context?.WanInterface) || InOpenEpisode(target.TargetId, now),
+                jitterMs);
             evaluate = closed != null && role == GateRole.Path && tracker.Degraded && _evaluating.Add(key);
         }
         if (evaluate) _ = EvaluateContextAsync(key);
@@ -386,7 +387,8 @@ public sealed class PathEpisodeWatcher
                         if (!_trackers.TryGetValue(d.Target.TargetId, out var tracker))
                             _trackers[d.Target.TargetId] = tracker = new TargetDegradation(d.Target.TargetId, _options);
                         var stored = run.Row.Targets.FirstOrDefault(x => x.MonitoringTargetId == d.Target.Id && x.Role == PathEpisodeTargetRole.Degraded);
-                        tracker.ResumeDegraded(PathEpisodeTraceMapping.Utc(run.Row.OpenedAt), stored?.PeakLossPct, stored?.PeakRttMs, now);
+                        tracker.ResumeDegraded(PathEpisodeTraceMapping.Utc(run.Row.OpenedAt), stored?.PeakLossPct, stored?.PeakRttMs, now,
+                            stored?.PeakJitterMs);
                     }
                 }
             }
@@ -503,7 +505,7 @@ public sealed class PathEpisodeWatcher
                     if (!_trackers.TryGetValue(target.TargetId, out var tracker))
                         _trackers[target.TargetId] = tracker = new TargetDegradation(target.TargetId, _options);
                     // aggregateWindow stamps each mean at its window's END; the tracker keys by start.
-                    tracker.Seed(points.Select(p => (p.Time - window, p.RttAvgMs, p.LossPercent)), past);
+                    tracker.Seed(points.Select(p => (p.Time - window, p.RttAvgMs, p.LossPercent, p.JitterMs)), past);
                 }
             }
         }
@@ -749,7 +751,9 @@ public sealed class PathEpisodeWatcher
         BaselineRttMs = tracker.BaselineRttMs,
         BaselineLossPct = tracker.BaselineLossPct,
         PeakRttMs = tracker.PeakRttMs,
-        PeakLossPct = tracker.PeakLossPct
+        PeakLossPct = tracker.PeakLossPct,
+        BaselineJitterMs = tracker.BaselineJitterMs,
+        PeakJitterMs = tracker.PeakJitterMs
     };
 
     /// <summary>
@@ -1292,6 +1296,7 @@ public sealed class PathEpisodeWatcher
                 {
                     stored.PeakLossPct = Math.Max(stored.PeakLossPct ?? 0, tracker.PeakLossPct);
                     if (tracker.PeakRttMs is double p) stored.PeakRttMs = Math.Max(stored.PeakRttMs ?? 0, p);
+                    if (tracker.PeakJitterMs is double j) stored.PeakJitterMs = Math.Max(stored.PeakJitterMs ?? 0, j);
                 }
                 if (v == null) continue;
                 stored.Scope = v.Scope.ToString();

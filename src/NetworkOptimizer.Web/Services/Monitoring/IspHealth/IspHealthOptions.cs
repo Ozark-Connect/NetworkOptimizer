@@ -476,6 +476,17 @@ public class IspHealthOptions
     /// <summary>Fraction of baseline RTT a window's median must rise by, when that exceeds <see cref="PathRttMinDeltaMs"/>.</summary>
     public double PathRttDeltaFraction { get; set; } = 0.20;
 
+    /// <summary>
+    /// An RTT-only degradation whose worst window jitter stays under this multiple of baseline (or
+    /// <see cref="PathStepJitterMinDeltaMs"/> over it, whichever is larger) is a route change: queues widen jitter.
+    /// Matches <see cref="CongestionJitterFactor"/>, so a step is jitter the congestion detector would not call elevated.
+    /// </summary>
+    public double PathStepJitterFactor { get; set; } = 2.0;
+
+    /// <summary>Jitter rise in ms a route change may carry whatever its ratio, as <see cref="CongestionJitterMinDeltaMs"/>
+    /// does for congestion, so a sub-ms baseline is not tripped by noise.</summary>
+    public double PathStepJitterMinDeltaMs { get; set; } = 0.8;
+
     /// <summary>A sample older than this says nothing about a target's current state.</summary>
     public int PathTargetStaleMinutes { get; set; } = 10;
 

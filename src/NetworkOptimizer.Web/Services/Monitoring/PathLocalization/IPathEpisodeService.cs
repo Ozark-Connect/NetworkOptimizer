@@ -7,9 +7,11 @@ namespace NetworkOptimizer.Web.Services.Monitoring.PathLocalization;
 
 /// <summary>A target on an episode, as the event row names it.</summary>
 /// <param name="Category">The Network Performance chart category it is drawn under.</param>
+/// <param name="BaselineJitterMs">Window jitter before the episode, for <see cref="PathShiftMatch.IsStep"/>.</param>
+/// <param name="PeakJitterMs">Worst window jitter while degraded.</param>
 public sealed record PathEpisodeTargetView(int MonitoringTargetId, string TargetId, string Name, PathEpisodeTargetRole Role,
     double? BaselineRttMs, double? PeakRttMs, double? BaselineLossPct, double? PeakLossPct, string? Label,
-    string Category = MonitoringLinks.CustomCategory);
+    string Category = MonitoringLinks.CustomCategory, double? BaselineJitterMs = null, double? PeakJitterMs = null);
 
 /// <summary>One episode, for the Path &amp; Congestion Events row.</summary>
 public sealed record PathEpisodeView

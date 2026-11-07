@@ -110,6 +110,12 @@ public class PathEpisodeTarget
 
     public double? PeakLossPct { get; set; }
 
+    /// <summary>The target's baseline window jitter when the episode opened.</summary>
+    public double? BaselineJitterMs { get; set; }
+
+    /// <summary>Worst window jitter while degraded. Near baseline with no loss, the rise was a route change.</summary>
+    public double? PeakJitterMs { get; set; }
+
     public string? Scope { get; set; }
 
     public string? Disposition { get; set; }

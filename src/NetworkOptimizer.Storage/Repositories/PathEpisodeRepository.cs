@@ -63,6 +63,8 @@ public class PathEpisodeRepository : IPathEpisodeRepository
                     PeakRttMs = target.PeakRttMs,
                     BaselineLossPct = target.BaselineLossPct,
                     PeakLossPct = target.PeakLossPct,
+                    BaselineJitterMs = target.BaselineJitterMs,
+                    PeakJitterMs = target.PeakJitterMs,
                     Scope = target.Scope,
                     Disposition = target.Disposition,
                     BottleneckHopIp = target.BottleneckHopIp,
@@ -73,6 +75,7 @@ public class PathEpisodeRepository : IPathEpisodeRepository
             }
             existing.PeakRttMs = target.PeakRttMs;
             existing.PeakLossPct = target.PeakLossPct;
+            existing.PeakJitterMs = target.PeakJitterMs;
             existing.Scope = target.Scope;
             existing.Disposition = target.Disposition;
             existing.BottleneckHopIp = target.BottleneckHopIp;

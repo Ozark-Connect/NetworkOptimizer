@@ -74,6 +74,35 @@ public class PathCongestionScoringTests
             .Should().BeFalse();
     }
 
+    /// <summary>Two networks rising on RTT alone with no detected shift; the second target's peak jitter varies.</summary>
+    private static PathEpisode JitterEpisode(double secondPeakJitter)
+    {
+        var e = StepEpisode(peakLoss: 0);
+        foreach (var t in e.Targets)
+        {
+            t.BaselineJitterMs = 0.4;
+            t.PeakJitterMs = t.MonitoringTargetId == 3 ? secondPeakJitter : 0.5;
+        }
+        return e;
+    }
+
+    [Fact]
+    public void AllStepEpisode_WithNoDetectedShift_CostsNothing()
+    {
+        var e = JitterEpisode(secondPeakJitter: 0.6);
+        IspHealthService.ExplainedByShift(e, TargetIdById, new List<PathShiftEvent>(), new IspHealthOptions())
+            .Should().BeTrue("RTT rose on both with no loss and no wider jitter: a route change, which never scores");
+    }
+
+    [Fact]
+    public void MixedEpisode_OneTargetQueued_StillScores()
+    {
+        var e = JitterEpisode(secondPeakJitter: 3.0);
+        IspHealthService.ExplainedByShift(e, TargetIdById, new List<PathShiftEvent>(), new IspHealthOptions())
+            .Should().BeFalse();
+        Score(e).Should().ContainSingle();
+    }
+
     [Fact]
     public void TwoNetworks_Count_WithTheirBreadthAndDepth()
     {
