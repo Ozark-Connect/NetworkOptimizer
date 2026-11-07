@@ -851,8 +851,9 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
             aps = aps.Where(d => d.Mac.Equals(apMac, StringComparison.OrdinalIgnoreCase)).ToList();
         }
 
-        // Get our own BSSIDs to identify own networks
+        // Get our own BSSIDs to identify own networks, and which AP broadcasts each
         var ownBssids = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var siteBssids = new Dictionary<string, SiteBssid>(StringComparer.OrdinalIgnoreCase);
         foreach (var ap in aps)
         {
             if (ap.VapTable != null)
@@ -862,6 +863,7 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
                     if (!string.IsNullOrEmpty(vap.Bssid))
                     {
                         ownBssids.Add(vap.Bssid);
+                        SiteBssidLookup.Add(siteBssids, vap.Bssid, ap.Mac, ap.Name, vap.Essid);
                     }
                 }
             }
@@ -960,7 +962,7 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
 
                     foreach (var neighbor in deduplicated)
                     {
-                        result.Neighbors.Add(new NeighborNetwork
+                        var added = new NeighborNetwork
                         {
                             Ssid = neighbor.Essid,
                             Bssid = neighbor.Bssid,
@@ -973,7 +975,9 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
                                 ? DateTimeOffset.FromUnixTimeSeconds(neighbor.LastSeen.Value)
                                 : null,
                             Oui = neighbor.Oui
-                        });
+                        };
+                        SiteBssidLookup.Stamp(added, siteBssids);
+                        result.Neighbors.Add(added);
                     }
                 }
 
@@ -1018,6 +1022,7 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
             if (meshApMacs.Contains(result.ApMac))
                 continue; // Skip mesh APs for the consensus
 
+            // Site BSSIDs stay in: a wired AP's reading of a sibling's channel corrects a mesh AP's as well.
             foreach (var neighbor in result.Neighbors)
             {
                 var key = (neighbor.Bssid.ToLowerInvariant(), result.Band);

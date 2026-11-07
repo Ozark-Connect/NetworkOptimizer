@@ -303,6 +303,10 @@ through our own SSH-deployed components, where we control the format and the rol
   MLO-enabled WLANs. The WiFi Optimizer health issue has not adopted it - `WiFiOptimizerService` still
   flags MLO from `hasWifi7Aps && hasMloEnabledWlan` (any AP + any WLAN), so an AP that broadcasts no
   MLO SSID is still counted. Reuse the path-analysis pattern.
+- **Propagation calibration from sibling sightings** - an AP's scan radio hears every sibling AP's BSSIDs
+  with a real signal level (`NeighborNetwork.IsSiteBssid`, shown on RF Environment's Site Access Points
+  card). That is measured AP-to-AP path loss. It could calibrate the propagation model, and stand in for
+  floor-plan placement on sites without one.
 - **MLO STR mesh backhaul (multi-band):** Channel recommendations pin a mesh child to its leader's channel only on the single band `AccessPointSnapshot.MeshUplinkBand` reports. AP-to-AP MLO STR backhaul can run over multiple bands at once (e.g. 5 + 6 GHz). When UniFi exposes per-link bands, make `MeshUplinkBand` a set and have `BuildMeshConstraints` emit one constraint per participating band. The reconciliation logic in `ChannelRecommendationService` keys off `MeshGroupLeader` and needs no change - only the constraint-building. See `TODO(MLO)` in `BuildMeshConstraints`. Dormant: no AP-to-AP MLO STR backhaul hardware exists yet (today's MLO STR is client/bridge only - UDB-Switch and AirWire, the MLO STR bridge - which are endpoints, not mesh-AP children, so they never hit this path).
 
 ### AP Catalog: Enforce 5 GHz EIRP Cap (US Regulatory)

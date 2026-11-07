@@ -56,6 +56,9 @@ public class WiFiOptimizerService : IWiFiScanService
     private readonly ApAgent.ApAgentTelemetryRegistry _apAgentTelemetry;
     private readonly ApAgent.ApAgentInsightsRegistry _apAgentInsights;
 
+    /// <summary>Vendor for the neighbors an AP Agent's scan adds; the console's rows carry their own.</summary>
+    private readonly NetworkOptimizer.Audit.Services.IIeeeOuiDatabase _ouiDatabase;
+
     /// <summary>
     /// Ceiling on the client-rate history query. Client evidence is an enhancement; waiting on it
     /// is never worth making the analysis feel broken.
@@ -101,9 +104,11 @@ public class WiFiOptimizerService : IWiFiScanService
         NetworkOptimizer.Core.Interfaces.IAgentClientPresenceSource agentPresence,
         ApAgent.ApAgentTelemetryRegistry apAgentTelemetry,
         ApAgent.ApAgentInsightsRegistry apAgentInsights,
+        NetworkOptimizer.Audit.Services.IIeeeOuiDatabase ouiDatabase,
         ILogger<WiFiOptimizerService> logger,
         ILoggerFactory loggerFactory)
     {
+        _ouiDatabase = ouiDatabase;
         _measuredClients = measuredClients;
         _agentPresence = agentPresence;
         _apAgentTelemetry = apAgentTelemetry;
@@ -724,12 +729,9 @@ public class WiFiOptimizerService : IWiFiScanService
             // What agent-covered APs hear right now, laid over the console's scan for the same
             // AP and band. A covered AP with a spectrum table has no scan gap, so the quick-scan
             // targets exclude it without a rule of their own.
-            var ownBssids = (await GetAccessPointsAsync())
-                .SelectMany(ap => ap.Vaps)
-                .Select(v => v.Bssid)
-                .Where(b => !string.IsNullOrEmpty(b))
-                .ToHashSet(StringComparer.OrdinalIgnoreCase);
-            var merged = ApAgent.ApAgentScanMerger.Apply(fresh, _apAgentTelemetry.GetFor(_siteSlug).ScanFor, DateTimeOffset.UtcNow, ownBssids);
+            var siteBssids = NetworkOptimizer.WiFi.Helpers.SiteBssidLookup.Build(await GetAccessPointsAsync());
+            var merged = ApAgent.ApAgentScanMerger.Apply(
+                fresh, _apAgentTelemetry.GetFor(_siteSlug).ScanFor, DateTimeOffset.UtcNow, siteBssids, _ouiDatabase.GetVendor);
             if (merged > 0)
                 _logger.LogDebug("[AgentScan] {Count} AP/band scan result(s) carry AP Agent neighbors or spectrum (site {Site})", merged, _siteSlug);
             // Record raw sightings for the rolling window, but cache and return the RAW scan -
@@ -976,6 +978,7 @@ public class WiFiOptimizerService : IWiFiScanService
                     _neighborSightingHistory[key] = history;
                 }
 
+                // Site BSSIDs are pooled too; the recommender drops them by IsOwnNetwork.
                 foreach (var nb in scan.Neighbors)
                 {
                     if (!string.IsNullOrEmpty(nb.Bssid))

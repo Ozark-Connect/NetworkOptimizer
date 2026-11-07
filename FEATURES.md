@@ -391,6 +391,7 @@ Gateway tweaks for UCG-Fiber, UXG-Fiber, UCG-Max, and UXG-Max (Gateway SSH).
 - **Metrics** - airtime, interference, and TX retry charts per AP and band
 - **RF Environment** - neighboring networks, channel density heatmap, cleanest channels, DFS status
   - **Run quick scan** spectrum scan from Channels; per-AP neighbor scans every 30 seconds ([AP Telemetry](#ap-telemetry))
+  - **Site Access Points** - your own APs' BSSIDs as their sibling APs hear them, kept out of the neighbor counts
 - **Environment** - performance by time of day and weekly interference heatmap
 
 ### Channels (Channel Recommendation)

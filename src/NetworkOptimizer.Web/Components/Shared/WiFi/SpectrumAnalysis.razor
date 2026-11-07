@@ -76,7 +76,7 @@
             </div>
         </div>
     }
-    else if (allNeighbors.Count == 0)
+    else if (allNeighbors.Count == 0 && siteApNeighbors.Count == 0)
     {
         <div class="card">
             <div class="card-body">
@@ -300,6 +300,85 @@
                 }
             </div>
         </div>
+
+        @if (filteredSiteAps.Count > 0)
+        {
+            <div class="card">
+                <div class="card-header">
+                    <h2 class="card-title">Site Access Points</h2>
+                </div>
+                <div class="card-body">
+                    <div class="table-responsive">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>SSID</th>
+                                    <th>BSSID</th>
+                                    <th>Access Point</th>
+                                    <th>Channel</th>
+                                    <th>Width</th>
+                                    <th>Signal</th>
+                                    <th>Heard By</th>
+                                    <th>Last Seen</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var item in filteredSiteAps)
+                                {
+                                    <tr>
+                                        <td>
+                                            @if (SiteBssidLookup.IsMeshBackhaul(item.Network))
+                                            {
+                                                <span class="hidden-ssid">(Mesh backhaul)</span>
+                                            }
+                                            else if (!string.IsNullOrEmpty(item.Network.Ssid))
+                                            {
+                                                @item.Network.Ssid
+                                            }
+                                            else if (!string.IsNullOrEmpty(item.SiteAp?.Ssid))
+                                            {
+                                                @item.SiteAp.Ssid
+                                            }
+                                            else
+                                            {
+                                                <span class="hidden-ssid">@BssidIdentifier.GetDisplayName(null, item.Network.Bssid)</span>
+                                            }
+                                        </td>
+                                        <td class="monospace">@item.Network.Bssid</td>
+                                        <td>@(item.SiteAp?.ApName ?? item.SiteAp?.ApMac ?? "")</td>
+                                        <td>
+                                            <span class="channel-badge @GetBandClass(item.Band) @(IsDfsChannel(item.Network.Channel, item.Band) ? "dfs" : "")">
+                                                @item.Network.Channel
+                                            </span>
+                                        </td>
+                                        <td>@(item.Network.Width ?? 20) MHz</td>
+                                        <td>
+                                            @{
+                                                var siteSignal = GetDisplaySignal(item);
+                                            }
+                                            <span class="signal-indicator @GetSignalClass(siteSignal)" style="color: @SignalClassification.GetSignalColor(siteSignal, selectedBand)">
+                                                @siteSignal dBm
+                                            </span>
+                                        </td>
+                                        <td>
+                                            @if (item.DetectedByAps.Count == 1)
+                                            {
+                                                @item.DetectedByAps[0]
+                                            }
+                                            else
+                                            {
+                                                <span data-tooltip="@string.Join(", ", item.DetectedByAps)">@item.DetectedByAps.Count APs</span>
+                                            }
+                                        </td>
+                                        <td>@FormatLastSeen(item.Network.LastSeen)</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        }
 
         <!-- DFS Status -->
         @if (selectedBand == RadioBand.Band5GHz)
@@ -939,8 +1018,10 @@
         { "1M", TimeSpan.FromDays(30) }
     };
 
-    // Flattened view of all neighbors with their source AP info
-    private List<NeighborWithAp> allNeighbors = new();
+    // Flattened view of all external neighbors with their source AP info
+    private List<RfNeighborRow> allNeighbors = new();
+    // Site BSSIDs as sibling APs hear them (Site Access Points card); never counted as neighbors
+    private List<RfNeighborRow> siteApNeighbors = new();
     private List<ChannelDensity> _channelDensityData = new();
     private double _maxInterferenceScore;
 
@@ -986,35 +1067,9 @@
             Logger.LogInformation("Spectrum: Loaded {ApCount} APs, {ScanCount} scan results",
                 accessPoints.Count, scanResults.Count);
 
-            // Flatten neighbors from all scan results, deduplicate by BSSID keeping strongest signal
-            // but track all APs that detected each network (both names and MACs for filtering)
-            // Also store per-AP signal levels for accurate display when filtering by AP
-            // Filter out invalid channels (e.g., 65535 = 0xFFFF from controller)
-            allNeighbors = scanResults
-                .SelectMany(sr => sr.Neighbors
-                    .Where(n => n.Channel > 0 && n.Channel <= 233)
-                    .Select(n => new NeighborWithAp
-                    {
-                        Network = n,
-                        ApMac = sr.ApMac,
-                        ApName = sr.ApName ?? "Unknown AP",
-                        Band = sr.Band
-                    }))
-                .GroupBy(n => n.Network.Bssid.ToLowerInvariant())
-                .Select(g =>
-                {
-                    var strongest = g.OrderByDescending(n => n.Network.Signal ?? -100).First();
-                    strongest.DetectedByAps = g.Select(n => n.ApName).Distinct().ToList();
-                    strongest.DetectedByApMacs = g.Select(n => n.ApMac.ToLowerInvariant()).Distinct().ToList();
-                    // Store signal per AP for filtering - if same AP detected multiple times, keep strongest
-                    strongest.SignalByApMac = g
-                        .GroupBy(n => n.ApMac.ToLowerInvariant())
-                        .ToDictionary(
-                            apGroup => apGroup.Key,
-                            apGroup => apGroup.Max(n => n.Network.Signal ?? -100));
-                    return strongest;
-                })
-                .ToList();
+            // Site BSSIDs leave every external view; their siblings' sightings get their own card.
+            allNeighbors = RfEnvironmentNeighbors.ExternalNeighbors(scanResults);
+            siteApNeighbors = RfEnvironmentNeighbors.SiteAccessPoints(scanResults);
 
             Logger.LogInformation("Spectrum: Found {NeighborCount} unique neighboring networks (deduplicated by BSSID)", allNeighbors.Count);
             UpdateChannelDensity();
@@ -1048,35 +1103,9 @@
             scanResults = scanTask.Result;
             regulatoryChannels = regulatoryTask.Result;
 
-            // Flatten neighbors from all scan results, deduplicate by BSSID keeping strongest signal
-            // but track all APs that detected each network (both names and MACs for filtering)
-            // Also store per-AP signal levels for accurate display when filtering by AP
-            // Filter out invalid channels (e.g., 65535 = 0xFFFF from controller)
-            allNeighbors = scanResults
-                .SelectMany(sr => sr.Neighbors
-                    .Where(n => n.Channel > 0 && n.Channel <= 233)
-                    .Select(n => new NeighborWithAp
-                    {
-                        Network = n,
-                        ApMac = sr.ApMac,
-                        ApName = sr.ApName ?? "Unknown AP",
-                        Band = sr.Band
-                    }))
-                .GroupBy(n => n.Network.Bssid.ToLowerInvariant())
-                .Select(g =>
-                {
-                    var strongest = g.OrderByDescending(n => n.Network.Signal ?? -100).First();
-                    strongest.DetectedByAps = g.Select(n => n.ApName).Distinct().ToList();
-                    strongest.DetectedByApMacs = g.Select(n => n.ApMac.ToLowerInvariant()).Distinct().ToList();
-                    // Store signal per AP for filtering - if same AP detected multiple times, keep strongest
-                    strongest.SignalByApMac = g
-                        .GroupBy(n => n.ApMac.ToLowerInvariant())
-                        .ToDictionary(
-                            apGroup => apGroup.Key,
-                            apGroup => apGroup.Max(n => n.Network.Signal ?? -100));
-                    return strongest;
-                })
-                .ToList();
+            // Site BSSIDs leave every external view; their siblings' sightings get their own card.
+            allNeighbors = RfEnvironmentNeighbors.ExternalNeighbors(scanResults);
+            siteApNeighbors = RfEnvironmentNeighbors.SiteAccessPoints(scanResults);
             UpdateChannelDensity();
         }
         catch (Exception ex)
@@ -1090,10 +1119,19 @@
         }
     }
 
-    private List<NeighborWithAp> filteredNeighbors =>
+    private List<RfNeighborRow> filteredNeighbors =>
         allNeighbors
             .Where(n => string.IsNullOrEmpty(selectedApMac) || n.DetectedByApMacs.Contains(selectedApMac.ToLowerInvariant()))
             .Where(n => n.Band == selectedBand)
+            .ToList();
+
+    // Same AP and band filters as the neighbor table, grouped by the owning AP
+    private List<RfNeighborRow> filteredSiteAps =>
+        siteApNeighbors
+            .Where(n => string.IsNullOrEmpty(selectedApMac) || n.DetectedByApMacs.Contains(selectedApMac.ToLowerInvariant()))
+            .Where(n => n.Band == selectedBand)
+            .OrderBy(n => n.SiteAp?.ApName, StringComparer.OrdinalIgnoreCase)
+            .ThenByDescending(GetDisplaySignal)
             .ToList();
 
     private void SetBandFilter(RadioBand band)
@@ -1453,9 +1491,9 @@
         return Math.Max(15, Math.Min(100, (int)(apCountOnChannel * 100.0 / totalAps)));
     }
 
-    private IEnumerable<NeighborWithAp> GetSortedNetworks()
+    private IEnumerable<RfNeighborRow> GetSortedNetworks()
     {
-        IEnumerable<NeighborWithAp> networks = filteredNeighbors;
+        IEnumerable<RfNeighborRow> networks = filteredNeighbors;
 
         networks = sortColumn switch
         {
@@ -1473,7 +1511,7 @@
         return networks;
     }
 
-    private IEnumerable<NeighborWithAp> GetPagedNetworks()
+    private IEnumerable<RfNeighborRow> GetPagedNetworks()
     {
         return GetSortedNetworks()
             .Skip((_currentPage - 1) * _pageSize)
@@ -1633,7 +1671,7 @@
     /// When filtering by a specific AP, shows that AP's signal reading.
     /// Otherwise shows the strongest signal across all detecting APs.
     /// </summary>
-    private int GetDisplaySignal(NeighborWithAp neighbor)
+    private int GetDisplaySignal(RfNeighborRow neighbor)
     {
         if (!string.IsNullOrEmpty(selectedApMac) &&
             neighbor.SignalByApMac.TryGetValue(selectedApMac.ToLowerInvariant(), out var apSignal))
@@ -1644,18 +1682,6 @@
     }
 
     // Helper classes
-    private class NeighborWithAp
-    {
-        public NeighborNetwork Network { get; set; } = null!;
-        public string ApMac { get; set; } = "";
-        public string ApName { get; set; } = "";
-        public RadioBand Band { get; set; }
-        public List<string> DetectedByAps { get; set; } = new();
-        public List<string> DetectedByApMacs { get; set; } = new();
-        // Signal per detecting AP MAC (lowercase) - allows showing AP-specific signal when filtering
-        public Dictionary<string, int> SignalByApMac { get; set; } = new();
-    }
-
     private class ChannelDensity
     {
         public int Channel { get; set; }

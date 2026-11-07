@@ -1,6 +1,7 @@
 using System.Text.Json;
 using FluentAssertions;
 using NetworkOptimizer.Web.Services.ApAgent;
+using NetworkOptimizer.WiFi.Helpers;
 using NetworkOptimizer.WiFi.Models;
 using Xunit;
 
@@ -85,11 +86,54 @@ public class ApAgentScanMergerTests
     public void A_sibling_ap_the_radio_hears_is_our_own_network_not_a_neighbor()
     {
         var result = Result(Ap, RadioBand.Band5GHz);
-        var own = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "02:00:00:AA:00:01" };
+        var own = Site("02:00:00:AA:00:01");
 
         ApAgentScanMerger.Apply([result], _ => Payload(), Now, own);
 
         result.Neighbors.Single(n => n.Bssid == "02:00:00:aa:00:01").IsOwnNetwork.Should().BeTrue();
+    }
+
+    private const string Sibling = "aa:bb:cc:dd:ee:02";
+
+    private static Dictionary<string, SiteBssid> Site(string bssid, string essid = "Home") =>
+        new(StringComparer.OrdinalIgnoreCase) { [bssid] = new SiteBssid(Sibling, "AP2", essid) };
+
+    [Fact]
+    public void A_scan_radio_sighting_of_a_sibling_vap_is_a_site_bssid_with_its_owner()
+    {
+        var result = Result(Ap, RadioBand.Band6GHz);
+
+        ApAgentScanMerger.Apply([result], _ => Payload(), Now, Site("02:00:00:aa:00:03", "vwire-0123456789abcdef"));
+
+        var sibling = result.Neighbors.Single(n => n.Bssid == "02:00:00:aa:00:03");
+        sibling.IsSiteBssid.Should().BeTrue();
+        sibling.OwnApMac.Should().Be(Sibling);
+        sibling.OwnApName.Should().Be("AP2");
+        sibling.OwnSsid.Should().Be("vwire-0123456789abcdef");
+    }
+
+    [Fact]
+    public void A_neighbors_ubiquiti_flag_is_own_network_but_not_a_site_bssid()
+    {
+        var result = Result(Ap, RadioBand.Band5GHz);
+
+        ApAgentScanMerger.Apply([result], _ => Payload(), Now, Site("02:00:00:aa:00:01"));
+
+        var ubnt = result.Neighbors.Single(n => n.Bssid == "02:00:00:aa:00:02");
+        ubnt.IsOwnNetwork.Should().BeTrue("the console path's rule is unchanged");
+        ubnt.IsSiteBssid.Should().BeFalse("is_ubnt alone is not in any site vap_table");
+        ubnt.OwnApMac.Should().BeNull();
+    }
+
+    [Fact]
+    public void An_added_external_neighbor_takes_its_vendor_and_a_site_bssid_does_not()
+    {
+        var result = Result(Ap, RadioBand.Band5GHz);
+
+        ApAgentScanMerger.Apply([result], _ => Payload(), Now, Site("02:00:00:aa:00:01"), _ => "Vendor Inc");
+
+        result.Neighbors.Single(n => n.Bssid == "02:00:00:aa:00:01").Oui.Should().BeNull();
+        result.Neighbors.Single(n => n.Bssid == "02:00:00:aa:00:02").Oui.Should().Be("Vendor Inc");
     }
 
     [Fact]

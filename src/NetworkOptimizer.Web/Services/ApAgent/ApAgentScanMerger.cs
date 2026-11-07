@@ -1,3 +1,4 @@
+using NetworkOptimizer.WiFi.Helpers;
 using NetworkOptimizer.WiFi.Models;
 
 namespace NetworkOptimizer.Web.Services.ApAgent;
@@ -16,14 +17,18 @@ public static class ApAgentScanMerger
     public static readonly TimeSpan FreshWindow = TimeSpan.FromMinutes(5);
 
     /// <summary>Applies the merge in place. Returns how many (AP, band) results took agent data.</summary>
-    /// <param name="ownBssids">The site's own BSSIDs, so a sibling AP the radio hears is never an
-    /// external neighbor: the recommender already charges siblings as internal interference, and
-    /// counting them twice would push covered radios off channels the console path keeps.</param>
+    /// <param name="siteBssids">The site's own BSSIDs and their owners, so a sibling AP the radio
+    /// hears is never an external neighbor: the recommender already charges siblings as internal
+    /// interference, and counting them twice would push covered radios off channels the console
+    /// path keeps.</param>
+    /// <param name="vendorFor">OUI vendor lookup for an added external neighbor. The agent's scan
+    /// carries no vendor; the console's rows bring their own.</param>
     public static int Apply(
         List<ChannelScanResult> results,
         Func<string, ApAgentScanPayload?> scanFor,
         DateTimeOffset now,
-        IReadOnlySet<string>? ownBssids = null)
+        IReadOnlyDictionary<string, SiteBssid>? siteBssids = null,
+        Func<string, string?>? vendorFor = null)
     {
         var merged = 0;
         foreach (var result in results)
@@ -34,7 +39,7 @@ public static class ApAgentScanMerger
             var readAt = new DateTimeOffset(DateTime.SpecifyKind(payload.ReadAt, DateTimeKind.Utc));
             if (readAt == DateTimeOffset.UnixEpoch || now - readAt > FreshWindow) continue;
 
-            var touched = MergeNeighbors(result, payload, readAt, ownBssids);
+            var touched = MergeNeighbors(result, payload, readAt, siteBssids, vendorFor);
             touched |= MergeSpectrum(result, payload, readAt);
             if (touched) merged++;
         }
@@ -45,7 +50,12 @@ public static class ApAgentScanMerger
     /// Every radio's sightings on this band, the scan radio's included: a serving radio hears its
     /// own channel, the scan radio the whole band, and the pool de-duplicates by BSSID.
     /// </summary>
-    private static bool MergeNeighbors(ChannelScanResult result, ApAgentScanPayload payload, DateTimeOffset readAt, IReadOnlySet<string>? ownBssids)
+    private static bool MergeNeighbors(
+        ChannelScanResult result,
+        ApAgentScanPayload payload,
+        DateTimeOffset readAt,
+        IReadOnlyDictionary<string, SiteBssid>? siteBssids,
+        Func<string, string?>? vendorFor)
     {
         var byBssid = result.Neighbors
             .Where(n => !string.IsNullOrEmpty(n.Bssid))
@@ -77,9 +87,12 @@ public static class ApAgentScanMerger
                     Width = e.Width > 0 ? e.Width : null,
                     Signal = e.Signal,
                     // Same rule as the console path: a Ubiquiti flag or one of our own BSSIDs.
-                    IsOwnNetwork = e.IsUbnt || (ownBssids?.Contains(e.Bssid) ?? false),
+                    IsOwnNetwork = e.IsUbnt || (siteBssids?.ContainsKey(e.Bssid) ?? false),
                     LastSeen = seenAt,
                 };
+                SiteBssidLookup.Stamp(added, siteBssids);
+                if (!added.IsSiteBssid && vendorFor != null)
+                    added.Oui = vendorFor(added.Bssid);
                 result.Neighbors.Add(added);
                 byBssid[added.Bssid] = added;
                 touched = true;

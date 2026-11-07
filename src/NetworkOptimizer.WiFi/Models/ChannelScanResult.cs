@@ -97,8 +97,26 @@ public class NeighborNetwork
     /// <summary>Signal strength in dBm</summary>
     public int? Signal { get; set; }
 
-    /// <summary>Whether this is a UniFi network (same site)</summary>
+    /// <summary>
+    /// A Ubiquiti flag from the scan or one of this site's BSSIDs. Broader than
+    /// <see cref="IsSiteBssid"/>: a neighbor's UniFi AP also sets it.
+    /// </summary>
     public bool IsOwnNetwork { get; set; }
+
+    /// <summary>
+    /// True when the BSSID is in a site access point's <c>vap_table</c>. The scan's Ubiquiti flag
+    /// plays no part: a neighbor's UniFi AP sets that flag too.
+    /// </summary>
+    public bool IsSiteBssid { get; set; }
+
+    /// <summary>MAC of the site access point that owns this BSSID, when <see cref="IsSiteBssid"/>.</summary>
+    public string? OwnApMac { get; set; }
+
+    /// <summary>Name of the site access point that owns this BSSID, when <see cref="IsSiteBssid"/>.</summary>
+    public string? OwnApName { get; set; }
+
+    /// <summary>The owning VAP's ESSID, when <see cref="IsSiteBssid"/>. A mesh VAP's starts with <c>vwire-</c>.</summary>
+    public string? OwnSsid { get; set; }
 
     /// <summary>Security type if detected</summary>
     public string? Security { get; set; }
