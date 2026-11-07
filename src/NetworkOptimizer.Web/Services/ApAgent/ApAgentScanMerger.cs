@@ -17,7 +17,7 @@ public static class ApAgentScanMerger
     public static readonly TimeSpan FreshWindow = TimeSpan.FromMinutes(5);
 
     /// <summary>Applies the merge in place. Returns how many (AP, band) results took agent data.</summary>
-    /// <param name="siteBssids">The site's own BSSIDs and their owners, so a sibling AP the radio
+    /// <param name="siteBssids">Resolves the site's own BSSIDs to their owners, so a sibling AP the radio
     /// hears is never an external neighbor: the recommender already charges siblings as internal
     /// interference, and counting them twice would push covered radios off channels the console
     /// path keeps.</param>
@@ -27,7 +27,7 @@ public static class ApAgentScanMerger
         List<ChannelScanResult> results,
         Func<string, ApAgentScanPayload?> scanFor,
         DateTimeOffset now,
-        IReadOnlyDictionary<string, SiteBssid>? siteBssids = null,
+        SiteBssidLookup? siteBssids = null,
         Func<string, string?>? vendorFor = null)
     {
         var merged = 0;
@@ -54,7 +54,7 @@ public static class ApAgentScanMerger
         ChannelScanResult result,
         ApAgentScanPayload payload,
         DateTimeOffset readAt,
-        IReadOnlyDictionary<string, SiteBssid>? siteBssids,
+        SiteBssidLookup? siteBssids,
         Func<string, string?>? vendorFor)
     {
         var byBssid = result.Neighbors
@@ -86,11 +86,10 @@ public static class ApAgentScanMerger
                     Channel = e.Channel,
                     Width = e.Width > 0 ? e.Width : null,
                     Signal = e.Signal,
-                    // Same rule as the console path: a Ubiquiti flag or one of our own BSSIDs.
-                    IsOwnNetwork = e.IsUbnt || (siteBssids?.ContainsKey(e.Bssid) ?? false),
                     LastSeen = seenAt,
                 };
-                SiteBssidLookup.Stamp(added, siteBssids);
+                // Same rule as the console path: the site lookup only, never is_ubnt.
+                siteBssids?.Stamp(added);
                 if (!added.IsSiteBssid && vendorFor != null)
                     added.Oui = vendorFor(added.Bssid);
                 result.Neighbors.Add(added);

@@ -351,6 +351,38 @@ public class ChannelRecommendationServiceTests
     }
 
     [Fact]
+    public void BuildInterferenceGraph_NeighborUniFiAp_CountsAndOwnMeshVap_Excluded()
+    {
+        var aps = new List<AccessPointSnapshot>
+        {
+            CreateAp("aa:bb:cc:dd:ee:01", "AP-1", RadioBand.Band5GHz, 36),
+            CreateAp("aa:bb:cc:dd:ee:10", "AP-2", RadioBand.Band5GHz, 149)
+        };
+        // A neighbor's UniFi AP (is_ubnt in the scan, not ours) and AP-2's mesh VAP, which no vap_table lists.
+        var neighborUniFi = new NeighborNetwork { Bssid = "ac:bb:cc:00:00:01", Channel = 36, Signal = -60 };
+        var ownMesh = new NeighborNetwork { Bssid = "0a:bb:cc:dd:ee:12", Ssid = "vwire-0123456789abcdef", Channel = 44, Signal = -50 };
+        var lookup = SiteBssidLookup.Build(aps);
+        lookup.Stamp(neighborUniFi);
+        lookup.Stamp(ownMesh);
+
+        var scans = new List<ChannelScanResult>
+        {
+            new()
+            {
+                ApMac = "aa:bb:cc:dd:ee:01",
+                Band = RadioBand.Band5GHz,
+                Neighbors = new() { neighborUniFi, ownMesh }
+            }
+        };
+
+        var graph = _service.BuildInterferenceGraph(aps, RadioBand.Band5GHz, null, scans, null);
+
+        graph.ExternalLoad[0].Should().ContainKey(36);
+        graph.ExternalLoad[0][36].Should().BeGreaterThan(0);
+        graph.ExternalLoad[0].Should().NotContainKey(44);
+    }
+
+    [Fact]
     public void BuildInterferenceGraph_RememberedNeighbor_WeightScaledByConfidence()
     {
         var aps = new List<AccessPointSnapshot>

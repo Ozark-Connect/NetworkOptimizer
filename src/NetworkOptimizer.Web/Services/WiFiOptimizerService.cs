@@ -978,7 +978,7 @@ public class WiFiOptimizerService : IWiFiScanService
                     _neighborSightingHistory[key] = history;
                 }
 
-                // Site BSSIDs are pooled too; the recommender drops them by IsOwnNetwork.
+                // Site BSSIDs are pooled too; the recommender drops them by IsOwnNetwork (= IsSiteBssid).
                 foreach (var nb in scan.Neighbors)
                 {
                     if (!string.IsNullOrEmpty(nb.Bssid))
@@ -1117,6 +1117,10 @@ public class WiFiOptimizerService : IWiFiScanService
                     r.Ssid))
                 .Where(s => s.Band != RadioBand.Unknown)
                 .ToList();
+
+            // Rows persisted before the MAC-derived rule can be our own mesh VAPs; they are never interference.
+            var siteBssids = NetworkOptimizer.WiFi.Helpers.SiteBssidLookup.Build(await GetAccessPointsAsync());
+            remembered.RemoveAll(s => siteBssids.TryResolve(s.Bssid, s.Ssid, out _));
 
             var merged = ChannelMemoryHelper.MergeRememberedNeighbors(pooled, remembered, now);
 

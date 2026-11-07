@@ -851,21 +851,15 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
             aps = aps.Where(d => d.Mac.Equals(apMac, StringComparison.OrdinalIgnoreCase)).ToList();
         }
 
-        // Get our own BSSIDs to identify own networks, and which AP broadcasts each
-        var ownBssids = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var siteBssids = new Dictionary<string, SiteBssid>(StringComparer.OrdinalIgnoreCase);
+        // Our own BSSIDs (VAPs and MAC-derived), and which AP broadcasts each
+        var siteBssids = new SiteBssidLookup();
         foreach (var ap in aps)
         {
+            siteBssids.AddAccessPoint(ap.Mac, ap.Name);
             if (ap.VapTable != null)
             {
                 foreach (var vap in ap.VapTable)
-                {
-                    if (!string.IsNullOrEmpty(vap.Bssid))
-                    {
-                        ownBssids.Add(vap.Bssid);
-                        SiteBssidLookup.Add(siteBssids, vap.Bssid, ap.Mac, ap.Name, vap.Essid);
-                    }
-                }
+                    siteBssids.AddVap(vap.Bssid, ap.Mac, ap.Name, vap.Essid);
             }
         }
 
@@ -969,14 +963,14 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
                             Channel = neighbor.Channel,
                             Width = neighbor.Width,
                             Signal = neighbor.Signal,
-                            IsOwnNetwork = neighbor.IsUbnt || ownBssids.Contains(neighbor.Bssid),
                             Security = neighbor.Security,
                             LastSeen = neighbor.LastSeen.HasValue
                                 ? DateTimeOffset.FromUnixTimeSeconds(neighbor.LastSeen.Value)
                                 : null,
                             Oui = neighbor.Oui
                         };
-                        SiteBssidLookup.Stamp(added, siteBssids);
+                        // Own-ness comes from the site lookup only; a neighbor's UniFi AP also sets is_ubnt.
+                        siteBssids.Stamp(added);
                         result.Neighbors.Add(added);
                     }
                 }

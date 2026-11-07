@@ -98,14 +98,15 @@ public class NeighborNetwork
     public int? Signal { get; set; }
 
     /// <summary>
-    /// A Ubiquiti flag from the scan or one of this site's BSSIDs. Broader than
-    /// <see cref="IsSiteBssid"/>: a neighbor's UniFi AP also sets it.
+    /// One of this site's BSSIDs, so never external interference. Set together with
+    /// <see cref="IsSiteBssid"/>; a neighbor's UniFi AP is not own.
     /// </summary>
     public bool IsOwnNetwork { get; set; }
 
     /// <summary>
-    /// True when the BSSID is in a site access point's <c>vap_table</c>. The scan's Ubiquiti flag
-    /// plays no part: a neighbor's UniFi AP sets that flag too.
+    /// True when the BSSID is in a site access point's <c>vap_table</c> or derived from a site AP's
+    /// MAC (mesh VAPs are missing from every <c>vap_table</c>). The scan's Ubiquiti flag plays no
+    /// part: a neighbor's UniFi AP sets that flag too.
     /// </summary>
     public bool IsSiteBssid { get; set; }
 

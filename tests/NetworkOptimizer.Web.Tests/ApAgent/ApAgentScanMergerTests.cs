@@ -78,7 +78,7 @@ public class ApAgentScanMergerTests
         console.Signal.Should().Be(-71);
         console.LastSeen.Should().Be(new DateTimeOffset(2026, 9, 2, 11, 59, 49, TimeSpan.Zero));
         var other = result.Neighbors.Single(n => n.Bssid == "02:00:00:aa:00:02");
-        other.IsOwnNetwork.Should().BeTrue();
+        other.IsOwnNetwork.Should().BeFalse("is_ubnt alone is not ours");
         other.LastSeen.Should().Be(new DateTimeOffset(2026, 9, 2, 11, 59, 20, TimeSpan.Zero));
     }
 
@@ -95,8 +95,12 @@ public class ApAgentScanMergerTests
 
     private const string Sibling = "aa:bb:cc:dd:ee:02";
 
-    private static Dictionary<string, SiteBssid> Site(string bssid, string essid = "Home") =>
-        new(StringComparer.OrdinalIgnoreCase) { [bssid] = new SiteBssid(Sibling, "AP2", essid) };
+    private static SiteBssidLookup Site(string bssid, string essid = "Home")
+    {
+        var lookup = new SiteBssidLookup();
+        lookup.AddVap(bssid, Sibling, "AP2", essid);
+        return lookup;
+    }
 
     [Fact]
     public void A_scan_radio_sighting_of_a_sibling_vap_is_a_site_bssid_with_its_owner()
@@ -113,16 +117,32 @@ public class ApAgentScanMergerTests
     }
 
     [Fact]
-    public void A_neighbors_ubiquiti_flag_is_own_network_but_not_a_site_bssid()
+    public void A_neighbors_ubiquiti_ap_with_a_non_site_mac_is_external()
     {
         var result = Result(Ap, RadioBand.Band5GHz);
 
         ApAgentScanMerger.Apply([result], _ => Payload(), Now, Site("02:00:00:aa:00:01"));
 
         var ubnt = result.Neighbors.Single(n => n.Bssid == "02:00:00:aa:00:02");
-        ubnt.IsOwnNetwork.Should().BeTrue("the console path's rule is unchanged");
-        ubnt.IsSiteBssid.Should().BeFalse("is_ubnt alone is not in any site vap_table");
+        ubnt.IsOwnNetwork.Should().BeFalse("a neighbor's UniFi AP sets is_ubnt too");
+        ubnt.IsSiteBssid.Should().BeFalse();
         ubnt.OwnApMac.Should().BeNull();
+    }
+
+    [Fact]
+    public void A_mesh_vap_missing_from_every_vap_table_is_ours_by_its_aps_mac()
+    {
+        var result = Result(Ap, RadioBand.Band6GHz);
+        var lookup = new SiteBssidLookup();
+        lookup.AddAccessPoint("aa:00:00:aa:00:03", "AP3");
+
+        ApAgentScanMerger.Apply([result], _ => Payload(), Now, lookup);
+
+        var mesh = result.Neighbors.Single(n => n.Bssid == "02:00:00:aa:00:03");
+        mesh.IsSiteBssid.Should().BeTrue();
+        mesh.IsOwnNetwork.Should().BeTrue();
+        mesh.OwnApName.Should().Be("AP3");
+        mesh.OwnSsid.Should().Be("Wide-6", "a derived BSSID takes the sighting's SSID");
     }
 
     [Fact]
