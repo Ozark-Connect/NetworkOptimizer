@@ -790,6 +790,8 @@ builder.Services.AddSingleton<NetworkOptimizer.Web.Services.Monitoring.WanOutage
 builder.Services.AddSiteScopedRegistry<NetworkOptimizer.Web.Services.Monitoring.UpstreamTracerRegistry>();
 builder.Services.AddScoped(sp => sp.GetRequiredService<NetworkOptimizer.Web.Services.Monitoring.UpstreamTracerRegistry>()
     .GetFor(sp.GetRequiredService<SiteContextService>().Slug));
+// Holds discovery off a WAN that is down, saturated, or lossy (automatic runs wait, manual runs warn).
+builder.Services.AddSingleton<NetworkOptimizer.Web.Services.Monitoring.UpstreamDiscoveryGate>();
 // Path Localization: per-site watchers fed by both latency write paths, traceroutes from the
 // measuring vantage while an Internet/Custom target is degraded and the rest of the WAN is clean.
 builder.Services.AddSiteScopedRegistry<NetworkOptimizer.Web.Services.Monitoring.PathLocalization.PathEpisodeRegistry>();

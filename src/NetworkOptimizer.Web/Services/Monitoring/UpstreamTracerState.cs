@@ -70,6 +70,18 @@ public class UpstreamTracerState
     /// </summary>
     public IspChangeCandidate? IspChange { get; set; }
 
+    /// <summary>
+    /// Why the health gate objected when this run was started anyway, or null when it did not object.
+    /// Such a run keeps already-monitored targets that failed reachability checked in the review.
+    /// </summary>
+    public string? HealthGateReason { get; set; }
+
+    /// <summary>Candidates the reachability gate pinged this run.</summary>
+    public int ReachabilityChecked { get; set; }
+
+    /// <summary>Of <see cref="ReachabilityChecked"/>, those that did not answer (off-path hops not counted).</summary>
+    public int ReachabilityFailed { get; set; }
+
     // Per-CDN trace summaries for the live progress UI.
     public List<TraceSummary> Traces { get; set; } = new();
 
@@ -107,6 +119,8 @@ public class AccessHopCandidate
     public DiscoveryMethod Method { get; set; } = DiscoveryMethod.DirectRouter;
     public bool Enabled { get; set; } = true;
     public bool Unreachable { get; set; }
+    /// <summary>With <see cref="Unreachable"/>: already monitored, and failed only during a run started while the WAN was busy, so it stays checked.</summary>
+    public bool UnansweredWhileBusy { get; set; }
     public double? VerifiedRttMs { get; set; }
 }
 
@@ -129,6 +143,8 @@ public class TransitAsnCandidate
     /// <summary>With <see cref="Unreachable"/>: the hop answers ping, but by a different path than
     /// the trace that found it (its ping RTT is well above its trace RTT), so it is excluded.</summary>
     public bool OffPath { get; set; }
+    /// <summary>With <see cref="Unreachable"/>: already monitored, and failed only during a run started while the WAN was busy, so it stays checked.</summary>
+    public bool UnansweredWhileBusy { get; set; }
     public double? VerifiedRttMs { get; set; }
     /// <summary>For PathProxy tier: the CDN endpoint we monitor as a proxy for this ASN.</summary>
     public string? PathProxyTarget { get; set; }

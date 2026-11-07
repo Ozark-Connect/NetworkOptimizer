@@ -54,6 +54,17 @@
                 update your targets.
             </div>
         }
+        @if (_busyReason != null && CanDiscover)
+        {
+            <div class="alert alert-warning">
+                The WAN is busy right now (@_busyReason), so some hops may not answer and look unreachable.
+                Results are more reliable when the connection is quiet.
+            </div>
+            <div class="action-buttons">
+                <button class="btn btn-primary" @onclick="RunAnywayAsync">Run Anyway</button>
+                <button class="btn btn-secondary" @onclick="CancelBusyWarning">Cancel</button>
+            </div>
+        }
         @if (!CanDiscover)
         {
             <div class="alert alert-info" style="margin-bottom: 0;">
@@ -253,21 +264,28 @@
                                 <tbody>
                                     @foreach (var hop in _state.AccessHops)
                                     {
-                                        <tr class="@(hop.Unreachable ? "row-disabled" : hop.Enabled ? "" : "row-disabled")">
+                                        var hopLocked = hop.Unreachable && !hop.UnansweredWhileBusy;
+                                        <tr class="@(hopLocked || !hop.Enabled ? "row-disabled" : "")">
                                             <td>
                                                 <input type="checkbox" checked="@hop.Enabled"
-                                                       disabled="@hop.Unreachable"
+                                                       disabled="@hopLocked"
                                                        @onchange="e => hop.Enabled = (bool)e.Value!" />
                                             </td>
                                             <td>
                                                 <input type="text" class="form-control form-control-sm"
                                                        @bind="hop.Label" @bind:event="oninput"
-                                                       disabled="@hop.Unreachable" />
+                                                       disabled="@hopLocked" />
                                             </td>
                                             <td><code>@hop.Address</code> @(string.IsNullOrEmpty(hop.PtrHostname) ? "" : $"({hop.PtrHostname})")</td>
                                             <td>@(hop.Method == DiscoveryMethod.L2Neighbor ? "L2 neighbor" : hop.Method == DiscoveryMethod.ConfiguredFallback ? "Curated" : $"Hop {hop.HopNumber}")</td>
                                             <td>@hop.Role.ToDisplayName()</td>
-                                            <td>@(hop.Unreachable ? "Unreachable" : hop.VerifiedRttMs.HasValue ? $"{hop.VerifiedRttMs:F1} ms" : "-")</td>
+                                            <td>
+                                                @(hop.Unreachable ? "Unreachable" : hop.VerifiedRttMs.HasValue ? $"{hop.VerifiedRttMs:F1} ms" : "-")
+                                                @if (hop.UnansweredWhileBusy)
+                                                {
+                                                    <span class="tooltip-icon tooltip-icon-sm" data-tooltip="@BusyUnansweredNote">?</span>
+                                                }
+                                            </td>
                                         </tr>
                                     }
                                 </tbody>
@@ -295,16 +313,17 @@
                                 <tbody>
                                     @foreach (var asn in TransitRouters)
                                     {
-                                        <tr class="@(asn.Unreachable ? "row-disabled" : asn.Enabled ? "" : "row-disabled")">
+                                        var asnLocked = asn.Unreachable && !asn.UnansweredWhileBusy;
+                                        <tr class="@(asnLocked || !asn.Enabled ? "row-disabled" : "")">
                                             <td>
                                                 <input type="checkbox" checked="@asn.Enabled"
-                                                       disabled="@asn.Unreachable"
+                                                       disabled="@asnLocked"
                                                        @onchange="e => asn.Enabled = (bool)e.Value!" />
                                             </td>
                                             <td>
                                                 <input type="text" class="form-control form-control-sm"
                                                        @bind="asn.Label" @bind:event="oninput"
-                                                       disabled="@asn.Unreachable" />
+                                                       disabled="@asnLocked" />
                                             </td>
                                             <td><code>@asn.HopAddress</code></td>
                                             <td><code>AS@(asn.AsnNumber)</code> <span class="text-muted">@asn.AsnName</span></td>
@@ -314,7 +333,13 @@
                                             }
                                             else
                                             {
-                                                <td>@(asn.Unreachable ? "Unreachable" : asn.VerifiedRttMs.HasValue ? $"{asn.VerifiedRttMs:F1} ms" : "-")</td>
+                                                <td>
+                                                    @(asn.Unreachable ? "Unreachable" : asn.VerifiedRttMs.HasValue ? $"{asn.VerifiedRttMs:F1} ms" : "-")
+                                                    @if (asn.UnansweredWhileBusy)
+                                                    {
+                                                        <span class="tooltip-icon tooltip-icon-sm" data-tooltip="@BusyUnansweredNote">?</span>
+                                                    }
+                                                </td>
                                             }
                                         </tr>
                                     }
@@ -693,6 +718,12 @@
     private bool _collapsed;
     private DateTime _lastReviewCheck = DateTime.MinValue;
     private bool _justSaved;
+
+    // What the health gate objected to on the last Start, while the warning waits for Run Anyway or Cancel.
+    private string? _busyReason;
+
+    private const string BusyUnansweredNote =
+        "It did not answer during a busy run. It is already monitored, so it stays checked; untick it to pause it.";
     /// <summary>Whether this run has already told the pin to stop following. Once per run.</summary>
     private bool _pinFrozen;
 
@@ -816,6 +847,8 @@
     {
         // Same as the targets list: picking a WAN on a closed panel should show what was picked.
         _collapsed = false;
+        // The warning named the previous WAN.
+        _busyReason = null;
         await SelectTracerWanAsync(key);
         _appliedSelectWanKey = key;
         if (OnWanSelected.HasDelegate) await OnWanSelected.InvokeAsync(key);
@@ -940,10 +973,25 @@
         }
     }
 
-    private async Task StartAsync()
+    private Task StartAsync() => StartAsync(overrideHealthGate: false);
+
+    private Task RunAnywayAsync() => StartAsync(overrideHealthGate: true);
+
+    private void CancelBusyWarning() => _busyReason = null;
+
+    private async Task StartAsync(bool overrideHealthGate)
     {
         if (!_canOperate) return;
         _justSaved = false;
+        // Through the audited service, onto the SELECTED WAN's tracer - the reads above
+        // already follow Svc, and a run that silently hit the primary would trace the wrong WAN.
+        var start = await Discovery.StartAsync(_wanTracer, overrideHealthGate);
+        _busyReason = start.Started ? null : start.BusyReason;
+        if (!start.Started)
+        {
+            StateHasChanged();
+            return;
+        }
         // Discovery adds sections to this card for a minute or so; keep its top in view rather than
         // making the reader follow them down the page. Released when it finishes, or sooner if they
         // scroll for themselves.
@@ -960,9 +1008,6 @@
         // when it finishes, so releasing in a finally killed the pin about a tick after it started -
         // one correction, then nothing, with no scroll from the reader to explain it. The pin ends
         // when the run reaches a terminal step (below), or the moment they scroll for themselves.
-        // Through the audited service, onto the SELECTED WAN's tracer - the reads above
-        // already follow Svc, and a run that silently hit the primary would trace the wrong WAN.
-        await Discovery.StartAsync(_wanTracer);
         _state = Svc.State;
         StateHasChanged();
     }

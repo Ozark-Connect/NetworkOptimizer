@@ -119,6 +119,22 @@ public static class SystemSettingKeys
     // later ISP change is confirmed (fresh baseline).
     public const string UpstreamDeclinedAccessAsnPrefix = "upstream.declined_access_asn.";
 
+    // Per-WAN share of candidates that failed the reachability gate in the last committed discovery
+    // run. The full key is this prefix + WanInterface; the value is a fraction (0-1, invariant).
+    public const string UpstreamUnreachableSharePrefix = "upstream.unreachable_share.";
+
+    // Per-WAN count of automatic discovery runs discarded as degraded, with the time it last
+    // advanced. The full key is this prefix + WanInterface; the value is {"c":count,"t":utc}.
+    public const string UpstreamDegradedRunsPrefix = "upstream.degraded_runs.";
+
+    // Per-WAN count of automatic runs each monitored target went unanswered in. The full key is
+    // this prefix + WanInterface; the value is a JSON map of address -> {"c":count,"t":utc}, or null.
+    public const string UpstreamUnansweredRunsPrefix = "upstream.unanswered_runs.";
+
+    // Per-WAN targets the unanswered counter paused ("paused"), or that an admin resumed after it
+    // did ("kept"). The full key is this prefix + WanInterface; the value is a JSON map of address -> mark.
+    public const string UpstreamUnansweredPausedPrefix = "upstream.unanswered_paused.";
+
     // Map / Satellite settings
     public const string MapboxApiKey = "map.mapbox_token";
 
