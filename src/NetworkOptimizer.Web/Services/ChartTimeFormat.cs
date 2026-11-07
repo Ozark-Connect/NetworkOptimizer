@@ -37,7 +37,7 @@ public static class ChartTimeFormat
     /// <param name="format">The viewer's format.</param>
     public static DatetimeFormatter DatetimeFormatterFor(DisplayFormat format)
     {
-        var day = format.Order == DateOrder.DayFirst ? "dd MMM" : "MMM dd";
+        var day = format.Order switch { DateOrder.DayFirst => "dd MMM", DateOrder.YearFirst => "MM-dd", _ => "MMM dd" };
         // The 12-hour forms are no wider than the 24-hour ones ("1 PM" beside "13:00"), so ApexCharts
         // lays the axis out the same and its overlap check drops no labels.
         return format.Clock == ClockStyle.TwentyFourHour

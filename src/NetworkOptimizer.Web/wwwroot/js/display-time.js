@@ -3,7 +3,7 @@
 //
 // The server renders every table and label on the viewer's clock and format (IDisplayTimeZone), and
 // the layout writes both into #no-display-tz: the zone's IANA id and the format code ("12-mdy",
-// "24-dmy"). A browser formats on its own zone and locale unless told otherwise, so without this a
+// "24-dmy", "24-ymd"). A browser formats on its own zone and locale unless told otherwise, so without this a
 // chart and the table beside it can disagree.
 //
 // zone() is undefined while the viewer's zone matches the browser's: conversions then use the
@@ -44,7 +44,7 @@
 
     function format() {
         const code = marker()?.dataset.format || browserFormat;
-        return { h24: !code.startsWith('12'), dayFirst: code.endsWith('dmy') };
+        return { h24: !code.startsWith('12'), dayFirst: code.endsWith('dmy'), iso: code.endsWith('ymd') };
     }
 
     const formatters = new Map();
@@ -62,12 +62,46 @@
     // A toLocale*String call in the viewer's format: day-first reads as en-GB, month-first as en-US,
     // and the hour cycle is the viewer's whatever the caller asked for.
     function local(method, value, options) {
-        const { h24, dayFirst } = format();
+        const { h24, dayFirst, iso } = format();
         const z = zone();
         const opts = { ...(options || {}), hourCycle: h24 ? 'h23' : 'h12' };
         delete opts.hour12;
         if (z) opts.timeZone = z;
+        if (iso) return isoLocal(method, value, opts);
         return new Date(value)[method](dayFirst ? 'en-GB' : 'en-US', opts);
+    }
+
+    const DATE_KEYS = ['year', 'month', 'day', 'weekday'];
+    const TIME_KEYS = ['hour', 'minute', 'second', 'fractionalSecondDigits'];
+
+    // No locale writes ISO dates with English names and either hour cycle, so the date is built from
+    // parts: the fields the caller asked for, numeric ("2026-11-03", "11-03"), then the time.
+    function isoLocal(method, value, opts) {
+        let date = DATE_KEYS.some(k => k in opts);
+        let time = TIME_KEYS.some(k => k in opts);
+        const all = !date && !time;
+        if (all) {
+            date = method !== 'toLocaleTimeString';
+            time = method !== 'toLocaleDateString';
+        }
+        const out = [];
+        if ('weekday' in opts) out.push(formatter({ weekday: opts.weekday }).format(new Date(value)));
+        if (date && (all || 'year' in opts || 'month' in opts || 'day' in opts)) {
+            const p = parts(value);
+            const fields = [];
+            if (all || 'year' in opts) fields.push(String(p.year));
+            if (all || 'month' in opts) fields.push(pad(p.month));
+            if (all || 'day' in opts) fields.push(pad(p.day));
+            out.push(fields.join('-'));
+        }
+        if (time) {
+            const t = { hourCycle: opts.hourCycle };
+            for (const k of TIME_KEYS) if (k in opts) t[k] = opts[k];
+            if (all) Object.assign(t, { hour: 'numeric', minute: '2-digit', second: '2-digit' });
+            if (opts.timeZone) t.timeZone = opts.timeZone;
+            out.push(new Date(value).toLocaleTimeString('en-US', t));
+        }
+        return out.join(' ');
     }
 
     /** Wall-clock fields of an instant on the viewer's clock, 24-hour. */
@@ -158,9 +192,11 @@
     const pad = n => String(n).padStart(2, '0');
     const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
-    // The same forms DisplayFormat gives the server: "Nov 3" / "3 Nov", "14:05" / "2:05 PM".
+    // The same forms DisplayFormat gives the server: "Nov 3" / "3 Nov" / "11-03", "14:05" / "2:05 PM".
     function dayText(p) {
-        return format().dayFirst ? `${p.day} ${MONTHS[p.month - 1]}` : `${MONTHS[p.month - 1]} ${p.day}`;
+        const f = format();
+        if (f.iso) return `${pad(p.month)}-${pad(p.day)}`;
+        return f.dayFirst ? `${p.day} ${MONTHS[p.month - 1]}` : `${MONTHS[p.month - 1]} ${p.day}`;
     }
     function timeText(p, seconds) {
         const sec = seconds ? `:${pad(p.second)}` : '';
@@ -176,14 +212,15 @@
      * ApexCharts then spaces ticks evenly with no breaks at all.
      */
     function datetimeFormatter() {
-        const { h24, dayFirst } = format();
+        const { h24, dayFirst, iso } = format();
+        const day = iso ? 'MM-dd' : dayFirst ? 'dd MMM' : 'MMM dd';
         // 24-hour is what the charts always drew. The 12-hour forms are no wider than those ("1 PM"
         // beside "13:00", "10:45 AM" beside "10:45:00"), so ApexCharts lays the axis out the same and
         // its overlap check drops no labels. Hour ticks sit on the hour and minute ticks on the minute,
         // so nothing is lost.
         return h24
-            ? { year: 'yyyy', month: "MMM 'yy", day: dayFirst ? 'dd MMM' : 'MMM dd', hour: 'HH:mm', minute: 'HH:mm:ss', second: 'HH:mm:ss' }
-            : { year: 'yyyy', month: "MMM 'yy", day: dayFirst ? 'dd MMM' : 'MMM dd', hour: 'h TT', minute: 'h:mm TT', second: 'h:mm:ss TT' };
+            ? { year: 'yyyy', month: "MMM 'yy", day, hour: 'HH:mm', minute: 'HH:mm:ss', second: 'HH:mm:ss' }
+            : { year: 'yyyy', month: "MMM 'yy", day, hour: 'h TT', minute: 'h:mm TT', second: 'h:mm:ss TT' };
     }
 
     // ---- The time axis's labels ----
@@ -259,7 +296,11 @@
         if ((unit === 'd' || major) && d.getUTCDate() === 1) {
             return d.getUTCMonth() === 0 ? String(d.getUTCFullYear()) : `${month} '${String(d.getUTCFullYear()).slice(2)}`;
         }
-        if (unit === 'd' || major) return format().dayFirst ? `${day} ${month}` : `${month} ${day}`;
+        if (unit === 'd' || major) {
+            const f = format();
+            if (f.iso) return `${pad(d.getUTCMonth() + 1)}-${day}`;
+            return f.dayFirst ? `${day} ${month}` : `${month} ${day}`;
+        }
         const h = d.getUTCHours(), m = d.getUTCMinutes();
         if (format().h24) return `${pad(h)}:${pad(m)}`;
         const h12 = h % 12 === 0 ? 12 : h % 12;
@@ -355,16 +396,17 @@
     window.Apex.chart = window.Apex.chart || {};
     window.Apex.chart.events = { ...(window.Apex.chart.events || {}), mounted: drawTimeAxis, updated: drawTimeAxis };
 
-    /** A tooltip header: "Nov 3, 14:05[:09]", or the time alone. */
+    /** A tooltip header: "Nov 3, 14:05[:09]" or "11-03 14:05[:09]", or the time alone. */
     function tooltipLabel(value, seconds = true, withDate = true) {
         const p = parts(value);
-        return withDate ? `${dayText(p)}, ${timeText(p, seconds)}` : timeText(p, seconds);
+        if (!withDate) return timeText(p, seconds);
+        return `${dayText(p)}${format().iso ? ' ' : ', '}${timeText(p, seconds)}`;
     }
 
     window.noTime = {
         zone,
 
-        /** The viewer's format: { h24, dayFirst }. */
+        /** The viewer's format: { h24, dayFirst, iso }. */
         format,
 
         /** A time alone in the viewer's format: "14:05[:09]" or "2:05[:09] PM". */
@@ -435,7 +477,7 @@
 
         // For chart options serialized from C# (ChartTimeFormat).
         tooltipLabel,
-        /** A day on its own: "Nov 3" or "3 Nov". */
+        /** A day on its own: "Nov 3", "3 Nov", or "11-03". */
         dateLabel: value => dayText(parts(value)),
     };
 })();

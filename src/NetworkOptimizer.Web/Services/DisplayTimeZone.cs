@@ -17,7 +17,7 @@ public interface ITimeZonePreferenceSource
     Task<string?> GetInheritedAsync();
 
     /// <summary>
-    /// The current caller's own time format ("12" or "24") and date order ("mdy" or "dmy"), each
+    /// The current caller's own time format ("12" or "24") and date order ("mdy", "dmy", or "ymd"), each
     /// null when they have not chosen; the install default, then their browser's locale, decides then.
     /// </summary>
     Task<(string? Clock, string? Order)> GetOwnFormatAsync();
@@ -45,7 +45,7 @@ public sealed class TimeZonePreferenceSource : ITimeZonePreferenceSource
     public const string ClockKey = "display.clock";
 
     /// <summary>
-    /// Date order, "mdy" or "dmy". The install default is stored under it directly; a user's own value
+    /// Date order, "mdy", "dmy", or "ymd". The install default is stored under it directly; a user's own value
     /// goes through <see cref="IUserPreferences"/>.
     /// </summary>
     public const string DateOrderKey = "display.date_order";

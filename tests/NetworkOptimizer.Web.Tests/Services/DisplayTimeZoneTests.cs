@@ -73,7 +73,7 @@ public class DisplayTimeZoneTests
     [Fact]
     public async Task An_unknown_install_default_format_falls_through_to_the_browser()
     {
-        var display = Build(null, null, browserFormat: "12-dmy", inheritedFormat: ("13", "ymd"));
+        var display = Build(null, null, browserFormat: "12-dmy", inheritedFormat: ("13", "ydm"));
         await display.ResolveAsync();
 
         display.Format.Should().Be(new DisplayFormat(ClockStyle.TwelveHour, DateOrder.DayFirst));

@@ -678,7 +678,7 @@ Requires Gateway SSH.
 - **Speed Tests** - LAN test defaults and external WAN speed test servers
 - **Security & Alerts** - audit allow-lists, alert channels, threat collection, MaxMind GeoIP, CrowdSec CTI
 - **Application** - admin password, licensing, pre-release update notices, guided tours, kiosk mode, satellite imagery (Mapbox)
-  - **Date & Time** - times show in each site's own time zone with no setup, charts included; a Global Admin can set a default for everyone, and each user can choose their own. Dates and times follow each user's own choice (12- or 24-hour, month or day first), else the default time and date format a Global Admin set, else their browser. Alerts carry the site's time, labeled, in the default format
+  - **Date & Time** - times show in each site's own time zone with no setup, charts included; a Global Admin can set a default for everyone, and each user can choose their own. Dates and times follow each user's own choice (12- or 24-hour; month first, day first, or ISO 8601 year first), else the default time and date format a Global Admin set, else their browser. Alerts carry the site's time, labeled, in the default format
   - Back up and restore all settings or a full export (`.nopt`); clear cached data
 - **Identity** and **Audit Log** - see [Accounts and Access](#accounts-and-access)
 - **Multi-Site** - see [Multi-Site](#multi-site)
