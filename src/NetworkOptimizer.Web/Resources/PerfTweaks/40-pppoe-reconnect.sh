@@ -60,6 +60,12 @@ session_start() {
 }
 
 LAST_HUP=""   # when the previous WAN was signalled, for the stagger
+LAST_UNIT=""  # the previous WAN that was signalled
+
+# True when unit $1 has a running pppd and an IPv4 address
+wan_up() {
+    session_pid "$1" >/dev/null && ip -4 addr show dev "$1" 2>/dev/null | grep -q 'inet '
+}
 
 # Reconnects unit $1; sets RESULT to "<ok|skipped|failed> <detail>" for the last-run record
 reconnect_unit() {
@@ -90,6 +96,11 @@ reconnect_unit() {
             fi
             now=$(date +%s)
         fi
+        # Never take this WAN down while the previous one is still not back
+        if ! wan_up "$LAST_UNIT"; then
+            RESULT="skipped $LAST_UNIT is not back up, keeping this WAN"
+            return
+        fi
     fi
     log "$unit: session up for $((age / 3600)) h, sending SIGHUP to pppd $pid."
     if ! kill -HUP "$pid"; then
@@ -97,6 +108,7 @@ reconnect_unit() {
         return
     fi
     LAST_HUP=$now
+    LAST_UNIT=$unit
     for ((i = 1; i <= RECONNECT_WAIT; i++)); do
         sleep 1
         started=$(session_start "$unit") || continue

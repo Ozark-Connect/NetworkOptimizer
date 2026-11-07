@@ -101,6 +101,7 @@ public class PerfTweaksPppoeReconnectTests
     [Theory]
     [InlineData("skipped session is down", HealthCheckStatus.Ok)]
     [InlineData("skipped session is only 12 min old", HealthCheckStatus.Ok)]
+    [InlineData("skipped ppp0 is not back up, keeping this WAN", HealthCheckStatus.Ok)]
     [InlineData("skipped pppd is not started with persist and would not dial again", HealthCheckStatus.Warning)]
     public void SkippedWan_IsOkUnlessPppdCannotRedial(string result, HealthCheckStatus expected)
     {
@@ -162,5 +163,29 @@ public class PerfTweaksPppoeReconnectTests
 
         success.Should().BeFalse();
         ssh.VerifyNoOtherCalls();
+    }
+
+    [Fact]
+    public async Task Deploy_FailsWhenTheTimerCannotBeStarted()
+    {
+        // The boot run only writes and starts the timer, so its failure means no schedule at all
+        var paths = new NetworkOptimizer.Storage.Services.SiteDatabasePaths(
+            Path.Combine(Path.GetTempPath(), "no-pppoe-rc-" + Guid.NewGuid().ToString("N")[..8], "network_optimizer.db"));
+        var siteContext = new SiteContextService(new Microsoft.AspNetCore.Http.HttpContextAccessor(), paths);
+        var license = new NetworkOptimizer.Web.Services.Licensing.LicenseStateService(
+            Mock.Of<Microsoft.EntityFrameworkCore.IDbContextFactory<NetworkOptimizer.Storage.Models.NetworkOptimizerDbContext>>(),
+            TimeProvider.System, Mock.Of<ILogger<NetworkOptimizer.Web.Services.Licensing.LicenseStateService>>());
+        var ssh = new Mock<IGatewaySshService>();
+        ssh.Setup(s => s.RunCommandAsync(It.Is<string>(c => c.Contains("base64 -d")), It.IsAny<TimeSpan?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((true, "deployed"));
+        ssh.Setup(s => s.RunCommandAsync(It.Is<string>(c => c.EndsWith("40-pppoe-reconnect.sh 2>&1")), It.IsAny<TimeSpan?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((false, "Starting pppoe-reconnect.timer failed."));
+        var service = new PerfTweaksDeploymentService(Mock.Of<ILogger<PerfTweaksDeploymentService>>(), ssh.Object,
+            null!, siteContext, null!, license, new NetworkOptimizer.Web.Services.Firmware.RolloutSuppressionRegistry());
+
+        var (success, message, _) = await service.DeployTweakAsync(Id);
+
+        success.Should().BeFalse();
+        message.Should().Contain("reconnect timer");
     }
 }

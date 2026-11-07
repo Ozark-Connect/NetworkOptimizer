@@ -838,6 +838,12 @@ public class PerfTweaksDeploymentService : IPerfTweaksDeploymentService
             using var networkRestart = tweakId == "mongodb-ssd" ? NetworkRestartWindow() : null;
             Report($"Running {scriptName}...");
             var runResult = await RunCommandAsync($"{OnBootDir}/{scriptName} 2>&1", TimeSpan.FromMinutes(5));
+            if (!runResult.success && tweakId == "pppoe-reconnect")
+            {
+                // Its boot run only writes and starts the timer; a non-zero exit means no schedule
+                Report($"Script failed. Output: {runResult.output}");
+                return (false, $"Could not start the reconnect timer: {runResult.output}", steps);
+            }
             if (!runResult.success)
             {
                 Report($"Warning: Script returned non-zero exit. Output: {runResult.output}");
