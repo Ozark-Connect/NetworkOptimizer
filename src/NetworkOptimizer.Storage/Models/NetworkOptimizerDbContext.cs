@@ -833,7 +833,7 @@ public class NetworkOptimizerDbContext : DbContext
         modelBuilder.Entity<SharedNetworkAppBuild>(entity =>
         {
             entity.ToTable("SharedNetworkAppBuilds");
-            entity.HasKey(e => new { e.Channel, e.Version });
+            entity.HasKey(e => new { e.Platform, e.Channel, e.Version });
         });
 
         modelBuilder.Entity<SharedNetworkAppPackage>(entity =>

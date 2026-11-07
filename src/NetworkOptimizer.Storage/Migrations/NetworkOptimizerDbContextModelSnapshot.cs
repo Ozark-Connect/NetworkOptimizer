@@ -3770,6 +3770,10 @@ namespace NetworkOptimizer.Storage.Migrations
 
             modelBuilder.Entity("NetworkOptimizer.Storage.Models.SharedNetworkAppBuild", b =>
                 {
+                    b.Property<string>("Platform")
+                        .HasMaxLength(32)
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("Channel")
                         .HasMaxLength(32)
                         .HasColumnType("TEXT");
@@ -3787,7 +3791,7 @@ namespace NetworkOptimizer.Storage.Migrations
                     b.Property<string>("Url")
                         .HasColumnType("TEXT");
 
-                    b.HasKey("Channel", "Version");
+                    b.HasKey("Platform", "Channel", "Version");
 
                     b.ToTable("SharedNetworkAppBuilds", (string)null);
                 });

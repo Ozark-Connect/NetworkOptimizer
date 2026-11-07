@@ -132,6 +132,33 @@ public class KnownFirmwareOptionsTests
     }
 
     [Fact]
+    public void TheConsolesOwnNetworkOffer_WithNoKnownPackage_HasNoUrl()
+    {
+        // Its own update installs it; a URL derived from the version 404s for most builds.
+        var options = KnownFirmwareOptions.Build(
+            [Device(GatewayMac, DeviceType.Gateway, "UCGF", "4.4.1")],
+            Console(offeredNetwork: "10.7.1"),
+            [], [], []);
+
+        var pin = options.Should().ContainSingle(o => o.Build.Kind == FirmwareUrlKind.NetworkApp).Which.Build.Pin;
+        pin.Version.Should().Be("10.7.1");
+        pin.Url.Should().BeNull();
+    }
+
+    [Fact]
+    public void TheConsolesOwnNetworkOffer_WithAKnownPackage_TakesItsRealUrl()
+    {
+        var options = KnownFirmwareOptions.Build(
+            [Device(GatewayMac, DeviceType.Gateway, "UCGF", "4.4.1")],
+            Console(offeredNetwork: "11.0.81"),
+            [], [],
+            [Package("11.0.81")]);
+
+        options.Should().ContainSingle(o => o.Build.Kind == FirmwareUrlKind.NetworkApp)
+            .Which.Build.Pin.Url.Should().Be(Package("11.0.81").Url);
+    }
+
+    [Fact]
     public void NetworkPackage_ForAnotherPlatform_IsNotOffered()
     {
         // An Early Access package is only real for the platform a console downloaded it on.

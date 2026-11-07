@@ -664,14 +664,17 @@ public class PlanTargetImage
 /// <param name="Kind">The surface the build is for.</param>
 /// <param name="Target">Device model or hardware platform; null for the Network application.</param>
 /// <param name="Version">The version to install.</param>
-/// <param name="Url">The image or package URL.</param>
+/// <param name="Url">
+/// The image or package URL. Null only for the Network build the console itself offers, which its
+/// own update installs.
+/// </param>
 /// <param name="Models">Every device model the image is for; null means <paramref name="Target"/> alone.</param>
 /// <param name="ModelUrls">Per-model install URLs for the same image, where a model has its own; others use <paramref name="Url"/>.</param>
 public sealed record RolloutBuildPin(
     FirmwareUrlKind Kind,
     string? Target,
     string Version,
-    string Url,
+    string? Url,
     IReadOnlyList<string>? Models = null,
     IReadOnlyDictionary<string, string>? ModelUrls = null)
 {
@@ -679,7 +682,7 @@ public sealed record RolloutBuildPin(
     public IReadOnlyList<string> DeviceModels => Models is { Count: > 0 } ? Models : Target is { Length: > 0 } t ? [t] : [];
 
     /// <summary>The URL a device of this model installs from.</summary>
-    public string UrlFor(string? model) =>
+    public string? UrlFor(string? model) =>
         model != null && ModelUrls != null && ModelUrls.TryGetValue(model, out var url) ? url : Url;
 }
 

@@ -96,11 +96,11 @@ public static class RolloutPlanComposer
             if (packages is { Downloaded.Count: > 0 })
                 await sharedCatalog.UpsertNetworkAppPackagesAsync(packages.Downloaded, cancellationToken);
 
-            await RecordSharedNetworkAppAsync(sharedCatalog, console, cancellationToken);
+            await RecordSharedNetworkAppAsync(sharedCatalog, console, packages?.Platform, cancellationToken);
             await RecordSharedUniFiOsAsync(sharedCatalog, console, cancellationToken);
             await AdoptSharedBuildsAsync(
                 sharedCatalog, context, settings, currentChannel, images, logger, cancellationToken);
-            await AdoptSharedNetworkAppAsync(sharedCatalog, console, logger, cancellationToken);
+            await AdoptSharedNetworkAppAsync(sharedCatalog, console, packages?.Platform, logger, cancellationToken);
             await AdoptSharedUniFiOsAsync(sharedCatalog, commands, console, settings, logger, cancellationToken);
         }
 
@@ -129,8 +129,8 @@ public static class RolloutPlanComposer
 
     /// <summary>
     /// The real package URL for the Network update this console is about to take, when some console
-    /// of the same platform has already downloaded that version. Null leaves the derived URL, which
-    /// holds for public releases only.
+    /// of the same platform has already downloaded that version. Null leaves the console's own
+    /// update as the only install path.
     /// </summary>
     private static async Task<string?> KnownNetworkPackageUrlAsync(
         ISharedFirmwareCatalogRepository? sharedCatalog,
@@ -539,10 +539,14 @@ public static class RolloutPlanComposer
             : Task.CompletedTask;
     }
 
-    /// <summary>Records the Network application build this console is being offered, when it is one.</summary>
+    /// <summary>
+    /// Records the Network application build this console is being offered, when it is one, under
+    /// its package platform. Ubiquiti offers per platform, so an offer with no known platform is not kept.
+    /// </summary>
     private static Task RecordSharedNetworkAppAsync(
         ISharedFirmwareCatalogRepository sharedCatalog,
         NetworkOptimizer.UniFi.Models.UniFiConsoleSystemInfo? console,
+        string? packagePlatform,
         CancellationToken cancellationToken)
     {
         var app = console?.NetworkApplication;
@@ -554,10 +558,23 @@ public static class RolloutPlanComposer
             return Task.CompletedTask;
         }
 
-        // No URL: the one derivable from the version exists only for public releases, so storing it
-        // would record a 404 for every Early Access build. Real URLs come from the console's log.
+        var platform = NetworkBuildPlatform(console, packagePlatform);
+        if (platform == null) return Task.CompletedTask;
+
+        // No URL: real ones come from the console's log, as SharedNetworkAppPackages.
         return sharedCatalog.UpsertNetworkAppBuildAsync(
-            app.ReleaseChannel, app.UpdateAvailable, null, cancellationToken);
+            platform, app.ReleaseChannel, app.UpdateAvailable, null, cancellationToken);
+    }
+
+    /// <summary>
+    /// The key a console's Network builds are shared under: its package platform, or the standalone
+    /// key for a UniFi OS Server. Null when a Cloud Gateway's platform could not be read.
+    /// </summary>
+    private static string? NetworkBuildPlatform(
+        NetworkOptimizer.UniFi.Models.UniFiConsoleSystemInfo? console, string? packagePlatform)
+    {
+        if (console?.IsStandaloneConsole == true) return SharedNetworkAppBuild.StandalonePlatform;
+        return string.IsNullOrWhiteSpace(packagePlatform) ? null : packagePlatform.Trim().ToLowerInvariant();
     }
 
     /// <summary>
@@ -610,11 +627,14 @@ public static class RolloutPlanComposer
     /// <summary>
     /// Fills in a Network application update the console has not noticed yet - its updateAvailable
     /// is stale until its own background check runs. Only when the console offers nothing itself:
-    /// a version the console has staged always wins over one it has not.
+    /// a version the console has staged always wins over one it has not. Only a build offered on
+    /// this console's package platform, with a package some console of that platform downloaded:
+    /// without the real URL there is nothing to install it from.
     /// </summary>
     private static async Task AdoptSharedNetworkAppAsync(
         ISharedFirmwareCatalogRepository sharedCatalog,
         NetworkOptimizer.UniFi.Models.UniFiConsoleSystemInfo? console,
+        string? packagePlatform,
         ILogger? logger,
         CancellationToken cancellationToken)
     {
@@ -634,14 +654,46 @@ public static class RolloutPlanComposer
             return;
         }
 
-        var build = await sharedCatalog.FindNewerNetworkAppBuildAsync(
-            app.ReleaseChannel, app.Version, cancellationToken);
-        if (build == null) return;
+        var platform = NetworkBuildPlatform(console, packagePlatform);
+        if (platform == null)
+        {
+            logger?.LogDebug(
+                "Not offering a shared UniFi Network build: this console's package platform is unknown");
+            return;
+        }
+
+        var newer = (await sharedCatalog.ListNetworkAppBuildsAsync(cancellationToken))
+            .Where(b => string.Equals(b.Platform, platform, StringComparison.OrdinalIgnoreCase)
+                        && string.Equals(b.Channel, app.ReleaseChannel, StringComparison.OrdinalIgnoreCase)
+                        && NetworkOptimizer.Core.Helpers.FirmwareVersionFormat.IsNewer(b.Version, app.Version))
+            .ToList();
+        if (newer.Count == 0) return;
+
+        var packages = (await sharedCatalog.ListNetworkAppPackagesAsync(cancellationToken))
+            .Where(p => string.Equals(p.Platform, platform, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        SharedNetworkAppBuild? build = null;
+        foreach (var candidate in newer)
+        {
+            if (!packages.Any(p => NetworkOptimizer.Core.Helpers.FirmwareVersionFormat.SameBuild(p.Version, candidate.Version)))
+                continue;
+            if (build == null || NetworkOptimizer.Core.Helpers.FirmwareVersionFormat.IsNewer(candidate.Version, build.Version))
+                build = candidate;
+        }
+
+        if (build == null)
+        {
+            logger?.LogDebug(
+                "Not offering UniFi Network {Version} on {Channel} from the shared catalog: no console of platform {Platform} has downloaded it",
+                newer.Select(b => b.Version).Aggregate((a, b) => NetworkOptimizer.Core.Helpers.FirmwareVersionFormat.IsNewer(b, a) ? b : a),
+                app.ReleaseChannel, platform);
+            return;
+        }
 
         app.UpdateAvailable = build.Version;
         logger?.LogInformation(
-            "Offering UniFi Network {Version} on {Channel} from the shared catalog; this console has not noticed it yet",
-            build.Version, app.ReleaseChannel);
+            "Offering UniFi Network {Version} on {Channel} for {Platform} from the shared catalog; this console has not noticed it yet",
+            build.Version, app.ReleaseChannel, platform);
     }
 
     /// <summary>
@@ -858,9 +910,9 @@ public static class RolloutPlanComposer
             NetworkAppToVersion = inputs.Console?.NetworkApplication?.UpdateAvailable,
             UniFiOsFromVersion = inputs.Console?.InstalledOsVersion,
             UniFiOsToVersion = OfferedUniFiOsVersion(inputs.Console, settings.EffectiveUniFiOsChannel),
-            // A pinned build installs from the URL it was picked or pasted with. The derived one only
-            // exists for public releases, so an Early Access pin would 404 on it.
-            NetworkAppDownloadUrl = inputs.NetworkAppPackageUrl ?? NetworkAppDebUrl(inputs.Console),
+            // Only a real package URL. Never derive one from the version: that path holds public
+            // releases for some platforms only, and anything else 404s mid-rollout.
+            NetworkAppDownloadUrl = inputs.NetworkAppPackageUrl,
             UniFiOsDownloadUrl = OfferedUniFiOsRelease(inputs.Console, settings.EffectiveUniFiOsChannel)?.DownloadUrl,
             UniFiOsPublishedAt = OfferedUniFiOsRelease(inputs.Console, settings.EffectiveUniFiOsChannel)?.Created,
             IsStandaloneConsole = inputs.Console?.IsStandaloneConsole ?? false,
@@ -1022,14 +1074,6 @@ public static class RolloutPlanComposer
         logger?.LogInformation(
             "Patched stale UniFi OS GA entry: console reported {ConsoleVersion}, public feed has {FeedVersion} for {Platform}",
             consoleGaVersion ?? "(absent)", feedGa.Version, platform);
-    }
-
-    private static string? NetworkAppDebUrl(NetworkOptimizer.UniFi.Models.UniFiConsoleSystemInfo? console)
-    {
-        var version = console?.NetworkApplication?.UpdateAvailable;
-        if (string.IsNullOrWhiteSpace(version)) return null;
-        var package = console!.IsStandaloneConsole ? "unifi_sysvinit_all" : "unifi-native_sysvinit";
-        return $"https://dl.ui.com/unifi/{version}/{package}.deb";
     }
 
     private static bool HasUniFiOsUpdate(

@@ -19,13 +19,14 @@ public interface ISharedFirmwareCatalogRepository
 
     /// <summary>
     /// Records a UniFi Network application build a console is offering. Inserts a new
-    /// (Channel, Version) row or refreshes LastSeenUtc on one already known.
+    /// (Platform, Channel, Version) row or refreshes LastSeenUtc on one already known.
     /// </summary>
+    /// <param name="platform">Package platform of the offering console, or <see cref="SharedNetworkAppBuild.StandalonePlatform"/>; empty when unknown.</param>
     /// <param name="channel">Channel the offering application follows.</param>
     /// <param name="version">Offered application version.</param>
     /// <param name="url">The .deb URL, when one was captured.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    Task UpsertNetworkAppBuildAsync(string channel, string version, string? url, CancellationToken cancellationToken = default);
+    Task UpsertNetworkAppBuildAsync(string platform, string channel, string version, string? url, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Records UniFi OS builds a Cloud Gateway is offering. Inserts new (Platform, Channel, Version)
@@ -46,13 +47,14 @@ public interface ISharedFirmwareCatalogRepository
     Task<SharedFirmwareBuild?> FindNewerDeviceBuildAsync(string model, string channel, string? thanVersion, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// The newest known Network application build on a channel that is newer than the version
-    /// given, or null when the catalog has nothing newer.
+    /// The newest known Network application build for a package platform on a channel that is
+    /// newer than the version given, or null when the catalog has nothing newer.
     /// </summary>
+    /// <param name="platform">Package platform of the console asking.</param>
     /// <param name="channel">Channel the application follows.</param>
     /// <param name="thanVersion">The version the application runs now.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    Task<SharedNetworkAppBuild?> FindNewerNetworkAppBuildAsync(string channel, string? thanVersion, CancellationToken cancellationToken = default);
+    Task<SharedNetworkAppBuild?> FindNewerNetworkAppBuildAsync(string platform, string channel, string? thanVersion, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// The newest known UniFi OS build for a platform on any of the given channels that is newer

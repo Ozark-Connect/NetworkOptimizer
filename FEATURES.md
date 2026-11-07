@@ -364,6 +364,7 @@ Gateway tweaks for UCG-Fiber, UXG-Fiber, UCG-Max, and UXG-Max (Gateway SSH).
 - Optional mute of offline, restart, and WAN outage alerts for each device as it flashes
 - Re-scans mesh backhaul once both halves of a mesh pair are upgraded
 - Firmware any site's console offers is pooled for every site
+  - UniFi Network builds only for consoles of the same platform, with a known download
 - Post-upgrade check for loss, CPU, and memory regression; per-device **Roll back**
 - **Deploy Firmware by URL** and **Deploy Known Firmware**
 - **History** and **Rollout Report** with before-and-after CPU and memory; **Export PDF**

@@ -301,7 +301,8 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         or FirmwareRolloutStepState.Failed
         or FirmwareRolloutStepState.SkippedExcluded
         or FirmwareRolloutStepState.AbortedSku
-        or FirmwareRolloutStepState.AbortedInFlight;
+        or FirmwareRolloutStepState.AbortedInFlight
+        or FirmwareRolloutStepState.AbortedByAdmin;
 
     /// <inheritdoc />
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -604,10 +605,9 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         var steps = await _repositories.UseAsync((r, c) => r.GetStepsAsync(plan.Id, c), cancellationToken);
         foreach (var step in steps.Where(s => s.State is FirmwareRolloutStepState.Pending or FirmwareRolloutStepState.Held))
         {
-            // AbortedSku is the only "queued, then dropped" state on the step machine, so a manual
-            // abort lands there too rather than leaving rows looking like they are still coming.
-            step.State = FirmwareRolloutStepState.AbortedSku;
-            step.Error = $"Rollout aborted: {reason}";
+            // Its own state, not AbortedSku: nothing about the model failed.
+            step.State = FirmwareRolloutStepState.AbortedByAdmin;
+            step.Error = $"{RolloutSkipReasons.RolloutAbortedPrefix}{reason}";
             await PersistStepAsync(step, cancellationToken);
         }
 
@@ -1382,7 +1382,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
             }
             else if (pinnedNewer)
             {
-                state.Error = "No download link is known for this build.";
+                state.Error = NetworkAppNoDownloadError(state.TargetVersion);
             }
 
             state.Settled = true;
@@ -1467,10 +1467,22 @@ public class FirmwareRolloutOrchestrator : BackgroundService
             state.Error = ConsoleStepError(ssh.Message);
         }
 
-        // A chosen build, an SSH install that was tried and failed, or a declined offer is a refusal,
-        // not nothing to do: the report and the history must not read it as a clean run. The console's
-        // API declining an unpinned offer stays nothing-to-update: that is a stale offer, not a failed install.
-        var refused = state.Pinned || sshAttempted || declined;
+        // A planned build the console no longer offers, with no package URL to install it from,
+        // was not installed: say so rather than read it as nothing to do.
+        var noDownload = !sshAttempted && !declined && !apiPathAvailable
+            && console?.IsStandaloneConsole != true
+            && string.IsNullOrWhiteSpace(state.Url)
+            && !string.IsNullOrWhiteSpace(plannedApp)
+            && !string.IsNullOrWhiteSpace(installedApp)
+            && NetworkOptimizer.Core.Helpers.FirmwareVersionFormat.IsNewer(plannedApp, installedApp);
+        if (noDownload)
+            state.Error = NetworkAppNoDownloadError(plannedApp);
+
+        // A chosen build, an SSH install that was tried and failed, a declined offer, or a planned
+        // build with nothing to install it from is a refusal, not nothing to do: the report and the
+        // history must not read it as a clean run. The console's API declining an unpinned offer
+        // stays nothing-to-update: that is a stale offer, not a failed install.
+        var refused = state.Pinned || sshAttempted || declined || noDownload;
         state.Settled = true;
         state.Outcome = refused ? "refused" : "nothing-to-update";
         if (refused)
@@ -4317,7 +4329,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
     private static string? ShortVersion(string? version) =>
         NetworkOptimizer.Core.Helpers.FirmwareVersionFormat.ShortOrNull(version);
 
-    private static string ConsoleUpdateSummary(RolloutPlanDocument document)
+    internal static string ConsoleUpdateSummary(RolloutPlanDocument document)
     {
         var parts = new List<string>();
 
@@ -4325,6 +4337,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         {
             case "updated": parts.Add("The UniFi Network application was updated."); break;
             case "stuck": parts.Add("The UniFi Network application did not come back after its update."); break;
+            case "refused": parts.Add(NetworkAppRefusedSummary(document)); break;
         }
 
         switch (document.UniFiOsUpdate.Outcome)
@@ -4344,6 +4357,34 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         }
 
         return parts.Count == 0 ? "" : " " + string.Join(" ", parts);
+    }
+
+    /// <summary>The step error when a planned Network build is neither offered nor downloadable.</summary>
+    internal static string NetworkAppNoDownloadError(string? version) =>
+        $"The Console is not offering UniFi Network {ShortVersion(version) ?? version}, and no download for this Console's platform is known, so it was not installed.";
+
+    /// <summary>The Network refusal with its reason when one was recorded, for the completion alert.</summary>
+    internal static string NetworkAppRefusedSummary(RolloutPlanDocument document)
+    {
+        var state = document.NetworkAppUpdate;
+        var version = ShortVersion(state.TargetVersion) ?? state.TargetVersion;
+        var reason = state.Error == NetworkAppNoDownloadError(state.TargetVersion)
+            ? "the Console is not offering it, and no download for this Console's platform is known"
+            : state.Error?.Trim();
+        if (string.IsNullOrWhiteSpace(reason)) return $"UniFi Network {version} was not installed.";
+        return $"UniFi Network {version} was not installed: {reason}{(reason.EndsWith('.') ? "" : ".")}";
+    }
+
+    /// <summary>
+    /// The Network refusal as the report states it: the no-download reason is already a full
+    /// sentence, anything else reads as the alert does.
+    /// </summary>
+    internal static string NetworkAppRefusedIssue(RolloutPlanDocument document)
+    {
+        var state = document.NetworkAppUpdate;
+        return state.Error == NetworkAppNoDownloadError(state.TargetVersion)
+            ? state.Error
+            : NetworkAppRefusedSummary(document);
     }
 
     /// <summary>The refusal with its reason when one was recorded, for the alert and the report alike.</summary>

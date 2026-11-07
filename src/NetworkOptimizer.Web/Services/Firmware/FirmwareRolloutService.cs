@@ -394,7 +394,7 @@ public class FirmwareRolloutService : IFirmwareRolloutService
     public async Task AbortAsync(int planId, CancellationToken cancellationToken = default)
     {
         await RequireActiveAsync(planId, cancellationToken);
-        await _orchestrator.AbortAsync($"{ActorName()} stopped it", cancellationToken);
+        await _orchestrator.AbortAsync($"{ActorName()}{RolloutSkipReasons.AdminStopSuffix}", cancellationToken);
         _audit.SetTarget(planId.ToString(), $"Firmware rollout {planId}");
     }
 

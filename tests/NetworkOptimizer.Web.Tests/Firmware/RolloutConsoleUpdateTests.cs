@@ -220,6 +220,93 @@ public class RolloutConsoleUpdateTests
         harness.Bus.Published.Should().NotContain(e => e.EventType == RolloutAlerts.NetworkAppUpdateStuck);
     }
 
+    private static RolloutPlanDocument NetworkAppPlanFor(string target, string? url)
+    {
+        var document = NetworkAppPlan();
+        document.NetworkAppUpdate.TargetVersion = target;
+        document.NetworkAppUpdate.Url = url;
+        return document;
+    }
+
+    [Fact]
+    public async Task APlannedBuildTheConsoleNoLongerOffers_WithNoDownload_IsRefusedWithoutAnInstallAttempt()
+    {
+        using var harness = new RolloutHarness();
+        harness.Commands.ConsoleInfo!.NetworkApplication!.UpdateAvailable = null;
+        var plan = await harness.SeedScheduledPlanAsync(NetworkAppPlanFor("9.1.0", url: null), RolloutHarness.Start, Step(ApMac));
+        harness.Observer.Set(ApMac, Online, FromVersion, upgradeTo: ToVersion);
+
+        await harness.TickAsync();
+        await harness.TickAsync(TimeSpan.FromSeconds(20));
+
+        var stored = Stored((await harness.PlanAsync(plan.Id))!).NetworkAppUpdate;
+        stored.Outcome.Should().Be("refused");
+        stored.Error.Should().Be(
+            "The Console is not offering UniFi Network 9.1.0, and no download for this Console's platform is known, so it was not installed.");
+        harness.Commands.Calls.Should().NotContain("ssh-network-app-update");
+        (await harness.StepAsync(plan.Id, ApMac)).State.Should().Be(FirmwareRolloutStepState.Commanded);
+    }
+
+    [Fact]
+    public async Task APlannedBuildAlreadyInstalled_WithNoDownload_IsStillNothingToUpdate()
+    {
+        using var harness = new RolloutHarness();
+        harness.Commands.ConsoleInfo!.NetworkApplication!.UpdateAvailable = null;
+        harness.Commands.ConsoleInfo.NetworkApplication.Version = "9.1.0";
+        var plan = await harness.SeedRunningPlanAsync(NetworkAppPlanFor("9.1.0", url: null), Step(ApMac));
+        harness.Observer.Set(ApMac, Online, FromVersion, upgradeTo: ToVersion);
+
+        await harness.TickAsync();
+
+        Stored((await harness.PlanAsync(plan.Id))!).NetworkAppUpdate.Outcome.Should().NotBe("refused");
+    }
+
+    [Fact]
+    public async Task ARefusedNetworkUpdate_IsInTheCompletionAlert_AsItsOwnSentence()
+    {
+        using var harness = new RolloutHarness();
+        harness.Commands.ConsoleInfo!.NetworkApplication!.UpdateAvailable = null;
+        await harness.SeedScheduledPlanAsync(NetworkAppPlanFor("9.1.0", url: null), RolloutHarness.Start, Step(ApMac));
+        harness.Observer.Set(ApMac, Online, FromVersion, upgradeTo: ToVersion);
+
+        await harness.TickAsync();
+        await harness.TickAsync(TimeSpan.FromSeconds(20));
+        await RunDeviceToLitmusAsync(harness, ApMac);
+
+        harness.Bus.Published.Single(e => e.EventType == RolloutAlerts.Completed).Message.Should().StartWith(
+            "1 device upgraded, 0 failed, 0 dropped. UniFi Network 9.1.0 was not installed: the Console is not offering it, and no download for this Console's platform is known.");
+    }
+
+    [Theory]
+    [InlineData("updated", null, " The UniFi Network application was updated.")]
+    [InlineData("stuck", null, " The UniFi Network application did not come back after its update.")]
+    [InlineData("refused", "curl: (22) The requested URL returned error: 404", " UniFi Network 9.1.0 was not installed: curl: (22) The requested URL returned error: 404.")]
+    [InlineData("refused", "The Console did not accept the update command.", " UniFi Network 9.1.0 was not installed: The Console did not accept the update command.")]
+    [InlineData("refused", null, " UniFi Network 9.1.0 was not installed.")]
+    [InlineData("nothing-to-update", null, "")]
+    [InlineData("skipped", null, "")]
+    public void TheCompletionAlert_StatesEachNetworkOutcome(string outcome, string? error, string expected)
+    {
+        var document = NetworkAppPlanFor("9.1.0", url: null);
+        document.NetworkAppUpdate.Outcome = outcome;
+        document.NetworkAppUpdate.Error = error;
+
+        FirmwareRolloutOrchestrator.ConsoleUpdateSummary(document).Should().Be(expected);
+    }
+
+    [Fact]
+    public void TheCompletionAlert_GivesTheNoDownloadReasonInShort_AndTheReportInFull()
+    {
+        var document = NetworkAppPlanFor("9.1.0", url: null);
+        document.NetworkAppUpdate.Outcome = "refused";
+        document.NetworkAppUpdate.Error = FirmwareRolloutOrchestrator.NetworkAppNoDownloadError("9.1.0");
+
+        FirmwareRolloutOrchestrator.ConsoleUpdateSummary(document).Should().Be(
+            " UniFi Network 9.1.0 was not installed: the Console is not offering it, and no download for this Console's platform is known.");
+        FirmwareRolloutOrchestrator.NetworkAppRefusedIssue(document).Should().Be(
+            "The Console is not offering UniFi Network 9.1.0, and no download for this Console's platform is known, so it was not installed.");
+    }
+
     [Fact]
     public async Task APlanThatDoesNotIncludeTheApplicationUpdate_NeverCommandsOne()
     {

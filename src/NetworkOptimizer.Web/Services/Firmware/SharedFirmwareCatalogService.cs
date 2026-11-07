@@ -45,7 +45,7 @@ public class SharedFirmwareCatalogService : ISharedFirmwareCatalogService
 
         if (parsed.Kind == FirmwareUrlKind.NetworkApp)
         {
-            await _catalog.UpsertNetworkAppBuildAsync(AddedChannel, parsed.Version, parsed.Url, cancellationToken);
+            await _catalog.UpsertNetworkAppBuildAsync(parsed.Token ?? string.Empty, AddedChannel, parsed.Version, parsed.Url, cancellationToken);
             // A console package link is for one platform; it is what Deploy Known Firmware lists.
             if (!string.IsNullOrWhiteSpace(parsed.Token))
                 await _catalog.UpsertNetworkAppPackagesAsync(

@@ -183,6 +183,33 @@ public class FirmwareRolloutOrchestratorTests
         harness.Bus.Published.Should().Contain(e => e.EventType == RolloutAlerts.SkuAborted);
     }
 
+    [Fact]
+    public async Task AnAdminAbort_DropsQueuedStepsAsStopped_NotAsAModelAbort()
+    {
+        using var harness = new RolloutHarness();
+        var plan = await harness.SeedRunningPlanAsync(
+            Document(Wave(1, PlanStep(ApMac)), Wave(2, PlanStep(PeerMac))),
+            Step(ApMac),
+            Step(PeerMac, name: "AP 2", wave: 2));
+
+        await harness.Orchestrator.AbortAsync($"Admin{RolloutSkipReasons.AdminStopSuffix}");
+
+        var peer = await harness.StepAsync(plan.Id, PeerMac);
+        peer.State.Should().Be(FirmwareRolloutStepState.AbortedByAdmin);
+        peer.Error.Should().Be("Rollout aborted: Admin stopped it");
+        (await harness.PlanAsync(plan.Id))!.Status.Should().Be(FirmwareRolloutStatus.Aborted);
+    }
+
+    [Theory]
+    [InlineData(FirmwareRolloutStepState.AbortedByAdmin, null, true)]
+    // Stored before AbortedByAdmin existed: the stop is in the error.
+    [InlineData(FirmwareRolloutStepState.AbortedSku, "Rollout aborted: admin stopped it", true)]
+    [InlineData(FirmwareRolloutStepState.AbortedSku, "Dropped after the canary failed", false)]
+    [InlineData(FirmwareRolloutStepState.AbortedSku, RolloutSkipReasons.OfflineAtTurn, false)]
+    [InlineData(FirmwareRolloutStepState.Failed, "Rollout aborted: admin stopped it", false)]
+    public void AnAdminStop_IsReadFromTheStateOrALegacyError(FirmwareRolloutStepState state, string? error, bool expected) =>
+        RolloutSkipReasons.IsAdminStop(state, error).Should().Be(expected);
+
     [Theory]
     [InlineData("U6PRO", false)]
     // An Express (UX, UX7) adopted as an AP is still a UniFi OS gateway, so it takes the UniFi OS command.
@@ -1081,7 +1108,7 @@ public class FirmwareRolloutOrchestratorTests
         stored!.Status.Should().Be(FirmwareRolloutStatus.Aborted);
         stored.OriginalChannelSettingsJson.Should().BeNull();
         harness.Commands.DeviceChannel.Should().Be("release");
-        (await harness.StepAsync(plan.Id, PeerMac)).State.Should().Be(FirmwareRolloutStepState.AbortedSku);
+        (await harness.StepAsync(plan.Id, PeerMac)).State.Should().Be(FirmwareRolloutStepState.AbortedByAdmin);
     }
 
     /// <summary>Runs one AP to Down, then aborts the rollout under it.</summary>

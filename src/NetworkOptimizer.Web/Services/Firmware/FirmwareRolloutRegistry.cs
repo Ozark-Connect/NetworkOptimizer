@@ -288,7 +288,8 @@ public class FirmwareRolloutRegistry : BackgroundService, ISiteScopedRegistry
             foreach (var (key, url) in appBuilds)
             {
                 var parts = key.Split('|', 2);
-                await catalog.UpsertNetworkAppBuildAsync(parts[0], parts[1], url, ct);
+                // Plans never recorded the console's package platform, so these rows are never adopted.
+                await catalog.UpsertNetworkAppBuildAsync(string.Empty, parts[0], parts[1], url, ct);
             }
 
             _logger.LogInformation(

@@ -1,3 +1,5 @@
+using NetworkOptimizer.Storage.Models;
+
 namespace NetworkOptimizer.Web.Services.Firmware;
 
 /// <summary>
@@ -27,4 +29,21 @@ public static class RolloutSkipReasons
     /// <summary>Whether a step's error is one of the <c>AbortedSku</c> skips rather than a model abort.</summary>
     public static bool IsSkip(string? error) =>
         error is OfflineAtTurn or NoOnlineCanary or NoCanaryPassed or LastApOnline;
+
+    /// <summary>Starts the error on every step a stopped rollout dropped.</summary>
+    public const string RolloutAbortedPrefix = "Rollout aborted: ";
+
+    /// <summary>Ends an admin stop's reason, after the actor's name.</summary>
+    public const string AdminStopSuffix = " stopped it";
+
+    /// <summary>
+    /// Whether a step was dropped by an admin stopping its rollout. Steps stopped before
+    /// <c>AbortedByAdmin</c> existed are <c>AbortedSku</c> with the stop as their error.
+    /// </summary>
+    public static bool IsAdminStop(FirmwareRolloutStepState state, string? error) =>
+        state == FirmwareRolloutStepState.AbortedByAdmin
+        || (state == FirmwareRolloutStepState.AbortedSku
+            && error != null
+            && error.StartsWith(RolloutAbortedPrefix, StringComparison.Ordinal)
+            && error.EndsWith(AdminStopSuffix, StringComparison.Ordinal));
 }

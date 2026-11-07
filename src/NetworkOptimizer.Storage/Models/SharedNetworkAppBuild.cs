@@ -9,6 +9,17 @@ namespace NetworkOptimizer.Storage.Models;
 /// </summary>
 public class SharedNetworkAppBuild
 {
+    /// <summary>
+    /// Package platform of the offering console (<c>uos-deb13-arm64</c>), or <see cref="StandalonePlatform"/>
+    /// for a UniFi OS Server. Ubiquiti offers a build per platform, so an offer only speaks for its own.
+    /// Empty on rows recorded before the platform was kept: those are never adopted.
+    /// </summary>
+    [MaxLength(32)]
+    public string Platform { get; set; } = string.Empty;
+
+    /// <summary>The <see cref="Platform"/> key for a UniFi OS Server, whose package platform is not read.</summary>
+    public const string StandalonePlatform = "standalone";
+
     /// <summary>Channel the offering application follows: "release", "release-candidate", "beta".</summary>
     [MaxLength(32)]
     public string Channel { get; set; } = string.Empty;
@@ -18,8 +29,8 @@ public class SharedNetworkAppBuild
     public string Version { get; set; } = string.Empty;
 
     /// <summary>
-    /// The .deb URL captured at plan time, when one was. Nullable because the URL depends on the
-    /// consuming console's own type, so consumers derive their own rather than trusting this.
+    /// The .deb URL captured at plan time, when one was. Not used for installs: real package URLs
+    /// come from <see cref="SharedNetworkAppPackage"/>, per platform.
     /// </summary>
     public string? Url { get; set; }
 
