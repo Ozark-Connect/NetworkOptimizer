@@ -731,6 +731,9 @@
     [Parameter] public int? InitialChannel { get; set; }
     [Parameter] public bool AutoRunRecommendation { get; set; }
 
+    /// <summary>Raised after an apply run finishes and the page has re-read the radios.</summary>
+    [Parameter] public EventCallback OnPlanApplied { get; set; }
+
     private bool _loading = true;
     private List<AccessPointSnapshot> _accessPoints = new();
     private RegulatoryChannelData? _regulatoryData;
@@ -854,7 +857,11 @@
         _applyPoll = null;
         StateHasChanged();
         // The radios moved, so the plan and the current channels both need a fresh read.
-        if (wasRunning) await RefreshData();
+        if (wasRunning)
+        {
+            await RefreshData();
+            await OnPlanApplied.InvokeAsync();
+        }
     }
 
     private async Task CloseApply()
@@ -972,9 +979,7 @@
         // Default the DFS toggle to match the console's Auto-Optimize configuration
         // (dfs=true -> Include DFS, dfs=false -> Avoid DFS). Falls back to the field
         // default when the setting is unavailable.
-        var autoOptimizeDfs = await WiFiService.GetAutoOptimizeDfsEnabledAsync();
-        if (autoOptimizeDfs.HasValue)
-            _dfsPreference = autoOptimizeDfs.Value ? DfsPreference.IncludeWithPenalty : DfsPreference.Exclude;
+        _dfsPreference = await WiFiService.GetDefaultDfsPreferenceAsync();
 
         // Apply initial filters from parent navigation (explicit band is treated as a manual pick)
         if (InitialBand.HasValue)

@@ -73,6 +73,18 @@ public class ChannelPlanCache
     }
 
     /// <summary>
+    /// Drops every cached plan for a site, whatever option set built it. Called when radios move,
+    /// so no tab or browser is served a plan for the channels they left.
+    /// </summary>
+    public void InvalidateSite(string siteSlug)
+    {
+        var prefix = siteSlug + "|";
+        foreach (var key in _plans.Keys)
+            if (key.StartsWith(prefix, StringComparison.Ordinal))
+                _plans.TryRemove(key, out _);
+    }
+
+    /// <summary>
     /// Client-rate history for a site. A failed lookup caches its null result too, so an
     /// unreachable InfluxDB costs one timeout per TTL instead of one per plan build.
     /// </summary>

@@ -53,6 +53,29 @@ public class ChannelPlanCacheTests
     }
 
     [Fact]
+    public async Task InvalidateSite_DropsEveryOptionSetForThatSiteOnly()
+    {
+        var cache = new ChannelPlanCache();
+        var builds = new Dictionary<string, int>();
+        Task<Dictionary<RadioBand, ChannelPlan>> BuildFor(string key)
+        {
+            builds[key] = builds.GetValueOrDefault(key) + 1;
+            return Task.FromResult(Plan());
+        }
+        var keys = new[] { "site|Exclude|False|none|kept:none", "site|IncludeWithPenalty|False|none|kept:none", "site2|Exclude|False|none|kept:none" };
+        foreach (var key in keys)
+            await cache.GetOrBuildPlanAsync(key, false, () => BuildFor(key));
+
+        cache.InvalidateSite("site");
+        foreach (var key in keys)
+            await cache.GetOrBuildPlanAsync(key, false, () => BuildFor(key));
+
+        builds[keys[0]].Should().Be(2);
+        builds[keys[1]].Should().Be(2);
+        builds[keys[2]].Should().Be(1, "another site's plan, even one whose slug starts the same, is untouched");
+    }
+
+    [Fact]
     public async Task ForceRefreshRebuilds()
     {
         var cache = new ChannelPlanCache();

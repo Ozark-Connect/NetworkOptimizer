@@ -281,7 +281,7 @@
         <!-- Channel Analysis -->
         <div class="card card-full-width">
             <div class="card-body">
-                <NetworkOptimizer.Web.Components.Shared.WiFi.ChannelAnalysis OnClientClick="HandleMapClientClick" InitialBand="@_initialBand" InitialChannel="@_initialChannel" AutoRunRecommendation="@_autoRunRecommendation" />
+                <NetworkOptimizer.Web.Components.Shared.WiFi.ChannelAnalysis OnClientClick="HandleMapClientClick" InitialBand="@_initialBand" InitialChannel="@_initialChannel" AutoRunRecommendation="@_autoRunRecommendation" OnPlanApplied="LoadChannelRecommendationsAsync" />
             </div>
         </div>
     }
@@ -1005,7 +1005,8 @@
         await InvokeAsync(StateHasChanged);
         try
         {
-            _channelPlans = await WiFiService.GetAllChannelRecommendationsAsync(new RecommendationOptions());
+            var options = new RecommendationOptions { DfsPreference = await WiFiService.GetDefaultDfsPreferenceAsync() };
+            _channelPlans = await WiFiService.GetAllChannelRecommendationsAsync(options);
         }
         catch
         {

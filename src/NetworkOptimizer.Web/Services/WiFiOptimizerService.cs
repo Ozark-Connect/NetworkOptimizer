@@ -1353,6 +1353,17 @@ public class WiFiOptimizerService : IWiFiScanService
     }
 
     /// <summary>
+    /// The DFS preference that matches the console's Auto-Optimize setting: Avoid DFS when it has
+    /// DFS off, Include DFS otherwise. Every default plan uses it, so the Overview and Channels
+    /// ask the same question and share one cached plan.
+    /// </summary>
+    public async Task<DfsPreference> GetDefaultDfsPreferenceAsync()
+    {
+        var autoOptimizeDfs = await GetAutoOptimizeDfsEnabledAsync();
+        return autoOptimizeDfs == false ? DfsPreference.Exclude : DfsPreference.IncludeWithPenalty;
+    }
+
+    /// <summary>
     /// Get channel recommendations for a specific band.
     /// Coordinates data loading and calls the recommendation engine for all bands.
     /// </summary>
