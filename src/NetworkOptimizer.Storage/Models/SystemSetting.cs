@@ -127,6 +127,14 @@ public static class SystemSettingKeys
     // advanced. The full key is this prefix + WanInterface; the value is {"c":count,"t":utc}.
     public const string UpstreamDegradedRunsPrefix = "upstream.degraded_runs.";
 
+    // Per-WAN count of automatic runs each monitored target went unanswered in. The full key is
+    // this prefix + WanInterface; the value is a JSON map of address -> {"c":count,"t":utc}, or null.
+    public const string UpstreamUnansweredRunsPrefix = "upstream.unanswered_runs.";
+
+    // Per-WAN targets the unanswered counter paused ("paused"), or that an admin resumed after it
+    // did ("kept"). The full key is this prefix + WanInterface; the value is a JSON map of address -> mark.
+    public const string UpstreamUnansweredPausedPrefix = "upstream.unanswered_paused.";
+
     // Map / Satellite settings
     public const string MapboxApiKey = "map.mapbox_token";
 

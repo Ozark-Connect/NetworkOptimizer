@@ -2699,7 +2699,7 @@ public class UpstreamTracerService
     /// <summary>
     /// Commits the reviewed candidates as monitoring targets for this run's WAN.
     /// <paramref name="automatic"/> is true for a commit the app makes with no review: it never pauses
-    /// an existing row on reachability alone.
+    /// an existing row on one run's reachability alone.
     /// </summary>
     public async Task CommitResultsAsync(bool automatic, CancellationToken ct = default)
     {
@@ -2764,6 +2764,10 @@ public class UpstreamTracerService
             // later. Transit ASNs stay on their off-path / miss-counter mechanism (update-only).
             if (transit.Method == DiscoveryMethod.PathProxy)
             {
+                // An automatic commit leaves an enabled path-end that only failed to answer as it is.
+                if (!PausesExistingRow(transit.Unreachable, transit.OffPath, automatic)
+                    && await HasEnabledOwnedRowAsync(db, transit.HopAddress ?? transit.PathProxyTarget, wanInterface, isUnboundRun, ct))
+                    continue;
                 await UpsertTransitTargetAsync(db, transit, wanInterface, wanContextId, ct, enabled: false,
                     pollIntervalSeconds: probePlan.PollIntervalSeconds, isUnboundRun: isUnboundRun);
                 continue;
@@ -2880,11 +2884,23 @@ public class UpstreamTracerService
 
     /// <summary>
     /// Whether committing a candidate left unchecked pauses its existing row. An automatic commit
-    /// skips a candidate whose only reason is that it did not answer: a target that really stopped
-    /// answering is the Flaky Monitoring Targets card's to surface, not discovery's.
+    /// skips a candidate whose only reason is that it did not answer: the scheduler's unanswered
+    /// counter pauses a target that stays unanswered across runs (UpstreamRediscoveryService).
     /// </summary>
     internal static bool PausesExistingRow(bool unreachable, bool offPath, bool automatic) =>
         !(automatic && unreachable && !offPath);
+
+    /// <summary>Whether this WAN owns an enabled row at the address.</summary>
+    internal static async Task<bool> HasEnabledOwnedRowAsync(NetworkOptimizerDbContext db, string? address,
+        string wanInterface, bool isUnboundRun, CancellationToken ct)
+    {
+        if (string.IsNullOrEmpty(address)) return false;
+        var rows = await db.MonitoringTargets.AsNoTracking()
+            .Where(t => t.Address == address && t.Enabled)
+            .Select(t => t.WanInterface)
+            .ToListAsync(ct);
+        return rows.Any(w => OwnsTargetRow(w, wanInterface, isUnboundRun));
+    }
 
     /// <summary>Pauses the row this WAN owns for an access hop left unchecked. Does not SaveChanges.</summary>
     internal static async Task PauseUnselectedAccessHopAsync(NetworkOptimizerDbContext db, AccessHopCandidate hop,
