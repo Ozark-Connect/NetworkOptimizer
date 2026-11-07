@@ -77,10 +77,39 @@ public class SiteHealthTests
             Hour = T, WifiSamples = 100, WifiBelow80 = 20, WifiBelow60 = 10, WirelessClients = 5, WiredClients = 5,
             WorstRadio = "AP1 5 GHz", WorstRadioShare = 0.2,
         });
-        h.Wifi.Should().BeApproximately(0.15, 0.0001);
+        // 0.15 raw, damped by 5 / (5 + 4).
+        h.Wifi.Should().BeApproximately(0.15 * 5 / 9, 0.0001);
         h.WirelessShare.Should().Be(0.5);
-        h.Health.Should().BeApproximately(92.5, 0.05);
+        h.Health.Should().BeApproximately(100 * (1 - 0.15 * 5 / 9 * 0.5), 0.05);
         h.Worst.Should().Be("Wi-Fi: AP1 5 GHz, 20% of client satisfaction under 80");
+    }
+
+    /// <summary>One client's samples are 1/n of the hour's; every sample of a bad client is under 60.</summary>
+    private static SiteHealthHour WifiHour(int badClients, int clients) => Score(new HealthHourInputs
+    {
+        Hour = T, WifiSamples = clients * 12, WifiBelow80 = badClients * 12, WifiBelow60 = badClients * 12,
+        WirelessClients = clients,
+    });
+
+    [Fact]
+    public void Wifi_OneBadOfFour_IsDampedToAnEighth()
+    {
+        // Undamped this is 25% of the site; at n = k it counts half.
+        WifiHour(1, 4).Wifi.Should().BeApproximately(0.125, 0.0001);
+    }
+
+    [Fact]
+    public void Wifi_OneBadOfForty_IsBarelyDamped()
+    {
+        WifiHour(1, 40).Wifi.Should().BeApproximately(0.025 * 40 / 44, 0.0001);
+    }
+
+    [Fact]
+    public void Wifi_TenBadOfForty_KeepsMostOfItsWeight()
+    {
+        var h = WifiHour(10, 40);
+        h.Wifi.Should().BeApproximately(0.25 * 40 / 44, 0.0001);
+        h.Wifi.Should().BeGreaterThan(WifiHour(1, 4).Wifi!.Value, "the same 25% across ten times the clients is a real problem");
     }
 
     [Fact]

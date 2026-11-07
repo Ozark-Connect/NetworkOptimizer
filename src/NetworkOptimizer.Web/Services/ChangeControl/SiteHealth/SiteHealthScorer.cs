@@ -72,7 +72,7 @@ public sealed record HealthContributor(string Area, double Impairment, string Te
 public static class SiteHealthScorer
 {
     /// <summary>Bump when the scoring changes; stored hours at an older version are recomputed.</summary>
-    public const int Version = 9;
+    public const int Version = 10;
 
     /// <summary>Gateway CPU at or above this, averaged over a window or an hour, makes that time's Internet impairment local.</summary>
     public const double GatewayBusyCpuPct = 90;
@@ -88,6 +88,12 @@ public static class SiteHealthScorer
 
     /// <summary>Satisfaction at or above this is good service (UniFi's own coloring).</summary>
     public const int GoodSatisfaction = 80;
+
+    /// <summary>
+    /// <c>k</c> in the Wi-Fi damping <c>n / (n + k)</c>, where <c>n</c> is the hour's wireless clients:
+    /// at <c>k</c> clients the Wi-Fi impairment counts half.
+    /// </summary>
+    internal const int WifiPopulationDampingClients = 4;
 
     public static SiteHealthHour Score(HealthHourInputs x, AccessProfile profile, DateTime nowUtc)
     {
@@ -123,9 +129,11 @@ public static class SiteHealthScorer
             contributors.Add(new("Internet", latency, $"latency {x.IdleRttMs:0.#} ms{(x.BaselineRttMs is { } b ? $" vs {b:0.#} normal" : "")}{where}"));
         if (bloat > 0) contributors.Add(new("Internet", bloat, $"latency +{delta:0} ms under load (bufferbloat)"));
 
-        // Wi-Fi: a sample under 60 counts fully, one between 60 and 80 counts half.
+        // Wi-Fi: a sample under 60 counts fully, one between 60 and 80 counts half. Damped by the
+        // hour's wireless population, so one poor client of four is not a quarter of the site.
+        var damping = x.WirelessClients is int n && n > 0 ? (double)n / (n + WifiPopulationDampingClients) : 1;
         double? wifi = x.WifiSamples > 0
-            ? Math.Clamp(((x.WifiBelow80 - x.WifiBelow60) * 0.5 + x.WifiBelow60) / x.WifiSamples, 0, 1)
+            ? Math.Clamp(((x.WifiBelow80 - x.WifiBelow60) * 0.5 + x.WifiBelow60) / x.WifiSamples, 0, 1) * damping
             : null;
         var clients = (x.WirelessClients ?? 0) + (x.WiredClients ?? 0);
         double? wirelessShare = clients > 0 ? (double)(x.WirelessClients ?? 0) / clients : x.WifiSamples > 0 ? 1 : null;

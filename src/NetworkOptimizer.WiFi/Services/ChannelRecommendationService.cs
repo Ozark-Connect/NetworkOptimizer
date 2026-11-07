@@ -2025,16 +2025,20 @@ public class ChannelRecommendationService
     /// = MAX (worst) of them. Returns null when no bucket overlaps the span.
     /// </summary>
     private static (int Utilization, int? NoiseFloor)? ScanOverSpan(
-        InterferenceGraph graph, RadioBand band, int apIndex, int channel, int width)
+        InterferenceGraph graph, RadioBand band, int apIndex, int channel, int width) =>
+        ScanOverSpan(graph.ScanChannelData[apIndex], channel, width, SpanFor(band, graph.Nodes[apIndex], channel, width));
+
+    /// <summary>The bucket math of the graph overload, over one scan's buckets and a known span.</summary>
+    private static (int Utilization, int? NoiseFloor)? ScanOverSpan(
+        IReadOnlyDictionary<(int Channel, int Width), (int Utilization, int? NoiseFloor)> buckets,
+        int channel, int width, (int Low, int High) span)
     {
-        var buckets = graph.ScanChannelData[apIndex];
         if (buckets.Count == 0) return null;
 
         // 1) Exact operating-width bucket - trust UniFi's own aggregation for that channel.
         if (buckets.TryGetValue((channel, width), out var exact)) return exact;
 
         // 2) Aggregate the finest sub-channels overlapping the span (don't mix widths).
-        var span = SpanFor(band, graph.Nodes[apIndex], channel, width);
         var overlapping = buckets
             .Where(kv => ChannelSpanHelper.SpansOverlap(span, (kv.Key.Channel, kv.Key.Channel)))
             .ToList();
@@ -2832,6 +2836,35 @@ public class ChannelRecommendationService
         return graph.MeshConstraints.Any(c =>
             (c.ParentIndex == i && c.ChildIndex == j) ||
             (c.ParentIndex == j && c.ChildIndex == i));
+    }
+
+    /// <summary>
+    /// The lowest spectrum-scan utilization among the channels this radio could use: the same
+    /// candidate list the recommender searches (band, width, regulatory set, DFS preference), each
+    /// read over its span from the radio's own scan. Null when the radio has no channel or the scan
+    /// covers none of its candidates. This is the best the site can achieve for the radio.
+    /// </summary>
+    public int? QuietestCandidateUtilization(
+        RadioBand band, RadioSnapshot radio, ChannelScanResult? scan,
+        RegulatoryChannelData? regulatoryData, DfsPreference dfsPreference)
+    {
+        if (radio.Channel is not int current || scan == null) return null;
+
+        var buckets = new Dictionary<(int Channel, int Width), (int Utilization, int? NoiseFloor)>();
+        foreach (var ch in scan.Channels.Where(c => c.Utilization.HasValue))
+            buckets[(ch.Channel, ch.Width ?? 20)] = (ch.Utilization!.Value, ch.NoiseFloor);
+        if (buckets.Count == 0) return null;
+
+        var (channels, width, _) = GetValidChannelsWithWidth(band, radio, regulatoryData, dfsPreference, current);
+        int? best = null;
+        foreach (var ch in channels)
+        {
+            var center = ch == current && width == (radio.ChannelWidth ?? 20) ? radio.CenterChannel : null;
+            var span = ChannelSpanHelper.GetChannelSpan(band, ch, width, center);
+            if (ScanOverSpan(buckets, ch, width, span) is { } reading && (best == null || reading.Utilization < best))
+                best = reading.Utilization;
+        }
+        return best;
     }
 
     /// <summary>

@@ -399,6 +399,58 @@ public class CoChannelInterferenceRuleTests
         issue.Key.Should().Be("WIFI-COCHANNEL-001|na|aa:bb:cc:dd:ee:01+aa:bb:cc:dd:ee:02");
     }
 
+    private static ApPropagationContext PlacedTogether(IEnumerable<AccessPointSnapshot> aps) => new()
+    {
+        ApsByMac = aps.Select((ap, i) => (ap, i)).ToDictionary(x => x.ap.Mac, x => new PropagationAp
+        {
+            Mac = x.ap.Mac, Model = "U6-Pro",
+            Latitude = 36.0000 + x.i * 0.00002, Longitude = -94.0000, // a few meters apart
+            Floor = 1, TxPowerDbm = 20, AntennaGainDbi = 3, MountType = "ceiling"
+        }),
+        WallsByFloor = new Dictionary<int, List<PropagationWall>>(),
+        Buildings = null
+    };
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void FourRadiosOnThree24GhzChannels_TheStructuralPairIsFree(bool placed)
+    {
+        var aps = new List<AccessPointSnapshot>
+        {
+            CreateAp("aa:bb:cc:dd:ee:01", "AP-1", RadioBand.Band2_4GHz, 1),
+            CreateAp("aa:bb:cc:dd:ee:02", "AP-2", RadioBand.Band2_4GHz, 6),
+            CreateAp("aa:bb:cc:dd:ee:03", "AP-3", RadioBand.Band2_4GHz, 11),
+            CreateAp("aa:bb:cc:dd:ee:04", "AP-4", RadioBand.Band2_4GHz, 1)
+        };
+
+        var issue = _rule.EvaluateAll(CreateContext(aps, placed ? PlacedTogether(aps) : null)).Single();
+
+        issue.ScoreImpact.Should().Be(0, "four radios on three channels must share one pair");
+        issue.Severity.Should().Be(HealthIssueSeverity.Info);
+        issue.Description.Should().EndWith("With 4 APs on 2.4 GHz and only 3 non-overlapping channels, some overlap is unavoidable.");
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void FourRadiosOnThree24GhzChannels_OverlapBeyondTheMinimumIsScored(bool placed)
+    {
+        // Three on channel 1 make three pairs; one of them is free.
+        var aps = new List<AccessPointSnapshot>
+        {
+            CreateAp("aa:bb:cc:dd:ee:01", "AP-1", RadioBand.Band2_4GHz, 1),
+            CreateAp("aa:bb:cc:dd:ee:02", "AP-2", RadioBand.Band2_4GHz, 1),
+            CreateAp("aa:bb:cc:dd:ee:03", "AP-3", RadioBand.Band2_4GHz, 1),
+            CreateAp("aa:bb:cc:dd:ee:04", "AP-4", RadioBand.Band2_4GHz, 6)
+        };
+
+        var issue = _rule.EvaluateAll(CreateContext(aps, placed ? PlacedTogether(aps) : null)).Single();
+
+        issue.ScoreImpact.Should().Be(-3, "two of three pairs are scored at -5 for the group");
+        issue.Severity.Should().Be(HealthIssueSeverity.Warning);
+    }
+
     [Fact]
     public void AMeshPairAloneOnOverlappingSpectrum_NoIssue()
     {

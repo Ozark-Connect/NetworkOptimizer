@@ -55,19 +55,22 @@ public sealed class ChannelPlanApplyRunner
     private readonly SiteConnectionRegistry _connections;
     private readonly IServiceProvider _serviceProvider;
     private readonly IHostApplicationLifetime _lifetime;
+    private readonly ChannelPlanCache _planCache;
     private readonly ILogger<ChannelPlanApplyRunner> _logger;
 
     /// <param name="connections">Every site's UniFi Network connection.</param>
     /// <param name="serviceProvider">For a site-scoped change log, written as each radio arrives.</param>
     /// <param name="lifetime">A run stops when the app shuts down.</param>
+    /// <param name="planCache">The site's cached plans are dropped when a run finishes.</param>
     /// <param name="logger">Logger.</param>
     public ChannelPlanApplyRunner(
         SiteConnectionRegistry connections, IServiceProvider serviceProvider,
-        IHostApplicationLifetime lifetime, ILogger<ChannelPlanApplyRunner> logger)
+        IHostApplicationLifetime lifetime, ChannelPlanCache planCache, ILogger<ChannelPlanApplyRunner> logger)
     {
         _connections = connections;
         _serviceProvider = serviceProvider;
         _lifetime = lifetime;
+        _planCache = planCache;
         _logger = logger;
     }
 
@@ -151,6 +154,9 @@ public sealed class ChannelPlanApplyRunner
         }
         finally
         {
+            // Every option set's plan was built for the channels the radios just left. Dropped before
+            // the run reads as finished, so the page's rebuild on finish is the one that stays cached.
+            _planCache.InvalidateSite(siteSlug);
             lock (_lock)
             {
                 run.Running = false;

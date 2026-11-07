@@ -246,6 +246,9 @@
     [Parameter] public string? InitialApMac { get; set; }
     [Parameter] public RadioBand? InitialBand { get; set; }
 
+    /// <summary>A time range preset to open on, so a link can show the window it quotes.</summary>
+    [Parameter] public string? InitialRange { get; set; }
+
     private bool _loading = true;
     private string _selectedRange = "1D";
     private string _selectedApMac = "";  // Empty = all APs (site-wide)
@@ -320,6 +323,8 @@
         // Apply initial filters from parent navigation
         if (!string.IsNullOrEmpty(InitialApMac))
             _selectedApMac = InitialApMac;
+        if (InitialRange != null && _timeRanges.ContainsKey(InitialRange))
+            _selectedRange = InitialRange;
         if (InitialBand.HasValue)
         {
             _show24 = InitialBand.Value == RadioBand.Band2_4GHz;
