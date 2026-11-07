@@ -635,9 +635,10 @@ public static class PlanBuilder
     }
 
     /// <summary>
-    /// Sets the modem list a network write carries the way UniFi Network's form does on this console:
-    /// with backup on, its one LAN modem, or with several the list the network already has here; with
-    /// backup off, no list. Returns a plan note, and whether the network cannot be written, or null.
+    /// Sets the modem list a network write carries the way UniFi Network's form does on this console. With
+    /// backup on: the desired modems that are LAN modems here; if none are, its one LAN modem, or with several
+    /// the list the network already has here. With backup off, no list. Returns a plan note, and whether the
+    /// network cannot be written, or null.
     /// </summary>
     internal static (string Note, bool Blocked)? ApplyLteModems(JsonObject network, JsonObject? live, IReadOnlyList<string>? lanModems)
     {
@@ -653,14 +654,22 @@ public static class PlanBuilder
             KeepLive(network, live);
             return null;
         }
-        switch (lanModems.Count)
+        if (lanModems.Count == 0)
         {
-            case 0:
-                KeepLive(network, live);
-                return ("LTE/5G backup is on, but this console has no LAN-connected cellular modem; its modem list is left out.", false);
-            case 1:
-                network[LteDevicesField] = new JsonArray(JsonValue.Create(lanModems[0]));
-                return null;
+            KeepLive(network, live);
+            return ("LTE/5G backup is on, but this console has no LAN-connected cellular modem; its modem list is left out.", false);
+        }
+        var wanted = (network[LteDevicesField] as JsonArray ?? []).Select(e => e?.ToString()).OfType<string>().ToList();
+        var here = wanted.Where(m => lanModems.Contains(m, StringComparer.OrdinalIgnoreCase)).ToList();
+        if (here.Count > 0)
+        {
+            network[LteDevicesField] = new JsonArray(here.Select(m => (JsonNode?)JsonValue.Create(m)).ToArray());
+            return here.Count < wanted.Count ? ("modems not on this console were left out of its LTE/5G backup modem list.", false) : null;
+        }
+        if (lanModems.Count == 1)
+        {
+            network[LteDevicesField] = new JsonArray(JsonValue.Create(lanModems[0]));
+            return null;
         }
         if (live?[LteDevicesField] is JsonArray { Count: > 0 })
         {

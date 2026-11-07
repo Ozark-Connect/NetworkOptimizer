@@ -73,7 +73,31 @@ public class LteModemPlanTests
     }
 
     [Fact]
-    public void SeveralModems_BackupOn_KeepsTheNetworksList()
+    public void SeveralModems_EditToAnotherValidSubset_IsWritten()
+    {
+        var edited = State(("networkconf", Network("n1", on: true, $"[\"{ModemB}\"]")));
+        var live = Target(Network("n1", on: true, $"[\"{ModemA}\",\"{ModemB}\"]"), Modem("d1", ModemA), Modem("d2", ModemB));
+
+        var doc = PlanBuilder.Build(edited, live, SameSite);
+
+        List(Update(doc)).Should().Equal(ModemB);
+        doc.Notes.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void SeveralModems_AForeignModem_IsLeftOut_WithANote()
+    {
+        var source = State(("networkconf", Network("s1", on: true, $"[\"{ModemA}\",\"{SourceModem}\"]", mdns: true)));
+        var target = Target(Network("t1", on: false), Modem("d1", ModemA), Modem("d2", ModemB));
+
+        var doc = PlanBuilder.Build(source, target, OtherSite);
+
+        List(Update(doc)).Should().Equal(ModemA);
+        doc.Notes.Should().Contain(n => n.StartsWith("Network IoT: ") && n.Contains("not on this console were left out"));
+    }
+
+    [Fact]
+    public void SeveralModems_BackupOn_AllForeign_KeepsTheNetworksList()
     {
         var target = Target(Network("t1", on: true, $"[\"{ModemB}\"]"), Modem("d1", ModemA), Modem("d2", ModemB));
 
