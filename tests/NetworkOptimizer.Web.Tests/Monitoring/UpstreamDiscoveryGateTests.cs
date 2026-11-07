@@ -154,6 +154,88 @@ public class UpstreamDiscoveryGateTests : IDisposable
         UpstreamRediscoveryService.IsDegradedRun(failed, checkedCount, baseline).Should().Be(expected);
     }
 
+    // ---- Degraded-run counter ----
+
+    private static readonly DateTime T0 = new(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+
+    [Fact]
+    public void Degraded_run_counts_only_across_the_increment_gate()
+    {
+        var (accept1, first) = UpstreamRediscoveryService.DecideDegradedRun(null, T0);
+        accept1.Should().BeFalse();
+        first!.Value.Count.Should().Be(1);
+
+        // An hourly retry inside the gate holds the count and its timestamp.
+        var (acceptHeld, held) = UpstreamRediscoveryService.DecideDegradedRun(first, T0.AddHours(5));
+        acceptHeld.Should().BeFalse();
+        held.Should().Be(first);
+
+        var (accept2, second) = UpstreamRediscoveryService.DecideDegradedRun(first, T0.AddHours(6));
+        accept2.Should().BeFalse();
+        second!.Value.Count.Should().Be(2);
+        second.Value.LastIncrementUtc.Should().Be(T0.AddHours(6));
+    }
+
+    [Fact]
+    public async Task Degraded_run_after_three_counted_is_accepted_and_resets()
+    {
+        await SeedBaselineAsync("wan");
+        var state = DegradedState();
+
+        foreach (var hours in new[] { 0, 1, 6, 7, 12 })
+            (await UpstreamRediscoveryService.RecordRunOutcomeAsync(_db, state, "wan", T0.AddHours(hours), CancellationToken.None))
+                .Discard.Should().BeTrue();
+        (await UpstreamRediscoveryService.LoadDegradedRunsAsync(_db, "wan", CancellationToken.None))!.Value.Count
+            .Should().Be(UpstreamRediscoveryService.DegradedRunsBeforeAccept);
+
+        var accepted = await UpstreamRediscoveryService.RecordRunOutcomeAsync(_db, state, "wan", T0.AddHours(13), CancellationToken.None);
+
+        accepted.Accepted.Should().BeTrue();
+        accepted.Discard.Should().BeFalse();
+        (await UpstreamRediscoveryService.LoadDegradedRunsAsync(_db, "wan", CancellationToken.None)).Should().BeNull();
+    }
+
+    [Fact]
+    public async Task Clean_run_resets_the_counter()
+    {
+        await SeedBaselineAsync("wan");
+        await UpstreamRediscoveryService.RecordRunOutcomeAsync(_db, DegradedState(), "wan", T0, CancellationToken.None);
+        await UpstreamRediscoveryService.RecordRunOutcomeAsync(_db, DegradedState(), "wan", T0.AddHours(6), CancellationToken.None);
+
+        var clean = new UpstreamTracerState { WanInterface = "wan", ReachabilityChecked = 10, ReachabilityFailed = 1 };
+        var outcome = await UpstreamRediscoveryService.RecordRunOutcomeAsync(_db, clean, "wan", T0.AddHours(7), CancellationToken.None);
+
+        outcome.Discard.Should().BeFalse();
+        outcome.Accepted.Should().BeFalse();
+        (await UpstreamRediscoveryService.LoadDegradedRunsAsync(_db, "wan", CancellationToken.None)).Should().BeNull();
+    }
+
+    [Fact]
+    public async Task Degraded_counter_is_per_wan()
+    {
+        await SeedBaselineAsync("wan");
+        await SeedBaselineAsync("wan2");
+        await UpstreamRediscoveryService.RecordRunOutcomeAsync(_db, DegradedState(), "wan2", T0, CancellationToken.None);
+        await UpstreamRediscoveryService.RecordRunOutcomeAsync(_db, DegradedState(), "wan2", T0.AddHours(6), CancellationToken.None);
+
+        (await UpstreamRediscoveryService.LoadDegradedRunsAsync(_db, "wan", CancellationToken.None)).Should().BeNull();
+        (await UpstreamRediscoveryService.LoadDegradedRunsAsync(_db, "wan2", CancellationToken.None))!.Value.Count.Should().Be(2);
+
+        // A clean run on one WAN leaves the other's count alone.
+        var clean = new UpstreamTracerState { WanInterface = "wan", ReachabilityChecked = 10, ReachabilityFailed = 0 };
+        await UpstreamRediscoveryService.RecordRunOutcomeAsync(_db, clean, "wan", T0.AddHours(7), CancellationToken.None);
+        (await UpstreamRediscoveryService.LoadDegradedRunsAsync(_db, "wan2", CancellationToken.None))!.Value.Count.Should().Be(2);
+    }
+
+    private async Task SeedBaselineAsync(string wan)
+    {
+        await UpstreamRediscoveryService.SaveUnreachableShareAsync(_db, wan, 0.1, CancellationToken.None);
+        await _db.SaveChangesAsync();
+    }
+
+    private static UpstreamTracerState DegradedState() =>
+        new() { WanInterface = "wan", ReachabilityChecked = 10, ReachabilityFailed = 7 };
+
     [Fact]
     public async Task Unreachable_share_round_trips_per_wan()
     {

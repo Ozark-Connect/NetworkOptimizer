@@ -194,9 +194,8 @@ public class UpstreamRediscoveryService : BackgroundService
         }
 
         // Left unflagged and Idle, so the next tick retries and the panel shows the committed state.
-        if (await IsDegradedRunAsync(db, tracer.State, tracer.State.WanInterface ?? "wan", ct))
+        if (await DiscardsDegradedRunAsync(db, tracer.State, tracer.State.WanInterface ?? "wan", slug, "the primary WAN", ct))
         {
-            LogDegradedRun(slug, "the primary WAN", tracer.State);
             tracer.ResetToIdle();
             return;
         }
@@ -297,9 +296,8 @@ public class UpstreamRediscoveryService : BackgroundService
                         context.Name, context.WanInterface, tracer.State.Step, tracer.State.FailureMessage ?? "no candidates");
                     continue;
                 }
-                if (await IsDegradedRunAsync(db, tracer.State, context.WanInterface!, ct))
+                if (await DiscardsDegradedRunAsync(db, tracer.State, context.WanInterface!, slug, label, ct))
                 {
-                    LogDegradedRun(slug, label, tracer.State);
                     tracer.ResetToIdle();
                     continue;
                 }
@@ -373,15 +371,117 @@ public class UpstreamRediscoveryService : BackgroundService
         return false;
     }
 
-    private void LogDegradedRun(string slug, string label, UpstreamTracerState state) =>
-        _logger.LogInformation(
-            "Discarding upstream discovery for {Label} on site {Slug}: {Failed} of {Checked} candidate(s) did not answer, "
-            + "far more than the last committed run. Retrying next hour",
-            label, slug, state.ReachabilityFailed, state.ReachabilityChecked);
+    /// <summary>
+    /// Whether a completed automatic run is thrown away as degraded. Updates and saves the WAN's
+    /// degraded-run counter either way: a clean run clears it, and a degraded run that
+    /// <see cref="DecideDegradedRun"/> accepts goes on as a normal run.
+    /// </summary>
+    private async Task<bool> DiscardsDegradedRunAsync(NetworkOptimizerDbContext db, UpstreamTracerState state,
+        string wanInterface, string slug, string label, CancellationToken ct)
+    {
+        var outcome = await RecordRunOutcomeAsync(db, state, wanInterface, DateTime.UtcNow, ct);
+        if (outcome.Accepted)
+            _logger.LogInformation(
+                "Accepting upstream discovery for {Label} on site {Slug}: {Failed} of {Checked} candidate(s) did not answer, "
+                + "as in {Runs} earlier runs at least {Hours:0} h apart, so this is the path now",
+                label, slug, state.ReachabilityFailed, state.ReachabilityChecked, DegradedRunsBeforeAccept, DegradedRunIncrementGate.TotalHours);
+        else if (outcome.Discard)
+            _logger.LogInformation(
+                "Discarding upstream discovery for {Label} on site {Slug}: {Failed} of {Checked} candidate(s) did not answer, "
+                + "far more than the last committed run ({Count} of {Needed} degraded runs counted). Retrying next hour",
+                label, slug, state.ReachabilityFailed, state.ReachabilityChecked, outcome.Count, DegradedRunsBeforeAccept);
+        return outcome.Discard;
+    }
 
-    private static async Task<bool> IsDegradedRunAsync(
-        NetworkOptimizerDbContext db, UpstreamTracerState state, string wanInterface, CancellationToken ct) =>
-        IsDegradedRun(state.ReachabilityFailed, state.ReachabilityChecked, await LoadUnreachableShareAsync(db, wanInterface, ct));
+    /// <summary>How a completed automatic run was judged: thrown away, or accepted after enough degraded runs.</summary>
+    internal sealed record RunOutcome(bool Discard, bool Accepted, int Count);
+
+    /// <summary>
+    /// Judges a completed automatic run against the WAN's baseline and updates its degraded-run counter,
+    /// saving it. A clean run clears the counter; a degraded one counts per <see cref="DecideDegradedRun"/>.
+    /// </summary>
+    internal static async Task<RunOutcome> RecordRunOutcomeAsync(NetworkOptimizerDbContext db, UpstreamTracerState state,
+        string wanInterface, DateTime nowUtc, CancellationToken ct)
+    {
+        var degraded = IsDegradedRun(state.ReachabilityFailed, state.ReachabilityChecked,
+            await LoadUnreachableShareAsync(db, wanInterface, ct));
+        var prior = await LoadDegradedRunsAsync(db, wanInterface, ct);
+        if (!degraded)
+        {
+            if (prior != null)
+            {
+                await SaveDegradedRunsAsync(db, wanInterface, null, ct);
+                await db.SaveChangesAsync(ct);
+            }
+            return new RunOutcome(false, false, 0);
+        }
+
+        var (accept, next) = DecideDegradedRun(prior, nowUtc);
+        await SaveDegradedRunsAsync(db, wanInterface, next, ct);
+        await db.SaveChangesAsync(ct);
+        return new RunOutcome(!accept, accept, next?.Count ?? 0);
+    }
+
+    /// <summary>Degraded runs counted, at least <see cref="DegradedRunIncrementGate"/> apart, before the next one is accepted.</summary>
+    internal const int DegradedRunsBeforeAccept = 3;
+
+    /// <summary>Minimum time between two counted degraded runs, so hourly retries during one bad afternoon count once.</summary>
+    internal static readonly TimeSpan DegradedRunIncrementGate = TimeSpan.FromHours(6);
+
+    /// <summary>
+    /// What to do with a degraded run given the WAN's counter. Once <see cref="DegradedRunsBeforeAccept"/>
+    /// runs are counted, the next degraded run is accepted and the counter resets (null). Otherwise it is
+    /// discarded, and counts only when <see cref="DegradedRunIncrementGate"/> has passed since the last count.
+    /// </summary>
+    /// <param name="prior">The WAN's counter, or null when none is recorded.</param>
+    /// <param name="nowUtc">Current time.</param>
+    internal static (bool Accept, MissRecord? Next) DecideDegradedRun(MissRecord? prior, DateTime nowUtc)
+    {
+        if (prior is { } p && p.Count >= DegradedRunsBeforeAccept) return (true, null);
+        if (prior is { } held && nowUtc - held.LastIncrementUtc < DegradedRunIncrementGate) return (false, held);
+        return (false, new MissRecord((prior?.Count ?? 0) + 1, nowUtc));
+    }
+
+    private static string DegradedRunsKey(string wanInterface) =>
+        SystemSettingKeys.UpstreamDegradedRunsPrefix + wanInterface;
+
+    /// <summary>The WAN's degraded-run counter, stored as <c>{"c":count,"t":lastIncrementUtc}</c>, or null.</summary>
+    internal static async Task<MissRecord?> LoadDegradedRunsAsync(NetworkOptimizerDbContext db, string wanInterface, CancellationToken ct)
+    {
+        var row = await db.SystemSettings.AsNoTracking().FirstOrDefaultAsync(s => s.Key == DegradedRunsKey(wanInterface), ct);
+        if (string.IsNullOrEmpty(row?.Value)) return null;
+        try
+        {
+            using var doc = JsonDocument.Parse(row.Value);
+            var count = doc.RootElement.TryGetProperty("c", out var c) ? c.GetInt32() : 0;
+            var when = doc.RootElement.TryGetProperty("t", out var t) && t.TryGetDateTime(out var dt)
+                ? DateTime.SpecifyKind(dt, DateTimeKind.Utc)
+                : DateTime.MinValue;
+            return count > 0 ? new MissRecord(count, when) : null;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    /// <summary>Upserts the WAN's degraded-run counter; null clears it. Does not SaveChanges; the caller's does.</summary>
+    internal static async Task SaveDegradedRunsAsync(NetworkOptimizerDbContext db, string wanInterface, MissRecord? record, CancellationToken ct)
+    {
+        var key = DegradedRunsKey(wanInterface);
+        var value = record is { } r ? JsonSerializer.Serialize(new { c = r.Count, t = r.LastIncrementUtc }) : null;
+        var row = await db.SystemSettings.FirstOrDefaultAsync(s => s.Key == key, ct);
+        if (row == null)
+        {
+            if (value == null) return;
+            db.SystemSettings.Add(new SystemSetting { Key = key, Value = value, CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow });
+        }
+        else
+        {
+            row.Value = value;
+            row.UpdatedAt = DateTime.UtcNow;
+        }
+    }
 
     /// <summary>
     /// Whether a completed run's reachability results describe a degraded WAN rather than the path:

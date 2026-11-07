@@ -123,6 +123,10 @@ public static class SystemSettingKeys
     // run. The full key is this prefix + WanInterface; the value is a fraction (0-1, invariant).
     public const string UpstreamUnreachableSharePrefix = "upstream.unreachable_share.";
 
+    // Per-WAN count of automatic discovery runs discarded as degraded, with the time it last
+    // advanced. The full key is this prefix + WanInterface; the value is {"c":count,"t":utc}.
+    public const string UpstreamDegradedRunsPrefix = "upstream.degraded_runs.";
+
     // Map / Satellite settings
     public const string MapboxApiKey = "map.mapbox_token";
 
