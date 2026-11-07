@@ -221,8 +221,12 @@ public static class CongestionLocalizer
                         list.Add(s);
                     }
                     foreach (var (bnIp, members) in byOutlierBottleneck)
-                        Emit(BuildLocalized(bnIp, members, allSeries, eventsBySeries, window,
-                            topology, options, loadCoincident, cleanControlExists, lineWideUnderLoad, uniform, IsOutlier, IsClean));
+                    {
+                        var outlierEvt = BuildLocalized(bnIp, members, allSeries, eventsBySeries, window,
+                            topology, options, loadCoincident, cleanControlExists, lineWideUnderLoad, uniform, IsOutlier, IsClean);
+                        outlierEvt.AboveLoadFloor = true;
+                        Emit(outlierEvt);
+                    }
                     continue;
                 }
             }

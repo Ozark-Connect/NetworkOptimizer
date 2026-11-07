@@ -910,7 +910,9 @@ public class CongestionLocalizerTests
         self.BottleneckHopIp.Should().Be(Bng);
         self.Suppressed.Should().BeTrue();
         events.Should().NotContain(e => e.Disposition == CongestionDisposition.Confirmed);
-        events.Single(e => e.BottleneckHopIp == Transit).Disposition.Should().Be(CongestionDisposition.ControlPlaneNoise);
+        var transit = events.Single(e => e.BottleneckHopIp == Transit);
+        transit.Disposition.Should().Be(CongestionDisposition.ControlPlaneNoise);
+        transit.AboveLoadFloor.Should().BeTrue();
     }
 
     [Fact]
