@@ -6,6 +6,35 @@ namespace NetworkOptimizer.WiFi.Tests;
 
 public class WiFiAnalysisHelpersTests
 {
+    public class UtilizationByRadio
+    {
+        // Shape of a stat/report/5minutes.ap response: every row names its AP in "ap".
+        private const string TwoApReport = """
+            [
+              { "time": 1762500000000, "ap": "AA:BB:CC:DD:EE:01", "o": "ap", "ng-cu_total": 70, "na-cu_total": 10 },
+              { "time": 1762500300000, "ap": "AA:BB:CC:DD:EE:01", "o": "ap", "ng-cu_total": 90, "na-cu_total": 20 },
+              { "time": 1762500000000, "ap": "aa:bb:cc:dd:ee:02", "o": "ap", "ng-cu_total": 30 },
+              { "time": 1762500300000, "ap": "aa:bb:cc:dd:ee:02", "o": "ap", "ng-cu_total": 50 },
+              { "time": 1762500300000, "ng-cu_total": 99 }
+            ]
+            """;
+
+        [Fact]
+        public void OneReportForTwoAps_SplitsPerApAndBand()
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(TwoApReport);
+            var rows = Providers.UniFiLiveDataProvider.ParseApMetrics(doc.RootElement);
+
+            rows.Select(r => r.ApMac).Should().Equal("AA:BB:CC:DD:EE:01", "AA:BB:CC:DD:EE:01", "aa:bb:cc:dd:ee:02", "aa:bb:cc:dd:ee:02", null);
+
+            var byRadio = WiFiAnalysisHelpers.UtilizationByRadio(rows);
+            byRadio.Should().HaveCount(3, "a row with no AP cannot be attributed");
+            byRadio[("aa:bb:cc:dd:ee:01", RadioBand.Band2_4GHz)].Should().Be((80.0, 90.0));
+            byRadio[("aa:bb:cc:dd:ee:01", RadioBand.Band5GHz)].Should().Be((15.0, 20.0));
+            byRadio[("aa:bb:cc:dd:ee:02", RadioBand.Band2_4GHz)].Should().Be((40.0, 50.0));
+        }
+    }
+
     public class SortByIp
     {
         [Fact]

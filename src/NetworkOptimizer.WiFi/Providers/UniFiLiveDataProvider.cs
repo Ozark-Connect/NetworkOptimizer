@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
+using NetworkOptimizer.Core;
 using NetworkOptimizer.UniFi;
 using NetworkOptimizer.UniFi.Models;
 using NetworkOptimizer.WiFi.Helpers;
@@ -365,7 +366,7 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
                 reportData.ValueKind == JsonValueKind.Array ? reportData.GetArrayLength() : 0);
 
             // Parse using AP-specific prefixes (no 'ap-' prefix)
-            var metrics = ParseApMetrics(reportData);
+            var metrics = ParseApMetrics(reportData, _logger);
             _logger.LogDebug("Parsed {Count} AP metrics data points", metrics.Count);
             return metrics;
         }
@@ -1578,13 +1579,18 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
         return metrics;
     }
 
-    private List<SiteWiFiMetrics> ParseApMetrics(JsonElement data)
+    /// <summary>
+    /// Rows of a stat/report .ap response. Each row names its AP in `ap`, so one request for many
+    /// APs splits back per AP on <see cref="SiteWiFiMetrics.ApMac"/>.
+    /// </summary>
+    [VendorSpecific("UniFi", "stat/report/{interval}.ap rows: ap MAC plus ng-/na-/6e- prefixed radio attrs")]
+    internal static List<SiteWiFiMetrics> ParseApMetrics(JsonElement data, ILogger? logger = null)
     {
         var metrics = new List<SiteWiFiMetrics>();
 
         if (data.ValueKind != JsonValueKind.Array)
         {
-            _logger.LogWarning("AP metrics data is not an array: {ValueKind}", data.ValueKind);
+            logger?.LogWarning("AP metrics data is not an array: {ValueKind}", data.ValueKind);
             return metrics;
         }
 
@@ -1612,6 +1618,7 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
             var metric = new SiteWiFiMetrics
             {
                 Timestamp = DateTimeOffset.FromUnixTimeMilliseconds(timestamp),
+                ApMac = item.TryGetProperty("ap", out var apProp) && apProp.ValueKind == JsonValueKind.String ? apProp.GetString() : null,
                 ByBand = new Dictionary<RadioBand, BandMetrics>()
             };
 

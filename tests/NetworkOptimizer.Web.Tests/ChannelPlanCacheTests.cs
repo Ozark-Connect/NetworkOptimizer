@@ -76,6 +76,52 @@ public class ChannelPlanCacheTests
     }
 
     [Fact]
+    public async Task RadioHours_ConcurrentCallersShareOneFetch_AndEachSiteHasItsOwn()
+    {
+        var cache = new ChannelPlanCache();
+        var fetches = new Dictionary<string, int>();
+        var release = new TaskCompletionSource();
+        Func<Task<IReadOnlyDictionary<(string Mac, RadioBand Band), (double Avg, double Peak)>>> FetchFor(string site) => async () =>
+        {
+            lock (fetches) fetches[site] = fetches.GetValueOrDefault(site) + 1;
+            await release.Task;
+            return new Dictionary<(string, RadioBand), (double, double)> { [("aa:bb:cc:dd:ee:01", RadioBand.Band2_4GHz)] = (site == "a" ? 70 : 20, 90) };
+        };
+
+        var callers = Enumerable.Range(0, 5).Select(_ => cache.GetOrBuildRadioHoursAsync("a", FetchFor("a")))
+            .Append(cache.GetOrBuildRadioHoursAsync("b", FetchFor("b")))
+            .ToList();
+        release.SetResult();
+        var results = await Task.WhenAll(callers);
+
+        fetches.Should().Equal(new Dictionary<string, int> { ["a"] = 1, ["b"] = 1 });
+        results.Take(5).Should().AllSatisfy(r => r[("aa:bb:cc:dd:ee:01", RadioBand.Band2_4GHz)].Avg.Should().Be(70));
+        results[5][("aa:bb:cc:dd:ee:01", RadioBand.Band2_4GHz)].Avg.Should().Be(20);
+
+        // Inside the TTL a later caller gets the cached values without a fetch.
+        await cache.GetOrBuildRadioHoursAsync("a", FetchFor("a"));
+        fetches["a"].Should().Be(1);
+    }
+
+    [Fact]
+    public async Task QuietestChannels_AreCachedPerSite()
+    {
+        var cache = new ChannelPlanCache();
+        var fetches = 0;
+        Task<IReadOnlyDictionary<(string Mac, RadioBand Band), int>> Fetch()
+        {
+            fetches++;
+            return Task.FromResult<IReadOnlyDictionary<(string Mac, RadioBand Band), int>>(new Dictionary<(string, RadioBand), int>());
+        }
+
+        await cache.GetOrBuildQuietestChannelsAsync("a", Fetch);
+        await cache.GetOrBuildQuietestChannelsAsync("a", Fetch);
+        await cache.GetOrBuildQuietestChannelsAsync("b", Fetch);
+
+        fetches.Should().Be(2, "an empty answer is cached too, and site b asks once for itself");
+    }
+
+    [Fact]
     public async Task ForceRefreshRebuilds()
     {
         var cache = new ChannelPlanCache();

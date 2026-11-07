@@ -8,6 +8,9 @@ public class SiteWiFiMetrics
     /// <summary>Time of this data point</summary>
     public DateTimeOffset Timestamp { get; set; }
 
+    /// <summary>The AP a per-AP report row belongs to; null on site-wide rows.</summary>
+    public string? ApMac { get; set; }
+
     /// <summary>Metrics broken down by radio band</summary>
     public Dictionary<RadioBand, BandMetrics> ByBand { get; set; } = new();
 

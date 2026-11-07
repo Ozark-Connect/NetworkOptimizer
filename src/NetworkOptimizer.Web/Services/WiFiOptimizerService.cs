@@ -271,60 +271,41 @@ public class WiFiOptimizerService : IWiFiScanService
         }
     }
 
-    /// <summary>How long the last hour's per-radio utilization is reused before the console is asked again.</summary>
-    private static readonly TimeSpan RadioHourCacheFor = TimeSpan.FromMinutes(5);
-
-    /// <summary>Hard bound on that read; on timeout the radios keep their latest reading only.</summary>
+    /// <summary>Hard bound on the last hour's radio stats read; on timeout the radios keep their latest reading only.</summary>
     private static readonly TimeSpan RadioHourQueryTimeout = TimeSpan.FromSeconds(10);
-
-    private Dictionary<(string Mac, RadioBand Band), (double Avg, double Peak)>? _radioHour;
-    private DateTime _radioHourAt = DateTime.MinValue;
 
     /// <summary>
     /// Sets each radio's utilization average and peak over the last hour, from the console's
     /// 5-minute AP stats. The busy-radio issue gates on the average, never one spiky reading; a
     /// radio the console has no rows for keeps both null and the issue falls back to its latest.
+    /// One report call covers every AP, and the result is shared per site for the TTL.
     /// </summary>
     private async Task ApplyRadioHourAsync(List<AccessPointSnapshot> aps)
     {
         if (aps.Count == 0 || _connectionService.Client == null) return;
 
-        if (_radioHour == null || DateTime.UtcNow - _radioHourAt > RadioHourCacheFor)
+        var hour = await _planCache.GetOrBuildRadioHoursAsync(_siteSlug, async () =>
         {
-            var hour = new Dictionary<(string, RadioBand), (double, double)>();
             try
             {
                 using var timeout = new CancellationTokenSource(RadioHourQueryTimeout);
-                var provider = CreateProvider();
                 var end = DateTimeOffset.UtcNow;
-                var fetched = await Task.WhenAll(aps.Select(async ap => (ap.Mac,
-                    Rows: await provider.GetApMetricsAsync(new[] { ap.Mac }, end.AddHours(-1), end, MetricGranularity.FiveMinutes, timeout.Token))));
-                foreach (var (mac, rows) in fetched)
-                {
-                    foreach (var band in new[] { RadioBand.Band2_4GHz, RadioBand.Band5GHz, RadioBand.Band6GHz })
-                    {
-                        var values = rows
-                            .Select(r => r.ByBand.TryGetValue(band, out var b) ? b.ChannelUtilization : null)
-                            .OfType<double>()
-                            .ToList();
-                        if (values.Count > 0)
-                            hour[(mac.ToLowerInvariant(), band)] = (values.Average(), values.Max());
-                    }
-                }
+                var rows = await CreateProvider().GetApMetricsAsync(
+                    aps.Select(ap => ap.Mac).ToArray(), end.AddHours(-1), end, MetricGranularity.FiveMinutes, timeout.Token);
+                return WiFiAnalysisHelpers.UtilizationByRadio(rows);
             }
             catch (Exception ex)
             {
                 _logger.LogDebug(ex, "Last hour's radio utilization unavailable; busy-radio issues use the latest reading (site {Site})", _siteSlug);
+                return new Dictionary<(string, RadioBand), (double, double)>();
             }
-            _radioHour = hour;
-            _radioHourAt = DateTime.UtcNow;
-        }
+        });
 
         foreach (var ap in aps)
         {
             foreach (var radio in ap.Radios)
             {
-                if (_radioHour.TryGetValue((ap.Mac.ToLowerInvariant(), radio.Band), out var h))
+                if (hour.TryGetValue((ap.Mac.ToLowerInvariant(), radio.Band), out var h))
                 {
                     radio.HourUtilizationAvg = h.Avg;
                     radio.HourUtilizationPeak = h.Peak;
@@ -333,22 +314,20 @@ public class WiFiOptimizerService : IWiFiScanService
         }
     }
 
-    private Dictionary<(string Mac, RadioBand Band), int>? _quietestChannels;
-    private DateTime _quietestChannelsAt = DateTime.MinValue;
-
     /// <summary>
     /// Sets each radio's quietest achievable utilization: the lowest spectrum-scan reading among
     /// the channels the recommender would consider for it, under the console's DFS preference.
     /// The health score measures each radio from there, so busy air the site cannot escape costs
-    /// nothing. A radio without a scan keeps null and is scored the old way.
+    /// nothing. A radio without a scan keeps null and is scored the old way. Shared per site for
+    /// the TTL, since the scans and the DFS preference are console reads.
     /// </summary>
     private async Task ApplyQuietestChannelsAsync(List<AccessPointSnapshot> aps)
     {
         if (aps.Count == 0) return;
 
-        if (_quietestChannels == null || DateTime.UtcNow - _quietestChannelsAt > RadioHourCacheFor)
+        var quietest = await _planCache.GetOrBuildQuietestChannelsAsync(_siteSlug, async () =>
         {
-            var quietest = new Dictionary<(string, RadioBand), int>();
+            var result = new Dictionary<(string, RadioBand), int>();
             try
             {
                 var scans = await GetChannelScanResultsAsync(
@@ -364,7 +343,7 @@ public class WiFiOptimizerService : IWiFiScanService
                             .OrderByDescending(s => s.SpectrumTableTime)
                             .FirstOrDefault();
                         if (_channelRecommendationService.QuietestCandidateUtilization(radio.Band, radio, scan, regulatory, dfs) is { } best)
-                            quietest[(ap.Mac.ToLowerInvariant(), radio.Band)] = best;
+                            result[(ap.Mac.ToLowerInvariant(), radio.Band)] = best;
                     }
                 }
             }
@@ -372,13 +351,12 @@ public class WiFiOptimizerService : IWiFiScanService
             {
                 _logger.LogDebug(ex, "Spectrum scans unavailable; Channel Health scores radios without their quietest channel (site {Site})", _siteSlug);
             }
-            _quietestChannels = quietest;
-            _quietestChannelsAt = DateTime.UtcNow;
-        }
+            return result;
+        });
 
         foreach (var ap in aps)
             foreach (var radio in ap.Radios)
-                if (_quietestChannels.TryGetValue((ap.Mac.ToLowerInvariant(), radio.Band), out var best))
+                if (quietest.TryGetValue((ap.Mac.ToLowerInvariant(), radio.Band), out var best))
                     radio.QuietestChannelUtilization = best;
     }
 
