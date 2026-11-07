@@ -403,6 +403,25 @@
                         </div>
                     }
 
+                    @if (def.Id == "pppoe-reconnect")
+                    {
+                        <div class="pt-schedule-row">
+                            <label for="pppoe-reconnect-time">Reconnect daily at</label>
+                            <input id="pppoe-reconnect-time" type="time" class="form-control" @bind="_pppoeReconnectTime"
+                                disabled="@(_deployingTweakId != null || _savingPppoeTime)" />
+                            <span class="pt-schedule-hint">gateway local time</span>
+                            @if (tweakStatus?.BootScriptDeployed == true)
+                            {
+                                <SiteAdminOnly>
+                                    <button class="btn btn-secondary btn-sm" @onclick="SavePppoeReconnectTime"
+                                        disabled="@(_savingPppoeTime || _deployingTweakId != null || IsLicenseRestricted || PppoeReconnectTimeText == _status?.PppoeReconnectTime)">
+                                        @(_savingPppoeTime ? "Saving..." : "Save Time")
+                                    </button>
+                                </SiteAdminOnly>
+                            }
+                        </div>
+                    }
+
                     <!-- Action Buttons -->
                     <div class="pt-actions">
                         @if (effectiveStatus == TweakDisplayStatus.NotDeployed)
@@ -834,6 +853,24 @@ ls -la /var/config/run-syslog.sh</code></pre>
         font-size: 0.8rem;
     }
 
+    /* Scheduled PPPoE reconnect time */
+    .pt-schedule-row {
+        display: flex;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+        margin-top: 0.75rem;
+    }
+
+    .pt-schedule-row input[type="time"] {
+        width: auto;
+    }
+
+    .pt-schedule-hint {
+        color: var(--text-secondary);
+        font-size: 0.85rem;
+    }
+
     /* Action buttons */
     .pt-actions {
         display: flex;
@@ -1073,6 +1110,33 @@ ls -la /var/config/run-syslog.sh</code></pre>
     private string? _pendingDeployTweakId;
     private bool _pendingDeployIsUpdate;
     private string? _deployMessage;
+    private TimeOnly _pppoeReconnectTime = new(4, 0);
+    private bool _savingPppoeTime;
+    private string PppoeReconnectTimeText => _pppoeReconnectTime.ToString("HH:mm", System.Globalization.CultureInfo.InvariantCulture);
+
+    private static TimeOnly ParsePppoeReconnectTime(string time) =>
+        TimeOnly.TryParseExact(time, "HH:mm", System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out var t)
+            ? t : new TimeOnly(4, 0);
+
+    private async Task SavePppoeReconnectTime()
+    {
+        _savingPppoeTime = true;
+        _deployMessage = null;
+        _deployNotice = null;
+        try
+        {
+            var result = await DeployService.SetPppoeReconnectTimeAsync(PppoeReconnectTimeText);
+            if (result.success)
+                await LoadStatusAsync();
+            else
+                _deployMessage = result.message;
+        }
+        finally
+        {
+            _savingPppoeTime = false;
+            StateHasChanged();
+        }
+    }
     private bool _confirmBackup;
     private bool _confirmBackupDownloaded;
     private bool _confirmWarranty;
@@ -1163,7 +1227,10 @@ ls -la /var/config/run-syslog.sh</code></pre>
         new("sfp-sgmiiplus", "SFP+ 2.5 G SGMII+ Patch (Port 7)",
             "Loads a kernel module that forces the 2nd SFP+ port (Port 7 / eth6) from SGMII 1 G to SGMII+ (HSGMII) 2.5 G for GPON ONT SFP modules. Sets uniphy1 clock to 312.5 MHz, updates SerDes registers, and excludes the port from MAC sync polling to prevent speed reversion.",
             MutuallyExclusiveWith: "sfp-sgmiiplus-port6",
-            CompatibleModels: new[] { "ucg-fiber", "ucgf", "ucgfiber", "uxg-fiber", "uxgfiber" })
+            CompatibleModels: new[] { "ucg-fiber", "ucgf", "ucgfiber", "uxg-fiber", "uxgfiber" }),
+        new("pppoe-reconnect", "Scheduled PPPoE Reconnect",
+            "Many ISPs end a PPPoE session every 24 hours (in Germany \"Zwangstrennung\"), so the short outage and the new IPv4 address and IPv6 prefix drift through the day. This reconnects every PPPoE WAN once a day at a time you choose, which restarts the ISP's 24 hour count so its own disconnect never comes due during the day. With several PPPoE WANs they reconnect one after the other, 5 minutes apart. A WAN that is down or was reconnected within the last hour is skipped.",
+            ExtraNote: "Each reconnect drops that WAN for a few seconds and usually brings a new IPv4 address and IPv6 prefix, exactly like the ISP's own disconnect. A reconnect missed while the gateway was off is not made up at boot.")
     };
 
     protected override async Task OnInitializedAsync()
@@ -1220,6 +1287,8 @@ ls -la /var/config/run-syslog.sh</code></pre>
 
             _status = await DeployService.CheckAllStatusAsync();
             _gatewayConnected = _status.Error == null;
+            if (_status.Error == null)
+                _pppoeReconnectTime = ParsePppoeReconnectTime(_status.PppoeReconnectTime);
             if (_status.Error == null) ModuleUpdates.NotifyPerfTweaksStatus(_status);
             ScheduleBackendRecheck();
         }
@@ -1349,6 +1418,17 @@ ls -la /var/config/run-syslog.sh</code></pre>
                 _deploySteps.Add(step);
                 InvokeAsync(StateHasChanged);
             });
+
+            // The boot script reads the reconnect time from the gateway, so it goes there first
+            if (tweakId == "pppoe-reconnect")
+            {
+                var timeResult = await DeployService.SetPppoeReconnectTimeAsync(PppoeReconnectTimeText);
+                if (!timeResult.success)
+                {
+                    _deployMessage = timeResult.message;
+                    return;
+                }
+            }
 
             var result = await DeployService.DeployTweakAsync(tweakId, progress);
 
