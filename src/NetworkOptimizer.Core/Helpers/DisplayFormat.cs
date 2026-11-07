@@ -72,6 +72,9 @@ public sealed record DisplayFormat(ClockStyle Clock, DateOrder Order)
     /// <summary>"Nov 3, 2026, 14:05:09", "3 Nov 2026, 14:05:09", or "2026-11-03 14:05:09".</summary>
     public string DateTimeSeconds => $"{Date}{Join}{TimeSeconds}";
 
+    /// <summary>"November 3, 2026, 14:05", "3 November 2026, 14:05", or "2026-11-03 14:05".</summary>
+    public string LongDateTime => $"{LongDate}{Join}{Time}";
+
     /// <summary>"Tue Nov 3, 14:05", "Tue 3 Nov, 14:05", or "Tue 11-03 14:05".</summary>
     public string WeekdayDayTime => $"ddd {Day}{Join}{Time}";
 

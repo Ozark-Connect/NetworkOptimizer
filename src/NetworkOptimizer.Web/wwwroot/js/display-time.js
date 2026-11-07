@@ -60,7 +60,7 @@
     }
 
     // A toLocale*String call in the viewer's format: day-first reads as en-GB, month-first as en-US,
-    // and the hour cycle is the viewer's whatever the caller asked for.
+    // ISO through isoLocal, and the hour cycle is the viewer's whatever the caller asked for.
     function local(method, value, options) {
         const { h24, dayFirst, iso } = format();
         const z = zone();

@@ -65,7 +65,7 @@ public class RecablingPdfGenerator
                 .Text($"{siteName}: {proposal.OldName} ({proposal.OldModel}) to {proposal.NewModel}").FontSize(11);
 
             column.Item().AlignLeft().PaddingTop(6)
-                .Text($"Generated: {generatedAt.ToString(_format.LongDate, DisplayFormat.Culture)}, {generatedAt.ToString(_format.Time, DisplayFormat.Culture)}")
+                .Text($"Generated: {generatedAt.ToString(_format.LongDateTime, DisplayFormat.Culture)}")
                 .FontSize(10).FontColor(Colors.Grey.Medium);
 
             column.Item().PaddingBottom(10).LineHorizontal(0.5f).LineColor(Colors.Grey.Lighten2);

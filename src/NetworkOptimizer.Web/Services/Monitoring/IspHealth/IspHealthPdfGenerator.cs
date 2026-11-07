@@ -111,7 +111,7 @@ public class IspHealthPdfGenerator
             }
 
             column.Item().AlignLeft().PaddingTop(subjectLine.Length > 0 ? 2 : 6)
-                .Text($"Generated: {generatedAt.ToString(_format.LongDate, DisplayFormat.Culture)}, {generatedAt.ToString(_format.Time, DisplayFormat.Culture)}    Window: {IspHealthPresentation.WindowRangeLabel(report, _timeZone, _format)}")
+                .Text($"Generated: {generatedAt.ToString(_format.LongDateTime, DisplayFormat.Culture)}    Window: {IspHealthPresentation.WindowRangeLabel(report, _timeZone, _format)}")
                 .FontSize(10).FontColor(Colors.Grey.Medium);
 
             column.Item().PaddingBottom(10).LineHorizontal(0.5f).LineColor(Colors.Grey.Lighten2);

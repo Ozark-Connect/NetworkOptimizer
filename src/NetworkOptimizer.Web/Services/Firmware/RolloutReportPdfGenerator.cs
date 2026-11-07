@@ -70,7 +70,7 @@ public class RolloutReportPdfGenerator
             column.Item().AlignCenter().Text(title).FontSize(22).Bold().FontColor(_branding.Colors.Primary);
 
             column.Item().AlignLeft().PaddingTop(6)
-                .Text($"Generated: {generatedAt.ToString(_format.LongDate, DisplayFormat.Culture)}, {generatedAt.ToString(_format.Time, DisplayFormat.Culture)}    Rollout: {WindowLabel(report)}")
+                .Text($"Generated: {generatedAt.ToString(_format.LongDateTime, DisplayFormat.Culture)}    Rollout: {WindowLabel(report)}")
                 .FontSize(10).FontColor(Colors.Grey.Medium);
 
             column.Item().PaddingBottom(10).LineHorizontal(0.5f).LineColor(Colors.Grey.Lighten2);
