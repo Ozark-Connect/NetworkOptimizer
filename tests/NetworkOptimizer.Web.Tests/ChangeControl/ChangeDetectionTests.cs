@@ -533,10 +533,10 @@ public class ChangeDetectionTests
     {
         var network = Stored("networkconf", "IoT", new StoredField
         {
-            Path = "lte_lan_enabled_devices", Label = "Lte LAN Enabled Devices", Old = "none", New = "aa:bb:cc:dd:ee:ff",
+            Path = "wan_5g_index", Label = "WAN 5g Index", Old = "1", New = "2",
         });
 
-        ChangeControlService.ObjectView(network).Fields.Single().Label.Should().Be("LTE LAN Enabled Devices");
+        ChangeControlService.ObjectView(network).Fields.Single().Label.Should().Be("WAN 5G Index");
     }
 
     [Fact]
