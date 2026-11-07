@@ -515,6 +515,31 @@ public class ChangeDetectionTests
     }
 
     [Fact]
+    public void Labels_CellularAndIPv6Acronyms_AreUpperCase()
+    {
+        ChangeDescriber.LabelFor("lte_lan_enabled_devices").Should().Be("LTE LAN Enabled Devices");
+        ChangeDescriber.LabelFor("wan_5g_index").Should().Be("WAN 5G Index");
+        ChangeDescriber.LabelFor("use_custom_apn").Should().Be("Use Custom APN");
+        ChangeDescriber.LabelFor("wan_dhcpv6_pd_size").Should().Be("WAN DHCPv6 PD Size");
+        ChangeDescriber.LabelFor("dhcpdv6_allow_slaac").Should().Be("DHCPv6 Allow SLAAC");
+        ChangeDescriber.LabelFor("ipv6_ra_enabled").Should().Be("IPv6 RA");
+        ChangeDescriber.LabelFor("wan_pppoe_username_enabled").Should().Be("WAN PPPoE Username");
+        ChangeDescriber.LabelFor("uapsd_enabled").Should().Be("U-APSD");
+        ChangeDescriber.LabelFor("dhcpd_wins_enabled").Should().Be("DHCP WINS");
+    }
+
+    [Fact]
+    public void ObjectView_RelabelsARowRecordedBeforeTheAcronymFix()
+    {
+        var network = Stored("networkconf", "IoT", new StoredField
+        {
+            Path = "lte_lan_enabled_devices", Label = "Lte LAN Enabled Devices", Old = "none", New = "aa:bb:cc:dd:ee:ff",
+        });
+
+        ChangeControlService.ObjectView(network).Fields.Single().Label.Should().Be("LTE LAN Enabled Devices");
+    }
+
+    [Fact]
     public void Labels_MeshAsTheAPSettingsNameIt()
     {
         ChangeDescriber.LabelFor("radio_table[radio=na].vwire_enabled").Should().Be("5 GHz Mesh Parent");

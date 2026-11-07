@@ -176,9 +176,10 @@ public static class PlanBuilder
             }
         }
 
+        var lanModems = LanCellularModems(live);
         foreach (var (def, d, l) in pending)
         {
-            var op = BuildOperation(def, d, l, desiredById, liveById, idMap, creates, desiredCtx, liveCtx, options, doc, mgmtNetworks, otherVersion);
+            var op = BuildOperation(def, d, l, desiredById, liveById, idMap, creates, desiredCtx, liveCtx, options, doc, mgmtNetworks, otherVersion, lanModems);
             if (op == null) continue;
             // A client's device type is written by MAC, which a partial update's body does not carry (PlanExecutor).
             if (def.Key == "user") op.StationMac = (l ?? d)?["mac"]?.ToString();
@@ -316,7 +317,7 @@ public static class PlanBuilder
         Dictionary<string, (string Collection, JsonObject Object)> liveById,
         Dictionary<string, string> idMap, Dictionary<string, PlanOperation> creates,
         ConfigIdentityContext desiredCtx, ConfigIdentityContext liveCtx, PlanOptions options, PlanDocument doc, IReadOnlySet<string> mgmtNetworks,
-        bool otherVersion = false)
+        bool otherVersion = false, IReadOnlyList<string>? lanModems = null)
     {
         var name = ConfigState.DisplayName(def, desired ?? live!);
         var write = def.Write!;
@@ -433,6 +434,13 @@ public static class PlanBuilder
                 if (liveValue == null) remapped.Remove(field);
                 else remapped[field] = liveValue.DeepClone();
             }
+        // After the keeps above: a snapshot list equal to the live one can still name a modem gone since.
+        if (def.Key == "networkconf" && ApplyLteModems(remapped, live, lanModems) is { } lte)
+        {
+            var note = $"{def.Noun} {name}: {lte.Note}";
+            if (!doc.Notes.Contains(note)) doc.Notes.Add(note);
+            if (lte.Blocked) return null;
+        }
         // Onto another site, an update must not write an ID that means nothing here: a template saved
         // without its references (before they were kept) carries the source site's network IDs in its PPSKs.
         if (live != null && !options.SameSite)
@@ -601,6 +609,80 @@ public static class PlanBuilder
         if (ip == subnet.Network || ip == broadcast)
             return $"Subnet {text} is the network's {(ip == subnet.Network ? "own" : "broadcast")} address; UniFi needs the gateway's, such as {Readdressing.Format(subnet.Network + 1)}/{subnet.Prefix}.";
         return null;
+    }
+
+    /// <summary>A network's LTE/5G backup modem list (the Applies To modems behind <c>lte_lan_enabled</c>).</summary>
+    internal const string LteDevicesField = "lte_lan_enabled_devices";
+
+    /// <summary>
+    /// The MACs of the console's LAN-connected cellular modems (U-LTE, U5G), or null when its device list
+    /// was not read. A gateway with a built-in modem is a gateway, not one of these.
+    /// </summary>
+    internal static IReadOnlyList<string>? LanCellularModems(ConfigState live)
+    {
+        if (!live.Collections.ContainsKey("device")) return null;
+        static string? S(JsonNode? n) => n is JsonValue v && v.TryGetValue<string>(out var s) ? s : null;
+        return live.Get("device")
+            .Where(d => d["adopted"] is not JsonValue a || !a.TryGetValue<bool>(out var adopted) || adopted)
+            .Where(d =>
+            {
+                var meta = d[ConfigCollections.DeviceMetaField];
+                var (model, shortname) = (S(d["model"]), S(meta?["shortname"]));
+                return UniFi.UniFiProductDatabase.IsCellularModem(model, shortname, S(d["type"]) ?? S(meta?["type"]))
+                    && !UniFi.UniFiProductDatabase.IsCellularGateway(model, shortname);
+            })
+            .Select(d => S(d["mac"])?.ToLowerInvariant()).OfType<string>().Distinct().ToList();
+    }
+
+    /// <summary>
+    /// Sets the modem list a network write carries the way UniFi Network's form does on this console. With
+    /// backup on: the desired modems that are LAN modems here; if none are, its one LAN modem, or with several
+    /// the list the network already has here. With backup off, no list. Returns a plan note, and whether the
+    /// network cannot be written, or null.
+    /// </summary>
+    internal static (string Note, bool Blocked)? ApplyLteModems(JsonObject network, JsonObject? live, IReadOnlyList<string>? lanModems)
+    {
+        static void KeepLive(JsonObject n, JsonObject? l)
+        {
+            if (l?[LteDevicesField] is { } value) n[LteDevicesField] = value.DeepClone();
+            else n.Remove(LteDevicesField);
+        }
+        var on = network["lte_lan_enabled"] is JsonValue v && v.TryGetValue<bool>(out var b) && b;
+        // An unread device list says nothing about the modems here, and backup off sends no list.
+        if (lanModems == null || !on)
+        {
+            KeepLive(network, live);
+            return null;
+        }
+        if (lanModems.Count == 0)
+        {
+            KeepLive(network, live);
+            return ("LTE/5G backup is on, but this console has no LAN-connected cellular modem; its modem list is left out.", false);
+        }
+        var wanted = (network[LteDevicesField] as JsonArray ?? []).Select(e => e?.ToString()).OfType<string>().ToList();
+        var here = wanted.Where(m => lanModems.Contains(m, StringComparer.OrdinalIgnoreCase)).ToList();
+        if (here.Count > 0)
+        {
+            network[LteDevicesField] = new JsonArray(here.Select(m => (JsonNode?)JsonValue.Create(m)).ToArray());
+            return here.Count < wanted.Count ? ("modems not on this console were left out of its LTE/5G backup modem list.", false) : null;
+        }
+        if (lanModems.Count == 1)
+        {
+            network[LteDevicesField] = new JsonArray(JsonValue.Create(lanModems[0]));
+            return null;
+        }
+        if (live?[LteDevicesField] is JsonArray { Count: > 0 })
+        {
+            KeepLive(network, live);
+            return null;
+        }
+        // UniFi Network requires a modem choice here, except on a VLAN-only network.
+        if (network["purpose"]?.ToString() == "vlan-only")
+        {
+            KeepLive(network, live);
+            return null;
+        }
+        return ("not written. LTE/5G backup is on and this console has several LAN-connected cellular modems: choose which ones it uses under Applies To in UniFi Network, then build the plan again.", true);
     }
 
     // Fields a WLAN create cannot set (scratch site, Network 11.0.97, 2026-10-29): UniFi stores WPA3 off
