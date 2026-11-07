@@ -90,6 +90,15 @@ public class ConfigDiffEngineTests
     }
 
     [Fact]
+    public void Network_LteLanEnabledDevices_IsReadOnly()
+    {
+        var before = State(("networkconf", """{"_id":"n1","name":"IoT","vlan":30,"vlan_enabled":true,"lte_lan_enabled_devices":"none"}"""));
+        var after = State(("networkconf", """{"_id":"n1","name":"IoT","vlan":30,"vlan_enabled":true,"lte_lan_enabled_devices":"aa:bb:cc:dd:ee:ff"}"""));
+        ConfigDiffEngine.Compare(before, after).IsEmpty.Should().BeTrue();
+        ConfigCollections.Get("networkconf")!.IsReadOnly(null, "lte_lan_enabled_devices").Should().BeTrue();
+    }
+
+    [Fact]
     public void FirewallGroupSource_MissingEqualsStatic_ButDynamicDiffers()
     {
         var none = State(("firewallgroup", """{"_id":"g1","name":"SNMP","group_type":"port-group","group_members":["161"]}"""));

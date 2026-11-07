@@ -85,6 +85,10 @@ public static partial class ChangeDescriber
         ["ap"] = "AP", ["wlan"] = "WLAN", ["rssi"] = "RSSI", ["tx"] = "TX", ["rx"] = "RX", ["pmf"] = "PMF", ["mlo"] = "MLO",
         ["wpa"] = "WPA", ["radius"] = "RADIUS", ["dpi"] = "DPI", ["ips"] = "IPS", ["id"] = "ID", ["wifi"] = "Wi-Fi",
         ["unifi"] = "UniFi", ["api"] = "API", ["ios"] = "iOS", ["ipados"] = "iPadOS", ["macos"] = "macOS",
+        ["lte"] = "LTE", ["5g"] = "5G", ["sim"] = "SIM", ["apn"] = "APN", ["dhcpv6"] = "DHCPv6", ["dhcpdv6"] = "DHCPv6",
+        ["slaac"] = "SLAAC", ["ra"] = "RA", ["pd"] = "PD", ["pppoe"] = "PPPoE", ["mss"] = "MSS", ["arp"] = "ARP",
+        ["tftp"] = "TFTP", ["wins"] = "WINS", ["ptp"] = "PTP", ["dtim"] = "DTIM", ["bss"] = "BSS", ["uapsd"] = "U-APSD",
+        ["sae"] = "SAE", ["psk"] = "PSK", ["wpa3"] = "WPA3", ["ssl"] = "SSL",
     };
 
     // Kept lowercase inside a title ("Lock Port to UniFi Device").
