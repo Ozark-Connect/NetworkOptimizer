@@ -306,12 +306,12 @@
             <button type="button" class="btn btn-secondary" @onclick="ResetAsync">Add Another Site</button>
         </div>
     }
-
-    @if (!string.IsNullOrEmpty(_message))
-    {
-        <div class="alert alert-@_messageClass">@_message</div>
-    }
 </div>
+
+@if (!string.IsNullOrEmpty(_message))
+{
+    <div class="alert alert-@_messageClass">@_message</div>
+}
 }
 
 @code {
