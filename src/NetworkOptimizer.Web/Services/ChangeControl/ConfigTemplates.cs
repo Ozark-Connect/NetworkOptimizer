@@ -266,7 +266,7 @@ public sealed class ConfigTemplateService : IConfigTemplateService
         var engine = _registry.GetFor(siteSlug);
         var state = snapshotId is { } id
             ? await engine.LoadSnapshotStateAsync(id, cancellationToken) ?? throw new InvalidOperationException("Snapshot not found.")
-            : await engine.ReadLiveAsync(cancellationToken);
+            : await engine.ReadLiveCheckedAsync(cancellationToken);
         // Devices and clients are per site; a template carries site-wide objects only.
         var allowed = collections.Where(c => c is not "device" and not "user" && ConfigCollections.Get(c)?.Write != null).ToList();
         return await _store.SaveAsync(null, name, description, siteSlug, state, allowed, _caller.Current?.ActorName ?? "unknown", cancellationToken, replaceLists);

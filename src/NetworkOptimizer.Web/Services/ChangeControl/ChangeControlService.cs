@@ -500,7 +500,7 @@ public sealed partial class ChangeControlService : IChangeControlService
 
     private async Task<(ConfigState State, string Label, string Detail)> LoadSideAsync(int? snapshotId, CancellationToken ct)
     {
-        if (snapshotId == null) return (await Engine.ReadLiveAsync(ct), "Now", "Live config");
+        if (snapshotId == null) return (await Engine.ReadLiveCheckedAsync(ct), "Now", "Live config");
         var snap = await Repo.UseAsync((r, c) => r.GetSnapshotAsync(snapshotId.Value, c), ct) ?? throw new InvalidOperationException("Snapshot not found.");
         var state = await Engine.LoadSnapshotStateAsync(snap.Id, ct) ?? throw new InvalidOperationException("Snapshot content not found.");
         var tags = new List<string>();
@@ -615,6 +615,7 @@ public sealed partial class ChangeControlService : IChangeControlService
     public async Task<string> DownloadDiffAsync(int? fromSnapshotId, int? toSnapshotId, CancellationToken cancellationToken = default)
     {
         var view = await CompareAsync(fromSnapshotId, toSnapshotId, cancellationToken);
+        if (view.Error != null) throw new InvalidOperationException(view.Error);
         var sb = new StringBuilder();
         sb.AppendLine($"Compare: {view.FromLabel} ({view.FromDetail}) to {view.ToLabel} ({view.ToDetail})");
         foreach (var i in view.Impact) sb.AppendLine($"{i.Kind}: {i.Title}. {i.Detail}");

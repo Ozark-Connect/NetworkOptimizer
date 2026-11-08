@@ -558,6 +558,20 @@ public sealed class ChangeControlSiteEngine : BackgroundService
     /// <summary>Reads the live config without storing it (plan building, Compare against Now).</summary>
     public Task<ConfigState> ReadLiveAsync(CancellationToken ct) => _reader.ReadAsync(_api, ct);
 
+    /// <summary>
+    /// <see cref="ReadLiveAsync"/>, but throws when nothing usable was read (the snapshot test). An unread
+    /// console reads as an empty config, which a Compare shows as every object deleted.
+    /// </summary>
+    public async Task<ConfigState> ReadLiveCheckedAsync(CancellationToken ct)
+    {
+        var live = await ReadLiveAsync(ct);
+        if (IsUnread(live)) throw new InvalidOperationException("Could not read the live config.");
+        return live;
+    }
+
+    /// <summary>Whether a live read got nothing usable: no collection, or no networks.</summary>
+    public static bool IsUnread(ConfigState live) => live.Collections.Count == 0 || live.ReadErrors.ContainsKey("networkconf");
+
     /// <summary>Live devices only, read the same way as in <see cref="ReadLiveAsync"/>, for pages that list devices.</summary>
     public async Task<ConfigState> ReadLiveDevicesAsync(CancellationToken ct)
     {
@@ -588,7 +602,7 @@ public sealed class ChangeControlSiteEngine : BackgroundService
         try
         {
             var live = await _reader.ReadAsync(_api, ct);
-            if (live.Collections.Count == 0 || live.ReadErrors.ContainsKey("networkconf"))
+            if (IsUnread(live))
             {
                 _logger.LogWarning("Change Control could not read the config for site {Site}: {Errors}", _slug,
                     string.Join("; ", live.ReadErrors.Select(e => $"{e.Key}: {e.Value}")));

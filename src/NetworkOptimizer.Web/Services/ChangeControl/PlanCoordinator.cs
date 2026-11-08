@@ -160,7 +160,7 @@ public sealed class PlanCoordinator
         if (!await GatewaySettledForAsync(options.Collections, ct)) throw new InvalidOperationException(StillProvisioning);
         var live = await _engine.ReadLiveAsync(ct);
         // Same test as a snapshot: a console that answered nothing would plan "Nothing to write".
-        if (live.Collections.Count == 0 || live.ReadErrors.ContainsKey("networkconf"))
+        if (ChangeControlSiteEngine.IsUnread(live))
             throw new InvalidOperationException("The UniFi Console is not connected yet. Try again once it is.");
         var opts = Options(options);
         if (opts.Collections == null || opts.Collections.Overlaps(["firewall_zone", "firewall_policy", "nat"]))

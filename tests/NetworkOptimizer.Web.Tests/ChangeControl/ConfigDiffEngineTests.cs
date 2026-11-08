@@ -19,6 +19,16 @@ public class ConfigDiffEngineTests
     }
 
     [Fact]
+    public void IsUnread_EmptyReadOrNoNetworks_IsUnread_AFullReadIsNot()
+    {
+        ChangeControlSiteEngine.IsUnread(new ConfigState()).Should().BeTrue();
+        var noNetworks = State(("networkconf", """{"_id":"n1","name":"Default"}"""));
+        noNetworks.ReadErrors["networkconf"] = "connection refused";
+        ChangeControlSiteEngine.IsUnread(noNetworks).Should().BeTrue();
+        ChangeControlSiteEngine.IsUnread(State(("networkconf", """{"_id":"n1","name":"Default"}"""))).Should().BeFalse();
+    }
+
+    [Fact]
     public void Canonical_SortsKeysAtEveryDepth()
     {
         CanonicalJson.Serialize(Obj("""{"b":1,"a":{"d":2,"c":3}}"""))
