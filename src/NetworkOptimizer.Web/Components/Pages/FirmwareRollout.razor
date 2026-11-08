@@ -683,6 +683,14 @@ else
                     </tbody>
                 </table>
             </div>
+            @if (HistoryPages > 1)
+            {
+                <div class="pagination history-pagination">
+                    <button class="btn btn-sm btn-secondary" disabled="@(_historyPage <= 1)" @onclick="() => ChangeHistoryPageAsync(-1)"><span class="pag-arrow">←</span> Prev</button>
+                    <span class="pagination-info">Page @_historyPage of @HistoryPages (@_historyTotal total)</span>
+                    <button class="btn btn-sm btn-secondary" disabled="@(_historyPage >= HistoryPages)" @onclick="() => ChangeHistoryPageAsync(1)">Next <span class="pag-arrow">→</span></button>
+                </div>
+            }
         </div>
     </div>
 }
@@ -946,6 +954,29 @@ else
     private bool _driftNetworkApp;
     private bool _driftOs;
     private List<RolloutPlanSummaryView> _history = [];
+    private int _historyPage = 1;
+    private int _historyTotal;
+    private const int HistoryPageSize = 20;
+    private int HistoryPages => Math.Max(1, (_historyTotal + HistoryPageSize - 1) / HistoryPageSize);
+
+    /// <summary>Loads the current history page; a page past the end (rows aged out) falls back to the last.</summary>
+    private async Task LoadHistoryAsync()
+    {
+        var page = await RolloutService.GetPlanHistoryPageAsync(_historyPage, HistoryPageSize);
+        _historyTotal = page.Total;
+        if (page.Rows.Count == 0 && _historyPage > HistoryPages)
+        {
+            _historyPage = HistoryPages;
+            page = await RolloutService.GetPlanHistoryPageAsync(_historyPage, HistoryPageSize);
+        }
+        _history = page.Rows;
+    }
+
+    private async Task ChangeHistoryPageAsync(int delta)
+    {
+        _historyPage = Math.Clamp(_historyPage + delta, 1, HistoryPages);
+        await LoadHistoryAsync();
+    }
     private RolloutReportView? _report;
     private RolloutReport? _reportTyped;
 
@@ -1068,7 +1099,7 @@ else
             AdoptStandingAutopilotConfig();
             LoadWorkingSets();
             _active = await RolloutService.GetActivePlanAsync();
-            _history = await RolloutService.GetPlanHistoryAsync();
+            await LoadHistoryAsync();
             _autopilotHold = _active == null && _settings?.Mode == FirmwareRolloutMode.Autopilot
                 ? await RolloutService.GetAutopilotHoldReasonAsync()
                 : null;
@@ -1202,7 +1233,7 @@ else
             SeedStartFromProposal();
             _wizardOpen = true;
             _step = 3;
-            _history = await RolloutService.GetPlanHistoryAsync();
+            await LoadHistoryAsync();
         }
         catch (Exception ex)
         {
@@ -2483,7 +2514,7 @@ else
                     }
                     if (_active == null && wasActive)
                     {
-                        _history = await RolloutService.GetPlanHistoryAsync();
+                        await LoadHistoryAsync();
                         // The autopilot landing view renders the preview, and nothing else
                         // rebuilds it once the plan goes terminal - without this the page
                         // sits on its loading state.
@@ -2496,7 +2527,7 @@ else
                         if (_active != null && _vizMounted)
                             await PushLiveStateAsync();
                         if (++_pollTicks % 6 == 0)
-                            _history = await RolloutService.GetPlanHistoryAsync();
+                            await LoadHistoryAsync();
                     }
                     StateHasChanged();
                 });

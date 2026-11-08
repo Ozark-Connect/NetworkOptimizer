@@ -102,26 +102,37 @@ public class FirmwareRolloutService : IFirmwareRolloutService
         int limit = 20, CancellationToken cancellationToken = default)
     {
         var plans = await _repository.GetPlanHistoryAsync(limit, cancellationToken);
-        return plans.Select(plan =>
+        return plans.Select(ToSummary).ToList();
+    }
+
+    /// <inheritdoc />
+    public async Task<RolloutHistoryPage> GetPlanHistoryPageAsync(int page, int pageSize, CancellationToken cancellationToken = default)
+    {
+        var size = Math.Max(1, pageSize);
+        var total = await _repository.CountPlansAsync(cancellationToken);
+        var plans = await _repository.GetPlanHistoryPageAsync((Math.Max(1, page) - 1) * size, size, cancellationToken);
+        return new RolloutHistoryPage(plans.Select(ToSummary).ToList(), total);
+    }
+
+    private static RolloutPlanSummaryView ToSummary(FirmwareRolloutPlan plan)
+    {
+        var document = ParseDocument(plan);
+        var report = RolloutReport.Parse(plan.ReportJson);
+        return new RolloutPlanSummaryView
         {
-            var document = ParseDocument(plan);
-            var report = RolloutReport.Parse(plan.ReportJson);
-            return new RolloutPlanSummaryView
-            {
-                Id = plan.Id,
-                Status = plan.Status,
-                CreatedAt = plan.CreatedAt,
-                CreatedBy = plan.CreatedBy,
-                ScheduledStartAt = plan.ScheduledStartAt,
-                StartedAt = plan.StartedAt,
-                CompletedAt = plan.CompletedAt,
-                DeviceCount = RolloutScopeCopy.TotalScope(document),
-                WaveCount = RolloutScopeCopy.TotalWaves(document),
-                HasReport = report != null,
-                HasSuccesses = report?.TotalUpgraded > 0,
-                HasFailures = report != null && (report.DevicesFailed > 0 || report.DevicesRolledBack > 0),
-            };
-        }).ToList();
+            Id = plan.Id,
+            Status = plan.Status,
+            CreatedAt = plan.CreatedAt,
+            CreatedBy = plan.CreatedBy,
+            ScheduledStartAt = plan.ScheduledStartAt,
+            StartedAt = plan.StartedAt,
+            CompletedAt = plan.CompletedAt,
+            DeviceCount = RolloutScopeCopy.TotalScope(document),
+            WaveCount = RolloutScopeCopy.TotalWaves(document),
+            HasReport = report != null,
+            HasSuccesses = report?.TotalUpgraded > 0,
+            HasFailures = report != null && (report.DevicesFailed > 0 || report.DevicesRolledBack > 0),
+        };
     }
 
     /// <inheritdoc />

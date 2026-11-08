@@ -153,6 +153,11 @@ public class RolloutPlanView
     public bool HasReport { get; set; }
 }
 
+/// <summary>One page of the rollout history list.</summary>
+/// <param name="Rows">The page's rows, newest first.</param>
+/// <param name="Total">Rollouts across every page.</param>
+public sealed record RolloutHistoryPage(List<RolloutPlanSummaryView> Rows, int Total);
+
 /// <summary>One row of the rollout history list.</summary>
 public class RolloutPlanSummaryView
 {
