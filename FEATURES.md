@@ -372,7 +372,7 @@ Gateway tweaks for UCG-Fiber, UXG-Fiber, UCG-Max, and UXG-Max (Gateway SSH).
   - UniFi Network builds only for consoles of the same platform, with a known download
 - Post-upgrade check for loss, CPU, and memory regression; per-device **Roll back**
 - **Deploy Firmware by URL** and **Deploy Known Firmware**
-- **History** and **Rollout Report** with before-and-after CPU and memory; **Export PDF**
+- **History** of every rollout, paged, and **Rollout Report** with before-and-after CPU and memory; **Export PDF**
 
 ## Wi-Fi Optimizer
 
@@ -447,6 +447,7 @@ models such as U6-Lite, U6-Mesh, and UAP-AC-Pro, and gateways with built-in Wi-F
 - Roam records with timing; BSS-transition steering for the **Roam** button
 - Requests are HMAC-signed and replay-protected; the agent listens on the management network only
 - Never redeployed to an access point while Firmware Rollout is flashing it
+- Creates a site's missing InfluxDB buckets when the shared token can, and otherwise warns with a link to Monitoring
 - Radio health, neighbor scans every 30 seconds, and channel move detection
 - Used by: [Client Performance](#client-performance), [Live View](#live-view), [Health Issues](#overview),
   [RF Environment](#metrics-rf-environment-and-environment), [Channel Recommendation](#channels-channel-recommendation),
