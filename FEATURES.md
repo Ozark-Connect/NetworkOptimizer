@@ -43,7 +43,7 @@ an On-Site Agent, AP Telemetry, InfluxDB, or HTTPS.
 - **Sites** page - per-site cards with console status, license, agents online, Site Health, and quick switch
 - Dashboard **Sites** card - every site's Site Health and top issue, worst first; the top issue opens the page to investigate it (ISP Health, Wi-Fi Optimizer, Device Stats, or Network Performance on the LAN scope); **Less** / **More** views; click a row to switch to that site; a Firmware Rollout that is scheduled, running, paused, soaking, or reported in the last 24 hours shows on its site and opens Firmware Rollout (a finished one opens its report); a rollout under way or starting within 24 hours ranks its site above degraded sites, below down ones
 - Site switcher in the top bar on every page
-- **Add a site** wizard - create the site, connect its console, then set up an [On-Site Agent](#on-site-agent) or skip it
+- **Add a site** wizard - create the site, connect its console, then set up an [On-Site Agent](#on-site-agent) or skip it; a console this server cannot reach connects through the agent, set up first
 - Onboard a site over an existing site-to-site VPN with no agent
   - Gets Security Audit, Wi-Fi Optimizer, Performance Tweaks, Adaptive SQM, WAN Steering, and SNMP device health
 - Onboard a site through an [On-Site Agent](#on-site-agent) for the full feature set, including behind CGNAT
