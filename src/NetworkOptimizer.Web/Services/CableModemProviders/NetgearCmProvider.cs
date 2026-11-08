@@ -243,9 +243,8 @@ public sealed class NetgearCmProvider : ICableModemProvider
     /// Fetch the DOCSIS status page, transparently falling back across both Netgear page
     /// extensions (.asp &lt;-&gt; .htm) AND auth styles (HTTP Basic, then the form logins for models
     /// that bind the web session to the source IP: POST to /goform/Login on the CM2050V, and to
-    /// /goform/GenieLogin on CM1000 V7.01.01). Model number doesn't predict which combo a modem needs. A page is accepted only
-    /// when it actually looks like a status
-    /// page; a wrong combo that still returns HTTP 200 (e.g. a login/index page) advances to the
+    /// /goform/GenieLogin on CM1000 V7.01.01). Model number doesn't predict which combo a modem
+    /// needs. A page is accepted only when it actually looks like a status page; a wrong combo that still returns HTTP 200 (e.g. a login/index page) advances to the
     /// next attempt, as does any HTTP/transport error. The last attempt's error propagates, so a
     /// genuine auth failure still surfaces. The winning combo is cached per config so later polls
     /// go straight to it.

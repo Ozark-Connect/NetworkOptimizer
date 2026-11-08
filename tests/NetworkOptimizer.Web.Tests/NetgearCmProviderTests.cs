@@ -474,7 +474,7 @@ public class NetgearCmProviderTests
         var context = ContextFor(server, "admin", "secret");
 
         (await provider.PollAsync(context)).Success.Should().BeTrue();
-        server.Requests.Clear();
+        server.ClearRequests();
 
         (await provider.PollAsync(context)).Success.Should().BeTrue();
 
@@ -494,7 +494,7 @@ public class NetgearCmProviderTests
         (await provider.PollAsync(context)).Success.Should().BeTrue();
         var firstToken = modem.LastToken;
         modem.LoggedIn = false;
-        server.Requests.Clear();
+        server.ClearRequests();
 
         (await provider.PollAsync(context)).Success.Should().BeTrue();
 
@@ -615,8 +615,8 @@ public class NetgearCmProviderTests
     }
 
     [Theory]
-    [InlineData("<input type=\"hidden\" name=\"webToken\" value=1789058664 />", "1789058664")]
-    [InlineData("<input type=hidden name=webToken value=1789058664/>", "1789058664")]
+    [InlineData("<input type=\"hidden\" name=\"webToken\" value=1234567890 />", "1234567890")]
+    [InlineData("<input type=hidden name=webToken value=1234567890/>", "1234567890")]
     [InlineData("<input type=\"hidden\" name=\"webToken\" value=\"42\">", "42")]
     [InlineData("<input type='hidden' name='webToken' value='43'>", "43")]
     [InlineData("<input value=44 name=\"WEBTOKEN\" type=\"hidden\">", "44")]
@@ -747,7 +747,7 @@ public class NetgearCmProviderTests
                 case ("GET", "/DocsisStatus.asp"):
                     return Ok(LoggedIn ? ServerRenderedHtml : GenieRedirectPage);
                 case ("GET", "/GenieLogin.asp"):
-                    LastToken = (1789058664 + _tokensIssued++).ToString();
+                    LastToken = (1234567890 + _tokensIssued++).ToString();
                     return Ok(GenieLoginPage(LastToken));
                 case ("POST", "/goform/GenieLogin"):
                     var form = ParseForm(r.Body);
@@ -804,9 +804,20 @@ public class NetgearCmProviderTests
         private readonly Func<FakeRequest, byte[]?> _route;
         private readonly CancellationTokenSource _cts = new();
         private readonly Task _loop;
+        private readonly List<FakeRequest> _requests = new();
 
-        public List<FakeRequest> Requests { get; } = new();
+        /// <summary>A snapshot of the requests received so far, in order.</summary>
+        public IReadOnlyList<FakeRequest> Requests
+        {
+            get { lock (_requests) return _requests.ToList(); }
+        }
+
         public int Port => ((IPEndPoint)_listener.LocalEndpoint).Port;
+
+        public void ClearRequests()
+        {
+            lock (_requests) _requests.Clear();
+        }
 
         public FakeModemServer(Func<FakeRequest, byte[]?> route)
         {
@@ -869,7 +880,7 @@ public class NetgearCmProviderTests
                 var target = requestLine.Length > 1 ? requestLine[1] : "/";
                 var path = target.Split('?')[0];
                 var request = new FakeRequest(requestLine[0], path, head, body);
-                Requests.Add(request);
+                lock (_requests) _requests.Add(request);
 
                 var response = _route(request);
                 if (response == null)
