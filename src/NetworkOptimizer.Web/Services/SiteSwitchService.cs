@@ -70,6 +70,9 @@ public class SiteSwitchService
     // Keyed by page because names collide: /network-tools ?target= is a host, which every site shares.
     private static readonly string[] SiteBoundEverywhere = ["wan"];
 
+    private static readonly System.Text.RegularExpressions.Regex PlanPath =
+        new("^/change-control/plans/[0-9]+$", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
     private static readonly Dictionary<string, string[]> SiteBoundByPath = new(StringComparer.OrdinalIgnoreCase)
     {
         ["/monitoring"] = ["target", "device", "client", "sfp", "modem", "cm", "ont", "starlink", "mifip"],
@@ -91,6 +94,8 @@ public class SiteSwitchService
     public static string StripSiteBoundParams(string url)
     {
         var path = new Uri(url).AbsolutePath.TrimEnd('/');
+        // A plan's ID is a row in the old site's database: on the new site it is another plan or none.
+        if (PlanPath.IsMatch(path)) return new Uri(new Uri(url), "/change-control").ToString();
         var names = SiteBoundByPath.TryGetValue(path, out var forPage)
             ? SiteBoundEverywhere.Concat(forPage)
             : SiteBoundEverywhere;

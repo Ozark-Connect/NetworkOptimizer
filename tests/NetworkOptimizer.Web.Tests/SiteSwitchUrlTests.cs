@@ -42,6 +42,21 @@ public class SiteSwitchUrlTests
             .Should().Be(Base + "/monitoring?tab=live&ip=192.0.2.10");
     }
 
+    [Theory]
+    [InlineData("/change-control/plans/42")]
+    [InlineData("/change-control/plans/42?site=branch-office")]
+    public void StripSiteBoundParams_ReviewPlan_LandsOnChangeControl(string url)
+    {
+        // A plan ID is the old site's row; the new site opens Change Control instead.
+        SiteSwitchService.StripSiteBoundParams(Base + url).Should().Be(Base + "/change-control");
+    }
+
+    [Fact]
+    public void StripSiteBoundParams_ChangeControlTabIsKept()
+    {
+        SiteSwitchService.StripSiteBoundParams(Base + "/change-control/snapshots").Should().Be(Base + "/change-control/snapshots");
+    }
+
     [Fact]
     public void StripSiteBoundParams_PreservesFragment()
     {
