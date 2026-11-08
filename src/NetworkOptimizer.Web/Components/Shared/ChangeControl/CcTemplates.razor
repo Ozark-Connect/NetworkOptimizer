@@ -62,6 +62,7 @@
             <div class="action-buttons">
                 <button class="btn btn-primary" disabled="@(_busy || string.IsNullOrWhiteSpace(_name) || _collections.Count == 0)" @onclick="CreateAsync">Save Template</button>
             </div>
+            @ErrorAlert(CreateKey)
         </div>
     }
 
@@ -97,11 +98,11 @@
                             </button>
                         @if (isBaseline)
                         {
-                            <button class="btn btn-sm btn-secondary" disabled="@_busy" @onclick="() => SetBaselineAsync(null)">Clear Baseline</button>
+                            <button class="btn btn-sm btn-secondary" disabled="@_busy" @onclick="() => SetBaselineAsync(null, t.Id)">Clear Baseline</button>
                         }
                         else
                         {
-                            <button class="btn btn-sm btn-secondary" disabled="@_busy" @onclick="() => SetBaselineAsync(t.Id)">Use as Baseline</button>
+                            <button class="btn btn-sm btn-secondary" disabled="@_busy" @onclick="() => SetBaselineAsync(t.Id, t.Id)">Use as Baseline</button>
                         }
                     </SiteAdminOnly>
                     <AdminOnly>
@@ -111,6 +112,7 @@
                     </AdminOnly>
                 </div>
             </div>
+            @ErrorAlert(RowKey(t.Id))
             @if (_editingId == t.Id)
             {
                 <div class="card-body cc-template-form">
@@ -132,13 +134,10 @@
                         <button class="btn btn-primary" disabled="@(_busy || string.IsNullOrWhiteSpace(_editName))" @onclick="SaveDetailsAsync">Save</button>
                         <button class="btn btn-contrast" @onclick="() => _editingId = null">Cancel</button>
                     </div>
+                    @ErrorAlert(EditKey)
                 </div>
             }
         }
-    }
-    @if (_error != null)
-    {
-        <div class="alert alert-danger" style="margin:0.75rem 1rem">@_error</div>
     }
 </div>
 
@@ -201,7 +200,7 @@
         _newReplaceLists = false;
         _collections.Clear();
         await LoadAsync();
-    });
+    }, CreateKey);
 
     private void EditYaml(int id) =>
         Nav.NavigateTo(SiteContextService.WithSiteParam($"/change-control/edit?template={id}", SiteCtx.Slug));
@@ -236,25 +235,37 @@
         await Templates.RenameAsync(id, _editName.Trim(), _editDescription, _replaceLists);
         _editingId = null;
         await LoadAsync();
-    });
+    }, EditKey);
 
     private async Task DeleteAsync(int id) => await RunAsync(async () =>
     {
         await Templates.DeleteAsync(id);
         if (BaselineTemplateId == id) await SetBaselineCoreAsync(null);
         await LoadAsync();
-    });
+    }, RowKey(id));
 
     private async Task ApplyAsync(int id) => await RunAsync(async () =>
     {
         var planId = await Site.BuildApplyTemplateAsync(id);
         Nav.NavigateTo(SiteContextService.WithSiteParam($"/change-control/plans/{planId}", SiteCtx.Slug));
-    }, $"apply:{id}");
+    }, RowKey(id), $"apply:{id}");
 
     // The action RunAsync is running, so its button shows a spinner: building a plan can take a while.
     private string? _running;
 
-    private async Task SetBaselineAsync(int? id) => await RunAsync(() => SetBaselineCoreAsync(id));
+    // Where an error shows: under the form or the template row whose button failed.
+    private const string CreateKey = "create", EditKey = "edit";
+    private string? _errorKey;
+
+    private static string RowKey(int id) => $"row:{id}";
+
+    private RenderFragment? ErrorAlert(string key) =>
+        _error != null && _errorKey == key
+            ? @<div class="alert alert-danger" style="margin:0.75rem 1rem">@_error</div>
+            : null;
+
+    // Clear Baseline passes null; the error still belongs to the row that was clicked.
+    private async Task SetBaselineAsync(int? id, int rowId) => await RunAsync(() => SetBaselineCoreAsync(id), RowKey(rowId));
 
     private async Task SetBaselineCoreAsync(int? id)
     {
@@ -262,7 +273,7 @@
         await OnBaselineChanged.InvokeAsync();
     }
 
-    private async Task RunAsync(Func<Task> action, string? running = null)
+    private async Task RunAsync(Func<Task> action, string key, string? running = null)
     {
         _busy = true;
         _running = running;
@@ -276,6 +287,7 @@
         catch (Exception ex)
         {
             _error = ex.Message;
+            _errorKey = key;
         }
         finally
         {

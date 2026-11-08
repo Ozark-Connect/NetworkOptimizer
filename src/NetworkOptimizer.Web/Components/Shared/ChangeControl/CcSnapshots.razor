@@ -51,6 +51,7 @@
         </div>
         <span class="status-badge badge-muted cc-phone-inline">@_selected.Count selected</span>
     </div>
+    @ErrorAlert(HeaderKey, "hide-mobile")
     @if (_list == null)
     {
         <div class="loading-container"><div class="spinner"></div></div>
@@ -89,6 +90,7 @@
                 <button class="btn btn-primary" disabled="@(_selected.Count != 2)" @onclick="CompareSelectedAsync">Compare</button>
                 <SiteOperatorOnly><button class="btn btn-contrast" disabled="@(_busy || !ConsoleConnected)" @onclick="TakeSnapshotAsync">Take Snapshot</button></SiteOperatorOnly>
             </div>
+            @ErrorAlert(HeaderKey)
         </div>
         <div class="table-responsive hide-mobile">
             <table class="data-table">
@@ -126,6 +128,7 @@
                             </div>
                         </td>
                     </tr>
+                    @RowError(Now)
                     @foreach (var s in Filtered().Take(_shown))
                     {
                         <tr>
@@ -183,6 +186,7 @@
                                 </div>
                             </td>
                         </tr>
+                        @RowError(s.Id)
                     }
                 </tbody>
             </table>
@@ -352,7 +356,7 @@ else if (_compare != null)
         {
             Logger.LogWarning(ex, "Snapshots failed to load");
             _error = ex.Message;
-            _errorCard = SnapshotsCard;
+            _errorCard = _actionKey ?? SnapshotsCard;
         }
     }
 
@@ -402,10 +406,16 @@ else if (_compare != null)
         _compare = null;
         _yamlDiff = null;
         _compareView = "changes";
+        _error = null;
         StateHasChanged();
         try
         {
             _compare = await Site.CompareAsync(ordered[0] == Now ? null : ordered[0], ordered[1] == Now ? null : ordered[1]);
+        }
+        catch (Exception ex)
+        {
+            Fail(ex, HeaderKey);
+            return;
         }
         finally
         {
@@ -419,23 +429,33 @@ else if (_compare != null)
     {
         _compareView = "yaml";
         if (_compare == null || _yamlDiff != null) return;
-        var collections = _compare.Objects.Select(o => o.Object.Collection).Distinct().ToList();
-        var (a, b) = await Site.CompareYamlAsync(_compare.FromSnapshotId, _compare.ToSnapshotId, collections);
-        _yamlDiff = LineDiff.Diff(a.Split('\n'), b.Split('\n'), context: 3);
+        _error = null;
+        try
+        {
+            var collections = _compare.Objects.Select(o => o.Object.Collection).Distinct().ToList();
+            var (a, b) = await Site.CompareYamlAsync(_compare.FromSnapshotId, _compare.ToSnapshotId, collections);
+            _yamlDiff = LineDiff.Diff(a.Split('\n'), b.Split('\n'), context: 3);
+        }
+        catch (Exception ex)
+        {
+            // Back to Changes, or the YAML view spins with nothing coming.
+            _compareView = "changes";
+            Fail(ex, CompareCard);
+        }
     }
 
     private async Task TakeSnapshotAsync() => await RunAsync(async () =>
     {
         await Site.TakeSnapshotAsync();
         await LoadAsync();
-    });
+    }, card: HeaderKey);
 
     private async Task TogglePinAsync(SnapshotRowView s) => await RunAsync(async () =>
     {
         if (s.Pinned) await Site.UnpinSnapshotAsync(s.Id);
         else await Site.PinSnapshotAsync(s.Id);
         await LoadAsync();
-    });
+    }, card: RowKey(s.Id));
 
     /// <summary>The Pinned badge's tooltip: what pinned means, then why this one is.</summary>
     private static string PinTooltip(string? reason) =>
@@ -445,13 +465,14 @@ else if (_compare != null)
     {
         await Site.SetBaselineAsync(id);
         await LoadAsync();
-    });
+    }, card: RowKey(id));
 
     private async Task AcceptBaselineAsync(string card) => await RunAsync(async () =>
     {
         await Site.AcceptLiveAsBaselineAsync();
-        _compare = null;
         await LoadAsync();
+        // After the reload, so a reload error from the Compare card still has its card to show in.
+        if (_error == null) _compare = null;
     }, card: card);
 
     private async Task ReturnToBaselineAsync() => await RunAsync(async () =>
@@ -465,11 +486,11 @@ else if (_compare != null)
         Nav.NavigateTo(SiteContextService.WithSiteParam($"/change-control/plans/{planId}", SiteCtx.Slug));
     }, "baseline", DriftCard);
 
-    private async Task RollBackAsync(int snapshotId, string card = SnapshotsCard) => await RunAsync(async () =>
+    private async Task RollBackAsync(int snapshotId, string? card = null) => await RunAsync(async () =>
     {
         var planId = await Site.BuildRollbackToSnapshotAsync(snapshotId);
         Nav.NavigateTo(SiteContextService.WithSiteParam($"/change-control/plans/{planId}", SiteCtx.Slug));
-    }, $"rollback:{snapshotId}", card);
+    }, $"rollback:{snapshotId}", card ?? RowKey(snapshotId));
 
     // The action RunAsync is running, so its button shows a spinner: building a plan can take a while.
     private string? _running;
@@ -506,6 +527,7 @@ else if (_compare != null)
     {
         if (_downloading != null) return;
         _downloading = YamlKey(snapshotId);
+        _error = null;
         try
         {
             // Building the export can take seconds; draw the spinner before it starts.
@@ -514,6 +536,10 @@ else if (_compare != null)
             var yaml = await Site.DownloadYamlAsync(snapshotId);
             await JS.InvokeVoidAsync("downloadFile", $"{SiteCtx.Slug}-config-{DisplayTime.Now:yyyyMMdd-HHmm}.yaml", "application/yaml",
                 Convert.ToBase64String(Encoding.UTF8.GetBytes(yaml)));
+        }
+        catch (Exception ex)
+        {
+            Fail(ex, RowKey(snapshotId ?? Now));
         }
         finally
         {
@@ -524,15 +550,24 @@ else if (_compare != null)
     private async Task DownloadDiffAsync()
     {
         if (_compare == null) return;
-        var text = await Site.DownloadDiffAsync(_compare.FromSnapshotId, _compare.ToSnapshotId);
-        await JS.InvokeVoidAsync("downloadFile", $"{SiteCtx.Slug}-diff-{DisplayTime.Now:yyyyMMdd-HHmm}.txt", "text/plain",
-            Convert.ToBase64String(Encoding.UTF8.GetBytes(text)));
+        _error = null;
+        try
+        {
+            var text = await Site.DownloadDiffAsync(_compare.FromSnapshotId, _compare.ToSnapshotId);
+            await JS.InvokeVoidAsync("downloadFile", $"{SiteCtx.Slug}-diff-{DisplayTime.Now:yyyyMMdd-HHmm}.txt", "text/plain",
+                Convert.ToBase64String(Encoding.UTF8.GetBytes(text)));
+        }
+        catch (Exception ex)
+        {
+            Fail(ex, CompareCard);
+        }
     }
 
     private async Task RunAsync(Func<Task> work, string? action = null, string card = SnapshotsCard)
     {
         _busy = true;
         _running = action;
+        _actionKey = card;
         _error = null;
         try
         {
@@ -540,20 +575,31 @@ else if (_compare != null)
             await Task.Yield();
             await work();
         }
-        catch (Exception ex)
-        {
-            _error = ex.Message;
-            _errorCard = card;
-        }
-        finally { _busy = false; _running = null; }
+        catch (Exception ex) { Fail(ex, card); }
+        finally { _busy = false; _running = null; _actionKey = null; }
     }
 
-    // The card an error shows in: the one holding the button that failed.
-    private const string DriftCard = "drift", SnapshotsCard = "snapshots", CompareCard = "compare";
-    private string _errorCard = SnapshotsCard;
+    private void Fail(Exception ex, string key)
+    {
+        _error = ex.Message;
+        _errorCard = key;
+    }
 
-    private RenderFragment? ErrorAlert(string card) =>
-        _error != null && _errorCard == card
-            ? @<div class="card-body"><div class="alert alert-danger">@_error</div></div>
+    // Where an error shows: next to the control that failed (a card footer, the Snapshots header, or a row).
+    private const string DriftCard = "drift", SnapshotsCard = "snapshots", CompareCard = "compare", HeaderKey = "header";
+    private string _errorCard = SnapshotsCard;
+    // The running action's key, so a reload it triggers reports its error in the same place.
+    private string? _actionKey;
+
+    private static string RowKey(int id) => $"row:{id}";
+
+    private RenderFragment? ErrorAlert(string key, string? css = null) =>
+        _error != null && _errorCard == key
+            ? @<div class="card-body @css"><div class="alert alert-danger">@_error</div></div>
+            : null;
+
+    private RenderFragment? RowError(int id) =>
+        _error != null && _errorCard == RowKey(id)
+            ? @<tr><td colspan="7"><div class="alert alert-danger" style="margin:0">@_error</div></td></tr>
             : null;
 }

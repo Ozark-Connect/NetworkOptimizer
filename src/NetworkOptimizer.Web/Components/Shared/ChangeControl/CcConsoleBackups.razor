@@ -30,9 +30,9 @@
                     </span>
                     <button class="btn btn-contrast btn-sm" disabled="@_busy" @onclick="() => DownloadAsync(b)" aria-label="Download Backup"><CcIcon /> Backup</button>
                 </div>
+                @if (_error != null && _errorId == b.Id) { <div class="alert alert-danger" style="margin:0.75rem 1rem">@_error</div> }
             }
         }
-        @if (_error != null) { <div class="alert alert-danger" style="margin:0.75rem 1rem">@_error</div> }
     </div>
 </SiteAdminOnly>
 
@@ -40,6 +40,7 @@
     private List<ConsoleBackupRecord>? _backups;
     private bool _busy;
     private string? _error;
+    private int? _errorId;
 
     protected override async Task OnInitializedAsync()
     {
@@ -59,6 +60,8 @@
     {
         _busy = true;
         _error = null;
+        // The error shows under the row whose Backup button was clicked.
+        _errorId = b.Id;
         try
         {
             if (await Site.DownloadConsoleBackupAsync(b.Id) is { } file)
