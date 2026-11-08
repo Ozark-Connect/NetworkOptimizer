@@ -39,7 +39,7 @@
     <Content Include="CableModem\Fixtures\*.html;CableModem\Fixtures\*.json">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
-    <Content Include="OntProviders\Fixtures\*.html">
+    <Content Include="OntProviders\Fixtures\*.html;OntProviders\Fixtures\*.json">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
   </ItemGroup>
