@@ -252,6 +252,9 @@ public sealed class ChangeControlRegistry : BackgroundService, ISiteScopedRegist
                 ? wans.Select(w => w.NetworkGroup).ToHashSet(StringComparer.OrdinalIgnoreCase)
                 : null;
         coordinator.MoveSettings = (moves, remote, ct) => ReaddressSettingsAsync(slug, moves, remote, apply: true, ct);
+        coordinator.DeviceSshConfigured = async _ => await _sp.GetRequiredService<UniFiSshRegistry>().GetFor(slug).GetSettingsAsync() is { Enabled: true, HasCredentials: true };
+        coordinator.RunDeviceSsh = (target, command, timeout, ct) =>
+            _sp.GetRequiredService<Ssh.DeviceSshRouterRegistry>().GetFor(slug).RunAsync(target, command, timeout, ct);
         coordinator.ZonesChanged = _ =>
         {
             using var scope = _sp.CreateScope();

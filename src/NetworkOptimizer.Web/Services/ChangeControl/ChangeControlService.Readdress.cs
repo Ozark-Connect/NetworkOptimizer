@@ -70,11 +70,12 @@ public sealed partial class ChangeControlService
 
         var result = Readdressing.Apply(live, active);
         var (statics, source) = await StaticClientsAsync(live, active, cancellationToken);
+        var inform = await InformVerdictsAsync(live, result.Desired, Readdressing.Map(active), cancellationToken);
         return new ReaddressView
         {
             Moves = moves,
             Errors = errors,
-            Warnings = await ReaddressWarningsAsync(live, active, prepare, cancellationToken),
+            Warnings = await ReaddressWarningsAsync(live, active, prepare, inform, cancellationToken),
             Rewrites = result.Rewrites,
             Mentions = result.Mentions,
             Remote = result.Remote,
@@ -100,7 +101,14 @@ public sealed partial class ChangeControlService
         var result = Readdressing.Apply(live, active);
         var prepare = await LeasePrepareAsync(cancellationToken);
         RestoreLeases(result, prepare);
-        var warnings = await ReaddressWarningsAsync(live, active, prepare, cancellationToken);
+        var inform = await InformVerdictsAsync(live, result.Desired, Readdressing.Map(active), cancellationToken);
+        if (inform?.OverrideIp is { } overrideIp && ReaddressInform.SuperMgmt(result.Desired) is { } mgmt)
+        {
+            mgmt["override_inform_host"] = true;
+            mgmt["override_inform_host_location"] = overrideIp;
+            result.Collections.Add("setting");
+        }
+        var warnings = await ReaddressWarningsAsync(live, active, prepare, inform, cancellationToken);
 
         var (statics, _) = await StaticClientsAsync(live, active, cancellationToken);
         var remote = RemoteCidrs(live);
@@ -116,6 +124,7 @@ public sealed partial class ChangeControlService
                 doc.Context[PlanCoordinator.ReaddressContext] = JsonSerializer.Serialize(active);
                 doc.Context[PlanCoordinator.ReaddressManagementContext] = string.Join(", ", ManagementMoves(live, active));
                 doc.Context[PlanCoordinator.ReaddressRemoteContext] = JsonSerializer.Serialize(remote);
+                if (inform != null) doc.Context[ReaddressInform.Context] = JsonSerializer.Serialize(inform.Devices);
                 foreach (var m in result.Remote)
                     doc.Notes.Add($"Left alone, owned by a WAN or a VPN's far side: {ConfigCollections.Get(m.Collection)?.Noun ?? m.Collection} {m.ObjectName}, {m.Path}: {m.Value}");
                 foreach (var w in warnings) doc.Notes.Add($"{w.Title}: {w.Detail}");
@@ -200,6 +209,10 @@ public sealed partial class ChangeControlService
             op.Order = GatewayOrder;
             op.ManagementPath = true;
         }
+        // Turning the Inform Host override on or off: sent while the Console still answers at its old address.
+        foreach (var op in doc.Operations.Where(o => o.Collection == "setting" && (o.Body?["key"]?.ToString() ?? o.ObjectName) == "super_mgmt"
+                     && o.WriteFields.Contains("override_inform_host")))
+            op.Order = InformOverrideOrder;
         // The console also refuses a network's new subnet while one of its honeypots sits at the old address
         // (api.err.HoneypotIpOutOfRange), so honeypots go off before the networks and come back after them.
         foreach (var op in afterNetworks.Where(o => o.Collection == "setting" && o.Body?["honeypot"] is JsonArray { Count: > 0 }).ToList())
@@ -226,6 +239,9 @@ public sealed partial class ChangeControlService
 
     /// <summary>A re-address's gateway write order: after every other device (10 to 39), before the networks (50, 100).</summary>
     internal const int GatewayOrder = 45;
+
+    /// <summary>A re-address's Inform Host override write order: after every network but the Console's path (100).</summary>
+    internal const int InformOverrideOrder = 99;
 
     /// <summary>
     /// A device write's order from its uplink depth, deepest first. Depths from 1000 are chains with no known path
@@ -328,7 +344,8 @@ public sealed partial class ChangeControlService
         Readdressing.RemoteRanges(live).Select(r => r.Range.ToString()).Distinct().ToList();
 
     /// <summary>What to know before applying: one short title and one line of detail each, the most disruptive first.</summary>
-    private async Task<List<ReaddressWarning>> ReaddressWarningsAsync(ConfigState live, List<SubnetMove> active, LeasePrepare? prepare, CancellationToken ct)
+    private async Task<List<ReaddressWarning>> ReaddressWarningsAsync(ConfigState live, List<SubnetMove> active, LeasePrepare? prepare,
+        InformVerdicts? inform, CancellationToken ct)
     {
         var warnings = new List<ReaddressWarning>();
         var map = Readdressing.Map(active);
@@ -361,7 +378,7 @@ public sealed partial class ChangeControlService
             }
         }
 
-        if (await InformWarningAsync(live, map, ct) is { } inform) warnings.Add(inform);
+        if (inform != null) warnings.AddRange(InformWarnings(inform));
 
         var lease = live.Get("networkconf").Where(n => active.Any(m => m.NetworkId == ConfigState.IdOf(n)))
             .Select(n => int.TryParse(n["dhcpd_leasetime"]?.ToString(), out var s) ? s : 86400).DefaultIfEmpty(86400).Max();
@@ -379,40 +396,52 @@ public sealed partial class ChangeControlService
     }
 
     /// <summary>
-    /// Devices whose inform address is in a moved subnet, read from each device's own inform_url, so it holds
-    /// whatever set it (the Inform Host override, a self-hosted server's system_ip, or adoption). A name counts
-    /// when it resolves into a moved subnet and no Local DNS record in the config moves it.
+    /// How each device finds the Console after the move, from each device's own inform_url (whatever set it: the
+    /// Inform Host override, a self-hosted server's system_ip, or adoption). Null when the device list does not load.
     /// </summary>
     [NetworkOptimizer.Core.VendorSpecific("UniFi", "stat/device inform_url")]
-    private async Task<ReaddressWarning?> InformWarningAsync(ConfigState live, IReadOnlyList<(Readdressing.Subnet Old, Readdressing.Subnet New)> map, CancellationToken ct)
+    private async Task<InformVerdicts?> InformVerdictsAsync(ConfigState live, ConfigState desired,
+        IReadOnlyList<(Readdressing.Subnet Old, Readdressing.Subnet New)> map, CancellationToken ct)
     {
         var devices = await Engine.Api.SendAsync(UniFiApiScope.SiteV1, HttpMethod.Get, "stat/device", null, ct);
         if (!devices.IsSuccess || ConfigSnapshotReader.ExtractList(devices.Body) is not { } list) return null;
 
         var resolved = new Dictionary<string, uint?>(StringComparer.OrdinalIgnoreCase);
-        var affected = new List<(string Device, string Host, uint Old)>();
-        foreach (var d in list.OfType<JsonObject>())
-        {
-            if (!Uri.TryCreate(d["inform_url"]?.ToString(), UriKind.Absolute, out var inform)) continue;
-            var host = inform.Host;
-            if (!resolved.TryGetValue(host, out var ip))
-            {
-                ip = Readdressing.ParseIp(host)
-                    ?? (MovedByLocalDns(live, host, map) ? null
-                        : (await SafeResolveAsync(host, ct)).Select(a => Readdressing.ParseIp(a.ToString())).OfType<uint>().Cast<uint?>().FirstOrDefault());
-                resolved[host] = ip;
-            }
-            if (ip is { } old && Readdressing.MapIp(old, map) != null)
-                affected.Add((d["name"]?.ToString() is { Length: > 0 } n ? n : d["mac"]?.ToString() ?? "", host, old));
-        }
-        if (affected.Count == 0) return null;
+        foreach (var host in list.Select(d => Uri.TryCreate(d["inform_url"]?.ToString(), UriKind.Absolute, out var u) ? u.Host : null).OfType<string>()
+                     .Distinct(StringComparer.OrdinalIgnoreCase).Where(h => Readdressing.ParseIp(h) == null && !MovedByLocalDns(live, h, map)))
+            resolved[host] = (await SafeResolveAsync(host, ct)).Select(a => Readdressing.ParseIp(a.ToString())).OfType<uint>().Cast<uint?>().FirstOrDefault();
 
-        var first = affected[0];
-        var moved = Readdressing.Format(Readdressing.MapIp(first.Old, map)!.Value);
-        var hosts = string.Join(", ", affected.Select(x => x.Host).Distinct());
-        return new(affected.Count == 1 ? "A device needs a new inform address" : $"{affected.Count} devices need a new inform address",
-            $"{string.Join(", ", affected.Take(3).Select(x => x.Device))}{(affected.Count > 3 ? $" and {affected.Count - 3} more" : "")} inform to {hosts}. "
-            + $"Point the Inform Host at {moved} first (UniFi Network's Inform Host override, or system_ip on a self-hosted UniFi OS Server), or they disconnect until re-pointed.");
+        return ReaddressInform.Classify(list, live, desired, map, await IsStandaloneConsoleAsync(ct), resolved);
+    }
+
+    /// <summary>The Console is UniFi OS Server, by Firmware Rollout's detection; false when it does not answer.</summary>
+    private async Task<bool> IsStandaloneConsoleAsync(CancellationToken ct)
+    {
+        try
+        {
+            return _registry.Connection(_site.Slug).Client is { } client
+                && (await client.GetConsoleSystemInfoAsync(ct))?.IsStandaloneConsole == true;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogDebug(ex, "Could not read the console type for the re-address inform check");
+            return false;
+        }
+    }
+
+    /// <summary>The dry run's inform lines: the override write, and the devices the SSH fallback covers.</summary>
+    internal static List<ReaddressWarning> InformWarnings(InformVerdicts inform)
+    {
+        var warnings = new List<ReaddressWarning>();
+        if (inform.OverrideIp is { } ip)
+            warnings.Add(new("The plan re-points devices at the Console",
+                $"It sets the Inform Host override to {ip} just before the Console's network moves. Re-address the UniFi OS Server host in the same window."));
+        var ssh = inform.Devices.Where(d => d.Route == InformRoute.SshFallback).ToList();
+        if (ssh.Count > 0)
+            warnings.Add(new(ssh.Count == 1 ? "A device may need set-inform" : $"{ssh.Count} devices may need set-inform",
+                $"{PlanCoordinator.NameList(ssh.Select(d => d.Name), 3)} inform to {string.Join(", ", ssh.Select(d => new Uri(d.InformUrl).Host).Distinct())}. "
+                + (ssh.Count == 1 ? "It is" : "Each is") + " re-pointed over SSH if it does not reconnect."));
+        return warnings;
     }
 
     /// <summary>

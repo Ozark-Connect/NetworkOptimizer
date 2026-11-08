@@ -242,6 +242,8 @@ public static class AuditActions
     public const string ChangeControlPlanReverted = "change_control.plan.reverted";
     public const string ChangeControlPlanCancelled = "change_control.plan.cancelled";
     public const string ChangeControlLockoutOverridden = "change_control.lockout.overridden";
+    /// <summary>Network Optimizer ran set-inform over SSH on a device still offline after a re-address.</summary>
+    public const string ChangeControlDeviceInformSet = "change_control.device.inform_set";
     public const string ChangeControlBaselineSet = "change_control.baseline.set";
     public const string ChangeControlSettingsChanged = "change_control.settings.changed";
     public const string ChangeControlDevicesAdopted = "change_control.devices.adopted";

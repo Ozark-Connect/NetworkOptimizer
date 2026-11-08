@@ -634,4 +634,146 @@ public sealed class PlanCoordinatorTests : IDisposable
         changes.Should().ContainSingle("the rename is caught once our write goes quiet");
         (await _engine.Repositories.UseAsync((r, c) => r.GetDetectionStateAsync(c))).CfgVersionsJson.Should().Contain("101|");
     }
+
+    // --- Inform after a re-address: set-inform over SSH for devices still offline ---------------
+
+    private const string InformUrl = "http://10.42.99.220:8080/inform";
+
+    private static List<InformDevice> InformDevices(string? switchNewIp = "10.42.99.11") =>
+    [
+        new(Mac, "Switch", NetworkOptimizer.Core.Enums.DeviceType.Switch, InformRoute.SshFallback, "http://unifi.lan:8080/inform", InformUrl, switchNewIp, "192.168.99.11"),
+        new("aa:bb:cc:00:00:02", "AP", NetworkOptimizer.Core.Enums.DeviceType.AccessPoint, InformRoute.SshFallback, "http://unifi.lan:8080/inform", InformUrl, "10.42.99.31", "192.168.99.31"),
+    ];
+
+    private readonly List<(string Host, string Command)> _dials = [];
+
+    /// <summary>Device SSH on this site; <paramref name="accepts"/> says which addresses answer set-inform.</summary>
+    private void Ssh(bool configured, Func<string, bool> accepts)
+    {
+        _plans.DeviceSshConfigured = _ => Task.FromResult(configured);
+        _plans.RunDeviceSsh = (target, command, _, _) =>
+        {
+            lock (_dials) _dials.Add((target.Host, command));
+            return Task.FromResult(accepts(target.Host) ? (true, "Adoption request sent") : (false, "Connection timed out"));
+        };
+    }
+
+    /// <summary>A management move applied as a plan of <paramref name="kind"/>, carrying the inform verdicts.</summary>
+    private Task<int> ApplyReaddressAsync(ConfigPlanKind kind = ConfigPlanKind.Readdress, List<InformDevice>? devices = null) =>
+        ApplyKindAsync(kind, doc =>
+        {
+            doc.Context[PlanCoordinator.ReaddressManagementContext] = "Management";
+            doc.Context[ReaddressInform.Context] = System.Text.Json.JsonSerializer.Serialize(devices ?? InformDevices());
+        });
+
+    private async Task<int> ApplyKindAsync(ConfigPlanKind kind, Action<PlanDocument> decorate)
+    {
+        var desired = _console.State.Clone();
+        desired.Collections["device"][0]["port_overrides"] = new JsonArray(new JsonObject { ["port_idx"] = 5, ["portconf_id"] = "p2" });
+        var plan = await _plans.CreateAsync(kind, "Re-address", "test", null, null, desired,
+            new PlanOptions { Collections = new HashSet<string> { "device" } }, "Alex", CancellationToken.None, decorate);
+        var (_, doc, _) = (await _plans.LoadAsync(plan.Id, CancellationToken.None))!.Value;
+        await _plans.SaveAcknowledgementsAsync(plan.Id, new PlanAcknowledgements
+        {
+            Items = doc.Operations.Select(o => o.Key).ToHashSet(), TypedConfirmation = PlanReadiness.ConfirmationText(doc),
+        }, CancellationToken.None);
+        (await _plans.ApplyAsync(plan.Id, new PlanActor("Alex", true), false, false, CancellationToken.None)).Should().BeNull();
+        return plan.Id;
+    }
+
+    private int Writes() => _console.Requests.Count(r => r.Method != HttpMethod.Get);
+
+    private async Task WatchToAlertAsync()
+    {
+        await TicksAsync(4);
+        await _plans.InformFallback;
+    }
+
+    [Fact]
+    public async Task Readdress_OfflineDevice_SetInformAtTheNewAddressThenTheOld_Once_AlertListsIt()
+    {
+        Ssh(configured: true, accepts: host => host == "192.168.99.11");
+        var id = await ApplyReaddressAsync();
+        var writes = Writes();
+        DeviceState(0);
+
+        await WatchToAlertAsync();
+
+        _dials.Should().Equal(("10.42.99.11", $"set-inform {InformUrl}"), ("192.168.99.11", $"set-inform {InformUrl}"));
+        _bus.Published.Should().ContainSingle(e => e.Title.StartsWith("Network devices offline after"))
+            .Which.Message.Should().Contain("Re-pointed over SSH: Switch at 192.168.99.11.");
+        (await PlanAsync(id))!.Status.Should().Be(ConfigPlanStatus.Watching);
+        Writes().Should().Be(writes, "the fallback never writes to the Console");
+    }
+
+    [Fact]
+    public async Task Readdress_OnlyOfflineDevicesAreDialed_AndNeverTwicePerPlan()
+    {
+        Ssh(configured: true, accepts: _ => false);
+        await ApplyReaddressAsync();
+        DeviceState(0);
+        await WatchToAlertAsync();
+        DeviceState(1);
+        await TicksAsync(1);
+        DeviceState(0);
+
+        await WatchToAlertAsync();
+
+        _dials.Select(d => d.Host).Should().Equal("10.42.99.11", "192.168.99.11");
+        _bus.Published.Where(e => e.Title.StartsWith("Network devices offline after")).Should().HaveCount(2);
+    }
+
+    [Fact]
+    public async Task Readdress_FailedDevice_LandsInTheAlertWithItsCommand()
+    {
+        Ssh(configured: true, accepts: _ => false);
+        await ApplyReaddressAsync();
+        DeviceState(0);
+
+        await WatchToAlertAsync();
+
+        _bus.Published.Single(e => e.Title.StartsWith("Network devices offline after")).Message.Should()
+            .Contain($"Run set-inform by hand: Switch (10.42.99.11, or 192.168.99.11 if it never moved): set-inform {InformUrl}.");
+    }
+
+    [Fact]
+    public async Task Readdress_DhcpDeviceWithNoKnownAddress_IsSkippedAndListed()
+    {
+        Ssh(configured: true, accepts: _ => true);
+        await ApplyReaddressAsync(devices: InformDevices(switchNewIp: null));
+        DeviceState(0);
+
+        await WatchToAlertAsync();
+
+        _dials.Should().BeEmpty();
+        _bus.Published.Single(e => e.Title.StartsWith("Network devices offline after")).Message.Should()
+            .Contain($"Switch (DHCP, new address unknown): set-inform {InformUrl}");
+    }
+
+    [Fact]
+    public async Task Readdress_NoDeviceSsh_NoDial_TheAlertGivesTheCommands()
+    {
+        Ssh(configured: false, accepts: _ => true);
+        await ApplyReaddressAsync();
+        DeviceState(0);
+
+        await WatchToAlertAsync();
+
+        _dials.Should().BeEmpty();
+        _bus.Published.Single(e => e.Title.StartsWith("Network devices offline after")).Message.Should()
+            .Contain("Device SSH is not configured").And.Contain($"set-inform {InformUrl}");
+    }
+
+    [Fact]
+    public async Task NotAReaddressPlan_NeverDials_AndItsAlertIsUnchanged()
+    {
+        Ssh(configured: true, accepts: _ => true);
+        await ApplyReaddressAsync(kind: ConfigPlanKind.Edit);
+        DeviceState(0);
+
+        await WatchToAlertAsync();
+
+        _dials.Should().BeEmpty();
+        _bus.Published.Single(e => e.Title.StartsWith("Network devices offline after")).Message.Should().NotContain("set-inform");
+    }
 }
