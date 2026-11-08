@@ -249,7 +249,7 @@ public static class PlanBuilder
     {
         if (!matches.TryGetValue("networkconf", out var networks)) return;
         static string Vlan(JsonObject o) =>
-            o["vlan_enabled"] is JsonValue e && e.TryGetValue<bool>(out var on) && on && o["vlan"]?.ToString() is { Length: > 0 } v ? $"VLAN {v}" : "untagged";
+            o["vlan_enabled"] is JsonValue e && e.TryGetValue<bool>(out var on) && on && o["vlan"]?.ToString() is { Length: > 0 } v ? $"VLAN {v}" : "VLAN 1";
         foreach (var pair in networks.Pairs.Where(p => p.MatchedBy == "name" && p.Left != null && p.Right != null))
         {
             var (source, here) = (Vlan(pair.Left!), Vlan(pair.Right!));
