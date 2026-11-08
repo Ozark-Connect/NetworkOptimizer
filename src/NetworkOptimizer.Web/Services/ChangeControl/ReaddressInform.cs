@@ -22,9 +22,12 @@ public enum InformRoute
     SshFallback,
 }
 
-/// <summary>One device's verdict, with the addresses the SSH fallback dials and the URL it sends.</summary>
+/// <summary>
+/// One device's verdict, with the addresses the SSH fallback dials and the URL it sends. <c>ConsoleOnLink</c>:
+/// the Console's new address is in the device's own network, so a host route reaches it without a gateway.
+/// </summary>
 public sealed record InformDevice(string Mac, string Name, DeviceType Role, InformRoute Route, string InformUrl,
-    string SetInformUrl, string? NewIp, string? OldIp);
+    string SetInformUrl, string? NewIp, string? OldIp, bool ConsoleOnLink = false);
 
 /// <summary>The verdict for every device, and the Inform Host override write the plan adds (null for none).</summary>
 public sealed record InformVerdicts(List<InformDevice> Devices, string? OverrideIp, bool ConsoleRepointed);
@@ -79,8 +82,9 @@ public static class ReaddressInform
                 : InformRoute.SshFallback;
             var newIp = StaticIp(desiredDevices.GetValueOrDefault(mac));
             var oldIp = d["ip"]?.ToString() is { Length: > 0 } now ? now : StaticIp(liveDevices.GetValueOrDefault(mac));
+            var after = InformUrlAfter(url, map, isName && Served(host), ip);
             result.Add(new InformDevice(mac, d["name"]?.ToString() is { Length: > 0 } n ? n : mac, role, route, url,
-                InformUrlAfter(url, map, isName && Served(host), ip), newIp, oldIp));
+                after, newIp, oldIp, OnLink(desired, map, newIp ?? oldIp, after)));
         }
         return new InformVerdicts(result, overrideIp, repointed);
     }
@@ -115,8 +119,26 @@ public static class ReaddressInform
         return new UriBuilder(uri) { Host = Readdressing.Format(Readdressing.MapIp(at, map) ?? at) }.Uri.ToString();
     }
 
-    /// <summary>The command a person runs on the device, or Network Optimizer runs over SSH.</summary>
+    /// <summary>The command Network Optimizer runs over SSH.</summary>
     public static string Command(InformDevice device) => $"set-inform {device.SetInformUrl}";
+
+    /// <summary>
+    /// The command a person runs by hand. A device left on its old address has no route to the Console's new one;
+    /// on the same network, a host route on its own interface reaches it.
+    /// </summary>
+    public static string HandCommand(InformDevice device) =>
+        device.ConsoleOnLink && Uri.TryCreate(device.SetInformUrl, UriKind.Absolute, out var uri)
+            ? $"ip route add {uri.Host}/32 dev <if>; {Command(device)}"
+            : Command(device);
+
+    /// <summary>The URL's host is an IP in the new subnet of the network that holds <paramref name="deviceIp"/>.</summary>
+    private static bool OnLink(ConfigState desired, IReadOnlyList<(Readdressing.Subnet Old, Readdressing.Subnet New)> map, string? deviceIp, string url)
+    {
+        if (Readdressing.ParseIp(deviceIp) is not { } at || !Uri.TryCreate(url, UriKind.Absolute, out var uri)
+            || Readdressing.ParseIp(uri.Host) is not { } console) return false;
+        var mapped = Readdressing.MapIp(at, map) ?? at;
+        return desired.Get("networkconf").Any(n => Readdressing.ParseSubnet(n["ip_subnet"]?.ToString()) is { } s && s.Contains(mapped) && s.Contains(console));
+    }
 
     /// <summary>
     /// The device asks the gateway for names: the gateway itself; a static address whose DNS is a gateway

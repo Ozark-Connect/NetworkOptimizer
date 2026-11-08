@@ -155,6 +155,19 @@ public class ReaddressInformTests
         v.Devices.Single(d => d.Name == "Gateway").Role.Should().Be(DeviceType.Gateway);
     }
 
+    [Fact]
+    public void HandCommand_AddsAHostRoute_OnlyWhenTheConsoleIsOnTheDevicesNetwork()
+    {
+        var v = Classify(Site(), Console, standalone: true);
+
+        var sw = v.Devices.Single(d => d.Name == "Switch");
+        sw.ConsoleOnLink.Should().BeTrue();
+        ReaddressInform.HandCommand(sw).Should().Be("ip route add 10.42.99.220/32 dev <if>; set-inform http://10.42.99.220:8080/inform");
+        var gw = v.Devices.Single(d => d.Name == "Gateway");
+        gw.ConsoleOnLink.Should().BeFalse("its address is on Default, the Console on Management");
+        ReaddressInform.HandCommand(gw).Should().Be("set-inform http://10.42.99.220:8080/inform");
+    }
+
     [Theory]
     [InlineData("http://192.168.99.220:8080/inform", false, null, "http://10.42.99.220:8080/inform")]
     [InlineData("http://172.16.0.5:8080/inform", false, null, "http://172.16.0.5:8080/inform")]

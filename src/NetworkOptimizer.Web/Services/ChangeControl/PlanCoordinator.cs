@@ -862,13 +862,14 @@ public sealed class PlanCoordinator
         if (done.Count > 0) text += $" Re-pointed over SSH: {NameList(done.Select(r => $"{r.Device.Name} at {r.Address}"))}.";
         var hand = results.Where(r => r.Outcome != SetInformOutcome.Repointed).ToList();
         if (hand.Count == 0) return text;
-        text += hand.Any(r => r.Outcome == SetInformOutcome.NoSsh)
-            ? " Device SSH is not configured, so run set-inform on each by hand: "
-            : done.Count > 0 ? " Run set-inform by hand on the rest: " : " Run set-inform by hand: ";
+        // The rewritten policies refuse old-subnet sources, so the person dials from a host that already moved.
+        text += (hand.Any(r => r.Outcome == SetInformOutcome.NoSsh) ? " Device SSH is not configured." : "")
+            + $" SSH to {(done.Count > 0 ? "each of the rest" : "each device")} at the address shown, from a host already on the new subnets, and run: ";
         static string Where(InformDevice d) =>
             d.NewIp == null ? d.Role == DeviceType.Gateway ? "the gateway" : "DHCP, new address unknown"
             : d.OldIp != null && d.OldIp != d.NewIp ? $"{d.NewIp}, or {d.OldIp} if it never moved" : d.NewIp;
-        return text + string.Join("; ", hand.Select(r => $"{r.Device.Name} ({Where(r.Device)}): {ReaddressInform.Command(r.Device)}")) + ".";
+        text += string.Join("; ", hand.Select(r => $"{r.Device.Name} ({Where(r.Device)}): {ReaddressInform.HandCommand(r.Device)}")) + ".";
+        return hand.Any(r => r.Device.ConsoleOnLink) ? text + " <if> is the interface holding the device's address (br0, eth0)." : text;
     }
 
     /// <summary>

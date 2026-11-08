@@ -733,7 +733,24 @@ public sealed class PlanCoordinatorTests : IDisposable
         await WatchToAlertAsync();
 
         _bus.Published.Single(e => e.Title.StartsWith("Network devices offline after")).Message.Should()
-            .Contain($"Run set-inform by hand: Switch (10.42.99.11, or 192.168.99.11 if it never moved): set-inform {InformUrl}.");
+            .Contain("SSH to each device at the address shown, from a host already on the new subnets, and run: ")
+            .And.Contain($"Switch (10.42.99.11, or 192.168.99.11 if it never moved): set-inform {InformUrl}");
+    }
+
+    [Fact]
+    public async Task Readdress_FailedDeviceOnTheConsolesNetwork_HandCommandAddsTheHostRoute()
+    {
+        Ssh(configured: true, accepts: _ => false);
+        var devices = InformDevices();
+        devices[0] = devices[0] with { ConsoleOnLink = true };
+        await ApplyReaddressAsync(devices: devices);
+        DeviceState(0);
+
+        await WatchToAlertAsync();
+
+        _dials.Should().OnlyContain(d => d.Command == $"set-inform {InformUrl}", "Network Optimizer never changes a device's routes");
+        _bus.Published.Single(e => e.Title.StartsWith("Network devices offline after")).Message.Should()
+            .Contain($"ip route add 10.42.99.220/32 dev <if>; set-inform {InformUrl}").And.Contain("<if> is the interface");
     }
 
     [Fact]
