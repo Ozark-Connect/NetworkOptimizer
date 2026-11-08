@@ -1482,7 +1482,7 @@
     private static readonly Dictionary<RadioBand, double[]> ScoreClassBounds = new()
     {
         [RadioBand.Band2_4GHz] = [2.0, 4.0, 6.5, 9.0],
-        [RadioBand.Band5GHz] = [0.5, 1.5, 3.0, 5.0],
+        [RadioBand.Band5GHz] = [1.0, 2.0, 3.5, 5.0],
         [RadioBand.Band6GHz] = [0.25, 0.75, 1.5, 2.5],
     };
 
@@ -1490,9 +1490,12 @@
 
     private static string GetScoreClass(double score, RadioBand band)
     {
+        // Classed on the shown value, so a 1.55 printed as "1.6" never colors as a different class.
+        var shown = double.Parse(score.ToString("F1", System.Globalization.CultureInfo.InvariantCulture),
+            System.Globalization.CultureInfo.InvariantCulture);
         var bounds = ScoreClassBounds.GetValueOrDefault(band) ?? ScoreClassBounds[RadioBand.Band5GHz];
         for (var i = 0; i < bounds.Length; i++)
-            if (score <= bounds[i]) return ScoreClasses[i];
+            if (shown <= bounds[i]) return ScoreClasses[i];
         return "score-bad";
     }
 
