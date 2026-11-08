@@ -80,6 +80,18 @@
       "body": "Times now show in each site's own time zone, charts included. Pick **Your time zone** to read every site on one clock, and **Time format** and **Date format** to read them your way.\n\nAlerts carry the site's time, labeled with its zone.",
       "placement": "bottom",
       "optional": true
+    },
+    {
+      "id": "site-access-points",
+      "level": "minor",
+      "badge": "improved",
+      "url": "/wifi-optimizer?tab=spectrum",
+      "selector": "[data-tour=\"rf-site-aps\"]",
+      "title": "Site Access Points",
+      "listLabel": "See how your own APs hear each other, apart from your neighbors",
+      "body": "Your own APs now have their own card in RF Environment, kept out of Neighboring Networks and out of every channel count and recommendation. Each row shows which of your APs hear it and how loudly, with mesh backhaul and UniFi Auto-Link named.\n\nClick an AP to see only what it hears.",
+      "placement": "top",
+      "optional": true
     }
   ]
 }
