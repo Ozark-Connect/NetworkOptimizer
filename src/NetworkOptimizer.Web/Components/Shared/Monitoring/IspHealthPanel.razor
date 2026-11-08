@@ -2407,17 +2407,29 @@ else
 
     private async Task ToggleEventFilterAsync(EventCategory cat, MouseEventArgs e)
     {
-        if (e.CtrlKey || e.MetaKey)
+        // Acknowledged is an on/off switch beside the category pills, never part of their
+        // solo/restore: it only shows or hides the episodes of acknowledged findings.
+        var showAcknowledged = _visibleEventCats.Contains(EventCategory.Acknowledged);
+        if (cat == EventCategory.Acknowledged)
+            showAcknowledged = !showAcknowledged;
+        else
         {
-            if (!_visibleEventCats.Remove(cat))
-                _visibleEventCats.Add(cat);
+            var cats = _visibleEventCats.Where(c => c != EventCategory.Acknowledged).ToHashSet();
+            if (e.CtrlKey || e.MetaKey)
+            {
+                if (!cats.Remove(cat))
+                    cats.Add(cat);
+            }
+            else if (cats.Count == AllEventCategories.Length)
+                cats = new HashSet<EventCategory> { cat };
+            else if (cats.Count == 1 && cats.Contains(cat))
+                cats = new HashSet<EventCategory>(AllEventCategories);
+            else if (!cats.Remove(cat))
+                cats.Add(cat);
+            _visibleEventCats = cats;
         }
-        else if (_visibleEventCats.Count == AllEventCategories.Length)
-            _visibleEventCats = new HashSet<EventCategory> { cat };
-        else if (_visibleEventCats.Count == 1 && _visibleEventCats.Contains(cat))
-            _visibleEventCats = new HashSet<EventCategory>(AllEventCategories);
-        else if (!_visibleEventCats.Remove(cat))
-            _visibleEventCats.Add(cat);
+        if (showAcknowledged) _visibleEventCats.Add(EventCategory.Acknowledged);
+        else _visibleEventCats.Remove(EventCategory.Acknowledged);
 
         if (_chartMounted)
         {
