@@ -32,11 +32,12 @@
         {
             <CcObjectTable Objects="drift.Objects" PastTense="true" />
             <div class="cc-card-footer">
-                <SiteAdminOnly><button class="btn btn-secondary" disabled="@_busy" @onclick="AcceptBaselineAsync">Accept as Baseline</button></SiteAdminOnly>
+                <SiteAdminOnly><button class="btn btn-secondary" disabled="@_busy" @onclick="() => AcceptBaselineAsync(DriftCard)">Accept as Baseline</button></SiteAdminOnly>
                 <SiteOperatorOnly><button class="btn btn-primary" disabled="@(_busy || !ConsoleConnected)" @onclick="ReturnToBaselineAsync"
                     data-tooltip="Applies right away, or opens Review Plan first for deletes, passphrase or WAN changes, lockout risks, or approval.">@Spinner("baseline")Return to Baseline</button></SiteOperatorOnly>
             </div>
         }
+        @ErrorAlert(DriftCard)
     </div>
 }
 
@@ -193,6 +194,7 @@
             </div>
         }
     }
+    @ErrorAlert(SnapshotsCard)
 </div>
 
 @if (_compareLoading)
@@ -270,25 +272,22 @@ else if (_compare != null)
                     <button class="btn btn-secondary" @onclick="DownloadDiffAsync">Download Diff</button>
                     @if (_compare.ToSnapshotId == null)
                     {
-                        <SiteAdminOnly><button class="btn btn-secondary" disabled="@_busy" @onclick="AcceptBaselineAsync">Accept as Baseline</button></SiteAdminOnly>
+                        <SiteAdminOnly><button class="btn btn-secondary" disabled="@_busy" @onclick="() => AcceptBaselineAsync(CompareCard)">Accept as Baseline</button></SiteAdminOnly>
                     }
                     @if (_compare.FromSnapshotId is { } fromId && _compare.ToSnapshotId == null)
                     {
-                        <SiteOperatorOnly><button class="btn btn-primary" disabled="@(_busy || !ConsoleConnected)" @onclick="() => RollBackAsync(fromId)">@Spinner($"rollback:{fromId}")Roll Back to @(_compare.FromLabel.Split(',')[0])</button></SiteOperatorOnly>
+                        <SiteOperatorOnly><button class="btn btn-primary" disabled="@(_busy || !ConsoleConnected)" @onclick="() => RollBackAsync(fromId, CompareCard)">@Spinner($"rollback:{fromId}")Roll Back to @(_compare.FromLabel.Split(',')[0])</button></SiteOperatorOnly>
                     }
                 </div>
             }
         }
+        @ErrorAlert(CompareCard)
     </div>
 }
 @if (_list != null)
 {
     <CcTemplates Snapshots="_list.Rows" BaselineTemplateId="_drift?.BaselineTemplateId" OnBaselineChanged="LoadAsync" />
     <CcConsoleBackups />
-}
-@if (_error != null)
-{
-    <div class="alert alert-danger">@_error</div>
 }
 
 @code {
@@ -353,6 +352,7 @@ else if (_compare != null)
         {
             Logger.LogWarning(ex, "Snapshots failed to load");
             _error = ex.Message;
+            _errorCard = SnapshotsCard;
         }
     }
 
@@ -447,12 +447,12 @@ else if (_compare != null)
         await LoadAsync();
     });
 
-    private async Task AcceptBaselineAsync() => await RunAsync(async () =>
+    private async Task AcceptBaselineAsync(string card) => await RunAsync(async () =>
     {
         await Site.AcceptLiveAsBaselineAsync();
         _compare = null;
         await LoadAsync();
-    });
+    }, card: card);
 
     private async Task ReturnToBaselineAsync() => await RunAsync(async () =>
     {
@@ -463,13 +463,13 @@ else if (_compare != null)
             && view.Doc.HighestTier <= PlanTiers.Direct && view.Remaining.Count == 0 && !view.ApprovalRequired)
             await Site.ApplyPlanAsync(planId);
         Nav.NavigateTo(SiteContextService.WithSiteParam($"/change-control/plans/{planId}", SiteCtx.Slug));
-    }, "baseline");
+    }, "baseline", DriftCard);
 
-    private async Task RollBackAsync(int snapshotId) => await RunAsync(async () =>
+    private async Task RollBackAsync(int snapshotId, string card = SnapshotsCard) => await RunAsync(async () =>
     {
         var planId = await Site.BuildRollbackToSnapshotAsync(snapshotId);
         Nav.NavigateTo(SiteContextService.WithSiteParam($"/change-control/plans/{planId}", SiteCtx.Slug));
-    }, $"rollback:{snapshotId}");
+    }, $"rollback:{snapshotId}", card);
 
     // The action RunAsync is running, so its button shows a spinner: building a plan can take a while.
     private string? _running;
@@ -529,7 +529,7 @@ else if (_compare != null)
             Convert.ToBase64String(Encoding.UTF8.GetBytes(text)));
     }
 
-    private async Task RunAsync(Func<Task> work, string? action = null)
+    private async Task RunAsync(Func<Task> work, string? action = null, string card = SnapshotsCard)
     {
         _busy = true;
         _running = action;
@@ -540,7 +540,20 @@ else if (_compare != null)
             await Task.Yield();
             await work();
         }
-        catch (Exception ex) { _error = ex.Message; }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+            _errorCard = card;
+        }
         finally { _busy = false; _running = null; }
     }
+
+    // The card an error shows in: the one holding the button that failed.
+    private const string DriftCard = "drift", SnapshotsCard = "snapshots", CompareCard = "compare";
+    private string _errorCard = SnapshotsCard;
+
+    private RenderFragment? ErrorAlert(string card) =>
+        _error != null && _errorCard == card
+            ? @<div class="card-body"><div class="alert alert-danger">@_error</div></div>
+            : null;
 }
