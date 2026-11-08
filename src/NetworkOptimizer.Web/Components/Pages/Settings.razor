@@ -4167,6 +4167,11 @@
                     </div>
                 </div>
 
+                @if (!string.IsNullOrEmpty(_multiSiteMessage))
+                {
+                    <div class="alert alert-@_multiSiteMessageClass">@_multiSiteMessage</div>
+                }
+
                 <TrustedSourcesMatrix Sites="@_sites.Where(s => s.Enabled).ToList()" />
 
                 @* The wizard shows its own first step (Add a site) only to an Admin; a Site Admin
@@ -4192,11 +4197,6 @@
                     </div>
                 </details>
                 </AdminOnly>
-            }
-
-            @if (!string.IsNullOrEmpty(_multiSiteMessage))
-            {
-                <div class="alert alert-@_multiSiteMessageClass">@_multiSiteMessage</div>
             }
         </div>
     </div>
@@ -4776,7 +4776,7 @@
         // it may be sitting on the agent step for the very site just deleted.
         _setupWizard?.Reset();
         _multiSiteMessage = $"Site \"{site.Name}\" was removed.";
-        _multiSiteMessageClass = "success";
+        _multiSiteMessageClass = "info";
         await RefreshSites();
     }
 

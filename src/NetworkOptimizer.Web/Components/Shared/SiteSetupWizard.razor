@@ -12,6 +12,8 @@
 @inject SiteContextService SiteCtx
 @inject ISiteConfigurationService SiteConfig
 @inject IJSRuntime JS
+@inject AgentTunnelRegistry TunnelRegistry
+@inject Microsoft.Extensions.Options.IOptions<SiteSetupOptions> SetupOptions
 @implements IDisposable
 
 @* Step 1 creates a site, which is instance administration. Everything after it sets up an existing
@@ -22,15 +24,16 @@
 <div class="site-wizard" id="@ElementId">
     <div class="site-wizard-steps">
         @{
-            var stepNames = new[] { "Name", "Console", "Agent", "Done" };
+            var order = StepOrder;
+            var currentPos = Array.IndexOf(order, _step);
         }
-        @for (var i = 0; i < stepNames.Length; i++)
+        @for (var i = 0; i < order.Length; i++)
         {
             var n = i + 1;
-            var stepClass = n < _step ? "done" : n == _step ? "current" : "upcoming";
+            var stepClass = i < currentPos ? "done" : i == currentPos ? "current" : "upcoming";
             <div class="site-wizard-step @stepClass">
                 <span class="site-wizard-step-node">
-                    @if (n < _step)
+                    @if (i < currentPos)
                     {
                         <text>&#x2713;</text>
                     }
@@ -39,7 +42,7 @@
                         @n
                     }
                 </span>
-                <span class="site-wizard-step-label">@stepNames[i]</span>
+                <span class="site-wizard-step-label">@StepNames[order[i]]</span>
             </div>
         }
     </div>
@@ -99,10 +102,24 @@
     else if (_step == 2 && _site != null)
     {
         <h3 class="site-wizard-title">Connect the UniFi Console for @_site.Name</h3>
-        <p class="section-description">
-            If this site's UniFi Console is reachable from this server (site-to-site VPN or a public address),
-            connect it now. You can also skip this and connect later from Settings after switching to the site.
-        </p>
+        @if (!_agentFirst)
+        {
+            <p class="section-description">
+                Connect the console directly if this server can reach it (site-to-site VPN or a public address).
+                Otherwise, connect through an On-Site Agent.
+            </p>
+        }
+        else if (!_agentLive)
+        {
+            <p class="section-description site-wizard-agent-wait">
+                <span class="spinner spinner-sm"></span>
+                <span>Waiting for @_site.Name's agent to connect...</span>
+            </p>
+        }
+        else
+        {
+            <p class="section-description">Agent connected. The console connection goes through it.</p>
+        }
         <div class="form-group">
             <label class="form-label">Console URL</label>
             <input type="text" class="form-control" @bind="_consoleUrl" placeholder="https://192.168.1.1" autocomplete="off" data-1p-ignore data-lpignore="true" data-bwignore />
@@ -154,7 +171,7 @@
                 {
                     <input type="text" class="form-control" @bind="_consoleSite" placeholder="default" autocomplete="off" data-1p-ignore data-lpignore="true" data-bwignore />
                 }
-                <button type="button" class="btn btn-secondary btn-sm" @onclick="ListConsoleSitesAsync" disabled="@(_loadingSites || string.IsNullOrWhiteSpace(_consoleUrl))">
+                <button type="button" class="btn btn-secondary btn-sm" @onclick="ListConsoleSitesAsync" disabled="@(_loadingSites || AwaitingAgent || string.IsNullOrWhiteSpace(_consoleUrl))">
                     @if (_loadingSites)
                     {
                         <span class="spinner"></span>
@@ -168,7 +185,7 @@
             <small class="form-help">Leave as "default" for most local UniFi OS devices. If this console hosts multiple sites, click "List Sites" to fetch and pick one.</small>
         </div>
         <div class="action-buttons">
-            <button type="button" class="btn btn-primary" @onclick="ConnectAsync" disabled="@(_busy || string.IsNullOrWhiteSpace(_consoleUrl))">
+            <button type="button" class="btn btn-primary" @onclick="ConnectAsync" disabled="@(_busy || AwaitingAgent || string.IsNullOrWhiteSpace(_consoleUrl))">
                 @if (_busy)
                 {
                     <span class="spinner"></span>
@@ -179,7 +196,14 @@
                     <span>Connect &amp; Save</span>
                 }
             </button>
-            <button type="button" class="btn btn-secondary" @onclick="() => _step = 3" disabled="@_busy">Skip for Now</button>
+            @if (_agentFirst)
+            {
+                <button type="button" class="btn btn-secondary" @onclick="SkipConsole" disabled="@_busy">Skip</button>
+            }
+            else
+            {
+                <button type="button" class="btn btn-secondary" @onclick="ConnectThroughAgent" disabled="@_busy">Connect Through an Agent</button>
+            }
         </div>
     }
     else if (_step == 3 && _site != null)
@@ -215,7 +239,7 @@
                         - lets the site's clients run speed tests against the agent. A separate box at the site is the recommended host; a high-end gateway (EFG, UDM-Beast, UXG/UCG-Fiber class) can host it too.</span>
                 </label>
                 <label class="checkbox-toggle">
-                    <input type="checkbox" @bind="_featureProxy" />
+                    <input type="checkbox" @bind="_featureProxy" disabled="@_agentFirst" />
                     <span><strong>SSH and UniFi Console proxy</strong> - this server reaches the site's console,
                         gateway, and devices through the agent tunnel. Enables audits, gateway WAN speed
                         tests, deployments, and modem / ONT monitoring with no VPN.</span>
@@ -232,14 +256,21 @@
                         <span>Create Agent Token</span>
                     }
                 </button>
-                <button type="button" class="btn btn-secondary" @onclick="() => { _wantAgent = false; _step = 4; }" disabled="@_busy">Skip</button>
+                @if (_agentFirst)
+                {
+                    <button type="button" class="btn btn-secondary" @onclick="BackToDirectConsole" disabled="@_busy">Back</button>
+                }
+                else
+                {
+                    <button type="button" class="btn btn-secondary" @onclick="() => { _wantAgent = false; _step = 4; }" disabled="@_busy">Skip</button>
+                }
             </div>
         }
         else
         {
             <AgentInstallInstructions Token="@_agentToken" AgentId="@_agentId" TokenChanged="@(t => _agentToken = t)" LanSpeedTest="_featureLanSpeedTest" SiteSlug="@_site?.Slug" />
             <div class="action-buttons">
-                <button type="button" class="btn btn-primary" @onclick="() => _step = 4">Continue</button>
+                <button type="button" class="btn btn-primary" @onclick="ContinueAfterAgent">Continue</button>
             </div>
         }
     }
@@ -275,12 +306,12 @@
             <button type="button" class="btn btn-secondary" @onclick="ResetAsync">Add Another Site</button>
         </div>
     }
-
-    @if (!string.IsNullOrEmpty(_message))
-    {
-        <div class="alert alert-@_messageClass">@_message</div>
-    }
 </div>
+
+@if (!string.IsNullOrEmpty(_message))
+{
+    <div class="alert alert-@_messageClass">@_message</div>
+}
 }
 
 @code {
@@ -337,7 +368,11 @@
         StateHasChanged();
     });
 
-    public void Dispose() => LicenseState.OnStateChanged -= HandleLicenseStateChanged;
+    public void Dispose()
+    {
+        LicenseState.OnStateChanged -= HandleLicenseStateChanged;
+        StopTunnelWatch();
+    }
 
     private int _step = 1;
     private bool _busy;
@@ -365,6 +400,97 @@
     private bool _featureProxy;
 
     /// <summary>
+    /// Set by Connect Through an Agent: the Agent step runs before the Console step, so the
+    /// console is reached through the tunnel. Step numbers keep their meaning; only the order changes.
+    /// </summary>
+    private bool _agentFirst;
+    private bool _agentLive;
+    private System.Threading.Timer? _tunnelPoll;
+
+    private static readonly Dictionary<int, string> StepNames = new()
+    {
+        [1] = "Name", [2] = "Console", [3] = "Agent", [4] = "Done",
+    };
+
+    private int[] StepOrder => _agentFirst ? [1, 3, 2, 4] : [1, 2, 3, 4];
+
+    /// <summary>
+    /// The console login runs through the tunnel and saves nothing until it succeeds, so on the
+    /// agent-first path the Console step waits for the agent before it can connect.
+    /// </summary>
+    private bool AwaitingAgent => _agentFirst && !_agentLive;
+
+    private bool AgentTunnelLive() =>
+        _site != null && TunnelRegistry.GetForSite(_site.Slug).Any(a => !a.IsStale);
+
+    private void ConnectThroughAgent()
+    {
+        _agentFirst = true;
+        _wantAgent = true;
+        _featureProxy = true;
+        _message = "";
+        _step = 3;
+    }
+
+    private void BackToDirectConsole()
+    {
+        _agentFirst = false;
+        _wantAgent = false;
+        _featureProxy = false;
+        _message = "";
+        _step = 2;
+    }
+
+    private void ContinueAfterAgent()
+    {
+        if (!_agentFirst)
+        {
+            _step = 4;
+            return;
+        }
+
+        _message = "";
+        _step = 2;
+        StartTunnelWatch();
+    }
+
+    private void SkipConsole()
+    {
+        StopTunnelWatch();
+        _step = 4;
+    }
+
+    private void StartTunnelWatch()
+    {
+        StopTunnelWatch();
+        _agentLive = AgentTunnelLive();
+        if (_agentLive)
+            return;
+
+        _tunnelPoll = new System.Threading.Timer(async _ =>
+        {
+            try
+            {
+                await InvokeAsync(() =>
+                {
+                    if (!_agentFirst || _step != 2 || !AgentTunnelLive())
+                        return;
+                    _agentLive = true;
+                    StopTunnelWatch();
+                    StateHasChanged();
+                });
+            }
+            catch { /* prevent timer death */ }
+        }, null, TimeSpan.FromSeconds(3), TimeSpan.FromSeconds(3));
+    }
+
+    private void StopTunnelWatch()
+    {
+        _tunnelPoll?.Dispose();
+        _tunnelPoll = null;
+    }
+
+    /// <summary>
     /// Re-enters the wizard at the agent step (step 3) for a site that already
     /// exists, landing on the feature selection so a site whose agent was never
     /// finished can be set up without recreating the site. Called by the
@@ -379,6 +505,9 @@
         _agentToken = null;
         _featureLanSpeedTest = false;
         _featureProxy = false;
+        _agentFirst = false;
+        _agentLive = false;
+        StopTunnelWatch();
         _message = "";
         _messageClass = "";
         StateHasChanged();
@@ -439,7 +568,10 @@
         try
         {
             _site = await SiteManagement.CreateSiteAsync(_name);
-            _step = 2;
+            if (SetupOptions.Value.ConsoleThroughAgentByDefault)
+                ConnectThroughAgent();
+            else
+                _step = 2;
             _message = $"Site '{_site.Name}' created with ID '{_site.Slug}'";
             _messageClass = "success";
             await NotifySitesChangedAsync();
@@ -540,7 +672,8 @@
                     ? "Console connected. Credentials saved to the site's database."
                     : $"Connected to {_consoleName}. Credentials saved to the site's database.";
                 _messageClass = "success";
-                _step = 3;
+                StopTunnelWatch();
+                _step = _agentFirst ? 4 : 3;
                 await NotifySitesChangedAsync();
             }
             else
@@ -708,6 +841,9 @@
         _agentToken = null;
         _featureLanSpeedTest = false;
         _featureProxy = false;
+        _agentFirst = false;
+        _agentLive = false;
+        StopTunnelWatch();
         _message = "";
     }
 }
