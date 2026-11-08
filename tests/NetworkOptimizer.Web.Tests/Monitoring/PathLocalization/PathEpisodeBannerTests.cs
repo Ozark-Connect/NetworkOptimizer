@@ -26,6 +26,50 @@ public class PathEpisodeBannerTests
         }
     };
 
+    private static List<IspHealthIssue> RecurringFindings(IEnumerable<PathEpisodeView> episodes, IReadOnlyDictionary<int, int>? points = null) =>
+        PathEpisodePresentation.Findings(episodes.ToList(), new IspHealthOptions(), TimeZoneInfo.Utc, DisplayFormat.Fallback, points).ToList();
+
+    private static IEnumerable<PathEpisodeView> OnDays(params int[] days) =>
+        days.Select(d => Episode(d, Now.AddDays(-d), Now.AddDays(-d).AddMinutes(30)));
+
+    [Fact]
+    public void Recurring_finding_carries_a_stable_ack_key()
+    {
+        var first = RecurringFindings(OnDays(1, 2, 3)).Single();
+        var later = RecurringFindings(OnDays(1, 2, 3, 4)).Single();
+
+        first.AckKey.Should().StartWith("path-recurring:");
+        later.AckKey.Should().Be(first.AckKey, "another occurrence of the same finding keeps its acknowledgment");
+    }
+
+    [Fact]
+    public void Recurring_finding_that_costs_points_cannot_be_acknowledged()
+    {
+        var finding = RecurringFindings(OnDays(1, 2, 3), new Dictionary<int, int> { [1] = 2 }).Single();
+
+        finding.AckKey.Should().BeNull();
+    }
+
+    [Fact]
+    public void Another_target_joining_is_a_new_finding()
+    {
+        var alone = RecurringFindings(OnDays(1, 2, 3)).Single();
+        var joined = RecurringFindings(OnDays(1, 2, 3).Select(e => e with
+        {
+            Degraded = e.Degraded.Append(new PathEpisodeTargetView(2, "t2", "Target B", PathEpisodeTargetRole.Degraded, 12, 13, 0, 27, null)).ToArray()
+        })).Single();
+
+        joined.AckKey.Should().NotBe(alone.AckKey);
+    }
+
+    [Fact]
+    public void Confirmed_finding_is_never_acknowledgeable()
+    {
+        var confirmed = RecurringFindings(OnDays(1, 2, 3).Select(e => e with { Disposition = CongestionDisposition.Confirmed })).Single();
+
+        confirmed.AckKey.Should().BeNull();
+    }
+
     [Fact]
     public void EventRow_NamesTheTargetsOnce()
     {

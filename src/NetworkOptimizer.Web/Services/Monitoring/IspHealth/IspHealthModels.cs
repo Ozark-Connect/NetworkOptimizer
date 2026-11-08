@@ -266,6 +266,13 @@ public class IspHealthIssue
 
     /// <summary>The Path Localization episode behind this finding, so its link opens that episode's hop table.</summary>
     public int? EpisodeId { get; init; }
+
+    /// <summary>
+    /// Set on a finding a Site Admin may acknowledge: identifies it by what it is, so a finding that
+    /// changes character (another target, another reading, a confirmed hop) arrives with a new key and
+    /// shows again. Null for findings that cannot be acknowledged.
+    /// </summary>
+    public string? AckKey { get; init; }
 }
 
 /// <summary>

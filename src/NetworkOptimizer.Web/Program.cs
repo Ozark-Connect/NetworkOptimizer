@@ -1,4 +1,5 @@
 using NetworkOptimizer.Web.Services.ChangeControl;
+using NetworkOptimizer.Web.Services.Monitoring.IspHealth;
 using ApexCharts;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Mvc.ViewFeatures;
@@ -1021,6 +1022,7 @@ builder.Services.AddScoped<NetworkOptimizer.Storage.Interfaces.IWiFiInsightRepos
         sp.GetRequiredService<SiteContextService>().Slug,
         sp.GetRequiredService<SiteContextService>().IsDefault));
 builder.Services.AddMutatingService<IWiFiIssueAcknowledgmentService, WiFiIssueAcknowledgmentService>();
+builder.Services.AddMutatingService<IIspFindingAcknowledgmentService, IspFindingAcknowledgmentService>();
 builder.Services.AddMutatingService<IWiFiRadioKeepService, WiFiRadioKeepService>();
 builder.Services.AddSingleton<ChannelPlanApplyRunner>();
 builder.Services.AddMutatingService<IChannelPlanApplyService, ChannelPlanApplyService>();

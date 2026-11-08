@@ -19334,7 +19334,23 @@ tr.stats-row-filtered {
     margin-bottom: 0.375rem;
 }
 
+.isp-findings-header {
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
+
+.isp-health-card .isp-finding-action {
+    align-self: flex-start;
+    flex-shrink: 0;
+}
+
 @media (max-width: 768px) {
+    /* Its own row under the finding: beside the title it would squeeze the title into a sliver. */
+    .isp-health-card .isp-finding-action {
+        grid-column: 1 / -1;
+        justify-self: end;
+    }
+
     .isp-health-card .issue-severity {
         grid-column: 1;
         grid-row: 1;

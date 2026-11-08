@@ -203,6 +203,10 @@ public static class AuditActions
     public const string WiFiIssueAcknowledged = "wifi.issue.acknowledged";
     public const string WiFiIssueRestored = "wifi.issue.restored";
     public const string WiFiRadioKept = "wifi.radio.kept";
+
+    // ISP Health: the operator's answers to its findings
+    public const string IspFindingAcknowledged = "isp.finding.acknowledged";
+    public const string IspFindingRestored = "isp.finding.restored";
     public const string WiFiRadioReleased = "wifi.radio.released";
 
     /// <summary>Recommended channels were written to access points in UniFi Network.</summary>

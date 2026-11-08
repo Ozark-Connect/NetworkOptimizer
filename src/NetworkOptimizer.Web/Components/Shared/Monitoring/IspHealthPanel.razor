@@ -16,6 +16,7 @@
 @inject NetworkOptimizer.Web.Services.SiteContextService SiteContext
 @inject Microsoft.AspNetCore.Authorization.IAuthorizationService Authz
 @inject NetworkOptimizer.Web.Services.Monitoring.PathLocalization.IPathEpisodeService PathEpisodes
+@inject IIspFindingAcknowledgmentService FindingAcks
 @inject ILogger<IspHealthPanel> Logger
 @using NetworkOptimizer.Web.Services.Authorization
 @using Microsoft.AspNetCore.Components.Authorization
@@ -400,15 +401,34 @@ else
 
     // Path Localization's findings ride after the report's own: evidence for the same events,
     // read from the episode store rather than the scorer.
-    var findings = r.Issues.Concat(EpisodeFindings).ToList();
-    @if (findings.Count > 0)
+    var allFindings = r.Issues.Concat(EpisodeFindings).ToList();
+    var ackedFindings = allFindings.Where(IsAcknowledged).ToList();
+    var findings = _findingsTab == "acknowledged" ? ackedFindings : allFindings.Where(f => !IsAcknowledged(f)).ToList();
+    @if (allFindings.Count > 0)
     {
         <div class="card isp-health-card">
-            <div class="card-header"><h2 class="card-title">Findings</h2></div>
+            <div class="card-header isp-findings-header">
+                <h2 class="card-title">Findings</h2>
+                @if (ackedFindings.Count > 0 || _findingsTab == "acknowledged")
+                {
+                    <div class="filter-tabs">
+                        <button class="tab @(_findingsTab == "active" ? "active" : "")" @onclick='() => _findingsTab = "active"'>Active (@(allFindings.Count - ackedFindings.Count))</button>
+                        <button class="tab tab-muted @(_findingsTab == "acknowledged" ? "active" : "")" @onclick='() => _findingsTab = "acknowledged"'>Acknowledged (@ackedFindings.Count)</button>
+                    </div>
+                }
+            </div>
             <div class="card-body">
+                @if (_findingsTab == "acknowledged")
+                {
+                    <p class="acknowledged-note">Acknowledged findings stay in ISP Health's score. They are hidden here, not fixed.</p>
+                }
+                @if (findings.Count == 0)
+                {
+                    <p class="acknowledged-note">@(_findingsTab == "acknowledged" ? "Nothing acknowledged." : "No active findings.")</p>
+                }
                 @foreach (var issue in findings)
                 {
-                    <div class="issue-item @IssueClass(issue.Severity)">
+                    <div class="issue-item @IssueClass(issue.Severity) @(IsAcknowledged(issue) ? "issue-dismissed" : "")">
                         <div class="issue-content">
                             <span class="issue-severity">@issue.Severity</span>
                             <div class="issue-title"><TextWithCode Text="@issue.Title" /></div>
@@ -466,6 +486,21 @@ else
                                 </SiteOperatorOnly>
                             }
                         </div>
+                        @if (issue.AckKey is { } ackKey)
+                        {
+                            <SiteAdminOnly>
+                                @if (IsAcknowledged(issue))
+                                {
+                                    <button class="btn btn-sm btn-ghost issue-action isp-finding-action" disabled="@_findingAckBusy"
+                                            @onclick="() => SetFindingAcknowledgedAsync(ackKey, false)" data-tooltip="Restore this finding">Restore</button>
+                                }
+                                else
+                                {
+                                    <button class="btn btn-sm btn-ghost issue-action isp-finding-action" disabled="@_findingAckBusy"
+                                            @onclick="() => SetFindingAcknowledgedAsync(ackKey, true)" data-tooltip="Hide this finding - still scored">Acknowledge</button>
+                                }
+                            </SiteAdminOnly>
+                        }
                     </div>
                 }
             </div>
@@ -1107,8 +1142,43 @@ else
     private NetworkOptimizer.Web.Services.Monitoring.PathLocalization.PathEpisodeBanner? _episodeBanner;
     private bool _episodeBannerDismissed = true;
 
+    // Acknowledged findings (Site Admin): hidden from Active, listed under Acknowledged, still scored.
+    private HashSet<string> _findingAcks = new(StringComparer.Ordinal);
+    private string _findingsTab = "active";
+    private bool _findingAckBusy;
+
+    private bool IsAcknowledged(IspHealthIssue issue) => issue.AckKey is { } key && _findingAcks.Contains(key);
+
+    private async Task SetFindingAcknowledgedAsync(string ackKey, bool acknowledged)
+    {
+        _findingAckBusy = true;
+        try
+        {
+            if (acknowledged) await FindingAcks.AcknowledgeAsync(ackKey);
+            else await FindingAcks.RestoreAsync(ackKey);
+            if (acknowledged) _findingAcks.Add(ackKey);
+            else _findingAcks.Remove(ackKey);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Could not {Action} an ISP Health finding", acknowledged ? "acknowledge" : "restore");
+        }
+        finally
+        {
+            _findingAckBusy = false;
+        }
+    }
+
     private async Task LoadEpisodeBannerAsync()
     {
+        try
+        {
+            _findingAcks = await FindingAcks.GetAcknowledgedKeysAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogDebug(ex, "Could not load acknowledged ISP Health findings");
+        }
         try
         {
             var now = DateTime.UtcNow;

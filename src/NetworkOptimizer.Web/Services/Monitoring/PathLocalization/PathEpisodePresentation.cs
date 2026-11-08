@@ -127,7 +127,8 @@ public static class PathEpisodePresentation
             var days = list.Select(e => TimeZoneCatalog.ToZone(e.OpenedAt, zone).Date).Distinct().Count();
             var latest = list[^1];
             var names = Names(latest.Degraded);
-            var cost = ScoreSentence(list.Sum(e => pointsById?.GetValueOrDefault(e.Id) ?? 0), list.Count > 1);
+            var points = list.Sum(e => pointsById?.GetValueOrDefault(e.Id) ?? 0);
+            var cost = ScoreSentence(points, list.Count > 1);
             var when = list.Count == 1
                 ? IspHealthPresentation.EventTimeLabel(latest.OpenedAt, zone, format)
                 : $"{list.Count} times on {days} days, last {IspHealthPresentation.EventTimeLabel(latest.OpenedAt, zone, format)}";
@@ -154,10 +155,22 @@ public static class PathEpisodePresentation
                     Recommendation = "A traceroute cannot see the return path, so this cannot be pinned on a forward hop. A pattern that repeats at the same hours is worth raising with your ISP with these times.",
                     LinkUrl = "#isp-events",
                     LinkText = "See the traces",
-                    EpisodeId = latest.Id
+                    EpisodeId = latest.Id,
+                    // Only while it costs nothing: one that starts costing points shows again.
+                    AckKey = points == 0 ? RecurringAckKey(g.Key.Targets, g.Key.Label!) : null
                 };
             }
         }
+    }
+
+    /// <summary>
+    /// A recurring Unverifiable finding's acknowledgment key: its degraded targets and its reading,
+    /// hashed. Another target joining, or a different last clean router, is a different finding.
+    /// </summary>
+    internal static string RecurringAckKey(string targets, string label)
+    {
+        var hash = System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes($"{targets}\n{label}"));
+        return "path-recurring:" + Convert.ToHexString(hash, 0, 12).ToLowerInvariant();
     }
 
     /// <summary>How long after an episode closes its banner stays up.</summary>
