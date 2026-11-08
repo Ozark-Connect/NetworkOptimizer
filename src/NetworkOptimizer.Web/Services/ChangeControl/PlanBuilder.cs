@@ -612,7 +612,7 @@ public static class PlanBuilder
 
     /// <summary>
     /// A network's LTE/5G backup modem list (the Applies To modems behind <c>lte_lan_enabled</c>). An admin
-    /// sets it, UniFi does not fill it: never make it read-only. <see cref="ApplyLteModems"/> fits it to each console.
+    /// sets it in UniFi Network's form (an upgrade can fill it too), so never make it read-only. <see cref="ApplyLteModems"/> fits it to each console.
     /// </summary>
     internal const string LteDevicesField = "lte_lan_enabled_devices";
 
