@@ -152,6 +152,8 @@ Time-series monitoring on your own InfluxDB, fed by SNMP polling (InfluxDB).
 - **Investigate** - step through **Packet Loss Events** and **Loaded Loss Events**
 - **Upstream Path Discovery** - ICMP and UDP traceroutes that map OLT/CMTS, ISP edge, transit ASNs, and internet hosts
   - Sets the access technology, saves monitoring targets, and re-runs every 7 days
+  - Waits for a quiet WAN (no outage, load, or loss above the access technology's idle level); a manual run on a busy WAN warns first, with **Run Anyway**
+  - A target that stops answering is paused only after three automatic runs, and resumes when it answers
   - Detects hops that left the path and asks whether the ISP changed
   - Metered WANs get fewer targets and a slower cadence
 - **Flaky Monitoring Targets** - targets losing more than their peers, with **Disable** and **Disable all**
@@ -377,13 +379,14 @@ Gateway tweaks for UCG-Fiber, UXG-Fiber, UCG-Max, and UXG-Max (Gateway SSH).
 ### Overview
 
 - **Wi-Fi Health Score** from signal, channel health, satisfaction, airtime, roaming, and capacity
+  - Channel health scores each radio against the quietest channel it could use, so a band busy on every channel costs nothing
 - **Client Band Distribution**, **Channel Optimization** summary, and per-AP radio cards
 - Mesh uplink details and **Re-pair Uplink**
 - **Health Issues** with recommendations; **Acknowledge** hides an issue but keeps it in the score
 - Health Issue checks:
   - Signal and coverage: weak signal, weak signal population, coverage gaps, sticky clients ([AP Telemetry](#ap-telemetry))
   - Channels: co-channel interference, high power overlap, non-standard 2.4 GHz channel, wide channel with weak clients or unused width
-  - Utilization: high utilization (own clients vs interference), raised noise floor ([AP Telemetry](#ap-telemetry)), high TX retry rates
+  - Utilization: a busy radio over the last hour (other networks vs its own clients, with one action for the cause: a quieter channel, or **Lock to AP** in UniFi Network), raised noise floor ([AP Telemetry](#ap-telemetry)), high TX retry rates
   - Load: high AP load, load imbalance, high 2.4 GHz concentration
   - Clients: legacy client airtime, IoT SSID separation, DHCP issues, high latency despite good signal ([AP Telemetry](#ap-telemetry))
   - Settings: band steering, Roaming Assistant, minimum RSSI, minimum data rates, TX power levels, MLO, 6 GHz disabled
