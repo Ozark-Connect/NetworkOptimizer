@@ -80,6 +80,11 @@ public class ReaddressInformTests
         v.Devices.Should().OnlyContain(d => d.Route == InformRoute.FollowsByDns);
         v.OverrideIp.Should().BeNull("an override on with a name stays the user's name");
         v.Devices.Should().OnlyContain(d => d.SetInformUrl == "http://unifi.lan:8080/inform");
+        v.Devices.Should().OnlyContain(d => d.SetInformIpUrl == "http://10.42.99.220:8080/inform", "the record's moved address, for a device whose DNS is gone");
+        var sw = v.Devices.Single(d => d.Name == "Switch");
+        ReaddressInform.Command(sw).Should().Be("set-inform http://unifi.lan:8080/inform");
+        ReaddressInform.Command(sw, atOldAddress: true).Should().Be("set-inform http://10.42.99.220:8080/inform");
+        ReaddressInform.HandCommand(sw).Should().Be("ip route add 10.42.99.220/32 dev <if>; set-inform http://10.42.99.220:8080/inform");
     }
 
     [Fact]

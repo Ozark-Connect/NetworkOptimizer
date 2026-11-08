@@ -458,8 +458,12 @@ public sealed partial class ChangeControlService
     /// rewrites it with the rest. A client's own DNS record (a short name UniFi extends with the domain)
     /// counts through its fixed IP.
     /// </summary>
+    internal static bool MovedByLocalDns(ConfigState live, string host, IReadOnlyList<(Readdressing.Subnet Old, Readdressing.Subnet New)> map) =>
+        LocalDnsMovedAddress(live, host, map) != null;
+
+    /// <summary>The old address the name's moved Local DNS record holds (see <see cref="MovedByLocalDns"/>); null when none moves it.</summary>
     [NetworkOptimizer.Core.VendorSpecific("UniFi", "static_dns key/value; rest/user local_dns_record with fixed_ip")]
-    internal static bool MovedByLocalDns(ConfigState live, string host, IReadOnlyList<(Readdressing.Subnet Old, Readdressing.Subnet New)> map)
+    internal static uint? LocalDnsMovedAddress(ConfigState live, string host, IReadOnlyList<(Readdressing.Subnet Old, Readdressing.Subnet New)> map)
     {
         var records = live.Get("static_dns").Select(r => (Name: r["key"]?.ToString(), Value: r["value"]?.ToString()))
             .Concat(live.Get("user").Where(u => u["local_dns_record_enabled"]?.ToString() == "true" && u["use_fixedip"]?.ToString() == "true")
@@ -472,11 +476,11 @@ public sealed partial class ChangeControlService
         for (var name = host.TrimEnd('.'); names.Add(name);)
         {
             var targets = records.Where(r => Names(r.Name!.TrimEnd('.'), name)).Select(r => r.Value ?? "").ToList();
-            if (targets.Any(v => Readdressing.ParseIp(v) is { } ip && Readdressing.MapIp(ip, map) != null)) return true;
-            if (targets.FirstOrDefault(v => v.Length > 0 && Readdressing.ParseIp(v) == null) is not { } cname) return false;
+            if (targets.Select(Readdressing.ParseIp).FirstOrDefault(ip => ip is { } a && Readdressing.MapIp(a, map) != null) is { } moved) return moved;
+            if (targets.FirstOrDefault(v => v.Length > 0 && Readdressing.ParseIp(v) == null) is not { } cname) return null;
             name = cname.TrimEnd('.');
         }
-        return false;
+        return null;
     }
 
     private static async Task<IPAddress[]> SafeResolveAsync(string host, CancellationToken ct)

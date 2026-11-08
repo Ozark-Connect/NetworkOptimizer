@@ -868,12 +868,13 @@ public sealed class PlanCoordinator
             var hosts = gateway ? [d.NewIp ?? d.OldIp ?? ""] : new[] { d.NewIp, d.OldIp }.OfType<string>().Distinct().ToArray();
             foreach (var host in hosts)
             {
+                var command = ReaddressInform.Command(d, atOldAddress: !gateway && host != d.NewIp);
                 (bool Success, string Output) r;
-                try { r = await run!(new Ssh.DeviceSshTarget(d.Mac, host, d.Role), ReaddressInform.Command(d), SetInformTimeout, ct); }
+                try { r = await run!(new Ssh.DeviceSshTarget(d.Mac, host, d.Role), command, SetInformTimeout, ct); }
                 catch (Exception ex) when (ex is not OperationCanceledException) { r = (false, ex.Message); }
                 _audit?.Log(AuditEventBuilder.FromSystem(AuditCategories.Action, AuditActions.ChangeControlDeviceInformSet,
                     r.Success ? AuditOutcomes.Success : AuditOutcomes.Failure, targetType: "device", targetId: d.Mac, targetName: d.Name,
-                    siteSlug: Slug, details: new { planId, plan = planName, address = host, url = d.SetInformUrl, output = r.Output.Length > 200 ? r.Output[..200] : r.Output }));
+                    siteSlug: Slug, details: new { planId, plan = planName, address = host, command, output = r.Output.Length > 200 ? r.Output[..200] : r.Output }));
                 if (r.Success) return new SetInformResult(d, SetInformOutcome.Repointed, host);
             }
             return new SetInformResult(d, SetInformOutcome.Failed);

@@ -707,6 +707,20 @@ public sealed class PlanCoordinatorTests : IDisposable
     }
 
     [Fact]
+    public async Task Readdress_ServedName_KeptAtTheNewAddress_IpAtTheOld()
+    {
+        Ssh(configured: true, accepts: _ => false);
+        var devices = InformDevices();
+        devices[0] = devices[0] with { SetInformUrl = "http://unifi.lan:8080/inform", SetInformIpUrl = InformUrl };
+        await ApplyReaddressAsync(devices: devices);
+        DeviceState(0);
+
+        await WatchToAlertAsync();
+
+        _dials.Should().Equal(("10.42.99.11", "set-inform http://unifi.lan:8080/inform"), ("192.168.99.11", $"set-inform {InformUrl}"));
+    }
+
+    [Fact]
     public async Task Readdress_OnlyOfflineDevicesAreDialed_AndNeverTwicePerPlan()
     {
         Ssh(configured: true, accepts: _ => false);
