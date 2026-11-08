@@ -1,6 +1,5 @@
 using System.Text.Json.Nodes;
 using NetworkOptimizer.Core;
-using NetworkOptimizer.Storage.Models;
 
 namespace NetworkOptimizer.Web.Services.ChangeControl;
 
@@ -611,7 +610,10 @@ public static class PlanBuilder
         return null;
     }
 
-    /// <summary>A network's LTE/5G backup modem list (the Applies To modems behind <c>lte_lan_enabled</c>).</summary>
+    /// <summary>
+    /// A network's LTE/5G backup modem list (the Applies To modems behind <c>lte_lan_enabled</c>). An admin
+    /// sets it, UniFi does not fill it: never make it read-only. <see cref="ApplyLteModems"/> fits it to each console.
+    /// </summary>
     internal const string LteDevicesField = "lte_lan_enabled_devices";
 
     /// <summary>
@@ -728,8 +730,10 @@ public static class PlanBuilder
             WriteFields = later.Select(p => p.Key).ToList(),
             Fields = later.Select(p => new StoredField
             {
-                Path = p.Key, Label = ChangeDescriber.LabelFor(p.Key),
-                Old = ChangeDescriber.Value(body[p.Key], null), New = ChangeDescriber.Value(p.Value, null),
+                Path = p.Key,
+                Label = ChangeDescriber.LabelFor(p.Key),
+                Old = ChangeDescriber.Value(body[p.Key], null),
+                New = ChangeDescriber.Value(p.Value, null),
             }).ToList(),
             ChangeText = "WPA3 and bands, set right after the create: UniFi creates every WLAN on WPA2",
             NeedsGateway = create.NeedsGateway,
@@ -755,8 +759,11 @@ public static class PlanBuilder
         }
         yield return new StoredField
         {
-            Path = f.Path, Label = label, Old = "none",
-            New = f.Secret ? null : ChangeDescriber.Value(f.New, ctx), Secret = f.Secret,
+            Path = f.Path,
+            Label = label,
+            Old = "none",
+            New = f.Secret ? null : ChangeDescriber.Value(f.New, ctx),
+            Secret = f.Secret,
         };
     }
 
@@ -783,9 +790,17 @@ public static class PlanBuilder
         var fields = diff.Fields.Except(kept).ToList();
         var copy = new ObjectDiff
         {
-            Collection = diff.Collection, ObjectId = diff.ObjectId, Name = diff.Name, Action = diff.Action,
-            Fields = fields, Before = diff.Before, After = diff.After, OwnedBy = diff.OwnedBy, Generated = diff.Generated,
-            ManagementPath = diff.ManagementPath, WanPath = diff.WanPath,
+            Collection = diff.Collection,
+            ObjectId = diff.ObjectId,
+            Name = diff.Name,
+            Action = diff.Action,
+            Fields = fields,
+            Before = diff.Before,
+            After = diff.After,
+            OwnedBy = diff.OwnedBy,
+            Generated = diff.Generated,
+            ManagementPath = diff.ManagementPath,
+            WanPath = diff.WanPath,
         };
         foreach (var t in diff.Tags) copy.Tags.Add(t);
         return copy;
@@ -901,12 +916,12 @@ public static class PlanBuilder
     /// <summary>ID-shaped strings in a value that map to nothing: no match, no live object, no create.</summary>
     private static IEnumerable<string> UnresolvedIds(JsonNode? node, Dictionary<string, string> idMap,
         Dictionary<string, (string Collection, JsonObject Object)> liveById, Dictionary<string, PlanOperation> creates) => node switch
-    {
-        JsonObject o => o.SelectMany(p => p.Key is "_id" or "id" ? [] : UnresolvedIds(p.Value, idMap, liveById, creates)),
-        JsonArray a => a.SelectMany(e => UnresolvedIds(e, idMap, liveById, creates)),
-        JsonValue v when v.TryGetValue<string>(out var s) && LooksLikeId(s) && !idMap.ContainsKey(s) && !liveById.ContainsKey(s) && !creates.ContainsKey(s) => [s],
-        _ => [],
-    };
+        {
+            JsonObject o => o.SelectMany(p => p.Key is "_id" or "id" ? [] : UnresolvedIds(p.Value, idMap, liveById, creates)),
+            JsonArray a => a.SelectMany(e => UnresolvedIds(e, idMap, liveById, creates)),
+            JsonValue v when v.TryGetValue<string>(out var s) && LooksLikeId(s) && !idMap.ContainsKey(s) && !liveById.ContainsKey(s) && !creates.ContainsKey(s) => [s],
+            _ => [],
+        };
 
     /// <summary>
     /// A copy with unresolved IDs removed from every list; <c>Single</c> is true when one sits where a list is not,
@@ -919,30 +934,30 @@ public static class PlanBuilder
         switch (node)
         {
             case JsonArray arr:
-            {
-                var copy = new JsonArray();
-                var single = false;
-                foreach (var e in arr)
                 {
-                    if (e is JsonValue && Unresolved(e)) continue;
-                    var (p, s) = PruneUnresolved(e, idMap, liveById, creates);
-                    single |= s;
-                    copy.Add(p);
+                    var copy = new JsonArray();
+                    var single = false;
+                    foreach (var e in arr)
+                    {
+                        if (e is JsonValue && Unresolved(e)) continue;
+                        var (p, s) = PruneUnresolved(e, idMap, liveById, creates);
+                        single |= s;
+                        copy.Add(p);
+                    }
+                    return (copy, single);
                 }
-                return (copy, single);
-            }
             case JsonObject obj:
-            {
-                var copy = new JsonObject();
-                var single = false;
-                foreach (var (k, v) in obj)
                 {
-                    var (p, s) = PruneUnresolved(v, idMap, liveById, creates);
-                    single |= s;
-                    copy[k] = p;
+                    var copy = new JsonObject();
+                    var single = false;
+                    foreach (var (k, v) in obj)
+                    {
+                        var (p, s) = PruneUnresolved(v, idMap, liveById, creates);
+                        single |= s;
+                        copy[k] = p;
+                    }
+                    return (copy, single);
                 }
-                return (copy, single);
-            }
             default:
                 return (node?.DeepClone(), Unresolved(node));
         }
@@ -1143,8 +1158,10 @@ public static class PlanBuilder
                 DestinationZoneId = dst,
                 Body = new JsonObject
                 {
-                    ["source_zone_id"] = src, ["destination_zone_id"] = dst,
-                    ["before_predefined_ids"] = before, ["after_predefined_ids"] = after,
+                    ["source_zone_id"] = src,
+                    ["destination_zone_id"] = dst,
+                    ["before_predefined_ids"] = before,
+                    ["after_predefined_ids"] = after,
                 },
                 ChangeText = "Order changed",
                 OrderMoves = moves.Count > 0 ? moves : null,
