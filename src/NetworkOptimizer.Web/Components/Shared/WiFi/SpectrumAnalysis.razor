@@ -556,29 +556,53 @@
         background: linear-gradient(135deg, var(--accent-color) 0%, var(--primary-color) 100%);
     }
 
-    .ap-filter-link {
-        font-size: inherit;
-        text-align: left;
-        color: var(--primary-hover);
-        text-decoration: none;
+    .ap-pills {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.25rem;
     }
 
-    .ap-filter-link:hover:not(:disabled) {
-        color: var(--accent-color);
-        text-decoration: underline;
+    .ap-filter-link {
+        padding: 0.125rem 0.5rem;
+        border: 1px solid transparent;
+        border-radius: var(--border-radius);
+        background: var(--bg-tertiary);
+        color: var(--text-secondary);
+        font-family: inherit;
+        font-size: 0.8rem;
+        white-space: nowrap;
+        cursor: pointer;
+        transition: color 0.15s ease, border-color 0.15s ease;
+    }
+
+    .ap-filter-link:hover {
+        color: var(--text-primary);
+        border-color: var(--primary-hover);
     }
 
     .ap-filter-link.active {
+        background: var(--primary-color);
         color: var(--text-primary);
         font-weight: 600;
     }
 
+    .ap-pill-x {
+        margin-left: 0.3rem;
+        opacity: 0.8;
+    }
+
     .ap-filter-more {
-        color: var(--text-secondary);
+        background: transparent;
+        color: var(--text-muted);
     }
 
     .ap-filter-chip {
         margin-left: auto;
+    }
+
+    .card-header:has(> .ap-filter-chip) {
+        flex-wrap: wrap;
+        gap: 0.5rem;
     }
 
     .spectrum-stat-card.clickable {
@@ -1191,18 +1215,18 @@
             .ToList();
         var bssid = item.Network.Bssid;
         var shown = macs.Count <= MaxHeardByNames || _expandedHeardBy.Contains(bssid) ? macs : macs.Take(2).ToList();
-        for (var i = 0; i < shown.Count; i++)
-        {
-            if (i > 0) { <span>, </span> }
-            @ApFilterButton(shown[i], GetApName(shown[i]))
-        }
-        if (shown.Count < macs.Count)
-        {
-            <span> </span>
-            <button type="button" class="btn-link ap-filter-link ap-filter-more"
-                    data-tooltip="@string.Join(", ", macs.Skip(2).Select(GetApName))"
-                    @onclick="() => _expandedHeardBy.Add(bssid)">+@(macs.Count - 2) more</button>
-        }
+        <div class="ap-pills">
+            @foreach (var mac in shown)
+            {
+                @ApFilterButton(mac, GetApName(mac))
+            }
+            @if (shown.Count < macs.Count)
+            {
+                <button type="button" class="ap-filter-link ap-filter-more"
+                        data-tooltip="@string.Join(", ", macs.Skip(2).Select(GetApName))"
+                        @onclick="() => _expandedHeardBy.Add(bssid)">+@(macs.Count - 2) more</button>
+            }
+        </div>
     };
 
     private string GetApName(string apMac) =>
@@ -1211,9 +1235,15 @@
     private RenderFragment ApFilterButton(string apMac, string name) => __builder =>
     {
         var active = string.Equals(selectedApMac, apMac, StringComparison.OrdinalIgnoreCase);
-        <button type="button" class="btn-link ap-filter-link @(active ? "active" : "")" aria-pressed="@(active ? "true" : "false")"
+        <button type="button" class="ap-filter-link @(active ? "active" : "")" aria-pressed="@(active ? "true" : "false")"
                 data-tooltip="@(active ? "Show all APs" : $"Show only what {name} hears")"
-                @onclick="() => ToggleApFilter(apMac)">@name</button>
+                @onclick="() => ToggleApFilter(apMac)">
+            @name
+            @if (active)
+            {
+                <span class="ap-pill-x" aria-hidden="true">&times;</span>
+            }
+        </button>
     };
 
     private void ClearApFilter()
