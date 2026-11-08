@@ -38,6 +38,14 @@ public sealed class ApAgentRoamCollector
 
     private readonly ApAgentRoamAssembler _assembler = new();
     private readonly Dictionary<string, DateTime> _vapsLoadedAt = new(StringComparer.OrdinalIgnoreCase);
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, IReadOnlyList<ApAgentVap>> _vapsByAp =
+        new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Each covered AP's full VAP table as its agent last reported it, keyed by AP MAC. Unlike the
+    /// console's, it lists the mesh backhaul and other hidden VAPs. Safe to read from any thread.
+    /// </summary>
+    public IReadOnlyDictionary<string, IReadOnlyList<ApAgentVap>> VapsByAp => _vapsByAp;
     private DateTime _lastPrunedAt = DateTime.MinValue;
 
     /// <summary>Creates the collector for one site.</summary>
@@ -107,6 +115,7 @@ public sealed class ApAgentRoamCollector
         if (payload == null) return;
 
         _assembler.SetVaps(target.Mac, payload.Vaps);
+        _vapsByAp[target.Mac] = payload.Vaps.ToList();
         _vapsLoadedAt[target.Mac] = DateTime.UtcNow;
     }
 

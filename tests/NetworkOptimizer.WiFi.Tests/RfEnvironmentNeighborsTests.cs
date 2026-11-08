@@ -28,6 +28,28 @@ public class RfEnvironmentNeighborsTests
     };
 
     [Fact]
+    public void A_mesh_vap_whose_strongest_sighting_is_a_hidden_beacon_is_still_mesh_backhaul()
+    {
+        // AP2 hears the hidden beacon loudest; AP3's weaker sighting carries the vwire SSID.
+        var hidden = Own("02:00:00:aa:00:09", Ap1, -40, ownSsid: "");
+        var named = Own("02:00:00:aa:00:09", Ap1, -70, ownSsid: "vwire-0123456789abcdef");
+
+        var row = RfEnvironmentNeighbors.SiteAccessPoints([Scan(Ap2, "AP2", hidden), Scan(Ap3, "AP3", named)]).Single();
+
+        row.Network.Signal.Should().Be(-40);
+        row.IsMeshBackhaul.Should().BeTrue();
+        row.SiteAp!.Ssid.Should().Be("vwire-0123456789abcdef", "the owner takes the sighting that names it");
+    }
+
+    [Fact]
+    public void A_user_ssid_is_not_mesh_backhaul()
+    {
+        var row = RfEnvironmentNeighbors.SiteAccessPoints([Scan(Ap2, "AP2", Own("02:00:00:aa:00:0a", Ap1, -50))]).Single();
+
+        row.IsMeshBackhaul.Should().BeFalse();
+    }
+
+    [Fact]
     public void With_no_site_bssids_the_external_list_is_every_neighbor_and_the_site_list_is_empty()
     {
         var scans = new List<ChannelScanResult>

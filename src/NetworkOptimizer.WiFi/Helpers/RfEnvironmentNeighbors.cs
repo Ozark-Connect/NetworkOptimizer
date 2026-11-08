@@ -30,6 +30,9 @@ public sealed class RfNeighborRow
 
     /// <summary>The site access point that owns the BSSID; null for an external neighbor.</summary>
     public SiteBssid? SiteAp { get; set; }
+
+    /// <summary>True when any sighting, or the owning VAP, names the BSSID a site mesh backhaul VAP.</summary>
+    public bool IsMeshBackhaul { get; set; }
 }
 
 /// <summary>
@@ -67,14 +70,19 @@ public static class RfEnvironmentNeighbors
             owners);
     }
 
-    /// <summary>A BSSID is the site's when any sighting of it is flagged, so one unflagged copy cannot leak it.</summary>
+    /// <summary>
+    /// A BSSID is the site's when any sighting of it is flagged, so one unflagged copy cannot leak it.
+    /// A hidden beacon's sighting carries no SSID, so the owner takes the first one that names it.
+    /// </summary>
     private static Dictionary<string, SiteBssid> SiteOwners(IEnumerable<ChannelScanResult> scans)
     {
         var owners = new Dictionary<string, SiteBssid>(StringComparer.OrdinalIgnoreCase);
         foreach (var n in scans.SelectMany(s => s.Neighbors))
         {
-            if (n.IsSiteBssid && !string.IsNullOrEmpty(n.Bssid) && !string.IsNullOrEmpty(n.OwnApMac))
-                owners.TryAdd(n.Bssid, new SiteBssid(n.OwnApMac, n.OwnApName, n.OwnSsid ?? string.Empty));
+            if (!n.IsSiteBssid || string.IsNullOrEmpty(n.Bssid) || string.IsNullOrEmpty(n.OwnApMac)) continue;
+            var ssid = n.OwnSsid ?? string.Empty;
+            if (owners.TryGetValue(n.Bssid, out var known) && (known.Ssid.Length > 0 || ssid.Length == 0)) continue;
+            owners[n.Bssid] = new SiteBssid(n.OwnApMac, n.OwnApName, ssid);
         }
         return owners;
     }
@@ -108,6 +116,8 @@ public static class RfEnvironmentNeighbors
                         apGroup => apGroup.Key,
                         apGroup => apGroup.Max(n => n.Network.Signal ?? -100));
                 strongest.SiteAp = owners.TryGetValue(strongest.Network.Bssid, out var owner) ? owner : null;
+                strongest.IsMeshBackhaul = g.Any(n => SiteBssidLookup.IsMeshBackhaul(n.Network))
+                    || (owner?.Ssid.StartsWith(SiteBssidLookup.MeshSsidPrefix, StringComparison.OrdinalIgnoreCase) ?? false);
                 return strongest;
             })
             .ToList();

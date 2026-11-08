@@ -822,7 +822,7 @@ public class WiFiOptimizerService : IWiFiScanService
             // What agent-covered APs hear right now, laid over the console's scan for the same
             // AP and band. A covered AP with a spectrum table has no scan gap, so the quick-scan
             // targets exclude it without a rule of their own.
-            var siteBssids = NetworkOptimizer.WiFi.Helpers.SiteBssidLookup.Build(await GetAccessPointsAsync());
+            var siteBssids = await BuildSiteBssidsAsync();
             var merged = ApAgent.ApAgentScanMerger.Apply(
                 fresh, _apAgentTelemetry.GetFor(_siteSlug).ScanFor, DateTimeOffset.UtcNow, siteBssids, _ouiDatabase.GetVendor);
             if (merged > 0)
@@ -840,6 +840,26 @@ public class WiFiOptimizerService : IWiFiScanService
             _logger.LogError(ex, "Failed to get channel scan results");
             return new List<ChannelScanResult>();
         }
+    }
+
+    /// <summary>
+    /// The site's own BSSIDs: every AP's console VAPs and base MAC, then each AP Agent's VAP table,
+    /// which also names the mesh backhaul and hidden VAPs the console leaves out.
+    /// </summary>
+    private async Task<NetworkOptimizer.WiFi.Helpers.SiteBssidLookup> BuildSiteBssidsAsync()
+    {
+        var aps = await GetAccessPointsAsync();
+        var lookup = NetworkOptimizer.WiFi.Helpers.SiteBssidLookup.Build(aps);
+        var names = aps.Where(a => !string.IsNullOrEmpty(a.Mac))
+            .GroupBy(a => a.Mac, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(g => g.Key, g => g.First().Name, StringComparer.OrdinalIgnoreCase);
+        foreach (var (apMac, vaps) in _apAgentInsights.GetFor(_siteSlug).Roams.VapsByAp)
+        {
+            if (!names.TryGetValue(apMac, out var apName)) continue;
+            foreach (var vap in vaps)
+                lookup.AddVap(vap.Bssid, apMac, apName, vap.Essid);
+        }
+        return lookup;
     }
 
     /// <summary>
@@ -1212,7 +1232,7 @@ public class WiFiOptimizerService : IWiFiScanService
                 .ToList();
 
             // Rows persisted before the MAC-derived rule can be our own mesh VAPs; they are never interference.
-            var siteBssids = NetworkOptimizer.WiFi.Helpers.SiteBssidLookup.Build(await GetAccessPointsAsync());
+            var siteBssids = await BuildSiteBssidsAsync();
             remembered.RemoveAll(s => siteBssids.TryResolve(s.Bssid, s.Ssid, out _));
 
             var merged = ChannelMemoryHelper.MergeRememberedNeighbors(pooled, remembered, now);
