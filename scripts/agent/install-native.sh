@@ -373,8 +373,11 @@ remove_gateway_blocklist() {
         for c in FORWARD INPUT; do
             while "$t" -D "$c" -j NETOPT_BLOCK 2>/dev/null; do :; done
         done
-        "$t" -F NETOPT_BLOCK 2>/dev/null || true
-        "$t" -X NETOPT_BLOCK 2>/dev/null || true
+        # Skip a chain that is absent (any non-gateway host): some iptables builds print the
+        # "cannot find chain" error on stdout, which 2>/dev/null does not catch.
+        "$t" -w -S NETOPT_BLOCK >/dev/null 2>&1 || continue
+        "$t" -F NETOPT_BLOCK >/dev/null 2>&1 || true
+        "$t" -X NETOPT_BLOCK >/dev/null 2>&1 || true
     done
     # Its dead-man timer would otherwise stay armed for up to an hour on a host already cleaned up.
     systemctl stop netopt-blocklist-cleanup.timer netopt-blocklist-cleanup.service 2>/dev/null || true
@@ -398,8 +401,9 @@ remove_wan_flood() {
                 | while read -r r; do "$t" -w -t mangle $r 2>/dev/null; done || true
         done
         for ch in NETOPT_FLOOD NETOPT_FLOOD_FWD NETOPT_PROBE; do
-            "$t" -w -t mangle -F "$ch" 2>/dev/null || true
-            "$t" -w -t mangle -X "$ch" 2>/dev/null || true
+            "$t" -w -t mangle -S "$ch" >/dev/null 2>&1 || continue
+            "$t" -w -t mangle -F "$ch" >/dev/null 2>&1 || true
+            "$t" -w -t mangle -X "$ch" >/dev/null 2>&1 || true
         done
     done
     if command -v ipset >/dev/null 2>&1; then
