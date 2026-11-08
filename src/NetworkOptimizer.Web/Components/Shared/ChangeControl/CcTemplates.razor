@@ -81,7 +81,7 @@
             var isBaseline = BaselineTemplateId == t.Id;
             <div class="cc-template-row">
                 <div class="cc-template-main">
-                    <div><b>@t.Name</b> @if (isBaseline) { <span class="status-badge status-connected">Baseline</span> }</div>
+                    <div class="cc-item-title"><b>@t.Name</b>@if (isBaseline) { <span class="status-badge status-connected">Baseline</span> }</div>
                     <div class="cc-item-detail">
                         @CcFormat.Plural(t.Collections.Count, "collection", "collections")@(t.SourceSiteSlug != null ? $", from {t.SourceSiteSlug}" : ""), updated @CcFormat.Time(DisplayTime, t.UpdatedAt)
                     </div>
