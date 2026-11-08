@@ -108,7 +108,7 @@ Track signal quality on your cable modem, fiber ONT, and cellular modems over ti
 - **Vodafone Station** - ARRIS TG3442DE
 - **Sagemcom** - F3896LG (Virgin Media Hub 5, Ziggo SmartWifi)
 - **FRITZ!Box Cable** - 6690 Cable (FRITZ!OS 8.40)
-- **UniFi Cable Internet** - through an On-Site Agent on the gateway
+- **UniFi Cable Internet** - through an On-Site Agent on the gateway (thanks to robry84, whose [uci-inform-exporter](https://gitlab.com/robry84/uci-inform-exporter) we checked our inform decoding against)
 
 ![Cable Modem Stats card with downstream SNR gauge, channel counts, power levels and FEC error counts](docs/images/cable-modem-stats.png)
 
