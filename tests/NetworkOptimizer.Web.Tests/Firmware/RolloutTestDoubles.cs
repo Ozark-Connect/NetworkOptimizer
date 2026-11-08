@@ -246,11 +246,15 @@ internal sealed class FakeFirmwareCommandClient : IFirmwareCommandClient
         return Task.FromResult(BackupResult);
     }
 
-    public Task<bool> TriggerNetworkApplicationUpdateAsync(CancellationToken cancellationToken = default)
+    /// <summary>Runs while the Network app update command is in flight, before it returns.</summary>
+    public Func<Task>? DuringNetworkAppUpdate { get; set; }
+
+    public async Task<bool> TriggerNetworkApplicationUpdateAsync(CancellationToken cancellationToken = default)
     {
         NetworkAppUpdateCalls++;
         Calls.Add("network-app-update");
-        return Task.FromResult(NetworkAppUpdateAccepted);
+        if (DuringNetworkAppUpdate != null) await DuringNetworkAppUpdate();
+        return NetworkAppUpdateAccepted;
     }
 
     public Task<UniFiConsoleFirmwareRelease?> GetPendingUniFiOsUpdateAsync(CancellationToken cancellationToken = default) =>

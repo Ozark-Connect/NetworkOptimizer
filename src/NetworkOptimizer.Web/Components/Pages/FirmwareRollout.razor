@@ -2430,11 +2430,15 @@ else
     /// A waiting plan whose start is under way: the backup, the catalog refresh, and the console's
     /// own update all run before the status turns Running.
     /// </summary>
-    private bool Starting => _active is { Status: FirmwareRolloutStatus.Scheduled or FirmwareRolloutStatus.Announced }
-        && (_deployingNow || _active.Plan.StartingAt is { } at && DateTime.UtcNow - at < StartingShownFor);
+    private bool Starting => _active != null
+        && IsStarting(_active.Status, _deployingNow, _active.Plan.StartingAt, DateTime.UtcNow);
 
     // A start the process died inside leaves the mark set; past this the plan reads as waiting again.
-    private static readonly TimeSpan StartingShownFor = TimeSpan.FromMinutes(15);
+    internal static readonly TimeSpan StartingShownFor = TimeSpan.FromMinutes(15);
+
+    internal static bool IsStarting(FirmwareRolloutStatus status, bool deployingNow, DateTime? startingAt, DateTime utcNow) =>
+        status is FirmwareRolloutStatus.Scheduled or FirmwareRolloutStatus.Announced
+        && (deployingNow || startingAt is { } at && utcNow - at < StartingShownFor);
 
     private bool _deployingNow;
 

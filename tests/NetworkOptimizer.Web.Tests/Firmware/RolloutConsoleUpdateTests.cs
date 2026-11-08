@@ -58,6 +58,58 @@ public class RolloutConsoleUpdateTests
     }
 
     [Fact]
+    public async Task Start_MarksThePlanStartingWhileTheConsoleIsCommanded_ButNotRunning()
+    {
+        using var harness = new RolloutHarness();
+        var plan = await harness.SeedScheduledPlanAsync(NetworkAppPlan(), RolloutHarness.Start.AddDays(1), Step(ApMac));
+        harness.Observer.Set(ApMac, Online, FromVersion, upgradeTo: ToVersion);
+        harness.Observer.ConsoleDark = true;
+        FirmwareRolloutPlan? midStart = null;
+        harness.Commands.DuringNetworkAppUpdate = async () => midStart = await harness.PlanAsync(plan.Id);
+
+        (await harness.Orchestrator.StartNowAsync(plan.Id, overrideHealthGate: true)).Should().BeTrue();
+
+        // Running only once the update is commanded: a tick before that would read it as nothing to do.
+        midStart!.Status.Should().Be(FirmwareRolloutStatus.Scheduled);
+        Stored(midStart).StartingAt.Should().NotBeNull();
+        Stored(midStart).NetworkAppUpdate.Triggered.Should().BeFalse();
+        var started = (await harness.PlanAsync(plan.Id))!;
+        started.Status.Should().Be(FirmwareRolloutStatus.Running);
+        Stored(started).NetworkAppUpdate.Triggered.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task Start_ThatThrows_ClearsTheStartingMark()
+    {
+        using var harness = new RolloutHarness();
+        var plan = await harness.SeedScheduledPlanAsync(NetworkAppPlan(), RolloutHarness.Start.AddDays(1), Step(ApMac));
+        harness.Observer.Set(ApMac, Online, FromVersion, upgradeTo: ToVersion);
+        harness.Commands.DuringNetworkAppUpdate = () => throw new InvalidOperationException("console gone");
+
+        var start = () => harness.Orchestrator.StartNowAsync(plan.Id, overrideHealthGate: true);
+
+        await start.Should().ThrowAsync<InvalidOperationException>();
+        var stored = (await harness.PlanAsync(plan.Id))!;
+        stored.Status.Should().Be(FirmwareRolloutStatus.Scheduled);
+        Stored(stored).StartingAt.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task Start_HeldByTheHealthGate_IsNeverMarkedStarting()
+    {
+        using var harness = new RolloutHarness();
+        harness.Health.Verdict = RolloutHealthVerdict.Blocked("a critical alert is open (WAN Outage)");
+        var plan = await harness.SeedScheduledPlanAsync(NetworkAppPlan(), RolloutHarness.Start, Step(ApMac));
+
+        await harness.TickAsync();
+
+        var stored = (await harness.PlanAsync(plan.Id))!;
+        stored.Status.Should().Be(FirmwareRolloutStatus.Scheduled);
+        Stored(stored).StartingAt.Should().BeNull();
+        harness.Commands.NetworkAppUpdateCalls.Should().Be(0);
+    }
+
+    [Fact]
     public async Task NetworkAppUpdate_ReleasesWave1WhenTheApplicationAnswersAgain()
     {
         using var harness = new RolloutHarness();
