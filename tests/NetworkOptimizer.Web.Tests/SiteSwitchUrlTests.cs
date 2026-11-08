@@ -25,6 +25,7 @@ public class SiteSwitchUrlTests
     [InlineData("/wifi-optimizer?tab=roaming&edge=ap1-ap2", "/wifi-optimizer?tab=roaming")]
     [InlineData("/wifi-optimizer?tab=channels&ap=aa:bb:cc:dd:ee:ff&band=5&channel=36", "/wifi-optimizer?tab=channels&band=5&channel=36")]
     [InlineData("/client-dashboard?ip=192.0.2.10&range=24h", "/client-dashboard?range=24h")]
+    [InlineData("/client-dashboard?ip=192.0.2.10&wan=wan2#speed", "/client-dashboard#speed")]
     [InlineData("/alerts?tab=active&alert=12", "/alerts?tab=active")]
     [InlineData("/speedtest?result=5", "/speedtest")]
     // Threat Intelligence filters name an outside source, which every site shares.
