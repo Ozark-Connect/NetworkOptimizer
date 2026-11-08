@@ -1197,6 +1197,7 @@ else
             else await FindingAcks.RestoreAsync(ackKey);
             if (acknowledged) _findingAcks.Add(ackKey);
             else _findingAcks.Remove(ackKey);
+            await LoadEpisodeBannerAsync();
             // The chart's bands come from the endpoint, so it refetches to move them under Acknowledged.
             if (_chartMounted)
             {
@@ -1231,8 +1232,13 @@ else
                 now - NetworkOptimizer.Web.Services.Monitoring.PathLocalization.PathEpisodePresentation.BannerHold,
                 now, _selectedWanKey, _wanSvc == null);
             var fold = NetworkOptimizer.Web.Services.Monitoring.PathLocalization.PathEpisodePresentation.FoldIntoShifts(recent, _report, EpisodeOptions);
+            var unexplained = fold.Unexplained(recent, e => e.Id).ToList();
+            // An acknowledged recurring finding's episodes do not announce themselves either.
+            var acked = NetworkOptimizer.Web.Services.Monitoring.PathLocalization.PathEpisodePresentation.AcknowledgedEpisodeIds(
+                unexplained, EpisodeOptions,
+                NetworkOptimizer.Web.Services.Monitoring.PathLocalization.PathEpisodePresentation.PointsById(_report), _findingAcks);
             var banner = NetworkOptimizer.Web.Services.Monitoring.PathLocalization.PathEpisodePresentation.Banner(
-                fold.Unexplained(recent, e => e.Id).ToList(), now, DisplayTime.Zone, DisplayTime.Format);
+                unexplained.Where(e => !acked.Contains(e.Id)).ToList(), now, DisplayTime.Zone, DisplayTime.Format);
             // A failed read keeps it hidden, like the plan-speed hint.
             var dismissed = banner == null || await Dismissals.IsDismissedAsync(banner.DismissKey(SiteContext.Slug));
             _episodeBanner = banner;
