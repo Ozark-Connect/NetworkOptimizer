@@ -42,6 +42,12 @@ public class MonitoringInfluxClient : IAsyncDisposable
     private CancellationTokenSource _backfillCancellation = new();
     private int _pendingBackfillRefreshes;
 
+    // When each query or flush failure message last logged. A site whose buckets were never
+    // provisioned fails every read and write, so a repeat logs at Debug until the interval passes.
+    private readonly ConcurrentDictionary<string, DateTime> _failureLoggedAt = new(StringComparer.Ordinal);
+    private static readonly TimeSpan FailureLogInterval = TimeSpan.FromHours(1);
+    private const int MaxTrackedFailures = 256;
+
     private InfluxDBClient? _client;
     private WriteApiAsync? _writeApi;
     // Direct HTTP client for the high-volume raw-CSV reads (see QueryRawLinesAsync). Built and torn
@@ -382,6 +388,8 @@ public class MonitoringInfluxClient : IAsyncDisposable
             }
 
             await PersistHealthAsync(true, null, ct);
+            // The next failure must log and store again, or the stored state keeps saying healthy.
+            _failureLoggedAt.Clear();
             return new InfluxHealthResult(true, null);
         }
         catch (InfluxDB.Client.Core.Exceptions.UnauthorizedException ex)
@@ -400,6 +408,21 @@ public class MonitoringInfluxClient : IAsyncDisposable
             await PersistHealthAsync(false, ex.Message, ct);
             return new InfluxHealthResult(false, ex.Message);
         }
+    }
+
+    /// <summary>
+    /// True when this failure message has not logged within <see cref="FailureLogInterval"/>,
+    /// and records it as logged now.
+    /// </summary>
+    private bool ShouldLogFailure(string message)
+    {
+        var now = DateTime.UtcNow;
+        if (_failureLoggedAt.TryGetValue(message, out var last) && now - last < FailureLogInterval)
+            return false;
+        // Bounded: distinct messages are few, but a server that varies them must not grow this forever.
+        if (_failureLoggedAt.Count >= MaxTrackedFailures) _failureLoggedAt.Clear();
+        _failureLoggedAt[message] = now;
+        return true;
     }
 
     private async Task PersistHealthAsync(bool reachable, string? error, CancellationToken ct)
@@ -5831,8 +5854,7 @@ union(tables: [
             or InfluxDB.Client.Core.Exceptions.BadRequestException
             or InfluxDB.Client.Core.Exceptions.UnauthorizedException)
         {
-            _logger.LogWarning("InfluxDB query failed ({Error}) — check Settings > Monitoring", ex.Message);
-            _ = PersistHealthAsync(false, ex.Message, CancellationToken.None);
+            LogQueryFailure(ex);
             yield break;
         }
 
@@ -5944,9 +5966,23 @@ union(tables: [
             or InfluxDB.Client.Core.Exceptions.BadRequestException
             or InfluxDB.Client.Core.Exceptions.UnauthorizedException)
         {
-            _logger.LogWarning("InfluxDB query failed ({Error}) — check Settings > Monitoring", ex.Message);
-            _ = PersistHealthAsync(false, ex.Message, CancellationToken.None);
+            LogQueryFailure(ex);
         }
+    }
+
+    /// <summary>
+    /// Warns and stores the failure for Settings > Monitoring the first time within the interval;
+    /// a repeat logs at Debug and skips the database write, since the stored state already says so.
+    /// </summary>
+    private void LogQueryFailure(Exception ex)
+    {
+        if (!ShouldLogFailure(ex.Message))
+        {
+            _logger.LogDebug("InfluxDB query failed ({Error})", ex.Message);
+            return;
+        }
+        _logger.LogWarning("InfluxDB query failed ({Error}) — check Settings > Monitoring", ex.Message);
+        _ = PersistHealthAsync(false, ex.Message, CancellationToken.None);
     }
 
     /// <summary>
@@ -6769,7 +6805,10 @@ from(bucket: ""{_longtermBucket}"")
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to flush monitoring points to InfluxDB — points dropped");
+            if (ShouldLogFailure(ex.Message))
+                _logger.LogError(ex, "Failed to flush monitoring points to InfluxDB — points dropped");
+            else
+                _logger.LogDebug("Failed to flush monitoring points to InfluxDB ({Error}) — points dropped", ex.Message);
         }
     }
 
