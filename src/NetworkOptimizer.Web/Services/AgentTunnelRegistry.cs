@@ -118,7 +118,8 @@ public class AgentTunnelRegistry
         // tunnel actually went away, not from when it first connected.
         var now = DateTime.UtcNow;
         _lastTunnelActivity[connection.AgentId] = now;
-        _lastDropBySite[connection.SiteSlug] = now;
+        // A tunnel reaped after going silent is an outage, not a reconnect: dials keep failing fast.
+        if (!connection.IsStale) _lastDropBySite[connection.SiteSlug] = now;
         return ((ICollection<KeyValuePair<int, AgentTunnelConnection>>)_connections)
             .Remove(new KeyValuePair<int, AgentTunnelConnection>(connection.AgentId, connection));
     }

@@ -164,8 +164,19 @@ public class AgentTunnelProxyService : IDisposable
         var agent = PickAgent(target.SiteSlug);
         // A tunnel that just dropped usually re-registers in 1-3s. Wait for it, so a request caught in
         // the gap goes through instead of failing.
-        if (agent == null && await _registry.WaitForReconnectAsync(target.SiteSlug, ReconnectWait, ct))
-            agent = PickAgent(target.SiteSlug);
+        if (agent == null)
+        {
+            try
+            {
+                if (await _registry.WaitForReconnectAsync(target.SiteSlug, ReconnectWait, ct))
+                    agent = PickAgent(target.SiteSlug);
+            }
+            catch (OperationCanceledException)
+            {
+                local.Dispose();
+                throw;
+            }
+        }
         if (agent == null)
         {
             _logger.LogDebug("Proxy connect to {Host}:{Port} refused - no agent online for site {Slug}",

@@ -97,6 +97,20 @@ public class AgentTunnelRegistryTests
     }
 
     [Fact]
+    public async Task WaitForReconnectAsync_StaleTunnelReaped_ReturnsAtOnce()
+    {
+        var registry = Registry(tunnelEnabled: true);
+        var connection = registry.Register(1, "branch-office", "Agent");
+        connection.LastMessageAt = DateTime.UtcNow - AgentTunnelConnection.StaleThreshold - TimeSpan.FromSeconds(1);
+        registry.Unregister(connection);
+        var started = DateTime.UtcNow;
+
+        (await registry.WaitForReconnectAsync("branch-office", TimeSpan.FromSeconds(30), CancellationToken.None))
+            .Should().BeFalse();
+        (DateTime.UtcNow - started).Should().BeLessThan(TimeSpan.FromSeconds(1));
+    }
+
+    [Fact]
     public async Task WaitForReconnectAsync_SiteStillHasATunnel_ReturnsTrue()
     {
         var registry = Registry(tunnelEnabled: true);
