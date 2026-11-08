@@ -36,6 +36,18 @@ public class YamlConverterTests
     }
 
     [Fact]
+    public void Export_FlowObject_KeyOrderFromUniFiDoesNotChangeTheYaml()
+    {
+        var from = State(("networkconf", """{"_id":"n1","name":"WAN","wan_provider_capabilities":{"download_kilobits_per_second":1000000,"upload_kilobits_per_second":1000000}}"""));
+        var to = State(("networkconf", """{"_id":"n1","name":"WAN","wan_provider_capabilities":{"upload_kilobits_per_second":1000000,"download_kilobits_per_second":1000000}}"""));
+
+        var yaml = YamlConverter.Export(to, ["networkconf"], false);
+
+        yaml.Should().Be(YamlConverter.Export(from, ["networkconf"], false));
+        yaml.Should().Contain("wan_provider_capabilities: {download_kilobits_per_second: 1000000, upload_kilobits_per_second: 1000000}");
+    }
+
+    [Fact]
     public void InOrderOf_FirewallPolicies_KeepTheirOwnOrder()
     {
         var from = State(("firewall_policy", """{"_id":"p1","name":"A","index":10000}"""), ("firewall_policy", """{"_id":"p2","name":"B","index":10001}"""));

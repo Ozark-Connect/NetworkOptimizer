@@ -332,8 +332,9 @@ public static partial class YamlConverter
                 break;
             // Flow style skips WriteObject's per-key handling, so an object with a secret or a reference
             // (zone_id written as zone: Internal) keeps block style.
+            // Keys in Ordered's order, not UniFi's: UniFi reorders them between versions, which reads as a change.
             case JsonObject obj when obj.Count <= 2 && obj.All(p => p.Value is JsonValue && !ConfigCollections.IsSecretField(def, p.Key) && StrippedName(p.Key) == null):
-                sb.Append(' ').Append(Flow(obj)).Append('\n');
+                sb.Append(" {").Append(string.Join(", ", Ordered(def, obj, top: false).Select(f => $"{KeyText(f.Key)}: {Scalar((JsonValue)f.Value!)}"))).Append("}\n");
                 break;
             case JsonObject obj:
                 sb.Append('\n');
