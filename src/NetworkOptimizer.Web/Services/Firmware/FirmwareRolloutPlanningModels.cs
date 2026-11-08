@@ -419,6 +419,12 @@ public class RolloutPlanDocument
     public DateTime? LastWaveCommandedAt { get; set; }
 
     /// <summary>
+    /// When the start passed its checks. The plan stays Scheduled or Announced until the console's
+    /// own phase is commanded, which can take minutes; the page shows the run from this instead.
+    /// </summary>
+    public DateTime? StartingAt { get; set; }
+
+    /// <summary>
     /// Every AP on the site at plan time, upgrading or not. The executor holds a wave that would
     /// take the last one still up. Empty on plans built before that check, which skip it.
     /// </summary>

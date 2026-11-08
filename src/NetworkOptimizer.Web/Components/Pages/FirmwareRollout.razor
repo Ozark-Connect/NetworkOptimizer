@@ -49,7 +49,7 @@ else if (_active != null && !_wizardOpen)
                     {
                         <button class="btn btn-sm btn-primary" @onclick="() => ControlAsync(RolloutService.ResumeAsync)" disabled="@_busy">@(WaitingApproval ? "Approve Next Wave" : "Resume")</button>
                     }
-                    @if (_active.Status is FirmwareRolloutStatus.Scheduled or FirmwareRolloutStatus.Announced)
+                    @if (_active.Status is FirmwareRolloutStatus.Scheduled or FirmwareRolloutStatus.Announced && !Starting)
                     {
                         @if (CanAdvance)
                         {
@@ -93,7 +93,13 @@ else if (_active != null && !_wizardOpen)
             {
                 <div class="alert alert-info firmware-rollout-note">@_controlNotice</div>
             }
-            @if (_active.Status is FirmwareRolloutStatus.Scheduled or FirmwareRolloutStatus.Announced)
+            @if (Starting)
+            {
+                <p class="firmware-rollout-note">@(_active.Plan.IncludesUniFiNetworkUpdate || _active.Plan.IncludesUniFiOsUpdate
+                    ? "Starting: taking a Console backup and checking for updates before anything is upgraded."
+                    : "Starting: checking for updates before anything is upgraded.")</p>
+            }
+            else if (_active.Status is FirmwareRolloutStatus.Scheduled or FirmwareRolloutStatus.Announced)
             {
                 <p class="firmware-rollout-note">Scheduled to start <strong>@LocalTime(_active.ScheduledStartAt)</strong>@SiteAside(_active.ScheduledStartAt ?? DateTime.UtcNow). Estimated duration @Duration(_active.Plan.TotalEstimatedSeconds).</p>
                 @if (HasDrift)
@@ -210,7 +216,7 @@ else if (_active != null && !_wizardOpen)
                     </tbody>
                 </table>
             </div>
-            @if (_active.Status is FirmwareRolloutStatus.Scheduled or FirmwareRolloutStatus.Announced)
+            @if (_active.Status is FirmwareRolloutStatus.Scheduled or FirmwareRolloutStatus.Announced && !Starting)
             {
                 <SiteAdminOnly>
                     <div class="firmware-rollout-deploy-now">
@@ -2237,7 +2243,7 @@ else
     private int PreviewTotalScope => _preview == null ? 0 : RolloutScopeCopy.TotalScope(_preview.Plan);
     private int PreviewTotalWaves => _preview == null ? 0 : RolloutScopeCopy.TotalWaves(_preview.Plan);
 
-    private string ActiveTitle => _active?.Status switch
+    private string ActiveTitle => Starting ? "Rollout Starting" : _active?.Status switch
     {
         FirmwareRolloutStatus.Scheduled or FirmwareRolloutStatus.Announced => "Scheduled Rollout",
         FirmwareRolloutStatus.Paused => "Rollout Paused",
@@ -2317,7 +2323,15 @@ else
     private async Task DeployNowAsync()
     {
         _confirmDeployNow = false;
-        await ControlAsync(RolloutService.DeployNowAsync);
+        _deployingNow = true;
+        try
+        {
+            await ControlAsync(RolloutService.DeployNowAsync);
+        }
+        finally
+        {
+            _deployingNow = false;
+        }
     }
 
     /// <summary>Ends the soak now; a refusal (a rollback still running) is shown, not just logged.</summary>
@@ -2409,8 +2423,20 @@ else
     }
 
     /// <summary>The map only has something to draw once steps are moving.</summary>
-    private bool ActivePlanHasMap => _active != null && _active.Status
-        is FirmwareRolloutStatus.Running or FirmwareRolloutStatus.Paused or FirmwareRolloutStatus.SoakWait;
+    private bool ActivePlanHasMap => Starting || (_active != null && _active.Status
+        is FirmwareRolloutStatus.Running or FirmwareRolloutStatus.Paused or FirmwareRolloutStatus.SoakWait);
+
+    /// <summary>
+    /// A waiting plan whose start is under way: the backup, the catalog refresh, and the console's
+    /// own update all run before the status turns Running.
+    /// </summary>
+    private bool Starting => _active is { Status: FirmwareRolloutStatus.Scheduled or FirmwareRolloutStatus.Announced }
+        && (_deployingNow || _active.Plan.StartingAt is { } at && DateTime.UtcNow - at < StartingShownFor);
+
+    // A start the process died inside leaves the mark set; past this the plan reads as waiting again.
+    private static readonly TimeSpan StartingShownFor = TimeSpan.FromMinutes(15);
+
+    private bool _deployingNow;
 
     // ---- Visualization interop ----
 

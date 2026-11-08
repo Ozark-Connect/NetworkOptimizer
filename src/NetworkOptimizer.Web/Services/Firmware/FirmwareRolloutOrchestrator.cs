@@ -833,7 +833,16 @@ public class FirmwareRolloutOrchestrator : BackgroundService
             if (current is null or { Status: not (FirmwareRolloutStatus.Scheduled or FirmwareRolloutStatus.Announced or FirmwareRolloutStatus.Draft) })
                 return current is { Status: FirmwareRolloutStatus.Running };
 
-            var started = await BeginCoreAsync(current, overrideHealthGate, automatic, cancellationToken);
+            bool started;
+            try
+            {
+                started = await BeginCoreAsync(current, overrideHealthGate, automatic, cancellationToken);
+            }
+            catch
+            {
+                await ClearStartingAsync(current.Id);
+                throw;
+            }
             if (started && automatic)
             {
                 RolloutAudit.LogSystem(_audit, NetworkOptimizer.Storage.Models.Identity.AuditActions.FirmwareRolloutStarted, _siteSlug, current.Id,
@@ -844,6 +853,26 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         finally
         {
             gate.Release();
+        }
+    }
+
+    /// <summary>A start that threw leaves the plan waiting, so the page must not keep showing it as starting.</summary>
+    private async Task ClearStartingAsync(int planId)
+    {
+        try
+        {
+            var plan = await _repositories.UseAsync((r, c) => r.GetPlanAsync(planId, c), CancellationToken.None);
+            if (plan is null or { Status: not (FirmwareRolloutStatus.Scheduled or FirmwareRolloutStatus.Announced or FirmwareRolloutStatus.Draft) })
+                return;
+            var document = ParseDocument(plan);
+            if (document.StartingAt == null) return;
+            document.StartingAt = null;
+            plan.PlanJson = JsonSerializer.Serialize(document);
+            await PersistPlanAsync(plan, CancellationToken.None);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Could not clear the starting mark of rollout {Id} on site {Site}", planId, _siteSlug);
         }
     }
 
@@ -871,6 +900,11 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         await PruneAlreadyCurrentAsync(plan, document, steps, cancellationToken);
         if (await AbortIfNothingLeftAsync(plan, document, steps, cancellationToken))
             return false;
+
+        // Not Running yet: a tick would read the untriggered Network update as nothing to do.
+        document.StartingAt = Now;
+        plan.PlanJson = JsonSerializer.Serialize(document);
+        await PersistPlanAsync(plan, cancellationToken);
 
         if (_configGuard != null)
             document.ConfigSnapshotId = await _configGuard.PinBeforeRolloutAsync(_siteSlug, plan.Id, cancellationToken);

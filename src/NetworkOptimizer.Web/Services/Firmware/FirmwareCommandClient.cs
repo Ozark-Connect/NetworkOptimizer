@@ -533,8 +533,7 @@ public class FirmwareCommandClient : IFirmwareCommandClient
             // wizard's Start Now did). The rollout's own step watches the version, and reads the log
             // for the reason when the script ends on a failure.
             var script = NetworkOptimizer.Core.Helpers.GatewayFile.ToBase64(NetworkInstallCommand(debUrl, companionUrls));
-            var command = $"echo {script} | base64 -d > {NetworkInstallScript} && "
-                + $"nohup sh {NetworkInstallScript} > {NetworkInstallLog} 2>&1 < /dev/null & echo started";
+            var command = DetachedLaunchCommand(script, NetworkInstallScript, NetworkInstallLog);
             var (success, output) = await _gatewaySsh.RunCommandAsync(command, timeout: TimeSpan.FromSeconds(60), cancellationToken: cancellationToken);
             if (success && output.Contains("started", StringComparison.Ordinal))
                 return FirmwareCommandResult.Ok(output);
@@ -576,6 +575,15 @@ public class FirmwareCommandClient : IFirmwareCommandClient
         command.Append($"apt-get install -y {dir}/*.deb; rc=$?; rm -rf {dir}; echo \"NETOPT_EXIT $rc\"; exit $rc");
         return command.ToString();
     }
+
+    /// <summary>
+    /// Writes a base64 script to the gateway and starts it detached, returning as soon as it runs.
+    /// Only nohup goes in the background: backgrounding "write &amp;&amp; nohup" keeps a subshell on the
+    /// session's stdout until the install ends, so the session never closes and the start times out.
+    /// </summary>
+    internal static string DetachedLaunchCommand(string base64Script, string scriptPath, string logPath) =>
+        $"echo {base64Script} | base64 -d > {scriptPath} || exit 1; "
+        + $"nohup sh {scriptPath} > {logPath} 2>&1 < /dev/null & echo started";
 
     private const string NetworkInstallScript = "/tmp/netopt-network.sh";
     private const string NetworkInstallLog = "/tmp/netopt-network.log";
@@ -636,8 +644,7 @@ public class FirmwareCommandClient : IFirmwareCommandClient
             // later read that this attempt reached the gateway when the session itself dropped.
             var script = NetworkOptimizer.Core.Helpers.GatewayFile.ToBase64(
                 $"echo \"NETOPT_START {attemptId}\"; ubnt-systool fwupdate '{firmwareUrl}'; echo \"NETOPT_EXIT $?\"");
-            var command = $"echo {script} | base64 -d > {OsInstallScript} && "
-                + $"nohup sh {OsInstallScript} > {OsInstallLog} 2>&1 < /dev/null & echo started";
+            var command = DetachedLaunchCommand(script, OsInstallScript, OsInstallLog);
             var (success, output) = await _gatewaySsh.RunCommandAsync(command, timeout: TimeSpan.FromSeconds(60), cancellationToken: cancellationToken);
             if (success && output.Contains("started", StringComparison.Ordinal))
                 return FirmwareCommandResult.Ok(output);
