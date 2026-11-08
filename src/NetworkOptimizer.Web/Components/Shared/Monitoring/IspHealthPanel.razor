@@ -1234,11 +1234,10 @@ else
             var fold = NetworkOptimizer.Web.Services.Monitoring.PathLocalization.PathEpisodePresentation.FoldIntoShifts(recent, _report, EpisodeOptions);
             var unexplained = fold.Unexplained(recent, e => e.Id).ToList();
             // An acknowledged recurring finding's episodes do not announce themselves either.
-            var acked = NetworkOptimizer.Web.Services.Monitoring.PathLocalization.PathEpisodePresentation.AcknowledgedEpisodeIds(
-                unexplained, EpisodeOptions,
-                NetworkOptimizer.Web.Services.Monitoring.PathLocalization.PathEpisodePresentation.PointsById(_report), _findingAcks);
+            var points = NetworkOptimizer.Web.Services.Monitoring.PathLocalization.PathEpisodePresentation.PointsById(_report);
             var banner = NetworkOptimizer.Web.Services.Monitoring.PathLocalization.PathEpisodePresentation.Banner(
-                unexplained.Where(e => !acked.Contains(e.Id)).ToList(), now, DisplayTime.Zone, DisplayTime.Format);
+                unexplained.Where(e => !NetworkOptimizer.Web.Services.Monitoring.PathLocalization.PathEpisodePresentation
+                    .IsAcknowledgedEpisode(e, _findingAcks, points)).ToList(), now, DisplayTime.Zone, DisplayTime.Format);
             // A failed read keeps it hidden, like the plan-speed hint.
             var dismissed = banner == null || await Dismissals.IsDismissedAsync(banner.DismissKey(SiteContext.Slug));
             _episodeBanner = banner;

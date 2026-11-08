@@ -125,6 +125,17 @@ public static class PathEpisodePresentation
     }
 
     /// <summary>
+    /// One episode belongs to an acknowledged finding and still qualifies. For the banner, whose 24 hours
+    /// are too short to rebuild the recurrence the user acknowledged.
+    /// </summary>
+    public static bool IsAcknowledgedEpisode(PathEpisodeView e, IReadOnlySet<string> acknowledged,
+        IReadOnlyDictionary<int, int>? pointsById) =>
+        e.Disposition != CongestionDisposition.Confirmed
+        && (pointsById?.GetValueOrDefault(e.Id) ?? 0) == 0
+        && OneNetwork(e.Degraded)
+        && AckKeyFor(e) is { } key && acknowledged.Contains(key);
+
+    /// <summary>
     /// Every degraded target is in one destination network (by ASN; a target with none counts as its own).
     /// Degradation across networks points at something they share, most likely the return path into your
     /// ISP, so it is never acknowledgeable.

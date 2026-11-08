@@ -94,6 +94,19 @@ public class PathEpisodeBannerTests
     }
 
     [Fact]
+    public void Banner_hides_a_lone_episode_of_an_acknowledged_finding()
+    {
+        var key = RecurringFindings(OnDays(1, 2, 3)).Single().AckKey!;
+        var acked = new HashSet<string> { key };
+        var e = Episode(9, Now.AddHours(-2), Now.AddHours(-1));
+
+        PathEpisodePresentation.IsAcknowledgedEpisode(e, acked, null).Should().BeTrue();
+        PathEpisodePresentation.IsAcknowledgedEpisode(e, acked, new Dictionary<int, int> { [9] = 2 }).Should().BeFalse();
+        PathEpisodePresentation.IsAcknowledgedEpisode(e with { Disposition = CongestionDisposition.Confirmed }, acked, null).Should().BeFalse();
+        PathEpisodePresentation.IsAcknowledgedEpisode(e, new HashSet<string>(), null).Should().BeFalse();
+    }
+
+    [Fact]
     public void An_episode_carries_its_recurring_findings_key()
     {
         var episodes = OnDays(1, 2, 3).ToList();
