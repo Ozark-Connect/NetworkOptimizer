@@ -13,6 +13,7 @@
 @inject ISiteConfigurationService SiteConfig
 @inject IJSRuntime JS
 @inject AgentTunnelRegistry TunnelRegistry
+@inject Microsoft.Extensions.Options.IOptions<SiteSetupOptions> SetupOptions
 @implements IDisposable
 
 @* Step 1 creates a site, which is instance administration. Everything after it sets up an existing
@@ -567,7 +568,10 @@
         try
         {
             _site = await SiteManagement.CreateSiteAsync(_name);
-            _step = 2;
+            if (SetupOptions.Value.ConsoleThroughAgentByDefault)
+                ConnectThroughAgent();
+            else
+                _step = 2;
             _message = $"Site '{_site.Name}' created with ID '{_site.Slug}'";
             _messageClass = "success";
             await NotifySitesChangedAsync();
