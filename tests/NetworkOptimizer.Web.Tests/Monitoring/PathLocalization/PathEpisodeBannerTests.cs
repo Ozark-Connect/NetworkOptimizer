@@ -63,6 +63,14 @@ public class PathEpisodeBannerTests
     }
 
     [Fact]
+    public void An_episode_carries_its_recurring_findings_key()
+    {
+        var episodes = OnDays(1, 2, 3).ToList();
+
+        PathEpisodePresentation.AckKeyFor(episodes[0]).Should().Be(RecurringFindings(episodes).Single().AckKey);
+    }
+
+    [Fact]
     public void Confirmed_finding_is_never_acknowledgeable()
     {
         var confirmed = RecurringFindings(OnDays(1, 2, 3).Select(e => e with { Disposition = CongestionDisposition.Confirmed })).Single();

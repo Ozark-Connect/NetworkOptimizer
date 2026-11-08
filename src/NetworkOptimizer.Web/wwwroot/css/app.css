@@ -19339,9 +19339,32 @@ tr.stats-row-filtered {
     gap: 0.5rem;
 }
 
-.isp-health-card .isp-finding-action {
-    align-self: flex-start;
-    flex-shrink: 0;
+/* Under an episode's hop table: the same Acknowledge as its recurring finding, bottom right. */
+.isp-trace-actions {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: 0.5rem;
+}
+
+.isp-trace-actions .issue-action {
+    margin-left: 0;
+}
+
+/* Pinned in the corner beside the severity badge, so the text keeps the card's full width. */
+@media (min-width: 769px) {
+    .isp-health-card .issue-item.has-action {
+        position: relative;
+    }
+
+    .isp-health-card .issue-item.has-action .issue-title {
+        padding-right: 7.5rem;
+    }
+
+    .isp-health-card .isp-finding-action {
+        position: absolute;
+        top: 0.75rem;
+        right: 0.75rem;
+    }
 }
 
 @media (max-width: 768px) {

@@ -167,6 +167,11 @@ public static class PathEpisodePresentation
     /// A recurring Unverifiable finding's acknowledgment key: its degraded targets and its reading,
     /// hashed. Another target joining, or a different last clean router, is a different finding.
     /// </summary>
+    /// <summary>The key of the recurring finding an episode would belong to, or null when it has no reading yet.</summary>
+    public static string? AckKeyFor(PathEpisodeView episode) =>
+        episode.Tracing || string.IsNullOrEmpty(episode.Label) ? null
+            : RecurringAckKey(string.Join("|", episode.Degraded.Select(t => t.TargetId).OrderBy(x => x)), episode.Label);
+
     internal static string RecurringAckKey(string targets, string label)
     {
         var hash = System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes($"{targets}\n{label}"));

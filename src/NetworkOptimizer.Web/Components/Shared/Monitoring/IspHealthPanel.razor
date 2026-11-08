@@ -428,7 +428,7 @@ else
                 }
                 @foreach (var issue in findings)
                 {
-                    <div class="issue-item @IssueClass(issue.Severity) @(IsAcknowledged(issue) ? "issue-dismissed" : "")">
+                    <div class="issue-item @IssueClass(issue.Severity) @(IsAcknowledged(issue) ? "issue-dismissed" : "") @(issue.AckKey != null ? "has-action" : "")">
                         <div class="issue-content">
                             <span class="issue-severity">@issue.Severity</span>
                             <div class="issue-title"><TextWithCode Text="@issue.Title" /></div>
@@ -1013,6 +1013,23 @@ else
                                     @if (episodeOpen)
                                     {
                                         <PathEpisodeHopTable @key="episodeId" EpisodeId="episodeId" UpdatedAt="@(_episodes.FirstOrDefault(e => e.Id == episodeId)?.UpdatedAt ?? default)" WanKey="@_selectedWanKey" />
+                                        @if (TraceAckKey(episodeId) is { } traceAck)
+                                        {
+                                            <SiteAdminOnly>
+                                                <div class="isp-trace-actions">
+                                                    @if (_findingAcks.Contains(traceAck))
+                                                    {
+                                                        <button class="btn btn-sm btn-ghost issue-action" disabled="@_findingAckBusy"
+                                                                @onclick="() => SetFindingAcknowledgedAsync(traceAck, false)" data-tooltip="Restore its recurring finding">Restore</button>
+                                                    }
+                                                    else
+                                                    {
+                                                        <button class="btn btn-sm btn-ghost issue-action" disabled="@_findingAckBusy"
+                                                                @onclick="() => SetFindingAcknowledgedAsync(traceAck, true)" data-tooltip="Hide its recurring finding - still scored">Acknowledge</button>
+                                                    }
+                                                </div>
+                                            </SiteAdminOnly>
+                                        }
                                     }
                                 }
                             </span>
@@ -1148,6 +1165,15 @@ else
     private bool _findingAckBusy;
 
     private bool IsAcknowledged(IspHealthIssue issue) => issue.AckKey is { } key && _findingAcks.Contains(key);
+
+    /// <summary>The acknowledgeable recurring finding a traced episode belongs to, or null.</summary>
+    private string? TraceAckKey(int episodeId)
+    {
+        var episode = _episodes.FirstOrDefault(e => e.Id == episodeId);
+        if (episode == null || NetworkOptimizer.Web.Services.Monitoring.PathLocalization.PathEpisodePresentation.AckKeyFor(episode) is not { } key)
+            return null;
+        return EpisodeFindings.Any(f => f.AckKey == key) ? key : null;
+    }
 
     private async Task SetFindingAcknowledgedAsync(string ackKey, bool acknowledged)
     {
