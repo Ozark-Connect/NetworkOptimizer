@@ -25957,10 +25957,13 @@ body:has(.top-bar-hidden) .btn-fit {
     margin-right: 0.35rem;
 }
 
+/* Right-aligned even when the toolbar wraps, so Discard Edits sits above the editor's own header actions. */
 .change-control .cc-edit-actions {
     display: inline-flex;
     flex-wrap: wrap;
+    justify-content: flex-end;
     gap: 0.5rem;
+    margin-left: auto;
 }
 
 .change-control .cc-header-actions {
