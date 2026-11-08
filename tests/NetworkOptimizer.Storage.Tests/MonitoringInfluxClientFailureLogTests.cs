@@ -106,6 +106,29 @@ public sealed class MonitoringInfluxClientFailureLogTests : IDisposable
     }
 
     [Fact]
+    public async Task Concurrent_query_failures_warn_once()
+    {
+        var (client, logger) = await ConfiguredClientAsync();
+        try
+        {
+            (await client.ReconfigureAsync(refreshSpeedTestBackfill: false)).Should().BeTrue();
+
+            await Task.WhenAll(Enumerable.Range(0, 16).Select(_ => Task.Run(() =>
+                client.QueryWifiClientBandsAsync(DateTime.UtcNow.AddHours(-1), DateTime.UtcNow))));
+
+            List<(LogLevel Level, string Message)> failures;
+            lock (logger.Entries)
+                failures = logger.Entries.Where(e => e.Message.Contains("InfluxDB query failed")).ToList();
+            failures.Should().HaveCount(16);
+            failures.Count(e => e.Level == LogLevel.Warning).Should().Be(1);
+        }
+        finally
+        {
+            await client.DisposeOwnedAsync();
+        }
+    }
+
+    [Fact]
     public async Task A_repeated_flush_failure_logs_an_error_once()
     {
         var (client, logger) = await ConfiguredClientAsync();

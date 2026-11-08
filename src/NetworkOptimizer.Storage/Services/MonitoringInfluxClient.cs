@@ -417,12 +417,18 @@ public class MonitoringInfluxClient : IAsyncDisposable
     private bool ShouldLogFailure(string message)
     {
         var now = DateTime.UtcNow;
-        if (_failureLoggedAt.TryGetValue(message, out var last) && now - last < FailureLogInterval)
-            return false;
+        // Record with TryUpdate/TryAdd, not an indexer write: concurrent failures of one query
+        // must produce one warning, so exactly one caller wins the slot.
+        if (_failureLoggedAt.TryGetValue(message, out var last))
+        {
+            if (now - last < FailureLogInterval)
+                return false;
+            // TryAdd covers a Clear that removed the key after the read.
+            return _failureLoggedAt.TryUpdate(message, now, last) || _failureLoggedAt.TryAdd(message, now);
+        }
         // Bounded: distinct messages are few, but a server that varies them must not grow this forever.
         if (_failureLoggedAt.Count >= MaxTrackedFailures) _failureLoggedAt.Clear();
-        _failureLoggedAt[message] = now;
-        return true;
+        return _failureLoggedAt.TryAdd(message, now);
     }
 
     private async Task PersistHealthAsync(bool reachable, string? error, CancellationToken ct)
