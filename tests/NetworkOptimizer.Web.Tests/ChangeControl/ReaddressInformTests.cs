@@ -235,17 +235,29 @@ public class ReaddressInformTests
     }
 
     [Fact]
-    public void OverrideAlreadyOnWithAnIp_KeepsItsOrder()
+    public void OverrideAlreadyOnWithAnIp_ItsRewriteAlsoGoesJustBeforeTheConsolePathNetwork()
     {
         var live = Site(Console, overrideOn: true);
         var moves = Moves(live);
         var desired = Readdressing.Apply(live, moves).Desired;
-        var plain = PlanBuilder.Build(desired, live, new PlanOptions { DeleteMissing = false });
-        var before = plain.Operations.Single(o => o.ObjectId == "s1").Order;
+        var doc = PlanBuilder.Build(desired, live, new PlanOptions { DeleteMissing = false });
 
-        ChangeControlService.OrderReaddressWrites(plain, new HashSet<string> { "n99" }, new HashSet<string> { "gw" }, moves);
+        ChangeControlService.OrderReaddressWrites(doc, new HashSet<string> { "n99" }, new HashSet<string> { "gw" }, moves, ChangeControlService.DeviceDepths(live));
 
-        plain.Operations.Single(o => o.ObjectId == "s1").Order.Should().Be(before);
+        int At(string id) => doc.Operations.FindIndex(o => o.ObjectId == id);
+        doc.Operations[At("s1")].WriteFields.Should().NotContain("override_inform_host", "only the address changes");
+        doc.Operations[At("s1")].Order.Should().Be(ChangeControlService.InformOverrideOrder);
+        At("s1").Should().BeGreaterThan(At("sw"));
+        At("s1").Should().Be(At("n99") - 1);
+    }
+
+    [Fact]
+    public void ConsoleAtAGatewayLanAddress_NeverGetsAnOverrideWrite_EvenWhenTheTypeDidNotRead()
+    {
+        var v = Classify(Site(), "192.168.1.1", standalone: true);
+
+        v.OverrideIp.Should().BeNull();
+        v.Devices.Should().OnlyContain(d => d.Route == InformRoute.FollowsAutomatically);
     }
 
     [Fact]

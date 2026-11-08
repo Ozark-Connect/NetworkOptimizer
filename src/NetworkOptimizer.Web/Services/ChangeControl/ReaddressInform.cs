@@ -63,10 +63,10 @@ public static class ReaddressInform
         var consoleOld = rows.Select(d => Address(new Uri(d["inform_url"]!.ToString()).Host))
             .OfType<uint>().Where(ip => Readdressing.MapIp(ip, map) != null)
             .GroupBy(ip => ip).OrderByDescending(g => g.Count()).Select(g => (uint?)g.Key).FirstOrDefault();
-        var (overrideIp, repointed) = standaloneConsole && consoleOld is { } at ? Override(live, map, at) : (null, false);
-
         var gatewayIps = live.Get("networkconf").Select(n => Readdressing.ParseIp(n["ip_subnet"]?.ToString()?.Split('/')[0]))
             .OfType<uint>().ToHashSet();
+        // A Console at a gateway LAN address is the gateway: it follows by itself, whatever the type read said.
+        var (overrideIp, repointed) = standaloneConsole && consoleOld is { } at && !gatewayIps.Contains(at) ? Override(live, map, at) : (null, false);
         var liveDevices = ByMac(live);
         var desiredDevices = ByMac(desired);
         var result = new List<InformDevice>();

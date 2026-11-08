@@ -209,9 +209,10 @@ public sealed partial class ChangeControlService
             op.Order = GatewayOrder;
             op.ManagementPath = true;
         }
-        // Turning the Inform Host override on or off: sent while the Console still answers at its old address.
+        // The Inform Host override's new address is dead until the Console's host moves: sent after every device and
+        // network write that still needs the old one, while the Console answers there.
         foreach (var op in doc.Operations.Where(o => o.Collection == "setting" && (o.Body?["key"]?.ToString() ?? o.ObjectName) == "super_mgmt"
-                     && o.WriteFields.Contains("override_inform_host")))
+                     && (o.WriteFields.Contains("override_inform_host") || o.WriteFields.Contains("override_inform_host_location"))))
             op.Order = InformOverrideOrder;
         // The console also refuses a network's new subnet while one of its honeypots sits at the old address
         // (api.err.HoneypotIpOutOfRange), so honeypots go off before the networks and come back after them.
