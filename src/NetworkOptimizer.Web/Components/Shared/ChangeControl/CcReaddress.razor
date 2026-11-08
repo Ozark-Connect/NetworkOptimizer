@@ -37,7 +37,7 @@
             @foreach (var m in _view.Moves)
             {
                 <div class="cc-map-card">
-                    <div class="cc-change-card-head"><b>@m.NetworkName</b><span class="muted-text">@(m.Vlan is { } vl ? $"VLAN {vl}" : "Untagged")</span></div>
+                    <div class="cc-change-card-head"><b>@m.NetworkName</b><span class="muted-text">VLAN @(m.Vlan ?? 1)</span></div>
                     <div class="cc-item-detail">Currently <code>@m.OldCidr</code></div>
                     <input class="form-control cc-port-select" value="@NewFor(m)" placeholder="New subnet"
                            @oninput="e => Typed(m.NetworkId, e.Value?.ToString())"
@@ -53,7 +53,7 @@
                     {
                         <tr>
                             <td>@m.NetworkName</td>
-                            <td>@(m.Vlan?.ToString() ?? "Untagged")</td>
+                            <td>@(m.Vlan ?? 1)</td>
                             <td><code>@m.OldCidr</code></td>
                             <td>
                                 <input class="form-control cc-port-select" value="@NewFor(m)" placeholder="@m.OldCidr"
