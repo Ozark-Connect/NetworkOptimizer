@@ -299,6 +299,25 @@ public static class ImpactAnalyzer
     public static string IssueKey(AuditIssue issue) =>
         $"{issue.Title}|{issue.DeviceMac ?? issue.DeviceName}|{issue.Port}|{issue.CurrentNetwork}|{issue.ClientMac}";
 
+    /// <summary>
+    /// Pairs an issue across the two runs: <see cref="IssueKey"/> with the issue's own network named
+    /// by its ID, so renaming a network is not read as a fix plus a regression for each of its issues.
+    /// </summary>
+    private static string MatchKey(AuditIssue issue, IReadOnlyDictionary<string, string> idByName)
+    {
+        var net = issue.CurrentNetwork;
+        if (string.IsNullOrEmpty(net) || !idByName.TryGetValue(net, out var id)) return IssueKey(issue);
+        var title = issue.Title.Replace(net, "#" + id, StringComparison.Ordinal);
+        return $"{title}|{issue.DeviceMac ?? issue.DeviceName}|{issue.Port}|#{id}|{issue.ClientMac}";
+    }
+
+    private static Dictionary<string, string> NetworkIds(AuditResult result) =>
+        result.Networks
+            .Where(n => !string.IsNullOrEmpty(n.Name) && !string.IsNullOrEmpty(n.Id))
+            .GroupBy(n => n.Name, StringComparer.Ordinal)
+            .Where(g => g.Count() == 1)
+            .ToDictionary(g => g.Key, g => g.First().Id, StringComparer.Ordinal);
+
     /// <summary>Regressions (issues added) and fixes (issues removed) between two audit results.</summary>
     public static ImpactResult Compare(AuditResult before, AuditResult after)
     {
@@ -306,18 +325,20 @@ public static class ImpactAnalyzer
         var beforeIssues = before.Issues.Where(i => i.Severity != AuditSeverity.Informational).ToList();
         var afterIssues = after.Issues.Where(i => i.Severity != AuditSeverity.Informational).ToList();
         var result = new ImpactResult { BeforeIssueCount = beforeIssues.Count, AfterIssueCount = afterIssues.Count };
-        var beforeKeys = beforeIssues.Select(IssueKey).ToHashSet(StringComparer.Ordinal);
-        var afterKeys = afterIssues.Select(IssueKey).ToHashSet(StringComparer.Ordinal);
+        var beforeIds = NetworkIds(before);
+        var afterIds = NetworkIds(after);
+        var beforeKeys = beforeIssues.Select(i => MatchKey(i, beforeIds)).ToHashSet(StringComparer.Ordinal);
+        var afterKeys = afterIssues.Select(i => MatchKey(i, afterIds)).ToHashSet(StringComparer.Ordinal);
 
         foreach (var issue in afterIssues.DistinctBy(IssueKey))
         {
             var line = Line(issue, "Regression");
             result.AfterIssues.Add(line);
-            if (beforeKeys.Contains(line.Key)) continue;
+            if (beforeKeys.Contains(MatchKey(issue, afterIds))) continue;
             result.Regressions.Add(line);
             if (result.WorstRegression == null || issue.Severity > result.WorstRegression) result.WorstRegression = issue.Severity;
         }
-        foreach (var issue in beforeIssues.DistinctBy(IssueKey).Where(i => !afterKeys.Contains(IssueKey(i))))
+        foreach (var issue in beforeIssues.DistinctBy(IssueKey).Where(i => !afterKeys.Contains(MatchKey(i, beforeIds))))
             result.Fixes.Add(Line(issue, "Fix"));
         return result;
     }

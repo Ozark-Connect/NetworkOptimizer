@@ -163,6 +163,49 @@ public class ImpactAnalyzerTests
     }
 
     [Fact]
+    public void Compare_RenamingANetworkIsNeitherAFixNorARegression()
+    {
+        static AuditIssue OnNetwork(string net, string mac) => new()
+        {
+            Title = $"IoT Device on Wrong VLAN ({net})", Severity = AuditSeverity.Recommended, Category = "VLAN",
+            Description = $"Smart Lighting on {net} VLAN", CurrentNetwork = net, ClientMac = mac,
+        };
+        var before = new AuditResult
+        {
+            Networks = [new NetworkReference { Id = "net1", Name = "Home" }],
+            Issues = [OnNetwork("Home", "aa:bb:cc:dd:ee:01"), OnNetwork("Home", "aa:bb:cc:dd:ee:02")],
+        };
+        var after = new AuditResult
+        {
+            Networks = [new NetworkReference { Id = "net1", Name = "Home 2" }],
+            Issues = [OnNetwork("Home 2", "aa:bb:cc:dd:ee:01"), OnNetwork("Home 2", "aa:bb:cc:dd:ee:02")],
+        };
+
+        var result = ImpactAnalyzer.Compare(before, after);
+
+        result.Regressions.Should().BeEmpty();
+        result.Fixes.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Compare_AnIssueMovedToAnotherNetworkStillCounts()
+    {
+        static AuditIssue OnNetwork(string net) => new()
+        {
+            Title = "IoT Device on Wrong VLAN", Severity = AuditSeverity.Recommended, Category = "VLAN",
+            Description = "d", CurrentNetwork = net, ClientMac = "aa:bb:cc:dd:ee:01",
+        };
+        var networks = new List<NetworkReference> { new() { Id = "net1", Name = "Home" }, new() { Id = "net2", Name = "Guest" } };
+        var before = new AuditResult { Networks = networks, Issues = [OnNetwork("Home")] };
+        var after = new AuditResult { Networks = networks, Issues = [OnNetwork("Guest")] };
+
+        var result = ImpactAnalyzer.Compare(before, after);
+
+        result.Regressions.Should().ContainSingle();
+        result.Fixes.Should().ContainSingle();
+    }
+
+    [Fact]
     public void Compare_InformationalIsNotAnIssue()
     {
         var before = new AuditResult { Issues = [Issue("Note A", AuditSeverity.Informational)] };
