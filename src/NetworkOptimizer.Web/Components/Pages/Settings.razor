@@ -4776,7 +4776,7 @@
         // it may be sitting on the agent step for the very site just deleted.
         _setupWizard?.Reset();
         _multiSiteMessage = $"Site \"{site.Name}\" was removed.";
-        _multiSiteMessageClass = "success";
+        _multiSiteMessageClass = "info";
         await RefreshSites();
     }
 
