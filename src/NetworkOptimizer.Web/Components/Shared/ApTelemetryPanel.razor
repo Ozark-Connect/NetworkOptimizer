@@ -11,6 +11,7 @@
 @inject UniFiConnectionService ConnectionService
 @inject ILogger<ApTelemetryPanel> Logger
 @inject IDisplayTimeZone DisplayTime
+@inject SiteInfluxBucketSetup InfluxSetup
 
 <div class="card @Class" id="ap-telemetry" data-tour="ap-telemetry">
     <div class="card-header">
@@ -76,6 +77,8 @@
             {
                 <div class="alert alert-@_messageClass">@_message</div>
             }
+
+            <ApTelemetryHistoryAlert Ready="@(!_siteEnabled || _influxReady)" />
 
             <ConsoleConnectionBanner />
 
@@ -414,6 +417,9 @@
     private bool _deviceSshConfigured;
     private bool _siteEnabled;
 
+    /// <summary>Whether the site's InfluxDB buckets answer; true until checked, so the alert never flashes.</summary>
+    private bool _influxReady = true;
+
     /// <summary>
     /// Guide open state. Collapsed on arrival: it is reference material, not the point of the tab.
     /// </summary>
@@ -550,6 +556,8 @@
             _siteEnabled = await ApAgents.IsSiteEnabledAsync();
             if (_deviceSshConfigured)
                 await RefreshFleetAsync();
+            if (_siteEnabled)
+                _ = EnsureInfluxAsync();
             _loaded = true;
 
             _refreshTimer ??= new System.Threading.Timer(async _ =>
@@ -810,6 +818,27 @@
         await OpenPanelAsync();
     }
 
+    /// <summary>
+    /// Creates the site's buckets if the shared token allows it, off the load path: an unreachable
+    /// InfluxDB can take the client's full timeout to answer, and the fleet table must not wait.
+    /// </summary>
+    private async Task EnsureInfluxAsync()
+    {
+        try
+        {
+            var ready = await InfluxSetup.EnsureAsync();
+            await InvokeAsync(() =>
+            {
+                _influxReady = ready;
+                StateHasChanged();
+            });
+        }
+        catch (Exception ex)
+        {
+            Logger.LogDebug(ex, "AP Telemetry InfluxDB bucket check failed");
+        }
+    }
+
     // ---- Actions ----
 
     private async Task OnSiteEnabledChangedAsync(ChangeEventArgs e)
@@ -833,6 +862,7 @@
             {
                 await RefreshFleetAsync();
                 QueueFastRefresh(force: true);
+                _ = EnsureInfluxAsync();
             }
         }
         catch (Exception ex)

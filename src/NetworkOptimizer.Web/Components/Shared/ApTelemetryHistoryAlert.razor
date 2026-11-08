@@ -1,0 +1,42 @@
+@* AP Telemetry runs whether or not Monitoring is set up, but its per-client history goes to the
+   site's InfluxDB buckets. Without them those points are dropped, and nothing else says so. *@
+
+@using NetworkOptimizer.Web.Services
+@using NetworkOptimizer.Web.Services.ApAgent
+@inject IApAgentDeploymentService ApAgents
+@inject SiteInfluxBucketSetup InfluxSetup
+
+@if (Ready == false || (Ready == null && _missing))
+{
+    <div class="alert alert-warning">
+        AP Telemetry is not saving per-client Wi-Fi history: this site's InfluxDB buckets are missing
+        or not reachable. Live data, roams, and radio health still work.
+        <a href="/monitoring">Open Monitoring</a> to set them up.
+    </div>
+}
+
+@code {
+    /// <summary>
+    /// The host's own answer, when it already checked. Null: this checks once on first render, and
+    /// shows only when AP Telemetry is on for the site.
+    /// </summary>
+    [Parameter] public bool? Ready { get; set; }
+
+    private bool _missing;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender || Ready != null) return;
+        try
+        {
+            if (!await ApAgents.IsSiteEnabledAsync()) return;
+            if (await InfluxSetup.IsReadyAsync()) return;
+            _missing = true;
+            await InvokeAsync(StateHasChanged);
+        }
+        catch
+        {
+            // Non-critical: a missing notice is better than a page that failed to load.
+        }
+    }
+}

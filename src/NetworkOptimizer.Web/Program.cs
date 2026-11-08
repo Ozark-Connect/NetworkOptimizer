@@ -804,6 +804,8 @@ builder.Services.AddMutatingService<IInfluxDbProvisioningService, InfluxDbProvis
 // to finish alone: adding their own site's buckets to a shared connection that already exists.
 builder.Services.AddMutatingService<ISiteInfluxProvisioningService>(
     sp => ActivatorUtilities.CreateInstance<InfluxDbProvisioningService>(sp));
+// AP Telemetry's silent bucket step; it calls the gated service above, so the gate still decides.
+builder.Services.AddScoped<SiteInfluxBucketSetup>();
 // Probe-execution layer: the server-side LocalProbeExecutor is the default vantage. SSH
 // vantages (gateway/switch/AP) are constructed per-device via SshProbeExecutor later.
 builder.Services.AddSingleton<NetworkOptimizer.Monitoring.Probes.LocalProbeExecutor>();
