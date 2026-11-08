@@ -258,9 +258,13 @@
                                         </span>
                                     </td>
                                     <td>
-                                        @if (item.DetectedByAps.Count == 1)
+                                        @if (item.DetectedByApMacs.Count <= MaxHeardByNames)
                                         {
-                                            @item.DetectedByAps[0]
+                                            @for (var i = 0; i < item.DetectedByApMacs.Count; i++)
+                                            {
+                                                @if (i > 0) { <span>, </span> }
+                                                @ApFilterButton(item.DetectedByApMacs[i], GetApName(item.DetectedByApMacs[i]))
+                                            }
                                         }
                                         else
                                         {
@@ -349,7 +353,12 @@
                                             }
                                         </td>
                                         <td class="monospace">@item.Network.Bssid</td>
-                                        <td>@(item.SiteAp?.ApName ?? item.SiteAp?.ApMac ?? "")</td>
+                                        <td>
+                                            @if (!string.IsNullOrEmpty(item.SiteAp?.ApMac))
+                                            {
+                                                @ApFilterButton(item.SiteAp.ApMac, item.SiteAp.ApName ?? item.SiteAp.ApMac)
+                                            }
+                                        </td>
                                         <td>
                                             <span class="channel-badge @GetBandClass(item.Band) @(IsDfsChannel(item.Network.Channel, item.Band) ? "dfs" : "")">
                                                 @item.Network.Channel
@@ -365,9 +374,13 @@
                                             </span>
                                         </td>
                                         <td>
-                                            @if (item.DetectedByAps.Count == 1)
+                                            @if (item.DetectedByApMacs.Count <= MaxHeardByNames)
                                             {
-                                                @item.DetectedByAps[0]
+                                                @for (var i = 0; i < item.DetectedByApMacs.Count; i++)
+                                                {
+                                                    @if (i > 0) { <span>, </span> }
+                                                    @ApFilterButton(item.DetectedByApMacs[i], GetApName(item.DetectedByApMacs[i]))
+                                                }
                                             }
                                             else
                                             {
@@ -565,6 +578,11 @@
 
     .spectrum-stat-card.highlight {
         background: linear-gradient(135deg, var(--accent-color) 0%, var(--primary-color) 100%);
+    }
+
+    .ap-filter-link {
+        font-size: inherit;
+        text-align: left;
     }
 
     .spectrum-stat-card.clickable {
@@ -1151,22 +1169,32 @@
         UpdateChannelDensity();
     }
 
-    private void OnChannelChipClick(YourChannelInfo channel)
-    {
-        if (string.IsNullOrEmpty(channel.ApMac)) return;
+    private void OnChannelChipClick(YourChannelInfo channel) => ToggleApFilter(channel.ApMac);
 
-        // Toggle: if already filtering to this AP, clear the filter
-        if (selectedApMac == channel.ApMac)
-        {
-            selectedApMac = "";
-        }
-        else
-        {
-            selectedApMac = channel.ApMac;
-        }
+    /// <summary>Filters the page to one AP's scans, or clears the filter when it is already that AP.</summary>
+    private void ToggleApFilter(string? apMac)
+    {
+        if (string.IsNullOrEmpty(apMac)) return;
+        // The select binds to the AP list's MAC spelling, so match it case-insensitively.
+        var mac = accessPoints.FirstOrDefault(a => string.Equals(a.Mac, apMac, StringComparison.OrdinalIgnoreCase))?.Mac ?? apMac;
+        selectedApMac = string.Equals(selectedApMac, mac, StringComparison.OrdinalIgnoreCase) ? "" : mac;
         _currentPage = 1;
         UpdateChannelDensity();
     }
+
+    /// <summary>Heard By lists AP names up to this many; past it, a count with the names in a tooltip.</summary>
+    private const int MaxHeardByNames = 3;
+
+    private string GetApName(string apMac) =>
+        accessPoints.FirstOrDefault(a => string.Equals(a.Mac, apMac, StringComparison.OrdinalIgnoreCase))?.Name ?? apMac;
+
+    private RenderFragment ApFilterButton(string apMac, string name) => __builder =>
+    {
+        var active = string.Equals(selectedApMac, apMac, StringComparison.OrdinalIgnoreCase);
+        <button type="button" class="btn-link ap-filter-link"
+                data-tooltip="@(active ? "Show all APs" : $"Show only what {name} hears")"
+                @onclick="() => ToggleApFilter(apMac)">@name</button>
+    };
 
     private string GetSelectedApLabel()
     {
