@@ -90,7 +90,7 @@ public class ReaddressInformTests
         v.OverrideIp.Should().Be("10.42.99.220");
         v.Devices.Should().OnlyContain(d => d.Route == InformRoute.ConsoleRepointed);
         ChangeControlService.InformWarnings(v).Should().ContainSingle()
-            .Which.Detail.Should().Contain("10.42.99.220").And.Contain("Re-address the UniFi OS Server host in the same window");
+            .Which.Detail.Should().Contain("10.42.99.220").And.Contain("Re-address the Console's host in the same window");
     }
 
     [Fact]
@@ -118,6 +118,26 @@ public class ReaddressInformTests
         v.Devices.Should().OnlyContain(d => d.SetInformUrl == "http://10.42.99.220:8080/inform");
         ChangeControlService.InformWarnings(v).Should().ContainSingle()
             .Which.Detail.Should().Contain("Gateway, Switch, AP").And.Contain("re-pointed over SSH if it does not reconnect");
+    }
+
+    [Fact]
+    public void WithoutDeviceSsh_TheDryRunSaysTheAlertGivesTheCommand()
+    {
+        var v = Classify(Site("unifi.lan", overrideOn: true), "unifi.lan", standalone: true,
+            new Dictionary<string, uint?> { ["unifi.lan"] = Readdressing.ParseIp(Console) }) with { DeviceSsh = false };
+
+        ChangeControlService.InformWarnings(v).Should().ContainSingle()
+            .Which.Detail.Should().Contain("Device SSH is not configured").And.NotContain("re-pointed over SSH");
+    }
+
+    [Fact]
+    public void StaticDnsAtAnotherGatewayAddress_FollowsByDns()
+    {
+        var live = Site("unifi.lan", overrideOn: true);
+        live.Collections["static_dns"] = [JsonNode.Parse($$"""{"_id":"d1","key":"unifi.lan","record_type":"A","value":"{{Console}}"}""")!.AsObject()];
+        live.Get("device")[1]["config_network"]!["dns1"] = "192.168.1.1";
+
+        RouteOf(Classify(live, "unifi.lan", standalone: true), "Switch").Should().Be(InformRoute.FollowsByDns);
     }
 
     [Fact]
@@ -174,6 +194,7 @@ public class ReaddressInformTests
     [InlineData("http://unifi.lan:8080/inform", true, "192.168.99.220", "http://unifi.lan:8080/inform")]
     [InlineData("http://unifi.lan:8080/inform", false, "192.168.99.220", "http://10.42.99.220:8080/inform")]
     [InlineData("http://unifi.lan:8080/inform", false, null, "http://unifi.lan:8080/inform")]
+    [InlineData("http://unifi.example.com:8080/inform", false, "198.51.100.7", "http://unifi.example.com:8080/inform")]
     public void InformUrlAfter_MapsAnIp_KeepsAServedName_ReplacesAnUnservedOne(string url, bool served, string? resolved, string expected)
     {
         var map = Readdressing.Map(Moves(Site()));

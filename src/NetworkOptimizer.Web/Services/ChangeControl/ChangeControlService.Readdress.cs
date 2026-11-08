@@ -411,21 +411,28 @@ public sealed partial class ChangeControlService
                      .Distinct(StringComparer.OrdinalIgnoreCase).Where(h => Readdressing.ParseIp(h) == null && !MovedByLocalDns(live, h, map)))
             resolved[host] = (await SafeResolveAsync(host, ct)).Select(a => Readdressing.ParseIp(a.ToString())).OfType<uint>().Cast<uint?>().FirstOrDefault();
 
-        return ReaddressInform.Classify(list, live, desired, map, await IsStandaloneConsoleAsync(ct), resolved);
+        var verdicts = ReaddressInform.Classify(list, live, desired, map, await ConsoleNeedsRepointAsync(ct), resolved);
+        bool ssh;
+        try { ssh = Plans.DeviceSshConfigured != null && await Plans.DeviceSshConfigured(ct); }
+        catch (Exception ex) when (ex is not OperationCanceledException) { _logger.LogDebug(ex, "Could not read the Device SSH settings"); ssh = false; }
+        return verdicts with { DeviceSsh = ssh };
     }
 
-    /// <summary>The Console is UniFi OS Server, by Firmware Rollout's detection; false when it does not answer.</summary>
-    private async Task<bool> IsStandaloneConsoleAsync(CancellationToken ct)
+    /// <summary>
+    /// The Console does not learn its own new address: UniFi OS Server (Firmware Rollout's detection), or no UniFi OS
+    /// answer at all (a self-hosted Network Application, or unreadable). Only a UniFi OS console that is not a server follows by itself.
+    /// </summary>
+    private async Task<bool> ConsoleNeedsRepointAsync(CancellationToken ct)
     {
         try
         {
-            return _registry.Connection(_site.Slug).Client is { } client
-                && (await client.GetConsoleSystemInfoAsync(ct))?.IsStandaloneConsole == true;
+            var info = _registry.Connection(_site.Slug).Client is { } client ? await client.GetConsoleSystemInfoAsync(ct) : null;
+            return info == null || info.IsStandaloneConsole;
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             _logger.LogDebug(ex, "Could not read the console type for the re-address inform check");
-            return false;
+            return true;
         }
     }
 
@@ -435,12 +442,14 @@ public sealed partial class ChangeControlService
         var warnings = new List<ReaddressWarning>();
         if (inform.OverrideIp is { } ip)
             warnings.Add(new("The plan re-points devices at the Console",
-                $"It sets the Inform Host override to {ip} just before the Console's network moves. Re-address the UniFi OS Server host in the same window."));
+                $"It sets the Inform Host override to {ip} just before the Console's network moves. Re-address the Console's host in the same window."));
         var ssh = inform.Devices.Where(d => d.Route == InformRoute.SshFallback).ToList();
         if (ssh.Count > 0)
             warnings.Add(new(ssh.Count == 1 ? "A device may need set-inform" : $"{ssh.Count} devices may need set-inform",
                 $"{PlanCoordinator.NameList(ssh.Select(d => d.Name), 3)} inform to {string.Join(", ", ssh.Select(d => new Uri(d.InformUrl).Host).Distinct())}. "
-                + (ssh.Count == 1 ? "It is" : "Each is") + " re-pointed over SSH if it does not reconnect."));
+                + (inform.DeviceSsh
+                    ? (ssh.Count == 1 ? "It is" : "Each is") + " re-pointed over SSH if it does not reconnect."
+                    : "Device SSH is not configured, so the alert gives the set-inform command to run on each one that does not reconnect.")));
         return warnings;
     }
 

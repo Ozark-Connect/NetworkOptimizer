@@ -29,8 +29,11 @@ public enum InformRoute
 public sealed record InformDevice(string Mac, string Name, DeviceType Role, InformRoute Route, string InformUrl,
     string SetInformUrl, string? NewIp, string? OldIp, bool ConsoleOnLink = false);
 
-/// <summary>The verdict for every device, and the Inform Host override write the plan adds (null for none).</summary>
-public sealed record InformVerdicts(List<InformDevice> Devices, string? OverrideIp, bool ConsoleRepointed);
+/// <summary>
+/// The verdict for every device, and the Inform Host override write the plan adds (null for none).
+/// <c>DeviceSsh</c>: Device SSH is configured, so the SSH fallback can run.
+/// </summary>
+public sealed record InformVerdicts(List<InformDevice> Devices, string? OverrideIp, bool ConsoleRepointed, bool DeviceSsh = true);
 
 /// <summary>
 /// Decides, without any API call, how each device reaches the UniFi Console once a re-address applies.
@@ -44,7 +47,8 @@ public static class ReaddressInform
 
     /// <param name="devices">stat/device rows.</param>
     /// <param name="resolved">IPv4 address of each inform host name, as Network Optimizer resolves it; absent or null when it does not.</param>
-    /// <param name="standaloneConsole">The Console is UniFi OS Server (Firmware Rollout's detection).</param>
+    /// <param name="standaloneConsole">The Console does not learn its own new address: UniFi OS Server (Firmware Rollout's detection),
+    /// a self-hosted Network Application, or a Console whose type did not read.</param>
     public static InformVerdicts Classify(IEnumerable<JsonObject> devices, ConfigState live, ConfigState desired,
         IReadOnlyList<(Readdressing.Subnet Old, Readdressing.Subnet New)> map, bool standaloneConsole,
         IReadOnlyDictionary<string, uint?> resolved)
@@ -78,13 +82,15 @@ public static class ReaddressInform
             var route = !moved && ip != null ? InformRoute.NotAffected
                 : !standaloneConsole || (ip is { } g && gatewayIps.Contains(g)) ? InformRoute.FollowsAutomatically
                 : moved && repointed ? InformRoute.ConsoleRepointed
-                : isName && Served(host) && ResolvesThroughGateway(live, liveDevices.GetValueOrDefault(mac), d, role) ? InformRoute.FollowsByDns
+                : isName && Served(host) && ResolvesThroughGateway(live, liveDevices.GetValueOrDefault(mac), d, role, gatewayIps) ? InformRoute.FollowsByDns
                 : InformRoute.SshFallback;
             var newIp = StaticIp(desiredDevices.GetValueOrDefault(mac));
             var oldIp = d["ip"]?.ToString() is { Length: > 0 } now ? now : StaticIp(liveDevices.GetValueOrDefault(mac));
             var after = InformUrlAfter(url, map, isName && Served(host), ip);
+            // The new static is already in the new space; only the old address maps (a swap would map it twice).
+            var deviceAt = Readdressing.ParseIp(newIp) ?? (Readdressing.ParseIp(oldIp) is { } o ? Readdressing.MapIp(o, map) ?? o : null);
             result.Add(new InformDevice(mac, d["name"]?.ToString() is { Length: > 0 } n ? n : mac, role, route, url,
-                after, newIp, oldIp, OnLink(desired, map, newIp ?? oldIp, after)));
+                after, newIp, oldIp, OnLink(desired, deviceAt, after)));
         }
         return new InformVerdicts(result, overrideIp, repointed);
     }
@@ -108,13 +114,14 @@ public static class ReaddressInform
 
     /// <summary>
     /// The URL to set-inform after the move: an IP host is mapped; a name the gateway serves stays a name;
-    /// any other name becomes its resolved address, mapped, since the device may not resolve it.
+    /// a name that resolves into a moved subnet becomes its new address, since the device may not resolve it.
     /// </summary>
     public static string InformUrlAfter(string informUrl, IReadOnlyList<(Readdressing.Subnet Old, Readdressing.Subnet New)> map,
         bool servedName, uint? resolved)
     {
         if (!Uri.TryCreate(informUrl, UriKind.Absolute, out var uri)) return informUrl;
-        var ip = Readdressing.ParseIp(uri.Host) ?? (servedName ? null : resolved);
+        var ip = Readdressing.ParseIp(uri.Host)
+            ?? (!servedName && resolved is { } r && Readdressing.MapIp(r, map) != null ? r : null);
         if (ip is not { } at) return informUrl;
         return new UriBuilder(uri) { Host = Readdressing.Format(Readdressing.MapIp(at, map) ?? at) }.Uri.ToString();
     }
@@ -131,20 +138,19 @@ public static class ReaddressInform
             ? $"ip route add {uri.Host}/32 dev <if>; {Command(device)}"
             : Command(device);
 
-    /// <summary>The URL's host is an IP in the new subnet of the network that holds <paramref name="deviceIp"/>.</summary>
-    private static bool OnLink(ConfigState desired, IReadOnlyList<(Readdressing.Subnet Old, Readdressing.Subnet New)> map, string? deviceIp, string url)
+    /// <summary>The URL's host is an IP in the same new subnet as <paramref name="deviceAt"/>, the device's address after the move.</summary>
+    private static bool OnLink(ConfigState desired, uint? deviceAt, string url)
     {
-        if (Readdressing.ParseIp(deviceIp) is not { } at || !Uri.TryCreate(url, UriKind.Absolute, out var uri)
+        if (deviceAt is not { } at || !Uri.TryCreate(url, UriKind.Absolute, out var uri)
             || Readdressing.ParseIp(uri.Host) is not { } console) return false;
-        var mapped = Readdressing.MapIp(at, map) ?? at;
-        return desired.Get("networkconf").Any(n => Readdressing.ParseSubnet(n["ip_subnet"]?.ToString()) is { } s && s.Contains(mapped) && s.Contains(console));
+        return desired.Get("networkconf").Any(n => Readdressing.ParseSubnet(n["ip_subnet"]?.ToString()) is { } s && s.Contains(at) && s.Contains(console));
     }
 
     /// <summary>
     /// The device asks the gateway for names: the gateway itself; a static address whose DNS is a gateway
     /// address; or DHCP on a network that hands out its gateway. A DNS DNAT on the network wins over both.
     /// </summary>
-    private static bool ResolvesThroughGateway(ConfigState live, JsonObject? config, JsonObject stat, DeviceType role)
+    private static bool ResolvesThroughGateway(ConfigState live, JsonObject? config, JsonObject stat, DeviceType role, IReadOnlySet<uint> gatewayIps)
     {
         if (role == DeviceType.Gateway) return true;
         var cn = config?["config_network"] as JsonObject;
@@ -154,7 +160,7 @@ public static class ReaddressInform
         var gateway = network["ip_subnet"]?.ToString()?.Split('/')[0];
         if (cn?["type"]?.ToString() == "static" && cn["dns1"]?.ToString() is { Length: > 0 } dns
             && !live.Get("nat").Any(r => r["in_interface"]?.ToString() == ConfigState.IdOf(network) && LockoutChecker.RedirectsDns(live, r)))
-            return dns == gateway;
+            return Readdressing.ParseIp(dns) is { } d && gatewayIps.Contains(d);
         return LockoutChecker.Resolvers(live, network).FirstOrDefault() == gateway;
     }
 

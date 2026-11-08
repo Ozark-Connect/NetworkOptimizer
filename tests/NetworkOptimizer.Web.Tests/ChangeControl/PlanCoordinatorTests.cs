@@ -701,7 +701,7 @@ public sealed class PlanCoordinatorTests : IDisposable
 
         _dials.Should().Equal(("10.42.99.11", $"set-inform {InformUrl}"), ("192.168.99.11", $"set-inform {InformUrl}"));
         _bus.Published.Should().ContainSingle(e => e.Title.StartsWith("Network devices offline after"))
-            .Which.Message.Should().Contain("Re-pointed over SSH: Switch at 192.168.99.11.");
+            .Which.Message.Should().Contain("set-inform sent over SSH: Switch at 192.168.99.11.");
         (await PlanAsync(id))!.Status.Should().Be(ConfigPlanStatus.Watching);
         Writes().Should().Be(writes, "the fallback never writes to the Console");
     }
@@ -764,7 +764,56 @@ public sealed class PlanCoordinatorTests : IDisposable
 
         _dials.Should().BeEmpty();
         _bus.Published.Single(e => e.Title.StartsWith("Network devices offline after")).Message.Should()
-            .Contain($"Switch (DHCP, new address unknown): set-inform {InformUrl}");
+            .Contain($"Switch (DHCP, last at 192.168.99.11): set-inform {InformUrl}");
+    }
+
+    [Fact]
+    public async Task Readdress_OfflineDeviceWhoseInformHostDidNotMove_IsNeverDialed()
+    {
+        Ssh(configured: true, accepts: _ => true);
+        var devices = InformDevices();
+        devices[0] = devices[0] with { Route = InformRoute.NotAffected };
+        await ApplyReaddressAsync(devices: devices);
+        DeviceState(0);
+
+        await WatchToAlertAsync();
+
+        _dials.Should().BeEmpty();
+        _bus.Published.Single(e => e.Title.StartsWith("Network devices offline after")).Message.Should().NotContain("set-inform");
+    }
+
+    [Fact]
+    public async Task Readdress_GatewayWithoutGatewaySsh_IsNotDialed_AndTheAlertSaysWhy()
+    {
+        Ssh(configured: true, accepts: _ => true);
+        _plans.GatewaySshConfigured = _ => Task.FromResult(false);
+        var devices = InformDevices();
+        devices[0] = devices[0] with { Role = NetworkOptimizer.Core.Enums.DeviceType.Gateway, Name = "Gateway" };
+        await ApplyReaddressAsync(devices: devices);
+        DeviceState(0);
+
+        await WatchToAlertAsync();
+
+        _dials.Should().BeEmpty();
+        _bus.Published.Single(e => e.Title.StartsWith("Network devices offline after")).Message.Should()
+            .Contain("Gateway SSH is not configured.").And.Contain($"Gateway (10.42.99.11, or 192.168.99.11 if it never moved): set-inform {InformUrl}");
+    }
+
+    [Fact]
+    public async Task Readdress_SentAtTheOldAddressOnTheConsolesNetwork_StillGetsTheHandCommand()
+    {
+        Ssh(configured: true, accepts: host => host == "192.168.99.11");
+        var devices = InformDevices();
+        devices[0] = devices[0] with { ConsoleOnLink = true };
+        await ApplyReaddressAsync(devices: devices);
+        DeviceState(0);
+
+        await WatchToAlertAsync();
+
+        _bus.Published.Single(e => e.Title.StartsWith("Network devices offline after")).Message.Should()
+            .Contain("set-inform sent over SSH: Switch at 192.168.99.11.")
+            .And.Contain("For the rest, or one that stays offline, SSH to it")
+            .And.Contain($"ip route add 10.42.99.220/32 dev <if>; set-inform {InformUrl}");
     }
 
     [Fact]
