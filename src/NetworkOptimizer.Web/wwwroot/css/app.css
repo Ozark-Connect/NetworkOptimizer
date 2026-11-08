@@ -20209,6 +20209,30 @@ a.isp-health-hero-speed:hover {
     background: rgba(167, 139, 250, 0.15);
 }
 
+.isp-event-filter .time-btn.active.evt-ack {
+    color: var(--text-secondary);
+    background: rgba(160, 160, 168, 0.15);
+}
+
+/* Four pills share a phone's width: none breaks onto two lines, and Acknowledged shortens. */
+.isp-event-filter .time-btn {
+    white-space: nowrap;
+}
+
+.isp-event-filter .evt-label-short {
+    display: none;
+}
+
+@media (max-width: 768px) {
+    .isp-event-filter .evt-label-long {
+        display: none;
+    }
+
+    .isp-event-filter .evt-label-short {
+        display: inline;
+    }
+}
+
 .isp-event-time {
     font-size: 0.78rem;
     font-weight: 600;

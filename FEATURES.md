@@ -137,7 +137,7 @@ Time-series monitoring on your own InfluxDB, fed by SNMP polling (InfluxDB).
   - On the Per-Network RTT chart, an episode that is a route change is shaded as a path shift, in the path shift's blue, not as congestion
   - Episodes across 2 or more destination networks lower Transit Health by impact (length, breadth, depth, and time of day), shown as a **Path Congestion** row
   - Banner at the top of ISP Health while a path is being traced and for 24 hours after; dismissible, and a new episode shows again
-  - **Acknowledge** on a recurring finding that could not be pinned on a forward hop (Site Admin): it moves to **Acknowledged** and stays scored, and shows again if another target joins it, its last clean router changes, or it starts costing points
+  - **Acknowledge** on a recurring finding in one destination network that could not be pinned on a forward hop (Site Admin), on the finding or under its hop table: it moves to **Acknowledged** and stays scored, and its episodes leave the events list and the chart for an **Acknowledged** filter. It shows again if another target joins it, its last clean router changes, or it starts costing points
   - The ISP Health PDF carries the episodes: their findings and events, and a Path Traces section with each verdict and hop table
 - **Per-Network RTT** chart; BGP tool links (HE BGP Toolkit, bgp.tools, RIPEstat)
 - Starlink scoring on sky obstruction, dish loss, and outage burden, with hardware-fault caps

@@ -167,6 +167,18 @@ function buildAnnotations(events) {
                     style: { color: '#ededef', background: '#1e3a5f', fontSize: '10px' },
                 },
             });
+        } else if (e.type === 'acknowledged') {
+            // An episode of an acknowledged finding: muted, and only drawn when its pill is on.
+            xaxis.push({
+                x: noTime.toChart(new Date(e.start).getTime()),
+                x2: noTime.toChart(new Date(e.end).getTime()),
+                fillColor: '#5c5c66',
+                opacity: 0.12,
+                label: {
+                    text: e.label,
+                    style: { color: '#ededef', background: '#2a2a2e', fontSize: '10px' },
+                },
+            });
         } else if (e.type === 'unreachable') {
             xaxis.push({
                 x: noTime.toChart(new Date(e.start).getTime()),

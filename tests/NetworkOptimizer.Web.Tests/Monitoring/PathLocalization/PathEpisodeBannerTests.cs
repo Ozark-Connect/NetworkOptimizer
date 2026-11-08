@@ -62,6 +62,37 @@ public class PathEpisodeBannerTests
         joined.AckKey.Should().NotBe(alone.AckKey);
     }
 
+    private static PathEpisodeTargetView Target(string id, int? asn) =>
+        new(1, id, id, PathEpisodeTargetRole.Degraded, 12, 13, 0, 27, null, AsnNumber: asn);
+
+    [Fact]
+    public void Several_targets_in_one_network_can_be_acknowledged()
+    {
+        var finding = RecurringFindings(OnDays(1, 2, 3).Select(e => e with { Degraded = new[] { Target("a", 16509), Target("b", 16509) } })).Single();
+
+        finding.AckKey.Should().NotBeNull();
+    }
+
+    [Fact]
+    public void Targets_in_several_networks_are_never_acknowledgeable()
+    {
+        var finding = RecurringFindings(OnDays(1, 2, 3).Select(e => e with { Degraded = new[] { Target("a", 16509), Target("b", 714) } })).Single();
+
+        finding.AckKey.Should().BeNull("degradation across networks points at something they share");
+    }
+
+    [Fact]
+    public void Acknowledged_episodes_are_the_ones_of_an_acknowledged_finding()
+    {
+        var episodes = OnDays(1, 2, 3).ToList();
+        var key = RecurringFindings(episodes).Single().AckKey!;
+
+        PathEpisodePresentation.AcknowledgedEpisodeIds(episodes, new IspHealthOptions(), null, new HashSet<string> { key })
+            .Should().BeEquivalentTo(new[] { 1, 2, 3 });
+        PathEpisodePresentation.AcknowledgedEpisodeIds(episodes, new IspHealthOptions(), null, new HashSet<string>())
+            .Should().BeEmpty();
+    }
+
     [Fact]
     public void An_episode_carries_its_recurring_findings_key()
     {

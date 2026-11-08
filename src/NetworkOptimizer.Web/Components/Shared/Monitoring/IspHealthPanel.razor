@@ -953,12 +953,19 @@ else
                 <button class="time-btn evt-congestion @(_visibleEventCats.Contains(EventCategory.Congestion) ? "active" : "")" @onclick="e => ToggleEventFilterAsync(EventCategory.Congestion, e)">Congestion</button>
                 <button class="time-btn evt-shift @(_visibleEventCats.Contains(EventCategory.Shift) ? "active" : "")" @onclick="e => ToggleEventFilterAsync(EventCategory.Shift, e)">Path shifts</button>
                 <button class="time-btn evt-change @(_visibleEventCats.Contains(EventCategory.Change) ? "active" : "")" @onclick="e => ToggleEventFilterAsync(EventCategory.Change, e)">Path changes</button>
+                @if (AckedEpisodeIds.Count > 0 || _visibleEventCats.Contains(EventCategory.Acknowledged))
+                {
+                    <button class="time-btn evt-ack @(_visibleEventCats.Contains(EventCategory.Acknowledged) ? "active" : "")" @onclick="e => ToggleEventFilterAsync(EventCategory.Acknowledged, e)"
+                            data-tooltip="Episodes of acknowledged findings" data-tooltip-hover-only><span class="evt-label-long">Acknowledged</span><span class="evt-label-short">Ack'd</span></button>
+                }
             </div>
         </div>
         <div class="card-body">
             @{
+                var ackedEpisodes = AckedEpisodeIds;
                 var allEvents = EventTimeline(r, _shiftFold.TraceByShift)
-                    .Concat(_episodeEntries)
+                    .Concat(_episodeEntries.Select(e => e.EpisodeId is int id && ackedEpisodes.Contains(id)
+                        ? e with { Category = EventCategory.Acknowledged } : e))
                     .OrderBy(e => e.Time)
                     .Where(InZoomWindow).Where(InVisibleSeries).ToList();
                 var timeline = allEvents.Where(CategoryVisible).ToList();
@@ -1166,6 +1173,12 @@ else
 
     private bool IsAcknowledged(IspHealthIssue issue) => issue.AckKey is { } key && _findingAcks.Contains(key);
 
+    /// <summary>Episodes filed under Acknowledged in the events feed (and on the chart, by the endpoint).</summary>
+    private HashSet<int> AckedEpisodeIds =>
+        NetworkOptimizer.Web.Services.Monitoring.PathLocalization.PathEpisodePresentation.AcknowledgedEpisodeIds(
+            _shiftFold.Unexplained(_episodes, e => e.Id).ToList(), EpisodeOptions,
+            NetworkOptimizer.Web.Services.Monitoring.PathLocalization.PathEpisodePresentation.PointsById(_report), _findingAcks);
+
     /// <summary>The acknowledgeable recurring finding a traced episode belongs to, or null.</summary>
     private string? TraceAckKey(int episodeId)
     {
@@ -1184,6 +1197,12 @@ else
             else await FindingAcks.RestoreAsync(ackKey);
             if (acknowledged) _findingAcks.Add(ackKey);
             else _findingAcks.Remove(ackKey);
+            // The chart's bands come from the endpoint, so it refetches to move them under Acknowledged.
+            if (_chartMounted)
+            {
+                try { await JS.InvokeVoidAsync("eval", "window.__ispHealthCharts?.reload?.();"); }
+                catch { /* chart not mounted yet */ }
+            }
         }
         catch (Exception ex)
         {
@@ -2374,6 +2393,7 @@ else
         if (!_visibleEventCats.Contains(EventCategory.Congestion)) hidden.Add("'congestion'");
         if (!_visibleEventCats.Contains(EventCategory.Shift)) hidden.Add("'path-shift'");
         if (!_visibleEventCats.Contains(EventCategory.Change)) hidden.Add("'unreachable'");
+        if (!_visibleEventCats.Contains(EventCategory.Acknowledged)) hidden.Add("'acknowledged'");
         return "[" + string.Join(",", hidden) + "]";
     }
 

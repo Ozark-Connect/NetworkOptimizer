@@ -8,7 +8,9 @@ public enum EventCategory
 {
     Congestion,
     Shift,
-    Change
+    Change,
+    /// <summary>Episodes of an acknowledged finding: hidden until their pill is on.</summary>
+    Acknowledged
 }
 
 /// <summary>

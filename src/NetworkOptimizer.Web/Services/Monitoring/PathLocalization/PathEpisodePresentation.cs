@@ -101,8 +101,36 @@ public static class PathEpisodePresentation
     /// or a step on its own), else congestion under its badge.
     /// </summary>
     /// <returns>The chart event type and its label.</returns>
-    public static (string Type, string Label) ChartBand(PathEpisodeView e, ShiftFold fold) =>
-        fold.Explained.Contains(e.Id) ? ("path-shift", "Path shift") : ("congestion", BadgeLabel(e));
+    /// <param name="acknowledged">The episode belongs to an acknowledged finding: its own band, hidden by default.</param>
+    public static (string Type, string Label) ChartBand(PathEpisodeView e, ShiftFold fold, bool acknowledged = false) =>
+        fold.Explained.Contains(e.Id) ? ("path-shift", "Path shift")
+            : acknowledged ? ("acknowledged", "Acknowledged")
+            : ("congestion", BadgeLabel(e));
+
+    /// <summary>
+    /// The episodes whose recurring finding is acknowledged and still acknowledgeable, so the events feed
+    /// and the chart file them under Acknowledged. A finding that starts costing points, or spreads to a
+    /// second network, loses its key and its episodes return to Congestion.
+    /// </summary>
+    /// <param name="unexplained">Episodes no Path shift explains.</param>
+    public static HashSet<int> AcknowledgedEpisodeIds(IReadOnlyList<PathEpisodeView> unexplained, IspHealthOptions options,
+        IReadOnlyDictionary<int, int>? pointsById, IReadOnlySet<string> acknowledged)
+    {
+        if (acknowledged.Count == 0) return new();
+        var keys = Findings(unexplained, options, TimeZoneInfo.Utc, DisplayFormat.Fallback, pointsById)
+            .Select(f => f.AckKey)
+            .Where(k => k != null && acknowledged.Contains(k))
+            .ToHashSet();
+        return unexplained.Where(e => AckKeyFor(e) is { } k && keys.Contains(k)).Select(e => e.Id).ToHashSet();
+    }
+
+    /// <summary>
+    /// Every degraded target is in one destination network (by ASN; a target with none counts as its own).
+    /// Degradation across networks points at something they share, most likely the return path into your
+    /// ISP, so it is never acknowledgeable.
+    /// </summary>
+    internal static bool OneNetwork(IReadOnlyList<PathEpisodeTargetView> degraded) =>
+        degraded.Select(t => t.AsnNumber is > 0 ? $"as{t.AsnNumber}" : $"t:{t.TargetId}").Distinct().Count() <= 1;
 
     /// <summary>An episode's badge: tracing while rounds run, Ongoing while the problem outlasts them, then Congestion.</summary>
     public static string BadgeLabel(PathEpisodeView e) => e.Tracing ? "Tracing now" : e.Ongoing ? "Ongoing" : "Congestion";
@@ -156,8 +184,8 @@ public static class PathEpisodePresentation
                     LinkUrl = "#isp-events",
                     LinkText = "See the traces",
                     EpisodeId = latest.Id,
-                    // Only while it costs nothing: one that starts costing points shows again.
-                    AckKey = points == 0 ? RecurringAckKey(g.Key.Targets, g.Key.Label!) : null
+                    // Only while it costs nothing and stays in one network: either change shows it again.
+                    AckKey = points == 0 && OneNetwork(latest.Degraded) ? RecurringAckKey(g.Key.Targets, g.Key.Label!) : null
                 };
             }
         }

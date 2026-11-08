@@ -87,6 +87,7 @@ public static class IspHealthEndpoints
             IspHealthRegistry ispHealthRegistry,
             SiteContextService siteContext,
             NetworkOptimizer.Web.Services.Monitoring.PathLocalization.IPathEpisodeService pathEpisodes,
+            NetworkOptimizer.Web.Services.Monitoring.IspHealth.IIspFindingAcknowledgmentService findingAcks,
             ILoggerFactory loggerFactory,
             CancellationToken ct) =>
         {
@@ -185,9 +186,13 @@ public static class IspHealthEndpoints
                     var isPrimary = string.IsNullOrEmpty(wan) || ReferenceEquals(ispHealth, ispHealthRegistry.GetFor(siteContext.Slug, null));
                     var episodes = await pathEpisodes.GetEpisodesAsync(report.WindowStart, to ?? DateTime.UtcNow, wan, isPrimary, ct);
                     var fold = Services.Monitoring.PathLocalization.PathEpisodePresentation.FoldIntoShifts(episodes, report, ispHealth.Options);
+                    var acked = Services.Monitoring.PathLocalization.PathEpisodePresentation.AcknowledgedEpisodeIds(
+                        fold.Unexplained(episodes, e => e.Id).ToList(), ispHealth.Options,
+                        Services.Monitoring.PathLocalization.PathEpisodePresentation.PointsById(report),
+                        await findingAcks.GetAcknowledgedKeysAsync());
                     events.AddRange(episodes.Select(e =>
                     {
-                        var (type, label) = Services.Monitoring.PathLocalization.PathEpisodePresentation.ChartBand(e, fold);
+                        var (type, label) = Services.Monitoring.PathLocalization.PathEpisodePresentation.ChartBand(e, fold, acked.Contains(e.Id));
                         return (object)new
                         {
                             type,
