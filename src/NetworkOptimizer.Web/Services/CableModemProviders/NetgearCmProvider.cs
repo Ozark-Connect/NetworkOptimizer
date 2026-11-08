@@ -27,8 +27,11 @@ namespace NetworkOptimizer.Web.Services.CableModemProviders;
 /// echoed back - the first request primes the cookie jar and FetchPageAsync retries once to
 /// satisfy it). The CM2050V's .htm UI instead uses a form login: a GET to the root seeds an
 /// <c>XSRF_TOKEN</c> cookie, credentials are POSTed to <c>/goform/Login</c>, and the session is
-/// bound to the source IP. The fallback matrix tries Basic first (covers most models in one
-/// request) and form login last, remembering whichever works per config.
+/// bound to the source IP. Newer CM1000 firmware (V7.01.01) gates its .asp page behind the Genie
+/// login instead: <c>/GenieLogin.asp</c> carries a per-load <c>webToken</c>, credentials are
+/// POSTed to <c>/goform/GenieLogin</c>, and the session is again bound to the source IP. The
+/// fallback matrix tries Basic first (covers most models in one request) and the two form logins
+/// last, remembering whichever works per config.
 ///
 /// The pages also differ in how channel data is delivered: the .asp page renders the
 /// downstream/upstream tables server-side, while the .htm page ships empty tables and a
@@ -53,6 +56,8 @@ public sealed class NetgearCmProvider : ICableModemProvider
 
     private const string DefaultStatusPath = "/DocsisStatus.asp";
     private const string LoginPath = "/goform/Login";
+    private const string GenieLoginPagePath = "/GenieLogin.asp";
+    private const string GenieLoginDefaultAction = "/goform/GenieLogin";
     private const int TimeoutSeconds = 15;
     private const int MaxRetries = 3;
     private static readonly TimeSpan RetryDelay = TimeSpan.FromSeconds(1);
@@ -98,14 +103,29 @@ public sealed class NetgearCmProvider : ICableModemProvider
     private static readonly Regex XsrfCookieRx =
         new(@"XSRF_TOKEN=([^;\s]+)", RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
+    /// <summary>
+    /// How an attempt authenticates to the status page.
+    /// </summary>
+    internal enum NetgearAuth
+    {
+        /// <summary>HTTP Basic (plus the CM700's anti-CSRF cookie and the CM600's MultiLogin takeover).</summary>
+        Basic,
+
+        /// <summary>The CM2050V's form login: POST to <c>/goform/Login</c>, served with the .htm page.</summary>
+        FormLogin,
+
+        /// <summary>The Genie form login (CM1000 V7.01.01): POST to <c>/goform/GenieLogin</c>, served with the .asp page.</summary>
+        GenieLogin,
+    }
+
     private readonly ILogger<NetgearCmProvider> _logger;
 
     /// <summary>
-    /// Remembers the (status-page path, form-login) combination that last succeeded per
+    /// Remembers the (status-page path, auth style) combination that last succeeded per
     /// CmConfiguration.Id so later polls go straight to it instead of re-probing the dead
     /// extension or wrong auth style every interval.
     /// </summary>
-    private readonly ConcurrentDictionary<string, (string Path, bool FormLogin)> _attemptCache = new();
+    private readonly ConcurrentDictionary<string, (string Path, NetgearAuth Auth)> _attemptCache = new();
 
     public NetgearCmProvider(ILogger<NetgearCmProvider> logger)
     {
@@ -221,9 +241,9 @@ public sealed class NetgearCmProvider : ICableModemProvider
 
     /// <summary>
     /// Fetch the DOCSIS status page, transparently falling back across both Netgear page
-    /// extensions (.asp &lt;-&gt; .htm) AND auth styles (HTTP Basic, then a form login - POST to
-    /// /goform/Login - for models that bind the web session to the source IP, confirmed on the
-    /// CM2050V). Model number doesn't predict which combo a modem needs. A page is accepted only
+    /// extensions (.asp &lt;-&gt; .htm) AND auth styles (HTTP Basic, then the form logins for models
+    /// that bind the web session to the source IP: POST to /goform/Login on the CM2050V, and to
+    /// /goform/GenieLogin on CM1000 V7.01.01). Model number doesn't predict which combo a modem needs. A page is accepted only
     /// when it actually looks like a status
     /// page; a wrong combo that still returns HTTP 200 (e.g. a login/index page) advances to the
     /// next attempt, as does any HTTP/transport error. The last attempt's error propagates, so a
@@ -240,14 +260,17 @@ public sealed class NetgearCmProvider : ICableModemProvider
 
         for (int i = 0; i < attempts.Count; i++)
         {
-            var (path, formLogin) = attempts[i];
+            var (path, auth) = attempts[i];
             var url = BuildUrl(context, path);
             var isLast = i == attempts.Count - 1;
             try
             {
-                var html = formLogin
-                    ? await FetchViaFormLoginAsync(url, context.Dialer, context.Username, context.Password, cancellationToken)
-                    : await FetchPageAsync(url, context.Dialer, hasCreds ? context.Username : null, hasCreds ? context.Password : null, cancellationToken);
+                var html = auth switch
+                {
+                    NetgearAuth.FormLogin => await FetchViaFormLoginAsync(url, context.Dialer, context.Username, context.Password, cancellationToken),
+                    NetgearAuth.GenieLogin => await FetchViaGenieLoginAsync(url, context.Dialer, context.Username, context.Password, cancellationToken),
+                    _ => await FetchPageAsync(url, context.Dialer, hasCreds ? context.Username : null, hasCreds ? context.Password : null, cancellationToken),
+                };
 
                 // Accept only a real DocsisStatus page. A wrong extension or auth style can still
                 // return HTTP 200 with a login/index page (notably a Basic GET against a
@@ -255,7 +278,7 @@ public sealed class NetgearCmProvider : ICableModemProvider
                 if (IsStatusPage(html))
                 {
                     if (context.Id > 0)
-                        _attemptCache[context.CacheKey] = (path, formLogin);
+                        _attemptCache[context.CacheKey] = (path, auth);
                     return html;
                 }
 
@@ -263,8 +286,8 @@ public sealed class NetgearCmProvider : ICableModemProvider
                     return html;
 
                 _logger.LogDebug(
-                    "Netgear CM {Name}: {Path} (form={Form}) returned a non-status page; trying next attempt",
-                    context.Name, path, formLogin);
+                    "Netgear CM {Name}: {Path} (auth={Auth}) returned a non-status page; trying next attempt",
+                    context.Name, path, auth);
             }
             catch (HttpRequestException ex) when (!isLast)
             {
@@ -273,8 +296,8 @@ public sealed class NetgearCmProvider : ICableModemProvider
                 // unavailable path inconsistently - the wrong extension 404s on some models and
                 // closes the connection on others - so we don't gate on a specific code.
                 _logger.LogDebug(
-                    "Netgear CM {Name}: {Path} (form={Form}) failed ({Reason}); trying next attempt",
-                    context.Name, path, formLogin,
+                    "Netgear CM {Name}: {Path} (auth={Auth}) failed ({Reason}); trying next attempt",
+                    context.Name, path, auth,
                     ex.StatusCode is { } status ? $"HTTP {(int)status}" : ex.Message);
             }
         }
@@ -283,13 +306,15 @@ public sealed class NetgearCmProvider : ICableModemProvider
     }
 
     /// <summary>
-    /// Build the ordered list of (path, form-login) attempts: the configured/default path and the
+    /// Build the ordered list of (path, auth) attempts: the configured/default path and the
     /// alternate Netgear extension (.asp ↔ .htm) tried with HTTP Basic first (one request, covers
-    /// most models), then a form-login attempt on the .htm page for the newer models that need
-    /// it. Form login requires credentials to POST, so it's only added when the config has them.
-    /// The combo recorded as working for this config is moved to the front.
+    /// most models), then the form logins for the models that need them: the CM2050V login on the
+    /// .htm page and the Genie login on the .asp page. The login for the configured extension
+    /// goes last, so when every attempt fails the error that surfaces is that model's. Form logins
+    /// need credentials to POST, so they're only added when the config has them. The combo
+    /// recorded as working for this config is moved to the front.
     /// </summary>
-    private List<(string Path, bool FormLogin)> ResolveAttempts(CmPollContext context, bool fullMatrix)
+    internal List<(string Path, NetgearAuth Auth)> ResolveAttempts(CmPollContext context, bool fullMatrix)
     {
         var hasCreds = !string.IsNullOrEmpty(context.Username) && !string.IsNullOrEmpty(context.Password);
 
@@ -299,7 +324,7 @@ public sealed class NetgearCmProvider : ICableModemProvider
         // forces the full matrix on its final retry, so a combo that has genuinely stopped working
         // is still re-discovered.
         if (!fullMatrix && context.Id > 0 && _attemptCache.TryGetValue(context.CacheKey, out var cached))
-            return new List<(string Path, bool FormLogin)> { cached };
+            return new List<(string Path, NetgearAuth Auth)> { cached };
 
         var configured = string.IsNullOrWhiteSpace(context.StatusPagePath)
             ? DefaultStatusPath
@@ -311,20 +336,27 @@ public sealed class NetgearCmProvider : ICableModemProvider
             paths.Add(alternate);
 
         // Basic-auth attempts first (the CM700 also wants an anti-CSRF cookie, primed in
-        // FetchPageAsync). Then a single form-login attempt on the .htm page for models that gate
-        // it behind a /goform/Login session (confirmed on the CM2050V). Form login needs
-        // credentials to POST, so it's only added when the config has them.
-        var attempts = paths.Select(p => (Path: p, FormLogin: false)).ToList();
+        // FetchPageAsync). Then one form-login attempt per extension: /goform/Login on the .htm
+        // page (CM2050V) and /goform/GenieLogin on the .asp page (CM1000 V7.01.01).
+        var attempts = paths.Select(p => (Path: p, Auth: NetgearAuth.Basic)).ToList();
         if (hasCreds)
         {
+            var logins = new List<(string Path, NetgearAuth Auth)>();
             var htmPath = paths.FirstOrDefault(p => p.EndsWith("DocsisStatus.htm", StringComparison.OrdinalIgnoreCase));
             if (htmPath != null)
-                attempts.Add((htmPath, true));
+                logins.Add((htmPath, NetgearAuth.FormLogin));
+            var aspPath = paths.FirstOrDefault(p => p.EndsWith("DocsisStatus.asp", StringComparison.OrdinalIgnoreCase));
+            if (aspPath != null)
+                logins.Add((aspPath, NetgearAuth.GenieLogin));
+
+            if (logins.Count == 2 && logins[0].Path == configured)
+                logins.Reverse();
+            attempts.AddRange(logins);
         }
 
         if (context.Id > 0 && _attemptCache.TryGetValue(context.CacheKey, out var lastGood))
         {
-            var idx = attempts.FindIndex(a => a.Path == lastGood.Path && a.FormLogin == lastGood.FormLogin);
+            var idx = attempts.FindIndex(a => a.Path == lastGood.Path && a.Auth == lastGood.Auth);
             if (idx > 0)
             {
                 var item = attempts[idx];
@@ -432,6 +464,150 @@ public sealed class NetgearCmProvider : ICableModemProvider
         var content = await response.Content.ReadAsStringAsync(cancellationToken);
         return string.IsNullOrWhiteSpace(content) ? null : content;
     }
+
+    /// <summary>
+    /// Fetch the status page via the Genie form login seen on CM1000 firmware V7.01.01. Every
+    /// request is a raw HTTP/1.0 exchange (<see cref="LenientHttp"/>): the login answers with a
+    /// 302 carrying bytes after its headers that strict clients reject. The modem sets no session
+    /// cookie and binds the session to the source IP, so separate connections share it.
+    /// <list type="number">
+    /// <item>GET the status page. A session from an earlier poll may still be live, and then no
+    /// login runs.</item>
+    /// <item>GET <c>/GenieLogin.asp</c> and read its per-load <c>webToken</c> and form action. No
+    /// Genie form means this is not a Genie model: the step-1 page is returned for the caller to
+    /// reject.</item>
+    /// <item>POST the credentials, then GET the status page again. If that is still not the status
+    /// page, the modem refused the credentials, which surfaces as a 401.</item>
+    /// </list>
+    /// </summary>
+    internal async Task<string?> FetchViaGenieLoginAsync(
+        string statusUrl,
+        IDeviceDialer dialer,
+        string? username,
+        string? password,
+        CancellationToken cancellationToken)
+    {
+        var uri = new Uri(statusUrl);
+        var host = uri.Host;
+        var port = uri.Port > 0 ? uri.Port : 80;
+        var statusPath = string.IsNullOrEmpty(uri.PathAndQuery) ? "/" : uri.PathAndQuery;
+
+        using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeoutCts.CancelAfter(TimeSpan.FromSeconds(TimeoutSeconds));
+        var ct = timeoutCts.Token;
+
+        async Task<LenientHttp.RawHttpResponse> SendAsync(string method, string path, string? formBody)
+        {
+            var raw = await LenientHttp.RawHttpRequestAsync(
+                dialer, host, port, method, path, authHeader: null, cookie: null, formBody, ct);
+            // A connection closed or reset before any byte is a transport failure, not a page.
+            if (raw.Length == 0)
+                throw new HttpRequestException($"Netgear CM {method} {path} closed the connection without a response");
+            return LenientHttp.ParseRawHttpResponse(raw, raw.Length);
+        }
+
+        try
+        {
+            var current = await SendAsync("GET", statusPath, null);
+            if (current.StatusCode >= 400)
+                throw RawStatusError(statusPath, current.StatusCode);
+            if (current.StatusCode == 200 && IsStatusPage(current.Body))
+                return current.Body;
+
+            var loginPage = await SendAsync("GET", GenieLoginPagePath, null);
+            if (loginPage.StatusCode != 200
+                || !TryParseGenieLoginForm(loginPage.Body, out var action, out var webToken))
+            {
+                return string.IsNullOrWhiteSpace(current.Body) ? null : current.Body;
+            }
+
+            _logger.LogDebug("Netgear CM {Host}: signing in through the Genie login form", host);
+            var form = string.Join("&",
+                "loginUsername=" + Uri.EscapeDataString(username ?? ""),
+                "loginPassword=" + Uri.EscapeDataString(password ?? ""),
+                "login=1",
+                "webToken=" + Uri.EscapeDataString(webToken));
+            var loginResponse = await SendAsync("POST", ResolveGenieAction(action), form);
+            if (loginResponse.StatusCode >= 400)
+                throw RawStatusError(GenieLoginPagePath, loginResponse.StatusCode);
+
+            var after = await SendAsync("GET", statusPath, null);
+            if (after.StatusCode >= 400)
+                throw RawStatusError(statusPath, after.StatusCode);
+            if (!IsStatusPage(after.Body))
+            {
+                throw new HttpRequestException(
+                    "Netgear CM Genie login did not open the status page; the credentials were refused",
+                    inner: null,
+                    statusCode: System.Net.HttpStatusCode.Unauthorized);
+            }
+
+            return after.Body;
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            throw new HttpRequestException($"Netgear CM Genie login at {host} timed out after {TimeoutSeconds}s");
+        }
+        catch (Exception ex) when (ex is System.Net.Sockets.SocketException or IOException)
+        {
+            throw new HttpRequestException($"Netgear CM Genie login at {host} failed: {ex.Message}", ex);
+        }
+    }
+
+    /// <summary>
+    /// Read the Genie login form: the <c>webToken</c> hidden input (its value is unquoted on the
+    /// CM1000 and changes per page load) and the action of the form that holds it. Returns false
+    /// when the page has no webToken, i.e. it is not a Genie login page.
+    /// </summary>
+    internal static bool TryParseGenieLoginForm(string? html, out string action, out string webToken)
+    {
+        action = GenieLoginDefaultAction;
+        webToken = "";
+        if (string.IsNullOrWhiteSpace(html))
+            return false;
+
+        var doc = new HtmlDocument();
+        doc.LoadHtml(html);
+
+        var tokenInput = doc.DocumentNode
+            .SelectNodes("//input")
+            ?.FirstOrDefault(n => string.Equals(n.GetAttributeValue("name", ""), "webToken", StringComparison.OrdinalIgnoreCase));
+        var value = tokenInput?.GetAttributeValue("value", "").Trim().TrimEnd('/');
+        if (string.IsNullOrEmpty(value))
+            return false;
+        webToken = value;
+
+        // HtmlAgilityPack does not always nest inputs under an unclosed form, so take the form
+        // that holds the input when it does, else the page's only Genie-looking form.
+        var formNode = tokenInput!.Ancestors("form").FirstOrDefault()
+            ?? doc.DocumentNode.SelectNodes("//form")?.FirstOrDefault(f =>
+                f.GetAttributeValue("action", "").Contains("GenieLogin", StringComparison.OrdinalIgnoreCase));
+        var formAction = formNode?.GetAttributeValue("action", "").Trim();
+        if (!string.IsNullOrEmpty(formAction))
+            action = formAction;
+
+        return true;
+    }
+
+    /// <summary>
+    /// Resolve a Genie form action (absolute path, relative path, or full URL) to the path and
+    /// query to POST to, relative to the login page.
+    /// </summary>
+    internal static string ResolveGenieAction(string action)
+    {
+        var baseUri = new Uri("http://modem" + GenieLoginPagePath);
+        return Uri.TryCreate(baseUri, action, out var resolved)
+            ? resolved.PathAndQuery
+            : GenieLoginDefaultAction;
+    }
+
+    private static HttpRequestException RawStatusError(string path, int status) =>
+        new(
+            $"Netgear CM raw fetch of {path} returned HTTP {status}",
+            inner: null,
+            statusCode: Enum.IsDefined(typeof(System.Net.HttpStatusCode), status)
+                ? (System.Net.HttpStatusCode)status
+                : null);
 
     /// <summary>
     /// Fetch a page, falling back to a lenient raw-socket reader when the modem returns a
@@ -661,14 +837,7 @@ public sealed class NetgearCmProvider : ICableModemProvider
             }
 
             if (resp.StatusCode >= 400)
-            {
-                throw new HttpRequestException(
-                    $"Netgear CM raw fetch of {pathAndQuery} returned HTTP {resp.StatusCode}",
-                    inner: null,
-                    statusCode: Enum.IsDefined(typeof(System.Net.HttpStatusCode), resp.StatusCode)
-                        ? (System.Net.HttpStatusCode)resp.StatusCode
-                        : null);
-            }
+                throw RawStatusError(pathAndQuery, resp.StatusCode);
 
             return string.IsNullOrWhiteSpace(resp.Body) ? null : resp.Body;
         }

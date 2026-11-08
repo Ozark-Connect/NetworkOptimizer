@@ -393,6 +393,516 @@ public class NetgearCmProviderTests
         server.ReceivedRequests.Should().HaveCount(1);
     }
 
+    // ----- Genie form login (CM1000 V7.01.01) and the attempt matrix around it -----
+    // These run the full fallback matrix against stateful loopback fakes, so they cover both sides
+    // of the fold-in: the Genie login engages on the firmware that needs it, and the Basic and
+    // CM2050V form-login models resolve exactly as before without ever touching it.
+
+    // DocsisStatus.asp before sign-in on V7.01.01: a 200 that redirects in JavaScript.
+    private const string GenieRedirectPage =
+        "<html><head><script>top.location.href = '/GenieLogin.asp';</script></head><body></body></html>";
+
+    // The webToken value is unquoted and changes on every load, as on the reporter's modem.
+    private static string GenieLoginPage(string token) =>
+        "<html><body><form name=\"login\" method=\"post\" action=\"/goform/GenieLogin\">" +
+        "<input type=\"text\" name=\"loginUsername\" value=\"\">" +
+        "<input type=\"password\" name=\"loginPassword\" value=\"\">" +
+        $"<input type=\"hidden\" name=\"webToken\" value={token} />" +
+        "<input type=\"submit\" name=\"login\" value=\"Log In\"></form></body></html>";
+
+    // The login's 302 carries non-header bytes (NULs) after the header block; curl rejects it.
+    private static readonly byte[] GenieLogin302 = RawResponse(
+        "HTTP/1.0 302 Redirect",
+        new[] { "Server: PS HTTP Server", "Location: /GenieIndex.asp", "Set-Cookie: HttpOnly; Secure", "Connection: close" },
+        "\0\0\u0001\u0002junk");
+
+    private const string Cm2050VLoginPage =
+        "<html><body><form method=\"post\" action=\"/goform/Login?id=1248795675\">" +
+        "<input name=\"loginName\"><input name=\"loginPassword\" type=\"password\"></form></body></html>";
+
+    private static byte[] Ok(string body) => RawResponse(
+        "HTTP/1.0 200 OK",
+        new[] { "Content-Type: text/html", $"Content-Length: {Encoding.ASCII.GetByteCount(body)}", "Connection: close" },
+        body);
+
+    private static byte[] Status(int code, string reason) => RawResponse(
+        $"HTTP/1.0 {code} {reason}", new[] { "Content-Length: 0", "Connection: close" }, "");
+
+    private static CmPollContext ContextFor(FakeModemServer server, string? username, string? password, string? statusPath = null) => new()
+    {
+        Id = 1,
+        Name = "TestModem",
+        Host = "127.0.0.1",
+        Port = server.Port,
+        Username = username,
+        Password = password,
+        StatusPagePath = statusPath,
+    };
+
+    private static NetgearCmProvider NewProvider() => new(NullLogger<NetgearCmProvider>.Instance);
+
+    [Fact]
+    public async Task PollAsync_GenieFirmware_SignsInAndReadsStatusPage()
+    {
+        var modem = new FakeCm1000Genie();
+        using var server = new FakeModemServer(modem.Route);
+
+        var result = await NewProvider().PollAsync(ContextFor(server, "admin", "secret"));
+
+        result.Success.Should().BeTrue(result.FailureReason);
+        result.Stats!.DownstreamChannels.Should().ContainSingle().Which.Frequency.Should().Be(591000000);
+
+        // The CM2050V attempts were reset (as on the reporter's firmware) and did not stop the matrix.
+        server.Requests.Should().Contain(r => r.Path == "/goform/Login");
+        var post = server.Requests.Single(r => r.Method == "POST" && r.Path == "/goform/GenieLogin");
+        var form = ParseForm(post.Body);
+        form["loginUsername"].Should().Be("admin");
+        form["loginPassword"].Should().Be("secret");
+        form["login"].Should().Be("1");
+        form["webToken"].Should().Be(modem.LastToken);
+        // Raw HTTP/1.0 without Basic: the Genie session is IP-bound, not header-bound.
+        post.Head.Should().StartWith("POST /goform/GenieLogin HTTP/1.0");
+        post.Head.Should().NotContain("Authorization:");
+    }
+
+    [Fact]
+    public async Task PollAsync_GenieComboCached_LiveSessionNeedsOneRequest()
+    {
+        var modem = new FakeCm1000Genie();
+        using var server = new FakeModemServer(modem.Route);
+        var provider = NewProvider();
+        var context = ContextFor(server, "admin", "secret");
+
+        (await provider.PollAsync(context)).Success.Should().BeTrue();
+        server.Requests.Clear();
+
+        (await provider.PollAsync(context)).Success.Should().BeTrue();
+
+        // Straight to the cached Genie combo, and the live session skips the login entirely.
+        server.Requests.Should().ContainSingle()
+            .Which.Should().Match<FakeRequest>(r => r.Method == "GET" && r.Path == "/DocsisStatus.asp");
+    }
+
+    [Fact]
+    public async Task PollAsync_GenieSessionExpired_SignsInAgainWithFreshToken()
+    {
+        var modem = new FakeCm1000Genie();
+        using var server = new FakeModemServer(modem.Route);
+        var provider = NewProvider();
+        var context = ContextFor(server, "admin", "secret");
+
+        (await provider.PollAsync(context)).Success.Should().BeTrue();
+        var firstToken = modem.LastToken;
+        modem.LoggedIn = false;
+        server.Requests.Clear();
+
+        (await provider.PollAsync(context)).Success.Should().BeTrue();
+
+        server.Requests.Select(r => $"{r.Method} {r.Path}").Should().Equal(
+            "GET /DocsisStatus.asp", "GET /GenieLogin.asp", "POST /goform/GenieLogin", "GET /DocsisStatus.asp");
+        var token = ParseForm(server.Requests[2].Body)["webToken"];
+        token.Should().Be(modem.LastToken).And.NotBe(firstToken);
+    }
+
+    [Fact]
+    public async Task TestConnectionAsync_GenieWrongPassword_ReportsAuthenticationFailure()
+    {
+        var modem = new FakeCm1000Genie();
+        using var server = new FakeModemServer(modem.Route);
+
+        var (success, message) = await NewProvider().TestConnectionAsync(ContextFor(server, "admin", "wrong"));
+
+        success.Should().BeFalse();
+        message.Should().Be("Authentication failed - check username/password");
+        server.Requests.Should().Contain(r => r.Method == "POST" && r.Path == "/goform/GenieLogin");
+    }
+
+    [Fact]
+    public async Task TestConnectionAsync_GenieFirmwareWithoutCredentials_NeverAttemptsALogin()
+    {
+        var modem = new FakeCm1000Genie();
+        using var server = new FakeModemServer(modem.Route);
+
+        var (success, _) = await NewProvider().TestConnectionAsync(ContextFor(server, null, null));
+
+        success.Should().BeFalse();
+        server.Requests.Should().OnlyContain(r => r.Method == "GET" && r.Path.StartsWith("/DocsisStatus."));
+    }
+
+    [Fact]
+    public async Task PollAsync_BasicAuthModem_NeverTouchesGenieLogin()
+    {
+        // CM600-style: the .asp page answers Basic directly.
+        using var server = new FakeModemServer(r =>
+            r.Path == "/DocsisStatus.asp" && r.Head.Contains("Authorization: Basic")
+                ? Ok(ServerRenderedHtml)
+                : Status(401, "Unauthorized"));
+
+        var result = await NewProvider().PollAsync(ContextFor(server, "admin", "secret"));
+
+        result.Success.Should().BeTrue(result.FailureReason);
+        server.Requests.Should().ContainSingle().Which.Path.Should().Be("/DocsisStatus.asp");
+    }
+
+    [Fact]
+    public async Task PollAsync_Cm2050VDefaultPath_FormLoginWinsBeforeGenie()
+    {
+        var modem = new FakeCm2050V();
+        using var server = new FakeModemServer(modem.Route);
+
+        var result = await NewProvider().PollAsync(ContextFor(server, "admin", "secret"));
+
+        result.Success.Should().BeTrue(result.FailureReason);
+        server.Requests.Should().Contain(r => r.Method == "POST" && r.Path == "/goform/Login");
+        server.Requests.Should().NotContain(r => r.Path.Contains("Genie"));
+    }
+
+    [Fact]
+    public async Task PollAsync_Cm2050VHtmConfigured_GenieMissFallsThroughToFormLogin()
+    {
+        // With .htm configured the Genie attempt runs before the CM2050V login. The .asp 404 must
+        // end it before any Genie request, and the form login must still win.
+        var modem = new FakeCm2050V();
+        using var server = new FakeModemServer(modem.Route);
+
+        var result = await NewProvider().PollAsync(ContextFor(server, "admin", "secret", "/DocsisStatus.htm"));
+
+        result.Success.Should().BeTrue(result.FailureReason);
+        server.Requests.Should().Contain(r => r.Method == "POST" && r.Path == "/goform/Login");
+        server.Requests.Should().NotContain(r => r.Path.Contains("Genie"));
+    }
+
+    [Fact]
+    public async Task FetchViaGenieLoginAsync_StatusPageMissing_ThrowsItsStatusWithoutProbingLogin()
+    {
+        using var server = new FakeModemServer(_ => Status(404, "Not Found"));
+
+        Func<Task> act = () => NewProvider().FetchViaGenieLoginAsync(
+            $"http://127.0.0.1:{server.Port}/DocsisStatus.asp", DirectDeviceDialer.Instance, "admin", "secret", CancellationToken.None);
+
+        (await act.Should().ThrowAsync<HttpRequestException>()).Which.StatusCode.Should().Be(HttpStatusCode.NotFound);
+        server.Requests.Should().ContainSingle();
+    }
+
+    [Theory]
+    [InlineData(404)]
+    [InlineData(200)]
+    public async Task FetchViaGenieLoginAsync_NoGenieForm_ReturnsTheStatusPathPageWithoutPosting(int loginPageStatus)
+    {
+        using var server = new FakeModemServer(r => r.Path switch
+        {
+            "/DocsisStatus.asp" => Ok(GenieRedirectPage),
+            "/GenieLogin.asp" => loginPageStatus == 200 ? Ok("<html><form action=\"/goform/Other\"></form></html>") : Status(404, "Not Found"),
+            _ => null,
+        });
+
+        var body = await NewProvider().FetchViaGenieLoginAsync(
+            $"http://127.0.0.1:{server.Port}/DocsisStatus.asp", DirectDeviceDialer.Instance, "admin", "secret", CancellationToken.None);
+
+        body.Should().Be(GenieRedirectPage);
+        server.Requests.Should().NotContain(r => r.Method == "POST");
+    }
+
+    [Fact]
+    public async Task FetchViaGenieLoginAsync_ConnectionReset_SurfacesAsHttpRequestException()
+    {
+        using var server = new FakeModemServer(_ => null);
+
+        Func<Task> act = () => NewProvider().FetchViaGenieLoginAsync(
+            $"http://127.0.0.1:{server.Port}/DocsisStatus.asp", DirectDeviceDialer.Instance, "admin", "secret", CancellationToken.None);
+
+        (await act.Should().ThrowAsync<HttpRequestException>()).Which.StatusCode.Should().BeNull();
+    }
+
+    [Theory]
+    [InlineData("<input type=\"hidden\" name=\"webToken\" value=1789058664 />", "1789058664")]
+    [InlineData("<input type=hidden name=webToken value=1789058664/>", "1789058664")]
+    [InlineData("<input type=\"hidden\" name=\"webToken\" value=\"42\">", "42")]
+    [InlineData("<input type='hidden' name='webToken' value='43'>", "43")]
+    [InlineData("<input value=44 name=\"WEBTOKEN\" type=\"hidden\">", "44")]
+    public void TryParseGenieLoginForm_ReadsTokenQuotedOrNot(string input, string expected)
+    {
+        var html = $"<form method=\"post\" action=\"/goform/GenieLogin\">{input}</form>";
+
+        NetgearCmProvider.TryParseGenieLoginForm(html, out var action, out var token).Should().BeTrue();
+
+        token.Should().Be(expected);
+        action.Should().Be("/goform/GenieLogin");
+    }
+
+    [Theory]
+    [InlineData("<form action=\"/goform/GenieLogin?id=77\"><input name=webToken value=1></form>", "/goform/GenieLogin?id=77")]
+    [InlineData("<form action=\"goform/GenieLogin\"><input name=webToken value=1></form>", "goform/GenieLogin")]
+    [InlineData("<form method=\"post\"><input name=webToken value=1></form>", "/goform/GenieLogin")]
+    [InlineData("<input name=webToken value=1>", "/goform/GenieLogin")]
+    public void TryParseGenieLoginForm_TakesTheFormActionOrTheDefault(string html, string expectedAction)
+    {
+        NetgearCmProvider.TryParseGenieLoginForm(html, out var action, out _).Should().BeTrue();
+        action.Should().Be(expectedAction);
+    }
+
+    [Theory]
+    [InlineData("<form action=\"/goform/GenieLogin\"><input name=loginUsername></form>")]
+    [InlineData("<form action=\"/goform/GenieLogin\"><input name=webToken value=\"\"></form>")]
+    [InlineData("")]
+    [InlineData(null)]
+    public void TryParseGenieLoginForm_NoTokenIsNotAGenieForm(string? html)
+    {
+        NetgearCmProvider.TryParseGenieLoginForm(html, out _, out _).Should().BeFalse();
+    }
+
+    [Theory]
+    [InlineData("/goform/GenieLogin", "/goform/GenieLogin")]
+    [InlineData("goform/GenieLogin", "/goform/GenieLogin")]
+    [InlineData("/goform/GenieLogin?id=5", "/goform/GenieLogin?id=5")]
+    [InlineData("http://192.168.100.1/goform/GenieLogin", "/goform/GenieLogin")]
+    public void ResolveGenieAction_ResolvesAgainstTheLoginPage(string action, string expected)
+    {
+        NetgearCmProvider.ResolveGenieAction(action).Should().Be(expected);
+    }
+
+    private static CmPollContext AttemptContext(string? path, bool creds) => new()
+    {
+        Id = 1,
+        Name = "TestModem",
+        Host = "192.168.100.1",
+        StatusPagePath = path,
+        Username = creds ? "admin" : null,
+        Password = creds ? "secret" : null,
+    };
+
+    [Fact]
+    public void ResolveAttempts_AspConfigured_GenieLoginGoesLast()
+    {
+        NewProvider().ResolveAttempts(AttemptContext(null, creds: true), fullMatrix: true).Should().Equal(
+            ("/DocsisStatus.asp", NetgearCmProvider.NetgearAuth.Basic),
+            ("/DocsisStatus.htm", NetgearCmProvider.NetgearAuth.Basic),
+            ("/DocsisStatus.htm", NetgearCmProvider.NetgearAuth.FormLogin),
+            ("/DocsisStatus.asp", NetgearCmProvider.NetgearAuth.GenieLogin));
+    }
+
+    [Fact]
+    public void ResolveAttempts_HtmConfigured_FormLoginGoesLast()
+    {
+        NewProvider().ResolveAttempts(AttemptContext("/DocsisStatus.htm", creds: true), fullMatrix: true).Should().Equal(
+            ("/DocsisStatus.htm", NetgearCmProvider.NetgearAuth.Basic),
+            ("/DocsisStatus.asp", NetgearCmProvider.NetgearAuth.Basic),
+            ("/DocsisStatus.asp", NetgearCmProvider.NetgearAuth.GenieLogin),
+            ("/DocsisStatus.htm", NetgearCmProvider.NetgearAuth.FormLogin));
+    }
+
+    [Fact]
+    public void ResolveAttempts_NoCredentials_BasicOnly()
+    {
+        NewProvider().ResolveAttempts(AttemptContext(null, creds: false), fullMatrix: true).Should().Equal(
+            ("/DocsisStatus.asp", NetgearCmProvider.NetgearAuth.Basic),
+            ("/DocsisStatus.htm", NetgearCmProvider.NetgearAuth.Basic));
+    }
+
+    [Fact]
+    public void ResolveAttempts_CustomPath_NoFormLogins()
+    {
+        NewProvider().ResolveAttempts(AttemptContext("/status.html", creds: true), fullMatrix: true).Should().Equal(
+            ("/status.html", NetgearCmProvider.NetgearAuth.Basic));
+    }
+
+    [Fact]
+    public async Task ResolveAttempts_CachedGenieCombo_LeadsTheFullMatrixAndIsAloneOtherwise()
+    {
+        var modem = new FakeCm1000Genie();
+        using var server = new FakeModemServer(modem.Route);
+        var provider = NewProvider();
+        var context = ContextFor(server, "admin", "secret");
+        (await provider.PollAsync(context)).Success.Should().BeTrue();
+
+        provider.ResolveAttempts(context, fullMatrix: false).Should().Equal(
+            ("/DocsisStatus.asp", NetgearCmProvider.NetgearAuth.GenieLogin));
+        provider.ResolveAttempts(context, fullMatrix: true).Should().Equal(
+            ("/DocsisStatus.asp", NetgearCmProvider.NetgearAuth.GenieLogin),
+            ("/DocsisStatus.asp", NetgearCmProvider.NetgearAuth.Basic),
+            ("/DocsisStatus.htm", NetgearCmProvider.NetgearAuth.Basic),
+            ("/DocsisStatus.htm", NetgearCmProvider.NetgearAuth.FormLogin));
+    }
+
+    private static Dictionary<string, string> ParseForm(string body) =>
+        body.Split('&', StringSplitOptions.RemoveEmptyEntries)
+            .Select(p => p.Split('=', 2))
+            .ToDictionary(p => Uri.UnescapeDataString(p[0]), p => p.Length > 1 ? Uri.UnescapeDataString(p[1].Replace('+', ' ')) : "");
+
+    /// <summary>
+    /// CM1000 on firmware V7.01.01 as the issue describes it: .asp redirects to the Genie login
+    /// until signed in, the session is IP-bound (no cookie), the webToken changes per load, and
+    /// the .htm page and the CM2050V login endpoint reset the connection.
+    /// </summary>
+    private sealed class FakeCm1000Genie
+    {
+        private int _tokensIssued;
+        public bool LoggedIn { get; set; }
+        public string? LastToken { get; private set; }
+
+        public byte[]? Route(FakeRequest r)
+        {
+            switch (r.Method, r.Path)
+            {
+                case ("GET", "/DocsisStatus.asp"):
+                    return Ok(LoggedIn ? ServerRenderedHtml : GenieRedirectPage);
+                case ("GET", "/GenieLogin.asp"):
+                    LastToken = (1789058664 + _tokensIssued++).ToString();
+                    return Ok(GenieLoginPage(LastToken));
+                case ("POST", "/goform/GenieLogin"):
+                    var form = ParseForm(r.Body);
+                    if (form.GetValueOrDefault("loginUsername") == "admin"
+                        && form.GetValueOrDefault("loginPassword") == "secret"
+                        && form.GetValueOrDefault("login") == "1"
+                        && form.GetValueOrDefault("webToken") == LastToken)
+                    {
+                        LoggedIn = true;
+                    }
+                    return GenieLogin302;
+                case ("GET", "/"):
+                    return Ok(GenieRedirectPage);
+                default:
+                    return null;
+            }
+        }
+    }
+
+    /// <summary>
+    /// CM2050V: no .asp page, the .htm page shows a login form until /goform/Login is POSTed.
+    /// </summary>
+    private sealed class FakeCm2050V
+    {
+        private bool _loggedIn;
+
+        public byte[]? Route(FakeRequest r)
+        {
+            switch (r.Method, r.Path)
+            {
+                case ("GET", "/DocsisStatus.htm"):
+                    return Ok(_loggedIn ? Cm2050VHtml : Cm2050VLoginPage);
+                case ("GET", "/"):
+                    return Ok(Cm2050VLoginPage);
+                case ("POST", "/goform/Login"):
+                    var form = ParseForm(r.Body);
+                    _loggedIn = form.GetValueOrDefault("loginName") == "admin" && form.GetValueOrDefault("loginPassword") == "secret";
+                    return Ok("<html>ok</html>");
+                default:
+                    return Status(404, "Not Found");
+            }
+        }
+    }
+
+    private sealed record FakeRequest(string Method, string Path, string Head, string Body);
+
+    /// <summary>
+    /// Loopback HTTP server that answers each connection through a router and records every
+    /// request. A null response resets the connection (RST), as the CM1000 does on paths it lacks.
+    /// </summary>
+    private sealed class FakeModemServer : IDisposable
+    {
+        private readonly TcpListener _listener;
+        private readonly Func<FakeRequest, byte[]?> _route;
+        private readonly CancellationTokenSource _cts = new();
+        private readonly Task _loop;
+
+        public List<FakeRequest> Requests { get; } = new();
+        public int Port => ((IPEndPoint)_listener.LocalEndpoint).Port;
+
+        public FakeModemServer(Func<FakeRequest, byte[]?> route)
+        {
+            _route = route;
+            _listener = new TcpListener(IPAddress.Loopback, 0);
+            _listener.Start();
+            _loop = Task.Run(AcceptLoopAsync);
+        }
+
+        private async Task AcceptLoopAsync()
+        {
+            try
+            {
+                while (!_cts.IsCancellationRequested)
+                {
+                    var client = await _listener.AcceptTcpClientAsync(_cts.Token);
+                    try { await HandleAsync(client); }
+                    catch (IOException) { }
+                    catch (SocketException) { }
+                }
+            }
+            catch (OperationCanceledException) { }
+            catch (ObjectDisposedException) { }
+            catch (SocketException) { }
+        }
+
+        private async Task HandleAsync(TcpClient client)
+        {
+            using (client)
+            {
+                var stream = client.GetStream();
+                var data = new List<byte>();
+                var buf = new byte[4096];
+                int headEnd;
+                while ((headEnd = IndexOfHeaderEnd(data)) < 0)
+                {
+                    var n = await stream.ReadAsync(buf, _cts.Token);
+                    if (n == 0)
+                        return;
+                    data.AddRange(buf.AsSpan(0, n).ToArray());
+                }
+
+                var head = Encoding.ASCII.GetString(data.GetRange(0, headEnd).ToArray());
+                var contentLength = 0;
+                foreach (var line in head.Split("\r\n"))
+                {
+                    if (line.StartsWith("Content-Length:", StringComparison.OrdinalIgnoreCase))
+                        int.TryParse(line["Content-Length:".Length..].Trim(), out contentLength);
+                }
+                while (data.Count < headEnd + 4 + contentLength)
+                {
+                    var n = await stream.ReadAsync(buf, _cts.Token);
+                    if (n == 0)
+                        break;
+                    data.AddRange(buf.AsSpan(0, n).ToArray());
+                }
+                var body = Encoding.ASCII.GetString(data.Skip(headEnd + 4).ToArray());
+
+                var requestLine = head.Split("\r\n")[0].Split(' ');
+                var target = requestLine.Length > 1 ? requestLine[1] : "/";
+                var path = target.Split('?')[0];
+                var request = new FakeRequest(requestLine[0], path, head, body);
+                Requests.Add(request);
+
+                var response = _route(request);
+                if (response == null)
+                {
+                    client.Client.LingerState = new LingerOption(true, 0);
+                    return;
+                }
+
+                await stream.WriteAsync(response, _cts.Token);
+                await stream.FlushAsync(_cts.Token);
+            }
+        }
+
+        private static int IndexOfHeaderEnd(List<byte> data)
+        {
+            for (int i = 0; i + 3 < data.Count; i++)
+            {
+                if (data[i] == '\r' && data[i + 1] == '\n' && data[i + 2] == '\r' && data[i + 3] == '\n')
+                    return i;
+            }
+            return -1;
+        }
+
+        public void Dispose()
+        {
+            _cts.Cancel();
+            _listener.Stop();
+            try { _loop.Wait(TimeSpan.FromSeconds(2)); }
+            catch { /* shutdown best-effort */ }
+            _cts.Dispose();
+        }
+    }
+
     /// <summary>
     /// Minimal loopback HTTP server that serves a fixed list of raw (byte-exact) responses in
     /// order, one per accepted connection, and records each request it received. Lets the
