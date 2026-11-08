@@ -108,6 +108,7 @@ Track signal quality on your cable modem, fiber ONT, and cellular modems over ti
 - **Vodafone Station** - ARRIS TG3442DE
 - **Sagemcom** - F3896LG (Virgin Media Hub 5, Ziggo SmartWifi)
 - **FRITZ!Box Cable** - 6690 Cable (FRITZ!OS 8.40)
+- **UniFi Cable Internet** - through an On-Site Agent on the gateway
 
 ![Cable Modem Stats card with downstream SNR gauge, channel counts, power levels and FEC error counts](docs/images/cable-modem-stats.png)
 
@@ -117,7 +118,8 @@ Track signal quality on your cable modem, fiber ONT, and cellular modems over ti
 - **Quantum Fiber** - Q1000K SmartNID (CenturyLink)
 - **Nokia** - XS-010X-Q (Alcatel-Lucent, ALCL). GPON siblings (G-010S-P, G-010G-Q) may share the same GponForm API - untested, reports welcome
 - **Deutsche Telekom** - Glasfaser-Modem 2 (FTTH bridge mode)
-- **Realtek-based GPON sticks** (RTL960x) - ODI DFP-34X-2C2, V-SOL V2801F, T&W TWCGPON657
+- **Richerlink** - RL821GWV-D
+- **Realtek-based GPON sticks** (RTL960x) - ODI DFP-34X-2C2, ODI DFP-34X-2IY3, V-SOL V2801F, T&W TWCGPON657, Luleey LL-XS2510
 - **Zyxel GPON stick** - PMG3000-D20B (MaxLinear / T&W based)
 - **8311 community firmware XGS-PON sticks** - WAS-110 (MaxLinear PRX126), X-ONU-SFPP, WT-ONU-STICK, and other sticks running 8311
 
@@ -128,9 +130,10 @@ SFP-based ONT monitoring (modules plugged into your gateway that expose DDM opti
 **Cellular Modems** - RSRP, RSRQ, SNR, and Signal Quality charted over time with per-band, per-device series and filter badges.
 
 - **Ubiquiti** - U-LTE, U5G-Max, U5G-Backup, and the UDR-5G-Max's built-in modem (over Gateway SSH)
-- **Netgear Nighthawk** - modems and hotspots
-- **GL-iNet / Quectel** - modems and routers
+- **Netgear Nighthawk** - modems and hotspots (MR5200, M6)
+- **GL-iNet / Quectel** - modems and routers (GL-X3000, GL-XE3000, GL-X2000, GL-E750V2, GL-E5800 Mudi 7)
 - **Inseego** - FX4100 5G gateway
+- **MikroTik** - RouterOS 7 LTE/5G routers over SSH
 - **Zyxel** - NR7101, NR7102, NR7301, NR7302, NR7303, NR5103E, NR5103 v2, NR5307, FWA505, FWA510, FWA710, LTE3202, LTE5398, LTE7490
 
 Dual-connectivity mode tracks LTE and NR5G bands separately for NSA setups.
