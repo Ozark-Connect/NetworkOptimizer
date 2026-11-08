@@ -2,7 +2,6 @@ using System.Globalization;
 using System.Text;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
-using NetworkOptimizer.Core.Helpers;
 using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.Storage.Models.Identity;
 using NetworkOptimizer.Storage.Services;
@@ -583,7 +582,8 @@ public sealed partial class ChangeControlService : IChangeControlService
         (await Engine.RecomputeAsync(changeId, cancellationToken)).FirstOrDefault()?.Id ?? 0;
 
     public async Task<int?> TakeSnapshotAsync(CancellationToken cancellationToken = default) =>
-        (await Engine.TakeSnapshotAsync(ConfigSnapshotTrigger.Manual, Actor, null, cancellationToken))?.Id;
+        (await Engine.TakeSnapshotAsync(ConfigSnapshotTrigger.Manual, Actor, null, cancellationToken))?.Id
+        ?? throw new InvalidOperationException("Could not read the live config.");
 
     public Task PinSnapshotAsync(int snapshotId, CancellationToken cancellationToken = default) => SetPinAsync(snapshotId, true, cancellationToken);
 
@@ -854,7 +854,9 @@ public sealed partial class ChangeControlService : IChangeControlService
     /// </summary>
     private static PlanOptions TemplateOptions(TemplateView view) => new()
     {
-        SameSite = false, DeleteMissing = false, MergeLists = !view.ReplaceLists,
+        SameSite = false,
+        DeleteMissing = false,
+        MergeLists = !view.ReplaceLists,
         Collections = view.Collections.ToHashSet(StringComparer.OrdinalIgnoreCase),
     };
 
