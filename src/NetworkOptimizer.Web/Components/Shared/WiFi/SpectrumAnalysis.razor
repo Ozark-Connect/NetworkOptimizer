@@ -258,20 +258,7 @@
                                             @displaySignal dBm
                                         </span>
                                     </td>
-                                    <td>
-                                        @if (item.DetectedByApMacs.Count <= MaxHeardByNames)
-                                        {
-                                            @for (var i = 0; i < item.DetectedByApMacs.Count; i++)
-                                            {
-                                                @if (i > 0) { <span>, </span> }
-                                                @ApFilterButton(item.DetectedByApMacs[i], GetApName(item.DetectedByApMacs[i]))
-                                            }
-                                        }
-                                        else
-                                        {
-                                            <span data-tooltip="@string.Join(", ", item.DetectedByAps)">@item.DetectedByAps.Count APs</span>
-                                        }
-                                    </td>
+                                    <td>@HeardByCell(item)</td>
                                     <td>@FormatLastSeen(item.Network.LastSeen)</td>
                                 </tr>
                             }
@@ -375,20 +362,7 @@
                                                 @siteSignal dBm
                                             </span>
                                         </td>
-                                        <td>
-                                            @if (item.DetectedByApMacs.Count <= MaxHeardByNames)
-                                            {
-                                                @for (var i = 0; i < item.DetectedByApMacs.Count; i++)
-                                                {
-                                                    @if (i > 0) { <span>, </span> }
-                                                    @ApFilterButton(item.DetectedByApMacs[i], GetApName(item.DetectedByApMacs[i]))
-                                                }
-                                            }
-                                            else
-                                            {
-                                                <span data-tooltip="@string.Join(", ", item.DetectedByAps)">@item.DetectedByAps.Count APs</span>
-                                            }
-                                        </td>
+                                        <td>@HeardByCell(item)</td>
                                         <td>@FormatLastSeen(item.Network.LastSeen)</td>
                                     </tr>
                                 }
@@ -585,12 +559,22 @@
     .ap-filter-link {
         font-size: inherit;
         text-align: left;
+        color: var(--primary-hover);
+        text-decoration: none;
+    }
+
+    .ap-filter-link:hover:not(:disabled) {
+        color: var(--accent-color);
+        text-decoration: underline;
     }
 
     .ap-filter-link.active {
         color: var(--text-primary);
         font-weight: 600;
-        text-decoration: none;
+    }
+
+    .ap-filter-more {
+        color: var(--text-secondary);
     }
 
     .ap-filter-chip {
@@ -1194,8 +1178,32 @@
         UpdateChannelDensity();
     }
 
-    /// <summary>Heard By lists AP names up to this many; past it, a count with the names in a tooltip.</summary>
+    /// <summary>Heard By names every AP up to this many; past it, the loudest two and "+N more".</summary>
     private const int MaxHeardByNames = 3;
+
+    /// <summary>BSSIDs (lowercase) whose Heard By cell was expanded past the loudest two.</summary>
+    private readonly HashSet<string> _expandedHeardBy = new(StringComparer.OrdinalIgnoreCase);
+
+    private RenderFragment HeardByCell(RfNeighborRow item) => __builder =>
+    {
+        var macs = item.DetectedByApMacs
+            .OrderByDescending(m => item.SignalByApMac.GetValueOrDefault(m, -100))
+            .ToList();
+        var bssid = item.Network.Bssid;
+        var shown = macs.Count <= MaxHeardByNames || _expandedHeardBy.Contains(bssid) ? macs : macs.Take(2).ToList();
+        for (var i = 0; i < shown.Count; i++)
+        {
+            if (i > 0) { <span>, </span> }
+            @ApFilterButton(shown[i], GetApName(shown[i]))
+        }
+        if (shown.Count < macs.Count)
+        {
+            <span> </span>
+            <button type="button" class="btn-link ap-filter-link ap-filter-more"
+                    data-tooltip="@string.Join(", ", macs.Skip(2).Select(GetApName))"
+                    @onclick="() => _expandedHeardBy.Add(bssid)">+@(macs.Count - 2) more</button>
+        }
+    };
 
     private string GetApName(string apMac) =>
         accessPoints.FirstOrDefault(a => string.Equals(a.Mac, apMac, StringComparison.OrdinalIgnoreCase))?.Name ?? apMac;
