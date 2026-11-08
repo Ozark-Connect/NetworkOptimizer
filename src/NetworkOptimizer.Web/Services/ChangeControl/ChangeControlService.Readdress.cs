@@ -57,7 +57,7 @@ public sealed partial class ChangeControlService
 
     public async Task<ReaddressView> GetReaddressAsync(ReaddressChoices choices, CancellationToken cancellationToken = default)
     {
-        var live = await Engine.ReadLiveAsync(cancellationToken);
+        var live = await Engine.ReadLiveCheckedAsync(cancellationToken);
         var moves = Moves(live, choices);
         var errors = Readdressing.Validate(live, moves);
         var active = moves.Where(m => m.OldCidr != m.NewCidr).ToList();
@@ -91,7 +91,7 @@ public sealed partial class ChangeControlService
 
     public async Task<int> BuildReaddressPlanAsync(ReaddressChoices choices, int? replaces = null, CancellationToken cancellationToken = default)
     {
-        var live = await Engine.ReadLiveAsync(cancellationToken);
+        var live = await Engine.ReadLiveCheckedAsync(cancellationToken);
         var moves = Moves(live, choices);
         if (Readdressing.Validate(live, moves) is { Count: > 0 } errors) throw new InvalidOperationException(errors[0]);
         var active = moves.Where(m => m.OldCidr != m.NewCidr).ToList();

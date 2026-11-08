@@ -256,7 +256,7 @@ public sealed partial class ChangeControlService
         var source = await LoadVisibleSnapshotAsync(sourceSiteSlug, snapshotId, cancellationToken)
             ?? throw new InvalidOperationException("That snapshot is not available to you.");
         var (state, snap) = source;
-        var live = await Engine.ReadLiveAsync(cancellationToken);
+        var live = await Engine.ReadLiveCheckedAsync(cancellationToken);
         var sameSite = string.Equals(sourceSiteSlug, _site.Slug, StringComparison.OrdinalIgnoreCase);
         var hasGateway = live.Get("device").Any(d => IsGatewayType(d["type"]?.ToString()) && d["adopted"]?.GetValueKind() != JsonValueKind.False);
         // Phase 2 of a blank-console restore: only device config, for devices adopted since phase 1.

@@ -651,7 +651,8 @@ public sealed partial class ChangeControlService : IChangeControlService
     private async Task<ConfigState> ReadEditLiveAsync()
     {
         var watch = System.Diagnostics.Stopwatch.StartNew();
-        var live = await Engine.ReadLiveAsync(CancellationToken.None);
+        // Checked: an unread console must not be cached for EditLiveReuse as an empty base.
+        var live = await Engine.ReadLiveCheckedAsync(CancellationToken.None);
         _logger.LogDebug("Change Control Edit: read the live config of {Site} in {Ms} ms", _site.Slug, watch.ElapsedMilliseconds);
         _editLive = (_site.Slug, DateTime.UtcNow, live);
         return live;

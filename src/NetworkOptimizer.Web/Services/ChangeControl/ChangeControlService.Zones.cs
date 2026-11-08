@@ -22,7 +22,7 @@ public sealed partial class ChangeControlService
 {
     private async Task<(ZoneSetupView Board, ConfigState Live, List<NetworkOptimizer.Audit.Models.NetworkInfo> Networks)> ZoneBoardAsync(ZoneChoices choices, CancellationToken ct)
     {
-        var live = await Engine.ReadLiveAsync(ct);
+        var live = await Engine.ReadLiveCheckedAsync(ct);
         var networks = Engine.Evaluator == null ? null : await Engine.Evaluator.GetNetworksAsync(_site.Slug, live, ct);
         if (networks == null) throw new InvalidOperationException("The Security Audit could not read this site's networks. Check the UniFi Console connection.");
         return (ZoneSetup.Build(live, networks, choices.Mode, choices.Moves, choices.AddedZones, choices.Exceptions, choices.KeepZones, choices.Names), live, networks);
@@ -103,7 +103,7 @@ public sealed partial class ChangeControlService
         var state = await Engine.LoadSnapshotStateAsync(snapshotId, cancellationToken)
             ?? throw new InvalidOperationException("That snapshot is not available.");
         var snap = await Engine.Repositories.UseAsync((r, c) => r.GetSnapshotAsync(snapshotId, c), cancellationToken);
-        var live = await Engine.ReadLiveAsync(cancellationToken);
+        var live = await Engine.ReadLiveCheckedAsync(cancellationToken);
         if (!LegacyFirewallTranslator.Applies(state, live))
             throw new InvalidOperationException("Translation needs a snapshot with legacy rules and a site on the zone-based firewall.");
 

@@ -63,7 +63,7 @@ public sealed partial class ChangeControlService
 
     private async Task<int> BuildReaddressPreparePlanAsync(ReaddressChoices choices, CancellationToken cancellationToken = default)
     {
-        var live = await Engine.ReadLiveAsync(cancellationToken);
+        var live = await Engine.ReadLiveCheckedAsync(cancellationToken);
         var moving = Moves(live, choices).Where(m => m.OldCidr != m.NewCidr).Select(m => m.NetworkId).ToHashSet(StringComparer.OrdinalIgnoreCase);
         if (moving.Count == 0) throw new InvalidOperationException("No network moves: give at least one a new subnet first.");
 

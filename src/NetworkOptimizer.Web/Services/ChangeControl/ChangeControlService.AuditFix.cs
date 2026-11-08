@@ -9,7 +9,7 @@ public sealed partial class ChangeControlService
         if (!DnsFixes.Types.Contains(issueType))
             throw new InvalidOperationException("Network Optimizer cannot fix this finding for you yet.");
         // Read again now: the finding on screen can be older than the config.
-        var live = await Engine.ReadLiveAsync(cancellationToken);
+        var live = await Engine.ReadLiveCheckedAsync(cancellationToken);
         if (ZoneSetup.IsLegacy(live))
             throw new InvalidOperationException("This site still runs the legacy firewall. Fix it for me needs the zone-based firewall.");
         bool allowGuestPublicDns;
