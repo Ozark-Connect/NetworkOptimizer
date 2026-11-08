@@ -211,6 +211,7 @@
         <div class="card">
             <div class="card-header">
                 <h2 class="card-title">Neighboring Networks (@filteredNeighbors.Count)</h2>
+                @ApFilterChip()
             </div>
             <div class="card-body">
                 <div class="table-responsive">
@@ -310,6 +311,7 @@
             <div class="card">
                 <div class="card-header">
                     <h2 class="card-title">Site Access Points</h2>
+                    @ApFilterChip()
                 </div>
                 <div class="card-body">
                     <div class="table-responsive">
@@ -583,6 +585,16 @@
     .ap-filter-link {
         font-size: inherit;
         text-align: left;
+    }
+
+    .ap-filter-link.active {
+        color: var(--text-primary);
+        font-weight: 600;
+        text-decoration: none;
+    }
+
+    .ap-filter-chip {
+        margin-left: auto;
     }
 
     .spectrum-stat-card.clickable {
@@ -1191,9 +1203,25 @@
     private RenderFragment ApFilterButton(string apMac, string name) => __builder =>
     {
         var active = string.Equals(selectedApMac, apMac, StringComparison.OrdinalIgnoreCase);
-        <button type="button" class="btn-link ap-filter-link"
+        <button type="button" class="btn-link ap-filter-link @(active ? "active" : "")" aria-pressed="@(active ? "true" : "false")"
                 data-tooltip="@(active ? "Show all APs" : $"Show only what {name} hears")"
                 @onclick="() => ToggleApFilter(apMac)">@name</button>
+    };
+
+    private void ClearApFilter()
+    {
+        selectedApMac = "";
+        _currentPage = 1;
+        UpdateChannelDensity();
+    }
+
+    private RenderFragment ApFilterChip() => __builder =>
+    {
+        if (string.IsNullOrEmpty(selectedApMac)) return;
+        <button type="button" class="btn btn-sm btn-secondary ap-filter-chip" data-tooltip="Show all APs"
+                aria-label="@($"Clear the {GetApName(selectedApMac)} filter")" @onclick="ClearApFilter">
+            @GetApName(selectedApMac) <span aria-hidden="true">&times;</span>
+        </button>
     };
 
     private string GetSelectedApLabel()
@@ -1722,20 +1750,30 @@
             });
         }
 
-        // Check for wide channel interference
-        var wideChannelNetworks = filteredNeighbors
-            .Where(n => (n.Network.Width ?? 20) >= 80 )
-            .Count();
-
-        if (wideChannelNetworks > 3)
+        // Our wide radios that strong neighbors overlap, as that radio's AP hears them. Below the
+        // 802.11 preamble-detect level a neighbor does not make the radio defer, so it costs nothing.
+        var bandLabel = selectedBand.ToDisplayString();
+        foreach (var ap in accessPoints.Where(a => string.IsNullOrEmpty(selectedApMac) || a.Mac == selectedApMac))
         {
-            recommendations.Add(new HealthIssue
+            var apKey = ap.Mac.ToLowerInvariant();
+            foreach (var radio in ap.Radios.Where(r => r.Band == selectedBand && r.Channel.HasValue && (r.ChannelWidth ?? 20) >= 80))
             {
-                Severity = HealthIssueSeverity.Info,
-                Title = "Wide channel usage detected",
-                Description = $"{wideChannelNetworks} networks are using 80 MHz or wider channels. In dense environments, narrower channels (40 MHz) often perform better.",
-                Dimensions = new HashSet<HealthDimension> { HealthDimension.ChannelHealth }
-            });
+                var span = GetChannelSpan(radio.Channel!.Value, radio.ChannelWidth!.Value, radio.CenterChannel);
+                var strong = filteredNeighbors.Count(n =>
+                    n.SignalByApMac.TryGetValue(apKey, out var signal) && signal >= PreambleDetectDbm
+                    && SpansOverlap(span, GetChannelSpan(n.Network.Channel, n.Network.Width ?? 20)));
+                if (strong < WideChannelStrongNeighbors) continue;
+
+                recommendations.Add(new HealthIssue
+                {
+                    Severity = HealthIssueSeverity.Info,
+                    Title = "Wide channel usage detected",
+                    Description = $"{ap.Name} {bandLabel} uses {radio.ChannelWidth} MHz, and {strong} neighbors at {PreambleDetectDbm} dBm or stronger share part of it. A narrower channel avoids them. Run the Channel Recommendation to compare widths.",
+                    AffectedEntity = ap.Name,
+                    LinkUrl = ChannelRecommendationUrl(),
+                    Dimensions = new HashSet<HealthDimension> { HealthDimension.ChannelHealth }
+                });
+            }
         }
 
         return recommendations;
@@ -1784,7 +1822,11 @@
         public bool IsYourChannel { get; set; }
     }
 
-    private void NavigateToChannelRecommendations()
+    private void NavigateToChannelRecommendations() =>
+        NavigationManager.NavigateTo(ChannelRecommendationUrl(), forceLoad: false, replace: false);
+
+    /// <summary>The Channel Recommendation for the selected band, run on arrival.</summary>
+    private string ChannelRecommendationUrl()
     {
         var bandParam = selectedBand switch
         {
@@ -1793,7 +1835,13 @@
             RadioBand.Band6GHz => "6",
             _ => "5"
         };
-        NavigationManager.NavigateTo($"/wifi-optimizer?tab=channels&band={bandParam}&recommend=true", forceLoad: false, replace: false);
+        return $"/wifi-optimizer?tab=channels&band={bandParam}&recommend=true";
     }
+
+    /// <summary>802.11's 20 MHz preamble-detect level: a weaker neighbor does not make a radio defer.</summary>
+    private const int PreambleDetectDbm = -82;
+
+    /// <summary>A wide radio is flagged when at least this many strong neighbors overlap its span.</summary>
+    private const int WideChannelStrongNeighbors = 3;
 
 }
