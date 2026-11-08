@@ -38,6 +38,9 @@ public class AgentTunnelRegistry
     private readonly ConcurrentDictionary<int, Queue<DateTime>> _reconnects = new();
     private const int MaxReconnectsKept = 32;
 
+    // When each site last lost a registered tunnel, for WaitForReconnectAsync.
+    private readonly ConcurrentDictionary<string, DateTime> _lastDropBySite = new();
+
     /// <summary>Window <see cref="IsUnstable"/> counts reconnects over.</summary>
     public static readonly TimeSpan UnstableWindow = TimeSpan.FromMinutes(15);
 
@@ -113,10 +116,33 @@ public class AgentTunnelRegistry
             return false;
         // Stamp the drop time so the reconnect grace is measured from when the
         // tunnel actually went away, not from when it first connected.
-        _lastTunnelActivity[connection.AgentId] = DateTime.UtcNow;
+        var now = DateTime.UtcNow;
+        _lastTunnelActivity[connection.AgentId] = now;
+        _lastDropBySite[connection.SiteSlug] = now;
         return ((ICollection<KeyValuePair<int, AgentTunnelConnection>>)_connections)
             .Remove(new KeyValuePair<int, AgentTunnelConnection>(connection.AgentId, connection));
     }
+
+    /// <summary>
+    /// When the site has no registered tunnel because one dropped within <paramref name="window"/>, waits
+    /// until a tunnel registers or the window ends. True when the site has a tunnel at the end. A site that
+    /// never had a tunnel, or lost it longer ago, returns at once, so a real outage still fails fast.
+    /// </summary>
+    public async Task<bool> WaitForReconnectAsync(string siteSlug, TimeSpan window, CancellationToken ct)
+    {
+        if (GetForSite(siteSlug).Count > 0) return true;
+        if (!_lastDropBySite.TryGetValue(siteSlug, out var dropped)) return false;
+        var deadline = dropped + window;
+        while (DateTime.UtcNow < deadline)
+        {
+            var left = deadline - DateTime.UtcNow;
+            await Task.Delay(left < ReconnectPoll ? left : ReconnectPoll, ct);
+            if (GetForSite(siteSlug).Count > 0) return true;
+        }
+        return false;
+    }
+
+    private static readonly TimeSpan ReconnectPoll = TimeSpan.FromMilliseconds(200);
 
     /// <summary>Whether the agent currently holds an open tunnel.</summary>
     public bool IsConnected(int agentId) => _connections.ContainsKey(agentId);
