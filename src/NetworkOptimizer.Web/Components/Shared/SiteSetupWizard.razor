@@ -412,7 +412,10 @@
         [1] = "Name", [2] = "Console", [3] = "Agent", [4] = "Done",
     };
 
-    private int[] StepOrder => _agentFirst ? [1, 3, 2, 4] : [1, 2, 3, 4];
+    // The Name step shows the order Create Site will take: agent first when the option says so.
+    private int[] StepOrder => _agentFirst || (_step == 1 && SetupOptions.Value.ConsoleThroughAgentByDefault)
+        ? [1, 3, 2, 4]
+        : [1, 2, 3, 4];
 
     /// <summary>
     /// The console login runs through the tunnel and saves nothing until it succeeds, so on the
