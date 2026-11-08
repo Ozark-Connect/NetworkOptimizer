@@ -33,6 +33,9 @@ public sealed class RfNeighborRow
 
     /// <summary>True when any sighting, or the owning VAP, names the BSSID a site mesh backhaul VAP.</summary>
     public bool IsMeshBackhaul { get; set; }
+
+    /// <summary>True when any sighting, or the owning VAP, names the BSSID the site's UniFi Auto-Link VAP.</summary>
+    public bool IsAutoLink { get; set; }
 }
 
 /// <summary>
@@ -87,6 +90,9 @@ public static class RfEnvironmentNeighbors
         return owners;
     }
 
+    private static bool HasPrefix(string? ssid) =>
+        ssid?.StartsWith(SiteBssidLookup.AutoLinkSsidPrefix, StringComparison.OrdinalIgnoreCase) ?? false;
+
     private static List<RfNeighborRow> Flatten(
         IEnumerable<ChannelScanResult> scans,
         Func<ChannelScanResult, NeighborNetwork, bool> include,
@@ -118,6 +124,8 @@ public static class RfEnvironmentNeighbors
                 strongest.SiteAp = owners.TryGetValue(strongest.Network.Bssid, out var owner) ? owner : null;
                 strongest.IsMeshBackhaul = g.Any(n => SiteBssidLookup.IsMeshBackhaul(n.Network))
                     || (owner?.Ssid.StartsWith(SiteBssidLookup.MeshSsidPrefix, StringComparison.OrdinalIgnoreCase) ?? false);
+                strongest.IsAutoLink = !strongest.IsMeshBackhaul && (g.Any(n => HasPrefix(n.Network.Ssid) || HasPrefix(n.Network.OwnSsid))
+                    || HasPrefix(owner?.Ssid));
                 return strongest;
             })
             .ToList();

@@ -47,6 +47,19 @@ public class RfEnvironmentNeighborsTests
         var row = RfEnvironmentNeighbors.SiteAccessPoints([Scan(Ap2, "AP2", Own("02:00:00:aa:00:0a", Ap1, -50))]).Single();
 
         row.IsMeshBackhaul.Should().BeFalse();
+        row.IsAutoLink.Should().BeFalse();
+    }
+
+    [Fact]
+    public void A_hidden_beacon_owned_by_the_auto_link_vap_is_auto_link()
+    {
+        var hidden = Own("02:00:00:aa:00:0b", Ap1, -45, ownSsid: "");
+        var named = Own("02:00:00:aa:00:0b", Ap1, -75, ownSsid: "element-0123456789abcdef");
+
+        var row = RfEnvironmentNeighbors.SiteAccessPoints([Scan(Ap2, "AP2", hidden), Scan(Ap3, "AP3", named)]).Single();
+
+        row.IsAutoLink.Should().BeTrue();
+        row.IsMeshBackhaul.Should().BeFalse();
     }
 
     [Fact]

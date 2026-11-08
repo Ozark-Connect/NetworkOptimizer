@@ -331,6 +331,10 @@
                                             {
                                                 <span class="hidden-ssid">(Mesh backhaul)</span>
                                             }
+                                            else if (item.IsAutoLink)
+                                            {
+                                                <span class="hidden-ssid">(UniFi Auto-Link)</span>
+                                            }
                                             else if (!string.IsNullOrEmpty(item.Network.Ssid))
                                             {
                                                 @item.Network.Ssid

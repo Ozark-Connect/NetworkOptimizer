@@ -19,6 +19,9 @@ public sealed class SiteBssidLookup
     /// <summary>Prefix UniFi gives a mesh backhaul VAP's ESSID.</summary>
     public const string MeshSsidPrefix = "vwire-";
 
+    /// <summary>Prefix of the UniFi Auto-Link VAP's ESSID (UniFi Network's <c>x_element_essid</c>).</summary>
+    public const string AutoLinkSsidPrefix = "element-";
+
     /// <summary>How far above the base MAC's last octet a derived BSSID may sit (inclusive).</summary>
     public const int DerivedLastOctetSpan = 15;
 
