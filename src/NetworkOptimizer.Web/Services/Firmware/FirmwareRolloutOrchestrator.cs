@@ -978,11 +978,21 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         // the SSH path, which is why the unreachable-console note above is left as it is.
         // The reason is left out on purpose: in practice it is always the account, and the console's
         // own wording for it ("did not answer the backup request") reads as a timeout instead.
-        await AddBackupNoteAsync(plan, document,
-            "Our Console backup didn't run, usually due to the service account role or permissions. "
-            + "UniFi takes its own before applying an update through its API, so you do have a backup "
-            + "available if you need it.",
-            cancellationToken);
+        await AddBackupNoteAsync(plan, document, ApiBackupNote, cancellationToken);
+    }
+
+    internal const string ApiBackupNote =
+        "Our Console backup didn't run, usually due to the service account role or permissions. "
+        + "UniFi takes its own before applying an update through its API, so you do have a backup "
+        + "available if you need it.";
+
+    internal const string SshBackupNote = "No backup was taken: ours didn't run, and an SSH install skips UniFi's own.";
+
+    /// <summary>An SSH install bypasses UniFi's own pre-update backup, so the API note's promise no longer holds.</summary>
+    private static void NoteSshSkipsUniFiBackup(RolloutPlanDocument document)
+    {
+        var index = document.Notes.IndexOf(ApiBackupNote);
+        if (index >= 0) document.Notes[index] = SshBackupNote;
     }
 
     private async Task AddBackupNoteAsync(
@@ -1405,6 +1415,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
                     state.Triggered = true;
                     state.ViaSsh = true;
                     state.TriggeredAt = Now;
+                    NoteSshSkipsUniFiBackup(document);
                     _logger.LogInformation(
                         "Installing the chosen UniFi Network {Version} over SSH on site {Site}", state.TargetVersion, _siteSlug);
                     return;
@@ -1493,6 +1504,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
                 state.ViaSsh = true;
                 state.TriggeredAt = Now;
                 state.Error = null;
+                NoteSshSkipsUniFiBackup(document);
                 _logger.LogInformation("SSH Network app update accepted on site {Site}", _siteSlug);
                 return;
             }
@@ -1703,6 +1715,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         {
             state.TriggeredAt = Now;
             state.ViaSsh = true;
+            NoteSshSkipsUniFiBackup(document);
         }
         await PersistDocumentAsync(plan, document, cancellationToken);
 
@@ -2053,6 +2066,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
             document.UniFiOsUpdate.Triggered = true;
             document.UniFiOsUpdate.ViaSsh = true;
             document.UniFiOsUpdate.TriggeredAt = Now;
+            NoteSshSkipsUniFiBackup(document);
             await PersistDocumentAsync(plan, document, cancellationToken);
             _logger.LogInformation(
                 ssh.IsOk
