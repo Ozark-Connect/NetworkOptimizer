@@ -1720,7 +1720,9 @@
         var recommendations = new List<HealthIssue>();
 
         // Check for congested channels: this band's radios, one finding per channel, counting the
-        // external neighbors whose span overlaps the radio's (filteredNeighbors excludes own BSSIDs).
+        // external neighbors (filteredNeighbors excludes own BSSIDs) whose span overlaps the radio's
+        // and that an AP on the channel hears at the preamble-detect level or stronger. Another AP's
+        // sightings are not this radio's air: a 160 MHz span would otherwise collect them.
         var yourChannels = accessPoints
             .Where(ap => string.IsNullOrEmpty(selectedApMac) || ap.Mac == selectedApMac)
             .SelectMany(ap => ap.Radios
@@ -1728,16 +1730,18 @@
                 .Select(r => (Ap: ap, Radio: r)))
             .GroupBy(x => x.Radio.Channel!.Value)
             .OrderBy(g => g.Key)
-            .Select(g => g.OrderBy(x => x.Ap.Name, StringComparer.OrdinalIgnoreCase).First())
+            .Select(g => (First: g.OrderBy(x => x.Ap.Name, StringComparer.OrdinalIgnoreCase).First(),
+                ApKeys: g.Select(x => x.Ap.Mac.ToLowerInvariant()).ToHashSet()))
             .ToList();
 
-        foreach (var (ap, radio) in yourChannels)
+        foreach (var ((ap, radio), apKeys) in yourChannels)
         {
             var channel = radio.Channel!.Value;
             var width = radio.ChannelWidth ?? 20;
             var span = GetChannelSpan(channel, width, radio.CenterChannel);
             var neighborCount = filteredNeighbors
-                .Count(n => SpansOverlap(span, GetChannelSpan(n.Network.Channel, n.Network.Width ?? 20)));
+                .Count(n => n.SignalByApMac.Any(s => apKeys.Contains(s.Key) && s.Value >= PreambleDetectDbm)
+                    && SpansOverlap(span, GetChannelSpan(n.Network.Channel, n.Network.Width ?? 20)));
 
             if (neighborCount <= CongestedChannelNeighbors) continue;
 
