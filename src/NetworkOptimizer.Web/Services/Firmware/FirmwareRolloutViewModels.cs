@@ -182,6 +182,9 @@ public class RolloutPlanSummaryView
 
     /// <summary>Whether at least one step upgraded successfully.</summary>
     public bool HasSuccesses { get; set; }
+
+    /// <summary>Whether an aborted plan was stopped by an admin rather than by the rollout itself.</summary>
+    public bool StoppedByAdmin { get; set; }
 }
 
 /// <summary>

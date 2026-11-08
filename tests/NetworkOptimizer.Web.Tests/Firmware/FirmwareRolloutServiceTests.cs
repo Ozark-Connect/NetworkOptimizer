@@ -863,6 +863,28 @@ public class FirmwareRolloutServiceTests
     }
 
     [Fact]
+    public async Task GetPlanHistoryPageAsync_MarksAnAdminStopAndPages()
+    {
+        using var harness = HarnessWithTwoAps();
+        var planId = await harness.Service.SchedulePlanAsync(Settings(), RolloutHarness.Start.AddHours(6));
+        var plan = (await harness.Repository.GetPlanAsync(planId))!;
+        plan.Status = FirmwareRolloutStatus.Aborted;
+        await harness.Repository.UpdatePlanAsync(plan);
+        foreach (var step in await harness.Repository.GetStepsAsync(planId))
+        {
+            step.State = FirmwareRolloutStepState.AbortedSku;
+            step.Error = RolloutSkipReasons.RolloutAbortedPrefix + "admin stopped it";
+            await harness.Repository.UpdateStepAsync(step);
+        }
+
+        var page = await harness.Service.GetPlanHistoryPageAsync(1, 20);
+
+        page.Total.Should().Be(1);
+        page.Rows.Should().ContainSingle().Which.StoppedByAdmin.Should().BeTrue();
+        (await harness.Service.GetPlanHistoryPageAsync(2, 20)).Rows.Should().BeEmpty();
+    }
+
+    [Fact]
     public async Task GetReportAsync_SaysWhenTheRolloutIsStillSoaking()
     {
         using var harness = HarnessWithTwoAps();

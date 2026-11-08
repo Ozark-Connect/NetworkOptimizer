@@ -102,7 +102,7 @@ public class FirmwareRolloutService : IFirmwareRolloutService
         int limit = 20, CancellationToken cancellationToken = default)
     {
         var plans = await _repository.GetPlanHistoryAsync(limit, cancellationToken);
-        return plans.Select(ToSummary).ToList();
+        return await SummarizeAsync(plans, cancellationToken);
     }
 
     /// <inheritdoc />
@@ -111,7 +111,22 @@ public class FirmwareRolloutService : IFirmwareRolloutService
         var size = Math.Max(1, pageSize);
         var total = await _repository.CountPlansAsync(cancellationToken);
         var plans = await _repository.GetPlanHistoryPageAsync((Math.Max(1, page) - 1) * size, size, cancellationToken);
-        return new RolloutHistoryPage(plans.Select(ToSummary).ToList(), total);
+        return new RolloutHistoryPage(await SummarizeAsync(plans, cancellationToken), total);
+    }
+
+    /// <summary>History rows. An aborted plan's steps say whether an admin stopped it, which the plan row does not.</summary>
+    private async Task<List<RolloutPlanSummaryView>> SummarizeAsync(List<FirmwareRolloutPlan> plans, CancellationToken cancellationToken)
+    {
+        var rows = new List<RolloutPlanSummaryView>(plans.Count);
+        foreach (var plan in plans)
+        {
+            var row = ToSummary(plan);
+            if (plan.Status == FirmwareRolloutStatus.Aborted)
+                row.StoppedByAdmin = (await _repository.GetStepsAsync(plan.Id, cancellationToken))
+                    .Any(s => RolloutSkipReasons.IsAdminStop(s.State, s.Error));
+            rows.Add(row);
+        }
+        return rows;
     }
 
     private static RolloutPlanSummaryView ToSummary(FirmwareRolloutPlan plan)

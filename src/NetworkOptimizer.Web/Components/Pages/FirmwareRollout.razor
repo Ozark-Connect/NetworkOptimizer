@@ -2639,6 +2639,7 @@ else
     {
         FirmwareRolloutStatus.Scheduled or FirmwareRolloutStatus.Announced => "Scheduled",
         FirmwareRolloutStatus.SoakWait => "Soaking",
+        FirmwareRolloutStatus.Aborted when row.StoppedByAdmin => "Stopped",
         FirmwareRolloutStatus.Aborted => "Aborted",
         FirmwareRolloutStatus.Failed => "Failed",
         FirmwareRolloutStatus.Reported when row.HasFailures && !row.HasSuccesses => "Failed",
@@ -2652,6 +2653,7 @@ else
         FirmwareRolloutStatus.Reported when row.HasFailures && !row.HasSuccesses => "chip-danger",
         FirmwareRolloutStatus.Reported when row.HasFailures => "chip-warning",
         FirmwareRolloutStatus.Reported => "chip-success",
+        FirmwareRolloutStatus.Aborted when row.StoppedByAdmin => "chip-muted",
         FirmwareRolloutStatus.Aborted or FirmwareRolloutStatus.Failed => "chip-danger",
         _ => "chip-muted",
     };
