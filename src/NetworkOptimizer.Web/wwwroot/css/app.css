@@ -20210,8 +20210,16 @@ a.isp-health-hero-speed:hover {
 }
 
 .isp-event-filter .time-btn.active.evt-ack {
-    color: var(--text-secondary);
-    background: rgba(160, 160, 168, 0.15);
+    color: var(--text-primary);
+    background: rgba(160, 160, 168, 0.22);
+}
+
+/* A tap leaves :hover stuck on a phone, which made an off pill look selected. */
+@media (hover: none) {
+    .isp-event-filter .time-btn:not(.active):hover {
+        color: var(--text-secondary);
+        background: transparent;
+    }
 }
 
 /* Four pills share a phone's width: none breaks onto two lines, and Acknowledged shortens. */
