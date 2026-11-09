@@ -779,9 +779,12 @@
             @foreach (var f in _filters)
             {
                 var chipDest = f.Field == LiveTrafficField.Destination ? DestinationOf(f.Value) : null;
+                var chipClient = f.Field == LiveTrafficField.Client ? ClientOf(f.Value) : null;
+                var clientLink = chipClient != null ? LiveTrafficLinks.ClientPerformance(chipClient) : null;
                 <span class="lt-chip @(f.Exclude ? "is-exclude" : null)"
                       data-dest-name="@(chipDest != null ? f.Value : null)" data-dest-ip="@chipDest?.DestinationIp"
-                      data-dest-link="@(chipDest != null ? LiveTrafficLinks.ThreatsDrilldown(chipDest) : null)">
+                      data-dest-link="@(chipDest != null ? LiveTrafficLinks.ThreatsDrilldown(chipDest) : null)"
+                      data-client-name="@(clientLink != null ? f.Value : null)" data-client-link="@clientLink">
                     @(f.Exclude ? $"Not {FieldLabel(f.Field)}" : FieldLabel(f.Field))
                     @if (f.Field == LiveTrafficField.App)
                     {
@@ -830,6 +833,13 @@
         var rows = _historyMode ? _history?.Flows : _view?.Flows;
         return rows?.FirstOrDefault(r => string.Equals(r.Destination, value, StringComparison.OrdinalIgnoreCase)
             || string.Equals(r.DestinationIp, value, StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <summary>A shown flow from this client, for its address; null when none is shown.</summary>
+    private LiveFlowRow? ClientOf(string value)
+    {
+        var rows = _historyMode ? _history?.Flows : _view?.Flows;
+        return rows?.FirstOrDefault(r => string.Equals(r.ClientName, value, StringComparison.OrdinalIgnoreCase));
     }
 
     // ---------------------------------------------------------------- History
