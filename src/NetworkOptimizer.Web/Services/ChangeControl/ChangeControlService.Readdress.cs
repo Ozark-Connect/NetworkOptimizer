@@ -224,10 +224,18 @@ public sealed partial class ChangeControlService
             off["honeypot_enabled"] = false;
             doc.Operations.Add(new PlanOperation
             {
-                Key = op.Key + HoneypotsOffSuffix, Collection = op.Collection, Action = PlanAction.Update,
-                ObjectId = op.ObjectId, ObjectName = op.ObjectName, Body = off,
-                WriteFields = ["honeypot", "honeypot_enabled"], ChangeText = "Honeypots off until the networks move",
-                Tier = PlanTiers.Direct, Order = 1, NeedsGateway = op.NeedsGateway, ProvisionsGateway = op.ProvisionsGateway,
+                Key = op.Key + HoneypotsOffSuffix,
+                Collection = op.Collection,
+                Action = PlanAction.Update,
+                ObjectId = op.ObjectId,
+                ObjectName = op.ObjectName,
+                Body = off,
+                WriteFields = ["honeypot", "honeypot_enabled"],
+                ChangeText = "Honeypots off until the networks move",
+                Tier = PlanTiers.Direct,
+                Order = 1,
+                NeedsGateway = op.NeedsGateway,
+                ProvisionsGateway = op.ProvisionsGateway,
             });
             if (op.Body is JsonObject body && !body.ContainsKey("honeypot_enabled")) body["honeypot_enabled"] = true;
         }
@@ -356,7 +364,7 @@ public sealed partial class ChangeControlService
         var own = Plans.ManagementAddresses().Where(a => Readdressing.ParseIp(a) is { } ip && Readdressing.MapIp(ip, map) != null).Distinct().ToList();
         if (own.Count > 0)
             warnings.Add(new("Network Optimizer's host moves",
-                $"{own[0]}{(own.Count > 1 ? $" and {own.Count - 1} more" : "")}. Re-address it in the same window. Network Optimizer does not revert this plan."));
+                $"{own[0]}{(own.Count > 1 ? $" and {own.Count - 1} more" : "")}. Re-address it in the same window, or give it both addresses until every Device is back. Network Optimizer does not revert this Plan."));
 
         var mgmt = ConfigDiffEngine.ManagementNetworkIds(live);
         var managed = active.Where(m => mgmt.Contains(m.NetworkId)).Select(m => m.NetworkName).ToList();
