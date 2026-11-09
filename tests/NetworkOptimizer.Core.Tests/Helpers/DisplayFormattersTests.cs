@@ -6,6 +6,18 @@ namespace NetworkOptimizer.Core.Tests.Helpers;
 
 public class DisplayFormattersTests
 {
+    [Theory]
+    [InlineData(0.0, "<0.1 ms")]
+    [InlineData(0.04, "<0.1 ms")]
+    [InlineData(0.5, "0.5 ms")]
+    [InlineData(1.5, "1.5 ms")]
+    [InlineData(9.94, "9.9 ms")]
+    [InlineData(9.96, "10 ms")]
+    [InlineData(22.4, "22 ms")]
+    [InlineData(140.0, "140 ms")]
+    public void FormatResponseMs_HasTwoDigits(double ms, string expected) =>
+        DisplayFormatters.FormatResponseMs(ms).Should().Be(expected);
+
     #region StripDevicePrefix Tests
 
     [Theory]

@@ -346,6 +346,12 @@ public sealed class AgentTunnelConnection
     /// <summary>The conntrack accounting capability string, shared by agent and server.</summary>
     public const string ConntrackCapability = "conntrack-accounting";
 
+    /// <summary>Per-flow Live Traffic under a viewer's lease (agent: ConntrackRunner.LiveTrafficCapability).</summary>
+    public const string LiveTrafficCapability = "live-traffic";
+
+    /// <summary>Live DNS capture on the gateway (agent: DnsCapture.Capability).</summary>
+    public const string LiveDnsCapability = "live-dns";
+
     /// <summary>The UCI inform capture capability string, shared by agent and server.</summary>
     public const string UciInformCapability = "uci-inform";
 

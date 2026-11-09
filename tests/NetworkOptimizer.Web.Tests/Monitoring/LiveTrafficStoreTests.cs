@@ -1,0 +1,604 @@
+using FluentAssertions;
+using NetworkOptimizer.AgentProtocol;
+using NetworkOptimizer.UniFi.Models;
+using NetworkOptimizer.Web.Services.Monitoring.LiveTraffic;
+using Xunit;
+
+namespace NetworkOptimizer.Web.Tests.Monitoring;
+
+/// <summary>
+/// The server half of Live Traffic: what the store makes of the agent's batches, the console's
+/// labels, and a viewer's filters. Addresses are RFC 5737 / documentation ranges.
+/// </summary>
+public class LiveTrafficStoreTests
+{
+    private const string Nas = "aa:bb:cc:dd:ee:01";
+    private const string Laptop = "aa:bb:cc:dd:ee:02";
+
+    private static LiveDnsRow Lookup(DateTime at, string type, string name = "example.com", string mac = Laptop,
+        bool blocked = false, int ms = 5) =>
+        new(at, "Laptop", "192.0.2.20", name, type, "Gateway", "192.0.2.1", false, false, blocked ? "NXDOMAIN" : "NOERROR", ms, true,
+            blocked, mac);
+
+    [Fact]
+    public void LookupsOfOneNameSentTogetherAreOneRow()
+    {
+        var t = new DateTime(2026, 11, 9, 12, 0, 0, DateTimeKind.Utc);
+        var rows = LiveTrafficStore.CombineTypes(
+        [
+            Lookup(t.AddMilliseconds(40), "HTTPS", ms: 9),
+            Lookup(t.AddMilliseconds(20), "AAAA", blocked: true),
+            Lookup(t.AddMilliseconds(10), "other.example", name: "other.example"),
+            Lookup(t, "A"),
+        ]);
+
+        rows.Should().HaveCount(2);
+        rows[0].QType.Should().Be("A · AAAA · HTTPS");
+        rows[0].At.Should().Be(t.AddMilliseconds(40), "the row keeps its newest lookup's time and place");
+        rows[0].Blocked.Should().BeTrue();
+        rows[0].LatencyMs.Should().Be(9);
+        rows[1].Name.Should().Be("other.example");
+    }
+
+    [Fact]
+    public void LookupsApartOrFromAnotherClientStaySeparate()
+    {
+        var t = new DateTime(2026, 11, 9, 12, 0, 0, DateTimeKind.Utc);
+        var rows = LiveTrafficStore.CombineTypes(
+        [
+            Lookup(t.AddSeconds(10), "A"),
+            Lookup(t.AddSeconds(10), "AAAA", mac: Nas),
+            Lookup(t, "AAAA"),
+        ]);
+
+        rows.Select(r => r.QType).Should().Equal("A", "AAAA", "AAAA");
+    }
+
+    private static LiveFlow Flow(string key, string mac, string clientIp, string remote, int port, string ifname,
+        long down, long up, long totalDown = 0, string proto = "tcp", bool lan = false) => new()
+    {
+        Key = key,
+        Proto = proto,
+        ClientIp = clientIp,
+        ClientMac = mac,
+        ClientPort = 50000,
+        RemoteIp = remote,
+        RemotePort = port,
+        WanIfname = ifname,
+        Lan = lan,
+        DownBytes = down,
+        UpBytes = up,
+        TotalDownBytes = totalDown == 0 ? down : totalDown,
+        TotalUpBytes = up,
+        AgeSeconds = 30,
+    };
+
+    private static LiveTrafficStore SeededStore()
+    {
+        var store = new LiveTrafficStore();
+        store.SetSiteData(
+            [
+                new LiveClientInfo(Nas, "NAS", "192.0.2.10", "Port 9", "Main"),
+                new LiveClientInfo(Laptop, "Laptop", "192.0.2.20", "6 GHz", "Main"),
+            ],
+            ["192.0.2.1", "198.51.100.7"],
+            "Gateway",
+            new Dictionary<string, LiveRouteInfo> { ["eth4"] = new("Fiber WAN", LiveRouteKind.Wan, 2_000_000_000, 1_000_000_000) },
+            new LiveRouteInfo("Fiber WAN", LiveRouteKind.Wan, 2_000_000_000, 1_000_000_000));
+        return store;
+    }
+
+    private static LiveTrafficBatch Batch(params LiveFlow[] flows)
+    {
+        var batch = new LiveTrafficBatch { WindowSeconds = 2, TotalFlows = 1309 };
+        batch.Flows.AddRange(flows);
+        return batch;
+    }
+
+    private static LiveTrafficQuery Query(params LiveTrafficFilter[] filters) =>
+        new() { ViewerId = "test", Filters = filters };
+
+    [Fact]
+    public void RanksByDownloadRateAndNamesTheClient()
+    {
+        var store = SeededStore();
+        store.Ingest(Batch(
+            Flow("a", Laptop, "192.0.2.20", "203.0.113.5", 443, "eth4", 1_000_000, 10_000),
+            Flow("b", Nas, "192.0.2.10", "203.0.113.9", 51820, "eth4", 120_000_000, 5_000_000, totalDown: 587_000_000_000, proto: "udp")));
+
+        var view = store.BuildView(Query(), LiveTrafficState.Live);
+
+        view.Flows.Select(f => f.Key).Should().Equal("b", "a");
+        var top = view.Flows[0];
+        top.ClientName.Should().Be("NAS");
+        top.ClientVia.Should().Be("Port 9");
+        top.DownBps.Should().Be(480_000_000);
+        top.App.Should().Be("WireGuard");
+        top.DestinationSub.Should().Be("WireGuard");
+        top.Route.Should().Be("Fiber WAN");
+        view.TotalFlows.Should().Be(1309);
+    }
+
+    [Fact]
+    public void DnsAnswerNamesTheDestination()
+    {
+        var store = SeededStore();
+        var batch = Batch(Flow("a", Laptop, "192.0.2.20", "203.0.113.5", 443, "eth4", 1000, 10));
+        var dns = new LiveDnsEvent
+        {
+            AtUnixMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+            ClientIp = "192.0.2.20",
+            ServerIp = "192.0.2.1",
+            Name = "api.example.com",
+            Qtype = "A",
+            Rcode = "NOERROR",
+            LatencyMs = 4,
+            Answered = true,
+        };
+        dns.Answers.Add(new LiveDnsAnswer { Type = "A", Data = "203.0.113.5", Ttl = 300 });
+        batch.Dns.Add(dns);
+        store.Ingest(batch);
+
+        var view = store.BuildView(Query(), LiveTrafficState.Live);
+
+        view.Flows.Single().Destination.Should().Be("api.example.com");
+        view.Flows.Single().DnsDetail.Should().Contain("Gateway");
+        view.Dns.Single().Resolver.Should().Be("Gateway");
+        view.Dns.Single().Bypass.Should().BeFalse();
+    }
+
+    [Theory]
+    [InlineData(LiveFlowSort.Upload, true, new[] { "b", "a" })]
+    [InlineData(LiveFlowSort.Upload, false, new[] { "a", "b" })]
+    [InlineData(LiveFlowSort.Client, false, new[] { "a", "b" })]
+    [InlineData(LiveFlowSort.Client, true, new[] { "b", "a" })]
+    public void SortsFlowsByColumnBothWays(LiveFlowSort sort, bool descending, string[] expected)
+    {
+        var store = SeededStore();
+        store.Ingest(Batch(
+            Flow("a", Laptop, "192.0.2.20", "203.0.113.5", 443, "eth4", 9_000_000, 1_000),
+            Flow("b", Nas, "192.0.2.10", "203.0.113.9", 443, "eth4", 1_000, 9_000_000)));
+
+        var view = store.BuildView(Query() with { Sort = sort, Descending = descending }, LiveTrafficState.Live);
+
+        view.Flows.Select(f => f.Key).Should().Equal(expected);
+    }
+
+    [Fact]
+    public void SiteAddressIsBadgedAndNamesTheApp()
+    {
+        var store = SeededStore();
+        store.SetSiteAddresses([("203.0.113.77", "Branch Office"), ("2001:db8:5::/48", "Branch Office")]);
+        store.Ingest(Batch(
+            Flow("v4", Laptop, "192.0.2.20", "203.0.113.77", 40000, "eth4", 1000, 10),
+            Flow("v6", Laptop, "192.0.2.20", "2001:db8:5::10", 40001, "eth4", 1000, 10)));
+
+        var view = store.BuildView(Query(), LiveTrafficState.Live);
+
+        view.Flows.Should().OnlyContain(f => f.RemoteSite == "Branch Office" && f.App == "Branch Office");
+        view.Flows.Single(f => f.Key == "v4").Destination.Should().Be("203.0.113.77");
+    }
+
+    [Fact]
+    public void OwnerNamesAnUnnamedAddressAndPtrWins()
+    {
+        var store = SeededStore();
+        store.Ingest(Batch(
+            Flow("o", Laptop, "192.0.2.20", "203.0.113.40", 40000, "eth4", 1000, 10),
+            Flow("p", Laptop, "192.0.2.20", "203.0.113.41", 40001, "eth4", 1000, 10)));
+        store.AddressesWithoutOwner(10).Should().BeEquivalentTo(["203.0.113.40", "203.0.113.41"]);
+        store.SetOwners(new Dictionary<string, string?> { ["203.0.113.40"] = "Example Org", ["203.0.113.41"] = "Example Org" });
+        store.SetPtrNames(new Dictionary<string, string?> { ["203.0.113.40"] = null, ["203.0.113.41"] = "host.example.net" });
+
+        var view = store.BuildView(Query(), LiveTrafficState.Live);
+
+        view.Flows.Single(f => f.Key == "o").Destination.Should().Be("Example Org");
+        view.Flows.Single(f => f.Key == "p").Destination.Should().Be("host.example.net");
+        view.Flows.Should().OnlyContain(f => f.App == "Example Org" && f.RemoteOrg == "Example Org");
+    }
+
+    [Fact]
+    public void ResolverOnTheSameSwitchPortIsNotABypass()
+    {
+        const string resolverMac = "aa:bb:cc:dd:ee:53";
+        const string hostMac = "aa:bb:cc:dd:ee:54";
+        var store = new LiveTrafficStore();
+        store.SetSiteData(
+            [
+                new LiveClientInfo(Laptop, "Laptop", "192.0.2.20", "6 GHz", "Main"),
+                new LiveClientInfo(resolverMac, "Pi-hole", "198.51.100.53", "Port 10", "DNS", "aa:bb:cc:00:00:01", 10),
+                new LiveClientInfo(hostMac, "Host", "192.0.2.53", "Port 10", "Main", "aa:bb:cc:00:00:01", 10),
+            ],
+            ["192.0.2.1"], "Gateway", new Dictionary<string, LiveRouteInfo>(), null);
+        var batch = Batch(Flow("up", hostMac, "192.0.2.53", "203.0.113.9", 853, "eth4", 1000, 1000));
+        batch.Dns.Add(new LiveDnsEvent
+        {
+            AtUnixMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+            ClientIp = "192.0.2.20",
+            ServerIp = "198.51.100.53",
+            Name = "a.example",
+            Qtype = "A",
+            Rcode = "NOERROR",
+            Answered = true,
+        });
+        store.Ingest(batch);
+
+        var view = store.BuildView(Query(), LiveTrafficState.Live);
+
+        var up = view.Flows.Single();
+        up.EncryptedDns.Should().BeTrue();
+        up.DnsBypass.Should().BeFalse();
+        view.Dns.Should().Contain(d => d.Encrypted && !d.Bypass);
+    }
+
+    [Theory]
+    [InlineData("NXDOMAIN", null, true)]
+    [InlineData("NOERROR", "0.0.0.0", true)]
+    [InlineData("NOERROR", "::", true)]
+    [InlineData("NOERROR", "203.0.113.5", false)]
+    public void NullAddressAnswerCountsAsBlocked(string rcode, string? answer, bool blocked)
+    {
+        var e = new LiveDnsEvent { Rcode = rcode, Answered = true, Qtype = answer == "::" ? "AAAA" : "A" };
+        if (answer != null) e.Answers.Add(new LiveDnsAnswer { Type = answer.Contains(':') ? "AAAA" : "A", Data = answer, Ttl = 60 });
+
+        LiveTrafficStore.IsBlocked(e).Should().Be(blocked);
+    }
+
+    [Fact]
+    public void BackfillStepsBackUntilTheOldestUnmatchedFlowIsCovered()
+    {
+        var store = SeededStore();
+        var old = Flow("vpn", Nas, "192.0.2.10", "203.0.113.9", 51820, "eth4", 1000, 1000, proto: "udp");
+        old.AgeSeconds = (long)TimeSpan.FromMinutes(55).TotalSeconds;
+        store.Ingest(Batch(old));
+        var now = DateTime.UtcNow;
+        store.NextBackfillWindow(now).Should().BeNull("nothing is read back before the first console read");
+        store.MergeUniFiFlows([]);
+        store.MergeUniFiFlows([new UniFiTrafficFlow { Time = new DateTimeOffset(now).ToUnixTimeMilliseconds() }]);
+
+        var windows = new List<(DateTime From, DateTime To)>();
+        while (store.NextBackfillWindow(now) is { } w) windows.Add(w);
+
+        windows.Should().HaveCount(3, "30 to 40, 40 to 50, and 50 to 56 minutes back");
+        windows[0].To.Should().Be(now - TimeSpan.FromMinutes(30));
+        windows[^1].From.Should().BeCloseTo(now - TimeSpan.FromMinutes(56), TimeSpan.FromSeconds(2));
+    }
+
+    [Fact]
+    public void ParallelStreamsToOneDestinationAreOneRow()
+    {
+        var store = SeededStore();
+        var a = Flow("s1", Laptop, "192.0.2.20", "203.0.113.5", 443, "eth4", 3_000_000, 10_000);
+        var b = Flow("s2", Laptop, "192.0.2.20", "203.0.113.5", 443, "eth4", 1_000_000, 10_000);
+        b.ClientPort = 50001;
+        var other = Flow("x", Laptop, "192.0.2.20", "203.0.113.6", 443, "eth4", 500_000, 10_000);
+        other.ClientPort = 50002;
+        store.Ingest(Batch(a, b, other));
+
+        var view = store.BuildView(Query(), LiveTrafficState.Live);
+
+        view.Flows.Should().HaveCount(2);
+        var bundle = view.Flows.Single(f => f.Streams == 2);
+        bundle.DownBps.Should().Be(16_000_000, "4 MB over a 2 s window, summed");
+        bundle.TotalDownBytes.Should().Be(4_000_000);
+        view.Flows.Single(f => f.Streams == 1).DestinationIp.Should().Be("203.0.113.6");
+        view.MatchingFlows.Should().Be(3, "the count is still of flows");
+    }
+
+    [Fact]
+    public void InterVlanPeerIsNamedAsTheClientItIs()
+    {
+        var store = SeededStore();
+        var batch = Batch(Flow("lan", Laptop, "192.0.2.20", "192.0.2.10", 445, "", 1_000_000, 10_000, lan: true));
+        var dns = new LiveDnsEvent
+        {
+            AtUnixMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+            ClientIp = "192.0.2.20",
+            ServerIp = "192.0.2.1",
+            Name = "nas.home.example",
+            Qtype = "A",
+            Rcode = "NOERROR",
+            Answered = true,
+        };
+        dns.Answers.Add(new LiveDnsAnswer { Type = "A", Data = "192.0.2.10", Ttl = 300 });
+        batch.Dns.Add(dns);
+        store.Ingest(batch);
+
+        var row = store.BuildView(Query(), LiveTrafficState.Live).Flows.Single();
+
+        row.Destination.Should().Be("NAS", "the UniFi name wins over local DNS");
+        row.RemoteClientMac.Should().Be(Nas);
+        row.RemoteClientVia.Should().Be("Port 9");
+        row.RemoteNetwork.Should().Be("Main");
+        row.DnsDetail.Should().Contain("Gateway", "the lookup is still shown in the detail");
+    }
+
+    [Fact]
+    public void GatewayTunnelIsLeftOutOfWhereItGoes()
+    {
+        var store = SeededStore();
+        var tunnel = Flow("wg", "", "198.51.100.7", "203.0.113.20", 51820, "eth4", 5_000_000, 5_000_000, proto: "udp");
+        tunnel.Gateway = true;
+        store.Ingest(Batch(tunnel, Flow("web", Laptop, "192.0.2.20", "203.0.113.5", 443, "eth4", 1_000_000, 10_000)));
+
+        var view = store.BuildView(Query(), LiveTrafficState.Live);
+
+        view.Flows.Should().Contain(f => f.Key == "wg", "the table keeps the tunnel");
+        view.Sankey!.Nodes.Should().NotContain(n => n.Name == "WireGuard");
+        view.Sankey.Nodes.Should().Contain(n => n.Name == "Laptop");
+        view.Clients.Should().Be(1, "the gateway is not a client");
+    }
+
+    [Fact]
+    public void ClientEncryptedDnsIsABypass()
+    {
+        var store = SeededStore();
+        store.Ingest(Batch(Flow("dot", Laptop, "192.0.2.20", "203.0.113.9", 853, "eth4", 1000, 1000)));
+
+        var view = store.BuildView(Query(), LiveTrafficState.Live);
+
+        view.Flows.Single().DnsBypass.Should().BeTrue();
+        view.BypassingClients.Should().Be(1);
+    }
+
+    [Fact]
+    public void SiteResolverEncryptedUpstreamIsNotABypass()
+    {
+        var store = SeededStore();
+        var batch = Batch(Flow("dot", Nas, "192.0.2.10", "203.0.113.9", 853, "eth4", 1000, 1000));
+        batch.Dns.Add(new LiveDnsEvent
+        {
+            AtUnixMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+            ClientIp = "192.0.2.20",
+            ClientMac = Laptop,
+            ServerIp = "192.0.2.10",
+            Name = "a.example",
+            Qtype = "A",
+            Rcode = "NOERROR",
+            Answered = true,
+        });
+        store.Ingest(batch);
+
+        var view = store.BuildView(Query(), LiveTrafficState.Live);
+
+        view.Flows.Single().DnsBypass.Should().BeFalse();
+        view.BypassingClients.Should().Be(0);
+    }
+
+    [Fact]
+    public void SiteResolverPlainUpstreamIsABypass()
+    {
+        var store = SeededStore();
+        var batch = Batch();
+        foreach (var (client, server) in new[] { ("192.0.2.20", "192.0.2.10"), ("192.0.2.10", "203.0.113.53") })
+        {
+            batch.Dns.Add(new LiveDnsEvent
+            {
+                AtUnixMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                ClientIp = client,
+                ServerIp = server,
+                Name = "a.example",
+                Qtype = "A",
+                Rcode = "NOERROR",
+                Answered = true,
+            });
+        }
+        store.Ingest(batch);
+
+        var view = store.BuildView(Query() with { DnsMode = LiveDnsMode.Bypass }, LiveTrafficState.Live);
+
+        view.Dns.Should().ContainSingle().Which.ClientIp.Should().Be("192.0.2.10");
+    }
+
+    [Fact]
+    public void OutsideResolverIsABypass()
+    {
+        var store = SeededStore();
+        var batch = Batch();
+        batch.Dns.Add(new LiveDnsEvent
+        {
+            AtUnixMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+            ClientIp = "192.0.2.20",
+            ClientMac = Laptop,
+            ServerIp = "203.0.113.53",
+            Name = "a.example",
+            Qtype = "A",
+            Rcode = "NOERROR",
+            Answered = true,
+        });
+        store.Ingest(batch);
+
+        var view = store.BuildView(Query() with { DnsMode = LiveDnsMode.Bypass }, LiveTrafficState.Live);
+
+        view.Dns.Should().ContainSingle().Which.ClientName.Should().Be("Laptop");
+        view.BypassingClients.Should().Be(1);
+    }
+
+    [Fact]
+    public void UniFiFlowLabelsAppPolicyAndTeachesTheTunnelName()
+    {
+        var store = SeededStore();
+        store.MergeUniFiFlows(
+        [
+            new UniFiTrafficFlow
+            {
+                Protocol = "TCP",
+                FlowStartTime = DateTimeOffset.UtcNow.AddMinutes(-3).ToUnixTimeMilliseconds(),
+                Source = new UniFiTrafficFlowEndpoint { Ip = "192.0.2.20", Port = 50000 },
+                Destination = new UniFiTrafficFlowEndpoint { Ip = "203.0.113.70", Port = 443 },
+                Out = new UniFiTrafficFlowNetwork { NetworkName = "VPN Exit" },
+                Policies = [new UniFiTrafficFlowPolicy { Name = "Allow All Traffic", Type = "FIREWALL" }],
+            },
+        ]);
+        store.Ingest(Batch(
+            Flow("a", Laptop, "192.0.2.20", "203.0.113.70", 443, "wgclt1", 1000, 10),
+            Flow("b", Laptop, "192.0.2.20", "203.0.113.71", 443, "wgclt1", 500, 10)));
+
+        var view = store.BuildView(Query(), LiveTrafficState.Live);
+
+        var matched = view.Flows.Single(f => f.Key == "a");
+        matched.PolicyName.Should().Be("Allow All Traffic");
+        matched.Route.Should().Be("VPN Exit");
+        matched.RouteKind.Should().Be(LiveRouteKind.Vpn);
+        matched.StartedIsUpperBound.Should().BeFalse();
+        view.Flows.Single(f => f.Key == "b").Route.Should().Be("VPN Exit", "one matched flow names the interface for all");
+    }
+
+    [Fact]
+    public void ConsoleRecordForAnotherConnectionDoesNotDateThisOne()
+    {
+        var store = SeededStore();
+        store.MergeUniFiFlows(
+        [
+            new UniFiTrafficFlow
+            {
+                Protocol = "TCP",
+                FlowStartTime = DateTimeOffset.UtcNow.AddMinutes(-45).ToUnixTimeMilliseconds(),
+                Source = new UniFiTrafficFlowEndpoint { Ip = "192.0.2.20", Port = 41000 },
+                Destination = new UniFiTrafficFlowEndpoint { Ip = "203.0.113.5", Port = 443 },
+            },
+        ]);
+        store.Ingest(Batch(Flow("a", Laptop, "192.0.2.20", "203.0.113.5", 443, "eth4", 1000, 10)));
+
+        var row = store.BuildView(Query(), LiveTrafficState.Live).Flows.Single();
+
+        row.Started.Should().BeCloseTo(DateTime.UtcNow.AddSeconds(-30), TimeSpan.FromSeconds(5), "the kernel's age is the flow's own");
+    }
+
+    [Fact]
+    public void ClientScopeMatchesByMacOrAnyOfItsAddresses()
+    {
+        var store = SeededStore();
+        store.Ingest(Batch(
+            Flow("a", Laptop, "192.0.2.20", "203.0.113.5", 443, "eth4", 1000, 10),
+            Flow("b", Nas, "192.0.2.10", "203.0.113.9", 443, "eth4", 5000, 10),
+            // The laptop's IPv6 address, which the console's IP map does not hold.
+            Flow("c", "", "2001:db8::20", "2001:db8:ff::5", 443, "eth4", 2000, 20),
+            // A VPN peer the console knows only by its tunnel address.
+            Flow("v", "", "192.0.2.200", "203.0.113.7", 443, "eth4", 3000, 30)));
+
+        var laptop = store.BuildView(Query() with { Client = new LiveClientScope(Laptop, ["2001:db8::20"]) }, LiveTrafficState.Live);
+        laptop.Flows.Select(f => f.Key).Should().BeEquivalentTo("a", "c");
+        laptop.MatchingFlows.Should().Be(2);
+        laptop.MatchingDownBps.Should().Be((1000 + 2000) * 8 / 2);
+        laptop.MatchingUpBps.Should().Be((10 + 20) * 8 / 2);
+
+        store.BuildView(Query() with { Client = new LiveClientScope("AA-BB-CC-DD-EE-02", []) }, LiveTrafficState.Live)
+            .Flows.Select(f => f.Key).Should().Equal("a");
+        store.BuildView(Query() with { Client = new LiveClientScope(null, ["192.0.2.200"]) }, LiveTrafficState.Live)
+            .Flows.Select(f => f.Key).Should().Equal("v");
+        // Filters still apply inside the scope.
+        store.BuildView(Query(new LiveTrafficFilter(LiveTrafficField.Destination, "2001:db8:ff::5", Exclude: true))
+                with { Client = new LiveClientScope(Laptop, ["2001:db8::20"]) }, LiveTrafficState.Live)
+            .Flows.Select(f => f.Key).Should().Equal("a");
+    }
+
+    [Fact]
+    public void ClientScopeKeepsOnlyTheClientsLookups()
+    {
+        var store = SeededStore();
+        var batch = Batch(Flow("a", Laptop, "192.0.2.20", "203.0.113.5", 443, "eth4", 1000, 10));
+        foreach (var (ip, name) in new[] { ("192.0.2.20", "v4.example.com"), ("2001:db8::20", "v6.example.com"), ("192.0.2.10", "nas.example.com") })
+        {
+            batch.Dns.Add(new LiveDnsEvent
+            {
+                AtUnixMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                ClientIp = ip,
+                ServerIp = "192.0.2.1",
+                Name = name,
+                Qtype = "A",
+                Rcode = "NOERROR",
+                LatencyMs = 4,
+                Answered = true,
+            });
+        }
+        store.Ingest(batch);
+
+        var view = store.BuildView(Query() with { Client = new LiveClientScope(Laptop, ["2001:db8::20"]) }, LiveTrafficState.Live);
+
+        view.Dns.Select(d => d.Name).Should().BeEquivalentTo("v4.example.com", "v6.example.com");
+        // A lookup from an address in the console's map carries the client's MAC, so the Client filter matches it by MAC.
+        view.Dns.Single(d => d.Name == "v4.example.com").ClientMac.Should().Be(Laptop);
+        store.BuildView(Query(new LiveTrafficFilter(LiveTrafficField.Client, Nas)), LiveTrafficState.Live)
+            .Dns.Select(d => d.Name).Should().Equal("nas.example.com");
+    }
+
+    [Fact]
+    public void FiltersKeepAndExclude()
+    {
+        var store = SeededStore();
+        store.Ingest(Batch(
+            Flow("a", Laptop, "192.0.2.20", "203.0.113.5", 443, "eth4", 1000, 10),
+            Flow("b", Nas, "192.0.2.10", "203.0.113.9", 51820, "eth4", 2000, 10, proto: "udp")));
+
+        store.BuildView(Query(new LiveTrafficFilter(LiveTrafficField.Client, "Laptop")), LiveTrafficState.Live)
+            .Flows.Select(f => f.Key).Should().Equal("a");
+        store.BuildView(Query(new LiveTrafficFilter(LiveTrafficField.App, "WireGuard", Exclude: true)), LiveTrafficState.Live)
+            .Flows.Select(f => f.Key).Should().Equal("a");
+        store.BuildView(Query() with { Search = "51820" }, LiveTrafficState.Live)
+            .Flows.Select(f => f.Key).Should().Equal("b");
+        store.BuildView(Query(new LiveTrafficFilter(LiveTrafficField.Protocol, "UDP")), LiveTrafficState.Live)
+            .Flows.Select(f => f.Key).Should().Equal("b");
+        store.BuildView(Query(new LiveTrafficFilter(LiveTrafficField.Port, "443")), LiveTrafficState.Live)
+            .Flows.Select(f => f.Key).Should().Equal("a");
+    }
+
+    [Fact]
+    public void GroupsByAppAndRoute()
+    {
+        var store = SeededStore();
+        store.Ingest(Batch(
+            Flow("a", Laptop, "192.0.2.20", "203.0.113.5", 443, "eth4", 1000, 10),
+            Flow("b", Nas, "192.0.2.10", "203.0.113.6", 443, "eth4", 3000, 10),
+            Flow("c", Nas, "192.0.2.10", "192.0.2.20", 8001, "", 100, 10, lan: true)));
+
+        var byRoute = store.BuildView(Query() with { GroupBy = LiveTrafficGroupBy.Route }, LiveTrafficState.Live).Groups;
+        byRoute.Select(g => (g.Name, g.Flows)).Should().Equal(("Fiber WAN", 2), ("LAN", 1));
+
+        var wanOnly = store.BuildView(Query() with { WanOnly = true }, LiveTrafficState.Live);
+        wanOnly.Flows.Should().NotContain(f => f.RouteKind == LiveRouteKind.Lan);
+    }
+
+    [Fact]
+    public void EndedFlowsMoveToTheEndedTab()
+    {
+        var store = SeededStore();
+        var flow = Flow("a", Laptop, "192.0.2.20", "203.0.113.5", 443, "eth4", 1000, 10);
+        store.Ingest(Batch(flow));
+        var ending = Batch();
+        ending.Ended.Add(flow);
+        store.Ingest(ending);
+
+        store.BuildView(Query(), LiveTrafficState.Live).Flows.Should().BeEmpty();
+        store.BuildView(Query() with { Ended = true }, LiveTrafficState.Live).Flows.Should().ContainSingle().Which.Ended.Should().BeTrue();
+    }
+
+    [Fact]
+    public void SankeyLinksClientsAppsAndRoutes()
+    {
+        var store = SeededStore();
+        store.Ingest(Batch(
+            Flow("a", Laptop, "192.0.2.20", "203.0.113.5", 443, "eth4", 1000, 10),
+            Flow("b", Nas, "192.0.2.10", "203.0.113.9", 51820, "eth4", 2000, 10, proto: "udp")));
+
+        var sankey = store.BuildView(Query(), LiveTrafficState.Live).Sankey!;
+
+        sankey.Nodes.Where(n => n.Column == 0).Select(n => n.Name).Should().BeEquivalentTo("NAS", "Laptop");
+        sankey.Nodes.Should().Contain(n => n.Column == 2 && n.Name == "Fiber WAN");
+        sankey.Links.Should().Contain(l => l.Column == 1 && l.From == "WireGuard" && l.To == "Fiber WAN");
+    }
+
+    [Fact]
+    public void LeaseIsPushedForTheFirstViewerAndRenewedLater()
+    {
+        var store = new LiveTrafficStore();
+        var t0 = DateTime.UtcNow;
+
+        store.TouchViewer("v1", t0).Should().BeTrue();
+        store.NoteLeasePushed(t0);
+        store.TouchViewer("v1", t0.AddSeconds(2)).Should().BeFalse();
+        store.TouchViewer("v1", t0.AddSeconds(16)).Should().BeTrue();
+
+        store.ReleaseViewer("v1", t0.AddSeconds(17)).Should().BeTrue("nobody is left watching");
+    }
+}

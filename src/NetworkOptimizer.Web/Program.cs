@@ -978,6 +978,12 @@ builder.Services.AddMutatingService<IUpnpNoteService>(sp => sp.GetRequiredServic
 builder.Services.AddScoped<NetworkOptimizer.Web.Services.Monitoring.BandwidthHogs.ConntrackStatusService>();
 builder.Services.AddMutatingService<NetworkOptimizer.Web.Services.Monitoring.BandwidthHogs.IConntrackStatusService>(
     sp => sp.GetRequiredService<NetworkOptimizer.Web.Services.Monitoring.BandwidthHogs.ConntrackStatusService>());
+// Live Traffic: per-site in-memory flows and DNS from the gateway agent, read under a viewer's lease.
+builder.Services.AddSiteScopedRegistry<NetworkOptimizer.Web.Services.Monitoring.LiveTraffic.LiveTrafficRegistry>();
+builder.Services.AddSiteScopedRegistry<NetworkOptimizer.Web.Services.Monitoring.LiveTraffic.LiveTrafficPolicyResolver>();
+builder.Services.AddScoped<NetworkOptimizer.Web.Services.Monitoring.LiveTraffic.LiveTrafficService>();
+builder.Services.AddMutatingService<NetworkOptimizer.Web.Services.Monitoring.LiveTraffic.ILiveTrafficService>(
+    sp => sp.GetRequiredService<NetworkOptimizer.Web.Services.Monitoring.LiveTraffic.LiveTrafficService>());
 builder.Services.AddScoped<CustomOidService>();
 builder.Services.AddMutatingService<ICustomOidService>(sp => sp.GetRequiredService<CustomOidService>());
 // Device health checks: shipped templates (JSON files), one runner per site that executes the
@@ -1454,6 +1460,9 @@ app.Services.GetRequiredService<NetworkOptimizer.Storage.Services.ICredentialPro
 // Initialize GeoLite2 enrichment (looks for .mmdb files in data directory)
 var geoDataPath = Path.GetDirectoryName(dbPath)!;
 app.Services.GetRequiredService<NetworkOptimizer.Threats.Enrichment.GeoEnrichmentService>().Initialize(geoDataPath);
+
+// Reverse lookups ask for the PTR record only, never forward-resolving the answer through search domains.
+NetworkOptimizer.Core.Helpers.ReverseDnsCache.PtrLookup = NetworkOptimizer.Web.Services.Monitoring.DnsClientPtrLookup.LookupAsync;
 
 // Created before any console connects, so it reads each site's time zone as its connection comes up,
 // and loaded with the zones read before the restart, so no schedule starts on the server's clock.

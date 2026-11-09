@@ -798,9 +798,11 @@ public static class NetworkUtilities
         new(502, "Modbus"),
         new(587, "SMTP Submit"),
         new(636, "LDAPS"),
+        new(853, "DNS over TLS"),
         new(993, "IMAPS"),
         new(995, "POP3S"),
         new(1080, "SOCKS"),
+        new(1194, "OpenVPN"),
         new(1433, "MSSQL"),
         new(1434, "MSSQL Browser"),
         new(1521, "Oracle"),
@@ -837,6 +839,7 @@ public static class NetworkUtilities
         new(22067, "Syncthing Relay"),
         new(27017, "MongoDB"),
         new(37810, "DVR Discovery", Amplification: true),
+        new(51820, "WireGuard"),
     ];
 
     private static readonly Dictionary<int, string> PortNames = WellKnownPorts.ToDictionary(p => p.Port, p => p.Name);
