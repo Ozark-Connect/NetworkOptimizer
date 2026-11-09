@@ -352,9 +352,13 @@
     private const int HistoryPage = 200;
     private const int DnsRows = 10;
 
+    /// <summary>The link arrived with filters of its own: the active preset is not reapplied over it.</summary>
+    private bool _linkHadFilters;
+
     protected override void OnInitialized()
     {
         ReadUrl();
+        _linkHadFilters = FilterQuery().Length > 0;
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -849,7 +853,7 @@
             {
                 <a href="" class="lt-clear" @onclick="ClearFilters" @onclick:preventDefault>Clear</a>
             }
-            <FilterPresets Scope="live_traffic" Current="FilterQuery" OnLoad="LoadPresetAsync" Describe="DescribeFilters" />
+            <FilterPresets Scope="live_traffic" Current="FilterQuery" OnLoad="LoadPresetAsync" Describe="DescribeFilters" ApplyActiveOnStart="!_linkHadFilters" />
             <div class="lt-right">
                 <span class="lt-by-label">By</span>
                 <div class="time-range-selector">

@@ -24918,6 +24918,13 @@ body:has(.top-bar-hidden) .btn-fit {
     border-color: rgba(46, 121, 196, 0.45);
 }
 
+/* The slot whose filters are on the page now. */
+.filter-preset.is-active {
+    background: var(--primary-color);
+    border-color: var(--primary-color);
+    color: #fff;
+}
+
 .filter-preset-save {
     color: var(--text-secondary);
 }

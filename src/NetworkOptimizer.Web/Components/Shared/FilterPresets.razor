@@ -15,7 +15,8 @@
     {
         var slot = i;
         @* Keyed by content: a new element binds a fresh tooltip when the preset or the mode changes. *@
-        <button type="button" @key="(slot, _presets[slot], _saving)" class="filter-preset @(_presets[slot] != null ? "is-set" : null)"
+        <button type="button" @key="(slot, _presets[slot], _saving)" class="filter-preset @(_presets[slot] != null ? "is-set" : null) @(slot == _active ? "is-active" : null)"
+                aria-pressed="@(slot == _active ? "true" : "false")"
                 data-tooltip="@Tooltip(slot)" @onclick="() => ClickAsync(slot)">@(slot + 1)</button>
     }
     @if (_note != null)
@@ -39,7 +40,21 @@
 
     [Parameter] public int Slots { get; set; } = 3;
 
+    /// <summary>
+    /// Reapply the active preset once loaded. The page passes false when its link already carries
+    /// filters, so a shared or bookmarked view is never replaced.
+    /// </summary>
+    [Parameter] public bool ApplyActiveOnStart { get; set; }
+
     private string?[] _presets = [];
+    /// <summary>The slot last loaded or saved to, while the page's filters still match it; null once they differ.</summary>
+    private int? _active;
+    /// <summary>
+    /// The page's own <see cref="Current"/> right after the active slot was loaded or saved. Compared
+    /// instead of the saved string, which can come back in another key order and never match.
+    /// </summary>
+    private string? _activeValue;
+    private bool _loaded;
     private bool _saving;
     private string? _note;
     private bool _noteIsError;
@@ -47,19 +62,46 @@
     private bool _disposed;
 
     private string Key(int slot) => $"{Scope}.preset{slot + 1}:{SiteContext.Slug}";
+    private string ActiveKey => $"{Scope}.preset-active:{SiteContext.Slug}";
 
     protected override void OnInitialized() => _presets = new string?[Slots];
 
     // After the first render: the caller (and so the user's own value) is only known in the circuit.
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (!firstRender) return;
+        if (!firstRender)
+        {
+            // The filters moved off the active preset: drop it, so a return opens clean.
+            if (_loaded && _active != null && Current() != _activeValue) await SetActiveAsync(null);
+            return;
+        }
         for (var i = 0; i < Slots; i++)
         {
             try { _presets[i] = await UserPreferences.GetAsync(Key(i)) is { Length: > 0 } saved ? saved : null; }
             catch (Exception ex) { Logger.LogDebug(ex, "Filter presets: {Scope} slot {Slot} unreadable", Scope, i + 1); }
         }
+        int? active = null;
+        try { active = int.TryParse(await UserPreferences.GetAsync(ActiveKey), out var n) && n >= 1 && n <= Slots ? n - 1 : null; }
+        catch (Exception ex) { Logger.LogDebug(ex, "Filter presets: {Scope} active slot unreadable", Scope); }
+        if (_disposed) return;
+        // A link's own filters win and leave the slot unlit; it stays remembered for a clean visit.
+        if (active is { } slot && _presets[slot] is { } preset && ApplyActiveOnStart)
+        {
+            await OnLoad.InvokeAsync(preset);
+            _active = slot;
+            _activeValue = Current();
+        }
+        _loaded = true;
         if (!_disposed) StateHasChanged();
+    }
+
+    /// <summary>Remembers the active slot (null clears it); a failed write only costs the reapply on return.</summary>
+    private async Task SetActiveAsync(int? slot)
+    {
+        _active = slot;
+        _activeValue = slot != null ? Current() : null;
+        try { await UserPreferences.SetAsync(ActiveKey, slot is { } s ? (s + 1).ToString() : ""); }
+        catch (Exception ex) { Logger.LogDebug(ex, "Filter presets: {Scope} active slot not saved", Scope); }
     }
 
     private void ToggleSave() => _saving = !_saving;
@@ -75,6 +117,8 @@
             {
                 await UserPreferences.SetAsync(Key(slot), value);
                 _presets[slot] = value.Length > 0 ? value : null;
+                if (value.Length > 0) await SetActiveAsync(slot);
+                else if (_active == slot) await SetActiveAsync(null);
                 ShowNote(value.Length > 0 ? $"Saved to {slot + 1}" : $"Cleared {slot + 1}", false);
             }
             catch (Exception ex)
@@ -84,7 +128,11 @@
             }
             return;
         }
-        if (_presets[slot] is { } saved) await OnLoad.InvokeAsync(saved);
+        if (_presets[slot] is not { } saved) return;
+        // Unlit while loading, so a render mid-load does not read the old slot as left behind.
+        _active = null;
+        await OnLoad.InvokeAsync(saved);
+        await SetActiveAsync(slot);
     }
 
     /// <summary>A short note beside the slots, gone after a few seconds unless another replaces it.</summary>
