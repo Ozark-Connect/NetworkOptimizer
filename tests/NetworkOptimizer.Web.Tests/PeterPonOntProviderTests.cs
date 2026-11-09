@@ -430,6 +430,20 @@ public class PeterPonOntProviderTests
     }
 
     [Fact]
+    public async Task TestConnection_LeavesSavedConfigurationStateAlone()
+    {
+        using var stub = new StubUbus("root", "secret");
+        var provider = NewProvider();
+
+        await provider.PollAsync(Context(stub.Port, password: "secret"));
+        await provider.TestConnectionAsync(Context(stub.Port, password: "secret"));
+        await provider.PollAsync(Context(stub.Port, password: "secret"));
+
+        stub.Since.Should().Equal(0, 0, 6237);
+        stub.Logins.Should().Be(2, "the Test button signs in on its own and the saved session is kept");
+    }
+
+    [Fact]
     public async Task Poll_ExpiredSession_SignsInAgain()
     {
         using var stub = new StubUbus("root", "secret");

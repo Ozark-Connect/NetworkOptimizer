@@ -4,6 +4,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
+using NetworkOptimizer.Core;
 using NetworkOptimizer.Core.Models;
 using NetworkOptimizer.Monitoring.Models;
 using NetworkOptimizer.Monitoring.Providers;
@@ -23,6 +24,7 @@ namespace NetworkOptimizer.Web.Services.OntProviders;
 /// (ISfpSupplementalOntProvider): its PLOAM state, firmware, and OLT vendor merge into the module's
 /// sfp series, and its optics only fill gaps the device's DDM read leaves.
 /// </summary>
+[VendorSpecific("Peter-Pon", "OpenWrt ubus JSON-RPC at /ubus/: luci.gpon status/info objects; live_get metric arrays inside a JSON string in docs")]
 public sealed class PeterPonOntProvider : ISfpSupplementalOntProvider
 {
     public string ProviderKey => "peter-pon";
@@ -115,7 +117,7 @@ public sealed class PeterPonOntProvider : ISfpSupplementalOntProvider
                 if (sample != null)
                 {
                     ApplyLive(sample, stats);
-                    // An unsaved configuration (the Test button) has no stable key to keep totals under.
+                    // An unsaved configuration, and the Test button, have no stable key to keep totals under.
                     if (context.Id > 0)
                         ApplyErrorTotals(_errorTotals.GetOrAdd(context.CacheKey, _ => new ErrorTotals()), sample, stats);
                 }
@@ -157,7 +159,9 @@ public sealed class PeterPonOntProvider : ISfpSupplementalOntProvider
     public async Task<(bool Success, string Message)> TestConnectionAsync(
         OntPollContext context, CancellationToken cancellationToken = default)
     {
-        var result = await PollAsync(context, cancellationToken);
+        // Id 0: the Test button probes the edited, unsaved form, which may point at another stick, so it
+        // must not advance the saved configuration's session, since, or error totals.
+        var result = await PollAsync(context with { Id = 0 }, cancellationToken);
         if (result.Stats is not { } stats)
             return (false, result.FailureReason ?? $"No stats could be read from {context.Host}.");
 
@@ -197,7 +201,7 @@ public sealed class PeterPonOntProvider : ISfpSupplementalOntProvider
         var password = context.Password ?? "";
         var credentials = HashCode.Combine(username, password);
 
-        // An unsaved configuration (the Test button) has no stable key, so it never reuses a session.
+        // An unsaved configuration, and the Test button, have no stable key, so they never reuse a session.
         if (context.Id > 0 && _sessions.TryGetValue(context.CacheKey, out var cached) && cached.Credentials == credentials)
             return new(cached.Token, null);
 
