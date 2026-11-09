@@ -70,6 +70,7 @@ public static class DpiCatalog
         ["MQTT"] = "no-icon no-icon-mqtt",
         ["MQTT-TLS"] = "no-icon no-icon-mqtt",
         ["Elasticsearch"] = "no-icon no-icon-elasticsearch",
+        ["Tailscale"] = "no-icon no-icon-tailscale",
         // Network Optimizer's own traffic: our favicon, in color (app-mark, not a mask).
         ["Network Optimizer"] = "app-mark app-mark-netopt",
         ["AP Agent"] = "app-mark app-mark-netopt",

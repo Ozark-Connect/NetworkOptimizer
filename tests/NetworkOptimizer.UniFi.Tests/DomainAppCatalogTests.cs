@@ -84,6 +84,15 @@ public class DomainAppCatalogTests
         DomainAppCatalog.LanApp(proto, port).Should().Be(expected);
 
     [Theory]
+    [InlineData("udp", 41641, 3478, "Tailscale")]    // source 41641, to a STUN server
+    [InlineData("udp", 51234, 41641, "Tailscale")]   // a peer's 41641 as the destination
+    [InlineData("udp", 41641, 443, "Tailscale")]     // whatever the other port
+    [InlineData("tcp", 41641, 443, null)]
+    [InlineData("udp", 51234, 3478, null)]
+    public void TailscaleByUdp41641EitherEnd(string proto, int clientPort, int remotePort, string? expected) =>
+        DomainAppCatalog.TailscaleApp(proto, clientPort, remotePort).Should().Be(expected);
+
+    [Theory]
     [InlineData("tcp", 5201, "iperf3")]
     [InlineData("udp", 5201, "iperf3")]   // its UDP mode
     [InlineData("tcp", 5202, null)]
@@ -120,6 +129,7 @@ public class DomainAppCatalogTests
     [InlineData("Outlook.com", "fa-brands fa-microsoft")]
     [InlineData("Roku", "no-icon no-icon-roku")]
     [InlineData("Elasticsearch", "no-icon no-icon-elasticsearch")]   // the port name (9200, 9300)
+    [InlineData("Tailscale", "no-icon no-icon-tailscale")]
     [InlineData("Akamai Technologies, Inc.", "no-icon no-icon-akamai")]   // an address's owner
     [InlineData("AKAMAI-AS", "no-icon no-icon-akamai")]
     public void MarksFontAwesomeLacksOrTheCatalogMisses(string app, string cls) =>

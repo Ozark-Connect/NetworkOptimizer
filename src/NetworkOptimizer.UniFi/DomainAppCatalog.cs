@@ -136,6 +136,13 @@ public static class DomainAppCatalog
     public static string? ProtocolApp(string? proto) =>
         proto != null && proto.StartsWith("icmp", StringComparison.OrdinalIgnoreCase) ? "ICMP" : null;
 
+    /// <summary>
+    /// Tailscale's direct (WireGuard) path: UDP 41641 on either end, source or destination, whatever the
+    /// other port is (a DERP or STUN server, a peer's random port). Ahead of DPI, which reads it as STUN or WireGuard.
+    /// </summary>
+    public static string? TailscaleApp(string proto, int clientPort, int remotePort) =>
+        proto == "udp" && (clientPort == 41641 || remotePort == 41641) ? "Tailscale" : null;
+
     /// <summary>Tools known by their port anywhere, LAN or internet: iperf3 on 5201, TCP and UDP (its UDP mode).</summary>
     public static string? PortApp(string proto, int port) =>
         port == 5201 && proto is "tcp" or "udp" ? "iperf3" : null;
