@@ -4,6 +4,7 @@ using System.Net.NetworkInformation;
 using System.Text.Json;
 using NetworkOptimizer.AgentProtocol;
 using NetworkOptimizer.Monitoring.Conntrack;
+using NetworkOptimizer.Monitoring.LiveTraffic;
 
 namespace NetworkOptimizer.Agent;
 
@@ -14,7 +15,9 @@ namespace NetworkOptimizer.Agent;
 /// (superseded by the next, so a lost one costs nothing), and ~6s aggregates ride the
 /// store-and-forward <see cref="ResultBuffer"/> into the time series - acked, spooled,
 /// replayed across outages - so the series matches the SNMP fast tier's grain while the live
-/// split stays 2s-fresh. No per-flow records, destinations, or ports ever leave this process.
+/// split stays 2s-fresh. No per-flow records, destinations, or ports leave this process, except
+/// to Live Traffic while the server holds a lease for a viewer (<see cref="UpdateLiveTraffic"/>):
+/// live path only, never buffered, and it stops by itself when the lease runs out.
 /// Runs for the life of the agent like the SNMP runner: config survives tunnel drops, and
 /// <c>enabled=false</c> from the server is the fleet-wide kill switch.
 /// </summary>
@@ -73,9 +76,55 @@ public sealed class ConntrackRunner
     /// the live batch - the buffer-borne aggregate still carries the bytes.</summary>
     public volatile Func<AgentMessage, bool>? LiveSend;
 
+    /// <summary>The capability string for per-flow Live Traffic, shared by agent and server.</summary>
+    public const string LiveTrafficCapability = "live-traffic";
+
+    private const int DefaultLiveMaxFlows = 500;
+    private const int LiveMaxFlowsCeiling = 2000;
+    private const int MaxLeaseSeconds = 300;
+
+    private readonly LiveFlowTracker _liveTracker = new();
+    private readonly object _leaseGate = new();
+    private DateTime _leaseUntil = DateTime.MinValue;
+    private int _liveMaxFlows = DefaultLiveMaxFlows;
+    private bool _liveDns;
+    private bool _leaseAnnounced;
+
+    /// <summary>The Live DNS tap, when this host can open a packet socket.</summary>
+    public DnsCapture? Dns { get; set; }
+
     public ConntrackRunner(Action<AgentMessage> enqueue)
     {
         _enqueue = enqueue;
+    }
+
+    /// <summary>
+    /// Grants, renews, or ends the Live Traffic lease. The lease is the only thing that lets
+    /// per-flow and per-query detail leave the agent; a server that goes quiet ends it by timeout.
+    /// </summary>
+    public void UpdateLiveTraffic(LiveTrafficConfig config)
+    {
+        lock (_leaseGate)
+        {
+            var seconds = Math.Clamp(config.LeaseSeconds, 0, MaxLeaseSeconds);
+            _leaseUntil = seconds == 0 ? DateTime.MinValue : DateTime.UtcNow.AddSeconds(seconds);
+            _liveMaxFlows = config.MaxFlows > 0 ? Math.Min(config.MaxFlows, LiveMaxFlowsCeiling) : DefaultLiveMaxFlows;
+            _liveDns = config.Dns;
+        }
+    }
+
+    private (bool Leased, int MaxFlows, bool Dns) LiveLease()
+    {
+        lock (_leaseGate)
+        {
+            var leased = DateTime.UtcNow < _leaseUntil;
+            if (leased != _leaseAnnounced)
+            {
+                _leaseAnnounced = leased;
+                Console.WriteLine(leased ? "Live Traffic: a viewer is watching, sending per-flow detail" : "Live Traffic: lease ended");
+            }
+            return (leased, _liveMaxFlows, _liveDns);
+        }
     }
 
     /// <summary>
@@ -149,6 +198,11 @@ public sealed class ConntrackRunner
                 else if (_stretchedInterval > 0)
                     _stretchedInterval = _stretchedInterval / 2 >= interval * 2 ? _stretchedInterval / 2 : 0;
             }
+            else
+            {
+                // Sampling off means no Live Traffic either; close the DNS tap with it.
+                Dns?.SetWanted(false);
+            }
             var delay = _stretchedInterval > interval ? _stretchedInterval : interval;
             await Task.Delay(TimeSpan.FromSeconds(delay), ct);
         }
@@ -188,6 +242,21 @@ public sealed class ConntrackRunner
             ? 0
             : (int)Math.Clamp(Math.Round((now - _lastPassAt).TotalSeconds), 1, 120);
         _lastPassAt = now;
+
+        // Live Traffic: tracked only under a lease. Between viewers the tracker holds nothing, and
+        // the next lease's first pass seeds it (its windows start one pass later).
+        var lease = LiveLease();
+        if (Dns is { } dns)
+        {
+            dns.HostView = view;
+            dns.SetWanted(lease.Leased && lease.Dns);
+        }
+        LiveFlowPass? livePass = null;
+        if (lease.Leased) livePass = _liveTracker.Track(flows, view, now, lease.MaxFlows);
+        else _liveTracker.Reset();
+        if (livePass != null && windowSeconds > 0)
+            SendLiveTraffic(livePass, now, windowSeconds, flows);
+
         if (!wasSeeded || windowSeconds == 0)
         {
             _pendingSince = now;
@@ -223,6 +292,67 @@ public sealed class ConntrackRunner
         if (now - _pendingSince >= AggregateEvery)
             FlushAggregate(now);
     }
+
+    private void SendLiveTraffic(LiveFlowPass pass, DateTime now, int windowSeconds, List<ConntrackFlow> flows)
+    {
+        var batch = new LiveTrafficBatch
+        {
+            TimestampUnixMs = new DateTimeOffset(now).ToUnixTimeMilliseconds(),
+            WindowSeconds = windowSeconds,
+            TotalFlows = pass.TotalFlows,
+            DnsActive = Dns?.Active == true,
+        };
+        foreach (var f in pass.Flows) batch.Flows.Add(ToWire(f));
+        foreach (var f in pass.Ended) batch.Ended.Add(ToWire(f));
+        if (Dns != null)
+        {
+            foreach (var (d, redirectedTo) in DnsRedirects.Apply(Dns.Drain(), DnsRedirects.From(flows)))
+            {
+                var e = new LiveDnsEvent
+                {
+                    AtUnixMs = new DateTimeOffset(d.At).ToUnixTimeMilliseconds(),
+                    ClientIp = d.ClientIp,
+                    ClientMac = _view?.MacFor(IPAddress.Parse(d.ClientIp)) ?? "",
+                    ServerIp = d.ServerIp,
+                    Name = d.Name,
+                    Qtype = d.QType,
+                    Rcode = d.RCode,
+                    // Whole milliseconds for servers that predate latency_us.
+                    LatencyMs = d.LatencyMs < 0 ? -1 : (int)d.LatencyMs,
+                    LatencyUs = d.LatencyMs < 0 ? 0 : (int)Math.Min(int.MaxValue, Math.Round(d.LatencyMs * 1000)),
+                    Answered = d.Answered,
+                    RedirectedTo = redirectedTo,
+                };
+                foreach (var a in d.Answers)
+                    e.Answers.Add(new LiveDnsAnswer { Type = a.Type, Data = a.Data, Ttl = a.Ttl });
+                batch.Dns.Add(e);
+            }
+        }
+        // Live only: a lost batch is superseded by the next, and nothing per-flow is ever spooled.
+        LiveSend?.Invoke(new AgentMessage { LiveTraffic = batch });
+    }
+
+    private static LiveFlow ToWire(LiveFlowSample f) => new()
+    {
+        Key = f.Key,
+        Proto = f.Proto,
+        ClientIp = f.ClientIp,
+        ClientMac = f.ClientMac,
+        ClientPort = f.ClientPort,
+        RemoteIp = f.RemoteIp,
+        RemotePort = f.RemotePort,
+        WanIfname = f.WanIfName,
+        Lan = f.Lan,
+        Gateway = f.Gateway,
+        DownBytes = f.DownBytes,
+        UpBytes = f.UpBytes,
+        TotalDownBytes = f.TotalDownBytes,
+        TotalUpBytes = f.TotalUpBytes,
+        TotalDownPackets = f.TotalDownPackets,
+        TotalUpPackets = f.TotalUpPackets,
+        AgeSeconds = f.AgeSeconds,
+        AgeIsLowerBound = f.AgeIsLowerBound,
+    };
 
     private void FlushAggregate(DateTime now)
     {
