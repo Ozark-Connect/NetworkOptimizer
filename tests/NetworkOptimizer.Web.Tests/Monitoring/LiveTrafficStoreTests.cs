@@ -222,6 +222,22 @@ public class LiveTrafficStoreTests
     }
 
     [Fact]
+    public void HttpsTakesInQuicButQuicStaysQuic()
+    {
+        var store = SeededStore();
+        store.Ingest(Batch(
+            Flow("tcp", Laptop, "192.0.2.20", "203.0.113.60", 443, "eth4", 1000, 10),
+            Flow("quic", Laptop, "192.0.2.20", "203.0.113.61", 443, "eth4", 1000, 10, proto: "udp")));
+
+        Keys(Query(new LiveTrafficFilter(LiveTrafficField.App, "HTTPS"))).Should().BeEquivalentTo(["tcp", "quic"]);
+        Keys(Query(new LiveTrafficFilter(LiveTrafficField.App, "QUIC"))).Should().BeEquivalentTo(["quic"]);
+        Keys(Query() with { Search = "https" }).Should().BeEquivalentTo(["tcp", "quic"]);
+        Keys(Query() with { Search = "quic" }).Should().BeEquivalentTo(["quic"]);
+
+        IEnumerable<string> Keys(LiveTrafficQuery q) => store.BuildView(q, LiveTrafficState.Live).Flows.Select(f => f.Key);
+    }
+
+    [Fact]
     public void ResolverOnTheSameSwitchPortIsNotABypass()
     {
         const string resolverMac = "aa:bb:cc:dd:ee:53";

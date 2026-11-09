@@ -672,7 +672,7 @@ public sealed class LiveTrafficStore
         var s = search.Trim();
         return Contains(r.ClientName, s) || Contains(r.ClientIp, s) || Contains(r.Destination, s)
             || Contains(r.DestinationIp, s) || Contains(r.App, s) || Contains(r.Route, s)
-            || Contains(r.DestinationSub, s) || Eq(r.Proto, s) || Eq(r.Action, s)
+            || Contains(r.DestinationSub, s) || AppOrService(r, s) || Eq(r.Proto, s) || Eq(r.Action, s)
             || r.RemotePort.ToString() == s || r.ClientPort.ToString() == s;
     }
 
@@ -681,14 +681,21 @@ public sealed class LiveTrafficStore
     {
         LiveTrafficField.Client => Eq(r.ClientName, value) || Eq(r.ClientMac, value) || Eq(r.ClientIp, value),
         LiveTrafficField.Destination => Eq(r.Destination, value) || Eq(r.DestinationIp, value),
-        // A service is a layer under the app: App = HTTPS keeps the HTTPS flows named Apple or Netflix too.
-        LiveTrafficField.App => Eq(r.App, value) || Eq(r.DestinationSub, value),
+        LiveTrafficField.App => AppOrService(r, value),
         LiveTrafficField.Route => Eq(r.Route, value),
         LiveTrafficField.Protocol => Eq(r.Proto, value),
         LiveTrafficField.Port => r.RemotePort > 0 && r.RemotePort.ToString() == value.Trim(),
         LiveTrafficField.Action => Eq(r.Action, value),
         _ => false,
     };
+
+    /// <summary>
+    /// A service is a layer under the app: App = HTTPS keeps the HTTPS flows named Apple or Netflix too.
+    /// HTTPS takes in QUIC (HTTP/3 on UDP 443); QUIC stays QUIC alone, so it still tells the two apart.
+    /// </summary>
+    private static bool AppOrService(LiveFlowRow r, string value) =>
+        Eq(r.App, value) || Eq(r.DestinationSub, value)
+        || (Eq(value.Trim(), "HTTPS") && (Eq(r.App, "QUIC") || Eq(r.DestinationSub, "QUIC")));
 
     private static bool Eq(string? a, string b) => string.Equals(a, b, StringComparison.OrdinalIgnoreCase);
     private static bool Contains(string? a, string b) => a?.Contains(b, StringComparison.OrdinalIgnoreCase) == true;
