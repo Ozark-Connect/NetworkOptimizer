@@ -690,16 +690,7 @@
     {
         var uri = new Uri(Nav.Uri);
         var query = Microsoft.AspNetCore.WebUtilities.QueryHelpers.ParseQuery(uri.Query);
-        foreach (var (key, values) in query)
-        {
-            var exclude = key.StartsWith("not-", StringComparison.OrdinalIgnoreCase);
-            var name = exclude ? key[4..] : key;
-            if (FieldKeys.TryGetValue(name, out var field))
-                foreach (var v in values.Where(v => !string.IsNullOrWhiteSpace(v)))
-                    _filters.Add(new LiveTrafficFilter(field, v!, exclude));
-        }
-        if (query.TryGetValue("q", out var q)) _search = q.ToString();
-        if (query.TryGetValue("by", out var by) && Enum.TryParse<LiveTrafficGroupBy>(by.ToString(), true, out var g)) _groupBy = g;
+        ReadFilters(query);
         _historyMode = query.TryGetValue("view", out var view) && string.Equals(view, "history", StringComparison.OrdinalIgnoreCase);
         if (_historyMode)
         {
@@ -715,6 +706,65 @@
         }
     }
 
+    /// <summary>The chips, the search, and the grouping from a query string: the URL's, or a preset's.</summary>
+    private void ReadFilters(Dictionary<string, Microsoft.Extensions.Primitives.StringValues> query)
+    {
+        foreach (var (key, values) in query)
+        {
+            var exclude = key.StartsWith("not-", StringComparison.OrdinalIgnoreCase);
+            var name = exclude ? key[4..] : key;
+            if (FieldKeys.TryGetValue(name, out var field))
+                foreach (var v in values.Where(v => !string.IsNullOrWhiteSpace(v)))
+                    _filters.Add(new LiveTrafficFilter(field, v!, exclude));
+        }
+        if (query.TryGetValue("q", out var q)) _search = q.ToString();
+        if (query.TryGetValue("by", out var by) && Enum.TryParse<LiveTrafficGroupBy>(by.ToString(), true, out var g)) _groupBy = g;
+    }
+
+    /// <summary>The chips, the search, and the grouping as a query string, in the URL's own keys.</summary>
+    private string FilterQuery()
+    {
+        var parts = new List<string>();
+        foreach (var f in _filters)
+        {
+            var key = FieldKeys.First(k => k.Value == f.Field).Key;
+            parts.Add($"{(f.Exclude ? "not-" : "")}{key}={Uri.EscapeDataString(f.Value)}");
+        }
+        if (!string.IsNullOrWhiteSpace(_search)) parts.Add($"q={Uri.EscapeDataString(_search)}");
+        if (_groupBy != LiveTrafficGroupBy.Flows) parts.Add($"by={_groupBy.ToString().ToLowerInvariant()}");
+        return string.Join("&", parts);
+    }
+
+    // ---------------------------------------------------------------- presets (FilterPresets)
+
+    /// <summary>A saved preset replaces the chips, the search, and the grouping; the view and time window stay.</summary>
+    private async Task LoadPresetAsync(string saved)
+    {
+        _filters.Clear();
+        _search = "";
+        _groupBy = LiveTrafficGroupBy.Flows;
+        ReadFilters(Microsoft.AspNetCore.WebUtilities.QueryHelpers.ParseQuery(saved));
+        if (!_historyMode) _filters.RemoveAll(f => f.Field == LiveTrafficField.Action);
+        await FiltersChanged();
+    }
+
+    /// <summary>A saved preset in words, for its slot's tooltip: "Client NAS, Not App HTTPS, By Client".</summary>
+    private static string DescribeFilters(string saved)
+    {
+        var query = Microsoft.AspNetCore.WebUtilities.QueryHelpers.ParseQuery(saved);
+        var parts = new List<string>();
+        foreach (var (key, values) in query)
+        {
+            var exclude = key.StartsWith("not-", StringComparison.OrdinalIgnoreCase);
+            var name = exclude ? key[4..] : key;
+            if (FieldKeys.TryGetValue(name, out var field))
+                parts.AddRange(values.Select(v => $"{(exclude ? "Not " : "")}{LiveTrafficDisplay.FieldLabel(field)} {v}"));
+        }
+        if (query.TryGetValue("q", out var q)) parts.Add($"Search \u201c{q}\u201d");
+        if (query.TryGetValue("by", out var by)) parts.Add($"By {by}");
+        return string.Join(", ", parts);
+    }
+
     private static DateTime? ReadUnix(Dictionary<string, Microsoft.Extensions.Primitives.StringValues> query, string key) =>
         query.TryGetValue(key, out var v) && long.TryParse(v.ToString(), out var seconds) && seconds > 0
             ? DateTimeOffset.FromUnixTimeSeconds(seconds).UtcDateTime
@@ -724,13 +774,7 @@
     {
         var parts = new List<string>();
         if (_historyMode) parts.Add("view=history");
-        foreach (var f in _filters)
-        {
-            var key = FieldKeys.First(k => k.Value == f.Field).Key;
-            parts.Add($"{(f.Exclude ? "not-" : "")}{key}={Uri.EscapeDataString(f.Value)}");
-        }
-        if (!string.IsNullOrWhiteSpace(_search)) parts.Add($"q={Uri.EscapeDataString(_search)}");
-        if (_groupBy != LiveTrafficGroupBy.Flows) parts.Add($"by={_groupBy.ToString().ToLowerInvariant()}");
+        if (FilterQuery() is { Length: > 0 } filters) parts.Add(filters);
         if (_historyMode)
         {
             if (_from is { } from) parts.Add($"from={new DateTimeOffset(from, TimeSpan.Zero).ToUnixTimeSeconds()}");
@@ -805,6 +849,7 @@
             {
                 <a href="" class="lt-clear" @onclick="ClearFilters" @onclick:preventDefault>Clear</a>
             }
+            <FilterPresets Scope="live_traffic" Current="FilterQuery" OnLoad="LoadPresetAsync" Describe="DescribeFilters" />
             <div class="lt-right">
                 <span class="lt-by-label">By</span>
                 <div class="time-range-selector">

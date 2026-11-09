@@ -24617,6 +24617,10 @@ body:has(.top-bar-hidden) .btn-fit {
     --no-icon: url("data:image/svg+xml,%3Csvg viewBox='0 8 24 8' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M16.34 9.853l-2.254 2.254v-2.26H12.13v5.744h1.957v-2.33l2.353 2.33h2.46l-2.988-2.99 2.477-2.476v3.411c0 1.133.679 2.177 2.393 2.177.815 0 1.56-.462 1.922-.88l.88.759H24v-5.74h-1.951v3.718c-.22.384-.528.627-1.002.627-.482 0-.703-.286-.703-1.198V9.853zm-4.591 2.869A3.004 3.004 0 1 1 8.738 9.73a2.997 2.997 0 0 1 3.011 2.99m-3.011-1.57c-.518 0-.956.704-.956 1.572 0 .867.438 1.57.956 1.57.528 0 .968-.702.968-1.57 0-.869-.438-1.572-.968-1.572zm-2.206 4.447H4.313L2.55 13.153h-.594v2.44H0V8.26h2.8c1.616 0 2.935 1.1 2.935 2.45 0 .826-.505 1.562-1.273 2.013l2.07 2.875m-2.75-4.888A1.226 1.226 0 0 0 2.56 9.478h-.604v2.453h.605a1.225 1.225 0 0 0 1.22-1.221Z'/%3E%3C/svg%3E");
 }
 
+.no-icon-akamai {
+    --no-icon: url("data:image/svg+xml,%3Csvg viewBox='0 0 24 24' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M13.0548 0C6.384 0 .961 5.3802.961 12.0078.961 18.6354 6.3698 24 13.0548 24c.6168 0 .6454-.3572.0859-.5293-4.9349-1.5063-8.5352-6.069-8.5352-11.4629 0-5.4656 3.6725-10.0706 8.6934-11.5195C13.8153.3448 13.6716 0 13.0548 0Zm2.3242 1.8223c-5.2648 0-9.5254 4.2606-9.5254 9.5254 0 1.2193.2285 2.3818.6445 3.4433.1722.459.4454.4584.4024.0137-.0287-.3156-.0567-.6447-.0567-.9746 0-5.2648 4.2606-9.5254 9.5254-9.5254 4.9779 0 6.4698 2.2235 6.6563 2.08.2008-.1577-1.808-4.5624-7.6465-4.5624zm.4687 4.0703c-1.8622.0592-3.651.7168-5.1035 1.8554-.2582.2009-.1567.3284.1445.1993 2.4675-1.076 5.5812-1.1046 8.6368-.043 2.0514.7173 3.2413 1.7364 3.3418 1.6934.1578-.0718-1.1915-2.2226-3.6446-3.1407-1.1135-.4196-2.2576-.6-3.375-.5644z'/%3E%3C/svg%3E");
+}
+
 /* In the phone list's badge row the gap spaces the site badge; its margin is for beside a name. */
 .lt-m-tags .lt-site-badge {
     margin-left: 0;
@@ -24873,6 +24877,77 @@ body:has(.top-bar-hidden) .btn-fit {
 .lt-clear {
     font-size: 0.78rem;
     color: var(--text-secondary);
+}
+
+/* FilterPresets: a save button and slots 1 2 3, compact enough to sit beside filter chips. */
+.filter-presets {
+    display: inline-flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.25rem;
+}
+
+.filter-preset {
+    min-width: 24px;
+    height: 24px;
+    padding: 0 0.3rem;
+    border-radius: 6px;
+    border: 1px solid var(--border-color, #2e2e33);
+    background: transparent;
+    color: var(--text-muted);
+    font-size: 0.75rem;
+    font-weight: 600;
+    line-height: 1;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+}
+
+.filter-preset:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+}
+
+.filter-preset.is-set {
+    color: var(--text-primary);
+    border-color: rgba(46, 121, 196, 0.45);
+}
+
+.filter-preset-save {
+    color: var(--text-secondary);
+}
+
+.filter-preset-save svg {
+    width: 13px;
+    height: 13px;
+}
+
+.filter-preset-save[aria-pressed="true"] {
+    background: rgba(46, 121, 196, 0.15);
+    border-color: var(--primary-hover);
+    color: var(--primary-lighter);
+}
+
+/* Save mode: every slot is a target. */
+.filter-presets.is-saving .filter-preset:not(.filter-preset-save) {
+    border-color: var(--primary-hover);
+    color: var(--text-primary);
+    animation: filter-preset-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes filter-preset-pulse {
+    50% { background: rgba(46, 121, 196, 0.2); }
+}
+
+.filter-preset-note {
+    font-size: 0.75rem;
+    color: var(--success-color);
+    margin-left: 0.15rem;
+}
+
+.filter-preset-note.is-error {
+    color: var(--danger-color);
 }
 
 .lt-filterbar .lt-right {

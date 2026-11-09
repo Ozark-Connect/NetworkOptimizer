@@ -119,6 +119,8 @@ public class DomainAppCatalogTests
     [InlineData("ICMP", "no-icon no-icon-icmp")]
     [InlineData("Outlook.com", "fa-brands fa-microsoft")]
     [InlineData("Roku", "no-icon no-icon-roku")]
+    [InlineData("Akamai Technologies, Inc.", "no-icon no-icon-akamai")]   // an address's owner
+    [InlineData("AKAMAI-AS", "no-icon no-icon-akamai")]
     public void MarksFontAwesomeLacksOrTheCatalogMisses(string app, string cls) =>
         DpiCatalog.IconsForName(app).Class.Should().Be(cls);
 

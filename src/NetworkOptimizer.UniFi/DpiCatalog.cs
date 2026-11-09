@@ -165,6 +165,7 @@ public static class DpiCatalog
         ("Yahoo", "fa-brands fa-yahoo"),
         ("Windows", "fa-brands fa-windows"),
         ("Cloudflare", "fa-brands fa-cloudflare"),
+        ("Akamai", "no-icon no-icon-akamai"),
         // Valve's own network carries Steam; an app named only by its owner reads "Valve".
         ("Valve", "fa-brands fa-steam"),
         ("Blizzard", "fa-brands fa-battle-net"),

@@ -112,9 +112,13 @@ Time-series monitoring on your own InfluxDB, fed by SNMP polling (InfluxDB).
   - **By** client, app, destination, or route; open a client to see its flows
   - **Detailed View** - every flow through the gateway ranked by current rate, with no row limit (On-Site Agent on the gateway)
     - Click any client, destination, app, route, protocol, or port to filter to it, and again to let it go; hide a value with the button beside it or Alt-click; filters are in the link
+      - An app filter for a service keeps the flows named for their app: HTTPS still lists the Apple or Netflix flows on 443, and takes in QUIC
+      - Save the filters, search, and grouping to presets **1 2 3** and load one with a click, remembered per user and site
+    - Hover a client for its connection, address, and a link to its Client Performance page
     - Sort by any column, either way; rows and diagram nodes hold still under the pointer, slide when they move, and an expanded flow stays in place on screen while the list changes, again once you scroll back and settle on it
     - Apps named by the gateway's DPI (UniFi Network's own records), else by the domain the flow went to, the port, or the address's owner (GeoLite2 ASN), with the same app icons as Client Performance
       - Recognized from their traffic: a phone's Wi-Fi Calling (IPsec to a mobile carrier), iperf3 (TCP and UDP 5201), and between your own devices Google Cast and Midea appliances
+      - Apple traffic named Apple from Apple's own address space even with no domain seen; ICMP is ICMP whoever answers it
     - Destinations named by DNS, else by reverse DNS (PTR) or the address's owner; a public address of one of your sites carries a site badge, and a client or UniFi device on another VLAN carries its UniFi name and a network badge; hover a destination for its address and its Threat Intelligence drill-down
     - Parallel streams from one client to one destination shown as one row with a stream count
     - **Where It Goes** - client to app to route, by rate or by flow count; by rate each band splits into download and upload in its route's color, and each node shows both rates; the gateway's own VPN tunnel is left out so tunneled traffic counts once
