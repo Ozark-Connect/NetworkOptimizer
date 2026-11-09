@@ -122,6 +122,7 @@ Track signal quality on your cable modem, fiber ONT, and cellular modems over ti
 - **Realtek-based GPON sticks** (RTL960x) - ODI DFP-34X-2C2, ODI DFP-34X-2IY3, V-SOL V2801F, T&W TWCGPON657, Luleey LL-XS2510
 - **Zyxel GPON stick** - PMG3000-D20B (MaxLinear / T&W based)
 - **8311 community firmware XGS-PON sticks** - WAS-110 (MaxLinear PRX126), X-ONU-SFPP, WT-ONU-STICK, and other sticks running 8311
+- **Peter-Pon firmware GPON sticks** - FS.com GPON-SFP-ONT-MAC-I, Huawei MA5671A, and other Lantiq PEB98035 sticks
 
 SFP-based ONT monitoring (modules plugged into your gateway that expose DDM optical data) is part of the Network Monitoring feature below and also has a custom ONT stats augmentation API you can code to.
 

@@ -2050,6 +2050,7 @@
                                 <option value="nokia-xs010x-q">Nokia XS-010X-Q (HTTP)</option>
                                 <option value="zyxel-gpon-sfp">Zyxel GPON-SFP PMG3000 (HTTP)</option>
                                 <option value="richerlink-ont">Richerlink RL821GWV-D (HTTP)</option>
+                                <option value="peter-pon">Peter-Pon GPON Firmware (HTTP)</option>
                                 <option value="netopt-custom">Network Optimizer Custom (HTTP JSON)</option>
                                 <option value="generic-http-ont">Generic HTTP ONT</option>
                             </select>
@@ -2095,7 +2096,7 @@
                     <div class="form-row">
                         <div class="form-group" style="flex: 1;">
                             <label class="form-label">Username</label>
-                            <input type="text" class="form-control" @bind="_editingOnt.Username" @bind:event="oninput" placeholder="admin" autocomplete="off" data-1p-ignore data-lpignore="true" data-bwignore />
+                            <input type="text" class="form-control" @bind="_editingOnt.Username" @bind:event="oninput" placeholder="@(_editingOnt.Provider == "peter-pon" ? "root" : "admin")" autocomplete="off" data-1p-ignore data-lpignore="true" data-bwignore />
                         </div>
                         <div class="form-group" style="flex: 1;">
                             <label class="form-label">Password</label>
@@ -8134,7 +8135,7 @@
     }
 
     /// <summary>Providers implementing ISfpSupplementalOntProvider, which can merge into a monitored SFP module.</summary>
-    private static readonly HashSet<string> SfpAttachableOntProviders = new() { "netopt-custom", "realtek-ont" };
+    private static readonly HashSet<string> SfpAttachableOntProviders = new() { "netopt-custom", "realtek-ont", "peter-pon" };
 
     private static int GetOntProviderDefaultPort(string provider) => provider switch
     {
@@ -8154,6 +8155,7 @@
         "telekom-modem2" => "192.168.100.1",
         "nokia-xs010x-q" => "192.168.100.1",
         "zyxel-gpon-sfp" => "10.10.1.1",
+        "peter-pon" => "192.168.1.10",
         // realtek-ont, netopt-custom and generic-http-ont have no single sensible
         // default (vendor-dependent stick, gateway-served JSON, or generic), so nothing
         // is prefilled and the generic example placeholder is shown. richerlink-ont's
@@ -8178,6 +8180,7 @@
         "nokia-xs010x-q" => "Nokia XS-010X-Q (HTTP)",
         "zyxel-gpon-sfp" => "Zyxel GPON-SFP PMG3000 (HTTP)",
         "richerlink-ont" => "Richerlink RL821GWV-D (HTTP)",
+        "peter-pon" => "Peter-Pon GPON Firmware (HTTP)",
         "netopt-custom" => "Network Optimizer Custom (HTTP JSON)",
         "generic-http-ont" => "Generic HTTP ONT",
         _ => provider,
