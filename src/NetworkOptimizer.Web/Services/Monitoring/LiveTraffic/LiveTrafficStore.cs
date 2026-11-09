@@ -467,9 +467,9 @@ public sealed class LiveTrafficStore
         var now = DateTime.UtcNow;
         lock (_gate)
         {
-            var active = _flows.Values.Select(s => ToRow(s.Last, s.DownBps, s.UpBps, s.History.ToList(), false, now)).ToList();
+            var active = InheritSiblingApps(_flows.Values.Select(s => ToRow(s.Last, s.DownBps, s.UpBps, s.History.ToList(), false, now)).ToList());
             var all = query.Ended
-                ? _ended.Select(e => ToRow(e.Flow, 0, 0, Array.Empty<(double, double)>(), true, now, e.EndedAt)).ToList()
+                ? InheritSiblingApps(_ended.Select(e => ToRow(e.Flow, 0, 0, Array.Empty<(double, double)>(), true, now, e.EndedAt)).ToList())
                 : active;
             if (query.WanOnly) all = all.Where(r => r.RouteKind is LiveRouteKind.Wan or LiveRouteKind.Vpn).ToList();
             if (query.Client is { } scope) all = all.Where(r => InScope(r, scope)).ToList();
@@ -574,6 +574,8 @@ public sealed class LiveTrafficStore
             ?? DomainAppCatalog.PortApp(proto, f.RemotePort) ?? (f.RemotePort >= 1024 ? DomainAppCatalog.PortApp(proto, f.ClientPort) : null)
             ?? portName ?? remoteSite ?? (org != null && !f.Lan ? org : null)
             ?? (f.RemotePort > 0 ? $"{protoLabel} {f.RemotePort}" : protoLabel);
+        var appIsFallback = app == portName || (org != null && app == org)
+            || app == (f.RemotePort > 0 ? $"{protoLabel} {f.RemotePort}" : protoLabel);
         var (appIconDomain, appIconClass) = remoteSite != null && app == remoteSite
             ? (null, "fa-solid fa-building")   // one of your sites, not an app: a site mark, not its initial
             : DpiCatalog.IconsForName(app);
@@ -631,6 +633,7 @@ public sealed class LiveTrafficStore
             EncryptedDns = encryptedDns,
             AppIconDomain = appIconDomain,
             AppIconClass = appIconClass,
+            AppIsFallback = appIsFallback,
             RemoteSite = remoteSite,
             RemoteClientMac = peer?.Mac,
             RemoteClientVia = peer == null ? null : peer.Via ?? peer.Network,
@@ -957,6 +960,34 @@ public sealed class LiveTrafficStore
     /// download opens) become one row: rates, totals, and trend summed, the earliest start, and a stream
     /// count. A single flow passes through unchanged.
     /// </summary>
+    /// <summary>Ports that carry many apps at once from one client: a sibling's name says nothing about the rest.</summary>
+    private static readonly HashSet<int> SharedPorts = [80, 443, 53, 853, 123, 3478, 1900, 5353];
+
+    /// <summary>
+    /// Sibling streams: flows from one client on the same protocol and destination port, where some are
+    /// named (an Ookla test's server by its speed* name) and the rest only fall back to the port or the
+    /// owner (its other servers, no name seen). When every named sibling agrees, the rest take that name.
+    /// Never on a shared port (443, 80, DNS...), where one client runs many apps at once.
+    /// </summary>
+    internal static List<LiveFlowRow> InheritSiblingApps(List<LiveFlowRow> rows)
+    {
+        Dictionary<(string, string, int), LiveFlowRow>? named = null;
+        foreach (var g in rows.Where(r => !r.AppIsFallback && r.RemotePort > 0 && !SharedPorts.Contains(r.RemotePort))
+                     .GroupBy(r => (r.ClientIp, r.Proto, r.RemotePort)))
+        {
+            var lead = g.First();
+            if (g.All(r => r.App == lead.App)) (named ??= new())[g.Key] = lead;
+        }
+        if (named == null) return rows;
+        for (var i = 0; i < rows.Count; i++)
+        {
+            var r = rows[i];
+            if (r.AppIsFallback && named.TryGetValue((r.ClientIp, r.Proto, r.RemotePort), out var lead))
+                rows[i] = r with { App = lead.App, AppIconDomain = lead.AppIconDomain, AppIconClass = lead.AppIconClass, AppIsFallback = false };
+        }
+        return rows;
+    }
+
     internal static List<LiveFlowRow> Bundle(IReadOnlyList<LiveFlowRow> rows)
     {
         var bundled = new List<LiveFlowRow>(rows.Count);

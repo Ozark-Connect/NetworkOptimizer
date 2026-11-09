@@ -98,6 +98,11 @@ public sealed record LiveFlowRow
     public string? AppIconDomain { get; init; }
     /// <summary>The Font Awesome class for the App, or null for the initial alone.</summary>
     public string? AppIconClass { get; init; }
+    /// <summary>
+    /// The App is only a fallback (the port's service name, "TCP 8080", or the address's owner), so a
+    /// sibling stream's real name may replace it. See <see cref="LiveTrafficStore.InheritSiblingApps"/>.
+    /// </summary>
+    public bool AppIsFallback { get; init; }
     /// <summary>Parallel streams this row stands for (one client to one destination, port, and protocol); 1 for a single flow.</summary>
     public int Streams { get; init; } = 1;
     /// <summary>The gateway's own traffic, not a client's.</summary>

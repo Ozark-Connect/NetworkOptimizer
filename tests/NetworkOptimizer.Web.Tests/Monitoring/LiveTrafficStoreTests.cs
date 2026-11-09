@@ -299,6 +299,48 @@ public class LiveTrafficStoreTests
     }
 
     [Fact]
+    public void SiblingStreamsOnAPortTakeTheNamedOnesApp()
+    {
+        var store = SeededStore();
+        var batch = Batch(
+            Flow("named", Laptop, "192.0.2.20", "203.0.113.90", 8080, "eth4", 1000, 10),
+            Flow("sibling", Laptop, "192.0.2.20", "203.0.113.91", 8080, "eth4", 1000, 10),
+            Flow("other-client", Nas, "192.0.2.10", "203.0.113.92", 8080, "eth4", 1000, 10),
+            Flow("web", Laptop, "192.0.2.20", "203.0.113.93", 443, "eth4", 1000, 10));
+        var dns = new LiveDnsEvent
+        {
+            AtUnixMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+            ClientIp = "192.0.2.20",
+            ServerIp = "192.0.2.1",
+            Name = "speedtest.example.net",
+            Qtype = "A",
+            Rcode = "NOERROR",
+            Answered = true,
+        };
+        dns.Answers.Add(new LiveDnsAnswer { Type = "A", Data = "203.0.113.90", Ttl = 300 });
+        batch.Dns.Add(dns);
+        store.Ingest(batch);
+
+        var flows = store.BuildView(Query(), LiveTrafficState.Live).Flows;
+
+        flows.Single(f => f.Key == "named").App.Should().Be("Speedtest.net");
+        flows.Single(f => f.Key == "sibling").App.Should().Be("Speedtest.net", "same client, same protocol and port, no name of its own");
+        flows.Single(f => f.Key == "other-client").App.Should().NotBe("Speedtest.net", "another client's 8080 is not this test");
+        flows.Single(f => f.Key == "web").App.Should().Be("HTTPS");
+    }
+
+    [Fact]
+    public void SiblingNamesNeverCrossASharedPort()
+    {
+        var rows = new List<LiveFlowRow>
+        {
+            new() { Key = "a", ClientIp = "192.0.2.20", Proto = "tcp", RemotePort = 443, App = "Netflix" },
+            new() { Key = "b", ClientIp = "192.0.2.20", Proto = "tcp", RemotePort = 443, App = "HTTPS", AppIsFallback = true },
+        };
+        LiveTrafficStore.InheritSiblingApps(rows).Single(r => r.Key == "b").App.Should().Be("HTTPS");
+    }
+
+    [Fact]
     public void HttpsTakesInQuicButQuicStaysQuic()
     {
         var store = SeededStore();
