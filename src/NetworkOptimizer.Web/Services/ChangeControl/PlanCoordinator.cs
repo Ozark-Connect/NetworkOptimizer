@@ -754,10 +754,10 @@ public sealed class PlanCoordinator
                     ? $"{reason} after a Re-address that moved the UniFi Console's Network. The UniFi Console runs on the Gateway and moves with it, so Network Devices "
                       + "reconnect once the Gateway provisions its new addresses, and Network Optimizer does not revert this Plan. If one stays offline, Roll Back in Review Plan puts the old addresses back."
                     : MovesConsolePath(doc)
-                    ? $"{reason} after a re-address that moved the UniFi Console's network. Network devices reach the Console at its old address until it moves too, "
-                      + "so Network Optimizer does not revert this plan. Move the Console to its new address; Roll Back in Review Plan puts the old addresses back."
-                    : $"{reason} after a re-address that moved their management network ({doc.Context[ReaddressManagementContext]}). Network devices reconnect at their new addresses "
-                      + "once the gateway provisions them, so Network Optimizer does not revert this plan. If one stays offline, Roll Back in Review Plan puts the old addresses back.";
+                    ? $"{reason} after a Re-address that moved the UniFi Console's Network. Network Devices reach the UniFi Console at its old address until it moves too, "
+                      + "so Network Optimizer does not revert this Plan. Move the UniFi Console to its new address; Roll Back in Review Plan puts the old addresses back."
+                    : $"{reason} after a Re-address that moved their management network ({doc.Context[ReaddressManagementContext]}). Network Devices reconnect at their new addresses "
+                      + "once the Gateway provisions them, so Network Optimizer does not revert this Plan. If one stays offline, Roll Back in Review Plan puts the old addresses back.";
                 await Publish(ChangeAlerts.PlanFailed, AlertSeverity.Warning, title, message, plan.Id, ct);
                 var gone = plan.Kind == ConfigPlanKind.Readdress ? InformTargets(doc, offline ?? []) : [];
                 if (gone.Count > 0)
