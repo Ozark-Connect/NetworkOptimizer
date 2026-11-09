@@ -118,6 +118,7 @@ public class DomainAppCatalogTests
     [InlineData("Overwatch", "fa-brands fa-battle-net")]
     [InlineData("ICMP", "no-icon no-icon-icmp")]
     [InlineData("Outlook.com", "fa-brands fa-microsoft")]
+    [InlineData("Roku", "no-icon no-icon-roku")]
     public void MarksFontAwesomeLacksOrTheCatalogMisses(string app, string cls) =>
         DpiCatalog.IconsForName(app).Class.Should().Be(cls);
 

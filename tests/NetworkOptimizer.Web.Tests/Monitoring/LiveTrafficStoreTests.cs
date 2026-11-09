@@ -222,6 +222,29 @@ public class LiveTrafficStoreTests
     }
 
     [Fact]
+    public void ReturningAfterTheLeaseEndedWaitsForRatesInsteadOfShowingOldRows()
+    {
+        var store = SeededStore();
+        var now = DateTime.UtcNow;
+        store.TouchViewer("v", now);
+        store.Ingest(Batch(Flow("a", Laptop, "192.0.2.20", "203.0.113.5", 443, "eth4", 1000, 10)));
+        store.Ingest(Batch(Flow("a", Laptop, "192.0.2.20", "203.0.113.5", 443, "eth4", 1000, 10)));
+        store.HasRates(DateTime.UtcNow).Should().BeTrue();
+
+        store.ReleaseViewer("v", DateTime.UtcNow).Should().BeTrue();
+        store.HasRates(DateTime.UtcNow).Should().BeFalse("the lease ended, so the agent's next batch only seeds");
+        store.BuildView(Query(), LiveTrafficState.Starting).Flows.Should().BeEmpty("rows from before are not live");
+
+        // Back again: the agent's seeding batch carries no moving flows and is not yet rates.
+        store.TouchViewer("v", DateTime.UtcNow);
+        store.Ingest(Batch());
+        store.HasRates(DateTime.UtcNow).Should().BeFalse();
+        store.Ingest(Batch(Flow("a", Laptop, "192.0.2.20", "203.0.113.5", 443, "eth4", 2000, 10)));
+        store.HasRates(DateTime.UtcNow).Should().BeTrue();
+        store.BuildView(Query(), LiveTrafficState.Live).Flows.Single().DownBps.Should().Be(8000);
+    }
+
+    [Fact]
     public void HttpsTakesInQuicButQuicStaysQuic()
     {
         var store = SeededStore();

@@ -61,6 +61,7 @@ public static class DpiCatalog
         ["Microsoft Windows Update"] = "fa-brands fa-windows",
         // No Outlook mark in Font Awesome or Simple Icons: Microsoft's, as its other services carry.
         ["Outlook.com"] = "fa-brands fa-microsoft",
+        ["Roku"] = "no-icon no-icon-roku",
         ["XBOX"] = "fa-brands fa-xbox",
         ["iTunes"] = "fa-brands fa-itunes",
         // Marks Font Awesome lacks: app.css draws the no-icon-* classes (Simple Icons, CC0).

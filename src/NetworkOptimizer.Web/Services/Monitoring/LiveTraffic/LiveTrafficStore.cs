@@ -115,6 +115,8 @@ public sealed class LiveTrafficStore
         lock (_gate)
         {
             _streak = now - _lastBatchAt <= TimeSpan.FromSeconds(Math.Max(10, window * 4)) ? _streak + 1 : 1;
+            // A new stream: rows from the last one carry rates from before the gap.
+            if (_streak == 1) _flows.Clear();
             _lastBatchAt = now;
             _windowSeconds = window;
             _totalFlows = batch.TotalFlows;
@@ -217,6 +219,10 @@ public sealed class LiveTrafficStore
                 _viewers.Remove(stale);
             if (_viewers.Count > 0) return false;
             _lastPushAt = DateTime.MinValue;
+            // The lease ends now and the agent's tracker with it: its next batch only seeds. Forget the
+            // stream and its rows, or a return reads the old rows as live and the seed batch blanks them.
+            _streak = 0;
+            _flows.Clear();
             return true;
         }
     }
