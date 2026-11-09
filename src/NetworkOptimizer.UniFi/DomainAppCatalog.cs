@@ -109,6 +109,10 @@ public static class DomainAppCatalog
         _ => null,
     };
 
+    /// <summary>Tools known by their port anywhere, LAN or internet: iperf3 on 5201, TCP and UDP (its UDP mode).</summary>
+    public static string? PortApp(string proto, int port) =>
+        port == 5201 && proto is "tcp" or "udp" ? "iperf3" : null;
+
     /// <summary>The application a domain belongs to, matching the domain or its nearest listed parent; null when none.</summary>
     public static string? AppFor(string? domain)
     {

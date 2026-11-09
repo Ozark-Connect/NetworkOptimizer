@@ -69,6 +69,7 @@ public static class DpiCatalog
         // Local protocols DomainAppCatalog.LanApp names by port.
         ["Google Cast"] = "fa-brands fa-chromecast",
         ["Midea"] = "fa-solid fa-house-signal",
+        ["iperf3"] = "fa-solid fa-gauge-high",
         // VPN protocols named by their port: the catalog's tunneling mark, not the initial.
         ["IPSec NAT-T"] = "fa-solid fa-shield-halved",
         ["IKE"] = "fa-solid fa-shield-halved",

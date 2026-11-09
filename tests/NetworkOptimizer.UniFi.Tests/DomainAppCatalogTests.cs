@@ -56,6 +56,14 @@ public class DomainAppCatalogTests
         DomainAppCatalog.LanApp(proto, port).Should().Be(expected);
 
     [Theory]
+    [InlineData("tcp", 5201, "iperf3")]
+    [InlineData("udp", 5201, "iperf3")]   // its UDP mode
+    [InlineData("tcp", 5202, null)]
+    public void Iperf3ByPort(string proto, int port, string? expected) =>
+        DomainAppCatalog.PortApp(proto, port).Should().Be(expected);
+
+    [Theory]
+    [InlineData("iperf3", "fa-solid fa-gauge-high")]
     [InlineData("Google Cast", "fa-brands fa-chromecast")]
     [InlineData("Midea", "fa-solid fa-house-signal")]
     public void LanProtocolMarks(string app, string cls) =>

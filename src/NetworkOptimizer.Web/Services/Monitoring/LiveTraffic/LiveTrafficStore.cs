@@ -550,6 +550,8 @@ public sealed class LiveTrafficStore
             : match?.Domain ?? (_ptr.TryGetValue(f.RemoteIp, out var ptrName) ? ptrName : null);
         var app = match?.App ?? DomainAppCatalog.AppFor(hostName)
             ?? (f.Lan ? DomainAppCatalog.LanApp(proto, f.RemotePort) : DomainAppCatalog.WifiCalling(proto, f.RemotePort, org))
+            // The client end may be the server (an iperf3 server answering a test): its port names it then.
+            ?? DomainAppCatalog.PortApp(proto, f.RemotePort) ?? (f.RemotePort >= 1024 ? DomainAppCatalog.PortApp(proto, f.ClientPort) : null)
             ?? portName ?? remoteSite ?? (org != null && !f.Lan ? org : null)
             ?? (f.RemotePort > 0 ? $"{protoLabel} {f.RemotePort}" : protoLabel);
         var (appIconDomain, appIconClass) = remoteSite != null && app == remoteSite
