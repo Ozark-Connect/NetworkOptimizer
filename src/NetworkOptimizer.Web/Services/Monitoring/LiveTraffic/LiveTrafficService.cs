@@ -6,6 +6,7 @@ using NetworkOptimizer.Threats.Enrichment;
 using NetworkOptimizer.Storage.Models.Identity;
 using NetworkOptimizer.Storage.Services;
 using NetworkOptimizer.UniFi;
+using NetworkOptimizer.UniFi.Models;
 using NetworkOptimizer.Web.Services.Gates;
 using NetworkOptimizer.Web.Services.Monitoring.BandwidthHogs;
 
@@ -223,6 +224,16 @@ public sealed class LiveTrafficService : ILiveTrafficService
 
             var to = DateTime.UtcNow;
             var from = cache.FetchFrom(to);
+            // The first load opens from the client's shared cache when it already holds the hour, and
+            // reads only what is newer; otherwise the console's whole hour is read once, and kept there.
+            if (!cache.Loaded && client.FlowCache.Covered is { } covered
+                && covered.From <= from + TimeSpan.FromMinutes(2) && covered.To > from)
+            {
+                cache.Merge(client.FlowCache.Since(from), DateTime.UtcNow, generation);
+                from = (covered.To - TimeSpan.FromSeconds(30)).UtcDateTime;
+            }
+            var read = new List<UniFiTrafficFlow>();
+            var complete = false;
             for (var page = 0; page < FlowHistoryCache.MaxPages; page++)
             {
                 var result = await client.GetTrafficFlowPageAsync(from, to, page, FlowHistoryCache.PageSize, ct);
@@ -232,8 +243,14 @@ public sealed class LiveTrafficService : ILiveTrafficService
                     break;
                 }
                 cache.Merge(result.Data, DateTime.UtcNow, generation);
-                if (result.Data.Count < FlowHistoryCache.PageSize) break;
+                read.AddRange(result.Data);
+                if (result.Data.Count < FlowHistoryCache.PageSize)
+                {
+                    complete = true;
+                    break;
+                }
             }
+            if (complete) client.FlowCache.Record(from, to, read, DateTimeOffset.UtcNow);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -298,14 +315,30 @@ public sealed class LiveTrafficService : ILiveTrafficService
             {
                 var to = DateTime.UtcNow;
                 var from = store.UniFiFetchFrom(to);
+                // A first read takes what the client's shared cache already covers (Threat Intelligence
+                // reads every record each minute) and asks the console only for what is newer.
+                if (store.UniFiBackfilling && client.FlowCache.Covered is { } covered
+                    && covered.From <= from && covered.To > from)
+                {
+                    store.MergeUniFiFlows(client.FlowCache.Since(from));
+                    from = (covered.To - TimeSpan.FromSeconds(30)).UtcDateTime;
+                }
                 var pages = store.UniFiBackfilling ? BackfillPages : MaxPages;
+                var read = new List<UniFiTrafficFlow>();
+                var complete = false;
                 for (var page = 0; page < pages; page++)
                 {
                     var result = await client.GetTrafficFlowPageAsync(from, to, page, PageSize);
                     if (result == null) break;
                     store.MergeUniFiFlows(result.Data);
-                    if (result.Data.Count < PageSize) break;
+                    read.AddRange(result.Data);
+                    if (result.Data.Count < PageSize)
+                    {
+                        complete = true;
+                        break;
+                    }
                 }
+                if (complete) client.FlowCache.Record(from, to, read, DateTimeOffset.UtcNow);
 
                 // One older window per refresh, until long-running flows have found their records.
                 if (store.NextBackfillWindow(to) is { } window)
