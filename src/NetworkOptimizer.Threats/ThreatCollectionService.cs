@@ -269,7 +269,7 @@ public class ThreatCollectionService : BackgroundService
 
         // === PHASE 1: Incremental collection from last sync ===
         // On first run (or after >24h gap), sweep the full 24 hours in 1-hour chunks
-        // to avoid hitting the ~1000-result pagination cap. On subsequent runs, only
+        // so each query stays small. On subsequent runs, only
         // query from last sync (with 2-min overlap for API eventual consistency).
         var now = DateTimeOffset.UtcNow;
         var lastSyncKey = SiteScopedKey("threats.last_sync_timestamp", siteKey);
@@ -879,6 +879,20 @@ public class ThreatCollectionService : BackgroundService
     // late packets hours after their last flow record.
     private static readonly TimeSpan ReplyLookback = TimeSpan.FromHours(12);
 
+    internal const int FlowPageSize = 500;
+
+    /// <summary>A fence against a console that ignores pageNumber; it holds about 10,000 records at most.</summary>
+    private const int MaxFlowPages = 100;
+
+    /// <summary>
+    /// A short page is the only reliable end of traffic-flows: past page 0 the request skips the count,
+    /// and the console then reports has_next false on every page. Never page on has_next.
+    /// </summary>
+    [NetworkOptimizer.Core.VendorSpecific("UniFi", "traffic-flows paging: has_next is false past page 0 when skip_count is set")]
+    internal static bool IsLastFlowPage(JsonElement response) =>
+        !response.TryGetProperty("data", out var data) || data.ValueKind != JsonValueKind.Array
+        || data.GetArrayLength() < FlowPageSize;
+
     /// <summary>
     /// Drops blocked packets that are the tail of a connection a LAN client opened (see
     /// <see cref="Analysis.FlowInterestFilter.IsReplyTo"/>): UniFi Network dropping them once the connection
@@ -902,15 +916,15 @@ public class ThreatCollectionService : BackgroundService
         {
             foreach (var chunk in candidates.Select(e => e.SourceIp).Distinct(StringComparer.OrdinalIgnoreCase).Chunk(100))
             {
-                for (var page = 0; page < maxPages; page++)
+                for (var page = 0; page < Math.Min(maxPages, MaxFlowPages); page++)
                 {
-                    var response = await apiClient.GetTrafficFlowsAsync(start - ReplyLookback, end, page,
+                    var response = await apiClient.GetTrafficFlowsAsync(start - ReplyLookback, end, page, FlowPageSize,
                         actionFilter: ["allowed"], directionFilter: ["outgoing"], destinationIpFilter: chunk,
                         cancellationToken: cancellationToken);
                     if (response.ValueKind == JsonValueKind.Undefined)
                         return events;
                     outgoing.UnionWith(Analysis.FlowInterestFilter.OutgoingConnections(response));
-                    if (!(response.TryGetProperty("has_next", out var hn) && hn.ValueKind == JsonValueKind.True))
+                    if (IsLastFlowPage(response))
                         break;
                 }
             }
@@ -948,9 +962,9 @@ public class ThreatCollectionService : BackgroundService
         {
             var page = 0;
 
-            while (page < maxPages)
+            while (page < Math.Min(maxPages, MaxFlowPages))
             {
-                var response = await apiClient.GetTrafficFlowsAsync(start, end, page,
+                var response = await apiClient.GetTrafficFlowsAsync(start, end, page, FlowPageSize,
                     actionFilter: actionFilter, cancellationToken: cancellationToken);
                 if (response.ValueKind == JsonValueKind.Undefined)
                     break;
@@ -976,8 +990,7 @@ public class ThreatCollectionService : BackgroundService
                     events.AddRange(normalized);
                 }
 
-                var hasNext = response.TryGetProperty("has_next", out var hn) && hn.GetBoolean();
-                if (!hasNext) break;
+                if (IsLastFlowPage(response)) break;
                 page++;
             }
         }

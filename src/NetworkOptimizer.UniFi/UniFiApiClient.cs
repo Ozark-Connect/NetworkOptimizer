@@ -4614,6 +4614,25 @@ public partial class UniFiApiClient : IDisposable
         });
     }
 
+    /// <summary>True for an hour after the console answered traffic-flows with 405 (it does not serve them).</summary>
+    public bool TrafficFlowsUnsupported => DateTime.UtcNow.Ticks < Interlocked.Read(ref _trafficFlowsUnsupportedUntilTicks);
+
+    /// <summary>
+    /// One page of <see cref="GetTrafficFlowsAsync(DateTimeOffset, DateTimeOffset, int, int, string[], string[], string[], string[], CancellationToken)"/>
+    /// as typed records, newest first. Null when the console cannot answer. Page until a short page:
+    /// past page 0 the request skips the count, and the console then reports <c>has_next</c> false.
+    /// </summary>
+    public async Task<UniFiTrafficFlowPage?> GetTrafficFlowPageAsync(
+        DateTimeOffset start,
+        DateTimeOffset end,
+        int pageNumber,
+        int pageSize,
+        CancellationToken cancellationToken = default)
+    {
+        var json = await GetTrafficFlowsAsync(start, end, pageNumber, pageSize, cancellationToken: cancellationToken);
+        return json.ValueKind == JsonValueKind.Object ? json.Deserialize<UniFiTrafficFlowPage>() : null;
+    }
+
     #endregion
 
     #region Support File (UniFi OS endpoint, username/password only)
