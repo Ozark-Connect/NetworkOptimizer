@@ -18,6 +18,12 @@
 
 Genuinely, thank you so much to everybody for taking the time to use Network Optimizer and have it find a place on your network(s). It really means a lot to receive all of the bug reports, feature requests, feedback, support, and donations from everybody. Totally a whole new experience from writing code in a dayjob, and it greatly motivates me to keep on going!
 
+## Coming Soon: Live Traffic
+
+Available on Preview Now: see every flow through your Gateway as it happens, ranked by what's using your internet right now, with the app, where it's going, the DNS lookup behind it, and the Firewall Policy that let it through. Live DNS shows every lookup as it happens, flags blocked ones and clients going around your DNS, and catches the attempts your Gateway DNATs. Client Performance gets the same live view for any single client.
+
+Check it out on Preview here: https://github.com/Ozark-Connect/NetworkOptimizer/releases
+
 ## Coming Soon: Change Control
 
 Available on Preview Now: track all changes to your UniFi Network configuration made from all sources, with all differences recorded with each change. Revert entire change sets if performance didn't improve without having to remember to take backups, save a baseline to return back to before major changes, save a template that can be applied - all or just some configuration pieces - to existing or new sites. See how changes affected performance directly on a visualization of Site Health, WAN stats, Gateway CPU usage, Wi-Fi Client-band split and PHY, and more. Alerts are sent automatically if there are regressions, and if a change takes down your site's WAN, it automatically reverts.
