@@ -1,0 +1,86 @@
+@* The client's own DNS lookups as the gateway sees them, last on Data / Apps. *@
+@implements IDisposable
+
+@if (Feed.View is { State: LiveTrafficState.Live or LiveTrafficState.Starting } view)
+{
+    var rows = view.Dns.Take(MaxRows).ToList();
+    var slots = Slots(rows.Count);
+    <div class="card results-card lt-client lt-client-dns">
+        <div class="chart-card-header">
+            <h3>Live DNS</h3>
+            <div class="time-range-selector">
+                <button class="time-btn @(Feed.DnsMode == LiveDnsMode.All ? "active" : "")" @onclick="() => Feed.SetDnsModeAsync(LiveDnsMode.All)">All</button>
+                <button class="time-btn @(Feed.DnsMode == LiveDnsMode.Bypass ? "active" : "")" @onclick="() => Feed.SetDnsModeAsync(LiveDnsMode.Bypass)">Bypass</button>
+                <button class="time-btn @(Feed.DnsMode == LiveDnsMode.Nxdomain ? "active" : "")" @onclick="() => Feed.SetDnsModeAsync(LiveDnsMode.Nxdomain)" data-tooltip="NXDOMAIN, or 0.0.0.0 / :: answers">Blocked</button>
+            </div>
+        </div>
+        @if (rows.Count == 0)
+        {
+            <div class="empty-state lt-client-empty">
+                <p>@(Feed.DnsMode != LiveDnsMode.All || Feed.Filters.Count > 0 ? "No lookups match." : view.DnsActive ? "No lookups from this client in the last few minutes." : "Waiting for DNS lookups.")</p>
+            </div>
+        }
+        else
+        {
+            <div class="lt-mobile-list">
+                @foreach (var d in rows)
+                {
+                    <LiveDnsRowView Lookup="d" Layout="LiveDnsLayout.List" ShowClient="false" Context="Feed.RowContext" />
+                }
+                @for (var i = rows.Count; i < slots; i++)
+                {
+                    <div class="lt-m-row lt-slot-empty lt-dns-slot" aria-hidden="true"></div>
+                }
+            </div>
+            <table class="results-table lt-dns-table lt-desktop-only">
+                <colgroup><col><col style="width:32%"><col style="width:6.5rem"></colgroup>
+                <thead><tr><th>Query</th><th>Resolver</th><th>Answer</th></tr></thead>
+                <tbody>
+                    @foreach (var d in rows)
+                    {
+                        <LiveDnsRowView Lookup="d" Layout="LiveDnsLayout.Table" ShowClient="false" Context="Feed.RowContext" />
+                    }
+                    @for (var i = rows.Count; i < slots; i++)
+                    {
+                        <tr class="lt-slot-empty"><td colspan="3">&nbsp;<span class="lt-dns-sub">&nbsp;</span></td></tr>
+                    }
+                </tbody>
+            </table>
+        }
+        <div class="lt-dns-foot">Seen at the Gateway: lookups to the Gateway, to a DNS server on another VLAN, and to any outside resolver. A lookup to a DNS server on the client's own VLAN never reaches the Gateway. Encrypted DNS (DoH, DoT) is listed by its provider and flagged as a bypass unless it is a site resolver's own upstream.</div>
+    </div>
+}
+
+@code {
+    /// <summary>The client's feed, shared with the Live Traffic card.</summary>
+    [Parameter, EditorRequired] public ClientLiveFeed Feed { get; set; } = default!;
+
+    private const int MaxRows = 10;
+    private ClientLiveFeed? _subscribed;
+    private int _slots;
+    private string? _slotsFor;
+
+    /// <summary>The most lookups shown since the mode or filters last changed: the card does not shrink as they age out.</summary>
+    private int Slots(int shown)
+    {
+        var query = $"{Feed.DnsMode}|{string.Join(",", Feed.Filters)}";
+        if (query != _slotsFor) (_slotsFor, _slots) = (query, 0);
+        return _slots = Math.Max(_slots, shown);
+    }
+
+    protected override void OnParametersSet()
+    {
+        if (ReferenceEquals(_subscribed, Feed)) return;
+        if (_subscribed != null) _subscribed.Changed -= OnFeedChanged;
+        _subscribed = Feed;
+        Feed.Changed += OnFeedChanged;
+        _slotsFor = null;
+    }
+
+    private Task OnFeedChanged() => InvokeAsync(StateHasChanged);
+
+    public void Dispose()
+    {
+        if (_subscribed != null) _subscribed.Changed -= OnFeedChanged;
+    }
+}

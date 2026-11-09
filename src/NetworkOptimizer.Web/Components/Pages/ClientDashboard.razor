@@ -32,6 +32,9 @@
 @inject MonitoringLiveStatsRegistry LiveStatsRegistry
 @inject CircuitReconnectNotifier CircuitReconnect
 @inject IDisplayTimeZone DisplayTime
+@using NetworkOptimizer.Web.Services.Monitoring.LiveTraffic
+@using NetworkOptimizer.Web.Components.Shared.Monitoring.LiveTraffic
+@inject ILiveTrafficService LiveTraffic
 
 <PageTitle>Client Performance - Network Optimizer</PageTitle>
 
@@ -452,7 +455,7 @@
                         <button class="tab-btn @(_activeTab == "connection" ? "active" : "")"
                                 @onclick='() => SetActiveTab("connection")'>Connection</button>
                         <button class="tab-btn @(_activeTab == "data" ? "active" : "")"
-                                @onclick='() => SetActiveTab("data")'>Data</button>
+                                @onclick='() => SetActiveTab("data")'>Data / Apps</button>
                     </div>
                 }
                 @* On a desktop the Speed tab carries this filter on its Speed Tests heading instead: up
@@ -513,6 +516,10 @@
                                     <div class="usage-card-spinner"><span class="spinner"></span></div>
                                 }
                             </div>
+                            @if (_throughputHours == 0 && LiveFeed is { } noteFeed)
+                            {
+                                <ClientLiveTrafficNote Feed="noteFeed" OnOpen='() => SetActiveTab("data")' />
+                            }
                             @if (_throughputHours != 0 && _throughputSummary is { } ts)
                             {
                                 var wanView = _throughputView == "wan";
@@ -1122,6 +1129,10 @@
             {
                 @* ===== DATA TAB ===== *@
                 <div class="tab-pane" data-tour="client-data">
+                    @if (LiveFeed is { } liveFeed)
+                    {
+                        <ClientLiveTrafficCard Feed="liveFeed" ShowThroughputLink="_client?.IsOffline == false" OnOpenThroughput="OpenLiveThroughput" />
+                    }
                     @if (!_tabLoading && !_dataUsageLoading && (_dataUsage == null || (_dataUsage.Wan.Count == 0 && _dataUsage.Lan.Count == 0)))
                     {
                         <div class="empty-state">
@@ -1219,14 +1230,22 @@
                             </div>
                         </div>
                         }
-                        @if (_appUsage.Count > 0 || _appLoading)
+                        @if (_appUsage.Count > 0 || _appLoading || LiveFeed?.View?.State is LiveTrafficState.Live or LiveTrafficState.Starting)
                         {
                             <div class="card results-card">
                                 <h3>Applications</h3>
+                                @if (LiveFeed is { } appsFeed)
+                                {
+                                    <ClientLiveAppsStrip Feed="appsFeed" />
+                                }
                                 <p class="form-hint app-table-hint">WAN traffic by application, as UniFi Network identifies it.</p>
-                                @if (_appUsage.Count == 0)
+                                @if (_appUsage.Count == 0 && _appLoading)
                                 {
                                     <div class="loading-container"><div class="spinner"></div></div>
+                                }
+                                else if (_appUsage.Count == 0)
+                                {
+                                    <p class="lt-muted">No application traffic recorded for this time range.</p>
                                 }
                                 else
                                 {
@@ -1282,6 +1301,10 @@
                             </div>
                         }
                     }
+                    @if (LiveFeed is { } dnsFeed)
+                    {
+                        <ClientLiveDnsCard Feed="dnsFeed" />
+                    }
                 </div>
             }
         </div>
@@ -1306,6 +1329,35 @@
     private bool _pendingChartUpdate;
     private bool _tabLoading;
     private ClientIdentity? _client;
+
+    // Live Traffic on Data / Apps: one feed per open tab and client, holding the agent's lease.
+    private ClientLiveFeed? _liveFeed;
+
+    /// <summary>Data / Apps is open, or Live Throughput is live on the Speed tab: the two share one feed.</summary>
+    private bool LiveFeedWanted => !_disposed && _client is { IsVpn: false } c && !string.IsNullOrEmpty(c.Mac)
+        && (_activeTab == "data" || (ShowLiveChart && _throughputHours == 0));
+
+    /// <summary>The client's feed while <see cref="LiveFeedWanted"/>, started on first ask.</summary>
+    private ClientLiveFeed? LiveFeed
+    {
+        get
+        {
+            if (!LiveFeedWanted || _client is not { } c) return null;
+            if (_liveFeed?.ClientMac == c.Mac) return _liveFeed;
+            _liveFeed?.Dispose();
+            var ips = new[] { c.Ip, c.FixedIp }.Where(ip => !string.IsNullOrEmpty(ip)).Select(ip => ip!).Distinct().ToList();
+            _liveFeed = new ClientLiveFeed(LiveTraffic, InvokeAsync, c.Mac, c.Name ?? c.Hostname ?? "", ips, Logger);
+            _liveFeed.Start();
+            return _liveFeed;
+        }
+    }
+
+    /// <summary>From Data / Apps' Live Traffic card: the Speed tab with Throughput on Live.</summary>
+    private void OpenLiveThroughput()
+    {
+        SetThroughputRange(0);
+        SetActiveTab("speed");
+    }
 
     private void OnClientRenamed((string Alias, string Shown) renamed)
     {
@@ -1790,6 +1842,12 @@
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         await EnsureLiveChartAsync();
+        // Nothing shows it any more, or the client changed: the feed releases the agent's lease.
+        if (_liveFeed != null && (!LiveFeedWanted || _client?.Mac != _liveFeed.ClientMac))
+        {
+            _liveFeed.Dispose();
+            _liveFeed = null;
+        }
 
         // Apply deferred chart updates after render cycle completes (chart is now mounted)
         if (_pendingChartUpdate)
@@ -4392,6 +4450,7 @@
         _pollTimer?.Dispose();
         _identityRetryTimer?.Dispose();
         _pickerRefreshTimer?.Dispose();
+        _liveFeed?.Dispose();
         if (_liveChartMounted) await DisposeLiveChartAsync();
 
         // Stop GPS watcher
@@ -5512,10 +5571,12 @@
             justify-content: stretch;
             flex: 1;
         }
+        /* Sized to the label, never wrapped: "Data / Apps" in a quarter of a phone took two lines. */
         .tab-btn {
-            flex: 1;
+            flex: 1 1 auto;
+            white-space: nowrap;
             text-align: center;
-            padding: 0.5rem 0.5rem;
+            padding: 0.5rem 0.4rem;
         }
         .speed-hero-results {
             display: grid;

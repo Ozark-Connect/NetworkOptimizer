@@ -1,0 +1,65 @@
+@* Under Live Throughput: what the client is moving through the gateway right now, linked to Data / Apps. *@
+@inherits LiveTrafficPieces
+@implements IDisposable
+
+@if (Feed.Overall is { State: LiveTrafficState.Live or LiveTrafficState.Starting } view)
+{
+    <div class="lt-note">
+        @* Two lines, always: what is moving, then the rate pair, so the card keeps its height. *@
+        <span class="lt-note-text">
+            <span class="lt-note-line">
+                @if (view.State == LiveTrafficState.Starting)
+                {
+                    <span>Live Traffic: measuring rates.</span>
+                }
+                else if (view.MatchingFlows == 0)
+                {
+                    <span>No live Gateway flows</span>
+                }
+                else
+                {
+                    var busiest = view.Groups.Where(g => g.DownBps + g.UpBps > 0).Take(3).Select(g => g.Name).ToList();
+                    <strong>@view.MatchingFlows.ToString("N0") live Gateway @(view.MatchingFlows == 1 ? "flow" : "flows")</strong>
+                    <span>@(busiest.Count > 0 ? $", busiest {string.Join(", ", busiest)}" : "")</span>
+                }
+            </span>
+            <span class="lt-note-line">
+                @if (view.State == LiveTrafficState.Starting)
+                {
+                    <span>&nbsp;</span>
+                }
+                else
+                {
+                    @Rate(view.MatchingDownBps, "speed-down")<span> down &middot; </span>@Rate(view.MatchingUpBps, "speed-up")<span> up</span>
+                }
+            </span>
+        </span>
+        <a href="" class="lt-note-link" @onclick="OnOpen" @onclick:preventDefault>See them on Data / Apps &rsaquo;</a>
+    </div>
+}
+
+@code {
+    /// <summary>The client's feed, shared with the Data / Apps cards.</summary>
+    [Parameter, EditorRequired] public ClientLiveFeed Feed { get; set; } = default!;
+
+    /// <summary>Opens Data / Apps.</summary>
+    [Parameter] public EventCallback OnOpen { get; set; }
+
+    private ClientLiveFeed? _subscribed;
+
+
+    protected override void OnParametersSet()
+    {
+        if (ReferenceEquals(_subscribed, Feed)) return;
+        if (_subscribed != null) _subscribed.Changed -= OnFeedChanged;
+        _subscribed = Feed;
+        Feed.Changed += OnFeedChanged;
+    }
+
+    private Task OnFeedChanged() => InvokeAsync(StateHasChanged);
+
+    public void Dispose()
+    {
+        if (_subscribed != null) _subscribed.Changed -= OnFeedChanged;
+    }
+}
