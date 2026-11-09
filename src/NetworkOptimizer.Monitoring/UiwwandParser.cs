@@ -276,7 +276,7 @@ public static class UiwwandParser
         return prop.ValueKind switch
         {
             JsonValueKind.Number => prop.GetDouble(),
-            JsonValueKind.String when double.TryParse(prop.GetString(), out var d) => d,
+            JsonValueKind.String when double.TryParse(prop.GetString(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var d) => d,
             _ => null,
         };
     }

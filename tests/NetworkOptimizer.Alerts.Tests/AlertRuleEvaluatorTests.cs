@@ -413,7 +413,7 @@ public class AlertRuleEvaluatorTests
     public void Evaluate_ValuePercentContext_ComparedAgainstThreshold(double reading, bool expected)
     {
         var evt = CreateTestEvent("device.gateway_high_cpu", source: "device");
-        evt.Context[AlertRuleEvaluator.ValuePercentContextKey] = reading.ToString("0.###");
+        evt.Context[AlertRuleEvaluator.ValuePercentContextKey] = reading.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture);
         var rule = CreateTestRule(eventTypePattern: "device.gateway_high_cpu");
         rule.ThresholdPercent = 80;
 

@@ -664,7 +664,7 @@
                                             <label>Data Cap (GB)</label>
                                             <input type="number" class="form-control" value="@capGb" min="0" step="1"
                                                    @oninput="() => _dirtyConfigs.Add(wanGroup)"
-                                                   @onchange="e => EditDataUsageConfig(wanGroup, capGb: double.TryParse(e.Value?.ToString(), out var v) ? v : 0)" disabled="@(!_canConfigure)"
+                                                   @onchange="e => EditDataUsageConfig(wanGroup, capGb: double.TryParse(e.Value?.ToString(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var v) ? v : 0)" disabled="@(!_canConfigure)"
                                                    data-tooltip="0 = tracking only, no cap alerts" />
                                         </div>
                                         <div class="form-group schedule-field schedule-field-compact">
@@ -701,7 +701,7 @@
                                                    style="@(!_unlockedAdjustmentWans.Contains(wanGroup) ? "cursor: pointer; opacity: 0.7;" : "")"
                                                    @onfocus="() => _unlockedAdjustmentWans.Add(wanGroup)"
                                                    @oninput="() => _dirtyConfigs.Add(wanGroup)"
-                                                   @onchange="e => EditDataUsageConfig(wanGroup, manualAdj: double.TryParse(e.Value?.ToString(), out var v) ? v : 0)" disabled="@(!_canConfigure)" />
+                                                   @onchange="e => EditDataUsageConfig(wanGroup, manualAdj: double.TryParse(e.Value?.ToString(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var v) ? v : 0)" disabled="@(!_canConfigure)" />
                                         </div>
                                     </div>
 

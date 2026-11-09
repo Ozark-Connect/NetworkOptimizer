@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.RegularExpressions;
 using NetworkOptimizer.Monitoring.Models;
 
@@ -284,7 +285,7 @@ public static class QmicliParser
         var match = Regex.Match(line, @"'(-?\d+\.?\d*)\s*dB");
         if (match.Success)
         {
-            return double.TryParse(match.Groups[1].Value, out value);
+            return double.TryParse(match.Groups[1].Value, NumberStyles.Float, CultureInfo.InvariantCulture, out value);
         }
         return false;
     }
@@ -296,7 +297,7 @@ public static class QmicliParser
         var match = Regex.Match(line, @"'(-?\d+\.?\d*)'");
         if (match.Success)
         {
-            return double.TryParse(match.Groups[1].Value, out value);
+            return double.TryParse(match.Groups[1].Value, NumberStyles.Float, CultureInfo.InvariantCulture, out value);
         }
         return false;
     }
