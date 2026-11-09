@@ -245,6 +245,37 @@ public class LiveTrafficStoreTests
     }
 
     [Fact]
+    public void FlowsToThisInstallAreNetworkOptimizerAndApPollsAreApAgent()
+    {
+        var store = SeededStore();
+        store.SetServerHosts(new HashSet<string>(["optimizer.example.com", "203.0.113.80"], StringComparer.OrdinalIgnoreCase));
+        var batch = Batch(
+            Flow("tunnel", Laptop, "192.0.2.20", "203.0.113.70", 443, "eth4", 1000, 10),
+            Flow("byip", Laptop, "192.0.2.20", "203.0.113.80", 8042, "eth4", 1000, 10),
+            Flow("poll", Nas, "192.0.2.10", "192.0.2.30", 8899, "", 1000, 10, lan: true));
+        var dns = new LiveDnsEvent
+        {
+            AtUnixMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+            ClientIp = "192.0.2.20",
+            ServerIp = "192.0.2.1",
+            Name = "Optimizer.Example.com",
+            Qtype = "A",
+            Rcode = "NOERROR",
+            Answered = true,
+        };
+        dns.Answers.Add(new LiveDnsAnswer { Type = "A", Data = "203.0.113.70", Ttl = 300 });
+        batch.Dns.Add(dns);
+        store.Ingest(batch);
+
+        var view = store.BuildView(Query(), LiveTrafficState.Live);
+
+        view.Flows.Single(f => f.Key == "tunnel").App.Should().Be("Network Optimizer", "the destination's DNS name is this install's host");
+        view.Flows.Single(f => f.Key == "byip").App.Should().Be("Network Optimizer", "HOST_IP, reached by address");
+        view.Flows.Single(f => f.Key == "poll").App.Should().Be("AP Agent");
+        view.Flows.Single(f => f.Key == "tunnel").AppIconClass.Should().Contain("app-mark-netopt");
+    }
+
+    [Fact]
     public void HttpsTakesInQuicButQuicStaysQuic()
     {
         var store = SeededStore();

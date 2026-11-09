@@ -92,6 +92,8 @@ public sealed class LiveTrafficStore
     private Dictionary<string, LiveRouteInfo> _routesByIfname = new(StringComparer.OrdinalIgnoreCase);
     private LiveRouteInfo? _defaultRoute;
     private HashSet<string> _gatewayIps = new(StringComparer.OrdinalIgnoreCase);
+    /// <summary>This install's own host names and address: a flow to one is Network Optimizer's own traffic.</summary>
+    private IReadOnlySet<string> _serverHosts = new HashSet<string>();
     private string _gatewayName = "Gateway";
 
     private DateTime _lastBatchAt = DateTime.MinValue;
@@ -207,6 +209,15 @@ public sealed class LiveTrafficStore
     public void NoteLeasePushed(DateTime now)
     {
         lock (_gate) _lastPushAt = now;
+    }
+
+    /// <summary>
+    /// This install's own host names (and HOST_IP): a flow whose destination's DNS name, or address,
+    /// is one of them is named Network Optimizer, such as an On-Site Agent's tunnel or a browser on the app.
+    /// </summary>
+    public void SetServerHosts(IReadOnlySet<string> hosts)
+    {
+        lock (_gate) _serverHosts = hosts;
     }
 
     /// <summary>Drops a viewer. True when nobody is left, so the lease can end now rather than by timeout.</summary>
@@ -554,7 +565,8 @@ public sealed class LiveTrafficStore
         // who owns the address.
         var hostName = _names.TryGetValue(f.RemoteIp, out var named) && named.Expires > now ? named.Name
             : match?.Domain ?? (_ptr.TryGetValue(f.RemoteIp, out var ptrName) ? ptrName : null);
-        var app = DomainAppCatalog.ProtocolApp(proto) ?? match?.App ?? DomainAppCatalog.AppFor(hostName)
+        var toServer = (hostName != null && _serverHosts.Contains(hostName.TrimEnd('.'))) || _serverHosts.Contains(f.RemoteIp);
+        var app = DomainAppCatalog.ProtocolApp(proto) ?? (toServer ? "Network Optimizer" : null) ?? match?.App ?? DomainAppCatalog.AppFor(hostName)
             ?? (f.Lan ? DomainAppCatalog.LanApp(proto, f.RemotePort) : DomainAppCatalog.WifiCalling(proto, f.RemotePort, org) ?? DomainAppCatalog.OwnerApp(org))
             // The client end may be the server (an iperf3 server answering a test): its port names it then.
             ?? DomainAppCatalog.PortApp(proto, f.RemotePort) ?? (f.RemotePort >= 1024 ? DomainAppCatalog.PortApp(proto, f.ClientPort) : null)

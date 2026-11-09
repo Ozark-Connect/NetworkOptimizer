@@ -24572,6 +24572,17 @@ body:has(.top-bar-hidden) .btn-fit {
     line-height: 1;
 }
 
+/* A full-color app mark (our own favicon for Network Optimizer's traffic), filling the glyph box. */
+.lt-app-icon .lt-app-glyph.app-mark,
+.app-glyph.app-mark {
+    background: var(--bg-tertiary) center / 12px no-repeat;
+}
+
+.lt-app-icon .lt-app-glyph.app-mark-netopt,
+.app-glyph.app-mark.app-mark-netopt {
+    background-image: url('/favicon-32x32.png');
+}
+
 /* App marks Font Awesome lacks (Simple Icons, CC0), drawn like a glyph: 1em, in the text color, so
    they sit in .lt-app-glyph and Client Performance's .app-glyph exactly as an fa-brands icon does. */
 .no-icon::before {

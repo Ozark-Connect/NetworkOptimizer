@@ -63,6 +63,16 @@ public sealed class LiveTrafficService : ILiveTrafficService
     private readonly GeoEnrichmentService _geo;
     private readonly LiveTrafficPolicyResolver _policies;
     private readonly ILogger<LiveTrafficService> _logger;
+    private readonly IReadOnlySet<string> _serverHosts;
+
+    /// <summary>This install's declared hosts (reverse-proxied name, HOST_NAME, HOST_IP), the names agents and browsers reach it by.</summary>
+    private static IReadOnlySet<string> ServerHosts(CanonicalBaseUrlProvider canonical)
+    {
+        var hosts = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var url in new[] { canonical.HttpsUrl, canonical.Url, canonical.UrlForCallbacks })
+            if (Uri.TryCreate(url, UriKind.Absolute, out var uri)) hosts.Add(uri.Host);
+        return hosts;
+    }
 
     /// <summary>Flows evaluated against the firewall rules per label refresh (every 10 s); in-memory once the rules are read.</summary>
     private const int PolicyEvaluationsPerRefresh = 300;
@@ -82,8 +92,10 @@ public sealed class LiveTrafficService : ILiveTrafficService
         ISiteManagementService sites,
         GeoEnrichmentService geo,
         LiveTrafficPolicyResolver policies,
+        CanonicalBaseUrlProvider canonical,
         ILogger<LiveTrafficService> logger)
     {
+        _serverHosts = ServerHosts(canonical);
         _registry = registry;
         _tunnels = tunnels;
         _site = site;
@@ -104,6 +116,7 @@ public sealed class LiveTrafficService : ILiveTrafficService
         var slug = _site.Slug;
         var store = _registry.GetFor(slug);
         var now = DateTime.UtcNow;
+        store.SetServerHosts(_serverHosts);
 
         var agents = _tunnels.GetForSite(slug).Where(c => c.HasCapability(AgentTunnelConnection.LiveTrafficCapability)).ToList();
         LiveTrafficState state;

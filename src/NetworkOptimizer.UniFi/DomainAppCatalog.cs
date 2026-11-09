@@ -125,6 +125,7 @@ public static class DomainAppCatalog
     {
         ("tcp", 8009) => "Google Cast",   // a Cast device's control channel
         ("tcp", 6444) => "Midea",         // Midea appliances' local LAN protocol (Home Assistant's Midea LAN)
+        ("tcp", 8899) => "AP Agent",      // Network Optimizer polling its AP Agent (ApAgentPaths.AgentPort)
         _ => null,
     };
 
