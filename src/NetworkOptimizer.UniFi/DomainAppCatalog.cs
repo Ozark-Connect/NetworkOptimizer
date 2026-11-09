@@ -84,6 +84,21 @@ public static class DomainAppCatalog
         return map;
     }
 
+    /// <summary>
+    /// Networks whose every address belongs to one app, by the start of the owner's name as GeoLite2
+    /// spells it ("APPLE-ENGINEERING", "Apple Inc."), for a flow with no domain to go on.
+    /// </summary>
+    private static readonly (string Owner, string App)[] AppByOwner =
+    [
+        ("Apple", "Apple"),
+    ];
+
+    /// <summary>The app a remote network's owner names, matched on a whole word; null when none.</summary>
+    public static string? OwnerApp(string? owner) =>
+        owner == null ? null
+        : AppByOwner.FirstOrDefault(o => owner.StartsWith(o.Owner, StringComparison.OrdinalIgnoreCase)
+            && (owner.Length == o.Owner.Length || !char.IsLetterOrDigit(owner[o.Owner.Length]))).App;
+
     /// <summary>Mobile carriers by the start of their network owner's name, as GeoLite2 spells it.</summary>
     private static readonly string[] MobileCarriers =
     [

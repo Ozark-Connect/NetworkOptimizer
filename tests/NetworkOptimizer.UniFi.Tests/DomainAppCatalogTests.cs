@@ -57,6 +57,16 @@ public class DomainAppCatalogTests
         DomainAppCatalog.WifiCalling(proto, port, owner).Should().Be(expected);
 
     [Theory]
+    [InlineData("APPLE-ENGINEERING", "Apple")]
+    [InlineData("APPLE-AUSTIN", "Apple")]
+    [InlineData("Apple Inc.", "Apple")]
+    [InlineData("Applebee's Hosting", null)]   // the owner only as a whole word
+    [InlineData("Example Hosting", null)]
+    [InlineData(null, null)]
+    public void OwnerNamesTheAppForAddressesWithNoDomain(string? owner, string? app) =>
+        DomainAppCatalog.OwnerApp(owner).Should().Be(app);
+
+    [Theory]
     [InlineData("tcp", 8009, "Google Cast")]
     [InlineData("tcp", 6444, "Midea")]
     [InlineData("udp", 8009, null)]
