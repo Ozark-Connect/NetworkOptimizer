@@ -67,6 +67,15 @@ public class DomainAppCatalogTests
         DomainAppCatalog.OwnerApp(owner).Should().Be(app);
 
     [Theory]
+    [InlineData("icmp", "ICMP")]
+    [InlineData("icmpv6", "ICMP")]
+    [InlineData("ICMP", "ICMP")]   // History's upper-cased protocol
+    [InlineData("tcp", null)]
+    [InlineData(null, null)]
+    public void IcmpIsIcmpWhoeverAnswers(string? proto, string? app) =>
+        DomainAppCatalog.ProtocolApp(proto).Should().Be(app);
+
+    [Theory]
     [InlineData("tcp", 8009, "Google Cast")]
     [InlineData("tcp", 6444, "Midea")]
     [InlineData("udp", 8009, null)]
@@ -104,6 +113,11 @@ public class DomainAppCatalogTests
     [InlineData("POP3S", "fa-solid fa-envelope")]
     [InlineData("ChatGPT", "no-icon no-icon-openai")]        // in the DPI catalog, without a mark
     [InlineData("Claude", "no-icon no-icon-claude")]
+    [InlineData("Blizzard Entertainment", "fa-brands fa-battle-net")]
+    [InlineData("Blizzard Entertainment, Inc.", "fa-brands fa-battle-net")]   // an address's owner
+    [InlineData("Overwatch", "fa-brands fa-battle-net")]
+    [InlineData("ICMP", "no-icon no-icon-icmp")]
+    [InlineData("Outlook.com", "fa-brands fa-microsoft")]
     public void MarksFontAwesomeLacksOrTheCatalogMisses(string app, string cls) =>
         DpiCatalog.IconsForName(app).Class.Should().Be(cls);
 

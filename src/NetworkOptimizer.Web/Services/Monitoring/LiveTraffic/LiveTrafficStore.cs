@@ -548,7 +548,7 @@ public sealed class LiveTrafficStore
         // who owns the address.
         var hostName = _names.TryGetValue(f.RemoteIp, out var named) && named.Expires > now ? named.Name
             : match?.Domain ?? (_ptr.TryGetValue(f.RemoteIp, out var ptrName) ? ptrName : null);
-        var app = match?.App ?? DomainAppCatalog.AppFor(hostName)
+        var app = DomainAppCatalog.ProtocolApp(proto) ?? match?.App ?? DomainAppCatalog.AppFor(hostName)
             ?? (f.Lan ? DomainAppCatalog.LanApp(proto, f.RemotePort) : DomainAppCatalog.WifiCalling(proto, f.RemotePort, org) ?? DomainAppCatalog.OwnerApp(org))
             // The client end may be the server (an iperf3 server answering a test): its port names it then.
             ?? DomainAppCatalog.PortApp(proto, f.RemotePort) ?? (f.RemotePort >= 1024 ? DomainAppCatalog.PortApp(proto, f.ClientPort) : null)
@@ -681,7 +681,8 @@ public sealed class LiveTrafficStore
     {
         LiveTrafficField.Client => Eq(r.ClientName, value) || Eq(r.ClientMac, value) || Eq(r.ClientIp, value),
         LiveTrafficField.Destination => Eq(r.Destination, value) || Eq(r.DestinationIp, value),
-        LiveTrafficField.App => Eq(r.App, value),
+        // A service is a layer under the app: App = HTTPS keeps the HTTPS flows named Apple or Netflix too.
+        LiveTrafficField.App => Eq(r.App, value) || Eq(r.DestinationSub, value),
         LiveTrafficField.Route => Eq(r.Route, value),
         LiveTrafficField.Protocol => Eq(r.Proto, value),
         LiveTrafficField.Port => r.RemotePort > 0 && r.RemotePort.ToString() == value.Trim(),

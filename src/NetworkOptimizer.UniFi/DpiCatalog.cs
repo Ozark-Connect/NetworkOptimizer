@@ -59,6 +59,8 @@ public static class DpiCatalog
         ["Speedtest.net"] = "fa-solid fa-gauge-high",
         ["Backblaze"] = "fa-solid fa-cloud-arrow-up",
         ["Microsoft Windows Update"] = "fa-brands fa-windows",
+        // No Outlook mark in Font Awesome or Simple Icons: Microsoft's, as its other services carry.
+        ["Outlook.com"] = "fa-brands fa-microsoft",
         ["XBOX"] = "fa-brands fa-xbox",
         ["iTunes"] = "fa-brands fa-itunes",
         // Marks Font Awesome lacks: app.css draws the no-icon-* classes (Simple Icons, CC0).
@@ -91,7 +93,7 @@ public static class DpiCatalog
         ["HTTP"] = "fa-solid fa-globe",
         ["HTTPS"] = "fa-solid fa-globe",
         ["Web Streaming"] = "fa-solid fa-play",
-        ["ICMP"] = "fa-solid fa-satellite-dish",
+        ["ICMP"] = "no-icon no-icon-icmp",
         ["eBay"] = "fa-brands fa-ebay",
         ["Discord"] = "fa-brands fa-discord",
         ["TikTok"] = "fa-brands fa-tiktok",
@@ -130,6 +132,12 @@ public static class DpiCatalog
         ["Dailymotion"] = "fa-brands fa-dailymotion",
         ["iTunes Festival"] = "fa-brands fa-itunes",
         ["Battle.net"] = "fa-brands fa-battle-net",
+        // Blizzard has no mark of its own in Font Awesome or Simple Icons: its games take Battle.net's.
+        ["Diablo"] = "fa-brands fa-battle-net",
+        ["Diablo3"] = "fa-brands fa-battle-net",
+        ["Hearthstone"] = "fa-brands fa-battle-net",
+        ["StarCraft2"] = "fa-brands fa-battle-net",
+        ["Overwatch"] = "fa-brands fa-battle-net",
         ["Opera browser"] = "fa-brands fa-opera",
         ["Opera VPN"] = "fa-brands fa-opera",
         ["Java Applet"] = "fa-brands fa-java",
@@ -158,6 +166,7 @@ public static class DpiCatalog
         ("Cloudflare", "fa-brands fa-cloudflare"),
         // Valve's own network carries Steam; an app named only by its owner reads "Valve".
         ("Valve", "fa-brands fa-steam"),
+        ("Blizzard", "fa-brands fa-battle-net"),
         ("Steam", "fa-brands fa-steam"),
     };
 

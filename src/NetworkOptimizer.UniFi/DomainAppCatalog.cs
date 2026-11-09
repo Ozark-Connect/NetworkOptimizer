@@ -128,6 +128,13 @@ public static class DomainAppCatalog
         _ => null,
     };
 
+    /// <summary>
+    /// ICMP (v4 or v6) is ICMP whoever answers it: a ping to Cloudflare is not the Cloudflare app.
+    /// Null for any other protocol.
+    /// </summary>
+    public static string? ProtocolApp(string? proto) =>
+        proto != null && proto.StartsWith("icmp", StringComparison.OrdinalIgnoreCase) ? "ICMP" : null;
+
     /// <summary>Tools known by their port anywhere, LAN or internet: iperf3 on 5201, TCP and UDP (its UDP mode).</summary>
     public static string? PortApp(string proto, int port) =>
         port == 5201 && proto is "tcp" or "udp" ? "iperf3" : null;

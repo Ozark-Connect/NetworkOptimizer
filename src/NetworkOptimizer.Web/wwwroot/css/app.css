@@ -24607,6 +24607,11 @@ body:has(.top-bar-hidden) .btn-fit {
     --no-icon: url("data:image/svg+xml,%3Csvg viewBox='0 0 24 24' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M17.3041 3.541h-3.6718l6.696 16.918H24Zm-10.6082 0L0 20.459h3.7442l1.3693-3.5527h7.0052l1.3693 3.5528h3.7442L10.5363 3.5409Zm-.3712 10.2232 2.2914-5.9456 2.2914 5.9456Z'/%3E%3C/svg%3E");
 }
 
+/* ICMP: a ping going out, a dot with fading waves. */
+.no-icon-icmp {
+    --no-icon: url("data:image/svg+xml,%3Csvg viewBox='0 0 24 24' xmlns='http://www.w3.org/2000/svg' fill='none' stroke='%23000' stroke-width='2.2' stroke-linecap='round'%3E%3Ccircle cx='5.0' cy='12.0' r='2.6' fill='%23000' stroke='none'/%3E%3Cpath d='M9.60 7.40A6.5 6.5 0 0 1 9.60 16.60'/%3E%3Cpath d='M12.78 4.22A11 11 0 0 1 12.78 19.78' opacity='.65'/%3E%3Cpath d='M15.96 1.04A15.5 15.5 0 0 1 15.96 22.96' opacity='.35'/%3E%3C/svg%3E");
+}
+
 /* In the phone list's badge row the gap spaces the site badge; its margin is for beside a name. */
 .lt-m-tags .lt-site-badge {
     margin-left: 0;

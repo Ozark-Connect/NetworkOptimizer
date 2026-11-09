@@ -198,6 +198,30 @@ public class LiveTrafficStoreTests
     }
 
     [Fact]
+    public void AppleOwnedAddressIsAppleAndStillHttpsUnderAnAppFilter()
+    {
+        var store = SeededStore();
+        store.Ingest(Batch(
+            Flow("apple", Laptop, "192.0.2.20", "203.0.113.50", 443, "eth4", 1000, 10),
+            Flow("other", Laptop, "192.0.2.20", "203.0.113.51", 443, "eth4", 1000, 10),
+            Flow("ping", Laptop, "192.0.2.20", "203.0.113.52", 0, "eth4", 1000, 10, proto: "icmp")));
+        store.SetOwners(new Dictionary<string, string?>
+        {
+            ["203.0.113.50"] = "APPLE-ENGINEERING", ["203.0.113.51"] = null, ["203.0.113.52"] = "Example Org",
+        });
+        store.SetPtrNames(new Dictionary<string, string?> { ["203.0.113.50"] = null, ["203.0.113.51"] = null, ["203.0.113.52"] = null });
+
+        var all = store.BuildView(Query(), LiveTrafficState.Live);
+        all.Flows.Single(f => f.Key == "apple").App.Should().Be("Apple");
+        all.Flows.Single(f => f.Key == "other").App.Should().Be("HTTPS");
+        all.Flows.Single(f => f.Key == "ping").App.Should().Be("ICMP", "a ping is not the app of whoever answers it");
+
+        // HTTPS is a layer under the app: filtering by it keeps the Apple flow.
+        store.BuildView(Query(new LiveTrafficFilter(LiveTrafficField.App, "HTTPS")), LiveTrafficState.Live)
+            .Flows.Select(f => f.Key).Should().BeEquivalentTo(["apple", "other"]);
+    }
+
+    [Fact]
     public void ResolverOnTheSameSwitchPortIsNotABypass()
     {
         const string resolverMac = "aa:bb:cc:dd:ee:53";

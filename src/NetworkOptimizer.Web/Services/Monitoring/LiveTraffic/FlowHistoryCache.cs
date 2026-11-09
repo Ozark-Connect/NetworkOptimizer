@@ -245,8 +245,8 @@ public sealed class FlowHistoryCache
             kind = LiveRouteKind.Lan;
         }
 
-        string? app = null, category = null;
-        if (f.Application is { App: { } a, Category: { } c })
+        string? app = DomainAppCatalog.ProtocolApp(proto), category = null;
+        if (app == null && f.Application is { App: { } a, Category: { } c })
         {
             app = DpiCatalog.AppName(c, a);
             category = DpiCatalog.CategoryName(c);
