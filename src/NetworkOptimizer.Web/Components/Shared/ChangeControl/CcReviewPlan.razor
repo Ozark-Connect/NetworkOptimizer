@@ -460,7 +460,7 @@ else
                         <b>Commit-confirmed: @_view.WatchMinutes minutes.</b>
                         @if (PlanCoordinator.AlertsInsteadOfRevert(doc))
                         {
-                            <span> Network Optimizer watches @(watchDevices ? "every network device" : "")@(watchDevices && watchInternet ? " and " : "")@(watchInternet ? "internet reachability" : ""), and alerts if either fails. It does not revert this Plan: @(PlanCoordinator.MovesConsolePath(doc)
+                            <span> Network Optimizer watches @(watchDevices ? "every Network Device" : "")@(watchDevices && watchInternet ? " and " : "")@(watchInternet ? "internet reachability" : ""), and alerts if either fails. It does not revert this Plan: @(PlanCoordinator.MovesConsolePath(doc)
                                 ? PlanCoordinator.ConsoleFollows(doc)
                                     ? "Network Devices drop until the Gateway, which runs the UniFi Console, provisions its new addresses."
                                     : "Network Devices reach the UniFi Console at its old address until it moves too."
@@ -468,7 +468,7 @@ else
                         }
                         else
                         {
-                            <span> Network Optimizer watches @(watchDevices ? "every network device" : "")@(watchDevices && watchInternet ? " and " : "")@(watchInternet ? "internet reachability" : ""). If either fails, it reverts the plan and alerts.</span>
+                            <span> Network Optimizer watches @(watchDevices ? "every Network Device" : "")@(watchDevices && watchInternet ? " and " : "")@(watchInternet ? "internet reachability" : ""). If either fails, it reverts the Plan and alerts.</span>
                         }
                     }
                     else

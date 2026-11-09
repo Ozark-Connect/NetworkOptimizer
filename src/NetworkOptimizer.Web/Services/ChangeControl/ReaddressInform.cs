@@ -68,7 +68,8 @@ public static class ReaddressInform
         var gatewayIps = live.Get("networkconf").Where(Readdressing.IsLan).Select(n => Readdressing.ParseIp(n["ip_subnet"]?.ToString()?.Split('/')[0]))
             .OfType<uint>().ToHashSet();
         // A Console at a gateway LAN address is the gateway: it follows by itself, whatever the type read said.
-        var (overrideIp, repointed) = standaloneConsole && consoleOld is { } at && !gatewayIps.Contains(at) ? Override(live, map, at) : (null, false);
+        var onGateway = consoleOld is { } g0 && gatewayIps.Contains(g0);
+        var (overrideIp, repointed) = standaloneConsole && consoleOld is { } at && !onGateway ? Override(live, map, at) : (null, false);
         var liveDevices = ByMac(live);
         var desiredDevices = ByMac(desired);
         var result = new List<InformDevice>();
@@ -96,7 +97,7 @@ public static class ReaddressInform
             result.Add(new InformDevice(mac, d["name"]?.ToString() is { Length: > 0 } n ? n : mac, role, route, url,
                 after, newIp, oldIp, OnLink(desired, deviceAt, ipUrl), ipUrl == url ? null : ipUrl));
         }
-        return new InformVerdicts(result, overrideIp, repointed, ConsoleFollows: !standaloneConsole);
+        return new InformVerdicts(result, overrideIp, repointed, ConsoleFollows: !standaloneConsole || onGateway);
     }
 
     /// <summary>

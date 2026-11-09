@@ -271,6 +271,7 @@ public class ReaddressInformTests
 
         v.OverrideIp.Should().BeNull();
         v.Devices.Should().OnlyContain(d => d.Route == InformRoute.FollowsAutomatically);
+        v.ConsoleFollows.Should().BeTrue("the wording follows the same Gateway-address test as the override");
     }
 
     [Fact]
