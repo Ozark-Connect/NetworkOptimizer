@@ -1,0 +1,239 @@
+@using NetworkOptimizer.Core.Helpers
+@using NetworkOptimizer.Web.Services.Monitoring.LiveTraffic
+@inherits LiveTrafficPieces
+
+@if (Sankey == null || Sankey.Nodes.Count == 0)
+{
+    <div class="empty-state lt-sankey-empty"><p>@(Filters.Count > 0 || Searching ? "Nothing matching your filters is moving right now." : "Nothing is moving right now.")</p></div>
+}
+else
+{
+    var layout = Layout(Sankey);
+    <svg class="lt-sankey-svg" viewBox="0 0 @W @H" role="img" aria-label="Where traffic goes: clients to apps to routes">
+        <text class="lt-col-label" text-anchor="end" x="@(ColX[0] + NodeW)" y="14">Client</text>
+        <text class="lt-col-label" x="@ColX[1]" y="14">App</text>
+        <text class="lt-col-label" x="@ColX[2]" y="14">Route</text>
+        @* Keyed so each band and node is the same element across refreshes; CSS then tweens its
+           position and size. The d attribute is the fallback for browsers without CSS d. *@
+        @foreach (var p in layout.Paths)
+        {
+            <path @key="p.Key" d="@p.D" style="d: path('@p.D'); stroke-width: @(F(p.Width))px" stroke="@p.Color" stroke-opacity="0.35" stroke-width="@F(p.Width)" fill="none" />
+        }
+        @foreach (var n in layout.Nodes)
+        {
+            var node = n.Node;
+            var clickable = !node.IsOther;
+            var anchor = node.Column == 0 ? "end" : "start";
+            var appIcon = node.Column == 1 && !node.IsOther;
+            var tx = node.Column == 0 ? -8 : NodeW + 8 + (appIcon ? IconW : 0);
+            <g @key="(node.Column, node.Name)" class="lt-sankey-node @(clickable ? "is-clickable" : null) @(IsFiltered(node) ? "is-filtered" : null)"
+               style="transform: translate(@(F(ColX[node.Column]))px, @(F(n.Y))px)"
+               @onclick="() => OnNodeClick(node)">
+                <rect x="0" y="0" width="@NodeW" height="@F(n.Height)" style="height: @(F(n.Height))px" rx="2"
+                      fill="@(node.Column == 2 ? RouteColor(node.RouteKind) : "var(--bg-elevated)")"
+                      stroke="var(--text-muted)" stroke-width="0.5" />
+                <g class="lt-node-text" style="transform: translateY(@(F(n.Height / 2))px)">
+                    @if (appIcon)
+                    {
+                        @* The tables' own icon markup: SVG cannot draw a favicon or a Font Awesome glyph itself. *@
+                        <foreignObject class="lt-sankey-icon" x="@(NodeW + 6)" y="-9" width="18" height="18">@(node.IconDomain != null || node.IconClass != null ? AppIcon(node.Name, node.IconDomain, node.IconClass) : AppIcon(node.Name))</foreignObject>
+                    }
+                    <text class="lt-node-label" text-anchor="@anchor" x="@tx" y="-1" data-tooltip="@(Fit(node.Name, node.Column) == node.Name ? null : node.Name)" data-tooltip-hover-only>@Fit(node.Name, node.Column)</text>
+                    <text class="lt-node-sub" text-anchor="@anchor" x="@tx" y="12">@(Sankey.ValueIsFlows ? TimeFormatHelper.Pluralize((int)node.Value, "flow") : DisplayFormatters.FormatRate(node.Value))</text>
+                </g>
+            </g>
+        }
+    </svg>
+}
+
+@code {
+    /// <summary>The diagram to draw; null or empty draws the idle state.</summary>
+    [Parameter] public LiveSankey? Sankey { get; set; }
+
+    /// <summary>The page's filters: a node already filtered to is marked, and clicking it removes the filter.</summary>
+    [Parameter] public IReadOnlyList<LiveTrafficFilter> Filters { get; set; } = Array.Empty<LiveTrafficFilter>();
+
+    private bool IsFiltered(LiveSankeyNode node) => Filters.Any(f => !f.Exclude && f.Field == node.Field
+        && string.Equals(f.Value, node.Name, StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>While true no node changes place (the pointer is on the diagram); sizes still update.</summary>
+    [Parameter] public bool Hold { get; set; }
+
+    /// <summary>A search narrows the page, so an empty diagram says nothing matches rather than nothing moves.</summary>
+    [Parameter] public bool Searching { get; set; }
+
+    /// <summary>A click on a client, app, or route node: filter the page to it.</summary>
+    [Parameter] public EventCallback<LiveTrafficFilter> OnFilter { get; set; }
+
+    private const int W = 790;
+    private const int H = 360;
+    private const double Top = 30;
+    private const double Bottom = 22;
+    private const int NodeW = 10;
+    /// <summary>Approximate width of one 12px Inter character, in viewBox units.</summary>
+    private const double CharW = 6.2;
+    private const int LabelGap = 8;
+    /// <summary>Room an app node's icon takes before its label.</summary>
+    private const int IconW = 22;
+    private double[] ColX = [150, 400, 620];
+
+    /// <summary>
+    /// Places the columns from the labels they carry: client labels sit left of their nodes and app
+    /// and route labels right of theirs, so the client column moves right as far as its longest name
+    /// needs, the route column keeps room for its own, and the app column sits midway.
+    /// </summary>
+    private static double[] Columns(LiveSankey sankey)
+    {
+        double Longest(int col) => sankey.Nodes.Where(n => n.Column == col)
+            .Select(n => n.Name.Length * CharW).DefaultIfEmpty(0).Max();
+        // Capped: a long client name is trimmed rather than squeezing the flows into the right half.
+        var left = Math.Clamp(Longest(0) + LabelGap + 2, 90, 230);
+        var route = Math.Clamp(W - NodeW - LabelGap - Longest(2) - 4, left + 260, W - NodeW - LabelGap - 60);
+        var app = Math.Min(left + (route - left) / 2, route - NodeW - LabelGap - IconW - Longest(1) - 24);
+        return [left, Math.Max(app, left + 120), route];
+    }
+
+    private sealed record PlacedNode(LiveSankeyNode Node, double Y, double Height);
+    private sealed record PlacedPath(string Key, string D, string Color, double Width);
+
+    /// <summary>Each node's place at the last render, by column and name.</summary>
+    private Dictionary<(int, string), int> _ranks = new();
+
+    /// <summary>How far a node must out-rate the one above it before they swap.</summary>
+    private const double SwapMargin = 1.2;
+    private sealed record Placed(List<PlacedNode> Nodes, List<PlacedPath> Paths);
+
+    private Task OnNodeClick(LiveSankeyNode node) =>
+        node.IsOther ? Task.CompletedTask : OnFilter.InvokeAsync(new LiveTrafficFilter(node.Field, node.Name));
+
+    /// <summary>Log scale (on Mbps for rate), so a 2 Mbps flow stays visible beside a 500 Mbps download.</summary>
+    private static double Size(double value, bool flows) => 6 + 16 * Math.Log10(1 + (flows ? value : value / 1_000_000));
+
+    private static string F(double v) => v.ToString("0.#", System.Globalization.CultureInfo.InvariantCulture);
+
+    private static string RouteColor(LiveRouteKind? kind) => kind switch
+    {
+        LiveRouteKind.Vpn => "#a78bfa",
+        LiveRouteKind.Lan => "#f59e0b",
+        _ => "#2ba89a",
+    };
+
+    /// <summary>The name, cut with an ellipsis when it would run past the room its column has.</summary>
+    private string Fit(string name, int column)
+    {
+        var room = column switch
+        {
+            0 => ColX[0] - LabelGap - 2,
+            1 => ColX[2] - ColX[1] - NodeW - LabelGap - IconW - 12,
+            _ => W - ColX[2] - NodeW - LabelGap - 2,
+        };
+        var max = Math.Max(4, (int)(room / CharW));
+        return name.Length <= max ? name : name[..(max - 1)].TrimEnd() + "…";
+    }
+
+    private Placed Layout(LiveSankey sankey)
+    {
+        ColX = Columns(sankey);
+        var placed = new Dictionary<(int, string), PlacedNode>();
+        var outOffset = new Dictionary<(int, string), double>();
+        var inOffset = new Dictionary<(int, string), double>();
+        var nodes = new List<PlacedNode>();
+        var avail = H - Top - Bottom;
+
+        var ranks = new Dictionary<(int, string), int>();
+        for (var col = 0; col < 3; col++)
+        {
+            var column = Order(sankey.Nodes.Where(n => n.Column == col).ToList(), col);
+            for (var i = 0; i < column.Count; i++) ranks[(col, column[i].Name)] = i;
+            if (column.Count == 0) continue;
+            var heights = column.Select(n => Size(n.Value, sankey.ValueIsFlows)).ToList();
+            var total = heights.Sum();
+            // Too many nodes for the column: shrink every height, keep a minimum gap.
+            var scale = total + 4 * (column.Count - 1) > avail ? (avail - 4 * (column.Count - 1)) / total : 1;
+            heights = heights.Select(h => Math.Max(2, h * scale)).ToList();
+            var gap = column.Count > 1 ? (avail - heights.Sum()) / (column.Count - 1) : 0;
+            var y = Top;
+            for (var i = 0; i < column.Count; i++)
+            {
+                var p = new PlacedNode(column[i], y, heights[i]);
+                placed[(col, column[i].Name)] = p;
+                nodes.Add(p);
+                y += heights[i] + gap;
+            }
+        }
+
+        _ranks = ranks;
+
+        // Each node stacks its links in the order of the nodes at their other end, so a band keeps
+        // its slot from one refresh to the next and bands cross as little as they can.
+        var ends = new List<(LiveSankeyLink Link, PlacedNode From, PlacedNode To, double SFrom, double STo)>();
+        foreach (var link in sankey.Links)
+        {
+            if (!placed.TryGetValue((link.Column, link.From), out var from)
+                || !placed.TryGetValue((link.Column + 1, link.To), out var to)) continue;
+            ends.Add((link, from, to, from.Height * link.Value / Math.Max(1, from.Node.Value), to.Height * link.Value / Math.Max(1, to.Node.Value)));
+        }
+        var y0s = new Dictionary<LiveSankeyLink, double>();
+        foreach (var e in ends.OrderBy(e => e.To.Y))
+        {
+            var o = outOffset.GetValueOrDefault((e.Link.Column, e.Link.From));
+            outOffset[(e.Link.Column, e.Link.From)] = o + e.SFrom;
+            y0s[e.Link] = e.From.Y + o + e.SFrom / 2;
+        }
+        var paths = new List<PlacedPath>();
+        // One pair can carry two links (the same client and service over WAN and VPN), and a duplicate
+        // @key throws and kills the circuit: key by route too, and number any repeat.
+        var keyCount = new Dictionary<string, int>();
+        foreach (var e in ends.OrderBy(e => e.From.Y))
+        {
+            var o = inOffset.GetValueOrDefault((e.Link.Column + 1, e.Link.To));
+            inOffset[(e.Link.Column + 1, e.Link.To)] = o + e.STo;
+            var y0 = y0s[e.Link];
+            var y1 = e.To.Y + o + e.STo / 2;
+            double x0 = ColX[e.Link.Column] + NodeW, x1 = ColX[e.Link.Column + 1];
+            var mx = (x0 + x1) / 2;
+            var key = $"{e.Link.Column}|{e.Link.From}|{e.Link.To}|{e.Link.RouteKind}";
+            var seen = keyCount.GetValueOrDefault(key);
+            keyCount[key] = seen + 1;
+            if (seen > 0) key += $"#{seen}";
+            paths.Add(new PlacedPath(key,
+                $"M{F(x0)},{F(y0)} C{F(mx)},{F(y0)} {F(mx)},{F(y1)} {F(x1)},{F(y1)}",
+                RouteColor(e.Link.RouteKind), Math.Max(1.2, Math.Min(e.SFrom, e.STo))));
+        }
+        return new Placed(nodes, paths);
+    }
+
+    /// <summary>
+    /// A column's order: the last order kept, with a node moving up only once it beats the one above
+    /// by a clear margin, so two near-equal nodes do not trade places every refresh. Held, nothing
+    /// moves. New nodes join by value; Other stays last.
+    /// </summary>
+    private List<LiveSankeyNode> Order(List<LiveSankeyNode> column, int col)
+    {
+        var ordered = column.Where(n => !n.IsOther)
+            .OrderBy(n => _ranks.TryGetValue((col, n.Name), out var r) ? r : int.MaxValue)
+            .ThenByDescending(n => n.Value)
+            .ToList();
+        if (!Hold)
+        {
+            for (var pass = 0; pass < ordered.Count; pass++)
+            {
+                var swapped = false;
+                for (var i = 0; i + 1 < ordered.Count; i++)
+                {
+                    var above = ordered[i];
+                    var below = ordered[i + 1];
+                    var isNew = !_ranks.ContainsKey((col, below.Name));
+                    if (below.Value > above.Value * (isNew ? 1 : SwapMargin))
+                    {
+                        (ordered[i], ordered[i + 1]) = (below, above);
+                        swapped = true;
+                    }
+                }
+                if (!swapped) break;
+            }
+        }
+        ordered.AddRange(column.Where(n => n.IsOther));
+        return ordered;
+    }
+}

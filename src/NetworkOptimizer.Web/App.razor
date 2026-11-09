@@ -538,6 +538,84 @@
             });
         }
 
+        // Live Traffic destination card. Built from the cell's attributes on every show, since Blazor
+        // reuses the cell for whatever flow lands in its row.
+        function escapeHtml(s) {
+            return String(s).replace(/[&<>"']/g, function (c) {
+                return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+            });
+        }
+        function destinationHtml(cell) {
+            var name = cell.getAttribute('data-dest-name') || '';
+            var ip = cell.getAttribute('data-dest-ip') || '';
+            var link = cell.getAttribute('data-dest-link');
+            var address = link
+                ? '<a href="' + escapeHtml(link) + '">' + escapeHtml(ip) + '</a>'
+                : escapeHtml(ip);
+            return (name && name !== ip ? '<div>' + escapeHtml(name) + '</div>' : '') + '<div>' + address + '</div>';
+        }
+        function showDestinationCard(cell) {
+            if (cell._tippy || !cell.getAttribute('data-dest-ip')) return;
+            tippy(cell, {
+                content: destinationHtml(cell),
+                allowHTML: true,
+                interactive: true,
+                trigger: 'mouseenter',
+                touch: false,
+                delay: [250, 0],
+                placement: 'top',
+                theme: 'custom',
+                appendTo: document.body,
+                maxWidth: 'min(100vw - 10px, 400px)',
+                onShow: function (instance) { instance.setContent(destinationHtml(cell)); }
+            }).show();
+        }
+
+        // Live Traffic: full text for any name its ellipsis cuts. The ellipsis sits on the cell, not the
+        // name, so data-tooltip-truncated (which measures the element itself) cannot see it; one
+        // delegated handler finds the cut element and shows only while it is still cut.
+        document.addEventListener('mouseover', function (e) {
+            if (!window.tippy || !e.target.closest) return;
+            var host = e.target.closest('.live-traffic, .bandwidth-hogs-card');
+            if (!host) return;
+            // A destination cell has its own card: the name, the address, and the Threat Intelligence link.
+            var dest = e.target.closest('[data-dest-ip]');
+            if (dest && host.contains(dest)) { showDestinationCard(dest); return; }
+            var el = e.target;
+            while (el && el !== host) {
+                if (el.hasAttribute('data-tooltip')) return;
+                if (getComputedStyle(el).textOverflow === 'ellipsis' && el.scrollWidth > el.clientWidth + 1) break;
+                el = el.parentElement;
+            }
+            if (!el || el === host || el._tippy) return;
+            var text = (el.textContent || '').trim();
+            if (!text) return;
+            tippy(el, {
+                content: function () { return (el.textContent || '').trim(); },
+                trigger: 'mouseenter',
+                touch: false,
+                delay: [100, 0],
+                placement: 'top',
+                theme: 'custom',
+                appendTo: document.body,
+                maxWidth: 'min(100vw - 10px, 400px)',
+                // Tippy calls a content function once, at creation; Blazor reuses this element for
+                // whatever row lands in its place, so the text is read again on every show.
+                onShow: function (instance) {
+                    if (el.scrollWidth <= el.clientWidth + 1) return false;
+                    instance.setContent((el.textContent || '').trim());
+                },
+                // A live list rewrites the row under an open tooltip: follow the text while it shows.
+                onShown: function (instance) {
+                    instance._follow = setInterval(function () {
+                        var now = (el.textContent || '').trim();
+                        if (instance.props.content !== now) instance.setContent(now);
+                    }, 400);
+                },
+                onHidden: function (instance) { clearInterval(instance._follow); }
+            }).show();
+        });
+
         // Periodically check for new/stale tooltips (handles Blazor element reuse and dynamic content)
         setInterval(function() {
             // Elements Blazor kept but whose data-tooltip it removed - the tooltip is no longer true

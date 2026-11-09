@@ -8,7 +8,11 @@
 @inject NetworkOptimizer.Web.Services.Monitoring.LiveWanScope SelfWan
 @inject MonitoringLiveStats LiveStats
 @inject UniFiConnectionService ConnectionService
+@inject NetworkOptimizer.Web.Services.Monitoring.LiveTraffic.ILiveTrafficService LiveTraffic
+@inject NavigationManager Nav
 @implements IDisposable
+@using NetworkOptimizer.Web.Services.Monitoring.LiveTraffic
+@using NetworkOptimizer.Web.Components.Shared.Monitoring.LiveTraffic
 
 @if (SelfFedUnavailable)
 {
@@ -17,21 +21,27 @@
 else
 {
 <div class="card bandwidth-hogs-card" style="margin-top: 1rem;" data-tour="@(SelfFed ? null : "bandwidth-hogs")">
-    <div class="card-header">
+    @* The whole header opens Live Traffic; its controls stop the click so they only do their own job. *@
+    <div class="card-header lt-header-link" @onclick="@(() => Nav.NavigateTo("/monitoring/live-traffic"))">
         <div class="card-title-group">
-            <h2 class="card-title">@Title</h2>
+            <a href="/monitoring/live-traffic" class="card-title-link" @onclick:stopPropagation><h2 class="card-title">@Title</h2></a>
             @* The maps' own mode badge, so the card says what they say about the moment it shows. *@
             @if (HistoricAt != null)
             {
                 <span class="lan-flow-map-mode is-historic" style="cursor: pointer;" data-tooltip="Click to return to live" data-tooltip-hover-only
-                      @onclick="ReturnToLiveAsync">Historic</span>
+                      @onclick="ReturnToLiveAsync" @onclick:stopPropagation>Historic</span>
             }
             else if (_mode == Mode.Throughput)
             {
                 <span class="lan-flow-map-mode">Live</span>
             }
+            @* On a phone Detailed View sits here, at the right of the title, instead of in the By row. *@
+            <a href="/monitoring/live-traffic" class="btn btn-secondary btn-sm lt-icon-btn lt-header-detail" @onclick:stopPropagation>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="9" y1="6" x2="21" y2="6" /><line x1="9" y1="12" x2="21" y2="12" /><line x1="9" y1="18" x2="21" y2="18" /><line x1="4" y1="6" x2="4.01" y2="6" /><line x1="4" y1="12" x2="4.01" y2="12" /><line x1="4" y1="18" x2="4.01" y2="18" /></svg>
+                Detailed View
+            </a>
         </div>
-        <div class="card-header-right bandwidth-hogs-controls">
+        <div class="card-header-right bandwidth-hogs-controls" @onclick:stopPropagation>
             <div class="time-range-selector">
                 <button class="time-btn @(_mode == Mode.Throughput ? "active" : "")" @onclick="() => SetModeAsync(Mode.Throughput)">Throughput</button>
                 <button class="time-btn @(_mode == Mode.Data ? "active" : "")" @onclick="() => SetModeAsync(Mode.Data)">Data</button>
@@ -68,20 +78,41 @@ else
                     if (capacity > 0)
                     {
                         <strong>WAN @Math.Round(100 * (down + up) / capacity)% saturated</strong>
-                        <span class="hogs-wan-detail">
-                            <span class="speed-down">@DisplayFormatters.FormatRate(down)</span> of @DisplayFormatters.FormatRate(_result.WanCapacityDownBps) down,
-                            <span class="speed-up">@DisplayFormatters.FormatRate(up)</span> of @DisplayFormatters.FormatRate(_result.WanCapacityUpBps) up
+                        <span class="hogs-wan-detail hogs-wan-pair">
+                            <span class="hogs-wan-half"><span class="speed-down @Muted(down)">@Rate0(down)</span><span class="hogs-wan-of">of @DisplayFormatters.FormatRate(_result.WanCapacityDownBps)<span class="hogs-wan-dir"> down</span></span></span>
+                            <span class="hogs-wan-half"><span class="speed-up @Muted(up)">@Rate0(up)</span><span class="hogs-wan-of">of @DisplayFormatters.FormatRate(_result.WanCapacityUpBps)<span class="hogs-wan-dir"> up</span></span></span>
                         </span>
                     }
                     else
                     {
                         <strong>WAN</strong>
                         <span class="hogs-wan-detail">
-                            <span class="speed-down">@DisplayFormatters.FormatRate(down)</span> down,
-                            <span class="speed-up">@DisplayFormatters.FormatRate(up)</span> up
+                            <span class="speed-down @Muted(down)">@Rate0(down)</span> down,
+                            <span class="speed-up @Muted(up)">@Rate0(up)</span> up
                         </span>
                     }
                 }
+            </div>
+        }
+        @if (LiveTrafficEnabled)
+        {
+            <div class="lt-card-tools">
+                @if (AgentCovered)
+                {
+                    <span class="lt-by-label">By</span>
+                    <div class="time-range-selector">
+                        @foreach (var by in Enum.GetValues<CardBy>())
+                        {
+                            <button class="time-btn @(_by == by ? "active" : "")" @onclick="() => SetByAsync(by)">@by</button>
+                        }
+                    </div>
+                }
+                <div class="lt-tools-right">
+                    <a href="/monitoring/live-traffic" class="btn btn-secondary btn-sm lt-icon-btn" data-tour="live-traffic-full-view">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="9" y1="6" x2="21" y2="6" /><line x1="9" y1="12" x2="21" y2="12" /><line x1="9" y1="18" x2="21" y2="18" /><line x1="4" y1="6" x2="4.01" y2="6" /><line x1="4" y1="12" x2="4.01" y2="12" /><line x1="4" y1="18" x2="4.01" y2="18" /></svg>
+                        Detailed View
+                    </a>
+                </div>
             </div>
         }
         @if (_mode == Mode.Throughput && HistoricAt == null && _view == View.Wan && _result?.WarmupSecondsRemaining > 0)
@@ -140,7 +171,13 @@ else
                 </SiteAdminOnly>
             }
         }
-        @{ var rows = Sorted(TopRows()); }
+        @if (LiveTrafficEnabled && AgentCovered && _by != CardBy.Client)
+        {
+            @GroupedTable
+        }
+        else
+        {
+        var rows = Sorted(TopRows());
         @if (_result == null && !_error)
         {
             <div class="loading-container hogs-loading"><div class="spinner spinner-sm"></div></div>
@@ -161,28 +198,19 @@ else
             var slots = _mode == Mode.Data ? rows.Count : Math.Min(_showAll ? MaxRows : CollapsedRows, Math.Max(rows.Count, _result?.ClientCount ?? 0));
             <div class="table-responsive">
                 <table class="data-table bandwidth-hogs-table">
-                    <colgroup>
-                        <col class="hogs-col-rank hide-mobile" />
-                        <col class="hogs-col-client" />
-                        @if (_mode == Mode.Throughput)
-                        {
-                            <col class="hogs-col-via hide-mobile" />
-                        }
-                        <col class="hogs-col-rate" />
-                        <col class="hogs-col-rate" />
-                        <col class="hogs-col-share" />
-                    </colgroup>
+                    @* Widths sit on the header cells, not a colgroup: a hidden <col> left an empty column
+                       in Safari once the colgroup re-rendered. *@
                     <thead>
                         <tr>
-                            <th class="hogs-rank hide-mobile">#</th>
-                            <th>Client</th>
+                            <th class="hogs-rank hogs-col-rank hide-mobile">#</th>
+                            <th class="hogs-col-client">Client</th>
                             @if (_mode == Mode.Throughput)
                             {
-                                <th class="hide-mobile">Via</th>
+                                <th class="hogs-col-via hide-mobile">Via</th>
                             }
-                            <th class="sortable @SortClass(SortColumn.Download)" @onclick="() => ToggleSort(SortColumn.Download)">Download</th>
-                            <th class="sortable @SortClass(SortColumn.Upload)" @onclick="() => ToggleSort(SortColumn.Upload)">Upload</th>
-                            <th><span data-tooltip="@ShareTooltip">Share</span></th>
+                            <th class="hogs-col-rate sortable @SortClass(SortColumn.Download)" @onclick="() => ToggleSort(SortColumn.Download)">Download</th>
+                            <th class="hogs-col-rate sortable @SortClass(SortColumn.Upload)" @onclick="() => ToggleSort(SortColumn.Upload)">Upload</th>
+                            <th class="hogs-col-share"><span data-tooltip="@ShareTooltip">Share</span></th>
                         </tr>
                     </thead>
                     <tbody>
@@ -193,12 +221,26 @@ else
                             var share = denominator > 0 ? 100 * value / denominator : 0;
                             // The bar IS the share, so the number and the bar say one thing.
                             var width = Math.Min(100, share);
-                            <tr class="@(fading ? "hogs-fading" : null)">
-                                <td class="hogs-rank hide-mobile">@rank</td>
+                            var expandable = Expandable(row);
+                            var expanded = expandable && _expandedMac == row.ClientMac;
+                            <tr class="@(fading ? "hogs-fading" : null) @(expanded ? "lt-row-open" : null) @(expandable ? "lt-expandable" : null)"
+                                @onclick="() => expandable ? ToggleExpandAsync(row.ClientMac) : Task.CompletedTask">
+                                <td class="hogs-rank hide-mobile">
+                                    @if (expandable)
+                                    {
+                                        <span class="expand-chevron lt-chev" role="button" aria-label="Show this client's flows">@(expanded ? "▲" : "▼")</span>
+                                    }
+                                    @rank
+                                </td>
                                 <td class="hogs-client">
+                                    @if (expandable)
+                                    {
+                                        @* The rank column is hidden on mobile, so the chevron moves beside the name. *@
+                                        <span class="expand-chevron lt-chev hogs-chev-mobile" aria-hidden="true">@(expanded ? "▲" : "▼")</span>
+                                    }
                                     @if (!string.IsNullOrEmpty(row.Ip))
                                     {
-                                        <a href="@ClientLink(row)" data-tooltip="@PortGroupTooltip(row)">@row.DisplayName</a>
+                                        <a href="@ClientLink(row)" data-tooltip="@PortGroupTooltip(row)" @onclick:stopPropagation>@row.DisplayName</a>
                                     }
                                     else
                                     {
@@ -223,14 +265,14 @@ else
                                     </td>
                                 }
                                 <td>
-                                    <span class="speed-down">@FormatDown(row)</span>
+                                    <span class="speed-down @(IsIdle(row, true) ? "lt-muted" : null)">@FormatDown(row)</span>
                                     @if (ShowLocal)
                                     {
                                         <span class="hogs-sub">Local @DisplayFormatters.FormatBytes(Math.Max(0, row.DownBytes - row.WanDownBytes))</span>
                                     }
                                 </td>
                                 <td>
-                                    <span class="speed-up">@FormatUp(row)</span>
+                                    <span class="speed-up @(IsIdle(row, false) ? "lt-muted" : null)">@FormatUp(row)</span>
                                     @if (ShowLocal)
                                     {
                                         <span class="hogs-sub">Local @DisplayFormatters.FormatBytes(Math.Max(0, row.UpBytes - row.WanUpBytes))</span>
@@ -243,6 +285,10 @@ else
                                     </span>
                                 </td>
                             </tr>
+                            @if (expanded)
+                            {
+                                @NestedFlows(row)
+                            }
                         }
                         @for (var i = rows.Count; i < slots; i++)
                         {
@@ -259,13 +305,253 @@ else
                 </button>
             }
         }
+        }
     </div>
 </div>
 }
 
 @code {
     /// <summary>The card's heading. Firmware Rollout names it Clear to Deploy?.</summary>
-    [Parameter] public string Title { get; set; } = "Bandwidth Hogs";
+    [Parameter] public string Title { get; set; } = "Live Traffic";
+
+    // ---------------------------------------------------------------- Live Traffic
+
+    private enum CardBy { Client, App, Destination, Route }
+    private CardBy _by = CardBy.Client;
+    private string? _expandedMac;
+    private LiveTrafficView? _lt;
+    private readonly string _ltViewer = Guid.NewGuid().ToString("N");
+    private bool _ltHeld;
+
+    /// <summary>Live Traffic's extras live on Live View's live WAN throughput, not at a playhead or on a self-fed card.</summary>
+    private bool LiveTrafficEnabled => !SelfFed && _mode == Mode.Throughput && _view == View.Wan && HistoricAt == null;
+
+    /// <summary>Per-flow detail comes from the gateway agent only.</summary>
+    private bool AgentCovered => _agentStatus?.State == GatewayAgentConntrackState.Covered;
+
+    private bool Expandable(HogRow row) =>
+        LiveTrafficEnabled && AgentCovered && !row.IsPortGroup && !string.IsNullOrEmpty(row.ClientMac);
+
+    /// <summary>The agent sends per-flow detail only while a view needs it: a group or an open client.</summary>
+    private bool LiveTrafficWanted => LiveTrafficEnabled && AgentCovered && (_by != CardBy.Client || _expandedMac != null);
+
+    private async Task RefreshLiveTrafficAsync()
+    {
+        if (!LiveTrafficWanted)
+        {
+            _lt = null;
+            await ReleaseLiveTrafficAsync();
+            return;
+        }
+        try
+        {
+            _lt = await LiveTraffic.GetViewAsync(new LiveTrafficQuery
+            {
+                ViewerId = _ltViewer,
+                WanOnly = true,
+                IncludeDns = false,
+                IncludeSankey = false,
+                GroupBy = _by switch
+                {
+                    CardBy.App => LiveTrafficGroupBy.App,
+                    CardBy.Destination => LiveTrafficGroupBy.Destination,
+                    CardBy.Route => LiveTrafficGroupBy.Route,
+                    _ => LiveTrafficGroupBy.Flows,
+                },
+                Filters = _by == CardBy.Client && _expandedMac != null
+                    ? [new LiveTrafficFilter(LiveTrafficField.Client, _expandedMac)]
+                    : [],
+                MaxRows = 6,
+            });
+            _ltHeld = true;
+        }
+        catch (Exception ex)
+        {
+            Logger.LogDebug(ex, "Live Traffic: card refresh failed");
+        }
+    }
+
+    private async Task ReleaseLiveTrafficAsync()
+    {
+        if (!_ltHeld) return;
+        _ltHeld = false;
+        try { await LiveTraffic.ReleaseAsync(_ltViewer); }
+        catch (Exception ex) { Logger.LogDebug(ex, "Live Traffic: release failed"); }
+    }
+
+    private async Task ToggleExpandAsync(string mac)
+    {
+        _expandedMac = _expandedMac == mac ? null : mac;
+        _lt = null;
+        await RefreshLiveTrafficAsync();
+    }
+
+    private async Task SetByAsync(CardBy by)
+    {
+        if (_by == by) return;
+        _by = by;
+        _expandedMac = null;
+        _lt = null;
+        await RefreshLiveTrafficAsync();
+    }
+
+    private static string FullViewLink(params (string Key, string? Value)[] filters)
+    {
+        var parts = filters.Where(f => !string.IsNullOrEmpty(f.Value)).Select(f => $"{f.Key}={Uri.EscapeDataString(f.Value!)}");
+        var query = string.Join("&", parts);
+        return query.Length == 0 ? "/monitoring/live-traffic" : $"/monitoring/live-traffic?{query}";
+    }
+
+    private static string RouteClass(LiveRouteKind kind) => LiveTrafficDisplay.RouteClass(kind);
+
+    private LiveTrafficRowContext? _nestedContext;
+    private string? _nestedFor;
+
+    /// <summary>The card has no filters: a flow's values open Detailed View filtered to them, the destination with its client.</summary>
+    private LiveTrafficRowContext NestedContext(HogRow row)
+    {
+        if (_nestedContext != null && _nestedFor == row.DisplayName) return _nestedContext;
+        var client = row.DisplayName;
+        _nestedFor = client;
+        return _nestedContext = new LiveTrafficRowContext
+        {
+            LinkFor = (field, value) => field switch
+            {
+                LiveTrafficField.Destination => FullViewLink(("client", client), ("dest", value)),
+                LiveTrafficField.App => FullViewLink(("app", value)),
+                LiveTrafficField.Route => FullViewLink(("route", value)),
+                _ => null,
+            },
+        };
+    }
+
+    /// <summary>
+    /// A client's flows under its row, lined up with the parent's columns. Rendered twice, one cell
+    /// per breakpoint: a cell spanning the columns a phone hides would add phantom columns there.
+    /// </summary>
+    private RenderFragment NestedFlows(HogRow row) => __builder =>
+    {
+        <tr class="lt-nested">
+            <td colspan="6" class="hide-mobile">@NestedTable(row, phone: false)</td>
+            <td colspan="4" class="show-mobile">@NestedTable(row, phone: true)</td>
+        </tr>
+    };
+
+    private RenderFragment NestedTable(HogRow row, bool phone) => __builder =>
+    {
+        var flows = _lt?.Flows ?? Array.Empty<LiveFlowRow>();
+        <table class="lt-nested-table">
+            <colgroup>
+                @if (!phone)
+                {
+                    <col class="hogs-col-rank" />
+                }
+                <col />
+                @if (!phone)
+                {
+                    <col class="hogs-col-via" />
+                }
+                <col class="hogs-col-rate" /><col class="hogs-col-rate" /><col class="hogs-col-share" />
+            </colgroup>
+            <thead>
+                <tr>
+                    @if (!phone)
+                    {
+                        <th></th>
+                    }
+                    <th>Destination</th>
+                    @if (!phone)
+                    {
+                        <th>App and Route</th>
+                    }
+                    <th>Download</th><th>Upload</th><th>Started</th>
+                </tr>
+            </thead>
+            <tbody>
+                @if (_lt == null)
+                {
+                    <tr><td colspan="6"><span class="spinner spinner-sm"></span></td></tr>
+                }
+                else if (flows.Count == 0)
+                {
+                    <tr><td colspan="6" class="lt-muted">No WAN flows moving right now.</td></tr>
+                }
+                @foreach (var f in flows)
+                {
+                    <LiveFlowRowView @key="f.Key" Flow="f" Layout="@(phone ? LiveFlowLayout.NestedPhone : LiveFlowLayout.Nested)" Context="NestedContext(row)" />
+                }
+            </tbody>
+        </table>
+        <div class="lt-nested-more">
+            <a href="@FullViewLink(("client", row.DisplayName))">All flows for @row.DisplayName in Detailed View</a>
+        </div>
+    };
+
+    /// <summary>The card grouped by app, destination, or route: the same columns, the group in the Client column.</summary>
+    private RenderFragment GroupedTable => __builder =>
+    {
+        if (_lt == null)
+        {
+            <div class="loading-container hogs-loading"><div class="spinner spinner-sm"></div></div>
+            return;
+        }
+        var groups = _lt.Groups.Take(_showAll ? MaxRows : CollapsedRows).ToList();
+        if (groups.Count == 0)
+        {
+            <div class="empty-state"><p>No WAN traffic right now.</p></div>
+            return;
+        }
+        var total = _lt.Groups.Sum(g => g.DownBps + g.UpBps);
+        var key = _by switch { CardBy.App => "app", CardBy.Destination => "dest", _ => "route" };
+        var rank = 0;
+        <div class="table-responsive">
+            <table class="data-table bandwidth-hogs-table">
+                <thead>
+                    <tr>
+                        <th class="hogs-rank hogs-col-rank hide-mobile">#</th>
+                        <th class="hogs-col-client">@_by</th>
+                        <th class="hogs-col-via hide-mobile">Flows</th>
+                        <th class="hogs-col-rate sortable sort-desc">Download</th>
+                        <th class="hogs-col-rate">Upload</th>
+                        <th class="hogs-col-share">Share</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var g in groups)
+                    {
+                        rank++;
+                        var share = total > 0 ? 100 * (g.DownBps + g.UpBps) / total : 0;
+                        <tr>
+                            <td class="hogs-rank hide-mobile">@rank</td>
+                            <td class="hogs-client">
+                                @if (g.RouteKind is { } kind)
+                                {
+                                    <a class="filter-pill @RouteClass(kind)" href="@FullViewLink((key, g.Name))">@g.Name</a>
+                                }
+                                else
+                                {
+                                    <a href="@FullViewLink((key, g.Name))">@g.Name</a>
+                                }
+                            </td>
+                            <td class="hide-mobile hogs-via">@TimeFormatHelper.Pluralize(g.Flows, "flow")@(string.IsNullOrEmpty(g.Sub) ? "" : $" · {g.Sub}")</td>
+                            <td><span class="speed-down @Muted(g.DownBps)">@Rate0(g.DownBps)</span></td>
+                            <td><span class="speed-up @Muted(g.UpBps)">@Rate0(g.UpBps)</span></td>
+                            <td>
+                                <span class="hogs-share">
+                                    <span>@DisplayFormatters.FormatShare(share)%</span>
+                                    <span class="hogs-bar"><span class="hogs-fill" style="width: @Math.Min(100, share).ToString("0", System.Globalization.CultureInfo.InvariantCulture)%"></span></span>
+                                </span>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+        @if (_lt.Groups.Count > CollapsedRows)
+        {
+            <button type="button" class="btn btn-secondary btn-sm hogs-show-more" @onclick="() => _showAll = !_showAll">@(_showAll ? "Show fewer" : "Show more")</button>
+        }
+    };
 
     /// <summary>
     /// The card reads every WAN's live rate itself, for a page with no Live View tiles to feed
@@ -663,6 +949,7 @@ else
                 await RefreshAgentStatusAsync();
                 _error = false;
                 StampQualified(at);
+                await RefreshLiveTrafficAsync();
             }
         }
         catch (OperationCanceledException) when (cts.IsCancellationRequested)
@@ -806,18 +1093,33 @@ else
     /// </summary>
     private (double? Down, double? Up) CurrentWanRate() => WanRateNow();
 
+    /// <summary>A live rate; idle reads "0 bps", not "-", as everywhere in Live Traffic.</summary>
+    private static string Rate0(double? bps) => bps is >= 1 ? DisplayFormatters.FormatRate(bps) : "0 bps";
+
+    /// <summary>The muted class for an idle rate.</summary>
+    private static string? Muted(double? bps) => bps is >= 1 ? null : "lt-muted";
+
+    /// <summary>Whether a row's rate in one direction is idle (Throughput only; Data shows bytes).</summary>
+    private bool IsIdle(HogRow row, bool down) => _mode == Mode.Throughput && (_view, down) switch
+    {
+        (View.Wan, true) => row.WanDownBps < 1,
+        (View.Wan, false) => row.WanUpBps < 1,
+        (_, true) => row.DownBps < 1,
+        _ => row.UpBps < 1,
+    };
+
     private string FormatDown(HogRow row) => (_mode, _view) switch
     {
-        (Mode.Throughput, View.Wan) => DisplayFormatters.FormatRate(row.WanDownBps),
-        (Mode.Throughput, _) => DisplayFormatters.FormatRate(row.DownBps),
+        (Mode.Throughput, View.Wan) => Rate0(row.WanDownBps),
+        (Mode.Throughput, _) => Rate0(row.DownBps),
         (Mode.Data, View.Wan) => DisplayFormatters.FormatBytes(row.WanDownBytes),
         _ => DisplayFormatters.FormatBytes(row.DownBytes),
     };
 
     private string FormatUp(HogRow row) => (_mode, _view) switch
     {
-        (Mode.Throughput, View.Wan) => DisplayFormatters.FormatRate(row.WanUpBps),
-        (Mode.Throughput, _) => DisplayFormatters.FormatRate(row.UpBps),
+        (Mode.Throughput, View.Wan) => Rate0(row.WanUpBps),
+        (Mode.Throughput, _) => Rate0(row.UpBps),
         (Mode.Data, View.Wan) => DisplayFormatters.FormatBytes(row.WanUpBytes),
         _ => DisplayFormatters.FormatBytes(row.UpBytes),
     };
@@ -843,5 +1145,10 @@ else
         _timer?.Dispose();
         _seekTimer?.Dispose();
         try { _refreshCts?.Cancel(); } catch (ObjectDisposedException) { }
+        if (_ltHeld)
+        {
+            try { _ = LiveTraffic.ReleaseAsync(_ltViewer); }
+            catch { /* circuit going away */ }
+        }
     }
 }
