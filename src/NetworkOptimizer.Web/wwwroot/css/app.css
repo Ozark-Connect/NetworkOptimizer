@@ -25669,13 +25669,18 @@ body:has(.top-bar-hidden) .btn-fit {
     min-height: 3.4rem;
 }
 
-/* Applications - Right now: the client's live apps on one line that scrolls sideways. */
+/* Applications - Right now: the client's live apps, wrapping so none is cut off at the card's edge. */
 .lt-now {
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     gap: 0.6rem;
     min-height: 2rem;
     margin: 0 0 0.6rem;
+}
+
+/* Level with the first row of chips when they wrap. */
+.lt-now > .lt-now-label {
+    line-height: 2rem;
 }
 
 .lt-now-label {
@@ -25690,15 +25695,9 @@ body:has(.top-bar-hidden) .btn-fit {
 .lt-now-chips {
     display: flex;
     flex: 1 1 auto;
+    flex-wrap: wrap;
     gap: 0.4rem;
     min-width: 0;
-    overflow-x: auto;
-    overflow-y: hidden;
-    scrollbar-width: none;
-}
-
-.lt-now-chips::-webkit-scrollbar {
-    display: none;
 }
 
 .lt-now-chip {
