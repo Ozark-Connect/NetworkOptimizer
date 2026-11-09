@@ -70,6 +70,14 @@ public static class DpiCatalog
         ["Google Cast"] = "fa-brands fa-chromecast",
         ["Midea"] = "fa-solid fa-house-signal",
         ["iperf3"] = "fa-solid fa-gauge-high",
+        // Mail protocols named by their port: the catalog's mail mark.
+        ["SMTP"] = "fa-solid fa-envelope",
+        ["SMTPS"] = "fa-solid fa-envelope",
+        ["SMTP Submit"] = "fa-solid fa-envelope",
+        ["POP3"] = "fa-solid fa-envelope",
+        ["POP3S"] = "fa-solid fa-envelope",
+        ["IMAP"] = "fa-solid fa-envelope",
+        ["IMAPS"] = "fa-solid fa-envelope",
         // VPN protocols named by their port: the catalog's tunneling mark, not the initial.
         ["IPSec NAT-T"] = "fa-solid fa-shield-halved",
         ["IKE"] = "fa-solid fa-shield-halved",
