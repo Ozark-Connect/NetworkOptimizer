@@ -369,12 +369,16 @@ public sealed class PeterPonOntProvider : ISfpSupplementalOntProvider
 
             var bias = Newest(m, "optic.bias_ua");
             var vcc = Newest(m, "optic.vcc_mv");
-            long? uptime = root.TryGetProperty("uptime_s", out var u) && u.TryGetInt64(out var uv) ? uv : null;
-
             var times = new List<long>();
             if (l.TryGetProperty("t", out var t) && t.ValueKind == JsonValueKind.Array)
                 foreach (var x in t.EnumerateArray())
                     times.Add(x.TryGetInt64(out var tv) ? tv : -1);
+
+            // Uptime is read on the sample clock (updated_s, else the newest t), which the error totals
+            // already treat as time since boot. Not uptime_s: it trails that clock (by 28 s in the
+            // capture), so it is likely the daemon's age, and a daemon restart would read as a reboot.
+            long? uptime = root.TryGetProperty("updated_s", out var u) && u.TryGetInt64(out var uv) ? uv
+                : times.Count > 0 && times[^1] >= 0 ? times[^1] / 1000 : null;
 
             var rates = new Dictionary<string, IReadOnlyList<long?>>();
             foreach (var name in ErrorRates)

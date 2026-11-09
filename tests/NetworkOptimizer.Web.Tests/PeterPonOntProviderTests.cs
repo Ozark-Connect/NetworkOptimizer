@@ -147,7 +147,19 @@ public class PeterPonOntProviderTests
         sample!.Seq.Should().Be(6237);
         sample.BiasMa.Should().Be(8.53);
         sample.VoltageV.Should().Be(3.35);
-        sample.UptimeS.Should().Be(134143);
+        sample.UptimeS.Should().Be(134171, "uptime is on the sample clock (updated_s), not the daemon's uptime_s");
+    }
+
+    [Fact]
+    public void ParseLive_NoUpdatedS_UptimeFromNewestSampleTime()
+    {
+        var live = JsonNode.Parse(Fixture("peterpon-live-get.json"))!;
+        var docs = live["result"]![1]!["docs"]!.AsArray();
+        var inner = JsonNode.Parse(docs[0]!.GetValue<string>())!.AsObject();
+        inner.Remove("updated_s");
+        docs[0] = inner.ToJsonString();
+
+        PeterPonOntProvider.ParseLive(live.ToJsonString())!.UptimeS.Should().Be(134171);
     }
 
     [Fact]
@@ -217,7 +229,7 @@ public class PeterPonOntProviderTests
         stats.BiasMa.Should().Be(8.53);
         stats.VoltageV.Should().Be(3.35);
         stats.Pon!.VoltageV.Should().Be(3.35);
-        stats.Pon.SfpUptimeS.Should().Be(134143);
+        stats.Pon.SfpUptimeS.Should().Be(134171);
     }
 
     // --- Error counters ---
@@ -380,7 +392,7 @@ public class PeterPonOntProviderTests
         result.Success.Should().BeTrue(result.FailureReason);
         result.Stats!.RxPowerDbm.Should().Be(-19.16);
         result.Stats.BiasMa.Should().Be(8.53);
-        result.Stats.Pon!.SfpUptimeS.Should().Be(134143);
+        result.Stats.Pon!.SfpUptimeS.Should().Be(134171);
         result.Stats.BipErrors.Should().Be(0);
         result.Stats.FecErrors.Should().Be(0);
         stub.Logins.Should().Be(1);
