@@ -24523,6 +24523,13 @@ body:has(.top-bar-hidden) .btn-fit {
     flex-shrink: 0;
 }
 
+/* live-traffic-motion.js holds an expanded row in place itself. Left on, the browser's scroll anchoring
+   corrected the same insertion as well, so the page moved twice as far and the row jumped away. */
+.lt-flip,
+.lt-flip * {
+    overflow-anchor: none;
+}
+
 /* In Where It Goes the icon sits alone in a foreignObject, not in a flex row, so it is sized as a block. */
 .lt-sankey-icon {
     overflow: visible;

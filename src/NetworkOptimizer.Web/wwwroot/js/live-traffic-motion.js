@@ -1,7 +1,7 @@
 // Live Traffic row motion: rows that change place slide there instead of jumping (FLIP), and the
 // expanded row ([data-flip-open]) holds exactly where it is on screen while the list changes around
 // it, as long as it is in view; the user's own scrolling moves it, and scrolling it nearly out of
-// view, or a screen or more of scrolling around, lets it go.
+// view, or a screen or more of scrolling around, lets it go; scrolling back to it holds it again.
 // A MutationObserver runs after each DOM update and before the browser paints, so the held row never
 // shows in its new place first. Each [data-flip] row is matched to its last state by key.
 
@@ -10,9 +10,11 @@ const MAX_SLIDE = 240; // px: about four rows
 const MIN_VISIBLE = 40; // px of the expanded row still on screen for it to keep its place
 
 const RELEASE_SCREENS = 1; // the user's own scrolling, in screen heights, that lets the expanded row go
+const REARM_IDLE = 250; // ms of no scrolling that counts as the user settling on what is in view
 
-const last = new WeakMap(); // container -> { pos: Map(key -> y in the list), index: Map(key -> i), anchorKey, anchorY, released }
+const last = new WeakMap(); // container -> { pos, index, anchorKey, anchorY, released, scroller }
 const scrolls = new WeakMap(); // scroller -> { lastTop, own, moved }: how far the user, not the hold, has scrolled
+const lists = new Set(); // containers settled at least once, for the scroll-time check below
 let observer = null;
 
 /**
@@ -22,16 +24,45 @@ let observer = null;
 function track(scroller) {
     let s = scrolls.get(scroller);
     if (s) return s;
-    s = { lastTop: scroller.scrollTop, own: 0, moved: 0 };
+    s = { lastTop: scroller.scrollTop, own: 0, moved: 0, idle: 0 };
     const target = scroller === document.scrollingElement || scroller === document.documentElement ? window : scroller;
     target.addEventListener('scroll', () => {
         const top = scroller.scrollTop;
-        s.moved += Math.abs(top - s.lastTop - s.own);
+        const user = Math.abs(top - s.lastTop - s.own);
+        s.moved += user;
         s.own = 0;
         s.lastTop = top;
+        // The user's own scroll ending: settled on the expanded row means they are looking at it.
+        if (user > 0) {
+            clearTimeout(s.idle);
+            s.idle = setTimeout(() => rearm(scroller, s), REARM_IDLE);
+        }
     }, { passive: true });
     scrolls.set(scroller, s);
     return s;
+}
+
+/**
+ * An expanded row the hold let go of is held again when the user stops scrolling with it in the middle
+ * of the view: they scrolled to it. No trip off screen first: requiring one made it never come back.
+ */
+function rearm(scroller, s) {
+    for (const container of lists) {
+        if (!container.isConnected) { lists.delete(container); continue; }
+        const state = last.get(container);
+        if (!state || state.scroller !== scroller) continue;
+        const row = container.querySelector('[data-flip][data-flip-open]');
+        if (!row || row.dataset.flip !== state.anchorKey) continue;
+        const [viewTop, viewBottom] = viewOf(scroller);
+        const top = row.getBoundingClientRect().top;
+        if (top < viewTop + (viewBottom - viewTop) * 0.1 || top > viewTop + (viewBottom - viewTop) * 0.75) continue;
+        // Settled on it: the scrolling that got here never counts toward letting it go, released yet or not
+        // (the release is only decided at the next redraw, after the user has already stopped here).
+        state.released = false;
+        // Measured from here: the next redraw holds it where it is now.
+        state.anchorY = top + scroller.scrollTop;
+        s.moved = 0;
+    }
 }
 
 const reduced = () => window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
@@ -94,9 +125,10 @@ function settle(root, listSelector) {
             if (before?.anchorKey !== openKey) s.moved = 0;
             else released = before.released;
             const [viewTop, viewBottom] = viewOf(scroller);
-            if (s.moved > (viewBottom - viewTop) * RELEASE_SCREENS) released = true;
+            if (!released && s.moved > (viewBottom - viewTop) * RELEASE_SCREENS) released = true;
         }
         last.set(container, { pos, index, anchorKey: openKey, anchorY, released, scroller });
+        lists.add(container);
         if (!before) continue;
 
         // The expanded row keeps its place on screen while it was in view just before this update:
