@@ -24,15 +24,13 @@ Available on Preview Now: see every flow through your Gateway as it happens, ran
 
 Check it out on Preview here: https://github.com/Ozark-Connect/NetworkOptimizer/releases
 
-## Coming Soon: Change Control
+## New: Change Control
 
-Available on Preview Now: track all changes to your UniFi Network configuration made from all sources, with all differences recorded with each change. Revert entire change sets if performance didn't improve without having to remember to take backups, save a baseline to return back to before major changes, save a template that can be applied - all or just some configuration pieces - to existing or new sites. See how changes affected performance directly on a visualization of Site Health, WAN stats, Gateway CPU usage, Wi-Fi Client-band split and PHY, and more. Alerts are sent automatically if there are regressions, and if a change takes down your site's WAN, it automatically reverts.
+Available on the latest release: track all changes to your UniFi Network configuration made from all sources, with all differences recorded with each change. Revert entire change sets if performance didn't improve without having to remember to take backups, save a baseline to return back to before major changes, save a template that can be applied - all or just some configuration pieces - to existing or new sites. See how changes affected performance directly on a visualization of Site Health, WAN stats, Gateway CPU usage, Wi-Fi Client-band split and PHY, and more. Alerts are sent automatically if there are regressions, and if a change takes down your site's WAN, it automatically reverts.
 
-Migrate device configuration to entirely new device models while maintaining Wi-Fi band and full port configurations. Sick of the default 192.168.0.0/24 subnet, or ending up with subnet collisions among your managed sites? Change up your whole IP addressing scheme with a few clicks, with helpful pre-staging steps as well. Create, regroup, or split up Zones for Zone-Based Firewall configuration too. Mass-adopt devices pending adoption, either on the bench or in the field. And more to come.
+Migrate device configuration to entirely new device models while maintaining Wi-Fi band and full port configurations. Sick of the default 192.168.0.0/24 subnet, or ending up with subnet collisions among your managed sites? Change up your whole IP addressing scheme with a few clicks, with helpful pre-staging steps as well. Create, regroup, or split up Zones for Zone-Based Firewall configuration too. And more to come.
 
 Also bonus feature: edit configurations quickly in a YAML format with an auto-complete-enabled editor. Export and import and share YAML configurations among all of your managed sites.
-
-Check it out on Preview here: https://github.com/Ozark-Connect/NetworkOptimizer/releases
 
 ## New: Integrated WAF + Centralized Firewall Blocking + New Security Features
 
@@ -44,13 +42,11 @@ Your UniFi Gateway also gets optional auto-block functionality based upon both t
 
 Also on the Gateway, we've got WAN flood mitigation support now (for UniFi OS 6.0.x EA), see engineering details here: https://github.com/Ozark-Connect/NetworkOptimizer/pull/1290
 
-If you haven't already checked out [our Traefik based reverse proxy](https://github.com/Ozark-Connect/NetworkOptimizer-Proxy) it's definitely worth setting up with this coming soon.
+If you haven't already checked out [our Traefik based reverse proxy](https://github.com/Ozark-Connect/NetworkOptimizer-Proxy) it's definitely worth setting up for this.
 
 ## It's Here: Hosted Network Optimizer
 
-For people who don't have a home server or don't want to set up the infrastructure, a fully hosted Network Optimizer is coming soon: $15/month for up to 3 sites, with a 14 day free trial and enterprise-grade security. The commercial hosted plan is $25/month per site, adding full management and consulting - see [pricing and licensing](https://ozarkconnect.net/network-optimizer/licensing). The [on-site agent](src/NetworkOptimizer.Agent/README.md) runs on your gateway, so the only thing you give up is LAN speed testing. WAN speed testing is included, with some data limits.
-
-Update: https://ozarkconnect.net/network-optimizer/signup for a 14-day trial
+For people who don't have a home server or don't want to set up the infrastructure, a fully hosted Network Optimizer is available: $15/month for up to 3 sites, with a [14-day free trial](https://ozarkconnect.net/network-optimizer/signup) and enterprise-grade security. The commercial hosted plan is $25/month per site, adding full management and consulting - see [pricing and licensing](https://ozarkconnect.net/network-optimizer/licensing). The [on-site agent](src/NetworkOptimizer.Agent/README.md) runs on your gateway, so the only thing you give up is LAN speed testing. WAN speed testing is included, with some data limits.
 
 ## Multi-Site Support
 
