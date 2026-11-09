@@ -276,6 +276,25 @@ public class LiveTrafficStoreTests
     }
 
     [Fact]
+    public void UnlistedVpnAndTailscaleClientsSayHowTheyConnect()
+    {
+        var store = SeededStore();
+        store.SetNetworkPurposes([("192.0.2.0/24", "corporate"), ("198.51.100.0/24", "remote-user-vpn")]);
+        store.Ingest(Batch(
+            Flow("vpn", "", "198.51.100.2", "203.0.113.5", 443, "eth4", 1000, 10),
+            Flow("ts", "", "100.64.1.2", "203.0.113.5", 443, "eth4", 1000, 10),
+            Flow("peer", "", "192.168.88.20", "203.0.113.5", 443, "eth4", 1000, 10)));
+
+        var view = store.BuildView(Query(), LiveTrafficState.Live);
+
+        var vpn = view.Flows.Single(f => f.Key == "vpn");
+        vpn.ClientName.Should().Be("198.51.100.2", "two VPN clients never merge under one name");
+        vpn.ClientVia.Should().Be("VPN Client");
+        view.Flows.Single(f => f.Key == "ts").ClientVia.Should().Be("Tailscale");
+        view.Flows.Single(f => f.Key == "peer").ClientVia.Should().BeNull("a site-to-site peer is not guessed to be Teleport");
+    }
+
+    [Fact]
     public void HttpsTakesInQuicButQuicStaysQuic()
     {
         var store = SeededStore();

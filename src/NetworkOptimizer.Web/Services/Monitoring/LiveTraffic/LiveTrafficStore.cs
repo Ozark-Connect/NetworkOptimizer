@@ -599,7 +599,9 @@ public sealed class LiveTrafficStore
             ClientMac = mac,
             ClientName = clientName,
             ClientIp = f.ClientIp,
-            ClientVia = f.Gateway ? null : client?.Via ?? client?.Network,
+            // A client UniFi Network does not list may be a VPN client: it keeps its address as its
+            // name (so two never merge) and says how it connects.
+            ClientVia = f.Gateway ? null : client?.Via ?? client?.Network ?? (client == null && clientName == f.ClientIp ? VpnKind(f.ClientIp) : null),
             Destination = destination,
             DestinationIp = f.RemoteIp,
             DestinationSub = destSub,
@@ -1182,6 +1184,28 @@ public sealed class LiveTrafficStore
         var list = subnets.Where(s => !string.IsNullOrWhiteSpace(s) && s.Contains('/')).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
         lock (_gate) _siteSubnets = list;
     }
+
+    /// <summary>
+    /// The site's networks with their purpose, for naming a client UniFi Network does not list: a
+    /// remote-user VPN, Tailscale, or Teleport client, classified as Client Performance does.
+    /// </summary>
+    public void SetNetworkPurposes(IReadOnlyCollection<(string? IpSubnet, string? Purpose)> networks)
+    {
+        lock (_gate) _networkPurposes = networks;
+    }
+
+    private IReadOnlyCollection<(string? IpSubnet, string? Purpose)>? _networkPurposes;
+
+    /// <summary>
+    /// "VPN Client" (inside a remote-user VPN network) or "Tailscale" for a VPN-sourced address; null for
+    /// anything else. No Teleport guess: a site-to-site peer's clients would read as Teleport here.
+    /// </summary>
+    private string? VpnKind(string ip) => NetworkPathAnalyzer.ClassifyVpnClient(ip, _networkPurposes, teleportByElimination: false) switch
+    {
+        HopType.Tailscale => "Tailscale",
+        HopType.Vpn => "VPN Client",
+        _ => null,
+    };
 
     /// <summary>
     /// A lookup answered only with addresses on the site's Networks, or one with no address answer for a name

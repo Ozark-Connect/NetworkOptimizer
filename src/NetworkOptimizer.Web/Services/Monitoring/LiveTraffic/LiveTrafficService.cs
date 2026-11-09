@@ -322,6 +322,7 @@ public sealed class LiveTrafficService : ILiveTrafficService
 
                 var networks = await client.GetNetworkConfigsAsync();
                 store.SetSiteNetworks(networks.SelectMany(n => new[] { n.IpSubnet, n.Ipv6Subnet }).OfType<string>());
+                store.SetNetworkPurposes(networks.Select(n => (n.IpSubnet, (string?)n.Purpose)).ToList());
             }
 
             if (flows)

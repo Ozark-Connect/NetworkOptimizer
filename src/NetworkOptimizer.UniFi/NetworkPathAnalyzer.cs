@@ -2768,7 +2768,17 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
     /// topology. Teleport and remote-user-VPN classification need the topology's
     /// networks; when topology is null only Tailscale can be identified.
     /// </remarks>
-    public static HopType? ClassifyVpnClient(string clientIp, NetworkTopology? topology)
+    public static HopType? ClassifyVpnClient(string clientIp, NetworkTopology? topology) =>
+        ClassifyVpnClient(clientIp, topology?.Networks.Select(n => ((string?)n.IpSubnet, (string?)n.Purpose)).ToList());
+
+    /// <summary>
+    /// <see cref="ClassifyVpnClient(string, NetworkTopology?)"/> from the site's networks alone (subnet and
+    /// purpose), for a caller that holds the network configs rather than a topology (Live Traffic).
+    /// <paramref name="teleportByElimination"/> off skips the "192.168 on no known network" Teleport guess,
+    /// which also catches a site-to-site peer's clients: a caller that sees other sites' traffic turns it off.
+    /// </summary>
+    public static HopType? ClassifyVpnClient(string clientIp, IReadOnlyCollection<(string? IpSubnet, string? Purpose)>? networks,
+        bool teleportByElimination = true)
     {
         if (string.IsNullOrEmpty(clientIp) || !System.Net.IPAddress.TryParse(clientIp, out _))
             return null;
@@ -2784,13 +2794,13 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
             }
         }
 
-        if (topology == null)
+        if (networks == null)
             return null;
 
         // Teleport: 192.168.x.x that's NOT in any known UniFi network
-        if (clientIp.StartsWith("192.168."))
+        if (teleportByElimination && clientIp.StartsWith("192.168."))
         {
-            var isInKnownNetwork = topology.Networks.Any(n =>
+            var isInKnownNetwork = networks.Any(n =>
                 !string.IsNullOrEmpty(n.IpSubnet) && NetworkUtilities.IsIpInSubnet(clientIp, n.IpSubnet));
 
             if (!isInKnownNetwork)
@@ -2798,10 +2808,10 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
         }
 
         // UniFi remote-user-vpn network (e.g., L2TP, OpenVPN server on gateway)
-        var matchingNetwork = topology.Networks.FirstOrDefault(n =>
+        var matchingNetwork = networks.FirstOrDefault(n =>
             !string.IsNullOrEmpty(n.IpSubnet) && NetworkUtilities.IsIpInSubnet(clientIp, n.IpSubnet));
 
-        if (matchingNetwork?.Purpose == "remote-user-vpn")
+        if (matchingNetwork.Purpose == "remote-user-vpn")
             return HopType.Vpn;
 
         return null;
