@@ -8987,6 +8987,11 @@ a.path-hop.hop-clickable:hover {
     text-decoration: none;
 }
 
+.tippy-box[data-theme~='custom'] .tip-link-icon {
+    font-size: 0.8em;
+    margin-left: 0.15em;
+}
+
 .tippy-box[data-theme~='custom'] a:hover {
     color: var(--accent-color);
     text-decoration: underline;

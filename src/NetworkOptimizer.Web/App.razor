@@ -538,26 +538,34 @@
             });
         }
 
-        // Live Traffic destination card. Built from the cell's attributes on every show, since Blazor
+        // Live Traffic link cards. Built from the cell's attributes on every show, since Blazor
         // reuses the cell for whatever flow lands in its row.
         function escapeHtml(s) {
             return String(s).replace(/[&<>"']/g, function (c) {
                 return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
             });
         }
+        var tipLinkIcon = ' <i class="fa-solid fa-link tip-link-icon" aria-hidden="true"></i>';
+        function tipLink(href, text) {
+            return '<a href="' + escapeHtml(href) + '">' + escapeHtml(text) + tipLinkIcon + '</a>';
+        }
         function destinationHtml(cell) {
             var name = cell.getAttribute('data-dest-name') || '';
             var ip = cell.getAttribute('data-dest-ip') || '';
             var link = cell.getAttribute('data-dest-link');
-            var address = link
-                ? '<a href="' + escapeHtml(link) + '">' + escapeHtml(ip) + '</a>'
-                : escapeHtml(ip);
-            return (name && name !== ip ? '<div>' + escapeHtml(name) + '</div>' : '') + '<div>' + address + '</div>';
+            return (name && name !== ip ? '<div>' + escapeHtml(name) + '</div>' : '') + '<div>' + escapeHtml(ip) + '</div>'
+                + (link ? '<div>' + tipLink(link, 'Threats') + '</div>' : '');
         }
-        function showDestinationCard(cell) {
-            if (cell._tippy || !cell.getAttribute('data-dest-ip')) return;
+        // A client name that opens Client Performance: the name as that link, then any note the row carries.
+        function clientHtml(el) {
+            var note = el.getAttribute('data-client-note');
+            return '<div>' + tipLink(el.getAttribute('data-client-link'), el.getAttribute('data-client-name') || '') + '</div>'
+                + (note ? '<div>' + escapeHtml(note) + '</div>' : '');
+        }
+        function showLinkCard(cell, html) {
+            if (cell._tippy) return;
             tippy(cell, {
-                content: destinationHtml(cell),
+                content: html(cell),
                 allowHTML: true,
                 interactive: true,
                 trigger: 'mouseenter',
@@ -567,7 +575,7 @@
                 theme: 'custom',
                 appendTo: document.body,
                 maxWidth: 'min(100vw - 10px, 400px)',
-                onShow: function (instance) { instance.setContent(destinationHtml(cell)); }
+                onShow: function (instance) { instance.setContent(html(cell)); }
             }).show();
         }
 
@@ -578,9 +586,11 @@
             if (!window.tippy || !e.target.closest) return;
             var host = e.target.closest('.live-traffic, .bandwidth-hogs-card');
             if (!host) return;
-            // A destination cell has its own card: the name, the address, and the Threat Intelligence link.
+            // Destination cells and client links have their own card: the name, then its link (Threats, Client Performance).
             var dest = e.target.closest('[data-dest-ip]');
-            if (dest && host.contains(dest)) { showDestinationCard(dest); return; }
+            if (dest && host.contains(dest) && dest.getAttribute('data-dest-ip')) { showLinkCard(dest, destinationHtml); return; }
+            var client = e.target.closest('[data-client-link]');
+            if (client && host.contains(client)) { showLinkCard(client, clientHtml); return; }
             var el = e.target;
             while (el && el !== host) {
                 if (el.hasAttribute('data-tooltip')) return;
