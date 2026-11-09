@@ -80,6 +80,9 @@ public class DomainAppCatalogTests
     [InlineData("MQTT-TLS", "no-icon no-icon-mqtt")]
     [InlineData("Cloudflare", "fa-brands fa-cloudflare")]    // an address's owner
     [InlineData("IPSec NAT-T", "fa-solid fa-shield-halved")] // the port name
+    [InlineData("IMAPS", "fa-solid fa-envelope")]
+    [InlineData("SMTP Submit", "fa-solid fa-envelope")]
+    [InlineData("POP3S", "fa-solid fa-envelope")]
     public void MarksFontAwesomeLacksOrTheCatalogMisses(string app, string cls) =>
         DpiCatalog.IconsForName(app).Class.Should().Be(cls);
 }
