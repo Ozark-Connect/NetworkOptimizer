@@ -119,6 +119,7 @@ public class DomainAppCatalogTests
     [InlineData("ICMP", "no-icon no-icon-icmp")]
     [InlineData("Outlook.com", "fa-brands fa-microsoft")]
     [InlineData("Roku", "no-icon no-icon-roku")]
+    [InlineData("Elasticsearch", "no-icon no-icon-elasticsearch")]   // the port name (9200, 9300)
     [InlineData("Akamai Technologies, Inc.", "no-icon no-icon-akamai")]   // an address's owner
     [InlineData("AKAMAI-AS", "no-icon no-icon-akamai")]
     public void MarksFontAwesomeLacksOrTheCatalogMisses(string app, string cls) =>

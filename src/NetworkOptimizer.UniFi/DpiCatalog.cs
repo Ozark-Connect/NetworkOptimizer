@@ -69,6 +69,7 @@ public static class DpiCatalog
         ["OpenVPN"] = "no-icon no-icon-openvpn",
         ["MQTT"] = "no-icon no-icon-mqtt",
         ["MQTT-TLS"] = "no-icon no-icon-mqtt",
+        ["Elasticsearch"] = "no-icon no-icon-elasticsearch",
         ["ChatGPT"] = "no-icon no-icon-openai",
         ["OpenAI"] = "no-icon no-icon-openai",
         ["Claude"] = "no-icon no-icon-claude",
