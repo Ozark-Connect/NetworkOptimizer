@@ -317,8 +317,10 @@ public sealed class LiveTrafficStore
                 var f = s.Last;
                 if (f.Lan || f.Gateway) continue;
                 if (_uniFiFlows.ContainsKey((f.ClientIp, f.ClientPort, f.RemoteIp, f.RemotePort, (f.Proto ?? "").ToLowerInvariant()))) continue;
-                // A flow older than the agent has no known start: it could be from any time in the window.
-                var start = f.AgeIsLowerBound ? limit : now - TimeSpan.FromSeconds(f.AgeSeconds) - TimeSpan.FromMinutes(1);
+                // A flow older than the agent has no known start. Never walk back for one: chasing it sent
+                // every page open a day back, ten minutes per refresh, as load on the console (often the gateway).
+                if (f.AgeIsLowerBound) continue;
+                var start = now - TimeSpan.FromSeconds(f.AgeSeconds) - TimeSpan.FromMinutes(1);
                 if (target == null || start < target) target = start;
             }
             if (target == null || _backfilledTo <= target || _backfilledTo <= limit) return null;

@@ -957,6 +957,10 @@ public class ThreatCollectionService : BackgroundService
         Blocking.PublicListMatcher? lists = null)
     {
         var events = new List<ThreatEvent>();
+        // The unfiltered pass reads every record anyway: kept on the client for Live Traffic, which then
+        // opens without reading the console's last hour again. Recorded only when the pass read it all.
+        var forCache = actionFilter == null ? new List<UniFi.Models.UniFiTrafficFlow>() : null;
+        var complete = false;
 
         try
         {
@@ -970,7 +974,12 @@ public class ThreatCollectionService : BackgroundService
                     break;
 
                 if (!response.TryGetProperty("data", out var data) || data.ValueKind != JsonValueKind.Array || data.GetArrayLength() == 0)
+                {
+                    complete = response.TryGetProperty("data", out _);
                     break;
+                }
+                if (forCache != null && data.Deserialize<List<UniFi.Models.UniFiTrafficFlow>>() is { } typed)
+                    forCache.AddRange(typed);
 
                 var flowsToNormalize = new List<JsonElement>();
                 foreach (var flow in data.EnumerateArray())
@@ -990,15 +999,23 @@ public class ThreatCollectionService : BackgroundService
                     events.AddRange(normalized);
                 }
 
-                if (IsLastFlowPage(response)) break;
+                if (IsLastFlowPage(response))
+                {
+                    complete = true;
+                    break;
+                }
                 page++;
             }
         }
         catch (Exception ex)
         {
+            complete = false;
             _logger.LogDebug(ex, "Traffic flows collection pass failed (filter={Filter})",
                 actionFilter != null ? string.Join(",", actionFilter) : "none");
         }
+
+        if (complete && forCache != null)
+            apiClient.FlowCache.Record(start, end, forCache, DateTimeOffset.UtcNow);
 
         return events;
     }

@@ -4617,6 +4617,9 @@ public partial class UniFiApiClient : IDisposable
     /// <summary>True for an hour after the console answered traffic-flows with 405 (it does not serve them).</summary>
     public bool TrafficFlowsUnsupported => DateTime.UtcNow.Ticks < Interlocked.Read(ref _trafficFlowsUnsupportedUntilTicks);
 
+    /// <summary>The console's recent traffic-flows records, shared by every reader of this client.</summary>
+    public TrafficFlowCache FlowCache { get; } = new();
+
     /// <summary>
     /// One page of <see cref="GetTrafficFlowsAsync(DateTimeOffset, DateTimeOffset, int, int, string[], string[], string[], string[], CancellationToken)"/>
     /// as typed records, newest first. Null when the console cannot answer. Page until a short page:
