@@ -14,6 +14,12 @@ public class DomainAppCatalogTests
     [InlineData("claude.ai", "Claude")]
     [InlineData("api.anthropic.com", "Claude")]
     [InlineData("chatgpt.com", "ChatGPT")]
+    [InlineData("gsa.apple.com", "Apple")]
+    [InlineData("17.courier.push.apple.com", "Apple")]
+    [InlineData("a1234.dscb.akamai.aaplimg.com", "Apple")]
+    [InlineData("music.apple.com", "Apple Music")]   // a listed app under apple.com still wins
+    [InlineData("p42-caldav.icloud.com", "iCloud")]
+    [InlineData("imap.mail.me.com", "iCloud")]
     [InlineData("www.microsoft.com", null)]
     [InlineData("com", null)]
     [InlineData("example.net", null)]

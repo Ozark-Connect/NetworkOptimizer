@@ -27,9 +27,12 @@ public static class DomainAppCatalog
         ["Pandora"] = ["pandora.com", "p-cdn.us", "p-cdn.com"],
         ["SoundCloud"] = ["soundcloud.com", "sndcdn.com"],
         ["Apple TV+"] = ["tv.apple.com", "hls.itunes.apple.com"],
-        ["iCloud"] = ["icloud.com", "icloud-content.com", "apple-cloudkit.com", "icloud.apple.com"],
+        ["iCloud"] = ["icloud.com", "icloud-content.com", "apple-cloudkit.com", "icloud.apple.com", "me.com", "mac.com", "icloud.com.cn"],
         ["iTunes/App Store"] = ["mzstatic.com", "apps.apple.com"],
         ["Facetime"] = ["facetime.apple.com"],
+        // Everything else Apple runs: its own domains (the specific apps above win), its CDNs, and APNs.
+        ["Apple"] = ["apple.com", "aaplimg.com", "cdn-apple.com", "apple-dns.net", "apple-dns.cn", "itunes.com", "apple.news",
+            "apple-mapkit.com", "push-apple.com.akadns.net", "safebrowsing.apple", "apple.com.cn"],
         ["Valve Steam"] = ["steampowered.com", "steamcontent.com", "steamserver.net", "steamstatic.com", "steamcommunity.com", "steam-chat.com"],
         ["XBOX"] = ["xboxlive.com", "xbox.com", "xboxservices.com"],
         ["Sony PlayStation"] = ["playstation.net", "playstation.com", "sonyentertainmentnetwork.com"],
