@@ -287,11 +287,15 @@ public class LiveTrafficStoreTests
 
         var view = store.BuildView(Query(), LiveTrafficState.Live);
 
-        var vpn = view.Flows.Single(f => f.Key == "vpn");
-        vpn.ClientName.Should().Be("198.51.100.2", "two VPN clients never merge under one name");
-        vpn.ClientVia.Should().Be("VPN Client");
-        view.Flows.Single(f => f.Key == "ts").ClientVia.Should().Be("Tailscale");
-        view.Flows.Single(f => f.Key == "peer").ClientVia.Should().BeNull("a site-to-site peer is not guessed to be Teleport");
+        // The kind is in the name, so the diagram and Group by Client say it; the address keeps two apart.
+        view.Flows.Single(f => f.Key == "vpn").ClientName.Should().Be("VPN Client (198.51.100.2)");
+        view.Flows.Single(f => f.Key == "ts").ClientName.Should().Be("Tailscale (100.64.1.2)");
+        view.Flows.Single(f => f.Key == "peer").ClientName.Should().Be("192.168.88.20", "a site-to-site peer is not guessed to be Teleport");
+        view.Sankey!.Nodes.Should().Contain(n => n.Column == 0 && n.Name == "VPN Client (198.51.100.2)");
+
+        // A filter by the bare address still finds it.
+        store.BuildView(Query(new LiveTrafficFilter(LiveTrafficField.Client, "198.51.100.2")), LiveTrafficState.Live)
+            .Flows.Select(f => f.Key).Should().Equal("vpn");
     }
 
     [Fact]

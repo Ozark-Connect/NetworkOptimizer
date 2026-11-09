@@ -530,7 +530,7 @@ public sealed class LiveTrafficStore
             : _macByIp.TryGetValue(f.ClientIp, out var m) ? m : "";
         _clientsByMac.TryGetValue(mac, out var client);
         var clientName = f.Gateway || _gatewayIps.Contains(f.ClientIp) ? _gatewayName
-            : client?.Name ?? f.ClientIp;
+            : client?.Name ?? UnlistedClientName(f.ClientIp);
 
         // Destination: the name DNS answered with, the console's domain, a site client, the address's
         // owner, or the address.
@@ -599,9 +599,7 @@ public sealed class LiveTrafficStore
             ClientMac = mac,
             ClientName = clientName,
             ClientIp = f.ClientIp,
-            // A client UniFi Network does not list may be a VPN client: it keeps its address as its
-            // name (so two never merge) and says how it connects.
-            ClientVia = f.Gateway ? null : client?.Via ?? client?.Network ?? (client == null && clientName == f.ClientIp ? VpnKind(f.ClientIp) : null),
+            ClientVia = f.Gateway ? null : client?.Via ?? client?.Network,
             Destination = destination,
             DestinationIp = f.RemoteIp,
             DestinationSub = destSub,
@@ -936,8 +934,14 @@ public sealed class LiveTrafficStore
     {
         if (mac.Length > 0 && _clientsByMac.TryGetValue(NormalizeMac(mac), out var c)) return c.Name;
         if (_macByIp.TryGetValue(ip, out var m) && _clientsByMac.TryGetValue(m, out var c2)) return c2.Name;
-        return ip;
+        return UnlistedClientName(ip);
     }
+
+    /// <summary>
+    /// A client UniFi Network does not list: "VPN Client (192.0.2.7)" or "Tailscale (100.64.1.2)" when it
+    /// connects that way, else its address. The address stays in the name, so two never merge.
+    /// </summary>
+    private string UnlistedClientName(string ip) => VpnKind(ip) is { } kind ? $"{kind} ({ip})" : ip;
 
     private string ResolverName(string ip)
     {
