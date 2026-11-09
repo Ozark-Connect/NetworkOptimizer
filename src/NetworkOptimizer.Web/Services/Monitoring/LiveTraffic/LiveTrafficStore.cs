@@ -781,17 +781,23 @@ public sealed class LiveTrafficStore
         string ClientNode(LiveFlowRow r) => topClients.Contains(r.ClientName) ? r.ClientName : otherClientName;
         string AppNode(LiveFlowRow r) => topApps.Contains(r.App) ? r.App : otherApp;
 
+        // Download and upload ride along so bands split by direction and nodes say both; a flow count has none.
+        double Down(IEnumerable<LiveFlowRow> g) => byFlows ? 0 : g.Sum(r => r.DownBps);
+        double Up(IEnumerable<LiveFlowRow> g) => byFlows ? 0 : g.Sum(r => r.UpBps);
+
         var nodes = new List<LiveSankeyNode>();
-        nodes.AddRange(moving.GroupBy(ClientNode).Select(g => new LiveSankeyNode(0, g.Key, g.Sum(V), LiveTrafficField.Client, null, !topClients.Contains(g.Key))));
+        nodes.AddRange(moving.GroupBy(ClientNode).Select(g => new LiveSankeyNode(0, g.Key, g.Sum(V), LiveTrafficField.Client, null, !topClients.Contains(g.Key),
+            DownBps: Down(g), UpBps: Up(g))));
         nodes.AddRange(moving.GroupBy(AppNode).Select(g => new LiveSankeyNode(1, g.Key, g.Sum(V), LiveTrafficField.App, null, !topApps.Contains(g.Key),
-            g.First().AppIconDomain, g.First().AppIconClass)));
-        nodes.AddRange(moving.GroupBy(r => r.Route).Select(g => new LiveSankeyNode(2, g.Key, g.Sum(V), LiveTrafficField.Route, g.First().RouteKind, false)));
+            g.First().AppIconDomain, g.First().AppIconClass, Down(g), Up(g))));
+        nodes.AddRange(moving.GroupBy(r => r.Route).Select(g => new LiveSankeyNode(2, g.Key, g.Sum(V), LiveTrafficField.Route, g.First().RouteKind, false,
+            DownBps: Down(g), UpBps: Up(g))));
 
         var links = new List<LiveSankeyLink>();
         links.AddRange(moving.GroupBy(r => (ClientNode(r), AppNode(r), r.RouteKind))
-            .Select(g => new LiveSankeyLink(0, g.Key.Item1, g.Key.Item2, g.Sum(V), g.Key.RouteKind)));
+            .Select(g => new LiveSankeyLink(0, g.Key.Item1, g.Key.Item2, g.Sum(V), g.Key.RouteKind, Down(g), Up(g))));
         links.AddRange(moving.GroupBy(r => (AppNode(r), r.Route, r.RouteKind))
-            .Select(g => new LiveSankeyLink(1, g.Key.Item1, g.Key.Route, g.Sum(V), g.Key.RouteKind)));
+            .Select(g => new LiveSankeyLink(1, g.Key.Item1, g.Key.Route, g.Sum(V), g.Key.RouteKind, Down(g), Up(g))));
         return new LiveSankey(nodes, links, byFlows);
     }
 

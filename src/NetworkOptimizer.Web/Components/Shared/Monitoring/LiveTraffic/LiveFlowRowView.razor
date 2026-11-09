@@ -23,8 +23,8 @@
             </td>
             <td>@AppCell(f)</td>
             <td>@RoutePill(f)</td>
-            <td>@if (f.Ended) { <span class="speed-down">-</span> } else { @Rate(f.DownBps, "speed-down") }</td>
-            <td>@if (f.Ended) { <span class="speed-up">-</span> } else { @Rate(f.UpBps, "speed-up") }</td>
+            <td>@Rate(f.Ended ? 0 : f.DownBps, "speed-down")</td>
+            <td>@Rate(f.Ended ? 0 : f.UpBps, "speed-up")</td>
             <td>@DisplayFormatters.FormatBytes(f.TotalBytes)</td>
             <td class="lt-secondary">@LiveTrafficDisplay.StartedLabel(f)</td>
             <td>@Spark(f.History)</td>

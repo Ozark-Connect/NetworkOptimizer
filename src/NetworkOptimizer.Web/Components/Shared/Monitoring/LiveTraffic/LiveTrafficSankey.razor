@@ -17,7 +17,7 @@ else
            position and size. The d attribute is the fallback for browsers without CSS d. *@
         @foreach (var p in layout.Paths)
         {
-            <path @key="p.Key" d="@p.D" style="d: path('@p.D'); stroke-width: @(F(p.Width))px" stroke="@p.Color" stroke-opacity="0.35" stroke-width="@F(p.Width)" fill="none" />
+            <path @key="p.Key" d="@p.D" style="d: path('@p.D'); stroke-width: @(F(p.Width))px" stroke="@p.Color" stroke-opacity="@F2(p.Opacity)" stroke-width="@F(p.Width)" fill="none" />
         }
         @foreach (var n in layout.Nodes)
         {
@@ -39,7 +39,14 @@ else
                         <foreignObject class="lt-sankey-icon" x="@(NodeW + 6)" y="-9" width="18" height="18">@(node.IconDomain != null || node.IconClass != null ? AppIcon(node.Name, node.IconDomain, node.IconClass) : AppIcon(node.Name))</foreignObject>
                     }
                     <text class="lt-node-label" text-anchor="@anchor" x="@tx" y="-1" data-tooltip="@(Fit(node.Name, node.Column) == node.Name ? null : node.Name)" data-tooltip-hover-only>@Fit(node.Name, node.Column)</text>
-                    <text class="lt-node-sub" text-anchor="@anchor" x="@tx" y="12">@(Sankey.ValueIsFlows ? TimeFormatHelper.Pluralize((int)node.Value, "flow") : DisplayFormatters.FormatRate(node.Value))</text>
+                    <text class="lt-node-sub" text-anchor="@anchor" x="@tx" y="12">@if (Sankey.ValueIsFlows)
+                        {
+                            @TimeFormatHelper.Pluralize((int)node.Value, "flow")
+                        }
+                        else
+                        {
+                            <tspan class="@(node.DownBps >= 1 ? "lt-sub-down" : "lt-sub-idle")">↓ @SubRate(node.DownBps)</tspan><tspan class="@(node.UpBps >= 1 ? "lt-sub-up" : "lt-sub-idle")" dx="6">↑ @SubRate(node.UpBps)</tspan>
+                        }</text>
                 </g>
             </g>
         }
@@ -73,6 +80,8 @@ else
     /// <summary>Approximate width of one 12px Inter character, in viewBox units.</summary>
     private const double CharW = 6.2;
     private const int LabelGap = 8;
+    /// <summary>Width of the widest likely rate subtitle, in viewBox units.</summary>
+    private const double SubW = 130;
     /// <summary>Room an app node's icon takes before its label.</summary>
     private const int IconW = 22;
     private double[] ColX = [150, 400, 620];
@@ -84,8 +93,10 @@ else
     /// </summary>
     private static double[] Columns(LiveSankey sankey)
     {
-        double Longest(int col) => sankey.Nodes.Where(n => n.Column == col)
-            .Select(n => n.Name.Length * CharW).DefaultIfEmpty(0).Max();
+        // A rate subtitle ("↓ 12.3 Mbps ↑ 1.1 Mbps", in the smaller sub font) needs its room as much as a name.
+        var sub = sankey.ValueIsFlows ? 0 : SubW;
+        double Longest(int col) => Math.Max(sub, sankey.Nodes.Where(n => n.Column == col)
+            .Select(n => n.Name.Length * CharW).DefaultIfEmpty(0).Max());
         // Capped: a long client name is trimmed rather than squeezing the flows into the right half.
         var left = Math.Clamp(Longest(0) + LabelGap + 2, 90, 230);
         var route = Math.Clamp(W - NodeW - LabelGap - Longest(2) - 4, left + 260, W - NodeW - LabelGap - 60);
@@ -94,7 +105,7 @@ else
     }
 
     private sealed record PlacedNode(LiveSankeyNode Node, double Y, double Height);
-    private sealed record PlacedPath(string Key, string D, string Color, double Width);
+    private sealed record PlacedPath(string Key, string D, string Color, double Width, double Opacity);
 
     /// <summary>Each node's place at the last render, by column and name.</summary>
     private Dictionary<(int, string), int> _ranks = new();
@@ -110,6 +121,11 @@ else
     private static double Size(double value, bool flows) => 6 + 16 * Math.Log10(1 + (flows ? value : value / 1_000_000));
 
     private static string F(double v) => v.ToString("0.#", System.Globalization.CultureInfo.InvariantCulture);
+
+    /// <summary>A node's rate in one direction: an idle one reads "0 bps" (muted by its class), never "-".</summary>
+    private static string SubRate(double bps) => bps >= 1 ? DisplayFormatters.FormatRate(bps) : "0 bps";
+
+    private static string F2(double v) => v.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture);
 
     private static string RouteColor(LiveRouteKind? kind) => kind switch
     {
@@ -196,12 +212,28 @@ else
             var seen = keyCount.GetValueOrDefault(key);
             keyCount[key] = seen + 1;
             if (seen > 0) key += $"#{seen}";
-            paths.Add(new PlacedPath(key,
-                $"M{F(x0)},{F(y0)} C{F(mx)},{F(y0)} {F(mx)},{F(y1)} {F(x1)},{F(y1)}",
-                RouteColor(e.Link.RouteKind), Math.Max(1.2, Math.Min(e.SFrom, e.STo))));
+            var width = Math.Max(1.2, Math.Min(e.SFrom, e.STo));
+            var color = RouteColor(e.Link.RouteKind);
+            string Curve(double dy) => $"M{F(x0)},{F(y0 + dy)} C{F(mx)},{F(y0 + dy)} {F(mx)},{F(y1 + dy)} {F(x1)},{F(y1 + dy)}";
+            var total = e.Link.DownBps + e.Link.UpBps;
+            if (sankey.ValueIsFlows || total <= 0)
+            {
+                paths.Add(new PlacedPath(key, Curve(0), color, width, BandOpacity));
+                continue;
+            }
+            // Split by direction, both in the route's color: download on top and stronger, upload below
+            // and lighter. Keyed apart so each strand tweens on its own.
+            var down = width * e.Link.DownBps / total;
+            var up = width - down;
+            if (down >= 0.5) paths.Add(new PlacedPath(key + "|d", Curve(-width / 2 + down / 2), color, down, DownOpacity));
+            if (up >= 0.5) paths.Add(new PlacedPath(key + "|u", Curve(width / 2 - up / 2), color, up, UpOpacity));
         }
         return new Placed(nodes, paths);
     }
+
+    private const double BandOpacity = 0.35;
+    private const double DownOpacity = 0.55;
+    private const double UpOpacity = 0.2;
 
     /// <summary>
     /// A column's order: the last order kept, with a node moving up only once it beats the one above

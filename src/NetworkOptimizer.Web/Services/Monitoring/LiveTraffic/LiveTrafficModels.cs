@@ -183,10 +183,15 @@ public sealed record LiveDnsRow(
 /// <summary>The Where It Goes diagram: three columns of nodes and the links between them.</summary>
 public sealed record LiveSankey(IReadOnlyList<LiveSankeyNode> Nodes, IReadOnlyList<LiveSankeyLink> Links, bool ValueIsFlows = false);
 
+/// <param name="DownBps">The node's download rate, for its subtitle; 0 when sized by flow count.</param>
+/// <param name="UpBps">The node's upload rate.</param>
 public sealed record LiveSankeyNode(int Column, string Name, double Value, LiveTrafficField Field, LiveRouteKind? RouteKind, bool IsOther,
-    string? IconDomain = null, string? IconClass = null);
+    string? IconDomain = null, string? IconClass = null, double DownBps = 0, double UpBps = 0);
 
-public sealed record LiveSankeyLink(int Column, string From, string To, double Value, LiveRouteKind RouteKind);
+/// <param name="DownBps">The band's download rate: the band splits into a download and an upload strand by these.</param>
+/// <param name="UpBps">The band's upload rate.</param>
+public sealed record LiveSankeyLink(int Column, string From, string To, double Value, LiveRouteKind RouteKind,
+    double DownBps = 0, double UpBps = 0);
 
 /// <summary>How History orders its flows.</summary>
 public enum LiveHistorySort { Time, Data }
