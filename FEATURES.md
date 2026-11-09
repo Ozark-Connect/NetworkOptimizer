@@ -112,11 +112,12 @@ Time-series monitoring on your own InfluxDB, fed by SNMP polling (InfluxDB).
   - **By** client, app, destination, or route; open a client to see its flows
   - **Detailed View** - every flow through the gateway ranked by current rate, with no row limit (On-Site Agent on the gateway)
     - Click any client, destination, app, route, protocol, or port to filter to it, and again to let it go; hide a value with the button beside it or Alt-click; filters are in the link
-    - Sort by any column, either way; rows and diagram nodes hold still under the pointer, slide when they move, and an expanded flow stays in place on screen while the list changes
+    - Sort by any column, either way; rows and diagram nodes hold still under the pointer, slide when they move, and an expanded flow stays in place on screen while the list changes, again once you scroll back and settle on it
     - Apps named by the gateway's DPI (UniFi Network's own records), else by the domain the flow went to, the port, or the address's owner (GeoLite2 ASN), with the same app icons as Client Performance
+      - Recognized from their traffic: a phone's Wi-Fi Calling (IPsec to a mobile carrier), iperf3 (TCP and UDP 5201), and between your own devices Google Cast and Midea appliances
     - Destinations named by DNS, else by reverse DNS (PTR) or the address's owner; a public address of one of your sites carries a site badge, and a client or UniFi device on another VLAN carries its UniFi name and a network badge; hover a destination for its address and its Threat Intelligence drill-down
     - Parallel streams from one client to one destination shown as one row with a stream count
-    - **Where It Goes** - client to app to route, by rate or by flow count; the gateway's own VPN tunnel is left out so tunneled traffic counts once
+    - **Where It Goes** - client to app to route, by rate or by flow count; by rate each band splits into download and upload in its route's color, and each node shows both rates; the gateway's own VPN tunnel is left out so tunneled traffic counts once
     - **Live DNS** - lookups to the gateway, to DNS servers on other VLANs, and to outside resolvers; blocked lookups (NXDOMAIN, or a 0.0.0.0 / :: answer), response time, and DNS bypass (including DoH and DoT, not counting a site resolver's own encrypted upstream)
       - A lookup the gateway redirects (DNAT) to a site resolver shows the attempt and the resolver that answered, and is not counted as a bypass
       - **Hide Local** - leave out lookups answered only with addresses on the site's networks, remembered per user and site
