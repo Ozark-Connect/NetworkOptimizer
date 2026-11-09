@@ -61,6 +61,18 @@ public static class DpiCatalog
         ["Microsoft Windows Update"] = "fa-brands fa-windows",
         ["XBOX"] = "fa-brands fa-xbox",
         ["iTunes"] = "fa-brands fa-itunes",
+        // Marks Font Awesome lacks: app.css draws the no-icon-* classes (Simple Icons, CC0).
+        ["WireGuard"] = "no-icon no-icon-wireguard",
+        ["OpenVPN"] = "no-icon no-icon-openvpn",
+        ["MQTT"] = "no-icon no-icon-mqtt",
+        ["MQTT-TLS"] = "no-icon no-icon-mqtt",
+        // Local protocols DomainAppCatalog.LanApp names by port.
+        ["Google Cast"] = "fa-brands fa-chromecast",
+        ["Midea"] = "fa-solid fa-house-signal",
+        // VPN protocols named by their port: the catalog's tunneling mark, not the initial.
+        ["IPSec NAT-T"] = "fa-solid fa-shield-halved",
+        ["IKE"] = "fa-solid fa-shield-halved",
+        ["PPTP"] = "fa-solid fa-shield-halved",
         ["DNS"] = "fa-solid fa-server",
         ["NTP"] = "fa-solid fa-clock",
         ["HTTP"] = "fa-solid fa-globe",
@@ -130,6 +142,10 @@ public static class DpiCatalog
         ("Facebook", "fa-brands fa-facebook"),
         ("Yahoo", "fa-brands fa-yahoo"),
         ("Windows", "fa-brands fa-windows"),
+        ("Cloudflare", "fa-brands fa-cloudflare"),
+        // Valve's own network carries Steam; an app named only by its owner reads "Valve".
+        ("Valve", "fa-brands fa-steam"),
+        ("Steam", "fa-brands fa-steam"),
     };
 
     /// <summary>What an application in each category is broadly doing, for one with no mark of its own.</summary>
@@ -176,6 +192,31 @@ public static class DpiCatalog
             }
         }
         return IconByCategory.TryGetValue(category, out var byCategory) ? byCategory : IconByCategory[255];
+    }
+
+    private static readonly Lazy<Dictionary<string, Entry>> _byName = new(() => _catalog.Value.Applications.Values
+        .GroupBy(e => e.N, StringComparer.OrdinalIgnoreCase)
+        .ToDictionary(g => g.Key, g => g.OrderByDescending(e => e.D != null).ThenByDescending(e => e.I != null).First(), StringComparer.OrdinalIgnoreCase));
+
+    /// <summary>
+    /// The icons for an application known only by name (a domain match, a port service): the catalog
+    /// entry of that name, else a pick by name or brand word. Null class when nothing fits, so the
+    /// caller shows the initial rather than a question mark for a label that is not an application.
+    /// </summary>
+    public static (string? Domain, string? Class) IconsForName(string name)
+    {
+        if (_byName.Value.TryGetValue(name, out var e))
+            return (e.D, e.I ?? (IconByName.TryGetValue(e.N, out var c) ? c : BrandIcon(e.N)));
+        return (null, IconByName.TryGetValue(name, out var byName) ? byName : BrandIcon(name));
+    }
+
+    private static string? BrandIcon(string name)
+    {
+        foreach (var (word, icon) in IconByBrandWord)
+        {
+            if (name.Contains(word, StringComparison.OrdinalIgnoreCase)) return icon;
+        }
+        return null;
     }
 
     /// <summary>Whether a domain is one the catalog names, so the icon path cannot be pointed anywhere else.</summary>
