@@ -8988,8 +8988,8 @@ a.path-hop.hop-clickable:hover {
 }
 
 .tippy-box[data-theme~='custom'] .tip-link-icon {
-    font-size: 0.8em;
     margin-left: 0.15em;
+    vertical-align: -1px;
 }
 
 .tippy-box[data-theme~='custom'] a:hover {

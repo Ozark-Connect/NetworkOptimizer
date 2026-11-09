@@ -545,7 +545,8 @@
                 return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
             });
         }
-        var tipLinkIcon = ' <i class="fa-solid fa-link tip-link-icon" aria-hidden="true"></i>';
+        // The app's link-out mark, as on the speed test result rows.
+        var tipLinkIcon = ' <svg class="tip-link-icon" xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg>';
         function tipLink(href, text) {
             return '<a href="' + escapeHtml(href) + '">' + escapeHtml(text) + tipLinkIcon + '</a>';
         }
@@ -562,8 +563,14 @@
             return '<div>' + tipLink(el.getAttribute('data-client-link'), el.getAttribute('data-client-name') || '') + '</div>'
                 + (note ? '<div>' + escapeHtml(note) + '</div>' : '');
         }
+        // An element in the cell with a tooltip of its own (the via line, a badge) shows only that one.
+        function innerTipHovered(cell) { return !!cell.querySelector('[data-tooltip]:hover'); }
         function showLinkCard(cell, html) {
-            if (cell._tippy) return;
+            if (cell._tippy) {
+                if (!cell._tippy.state.isVisible && !innerTipHovered(cell)) cell._tippy.show();
+                return;
+            }
+            if (innerTipHovered(cell)) return;
             tippy(cell, {
                 content: html(cell),
                 allowHTML: true,
@@ -575,7 +582,10 @@
                 theme: 'custom',
                 appendTo: document.body,
                 maxWidth: 'min(100vw - 10px, 400px)',
-                onShow: function (instance) { instance.setContent(html(cell)); }
+                onShow: function (instance) {
+                    if (innerTipHovered(cell)) return false;
+                    instance.setContent(html(cell));
+                }
             }).show();
         }
 
@@ -587,6 +597,7 @@
             var host = e.target.closest('.live-traffic, .bandwidth-hogs-card');
             if (!host) return;
             // Destination cells and client links have their own card: the name, then its link (Threats, Client Performance).
+            // The card carries the full name, so it stands in for the cut-name tooltip.
             var dest = e.target.closest('[data-dest-ip]');
             if (dest && host.contains(dest) && dest.getAttribute('data-dest-ip')) { showLinkCard(dest, destinationHtml); return; }
             var client = e.target.closest('[data-client-link]');
