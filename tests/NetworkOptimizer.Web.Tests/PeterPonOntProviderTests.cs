@@ -13,7 +13,7 @@ namespace NetworkOptimizer.Web.Tests;
 
 /// <summary>
 /// Tests for <see cref="PeterPonOntProvider"/>. Fixtures are the luci.gpon status, info, and live_get
-/// replies from a web UI capture of an MA5671A on Peter-Pon, with the GPON serial and the service
+/// replies from a web UI capture of an FS.com GPON-SFP-ONT-MAC-I on Peter-Pon, with the GPON serial and the service
 /// VLANs replaced by generic values.
 /// </summary>
 public class PeterPonOntProviderTests

@@ -720,7 +720,7 @@ Requires Gateway SSH.
   - Richerlink - RL821GWV-D (signs in and out around each poll)
   - Realtek RTL960x sticks - ODI DFP-34X-2C2, ODI DFP-34X-2IY3, V-SOL V2801F, T&W TWCGPON657, Luleey LL-XS2510
   - 8311 firmware sticks - WAS-110, X-ONU-SFPP, WT-ONU-STICK
-  - Peter-Pon firmware sticks - Huawei MA5671A
+  - Peter-Pon firmware sticks (Lantiq PEB98035) - FS.com GPON-SFP-ONT-MAC-I, Huawei MA5671A
   - Any GPON or XGS-PON ONT SFP module with DDM
   - Any other SFP module with DDM
   - Any device through the Network Optimizer Custom JSON contract

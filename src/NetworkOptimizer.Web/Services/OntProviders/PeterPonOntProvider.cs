@@ -13,8 +13,8 @@ using NetworkOptimizer.Web.Services.Monitoring;
 namespace NetworkOptimizer.Web.Services.OntProviders;
 
 /// <summary>
-/// ONT provider for GPON SFP sticks running Peter-Pon (OpenWrt-based firmware, first seen on the
-/// Huawei MA5671A). The stick's uhttpd serves OpenWrt's ubus JSON-RPC at <c>/ubus/</c>: a poll signs
+/// ONT provider for Lantiq PEB98035 GPON SFP sticks (FS.com GPON-SFP-ONT-MAC-I, Huawei MA5671A)
+/// running Peter-Pon, an OpenWrt-based firmware. The stick's uhttpd serves OpenWrt's ubus JSON-RPC at <c>/ubus/</c>: a poll signs
 /// in with <c>session.login</c>, then reads <c>luci.gpon status</c> (optics, PLOAM state,
 /// temperatures) and <c>luci.gpon info</c> (GPON SN, firmware, OLT vendor) in one batch, and
 /// <c>luci.gpon live_get</c> best effort for laser bias, supply voltage, the stick's uptime, and the
