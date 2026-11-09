@@ -10,7 +10,7 @@
             <td class="lt-rank"><span class="expand-chevron lt-chev">@(Open ? "▲" : "▼")</span> @Rank</td>
             @if (ShowClient)
             {
-                <td data-client-name="@f.ClientName" data-client-link="@LiveTrafficLinks.ClientPerformance(f)">
+                <td data-client-name="@f.ClientName" data-client-link="@LiveTrafficLinks.ClientPerformance(f)" data-client-note="@LiveTrafficDisplay.ClientCardDetail(f)">
                     @Pill(LiveTrafficField.Client, f.ClientName)
                     @ClientLine(f)
                 </td>
@@ -104,7 +104,7 @@
             <td class="lt-secondary">@LastSeenLabel(f)</td>
             @if (ShowClient)
             {
-                <td data-client-name="@f.ClientName" data-client-link="@LiveTrafficLinks.ClientPerformance(f)">
+                <td data-client-name="@f.ClientName" data-client-link="@LiveTrafficLinks.ClientPerformance(f)" data-client-note="@LiveTrafficDisplay.ClientCardDetail(f)">
                     @Pill(LiveTrafficField.Client, f.ClientName)
                     @ClientLine(f)
                 </td>

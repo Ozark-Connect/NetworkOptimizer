@@ -36,6 +36,17 @@ public static class LiveTrafficDisplay
         return m.Groups[1].Success ? $"{m.Groups[1].Value}, Port {m.Groups[2].Value}" : $"Port {m.Groups[2].Value}";
     }
 
+    /// <summary>
+    /// The client card's lines under the name, one per line: how it connects, then its address and
+    /// source port ("Office Switch, Port 10" / "192.0.2.10 · TCP 51512").
+    /// </summary>
+    public static string ClientCardDetail(LiveFlowRow f)
+    {
+        var via = ViaTooltip(f.ClientVia) ?? (f.ClientVia != f.ClientIp ? f.ClientVia : null);
+        var address = f.ClientPort > 0 ? $"{f.ClientIp} · {f.Proto} {f.ClientPort}" : f.ClientIp;
+        return string.IsNullOrEmpty(via) ? address : via + "\n" + address;
+    }
+
     public static string Pct(double v) => v.ToString("0.#", System.Globalization.CultureInfo.InvariantCulture);
 
     /// <summary>"12s ago", "Over 3 min ago" for a flow older than the agent, or "Ended just now".</summary>

@@ -787,7 +787,7 @@ public sealed class LiveTrafficStore
 
         var nodes = new List<LiveSankeyNode>();
         nodes.AddRange(moving.GroupBy(ClientNode).Select(g => new LiveSankeyNode(0, g.Key, g.Sum(V), LiveTrafficField.Client, null, !topClients.Contains(g.Key),
-            DownBps: Down(g), UpBps: Up(g))));
+            DownBps: Down(g), UpBps: Up(g), ClientIp: topClients.Contains(g.Key) ? g.First().ClientIp : null)));
         nodes.AddRange(moving.GroupBy(AppNode).Select(g => new LiveSankeyNode(1, g.Key, g.Sum(V), LiveTrafficField.App, null, !topApps.Contains(g.Key),
             g.First().AppIconDomain, g.First().AppIconClass, Down(g), Up(g))));
         nodes.AddRange(moving.GroupBy(r => r.Route).Select(g => new LiveSankeyNode(2, g.Key, g.Sum(V), LiveTrafficField.Route, g.First().RouteKind, false,

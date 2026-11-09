@@ -185,8 +185,9 @@ public sealed record LiveSankey(IReadOnlyList<LiveSankeyNode> Nodes, IReadOnlyLi
 
 /// <param name="DownBps">The node's download rate, for its subtitle; 0 when sized by flow count.</param>
 /// <param name="UpBps">The node's upload rate.</param>
+/// <param name="ClientIp">A client node's address, for its Client Performance link; null for Other and the other columns.</param>
 public sealed record LiveSankeyNode(int Column, string Name, double Value, LiveTrafficField Field, LiveRouteKind? RouteKind, bool IsOther,
-    string? IconDomain = null, string? IconClass = null, double DownBps = 0, double UpBps = 0);
+    string? IconDomain = null, string? IconClass = null, double DownBps = 0, double UpBps = 0, string? ClientIp = null);
 
 /// <param name="DownBps">The band's download rate: the band splits into a download and an upload strand by these.</param>
 /// <param name="UpBps">The band's upload rate.</param>

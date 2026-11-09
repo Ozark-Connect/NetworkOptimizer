@@ -136,11 +136,14 @@
         <span class="lt-tag lt-streams" data-tooltip="Parallel connections from this client to this address and port, shown as one row">@f.Streams streams</span>
     };
 
-    /// <summary>Under the client: how it connects (port, band, or address), then its source protocol and port.</summary>
+    /// <summary>
+    /// Under the client: how it connects (port, band, or address), then its source protocol and port.
+    /// No tooltip of its own: the cell's client card says it in full.
+    /// </summary>
     protected static RenderFragment ClientLine(LiveFlowRow f) => __builder =>
     {
         <span class="lt-sub">
-            <span data-tooltip="@LiveTrafficDisplay.ViaTooltip(f.ClientVia)" data-tooltip-hover-only>@(f.ClientVia ?? f.ClientIp)</span>
+            <span>@(f.ClientVia ?? f.ClientIp)</span>
             @if (f.ClientPort > 0)
             {
                 <span class="lt-muted"> &middot; @f.Proto @f.ClientPort</span>
