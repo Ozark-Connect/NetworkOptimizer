@@ -12,10 +12,12 @@
 @inject SiteConnectionRegistry ConnectionRegistry
 @inject ILogger<FirmwareRollout> Logger
 @inject UiHintService UiHints
+@inject NetworkOptimizer.Web.Components.Shared.ChangeControl.CcNavigator CcNav
 @rendermode InteractiveServer
 @using NetworkOptimizer.Storage.Models
 @using NetworkOptimizer.Core.Helpers
 @using NetworkOptimizer.Web.Services.Firmware
+@inject IDisplayTimeZone DisplayTime
 
 <PageTitle>Firmware Rollout - Network Optimizer</PageTitle>
 
@@ -47,7 +49,7 @@ else if (_active != null && !_wizardOpen)
                     {
                         <button class="btn btn-sm btn-primary" @onclick="() => ControlAsync(RolloutService.ResumeAsync)" disabled="@_busy">@(WaitingApproval ? "Approve Next Wave" : "Resume")</button>
                     }
-                    @if (_active.Status is FirmwareRolloutStatus.Scheduled or FirmwareRolloutStatus.Announced)
+                    @if (_active.Status is FirmwareRolloutStatus.Scheduled or FirmwareRolloutStatus.Announced && !Starting)
                     {
                         @if (CanAdvance)
                         {
@@ -91,7 +93,13 @@ else if (_active != null && !_wizardOpen)
             {
                 <div class="alert alert-info firmware-rollout-note">@_controlNotice</div>
             }
-            @if (_active.Status is FirmwareRolloutStatus.Scheduled or FirmwareRolloutStatus.Announced)
+            @if (Starting)
+            {
+                <p class="firmware-rollout-note">@(_active.Plan.IncludesUniFiNetworkUpdate || _active.Plan.IncludesUniFiOsUpdate
+                    ? "Starting: taking a Console backup and checking for updates before anything is upgraded."
+                    : "Starting: checking for updates before anything is upgraded.")</p>
+            }
+            else if (_active.Status is FirmwareRolloutStatus.Scheduled or FirmwareRolloutStatus.Announced)
             {
                 <p class="firmware-rollout-note">Scheduled to start <strong>@LocalTime(_active.ScheduledStartAt)</strong>@SiteAside(_active.ScheduledStartAt ?? DateTime.UtcNow). Estimated duration @Duration(_active.Plan.TotalEstimatedSeconds).</p>
                 @if (HasDrift)
@@ -115,6 +123,15 @@ else if (_active != null && !_wizardOpen)
             @foreach (var note in _active.Plan.Notes)
             {
                 <p class="firmware-rollout-plan-note">@note</p>
+            }
+            @if (_active.Plan.FirmwareReverted && _active.Plan.ConfigSnapshotId is int pinnedSnapshot)
+            {
+                <SiteOperatorOnly>
+                    <div class="alert alert-info firmware-rollout-note">
+                        Firmware was rolled back. If the config changed during the rollout, compare it with the snapshot taken before it started and roll back there.
+                        <button class="btn btn-sm btn-secondary" @onclick="() => CcNav.CompareAsync(SiteContext.Slug, pinnedSnapshot, null)">Compare Config Snapshot</button>
+                    </div>
+                </SiteOperatorOnly>
             }
 
             @if (ActivePlanHasMap)
@@ -199,7 +216,7 @@ else if (_active != null && !_wizardOpen)
                     </tbody>
                 </table>
             </div>
-            @if (_active.Status is FirmwareRolloutStatus.Scheduled or FirmwareRolloutStatus.Announced)
+            @if (_active.Status is FirmwareRolloutStatus.Scheduled or FirmwareRolloutStatus.Announced && !Starting)
             {
                 <SiteAdminOnly>
                     <div class="firmware-rollout-deploy-now">
@@ -672,6 +689,14 @@ else
                     </tbody>
                 </table>
             </div>
+            @if (HistoryPages > 1)
+            {
+                <div class="pagination history-pagination">
+                    <button class="btn btn-sm btn-secondary" disabled="@(_historyPage <= 1)" @onclick="() => ChangeHistoryPageAsync(-1)"><span class="pag-arrow">←</span> Prev</button>
+                    <span class="pagination-info">Page @_historyPage of @HistoryPages (@_historyTotal total)</span>
+                    <button class="btn btn-sm btn-secondary" disabled="@(_historyPage >= HistoryPages)" @onclick="() => ChangeHistoryPageAsync(1)">Next <span class="pag-arrow">→</span></button>
+                </div>
+            }
         </div>
     </div>
 }
@@ -692,7 +717,11 @@ else
             </div>
         </div>
         <div class="card-body">
-            @if (!_report.IsReady)
+            @if (!_report.IsReady && _report.Status == FirmwareRolloutStatus.Aborted)
+            {
+                <p class="firmware-rollout-note">This rollout was stopped before it finished, so it has no report.</p>
+            }
+            else if (!_report.IsReady)
             {
                 <p class="firmware-rollout-note">This rollout is still soaking - the report compares resource use well after each device settled, so it is worth the wait.</p>
             }
@@ -931,6 +960,29 @@ else
     private bool _driftNetworkApp;
     private bool _driftOs;
     private List<RolloutPlanSummaryView> _history = [];
+    private int _historyPage = 1;
+    private int _historyTotal;
+    private const int HistoryPageSize = 20;
+    private int HistoryPages => Math.Max(1, (_historyTotal + HistoryPageSize - 1) / HistoryPageSize);
+
+    /// <summary>Loads the current history page; a page past the end (rows aged out) falls back to the last.</summary>
+    private async Task LoadHistoryAsync()
+    {
+        var page = await RolloutService.GetPlanHistoryPageAsync(_historyPage, HistoryPageSize);
+        _historyTotal = page.Total;
+        if (page.Rows.Count == 0 && _historyPage > HistoryPages)
+        {
+            _historyPage = HistoryPages;
+            page = await RolloutService.GetPlanHistoryPageAsync(_historyPage, HistoryPageSize);
+        }
+        _history = page.Rows;
+    }
+
+    private async Task ChangeHistoryPageAsync(int delta)
+    {
+        _historyPage = Math.Clamp(_historyPage + delta, 1, HistoryPages);
+        await LoadHistoryAsync();
+    }
     private RolloutReportView? _report;
     private RolloutReport? _reportTyped;
 
@@ -973,6 +1025,46 @@ else
         _connection.OnConnectionChanged += OnConnectionChanged;
         await ReloadAsync();
         _loading = false;
+        await OpenAlignAsync();
+    }
+
+    /// <summary>A rollout whose report to open on arrival (<c>?report=planId</c>), from the Dashboard Sites panel.</summary>
+    [SupplyParameterFromQuery(Name = "report")] public int? ReportPlanId { get; set; }
+
+    private bool _reportLinkOpened;
+
+    /// <summary>Device to align, from Change Control's Replace Device or Restore (<c>?align=mac&amp;build=version</c>).</summary>
+    [SupplyParameterFromQuery(Name = "align")] public string? AlignMac { get; set; }
+
+    /// <summary>The build the aligned device should run.</summary>
+    [SupplyParameterFromQuery(Name = "build")] public string? AlignBuild { get; set; }
+
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+    [Inject] private IAuthorizationService Authz { get; set; } = default!;
+
+    private bool _knownOpen;
+    private string? _knownNote;
+
+    /// <summary>Opens Deploy Known Firmware on the device and build a Change Control link named.</summary>
+    private async Task OpenAlignAsync()
+    {
+        if (string.IsNullOrEmpty(AlignMac) || AuthState == null) return;
+        var user = (await AuthState).User;
+        if (!(await Authz.AuthorizeAsync(user, SiteContext.Slug, Policies.SiteAdmin)).Succeeded) return;
+
+        _knownOpen = true;
+        await LoadKnownFirmwareAsync();
+        var rows = (_known ?? []).Where(o => string.Equals(o.Device.Mac, AlignMac, StringComparison.OrdinalIgnoreCase)).ToList();
+        if (rows.Count == 0)
+        {
+            _knownNote = "No known builds for that device yet. Add its build by URL, or check the device is adopted on this site.";
+            return;
+        }
+        _knownDevice = rows[0].Device.Mac;
+        var match = rows.FirstOrDefault(o => AlignBuild != null
+            && !FirmwareVersionFormat.IsNewer(o.Build.Version, AlignBuild) && !FirmwareVersionFormat.IsNewer(AlignBuild, o.Build.Version));
+        if (match != null) _knownBuild = match.Build.Key;
+        else _knownNote = $"Build {AlignBuild} is not known yet. Add it by URL, or pick the closest build below.";
     }
 
     private async void OnConnectionChanged()
@@ -1013,7 +1105,7 @@ else
             AdoptStandingAutopilotConfig();
             LoadWorkingSets();
             _active = await RolloutService.GetActivePlanAsync();
-            _history = await RolloutService.GetPlanHistoryAsync();
+            await LoadHistoryAsync();
             _autopilotHold = _active == null && _settings?.Mode == FirmwareRolloutMode.Autopilot
                 ? await RolloutService.GetAutopilotHoldReasonAsync()
                 : null;
@@ -1147,7 +1239,7 @@ else
             SeedStartFromProposal();
             _wizardOpen = true;
             _step = 3;
-            _history = await RolloutService.GetPlanHistoryAsync();
+            await LoadHistoryAsync();
         }
         catch (Exception ex)
         {
@@ -1282,9 +1374,13 @@ else
     /// </summary>
     private RenderFragment KnownFirmwareSection => @<SiteAdminOnly>
         <div class="card-body firmware-rollout-add-url firmware-rollout-known">
-            <details class="setup-guide firmware-rollout-guide" data-tour="firmware-known" @ontoggle="LoadKnownFirmwareAsync">
+            <details class="setup-guide firmware-rollout-guide" data-tour="firmware-known" open="@_knownOpen" @ontoggle="LoadKnownFirmwareAsync">
                 <summary>Deploy Known Firmware</summary>
                 <div class="setup-guide-content">
+                    @if (_knownNote != null)
+                    {
+                        <div class="alert alert-info">@_knownNote</div>
+                    }
                     @if (_knownLoading)
                     {
                         <div class="loading-container"><span class="spinner spinner-sm"></span> <span>Reading known builds...</span></div>
@@ -1442,7 +1538,8 @@ else
     private void ResetKnownFirmware()
     {
         _known = null;
-        _knownDevice = _knownModel = _knownBuild = null;
+        _knownDevice = _knownModel = _knownBuild = _knownNote = null;
+        _knownOpen = false;
     }
 
     private string? _addUrl;
@@ -1684,7 +1781,7 @@ else
     /// <summary>Where the hour starts when a day is first picked: the small hours, like the defaults.</summary>
     private const int DefaultPreferredHour = 2;
 
-    private static string HourLabel(int hour) => new DateTime(2000, 1, 1, hour, 0, 0).ToString("h tt");
+    private string HourLabel(int hour) => new DateTime(2000, 1, 1, hour, 0, 0).ToString(DisplayTime.Format.Hour, DisplayFormat.Culture);
 
     /// <summary>
     /// Whether the site keeps different hours from this server, so a site-local hour needs saying.
@@ -2131,13 +2228,13 @@ else
 
     /// <summary>
     /// The site's own reading of an instant, for the two places the decision is site-local: picking
-    /// the start and watching a schedule. Times are shown in the server's zone everywhere, because
+    /// the start and watching a schedule. Times are shown in the viewer's zone everywhere, because
     /// an operator reads any timestamp in their own clock whether it is labelled or not, and one
     /// clock is the only way rollouts across sites can be compared. Empty when the site keeps the
-    /// same hours, which is every single-site install.
+    /// same hours as the viewer.
     /// </summary>
     private string SiteAside(DateTime utc) => RolloutScopeCopy.SiteAside(
-        _active?.Plan.TimeZoneId ?? _preview?.Plan.TimeZoneId ?? _preview?.ProposedWindow?.TimeZoneId, utc);
+        _active?.Plan.TimeZoneId ?? _preview?.Plan.TimeZoneId ?? _preview?.ProposedWindow?.TimeZoneId, utc, DisplayTime.Zone, DisplayTime.Format);
 
     // ---- Active plan controls ----
 
@@ -2146,7 +2243,7 @@ else
     private int PreviewTotalScope => _preview == null ? 0 : RolloutScopeCopy.TotalScope(_preview.Plan);
     private int PreviewTotalWaves => _preview == null ? 0 : RolloutScopeCopy.TotalWaves(_preview.Plan);
 
-    private string ActiveTitle => _active?.Status switch
+    private string ActiveTitle => Starting ? "Rollout Starting" : _active?.Status switch
     {
         FirmwareRolloutStatus.Scheduled or FirmwareRolloutStatus.Announced => "Scheduled Rollout",
         FirmwareRolloutStatus.Paused => "Rollout Paused",
@@ -2183,17 +2280,17 @@ else
     /// <summary>The picked start, in this server's clock like every time shown on the page.</summary>
     private DateTime _setTimeLocal;
 
-    private string MinSetTime => DateTime.Now.ToString("yyyy-MM-ddTHH:mm");
+    private string MinSetTime => DisplayTime.Now.ToString("yyyy-MM-ddTHH:mm");
 
-    private bool SetTimeValid => _setTimeLocal > DateTime.Now;
+    private bool SetTimeValid => _setTimeLocal > DisplayTime.Now;
 
-    private DateTime PickedSetTimeUtc => DateTime.SpecifyKind(_setTimeLocal, DateTimeKind.Local).ToUniversalTime();
+    private DateTime PickedSetTimeUtc => DisplayTime.ToUtc(_setTimeLocal);
 
     private void ToggleSetTime()
     {
         _showSetTime = !_showSetTime;
         if (_showSetTime && _active?.ScheduledStartAt is { } at)
-            _setTimeLocal = DateTime.SpecifyKind(at, DateTimeKind.Utc).ToLocalTime();
+            _setTimeLocal = DateTime.SpecifyKind(at, DateTimeKind.Utc).ToLocalTime(DisplayTime);
     }
 
     private Task ApplySetTimeAsync()
@@ -2226,7 +2323,15 @@ else
     private async Task DeployNowAsync()
     {
         _confirmDeployNow = false;
-        await ControlAsync(RolloutService.DeployNowAsync);
+        _deployingNow = true;
+        try
+        {
+            await ControlAsync(RolloutService.DeployNowAsync);
+        }
+        finally
+        {
+            _deployingNow = false;
+        }
     }
 
     /// <summary>Ends the soak now; a refusal (a rollback still running) is shown, not just logged.</summary>
@@ -2318,14 +2423,37 @@ else
     }
 
     /// <summary>The map only has something to draw once steps are moving.</summary>
-    private bool ActivePlanHasMap => _active != null && _active.Status
-        is FirmwareRolloutStatus.Running or FirmwareRolloutStatus.Paused or FirmwareRolloutStatus.SoakWait;
+    private bool ActivePlanHasMap => Starting || (_active != null && _active.Status
+        is FirmwareRolloutStatus.Running or FirmwareRolloutStatus.Paused or FirmwareRolloutStatus.SoakWait);
+
+    /// <summary>
+    /// A waiting plan whose start is under way: the backup, the catalog refresh, and the console's
+    /// own update all run before the status turns Running.
+    /// </summary>
+    private bool Starting => _active != null
+        && IsStarting(_active.Status, _deployingNow, _active.Plan.StartingAt, DateTime.UtcNow);
+
+    // A start the process died inside leaves the mark set; past this the plan reads as waiting again.
+    internal static readonly TimeSpan StartingShownFor = TimeSpan.FromMinutes(15);
+
+    internal static bool IsStarting(FirmwareRolloutStatus status, bool deployingNow, DateTime? startingAt, DateTime utcNow) =>
+        status is FirmwareRolloutStatus.Scheduled or FirmwareRolloutStatus.Announced
+        && (deployingNow || startingAt is { } at && utcNow - at < StartingShownFor);
+
+    private bool _deployingNow;
 
     // ---- Visualization interop ----
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        var wantsViz = (_wizardOpen && _step == 3 && _preview != null) || ActivePlanHasMap;
+        // Once the page has loaded and rendered, so the report card exists to scroll to.
+        if (!_reportLinkOpened && !_loading && ReportPlanId is { } reportPlanId)
+        {
+            _reportLinkOpened = true;
+            await OpenReportAsync(reportPlanId);
+        }
+
+        var wantsViz =(_wizardOpen && _step == 3 && _preview != null) || ActivePlanHasMap;
         if (!wantsViz)
         {
             if (_vizMounted) await DisposeVizAsync();
@@ -2352,7 +2480,7 @@ else
                 var excluded = _preview.Steps.Where(s => s.State == FirmwareRolloutStepState.SkippedExcluded).Select(s => s.Mac).ToList();
                 var startMs = new DateTimeOffset(DateTime.SpecifyKind(SelectedStartUtc, DateTimeKind.Utc))
                     .ToUnixTimeMilliseconds();
-                await _viz.InvokeVoidAsync("setPlan", _preview.Plan, excluded, startMs, TimeZoneInfo.Local.Id);
+                await _viz.InvokeVoidAsync("setPlan", _preview.Plan, excluded, startMs, DisplayTime.ZoneId);
                 _vizMode = "planned";
             }
             else if (_active != null && _vizMode != "live")
@@ -2405,10 +2533,18 @@ else
                     // The wizard can be open over a scheduled plan it will replace; it owns the map.
                     if (_wizardOpen) return;
                     var wasActive = _active != null;
+                    var before = (_active?.Id, _active?.Status);
                     _active = await RolloutService.GetActivePlanAsync();
+                    // A report left open from another plan reads as this rollout's once it moves on.
+                    if (_report != null && before != (_active?.Id, _active?.Status)
+                        && _report.PlanId != before.Id && _report.PlanId != _active?.Id)
+                    {
+                        _report = null;
+                        _reportTyped = null;
+                    }
                     if (_active == null && wasActive)
                     {
-                        _history = await RolloutService.GetPlanHistoryAsync();
+                        await LoadHistoryAsync();
                         // The autopilot landing view renders the preview, and nothing else
                         // rebuilds it once the plan goes terminal - without this the page
                         // sits on its loading state.
@@ -2421,7 +2557,7 @@ else
                         if (_active != null && _vizMounted)
                             await PushLiveStateAsync();
                         if (++_pollTicks % 6 == 0)
-                            _history = await RolloutService.GetPlanHistoryAsync();
+                            await LoadHistoryAsync();
                     }
                     StateHasChanged();
                 });
@@ -2434,8 +2570,8 @@ else
 
     private string VersionedJs(string path) => FileVersionProvider.AddFileVersionToPath("", path);
 
-    private static string LocalTime(DateTime? utc) =>
-        utc is { } t ? DateTime.SpecifyKind(t, DateTimeKind.Utc).ToLocalTime().ToString("ddd MMM d, h:mm tt") : "-";
+    private string LocalTime(DateTime? utc) =>
+        utc is { } t ? DateTime.SpecifyKind(t, DateTimeKind.Utc).ToLocalTime(DisplayTime).ToString(DisplayTime.Format.WeekdayDayTime, DisplayFormat.Culture) : "-";
 
     private static string Duration(int seconds)
     {
@@ -2446,11 +2582,13 @@ else
     }
 
     // A skip settles as AbortedSku like a model abort, but nothing failed: it shows its own reason, neutral.
+    // So does an admin stop, including steps stored as AbortedSku before AbortedByAdmin existed.
     private static string ChipLabel(RolloutStepView step) =>
-        IsSkip(step) ? step.Error! : ChipLabel(step.State, step.FromVersion, step.ToVersion);
+        RolloutSkipReasons.IsAdminStop(step.State, step.Error) ? "Stopped"
+        : IsSkip(step) ? step.Error! : ChipLabel(step.State, step.FromVersion, step.ToVersion);
 
     private static string ChipClass(RolloutStepView step) =>
-        IsSkip(step) ? "chip-muted" : ChipClass(step.State);
+        RolloutSkipReasons.IsAdminStop(step.State, step.Error) || IsSkip(step) ? "chip-muted" : ChipClass(step.State);
 
     private static bool IsSkip(RolloutStepView step) =>
         step.State == FirmwareRolloutStepState.AbortedSku && RolloutSkipReasons.IsSkip(step.Error);
@@ -2473,6 +2611,7 @@ else
         FirmwareRolloutStepState.SkippedExcluded => "Excluded",
         FirmwareRolloutStepState.AbortedSku => "Skipped (model aborted)",
         FirmwareRolloutStepState.AbortedInFlight => "Aborted mid-upgrade",
+        FirmwareRolloutStepState.AbortedByAdmin => "Stopped",
         _ => state.ToString(),
     };
 
@@ -2530,6 +2669,7 @@ else
     {
         FirmwareRolloutStatus.Scheduled or FirmwareRolloutStatus.Announced => "Scheduled",
         FirmwareRolloutStatus.SoakWait => "Soaking",
+        FirmwareRolloutStatus.Aborted when row.StoppedByAdmin => "Stopped",
         FirmwareRolloutStatus.Aborted => "Aborted",
         FirmwareRolloutStatus.Failed => "Failed",
         FirmwareRolloutStatus.Reported when row.HasFailures && !row.HasSuccesses => "Failed",
@@ -2543,6 +2683,7 @@ else
         FirmwareRolloutStatus.Reported when row.HasFailures && !row.HasSuccesses => "chip-danger",
         FirmwareRolloutStatus.Reported when row.HasFailures => "chip-warning",
         FirmwareRolloutStatus.Reported => "chip-success",
+        FirmwareRolloutStatus.Aborted when row.StoppedByAdmin => "chip-muted",
         FirmwareRolloutStatus.Aborted or FirmwareRolloutStatus.Failed => "chip-danger",
         _ => "chip-muted",
     };

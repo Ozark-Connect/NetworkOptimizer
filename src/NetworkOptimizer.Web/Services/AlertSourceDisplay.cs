@@ -13,6 +13,7 @@ public static class AlertSourceDisplay
         "audit" => "Audit",
         "cable_modem" => "Cable Modem",
         "cellular" => "Cellular",
+        "change_control" => "Change Control",
         "console" => "UniFi Console",
         "device" => "Device",
         "rollout" => "Firmware Rollout",

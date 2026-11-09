@@ -81,7 +81,8 @@ public static class PathEpisodePresentation
         public IEnumerable<T> Unexplained<T>(IEnumerable<T> episodes, Func<T, int> id) => episodes.Where(e => !Explained.Contains(id(e)));
     }
 
-    /// <summary>Folds the episodes the report's Path shifts explain; <see cref="ShiftFold.None"/> without a report.</summary>
+    /// <summary>Folds the episodes the report's Path shifts explain, and step-only episodes into a shift built
+    /// from their own levels; <see cref="ShiftFold.None"/> without a report.</summary>
     public static ShiftFold FoldIntoShifts(IReadOnlyList<PathEpisodeView> episodes, IspHealthReport? report, IspHealthOptions options)
     {
         if (report == null || episodes.Count == 0) return ShiftFold.None;
@@ -95,6 +96,56 @@ public static class PathEpisodePresentation
         return new ShiftFold(traceByShift, matched.Keys.ToHashSet());
     }
 
+    /// <summary>
+    /// An episode's band on the ISP Health chart: a Path shift's when the fold explains it (a detected shift
+    /// or a step on its own), else congestion under its badge.
+    /// </summary>
+    /// <returns>The chart event type and its label.</returns>
+    /// <param name="acknowledged">The episode belongs to an acknowledged finding: its own band, hidden by default.</param>
+    public static (string Type, string Label) ChartBand(PathEpisodeView e, ShiftFold fold, bool acknowledged = false) =>
+        fold.Explained.Contains(e.Id) ? ("path-shift", "Path shift")
+            : acknowledged ? ("acknowledged", "Acknowledged")
+            : ("congestion", BadgeLabel(e));
+
+    /// <summary>
+    /// The episodes whose recurring finding is acknowledged and still acknowledgeable, so the events feed
+    /// and the chart file them under Acknowledged. A finding that starts costing points, or spreads to a
+    /// second network, loses its key and its episodes return to Congestion.
+    /// </summary>
+    /// <param name="unexplained">Episodes no Path shift explains.</param>
+    public static HashSet<int> AcknowledgedEpisodeIds(IReadOnlyList<PathEpisodeView> unexplained, IspHealthOptions options,
+        IReadOnlyDictionary<int, int>? pointsById, IReadOnlySet<string> acknowledged)
+    {
+        if (acknowledged.Count == 0) return new();
+        var keys = Findings(unexplained, options, TimeZoneInfo.Utc, DisplayFormat.Fallback, pointsById)
+            .Select(f => f.AckKey)
+            .Where(k => k != null && acknowledged.Contains(k))
+            .ToHashSet();
+        return unexplained.Where(e => AckKeyFor(e) is { } k && keys.Contains(k)).Select(e => e.Id).ToHashSet();
+    }
+
+    /// <summary>
+    /// One episode belongs to an acknowledged finding and still qualifies. For the banner, whose 24 hours
+    /// are too short to rebuild the recurrence the user acknowledged.
+    /// </summary>
+    /// <param name="acknowledgedTargets">From <see cref="AcknowledgedTargetSets"/>: a tracing episode has no reading to
+    /// key on yet, so one on exactly an acknowledged target set counts until its trace finishes and its full key decides.</param>
+    public static bool IsAcknowledgedEpisode(PathEpisodeView e, IReadOnlySet<string> acknowledged,
+        IReadOnlyDictionary<int, int>? pointsById, IReadOnlySet<string>? acknowledgedTargets = null) =>
+        e.Disposition != CongestionDisposition.Confirmed
+        && (pointsById?.GetValueOrDefault(e.Id) ?? 0) == 0
+        && OneNetwork(e.Degraded)
+        && (AckKeyFor(e) is { } key ? acknowledged.Contains(key)
+            : e.Tracing && acknowledgedTargets?.Contains(TargetSet(e)) == true);
+
+    /// <summary>
+    /// Every degraded target is in one destination network (by ASN; a target with none counts as its own).
+    /// Degradation across networks points at something they share, most likely the return path into your
+    /// ISP, so it is never acknowledgeable.
+    /// </summary>
+    internal static bool OneNetwork(IReadOnlyList<PathEpisodeTargetView> degraded) =>
+        degraded.Select(t => t.AsnNumber is > 0 ? $"as{t.AsnNumber}" : $"t:{t.TargetId}").Distinct().Count() <= 1;
+
     /// <summary>An episode's badge: tracing while rounds run, Ongoing while the problem outlasts them, then Congestion.</summary>
     public static string BadgeLabel(PathEpisodeView e) => e.Tracing ? "Tracing now" : e.Ongoing ? "Ongoing" : "Congestion";
 
@@ -104,8 +155,10 @@ public static class PathEpisodePresentation
     /// <see cref="IspHealthOptions.PathRepeatFindingDays"/> or more days, which is a pattern (a peak-hour
     /// return-path squeeze reads exactly like this).
     /// </summary>
+    /// <param name="zone">The reader's clock: day counts and times are on it.</param>
+    /// <param name="format">How the reader reads times.</param>
     public static IEnumerable<IspHealthIssue> Findings(IReadOnlyList<PathEpisodeView> episodes, IspHealthOptions options,
-        IReadOnlyDictionary<int, int>? pointsById = null)
+        TimeZoneInfo zone, DisplayFormat format, IReadOnlyDictionary<int, int>? pointsById = null)
     {
         var groups = episodes
             .Where(e => !e.Tracing && !string.IsNullOrEmpty(e.Label))
@@ -113,13 +166,14 @@ public static class PathEpisodePresentation
         foreach (var g in groups.OrderByDescending(g => g.Max(e => e.OpenedAt)))
         {
             var list = g.OrderBy(e => e.OpenedAt).ToList();
-            var days = list.Select(e => e.OpenedAt.ToLocalTime().Date).Distinct().Count();
+            var days = list.Select(e => TimeZoneCatalog.ToZone(e.OpenedAt, zone).Date).Distinct().Count();
             var latest = list[^1];
             var names = Names(latest.Degraded);
-            var cost = ScoreSentence(list.Sum(e => pointsById?.GetValueOrDefault(e.Id) ?? 0), list.Count > 1);
+            var points = list.Sum(e => pointsById?.GetValueOrDefault(e.Id) ?? 0);
+            var cost = ScoreSentence(points, list.Count > 1);
             var when = list.Count == 1
-                ? IspHealthPresentation.EventTimeLabel(latest.OpenedAt)
-                : $"{list.Count} times on {days} days, last {IspHealthPresentation.EventTimeLabel(latest.OpenedAt)}";
+                ? IspHealthPresentation.EventTimeLabel(latest.OpenedAt, zone, format)
+                : $"{list.Count} times on {days} days, last {IspHealthPresentation.EventTimeLabel(latest.OpenedAt, zone, format)}";
             if (g.Key.Disposition == CongestionDisposition.Confirmed)
             {
                 yield return new IspHealthIssue
@@ -143,10 +197,35 @@ public static class PathEpisodePresentation
                     Recommendation = "A traceroute cannot see the return path, so this cannot be pinned on a forward hop. A pattern that repeats at the same hours is worth raising with your ISP with these times.",
                     LinkUrl = "#isp-events",
                     LinkText = "See the traces",
-                    EpisodeId = latest.Id
+                    EpisodeId = latest.Id,
+                    // Only while it costs nothing and stays in one network: either change shows it again.
+                    AckKey = points == 0 && OneNetwork(latest.Degraded) ? RecurringAckKey(g.Key.Targets, g.Key.Label!) : null
                 };
             }
         }
+    }
+
+    /// <summary>
+    /// A recurring Unverifiable finding's acknowledgment key: its degraded targets and its reading,
+    /// hashed. Another target joining, or a different last clean router, is a different finding.
+    /// </summary>
+    /// <summary>The key of the recurring finding an episode would belong to, or null when it has no reading yet.</summary>
+    public static string? AckKeyFor(PathEpisodeView episode) =>
+        episode.Tracing || string.IsNullOrEmpty(episode.Label) ? null : RecurringAckKey(TargetSet(episode), episode.Label);
+
+    /// <summary>An episode's degraded targets, as the acknowledgment key reads them.</summary>
+    private static string TargetSet(PathEpisodeView episode) =>
+        string.Join("|", episode.Degraded.Select(t => t.TargetId).OrderBy(x => x));
+
+    /// <summary>The target sets of acknowledged findings, from the episodes whose key the user acknowledged.</summary>
+    public static HashSet<string> AcknowledgedTargetSets(IEnumerable<PathEpisodeView> episodes, IReadOnlySet<string> acknowledged) =>
+        acknowledged.Count == 0 ? []
+            : episodes.Where(e => AckKeyFor(e) is { } k && acknowledged.Contains(k)).Select(TargetSet).ToHashSet(StringComparer.Ordinal);
+
+    internal static string RecurringAckKey(string targets, string label)
+    {
+        var hash = System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes($"{targets}\n{label}"));
+        return "path-recurring:" + Convert.ToHexString(hash, 0, 12).ToLowerInvariant();
     }
 
     /// <summary>How long after an episode closes its banner stays up.</summary>
@@ -158,7 +237,10 @@ public static class PathEpisodePresentation
     /// </summary>
     /// <param name="episodes">Episodes overlapping the last <see cref="BannerHold"/>, any order.</param>
     /// <param name="options">For the round count when the episode is not running here.</param>
-    public static PathEpisodeBanner? Banner(IReadOnlyList<PathEpisodeView> episodes, DateTime nowUtc, IspHealthOptions? options = null)
+    /// <param name="zone">The reader's clock, for a finished episode's times.</param>
+    /// <param name="format">How the reader reads times.</param>
+    public static PathEpisodeBanner? Banner(IReadOnlyList<PathEpisodeView> episodes, DateTime nowUtc, TimeZoneInfo zone,
+        DisplayFormat format, IspHealthOptions? options = null)
     {
         var shown = episodes
             .Where(e => e.ClosedAt == null || nowUtc - e.ClosedAt.Value <= BannerHold)
@@ -187,7 +269,7 @@ public static class PathEpisodePresentation
         }
 
         var confirmed = e.Disposition == CongestionDisposition.Confirmed;
-        var text = $"{names}, {Span(e.OpenedAt, e.ClosedAt!.Value)}.{(label == null ? "" : $" {label}")}";
+        var text = $"{names}, {Span(e.OpenedAt, e.ClosedAt!.Value, zone, format)}.{(label == null ? "" : $" {label}")}";
         return new PathEpisodeBanner(e.Id, "done", confirmed ? "alert-warning" : "alert-info",
             confirmed ? "Path degradation localized" : "Path trace finished", text, shown.Count - 1);
     }
@@ -320,10 +402,10 @@ public static class PathEpisodePresentation
         : loss.Higher is double h ? $"{loss.Shown:0.#}% ({loss.HigherSource} {h:0.#}%)" : $"{loss.Shown:0.#}%";
 
     /// <summary>"Today, 14:38 to 14:54", or both ends in full when they fall on different days.</summary>
-    private static string Span(DateTime fromUtc, DateTime toUtc) =>
-        fromUtc.ToLocalTime().Date == toUtc.ToLocalTime().Date
-            ? $"{IspHealthPresentation.EventTimeLabel(fromUtc)} to {toUtc.ToLocalTime():HH:mm}"
-            : $"{IspHealthPresentation.EventTimeLabel(fromUtc)} to {IspHealthPresentation.EventTimeLabel(toUtc)}";
+    private static string Span(DateTime fromUtc, DateTime toUtc, TimeZoneInfo zone, DisplayFormat format) =>
+        TimeZoneCatalog.ToZone(fromUtc, zone).Date == TimeZoneCatalog.ToZone(toUtc, zone).Date
+            ? $"{IspHealthPresentation.EventTimeLabel(fromUtc, zone, format)} to {TimeZoneCatalog.ToZone(toUtc, zone).ToString(format.Time, DisplayFormat.Culture)}"
+            : $"{IspHealthPresentation.EventTimeLabel(fromUtc, zone, format)} to {IspHealthPresentation.EventTimeLabel(toUtc, zone, format)}";
 
     /// <summary>"AWS us-east-1, AWS us-east-2 and Speedtest ORD".</summary>
     internal static string Names(IReadOnlyList<PathEpisodeTargetView> targets) => targets.Count switch

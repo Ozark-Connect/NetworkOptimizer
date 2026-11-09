@@ -3101,4 +3101,18 @@ public class FirewallRuleParserTests
     }
 
     #endregion
+
+    [Theory]
+    [InlineData(@"""schedule"": { ""mode"": ""ALWAYS"" },", "ALWAYS", true)]
+    [InlineData(@"""schedule"": { ""mode"": ""CUSTOM"" },", "CUSTOM", false)]
+    [InlineData("", null, true)]
+    public void ParseFirewallPolicy_ReadsTheScheduleMode(string schedule, string? mode, bool always)
+    {
+        var json = JsonDocument.Parse("{ \"_id\": \"p1\", \"action\": \"ALLOW\", " + schedule + " \"enabled\": true }").RootElement;
+
+        var rule = _parser.ParseFirewallPolicy(json)!;
+
+        rule.ScheduleMode.Should().Be(mode);
+        rule.IsAlwaysOn.Should().Be(always);
+    }
 }

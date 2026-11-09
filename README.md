@@ -122,6 +122,7 @@ Track signal quality on your cable modem, fiber ONT, and cellular modems over ti
 - **Realtek-based GPON sticks** (RTL960x) - ODI DFP-34X-2C2, ODI DFP-34X-2IY3, V-SOL V2801F, T&W TWCGPON657, Luleey LL-XS2510
 - **Zyxel GPON stick** - PMG3000-D20B (MaxLinear / T&W based)
 - **8311 community firmware XGS-PON sticks** - WAS-110 (MaxLinear PRX126), X-ONU-SFPP, WT-ONU-STICK, and other sticks running 8311
+- **Peter-Pon firmware GPON sticks** - FS.com GPON-SFP-ONT-MAC-I, Huawei MA5671A, and other Lantiq PEB98035 sticks
 
 SFP-based ONT monitoring (modules plugged into your gateway that expose DDM optical data) is part of the Network Monitoring feature below and also has a custom ONT stats augmentation API you can code to.
 
@@ -174,7 +175,7 @@ These are the highlights. For the complete list, organized the way the app is na
 
 ### Wi-Fi Optimizer & Signal Map
 
-Site health scoring, RF environment analysis, client stats, roaming tracking, band steering, and airtime fairness across twelve analysis tabs. Most channel pickers count nearby networks. Channel Recommendation models your RF physically: propagation from your floor plan, walls, and antenna patterns, each AP's real transmit power, and contention judged at the CCA threshold where radios actually defer. Add measured airtime, noise floor, triangulated neighbors, and months of how your own channels performed, and it solves for the least-interference plan across the whole site. Every move must clear its own improvement bar and never lands on a channel that measures worse, and mesh, DFS, and pins are respected. Apply Recommended Channels writes the plan to UniFi Network in waves, so a client always has a neighbor to roam to.
+Wi-Fi health scoring, RF environment analysis, client stats, roaming tracking, band steering, and airtime fairness across twelve analysis tabs. Most channel pickers count nearby networks. Channel Recommendation models your RF physically: propagation from your floor plan, walls, and antenna patterns, each AP's real transmit power, and contention judged at the CCA threshold where radios actually defer. Add measured airtime, noise floor, triangulated neighbors, and months of how your own channels performed, and it solves for the least-interference plan across the whole site. Every move must clear its own improvement bar and never lands on a channel that measures worse, and mesh, DFS, and pins are respected. Apply Recommended Channels writes the plan to UniFi Network in waves, so a client always has a neighbor to roam to.
 
 On the client side, you get a sortable, searchable table view with online/offline filtering, per-client signal and roaming history, and band-segmented Wi-Fi generation breakdowns showing exactly where your airtime is going. Environmental correlation heatmaps surface interference patterns by time of day and day of week, and every recommendation includes the specific UniFi Network UI navigation path to apply the change.
 

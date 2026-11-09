@@ -22,19 +22,20 @@ public sealed class GatewayBlocklistEnforcer
     /// <summary>The agent takes the public lists in their own set, with exceptions to them.</summary>
     public const string ExceptionsCapability = "gateway-blocklist-exceptions";
 
-    private const string Chain = "NETOPT_BLOCK";
-    private const string BlockV4 = "netopt_block_v4";
-    private const string BlockV6 = "netopt_block_v6";
-    private const string FeedV4 = "netopt_feed_v4";
-    private const string FeedV6 = "netopt_feed_v6";
-    private const string GuardV4 = "netopt_guard_v4";
-    private const string GuardV6 = "netopt_guard_v6";
-    private const string OutV4 = "netopt_out_v4";
-    private const string OutV6 = "netopt_out_v6";
+    // Shared with the server, which checks the gateway against them in the Security Audit.
+    private const string Chain = GatewayBlocklistRules.ChainName;
+    private const string BlockV4 = GatewayBlocklistRules.BlockV4;
+    private const string BlockV6 = GatewayBlocklistRules.BlockV6;
+    private const string FeedV4 = GatewayBlocklistRules.FeedV4;
+    private const string FeedV6 = GatewayBlocklistRules.FeedV6;
+    private const string GuardV4 = GatewayBlocklistRules.GuardV4;
+    private const string GuardV6 = GatewayBlocklistRules.GuardV6;
+    private const string OutV4 = GatewayBlocklistRules.OutV4;
+    private const string OutV6 = GatewayBlocklistRules.OutV6;
     private const int MaxElements = 262144;
     /// <summary>Kernel log prefix of an outbound drop, read back by <see cref="GatewayBlocklistHitReporter"/>.</summary>
-    public const string OutLogPrefix = "NETOPT_OUT:";
-    private const int OutLogPerMinute = 30;
+    public const string OutLogPrefix = GatewayBlocklistRules.OutLogPrefix;
+    private const int OutLogPerMinute = GatewayBlocklistRules.OutLogPerMinute;
     // ipset's largest timeout; anything longer is clamped to it.
     private const int MaxTtlSeconds = 2147483;
     private static readonly TimeSpan HookCheckEvery = TimeSpan.FromSeconds(10);
@@ -212,7 +213,8 @@ public sealed class GatewayBlocklistEnforcer
         var names = Run("ipset", ["list", "-n"], null).Stdout.Split('\n', StringSplitOptions.TrimEntries);
         if (!names.Contains(BlockV4) || !names.Contains(BlockV6)
             || (applied.FeedsSplit && (!names.Contains(FeedV4) || !names.Contains(FeedV6)))
-            || Run("iptables", ["-S", Chain], null).Exit != 0 || Run("ip6tables", ["-S", Chain], null).Exit != 0)
+            || Run("iptables", ["-w", LockWaitSeconds, "-S", Chain], null).Exit != 0
+            || Run("ip6tables", ["-w", LockWaitSeconds, "-S", Chain], null).Exit != 0)
         {
             Console.WriteLine("Gateway blocklist: sets or chain missing, re-applying");
             _applied = null;
@@ -315,24 +317,27 @@ public sealed class GatewayBlocklistEnforcer
         IReadOnlyList<GatewayBlockException>? exceptions, bool v6)
     {
         var wanted = GatewayBlocklistRules.Chain(Chain, guardSet, blockSet, outSet, OutLogPrefix, OutLogPerMinute, feedSet, exceptions, v6);
-        var current = Run(tool, ["-S", Chain], null);
+        var current = Run(tool, ["-w", LockWaitSeconds, "-S", Chain], null);
         if (current.Exit == 0)
         {
             // iptables may quote the log prefix when it prints the rule.
             var rules = current.Stdout.Split('\n', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
                 .Where(l => l.StartsWith("-A ", StringComparison.Ordinal)).Select(l => l.Replace("\"", "")).ToList();
             if (rules.SequenceEqual(wanted)) return;
-            Check(Run(tool, ["-F", Chain], null), $"{tool} -F {Chain}");
+            Check(Run(tool, ["-w", LockWaitSeconds, "-F", Chain], null), $"{tool} -F {Chain}");
         }
         else
         {
-            Check(Run(tool, ["-N", Chain], null), $"{tool} -N {Chain}");
+            Check(Run(tool, ["-w", LockWaitSeconds, "-N", Chain], null), $"{tool} -N {Chain}");
         }
         foreach (var rule in wanted)
-            Check(Run(tool, rule.Split(' '), null), $"{tool} {rule}");
+            Check(Run(tool, ["-w", LockWaitSeconds, .. rule.Split(' ')], null), $"{tool} {rule}");
     }
 
-    // Jumps at the top of FORWARD and INPUT for both families. True when all four are in place.
+    // Exactly one jump at the top of FORWARD and INPUT for both families. True when all four are in place.
+    // Counted from a listing taken under the xtables lock (-w), so a read that fails or times out on the lock
+    // inserts nothing: an unreadable chain must never read as a missing jump. Every insert, extra removed,
+    // and failed read is logged, so a duplicate that comes back shows whether this agent added it.
     private static bool EnsureHooks(out int inserted)
     {
         inserted = 0;
@@ -341,15 +346,40 @@ public sealed class GatewayBlocklistEnforcer
         {
             foreach (var builtin in new[] { "FORWARD", "INPUT" })
             {
-                if (Run(tool, ["-C", builtin, "-j", Chain], null).Exit == 0) continue;
-                if (Run(tool, ["-I", builtin, "1", "-j", Chain], null).Exit == 0)
-                    inserted++;
-                else
+                var listing = Run(tool, ["-w", LockWaitSeconds, "-S", builtin], null);
+                if (listing.Exit != 0)
+                {
+                    Console.Error.WriteLine($"Gateway blocklist: could not read {tool} {builtin} (exit {listing.Exit}): {listing.Stderr.Trim()}");
                     all = false;
+                    continue;
+                }
+                var jumps = GatewayBlocklistRules.CountJumps(listing.Stdout, builtin, Chain);
+                if (jumps == 0)
+                {
+                    var insert = Run(tool, ["-w", LockWaitSeconds, "-I", builtin, "1", "-j", Chain], null);
+                    if (insert.Exit == 0)
+                    {
+                        inserted++;
+                        Console.WriteLine($"Gateway blocklist: inserted the {tool} {builtin} jump to {Chain}");
+                    }
+                    else
+                    {
+                        Console.Error.WriteLine($"Gateway blocklist: could not insert the {tool} {builtin} jump (exit {insert.Exit}): {insert.Stderr.Trim()}");
+                        all = false;
+                    }
+                }
+                if (jumps > 1)
+                {
+                    for (var extra = jumps; extra > 1; extra--)
+                        Run(tool, ["-w", LockWaitSeconds, "-D", builtin, "-j", Chain], null);
+                    Console.WriteLine($"Gateway blocklist: removed {jumps - 1} extra {tool} {builtin} jump(s) to {Chain}");
+                }
             }
         }
         return all;
     }
+
+    private const string LockWaitSeconds = "5";
 
     private static readonly string TeardownScript =
         GatewayBlocklistRules.Teardown(Chain, [BlockV4, BlockV6, GuardV4, GuardV6, OutV4, OutV6, FeedV4, FeedV6]);

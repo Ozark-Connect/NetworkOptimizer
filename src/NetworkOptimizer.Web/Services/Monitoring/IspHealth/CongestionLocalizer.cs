@@ -174,10 +174,10 @@ public static class CongestionLocalizer
             var rises = relElevated.Select(RttRise).Where(r => r > 0).OrderBy(r => r).ToList();
             var floorRise = SeriesStats.Median(rises) ?? 0;
 
-            // A CLEAN control rose no more than the shared floor in RTT. Using RTT (not the
-            // jitter-inclusive IsElevated) is the point: under load the jitter floor lifts every
-            // path, so IsElevated would erase every clean control.
-            bool IsClean(AsnSeries s) => RttRise(s) <= floorRise * options.CongestionCleanControlFloorFactor;
+            // A CLEAN control did not rise in RTT at all. A path that picked up the load floor rose
+            // with everything else, so it cannot prove a hop's own capacity. RTT, not the
+            // jitter-inclusive IsElevated: under load the jitter floor lifts every path.
+            bool IsClean(AsnSeries s) => !(localBase.ContainsKey(s) && Rose(s, riseWindow.Start, riseWindow.End));
             var cleanControlExists = anchoredWithData.Any(IsClean);
 
             // SHARED-INCIDENT COLLAPSE (narrow exception; the per-hop separation below is the default
@@ -193,6 +193,42 @@ public static class CongestionLocalizer
                 Emit(BuildSharedIncident(relElevated, eventsBySeries, anchoredWithData, window,
                     riseWindow, topology, options, loadCoincident, IsElevated));
                 continue;
+            }
+
+            // LOADED LATENCY WITH OUTLIERS. Line-wide under load, but a few paths rose well above the
+            // shared floor. When the access egress itself sat at the floor, the floor is your access
+            // link, so it collapses as above. Only the outliers localize, and each is judged against
+            // other outliers: under load every hop is "elevated", so the plain walk would end every
+            // path at the access egress and blame it. A destination outlier is a witness only.
+            if (lineWideUnderLoad && loadCoincident && !uniform)
+            {
+                var outlierLimit = floorRise * options.CongestionLoadedUniformityFactor;
+                var outliers = relElevated.Where(s => RttRise(s) > outlierLimit).ToHashSet();
+                var floorPaths = relElevated.Where(s => !outliers.Contains(s)).ToList();
+                bool IsEgress(AsnSeries s) => s.HopIps.Any(topology.AccessEgressHopIps.Contains);
+                if (floorPaths.Any(IsEgress) && !outliers.Any(IsEgress))
+                {
+                    Emit(BuildSharedIncident(floorPaths, eventsBySeries, anchoredWithData, window,
+                        riseWindow, topology, options, loadCoincident, IsElevated));
+
+                    var outlierIps = new HashSet<string>(outliers.SelectMany(s => s.HopIps), StringComparer.OrdinalIgnoreCase);
+                    bool IsOutlier(AsnSeries s, DateTime _, DateTime __) => outliers.Contains(s);
+                    var byOutlierBottleneck = new Dictionary<string, List<AsnSeries>>(StringComparer.OrdinalIgnoreCase);
+                    foreach (var s in elevatedSeries.Where(outliers.Contains))
+                    {
+                        if (Bottleneck(s, outlierIps, topology.HopNumberByIp) is not { } bn) continue;
+                        if (!byOutlierBottleneck.TryGetValue(bn, out var list)) byOutlierBottleneck[bn] = list = new List<AsnSeries>();
+                        list.Add(s);
+                    }
+                    foreach (var (bnIp, members) in byOutlierBottleneck)
+                    {
+                        var outlierEvt = BuildLocalized(bnIp, members, allSeries, eventsBySeries, window,
+                            topology, options, loadCoincident, cleanControlExists, lineWideUnderLoad, uniform, IsOutlier, IsClean);
+                        outlierEvt.AboveLoadFloor = true;
+                        Emit(outlierEvt);
+                    }
+                    continue;
+                }
             }
 
             foreach (var (bnIp, members) in byBottleneck)
@@ -297,8 +333,8 @@ public static class CongestionLocalizer
             .FirstOrDefault();
 
         var reason = loadCoincident
-            ? $"{elevated.Count} monitored paths rose together under heavy WAN load, so the limit was your access link (bufferbloat or a congested shared-access network), not one hop."
-            : $"{elevated.Count} monitored paths across independent networks rose together with no heavy local load - a shared upstream bottleneck lifting the whole path, not one hop.";
+            ? $"{TimeFormatHelper.Pluralize(elevated.Count, "monitored path")} rose together under heavy WAN load, so the limit was your access link (bufferbloat or a congested shared-access network), not one hop."
+            : $"{TimeFormatHelper.Pluralize(elevated.Count, "monitored path")} across independent networks rose together with no heavy local load - a shared upstream bottleneck lifting the whole path, not one hop.";
         if (worst != null && worst != owner && worst.AsnName is { Length: > 0 } worstName)
             reason += $" Worst at {worstName}.";
 
@@ -392,9 +428,8 @@ public static class CongestionLocalizer
         // access-layer bufferbloat (which would lift every path that shares your access link).
         // Require samples IN the window: a series with no data then (a newer target added after a
         // past event, or a monitoring gap) is unknown, not clean, and must not pad this evidence.
-        // Clean = rose no more than the shared load floor in RTT (isClean), NOT merely "not elevated":
-        // under load the jitter floor lifts every path, so a jitter-inclusive test would count zero
-        // clean controls and wrongly drop the "this hop's own capacity, not your access egress" finding.
+        // Clean = did not rise in RTT (isClean), NOT merely "not elevated": under load the jitter
+        // floor lifts every path, so a jitter-inclusive test would count zero clean controls.
         var cleanParallelPaths = allSeries.Count(s => HasTrace(s, topology)
             && HasDataInWindow(s, window.Start, window.End)
             && !s.HopIps.Contains(bottleneckIp, StringComparer.OrdinalIgnoreCase)
@@ -421,7 +456,7 @@ public static class CongestionLocalizer
             reason = "Elevation propagates to monitored hops downstream of this bottleneck.";
             if (loadCoincident)
                 reason += cleanParallelPaths > 0
-                    ? $" It coincided with heavy WAN load, but {cleanParallelPaths} other monitored paths stayed clean under the same load, so it was this hop's own capacity, not your access egress."
+                    ? $" It coincided with heavy WAN load, but {TimeFormatHelper.Pluralize(cleanParallelPaths, "other monitored path")} stayed clean under the same load, so it was this hop's own capacity, not your access egress."
                     : " It coincided with heavy WAN load (load-induced), but localizes to a specific hop rather than your access egress.";
         }
         else if (hasDescendant)

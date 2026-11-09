@@ -5,11 +5,23 @@ namespace NetworkOptimizer.Web.Services;
 /// </summary>
 public static class TimeFormatHelper
 {
+    /// <summary>A UTC time on <paramref name="zone"/>'s clock, whatever its Kind says.</summary>
+    public static DateTime ToLocal(DateTime utc, TimeZoneInfo zone) =>
+        TimeZoneInfo.ConvertTimeFromUtc(DateTime.SpecifyKind(utc, DateTimeKind.Utc), zone);
+
+    /// <summary>A day and time ("Oct 20, 16:42") on <paramref name="zone"/>'s clock, in <paramref name="format"/>.</summary>
+    public static string FormatLocalDateTime(DateTime utc, TimeZoneInfo zone, DisplayFormat format) =>
+        ToLocal(utc, zone).ToString(format.DayTime, DisplayFormat.Culture);
+
+    /// <summary>A day ("Oct 20") on <paramref name="zone"/>'s clock, in <paramref name="format"/>.</summary>
+    public static string FormatLocalDate(DateTime utc, TimeZoneInfo zone, DisplayFormat format) =>
+        ToLocal(utc, zone).ToString(format.Day, DisplayFormat.Culture);
+
     /// <summary>
     /// Append the unit to a count, pluralized (e.g., "1 day", "2 days").
     /// </summary>
     public static string Pluralize(int value, string unit) =>
-        $"{value} {unit}{(value == 1 ? "" : "s")}";
+        NetworkOptimizer.Core.Helpers.StringUtilities.Pluralize(value, unit);
 
     /// <summary>
     /// Format a duration in long form with the two largest meaningful units
@@ -30,6 +42,21 @@ public static class TimeFormatHelper
     }
 
     /// <summary>
+    /// Format a duration exactly, in every non-zero unit (e.g., "1 hour, 30 minutes", "1 day",
+    /// "10 minutes", "45 seconds"). For configured periods, where <see cref="FormatDuration"/>'s rounding
+    /// down to whole hours would misstate the value.
+    /// </summary>
+    public static string FormatDurationExact(TimeSpan span)
+    {
+        var parts = new List<string>();
+        if (span.Days > 0) parts.Add(Pluralize(span.Days, "day"));
+        if (span.Hours > 0) parts.Add(Pluralize(span.Hours, "hour"));
+        if (span.Minutes > 0) parts.Add(Pluralize(span.Minutes, "minute"));
+        if (span.Seconds > 0) parts.Add(Pluralize(span.Seconds, "second"));
+        return parts.Count == 0 ? Pluralize(0, "second") : string.Join(", ", parts);
+    }
+
+    /// <summary>
     /// Format a duration in compact form (e.g., "3d 4h", "5h 12m", "9m").
     /// </summary>
     public static string FormatDurationCompact(TimeSpan span)
@@ -44,9 +71,10 @@ public static class TimeFormatHelper
     }
 
     /// <summary>
-    /// Format a UTC time as a relative string (e.g., "5 minutes ago", "1 hour ago").
+    /// Format a UTC time as a relative string (e.g., "5 minutes ago", "1 hour ago"). A week or more
+    /// ago shows the date on <paramref name="zone"/>'s clock, in <paramref name="format"/>.
     /// </summary>
-    public static string FormatRelativeTime(DateTime utcTime)
+    public static string FormatRelativeTime(DateTime utcTime, TimeZoneInfo zone, DisplayFormat format)
     {
         var elapsed = DateTime.UtcNow - utcTime;
 
@@ -62,7 +90,7 @@ public static class TimeFormatHelper
         if (elapsed.TotalDays < 7)
             return $"{Pluralize((int)elapsed.TotalDays, "day")} ago";
 
-        return utcTime.ToLocalTime().ToString("MMM dd, yyyy");
+        return TimeZoneCatalog.ToZone(utcTime, zone).ToString(format.Date, DisplayFormat.Culture);
     }
 
     /// <summary>
@@ -90,9 +118,10 @@ public static class TimeFormatHelper
     /// <summary>
     /// Format a UTC time as a terse relative string for alert and schedule lists: "Just now",
     /// "5m ago", "3h ago", "2d ago", or for a future time "Any moment", "in 5m", "in 3h 10m",
-    /// "in 2d". A week or more either way shows the date ("Sep 25, 2026").
+    /// "in 2d". A week or more either way shows the date ("Sep 25, 2026") on <paramref name="zone"/>'s
+    /// clock, in <paramref name="format"/>.
     /// </summary>
-    public static string FormatRelativeTimeTerse(DateTime utcTime, DateTime? nowUtc = null)
+    public static string FormatRelativeTimeTerse(DateTime utcTime, TimeZoneInfo zone, DisplayFormat format, DateTime? nowUtc = null)
     {
         var elapsed = (nowUtc ?? DateTime.UtcNow) - utcTime;
         if (elapsed.TotalSeconds < 0)
@@ -102,13 +131,13 @@ public static class TimeFormatHelper
             if (until.TotalMinutes < 60) return $"in {(int)until.TotalMinutes}m";
             if (until.TotalHours < 24) return $"in {(int)until.TotalHours}h {until.Minutes}m";
             if (until.TotalDays < 7) return $"in {(int)until.TotalDays}d";
-            return utcTime.ToString("MMM d, yyyy", System.Globalization.CultureInfo.InvariantCulture);
+            return ToLocal(utcTime, zone).ToString(format.Date, System.Globalization.CultureInfo.InvariantCulture);
         }
         if (elapsed.TotalMinutes < 1) return "Just now";
         if (elapsed.TotalMinutes < 60) return $"{(int)elapsed.TotalMinutes}m ago";
         if (elapsed.TotalHours < 24) return $"{(int)elapsed.TotalHours}h ago";
         if (elapsed.TotalDays < 7) return $"{(int)elapsed.TotalDays}d ago";
-        return utcTime.ToString("MMM d, yyyy", System.Globalization.CultureInfo.InvariantCulture);
+        return ToLocal(utcTime, zone).ToString(format.Date, System.Globalization.CultureInfo.InvariantCulture);
     }
 
     /// <summary>

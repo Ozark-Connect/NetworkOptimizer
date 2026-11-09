@@ -24,7 +24,44 @@ public class GatewayShaperProbeTests
         command.Should().Contain("tc class show dev ppp0 2>&1");
         command.Should().Contain("###TC ifbppp0");
         command.Should().Contain("tc class show dev eth7 2>&1");
+        command.Should().Contain("tc qdisc show dev ifbppp0 2>&1");
         command.Should().EndWith("true");
+    }
+
+    [Fact]
+    public void Parse_CakeDownloadRoot_CountsAsShaped()
+    {
+        // Adaptive SQM's opt-in CAKE download shaper: no classes on the ifb, a cake root qdisc.
+        const string output = """
+            ###TC ppp0
+            class htb 1:1 root rate 550Mbit ceil 550Mbit burst 2750b cburst 2750b
+            qdisc htb 1: root refcnt 2 r2q 10 default 0x10 direct_packets_stat 0
+            ###TC ifbppp0
+            qdisc cake ca4e: root refcnt 2 bandwidth 935Mbit besteffort dual-dsthost nat nowash ingress no-ack-filter no-split-gso rtt 100ms noatm overhead 50 mpu 84
+            """;
+
+        var state = GatewayShaperProbe.Parse(output, new[] { PppoeWan }).Should().ContainSingle().Subject;
+
+        state.Ingress.HasRootHtb.Should().BeFalse();
+        state.Ingress.HasRootCake.Should().BeTrue();
+        state.Ingress.IsShaped.Should().BeTrue();
+        state.Egress.IsShaped.Should().BeTrue();
+        state.Egress.HasRootCake.Should().BeFalse();
+    }
+
+    [Theory]
+    [InlineData("qdisc htb 1: root refcnt 2 r2q 10 default 0x10 direct_packets_stat 0")]
+    [InlineData("qdisc cake 8001: root refcnt 2 bandwidth unlimited besteffort triple-isolate")]
+    [InlineData("qdisc noqueue 0: root refcnt 2")]
+    public void Parse_RootQdiscWithoutARateLimit_IsNotShaped(string qdiscLine)
+    {
+        // The htb qdisc line alone (no root class) and an unlimited cake shape nothing.
+        var output = $"###TC ppp0\n{qdiscLine}\n###TC ifbppp0\n{qdiscLine}\n";
+
+        var state = GatewayShaperProbe.Parse(output, new[] { PppoeWan }).Should().ContainSingle().Subject;
+
+        state.Egress.IsShaped.Should().BeFalse();
+        state.Ingress.IsShaped.Should().BeFalse();
     }
 
     [Fact]

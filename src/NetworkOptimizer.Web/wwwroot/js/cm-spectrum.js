@@ -339,8 +339,9 @@ function asOf(polledAt, live) {
     const t = new Date(polledAt);
     if (Number.isNaN(t.getTime())) return '';
     const stale = Date.now() - t.getTime() > STALE_MS;
-    const sameDay = t.toDateString() === new Date().toDateString();
-    const when = t.toLocaleString(undefined, sameDay
+    const day = v => { const p = noTime.parts(v); return `${p.year}-${p.month}-${p.day}`; };
+    const sameDay = day(t) === day(Date.now());
+    const when = noTime.string(t, sameDay
         ? { hour: 'numeric', minute: '2-digit', second: '2-digit' }
         : { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
     const tip = stale

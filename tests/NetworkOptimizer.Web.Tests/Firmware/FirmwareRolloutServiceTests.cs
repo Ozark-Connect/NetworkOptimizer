@@ -159,7 +159,13 @@ public class FirmwareRolloutServiceTests
         harness.Commands.SnapshotConsoleInfoPerRead = true;
         // The console has not noticed the update itself; the shared catalog is offering it.
         harness.Commands.ConsoleInfo!.NetworkApplication!.UpdateAvailable = null;
-        await harness.SharedCatalog.UpsertNetworkAppBuildAsync("release", "9.1.0", null);
+        harness.Commands.NetworkPackages = new ConsoleNetworkPackages("uos-deb13-arm64", []);
+        await harness.SharedCatalog.UpsertNetworkAppBuildAsync("uos-deb13-arm64", "release", "9.1.0", null);
+        await harness.SharedCatalog.UpsertNetworkAppPackagesAsync([new SharedNetworkAppPackage
+        {
+            Platform = "uos-deb13-arm64", Version = "9.1.0",
+            Url = "https://fw-download.example.test/data/unifi-native/aaaa-uos-deb13-arm64-9.1.0-1-1-00000000.deb",
+        }]);
 
         var preview = await harness.Service.BuildPreviewAsync(Settings(s => s.IncludeUniFiNetwork = true));
 
@@ -751,7 +757,8 @@ public class FirmwareRolloutServiceTests
 
         (await harness.Repository.GetPlanAsync(planId))!.Status.Should().Be(FirmwareRolloutStatus.Aborted);
         (await harness.Repository.GetStepsAsync(planId))
-            .Should().OnlyContain(s => s.State == FirmwareRolloutStepState.AbortedSku);
+            .Should().OnlyContain(s => s.State == FirmwareRolloutStepState.AbortedByAdmin
+                                       && RolloutSkipReasons.IsAdminStop(s.State, s.Error));
     }
 
     [Fact]
@@ -853,6 +860,28 @@ public class FirmwareRolloutServiceTests
         row.WaveCount.Should().BeGreaterThan(0);
         row.CreatedBy.Should().Be(RolloutHarness.Actor);
         row.HasReport.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task GetPlanHistoryPageAsync_MarksAnAdminStopAndPages()
+    {
+        using var harness = HarnessWithTwoAps();
+        var planId = await harness.Service.SchedulePlanAsync(Settings(), RolloutHarness.Start.AddHours(6));
+        var plan = (await harness.Repository.GetPlanAsync(planId))!;
+        plan.Status = FirmwareRolloutStatus.Aborted;
+        await harness.Repository.UpdatePlanAsync(plan);
+        foreach (var step in await harness.Repository.GetStepsAsync(planId))
+        {
+            step.State = FirmwareRolloutStepState.AbortedSku;
+            step.Error = RolloutSkipReasons.RolloutAbortedPrefix + "admin stopped it";
+            await harness.Repository.UpdateStepAsync(step);
+        }
+
+        var page = await harness.Service.GetPlanHistoryPageAsync(1, 20);
+
+        page.Total.Should().Be(1);
+        page.Rows.Should().ContainSingle().Which.StoppedByAdmin.Should().BeTrue();
+        (await harness.Service.GetPlanHistoryPageAsync(2, 20)).Rows.Should().BeEmpty();
     }
 
     [Fact]

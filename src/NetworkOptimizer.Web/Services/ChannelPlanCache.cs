@@ -4,7 +4,8 @@ using NetworkOptimizer.WiFi.Models;
 namespace NetworkOptimizer.Web.Services;
 
 /// <summary>
-/// Process-wide cache for computed channel plans and the client-rate history they read.
+/// Process-wide cache for computed channel plans and the client-rate history they read, plus the
+/// per-radio inputs the Wi-Fi health score reads from the console.
 ///
 /// The analysis is expensive enough to be user-visible: it fans out across UniFi topology, scan
 /// results, propagation, persisted outcome memory and an InfluxDB history query, then runs a
@@ -40,8 +41,16 @@ public class ChannelPlanCache
         public readonly SemaphoreSlim Lock = new(1, 1);
     }
 
+    /// <summary>
+    /// TTL for the per-radio inputs the health score reads (the last hour's utilization and each
+    /// radio's quietest channel). Per site, so a busy site's sessions share one console read.
+    /// </summary>
+    public static readonly TimeSpan RadioInputsTtl = TimeSpan.FromMinutes(5);
+
     private readonly ConcurrentDictionary<string, Entry<Dictionary<RadioBand, ChannelPlan>>> _plans = new();
     private readonly ConcurrentDictionary<string, Entry<Dictionary<RadioBand, Dictionary<string, IReadOnlyList<ClientRateSample>>>>> _clientRates = new();
+    private readonly ConcurrentDictionary<string, Entry<IReadOnlyDictionary<(string Mac, RadioBand Band), (double Avg, double Peak)>>> _radioHours = new();
+    private readonly ConcurrentDictionary<string, Entry<IReadOnlyDictionary<(string Mac, RadioBand Band), int>>> _quietestChannels = new();
 
     /// <summary>
     /// Returns the cached plan for this site and option set, or builds one. Concurrent callers
@@ -73,6 +82,18 @@ public class ChannelPlanCache
     }
 
     /// <summary>
+    /// Drops every cached plan for a site, whatever option set built it. Called when radios move,
+    /// so no tab or browser is served a plan for the channels they left.
+    /// </summary>
+    public void InvalidateSite(string siteSlug)
+    {
+        var prefix = siteSlug + "|";
+        foreach (var key in _plans.Keys)
+            if (key.StartsWith(prefix, StringComparison.Ordinal))
+                _plans.TryRemove(key, out _);
+    }
+
+    /// <summary>
     /// Client-rate history for a site. A failed lookup caches its null result too, so an
     /// unreachable InfluxDB costs one timeout per TTL instead of one per plan build.
     /// </summary>
@@ -87,6 +108,24 @@ public class ChannelPlanCache
             ? null
             : new Dictionary<RadioBand, Dictionary<string, IReadOnlyList<ClientRateSample>>>(rates);
     }
+
+    /// <summary>
+    /// Each radio's utilization average and peak over the last hour, keyed by lowercase AP MAC and
+    /// band. Concurrent callers for a site share one build; an empty result is cached too, so a
+    /// console that cannot answer is asked once per TTL.
+    /// </summary>
+    public async Task<IReadOnlyDictionary<(string Mac, RadioBand Band), (double Avg, double Peak)>> GetOrBuildRadioHoursAsync(
+        string siteSlug,
+        Func<Task<IReadOnlyDictionary<(string Mac, RadioBand Band), (double Avg, double Peak)>>> build) =>
+        await GetOrBuildAsync(_radioHours, siteSlug, false, RadioInputsTtl, async () => (IReadOnlyDictionary<(string, RadioBand), (double, double)>?)await build())
+            ?? new Dictionary<(string, RadioBand), (double, double)>();
+
+    /// <summary>Each radio's quietest achievable utilization, keyed and shared like <see cref="GetOrBuildRadioHoursAsync"/>.</summary>
+    public async Task<IReadOnlyDictionary<(string Mac, RadioBand Band), int>> GetOrBuildQuietestChannelsAsync(
+        string siteSlug,
+        Func<Task<IReadOnlyDictionary<(string Mac, RadioBand Band), int>>> build) =>
+        await GetOrBuildAsync(_quietestChannels, siteSlug, false, RadioInputsTtl, async () => (IReadOnlyDictionary<(string, RadioBand), int>?)await build())
+            ?? new Dictionary<(string, RadioBand), int>();
 
     private static async Task<T?> GetOrBuildAsync<T>(
         ConcurrentDictionary<string, Entry<T>> store,

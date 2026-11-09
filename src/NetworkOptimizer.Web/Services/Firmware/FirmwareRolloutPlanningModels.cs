@@ -353,6 +353,15 @@ public class RolloutPlanDocument
     public List<PlanWave> Waves { get; set; } = [];
     public List<PlanMeshRepair> MeshRepairs { get; set; } = [];
 
+    /// <summary>Change Control snapshot pinned before the rollout started, for a config restore after a firmware revert.</summary>
+    public int? ConfigSnapshotId { get; set; }
+
+    /// <summary>Whether the post-upgrade config check has run, so a resume does not re-hold on the same findings.</summary>
+    public bool ConfigChecked { get; set; }
+
+    /// <summary>Whether any step was rolled back, so the page offers the pinned config snapshot.</summary>
+    public bool FirmwareReverted { get; set; }
+
     /// <summary>Whether the UniFi Network application updates first (wave 0 timeline entry).</summary>
     public bool IncludesUniFiNetworkUpdate { get; set; }
     public int UniFiNetworkUpdateSeconds { get; set; }
@@ -384,9 +393,8 @@ public class RolloutPlanDocument
     public string? ConsoleModel { get; set; }
 
     /// <summary>
-    /// The site's own timezone, as the console reports it. Times are shown in the server's zone -
-    /// one clock across every site an operator watches - and this is what the site-local reading
-    /// beside them is built from, where the two differ.
+    /// The site's own timezone, as the console reports it. Times are shown on the viewer's clock,
+    /// and this is what the site-local reading beside them is built from, where the two differ.
     /// </summary>
     public string? TimeZoneId { get; set; }
 
@@ -409,6 +417,12 @@ public class RolloutPlanDocument
     /// starts - so it has to survive a restart mid-rollout.
     /// </summary>
     public DateTime? LastWaveCommandedAt { get; set; }
+
+    /// <summary>
+    /// When the start passed its checks. The plan stays Scheduled or Announced until the console's
+    /// own phase is commanded, which can take minutes; the page shows the run from this instead.
+    /// </summary>
+    public DateTime? StartingAt { get; set; }
 
     /// <summary>
     /// Every AP on the site at plan time, upgrading or not. The executor holds a wave that would
@@ -656,14 +670,17 @@ public class PlanTargetImage
 /// <param name="Kind">The surface the build is for.</param>
 /// <param name="Target">Device model or hardware platform; null for the Network application.</param>
 /// <param name="Version">The version to install.</param>
-/// <param name="Url">The image or package URL.</param>
+/// <param name="Url">
+/// The image or package URL. Null only for the Network build the console itself offers, which its
+/// own update installs.
+/// </param>
 /// <param name="Models">Every device model the image is for; null means <paramref name="Target"/> alone.</param>
 /// <param name="ModelUrls">Per-model install URLs for the same image, where a model has its own; others use <paramref name="Url"/>.</param>
 public sealed record RolloutBuildPin(
     FirmwareUrlKind Kind,
     string? Target,
     string Version,
-    string Url,
+    string? Url,
     IReadOnlyList<string>? Models = null,
     IReadOnlyDictionary<string, string>? ModelUrls = null)
 {
@@ -671,7 +688,7 @@ public sealed record RolloutBuildPin(
     public IReadOnlyList<string> DeviceModels => Models is { Count: > 0 } ? Models : Target is { Length: > 0 } t ? [t] : [];
 
     /// <summary>The URL a device of this model installs from.</summary>
-    public string UrlFor(string? model) =>
+    public string? UrlFor(string? model) =>
         model != null && ModelUrls != null && ModelUrls.TryGetValue(model, out var url) ? url : Url;
 }
 

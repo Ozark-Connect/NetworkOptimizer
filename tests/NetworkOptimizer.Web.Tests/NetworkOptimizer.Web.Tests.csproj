@@ -29,13 +29,17 @@
   </ItemGroup>
 
   <ItemGroup>
+    <Using Include="NetworkOptimizer.Core.Helpers" />
+  </ItemGroup>
+
+  <ItemGroup>
     <Content Include="IspHealth\Fixtures\*.csv">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
     <Content Include="CableModem\Fixtures\*.html;CableModem\Fixtures\*.json">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
-    <Content Include="OntProviders\Fixtures\*.html">
+    <Content Include="OntProviders\Fixtures\*.html;OntProviders\Fixtures\*.json">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
   </ItemGroup>

@@ -1,3 +1,4 @@
+using NetworkOptimizer.Core.Helpers;
 using System.Reflection;
 using System.Text.Json;
 using MailKit.Net.Smtp;
@@ -25,7 +26,7 @@ public class EmailDeliveryChannel : IAlertDeliveryChannel
         _secretDecryptor = secretDecryptor;
     }
 
-    public async Task<bool> SendAsync(AlertEvent alertEvent, AlertHistoryEntry historyEntry, DeliveryChannel channel, CancellationToken cancellationToken = default)
+    public async Task<bool> SendAsync(AlertEvent alertEvent, AlertHistoryEntry historyEntry, DeliveryChannel channel, TimeZoneInfo timeZone, DisplayFormat format, CancellationToken cancellationToken = default)
     {
         var config = JsonSerializer.Deserialize<EmailChannelConfig>(channel.ConfigJson);
         if (config == null) return false;
@@ -41,7 +42,7 @@ public class EmailDeliveryChannel : IAlertDeliveryChannel
             event_type = alertEvent.EventType,
             device_name = alertEvent.DeviceName,
             device_ip = alertEvent.DeviceIp,
-            timestamp = TimestampFormatter.FormatLocal(alertEvent.Timestamp),
+            timestamp = TimestampFormatter.FormatLocal(alertEvent.Timestamp, timeZone, format),
             context = alertEvent.Context,
             metric_value = alertEvent.MetricValue,
             threshold_value = alertEvent.ThresholdValue,
@@ -51,7 +52,7 @@ public class EmailDeliveryChannel : IAlertDeliveryChannel
         return await SendEmailAsync(config, $"[{alertEvent.Severity}] {alertEvent.Title}", body, cancellationToken);
     }
 
-    public async Task<bool> SendDigestAsync(IReadOnlyList<AlertHistoryEntry> alerts, DeliveryChannel channel, DigestSummary summary, CancellationToken cancellationToken = default)
+    public async Task<bool> SendDigestAsync(IReadOnlyList<AlertHistoryEntry> alerts, DeliveryChannel channel, DigestSummary summary, TimeZoneInfo timeZone, DisplayFormat format, CancellationToken cancellationToken = default)
     {
         var config = JsonSerializer.Deserialize<EmailChannelConfig>(channel.ConfigJson);
         if (config == null) return false;
@@ -65,7 +66,7 @@ public class EmailDeliveryChannel : IAlertDeliveryChannel
                 title = a.Title,
                 severity = a.Severity.ToString(),
                 severity_color = GetSeverityColor(a.Severity),
-                triggered_at = TimestampFormatter.FormatLocal(a.TriggeredAt)
+                triggered_at = TimestampFormatter.FormatLocal(a.TriggeredAt, timeZone, format)
             }).ToList()
         }).ToList();
 
@@ -78,7 +79,7 @@ public class EmailDeliveryChannel : IAlertDeliveryChannel
             warning_count = summary.WarningCount,
             info_count = summary.InfoCount,
             groups = grouped,
-            generated_at = TimestampFormatter.FormatLocal(DateTime.UtcNow)
+            generated_at = TimestampFormatter.FormatLocal(DateTime.UtcNow, timeZone, format)
         });
 
         return await SendEmailAsync(config, $"Alert Digest - {summary.TotalCount} alerts", body, cancellationToken);

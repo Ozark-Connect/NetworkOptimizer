@@ -1,5 +1,6 @@
 using FluentAssertions;
 using NetworkOptimizer.Storage.Models;
+using NetworkOptimizer.Web.Services;
 using NetworkOptimizer.Web.Services.Monitoring.IspHealth;
 using NetworkOptimizer.Web.Services.Monitoring.PathLocalization;
 using Xunit;
@@ -24,6 +25,129 @@ public class PathEpisodeBannerTests
             new PathEpisodeTargetView(1, "t1", "Target A", PathEpisodeTargetRole.Degraded, baseRtt, peakRtt, 0, peakLoss, null)
         }
     };
+
+    private static List<IspHealthIssue> RecurringFindings(IEnumerable<PathEpisodeView> episodes, IReadOnlyDictionary<int, int>? points = null) =>
+        PathEpisodePresentation.Findings(episodes.ToList(), new IspHealthOptions(), TimeZoneInfo.Utc, DisplayFormat.Fallback, points).ToList();
+
+    private static IEnumerable<PathEpisodeView> OnDays(params int[] days) =>
+        days.Select(d => Episode(d, Now.AddDays(-d), Now.AddDays(-d).AddMinutes(30)));
+
+    [Fact]
+    public void Recurring_finding_carries_a_stable_ack_key()
+    {
+        var first = RecurringFindings(OnDays(1, 2, 3)).Single();
+        var later = RecurringFindings(OnDays(1, 2, 3, 4)).Single();
+
+        first.AckKey.Should().StartWith("path-recurring:");
+        later.AckKey.Should().Be(first.AckKey, "another occurrence of the same finding keeps its acknowledgment");
+    }
+
+    [Fact]
+    public void Recurring_finding_that_costs_points_cannot_be_acknowledged()
+    {
+        var finding = RecurringFindings(OnDays(1, 2, 3), new Dictionary<int, int> { [1] = 2 }).Single();
+
+        finding.AckKey.Should().BeNull();
+    }
+
+    [Fact]
+    public void Another_target_joining_is_a_new_finding()
+    {
+        var alone = RecurringFindings(OnDays(1, 2, 3)).Single();
+        var joined = RecurringFindings(OnDays(1, 2, 3).Select(e => e with
+        {
+            Degraded = e.Degraded.Append(new PathEpisodeTargetView(2, "t2", "Target B", PathEpisodeTargetRole.Degraded, 12, 13, 0, 27, null)).ToArray()
+        })).Single();
+
+        joined.AckKey.Should().NotBe(alone.AckKey);
+    }
+
+    private static PathEpisodeTargetView Target(string id, int? asn) =>
+        new(1, id, id, PathEpisodeTargetRole.Degraded, 12, 13, 0, 27, null, AsnNumber: asn);
+
+    [Fact]
+    public void Several_targets_in_one_network_can_be_acknowledged()
+    {
+        var finding = RecurringFindings(OnDays(1, 2, 3).Select(e => e with { Degraded = new[] { Target("a", 16509), Target("b", 16509) } })).Single();
+
+        finding.AckKey.Should().NotBeNull();
+    }
+
+    [Fact]
+    public void Targets_in_several_networks_are_never_acknowledgeable()
+    {
+        var finding = RecurringFindings(OnDays(1, 2, 3).Select(e => e with { Degraded = new[] { Target("a", 16509), Target("b", 714) } })).Single();
+
+        finding.AckKey.Should().BeNull("degradation across networks points at something they share");
+    }
+
+    [Fact]
+    public void Acknowledged_episodes_are_the_ones_of_an_acknowledged_finding()
+    {
+        var episodes = OnDays(1, 2, 3).ToList();
+        var key = RecurringFindings(episodes).Single().AckKey!;
+
+        PathEpisodePresentation.AcknowledgedEpisodeIds(episodes, new IspHealthOptions(), null, new HashSet<string> { key })
+            .Should().BeEquivalentTo(new[] { 1, 2, 3 });
+        PathEpisodePresentation.AcknowledgedEpisodeIds(episodes, new IspHealthOptions(), null, new HashSet<string>())
+            .Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Banner_hides_a_lone_episode_of_an_acknowledged_finding()
+    {
+        var key = RecurringFindings(OnDays(1, 2, 3)).Single().AckKey!;
+        var acked = new HashSet<string> { key };
+        var e = Episode(9, Now.AddHours(-2), Now.AddHours(-1));
+
+        PathEpisodePresentation.IsAcknowledgedEpisode(e, acked, null).Should().BeTrue();
+        PathEpisodePresentation.IsAcknowledgedEpisode(e, acked, new Dictionary<int, int> { [9] = 2 }).Should().BeFalse();
+        PathEpisodePresentation.IsAcknowledgedEpisode(e with { Disposition = CongestionDisposition.Confirmed }, acked, null).Should().BeFalse();
+        PathEpisodePresentation.IsAcknowledgedEpisode(e, new HashSet<string>(), null).Should().BeFalse();
+    }
+
+    [Fact]
+    public void Banner_hides_a_tracing_episode_on_exactly_an_acknowledged_target_set()
+    {
+        var past = OnDays(1, 2, 3).ToList();
+        var acked = new HashSet<string> { RecurringFindings(past).Single().AckKey! };
+        var targets = PathEpisodePresentation.AcknowledgedTargetSets(past, acked);
+        var tracing = Episode(9, Now.AddMinutes(-5), null, tracing: true) with { Label = "" };
+
+        PathEpisodePresentation.IsAcknowledgedEpisode(tracing, acked, null, targets).Should().BeTrue();
+        PathEpisodePresentation.IsAcknowledgedEpisode(tracing, acked, null).Should().BeFalse("without the target sets a tracing episode has no key");
+        var joined = tracing with { Degraded = tracing.Degraded.Append(new PathEpisodeTargetView(2, "t2", "Target B", PathEpisodeTargetRole.Degraded, 12, 13, 0, 27, null)).ToArray() };
+        PathEpisodePresentation.IsAcknowledgedEpisode(joined, acked, null, targets).Should().BeFalse("another target joining is a new finding");
+        PathEpisodePresentation.IsAcknowledgedEpisode(tracing, acked, new Dictionary<int, int> { [9] = 2 }, targets).Should().BeFalse();
+        PathEpisodePresentation.AcknowledgedTargetSets(past, new HashSet<string>()).Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Once_its_trace_finishes_an_episode_is_judged_by_its_full_key_again()
+    {
+        var past = OnDays(1, 2, 3).ToList();
+        var acked = new HashSet<string> { RecurringFindings(past).Single().AckKey! };
+        var targets = PathEpisodePresentation.AcknowledgedTargetSets(past, acked);
+        var finished = Episode(9, Now.AddHours(-1), null) with { Label = "past a different hop" };
+
+        PathEpisodePresentation.IsAcknowledgedEpisode(finished, acked, null, targets).Should().BeFalse("a changed last clean router is a new finding");
+    }
+
+    [Fact]
+    public void An_episode_carries_its_recurring_findings_key()
+    {
+        var episodes = OnDays(1, 2, 3).ToList();
+
+        PathEpisodePresentation.AckKeyFor(episodes[0]).Should().Be(RecurringFindings(episodes).Single().AckKey);
+    }
+
+    [Fact]
+    public void Confirmed_finding_is_never_acknowledgeable()
+    {
+        var confirmed = RecurringFindings(OnDays(1, 2, 3).Select(e => e with { Disposition = CongestionDisposition.Confirmed })).Single();
+
+        confirmed.AckKey.Should().BeNull();
+    }
 
     [Fact]
     public void EventRow_NamesTheTargetsOnce()
@@ -75,7 +199,7 @@ public class PathEpisodeBannerTests
         {
             Episode(1, Now.AddHours(-1), null, tracing: true),
             Episode(2, Now.AddMinutes(-30), Now.AddMinutes(-10))
-        }, Now);
+        }, Now, TimeZoneInfo.Utc, DisplayFormat.Fallback);
 
         b!.EpisodeId.Should().Be(1);
         b.Phase.Should().Be("tracing");
@@ -89,7 +213,7 @@ public class PathEpisodeBannerTests
     {
         var e = Episode(3, Now.AddHours(-1), null, peakLoss: 0, baseRtt: 33, peakRtt: 54) with { RoundsTraced = 10 };
 
-        var b = PathEpisodePresentation.Banner(new[] { e, Episode(4, Now.AddMinutes(-30), Now.AddMinutes(-10)) }, Now)!;
+        var b = PathEpisodePresentation.Banner(new[] { e, Episode(4, Now.AddMinutes(-30), Now.AddMinutes(-10)) }, Now, TimeZoneInfo.Utc, DisplayFormat.Fallback)!;
         b.EpisodeId.Should().Be(3);
         b.Phase.Should().Be("ongoing");
         b.Lead.Should().Be("Still slow");
@@ -97,16 +221,16 @@ public class PathEpisodeBannerTests
         PathEpisodePresentation.BadgeLabel(e).Should().Be("Ongoing");
         PathEpisodePresentation.Entries(new[] { e }).Single().Text.Should().StartWith("Target A is running 21 ms slower, for ").And.Contain(" so far.");
 
-        PathEpisodePresentation.Banner(new[] { e with { Metered = true } }, Now)!.Text
+        PathEpisodePresentation.Banner(new[] { e with { Metered = true } }, Now, TimeZoneInfo.Utc, DisplayFormat.Fallback)!.Text
             .Should().Be("Target A is still running 21 ms slower. This WAN is metered, so Network Optimizer traced it once.");
     }
 
     [Fact]
     public void Finished_ShowsForADayAfterItCloses()
     {
-        PathEpisodePresentation.Banner(new[] { Episode(1, Now.AddHours(-23.5), Now.AddHours(-23)) }, Now)
+        PathEpisodePresentation.Banner(new[] { Episode(1, Now.AddHours(-23.5), Now.AddHours(-23)) }, Now, TimeZoneInfo.Utc, DisplayFormat.Fallback)
             .Should().NotBeNull();
-        PathEpisodePresentation.Banner(new[] { Episode(1, Now.AddHours(-26), Now.AddHours(-25)) }, Now)
+        PathEpisodePresentation.Banner(new[] { Episode(1, Now.AddHours(-26), Now.AddHours(-25)) }, Now, TimeZoneInfo.Utc, DisplayFormat.Fallback)
             .Should().BeNull();
     }
 
@@ -114,12 +238,12 @@ public class PathEpisodeBannerTests
     public void Finished_ConfirmedIsAWarningAndUnverifiableIsInfo()
     {
         var confirmed = PathEpisodePresentation.Banner(new[]
-            { Episode(1, Now.AddHours(-2), Now.AddHours(-1), disposition: CongestionDisposition.Confirmed) }, Now)!;
+            { Episode(1, Now.AddHours(-2), Now.AddHours(-1), disposition: CongestionDisposition.Confirmed) }, Now, TimeZoneInfo.Utc, DisplayFormat.Fallback)!;
         confirmed.CssClass.Should().Be("alert-warning");
         confirmed.Lead.Should().Be("Path degradation localized");
         confirmed.Text.Should().EndWith("Past the last clean hop.");
 
-        var unverifiable = PathEpisodePresentation.Banner(new[] { Episode(1, Now.AddHours(-2), Now.AddHours(-1)) }, Now)!;
+        var unverifiable = PathEpisodePresentation.Banner(new[] { Episode(1, Now.AddHours(-2), Now.AddHours(-1)) }, Now, TimeZoneInfo.Utc, DisplayFormat.Fallback)!;
         unverifiable.CssClass.Should().Be("alert-info");
         unverifiable.Lead.Should().Be("Path trace finished");
     }
@@ -154,7 +278,7 @@ public class PathEpisodeBannerTests
     [Fact]
     public void DismissKey_IsPerSiteEpisodeAndPhase()
     {
-        var b = PathEpisodePresentation.Banner(new[] { Episode(7, Now.AddHours(-1), null, tracing: true) }, Now)!;
+        var b = PathEpisodePresentation.Banner(new[] { Episode(7, Now.AddHours(-1), null, tracing: true) }, Now, TimeZoneInfo.Utc, DisplayFormat.Fallback)!;
         b.DismissKey("main").Should().Be("PathEpisodeBannerDismissed:main:7:tracing");
         b.DismissKey("other").Should().NotBe(b.DismissKey("main"));
     }

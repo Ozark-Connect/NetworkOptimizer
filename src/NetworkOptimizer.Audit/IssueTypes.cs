@@ -97,4 +97,16 @@ public static class IssueTypes
     // Console Access
     public const string UnusedApiKeys = "CONSOLE_UNUSED_API_KEYS";
     public const string UnusedLocalAdmins = "CONSOLE_UNUSED_LOCAL_ADMINS";
+
+    // Gateway Firewall: what the gateway enforces against UniFi Network's configuration
+    public const string GatewayWanNotExternal = "GW_FW_WAN_NOT_EXTERNAL";
+    public const string GatewayNetworkZoneMismatch = "GW_FW_NETWORK_ZONE_MISMATCH";
+    public const string GatewayPolicyNotEnforced = "GW_FW_POLICY_NOT_ENFORCED";
+    public const string GatewayDisabledPolicyEnforced = "GW_FW_DISABLED_POLICY_ENFORCED";
+    public const string GatewayZonePairUnwired = "GW_FW_ZONE_PAIR_UNWIRED";
+    public const string GatewayWanZoneReference = "GW_FW_WAN_ZONE_REFERENCE";
+    public const string GatewayBlocklistNotHooked = "GW_TI_BLOCKLIST_NOT_HOOKED";
+    public const string GatewayBlocklistHookDuplicated = "GW_TI_BLOCKLIST_HOOK_DUPLICATED";
+    public const string GatewayBlocklistChainDrift = "GW_TI_BLOCKLIST_CHAIN_DRIFT";
+    public const string GatewayBlocklistSetEmpty = "GW_TI_BLOCKLIST_SET_EMPTY";
 }

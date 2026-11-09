@@ -47,6 +47,7 @@ public class PathEpisodeRepository : IPathEpisodeRepository
         row.BottleneckHopNumber = episode.BottleneckHopNumber;
         row.BottleneckLabel = episode.BottleneckLabel;
         row.ReturnPathFinding = episode.ReturnPathFinding;
+        row.ConcurrentCongestion = episode.ConcurrentCongestion;
         row.Summary = episode.Summary;
         row.UpdatedAt = episode.UpdatedAt;
 
@@ -63,6 +64,8 @@ public class PathEpisodeRepository : IPathEpisodeRepository
                     PeakRttMs = target.PeakRttMs,
                     BaselineLossPct = target.BaselineLossPct,
                     PeakLossPct = target.PeakLossPct,
+                    BaselineJitterMs = target.BaselineJitterMs,
+                    JitterP95Ms = target.JitterP95Ms,
                     Scope = target.Scope,
                     Disposition = target.Disposition,
                     BottleneckHopIp = target.BottleneckHopIp,
@@ -73,6 +76,7 @@ public class PathEpisodeRepository : IPathEpisodeRepository
             }
             existing.PeakRttMs = target.PeakRttMs;
             existing.PeakLossPct = target.PeakLossPct;
+            existing.JitterP95Ms = target.JitterP95Ms;
             existing.Scope = target.Scope;
             existing.Disposition = target.Disposition;
             existing.BottleneckHopIp = target.BottleneckHopIp;

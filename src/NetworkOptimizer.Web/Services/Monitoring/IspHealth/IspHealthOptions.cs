@@ -476,6 +476,17 @@ public class IspHealthOptions
     /// <summary>Fraction of baseline RTT a window's median must rise by, when that exceeds <see cref="PathRttMinDeltaMs"/>.</summary>
     public double PathRttDeltaFraction { get; set; } = 0.20;
 
+    /// <summary>
+    /// An RTT-only degradation whose 95th-percentile window jitter stays under this multiple of baseline (or
+    /// <see cref="PathStepJitterMinDeltaMs"/> over it, whichever is larger) is a route change: queues widen jitter.
+    /// Matches <see cref="CongestionJitterFactor"/>, so a step is jitter the congestion detector would not call elevated.
+    /// </summary>
+    public double PathStepJitterFactor { get; set; } = 2.0;
+
+    /// <summary>Jitter rise in ms a route change may carry whatever its ratio, as <see cref="CongestionJitterMinDeltaMs"/>
+    /// does for congestion, so a sub-ms baseline is not tripped by noise.</summary>
+    public double PathStepJitterMinDeltaMs { get; set; } = 0.8;
+
     /// <summary>A sample older than this says nothing about a target's current state.</summary>
     public int PathTargetStaleMinutes { get; set; } = 10;
 
@@ -569,20 +580,10 @@ public class IspHealthOptions
     /// added delay (that floor alone is loaded latency). A shared/loaded-latency event collapses to a
     /// single row only when the rise is UNIFORM: the worst path's RTT rise over its own baseline is
     /// within this factor of the median path's rise. If a few paths rose materially further than the
-    /// floor (high variance), those are localized congestion ON TOP of the load - the event stays
-    /// per-hop so the localizer surfaces them as "this hop's own capacity", not "everything slowed".
+    /// floor (high variance), those are outliers: when the access egress sat at the floor, the floor
+    /// is still Loaded Latency and only the outliers localize; otherwise the event stays per-hop.
     /// </summary>
     public double CongestionLoadedUniformityFactor { get; set; } = 2.0;
-
-    /// <summary>
-    /// Clean-control floor multiple. A parallel path counts as a CLEAN control (proof a hop's
-    /// elevation is its own capacity, not access bufferbloat) when its RTT rose no more than this
-    /// multiple of the shared floor - i.e. it only picked up the load floor, not localized congestion.
-    /// Must be tighter than <see cref="CongestionLoadedUniformityFactor"/> so the materially-worse
-    /// hops are NOT counted as clean. Uses RTT (not jitter): under load the jitter floor lifts every
-    /// path, so a jitter-inclusive "elevated" test would erase every clean control.
-    /// </summary>
-    public double CongestionCleanControlFloorFactor { get; set; } = 1.5;
 
     /// <summary>
     /// Self-inflicted access bufferbloat is a line-wide rise under load: this fraction of monitored

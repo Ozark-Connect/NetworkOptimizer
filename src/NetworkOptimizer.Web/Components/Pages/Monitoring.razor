@@ -57,6 +57,7 @@
 @inject NetworkOptimizer.Web.Services.LanFlowMap.LanFlowMapCache LanFlowMapCache
 @inject ILogger<Monitoring> Logger
 @inject NetworkOptimizer.Web.Services.UiHintService UiHints
+@inject IDisplayTimeZone DisplayTime
 
 <NavigationLock OnBeforeInternalNavigation="OnBeforeInternalNavigation"
                 ConfirmExternalNavigation="_upstreamDiscoveryPendingSave" />
@@ -304,8 +305,9 @@
                     <div class="isp-tile-bar"><div class="isp-tile-bar-fill" style="width: @(ispHealth.Score)%"></div></div>
                 }
             </div>
-            @{ var ispTarget = ScopedTargetStats(MonitoringTargetType.AccessIsp, meanAcrossTargets: false); }
-            <div class="monitoring-stat-card clickable-stat-card" @onclick="@(() => JumpToAnalysis(AccessIspCategory))">
+            @{ var ispTarget = ScopedTargetStats(MonitoringTargetType.AccessIsp, meanAcrossTargets: false); var ispIds = ScopedTargetIds(MonitoringTargetType.AccessIsp); }
+            <div class="monitoring-stat-card clickable-stat-card signal-spark-host" @onclick="@(() => JumpToAnalysis(AccessIspCategory))">
+                <StatTileSparkline Spark="LiveViewSpark.IspRtt" Request="@LiveSparkRequest()" Current="ispTarget.rtt" Live="@(_mapHistoricAt == null && _historicSnapshot == null && !LiveWan.IsComparing)" />
                 @if (LiveWan.IsComparing)
                 {
                     <div class="stat-value stat-value-stacked">
@@ -325,7 +327,8 @@
                 }
                 <div class="stat-label">ISP RTT</div>
             </div>
-            <div class="monitoring-stat-card clickable-stat-card" @onclick="@(() => JumpToAnalysis(AccessIspCategory))">
+            <div class="monitoring-stat-card clickable-stat-card signal-spark-host" @onclick="@(() => JumpToAnalysis(AccessIspCategory))">
+                <StatTileSparkline Spark="LiveViewSpark.IspLoss" Request="@LiveSparkRequest()" Current="@(ispIds.Count > 0 ? ispTarget.loss : null)" Live="@(_mapHistoricAt == null && _historicSnapshot == null && !LiveWan.IsComparing)" />
                 @if (LiveWan.IsComparing)
                 {
                     <div class="stat-value stat-value-stacked">
@@ -345,8 +348,9 @@
                 }
                 <div class="stat-label">ISP Loss</div>
             </div>
-            @{ var transitTarget = ScopedTargetStats(MonitoringTargetType.Transit, meanAcrossTargets: true); }
-            <div class="monitoring-stat-card clickable-stat-card stat-card-no-minheight" @onclick="@(() => JumpToAnalysis(TransitCategory))">
+            @{ var transitTarget = ScopedTargetStats(MonitoringTargetType.Transit, meanAcrossTargets: true); var transitIds = ScopedTargetIds(MonitoringTargetType.Transit); }
+            <div class="monitoring-stat-card clickable-stat-card stat-card-no-minheight signal-spark-host" @onclick="@(() => JumpToAnalysis(TransitCategory))">
+                <StatTileSparkline Spark="LiveViewSpark.TransitRtt" Request="@LiveSparkRequest()" Current="transitTarget.rtt" Live="@(_mapHistoricAt == null && _historicSnapshot == null && !LiveWan.IsComparing)" />
                 @if (LiveWan.IsComparing)
                 {
                     <div class="stat-value stat-value-stacked">
@@ -366,7 +370,8 @@
                 }
                 <div class="stat-label">Transit RTT</div>
             </div>
-            <div class="monitoring-stat-card clickable-stat-card stat-card-no-minheight" @onclick="@(() => JumpToAnalysis(TransitCategory))">
+            <div class="monitoring-stat-card clickable-stat-card stat-card-no-minheight signal-spark-host" @onclick="@(() => JumpToAnalysis(TransitCategory))">
+                <StatTileSparkline Spark="LiveViewSpark.TransitLoss" Request="@LiveSparkRequest()" Current="@(transitIds.Count > 0 ? transitTarget.loss : null)" Live="@(_mapHistoricAt == null && _historicSnapshot == null && !LiveWan.IsComparing)" />
                 @if (LiveWan.IsComparing)
                 {
                     <div class="stat-value stat-value-stacked">
@@ -738,6 +743,10 @@
                 <div class="chart-card">
                     <div class="chart-header"><h3 class="chart-title">Memory</h3></div>
                     <div class="health-mem-chart"></div>
+                </div>
+                <div class="chart-card health-wan-card" style="display:none">
+                    <div class="chart-header"><h3 class="chart-title">WAN Throughput</h3></div>
+                    <div class="health-wan-chart"></div>
                 </div>
                 <div class="chart-card health-fan-card" style="display:none">
                     <div class="chart-header"><h3 class="chart-title">Fan Speed</h3></div>
@@ -2596,6 +2605,19 @@
         // link asked for whenever the two disagreed.
         if (_wanOptions.Count == 0) return;
 
+        // The LAN scope: the same claim on the restore and the same never-persisted narrowing as a
+        // WAN link below, with the WAN selection left as it was, as the LAN pill leaves it.
+        if (IsLanScopeToken(WanParam))
+        {
+            _appliedLinkWanKey = LinkWanKey;
+            _linkNarrowedWanSelection = true;
+            _wanSelectionRestored = true;
+            _lanScope = true;
+            _allScope = false;
+            await ApplyWanSelectionAsync(persist: false);
+            return;
+        }
+
         var keys = ResolveLinkWanKeys(WanParam);
         // Stamped before the resolve is judged: the link has been CONSIDERED either way, and the
         // options are loaded by here, so a WAN this site does not have will not resolve on a later
@@ -2768,7 +2790,7 @@
         : !CollectionAgent.ServerProbesThisSite ? "syncing targets (this site is probed by its agent)"
         : ServerCollecting ? "collecting"
         : CollectionAgent.LastCollectionUtc is DateTime last
-            ? $"last collected {TimeFormatHelper.FormatRelativeTime(last).ToLowerInvariant()}"
+            ? $"last collected {TimeFormatHelper.FormatRelativeTime(last, DisplayTime.Zone, DisplayTime.Format).ToLowerInvariant()}"
             : "not collecting";
 
     private string AgentCollectionState
@@ -2781,7 +2803,7 @@
             if (TunnelRegistry.IsAgentLive(_siteAgent)) return $"connected{version}";
             if (_siteAgent.EnrolledAt is null) return "enrolled but never connected";
             return _siteAgent.LastSeenAt is DateTime seen
-                ? $"last seen {TimeFormatHelper.FormatRelativeTime(seen).ToLowerInvariant()}{version}"
+                ? $"last seen {TimeFormatHelper.FormatRelativeTime(seen, DisplayTime.Zone, DisplayTime.Format).ToLowerInvariant()}{version}"
                 : $"not connected{version}";
         }
     }
@@ -2861,12 +2883,6 @@
     private string LinkWanKey => $"{_activeTab}|{WanParam}|{AtParam}|{CategoryParam}|{InvestigateParam}";
 
     /// <summary>
-    /// Whether the link in the address bar is one whose <c>?wan=</c> should narrow this filter. A
-    /// category jump from Live View and an ISP Health investigate jump both are: each says which
-    /// WAN's trouble you came to look at. A discovery link carries a WAN too and is NOT - it is
-    /// asking to run discovery on that WAN, not to re-scope the analysis.
-    /// </summary>
-    /// <summary>
     /// Whether the WAN scope a link asked for is in place, so an investigation fired from that link
     /// searches the WAN the link named rather than whatever the tab loaded with. The investigation
     /// runs from OnAfterRenderAsync ahead of the chart-mount block that applies the link's WAN, so
@@ -2883,10 +2899,22 @@
         || _appliedLinkWanKey == LinkWanKey
         || (_wanOptionsLoaded && _wanOptions.Count == 0);
 
+    /// <summary>
+    /// Whether the link in the address bar is one whose <c>?wan=</c> should narrow this filter. A
+    /// category jump from Live View and an ISP Health investigate jump both are: each says which
+    /// WAN's trouble you came to look at. So is <c>?wan=lan</c> on its own (the Sites card's LAN
+    /// issue): it names the LAN scope outright. A discovery link carries a WAN too and is NOT - it is
+    /// asking to run discovery on that WAN, not to re-scope the analysis.
+    /// </summary>
     private bool LinkNarrowsWanFilter =>
         !string.IsNullOrWhiteSpace(WanParam)
         && (!string.IsNullOrEmpty(CategoryParam)
-            || InvestigateParam is "packet-loss" or "loaded-loss");
+            || InvestigateParam is "packet-loss" or "loaded-loss"
+            || (IsLanScopeToken(WanParam) && _activeTab == "performance"));
+
+    /// <summary>Whether a link's <c>?wan=</c> asks for the LAN scope rather than WANs.</summary>
+    private static bool IsLanScopeToken(string? wanParam) =>
+        string.Equals(wanParam?.Trim(), LanScopeToken, StringComparison.OrdinalIgnoreCase);
 
     private bool _linkNarrowedWanSelection;
 
@@ -5074,23 +5102,29 @@
         var gwFabricUrl = FabricTarget(GetGatewayFabricTargetId(), CurrentAtToken(), LiveWan);
         var gwLatency = GetGatewayLatency();
         <div class="monitoring-stat-cards" style="margin-top: 0.5rem;">
-            <div class="monitoring-stat-card clickable-stat-card" @onclick="@(() => NavigationManager.NavigateTo(gwFabricUrl))">
+            @{ var gwTargetId = GetGatewayFabricTargetId(); }
+            <div class="monitoring-stat-card clickable-stat-card signal-spark-host" @onclick="@(() => NavigationManager.NavigateTo(gwFabricUrl))">
+                <StatTileSparkline Spark="LiveViewSpark.GatewayRtt" Request="@LiveSparkRequest()" Current="gwLatency.rtt" Live="_mapHistoricAt == null" />
                 <div class="stat-value">@FormatRtt(gwLatency.rtt)</div>
                 <div class="stat-label">Gateway RTT</div>
             </div>
-            <div class="monitoring-stat-card clickable-stat-card" @onclick="@(() => NavigationManager.NavigateTo(gwFabricUrl))">
+            <div class="monitoring-stat-card clickable-stat-card signal-spark-host" @onclick="@(() => NavigationManager.NavigateTo(gwFabricUrl))">
+                <StatTileSparkline Spark="LiveViewSpark.GatewayLoss" Request="@LiveSparkRequest()" Current="@(gwTargetId != null ? gwLatency.loss : null)" Live="_mapHistoricAt == null" />
                 <div class="stat-value @(gwLatency.loss > 0 ? "stat-danger" : "")">@FormatLoss(gwLatency.loss)</div>
                 <div class="stat-label">Gateway Loss</div>
             </div>
-            <div class="monitoring-stat-card clickable-stat-card" @onclick="@(() => NavigationManager.NavigateTo(gwDeviceUrl))">
+            <div class="monitoring-stat-card clickable-stat-card signal-spark-host" @onclick="@(() => NavigationManager.NavigateTo(gwDeviceUrl))">
+                <StatTileSparkline Spark="LiveViewSpark.GatewayCpu" Request="@LiveSparkRequest()" Current="gwStats?.CpuPercent" Live="_mapHistoricAt == null" />
                 <div class="stat-value">@FormatPercent(gwStats?.CpuPercent)</div>
                 <div class="stat-label">Gateway CPU</div>
             </div>
-            <div class="monitoring-stat-card clickable-stat-card" @onclick="@(() => NavigationManager.NavigateTo(gwDeviceUrl))">
+            <div class="monitoring-stat-card clickable-stat-card signal-spark-host" @onclick="@(() => NavigationManager.NavigateTo(gwDeviceUrl))">
+                <StatTileSparkline Spark="LiveViewSpark.GatewayMemory" Request="@LiveSparkRequest()" Current="gwStats?.MemoryUsedPercent" Live="_mapHistoricAt == null" />
                 <div class="stat-value">@FormatPercent(gwStats?.MemoryUsedPercent)</div>
                 <div class="stat-label">Gateway Memory</div>
             </div>
-            <div class="monitoring-stat-card clickable-stat-card" @onclick="@(() => NavigationManager.NavigateTo(gwDeviceUrl))">
+            <div class="monitoring-stat-card clickable-stat-card signal-spark-host" @onclick="@(() => NavigationManager.NavigateTo(gwDeviceUrl))">
+                <StatTileSparkline Spark="LiveViewSpark.GatewayTemperature" Request="@LiveSparkRequest()" Current="gwStats?.TemperatureC" Live="_mapHistoricAt == null" />
                 <div class="stat-value">@FormatTemp(gwStats?.TemperatureC)</div>
                 <div class="stat-label">Gateway Temp</div>
             </div>
@@ -5163,28 +5197,9 @@
         }
         var targets = _targets.Where(t => t.TargetType == type && t.Enabled).ToList();
         if (targets.Count == 0) return (null, 0);
-
-        // Pick the target with the lowest RTT (nearest ISP infrastructure).
-        double? bestRtt = null;
-        double bestLoss = 0;
-        var freshLosses = new List<double>();
-        var freshAfter = DateTime.UtcNow - Services.MonitoringLiveStats.LiveReadingMaxAge;
-        foreach (var t in targets)
-        {
-            var s = LiveStats.GetTargetStats(t.TargetId);
-            // Current readings only - a target that stopped reporting must not keep presenting
-            // the reading it carried before it went quiet.
-            if (s == null || s.LastUpdate < freshAfter) continue;
-            freshLosses.Add(s.LossPercent);
-            if (s.RttAvgMs != null && (bestRtt == null || s.RttAvgMs.Value < bestRtt.Value))
-            {
-                bestRtt = s.RttAvgMs;
-                bestLoss = s.LossPercent;
-            }
-        }
-        // Nothing answered, so there is no nearest hop to read loss off; the mean of what did
-        // report is the honest figure, and 0% would read as a healthy connection mid-outage.
-        return (bestRtt, bestRtt == null ? (freshLosses.Count > 0 ? freshLosses.Average() : 0) : bestLoss);
+        // The access floor, as ISP Health reads the access layer; see MonitoringLiveStats.GetIspAccessFloorLive.
+        var (rtt, loss) = LiveStats.GetIspAccessFloorLive(targets.Select(t => t.TargetId));
+        return (rtt, loss ?? 0);
     }
 
 
@@ -5247,6 +5262,19 @@
         NetworkOptimizer.UniFi.GatewayWanHelper.SplitWanLabel(
             wan.Label, NetworkOptimizer.UniFi.GatewayWanHelper.WanIndexFromKey(wan.Key)).WanToken ?? wan.Label;
 
+    /// <summary>What every Live View tile's sparkline reads; the same for all of them, so they share one fetch.</summary>
+    private LiveViewSparkRequest LiveSparkRequest() => new(
+        _gatewayMac, GetGatewayFabricTargetId(),
+        ScopedTargetIds(MonitoringTargetType.AccessIsp), ScopedTargetIds(MonitoringTargetType.Transit));
+    /// <summary>The targets an ISP or Transit tile reads right now: the selected WAN's own, or every enabled one.</summary>
+    private IReadOnlyList<string> ScopedTargetIds(MonitoringTargetType type)
+    {
+        var wan = LiveWan.Selected;
+        var targets = wan == null
+            ? _targets.Where(t => t.TargetType == type && t.Enabled).ToList()
+            : TargetsForWan(type, wan.Key, wan.IsPrimary);
+        return targets.Select(t => t.TargetId).ToList();
+    }
     private List<(string Label, double? Rtt, double Loss)> PerWanTargetStats(MonitoringTargetType type, bool meanAcrossTargets)
     {
         var rows = new List<(string, double?, double)>();
@@ -5269,8 +5297,6 @@
             {
                 var rtts = new List<double>();
                 var losses = new List<double>();
-                double? best = null;
-                double bestLoss = 0;
                 var freshAfter = DateTime.UtcNow - Services.MonitoringLiveStats.LiveReadingMaxAge;
                 foreach (var t in targets)
                 {
@@ -5281,21 +5307,20 @@
                     losses.Add(st.LossPercent);
                     if (st.RttAvgMs == null) continue;
                     rtts.Add(st.RttAvgMs.Value);
-                    if (best == null || st.RttAvgMs.Value < best.Value)
-                    {
-                        best = st.RttAvgMs;
-                        bestLoss = st.LossPercent;
-                    }
                 }
-                // Transit reads as the mean of its hops; the access ISP reads as its nearest clean
-                // hop. Same choice the single-WAN tiles have always made, kept per WAN.
-                rtt = meanAcrossTargets ? (rtts.Count > 0 ? rtts.Average() : null) : best;
-                // With no hop answering there is no nearest hop to read loss off, and taking it
-                // from one anyway left the tile reporting that hop's last loss - 0% - through an
-                // outage where every hop was dark. Fall back to the mean of what did report.
-                loss = meanAcrossTargets || best == null
-                    ? (losses.Count > 0 ? losses.Average() : 0)
-                    : bestLoss;
+                if (meanAcrossTargets)
+                {
+                    // Transit reads as the mean of its hops.
+                    rtt = rtts.Count > 0 ? rtts.Average() : null;
+                    loss = losses.Count > 0 ? losses.Average() : 0;
+                }
+                else
+                {
+                    // The access ISP reads as its access floor, as ISP Health does.
+                    var floor = LiveStats.GetIspAccessFloorLive(targets.Select(t => t.TargetId));
+                    rtt = floor.RttAvgMs;
+                    loss = floor.LossPercent ?? 0;
+                }
             }
             rows.Add((WanRowLabel(wan), rtt, loss));
         }
@@ -5559,7 +5584,7 @@
             var ago = delta.TotalMinutes < 60 ? $"{(int)delta.TotalMinutes}m ago"
                 : delta.TotalHours < 24 ? $"{(int)delta.TotalHours}h ago"
                 : $"{(int)delta.TotalDays}d ago";
-            var localTime = result.Timestamp.ToLocalTime().ToString("M/d h:mm tt");
+            var localTime = result.Timestamp.ToLocalTime(DisplayTime).ToString(DisplayTime.Format.DayTime, DisplayFormat.Culture);
             // The event is found on its single worst target's peak minute, but the highlight should
             // read the loss the score is actually graded on: the pooled per-sample mean across the
             // exact ISP Health loss pool (access + transit excl. non-transit infra + anycast DNS) over
@@ -5606,7 +5631,7 @@
             var ago = delta.TotalMinutes < 60 ? $"{(int)delta.TotalMinutes}m ago"
                 : delta.TotalHours < 24 ? $"{(int)delta.TotalHours}h ago"
                 : $"{(int)delta.TotalDays}d ago";
-            var localTime = result.Timestamp.ToLocalTime().ToString("M/d h:mm tt");
+            var localTime = result.Timestamp.ToLocalTime(DisplayTime).ToString(DisplayTime.Format.DayTime, DisplayFormat.Culture);
             _sfpInvestigateResult = $"SFP {desc} {ago} ({localTime})";
             StateHasChanged();
             await JS.InvokeVoidAsync("eval",

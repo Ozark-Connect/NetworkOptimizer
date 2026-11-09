@@ -620,4 +620,14 @@ public class FirewallGroupHelperTests
     }
 
     #endregion
+
+    [Theory]
+    [InlineData("tcp udp", false, "tcp", true)]
+    [InlineData("TCP UDP", false, "udp", true)]
+    [InlineData("tcp udp", true, "tcp", false)]
+    public void ProtocolMatching_ReadsTcpUdpWithASpace(string protocol, bool opposite, string target, bool matches)
+    {
+        Assert.Equal(matches, FirewallGroupHelper.BlocksProtocol(protocol, opposite, target));
+        Assert.Equal(matches, FirewallGroupHelper.AllowsProtocol(protocol, opposite, target));
+    }
 }

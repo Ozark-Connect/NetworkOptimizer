@@ -84,6 +84,13 @@ public class TourPredicateResolver
     /// </summary>
     public const string RealtekOnt = "realtek-ont";
 
+    /// <summary>
+    /// The site has AP Telemetry turned on. Without it the AP Agent never reports, so the cards built
+    /// from what the APs hear do not render and a step pointing at one must be filtered out BEFORE
+    /// the driver navigates.
+    /// </summary>
+    public const string ApTelemetry = "ap-telemetry";
+
     private readonly SiteManagementService _siteManagement;
     private readonly GatewaySshRegistry _gatewaySshRegistry;
     private readonly SiteConnectionRegistry _siteConnections;
@@ -120,6 +127,7 @@ public class TourPredicateResolver
         (Cellular, HasCellularAsync),
         (CableModem, HasCableModemAsync),
         (RealtekOnt, HasStandaloneRealtekOntAsync),
+        (ApTelemetry, HasApTelemetryAsync),
     };
 
     public class PredicateContext
@@ -375,6 +383,14 @@ public class TourPredicateResolver
     /// <summary>Whether the site has an enabled Realtek ONT stick config not yet attached to an SFP module.</summary>
     private static Task<bool> HasStandaloneRealtekOntAsync(NetworkOptimizerDbContext db) =>
         db.OntConfigurations.AsNoTracking().AnyAsync(c => c.Enabled && c.Provider == "realtek-ont" && c.AttachedSfpId == null);
+
+    /// <summary>Whether the site has AP Telemetry turned on: the same setting the AP Agent deployment reads.</summary>
+    private static async Task<bool> HasApTelemetryAsync(NetworkOptimizerDbContext db)
+    {
+        var setting = await db.SystemSettings.AsNoTracking()
+            .FirstOrDefaultAsync(s => s.Key == ApAgent.ApAgentDeploymentService.SiteEnabledSettingKey);
+        return bool.TryParse(setting?.Value, out var enabled) && enabled;
+    }
 
     /// <summary>
     /// Whether the site has UniFi's Smart Queues turned on for at least one enabled WAN. This one

@@ -627,6 +627,43 @@ public class RolloutConsoleChannelTests
     }
 
     [Fact]
+    public async Task FailedBackup_ThenAnSshInstall_SaysNoBackupWasTaken()
+    {
+        using var harness = new RolloutHarness();
+        harness.Commands.BackupResult = FirmwareCommandResult.Failed("the console could not back up network");
+        harness.Commands.ConsoleInfo = Console(appChannel: "beta", appUpdateAvailable: "10.7.10", appVersion: "10.6.94");
+        await harness.WithSettingsAsync(s => s.GlobalChannel = FirmwareChannels.Beta);
+        var document = NetworkAppPlan();
+        document.NetworkAppUpdate.TargetVersion = "10.7.2";
+        document.NetworkAppUpdate.Url = "https://example.test/unifi/10.7.2/unifi-native_sysvinit.deb";
+        document.NetworkAppUpdate.Pinned = true;
+        var plan = await harness.SeedScheduledPlanAsync(document, RolloutHarness.Start, Step(ApMac));
+        harness.Observer.Set(ApMac, Online, FromVersion, upgradeTo: ToVersion);
+
+        await harness.TickAsync();
+
+        var notes = Stored((await harness.PlanAsync(plan.Id))!).Notes;
+        notes.Should().Contain(FirmwareRolloutOrchestrator.SshBackupNote);
+        notes.Should().NotContain(FirmwareRolloutOrchestrator.ApiBackupNote);
+    }
+
+    [Fact]
+    public async Task FailedBackup_ThenAnApiInstall_KeepsUniFisOwnBackupNote()
+    {
+        using var harness = new RolloutHarness();
+        harness.Commands.BackupResult = FirmwareCommandResult.Failed("the console could not back up network");
+        var plan = await harness.SeedScheduledPlanAsync(NetworkAppPlan(), RolloutHarness.Start, Step(ApMac));
+        harness.Observer.Set(ApMac, Online, FromVersion, upgradeTo: ToVersion);
+
+        await harness.TickAsync();
+
+        harness.Commands.NetworkAppUpdateCalls.Should().Be(1);
+        var notes = Stored((await harness.PlanAsync(plan.Id))!).Notes;
+        notes.Should().Contain(FirmwareRolloutOrchestrator.ApiBackupNote);
+        notes.Should().NotContain(FirmwareRolloutOrchestrator.SshBackupNote);
+    }
+
+    [Fact]
     public async Task APinnedDeviceImage_NeverFallsBackToTheConsolesOwnBuild()
     {
         using var harness = new RolloutHarness();
@@ -808,7 +845,7 @@ public class RolloutConsoleChannelTests
     [Fact]
     public async Task AConsoleUpdateBehindTheInstalledBuild_IsRefused()
     {
-        // Live on atl-1365: the console ran 5.1.28 and, once GA was selected, offered 5.1.19 as its
+        // Live on a branch site: the console ran 5.1.28 and, once GA was selected, offered 5.1.19 as its
         // pending update. Installing it would have rebooted the console onto an older UniFi OS.
         using var harness = new RolloutHarness();
         harness.Commands.ConsoleInfo = Console(osChannel: "release", installedOs: "5.1.28");

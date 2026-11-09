@@ -139,6 +139,8 @@ public class FirewallRuleParser
         var index = policy.GetIntOrDefault("index", 0);
         var predefined = policy.GetBoolOrDefault("predefined", false);
         var icmpTypename = policy.GetStringOrNull("icmp_typename");
+        var scheduleMode = policy.TryGetProperty("schedule", out var schedule) && schedule.ValueKind == JsonValueKind.Object
+            ? schedule.GetStringOrNull("mode") : null;
 
         // Extract connection state info
         var connectionStateType = policy.GetStringOrNull("connection_state_type");
@@ -408,6 +410,7 @@ public class FirewallRuleParser
             AppIds = appIds,
             AppCategoryIds = appCategoryIds,
             IcmpTypename = icmpTypename,
+            ScheduleMode = scheduleMode,
             // Zone and match opposite flags
             SourceZoneId = sourceZoneId,
             DestinationZoneId = destZoneId,

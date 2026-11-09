@@ -387,6 +387,7 @@ public class ScriptGenerator
         if (dynamicUpload)
             sb.AppendLine($"MIN_UPLOAD_SPEED=\"{_config.MinUploadSpeed}\"");
         sb.AppendLine($"DOWNLOAD_BURST_MODE={(_config.RateProportionalDownloadBurst ? "1" : "0")}");
+        AppendDownloadQdisc(sb);
         sb.AppendLine($"DOWNLOAD_SPEED_MULTIPLIER=\"{Inv(_config.OverheadMultiplier)}\"");
         if (_config.MeasuredToShapedFactor != 1.0)
             sb.AppendLine($"MEASURED_TO_SHAPED=\"{Inv(_config.MeasuredToShapedFactor)}\"");
@@ -614,6 +615,7 @@ public class ScriptGenerator
         if (dynamicUpload)
             sb.AppendLine($"MIN_UPLOAD_SPEED=\"{_config.MinUploadSpeed}\"");
         sb.AppendLine($"DOWNLOAD_BURST_MODE={(_config.RateProportionalDownloadBurst ? "1" : "0")}");
+        AppendDownloadQdisc(sb);
         sb.AppendLine($"SAFETY_CAP=\"{Inv(_config.SafetyCapPercent)}\"");
         sb.AppendLine($"NOMINAL_SPEED=\"{_config.NominalDownloadSpeed}\"");
         // Physical link speed final clamp (0 = unknown, skip clamp). LINK_SPEED_HEADROOM reserves
@@ -622,6 +624,13 @@ public class ScriptGenerator
         sb.AppendLine($"LINK_SPEED_HEADROOM=\"0.98\"");
         sb.AppendLine($"RESULT_FILE=\"/data/sqm/{_name}-result.txt\"");
         sb.AppendLine($"LOG_FILE=\"/var/log/sqm-{_name}.log\"");
+        sb.AppendLine($"HOLD_FILE=\"/data/sqm/{_name}-hold.txt\"");
+        sb.AppendLine($"HOLD_RUNS={HoldRuns}");
+        sb.AppendLine($"RECOVER_FILE=\"/data/sqm/{_name}-recovered.txt\"");
+        sb.AppendLine($"OSCILLATION_WINDOW={OscillationWindowSeconds}");
+        // Read by the next deploy: scripts without it predate the restore, and the trees they tuned
+        // carry values (fq_codel limit 2000) that only a restore puts back.
+        sb.AppendLine($"TREE_MODEL={TreeModel}");
         sb.AppendLine();
 
         // Baseline data
@@ -795,6 +804,12 @@ public class ScriptGenerator
         sb.AppendLine("fi");
         sb.AppendLine();
 
+        // TC functions first: the hysteresis reads the rate the last run set
+        sb.AppendLine(GetTcUpdateFunction());
+        sb.AppendLine();
+        sb.AppendLine(HysteresisLogicText);
+        sb.AppendLine();
+
         if (dynamicUpload)
         {
             // The ping cannot tell which direction is saturated, so a latency cut scales upload
@@ -807,16 +822,15 @@ public class ScriptGenerator
             sb.AppendLine();
         }
 
-        // TC update function and apply
-        sb.AppendLine(GetTcUpdateFunction());
-        sb.AppendLine();
-
         // Skip tc update if rate hasn't changed (avoids no-op tc rewrites every minute)
         sb.AppendLine("# Skip tc update if rate unchanged");
-        sb.AppendLine("current_rate=$(tc class show dev $IFB_DEVICE 2>/dev/null | grep \"class htb 1:1 root\" | grep -o \"rate [0-9]*Mbit\" | grep -o \"[0-9]*\")");
+        sb.AppendLine("current_rate=$(read_root_rate_mbps $IFB_DEVICE)");
+        // UniFi may have rebuilt its HTB tree at the very rate we want: that must not read as
+        // unchanged, or CAKE would not come back until the rate moves.
+        sb.AppendLine("if [ \"$DOWNLOAD_QDISC\" = \"cake\" ] && ! device_has_cake_root $IFB_DEVICE; then current_rate=\"\"; fi");
         if (dynamicUpload)
         {
-            sb.AppendLine("current_up_rate=$(tc class show dev $INTERFACE 2>/dev/null | grep \"class htb 1:1 root\" | grep -o \"rate [0-9]*Mbit\" | grep -o \"[0-9]*\")");
+            sb.AppendLine("current_up_rate=$(read_root_rate_mbps $INTERFACE)");
             sb.AppendLine("if [ \"$new_rate_int\" = \"$current_rate\" ] && [ \"$upload_rate\" = \"$current_up_rate\" ]; then");
         }
         else
@@ -937,6 +951,49 @@ if [ ""$upload_rate"" -gt ""$UPLOAD_SPEED"" ]; then upload_rate=$UPLOAD_SPEED; f
     /// </summary>
     private string GetTcUpdateFunction() => TcFunctionsText;
 
+    /// <summary>
+    /// The download qdisc the scripts keep on the IFB: UniFi's HTB tree, or the opt-in CAKE root
+    /// with its fixed options. Both scripts define both variables so the tc functions never see
+    /// a half-configured CAKE.
+    /// </summary>
+    private void AppendDownloadQdisc(StringBuilder sb)
+    {
+        sb.AppendLine($"DOWNLOAD_QDISC=\"{(_config.CakeDownload ? "cake" : "htb")}\"");
+        sb.AppendLine($"CAKE_DOWNLOAD_OPTS=\"{CakeDownloadOptions(_config.Interface)}\"");
+    }
+
+    /// <summary>
+    /// Handle of Adaptive SQM's CAKE root. UniFi only builds HTB, so a cake root with this handle
+    /// is ours to remove. TcFunctionsText carries the same value as CAKE_HANDLE.
+    /// </summary>
+    public const string CakeHandle = "ca4e:";
+
+    /// <summary>
+    /// Per-packet overhead CAKE adds on the download IFB. The IFB sees the IP packet, so CAKE has to
+    /// be told what the wire adds: Ethernet header, FCS, preamble and inter-frame gap (38), a VLAN
+    /// tag (4), and PPPoE plus PPP (8). A PPPoE WAN is assumed to ride a VLAN, which is what PPPoE
+    /// ISPs ship; on an untagged carrier that is 4 bytes high, the conservative side.
+    /// </summary>
+    public static int CakeOverheadBytes(string interfaceName)
+    {
+        if (interfaceName.StartsWith("ppp", StringComparison.Ordinal))
+            return 50;
+        return interfaceName.Contains('.') ? 42 : 38;
+    }
+
+    /// <summary>
+    /// The CAKE options for the download IFB, everything but bandwidth. No memlimit: CAKE's default
+    /// (4 x rate x interval, capped at limit x MTU) holds GRO traffic that a byte-sized limit does not.
+    /// besteffort: one tin, internet DSCP is not trusted. ingress: count drops against the rate,
+    /// the shaper sits after the bottleneck. dual-dsthost nat: fairness between LAN devices,
+    /// looked up through conntrack. no-split-gso: splitting undoes GRO on the download path (two
+    /// flows fell from 888 to 620 Mbit with one core at 100% on a UCG-Fiber), and CAKE turns
+    /// splitting on below 1 Gbit unless told otherwise. mpu 84: the 64-byte minimum frame plus
+    /// preamble and gap.
+    /// </summary>
+    public static string CakeDownloadOptions(string interfaceName) =>
+        $"besteffort ingress dual-dsthost nat no-split-gso overhead {CakeOverheadBytes(interfaceName)} mpu 84";
+
     /// <summary>The shell arithmetic helpers every generated rate calculation goes through.</summary>
     private static string GetArithmeticFunctions() => ArithmeticFunctionsText;
 
@@ -1014,14 +1071,6 @@ calc_fq_mem() {
     echo ""$mem""
 }
 
-# Calculate fq_codel packet limit scaled to rate
-# Stock 2000p is fine for all tested rates — not the binding constraint
-calc_fq_limit() {
-    local rate_mbps=$1
-    local limit=2000
-    echo ""$limit""
-}
-
 # Function to update all TC classes on a device
 # Usable means a number carrying a non-zero digit. Pure shell: the arithmetic that produced the
 # value may be exactly what failed, and an integer test would truncate a fractional rate to 0.
@@ -1029,6 +1078,55 @@ rate_is_valid() {
     [ -n ""$1"" ] || return 1
     echo ""$1"" | grep -qE '^[0-9]+\.?[0-9]*$' || return 1
     echo ""$1"" | grep -q '[1-9]'
+}
+
+# Opt-in CAKE on the download IFB. UniFi only ever builds HTB, so a CAKE root carrying this
+# handle is Adaptive SQM's own: a deploy or Remove that turns CAKE off deletes only that one.
+CAKE_HANDLE=""ca4e:""
+
+device_has_cake_root() {
+    tc qdisc show dev $1 2>/dev/null | grep -qE ""^qdisc cake [0-9a-f]+: root""
+}
+
+# Current root rate in whole Mbps: the HTB root class 1:1, or a CAKE root's bandwidth. Empty when
+# the device has neither (Smart Queues off, UniFi mid-provision, or CAKE unlimited).
+read_root_rate_mbps() {
+    local device=$1
+    local rate_str=$(tc class show dev $device 2>/dev/null | grep ""class htb 1:1 root"" | grep -o ""rate [0-9]*[a-zA-Z]*"" | awk '{print $2}')
+    if [ -z ""$rate_str"" ]; then
+        rate_str=$(tc qdisc show dev $device 2>/dev/null | grep -E ""^qdisc cake [0-9a-f]+: root"" | grep -o ""bandwidth [0-9]*[a-zA-Z]*"" | awk '{print $2}')
+    fi
+    [ -z ""$rate_str"" ] && return
+    case ""$rate_str"" in
+        *Gbit)  echo $(( $(echo ""$rate_str"" | sed 's/Gbit//') * 1000 )) ;;
+        *Mbit)  echo ""$rate_str"" | sed 's/Mbit//' ;;
+        *Kbit)  echo $(( ($(echo ""$rate_str"" | sed 's/Kbit//') + 500) / 1000 )) ;;
+        *bit)   echo $(( ($(echo ""$rate_str"" | sed 's/bit//') + 500000) / 1000000 )) ;;
+    esac
+}
+
+# Set the CAKE root's bandwidth, installing it over UniFi's HTB tree when UniFi has (re)built that
+# tree: boot, PPPoE redial, a Smart Queues toggle or a QoS edit. Every call restates the full
+# option set, so no-split-gso can never fall back to the kernel default. memlimit is left to
+# CAKE's own sizing: CAKE counts skb truesize, and with GRO the fq_codel sizing filled at ~2 MB of backlog.
+apply_cake_root() {
+    local device=$1
+    local new_rate=$2
+    if device_has_cake_root $device; then
+        tc qdisc change dev $device root cake bandwidth ${new_rate}Mbit $CAKE_DOWNLOAD_OPTS
+        return
+    fi
+    local qos_classes=$(tc class show dev $device 2>/dev/null | grep -E ""parent 1:1( |$)"" | grep -o ""rate [0-9]*[a-zA-Z]*"" | grep -cvE ""rate (64bit|100Kbit)$"")
+    if [ ""${qos_classes:-0}"" -gt 0 ] 2>/dev/null; then
+        echo ""[$(date)] WARNING: $qos_classes UniFi QoS class(es) on $device do not apply under CAKE"" >> ""${LOG_FILE:-/dev/null}""
+    fi
+    modprobe sch_cake >/dev/null 2>&1
+    if tc qdisc replace dev $device root handle $CAKE_HANDLE cake bandwidth ${new_rate}Mbit $CAKE_DOWNLOAD_OPTS; then
+        echo ""[$(date)] CAKE installed on $device at ${new_rate} Mbps"" >> ""${LOG_FILE:-/dev/null}""
+    else
+        echo ""[$(date)] ERROR: could not install CAKE on $device"" >> ""${LOG_FILE:-/dev/null}""
+        return 1
+    fi
 }
 
 update_all_tc_classes() {
@@ -1039,12 +1137,28 @@ update_all_tc_classes() {
         echo ""[$(date)] ERROR: refusing tc update on $device, rate '$new_rate' is not a usable rate"" >> ""${LOG_FILE:-/dev/null}""
         return 1
     fi
+    # CAKE is download-only and never touches the WAN device itself. DOWNLOAD_QDISC is cake when
+    # the WAN opted in, existing for the shaper lift (retune a CAKE root that is there, install
+    # nothing), and htb or unset otherwise.
+    if [ ""$device"" = ""$IFB_DEVICE"" ]; then
+        case ""${DOWNLOAD_QDISC:-htb}"" in
+            cake)
+                apply_cake_root $device $new_rate
+                return
+                ;;
+            existing)
+                if device_has_cake_root $device; then
+                    apply_cake_root $device $new_rate
+                    return
+                fi
+                ;;
+        esac
+    fi
     # Burst mode is per-WAN and download-only: callers on the IFB pass $DOWNLOAD_BURST_MODE,
     # egress callers omit it and stay on the conservative sizing.
     local burst_mode=${3:-0}
     local burst=$(calc_burst $new_rate $burst_mode)
     local fq_mem=$(calc_fq_mem $new_rate)
-    local fq_limit=$(calc_fq_limit $new_rate)
 
     # Update the root class 1:1 with rate and ceil
     tc class change dev $device parent 1: classid 1:1 htb rate ${new_rate}Mbit ceil ${new_rate}Mbit burst ${burst}b cburst ${burst}b
@@ -1069,8 +1183,9 @@ update_all_tc_classes() {
             local qdisc_line=$(tc qdisc show dev $device | grep -E ""parent ${classid}( |$)"")
             local qdisc_type=$(echo ""$qdisc_line"" | awk '{print $2}')
             local leaf_qdisc=$(echo ""$qdisc_line"" | awk '{print $3}')
+            # No limit: UniFi sizes it (2000p, 10240p above 1 Gbit on UniFi OS 6), and a change keeps it
             if [ ""$qdisc_type"" = ""fq_codel"" ] && [ -n ""$leaf_qdisc"" ]; then
-                tc qdisc change dev $device parent $classid handle $leaf_qdisc fq_codel limit $fq_limit memory_limit $fq_mem target 5ms interval 100ms ecn
+                tc qdisc change dev $device parent $classid handle $leaf_qdisc fq_codel memory_limit $fq_mem target 5ms interval 100ms ecn
             fi
 
             if [ -n ""$prio"" ]; then
@@ -1086,24 +1201,9 @@ update_all_tc_classes() {
 # Reads the current root rate and applies scaled burst/memory params
 tune_tc_performance() {
     local device=$1
+    local current_rate=$(read_root_rate_mbps $device)
 
-    # Read current root rate string from 1:1 class (e.g., ""1Gbit"", ""980Mbit"", ""29Mbit"")
-    local rate_str=$(tc class show dev $device | grep ""class htb 1:1 root"" | grep -o ""rate [0-9]*[a-zA-Z]*"" | awk '{print $2}')
-    if [ -z ""$rate_str"" ]; then
-        return
-    fi
-
-    # Convert to Mbps based on unit suffix
-    local current_rate
-    case ""$rate_str"" in
-        *Gbit)  current_rate=$(echo ""$rate_str"" | sed 's/Gbit//') ; current_rate=$((current_rate * 1000)) ;;
-        *Mbit)  current_rate=$(echo ""$rate_str"" | sed 's/Mbit//') ;;
-        *Kbit)  current_rate=$(echo ""$rate_str"" | sed 's/Kbit//') ; current_rate=$(( (current_rate + 500) / 1000 )) ;;
-        *bit)   current_rate=$(echo ""$rate_str"" | sed 's/bit//') ; current_rate=$(( (current_rate + 500000) / 1000000 )) ;;
-        *)      return ;;
-    esac
-
-    if [ ""$current_rate"" -le 0 ] 2>/dev/null; then
+    if [ -z ""$current_rate"" ] || [ ""$current_rate"" -le 0 ] 2>/dev/null; then
         return
     fi
 
@@ -1214,13 +1314,69 @@ else
 fi";
     }
 
+    /// <summary>Ping runs a latency cut is held for before the rate climbs again.</summary>
+    public const int HoldRuns = 3;
+
+    /// <summary>
+    /// Version of the shape the scripts leave UniFi's trees in. A deploy restores UniFi's trees when
+    /// the scripts it replaces carry an older one (or none).
+    /// </summary>
+    public const int TreeModel = 2;
+
+    /// <summary>Seconds after a recovery in which a new latency cut counts as oscillation.</summary>
+    public const int OscillationWindowSeconds = 300;
+
+    /// <summary>
+    /// Hysteresis for the ping script. Each run computes the rate from the schedule ceiling alone, so
+    /// at a line's limit it cut and recovered every minute. A one-off cut (a speed test, a burst)
+    /// still recovers on the next normal run. A cut within <see cref="OscillationWindowSeconds"/> of
+    /// recovering from the previous one is oscillation: that cut holds for <see cref="HoldRuns"/>
+    /// runs, then climbs one LATENCY_INCREASE step per run until it reaches the computed rate.
+    /// The swing comes from upstream congestion or from our own heavy downloads filling a short
+    /// upstream queue; the ping cannot tell them apart, and both persist, so both get the hold.
+    /// Only a recovery from a cut is ever limited, never a tree UniFi rebuilt at its own lower rate.
+    /// HOLD_FILE: runs left, "c" while climbing, "p" after a one-off cut, or 0. RECOVER_FILE: when the
+    /// rate last recovered from a cut (epoch seconds).
+    /// </summary>
+    internal static string HysteresisLogicText => @"# Hysteresis: a cut soon after the last recovery holds, then climbs back in steps
+prev_rate=$(read_root_rate_mbps $IFB_DEVICE)
+hold=$(cat ""$HOLD_FILE"" 2>/dev/null)
+case ""$hold"" in c|p|[0-9]|[0-9][0-9]) ;; *) hold=0 ;; esac
+now=$(date +%s)
+last_recover=$(cat ""$RECOVER_FILE"" 2>/dev/null)
+case ""$last_recover"" in ''|*[!0-9]*) last_recover=0 ;; esac
+climbs=0
+rate_is_valid ""$prev_rate"" && [ ""$new_rate_int"" -gt ""$prev_rate"" ] && climbs=1
+if [ ""$latency_cut"" = ""1"" ]; then
+    if [ $((now - last_recover)) -lt $OSCILLATION_WINDOW ]; then hold=$HOLD_RUNS; else hold=p; fi
+elif [ ""$hold"" = ""p"" ]; then
+    hold=0
+    [ ""$climbs"" = ""1"" ] && echo ""$now"" > ""$RECOVER_FILE""
+elif [ ""$hold"" = ""c"" ]; then
+    hold=0
+    if [ ""$climbs"" = ""1"" ]; then
+        step=$(num_i ""$prev_rate * $LATENCY_INCREASE"")
+        [ ""$step"" -le ""$prev_rate"" ] && step=$((prev_rate + 1))
+        if [ ""$new_rate_int"" -gt ""$step"" ]; then new_rate_int=$step; hold=c; fi
+    fi
+    [ ""$hold"" = ""0"" ] && echo ""$now"" > ""$RECOVER_FILE""
+elif [ ""$hold"" -gt 0 ]; then
+    hold=$((hold - 1))
+    [ ""$hold"" -eq 0 ] && hold=c
+    [ ""$climbs"" = ""1"" ] && new_rate_int=$prev_rate
+fi
+echo ""$hold"" > ""$HOLD_FILE""
+new_rate=$new_rate_int";
+
     /// <summary>
     /// Get latency adjustment logic for ping script
     /// </summary>
     private string GetLatencyAdjustmentLogic()
     {
         return @"# Latency-based adjustment
+latency_cut=0
 if (( $(num_bool ""$latency >= $BASELINE_LATENCY + $LATENCY_THRESHOLD"") )); then
+    latency_cut=1
     # High latency: decrease rate with non-linear response ((n+1)^0.7 - 1)
     # Gentle at low deviations (transient spikes), aggressive at high (real congestion)
     effective_count=$(num_s 4 ""exp(0.7 * log($deviation_count + 1)) - 1"")

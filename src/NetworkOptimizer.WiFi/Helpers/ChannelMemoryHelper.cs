@@ -391,6 +391,7 @@ public static class ChannelMemoryHelper
         foreach (var scan in pooledScans)
         {
             var apKey = scan.ApMac.ToLowerInvariant();
+            // Site BSSIDs stay in: they only suppress remembered rows, and none of those is ever own.
             foreach (var nb in scan.Neighbors)
             {
                 if (string.IsNullOrEmpty(nb.Bssid)) continue;

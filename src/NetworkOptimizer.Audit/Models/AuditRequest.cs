@@ -100,6 +100,12 @@ public class AuditRequest
     public List<string>? TrustedDnsRedirectTargets { get; init; }
 
     /// <summary>
+    /// Optional: leave Guest and Hotspot networks out of DNS coverage checks (Settings: Allow Guest / Hotspot Public DNS).
+    /// Off by default: guest DNS is checked like any other network's.
+    /// </summary>
+    public bool AllowGuestPublicDns { get; init; }
+
+    /// <summary>
     /// Optional: Custom port for third-party DNS management interface (Pi-hole, AdGuard Home, etc.)
     /// If not specified, auto-probes ports 80, 443, 8080, 3000
     /// </summary>
@@ -169,4 +175,19 @@ public class AuditRequest
     /// When present, port forward issues targeting actively attacked ports get severity bumps.
     /// </summary>
     public ConfigAuditEngine.ThreatContext? ThreatContext { get; init; }
+
+    /// <summary>
+    /// Optional: The gateway's own firewall state, read over gateway SSH. Null when the site has no gateway SSH or
+    /// the read failed; the gateway firewall checks are then skipped.
+    /// </summary>
+    public GatewayFirewallSnapshot? GatewayFirewall { get; init; }
+
+    /// <summary>Optional: Each WAN's data-path interface on the gateway, for the gateway firewall checks.</summary>
+    public List<GatewayWanPath>? GatewayWanInterfaces { get; init; }
+
+    /// <summary>
+    /// Optional: What Threat Intelligence's gateway agent blocking should have in place on the gateway. Null when the
+    /// site does not block through a gateway agent.
+    /// </summary>
+    public GatewayBlocklistExpectation? GatewayBlocklist { get; init; }
 }

@@ -10,6 +10,7 @@
 @inject MonitoringInfluxClient Influx
 @inject NetworkOptimizer.Storage.Services.SiteDbContextFactory SiteDb
 @inject SiteContextService SiteCtx
+@inject IDisplayTimeZone DisplayTime
 
 <PageTitle>Device @Mac - Network Optimizer</PageTitle>
 
@@ -110,14 +111,14 @@
                                      Items="_rateSeries"
                                      Name="↓ Downstream"
                                      SeriesType="SeriesType.Area"
-                                     XValue="e => DateTime.SpecifyKind(e.Time, DateTimeKind.Utc)"
+                                     XValue="e => DisplayTime.ToChart(e.Time)"
                                      YValue="e => (decimal?)(e.RateInBps)"
                                      OrderBy="e => e.X" />
                     <ApexPointSeries TItem="RatePoint"
                                      Items="_rateSeries"
                                      Name="↑ Upstream"
                                      SeriesType="SeriesType.Area"
-                                     XValue="e => DateTime.SpecifyKind(e.Time, DateTimeKind.Utc)"
+                                     XValue="e => DisplayTime.ToChart(e.Time)"
                                      YValue="e => (decimal?)(e.RateOutBps)"
                                      OrderBy="e => e.X" />
                 </ApexChart>
@@ -144,14 +145,14 @@
                                          Items="_latencySeries"
                                          Name="RTT (ms)"
                                          SeriesType="SeriesType.Line"
-                                         XValue="e => DateTime.SpecifyKind(e.Time, DateTimeKind.Utc)"
+                                         XValue="e => DisplayTime.ToChart(e.Time)"
                                          YValue="e => (decimal?)e.RttMs"
                                          OrderBy="e => e.X" />
                         <ApexPointSeries TItem="LatencyPlotPoint"
                                          Items="_latencySeries"
                                          Name="Loss %"
                                          SeriesType="SeriesType.Line"
-                                         XValue="e => DateTime.SpecifyKind(e.Time, DateTimeKind.Utc)"
+                                         XValue="e => DisplayTime.ToChart(e.Time)"
                                          YValue="e => (decimal?)e.LossPercent"
                                          OrderBy="e => e.X" />
                     </ApexChart>
@@ -172,21 +173,21 @@
                                          Items="_healthSeries"
                                          Name="CPU %"
                                          SeriesType="SeriesType.Line"
-                                         XValue="e => DateTime.SpecifyKind(e.Time, DateTimeKind.Utc)"
+                                         XValue="e => DisplayTime.ToChart(e.Time)"
                                          YValue="e => (decimal?)e.CpuPercent"
                                          OrderBy="e => e.X" />
                         <ApexPointSeries TItem="HealthPlotPoint"
                                          Items="_healthSeries"
                                          Name="Memory %"
                                          SeriesType="SeriesType.Line"
-                                         XValue="e => DateTime.SpecifyKind(e.Time, DateTimeKind.Utc)"
+                                         XValue="e => DisplayTime.ToChart(e.Time)"
                                          YValue="e => (decimal?)e.MemoryUsedPercent"
                                          OrderBy="e => e.X" />
                         <ApexPointSeries TItem="HealthPlotPoint"
                                          Items="_healthSeries"
                                          Name="Temp °C"
                                          SeriesType="SeriesType.Line"
-                                         XValue="e => DateTime.SpecifyKind(e.Time, DateTimeKind.Utc)"
+                                         XValue="e => DisplayTime.ToChart(e.Time)"
                                          YValue="e => (decimal?)e.TemperatureC"
                                          OrderBy="e => e.X" />
                     </ApexChart>
@@ -231,6 +232,9 @@
 
     protected override async Task OnInitializedAsync()
     {
+        ChartTimeFormat.ApplyTimeAxis(_rateChartOptions.Xaxis.Labels, DisplayTime);
+        ChartTimeFormat.ApplyTimeAxis(_latencyChartOptions.Xaxis.Labels, DisplayTime);
+        ChartTimeFormat.ApplyTimeAxis(_healthChartOptions.Xaxis.Labels, DisplayTime);
         Refresh();
         await LoadDisplayNameAsync();
         await LoadChartsAsync();
@@ -378,9 +382,7 @@
             Type = XAxisType.Datetime,
             Labels = new XAxisLabels
             {
-                Style = new AxisLabelStyle { Colors = "#9ca3af" },
-                DatetimeUTC = false,
-                DatetimeFormatter = new DatetimeFormatter { Hour = "HH:mm", Day = "MMM dd" }
+                Style = new AxisLabelStyle { Colors = "#9ca3af" }
             },
             AxisBorder = new AxisBorder { Show = false }
         },
@@ -398,7 +400,7 @@
         },
         Grid = new Grid { BorderColor = "#374151", StrokeDashArray = 3 },
         Legend = new Legend { Show = true, Labels = new LegendLabels { Colors = new Color("#cbd5e1") } },
-        Tooltip = new Tooltip { Theme = Mode.Dark, Shared = true, X = new TooltipX { Format = "MMM dd, HH:mm:ss" } }
+        Tooltip = new Tooltip { Theme = Mode.Dark, Shared = true, X = new TooltipX { Format = "MMM dd, HH:mm:ss", Formatter = ChartTimeFormat.TooltipSeconds } }
     };
 
     private static ApexChartOptions<LatencyPlotPoint> BuildLatencyOptions() => new()
@@ -417,9 +419,7 @@
             Type = XAxisType.Datetime,
             Labels = new XAxisLabels
             {
-                Style = new AxisLabelStyle { Colors = "#9ca3af" },
-                DatetimeUTC = false,
-                DatetimeFormatter = new DatetimeFormatter { Hour = "HH:mm", Day = "MMM dd" }
+                Style = new AxisLabelStyle { Colors = "#9ca3af" }
             }
         },
         Yaxis = new List<YAxis>
@@ -429,7 +429,7 @@
         },
         Grid = new Grid { BorderColor = "#374151", StrokeDashArray = 3 },
         Legend = new Legend { Show = true, Labels = new LegendLabels { Colors = new Color("#cbd5e1") } },
-        Tooltip = new Tooltip { Theme = Mode.Dark, Shared = true }
+        Tooltip = new Tooltip { Theme = Mode.Dark, Shared = true, X = new TooltipX { Format = "MMM dd, HH:mm:ss", Formatter = ChartTimeFormat.TooltipSeconds } }
     };
 
     private static ApexChartOptions<HealthPlotPoint> BuildHealthOptions() => new()
@@ -448,9 +448,7 @@
             Type = XAxisType.Datetime,
             Labels = new XAxisLabels
             {
-                Style = new AxisLabelStyle { Colors = "#9ca3af" },
-                DatetimeUTC = false,
-                DatetimeFormatter = new DatetimeFormatter { Hour = "HH:mm", Day = "MMM dd" }
+                Style = new AxisLabelStyle { Colors = "#9ca3af" }
             }
         },
         Yaxis = new List<YAxis>
@@ -459,7 +457,7 @@
         },
         Grid = new Grid { BorderColor = "#374151", StrokeDashArray = 3 },
         Legend = new Legend { Show = true, Labels = new LegendLabels { Colors = new Color("#cbd5e1") } },
-        Tooltip = new Tooltip { Theme = Mode.Dark, Shared = true }
+        Tooltip = new Tooltip { Theme = Mode.Dark, Shared = true, X = new TooltipX { Format = "MMM dd, HH:mm:ss", Formatter = ChartTimeFormat.TooltipSeconds } }
     };
 
     public class RatePoint

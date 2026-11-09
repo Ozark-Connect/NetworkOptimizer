@@ -242,7 +242,21 @@ public class SharedFirmwareCatalogServiceTests
 
         result.Kind.Should().Be(FirmwareUrlKind.NetworkApp);
         result.DisplayName.Should().Be("UniFi Network 10.6.97");
-        (await _catalog.FindNewerNetworkAppBuildAsync(FirmwareChannels.Beta, "10.5.0"))!.Version.Should().Be("10.6.97");
+        var row = (await _catalog.ListNetworkAppBuildsAsync()).Should().ContainSingle().Subject;
+        row.Channel.Should().Be(FirmwareChannels.Beta);
+        row.Version.Should().Be("10.6.97");
+        row.Platform.Should().BeEmpty("a public link names no console platform, so no console adopts it");
+    }
+
+    [Fact]
+    public async Task FilesAConsolePackageLinkUnderItsPlatform()
+    {
+        await _service.AddFirmwareUrlAsync(
+            "https://fw-download.ubnt.com/data/unifi-native/0a0a-uos-deb13-arm64-10.6.97-30000-1-00000000-0000-0000-0000-000000000000.deb");
+
+        (await _catalog.FindNewerNetworkAppBuildAsync("uos-deb13-arm64", FirmwareChannels.Beta, "10.5.0"))!.Version.Should().Be("10.6.97");
+        (await _catalog.FindNewerNetworkAppBuildAsync("uos-deb13-amd64", FirmwareChannels.Beta, "10.5.0")).Should().BeNull();
+        (await _catalog.ListNetworkAppPackagesAsync()).Should().ContainSingle(p => p.Platform == "uos-deb13-arm64");
     }
 
     [Fact]

@@ -1,0 +1,556 @@
+@using NetworkOptimizer.Web.Services.ChangeControl
+@inject IChangeControlService Site
+@inject SiteContextService SiteCtx
+@inject NavigationManager Nav
+@inject ILogger<CcReaddress> Logger
+@inject IJSRuntime JS
+@inject CcPlanDrafts Drafts
+@implements IDisposable
+@inject IDisplayTimeZone DisplayTime
+
+<div class="card">
+    <div class="card-header">
+        <h3 class="card-title">Re-address Networks<span class="card-title-suffix">@SiteName</span></h3>
+    </div>
+    <p class="cc-card-intro">Moves each network to a new subnet, with every address in it: reservations, DNS records, port forwards, firewall matches, routes, device static IPs, and Network Optimizer's own settings. Each address keeps its host part.</p>
+    <div class="card-body">
+        <div class="form-group cc-readdress-pattern">
+            <label class="form-label">Pattern <span class="tooltip-icon tooltip-icon-sm" data-tooltip="{vlan} is the network's VLAN ID;{octet3} is its current third octet. Shorthand works too: 10.42.x.x or 10.42.*.0 puts the VLAN ID in the third octet, and no /n keeps each network's prefix.">?</span></label>
+            <div class="input-with-button">
+                <input class="form-control" placeholder="10.42.{vlan}.0/24" @bind="_pattern" @bind:event="oninput" @onkeydown="PatternKeyAsync" />
+                <button class="btn btn-contrast" disabled="@(_busy || string.IsNullOrWhiteSpace(_pattern))" @onclick="ApplyPatternAsync">Apply Pattern</button>
+            </div>
+            <small class="form-help">Fills in every network below. Edit any row after.</small>
+        </div>
+    </div>
+    @if (_view == null)
+    {
+        <div class="loading-container"><div class="spinner"></div></div>
+    }
+    else if (_view.Moves.Count == 0)
+    {
+        <div class="empty-state empty-state-small"><p>No LAN networks with a subnet on this site.</p></div>
+    }
+    else
+    {
+        <div class="cc-phone-only">
+            @foreach (var m in _view.Moves)
+            {
+                <div class="cc-map-card">
+                    <div class="cc-change-card-head"><b>@m.NetworkName</b><span class="muted-text">VLAN @(m.Vlan ?? 1)</span></div>
+                    <div class="cc-item-detail">Currently <code>@m.OldCidr</code></div>
+                    <input class="form-control cc-port-select" value="@NewFor(m)" placeholder="New subnet"
+                           @oninput="e => Typed(m.NetworkId, e.Value?.ToString())"
+                           @onchange="e => SetSubnet(m.NetworkId, e.Value?.ToString())" />
+                </div>
+            }
+        </div>
+        <div class="table-responsive hide-mobile">
+            <table class="data-table cc-port-table">
+                <thead><tr><th>Network</th><th>VLAN</th><th>Currently</th><th>New subnet</th></tr></thead>
+                <tbody>
+                    @foreach (var m in _view.Moves)
+                    {
+                        <tr>
+                            <td>@m.NetworkName</td>
+                            <td>@(m.Vlan ?? 1)</td>
+                            <td><code>@m.OldCidr</code></td>
+                            <td>
+                                <input class="form-control cc-port-select" value="@NewFor(m)" placeholder="@m.OldCidr"
+                                       @oninput="e => Typed(m.NetworkId, e.Value?.ToString())"
+                                       @onchange="e => SetSubnet(m.NetworkId, e.Value?.ToString())" />
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+</div>
+
+@if (_previewed && _view is { } v)
+{
+    @if (v.Errors.Count > 0)
+    {
+        <div class="card">
+            <div class="card-header"><h3 class="card-title">Problems<span class="card-title-suffix">fix these first</span></h3></div>
+            @foreach (var e in v.Errors) { <div class="cc-setting-row"><span class="danger-text">@e</span></div> }
+        </div>
+    }
+    @if (v.Warnings.Count > 0)
+    {
+        <div class="card">
+            <div class="card-header"><h3 class="card-title">Before You Apply</h3></div>
+            @foreach (var w in v.Warnings)
+            {
+                <div class="cc-setting-row"><div><div>@w.Title</div><div class="cc-item-detail">@w.Detail</div></div></div>
+            }
+        </div>
+    }
+
+    <div class="card" id="cc-no-lease">
+        <div class="card-header"><h3 class="card-title">No DHCP Lease<span class="card-title-suffix">@v.StaticSource</span></h3></div>
+        @if (v.StaticClients.Count == 0)
+        {
+            <div class="empty-state empty-state-small"><p>Every connected client in these networks holds a DHCP lease.</p></div>
+        }
+        else
+        {
+            <p class="cc-card-intro">Connected with no lease from this gateway: the address is set on the device, another DHCP server hands it out, or the client kept its address after its lease lapsed. Change each one after the move, or check where it gets its address.@(v.StaticClients.Any(s => s.Reserved) ? " Reserved ones have their reservation moved too." : "")</p>
+            <div class="cc-phone-only">
+                @foreach (var s in v.StaticClients)
+                {
+                    <div class="cc-map-card">
+                        <div class="cc-change-card-head"><b>@s.Name</b><span class="muted-text">@(s.Reserved ? "Reserved" : "")</span></div>
+                        <div class="cc-item-detail"><code>@s.Ip</code> to <code>@s.NewIp</code></div>
+                    </div>
+                }
+            </div>
+            <div class="table-responsive hide-mobile">
+                <table class="data-table">
+                    <thead><tr><th>Client</th><th>Currently</th><th>New</th></tr></thead>
+                    <tbody>
+                        @foreach (var s in v.StaticClients)
+                        {
+                            <tr><td>@s.Name<div class="cc-item-detail">@s.Mac@(s.Network.Length > 0 ? $", {s.Network}" : "")@(s.Reserved ? ", reserved" : "")</div></td><td><code>@s.Ip</code></td><td><code>@s.NewIp</code></td></tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+        @if (v.OfflineClients.Count > 0)
+        {
+            <button class="cc-link-btn cc-more" @onclick="() => _showOffline = !_showOffline">@(_showOffline ? "Hide" : "Show") @CcFormat.Plural(v.OfflineClients.Count, "offline client", "offline clients") likely set on the device</button>
+            <div class="expand-wrapper @(_showOffline ? "expanded" : "")">
+                <div class="expand-content">
+                    <p class="cc-card-intro">Last seen outside their network's DHCP range with no reservation. Offline clients with a reservation, or a DHCP-range address, are taken as DHCP and follow the move.</p>
+                    <div class="table-responsive">
+                        <table class="data-table">
+                            <thead><tr><th>Client</th><th>Last seen</th><th>Currently</th><th>New</th></tr></thead>
+                            <tbody>
+                                @foreach (var s in v.OfflineClients)
+                                {
+                                    <tr>
+                                        <td>@s.Name<div class="cc-item-detail">@s.Mac@(s.Reserved ? ", reserved" : "")</div></td>
+                                        <td>@(s.LastSeen is { } seen && seen > DateTime.MinValue ? CcFormat.Local(DisplayTime, seen).ToString(DisplayTime.Format.Date, DisplayFormat.Culture) : "Unknown")</td>
+                                        <td><code>@s.Ip</code></td>
+                                        <td><code>@s.NewIp</code></td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        }
+    </div>
+}
+
+@if (_view is { } steps && steps.Moves.Count > 0)
+{
+    <div class="card">
+        <div class="card-header"><h3 class="card-title">Moving Clients</h3></div>
+        <p class="cc-card-intro">Clients take a new address when their DHCP lease renews, up to half a lease after the move. Clients set on the device, and Network Optimizer's own host, are never touched here.</p>
+        <div class="cc-setting-row cc-step-row">
+            <div>
+                <div>Before the move: lower lease times</div>
+                <div class="cc-item-detail">@PrepareStatus(steps)</div>
+            </div>
+            @if (steps.LongestLeaseSeconds != null && LeasesShort(steps))
+            {
+                <span class="success-text">✓ Already lowered</span>
+            }
+            else
+            {
+                <button class="btn btn-contrast btn-sm" disabled="@(_busy || !ConsoleConnected || steps.LongestLeaseSeconds == null)" @onclick="PrepareAsync">@Spinner(nameof(PrepareAsync))Lower Lease Times</button>
+            }
+        </div>
+        <div class="cc-setting-row cc-step-row">
+            <div>
+                <div>After the move: reconnect clients</div>
+                <div class="cc-item-detail">Wireless clients still on an old address rejoin. Wired clients move at their next renewal, or now if their port powers them over PoE and you allow a power-cycle.</div>
+                <div class="cc-item-detail">@LastMoveStatus(steps)</div>
+                <label class="checkbox-label cc-reconnect-poe"><input type="checkbox" @bind="_powerCycle" /><span>Power-cycle PoE ports of wired clients</span></label>
+            </div>
+            <button class="btn btn-contrast btn-sm" disabled="@(_busy || !ConsoleConnected || steps.LastMoves.Count == 0)" @onclick="ReconnectAsync"
+                data-tooltip="Acts right away: Wi-Fi clients still on an old address rejoin, and PoE ports power-cycle if allowed.">@Spinner(nameof(ReconnectAsync))Reconnect Clients</button>
+        </div>
+        @if (_reconnect is { } rc)
+        {
+            <div class="cc-card-note">@CcFormat.Plural(rc.Moved, "client is", "clients are") on a new subnet.</div>
+            @if (rc.Reconnected.Count > 0) { <div class="cc-setting-row"><span>Reconnected</span><span>@string.Join(", ", rc.Reconnected)</span></div> }
+            @if (rc.PowerCycled.Count > 0) { <div class="cc-setting-row"><span>Power-cycled</span><span>@string.Join(", ", rc.PowerCycled)</span></div> }
+            @if (rc.Waiting.Count > 0) { <div class="cc-setting-row"><span>At next renewal</span><span class="muted-text">@string.Join(", ", rc.Waiting)</span></div> }
+            @if (rc.Failed.Count > 0) { <div class="cc-setting-row"><span>Could not reconnect</span><span class="danger-text">@string.Join(", ", rc.Failed)</span></div> }
+        }
+    </div>
+}
+
+@Footer()
+
+@if (_previewed && _view is { } found)
+{
+    @if (found.Rewrites.Count > 0)
+    {
+        <div class="card">
+            <div class="card-header"><h3 class="card-title">Addresses That Move<span class="card-title-suffix">@found.Rewrites.Count in @found.Rewrites.Select(r => (r.Collection, r.ObjectName)).Distinct().Count() objects</span></h3></div>
+            <div class="cc-phone-only">
+                @foreach (var r in found.Rewrites.Take(_showAll ? int.MaxValue : 40))
+                {
+                    <div class="cc-map-card">
+                        <div class="cc-change-card-head"><b>@(ConfigCollections.Get(r.Collection)?.Noun ?? r.Collection) @r.ObjectName</b><span class="muted-text">@ChangeDescriber.LabelFor(r.Path.Replace("[", ".").Replace("]", ""))</span></div>
+                        <div class="cc-item-detail"><code>@r.Old</code> to <code>@r.New</code></div>
+                    </div>
+                }
+            </div>
+            <div class="table-responsive hide-mobile">
+                <table class="data-table">
+                    <thead><tr><th>Object</th><th>Field</th><th>Currently</th><th>New</th></tr></thead>
+                    <tbody>
+                        @foreach (var r in found.Rewrites.Take(_showAll ? int.MaxValue : 40))
+                        {
+                            <tr>
+                                <td>@(ConfigCollections.Get(r.Collection)?.Noun ?? r.Collection) @r.ObjectName</td>
+                                <td>@ChangeDescriber.LabelFor(r.Path.Replace("[", ".").Replace("]", ""))</td>
+                                <td><code>@r.Old</code></td>
+                                <td><code>@r.New</code></td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+            @if (!_showAll && found.Rewrites.Count > 40)
+            {
+                <button class="cc-link-btn cc-more" @onclick="() => _showAll = true">+ @(found.Rewrites.Count - 40) more</button>
+            }
+        </div>
+    }
+
+    @if (found.Settings.Count > 0)
+    {
+        <div class="card">
+            <div class="card-header"><h3 class="card-title">Network Optimizer Settings<span class="card-title-suffix">move once the plan applies</span></h3></div>
+            @foreach (var s in found.Settings)
+            {
+                <div class="cc-setting-row"><span>@s.Setting: @s.Name</span><span><code>@s.Old</code> to <code>@s.New</code></span></div>
+            }
+        </div>
+    }
+
+    @if (found.Remote.Count > 0)
+    {
+        <div class="card">
+            <div class="card-header"><h3 class="card-title">Left Alone<span class="card-title-suffix">a WAN's or a VPN's far side</span></h3></div>
+            <p class="cc-card-intro">Inside a moved subnet, but the ISP or the VPN server sets these addresses, and routes and policies toward them leave this site.</p>
+            @foreach (var m in found.Remote)
+            {
+                <div class="cc-setting-row"><span>@(ConfigCollections.Get(m.Collection)?.Noun ?? m.Collection) @m.ObjectName, @m.Path</span><code>@m.Value</code></div>
+            }
+        </div>
+    }
+
+    @if (found.Mentions.Count > 0)
+    {
+        <div class="card">
+            <div class="card-header"><h3 class="card-title">Not Rewritten<span class="card-title-suffix">an old address inside other text</span></h3></div>
+            @foreach (var m in found.Mentions)
+            {
+                <div class="cc-setting-row"><span>@(ConfigCollections.Get(m.Collection)?.Noun ?? m.Collection) @m.ObjectName, @m.Path</span><code>@m.Value</code></div>
+            }
+        </div>
+    }
+
+    @if (found.Rewrites.Count > 0 || found.Settings.Count > 0 || found.Remote.Count > 0 || found.Mentions.Count > 0)
+    {
+        @Footer()
+    }
+}
+
+@if (_error != null)
+{
+    <div class="alert alert-danger">
+        @_error
+        @if (_leasePlanId is { } leasePlan)
+        {
+            <a href="@SiteContextService.WithSiteParam($"/change-control/plans/{leasePlan}", SiteCtx.Slug)">Open the plan</a>
+        }
+    </div>
+}
+
+@code {
+    [Parameter] public string SiteName { get; set; } = "";
+    [CascadingParameter(Name = "ConsoleConnected")] public bool ConsoleConnected { get; set; } = true;
+
+    private string _pattern = "";
+    private readonly Dictionary<string, string> _subnets = [];
+    private ReaddressView? _view;
+    private bool _previewed;
+    private bool _showAll;
+    private bool _showOffline;
+    private bool _powerCycle;
+    private ReconnectResult? _reconnect;
+
+    private int? _leasePlanId;
+
+    // Applies at once (a lease time is harmless and the re-address puts it back); only a plan that needs a
+    // person stops, with a link to it.
+    private async Task PrepareAsync() => await RunAsync(async () =>
+    {
+        var result = await Site.LowerLeaseTimesAsync(Choices());
+        _leasePlanId = result.Error == null ? null : result.PlanId;
+        if (result.Error != null) _error = result.Error;
+        await LoadAsync(preview: _previewed);
+    });
+
+    private static bool LeasesShort(ReaddressView v) => v.LongestLeaseSeconds is <= ChangeControlService.PrepareLeaseSeconds;
+
+    private string PrepareStatus(ReaddressView v)
+    {
+        // A moving network still on a long lease (a preparation missed it, or it was added since) needs lowering again.
+        if (v.Prepare is { } p && LeasesShort(v))
+            return p.ReadyAt > DateTime.UtcNow
+                ? $"Lowered {CcFormat.Time(DisplayTime, p.LoweredAt)}. Every DHCP client is on the short lease by {CcFormat.Time(DisplayTime, p.ReadyAt)}."
+                : $"Lowered {CcFormat.Time(DisplayTime, p.LoweredAt)}. Every DHCP client is on the short lease: ready to move.";
+        if (v.LongestLeaseSeconds is not { } lease) return "Give at least one network a new subnet first.";
+        if (lease <= ChangeControlService.PrepareLeaseSeconds) return $"Leases on the moving networks are already {Hours(lease)} or less: nothing to lower.";
+        return $"Leases are up to {Hours(lease)}. Lowered now, every DHCP client is on a {ChangeControlService.PrepareLeaseSeconds / 60}-minute lease by "
+            + $"{CcFormat.Time(DisplayTime, DateTime.UtcNow.AddSeconds(lease))}. The re-address puts each lease time back.";
+    }
+
+    private string LastMoveStatus(ReaddressView v) => v.LastMoves.Count == 0 || v.LastAppliedAt is not { } at
+        ? "No re-address applied in the last week."
+        : $"For the re-address applied {CcFormat.Time(DisplayTime, at)}: "
+          + string.Join("; ", v.LastMoves.Select(m => $"{m.NetworkName} {m.OldCidr} to {m.NewCidr}")) + ".";
+
+    private static string Hours(int seconds) => TimeFormatHelper.FormatDurationExact(TimeSpan.FromSeconds(seconds));
+
+    private async Task ReconnectAsync() => await RunAsync(async () => _reconnect = await Site.ReconnectClientsAsync(_powerCycle));
+
+    private string? _running;
+
+    // Shown after the cards that need action, and again after the reference lists when there are any.
+    private RenderFragment Footer() => @<div class="card">
+        <div class="cc-card-footer">
+            @if (_previewed && _view is { } lv && LeaseWarning(lv) is { } warning)
+            {
+                <span class="cc-remaining warning-text">@warning@ByHand(" ")</span>
+                @if (!LeasesShort(lv))
+                {
+                    <button class="btn btn-contrast" disabled="@(_busy || !ConsoleConnected)" @onclick="PrepareAsync">@Spinner(nameof(PrepareAsync))Lower Lease Times</button>
+                }
+            }
+            else
+            {
+                <span class="cc-remaining muted-text">@(_previewed ? Summary() : "Give a network a new subnet to see every address that moves.")@ByHand(", ")</span>
+            }
+            <button class="btn btn-primary" disabled="@(_busy || !_previewed || _view?.Ready != true || !ConsoleConnected)" @onclick="BuildAsync">
+                @if (_building)
+                {
+                    <span class="spinner-sm"></span>
+                }
+                Review Plan
+            </button>
+        </div>
+    </div>;
+
+    // Clients set on the device, named beside Review Plan so they are not missed further down the page.
+    private RenderFragment? ByHand(string separator) => _previewed && _view is { Errors.Count: 0, StaticClients.Count: > 0 } v
+        ? @<text>@separator<button class="cc-link-btn warning-text" @onclick="ScrollToNoLeaseAsync">@CcFormat.Plural(v.StaticClients.Count, "client", "clients") to change by hand</button></text>
+        : null;
+
+    private async Task ScrollToNoLeaseAsync() =>
+        await JS.InvokeVoidAsync("eval", "document.getElementById('cc-no-lease')?.scrollIntoView({ behavior: 'smooth', block: 'start' })");
+
+    private RenderFragment? Spinner(string action) =>
+        _running == action ? @<span class="spinner-sm"></span> : null;
+
+    private async Task RunAsync(Func<Task> action, [System.Runtime.CompilerServices.CallerMemberName] string caller = "")
+    {
+        _busy = true;
+        _running = caller;
+        _error = null;
+        try
+        {
+            StateHasChanged();
+            await Task.Yield();
+            await action();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogDebug(ex, "Re-address step failed");
+            _error = ex.Message;
+        }
+        finally
+        {
+            _busy = false;
+            _running = null;
+        }
+    }
+    private bool _busy;
+    private bool _building;
+    private string? _error;
+
+    protected override async Task OnInitializedAsync()
+    {
+        // The choices live in the URL, so Back from Review Plan returns them.
+        // Only for the site they were made on: switching sites keeps the query, and a pattern fits any site.
+        var query = Microsoft.AspNetCore.WebUtilities.QueryHelpers.ParseQuery(new Uri(Nav.Uri).Query);
+        if (query.TryGetValue("for", out var forSite) && string.Equals(forSite.ToString(), SiteCtx.Slug, StringComparison.OrdinalIgnoreCase))
+        {
+            if (query.TryGetValue("pattern", out var pattern)) _pattern = pattern.ToString();
+            if (query.TryGetValue("subnets", out var subnets))
+                foreach (var pair in subnets.ToString().Split('|', StringSplitOptions.RemoveEmptyEntries))
+                    if (pair.Split('=', 2) is [var id, var cidr] && id.Length > 0) _subnets[id] = cidr;
+        }
+        // Back from Review Plan: building again replaces the plan built from these choices, while it is still a draft.
+        if (Drafts.Take("readdress", SiteCtx.Slug) is { } draft
+            && (await Site.GetPlansAsync(inProgressOnly: false)).FirstOrDefault(p => p.Id == draft.PlanId)?.Status == NetworkOptimizer.Storage.Models.ConfigPlanStatus.Draft)
+            _replaces = draft.PlanId;
+        await LoadAsync(preview: false);
+    }
+
+    private int? _replaces;
+
+    private void SyncUrl() => Nav.NavigateTo(Nav.GetUriWithQueryParameters(new Dictionary<string, object?>
+    {
+        ["task"] = "readdress",
+        ["for"] = SiteCtx.Slug,
+        ["pattern"] = string.IsNullOrWhiteSpace(_pattern) ? null : _pattern,
+        ["subnets"] = _subnets.Count == 0 ? null : string.Join("|", _subnets.Select(kv => $"{kv.Key}={kv.Value}")),
+    }), replace: true);
+
+    private ReaddressChoices Choices() => new() { Pattern = _pattern, NewSubnets = new Dictionary<string, string>(_subnets) };
+
+    private string NewFor(SubnetMove m) => _subnets.TryGetValue(m.NetworkId, out var s) ? s : m.NewCidr == m.OldCidr ? "" : m.NewCidr;
+
+    private Timer? _debounce;
+    private readonly Dictionary<string, string?> _typed = new();
+
+    // Recomputes once typing pauses on a complete subnet (or a cleared field); blur still applies anything else.
+    private void Typed(string networkId, string? value)
+    {
+        _typed[networkId] = value;
+        _debounce?.Dispose();
+        _debounce = new Timer(_ => InvokeAsync(ApplyTypedAsync), null, 500, Timeout.Infinite);
+    }
+
+    private async Task ApplyTypedAsync()
+    {
+        var ready = _typed.Where(kv => string.IsNullOrWhiteSpace(kv.Value) || IsSubnet(kv.Value)).ToList();
+        foreach (var (id, _) in ready) _typed.Remove(id);
+        if (ready.Count == 0) return;
+        foreach (var (id, value) in ready)
+        {
+            if (string.IsNullOrWhiteSpace(value)) _subnets.Remove(id);
+            else _subnets[id] = value.Trim();
+        }
+        SyncUrl();
+        await LoadAsync(preview: false);
+        StateHasChanged();
+    }
+
+    private static bool IsSubnet(string value)
+    {
+        var (network, prefix) = NetworkOptimizer.Core.Helpers.NetworkUtilities.ParseCidr(value.Trim());
+        return network?.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork && prefix is >= 8 and <= 30;
+    }
+
+    public void Dispose() => _debounce?.Dispose();
+
+    private async Task SetSubnet(string networkId, string? value)
+    {
+        _typed.Remove(networkId);
+        var current = _subnets.GetValueOrDefault(networkId);
+        var next = string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+        // The debounce already applied this value.
+        if (current == next) return;
+        if (next == null) _subnets.Remove(networkId);
+        else _subnets[networkId] = next;
+        SyncUrl();
+        // Recompute now: the address lists and Review Plan follow the choices, with no Preview step.
+        await LoadAsync(preview: false);
+    }
+
+    // Enter applies the pattern, under the same conditions as the Apply Pattern button.
+    private async Task PatternKeyAsync(KeyboardEventArgs e)
+    {
+        if (e.Key != "Enter" || _busy || string.IsNullOrWhiteSpace(_pattern)) return;
+        await ApplyPatternAsync();
+    }
+
+    private async Task ApplyPatternAsync()
+    {
+        _subnets.Clear();
+        SyncUrl();
+        await LoadAsync(preview: false);
+    }
+
+    /// <summary>
+    /// What to do about lease times before Review Plan, or null when nothing is: long leases on a moving
+    /// network leave its clients on the old address until they renew.
+    /// </summary>
+    private string? LeaseWarning(ReaddressView v)
+    {
+        if (v.LongestLeaseSeconds is not { } lease || v.Errors.Count > 0) return null;
+        if (!LeasesShort(v))
+            return $"Lower lease times first: clients on the moving networks keep their old address for up to {Hours(lease / 2)} after the move.";
+        if (v.Prepare is { } p && p.ReadyAt > DateTime.UtcNow)
+            return $"Leases lowered. Every DHCP client is on the short lease by {CcFormat.Local(DisplayTime, p.ReadyAt).ToString(DisplayTime.Format.Time, DisplayFormat.Culture)}; moving earlier leaves some on the old address until they renew.";
+        return null;
+    }
+
+    private async Task LoadAsync(bool preview)
+    {
+        _busy = true;
+        _error = null;
+        try
+        {
+            _view = await Site.GetReaddressAsync(Choices());
+            // The address lists show as soon as a network has a new subnet: there is no Preview step to skip.
+            _previewed = preview || _view.Moves.Any(m => m.OldCidr != m.NewCidr);
+            _showAll = false;
+        }
+        catch (Exception ex)
+        {
+            Logger.LogDebug(ex, "Re-address preview failed");
+            _error = ex.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private string Summary()
+    {
+        if (_view == null) return "";
+        if (_view.Errors.Count > 0) return CcFormat.Plural(_view.Errors.Count, "problem to fix", "problems to fix");
+        var moving = _view.Moves.Count(m => m.OldCidr != m.NewCidr);
+        return moving == 0 ? "No network moves yet." : $"{CcFormat.Plural(moving, "network", "networks")} move, {CcFormat.Plural(_view.Rewrites.Count, "address", "addresses")} rewritten";
+    }
+
+    private async Task BuildAsync()
+    {
+        _busy = true;
+        _building = true;
+        _error = null;
+        try
+        {
+            StateHasChanged();
+            await Task.Yield();
+            var planId = await Site.BuildReaddressPlanAsync(Choices(), _replaces);
+            Drafts.Keep("readdress", SiteCtx.Slug, new CcPlanDrafts.Draft(null, planId));
+            Nav.NavigateTo(SiteContextService.WithSiteParam($"/change-control/plans/{planId}", SiteCtx.Slug));
+        }
+        catch (Exception ex)
+        {
+            Logger.LogDebug(ex, "Re-address plan failed");
+            _error = ex.Message;
+        }
+        finally
+        {
+            _busy = false;
+            _building = false;
+        }
+    }
+}

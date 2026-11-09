@@ -8,7 +8,9 @@ public enum EventCategory
 {
     Congestion,
     Shift,
-    Change
+    Change,
+    /// <summary>Episodes of an acknowledged finding: hidden until their pill is on.</summary>
+    Acknowledged
 }
 
 /// <summary>
@@ -49,7 +51,8 @@ public static class IspHealthPresentation
     /// their disposition-specific wording, then path shifts and route changes, in time order.
     /// </summary>
     /// <param name="traceByShift">The Path Localization episode each path shift carries the hop table of,
-    /// when the shift explains it.</param>
+    /// when the shift explains it. A shift built from a step-only episode is not in the report's list, so
+    /// it is drawn from here.</param>
     public static IEnumerable<TimelineEntry> EventTimeline(IspHealthReport r,
         IReadOnlyDictionary<PathShiftEvent, int>? traceByShift = null)
     {
@@ -109,6 +112,10 @@ public static class IspHealthPresentation
                 CongestionDisposition.SelfInflicted => ("Loaded Latency", "isp-event-badge-congestion-soft",
                     $"{lead} Everything slowed together under load, so the limit was your access link, not one hop - bufferbloat or a congested shared-access network.",
                     (string?)"Latency rose under your own WAN load - likely your access link, not ISP congestion."),
+                // Above a load floor the next hop rose too, just no more than everything else.
+                CongestionDisposition.ControlPlaneNoise when evt.AboveLoadFloor => ("Congestion", "isp-event-badge-congestion-soft",
+                    $"{lead} Its next hop rose only as much as everything else, so this is the hop's own ICMP handling.",
+                    "This hop was slow to answer pings, but traffic through it slowed no more than everything else. Not confirmed as real congestion."),
                 CongestionDisposition.ControlPlaneNoise => ("Congestion", "isp-event-badge-congestion-soft",
                     $"{lead} Its next hop stayed clean, so this is the hop's own ICMP handling, not a forwarding bottleneck.",
                     "This hop deprioritized ping replies while forwarding stayed clean - not confirmed as real congestion."),
@@ -118,7 +125,7 @@ public static class IspHealthPresentation
                 _ when evt.ConfirmedBySibling => ("Congestion", "isp-event-badge-congestion",
                     $"{lead}", null),
                 _ when evt.LoadCoincident && evt.CleanParallelPaths > 0 => ("Congestion", "isp-event-badge-congestion",
-                    $"{lead} {evt.CleanParallelPaths} other monitored paths stayed clean under the same load, so it was this hop's own capacity, not your access link.", null),
+                    $"{lead} {TimeFormatHelper.Pluralize(evt.CleanParallelPaths, "other monitored path")} stayed clean under the same load, so it was this hop's own capacity, not your access link.", null),
                 _ => ("Congestion", "isp-event-badge-congestion",
                     $"{lead}", null)
             };
@@ -131,7 +138,9 @@ public static class IspHealthPresentation
                 TargetIds: group.SelectMany(e => e.TargetIds.Concat(e.WitnessTargetIds))
                     .Distinct(StringComparer.OrdinalIgnoreCase).ToList()));
         }
-        foreach (var shift in r.PathShifts)
+        var shifts = traceByShift == null ? r.PathShifts
+            : r.PathShifts.Concat(traceByShift.Keys.Where(k => !r.PathShifts.Contains(k))).ToList();
+        foreach (var shift in shifts)
         {
             var where = PathLabel(shift, r);
             if (shift.IsUnreachable)
@@ -286,12 +295,12 @@ public static class IspHealthPresentation
         : d.TotalMinutes >= 1 ? $"{d.TotalMinutes:0} min"
         : $"{d.TotalSeconds:0} sec";
 
-    // Event time in local time, prefixed with the date when it is not today so events in a
+    // Event time on the reader's clock, prefixed with the date when it is not today so events in a
     // multi-day (7d/30d/custom) window are unambiguous.
-    public static string EventTimeLabel(DateTime utc)
+    public static string EventTimeLabel(DateTime utc, TimeZoneInfo zone, DisplayFormat format)
     {
-        var local = utc.ToLocalTime();
-        return local.Date == DateTime.Now.Date ? $"Today, {local:HH:mm}" : local.ToString("MMM d, HH:mm");
+        var local = TimeZoneCatalog.ToZone(utc, zone);
+        return local.Date == TimeZoneCatalog.ToZone(DateTime.UtcNow, zone).Date ? $"Today, {local.ToString(format.Time, DisplayFormat.Culture)}" : local.ToString(format.DayTime, DisplayFormat.Culture);
     }
 
     public static string OutageBadgeText(OutageEvent o) =>
@@ -321,9 +330,9 @@ public static class IspHealthPresentation
                     ? $"Lowered your ISP Health score by {o.ScorePenaltyPoints} {(o.ScorePenaltyPoints == 1 ? "point" : "points")}."
                     : "No score impact.";
 
-    public static string OutageHopStatus(OutageTierState t) =>
+    public static string OutageHopStatus(OutageTierState t, TimeZoneInfo zone, DisplayFormat format) =>
         !t.WentDark ? "stayed up"
-        : t.RecoveredAt.HasValue ? $"back @ {t.RecoveredAt.Value.ToLocalTime():HH:mm:ss}"
+        : t.RecoveredAt.HasValue ? $"back @ {TimeZoneCatalog.ToZone(t.RecoveredAt.Value, zone).ToString(format.TimeSeconds, DisplayFormat.Culture)}"
         : "down";
 
     public static string OutageHopTooltip(OutageTierState t) =>
@@ -334,10 +343,10 @@ public static class IspHealthPresentation
     /// ends at (about) now; a custom window ending in the past instead shows a compact span pointing
     /// to its end date ("7d -> Jun 17") - kept short so it doesn't widen the pill and shift the layout.
     /// </summary>
-    public static string ScoredWindowLabel(IspHealthReport r) =>
+    public static string ScoredWindowLabel(IspHealthReport r, TimeZoneInfo zone, DisplayFormat format) =>
         DateTime.UtcNow - r.WindowEnd < TimeSpan.FromHours(1)
             ? $"last {WindowLabel(r)}"
-            : $"{ShortSpan(r)} → {r.WindowEnd.ToLocalTime():MMM d}";
+            : $"{ShortSpan(r)} → {TimeZoneCatalog.ToZone(r.WindowEnd, zone).ToString(format.Day, DisplayFormat.Culture)}";
 
     /// <summary>Compact window span for the tight hero pill: "90m", "24h", "7d" - same tiering as
     /// <see cref="WindowLabel"/>, abbreviated units, no space.</summary>
@@ -416,9 +425,9 @@ public static class IspHealthPresentation
         return stabilityScore is int ss ? ("Stability", ss.ToString(), ss) : null;
     }
 
-    /// <summary>The window's absolute bounds in local time, for a report that outlives the page.</summary>
-    public static string WindowRangeLabel(IspHealthReport r) =>
-        $"{r.WindowStart.ToLocalTime():MMM d, yyyy HH:mm} to {r.WindowEnd.ToLocalTime():MMM d, yyyy HH:mm}";
+    /// <summary>The window's absolute bounds on the reader's clock, for a report that outlives the page.</summary>
+    public static string WindowRangeLabel(IspHealthReport r, TimeZoneInfo zone, DisplayFormat format) =>
+        $"{TimeZoneCatalog.ToZone(r.WindowStart, zone).ToString(format.DateTime, DisplayFormat.Culture)} to {TimeZoneCatalog.ToZone(r.WindowEnd, zone).ToString(format.DateTime, DisplayFormat.Culture)}";
 
     public static string FormatSpeed(double? mbps) => mbps.HasValue ? mbps.Value.ToString(mbps >= 100 ? "0" : "0.#") : "--";
 

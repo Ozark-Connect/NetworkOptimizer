@@ -33,7 +33,7 @@ export function createAxisDateCaption({ charts, window: getWindow }) {
         const { from, to } = getWindow() || {};
         if (!from || !to || to - from > SUPPRESS_ABOVE_MS) return '';
         // Zero-padded to match a day tick, which datetimeFormatter draws as "MMM dd".
-        const fmt = d => d.toLocaleDateString(undefined, { month: 'short', day: '2-digit' });
+        const fmt = d => noTime.date(d, { month: 'short', day: '2-digit' });
         const start = fmt(from), end = fmt(to);
         return start === end ? start : `${start} - ${end}`;
     }

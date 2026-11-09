@@ -6,6 +6,14 @@ namespace NetworkOptimizer.Core.Tests.Helpers;
 
 public class StringUtilitiesTests
 {
+    [Theory]
+    [InlineData(0, "0 clients")]
+    [InlineData(1, "1 client")]
+    [InlineData(2, "2 clients")]
+    public void Pluralize_AddsAnSExceptForOne(int value, string expected)
+    {
+        StringUtilities.Pluralize(value, "client").Should().Be(expected);
+    }
     [Fact]
     public void SplitLinks_PlainText_IsOneTextSegment()
     {

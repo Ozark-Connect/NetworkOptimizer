@@ -1,0 +1,136 @@
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json.Nodes;
+
+namespace NetworkOptimizer.Web.Services.ChangeControl;
+
+/// <summary>
+/// What a plan still needs before it can apply (spec "Safety tiers": plan review is the only
+/// confirmation surface): acknowledgements for tier 2 items, accepted regressions for tier 3, the
+/// typed confirmation for lockouts, and no errors.
+/// </summary>
+public static class PlanReadiness
+{
+    /// <summary>
+    /// The text the typed confirmation must match: the site's name, short enough to type and tied to the site
+    /// about to change. A plan built without one asks for the device names, as it did when it was built.
+    /// </summary>
+    public static string ConfirmationText(PlanDocument doc)
+    {
+        if (doc.Lockouts.Count == 0) return "";
+        return doc.ConfirmationPhrase is { Length: > 0 } phrase ? phrase : string.Join(", ", LockoutDevices(doc));
+    }
+
+    /// <summary>The devices the lockouts name, once each.</summary>
+    public static List<string> LockoutDevices(PlanDocument doc) =>
+        doc.Lockouts.SelectMany(l => l.Devices).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+
+    /// <summary>The plan has a certain lockout, which only a Site Admin can override.</summary>
+    public static bool HasCertainLockout(PlanDocument doc) => doc.Lockouts.Any(l => l.Kind == "certain");
+
+    /// <summary>
+    /// The operation keys left out of an apply: those unticked, and every operation that uses an object one
+    /// of them would create (it would wait for it forever).
+    /// </summary>
+    public static HashSet<string> LeftOut(PlanDocument doc, IReadOnlySet<string> excluded)
+    {
+        // A write that only prepares another (honeypots off before a re-address) leaves with it.
+        var left = doc.Operations.Where(o => excluded.Contains(o.Key)
+                || (o.Key.EndsWith(ChangeControlService.HoneypotsOffSuffix, StringComparison.Ordinal)
+                    && excluded.Contains(o.Key[..^ChangeControlService.HoneypotsOffSuffix.Length])))
+            .Select(o => o.Key).ToHashSet(StringComparer.Ordinal);
+        bool grew;
+        do
+        {
+            grew = false;
+            foreach (var op in doc.Operations.Where(o => !left.Contains(o.Key)))
+            {
+                var text = (op.ObjectId ?? "") + (op.Body?.ToJsonString() ?? "");
+                if (left.Any(k => text.Contains(PlanBuilder.RefPrefix + k, StringComparison.Ordinal)) && left.Add(op.Key)) grew = true;
+            }
+        } while (grew);
+        return left;
+    }
+
+    /// <summary>Removes the operations left out, and lockouts that only they caused, before an apply.</summary>
+    public static void Exclude(PlanDocument doc, IReadOnlySet<string> excluded)
+    {
+        if (excluded.Count == 0) return;
+        var left = LeftOut(doc, excluded);
+        doc.Operations.RemoveAll(o => left.Contains(o.Key));
+        doc.Lockouts.RemoveAll(l => l.OperationKeys.Count > 0 && l.OperationKeys.All(left.Contains));
+        (doc.WatchDevices, doc.WatchInternet) = Watches(doc, left);
+    }
+
+    /// <summary>
+    /// The plan's commit-confirmed watches that the operations still ticked need: devices for a management-path
+    /// write, internet for a WAN one. Leaving items out only clears a watch, never adds one the plan did not have.
+    /// </summary>
+    public static (bool Devices, bool Internet) Watches(PlanDocument doc, IReadOnlySet<string> leftOut)
+    {
+        var applying = doc.Operations.Where(o => !leftOut.Contains(o.Key)).ToList();
+        return (doc.WatchDevices && applying.Any(o => o.ManagementPath), doc.WatchInternet && applying.Any(o => o.WanPath));
+    }
+
+    /// <summary>Items still open, empty when the plan can apply.</summary>
+    public static List<string> Remaining(PlanDocument doc, PlanAcknowledgements acks, bool isSiteAdmin)
+    {
+        var open = new List<string>();
+        if (doc.Errors.Count > 0)
+            open.Add(doc.Errors.Count == 1 ? "1 error to fix" : $"{doc.Errors.Count} errors to fix");
+
+        var left = LeftOut(doc, acks.Excluded);
+        if (doc.Operations.Count == 0)
+            open.Add("nothing to write");
+        else if (doc.Operations.All(o => left.Contains(o.Key)))
+            open.Add("every item unticked");
+
+        var toAck = doc.Operations.Count(o => o.Tier == PlanTiers.Acknowledge && !left.Contains(o.Key) && !acks.Items.Contains(o.Key));
+        if (toAck > 0) open.Add(toAck == 1 ? "1 item to acknowledge" : $"{toAck} items to acknowledge");
+
+        var toAccept = doc.Regressions.Count(r => !acks.Regressions.Contains(r.Key));
+        if (toAccept > 0) open.Add(toAccept == 1 ? "1 regression to accept" : $"{toAccept} regressions to accept");
+
+        if (doc.Lockouts.Any(l => l.OperationKeys.Count == 0 || !l.OperationKeys.All(left.Contains)))
+        {
+            if (HasCertainLockout(doc) && !isSiteAdmin)
+                open.Add("a certain lockout only a Site Admin can override");
+            else if (!string.Equals(acks.TypedConfirmation?.Trim(), ConfirmationText(doc), StringComparison.OrdinalIgnoreCase))
+                open.Add("1 confirmation to type");
+        }
+        return open;
+    }
+
+    /// <summary>Hash of the live objects a plan touches, to tell when they changed after approval.</summary>
+    public static string TouchedHash(PlanDocument doc, ConfigState live)
+    {
+        var sb = new StringBuilder();
+        foreach (var op in doc.Operations.OrderBy(o => o.Key, StringComparer.Ordinal))
+        {
+            sb.Append(op.Key).Append('=');
+            if (op.ObjectId != null && !op.ObjectId.StartsWith(PlanBuilder.RefPrefix, StringComparison.Ordinal))
+            {
+                var obj = live.Get(op.Collection).FirstOrDefault(o => ConfigState.IdOf(o) == op.ObjectId);
+                sb.Append(obj == null ? "missing" : CanonicalJson.Serialize(Strip(obj, op.Collection)));
+            }
+            else
+            {
+                var def = ConfigCollections.Get(op.Collection);
+                sb.Append(live.Get(op.Collection).Any(o => ConfigState.DisplayName(def, o) == op.ObjectName) ? "exists" : "absent");
+            }
+            sb.Append('\n');
+        }
+        return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(sb.ToString())));
+    }
+
+    private static JsonObject Strip(JsonObject o, string collection)
+    {
+        var def = ConfigCollections.Get(collection);
+        var copy = (JsonObject)o.DeepClone();
+        copy.Remove(ConfigCollections.DeviceMetaField);
+        foreach (var key in copy.Select(p => p.Key).ToList())
+            if (ConfigDiffEngine.IsChurnField(key) || (def?.IsReadOnly(o, key) ?? false))
+                copy.Remove(key);
+        return copy;
+    }
+}

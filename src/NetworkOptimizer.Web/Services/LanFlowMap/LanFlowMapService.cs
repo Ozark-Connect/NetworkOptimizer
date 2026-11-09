@@ -3210,7 +3210,7 @@ public class LanFlowMapService
         try
         {
             var targetIds = (await _liveStats.GetIspTransitTargetsAsync(ct)).Select(t => t.TargetId).ToList();
-            meanIspTransit = await _influx.QueryMeanIspTransitLatencyAsync(from, to, targetIds, ct: ct);
+            meanIspTransit = await NetworkOptimizer.Web.Services.Monitoring.WanLatencySeries.QueryAsync(_influx, from, to, targetIds, ct: ct);
         }
         catch (Exception ex) { _logger.LogDebug(ex, "Historic mean ISP/transit latency fetch failed"); }
 

@@ -31,6 +31,7 @@ public class ConfigAuditEngine
     private readonly DnsSecurityAnalyzer _dnsAnalyzer;
     private readonly UpnpSecurityAnalyzer _upnpAnalyzer;
     private readonly ConsoleAccessAnalyzer _consoleAccessAnalyzer;
+    private readonly GatewayFirewallAnalyzer _gatewayFirewallAnalyzer;
     private readonly AuditScorer _scorer;
 
     /// <summary>
@@ -54,12 +55,16 @@ public class ConfigAuditEngine
         public string? PiholeManagementUrl { get; init; }
         public Monitoring.Providers.IDeviceDialer? Dialer { get; init; }
         public List<string>? TrustedDnsRedirectTargets { get; init; }
+        public bool AllowGuestPublicDns { get; init; }
         public bool? UpnpEnabled { get; init; }
         public List<UniFiPortForwardRule>? PortForwardRules { get; init; }
         public List<UniFiNetworkConfig>? NetworkConfigs { get; init; }
         public List<UniFiOsUser>? ConsoleUsers { get; init; }
         public List<UniFiOsApiKey>? ConsoleApiKeys { get; init; }
         public string? ConnectedUsername { get; init; }
+        public GatewayFirewallSnapshot? GatewayFirewall { get; init; }
+        public List<GatewayWanPath>? GatewayWanInterfaces { get; init; }
+        public GatewayBlocklistExpectation? GatewayBlocklist { get; init; }
 
         // Populated by phases
         public List<NetworkInfo> Networks { get; set; } = [];
@@ -167,6 +172,7 @@ public class ConfigAuditEngine
         _dnsAnalyzer = new DnsSecurityAnalyzer(loggerFactory.CreateLogger<DnsSecurityAnalyzer>(), thirdPartyDetector);
         _upnpAnalyzer = new UpnpSecurityAnalyzer(loggerFactory.CreateLogger<UpnpSecurityAnalyzer>());
         _consoleAccessAnalyzer = new ConsoleAccessAnalyzer(loggerFactory.CreateLogger<ConsoleAccessAnalyzer>());
+        _gatewayFirewallAnalyzer = new GatewayFirewallAnalyzer(loggerFactory.CreateLogger<GatewayFirewallAnalyzer>());
         _scorer = new AuditScorer(loggerFactory.CreateLogger<AuditScorer>());
     }
 
@@ -325,6 +331,7 @@ public class ConfigAuditEngine
         ExecutePhase5c_AnalyzeUpnpSecurity(ctx);
         ExecutePhase5d_AnalyzeThreatExposure(ctx);
         ExecutePhase5e_AnalyzeConsoleAccess(ctx);
+        ExecutePhase5f_AnalyzeGatewayFirewall(ctx);
         ExecutePhase6_AnalyzeHardeningMeasures(ctx);
 
         // Build and score the final result
@@ -405,7 +412,7 @@ public class ConfigAuditEngine
             _logger.LogInformation("Firewall zone data available: {ZoneCount} zones", request.FirewallZones.Count);
 
         // Determine external zone ID from WAN network or legacy rules
-        var externalZoneId = DetermineExternalZoneId(request.NetworkConfigs, request.FirewallRules);
+        var externalZoneId = DetermineExternalZoneId(request.NetworkConfigs, request.FirewallRules, zoneLookup, _logger);
 
         // Validate zone assumptions if we have both zone lookup and external zone ID
         if (zoneLookup.HasZoneData && externalZoneId != null)
@@ -441,12 +448,16 @@ public class ConfigAuditEngine
             PiholeManagementUrl = request.PiholeManagementUrl,
             Dialer = request.Dialer,
             TrustedDnsRedirectTargets = request.TrustedDnsRedirectTargets,
+            AllowGuestPublicDns = request.AllowGuestPublicDns,
             UpnpEnabled = request.UpnpEnabled,
             PortForwardRules = request.PortForwardRules,
             NetworkConfigs = request.NetworkConfigs,
             ConsoleUsers = request.ConsoleUsers,
             ConsoleApiKeys = request.ConsoleApiKeys,
             ConnectedUsername = request.ConnectedUsername,
+            GatewayFirewall = request.GatewayFirewall,
+            GatewayWanInterfaces = request.GatewayWanInterfaces,
+            GatewayBlocklist = request.GatewayBlocklist,
             FirewallZones = request.FirewallZones,
             ZoneLookup = zoneLookup,
             ExternalZoneId = externalZoneId,
@@ -459,8 +470,11 @@ public class ConfigAuditEngine
     /// Determine the External/WAN firewall zone ID from network configurations or firewall rules.
     /// First tries to find zone ID from WAN network configs (v2 zone-based).
     /// Falls back to synthetic legacy zone ID for legacy systems without zone IDs.
+    /// A WAN zone ID that matches no zone (UniFi Network's data left it dangling) yields the zone list's External zone;
+    /// the Gateway Firewall check reports the inconsistency.
     /// </summary>
-    private string? DetermineExternalZoneId(List<UniFiNetworkConfig>? networkConfigs, List<FirewallRule>? firewallRules)
+    internal static string? DetermineExternalZoneId(List<UniFiNetworkConfig>? networkConfigs, List<FirewallRule>? firewallRules,
+        FirewallZoneLookup zoneLookup, ILogger logger)
     {
         // Try to find zone ID from network configs first (v2 zone-based systems)
         if (networkConfigs != null && networkConfigs.Count > 0)
@@ -470,7 +484,14 @@ public class ConfigAuditEngine
 
             if (wanNetwork?.FirewallZoneId != null)
             {
-                _logger.LogDebug("Determined External Zone ID from WAN network '{Name}': {ZoneId}",
+                if (zoneLookup.HasZoneData && zoneLookup.GetZoneById(wanNetwork.FirewallZoneId) == null
+                    && zoneLookup.GetExternalZoneId() is { } external)
+                {
+                    logger.LogWarning("WAN network '{Name}' points at firewall zone {ZoneId}, which does not exist; using the External zone {External}",
+                        wanNetwork.Name, wanNetwork.FirewallZoneId, external);
+                    return external;
+                }
+                logger.LogDebug("Determined External Zone ID from WAN network '{Name}': {ZoneId}",
                     wanNetwork.Name, wanNetwork.FirewallZoneId);
                 return wanNetwork.FirewallZoneId;
             }
@@ -479,12 +500,12 @@ public class ConfigAuditEngine
             // Use synthetic legacy zone ID for firewall rule analysis
             if (wanNetwork != null)
             {
-                _logger.LogDebug("WAN network '{Name}' has no firewall_zone_id (legacy system), using synthetic legacy zone ID",
+                logger.LogDebug("WAN network '{Name}' has no firewall_zone_id (legacy system), using synthetic legacy zone ID",
                     wanNetwork.Name);
                 return FirewallRuleParser.LegacyExternalZoneId;
             }
 
-            _logger.LogDebug("No WAN network found in {Count} network configs", networkConfigs.Count);
+            logger.LogDebug("No WAN network found in {Count} network configs", networkConfigs.Count);
         }
 
         // Fall back to synthetic legacy zone ID if any rules already use it
@@ -493,7 +514,7 @@ public class ConfigAuditEngine
                 r.DestinationZoneId == FirewallRuleParser.LegacyExternalZoneId ||
                 r.SourceZoneId == FirewallRuleParser.LegacyExternalZoneId))
         {
-            _logger.LogDebug("Using synthetic legacy External Zone ID from firewall rules");
+            logger.LogDebug("Using synthetic legacy External Zone ID from firewall rules");
             return FirewallRuleParser.LegacyExternalZoneId;
         }
 
@@ -1013,7 +1034,7 @@ public class ConfigAuditEngine
                 .Where(g => !string.IsNullOrEmpty(g.Id))
                 .ToDictionary(g => g.Id, g => g);
             ctx.DnsSecurityResult = await _dnsAnalyzer.AnalyzeAsync(
-                ctx.SettingsData, ctx.FirewallRules, ctx.Switches, ctx.Networks, ctx.DeviceData, ctx.PiholeManagementPort, ctx.NatRulesData, ctx.DnatExcludedVlanIds, ctx.ExternalZoneId, ctx.ZoneLookup, firewallGroupsDict, ctx.PiholeManagementUrl, ctx.NetworkConfigs, ctx.TrustedDnsRedirectTargets, ctx.Dialer);
+                ctx.SettingsData, ctx.FirewallRules, ctx.Switches, ctx.Networks, ctx.DeviceData, ctx.PiholeManagementPort, ctx.NatRulesData, ctx.DnatExcludedVlanIds, ctx.ExternalZoneId, ctx.ZoneLookup, firewallGroupsDict, ctx.PiholeManagementUrl, ctx.NetworkConfigs, ctx.TrustedDnsRedirectTargets, ctx.Dialer, ctx.AllowGuestPublicDns);
             ctx.AllIssues.AddRange(ctx.DnsSecurityResult.Issues);
             ctx.HardeningMeasures.AddRange(ctx.DnsSecurityResult.HardeningNotes);
             _logger.LogInformation("Found {IssueCount} DNS security issues", ctx.DnsSecurityResult.Issues.Count);
@@ -1137,6 +1158,21 @@ public class ConfigAuditEngine
         _logger.LogInformation("Phase 5e: Analyzing console access");
         ctx.AllIssues.AddRange(_consoleAccessAnalyzer.Analyze(
             ctx.ConsoleUsers, ctx.ConsoleApiKeys, DateTimeOffset.UtcNow, ctx.ConnectedUsername));
+    }
+
+    /// <summary>
+    /// Phase 5f: the gateway's own firewall against UniFi Network's configuration. Skipped when the gateway
+    /// could not be read over SSH.
+    /// </summary>
+    private void ExecutePhase5f_AnalyzeGatewayFirewall(AuditContext ctx)
+    {
+        if (ctx.GatewayFirewall == null)
+            return;
+
+        _logger.LogInformation("Phase 5f: Analyzing the gateway's firewall");
+        var gatewayName = ctx.Switches.FirstOrDefault(s => s.IsGateway)?.Name ?? "Gateway";
+        ctx.AllIssues.AddRange(_gatewayFirewallAnalyzer.Analyze(ctx.GatewayFirewall, ctx.FirewallRules, ctx.FirewallZones,
+            ctx.NetworkConfigs, ctx.GatewayWanInterfaces, ctx.GatewayBlocklist, gatewayName));
     }
 
     /// <summary>
@@ -1314,6 +1350,7 @@ public class ConfigAuditEngine
             DoqBlocked = dnsSecurityResult.HasDoqBlockRule,
             DoqProvidesFullCoverage = dnsSecurityResult.DoqProvidesFullCoverage,
             DohBypassBlocked = dnsSecurityResult.HasDohBlockRule,
+            DohProvidesFullCoverage = dnsSecurityResult.DohProvidesFullCoverage,
             Doh3Blocked = dnsSecurityResult.HasDoh3BlockRule,
             WanDnsServers = dnsSecurityResult.WanDnsServers.ToList(),
             WanDnsPtrResults = dnsSecurityResult.WanDnsPtrResults.ToList(),

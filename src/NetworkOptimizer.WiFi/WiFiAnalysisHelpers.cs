@@ -10,6 +10,29 @@ namespace NetworkOptimizer.WiFi;
 public static class WiFiAnalysisHelpers
 {
     /// <summary>
+    /// Each radio's utilization average and peak over a set of per-AP report rows, keyed by
+    /// lowercase AP MAC and band. Rows without an AP MAC are skipped: they cannot be attributed.
+    /// </summary>
+    public static Dictionary<(string Mac, RadioBand Band), (double Avg, double Peak)> UtilizationByRadio(
+        IEnumerable<SiteWiFiMetrics> rows)
+    {
+        var result = new Dictionary<(string, RadioBand), (double, double)>();
+        foreach (var byAp in rows.Where(r => !string.IsNullOrEmpty(r.ApMac)).GroupBy(r => r.ApMac!.ToLowerInvariant()))
+        {
+            foreach (var band in new[] { RadioBand.Band2_4GHz, RadioBand.Band5GHz, RadioBand.Band6GHz })
+            {
+                var values = byAp
+                    .Select(r => r.ByBand.TryGetValue(band, out var b) ? b.ChannelUtilization : null)
+                    .OfType<double>()
+                    .ToList();
+                if (values.Count > 0)
+                    result[(byAp.Key, band)] = (values.Average(), values.Max());
+            }
+        }
+        return result;
+    }
+
+    /// <summary>
     /// Whether UniFi's "Auto" TX power mode does real auto-power-leveling.
     /// Currently false because Auto is effectively just "High" in UniFi Network.
     /// Set to true once UniFi implements actual automatic power adjustment.

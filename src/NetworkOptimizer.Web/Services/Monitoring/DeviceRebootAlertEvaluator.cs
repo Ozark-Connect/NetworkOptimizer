@@ -122,7 +122,8 @@ public class DeviceRebootAlertEvaluator
             DeviceId = deviceMac,
             DeviceName = deviceName,
             DeviceIp = deviceIp
-            ,SourceUrl = MonitoringLinks.DeviceStats(deviceMac, MonitoringLinks.NowMs())
+            ,SourceUrl = MonitoringLinks.DeviceStats(deviceMac, MonitoringLinks.NowMs()),
+            Context = new Dictionary<string, string> { ["reboot_category"] = reason.Category.ToString() }
         }, ct);
 
         _logger.LogInformation(

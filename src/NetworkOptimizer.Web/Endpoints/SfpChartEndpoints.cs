@@ -208,11 +208,14 @@ public static class SfpChartEndpoints
     };
 
     /// <summary>
-    /// The exception to that: a PON link going down is the one ONT condition worth seeing while
-    /// reading the optics, since it is what the RX and TX traces are usually being checked
-    /// against.
+    /// The exceptions to that: a PON link going down and an ONT reboot are the ONT conditions
+    /// worth seeing while reading the optics, since both break the RX and TX traces.
     /// </summary>
-    private const string PonLinkDownEventType = "ont.pon_link_down";
+    private static readonly HashSet<string> OntEventTypesOnOptics = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "ont.pon_link_down",
+        "ont.rebooted",
+    };
 
     /// <summary>Alert types this endpoint already marks per module, kept out of the host device events.</summary>
     private static readonly HashSet<string> HostEventTypesMarkedHere =
@@ -359,7 +362,7 @@ public static class SfpChartEndpoints
             events.Add((triggeredAtUtc, new
             {
                 key,
-                scope = alert.EventType.Equals(PonLinkDownEventType, StringComparison.OrdinalIgnoreCase)
+                scope = OntEventTypesOnOptics.Contains(alert.EventType)
                     ? ScopeAll
                     : ScopePon,
                 device = module.Device,

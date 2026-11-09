@@ -36,6 +36,13 @@ public interface IFirmwareRolloutService
     [RequireRole(Roles.Viewer)]
     Task<List<RolloutPlanSummaryView>> GetPlanHistoryAsync(int limit = 20, CancellationToken cancellationToken = default);
 
+    /// <summary>One page of past and present rollouts, newest first, with the total for paging.</summary>
+    /// <param name="page">1-based page number.</param>
+    /// <param name="pageSize">Rows per page.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    [RequireRole(Roles.Viewer)]
+    Task<RolloutHistoryPage> GetPlanHistoryPageAsync(int page, int pageSize, CancellationToken cancellationToken = default);
+
     /// <summary>One rollout's post-soak report, or null when there is no such plan.</summary>
     /// <param name="planId">Plan to report on.</param>
     /// <param name="cancellationToken">Cancellation token.</param>

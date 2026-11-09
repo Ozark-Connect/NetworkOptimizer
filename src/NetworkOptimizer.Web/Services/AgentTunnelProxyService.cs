@@ -29,6 +29,10 @@ public class AgentTunnelProxyService : IDisposable
     // was guaranteed: a monitored device with a bogus address took its site's console offline.
     private static readonly TimeSpan OpenTimeout = TimeSpan.FromSeconds(8);
 
+    // How long after a site's tunnel drops a dial waits for it to re-register. Kept under the UniFi
+    // client's 15s request timeout, so a waited dial still has time to complete.
+    private static readonly TimeSpan ReconnectWait = TimeSpan.FromSeconds(8);
+
     // Past AgentTunnelConnection.StaleThreshold of silence the tunnel is treated
     // as black-holed and proxy opens are refused immediately instead of blocking
     // - well before the 90s server watchdog drops the dead tunnel.
@@ -158,6 +162,21 @@ public class AgentTunnelProxyService : IDisposable
         ProxyTarget target, Stream local, CancellationToken ct)
     {
         var agent = PickAgent(target.SiteSlug);
+        // A tunnel that just dropped usually re-registers in 1-3s. Wait for it, so a request caught in
+        // the gap goes through instead of failing.
+        if (agent == null)
+        {
+            try
+            {
+                if (await _registry.WaitForReconnectAsync(target.SiteSlug, ReconnectWait, ct))
+                    agent = PickAgent(target.SiteSlug);
+            }
+            catch (OperationCanceledException)
+            {
+                local.Dispose();
+                throw;
+            }
+        }
         if (agent == null)
         {
             _logger.LogDebug("Proxy connect to {Host}:{Port} refused - no agent online for site {Slug}",
@@ -434,6 +453,9 @@ public class AgentTunnelProxyService : IDisposable
         var agent = PickAgent(siteSlug);
         return agent == null || agent.IsStale || IsHeldBack(agent);
     }
+
+    /// <summary>The agent the site's console and device dials go through now (see <see cref="PickAgent"/>).</summary>
+    public AgentTunnelConnection? DialAgent(string siteSlug) => PickAgent(siteSlug);
 
     /// <summary>The agent a dial goes through: the site's first that is neither silent nor held back.</summary>
     private AgentTunnelConnection? PickAgent(string siteSlug) =>

@@ -12,6 +12,7 @@
 @inject IWiFiRadioKeepService RadioKeep
 @inject IChannelPlanApplyService ChannelApply
 @implements IDisposable
+@inject IDisplayTimeZone DisplayTime
 
 <div class="channel-analysis-container wifi-sections" data-tour="wifi-channels">
     <div class="channel-header">
@@ -313,7 +314,7 @@
                                     }
                                 </div>
                                 <div class="rec-col rec-score-col">
-                                    <span class="@GetScoreClass(rec.CurrentScore)">@FormatScore(rec.CurrentScore)</span>
+                                    <span class="@GetScoreClass(rec.CurrentScore, rec.Band)">@FormatScore(rec.CurrentScore)</span>
                                 </div>
                                 <div class="rec-col rec-channels-col">
                                     @if (rec.IsChanged)
@@ -353,13 +354,13 @@
                                             }
                                             else if (rec.MoveVerdictDueAt.HasValue)
                                             {
-                                                <span>Measuring the new channel; the first hour's result lands at @rec.MoveVerdictDueAt.Value.ToLocalTime().ToString("t").</span>
+                                                <span>Measuring the new channel; the first hour's result lands at @rec.MoveVerdictDueAt.Value.ToLocalTime(DisplayTime).ToString(DisplayTime.Format.Time, DisplayFormat.Culture).</span>
                                             }
                                         </div>
                                     }
                                 </div>
                                 <div class="rec-col rec-score-col">
-                                    <span class="@GetScoreClass(rec.RecommendedScore)">@FormatScore(rec.RecommendedScore)</span>
+                                    <span class="@GetScoreClass(rec.RecommendedScore, rec.Band)">@FormatScore(rec.RecommendedScore)</span>
                                 </div>
                             </div>
                         }
@@ -730,6 +731,9 @@
     [Parameter] public int? InitialChannel { get; set; }
     [Parameter] public bool AutoRunRecommendation { get; set; }
 
+    /// <summary>Raised after an apply run finishes and the page has re-read the radios.</summary>
+    [Parameter] public EventCallback OnPlanApplied { get; set; }
+
     private bool _loading = true;
     private List<AccessPointSnapshot> _accessPoints = new();
     private RegulatoryChannelData? _regulatoryData;
@@ -853,7 +857,11 @@
         _applyPoll = null;
         StateHasChanged();
         // The radios moved, so the plan and the current channels both need a fresh read.
-        if (wasRunning) await RefreshData();
+        if (wasRunning)
+        {
+            await RefreshData();
+            await OnPlanApplied.InvokeAsync();
+        }
     }
 
     private async Task CloseApply()
@@ -971,9 +979,7 @@
         // Default the DFS toggle to match the console's Auto-Optimize configuration
         // (dfs=true -> Include DFS, dfs=false -> Avoid DFS). Falls back to the field
         // default when the setting is unavailable.
-        var autoOptimizeDfs = await WiFiService.GetAutoOptimizeDfsEnabledAsync();
-        if (autoOptimizeDfs.HasValue)
-            _dfsPreference = autoOptimizeDfs.Value ? DfsPreference.IncludeWithPenalty : DfsPreference.Exclude;
+        _dfsPreference = await WiFiService.GetDefaultDfsPreferenceAsync();
 
         // Apply initial filters from parent navigation (explicit band is treated as a manual pick)
         if (InitialBand.HasValue)
@@ -1458,25 +1464,40 @@
 
     private static string FormatPercent(double pct) => pct.ToString("F0");
 
-    private static string GetSoakTooltip(ApChannelRecommendation rec)
+    private string GetSoakTooltip(ApChannelRecommendation rec)
     {
         var channels = string.Join(", ", rec.SoakSuppressedChannels);
         var chLabel = rec.SoakSuppressedChannels.Count == 1 ? "Ch" : "Channels";
         var until = rec.SoakEndsAt.HasValue
-            ? $" until {rec.SoakEndsAt.Value.ToLocalTime():MMM d h:mm tt}"
+            ? $" until {rec.SoakEndsAt.Value.ToLocalTime(DisplayTime).ToString(DisplayTime.Format.DayTime, DisplayFormat.Culture)}"
             : "";
         return $"Channel changed recently. {chLabel} {channels} won't be re-suggested{until} " +
                "so the new channel can prove itself on measured data.";
     }
 
-    private static string GetScoreClass(double score) => score switch
+    /// <summary>
+    /// Upper bounds for excellent, good, fair, and poor per band (lower is better; above the last is
+    /// bad). A score that is ordinary on crowded 2.4 GHz is very poor on 6 GHz.
+    /// </summary>
+    private static readonly Dictionary<RadioBand, double[]> ScoreClassBounds = new()
     {
-        <= 0.5 => "score-excellent",
-        <= 1.5 => "score-good",
-        <= 3.0 => "score-fair",
-        <= 5.0 => "score-poor",
-        _ => "score-bad"
+        [RadioBand.Band2_4GHz] = [2.0, 4.0, 6.5, 9.0],
+        [RadioBand.Band5GHz] = [1.0, 2.0, 3.5, 5.0],
+        [RadioBand.Band6GHz] = [0.25, 0.75, 1.5, 2.5],
     };
+
+    private static readonly string[] ScoreClasses = ["score-excellent", "score-good", "score-fair", "score-poor"];
+
+    private static string GetScoreClass(double score, RadioBand band)
+    {
+        // Classed on the shown value, so a 1.55 printed as "1.6" never colors as a different class.
+        var shown = double.Parse(score.ToString("F1", System.Globalization.CultureInfo.InvariantCulture),
+            System.Globalization.CultureInfo.InvariantCulture);
+        var bounds = ScoreClassBounds.GetValueOrDefault(band) ?? ScoreClassBounds[RadioBand.Band5GHz];
+        for (var i = 0; i < bounds.Length; i++)
+            if (shown <= bounds[i]) return ScoreClasses[i];
+        return "score-bad";
+    }
 
     private class WidthGroupInfo
     {

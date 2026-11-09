@@ -317,6 +317,20 @@ public class FirmwareRolloutRepositoryTests : IDisposable
     }
 
     [Fact]
+    public async Task GetPlanHistoryPageAsync_PagesNewestFirstAndCountsEveryPlan()
+    {
+        for (var i = 0; i < 5; i++)
+            await _repository.CreatePlanAsync(new FirmwareRolloutPlan { CreatedBy = $"Admin{i}" });
+
+        var second = await _repository.GetPlanHistoryPageAsync(offset: 2, limit: 2);
+        var last = await _repository.GetPlanHistoryPageAsync(offset: 4, limit: 2);
+
+        second.Select(p => p.CreatedBy).Should().Equal("Admin2", "Admin1");
+        last.Select(p => p.CreatedBy).Should().Equal("Admin0");
+        (await _repository.CountPlansAsync()).Should().Be(5);
+    }
+
+    [Fact]
     public async Task GetPlanAsync_UnknownId_ReturnsNull()
     {
         (await _repository.GetPlanAsync(9999)).Should().BeNull();

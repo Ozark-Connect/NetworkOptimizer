@@ -8,6 +8,7 @@ using NetworkOptimizer.Alerts.Delivery;
 using NetworkOptimizer.Alerts.Events;
 using NetworkOptimizer.Alerts.Interfaces;
 using NetworkOptimizer.Alerts.Models;
+using NetworkOptimizer.Core;
 using NetworkOptimizer.Core.Helpers;
 
 namespace NetworkOptimizer.Alerts;
@@ -28,6 +29,7 @@ public class AlertProcessingService : BackgroundService
     private readonly AlertCooldownTracker _cooldownTracker;
     private readonly IAlertSiteNameResolver _siteNameResolver;
     private readonly NetworkOptimizer.Core.ISiteWorkGate? _siteWorkGate;
+    private readonly INotificationTimeZoneResolver? _timeZones;
     private readonly string? _appBaseUrl;
 
     // In-memory rule cache (refreshed periodically)
@@ -48,9 +50,11 @@ public class AlertProcessingService : BackgroundService
         AlertCooldownTracker cooldownTracker,
         IAlertSiteNameResolver siteNameResolver,
         IConfiguration configuration,
-        NetworkOptimizer.Core.ISiteWorkGate? siteWorkGate = null)
+        NetworkOptimizer.Core.ISiteWorkGate? siteWorkGate = null,
+        INotificationTimeZoneResolver? timeZones = null)
     {
         _siteWorkGate = siteWorkGate;
+        _timeZones = timeZones;
         _logger = logger;
         _eventBus = eventBus;
         _scopeFactory = scopeFactory;
@@ -109,14 +113,26 @@ public class AlertProcessingService : BackgroundService
     /// <summary>Whether background work may run for a site; no gate wired means yes (fail-open).</summary>
     private bool MayRunForSite(string? siteKey) => _siteWorkGate?.IsSiteOperational(siteKey) ?? true;
 
+    /// <summary>
+    /// The event with the default site as a null slug, whichever form the publisher used. Kept as
+    /// "main", delivery added the main-site channels a second time (they are the site's own) and
+    /// labeled the copy "[main]".
+    /// </summary>
+    internal static AlertEvent WithDefaultSiteAsNull(AlertEvent alertEvent) =>
+        string.Equals(alertEvent.SiteSlug, SiteSlugs.Default, StringComparison.OrdinalIgnoreCase)
+            ? alertEvent with { SiteSlug = null }
+            : alertEvent;
+
     private async Task ProcessEventAsync(AlertEvent alertEvent, CancellationToken cancellationToken)
     {
+        alertEvent = WithDefaultSiteAsNull(alertEvent);
+
         // Delivery is outbound and user-visible, so a site licensing has closed raises nothing.
         // Checked before the scope is created: no rules read, no history written, no notification.
         if (!MayRunForSite(alertEvent.SiteSlug))
         {
             _logger.LogDebug("Skipping alert {EventType} for non-operational site {Site}",
-                alertEvent.EventType, string.IsNullOrEmpty(alertEvent.SiteSlug) ? "main" : alertEvent.SiteSlug);
+                alertEvent.EventType, string.IsNullOrEmpty(alertEvent.SiteSlug) ? SiteSlugs.Default : alertEvent.SiteSlug);
             return;
         }
 
@@ -146,7 +162,7 @@ public class AlertProcessingService : BackgroundService
         if (matchingRules.Count == 0)
         {
             _logger.LogDebug("No matching rules for event {EventType} (site {Site})",
-                alertEvent.EventType, siteKey.Length == 0 ? "main" : siteKey);
+                alertEvent.EventType, siteKey.Length == 0 ? SiteSlugs.Default : siteKey);
             return;
         }
 
@@ -415,7 +431,7 @@ public class AlertProcessingService : BackgroundService
         await DeliverAsync(deliveryEvent, historyEntry, repository, cancellationToken);
     }
 
-    private async Task DeliverAsync(
+    internal async Task DeliverAsync(
         AlertEvent alertEvent,
         AlertHistoryEntry historyEntry,
         IAlertRepository repository,
@@ -435,6 +451,10 @@ public class AlertProcessingService : BackgroundService
 
         var deliveredTo = new List<int>();
         var errors = new List<string>();
+        // Resolved on the first channel that sends, inside its error handling: an alert no channel
+        // takes costs no lookup, and a failed one is recorded like any other delivery error.
+        TimeZoneInfo? timeZone = null;
+        DisplayFormat? format = null;
 
         foreach (var channel in channels)
         {
@@ -454,7 +474,13 @@ public class AlertProcessingService : BackgroundService
 
             try
             {
-                var success = await handler.SendAsync(alertEvent, historyEntry, channel, cancellationToken);
+                timeZone ??= _timeZones == null
+                    ? TimeZoneInfo.Local
+                    : await _timeZones.ResolveAsync(alertEvent.SiteSlug, cancellationToken);
+                format ??= _timeZones == null
+                    ? DisplayFormat.Fallback
+                    : await _timeZones.ResolveFormatAsync(alertEvent.SiteSlug, cancellationToken);
+                var success = await handler.SendAsync(alertEvent, historyEntry, channel, timeZone, format, cancellationToken);
                 if (success)
                 {
                     deliveredTo.Add(channel.Id);
@@ -499,7 +525,7 @@ public class AlertProcessingService : BackgroundService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to refresh alert rule cache for site {Site}",
-                siteKey.Length == 0 ? "main" : siteKey);
+                siteKey.Length == 0 ? SiteSlugs.Default : siteKey);
             // Keep using stale cache rather than failing
             return hasCache ? cached.Rules : [];
         }
@@ -518,7 +544,7 @@ public class AlertProcessingService : BackgroundService
             return null;
 
         // The default site arrives here as null/empty; its selectable slug is "main".
-        var slug = string.IsNullOrEmpty(siteSlug) ? "main" : siteSlug;
+        var slug = string.IsNullOrEmpty(siteSlug) ? SiteSlugs.Default : siteSlug;
 
         // In front of any #fragment, not on the end of the string. A speed test alert points at
         // one result (/speedtest#result-12), and appending blindly put the query INSIDE the

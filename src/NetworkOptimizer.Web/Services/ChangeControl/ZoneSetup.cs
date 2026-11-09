@@ -1,0 +1,1261 @@
+using System.Text.Json.Nodes;
+using NetworkOptimizer.Audit.Models;
+
+namespace NetworkOptimizer.Web.Services.ChangeControl;
+
+/// <summary>What a proposed zone is for; decides the policies between zones.</summary>
+public enum ZoneRole { Internal, IoT, Cameras, Management, Servers, Printers, Dmz, Hotspot, Custom }
+
+/// <summary>A LAN network on the zone board.</summary>
+public sealed class ZoneNetworkView
+{
+    public string Id { get; init; } = "";
+    public string Name { get; init; } = "";
+    public int Vlan { get; init; }
+    public string Purpose { get; init; } = "";
+    public string? CurrentZone { get; init; }
+}
+
+/// <summary>A zone column on the board.</summary>
+public sealed class ZoneDraft
+{
+    public string Key { get; init; } = "";
+
+    /// <summary>The zone's name; the operator can rename it on the board, which the plan writes.</summary>
+    public string Name { get; set; } = "";
+    public ZoneRole Role { get; init; }
+    public string? ExistingId { get; init; }
+    public bool BuiltIn { get; init; }
+
+    /// <summary>A custom zone the operator built: its networks stay, and its policies are left as they are.</summary>
+    public bool Kept { get; init; }
+    public string Description { get; set; } = "";
+    public List<string> NetworkIds { get; init; } = [];
+    public bool IsNew => ExistingId == null;
+
+    /// <summary>An operator zone that has networks today and none after the move.</summary>
+    public bool Emptied { get; set; }
+
+    /// <summary>The plan deletes the emptied zone, moving its policies with its networks; else it stays, its policies with it.</summary>
+    public bool Delete { get; set; }
+}
+
+/// <summary>A named exception: an allow the matrix would otherwise block.</summary>
+public sealed class ZoneException
+{
+    public string Key { get; init; } = "";
+    public string Name { get; init; } = "";
+    public string FromTo { get; init; } = "";
+    public string Why { get; set; } = "";
+    public bool Enabled { get; set; }
+    public bool Applicable { get; set; }
+
+    /// <summary>The operator's own allow that lands in this pair after the move, which makes the exception unnecessary.</summary>
+    public string? CoveredBy { get; set; }
+}
+
+/// <summary>One Security Audit acceptance check.</summary>
+public sealed record ZoneCheck(string Label, string Status, string Level);
+
+/// <summary>Everything the Set Up Zones board shows.</summary>
+public sealed class ZoneSetupView
+{
+    public string Mode { get; init; } = ZoneSetup.TrustMode;
+    public bool LegacyFirewall { get; init; }
+
+    /// <summary>The newest snapshot from before the site moved to zones, when one exists.</summary>
+    public int? LegacySnapshotId { get; set; }
+    public string? LegacySnapshotLabel { get; set; }
+    public List<ZoneNetworkView> Networks { get; init; } = [];
+    public List<ZoneDraft> Zones { get; init; } = [];
+    public List<ZoneException> Exceptions { get; init; } = [];
+
+    /// <summary>Every zone on the console by ID, board or not (External, an empty zone): a rename must not reuse one's name.</summary>
+    public Dictionary<string, string> ConsoleZoneNames { get; init; } = [];
+    public List<ZoneCheck> Checks { get; set; } = [];
+    public bool? ChecksPass { get; set; }
+    public int Unassigned => Zones.FirstOrDefault(z => z.Key == ZoneSetup.UnassignedKey)?.NetworkIds.Count ?? 0;
+}
+
+/// <summary>The desired config for a board, with what Review Plan should say about it.</summary>
+/// <param name="Desired">Zone membership and policies.</param>
+/// <param name="Notes">Plan notes: deletes, splits, and what was not carried over.</param>
+/// <param name="Rehomed">IDs of operator policies moved to a new zone pair; they write after the zones.</param>
+public sealed record ZonePlan(ConfigState Desired, List<string> Notes, HashSet<string> Rehomed);
+
+/// <summary>
+/// Set Up Zones (spec "Legacy firewall to ZBF migration, and zone setup"): proposes zones from the
+/// Security Audit's network purposes, by trust level or by purpose, lets the user regroup, and turns
+/// the board into zone membership plus the policies UniFi's defaults do not already give.
+/// </summary>
+/// <remarks>
+/// UniFi blocks a custom zone from every other LAN zone, both ways, and within itself (UDR7 on
+/// Network 11, 2026-10-30), so the plan writes only allows between LAN zones. Moving a network pauses every operator
+/// policy that names it and strips the network from it; the plan re-writes those policies, from the copy
+/// read before the move, in the same apply.
+/// </remarks>
+public static class ZoneSetup
+{
+    public const string TrustMode = "trust";
+    public const string PurposeMode = "purpose";
+    public const string UnassignedKey = "unassigned";
+    private const string NewZonePrefix = "new-zone-";
+    private const string NewPolicyPrefix = "new-zone-policy-";
+    private const string KeepPrefix = "keep-";
+
+    /// <summary>The port group Allow Internal to Servers uses; the operator opens more by adding to it.</summary>
+    public const string ServerServicesGroup = "Server Services";
+
+    private const string ServersKey = "servers";
+
+    /// <summary>
+    /// Common corporate and homelab services: web and admin UIs, SSH, RDP, DNS, NTP, SMB, NFS, Proxmox,
+    /// Synology DSM, Portainer, Plex, Jellyfin, Home Assistant, MQTT, iperf3.
+    /// </summary>
+    public static readonly string[] ServerServicesPorts =
+        ["80", "443", "8080", "8443", "22", "3389", "53", "123", "445", "111", "2049", "8006", "5000-5001", "9443", "32400", "8096", "8920", "8123", "1883", "8883", "5201"];
+
+    /// <summary>
+    /// Each exception allows TCP and UDP to its ports only, which keeps it off the any-to-any audit rule.
+    /// Casting: AirPlay (7000, 7100), Google Cast (8008-8009, 8443), Sonos (1400, 1443), Roku (8060), and the
+    /// ephemeral range AirPlay 2 streams on. NVR: Protect's viewer ports (443, RTSPS 7441, API 7443, streams
+    /// 7445, RTSP 7447); off by default, since Protect on the gateway is reached through the Gateway zone.
+    /// Printing: IPP (631), raw (9100), LPD (515). Management: SSH and the device web pages. Servers: the
+    /// <see cref="ServerServicesGroup"/> port group (no ports of its own).
+    /// </summary>
+    private static readonly (string Key, ZoneRole Role, string FromName, string Why, bool Default, string Ports)[] ExceptionDefs =
+    [
+        (ServersKey, ZoneRole.Servers, "Allow Internal to Servers", "Internal reaches the ports in Server Services Port List", true, ""),
+        ("casting", ZoneRole.IoT, "Casting and mDNS", "Phones cast to TVs and speakers", true, "7000,7100,8008-8009,8443,1400,1443,8060,49152-65535"),
+        ("nvr", ZoneRole.Cameras, "NVR access", "Only for an NVR on the camera network; Protect on your gateway needs none", false, "443,7441,7443,7445,7447"),
+        ("printing", ZoneRole.Printers, "Printing", "Print from home devices", true, "631,9100,515"),
+        ("manage", ZoneRole.Management, "Device management", "Reach switch and AP pages from your computers", false, "22,80,443,8080,8443"),
+    ];
+
+    private static (ZoneRole? Role, string Name, string Key) Bucket(NetworkPurpose purpose, string mode) => mode == PurposeMode
+        ? purpose switch
+        {
+            NetworkPurpose.Corporate => (ZoneRole.Internal, "Internal", "internal"),
+            NetworkPurpose.Home => (ZoneRole.Internal, "Home", "home"),
+            NetworkPurpose.Gaming => (ZoneRole.Internal, "Gaming", "gaming"),
+            NetworkPurpose.IoT => (ZoneRole.IoT, "IoT", "iot"),
+            NetworkPurpose.Media => (ZoneRole.IoT, "Media", "media"),
+            NetworkPurpose.Security => (ZoneRole.Cameras, "Cameras", "cameras"),
+            NetworkPurpose.Management or NetworkPurpose.ManagementAccess => (ZoneRole.Management, "Management", "management"),
+            NetworkPurpose.Server => (ZoneRole.Servers, "Servers", "servers"),
+            NetworkPurpose.Printer => (ZoneRole.Printers, "Printers", "printers"),
+            NetworkPurpose.Dmz => (ZoneRole.Dmz, "Dmz", "dmz"),
+            NetworkPurpose.Guest => (ZoneRole.Hotspot, "Hotspot", "hotspot"),
+            _ => (null, "", UnassignedKey),
+        }
+        : purpose switch
+        {
+            NetworkPurpose.Corporate or NetworkPurpose.Home or NetworkPurpose.Gaming => (ZoneRole.Internal, "Internal", "internal"),
+            NetworkPurpose.IoT or NetworkPurpose.Media => (ZoneRole.IoT, "IoT", "iot"),
+            NetworkPurpose.Security => (ZoneRole.Cameras, "Cameras", "cameras"),
+            NetworkPurpose.Management or NetworkPurpose.ManagementAccess => (ZoneRole.Management, "Management", "management"),
+            NetworkPurpose.Server => (ZoneRole.Servers, "Servers", "servers"),
+            NetworkPurpose.Dmz => (ZoneRole.Dmz, "Dmz", "dmz"),
+            NetworkPurpose.Guest => (ZoneRole.Hotspot, "Hotspot", "hotspot"),
+            _ => (null, "", UnassignedKey),
+        };
+
+    /// <summary>UniFi's built-in zones a role lands in (zone_key, sample-firewall-zones-custom.txt).</summary>
+    private static string? BuiltInKey(string key) => key switch { "internal" => "internal", "hotspot" => "hotspot", "dmz" => "dmz", _ => null };
+
+    private static string? Str(JsonNode? n) => n is JsonValue v && v.TryGetValue<string>(out var s) ? s : n?.ToString();
+
+    private static string? Str(JsonObject o, string key) => o[key] is JsonValue v ? v.ToString() : null;
+
+    private static List<string> Ids(JsonObject zone) =>
+        (zone["network_ids"] as JsonArray ?? []).Select(n => n?.ToString()).OfType<string>().ToList();
+
+    /// <summary>Whether the site still runs the legacy firewall (rules and no zones).</summary>
+    public static bool IsLegacy(ConfigState live) =>
+        live.Get("firewall_zone").Count == 0 && live.Get("firewallrule").Count > 0;
+
+    /// <summary>The board: the proposal for a mode, with the user's moves, added zones, and exception choices applied.</summary>
+    /// <param name="live">Live config.</param>
+    /// <param name="networks">The Security Audit's networks (purposes detected or overridden).</param>
+    /// <param name="mode">Trust or purpose.</param>
+    /// <param name="moves">Network ID to zone key, from drag and drop.</param>
+    /// <param name="addedZones">Names of zones the user added.</param>
+    /// <param name="exceptions">Exception key to on or off; unset ones take their default.</param>
+    /// <param name="keepZones">IDs of emptied operator zones to keep; every other emptied one is deleted.</param>
+    /// <param name="names">Zone key to the name the operator gave it on the board.</param>
+    public static ZoneSetupView Build(ConfigState live, IReadOnlyList<NetworkInfo> networks, string mode,
+        IReadOnlyDictionary<string, string>? moves = null, IReadOnlyList<string>? addedZones = null,
+        IReadOnlyDictionary<string, bool>? exceptions = null, IReadOnlyCollection<string>? keepZones = null,
+        IReadOnlyDictionary<string, string>? names = null)
+    {
+        moves ??= new Dictionary<string, string>();
+        var liveZones = live.Get("firewall_zone");
+        var zoneOf = new Dictionary<string, JsonObject>();
+        foreach (var z in liveZones)
+            foreach (var id in Ids(z)) zoneOf[id] = z;
+        // Only LAN networks move; WAN and VPN networks belong to External and Vpn.
+        var external = liveZones.Where(z => Str(z, "zone_key") is "external" or "vpn" or "gateway").SelectMany(Ids).ToHashSet();
+
+        var views = networks.Where(n => !external.Contains(n.Id))
+            .Select(n => new ZoneNetworkView { Id = n.Id, Name = n.Name, Vlan = n.VlanId, Purpose = n.Purpose.ToString(), CurrentZone = zoneOf.TryGetValue(n.Id, out var cz) ? Str(cz, "name") : null })
+            .OrderBy(n => n.Vlan).ToList();
+
+        var zones = new Dictionary<string, ZoneDraft>();
+        ZoneDraft Zone(string key, string name, ZoneRole role)
+        {
+            if (zones.TryGetValue(key, out var z)) return z;
+            var builtIn = BuiltInKey(key);
+            var existing = builtIn != null
+                ? liveZones.FirstOrDefault(l => Str(l, "zone_key") == builtIn)
+                : liveZones.FirstOrDefault(l => string.Equals(Str(l, "name"), name, StringComparison.OrdinalIgnoreCase) && Str(l, "zone_key") is null or "");
+            return zones[key] = new ZoneDraft
+            {
+                Key = key, Name = existing != null ? Str(existing, "name") ?? name : name, Role = role,
+                ExistingId = existing != null ? ConfigState.IdOf(existing) : null, BuiltIn = builtIn != null,
+            };
+        }
+        void Keep(JsonObject zone) => zones.TryAdd(KeepPrefix + ConfigState.IdOf(zone), new ZoneDraft
+        {
+            Key = KeepPrefix + ConfigState.IdOf(zone), Name = Str(zone, "name") ?? "Zone", Role = ZoneRole.Custom,
+            ExistingId = ConfigState.IdOf(zone), Kept = true,
+        });
+
+        // Every trust column appears even when empty, so a network can be dragged into it.
+        if (mode == TrustMode)
+            foreach (var (key, name, role) in new[] { ("internal", "Internal", ZoneRole.Internal), ("iot", "IoT", ZoneRole.IoT), ("cameras", "Cameras", ZoneRole.Cameras),
+                         ("management", "Management", ZoneRole.Management), ("servers", "Servers", ZoneRole.Servers), ("hotspot", "Hotspot", ZoneRole.Hotspot) })
+                Zone(key, name, role);
+        else
+            Zone("internal", "Internal", ZoneRole.Internal);
+        foreach (var name in addedZones ?? [])
+            Zone("custom-" + name.Trim().ToLowerInvariant().Replace(' ', '-'), name.Trim(), ZoneRole.Custom);
+        // By purpose creates its columns as networks need them, so an operator zone named for a network's purpose
+        // ("IoT" holding an IoT network) becomes that column, with its role, as the trust columns find it up front.
+        if (mode == PurposeMode)
+            foreach (var n in networks.Where(n => !external.Contains(n.Id)))
+                if (zoneOf.TryGetValue(n.Id, out var current) && ZonePaths.IsCustom(current) && Bucket(n.Purpose, mode) is { Role: { } role } bucket
+                    && string.Equals(Str(current, "name"), bucket.Name, StringComparison.OrdinalIgnoreCase))
+                    Zone(bucket.Key, bucket.Name, role);
+        // An operator zone holding only one role's networks is that role's column under its own name ("Protect" for
+        // cameras), when no zone has the role's name. Of two that fit, the one with more networks takes it.
+        var purposeOf = networks.ToDictionary(n => n.Id, n => n.Purpose, StringComparer.OrdinalIgnoreCase);
+        var fits = liveZones.Where(z => ZonePaths.IsCustom(z) && !zones.Values.Any(d => d.ExistingId == ConfigState.IdOf(z)))
+            .Select(z => (Zone: z, Members: Ids(z).Where(purposeOf.ContainsKey).ToList()))
+            .Where(x => x.Members.Count > 0)
+            .Select(x => (x.Zone, x.Members.Count, Buckets: x.Members.Select(id => Bucket(purposeOf[id], mode)).DistinctBy(b => b.Key).ToList()))
+            .Where(x => x.Buckets is [{ Role: { } }] && BuiltInKey(x.Buckets[0].Key) == null)
+            .OrderByDescending(x => x.Count);
+        foreach (var (zone, _, buckets) in fits)
+        {
+            var (role, _, key) = buckets[0];
+            if (zones.TryGetValue(key, out var column) && column.ExistingId != null) continue;
+            zones[key] = new ZoneDraft { Key = key, Name = Str(zone, "name") ?? key, Role = role!.Value, ExistingId = ConfigState.IdOf(zone) };
+        }
+        // A network already in a zone the operator built stays there; its column is kept so it can be dragged back.
+        foreach (var current in networks.Where(n => !external.Contains(n.Id)).Select(n => zoneOf.GetValueOrDefault(n.Id)).OfType<JsonObject>()
+                     .Where(ZonePaths.IsCustom).DistinctBy(ConfigState.IdOf))
+            if (!zones.Values.Any(z => z.ExistingId == ConfigState.IdOf(current))) Keep(current);
+        var unassigned = zones[UnassignedKey] = new ZoneDraft { Key = UnassignedKey, Name = "Unassigned", Role = ZoneRole.Custom, Description = "Stay in their current zone" };
+        // UniFi's built-in zones keep their names, and a name another zone has (on the board or off it) is refused.
+        foreach (var (key, name) in names ?? new Dictionary<string, string>())
+            if (key != UnassignedKey && zones.TryGetValue(key, out var renamed) && !renamed.BuiltIn && !string.IsNullOrWhiteSpace(name)
+                && !zones.Values.Any(o => o != renamed && string.Equals(o.Name, name.Trim(), StringComparison.OrdinalIgnoreCase))
+                && !liveZones.Any(l => ConfigState.IdOf(l) != renamed.ExistingId && !zones.Values.Any(o => o.ExistingId == ConfigState.IdOf(l))
+                    && string.Equals(Str(l, "name"), name.Trim(), StringComparison.OrdinalIgnoreCase)))
+                renamed.Name = name.Trim();
+
+        foreach (var n in networks.Where(n => !external.Contains(n.Id)))
+        {
+            ZoneDraft target;
+            if (moves.TryGetValue(n.Id, out var moved) && zones.TryGetValue(moved, out var chosen)) target = chosen;
+            else if (zoneOf.TryGetValue(n.Id, out var current) && ZonePaths.IsCustom(current))
+                target = zones.Values.First(z => z.ExistingId == ConfigState.IdOf(current));
+            else
+            {
+                var (role, name, key) = Bucket(n.Purpose, mode);
+                target = role == null ? unassigned : Zone(key, name, role.Value);
+            }
+            target.NetworkIds.Add(n.Id);
+        }
+
+        var lanIds = views.Select(v => v.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        foreach (var z in zones.Values.Where(z => z.ExistingId != null && !z.BuiltIn && z.NetworkIds.Count == 0))
+            if (liveZones.FirstOrDefault(l => ConfigState.IdOf(l) == z.ExistingId) is { } was && Ids(was).Any(lanIds.Contains))
+            {
+                z.Emptied = true;
+                z.Delete = keepZones?.Contains(z.ExistingId!) != true;
+            }
+
+        var populated = zones.Values.Where(z => z.Key != UnassignedKey && !z.Kept && z.NetworkIds.Count > 0).ToList();
+        var exceptionViews = ExceptionDefs.Select(e =>
+        {
+            var applicable = populated.Any(z => z.Role == e.Role) && populated.Any(z => z.Role == ZoneRole.Internal);
+            return new ZoneException
+            {
+                // The Servers allow is named by its zones (Allow), so a renamed column names it too.
+                Key = e.Key,
+                Name = e.Key == ServersKey && populated.FirstOrDefault(z => z.Role == ZoneRole.Internal) is { } inside && populated.FirstOrDefault(z => z.Role == e.Role) is { } servers
+                    ? $"Allow {inside.Name} to {servers.Name}" : e.FromName,
+                Why = applicable ? e.Why : $"Only if you assign {RoleNoun(e.Role)} to a zone",
+                FromTo = $"Internal to {populated.FirstOrDefault(z => z.Role == e.Role)?.Name ?? RoleNoun(e.Role)}",
+                Applicable = applicable, Enabled = applicable && (exceptions?.TryGetValue(e.Key, out var on) == true ? on : e.Default),
+            };
+        }).ToList();
+
+        var order = new[] { ZoneRole.Internal, ZoneRole.IoT, ZoneRole.Cameras, ZoneRole.Management, ZoneRole.Servers, ZoneRole.Printers, ZoneRole.Dmz, ZoneRole.Hotspot, ZoneRole.Custom };
+        var view = new ZoneSetupView
+        {
+            Mode = mode,
+            LegacyFirewall = IsLegacy(live),
+            Networks = views,
+            Zones = zones.Values.Where(z => z.Key != UnassignedKey).OrderBy(z => Array.IndexOf(order, z.Role)).ThenBy(z => z.Kept).ThenBy(z => z.Name).Append(unassigned).ToList(),
+            Exceptions = exceptionViews,
+            ConsoleZoneNames = liveZones.ToDictionary(ConfigState.IdOf, z => Str(z, "name") ?? "", StringComparer.OrdinalIgnoreCase),
+        };
+
+        // An exception the operator's own allow already gives (re-homed into the same pair) starts unticked, unless chosen.
+        if (exceptionViews.Any(e => e.Applicable) && live.Collections.ContainsKey("firewall_policy"))
+        {
+            var preview = Plan(live, new ZoneSetupView { Mode = mode, Zones = view.Zones, Exceptions = exceptionViews.Select(e => new ZoneException { Key = e.Key, Name = e.Name }).ToList() });
+            string ZoneId(ZoneDraft d) => d.ExistingId ?? NewZonePrefix + d.Key;
+            var allows = OperatorAllows(preview.Desired, preview.Desired.Get("firewall_policy"));
+            foreach (var e in exceptionViews.Where(e => e.Applicable))
+            {
+                var role = ExceptionDefs.First(d => d.Key == e.Key).Role;
+                var from = populated.First(z => z.Role == ZoneRole.Internal);
+                var to = populated.First(z => z.Role == role);
+                if (OperatorAllow(allows, ZoneId(from), ZoneId(to)) is not { } covered) continue;
+                e.CoveredBy = Str(covered, "name");
+                e.Why = $"Covered by your rule {e.CoveredBy}";
+                if (exceptions?.ContainsKey(e.Key) != true) e.Enabled = false;
+            }
+        }
+
+        // A Servers zone the operator built already says what Internal reaches; one an earlier run made keeps its allow.
+        if (exceptionViews.FirstOrDefault(e => e.Key == ServersKey && e.Applicable && e.CoveredBy == null) is { } servers
+            && populated.First(z => z.Role == ZoneRole.Servers) is { ExistingId: { } serversId, BuiltIn: false }
+            && !live.Get("firewall_policy").Any(p => Str(p, "description") == "Set Up Zones" && Str(p["destination"]?["zone_id"]) == serversId
+                && Str(p["source"]?["zone_id"]) == populated.First(z => z.Role == ZoneRole.Internal).ExistingId))
+        {
+            servers.Why = "Your zone: its policies decide what Internal reaches";
+            if (exceptions?.ContainsKey(ServersKey) != true) servers.Enabled = false;
+        }
+
+        foreach (var z in zones.Values.Where(z => z.Key != UnassignedKey))
+            z.Description = z.Emptied
+                ? z.Delete ? "Empty after the move. Its policies move with its networks" : "Empty after the move. Your policies stay on it"
+                : z.Kept ? "Your zone; its policies stay as they are" : Describe(z.Role, exceptionViews);
+        return view;
+    }
+
+    /// <summary>
+    /// An operator allow in a zone pair, by the Audit's model: enabled, opens new connections, not UniFi's, not one Set Up
+    /// Zones wrote (that marker is config identity, read from the JSON). Any scope counts (#1332): the pair is the operator's.
+    /// </summary>
+    private static JsonObject? OperatorAllow(IReadOnlyDictionary<FirewallRule, JsonObject> allows, string src, string dst) =>
+        allows.FirstOrDefault(r => r.Key.SourceZoneId == src && r.Key.DestinationZoneId == dst).Value;
+
+    /// <summary>The operator allows <see cref="OperatorAllow"/> picks from, parsed once.</summary>
+    private static Dictionary<FirewallRule, JsonObject> OperatorAllows(ConfigState state, IEnumerable<JsonObject> policies) =>
+        ZonePaths.Parse(state, policies.Where(p => Str(p, "description") != "Set Up Zones"))
+            .Where(r => r.Key.Enabled && r.Key.ActionType.IsAllowAction() && r.Key.AllowsNewConnections() && !r.Key.Predefined)
+            .ToDictionary(r => r.Key, r => r.Value);
+
+    /// <summary>
+    /// An allow with no limit between two zones, by the Audit's model: all protocols, ports, and connection states, both
+    /// address families, always, and every network on each side by ANY or a network list (a host list, or "all but some
+    /// hosts", is not the whole zone).
+    /// </summary>
+    private static bool OpensWholePair(ConfigState state, JsonObject p, string srcZone, IReadOnlyCollection<string> srcNetworks, IReadOnlyCollection<string> dstNetworks)
+    {
+        if (ZonePaths.Parse(state, [p]).Keys.SingleOrDefault() is not { } r) return false;
+        var allProtocols = (string.IsNullOrEmpty(r.Protocol) || r.Protocol.Equals("all", StringComparison.OrdinalIgnoreCase)) && !r.MatchOppositeProtocol;
+        var anyState = string.IsNullOrEmpty(r.ConnectionStateType) || r.ConnectionStateType.Equals("ALL", StringComparison.OrdinalIgnoreCase);
+        return allProtocols && anyState && r.IsAlwaysOn && r.MatchesIpFamily(IpFamily.IPv4) && r.MatchesIpFamily(IpFamily.IPv6)
+            && string.IsNullOrEmpty(r.DestinationPort) && !r.HasUnresolvedDestinationPortGroup && string.IsNullOrEmpty(r.SourcePort)
+            && (r.IsAnySource() || string.Equals(r.SourceMatchingTarget, "NETWORK", StringComparison.OrdinalIgnoreCase))
+            && srcNetworks.All(id => ZonePaths.Network(state, id, srcZone) is { } net && r.AppliesToSourceNetwork(net))
+            && (r.IsAnyDestination() || string.Equals(r.DestinationMatchingTarget, "NETWORK", StringComparison.OrdinalIgnoreCase))
+            && dstNetworks.All(id => r.AppliesToDestination(id, ""));
+    }
+
+    private static string RoleNoun(ZoneRole role) => role switch
+    {
+        ZoneRole.IoT => "IoT",
+        ZoneRole.Cameras => "Cameras",
+        ZoneRole.Printers => "Printers",
+        ZoneRole.Management => "Management",
+        _ => role.ToString(),
+    };
+
+    private static string Describe(ZoneRole role, List<ZoneException> exceptions)
+    {
+        bool On(string key) => exceptions.Any(e => e.Key == key && e.Enabled);
+        return role switch
+        {
+            ZoneRole.Internal => "Reaches the zones you allow",
+            ZoneRole.IoT => On("casting") ? "Internet only. Internal reaches in" : "Internet only",
+            ZoneRole.Cameras => On("nvr") ? "No internet. Internal reaches the NVR" : "No internet",
+            ZoneRole.Management => On("manage") ? "Reaches the console and devices. Internal reaches in" : "Reaches the console and devices",
+            ZoneRole.Servers => exceptions.Any(e => e.Key == ServersKey && e.Applicable && !e.Enabled)
+                ? "Internet out. Internal reaches what your policies allow" : "Internal reaches its services. Internet out",
+            ZoneRole.Printers => On("printing") ? "Internal prints" : "Isolated",
+            ZoneRole.Hotspot => "Internet only",
+            ZoneRole.Dmz => "UniFi's DMZ rules",
+            _ => "Isolated from other zones",
+        };
+    }
+
+    /// <summary>
+    /// The allow between two zones the plan writes, or null where UniFi's default Block All stands (and for
+    /// Hotspot and DMZ, which keep their own rules).
+    /// </summary>
+    private static (string Name, string? Ports, bool ServerGroup)? Allow(ZoneDraft a, ZoneDraft b, List<ZoneException> exceptions)
+    {
+        if (a.Role is ZoneRole.Hotspot or ZoneRole.Dmz || b.Role is ZoneRole.Hotspot or ZoneRole.Dmz) return null;
+        if (a.Role == b.Role && a.Role != ZoneRole.Custom) return ($"Allow {a.Name} to {b.Name}", null, false);
+        if (a.Role != ZoneRole.Internal) return null;
+        var ex = ExceptionDefs.FirstOrDefault(e => e.Role == b.Role);
+        if (ex.Key == null || !exceptions.Any(e => e.Key == ex.Key && e.Enabled)) return null;
+        // Named by the zones, so a re-run finds the policy an earlier run wrote under the zone's own name.
+        return ex.Key == ServersKey ? ($"Allow {a.Name} to {b.Name}", null, true) : (ex.FromName, ex.Ports, false);
+    }
+
+    /// <summary>The desired config for the board: zone membership and the policies it needs.</summary>
+    public static ConfigState Desired(ConfigState live, ZoneSetupView board, IReadOnlyDictionary<string, string>? clientNetworks = null) =>
+        Plan(live, board, clientNetworks: clientNetworks).Desired;
+
+    /// <summary>The desired config for the board, with its plan notes and the operator policies it re-homes.</summary>
+    /// <param name="live">Live config, read before any write.</param>
+    /// <param name="board">The board.</param>
+    /// <param name="informAddresses">Where devices inform to; a zone that would lose that path gets an allow.</param>
+    /// <param name="clientNetworks">Client MAC to the network it last connected on (rest/user <c>last_connection_network_id</c>), for clients with no fixed IP.</param>
+    public static ZonePlan Plan(ConfigState live, ZoneSetupView board, IReadOnlyList<string>? informAddresses = null,
+        IReadOnlyDictionary<string, string>? clientNetworks = null)
+    {
+        var notes = new List<string>();
+        var desired = live.Clone();
+        var zones = desired.Collections["firewall_zone"] = desired.Get("firewall_zone").Select(z => (JsonObject)z.DeepClone()).ToList();
+        var assigned = board.Zones.Where(z => z.Key != UnassignedKey).SelectMany(z => z.NetworkIds).ToHashSet();
+        var ids = new Dictionary<string, string>();
+
+        foreach (var draft in board.Zones.Where(z => z.Key != UnassignedKey && (z.NetworkIds.Count > 0 || !z.IsNew)))
+        {
+            JsonObject zone;
+            if (draft.ExistingId != null)
+                zone = zones.First(z => ConfigState.IdOf(z) == draft.ExistingId);
+            else
+            {
+                if (draft.NetworkIds.Count == 0) continue;
+                zone = new JsonObject { ["_id"] = NewZonePrefix + draft.Key, ["name"] = draft.Name, ["network_ids"] = new JsonArray() };
+                zones.Add(zone);
+            }
+            ids[draft.Key] = ConfigState.IdOf(zone);
+            if (!draft.BuiltIn && !string.IsNullOrWhiteSpace(draft.Name) && Str(zone, "name") != draft.Name) zone["name"] = draft.Name;
+            var keep = Ids(zone).Where(id => !assigned.Contains(id));
+            zone["network_ids"] = new JsonArray(keep.Concat(draft.NetworkIds).Distinct().Select(id => (JsonNode?)id).ToArray());
+        }
+        // A network assigned to a zone leaves every other zone.
+        foreach (var zone in zones.Where(z => !ids.ContainsValue(ConfigState.IdOf(z))))
+            zone["network_ids"] = new JsonArray(Ids(zone).Where(id => !assigned.Contains(id)).Select(id => (JsonNode?)id).ToArray());
+
+        var policies = desired.Collections["firewall_policy"] = desired.Get("firewall_policy").Select(p => (JsonObject)p.DeepClone()).ToList();
+        var liveNames = live.Get("firewall_zone").ToDictionary(ConfigState.IdOf, z => Str(z, "name") ?? "", StringComparer.OrdinalIgnoreCase);
+        RenameZoneSuffixes(policies, board.Zones
+            .Where(z => z.ExistingId != null && !z.BuiltIn && liveNames.TryGetValue(z.ExistingId, out var was) && was.Length > 0 && was != z.Name)
+            .ToDictionary(z => z.ExistingId!, z => (liveNames[z.ExistingId!], z.Name), StringComparer.OrdinalIgnoreCase));
+        var oldZoneOf = ZonePaths.ZoneOfNetwork(live);
+        var newZoneOf = ZonePaths.ZoneOfNetwork(desired);
+        var moved = newZoneOf.Where(p => oldZoneOf.TryGetValue(p.Key, out var was) && !string.Equals(was, p.Value, StringComparison.OrdinalIgnoreCase))
+            .Select(p => p.Key).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var names = desired.NamesById();
+        string ZoneName(string? id) => id != null && names.TryGetValue(id, out var n) ? n : "zone";
+        var zoneKey = zones.ToDictionary(ConfigState.IdOf, z => Str(z, "zone_key") ?? "", StringComparer.OrdinalIgnoreCase);
+        bool IsLan(string? zone) => zone != null && zoneKey.TryGetValue(zone, out var k) && k is "" or "internal";
+        bool IsInternal(string? zone) => zone != null && zoneKey.TryGetValue(zone, out var k) && k == "internal";
+        var n = 0;
+
+        // An emptied zone the plan deletes hands its policies to the zone its first network moves to.
+        var heir = board.Zones.Where(z => z.Delete && z.ExistingId != null)
+            .Select(z => (Zone: z.ExistingId!, To: (live.Get("firewall_zone").FirstOrDefault(l => ConfigState.IdOf(l) == z.ExistingId) is { } was ? Ids(was) : [])
+                .Where(moved.Contains).Select(id => newZoneOf[id]).FirstOrDefault()))
+            .Where(x => x.To != null).ToDictionary(x => x.Zone, x => x.To!, StringComparer.OrdinalIgnoreCase);
+
+        var rehomed = Rehome(live, desired, policies, moved, newZoneOf, clientNetworks, ZoneName, notes, ref n);
+        CopyZoneWide(live, desired, policies, moved, oldZoneOf, newZoneOf, zoneKey, ZoneName, notes, heir, ref n);
+        MoveToHeirs(policies, zones, heir);
+        NoteJoinedAllows(live, moved, newZoneOf, ZoneName, notes);
+
+        var active = board.Zones.Where(z => z.Key != UnassignedKey && !z.Kept && z.NetworkIds.Count > 0 && ids.ContainsKey(z.Key)).ToList();
+        var externalId = zones.FirstOrDefault(z => Str(z, "zone_key") == "external") is { } ext ? ConfigState.IdOf(ext) : null;
+        var gatewayId = zones.FirstOrDefault(z => Str(z, "zone_key") == "gateway") is { } gw ? ConfigState.IdOf(gw) : null;
+
+        // A destination limited to ports, in the shape UniFi stores (sample-firewall-policies-response.txt).
+        static JsonObject Destination(string zoneId, string? ports, string? groupId = null) => groupId != null
+            ? new JsonObject { ["zone_id"] = zoneId, ["matching_target"] = "ANY", ["port_matching_type"] = "OBJECT", ["port_group_id"] = groupId, ["match_opposite_ports"] = false }
+            : ports == null
+                ? new JsonObject { ["zone_id"] = zoneId, ["matching_target"] = "ANY", ["port_matching_type"] = "ANY", ["match_opposite_ports"] = false }
+                : new JsonObject { ["zone_id"] = zoneId, ["matching_target"] = "ANY", ["port_matching_type"] = "SPECIFIC", ["port"] = ports, ["match_opposite_ports"] = false };
+
+        JsonObject Put(string srcId, string dstId, string action, string name, string? ports = null, string protocol = "tcp_udp", string? groupId = null, JsonObject? destination = null)
+        {
+            var dest = destination ?? Destination(dstId, ports, groupId);
+            var specific = ports != null || groupId != null || destination != null;
+            var existing = policies.FirstOrDefault(p => Str(p, "name") == name && p["predefined"]?.GetValueKind() != System.Text.Json.JsonValueKind.True
+                && Str(p["source"]?["zone_id"]) == srcId && Str(p["destination"]?["zone_id"]) == dstId);
+            if (existing != null)
+            {
+                existing["action"] = action;
+                existing["enabled"] = true;
+                if (specific)
+                {
+                    existing["protocol"] = protocol;
+                    existing["destination"] = dest;
+                }
+                return existing;
+            }
+            // Shape of a custom zone-pair policy, from sample-firewall-policies-response.txt. No index: UniFi
+            // ignores it on a create and puts a pair's one custom policy ahead of the predefined ones itself.
+            var policy = new JsonObject
+            {
+                ["_id"] = NewPolicyPrefix + ++n, ["name"] = name, ["description"] = "Set Up Zones", ["enabled"] = true, ["action"] = action,
+                ["ip_version"] = "BOTH", ["protocol"] = specific ? protocol : "all", ["connection_state_type"] = "ALL", ["connection_states"] = new JsonArray(),
+                ["create_allow_respond"] = action == "ALLOW", ["logging"] = false, ["match_ip_sec"] = false, ["match_opposite_protocol"] = false,
+                ["icmp_typename"] = "ANY", ["icmp_v6_typename"] = "ANY", ["predefined"] = false, ["schedule"] = new JsonObject { ["mode"] = "ALWAYS" },
+                ["source"] = new JsonObject { ["zone_id"] = srcId, ["matching_target"] = "ANY", ["port_matching_type"] = "ANY", ["match_opposite_ports"] = false },
+                ["destination"] = dest,
+            };
+            // An earlier run's policy under a zone's old name: the same policy, renamed rather than written twice.
+            if (policies.FirstOrDefault(p => Str(p, "description") == "Set Up Zones" && ZonePaths.Holds(p, policy)) is { } earlier)
+            {
+                earlier["name"] = name;
+                return earlier;
+            }
+            policies.Add(policy);
+            return policy;
+        }
+
+        // An operator allow already in the pair (re-homed or their own) covers the generic exception.
+        // Parsed once: the loop below adds only Set Up Zones policies, which never count.
+        var operatorAllows = OperatorAllows(desired, policies);
+        JsonObject? Covering(string src, string dst) => OperatorAllow(operatorAllows, src, dst);
+
+        foreach (var a in active)
+            foreach (var b in active.Where(b => b != a))
+            {
+                if (Allow(a, b, board.Exceptions) is not { } allow) continue;
+                if ((allow.ServerGroup || ExceptionDefs.Any(e => e.FromName == allow.Name)) && Covering(ids[a.Key], ids[b.Key]) is { } covered)
+                {
+                    notes.Add($"Exception: {allow.Name} ({a.Name} to {b.Name}) is covered by {Str(covered, "name")}; not added.");
+                    continue;
+                }
+                // Between two zones of one trust level the allow opens everything, so only a rule that does too covers it.
+                if (a.Role == b.Role && operatorAllows.Where(r => r.Key.SourceZoneId == ids[a.Key] && r.Key.DestinationZoneId == ids[b.Key])
+                        .Select(r => r.Value).FirstOrDefault(p => OpensWholePair(desired, p, ids[a.Key], a.NetworkIds, b.NetworkIds)) is { } whole)
+                {
+                    notes.Add($"{allow.Name}: covered by your rule {Str(whole, "name")}; not added.");
+                    continue;
+                }
+                var groupId = allow.ServerGroup ? ServerServicesGroupId(desired, ref n) : null;
+                Put(ids[a.Key], ids[b.Key], "ALLOW", allow.Name, allow.Ports, groupId: groupId);
+            }
+
+        var networkById = desired.Get("networkconf").ToDictionary(ConfigState.IdOf, x => x, StringComparer.OrdinalIgnoreCase);
+        // UniFi blocks networks that share a custom zone from each other: one zone is one trust level.
+        // Isolate Network is outbound-only, so never let this allow match an isolated network as its source;
+        // leave destinations broad because the setting does not block inbound initiations.
+        foreach (var z in active.Where(z => !z.BuiltIn && z.NetworkIds.Count > 1 && z.Role is not (ZoneRole.Hotspot or ZoneRole.Dmz)))
+        {
+            var isolated = z.NetworkIds.Where(id => networkById.TryGetValue(id, out var net)
+                && net["network_isolation_enabled"]?.GetValueKind() == System.Text.Json.JsonValueKind.True).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var included = z.NetworkIds.Where(id => !isolated.Contains(id)).ToList();
+            var name = $"Allow {z.Name} within {z.Name}";
+            bool Within(JsonObject p) => p["predefined"]?.GetValueKind() != System.Text.Json.JsonValueKind.True
+                && Str(p["source"]?["zone_id"]) == ids[z.Key] && Str(p["destination"]?["zone_id"]) == ids[z.Key];
+            var existing = policies.FirstOrDefault(p => Str(p, "name") == name && Within(p));
+            // An earlier run's, written under the zone's old name: renamed, so it is refreshed rather than written again.
+            if (existing == null && policies.FirstOrDefault(p => Within(p) && Str(p, "description") == "Set Up Zones" && Str(p, "action") == "ALLOW"
+                    && Str(p, "name") is { } old && old.StartsWith("Allow ", StringComparison.Ordinal) && old.Contains(" within ", StringComparison.Ordinal)) is { } renamed)
+            {
+                renamed["name"] = name;
+                existing = renamed;
+            }
+            // The description survives manual edits. Refresh only source shapes the wizard writes.
+            var source = existing?["source"] as JsonObject;
+            var wizardSource = source != null && Str(source["matching_target"]) is "ANY" or "NETWORK"
+                && Str(source["port_matching_type"]) is null or "ANY"
+                && Str(source["matching_target_type"]) != "OBJECT"
+                && source["match_opposite_networks"]?.GetValueKind() != System.Text.Json.JsonValueKind.True
+                && source["match_opposite_ports"]?.GetValueKind() != System.Text.Json.JsonValueKind.True
+                && source["match_mac"]?.GetValueKind() != System.Text.Json.JsonValueKind.True
+                && (Str(source["matching_target"]) != "NETWORK"
+                    || source["network_ids"] is JsonArray { Count: > 0 } members
+                    && members.All(id => newZoneOf.TryGetValue(Str(id) ?? "", out var zone)
+                        && string.Equals(zone, ids[z.Key], StringComparison.OrdinalIgnoreCase)));
+            if (existing != null && (Str(existing, "description") != "Set Up Zones" || !wizardSource))
+            {
+                notes.Add($"{name}: the existing operator policy is kept as it is.");
+                continue;
+            }
+            if (included.Count == 0)
+            {
+                if (existing != null)
+                {
+                    policies.Remove(existing);
+                    notes.Add($"{name}: removed because every network has Isolate Network enabled.");
+                }
+                continue;
+            }
+
+            var policy = Put(ids[z.Key], ids[z.Key], "ALLOW", name);
+            // Refresh only the wizard's source restriction; keep any destination or service limits.
+            policy["source"] = new JsonObject
+            {
+                ["zone_id"] = ids[z.Key], ["matching_target"] = isolated.Count > 0 ? "NETWORK" : "ANY",
+                ["port_matching_type"] = "ANY", ["match_opposite_ports"] = false,
+            };
+            if (isolated.Count > 0)
+            {
+                policy["source"]!["network_ids"] = new JsonArray(included.Select(id => (JsonNode?)id).ToArray());
+                notes.Add($"{z.Name}: the within-zone allow excludes networks with Isolate Network enabled.");
+            }
+        }
+
+        if (externalId != null)
+            foreach (var cams in active.Where(z => z.Role == ZoneRole.Cameras))
+            {
+                // A network with Internet Access off already has UniFi's own block, which the Security Audit honors.
+                if (cams.NetworkIds.All(id => networkById.TryGetValue(id, out var net) && net["internet_access_enabled"]?.GetValueKind() == System.Text.Json.JsonValueKind.False))
+                {
+                    notes.Add($"{cams.Name}: every network has Internet Access off, so no Block {cams.Name} to Internet is added.");
+                    continue;
+                }
+                Put(ids[cams.Key], externalId, "BLOCK", $"Block {cams.Name} to Internet");
+            }
+
+        // The Security Audit's untrusted purposes (IoT, Media, Security, Printer) never need the gateway's SSH or web UI:
+        // UniFi devices and Protect cameras use other ports. An operator block that already covers the zone is used instead.
+        var gatewayCovered = new List<string>();
+        if (gatewayId != null)
+            foreach (var zone in active.Where(z => z.Role is ZoneRole.IoT or ZoneRole.Cameras or ZoneRole.Printers))
+            {
+                var current = Snapshot(desired, policies);
+                var covered = zone.NetworkIds.All(id => networkById.TryGetValue(id, out var net) && Str(net, "ip_subnet")?.Split('/')[0] is { } gwIp
+                    && new[] { 22, 80, 443 }.All(port => ZonePaths.Allows(current, id, gwIp, "tcp", port) == false));
+                if (covered)
+                {
+                    gatewayCovered.Add(zone.Name);
+                    continue;
+                }
+                Put(ids[zone.Key], gatewayId, "BLOCK", $"Block {zone.Name} to Gateway Management", "22,80,443", "tcp");
+            }
+        if (gatewayCovered.Count > 0)
+            notes.Add($"{Join(gatewayCovered, "and")}: the gateway's SSH and web UI are already blocked by an existing policy; no "
+                + (gatewayCovered.Count == 1 ? $"Block {gatewayCovered[0]} to Gateway Management is" : "Gateway Management blocks are") + " added.");
+
+        KeepPaths(live, desired, policies, moved, ZoneName, informAddresses ?? [], ref n);
+        DropRedundantBlocks(policies, rehomed, IsLan, IsInternal, ZoneName, notes);
+        return new ZonePlan(desired, notes, rehomed.Keys.Where(id => !id.StartsWith(NewPolicyPrefix, StringComparison.Ordinal)).ToHashSet(StringComparer.OrdinalIgnoreCase));
+    }
+
+    private static ConfigState Snapshot(ConfigState desired, List<JsonObject> policies)
+    {
+        desired.Collections["firewall_policy"] = policies;
+        return desired;
+    }
+
+    /// <summary>The Server Services port group: the operator's when it exists (never changed), else one the plan creates.</summary>
+    private static string ServerServicesGroupId(ConfigState desired, ref int n)
+    {
+        if (!desired.Collections.TryGetValue("firewallgroup", out var groups)) desired.Collections["firewallgroup"] = groups = [];
+        if (groups.FirstOrDefault(g => Str(g, "name") == ServerServicesGroup && Str(g, "group_type") == "port-group") is { } existing)
+            return ConfigState.IdOf(existing);
+        var group = new JsonObject
+        {
+            ["_id"] = NewPolicyPrefix + "group-" + ++n, ["name"] = ServerServicesGroup, ["group_type"] = "port-group",
+            ["group_members"] = new JsonArray(ServerServicesPorts.Select(p => (JsonNode?)p).ToArray()),
+        };
+        groups.Add(group);
+        return ConfigState.IdOf(group);
+    }
+
+    /// <summary>The networks a policy side names: by network ID, or by an address inside a network's subnet. Client and ANY sides name none.</summary>
+    private static List<string> Named(JsonObject? side, IReadOnlyList<JsonObject> networks)
+    {
+        if (side == null) return [];
+        switch (Str(side["matching_target"]))
+        {
+            case "NETWORK" when side["match_opposite_networks"]?.GetValueKind() != System.Text.Json.JsonValueKind.True:
+                return (side["network_ids"] as JsonArray ?? []).Select(Str).OfType<string>().ToList();
+            case "IP" when side["match_opposite_ips"]?.GetValueKind() != System.Text.Json.JsonValueKind.True:
+                return (side["ips"] as JsonArray ?? []).Select(Str).OfType<string>()
+                    .Select(e => NetworkOfEntry(e, networks)).OfType<string>().Distinct().ToList();
+            default:
+                return [];
+        }
+    }
+
+    private static string? NetworkOfEntry(string entry, IReadOnlyList<JsonObject> networks)
+    {
+        var first = entry.Split('/')[0].Split('-')[0].Trim();
+        if (Readdressing.ParseIp(first) is not { } ip) return null;
+        return networks.FirstOrDefault(n => Readdressing.ParseSubnet(Str(n, "ip_subnet")) is { } s && s.Contains(ip)) is { } net ? ConfigState.IdOf(net) : null;
+    }
+
+    /// <summary>
+    /// Operator policies naming a moved network, moved to the zone pair it now sits in. UniFi pauses them and strips
+    /// the network on the zone write; the update re-writes them whole from the policy read before. A policy whose
+    /// networks land in different zones is split, one per pair. A client source names no network: it follows its clients'
+    /// network when they have fixed IPs, else keeps its zone. UniFi pauses such a policy and strips the network side but
+    /// leaves its zones as they were (UDR7 on Network 11, 2026-10-30). Returns policy ID (a copy's too) to the original
+    /// policy's name, for the redundancy pass.
+    /// </summary>
+    private static Dictionary<string, string> Rehome(ConfigState live, ConfigState desired, List<JsonObject> policies, HashSet<string> moved,
+        Dictionary<string, string> newZoneOf, IReadOnlyDictionary<string, string>? clientNetworks, Func<string?, string> zoneName, List<string> notes, ref int n)
+    {
+        var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        if (moved.Count == 0) return result;
+        var networks = live.Get("networkconf");
+        var users = live.Get("user").Where(u => Str(u, "mac") != null)
+            .GroupBy(u => Str(u, "mac")!, StringComparer.OrdinalIgnoreCase).ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
+        var lastSeen = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (mac, network) in clientNetworks ?? new Dictionary<string, string>()) lastSeen.TryAdd(mac, network);
+        var def = ConfigCollections.Get("firewall_policy")!;
+        foreach (var policy in policies.ToList())
+        {
+            if (def.IsGenerated?.Invoke(policy) == true || ConfigCollections.OwnedBy(def, policy) != null) continue;
+            var src = policy["source"] as JsonObject;
+            var dst = policy["destination"] as JsonObject;
+            // "Every network but these": a moved network has left the side's zone, so its exclusion is dropped (the side
+            // still matches what it did). UniFi strips it on the zone write, and pauses the policy when that empties the
+            // list (UDR7, Network 11, 2026-10-30); the update re-writes it whole either way.
+            var excluded = DropMovedExclusions(src, moved) | DropMovedExclusions(dst, moved);
+            if (excluded)
+                notes.Add($"Firewall Policy {Str(policy, "name")}: excludes a network that moves out of its zone, so that exclusion is dropped.");
+            // A client source follows its clients' networks, split by the zone each lands in. Only a source can match
+            // clients: UniFi refuses CLIENT on the destination (400, Network 11, 2026-10-30).
+            var unknownClients = new List<string>();
+            var clientNetwork = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
+            var elsewhere = new List<string>();
+            var clientGroups = ClientGroups(src, users, lastSeen, moved, newZoneOf, unknownClients, elsewhere, clientNetwork);
+            if (elsewhere.Count > 0)
+                notes.Add($"Firewall Policy {Str(policy, "name")}: {string.Join(", ", elsewhere)} {(elsewhere.Count == 1 ? "is" : "are")} on a network outside {zoneName(Str(src?["zone_id"]))}, so it does not apply to {(elsewhere.Count == 1 ? "it" : "them")} today. Left as it is.");
+            var clientsMove = clientGroups is { } cg && (cg.Count > 1 || cg[0].Zone != Str(src?["zone_id"]));
+            var srcNets = Named(src, networks);
+            var dstNets = Named(dst, networks);
+            if (!srcNets.Any(moved.Contains) && !dstNets.Any(moved.Contains) && !clientsMove)
+            {
+                if (excluded) result[ConfigState.IdOf(policy)] = Str(policy, "name") ?? "";
+                continue;
+            }
+            if (unknownClients.Count > 0)
+                notes.Add($"Firewall Policy {Str(policy, "name")}: matches clients with no known network ({string.Join(", ", unknownClients)}: no fixed IP, never seen on a current network), so they stay in {zoneName(Str(src?["zone_id"]))}. Check them once the networks move if they are on a network that moves.");
+
+            // Each side's networks grouped by the zone they now sit in; a side naming no moved network keeps its zone.
+            List<(string Zone, List<string> Members)> Groups(JsonObject? side, List<string> nets) =>
+                nets.Any(moved.Contains)
+                    ? nets.GroupBy(id => newZoneOf.GetValueOrDefault(id) ?? Str(side?["zone_id"]) ?? "").Select(g => (g.Key, g.ToList())).ToList()
+                    : [(Str(side?["zone_id"]) ?? "", nets)];
+            var srcGroups = clientGroups ?? Groups(src, srcNets);
+            if (clientGroups is [var only] && clientsMove)
+                notes.Add($"Firewall Policy {Str(policy, "name")}: its clients' network moves to {zoneName(only.Zone)}, so their side moves with it.");
+            else if (clientGroups is { Count: > 1 })
+            {
+                // Per zone, its clients by network: "5 clients on Home", or the client's name when it is alone there.
+                string Who(List<string> macs) => string.Join(", ", macs.GroupBy(m => clientNetwork.GetValueOrDefault(m))
+                    .Select(g => (g.Count() == 1 ? ClientName(users, g.First()) : $"{g.Count()} clients")
+                        + (g.Key is { } net ? $" on {zoneName(net)}" : " with no known network")));
+                // The original keeps the clients that stay, else it moves with the first group; the rest are copies.
+                var current = Str(src?["zone_id"]);
+                var mine = clientGroups.FindIndex(g => g.Zone == current) is var k and >= 0 ? k : 0;
+                var parts = clientGroups.Select((g, i) => (Mine: i == mine, Text: i != mine ? $"a copy for {zoneName(g.Zone)} takes {Who(g.Members)}"
+                    : g.Zone == current ? $"{zoneName(g.Zone)} keeps {Who(g.Members)}" : $"It moves to {zoneName(g.Zone)} with {Who(g.Members)}"))
+                    .OrderByDescending(p => p.Mine).Select(p => p.Text);
+                notes.Add($"Firewall Policy {Str(policy, "name")}: its clients sit in {clientGroups.Count} zones, so it is split. {string.Join("; ", parts)}.");
+            }
+            var variants = srcGroups.SelectMany(s => Groups(dst, dstNets).Select(d => (Src: s, Dst: d))).ToList();
+            // The original keeps the variant on its own zones when there is one; the rest are new policies.
+            var keepIndex = variants.FindIndex(v => v.Src.Zone == Str(src?["zone_id"]) && v.Dst.Zone == Str(dst?["zone_id"]));
+            if (keepIndex < 0) keepIndex = Math.Max(0, variants.FindIndex(v => v.Src.Zone == Str(src?["zone_id"])));
+            var original = (JsonObject)policy.DeepClone();
+            for (var i = 0; i < variants.Count; i++)
+            {
+                var (s, d) = variants[i];
+                var target = i == keepIndex ? policy : (JsonObject)original.DeepClone();
+                if (clientGroups != null) NarrowClients(target["source"] as JsonObject, s.Zone, s.Members);
+                else Narrow(target["source"] as JsonObject, s.Zone, s.Members, srcNets, networks);
+                Narrow(target["destination"] as JsonObject, d.Zone, d.Members, dstNets, networks);
+                if (i != keepIndex)
+                {
+                    target["_id"] = NewPolicyPrefix + ++n;
+                    target["name"] = $"{Str(policy, "name")} ({zoneName(s.Zone != Str(src?["zone_id"]) ? s.Zone : d.Zone)})";
+                    policies.Add(target);
+                }
+                result[ConfigState.IdOf(target)] = Str(policy, "name") ?? "";
+            }
+            // A split by clients alone is described above.
+            if (variants.Count > 1 && variants.Count != (clientGroups?.Count ?? 1))
+                notes.Add($"Firewall Policy {Str(policy, "name")}: its {(clientGroups is { Count: > 1 } ? "clients and networks" : "networks")} now sit in {variants.Count} zone pairs, so it is split into {variants.Count} policies.");
+        }
+        return result;
+    }
+
+    /// <summary>
+    /// A client source's clients grouped by zone, in list order; null for any other side. A client on a network the plan
+    /// moves goes with it to its new zone; every other client stays in the side's zone, so the plan changes only what the
+    /// move changes. A client's network is its fixed IP's, else the one it last connected on. A client with no known
+    /// network (or one no longer on the site) is added to <paramref name="unknownClients"/>; one on a network that stays
+    /// outside the side's zone (the policy does not apply to it today) to <paramref name="elsewhere"/>.
+    /// </summary>
+    /// <param name="networkOf">Filled with each client's network, null when not known.</param>
+    private static List<(string Zone, List<string> Members)>? ClientGroups(JsonObject? side, Dictionary<string, JsonObject> users,
+        IReadOnlyDictionary<string, string> clientNetworks, HashSet<string> moved, Dictionary<string, string> newZoneOf,
+        List<string> unknownClients, List<string> elsewhere, Dictionary<string, string?> networkOf)
+    {
+        if (side == null || Str(side["matching_target"]) is not ("CLIENT" or "MAC")) return null;
+        var current = Str(side["zone_id"]) ?? "";
+        var macs = ClientMacs(side).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        if (macs.Count == 0) return [(current, macs)];
+        string ZoneOf(string mac)
+        {
+            var network = users.TryGetValue(mac, out var u) && Readdressing.IsTrue(u["use_fixedip"]) && Str(u, "network_id") is { Length: > 0 } fixedNet
+                ? fixedNet : clientNetworks.GetValueOrDefault(mac);
+            if (network != null && newZoneOf.TryGetValue(network, out var zone))
+            {
+                networkOf[mac] = network;
+                if (moved.Contains(network)) return zone;
+                if (!string.Equals(zone, current, StringComparison.OrdinalIgnoreCase)) elsewhere.Add(ClientName(users, mac));
+                return current;
+            }
+            networkOf[mac] = null;
+            unknownClients.Add(ClientName(users, mac));
+            return current;
+        }
+        return macs.GroupBy(ZoneOf, StringComparer.OrdinalIgnoreCase).Select(g => (g.Key, g.ToList())).ToList();
+    }
+
+    private static IEnumerable<string> ClientMacs(JsonObject side) =>
+        (side["client_macs"] as JsonArray ?? []).Concat(side["macs"] as JsonArray ?? []).Select(Str).OfType<string>();
+
+    private static string ClientName(Dictionary<string, JsonObject> users, string mac) =>
+        users.TryGetValue(mac, out var u) && Str(u, "name") is { Length: > 0 } n ? n : mac;
+
+    /// <summary>A client side set to one zone and only these clients, in whichever list (CLIENT's or MAC's) holds them.</summary>
+    private static void NarrowClients(JsonObject? side, string zone, List<string> keep)
+    {
+        if (side == null) return;
+        side["zone_id"] = zone;
+        foreach (var key in new[] { "client_macs", "macs" })
+            if (side[key] is JsonArray list && list.Select(Str).Any(m => m != null && !keep.Contains(m, StringComparer.OrdinalIgnoreCase)))
+                side[key] = new JsonArray(list.Select(Str).Where(m => m != null && keep.Contains(m, StringComparer.OrdinalIgnoreCase)).Select(m => (JsonNode?)m).ToArray());
+    }
+
+    /// <summary>
+    /// Moved networks taken out of a "every network but these" side. A side left with no exclusions matches any network.
+    /// Returns whether the side changed.
+    /// </summary>
+    private static bool DropMovedExclusions(JsonObject? side, HashSet<string> moved)
+    {
+        if (side?["match_opposite_networks"]?.GetValueKind() != System.Text.Json.JsonValueKind.True
+            || side["network_ids"] is not JsonArray ids || !ids.Any(id => Str(id) is { } x && moved.Contains(x))) return false;
+        var keep = ids.Select(Str).Where(id => id != null && !moved.Contains(id)).Select(id => (JsonNode?)id).ToArray();
+        if (keep.Length > 0)
+        {
+            side["network_ids"] = new JsonArray(keep);
+            return true;
+        }
+        side["matching_target"] = "ANY";
+        foreach (var key in new[] { "network_ids", "match_opposite_networks", "matching_target_type" }) side.Remove(key);
+        return true;
+    }
+
+    /// <summary>A side set to one zone and only the networks (or addresses) that sit there.</summary>
+    private static void Narrow(JsonObject? side, string zone, List<string> keep, List<string> all, IReadOnlyList<JsonObject> networks)
+    {
+        if (side == null) return;
+        side["zone_id"] = zone;
+        if (keep.Count == all.Count) return;
+        if (side["network_ids"] is JsonArray ids)
+            side["network_ids"] = new JsonArray(ids.Select(Str).Where(id => id != null && keep.Contains(id)).Select(id => (JsonNode?)id).ToArray());
+        if (side["ips"] is JsonArray ips)
+            side["ips"] = new JsonArray(ips.Select(Str).Where(e => e != null && NetworkOfEntry(e, networks) is { } net && keep.Contains(net)).Select(e => (JsonNode?)e).ToArray());
+    }
+
+    /// <summary>
+    /// Zone-wide policies (source ANY) of a zone that loses networks stop applying to them. Blocks and allows out to
+    /// External or the Gateway, and allows to a DNS resolver, are copied to each new zone in order: UniFi allows a custom
+    /// zone everything out, so the protection is lost otherwise. Network Optimizer's own blocklists are never copied:
+    /// Threat Intelligence - Blocking writes one per zone itself. Other allows to LAN zones are not carried, so the
+    /// new zone stays isolated; each is named in a note. Zone-wide policies into the zone are carried to the new zone
+    /// when it was an operator zone, and resolver allows from any zone.
+    /// </summary>
+    private static void CopyZoneWide(ConfigState live, ConfigState desired, List<JsonObject> policies, HashSet<string> moved, Dictionary<string, string> oldZoneOf,
+        Dictionary<string, string> newZoneOf, Dictionary<string, string> zoneKey, Func<string?, string> zoneName, List<string> notes,
+        IReadOnlyDictionary<string, string> heir, ref int n)
+    {
+        // The heir zone of a zone the plan deletes takes the original itself (MoveToHeirs), so it gets no copy or note here.
+        bool Inherits(string zone, string to) => heir.TryGetValue(zone, out var h) && string.Equals(h, to, StringComparison.OrdinalIgnoreCase);
+        var def = ConfigCollections.Get("firewall_policy")!;
+        var parsed = ParsedLive(live);
+        var lanTargets = moved.GroupBy(id => oldZoneOf[id], StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(g => g.Key, g => g.Select(id => newZoneOf[id]).Where(z => zoneKey.TryGetValue(z, out var k) && k is "" or "internal")
+                .Distinct(StringComparer.OrdinalIgnoreCase).ToList(), StringComparer.OrdinalIgnoreCase);
+        var networksById = desired.Get("networkconf").ToDictionary(ConfigState.IdOf, StringComparer.OrdinalIgnoreCase);
+        var templates = live.Get("firewall_policy")
+            .Where(p => def.IsGenerated?.Invoke(p) != true && p["enabled"]?.GetValueKind() != System.Text.Json.JsonValueKind.False
+                        && ZoneWide(parsed, p, source: true) && Str(p["source"]?["zone_id"]) is { } z && lanTargets.ContainsKey(z))
+            .OrderBy(p => p["index"] is JsonValue v && v.TryGetValue<long>(out var i) ? i : long.MaxValue).ToList();
+        bool InternetDisabled(string zone)
+        {
+            var members = newZoneOf.Where(pair => pair.Value == zone).Select(pair => pair.Key).ToList();
+            return members.Count > 0 && members.All(id => networksById.TryGetValue(id, out var net)
+                && net["internet_access_enabled"]?.GetValueKind() == System.Text.Json.JsonValueKind.False);
+        }
+        var owned = new List<string>();
+        void Owned(JsonObject p)
+        {
+            if (Str(p, "name") is { } ownedName && !owned.Contains(ownedName)) owned.Add(ownedName);
+        }
+        foreach (var t in templates)
+        {
+            var from = Str(t["source"]?["zone_id"])!;
+            var dstZone = Str(t["destination"]?["zone_id"]);
+            var dstKey = dstZone != null ? zoneKey.GetValueOrDefault(dstZone) : null;
+            var name = Str(t, "name") ?? "";
+            if (ConfigCollections.OwnedBy(def, t) != null)
+            {
+                Owned(t);
+                continue;
+            }
+            var outward = dstKey is "external" or "gateway";
+            var resolver = Str(t, "action") == "ALLOW" && dstKey is "" or "internal" && ReachesDnsPort(live, t);
+            var offline = new List<string>();
+            var isolated = new List<string>();
+            foreach (var to in lanTargets[from])
+            {
+                if (Inherits(from, to)) continue;
+                if (dstKey == "external" && (Str(t, "action") is "BLOCK" or "REJECT") && InternetDisabled(to))
+                {
+                    offline.Add(zoneName(to));
+                    continue;
+                }
+                if (outward || (resolver && !string.Equals(to, dstZone, StringComparison.OrdinalIgnoreCase)))
+                {
+                    var copyName = NameFor(name, zoneName(from), zoneName(to));
+                    var copy = (JsonObject)t.DeepClone();
+                    copy["name"] = copyName;
+                    ((JsonObject)copy["source"]!)["zone_id"] = to;
+                    if (AlreadyCopied(policies, copy, copyName, "source", to)) continue;
+                    copy["_id"] = NewPolicyPrefix + ++n;
+                    policies.Add(copy);
+                }
+                else if (Str(t, "action") == "ALLOW" && dstKey is "" or "internal")
+                    isolated.Add(zoneName(to));
+            }
+            // One note per policy, naming every zone it applies to.
+            if (offline.Count > 0)
+                notes.Add($"{name}: not copied to {Join(offline, "or")}; every network there already has Internet Access off.");
+            if (isolated.Count > 0)
+                notes.Add($"Firewall Policy {name} ({zoneName(from)} to {zoneName(dstZone)}): not carried to {Join(isolated, "or")}, which "
+                    + (isolated.Count == 1 ? "stays" : "stay") + $" isolated. Copy it in the Edit tab if {Join(isolated, "or")} needs it.");
+        }
+
+        // Threat Intelligence's policies, in one note: those the copy skips, and those deleted with a zone (PlanBuilder
+        // adds the deletes, each one a row).
+        var gone = heir.Keys.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var ordered = live.Get("firewall_policy").Where(p => ConfigCollections.OwnedBy(def, p) != null)
+            .OrderBy(p => p["index"] is JsonValue v && v.TryGetValue<long>(out var i) ? i : long.MaxValue).ToList();
+        foreach (var p in ordered.Where(p => gone.Contains(Str(p["source"]?["zone_id"]) ?? "") || gone.Contains(Str(p["destination"]?["zone_id"]) ?? "")))
+            Owned(p);
+        var rank = ordered.Select(p => Str(p, "name")).Distinct().Select((name, i) => (name, i)).ToDictionary(x => x.name ?? "", x => x.i);
+        owned = owned.OrderBy(name => rank.GetValueOrDefault(name, int.MaxValue)).ToList();
+        if (owned.Count > 0)
+            notes.Add(gone.Count > 0
+                ? $"Threat Intelligence policies ({string.Join(", ", owned)}): deleted with {Join(gone.Select(zoneName).ToList(), "and")}. "
+                  + "Threat Intelligence writes its own for the zones left once the gateway settles after the apply."
+                : $"{Join(owned, "and")}: managed by Threat Intelligence, which adds its own for each new zone once the gateway settles after the apply.");
+
+        // Zone-wide policies INTO a zone that loses networks. An operator zone's inbound policies are about its own
+        // networks, so they all follow them; into a built-in zone only a resolver allow does, since its other inbound
+        // allows serve the networks that stay.
+        var inbound = live.Get("firewall_policy")
+            .Where(p => def.IsGenerated?.Invoke(p) != true && p["enabled"]?.GetValueKind() != System.Text.Json.JsonValueKind.False
+                        && ConfigCollections.OwnedBy(def, p) == null
+                        && ZoneWide(parsed, p, source: false) && Str(p["destination"]?["zone_id"]) is { } z && lanTargets.ContainsKey(z))
+            .OrderBy(p => p["index"] is JsonValue v && v.TryGetValue<long>(out var i) ? i : long.MaxValue).ToList();
+        foreach (var t in inbound)
+        {
+            var into = Str(t["destination"]?["zone_id"])!;
+            var srcZone = Str(t["source"]?["zone_id"]);
+            var name = Str(t, "name") ?? "";
+            var operatorZone = zoneKey.GetValueOrDefault(into) == "";
+            var resolver = Str(t, "action") == "ALLOW" && ReachesDnsPort(live, t);
+            var skipped = new List<string>();
+            foreach (var to in lanTargets[into])
+            {
+                if (Inherits(into, to)) continue;
+                // Within a zone is the within-zone allow's job.
+                if (string.Equals(to, srcZone, StringComparison.OrdinalIgnoreCase) || string.Equals(into, srcZone, StringComparison.OrdinalIgnoreCase)) continue;
+                if (!operatorZone && !resolver)
+                {
+                    if (Str(t, "action") == "ALLOW") skipped.Add(zoneName(to));
+                    continue;
+                }
+                var copyName = NameFor(name, zoneName(into), zoneName(to));
+                var copy = (JsonObject)t.DeepClone();
+                copy["name"] = copyName;
+                ((JsonObject)copy["destination"]!)["zone_id"] = to;
+                if (AlreadyCopied(policies, copy, copyName, "destination", to)) continue;
+                copy["_id"] = NewPolicyPrefix + ++n;
+                policies.Add(copy);
+            }
+            if (skipped.Count > 0)
+                notes.Add($"Firewall Policy {name} ({zoneName(srcZone)} to {zoneName(into)}): not carried to {Join(skipped, "or")}. "
+                    + $"Copy it in the Edit tab if {zoneName(srcZone)} needs to reach {Join(skipped, "or")}.");
+        }
+    }
+
+    /// <summary>
+    /// A zone the plan deletes goes from the desired config, and every operator policy still on it moves to its heir:
+    /// enabled or not, zone-wide or not, since a policy naming the zone stops the delete. UniFi's own policies for the
+    /// zone go with it; Network Optimizer's are deleted with it by PlanBuilder.
+    /// </summary>
+    private static void MoveToHeirs(List<JsonObject> policies, List<JsonObject> zones, IReadOnlyDictionary<string, string> heir)
+    {
+        if (heir.Count == 0) return;
+        var def = ConfigCollections.Get("firewall_policy")!;
+        policies.RemoveAll(p => def.IsGenerated?.Invoke(p) == true
+            && (heir.ContainsKey(Str(p["source"]?["zone_id"]) ?? "") || heir.ContainsKey(Str(p["destination"]?["zone_id"]) ?? "")));
+        foreach (var p in policies.Where(p => ConfigCollections.OwnedBy(def, p) == null))
+            foreach (var side in new[] { p["source"] as JsonObject, p["destination"] as JsonObject })
+                if (side != null && heir.TryGetValue(Str(side["zone_id"]) ?? "", out var to))
+                    side["zone_id"] = to;
+        zones.RemoveAll(z => heir.ContainsKey(ConfigState.IdOf(z)));
+    }
+
+    /// <summary>
+    /// Zone-wide on one side, by the Audit's model: ANY, or everyone but a few hosts ([UniFi] Allow Select Console
+    /// Management's shape). <paramref name="rules"/> holds each policy parsed once.
+    /// </summary>
+    private static bool ZoneWide(IReadOnlyDictionary<JsonObject, NetworkOptimizer.Audit.Models.FirewallRule> rules, JsonObject policy, bool source) =>
+        rules.TryGetValue(policy, out var r) && (source
+            ? r.IsAnySource() || (string.Equals(r.SourceMatchingTarget, "IP", StringComparison.OrdinalIgnoreCase) && r.SourceMatchOppositeIps)
+            : r.IsAnyDestination() || (string.Equals(r.DestinationMatchingTarget, "IP", StringComparison.OrdinalIgnoreCase) && r.DestinationMatchOppositeIps));
+
+    /// <summary>The live policies parsed by the Audit once, by policy object.</summary>
+    private static Dictionary<JsonObject, NetworkOptimizer.Audit.Models.FirewallRule> ParsedLive(ConfigState live)
+    {
+        var byPolicy = new Dictionary<JsonObject, NetworkOptimizer.Audit.Models.FirewallRule>(ReferenceEqualityComparer.Instance);
+        foreach (var (rule, policy) in ZonePaths.Parse(live, live.Get("firewall_policy"))) byPolicy.TryAdd(policy, rule);
+        return byPolicy;
+    }
+
+    /// <summary>
+    /// The operator's zone-wide allows into a zone that gains networks reach those networks too, with no policy changing,
+    /// so each one is named in a note.
+    /// </summary>
+    private static void NoteJoinedAllows(ConfigState live, HashSet<string> moved, Dictionary<string, string> newZoneOf,
+        Func<string?, string> zoneName, List<string> notes)
+    {
+        var def = ConfigCollections.Get("firewall_policy")!;
+        var parsed = ParsedLive(live);
+        var networkName = live.Get("networkconf").ToDictionary(ConfigState.IdOf, x => Str(x, "name") ?? "network", StringComparer.OrdinalIgnoreCase);
+        var joining = moved.GroupBy(id => newZoneOf[id], StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(g => g.Key, g => g.Select(id => networkName.GetValueOrDefault(id) ?? id).ToList(), StringComparer.OrdinalIgnoreCase);
+        var allows = live.Get("firewall_policy")
+            .Where(p => Str(p, "action") == "ALLOW" && p["enabled"]?.GetValueKind() != System.Text.Json.JsonValueKind.False
+                        && p["predefined"]?.GetValueKind() != System.Text.Json.JsonValueKind.True && Str(p, "description") != "Set Up Zones"
+                        && def.IsGenerated?.Invoke(p) != true && ConfigCollections.OwnedBy(def, p) == null
+                        && ZoneWide(parsed, p, source: false) && Str(p["destination"]?["zone_id"]) is { } z && joining.ContainsKey(z))
+            .OrderBy(p => p["index"] is JsonValue v && v.TryGetValue<long>(out var i) ? i : long.MaxValue);
+        foreach (var p in allows)
+        {
+            var into = Str(p["destination"]?["zone_id"]);
+            var nets = joining[into!];
+            notes.Add($"Firewall Policy {Str(p, "name")} ({zoneName(Str(p["source"]?["zone_id"]))} to {zoneName(into)}): now also reaches "
+                + $"{Join(nets, "and")}, which {(nets.Count == 1 ? "moves" : "move")} into {zoneName(into)}.");
+        }
+    }
+
+    /// <summary>
+    /// A copy is already there when its zone has one of the same name (as before), or a policy that does what it would
+    /// under another name (one an earlier run wrote before a zone was renamed). Either way it is not written again, so
+    /// this never writes more than matching by name did.
+    /// </summary>
+    private static bool AlreadyCopied(List<JsonObject> policies, JsonObject copy, string copyName, string side, string zone) =>
+        policies.Any(p => (Str(p, "name") == copyName && Str(p[side]?["zone_id"]) == zone) || ZonePaths.Holds(p, copy));
+
+    /// <summary>
+    /// A zone renamed on the board renames the policies in its pairs named for it the way the plan names its copies:
+    /// "(Cameras)" on the end becomes "(Protect)". Each shows on Review Plan as its own rename.
+    /// </summary>
+    private static void RenameZoneSuffixes(List<JsonObject> policies, IReadOnlyDictionary<string, (string Old, string New)> renamed)
+    {
+        if (renamed.Count == 0) return;
+        var def = ConfigCollections.Get("firewall_policy")!;
+        foreach (var p in policies.Where(p => def.IsGenerated?.Invoke(p) != true && ConfigCollections.OwnedBy(def, p) == null))
+            foreach (var zone in new[] { Str(p["source"]?["zone_id"]), Str(p["destination"]?["zone_id"]) }.OfType<string>().Distinct())
+                if (renamed.TryGetValue(zone, out var r) && Str(p, "name") is { } name && name.EndsWith($" ({r.Old})", StringComparison.Ordinal))
+                {
+                    p["name"] = name[..^(r.Old.Length + 2)] + $"({r.New})";
+                    break;
+                }
+    }
+
+    /// <summary>"A", "A and B", "A, B and C" (or "or").</summary>
+    private static string Join(IReadOnlyList<string> items, string conjunction) =>
+        items.Count <= 1 ? string.Join("", items) : $"{string.Join(", ", items.Take(items.Count - 1))} {conjunction} {items[^1]}";
+
+    /// <summary>A copy's name: the source zone's name swapped in when the template names it ("from Home" to "from IoT"), else the zone appended.</summary>
+    internal static string NameFor(string template, string fromZone, string toZone) =>
+        template.Contains(fromZone, StringComparison.OrdinalIgnoreCase)
+            ? System.Text.RegularExpressions.Regex.Replace(template, System.Text.RegularExpressions.Regex.Escape(fromZone), toZone.Replace("$", "$$"), System.Text.RegularExpressions.RegexOptions.IgnoreCase)
+            : $"{template} ({toZone})";
+
+    /// <summary>
+    /// A policy limited to destination ports that include DNS (UDP 53), by the Audit's port and protocol matching. A
+    /// policy open to every port is not a resolver allow: it allows everything, which these copies never carry.
+    /// </summary>
+    private static bool ReachesDnsPort(ConfigState live, JsonObject policy) =>
+        ZonePaths.Parse(live, [policy]).Keys.SingleOrDefault() is { } rule && !string.IsNullOrEmpty(rule.DestinationPort)
+        && !rule.HasUnresolvedDestinationPortGroup && Audit.Analyzers.FirewallGroupHelper.RuleMatchesPortAndProtocol(rule, "53", "udp");
+
+    /// <summary>
+    /// Each moved network keeps reaching its DNS resolver and the inform host: where the planned zones block a path
+    /// that works today, an allow on just that path is added.
+    /// </summary>
+    private static void KeepPaths(ConfigState live, ConfigState desired, List<JsonObject> policies, HashSet<string> moved,
+        Func<string?, string> zoneName, IReadOnlyList<string> informAddresses, ref int n)
+    {
+        var current = Snapshot(desired, policies);
+        var zoneOf = ZonePaths.ZoneOfNetwork(current);
+        var defaultLan = live.Get("networkconf").FirstOrDefault(x => ConfigCollections.NetworkKey(x) == "vlan:1");
+        var deviceNetworks = live.Get("device").Where(d => Str(d[ConfigCollections.DeviceMetaField]?["type"]) is not ("ugw" or "udm" or "uxg"))
+            .Select(d => Str(d["mgmt_network_id"]) is { Length: > 0 } m ? m : defaultLan == null ? null : ConfigState.IdOf(defaultLan))
+            .OfType<string>().ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var added = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var counter = n;
+        void AllowTo(string network, string address, string ports, string label)
+        {
+            if (!zoneOf.TryGetValue(network, out var src)) return;
+            var (dst, _) = ZonePaths.ZoneOfAddress(current, zoneOf, address);
+            if (dst == null) return;
+            var name = $"Allow {zoneName(src)} to {label} ({address})";
+            if (!added.Add(name) || policies.Any(p => Str(p, "name") == name)) return;
+            policies.Add(new JsonObject
+            {
+                ["_id"] = NewPolicyPrefix + ++counter, ["name"] = name, ["description"] = "Set Up Zones", ["enabled"] = true, ["action"] = "ALLOW",
+                ["ip_version"] = "BOTH", ["protocol"] = "tcp_udp", ["connection_state_type"] = "ALL", ["connection_states"] = new JsonArray(),
+                ["create_allow_respond"] = true, ["logging"] = false, ["match_ip_sec"] = false, ["match_opposite_protocol"] = false,
+                ["icmp_typename"] = "ANY", ["icmp_v6_typename"] = "ANY", ["predefined"] = false, ["schedule"] = new JsonObject { ["mode"] = "ALWAYS" },
+                ["source"] = new JsonObject { ["zone_id"] = src, ["matching_target"] = "ANY", ["port_matching_type"] = "ANY", ["match_opposite_ports"] = false },
+                ["destination"] = new JsonObject
+                {
+                    ["zone_id"] = dst, ["matching_target"] = "IP", ["matching_target_type"] = "SPECIFIC", ["ips"] = new JsonArray(address),
+                    ["match_opposite_ips"] = false, ["port_matching_type"] = "SPECIFIC", ["port"] = ports, ["match_opposite_ports"] = false,
+                },
+            });
+        }
+        foreach (var network in moved)
+        {
+            var liveNet = live.Get("networkconf").FirstOrDefault(x => ConfigState.IdOf(x) == network);
+            foreach (var resolver in LockoutChecker.Resolvers(live, liveNet))
+                if (ZonePaths.Allows(live, network, resolver, "udp", 53) == true && ZonePaths.Allows(current, network, resolver, "udp", 53) == false)
+                    AllowTo(network, resolver, "53", "DNS");
+            if (!deviceNetworks.Contains(network)) continue;
+            // Inform (TCP 8080) and STUN (UDP 3478), from UniFi's published port list.
+            foreach (var host in informAddresses)
+                if (ZonePaths.Allows(live, network, host, "tcp", 8080) == true && ZonePaths.Allows(current, network, host, "tcp", 8080) == false)
+                    AllowTo(network, host, "8080,3478", "UniFi Console");
+        }
+        n = counter;
+    }
+
+    /// <summary>
+    /// A block a re-home puts on a pair UniFi already blocks (two different LAN zones, at least one custom, or within a
+    /// custom zone) is deleted when no allow comes after it in that pair: Block All drops whatever it matches, and an
+    /// allow ahead of it already wins. An allow after it is one it holds back, so it stays.
+    /// </summary>
+    private static void DropRedundantBlocks(List<JsonObject> policies, Dictionary<string, string> rehomed, Func<string?, bool> isLan,
+        Func<string?, bool> isInternal, Func<string?, string> zoneName, List<string> notes)
+    {
+        bool Custom(string? zone) => isLan(zone) && !isInternal(zone);
+        var dropped = new List<(string Original, string Name, string Pair)>();
+        // A copy keeps its original's index; a policy the plan creates has none, and the reorder puts it after the rest.
+        static long Index(JsonObject p) => p["index"] is JsonValue v && v.TryGetValue<long>(out var i) ? i : long.MaxValue;
+        // Also the zone-pair blocks an earlier Set Up Zones wrote before it relied on UniFi's defaults.
+        foreach (var p in policies.Where(p => (rehomed.ContainsKey(ConfigState.IdOf(p)) || Str(p, "description") == "Set Up Zones")
+                     && Str(p, "action") is "BLOCK" or "REJECT").ToList())
+        {
+            var src = Str(p["source"]?["zone_id"]);
+            var dst = Str(p["destination"]?["zone_id"]);
+            if (!isLan(src) || !isLan(dst) || !(Custom(src) || Custom(dst))) continue;
+            // Return-only allows never meet new traffic the block drops.
+            var later = policies.FirstOrDefault(o => o != p && Str(o, "action") == "ALLOW" && o["enabled"]?.GetValueKind() != System.Text.Json.JsonValueKind.False
+                    && Str(o, "connection_state_type") != "RESPOND_ONLY" && Index(o) >= Index(p)
+                    && Str(o["source"]?["zone_id"]) == src && Str(o["destination"]?["zone_id"]) == dst);
+            if (later != null)
+            {
+                notes.Add($"{Str(p, "name")}: kept, because it holds back part of what {Str(later, "name")} allows.");
+                continue;
+            }
+            policies.Remove(p);
+            dropped.Add((rehomed.GetValueOrDefault(ConfigState.IdOf(p)) ?? Str(p, "name") ?? "", Str(p, "name") ?? "", $"{zoneName(src)} to {zoneName(dst)}"));
+        }
+        foreach (var policy in dropped.GroupBy(d => d.Original))
+        {
+            var parts = rehomed.Values.Count(v => v == policy.Key);
+            if (parts > 1 && policy.Count() == parts)
+            {
+                // Every part of a split goes: the plan deletes the policy, so the split is not news.
+                notes.RemoveAll(n => n.StartsWith($"Firewall Policy {policy.Key}: its ", StringComparison.Ordinal) && n.Contains("so it is split", StringComparison.Ordinal));
+                notes.Add($"Firewall Policy {policy.Key}: deleted. UniFi already blocks {Join(policy.Select(d => d.Pair).ToList(), "and")} by default.");
+            }
+            else
+                foreach (var d in policy)
+                    notes.Add($"Firewall Policy {d.Name}: deleted. UniFi already blocks {d.Pair} by default.");
+        }
+    }
+
+    /// <summary>Plan options for a zone plan: zones, policies, and the Server Services group. Deletes are only the redundant blocks the plan drops.</summary>
+    public static PlanOptions Options() => new()
+    {
+        Collections = new HashSet<string> { "firewall_zone", "firewall_policy", "firewallgroup" },
+        DeleteMissing = true,
+    };
+
+    /// <summary>The Security Audit acceptance checks (spec: the audit's isolation rules must not fire).</summary>
+    public static (List<ZoneCheck> Checks, bool Pass) Checks(ZoneSetupView board, IReadOnlyList<NetworkInfo> networks, ImpactResult? after)
+    {
+        var checks = new List<ZoneCheck>();
+        if (after == null)
+        {
+            checks.Add(new("Security Audit", "Not run: the UniFi Console did not answer", "warn"));
+            return (checks, false);
+        }
+        var names = networks.ToDictionary(n => n.Id, n => n.Name);
+        bool Fires(params string[] types) => after.AfterIssues.Any(i => types.Contains(i.Type));
+        var populated = board.Zones.Where(z => z.Key != ZoneSetup.UnassignedKey && z.NetworkIds.Count > 0).ToList();
+
+        void Add(string label, bool fires) => checks.Add(new(label, fires ? "Fails" : "Pass", fires ? "error" : "ok"));
+        if (populated.Any(z => z.Role == ZoneRole.IoT))
+            Add("IoT networks isolated from Internal", Fires(Audit.IssueTypes.IotNetworkNotIsolated, Audit.IssueTypes.MediaNetworkNotIsolated));
+        if (populated.Any(z => z.Role == ZoneRole.Cameras))
+            Add("Cameras have no internet", Fires(Audit.IssueTypes.SecurityNetworkNotIsolated));
+        if (populated.Any(z => z.Role == ZoneRole.Management))
+            Add("Management isolated", Fires(Audit.IssueTypes.MgmtNetworkNotIsolated));
+        if (populated.FirstOrDefault(z => z.Role == ZoneRole.Hotspot) is { } hotspot)
+        {
+            var guest = hotspot.NetworkIds.Select(id => names.GetValueOrDefault(id)).OfType<string>().ToHashSet();
+            Add("Guest reaches internet only", after.AfterIssues.Any(i => i.Type == Audit.IssueTypes.MissingIsolation && i.Network != null && guest.Contains(i.Network)));
+        }
+        var unassigned = board.Zones.First(z => z.Key == ZoneSetup.UnassignedKey).NetworkIds.Select(id => names.GetValueOrDefault(id)).OfType<string>().ToList();
+        if (unassigned.Count > 0)
+            checks.Add(new($"{string.Join(" and ", unassigned)} stay in their current zone", "Not checked", "warn"));
+        var guestNames = populated.Where(z => z.Role == ZoneRole.Hotspot).SelectMany(z => z.NetworkIds).Select(id => names.GetValueOrDefault(id)).OfType<string>().ToHashSet();
+        var other = after.AfterIssues.Where(i => i.Type is Audit.IssueTypes.MissingIsolation or Audit.IssueTypes.IsolationBypassed).Select(i => i.Network).OfType<string>()
+            .Where(n => !unassigned.Contains(n) && !guestNames.Contains(n)).Distinct().ToList();
+        if (other.Count > 0) Add($"Isolation on {string.Join(", ", other)}", true);
+        return (checks, checks.All(c => c.Level != "error"));
+    }
+}

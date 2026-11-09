@@ -147,6 +147,12 @@ public class DnsSecurityInfo
     public bool DohBypassBlocked { get; set; }
 
     /// <summary>
+    /// Whether DoH blocking covers all networks. True by default: a result stored before DoH coverage was
+    /// tracked per network read a block as covering every network.
+    /// </summary>
+    public bool DohProvidesFullCoverage { get; set; } = true;
+
+    /// <summary>
     /// Whether DoH3 bypass (public DoH providers on UDP 443/HTTP3) is blocked
     /// </summary>
     public bool Doh3Blocked { get; set; }
@@ -274,7 +280,7 @@ public class DnsSecurityInfo
     /// <summary>
     /// Whether full DNS protection is in place
     /// </summary>
-    public bool FullyProtected => DohEnabled && DnsLeakProtection && DotBlocked && DotProvidesFullCoverage && DoqBlocked && DoqProvidesFullCoverage && DohBypassBlocked && WanDnsMatchesDoH && DeviceDnsPointsToGateway;
+    public bool FullyProtected => DohEnabled && DnsLeakProtection && DotBlocked && DotProvidesFullCoverage && DoqBlocked && DoqProvidesFullCoverage && DohBypassBlocked && DohProvidesFullCoverage && WanDnsMatchesDoH && DeviceDnsPointsToGateway;
 }
 
 /// <summary>

@@ -3,9 +3,10 @@
 // /api/monitoring/live-stats for real-time updates.
 
 import ApexCharts from '/_content/Blazor-ApexCharts/js/apexcharts.esm.js';
-import * as flowData from './lan-flow-data.js?v=17';
-import { valueSortedTooltip } from './chart-tooltip.js?v=18';
+import * as flowData from './lan-flow-data.js?v=18';
+import { valueSortedTooltip } from './chart-tooltip.js?v=21';
 import { downloadColor, uploadColor } from './chart-colors.js?v=2';
+import { formatBps } from './chart-format.js?v=1';
 
 const HISTORY_MINUTES = 5;
 // Poll at twice the site's SNMP sample rate so no sample is missed when the two
@@ -131,14 +132,6 @@ const CLICK_RENDER_MS = 2000;
 let lastMouse = null;
 let mouseMoveHandler = null;
 let mouseLeaveHandler = null;
-
-function formatBps(v) {
-    if (v == null || v < 1) return '0';
-    if (v >= 1e9) return (v / 1e9).toFixed(1) + ' Gbps';
-    if (v >= 1e6) return (v / 1e6).toFixed(1) + ' Mbps';
-    if (v >= 1e3) return (v / 1e3).toFixed(0) + ' Kbps';
-    return v.toFixed(0) + ' bps';
-}
 
 // The plot (grid) rect: exactly the X-Y area, excluding the axis gutters and
 // the label strip. .apexcharts-grid rather than .apexcharts-inner - the inner
@@ -286,8 +279,9 @@ function buildOpts() {
             // the window slides, so the labels kept swapping between
             // :00 | :20 | :40 and :10 | :30 | :50 alignments. Time labels are
             // drawn as annotations pinned to a fixed 20s grid instead (see
-            // buildTimeTicks).
-            labels: { show: false },
+            // buildTimeTicks). datetimeUTC false marks the x values as real instants, not wall clock,
+            // for the shared tooltip and marks (noTime.onWallClock); ApexCharts defaults it to true.
+            labels: { show: false, datetimeUTC: false },
             axisBorder: { show: false },
             axisTicks: { show: false },
         },
@@ -378,7 +372,7 @@ function buildOpts() {
             // here - and the stack is how a WAN is told from its neighbour, since the chart has no
             // legend and the series names carry the WAN.
             shared: true,
-            x: { format: 'HH:mm:ss', formatter: (val) => new Date(val).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) },
+            x: { format: 'HH:mm:ss', formatter: (val) => noTime.time(val, { hour: '2-digit', minute: '2-digit', second: '2-digit' }) },
             // Comparing uses the same custom tooltip as the rest of the Monitoring charts: it
             // stacks every series at the hovered instant sorted by value, and paints its own
             // hover dots (the library's markers are the flaky ones, and any non-zero size puts a
@@ -420,8 +414,8 @@ function buildOpts() {
 }
 
 // Time labels pinned to a fixed grid, rendered as x-axis annotations so
-// they scroll with the data. Full 24-hour time on every tick, placed below
-// the axis in the space freed by the hidden built-in labels. The grid
+// they scroll with the data. Full time to the second, in the viewer's format, on every tick, placed
+// below the axis in the space freed by the hidden built-in labels. The grid
 // interval is chosen from the chart's own rendered width (clientWidth), not
 // the viewport, so half-view panels and mobile - which constrain the chart
 // below full width while the viewport stays wide - step out to a sparser
@@ -471,9 +465,9 @@ function compareSeries() {
 
 function buildTimeTicks(minMs, maxMs) {
     const width = document.getElementById(elId)?.clientWidth || 800;
-    // An HH:mm:ss label is ~46px at 10px; budget 64px per slot for breathing
-    // room, then pick the densest grid whose tick count fits that budget.
-    const slots = Math.max(2, Math.floor(width / 64));
+    // An HH:mm:ss label is ~46px at 10px and "10:32:20 PM" ~62px; budget 18px over that per slot
+    // for breathing room, then pick the densest grid whose tick count fits that budget.
+    const slots = Math.max(2, Math.floor(width / (noTime.format().h24 ? 64 : 80)));
     const spanMs = maxMs - minMs;
     const GRIDS = [20000, 30000, 60000, 120000];
     let GRID_MS = GRIDS[GRIDS.length - 1];
@@ -482,9 +476,7 @@ function buildTimeTicks(minMs, maxMs) {
     }
     const ticks = [];
     for (let t = Math.ceil(minMs / GRID_MS) * GRID_MS; t <= maxMs; t += GRID_MS) {
-        const d = new Date(t);
-        const text = [d.getHours(), d.getMinutes(), d.getSeconds()]
-            .map(v => String(v).padStart(2, '0')).join(':');
+        const text = noTime.timeLabel(t);
         ticks.push({
             x: t,
             borderColor: 'transparent',
@@ -1150,7 +1142,7 @@ function renderHistoric(at, force = false) {
         strokeDashArray: 3,
         opacity: 0.5,
         label: {
-            text: new Date(at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+            text: noTime.time(at, { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
             borderColor: 'transparent',
             style: { background: 'transparent', color: '#f1f5f9', fontSize: '9px' },
             position: 'front',

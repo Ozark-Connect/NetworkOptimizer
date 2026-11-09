@@ -95,6 +95,49 @@ public class IspHealthPresentationTests
         entry.Text.Should().EndWith("Excluded from the Packet Loss factor and from Example ISP's grade.");
     }
 
+    private static CongestionEvent Hop(CongestionDisposition disposition) => new()
+    {
+        Start = WindowEnd.AddHours(-8),
+        End = WindowEnd.AddHours(-7.5),
+        Disposition = disposition,
+        BottleneckLabel = "Example hop",
+        BottleneckHopIp = "198.51.100.9",
+        AsnNumbers = { 64500 },
+        AsnNames = { "Example Transit" },
+        LoadCoincident = true,
+        MedianLoadUtilization = 0.95,
+    };
+
+    [Fact]
+    public void Icmp_noise_above_a_load_floor_says_the_next_hop_rose_with_everything_else()
+    {
+        var r = Report();
+        var evt = Hop(CongestionDisposition.ControlPlaneNoise);
+        evt.AboveLoadFloor = true;
+        r.CongestionEvents.Add(evt);
+        var entry = IspHealthPresentation.EventTimeline(r).Single();
+        entry.Text.Should().EndWith("Its next hop rose only as much as everything else, so this is the hop's own ICMP handling.");
+        entry.BadgeTooltip.Should().Be("This hop was slow to answer pings, but traffic through it slowed no more than everything else. Not confirmed as real congestion.");
+    }
+
+    [Fact]
+    public void Icmp_noise_without_a_load_floor_keeps_the_clean_next_hop_wording()
+    {
+        var r = Report();
+        r.CongestionEvents.Add(Hop(CongestionDisposition.ControlPlaneNoise));
+        TextOf(r).Should().EndWith("Its next hop stayed clean, so this is the hop's own ICMP handling, not a forwarding bottleneck.");
+    }
+
+    [Fact]
+    public void One_clean_parallel_path_is_singular()
+    {
+        var r = Report();
+        var evt = Hop(CongestionDisposition.Confirmed);
+        evt.CleanParallelPaths = 1;
+        r.CongestionEvents.Add(evt);
+        TextOf(r).Should().Contain(" 1 other monitored path stayed clean under the same load");
+    }
+
     [Fact]
     public void A_target_with_no_name_is_named_by_its_address()
     {

@@ -1,0 +1,912 @@
+@implements IDisposable
+@using NetworkOptimizer.Web.Services.ChangeControl
+@using NetworkOptimizer.Storage.Models
+@using System.Text
+@inject IChangeControlService Site
+@inject SiteContextService SiteCtx
+@inject NavigationManager Nav
+@inject IJSRuntime JS
+@inject ILogger<CcReviewPlan> Logger
+@inject UniFiConnectionService ConnectionService
+@inject IDisplayTimeZone DisplayTime
+
+<PageTitle>Review Plan - Network Optimizer</PageTitle>
+
+<div class="page-header">
+    <PageBackButton />
+    <h1>Review Plan @if (_view != null) { <span class="page-header-suffix">@_view.Plan.Name</span> }</h1>
+    <p class="page-description">Nothing is written until you apply. Every item below is what Network Optimizer will change on the UniFi Console.</p>
+</div>
+
+<ConsoleConnectionBanner />
+
+<div class="change-control">
+@if (_view == null)
+{
+    @if (_notFound)
+    {
+        <div class="empty-state"><h3>Plan not found</h3><p>It may belong to another site. <a href="/change-control/changes">Back to Changes</a></p></div>
+    }
+    else
+    {
+        <div class="loading-container"><div class="spinner"></div></div>
+    }
+}
+else
+{
+    var plan = _view.Plan;
+    var doc = _view.Doc;
+    var editable = plan.Status is ConfigPlanStatus.Draft or ConfigPlanStatus.PendingApproval or ConfigPlanStatus.Approved or ConfigPlanStatus.Scheduled;
+    var tierCount = doc.Operations.Count(o => o.Tier == PlanTiers.Acknowledge);
+    var acked = doc.Operations.Count(o => o.Tier == PlanTiers.Acknowledge && _acks.Items.Contains(o.Key));
+    var leftOut = PlanReadiness.LeftOut(doc, _acks.Excluded);
+    var (watchDevices, watchInternet) = PlanReadiness.Watches(doc, leftOut);
+    var columns = editable ? 7 : 6;
+    var gatewaySteps = doc.WriteOrder.Count(s => s.Detail.Contains("gateway provision", StringComparison.OrdinalIgnoreCase));
+
+    <div class="cc-strip">
+        <div class="cc-tile cc-tile-site">
+            <div class="cc-tile-label">Site</div>
+            <div class="cc-tile-value" style="font-size:1.05rem">@_view.SiteName</div>
+            <div class="cc-tile-sub">@_view.SiteDetail</div>
+        </div>
+        <div class="cc-tile">
+            <div class="cc-tile-label">Source</div>
+            <div class="cc-tile-value" style="font-size:1.05rem">@KindLabel(plan.Kind)</div>
+            <div class="cc-tile-sub">@plan.SourceDescription</div>
+            @if (doc.Context.GetValueOrDefault("source_detail") is { Length: > 0 } sourceDetail)
+            {
+                <div class="cc-tile-sub">@sourceDetail</div>
+            }
+        </div>
+        <div class="cc-tile">
+            <div class="cc-tile-label">Writes</div>
+            <div class="cc-tile-value" style="font-size:1.05rem">@CcFormat.Plural(plan.ObjectCount, "object", "objects")@(plan.DeviceCount > 0 ? $", {CcFormat.Plural(plan.DeviceCount, "device", "devices")}" : "")</div>
+            <div class="cc-tile-sub">@(gatewaySteps == 0 ? "No gateway provision" : CcFormat.Plural(gatewaySteps, "gateway provision", "gateway provisions"))</div>
+        </div>
+        <div class="cc-tile">
+            <div class="cc-tile-label">Highest tier</div>
+            <div class="cc-tile-value" style="font-size:1.05rem">
+                <span class="status-badge @CcFormat.TierBadge(doc.HighestTier)">@(doc.HighestTier == PlanTiers.Lockout ? (PlanReadiness.HasCertainLockout(doc) ? "Certain lockout" : "Possible lockout") : PlanTiers.Label(doc.HighestTier))</span>
+            </div>
+            <div class="cc-tile-sub">@TierHint(doc.HighestTier)</div>
+        </div>
+        <div class="cc-tile">
+            <div class="cc-tile-label">Approval</div>
+            <div class="cc-tile-value" style="font-size:1.05rem">@(_view.ApprovalRequired ? "Required" : "Not required")</div>
+            <div class="cc-tile-sub">Approvals are @(_view.ApprovalsOn ? "on" : "off") for @_view.SiteName</div>
+        </div>
+    </div>
+
+    @if (doc.Errors.Count > 0)
+    {
+        <div class="alert alert-danger">
+            <strong>This plan cannot apply:</strong>
+            <ul style="margin:0.25rem 0 0;padding-left:1.25rem">@foreach (var e in doc.Errors) { <li>@e</li> }</ul>
+        </div>
+    }
+
+    <div class="card">
+        <div class="card-header"><h3 class="card-title">Impact<span class="card-title-suffix">Security Audit and lockout checks on the planned config</span></h3></div>
+        @if (doc.Lockouts.Count == 0 && doc.Regressions.Count == 0 && doc.Fixes.Count == 0)
+        {
+            <div class="empty-state empty-state-small"><p>@(doc.ImpactRan || !doc.Collections.Any() ? "No security regressions or lockout risks." : "No lockout risks. The Security Audit did not run for these collections.")</p></div>
+        }
+        @foreach (var lockout in doc.Lockouts)
+        {
+            <div class="cc-impact-row">
+                <div class="cc-badge-col"><span class="status-badge status-error">Lockout</span></div>
+                <div>
+                    <div class="cc-item-title">@lockout.Title</div>
+                    <div class="cc-item-detail">@lockout.Detail @(lockout != doc.Lockouts.Last() ? "" : PlanCoordinator.MovesConsolePath(doc) && PlanCoordinator.ConsoleFollows(doc) ? "Network Devices drop until the Gateway, which runs the UniFi Console, provisions its new addresses. Network Optimizer alerts instead of reverting this Plan."
+                        : PlanCoordinator.MovesConsolePath(doc) ? "Network Devices drop until the UniFi Console is at its new address. Network Optimizer alerts instead of reverting this Plan."
+                        : PlanCoordinator.AlertsInsteadOfRevert(doc) ? "Network Devices drop while they move to their new addresses. Network Optimizer alerts instead of reverting this Plan."
+                        : watchDevices ? $"If a network device goes offline, Network Optimizer reverts the plan within {_view.WatchMinutes} minutes." : "")</div>
+                    @if (lockout == doc.Lockouts.Last() && editable)
+                    {
+                        <div class="cc-confirm">
+                            @if (PlanReadiness.HasCertainLockout(doc) && !_view.CallerIsSiteAdmin)
+                            {
+                                <span class="danger-text">A certain lockout is refused. Only a Site Admin can override it.</span>
+                            }
+                            else
+                            {
+                                <span>Type <b>@_view.ConfirmationText</b> to confirm</span>
+                                <input class="form-control" @bind="_acks.TypedConfirmation" @bind:event="oninput" @bind:after="Changed" />
+                            }
+                        </div>
+                    }
+                </div>
+                <span></span>
+            </div>
+        }
+        @foreach (var r in doc.Regressions)
+        {
+            <div class="cc-impact-row">
+                <div class="cc-badge-col"><span class="status-badge status-warning">Regression</span></div>
+                <div>
+                    <div class="cc-item-title">@r.Title</div>
+                    <div class="cc-item-detail">@r.Detail Security Audit rule: @r.Title (@r.Severity).</div>
+                </div>
+                <label class="checkbox-label">
+                    <input type="checkbox" disabled="@(!editable)" checked="@_acks.Regressions.Contains(r.Key)" @onchange="() => Toggle(_acks.Regressions, r.Key)" />
+                    <span>I accept this regression</span>
+                </label>
+            </div>
+        }
+        @if (doc.Fixes.Count > 0)
+        {
+            <div class="cc-impact-row">
+                <div class="cc-badge-col"><span class="status-badge status-connected">Fixes @doc.Fixes.Count</span></div>
+                <div>
+                    <div class="cc-item-title">@string.Join("; ", doc.Fixes.Select(f => f.Title))</div>
+                </div>
+                <span></span>
+            </div>
+        }
+    </div>
+
+    <div class="card">
+        <div class="card-header">
+            <h3 class="card-title">Changes<span class="card-title-suffix">@CcFormat.Plural(doc.Operations.Count, "object", "objects")</span></h3>
+            @if (leftOut.Count > 0)
+            {
+                <span class="status-badge badge-muted">@leftOut.Count left out</span>
+            }
+            @if (tierCount > 0)
+            {
+                <span class="status-badge badge-muted">@acked of @tierCount acknowledged</span>
+                @if (editable && acked < tierCount)
+                {
+                    <button class="btn btn-sm btn-secondary" @onclick="() => AcknowledgeAll(doc)">Acknowledge All</button>
+                }
+            }
+        </div>
+        @if (doc.Operations.Count == 0)
+        {
+            <div class="empty-state empty-state-small"><p>Nothing to write: the console already matches.</p></div>
+        }
+        else
+        {
+            <div class="cc-phone-only">
+                @foreach (var group in doc.Operations.Where(o => _showDirect || o.Tier != PlanTiers.Direct).GroupBy(o => ConfigCollections.Get(o.Collection)?.Group ?? o.Collection))
+                {
+                    <div class="cc-mobile-group">@group.Key</div>
+                    @foreach (var op in group)
+                    {
+                        var open = _open.Contains(op.Key);
+                        <div class="cc-plan-card @(open ? "history-row-expanded" : "")" @onclick="() => Toggle(_open, op.Key)">
+                            <div class="cc-change-card-head">
+                                <span><span class="cc-action-text @CcFormat.PlanActionClass(op.Action)">@op.Action</span> @DisplayObjectName(op)</span>
+                                <span class="status-badge @CcFormat.TierBadge(op.Tier)">@(op.Tier == PlanTiers.Acknowledge ? "Ack" : PlanTiers.Label(op.Tier))</span>
+                            </div>
+                            <div class="cc-item-detail">@op.ChangeText</div>
+                            @if (editable)
+                            {
+                                <label class="checkbox-label" @onclick:stopPropagation>
+                                    <input type="checkbox" checked="@(!leftOut.Contains(op.Key))" disabled="@(leftOut.Contains(op.Key) && !_acks.Excluded.Contains(op.Key))" @onchange="() => Toggle(_acks.Excluded, op.Key)" />
+                                    <span>@(leftOut.Contains(op.Key) && !_acks.Excluded.Contains(op.Key) ? "Left out: needs an unticked item" : "Apply")</span>
+                                </label>
+                            }
+                            <div class="expand-wrapper @(open ? "expanded" : "")">
+                                <div class="expand-content">
+                                    @if (op.OrderMoves is { } moves)
+                                    {
+                                        <div class="cc-inset" style="margin:0.5rem 0 0"><CcOrderMoves Moves="moves" /></div>
+                                    }
+                                    @if (op.Fields.Count > 0)
+                                    {
+                                        <div class="cc-inset" style="margin:0.5rem 0 0">
+                                            @foreach (var f in op.Fields)
+                                            {
+                                                <div class="cc-mobile-field">
+                                                    <div class="muted-text">@f.Label</div>
+                                                    <div><span class="danger-text">@(f.Secret && op.Action != PlanAction.Create ? "Current value" : f.Old)</span> to <span class="success-text">@(f.Secret ? $"{SourceShort(plan)} value (hidden)" : f.New)</span></div>
+                                                </div>
+                                            }
+                                        </div>
+                                    }
+                                    @if (op.Reasons.Count > 0)
+                                    {
+                                        <div class="cc-item-detail">@string.Join(". ", op.Reasons).</div>
+                                    }
+                                </div>
+                            </div>
+                            @if (op.Tier == PlanTiers.Acknowledge)
+                            {
+                                <label class="checkbox-label" @onclick:stopPropagation>
+                                    <input type="checkbox" disabled="@(!editable)" checked="@_acks.Items.Contains(op.Key)" @onchange="() => Toggle(_acks.Items, op.Key)" />
+                                    <span>Acknowledged</span>
+                                </label>
+                            }
+                        </div>
+                    }
+                }
+                @if (!_showDirect && doc.Operations.Any(o => o.Tier == PlanTiers.Direct))
+                {
+                    <button class="cc-link-btn" style="padding:12px 16px" @onclick="() => _showDirect = true">+ @doc.Operations.Count(o => o.Tier == PlanTiers.Direct) more direct changes</button>
+                }
+            </div>
+            <div class="table-responsive hide-mobile">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th class="expand-chevron"></th>
+                            @if (editable)
+                            {
+                                <th class="cc-ack-col"><label class="checkbox-label" data-tooltip="Untick a row to leave it out of this apply"><input type="checkbox" checked="@(_acks.Excluded.Count == 0)" @onchange="() => ToggleAllIncluded(doc)" /><span>Apply</span></label></th>
+                            }
+                            <th>Action</th>
+                            <th>Object</th>
+                            <th class="hide-mobile">Change</th>
+                            <th>Tier</th>
+                            <th>Acknowledge</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var group in doc.Operations.GroupBy(o => ConfigCollections.Get(o.Collection)?.Group ?? o.Collection))
+                        {
+                            <tr class="cc-group-row"><td colspan="@columns">@group.Key</td></tr>
+                            @foreach (var op in group)
+                            {
+                                var open = _open.Contains(op.Key);
+                                var result = _view.Result?.Operations.FirstOrDefault(r => r.Key == op.Key);
+                                <tr class="history-row-clickable @(open ? "history-row-expanded" : "")" @onclick="() => Toggle(_open, op.Key)">
+                                    <td class="expand-chevron">@(open ? "▲" : "▼")</td>
+                                    @if (editable)
+                                    {
+                                        @* Only the controls keep a click from the row: the rest of a cell expands it, like the rest of the row. *@
+                                        <td class="cc-ack-col">
+                                            <input type="checkbox" @onclick:stopPropagation checked="@(!leftOut.Contains(op.Key))" disabled="@(leftOut.Contains(op.Key) && !_acks.Excluded.Contains(op.Key))"
+                                                   data-tooltip="@(leftOut.Contains(op.Key) && !_acks.Excluded.Contains(op.Key) ? "Left out: it uses an object an unticked item creates" : null)"
+                                                   @onchange="() => Toggle(_acks.Excluded, op.Key)" />
+                                        </td>
+                                    }
+                                    <td><span class="cc-action-text @CcFormat.PlanActionClass(op.Action)">@op.Action</span></td>
+                                    <td class="@(leftOut.Contains(op.Key) ? "muted-text" : "")">@DisplayObjectName(op)</td>
+                                    <td class="hide-mobile">@op.ChangeText@(result != null && result.Outcome != "Applied" ? $" ({result.Outcome}: {result.Message})" : "")</td>
+                                    <td><span class="status-badge @CcFormat.TierBadge(op.Tier)">@PlanTiers.Label(op.Tier)</span></td>
+                                    <td class="cc-ack-col">
+                                        @if (op.Tier == PlanTiers.Lockout)
+                                        {
+                                            <span class="muted-text">See Impact</span>
+                                        }
+                                        else if (op.Tier == PlanTiers.Acknowledge)
+                                        {
+                                            <label class="checkbox-label" @onclick:stopPropagation>
+                                                <input type="checkbox" disabled="@(!editable)" checked="@_acks.Items.Contains(op.Key)" @onchange="() => Toggle(_acks.Items, op.Key)" />
+                                                <span>OK</span>
+                                            </label>
+                                        }
+                                    </td>
+                                </tr>
+                                <tr class="history-details-row">
+                                    <td colspan="@columns">
+                                        <div class="expand-wrapper @(open ? "expanded" : "")">
+                                            <div class="expand-content">
+                                                <div class="cc-inset" style="margin-top:0.75rem">
+                                                    <table class="cc-field-table">
+                                                        @if (op.OrderMoves is { } moves)
+                                                        {
+                                                            <tr><td colspan="3"><CcOrderMoves Moves="moves" /></td></tr>
+                                                        }
+                                                        else if (op.Fields.Count == 0)
+                                                        {
+                                                            <tr><td class="label">@op.Action</td><td colspan="2">@op.ChangeText</td></tr>
+                                                        }
+                                                        @foreach (var f in op.Fields)
+                                                        {
+                                                            <tr>
+                                                                <td class="label">@f.Label</td>
+                                                                <td class="old">@(f.Secret && op.Action != PlanAction.Create ? "Current value" : f.Old)</td>
+                                                                <td class="new">@(f.Secret ? $"{SourceShort(plan)} value (hidden)" : f.New)</td>
+                                                            </tr>
+                                                        }
+                                                    </table>
+                                                </div>
+                                                @if (op.Reasons.Count > 0 || op.Referrers.Count > 0)
+                                                {
+                                                    <div class="cc-inset-note">
+                                                        @string.Join(". ", op.Reasons)@(op.Reasons.Count > 0 ? "." : "")
+                                                        @if (op.Referrers.Count > 0) { <span> Still referenced by: @string.Join(", ", op.Referrers).</span> }
+                                                    </div>
+                                                }
+                                            </div>
+                                        </div>
+                                    </td>
+                                </tr>
+                            }
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+        @if (doc.KeptValues.Count > 0)
+        {
+            <div class="cc-item">
+                <div class="cc-badge-col"><span class="status-badge status-info">Kept</span></div>
+                <div>
+                    <div class="cc-plan-row-head">This site's own values, not the source's</div>
+                    <div class="cc-item-detail">UniFi generates these for each site: @string.Join(", ", doc.KeptValues).</div>
+                </div>
+                <span></span>
+            </div>
+        }
+        @if (doc.KeptSecrets.Count > 0)
+        {
+            <div class="cc-item">
+                <div class="cc-badge-col"><span class="status-badge status-info">Kept</span></div>
+                <div>
+                    <div class="cc-plan-row-head">Secrets from another Network version, left as they are</div>
+                    @foreach (var s in doc.KeptSecrets)
+                    {
+                        <div class="cc-item-detail">@s</div>
+                    }
+                </div>
+                <span></span>
+            </div>
+        }
+        @if (doc.KeptReferences.Count > 0)
+        {
+            <div class="cc-item">
+                <div class="cc-badge-col"><span class="status-badge status-info">Kept</span></div>
+                <div>
+                    <div class="cc-plan-row-head">References the snapshot never captured, left as they are</div>
+                    @foreach (var (collection, fields) in doc.KeptReferences)
+                    {
+                        <div class="cc-item-detail">@collection: @string.Join(", ", fields)</div>
+                    }
+                </div>
+                <span></span>
+            </div>
+        }
+        @foreach (var n in doc.Notes)
+        {
+            <div class="cc-item">
+                <div class="cc-badge-col"><span class="status-badge badge-muted">Note</span></div>
+                <div class="cc-item-detail">@n</div>
+                <span></span>
+            </div>
+        }
+        @if (doc.FirmwareAlign.Count > 0)
+        {
+            <div class="alert alert-warning" style="margin-top:0.75rem">
+                <div>Older firmware than the config came from. Align it first, so every setting has somewhere to land:</div>
+                @foreach (var f in doc.FirmwareAlign)
+                {
+                    <div>@f.Name: @f.Current, wants @f.Target. <a href="@SiteContextService.WithSiteParam($"/firmware-rollout?align={Uri.EscapeDataString(f.Mac)}&build={Uri.EscapeDataString(f.Target)}", SiteCtx.Slug)">Align in Firmware Rollout</a></div>
+                }
+            </div>
+        }
+    </div>
+
+    <div class="cc-settings-grid">
+        <div class="card">
+            <div class="card-header"><h3 class="card-title">Write Order</h3></div>
+            <div class="card-body">
+                @for (var i = 0; i < doc.WriteOrder.Count; i++)
+                {
+                    var step = doc.WriteOrder[i];
+                    <div class="cc-write-step">
+                        <span class="cc-step-num">@(i + 1)</span>
+                        <div>
+                            <div>@step.Title</div>
+                            @{ var groups = WriteGroups(step, doc); }
+                            @foreach (var g in groups)
+                            {
+                                var stepKey = $"{i}:{g.Collection}";
+                                var listOpen = g.Items.Count <= WriteListInline ? !_openSteps.Contains(stepKey) : _openSteps.Contains(stepKey);
+                                <div class="cc-item-detail cc-write-summary">
+                                    <span>@(groups.Count > 1 ? $"{g.Collection}: " : "")@WriteSummary(g.Items)</span>
+                                    @if (g.Items.Count > 0)
+                                    {
+                                        <button class="cc-link-btn" @onclick="() => Toggle(_openSteps, stepKey)">@(listOpen ? "Hide" : $"Show {g.Items.Count}")</button>
+                                    }
+                                </div>
+                                @if (listOpen)
+                                {
+                                    <ul class="cc-write-list">
+                                        @foreach (var item in g.Items)
+                                        {
+                                            <li><span class="cc-action-text @CcFormat.PlanActionClass(item.Action)">@item.Action</span> @item.Name</li>
+                                        }
+                                    </ul>
+                                }
+                            }
+                            @if (!string.IsNullOrEmpty(step.Detail))
+                            {
+                                <div class="cc-item-detail">@step.Detail</div>
+                            }
+                        </div>
+                    </div>
+                }
+            </div>
+        </div>
+        <div class="card">
+            <div class="card-header"><h3 class="card-title">When to Apply</h3></div>
+            <div class="card-body">
+                <fieldset disabled="@(!editable)" style="border:none;padding:0;margin:0">
+                    <div class="radio-group">
+                        <label class="radio-label">
+                            <input type="radio" name="when" checked="@(!_schedule)" @onchange="() => SetSchedule(false)" />
+                            <span>@(_view.ApprovalRequired ? "After approval" : "Now")</span>
+                        </label>
+                        <label class="radio-label">
+                            <input type="radio" name="when" checked="@_schedule" @onchange="() => SetSchedule(true)" />
+                            <span>Schedule</span>
+                        </label>
+                    </div>
+                    @if (_schedule)
+                    {
+                        <div class="form-row" style="margin-top:0.75rem">
+                            <div class="form-group">
+                                <label class="form-label">Date</label>
+                                <input type="date" class="form-control" @bind="_date" @bind:after="Changed" />
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">Time (@DisplayTime.Abbreviation(DateTime.UtcNow))</label>
+                                <input type="time" class="form-control" @bind="_time" @bind:after="Changed" />
+                                @if (_view.QuietestHourSuggestion != null)
+                                {
+                                    <small class="form-help">Quietest hour at @_view.SiteName over the last 14 days</small>
+                                }
+                            </div>
+                        </div>
+                    }
+                </fieldset>
+                <p class="cc-item-detail" style="margin-top:0.75rem">
+                    @if (watchDevices || watchInternet)
+                    {
+                        <b>Commit-confirmed: @_view.WatchMinutes minutes.</b>
+                        @if (PlanCoordinator.AlertsInsteadOfRevert(doc))
+                        {
+                            <span> Network Optimizer watches @(watchDevices ? "every Network Device" : "")@(watchDevices && watchInternet ? " and " : "")@(watchInternet ? "internet reachability" : ""), and alerts if either fails. It does not revert this Plan: @(PlanCoordinator.MovesConsolePath(doc)
+                                ? PlanCoordinator.ConsoleFollows(doc)
+                                    ? "Network Devices drop until the Gateway, which runs the UniFi Console, provisions its new addresses."
+                                    : "Network Devices reach the UniFi Console at its old address until it moves too."
+                                : "Network Devices drop while they move to their new addresses, and a revert would strand them.")</span>
+                        }
+                        else
+                        {
+                            <span> Network Optimizer watches @(watchDevices ? "every Network Device" : "")@(watchDevices && watchInternet ? " and " : "")@(watchInternet ? "internet reachability" : ""). If either fails, it reverts the Plan and alerts.</span>
+                        }
+                    }
+                    else
+                    {
+                        <span>No management-path or WAN change: no commit-confirmed watch. A snapshot is pinned before the apply.</span>
+                    }
+                </p>
+            </div>
+        </div>
+    </div>
+
+    @if (_view.Result != null)
+    {
+        <div class="card" id="cc-result">
+            <div class="card-header">
+                <h3 class="card-title">Result<span class="card-title-suffix">@CcFormat.PlanStatusText(plan.Status)@(plan.Message != null ? $": {plan.Message}" : "")</span></h3>
+                @if (plan.ReportJson != null)
+                {
+                    <button class="btn btn-contrast btn-sm" @onclick="DownloadReportAsync">Before / After Report (PDF)</button>
+                }
+            </div>
+            <div class="card-body">
+                <div class="cc-kv"><span>Writes applied</span><span>@_view.Result.Operations.Count(o => o.Outcome == "Applied") of @_view.Result.Operations.Count</span></div>
+                @foreach (var o in _view.Result.Operations.Where(o => o.Outcome != "Applied" || o.Message != null))
+                {
+                    <div class="cc-kv"><span>@(_view.Doc.Operations.FirstOrDefault(d => d.Key == o.Key) is { } written ? DisplayObjectName(written) : o.Key.Split(':').ElementAtOrDefault(2))</span><span class="@(o.Outcome == "Error" ? "danger-text" : o.Outcome == "Partial" ? "warning-text" : "")">@o.Outcome@(o.Message != null ? $": {o.Message}" : "")</span></div>
+                }
+                @if (_view.Result.VerifyDifferences.Count > 0)
+                {
+                    <div class="cc-panel-title" style="margin-top:0.75rem">Verify: what did not land</div>
+                    @foreach (var d in _view.Result.VerifyDifferences) { <div class="cc-item-detail warning-text">@d</div> }
+                }
+                else if (plan.PostApplySnapshotId != null)
+                {
+                    <div class="cc-item-detail success-text" style="margin-top:0.5rem">Verify: the new snapshot matches the plan.</div>
+                }
+                @if (plan.Status == ConfigPlanStatus.Applied && _view.Doc.ForgetSuggestions.Count > 0 && !_forgotten)
+                {
+                    <SiteOperatorOnly>
+                        <div class="cc-forget">
+                            <label class="checkbox-label">
+                                <input type="checkbox" @bind="_forget" />
+                                <span>Forget @(_view.Doc.Context.GetValueOrDefault("old_name") ?? "the old device") in UniFi. Its monitoring history stays in Network Optimizer.</span>
+                            </label>
+                            <button class="btn btn-secondary btn-sm" disabled="@(!_forget || _busy || !ConnectionService.IsConnected)" @onclick="ForgetAsync">Forget Old Device</button>
+                        </div>
+                    </SiteOperatorOnly>
+                }
+            </div>
+        </div>
+    }
+
+    @if (_view.Doc.Recabling.Count > 0)
+    {
+        <div class="card">
+            <div class="card-header"><h3 class="card-title">Re-cabling Sheet</h3></div>
+            @foreach (var r in _view.Doc.Recabling)
+            {
+                <div class="cc-setting-row cc-recable-row">
+                    <span>@r.OldPort → @r.NewPort</span>
+                    <span class="@(r.Unresolved ? "danger-text" : "")">@r.Connected</span>
+                </div>
+            }
+        </div>
+    }
+
+    @if (_message != null)
+    {
+        <div class="alert @(_neutral ? "alert-info" : _ok ? "alert-success" : "alert-danger")">@_message</div>
+    }
+
+    <div class="card cc-sticky-footer">
+        <div class="cc-card-footer cc-plan-footer">
+            <div class="cc-remaining">
+                <div class="cc-state-track">
+                    @foreach (var (label, statuses) in Track)
+                    {
+                        var failed = label == "Applied" && plan.Status == ConfigPlanStatus.Failed;
+                        <span class="@(statuses.Contains(plan.Status) ? "on" : "") @(failed ? "danger-text" : "")"><span class="cc-dot"></span> @(failed ? "Failed" : label)</span>
+                        @if (label != "Applied") { <span>-</span> }
+                    }
+                </div>
+                @if (editable && _view.Remaining.Count > 0)
+                {
+                    <div class="warning-text" style="font-size:0.875rem">@string.Join(", ", _view.Remaining)</div>
+                }
+                @if (plan.Status == ConfigPlanStatus.Watching && plan.WatchUntil is { } until)
+                {
+                    <div class="warning-text" style="font-size:0.875rem">Watching until @CcFormat.Local(DisplayTime, until).ToString(DisplayTime.Format.Time, DisplayFormat.Culture)</div>
+                }
+            </div>
+            @if (ConnectionService.IsConnected)
+            {
+                <CcGatewayStatus Mobile="true" />
+            }
+            <button class="btn btn-secondary" @onclick="DownloadYamlAsync" aria-label="Download Config Delta"
+                data-tooltip="What this plan writes, field by field, secrets hidden. Just to review, not to upload and apply."><CcIcon /> Config Delta</button>
+            @if (editable)
+            {
+                <SiteOperatorOnly>
+                    <button class="btn btn-secondary" disabled="@_busy" @onclick="SaveDraftAsync">Save Draft</button>
+                    <button class="btn btn-secondary" disabled="@_busy" @onclick="CancelAsync">Discard</button>
+                    @if (plan.Status == ConfigPlanStatus.PendingApproval && _view.CallerIsSiteAdmin)
+                    {
+                        <button class="btn btn-primary" disabled="@(_busy || _view.Remaining.Count > 0)" @onclick="ApproveAsync">@Spinner(nameof(ApproveAsync))Approve</button>
+                    }
+                    else if (_view.ApprovalRequired && plan.Status == ConfigPlanStatus.Draft)
+                    {
+                        <button class="btn btn-primary" disabled="@(_busy || _view.Remaining.Count > 0)" @onclick="SubmitAsync">@Spinner(nameof(SubmitAsync))Submit for Approval</button>
+                    }
+                    else if (!_view.ApprovalRequired || plan.Status is ConfigPlanStatus.Approved or ConfigPlanStatus.Scheduled)
+                    {
+                        <button class="btn btn-primary" disabled="@(_busy || _view.Remaining.Count > 0 || !ConnectionService.IsConnected)" @onclick="ApplyAsync">@Spinner(nameof(ApplyAsync))@(_schedule ? "Schedule" : "Apply")</button>
+                    }
+                </SiteOperatorOnly>
+            }
+            @if (plan.Status is ConfigPlanStatus.Watching or ConfigPlanStatus.Applied && plan.Kind != ConfigPlanKind.Revert)
+            {
+                <SiteOperatorOnly>
+                    <button class="btn btn-danger" disabled="@(_busy || !ConnectionService.IsConnected)" @onclick="RevertAsync">@Spinner(nameof(RevertAsync))Revert</button>
+                </SiteOperatorOnly>
+            }
+            @if (!editable && plan.Status != ConfigPlanStatus.Applying)
+            {
+                @if (plan.Kind is ConfigPlanKind.Readdress or ConfigPlanKind.ReaddressPrepare)
+                {
+                    <a class="btn btn-primary" href="@SiteContextService.WithSiteParam("/change-control/migrate?task=readdress", SiteCtx.Slug)">Back to Re-address Networks</a>
+                }
+                else if (plan.Kind is ConfigPlanKind.Zones or ConfigPlanKind.LegacyToZones)
+                {
+                    <a class="btn btn-primary" href="@SiteContextService.WithSiteParam("/change-control/migrate?task=zones", SiteCtx.Slug)">Back to Set Up Zones</a>
+                }
+                else if (plan.Kind == ConfigPlanKind.Edit)
+                {
+                    <a class="btn btn-primary" href="@SiteContextService.WithSiteParam("/change-control/edit", SiteCtx.Slug)">Back to Edit</a>
+                }
+                else
+                {
+                    <a class="btn btn-primary" href="@SiteContextService.WithSiteParam("/change-control/changes", SiteCtx.Slug)">Back to Changes</a>
+                }
+            }
+        </div>
+    </div>
+}
+</div>
+
+@code {
+    [Parameter] public int PlanId { get; set; }
+
+    /// <summary>The Source tile's short value: what kind of plan this is.</summary>
+    private static string KindLabel(ConfigPlanKind kind) => ChangeDescriber.PlanKindName(kind);
+
+    private static readonly (string Label, ConfigPlanStatus[] Statuses)[] Track =
+    [
+        ("Draft", [ConfigPlanStatus.Draft]),
+        ("Pending approval", [ConfigPlanStatus.PendingApproval]),
+        ("Approved", [ConfigPlanStatus.Approved, ConfigPlanStatus.Scheduled]),
+        ("Applied", [ConfigPlanStatus.Applying, ConfigPlanStatus.Watching, ConfigPlanStatus.Applied, ConfigPlanStatus.Reverted, ConfigPlanStatus.Failed]),
+    ];
+
+    private PlanView? _view;
+    private PlanAcknowledgements _acks = new();
+    private readonly HashSet<string> _open = [];
+    private readonly HashSet<string> _openSteps = [];
+    private bool _showDirect;
+    private bool _schedule;
+    // The schedule pickers are on the viewer's clock; seeded in OnInitializedAsync, where it is available.
+    private DateTime _date;
+    private TimeOnly _time = new(2, 0);
+    private bool _busy;
+    private bool _ok;
+    private bool _neutral;
+    private bool _notFound;
+    private string? _message;
+    private Timer? _refresh;
+    private bool _loadedOffline;
+
+    protected override async Task OnInitializedAsync()
+    {
+        ConnectionService.OnConnectionChanged += OnConnectionChanged;
+        _date = DisplayTime.Now.Date;
+        await LoadAsync();
+        // A plan that is applying or watching changes on its own; keep the page current.
+        _refresh = new Timer(_ => InvokeAsync(async () =>
+        {
+            if (_view?.Plan.Status is ConfigPlanStatus.Applying or ConfigPlanStatus.Watching)
+            {
+                await LoadAsync();
+                StateHasChanged();
+            }
+        }), null, TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(10));
+    }
+
+    private async Task LoadAsync(bool keepAcks = false)
+    {
+        try
+        {
+            _loadedOffline = !ConnectionService.IsConnected;
+            _view = await Site.GetPlanAsync(PlanId);
+            _notFound = _view == null;
+            if (_view == null) return;
+            if (!keepAcks || _acks == null) _acks = _view.Acks;
+            if (_view.Plan.ScheduledFor is { } at)
+            {
+                _schedule = true;
+                var local = CcFormat.Local(DisplayTime, at);
+                _date = local.Date;
+                _time = TimeOnly.FromDateTime(local);
+            }
+            else if (_view.QuietestHourSuggestion is { } quiet)
+            {
+                var local = CcFormat.Local(DisplayTime, quiet);
+                _date = local.Date;
+                _time = TimeOnly.FromDateTime(local);
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Plan {Plan} failed to load", PlanId);
+            _message = ex.Message;
+        }
+    }
+
+    private string TierHint(int tier) => tier switch
+    {
+        PlanTiers.Lockout => "Typed confirmation needed",
+        PlanTiers.SecurityRegression => "Accept each regression",
+        PlanTiers.Acknowledge => "Acknowledge each flagged item",
+        _ => "Apply directly",
+    };
+
+    private static string SourceShort(ConfigPlan plan) =>
+        plan.SourceDescription.StartsWith("Snapshot, ", StringComparison.Ordinal) ? plan.SourceDescription[10..].Split(',')[0] : "New";
+
+    /// <summary>An operation's name as listed: a policy order shows its zone pair ("Internal → IoT").</summary>
+    internal static string DisplayObjectName(PlanOperation operation) =>
+        operation.Action == PlanAction.Reorder && operation.ObjectName.StartsWith(PolicyOrderPrefix, StringComparison.Ordinal)
+            ? operation.ObjectName[PolicyOrderPrefix.Length..].Replace(" to ", " → ", StringComparison.Ordinal)
+            : operation.ObjectName;
+
+    private static readonly string PolicyOrderPrefix = ChangeDescriber.PolicyOrderName("");
+
+    /// <summary>A Write Order list this short shows open; a longer one shows its counts and opens on request.</summary>
+    internal const int WriteListInline = 5;
+
+    internal sealed record WriteItem(PlanAction Action, string Name);
+    internal sealed record WriteGroup(string Collection, List<WriteItem> Items);
+
+    /// <summary>A step's objects by collection, in write order, with display names. Plans built before operation keys were kept list names only.</summary>
+    internal static List<WriteGroup> WriteGroups(WriteStep step, PlanDocument doc)
+    {
+        var byKey = doc.Operations.GroupBy(o => o.Key, StringComparer.Ordinal).ToDictionary(g => g.Key, g => g.First(), StringComparer.Ordinal);
+        var ops = step.OperationKeys.Select(k => byKey.GetValueOrDefault(k)).OfType<PlanOperation>().ToList();
+        if (ops.Count == 0)
+            return step.Groups.Select(g => new WriteGroup(g.Collection, g.Names.Select(n => DisplayWriteOrderItem(g.Collection, n, doc)).ToList())).ToList();
+        return ops.GroupBy(o => ConfigCollections.Get(o.Collection)?.DisplayName ?? o.Collection)
+            .Select(g => new WriteGroup(g.Key, g.Select(o => new WriteItem(o.Action, DisplayObjectName(o))).ToList())).ToList();
+    }
+
+    private static WriteItem DisplayWriteOrderItem(string collection, string name, PlanDocument doc)
+    {
+        var operation = doc.Operations.FirstOrDefault(o => o.ObjectName == name
+            && (ConfigCollections.Get(o.Collection)?.DisplayName ?? o.Collection) == collection)
+            ?? doc.Operations.FirstOrDefault(o => o.ObjectName == name);
+        return operation == null ? new WriteItem(PlanAction.Update, name) : new WriteItem(operation.Action, DisplayObjectName(operation));
+    }
+
+    /// <summary>"54 creates, 17 updates, 11 reorders", in that order.</summary>
+    internal static string WriteSummary(IReadOnlyList<WriteItem> items) =>
+        string.Join(", ", new[] { PlanAction.Create, PlanAction.Update, PlanAction.Reorder, PlanAction.Delete }
+            .Select(a => (Action: a, Count: items.Count(i => i.Action == a))).Where(x => x.Count > 0)
+            .Select(x => CcFormat.Plural(x.Count, x.Action.ToString().ToLowerInvariant(), x.Action.ToString().ToLowerInvariant() + "s")));
+
+    private void AcknowledgeAll(PlanDocument doc)
+    {
+        foreach (var op in doc.Operations.Where(o => o.Tier == PlanTiers.Acknowledge)) _acks.Items.Add(op.Key);
+        Changed();
+    }
+
+    private void ToggleAllIncluded(PlanDocument doc)
+    {
+        if (_acks.Excluded.Count > 0) _acks.Excluded.Clear();
+        else _acks.Excluded.UnionWith(doc.Operations.Select(o => o.Key));
+        Changed();
+    }
+
+    private void Toggle(HashSet<string> set, string key)
+    {
+        if (!set.Remove(key)) set.Add(key);
+        Changed();
+    }
+
+    private void Changed()
+    {
+        if (_view == null) return;
+        _view = new PlanView
+        {
+            Plan = _view.Plan, Doc = _view.Doc, Acks = _acks, Result = _view.Result, SiteName = _view.SiteName, SiteDetail = _view.SiteDetail,
+            ApprovalsOn = _view.ApprovalsOn, ApprovalRequired = _view.ApprovalRequired, CallerIsSiteAdmin = _view.CallerIsSiteAdmin,
+            Remaining = PlanReadiness.Remaining(_view.Doc, _acks, _view.CallerIsSiteAdmin), ConfirmationText = _view.ConfirmationText,
+            WatchMinutes = _view.WatchMinutes, DeviceCount = _view.DeviceCount, QuietestHourSuggestion = _view.QuietestHourSuggestion,
+        };
+    }
+
+    private void SetSchedule(bool on) => _schedule = on;
+
+    private DateTime? ScheduledUtc() =>
+        _schedule ? DisplayTime.ToUtc(_date.Date + _time.ToTimeSpan()) : null;
+
+    // The action RunAsync is running, so its button shows a spinner: an apply or revert can take a while.
+    private string? _running;
+
+    private RenderFragment? Spinner(string action) =>
+        _running == action ? @<span class="spinner-sm"></span> : null;
+
+    private async Task RunAsync(Func<Task<string?>> work, string? success = null, [System.Runtime.CompilerServices.CallerMemberName] string action = "")
+    {
+        _busy = true;
+        _running = action;
+        _message = null;
+        _neutral = false;
+        try
+        {
+            StateHasChanged();
+            await Task.Yield();
+            var why = await work();
+            _ok = why == null;
+            // A discard is neither a success nor a failure.
+            _neutral = why == null && action == nameof(CancelAsync);
+            _message = why ?? success;
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            _ok = false;
+            _message = ex.Message;
+        }
+        finally
+        {
+            _busy = false;
+            _running = null;
+        }
+    }
+
+    // Checked by default (hardware-replacement.md), but only the button forgets.
+    private bool _forget = true;
+    private bool _forgotten;
+
+    private Task ForgetAsync() => RunAsync(async () =>
+    {
+        foreach (var mac in _view!.Doc.ForgetSuggestions)
+            if (await Site.ForgetDeviceAsync(mac) is { } refused) return refused;
+        _forgotten = true;
+        return null;
+    }, "Old device forgotten in UniFi.");
+
+    private Task SaveDraftAsync() => RunAsync(async () =>
+    {
+        await Site.SavePlanAsync(PlanId, _acks, ScheduledUtc(), applyOnApproval: !_schedule);
+        return null;
+    }, "Draft saved.");
+
+    private Task SubmitAsync() => RunAsync(async () =>
+    {
+        await Site.SavePlanAsync(PlanId, _acks, ScheduledUtc(), applyOnApproval: !_schedule);
+        await Site.SubmitPlanAsync(PlanId);
+        return null;
+    }, "Submitted for approval.");
+
+    private Task ApproveAsync() => RunAsync(async () =>
+    {
+        await Site.SavePlanAsync(PlanId, _acks, ScheduledUtc(), applyOnApproval: !_schedule);
+        await Site.ApprovePlanAsync(PlanId);
+        return null;
+    }, "Approved.");
+
+    private async Task ApplyAsync()
+    {
+        await RunAsync(async () =>
+        {
+            await Site.SavePlanAsync(PlanId, _acks, ScheduledUtc(), applyOnApproval: false);
+            return await Site.ApplyPlanAsync(PlanId);
+        }, _schedule ? "Scheduled." : "Applied.");
+        // The Result card sits above the buttons; bring it into view once it renders.
+        if (_view?.Result == null) return;
+        StateHasChanged();
+        await JS.InvokeVoidAsync("eval", "setTimeout(() => document.getElementById('cc-result')?.scrollIntoView({behavior:'smooth', block:'start'}), 100)");
+    }
+
+    private Task CancelAsync() => RunAsync(async () =>
+    {
+        await Site.CancelPlanAsync(PlanId);
+        return null;
+    }, "Discarded.");
+
+    private Task RevertAsync() => RunAsync(() => Site.RevertPlanAsync(PlanId), "Reverted to the snapshot pinned before the apply.");
+
+    private async Task DownloadReportAsync()
+    {
+        var pdf = await Site.GetPlanReportPdfAsync(PlanId);
+        if (pdf != null)
+            await JS.InvokeVoidAsync("downloadFile", $"plan-{PlanId}-report.pdf", "application/pdf", Convert.ToBase64String(pdf));
+    }
+
+    /// <summary>
+    /// The plan's writes as YAML: action, object, and field changes (secret values never appear). Rows this
+    /// apply leaves out stay in the record, marked, so it shows what was reviewed and set aside.
+    /// </summary>
+    private async Task DownloadYamlAsync()
+    {
+        if (_view == null) return;
+        var leftOut = PlanReadiness.LeftOut(_view.Doc, _acks.Excluded);
+        var sb = new StringBuilder($"# {_view.Plan.Name}\n# Source: {_view.Plan.SourceDescription}\noperations:\n");
+        foreach (var op in _view.Doc.Operations)
+        {
+            sb.Append($"  - action: {op.Action.ToString().ToLowerInvariant()}\n    collection: {op.Collection}\n    object: \"{op.ObjectName.Replace("\"", "\\\"")}\"\n");
+            if (leftOut.Contains(op.Key)) sb.Append("    left_out: true\n");
+            if (op.Fields.Count > 0)
+            {
+                sb.Append("    fields:\n");
+                foreach (var f in op.Fields)
+                    sb.Append($"      - {{field: \"{f.Label}\", from: \"{(f.Secret && op.Action != PlanAction.Create ? "<current>" : f.Old)}\", to: \"{(f.Secret ? "<hidden>" : f.New)}\"}}\n");
+            }
+        }
+        await JS.InvokeVoidAsync("downloadFile", $"plan-{PlanId}.yaml", "application/yaml", Convert.ToBase64String(Encoding.UTF8.GetBytes(sb.ToString())));
+    }
+
+    // Fires from a background thread (console reconnect). A page loaded while the console was down
+    // reloads once it is back: Site, the watch window, and Apply depend on the connection.
+    private void OnConnectionChanged() => _ = InvokeAsync(async () =>
+    {
+        if (_loadedOffline && ConnectionService.IsConnected) await LoadAsync(keepAcks: true);
+        StateHasChanged();
+    });
+
+    public void Dispose()
+    {
+        ConnectionService.OnConnectionChanged -= OnConnectionChanged;
+        _refresh?.Dispose();
+    }
+}

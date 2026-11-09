@@ -4,6 +4,8 @@ using Microsoft.Extensions.Logging;
 using NetworkOptimizer.Alerts.Delivery;
 using NetworkOptimizer.Alerts.Interfaces;
 using NetworkOptimizer.Alerts.Models;
+using NetworkOptimizer.Core;
+using NetworkOptimizer.Core.Helpers;
 
 namespace NetworkOptimizer.Alerts;
 
@@ -30,19 +32,22 @@ public class DigestService : BackgroundService
     private const int CollapseThreshold = 10;
 
     private readonly NetworkOptimizer.Core.ISiteWorkGate? _siteWorkGate;
+    private readonly INotificationTimeZoneResolver? _timeZones;
 
     public DigestService(
         ILogger<DigestService> logger,
         IServiceScopeFactory scopeFactory,
         IEnumerable<IAlertDeliveryChannel> deliveryChannels,
         IScheduleSiteContext? siteContext = null,
-        NetworkOptimizer.Core.ISiteWorkGate? siteWorkGate = null)
+        NetworkOptimizer.Core.ISiteWorkGate? siteWorkGate = null,
+        INotificationTimeZoneResolver? timeZones = null)
     {
         _logger = logger;
         _scopeFactory = scopeFactory;
         _deliveryChannels = deliveryChannels;
         _siteContext = siteContext;
         _siteWorkGate = siteWorkGate;
+        _timeZones = timeZones;
     }
 
     /// <summary>Whether background work may run for a site; no gate wired means yes (fail-open).</summary>
@@ -111,7 +116,7 @@ public class DigestService : BackgroundService
             if (!MayRunForSite(siteKey))
             {
                 _logger.LogDebug("Skipping digests for non-operational site {Site}",
-                    siteKey.Length == 0 ? "main" : siteKey);
+                    siteKey.Length == 0 ? SiteSlugs.Default : siteKey);
                 continue;
             }
             try
@@ -120,7 +125,7 @@ public class DigestService : BackgroundService
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Failed to process digests for site {Site}", siteKey.Length == 0 ? "main" : siteKey);
+                _logger.LogError(ex, "Failed to process digests for site {Site}", siteKey.Length == 0 ? SiteSlugs.Default : siteKey);
             }
         }
     }
@@ -151,7 +156,7 @@ public class DigestService : BackgroundService
 
                 if (alerts.Count == 0)
                 {
-                    _logger.LogDebug("No alerts for digest on channel {ChannelId} (site {Site})", channel.Id, siteKey.Length == 0 ? "main" : siteKey);
+                    _logger.LogDebug("No alerts for digest on channel {ChannelId} (site {Site})", channel.Id, siteKey.Length == 0 ? SiteSlugs.Default : siteKey);
                     await MarkSentAsync(stateStore, siteKey, channel.Id, cancellationToken);
                     continue;
                 }
@@ -163,12 +168,18 @@ public class DigestService : BackgroundService
                 var summary = DigestSummary.FromAlerts(alerts);
                 var collapsedAlerts = CollapseAlerts(alerts);
 
-                var success = await handler.SendDigestAsync(collapsedAlerts, channel, summary, cancellationToken);
+                var timeZone = _timeZones == null
+                    ? TimeZoneInfo.Local
+                    : await _timeZones.ResolveAsync(siteKey == DefaultSiteKey ? null : siteKey, cancellationToken);
+                var format = _timeZones == null
+                    ? DisplayFormat.Fallback
+                    : await _timeZones.ResolveFormatAsync(siteKey == DefaultSiteKey ? null : siteKey, cancellationToken);
+                var success = await handler.SendDigestAsync(collapsedAlerts, channel, summary, timeZone, format, cancellationToken);
                 if (success)
                 {
                     await MarkSentAsync(stateStore, siteKey, channel.Id, cancellationToken);
                     _logger.LogInformation("Sent digest with {Count} alerts ({Collapsed} after collapsing) to channel {ChannelId} ({Name}) for site {Site}",
-                        alerts.Count, collapsedAlerts.Count, channel.Id, channel.Name, siteKey.Length == 0 ? "main" : siteKey);
+                        alerts.Count, collapsedAlerts.Count, channel.Id, channel.Name, siteKey.Length == 0 ? SiteSlugs.Default : siteKey);
                 }
             }
             catch (Exception ex)
@@ -195,7 +206,7 @@ public class DigestService : BackgroundService
                     loaded++;
                 }
             }
-            _logger.LogDebug("Loaded persisted digest state for {Count} channels (site {Site})", loaded, siteKey.Length == 0 ? "main" : siteKey);
+            _logger.LogDebug("Loaded persisted digest state for {Count} channels (site {Site})", loaded, siteKey.Length == 0 ? SiteSlugs.Default : siteKey);
         }
         catch (Exception ex)
         {

@@ -7,7 +7,7 @@ an On-Site Agent, AP Telemetry, InfluxDB, or HTTPS.
 **Jump to:** [Dashboard](#dashboard) · [Multi-Site](#multi-site) · [Monitoring](#monitoring) ·
 [Network Tools](#network-tools) · [Client Performance](#client-performance) ·
 [Config Optimizer](#config-optimizer) · [Performance Tweaks](#performance-tweaks) ·
-[Firmware Rollout](#firmware-rollout) · [Wi-Fi Optimizer](#wi-fi-optimizer) ·
+[Change Control](#change-control) · [Firmware Rollout](#firmware-rollout) · [Wi-Fi Optimizer](#wi-fi-optimizer) ·
 [Security Audit](#security-audit) · [UPnP Inspector](#upnp-inspector) ·
 [Threat Intelligence](#threat-intelligence) · [Web Application Firewall](#web-application-firewall) · [Adaptive SQM](#adaptive-sqm) ·
 [WAN Steering](#wan-steering) · [WAN Speed Test](#wan-speed-test) ·
@@ -33,14 +33,17 @@ an On-Site Agent, AP Telemetry, InfluxDB, or HTTPS.
   - **Cellular Stats (5G / LTE)** - RSRP, RSRQ, SNR, band, cell, tower, neighbors; **Reset Radio** when stuck off 5G
   - **Starlink Stats** - obstruction sky map, loss, power, Ethernet speed, uptime, GPS, last outage
   - Cable modem and ONT error counts cover the last 24 hours, or since reboot (InfluxDB)
+  - Last-24-hour sparkline behind the signal reading (downstream SNR, Rx optical power, cellular signal quality), on the gauge's own scale; hover to bring it forward (InfluxDB)
+  - Last-24-hour RSRP sparkline in the Cellular **5G NR** and **LTE** boxes, shown on hover with the live reading (InfluxDB)
 - Sites overview (multi-site): site, agent, and agents-online counts
 
 ## Multi-Site
 
 - Manage many UniFi sites from one server, each with its own database and InfluxDB buckets
-- **Sites** page - per-site cards with console status, license, agents online, and quick switch
+- **Sites** page - per-site cards with console status, license, agents online, Site Health, and quick switch
+- Dashboard **Sites** card - every site's Site Health and top issue, worst first; the top issue opens the page to investigate it (ISP Health, Wi-Fi Optimizer, Device Stats, or Network Performance on the LAN scope); **Less** / **More** views; click a row to switch to that site; a Firmware Rollout that is scheduled, running, paused, soaking, or reported in the last 24 hours shows on its site and opens Firmware Rollout (a finished one opens its report); a rollout under way or starting within 24 hours ranks its site above degraded sites, below down ones
 - Site switcher in the top bar on every page
-- **Add a site** wizard - create the site, connect its console, then set up an [On-Site Agent](#on-site-agent) or skip it
+- **Add a site** wizard - create the site, connect its console, then set up an [On-Site Agent](#on-site-agent) or skip it; a console this server cannot reach connects through the agent, set up first
 - Onboard a site over an existing site-to-site VPN with no agent
   - Gets Security Audit, Wi-Fi Optimizer, Performance Tweaks, Adaptive SQM, WAN Steering, and SNMP device health
 - Onboard a site through an [On-Site Agent](#on-site-agent) for the full feature set, including behind CGNAT
@@ -89,7 +92,9 @@ Time-series monitoring on your own InfluxDB, fed by SNMP polling (InfluxDB).
 ### Live View
 
 - Live stat tiles: **WAN Download**, **WAN Upload**, **ISP Health**, ISP and transit RTT and loss
+  - ISP RTT and loss read the access floor across access hops, as ISP Health does
 - Gateway tiles: RTT, loss, CPU, memory, temperature, **Fabric Ingress**, **Fabric Egress**
+- Last-hour sparkline behind the ISP, transit, and gateway tiles; hover to bring it forward (InfluxDB)
 - WAN pill selector - one WAN, several to compare, or all
 - Live WAN throughput chart
 - **3D LAN Flow Map** - live 3D topology with animated download and upload flows for all LAN traffic
@@ -128,8 +133,11 @@ Time-series monitoring on your own InfluxDB, fed by SNMP polling (InfluxDB).
   - A slowdown that comes and goes is read trace by trace: hops that slow in the same traces as the destination show where it first appears, and the verdict says when that could be the return path
   - Hops a trace reads as elevated are pinged during the episode, so a router that limits traceroute replies is not blamed; a hostname target is traced at one address for the whole episode
   - A traced route change shows once, as its path shift with the hop table; it is not congestion and does not score
+  - A sustained rise on RTT alone, with no loss and no wider jitter, is a route change too: it shows as a path shift with its hop table even when no step was detected
+  - On the Per-Network RTT chart, an episode that is a route change is shaded as a path shift, in the path shift's blue, not as congestion
   - Episodes across 2 or more destination networks lower Transit Health by impact (length, breadth, depth, and time of day), shown as a **Path Congestion** row
   - Banner at the top of ISP Health while a path is being traced and for 24 hours after; dismissible, and a new episode shows again
+  - **Acknowledge** on a recurring finding in one destination network that could not be pinned on a forward hop (Site Admin), on the finding or under its hop table: it moves to **Acknowledged** and stays scored, and its episodes leave the top banner, and leave the events list and the chart for an **Acknowledged** filter. It shows again if another target joins it, its last clean router changes, or it starts costing points
   - The ISP Health PDF carries the episodes: their findings and events, and a Path Traces section with each verdict and hop table
 - **Per-Network RTT** chart; BGP tool links (HE BGP Toolkit, bgp.tools, RIPEstat)
 - Starlink scoring on sky obstruction, dish loss, and outage burden, with hardware-fault caps
@@ -144,6 +152,8 @@ Time-series monitoring on your own InfluxDB, fed by SNMP polling (InfluxDB).
 - **Investigate** - step through **Packet Loss Events** and **Loaded Loss Events**
 - **Upstream Path Discovery** - ICMP and UDP traceroutes that map OLT/CMTS, ISP edge, transit ASNs, and internet hosts
   - Sets the access technology, saves monitoring targets, and re-runs every 7 days
+  - Waits for a quiet WAN (no outage, load, or loss above the access technology's idle level); a manual run on a busy WAN warns first, with **Run Anyway**
+  - A target that stops answering is paused only after three automatic runs, and resumes when it answers
   - Detects hops that left the path and asks whether the ISP changed
   - Metered WANs get fewer targets and a slower cadence
 - **Flaky Monitoring Targets** - targets losing more than their peers, with **Disable** and **Disable all**
@@ -156,6 +166,7 @@ Time-series monitoring on your own InfluxDB, fed by SNMP polling (InfluxDB).
 ### Device Stats
 
 - **Device Health** charts - temperature, CPU, memory, and fan speed for every device on one screen
+- **WAN Throughput** chart - total download and upload across every WAN, when the gateway is the only device selected
 - Custom OID and Health Check charts
 - UniFi power appliances (UPS) shown as Smart Power
 - **Temperature Alert Thresholds** for switches and gateways
@@ -274,6 +285,67 @@ Gateway tweaks for UCG-Fiber, UXG-Fiber, UCG-Max, and UXG-Max (Gateway SSH).
 - Mutes standard alerts while a deploy step restarts UniFi Network
 - **Install UDM Boot**; firmware upgrade impact notes; GPON stick compatibility guide
 
+## Change Control
+
+- UniFi Network keeps whole-console backups (.unf) that restore all at once; Change Control adds per-change history, diffs, and object-level roll back
+- **Overview** - what needs attention across every site: regressions, changes no admin made, drift, plans in progress
+  - Sites ranked worst first by Site Health
+- **Site Health** - one hourly score per site: the share of user-time the network served well
+  - Internet (outages, loss, latency, bufferbloat on the primary WAN), device availability, Wi-Fi satisfaction, and LAN errors and loss
+  - Separates ISP impairment from local causes (gateway reboot, gateway offline, gateway CPU, LAN loss at the same time)
+  - Loss is scored in 5-minute windows, so a short burst costs its share of the hour, and loss while the WAN is busy is judged against the access technology's loaded-loss band
+  - Names the top issue in words, with the points it cost and a trend arrow
+  - Backfills 90 days from history at first start
+- **Changes** - multi-site timeline of every config change, firmware step, and Network app upgrade, with who made it
+  - Source: the admin from UniFi's audit log, Network Optimizer's own writes, or "No admin recorded"
+  - Zone and switch port updates UniFi makes on its own after a network change are credited to that change
+  - Site Health lane, and stat lanes on the same time axis (InfluxDB): primary WAN latency and loss, WAN throughput, gateway CPU, Wi-Fi clients by band, and Wi-Fi PHY rate per band
+  - Each change shows the fields that moved, Site Health and the Security Audit before and after, and incidents that followed
+  - Alert when Site Health falls after a change
+  - **Roll Back** one change
+- Review Plan, and on desktop Snapshots, Edit, Migrate / Restore, and Changes with one site chosen, show whether the site's gateway is provisioning or ready
+- **Snapshots** - the full UniFi Network config, stored encrypted outside the console
+  - Taken on every change, daily, before every apply, Firmware Rollout, and Network app upgrade
+  - **Compare** any two snapshots or one against live; **Download YAML**; **Pin**; **Roll Back** to a snapshot
+  - Baseline and **Drift from Baseline**, with **Return to Baseline** and **Accept as Baseline**
+  - **Templates** - save collections from one site, apply them to others, or use one as the Baseline
+    - Pare a template down to the fields to set; networks, zones, and groups it references match at each site by name, VLAN ID, or key
+    - A WLAN's PPSKs from a template join each site's own, or replace them (**Replace each site's PPSKs**)
+  - **UniFi Console Backups** - keeps copies of UniFi's own .unf autobackups for download (Site Admin)
+- **Edit** - edit the config as YAML with live checks, then **Review Plan**; upload or download YAML files, for the whole site or a single collection
+  - Remove an object with one click; references to it in lists are removed in the same plan
+  - Remove a client to forget it in UniFi Network, each one an item to acknowledge; Roll Back and Return to Baseline also forget a client the snapshot lacks, Restore never does
+  - **+ Add** a WLAN, network, port profile, firewall policy, zone, group, or Local DNS record from UniFi's own defaults
+  - Search field names and values across every collection (common names find UniFi's: VLAN finds networks, SSID finds WLANs), with each collection's match count and Previous / Next through the matches
+  - Edit a saved template the same way
+- **Review Plan** - every write before it runs, with Security Audit impact, lockout checks, and acknowledgements
+  - Flags a firewall change that cuts a network off its DNS server or the internet, or devices off the UniFi Console
+  - Flags a WAN change that can take the site offline (VLAN, connection type, PPPoE, zone), and refuses a WAN outside the External zone
+  - Approvals, scheduled applies, commit-confirmed watch with automatic revert, and a before/after report
+  - On agent sites the [On-Site Agent](#on-site-agent) holds the revert if the tunnel drops (On-Site Agent)
+- **Migrate**
+  - **Restore a Snapshot** onto this site, another site, or a blank UniFi Console
+    - Legacy firewall rules restored onto a zone-based console become zone policies, checked by the Security Audit
+  - **Replace Device** - move a switch, AP, or gateway's config to new hardware, same model or not
+    - Port mapping by role (uplink, LAG, PoE, SFP), radio clamping by band, and a re-cabling sheet PDF
+    - Older firmware on the new device links to Firmware Rollout to align it first
+  - **Adopt Pending Devices** whose MAC is in a snapshot
+  - **Set Up Zones** - group networks into firewall zones by trust or purpose, checked by the Security Audit
+    - Carries your firewall policies, DNS blocks, and DNS and console access into the new zones
+    - Splits a policy whose networks or clients land in different zones, and deletes blocks the new zones' defaults already cover
+    - Warns when a network you move becomes reachable through rules already on its new zone
+    - Deletes a zone the move leaves empty and moves its rules with its networks, or keeps it for later
+    - Rename a zone on the board, and the plan writes the new name
+    - **Translate Legacy Rules** after UniFi moves a site to zones, from its last legacy snapshot
+  - **Re-address Networks** - move networks to new subnets by pattern or per network, with every address in them: reservations, DNS records, port forwards, firewall groups and policies, routes, device static IPs, and Network Optimizer's own settings
+    - Addresses on a WAN's carrier side or a VPN's far side stay as they are
+    - The dry run lists every connected client with no DHCP lease from the gateway (Gateway SSH), reserved or not, and offline clients likely set on the device
+    - Warns when Network Optimizer's host, a management network, or the console moves
+    - Devices find the Console at its new address: the Plan moves a UniFi OS Server's Inform Host override with it, and a Device still offline after the move gets set-inform over SSH (Device SSH)
+    - **Lower Lease Times** a lease ahead so clients move within minutes (the move puts them back), and **Reconnect Clients** after it: wireless clients rejoin, PoE-powered wired clients optionally power-cycle
+- Alerts for security regressions, changes no admin made, management-path changes, drift, and UniFi Console admin and update settings
+- **Settings** - retention, change detection, commit-confirmed window, approvals
+
 ## Firmware Rollout
 
 - Upgrade a whole site in waves, timed to the quietest window in your own traffic history
@@ -284,6 +356,8 @@ Gateway tweaks for UCG-Fiber, UXG-Fiber, UCG-Max, and UXG-Max (Gateway SSH).
 - Update the UniFi Network application and UniFi OS as part of the rollout
 - Covers UniFi cellular modems; downgrades only when you pick an older build or roll back, and never for UniFi OS or UniFi Network
 - Console backup before the rollout; turns off UniFi auto-update schedules that would collide
+- Pins a [Change Control](#change-control) snapshot first; pauses for review when the Network app update leaves a security regression or a change no admin made
+- After a firmware roll back, **Compare Config Snapshot** against the snapshot taken before the rollout
 - **Start now**, **Schedule once**, or **Autopilot** on every new firmware, with a heads-up
 - Pace (Conservative, Balanced, Fast), approval at every wave, minimum release age
 - Live map and step table; pause, resume, abort, postpone, deploy now, re-plan
@@ -296,22 +370,24 @@ Gateway tweaks for UCG-Fiber, UXG-Fiber, UCG-Max, and UXG-Max (Gateway SSH).
 - Optional mute of offline, restart, and WAN outage alerts for each device as it flashes
 - Re-scans mesh backhaul once both halves of a mesh pair are upgraded
 - Firmware any site's console offers is pooled for every site
+  - UniFi Network builds only for consoles of the same platform, with a known download
 - Post-upgrade check for loss, CPU, and memory regression; per-device **Roll back**
 - **Deploy Firmware by URL** and **Deploy Known Firmware**
-- **History** and **Rollout Report** with before-and-after CPU and memory; **Export PDF**
+- **History** of every rollout, paged, and **Rollout Report** with before-and-after CPU and memory; **Export PDF**
 
 ## Wi-Fi Optimizer
 
 ### Overview
 
-- **Site Health Score** from signal, channel health, satisfaction, airtime, roaming, and capacity
+- **Wi-Fi Health Score** from signal, channel health, satisfaction, airtime, roaming, and capacity
+  - Channel health scores each radio against the quietest channel it could use, so a band busy on every channel costs nothing
 - **Client Band Distribution**, **Channel Optimization** summary, and per-AP radio cards
 - Mesh uplink details and **Re-pair Uplink**
 - **Health Issues** with recommendations; **Acknowledge** hides an issue but keeps it in the score
 - Health Issue checks:
   - Signal and coverage: weak signal, weak signal population, coverage gaps, sticky clients ([AP Telemetry](#ap-telemetry))
   - Channels: co-channel interference, high power overlap, non-standard 2.4 GHz channel, wide channel with weak clients or unused width
-  - Utilization: high utilization (own clients vs interference), raised noise floor ([AP Telemetry](#ap-telemetry)), high TX retry rates
+  - Utilization: a busy radio over the last hour (other networks vs its own clients, with one action for the cause: a quieter channel, or **Lock to AP** in UniFi Network), raised noise floor ([AP Telemetry](#ap-telemetry)), high TX retry rates
   - Load: high AP load, load imbalance, high 2.4 GHz concentration
   - Clients: legacy client airtime, IoT SSID separation, DHCP issues, high latency despite good signal ([AP Telemetry](#ap-telemetry))
   - Settings: band steering, Roaming Assistant, minimum RSSI, minimum data rates, TX power levels, MLO, 6 GHz disabled
@@ -323,6 +399,7 @@ Gateway tweaks for UCG-Fiber, UXG-Fiber, UCG-Max, and UXG-Max (Gateway SSH).
 - **Metrics** - airtime, interference, and TX retry charts per AP and band
 - **RF Environment** - neighboring networks, channel density heatmap, cleanest channels, DFS status
   - **Run quick scan** spectrum scan from Channels; per-AP neighbor scans every 30 seconds ([AP Telemetry](#ap-telemetry))
+  - **Site Access Points** - your own APs' BSSIDs as their sibling APs hear them, kept out of the neighbor counts
 - **Environment** - performance by time of day and weekly interference heatmap
 
 ### Channels (Channel Recommendation)
@@ -371,6 +448,7 @@ models such as U6-Lite, U6-Mesh, and UAP-AC-Pro, and gateways with built-in Wi-F
 - Roam records with timing; BSS-transition steering for the **Roam** button
 - Requests are HMAC-signed and replay-protected; the agent listens on the management network only
 - Never redeployed to an access point while Firmware Rollout is flashing it
+- Creates a site's missing InfluxDB buckets when the shared token can, and otherwise warns with a link to Monitoring
 - Radio health, neighbor scans every 30 seconds, and channel move detection
 - Used by: [Client Performance](#client-performance), [Live View](#live-view), [Health Issues](#overview),
   [RF Environment](#metrics-rf-environment-and-environment), [Channel Recommendation](#channels-channel-recommendation),
@@ -378,7 +456,7 @@ models such as U6-Lite, U6-Mesh, and UAP-AC-Pro, and gateways with built-in Wi-F
 
 ## Security Audit
 
-- Score out of 100 from Firewall Rules, VLAN Security, Port Security, DNS Security, UPnP Security, and Console Access checks, plus a hardening bonus
+- Score out of 100 from Firewall Rules, VLAN Security, Port Security, DNS Security, UPnP Security, Console Access, and Gateway Firewall checks, plus a hardening bonus
 - **Firewall Rules** - any-any, overly broad, orphaned, shadowed, and out-of-order rules
   - Missing or bypassed VLAN isolation and internet blocks; missing management access (cloud, firmware, AFC, NTP, 5G/LTE)
   - Networks that can reach the gateway's SSH and web UI; strict once a Management Access network is set
@@ -386,16 +464,21 @@ models such as U6-Lite, U6-Mesh, and UAP-AC-Pro, and gateways with built-in Wi-F
   - Uses UniFi fingerprints, MAC OUI, port names, and UniFi Protect; checks wired, wireless, and offline clients
   - Covers zone-based firewalls, L3 switch-routed VLANs, and IPv4 and IPv6 separately
   - Networks that should be isolated or have no internet; management devices without fixed IPs
+  - **Fix with zones** on isolation findings opens Set Up Zones in [Change Control](#change-control)
 - **Port Security** - MAC restriction, port lock, unused ports, port isolation, excessive tagged VLANs, subnet mismatches
 - **DNS Security** - DoH setup, DNS leak prevention, DoT, DoQ, and DoH bypass, WAN DNS order, DNAT coverage
   - Third-party DNS detection (Pi-hole, AdGuard Home, Technitium, NextDNS, ControlD), IPv6 DNS bypass
+  - Port 53, DoT, DoQ, and DoH blocking checked per network, Guest and Hotspot networks included
+  - **Fix it for me** extends your DNAT and DNS block rules to uncovered networks, or adds a block where none exists, as a [Change Control](#change-control) plan (zone-based firewall)
 - **UPnP Security** - UPnP enabled, privileged ports exposed, static forwards
 - **Console Access** - API Keys and Local Admin accounts unused for 7+ days (when the UniFi Console Connection can read them)
+- **Gateway Firewall** - checks the gateway enforces your configuration: WANs and networks in their zones, every enabled policy present, disabled ones gone (Gateway SSH)
+  - Automatic Blocking on the gateway's [On-Site Agent](#on-site-agent): rules hooked in once, unchanged, and holding the blocklist
 - Threat-aware check for actively targeted port forwards
 - **Acknowledge** false positives; override a network's **Purpose**, including marking your Management Access network
 - **Network Reference**, **DNS Security** table, **Hardening Measures in Place**, **Switch & Port Details**, wireless clients by AP
 - **Download PDF** report
-- Allow-lists in Settings: streaming devices, media players, TVs, printers, grace periods, trusted DNS redirects
+- Allow-lists in Settings: streaming devices, media players, TVs, printers, grace periods, trusted DNS redirects, **Allow Guest / Hotspot Public DNS**
 
 ## UPnP Inspector
 
@@ -435,6 +518,7 @@ Set up in **Settings - Security & Alerts**, per site.
 - Blocks the sources the WAF and attack pattern detection flag, with longer bans for repeat offenders
 - **Where Blocks Are Enforced** - the gateway, the [Web Application Firewall](#web-application-firewall), and **Cloudflare Edge Blocking**
   - With an [On-Site Agent](#on-site-agent) on the gateway, blocks apply in seconds with no gateway reprovisioning
+  - Gateway policies follow the site's zones, including zones added later in UniFi Network
 - Every site starts in **Detection Only**, which writes nothing; **Turn On Recommended** switches it to **Blocking**
   - Picks the **Home** or **Self-Hosting** profile from the site's port forwards; **Business** and **Lockdown** in the profile picker
 - **Cross-site blocking** - a source attacking one site is blocked at every site sharing blocks
@@ -500,16 +584,17 @@ Requires Gateway SSH and UniFi Smart Queues.
 - **Congestion Profile Learning** - learns your line's weekly congestion pattern over 7 days
   - Samples wait for an idle WAN and stay clear of scheduled SQM speed tests
 - Morning and evening speed tests, boot delay, ping target, Ookla server override, larger download burst
+- **CAKE download shaper (experimental)** - per WAN, CAKE in place of HTB for download: fair shares per device
 - **Live SQM Status** per WAN; **Run SQM Adjustment** on demand
-- Deploy, deploy settings only, deploy monitor only, remove; persists through reboots
+- Deploy, deploy settings only, deploy monitor only, remove (restores UniFi's own Smart Queues); persists through reboots
 - Logs per WAN for debugging
 
 ## WAN Steering
 
 Requires Gateway SSH.
 
-- **Steer by protocol and port** - UniFi's Policy-Based Routes match source device or network and destination IP or domain; WAN Steering adds protocol and port matching, and can split a rule's traffic across WANs by **Ratio**
-- Send chosen traffic out a chosen WAN while the rest stays on the primary
+- **Load balance bulk traffic without leaving failover mode** - UniFi Network's multi-WAN either fails over all traffic or load balances all of it, so a site with a fast, low-latency primary such as fiber stays in failover and its other WANs sit idle; WAN Steering load balances bulk and selected traffic onto them while latency-sensitive traffic stays on the primary
+  - UniFi's Policy-Based Routes match source device or network and destination IP or domain; WAN Steering adds protocol and port matching
 - **Traffic Rules** by source CIDR, destination CIDR, source MAC, protocol, and ports
 - Each rule sends a **Ratio** of matching connections to its **Target WAN**; VLAN-tagged and GRE WANs
 - Rule ordering, enable and disable, hot-reload config deploy
@@ -567,6 +652,7 @@ Requires Gateway SSH.
 - **History** - every alert by source and severity
 - **Rules** - event pattern, threshold, severity, cooldown, escalation, digest-only, target devices
 - **Incidents** - related alerts grouped automatically, each listed in its incident with a link to it
+  - Config changes in the 2 hours before each incident, with **Roll Back** ([Change Control](#change-control))
 - Alerts cover:
   - Security Audit score drops and new findings; threat attack chains and patterns; Web Application Firewall events
   - A device reaching, or trying to reach, an address on a public block list
@@ -602,6 +688,7 @@ Requires Gateway SSH.
 - **Speed Tests** - LAN test defaults and external WAN speed test servers
 - **Security & Alerts** - audit allow-lists, alert channels, threat collection, MaxMind GeoIP, CrowdSec CTI
 - **Application** - admin password, licensing, pre-release update notices, guided tours, kiosk mode, satellite imagery (Mapbox)
+  - **Date & Time** - times show in each site's own time zone with no setup, charts included; a Global Admin can set a default for everyone, and each user can choose their own. Dates and times follow each user's own choice (12- or 24-hour; month first, day first, or ISO 8601 year first), else the default time and date format a Global Admin set, else their browser. Alerts carry the site's time, labeled, in the default format
   - Back up and restore all settings or a full export (`.nopt`); clear cached data
 - **Identity** and **Audit Log** - see [Accounts and Access](#accounts-and-access)
 - **Multi-Site** - see [Multi-Site](#multi-site)
@@ -635,6 +722,7 @@ Requires Gateway SSH.
   - Richerlink - RL821GWV-D (signs in and out around each poll)
   - Realtek RTL960x sticks - ODI DFP-34X-2C2, ODI DFP-34X-2IY3, V-SOL V2801F, T&W TWCGPON657, Luleey LL-XS2510
   - 8311 firmware sticks - WAS-110, X-ONU-SFPP, WT-ONU-STICK
+  - Peter-Pon firmware sticks - FS.com GPON-SFP-ONT-MAC-I, Huawei MA5671A, and other Lantiq PEB98035 sticks
   - Any GPON or XGS-PON ONT SFP module with DDM
   - Any other SFP module with DDM
   - Any device through the Network Optimizer Custom JSON contract
@@ -659,6 +747,7 @@ Requires Gateway SSH.
 - Require MFA or a passkey per role; SSO-only sign-in
 - Authenticator app (TOTP), recovery codes, and passkeys per user; sign out everywhere
 - Signing out ends that login on the server, so a copy of its cookie stops working too; a login stays signed in while used, and ends after 30 days unused
+- Each user's own time zone, time format, and date format, on the account **Security** page
 - Account lockout after 5 failed sign-ins; sign-in attempts rate-limited per address
 - Disabling a user ends their open sessions
 - **Audit Log** - every configuration and device change, filterable, exportable to CSV or JSON

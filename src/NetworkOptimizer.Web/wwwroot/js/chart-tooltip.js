@@ -228,7 +228,7 @@ export function valueSortedTooltip({ series, seriesIndex, dataPointIndex, w }, o
     const timeParts = options.omitSeconds
         ? { month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false }
         : { month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false };
-    const when = ts ? new Date(ts).toLocaleString(undefined, timeParts) : '';
+    const when = ts ? noTime.string(noTime.instantOf(ts, w), timeParts) : '';
     const hidden = syncedCopy ? Math.max(0, rows.length - SYNCED_ROW_CAP) : 0;
     const shown = hidden ? rows.slice(0, SYNCED_ROW_CAP) : rows;
     return (when ? '<div class="apexcharts-tooltip-title" style="font-family:Helvetica, Arial, sans-serif;font-size:12px">' + esc(when) + '</div>' : '')
@@ -298,9 +298,10 @@ function medianDelta(pts) {
     return deltas[deltas.length >> 1];
 }
 
+// x values are chart x (noTime.toChart): every caller draws on a noTime.timeAxisLabels axis.
 export function alignedPoints(pts, sel, timeKey = 'time', gapBridgeMs = 0, interpolateNulls = true) {
     if (!pts?.some(p => sel(p) != null)) return [];
-    const out = pts.map(p => ({ x: new Date(p[timeKey]).getTime(), y: sel(p) ?? null }));
+    const out = pts.map(p => ({ x: noTime.toChart(new Date(p[timeKey]).getTime()), y: sel(p) ?? null }));
     if (gapBridgeMs <= 0) return out;
 
     // The budget must follow the data's own cadence, not a wall-clock constant. The server picks an

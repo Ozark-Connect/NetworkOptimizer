@@ -281,6 +281,22 @@ public class RadioSnapshot
     /// <summary>Channel utilization percentage (0-100)</summary>
     public int? ChannelUtilization { get; set; }
 
+    /// <summary>
+    /// The console's utilization averaged over the last hour of its 5-minute stats, the same
+    /// <c>cu_total</c> counter as <see cref="ChannelUtilization"/>. Null when the console had no rows.
+    /// </summary>
+    public double? HourUtilizationAvg { get; set; }
+
+    /// <summary>The highest 5-minute utilization in that hour.</summary>
+    public double? HourUtilizationPeak { get; set; }
+
+    /// <summary>
+    /// The lowest spectrum-scan utilization among the channels this radio could use (its band,
+    /// width, regulatory set, and DFS preference): the best the site can achieve for it. Null
+    /// without a scan covering its candidates.
+    /// </summary>
+    public int? QuietestChannelUtilization { get; set; }
+
     /// <summary>Interference level (0-100)</summary>
     public int? Interference { get; set; }
 

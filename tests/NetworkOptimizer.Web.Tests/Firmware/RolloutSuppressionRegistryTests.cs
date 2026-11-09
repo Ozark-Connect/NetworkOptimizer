@@ -47,6 +47,22 @@ public class RolloutSuppressionRegistryTests
     }
 
     [Fact]
+    public void AQuietWindow_MutesEveryDevice_NotTheConsole_AndLapses()
+    {
+        var registry = new RolloutSuppressionRegistry();
+        registry.RefreshDevicesQuiet(Site, Now);
+
+        registry.IsInRolloutWindow(Site, Mac, Now.AddMinutes(4)).Should().BeTrue();
+        registry.IsInRolloutWindow(Site, "aa:bb:cc:dd:ee:02", Now).Should().BeTrue();
+        registry.IsInRolloutWindow(Site, null, Now).Should().BeFalse("the console's own alerts still flow");
+        registry.IsInRolloutWindow("other-site", Mac, Now).Should().BeFalse();
+        registry.IsInRolloutWindow(Site, Mac, Now + RolloutSuppressionRegistry.WindowFreshness + TimeSpan.FromSeconds(1)).Should().BeFalse();
+
+        registry.ClearSite(Site);
+        registry.IsInRolloutWindow(Site, Mac, Now).Should().BeTrue("a firmware rollout finishing does not end a zone change's window");
+    }
+
+    [Fact]
     public void TheDefaultSiteIsTheSameWhetherItIsNamedOrEmpty()
     {
         var registry = new RolloutSuppressionRegistry();

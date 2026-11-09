@@ -50,6 +50,78 @@ public class AgentTunnelRegistryTests
     }
 
     [Fact]
+    public async Task WaitForReconnectAsync_TunnelReregistersInsideWindow_ReturnsTrue()
+    {
+        var registry = Registry(tunnelEnabled: true);
+        registry.Unregister(registry.Register(1, "branch-office", "Agent"));
+
+        var wait = registry.WaitForReconnectAsync("branch-office", TimeSpan.FromSeconds(5), CancellationToken.None);
+        await Task.Delay(300);
+        registry.Register(1, "branch-office", "Agent");
+
+        (await wait).Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task WaitForReconnectAsync_NoReconnect_ReturnsFalseWhenWindowEnds()
+    {
+        var registry = Registry(tunnelEnabled: true);
+        registry.Unregister(registry.Register(1, "branch-office", "Agent"));
+
+        (await registry.WaitForReconnectAsync("branch-office", TimeSpan.FromMilliseconds(300), CancellationToken.None))
+            .Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task WaitForReconnectAsync_SiteNeverHadTunnel_ReturnsAtOnce()
+    {
+        var registry = Registry(tunnelEnabled: true);
+        var started = DateTime.UtcNow;
+
+        (await registry.WaitForReconnectAsync("branch-office", TimeSpan.FromSeconds(30), CancellationToken.None))
+            .Should().BeFalse();
+        (DateTime.UtcNow - started).Should().BeLessThan(TimeSpan.FromSeconds(1));
+    }
+
+    [Fact]
+    public async Task WaitForReconnectAsync_DropOlderThanWindow_ReturnsAtOnce()
+    {
+        var registry = Registry(tunnelEnabled: true);
+        registry.Unregister(registry.Register(1, "branch-office", "Agent"));
+        await Task.Delay(250);
+        var started = DateTime.UtcNow;
+
+        (await registry.WaitForReconnectAsync("branch-office", TimeSpan.FromMilliseconds(100), CancellationToken.None))
+            .Should().BeFalse();
+        (DateTime.UtcNow - started).Should().BeLessThan(TimeSpan.FromSeconds(1));
+    }
+
+    [Fact]
+    public async Task WaitForReconnectAsync_StaleTunnelReaped_ReturnsAtOnce()
+    {
+        var registry = Registry(tunnelEnabled: true);
+        var connection = registry.Register(1, "branch-office", "Agent");
+        connection.LastMessageAt = DateTime.UtcNow - AgentTunnelConnection.StaleThreshold - TimeSpan.FromSeconds(1);
+        registry.Unregister(connection);
+        var started = DateTime.UtcNow;
+
+        (await registry.WaitForReconnectAsync("branch-office", TimeSpan.FromSeconds(30), CancellationToken.None))
+            .Should().BeFalse();
+        (DateTime.UtcNow - started).Should().BeLessThan(TimeSpan.FromSeconds(1));
+    }
+
+    [Fact]
+    public async Task WaitForReconnectAsync_SiteStillHasATunnel_ReturnsTrue()
+    {
+        var registry = Registry(tunnelEnabled: true);
+        registry.Register(1, "branch-office", "Agent 1");
+        registry.Unregister(registry.Register(2, "branch-office", "Agent 2"));
+
+        (await registry.WaitForReconnectAsync("branch-office", TimeSpan.FromSeconds(5), CancellationToken.None))
+            .Should().BeTrue();
+    }
+
+    [Fact]
     public void IsAgentLive_TunnelDisabled_HeartbeatFresh_IsLive()
     {
         // No tunnel listener at all (single-box / legacy deployment): REST

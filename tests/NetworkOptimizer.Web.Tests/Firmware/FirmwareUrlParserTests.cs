@@ -127,6 +127,18 @@ public class FirmwareUrlParserTests
         command.Should().EndWith("apt-get install -y /tmp/netopt-network/*.deb; rc=$?; rm -rf /tmp/netopt-network; echo \"NETOPT_EXIT $rc\"; exit $rc");
     }
 
+    [Fact]
+    public void DetachedLaunch_BackgroundsOnlyNohup()
+    {
+        var command = FirmwareCommandClient.DetachedLaunchCommand("ZWNobyBoaQ==", "/tmp/netopt-network.sh", "/tmp/netopt-network.log");
+
+        // "write && nohup ... &" backgrounds the whole list, which holds the SSH session open until the install ends.
+        command.Should().Be(
+            "echo ZWNobyBoaQ== | base64 -d > /tmp/netopt-network.sh || exit 1; "
+            + "nohup sh /tmp/netopt-network.sh > /tmp/netopt-network.log 2>&1 < /dev/null & echo started");
+        command.Should().NotContain("&& nohup");
+    }
+
     [Theory]
     [InlineData("Reading package lists...\n unifi-native : Depends: unifi-matter-controller (= 0.0.9) but it is not installable\nNETOPT_EXIT 100\n", 100)]
     [InlineData("Unpacking unifi-native (11.0.81-37038-1)...\nNETOPT_EXIT 0\n", 0)]

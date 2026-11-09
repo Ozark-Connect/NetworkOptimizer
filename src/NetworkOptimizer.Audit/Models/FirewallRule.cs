@@ -183,6 +183,15 @@ public class FirewallRule
     /// </summary>
     public string? IcmpTypename { get; init; }
 
+    /// <summary>
+    /// The schedule mode (ALWAYS, or a timed mode such as CUSTOM); null when the rule carries none, which UniFi treats as
+    /// always. A timed rule matches only part of the time.
+    /// </summary>
+    public string? ScheduleMode { get; init; }
+
+    /// <summary>Whether the rule applies at all times: no schedule, or ALWAYS.</summary>
+    public bool IsAlwaysOn => string.IsNullOrEmpty(ScheduleMode) || ScheduleMode.Equals("ALWAYS", StringComparison.OrdinalIgnoreCase);
+
     // === Zone and Match Opposite Flags for Accurate Overlap Detection ===
 
     /// <summary>
@@ -429,5 +438,61 @@ public class FirewallRule
 
         // Legacy fallback
         return string.Equals(Source, network.Id, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// Returns true if the rule's source includes one address: ANY, a listed network (the address's own, when it is in
+    /// one), or an address entry covering it (one address, a range, or a CIDR), each with Match Opposite. Unlike
+    /// <see cref="AppliesToSourceNetwork(NetworkInfo)"/>, a rule naming that one host applies. Client sources are not
+    /// judged by address, so they return false.
+    /// </summary>
+    /// <param name="networkId">The network the address is in, or null for none.</param>
+    /// <param name="address">The source address.</param>
+    public bool AppliesToSourceAddress(string? networkId, string address)
+    {
+        if (string.IsNullOrEmpty(SourceMatchingTarget) || SourceMatchingTarget.Equals("ANY", StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        if (SourceMatchingTarget.Equals("NETWORK", StringComparison.OrdinalIgnoreCase))
+        {
+            var listed = networkId != null && (SourceNetworkIds ?? []).Contains(networkId, StringComparer.OrdinalIgnoreCase);
+            return listed != SourceMatchOppositeNetworks;
+        }
+
+        if (SourceMatchingTarget.Equals("IP", StringComparison.OrdinalIgnoreCase))
+        {
+            var listed = (SourceIps ?? []).Any(entry => NetworkUtilities.IsIpInEntry(address, entry));
+            return listed != SourceMatchOppositeIps;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Returns true if the rule's destination includes an address: ANY, a listed network (the address's own,
+    /// when it is in one), or an address entry covering it (one address, a range, or a CIDR, groups already
+    /// flattened by the parser), each with Match Opposite. Web, app, and region destinations are not judged
+    /// by address, so they return false.
+    /// </summary>
+    /// <param name="networkId">The network the address is in, or null for none (an internet address).</param>
+    /// <param name="address">The destination address.</param>
+    public bool AppliesToDestination(string? networkId, string address)
+    {
+        if (string.IsNullOrEmpty(DestinationMatchingTarget) || DestinationMatchingTarget.Equals("ANY", StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        if (DestinationMatchingTarget.Equals("NETWORK", StringComparison.OrdinalIgnoreCase))
+        {
+            var listed = networkId != null && (DestinationNetworkIds ?? []).Contains(networkId, StringComparer.OrdinalIgnoreCase);
+            return listed != DestinationMatchOppositeNetworks;
+        }
+
+        if (DestinationMatchingTarget.Equals("IP", StringComparison.OrdinalIgnoreCase))
+        {
+            var listed = (DestinationIps ?? []).Any(entry => NetworkUtilities.IsIpInEntry(address, entry));
+            return listed != DestinationMatchOppositeIps;
+        }
+
+        return false;
     }
 }

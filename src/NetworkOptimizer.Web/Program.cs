@@ -1,3 +1,5 @@
+using NetworkOptimizer.Web.Services.ChangeControl;
+using NetworkOptimizer.Web.Services.Monitoring.IspHealth;
 using ApexCharts;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Mvc.ViewFeatures;
@@ -272,6 +274,11 @@ builder.Services.AddScoped<IScopeBadgeText, InstanceScopeBadgeText>();
 // Registered twice so pages can subscribe to the same instance the circuit calls.
 builder.Services.AddScoped<CircuitReconnectNotifier>();
 builder.Services.AddScoped<Microsoft.AspNetCore.Components.Server.Circuits.CircuitHandler>(sp => sp.GetRequiredService<CircuitReconnectNotifier>());
+// The viewer's clock. The preference source is the seam a host decorates to add a layer between
+// the user's own choice and the install default.
+builder.Services.AddScoped<ITimeZonePreferenceSource, TimeZonePreferenceSource>();
+builder.Services.AddScoped<IDisplayTimeZone, DisplayTimeZone>();
+builder.Services.AddScoped<Microsoft.AspNetCore.Components.Server.Circuits.CircuitHandler, DisplayTimeZoneCircuitHandler>();
 
 // In-app search. Not a mutating service: it holds no state and returns only navigation metadata
 // compiled into the app. Each provider filters its own entries against the caller, so adding an
@@ -280,11 +287,18 @@ builder.Services.AddScoped<NetworkOptimizer.Web.Services.Search.IAppSearchServic
     NetworkOptimizer.Web.Services.Search.AppSearchService>();
 builder.Services.AddScoped<NetworkOptimizer.Web.Services.Search.IAppSearchProvider,
     NetworkOptimizer.Web.Services.Search.SettingsSearchProvider>();
+builder.Services.AddScoped<NetworkOptimizer.Web.Services.Search.IAppSearchProvider,
+    NetworkOptimizer.Web.Services.Search.AccountSearchProvider>();
 // The alert pipeline pins its scope to an event's originating site through this seam.
 builder.Services.AddScoped<NetworkOptimizer.Alerts.Interfaces.IAlertSiteScope>(sp =>
     sp.GetRequiredService<SiteContextService>());
 // Resolves a site's display name so delivered alerts name their originating site.
 builder.Services.AddSingleton<NetworkOptimizer.Alerts.Interfaces.IAlertSiteNameResolver, AlertSiteNameResolver>();
+// Each site's console zone, cached: the site layer of both the viewer's clock and the notification clock.
+builder.Services.AddSingleton<ISiteTimeZones, SiteTimeZones>();
+// The clock for text written with no viewer (alerts, digests, stored reports). A host decorates it
+// to put its own zone first.
+builder.Services.AddSingleton<NetworkOptimizer.Alerts.Interfaces.INotificationTimeZoneResolver, NotificationTimeZoneResolver>();
 builder.Services.AddSingleton<AgentEnrollmentService>();
 // Which of a site's agents hosts the LAN speed test - one pick shared by the client target, the
 // Settings hint, and path analysis.
@@ -414,6 +428,7 @@ builder.Services.AddSingleton<IOntProvider, TelekomModem2OntProvider>();
 builder.Services.AddSingleton<IOntProvider, NokiaXs010xOntProvider>();
 builder.Services.AddSingleton<IOntProvider, ZyxelGponSfpOntProvider>();
 builder.Services.AddSingleton<IOntProvider, RicherlinkOntProvider>();
+builder.Services.AddSingleton<IOntProvider, PeterPonOntProvider>();
 builder.Services.AddSingleton<IOntProvider, NetOptCustomPonOntProvider>();
 
 // Starlink terminal monitoring is per site through ModemMonitorRegistry, which
@@ -754,6 +769,8 @@ builder.Services.AddScoped(sp => sp.GetRequiredService<NetworkOptimizer.Web.Serv
 // Scoped - forwards to the current site's Influx client and database.
 builder.Services.AddScoped<NetworkOptimizer.Web.Services.Monitoring.FlakyTargetService>();
 builder.Services.AddScoped<NetworkOptimizer.Web.Services.Monitoring.MonitoringPathView>();
+// One WAN-to-counter resolution for the WAN live chart and Device Stats' WAN Throughput.
+builder.Services.AddScoped<NetworkOptimizer.Web.Services.Monitoring.WanCounterInterfaces>();
 // Transient: every live-tile surface keeps its own selection state and re-render callback.
 builder.Services.AddTransient<NetworkOptimizer.Web.Services.Monitoring.LiveWanScope>();
 // Per-user teaching hints that retire once seen (UiHintKeys).
@@ -775,6 +792,8 @@ builder.Services.AddSingleton<NetworkOptimizer.Web.Services.Monitoring.WanOutage
 builder.Services.AddSiteScopedRegistry<NetworkOptimizer.Web.Services.Monitoring.UpstreamTracerRegistry>();
 builder.Services.AddScoped(sp => sp.GetRequiredService<NetworkOptimizer.Web.Services.Monitoring.UpstreamTracerRegistry>()
     .GetFor(sp.GetRequiredService<SiteContextService>().Slug));
+// Holds discovery off a WAN that is down, saturated, or lossy (automatic runs wait, manual runs warn).
+builder.Services.AddSingleton<NetworkOptimizer.Web.Services.Monitoring.UpstreamDiscoveryGate>();
 // Path Localization: per-site watchers fed by both latency write paths, traceroutes from the
 // measuring vantage while an Internet/Custom target is degraded and the rest of the WAN is clean.
 builder.Services.AddSiteScopedRegistry<NetworkOptimizer.Web.Services.Monitoring.PathLocalization.PathEpisodeRegistry>();
@@ -786,6 +805,8 @@ builder.Services.AddMutatingService<IInfluxDbProvisioningService, InfluxDbProvis
 // to finish alone: adding their own site's buckets to a shared connection that already exists.
 builder.Services.AddMutatingService<ISiteInfluxProvisioningService>(
     sp => ActivatorUtilities.CreateInstance<InfluxDbProvisioningService>(sp));
+// AP Telemetry's silent bucket step; it calls the gated service above, so the gate still decides.
+builder.Services.AddScoped<SiteInfluxBucketSetup>();
 // Probe-execution layer: the server-side LocalProbeExecutor is the default vantage. SSH
 // vantages (gateway/switch/AP) are constructed per-device via SshProbeExecutor later.
 builder.Services.AddSingleton<NetworkOptimizer.Monitoring.Probes.LocalProbeExecutor>();
@@ -838,6 +859,11 @@ builder.Services.AddMutatingService<NetworkOptimizer.Web.Services.Firmware.IFirm
         sp.GetRequiredService<NetworkOptimizer.Web.Services.Firmware.FirmwareRolloutRegistry>().GetFor(slug),
         ActivatorUtilities.CreateInstance<NetworkOptimizer.Web.Services.Firmware.FirmwareCommandClient>(sp, slug));
 });
+// Change Control: config snapshots, change detection, plans. One engine per site.
+builder.Services.AddChangeControl();
+builder.Services.AddMutatingService<IChangeControlService, ChangeControlService>();
+builder.Services.AddMutatingService<IConfigTemplateService, ConfigTemplateService>();
+builder.Services.AddMutatingService<IChangeControlFleetService, ChangeControlFleetService>();
 // Re-runs upstream tracer discovery every 7 days; flips a review flag on diff.
 builder.Services.AddHostedService<NetworkOptimizer.Web.Services.Monitoring.UpstreamRediscoveryService>();
 // 3D LAN flow map (spec 5.7) - composes topology + live + historic feeds for the JS layer.
@@ -905,6 +931,7 @@ builder.Services.AddMutatingService<IMonitoringInterfaceDeploymentService, Monit
 builder.Services.AddMutatingService<IMonitoringTargetService, MonitoringTargetService>();
 builder.Services.AddMutatingService<IMonitoringSettingsService, MonitoringSettingsService>();
 builder.Services.AddMutatingService<IErrorCounterWindowService, ErrorCounterWindowService>();
+builder.Services.AddMutatingService<ISignalSparklineService, SignalSparklineService>();
 builder.Services.AddMutatingService<IUpstreamDiscoveryService, UpstreamDiscoveryService>();
 
 // Register WiFi Optimizer rules and engine
@@ -998,6 +1025,7 @@ builder.Services.AddScoped<NetworkOptimizer.Storage.Interfaces.IWiFiInsightRepos
         sp.GetRequiredService<SiteContextService>().Slug,
         sp.GetRequiredService<SiteContextService>().IsDefault));
 builder.Services.AddMutatingService<IWiFiIssueAcknowledgmentService, WiFiIssueAcknowledgmentService>();
+builder.Services.AddMutatingService<IIspFindingAcknowledgmentService, IspFindingAcknowledgmentService>();
 builder.Services.AddMutatingService<IWiFiRadioKeepService, WiFiRadioKeepService>();
 builder.Services.AddSingleton<ChannelPlanApplyRunner>();
 builder.Services.AddMutatingService<IChannelPlanApplyService, ChannelPlanApplyService>();
@@ -1426,6 +1454,10 @@ app.Services.GetRequiredService<NetworkOptimizer.Storage.Services.ICredentialPro
 // Initialize GeoLite2 enrichment (looks for .mmdb files in data directory)
 var geoDataPath = Path.GetDirectoryName(dbPath)!;
 app.Services.GetRequiredService<NetworkOptimizer.Threats.Enrichment.GeoEnrichmentService>().Initialize(geoDataPath);
+
+// Created before any console connects, so it reads each site's time zone as its connection comes up,
+// and loaded with the zones read before the restart, so no schedule starts on the server's clock.
+await app.Services.GetRequiredService<ISiteTimeZones>().LoadRememberedAsync();
 
 // Register schedule executor delegates (bridges Alerts project to Web project services)
 app.RegisterScheduleExecutors();

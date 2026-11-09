@@ -32,6 +32,7 @@ message AgentMessage {
     GatewayBlocklistHits gateway_blocklist_hits = 16;
     WanFloodStatus wan_flood_status = 17;
     WanFloodIncident wan_flood_incident = 18;
+    ConfigRevertReport config_revert_report = 19;
   }
   // Monotonic per-agent sequence for store-and-forward acking. Set on
   // probe_results / snmp_results / aggregated conntrack_samples / wan_flood_incident frames only
@@ -62,7 +63,59 @@ message ServerMessage {
     UciCaptureConfig uci_capture_config = 14;
     GatewayBlocklistSet gateway_blocklist = 15;
     WanFloodConfig wan_flood_config = 16;
+    ConfigRevertArm config_revert_arm = 17;
+    ConfigRevertConfirm config_revert_confirm = 18;
   }
+}
+
+// ---- Change Control: agent-side revert (capability "config-revert") ----
+// Before a config apply on an agent site the server hands the agent the calls that undo it and
+// a deadline, and re-arms with the created object IDs once the apply has run. The server confirms
+// (or cancels) when its own watch decides. Past the deadline with the tunnel down, the agent checks
+// locally and reverts only if a check fails; when all pass it holds, since the fault is upstream.
+// The console API key rides only this message and lives in agent memory for the window.
+message ConfigRevertArm {
+  int64 plan_id = 1;
+  int64 deadline_unix_ms = 2;
+  string api_key = 3;
+  bool ignore_tls_errors = 4;
+  repeated ConfigRevertCall calls = 5;
+  // Absolute console URLs the local checks read (stat/health, stat/device).
+  string health_url = 6;
+  string devices_url = 7;
+  repeated string watch_device_macs = 8;
+  bool watch_internet = 9;
+  // A username/password console connection instead of api_key: the agent signs in once per
+  // window (login_url, then the X-Csrf-Token header) and keeps the session in memory only.
+  string login_url = 10;
+  string username = 11;
+  string password = 12;
+}
+
+message ConfigRevertCall {
+  // Op key; a create's new ID substitutes for "@ref:<key>" in later calls.
+  string key = 1;
+  string method = 2;
+  string url = 3;
+  string body = 4;
+  bool capture_id = 5;
+}
+
+message ConfigRevertConfirm {
+  int64 plan_id = 1;
+  // True when the server reverted the plan itself or no longer needs the agent's copy.
+  bool cancelled = 2;
+  // True when this only acknowledges a report the agent sent.
+  bool report_received = 3;
+}
+
+message ConfigRevertReport {
+  int64 plan_id = 1;
+  string state = 2; // armed | held | reverted | revert_failed | expired
+  string detail = 3;
+  int32 calls_ok = 4;
+  int32 calls_failed = 5;
+  int64 at_unix_ms = 6;
 }
 
 // ---- Gateway conntrack accounting (per-client WAN from the source) ----

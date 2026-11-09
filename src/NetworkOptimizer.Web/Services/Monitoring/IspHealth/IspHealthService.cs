@@ -70,6 +70,7 @@ public class IspHealthService
     private readonly AgentProbeResultSink? _probeSink;
     /// <summary>Tells a gateway-resident agent from one on the LAN. Null in tests.</summary>
     private readonly AgentOnGatewayDetector? _onGatewayDetector;
+    private readonly ISiteTimeZones? _siteZones;
 
     public IspHealthService(
         MonitoringInfluxRegistry influxRegistry,
@@ -82,8 +83,10 @@ public class IspHealthService
         AgentProbeResultSink? probeSink = null,
         AgentOnGatewayDetector? onGatewayDetector = null,
         string siteSlug = SiteManagementService.DefaultSiteSlug,
-        string? wanInterface = null)
+        string? wanInterface = null,
+        ISiteTimeZones? siteZones = null)
     {
+        _siteZones = siteZones;
         _tunnelRegistry = tunnelRegistry;
         _probeSink = probeSink;
         _onGatewayDetector = onGatewayDetector;
@@ -1643,16 +1646,20 @@ public class IspHealthService
         }
     }
 
-    /// <summary>Whether a path shift explains a stored episode (<see cref="PathLocalization.PathShiftMatch"/>).</summary>
+    /// <summary>Whether a path shift explains a stored episode, or the episode is a step on its own
+    /// (<see cref="PathLocalization.PathShiftMatch"/>).</summary>
     internal static bool ExplainedByShift(PathEpisode e, IReadOnlyDictionary<int, string> targetIdById,
         IReadOnlyList<PathShiftEvent> pathShifts, IspHealthOptions options)
     {
         var degraded = e.Targets.Where(t => t.Role == PathEpisodeTargetRole.Degraded).ToList();
         if (degraded.Any(t => !targetIdById.ContainsKey(t.MonitoringTargetId))) return false;
         var levels = degraded
-            .Select(t => new PathLocalization.EpisodeTargetLevels(targetIdById[t.MonitoringTargetId], t.BaselineRttMs, t.PeakRttMs, t.PeakLossPct))
+            .Select(t => new PathLocalization.EpisodeTargetLevels(targetIdById[t.MonitoringTargetId], t.BaselineRttMs, t.PeakRttMs, t.PeakLossPct,
+                t.BaselineJitterMs, t.JitterP95Ms))
             .ToList();
-        return PathLocalization.PathShiftMatch.Explaining(PathLocalization.PathEpisodeTraceMapping.Utc(e.OpenedAt), levels, pathShifts, options) != null;
+        var until = e.ClosedAt is DateTime c ? PathLocalization.PathEpisodeTraceMapping.Utc(c) : DateTime.UtcNow;
+        return PathLocalization.PathShiftMatch.Explaining(PathLocalization.PathEpisodeTraceMapping.Utc(e.OpenedAt), levels, pathShifts, options,
+            until, e.ConcurrentCongestion) != null;
     }
 
     /// <summary>
@@ -2121,6 +2128,57 @@ public class IspHealthService
     /// Investigate loss highlight can average the very pool the score is graded on instead of a
     /// per-type approximation, and the two can never drift.
     /// </summary>
+    /// <summary>
+    /// The WAN this instance scores ("wan", "wan2": MonitoringTarget.WanInterface's namespace), resolved as
+    /// the compute does: configured primary first, the name-ordered guess only offline.
+    /// </summary>
+    public async Task<string> GetScoredWanKeyAsync(CancellationToken ct = default)
+    {
+        if (_scopedWanKey != null) return _scopedWanKey;
+        await using var db = await CreateSiteDbAsync(ct);
+        var contexts = await db.WanDiscoveryContexts.AsNoTracking().ToListAsync(ct);
+        return ReconcileScoredKey(await ResolveConfiguredPrimaryWanKeyAsync(ct) ?? ResolvePrimaryWanKey(contexts), contexts);
+    }
+
+    /// <summary>
+    /// The scored WAN's access-technology profile, chosen as the compute chooses it; the neutral Other
+    /// profile when the technology was never set, so callers always have thresholds.
+    /// </summary>
+    public async Task<AccessProfile> GetAccessProfileAsync(CancellationToken ct = default)
+    {
+        var key = await GetScoredWanKeyAsync(ct);
+        await using var db = await CreateSiteDbAsync(ct);
+        var settings = await db.MonitoringSettings.AsNoTracking().FirstOrDefaultAsync(ct);
+        var contexts = await db.WanDiscoveryContexts.AsNoTracking().ToListAsync(ct);
+        var scored = contexts.FirstOrDefault(c => string.Equals(GatewayWanHelper.WanInterfaceKeyFromKey(c.WanInterface ?? ""),
+            GatewayWanHelper.WanInterfaceKeyFromKey(key), StringComparison.OrdinalIgnoreCase));
+        var technology = scored?.AccessTechnology is { } t && t != AccessTechnology.Unknown
+            ? t
+            : _scopedWanKey == null ? settings?.AccessTechnology ?? AccessTechnology.Unknown : AccessTechnology.Unknown;
+        return IspHealthProfiles.GetProfile(technology) ?? IspHealthProfiles.GetProfile(AccessTechnology.Other)!;
+    }
+
+    /// <summary>
+    /// The Influx wan-tag scope this instance's latency reads use (the configured primary for the
+    /// primary instance), resolved exactly as the compute does, so other readers of the same series
+    /// see only this WAN's points. Null when no WAN context exists (nothing is tagged to filter apart).
+    /// </summary>
+    public async Task<MonitoringInfluxClient.LatencyWanScope?> GetLatencyWanScopeAsync(CancellationToken ct = default)
+    {
+        await using var db = await CreateSiteDbAsync(ct);
+        var bindingContexts = await db.WanContexts.AsNoTracking().ToListAsync(ct);
+        var primaryScope = _scopedWanKey == null;
+        if (primaryScope && bindingContexts.Count == 0) return null;
+        var scoredKey = _scopedWanKey;
+        if (scoredKey == null)
+        {
+            var contexts = await db.WanDiscoveryContexts.AsNoTracking().ToListAsync(ct);
+            scoredKey = ReconcileScoredKey(
+                await ResolveConfiguredPrimaryWanKeyAsync(ct) ?? ResolvePrimaryWanKey(contexts), contexts);
+        }
+        return BuildWanScope(bindingContexts, scoredKey, primaryScope);
+    }
+
     public async Task<List<string>> GetLossPoolTargetIdsAsync(CancellationToken ct = default)
     {
         await using var db = await CreateSiteDbAsync(ct);
@@ -2152,6 +2210,24 @@ public class IspHealthService
             .Select(t => t.TargetId)
             .Where(id => !excluded.Contains(id))
             .ToList();
+    }
+
+    /// <summary>
+    /// Loss across this WAN's loss pool over a span, percent: each pool target's mean, then the median
+    /// across targets, as Site Health reads the pool. Null when no pool target reported, which a caller
+    /// must read as "could not tell", never as clean.
+    /// </summary>
+    public async Task<double?> GetPoolLossPercentAsync(DateTime from, DateTime to, CancellationToken ct = default)
+    {
+        var ids = await GetLossPoolTargetIdsAsync(ct);
+        if (ids.Count == 0 || to <= from) return null;
+        var scope = await GetLatencyWanScopeAsync(ct);
+        var rows = await _influx.QueryTargetLatencyMeansAsync(from, to, ids, null, to - from, scope, ct);
+        var perTarget = rows.Where(r => r.LossPercent != null)
+            .GroupBy(r => r.TargetId)
+            .Select(g => g.Average(r => r.LossPercent!.Value))
+            .ToList();
+        return SeriesStats.Median(perTarget);
     }
 
     /// <summary>Which WAN the report scored, as the console names it. Display only.</summary>
@@ -2565,10 +2641,10 @@ public class IspHealthService
             .ToList();
         if (sqmConfigs.Count == 0) return new List<(DateTime, DateTime)>();
 
-        // Schedule hours are in the gateway's local time (crontab timezone). The app runs
-        // on the same network, so server local time matches. Convert to UTC for comparison
-        // with the ISP Health window (all UTC).
-        var localZone = TimeZoneInfo.Local;
+        // Schedule hours are in the gateway's local time (crontab timezone), which is the site's
+        // zone; the server's can differ (a container left on its default TZ). Convert to UTC for
+        // comparison with the ISP Health window (all UTC).
+        var localZone = _siteZones?.Cached(_siteSlug) ?? TimeZoneInfo.Local;
         var exclusions = new List<(DateTime Start, DateTime End)>();
         foreach (var config in sqmConfigs)
         {

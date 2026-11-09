@@ -152,7 +152,8 @@ public sealed class PathEpisodeService : IPathEpisodeService
             var name = mt == null ? "Removed target" : string.IsNullOrEmpty(mt.Name) ? mt.Address : mt.Name;
             return new PathEpisodeTargetView(t.MonitoringTargetId, mt?.TargetId ?? "", name, t.Role,
                 t.BaselineRttMs, t.PeakRttMs, t.BaselineLossPct, t.PeakLossPct, t.BottleneckLabel,
-                mt == null ? MonitoringLinks.CustomCategory : MonitoringLinks.CategoryFor(mt.TargetType));
+                mt == null ? MonitoringLinks.CustomCategory : MonitoringLinks.CategoryFor(mt.TargetType),
+                t.BaselineJitterMs, t.JitterP95Ms, mt?.AsnNumber, mt?.TargetType == MonitoringTargetType.InternetService);
         }
 
         return new PathEpisodeView
@@ -171,6 +172,7 @@ public sealed class PathEpisodeService : IPathEpisodeService
             Label = e.BottleneckLabel,
             Summary = e.Summary,
             ReturnFinding = e.ReturnPathFinding,
+            ConcurrentCongestion = e.ConcurrentCongestion,
             Degraded = e.Targets.Where(t => t.Role == PathEpisodeTargetRole.Degraded).Select(Target).ToList(),
             Controls = e.Targets.Where(t => t.Role == PathEpisodeTargetRole.Control).Select(Target).ToList()
         };

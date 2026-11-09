@@ -1,0 +1,84 @@
+using FluentAssertions;
+using NetworkOptimizer.Web.Services.ChangeControl;
+using Xunit;
+
+namespace NetworkOptimizer.Web.Tests.ChangeControl;
+
+public class PolicyOrderMovesTests
+{
+    [Fact]
+    public void OneRuleDraggedUp_IsOneMove_WithItsNeighbors()
+    {
+        List<string> before = ["A", "B", "C", "D", "E", "F"];
+        List<string> after = ["A", "B", "F", "C", "D", "E"];
+
+        var move = PolicyOrderMoves.Compute(before, after).Should().ContainSingle().Subject;
+
+        move.Name.Should().Be("F");
+        move.From.Should().Be(6);
+        move.To.Should().Be(3);
+        move.Before.Select(n => n.Name).Should().Equal("D", "E", "F", "end of list");
+        move.Before.Single(n => n.IsSubject).Position.Should().Be(6);
+        move.After.Select(n => n.Name).Should().Equal("A", "B", "F", "C", "D");
+        move.After.Single(n => n.IsSubject).Position.Should().Be(3);
+    }
+
+    [Fact]
+    public void SwappingTwoNeighbors_IsOneMove()
+    {
+        PolicyOrderMoves.Compute(["A", "B", "C"], ["B", "A", "C"]).Should().ContainSingle();
+    }
+
+    [Fact]
+    public void CreatedAndDeletedRules_AreNotMoves()
+    {
+        PolicyOrderMoves.Compute(["A", "B", "C"], ["A", "X", "C"]).Should().BeEmpty();
+    }
+
+    [Fact]
+    public void DuplicateNames_MatchByPosition()
+    {
+        var move = PolicyOrderMoves.Compute(["Allow", "B", "Allow", "C"], ["Allow", "B", "C", "Allow"]).Should().ContainSingle().Subject;
+
+        move.From.Should().Be(3);
+        move.To.Should().Be(4);
+    }
+
+    [Fact]
+    public void UnchangedOrder_HasNoMoves()
+    {
+        PolicyOrderMoves.Compute(["A", "B"], ["A", "B"]).Should().BeEmpty();
+    }
+    [Fact]
+    public void ComputeWithAdded_ListsANewPolicyWhereItLands_AndMovesByNewPosition()
+    {
+        var changes = PolicyOrderMoves.ComputeWithAdded(["A", "B", "C", "D", "E"], ["E", "A", "B", "X", "C", "D"]);
+
+        changes.Select(m => (m.Name, m.From, m.To)).Should().Equal(("E", 5, 1), ("X", 0, 4));
+        var added = changes[1];
+        added.Before.Should().BeEmpty();
+        added.After.Select(n => n.Name).Should().Equal("A", "B", "X", "C", "D");
+        added.After.Single(n => n.IsSubject).Position.Should().Be(4);
+    }
+
+    [Fact]
+    public void ComputeWithAdded_IsComputeWhenNothingIsAdded()
+    {
+        List<string> before = ["A", "B", "C"];
+        List<string> after = ["B", "A", "C"];
+
+        PolicyOrderMoves.ComputeWithAdded(before, after).Should().BeEquivalentTo(PolicyOrderMoves.Compute(before, after));
+    }
+
+    [Fact]
+    public void Named_RenamesEveryRowButTheEndMarker()
+    {
+        var move = PolicyOrderMoves.Compute(["a", "b"], ["b", "a"]).Single();
+
+        var named = PolicyOrderMoves.Named(move, id => id.ToUpperInvariant());
+
+        named.Name.Should().Be(move.Name.ToUpperInvariant());
+        named.Before.Concat(named.After).Where(n => !n.IsEnd).Should().OnlyContain(n => n.Name == "A" || n.Name == "B");
+        named.Before.Concat(named.After).Where(n => n.IsEnd).Should().OnlyContain(n => n.Name == "end of list");
+    }
+}

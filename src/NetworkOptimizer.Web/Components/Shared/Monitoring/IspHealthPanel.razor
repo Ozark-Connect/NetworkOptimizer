@@ -16,9 +16,11 @@
 @inject NetworkOptimizer.Web.Services.SiteContextService SiteContext
 @inject Microsoft.AspNetCore.Authorization.IAuthorizationService Authz
 @inject NetworkOptimizer.Web.Services.Monitoring.PathLocalization.IPathEpisodeService PathEpisodes
+@inject IIspFindingAcknowledgmentService FindingAcks
 @inject ILogger<IspHealthPanel> Logger
 @using NetworkOptimizer.Web.Services.Authorization
 @using Microsoft.AspNetCore.Components.Authorization
+@inject IDisplayTimeZone DisplayTime
 
 @* Date/time filter (left) + Refresh. The live/cached view (the effective auto-computed window, which
    auto-fallback may have reduced below the configured target) is the only state where Refresh is
@@ -329,7 +331,7 @@ else
                 <IspHealthScoreGauge Score="r.OverallScore" Label="ISP Health" />
                 <div class="isp-health-profile-chip isp-health-profile-chip-selectable"
                      data-tooltip="@(_canOperate ? "Thresholds are tuned per access technology; change it to re-score." : "Thresholds are tuned per access technology. A Site Operator or Admin can change it.")" data-tooltip-hover-only>
-                    Scored as @r.Profile.DisplayName@PppoeSuffix(r) &middot; @ScoredWindowLabel(r)
+                    Scored as @r.Profile.DisplayName@PppoeSuffix(r) &middot; @ScoredWindowLabel(r, DisplayTime.Zone, DisplayTime.Format)
                     <span class="isp-profile-chip-caret"></span>
                     <select class="isp-profile-chip-select" aria-label="Access technology" disabled="@(!_canOperate)"
                             value="@((int)r.AccessTechnology)" @onchange="OnAccessTechnologyChanged">
@@ -376,7 +378,7 @@ else
             </a>
             <div class="isp-health-hero-side">
                 <div class="isp-health-uptime" data-tour="isp-uptime"
-                     data-tooltip="Share of the window the internet was reachable. Excludes your own LAN drops and &quot;that was me&quot; events."
+                     data-tooltip='Share of the window the internet was reachable. Excludes your own LAN drops and "that was me" events.'
                      data-tooltip-click data-tooltip-wide>
                     <div class="isp-uptime-label">Uptime</div>
                     <div class="isp-uptime-value">@FormatUptime(r)</div>
@@ -399,15 +401,34 @@ else
 
     // Path Localization's findings ride after the report's own: evidence for the same events,
     // read from the episode store rather than the scorer.
-    var findings = r.Issues.Concat(EpisodeFindings).ToList();
-    @if (findings.Count > 0)
+    var allFindings = r.Issues.Concat(EpisodeFindings).ToList();
+    var ackedFindings = allFindings.Where(IsAcknowledged).ToList();
+    var findings = _findingsTab == "acknowledged" ? ackedFindings : allFindings.Where(f => !IsAcknowledged(f)).ToList();
+    @if (allFindings.Count > 0)
     {
         <div class="card isp-health-card">
-            <div class="card-header"><h2 class="card-title">Findings</h2></div>
+            <div class="card-header isp-findings-header">
+                <h2 class="card-title">Findings</h2>
+                @if (ackedFindings.Count > 0 || _findingsTab == "acknowledged")
+                {
+                    <div class="filter-tabs">
+                        <button class="tab @(_findingsTab == "active" ? "active" : "")" @onclick='() => _findingsTab = "active"'>Active (@(allFindings.Count - ackedFindings.Count))</button>
+                        <button class="tab tab-muted @(_findingsTab == "acknowledged" ? "active" : "")" @onclick='() => _findingsTab = "acknowledged"'>Acknowledged (@ackedFindings.Count)</button>
+                    </div>
+                }
+            </div>
             <div class="card-body">
+                @if (_findingsTab == "acknowledged")
+                {
+                    <p class="acknowledged-note">Acknowledged findings stay in ISP Health's score. They are hidden here, not fixed.</p>
+                }
+                @if (findings.Count == 0)
+                {
+                    <p class="acknowledged-note">@(_findingsTab == "acknowledged" ? "Nothing acknowledged." : "No active findings.")</p>
+                }
                 @foreach (var issue in findings)
                 {
-                    <div class="issue-item @IssueClass(issue.Severity)">
+                    <div class="issue-item @IssueClass(issue.Severity) @(IsAcknowledged(issue) ? "issue-dismissed" : "") @(issue.AckKey != null ? "has-action" : "")">
                         <div class="issue-content">
                             <span class="issue-severity">@issue.Severity</span>
                             <div class="issue-title"><TextWithCode Text="@issue.Title" /></div>
@@ -458,13 +479,28 @@ else
                                                 <a class="isp-outage-ack @AckLockClass" href="javascript:void(0)"
                                                    data-tooltip="Exclude this event from ISP Health scoring"
                                                    data-tooltip-hover-only
-                                                   @onclick="() => AcknowledgeOutageAsync(start)">that was me@(issue.OutageStarts.Count > 1 ? $" ({EventTimeLabel(start)})" : "")</a>
+                                                   @onclick="() => AcknowledgeOutageAsync(start)">that was me@(issue.OutageStarts.Count > 1 ? $" ({EventTimeLabel(start, DisplayTime.Zone, DisplayTime.Format)})" : "")</a>
                                             }
                                         }
                                     </div>
                                 </SiteOperatorOnly>
                             }
                         </div>
+                        @if (issue.AckKey is { } ackKey)
+                        {
+                            <SiteAdminOnly>
+                                @if (IsAcknowledged(issue))
+                                {
+                                    <button class="btn btn-sm btn-ghost issue-action isp-finding-action" disabled="@_findingAckBusy"
+                                            @onclick="() => SetFindingAcknowledgedAsync(ackKey, false)" data-tooltip="Restore this finding">Restore</button>
+                                }
+                                else
+                                {
+                                    <button class="btn btn-sm btn-ghost issue-action isp-finding-action" disabled="@_findingAckBusy"
+                                            @onclick="() => SetFindingAcknowledgedAsync(ackKey, true)" data-tooltip="Hide this finding - still scored">Acknowledge</button>
+                                }
+                            </SiteAdminOnly>
+                        }
                     </div>
                 }
             </div>
@@ -665,7 +701,7 @@ else
                                     <div class="isp-factor-label">
                                         <div class="isp-factor-name-row">
                                             <a class="isp-factor-name isp-factor-link" href="javascript:void(0)" @onclick="ScrollToEventsAsync"
-                                               data-tooltip="See the episodes in Path &amp; Congestion Events" data-tooltip-hover-only>Path Congestion</a>
+                                               data-tooltip="See the episodes in Path & Congestion Events" data-tooltip-hover-only>Path Congestion</a>
                                         </div>
                                         <span class="isp-factor-value">@r.PathCongestion.Count @(r.PathCongestion.Count == 1 ? "episode" : "episodes")</span>
                                     </div>
@@ -790,14 +826,14 @@ else
         <div class="card isp-health-card" id="isp-outages">
             <div class="card-header"><h2 class="card-title">@OutageSectionTitle(r) (@WindowLabel(r))</h2></div>
             <div class="card-body">
-                <div class="isp-outage-list">
+                <div class="isp-outage-list@(DisplayTime.Format.Clock == ClockStyle.TwelveHour ? " isp-outage-h12" : "")">
                     @foreach (var outage in r.Outages)
                     {
                         <div class="isp-outage">
                             <div class="isp-outage-head">
                                 <span class="isp-event-badge @OutageBadgeClass(outage)" data-tooltip="@OutageScoreTooltip(outage)">@OutageBadgeText(outage)</span>
                                 <span class="isp-outage-duration">@FormatDuration(outage.Duration)</span>
-                                <span class="isp-outage-window">@outage.Start.ToLocalTime().ToString("MMM d, HH:mm:ss") &ndash; @outage.End.ToLocalTime().ToString("HH:mm:ss")</span>
+                                <span class="isp-outage-window">@outage.Start.ToLocalTime(DisplayTime).ToString(DisplayTime.Format.DayTimeSeconds, DisplayFormat.Culture) &ndash; @outage.End.ToLocalTime(DisplayTime).ToString(DisplayTime.Format.TimeSeconds, DisplayFormat.Culture)</span>
                                 <span class="isp-outage-scope" data-tooltip="@OutageScoreTooltip(outage)">@OutageScopeLabel(outage)</span>
                                 @if (outage.IsPartial)
                                 {
@@ -839,7 +875,7 @@ else
                                             <div class="isp-outage-hop-track">
                                                 <div class="isp-outage-hop-dark" style="width: @(OutageHopDarkPercent(outage, tier).ToString("0.#", System.Globalization.CultureInfo.InvariantCulture))%"></div>
                                             </div>
-                                            <span class="isp-outage-hop-status @(tier.WentDark ? "" : "isp-outage-hop-up")">@OutageHopStatus(tier)</span>
+                                            <span class="isp-outage-hop-status @(tier.WentDark ? "" : "isp-outage-hop-up")">@OutageHopStatus(tier, DisplayTime.Zone, DisplayTime.Format)</span>
                                         </div>;
                                 }
                                 else
@@ -917,12 +953,19 @@ else
                 <button class="time-btn evt-congestion @(_visibleEventCats.Contains(EventCategory.Congestion) ? "active" : "")" @onclick="e => ToggleEventFilterAsync(EventCategory.Congestion, e)">Congestion</button>
                 <button class="time-btn evt-shift @(_visibleEventCats.Contains(EventCategory.Shift) ? "active" : "")" @onclick="e => ToggleEventFilterAsync(EventCategory.Shift, e)">Path shifts</button>
                 <button class="time-btn evt-change @(_visibleEventCats.Contains(EventCategory.Change) ? "active" : "")" @onclick="e => ToggleEventFilterAsync(EventCategory.Change, e)">Path changes</button>
+                @if (AckedEpisodeIds.Count > 0 || _visibleEventCats.Contains(EventCategory.Acknowledged))
+                {
+                    <button class="time-btn evt-ack @(_visibleEventCats.Contains(EventCategory.Acknowledged) ? "active" : "")" @onclick="e => ToggleEventFilterAsync(EventCategory.Acknowledged, e)"
+                            data-tooltip="Episodes of acknowledged findings" data-tooltip-hover-only><span class="evt-label-long">Acknowledged</span><span class="evt-label-short">Ack'd</span></button>
+                }
             </div>
         </div>
         <div class="card-body">
             @{
+                var ackedEpisodes = AckedEpisodeIds;
                 var allEvents = EventTimeline(r, _shiftFold.TraceByShift)
-                    .Concat(_episodeEntries)
+                    .Concat(_episodeEntries.Select(e => e.EpisodeId is int id && ackedEpisodes.Contains(id)
+                        ? e with { Category = EventCategory.Acknowledged } : e))
                     .OrderBy(e => e.Time)
                     .Where(InZoomWindow).Where(InVisibleSeries).ToList();
                 var timeline = allEvents.Where(CategoryVisible).ToList();
@@ -945,7 +988,7 @@ else
                            beneath it. The badge and its tooltip stay in the key for the reason above. *@
                         <div class="isp-event-item" id="@(entry.EpisodeId is int rowEpisode ? $"isp-episode-{rowEpisode}" : null)" @key="@(entry.EpisodeId is int eid ? (object)(eid, entry.Badge, entry.BadgeTooltip) : (entry, i))">
                             <span class="isp-event-badge @entry.BadgeClass" data-tooltip="@entry.BadgeTooltip">@entry.Badge</span>
-                            <span class="isp-event-time">@EventTimeLabel(entry.Time)</span>
+                            <span class="isp-event-time">@EventTimeLabel(entry.Time, DisplayTime.Zone, DisplayTime.Format)</span>
                             <span class="isp-event-text">
                                 <TextWithCode Text="@entry.Text" />
                                 @if (entry.Members is { Count: > 0 })
@@ -977,6 +1020,23 @@ else
                                     @if (episodeOpen)
                                     {
                                         <PathEpisodeHopTable @key="episodeId" EpisodeId="episodeId" UpdatedAt="@(_episodes.FirstOrDefault(e => e.Id == episodeId)?.UpdatedAt ?? default)" WanKey="@_selectedWanKey" />
+                                        @if (TraceAckKey(episodeId) is { } traceAck)
+                                        {
+                                            <SiteAdminOnly>
+                                                <div class="isp-trace-actions">
+                                                    @if (_findingAcks.Contains(traceAck))
+                                                    {
+                                                        <button class="btn btn-sm btn-ghost issue-action" disabled="@_findingAckBusy"
+                                                                @onclick="() => SetFindingAcknowledgedAsync(traceAck, false)" data-tooltip="Restore its recurring finding">Restore</button>
+                                                    }
+                                                    else
+                                                    {
+                                                        <button class="btn btn-sm btn-ghost issue-action" disabled="@_findingAckBusy"
+                                                                @onclick="() => SetFindingAcknowledgedAsync(traceAck, true)" data-tooltip="Hide its recurring finding - still scored">Acknowledge</button>
+                                                    }
+                                                </div>
+                                            </SiteAdminOnly>
+                                        }
                                     }
                                 }
                             </span>
@@ -1106,8 +1166,65 @@ else
     private NetworkOptimizer.Web.Services.Monitoring.PathLocalization.PathEpisodeBanner? _episodeBanner;
     private bool _episodeBannerDismissed = true;
 
+    // Acknowledged findings (Site Admin): hidden from Active, listed under Acknowledged, still scored.
+    private HashSet<string> _findingAcks = new(StringComparer.Ordinal);
+    private string _findingsTab = "active";
+    private bool _findingAckBusy;
+
+    private bool IsAcknowledged(IspHealthIssue issue) => issue.AckKey is { } key && _findingAcks.Contains(key);
+
+    /// <summary>Episodes filed under Acknowledged in the events feed (and on the chart, by the endpoint).</summary>
+    private HashSet<int> AckedEpisodeIds =>
+        NetworkOptimizer.Web.Services.Monitoring.PathLocalization.PathEpisodePresentation.AcknowledgedEpisodeIds(
+            _shiftFold.Unexplained(_episodes, e => e.Id).ToList(), EpisodeOptions,
+            NetworkOptimizer.Web.Services.Monitoring.PathLocalization.PathEpisodePresentation.PointsById(_report), _findingAcks);
+
+    /// <summary>The acknowledgeable recurring finding a traced episode belongs to, or null.</summary>
+    private string? TraceAckKey(int episodeId)
+    {
+        var episode = _episodes.FirstOrDefault(e => e.Id == episodeId);
+        if (episode == null || NetworkOptimizer.Web.Services.Monitoring.PathLocalization.PathEpisodePresentation.AckKeyFor(episode) is not { } key)
+            return null;
+        return EpisodeFindings.Any(f => f.AckKey == key) ? key : null;
+    }
+
+    private async Task SetFindingAcknowledgedAsync(string ackKey, bool acknowledged)
+    {
+        _findingAckBusy = true;
+        try
+        {
+            if (acknowledged) await FindingAcks.AcknowledgeAsync(ackKey);
+            else await FindingAcks.RestoreAsync(ackKey);
+            if (acknowledged) _findingAcks.Add(ackKey);
+            else _findingAcks.Remove(ackKey);
+            await LoadEpisodeBannerAsync();
+            // The chart's bands come from the endpoint, so it refetches to move them under Acknowledged.
+            if (_chartMounted)
+            {
+                try { await JS.InvokeVoidAsync("eval", "window.__ispHealthCharts?.reload?.();"); }
+                catch { /* chart not mounted yet */ }
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Could not {Action} an ISP Health finding", acknowledged ? "acknowledge" : "restore");
+        }
+        finally
+        {
+            _findingAckBusy = false;
+        }
+    }
+
     private async Task LoadEpisodeBannerAsync()
     {
+        try
+        {
+            _findingAcks = await FindingAcks.GetAcknowledgedKeysAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogDebug(ex, "Could not load acknowledged ISP Health findings");
+        }
         try
         {
             var now = DateTime.UtcNow;
@@ -1115,8 +1232,15 @@ else
                 now - NetworkOptimizer.Web.Services.Monitoring.PathLocalization.PathEpisodePresentation.BannerHold,
                 now, _selectedWanKey, _wanSvc == null);
             var fold = NetworkOptimizer.Web.Services.Monitoring.PathLocalization.PathEpisodePresentation.FoldIntoShifts(recent, _report, EpisodeOptions);
+            var unexplained = fold.Unexplained(recent, e => e.Id).ToList();
+            // An acknowledged recurring finding's episodes do not announce themselves either.
+            var points = NetworkOptimizer.Web.Services.Monitoring.PathLocalization.PathEpisodePresentation.PointsById(_report);
+            // The report window's episodes too: the acknowledged finding's own episodes may be older than the banner's day.
+            var ackedTargets = NetworkOptimizer.Web.Services.Monitoring.PathLocalization.PathEpisodePresentation
+                .AcknowledgedTargetSets(recent.Concat(_episodes), _findingAcks);
             var banner = NetworkOptimizer.Web.Services.Monitoring.PathLocalization.PathEpisodePresentation.Banner(
-                fold.Unexplained(recent, e => e.Id).ToList(), now);
+                unexplained.Where(e => !NetworkOptimizer.Web.Services.Monitoring.PathLocalization.PathEpisodePresentation
+                    .IsAcknowledgedEpisode(e, _findingAcks, points, ackedTargets)).ToList(), now, DisplayTime.Zone, DisplayTime.Format);
             // A failed read keeps it hidden, like the plan-speed hint.
             var dismissed = banner == null || await Dismissals.IsDismissedAsync(banner.DismissKey(SiteContext.Slug));
             _episodeBanner = banner;
@@ -1170,7 +1294,7 @@ else
 
     private IEnumerable<IspHealthIssue> EpisodeFindings =>
         NetworkOptimizer.Web.Services.Monitoring.PathLocalization.PathEpisodePresentation.Findings(
-            _shiftFold.Unexplained(_episodes, e => e.Id).ToList(), EpisodeOptions,
+            _shiftFold.Unexplained(_episodes, e => e.Id).ToList(), EpisodeOptions, DisplayTime.Zone, DisplayTime.Format,
             NetworkOptimizer.Web.Services.Monitoring.PathLocalization.PathEpisodePresentation.PointsById(_report));
 
     private async Task LoadEpisodesAsync()
@@ -1260,8 +1384,9 @@ else
     // Last report the absolved-jitter tooltips were refreshed against; a new report means their
     // data-tooltip changed and the cached Tippy content needs rebuilding.
     private IspHealthReport? _lastTooltipReport;
-    private DateTime _customFrom = DateTime.Now.AddDays(-2);
-    private DateTime _customTo = DateTime.Now;
+    // Seeded from the active window each time the popover opens.
+    private DateTime _customFrom;
+    private DateTime _customTo;
 
     private bool IsLiveWindow => !_isCustom && _followLive;
 
@@ -2144,8 +2269,8 @@ else
         if (_showCustomPopover)
         {
             // Seed both pickers from the active window so they reflect the current filter.
-            _customTo = (_windowEnd ?? DateTime.UtcNow).ToLocalTime();
-            _customFrom = (_windowStart ?? DateTime.UtcNow.AddHours(-LiveWindowHours)).ToLocalTime();
+            _customTo = (_windowEnd ?? DateTime.UtcNow).ToLocalTime(DisplayTime);
+            _customFrom = (_windowStart ?? DateTime.UtcNow.AddHours(-LiveWindowHours)).ToLocalTime(DisplayTime);
         }
     }
 
@@ -2170,8 +2295,8 @@ else
     {
         _showCustomPopover = false;
         // datetime-local binds local wall-clock (Kind=Unspecified); treat it as local -> UTC.
-        var startUtc = _customFrom.ToUniversalTime();
-        var endUtc = _customTo.ToUniversalTime();
+        var startUtc = DisplayTime.ToUtc(_customFrom);
+        var endUtc = DisplayTime.ToUtc(_customTo);
         // A start after the end is a typo, not a request for nothing. Collapsing it onto the end
         // lets the minimum-window rule below open it back up, so the user gets the shortest real
         // window instead of a popover that closes and leaves the previous one on screen with no
@@ -2263,7 +2388,7 @@ else
 
     private string EventsWindowLabel(IspHealthReport r) =>
         IsZoomed
-            ? $"zoomed: {_zoomFrom!.Value.ToLocalTime():MMM d, HH:mm} to {_zoomTo!.Value.ToLocalTime():MMM d, HH:mm}"
+            ? $"zoomed: {_zoomFrom!.Value.ToLocalTime(DisplayTime).ToString(DisplayTime.Format.DayTime, DisplayFormat.Culture)} to {_zoomTo!.Value.ToLocalTime(DisplayTime).ToString(DisplayTime.Format.DayTime, DisplayFormat.Culture)}"
             : WindowLabel(r);
 
     private bool CategoryVisible(TimelineEntry e) => _visibleEventCats.Contains(e.Category);
@@ -2276,6 +2401,7 @@ else
         if (!_visibleEventCats.Contains(EventCategory.Congestion)) hidden.Add("'congestion'");
         if (!_visibleEventCats.Contains(EventCategory.Shift)) hidden.Add("'path-shift'");
         if (!_visibleEventCats.Contains(EventCategory.Change)) hidden.Add("'unreachable'");
+        if (!_visibleEventCats.Contains(EventCategory.Acknowledged)) hidden.Add("'acknowledged'");
         return "[" + string.Join(",", hidden) + "]";
     }
 
@@ -2289,17 +2415,29 @@ else
 
     private async Task ToggleEventFilterAsync(EventCategory cat, MouseEventArgs e)
     {
-        if (e.CtrlKey || e.MetaKey)
+        // Acknowledged is an on/off switch beside the category pills, never part of their
+        // solo/restore: it only shows or hides the episodes of acknowledged findings.
+        var showAcknowledged = _visibleEventCats.Contains(EventCategory.Acknowledged);
+        if (cat == EventCategory.Acknowledged)
+            showAcknowledged = !showAcknowledged;
+        else
         {
-            if (!_visibleEventCats.Remove(cat))
-                _visibleEventCats.Add(cat);
+            var cats = _visibleEventCats.Where(c => c != EventCategory.Acknowledged).ToHashSet();
+            if (e.CtrlKey || e.MetaKey)
+            {
+                if (!cats.Remove(cat))
+                    cats.Add(cat);
+            }
+            else if (cats.Count == AllEventCategories.Length)
+                cats = new HashSet<EventCategory> { cat };
+            else if (cats.Count == 1 && cats.Contains(cat))
+                cats = new HashSet<EventCategory>(AllEventCategories);
+            else if (!cats.Remove(cat))
+                cats.Add(cat);
+            _visibleEventCats = cats;
         }
-        else if (_visibleEventCats.Count == AllEventCategories.Length)
-            _visibleEventCats = new HashSet<EventCategory> { cat };
-        else if (_visibleEventCats.Count == 1 && _visibleEventCats.Contains(cat))
-            _visibleEventCats = new HashSet<EventCategory>(AllEventCategories);
-        else if (!_visibleEventCats.Remove(cat))
-            _visibleEventCats.Add(cat);
+        if (showAcknowledged) _visibleEventCats.Add(EventCategory.Acknowledged);
+        else _visibleEventCats.Remove(EventCategory.Acknowledged);
 
         if (_chartMounted)
         {

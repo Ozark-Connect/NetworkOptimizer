@@ -47,6 +47,7 @@ public class AgentTunnelService : AgentTunnel.AgentTunnelBase
     private readonly CableModemProviders.Uci.UciInformService _uciInforms;
     private readonly GatewayAgentBlocklist _gatewayBlocklist;
     private readonly WanFlood.WanFloodService _wanFlood;
+    private readonly ChangeControl.ChangeControlRegistry? _changeControl;
     private readonly Licensing.LicenseStateService _licenseState;
     private readonly ILogger<AgentTunnelService> _logger;
 
@@ -63,8 +64,10 @@ public class AgentTunnelService : AgentTunnel.AgentTunnelBase
         GatewayAgentBlocklist gatewayBlocklist,
         WanFlood.WanFloodService wanFlood,
         Licensing.LicenseStateService licenseState,
-        ILogger<AgentTunnelService> logger)
+        ILogger<AgentTunnelService> logger,
+        ChangeControl.ChangeControlRegistry? changeControl = null)
     {
+        _changeControl = changeControl;
         _gatewayBlocklist = gatewayBlocklist;
         _wanFlood = wanFlood;
         _enrollment = enrollment;
@@ -255,6 +258,10 @@ public class AgentTunnelService : AgentTunnel.AgentTunnelBase
                         break;
                     case AgentMessage.PayloadOneofCase.WanFloodStatus:
                         _wanFlood.OnStatus(connection, message.WanFloodStatus);
+                        break;
+                    case AgentMessage.PayloadOneofCase.ConfigRevertReport:
+                        if (_changeControl != null)
+                            await _changeControl.PlansFor(siteSlug).OnAgentReportAsync(agent.Id, message.ConfigRevertReport, ct);
                         break;
                     case AgentMessage.PayloadOneofCase.WanFloodIncident:
                         // Store-and-forward like the result batches: acked once persisted, replayed otherwise.

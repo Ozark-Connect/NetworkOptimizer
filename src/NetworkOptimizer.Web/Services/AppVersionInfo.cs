@@ -35,7 +35,7 @@ public static class AppVersionInfo
     /// Internet capture) reaches the sites that want it without nagging the rest.
     /// Never lower than <see cref="RequiredAgentVersion"/>.
     /// </summary>
-    public const string LatestAgentVersion = "2.10.7";
+    public const string LatestAgentVersion = "2.11.0-preview19";
 
     /// <summary>
     /// The newest netopt-waf release (NetworkOptimizer-Proxy, waf/VERSION). Bumped MANUALLY when a
@@ -61,7 +61,8 @@ public static class AppVersionInfo
     /// --release; null leaves them on their default, the latest stable release. Set only for a
     /// prerelease build: GitHub's "latest" skips prereleases, so a preview server would otherwise
     /// hand out a stable agent. A stable server is the latest release (or older, where the latest
-    /// agent is still right), and a source build has no release to pin to.
+    /// agent is still right). A 0.0.0 source build or a height build has no release of its own, so it
+    /// pins to <see cref="LatestAgentVersion"/> only when that is a prerelease (a release/X.Y line).
     /// </summary>
     public static string? AgentReleaseTag { get; }
 
@@ -72,13 +73,13 @@ public static class AppVersionInfo
         Informational = info ?? "";
         var baseVersion = info is not null ? Regex.Match(info, @"^\d+\.\d+\.\d+").Value : "";
         ReleaseVersion = baseVersion.Length > 0 && !baseVersion.StartsWith("0.0.0") ? baseVersion : null;
-        AgentReleaseTag = PrereleaseTagOf(info);
+        AgentReleaseTag = PrereleaseTagOf(info) ?? SourceBuildTagOf(info, LatestAgentVersion);
     }
 
     /// <summary>
-    /// An agent version as the UI names it: in full on a preview install ("2.9.0-preview8"), where
-    /// that is the build the upgrade installs, and as X.Y.Z on a stable one ("2.9.0"), where the
-    /// preview it last changed in is not a release the reader would recognise.
+    /// An agent version as the UI names it: in full on a server that pins a prerelease agent
+    /// ("2.9.0-preview8"), where that is the build the upgrade installs, and as X.Y.Z otherwise
+    /// ("2.9.0"), where the preview it last changed in is not a release the reader would recognise.
     /// </summary>
     public static string AgentVersionForDisplay(string version) => AgentVersionForDisplay(version, AgentReleaseTag != null);
 
@@ -97,4 +98,19 @@ public static class AppVersionInfo
         var match = Regex.Match(informational ?? "", @"^(\d+\.\d+\.\d+-[0-9A-Za-z]+)(\+.*)?$");
         return match.Success && !match.Groups[1].Value.StartsWith("0.0.0") ? "v" + match.Groups[1].Value : null;
     }
+
+    /// <summary>
+    /// For a build with no release of its own: the tag of <paramref name="latestAgentVersion"/> when it
+    /// is a prerelease, so a server built from release/X.Y offers that line's agent. Null otherwise.
+    /// That is a 0.0.0 build (no tags in reach) or a height build, commits past a tag with a dotted
+    /// prerelease ("2.11.0-preview3.12"). Without the height case, a native build from a full clone
+    /// installs the stable agent while the banner compares against the preview, so it never clears.
+    /// </summary>
+    internal static string? SourceBuildTagOf(string? informational, string latestAgentVersion) =>
+        informational?.StartsWith("0.0.0") == true || IsHeightBuild(informational)
+            ? PrereleaseTagOf(latestAgentVersion)
+            : null;
+
+    private static bool IsHeightBuild(string? informational) =>
+        Regex.IsMatch(informational ?? "", @"^\d+\.\d+\.\d+-[0-9A-Za-z]+(\.[0-9A-Za-z]+)+(\+.*)?$");
 }

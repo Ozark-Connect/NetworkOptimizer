@@ -2,12 +2,14 @@
 @using NetworkOptimizer.Monitoring.Models
 @inject ICableModemService CmService
 @inject IErrorCounterWindowService ErrorWindow
+@inject ISignalSparklineService SparkService
 @inject NetworkOptimizer.Storage.Services.SiteDbContextFactory SiteDb
 @inject SiteContextService SiteCtx
 @inject IEnumerable<NetworkOptimizer.Monitoring.Providers.ICableModemProvider> CmProviders
 @using NetworkOptimizer.Web.Services.Monitoring
 @using Microsoft.EntityFrameworkCore
 @implements IDisposable
+@inject IDisplayTimeZone DisplayTime
 
 <div class="cellular-stats-panel">
     @if (_isLoading)
@@ -103,16 +105,22 @@
                 <span class="status-label">@_stats.DeviceName</span>
             </div>
             <div class="tc-timestamp">
-                <small>Updated: @_stats.Timestamp.ToLocalTime().ToString("HH:mm:ss")</small>
+                <small>Updated: @_stats.Timestamp.ToLocalTime(DisplayTime).ToString(DisplayTime.Format.TimeSeconds, DisplayFormat.Culture)</small>
             </div>
         </div>
 
-        <div class="signal-quality-section signal-with-model">
-            <div class="signal-hero">
+        <div class="signal-quality-section signal-with-model signal-spark-host">
+            @if (_stats.DownstreamSnrAvgDb.HasValue)
+            {
+                <SignalSparkline Points="_spark" Current="_stats.DownstreamSnrAvgDb" DomainLow="SnrDomainLow" DomainHigh="SnrDomainHigh"
+                                 Stops="SnrStops" EndClass="@GetSnrClass(_stats.DownstreamSnrAvgDb)" Join="SignalSparkline.SparkJoin.Level"
+                                 TaperFill="@SnrTrack" TaperDown="14px" />
+            }
+            <div class="signal-hero" data-spark-value>
                 @if (_stats.DownstreamSnrAvgDb.HasValue)
                 {
                     var snrPos = SignalGauge.Position(_stats.DownstreamSnrAvgDb.Value, SnrDomainLow, SnrDomainHigh);
-                    <div class="signal-gauge" style="background: @SnrTrack">
+                    <div class="signal-gauge" data-spark-anchor="fill" style="background: @SnrTrack">
                         <div class="gauge-shade" style="height: @($"{100 - snrPos:0.#}")%"></div>
                     </div>
                 }
@@ -134,7 +142,7 @@
             @if (!string.IsNullOrWhiteSpace(_stats.DeviceModel))
             {
                 var model = SplitModel(_stats.DeviceModel, _stats.DeviceName);
-                <div class="cm-model">
+                <div class="cm-model" data-spark-model>
                     <span class="cm-model-name">@model.Name</span>
                     @if (model.Number != null)
                     {
@@ -264,10 +272,12 @@
 
     private async Task LoadStatsAsync()
     {
-        if (_configs.Count == 0) { _stats = null; _errorTotals = null; return; }
+        if (_configs.Count == 0) { _stats = null; _errorTotals = null; _spark = null; return; }
         _stats = await CmService.GetCachedStatsAsync(_configs[_currentIndex].Id);
         try { _errorTotals = _limitErrorsTo24h ? await ErrorWindow.GetCmTotalsAsync(_configs[_currentIndex].Id) : null; }
         catch { _errorTotals = null; }
+        try { _spark = await SparkService.GetCmSnrAsync(_configs[_currentIndex].Id); }
+        catch { _spark = null; }
     }
 
     /// <summary>Whether polling is enabled for the currently shown modem (disabled configs
@@ -300,12 +310,12 @@
 
     private async Task Previous()
     {
-        if (_currentIndex > 0) { _currentIndex--; _errorTotals = null; await LoadStatsAsync(); }
+        if (_currentIndex > 0) { _currentIndex--; _errorTotals = null; _spark = null; await LoadStatsAsync(); }
     }
 
     private async Task Next()
     {
-        if (_currentIndex < _configs.Count - 1) { _currentIndex++; _errorTotals = null; await LoadStatsAsync(); }
+        if (_currentIndex < _configs.Count - 1) { _currentIndex++; _errorTotals = null; _spark = null; await LoadStatsAsync(); }
     }
 
     private static readonly System.Text.RegularExpressions.Regex ModelWithNumber =
@@ -364,6 +374,12 @@
 
     private static readonly string SnrTrack =
         SignalGauge.SnrTrack(SnrDomainLow, SnrDomainHigh, SnrFair, SnrGood, SnrExcellent);
+
+    private static readonly IReadOnlyList<GaugeStop> SnrStops =
+        SignalGauge.SnrStops(SnrDomainLow, SnrDomainHigh, SnrFair, SnrGood, SnrExcellent);
+
+    /// <summary>The last 24 hours of downstream SNR for the shown modem; null draws no sparkline.</summary>
+    private IReadOnlyList<SparkPoint>? _spark;
 
     private string GetSnrClass(double? snr)
     {

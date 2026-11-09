@@ -23,6 +23,13 @@ public class SettingsSearchIndexTests
     };
 
     [Fact]
+    public void The_account_time_zone_entry_lands_on_its_card()
+    {
+        ElementIdsInComponents().Should().Contain(AccountSearchProvider.TimeZone.Anchor!);
+        AccountSearchProvider.TimeZone.Route.Should().Be("/account/security");
+    }
+
+    [Fact]
     public void Every_anchor_exists_in_the_markup()
     {
         var ids = ElementIdsInComponents();
@@ -78,6 +85,8 @@ public class SettingsSearchIndexTests
     [InlineData("cable modem", "cable-modem")]
     [InlineData("starlink", "starlink")]
     [InlineData("guided tours", "guided-tours")]
+    [InlineData("time zone", "time-zone")]
+    [InlineData("timezone", "time-zone")]
     [InlineData("audit log", "auditlog")]
     [InlineData("multi site", "multi-site")]
     [InlineData("licensing", "licensing")]

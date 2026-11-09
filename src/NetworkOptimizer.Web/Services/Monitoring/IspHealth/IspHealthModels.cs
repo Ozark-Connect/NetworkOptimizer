@@ -266,6 +266,13 @@ public class IspHealthIssue
 
     /// <summary>The Path Localization episode behind this finding, so its link opens that episode's hop table.</summary>
     public int? EpisodeId { get; init; }
+
+    /// <summary>
+    /// Set on a finding a Site Admin may acknowledge: identifies it by what it is, so a finding that
+    /// changes character (another target, another reading, a confirmed hop) arrives with a new key and
+    /// shows again. Null for findings that cannot be acknowledged.
+    /// </summary>
+    public string? AckKey { get; init; }
 }
 
 /// <summary>
@@ -382,6 +389,10 @@ public class CongestionEvent
     /// same ASN congesting in the same window, rather than by its own downstream propagation
     /// (used for a dead-end hop whose confirmed sibling proves the network is really degrading).</summary>
     public bool ConfirmedBySibling { get; set; }
+
+    /// <summary>True when this hop rose well above a line-wide load floor and was judged against that
+    /// floor: its downstream rose too, but only by the floor, never literally "clean".</summary>
+    public bool AboveLoadFloor { get; set; }
 
     /// <summary>Localizer confidence 0-100; lowest for <see cref="CongestionDisposition.Unverifiable"/> / <see cref="CongestionScope.Unlocalized"/>.</summary>
     public int Confidence { get; set; } = 50;

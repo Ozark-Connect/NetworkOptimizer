@@ -758,6 +758,7 @@ h1:focus {
 }
 
 .card-title-suffix {
+    margin-left: 0.4rem;
     font-size: 0.8125rem;
     font-weight: 400;
     color: var(--text-muted);
@@ -2105,6 +2106,380 @@ a.stat-card-link:active {
     font-size: 0.75rem;
     color: var(--text-muted);
     overflow-wrap: anywhere;
+}
+
+/* Signal hero sparklines (SignalSparkline.razor). signal-spark.js sets the --spark-* geometry
+   to the hero's gauge or bar stack, and the data-spark-* attributes; at rest the last 24 hours
+   sit faintly behind the text. On hover the model fades, the gauge and its value slide right
+   together, and the chart comes up to full strength on the gauge's own scale, ending level with
+   the gauge's reading. Pointing at the model itself keeps it (and its tooltip) in place. */
+.signal-spark-host {
+    position: relative;
+    isolation: isolate;
+}
+
+/* A halo in the card's own background behind the text: a line crossing the letters breaks up
+   their shapes, which reads as faded text even at full color. --spark-halo is the host's background. */
+.signal-spark-host {
+    --spark-halo: var(--bg-tertiary);
+}
+
+.monitoring-stat-card.signal-spark-host {
+    --spark-halo: var(--bg-card);
+}
+
+/* Muted labels a shade brighter where a chart sits behind them, so the eye still finds them.
+   Context selectors outrank the component style blocks (ClientDashboard-style, loaded after
+   app.css) that set these labels to --text-muted. */
+.signal-spark-host .ont-rx-gauge .rx-power-label,
+.signal-spark-host .signal-quality-text .quality-label,
+.signal-spark-host .cm-model .cm-model-number,
+.monitoring-stat-card.signal-spark-host .stat-label,
+.metric-box.signal-spark-host .metric-row .metric-label,
+.signal-spark-host .signal-spark .signal-spark-span {
+    color: color-mix(in srgb, var(--text-muted) 55%, var(--text-secondary));
+}
+
+.signal-spark-host > :not(.signal-spark) {
+    position: relative;
+    z-index: 1;
+    /* Stacked: one soft shadow is mostly transparent and leaves the line showing through. */
+    text-shadow:
+        0 0 1px var(--spark-halo), 0 0 1px var(--spark-halo), 0 0 2px var(--spark-halo),
+        0 0 2px var(--spark-halo), 0 0 3px var(--spark-halo), 0 0 3px var(--spark-halo),
+        0 0 4px var(--spark-halo), 0 0 6px var(--spark-halo);
+}
+
+.signal-spark,
+.signal-spark-host > .signal-spark-wash {
+    position: absolute;
+    z-index: 0;
+    top: var(--spark-top, 0);
+    left: var(--spark-left, 0);
+    width: var(--spark-width, 0);
+    height: var(--spark-height, 0);
+    pointer-events: none;
+    opacity: 0;
+}
+
+.signal-spark-host > .signal-spark-wash {
+    z-index: 2;
+    text-shadow: none;
+}
+
+[data-spark-ready] > .signal-spark,
+[data-spark-ready] > .signal-spark-wash {
+    opacity: 0.28;
+}
+
+.signal-spark-svg {
+    display: block;
+    width: 100%;
+    height: 100%;
+    overflow: visible;
+}
+
+.signal-spark-line {
+    fill: none;
+    stroke-width: 1.75;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+.signal-spark-area {
+    opacity: 0.32;
+}
+
+.signal-spark-level {
+    position: absolute;
+    left: 0;
+    height: 0;
+    border-top: 1px dashed color-mix(in srgb, var(--text-secondary) 45%, transparent);
+    transform: translateY(-0.5px) scaleX(0);
+    transform-origin: left center;
+    opacity: 0;
+}
+
+/* The held end of the line, thickening into the gauge's lit window, fill, or first bar. Its
+   shape (clip-path) and fill come from SignalSparkline; it covers the line's last stretch. */
+/* right: -2px runs it under the first bar's 2px corner radius; on a gauge the overlap is the
+   gauge's own gradient, so it does not show. It reaches 16px past the chart top and bottom
+   (SparklinePath.TaperPad), since a reading at a scale end thickens past the chart's box; the
+   fill is sized to the chart itself, so a gauge gradient stays on the gauge's scale. */
+.signal-spark-taper {
+    position: absolute;
+    top: -16px;
+    bottom: -16px;
+    right: -2px;
+    background: var(--taper-fill) no-repeat 0 16px / 100% calc(100% - 32px);
+    opacity: 0;
+    transform: scaleY(0.1);
+}
+
+.signal-spark-dot {
+    position: absolute;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: currentColor;
+    box-shadow: 0 0 0 2px var(--bg-tertiary), 0 0 12px currentColor;
+    transform: translate(-50%, -50%) scale(0.4);
+    opacity: 0;
+}
+
+.signal-spark-dot::after {
+    content: "";
+    position: absolute;
+    inset: -5px;
+    border-radius: 50%;
+    border: 1.5px solid currentColor;
+    opacity: 0;
+}
+
+
+/* Square in the box's bottom-left corner: the chart starts on the box's left padding, and
+   --spark-floor is the gap from the chart down to the box's bottom. */
+.signal-spark-span {
+    position: absolute;
+    left: 0;
+    bottom: calc(0.75rem - var(--spark-floor, 0px));
+    font-size: 0.6875rem;
+    font-weight: 600;
+    line-height: 1;
+    color: var(--text-muted);
+    opacity: 0;
+    transform: translateY(3px);
+}
+
+/* The 5G NR / LTE boxes: the chart covers the rows, which step aside on hover for it and a
+   live RSRP readout in the box's top right. */
+.signal-spark-host > .spark-box-readout {
+    position: absolute;
+    top: 0.75rem;
+    right: 0.75rem;
+    display: flex;
+    align-items: baseline;
+    gap: 0.4rem;
+    font-family: monospace;
+    font-size: 0.85rem;
+    font-weight: 600;
+    opacity: 0;
+    transform: translateX(8px);
+    pointer-events: none;
+}
+
+.spark-box-readout-label {
+    font-family: var(--font-sans);
+    font-size: 0.6875rem;
+    font-weight: 600;
+    color: var(--text-muted);
+}
+
+.metric-box .signal-spark-span {
+    display: none;
+}
+
+/* Live View's gateway tiles (StatTileSparkline): the chart takes the lower strip of the tile. On
+   hover the label steps aside and the value lifts clear of the line. */
+.signal-spark-host > .stat-spark-area {
+    position: absolute;
+    left: 0.1rem;
+    right: 0.3rem;
+    bottom: 0.55rem;
+    height: 42%;
+    pointer-events: none;
+}
+
+/* Narrow tiles give the line nearly every pixel: from the left edge, with a hair on the right
+   so the end dot clears the border. */
+@media (max-width: 768px) {
+    .signal-spark-host > .stat-spark-area {
+        left: 0;
+        right: 0.2rem;
+    }
+}
+
+/* On a tile the span caption sits in the tile's upper-left corner, out of the chart strip:
+   --spark-top/--spark-left place the strip within the tile, so subtracting them lands on the tile. */
+.monitoring-stat-card.signal-spark-host .signal-spark-span {
+    top: calc(0.5rem - var(--spark-top, 0px));
+    bottom: auto;
+    left: calc(0.6rem - var(--spark-left, 0px));
+}
+
+@media (hover: hover) and (pointer: fine) {
+    .monitoring-stat-card.signal-spark-host[data-spark-roomy]:hover .stat-label {
+        opacity: 0;
+        transform: translateY(6px);
+    }
+
+    .monitoring-stat-card.signal-spark-host[data-spark-roomy]:hover .stat-value {
+        transform: translateY(-9px);
+    }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+    .monitoring-stat-card.signal-spark-host .stat-label,
+    .monitoring-stat-card.signal-spark-host .stat-value {
+        transition: opacity 0.25s ease, transform 0.45s cubic-bezier(0.22, 1, 0.36, 1);
+    }
+}
+
+@media (hover: hover) and (pointer: fine) {
+    .signal-spark-host[data-spark-roomy]:hover:not(:has([data-spark-model]:hover)) > .signal-spark,
+    .signal-spark-host[data-spark-roomy]:hover:not(:has([data-spark-model]:hover)) > .signal-spark-wash {
+        opacity: 1;
+    }
+
+    .signal-spark-host[data-spark-roomy]:hover:not(:has([data-spark-model]:hover)) [data-spark-value] {
+        transform: translateX(var(--spark-shift, 0));
+    }
+
+    /* Only while the chart is forward does its end thicken into the gauge. */
+    .signal-spark-host[data-spark-roomy]:hover:not(:has([data-spark-model]:hover)) .signal-spark-taper {
+        opacity: 1;
+        transform: none;
+    }
+
+    .signal-spark-host[data-spark-roomy]:hover:not(:has([data-spark-model]:hover)) [data-spark-anchor="root"] {
+        transform: translateY(var(--spark-lift, 0));
+    }
+
+    .signal-spark-host[data-spark-roomy]:hover:not(:has([data-spark-model]:hover)) [data-spark-model] {
+        opacity: 0;
+        transform: translateX(14px) scale(0.96);
+        filter: blur(6px);
+    }
+
+    .signal-spark-host[data-spark-roomy]:hover:not(:has([data-spark-model]:hover)) .signal-spark-svg {
+        filter: drop-shadow(0 0 6px color-mix(in srgb, var(--spark-glow, var(--signal-good)) 45%, transparent));
+    }
+
+    .signal-spark-host[data-spark-roomy]:hover:not(:has([data-spark-model]:hover)) .signal-spark-level {
+        opacity: 1;
+        transform: translateY(-0.5px) scaleX(1);
+    }
+
+    .signal-spark-host[data-spark-roomy]:hover:not(:has([data-spark-model]:hover)) .signal-spark-dot {
+        opacity: 1;
+        transform: translate(-50%, -50%) scale(1);
+    }
+
+    .signal-spark-host[data-spark-roomy]:hover:not(:has([data-spark-model]:hover)) .signal-spark-span {
+        opacity: 1;
+        transform: none;
+    }
+
+    .signal-spark-host[data-spark-roomy]:hover [data-spark-fill] {
+        opacity: 0;
+        transform: translateY(4px);
+        filter: blur(4px);
+    }
+
+    .signal-spark-host[data-spark-roomy]:hover > .spark-box-readout {
+        opacity: 1;
+        transform: none;
+    }
+}
+
+.signal-spark.signal-excellent { --spark-glow: var(--signal-excellent); }
+.signal-spark.signal-good { --spark-glow: var(--signal-good); }
+.signal-spark.signal-fair { --spark-glow: var(--signal-fair); }
+.signal-spark.signal-weak { --spark-glow: var(--signal-weak); }
+.signal-spark.signal-poor { --spark-glow: var(--signal-poor); }
+
+/* Motion only where it is welcome; without it the same states swap in place. */
+@media (prefers-reduced-motion: no-preference) {
+    [data-spark-ready] > .signal-spark,
+    [data-spark-ready] > .signal-spark-wash {
+        transition: opacity 0.45s ease;
+    }
+
+    .signal-spark-host [data-spark-fill] {
+        transition: opacity 0.3s ease, transform 0.45s cubic-bezier(0.22, 1, 0.36, 1), filter 0.3s ease;
+    }
+
+    .signal-spark-host > .spark-box-readout {
+        transition: opacity 0.2s ease, transform 0.2s ease;
+    }
+
+    .signal-spark-host:hover > .spark-box-readout {
+        transition: opacity 0.35s ease 0.15s, transform 0.5s cubic-bezier(0.22, 1, 0.36, 1) 0.15s;
+    }
+
+    [data-spark-ready] .signal-spark-svg {
+        animation: signal-spark-reveal 1.2s cubic-bezier(0.65, 0, 0.35, 1) backwards;
+        transition: filter 0.45s ease;
+    }
+
+    /* Out: the taper collapses first. In: it swells while the gauge slides in (0.62s) and is
+       full before the gauge lands, so the two arrive together. */
+    .signal-spark-taper {
+        transition: opacity 0.15s ease, transform 0.2s ease;
+    }
+
+    .signal-spark-host:hover:not(:has([data-spark-model]:hover)) .signal-spark-taper {
+        transition: opacity 0.15s ease 0.12s, transform 0.4s cubic-bezier(0.22, 1, 0.36, 1) 0.12s;
+    }
+
+    /* Cellular: the bars rise or drop as they slide, landing with their root on the line's end. */
+    .signal-spark-host [data-spark-anchor="root"] {
+        transition: transform 0.62s cubic-bezier(0.22, 1, 0.36, 1);
+    }
+
+    .signal-spark-host [data-spark-value] {
+        transition: transform 0.62s cubic-bezier(0.22, 1, 0.36, 1);
+        will-change: transform;
+    }
+
+    /* Out: the model waits for the value to clear its spot. In: it leaves at once. */
+    .signal-spark-host [data-spark-model] {
+        transition: opacity 0.34s ease 0.18s, transform 0.5s cubic-bezier(0.22, 1, 0.36, 1) 0.14s, filter 0.34s ease 0.18s;
+    }
+
+    .signal-spark-host[data-spark-roomy]:hover:not(:has([data-spark-model]:hover)) [data-spark-model] {
+        transition: opacity 0.2s ease, transform 0.4s cubic-bezier(0.22, 1, 0.36, 1), filter 0.2s ease;
+    }
+
+    .signal-spark-level {
+        transition: transform 0.2s ease, opacity 0.2s ease;
+    }
+
+    .signal-spark-host:hover:not(:has([data-spark-model]:hover)) .signal-spark-level {
+        transition: transform 0.8s cubic-bezier(0.22, 1, 0.36, 1) 0.12s, opacity 0.3s ease 0.12s;
+    }
+
+    .signal-spark-dot {
+        transition: transform 0.3s ease, opacity 0.2s ease;
+    }
+
+    .signal-spark-host:hover:not(:has([data-spark-model]:hover)) .signal-spark-dot {
+        transition: transform 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) 0.42s, opacity 0.25s ease 0.42s;
+    }
+
+    .signal-spark-host[data-spark-roomy]:hover:not(:has([data-spark-model]:hover)) .signal-spark-dot::after {
+        animation: signal-spark-ping 2s cubic-bezier(0, 0, 0.2, 1) 0.9s infinite;
+    }
+
+    .signal-spark-span {
+        transition: opacity 0.2s ease, transform 0.2s ease;
+    }
+
+    .signal-spark-host:hover:not(:has([data-spark-model]:hover)) .signal-spark-span {
+        transition: opacity 0.35s ease 0.3s, transform 0.45s cubic-bezier(0.22, 1, 0.36, 1) 0.3s;
+    }
+}
+
+/* Overdrawn vertically so the stroke and glow at the box edges are never cut mid-reveal;
+   the fill mode is backwards, so no clip is left on the chart once it has drawn. */
+@keyframes signal-spark-reveal {
+    from { clip-path: inset(-50% 100% -50% -10%); }
+    to { clip-path: inset(-50% -10% -50% -10%); }
+}
+
+@keyframes signal-spark-ping {
+    0% { transform: scale(0.5); opacity: 0.7; }
+    75%, 100% { transform: scale(1.9); opacity: 0; }
 }
 
 /* Channel Spectrum (CM Stats): the latest poll's channels by frequency. Axis and grid colors
@@ -3946,6 +4321,15 @@ select.form-control {
     opacity: 1;
 }
 
+/* Only the first action pushes right; the ones after it sit beside it. */
+.issue-action + .issue-action {
+    margin-left: 0;
+}
+
+.issue-action.btn-primary {
+    opacity: 1;
+}
+
 .issue-settings-icon {
     width: 20px;
     height: 20px;
@@ -3999,6 +4383,14 @@ select.form-control {
 
 .issue-recommendation strong {
     color: var(--text-primary);
+}
+
+.issue-recommendation a.issue-action-link,
+.issue-type-recommendation a.issue-action-link {
+    display: flex;
+    width: fit-content;
+    margin-top: 0.5rem;
+    text-decoration: none;
 }
 
 .issue-investigate {
@@ -4721,6 +5113,10 @@ select.form-control {
     .issue-context {
         grid-column: 1 / -1;
         grid-row: 4;
+    }
+
+    .issue-fix-error {
+        grid-column: 1 / -1;
     }
 
     .issue-recommendation {
@@ -5604,6 +6000,12 @@ tr:hover .snmp-row-chevron {
     padding: 2rem;
     color: var(--text-secondary);
     min-height: 150px;
+}
+
+.loading-container {
+    text-align: center;
+    padding: 3rem 1rem;
+    color: var(--text-secondary);
 }
 
 /* Empty State */
@@ -12284,6 +12686,27 @@ a.path-hop.hop-clickable:hover {
     border-radius: var(--border-radius);
 }
 
+/* Change Control: the site gateway's provisioning state, at the right of the tab row. */
+.cc-gateway-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    margin-left: auto;
+    padding: 0 0.5rem;
+    color: var(--text-secondary);
+    font-size: 0.85rem;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+.cc-gateway-status.is-provisioning {
+    color: var(--warning-color);
+}
+
+.cc-gateway-status.is-done {
+    color: var(--success-color);
+}
+
 @media (max-width: 768px) {
     .wifi-view-tabs-wrapper {
         margin-bottom: 0.75rem;
@@ -18911,7 +19334,46 @@ tr.stats-row-filtered {
     margin-bottom: 0.375rem;
 }
 
+.isp-findings-header {
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
+
+/* Under an episode's hop table: the same Acknowledge as its recurring finding, bottom right. */
+.isp-trace-actions {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: 0.5rem;
+}
+
+.isp-trace-actions .issue-action {
+    margin-left: 0;
+}
+
+/* Pinned in the corner beside the severity badge, so the text keeps the card's full width. */
+@media (min-width: 769px) {
+    .isp-health-card .issue-item.has-action {
+        position: relative;
+    }
+
+    .isp-health-card .issue-item.has-action .issue-title {
+        padding-right: 7.5rem;
+    }
+
+    .isp-health-card .isp-finding-action {
+        position: absolute;
+        top: 0.75rem;
+        right: 0.75rem;
+    }
+}
+
 @media (max-width: 768px) {
+    /* Its own row under the finding: beside the title it would squeeze the title into a sliver. */
+    .isp-health-card .isp-finding-action {
+        grid-column: 1 / -1;
+        justify-self: end;
+    }
+
     .isp-health-card .issue-severity {
         grid-column: 1;
         grid-row: 1;
@@ -19747,6 +20209,38 @@ a.isp-health-hero-speed:hover {
     background: rgba(167, 139, 250, 0.15);
 }
 
+.isp-event-filter .time-btn.active.evt-ack {
+    color: var(--text-primary);
+    background: rgba(160, 160, 168, 0.22);
+}
+
+/* A tap leaves :hover stuck on a phone, which made an off pill look selected. */
+@media (hover: none) {
+    .isp-event-filter .time-btn:not(.active):hover {
+        color: var(--text-secondary);
+        background: transparent;
+    }
+}
+
+/* Four pills share a phone's width: none breaks onto two lines, and Acknowledged shortens. */
+.isp-event-filter .time-btn {
+    white-space: nowrap;
+}
+
+.isp-event-filter .evt-label-short {
+    display: none;
+}
+
+@media (max-width: 768px) {
+    .isp-event-filter .evt-label-long {
+        display: none;
+    }
+
+    .isp-event-filter .evt-label-short {
+        display: inline;
+    }
+}
+
 .isp-event-time {
     font-size: 0.78rem;
     font-weight: 600;
@@ -20059,6 +20553,13 @@ a.isp-outage-ack:hover {
     grid-template-columns: minmax(0, 8rem) 1fr minmax(0, 7rem);
     align-items: center;
     gap: 0.6rem;
+}
+
+/* 12-hour clocks need room for "back @ 12:59:59 PM". Desktop only: mobile stacks the row. */
+@media (min-width: 769px) {
+    .isp-outage-h12 .isp-outage-hop {
+        grid-template-columns: minmax(0, 8rem) 1fr minmax(0, 9rem);
+    }
 }
 
 .isp-outage-hop-name {
@@ -20845,6 +21346,19 @@ body.kiosk-mode .status-indicators {
     margin-right: auto;
 }
 
+.site-card-health {
+    display: flex;
+    align-items: baseline;
+    gap: 0.4rem;
+    font-size: 0.8125rem;
+    color: var(--text-secondary);
+}
+
+.site-card-health > span:first-child {
+    font-size: 1.1rem;
+    font-weight: 600;
+}
+
 .site-card-footer {
     display: flex;
     margin-top: 0.75rem;
@@ -20877,6 +21391,387 @@ body.kiosk-mode .status-indicators {
 .sites-overview-card {
     padding: 1rem 1.25rem;
     margin-bottom: 1.5rem;
+}
+
+/* Dashboard Sites panel (Site Health, worst first) */
+.sites-health-panel {
+    padding: 0;
+    margin-bottom: 1.5rem;
+    overflow: hidden;
+}
+
+.shp-header {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.5rem 1rem;
+    padding: 0.75rem 1.25rem;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.shp-title {
+    margin: 0;
+    font-size: 1rem;
+    font-weight: 600;
+}
+
+.shp-inline-avg {
+    font-size: 0.8125rem;
+    color: var(--text-secondary);
+}
+
+.shp-inline-avg b {
+    font-size: 1.25rem;
+    font-weight: 700;
+    margin-right: 0.25rem;
+}
+
+.shp-spacer {
+    flex: 1;
+}
+
+.shp-switcher {
+    font-size: 0.8125rem;
+}
+
+.shp-summary {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1rem;
+    padding: 1rem 1.25rem;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.shp-avg {
+    min-width: 200px;
+    padding-right: 1rem;
+    border-right: 1px solid var(--border-color);
+}
+
+.shp-avg-label,
+.shp-avg-sub {
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+}
+
+.shp-avg-value {
+    display: flex;
+    align-items: baseline;
+    gap: 0.5rem;
+    font-size: 2rem;
+    font-weight: 700;
+    line-height: 1.15;
+}
+
+.shp-delta {
+    font-size: 0.8125rem;
+    font-weight: 500;
+}
+
+.shp-delta.down { color: var(--danger-color); }
+.shp-delta.up { color: var(--success-color); }
+
+.shp-chips,
+.shp-count-chips {
+    display: flex;
+    flex-wrap: wrap;
+    align-content: center;
+    gap: 0.5rem;
+    flex: 1;
+}
+
+.shp-count-chips {
+    padding: 0.75rem 1.25rem 0;
+}
+
+.shp-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.3rem 0.65rem;
+    border-radius: 999px;
+    font-size: 0.8125rem;
+    background: var(--bg-tertiary);
+    color: var(--text-secondary);
+}
+
+.shp-chip-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: currentColor;
+}
+
+.shp-chip.muted .shp-chip-dot { display: none; }
+.shp-chip.danger { background: rgba(238, 99, 104, 0.14); color: #f38d91; }
+.shp-chip.warning { background: rgba(231, 150, 19, 0.14); color: #f0b14d; }
+.shp-chip.info { background: rgba(71, 151, 255, 0.14); color: #8ab9ff; }
+.shp-chip.success { background: rgba(36, 188, 112, 0.14); color: var(--success-color); }
+
+/* Firmware Rollout pill: a compact chip that links past the row or tile link under it. */
+.shp-chip.shp-rollout {
+    position: relative;
+    z-index: 1;
+    gap: 0.3rem;
+    padding: 0.1rem 0.5rem;
+    font-size: 0.6875rem;
+    font-weight: 500;
+    line-height: 1.45;
+    white-space: nowrap;
+    text-decoration: none;
+}
+
+.shp-chip.shp-rollout:hover {
+    filter: brightness(1.2);
+}
+
+.shp-chip.shp-rollout .shp-chip-dot {
+    width: 6px;
+    height: 6px;
+}
+
+/* Scheduled: a hollow dot, not yet under way. */
+.shp-chip.shp-rollout.muted .shp-chip-dot {
+    display: inline-block;
+    background: none;
+    box-shadow: inset 0 0 0 1.5px currentColor;
+}
+
+.shp-head-row,
+.shp-row {
+    display: grid;
+    grid-template-columns: 16px minmax(0, 1.4fr) 160px 56px minmax(0, 2fr) 72px 72px;
+    column-gap: 0.85rem;
+    align-items: center;
+    padding: 0.55rem 1.25rem;
+}
+
+.shp-head-row {
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    border-bottom: 1px solid var(--border-color);
+}
+
+.shp-row {
+    position: relative;
+    color: var(--text-primary);
+    border-bottom: 1px solid var(--bg-tertiary);
+}
+
+.shp-row:hover {
+    background: var(--bg-hover-subtle);
+}
+
+.shp-row-link {
+    position: absolute;
+    inset: 0;
+}
+
+.shp-count-link {
+    position: relative;
+    z-index: 1;
+    text-decoration: none;
+}
+
+.shp-count-link:hover {
+    color: var(--primary-hover);
+    text-decoration: underline;
+}
+
+.shp-head-row .num,
+.shp-row .num {
+    text-align: right;
+}
+
+.shp-name {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+
+.shp-site {
+    font-weight: 500;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.shp-sub {
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+}
+
+.shp-name-meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.2rem 0.5rem;
+    min-width: 0;
+}
+
+/* Wide enough for "Agent offline", so the rollout pills start in one column. */
+@media (min-width: 769px) {
+    .shp-name-meta .shp-sub {
+        min-width: 5.25rem;
+    }
+}
+
+.shp-spark {
+    width: 100%;
+    height: 28px;
+}
+
+.shp-spark-line.healthy { stroke: var(--success-color); }
+.shp-spark-line.degraded { stroke: var(--warning-color); }
+.shp-spark-line.down { stroke: var(--danger-color); }
+.shp-spark-line.unknown { stroke: var(--text-muted); }
+
+.shp-now {
+    font-size: 1.05rem;
+    font-weight: 600;
+}
+
+.shp-issue {
+    font-size: 0.8125rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.shp-issue.muted {
+    color: var(--text-muted);
+}
+
+/* A linked issue reads as text until hovered, like the count links beside it. */
+a.shp-issue {
+    color: inherit;
+}
+
+.shp-count {
+    color: var(--text-secondary);
+}
+
+.shp-count.danger-text {
+    color: var(--danger-color);
+}
+
+.shp-tiles {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+    gap: 0.6rem;
+    padding: 0.75rem 1.25rem 1rem;
+}
+
+.shp-tile {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+    padding: 0.65rem 0.8rem;
+    border-radius: var(--border-radius-lg);
+    background: var(--bg-tertiary);
+    border: 1px solid transparent;
+    color: var(--text-primary);
+    text-decoration: none;
+    min-height: 44px;
+}
+
+.shp-tile:hover {
+    color: var(--text-primary);
+    border-color: var(--border-color);
+}
+
+.shp-tile.degraded { border-color: rgba(231, 150, 19, 0.5); }
+.shp-tile.down { border-color: rgba(238, 99, 104, 0.5); }
+
+.shp-tile-name {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    font-size: 0.8125rem;
+    font-weight: 500;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.shp-tile-health {
+    font-size: 1.4rem;
+    font-weight: 700;
+    line-height: 1.1;
+}
+
+.shp-tile-issue {
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* Pinned to the tile's foot, so pills line up across a row of tiles. */
+.shp-tile .shp-rollout {
+    align-self: flex-start;
+    max-width: 100%;
+    margin-top: auto;
+}
+
+.shp-footer {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    gap: 0.5rem;
+    padding: 0.65rem 1.25rem;
+    font-size: 0.8125rem;
+    color: var(--text-secondary);
+}
+
+@media (max-width: 768px) {
+    .shp-header {
+        padding: 0.75rem 1rem;
+    }
+
+    .shp-switcher {
+        order: 5;
+        flex: 1 1 100%;
+    }
+
+    .shp-summary {
+        flex-direction: column;
+        padding: 0.75rem 1rem;
+    }
+
+    .shp-avg {
+        border-right: none;
+        padding-right: 0;
+    }
+
+    .shp-row {
+        grid-template-columns: 12px minmax(0, 1fr) 64px 44px;
+        grid-template-areas: "dot name spark now" ". issue issue issue";
+        row-gap: 0.2rem;
+        padding: 0.65rem 1rem;
+    }
+
+    .shp-row > .status-dot { grid-area: dot; }
+    .shp-row > .shp-name { grid-area: name; }
+    .shp-row > .shp-spark { grid-area: spark; }
+    .shp-row > .shp-now { grid-area: now; }
+    .shp-row > .shp-issue { grid-area: issue; white-space: normal; }
+    .shp-row > .shp-count { display: none; }
+
+    .shp-tiles {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        padding: 0.75rem 1rem 1rem;
+    }
+
+    .shp-count-chips {
+        padding: 0.75rem 1rem 0;
+    }
+
+    .shp-footer {
+        padding: 0.65rem 1rem;
+    }
 }
 
 .site-card-console {
@@ -21554,6 +22449,12 @@ body.kiosk-mode .status-indicators {
 
 .site-wizard-success .site-wizard-title {
     margin-bottom: 0.25rem;
+}
+
+.site-wizard-agent-wait {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
 }
 
 @media (max-width: 768px) {
@@ -23311,6 +24212,2162 @@ body:has(.top-bar-hidden) .btn-fit {
     }
 }
 
+/* ============================================
+   Change Control (every rule scoped to .change-control)
+   ============================================ */
+
+.change-control {
+    --cc-person: #3b82f6;
+    --cc-unattributed: var(--warning-color);
+    --cc-firmware: #a78bfa;
+    --cc-no: #2ba89a;
+    --cc-incident: rgba(239, 88, 88, 0.22);
+    --cc-badge-col: 110px;
+}
+
+/* .card clips its content; the Custom Range popover opens below the toolbar, past the card's edge. */
+.change-control .cc-toolbar-card {
+    overflow: visible;
+}
+
+.change-control .cc-toolbar {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.75rem 1rem;
+    padding: 12px 16px;
+}
+
+.change-control .cc-toolbar-label {
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+}
+
+.change-control .cc-toolbar .form-control {
+    width: auto;
+    min-width: 120px;
+}
+
+/* A long option (a snapshot's time, a template's name) must not widen the bar; the open list
+   still sizes to its options. */
+.change-control .cc-toolbar select.form-control {
+    max-width: 238px;
+    text-overflow: ellipsis;
+}
+.change-control .cc-toolbar-spacer {
+    flex: 1;
+}
+
+.change-control .cc-toolbar-note {
+    font-size: 0.8125rem;
+    color: var(--text-secondary);
+    margin-left: auto;
+}
+
+.change-control .cc-toolbar .cc-search {
+    min-width: 260px;
+}
+
+.change-control .cc-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.3rem 0.7rem;
+    border-radius: 999px;
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+    border: none;
+    font-size: 0.8125rem;
+    cursor: pointer;
+    min-height: 32px;
+}
+
+.change-control .cc-chip.off {
+    background: transparent;
+    color: var(--text-muted);
+}
+
+.change-control .cc-dot {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--text-muted);
+    flex-shrink: 0;
+}
+
+.change-control .cc-dot.person { background: var(--cc-person); }
+.change-control .cc-dot.unattributed { background: var(--cc-unattributed); }
+.change-control .cc-dot.firmware { background: var(--cc-firmware); }
+.change-control .cc-dot.no { background: var(--cc-no); }
+.change-control .cc-dot.online { background: var(--success-color); }
+.change-control .cc-dot.offline { background: var(--warning-color); }
+
+.change-control .cc-legend {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.4rem 1rem;
+    font-size: 0.8125rem;
+    color: var(--text-secondary);
+}
+
+.change-control .cc-legend span {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+}
+
+.change-control .cc-legend .cc-band-key {
+    width: 14px;
+    height: 10px;
+    background: var(--cc-incident);
+    border-radius: 2px;
+}
+
+/* Stat tiles */
+.change-control .cc-tiles {
+    display: grid;
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    gap: 1rem;
+    margin-bottom: 1rem;
+}
+
+.change-control .cc-tile {
+    background: var(--bg-card);
+    border-radius: var(--border-radius-lg);
+    padding: 14px 16px;
+}
+
+.change-control .cc-tile-label {
+    font-size: 0.8125rem;
+    color: var(--text-secondary);
+}
+
+.change-control .cc-tile-value {
+    font-size: 1.5rem;
+    font-weight: 600;
+    margin: 0.2rem 0;
+}
+
+.change-control .cc-tile-value.danger { color: var(--danger-color); }
+.change-control .cc-tile-value.warning { color: var(--warning-color); }
+
+.change-control .cc-tile-sub {
+    font-size: 0.8125rem;
+    color: var(--text-secondary);
+}
+
+/* Rows that lead with a type badge: fixed badge column so the text aligns */
+.change-control .cc-item {
+    display: grid;
+    grid-template-columns: var(--cc-badge-col) minmax(0, 1fr) auto;
+    gap: 0.5rem 1rem;
+    align-items: center;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.change-control .cc-item:last-child {
+    border-bottom: none;
+}
+
+.change-control .cc-item-title {
+    font-weight: 500;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+
+.change-control .cc-item-detail {
+    font-size: 0.8125rem;
+    color: var(--text-secondary);
+    margin-top: 0.15rem;
+}
+
+.change-control .cc-item-actions {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+}
+
+.change-control .cc-site-chip {
+    font-size: 0.75rem;
+    padding: 0.1rem 0.45rem;
+    border-radius: var(--border-radius);
+    background: var(--bg-tertiary);
+    color: var(--text-secondary);
+    font-weight: 500;
+}
+
+.change-control .cc-badge-col .status-badge,
+.change-control .cc-sites-table .status-badge {
+    white-space: nowrap;
+}
+
+.change-control .cc-two-col {
+    display: grid;
+    grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr);
+    gap: 1rem;
+    align-items: start;
+}
+
+.change-control .cc-kv {
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.55rem 0;
+    border-bottom: 1px solid var(--border-color);
+    font-size: 0.875rem;
+}
+
+.change-control .cc-kv:last-child {
+    border-bottom: none;
+}
+
+.change-control .cc-kv > :first-child {
+    color: var(--text-secondary);
+}
+
+.change-control .cc-kv > :last-child {
+    text-align: right;
+}
+
+.change-control .cc-upgrade-card .cc-kv > :last-child {
+    font-size: 0.8125rem;
+}
+
+.change-control .cc-plan-row {
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.change-control .cc-plan-row:last-child {
+    border-bottom: none;
+}
+
+.change-control .cc-plan-row-head {
+    display: flex;
+    justify-content: space-between;
+    gap: 0.75rem;
+    align-items: flex-start;
+    font-weight: 500;
+    font-size: 0.875rem;
+}
+
+.change-control .cc-progress {
+    height: 4px;
+    background: var(--bg-tertiary);
+    border-radius: 2px;
+    margin-top: 0.6rem;
+    overflow: hidden;
+}
+
+.change-control .cc-progress > div {
+    height: 100%;
+    background: var(--primary-hover);
+}
+
+.change-control .danger-text { color: var(--danger-color); }
+.change-control .warning-text { color: var(--warning-color); }
+.change-control .success-text { color: var(--success-color); }
+.change-control .muted-text { color: var(--text-muted); }
+
+/* Timeline */
+.change-control .cc-timeline {
+    padding: 0 16px 12px;
+}
+
+.change-control .cc-tl-row {
+    display: grid;
+    grid-template-columns: 20px 190px minmax(0, 1fr) 130px;
+    gap: 0 0.75rem;
+    align-items: center;
+    min-height: 52px;
+    padding: 0 0.5rem;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.change-control .cc-tl-row.cc-tl-axis {
+    min-height: 32px;
+    border-bottom: none;
+    color: var(--text-secondary);
+    font-size: 0.8125rem;
+}
+
+.change-control .cc-tl-axis-labels {
+    position: relative;
+    height: 20px;
+}
+
+.change-control .cc-tl-axis-labels span {
+    position: absolute;
+    transform: translateX(-50%);
+    white-space: nowrap;
+}
+
+.change-control .cc-tl-site {
+    cursor: pointer;
+}
+
+.change-control .cc-tl-site:hover {
+    background: var(--bg-hover-subtle);
+}
+
+.change-control .cc-tl-name {
+    font-weight: 500;
+    line-height: 1.25;
+}
+
+.change-control .cc-tl-sub {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+}
+
+.change-control .cc-tl-counts {
+    text-align: right;
+    font-size: 0.8125rem;
+    color: var(--text-secondary);
+    line-height: 1.3;
+}
+
+.change-control .cc-tl-counts b {
+    color: var(--text-primary);
+    font-weight: 600;
+}
+
+.change-control .cc-track {
+    position: relative;
+    height: 36px;
+}
+
+/* Placed, not auto-placed: the row's .cc-tl-lines already holds this cell, so auto-placement would skip past it. */
+.change-control .cc-tl-row > .cc-track {
+    grid-column: 3;
+    grid-row: 1;
+}
+
+.change-control .cc-track.cc-lane-track {
+    height: 64px;
+}
+
+.change-control .cc-track svg {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    overflow: visible;
+    /* Drawn over the bands: without this it takes their hover and their tooltips never open. */
+    pointer-events: none;
+}
+
+/* Hover target for a band's tooltip only; the row layer (.cc-row-band) draws it across the full row. */
+.change-control .cc-band {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+}
+
+.change-control .cc-select-line {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 2px;
+    background: var(--text-primary);
+    opacity: 0.85;
+    transform: translateX(-1px);
+    pointer-events: none;
+}
+
+.change-control .cc-after .status-badge,
+.change-control .cc-who {
+    white-space: nowrap;
+}
+
+/*
+ * Each row's slice of the bands and change lines, full row height in the track's column, so the site row,
+ * lanes, and Events row join into one. Every slice starts at the layer's top and offsets its pattern by
+ * --cc-y (its offset in the timeline, set by cc-timeline.js), so dashes and stripes run on across rows.
+ */
+.change-control .cc-tl-lines {
+    grid-column: 3;
+    grid-row: 1 / -1;
+    align-self: stretch;
+    position: relative;
+    pointer-events: none;
+}
+
+.change-control .cc-row-band,
+.change-control .cc-marker-line {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    background-position: 0 calc(-1 * var(--cc-y, 0px));
+}
+
+.change-control .cc-row-band.incident {
+    background-color: var(--cc-incident);
+}
+
+.change-control .cc-row-band.gap {
+    background-image: repeating-linear-gradient(45deg, rgba(160, 160, 168, 0.16) 0 4px, transparent 4px 8px);
+    background-size: 11.3137px 11.3137px;
+}
+
+.change-control .cc-marker-line {
+    width: 1px;
+    background-image: repeating-linear-gradient(to bottom, rgba(160, 160, 168, 0.45) 0 3px, transparent 3px 6px);
+    background-size: 1px 6px;
+}
+
+/* The site row bridges its border and the lanes' margin and padding down to the first lane. */
+.change-control .cc-tl-lines.from-marker > div {
+    bottom: calc(-1px - 0.5rem);
+}
+
+/* Lines start at the site row's marker (mid-row) and stop at the Events row's; bands span the whole row. */
+.change-control .cc-tl-lines.from-marker .cc-marker-line,
+.change-control .cc-tl-lines.from-marker .cc-select-line {
+    clip-path: inset(calc(50% - (1px + 0.5rem) / 2) 0 0 0);
+}
+
+.change-control .cc-tl-lines.to-marker .cc-marker-line,
+.change-control .cc-tl-lines.to-marker .cc-select-line {
+    clip-path: inset(0 0 50% 0);
+}
+
+.change-control .cc-marker {
+    position: absolute;
+    top: 50%;
+    width: 12px;
+    height: 12px;
+    transform: translate(-50%, -50%);
+    border-radius: 50%;
+    border: none;
+    padding: 0;
+    cursor: pointer;
+    background: var(--text-muted);
+}
+
+/* A small pad for a mouse: a wider one covers the next marker in a tight bunch, and the
+   older (left) marker paints on top, so hover and click land on the wrong event. */
+.change-control .cc-marker::before {
+    content: "";
+    position: absolute;
+    inset: -3px;
+}
+
+/* 44px touch target around the 12px marker */
+@media (pointer: coarse) {
+    .change-control .cc-marker::before {
+        inset: -16px;
+    }
+}
+
+.change-control .cc-marker.person { background: var(--cc-person); }
+.change-control .cc-marker.unattributed { background: var(--cc-unattributed); }
+.change-control .cc-marker.no { background: var(--cc-no); }
+.change-control .cc-marker.firmware {
+    background: var(--cc-firmware);
+    border-radius: 2px;
+    transform: translate(-50%, -50%) rotate(45deg);
+}
+
+.change-control .cc-marker.selected {
+    box-shadow: 0 0 0 3px var(--bg-card), 0 0 0 5px var(--text-primary);
+}
+
+.change-control .cc-lanes {
+    background: var(--bg-hover-subtle);
+    border-radius: var(--border-radius-lg);
+    margin: 0.25rem 0 0.5rem;
+    padding: 0.25rem 0;
+}
+
+.change-control .cc-lanes .cc-tl-row {
+    border-bottom: none;
+    min-height: 74px;
+}
+
+.change-control .cc-lane-latest {
+    text-align: right;
+    font-size: 0.8125rem;
+    line-height: 1.4;
+}
+
+.change-control .cc-lane-stack span + span {
+    margin-left: 0.4rem;
+}
+
+.change-control .cc-lane-latest .a { color: var(--cc-no); }
+.change-control .cc-lane-latest .rtt { color: #d946ef; }
+.change-control .cc-lane-latest .health { color: var(--success-color); }
+
+/* Site Health levels (Change Control, Dashboard Sites panel, Sites page): 95+ healthy, 85+ degraded */
+.health-healthy, .cc-health-healthy { color: var(--success-color); }
+.health-degraded, .cc-health-degraded { color: var(--warning-color); }
+.health-down, .cc-health-down { color: var(--danger-color); }
+.health-unknown, .cc-health-unknown { color: var(--text-muted); }
+
+.change-control .cc-health-line.healthy { stroke: var(--success-color); }
+.change-control .cc-health-line.degraded { stroke: var(--warning-color); }
+.change-control .cc-health-line.down { stroke: var(--danger-color); }
+.change-control .cc-health-line.unknown { stroke: var(--text-muted); }
+
+.change-control .cc-health-zone {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+}
+
+.change-control .cc-health-delta {
+    margin-left: 0.25rem;
+    font-size: 0.75rem;
+}
+
+.change-control .cc-health-delta.down { color: var(--danger-color); }
+.change-control .cc-health-delta.up { color: var(--success-color); }
+.change-control .cc-lane-latest .loss { color: #ef4444; }
+.change-control .cc-lane-latest .b { color: var(--warning-color); }
+.change-control .cc-lane-latest .cpu { color: var(--cc-firmware); }
+.change-control .cc-lane-latest .down { color: var(--speed-download-color); }
+.change-control .cc-lane-latest .up { color: var(--speed-upload-color); }
+
+/* Change detail */
+/* Zero intrinsic width: the details cell spans every column, so its content would otherwise re-split the table's columns as it opens. */
+.change-control .history-details-row > td > .expand-wrapper {
+    width: 0;
+    min-width: 100%;
+}
+
+.change-control .cc-detail-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 1rem;
+    padding: 0.75rem 16px 1rem;
+}
+
+.change-control .cc-panel {
+    background: var(--bg-card);
+    border-radius: var(--border-radius-lg);
+    padding: 12px 16px;
+}
+
+.change-control .cc-panel-title {
+    font-weight: 600;
+    font-size: 0.875rem;
+    margin-bottom: 0.25rem;
+}
+
+.change-control .cc-panel .action-buttons {
+    margin-top: 0.75rem;
+}
+
+.change-control .cc-field-table {
+    width: 100%;
+    border-collapse: collapse;
+    table-layout: fixed;
+    font-size: 0.8125rem;
+}
+
+.change-control .cc-field-table td {
+    padding: 0.4rem 0.5rem;
+    border-bottom: 1px solid var(--border-color);
+    vertical-align: top;
+    overflow-wrap: anywhere;
+}
+
+.change-control .cc-field-table tr:last-child td {
+    border-bottom: none;
+}
+
+.change-control .cc-field-table .old { color: var(--danger-color); }
+.change-control .cc-field-table .new { color: var(--success-color); }
+.change-control .cc-field-table .label { color: var(--text-secondary); width: 50%; }
+
+.change-control .cc-inset {
+    background: var(--bg-inset);
+    border-radius: var(--border-radius-lg);
+    margin: 0 16px 0.75rem;
+    padding: 0.25rem 0.5rem;
+}
+
+.change-control .cc-inset-note {
+    font-size: 0.8125rem;
+    color: var(--text-secondary);
+    padding: 0 16px 0.75rem;
+}
+
+.change-control .cc-action-text.created { color: var(--success-color); }
+.change-control .cc-action-text.updated { color: var(--primary-light); }
+.change-control .cc-action-text.deleted { color: var(--danger-color); }
+
+/* The arrow between an old and a new value; the text stays for copy-paste and screen readers.
+   Inline throughout: a flex or positioned box drops the spaces around "to" from copied text. */
+.change-control .cc-to {
+    margin: 0 0.35em;
+    color: var(--text-muted);
+}
+
+.change-control .cc-to svg {
+    vertical-align: -0.15em;
+}
+
+.change-control .cc-to-text {
+    font-size: 0;
+}
+
+/* Change detail: Security Audit and Settings group headings, fixed and new issues, who made it. */
+.change-control .cc-detail-head td {
+    padding-top: 0.6rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+}
+
+.change-control .cc-audit-kind {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+}
+
+.change-control .cc-audit-kind.fixed { color: var(--success-color); }
+.change-control .cc-audit-kind.new { color: var(--danger-color); }
+
+.change-control .cc-audit-device,
+.change-control .cc-source-via {
+    color: var(--text-secondary);
+    font-size: 0.75rem;
+}
+
+.change-control .cc-source {
+    display: inline-flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 0.1rem;
+}
+
+.change-control .cc-source-who {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-weight: 600;
+}
+
+.change-control .cc-source-who svg { color: var(--text-secondary); }
+
+.change-control .cc-source-via code {
+    color: var(--text-muted);
+    background: none;
+    padding: 0;
+    font-size: 0.75rem;
+}
+
+/* A policy order change: each moved rule with its neighbors before and after. */
+.change-control .cc-order-move + .cc-order-move {
+    margin-top: 0.75rem;
+    padding-top: 0.75rem;
+    border-top: 1px solid var(--border-color);
+}
+
+.change-control .cc-order-move-head {
+    display: flex;
+    justify-content: space-between;
+    gap: 0.5rem;
+}
+
+.change-control .cc-order-pos {
+    color: var(--text-secondary);
+    white-space: nowrap;
+}
+
+.change-control .cc-order-cols {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.5rem;
+    margin-top: 0.4rem;
+}
+
+.change-control .cc-order-col-title {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    margin-bottom: 0.2rem;
+}
+
+.change-control .cc-order-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+
+.change-control .cc-order-list li {
+    display: flex;
+    gap: 0.4rem;
+    padding: 0.15rem 0.35rem;
+    border-radius: 4px;
+    color: var(--text-secondary);
+}
+
+.change-control .cc-order-list li .n {
+    color: var(--text-muted);
+    min-width: 1.6rem;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+
+.change-control .cc-order-list li.moved {
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+    font-weight: 600;
+}
+
+.change-control .cc-order-list li.end {
+    color: var(--text-muted);
+    font-style: italic;
+}
+
+.change-control .cc-order-more {
+    margin-top: 0.5rem;
+    color: var(--text-secondary);
+}
+
+@media (max-width: 768px) {
+    .change-control .cc-order-cols { grid-template-columns: 1fr; }
+}
+
+.change-control .cc-group-row td {
+    font-size: 0.75rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--text-secondary);
+    background: var(--bg-tertiary);
+}
+
+.change-control .cc-compare-sides {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+    gap: 1rem;
+    align-items: center;
+    padding: 16px;
+}
+
+.change-control .cc-compare-sides .cc-panel {
+    background: var(--bg-hover-subtle);
+}
+
+/* Old and new, in the diff tables' colors. */
+.change-control .cc-side-from {
+    border-left: 3px solid var(--danger-color);
+}
+
+.change-control .cc-side-to {
+    border-left: 3px solid var(--success-color);
+}
+
+.change-control .cc-side-kicker {
+    font-size: 0.6875rem;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    margin-bottom: 0.25rem;
+}
+
+.change-control .cc-arrow {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    color: var(--primary-hover);
+    flex-shrink: 0;
+}
+
+.change-control .cc-side-label {
+    font-size: 0.8125rem;
+    color: var(--text-secondary);
+}
+
+.change-control .cc-side-value {
+    font-weight: 600;
+    font-size: 1.05rem;
+}
+
+/* Snapshots: a long trigger is cut off with its full text in a tooltip, so it cannot squeeze the actions.
+   The tooltip starts at 40 characters, below where 22rem cuts, so every cut-off trigger has one. */
+.change-control .cc-trigger {
+    display: block;
+    max-width: 22rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.change-control .cc-row-actions {
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    gap: 0.25rem 0.75rem;
+    flex-wrap: wrap;
+}
+
+.change-control .cc-link-btn {
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    font-family: inherit;
+    font-size: 0.8125rem;
+    padding: 0.35rem 0.25rem;
+    min-height: 32px;
+    cursor: pointer;
+}
+
+.change-control .cc-link-btn:hover {
+    color: var(--text-primary);
+}
+
+.change-control .cc-action-spacer {
+    display: inline-block;
+    visibility: hidden;
+}
+
+/* The Baseline's pin: shown filled, but it is a state, not a control. */
+.change-control .cc-pin-locked,
+.change-control .cc-pin-locked:hover {
+    display: inline-block;
+    cursor: default;
+    color: var(--text-secondary);
+}
+
+.change-control .cc-tags {
+    display: inline-flex;
+    gap: 0.35rem;
+    flex-wrap: wrap;
+}
+
+.change-control .cc-card-footer {
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    padding: 12px 16px;
+    border-top: 1px solid var(--border-color);
+}
+
+/* Holds its height as approvals swap the footer's buttons and text. */
+.change-control .cc-plan-footer {
+    min-height: 70px;
+}
+
+/* Beside the buttons: .cc-remaining already takes the free space. */
+.change-control .cc-plan-footer .cc-gateway-status {
+    margin-left: 0;
+}
+
+.change-control .cc-card-footer .cc-remaining {
+    margin-right: auto;
+    font-size: 0.875rem;
+}
+
+.change-control .cc-remaining-icon {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.change-control .cc-remaining-icon svg {
+    flex-shrink: 0;
+}
+
+.change-control .cc-card-footer .cc-edit-count {
+    font-size: 0.875rem;
+}
+
+/* Review Plan */
+.change-control .cc-strip {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 1rem;
+    margin-bottom: 1rem;
+}
+
+.change-control .cc-impact-row {
+    display: grid;
+    grid-template-columns: var(--cc-badge-col) minmax(0, 1fr) auto;
+    gap: 0.5rem 1rem;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border-color);
+    align-items: start;
+}
+
+.change-control .cc-impact-row:last-child {
+    border-bottom: none;
+}
+
+.change-control .cc-confirm {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin-top: 0.75rem;
+    flex-wrap: wrap;
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+}
+
+.change-control .cc-confirm .form-control {
+    max-width: 240px;
+}
+
+.change-control .cc-write-step {
+    display: grid;
+    grid-template-columns: 28px minmax(0, 1fr);
+    gap: 0.75rem;
+    padding: 0.6rem 0;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.change-control .cc-write-step:last-child {
+    border-bottom: none;
+}
+
+.change-control .cc-write-summary {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0.25rem 0.5rem;
+}
+
+.change-control .cc-write-summary .cc-link-btn {
+    padding: 0;
+    color: var(--primary-hover);
+}
+
+.change-control .cc-write-list {
+    list-style: none;
+    margin: 0.35rem 0 0.25rem;
+    padding: 0.4rem 0.6rem;
+    max-height: 18rem;
+    overflow-y: auto;
+    border-left: 2px solid var(--border-color);
+    font-size: 0.8125rem;
+    color: var(--text-secondary);
+}
+
+.change-control .cc-write-list li {
+    padding: 0.15rem 0;
+    overflow-wrap: anywhere;
+}
+
+.change-control .cc-step-num {
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    background: var(--bg-tertiary);
+    color: var(--text-secondary);
+    font-size: 0.75rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.change-control .cc-state-track {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    font-size: 0.875rem;
+    color: var(--text-muted);
+}
+
+.change-control .cc-state-track .on {
+    color: var(--text-primary);
+}
+
+.change-control .cc-state-track .on .cc-dot {
+    background: var(--primary-hover);
+}
+
+.change-control .cc-sticky-footer {
+    position: sticky;
+    bottom: 0;
+    z-index: 5;
+    box-shadow: 0 -6px 16px rgba(0, 0, 0, 0.35);
+}
+
+.change-control .cc-ack-col {
+    white-space: nowrap;
+}
+
+.change-control .cc-ack-col .checkbox-label {
+    min-height: 44px;
+    margin: 0;
+}
+
+/* Edit */
+.change-control .cc-edit-grid {
+    display: grid;
+    grid-template-columns: 300px minmax(0, 1fr);
+    gap: 1rem;
+    align-items: start;
+}
+
+.change-control .cc-collections button {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    width: 100%;
+    background: none;
+    border: none;
+    border-left: 3px solid transparent;
+    color: var(--text-primary);
+    padding: 0.7rem 16px;
+    min-height: 44px;
+    font-size: 0.875rem;
+    text-align: left;
+    cursor: pointer;
+}
+
+.change-control .cc-collections button:hover {
+    background: var(--bg-hover-subtle);
+}
+
+.change-control .cc-collections button.active {
+    background: var(--bg-hover);
+    border-left-color: var(--primary-hover);
+}
+
+.change-control .cc-collections .cc-count {
+    color: var(--text-muted);
+    font-size: 0.8125rem;
+}
+
+.change-control .cc-collections button.cc-no-hits > span:first-child {
+    color: var(--text-muted);
+}
+
+/* Collections search: the header's own height, so opening it does not move the list. */
+.change-control .cc-collections-header {
+    min-height: 52px;
+    gap: 0.5rem;
+}
+
+.change-control .cc-find {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    width: 100%;
+    min-width: 0;
+}
+
+.change-control .cc-find .form-control {
+    flex: 1 1 auto;
+    min-width: 0;
+    height: 28px;
+    padding: 0 0.5rem;
+    font-size: 0.8125rem;
+}
+
+.change-control .cc-find-count {
+    flex: 0 0 auto;
+    font-size: 0.75rem;
+    white-space: nowrap;
+    margin: 0 0.25rem;
+}
+
+.change-control .cc-find-btn {
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    border: none;
+    border-radius: var(--border-radius);
+    background: transparent;
+    color: var(--text-secondary);
+    cursor: pointer;
+}
+
+.change-control .cc-find-btn:hover:not(:disabled),
+.change-control .cc-find-btn:focus-visible {
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+}
+
+.change-control .cc-find-btn:disabled {
+    opacity: 0.4;
+    cursor: default;
+}
+
+/* CodeMirror (js/cc-editor.js) draws inside; its theme there sets fonts, colors, and height. */
+.change-control .cc-editor {
+    min-height: 480px;
+}
+
+.change-control .cc-editor.is-loading {
+    display: none;
+}
+
+/* One column set for every row (subgrid), so the location column fits its longest entry and the
+   messages still line up. */
+.change-control .cc-problems {
+    display: grid;
+    grid-template-columns: 90px minmax(140px, max-content) minmax(0, 1fr);
+    column-gap: 1rem;
+}
+
+.change-control .cc-problem {
+    display: grid;
+    grid-column: 1 / -1;
+    grid-template-columns: subgrid;
+    gap: 0.5rem 1rem;
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--border-color);
+    /* On the text's baseline, not the top: the location's smaller monospace sat above the message. */
+    align-items: baseline;
+    font-size: 0.875rem;
+}
+
+.change-control .cc-problem > div:last-child {
+    font-size: 0.8rem;
+}
+
+.change-control .cc-problem:last-child {
+    border-bottom: none;
+}
+
+.change-control .cc-problem code {
+    color: var(--text-muted);
+    background: none;
+    font-size: 0.75rem;
+}
+
+/* The location goes to its line in the editor. */
+.change-control .cc-problem-loc {
+    justify-self: start;
+    padding: 0;
+    border: none;
+    background: none;
+    text-align: left;
+    cursor: pointer;
+}
+
+.change-control .cc-problem-loc:hover code,
+.change-control .cc-problem-loc:focus-visible code {
+    color: var(--text-secondary);
+    text-decoration: underline;
+}
+/* Migrate */
+.change-control .cc-action-cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 1rem;
+    margin-bottom: 1rem;
+}
+
+.change-control .cc-action-card {
+    background: var(--bg-card);
+    border: 1px solid transparent;
+    border-radius: var(--border-radius-lg);
+    padding: 16px;
+    text-align: left;
+    color: var(--text-primary);
+    cursor: pointer;
+}
+
+.change-control .cc-action-card:hover {
+    background: var(--bg-hover-subtle);
+}
+
+.change-control .cc-action-card.active {
+    border-color: var(--primary-hover);
+}
+
+.change-control .cc-action-card h3 {
+    font-size: 1rem;
+    font-weight: 600;
+    margin: 0 0 0.35rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.change-control .cc-action-card p {
+    margin: 0;
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+}
+
+.change-control .cc-steps {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 0.5rem;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border-color);
+    font-size: 0.875rem;
+}
+
+.change-control .cc-steps span {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    color: var(--text-muted);
+}
+
+.change-control .cc-steps span.done,
+.change-control .cc-steps span.current {
+    color: var(--text-primary);
+}
+
+.change-control .cc-steps .cc-step-num.done {
+    background: rgba(36, 188, 112, 0.2);
+    color: var(--success-color);
+}
+
+.change-control .cc-steps .cc-step-num.current {
+    background: var(--primary-color);
+    color: #fff;
+}
+
+.change-control .cc-zones {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 1rem;
+    padding: 0 16px 16px;
+}
+
+.change-control .cc-zone {
+    border: 1px solid var(--border-color);
+    border-radius: var(--border-radius-lg);
+    padding: 12px;
+    min-height: 180px;
+}
+
+.change-control .cc-zone.drop-target {
+    border-color: var(--primary-hover);
+}
+
+/* During a drag only the zone takes the pointer: a child under the cursor fires dragleave on the zone, and Drop here flickers. */
+.change-control .cc-zones.dragging .cc-zone * {
+    pointer-events: none;
+}
+
+.change-control .cc-zone-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-weight: 600;
+}
+
+.change-control .cc-zone-desc {
+    font-size: 0.8125rem;
+    color: var(--text-secondary);
+    margin: 0.25rem 0 0.6rem;
+}
+
+.change-control .cc-net {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 0.5rem;
+    width: 100%;
+    background: var(--bg-tertiary);
+    border: 1px solid transparent;
+    border-radius: var(--border-radius);
+    color: var(--text-primary);
+    padding: 0.55rem 0.7rem;
+    min-height: 44px;
+    margin-bottom: 0.5rem;
+    font-size: 0.875rem;
+    cursor: grab;
+    text-align: left;
+}
+
+.change-control .cc-net.selected {
+    border-color: var(--primary-hover);
+}
+
+.change-control .cc-net .cc-vlan {
+    color: var(--text-secondary);
+    margin-left: 0.4rem;
+    font-size: 0.8125rem;
+}
+
+.change-control .cc-drop-here {
+    border: 1px dashed var(--primary-hover);
+    border-radius: var(--border-radius);
+    color: var(--primary-light);
+    text-align: center;
+    padding: 0.55rem;
+    min-height: 44px;
+    font-size: 0.875rem;
+    background: none;
+    width: 100%;
+    cursor: pointer;
+}
+
+/* Settings */
+.change-control .cc-settings-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 1rem;
+    align-items: start;
+}
+
+.change-control .form-row {
+    display: flex;
+    gap: 1rem;
+    flex-wrap: wrap;
+}
+
+.change-control .form-row > .form-group {
+    flex: 1 1 180px;
+    min-width: 0;
+}
+
+@media (max-width: 1024px) {
+    .change-control .cc-tiles {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .change-control .cc-two-col,
+    .change-control .cc-edit-grid,
+    .change-control .cc-settings-grid {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .change-control .cc-zones {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 768px) {
+    .change-control {
+        --cc-badge-col: 92px;
+    }
+
+    .change-control .cc-tiles {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 0.75rem;
+    }
+
+    .change-control .cc-strip {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .change-control .cc-item {
+        grid-template-columns: var(--cc-badge-col) minmax(0, 1fr);
+    }
+
+    .change-control .cc-item-actions {
+        grid-column: 1 / -1;
+        justify-content: flex-start;
+    }
+
+    .change-control .cc-impact-row {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .change-control .cc-tl-row {
+        grid-template-columns: 16px 104px minmax(0, 1fr);
+    }
+
+    .change-control .cc-tl-counts {
+        display: none;
+    }
+
+    .change-control .cc-detail-grid {
+        grid-template-columns: minmax(0, 1fr);
+        padding: 0.75rem 0.5rem 1rem;
+    }
+
+    .change-control .cc-compare-sides {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .change-control .cc-compare-sides .cc-arrow {
+        display: none;
+    }
+
+    .change-control .cc-zones {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .change-control .cc-problems {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .change-control .cc-problem {
+        grid-template-columns: 80px minmax(0, 1fr);
+    }
+
+    .change-control .cc-problem > code,
+    .change-control .cc-problem > .cc-problem-loc {
+        grid-column: 2;
+        grid-row: 1;
+        justify-self: end;
+    }
+
+    .change-control .cc-problem > div:last-child {
+        grid-column: 1 / -1;
+    }
+
+    .change-control .cc-toolbar .cc-search {
+        min-width: 0;
+        flex: 1 1 100%;
+    }
+
+    .change-control .form-row {
+        flex-direction: column;
+        gap: 0;
+    }
+
+    .change-control .form-row > .form-group {
+        flex: 0 0 auto;
+    }
+
+    .change-control .cc-toolbar-note {
+        margin-left: 0;
+    }
+}
+
+@media (max-width: 768px) {
+    .change-control .cc-mobile-order {
+        display: flex;
+        flex-direction: column;
+    }
+
+    .change-control .cc-mobile-order > .cc-two-col,
+    .change-control .cc-mobile-order .cc-side-col {
+        display: contents;
+    }
+
+    .change-control .cc-sites-card { order: 1; }
+    .change-control .cc-attention-card { order: 2; }
+    .change-control .cc-plans-card { order: 3; }
+    .change-control .cc-upgrade-card { order: 4; }
+}
+
+.change-control .cc-attention-card .empty-state p {
+    margin-bottom: 0.25rem;
+}
+
+.change-control td .cc-dot {
+    margin-right: 0.35rem;
+}
+
+.change-control .data-table th {
+    white-space: nowrap;
+}
+
+.change-control .cc-tags .status-badge {
+    white-space: nowrap;
+}
+
+@media (min-width: 769px) {
+    .change-control .cc-toolbar .cc-search {
+        min-width: 360px;
+    }
+}
+
+.change-control .radio-group {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem 1.5rem;
+}
+
+.change-control .cc-site-list-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.change-control .cc-site-list-row:last-child {
+    border-bottom: none;
+}
+
+@media (max-width: 768px) {
+    .change-control .cc-tile-sites,
+    .change-control .cc-tile-drift {
+        display: none;
+    }
+
+    .change-control .cc-tile-security { order: 1; }
+    .change-control .cc-tile-changes { order: 2; }
+    .change-control .cc-tile-unattributed { order: 3; }
+    .change-control .cc-tile-plans { order: 4; }
+
+    .change-control .cc-item {
+        display: block;
+    }
+
+    .change-control .cc-item .cc-badge-col {
+        display: flex;
+        gap: 0.4rem;
+        margin-bottom: 0.4rem;
+    }
+
+    .change-control .cc-item-actions {
+        margin-top: 0.75rem;
+    }
+
+    .change-control .cc-item-actions .btn {
+        flex: 1 1 0;
+        min-height: 44px;
+    }
+}
+
+.change-control .cc-plan-row-head .status-badge {
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+.change-control .cc-change-card {
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border-color);
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+    font-size: 0.875rem;
+}
+
+.change-control .cc-change-card-head {
+    display: flex;
+    justify-content: space-between;
+    gap: 0.5rem;
+    font-size: 0.8125rem;
+}
+
+@media (max-width: 768px) {
+    .change-control .cc-toolbar .form-control,
+    .change-control .cc-toolbar select.form-control {
+        width: 100%;
+        max-width: none;
+    }
+
+    .change-control .cc-toolbar .cc-toolbar-label {
+        flex: 1 1 100%;
+        margin-bottom: -0.4rem;
+    }
+
+    .change-control .cc-toolbar .time-range-selector {
+        width: 100%;
+    }
+
+    .change-control .cc-toolbar .time-range-selector .time-btn {
+        flex: 1;
+        min-height: 36px;
+    }
+
+    .change-control .cc-tl-row,
+    .change-control .cc-lanes .cc-tl-row {
+        grid-template-columns: 16px minmax(0, 1fr) auto;
+        grid-template-areas: "chev label counts" "track track track";
+        gap: 0.35rem 0.5rem;
+        padding: 0.5rem 0;
+        min-height: 0;
+    }
+
+    .change-control .cc-tl-row.cc-tl-axis {
+        grid-template-areas: "track track track";
+        padding: 0;
+    }
+
+    .change-control .cc-tl-axis > span {
+        display: none;
+    }
+
+    .change-control .cc-tl-axis-labels {
+        grid-area: track;
+    }
+
+    .change-control .cc-tl-chev { grid-area: chev; }
+    .change-control .cc-tl-label { grid-area: label; }
+    .change-control .cc-tl-row > .cc-track { grid-area: track; }
+
+    /* The track spans every column under the label, and the row's padding is covered so rows still join. */
+    .change-control .cc-tl-lines {
+        grid-column: 1 / -1;
+        margin: -0.5rem 0;
+    }
+
+    /* The marker sits mid-track at the bottom of the row: padding plus half the 36px track. */
+    .change-control .cc-tl-lines.from-marker .cc-marker-line,
+    .change-control .cc-tl-lines.from-marker .cc-select-line {
+        clip-path: inset(calc(100% - 1px - 1rem - 18px) 0 0 0);
+    }
+
+    .change-control .cc-tl-lines.to-marker .cc-marker-line,
+    .change-control .cc-tl-lines.to-marker .cc-select-line {
+        clip-path: inset(0 0 calc(0.5rem + 18px) 0);
+    }
+
+    .change-control .cc-tl-counts,
+    .change-control .cc-lane-latest {
+        display: block;
+        grid-area: counts;
+        text-align: right;
+        white-space: nowrap;
+    }
+
+    .change-control .cc-tl-counts div,
+    .change-control .cc-lane-latest div {
+        display: inline;
+    }
+
+    .change-control .cc-tl-counts div + div::before {
+        content: ", ";
+    }
+
+    .change-control .cc-lane-latest div + div::before {
+        content: " ";
+    }
+
+    .change-control .cc-tl-sub {
+        display: none;
+    }
+
+    /* No side padding, so lane tracks line up with the site row's and the bands and lines run straight. */
+    .change-control .cc-lanes {
+        padding: 0.25rem 0;
+    }
+
+    .change-control .cc-lanes .cc-tl-label,
+    .change-control .cc-lanes .cc-lane-latest {
+        padding: 0 0.5rem;
+    }
+
+    .change-control .cc-lane-row .cc-tl-chev {
+        display: none;
+    }
+
+    .change-control .cc-lane-row {
+        grid-template-areas: "label label counts" "track track track";
+    }
+}
+
+@media (max-width: 768px) {
+    .change-control .cc-tl-counts {
+        display: flex;
+        justify-content: flex-end;
+    }
+}
+
+.change-control .cc-plan-card {
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border-color);
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+    font-size: 0.875rem;
+    cursor: pointer;
+}
+
+.change-control .cc-mobile-group {
+    font-size: 0.75rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--text-secondary);
+    padding: 0.6rem 16px 0.3rem;
+}
+
+.change-control .cc-mobile-field {
+    padding: 0.35rem 0.25rem;
+    font-size: 0.8125rem;
+}
+
+@media (max-width: 768px) {
+    .change-control .cc-tile-site {
+        display: none;
+    }
+
+    .change-control .cc-sticky-footer .cc-card-footer .btn {
+        flex: 1 1 40%;
+        min-height: 44px;
+    }
+
+    .change-control .cc-sticky-footer .cc-card-footer .btn-primary {
+        order: -1;
+        flex-basis: 100%;
+    }
+
+    .change-control .cc-sticky-footer .cc-remaining {
+        order: -2;
+        flex-basis: 100%;
+    }
+
+    /* Its own line under the state track, above the primary button. */
+    .change-control .cc-sticky-footer .cc-gateway-status {
+        order: -2;
+        flex-basis: 100%;
+        padding: 0;
+    }
+}
+
+.change-control .cc-phone-only,
+.change-control .cc-phone-inline {
+    display: none;
+}
+
+@media (max-width: 768px) {
+    .change-control .cc-phone-only {
+        display: block;
+    }
+
+    .change-control .cc-phone-inline {
+        display: inline-flex;
+    }
+}
+
+.change-control .cc-snap-card {
+    display: grid;
+    grid-template-columns: 28px minmax(0, 1fr);
+    gap: 0.75rem;
+    align-items: start;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border-color);
+    cursor: pointer;
+    font-size: 0.875rem;
+}
+
+.change-control .cc-snap-card input {
+    width: 20px;
+    height: 20px;
+    margin-top: 2px;
+}
+
+@media (max-width: 768px) {
+    .change-control .cc-card-footer .btn {
+        flex: 1 1 40%;
+        min-height: 44px;
+    }
+}
+
+.change-control .cc-item-detail .cc-dot,
+.change-control .cc-change-card-head .cc-dot,
+.change-control .cc-site-list-row .cc-dot {
+    margin-right: 0.35rem;
+}
+
+/* Right-aligned even when the toolbar wraps, so Discard Edits sits above the editor's own header actions. */
+.change-control .cc-edit-actions {
+    display: inline-flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 0.5rem;
+    margin-left: auto;
+}
+
+.change-control .cc-header-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+/* The edited badge goes to the next edit: a status badge that is a button. */
+.change-control .cc-edited-badge {
+    border: none;
+    font-family: inherit;
+    line-height: inherit;
+    cursor: pointer;
+}
+
+.change-control .cc-edited-badge:hover,
+.change-control .cc-edited-badge:focus-visible {
+    box-shadow: inset 0 0 0 1px currentColor;
+    outline: none;
+}
+
+@media (max-width: 768px) {
+    .change-control .cc-edit-actions {
+        display: none;
+    }
+
+    .change-control .cc-card-footer .cc-phone-inline.btn {
+        justify-content: center;
+        align-items: center;
+    }
+
+    .change-control .cc-card-footer .btn-primary {
+        flex-basis: 100%;
+    }
+
+    .change-control .cc-card-footer .cc-remaining,
+    .change-control .cc-card-footer .muted-text {
+        flex-basis: 100%;
+    }
+}
+
+/* Alerts & Schedule - Incidents: changes before an incident */
+.cc-incident-changes {
+    margin-top: 1rem;
+    padding-top: 0.75rem;
+    border-top: 1px solid var(--border-color);
+    font-size: 0.8125rem;
+}
+
+.cc-incident-change {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.5rem 0.75rem;
+    padding: 0.4rem 0;
+}
+
+.cc-incident-change .cc-link-btn {
+    background: none;
+    border: 0;
+    padding: 0;
+    color: var(--primary-hover);
+    cursor: pointer;
+    text-align: left;
+    font: inherit;
+}
+
+.cc-incident-change .btn {
+    margin-left: auto;
+}
+
+@media (max-width: 768px) {
+    .cc-incident-change .btn {
+        min-height: 44px;
+        margin-left: 0;
+    }
+}
+
+/* Change Control - Snapshots: Templates card */
+.change-control .cc-template-row {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.75rem 1rem;
+    padding: 12px 16px;
+    border-top: 1px solid var(--border-color);
+}
+
+.change-control .cc-template-main {
+    flex: 1 1 260px;
+    min-width: 0;
+}
+
+.change-control .cc-template-form {
+    border-top: 1px solid var(--border-color);
+}
+
+.change-control .cc-template-form .form-row {
+    display: flex;
+    gap: 1rem;
+    flex-wrap: wrap;
+}
+
+.change-control .cc-template-form .form-row > .form-group {
+    flex: 1 1 180px;
+    min-width: 0;
+}
+
+.change-control .cc-template-collections {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 0.4rem 1rem;
+}
+
+.change-control .cc-template-yaml {
+    font-family: var(--font-mono, ui-monospace, monospace);
+    font-size: 0.8125rem;
+}
+
+@media (max-width: 768px) {
+    .change-control .cc-template-form .form-row {
+        flex-direction: column;
+        gap: 0;
+    }
+
+    .change-control .cc-template-form .form-row > .form-group {
+        flex: 0 0 auto;
+    }
+
+    .change-control .cc-template-row .cc-row-actions .btn {
+        min-height: 44px;
+    }
+}
+
+@media (max-width: 768px) {
+    .change-control .cc-template-row .cc-row-actions {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 0.5rem;
+        width: 100%;
+    }
+}
+
+/* Change Control - Migrate */
+.change-control button.cc-action-card {
+    font: inherit;
+    width: 100%;
+}
+
+.change-control .cc-device-pair {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+    gap: 1rem;
+    align-items: center;
+    padding: 16px;
+}
+
+.change-control .cc-device-box {
+    background: var(--bg-tertiary);
+    border-radius: var(--border-radius);
+    padding: 12px 16px;
+    min-width: 0;
+}
+
+.change-control .cc-device-box b {
+    display: block;
+    margin: 0.15rem 0;
+}
+
+.change-control .cc-migrate-form {
+    display: flex;
+    gap: 1rem;
+    flex-wrap: wrap;
+}
+
+.change-control .cc-migrate-form > .form-group {
+    flex: 1 1 260px;
+    min-width: 0;
+}
+
+.change-control .cc-port-table td {
+    vertical-align: middle;
+}
+
+.change-control .cc-port-select {
+    max-width: 240px;
+}
+
+.change-control .cc-select-error {
+    border-color: var(--danger-color);
+}
+
+.change-control .cc-row-error {
+    background: rgba(238, 99, 104, 0.08);
+}
+
+.change-control .cc-inline-ack {
+    display: inline-flex;
+    margin-left: 0.75rem;
+}
+
+.change-control .cc-card-note {
+    padding: 10px 16px;
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+    border-top: 1px solid var(--border-color);
+}
+
+.change-control .cc-setting-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 1rem;
+    padding: 10px 16px;
+    border-top: 1px solid var(--border-color);
+    font-size: 0.875rem;
+}
+
+.change-control .cc-setting-row .status-badge,
+.change-control .cc-setting-row > .btn {
+    flex-shrink: 0;
+}
+
+.change-control .cc-recable-row > span:first-child {
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.change-control .cc-recable-row > span:last-child {
+    text-align: right;
+}
+
+.change-control .cc-map-card {
+    padding: 12px 16px;
+    border-top: 1px solid var(--border-color);
+    display: grid;
+    gap: 0.5rem;
+}
+
+.change-control .cc-map-card .cc-port-select {
+    max-width: none;
+    min-height: 44px;
+}
+
+.change-control .cc-more {
+    display: block;
+    padding: 12px 16px;
+    border-top: 1px solid var(--border-color);
+    width: 100%;
+    text-align: left;
+}
+
+.change-control .cc-pending-row {
+    display: flex;
+    padding: 10px 16px;
+    border-top: 1px solid var(--border-color);
+    min-height: 44px;
+}
+
+@media (max-width: 768px) {
+    .change-control .cc-device-pair {
+        grid-template-columns: minmax(0, 1fr);
+        gap: 0.5rem;
+    }
+}
+
+.change-control .cc-steps .cc-phone-inline {
+    display: none;
+}
+
+@media (max-width: 768px) {
+    .change-control .cc-steps .cc-phone-inline {
+        display: inline;
+    }
+
+    .change-control .cc-steps > span {
+        flex-direction: column;
+        gap: 0.25rem;
+        text-align: center;
+    }
+}
+
+
+.change-control .cc-forget {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    margin-top: 0.75rem;
+    padding-top: 0.75rem;
+    border-top: 1px solid var(--border-color);
+}
+
+/* Change Control - Migrate - Re-address Networks */
+.change-control .cc-readdress-pattern {
+    margin-bottom: 0;
+    max-width: 560px;
+}
+
+.change-control .cc-reconnect-poe {
+    margin-top: 0.5rem;
+    font-size: 0.8125rem;
+}
+
+@media (max-width: 768px) {
+    /* A phone card carries its own 16px padding: rows that pad themselves would sit 16px in from the title. */
+    .change-control .card > .cc-card-intro,
+    .change-control .card > .cc-setting-row,
+    .change-control .card > .cc-card-note,
+    .change-control .card > .cc-card-footer,
+    .change-control .card > .cc-more,
+    .change-control .card > .cc-phone-only > .cc-map-card {
+        padding-left: 0;
+        padding-right: 0;
+    }
+
+    .change-control .cc-step-row {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .change-control .cc-step-row > .btn {
+        min-height: 44px;
+    }
+}
+
+/* Change Control - Migrate - Set Up Zones */
+.change-control .cc-card-intro {
+    padding: 12px 16px 0;
+    margin: 0 0 12px;
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+}
+
+.change-control .cc-zone-head {
+    gap: 0.5rem;
+    margin-bottom: 0.6rem;
+}
+
+.change-control .cc-zone-head .cc-zone-desc {
+    font-weight: 400;
+    margin-bottom: 0;
+}
+
+.change-control .cc-zone.current {
+    border-color: var(--primary-hover);
+}
+
+.change-control .cc-zone-add {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-style: dashed;
+}
+
+.change-control .cc-zone-add.is-idle {
+    cursor: pointer;
+    transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.change-control .cc-zone-add.is-idle:hover {
+    border-color: var(--primary-hover);
+    background: var(--bg-hover);
+}
+
+.change-control .cc-moving {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 1rem;
+}
+
+.change-control .cc-zone-mode {
+    margin: 0;
+}
+
+@media (max-width: 768px) {
+    .change-control .cc-zone-empty {
+        display: none;
+    }
+
+    .change-control .cc-zone {
+        min-height: 0;
+    }
+
+    .change-control .cc-zone-mode-phone .cc-zone-mode {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        margin-bottom: 1rem;
+    }
+
+    .change-control .cc-zone-mode-phone .time-btn {
+        min-height: 44px;
+    }
+}
+
 /* "On this page" (js/card-index.js): beside the content when the gutter fits, else a row above the first card. */
 .card-index {
     position: fixed;
@@ -23411,4 +26468,41 @@ body:has(.top-bar-hidden) .btn-fit {
         animation: none;
         transition: none;
     }
+}
+
+/* iOS home-screen app: a download goes to the share sheet, opened from this bar when the tap that asked for it has expired. */
+.save-file-prompt {
+    position: fixed;
+    left: 16px;
+    right: 16px;
+    bottom: calc(16px + env(safe-area-inset-bottom));
+    z-index: 2000;
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.75rem 0.75rem 0.75rem 1rem;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+    color: var(--text-primary);
+}
+
+.save-file-prompt .save-file-name {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 0.875rem;
+}
+
+.save-file-prompt .save-file-close {
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    font-size: 1.25rem;
+    line-height: 1;
+    padding: 0.25rem 0.4rem;
+    cursor: pointer;
 }

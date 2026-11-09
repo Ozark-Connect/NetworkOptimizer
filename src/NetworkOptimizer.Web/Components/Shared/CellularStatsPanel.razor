@@ -1,9 +1,12 @@
 @using NetworkOptimizer.Web.Services
 @using NetworkOptimizer.Monitoring.Models
+@using NetworkOptimizer.Web.Services.Monitoring
 @using Microsoft.JSInterop
 @inject ICellularModemService ModemService
+@inject ISignalSparklineService SparkService
 @inject IJSRuntime JS
 @implements IDisposable
+@inject IDisplayTimeZone DisplayTime
 
 <div class="cellular-stats-panel" data-tour="cellular-radio-reset">
     @if (isLoading)
@@ -98,21 +101,27 @@
                 <span class="status-label">@modemStats.ModemName</span>
             </div>
             <div class="tc-timestamp">
-                <small>Updated: @modemStats.Timestamp.ToLocalTime().ToString("HH:mm:ss")</small>
+                <small>Updated: @modemStats.Timestamp.ToLocalTime(DisplayTime).ToString(DisplayTime.Format.TimeSeconds, DisplayFormat.Culture)</small>
             </div>
         </div>
 
         <!-- Signal Quality Bar -->
-        <div class="signal-quality-section">
-            <div class="signal-bars">
-                @for (int i = 1; i <= 5; i++)
-                {
-                    <div class="signal-bar @(i <= GetSignalBars() ? "active" : "")"></div>
-                }
-            </div>
-            <div class="signal-quality-text">
-                <span class="quality-value">@modemStats.SignalQuality%</span>
-                <span class="quality-label">Signal Quality</span>
+        <div class="signal-quality-section signal-spark-host">
+            @{ var qFloor = QualityFloor(_spark, modemStats.SignalQuality); }
+            <SignalSparkline Points="_spark" Current="modemStats.SignalQuality" DomainLow="qFloor" DomainHigh="100"
+                             Stops="SignalGauge.QualityStops(qFloor)" EndClass="@QualityClass(modemStats.SignalQuality)" Join="SignalSparkline.SparkJoin.Level"
+                             TaperFill="currentColor" TaperUp="calc(var(--spark-root-h, 5.6px) - 0.875px)" />
+            <div class="cell-spark-hero" data-spark-value>
+                <div class="signal-bars @QualityClass(modemStats.SignalQuality)" data-spark-anchor="root">
+                    @for (int i = 1; i <= 5; i++)
+                    {
+                        <div class="signal-bar @(i <= GetSignalBars() ? "active" : "")"></div>
+                    }
+                </div>
+                <div class="signal-quality-text">
+                    <span class="quality-value">@modemStats.SignalQuality%</span>
+                    <span class="quality-label">Signal Quality</span>
+                </div>
             </div>
             <div class="modem-nav">
                 @if (configuredModems.Count > 1)
@@ -122,7 +131,7 @@
                     <button class="nav-btn" @onclick="NextModem" @onclick:stopPropagation disabled="@(currentModemIndex >= configuredModems.Count - 1)">›</button>
                 }
             </div>
-            <div class="modem-identity" data-tour="cellular-identity" data-tooltip="@DeviceTooltip()" data-tooltip-wide @onclick:stopPropagation>
+            <div class="modem-identity" data-spark-model data-tour="cellular-identity" data-tooltip="@DeviceTooltip()" data-tooltip-wide @onclick:stopPropagation>
                 @if (DeviceBrand() != null)
                 {
                     <div class="cm-model">
@@ -190,9 +199,10 @@
         <div class="cellular-metrics">
             @if (modemStats.Nr5g != null && (modemStats.Nr5g.Rsrp.HasValue || modemStats.Nr5g.Rsrq.HasValue || modemStats.Nr5g.Snr.HasValue))
             {
-                <div class="metric-box metric-5g">
+                <div class="metric-box metric-5g signal-spark-host">
+                    @RsrpSpark(_nrSpark, modemStats.Nr5g.Rsrp, is5g: true)
                     <div class="metric-header">5G NR</div>
-                    <div class="metric-content">
+                    <div class="metric-content" data-spark-fill>
                         <div class="metric-row">
                             <span class="metric-label">RSRP:</span>
                             <span class="metric-value @GetRsrpClass(modemStats.Nr5g.Rsrp, is5g: true)">@modemStats.Nr5g.Rsrp?.ToString("F1") dBm</span>
@@ -219,9 +229,10 @@
             }
             @if (modemStats.Lte != null && (modemStats.Lte.Rsrp.HasValue || modemStats.Lte.Rsrq.HasValue || modemStats.Lte.Snr.HasValue))
             {
-                <div class="metric-box metric-lte">
+                <div class="metric-box metric-lte signal-spark-host">
+                    @RsrpSpark(_lteSpark, modemStats.Lte.Rsrp, is5g: false)
                     <div class="metric-header">LTE</div>
-                    <div class="metric-content">
+                    <div class="metric-content" data-spark-fill>
                         <div class="metric-row">
                             <span class="metric-label">RSRP:</span>
                             <span class="metric-value @GetRsrpClass(modemStats.Lte.Rsrp, is5g: false)">@modemStats.Lte.Rsrp?.ToString("F1") dBm</span>
@@ -365,9 +376,23 @@
         background: var(--success-color, #22c55e);
     }
 
+    /* Lit bars take the reading's grade, the same color the hero sparkline ends in where it meets them. */
+    .signal-bars.signal-excellent .signal-bar.active { background: var(--signal-excellent); }
+    .signal-bars.signal-good .signal-bar.active { background: var(--signal-good); }
+    .signal-bars.signal-fair .signal-bar.active { background: var(--signal-fair); }
+    .signal-bars.signal-weak .signal-bar.active { background: var(--signal-weak); }
+    .signal-bars.signal-poor .signal-bar.active { background: var(--signal-poor); }
+
     .signal-quality-text {
         display: flex;
         flex-direction: column;
+    }
+
+    /* Bars and reading slide right as one group when the hero's sparkline comes forward. */
+    .cell-spark-hero {
+        display: flex;
+        align-items: center;
+        gap: 1rem;
     }
 
     .quality-value {
@@ -591,6 +616,7 @@
                             modemStats = newStats;
                             pollError = null;
                         }
+                        await RefreshSparkAsync();
                     }
                     StateHasChanged();
                 }
@@ -636,6 +662,7 @@
                         modemStats = await ModemService.GetCachedStatsAsync(modem.Id);
                     }
                 }
+                await RefreshSparkAsync();
             }
         }
         finally
@@ -759,6 +786,8 @@
             var cached = await ModemService.GetCachedStatsAsync(modem.Id);
             modemStats = cached;
             pollError = null;
+            _spark = null;
+            await RefreshSparkAsync();
             StateHasChanged();
 
             if (cached == null)
@@ -876,6 +905,65 @@
         if (snr >= 10) return "fair";
         return "poor";
     }
+
+    /// <summary>The last 24 hours of signal quality for the shown modem; null draws no sparkline.</summary>
+    private IReadOnlyList<SparkPoint>? _spark;
+
+    /// <summary>The last 24 hours of RSRP on each leg, for the 5G NR and LTE boxes.</summary>
+    private IReadOnlyList<SparkPoint>? _nrSpark, _lteSpark;
+
+    private async Task RefreshSparkAsync()
+    {
+        if (configuredModems.Count == 0 || currentModemIndex >= configuredModems.Count)
+        {
+            (_spark, _nrSpark, _lteSpark) = (null, null, null);
+            return;
+        }
+        var id = configuredModems[currentModemIndex].Id;
+        try { _spark = await SparkService.GetCellularQualityAsync(id); }
+        catch { _spark = null; }
+        try { _nrSpark = await SparkService.GetCellularRsrpAsync(id, nr: true); }
+        catch { _nrSpark = null; }
+        try { _lteSpark = await SparkService.GetCellularRsrpAsync(id, nr: false); }
+        catch { _lteSpark = null; }
+    }
+
+    // RSRP scales for the boxes' sparklines, wide enough either side of the grade bounds in GetRsrpClass.
+    private static readonly IReadOnlyList<GaugeStop> NrRsrpStops = SignalGauge.RsrpStops(-125, -65, fair: -100, good: -90);
+    private static readonly IReadOnlyList<GaugeStop> LteRsrpStops = SignalGauge.RsrpStops(-130, -70, fair: -110, good: -100);
+
+    /// <summary>A box's RSRP sparkline, and the live reading it shows in the box's corner on hover.</summary>
+    private RenderFragment RsrpSpark(IReadOnlyList<SparkPoint>? points, double? rsrp, bool is5g) => __builder =>
+    {
+        if (!rsrp.HasValue) return;
+        var grade = GetRsrpClass(rsrp, is5g) switch { "good" => "signal-good", "fair" => "signal-fair", _ => "signal-poor" };
+        <SignalSparkline Points="points" Current="rsrp" DomainLow="@(is5g ? -125 : -130)" DomainHigh="@(is5g ? -65 : -70)"
+                         Stops="@(is5g ? NrRsrpStops : LteRsrpStops)" EndClass="@grade" />
+        <span class="spark-box-readout @grade" aria-hidden="true">
+            <span class="spark-box-readout-label">RSRP 24h</span>
+            @($"{rsrp.Value:F1} dBm")
+        </span>
+    };
+
+    /// <summary>
+    /// The bottom of the hero sparkline's quality scale: 50%, so a healthy modem's day fills the box,
+    /// or lower in steps of 10 when the day dipped below it.
+    /// </summary>
+    internal static double QualityFloor(IReadOnlyList<SparkPoint>? points, int current)
+    {
+        var low = Math.Min(current, points is { Count: > 0 } ? points.Min(p => p.Value) : current);
+        return low >= 50 ? 50 : Math.Max(0, Math.Floor((low - 5) / 10) * 10);
+    }
+
+    /// <summary>The signal-* grade of a quality reading, at the same steps where <see cref="GetSignalBars"/> adds a bar.</summary>
+    private static string QualityClass(int quality) => quality switch
+    {
+        >= 80 => "signal-excellent",
+        >= 60 => "signal-good",
+        >= 40 => "signal-fair",
+        >= 20 => "signal-weak",
+        _ => "signal-poor",
+    };
 
     private int GetSignalBars()
     {

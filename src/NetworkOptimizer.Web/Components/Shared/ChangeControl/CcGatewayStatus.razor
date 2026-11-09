@@ -1,0 +1,52 @@
+@implements IDisposable
+@using NetworkOptimizer.Web.Services.ChangeControl
+@inject IChangeControlService Site
+@inject IChangeControlFleetService Fleet
+@inject ILogger<CcGatewayStatus> Logger
+
+@if (_provisioning is { } provisioning)
+{
+    var justDone = !provisioning && DateTime.UtcNow < _provisionedUntil;
+    <span class="cc-gateway-status @(Mobile ? "" : "hide-mobile") @(provisioning ? "is-provisioning" : justDone ? "is-done" : "")">
+        <span class="status-dot @(provisioning ? "provisioning" : "online")"></span>
+        @(provisioning ? "Gateway provisioning" : justDone ? "Gateway provisioned" : "Gateway ready")
+    </span>
+}
+
+@code {
+    /// <summary>Shown on phones too; the tab row hides it there because the row scrolls sideways.</summary>
+    [Parameter] public bool Mobile { get; set; }
+
+    /// <summary>A site other than the one in context (Changes with one site chosen). Give the component a matching @key.</summary>
+    [Parameter] public string? SiteSlug { get; set; }
+
+    private static readonly TimeSpan Poll = TimeSpan.FromSeconds(5);
+    private static readonly TimeSpan ProvisionedShown = TimeSpan.FromSeconds(15);
+
+    private bool? _provisioning;
+    private DateTime _provisionedUntil;
+    private System.Threading.Timer? _timer;
+
+    protected override void OnInitialized() =>
+        _timer = new System.Threading.Timer(async _ =>
+        {
+            try { await InvokeAsync(RefreshAsync); }
+            catch { /* prevent timer death */ }
+        }, null, TimeSpan.Zero, Poll);
+
+    private async Task RefreshAsync()
+    {
+        bool? now;
+        try { now = SiteSlug is { } slug ? await Fleet.GetGatewayProvisioningAsync(slug) : await Site.GetGatewayProvisioningAsync(); }
+        catch (Exception ex)
+        {
+            Logger.LogDebug(ex, "Gateway state failed to load");
+            now = null;
+        }
+        if (_provisioning == true && now == false) _provisionedUntil = DateTime.UtcNow + ProvisionedShown;
+        _provisioning = now;
+        StateHasChanged();
+    }
+
+    public void Dispose() => _timer?.Dispose();
+}

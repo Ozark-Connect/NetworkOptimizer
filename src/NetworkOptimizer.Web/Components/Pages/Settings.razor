@@ -71,6 +71,7 @@
 @using NetworkOptimizer.Alerts.Models
 @using NetworkOptimizer.Web.Components.Shared
 @inject Microsoft.AspNetCore.Mvc.ViewFeatures.IFileVersionProvider FileVersionProvider
+@inject IDisplayTimeZone DisplayTime
 
 <NavigationLock OnBeforeInternalNavigation="ConfirmLeaveAsync" />
 
@@ -354,6 +355,12 @@
         </div>
     </div>
 
+    @if (SiteContext.IsDefault)
+    {
+    <!-- Time Zone -->
+    <TimeZoneSettingsCard />
+    }
+
     @* Admin login is instance-wide, so the password is only managed on the main site - and only by a
        global Admin. IsDefault alone answers "are we on the main site", not "may you do this": a Site
        Admin of the main site reaches Settings here, and would have been shown a control that sets the
@@ -594,7 +601,7 @@
             @if (gatewaySettings?.LastTestedAt != null)
             {
                 <div class="form-help" style="margin-top: 1rem;">
-                    Last tested: @gatewaySettings.LastTestedAt?.ToLocalTime().ToString("g") - @gatewaySettings.LastTestResult
+                    Last tested: @gatewaySettings.LastTestedAt?.ToLocalTime(DisplayTime).ToString(DisplayTime.Format.DateTime, DisplayFormat.Culture) - @gatewaySettings.LastTestResult
                 </div>
             }
 
@@ -713,7 +720,7 @@
             @if (sshSettings?.LastTestedAt != null)
             {
                 <div class="form-help" style="margin-top: 1rem;">
-                    Last tested: @sshSettings.LastTestedAt?.ToLocalTime().ToString("g") - @sshSettings.LastTestResult
+                    Last tested: @sshSettings.LastTestedAt?.ToLocalTime(DisplayTime).ToString(DisplayTime.Format.DateTime, DisplayFormat.Culture) - @sshSettings.LastTestResult
                 </div>
             }
 
@@ -973,7 +980,7 @@
             {
                 <div class="form-group">
                     <label class="form-label">Last Detected</label>
-                    <div class="form-value">@_monitoringSettings.LastSnmpDetection.Value.ToString("g")</div>
+                    <div class="form-value">@_monitoringSettings.LastSnmpDetection.Value.ToLocalTime(DisplayTime).ToString(DisplayTime.Format.DateTime, DisplayFormat.Culture)</div>
                 </div>
             }
 
@@ -1361,7 +1368,7 @@
                                         <span class="status-badge status-disconnected">Disabled</span>
                                     }
                                 </td>
-                                <td>@(modem.LastPolled?.ToLocalTime().ToString("g") ?? "Never")</td>
+                                <td>@(modem.LastPolled?.ToLocalTime(DisplayTime).ToString(DisplayTime.Format.DateTime, DisplayFormat.Culture) ?? "Never")</td>
                                 <td>
                                     <div class="btn-group-wrap">
                                         <button class="btn btn-secondary btn-sm" @onclick="() => EditModem(modem)">Edit</button>
@@ -1688,7 +1695,7 @@
                                         <span class="status-badge status-disconnected">Disabled</span>
                                     }
                                 </td>
-                                <td>@(cm.LastPolled?.ToLocalTime().ToString("g") ?? "Never")</td>
+                                <td>@(cm.LastPolled?.ToLocalTime(DisplayTime).ToString(DisplayTime.Format.DateTime, DisplayFormat.Culture) ?? "Never")</td>
                                 <td>
                                     <div class="btn-group-wrap">
                                         <button class="btn btn-secondary btn-sm" @onclick="() => EditCm(cm)">Edit</button>
@@ -1975,7 +1982,7 @@
                                         <span class="status-badge status-disconnected">Disabled</span>
                                     }
                                 </td>
-                                <td>@(ont.LastPolled?.ToLocalTime().ToString("g") ?? "Never")</td>
+                                <td>@(ont.LastPolled?.ToLocalTime(DisplayTime).ToString(DisplayTime.Format.DateTime, DisplayFormat.Culture) ?? "Never")</td>
                                 <td>
                                     <div class="btn-group-wrap">
                                         <button class="btn btn-secondary btn-sm" @onclick="() => EditOnt(ont)">Edit</button>
@@ -2043,6 +2050,7 @@
                                 <option value="nokia-xs010x-q">Nokia XS-010X-Q (HTTP)</option>
                                 <option value="zyxel-gpon-sfp">Zyxel GPON-SFP PMG3000 (HTTP)</option>
                                 <option value="richerlink-ont">Richerlink RL821GWV-D (HTTP)</option>
+                                <option value="peter-pon">Peter-Pon GPON Firmware (HTTP)</option>
                                 <option value="netopt-custom">Network Optimizer Custom (HTTP JSON)</option>
                                 <option value="generic-http-ont">Generic HTTP ONT</option>
                             </select>
@@ -2088,7 +2096,7 @@
                     <div class="form-row">
                         <div class="form-group" style="flex: 1;">
                             <label class="form-label">Username</label>
-                            <input type="text" class="form-control" @bind="_editingOnt.Username" @bind:event="oninput" placeholder="admin" autocomplete="off" data-1p-ignore data-lpignore="true" data-bwignore />
+                            <input type="text" class="form-control" @bind="_editingOnt.Username" @bind:event="oninput" placeholder="@(_editingOnt.Provider == "peter-pon" ? "root" : "admin")" autocomplete="off" data-1p-ignore data-lpignore="true" data-bwignore />
                         </div>
                         <div class="form-group" style="flex: 1;">
                             <label class="form-label">Password</label>
@@ -2228,7 +2236,7 @@
                                         <span class="status-badge status-disconnected">Disabled</span>
                                     }
                                 </td>
-                                <td>@(terminal.LastPolled?.ToLocalTime().ToString("g") ?? "Never")</td>
+                                <td>@(terminal.LastPolled?.ToLocalTime(DisplayTime).ToString(DisplayTime.Format.DateTime, DisplayFormat.Culture) ?? "Never")</td>
                                 <td>
                                     <div class="btn-group-wrap">
                                         <button class="btn btn-secondary btn-sm" @onclick="() => EditStarlink(terminal)">Edit</button>
@@ -2727,6 +2735,14 @@
             </div>
 
             <div class="form-group" style="margin-top: 1.5rem;">
+                <label class="checkbox-label">
+                    <input type="checkbox" @bind="allowGuestPublicDns" />
+                    <span>Allow Guest / Hotspot Public DNS</span>
+                </label>
+                <small class="form-help">Leaves Guest and Hotspot networks out of DNS leak checks (port 53, DNAT, DoT, DoQ, DoH) and out of Fix it for me. Off by default: guest networks get the same DNS control as every other network.</small>
+            </div>
+
+            <div class="form-group" style="margin-top: 1.5rem;">
                 <label class="form-label">DNAT DNS Coverage: Excluded VLANs (optional)</label>
                 <input type="text" class="form-control" @bind="dnatExcludedVlans" @bind:event="oninput" placeholder="e.g., 100, 200" style="width: 240px;" />
                 <small class="form-help">Comma-separated VLAN IDs to exclude from DNAT DNS coverage checks. Use this for networks that intentionally bypass DNS redirection (e.g., management VLANs).</small>
@@ -3054,7 +3070,7 @@
                             </div>
                         }
                         <div class="form-group">
-                            <label class="form-label">Time (@_serverTzAbbrev)</label>
+                            <label class="form-label">Time (@_displayTzAbbrev)</label>
                             <input type="time" class="form-control" @bind="channelDigestTime" />
                         </div>
                     }
@@ -3521,7 +3537,7 @@
                                     <span class="text-muted">Export type:</span>
                                     <span>@(importPreview.ExportType == "Full" ? "Full backup" : "Settings only")</span>
                                     <span class="text-muted">Export date:</span>
-                                    <span>@importPreview.ExportDate.ToLocalTime().ToString("MMM d, yyyy h:mm tt")</span>
+                                    <span>@importPreview.ExportDate.ToLocalTime(DisplayTime).ToString(DisplayTime.Format.DateTime, DisplayFormat.Culture)</span>
                                     <span class="text-muted">App version:</span>
                                     <span>@importPreview.AppVersion</span>
                                     @if (importPreview.TableCounts.Count > 0)
@@ -3687,7 +3703,8 @@
                 settings.
             </p>
 
-            @if (!_multiSiteEnabled)
+            @* Not before the flag is read: the field starts false, so an enabled instance would offer the switch. *@
+            @if (_multiSiteLoaded && !_multiSiteEnabled)
             {
                 <p class="section-description">
                     Multi-WAN monitoring needs this on as well: the agent that probes a second WAN
@@ -3788,7 +3805,7 @@
                                             }
                                         </td>
                                         <td><code>@site.Slug</code></td>
-                                        <td class="hide-mobile">@(site.IsDefault ? "" : site.CreatedAt.ToLocalTime().ToString("MMM d, yyyy"))</td>
+                                        <td class="hide-mobile">@(site.IsDefault ? "" : site.CreatedAt.ToLocalTime(DisplayTime).ToString(DisplayTime.Format.Date, DisplayFormat.Culture))</td>
                                         <td>
                                             @if (site.IsDefault)
                                             {
@@ -3925,7 +3942,7 @@
                                                                         }
                                                                         else
                                                                         {
-                                                                            <text>Last seen @agent.LastSeenAt?.ToLocalTime().ToString("MMM d, h:mm tt")</text>
+                                                                            <text>Last seen @agent.LastSeenAt?.ToLocalTime(DisplayTime).ToString(DisplayTime.Format.DayTime, DisplayFormat.Culture)</text>
                                                                         }
                                                                     </span>
                                                                     <button type="button" class="btn btn-secondary btn-sm" @onclick="() => ToggleAgentEnabled(site, agent)">
@@ -4151,6 +4168,11 @@
                     </div>
                 </div>
 
+                @if (!string.IsNullOrEmpty(_multiSiteMessage))
+                {
+                    <div class="alert alert-@_multiSiteMessageClass">@_multiSiteMessage</div>
+                }
+
                 <TrustedSourcesMatrix Sites="@_sites.Where(s => s.Enabled).ToList()" />
 
                 @* The wizard shows its own first step (Add a site) only to an Admin; a Site Admin
@@ -4176,11 +4198,6 @@
                     </div>
                 </details>
                 </AdminOnly>
-            }
-
-            @if (!string.IsNullOrEmpty(_multiSiteMessage))
-            {
-                <div class="alert alert-@_multiSiteMessageClass">@_multiSiteMessage</div>
             }
         </div>
     </div>
@@ -4265,6 +4282,7 @@
         ["wan-flood-protection"] = "security",
         ["trusted-sources"] = "security",
         ["trusted-sources-matrix"] = "multisite",
+        ["time-zone"] = "application",
         ["admin-password"] = "application",
         ["licensing"] = "application",
         ["application-settings"] = "application",
@@ -4475,6 +4493,18 @@
             return;
         }
 
+        // Lives on another page (the account Security page): go there and ring it once it renders.
+        if (!hit.Entry.Route.StartsWith("/settings", StringComparison.OrdinalIgnoreCase))
+        {
+            NavigationManager.NavigateTo(hit.Entry.Route);
+            if (!string.IsNullOrEmpty(hit.Entry.Anchor))
+            {
+                await Task.Delay(300);
+                await JS.InvokeVoidAsync("noHighlightTarget", hit.Entry.Anchor);
+            }
+            return;
+        }
+
         var tab = ResolveTab(hit.Entry.Key);
 
         // A route carrying more than its tab carries the part a tab switch cannot reproduce: the
@@ -4547,6 +4577,7 @@
     </button>;
 
     private bool _multiSiteEnabled = false;
+    private bool _multiSiteLoaded;
     private List<Site> _sites = new();
     private string _multiSiteMessage = "";
     private string _multiSiteMessageClass = "";
@@ -4554,6 +4585,7 @@
     private async Task LoadMultiSiteSettings()
     {
         _multiSiteEnabled = await SiteManagement.IsMultiSiteEnabledAsync();
+        _multiSiteLoaded = true;
         if (_multiSiteEnabled)
         {
             _sites = await SiteManagement.GetSitesAsync();
@@ -4745,7 +4777,7 @@
         // it may be sitting on the agent step for the very site just deleted.
         _setupWizard?.Reset();
         _multiSiteMessage = $"Site \"{site.Name}\" was removed.";
-        _multiSiteMessageClass = "success";
+        _multiSiteMessageClass = "info";
         await RefreshSites();
     }
 
@@ -5509,6 +5541,7 @@
     private string dnatExcludedVlans = "";
     private string? piholeManagementEndpoint;
     private string trustedDnsRedirectTargets = "";
+    private bool allowGuestPublicDns = false;
     private int unusedPortInactivityDays = 15;
     private int namedPortInactivityDays = 45;
     private int pdfTopSourcesRows = NetworkOptimizer.Reports.ThreatSummaryData.DefaultTopSourcesRows;
@@ -5553,7 +5586,7 @@
     private string channelDigestFrequency = "daily";
     private string channelDigestDay = "monday";
     private TimeOnly channelDigestTime = new(8, 0);
-    private readonly string _serverTzAbbrev = GetServerTimezoneAbbrev();
+    private string _displayTzAbbrev => DisplayTime.Abbreviation(DateTime.UtcNow);
     private bool savingAlertChannel = false;
     private bool testingAlertChannel = false;
     private int testingAlertChannelId = 0;
@@ -5711,6 +5744,9 @@
         _canEditInstanceSettings = authState is not null
             && (await Authz.AuthorizeAsync(authState.User, Policies.RequireAdmin)).Succeeded;
 
+        // Before the loads below: one of them calls the console live, and multi-site is a database read.
+        await LoadMultiSiteSettings();
+
         // Pre-release update notifications default ON (global/instance-wide); only an explicit "false" opts out.
         var prereleaseSetting = await SystemSettings.GetGlobalAsync("updates.include_prereleases");
         receivePrereleaseUpdates = prereleaseSetting is null || (bool.TryParse(prereleaseSetting, out var prPre) && prPre);
@@ -5753,7 +5789,6 @@
         await LoadThreatSettings();
         await LoadMonitoringSettings();
         await LoadMapboxToken();
-        await LoadMultiSiteSettings();
         SiteChangeNotifier.SitesChanged += OnSiteRegistryChanged;
 
         if (_multiSiteEnabled)
@@ -8100,7 +8135,7 @@
     }
 
     /// <summary>Providers implementing ISfpSupplementalOntProvider, which can merge into a monitored SFP module.</summary>
-    private static readonly HashSet<string> SfpAttachableOntProviders = new() { "netopt-custom", "realtek-ont" };
+    private static readonly HashSet<string> SfpAttachableOntProviders = new() { "netopt-custom", "realtek-ont", "peter-pon" };
 
     private static int GetOntProviderDefaultPort(string provider) => provider switch
     {
@@ -8120,6 +8155,7 @@
         "telekom-modem2" => "192.168.100.1",
         "nokia-xs010x-q" => "192.168.100.1",
         "zyxel-gpon-sfp" => "10.10.1.1",
+        "peter-pon" => "192.168.1.10",
         // realtek-ont, netopt-custom and generic-http-ont have no single sensible
         // default (vendor-dependent stick, gateway-served JSON, or generic), so nothing
         // is prefilled and the generic example placeholder is shown. richerlink-ont's
@@ -8144,6 +8180,7 @@
         "nokia-xs010x-q" => "Nokia XS-010X-Q (HTTP)",
         "zyxel-gpon-sfp" => "Zyxel GPON-SFP PMG3000 (HTTP)",
         "richerlink-ont" => "Richerlink RL821GWV-D (HTTP)",
+        "peter-pon" => "Peter-Pon GPON Firmware (HTTP)",
         "netopt-custom" => "Network Optimizer Custom (HTTP JSON)",
         "generic-http-ont" => "Generic HTTP ONT",
         _ => provider,
@@ -8641,6 +8678,7 @@
             var excludedVlans = await SystemSettings.GetAsync(SiteContext.Slug, "audit:dnatExcludedVlans");
             var piholePort = await SystemSettings.GetAsync(SiteContext.Slug, "audit:piholeManagementPort");
             var trustedTargets = await SystemSettings.GetAsync(SiteContext.Slug, "audit:trustedDnsRedirectTargets");
+            var guestPublicDns = await SystemSettings.GetAsync(SiteContext.Slug, AuditOptions.AllowGuestPublicDnsKey);
             var unusedPortDays = await SystemSettings.GetAsync(SiteContext.Slug, "audit:unusedPortInactivityDays");
             var namedPortDays = await SystemSettings.GetAsync(SiteContext.Slug, "audit:namedPortInactivityDays");
             var topSourcesRows = await SystemSettings.GetAsync(SiteContext.Slug, ThreatReportRows.TopSourcesSettingKey);
@@ -8659,6 +8697,8 @@
             piholeManagementEndpoint = string.IsNullOrWhiteSpace(piholePort) ? null : piholePort;
             // Trusted DNS redirect targets (VIPs, anycast)
             trustedDnsRedirectTargets = trustedTargets ?? "";
+            // Guest and Hotspot networks are checked for DNS control unless allowed public DNS
+            allowGuestPublicDns = guestPublicDns?.ToLower() == "true";
             // Unused port thresholds (defaults: 15 days unnamed, 45 days named)
             unusedPortInactivityDays = int.TryParse(unusedPortDays, out var unusedDays) && unusedDays > 0 ? unusedDays : 15;
             namedPortInactivityDays = int.TryParse(namedPortDays, out var namedDays) && namedDays > 0 ? namedDays : 45;
@@ -8707,6 +8747,7 @@
                 ["audit:dnatExcludedVlans"] = dnatExcludedVlans ?? "",
                 ["audit:piholeManagementPort"] = endpoint ?? "",
                 ["audit:trustedDnsRedirectTargets"] = trustedDnsRedirectTargets ?? "",
+                [AuditOptions.AllowGuestPublicDnsKey] = allowGuestPublicDns.ToString().ToLower(),
                 ["audit:unusedPortInactivityDays"] = unusedPortInactivityDays.ToString(),
                 ["audit:namedPortInactivityDays"] = namedPortInactivityDays.ToString(),
                 [ThreatReportRows.TopSourcesSettingKey] = pdfTopSourcesRows.ToString(),
@@ -8908,14 +8949,14 @@
             channelDigestFrequency = "weekly";
             channelDigestDay = parts[1].ToLowerInvariant();
             var utcDt = DateTime.UtcNow.Date.AddHours(wh).AddMinutes(wm);
-            var localDt = utcDt.ToLocalTime();
+            var localDt = utcDt.ToLocalTime(DisplayTime);
             channelDigestTime = new TimeOnly(localDt.Hour, localDt.Minute);
         }
         else if (parts.Length >= 3 && int.TryParse(parts[1], out var dh) && int.TryParse(parts[2], out var dm))
         {
             channelDigestFrequency = "daily";
             var utcDt = DateTime.UtcNow.Date.AddHours(dh).AddMinutes(dm);
-            var localDt = utcDt.ToLocalTime();
+            var localDt = utcDt.ToLocalTime(DisplayTime);
             channelDigestTime = new TimeOnly(localDt.Hour, localDt.Minute);
         }
         else
@@ -8930,23 +8971,14 @@
     /// </summary>
     private string BuildDigestScheduleUtc()
     {
-        var localDt = DateTime.Today.Add(channelDigestTime.ToTimeSpan());
-        var utcDt = localDt.ToUniversalTime();
+        var localDt = DisplayTime.Now.Date.Add(channelDigestTime.ToTimeSpan());
+        var utcDt = DisplayTime.ToUtc(localDt);
         var hh = utcDt.Hour.ToString("D2");
         var mm = utcDt.Minute.ToString("D2");
 
         return channelDigestFrequency == "weekly"
             ? $"weekly:{channelDigestDay}:{hh}:{mm}"
             : $"daily:{hh}:{mm}";
-    }
-
-    private static string GetServerTimezoneAbbrev()
-    {
-        var tz = TimeZoneInfo.Local;
-        var now = DateTime.Now;
-        var name = tz.IsDaylightSavingTime(now) ? tz.DaylightName : tz.StandardName;
-        var words = name.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-        return words.Length > 1 ? string.Concat(words.Select(w => w[0])) : name;
     }
 
     private async Task SaveAlertChannel()

@@ -24,18 +24,20 @@
 @inject IWiFiIssueAcknowledgmentService IssueAcknowledgments
 @implements IDisposable
 @rendermode InteractiveServer
+@inject IDisplayTimeZone DisplayTime
 
 <PageTitle>Wi-Fi Optimizer - Network Optimizer</PageTitle>
 
 <div class="page-header">
     <PageBackButton />
     <h1>Wi-Fi Optimizer</h1>
-    <p class="page-description">Site health scoring, signal analysis, and optimization recommendations</p>
+    <p class="page-description">Wi-Fi health scoring, signal analysis, and optimization recommendations</p>
 </div>
 
 <RestrictedSiteNotice />
 
 <ApTelemetryBanner Message="AP Telemetry reads Wi-Fi data straight from your access points, for client stats, roam records, and radio health the UniFi Console does not report." />
+<ApTelemetryHistoryAlert />
 
 @if (!ConnectionService.IsConnected && ConnectionService.IsInitialized)
 {
@@ -96,7 +98,7 @@
                         @GetScoreLabel(_summary?.HealthScore)
                     }
                 </div>
-                <div class="stat-label">Site Health</div>
+                <div class="stat-label">Wi-Fi Health</div>
             </div>
         </div>
 
@@ -234,7 +236,7 @@
         <!-- Metrics - Time Series Charts -->
         <div class="card card-full-width">
             <div class="card-body">
-                <NetworkOptimizer.Web.Components.Shared.WiFi.Metrics InitialApMac="@_initialApMac" InitialBand="@_initialBand" />
+                <NetworkOptimizer.Web.Components.Shared.WiFi.Metrics InitialApMac="@_initialApMac" InitialBand="@_initialBand" InitialRange="@_initialRange" />
             </div>
         </div>
     }
@@ -280,7 +282,7 @@
         <!-- Channel Analysis -->
         <div class="card card-full-width">
             <div class="card-body">
-                <NetworkOptimizer.Web.Components.Shared.WiFi.ChannelAnalysis OnClientClick="HandleMapClientClick" InitialBand="@_initialBand" InitialChannel="@_initialChannel" AutoRunRecommendation="@_autoRunRecommendation" />
+                <NetworkOptimizer.Web.Components.Shared.WiFi.ChannelAnalysis OnClientClick="HandleMapClientClick" InitialBand="@_initialBand" InitialChannel="@_initialChannel" AutoRunRecommendation="@_autoRunRecommendation" OnPlanApplied="LoadChannelRecommendationsAsync" />
             </div>
         </div>
     }
@@ -355,7 +357,7 @@
         <!-- Health Score Card -->
         <div class="card">
             <div class="card-header">
-                <h2 class="card-title">Site Health Score</h2>
+                <h2 class="card-title">Wi-Fi Health Score</h2>
                 <button class="btn btn-sm btn-secondary" @onclick="RefreshData" disabled="@_refreshing">
                     @if (_refreshing)
                     {
@@ -391,7 +393,7 @@
                             </div>
                             <div class="score-label">@GetScoreLabel(_healthScore.OverallScore)</div>
                             <div class="health-score-timestamp">
-                                Last updated: @_healthScore.Timestamp.ToLocalTime().ToString("h:mm tt")
+                                Last updated: @_healthScore.Timestamp.ToLocalTime(DisplayTime).ToString(DisplayTime.Format.Time, DisplayFormat.Culture)
                             </div>
                         </div>
 
@@ -893,6 +895,10 @@
     [SupplyParameterFromQuery(Name = "recommend")]
     public bool? RecommendQueryParam { get; set; }
 
+    /// <summary>A Metrics time range preset to open on ("1h", "1D", ...).</summary>
+    [SupplyParameterFromQuery(Name = "range")]
+    public string? RangeQueryParam { get; set; }
+
     [SupplyParameterFromQuery(Name = "edge")]
     public string? EdgeQueryParam { get; set; }
 
@@ -907,6 +913,7 @@
     private int? _initialChannel;
     private bool _autoRunRecommendation;
     private string? _initialEdge;
+    private string? _initialRange;
 
     private static readonly HashSet<string> ValidTabs = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -931,6 +938,7 @@
         _initialBand = null;
         _initialChannel = null;
         _initialEdge = null;
+        _initialRange = null;
         _autoRunRecommendation = false;
 
         // Reload AP markers when entering Speed Map tab (may have been edited on Signal Map)
@@ -950,6 +958,7 @@
         _initialBand = band;
         _initialChannel = channel;
         _initialClientMac = null;
+        _initialRange = null;
         _autoRunRecommendation = false;
 
         // Build URL with filter params
@@ -1004,7 +1013,8 @@
         await InvokeAsync(StateHasChanged);
         try
         {
-            _channelPlans = await WiFiService.GetAllChannelRecommendationsAsync(new RecommendationOptions());
+            var options = new RecommendationOptions { DfsPreference = await WiFiService.GetDefaultDfsPreferenceAsync() };
+            _channelPlans = await WiFiService.GetAllChannelRecommendationsAsync(options);
         }
         catch
         {
@@ -1160,6 +1170,7 @@
             _initialChannel = ChannelQueryParam;
             _autoRunRecommendation = RecommendQueryParam == true;
             _initialEdge = EdgeQueryParam;
+            _initialRange = RangeQueryParam;
         }
         else
         {
@@ -1237,6 +1248,7 @@
                 _initialChannel = ChannelQueryParam;
                 _autoRunRecommendation = RecommendQueryParam == true;
                 _initialEdge = EdgeQueryParam;
+                _initialRange = RangeQueryParam;
 
                 StateHasChanged();
             }

@@ -203,6 +203,10 @@ public static class AuditActions
     public const string WiFiIssueAcknowledged = "wifi.issue.acknowledged";
     public const string WiFiIssueRestored = "wifi.issue.restored";
     public const string WiFiRadioKept = "wifi.radio.kept";
+
+    // ISP Health: the operator's answers to its findings
+    public const string IspFindingAcknowledged = "isp.finding.acknowledged";
+    public const string IspFindingRestored = "isp.finding.restored";
     public const string WiFiRadioReleased = "wifi.radio.released";
 
     /// <summary>Recommended channels were written to access points in UniFi Network.</summary>
@@ -225,6 +229,33 @@ public static class AuditActions
     public const string AgentGatewayInstallCanceled = "agent.gateway_install.canceled";
 
     // Meta
+    public const string ChangeControlSnapshotTaken = "change_control.snapshot.taken";
+    public const string ChangeControlSnapshotPinned = "change_control.snapshot.pinned";
+    public const string ChangeControlSnapshotUnpinned = "change_control.snapshot.unpinned";
+    public const string ChangeControlYamlDownloaded = "change_control.yaml.downloaded";
+    public const string ChangeControlSecretsExported = "change_control.secrets.exported";
+    public const string ChangeControlSecretRevealed = "change_control.secret.revealed";
+    public const string ChangeControlPlanSaved = "change_control.plan.saved";
+    public const string ChangeControlPlanSubmitted = "change_control.plan.submitted";
+    public const string ChangeControlPlanApproved = "change_control.plan.approved";
+    public const string ChangeControlPlanApplied = "change_control.plan.applied";
+    public const string ChangeControlPlanReverted = "change_control.plan.reverted";
+    public const string ChangeControlPlanCancelled = "change_control.plan.cancelled";
+    public const string ChangeControlLockoutOverridden = "change_control.lockout.overridden";
+    /// <summary>Network Optimizer ran set-inform over SSH on a device still offline after a re-address.</summary>
+    public const string ChangeControlDeviceInformSet = "change_control.device.inform_set";
+    public const string ChangeControlBaselineSet = "change_control.baseline.set";
+    public const string ChangeControlSettingsChanged = "change_control.settings.changed";
+    public const string ChangeControlDevicesAdopted = "change_control.devices.adopted";
+    /// <summary>Clients reconnected (wireless rejoin, PoE port power-cycle) after a re-address.</summary>
+    public const string ChangeControlClientsReconnected = "change_control.clients.reconnected";
+    public const string ChangeControlDeviceForgotten = "change_control.device.forgotten";
+    public const string ChangeControlTemplateSaved = "change_control.template.saved";
+    public const string ChangeControlTemplateDeleted = "change_control.template.deleted";
+    public const string ChangeControlConsoleBackupDownloaded = "change_control.console_backup.downloaded";
+    public const string ChangeControlAttentionDismissed = "change_control.attention.dismissed";
+    public const string ChangeControlAttentionRestored = "change_control.attention.restored";
+    public const string ChangeControlChangeRecomputed = "change_control.change.recomputed";
     public const string MigrationPerformed = "audit.migration";
     public const string Pruned = "audit.pruned";
 }

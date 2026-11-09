@@ -1,5 +1,6 @@
 using System.Text.Json;
 using NetworkOptimizer.Alerts.Events;
+using NetworkOptimizer.Alerts.Interfaces;
 using NetworkOptimizer.Core.Enums;
 using NetworkOptimizer.Storage.Models;
 
@@ -58,6 +59,7 @@ public class RolloutAutopilot : IRolloutAutopilot
     private readonly TimeProvider _time;
     private readonly ILogger<RolloutAutopilot> _logger;
     private readonly Auditing.IAuditLogger? _audit;
+    private readonly INotificationTimeZoneResolver? _timeZones;
     private readonly NetworkOptimizer.Storage.Interfaces.ISharedFirmwareCatalogRepository _sharedCatalog;
     private readonly UbiquitiReleaseFeedClient _feed;
     private readonly string _siteSlug;
@@ -92,9 +94,11 @@ public class RolloutAutopilot : IRolloutAutopilot
         NetworkOptimizer.Storage.Interfaces.ISharedFirmwareCatalogRepository sharedCatalog,
         UbiquitiReleaseFeedClient feed,
         string siteSlug = SiteManagementService.DefaultSiteSlug,
-        Auditing.IAuditLogger? audit = null)
+        Auditing.IAuditLogger? audit = null,
+        INotificationTimeZoneResolver? timeZones = null)
     {
         _audit = audit;
+        _timeZones = timeZones;
         _repositories = repositories;
         _planning = planning;
         _commands = commands;
@@ -315,6 +319,8 @@ public class RolloutAutopilot : IRolloutAutopilot
         RolloutPlanResult result, QuietWindowProposal window, DateTime startAtUtc, CancellationToken cancellationToken)
     {
         var devices = RolloutPlanComposer.LiveStepCount(result);
+        var zone = _timeZones == null ? TimeZoneInfo.Local : await _timeZones.ResolveAsync(_siteSlug, cancellationToken);
+        var format = _timeZones == null ? DisplayFormat.Fallback : await _timeZones.ResolveFormatAsync(_siteSlug, cancellationToken);
 
         await _eventBus.PublishAsync(new AlertEvent
         {
@@ -326,7 +332,7 @@ public class RolloutAutopilot : IRolloutAutopilot
             Title = $"Firmware Rollout Scheduled{_siteSuffix}",
             Message =
                 $"{RolloutScopeCopy.Sentence(RolloutScopeCopy.Subject(result.Document, devices))} will be upgraded starting "
-                + $"{RolloutScopeCopy.StartTime(window.TimeZoneId, startAtUtc)}, "
+                + $"{RolloutScopeCopy.AlertStartLabel(startAtUtc, window.TimeZoneId, zone, format)}, "
                 + $"{RolloutScopeCopy.StartsIn(startAtUtc - Now)} - chosen from {window.Basis}. "
                 + "Open Firmware Rollout to postpone or stop it.",
             SourceUrl = RolloutAlerts.SourceUrl,

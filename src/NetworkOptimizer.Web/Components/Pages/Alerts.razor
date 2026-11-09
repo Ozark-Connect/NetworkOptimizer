@@ -36,6 +36,7 @@
 @inject PullToRefreshState PtrState
 @implements IDisposable
 @rendermode InteractiveServer
+@inject IDisplayTimeZone DisplayTime
 
 <PageTitle>Alerts & Schedule - Network Optimizer</PageTitle>
 
@@ -166,7 +167,7 @@
                                     <span class="schedule-detail-tag tag-muted">Hourly when idle</span>
                                     @if (endsAt.HasValue)
                                     {
-                                        <span class="schedule-detail-tag @(ended ? "tag-accent" : "tag-muted")">@(ended ? "Ended" : "Ends") @endsAt.Value.ToLocalTime().ToString("MMM d, HH:mm")</span>
+                                        <span class="schedule-detail-tag @(ended ? "tag-accent" : "tag-muted")">@(ended ? "Ended" : "Ends") @endsAt.Value.ToLocalTime(DisplayTime).ToString(DisplayTime.Format.DayTime, DisplayFormat.Culture)</span>
                                     }
                                 </div>
                                 @if (task.LastRunAt.HasValue || (task.NextRunAt.HasValue && task.Enabled))
@@ -718,7 +719,7 @@
                                     else if (_newlyEnabledWans.Contains(wanGroup) && manualAdj == 0)
                                     {
                                         var now = DateTime.UtcNow;
-                                        var (cycleStart, cycleEnd) = WanDataUsageService.GetBillingCycleDates(billingDay, now);
+                                        var (cycleStart, cycleEnd) = WanDataUsageService.GetBillingCycleDates(billingDay, now, BillingCalendar);
                                         var daysIntoCycle = (int)(now - cycleStart).TotalDays;
                                         var daysRemaining = (int)Math.Ceiling((cycleEnd - now).TotalDays);
                                         if (daysIntoCycle > 1 && daysRemaining > 2)
@@ -765,7 +766,7 @@
                                         <div class="schedule-status" style="margin-top: 0.75rem; justify-content: space-between;">
                                             <span class="schedule-status-item">
                                                 <span class="detail-label">Counting since:</span>
-                                                <span class="detail-value">@DateTime.SpecifyKind(bucketSince, DateTimeKind.Utc).ToLocalTime().ToString("MMM d, yyyy")</span>
+                                                <span class="detail-value">@DateTime.SpecifyKind(bucketSince, DateTimeKind.Utc).ToLocalTime(DisplayTime).ToString(DisplayTime.Format.Date, DisplayFormat.Culture)</span>
                                             </span>
                                             @* Zeroing the counter is what you do when a balance is
                                                topped up - part of running the site, not configuring it. *@
@@ -779,12 +780,12 @@
                                     }
                                     else
                                     {
-                                        var (dispCycleStart, dispCycleEnd) = WanDataUsageService.GetBillingCycleDates(billingDay, DateTime.Now);
+                                        var (dispCycleStart, dispCycleEnd) = WanDataUsageService.GetBillingCycleDates(billingDay, DateTime.UtcNow, BillingCalendar);
                                         var dispDaysRemaining = Math.Max(0, (int)Math.Ceiling((dispCycleEnd - DateTime.UtcNow).TotalDays));
                                         <div class="schedule-status" style="margin-top: 0.75rem;">
                                             <span class="schedule-status-item">
                                                 <span class="detail-label">Billing cycle:</span>
-                                                <span class="detail-value">@dispCycleStart.ToLocalTime().ToString("MMM d") - @dispCycleEnd.ToLocalTime().ToString("MMM d")</span>
+                                                <span class="detail-value">@WanDataUsageService.BillingDate(dispCycleStart, BillingCalendar).ToString(DisplayTime.Format.Day, DisplayFormat.Culture) - @WanDataUsageService.BillingDate(dispCycleEnd, BillingCalendar).ToString(DisplayTime.Format.Day, DisplayFormat.Culture)</span>
                                             </span>
                                             <span class="schedule-status-item">
                                                 <span class="detail-label">Days remaining:</span>
@@ -817,7 +818,7 @@
                                                             @foreach (var h in history)
                                                             {
                                                                 <tr>
-                                                                    <td>@h.CycleStart.ToLocalTime().ToString("MMM d, yyyy") - @h.CycleEnd.ToLocalTime().ToString("MMM d, yyyy")</td>
+                                                                    <td>@WanDataUsageService.BillingDate(h.CycleStart, BillingCalendar).ToString(DisplayTime.Format.Date, DisplayFormat.Culture) - @WanDataUsageService.BillingDate(h.CycleEnd, BillingCalendar).ToString(DisplayTime.Format.Date, DisplayFormat.Culture)</td>
                                                                     <td>@($"{h.UsedGb:F1}") GB</td>
                                                                     <td>@(h.CapGb > 0 ? $"{h.CapGb:F0} GB" : "-")</td>
                                                                 </tr>
@@ -1011,6 +1012,7 @@
                                 <option value="audit">Audit</option>
                                 <option value="cable_modem">Cable Modem</option>
                                 <option value="cellular">Cellular</option>
+                                <option value="change_control">Change Control</option>
                                 <option value="console">UniFi Console</option>
                                 <option value="device">Device</option>
                                 <option value="rollout">Firmware Rollout</option>
@@ -1400,6 +1402,7 @@
                                     }
                                 </div>
                             }
+                            <NetworkOptimizer.Web.Components.Shared.ChangeControl.CcIncidentChanges IncidentId="incident.Id" />
                             <div class="incident-actions">
                                 @if (incident.Status == AlertStatus.Active)
                                 {
@@ -2268,7 +2271,10 @@
     private string? _scheduleMessage;
     private string _scheduleMessageClass = "info";
     private bool CanCreateWanSchedule => (_newWanTestType == "server" && _serverTestOffered) || (_gatewayAvailable && _wanSelectorOptions.Count > 0);
-    private readonly string _serverTzAbbrev = GetServerTimezoneAbbrev();
+    private string _displayTzAbbrev => DisplayTime.Abbreviation(DateTime.UtcNow);
+
+    /// <summary>The site's calendar, which its ISP bills on; cycle dates read on it.</summary>
+    private TimeZoneInfo BillingCalendar => WanDataUsageService.CalendarZone(DisplayTime.SiteZone);
 
     private RenderFragment WanScheduleForm => __builder =>
     {
@@ -2341,7 +2347,7 @@
                         </select>
                     </div>
                     <div class="form-group schedule-field">
-                        <label>Start Time (@_serverTzAbbrev)</label>
+                        <label>Start Time (@_displayTzAbbrev)</label>
                         <input type="time" class="form-control" @bind="_newWanStartTime" />
                     </div>
                     <div class="schedule-inline-controls">
@@ -2412,7 +2418,7 @@
                         </select>
                     </div>
                     <div class="form-group schedule-field">
-                        <label>Start Time (@_serverTzAbbrev)</label>
+                        <label>Start Time (@_displayTzAbbrev)</label>
                         <input type="time" class="form-control" @bind="_newLanStartTime" />
                     </div>
                     <div class="schedule-inline-controls">
@@ -3699,22 +3705,12 @@
         }
     }
 
-    private static (int hour, int minute) ParseTimeInput(TimeOnly localTime)
+    private (int hour, int minute) ParseTimeInput(TimeOnly localTime)
     {
-        // Convert server-local time to UTC for storage
-        var today = DateTime.Today; // local date
-        var localDt = today.Add(localTime.ToTimeSpan());
-        var utcDt = localDt.ToUniversalTime();
+        // Convert the viewer's wall-clock time to UTC for storage
+        var localDt = DisplayTime.Now.Date.Add(localTime.ToTimeSpan());
+        var utcDt = DisplayTime.ToUtc(localDt);
         return (utcDt.Hour, utcDt.Minute);
-    }
-
-    private static string GetServerTimezoneAbbrev()
-    {
-        var tz = TimeZoneInfo.Local;
-        var now = DateTime.Now;
-        var name = tz.IsDaylightSavingTime(now) ? tz.DaylightName : tz.StandardName;
-        var words = name.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-        return words.Length > 1 ? string.Concat(words.Select(w => w[0])) : name;
     }
 
     private static DateTime CalculateFirstRun(int frequencyMinutes, int startHour, int startMinute,
@@ -3736,10 +3732,10 @@
         return candidate;
     }
 
-    private static TimeOnly UtcToLocalTimeOnly(int utcHour, int utcMinute)
+    private TimeOnly UtcToLocalTimeOnly(int utcHour, int utcMinute)
     {
         var utcDt = DateTime.UtcNow.Date.AddHours(utcHour).AddMinutes(utcMinute);
-        var localDt = utcDt.ToLocalTime();
+        var localDt = utcDt.ToLocalTime(DisplayTime);
         return new TimeOnly(localDt.Hour, localDt.Minute);
     }
 
@@ -4036,12 +4032,12 @@
         _ => $"Every {minutes}m"
     };
 
-    private static string FormatStartTime(int utcHour, int utcMinute)
+    private string FormatStartTime(int utcHour, int utcMinute)
     {
-        // Convert stored UTC hour/minute to server-local for display
+        // Convert stored UTC hour/minute to the viewer's clock for display
         var utcDt = DateTime.UtcNow.Date.AddHours(utcHour).AddMinutes(utcMinute);
-        var localDt = utcDt.ToLocalTime();
-        return localDt.ToString("h:mm tt");
+        var localDt = utcDt.ToLocalTime(DisplayTime);
+        return localDt.ToString(DisplayTime.Format.Time, DisplayFormat.Culture);
     }
 
     private static string GetScheduleStatusClass(string status) => status switch
@@ -4115,7 +4111,7 @@
         _ => "status-inactive"
     };
 
-    private static string FormatTime(DateTime utcTime) => TimeFormatHelper.FormatRelativeTimeTerse(utcTime);
+    private string FormatTime(DateTime utcTime) => TimeFormatHelper.FormatRelativeTimeTerse(utcTime, DisplayTime.Zone, DisplayTime.Format);
 
     private static string FormatDeviceColumn(string? deviceName, string? deviceIp)
     {

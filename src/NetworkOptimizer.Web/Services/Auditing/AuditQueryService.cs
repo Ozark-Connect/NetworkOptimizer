@@ -130,7 +130,7 @@ public sealed class AuditQueryService : IAuditQueryService
         }
         // Both sides here, unlike the slug above: actor names are whatever the identity provider
         // gave us, so neither end has a guaranteed case. Contains translates to instr() on SQLite,
-        // which is case-sensitive - searching "Kira" found nothing for a user stored as "kira".
+        // which is case-sensitive - searching "Nora" found nothing for a user stored as "nora".
         if (!string.IsNullOrEmpty(f.Actor))
         {
             var actor = f.Actor.ToLowerInvariant();

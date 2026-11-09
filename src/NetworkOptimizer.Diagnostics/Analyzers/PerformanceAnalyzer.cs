@@ -534,8 +534,8 @@ public class PerformanceAnalyzer
             var uploadExpected = state.UpRateMbps != 0;
             var downloadExpected = state.DownRateMbps != 0;
 
-            var uploadShaped = state.Egress.HasRootHtb;
-            var downloadShaped = state.Ingress.DeviceFound && state.Ingress.HasRootHtb;
+            var uploadShaped = state.Egress.IsShaped;
+            var downloadShaped = state.Ingress.DeviceFound && state.Ingress.IsShaped;
 
             var uploadMissing = uploadExpected && !uploadShaped;
             var downloadMissing = downloadExpected && !downloadShaped;

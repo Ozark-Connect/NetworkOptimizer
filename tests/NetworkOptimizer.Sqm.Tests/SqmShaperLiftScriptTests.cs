@@ -29,6 +29,19 @@ public class SqmShaperLiftScriptTests
     }
 
     [Fact]
+    public void Wrap_RetunesWhicheverDownloadRootIsThere_AndNeverInstallsCake()
+    {
+        var script = SqmShaperLiftScript.Wrap("true", "ppp0", 1030, 600, false);
+
+        // The lift follows the shaper the last deploy left, so it needs CAKE's options to restate
+        // them on a change, but must never replace UniFi's tree itself.
+        script.Should().Contain("DOWNLOAD_QDISC=\"existing\"\n");
+        script.Should().Contain("CAKE_DOWNLOAD_OPTS=\"besteffort ingress dual-dsthost nat no-split-gso overhead 50 mpu 84\"\n");
+        // One rate reader, shared with the deployed scripts, that knows both roots.
+        System.Text.RegularExpressions.Regex.Matches(script, @"read_root_rate_mbps\(\) \{").Count.Should().Be(1);
+    }
+
+    [Fact]
     public void Wrap_HoldsTheProbeLock_ThePingScriptStandsDownFor()
     {
         var script = SqmShaperLiftScript.Wrap("true", "eth4", 273, 31, false);

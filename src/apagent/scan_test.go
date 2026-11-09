@@ -23,13 +23,17 @@ func TestMcaScanTablesParse(t *testing.T) {
 	if wifi1.Band != "5" || wifi1.ScanRadio {
 		t.Errorf("wifi1 scan = band %q scanRadio %v, want 5/false", wifi1.Band, wifi1.ScanRadio)
 	}
-	// The 400 s old neighbor is dropped; the fresh one keeps its band token and a normalized BSSID.
-	if len(wifi1.Scan) != 1 {
-		t.Fatalf("scan entries = %d, want 1 (the stale one dropped)", len(wifi1.Scan))
+	// The 400 s old neighbor is forwarded with its age (the server decides); the fresh one keeps its
+	// band token and a normalized BSSID.
+	if len(wifi1.Scan) != 2 {
+		t.Fatalf("scan entries = %d, want 2", len(wifi1.Scan))
 	}
 	e := wifi1.Scan[0]
 	if e.Bssid != "02:00:00:aa:00:01" || e.Band != "5" || e.Channel != 44 || e.Width != 80 || e.CenterMhz != 5210 || e.Signal != -71 || e.AgeSeconds != 1 {
 		t.Errorf("scan entry wrong: %+v", e)
+	}
+	if wifi1.Scan[1].AgeSeconds != 400 {
+		t.Errorf("old entry age = %d, want 400", wifi1.Scan[1].AgeSeconds)
 	}
 
 	if len(wifi1.Spectrum) != 2 {
@@ -51,6 +55,16 @@ func TestMcaScanTablesParse(t *testing.T) {
 	wifi3 := findScan(t, snap, "wifi3")
 	if !wifi3.ScanRadio {
 		t.Error("the dedicated scan radio must be marked")
+	}
+}
+
+func TestScanEntriesOlderThanAnHourAreDropped(t *testing.T) {
+	raw := mcaRadioRaw{Name: "wifi0", ScanTable: []byte(`[
+		{"bssid":"02:00:00:aa:00:01","band":"ng","channel":1,"age":3600},
+		{"bssid":"02:00:00:aa:00:02","band":"ng","channel":1,"age":3601}]`)}
+	got := parseRadioScan(raw, "2.4", false)
+	if len(got.Scan) != 1 || got.Scan[0].AgeSeconds != 3600 {
+		t.Errorf("scan = %+v, want only the 3600 s entry", got.Scan)
 	}
 }
 

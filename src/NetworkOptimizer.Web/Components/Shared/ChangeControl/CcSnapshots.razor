@@ -1,0 +1,605 @@
+@using NetworkOptimizer.Web.Services.ChangeControl
+@using NetworkOptimizer.Storage.Models
+@using System.Text
+@implements IDisposable
+@inject IChangeControlService Site
+@inject ChangeControlRegistry Registry
+@inject IChangeControlFleetService Fleet
+@inject SiteContextService SiteCtx
+@inject SiteSwitchService SiteSwitch
+@inject NavigationManager Nav
+@inject IJSRuntime JS
+@inject ILogger<CcSnapshots> Logger
+@inject IDisplayTimeZone DisplayTime
+
+<div class="card">
+    <div class="cc-toolbar">
+        <span class="cc-toolbar-label">Site</span>
+        <CcSitePicker Sites="_sites" />
+        <input class="form-control cc-search" placeholder="Search by object, admin, or trigger" @bind="_search" @bind:event="oninput" />
+        <span class="cc-toolbar-note">@RetentionText()</span>
+    </div>
+</div>
+
+@if (_drift is { HasBaseline: true } drift)
+{
+    <div class="card">
+        <div class="card-header">
+            <h3 class="card-title">Drift from Baseline<span class="card-title-suffix">@drift.BaselineLabel</span></h3>
+            <span class="status-badge @(drift.Objects.Count == 0 ? "status-connected" : "status-warning")">@(drift.Objects.Count == 0 ? "None" : CcFormat.Plural(drift.Objects.Count, "object", "objects"))</span>
+        </div>
+        @if (drift.Objects.Count > 0)
+        {
+            <CcObjectTable Objects="drift.Objects" PastTense="true" />
+            <div class="cc-card-footer">
+                <SiteAdminOnly><button class="btn btn-secondary" disabled="@_busy" @onclick="() => AcceptBaselineAsync(DriftCard)">Accept as Baseline</button></SiteAdminOnly>
+                <SiteOperatorOnly><button class="btn btn-primary" disabled="@(_busy || !ConsoleConnected)" @onclick="ReturnToBaselineAsync"
+                    data-tooltip="Applies right away, or opens Review Plan first for deletes, passphrase or WAN changes, lockout risks, or approval.">@Spinner("baseline")Return to Baseline</button></SiteOperatorOnly>
+            </div>
+        }
+        @ErrorAlert(DriftCard)
+    </div>
+}
+
+<div class="card" data-tour="cc-snapshots">
+    <div class="card-header">
+        <h3 class="card-title">Snapshots<span class="card-title-suffix">@_siteName, @_list?.Count kept, @CcFormat.Bytes(_list?.StoredBytes ?? 0)</span></h3>
+        <div class="cc-row-actions hide-mobile">
+            <span class="cc-toolbar-label">@_selected.Count selected</span>
+            <button class="btn btn-primary btn-sm" disabled="@(_selected.Count != 2)" @onclick="CompareSelectedAsync">Compare</button>
+            <SiteOperatorOnly><button class="btn btn-contrast btn-sm" disabled="@(_busy || !ConsoleConnected)" @onclick="TakeSnapshotAsync">Take Snapshot</button></SiteOperatorOnly>
+        </div>
+        <span class="status-badge badge-muted cc-phone-inline">@_selected.Count selected</span>
+    </div>
+    @ErrorAlert(HeaderKey, "hide-mobile")
+    @if (_list == null)
+    {
+        <div class="loading-container"><div class="spinner"></div></div>
+    }
+    else
+    {
+        <div class="cc-phone-only">
+            <label class="cc-snap-card">
+                <input type="checkbox" checked="@_selected.Contains(Now)" @onchange="() => ToggleSelect(Now)" />
+                <div>
+                    <div class="cc-change-card-head"><b>Now</b><span>@IssueBadge(_list.LiveIssueCount, 0)</span></div>
+                    <div class="cc-item-detail">Live config</div>
+                </div>
+            </label>
+            @foreach (var s in Filtered().Take(_shown))
+            {
+                <label class="cc-snap-card">
+                    <input type="checkbox" checked="@_selected.Contains(s.Id)" @onchange="() => ToggleSelect(s.Id)" />
+                    <div>
+                        <div class="cc-change-card-head">
+                            <b>@CcFormat.Time(DisplayTime, s.TakenAt)</b>
+                            <span class="cc-tags">
+                                @if (s.IsBaseline) { <span class="status-badge status-connected">Baseline</span> }
+                                @if (s.Pinned) { <span class="status-badge status-info" data-tooltip="@PinTooltip(s.PinReason)">Pinned</span> }
+                                @if (!s.IsBaseline && !s.Pinned) { @IssueBadge(s.IssueCount, s.RegressionCount) }
+                            </span>
+                        </div>
+                        <div class="cc-item-detail">
+                            @if (!string.IsNullOrEmpty(s.TriggerDot)) { <span class="cc-dot @s.TriggerDot"></span> }
+                            @s.Trigger@(s.ChangedObjects > 0 ? $", {CcFormat.Plural(s.ChangedObjects, "object", "objects")}" : s.IsBaseline && s.IssueCount != null ? $", {CcFormat.Plural(s.IssueCount.Value, "issue", "issues")}" : "")
+                        </div>
+                    </div>
+                </label>
+            }
+            <div class="cc-card-footer">
+                <button class="btn btn-primary" disabled="@(_selected.Count != 2)" @onclick="CompareSelectedAsync">Compare</button>
+                <SiteOperatorOnly><button class="btn btn-contrast" disabled="@(_busy || !ConsoleConnected)" @onclick="TakeSnapshotAsync">Take Snapshot</button></SiteOperatorOnly>
+            </div>
+            @ErrorAlert(HeaderKey)
+        </div>
+        <div class="table-responsive hide-mobile">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th style="width:44px">
+                            <label class="checkbox-label" data-tooltip="@(_selected.Count > 0 ? "Clear selection" : "Select two snapshots to compare")">
+                                <input type="checkbox" checked="@(_selected.Count > 0)" disabled="@(_selected.Count == 0)" @onchange="_selected.Clear" /><span></span>
+                            </label>
+                        </th>
+                        <th class="col-time">Time</th>
+                        <th>Trigger</th>
+                        <th class="hide-mobile">Changed</th>
+                        <th>Security Audit</th>
+                        <th class="hide-mobile"></th>
+                        <th class="hide-mobile"></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><label class="checkbox-label"><input type="checkbox" checked="@_selected.Contains(Now)" @onchange="() => ToggleSelect(Now)" /><span></span></label></td>
+                        <td class="col-time">Now</td>
+                        <td>Live config</td>
+                        <td class="hide-mobile">-</td>
+                        <td>@IssueBadge(_list.LiveIssueCount, 0)</td>
+                        <td class="hide-mobile"></td>
+                        <td class="hide-mobile">
+                            <div class="cc-row-actions">
+                                <SiteOperatorOnly>
+                                    @YamlButton(null, "The live config as a YAML file, secrets redacted")
+                                    @* Hold the snapshot rows' later actions, so YAML lines up with theirs. *@
+                                    <span class="cc-link-btn cc-action-spacer" aria-hidden="true">Roll Back To</span>
+                                </SiteOperatorOnly>
+                                <SiteAdminOnly><span class="cc-link-btn cc-action-spacer" aria-hidden="true">Set as Baseline</span></SiteAdminOnly>
+                            </div>
+                        </td>
+                    </tr>
+                    @RowError(Now)
+                    @foreach (var s in Filtered().Take(_shown))
+                    {
+                        <tr>
+                            <td><label class="checkbox-label"><input type="checkbox" checked="@_selected.Contains(s.Id)" @onchange="() => ToggleSelect(s.Id)" /><span></span></label></td>
+                            <td class="col-time">@CcFormat.Time(DisplayTime, s.TakenAt)</td>
+                            <td>
+                                <span class="cc-trigger" data-tooltip="@(s.Trigger.Length > 40 ? s.Trigger : null)">
+                                    @if (!string.IsNullOrEmpty(s.TriggerDot))
+                                    {
+                                        <span class="cc-dot @s.TriggerDot"></span>
+                                    }
+                                    @s.Trigger
+                                </span>
+                                <span class="cc-phone-inline">
+                                    @if (s.IsBaseline) { <span class="status-badge status-connected">Baseline</span> }
+                                    @if (s.Pinned) { <span class="status-badge status-info" data-tooltip="@PinTooltip(s.PinReason)">Pinned</span> }
+                                </span>
+                            </td>
+                            <td class="hide-mobile">@(s.ChangedObjects == 0 ? "-" : CcFormat.Plural(s.ChangedObjects, "object", "objects"))</td>
+                            <td>@IssueBadge(s.IssueCount, s.RegressionCount)</td>
+                            <td class="hide-mobile">
+                                <span class="cc-tags">
+                                    @if (s.IsBaseline) { <span class="status-badge status-connected">Baseline</span> }
+                                    @if (s.Pinned) { <span class="status-badge status-info" data-tooltip="@PinTooltip(s.PinReason)">Pinned</span> }
+                                </span>
+                            </td>
+                            <td class="hide-mobile">
+                                <div class="cc-row-actions">
+                                    <SiteOperatorOnly>
+                                        @if (s.IsBaseline)
+                                        {
+                                            <span class="cc-link-btn cc-pin-locked" aria-label="Kept as the Baseline"
+                                                  data-tooltip="The Baseline is always kept. Setting another Baseline releases it.">@PinIcon(true)</span>
+                                        }
+                                        else
+                                        {
+                                            <button class="cc-link-btn" @onclick="() => TogglePinAsync(s)"
+                                                    aria-label="@(s.Pinned ? "Unpin" : "Pin")"
+                                                    data-tooltip="@(s.Pinned ? "Pinned: kept forever. Unpin to let retention remove it on schedule." : "Pin to keep this snapshot forever, out of retention pruning.")">
+                                                @PinIcon(s.Pinned)
+                                            </button>
+                                        }
+                                        @YamlButton(s.Id, "This snapshot's config as a YAML file, secrets redacted")
+                                        <button class="cc-link-btn" disabled="@(_busy || !ConsoleConnected)" @onclick="() => RollBackAsync(s.Id)">@Spinner($"rollback:{s.Id}") Roll Back To</button>
+                                    </SiteOperatorOnly>
+                                    @if (s.IsBaseline)
+                                    {
+                                        @* Holds the button's width, so this row's actions line up with the rows that have it. *@
+                                        <SiteAdminOnly><span class="cc-link-btn cc-action-spacer" aria-hidden="true">Set as Baseline</span></SiteAdminOnly>
+                                    }
+                                    else
+                                    {
+                                        <SiteAdminOnly><button class="cc-link-btn" disabled="@_busy" @onclick="() => SetBaselineAsync(s.Id)" data-tooltip="The reference config: Drift from Baseline and drift alerts compare against it, and Return to Baseline restores it." data-tooltip-hover-only>Set as Baseline</button></SiteAdminOnly>
+                                    }
+                                </div>
+                            </td>
+                        </tr>
+                        @RowError(s.Id)
+                    }
+                </tbody>
+            </table>
+        </div>
+        @if (Filtered().Count() > _shown)
+        {
+            <div class="pagination history-pagination">
+                <button class="btn btn-secondary btn-sm" @onclick="() => _shown += 50">Show more</button>
+            </div>
+        }
+    }
+    @ErrorAlert(SnapshotsCard)
+</div>
+
+@if (_compareLoading)
+{
+    <div class="card"><div class="loading-container"><div class="spinner"></div></div></div>
+}
+else if (_compare != null)
+{
+    <div class="card" id="cc-compare">
+        <div class="card-header">
+            <h3 class="card-title">Compare<span class="card-title-suffix">@CcFormat.Plural(_compare.Objects.Count, "object differs", "objects differ")</span></h3>
+            <div class="time-range-selector">
+                <button class="time-btn @(_compareView == "changes" ? "active" : "")" @onclick="@(() => _compareView = "changes")">Changes</button>
+                <button class="time-btn @(_compareView == "yaml" ? "active" : "")" @onclick="ShowYamlAsync">YAML</button>
+            </div>
+        </div>
+        @if (_compare.Error != null)
+        {
+            <div class="card-body"><div class="alert alert-danger">@_compare.Error</div></div>
+        }
+        else
+        {
+            <div class="cc-compare-sides">
+                <div class="cc-panel cc-side-from">
+                    <div class="cc-side-kicker">From</div>
+                    <div class="cc-side-value">@_compare.FromLabel</div>
+                    <div class="cc-side-label">@_compare.FromDetail</div>
+                </div>
+                <CcArrowBadge />
+                <div class="cc-panel cc-side-to">
+                    <div class="cc-side-kicker">To</div>
+                    <div class="cc-side-value">@_compare.ToLabel</div>
+                    <div class="cc-side-label">@_compare.ToDetail</div>
+                </div>
+            </div>
+            @foreach (var line in _compare.Impact)
+            {
+                <div class="cc-impact-row">
+                    <div class="cc-badge-col"><span class="status-badge @(line.Kind == "Regression" ? "status-error" : "status-connected")">@line.Kind</span></div>
+                    <div>
+                        <div class="cc-item-title">@line.Title</div>
+                        <div class="cc-item-detail">@line.Detail</div>
+                    </div>
+                    <span></span>
+                </div>
+            }
+            @if (_compare.Objects.Count == 0)
+            {
+                <div class="empty-state empty-state-small"><p>No differences. @(_compare.ToSnapshotId == null ? "The live config matches this snapshot." : "These snapshots hold the same config.")</p></div>
+            }
+            else if (_compareView == "yaml")
+            {
+                <div class="cc-inset">
+                    @if (_yamlDiff == null)
+                    {
+                        <div class="loading-container"><div class="spinner spinner-sm"></div></div>
+                    }
+                    else if (!_yamlDiff.Any(d => d.Item1 != ' '))
+                    {
+                        <div class="empty-state empty-state-small"><p>No difference in the YAML. It hides secrets, so a changed passphrase or key shows only under Changes.</p></div>
+                    }
+                    else
+                    {
+                        <pre class="gateway-diag-raw" style="margin:0;max-height:520px;overflow:auto">@foreach (var (kind, text) in _yamlDiff){<span class="@(kind == '-' ? "danger-text" : kind == '+' ? "success-text" : "muted-text")">@($"{kind} {text}\n")</span>}</pre>
+                    }
+                </div>
+            }
+            else
+            {
+                <CcObjectTable Objects="_compare.Objects" PastTense="true" ShowWhenWho="true" />
+            }
+            @if (_compare.Objects.Count > 0)
+            {
+                <div class="cc-card-footer">
+                    <button class="btn btn-secondary" @onclick="DownloadDiffAsync">Download Diff</button>
+                    @if (_compare.ToSnapshotId == null)
+                    {
+                        <SiteAdminOnly><button class="btn btn-secondary" disabled="@_busy" @onclick="() => AcceptBaselineAsync(CompareCard)">Accept as Baseline</button></SiteAdminOnly>
+                    }
+                    @if (_compare.FromSnapshotId is { } fromId && _compare.ToSnapshotId == null)
+                    {
+                        <SiteOperatorOnly><button class="btn btn-primary" disabled="@(_busy || !ConsoleConnected)" @onclick="() => RollBackAsync(fromId, CompareCard)">@Spinner($"rollback:{fromId}")Roll Back to @(_compare.FromLabel.Split(',')[0])</button></SiteOperatorOnly>
+                    }
+                </div>
+            }
+        }
+        @ErrorAlert(CompareCard)
+    </div>
+}
+@if (_list != null)
+{
+    <CcTemplates Snapshots="_list.Rows" BaselineTemplateId="_drift?.BaselineTemplateId" OnBaselineChanged="LoadAsync" />
+    <CcConsoleBackups />
+}
+
+@code {
+    /// <summary>False while the site's Console is not connected; actions that read or write it wait.</summary>
+    [CascadingParameter(Name = "ConsoleConnected")] public bool ConsoleConnected { get; set; } = true;
+
+    private const int Now = 0;
+    private List<FleetSiteView> _sites = [];
+    private string _siteName = "";
+    private SnapshotListView? _list;
+    private DriftView? _drift;
+    private readonly List<int> _selected = [];
+    private string _search = "";
+    // Short enough that the Templates card below is in reach at 1080p; Show more adds 50.
+    private int _shown = 15;
+    private CompareView? _compare;
+    private bool _compareLoading;
+    private string _compareView = "changes";
+    private List<(char, string)>? _yamlDiff;
+    private bool _busy;
+    private string? _error;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _sites = await Fleet.GetSitesAsync();
+        _siteName = _sites.FirstOrDefault(s => s.Slug == SiteCtx.Slug)?.Name ?? SiteCtx.Slug;
+        await LoadAsync();
+        // New snapshots join the list in place; an open Compare and the selection stay as they are.
+        _live = new CcLiveRefresh(Registry, slug => string.Equals(slug, SiteCtx.Slug, StringComparison.OrdinalIgnoreCase),
+            InvokeAsync, async () =>
+            {
+                await LoadAsync();
+                StateHasChanged();
+            }, Logger);
+
+        var query = Microsoft.AspNetCore.WebUtilities.QueryHelpers.ParseQuery(new Uri(Nav.Uri).Query);
+        if (query.TryGetValue("from", out var from) && query.TryGetValue("to", out var to))
+        {
+            _selected.Clear();
+            _selected.Add(int.TryParse(from, out var f) ? f : Now);
+            _selected.Add(int.TryParse(to, out var t) ? t : Now);
+            await CompareSelectedAsync();
+        }
+        else if (_list?.Rows.FirstOrDefault(r => r.IsBaseline) is { } baseline)
+        {
+            _selected.AddRange([Now, baseline.Id]);
+        }
+    }
+
+    private CcLiveRefresh? _live;
+
+    public void Dispose() => _live?.Dispose();
+
+    private async Task LoadAsync()
+    {
+        try
+        {
+            _list = await Site.GetSnapshotsAsync();
+            _drift = await Site.GetDriftAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Snapshots failed to load");
+            _error = ex.Message;
+            _errorCard = _actionKey ?? SnapshotsCard;
+        }
+    }
+
+    private string RetentionText()
+    {
+        var s = _list?.Settings;
+        if (s == null) return "";
+        // Years only when whole, so 400 days does not read as "1 year".
+        var daily = s.KeepDailyDays >= 365 && s.KeepDailyDays % 365 == 0
+            ? TimeFormatHelper.Pluralize(s.KeepDailyDays / 365, "year") : TimeFormatHelper.Pluralize(s.KeepDailyDays, "day");
+        var monthly = s.KeepMonthlyMonths is { } months ? $"then monthly for {TimeFormatHelper.Pluralize(months, "month")}" : "then monthly";
+        return $"Every change kept {TimeFormatHelper.Pluralize(s.KeepEveryChangeDays, "day")}, then daily to {daily}, {monthly}. Pinned and Baseline kept forever.";
+    }
+
+    private IEnumerable<SnapshotRowView> Filtered() =>
+        string.IsNullOrWhiteSpace(_search) ? _list?.Rows ?? []
+        : (_list?.Rows ?? []).Where(r => r.Trigger.Contains(_search, StringComparison.OrdinalIgnoreCase)
+            || (r.PinReason ?? "").Contains(_search, StringComparison.OrdinalIgnoreCase));
+
+    private static RenderFragment IssueBadge(int? count, int added) => __builder =>
+    {
+        if (count == null)
+        {
+            <span class="muted-text">-</span>
+        }
+        else
+        {
+            <span class="status-badge @(added > 0 ? "status-error" : "badge-muted")">@CcFormat.Plural(count.Value, "issue", "issues")@(added > 0 ? $", +{added}" : "")</span>
+        }
+    };
+
+    private void ToggleSelect(int id)
+    {
+        if (!_selected.Remove(id))
+        {
+            _selected.Add(id);
+            if (_selected.Count > 2) _selected.RemoveAt(0);
+        }
+    }
+
+    private async Task CompareSelectedAsync()
+    {
+        if (_selected.Count != 2) return;
+        // Older on the left: Now is always the newest.
+        var ordered = _selected.OrderBy(id => id == Now ? int.MaxValue : id).ToList();
+        _compareLoading = true;
+        _compare = null;
+        _yamlDiff = null;
+        _compareView = "changes";
+        _error = null;
+        StateHasChanged();
+        try
+        {
+            _compare = await Site.CompareAsync(ordered[0] == Now ? null : ordered[0], ordered[1] == Now ? null : ordered[1]);
+        }
+        catch (Exception ex)
+        {
+            Fail(ex, HeaderKey);
+            return;
+        }
+        finally
+        {
+            _compareLoading = false;
+        }
+        StateHasChanged();
+        await JS.InvokeVoidAsync("eval", "setTimeout(() => document.getElementById('cc-compare')?.scrollIntoView({behavior:'smooth', block:'start'}), 100)");
+    }
+
+    private async Task ShowYamlAsync()
+    {
+        _compareView = "yaml";
+        if (_compare == null || _yamlDiff != null) return;
+        _error = null;
+        try
+        {
+            var collections = _compare.Objects.Select(o => o.Object.Collection).Distinct().ToList();
+            var (a, b) = await Site.CompareYamlAsync(_compare.FromSnapshotId, _compare.ToSnapshotId, collections);
+            _yamlDiff = LineDiff.Diff(a.Split('\n'), b.Split('\n'), context: 3);
+        }
+        catch (Exception ex)
+        {
+            // Back to Changes, or the YAML view spins with nothing coming.
+            _compareView = "changes";
+            Fail(ex, CompareCard);
+        }
+    }
+
+    private async Task TakeSnapshotAsync() => await RunAsync(async () =>
+    {
+        await Site.TakeSnapshotAsync();
+        await LoadAsync();
+    }, card: HeaderKey);
+
+    private async Task TogglePinAsync(SnapshotRowView s) => await RunAsync(async () =>
+    {
+        if (s.Pinned) await Site.UnpinSnapshotAsync(s.Id);
+        else await Site.PinSnapshotAsync(s.Id);
+        await LoadAsync();
+    }, card: RowKey(s.Id));
+
+    /// <summary>The Pinned badge's tooltip: what pinned means, then why this one is.</summary>
+    private static string PinTooltip(string? reason) =>
+        "Kept forever: retention never removes it." + (string.IsNullOrWhiteSpace(reason) ? "" : $" {reason}.");
+
+    private async Task SetBaselineAsync(int id) => await RunAsync(async () =>
+    {
+        await Site.SetBaselineAsync(id);
+        await LoadAsync();
+    }, card: RowKey(id));
+
+    private async Task AcceptBaselineAsync(string card) => await RunAsync(async () =>
+    {
+        await Site.AcceptLiveAsBaselineAsync();
+        await LoadAsync();
+        // After the reload, so a reload error from the Compare card still has its card to show in.
+        if (_error == null) _compare = null;
+    }, card: card);
+
+    private async Task ReturnToBaselineAsync() => await RunAsync(async () =>
+    {
+        var planId = await Site.BuildReturnToBaselineAsync();
+        // One click when there is nothing to review: every write direct, nothing to acknowledge or accept,
+        // no lockout, no approval. Otherwise Review Plan, which is the only place a write is confirmed.
+        if (await Site.GetPlanAsync(planId) is { } view && view.Doc.Errors.Count == 0 && view.Doc.Lockouts.Count == 0
+            && view.Doc.HighestTier <= PlanTiers.Direct && view.Remaining.Count == 0 && !view.ApprovalRequired)
+            await Site.ApplyPlanAsync(planId);
+        Nav.NavigateTo(SiteContextService.WithSiteParam($"/change-control/plans/{planId}", SiteCtx.Slug));
+    }, "baseline", DriftCard);
+
+    private async Task RollBackAsync(int snapshotId, string? card = null) => await RunAsync(async () =>
+    {
+        var planId = await Site.BuildRollbackToSnapshotAsync(snapshotId);
+        Nav.NavigateTo(SiteContextService.WithSiteParam($"/change-control/plans/{planId}", SiteCtx.Slug));
+    }, $"rollback:{snapshotId}", card ?? RowKey(snapshotId));
+
+    // The action RunAsync is running, so its button shows a spinner: building a plan can take a while.
+    private string? _running;
+
+    /// <summary>The download icon plus "YAML"; a null id is the live config.</summary>
+    private RenderFragment YamlButton(int? snapshotId, string tooltip) =>
+        @<button class="cc-link-btn" data-tooltip="@tooltip" aria-label="Download YAML" disabled="@(_downloading != null)" @onclick="() => DownloadYamlAsync(snapshotId)">
+            @if (_downloading == YamlKey(snapshotId))
+            {
+                <span class="spinner-sm"></span>
+            }
+            else
+            {
+                <CcIcon />
+            }
+            YAML
+        </button>;
+
+    // The YAML export being built, by YamlKey; null when none is.
+    private string? _downloading;
+
+    private static string YamlKey(int? snapshotId) => snapshotId?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "live";
+
+    private static RenderFragment PinIcon(bool filled) =>
+        @<svg width="14" height="14" viewBox="0 0 24 24" fill="@(filled ? "currentColor" : "none")" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px" aria-hidden="true">
+            <line x1="12" y1="17" x2="12" y2="22" />
+            <path d="M5 17h14v-1.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V6h1a2 2 0 0 0 0-4H8a2 2 0 0 0 0 4h1v4.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24Z" />
+        </svg>;
+
+    private RenderFragment? Spinner(string action) =>
+        _running == action ? @<span class="spinner-sm"></span> : null;
+
+    private async Task DownloadYamlAsync(int? snapshotId)
+    {
+        if (_downloading != null) return;
+        _downloading = YamlKey(snapshotId);
+        _error = null;
+        try
+        {
+            // Building the export can take seconds; draw the spinner before it starts.
+            StateHasChanged();
+            await Task.Yield();
+            var yaml = await Site.DownloadYamlAsync(snapshotId);
+            await JS.InvokeVoidAsync("downloadFile", $"{SiteCtx.Slug}-config-{DisplayTime.Now:yyyyMMdd-HHmm}.yaml", "application/yaml",
+                Convert.ToBase64String(Encoding.UTF8.GetBytes(yaml)));
+        }
+        catch (Exception ex)
+        {
+            Fail(ex, RowKey(snapshotId ?? Now));
+        }
+        finally
+        {
+            _downloading = null;
+        }
+    }
+
+    private async Task DownloadDiffAsync()
+    {
+        if (_compare == null) return;
+        _error = null;
+        try
+        {
+            var text = await Site.DownloadDiffAsync(_compare.FromSnapshotId, _compare.ToSnapshotId);
+            await JS.InvokeVoidAsync("downloadFile", $"{SiteCtx.Slug}-diff-{DisplayTime.Now:yyyyMMdd-HHmm}.txt", "text/plain",
+                Convert.ToBase64String(Encoding.UTF8.GetBytes(text)));
+        }
+        catch (Exception ex)
+        {
+            Fail(ex, CompareCard);
+        }
+    }
+
+    private async Task RunAsync(Func<Task> work, string? action = null, string card = SnapshotsCard)
+    {
+        _busy = true;
+        _running = action;
+        _actionKey = card;
+        _error = null;
+        try
+        {
+            StateHasChanged();
+            await Task.Yield();
+            await work();
+        }
+        catch (Exception ex) { Fail(ex, card); }
+        finally { _busy = false; _running = null; _actionKey = null; }
+    }
+
+    private void Fail(Exception ex, string key)
+    {
+        _error = ex.Message;
+        _errorCard = key;
+    }
+
+    // Where an error shows: next to the control that failed (a card footer, the Snapshots header, or a row).
+    private const string DriftCard = "drift", SnapshotsCard = "snapshots", CompareCard = "compare", HeaderKey = "header";
+    private string _errorCard = SnapshotsCard;
+    // The running action's key, so a reload it triggers reports its error in the same place.
+    private string? _actionKey;
+
+    private static string RowKey(int id) => $"row:{id}";
+
+    private RenderFragment? ErrorAlert(string key, string? css = null) =>
+        _error != null && _errorCard == key
+            ? @<div class="card-body @css"><div class="alert alert-danger">@_error</div></div>
+            : null;
+
+    private RenderFragment? RowError(int id) =>
+        _error != null && _errorCard == RowKey(id)
+            ? @<tr><td colspan="7"><div class="alert alert-danger" style="margin:0">@_error</div></td></tr>
+            : null;
+}

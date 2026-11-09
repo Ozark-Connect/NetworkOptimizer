@@ -50,7 +50,7 @@ public class PathEpisodeExhaustedTests
         // new DegradedSince; it has never run clean since the stop, so the block holds.
         var stoppedAt = T0.AddHours(12);
         var t = new TargetDegradation("x", Options);
-        t.Seed(Enumerable.Range(0, 144).Select(i => (stoppedAt.AddMinutes(-720 + 5 * i), (double?)2.0, (double?)0.0)),
+        t.Seed(Enumerable.Range(0, 144).Select(i => (stoppedAt.AddMinutes(-720 + 5 * i), (double?)2.0, (double?)0.0, (double?)null)),
             Array.Empty<(DateTime, DateTime)>());
         Feed(t, stoppedAt.AddMinutes(50), TimeSpan.FromMinutes(20), 18);
 

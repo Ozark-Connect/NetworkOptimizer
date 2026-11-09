@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
+using NetworkOptimizer.Core;
 using NetworkOptimizer.UniFi;
 using NetworkOptimizer.UniFi.Models;
 using NetworkOptimizer.WiFi.Helpers;
@@ -365,7 +366,7 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
                 reportData.ValueKind == JsonValueKind.Array ? reportData.GetArrayLength() : 0);
 
             // Parse using AP-specific prefixes (no 'ap-' prefix)
-            var metrics = ParseApMetrics(reportData);
+            var metrics = ParseApMetrics(reportData, _logger);
             _logger.LogDebug("Parsed {Count} AP metrics data points", metrics.Count);
             return metrics;
         }
@@ -851,19 +852,15 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
             aps = aps.Where(d => d.Mac.Equals(apMac, StringComparison.OrdinalIgnoreCase)).ToList();
         }
 
-        // Get our own BSSIDs to identify own networks
-        var ownBssids = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        // Our own BSSIDs (VAPs and MAC-derived), and which AP broadcasts each
+        var siteBssids = new SiteBssidLookup();
         foreach (var ap in aps)
         {
+            siteBssids.AddAccessPoint(ap.Mac, ap.Name);
             if (ap.VapTable != null)
             {
                 foreach (var vap in ap.VapTable)
-                {
-                    if (!string.IsNullOrEmpty(vap.Bssid))
-                    {
-                        ownBssids.Add(vap.Bssid);
-                    }
-                }
+                    siteBssids.AddVap(vap.Bssid, ap.Mac, ap.Name, vap.Essid);
             }
         }
 
@@ -960,20 +957,22 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
 
                     foreach (var neighbor in deduplicated)
                     {
-                        result.Neighbors.Add(new NeighborNetwork
+                        var added = new NeighborNetwork
                         {
                             Ssid = neighbor.Essid,
                             Bssid = neighbor.Bssid,
                             Channel = neighbor.Channel,
                             Width = neighbor.Width,
                             Signal = neighbor.Signal,
-                            IsOwnNetwork = neighbor.IsUbnt || ownBssids.Contains(neighbor.Bssid),
                             Security = neighbor.Security,
                             LastSeen = neighbor.LastSeen.HasValue
                                 ? DateTimeOffset.FromUnixTimeSeconds(neighbor.LastSeen.Value)
                                 : null,
                             Oui = neighbor.Oui
-                        });
+                        };
+                        // Own-ness comes from the site lookup only; a neighbor's UniFi AP also sets is_ubnt.
+                        siteBssids.Stamp(added);
+                        result.Neighbors.Add(added);
                     }
                 }
 
@@ -1018,6 +1017,7 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
             if (meshApMacs.Contains(result.ApMac))
                 continue; // Skip mesh APs for the consensus
 
+            // Site BSSIDs stay in: a wired AP's reading of a sibling's channel corrects a mesh AP's as well.
             foreach (var neighbor in result.Neighbors)
             {
                 var key = (neighbor.Bssid.ToLowerInvariant(), result.Band);
@@ -1579,13 +1579,18 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
         return metrics;
     }
 
-    private List<SiteWiFiMetrics> ParseApMetrics(JsonElement data)
+    /// <summary>
+    /// Rows of a stat/report .ap response. Each row names its AP in `ap`, so one request for many
+    /// APs splits back per AP on <see cref="SiteWiFiMetrics.ApMac"/>.
+    /// </summary>
+    [VendorSpecific("UniFi", "stat/report/{interval}.ap rows: ap MAC plus ng-/na-/6e- prefixed radio attrs")]
+    internal static List<SiteWiFiMetrics> ParseApMetrics(JsonElement data, ILogger? logger = null)
     {
         var metrics = new List<SiteWiFiMetrics>();
 
         if (data.ValueKind != JsonValueKind.Array)
         {
-            _logger.LogWarning("AP metrics data is not an array: {ValueKind}", data.ValueKind);
+            logger?.LogWarning("AP metrics data is not an array: {ValueKind}", data.ValueKind);
             return metrics;
         }
 
@@ -1613,6 +1618,7 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
             var metric = new SiteWiFiMetrics
             {
                 Timestamp = DateTimeOffset.FromUnixTimeMilliseconds(timestamp),
+                ApMac = item.TryGetProperty("ap", out var apProp) && apProp.ValueKind == JsonValueKind.String ? apProp.GetString() : null,
                 ByBand = new Dictionary<RadioBand, BandMetrics>()
             };
 

@@ -1,46 +1,30 @@
+using NetworkOptimizer.Core.Helpers;
+
 namespace NetworkOptimizer.Alerts.Delivery;
 
 /// <summary>
-/// Formats UTC timestamps in the server's local timezone for human-readable output.
+/// Formats UTC timestamps on the notification clock and in the notification format
+/// (<see cref="Interfaces.INotificationTimeZoneResolver"/>) for human-readable output. The zone's
+/// abbreviation is always shown, since the reader may be anywhere.
 /// </summary>
 internal static class TimestampFormatter
 {
     /// <summary>
-    /// Full format: "2026-02-24 14:42:50 CST"
+    /// Full format: "Feb 24, 2026, 14:42:50 CST", or "24 Feb 2026, 2:42:50 PM CST" for a 12-hour,
+    /// day-first install.
     /// </summary>
-    internal static string FormatLocal(DateTime utcTime)
+    internal static string FormatLocal(DateTime utcTime, TimeZoneInfo zone, DisplayFormat format)
     {
-        var local = ToLocal(utcTime);
-        return $"{local:yyyy-MM-dd HH:mm:ss} {GetTimezoneAbbreviation(local)}";
+        var local = DateTimeUtilities.ToZone(utcTime, zone);
+        return $"{local.ToString(format.DateTimeSeconds, DisplayFormat.Culture)} {DateTimeUtilities.ZoneAbbreviation(zone, utcTime)}";
     }
 
     /// <summary>
-    /// Short format: "14:42 CST"
+    /// Short format: "14:42 CST", or "2:42 PM CST".
     /// </summary>
-    internal static string FormatLocalShort(DateTime utcTime)
+    internal static string FormatLocalShort(DateTime utcTime, TimeZoneInfo zone, DisplayFormat format)
     {
-        var local = ToLocal(utcTime);
-        return $"{local:HH:mm} {GetTimezoneAbbreviation(local)}";
-    }
-
-    private static DateTime ToLocal(DateTime utcTime)
-    {
-        // EF Core/SQLite returns Kind=Unspecified - treat as UTC
-        var utc = utcTime.Kind == DateTimeKind.Local
-            ? utcTime
-            : DateTime.SpecifyKind(utcTime, DateTimeKind.Utc);
-        return TimeZoneInfo.ConvertTimeFromUtc(
-            utc.Kind == DateTimeKind.Utc ? utc : utc.ToUniversalTime(),
-            TimeZoneInfo.Local);
-    }
-
-    private static string GetTimezoneAbbreviation(DateTime localTime)
-    {
-        var tz = TimeZoneInfo.Local;
-        var name = tz.IsDaylightSavingTime(localTime) ? tz.DaylightName : tz.StandardName;
-        // On Linux, names are already short (CST, CDT). On Windows they're long.
-        if (name.Length <= 5) return name;
-        // Extract initials: "Central Standard Time" -> "CST"
-        return string.Concat(name.Split(' ').Where(w => w.Length > 0).Select(w => w[0]));
+        var local = DateTimeUtilities.ToZone(utcTime, zone);
+        return $"{local.ToString(format.Time, DisplayFormat.Culture)} {DateTimeUtilities.ZoneAbbreviation(zone, utcTime)}";
     }
 }

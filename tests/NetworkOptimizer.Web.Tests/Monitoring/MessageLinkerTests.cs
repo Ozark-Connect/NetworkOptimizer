@@ -24,11 +24,11 @@ public class MessageLinkerTests
     [Fact]
     public void CaseA_NoAgent_LinksTheWholeBreadcrumbToTheSite()
     {
-        var linked = MessageLinker.Split(NoAgent, "Settings > Multi-Site", "/settings?tab=multisite&configure=atl-1365");
+        var linked = MessageLinker.Split(NoAgent, "Settings > Multi-Site", "/settings?tab=multisite&configure=branch-office");
 
         linked.HasLink.Should().BeTrue();
         linked.LinkText.Should().Be("Settings > Multi-Site");
-        linked.Href.Should().Be("/settings?tab=multisite&configure=atl-1365");
+        linked.Href.Should().Be("/settings?tab=multisite&configure=branch-office");
         (linked.Before + linked.LinkText + linked.After).Should().Be(NoAgent);
     }
 

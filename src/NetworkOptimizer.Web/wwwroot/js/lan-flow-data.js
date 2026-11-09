@@ -238,7 +238,7 @@ export function resetPlayback() {
     _notify('scrubber');
 }
 
-// Render local-midnight tick marks onto a scrubber track overlay so multi-day
+// Render midnight tick marks (on the viewer's clock) onto a scrubber track overlay so multi-day
 // windows have day-boundary orientation. Shared by the 3D scrubber and its 2D
 // mirror. Windows under two days get no ticks; wide windows thin to ~12 ticks.
 export function renderScrubberTicks(el, startMs, endMs) {
@@ -247,19 +247,15 @@ export function renderScrubberTicks(el, startMs, endMs) {
     const span = endMs - startMs;
     if (span < 48 * 3600000) return;
     const stepDays = Math.max(1, Math.round(span / (12 * 86400000)));
-    const first = new Date(startMs);
-    first.setHours(24, 0, 0, 0);
     let day = 0;
-    for (let t = first.getTime(); t < endMs; day++) {
+    for (let t = noTime.nextMidnight(startMs); t < endMs; day++) {
         if (day % stepDays === 0) {
             const tick = document.createElement('span');
             tick.className = 'lan-flow-map-scrubber-tick';
             tick.style.left = `${((t - startMs) / span * 100).toFixed(2)}%`;
             el.appendChild(tick);
         }
-        const next = new Date(t);
-        next.setHours(24, 0, 0, 0);
-        t = next.getTime();
+        t = noTime.nextMidnight(t);
     }
 }
 

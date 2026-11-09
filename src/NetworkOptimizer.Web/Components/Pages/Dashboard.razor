@@ -20,6 +20,7 @@
 @inject IDashboardLayoutAdminService LayoutAdmin
 @implements IDisposable
 @rendermode InteractiveServer
+@inject IDisplayTimeZone DisplayTime
 
 <PageTitle>Dashboard - Network Optimizer</PageTitle>
 <NavigationLock OnBeforeInternalNavigation="OnBeforeInternalNavigation" ConfirmExternalNavigation="_editMode" />
@@ -51,7 +52,7 @@
     <p class="page-description">Network overview and health status</p>
 </div>
 
-<SitesOverviewCard />
+<SitesHealthPanel />
 
 @if (!string.IsNullOrEmpty(_editToast))
 {
@@ -250,6 +251,7 @@
 
     protected override async Task OnInitializedAsync()
     {
+        ChartTimeFormat.ApplyTimeAxis(_threatSparklineOptions.Xaxis.Labels, DisplayTime);
         NavigationManager.LocationChanged += OnLocationChanged;
         ConnectionService.OnConnectionChanged += OnConnectionChanged;
         PtrState.RefreshCallback = () => Task.WhenAll(
@@ -585,7 +587,7 @@
                                          Items="_threatTrend"
                                          Name="Events"
                                          SeriesType="SeriesType.Area"
-                                         XValue="e => e.Hour"
+                                         XValue="e => DisplayTime.ToChart(e.Hour)"
                                          YValue="e => (decimal)e.Count"
                                          OrderBy="e => e.X" />
                     </ApexChart>
@@ -685,7 +687,7 @@
                                         <span class="speed-down">↓@test.DownloadMbps.ToString("F0")</span>
                                         <span class="speed-up">↑@test.UploadMbps.ToString("F0")</span>
                                     </span>
-                                    <span class="speed-test-time">@test.TestTime.ToLocalTime().ToString("MMM d, h:mm tt")</span>
+                                    <span class="speed-test-time">@test.TestTime.ToLocalTime(DisplayTime).ToString(DisplayTime.Format.DayTime, DisplayFormat.Culture)</span>
                                 </div>
                             }
                         </div>
@@ -733,7 +735,7 @@
                                         <span class="speed-down">↓@test.DownloadMbps.ToString("F0")</span>
                                         <span class="speed-up">↑@test.UploadMbps.ToString("F0")</span>
                                     </span>
-                                    <span class="speed-test-time">@test.TestTime.ToLocalTime().ToString("MMM d, h:mm tt")</span>
+                                    <span class="speed-test-time">@test.TestTime.ToLocalTime(DisplayTime).ToString(DisplayTime.Format.DayTime, DisplayFormat.Culture)</span>
                                 </div>
                             }
                         </div>
@@ -1310,12 +1312,12 @@
             Tooltip = new Tooltip
             {
                 Theme = Mode.Dark,
-                X = new TooltipX { Format = "HH:mm" }
+                X = new TooltipX { Format = "HH:mm", Formatter = ChartTimeFormat.TooltipTime }
             },
             Xaxis = new XAxis
             {
                 Type = XAxisType.Datetime,
-                Labels = new XAxisLabels { DatetimeUTC = false }
+                Labels = new XAxisLabels()
             },
             Yaxis = new List<YAxis> { new YAxis { Min = 0 } }
         };

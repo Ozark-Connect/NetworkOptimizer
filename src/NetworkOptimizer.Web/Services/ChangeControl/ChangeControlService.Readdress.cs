@@ -1,0 +1,602 @@
+using System.Net;
+using System.Text.Json;
+using System.Text.Json.Nodes;
+using NetworkOptimizer.Storage.Models;
+using NetworkOptimizer.UniFi;
+
+namespace NetworkOptimizer.Web.Services.ChangeControl;
+
+/// <summary>The user's choices on Re-address Networks: a pattern, and per-network new subnets that win over it.</summary>
+public sealed class ReaddressChoices
+{
+    public string? Pattern { get; init; }
+    public Dictionary<string, string> NewSubnets { get; init; } = [];
+}
+
+/// <summary>A client whose address may be set on the device; <c>LastSeen</c> is set for an offline one, which cannot be told apart.</summary>
+public sealed record StaticClient(string Name, string Mac, string Ip, string NewIp, string Network, bool Reserved, DateTime? LastSeen = null);
+
+/// <summary>Something to know before applying: a short title and one line of detail.</summary>
+public sealed record ReaddressWarning(string Title, string Detail);
+
+/// <summary>The dry run: every move, rewrite, and thing a person must handle.</summary>
+public sealed class ReaddressView
+{
+    public List<SubnetMove> Moves { get; init; } = [];
+    public List<string> Errors { get; init; } = [];
+    public List<ReaddressWarning> Warnings { get; init; } = [];
+    public List<AddressRewrite> Rewrites { get; init; } = [];
+    public List<AddressMention> Mentions { get; init; } = [];
+    /// <summary>Addresses in a moved subnet left alone because a WAN or a VPN's far side owns them.</summary>
+    public List<AddressMention> Remote { get; init; } = [];
+    public List<StaticClient> StaticClients { get; init; } = [];
+    /// <summary>Known clients last seen in a moved subnet but offline now: no lease proves nothing for them.</summary>
+    public List<StaticClient> OfflineClients { get; init; } = [];
+    /// <summary>Where the static clients came from: UniFi's IP Table, or DHCP ranges when it was not readable.</summary>
+    public string StaticSource { get; init; } = "";
+    public List<SettingRewrite> Settings { get; init; } = [];
+    /// <summary>DHCP leases lowered ahead of the move, when they are.</summary>
+    public LeasePrepare? Prepare { get; init; }
+    /// <summary>The longest DHCP lease among the moving networks, in seconds; null when none moves with DHCP on.</summary>
+    public int? LongestLeaseSeconds { get; init; }
+    /// <summary>When the last re-address applied, in the last week: Reconnect Clients is for after it.</summary>
+    public DateTime? LastAppliedAt { get; init; }
+    /// <summary>The networks that last re-address moved.</summary>
+    public List<SubnetMove> LastMoves { get; init; } = [];
+    public bool Ready => Errors.Count == 0 && Moves.Any(m => m.OldCidr != m.NewCidr);
+}
+
+public sealed partial class ChangeControlService
+{
+    private static List<SubnetMove> Moves(ConfigState live, ReaddressChoices choices) =>
+        Readdressing.Proposal(live, choices.Pattern)
+            .Select(m => choices.NewSubnets.TryGetValue(m.NetworkId, out var chosen) && !string.IsNullOrWhiteSpace(chosen)
+                ? m with { NewCidr = Readdressing.ParseSubnet(chosen)?.ToString() ?? chosen.Trim() }
+                : m)
+            .ToList();
+
+    public async Task<ReaddressView> GetReaddressAsync(ReaddressChoices choices, CancellationToken cancellationToken = default)
+    {
+        var live = await Engine.ReadLiveCheckedAsync(cancellationToken);
+        var moves = Moves(live, choices);
+        var errors = Readdressing.Validate(live, moves);
+        var active = moves.Where(m => m.OldCidr != m.NewCidr).ToList();
+        var prepare = await LeasePrepareAsync(cancellationToken);
+        var last = await LastReaddressAsync(cancellationToken);
+        var lastApplied = last?.Plan.CompletedAt;
+        var lastMoves = last?.Moves.Where(m => m.OldCidr != m.NewCidr).ToList() ?? [];
+        if (active.Count == 0 || errors.Count > 0)
+            return new ReaddressView { Moves = moves, Errors = errors, Prepare = prepare, LastAppliedAt = lastApplied, LastMoves = lastMoves, LongestLeaseSeconds = LongestLease(live, active) };
+
+        var result = Readdressing.Apply(live, active);
+        var (statics, source) = await StaticClientsAsync(live, active, cancellationToken);
+        var inform = await InformVerdictsAsync(live, result.Desired, Readdressing.Map(active), cancellationToken);
+        return new ReaddressView
+        {
+            Moves = moves,
+            Errors = errors,
+            Warnings = await ReaddressWarningsAsync(live, active, prepare, inform, cancellationToken),
+            Rewrites = result.Rewrites,
+            Mentions = result.Mentions,
+            Remote = result.Remote,
+            StaticClients = statics.Where(s => s.LastSeen == null).ToList(),
+            OfflineClients = statics.Where(s => s.LastSeen != null).ToList(),
+            StaticSource = source,
+            Settings = await _registry.ReaddressSettingsAsync(_site.Slug, active, RemoteCidrs(live), apply: false, cancellationToken),
+            Prepare = prepare,
+            LastAppliedAt = lastApplied,
+            LastMoves = lastMoves,
+            LongestLeaseSeconds = LongestLease(live, active),
+        };
+    }
+
+    public async Task<int> BuildReaddressPlanAsync(ReaddressChoices choices, int? replaces = null, CancellationToken cancellationToken = default)
+    {
+        var live = await Engine.ReadLiveCheckedAsync(cancellationToken);
+        var moves = Moves(live, choices);
+        if (Readdressing.Validate(live, moves) is { Count: > 0 } errors) throw new InvalidOperationException(errors[0]);
+        var active = moves.Where(m => m.OldCidr != m.NewCidr).ToList();
+        if (active.Count == 0) throw new InvalidOperationException("No network moves: give at least one a new subnet.");
+
+        var result = Readdressing.Apply(live, active);
+        var prepare = await LeasePrepareAsync(cancellationToken);
+        RestoreLeases(result, prepare);
+        var inform = await InformVerdictsAsync(live, result.Desired, Readdressing.Map(active), cancellationToken);
+        if (inform?.OverrideIp is { } overrideIp && ReaddressInform.SuperMgmt(result.Desired) is { } mgmt)
+        {
+            mgmt["override_inform_host"] = true;
+            mgmt["override_inform_host_location"] = overrideIp;
+            result.Collections.Add("setting");
+        }
+        var warnings = await ReaddressWarningsAsync(live, active, prepare, inform, cancellationToken);
+
+        var (statics, _) = await StaticClientsAsync(live, active, cancellationToken);
+        var remote = RemoteCidrs(live);
+        var settings = await _registry.ReaddressSettingsAsync(_site.Slug, active, remote, apply: false, cancellationToken);
+        var summary = string.Join(", ", active.Select(m => $"{m.NetworkName} {m.OldCidr} to {m.NewCidr}"));
+        var pathNetworks = await PathNetworksAsync(active, cancellationToken);
+        var plan = await Plans.CreateAsync(ConfigPlanKind.Readdress, $"Re-address {await SiteNameAsync(cancellationToken)}", summary, null, null,
+            result.Desired, new PlanOptions { Collections = result.Collections, DeleteMissing = false }, Actor, cancellationToken,
+            doc =>
+            {
+                CarryReservations(doc, result.Desired);
+                OrderReaddressWrites(doc, pathNetworks, GatewayIds(live), active, DeviceDepths(live));
+                doc.Context[PlanCoordinator.ReaddressContext] = JsonSerializer.Serialize(active);
+                doc.Context[PlanCoordinator.ReaddressManagementContext] = string.Join(", ", ManagementMoves(live, active));
+                doc.Context[PlanCoordinator.ReaddressRemoteContext] = JsonSerializer.Serialize(remote);
+                if (inform != null) doc.Context[ReaddressInform.Context] = JsonSerializer.Serialize(inform.Devices);
+                if (inform?.ConsoleFollows == true) doc.Context[PlanCoordinator.ReaddressConsoleFollowsContext] = "true";
+                foreach (var m in result.Remote)
+                    doc.Notes.Add($"Left alone, owned by a WAN or a VPN's far side: {ConfigCollections.Get(m.Collection)?.Noun ?? m.Collection} {m.ObjectName}, {m.Path}: {m.Value}");
+                foreach (var w in warnings) doc.Notes.Add($"{w.Title}: {w.Detail}");
+                var unmarked = MarkStaticClients(doc, active, statics.Where(s => s.LastSeen == null).ToList());
+                if (unmarked.Count > 0)
+                    doc.Notes.Add($"No DHCP lease from this gateway, so this plan cannot move them: {string.Join(", ", unmarked.Select(s => $"{s.Name} ({s.Ip} to {s.NewIp}{(s.Reserved ? ", reserved" : "")})"))}.");
+                if (statics.Count(s => s.LastSeen != null) is > 0 and var offline)
+                    doc.Notes.Add($"{offline} offline clients were likely set on the device (no reservation, last address outside the DHCP range): change them when they are back. The dry run lists them.");
+                foreach (var m in result.Mentions)
+                    doc.Notes.Add($"Not rewritten, holds an old address: {ConfigCollections.Get(m.Collection)?.Noun ?? m.Collection} {m.ObjectName}, {m.Path}: {m.Value}");
+                if (settings.Count > 0)
+                    doc.Notes.Add($"Network Optimizer moves its own settings with the site once this applies (and back on a revert): "
+                        + string.Join(", ", settings.Select(s => SettingText(s)).Distinct()) + ".");
+            });
+        if (replaces is { } earlier) await Plans.SupersedeAsync(earlier, plan, cancellationToken);
+        return plan.Id;
+    }
+
+    /// <summary>
+    /// A connected client set on the device stays on the old subnet, cut off, until someone changes it by hand. Its
+    /// network's write needs acknowledging, naming each one. Returns the clients no network write matched.
+    /// </summary>
+    internal static List<StaticClient> MarkStaticClients(PlanDocument doc, IReadOnlyList<SubnetMove> active, IReadOnlyList<StaticClient> statics)
+    {
+        var unmarked = new List<StaticClient>(statics);
+        foreach (var move in active)
+        {
+            if (Readdressing.ParseSubnet(move.OldCidr) is not { } old) continue;
+            var op = doc.Operations.FirstOrDefault(o => o.Collection == "networkconf" && string.Equals(o.ObjectId, move.NetworkId, StringComparison.OrdinalIgnoreCase));
+            var here = statics.Where(s => Readdressing.ParseIp(s.Ip) is { } ip && old.Contains(ip)).ToList();
+            if (op == null || here.Count == 0) continue;
+            var listed = string.Join(", ", here.Take(10).Select(s => $"{s.Name} ({s.Ip} to {s.NewIp})"))
+                + (here.Count > 10 ? $", and {here.Count - 10} more" : "");
+            var reason = $"Clients with no DHCP lease stay on the old subnet until they ask DHCP again or you change them: {listed}";
+            if (!op.Reasons.Contains(reason)) op.Reasons.Add(reason);
+            op.Tier = Math.Max(op.Tier, PlanTiers.Acknowledge);
+            unmarked.RemoveAll(here.Contains);
+        }
+        return unmarked;
+    }
+
+    /// <summary>
+    /// The network holding the console, or Network Optimizer's path to it, is written last: once it moves, the old
+    /// address every later write goes to is gone. Addresses the console checks against their network's current
+    /// subnet follow every network: honeypots (api.err.HoneypotIpNotWithinSelectedNetwork) and client reservations.
+    /// Devices write leaves first, as Firmware Rollout upgrades, so a parent applying its config does not bounce a
+    /// child's uplink first; the gateway is the last device write: Network Optimizer may reach the others through it.
+    /// A network holding a device's static address follows the devices: moved first, it strands the device on
+    /// the old subnet, where it can no longer reach the console for its new address.
+    /// </summary>
+    internal static void OrderReaddressWrites(PlanDocument doc, IReadOnlySet<string> pathNetworks, IReadOnlySet<string>? gateways = null,
+        IReadOnlyList<SubnetMove>? moves = null, IReadOnlyDictionary<string, int>? deviceDepths = null)
+    {
+        if (deviceDepths != null)
+            foreach (var op in doc.Operations.Where(o => o.Collection == "device" && o.ObjectId != null && deviceDepths.ContainsKey(o.ObjectId)))
+                op.Order = DeviceOrder(deviceDepths[op.ObjectId!]);
+        var path = doc.Operations.Where(o => o.Collection == "networkconf" && o.ObjectId != null && pathNetworks.Contains(o.ObjectId)).ToList();
+        foreach (var op in path)
+        {
+            op.Order = 100;
+            op.ManagementPath = true;
+        }
+        var staticHomes = StaticDeviceNetworks(doc, moves ?? []);
+        foreach (var op in doc.Operations.Where(o => o.Collection == "networkconf" && o.ObjectId != null
+                     && staticHomes.Contains(o.ObjectId) && !pathNetworks.Contains(o.ObjectId)))
+        {
+            op.Order = 50;
+            op.ManagementPath = true;
+        }
+        var afterNetworks = doc.Operations
+            .Where(o => o.Collection == "user" || (o.Collection == "setting" && (o.Body?["key"]?.ToString() ?? o.ObjectName) == "ips")).ToList();
+        // One refused reservation (a DHCP client took its address from the new pool) must not strand the rest:
+        // the console dropped them all when the networks moved. Honeypots follow the reservations.
+        foreach (var op in afterNetworks)
+        {
+            op.Order = op.Collection == "user" ? 101 : 102;
+            op.ManagementPath = true;
+            op.ContinueOnError = true;
+        }
+        foreach (var op in doc.Operations.Where(o => o.Collection == "device" && o.ObjectId != null && gateways?.Contains(o.ObjectId) == true))
+        {
+            op.Order = GatewayOrder;
+            op.ManagementPath = true;
+        }
+        // The Inform Host override's new address is dead until the Console's host moves: sent after every device and
+        // network write that still needs the old one, while the Console answers there.
+        foreach (var op in doc.Operations.Where(o => o.Collection == "setting" && (o.Body?["key"]?.ToString() ?? o.ObjectName) == "super_mgmt"
+                     && (o.WriteFields.Contains("override_inform_host") || o.WriteFields.Contains("override_inform_host_location"))))
+            op.Order = InformOverrideOrder;
+        // The console also refuses a network's new subnet while one of its honeypots sits at the old address
+        // (api.err.HoneypotIpOutOfRange), so honeypots go off before the networks and come back after them.
+        foreach (var op in afterNetworks.Where(o => o.Collection == "setting" && o.Body?["honeypot"] is JsonArray { Count: > 0 }).ToList())
+        {
+            var off = (JsonObject)op.Body!.DeepClone();
+            off["honeypot"] = new JsonArray();
+            off["honeypot_enabled"] = false;
+            doc.Operations.Add(new PlanOperation
+            {
+                Key = op.Key + HoneypotsOffSuffix,
+                Collection = op.Collection,
+                Action = PlanAction.Update,
+                ObjectId = op.ObjectId,
+                ObjectName = op.ObjectName,
+                Body = off,
+                WriteFields = ["honeypot", "honeypot_enabled"],
+                ChangeText = "Honeypots off until the networks move",
+                Tier = PlanTiers.Direct,
+                Order = 1,
+                NeedsGateway = op.NeedsGateway,
+                ProvisionsGateway = op.ProvisionsGateway,
+            });
+            if (op.Body is JsonObject body && !body.ContainsKey("honeypot_enabled")) body["honeypot_enabled"] = true;
+        }
+        PlanBuilder.Reorder(doc);
+        // A write after a path network can lose its reply with the old address, so its failure is expected too.
+        doc.Context[PlanCoordinator.ReaddressPathContext] = path.Count == 0 ? "" : string.Join(",", path.Concat(afterNetworks).Select(o => o.Key));
+    }
+
+    /// <summary>Key suffix of the write that turns honeypots off before the networks move; it goes with its restore write.</summary>
+    internal const string HoneypotsOffSuffix = ":honeypots-off";
+
+    /// <summary>A re-address's gateway write order: after every other device (10 to 39), before the networks (50, 100).</summary>
+    internal const int GatewayOrder = 45;
+
+    /// <summary>A re-address's Inform Host override write order: after every network but the Console's path (100).</summary>
+    internal const int InformOverrideOrder = 99;
+
+    /// <summary>
+    /// A device write's order from its uplink depth, deepest first. Depths from 1000 are chains with no known path
+    /// to the gateway, which Firmware Rollout treats as deep leaves; they go first, their own children before them.
+    /// </summary>
+    private static int DeviceOrder(int depth)
+    {
+        var deep = depth >= 1000 ? 20 + Math.Min(depth - 1000, 9) : Math.Min(depth, 19);
+        return 10 + (29 - deep);
+    }
+
+    /// <summary>Each device's uplink depth from the gateway, by device ID, from the uplink the snapshot keeps.</summary>
+    internal static Dictionary<string, int> DeviceDepths(ConfigState site)
+    {
+        var devices = site.Get("device").Where(d => d["mac"] != null && d["_id"] != null).ToList();
+        string? Meta(JsonObject d, string key) => (d[ConfigCollections.DeviceMetaField] as JsonObject)?[key] is JsonValue v ? v.ToString() : null;
+        var planner = devices.Select(d => new Firmware.PlannerDevice
+        {
+            Mac = d["mac"]!.ToString().ToLowerInvariant(),
+            Type = Meta(d, "type") is "ugw" or "udm" or "uxg" ? NetworkOptimizer.Core.Enums.DeviceType.Gateway : NetworkOptimizer.Core.Enums.DeviceType.Unknown,
+            UplinkMac = ((d[ConfigCollections.DeviceMetaField] as JsonObject)?["uplink"] as JsonObject)?["uplink_mac"]?.ToString().ToLowerInvariant(),
+        }).ToList();
+        var depths = Firmware.RolloutPlanner.ComputeDepths(planner);
+        return devices.Where(d => depths.ContainsKey(d["mac"]!.ToString()))
+            .ToDictionary(ConfigState.IdOf, d => depths[d["mac"]!.ToString()], StringComparer.OrdinalIgnoreCase);
+    }
+
+    /// <summary>The moving networks a device write gives a static address in.</summary>
+    /// <summary>
+    /// The moved networks some network device is managed on (its management network, else the default LAN), by name.
+    /// Those devices drop while they move to their new addresses, so the watch alerts instead of reverting.
+    /// </summary>
+    internal static List<string> ManagementMoves(ConfigState live, IReadOnlyList<SubnetMove> active)
+    {
+        var defaultLan = live.Get("networkconf").FirstOrDefault(n => ConfigCollections.NetworkKey(n) == "vlan:1");
+        var managed = live.Get("device")
+            .Select(d => d["mgmt_network_id"]?.ToString() is { Length: > 0 } m ? m : defaultLan == null ? null : ConfigState.IdOf(defaultLan))
+            .OfType<string>().ToHashSet(StringComparer.OrdinalIgnoreCase);
+        return active.Where(m => managed.Contains(m.NetworkId)).Select(m => m.NetworkName).ToList();
+    }
+
+    private static HashSet<string> StaticDeviceNetworks(PlanDocument doc, IReadOnlyList<SubnetMove> moves) =>
+        doc.Operations
+            .Where(o => o.Collection == "device" && o.Body?["config_network"] is JsonObject cn && cn["type"]?.ToString() == "static")
+            .Select(o => Readdressing.ParseIp(o.Body!["config_network"]!["ip"]?.ToString()))
+            .OfType<uint>()
+            .SelectMany(ip => moves.Where(m => Readdressing.ParseSubnet(m.NewCidr)?.Contains(ip) == true).Select(m => m.NetworkId))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// When a network's subnet changes the console drops its clients' reservations (use_fixedip off, fixed_ip
+    /// cleared) and their Local DNS flag. A client write carries those fields from the desired state as well,
+    /// or it only re-sends the address and the reservation stays off.
+    /// </summary>
+    internal static void CarryReservations(PlanDocument doc, ConfigState desired)
+    {
+        var byId = desired.Get("user").Where(u => u["_id"] != null)
+            .GroupBy(ConfigState.IdOf).ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
+        foreach (var op in doc.Operations.Where(o => o.Collection == "user" && o.ObjectId != null && o.Body is JsonObject))
+        {
+            if (!byId.TryGetValue(op.ObjectId!, out var want)) continue;
+            // Verify checks only the write's fields, so a carried field joins them or a dropped reservation passes.
+            foreach (var field in new[] { "use_fixedip", "fixed_ip", "local_dns_record_enabled", "local_dns_record" })
+                if (want[field] is { } v)
+                {
+                    op.Body![field] = v.DeepClone();
+                    if (!op.WriteFields.Contains(field)) op.WriteFields.Add(field);
+                }
+        }
+    }
+
+    /// <summary>The site's gateways by ID (ugw, udm, uxg).</summary>
+    internal static HashSet<string> GatewayIds(ConfigState live) =>
+        live.Get("device").Where(d => d[ConfigCollections.DeviceMetaField]?["type"]?.ToString() is "ugw" or "udm" or "uxg")
+            .Select(ConfigState.IdOf).ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>One settings move for the plan note; a setting named by its own address is not named twice.</summary>
+    internal static string SettingText(SettingRewrite s) =>
+        s.Name == s.Old ? $"{s.Setting} {s.Old} to {s.New}" : $"{s.Setting} {s.Name} {s.Old} to {s.New}";
+
+    /// <summary>Moved networks that hold the console's address or the address Network Optimizer reaches the site from.</summary>
+    private async Task<HashSet<string>> PathNetworksAsync(List<SubnetMove> active, CancellationToken ct)
+    {
+        var addresses = Plans.ManagementAddresses().Select(Readdressing.ParseIp).OfType<uint>().ToList();
+        if (Uri.TryCreate(_registry.Connection(_site.Slug).CurrentConfig?.ControllerUrl, UriKind.Absolute, out var uri))
+            addresses.AddRange(Readdressing.ParseIp(uri.Host) is { } ip ? [ip]
+                : (await SafeResolveAsync(uri.Host, ct)).Select(a => Readdressing.ParseIp(a.ToString())).OfType<uint>());
+        return active.Where(m => Readdressing.ParseSubnet(m.OldCidr) is { } old && addresses.Any(old.Contains))
+            .Select(m => m.NetworkId).ToHashSet(StringComparer.OrdinalIgnoreCase);
+    }
+
+    /// <summary>The longest DHCP lease among the moving networks with DHCP on (UniFi's default is a day); null when none.</summary>
+    private static int? LongestLease(ConfigState live, List<SubnetMove> active) =>
+        live.Get("networkconf").Where(n => active.Any(m => m.NetworkId == ConfigState.IdOf(n))
+                && Readdressing.IsTrue(n["dhcpd_enabled"]))
+            .Select(n => int.TryParse(n["dhcpd_leasetime"]?.ToString(), out var s) && s > 0 ? s : 86400)
+            .Select(s => (int?)s).DefaultIfEmpty(null).Max();
+
+    private static List<string> RemoteCidrs(ConfigState live) =>
+        Readdressing.RemoteRanges(live).Select(r => r.Range.ToString()).Distinct().ToList();
+
+    /// <summary>What to know before applying: one short title and one line of detail each, the most disruptive first.</summary>
+    private async Task<List<ReaddressWarning>> ReaddressWarningsAsync(ConfigState live, List<SubnetMove> active, LeasePrepare? prepare,
+        InformVerdicts? inform, CancellationToken ct)
+    {
+        var warnings = new List<ReaddressWarning>();
+        var map = Readdressing.Map(active);
+
+        // Network Optimizer's own host (or this site's On-Site Agent): it cannot watch or revert from an address that is gone.
+        var own = Plans.ManagementAddresses().Where(a => Readdressing.ParseIp(a) is { } ip && Readdressing.MapIp(ip, map) != null).Distinct().ToList();
+        if (own.Count > 0)
+            warnings.Add(new("Network Optimizer's host moves",
+                $"{own[0]}{(own.Count > 1 ? $" and {own.Count - 1} more" : "")}. Re-address it in the same window, or give it both addresses until every Device is back. Network Optimizer does not revert this Plan."));
+
+        var mgmt = ConfigDiffEngine.ManagementNetworkIds(live);
+        var managed = active.Where(m => mgmt.Contains(m.NetworkId)).Select(m => m.NetworkName).ToList();
+        if (managed.Count > 0)
+            warnings.Add(new(managed.Count == 1 ? "A management network moves" : "Management networks move",
+                $"{string.Join(", ", managed)}. Devices and the UniFi Console are reached at new addresses; Review Plan holds {(managed.Count == 1 ? "it" : "them")} at the Lockout tier."));
+
+        // Devices find the console by its inform address; a console inside a moved subnet must be found at its new one.
+        if (Uri.TryCreate(_registry.Connection(_site.Slug).CurrentConfig?.ControllerUrl, UriKind.Absolute, out var uri))
+        {
+            var byIp = Readdressing.ParseIp(uri.Host) is { } ip ? ip : (uint?)null;
+            var addresses = byIp is { } direct ? [direct]
+                : (await SafeResolveAsync(uri.Host, ct)).Select(a => Readdressing.ParseIp(a.ToString())).OfType<uint>().ToList();
+            if (addresses.FirstOrDefault(a => Readdressing.MapIp(a, map) != null) is var a && a != 0
+                && (byIp != null || !MovedByLocalDns(live, uri.Host, map)))
+            {
+                var moved = Readdressing.Format(Readdressing.MapIp(a, map)!.Value);
+                warnings.Add(new("The console moves", byIp != null
+                    ? $"{uri.Host} to {moved}. Network Optimizer reconnects at the new address."
+                    : $"{uri.Host} resolves to {Readdressing.Format(a)}: point its DNS record at {moved}."));
+            }
+        }
+
+        if (inform != null) warnings.AddRange(InformWarnings(inform));
+
+        var lease = live.Get("networkconf").Where(n => active.Any(m => m.NetworkId == ConfigState.IdOf(n)))
+            .Select(n => int.TryParse(n["dhcpd_leasetime"]?.ToString(), out var s) ? s : 86400).DefaultIfEmpty(86400).Max();
+        warnings.Add(prepare switch
+        {
+            null when lease <= PrepareLeaseSeconds => new("Leases are short",
+                $"{TimeFormatHelper.FormatDurationExact(TimeSpan.FromSeconds(lease))} or less on every moving network: clients move within minutes."),
+            null => new("Clients move as leases renew",
+                $"Within {TimeFormatHelper.FormatDurationExact(TimeSpan.FromSeconds(lease / 2))} of the move. Lower Lease Times first, or Reconnect Clients after, makes it minutes."),
+            { } p when p.ReadyAt > DateTime.UtcNow => new("Leases lowered, not everywhere yet",
+                $"Some clients keep their old lease until {TimeFormatHelper.FormatLocalDateTime(p.ReadyAt, Viewer, ViewerFormat)}. The plan puts each lease time back."),
+            _ => new("Leases are short", "Clients move within minutes. The plan puts each network's lease time back."),
+        });
+        return warnings;
+    }
+
+    /// <summary>
+    /// How each device finds the Console after the move, from each device's own inform_url (whatever set it: the
+    /// Inform Host override, a self-hosted server's system_ip, or adoption). Null when the device list does not load.
+    /// </summary>
+    [NetworkOptimizer.Core.VendorSpecific("UniFi", "stat/device inform_url")]
+    private async Task<InformVerdicts?> InformVerdictsAsync(ConfigState live, ConfigState desired,
+        IReadOnlyList<(Readdressing.Subnet Old, Readdressing.Subnet New)> map, CancellationToken ct)
+    {
+        var devices = await Engine.Api.SendAsync(UniFiApiScope.SiteV1, HttpMethod.Get, "stat/device", null, ct);
+        if (!devices.IsSuccess || ConfigSnapshotReader.ExtractList(devices.Body) is not { } list) return null;
+
+        var resolved = new Dictionary<string, uint?>(StringComparer.OrdinalIgnoreCase);
+        foreach (var host in list.Select(d => Uri.TryCreate(d["inform_url"]?.ToString(), UriKind.Absolute, out var u) ? u.Host : null).OfType<string>()
+                     .Distinct(StringComparer.OrdinalIgnoreCase).Where(h => Readdressing.ParseIp(h) == null && !MovedByLocalDns(live, h, map)))
+            resolved[host] = (await SafeResolveAsync(host, ct)).Select(a => Readdressing.ParseIp(a.ToString())).OfType<uint>().Cast<uint?>().FirstOrDefault();
+
+        var verdicts = ReaddressInform.Classify(list, live, desired, map, await ConsoleNeedsRepointAsync(ct), resolved);
+        bool ssh;
+        try { ssh = Plans.DeviceSshConfigured != null && await Plans.DeviceSshConfigured(ct); }
+        catch (Exception ex) when (ex is not OperationCanceledException) { _logger.LogDebug(ex, "Could not read the Device SSH settings"); ssh = false; }
+        return verdicts with { DeviceSsh = ssh };
+    }
+
+    /// <summary>
+    /// The Console does not learn its own new address: UniFi OS Server (Firmware Rollout's detection), or no UniFi OS
+    /// answer at all (a self-hosted Network Application, or unreadable). Only a UniFi OS console that is not a server follows by itself.
+    /// </summary>
+    private async Task<bool> ConsoleNeedsRepointAsync(CancellationToken ct)
+    {
+        try
+        {
+            var info = _registry.Connection(_site.Slug).Client is { } client ? await client.GetConsoleSystemInfoAsync(ct) : null;
+            return info == null || info.IsStandaloneConsole;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogDebug(ex, "Could not read the console type for the re-address inform check");
+            return true;
+        }
+    }
+
+    /// <summary>The dry run's inform lines: the override write, and the devices the SSH fallback covers.</summary>
+    internal static List<ReaddressWarning> InformWarnings(InformVerdicts inform)
+    {
+        var warnings = new List<ReaddressWarning>();
+        if (inform.OverrideIp is { } ip)
+            warnings.Add(new("The Plan re-points Devices at the Console",
+                $"It sets the Inform Host override to {ip} just before the Console's Network moves. Re-address the Console's host in the same window."));
+        var ssh = inform.Devices.Where(d => d.Route == InformRoute.SshFallback).ToList();
+        if (ssh.Count > 0)
+            warnings.Add(new(ssh.Count == 1 ? "A Device may need set-inform" : $"{ssh.Count} Devices may need set-inform",
+                $"{PlanCoordinator.NameList(ssh.Select(d => d.Name), 3)} inform to {string.Join(", ", ssh.Select(d => new Uri(d.InformUrl).Host).Distinct())}. "
+                + (inform.DeviceSsh
+                    ? (ssh.Count == 1 ? "It is" : "Each is") + " re-pointed over SSH if it does not reconnect."
+                    : "Device SSH is not configured, so the Alert gives the set-inform command to run on each one that does not reconnect.")));
+        return warnings;
+    }
+
+    /// <summary>
+    /// A Local DNS record for the name, followed through CNAMEs, points into a moved subnet, so the plan
+    /// rewrites it with the rest. A client's own DNS record (a short name UniFi extends with the domain)
+    /// counts through its fixed IP.
+    /// </summary>
+    internal static bool MovedByLocalDns(ConfigState live, string host, IReadOnlyList<(Readdressing.Subnet Old, Readdressing.Subnet New)> map) =>
+        LocalDnsMovedAddress(live, host, map) != null;
+
+    /// <summary>The old address the name's moved Local DNS record holds (see <see cref="MovedByLocalDns"/>); null when none moves it.</summary>
+    [NetworkOptimizer.Core.VendorSpecific("UniFi", "static_dns key/value; rest/user local_dns_record with fixed_ip")]
+    internal static uint? LocalDnsMovedAddress(ConfigState live, string host, IReadOnlyList<(Readdressing.Subnet Old, Readdressing.Subnet New)> map)
+    {
+        var records = live.Get("static_dns").Select(r => (Name: r["key"]?.ToString(), Value: r["value"]?.ToString()))
+            .Concat(live.Get("user").Where(u => u["local_dns_record_enabled"]?.ToString() == "true" && u["use_fixedip"]?.ToString() == "true")
+                .Select(u => (Name: u["local_dns_record"]?.ToString(), Value: u["fixed_ip"]?.ToString())))
+            .Where(r => !string.IsNullOrEmpty(r.Name)).ToList();
+        static bool Names(string record, string name) =>
+            string.Equals(record, name, StringComparison.OrdinalIgnoreCase)
+            || (!record.Contains('.') && name.StartsWith(record + ".", StringComparison.OrdinalIgnoreCase));
+        var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        for (var name = host.TrimEnd('.'); names.Add(name);)
+        {
+            var targets = records.Where(r => Names(r.Name!.TrimEnd('.'), name)).Select(r => r.Value ?? "").ToList();
+            if (targets.Select(Readdressing.ParseIp).FirstOrDefault(ip => ip is { } a && Readdressing.MapIp(a, map) != null) is { } moved) return moved;
+            if (targets.FirstOrDefault(v => v.Length > 0 && Readdressing.ParseIp(v) == null) is not { } cname) return null;
+            name = cname.TrimEnd('.');
+        }
+        return null;
+    }
+
+    private static async Task<IPAddress[]> SafeResolveAsync(string host, CancellationToken ct)
+    {
+        try { return await Dns.GetHostAddressesAsync(host, ct); }
+        catch (Exception ex) when (ex is not OperationCanceledException) { return []; }
+    }
+
+    /// <summary>
+    /// Clients in a moved subnet that DHCP may not move. The gateway's own DHCP lease file (over Gateway SSH)
+    /// is the record: a connected client with no lease there is set on the device, served by another DHCP
+    /// server, or still using a lease that lapsed, reserved or not. Without Gateway SSH, UniFi's IP Table
+    /// can only clear clients with no reservation (it lists every reservation the same way), and without
+    /// that, an address outside its network's DHCP range counts.
+    /// </summary>
+    [NetworkOptimizer.Core.VendorSpecific("UniFi", "stat/sta clients, the gateway's dnsmasq lease file, v2 active-leases (the IP Table)")]
+    private async Task<(List<StaticClient> Clients, string Source)> StaticClientsAsync(ConfigState live, List<SubnetMove> active, CancellationToken ct)
+    {
+        var map = Readdressing.Map(active);
+        var clients = await Engine.Api.SendAsync(UniFiApiScope.SiteV1, HttpMethod.Get, "stat/sta", null, ct);
+        if (!clients.IsSuccess || ConfigSnapshotReader.ExtractList(clients.Body) is not { } list) return ([], "");
+
+        var gateway = await _registry.GatewayLeaseMacsAsync(_site.Slug, ct);
+        HashSet<string>? ipTable = null;
+        if (gateway == null)
+        {
+            // {"dhcp_lease_info":[{mac, ip, use_fixedip, lease_expiration_time, status}]}: leases and reservations.
+            var leases = await Engine.Api.SendAsync(UniFiApiScope.SiteV2, HttpMethod.Get, "active-leases", null, ct);
+            try
+            {
+                if (leases.IsSuccess && JsonNode.Parse(leases.Body)?["dhcp_lease_info"] is JsonArray rows)
+                    ipTable = rows.OfType<JsonObject>().Select(r => r["mac"]?.ToString()?.ToLowerInvariant()).OfType<string>().ToHashSet(StringComparer.Ordinal);
+            }
+            catch (JsonException) { }
+        }
+
+        var networks = live.Get("networkconf").ToDictionary(ConfigState.IdOf, n => n, StringComparer.OrdinalIgnoreCase);
+        var result = ConnectedStaticClients(list, gateway, ipTable, networks, map);
+        result.AddRange(await OfflineClientsAsync(list, gateway ?? ipTable, networks, map, ct));
+        var source = gateway != null ? "from the gateway's DHCP leases"
+            : ipTable != null ? "from UniFi's IP Table, reserved clients not checked"
+            : "from DHCP ranges";
+        return (result.OrderBy(r => Readdressing.ParseIp(r.Ip)).ToList(), source);
+    }
+
+    /// <summary>
+    /// The connected clients in a moved subnet with no DHCP lease from this gateway. With the gateway's lease
+    /// file, no lease is the whole test, reserved or not, busy or idle. Never split these by traffic rate: a
+    /// quiet static client was once taken as a lapsed lease and dropped from the plan. Static, another DHCP
+    /// server, and a lapsed lease kept in use all look the same here, so all are listed. Without the
+    /// lease file, UniFi's IP Table lists reservations like leases, so a reserved client cannot be judged;
+    /// without that, an address outside the network's DHCP range is the sign.
+    /// </summary>
+    internal static List<StaticClient> ConnectedStaticClients(IEnumerable<JsonObject> clients, HashSet<string>? gatewayLeases, HashSet<string>? ipTable,
+        Dictionary<string, JsonObject> networks, List<(Readdressing.Subnet Old, Readdressing.Subnet New)> map)
+    {
+        var result = new List<StaticClient>();
+        foreach (var c in clients)
+        {
+            if (c["ip"]?.ToString() is not { } ipText || Readdressing.ParseIp(ipText) is not { } ip || Readdressing.MapIp(ip, map) is not { } moved) continue;
+            var reserved = Readdressing.IsTrue(c["use_fixedip"]);
+            var mac = c["mac"]?.ToString()?.ToLowerInvariant() ?? "";
+            var network = c["network_id"]?.ToString() is { } nid && networks.TryGetValue(nid, out var n) ? n : null;
+            var isStatic = gatewayLeases != null ? !gatewayLeases.Contains(mac)
+                : !reserved && (ipTable != null ? !ipTable.Contains(mac) : network != null && !InDhcpRange(network, ip));
+            if (!isStatic) continue;
+            var name = c["name"]?.ToString() is { Length: > 0 } nm ? nm : c["hostname"]?.ToString() is { Length: > 0 } hn ? hn : mac;
+            result.Add(new StaticClient(name, mac, ipText, Readdressing.Format(moved), network?["name"]?.ToString() ?? "", reserved));
+        }
+        return result;
+    }
+
+    /// <summary>
+    /// Known clients not connected now that were likely set on the device: last seen in a moved subnet,
+    /// with no reservation and no lease, on an address outside their network's DHCP range.
+    /// </summary>
+    [NetworkOptimizer.Core.VendorSpecific("UniFi", "rest/user last_ip, last_seen, fixed_ip")]
+    private async Task<List<StaticClient>> OfflineClientsAsync(List<JsonObject> connected, HashSet<string>? leased,
+        Dictionary<string, JsonObject> networks, List<(Readdressing.Subnet Old, Readdressing.Subnet New)> map, CancellationToken ct)
+    {
+        var online = connected.Select(c => c["mac"]?.ToString()?.ToLowerInvariant()).OfType<string>().ToHashSet(StringComparer.Ordinal);
+        var users = await Engine.Api.SendAsync(UniFiApiScope.SiteV1, HttpMethod.Get, "rest/user", null, ct);
+        if (!users.IsSuccess || ConfigSnapshotReader.ExtractList(users.Body) is not { } list) return [];
+        var result = new List<StaticClient>();
+        foreach (var u in list)
+        {
+            var mac = u["mac"]?.ToString()?.ToLowerInvariant() ?? "";
+            // A lease (a phone asleep off stat/sta) or a reservation means DHCP: it follows. So does an address
+            // DHCP's own range handed out. Left: none of those, the one sign of an address set on the device.
+            if (mac.Length == 0 || online.Contains(mac) || leased?.Contains(mac) == true) continue;
+            if (Readdressing.IsTrue(u["use_fixedip"])) continue;
+            var ipText = u["last_ip"]?.ToString();
+            if (Readdressing.ParseIp(ipText) is not { } ip || Readdressing.MapIp(ip, map) is not { } moved) continue;
+            var lastNetwork = u["last_connection_network_id"]?.ToString() is { } lid && networks.TryGetValue(lid, out var ln) ? ln : null;
+            if (lastNetwork == null || InDhcpRange(lastNetwork, ip)) continue;
+            var reserved = false;
+            DateTime? seen = long.TryParse(u["last_seen"]?.ToString(), out var s) && s > 0 ? DateTimeOffset.FromUnixTimeSeconds(s).UtcDateTime : DateTime.MinValue;
+            var network = u["last_connection_network_id"]?.ToString() is { } nid && networks.TryGetValue(nid, out var n) ? n["name"]?.ToString() ?? "" : "";
+            var name = u["name"]?.ToString() is { Length: > 0 } nm ? nm : u["hostname"]?.ToString() is { Length: > 0 } hn ? hn : mac;
+            result.Add(new StaticClient(name, mac, ipText!, Readdressing.Format(moved), network, reserved, seen));
+        }
+        return result.OrderByDescending(c => c.LastSeen).ToList();
+    }
+
+    private static bool InDhcpRange(JsonObject network, uint ip) =>
+        Readdressing.IsTrue(network["dhcpd_enabled"])
+        && Readdressing.ParseIp(network["dhcpd_start"]?.ToString()) is { } start && Readdressing.ParseIp(network["dhcpd_stop"]?.ToString()) is { } stop
+        && ip >= start && ip <= stop;
+}

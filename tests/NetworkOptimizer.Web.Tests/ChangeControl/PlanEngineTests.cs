@@ -1,0 +1,720 @@
+using System.Text.Json.Nodes;
+using FluentAssertions;
+using Microsoft.Extensions.Logging.Abstractions;
+using NetworkOptimizer.Web.Services.ChangeControl;
+using Xunit;
+using static NetworkOptimizer.Web.Tests.ChangeControl.ConfigDiffEngineTests;
+
+namespace NetworkOptimizer.Web.Tests.ChangeControl;
+
+public class PlanEngineTests
+{
+    private const string Lan = """{"_id":"n1","name":"Default","purpose":"corporate","ip_subnet":"192.168.1.1/24","dhcpd_enabled":true}""";
+    private const string Iot = """{"_id":"n2","name":"IoT","purpose":"corporate","vlan":30,"vlan_enabled":true,"ip_subnet":"192.168.30.1/24","mdns_enabled":false}""";
+
+    private static PlanDocument Plan(ConfigState desired, ConfigState live, PlanOptions? options = null) =>
+        PlanBuilder.Build(desired, live, options ?? new PlanOptions());
+
+    [Fact]
+    public void Rollback_UpdatesTheChangedField_AndTagsMdns()
+    {
+        var desired = State(("networkconf", Lan), ("networkconf", Iot));
+        var live = State(("networkconf", Lan), ("networkconf", Iot.Replace("\"mdns_enabled\":false", "\"mdns_enabled\":true")));
+        var doc = Plan(desired, live);
+        var op = doc.Operations.Should().ContainSingle().Subject;
+        op.Action.Should().Be(PlanAction.Update);
+        op.Tier.Should().Be(PlanTiers.Acknowledge);
+        op.Reasons.Should().Contain(r => r.Contains("mDNS"));
+        op.Body!["mdns_enabled"]!.GetValue<bool>().Should().BeFalse();
+        op.Body!["vlan"]!.GetValue<int>().Should().Be(30, "v1 updates send the whole object");
+    }
+
+    [Fact]
+    public void DeletingAWlan_LeavesItsOwnApGroupToUniFi()
+    {
+        var desired = State(("networkconf", Lan));
+        var live = State(("networkconf", Lan),
+            ("apgroups", """{"_id":"g9","name":"devices_ap_group","for_wlanconf":true,"device_macs":["aa:bb:cc:dd:ee:01"]}"""),
+            ("wlanconf", """{"_id":"w9","name":"Testing","networkconf_id":"n1","ap_group_ids":["g9"]}"""));
+        var doc = Plan(desired, live, new PlanOptions { Collections = new HashSet<string> { "apgroups", "wlanconf" } });
+        doc.Operations.Should().ContainSingle(o => o.Action == PlanAction.Delete).Which.Collection.Should().Be("wlanconf");
+        doc.Notes.Should().Contain(n => n.Contains("UniFi removes it with that WLAN"));
+    }
+
+    [Fact]
+    public void Create_ReferencesAnObjectTheSamePlanCreates()
+    {
+        var desired = State(("networkconf", Lan), ("networkconf", Iot),
+            ("portconf", """{"_id":"p1","name":"IoT Port","native_networkconf_id":"n2"}"""));
+        var live = State(("networkconf", Lan));
+        var doc = Plan(desired, live);
+        doc.Errors.Should().BeEmpty();
+        var profile = doc.Operations.Single(o => o.Collection == "portconf");
+        profile.Body!["native_networkconf_id"]!.GetValue<string>().Should().StartWith(PlanBuilder.RefPrefix);
+        doc.Operations.IndexOf(doc.Operations.Single(o => o.Collection == "networkconf"))
+            .Should().BeLessThan(doc.Operations.IndexOf(profile), "networks are written before the profiles that reference them");
+    }
+
+    [Fact]
+    public void Delete_OfAReferencedObject_IsRefused_WithReferrersListed()
+    {
+        var desired = State(("networkconf", Lan), ("portconf", """{"_id":"p1","name":"IoT Port","native_networkconf_id":"n2"}"""));
+        var live = State(("networkconf", Lan), ("networkconf", Iot), ("portconf", """{"_id":"p1","name":"IoT Port","native_networkconf_id":"n2"}"""));
+        var doc = Plan(desired, live);
+        doc.Errors.Should().ContainSingle(e => e.Contains("IoT Port"));
+    }
+
+    [Fact]
+    public void RedactedSecret_KeepsTheCurrentValue()
+    {
+        var desired = State(("wlanconf", """{"_id":"w1","name":"Home","x_passphrase":"<keep current>","hide_ssid":true}"""));
+        var live = State(("wlanconf", """{"_id":"w1","name":"Home","x_passphrase":"secret","hide_ssid":false}"""));
+        var op = Plan(desired, live).Operations.Single();
+        op.Fields.Should().NotContain(f => f.Path == "x_passphrase");
+        op.Body!["x_passphrase"]!.GetValue<string>().Should().Be("secret", "the full-object PUT carries the live value");
+    }
+
+    private const string PpskLive = """{"_id":"w1","name":"Home","hide_ssid":false,"private_preshared_keys":[{"networkconf_id":"n1","password":"pw-lan"},{"networkconf_id":"n2","password":"pw-iot"}]}""";
+
+    [Fact]
+    public void RedactedPpskPasswords_AreKeptPerEntry()
+    {
+        var desired = State(("wlanconf", """{"_id":"w1","name":"Home","hide_ssid":false,"private_preshared_keys":[{"networkconf_id":"n1","password":"<keep current>"},{"networkconf_id":"n2","password":"<keep current>"}]}"""));
+        Plan(desired, State(("wlanconf", PpskLive))).Operations.Should().BeEmpty("kept passwords restore to exactly the live entries");
+    }
+
+    [Fact]
+    public void RedactedPpskPasswords_FollowTheirEntry_WhenEntriesMove()
+    {
+        var desired = State(("wlanconf", """{"_id":"w1","name":"Home","hide_ssid":true,"private_preshared_keys":[{"networkconf_id":"n2","password":"<keep current>"},{"networkconf_id":"n3","password":"pw-new"},{"networkconf_id":"n1","password":"<keep current>"}]}"""));
+        var plan = Plan(desired, State(("wlanconf", PpskLive)));
+        plan.Errors.Should().BeEmpty();
+        var body = plan.Operations.Single().Body!.ToJsonString();
+        body.Should().NotContain("keep current");
+        var keys = plan.Operations.Single().Body!["private_preshared_keys"]!.AsArray();
+        keys.Select(k => (k!["networkconf_id"]!.ToString(), k["password"]!.ToString()))
+            .Should().Equal(("n2", "pw-iot"), ("n3", "pw-new"), ("n1", "pw-lan"));
+    }
+
+    [Fact]
+    public void RedactedPpskPassword_WithNoMatchingEntry_IsAnError_NotAWrite()
+    {
+        var desired = State(("wlanconf", """{"_id":"w1","name":"Home","hide_ssid":false,"private_preshared_keys":[{"networkconf_id":"n3","password":"<keep current>"},{"networkconf_id":"n2","password":"<keep current>"}]}"""));
+        var plan = Plan(desired, State(("wlanconf", PpskLive)));
+        plan.Errors.Should().ContainSingle().Which.Should().Contain("matches no existing entry");
+    }
+
+    [Fact]
+    public void PpskPasswordChange_ShowsAsASecretChange_WithNoValues()
+    {
+        var desired = State(("wlanconf", PpskLive.Replace("pw-iot", "pw-rotated")));
+        var field = Plan(desired, State(("wlanconf", PpskLive))).Operations.Single().Fields.Single();
+        field.Secret.Should().BeTrue();
+        field.Old.Should().BeNull();
+        field.New.Should().BeNull();
+    }
+
+    [Fact]
+    public void NoOwnedAndGeneratedObjects_AreNeverWritten()
+    {
+        var desired = State(("firewallgroup", """{"_id":"g1","name":"Net. Opt. Blocklist (IPv4)","group_type":"address-group"}"""),
+            ("firewall_policy", """{"_id":"p1","name":"Allow All Traffic","predefined":true,"enabled":true}"""));
+        var live = State(("firewall_policy", """{"_id":"p1","name":"Allow All Traffic","predefined":true,"enabled":false}"""));
+        Plan(desired, live).Operations.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Lockout_UplinkPortDropsTheManagementNetwork()
+    {
+        var sw = """
+            {"_id":"d1","mac":"aa:bb:cc:dd:ee:01","name":"Core Switch","port_overrides":[{"port_idx":9,"tagged_vlan_mgmt":"auto","excluded_networkconf_ids":[]}],
+             "_no_meta":{"type":"usw"}}
+            """;
+        var garage = """{"_id":"d2","mac":"aa:bb:cc:dd:ee:02","name":"Garage Switch","mgmt_network_id":"n2","_no_meta":{"type":"usw","uplink":{"uplink_mac":"aa:bb:cc:dd:ee:01","uplink_remote_port":9}}}""";
+        var live = State(("networkconf", Lan), ("networkconf", Iot), ("device", sw), ("device", garage));
+        var desired = State(("networkconf", Lan), ("networkconf", Iot), ("device", sw.Replace("\"excluded_networkconf_ids\":[]", "\"excluded_networkconf_ids\":[\"n2\"]")), ("device", garage));
+        var doc = Plan(desired, live);
+        var finding = doc.Lockouts.Should().ContainSingle().Subject;
+        finding.Kind.Should().Be("certain");
+        finding.Devices.Should().Contain("Garage Switch");
+        doc.HighestTier.Should().Be(PlanTiers.Lockout);
+        doc.Operations.Single().ManagementPath.Should().BeTrue();
+    }
+
+    private static string Ap(string id, string mac, string name, string configNetwork) =>
+        $$$"""{"_id":"{{{id}}}","mac":"{{{mac}}}","name":"{{{name}}}","config_network":{{{configNetwork}}},"_no_meta":{"type":"uap"}}""";
+
+    private const string Test = """{"_id":"n3","name":"Test","purpose":"corporate","vlan":39,"vlan_enabled":true,"ip_subnet":"192.168.39.1/24"}""";
+
+    private static ConfigState WithTestNetwork(bool present)
+    {
+        var objects = new List<(string, string)>
+        {
+            ("networkconf", Lan), ("networkconf", Iot),
+            ("firewall_zone", present ? """{"_id":"z1","name":"Internal","zone_key":"internal","network_ids":["n1","n2","n3"]}"""
+                                      : """{"_id":"z1","name":"Internal","zone_key":"internal","network_ids":["n1","n2"]}"""),
+            ("portconf", present ? """{"_id":"p1","name":"Trunk","forward":"customize","tagged_networkconf_ids":["n2","n3"]}"""
+                                 : """{"_id":"p1","name":"Trunk","forward":"customize","tagged_networkconf_ids":["n2"]}"""),
+        };
+        if (present) objects.Add(("networkconf", Test));
+        return State(objects.ToArray());
+    }
+
+    [Fact]
+    public void Restore_WithoutDeletes_KeptNetworkKeepsItsZoneAndTaggedPorts()
+    {
+        var doc = Plan(WithTestNetwork(present: false), WithTestNetwork(present: true), new PlanOptions { DeleteMissing = false });
+
+        doc.Operations.Should().BeEmpty("the Test network stays, so Internal and the trunk keep it");
+    }
+
+    [Fact]
+    public void Restore_WithDeletes_ZoneUpdateWritesAfterTheNetworkDelete()
+    {
+        var doc = Plan(WithTestNetwork(present: false), WithTestNetwork(present: true));
+
+        var keys = doc.Operations.Select(o => o.Key).ToList();
+        var delete = doc.Operations.Single(o => o.Collection == "networkconf" && o.Action == PlanAction.Delete);
+        var zone = doc.Operations.Single(o => o.Collection == "firewall_zone");
+        keys.IndexOf(zone.Key).Should().BeGreaterThan(keys.IndexOf(delete.Key), "UniFi refuses to leave a network in no zone");
+        zone.ContinueOnError.Should().BeTrue("it only clears out the deleted network, which the delete already did");
+    }
+
+    [Fact]
+    public void Lockout_PossibleIpSettingsChanges_AreOneFindingNamingEveryDevice()
+    {
+        const string dhcp = """{"type":"dhcp"}""";
+        const string staticIn = """{"type":"static","ip":"192.168.1.20"}""";
+        var live = State(("networkconf", Lan), ("device", Ap("d1", "aa:bb:cc:dd:ee:01", "AP One", dhcp)),
+            ("device", Ap("d2", "aa:bb:cc:dd:ee:02", "AP Two", dhcp)));
+        var desired = State(("networkconf", Lan), ("device", Ap("d1", "aa:bb:cc:dd:ee:01", "AP One", staticIn)),
+            ("device", Ap("d2", "aa:bb:cc:dd:ee:02", "AP Two", staticIn.Replace(".20", ".21"))));
+
+        var doc = Plan(desired, live);
+
+        var finding = doc.Lockouts.Should().ContainSingle().Subject;
+        finding.Kind.Should().Be("possible");
+        finding.Title.Should().Be("2 devices change their IP settings");
+        finding.Devices.Should().Equal("AP One", "AP Two");
+        finding.OperationKeys.Should().HaveCount(2);
+    }
+
+    [Fact]
+    public void Lockout_CertainIpSettingsChange_KeepsItsOwnFinding()
+    {
+        const string dhcp = """{"type":"dhcp"}""";
+        var live = State(("networkconf", Lan), ("device", Ap("d1", "aa:bb:cc:dd:ee:01", "AP One", dhcp)),
+            ("device", Ap("d2", "aa:bb:cc:dd:ee:02", "AP Two", dhcp)));
+        var desired = State(("networkconf", Lan), ("device", Ap("d1", "aa:bb:cc:dd:ee:01", "AP One", """{"type":"static","ip":"192.168.1.20"}""")),
+            ("device", Ap("d2", "aa:bb:cc:dd:ee:02", "AP Two", """{"type":"static","ip":"10.9.9.9"}""")));
+
+        var doc = Plan(desired, live);
+
+        doc.Lockouts.Should().HaveCount(2);
+        doc.Lockouts.Should().ContainSingle(l => l.Kind == "certain").Which.Devices.Should().Equal("AP Two");
+        doc.Lockouts.Should().ContainSingle(l => l.Kind == "possible").Which.Title.Should().Be("AP One IP settings change");
+    }
+
+    [Fact]
+    public void Confirmation_IsTheSiteName_WhenThePlanCarriesOne()
+    {
+        var doc = new PlanDocument
+        {
+            Operations = [new PlanOperation { Key = "op1", Collection = "device", Tier = PlanTiers.Lockout }],
+            Lockouts = [new LockoutFinding { Devices = ["AP One", "AP Two"], OperationKeys = ["op1"] }],
+            ConfirmationPhrase = "Test Site",
+        };
+
+        PlanReadiness.ConfirmationText(doc).Should().Be("Test Site");
+        PlanReadiness.Remaining(doc, new PlanAcknowledgements { TypedConfirmation = "test site " }, isSiteAdmin: true).Should().BeEmpty();
+        PlanReadiness.Remaining(doc, new PlanAcknowledgements { TypedConfirmation = "AP One, AP Two" }, isSiteAdmin: true)
+            .Should().Equal("1 confirmation to type");
+    }
+
+    [Fact]
+    public void Confirmation_FallsBackToTheDeviceNames_OnAPlanBuiltWithoutAPhrase()
+    {
+        var doc = new PlanDocument { Lockouts = [new LockoutFinding { Devices = ["AP One", "AP Two"] }, new LockoutFinding { Devices = ["AP One"] }] };
+
+        PlanReadiness.ConfirmationText(doc).Should().Be("AP One, AP Two");
+        PlanReadiness.ConfirmationText(new PlanDocument { ConfirmationPhrase = "Test Site" }).Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Executor_RoundTrip_LeavesNoDifference()
+    {
+        var live = State(("networkconf", Lan), ("portconf", """{"_id":"p9","name":"Old"}"""));
+        var desired = State(("networkconf", Lan), ("networkconf", Iot), ("portconf", """{"_id":"p1","name":"IoT Port","native_networkconf_id":"n2"}"""));
+        var console = new FakeConsole(live);
+        var doc = Plan(desired, console.State.Clone());
+        doc.Errors.Should().BeEmpty();
+
+        var (ok, result) = await new PlanExecutor(console, NullLogger.Instance).ApplyAsync(doc, hasGateway: true, null, CancellationToken.None);
+        ok.Should().BeTrue(string.Join("; ", result.Operations.Select(o => $"{o.Key}={o.Outcome} {o.Message}")));
+
+        var after = await new ConfigSnapshotReader(NullLogger.Instance).ReadAsync(console);
+        var profile = after.Get("portconf").Single();
+        profile["name"]!.GetValue<string>().Should().Be("IoT Port");
+        var iot = after.Get("networkconf").Single(n => n["name"]!.GetValue<string>() == "IoT");
+        profile["native_networkconf_id"]!.GetValue<string>().Should().Be(ConfigState.IdOf(iot), "the reference resolves to the new network's ID");
+        PlanBuilder.Build(desired, after, new PlanOptions()).Operations.Should().BeEmpty("a second plan finds nothing left to do");
+    }
+
+    [Theory]
+    [InlineData("auto", 2)]    // UniFi stores the create as "manual": a second write puts "auto" back
+    [InlineData("manual", 1)]  // already what UniFi keeps: one write
+    public async Task Executor_NetworkCreatedAsAuto_KeepsAuto(string preference, int writes)
+    {
+        var live = State(("networkconf", Lan));
+        var desired = State(("networkconf", Lan), ("networkconf", Iot.Replace("\"mdns_enabled\":false", $"\"mdns_enabled\":false,\"setting_preference\":\"{preference}\"")));
+        var console = new FakeConsole(live);
+        var doc = Plan(desired, console.State.Clone());
+
+        var (ok, result) = await new PlanExecutor(console, NullLogger.Instance).ApplyAsync(doc, hasGateway: true, null, CancellationToken.None);
+
+        ok.Should().BeTrue(string.Join("; ", result.Operations.Select(o => $"{o.Key}={o.Outcome} {o.Message}")));
+        console.State.Get("networkconf").Single(n => n["name"]!.GetValue<string>() == "IoT")["setting_preference"]!.GetValue<string>().Should().Be(preference);
+        console.Requests.Count(r => r.Method != HttpMethod.Get).Should().Be(writes);
+    }
+
+    [Fact]
+    public async Task Executor_ZoneWrite_DoesNotLeaveAutoNetworksManual()
+    {
+        // Default is Auto and untouched by the plan; Test is created as Auto. The zone write that adds Test resets both.
+        var lanAuto = Lan.Replace("\"dhcpd_enabled\":true", "\"dhcpd_enabled\":true,\"setting_preference\":\"auto\"");
+        var test = """{"_id":"n3","name":"Test","purpose":"corporate","vlan":39,"vlan_enabled":true,"ip_subnet":"192.168.39.1/24","setting_preference":"auto"}""";
+        var live = State(("networkconf", lanAuto), ("firewall_zone", """{"_id":"z1","name":"Internal","zone_key":"internal","network_ids":["n1"]}"""));
+        var desired = State(("networkconf", lanAuto), ("networkconf", test),
+            ("firewall_zone", """{"_id":"z1","name":"Internal","zone_key":"internal","network_ids":["n1","n3"]}"""));
+        var console = new FakeConsole(live);
+        var doc = Plan(desired, console.State.Clone());
+
+        var (ok, result) = await new PlanExecutor(console, NullLogger.Instance).ApplyAsync(doc, hasGateway: true, null, CancellationToken.None);
+
+        ok.Should().BeTrue(string.Join("; ", result.Operations.Select(o => $"{o.Key}={o.Outcome} {o.Message}")));
+        console.State.Get("networkconf").Select(n => n["setting_preference"]!.GetValue<string>()).Should().AllBe("auto");
+    }
+
+    // A trunk profile with every network tagged has no excluded list; UniFi adds each new network to it (unticked).
+    private const string TrunkAllTagged = """{"_id":"p1","name":"[Trunk] Uplink","forward":"customize","tagged_vlan_mgmt":"custom","native_networkconf_id":"n1"}""";
+    private const string TrunkExcludingTestNet = """{"_id":"p1","name":"[Trunk] Uplink","forward":"customize","tagged_vlan_mgmt":"custom","native_networkconf_id":"n1","excluded_networkconf_ids":["n2"]}""";
+
+    [Fact]
+    public async Task Baseline_RestoringAProfileWithEveryNetworkTagged_EmptiesItsExclusions_AndDeletesTheNetwork()
+    {
+        var desired = State(("networkconf", Lan), ("portconf", TrunkAllTagged));
+        var console = new FakeConsole(State(("networkconf", Lan), ("networkconf", Iot), ("portconf", TrunkExcludingTestNet))) { EmptyListsReadBackMissing = true };
+        var doc = Plan(desired, console.State.Clone());
+
+        doc.Errors.Should().BeEmpty();
+        var profile = doc.Operations.Single(o => o.Collection == "portconf");
+        profile.Body!["excluded_networkconf_ids"]!.AsArray().Should().BeEmpty("a v1 PUT keeps a field it is not sent, so the list is sent empty");
+        doc.Operations.Should().Contain(o => o.Action == PlanAction.Delete && o.ObjectId == "n2");
+
+        var (ok, result) = await new PlanExecutor(console, NullLogger.Instance).ApplyAsync(doc, hasGateway: true, null, CancellationToken.None);
+
+        ok.Should().BeTrue(string.Join("; ", result.Operations.Select(o => $"{o.Key}={o.Outcome} {o.Message}")));
+        result.Operations.Single(o => o.Key == profile.Key).Outcome.Should().Be("Applied", "an emptied list reads back missing");
+        var after = await new ConfigSnapshotReader(NullLogger.Instance).ReadAsync(console);
+        after.Get("portconf").Single().ContainsKey("excluded_networkconf_ids").Should().BeFalse();
+        after.Get("networkconf").Should().NotContain(n => ConfigState.IdOf(n) == "n2");
+        PlanBuilder.Build(desired, after, new PlanOptions()).Operations.Should().BeEmpty("a second plan finds nothing left to do");
+    }
+
+    [Fact]
+    public void Delete_OfANetworkAPortOnlyExcludes_IsNotBlocked()
+    {
+        // Roll Back of a plan that created the network: UniFi's exclusions are outside the revert, and UniFi takes the
+        // deleted network out of them itself.
+        var live = State(("networkconf", Lan), ("networkconf", Iot), ("portconf", TrunkExcludingTestNet),
+            ("device", """{"_id":"d1","mac":"aa:00:00:00:00:01","name":"Switch","port_overrides":[{"port_idx":4,"excluded_networkconf_ids":["n2"]}]}"""));
+        var desired = State(("networkconf", Lan), ("portconf", TrunkAllTagged),
+            ("device", """{"_id":"d1","mac":"aa:00:00:00:00:01","name":"Switch","port_overrides":[{"port_idx":4}]}"""));
+
+        var doc = Plan(desired, live, new PlanOptions { OnlyObjects = new HashSet<(string, string)> { ("networkconf", "n2") } });
+
+        doc.Errors.Should().BeEmpty();
+        doc.Operations.Should().ContainSingle().Which.Action.Should().Be(PlanAction.Delete);
+    }
+
+    [Theory]
+    [InlineData("""{"_id":"p1","name":"[Trunk] Uplink","native_networkconf_id":"n2"}""")]
+    [InlineData("""{"_id":"p1","name":"[Trunk] Uplink","forward":"customize","native_networkconf_id":"n1","tagged_networkconf_ids":["n2"]}""")]
+    [InlineData("""{"_id":"p1","name":"[Voice] Desk","voice_networkconf_id":"n2"}""")]
+    public void Delete_OfANetworkAPortUses_IsStillBlocked(string profile)
+    {
+        var live = State(("networkconf", Lan), ("networkconf", Iot), ("portconf", profile));
+        var desired = State(("networkconf", Lan), ("portconf", profile));
+
+        var doc = Plan(desired, live, new PlanOptions { OnlyObjects = new HashSet<(string, string)> { ("networkconf", "n2") } });
+
+        doc.Errors.Should().ContainSingle().Which.Should().Contain("Port Profile");
+    }
+
+    [Fact]
+    public async Task Executor_NewFirewallPolicy_IsAppliedThoughUniFiAssignsItsOwnIndex()
+    {
+        // A zone-wide copy carries its template's index; UniFi stores its own on a create, and the reorder places it.
+        const string zones = """{"_id":"z1","name":"IoT"}""";
+        const string external = """{"_id":"z2","name":"External"}""";
+        var console = new FakeConsole(State(("firewall_zone", zones), ("firewall_zone", external), ("firewall_policy", """{"_id":"keep","name":"Existing","action":"BLOCK","index":10000,"source":{"zone_id":"z1","matching_target":"ANY"},"destination":{"zone_id":"z2","matching_target":"ANY"}}""")));
+        console.DropFields.Add("index");
+        var desired = console.State.Clone();
+        desired.Collections["firewall_policy"].Add(JsonNode.Parse("""{"_id":"copy","name":"Block External DNS (IoT)","action":"BLOCK","enabled":true,"index":10004,"protocol":"udp","source":{"zone_id":"z1","matching_target":"ANY"},"destination":{"zone_id":"z2","matching_target":"ANY"}}""")!.AsObject());
+        var doc = Plan(desired, console.State.Clone(), new PlanOptions { Collections = new HashSet<string> { "firewall_policy" } });
+
+        var create = doc.Operations.Single(o => o.Action == PlanAction.Create);
+        create.Body!.AsObject().ContainsKey("index").Should().BeTrue("the body is unchanged");
+        create.WriteFields.Should().NotContain("index");
+
+        var (ok, result) = await new PlanExecutor(console, NullLogger.Instance).ApplyAsync(doc, hasGateway: true, null, CancellationToken.None);
+
+        ok.Should().BeTrue(string.Join("; ", result.Operations.Select(o => $"{o.Key}={o.Outcome} {o.Message}")));
+        result.Operations.Single(o => o.Key == create.Key).Outcome.Should().Be("Applied");
+    }
+
+    [Fact]
+    public async Task Executor_RefusedButWritten_CountsAsApplied()
+    {
+        var console = new FakeConsole(State());
+        console.RefuseButWrite.Add("firewall/zone");
+        var desired = State(("firewall_zone", """{"_id":"z9","name":"IoT","network_ids":[]}"""));
+        var doc = Plan(desired, console.State.Clone());
+        var (ok, result) = await new PlanExecutor(console, NullLogger.Instance).ApplyAsync(doc, true, null, CancellationToken.None);
+        ok.Should().BeTrue();
+        result.Operations.Single().Message.Should().Contain("although UniFi answered");
+    }
+
+    [Fact]
+    public async Task Executor_DroppedField_IsReportedNotApplied()
+    {
+        var console = new FakeConsole(State());
+        console.DropFields.Add("multicast_router_networkconf_ids");
+        var desired = State(("portconf", """{"_id":"p1","name":"Trunk","multicast_router_networkconf_ids":["x"]}"""));
+        var doc = Plan(desired, console.State.Clone());
+        var (_, result) = await new PlanExecutor(console, NullLogger.Instance, NoWait).ApplyAsync(doc, true, null, CancellationToken.None);
+        var r = result.Operations.Single();
+        r.Outcome.Should().Be("Partial");
+        r.NotApplied.Should().ContainSingle().Which.Should().Be("multicast_router_networkconf_ids", "a re-read does not list a field twice");
+    }
+
+    private static readonly TimeSpan[] NoWait = [TimeSpan.Zero, TimeSpan.Zero, TimeSpan.Zero];
+
+    private static (ConfigState Live, ConfigState Desired) PortRename()
+    {
+        const string sw = """{"_id":"d1","mac":"aa:bb:cc:dd:ee:01","name":"Desk Switch","port_overrides":[{"port_idx":7,"name":"Old Name","portconf_id":"p1"}]}""";
+        return (State(("portconf", """{"_id":"p1","name":"Access"}"""), ("device", sw)),
+            State(("portconf", """{"_id":"p1","name":"Access"}"""), ("device", sw.Replace("Old Name", "New Name"))));
+    }
+
+    [Theory]
+    [InlineData(1)]
+    [InlineData(3)]
+    public async Task Executor_DeviceReadBackStale_IsReadAgain_AndApplied(int staleReads)
+    {
+        var (live, desired) = PortRename();
+        var console = new FakeConsole(live) { StaleReadsAfterWrite = staleReads };
+        var doc = Plan(desired, console.State.Clone());
+
+        var (ok, result) = await new PlanExecutor(console, NullLogger.Instance, NoWait).ApplyAsync(doc, true, null, CancellationToken.None);
+
+        ok.Should().BeTrue();
+        var r = result.Operations.Single();
+        r.Outcome.Should().Be("Applied", string.Join(", ", r.NotApplied));
+        r.Message.Should().BeNull();
+        r.NotApplied.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Executor_DeviceReadBackStalePastEveryRetry_IsPartial()
+    {
+        var (live, desired) = PortRename();
+        var console = new FakeConsole(live) { StaleReadsAfterWrite = 4 };
+        var doc = Plan(desired, console.State.Clone());
+
+        var (_, result) = await new PlanExecutor(console, NullLogger.Instance, NoWait).ApplyAsync(doc, true, null, CancellationToken.None);
+
+        result.Operations.Single().Outcome.Should().Be("Partial");
+        console.Requests.Count(q => q.Method == HttpMethod.Get).Should().Be(4, "the first read and three retries");
+    }
+
+    [Fact]
+    public async Task Executor_RefusedWrite_IsNotReadAgain()
+    {
+        var (live, desired) = PortRename();
+        var console = new FakeConsole(live);
+        var doc = Plan(desired, console.State.Clone());
+        console.Refuse["rest/device/d1"] = 400;
+
+        var (ok, result) = await new PlanExecutor(console, NullLogger.Instance, NoWait).ApplyAsync(doc, true, null, CancellationToken.None);
+
+        ok.Should().BeFalse();
+        result.Operations.Single().Outcome.Should().Be("Error");
+        console.Requests.Count(q => q.Method == HttpMethod.Get).Should().Be(1);
+    }
+
+    [Fact]
+    public void Carries_ExcludedNetwork_IsFalse_NativeIsTrue()
+    {
+        var state = State();
+        var sw = Obj("""{"port_overrides":[{"port_idx":1,"native_networkconf_id":"a","tagged_vlan_mgmt":"custom","excluded_networkconf_ids":["b"]}]}""");
+        LockoutChecker.Carries(state, sw, "1", "a").Should().BeTrue();
+        LockoutChecker.Carries(state, sw, "1", "b").Should().BeFalse();
+        LockoutChecker.Carries(state, sw, "1", "c").Should().BeTrue();
+        LockoutChecker.InSubnet("192.168.30.5", "192.168.30.1/24").Should().BeTrue();
+        LockoutChecker.InSubnet("192.168.31.5", "192.168.30.1/24").Should().BeFalse();
+    }
+
+    [Fact]
+    public void Verify_ReferenceListToACreatedObject_ComparesItsNewId()
+    {
+        var desired = State(("networkconf", Lan), ("networkconf", Iot), ("portconf", """{"_id":"p0","name":"Other"}"""),
+            ("portconf", """{"_id":"p1","name":"Trunk","forward":"customize","excluded_networkconf_ids":["n2"]}"""));
+        var live = State(("networkconf", Lan), ("portconf", """{"_id":"p0","name":"Other"}"""));
+        var doc = Plan(desired, live);
+        doc.Operations.Single(o => o.Collection == "networkconf").ObjectId = "real-n2";
+        doc.Operations.Single(o => o.Collection == "portconf").ObjectId = "real-p1";
+        var after = State(("networkconf", Lan), ("networkconf", Iot.Replace("\"n2\"", "\"real-n2\"")),
+            ("portconf", """{"_id":"p0","name":"Other"}"""),
+            ("portconf", """{"_id":"real-p1","name":"Trunk","forward":"customize","excluded_networkconf_ids":["real-n2"]}"""));
+
+        PlanCoordinator.VerifyAgainst(doc, live, after).Should().BeEmpty();
+
+        after.Collections["portconf"][1]["excluded_networkconf_ids"] = new JsonArray("n-other");
+        PlanCoordinator.VerifyAgainst(doc, live, after).Should().ContainSingle(d => d.Contains("Trunk"));
+    }
+
+    private static ConfigState MgmtSite(string mgmtKey, string sshPassword, string radiusSecret) => State(
+        ("setting", $$"""{"_id":"s-mgmt","key":"mgmt","x_mgmt_key":"{{mgmtKey}}","x_ssh_password":"{{sshPassword}}","auto_upgrade":true}"""),
+        ("setting", $$"""{"_id":"s-p2p","key":"peer_to_peer","ssid":"ssid-{{mgmtKey}}","psk":"psk-{{mgmtKey}}"}"""),
+        ("radiusprofile", $$"""{"_id":"r1","name":"Default","attr_no_delete":true,"auth_servers":[{"ip":"192.168.1.1","port":1812,"x_secret":"{{radiusSecret}}"}]}"""));
+
+    [Fact]
+    public void OtherSite_KeepsTheTargetsGeneratedValues_CarriesSshCredentials()
+    {
+        var source = MgmtSite("source-key", "my-ssh-password", "source-secret");
+        var target = MgmtSite("target-key", "target-ssh", "target-secret");
+
+        var doc = Plan(source, target, new PlanOptions { SameSite = false });
+
+        var mgmt = doc.Operations.Should().ContainSingle(o => o.Collection == "setting").Subject;
+        mgmt.Body!["x_ssh_password"]!.GetValue<string>().Should().Be("my-ssh-password");
+        mgmt.Body!["x_mgmt_key"]!.GetValue<string>().Should().Be("target-key", "the target's own management key is kept");
+        doc.Operations.Should().NotContain(o => o.Collection == "radiusprofile");
+        doc.KeptValues.Should().Equal("Device management key", "Peer-to-peer SSID and key", "Server secret on RADIUS profile Default");
+        ConfigState.IdOf(source.Get("setting")[0]).Should().Be("s-mgmt");
+        source.Get("setting")[0]["x_mgmt_key"]!.GetValue<string>().Should().Be("source-key", "the caller's state is not changed");
+    }
+
+    private static ConfigState IdentitySite(string id) => State(
+        ("setting", $$"""{"_id":"s-magic","key":"magic_site_to_site_vpn","enabled":true,"public_key":"pub-{{id}}","x_private_key":"priv-{{id}}"}"""),
+        ("setting", $$"""{"_id":"s-ident","key":"super_identity","name":"Console {{id}}"}"""),
+        ("setting", $$"""{"_id":"s-fw","key":"super_fwupdate","x_sso_token":"sso-{{id}}","firmware_channel":"release"}"""),
+        ("setting", $$"""{"_id":"s-ips","key":"ips","utm_token":"utm-{{id}}","ips_mode":"ips"}"""),
+        ("setting", $$"""{"_id":"s-sm","key":"super_mgmt","override_inform_host":true,"override_inform_host_location":"{{id}}.example.test"}"""));
+
+    [Fact]
+    public void OtherSite_KeepsTheTargetsIdentity_SiteMagicKeysAndTokens()
+    {
+        var doc = Plan(IdentitySite("source"), IdentitySite("target"), new PlanOptions { SameSite = false });
+
+        doc.Operations.Should().BeEmpty("a template carries no other site's keys, name, tokens, or inform host");
+        doc.KeptValues.Should().BeEquivalentTo("Site Magic keys", "Console name", "Firmware update sign-in", "CyberSecure token", "Inform host override");
+    }
+
+    [Fact]
+    public void SameSite_RestoresTheSiteMagicKeys()
+    {
+        var doc = Plan(IdentitySite("old"), IdentitySite("new"));
+
+        doc.Operations.Single(o => o.ObjectName == "magic_site_to_site_vpn").Body!["public_key"]!.GetValue<string>().Should().Be("pub-old");
+    }
+
+    private static string Policy(string id, string name, string src, string dst, bool predefined = false) =>
+        $$$"""{"_id":"{{{id}}}","name":"{{{name}}}","predefined":{{{(predefined ? "true" : "false")}}},"source":{"zone_id":"{{{src}}}"},"destination":{"zone_id":"{{{dst}}}"}}""";
+
+    [Fact]
+    public void OtherSite_NamesOnlyUnwrittenPoliciesShare_DoNotBlock_AWritableOneStillDoes()
+    {
+        var source = State(
+            ("firewall_policy", Policy("s1", "Block All Traffic", "z1", "z2", predefined: true)),
+            ("firewall_policy", Policy("s2", "Block All Traffic", "z1", "z3", predefined: true)),
+            ("firewall_policy", Policy("s3", "Net. Opt. Blocklist", "z1", "z2")),
+            ("firewall_policy", Policy("s4", "Net. Opt. Blocklist", "z1", "z3")),
+            ("firewall_policy", Policy("s5", "Allow DNS", "z1", "z2")),
+            ("firewall_policy", Policy("s6", "Allow DNS", "z1", "z3")));
+        var target = State(
+            ("firewall_policy", Policy("t1", "Block All Traffic", "zA", "zB", predefined: true)),
+            ("firewall_policy", Policy("t2", "Block All Traffic", "zA", "zC", predefined: true)),
+            ("firewall_policy", Policy("t3", "Block All Traffic", "zA", "zD", predefined: true)),
+            ("firewall_policy", Policy("t4", "Net. Opt. Blocklist", "zA", "zB")),
+            ("firewall_policy", Policy("t5", "Net. Opt. Blocklist", "zA", "zC")),
+            ("firewall_policy", Policy("t6", "Net. Opt. Blocklist", "zA", "zD")),
+            ("firewall_policy", Policy("t7", "Allow DNS", "zA", "zB")),
+            ("firewall_policy", Policy("t8", "Allow DNS", "zA", "zC")));
+
+        var doc = Plan(source, target, new PlanOptions { SameSite = false });
+
+        doc.Errors.Should().ContainSingle().Which.Should().StartWith("Firewall Policy Allow DNS:");
+        doc.Notes.Count(n => n.Contains("Net. Opt. Blocklist", StringComparison.Ordinal)).Should().Be(1);
+    }
+
+    [Fact]
+    public void OtherSite_AFieldTheSourceNeverCarried_KeepsTheTargets()
+    {
+        var source = State(("setting", """{"_id":"s1","key":"igmp_snooping","enabled":false}"""));
+        var target = State(("setting", """{"_id":"s9","key":"igmp_snooping","enabled":false,"auto_unknown_traffic_handling":true}"""));
+
+        Plan(source, target, new PlanOptions { SameSite = false }).Operations.Should().BeEmpty();
+        Plan(source, target).Operations.Should().ContainSingle("a same-site Roll Back puts the snapshot back whole");
+    }
+
+    [Fact]
+    public void SameSite_RestoresTheGeneratedValues()
+    {
+        var doc = Plan(MgmtSite("old-key", "pw", "old-secret"), MgmtSite("new-key", "pw", "new-secret"));
+
+        doc.Operations.Single(o => o.ObjectName == "mgmt").Body!["x_mgmt_key"]!.GetValue<string>().Should().Be("old-key");
+        doc.Operations.Should().Contain(o => o.Collection == "radiusprofile");
+        doc.KeptValues.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void SettingNamingANewNetwork_IsWrittenAfterThatNetwork()
+    {
+        var desired = State(("networkconf", Lan), ("networkconf", Iot),
+            ("setting", """{"_id":"s1","key":"global_nat","mode":"auto","excluded_network_ids":["n2"]}"""));
+        var live = State(("networkconf", Lan),
+            ("setting", """{"_id":"s1","key":"global_nat","mode":"auto","excluded_network_ids":[]}"""));
+
+        var doc = Plan(desired, live);
+
+        var network = doc.Operations.Single(o => o.Collection == "networkconf");
+        var setting = doc.Operations.Single(o => o.Collection == "setting");
+        doc.Operations.IndexOf(network).Should().BeLessThan(doc.Operations.IndexOf(setting));
+        setting.Body!.ToJsonString().Should().Contain(PlanBuilder.RefPrefix + network.Key);
+    }
+
+    [Fact]
+    public void DeletingANetwork_NamedOnlyInEtherlightingDefaults_IsNotBlocked()
+    {
+        var desired = State(("networkconf", Lan),
+            ("setting", """{"_id":"s1","key":"ether_lighting","network_defaults":[{"key":"n1","raw_color_hex":"ffffff"},{"key":"n2","raw_color_hex":"0544ff"}]}"""));
+        var live = State(("networkconf", Lan), ("networkconf", Iot),
+            ("setting", """{"_id":"s1","key":"ether_lighting","network_defaults":[{"key":"n1","raw_color_hex":"ffffff"},{"key":"n2","raw_color_hex":"0544ff"}]}"""));
+
+        var doc = Plan(desired, live);
+
+        doc.Errors.Should().BeEmpty();
+        doc.Operations.Should().ContainSingle(o => o.Action == PlanAction.Delete && o.ObjectId == "n2");
+    }
+
+    [Fact]
+    public void WlanCreate_LeavesOutTheLegacyBandField()
+    {
+        const string other = """{"_id":"w0","name":"Other","networkconf_id":"n1"}""";
+        var desired = State(("networkconf", Lan), ("wlanconf", other),
+            ("wlanconf", """{"_id":"w1","name":"Six","networkconf_id":"n1","wlan_band":"both","wlan_bands":["2g","5g","6g"]}"""));
+        var live = State(("networkconf", Lan), ("wlanconf", other));
+
+        var ops = Plan(desired, live).Operations;
+        var create = ops.Single(o => o.Action == PlanAction.Create);
+
+        create.Body!.AsObject().ContainsKey("wlan_band").Should().BeFalse();
+        // A create refuses 6 GHz (it stores WPA3 off), so the update right after it adds the band.
+        var then = ops.Single(o => o.Action == PlanAction.Update && o.ObjectId == PlanBuilder.RefPrefix + create.Key);
+        then.Body!.AsObject().ContainsKey("wlan_band").Should().BeFalse();
+        then.Body!["wlan_bands"]!.AsArray().Should().HaveCount(3);
+    }
+
+    [Theory]
+    [InlineData(false, false, "disabled", null)]
+    [InlineData(false, false, "required", null)]
+    [InlineData(true, true, "optional", null)]
+    [InlineData(true, true, "required", null)]
+    [InlineData(true, true, "disabled", "WPA2/WPA3 transition needs pmf_mode: optional or required; UniFi refuses disabled.")]
+    [InlineData(true, false, "required", null)]
+    [InlineData(true, false, "optional", "WPA3 only needs pmf_mode: required; UniFi refuses optional.")]
+    [InlineData(true, false, "disabled", "WPA3 only needs pmf_mode: required; UniFi refuses disabled.")]
+    public void Pmf_FollowsUniFisRule(bool wpa3, bool transition, string pmf, string? expected)
+    {
+        var wlan = new JsonObject { ["wpa3_support"] = wpa3, ["wpa3_transition"] = transition, ["pmf_mode"] = pmf };
+
+        PlanBuilder.PmfProblem(wlan).Should().Be(expected);
+    }
+
+    [Fact]
+    public void Pmf_TurningTransitionOffWithPmfOptional_IsAPlanError()
+    {
+        var live = State(("networkconf", Lan), ("wlanconf", """{"_id":"w1","name":"Cool-SSID","networkconf_id":"n1","wpa3_support":true,"wpa3_transition":true,"pmf_mode":"optional"}"""));
+        var desired = State(("networkconf", Lan), ("wlanconf", """{"_id":"w1","name":"Cool-SSID","networkconf_id":"n1","wpa3_support":true,"wpa3_transition":false,"pmf_mode":"optional"}"""));
+
+        Plan(desired, live).Errors.Should().Contain("WLAN Cool-SSID: WPA3 only needs pmf_mode: required; UniFi refuses optional.");
+    }
+
+    [Theory]
+    [InlineData("192.168.30.1/24", null)]
+    [InlineData("10.0.0.254/23", null)]
+    [InlineData("192.168.30.0/24", "Subnet 192.168.30.0/24 is the network's own address; UniFi needs the gateway's, such as 192.168.30.1/24.")]
+    [InlineData("192.168.30.255/24", "Subnet 192.168.30.255/24 is the network's broadcast address; UniFi needs the gateway's, such as 192.168.30.1/24.")]
+    [InlineData("192.168.30.1", "Subnet 192.168.30.1 is not the gateway's address with its prefix, such as 192.168.30.1/24.")]
+    [InlineData("192.168.30.1/33", "Subnet 192.168.30.1/33 is not the gateway's address with its prefix, such as 192.168.30.1/24.")]
+    public void Subnet_IsTheGatewaysAddress_NotTheNetworks(string subnet, string? expected)
+    {
+        PlanBuilder.SubnetProblem(new JsonObject { ["ip_subnet"] = subnet }).Should().Be(expected);
+    }
+
+    [Fact]
+    public void Subnet_ANetworkAddressOnACreate_IsAPlanError()
+    {
+        var live = State(("networkconf", Lan));
+        var desired = State(("networkconf", Lan), ("networkconf", Iot.Replace("\"_id\":\"n2\",", "").Replace("192.168.30.1/24", "192.168.30.0/24")));
+
+        Plan(desired, live).Errors.Should().ContainSingle(e => e.StartsWith("Network IoT: Subnet 192.168.30.0/24 is the network's own address"));
+    }
+
+    [Fact]
+    public void Subnet_ALiveValueThePlanDoesNotChange_IsNotRefused()
+    {
+        // UniFi already holds it, however it got there; only a subnet the plan writes is checked.
+        var odd = Iot.Replace("192.168.30.1/24", "192.168.30.0/24");
+        var live = State(("networkconf", Lan), ("networkconf", odd));
+        var desired = State(("networkconf", Lan), ("networkconf", odd.Replace("\"mdns_enabled\":false", "\"mdns_enabled\":true")));
+
+        Plan(desired, live).Errors.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void PpskWlan_PassphraseIsUniFis_NotComparedOrWritten()
+    {
+        const string ppsk = """{"_id":"w1","name":"Home","networkconf_id":"n1","x_passphrase":"PASS","private_preshared_keys_enabled":true,"private_preshared_keys":[{"networkconf_id":"n1","password":"key-1"}]}""";
+        var live = State(("networkconf", Lan), ("wlanconf", ppsk.Replace("PASS", "generated-by-unifi")));
+        var desired = State(("networkconf", Lan), ("wlanconf", ppsk.Replace("PASS", "from-another-site")));
+
+        Plan(desired, live).Operations.Should().BeEmpty("UniFi ignores a PPSK WLAN's passphrase");
+
+        var plain = State(("networkconf", Lan), ("wlanconf", ppsk.Replace("true", "false").Replace("PASS", "from-another-site")));
+        Plan(plain, live).Operations.Should().ContainSingle("turning PPSK off makes the passphrase the WLAN's key again");
+    }
+
+    [Theory]
+    [InlineData("ok", true)]
+    [InlineData("error", false)]
+    [InlineData("warning", false)]
+    [InlineData("unknown", null)]
+    [InlineData(null, null)]
+    public void HealthReachable_UnknownIsNoSignal(string? status, bool? expected) =>
+        PlanCoordinator.HealthReachable(status).Should().Be(expected);
+
+    [Fact]
+    public void Verify_SkipsAWriteThatIsWaiting()
+    {
+        var desired = State(("networkconf", Lan), ("networkconf", Iot));
+        var live = State(("networkconf", Lan));
+        var doc = Plan(desired, live);
+        var key = doc.Operations.Single().Key;
+
+        PlanCoordinator.VerifyAgainst(doc, live, live).Should().ContainSingle(d => d.Contains("not on the Console"));
+        PlanCoordinator.VerifyAgainst(doc, live, live, new HashSet<string> { key }).Should().BeEmpty();
+    }
+}

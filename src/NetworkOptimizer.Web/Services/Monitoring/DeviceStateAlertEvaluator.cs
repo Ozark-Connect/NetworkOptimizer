@@ -225,7 +225,7 @@ public class DeviceStateAlertEvaluator
             {
                 state.ConsecutiveOffline = 0;
                 _logger.LogDebug(
-                    "Not alerting on {Device} ({Mac}) going offline: a firmware rollout is upgrading it or a device between it and the console",
+                    "Not alerting on {Device} ({Mac}) going offline: a firmware rollout is upgrading it or a device between it and the console, or a zone change is re-provisioning the gateway",
                     label, deviceMac);
                 return;
             }

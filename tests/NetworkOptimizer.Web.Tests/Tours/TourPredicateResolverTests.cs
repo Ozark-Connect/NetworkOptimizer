@@ -140,7 +140,7 @@ public class TourPredicateResolverTests : IDisposable
         await SeedSitesAsync(multiSite: true);
         var resolver = Resolver(new SubsetAccess(null));
 
-        await resolver.ResolveAsync(Needs(R.IspHealth, R.HasTargets, R.SqmEnabled, R.Starlink, R.Cellular, R.CableModem));
+        await resolver.ResolveAsync(Needs(R.IspHealth, R.HasTargets, R.SqmEnabled, R.Starlink, R.Cellular, R.CableModem, R.ApTelemetry));
 
         resolver.SiteDbOpens.Should().Be(3);
     }
@@ -172,8 +172,8 @@ public class TourPredicateResolverTests : IDisposable
     public async Task EveryPredicateHoldsExactlyWhereItsDataSays()
     {
         await SeedSitesAsync(multiSite: true);
-        await SeedSiteDbAsync(Main, ispHealth: true, sqm: true, realtekStandalone: true);
-        await SeedSiteDbAsync(SiteA, monitoringOnWithTarget: true, starlink: true, realtekAttached: true);
+        await SeedSiteDbAsync(Main, ispHealth: true, sqm: true, realtekStandalone: true, apTelemetry: "False");
+        await SeedSiteDbAsync(SiteA, monitoringOnWithTarget: true, starlink: true, realtekAttached: true, apTelemetry: "True");
         await SeedSiteDbAsync(SiteB, monitoringOffWithTarget: true, cellular: true, cableModem: true);
         await SeedAgentAsync(SiteA);
         var resolver = Resolver(new SubsetAccess(null));
@@ -198,6 +198,7 @@ public class TourPredicateResolverTests : IDisposable
             [R.RealtekOnt] = [Main], // SiteA's stick is attached already, so it has nothing to act on
             [R.MultiWan] = [Main],
             [R.SmartQueues] = [Main],
+            [R.ApTelemetry] = [SiteA], // Main's setting is present but off; SiteB has none
         }.ToDictionary(kv => kv.Key, kv => kv.Value.ToHashSet(StringComparer.OrdinalIgnoreCase)));
         ctx.Satisfies([R.Starlink], Main, out var slug).Should().BeTrue();
         slug.Should().Be(SiteA, "the active site does not qualify, so the first qualifying visible site is used");
@@ -297,9 +298,12 @@ public class TourPredicateResolverTests : IDisposable
 
     private async Task SeedSiteDbAsync(string slug, bool ispHealth = false, bool monitoringOnWithTarget = false,
         bool monitoringOffWithTarget = false, bool sqm = false, bool starlink = false, bool cellular = false,
-        bool cableModem = false, bool realtekStandalone = false, bool realtekAttached = false)
+        bool cableModem = false, bool realtekStandalone = false, bool realtekAttached = false,
+        string? apTelemetry = null)
     {
         await using var db = _siteDbFactory.CreateForSite(slug, slug == Main);
+        if (apTelemetry != null)
+            db.SystemSettings.Add(new SystemSetting { Key = NetworkOptimizer.Web.Services.ApAgent.ApAgentDeploymentService.SiteEnabledSettingKey, Value = apTelemetry });
         if (realtekStandalone || realtekAttached)
             db.OntConfigurations.Add(new OntConfiguration
             {

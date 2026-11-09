@@ -26,4 +26,9 @@
     <ProjectReference Include="..\..\src\NetworkOptimizer.AgentProtocol\NetworkOptimizer.AgentProtocol.csproj" />
   </ItemGroup>
 
+  <!-- The agent is a self-contained exe, so its protocol-only pieces are compiled in rather than referenced. -->
+  <ItemGroup>
+    <Compile Include="..\..\src\NetworkOptimizer.Agent\ConfigRevertGuard.cs" Link="Agent\ConfigRevertGuard.cs" />
+  </ItemGroup>
+
 </Project>

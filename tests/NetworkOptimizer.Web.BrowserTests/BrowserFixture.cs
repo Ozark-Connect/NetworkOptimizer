@@ -66,6 +66,16 @@ public sealed class BrowserFactAttribute : FactAttribute
     }
 }
 
+/// <summary>A data-driven test that needs a browser; skipped, not failed, where none is installed.</summary>
+public sealed class BrowserTheoryAttribute : TheoryAttribute
+{
+    public BrowserTheoryAttribute()
+    {
+        if (BrowserLocator.Channel == null)
+            Skip = "No browser: install Google Chrome, or run playwright.ps1 install chromium.";
+    }
+}
+
 /// <summary>One browser for the whole collection; each test opens its own page.</summary>
 public sealed class BrowserFixture : IAsyncLifetime
 {

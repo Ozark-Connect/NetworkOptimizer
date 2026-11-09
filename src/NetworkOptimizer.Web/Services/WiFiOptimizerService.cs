@@ -56,6 +56,9 @@ public class WiFiOptimizerService : IWiFiScanService
     private readonly ApAgent.ApAgentTelemetryRegistry _apAgentTelemetry;
     private readonly ApAgent.ApAgentInsightsRegistry _apAgentInsights;
 
+    /// <summary>Vendor for the neighbors an AP Agent's scan adds; the console's rows carry their own.</summary>
+    private readonly NetworkOptimizer.Audit.Services.IIeeeOuiDatabase _ouiDatabase;
+
     /// <summary>
     /// Ceiling on the client-rate history query. Client evidence is an enhancement; waiting on it
     /// is never worth making the analysis feel broken.
@@ -101,9 +104,11 @@ public class WiFiOptimizerService : IWiFiScanService
         NetworkOptimizer.Core.Interfaces.IAgentClientPresenceSource agentPresence,
         ApAgent.ApAgentTelemetryRegistry apAgentTelemetry,
         ApAgent.ApAgentInsightsRegistry apAgentInsights,
+        NetworkOptimizer.Audit.Services.IIeeeOuiDatabase ouiDatabase,
         ILogger<WiFiOptimizerService> logger,
         ILoggerFactory loggerFactory)
     {
+        _ouiDatabase = ouiDatabase;
         _measuredClients = measuredClients;
         _agentPresence = agentPresence;
         _apAgentTelemetry = apAgentTelemetry;
@@ -184,6 +189,10 @@ public class WiFiOptimizerService : IWiFiScanService
                 return null;
             }
 
+            var scoredAps = _cachedAps.Where(ap => ap.IsOnline).ToList();
+            await ApplyRadioHourAsync(scoredAps);
+            await ApplyQuietestChannelsAsync(scoredAps);
+
             // Build into a local score and only publish it to the shared field once fully
             // assembled - never mutate _cachedHealthScore in place, or a caller could observe
             // (or a racing refresh could double up) a half-populated Issues list.
@@ -260,6 +269,95 @@ public class WiFiOptimizerService : IWiFiScanService
         {
             _healthScoreLock.Release();
         }
+    }
+
+    /// <summary>Hard bound on the last hour's radio stats read; on timeout the radios keep their latest reading only.</summary>
+    private static readonly TimeSpan RadioHourQueryTimeout = TimeSpan.FromSeconds(10);
+
+    /// <summary>
+    /// Sets each radio's utilization average and peak over the last hour, from the console's
+    /// 5-minute AP stats. The busy-radio issue gates on the average, never one spiky reading; a
+    /// radio the console has no rows for keeps both null and the issue falls back to its latest.
+    /// One report call covers every AP, and the result is shared per site for the TTL.
+    /// </summary>
+    private async Task ApplyRadioHourAsync(List<AccessPointSnapshot> aps)
+    {
+        if (aps.Count == 0 || _connectionService.Client == null) return;
+
+        var hour = await _planCache.GetOrBuildRadioHoursAsync(_siteSlug, async () =>
+        {
+            try
+            {
+                using var timeout = new CancellationTokenSource(RadioHourQueryTimeout);
+                var end = DateTimeOffset.UtcNow;
+                var rows = await CreateProvider().GetApMetricsAsync(
+                    aps.Select(ap => ap.Mac).ToArray(), end.AddHours(-1), end, MetricGranularity.FiveMinutes, timeout.Token);
+                return WiFiAnalysisHelpers.UtilizationByRadio(rows);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Last hour's radio utilization unavailable; busy-radio issues use the latest reading (site {Site})", _siteSlug);
+                return new Dictionary<(string, RadioBand), (double, double)>();
+            }
+        });
+
+        foreach (var ap in aps)
+        {
+            foreach (var radio in ap.Radios)
+            {
+                if (hour.TryGetValue((ap.Mac.ToLowerInvariant(), radio.Band), out var h))
+                {
+                    radio.HourUtilizationAvg = h.Avg;
+                    radio.HourUtilizationPeak = h.Peak;
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// Sets each radio's quietest achievable utilization: the lowest spectrum-scan reading among
+    /// the channels the recommender would consider for it, under the console's DFS preference.
+    /// The health score measures each radio from there, so busy air the site cannot escape costs
+    /// nothing. A radio without a scan keeps null and is scored the old way. Shared per site for
+    /// the TTL, since the scans and the DFS preference are console reads.
+    /// </summary>
+    private async Task ApplyQuietestChannelsAsync(List<AccessPointSnapshot> aps)
+    {
+        if (aps.Count == 0) return;
+
+        var quietest = await _planCache.GetOrBuildQuietestChannelsAsync(_siteSlug, async () =>
+        {
+            var result = new Dictionary<(string, RadioBand), int>();
+            try
+            {
+                var scans = await GetChannelScanResultsAsync(
+                    startTime: DateTimeOffset.UtcNow.AddHours(-ChannelRecommendationService.ScanLookbackHours));
+                var regulatory = await GetRegulatoryChannelsAsync();
+                var dfs = await GetDefaultDfsPreferenceAsync();
+                foreach (var ap in aps)
+                {
+                    foreach (var radio in ap.Radios.Where(r => r.Channel.HasValue))
+                    {
+                        var scan = scans
+                            .Where(s => s.Band == radio.Band && s.ApMac.Equals(ap.Mac, StringComparison.OrdinalIgnoreCase) && s.Channels.Count > 0)
+                            .OrderByDescending(s => s.SpectrumTableTime)
+                            .FirstOrDefault();
+                        if (_channelRecommendationService.QuietestCandidateUtilization(radio.Band, radio, scan, regulatory, dfs) is { } best)
+                            result[(ap.Mac.ToLowerInvariant(), radio.Band)] = best;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Spectrum scans unavailable; Channel Health scores radios without their quietest channel (site {Site})", _siteSlug);
+            }
+            return result;
+        });
+
+        foreach (var ap in aps)
+            foreach (var radio in ap.Radios)
+                if (quietest.TryGetValue((ap.Mac.ToLowerInvariant(), radio.Band), out var best))
+                    radio.QuietestChannelUtilization = best;
     }
 
     /// <summary>
@@ -724,12 +822,9 @@ public class WiFiOptimizerService : IWiFiScanService
             // What agent-covered APs hear right now, laid over the console's scan for the same
             // AP and band. A covered AP with a spectrum table has no scan gap, so the quick-scan
             // targets exclude it without a rule of their own.
-            var ownBssids = (await GetAccessPointsAsync())
-                .SelectMany(ap => ap.Vaps)
-                .Select(v => v.Bssid)
-                .Where(b => !string.IsNullOrEmpty(b))
-                .ToHashSet(StringComparer.OrdinalIgnoreCase);
-            var merged = ApAgent.ApAgentScanMerger.Apply(fresh, _apAgentTelemetry.GetFor(_siteSlug).ScanFor, DateTimeOffset.UtcNow, ownBssids);
+            var siteBssids = await BuildSiteBssidsAsync();
+            var merged = ApAgent.ApAgentScanMerger.Apply(
+                fresh, _apAgentTelemetry.GetFor(_siteSlug).ScanFor, DateTimeOffset.UtcNow, siteBssids, _ouiDatabase.GetVendor);
             if (merged > 0)
                 _logger.LogDebug("[AgentScan] {Count} AP/band scan result(s) carry AP Agent neighbors or spectrum (site {Site})", merged, _siteSlug);
             // Record raw sightings for the rolling window, but cache and return the RAW scan -
@@ -745,6 +840,26 @@ public class WiFiOptimizerService : IWiFiScanService
             _logger.LogError(ex, "Failed to get channel scan results");
             return new List<ChannelScanResult>();
         }
+    }
+
+    /// <summary>
+    /// The site's own BSSIDs: every AP's console VAPs and base MAC, then each AP Agent's VAP table,
+    /// which also names the mesh backhaul and hidden VAPs the console leaves out.
+    /// </summary>
+    private async Task<NetworkOptimizer.WiFi.Helpers.SiteBssidLookup> BuildSiteBssidsAsync()
+    {
+        var aps = await GetAccessPointsAsync();
+        var lookup = NetworkOptimizer.WiFi.Helpers.SiteBssidLookup.Build(aps);
+        var names = aps.Where(a => !string.IsNullOrEmpty(a.Mac))
+            .GroupBy(a => a.Mac, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(g => g.Key, g => g.First().Name, StringComparer.OrdinalIgnoreCase);
+        foreach (var (apMac, vaps) in _apAgentInsights.GetFor(_siteSlug).Roams.VapsByAp)
+        {
+            if (!names.TryGetValue(apMac, out var apName)) continue;
+            foreach (var vap in vaps)
+                lookup.AddVap(vap.Bssid, apMac, apName, vap.Essid);
+        }
+        return lookup;
     }
 
     /// <summary>
@@ -976,6 +1091,7 @@ public class WiFiOptimizerService : IWiFiScanService
                     _neighborSightingHistory[key] = history;
                 }
 
+                // Site BSSIDs are pooled too; the recommender drops them by IsOwnNetwork (= IsSiteBssid).
                 foreach (var nb in scan.Neighbors)
                 {
                     if (!string.IsNullOrEmpty(nb.Bssid))
@@ -1114,6 +1230,10 @@ public class WiFiOptimizerService : IWiFiScanService
                     r.Ssid))
                 .Where(s => s.Band != RadioBand.Unknown)
                 .ToList();
+
+            // Rows persisted before the MAC-derived rule can be our own mesh VAPs; they are never interference.
+            var siteBssids = await BuildSiteBssidsAsync();
+            remembered.RemoveAll(s => siteBssids.TryResolve(s.Bssid, s.Ssid, out _));
 
             var merged = ChannelMemoryHelper.MergeRememberedNeighbors(pooled, remembered, now);
 
@@ -1343,6 +1463,17 @@ public class WiFiOptimizerService : IWiFiScanService
             _logger.LogDebug(ex, "Failed to read radio_ai DFS preference");
             return null;
         }
+    }
+
+    /// <summary>
+    /// The DFS preference that matches the console's Auto-Optimize setting: Avoid DFS when it has
+    /// DFS off, Include DFS otherwise. Every default plan uses it, so the Overview and Channels
+    /// ask the same question and share one cached plan.
+    /// </summary>
+    public async Task<DfsPreference> GetDefaultDfsPreferenceAsync()
+    {
+        var autoOptimizeDfs = await GetAutoOptimizeDfsEnabledAsync();
+        return autoOptimizeDfs == false ? DfsPreference.Exclude : DfsPreference.IncludeWithPenalty;
     }
 
     /// <summary>

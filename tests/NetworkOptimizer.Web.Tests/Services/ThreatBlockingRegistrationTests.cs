@@ -33,6 +33,7 @@ public class ThreatBlockingRegistrationTests
         services.AddSingleton<GeoEnrichmentService>();
         services.AddSingleton<KillChainClassifier>();
         services.AddSingleton<ThreatPatternAnalyzer>();
+        services.AddSingleton(Mock.Of<ISiteTimeZones>());
         services.AddThreatBlockingCore();
         return services.BuildServiceProvider();
     }

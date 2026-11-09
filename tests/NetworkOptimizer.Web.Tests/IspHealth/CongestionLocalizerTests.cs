@@ -790,8 +790,8 @@ public class CongestionLocalizerTests
 
         var backhaul = events.Single(e => e.BottleneckHopIp == Backhaul);
         backhaul.Disposition.Should().Be(CongestionDisposition.Confirmed);
-        // Bng, Border, and the jitter-floor DeadEnd all stayed at the floor -> all clean controls.
-        // Without the floor-relative test, the jitter-floor DeadEnd would be excluded (count would be 2).
+        // Bng, Border, and the jitter-floor DeadEnd all stayed flat in RTT -> all clean controls.
+        // A jitter-inclusive test would exclude the jitter-floor DeadEnd (count would be 2).
         backhaul.CleanParallelPaths.Should().Be(3);
     }
 
@@ -881,6 +881,109 @@ public class CongestionLocalizerTests
         var events = CongestionLocalizer.Localize(series, Topo(load: true), Options);
 
         events.Should().NotContain(e => e.Disposition == CongestionDisposition.SelfInflicted);
+    }
+
+    // Under load: every path picks up a +4 ms floor; an outlier rises +20 ms on top of it.
+    private static List<LatencySample> LoadFloor(double rtt = 5) => Flat(rtt).WithSegment(HumpStart, HumpEnd, rttMs: rtt + 4, jitterMs: 3);
+    private static List<LatencySample> LoadOutlier(double rtt = 5) => Flat(rtt).WithSegment(HumpStart, HumpEnd, rttMs: rtt + 20, jitterMs: 6);
+
+    [Fact]
+    public void Line_wide_load_floor_with_a_non_propagating_transit_outlier_is_loaded_latency()
+    {
+        // Every path, the access egress included, rose by the same load floor. One transit hop rose
+        // far above it, but its downstream destination stayed at the floor. The floor is the access
+        // link (Loaded Latency); the outlier did not forward, so nothing is Confirmed.
+        var series = new List<AsnSeries>
+        {
+            Hop(100, Bng, LoadFloor()),
+            Hop(100, Border, LoadFloor(), Bng),
+            Hop(100, Backhaul, LoadFloor(), Bng, Border),
+            Hop(200, Transit, LoadOutlier(), Bng, Border, Backhaul),
+            Hop(300, DeadEnd, LoadFloor(), Bng, Border),
+            Dest(DestCorridor, LoadFloor(), Bng, Border, Backhaul, Transit),
+            Dest(DestControl, LoadFloor(), Bng, Border)
+        };
+
+        var events = CongestionLocalizer.Localize(series, Topo(load: true), Options);
+
+        var self = events.Single(e => e.Disposition == CongestionDisposition.SelfInflicted);
+        self.BottleneckHopIp.Should().Be(Bng);
+        self.Suppressed.Should().BeTrue();
+        events.Should().NotContain(e => e.Disposition == CongestionDisposition.Confirmed);
+        var transit = events.Single(e => e.BottleneckHopIp == Transit);
+        transit.Disposition.Should().Be(CongestionDisposition.ControlPlaneNoise);
+        transit.AboveLoadFloor.Should().BeTrue();
+    }
+
+    [Fact]
+    public void Line_wide_load_floor_with_a_propagating_transit_outlier_confirms_only_the_outlier()
+    {
+        // Same load floor, but the outlier's downstream destination rose with it: real forwarding
+        // congestion at the transit hop on top of the load. The floor is still Loaded Latency, and
+        // the transit is Confirmed with no clean controls, since every other path rose.
+        var series = new List<AsnSeries>
+        {
+            Hop(100, Bng, LoadFloor()),
+            Hop(100, Border, LoadFloor(), Bng),
+            Hop(100, Backhaul, LoadFloor(), Bng, Border),
+            Hop(200, Transit, LoadOutlier(), Bng, Border, Backhaul),
+            Hop(300, DeadEnd, LoadFloor(), Bng, Border),
+            Dest(DestCorridor, LoadOutlier(), Bng, Border, Backhaul, Transit),
+            Dest(DestControl, LoadFloor(), Bng, Border)
+        };
+
+        var events = CongestionLocalizer.Localize(series, Topo(load: true), Options);
+
+        events.Single(e => e.Disposition == CongestionDisposition.SelfInflicted).BottleneckHopIp.Should().Be(Bng);
+        var transit = events.Single(e => e.Disposition == CongestionDisposition.Confirmed);
+        transit.BottleneckHopIp.Should().Be(Transit);
+        transit.CleanParallelPaths.Should().Be(0);
+        transit.AsnNumbers.Should().Equal(200);
+    }
+
+    [Fact]
+    public void Line_wide_load_floor_with_only_a_destination_outlier_is_one_loaded_latency_event()
+    {
+        // One destination rose far above the floor (a per-flow queue on one far path). A destination
+        // is a witness, never a culprit, so the whole event is Loaded Latency on the access egress.
+        var series = new List<AsnSeries>
+        {
+            Hop(100, Bng, LoadFloor()),
+            Hop(100, Border, LoadFloor(), Bng),
+            Hop(100, Backhaul, LoadFloor(), Bng, Border),
+            Hop(200, Transit, LoadFloor(), Bng, Border, Backhaul),
+            Hop(300, DeadEnd, LoadFloor(), Bng, Border),
+            Dest(DestCorridor, LoadFloor(), Bng, Border, Backhaul, Transit),
+            Dest(DestControl, LoadOutlier(), Bng, Border)
+        };
+
+        var events = CongestionLocalizer.Localize(series, Topo(load: true), Options);
+
+        events.Should().ContainSingle();
+        events[0].Disposition.Should().Be(CongestionDisposition.SelfInflicted);
+        events[0].BottleneckHopIp.Should().Be(Bng);
+    }
+
+    [Fact]
+    public void A_parallel_path_that_rose_with_the_load_is_not_a_clean_control()
+    {
+        // Backhaul is the localized bottleneck under load. DeadEnd rose ~1 ms, well under the
+        // backhaul's rise but still a rise, so it cannot prove the backhaul's own capacity. Only the
+        // flat Bng and Border count as clean.
+        var series = new List<AsnSeries>
+        {
+            Hop(100, Bng, Flat()),
+            Hop(100, Border, Flat(), Bng),
+            Hop(100, Backhaul, Elevated(), Bng, Border),
+            Hop(200, Transit, Elevated(), Bng, Border, Backhaul),
+            Hop(300, DeadEnd, SmallRise(), Bng, Border),
+        };
+
+        var events = CongestionLocalizer.Localize(series, Topo(load: true), Options);
+
+        var backhaul = events.Single(e => e.BottleneckHopIp == Backhaul);
+        backhaul.Disposition.Should().Be(CongestionDisposition.Confirmed);
+        backhaul.CleanParallelPaths.Should().Be(2);
     }
 
     [Fact]

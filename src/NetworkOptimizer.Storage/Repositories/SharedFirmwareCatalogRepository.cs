@@ -79,20 +79,22 @@ public class SharedFirmwareCatalogRepository : ISharedFirmwareCatalogRepository
 
     /// <inheritdoc />
     public async Task UpsertNetworkAppBuildAsync(
-        string channel, string version, string? url, CancellationToken cancellationToken = default)
+        string platform, string channel, string version, string? url, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(channel) || string.IsNullOrWhiteSpace(version)) return;
+        platform = (platform ?? string.Empty).Trim().ToLowerInvariant();
 
         try
         {
             await using var db = await _mainDbFactory.CreateDbContextAsync(cancellationToken);
             var now = DateTime.UtcNow;
 
-            var existing = await db.SharedNetworkAppBuilds.FindAsync([channel, version], cancellationToken);
+            var existing = await db.SharedNetworkAppBuilds.FindAsync([platform, channel, version], cancellationToken);
             if (existing == null)
             {
                 db.SharedNetworkAppBuilds.Add(new SharedNetworkAppBuild
                 {
+                    Platform = platform,
                     Channel = channel,
                     Version = version,
                     Url = url,
@@ -320,15 +322,16 @@ public class SharedFirmwareCatalogRepository : ISharedFirmwareCatalogRepository
 
     /// <inheritdoc />
     public async Task<SharedNetworkAppBuild?> FindNewerNetworkAppBuildAsync(
-        string channel, string? thanVersion, CancellationToken cancellationToken = default)
+        string platform, string channel, string? thanVersion, CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrWhiteSpace(channel)) return null;
+        if (string.IsNullOrWhiteSpace(platform) || string.IsNullOrWhiteSpace(channel)) return null;
+        platform = platform.Trim().ToLowerInvariant();
 
         try
         {
             await using var db = await _mainDbFactory.CreateDbContextAsync(cancellationToken);
             var rows = await db.SharedNetworkAppBuilds.AsNoTracking()
-                .Where(b => b.Channel == channel)
+                .Where(b => b.Platform == platform && b.Channel == channel)
                 .ToListAsync(cancellationToken);
             return Newest(rows, thanVersion, b => b.Version);
         }

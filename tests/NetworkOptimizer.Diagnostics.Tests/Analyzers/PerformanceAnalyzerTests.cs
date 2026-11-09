@@ -2032,6 +2032,17 @@ public class PerformanceAnalyzerTests
     }
 
     [Fact]
+    public void CheckSqmNotShaping_CakeDownloadRoot_CountsAsShaped()
+    {
+        // Adaptive SQM's opt-in CAKE replaces UniFi's htb tree on the ifb; that is still a shaper.
+        var states = new List<WanShaperState> { CreateShaperState(egressHtb: true, ingressCake: true) };
+
+        var result = _analyzer.CheckSqmNotShaping(new List<UniFiDeviceResponse> { CreateGateway() }, states);
+
+        result.Should().BeEmpty();
+    }
+
+    [Fact]
     public void CheckSqmNotShaping_NeitherDirectionShaped_ReportsBothInterfaces()
     {
         var states = new List<WanShaperState> { CreateShaperState(egressHtb: false, ingressHtb: false) };
@@ -2116,6 +2127,7 @@ public class PerformanceAnalyzerTests
     private static WanShaperState CreateShaperState(
         bool egressHtb = false,
         bool ingressHtb = false,
+        bool ingressCake = false,
         bool egressFound = true,
         bool ingressFound = true,
         int? downRateMbps = 900,
@@ -2131,7 +2143,7 @@ public class PerformanceAnalyzerTests
             DownRateMbps = downRateMbps,
             UpRateMbps = upRateMbps,
             Egress = new TcDeviceState { DeviceFound = egressFound, HasRootHtb = egressHtb },
-            Ingress = new TcDeviceState { DeviceFound = ingressFound, HasRootHtb = ingressHtb }
+            Ingress = new TcDeviceState { DeviceFound = ingressFound, HasRootHtb = ingressHtb, HasRootCake = ingressCake }
         };
     }
 

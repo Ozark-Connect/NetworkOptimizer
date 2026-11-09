@@ -26,9 +26,12 @@ public static class DeviceHealthChartEndpoints
             SiteDbContextFactory siteDbFactory,
             SiteContextService siteContext,
             HealthCheckTemplateService templateService,
+            WanCounterInterfaces wanCounters,
+            UniFiConnectionService connectionService,
             int? rangeHours,
             DateTime? from,
             DateTime? to,
+            bool? wanThroughput,
             CancellationToken ct) =>
         {
             DateTime queryFrom, queryTo;
@@ -96,6 +99,36 @@ public static class DeviceHealthChartEndpoints
                 })
                 .ToList();
 
+            // The gateway is flagged on every response (from the cached device list), so the chart
+            // knows when it is the only device selected. Its summed WAN rates are read only when the
+            // chart asks: it shows them only then.
+            string? gatewayKey = null;
+            try
+            {
+                var gw = (await connectionService.GetDiscoveredDevicesAsync(ct))?.FirstOrDefault(d =>
+                    d.Type == DeviceType.Gateway || d.HardwareType == DeviceType.Gateway);
+                if (!string.IsNullOrEmpty(gw?.Mac)) gatewayKey = NormalizeMac(gw.Mac);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException) { }
+
+            object? wanRates = null;
+            if (wanThroughput == true)
+            {
+                // The interfaces the WAN live chart stacks for All WANs, one per WAN. Left null when no
+                // WAN resolves, so a site without WAN counters shows no empty card.
+                var (gatewayMac, wanIfNames) = await wanCounters.AllAsync(ct);
+                if (gatewayMac != null && wanIfNames.Count > 0)
+                {
+                    var rates = await influx.QueryGatewayWanRatesAsync(gatewayMac, wanIfNames, queryFrom, queryTo,
+                        sumAcrossInterfaces: true, ct: ct);
+                    wanRates = new
+                    {
+                        download = rates.Select(p => new { time = p.Time.ToString("o"), value = p.DownloadBps }),
+                        upload = rates.Select(p => new { time = p.Time.ToString("o"), value = p.UploadBps }),
+                    };
+                }
+            }
+
             var result = new List<object>();
             foreach (var t in targets)
             {
@@ -126,6 +159,7 @@ public static class DeviceHealthChartEndpoints
                 {
                     name = t.Name,
                     mac = t.DeviceMac,
+                    isGateway = gatewayKey != null && NormalizeMac(t.DeviceMac) == gatewayKey,
                     data = points.Select(p => new
                     {
                         time = p.Time.ToString("o"),
@@ -153,7 +187,7 @@ public static class DeviceHealthChartEndpoints
 
             var events = await BuildAnnotationsAsync(influx, db, macsByNormalized, queryFrom, queryTo, ct);
 
-            return Results.Ok(new { devices = result, customFields = customFieldDefs, healthChecks = healthCheckDefs, events });
+            return Results.Ok(new { devices = result, customFields = customFieldDefs, healthChecks = healthCheckDefs, events, wanThroughput = wanRates });
         });
     }
 

@@ -26,7 +26,7 @@ public class WebhookDeliveryChannel : IAlertDeliveryChannel
         _secretDecryptor = secretDecryptor;
     }
 
-    public async Task<bool> SendAsync(AlertEvent alertEvent, AlertHistoryEntry historyEntry, DeliveryChannel channel, CancellationToken cancellationToken = default)
+    public async Task<bool> SendAsync(AlertEvent alertEvent, AlertHistoryEntry historyEntry, DeliveryChannel channel, TimeZoneInfo timeZone, DisplayFormat format, CancellationToken cancellationToken = default)
     {
         var config = JsonSerializer.Deserialize<WebhookChannelConfig>(channel.ConfigJson);
         if (config == null || string.IsNullOrEmpty(config.Url)) return false;
@@ -62,7 +62,7 @@ public class WebhookDeliveryChannel : IAlertDeliveryChannel
         return await PostWithRetryAsync(config, payload, cancellationToken);
     }
 
-    public async Task<bool> SendDigestAsync(IReadOnlyList<AlertHistoryEntry> alerts, DeliveryChannel channel, DigestSummary summary, CancellationToken cancellationToken = default)
+    public async Task<bool> SendDigestAsync(IReadOnlyList<AlertHistoryEntry> alerts, DeliveryChannel channel, DigestSummary summary, TimeZoneInfo timeZone, DisplayFormat format, CancellationToken cancellationToken = default)
     {
         var config = JsonSerializer.Deserialize<WebhookChannelConfig>(channel.ConfigJson);
         if (config == null || string.IsNullOrEmpty(config.Url)) return false;

@@ -35,6 +35,7 @@ public static class IspHealthEndpoints
             SiteManagementService siteManagement,
             NetworkOptimizer.Web.Services.Monitoring.PathLocalization.IPathEpisodeService pathEpisodes,
             ILoggerFactory loggerFactory,
+            IDisplayTimeZone displayTime,
             CancellationToken ct) =>
         {
             // wan (a UniFi wan key) exports a non-primary WAN's report; absent = primary,
@@ -71,10 +72,11 @@ public static class IspHealthEndpoints
                 loggerFactory.CreateLogger("IspHealthPdf").LogDebug(ex, "ISP Health PDF: could not load path episodes");
             }
 
-            var pdfBytes = new IspHealthPdfGenerator(options: ispHealth.Options)
+            await displayTime.ResolveAsync();
+            var pdfBytes = new IspHealthPdfGenerator(options: ispHealth.Options, timeZone: displayTime.Zone, format: displayTime.Format)
                 .GenerateReportBytes(report, siteName, episodes);
             var sitePart = siteContext.IsDefault ? "" : $"_{siteContext.Slug}";
-            var fileName = $"ISPHealth{sitePart}_{report.WindowEnd.ToLocalTime():yyyyMMdd-HHmm}.pdf";
+            var fileName = $"ISPHealth{sitePart}_{displayTime.ToLocal(report.WindowEnd):yyyyMMdd-HHmm}.pdf";
             return Results.File(pdfBytes, "application/pdf", fileName);
         });
 
@@ -85,6 +87,7 @@ public static class IspHealthEndpoints
             IspHealthRegistry ispHealthRegistry,
             SiteContextService siteContext,
             NetworkOptimizer.Web.Services.Monitoring.PathLocalization.IPathEpisodeService pathEpisodes,
+            NetworkOptimizer.Web.Services.Monitoring.IspHealth.IIspFindingAcknowledgmentService findingAcks,
             ILoggerFactory loggerFactory,
             CancellationToken ct) =>
         {
@@ -176,20 +179,29 @@ public static class IspHealthEndpoints
                         targets = e.TargetIds
                     })));
 
-                // Path Localization episodes, as congestion marks on the lines they traced: the
-                // events list files them under Congestion too, so the one filter governs both.
+                // Path Localization episodes, as bands on the lines they traced, filed as the events
+                // list files them: a route change under Path shift, anything else under Congestion.
                 try
                 {
                     var isPrimary = string.IsNullOrEmpty(wan) || ReferenceEquals(ispHealth, ispHealthRegistry.GetFor(siteContext.Slug, null));
                     var episodes = await pathEpisodes.GetEpisodesAsync(report.WindowStart, to ?? DateTime.UtcNow, wan, isPrimary, ct);
-                    events.AddRange(episodes.Select(e => (object)new
+                    var fold = Services.Monitoring.PathLocalization.PathEpisodePresentation.FoldIntoShifts(episodes, report, ispHealth.Options);
+                    var acked = Services.Monitoring.PathLocalization.PathEpisodePresentation.AcknowledgedEpisodeIds(
+                        fold.Unexplained(episodes, e => e.Id).ToList(), ispHealth.Options,
+                        Services.Monitoring.PathLocalization.PathEpisodePresentation.PointsById(report),
+                        await findingAcks.GetAcknowledgedKeysAsync());
+                    events.AddRange(episodes.Select(e =>
                     {
-                        type = "congestion",
-                        start = e.OpenedAt.ToString("o"),
-                        end = (e.ClosedAt ?? DateTime.UtcNow).ToString("o"),
-                        label = Services.Monitoring.PathLocalization.PathEpisodePresentation.BadgeLabel(e),
-                        shared = false,
-                        targets = e.Degraded.Select(t => t.TargetId).Where(id => id.Length > 0).ToList()
+                        var (type, label) = Services.Monitoring.PathLocalization.PathEpisodePresentation.ChartBand(e, fold, acked.Contains(e.Id));
+                        return (object)new
+                        {
+                            type,
+                            start = e.OpenedAt.ToString("o"),
+                            end = (e.ClosedAt ?? DateTime.UtcNow).ToString("o"),
+                            label,
+                            shared = false,
+                            targets = e.Degraded.Select(t => t.TargetId).Where(id => id.Length > 0).ToList()
+                        };
                     }));
                 }
                 catch (Exception ex) when (!ct.IsCancellationRequested)

@@ -42,6 +42,12 @@ public class MonitoringInfluxClient : IAsyncDisposable
     private CancellationTokenSource _backfillCancellation = new();
     private int _pendingBackfillRefreshes;
 
+    // When each query or flush failure message last logged. A site whose buckets were never
+    // provisioned fails every read and write, so a repeat logs at Debug until the interval passes.
+    private readonly ConcurrentDictionary<string, DateTime> _failureLoggedAt = new(StringComparer.Ordinal);
+    private static readonly TimeSpan FailureLogInterval = TimeSpan.FromHours(1);
+    private const int MaxTrackedFailures = 256;
+
     private InfluxDBClient? _client;
     private WriteApiAsync? _writeApi;
     // Direct HTTP client for the high-volume raw-CSV reads (see QueryRawLinesAsync). Built and torn
@@ -382,6 +388,8 @@ public class MonitoringInfluxClient : IAsyncDisposable
             }
 
             await PersistHealthAsync(true, null, ct);
+            // The next failure must log and store again, or the stored state keeps saying healthy.
+            _failureLoggedAt.Clear();
             return new InfluxHealthResult(true, null);
         }
         catch (InfluxDB.Client.Core.Exceptions.UnauthorizedException ex)
@@ -400,6 +408,27 @@ public class MonitoringInfluxClient : IAsyncDisposable
             await PersistHealthAsync(false, ex.Message, ct);
             return new InfluxHealthResult(false, ex.Message);
         }
+    }
+
+    /// <summary>
+    /// True when this failure message has not logged within <see cref="FailureLogInterval"/>,
+    /// and records it as logged now.
+    /// </summary>
+    private bool ShouldLogFailure(string message)
+    {
+        var now = DateTime.UtcNow;
+        // Record with TryUpdate/TryAdd, not an indexer write: concurrent failures of one query
+        // must produce one warning, so exactly one caller wins the slot.
+        if (_failureLoggedAt.TryGetValue(message, out var last))
+        {
+            if (now - last < FailureLogInterval)
+                return false;
+            // TryAdd covers a Clear that removed the key after the read.
+            return _failureLoggedAt.TryUpdate(message, now, last) || _failureLoggedAt.TryAdd(message, now);
+        }
+        // Bounded: distinct messages are few, but a server that varies them must not grow this forever.
+        if (_failureLoggedAt.Count >= MaxTrackedFailures) _failureLoggedAt.Clear();
+        return _failureLoggedAt.TryAdd(message, now);
     }
 
     private async Task PersistHealthAsync(bool reachable, string? error, CancellationToken ct)
@@ -437,7 +466,7 @@ public class MonitoringInfluxClient : IAsyncDisposable
         catch (OperationCanceledException) when (!ct.IsCancellationRequested && cancellation.IsCancellationRequested)
         {
             _logger.LogInformation("Speed test InfluxDB backfill interrupted by configuration refresh for site {Site}; will retry",
-                _siteSlug ?? "main");
+                _siteSlug ?? SiteSlugs.Default);
             return false;
         }
     }
@@ -489,7 +518,7 @@ public class MonitoringInfluxClient : IAsyncDisposable
                 catch (JsonException ex)
                 {
                     _logger.LogWarning(ex, "Invalid speed test InfluxDB backfill marker for site {Site}; replaying history",
-                        _siteSlug ?? "main");
+                        _siteSlug ?? SiteSlugs.Default);
                 }
             }
             if (previous?.BucketId == bucket.Id && previous.RetentionSeconds == retentionSeconds)
@@ -597,7 +626,7 @@ public class MonitoringInfluxClient : IAsyncDisposable
                 _flushSemaphore.Release();
             }
             _logger.LogInformation("Speed test InfluxDB backfill complete for site {Site}: {Exported} exported, {Skipped} skipped",
-                _siteSlug ?? "main", exported, skipped);
+                _siteSlug ?? SiteSlugs.Default, exported, skipped);
             return true;
         }
         catch (InfluxDB.Client.Core.Exceptions.HttpException) when (ct.IsCancellationRequested)
@@ -3092,8 +3121,9 @@ from(bucket: ""{_bucket}"")
     /// Gateway WAN throughput from the SNMP interface counters, for the interface(s) named.
     ///
     /// CONTRACT: passing more than one interface SUMS them into a single combined series
-    /// (grouped per (_time, _field)). That is correct for exactly ONE caller class - the
-    /// all-WAN usage fingerprint, which asks "was the user doing anything on any WAN" - and
+    /// (grouped per (_time, _field)). That is correct for exactly ONE caller class - site-total
+    /// traffic that is never compared to a plan: the all-WAN usage fingerprint, which asks "was
+    /// the user doing anything on any WAN", and the Device Stats WAN Throughput chart - and
     /// wrong for every load/utilization computation, because a summed multi-WAN series divided
     /// by one WAN's plan speeds silently understates or overstates load (and ISP Health's
     /// packet-loss ceiling scales with load QUADRATICALLY, so the damage compounds). Per-WAN
@@ -3224,6 +3254,294 @@ from(bucket: ""{_bucket}"")
         // interval where a device reported some fields but not others comes back at the END.
         results.Sort((a, b) => a.Time.CompareTo(b.Time));
 
+        return results;
+    }
+
+    /// <summary>
+    /// One device's CPU, one mean per window. A single field with no map stage, so the window
+    /// aggregate pushes down to storage over long ranges (<see cref="QueryDeviceHealthAsync"/> does not).
+    /// </summary>
+    public async Task<IReadOnlyList<(DateTime Time, double Value)>> QueryDeviceCpuAsync(
+        string deviceMac, DateTime from, DateTime to, TimeSpan window, CancellationToken ct = default)
+    {
+        if (!IsConfigured) return Array.Empty<(DateTime, double)>();
+        var flux = $@"
+from(bucket: ""{_bucket}"")
+  |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
+  |> filter(fn: (r) => r._measurement == ""device_health"")
+  |> filter(fn: (r) => r.device_mac == ""{NormalizeMac(deviceMac)}"")
+  |> filter(fn: (r) => r._field == ""cpu_percent"")
+  |> aggregateWindow(every: {ToFluxDuration(window)}, fn: mean, createEmpty: false)
+";
+        var results = new List<(DateTime, double)>();
+        await foreach (var record in QueryFluxAsync(flux, ct))
+            if (AsDoubleOrNull(record.GetValue()) is { } v)
+                results.Add((ToUtc(record.GetTimeInDateTime() ?? DateTime.UtcNow), v));
+        results.Sort((a, b) => a.Item1.CompareTo(b.Item1));
+        return results;
+    }
+
+    /// <summary>One ISP or Transit target's mean RTT and loss in one window.</summary>
+    public sealed record TargetLatencyMean(DateTime Time, string TargetId, string TargetType, double? RttAvgMs, double? LossPercent);
+
+    /// <summary>
+    /// Per-target RTT and loss means across the ISP and Transit targets, one row per target per
+    /// window. Never group before the window aggregate here: that defeats storage pushdown and pulls
+    /// every raw point into Flux memory. Callers combine targets themselves.
+    /// </summary>
+    /// <param name="includeInternetService">Also read internet-service targets (the loss pool's anycast DNS), for a
+    /// caller that falls back to them when the site has no ISP or transit hop.</param>
+    public async Task<IReadOnlyList<TargetLatencyMean>> QueryIspTransitLatencyByTargetAsync(
+        DateTime from, DateTime to, IReadOnlyList<string>? targetIds, TimeSpan window, CancellationToken ct = default,
+        LatencyWanScope? wanScope = null, bool includeInternetService = false)
+    {
+        if (!IsConfigured) await ReconfigureAsync(ct);
+        if (!IsConfigured) return Array.Empty<TargetLatencyMean>();
+        var idFilter = targetIds is { Count: > 0 }
+            ? $"\n  |> filter(fn: (r) => {string.Join(" or ", targetIds.Select(id => $@"r.target_id == ""{SanitizeFluxString(id)}"""))})"
+            : "";
+        var internetService = includeInternetService ? @" or r.target_type == ""internetservice""" : "";
+        var flux = $@"
+from(bucket: ""{_bucket}"")
+  |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
+  |> filter(fn: (r) => r._measurement == ""latency"")
+  |> filter(fn: (r) => r.target_type == ""accessisp"" or r.target_type == ""transit""{internetService}){idFilter}{BuildWanScopeFilter(wanScope)}
+  |> filter(fn: (r) => r._field == ""rtt_avg_ms"" or r._field == ""loss_percent"")
+  |> aggregateWindow(every: {ToFluxDuration(window)}, fn: mean, createEmpty: false)
+";
+        var rows = new Dictionary<(DateTime, string), (string Type, double? Rtt, double? Loss)>();
+        await foreach (var record in QueryFluxAsync(flux, ct))
+        {
+            if (record.GetValueByKey("target_id") is not string id) continue;
+            var key = (ToUtc(record.GetTimeInDateTime() ?? DateTime.UtcNow), id);
+            var row = rows.TryGetValue(key, out var r) ? r : (record.GetValueByKey("target_type") as string ?? "", null, null);
+            var value = AsDoubleOrNull(record.GetValue());
+            rows[key] = record.GetField() == "rtt_avg_ms" ? row with { Rtt = value } : row with { Loss = value };
+        }
+        return rows.Select(kv => new TargetLatencyMean(kv.Key.Item1, kv.Key.Item2, kv.Value.Type, kv.Value.Rtt, kv.Value.Loss))
+            .OrderBy(p => p.Time).ToList();
+    }
+
+    /// <summary>
+    /// Distinct Wi-Fi clients per window and band ("2.4ghz", "5ghz", "6ghz"). Up to two days reads
+    /// the raw client_mac field (one field, no pivot); longer ranges count per day from the daily
+    /// rollup, where client_mac is a tag and the count pushes down, plus raw days for whatever the
+    /// rollup has not reached yet. A client that moved band inside a window counts on both.
+    /// </summary>
+    public async Task<IReadOnlyList<(DateTime Time, string Band, int Clients)>> QueryWifiClientCountsAsync(
+        DateTime from, DateTime to, TimeSpan window, CancellationToken ct = default)
+    {
+        if (!IsConfigured) return Array.Empty<(DateTime, string, int)>();
+        if (to - from <= TimeSpan.FromDays(2) || string.IsNullOrEmpty(_longtermBucket))
+            return await RawWifiClientCountsAsync(from, to, window, ct);
+
+        var day = TimeSpan.FromDays(1);
+        var perDay = new Dictionary<(DateTime Day, string Band), HashSet<string>>();
+        // Rollup rows are stamped at UTC midnight: start at the first day's midnight so the partial
+        // first day is read (its point sits before `from`, where a chart clamps it to the edge).
+        var flux = $@"
+from(bucket: ""{_longtermBucket}"")
+  |> range(start: {ToFluxInstant(DateTime.SpecifyKind(from.ToUniversalTime().Date, DateTimeKind.Utc))}, stop: {ToFluxInstant(to)})
+  |> filter(fn: (r) => r._measurement == ""wifi_client_daily"" and r._field == ""samples"")
+  |> aggregateWindow(every: 1d, fn: count, createEmpty: false, timeSrc: ""_start"")
+";
+        await foreach (var record in QueryFluxAsync(flux, ct))
+        {
+            if (record.GetValueByKey("client_mac") is not string mac || (AsDoubleOrNull(record.GetValue()) ?? 0) <= 0) continue;
+            var key = (ToUtc(record.GetTimeInDateTime() ?? DateTime.UtcNow).Date, record.GetValueByKey("band") as string ?? "");
+            if (!perDay.TryGetValue(key, out var macs)) perDay[key] = macs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            macs.Add(mac);
+        }
+        var result = perDay.Select(kv => (DateTime.SpecifyKind(kv.Key.Day, DateTimeKind.Utc), kv.Key.Band, kv.Value.Count)).ToList();
+        var rolledThrough = perDay.Count == 0 ? from : DateTime.SpecifyKind(perDay.Keys.Max(k => k.Day), DateTimeKind.Utc) + day;
+        if (rolledThrough < to)
+            result.AddRange(await RawWifiClientCountsAsync(rolledThrough, to, day, ct));
+        result.Sort((a, b) => a.Item1.CompareTo(b.Item1));
+        return result;
+    }
+
+    /// <summary>
+    /// Mean Wi-Fi TX PHY rate (AP to client) per window and band, weighted by sample: per-series
+    /// sum and count push down, and the bands are combined here.
+    /// </summary>
+    public async Task<IReadOnlyList<(DateTime Time, string Band, double Kbps)>> QueryWifiPhyByBandAsync(
+        DateTime from, DateTime to, TimeSpan window, CancellationToken ct = default)
+    {
+        if (!IsConfigured) return Array.Empty<(DateTime, string, double)>();
+        string Flux(string fn) => $@"
+from(bucket: ""{_bucket}"")
+  |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
+  |> filter(fn: (r) => r._measurement == ""wifi_client"" and r._field == ""tx_rate_kbps"")
+  |> aggregateWindow(every: {ToFluxDuration(window)}, fn: {fn}, createEmpty: false)
+";
+        async Task<Dictionary<(DateTime, string), double>> Read(string fn)
+        {
+            var totals = new Dictionary<(DateTime, string), double>();
+            await foreach (var record in QueryFluxAsync(Flux(fn), ct))
+            {
+                var key = (ToUtc(record.GetTimeInDateTime() ?? DateTime.UtcNow), record.GetValueByKey("band") as string ?? "");
+                totals[key] = totals.GetValueOrDefault(key) + (AsDoubleOrNull(record.GetValue()) ?? 0);
+            }
+            return totals;
+        }
+        var sums = Read("sum");
+        var counts = Read("count");
+        await Task.WhenAll(sums, counts);
+        return counts.Result.Where(kv => kv.Value > 0 && sums.Result.ContainsKey(kv.Key))
+            .Select(kv => (kv.Key.Item1, kv.Key.Item2, sums.Result[kv.Key] / kv.Value))
+            .OrderBy(p => p.Item1).ToList();
+    }
+
+    // ---- Site Health reads (hourly, pushdown shapes; window stamped at its start) ----
+
+    /// <summary>
+    /// Per-target RTT and loss means per window, stamped at the window's start. Filters by target id when
+    /// given, else by target type (e.g. "fabric"). No group before the aggregate, so it pushes down.
+    /// </summary>
+    public async Task<IReadOnlyList<TargetLatencyMean>> QueryTargetLatencyMeansAsync(
+        DateTime from, DateTime to, IReadOnlyList<string>? targetIds, string? targetType, TimeSpan window,
+        LatencyWanScope? wanScope = null, CancellationToken ct = default)
+    {
+        if (!IsConfigured) return Array.Empty<TargetLatencyMean>();
+        var selector = targetIds is { Count: > 0 }
+            ? $"\n  |> filter(fn: (r) => {string.Join(" or ", targetIds.Select(id => $@"r.target_id == ""{SanitizeFluxString(id)}"""))})"
+            : targetType != null ? $@"
+  |> filter(fn: (r) => r.target_type == ""{SanitizeFluxString(targetType)}"")" : null;
+        if (selector == null) return Array.Empty<TargetLatencyMean>();
+        var flux = $@"
+from(bucket: ""{_bucket}"")
+  |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
+  |> filter(fn: (r) => r._measurement == ""latency""){selector}{BuildWanScopeFilter(wanScope)}
+  |> filter(fn: (r) => r._field == ""rtt_avg_ms"" or r._field == ""loss_percent"")
+  |> aggregateWindow(every: {ToFluxDuration(window)}, fn: mean, createEmpty: false, timeSrc: ""_start"")
+";
+        var rows = new Dictionary<(DateTime, string), (string Type, double? Rtt, double? Loss)>();
+        await foreach (var record in QueryFluxAsync(flux, ct))
+        {
+            if (record.GetValueByKey("target_id") is not string id) continue;
+            var key = (ToUtc(record.GetTimeInDateTime() ?? DateTime.UtcNow), id);
+            var row = rows.TryGetValue(key, out var r) ? r : (record.GetValueByKey("target_type") as string ?? "", null, null);
+            var value = AsDoubleOrNull(record.GetValue());
+            rows[key] = record.GetField() == "rtt_avg_ms" ? row with { Rtt = value } : row with { Loss = value };
+        }
+        return rows.Select(kv => new TargetLatencyMean(kv.Key.Item1, kv.Key.Item2, kv.Value.Type, kv.Value.Rtt, kv.Value.Loss))
+            .OrderBy(p => p.Time).ToList();
+    }
+
+    /// <summary>One AP radio's satisfaction sample counts in one hour.</summary>
+    public sealed record SatisfactionCounts(DateTime Hour, string DeviceMac, string Band, int Total, int Below80, int Below60);
+
+    /// <summary>
+    /// Wi-Fi satisfaction sample counts per hour and AP radio: all samples, under 80, and under 60.
+    /// Three counts, each a pushdown (31 ms for 7 days on the test site).
+    /// </summary>
+    public async Task<IReadOnlyList<SatisfactionCounts>> QuerySatisfactionCountsAsync(DateTime from, DateTime to, CancellationToken ct = default)
+    {
+        if (!IsConfigured) return Array.Empty<SatisfactionCounts>();
+        async Task<Dictionary<(DateTime, string, string), int>> Count(string cond)
+        {
+            var flux = $@"
+from(bucket: ""{_bucket}"")
+  |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
+  |> filter(fn: (r) => r._measurement == ""wifi_client"" and r._field == ""satisfaction""){cond}
+  |> aggregateWindow(every: 1h, fn: count, createEmpty: false, timeSrc: ""_start"")
+";
+            var counts = new Dictionary<(DateTime, string, string), int>();
+            await foreach (var record in QueryFluxAsync(flux, ct))
+            {
+                var key = (ToUtc(record.GetTimeInDateTime() ?? DateTime.UtcNow), record.GetValueByKey("device_mac") as string ?? "", record.GetValueByKey("band") as string ?? "");
+                counts[key] = counts.GetValueOrDefault(key) + (int)(AsDoubleOrNull(record.GetValue()) ?? 0);
+            }
+            return counts;
+        }
+        var total = Count("");
+        var below80 = Count("\n  |> filter(fn: (r) => r._value < 80)");
+        var below60 = Count("\n  |> filter(fn: (r) => r._value < 60)");
+        await Task.WhenAll(total, below80, below60);
+        return total.Result.Select(kv => new SatisfactionCounts(kv.Key.Item1, kv.Key.Item2, kv.Key.Item3, kv.Value,
+                below80.Result.GetValueOrDefault(kv.Key), below60.Result.GetValueOrDefault(kv.Key)))
+            .OrderBy(c => c.Hour).ToList();
+    }
+
+    /// <summary>
+    /// Distinct clients per hour per device from wifi_client (per AP) or wired_client (per switch).
+    /// Raw distinct, not a pushdown: callers read at most a day at a time.
+    /// </summary>
+    public async Task<IReadOnlyList<(DateTime Hour, string DeviceMac, int Clients)>> QueryDistinctClientsByDeviceAsync(
+        string measurement, DateTime from, DateTime to, CancellationToken ct = default)
+    {
+        if (!IsConfigured || measurement is not ("wifi_client" or "wired_client")) return Array.Empty<(DateTime, string, int)>();
+        var flux = $@"
+from(bucket: ""{_bucket}"")
+  |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
+  |> filter(fn: (r) => r._measurement == ""{measurement}"" and r._field == ""client_mac"")
+  |> group(columns: [""device_mac""])
+  |> window(every: 1h)
+  |> distinct()
+  |> count()
+";
+        var results = new List<(DateTime, string, int)>();
+        await foreach (var record in QueryFluxAsync(flux, ct))
+            if (record.GetStart() is { } start && record.GetValueByKey("device_mac") is string mac)
+                results.Add((start.ToDateTimeUtc(), mac, (int)(AsDoubleOrNull(record.GetValue()) ?? 0)));
+        return results;
+    }
+
+    /// <summary>
+    /// Per interface per hour: the rise in input errors and in unicast packets received. Each port is
+    /// its own series, so max minus min per window is the counter's rise (a reset reads as no rise).
+    /// Two pushdown aggregates.
+    /// </summary>
+    public async Task<IReadOnlyList<(DateTime Hour, string DeviceMac, string IfName, double Errors, double Packets)>> QueryPortErrorRisesAsync(
+        DateTime from, DateTime to, CancellationToken ct = default)
+    {
+        if (!IsConfigured) return Array.Empty<(DateTime, string, string, double, double)>();
+        async Task<Dictionary<(DateTime, string, string, string), double>> Agg(string fn)
+        {
+            var flux = $@"
+from(bucket: ""{_bucket}"")
+  |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
+  |> filter(fn: (r) => r._measurement == ""interface_counters"" and (r._field == ""errors_in"" or r._field == ""ucast_pkts_in""))
+  |> aggregateWindow(every: 1h, fn: {fn}, createEmpty: false, timeSrc: ""_start"")
+";
+            var values = new Dictionary<(DateTime, string, string, string), double>();
+            await foreach (var record in QueryFluxAsync(flux, ct))
+            {
+                var key = (ToUtc(record.GetTimeInDateTime() ?? DateTime.UtcNow), record.GetValueByKey("device_mac") as string ?? "",
+                    (record.GetValueByKey("if_name") as string ?? "") + "|" + (record.GetValueByKey("port_id") as string ?? ""), record.GetField() ?? "");
+                if (AsDoubleOrNull(record.GetValue()) is { } v) values[key] = v;
+            }
+            return values;
+        }
+        var max = Agg("max");
+        var min = Agg("min");
+        await Task.WhenAll(max, min);
+        return max.Result
+            .Select(kv => (kv.Key, Rise: Math.Max(0, kv.Value - min.Result.GetValueOrDefault(kv.Key, kv.Value))))
+            .GroupBy(x => (x.Key.Item1, x.Key.Item2, x.Key.Item3))
+            .Select(g => (g.Key.Item1, g.Key.Item2, g.Key.Item3.Split('|')[0],
+                g.Where(x => x.Key.Item4 == "errors_in").Sum(x => x.Rise),
+                g.Where(x => x.Key.Item4 == "ucast_pkts_in").Sum(x => x.Rise)))
+            .ToList();
+    }
+
+    // Not a pushdown shape (distinct needs the raw values), so callers keep it to two days or less.
+    private async Task<List<(DateTime, string, int)>> RawWifiClientCountsAsync(DateTime from, DateTime to, TimeSpan window, CancellationToken ct)
+    {
+        var flux = $@"
+from(bucket: ""{_bucket}"")
+  |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
+  |> filter(fn: (r) => r._measurement == ""wifi_client"")
+  |> filter(fn: (r) => r._field == ""client_mac"")
+  |> group(columns: [""band""])
+  |> window(every: {ToFluxDuration(window)})
+  |> distinct()
+  |> count()
+";
+        var results = new List<(DateTime, string, int)>();
+        await foreach (var record in QueryFluxAsync(flux, ct))
+            if (record.GetStart() is { } start)
+                results.Add((start.ToDateTimeUtc(), record.GetValueByKey("band") as string ?? "", (int)(AsDoubleOrNull(record.GetValue()) ?? 0)));
         return results;
     }
 
@@ -3548,101 +3866,6 @@ from(bucket: ""{_bucket}"")
         public double? LossPercent { get; init; }
     }
 
-    /// <summary>Mean RTT and loss across all ISP+Transit targets, aggregated per time window.
-    /// Averages each target into a per-window mean first (normalizing uneven probe
-    /// intervals), then averages within each target_type, then averages the two category
-    /// means - the same weighting as /api/monitoring/live-stats, so the WAN live chart
-    /// doesn't jump when its buffer swaps between history and live samples.</summary>
-    /// <param name="wanScope">
-    /// Which WAN's points count. Filtering by target id alone is not enough: a host reachable from
-    /// two WANs is probed under each, and a row that has changed context keeps its older points
-    /// under the tag they were written with - so one id can hold more than one WAN's readings, and
-    /// an unscoped read draws another WAN's loss on this one's chart.
-    /// </param>
-    public async Task<IReadOnlyList<LatencyPoint>> QueryMeanIspTransitLatencyAsync(
-        DateTime from,
-        DateTime to,
-        IReadOnlyList<string>? enabledTargetIds = null,
-        TimeSpan? aggregateWindow = null,
-        LatencyWanScope? wanScope = null,
-        CancellationToken ct = default)
-    {
-        if (!IsConfigured) await ReconfigureAsync(ct);
-        if (!IsConfigured) return Array.Empty<LatencyPoint>();
-        var window = aggregateWindow ?? TimeSpan.FromSeconds(
-            Math.Max(10, (int)((to - from).TotalSeconds / 150)));
-        // Query extra lead-in so every target has probed at least once before the first
-        // visible point, priming fill(usePrevious). Without it, the oldest windows
-        // average a partial subset of targets and the left edge of the chart skews high
-        // or low depending on which targets happen to be missing. Warmup rows are
-        // dropped from the results below.
-        var warmup = TimeSpan.FromSeconds(60) + window;
-        var queryFrom = from - warmup;
-        var targetFilter = "";
-        if (enabledTargetIds is { Count: > 0 })
-        {
-            var idFilter = string.Join(" or ", enabledTargetIds.Select(id =>
-                $@"r.target_id == ""{SanitizeFluxString(id)}"""));
-            targetFilter = $"\n  |> filter(fn: (r) => {idFilter})";
-        }
-        var flux = $@"
-base = from(bucket: ""{_bucket}"")
-  |> range(start: {ToFluxInstant(queryFrom)}, stop: {ToFluxInstant(to)})
-  |> filter(fn: (r) => r._measurement == ""latency"")
-  |> filter(fn: (r) => r.target_type == ""accessisp"" or r.target_type == ""transit""){targetFilter}{BuildWanScopeFilter(wanScope)}
-
-rtt = base
-  |> filter(fn: (r) => r._field == ""rtt_avg_ms"")
-  |> group(columns: [""target_id"", ""target_type""])
-  |> aggregateWindow(every: {ToFluxDuration(window)}, fn: mean, createEmpty: true)
-  |> fill(usePrevious: true)
-  |> filter(fn: (r) => exists r._value)
-  |> group(columns: [""target_type"", ""_time""])
-  |> mean()
-  |> group(columns: [""_time""])
-  |> mean()
-  |> group()
-  |> sort(columns: [""_time""])
-  |> map(fn: (r) => ({{_time: r._time, _value: r._value, _field: ""rtt_avg_ms""}}))
-
-loss = base
-  |> filter(fn: (r) => r._field == ""loss_percent"")
-  |> group(columns: [""target_id"", ""target_type""])
-  |> aggregateWindow(every: {ToFluxDuration(window)}, fn: mean, createEmpty: true)
-  |> fill(usePrevious: true)
-  |> filter(fn: (r) => exists r._value)
-  |> group(columns: [""target_type"", ""_time""])
-  |> mean()
-  |> group(columns: [""_time""])
-  |> mean()
-  |> group()
-  |> sort(columns: [""_time""])
-  |> map(fn: (r) => ({{_time: r._time, _value: r._value, _field: ""loss_percent""}}))
-
-union(tables: [rtt, loss])
-  |> group()
-  |> pivot(rowKey:[""_time""], columnKey: [""_field""], valueColumn: ""_value"")
-";
-        var results = new List<LatencyPoint>();
-        await foreach (var record in QueryFluxAsync(flux, ct))
-        {
-            var time = ToUtc(record.GetTimeInDateTime() ?? DateTime.UtcNow);
-            if (time < from) continue;
-            results.Add(new LatencyPoint
-            {
-                Time = time,
-                RttAvgMs = AsDoubleOrNull(record.GetValueByKey("rtt_avg_ms")),
-                LossPercent = AsDoubleOrNull(record.GetValueByKey("loss_percent"))
-            });
-        }
-        // Order on assembly: the Flux result is NOT globally ordered. pivot emits a separate table
-        // whenever a row's field set differs, and those tables arrive after the main one - so an
-        // interval where a device reported some fields but not others comes back at the END.
-        results.Sort((a, b) => a.Time.CompareTo(b.Time));
-
-        return results;
-    }
-
     /// <summary>Time-series of RTT and loss for a single monitoring target.</summary>
     public async Task<IReadOnlyList<LatencyPoint>> QueryLatencyAsync(
         string targetId,
@@ -3834,6 +4057,135 @@ from(bucket: ""{_longtermBucket}"")
 
         return results;
     }
+
+    /// <summary>
+    /// One numeric field of one longterm device, as a mean per window: the Dashboard's access-network
+    /// sparklines. Every matching series is merged, so a modem that writes the field under both
+    /// network modes, or a module seen under two device types, still draws one line. Merged after the
+    /// window aggregate, in C#: grouping first defeats storage pushdown.
+    /// </summary>
+    /// <param name="tags">Exact tag matches that pick the device, e.g. ("cm_id", "3").</param>
+    /// <param name="excludeTags">Tag values to leave out, e.g. ("network_mode", "LTE") for a modem's NR leg.</param>
+    public async Task<List<(DateTime Time, double Value)>> QueryFieldSeriesAsync(
+        string measurement,
+        IReadOnlyList<(string Tag, string Value)> tags,
+        string field,
+        DateTime from,
+        DateTime to,
+        TimeSpan window,
+        IReadOnlyList<(string Tag, string Value)>? excludeTags = null,
+        CancellationToken ct = default)
+    {
+        if (!IsConfigured) await ReconfigureAsync(ct);
+        if (!IsConfigured || tags.Count == 0) return new List<(DateTime, double)>();
+
+        // device_mac is written normalized, so a caller's dashed or uppercase MAC is matched the same way.
+        var tagFilter = string.Join(" and ", tags.Select(t =>
+            $@"r.{SanitizeFluxIdentifier(t.Tag)} == ""{(t.Tag == "device_mac" ? NormalizeMac(t.Value) : SanitizeFluxString(t.Value))}"""));
+        foreach (var t in excludeTags ?? [])
+            tagFilter += $@" and r.{SanitizeFluxIdentifier(t.Tag)} != ""{SanitizeFluxString(t.Value)}""";
+        var flux = $@"
+from(bucket: ""{_longtermBucket}"")
+  |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
+  |> filter(fn: (r) => r._measurement == ""{SanitizeFluxString(measurement)}"" and r._field == ""{SanitizeFluxString(field)}"")
+  |> filter(fn: (r) => {tagFilter})
+  |> aggregateWindow(every: {ToFluxDuration(window)}, fn: mean, createEmpty: false)
+";
+        var rows = new List<(DateTime Time, double Value)>();
+        await foreach (var record in QueryFluxAsync(flux, ct))
+        {
+            if (AsDoubleOrNull(record.GetValue()) is double v && double.IsFinite(v)
+                && record.GetTimeInDateTime() is DateTime t)
+                rows.Add((ToUtc(t), v));
+        }
+        return MergeSeries(rows);
+    }
+
+    /// <summary>Window means of several series of one reading, merged into one: the mean per window, in time order.</summary>
+    private static List<(DateTime Time, double Value)> MergeSeries(IEnumerable<(DateTime Time, double Value)> rows) =>
+        rows.GroupBy(r => r.Time).Select(g => (g.Key, g.Average(r => r.Value))).OrderBy(r => r.Item1).ToList();
+
+    /// <summary>
+    /// Latency fields for a set of targets as per-target window means, one query for every Live View
+    /// latency tile (Gateway, ISP, Transit; RTT and loss). Each target's vantages and WANs are merged
+    /// after the window aggregate (grouping first defeats storage pushdown); combining targets the way
+    /// a tile does is the caller's. Fast bucket, windows stamped at their start.
+    /// </summary>
+    public async Task<Dictionary<(string TargetId, string Field), List<(DateTime Time, double Value)>>> QueryTargetFieldSeriesAsync(
+        IReadOnlyList<string> targetIds,
+        IReadOnlyList<string> fields,
+        DateTime from,
+        DateTime to,
+        TimeSpan window,
+        CancellationToken ct = default)
+    {
+        var results = new Dictionary<(string TargetId, string Field), List<(DateTime Time, double Value)>>();
+        if (!IsConfigured) await ReconfigureAsync(ct);
+        if (!IsConfigured || targetIds.Count == 0 || fields.Count == 0) return results;
+
+        var idFilter = string.Join(" or ", targetIds.Distinct(StringComparer.Ordinal)
+            .Select(id => $@"r.target_id == ""{SanitizeFluxString(id)}"""));
+        var fieldFilter = string.Join(" or ", fields.Select(f => $@"r._field == ""{SanitizeFluxString(f)}"""));
+        var flux = $@"
+from(bucket: ""{_bucket}"")
+  |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
+  |> filter(fn: (r) => r._measurement == ""latency"" and ({fieldFilter}))
+  |> filter(fn: (r) => {idFilter})
+  |> aggregateWindow(every: {ToFluxDuration(window)}, fn: mean, createEmpty: false, timeSrc: ""_start"")
+";
+        var raw = new Dictionary<(string TargetId, string Field), List<(DateTime Time, double Value)>>();
+        await foreach (var record in QueryFluxAsync(flux, ct))
+        {
+            if (AsDoubleOrNull(record.GetValue()) is not double v || !double.IsFinite(v)
+                || record.GetTimeInDateTime() is not DateTime t) continue;
+            var key = (record.GetValueByKey("target_id") as string ?? "", record.GetField() ?? "");
+            if (!raw.TryGetValue(key, out var list)) raw[key] = list = new();
+            list.Add((ToUtc(t), v));
+        }
+        foreach (var (key, list) in raw) results[key] = MergeSeries(list);
+        return results;
+    }
+
+    /// <summary>
+    /// Several device_health fields of one device as window means, one query for Live View's
+    /// gateway CPU, memory, and temperature tiles. A device seen under two device types is merged
+    /// after the window aggregate. Fast bucket.
+    /// </summary>
+    public async Task<Dictionary<string, List<(DateTime Time, double Value)>>> QueryDeviceHealthFieldSeriesAsync(
+        string deviceMac,
+        IReadOnlyList<string> fields,
+        DateTime from,
+        DateTime to,
+        TimeSpan window,
+        CancellationToken ct = default)
+    {
+        var results = new Dictionary<string, List<(DateTime Time, double Value)>>();
+        if (!IsConfigured) await ReconfigureAsync(ct);
+        if (!IsConfigured || string.IsNullOrEmpty(deviceMac) || fields.Count == 0) return results;
+
+        var fieldFilter = string.Join(" or ", fields.Select(f => $@"r._field == ""{SanitizeFluxString(f)}"""));
+        var flux = $@"
+from(bucket: ""{_bucket}"")
+  |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
+  |> filter(fn: (r) => r._measurement == ""device_health"" and ({fieldFilter}))
+  |> filter(fn: (r) => r.device_mac == ""{NormalizeMac(deviceMac)}"")
+  |> aggregateWindow(every: {ToFluxDuration(window)}, fn: mean, createEmpty: false)
+";
+        var raw = new Dictionary<string, List<(DateTime Time, double Value)>>();
+        await foreach (var record in QueryFluxAsync(flux, ct))
+        {
+            if (AsDoubleOrNull(record.GetValue()) is not double v || !double.IsFinite(v)
+                || record.GetTimeInDateTime() is not DateTime t) continue;
+            var field = record.GetField() ?? "";
+            if (!raw.TryGetValue(field, out var list)) raw[field] = list = new();
+            list.Add((ToUtc(t), v));
+        }
+        foreach (var (field, list) in raw) results[field] = MergeSeries(list);
+        return results;
+    }
+    /// <summary>A tag name for a Flux record member: letters, digits, and underscores only.</summary>
+    private static string SanitizeFluxIdentifier(string name) =>
+        new(name.Where(c => char.IsAsciiLetterOrDigit(c) || c == '_').ToArray());
 
     /// <summary>
     /// Query cellular modem signal metrics over time. Groups by modem_id + network_mode
@@ -5508,8 +5860,7 @@ union(tables: [
             or InfluxDB.Client.Core.Exceptions.BadRequestException
             or InfluxDB.Client.Core.Exceptions.UnauthorizedException)
         {
-            _logger.LogWarning("InfluxDB query failed ({Error}) — check Settings > Monitoring", ex.Message);
-            _ = PersistHealthAsync(false, ex.Message, CancellationToken.None);
+            LogQueryFailure(ex);
             yield break;
         }
 
@@ -5621,9 +5972,23 @@ union(tables: [
             or InfluxDB.Client.Core.Exceptions.BadRequestException
             or InfluxDB.Client.Core.Exceptions.UnauthorizedException)
         {
-            _logger.LogWarning("InfluxDB query failed ({Error}) — check Settings > Monitoring", ex.Message);
-            _ = PersistHealthAsync(false, ex.Message, CancellationToken.None);
+            LogQueryFailure(ex);
         }
+    }
+
+    /// <summary>
+    /// Warns and stores the failure for Settings > Monitoring the first time within the interval;
+    /// a repeat logs at Debug and skips the database write, since the stored state already says so.
+    /// </summary>
+    private void LogQueryFailure(Exception ex)
+    {
+        if (!ShouldLogFailure(ex.Message))
+        {
+            _logger.LogDebug("InfluxDB query failed ({Error})", ex.Message);
+            return;
+        }
+        _logger.LogWarning("InfluxDB query failed ({Error}) — check Settings > Monitoring", ex.Message);
+        _ = PersistHealthAsync(false, ex.Message, CancellationToken.None);
     }
 
     /// <summary>
@@ -6446,7 +6811,10 @@ from(bucket: ""{_longtermBucket}"")
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to flush monitoring points to InfluxDB — points dropped");
+            if (ShouldLogFailure(ex.Message))
+                _logger.LogError(ex, "Failed to flush monitoring points to InfluxDB — points dropped");
+            else
+                _logger.LogDebug("Failed to flush monitoring points to InfluxDB ({Error}) — points dropped", ex.Message);
         }
     }
 

@@ -15,6 +15,12 @@ public class SiteHealthScorer
     /// <summary>Roam success rate below which failures are treated as a serious problem.</summary>
     private const double RoamSevereRatePct = 90.0;
 
+    /// <summary>Channel Health points lost per point of client-weighted utilization gap.</summary>
+    private const double UtilizationPenaltyPerPct = 1.0;
+
+    /// <summary>A radio with no scan is measured from this utilization instead of its quietest channel.</summary>
+    private const double UtilizationPenaltyFloorPct = 50;
+
     private readonly SiteHealthScorerOptions _options;
 
     public SiteHealthScorer(SiteHealthScorerOptions? options = null)
@@ -202,15 +208,21 @@ public class SiteHealthScorer
             return dimension;
         }
 
-        var radiosWithUtilization = allRadios.Where(r => r.ChannelUtilization.HasValue).ToList();
         var radiosWithInterference = allRadios.Where(r => r.Interference.HasValue).ToList();
-
-        var avgUtilization = radiosWithUtilization.Any() ? radiosWithUtilization.Average(r => r.ChannelUtilization!.Value) : 0;
         var avgInterference = radiosWithInterference.Any() ? radiosWithInterference.Average(r => r.Interference!.Value) : 0;
-        var highUtilRadios = radiosWithUtilization.Count(r => r.ChannelUtilization > _options.HighUtilizationThreshold);
+        var highUtilRadios = allRadios.Count(r => Utilization(r) > _options.HighUtilizationThreshold);
+
+        // Points are lost only for the gap the user can close: how far each radio sits above the
+        // quietest channel it could use, weighted by the clients it serves.
+        var weighted = allRadios
+            .Where(r => Utilization(r).HasValue && r.ClientCount is > 0)
+            .Select(r => (Gap: UtilizationGap(r), Clients: (double)r.ClientCount!.Value))
+            .ToList();
+        var clientWeight = weighted.Sum(w => w.Clients);
+        var gap = clientWeight > 0 ? weighted.Sum(w => w.Gap * w.Clients) / clientWeight : 0;
 
         // Score: 100 - utilization penalty - interference penalty
-        var utilizationPenalty = avgUtilization > 50 ? (avgUtilization - 50) : 0;
+        var utilizationPenalty = gap * UtilizationPenaltyPerPct;
         var interferencePenalty = avgInterference > 20 ? (avgInterference - 20) * 0.5 : 0;
 
         dimension.Score = Math.Max(0, Math.Min(100, (int)(100 - utilizationPenalty - interferencePenalty)));
@@ -220,9 +232,9 @@ public class SiteHealthScorer
 
         dimension.Factors.Add(new ScoreFactor
         {
-            Name = "Average channel utilization",
-            Value = $"{avgUtilization:F1}%",
-            Impact = avgUtilization > 70 ? -20 : avgUtilization > 50 ? -10 : 0
+            Name = "Utilization above quietest channel",
+            Value = $"+{gap:F0}%",
+            Impact = gap > 20 ? -20 : gap > 10 ? -10 : 0
         });
 
         dimension.Factors.Add(new ScoreFactor
@@ -233,6 +245,20 @@ public class SiteHealthScorer
         });
 
         return dimension;
+    }
+
+    /// <summary>A radio's utilization for scoring: the hour's average when there is one, else the latest reading.</summary>
+    private static double? Utilization(RadioSnapshot r) => r.HourUtilizationAvg ?? r.ChannelUtilization;
+
+    /// <summary>
+    /// Points of utilization above the quietest channel the radio could use. Without a scan there is
+    /// no quietest channel to measure from, so the gap is the utilization above a fixed floor.
+    /// </summary>
+    private static double UtilizationGap(RadioSnapshot r)
+    {
+        var utilization = Utilization(r) ?? 0;
+        var floor = r.QuietestChannelUtilization ?? UtilizationPenaltyFloorPct;
+        return Math.Max(0, utilization - floor);
     }
 
     private ScoreDimension CalculateRoamingPerformance(RoamingTopology? roamingData)
@@ -507,33 +533,8 @@ public class SiteHealthScorer
             });
         }
 
-        // Channel utilization issues
-        var highUtilRadios = aps
-            .SelectMany(a => a.Radios.Select(r => (Ap: a, Radio: r)))
-            .Where(x => x.Radio.ChannelUtilization > _options.HighUtilizationThreshold)
-            .ToList();
-
-        foreach (var (ap, radio) in highUtilRadios.Take(5))
-        {
-            // Tailor recommendation based on band
-            var recommendation = radio.Band == RadioBand.Band2_4GHz
-                ? "Enable band steering to move capable clients to 5 GHz or 6 GHz"
-                : "Try a different channel or reduce channel width";
-
-            score.Issues.Add(new HealthIssue
-            {
-                Severity = radio.ChannelUtilization > 90 ? HealthIssueSeverity.Critical : HealthIssueSeverity.Warning,
-                Dimensions = { HealthDimension.ChannelHealth, HealthDimension.AirtimeEfficiency },
-                RuleId = "WIFI-CHANNEL-UTIL-001",
-                Class = HealthIssueClass.Measured,
-                Key = HealthIssueKeys.For("WIFI-CHANNEL-UTIL-001", HealthIssueKeys.Radio(ap.Mac, radio.Band)),
-                Title = "High channel utilization",
-                Description = $"{radio.Band.ToDisplayString()} radio at {radio.ChannelUtilization}% utilization",
-                AffectedEntity = ap.Name,
-                Recommendation = recommendation,
-                ScoreImpact = -10
-            });
-        }
+        // A busy radio is HighRadioUtilizationRule's alone: it knows the cause and the band steering
+        // state, and one radio raising two issues for one busy channel is what it replaced.
 
         // Roaming issues: flag edges whose roam success rate falls below the healthy
         // threshold (95%, matching the dimension scorer) rather than the raw failure

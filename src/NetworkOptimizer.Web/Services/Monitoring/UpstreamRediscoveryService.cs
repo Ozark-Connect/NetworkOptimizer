@@ -46,6 +46,13 @@ public class UpstreamRediscoveryService : BackgroundService
 
     private readonly NetworkOptimizer.Core.ISiteWorkGate _siteWorkGate;
     private readonly SiteVantageDnsResolver? _dnsResolver;
+    private readonly UpstreamDiscoveryGate? _healthGate;
+    private readonly Auditing.IAuditLogger? _audit;
+
+    // A run where more than this share of candidates failed reachability, after a committed run
+    // where fewer than DegradedBaselineShare did, measured the WAN's state, not the path.
+    internal const double DegradedFailShare = 0.5;
+    internal const double DegradedBaselineShare = 0.2;
 
     public UpstreamRediscoveryService(
         IDbContextFactory<NetworkOptimizerDbContext> dbFactory,
@@ -54,8 +61,12 @@ public class UpstreamRediscoveryService : BackgroundService
         NetworkOptimizer.Core.ISiteWorkGate siteWorkGate,
         NetworkOptimizer.Web.Services.AgentTunnelRegistry tunnelRegistry,
         ILogger<UpstreamRediscoveryService> logger,
-        SiteVantageDnsResolver? dnsResolver = null)
+        SiteVantageDnsResolver? dnsResolver = null,
+        UpstreamDiscoveryGate? healthGate = null,
+        Auditing.IAuditLogger? audit = null)
     {
+        _healthGate = healthGate;
+        _audit = audit;
         _dnsResolver = dnsResolver;
         _tunnelRegistry = tunnelRegistry;
         _dbFactory = dbFactory;
@@ -162,10 +173,19 @@ public class UpstreamRediscoveryService : BackgroundService
         // value means a counter is in flight.
         var pendingRecheck = await db.SystemSettings.AnyAsync(
             s => s.Key.StartsWith(SystemSettingKeys.UpstreamAbsentAsnCountsPrefix) && s.Value != null, ct);
+        // An unanswered count in flight on a WAN no context owns is the primary run's.
+        if (!pendingRecheck)
+        {
+            var contextWans = (await db.WanContexts.AsNoTracking().Select(c => c.WanInterface).ToListAsync(ct))
+                .Where(w => !string.IsNullOrEmpty(w)).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            pendingRecheck = (await LoadUnansweredPendingWansAsync(db, ct)).Any(w => !contextWans.Contains(w));
+        }
         var threshold = pendingRecheck ? PendingRecheckInterval : RediscoveryThreshold;
 
         var sinceLast = DateTime.UtcNow - settings.LastUpstreamDiscoveryAt.Value;
         if (sinceLast < threshold) return;
+
+        if (!await HealthGateAllowsAsync(slug, null, "the primary WAN", ct)) return;
 
         _logger.LogInformation("Running scheduled upstream re-discovery (last commit {Days:0.0} days ago)", sinceLast.TotalDays);
 
@@ -179,6 +199,16 @@ public class UpstreamRediscoveryService : BackgroundService
             _logger.LogInformation("Re-discovery finished in state {Step}; no review flag set", tracer.State.Step);
             return;
         }
+
+        // Left unflagged and Idle, so the next tick retries and the panel shows the committed state.
+        if (await DiscardsDegradedRunAsync(db, tracer.State, tracer.State.WanInterface ?? "wan", slug, "the primary WAN", ct))
+        {
+            tracer.ResetToIdle();
+            return;
+        }
+
+        await ApplyUnansweredTargetsAsync(db, tracer.State, tracer.State.WanInterface ?? "wan",
+            isUnboundRun: true, slug, "the primary WAN", ct);
 
         // The tracer already ran the shared post-run evaluation when the run settled in
         // ReviewingResults - it does the same for manually-started runs, so the absence counters
@@ -213,6 +243,10 @@ public class UpstreamRediscoveryService : BackgroundService
     /// <summary>
     /// Discovers the upstream path of every WAN that has a context, one WAN at a time.
     ///
+    /// Each run waits for the health gate, and a run that comes back degraded is not committed.
+    /// The commit is automatic, so it never pauses an existing target on one run's reachability
+    /// alone; the unanswered counter pauses one that stays unanswered across runs.
+    ///
     /// Each context traces the WAN it names, bound the way its targets are probed, and its
     /// access/transit targets are committed straight away rather than staged for review: the
     /// review flow is the primary WAN's single global flag, and a secondary WAN's candidates
@@ -245,7 +279,9 @@ public class UpstreamRediscoveryService : BackgroundService
         var lastByWan = await db.WanDiscoveryContexts.AsNoTracking()
             .ToDictionaryAsync(c => c.WanInterface, c => c.LastDiscoveryAt, StringComparer.OrdinalIgnoreCase, ct);
 
-        foreach (var context in ContextsDueForDiscovery(contexts, lastByWan, DateTime.UtcNow, RediscoveryThreshold))
+        var recheckWans = await LoadUnansweredPendingWansAsync(db, ct);
+        foreach (var context in ContextsDueForDiscovery(contexts, lastByWan, DateTime.UtcNow, RediscoveryThreshold,
+                     recheckWans, PendingRecheckInterval))
         {
             if (ct.IsCancellationRequested) return;
             if (!CanBindForContext(context, slug))
@@ -259,6 +295,9 @@ public class UpstreamRediscoveryService : BackgroundService
             }
             try
             {
+                var label = $"WAN context '{context.Name}' ({context.WanInterface})";
+                if (!await HealthGateAllowsAsync(slug, context.WanInterface, label, ct)) continue;
+
                 var tracer = _tracerRegistry.GetForContext(slug, context);
                 _logger.LogInformation("Running upstream discovery for WAN context '{Context}' ({Wan}) on site {Slug}",
                     context.Name, context.WanInterface, slug);
@@ -270,7 +309,33 @@ public class UpstreamRediscoveryService : BackgroundService
                         context.Name, context.WanInterface, tracer.State.Step, tracer.State.FailureMessage ?? "no candidates");
                     continue;
                 }
-                await tracer.CommitResultsAsync(ct);
+                if (await DiscardsDegradedRunAsync(db, tracer.State, context.WanInterface!, slug, label, ct))
+                {
+                    tracer.ResetToIdle();
+                    continue;
+                }
+
+                await ApplyUnansweredTargetsAsync(db, tracer.State, context.WanInterface!, isUnboundRun: false, slug, label, ct);
+
+                // Counted before the commit, which clears the review lists.
+                var detail = new
+                {
+                    wan = context.WanInterface,
+                    accessHops = tracer.State.AccessHops.Count(h => h.Enabled),
+                    transitAsns = tracer.State.TransitAsns.Count(t => t.Enabled),
+                    unreachable = tracer.State.ReachabilityFailed,
+                    checkedCandidates = tracer.State.ReachabilityChecked,
+                };
+                await tracer.CommitResultsAsync(automatic: true, ct);
+                // Same action as an operator's commit, so both show together in the Audit Log.
+                _audit?.Log(Auditing.AuditEventBuilder.FromSystem(
+                    NetworkOptimizer.Storage.Models.Identity.AuditCategories.Action,
+                    NetworkOptimizer.Storage.Models.Identity.AuditActions.MonitoringSetupChanged,
+                    targetType: "upstream_discovery",
+                    targetId: context.Id.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                    targetName: context.Name,
+                    siteSlug: slug,
+                    details: detail));
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested) { return; }
             catch (Exception ex)
@@ -308,6 +373,404 @@ public class UpstreamRediscoveryService : BackgroundService
     }
 
     /// <summary>
+    /// Whether the health gate lets an automatic run start on this WAN. A blocked run logs why and
+    /// moves no timestamp, so the next hourly tick tries again.
+    /// </summary>
+    private async Task<bool> HealthGateAllowsAsync(string slug, string? wanInterface, string label, CancellationToken ct)
+    {
+        if (_healthGate == null) return true;
+        var verdict = await _healthGate.EvaluateAsync(slug, wanInterface, ct);
+        if (verdict.Ok) return true;
+        _logger.LogInformation("Postponing upstream discovery for {Label} on site {Slug}: the WAN is busy ({Reason}). Retrying next hour",
+            label, slug, verdict.Reason);
+        return false;
+    }
+
+    /// <summary>
+    /// Whether a completed automatic run is thrown away as degraded. Updates and saves the WAN's
+    /// degraded-run counter either way: a clean run clears it, and a degraded run that
+    /// <see cref="DecideDegradedRun"/> accepts goes on as a normal run.
+    /// </summary>
+    private async Task<bool> DiscardsDegradedRunAsync(NetworkOptimizerDbContext db, UpstreamTracerState state,
+        string wanInterface, string slug, string label, CancellationToken ct)
+    {
+        var outcome = await RecordRunOutcomeAsync(db, state, wanInterface, DateTime.UtcNow, ct);
+        if (outcome.Accepted)
+            _logger.LogInformation(
+                "Accepting upstream discovery for {Label} on site {Slug}: {Failed} of {Checked} candidate(s) did not answer, "
+                + "as in {Runs} earlier runs at least {Hours:0} h apart, so this is the path now",
+                label, slug, state.ReachabilityFailed, state.ReachabilityChecked, DegradedRunsBeforeAccept, DegradedRunIncrementGate.TotalHours);
+        else if (outcome.Discard)
+            _logger.LogInformation(
+                "Discarding upstream discovery for {Label} on site {Slug}: {Failed} of {Checked} candidate(s) did not answer, "
+                + "far more than the last committed run ({Count} of {Needed} degraded runs counted). Retrying next hour",
+                label, slug, state.ReachabilityFailed, state.ReachabilityChecked, outcome.Count, DegradedRunsBeforeAccept);
+        return outcome.Discard;
+    }
+
+    /// <summary>How a completed automatic run was judged: thrown away, or accepted after enough degraded runs.</summary>
+    internal sealed record RunOutcome(bool Discard, bool Accepted, int Count);
+
+    /// <summary>
+    /// Judges a completed automatic run against the WAN's baseline and updates its degraded-run counter,
+    /// saving it. A clean run clears the counter; a degraded one counts per <see cref="DecideDegradedRun"/>.
+    /// </summary>
+    internal static async Task<RunOutcome> RecordRunOutcomeAsync(NetworkOptimizerDbContext db, UpstreamTracerState state,
+        string wanInterface, DateTime nowUtc, CancellationToken ct)
+    {
+        var degraded = IsDegradedRun(state.ReachabilityFailed, state.ReachabilityChecked,
+            await LoadUnreachableShareAsync(db, wanInterface, ct));
+        var prior = await LoadDegradedRunsAsync(db, wanInterface, ct);
+        if (!degraded)
+        {
+            if (prior != null)
+            {
+                await SaveDegradedRunsAsync(db, wanInterface, null, ct);
+                await db.SaveChangesAsync(ct);
+            }
+            return new RunOutcome(false, false, 0);
+        }
+
+        var (accept, next) = DecideDegradedRun(prior, nowUtc);
+        await SaveDegradedRunsAsync(db, wanInterface, next, ct);
+        await db.SaveChangesAsync(ct);
+        return new RunOutcome(!accept, accept, next?.Count ?? 0);
+    }
+
+    /// <summary>Degraded runs counted, at least <see cref="DegradedRunIncrementGate"/> apart, before the next one is accepted.</summary>
+    internal const int DegradedRunsBeforeAccept = 3;
+
+    /// <summary>Minimum time between two counted degraded runs, so hourly retries during one bad afternoon count once.</summary>
+    internal static readonly TimeSpan DegradedRunIncrementGate = TimeSpan.FromHours(6);
+
+    /// <summary>
+    /// What to do with a degraded run given the WAN's counter. Once <see cref="DegradedRunsBeforeAccept"/>
+    /// runs are counted, the next degraded run is accepted and the counter resets (null). Otherwise it is
+    /// discarded, and counts only when <see cref="DegradedRunIncrementGate"/> has passed since the last count.
+    /// </summary>
+    /// <param name="prior">The WAN's counter, or null when none is recorded.</param>
+    /// <param name="nowUtc">Current time.</param>
+    internal static (bool Accept, MissRecord? Next) DecideDegradedRun(MissRecord? prior, DateTime nowUtc)
+    {
+        if (prior is { } p && p.Count >= DegradedRunsBeforeAccept) return (true, null);
+        if (prior is { } held && nowUtc - held.LastIncrementUtc < DegradedRunIncrementGate) return (false, held);
+        return (false, new MissRecord((prior?.Count ?? 0) + 1, nowUtc));
+    }
+
+    private static string DegradedRunsKey(string wanInterface) =>
+        SystemSettingKeys.UpstreamDegradedRunsPrefix + wanInterface;
+
+    /// <summary>The WAN's degraded-run counter, stored as <c>{"c":count,"t":lastIncrementUtc}</c>, or null.</summary>
+    internal static async Task<MissRecord?> LoadDegradedRunsAsync(NetworkOptimizerDbContext db, string wanInterface, CancellationToken ct)
+    {
+        var row = await db.SystemSettings.AsNoTracking().FirstOrDefaultAsync(s => s.Key == DegradedRunsKey(wanInterface), ct);
+        if (string.IsNullOrEmpty(row?.Value)) return null;
+        try
+        {
+            using var doc = JsonDocument.Parse(row.Value);
+            var count = doc.RootElement.TryGetProperty("c", out var c) ? c.GetInt32() : 0;
+            var when = doc.RootElement.TryGetProperty("t", out var t) && t.TryGetDateTime(out var dt)
+                ? DateTime.SpecifyKind(dt, DateTimeKind.Utc)
+                : DateTime.MinValue;
+            return count > 0 ? new MissRecord(count, when) : null;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    /// <summary>Upserts the WAN's degraded-run counter; null clears it. Does not SaveChanges; the caller's does.</summary>
+    internal static async Task SaveDegradedRunsAsync(NetworkOptimizerDbContext db, string wanInterface, MissRecord? record, CancellationToken ct)
+    {
+        var key = DegradedRunsKey(wanInterface);
+        var value = record is { } r ? JsonSerializer.Serialize(new { c = r.Count, t = r.LastIncrementUtc }) : null;
+        var row = await db.SystemSettings.FirstOrDefaultAsync(s => s.Key == key, ct);
+        if (row == null)
+        {
+            if (value == null) return;
+            db.SystemSettings.Add(new SystemSetting { Key = key, Value = value, CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow });
+        }
+        else
+        {
+            row.Value = value;
+            row.UpdatedAt = DateTime.UtcNow;
+        }
+    }
+
+    /// <summary>
+    /// Whether a completed run's reachability results describe a degraded WAN rather than the path:
+    /// more than <see cref="DegradedFailShare"/> of its candidates failed where the last committed run
+    /// had under <see cref="DegradedBaselineShare"/>. No baseline means no verdict.
+    /// </summary>
+    /// <param name="failed">Candidates that did not answer this run.</param>
+    /// <param name="checkedCount">Candidates pinged this run.</param>
+    /// <param name="lastCommittedShare">The last committed run's failed share, or null when none is recorded.</param>
+    internal static bool IsDegradedRun(int failed, int checkedCount, double? lastCommittedShare) =>
+        checkedCount > 0
+        && lastCommittedShare is double last && last < DegradedBaselineShare
+        && (double)failed / checkedCount > DegradedFailShare;
+
+    private static string UnreachableShareKey(string wanInterface) =>
+        SystemSettingKeys.UpstreamUnreachableSharePrefix + wanInterface;
+
+    /// <summary>The last committed run's failed reachability share for the WAN, or null when none is recorded.</summary>
+    internal static async Task<double?> LoadUnreachableShareAsync(NetworkOptimizerDbContext db, string wanInterface, CancellationToken ct)
+    {
+        var row = await db.SystemSettings.AsNoTracking().FirstOrDefaultAsync(s => s.Key == UnreachableShareKey(wanInterface), ct);
+        return double.TryParse(row?.Value, System.Globalization.NumberStyles.Float,
+            System.Globalization.CultureInfo.InvariantCulture, out var share) ? share : null;
+    }
+
+    /// <summary>Records a committed run's failed reachability share for the WAN. Does not SaveChanges; the caller's does.</summary>
+    internal static async Task SaveUnreachableShareAsync(NetworkOptimizerDbContext db, string wanInterface, double share, CancellationToken ct)
+    {
+        var key = UnreachableShareKey(wanInterface);
+        var value = share.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture);
+        var row = await db.SystemSettings.FirstOrDefaultAsync(s => s.Key == key, ct);
+        if (row == null)
+            db.SystemSettings.Add(new SystemSetting { Key = key, Value = value, CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow });
+        else
+        {
+            row.Value = value;
+            row.UpdatedAt = DateTime.UtcNow;
+        }
+    }
+
+    /// <summary>Automatic runs, at least <see cref="UnansweredIncrementGate"/> apart, a target goes unanswered in before it is paused.</summary>
+    internal const int UnansweredRunsBeforePause = 3;
+
+    /// <summary>Minimum time between two counted misses of one target, so hourly retries count once.</summary>
+    internal static readonly TimeSpan UnansweredIncrementGate = TimeSpan.FromHours(6);
+
+    internal const string UnansweredPausedMark = "paused";
+    internal const string UnansweredKeptMark = "kept";
+
+    /// <summary>The rows a run's unanswered counter paused, and the ones it resumed.</summary>
+    internal sealed record UnansweredOutcome(List<MonitoringTarget> Paused, List<MonitoringTarget> Resumed);
+
+    /// <summary>
+    /// Counts, per target, the accepted automatic runs it did not answer in, and pauses its enabled
+    /// rows on this WAN once <see cref="UnansweredRunsBeforePause"/> are counted. A target the counter
+    /// paused resumes when a later run reaches it. Hand-added targets are never counted, and an
+    /// admin who resumes a paused target keeps it until it answers once. Off-path candidates are
+    /// left to the off-path counter. A resume also checks the run's candidate, so the commit that
+    /// follows keeps it. Does not SaveChanges; the caller's does.
+    /// </summary>
+    internal static async Task<UnansweredOutcome> RecordUnansweredTargetsAsync(NetworkOptimizerDbContext db,
+        UpstreamTracerState state, string wanInterface, bool isUnboundRun, DateTime nowUtc, CancellationToken ct)
+    {
+        var outcome = new UnansweredOutcome(new(), new());
+        // A provider change replaces the whole path; its misses say nothing about one target.
+        if (state.IspChange != null) return outcome;
+
+        var answeredByAddress = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+        void See(string? address, bool answered)
+        {
+            if (string.IsNullOrEmpty(address)) return;
+            answeredByAddress[address] = answered || (answeredByAddress.TryGetValue(address, out var prior) && prior);
+        }
+        foreach (var hop in state.AccessHops) See(hop.Address, !hop.Unreachable);
+        foreach (var transit in state.TransitAsns.Where(t => !t.OffPath))
+            See(transit.HopAddress ?? transit.PathProxyTarget, !transit.Unreachable);
+
+        var priorCounts = await LoadUnansweredCountsAsync(db, wanInterface, ct);
+        var marks = await LoadUnansweredMarksAsync(db, wanInterface, ct);
+        var nextCounts = new Dictionary<string, MissRecord>(StringComparer.OrdinalIgnoreCase);
+
+        if (answeredByAddress.Count > 0)
+        {
+            var addresses = answeredByAddress.Keys.ToList();
+            var rows = (await db.MonitoringTargets
+                    .Where(t => addresses.Contains(t.Address)
+                        && t.DiscoveryMethod != DiscoveryMethod.UserProvided
+                        && (t.TargetType == MonitoringTargetType.AccessIsp
+                            || t.TargetType == MonitoringTargetType.Transit
+                            || t.TargetType == MonitoringTargetType.InternetService))
+                    .ToListAsync(ct))
+                .Where(t => UpstreamTracerService.OwnsTargetRow(t.WanInterface, wanInterface, isUnboundRun))
+                .ToList();
+
+            foreach (var (address, answered) in answeredByAddress)
+            {
+                var owned = rows.Where(r => string.Equals(r.Address, address, StringComparison.OrdinalIgnoreCase)).ToList();
+                if (owned.Count == 0)
+                {
+                    marks.Remove(address);
+                    continue;
+                }
+
+                if (marks.TryGetValue(address, out var mark))
+                {
+                    if (answered)
+                    {
+                        if (mark == UnansweredPausedMark)
+                        {
+                            foreach (var row in owned.Where(r => !r.Enabled))
+                            {
+                                row.Enabled = true;
+                                outcome.Resumed.Add(row);
+                            }
+                            // The candidate copied the paused row's checkbox; left unchecked, the
+                            // commit (or the review) would pause the row again.
+                            CheckCandidates(state, address);
+                        }
+                        marks.Remove(address);
+                    }
+                    else if (mark == UnansweredPausedMark && owned.Any(r => r.Enabled))
+                        marks[address] = UnansweredKeptMark;   // an admin resumed it: theirs until it answers
+                    continue;
+                }
+
+                if (answered) continue;
+                var enabled = owned.Where(r => r.Enabled).ToList();
+                if (enabled.Count == 0) continue;
+
+                var hadPrior = priorCounts.TryGetValue(address, out var prior);
+                var record = hadPrior && nowUtc - prior.LastIncrementUtc < UnansweredIncrementGate
+                    ? prior
+                    : new MissRecord((hadPrior ? prior.Count : 0) + 1, nowUtc);
+                if (record.Count >= UnansweredRunsBeforePause)
+                {
+                    foreach (var row in enabled) row.Enabled = false;
+                    outcome.Paused.AddRange(enabled);
+                    marks[address] = UnansweredPausedMark;
+                }
+                else
+                    nextCounts[address] = record;
+            }
+        }
+
+        // A target this run's trace did not reach drops its count: the off-path counter owns that
+        // case, and a held count would keep the WAN on the recheck cadence indefinitely.
+        await SaveSettingAsync(db, UnansweredRunsKey(wanInterface), nextCounts.Count == 0 ? null
+            : JsonSerializer.Serialize(nextCounts.ToDictionary(kv => kv.Key, kv => new { c = kv.Value.Count, t = kv.Value.LastIncrementUtc })), ct);
+        await SaveSettingAsync(db, UnansweredPausedKey(wanInterface), marks.Count == 0 ? null : JsonSerializer.Serialize(marks), ct);
+        return outcome;
+    }
+
+    private static void CheckCandidates(UpstreamTracerState state, string address)
+    {
+        foreach (var hop in state.AccessHops.Where(h => string.Equals(h.Address, address, StringComparison.OrdinalIgnoreCase)))
+            hop.Enabled = true;
+        foreach (var transit in state.TransitAsns.Where(t =>
+                     string.Equals(t.HopAddress ?? t.PathProxyTarget, address, StringComparison.OrdinalIgnoreCase)))
+            transit.Enabled = true;
+    }
+
+    /// <summary>WANs with an unanswered count in flight, which re-check on <see cref="PendingRecheckInterval"/>.</summary>
+    internal static async Task<HashSet<string>> LoadUnansweredPendingWansAsync(NetworkOptimizerDbContext db, CancellationToken ct)
+    {
+        var keys = await db.SystemSettings.AsNoTracking()
+            .Where(s => s.Key.StartsWith(SystemSettingKeys.UpstreamUnansweredRunsPrefix) && s.Value != null)
+            .Select(s => s.Key)
+            .ToListAsync(ct);
+        return keys.Select(k => k[SystemSettingKeys.UpstreamUnansweredRunsPrefix.Length..])
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+    }
+
+    private static string UnansweredRunsKey(string wanInterface) =>
+        SystemSettingKeys.UpstreamUnansweredRunsPrefix + wanInterface;
+
+    private static string UnansweredPausedKey(string wanInterface) =>
+        SystemSettingKeys.UpstreamUnansweredPausedPrefix + wanInterface;
+
+    private static async Task<Dictionary<string, MissRecord>> LoadUnansweredCountsAsync(
+        NetworkOptimizerDbContext db, string wanInterface, CancellationToken ct)
+    {
+        var result = new Dictionary<string, MissRecord>(StringComparer.OrdinalIgnoreCase);
+        var row = await db.SystemSettings.AsNoTracking().FirstOrDefaultAsync(s => s.Key == UnansweredRunsKey(wanInterface), ct);
+        if (string.IsNullOrEmpty(row?.Value)) return result;
+        try
+        {
+            using var doc = JsonDocument.Parse(row.Value);
+            foreach (var prop in doc.RootElement.EnumerateObject())
+            {
+                var count = prop.Value.TryGetProperty("c", out var c) ? c.GetInt32() : 0;
+                var when = prop.Value.TryGetProperty("t", out var t) && t.TryGetDateTime(out var dt)
+                    ? DateTime.SpecifyKind(dt, DateTimeKind.Utc)
+                    : DateTime.MinValue;
+                if (count > 0) result[prop.Name] = new MissRecord(count, when);
+            }
+        }
+        catch
+        {
+            return new(StringComparer.OrdinalIgnoreCase);
+        }
+        return result;
+    }
+
+    private static async Task<Dictionary<string, string>> LoadUnansweredMarksAsync(
+        NetworkOptimizerDbContext db, string wanInterface, CancellationToken ct)
+    {
+        var row = await db.SystemSettings.AsNoTracking().FirstOrDefaultAsync(s => s.Key == UnansweredPausedKey(wanInterface), ct);
+        if (string.IsNullOrEmpty(row?.Value)) return new(StringComparer.OrdinalIgnoreCase);
+        try
+        {
+            var parsed = JsonSerializer.Deserialize<Dictionary<string, string>>(row.Value);
+            return parsed == null
+                ? new(StringComparer.OrdinalIgnoreCase)
+                : new Dictionary<string, string>(parsed, StringComparer.OrdinalIgnoreCase);
+        }
+        catch
+        {
+            return new(StringComparer.OrdinalIgnoreCase);
+        }
+    }
+
+    /// <summary>Upserts a SystemSetting value; null clears it. Does not SaveChanges.</summary>
+    private static async Task SaveSettingAsync(NetworkOptimizerDbContext db, string key, string? value, CancellationToken ct)
+    {
+        var row = await db.SystemSettings.FirstOrDefaultAsync(s => s.Key == key, ct);
+        if (row == null)
+        {
+            if (value == null) return;
+            db.SystemSettings.Add(new SystemSetting { Key = key, Value = value, CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow });
+        }
+        else
+        {
+            row.Value = value;
+            row.UpdatedAt = DateTime.UtcNow;
+        }
+    }
+
+    /// <summary>Counts the run's unanswered targets, saves, and logs and audits every pause and resume.</summary>
+    private async Task ApplyUnansweredTargetsAsync(NetworkOptimizerDbContext db, UpstreamTracerState state,
+        string wanInterface, bool isUnboundRun, string slug, string label, CancellationToken ct)
+    {
+        var outcome = await RecordUnansweredTargetsAsync(db, state, wanInterface, isUnboundRun, DateTime.UtcNow, ct);
+        await db.SaveChangesAsync(ct);
+        foreach (var row in outcome.Paused)
+        {
+            _logger.LogInformation(
+                "Paused upstream target {Name} ({Address}) for {Label} on site {Slug}: it did not answer in {Runs} discovery runs at least {Hours:0} h apart",
+                row.Name, row.Address, label, slug, UnansweredRunsBeforePause, UnansweredIncrementGate.TotalHours);
+            AuditTargetChange(row, slug, enabled: false);
+        }
+        foreach (var row in outcome.Resumed)
+        {
+            _logger.LogInformation("Resumed upstream target {Name} ({Address}) for {Label} on site {Slug}: it answers again",
+                row.Name, row.Address, label, slug);
+            AuditTargetChange(row, slug, enabled: true);
+        }
+    }
+
+    private void AuditTargetChange(MonitoringTarget row, string slug, bool enabled) =>
+        _audit?.Log(Auditing.AuditEventBuilder.FromSystem(
+            NetworkOptimizer.Storage.Models.Identity.AuditCategories.Action,
+            NetworkOptimizer.Storage.Models.Identity.AuditActions.MonitoringSetupChanged,
+            targetType: "monitoring_target",
+            targetId: row.Id.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            targetName: row.Name,
+            siteSlug: slug,
+            details: new
+            {
+                enabled,
+                address = row.Address,
+                reason = enabled ? "answers again" : $"no answer in {UnansweredRunsBeforePause} discovery runs",
+            }));
+
+    /// <summary>
     /// Which of a site's WAN contexts discover on this tick. A context with no WAN yet cannot be
     /// discovered at all - there would be nothing to record the result under - and each WAN runs
     /// off its OWN last discovery, so the WANs stagger themselves instead of all sweeping on the
@@ -317,19 +780,26 @@ public class UpstreamRediscoveryService : BackgroundService
     /// <param name="lastDiscoveryByWan">Last discovery time per WAN key, from WanDiscoveryContexts.</param>
     /// <param name="now">Current time.</param>
     /// <param name="threshold">How stale a WAN's discovery has to be before it re-runs.</param>
+    /// <param name="recheckWans">WANs with an unanswered count in flight, which use <paramref name="recheckThreshold"/>.</param>
+    /// <param name="recheckThreshold">The shorter staleness for <paramref name="recheckWans"/>.</param>
     internal static List<WanContext> ContextsDueForDiscovery(
         IEnumerable<WanContext> contexts,
         IReadOnlyDictionary<string, DateTime?> lastDiscoveryByWan,
         DateTime now,
-        TimeSpan threshold)
+        TimeSpan threshold,
+        IReadOnlySet<string>? recheckWans = null,
+        TimeSpan? recheckThreshold = null)
     {
         var due = new List<WanContext>();
         foreach (var context in contexts)
         {
             if (string.IsNullOrWhiteSpace(context.WanInterface)) continue;
+            var staleAfter = recheckThreshold is { } recheck && recheckWans?.Contains(context.WanInterface!) == true
+                ? recheck
+                : threshold;
             if (lastDiscoveryByWan.TryGetValue(context.WanInterface!, out var last)
                 && last.HasValue
-                && now - last.Value < threshold)
+                && now - last.Value < staleAfter)
                 continue;
             due.Add(context);
         }

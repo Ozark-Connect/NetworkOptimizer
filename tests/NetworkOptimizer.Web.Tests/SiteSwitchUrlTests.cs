@@ -25,6 +25,7 @@ public class SiteSwitchUrlTests
     [InlineData("/wifi-optimizer?tab=roaming&edge=ap1-ap2", "/wifi-optimizer?tab=roaming")]
     [InlineData("/wifi-optimizer?tab=channels&ap=aa:bb:cc:dd:ee:ff&band=5&channel=36", "/wifi-optimizer?tab=channels&band=5&channel=36")]
     [InlineData("/client-dashboard?ip=192.0.2.10&range=24h", "/client-dashboard?range=24h")]
+    [InlineData("/client-dashboard?ip=192.0.2.10&wan=wan2#speed", "/client-dashboard#speed")]
     [InlineData("/alerts?tab=active&alert=12", "/alerts?tab=active")]
     [InlineData("/speedtest?result=5", "/speedtest")]
     // Threat Intelligence filters name an outside source, which every site shares.
@@ -40,6 +41,21 @@ public class SiteSwitchUrlTests
         // ?ip= is a client on Client Performance but an outside source on Threat Intelligence.
         SiteSwitchService.StripSiteBoundParams(Base + "/monitoring?tab=live&ip=192.0.2.10")
             .Should().Be(Base + "/monitoring?tab=live&ip=192.0.2.10");
+    }
+
+    [Theory]
+    [InlineData("/change-control/plans/42")]
+    [InlineData("/change-control/plans/42?site=branch-office")]
+    public void StripSiteBoundParams_ReviewPlan_LandsOnChangeControl(string url)
+    {
+        // A plan ID is the old site's row; the new site opens Change Control instead.
+        SiteSwitchService.StripSiteBoundParams(Base + url).Should().Be(Base + "/change-control");
+    }
+
+    [Fact]
+    public void StripSiteBoundParams_ChangeControlTabIsKept()
+    {
+        SiteSwitchService.StripSiteBoundParams(Base + "/change-control/snapshots").Should().Be(Base + "/change-control/snapshots");
     }
 
     [Fact]

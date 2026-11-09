@@ -1,0 +1,1 @@
+{"jsonrpc":"2.0","id":1437,"result":[0,{"ploam_state":5,"signal":"true","rx_power":"12.14uW -19.16dBm","tx_power":"1.43mW 1.57dBm","die_temp_k":330,"laser_temp_k":323,"link_status":4,"duplex":1,"reboot_nono5":0,"active_bank":"image0","iop_version":"Final_v2021_12_28_c2 / 2026.08.14"}]}

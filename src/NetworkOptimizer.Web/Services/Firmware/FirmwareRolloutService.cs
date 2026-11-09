@@ -102,26 +102,52 @@ public class FirmwareRolloutService : IFirmwareRolloutService
         int limit = 20, CancellationToken cancellationToken = default)
     {
         var plans = await _repository.GetPlanHistoryAsync(limit, cancellationToken);
-        return plans.Select(plan =>
+        return await SummarizeAsync(plans, cancellationToken);
+    }
+
+    /// <inheritdoc />
+    public async Task<RolloutHistoryPage> GetPlanHistoryPageAsync(int page, int pageSize, CancellationToken cancellationToken = default)
+    {
+        var size = Math.Max(1, pageSize);
+        var total = await _repository.CountPlansAsync(cancellationToken);
+        var plans = await _repository.GetPlanHistoryPageAsync((Math.Max(1, page) - 1) * size, size, cancellationToken);
+        return new RolloutHistoryPage(await SummarizeAsync(plans, cancellationToken), total);
+    }
+
+    /// <summary>History rows. An aborted plan's steps say whether an admin stopped it, which the plan row does not.</summary>
+    private async Task<List<RolloutPlanSummaryView>> SummarizeAsync(List<FirmwareRolloutPlan> plans, CancellationToken cancellationToken)
+    {
+        var rows = new List<RolloutPlanSummaryView>(plans.Count);
+        foreach (var plan in plans)
         {
-            var document = ParseDocument(plan);
-            var report = RolloutReport.Parse(plan.ReportJson);
-            return new RolloutPlanSummaryView
-            {
-                Id = plan.Id,
-                Status = plan.Status,
-                CreatedAt = plan.CreatedAt,
-                CreatedBy = plan.CreatedBy,
-                ScheduledStartAt = plan.ScheduledStartAt,
-                StartedAt = plan.StartedAt,
-                CompletedAt = plan.CompletedAt,
-                DeviceCount = RolloutScopeCopy.TotalScope(document),
-                WaveCount = RolloutScopeCopy.TotalWaves(document),
-                HasReport = report != null,
-                HasSuccesses = report?.TotalUpgraded > 0,
-                HasFailures = report != null && (report.DevicesFailed > 0 || report.DevicesRolledBack > 0),
-            };
-        }).ToList();
+            var row = ToSummary(plan);
+            if (plan.Status == FirmwareRolloutStatus.Aborted)
+                row.StoppedByAdmin = (await _repository.GetStepsAsync(plan.Id, cancellationToken))
+                    .Any(s => RolloutSkipReasons.IsAdminStop(s.State, s.Error));
+            rows.Add(row);
+        }
+        return rows;
+    }
+
+    private static RolloutPlanSummaryView ToSummary(FirmwareRolloutPlan plan)
+    {
+        var document = ParseDocument(plan);
+        var report = RolloutReport.Parse(plan.ReportJson);
+        return new RolloutPlanSummaryView
+        {
+            Id = plan.Id,
+            Status = plan.Status,
+            CreatedAt = plan.CreatedAt,
+            CreatedBy = plan.CreatedBy,
+            ScheduledStartAt = plan.ScheduledStartAt,
+            StartedAt = plan.StartedAt,
+            CompletedAt = plan.CompletedAt,
+            DeviceCount = RolloutScopeCopy.TotalScope(document),
+            WaveCount = RolloutScopeCopy.TotalWaves(document),
+            HasReport = report != null,
+            HasSuccesses = report?.TotalUpgraded > 0,
+            HasFailures = report != null && (report.DevicesFailed > 0 || report.DevicesRolledBack > 0),
+        };
     }
 
     /// <inheritdoc />
@@ -394,7 +420,7 @@ public class FirmwareRolloutService : IFirmwareRolloutService
     public async Task AbortAsync(int planId, CancellationToken cancellationToken = default)
     {
         await RequireActiveAsync(planId, cancellationToken);
-        await _orchestrator.AbortAsync($"{ActorName()} stopped it", cancellationToken);
+        await _orchestrator.AbortAsync($"{ActorName()}{RolloutSkipReasons.AdminStopSuffix}", cancellationToken);
         _audit.SetTarget(planId.ToString(), $"Firmware rollout {planId}");
     }
 

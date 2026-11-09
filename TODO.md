@@ -303,6 +303,10 @@ through our own SSH-deployed components, where we control the format and the rol
   MLO-enabled WLANs. The WiFi Optimizer health issue has not adopted it - `WiFiOptimizerService` still
   flags MLO from `hasWifi7Aps && hasMloEnabledWlan` (any AP + any WLAN), so an AP that broadcasts no
   MLO SSID is still counted. Reuse the path-analysis pattern.
+- **Propagation calibration from sibling sightings** - an AP's scan radio hears every sibling AP's BSSIDs
+  with a real signal level (`NeighborNetwork.IsSiteBssid`, shown on RF Environment's Site Access Points
+  card). That is measured AP-to-AP path loss. It could calibrate the propagation model, and stand in for
+  floor-plan placement on sites without one.
 - **MLO STR mesh backhaul (multi-band):** Channel recommendations pin a mesh child to its leader's channel only on the single band `AccessPointSnapshot.MeshUplinkBand` reports. AP-to-AP MLO STR backhaul can run over multiple bands at once (e.g. 5 + 6 GHz). When UniFi exposes per-link bands, make `MeshUplinkBand` a set and have `BuildMeshConstraints` emit one constraint per participating band. The reconciliation logic in `ChannelRecommendationService` keys off `MeshGroupLeader` and needs no change - only the constraint-building. See `TODO(MLO)` in `BuildMeshConstraints`. Dormant: no AP-to-AP MLO STR backhaul hardware exists yet (today's MLO STR is client/bridge only - UDB-Switch and AirWire, the MLO STR bridge - which are endpoints, not mesh-AP children, so they never hit this path).
 
 ### AP Catalog: Enforce 5 GHz EIRP Cap (US Regulatory)
@@ -403,6 +407,14 @@ all - it is collected and never shown. Either surface it or drop the field.
 - Actual execution time is correct (UTC-based) - only the displayed local time drifts
 - **Affected code:** `Alerts.razor: FormatStartTime()`, `UtcToLocalTimeOnly()`, `ParseTimeInput()`
 - **Options:** Store IANA timezone per schedule, use `TimeZoneInfo.ConvertTimeFromUtc`, or store local time + timezone
+
+### Default date and time format for alert text
+- Alert text is written once, for no viewer, so its times are 24-hour on every install
+- Settings has an install-wide **Default time zone**, which the notification clock already falls back to (`NotificationTimeZoneResolver`); the time format and date order have no install default, only each user's own choice (`ITimeZonePreferenceSource.GetOwnFormatAsync`)
+- Two places format alert times without a viewer:
+  - Rollout alert copy (`RolloutScopeCopy.AlertStartLabel`, `Moved`) uses `DisplayFormat.Fallback` (24-hour, month first)
+  - The Email, Slack, Teams, Discord, and ntfy channels stamp times with `TimestampFormatter`, which hard-codes `yyyy-MM-dd HH:mm:ss` and `HH:mm`
+- **Fix:** add a default time format and date order beside **Default time zone**, resolve it with the notification clock, and use it in both places
 
 ### Threat Alert Dedup Tuning (if users report noise)
 
@@ -1448,3 +1460,36 @@ The Threat Intelligence noise filters no longer apply to WAF events (`ThreatRepo
 they describe IPS flows, and a WAF event's port 443 is a placeholder, so "my phone, port 443" hid
 every WAF event from that phone. If the WAF page needs a hide-this-source control, give it filters of
 its own (source, host, rule) rather than reusing the IPS ones. False positives belong in exclusions.
+
+## Change Control: auto-revert for changes made in UniFi Network
+
+The auto-revert covers plans applied through Change Control: if a plan cuts the site or a device off
+from Network Optimizer, it rolls itself back (the On-Site Agent does it on an agent site). A change
+made directly in UniFi Network (the console UI, the mobile app, another integration) has no such
+safety net, though Change Control records it within a poll.
+
+Offer the same trigger for those: when a recorded change is followed by the site or its devices
+dropping off, roll that change back automatically, or offer the Roll Back in the alert. Open
+questions: opt-in per site, since the operator made the change on purpose and may be mid-work; how
+long to wait after the change before treating a drop as caused by it; and telling a change-caused
+drop from an unrelated outage (ISP Health already separates ISP from local).
+
+## User setting: 12-hour or 24-hour clock, everywhere
+
+Times are formatted inline today and the two styles are mixed: about 30 server-side format strings
+use a 12-hour clock (`h:mm tt`) and about 120 use 24-hour (`HH:mm`), and roughly 18 JS files format
+times on their own (ApexCharts axes and tooltips, `toLocaleTimeString`, hand-built labels). Add a
+per-user preference (`IUserPreferences`, falling back to the install-wide value) for 12- or 24-hour,
+and route every displayed time through it.
+
+- **Server:** `TimeFormatHelper` holds the one time format (`FormatLocalDateTime` and friends, added
+  2026-10-31 for Change Control) and reads the preference; the inline `h:mm tt` / `HH:mm` strings in
+  C# and Razor move onto it. `CcFormat` already delegates there.
+- **JS:** one shared formatter module that chart and page scripts import (axis labels, tooltips,
+  table cells), fed the preference from Razor on page load, so a chart and the card beside it agree.
+- **Out of scope:** outbound notifications (alerts to email, Slack, and other channels) go to people
+  who are not signed-in users, so they keep the install default; logs, CSV/PDF exports, and API
+  responses keep fixed formats a machine can read.
+
+Open question: whether the same setting should choose the date order too (Oct 31 vs 31 Oct), since
+the formats are being centralized anyway.

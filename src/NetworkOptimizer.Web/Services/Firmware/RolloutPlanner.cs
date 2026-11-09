@@ -774,6 +774,14 @@ public class RolloutPlanner
         {
             doc.Notes.Add("Mesh children upgrade before their parents; each pair gets a backhaul re-scan once both are done, while later waves continue.");
         }
+
+        // Without a package URL there is no SSH fallback: the Console's own update is the only path.
+        // A UniFi OS Server never installs over SSH, so the note would say nothing there.
+        if (doc.IncludesUniFiNetworkUpdate && !input.IsStandaloneConsole
+            && string.IsNullOrWhiteSpace(input.NetworkAppDownloadUrl))
+        {
+            doc.Notes.Add("The UniFi Network update relies on the Console's own update: no download for this Console's platform is known.");
+        }
     }
 
     private static FirmwareDeviceClass EffectiveClass(PlannerDevice device, FirmwareRolloutSettings settings)

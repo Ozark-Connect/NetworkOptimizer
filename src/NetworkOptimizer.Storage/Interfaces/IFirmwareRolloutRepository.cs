@@ -41,6 +41,12 @@ public interface IFirmwareRolloutRepository
     /// <summary>Past and present plans, newest first.</summary>
     Task<List<FirmwareRolloutPlan>> GetPlanHistoryAsync(int limit = 50, CancellationToken cancellationToken = default);
 
+    /// <summary>One page of plans, newest first, skipping the <paramref name="offset"/> newest.</summary>
+    Task<List<FirmwareRolloutPlan>> GetPlanHistoryPageAsync(int offset, int limit, CancellationToken cancellationToken = default);
+
+    /// <summary>How many plans there are, for paging the history.</summary>
+    Task<int> CountPlansAsync(CancellationToken cancellationToken = default);
+
     /// <summary>Persists a plan's mutable state (status, timestamps, plan/channel/report JSON). No-op for an unknown id.</summary>
     Task UpdatePlanAsync(FirmwareRolloutPlan plan, CancellationToken cancellationToken = default);
 

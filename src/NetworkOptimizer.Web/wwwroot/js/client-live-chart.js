@@ -12,10 +12,11 @@
 // Nothing streams in that mode; live calls are ignored until the next live mount.
 
 import ApexCharts from '/_content/Blazor-ApexCharts/js/apexcharts.esm.js';
-import { valueSortedTooltip } from './chart-tooltip.js?v=18';
+import { valueSortedTooltip } from './chart-tooltip.js?v=21';
 import { downloadColor, uploadColor } from './chart-colors.js?v=2';
-import { createMarkLayer } from './chart-event-marks.js?v=10';
-import { createAxisDateCaption } from './chart-axis-date.js?v=4';
+import { createMarkLayer } from './chart-event-marks.js?v=13';
+import { createAxisDateCaption } from './chart-axis-date.js?v=5';
+import { formatBps } from './chart-format.js?v=1';
 
 const HISTORY_MINUTES = 5;
 // Window-scroll redraw cadence: each step moves well under a pixel, so the chart slides.
@@ -57,14 +58,6 @@ let view = 'lan';
 let markLayer = null;
 let currentHistory = null;
 let historyCaption = null;
-
-function formatBps(v) {
-    if (v == null || v < 1) return '0';
-    if (v >= 1e9) return (v / 1e9).toFixed(1) + ' Gbps';
-    if (v >= 1e6) return (v / 1e6).toFixed(1) + ' Mbps';
-    if (v >= 1e3) return (v / 1e3).toFixed(0) + ' Kbps';
-    return v.toFixed(0) + ' bps';
-}
 
 // True only while the value tooltip is on screen. ApexCharts marks the mount on any mousemove and
 // misses fast exits, so with a mouse the class is cross-checked against the pointer being over the
@@ -115,8 +108,9 @@ function buildOpts() {
             min: Date.now() - HISTORY_MINUTES * 60000,
             max: Date.now(),
             // Built-in labels re-pick their ticks as the window slides; time labels are drawn as
-            // annotations on a fixed grid instead (buildTimeTicks).
-            labels: { show: false },
+            // annotations on a fixed grid instead (buildTimeTicks). datetimeUTC false marks the x values
+            // as real instants for the shared tooltip and marks (noTime.onWallClock); ApexCharts defaults it to true.
+            labels: { show: false, datetimeUTC: false },
             axisBorder: { show: false },
             axisTicks: { show: false },
         },
@@ -149,7 +143,7 @@ function buildOpts() {
         tooltip: {
             theme: 'dark',
             shared: true,
-            x: { formatter: (val) => new Date(val).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) },
+            x: { formatter: (val) => noTime.time(val, { hour: '2-digit', minute: '2-digit', second: '2-digit' }) },
             custom: (ctx) => valueSortedTooltip(ctx, { format: v => formatBps(v) }),
             y: [bpsFormatter, bpsFormatter, bpsFormatter, bpsFormatter],
         },
@@ -157,11 +151,12 @@ function buildOpts() {
     };
 }
 
-// Time labels pinned to a fixed grid, as annotations so they scroll with the data. The grid
-// interval comes from the rendered width, so a narrow panel steps out to a sparser grid.
+// Time labels pinned to a fixed grid, as annotations so they scroll with the data, in the viewer's
+// format. The grid interval comes from the rendered width, so a narrow panel steps out to a sparser
+// grid; a 12-hour label ("10:32:20 PM") is wider and gets a wider slot.
 function buildTimeTicks(minMs, maxMs) {
     const width = document.getElementById(elId)?.clientWidth || 800;
-    const slots = Math.max(2, Math.floor(width / 64));
+    const slots = Math.max(2, Math.floor(width / (noTime.format().h24 ? 64 : 80)));
     const spanMs = maxMs - minMs;
     const GRIDS = [20000, 30000, 60000, 120000];
     let gridMs = GRIDS[GRIDS.length - 1];
@@ -170,9 +165,7 @@ function buildTimeTicks(minMs, maxMs) {
     }
     const ticks = [];
     for (let t = Math.ceil(minMs / gridMs) * gridMs; t <= maxMs; t += gridMs) {
-        const d = new Date(t);
-        const text = [d.getHours(), d.getMinutes(), d.getSeconds()]
-            .map(v => String(v).padStart(2, '0')).join(':');
+        const text = noTime.timeLabel(t);
         ticks.push({
             x: t,
             borderColor: 'transparent',
@@ -299,8 +292,7 @@ function trim() {
 }
 
 // ---- History mode ----
-
-const DATE_TIME = { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' };
+// Drawn on the viewer's wall clock (noTime.toChart), where live mode keeps real-time x.
 
 // The live chart's options as they are, so the totals, the WAN pair, and their fills draw the same
 // in both modes. Only the time axis, the tooltip's time, and the empty text differ.
@@ -321,9 +313,9 @@ function buildHistoryOpts(history, caption) {
     opts.fill.gradient.opacityTo = [...opts.fill.gradient.opacityTo, 0, 0];
     opts.xaxis = {
         type: 'datetime',
-        min: new Date(history.from).getTime(),
-        max: new Date(history.to).getTime(),
-        labels: { datetimeUTC: false, style: { colors: '#9ca3af', fontSize: '10px' } },
+        min: noTime.toChart(new Date(history.from).getTime()),
+        max: noTime.toChart(new Date(history.to).getTime()),
+        labels: noTime.timeAxisLabels({ style: { colors: '#9ca3af', fontSize: '10px' } }),
         axisBorder: { show: false },
         axisTicks: { show: false },
         tooltip: { enabled: false },
@@ -332,24 +324,28 @@ function buildHistoryOpts(history, caption) {
     opts.grid.padding = { left: 3, right: 12, top: -8, bottom: 0 };
     opts.responsive = [{ breakpoint: 1024, options: { grid: { padding: { left: -8, right: 4, top: -8, bottom: 0 } } } }];
     // A window is labeled by its start; the date matters once the range spans days.
-    opts.tooltip.x = { formatter: (val) => new Date(val).toLocaleString([], DATE_TIME) };
+    opts.tooltip.x = { formatter: noTime.chartTooltipFormatter(false) };
     opts.tooltip.y = [bpsFormatter, bpsFormatter, bpsFormatter, bpsFormatter, bpsFormatter, bpsFormatter];
     opts.noData = { text: 'No throughput recorded in this range', style: { color: '#64748b', fontSize: '13px' } };
     return opts;
 }
 
 // A missing window is a client that was gone, so the lines break there instead of bridging it.
+// Gaps are measured in real time; the points come out in chart x.
 function withGaps(points, windowMs, pick) {
     const out = [];
     let prev = null;
     for (const p of points) {
         const t = new Date(p.time).getTime();
-        if (prev != null && t - prev > windowMs * 1.5) out.push({ x: prev + windowMs, y: null });
-        out.push({ x: t, y: pick(p) });
+        if (prev != null && t - prev > windowMs * 1.5) out.push({ x: noTime.toChart(prev + windowMs), y: null });
+        out.push({ x: noTime.toChart(t), y: pick(p) });
         prev = t;
     }
     return out;
 }
+
+// reshapeWanSeries works in real time (live mode draws it as is), so history maps its output after.
+const onChart = pts => pts.map(p => ({ ...p, x: noTime.toChart(p.x) }));
 
 function historySeries(history) {
     const pts = history.points || [];
@@ -363,8 +359,8 @@ function historySeries(history) {
     return [
         { name: 'Download',      data: totalsShown() ? withGaps(pts, w, p => p.downloadBps) : [] },
         { name: 'Upload',        data: totalsShown() ? withGaps(pts, w, p => p.uploadBps) : [] },
-        { name: 'WAN Download',  data: reshapeWanSeries(wanPts, totals, 'wanDown', 'down', w * 1.5) },
-        { name: 'WAN Upload',    data: reshapeWanSeries(wanPts, totals, 'wanUp', 'up', w * 1.5) },
+        { name: 'WAN Download',  data: onChart(reshapeWanSeries(wanPts, totals, 'wanDown', 'down', w * 1.5)) },
+        { name: 'WAN Upload',    data: onChart(reshapeWanSeries(wanPts, totals, 'wanUp', 'up', w * 1.5)) },
         { name: 'Peak Download', data: history.hasPeaks && totalsShown() ? withGaps(pts, w, p => p.peakDownloadBps) : [] },
         { name: 'Peak Upload',   data: history.hasPeaks && totalsShown() ? withGaps(pts, w, p => p.peakUploadBps) : [] },
     ];
@@ -417,7 +413,7 @@ export function updateHistory(history) {
     if (!chart || mode !== 'history' || tooltipShowing()) return;
     currentHistory = history;
     chart.updateOptions({
-        xaxis: { min: new Date(history.from).getTime(), max: new Date(history.to).getTime() },
+        xaxis: { min: noTime.toChart(new Date(history.from).getTime()), max: noTime.toChart(new Date(history.to).getTime()) },
     }, false, false, false);
     chart.updateSeries(historySeries(history), false);
     // The caption before the marks: its redraw recreates the label nodes the marks bind to.

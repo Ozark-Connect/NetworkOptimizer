@@ -1,0 +1,13 @@
+@page "/change-control"
+@page "/change-control/{Tab}"
+@attribute [Authorize(Policy = Policies.RequireViewer)]
+@rendermode InteractiveServer
+@using Microsoft.AspNetCore.Authorization
+@using NetworkOptimizer.Web.Services.Authorization
+@using NetworkOptimizer.Web.Components.Shared.ChangeControl
+
+<CcPage Tab="@Tab" />
+
+@code {
+    [Parameter] public string? Tab { get; set; }
+}

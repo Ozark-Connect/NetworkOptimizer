@@ -45,6 +45,13 @@ public class GatewayAgentBlockingTests
             return Task.FromResult(BlockTargetResult.Success(entries.Count));
         }
         public Task<int> EnsureSourcePoliciesNewOnlyAsync(string? site, CancellationToken ct) => Task.FromResult(0);
+        public int ZoneChecks { get; private set; }
+        public bool ZonesChanged { get; set; }
+        public Task<bool> EnsureZonePoliciesAsync(string? site, CancellationToken ct)
+        {
+            ZoneChecks++;
+            return Task.FromResult(ZonesChanged);
+        }
         public List<IReadOnlyList<BlockingException>> ExceptionSyncs { get; } = [];
         public Task<BlockTargetResult> SyncExceptionsAsync(string? site, IReadOnlyList<BlockingException> exceptions, bool outbound,
             CancellationToken ct)
@@ -144,6 +151,53 @@ public class GatewayAgentBlockingTests
         });
 
         public Task Cycle(DateTime at) => Service.RunCycleAsync(at, CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task ZonePolicies_AreCheckedEveryFewMinutes_AndAtOnceOnRequest()
+    {
+        var h = new Harness();
+        await h.Cycle(T0);
+        h.Console.ZoneChecks.Should().Be(1);
+
+        await h.Cycle(T0.AddMinutes(1));
+        h.Console.ZoneChecks.Should().Be(1, "a zone added in UniFi Network is picked up within five minutes, not every cycle");
+
+        await h.Cycle(T0.AddMinutes(5));
+        h.Console.ZoneChecks.Should().Be(2);
+
+        // Change Control asks once the gateway settles after a zone plan.
+        h.Service.TriggerConsoleSyncFor(null);
+        await h.Cycle(T0.AddMinutes(6));
+        h.Console.ZoneChecks.Should().Be(3);
+        await h.Cycle(T0.AddMinutes(7));
+        h.Console.ZoneChecks.Should().Be(3, "the request is spent");
+    }
+
+    [Fact]
+    public async Task ZonePolicies_Rewritten_ResendTheExceptionsInTheSameCycle()
+    {
+        var h = new Harness();
+        await h.Cycle(T0);
+        var sent = h.Console.ExceptionSyncs.Count;
+        await h.Cycle(T0.AddMinutes(5));
+        h.Console.ExceptionSyncs.Count.Should().Be(sent, "nothing changed");
+
+        h.Console.ZonesChanged = true;
+        await h.Cycle(T0.AddMinutes(10));
+
+        h.Console.ExceptionSyncs.Count.Should().Be(sent + 1, "the exceptions' Allow policies are per zone too");
+    }
+
+    [Fact]
+    public async Task ZonePolicies_NotCheckedWithoutTheGatewayTarget()
+    {
+        var h = new Harness();
+        h.Settings.Values[BlockingSettingKeys.TargetGateway] = "false";
+
+        await h.Cycle(T0);
+
+        h.Console.ZoneChecks.Should().Be(0);
     }
 
     [Fact]

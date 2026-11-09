@@ -177,7 +177,10 @@ public class FirmwareRolloutRepository : IFirmwareRolloutRepository
         }
     }
 
-    public async Task<List<FirmwareRolloutPlan>> GetPlanHistoryAsync(int limit = 50, CancellationToken cancellationToken = default)
+    public Task<List<FirmwareRolloutPlan>> GetPlanHistoryAsync(int limit = 50, CancellationToken cancellationToken = default) =>
+        GetPlanHistoryPageAsync(0, limit, cancellationToken);
+
+    public async Task<List<FirmwareRolloutPlan>> GetPlanHistoryPageAsync(int offset, int limit, CancellationToken cancellationToken = default)
     {
         try
         {
@@ -185,6 +188,7 @@ public class FirmwareRolloutRepository : IFirmwareRolloutRepository
                 .AsNoTracking()
                 .OrderByDescending(p => p.CreatedAt)
                 .ThenByDescending(p => p.Id)
+                .Skip(Math.Max(0, offset))
                 .Take(limit)
                 .ToListAsync(cancellationToken);
         }
@@ -194,6 +198,9 @@ public class FirmwareRolloutRepository : IFirmwareRolloutRepository
             throw;
         }
     }
+
+    public Task<int> CountPlansAsync(CancellationToken cancellationToken = default) =>
+        _context.FirmwareRolloutPlans.CountAsync(cancellationToken);
 
     public async Task UpdatePlanAsync(FirmwareRolloutPlan plan, CancellationToken cancellationToken = default)
     {

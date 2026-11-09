@@ -5,6 +5,7 @@
 @inject WiFiOptimizerService WiFiService
 @inject UniFiConnectionService ConnectionService
 @inject ILogger<Metrics> Logger
+@inject IDisplayTimeZone DisplayTime
 @implements IDisposable
 
 <div class="metrics-container wifi-sections">
@@ -116,28 +117,28 @@
                                      Items="@(_showAirtime ? _data24Airtime : _emptyData)"
                                      Name="Airtime"
                                      SeriesType="SeriesType.Area"
-                                     XValue="e => e.Timestamp"
+                                     XValue="e => DisplayTime.ToChart(e.Timestamp)"
                                      YValue="e => e.Value"
                                      OrderBy="e => e.X" />
                     <ApexPointSeries TItem="ChartDataPoint"
                                      Items="@(_showInterference ? _data24Interference : _emptyData)"
                                      Name="Interference"
                                      SeriesType="SeriesType.Line"
-                                     XValue="e => e.Timestamp"
+                                     XValue="e => DisplayTime.ToChart(e.Timestamp)"
                                      YValue="e => e.Value"
                                      OrderBy="e => e.X" />
                     <ApexPointSeries TItem="ChartDataPoint"
                                      Items="@(_showTxRetries ? _data24TxRetries : _emptyData)"
                                      Name="TX Retries"
                                      SeriesType="SeriesType.Line"
-                                     XValue="e => e.Timestamp"
+                                     XValue="e => DisplayTime.ToChart(e.Timestamp)"
                                      YValue="e => e.Value"
                                      OrderBy="e => e.X" />
                     <ApexPointSeries TItem="ChartDataPoint"
                                      Items="_data24Channel"
                                      Name="Channel"
                                      SeriesType="SeriesType.Line"
-                                     XValue="e => e.Timestamp"
+                                     XValue="e => DisplayTime.ToChart(e.Timestamp)"
                                      YValue="e => e.Value"
                                      OrderBy="e => e.X" />
                 </ApexChart>
@@ -163,28 +164,28 @@
                                      Items="@(_showAirtime ? _data5Airtime : _emptyData)"
                                      Name="Airtime"
                                      SeriesType="SeriesType.Area"
-                                     XValue="e => e.Timestamp"
+                                     XValue="e => DisplayTime.ToChart(e.Timestamp)"
                                      YValue="e => e.Value"
                                      OrderBy="e => e.X" />
                     <ApexPointSeries TItem="ChartDataPoint"
                                      Items="@(_showInterference ? _data5Interference : _emptyData)"
                                      Name="Interference"
                                      SeriesType="SeriesType.Line"
-                                     XValue="e => e.Timestamp"
+                                     XValue="e => DisplayTime.ToChart(e.Timestamp)"
                                      YValue="e => e.Value"
                                      OrderBy="e => e.X" />
                     <ApexPointSeries TItem="ChartDataPoint"
                                      Items="@(_showTxRetries ? _data5TxRetries : _emptyData)"
                                      Name="TX Retries"
                                      SeriesType="SeriesType.Line"
-                                     XValue="e => e.Timestamp"
+                                     XValue="e => DisplayTime.ToChart(e.Timestamp)"
                                      YValue="e => e.Value"
                                      OrderBy="e => e.X" />
                     <ApexPointSeries TItem="ChartDataPoint"
                                      Items="_data5Channel"
                                      Name="Channel"
                                      SeriesType="SeriesType.Line"
-                                     XValue="e => e.Timestamp"
+                                     XValue="e => DisplayTime.ToChart(e.Timestamp)"
                                      YValue="e => e.Value"
                                      OrderBy="e => e.X" />
                 </ApexChart>
@@ -210,28 +211,28 @@
                                      Items="@(_showAirtime ? _data6Airtime : _emptyData)"
                                      Name="Airtime"
                                      SeriesType="SeriesType.Area"
-                                     XValue="e => e.Timestamp"
+                                     XValue="e => DisplayTime.ToChart(e.Timestamp)"
                                      YValue="e => e.Value"
                                      OrderBy="e => e.X" />
                     <ApexPointSeries TItem="ChartDataPoint"
                                      Items="@(_showInterference ? _data6Interference : _emptyData)"
                                      Name="Interference"
                                      SeriesType="SeriesType.Line"
-                                     XValue="e => e.Timestamp"
+                                     XValue="e => DisplayTime.ToChart(e.Timestamp)"
                                      YValue="e => e.Value"
                                      OrderBy="e => e.X" />
                     <ApexPointSeries TItem="ChartDataPoint"
                                      Items="@(_showTxRetries ? _data6TxRetries : _emptyData)"
                                      Name="TX Retries"
                                      SeriesType="SeriesType.Line"
-                                     XValue="e => e.Timestamp"
+                                     XValue="e => DisplayTime.ToChart(e.Timestamp)"
                                      YValue="e => e.Value"
                                      OrderBy="e => e.X" />
                     <ApexPointSeries TItem="ChartDataPoint"
                                      Items="_data6Channel"
                                      Name="Channel"
                                      SeriesType="SeriesType.Line"
-                                     XValue="e => e.Timestamp"
+                                     XValue="e => DisplayTime.ToChart(e.Timestamp)"
                                      YValue="e => e.Value"
                                      OrderBy="e => e.X" />
                 </ApexChart>
@@ -244,6 +245,9 @@
 @code {
     [Parameter] public string? InitialApMac { get; set; }
     [Parameter] public RadioBand? InitialBand { get; set; }
+
+    /// <summary>A time range preset to open on, so a link can show the window it quotes.</summary>
+    [Parameter] public string? InitialRange { get; set; }
 
     private bool _loading = true;
     private string _selectedRange = "1D";
@@ -319,6 +323,8 @@
         // Apply initial filters from parent navigation
         if (!string.IsNullOrEmpty(InitialApMac))
             _selectedApMac = InitialApMac;
+        if (InitialRange != null && _timeRanges.ContainsKey(InitialRange))
+            _selectedRange = InitialRange;
         if (InitialBand.HasValue)
         {
             _show24 = InitialBand.Value == RadioBand.Band2_4GHz;
@@ -348,7 +354,7 @@
 
     private ApexChartOptions<ChartDataPoint> CreateChartOptions()
     {
-        return new ApexChartOptions<ChartDataPoint>
+        var options = new ApexChartOptions<ChartDataPoint>
         {
             Chart = new Chart
             {
@@ -369,9 +375,7 @@
                 Type = XAxisType.Datetime,
                 Labels = new XAxisLabels
                 {
-                    Style = new AxisLabelStyle { Colors = "#9ca3af" },
-                    DatetimeUTC = false,
-                    DatetimeFormatter = new DatetimeFormatter { Hour = "HH:mm", Day = "MMM dd" }
+                    Style = new AxisLabelStyle { Colors = "#9ca3af" }
                 },
                 AxisBorder = new AxisBorder { Show = false },
                 AxisTicks = new AxisTicks { Show = false }
@@ -424,6 +428,8 @@
                 Custom = @"function(ctx) { var pct = function(v) { return (+v).toFixed(1) + '%'; }; return window.netoptValueSortedTooltip ? window.netoptValueSortedTooltip(ctx, { format: [pct, pct, pct, function(v) { return 'Ch ' + Math.round(v); }], sort: false, omitSeconds: true }) : ''; }"
             }
         };
+        ChartTimeFormat.ApplyTimeAxis(options.Xaxis.Labels, DisplayTime);
+        return options;
     }
 
     private async void OnConnectionChanged()
@@ -648,7 +654,7 @@
 
         foreach (var evt in _channelEvents.OrderBy(e => e.Timestamp))
         {
-            var ts = evt.Timestamp.ToUnixTimeMilliseconds();
+            var ts = new DateTimeOffset(DisplayTime.ToChart(evt.Timestamp.UtcDateTime)).ToUnixTimeMilliseconds();
 
             switch (evt.Band)
             {

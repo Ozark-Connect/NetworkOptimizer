@@ -15,7 +15,7 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { buildBuildings } from './lan-flow-buildings.js?v=1';
 // KEEP IN SYNC: lan-flow-map-2d.js imports the same module. Both must use the same ?v= or they get separate instances.
-import * as flowData from './lan-flow-data.js?v=17';
+import * as flowData from './lan-flow-data.js?v=18';
 
 const COLORS = {
     background: 0x202023,
@@ -4731,7 +4731,8 @@ function _fmtSpan(ms) {
 }
 
 function _fmtDateTime(d) {
-    return `${_p(d.getMonth()+1)}/${_p(d.getDate())}/${String(d.getFullYear()).slice(2)} ${_p(d.getHours())}:${_p(d.getMinutes())}:${_p(d.getSeconds())}`;
+    const p = noTime.parts(d);
+    return `${_p(p.month)}/${_p(p.day)}/${String(p.year).slice(2)} ${_p(p.hour)}:${_p(p.minute)}:${_p(p.second)}`;
 }
 
 function escapeHtml(s) {

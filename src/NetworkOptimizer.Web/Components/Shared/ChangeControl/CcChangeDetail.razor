@@ -1,0 +1,212 @@
+@using NetworkOptimizer.Web.Services.ChangeControl
+@using NetworkOptimizer.Storage.Models
+@inject IDisplayTimeZone DisplayTime
+
+@if (Detail == null)
+{
+    <div class="loading-container"><div class="spinner"></div></div>
+}
+else
+{
+    <div class="cc-detail-grid">
+        <div class="cc-panel">
+            <div class="cc-panel-title">What changed</div>
+            <table class="cc-field-table">
+                @if (Detail.Impact.Count > 0)
+                {
+                    <tr class="cc-detail-head"><td colspan="2">Security Audit</td></tr>
+                    @foreach (var line in Detail.Impact.OrderBy(l => l.Kind == "Regression" ? 0 : 1))
+                    {
+                        var fixedIssue = line.Kind != "Regression";
+                        <tr>
+                            <td class="label">
+                                <span class="cc-audit-kind @(fixedIssue ? "fixed" : "new")">
+                                    @if (fixedIssue)
+                                    {
+                                        <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false"><path d="M3 8.5l3 3 7-7" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" /></svg>
+                                        <text>Fixed issue</text>
+                                    }
+                                    else
+                                    {
+                                        <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false"><path d="M8 3v6.5M8 12.5v.5" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" /></svg>
+                                        <text>New issue</text>
+                                    }
+                                </span>
+                            </td>
+                            <td style="text-align:right">
+                                @line.Title
+                                @if (line.Device is { Length: > 0 } device)
+                                {
+                                    <br /><span class="cc-audit-device">@device</span>
+                                }
+                            </td>
+                        </tr>
+                    }
+                    <tr class="cc-detail-head"><td colspan="2">Settings</td></tr>
+                }
+                @foreach (var (label, value) in Detail.Facts)
+                {
+                    <tr><td class="label">@label</td><td style="text-align:right">@value</td></tr>
+                }
+                @foreach (var o in Detail.Objects.OrderBy(o => o.Action == ConfigChangeAction.Deleted ? 0 : 1))
+                {
+                    @if (Detail.Objects.Count > 1 || o.Action != ConfigChangeAction.Updated || o.OrderMoves != null)
+                    {
+                        <tr><td colspan="2"><span class="cc-action-text @CcFormat.ActionClass(o.Action)">@CcFormat.ActionText(o.Action, true)</span> @o.CollectionName: @o.Name</td></tr>
+                    }
+                    @if (o.OrderMoves is { } moves)
+                    {
+                        <tr><td colspan="2"><CcOrderMoves Moves="moves" /></td></tr>
+                    }
+                    else
+                    {
+                        @foreach (var f in o.Fields.Take(12))
+                        {
+                            <tr>
+                                <td class="label">@f.Label</td>
+                                <td style="text-align:right">@if (f.Secret) { <text>changed</text> } else { @f.Old<CcTo />@f.New }</td>
+                            </tr>
+                        }
+                    }
+                }
+                @if (Detail.MadeBy != null)
+                {
+                    <tr>
+                        <td class="label">Made by</td>
+                        <td style="text-align:right">
+                            <span class="cc-source">
+                                <span class="cc-source-who">
+                                    @if (Detail.MadeOn == "phone")
+                                    {
+                                        <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false"><rect x="4.5" y="1.5" width="7" height="13" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.4" /><path d="M7 12.5h2" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" /></svg>
+                                    }
+                                    else if (Detail.MadeOn == "desktop")
+                                    {
+                                        <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false"><rect x="1.5" y="2.5" width="13" height="9" rx="1.2" fill="none" stroke="currentColor" stroke-width="1.4" /><path d="M5.5 14h5M8 11.5V14" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" /></svg>
+                                    }
+                                    @Detail.MadeBy
+                                </span>
+                                @if (Detail.MadeVia != null || Detail.MadeFromIp != null)
+                                {
+                                    <span class="cc-source-via">@Detail.MadeVia@(Detail.MadeVia != null && Detail.MadeFromIp != null ? ", " : "")@if (Detail.MadeFromIp != null) { <text>from </text><code>@Detail.MadeFromIp</code> }</span>
+                                }
+                            </span>
+                        </td>
+                    </tr>
+                }
+            </table>
+        </div>
+        <div class="cc-panel">
+            <div class="cc-panel-title" data-tooltip="Site Health: 3 hours each side, ISP problems left out. Monitoring metrics: 1 hour each side.">Before / after</div>
+            @if (Detail.BeforeAfter.Count == 0)
+            {
+                <div class="cc-item-detail">Not enough monitoring data yet.</div>
+            }
+            <table class="cc-field-table">
+                @foreach (var m in Detail.BeforeAfter)
+                {
+                    <tr>
+                        <td class="label">@m.Label</td>
+                        <td style="text-align:right">@m.Before to <span class="@(m.Worse ? "danger-text" : "")">@m.After</span></td>
+                    </tr>
+                }
+            </table>
+        </div>
+        <div class="cc-panel">
+            <div class="cc-panel-title">Incidents after</div>
+            @{
+                var linked = Detail.IncidentsAfter.Where(i => !i.IsWan).ToList();
+                var wan = Detail.IncidentsAfter.Where(i => i.IsWan).ToList();
+            }
+            @if (linked.Count == 0)
+            {
+                var windowEnd = Detail.Row.OccurredAt.AddHours(2);
+                <div class="cc-item-detail">@(DateTime.UtcNow < windowEnd
+                    ? $"No LAN incidents so far. Watching until {CcFormat.Local(DisplayTime, windowEnd).ToString(DisplayTime.Format.Time, DisplayFormat.Culture)}."
+                    : "No LAN incidents in the 2 hours after.")</div>
+            }
+            <table class="cc-field-table">
+                @foreach (var i in linked)
+                {
+                    <tr>
+                        <td colspan="2">
+                            <div>@i.Title</div>
+                            <div class="muted-text">@MinutesAfter(i.StartedAt) after, @CcFormat.Local(DisplayTime, i.StartedAt).ToString(DisplayTime.Format.Time, DisplayFormat.Culture) to @(i.ResolvedAt is { } r ? CcFormat.Local(DisplayTime, r).ToString(DisplayTime.Format.Time, DisplayFormat.Culture) : "now")</div>
+                        </td>
+                    </tr>
+                }
+                @foreach (var i in wan)
+                {
+                    <tr>
+                        <td colspan="2">
+                            <div>@i.Title</div>
+                            <div class="muted-text" data-tooltip="WAN and ISP incidents are listed, not linked to LAN config changes">WAN, @MinutesAfter(i.StartedAt) after</div>
+                        </td>
+                    </tr>
+                }
+            </table>
+            @if (Detail.Row.RolledBackByPlanId is { } rolledBackBy)
+            {
+                <div class="cc-item-detail">
+                    Rolled back@(Detail.Row.RolledBackAt is { } at ? $" {CcFormat.Local(DisplayTime, at).ToString(DisplayTime.Format.DayTime, DisplayFormat.Culture)}" : "").
+                    <a href="@SiteContextService.WithSiteParam($"/change-control/plans/{rolledBackBy}", Detail.Row.SiteSlug)">View the plan</a>
+                </div>
+            }
+            <div class="action-buttons">
+                @if (Detail.CanRollBack)
+                {
+                    <SiteOperatorOnly>
+                        <button class="btn btn-primary" disabled="@Busy" @onclick="OnRollBack">
+                            @if (RollingBack)
+                            {
+                                <span class="spinner-sm"></span>
+                            }
+                            Roll Back
+                        </button>
+                    </SiteOperatorOnly>
+                }
+                @if (Detail.Row.PlanId is { } planId)
+                {
+                    <a class="btn btn-contrast" href="@SiteContextService.WithSiteParam($"/change-control/plans/{planId}", Detail.Row.SiteSlug)">View Plan</a>
+                }
+                @if (Detail.Row.PreviousSnapshotId != null && Detail.Row.SnapshotId != null)
+                {
+                    <button class="btn btn-contrast" @onclick="OnViewDiff">View Diff</button>
+                    @if (Detail.Row.ActorKind != ConfigChangeActorKind.Person && OnRecompute.HasDelegate)
+                    {
+                        <SiteAdminOnly>
+                            <button class="btn btn-contrast" disabled="@Busy" @onclick="OnRecompute"
+                                    data-tooltip="Rebuild this change from its two snapshots with the current version of Change Control">
+                                @if (Recomputing)
+                                {
+                                    <span class="spinner-sm"></span>
+                                }
+                                Recompute
+                            </button>
+                        </SiteAdminOnly>
+                    }
+                }
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public ChangeDetailView? Detail { get; set; }
+    [Parameter] public bool Busy { get; set; }
+
+    /// <summary>The Roll Back plan is being built: its button shows a spinner.</summary>
+    [Parameter] public bool RollingBack { get; set; }
+    [Parameter] public EventCallback OnRollBack { get; set; }
+    [Parameter] public EventCallback OnViewDiff { get; set; }
+
+    /// <summary>Recompute is running: its button shows a spinner.</summary>
+    [Parameter] public bool Recomputing { get; set; }
+    [Parameter] public EventCallback OnRecompute { get; set; }
+
+    private string MinutesAfter(DateTime t)
+    {
+        var span = t - (Detail?.Row.OccurredAt ?? t);
+        return NetworkOptimizer.Web.Services.Monitoring.IspHealth.IspHealthPresentation.FormatDuration(span < TimeSpan.Zero ? TimeSpan.Zero : span);
+    }
+}
