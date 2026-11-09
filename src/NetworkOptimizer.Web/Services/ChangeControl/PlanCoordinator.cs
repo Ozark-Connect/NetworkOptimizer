@@ -883,7 +883,7 @@ public sealed class PlanCoordinator
             var hosts = gateway ? [d.NewIp ?? d.OldIp ?? ""] : new[] { d.NewIp, d.OldIp }.OfType<string>().Distinct().ToArray();
             foreach (var host in hosts)
             {
-                var command = ReaddressInform.Command(d, atOldAddress: !gateway && host != d.NewIp);
+                var command = ReaddressInform.SshCommand(d, atOldAddress: !gateway && host != d.NewIp);
                 (bool Success, string Output) r;
                 try { r = await run!(new Ssh.DeviceSshTarget(d.Mac, host, d.Role), command, SetInformTimeout, ct); }
                 catch (Exception ex) when (ex is not OperationCanceledException) { r = (false, ex.Message); }

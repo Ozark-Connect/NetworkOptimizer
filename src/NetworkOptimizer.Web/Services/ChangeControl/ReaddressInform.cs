@@ -131,11 +131,23 @@ public static class ReaddressInform
     }
 
     /// <summary>
-    /// The command Network Optimizer runs over SSH. <paramref name="atOldAddress"/>: the device never moved, so its DNS
-    /// server is gone and the URL carries the Console's new IP.
+    /// The set-inform a person types in the device's shell. <paramref name="atOldAddress"/>: the device never moved, so
+    /// its DNS server is gone and the URL carries the Console's new IP.
     /// </summary>
-    public static string Command(InformDevice device, bool atOldAddress = false) =>
-        $"set-inform {(atOldAddress ? device.SetInformIpUrl ?? device.SetInformUrl : device.SetInformUrl)}";
+    public static string Command(InformDevice device, bool atOldAddress = false) => $"set-inform {Url(device, atOldAddress)}";
+
+    /// <summary>
+    /// The same over a non-interactive SSH command: set-inform is only an /etc/profile alias for mca-cli-op set-inform,
+    /// which such a command never loads (exit 127), so the target is called directly, as Firmware Rollout's upgrade is.
+    /// </summary>
+    public static string SshCommand(InformDevice device, bool atOldAddress = false)
+    {
+        var url = Url(device, atOldAddress);
+        return $"if command -v mca-cli-op >/dev/null 2>&1; then mca-cli-op set-inform '{url}'; else set-inform '{url}'; fi";
+    }
+
+    private static string Url(InformDevice device, bool atOldAddress) =>
+        atOldAddress ? device.SetInformIpUrl ?? device.SetInformUrl : device.SetInformUrl;
 
     /// <summary>
     /// The command a person runs by hand. A device left on its old address has no route to the Console's new one;

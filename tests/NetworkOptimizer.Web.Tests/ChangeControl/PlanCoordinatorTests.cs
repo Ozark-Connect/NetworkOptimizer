@@ -689,6 +689,10 @@ public sealed class PlanCoordinatorTests : IDisposable
         await _plans.InformFallback;
     }
 
+    /// <summary>What reaches a device over SSH: set-inform is an /etc/profile alias a non-interactive command never loads.</summary>
+    private static string Sent(string url) =>
+        $"if command -v mca-cli-op >/dev/null 2>&1; then mca-cli-op set-inform '{url}'; else set-inform '{url}'; fi";
+
     /// <summary>The last alert that reports the set-inform pass.</summary>
     private AlertEvent FollowUp() => _bus.Published.Last(e => e.Title.StartsWith(PlanCoordinator.SetInformTitle));
 
@@ -702,7 +706,7 @@ public sealed class PlanCoordinatorTests : IDisposable
 
         await WatchToAlertAsync();
 
-        _dials.Should().Equal(("10.42.99.11", $"set-inform {InformUrl}"), ("192.168.99.11", $"set-inform {InformUrl}"));
+        _dials.Should().Equal(("10.42.99.11", Sent(InformUrl)), ("192.168.99.11", Sent(InformUrl)));
         // The offline alert goes out as before; the outcome follows it.
         _bus.Published.Should().ContainSingle(e => e.Title.StartsWith("Network devices offline after") && !e.Message.Contains("set-inform"));
         _bus.Published.FindIndex(e => e.Title.StartsWith("Network devices offline after"))
@@ -724,7 +728,7 @@ public sealed class PlanCoordinatorTests : IDisposable
 
         await WatchToAlertAsync();
 
-        _dials.Should().Equal(("10.42.99.11", "set-inform http://unifi.lan:8080/inform"), ("192.168.99.11", $"set-inform {InformUrl}"));
+        _dials.Should().Equal(("10.42.99.11", Sent("http://unifi.lan:8080/inform")), ("192.168.99.11", Sent(InformUrl)));
     }
 
     [Fact]
@@ -769,7 +773,7 @@ public sealed class PlanCoordinatorTests : IDisposable
 
         await WatchToAlertAsync();
 
-        _dials.Should().OnlyContain(d => d.Command == $"set-inform {InformUrl}", "Network Optimizer never changes a device's routes");
+        _dials.Should().OnlyContain(d => d.Command == Sent(InformUrl), "Network Optimizer never changes a device's routes");
         FollowUp().Message.Should()
             .Contain($"ip route add 10.42.99.220/32 dev <if>; set-inform {InformUrl}").And.Contain("<if> is the interface");
     }
@@ -801,7 +805,7 @@ public sealed class PlanCoordinatorTests : IDisposable
 
         await WatchToAlertAsync();
 
-        _dials.Should().Equal(("192.168.99.11", $"set-inform {InformUrl}"));
+        _dials.Should().Equal(("192.168.99.11", Sent(InformUrl)));
         FollowUp().Message.Should().StartWith("set-inform sent over SSH: Switch at 192.168.99.11.");
     }
 
