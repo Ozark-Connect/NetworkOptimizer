@@ -163,7 +163,7 @@ public static class LockoutChecker
                 {
                     Kind = "possible",
                     Title = $"Management network {ConfigState.DisplayName(ConfigCollections.Get("networkconf"), network)} changes its subnet or VLAN",
-                    Detail = "Devices managed on it drop until they renew, and devices with static addresses may not come back.",
+                    Detail = "Devices managed on it drop until they renew, and Devices with static addresses may not come back.",
                     Devices = onIt.Select(Name).ToList(),
                     OperationKeys = key == null ? [] : [key],
                 });

@@ -340,7 +340,8 @@ Gateway tweaks for UCG-Fiber, UXG-Fiber, UCG-Max, and UXG-Max (Gateway SSH).
   - **Re-address Networks** - move networks to new subnets by pattern or per network, with every address in them: reservations, DNS records, port forwards, firewall groups and policies, routes, device static IPs, and Network Optimizer's own settings
     - Addresses on a WAN's carrier side or a VPN's far side stay as they are
     - The dry run lists every connected client with no DHCP lease from the gateway (Gateway SSH), reserved or not, and offline clients likely set on the device
-    - Warns when Network Optimizer's host, a management network, or the console moves, and names devices that need a new inform address
+    - Warns when Network Optimizer's host, a management network, or the console moves
+    - Devices find the Console at its new address: the Plan moves a UniFi OS Server's Inform Host override with it, and a Device still offline after the move gets set-inform over SSH (Device SSH)
     - **Lower Lease Times** a lease ahead so clients move within minutes (the move puts them back), and **Reconnect Clients** after it: wireless clients rejoin, PoE-powered wired clients optionally power-cycle
 - Alerts for security regressions, changes no admin made, management-path changes, drift, and UniFi Console admin and update settings
 - **Settings** - retention, change detection, commit-confirmed window, approvals
@@ -372,7 +373,7 @@ Gateway tweaks for UCG-Fiber, UXG-Fiber, UCG-Max, and UXG-Max (Gateway SSH).
   - UniFi Network builds only for consoles of the same platform, with a known download
 - Post-upgrade check for loss, CPU, and memory regression; per-device **Roll back**
 - **Deploy Firmware by URL** and **Deploy Known Firmware**
-- **History** and **Rollout Report** with before-and-after CPU and memory; **Export PDF**
+- **History** of every rollout, paged, and **Rollout Report** with before-and-after CPU and memory; **Export PDF**
 
 ## Wi-Fi Optimizer
 
@@ -447,6 +448,7 @@ models such as U6-Lite, U6-Mesh, and UAP-AC-Pro, and gateways with built-in Wi-F
 - Roam records with timing; BSS-transition steering for the **Roam** button
 - Requests are HMAC-signed and replay-protected; the agent listens on the management network only
 - Never redeployed to an access point while Firmware Rollout is flashing it
+- Creates a site's missing InfluxDB buckets when the shared token can, and otherwise warns with a link to Monitoring
 - Radio health, neighbor scans every 30 seconds, and channel move detection
 - Used by: [Client Performance](#client-performance), [Live View](#live-view), [Health Issues](#overview),
   [RF Environment](#metrics-rf-environment-and-environment), [Channel Recommendation](#channels-channel-recommendation),
