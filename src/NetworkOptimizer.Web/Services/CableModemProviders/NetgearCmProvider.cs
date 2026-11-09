@@ -244,8 +244,9 @@ public sealed class NetgearCmProvider : ICableModemProvider
     /// extensions (.asp &lt;-&gt; .htm) AND auth styles (HTTP Basic, then the form logins for models
     /// that bind the web session to the source IP: POST to /goform/Login on the CM2050V, and to
     /// /goform/GenieLogin on CM1000 V7.01.01). Model number doesn't predict which combo a modem
-    /// needs. A page is accepted only when it actually looks like a status page; a wrong combo that still returns HTTP 200 (e.g. a login/index page) advances to the
-    /// next attempt, as does any HTTP/transport error. The last attempt's error propagates, so a
+    /// needs. A page is accepted only when it actually looks like a status page; a wrong combo
+    /// that still returns HTTP 200 (e.g. a login/index page) advances to the next attempt, as
+    /// does any HTTP/transport error. The last attempt's error propagates, so a
     /// genuine auth failure still surfaces. The winning combo is cached per config so later polls
     /// go straight to it.
     /// </summary>
@@ -526,9 +527,10 @@ public sealed class NetgearCmProvider : ICableModemProvider
                 "loginPassword=" + Uri.EscapeDataString(password ?? ""),
                 "login=1",
                 "webToken=" + Uri.EscapeDataString(webToken));
-            var loginResponse = await SendAsync("POST", ResolveGenieAction(action), form);
+            var actionPath = ResolveGenieAction(action);
+            var loginResponse = await SendAsync("POST", actionPath, form);
             if (loginResponse.StatusCode >= 400)
-                throw RawStatusError(GenieLoginPagePath, loginResponse.StatusCode);
+                throw RawStatusError(actionPath, loginResponse.StatusCode);
 
             var after = await SendAsync("GET", statusPath, null);
             if (after.StatusCode >= 400)
@@ -571,7 +573,12 @@ public sealed class NetgearCmProvider : ICableModemProvider
         var tokenInput = doc.DocumentNode
             .SelectNodes("//input")
             ?.FirstOrDefault(n => string.Equals(n.GetAttributeValue("name", ""), "webToken", StringComparison.OrdinalIgnoreCase));
-        var value = tokenInput?.GetAttributeValue("value", "").Trim().TrimEnd('/');
+        // An unquoted value runs into a self-closing "/>", so strip that slash. A quoted value keeps
+        // every character: a token may legitimately end in '/'.
+        var valueAttr = tokenInput?.Attributes["value"];
+        var value = valueAttr?.Value.Trim() ?? "";
+        if (valueAttr?.QuoteType is AttributeValueQuote.None or AttributeValueQuote.WithoutValue)
+            value = value.TrimEnd('/');
         if (string.IsNullOrEmpty(value))
             return false;
         webToken = value;

@@ -620,6 +620,7 @@ public class NetgearCmProviderTests
     [InlineData("<input type=\"hidden\" name=\"webToken\" value=\"42\">", "42")]
     [InlineData("<input type='hidden' name='webToken' value='43'>", "43")]
     [InlineData("<input value=44 name=\"WEBTOKEN\" type=\"hidden\">", "44")]
+    [InlineData("<input type=\"hidden\" name=\"webToken\" value=\"ab+c/\" />", "ab+c/")]
     public void TryParseGenieLoginForm_ReadsTokenQuotedOrNot(string input, string expected)
     {
         var html = $"<form method=\"post\" action=\"/goform/GenieLogin\">{input}</form>";
