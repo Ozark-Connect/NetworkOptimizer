@@ -11,6 +11,9 @@ public class DomainAppCatalogTests
     [InlineData("ipv4-c001-ord001-ix.1.oca.nflxvideo.net.", "Netflix")]
     [InlineData("steamcontent.com", "Valve Steam")]
     [InlineData("teams.microsoft.com", "Microsoft Teams")]
+    [InlineData("claude.ai", "Claude")]
+    [InlineData("api.anthropic.com", "Claude")]
+    [InlineData("chatgpt.com", "ChatGPT")]
     [InlineData("www.microsoft.com", null)]
     [InlineData("com", null)]
     [InlineData("example.net", null)]
@@ -83,6 +86,16 @@ public class DomainAppCatalogTests
     [InlineData("IMAPS", "fa-solid fa-envelope")]
     [InlineData("SMTP Submit", "fa-solid fa-envelope")]
     [InlineData("POP3S", "fa-solid fa-envelope")]
+    [InlineData("ChatGPT", "no-icon no-icon-openai")]        // in the DPI catalog, without a mark
+    [InlineData("Claude", "no-icon no-icon-claude")]
     public void MarksFontAwesomeLacksOrTheCatalogMisses(string app, string cls) =>
+        DpiCatalog.IconsForName(app).Class.Should().Be(cls);
+
+    [Theory]
+    [InlineData("TCP", "fa-solid fa-right-left")]
+    [InlineData("TCP 8443", "fa-solid fa-right-left")]
+    [InlineData("UDP 3478", "fa-solid fa-paper-plane")]
+    [InlineData("TCP Ventures", null)]   // a name that only starts with the word
+    public void TransportMarksForFlowsNamedByProtocol(string app, string? cls) =>
         DpiCatalog.IconsForName(app).Class.Should().Be(cls);
 }

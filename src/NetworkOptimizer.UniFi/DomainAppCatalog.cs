@@ -64,6 +64,7 @@ public static class DomainAppCatalog
         ["Telegram"] = ["telegram.org", "t.me"],
         ["GitHub"] = ["github.com", "githubusercontent.com", "githubassets.com"],
         ["ChatGPT"] = ["chatgpt.com", "openai.com", "oaistatic.com", "oaiusercontent.com"],
+        ["Claude"] = ["claude.ai", "claude.com", "anthropic.com", "claudeusercontent.com"],
         ["Speedtest.net"] = ["speedtest.net", "ookla.com"],
         ["LastPass"] = ["lastpass.com"],
         ["Waze"] = ["waze.com"],

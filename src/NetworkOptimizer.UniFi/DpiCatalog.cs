@@ -66,6 +66,10 @@ public static class DpiCatalog
         ["OpenVPN"] = "no-icon no-icon-openvpn",
         ["MQTT"] = "no-icon no-icon-mqtt",
         ["MQTT-TLS"] = "no-icon no-icon-mqtt",
+        ["ChatGPT"] = "no-icon no-icon-openai",
+        ["OpenAI"] = "no-icon no-icon-openai",
+        ["Claude"] = "no-icon no-icon-claude",
+        ["Anthropic"] = "no-icon no-icon-anthropic",
         // Local protocols DomainAppCatalog.LanApp names by port.
         ["Google Cast"] = "fa-brands fa-chromecast",
         ["Midea"] = "fa-solid fa-house-signal",
@@ -216,7 +220,21 @@ public static class DpiCatalog
     {
         if (_byName.Value.TryGetValue(name, out var e))
             return (e.D, e.I ?? (IconByName.TryGetValue(e.N, out var c) ? c : BrandIcon(e.N)));
-        return (null, IconByName.TryGetValue(name, out var byName) ? byName : BrandIcon(name));
+        return (null, IconByName.TryGetValue(name, out var byName) ? byName : BrandIcon(name) ?? ProtocolIcon(name));
+    }
+
+    /// <summary>A flow named only by its transport ("TCP", "UDP 3478"): a connection mark for TCP, a datagram mark for UDP.</summary>
+    private static string? ProtocolIcon(string name)
+    {
+        var space = name.IndexOf(' ');
+        if (space >= 0 && !name[(space + 1)..].All(char.IsDigit)) return null;
+        var proto = space < 0 ? name : name[..space];
+        return proto.ToUpperInvariant() switch
+        {
+            "TCP" => "fa-solid fa-right-left",
+            "UDP" => "fa-solid fa-paper-plane",
+            _ => null,
+        };
     }
 
     private static string? BrandIcon(string name)

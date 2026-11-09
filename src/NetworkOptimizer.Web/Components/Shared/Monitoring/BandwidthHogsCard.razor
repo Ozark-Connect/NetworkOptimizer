@@ -240,8 +240,7 @@ else
                                     }
                                     @if (!string.IsNullOrEmpty(row.Ip))
                                     {
-                                        <a href="@ClientLink(row)" data-client-link="@ClientLink(row)" data-client-name="@row.DisplayName"
-                                           data-client-note="@PortGroupTooltip(row)" @onclick:stopPropagation>@row.DisplayName</a>
+                                        <a href="@ClientLink(row)" data-tooltip="@PortGroupTooltip(row)" @onclick:stopPropagation>@row.DisplayName</a>
                                     }
                                     else
                                     {

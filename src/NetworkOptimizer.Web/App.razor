@@ -563,6 +563,16 @@
             return '<div>' + tipLink(el.getAttribute('data-client-link'), el.getAttribute('data-client-name') || '') + '</div>'
                 + (note ? '<div>' + escapeHtml(note) + '</div>' : '');
         }
+        // The open card, dropped once its cell leaves the page (any navigation away) so it never sits orphaned.
+        var activeLinkCard = null;
+        function dropOrphanedLinkCard() {
+            if (activeLinkCard && !activeLinkCard.reference.isConnected) {
+                activeLinkCard.destroy();
+                activeLinkCard = null;
+            }
+        }
+        new MutationObserver(function () { if (activeLinkCard) dropOrphanedLinkCard(); })
+            .observe(document.body, { childList: true, subtree: true });
         // An element in the cell with a tooltip of its own (the via line, a badge) shows only that one.
         function innerTipHovered(cell) { return !!cell.querySelector('[data-tooltip]:hover'); }
         function showLinkCard(cell, html) {
@@ -571,13 +581,25 @@
                 return;
             }
             if (innerTipHovered(cell)) return;
+            // A click on the cell itself (a client name is a link) navigates too.
+            cell.addEventListener('click', function () { if (cell._tippy) cell._tippy.unmount(); });
             tippy(cell, {
                 content: html(cell),
                 allowHTML: true,
                 interactive: true,
+                interactiveBorder: 10,
                 trigger: 'mouseenter',
                 touch: false,
                 delay: [250, 0],
+                // The standard interactive model: a link click unmounts the card, or it outlives the
+                // page it came from and drops to the corner once its cell is gone.
+                onMount: function (instance) {
+                    activeLinkCard = instance;
+                    instance.popper.querySelectorAll('a').forEach(function (link) {
+                        link.addEventListener('click', function () { instance.unmount(); });
+                    });
+                },
+                onHidden: function (instance) { if (activeLinkCard === instance) activeLinkCard = null; },
                 placement: 'top',
                 theme: 'custom',
                 appendTo: document.body,
