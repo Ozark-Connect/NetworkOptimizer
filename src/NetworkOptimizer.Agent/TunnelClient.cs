@@ -77,6 +77,9 @@ public sealed class TunnelClient
     /// <summary>Invoked whenever the server pushes a new conntrack accounting configuration.</summary>
     public Action<ConntrackConfig>? OnConntrackConfig { get; set; }
 
+    /// <summary>Invoked whenever the server grants, renews, or ends a Live Traffic lease.</summary>
+    public Action<LiveTrafficConfig>? OnLiveTrafficConfig { get; set; }
+
     /// <summary>Invoked whenever the server pushes the set of UCIs to capture informs from.</summary>
     public Action<UciCaptureConfig>? OnUciCaptureConfig { get; set; }
 
@@ -264,6 +267,9 @@ public sealed class TunnelClient
                         break;
                     case ServerMessage.PayloadOneofCase.ConntrackConfig:
                         OnConntrackConfig?.Invoke(message.ConntrackConfig);
+                        break;
+                    case ServerMessage.PayloadOneofCase.LiveTrafficConfig:
+                        OnLiveTrafficConfig?.Invoke(message.LiveTrafficConfig);
                         break;
                     case ServerMessage.PayloadOneofCase.UciCaptureConfig:
                         OnUciCaptureConfig?.Invoke(message.UciCaptureConfig);
