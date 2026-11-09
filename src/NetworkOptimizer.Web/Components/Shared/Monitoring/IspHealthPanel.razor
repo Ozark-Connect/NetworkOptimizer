@@ -1235,9 +1235,12 @@ else
             var unexplained = fold.Unexplained(recent, e => e.Id).ToList();
             // An acknowledged recurring finding's episodes do not announce themselves either.
             var points = NetworkOptimizer.Web.Services.Monitoring.PathLocalization.PathEpisodePresentation.PointsById(_report);
+            // The report window's episodes too: the acknowledged finding's own episodes may be older than the banner's day.
+            var ackedTargets = NetworkOptimizer.Web.Services.Monitoring.PathLocalization.PathEpisodePresentation
+                .AcknowledgedTargetSets(recent.Concat(_episodes), _findingAcks);
             var banner = NetworkOptimizer.Web.Services.Monitoring.PathLocalization.PathEpisodePresentation.Banner(
                 unexplained.Where(e => !NetworkOptimizer.Web.Services.Monitoring.PathLocalization.PathEpisodePresentation
-                    .IsAcknowledgedEpisode(e, _findingAcks, points)).ToList(), now, DisplayTime.Zone, DisplayTime.Format);
+                    .IsAcknowledgedEpisode(e, _findingAcks, points, ackedTargets)).ToList(), now, DisplayTime.Zone, DisplayTime.Format);
             // A failed read keeps it hidden, like the plan-speed hint.
             var dismissed = banner == null || await Dismissals.IsDismissedAsync(banner.DismissKey(SiteContext.Slug));
             _episodeBanner = banner;

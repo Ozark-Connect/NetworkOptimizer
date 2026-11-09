@@ -128,12 +128,15 @@ public static class PathEpisodePresentation
     /// One episode belongs to an acknowledged finding and still qualifies. For the banner, whose 24 hours
     /// are too short to rebuild the recurrence the user acknowledged.
     /// </summary>
+    /// <param name="acknowledgedTargets">From <see cref="AcknowledgedTargetSets"/>: a tracing episode has no reading to
+    /// key on yet, so one on exactly an acknowledged target set counts until its trace finishes and its full key decides.</param>
     public static bool IsAcknowledgedEpisode(PathEpisodeView e, IReadOnlySet<string> acknowledged,
-        IReadOnlyDictionary<int, int>? pointsById) =>
+        IReadOnlyDictionary<int, int>? pointsById, IReadOnlySet<string>? acknowledgedTargets = null) =>
         e.Disposition != CongestionDisposition.Confirmed
         && (pointsById?.GetValueOrDefault(e.Id) ?? 0) == 0
         && OneNetwork(e.Degraded)
-        && AckKeyFor(e) is { } key && acknowledged.Contains(key);
+        && (AckKeyFor(e) is { } key ? acknowledged.Contains(key)
+            : e.Tracing && acknowledgedTargets?.Contains(TargetSet(e)) == true);
 
     /// <summary>
     /// Every degraded target is in one destination network (by ASN; a target with none counts as its own).
@@ -208,8 +211,16 @@ public static class PathEpisodePresentation
     /// </summary>
     /// <summary>The key of the recurring finding an episode would belong to, or null when it has no reading yet.</summary>
     public static string? AckKeyFor(PathEpisodeView episode) =>
-        episode.Tracing || string.IsNullOrEmpty(episode.Label) ? null
-            : RecurringAckKey(string.Join("|", episode.Degraded.Select(t => t.TargetId).OrderBy(x => x)), episode.Label);
+        episode.Tracing || string.IsNullOrEmpty(episode.Label) ? null : RecurringAckKey(TargetSet(episode), episode.Label);
+
+    /// <summary>An episode's degraded targets, as the acknowledgment key reads them.</summary>
+    private static string TargetSet(PathEpisodeView episode) =>
+        string.Join("|", episode.Degraded.Select(t => t.TargetId).OrderBy(x => x));
+
+    /// <summary>The target sets of acknowledged findings, from the episodes whose key the user acknowledged.</summary>
+    public static HashSet<string> AcknowledgedTargetSets(IEnumerable<PathEpisodeView> episodes, IReadOnlySet<string> acknowledged) =>
+        acknowledged.Count == 0 ? []
+            : episodes.Where(e => AckKeyFor(e) is { } k && acknowledged.Contains(k)).Select(TargetSet).ToHashSet(StringComparer.Ordinal);
 
     internal static string RecurringAckKey(string targets, string label)
     {

@@ -107,6 +107,33 @@ public class PathEpisodeBannerTests
     }
 
     [Fact]
+    public void Banner_hides_a_tracing_episode_on_exactly_an_acknowledged_target_set()
+    {
+        var past = OnDays(1, 2, 3).ToList();
+        var acked = new HashSet<string> { RecurringFindings(past).Single().AckKey! };
+        var targets = PathEpisodePresentation.AcknowledgedTargetSets(past, acked);
+        var tracing = Episode(9, Now.AddMinutes(-5), null, tracing: true) with { Label = "" };
+
+        PathEpisodePresentation.IsAcknowledgedEpisode(tracing, acked, null, targets).Should().BeTrue();
+        PathEpisodePresentation.IsAcknowledgedEpisode(tracing, acked, null).Should().BeFalse("without the target sets a tracing episode has no key");
+        var joined = tracing with { Degraded = tracing.Degraded.Append(new PathEpisodeTargetView(2, "t2", "Target B", PathEpisodeTargetRole.Degraded, 12, 13, 0, 27, null)).ToArray() };
+        PathEpisodePresentation.IsAcknowledgedEpisode(joined, acked, null, targets).Should().BeFalse("another target joining is a new finding");
+        PathEpisodePresentation.IsAcknowledgedEpisode(tracing, acked, new Dictionary<int, int> { [9] = 2 }, targets).Should().BeFalse();
+        PathEpisodePresentation.AcknowledgedTargetSets(past, new HashSet<string>()).Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Once_its_trace_finishes_an_episode_is_judged_by_its_full_key_again()
+    {
+        var past = OnDays(1, 2, 3).ToList();
+        var acked = new HashSet<string> { RecurringFindings(past).Single().AckKey! };
+        var targets = PathEpisodePresentation.AcknowledgedTargetSets(past, acked);
+        var finished = Episode(9, Now.AddHours(-1), null) with { Label = "past a different hop" };
+
+        PathEpisodePresentation.IsAcknowledgedEpisode(finished, acked, null, targets).Should().BeFalse("a changed last clean router is a new finding");
+    }
+
+    [Fact]
     public void An_episode_carries_its_recurring_findings_key()
     {
         var episodes = OnDays(1, 2, 3).ToList();
