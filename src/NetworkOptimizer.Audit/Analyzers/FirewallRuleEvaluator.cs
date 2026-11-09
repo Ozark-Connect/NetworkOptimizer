@@ -128,6 +128,38 @@ public static class FirewallRuleEvaluator
     }
 
     /// <summary>
+    /// The rule that decides one new connection, for a match that can answer "cannot tell". Rules are walked
+    /// in index order as UniFi does; the first that matches decides. When a rule above it cannot be judged
+    /// (a client source with no MAC, a web or app destination), the answer stops there as
+    /// <see cref="FlowDecision.Undecided"/>: naming a later rule would be a guess that rule may override.
+    /// </summary>
+    /// <param name="rules">The zone pair's rules.</param>
+    /// <param name="matches">True, false, or null (cannot tell) for whether a rule matches the connection.</param>
+    /// <param name="family">The connection's address family.</param>
+    public static FlowDecision DecideFlow(IEnumerable<FirewallRule> rules, Func<FirewallRule, bool?> matches, IpFamily family)
+    {
+        foreach (var rule in rules.Where(r => r.Enabled && r.MatchesIpFamily(family)).OrderBy(r => r.Index))
+        {
+            // Only a rule that acts on new connections can decide one (not a RESPOND_ONLY allow).
+            var acts = (rule.ActionType.IsBlockAction() && rule.BlocksNewConnections())
+                || (rule.ActionType.IsAllowAction() && rule.AllowsNewConnections());
+            if (!acts) continue;
+            switch (matches(rule))
+            {
+                case false: continue;
+                case null: return new FlowDecision(null, rule);
+                default: return new FlowDecision(rule, null);
+            }
+        }
+        return new FlowDecision(null, null);
+    }
+
+    /// <summary>The outcome of <see cref="DecideFlow"/>.</summary>
+    /// <param name="Rule">The deciding rule, or null.</param>
+    /// <param name="Undecided">The first rule that could not be judged, ahead of any match; null when none.</param>
+    public sealed record FlowDecision(FirewallRule? Rule, FirewallRule? Undecided);
+
+    /// <summary>
     /// Checks if traffic is effectively blocked considering rule ordering.
     /// Returns true only if a block rule (that blocks NEW connections) takes effect
     /// before any allow rule that matches the same traffic.
