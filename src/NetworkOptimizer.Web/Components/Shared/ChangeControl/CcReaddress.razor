@@ -15,7 +15,7 @@
     <p class="cc-card-intro">Moves each network to a new subnet, with every address in it: reservations, DNS records, port forwards, firewall matches, routes, device static IPs, and Network Optimizer's own settings. Each address keeps its host part.</p>
     <div class="card-body">
         <div class="form-group cc-readdress-pattern">
-            <label class="form-label">Pattern <span class="tooltip-icon tooltip-icon-sm" data-tooltip="{vlan} is the network's VLAN ID (1 when untagged); {octet3} is its current third octet. Shorthand works too: 10.42.x.x or 10.42.*.0 puts the VLAN ID in the third octet, and no /n keeps each network's prefix.">?</span></label>
+            <label class="form-label">Pattern <span class="tooltip-icon tooltip-icon-sm" data-tooltip="{vlan} is the network's VLAN ID;{octet3} is its current third octet. Shorthand works too: 10.42.x.x or 10.42.*.0 puts the VLAN ID in the third octet, and no /n keeps each network's prefix.">?</span></label>
             <div class="input-with-button">
                 <input class="form-control" placeholder="10.42.{vlan}.0/24" @bind="_pattern" @bind:event="oninput" @onkeydown="PatternKeyAsync" />
                 <button class="btn btn-contrast" disabled="@(_busy || string.IsNullOrWhiteSpace(_pattern))" @onclick="ApplyPatternAsync">Apply Pattern</button>
@@ -37,7 +37,7 @@
             @foreach (var m in _view.Moves)
             {
                 <div class="cc-map-card">
-                    <div class="cc-change-card-head"><b>@m.NetworkName</b><span class="muted-text">@(m.Vlan is { } vl ? $"VLAN {vl}" : "Untagged")</span></div>
+                    <div class="cc-change-card-head"><b>@m.NetworkName</b><span class="muted-text">VLAN @(m.Vlan ?? 1)</span></div>
                     <div class="cc-item-detail">Currently <code>@m.OldCidr</code></div>
                     <input class="form-control cc-port-select" value="@NewFor(m)" placeholder="New subnet"
                            @oninput="e => Typed(m.NetworkId, e.Value?.ToString())"
@@ -53,7 +53,7 @@
                     {
                         <tr>
                             <td>@m.NetworkName</td>
-                            <td>@(m.Vlan?.ToString() ?? "Untagged")</td>
+                            <td>@(m.Vlan ?? 1)</td>
                             <td><code>@m.OldCidr</code></td>
                             <td>
                                 <input class="form-control cc-port-select" value="@NewFor(m)" placeholder="@m.OldCidr"

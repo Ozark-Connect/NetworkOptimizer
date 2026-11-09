@@ -152,7 +152,7 @@ public static partial class Readdressing
     }
 
     /// <summary>Network purposes that are not this site's LANs: their addresses are set by the ISP or the VPN's far side.</summary>
-    private static bool IsLan(JsonObject n) => LanPurposes.Contains(n["purpose"]?.ToString() ?? "");
+    internal static bool IsLan(JsonObject n) => LanPurposes.Contains(n["purpose"]?.ToString() ?? "");
 
     private static bool IsWan(JsonObject n) => n["purpose"]?.ToString() == "wan";
 

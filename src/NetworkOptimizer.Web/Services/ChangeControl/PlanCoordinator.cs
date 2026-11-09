@@ -321,6 +321,7 @@ public sealed class PlanCoordinator
         if (plan.Status is ConfigPlanStatus.Applying or ConfigPlanStatus.Watching || ConfigPlanStatuses.Terminal.Contains(plan.Status))
             throw new InvalidOperationException("The plan has already applied.");
         plan.Status = ConfigPlanStatus.Cancelled;
+        _informTried.TryRemove(plan.Id, out _);
         plan.CompletedAt = DateTime.UtcNow;
         await _engine.Repositories.UseAsync((r, c) => r.UpdatePlanAsync(plan, c), ct);
     }
@@ -628,6 +629,7 @@ public sealed class PlanCoordinator
                 var reverted = report.State == AgentProtocol.ConfigRevert.Reverted;
                 plan.Status = reverted ? ConfigPlanStatus.Reverted : ConfigPlanStatus.Failed;
                 plan.Message = report.Detail;
+                _informTried.TryRemove(plan.Id, out _);
                 plan.CompletedAt = DateTime.UtcNow;
                 _misses.TryRemove(plan.Id, out _);
                 await _engine.Repositories.UseAsync((r, c) => r.UpdatePlanAsync(plan, c), ct);
@@ -720,6 +722,7 @@ public sealed class PlanCoordinator
             plan.Status = ConfigPlanStatus.Applied;
             plan.Message = null;
             _misses.TryRemove(plan.Id, out _);
+            _informTried.TryRemove(plan.Id, out _);
             await _engine.Repositories.UseAsync((r, c) => r.UpdatePlanAsync(plan, c), ct);
             if (plan.AgentRevertArmed && AgentRevert != null) await AgentRevert.ConfirmAsync(plan, ct);
             return;
@@ -745,13 +748,44 @@ public sealed class PlanCoordinator
         if (AlertsInsteadOfRevert(doc))
         {
             if (misses == MissesToRevert)
-                await Publish(ChangeAlerts.PlanFailed, AlertSeverity.Warning, $"Network devices offline after: {plan.Name}",
-                    MovesConsolePath(doc)
-                        ? $"{reason} after a re-address that moved the UniFi Console's network. Network devices reach the Console at its old address until it moves too, "
-                          + "so Network Optimizer does not revert this plan. Move the Console to its new address; Roll Back in Review Plan puts the old addresses back."
-                        : $"{reason} after a re-address that moved their management network ({doc.Context[ReaddressManagementContext]}). Network devices reconnect at their new addresses "
-                          + "once the gateway provisions them, so Network Optimizer does not revert this plan. If one stays offline, Roll Back in Review Plan puts the old addresses back.",
-                    plan.Id, ct);
+            {
+                var title = $"Network devices offline after: {plan.Name}";
+                var message = MovesConsolePath(doc) && ConsoleFollows(doc)
+                    ? $"{reason} after a Re-address that moved the UniFi Console's Network. The UniFi Console runs on the Gateway and moves with it, so Network Devices "
+                      + "reconnect once the Gateway provisions its new addresses, and Network Optimizer does not revert this Plan. If one stays offline, Roll Back in Review Plan puts the old addresses back."
+                    : MovesConsolePath(doc)
+                    ? $"{reason} after a Re-address that moved the UniFi Console's Network. Network Devices reach the UniFi Console at its old address until it moves too, "
+                      + "so Network Optimizer does not revert this Plan. Move the UniFi Console to its new address; Roll Back in Review Plan puts the old addresses back."
+                    : $"{reason} after a Re-address that moved their management network ({doc.Context[ReaddressManagementContext]}). Network Devices reconnect at their new addresses "
+                      + "once the Gateway provisions them, so Network Optimizer does not revert this Plan. If one stays offline, Roll Back in Review Plan puts the old addresses back.";
+                await Publish(ChangeAlerts.PlanFailed, AlertSeverity.Warning, title, message, plan.Id, ct);
+                var gone = plan.Kind == ConfigPlanKind.Readdress ? InformTargets(doc, offline ?? []) : [];
+                if (gone.Count > 0)
+                {
+                    // Off the tick, so the watch's timing is the same with or without SSH; its outcome follows the alert.
+                    var planId = plan.Id;
+                    var planName = plan.Name;
+                    InformFallback = Task.Run(async () =>
+                    {
+                        try
+                        {
+                            List<SetInformResult> results;
+                            try { results = await SetInformAsync(planId, planName, gone, CancellationToken.None); }
+                            catch (Exception ex)
+                            {
+                                _logger.LogWarning(ex, "set-inform pass failed for plan {Plan}", planId);
+                                results = [.. gone.Select(d => new SetInformResult(d, SetInformOutcome.Failed))];
+                            }
+                            await Publish(ChangeAlerts.PlanFailed, AlertSeverity.Warning, $"{SetInformTitle}{planName}",
+                                DescribeSetInform(results).TrimStart(), planId, CancellationToken.None);
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogWarning(ex, "Could not publish the set-inform outcome for plan {Plan}", planId);
+                        }
+                    }, CancellationToken.None);
+                }
+            }
             return;
         }
         _misses.TryRemove(plan.Id, out _);
@@ -768,6 +802,119 @@ public sealed class PlanCoordinator
             return;
         }
         await RevertAsync(plan.Id, reason, offline ?? [], automatic: true, ct);
+    }
+
+    /// <summary>Device SSH has credentials on this site; null or false skips every set-inform attempt.</summary>
+    public Func<CancellationToken, Task<bool>>? DeviceSshConfigured { get; set; }
+
+    /// <summary>Gateway SSH has credentials on this site; the gateway's set-inform goes through it.</summary>
+    public Func<CancellationToken, Task<bool>>? GatewaySshConfigured { get; set; }
+
+    /// <summary>Runs a command on a UniFi device through <see cref="Ssh.DeviceSshRouter"/> (the gateway through Gateway SSH).</summary>
+    public Func<Ssh.DeviceSshTarget, string, TimeSpan, CancellationToken, Task<(bool Success, string Output)>>? RunDeviceSsh { get; set; }
+
+    /// <summary>The last background set-inform pass and its alert, for tests to await.</summary>
+    internal Task InformFallback { get; private set; } = Task.CompletedTask;
+
+    internal static TimeSpan SetInformTimeout = TimeSpan.FromSeconds(10);
+
+    /// <summary>Title prefix of the follow-up alert that reports the set-inform pass.</summary>
+    internal const string SetInformTitle = "Re-point over SSH after: ";
+    private readonly ConcurrentDictionary<int, ConcurrentDictionary<string, byte>> _informTried = new();
+
+    /// <summary>What happened to one offline device in the set-inform pass.</summary>
+    internal enum SetInformOutcome { Repointed, Failed, NoAddress, NoSsh, NoGatewaySsh, TriedBefore }
+
+    internal sealed record SetInformResult(InformDevice Device, SetInformOutcome Outcome, string? Address = null);
+
+    private const int SetInformParallel = 4;
+
+    /// <summary>
+    /// The re-address plan's devices that are offline now, from the verdicts stored when it was built. A device whose
+    /// inform host did not move is offline for another reason: set-inform would only replace its working URL.
+    /// </summary>
+    internal static List<InformDevice> InformTargets(PlanDocument doc, IReadOnlyCollection<string> offline)
+    {
+        if (offline.Count == 0 || !doc.Context.TryGetValue(ReaddressInform.Context, out var json)) return [];
+        var gone = offline.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        return (JsonSerializer.Deserialize<List<InformDevice>>(json) ?? [])
+            .Where(d => gone.Contains(d.Mac) && d.Route != InformRoute.NotAffected).ToList();
+    }
+
+    /// <summary>
+    /// set-inform over SSH on each offline device, once per device per plan: the new static address first, then
+    /// the old one, where a device that never provisioned still sits. Never writes to the Console.
+    /// </summary>
+    internal async Task<List<SetInformResult>> SetInformAsync(int planId, string planName, IReadOnlyList<InformDevice> gone, CancellationToken ct)
+    {
+        var run = RunDeviceSsh;
+        bool ssh;
+        try { ssh = run != null && DeviceSshConfigured != null && await DeviceSshConfigured(ct); }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogDebug(ex, "Could not read the Device SSH settings for plan {Plan}", planId);
+            ssh = false;
+        }
+        var gatewaySsh = false;
+        if (ssh && gone.Any(d => d.Role == DeviceType.Gateway))
+        {
+            try { gatewaySsh = GatewaySshConfigured != null && await GatewaySshConfigured(ct); }
+            catch (Exception ex) when (ex is not OperationCanceledException) { _logger.LogDebug(ex, "Could not read the Gateway SSH settings for plan {Plan}", planId); }
+        }
+        var tried = _informTried.GetOrAdd(planId, _ => new(StringComparer.OrdinalIgnoreCase));
+        using var slots = new SemaphoreSlim(SetInformParallel);
+        var results = await Task.WhenAll(gone.Select(async d =>
+        {
+            var gateway = d.Role == DeviceType.Gateway;
+            if (!gateway && d.NewIp == null && d.OldIp == null) return new SetInformResult(d, SetInformOutcome.NoAddress);
+            if (!ssh) return new SetInformResult(d, SetInformOutcome.NoSsh);
+            if (gateway && !gatewaySsh) return new SetInformResult(d, SetInformOutcome.NoGatewaySsh);
+            if (!tried.TryAdd(d.Mac, 0)) return new SetInformResult(d, SetInformOutcome.TriedBefore);
+            await slots.WaitAsync(ct);
+            try { return await DialAsync(d); }
+            finally { slots.Release(); }
+        }));
+        return [.. results];
+
+        async Task<SetInformResult> DialAsync(InformDevice d)
+        {
+            var gateway = d.Role == DeviceType.Gateway;
+            // The gateway is dialed at Gateway SSH's own host, so one attempt.
+            var hosts = gateway ? [d.NewIp ?? d.OldIp ?? ""] : new[] { d.NewIp, d.OldIp }.OfType<string>().Distinct().ToArray();
+            foreach (var host in hosts)
+            {
+                var command = ReaddressInform.SshCommand(d, atOldAddress: !gateway && host != d.NewIp);
+                (bool Success, string Output) r;
+                try { r = await run!(new Ssh.DeviceSshTarget(d.Mac, host, d.Role), command, SetInformTimeout, ct); }
+                catch (Exception ex) when (ex is not OperationCanceledException) { r = (false, ex.Message); }
+                _audit?.Log(AuditEventBuilder.FromSystem(AuditCategories.Action, AuditActions.ChangeControlDeviceInformSet,
+                    r.Success ? AuditOutcomes.Success : AuditOutcomes.Failure, targetType: "device", targetId: d.Mac, targetName: d.Name,
+                    siteSlug: Slug, details: new { planId, plan = planName, address = host, command, output = r.Output.Length > 200 ? r.Output[..200] : r.Output }));
+                if (r.Success) return new SetInformResult(d, SetInformOutcome.Repointed, host);
+            }
+            return new SetInformResult(d, SetInformOutcome.Failed);
+        }
+    }
+
+    /// <summary>The alert's set-inform lines: where it was sent, and the exact command for each device still to do by hand.</summary>
+    internal static string DescribeSetInform(IReadOnlyList<SetInformResult> results)
+    {
+        var text = "";
+        var done = results.Where(r => r.Outcome == SetInformOutcome.Repointed).ToList();
+        if (done.Count > 0) text += $" set-inform sent over SSH: {NameList(done.Select(r => $"{r.Device.Name} at {r.Address}"))}.";
+        // Reached at its old address, a device accepts set-inform but has no route to the Console's new one without the host route.
+        var stuck = done.Where(r => r.Address != r.Device.NewIp && r.Device.ConsoleOnLink).ToList();
+        var hand = results.Where(r => r.Outcome != SetInformOutcome.Repointed).Concat(stuck).ToList();
+        if (hand.Count == 0) return text;
+        if (hand.Any(r => r.Outcome == SetInformOutcome.NoSsh)) text += " Device SSH is not configured.";
+        else if (hand.Any(r => r.Outcome == SetInformOutcome.NoGatewaySsh)) text += " Gateway SSH is not configured.";
+        // The rewritten policies refuse old-subnet sources, so the person dials from a host that already moved.
+        text += $" {(done.Count > 0 ? "For the rest, or one that stays offline, SSH to it" : "SSH to each Device")} at the address shown, from a host already on its new address, and run: ";
+        static string Where(InformDevice d) =>
+            d.NewIp == null ? d.Role == DeviceType.Gateway ? "the Gateway" : d.OldIp != null ? $"DHCP, last at {d.OldIp}" : "DHCP, address unknown"
+            : d.OldIp != null && d.OldIp != d.NewIp ? $"{d.NewIp}, or {d.OldIp} if it never moved" : d.NewIp;
+        text += string.Join("; ", hand.Select(r => $"{r.Device.Name} ({Where(r.Device)}): {ReaddressInform.HandCommand(r.Device)}")) + ".";
+        return hand.Any(r => r.Device.ConsoleOnLink) ? text + " <if> is the interface holding the Device's address (br0, eth0)." : text;
     }
 
     /// <summary>
@@ -853,6 +1000,7 @@ public sealed class PlanCoordinator
         // Reverted only when the revert went through; otherwise the change may still be live.
         plan.Status = why == null ? ConfigPlanStatus.Reverted : ConfigPlanStatus.Failed;
         plan.Message = why == null ? reason : $"{reason}. The revert did not apply: {why}";
+        _informTried.TryRemove(planId, out _);
         plan.CompletedAt = DateTime.UtcNow;
         await _engine.Repositories.UseAsync((r, c) => r.UpdatePlanAsync(plan, c), ct);
 
@@ -973,15 +1121,21 @@ public sealed class PlanCoordinator
         };
     }
 
-    /// <summary>Names for a plan message, the first ten and a count of the rest.</summary>
-    private static string NameList(IEnumerable<string> names)
+    /// <summary>Names for a plan message, the first <paramref name="shown"/> and a count of the rest.</summary>
+    internal static string NameList(IEnumerable<string> names, int shown = 10)
     {
         var list = names.Distinct().ToList();
-        return string.Join(", ", list.Take(10)) + (list.Count > 10 ? $" and {list.Count - 10} more" : "");
+        return string.Join(", ", list.Take(shown)) + (list.Count > shown ? $" and {list.Count - shown} more" : "");
     }
 
     public static bool MovesConsolePath(PlanDocument doc) =>
         doc.Context.TryGetValue(ReaddressPathContext, out var keys) && keys.Length > 0;
+
+    /// <summary>Context key: the Console runs on the gateway (or a CloudKey), so it moves with the re-address.</summary>
+    public const string ReaddressConsoleFollowsContext = "readdress_console_follows";
+
+    /// <summary>The re-address moves a Console that runs on the gateway: it moves with the plan, not after it.</summary>
+    public static bool ConsoleFollows(PlanDocument doc) => doc.Context.GetValueOrDefault(ReaddressConsoleFollowsContext) == "true";
 
     /// <summary>Context key: the management networks a re-address moves, by name.</summary>
     public const string ReaddressManagementContext = "readdress_management";
