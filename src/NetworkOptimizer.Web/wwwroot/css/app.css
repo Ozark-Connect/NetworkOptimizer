@@ -24085,6 +24085,49 @@ body:has(.top-bar-hidden) .btn-fit {
     font-size: 0.85rem;
 }
 
+/* Down and up side by side, each with its rate at the left and "of 1 Gbps down" against its right
+   edge: a fixed width on desktop, half the line each on a phone. */
+.bandwidth-hogs-wan-line .hogs-wan-pair {
+    display: flex;
+    gap: 1.5rem;
+    font-variant-numeric: tabular-nums;
+}
+
+.bandwidth-hogs-wan-line .hogs-wan-half {
+    display: flex;
+    justify-content: space-between;
+    gap: 0.4rem;
+    /* Wide enough for "999.9 Mbps" and "of 10 Gbps down", no wider, so the capacity stays by its rate. */
+    width: 11.5rem;
+    max-width: 11.5rem;
+    min-width: 0;
+    white-space: nowrap;
+}
+
+.bandwidth-hogs-wan-line .hogs-wan-of {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+@media (max-width: 768px) {
+    .bandwidth-hogs-wan-line .hogs-wan-pair {
+        flex: 1 1 100%;
+        min-width: 0;
+        gap: 1rem;
+    }
+
+    .bandwidth-hogs-wan-line .hogs-wan-half {
+        width: auto;
+        flex: 1 1 0;
+    }
+
+    /* The colors say which is which; the words do not fit beside two rates at half width. */
+    .bandwidth-hogs-wan-line .hogs-wan-dir {
+        display: none;
+    }
+}
+
 /* Fixed proportions: the rates re-render every few seconds, and an auto-laid table let each
    new figure nudge its column. Digits are tabular for the same reason. */
 .bandwidth-hogs-table {
@@ -24130,13 +24173,24 @@ body:has(.top-bar-hidden) .btn-fit {
     visibility: hidden;
 }
 
-.bandwidth-hogs-table .hogs-col-rank { width: 2.6rem; }
+.bandwidth-hogs-table .hogs-col-rank { width: 3.1rem; }
 .bandwidth-hogs-table .hogs-col-via { width: 26%; }
 .bandwidth-hogs-table .hogs-col-rate { width: 14%; }
 .bandwidth-hogs-table .hogs-col-share { width: 17%; }
 
 .bandwidth-hogs-table .hogs-rank {
     color: var(--text-muted);
+    white-space: nowrap;
+}
+
+.bandwidth-hogs-table .hogs-chev-mobile {
+    display: none;
+}
+
+@media (max-width: 768px) {
+    .bandwidth-hogs-table .hogs-chev-mobile {
+        display: inline-block;
+    }
 }
 
 .bandwidth-hogs-table .hogs-client a {
@@ -24209,6 +24263,1420 @@ body:has(.top-bar-hidden) .btn-fit {
 
     .hogs-share .hogs-bar {
         display: none;
+    }
+}
+
+/* ============================================
+   Filter pills: a value in a table that filters the page on click (RF Environment's Heard By,
+   Live Traffic). .active is the kept value and carries a .filter-pill-x.
+   ============================================ */
+
+.filter-pills {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem;
+}
+
+.filter-pill {
+    display: inline-flex;
+    align-items: center;
+    max-width: 100%;
+    min-width: 0;
+    padding: 0.125rem 0.5rem;
+    border: 1px solid transparent;
+    border-radius: var(--border-radius);
+    background: var(--bg-tertiary);
+    color: var(--text-secondary);
+    font-family: inherit;
+    font-size: 0.8rem;
+    text-decoration: none;
+    white-space: nowrap;
+    cursor: pointer;
+    transition: color 0.15s ease, border-color 0.15s ease;
+}
+
+.filter-pill:hover {
+    color: var(--text-primary);
+    border-color: var(--primary-hover);
+}
+
+.filter-pill.active {
+    background: var(--primary-color);
+    color: var(--text-primary);
+    font-weight: 600;
+}
+
+.filter-pill-text {
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.filter-pill-x {
+    margin-left: 0.3rem;
+    opacity: 0.8;
+}
+
+.filter-pill-more {
+    background: transparent;
+    color: var(--text-muted);
+}
+
+/* ============================================
+   Live Traffic (Monitoring - Live View card + /monitoring/live-traffic).
+   lt- classes are this feature's own; nothing else uses the prefix.
+   ============================================ */
+
+/* On a phone the header controls wrap under the description: even space above and below them. */
+@media (max-width: 768px) {
+    /* The description's line height already leaves space above, and the cards' padding below. */
+    .live-traffic .page-header {
+        margin-bottom: 0.6rem;
+    }
+
+    .live-traffic .page-header-actions {
+        margin-top: 0.4rem;
+    }
+}
+
+/* Detailed View: in the By row on desktop, at the right of the title on a phone. */
+.bandwidth-hogs-card .lt-header-detail {
+    display: none;
+}
+
+@media (max-width: 768px) {
+    .bandwidth-hogs-card .card-title-group {
+        flex: 1 1 100%;
+    }
+
+    .bandwidth-hogs-card .lt-header-detail {
+        display: inline-flex;
+        margin-left: auto;
+    }
+
+    .bandwidth-hogs-card .lt-card-tools .lt-tools-right {
+        display: none;
+    }
+}
+
+/* The Dashboard card's header opens Live Traffic everywhere but its controls. */
+.bandwidth-hogs-card .lt-header-link {
+    cursor: pointer;
+}
+
+.bandwidth-hogs-card .lt-header-link:hover .card-title {
+    color: var(--primary-light);
+}
+
+.bandwidth-hogs-card .lt-header-link .bandwidth-hogs-controls {
+    cursor: default;
+}
+
+/* Card: the By row and Detailed View, the expand chevron, and a client's nested flows */
+.lt-card-tools {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem 0.75rem;
+    margin-bottom: 0.75rem;
+}
+
+.lt-card-tools .lt-tools-right {
+    margin-left: auto;
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+}
+
+.lt-by-label {
+    color: var(--text-secondary);
+    font-size: 0.8rem;
+}
+
+.lt-icon-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+}
+
+.lt-icon-btn svg {
+    width: 14px;
+    height: 14px;
+}
+
+/* The app's .expand-chevron, inline beside a rank or a name instead of in its own cell. */
+.lt-chev {
+    display: inline-block;
+    width: auto;
+    margin-right: 0.35rem;
+}
+
+.bandwidth-hogs-table tr.lt-row-open td {
+    background: var(--bg-hover-subtle);
+}
+
+.bandwidth-hogs-table .lt-expandable {
+    cursor: pointer;
+}
+
+.bandwidth-hogs-table tr.lt-nested > td {
+    padding: 0 0 0.5rem 0;
+    background: var(--bg-hover-subtle);
+    white-space: normal;
+}
+
+.lt-nested-table {
+    width: 100%;
+    table-layout: fixed;
+    font-size: 0.8rem;
+    font-variant-numeric: tabular-nums;
+    border-collapse: collapse;
+}
+
+.lt-nested-table td,
+.lt-nested-table th {
+    padding: 0.3rem 0.75rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    text-align: left;
+}
+
+.lt-nested-table th {
+    color: var(--text-muted);
+    font-weight: 500;
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.lt-nested-table .hogs-col-rank { width: 2.6rem; }
+.lt-nested-table .hogs-col-via { width: 26%; }
+.lt-nested-table .hogs-col-rate { width: 14%; }
+.lt-nested-table .hogs-col-share { width: 17%; }
+
+.lt-nested-table td:nth-child(2) {
+    padding-left: 1.6rem;
+}
+
+.lt-nested-more {
+    padding: 0.25rem 0.75rem 0 4.2rem;
+    font-size: 0.75rem;
+}
+
+/* Any value that filters on click */
+.lt-pivot {
+    color: inherit;
+    border-bottom: 1px dotted transparent;
+    cursor: pointer;
+}
+
+.lt-pivot:hover {
+    color: var(--primary-light);
+    border-bottom-color: var(--primary-light);
+}
+
+.lt-muted { color: var(--text-muted); }
+/* An idle live rate keeps its direction class (for its fixed slot) but reads muted. */
+.speed-down.lt-muted, .speed-up.lt-muted { color: var(--text-muted); }
+.lt-secondary { color: var(--text-secondary); }
+.lt-small { font-size: 0.75rem; }
+
+/* App and route tags; routes take the graph palette (WAN teal, VPN purple, LAN amber) */
+.lt-tag {
+    display: inline-block;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    vertical-align: middle;
+    padding: 0.1rem 0.45rem;
+    border-radius: 3px;
+    font-size: 0.72rem;
+    font-weight: 500;
+    background: var(--bg-tertiary);
+    color: var(--text-secondary);
+}
+
+.lt-tag.lt-pivot:hover {
+    color: var(--primary-light);
+}
+
+.lt-route-wan { background: rgba(43, 168, 154, 0.15); color: #2ba89a; }
+.lt-route-vpn { background: rgba(167, 139, 250, 0.15); color: #a78bfa; }
+.lt-route-lan { background: rgba(245, 158, 11, 0.15); color: #f59e0b; }
+.lt-bypass { background: rgba(231, 150, 19, 0.15); color: var(--warning-color); }
+.lt-redirected { background: rgba(71, 151, 255, 0.15); color: var(--info-color); }
+.lt-action-blocked { background: rgba(238, 99, 104, 0.15); color: var(--danger-color); }
+/* App icons, drawn as Client Performance draws them (its own .app-icon rules are scoped to that page). */
+.lt-app-cell {
+    display: inline-flex;
+    align-items: center;
+    vertical-align: middle;
+    gap: 0.4rem;
+    max-width: 100%;
+    min-width: 0;
+}
+
+.lt-app-icon {
+    position: relative;
+    width: 16px;
+    height: 16px;
+    flex-shrink: 0;
+}
+
+/* In Where It Goes the icon sits alone in a foreignObject, not in a flex row, so it is sized as a block. */
+.lt-sankey-icon {
+    overflow: visible;
+    pointer-events: none;
+}
+
+.lt-sankey-icon .lt-app-icon {
+    display: block;
+    width: 18px;
+    height: 18px;
+    font-size: 11px;
+}
+
+.lt-app-icon img,
+.lt-app-initial,
+.lt-app-glyph {
+    position: absolute;
+    inset: 0;
+    border-radius: 4px;
+}
+
+.lt-app-glyph {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+}
+
+/* Font Awesome's .fa-solid / .fa-brands load after app.css and set display: inline-block, which drops
+   the glyph to the top of its box; this selector outranks them. */
+.lt-app-icon .lt-app-glyph {
+    display: flex;
+    line-height: 1;
+}
+
+/* App marks Font Awesome lacks (Simple Icons, CC0), drawn like a glyph: 1em, in the text color, so
+   they sit in .lt-app-glyph and Client Performance's .app-glyph exactly as an fa-brands icon does. */
+.no-icon::before {
+    content: "";
+    width: 1em;
+    height: 1em;
+    background-color: currentColor;
+    -webkit-mask: var(--no-icon) no-repeat center / contain;
+    mask: var(--no-icon) no-repeat center / contain;
+}
+
+.no-icon-wireguard {
+    --no-icon: url("data:image/svg+xml,%3Csvg viewBox='0 0 24 24' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M23.98 11.645S24.533 0 11.735 0C.418 0 .064 11.17.064 11.17S-1.6 24 11.997 24C25.04 24 23.98 11.645 23.98 11.645zM8.155 7.576c2.4-1.47 5.469-.571 6.618 1.638.218.419.246 1.063.108 1.503-.477 1.516-1.601 2.366-3.145 2.728.455-.39.817-.832.933-1.442a2.112 2.112 0 0 0-.364-1.677 2.14 2.14 0 0 0-2.465-.75c-.95.36-1.47 1.228-1.377 2.294.087.99.839 1.632 2.245 1.876-.21.111-.372.193-.53.281a5.113 5.113 0 0 0-1.644 1.43c-.143.192-.24.208-.458.075-2.827-1.729-3.009-6.067.078-7.956zM6.04 18.258c-.455.116-.895.286-1.359.438.227-1.532 2.021-2.943 3.539-2.782a3.91 3.91 0 0 0-.74 2.072c-.504.093-.98.155-1.44.272zM15.703 3.3c.448.017.898.01 1.347.02a2.324 2.324 0 0 1 .334.047 3.249 3.249 0 0 1-.34.434c-.16.15-.341.296-.573.069-.055-.055-.187-.042-.283-.044-.447-.005-.894-.02-1.34-.003a8.323 8.323 0 0 0-1.154.118c-.072.013-.178.25-.146.338.078.207.191.435.359.567.619.49 1.277.928 1.9 1.413.604.472 1.167.99 1.51 1.7.446.928.46 1.9.267 2.877-.322 1.63-1.147 2.98-2.483 3.962-.538.395-1.205.62-1.821.903-.543.25-1.1.465-1.644.712-.98.446-1.53 1.51-1.369 2.615.149 1.015 1.04 1.862 2.059 2.037 1.223.21 2.486-.586 2.785-1.83.336-1.397-.423-2.646-1.845-3.024l-.256-.066c.38-.17.708-.291 1.012-.458q.793-.437 1.558-.925c.15-.096.231-.096.36.014.977.846 1.56 1.898 1.724 3.187.27 2.135-.74 4.096-2.646 5.101-2.948 1.555-6.557-.215-7.208-3.484-.558-2.8 1.418-5.34 3.797-5.83 1.023-.211 1.958-.637 2.685-1.425.47-.508.697-.944.775-1.141a3.165 3.165 0 0 0 .217-1.158 2.71 2.71 0 0 0-.237-.992c-.248-.566-1.2-1.466-1.435-1.656l-2.24-1.754c-.079-.065-.168-.06-.36-.047-.23.016-.815.048-1.067-.018.204-.155.76-.38 1-.56-.726-.49-1.554-.314-2.315-.46.176-.328 1.046-.831 1.541-.888a7.323 7.323 0 0 0-.135-.822c-.03-.111-.154-.22-.263-.283-.262-.154-.541-.281-.843-.434a1.755 1.755 0 0 1 .906-.28 3.385 3.385 0 0 1 .908.088c.54.123.97.042 1.399-.324-.338-.136-.676-.26-1.003-.407a9.843 9.843 0 0 1-.942-.493c.85.118 1.671.437 2.54.32l.022-.118-2.018-.47c1.203-.11 2.323-.128 3.384.388.299.146.61.266.897.432.14.08.233.24.348.365.09.098.164.23.276.29.424.225.89.234 1.366.223l.01-.16c.479.15 1.017.702 1.017 1.105-.776 0-1.55-.003-2.325.004-.083 0-.165.061-.247.094.078.046.155.128.235.131z M14.703 2.153a.118.118 0 0 0-.016.19.179.179 0 0 0 .246.065c.075-.038.148-.078.238-.125-.072-.062-.13-.114-.19-.163-.106-.087-.193-.032-.278.033z'/%3E%3C/svg%3E");
+}
+
+.no-icon-openvpn {
+    --no-icon: url("data:image/svg+xml,%3Csvg viewBox='0 0 24 24' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M12 .357C5.385.357 0 5.69 0 12.254c0 4.36 2.358 8.153 5.896 10.204l.77-5.076a7.046 7.046 0 01-1.846-4.719c0-3.897 3.18-7.076 7.13-7.076 3.948 0 7.126 3.18 7.126 7.076 0 1.847-.717 3.488-1.846 4.77L18 22.51c3.59-2.05 6-5.899 6-10.258C24 5.69 18.615.357 12 .357zm-.05 8.157a3.786 3.786 0 00-3.796 3.795 3.738 3.738 0 002.461 3.54L9.13 23.643h5.64l-1.435-7.795c1.385-.564 2.41-1.898 2.41-3.54a3.786 3.786 0 00-3.795-3.794z'/%3E%3C/svg%3E");
+}
+
+.no-icon-mqtt {
+    --no-icon: url("data:image/svg+xml,%3Csvg viewBox='0 0 24 24' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M10.657 23.994h-9.45A1.212 1.212 0 0 1 0 22.788v-9.18h.071c5.784 0 10.504 4.65 10.586 10.386Zm7.606 0h-4.045C14.135 16.246 7.795 9.977 0 9.942V6.038h.071c9.983 0 18.121 8.044 18.192 17.956Zm4.53 0h-.97C21.754 12.071 11.995 2.407 0 2.372v-1.16C0 .55.544.006 1.207.006h7.64C15.733 2.49 21.257 7.789 24 14.508v8.291c0 .663-.544 1.195-1.207 1.195ZM16.713.006h6.092A1.19 1.19 0 0 1 24 1.2v5.914c-.91-1.242-2.046-2.65-3.158-3.762C19.588 2.11 18.122.987 16.714.005Z'/%3E%3C/svg%3E");
+}
+
+/* In the phone list's badge row the gap spaces the site badge; its margin is for beside a name. */
+.lt-m-tags .lt-site-badge {
+    margin-left: 0;
+}
+
+.lt-app-icon img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    background: var(--bg-tertiary);
+}
+
+.lt-app-initial {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    background: var(--bg-tertiary);
+    color: var(--text-secondary);
+}
+
+.lt-streams { background: var(--bg-tertiary); color: var(--text-secondary); font-size: 0.72rem; }
+.lt-site-badge { background: rgba(71, 151, 255, 0.15); color: var(--info-color); margin-left: 0.35rem; font-size: 0.72rem; }
+/* A LAN peer's network, in the LAN route's amber. */
+.lt-peer-badge { background: rgba(245, 158, 11, 0.15); color: #f59e0b; margin-left: 0.35rem; font-size: 0.72rem; }
+.lt-m-tags .lt-peer-badge { margin-left: 0; }
+
+.live-traffic .lt-mobile-sort {
+    margin-bottom: 0.5rem;
+}
+
+/* A filter pill in a Live Traffic row, and the hide button that shows beside it on hover or focus */
+.lt-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    max-width: 100%;
+    min-width: 0;
+    vertical-align: middle;
+}
+
+.lt-pill-hide {
+    display: none;
+    flex: 0 0 auto;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    padding: 0;
+    border: 0;
+    border-radius: 50%;
+    background: transparent;
+    color: var(--text-muted);
+    cursor: pointer;
+}
+
+.lt-pill-hide svg {
+    width: 12px;
+    height: 12px;
+}
+
+.lt-pill-hide:hover {
+    color: var(--danger-color);
+    background: var(--bg-hover);
+}
+
+/* Keyboard focus only: a click leaves the pill focused, and :focus-within kept the button up after the pointer left. */
+.lt-pill:hover .lt-pill-hide,
+.lt-pill:has(:focus-visible) .lt-pill-hide {
+    display: inline-flex;
+}
+
+@media (hover: none) {
+    .lt-pill:hover .lt-pill-hide {
+        display: none;
+    }
+}
+
+.filter-pill.is-sub {
+    padding: 0 0.35rem;
+    font-size: 0.68rem;
+    background: transparent;
+    border-color: var(--border-color);
+    color: var(--text-muted);
+}
+
+.filter-pill.is-sub:hover {
+    color: var(--text-primary);
+    border-color: var(--primary-hover);
+}
+
+.filter-pill.is-sub.active {
+    background: var(--primary-color);
+    border-color: transparent;
+    color: var(--text-primary);
+}
+
+/* Full view */
+.live-traffic .lt-stats {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 1rem;
+    margin-bottom: 1rem;
+}
+
+.live-traffic .lt-stat {
+    margin: 0;
+}
+
+.live-traffic .lt-stat .card-body {
+    padding: 0.9rem 1rem;
+}
+
+.lt-stat-label {
+    color: var(--text-secondary);
+    font-size: 0.75rem;
+    margin-bottom: 0.3rem;
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+}
+
+.lt-stat-value {
+    font-size: 1.35rem;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+}
+
+.lt-stat-sub {
+    color: var(--text-secondary);
+    font-size: 0.78rem;
+    margin-top: 0.2rem;
+    font-variant-numeric: tabular-nums;
+}
+
+.lt-meter {
+    height: 6px;
+    border-radius: 3px;
+    background: var(--bg-tertiary);
+    overflow: hidden;
+    margin-top: 0.5rem;
+    display: flex;
+}
+
+.lt-meter span {
+    display: block;
+    height: 100%;
+}
+
+.lt-filterbar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem 0.75rem;
+    align-items: center;
+    margin-bottom: 1rem;
+}
+
+.lt-search {
+    flex: 1 1 320px;
+    max-width: 460px;
+    position: relative;
+}
+
+.lt-search .form-control {
+    padding-left: 2rem;
+}
+
+.lt-search svg {
+    position: absolute;
+    left: 0.6rem;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 14px;
+    height: 14px;
+    color: var(--text-muted);
+}
+
+/* While it holds text the box is filtering the page: tinted like the filter chips beside it. */
+.lt-search.is-active .form-control {
+    background: rgba(46, 121, 196, 0.15);
+    border-color: rgba(46, 121, 196, 0.6);
+    box-shadow: 0 0 0 1px rgba(46, 121, 196, 0.35);
+    padding-right: 2rem;
+}
+
+.lt-search.is-active svg {
+    color: var(--primary-lighter);
+}
+
+.lt-search .lt-search-clear {
+    position: absolute;
+    right: 0.45rem;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 20px;
+    height: 20px;
+    border: none;
+    border-radius: 50%;
+    background: transparent;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-secondary);
+    font-size: 1rem;
+    line-height: 1;
+    cursor: pointer;
+}
+
+.lt-search .lt-search-clear:hover {
+    background: var(--bg-elevated);
+    color: var(--text-primary);
+}
+
+.lt-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.25rem 0.35rem 0.25rem 0.6rem;
+    border-radius: 999px;
+    background: rgba(46, 121, 196, 0.15);
+    color: var(--primary-lighter);
+    font-size: 0.78rem;
+    border: 1px solid rgba(46, 121, 196, 0.35);
+}
+
+.lt-chip.is-exclude {
+    background: rgba(238, 99, 104, 0.12);
+    color: var(--danger-color);
+    border-color: rgba(238, 99, 104, 0.35);
+}
+
+.lt-chip b {
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.lt-chip .lt-x {
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-secondary);
+    cursor: pointer;
+}
+
+.lt-chip .lt-x:hover {
+    background: var(--bg-elevated);
+}
+
+.lt-clear {
+    font-size: 0.78rem;
+    color: var(--text-secondary);
+}
+
+.lt-filterbar .lt-right {
+    margin-left: auto;
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+}
+
+.lt-starting {
+    padding: 0.75rem 1rem;
+    border-radius: var(--border-radius);
+    margin-bottom: 1rem;
+    font-size: 0.85rem;
+}
+
+.lt-body {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+
+.lt-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr);
+    gap: 1rem;
+}
+
+.live-traffic .lt-grid .card,
+.live-traffic .lt-body > .card {
+    margin: 0;
+}
+
+.lt-sankey-svg {
+    width: 100%;
+    height: auto;
+    display: block;
+}
+
+.lt-sankey-node.is-clickable {
+    cursor: pointer;
+}
+
+/* A node the page is filtered to: clicking it again removes the filter. */
+.lt-sankey-svg .lt-sankey-node.is-filtered .lt-node-label {
+    fill: var(--primary-light);
+    font-weight: 600;
+}
+
+.lt-sankey-svg .lt-sankey-node.is-filtered rect {
+    stroke: var(--primary-light);
+    stroke-width: 1.5;
+}
+
+/* Where It Goes sits centered when Live DNS beside it runs taller. */
+.lt-sankey-card {
+    display: flex;
+    flex-direction: column;
+}
+
+.lt-sankey-card > .card-body {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+}
+
+/* Nodes and bands tween between refreshes instead of jumping. */
+.lt-sankey-svg .lt-sankey-node,
+.lt-sankey-svg .lt-node-text {
+    transition: transform 0.45s ease;
+}
+
+.lt-sankey-svg .lt-sankey-node rect {
+    transition: height 0.45s ease;
+}
+
+.lt-sankey-svg path {
+    transition: d 0.45s ease, stroke-width 0.45s ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .lt-sankey-svg .lt-sankey-node,
+    .lt-sankey-svg .lt-node-text,
+    .lt-sankey-svg .lt-sankey-node rect,
+    .lt-sankey-svg path {
+        transition: none;
+    }
+}
+
+/* A row sliding into place is translated past the list's edge for a moment: clip it rather than
+   let the scroll wrapper grow dead space and a scrollbar. */
+.live-traffic .table-responsive,
+.live-traffic .lt-mobile-list.lt-flip,
+.lt-client .table-responsive,
+.lt-client .lt-mobile-list.lt-flip {
+    overflow-y: hidden;
+}
+
+.lt-held {
+    font-size: 0.72rem;
+    color: var(--text-muted);
+    border: 1px solid var(--border-color);
+    border-radius: 999px;
+    padding: 0.05rem 0.5rem;
+}
+
+.lt-sankey-node.is-clickable:hover .lt-node-label {
+    fill: var(--primary-light);
+}
+
+.lt-sankey-svg .lt-node-label {
+    fill: var(--text-primary);
+    font-size: 12px;
+    font-family: Inter, sans-serif;
+}
+
+.lt-sankey-svg .lt-node-sub {
+    fill: var(--text-secondary);
+    font-size: 10px;
+    font-family: Inter, sans-serif;
+    font-variant-numeric: tabular-nums;
+}
+
+.lt-sankey-svg .lt-col-label {
+    fill: var(--text-muted);
+    font-size: 10px;
+    font-family: Inter, sans-serif;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+}
+
+.lt-legend-note {
+    color: var(--text-muted);
+    font-size: 0.75rem;
+    margin-top: 0.5rem;
+}
+
+.lt-dns-table {
+    width: 100%;
+    min-width: 0;
+    table-layout: fixed;
+    font-size: 0.8rem;
+    font-variant-numeric: tabular-nums;
+}
+
+.lt-dns-table th,
+.lt-dns-table td {
+    padding: 0.38rem 0.5rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.lt-dns-table tr.is-bypass td {
+    background: rgba(231, 150, 19, 0.06);
+}
+
+.lt-dns-table tr.is-redirected td {
+    background: rgba(71, 151, 255, 0.07);
+}
+
+.lt-dns-sub {
+    display: block;
+    color: var(--text-muted);
+    font-size: 0.7rem;
+}
+
+.lt-dns-foot {
+    color: var(--text-muted);
+    font-size: 0.72rem;
+    margin-top: 0.6rem;
+    line-height: 1.4;
+}
+
+/* Live Traffic is a wide table plus Where It Goes and Live DNS side by side: it takes up to 1920px
+   on a desktop instead of the layout's standard 1400px. */
+.content:has(.live-traffic) {
+    max-width: 1920px;
+}
+
+/* A lookup sent to an outside resolver that the Gateway redirected to a site one: the attempt, not a bypass. */
+.lt-dns-redirect {
+    color: var(--info-color);
+    font-size: 0.75rem;
+    margin-left: 0.3rem;
+    white-space: nowrap;
+}
+
+.lt-dns-controls {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+}
+
+.lt-dns-controls .lt-dns-local {
+    margin: 0;
+    font-size: 0.85rem;
+    white-space: nowrap;
+}
+
+.lt-flows {
+    table-layout: fixed;
+    width: 100%;
+    font-variant-numeric: tabular-nums;
+}
+
+.lt-flows th,
+.lt-flows td {
+    padding: 0.5rem 0.6rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.lt-flows .lt-flow-row {
+    cursor: pointer;
+}
+
+.lt-flows .lt-rank {
+    color: var(--text-muted);
+    white-space: nowrap;
+    padding-right: 0.25rem;
+    font-variant-numeric: tabular-nums;
+}
+
+.lt-flows .lt-sub {
+    display: block;
+    color: var(--text-muted);
+    font-size: 0.72rem;
+}
+
+.lt-flows tr.lt-selected td {
+    background: var(--bg-hover);
+}
+
+.lt-flows .lt-sub.lt-port-line {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    margin-top: 0.15rem;
+    overflow: hidden;
+}
+
+.lt-flows tr.is-blocked:not(.lt-selected) td {
+    background: rgba(238, 99, 104, 0.04);
+}
+
+/* History: the Timeline card */
+.live-traffic .lt-timeline-card {
+    margin: 0 0 1rem;
+}
+
+.lt-tl-readout {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    min-height: 1.2rem;
+    margin-bottom: 0.35rem;
+    font-size: 0.78rem;
+    font-variant-numeric: tabular-nums;
+}
+
+.lt-tl-readout-time {
+    color: var(--text-primary);
+    font-weight: 600;
+}
+
+.lt-tl-blocked-text {
+    color: #ef5858;
+}
+
+.lt-tl-svg {
+    display: block;
+    width: 100%;
+    height: 124px;
+    cursor: crosshair;
+    user-select: none;
+}
+
+.lt-tl-grid {
+    stroke: #374151;
+    stroke-width: 0.5;
+    vector-effect: non-scaling-stroke;
+}
+
+.lt-tl-allowed { fill: #3b82f6; }
+.lt-tl-blocked { fill: #ef5858; }
+.lt-tl-hit { fill: transparent; }
+.lt-tl-selection { fill: rgba(46, 121, 196, 0.15); }
+
+.lt-tl-bar.is-dim {
+    opacity: 0.3;
+}
+
+.lt-tl-bar:hover .lt-tl-allowed,
+.lt-tl-bar:hover .lt-tl-blocked {
+    filter: brightness(1.3);
+}
+
+.lt-tl-ticks {
+    position: relative;
+    height: 1.1rem;
+    font-size: 0.7rem;
+    color: #9ca3af;
+    font-variant-numeric: tabular-nums;
+}
+
+.lt-tl-ticks span {
+    position: absolute;
+    transform: translateX(-50%);
+    white-space: nowrap;
+}
+
+.lt-tl-legend {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+    margin-top: 0.4rem;
+}
+
+.lt-tl-legend .lt-legend-note {
+    margin: 0 0 0 0.25rem;
+}
+
+.lt-tl-legend .filter-pill-text::before {
+    content: "";
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    margin-right: 0.35rem;
+    border-radius: 2px;
+}
+
+.lt-tl-legend .lt-action-allowed .filter-pill-text::before { background: #3b82f6; }
+.lt-tl-legend .lt-action-blocked .filter-pill-text::before { background: #ef5858; }
+
+.lt-show-more {
+    margin-top: 0.75rem;
+}
+
+.lt-detail-history {
+    grid-template-columns: 1fr 1fr;
+}
+
+.lt-spark {
+    width: calc(100% - 0.25rem);
+    max-width: 90px;
+    height: 22px;
+    display: block;
+}
+
+.data-table.lt-flows tr.lt-detail > td,
+.lt-client .lt-flows tr.lt-detail > td {
+    white-space: normal;
+    background: var(--bg-hover-subtle);
+    padding: 0;
+}
+
+.lt-detail-wrap {
+    display: grid;
+    grid-template-columns: 1.2fr 1fr 1fr;
+    gap: 1.25rem;
+    padding: 1rem 1.25rem 1.1rem 3rem;
+    cursor: default;
+}
+
+.lt-detail-wrap h4 {
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-muted);
+    font-weight: 600;
+    margin: 0 0 0.5rem;
+}
+
+.lt-kv {
+    display: grid;
+    grid-template-columns: max-content 1fr;
+    gap: 0.3rem 0.9rem;
+    font-size: 0.8rem;
+    margin: 0;
+}
+
+.lt-kv dt {
+    color: var(--text-secondary);
+    font-weight: 400;
+}
+
+.lt-kv dd {
+    margin: 0;
+    color: var(--text-primary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* A short grey line under a value that explains where it came from; it wraps instead of cutting off. */
+.lt-kv dd .lt-kv-note {
+    display: block;
+    white-space: normal;
+    color: var(--text-muted);
+    font-size: 0.75rem;
+    line-height: 1.35;
+    margin-top: 0.1rem;
+}
+
+.lt-detail-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-top: 0.9rem;
+}
+
+.lt-chart svg {
+    width: 100%;
+    height: 110px;
+    display: block;
+}
+
+/* Phone: stacked rows replace the tables */
+.lt-mobile-list,
+.live-traffic .lt-mobile-only,
+.lt-client .lt-mobile-only {
+    display: none;
+}
+
+.lt-m-row {
+    padding: 0.65rem 0;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.lt-m-row:last-child {
+    border-bottom: 0;
+}
+
+.lt-m-top {
+    display: flex;
+    justify-content: space-between;
+    gap: 0.5rem;
+    font-size: 0.85rem;
+}
+
+.lt-m-top .lt-m-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-weight: 500;
+}
+
+.lt-m-dest {
+    color: var(--text-secondary);
+    font-size: 0.78rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    margin: 0.15rem 0 0.35rem;
+}
+
+.lt-m-top + .lt-m-tags {
+    margin-top: 0.4rem;
+}
+
+.lt-m-tags {
+    display: flex;
+    gap: 0.4rem 0.35rem;
+    flex-wrap: wrap;
+    align-items: center;
+    font-size: 0.78rem;
+}
+
+.lt-m-rates {
+    text-align: right;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+    font-size: 0.8rem;
+}
+
+.lt-m-detail .lt-detail-wrap {
+    grid-template-columns: minmax(0, 1fr);
+    padding: 0.75rem 0 0;
+}
+
+@media (max-width: 768px) {
+    .live-traffic .lt-stats {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 0.6rem;
+    }
+
+    /* One part per line, never wrapped: the card height must not follow the live rates. */
+    .live-traffic .lt-stat-label {
+        overflow: hidden;
+        white-space: nowrap;
+    }
+
+    .live-traffic .lt-sub-part {
+        display: block;
+        overflow: hidden;
+        white-space: nowrap;
+        text-overflow: ellipsis;
+    }
+
+    .live-traffic .lt-sub-sep {
+        display: none;
+    }
+
+    /* A rate and its capacity: the rate at the left, "of 1 Gbps" against the right edge. */
+    .live-traffic .lt-sub-part.lt-sub-ratio {
+        display: flex;
+        justify-content: space-between;
+        gap: 0.35rem;
+    }
+
+    .live-traffic .lt-sub-ratio .lt-sub-of {
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    /* Room for the longest sub (a WAN without capacity: down, up, clients), so a part that comes and goes moves nothing. */
+    .live-traffic .lt-stat-sub {
+        min-height: calc(3 * 1.5em);
+        line-height: 1.5;
+    }
+
+    /* After the desktop rule, so it wins: same specificity. */
+    .live-traffic .lt-stat .card-body {
+        padding: 0.5rem 0.6rem;
+    }
+
+    .lt-stat-value {
+        font-size: 1.1rem;
+    }
+
+    .lt-grid {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .lt-sankey-card,
+    .lt-desktop-only {
+        display: none;
+    }
+
+    .lt-mobile-list {
+        display: block;
+    }
+
+    .live-traffic .lt-mobile-only,
+    .lt-client .lt-mobile-only {
+        display: flex;
+    }
+
+    .lt-body > .lt-grid {
+        order: 2;
+    }
+
+    .lt-filterbar .lt-right,
+    .lt-card-tools .lt-tools-right {
+        margin-left: 0;
+    }
+
+    .lt-search {
+        max-width: none;
+    }
+
+    .lt-tl-svg {
+        height: 96px;
+    }
+
+    .lt-nested-table .hogs-col-rate { width: 25%; }
+    .lt-nested-table .hogs-col-share { width: 16%; }
+
+    .lt-nested-table td,
+    .lt-nested-table th {
+        padding: 0.3rem 0.4rem;
+    }
+
+    .lt-nested-table td:nth-child(2) {
+        padding-left: 0.9rem;
+    }
+
+    .lt-nested-more {
+        padding-left: 0.9rem;
+    }
+}
+
+/* Client Performance - Data / Apps: one client's Live Traffic, in that page's card style. */
+.lt-client .chart-card-header h3 {
+    margin: 0;
+}
+
+.lt-client-title {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    min-width: 0;
+}
+
+/* The header's controls sit together at its right; the title takes what is left. */
+.lt-client-header > .lt-client-title {
+    flex: 1 1 auto;
+}
+
+.lt-client-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-left: auto;
+}
+
+.lt-client-actions .monitoring-jump-btn:last-child {
+    margin-right: -0.35rem;
+}
+
+@media (max-width: 768px) {
+    .lt-client-actions .time-range-selector {
+        flex: 0 0 auto;
+        width: auto;
+    }
+
+    .lt-client-actions .time-range-selector .time-btn {
+        flex: 0 0 auto;
+        padding: 0.3rem 0.6rem;
+        font-size: 0.75rem;
+    }
+}
+
+.lt-held.is-off {
+    visibility: hidden;
+}
+
+/* Client Performance's table pads cells wider than Live Traffic's: the rank keeps its chevron and number. */
+.lt-client .lt-flows .lt-rank {
+    padding-right: 4px;
+}
+
+/* A touch holds the order on a phone, where the pill would push the switch to a second line. */
+@media (max-width: 768px) {
+    .lt-client .lt-held {
+        display: none;
+    }
+}
+
+.lt-client-summary {
+    margin: -4px 0 10px;
+    color: var(--text-secondary);
+    font-size: 0.8125rem;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.lt-client-chips {
+    margin-bottom: 0.6rem;
+}
+
+.lt-client-state {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    min-height: 4.5rem;
+    color: var(--text-secondary);
+    font-size: 0.85rem;
+}
+
+/* The reason wraps whole; its link never breaks across lines. */
+.lt-client-state {
+    flex-wrap: wrap;
+}
+
+.lt-client-state > a {
+    white-space: nowrap;
+}
+
+.lt-client-state.loading-container {
+    flex-direction: column;
+    justify-content: center;
+}
+
+/* No Gateway agent: the one-line reason, then the client's History from UniFi Network. */
+.lt-client-state:has(+ .lt-client-history) {
+    min-height: 0;
+    margin-bottom: 0.9rem;
+}
+
+.lt-client-history-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0.25rem 0.6rem;
+    margin-bottom: 0.5rem;
+}
+
+.lt-client-empty {
+    padding: 1.25rem 0;
+}
+
+.lt-client .lt-mobile-sort {
+    margin-bottom: 0.5rem;
+}
+
+/* Padding rows: the height of a row with its sub-line, and nothing in them. */
+.lt-client tr.lt-slot-empty td {
+    border-bottom-color: transparent;
+}
+
+.lt-client .lt-mobile-list .lt-m-row.lt-slot-empty {
+    min-height: 4.6rem;
+    border-bottom-color: transparent;
+}
+
+.lt-client .lt-mobile-list .lt-m-row.lt-dns-slot {
+    min-height: 3.4rem;
+}
+
+/* Applications - Right now: the client's live apps on one line that scrolls sideways. */
+.lt-now {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    min-height: 2rem;
+    margin: 0 0 0.6rem;
+}
+
+.lt-now-label {
+    flex: 0 0 auto;
+    color: var(--text-secondary);
+    font-size: 0.6875rem;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.lt-now-chips {
+    display: flex;
+    flex: 1 1 auto;
+    gap: 0.4rem;
+    min-width: 0;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: none;
+}
+
+.lt-now-chips::-webkit-scrollbar {
+    display: none;
+}
+
+.lt-now-chip {
+    flex: 0 0 auto;
+    gap: 0.4rem;
+    padding: 0.25rem 0.55rem;
+}
+
+.lt-now-name {
+    color: var(--text-primary);
+}
+
+/* Each rate in a fixed slot, so a chip keeps its width as the rate moves. */
+.lt-now-rates {
+    font-size: 0.75rem;
+    font-variant-numeric: tabular-nums;
+}
+
+.lt-now-rates .speed-down,
+.lt-now-rates .speed-up {
+    display: inline-block;
+    min-width: 4.8em;
+}
+
+.lt-now-rates .speed-down {
+    text-align: right;
+}
+
+/* The kept app's chip is filled with the primary blue: its figures read in its text color. */
+.lt-now-chip.active .speed-down,
+.lt-now-chip.active .speed-up,
+.lt-now-chip.active .lt-now-flows {
+    color: inherit;
+}
+
+@media (max-width: 768px) {
+    .lt-now-flows {
+        display: none;
+    }
+}
+
+.lt-now-flows {
+    color: var(--text-muted);
+    font-size: 0.72rem;
+}
+
+.lt-now-empty {
+    color: var(--text-muted);
+    font-size: 0.8rem;
+    white-space: nowrap;
+}
+
+/* Client Performance - Speed: what the client moves through the Gateway, under Live Throughput. */
+.lt-note {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 0.75rem;
+    margin-top: 10px;
+    color: var(--text-secondary);
+    font-size: 0.8125rem;
+    font-variant-numeric: tabular-nums;
+}
+
+.lt-note-text {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+
+.lt-note-line {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.lt-note-link {
+    flex: 0 0 auto;
+    white-space: nowrap;
+}
+
+/* On a phone the link takes its own line under the two the note always has. */
+@media (max-width: 768px) {
+    .lt-note {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 0.2rem;
+    }
+
+    .lt-note-link {
+        align-self: flex-start;
     }
 }
 

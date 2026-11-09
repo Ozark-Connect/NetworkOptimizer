@@ -1,0 +1,79 @@
+@* One Live DNS lookup, as every Live DNS list draws it. *@
+@inherits LiveTrafficPieces
+@{
+    var d = Lookup;
+}
+@if (Layout == LiveDnsLayout.List)
+{
+    <div class="lt-m-row">
+        <div class="lt-m-top">
+            <span class="lt-m-name">@Pill(LiveTrafficField.Destination, d.Name)</span>
+            <span class="lt-m-rates">@Answer(d)</span>
+        </div>
+        <div class="lt-m-tags">
+            @if (ShowClient)
+            {
+                @Pill(LiveTrafficField.Client, d.ClientName)
+            }
+            @ResolverPill(d)
+            <span class="lt-muted lt-small">@d.QType</span>
+        </div>
+    </div>
+}
+else
+{
+    <tr class="@(d.Bypass ? "is-bypass" : d.RedirectedTo != null ? "is-redirected" : null)">
+        @if (ShowClient)
+        {
+            <td>@Pill(LiveTrafficField.Client, d.ClientName)</td>
+        }
+        <td>
+            @Pill(LiveTrafficField.Destination, d.Name)
+            <span class="lt-dns-sub">@d.QType &middot; @LocalTime(d.At)</span>
+        </td>
+        <td>@ResolverPill(d)</td>
+        <td>@Answer(d)</td>
+    </tr>
+}
+
+@code {
+    [Parameter, EditorRequired] public LiveDnsRow Lookup { get; set; } = default!;
+    [Parameter] public LiveDnsLayout Layout { get; set; }
+    /// <summary>The client's name; off where the list is one client's own.</summary>
+    [Parameter] public bool ShowClient { get; set; } = true;
+
+    private RenderFragment ResolverPill(LiveDnsRow d) => __builder =>
+    {
+        <span class="lt-dns-resolver">
+            @Pill(LiveTrafficField.Resolver, d.Resolver, label: d.Encrypted ? d.QType : d.Resolver, cls: d.Bypass ? "lt-bypass" : d.RedirectedTo != null ? "lt-redirected" : null)
+            @if (d.RedirectedTo != null)
+            {
+                <span class="lt-dns-redirect" data-tooltip="@($"Sent to {d.Resolver}; your Gateway redirected it to {d.RedirectedTo}")">→ @d.RedirectedTo</span>
+            }
+        </span>
+    };
+
+    private static RenderFragment Answer(LiveDnsRow d) => __builder =>
+    {
+        if (d.Encrypted)
+        {
+            <span class="lt-muted">encrypted</span>
+        }
+        else if (!d.Answered)
+        {
+            <span class="lt-muted">no answer</span>
+        }
+        else if (d.RCode is "NXDOMAIN" or "SERVFAIL" or "REFUSED")
+        {
+            <span style="color: var(--danger-color);">@d.RCode</span>
+        }
+        else if (d.Blocked)
+        {
+            <span style="color: var(--danger-color);" data-tooltip="Answered 0.0.0.0 or ::, the way DNS blockers refuse a name">Blocked</span>
+        }
+        else
+        {
+            <span class="lt-secondary">@(d.LatencyMs >= 0 ? DisplayFormatters.FormatResponseMs(d.LatencyMs) : d.RCode)</span>
+        }
+    };
+}
