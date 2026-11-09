@@ -24963,6 +24963,10 @@ body:has(.top-bar-hidden) .btn-fit {
     font-family: Inter, sans-serif;
 }
 
+.lt-sankey-svg .lt-node-sub .lt-sub-down { fill: var(--speed-download-color); }
+.lt-sankey-svg .lt-node-sub .lt-sub-up { fill: var(--speed-upload-color); }
+.lt-sankey-svg .lt-node-sub .lt-sub-idle { fill: var(--text-muted); }
+
 .lt-sankey-svg .lt-node-sub {
     fill: var(--text-secondary);
     font-size: 10px;

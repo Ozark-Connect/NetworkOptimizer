@@ -117,8 +117,7 @@
     };
 
     /// <summary>
-    /// A live rate in its direction's color; an idle direction reads a muted "0 bps", never "-".
-    /// "-" is left for an ended flow, which has no rate at all.
+    /// A live rate in its direction's color; an idle direction, or an ended flow, reads a muted "0 bps", never "-".
     /// </summary>
     protected static RenderFragment Rate(double bps, string cls) => __builder =>
     {
