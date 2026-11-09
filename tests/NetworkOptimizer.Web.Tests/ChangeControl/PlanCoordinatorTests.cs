@@ -689,6 +689,9 @@ public sealed class PlanCoordinatorTests : IDisposable
         await _plans.InformFallback;
     }
 
+    /// <summary>The last alert that reports the set-inform pass.</summary>
+    private AlertEvent FollowUp() => _bus.Published.Last(e => e.Title.StartsWith(PlanCoordinator.SetInformTitle));
+
     [Fact]
     public async Task Readdress_OfflineDevice_SetInformAtTheNewAddressThenTheOld_Once_AlertListsIt()
     {
@@ -700,8 +703,12 @@ public sealed class PlanCoordinatorTests : IDisposable
         await WatchToAlertAsync();
 
         _dials.Should().Equal(("10.42.99.11", $"set-inform {InformUrl}"), ("192.168.99.11", $"set-inform {InformUrl}"));
-        _bus.Published.Should().ContainSingle(e => e.Title.StartsWith("Network devices offline after"))
-            .Which.Message.Should().Contain("set-inform sent over SSH: Switch at 192.168.99.11.");
+        // The offline alert goes out as before; the outcome follows it.
+        _bus.Published.Should().ContainSingle(e => e.Title.StartsWith("Network devices offline after") && !e.Message.Contains("set-inform"));
+        _bus.Published.FindIndex(e => e.Title.StartsWith("Network devices offline after"))
+            .Should().BeLessThan(_bus.Published.FindIndex(e => e.Title.StartsWith(PlanCoordinator.SetInformTitle)));
+        FollowUp().Message.Should().StartWith("set-inform sent over SSH: Switch at 192.168.99.11.");
+        FollowUp().Severity.Should().Be(NetworkOptimizer.Core.Enums.AlertSeverity.Warning);
         (await PlanAsync(id))!.Status.Should().Be(ConfigPlanStatus.Watching);
         Writes().Should().Be(writes, "the fallback never writes to the Console");
     }
@@ -746,7 +753,7 @@ public sealed class PlanCoordinatorTests : IDisposable
 
         await WatchToAlertAsync();
 
-        _bus.Published.Single(e => e.Title.StartsWith("Network devices offline after")).Message.Should()
+        FollowUp().Message.Should()
             .Contain("SSH to each Device at the address shown, from a host already on its new address, and run: ")
             .And.Contain($"Switch (10.42.99.11, or 192.168.99.11 if it never moved): set-inform {InformUrl}");
     }
@@ -763,7 +770,7 @@ public sealed class PlanCoordinatorTests : IDisposable
         await WatchToAlertAsync();
 
         _dials.Should().OnlyContain(d => d.Command == $"set-inform {InformUrl}", "Network Optimizer never changes a device's routes");
-        _bus.Published.Single(e => e.Title.StartsWith("Network devices offline after")).Message.Should()
+        FollowUp().Message.Should()
             .Contain($"ip route add 10.42.99.220/32 dev <if>; set-inform {InformUrl}").And.Contain("<if> is the interface");
     }
 
@@ -771,14 +778,31 @@ public sealed class PlanCoordinatorTests : IDisposable
     public async Task Readdress_DhcpDeviceWithNoKnownAddress_IsSkippedAndListed()
     {
         Ssh(configured: true, accepts: _ => true);
-        await ApplyReaddressAsync(devices: InformDevices(switchNewIp: null));
+        var devices = InformDevices(switchNewIp: null);
+        devices[0] = devices[0] with { OldIp = null };
+        await ApplyReaddressAsync(devices: devices);
         DeviceState(0);
 
         await WatchToAlertAsync();
 
         _dials.Should().BeEmpty();
-        _bus.Published.Single(e => e.Title.StartsWith("Network devices offline after")).Message.Should()
-            .Contain($"Switch (DHCP, last at 192.168.99.11): set-inform {InformUrl}");
+        FollowUp().Message.Should()
+            .Contain($"Switch (DHCP, address unknown): set-inform {InformUrl}");
+    }
+
+    [Fact]
+    public async Task Readdress_DhcpDeviceThatHasNotRenewed_IsDialedAtItsOldAddress_WithTheIpUrl()
+    {
+        Ssh(configured: true, accepts: _ => true);
+        var devices = InformDevices(switchNewIp: null);
+        devices[0] = devices[0] with { SetInformUrl = "http://unifi.lan:8080/inform", SetInformIpUrl = InformUrl };
+        await ApplyReaddressAsync(devices: devices);
+        DeviceState(0);
+
+        await WatchToAlertAsync();
+
+        _dials.Should().Equal(("192.168.99.11", $"set-inform {InformUrl}"));
+        FollowUp().Message.Should().StartWith("set-inform sent over SSH: Switch at 192.168.99.11.");
     }
 
     [Fact]
@@ -793,7 +817,8 @@ public sealed class PlanCoordinatorTests : IDisposable
         await WatchToAlertAsync();
 
         _dials.Should().BeEmpty();
-        _bus.Published.Single(e => e.Title.StartsWith("Network devices offline after")).Message.Should().NotContain("set-inform");
+        _bus.Published.Should().ContainSingle(e => e.Title.StartsWith("Network devices offline after") && !e.Message.Contains("set-inform"));
+        _bus.Published.Should().NotContain(e => e.Title.StartsWith(PlanCoordinator.SetInformTitle));
     }
 
     [Fact]
@@ -809,7 +834,7 @@ public sealed class PlanCoordinatorTests : IDisposable
         await WatchToAlertAsync();
 
         _dials.Should().BeEmpty();
-        _bus.Published.Single(e => e.Title.StartsWith("Network devices offline after")).Message.Should()
+        FollowUp().Message.Should()
             .Contain("Gateway SSH is not configured.").And.Contain($"Gateway (10.42.99.11, or 192.168.99.11 if it never moved): set-inform {InformUrl}");
     }
 
@@ -824,7 +849,7 @@ public sealed class PlanCoordinatorTests : IDisposable
 
         await WatchToAlertAsync();
 
-        _bus.Published.Single(e => e.Title.StartsWith("Network devices offline after")).Message.Should()
+        FollowUp().Message.Should()
             .Contain("set-inform sent over SSH: Switch at 192.168.99.11.")
             .And.Contain("For the rest, or one that stays offline, SSH to it")
             .And.Contain($"ip route add 10.42.99.220/32 dev <if>; set-inform {InformUrl}");
@@ -840,7 +865,7 @@ public sealed class PlanCoordinatorTests : IDisposable
         await WatchToAlertAsync();
 
         _dials.Should().BeEmpty();
-        _bus.Published.Single(e => e.Title.StartsWith("Network devices offline after")).Message.Should()
+        FollowUp().Message.Should()
             .Contain("Device SSH is not configured").And.Contain($"set-inform {InformUrl}");
     }
 
@@ -882,6 +907,7 @@ public sealed class PlanCoordinatorTests : IDisposable
         await WatchToAlertAsync();
 
         _dials.Should().BeEmpty();
-        _bus.Published.Single(e => e.Title.StartsWith("Network devices offline after")).Message.Should().NotContain("set-inform");
+        _bus.Published.Should().ContainSingle(e => e.Title.StartsWith("Network devices offline after") && !e.Message.Contains("set-inform"));
+        _bus.Published.Should().NotContain(e => e.Title.StartsWith(PlanCoordinator.SetInformTitle));
     }
 }

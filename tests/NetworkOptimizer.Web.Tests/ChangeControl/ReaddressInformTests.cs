@@ -252,6 +252,19 @@ public class ReaddressInformTests
     }
 
     [Fact]
+    public void ConsoleAtAVpnServerNetworksGatewayAddress_StillGetsTheOverrideWrite()
+    {
+        var live = Site();
+        live.Collections["networkconf"].Add(JsonNode.Parse(
+            $$"""{"_id":"vpn","name":"VPN Server","purpose":"remote-user-vpn","ip_subnet":"{{Console}}/30"}""")!.AsObject());
+
+        var v = Classify(live, Console, standalone: true);
+
+        v.OverrideIp.Should().Be("10.42.99.220", "only LAN networks' addresses are the gateway's");
+        v.Devices.Should().OnlyContain(d => d.Route == InformRoute.ConsoleRepointed);
+    }
+
+    [Fact]
     public void ConsoleAtAGatewayLanAddress_NeverGetsAnOverrideWrite_EvenWhenTheTypeDidNotRead()
     {
         var v = Classify(Site(), "192.168.1.1", standalone: true);

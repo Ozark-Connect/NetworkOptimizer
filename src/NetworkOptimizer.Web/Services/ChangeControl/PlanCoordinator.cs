@@ -321,6 +321,7 @@ public sealed class PlanCoordinator
         if (plan.Status is ConfigPlanStatus.Applying or ConfigPlanStatus.Watching || ConfigPlanStatuses.Terminal.Contains(plan.Status))
             throw new InvalidOperationException("The plan has already applied.");
         plan.Status = ConfigPlanStatus.Cancelled;
+        _informTried.TryRemove(plan.Id, out _);
         plan.CompletedAt = DateTime.UtcNow;
         await _engine.Repositories.UseAsync((r, c) => r.UpdatePlanAsync(plan, c), ct);
     }
@@ -628,6 +629,7 @@ public sealed class PlanCoordinator
                 var reverted = report.State == AgentProtocol.ConfigRevert.Reverted;
                 plan.Status = reverted ? ConfigPlanStatus.Reverted : ConfigPlanStatus.Failed;
                 plan.Message = report.Detail;
+                _informTried.TryRemove(plan.Id, out _);
                 plan.CompletedAt = DateTime.UtcNow;
                 _misses.TryRemove(plan.Id, out _);
                 await _engine.Repositories.UseAsync((r, c) => r.UpdatePlanAsync(plan, c), ct);
@@ -756,24 +758,31 @@ public sealed class PlanCoordinator
                       + "so Network Optimizer does not revert this plan. Move the Console to its new address; Roll Back in Review Plan puts the old addresses back."
                     : $"{reason} after a re-address that moved their management network ({doc.Context[ReaddressManagementContext]}). Network devices reconnect at their new addresses "
                       + "once the gateway provisions them, so Network Optimizer does not revert this plan. If one stays offline, Roll Back in Review Plan puts the old addresses back.";
+                await Publish(ChangeAlerts.PlanFailed, AlertSeverity.Warning, title, message, plan.Id, ct);
                 var gone = plan.Kind == ConfigPlanKind.Readdress ? InformTargets(doc, offline ?? []) : [];
-                if (gone.Count == 0)
-                    await Publish(ChangeAlerts.PlanFailed, AlertSeverity.Warning, title, message, plan.Id, ct);
-                else
+                if (gone.Count > 0)
                 {
-                    // Off the tick, so the watch's timing is the same with or without SSH; the alert waits for the attempts.
+                    // Off the tick, so the watch's timing is the same with or without SSH; its outcome follows the alert.
                     var planId = plan.Id;
                     var planName = plan.Name;
                     InformFallback = Task.Run(async () =>
                     {
-                        List<SetInformResult> results;
-                        try { results = await SetInformAsync(planId, planName, gone, CancellationToken.None); }
+                        try
+                        {
+                            List<SetInformResult> results;
+                            try { results = await SetInformAsync(planId, planName, gone, CancellationToken.None); }
+                            catch (Exception ex)
+                            {
+                                _logger.LogWarning(ex, "set-inform pass failed for plan {Plan}", planId);
+                                results = [.. gone.Select(d => new SetInformResult(d, SetInformOutcome.Failed))];
+                            }
+                            await Publish(ChangeAlerts.PlanFailed, AlertSeverity.Warning, $"{SetInformTitle}{planName}",
+                                DescribeSetInform(results).TrimStart(), planId, CancellationToken.None);
+                        }
                         catch (Exception ex)
                         {
-                            _logger.LogWarning(ex, "set-inform pass failed for plan {Plan}", planId);
-                            results = [.. gone.Select(d => new SetInformResult(d, SetInformOutcome.Failed))];
+                            _logger.LogWarning(ex, "Could not publish the set-inform outcome for plan {Plan}", planId);
                         }
-                        await Publish(ChangeAlerts.PlanFailed, AlertSeverity.Warning, title, message + DescribeSetInform(results), planId, CancellationToken.None);
                     }, CancellationToken.None);
                 }
             }
@@ -808,6 +817,9 @@ public sealed class PlanCoordinator
     internal Task InformFallback { get; private set; } = Task.CompletedTask;
 
     internal static TimeSpan SetInformTimeout = TimeSpan.FromSeconds(10);
+
+    /// <summary>Title prefix of the follow-up alert that reports the set-inform pass.</summary>
+    internal const string SetInformTitle = "Re-point over SSH after: ";
     private readonly ConcurrentDictionary<int, ConcurrentDictionary<string, byte>> _informTried = new();
 
     /// <summary>What happened to one offline device in the set-inform pass.</summary>
@@ -854,7 +866,7 @@ public sealed class PlanCoordinator
         var results = await Task.WhenAll(gone.Select(async d =>
         {
             var gateway = d.Role == DeviceType.Gateway;
-            if (!gateway && d.NewIp == null) return new SetInformResult(d, SetInformOutcome.NoAddress);
+            if (!gateway && d.NewIp == null && d.OldIp == null) return new SetInformResult(d, SetInformOutcome.NoAddress);
             if (!ssh) return new SetInformResult(d, SetInformOutcome.NoSsh);
             if (gateway && !gatewaySsh) return new SetInformResult(d, SetInformOutcome.NoGatewaySsh);
             if (!tried.TryAdd(d.Mac, 0)) return new SetInformResult(d, SetInformOutcome.TriedBefore);
@@ -988,6 +1000,7 @@ public sealed class PlanCoordinator
         // Reverted only when the revert went through; otherwise the change may still be live.
         plan.Status = why == null ? ConfigPlanStatus.Reverted : ConfigPlanStatus.Failed;
         plan.Message = why == null ? reason : $"{reason}. The revert did not apply: {why}";
+        _informTried.TryRemove(planId, out _);
         plan.CompletedAt = DateTime.UtcNow;
         await _engine.Repositories.UseAsync((r, c) => r.UpdatePlanAsync(plan, c), ct);
 
