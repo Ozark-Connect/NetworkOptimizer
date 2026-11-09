@@ -117,12 +117,29 @@ public class LiveTrafficTests
         var tracker = new LiveFlowTracker();
         var view = GatewayView();
         var t0 = DateTime.UtcNow;
-        tracker.Track([], view, t0, 100);
+        for (var i = 0; i < 3; i++) tracker.Track([], view, t0.AddSeconds(2 * i), 100);
 
-        var pass = tracker.Track([Wan(300, 7000)], view, t0.AddSeconds(2), 100);
+        var pass = tracker.Track([Wan(300, 7000)], view, t0.AddSeconds(6), 100);
         var f = pass!.Flows.Should().ContainSingle().Subject;
         f.DownBytes.Should().Be(7000);
         f.AgeIsLowerBound.Should().BeFalse();
+    }
+
+    [Fact]
+    public void AgelessFlowTheFirstReadMissedSeedsInsteadOfSpiking()
+    {
+        var tracker = new LiveFlowTracker();
+        var view = GatewayView();
+        var t0 = DateTime.UtcNow;
+        tracker.Track([], view, t0, 100);
+
+        // No timestamps: a long-lived flow first seen on the second pass carries its lifetime counters.
+        tracker.Track([Wan(50_000_000, 900_000_000)], view, t0.AddSeconds(2), 100)!.Flows
+            .Should().BeEmpty("its lifetime bytes did not move in this window");
+        var next = tracker.Track([Wan(50_001_000, 900_005_000)], view, t0.AddSeconds(4), 100);
+        var f = next!.Flows.Should().ContainSingle().Subject;
+        f.DownBytes.Should().Be(5000);
+        f.AgeIsLowerBound.Should().BeTrue();
     }
 
     [Fact]

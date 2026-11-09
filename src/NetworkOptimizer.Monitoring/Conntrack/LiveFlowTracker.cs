@@ -45,6 +45,9 @@ public sealed class LiveFlowTracker
     // How long a gone flow's counters are kept, so a flow the reads missed comes back as a delta.
     private const int TombstonePasses = 30;
     private const int MaxTombstones = 20_000;
+    // Without conntrack timestamps a flow the first reads missed looks born since the last pass, so
+    // for these passes an ageless flow seen for the first time seeds instead of counting its lifetime.
+    private const int AgelessSeedPasses = 3;
 
     private sealed class State
     {
@@ -90,9 +93,10 @@ public sealed class LiveFlowTracker
         foreach (var flow in flows)
         {
             var isNew = !_flows.TryGetValue(flow.Key, out var state);
+            var seeding = firstPass || (flow.AgeSeconds < 0 && _pass <= AgelessSeedPasses);
             if (isNew)
             {
-                state = new State { FirstSeen = now, PredatesTracker = firstPass };
+                state = new State { FirstSeen = now, PredatesTracker = seeding };
                 _flows[flow.Key] = state;
             }
             state!.LastSeenPass = _pass;
@@ -105,11 +109,11 @@ public sealed class LiveFlowTracker
             }
             else if (isNew)
             {
-                // Born since the last pass: everything it carried moved in this window. On the first
-                // pass, or when the kernel says it is older than the window, nothing is known about
-                // when its bytes moved, so nothing counts (lifetime bytes as one window read as a spike).
+                // Born since the last pass: everything it carried moved in this window. While seeding,
+                // or when the kernel says it is older than the window, nothing is known about when its
+                // bytes moved, so nothing counts (lifetime bytes as one window read as a spike).
                 var olderThanWindow = flow.AgeSeconds > sinceLastPass + 1;
-                (dOrig, dReply) = firstPass || olderThanWindow ? (0, 0) : (flow.OrigBytes, flow.ReplyBytes);
+                (dOrig, dReply) = seeding || olderThanWindow ? (0, 0) : (flow.OrigBytes, flow.ReplyBytes);
             }
             else if (flow.OrigBytes < state.Orig || flow.ReplyBytes < state.Reply)
             {
