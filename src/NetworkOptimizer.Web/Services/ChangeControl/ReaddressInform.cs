@@ -32,9 +32,10 @@ public sealed record InformDevice(string Mac, string Name, DeviceType Role, Info
 
 /// <summary>
 /// The verdict for every device, and the Inform Host override write the plan adds (null for none).
-/// <c>DeviceSsh</c>: Device SSH is configured, so the SSH fallback can run.
+/// <c>DeviceSsh</c>: Device SSH is configured, so the SSH fallback can run. <c>ConsoleFollows</c>: the Console runs on
+/// the gateway (or a CloudKey) and moves with the plan.
 /// </summary>
-public sealed record InformVerdicts(List<InformDevice> Devices, string? OverrideIp, bool ConsoleRepointed, bool DeviceSsh = true);
+public sealed record InformVerdicts(List<InformDevice> Devices, string? OverrideIp, bool ConsoleRepointed, bool DeviceSsh = true, bool ConsoleFollows = false);
 
 /// <summary>
 /// Decides, without any API call, how each device reaches the UniFi Console once a re-address applies.
@@ -94,7 +95,7 @@ public static class ReaddressInform
             result.Add(new InformDevice(mac, d["name"]?.ToString() is { Length: > 0 } n ? n : mac, role, route, url,
                 after, newIp, oldIp, OnLink(desired, deviceAt, ipUrl), ipUrl == url ? null : ipUrl));
         }
-        return new InformVerdicts(result, overrideIp, repointed);
+        return new InformVerdicts(result, overrideIp, repointed, ConsoleFollows: !standaloneConsole);
     }
 
     /// <summary>

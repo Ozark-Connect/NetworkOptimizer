@@ -341,7 +341,7 @@ Gateway tweaks for UCG-Fiber, UXG-Fiber, UCG-Max, and UXG-Max (Gateway SSH).
     - Addresses on a WAN's carrier side or a VPN's far side stay as they are
     - The dry run lists every connected client with no DHCP lease from the gateway (Gateway SSH), reserved or not, and offline clients likely set on the device
     - Warns when Network Optimizer's host, a management network, or the console moves
-    - Devices find the console at its new address: the plan moves a UniFi OS Server's Inform Host override with it, and a device still offline after the move gets set-inform over SSH (Device SSH)
+    - Devices find the Console at its new address: the Plan moves a UniFi OS Server's Inform Host override with it, and a Device still offline after the move gets set-inform over SSH (Device SSH)
     - **Lower Lease Times** a lease ahead so clients move within minutes (the move puts them back), and **Reconnect Clients** after it: wireless clients rejoin, PoE-powered wired clients optionally power-cycle
 - Alerts for security regressions, changes no admin made, management-path changes, drift, and UniFi Console admin and update settings
 - **Settings** - retention, change detection, commit-confirmed window, approvals

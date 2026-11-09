@@ -98,7 +98,8 @@ else
                 <div class="cc-badge-col"><span class="status-badge status-error">Lockout</span></div>
                 <div>
                     <div class="cc-item-title">@lockout.Title</div>
-                    <div class="cc-item-detail">@lockout.Detail @(lockout != doc.Lockouts.Last() ? "" : PlanCoordinator.MovesConsolePath(doc) ? "Network devices drop until the UniFi Console is at its new address. Network Optimizer alerts instead of reverting this plan."
+                    <div class="cc-item-detail">@lockout.Detail @(lockout != doc.Lockouts.Last() ? "" : PlanCoordinator.MovesConsolePath(doc) && PlanCoordinator.ConsoleFollows(doc) ? "Network Devices drop until the Gateway, which runs the UniFi Console, provisions its new addresses. Network Optimizer alerts instead of reverting this Plan."
+                        : PlanCoordinator.MovesConsolePath(doc) ? "Network devices drop until the UniFi Console is at its new address. Network Optimizer alerts instead of reverting this plan."
                         : PlanCoordinator.AlertsInsteadOfRevert(doc) ? "Network devices drop while they move to their new addresses. Network Optimizer alerts instead of reverting this plan."
                         : watchDevices ? $"If a network device goes offline, Network Optimizer reverts the plan within {_view.WatchMinutes} minutes." : "")</div>
                     @if (lockout == doc.Lockouts.Last() && editable)
@@ -459,8 +460,10 @@ else
                         <b>Commit-confirmed: @_view.WatchMinutes minutes.</b>
                         @if (PlanCoordinator.AlertsInsteadOfRevert(doc))
                         {
-                            <span> Network Optimizer watches @(watchDevices ? "every network device" : "")@(watchDevices && watchInternet ? " and " : "")@(watchInternet ? "internet reachability" : ""), and alerts if either fails. It does not revert this plan: @(PlanCoordinator.MovesConsolePath(doc)
-                                ? "network devices reach the console at its old address until the console moves too."
+                            <span> Network Optimizer watches @(watchDevices ? "every network device" : "")@(watchDevices && watchInternet ? " and " : "")@(watchInternet ? "internet reachability" : ""), and alerts if either fails. It does not revert this Plan: @(PlanCoordinator.MovesConsolePath(doc)
+                                ? PlanCoordinator.ConsoleFollows(doc)
+                                    ? "Network Devices drop until the Gateway, which runs the UniFi Console, provisions its new addresses."
+                                    : "network devices reach the console at its old address until the console moves too."
                                 : "network devices drop while they move to their new addresses, and a revert would strand them.")</span>
                         }
                         else

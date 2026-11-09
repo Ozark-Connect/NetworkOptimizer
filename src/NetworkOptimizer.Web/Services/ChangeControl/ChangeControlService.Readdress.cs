@@ -125,6 +125,7 @@ public sealed partial class ChangeControlService
                 doc.Context[PlanCoordinator.ReaddressManagementContext] = string.Join(", ", ManagementMoves(live, active));
                 doc.Context[PlanCoordinator.ReaddressRemoteContext] = JsonSerializer.Serialize(remote);
                 if (inform != null) doc.Context[ReaddressInform.Context] = JsonSerializer.Serialize(inform.Devices);
+                if (inform?.ConsoleFollows == true) doc.Context[PlanCoordinator.ReaddressConsoleFollowsContext] = "true";
                 foreach (var m in result.Remote)
                     doc.Notes.Add($"Left alone, owned by a WAN or a VPN's far side: {ConfigCollections.Get(m.Collection)?.Noun ?? m.Collection} {m.ObjectName}, {m.Path}: {m.Value}");
                 foreach (var w in warnings) doc.Notes.Add($"{w.Title}: {w.Detail}");
@@ -442,15 +443,15 @@ public sealed partial class ChangeControlService
     {
         var warnings = new List<ReaddressWarning>();
         if (inform.OverrideIp is { } ip)
-            warnings.Add(new("The plan re-points devices at the Console",
-                $"It sets the Inform Host override to {ip} just before the Console's network moves. Re-address the Console's host in the same window."));
+            warnings.Add(new("The Plan re-points Devices at the Console",
+                $"It sets the Inform Host override to {ip} just before the Console's Network moves. Re-address the Console's host in the same window."));
         var ssh = inform.Devices.Where(d => d.Route == InformRoute.SshFallback).ToList();
         if (ssh.Count > 0)
-            warnings.Add(new(ssh.Count == 1 ? "A device may need set-inform" : $"{ssh.Count} devices may need set-inform",
+            warnings.Add(new(ssh.Count == 1 ? "A Device may need set-inform" : $"{ssh.Count} Devices may need set-inform",
                 $"{PlanCoordinator.NameList(ssh.Select(d => d.Name), 3)} inform to {string.Join(", ", ssh.Select(d => new Uri(d.InformUrl).Host).Distinct())}. "
                 + (inform.DeviceSsh
                     ? (ssh.Count == 1 ? "It is" : "Each is") + " re-pointed over SSH if it does not reconnect."
-                    : "Device SSH is not configured, so the alert gives the set-inform command to run on each one that does not reconnect.")));
+                    : "Device SSH is not configured, so the Alert gives the set-inform command to run on each one that does not reconnect.")));
         return warnings;
     }
 

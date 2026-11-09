@@ -748,7 +748,10 @@ public sealed class PlanCoordinator
             if (misses == MissesToRevert)
             {
                 var title = $"Network devices offline after: {plan.Name}";
-                var message = MovesConsolePath(doc)
+                var message = MovesConsolePath(doc) && ConsoleFollows(doc)
+                    ? $"{reason} after a Re-address that moved the UniFi Console's Network. The UniFi Console runs on the Gateway and moves with it, so Network Devices "
+                      + "reconnect once the Gateway provisions its new addresses, and Network Optimizer does not revert this Plan. If one stays offline, Roll Back in Review Plan puts the old addresses back."
+                    : MovesConsolePath(doc)
                     ? $"{reason} after a re-address that moved the UniFi Console's network. Network devices reach the Console at its old address until it moves too, "
                       + "so Network Optimizer does not revert this plan. Move the Console to its new address; Roll Back in Review Plan puts the old addresses back."
                     : $"{reason} after a re-address that moved their management network ({doc.Context[ReaddressManagementContext]}). Network devices reconnect at their new addresses "
@@ -894,12 +897,12 @@ public sealed class PlanCoordinator
         if (hand.Any(r => r.Outcome == SetInformOutcome.NoSsh)) text += " Device SSH is not configured.";
         else if (hand.Any(r => r.Outcome == SetInformOutcome.NoGatewaySsh)) text += " Gateway SSH is not configured.";
         // The rewritten policies refuse old-subnet sources, so the person dials from a host that already moved.
-        text += $" {(done.Count > 0 ? "For the rest, or one that stays offline, SSH to it" : "SSH to each device")} at the address shown, from a host already on the new subnets, and run: ";
+        text += $" {(done.Count > 0 ? "For the rest, or one that stays offline, SSH to it" : "SSH to each Device")} at the address shown, from a host already on its new address, and run: ";
         static string Where(InformDevice d) =>
-            d.NewIp == null ? d.Role == DeviceType.Gateway ? "the gateway" : d.OldIp != null ? $"DHCP, last at {d.OldIp}" : "DHCP, address unknown"
+            d.NewIp == null ? d.Role == DeviceType.Gateway ? "the Gateway" : d.OldIp != null ? $"DHCP, last at {d.OldIp}" : "DHCP, address unknown"
             : d.OldIp != null && d.OldIp != d.NewIp ? $"{d.NewIp}, or {d.OldIp} if it never moved" : d.NewIp;
         text += string.Join("; ", hand.Select(r => $"{r.Device.Name} ({Where(r.Device)}): {ReaddressInform.HandCommand(r.Device)}")) + ".";
-        return hand.Any(r => r.Device.ConsoleOnLink) ? text + " <if> is the interface holding the device's address (br0, eth0)." : text;
+        return hand.Any(r => r.Device.ConsoleOnLink) ? text + " <if> is the interface holding the Device's address (br0, eth0)." : text;
     }
 
     /// <summary>
@@ -1114,6 +1117,12 @@ public sealed class PlanCoordinator
 
     public static bool MovesConsolePath(PlanDocument doc) =>
         doc.Context.TryGetValue(ReaddressPathContext, out var keys) && keys.Length > 0;
+
+    /// <summary>Context key: the Console runs on the gateway (or a CloudKey), so it moves with the re-address.</summary>
+    public const string ReaddressConsoleFollowsContext = "readdress_console_follows";
+
+    /// <summary>The re-address moves a Console that runs on the gateway: it moves with the plan, not after it.</summary>
+    public static bool ConsoleFollows(PlanDocument doc) => doc.Context.GetValueOrDefault(ReaddressConsoleFollowsContext) == "true";
 
     /// <summary>Context key: the management networks a re-address moves, by name.</summary>
     public const string ReaddressManagementContext = "readdress_management";

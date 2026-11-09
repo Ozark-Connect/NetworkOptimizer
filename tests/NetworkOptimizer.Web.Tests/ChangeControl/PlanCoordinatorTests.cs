@@ -747,7 +747,7 @@ public sealed class PlanCoordinatorTests : IDisposable
         await WatchToAlertAsync();
 
         _bus.Published.Single(e => e.Title.StartsWith("Network devices offline after")).Message.Should()
-            .Contain("SSH to each device at the address shown, from a host already on the new subnets, and run: ")
+            .Contain("SSH to each Device at the address shown, from a host already on its new address, and run: ")
             .And.Contain($"Switch (10.42.99.11, or 192.168.99.11 if it never moved): set-inform {InformUrl}");
     }
 
@@ -842,6 +842,34 @@ public sealed class PlanCoordinatorTests : IDisposable
         _dials.Should().BeEmpty();
         _bus.Published.Single(e => e.Title.StartsWith("Network devices offline after")).Message.Should()
             .Contain("Device SSH is not configured").And.Contain($"set-inform {InformUrl}");
+    }
+
+    [Fact]
+    public async Task ConsoleOnTheGateway_TheAlertSaysItMovesWithTheGateway()
+    {
+        var id = await ApplyManagementPlanAsync(doc =>
+        {
+            doc.Context[PlanCoordinator.ReaddressPathContext] = doc.Operations[0].Key;
+            doc.Context[PlanCoordinator.ReaddressConsoleFollowsContext] = "true";
+        });
+        DeviceState(0);
+
+        await TicksAsync(4);
+
+        (await PlanAsync(id))!.Status.Should().Be(ConfigPlanStatus.Watching);
+        _bus.Published.Should().ContainSingle(e => e.Title.StartsWith("Network devices offline after")).Which.Message.Should()
+            .Contain("The UniFi Console runs on the Gateway and moves with it").And.NotContain("at its old address");
+    }
+
+    [Fact]
+    public void Classify_ConsoleFollows_OnlyWhenTheConsoleIsNotStandalone()
+    {
+        var live = new ConfigState();
+        live.Collections["networkconf"] = [new JsonObject { ["_id"] = "n1", ["ip_subnet"] = "192.0.2.1/24", ["purpose"] = "corporate" }];
+        var map = Readdressing.Map([new SubnetMove("n1", "Default", null, "192.0.2.0/24", "198.51.100.0/24")]);
+
+        ReaddressInform.Classify([], live, live, map, standaloneConsole: false, new Dictionary<string, uint?>()).ConsoleFollows.Should().BeTrue();
+        ReaddressInform.Classify([], live, live, map, standaloneConsole: true, new Dictionary<string, uint?>()).ConsoleFollows.Should().BeFalse();
     }
 
     [Fact]
