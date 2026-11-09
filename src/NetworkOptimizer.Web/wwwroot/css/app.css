@@ -25673,18 +25673,14 @@ body:has(.top-bar-hidden) .btn-fit {
     min-height: 3.4rem;
 }
 
-/* Applications - Right now: the client's live apps, wrapping so none is cut off at the card's edge. */
+/* Applications - Right now: the client's live apps, wrapping so none is cut off at the card's edge.
+   Baseline: the label sits on the text line of the first row of chips, whatever their height. */
 .lt-now {
     display: flex;
-    align-items: flex-start;
+    align-items: baseline;
     gap: 0.6rem;
     min-height: 2rem;
     margin: 0 0 0.6rem;
-}
-
-/* Level with the first row of chips when they wrap. */
-.lt-now > .lt-now-label {
-    line-height: 2rem;
 }
 
 .lt-now-label {

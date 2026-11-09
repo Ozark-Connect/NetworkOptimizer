@@ -6,7 +6,7 @@
 {
     <div class="lt-now" @onmouseenter="Feed.Hold.PointerIn" @onmouseleave="Feed.Hold.PointerOut" @ontouchstart="Feed.Hold.Touched">
         <span class="lt-now-label">Right now</span>
-        @* One line that scrolls sideways: chips wrapping as apps come and go would move the card every tick. *@
+        @* Wraps so no chip is cut off at the card's edge; the cost is a row more or less as apps come and go (MaxApps caps it). *@
         <div class="lt-now-chips">
             @if (view.State == LiveTrafficState.Starting)
             {
