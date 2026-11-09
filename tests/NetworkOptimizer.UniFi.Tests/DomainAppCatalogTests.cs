@@ -84,6 +84,17 @@ public class DomainAppCatalogTests
         DomainAppCatalog.LanApp(proto, port).Should().Be(expected);
 
     [Theory]
+    [InlineData("speedtest.example.net", "tcp", 8080, "Speedtest.net")]
+    [InlineData("speed1.example.com", "tcp", 8080, "Speedtest.net")]
+    [InlineData("Speedtest-dfw.example.net", "tcp", 8080, "Speedtest.net")]
+    [InlineData("speedtest.example.net", "tcp", 443, null)]     // 8080 only
+    [InlineData("api.speedtest.example.net", "tcp", 8080, null)] // "speed" leads the name
+    [InlineData("speedtest", "tcp", 8080, null)]                 // a bare label is not a server name
+    [InlineData(null, "tcp", 8080, null)]
+    public void OoklaServersBySpeedNameOn8080(string? host, string proto, int port, string? expected) =>
+        DomainAppCatalog.SpeedtestApp(host, proto, port).Should().Be(expected);
+
+    [Theory]
     [InlineData("udp", 41641, 3478, "Tailscale")]    // source 41641, to a STUN server
     [InlineData("udp", 51234, 41641, "Tailscale")]   // a peer's 41641 as the destination
     [InlineData("udp", 41641, 443, "Tailscale")]     // whatever the other port

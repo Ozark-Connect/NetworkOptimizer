@@ -137,6 +137,16 @@ public static class DomainAppCatalog
         proto != null && proto.StartsWith("icmp", StringComparison.OrdinalIgnoreCase) ? "ICMP" : null;
 
     /// <summary>
+    /// An Ookla Speedtest server: hosted by ISPs on their own domains, so no domain list holds them, but
+    /// they run on TCP 8080 under a name whose first label starts with "speed" (speedtest.isp.net, speed1.isp.com).
+    /// </summary>
+    public static string? SpeedtestApp(string? hostName, string proto, int remotePort)
+    {
+        if (proto != "tcp" || remotePort != 8080 || string.IsNullOrEmpty(hostName)) return null;
+        return hostName.StartsWith("speed", StringComparison.OrdinalIgnoreCase) && hostName.Contains('.') ? "Speedtest.net" : null;
+    }
+
+    /// <summary>
     /// Tailscale's direct (WireGuard) path: UDP 41641 on either end, source or destination, whatever the
     /// other port is (a DERP or STUN server, a peer's random port). Ahead of DPI, which reads it as STUN or WireGuard.
     /// </summary>

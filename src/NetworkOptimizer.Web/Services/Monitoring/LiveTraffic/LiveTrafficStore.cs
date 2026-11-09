@@ -568,6 +568,7 @@ public sealed class LiveTrafficStore
         var toServer = (hostName != null && _serverHosts.Contains(hostName.TrimEnd('.'))) || _serverHosts.Contains(f.RemoteIp);
         var app = DomainAppCatalog.ProtocolApp(proto) ?? (toServer ? "Network Optimizer" : null)
             ?? DomainAppCatalog.TailscaleApp(proto, f.ClientPort, f.RemotePort) ?? match?.App ?? DomainAppCatalog.AppFor(hostName)
+            ?? DomainAppCatalog.SpeedtestApp(hostName, proto, f.RemotePort)
             ?? (f.Lan ? DomainAppCatalog.LanApp(proto, f.RemotePort) : DomainAppCatalog.WifiCalling(proto, f.RemotePort, org) ?? DomainAppCatalog.OwnerApp(org))
             // The client end may be the server (an iperf3 server answering a test): its port names it then.
             ?? DomainAppCatalog.PortApp(proto, f.RemotePort) ?? (f.RemotePort >= 1024 ? DomainAppCatalog.PortApp(proto, f.ClientPort) : null)
