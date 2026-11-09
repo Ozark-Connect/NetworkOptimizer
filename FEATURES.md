@@ -63,7 +63,7 @@ an On-Site Agent, AP Telemetry, InfluxDB, or HTTPS.
 - Proxies the site's UniFi Console, SNMP, and device SSH, fenced to the site's own network
 - Latency and loss probes, per-WAN vantage, Upstream Discovery, and Network Tools probes
 - SNMP polling buffered across outages
-- Per-client WAN usage at the gateway for Bandwidth Hogs
+- Per-client WAN usage at the gateway for Live Traffic, plus per-flow and DNS detail while Live Traffic, or a client's Live Traffic in Client Performance, is open
 - UniFi Cable Internet DOCSIS capture (agent on the gateway)
 - [Automatic Blocking](#automatic-blocking) enforcement on the gateway in seconds, inbound and outbound, with Exceptions (agent on the gateway)
 - LAN speed test server (OpenSpeedTest and iperf3) and site-local WAN speed tests
@@ -74,8 +74,8 @@ an On-Site Agent, AP Telemetry, InfluxDB, or HTTPS.
 - `proxyAllowedCidrs` pins which addresses the tunnel may reach; every dial is logged on the agent host
 - Several agents per site, for example one on the gateway and one on a LAN host
 - Runs on Docker, systemd, Proxmox LXC, or the UniFi gateway itself
-- Used by: [ISP Health](#isp-health), [Network Performance](#network-performance), [Bandwidth Hogs](#live-view),
-  [Network Tools](#network-tools), [WAN Speed Test](#wan-speed-test), [LAN Speed Test](#lan-speed-test),
+- Used by: [ISP Health](#isp-health), [Network Performance](#network-performance), [Live Traffic](#live-view),
+  [Client Performance](#client-performance) live flows, [Network Tools](#network-tools), [WAN Speed Test](#wan-speed-test), [LAN Speed Test](#lan-speed-test),
   [Client Speed Test](#client-speed-test), and [UniFi Cable Internet](#supported-hardware) stats
 
 ## Monitoring
@@ -106,9 +106,24 @@ Time-series monitoring on your own InfluxDB, fed by SNMP polling (InfluxDB).
   - Per-client Wi-Fi LAN traffic, including LAN-only transfers ([AP Telemetry](#ap-telemetry))
 - Both maps: device tooltips, full-duplex load coloring, mesh and MLO backhaul, UniFi Device Bridge and Building Bridge links
 - Historic playback on both maps - scrub, play, change speed, ranges from 1 hour to 30 days or everything stored (InfluxDB)
-- **Bandwidth Hogs** - who is using the WAN now, and who used the most from the last hour to 30 days
+- **Live Traffic** (formerly Bandwidth Hogs) - who is using the WAN now, and who used the most from the last hour to 30 days
   - **WAN** or **LAN + WAN** view; follows the playback timeline
   - Measured at the gateway rather than estimated ([On-Site Agent](#on-site-agent) on the gateway)
+  - **By** client, app, destination, or route; open a client to see its flows
+  - **Detailed View** - every flow through the gateway ranked by current rate, with no row limit (On-Site Agent on the gateway)
+    - Click any client, destination, app, route, protocol, or port to filter to it, and again to let it go; hide a value with the button beside it or Alt-click; filters are in the link
+    - Sort by any column, either way; rows and diagram nodes hold still under the pointer, slide when they move, and an expanded flow stays in place on screen while the list changes
+    - Apps named by the gateway's DPI (UniFi Network's own records), else by the domain the flow went to, the port, or the address's owner (GeoLite2 ASN), with the same app icons as Client Performance
+    - Destinations named by DNS, else by reverse DNS (PTR) or the address's owner; a public address of one of your sites carries a site badge, and a client or UniFi device on another VLAN carries its UniFi name and a network badge; hover a destination for its address and its Threat Intelligence drill-down
+    - Parallel streams from one client to one destination shown as one row with a stream count
+    - **Where It Goes** - client to app to route, by rate or by flow count; the gateway's own VPN tunnel is left out so tunneled traffic counts once
+    - **Live DNS** - lookups to the gateway, to DNS servers on other VLANs, and to outside resolvers; blocked lookups (NXDOMAIN, or a 0.0.0.0 / :: answer), response time, and DNS bypass (including DoH and DoT, not counting a site resolver's own encrypted upstream)
+      - A lookup the gateway redirects (DNAT) to a site resolver shows the attempt and the resolver that answered, and is not counted as a bypass
+      - **Hide Local** - leave out lookups answered only with addresses on the site's networks, remembered per user and site
+    - Per flow: two-minute rate chart, session start, bytes and packets each way, ports, the DNS lookup behind it, and the policy that allowed it - UniFi Network's record once the flow ends (UniFi Network 11), and for a live flow, the site's Firewall Policies evaluated by the Security Audit's engine (client, IP, network, domain, and region policies)
+    - **Active** and **Ended** flows; **Pause**
+    - Per-flow and DNS detail leaves the gateway only while someone is viewing it, and is never stored
+    - **History** - the flows UniFi Network still holds (its recent window, under an hour), allowed and blocked: a **Timeline** of flows or data per minute (drag to pick a window), the same filters, sorted by time or data, with each flow's duration and the policy that allowed or blocked it. Reads the console's own records, so it needs no agent (UniFi Network 11)
 - **Port Statistics** - rate, bytes, unicast, multicast, broadcast, errors, and discards per port
 - **Add to Dashboard** - pin Live View to the top of the Dashboard
 - Advisories: **Flaky Monitoring Targets**, unpolled SNMP devices, Upstream Discovery results ready
@@ -254,10 +269,15 @@ Time-series monitoring on your own InfluxDB, fed by SNMP polling (InfluxDB).
 - GPS walk test - signal heatmap from your phone while the page is open (HTTPS)
 - **Speed** - live throughput, **Run Speed Test** / **Quick Test**, speed and latency history, result map
   - **Throughput** history from 1h to 30d: average, peak, WAN share, and speed test marks (InfluxDB)
+  - Under **Live Throughput**: the client's flows through the gateway, their rate, and busiest apps ([On-Site Agent](#on-site-agent))
 - **Signal** - noise, SNR, TX power, radio peers, read-only **Signal Map**, signal history, and log
 - **Connection** - **Network Path** with bottleneck, AP history, connection events, and trace changes
-- **Data** (Data Usage) - WAN vs LAN + WAN totals, usage chart, and per-application breakdown
+- **Data / Apps** - WAN vs LAN + WAN totals, usage chart, and per-application breakdown
   - Rolled up hourly per client and per port, with a 30-day backfill on first run
+  - **Live Traffic** - the client's flows right now, ranked by rate, sortable, filterable, with per-flow detail ([On-Site Agent](#on-site-agent))
+  - Without a gateway agent: the client's flow history from UniFi Network, Allowed or Blocked
+  - **Applications** - **Right now**: the client's live apps and rates, click to filter (On-Site Agent)
+  - **Live DNS** - the client's lookups, blocked answers, and DNS bypass (On-Site Agent)
 
 ## Config Optimizer
 
