@@ -255,6 +255,39 @@ public sealed class MonitoringInfluxFluxGoldenTests : IDisposable
         }
     }
 
+    // Values the old sanitizer stripped (")", quotes, backslashes) now reach the query as stored.
+    [Theory]
+    [InlineData("Port 1 (SFP+)")]
+    [InlineData("we\"ird\\name")]
+    [InlineData(Injection)]
+    public async Task Formerly_sanitized_values_are_quoted_as_stored(string value)
+    {
+        var client = await ConfiguredClientAsync();
+        try
+        {
+            lock (_queries) _queries.Clear();
+            await client.QueryFieldSeriesAsync("cable_modem", new[] { ("cm_id", value) }, value, From, To,
+                TimeSpan.FromMinutes(5), new[] { ("network_mode", value) });
+            await client.QueryTargetFieldSeriesAsync(new[] { value }, new[] { value }, From, To, TimeSpan.FromMinutes(5));
+            await client.QueryDeviceHealthFieldSeriesAsync("aa:bb:cc:dd:ee:ff", new[] { value }, From, To, TimeSpan.FromMinutes(5));
+
+            List<string> sent;
+            lock (_queries) sent = _queries.ToList();
+            sent.Should().HaveCount(3);
+            foreach (var flux in sent)
+            {
+                flux.Should().Contain(FluxLiteral.Quote(value));
+                var code = Regex.Replace(flux, @"""(?:\\.|[^""\\])*""", "\"\"");
+                Regex.Matches(code, @"\bfrom\(").Count.Should().Be(1, flux);
+                code.Should().NotContain("to(", flux);
+            }
+        }
+        finally
+        {
+            await client.DisposeOwnedAsync();
+        }
+    }
+
     private async Task<string> CaptureAsync(MonitoringInfluxClient client, MethodInfo method, bool fillOptional)
     {
         lock (_queries) _queries.Clear();
