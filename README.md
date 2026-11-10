@@ -338,7 +338,7 @@ bash -c "$(wget -qLO - https://raw.githubusercontent.com/Ozark-Connect/NetworkOp
 1. Go to Settings and enter your UniFi controller URL
 2. Create a **Local Access Only** account on your controller (Ubiquiti SSO won't work):
    - Quick: Super Admin role
-   - Restricted: Network Full (Site Admin in older versions), Protect View (View Only in older versions), User Management None (Network View also works if you won't run RF spectrum scans or apply channel plans)
+   - Restricted: Network Full (Site Admin in older versions), Protect View (View Only in older versions), User Management None (Network View also works if you won't run RF spectrum scans, apply channel plans, or use SNMP monitoring: UniFi Network 11 withholds SNMP credentials from View)
    - See the in-app setup guide or [detailed instructions](docker/DEPLOYMENT.md#unifi-account)
 3. Click Connect to authenticate
 4. Navigate to Audit to run your first security scan
