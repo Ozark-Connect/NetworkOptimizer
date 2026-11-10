@@ -3641,6 +3641,19 @@ select.form-control {
     -webkit-appearance: none;
 }
 
+/* iOS Safari gives native date/time inputs an intrinsic min-width that ignores width: 100% and overflows the card. */
+input[type="time"].form-control,
+input[type="date"].form-control,
+input[type="datetime-local"].form-control {
+    -webkit-appearance: none;
+    appearance: none;
+    min-width: 0;
+}
+
+input.form-control::-webkit-date-and-time-value {
+    text-align: left;
+}
+
 .form-help {
     display: block;
     margin-top: 0.25rem;
