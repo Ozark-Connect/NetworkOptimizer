@@ -9,7 +9,7 @@ namespace NetworkOptimizer.Web.Services.Monitoring.LiveTraffic;
 
 /// <summary>A site client as Live Traffic names it.</summary>
 public sealed record LiveClientInfo(string Mac, string Name, string Ip, string? Via, string? Network,
-    string? SwitchMac = null, int? SwitchPort = null);
+    string? SwitchMac = null, int? SwitchPort = null, string? Vendor = null);
 
 /// <summary>A route a flow can leave by, with the console's expected speeds when it is a WAN.</summary>
 public sealed record LiveRouteInfo(string Name, LiveRouteKind Kind, double? CapacityDownBps, double? CapacityUpBps);
@@ -613,7 +613,7 @@ public sealed class LiveTrafficStore
             ?? DomainAppCatalog.TailscaleApp(proto, f.ClientPort, f.RemotePort) ?? match?.App ?? DomainAppCatalog.AppFor(hostName)
             ?? destinationApp
             ?? DomainAppCatalog.SpeedtestApp(hostName, proto, f.RemotePort)
-            ?? (f.Lan ? DomainAppCatalog.LanApp(proto, f.RemotePort) : DomainAppCatalog.WifiCalling(proto, f.RemotePort, org) ?? DomainAppCatalog.OwnerApp(org))
+            ?? (f.Lan ? DomainAppCatalog.LanApp(proto, f.RemotePort, peer?.Vendor) : DomainAppCatalog.WifiCalling(proto, f.RemotePort, org) ?? DomainAppCatalog.OwnerApp(org))
             // The client end may be the server (an iperf3 server answering a test): its port names it then.
             ?? DomainAppCatalog.PortApp(proto, f.RemotePort) ?? (f.RemotePort >= 1024 ? DomainAppCatalog.PortApp(proto, f.ClientPort) : null)
             ?? portName ?? remoteSite ?? (org != null && !f.Lan ? org : null)

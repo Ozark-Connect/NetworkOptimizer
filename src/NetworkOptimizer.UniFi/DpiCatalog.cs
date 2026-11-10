@@ -110,6 +110,7 @@ public static class DpiCatalog
         // Local protocols DomainAppCatalog.LanApp names by port.
         ["Google Cast"] = "fa-brands fa-chromecast",
         ["Midea"] = "fa-solid fa-house-signal",
+        ["LG webOS TV"] = "fa-solid fa-tv",
         ["iperf3"] = "fa-solid fa-gauge-high",
         // Mail protocols named by their port: the catalog's mail mark.
         ["SMTP"] = "fa-solid fa-envelope",

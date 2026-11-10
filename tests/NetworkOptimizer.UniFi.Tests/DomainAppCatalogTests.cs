@@ -89,6 +89,15 @@ public class DomainAppCatalogTests
         DomainAppCatalog.LanApp(proto, port).Should().Be(expected);
 
     [Theory]
+    [InlineData("tcp", 3001, "LgElectro", "LG webOS TV")]
+    [InlineData("tcp", 3000, "LG Electronics", "LG webOS TV")]
+    [InlineData("tcp", 3001, "Apple", null)]        // a dev server on a laptop: Rails, Next.js, BrowserSync
+    [InlineData("tcp", 3001, null, null)]           // vendor unknown: never by port alone
+    [InlineData("udp", 3001, "LgElectro", null)]
+    public void LgWebOsOnlyToAnLgDevice(string proto, int port, string? vendor, string? expected) =>
+        DomainAppCatalog.LanApp(proto, port, vendor).Should().Be(expected);
+
+    [Theory]
     [InlineData("rr3---sn-abc.googlevideo.com", 64496, "Example ISP", "Google Global Cache")] // embedded GGC
     [InlineData("rr3---sn-abc.googlevideo.com", 15169, "Google LLC", null)]          // Google's own network
     [InlineData("rr3---sn-abc.googlevideo.com", 396982, "Google LLC", null)]         // an owner ASN not listed: its name says Google

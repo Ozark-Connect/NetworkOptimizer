@@ -162,8 +162,11 @@ public static class DomainAppCatalog
     /// Local protocols known by their port, named only between your own devices: on the internet the
     /// same ports mean something else (8009 is also Apache AJP).
     /// </summary>
-    public static string? LanApp(string proto, int remotePort) => (proto, remotePort) switch
+    public static string? LanApp(string proto, int remotePort, string? remoteVendor = null) => (proto, remotePort) switch
     {
+        // LG webOS's control channel (SSAP websocket; 3001 is TLS). Dev servers use these ports too
+        // (Rails, Next.js, BrowserSync), so only to a device whose MAC vendor is LG.
+        ("tcp", 3000 or 3001) when remoteVendor != null && remoteVendor.StartsWith("LG", StringComparison.OrdinalIgnoreCase) => "LG webOS TV",
         ("tcp", 8009) => "Google Cast",   // a Cast device's control channel
         ("tcp", 6444) => "Midea",         // Midea appliances' local LAN protocol (Home Assistant's Midea LAN)
         ("tcp", 8899) => "AP Agent",      // Network Optimizer polling its AP Agent (ApAgentPaths.AgentPort)

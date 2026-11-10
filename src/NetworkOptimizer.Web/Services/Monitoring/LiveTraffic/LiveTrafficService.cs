@@ -306,7 +306,8 @@ public sealed class LiveTrafficService : ILiveTrafficService
                         _ => null,
                     };
                     return new LiveClientInfo(c.Mac.Replace('-', ':').ToLowerInvariant(), name, c.Ip, via, c.Network,
-                        c.IsWired ? c.SwMac?.Replace('-', ':').ToLowerInvariant() : null, c.IsWired ? c.SwPort : null);
+                        c.IsWired ? c.SwMac?.Replace('-', ':').ToLowerInvariant() : null, c.IsWired ? c.SwPort : null,
+                        string.IsNullOrWhiteSpace(c.Oui) ? null : c.Oui);
                 }).ToList();
 
                 // UniFi devices (APs, switches) are not in the client list; name them by their LAN address.
