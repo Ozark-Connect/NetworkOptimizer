@@ -205,6 +205,56 @@ public sealed class MonitoringInfluxFluxGoldenTests : IDisposable
         }
     }
 
+    private const string Injection =
+        "x\" or true)\nfrom(bucket: \"other-network_monitoring\") |> to(bucket: \"${b}\") //\\";
+
+    public static TheoryData<string> InjectionSinks() => new()
+    {
+        nameof(MonitoringInfluxClient.QueryCustomOidFieldsAsync),
+        nameof(MonitoringInfluxClient.QueryLatencyDetailByTargetIdAsync),
+        nameof(MonitoringInfluxClient.FindRecentLossEventAsync),
+        nameof(MonitoringInfluxClient.QueryPortByteUsageAsync),
+    };
+
+    [Theory]
+    [MemberData(nameof(InjectionSinks))]
+    public async Task Injected_value_stays_one_literal(string sink)
+    {
+        var client = await ConfiguredClientAsync();
+        try
+        {
+            lock (_queries) _queries.Clear();
+            var task = sink switch
+            {
+                nameof(MonitoringInfluxClient.QueryCustomOidFieldsAsync) =>
+                    (Task)client.QueryCustomOidFieldsAsync("aa:bb:cc:dd:ee:ff", new[] { Injection }, From, To),
+                nameof(MonitoringInfluxClient.QueryLatencyDetailByTargetIdAsync) =>
+                    client.QueryLatencyDetailByTargetIdAsync(Injection, From, To),
+                nameof(MonitoringInfluxClient.FindRecentLossEventAsync) =>
+                    client.FindRecentLossEventAsync(To, From, new[] { Injection }),
+                _ => client.QueryPortByteUsageAsync("aa:bb:cc:dd:ee:ff", new[] { Injection }, From, To, TimeSpan.FromHours(1)),
+            };
+            await task;
+
+            List<string> sent;
+            lock (_queries) sent = _queries.ToList();
+            sent.Should().NotBeEmpty();
+            foreach (var flux in sent)
+            {
+                // Outside string literals the query keeps one from() and gains no to().
+                var code = Regex.Replace(flux, @"""(?:\\.|[^""\\])*""", "\"\"");
+                Regex.Matches(code, @"\bfrom\(").Count.Should().Be(1, flux);
+                code.Should().NotContain("to(", flux);
+                flux.Should().Contain(FluxLiteral.Quote(Injection));
+                Regex.IsMatch(flux, @"(?<!\\)\$\{").Should().BeFalse(flux);
+            }
+        }
+        finally
+        {
+            await client.DisposeOwnedAsync();
+        }
+    }
+
     private async Task<string> CaptureAsync(MonitoringInfluxClient client, MethodInfo method, bool fillOptional)
     {
         lock (_queries) _queries.Clear();
