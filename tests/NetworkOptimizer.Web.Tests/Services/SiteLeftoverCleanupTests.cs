@@ -198,6 +198,37 @@ public sealed class SiteLeftoverCleanupTests : IDisposable
     }
 
     [Fact]
+    public async Task RemoveDirectory_SubdirectoriesOnly_KeepsTheDefaultSitesBuildingImages()
+    {
+        // Site slug "2" and the default site's building 2 share {root}/2.
+        var root = Path.Combine(_dir, "floor-plans");
+        var shared = Path.Combine(root, "2");
+        Directory.CreateDirectory(Path.Combine(shared, "1"));
+        File.WriteAllText(Path.Combine(shared, "floor_1.png"), "default site, building 2");
+        File.WriteAllText(Path.Combine(shared, "1", "floor_1.png"), "site 2, building 1");
+        var cleanup = await CleanupAsync(main: null);
+
+        cleanup.RemoveDirectory("2", "floor plan", root, shared, subdirectoriesOnly: true).Should().BeTrue();
+
+        File.Exists(Path.Combine(shared, "floor_1.png")).Should().BeTrue();
+        Directory.Exists(Path.Combine(shared, "1")).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task RemoveDirectory_SubdirectoriesOnly_NothingElseInIt_RemovesTheDirectory()
+    {
+        var root = Path.Combine(_dir, "floor-plans");
+        var site = Path.Combine(root, "2");
+        Directory.CreateDirectory(Path.Combine(site, "1"));
+        File.WriteAllText(Path.Combine(site, "1", "floor_1.png"), "site 2, building 1");
+        var cleanup = await CleanupAsync(main: null);
+
+        cleanup.RemoveDirectory("2", "floor plan", root, site, subdirectoriesOnly: true).Should().BeTrue();
+
+        Directory.Exists(site).Should().BeFalse();
+    }
+
+    [Fact]
     public async Task RemoveDirectory_RootOrOutsideRoot_IsRefused()
     {
         var root = Path.Combine(_dir, "report_pdfs");

@@ -31,9 +31,12 @@ public sealed class SiteLeftoverCleanup
     /// <summary>Removes a non-default site's floor plans, report PDFs, and default buckets.</summary>
     public async Task RemoveAsync(string slug, CancellationToken ct = default)
     {
+        // The default site keeps a building's images as files in {root}/{buildingId}, so an all-digit
+        // slug can name the same directory. The site's own images sit one level down, in subdirectories.
         RemoveDirectory(slug, "floor plan",
             FloorPlanService.GetFloorPlanDirectory(slug, isDefault: true),
-            FloorPlanService.GetFloorPlanDirectory(slug, isDefault: false));
+            FloorPlanService.GetFloorPlanDirectory(slug, isDefault: false),
+            subdirectoriesOnly: slug.All(char.IsAsciiDigit));
         RemoveDirectory(slug, "report PDF",
             PdfStorageService.GetSitePdfDirectory(slug, isDefault: true),
             PdfStorageService.GetSitePdfDirectory(slug, isDefault: false));
@@ -43,8 +46,10 @@ public sealed class SiteLeftoverCleanup
     /// <summary>
     /// Deletes a site's directory under a store's root. Refuses the root itself (the default site's
     /// directory) and anything not strictly inside it, since other sites' directories sit in the root.
+    /// With <paramref name="subdirectoriesOnly"/>, files directly in the directory are kept, and the
+    /// directory itself goes only when nothing is left in it.
     /// </summary>
-    internal bool RemoveDirectory(string slug, string store, string root, string siteDirectory)
+    internal bool RemoveDirectory(string slug, string store, string root, string siteDirectory, bool subdirectoriesOnly = false)
     {
         try
         {
@@ -61,8 +66,18 @@ public sealed class SiteLeftoverCleanup
             }
 
             if (!Directory.Exists(fullSite)) return false;
-            Directory.Delete(fullSite, recursive: true);
-            return true;
+            if (!subdirectoriesOnly)
+            {
+                Directory.Delete(fullSite, recursive: true);
+                return true;
+            }
+
+            var subdirectories = Directory.GetDirectories(fullSite);
+            foreach (var subdirectory in subdirectories)
+                Directory.Delete(subdirectory, recursive: true);
+            if (!Directory.EnumerateFileSystemEntries(fullSite).Any())
+                Directory.Delete(fullSite);
+            return subdirectories.Length > 0;
         }
         catch (Exception ex)
         {
