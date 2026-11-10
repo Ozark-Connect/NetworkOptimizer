@@ -18,6 +18,7 @@
             <td data-dest-name="@f.Destination" data-dest-ip="@f.DestinationIp" data-dest-link="@LiveTrafficLinks.ThreatsDrilldown(f)">
                 @Pill(LiveTrafficField.Destination, f.Destination)
                 @SiteBadge(f)
+                @CacheBadge(f)
                 @PeerBadge(f)
                 @PortLine(f)
             </td>
@@ -59,6 +60,7 @@
             }
             <div class="lt-m-tags">
                 @SiteBadge(f)
+                @CacheBadge(f)
                 @PeerBadge(f)
                 @StreamsBadge(f)
                 @AppCell(f)

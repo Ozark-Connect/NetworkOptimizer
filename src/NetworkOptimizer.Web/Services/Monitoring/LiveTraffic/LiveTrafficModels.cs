@@ -103,6 +103,11 @@ public sealed record LiveFlowRow
     /// sibling stream's real name may replace it. See <see cref="LiveTrafficStore.InheritSiblingApps"/>.
     /// </summary>
     public bool AppIsFallback { get; init; }
+    /// <summary>
+    /// The CDN cache inside the ISP's network this flow reaches ("Google Global Cache inside Example ISP
+    /// (AS64496)"), or null: a content owner's hostname on an address another network announces.
+    /// </summary>
+    public string? IspCache { get; init; }
     /// <summary>Parallel streams this row stands for (one client to one destination, port, and protocol); 1 for a single flow.</summary>
     public int Streams { get; init; } = 1;
     /// <summary>The gateway's own traffic, not a client's.</summary>

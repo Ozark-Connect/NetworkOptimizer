@@ -372,9 +372,11 @@ public sealed class LiveTrafficService : ILiveTrafficService
                 // Who owns each unnamed address: the offline GeoLite2 ASN data, no network call.
                 if (_geo.IsAsnAvailable)
                 {
-                    var owners = store.AddressesWithoutOwner(500)
-                        .ToDictionary(ip => ip, ip => _geo.Enrich(ip) is { Asn: > 0 } g ? AsnNameCleanup.Clean(g.AsnOrg) : null);
-                    if (owners.Count > 0) store.SetOwners(owners);
+                    var looked = store.AddressesWithoutOwner(500).Select(ip => (Ip: ip, Geo: _geo.Enrich(ip))).ToList();
+                    var owners = looked.ToDictionary(x => x.Ip, x => x.Geo is { Asn: > 0 } g ? AsnNameCleanup.Clean(g.AsnOrg) : null);
+                    // The ASN number too: an ISP-embedded CDN cache is told by it.
+                    var asns = looked.Where(x => x.Geo.Asn is > 0).ToDictionary(x => x.Ip, x => x.Geo.Asn!.Value);
+                    if (owners.Count > 0) store.SetOwners(owners, asns);
                 }
 
                 // The policy for live flows UniFi Network has not reported yet, from the site's own rules.

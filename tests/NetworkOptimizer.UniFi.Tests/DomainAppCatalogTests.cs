@@ -89,6 +89,19 @@ public class DomainAppCatalogTests
         DomainAppCatalog.LanApp(proto, port).Should().Be(expected);
 
     [Theory]
+    [InlineData("rr3---sn-abc.googlevideo.com", 64496, "Example ISP", "Google Global Cache")] // embedded GGC
+    [InlineData("rr3---sn-abc.googlevideo.com", 15169, "Google LLC", null)]          // Google's own network
+    [InlineData("rr3---sn-abc.googlevideo.com", 396982, "Google LLC", null)]         // an owner ASN not listed: its name says Google
+    [InlineData("rr3---sn-abc.googlevideo.com", null, null, null)]                   // no ASN: never a guess
+    [InlineData("ipv4-c001-ord001-isp.1.oca.nflxvideo.net", null, null, "Netflix Open Connect")] // names itself embedded
+    [InlineData("ipv4-c001-ord001-ix.1.oca.nflxvideo.net", 2906, "Netflix Streaming Services", null)]
+    [InlineData("scontent.fxyz1-1.fna.fbcdn.net", 64497, "Example Telecom", "Meta FNA")]
+    [InlineData("a123.akamaized.net", 20940, "Akamai International B.V.", null)]
+    [InlineData("www.example.com", 64496, "Example ISP", null)]
+    public void EmbeddedCacheIsAnOwnersHostOnSomeoneElsesAsn(string? host, int? asn, string? org, string? expected) =>
+        DomainAppCatalog.EmbeddedCache(host, asn, org).Should().Be(expected);
+
+    [Theory]
     [InlineData("speedtest.example.net", "tcp", 8080, "Speedtest.net")]
     [InlineData("speed1.example.com", "tcp", 8080, "Speedtest.net")]
     [InlineData("Speedtest-dfw.example.net", "tcp", 8080, "Speedtest.net")]

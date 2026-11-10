@@ -341,6 +341,42 @@ public class LiveTrafficStoreTests
     }
 
     [Fact]
+    public void AnOwnersHostOnTheIspsAsnIsAnIspCache()
+    {
+        var store = SeededStore();
+        var batch = Batch(
+            Flow("ggc", Laptop, "192.0.2.20", "203.0.113.110", 443, "eth4", 1000, 10, proto: "udp"),
+            Flow("google", Laptop, "192.0.2.20", "203.0.113.111", 443, "eth4", 1000, 10, proto: "udp"));
+        foreach (var (ip, name) in new[] { ("203.0.113.110", "rr1---sn-abc.googlevideo.com"), ("203.0.113.111", "rr2---sn-def.googlevideo.com") })
+        {
+            var dns = new LiveDnsEvent
+            {
+                AtUnixMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                ClientIp = "192.0.2.20",
+                ServerIp = "192.0.2.1",
+                Name = name,
+                Qtype = "A",
+                Rcode = "NOERROR",
+                Answered = true,
+            };
+            dns.Answers.Add(new LiveDnsAnswer { Type = "A", Data = ip, Ttl = 300 });
+            batch.Dns.Add(dns);
+        }
+        store.Ingest(batch);
+        store.SetOwners(
+            new Dictionary<string, string?> { ["203.0.113.110"] = "Example ISP", ["203.0.113.111"] = "Google" },
+            new Dictionary<string, int> { ["203.0.113.110"] = 64496, ["203.0.113.111"] = 15169 });
+
+        var flows = store.BuildView(Query(), LiveTrafficState.Live).Flows;
+
+        var ggc = flows.Single(f => f.Key == "ggc");
+        ggc.App.Should().Be("YouTube", "the app stays what it is");
+        ggc.IspCache.Should().Be("Google Global Cache inside Example ISP (AS64496)");
+        flows.Single(f => f.Key == "google").IspCache.Should().BeNull();
+        store.BuildView(Query() with { Search = "ISP cache" }, LiveTrafficState.Live).Flows.Select(f => f.Key).Should().Equal("ggc");
+    }
+
+    [Fact]
     public void HttpsTakesInQuicButQuicStaysQuic()
     {
         var store = SeededStore();

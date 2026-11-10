@@ -101,6 +101,42 @@ public static class DomainAppCatalog
         : AppByOwner.FirstOrDefault(o => owner.StartsWith(o.Owner, StringComparison.OrdinalIgnoreCase)
             && (owner.Length == o.Owner.Length || !char.IsLetterOrDigit(owner[o.Owner.Length]))).App;
 
+    /// <summary>
+    /// Content owners that place caches inside ISPs' networks: their hostname suffixes, the ASNs and
+    /// organization word they announce their own addresses from, and (Netflix) the hostname mark an
+    /// embedded node carries.
+    /// </summary>
+    private static readonly (string Name, string[] Suffixes, int[] OwnerAsns, string OwnerWord, string? EmbeddedMark)[] CdnCaches =
+    [
+        ("Google Global Cache", ["googlevideo.com"], [15169, 36040, 43515], "Google", null),
+        ("Netflix Open Connect", ["oca.nflxvideo.net"], [2906], "Netflix", "-isp"),
+        ("Meta FNA", ["fna.fbcdn.net"], [32934], "Facebook", null),
+        ("Akamai", ["akamaized.net", "akamaihd.net"], [20940, 16625, 21342], "Akamai", null),
+    ];
+
+    /// <summary>
+    /// The cache a flow reaches inside the ISP's network: its hostname belongs to a content owner, but its
+    /// address originates from someone else's ASN (an embedded Google Global Cache announces from the
+    /// ISP's). Null for the owner's own network, an unknown ASN, or a host no owner claims. The owner's
+    /// name in the address's organization also counts as its own: no ASN list is complete.
+    /// </summary>
+    public static string? EmbeddedCache(string? host, int? asn, string? asnOrg)
+    {
+        if (string.IsNullOrEmpty(host)) return null;
+        var name = host.TrimEnd('.');
+        foreach (var (cache, suffixes, ownerAsns, ownerWord, mark) in CdnCaches)
+        {
+            if (!suffixes.Any(s => name.Equals(s, StringComparison.OrdinalIgnoreCase)
+                    || name.EndsWith("." + s, StringComparison.OrdinalIgnoreCase))) continue;
+            // Netflix names an embedded node itself; that needs no ASN.
+            if (mark != null && name.Contains(mark, StringComparison.OrdinalIgnoreCase)) return cache;
+            if (asn is not > 0 || ownerAsns.Contains(asn.Value)) return null;
+            if (asnOrg != null && asnOrg.Contains(ownerWord, StringComparison.OrdinalIgnoreCase)) return null;
+            return cache;
+        }
+        return null;
+    }
+
     /// <summary>Mobile carriers by the start of their network owner's name, as GeoLite2 spells it.</summary>
     private static readonly string[] MobileCarriers =
     [

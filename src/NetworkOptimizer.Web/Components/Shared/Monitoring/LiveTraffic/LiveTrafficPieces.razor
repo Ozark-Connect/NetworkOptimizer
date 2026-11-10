@@ -158,6 +158,13 @@
         <span class="lt-tag lt-site-badge" data-tooltip="A public address of this site">@f.RemoteSite</span>
     };
 
+    /// <summary>A CDN cache inside the ISP's network, beside the destination; the tooltip names the cache and the network.</summary>
+    protected static RenderFragment CacheBadge(LiveFlowRow f) => __builder =>
+    {
+        if (string.IsNullOrEmpty(f.IspCache)) return;
+        <span class="lt-tag lt-site-badge" data-tooltip="@f.IspCache" data-tooltip-hover-only>ISP cache</span>
+    };
+
     /// <summary>
     /// For traffic between VLANs to one of your clients or UniFi devices: its network beside the
     /// destination, and how it connects in the tooltip.

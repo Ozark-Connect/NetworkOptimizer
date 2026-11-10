@@ -566,6 +566,11 @@ public sealed class LiveTrafficStore
         var hostName = _names.TryGetValue(f.RemoteIp, out var named) && named.Expires > now ? named.Name
             : match?.Domain ?? (_ptr.TryGetValue(f.RemoteIp, out var ptrName) ? ptrName : null);
         var toServer = (hostName != null && _serverHosts.Contains(hostName.TrimEnd('.'))) || _serverHosts.Contains(f.RemoteIp);
+        // A content owner's hostname on an address from someone else's ASN: a CDN cache inside the ISP.
+        int? remoteAsn = _asns.TryGetValue(f.RemoteIp, out var knownAsn) ? knownAsn : null;
+        var cache = f.Lan ? null : DomainAppCatalog.EmbeddedCache(hostName, remoteAsn, org);
+        var ispCache = cache == null ? null
+            : remoteAsn is { } asnNumber ? $"{cache} inside {org ?? "your ISP"} (AS{asnNumber})" : $"{cache} inside your ISP's network";
         var app = DomainAppCatalog.ProtocolApp(proto) ?? (toServer ? "Network Optimizer" : null)
             ?? DomainAppCatalog.TailscaleApp(proto, f.ClientPort, f.RemotePort) ?? match?.App ?? DomainAppCatalog.AppFor(hostName)
             ?? DomainAppCatalog.SpeedtestApp(hostName, proto, f.RemotePort)
@@ -634,6 +639,7 @@ public sealed class LiveTrafficStore
             AppIconDomain = appIconDomain,
             AppIconClass = appIconClass,
             AppIsFallback = appIsFallback,
+            IspCache = ispCache,
             RemoteSite = remoteSite,
             RemoteClientMac = peer?.Mac,
             RemoteClientVia = peer == null ? null : peer.Via ?? peer.Network,
@@ -696,6 +702,7 @@ public sealed class LiveTrafficStore
         return Contains(r.ClientName, s) || Contains(r.ClientIp, s) || Contains(r.Destination, s)
             || Contains(r.DestinationIp, s) || Contains(r.App, s) || Contains(r.Route, s)
             || Contains(r.DestinationSub, s) || AppOrService(r, s) || Eq(r.Proto, s) || Eq(r.Action, s)
+            || (r.IspCache != null && (Contains("ISP cache", s) || Contains(r.IspCache, s)))
             || r.RemotePort.ToString() == s || r.ClientPort.ToString() == s;
     }
 
@@ -1100,15 +1107,26 @@ public sealed class LiveTrafficStore
         }
     }
 
-    /// <summary>Records who owns each address (the ASN's organization); null marks one with no answer.</summary>
-    public void SetOwners(IReadOnlyDictionary<string, string?> owners)
+    /// <summary>
+    /// Records who owns each address (the ASN's organization; null marks one with no answer), and the
+    /// origin ASN where known, which tells an ISP-embedded CDN cache from the content owner's own network.
+    /// </summary>
+    public void SetOwners(IReadOnlyDictionary<string, string?> owners, IReadOnlyDictionary<string, int>? asns = null)
     {
         lock (_gate)
         {
-            if (_orgs.Count > MaxNames) _orgs.Clear();
+            if (_orgs.Count > MaxNames)
+            {
+                _orgs.Clear();
+                _asns.Clear();
+            }
             foreach (var (ip, org) in owners) _orgs[ip] = org;
+            if (asns != null)
+                foreach (var (ip, asn) in asns) _asns[ip] = asn;
         }
     }
+
+    private readonly Dictionary<string, int> _asns = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>Public remote addresses of active flows with no DNS name, console domain, or PTR tried yet.</summary>
     /// <summary>
