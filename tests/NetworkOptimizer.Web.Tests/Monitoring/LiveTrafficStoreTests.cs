@@ -405,6 +405,29 @@ public class LiveTrafficStoreTests
     }
 
     [Fact]
+    public void AnotherClientsRecordNamesTheAddressByItsDomain()
+    {
+        var store = SeededStore();
+        store.MergeUniFiFlows(
+        [
+            new UniFiTrafficFlow
+            {
+                Protocol = "UDP",
+                Source = new UniFiTrafficFlowEndpoint { Ip = "192.0.2.10", Port = 40001 },
+                Destination = new UniFiTrafficFlowEndpoint { Ip = "203.0.113.130", Port = 443, Domains = ["rr4---sn-abc.googlevideo.com"] },
+            },
+        ]);
+        store.Ingest(Batch(Flow("stream", Laptop, "192.0.2.20", "203.0.113.130", 443, "eth4", 900_000, 10, proto: "udp")));
+        store.SetOwners(new Dictionary<string, string?> { ["203.0.113.130"] = "Example ISP" }, new Dictionary<string, int> { ["203.0.113.130"] = 64496 });
+
+        var f = store.BuildView(Query(), LiveTrafficState.Live).Flows.Single();
+
+        f.Destination.Should().Be("rr4---sn-abc.googlevideo.com");
+        f.App.Should().Be("YouTube");
+        f.IspCache.Should().Be("Google Global Cache inside Example ISP (AS64496)");
+    }
+
+    [Fact]
     public void HttpsTakesInQuicButQuicStaysQuic()
     {
         var store = SeededStore();

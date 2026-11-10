@@ -349,24 +349,33 @@ public sealed class LiveTrafficStore
     }
 
     /// <summary>
-    /// The app UniFi Network's DPI gave each destination (address, port, protocol) across the console's
-    /// records, any client's; null where they disagree. A long flow the DPI never named (UniFi Network
-    /// names a stream's small side connection, not the stream) takes it: a CDN address serves one service,
-    /// and a multi-service front end shows up as a disagreement and names nothing.
+    /// What the console's records, any client's, said about each destination (address, port, protocol):
+    /// the app UniFi Network's DPI gave it (null once two records disagree) and a domain. A long flow the
+    /// DPI never named (UniFi Network names a stream's small side connection, not the stream) takes them:
+    /// a CDN address serves one service, and a multi-service front end shows up as a disagreement.
+    /// Kept apart from the per-flow records, which go ten minutes after their flow ends: the side
+    /// connection that was named is usually long gone while the stream runs.
     /// </summary>
-    private Dictionary<(string Remote, int Port, string Proto), UniFiMatch?> _destinationApps = new();
+    private sealed record DestinationInfo(string? App, string? Category, bool AppConflict, string? Domain, DateTime Seen);
+    private readonly Dictionary<(string Remote, int Port, string Proto), DestinationInfo> _destinations = new();
+    private static readonly TimeSpan DestinationKept = TimeSpan.FromHours(1);
 
-    private void IndexDestinationApps()
+    private void NoteDestination((string Remote, int Port, string Proto) dest, string? app, string? category, string? domain, DateTime now)
     {
-        var index = new Dictionary<(string, int, string), UniFiMatch?>();
-        foreach (var (key, m) in _uniFiFlows)
-        {
-            if (m.App == null) continue;
-            var dest = (key.Remote, key.Port, key.Proto);
-            if (!index.TryGetValue(dest, out var seen)) index[dest] = m;
-            else if (seen != null && seen.App != m.App) index[dest] = null;
-        }
-        _destinationApps = index;
+        if (app == null && domain == null) return;
+        if (!_destinations.TryGetValue(dest, out var d)) d = new DestinationInfo(null, null, false, null, now);
+        var conflict = d.AppConflict || (app != null && d.App != null && d.App != app);
+        _destinations[dest] = new DestinationInfo(conflict ? null : app ?? d.App, conflict ? null : category ?? d.Category, conflict,
+            domain ?? d.Domain, now);
+    }
+
+    private void PruneDestinations(DateTime now)
+    {
+        foreach (var stale in _destinations.Where(kv => now - kv.Value.Seen > DestinationKept).Select(kv => kv.Key).ToList())
+            _destinations.Remove(stale);
+        if (_destinations.Count > MaxUniFiFlows)
+            foreach (var key in _destinations.OrderBy(kv => kv.Value.Seen).Take(_destinations.Count - MaxUniFiFlows / 2).Select(kv => kv.Key).ToList())
+                _destinations.Remove(key);
     }
 
     /// <summary>Takes backfilled console records, keeping only those that match a live flow.</summary>
@@ -409,7 +418,9 @@ public sealed class LiveTrafficStore
                     started = s;
                 _uniFiFlows[key] = new UniFiMatch(app, category, policy?.Name, policy?.Id, policy?.Type,
                     f.Out?.NetworkName, started, f.Destination?.Domains?.FirstOrDefault(), f.Service, f.In?.NetworkName, now);
+                NoteDestination((key.Item3, key.Item4, key.Item5), app, category, f.Destination?.Domains?.FirstOrDefault(), now);
             }
+            PruneDestinations(now);
             // A record whose flow is still live stays however long ago it was read: the console may not
             // write that flow again for as long as it runs.
             var live = _flows.Values
@@ -488,7 +499,6 @@ public sealed class LiveTrafficStore
         var now = DateTime.UtcNow;
         lock (_gate)
         {
-            IndexDestinationApps();
             var active = InheritSiblingApps(_flows.Values.Select(s => ToRow(s.Last, s.DownBps, s.UpBps, s.History.ToList(), false, now)).ToList());
             var all = query.Ended
                 ? InheritSiblingApps(_ended.Select(e => ToRow(e.Flow, 0, 0, Array.Empty<(double, double)>(), true, now, e.EndedAt)).ToList())
@@ -566,9 +576,13 @@ public sealed class LiveTrafficStore
         var hasLookup = _names.TryGetValue(f.RemoteIp, out var lookup) && lookup.Expires > now;
         if (hasLookup)
             dnsDetail = $"{lookup!.QType} via {ResolverName(lookup.ServerIp)}" + (lookup.LatencyMs >= 0 ? $", answered in {DisplayFormatters.FormatResponseMs(lookup.LatencyMs)}" : "");
+        // What the console's records said about this address and port, any client's: a domain and the
+        // DPI's app, for a flow with no lookup seen and no record of its own (a long stream).
+        var destInfo = !f.Lan && _destinations.TryGetValue((f.RemoteIp, f.RemotePort, proto), out var di) ? di : null;
+        var consoleDomain = !string.IsNullOrEmpty(match?.Domain) ? match!.Domain : destInfo?.Domain;
         if (peer != null) destination = peer.Name;
         else if (hasLookup) destination = lookup!.Name;
-        else if (!string.IsNullOrEmpty(match?.Domain)) destination = match!.Domain!;
+        else if (!string.IsNullOrEmpty(consoleDomain)) destination = consoleDomain!;
         else if (remoteSite != null) destination = f.RemoteIp;
         else if (_ptr.TryGetValue(f.RemoteIp, out var ptr) && ptr != null) destination = ptr;
         else if (org != null) destination = org;
@@ -586,19 +600,18 @@ public sealed class LiveTrafficStore
         // The gateway's DPI first, then the domain the flow went to, then the port, then the site or
         // who owns the address.
         var hostName = _names.TryGetValue(f.RemoteIp, out var named) && named.Expires > now ? named.Name
-            : match?.Domain ?? (_ptr.TryGetValue(f.RemoteIp, out var ptrName) ? ptrName : null);
+            : consoleDomain ?? (_ptr.TryGetValue(f.RemoteIp, out var ptrName) ? ptrName : null);
         var toServer = (hostName != null && _serverHosts.Contains(hostName.TrimEnd('.'))) || _serverHosts.Contains(f.RemoteIp);
         // A flow the DPI never named takes what it named the other flows to the same address and port.
-        var destinationMatch = match?.App == null && !f.Lan
-            && _destinationApps.TryGetValue((f.RemoteIp, f.RemotePort, proto), out var dm) ? dm : null;
+        var destinationApp = match?.App == null ? destInfo?.App : null;
         // A content owner's hostname on an address from someone else's ASN: a CDN cache inside the ISP.
         int? remoteAsn = _asns.TryGetValue(f.RemoteIp, out var knownAsn) ? knownAsn : null;
-        var cache = f.Lan ? null : DomainAppCatalog.EmbeddedCache(hostName, remoteAsn, org, match?.App ?? destinationMatch?.App);
+        var cache = f.Lan ? null : DomainAppCatalog.EmbeddedCache(hostName, remoteAsn, org, match?.App ?? destinationApp);
         var ispCache = cache == null ? null
             : remoteAsn is { } asnNumber ? $"{cache} inside {org ?? "your ISP"} (AS{asnNumber})" : $"{cache} inside your ISP's network";
         var app = DomainAppCatalog.ProtocolApp(proto) ?? (toServer ? "Network Optimizer" : null)
             ?? DomainAppCatalog.TailscaleApp(proto, f.ClientPort, f.RemotePort) ?? match?.App ?? DomainAppCatalog.AppFor(hostName)
-            ?? destinationMatch?.App
+            ?? destinationApp
             ?? DomainAppCatalog.SpeedtestApp(hostName, proto, f.RemotePort)
             ?? (f.Lan ? DomainAppCatalog.LanApp(proto, f.RemotePort) : DomainAppCatalog.WifiCalling(proto, f.RemotePort, org) ?? DomainAppCatalog.OwnerApp(org))
             // The client end may be the server (an iperf3 server answering a test): its port names it then.
@@ -639,7 +652,7 @@ public sealed class LiveTrafficStore
             DestinationIp = f.RemoteIp,
             DestinationSub = destSub,
             App = encryptedDns && match?.App == null ? (f.RemotePort == 853 ? "DNS over TLS" : "DNS over HTTPS") : app,
-            Category = match?.Category ?? destinationMatch?.Category,
+            Category = match?.Category ?? (destinationApp != null ? destInfo?.Category : null),
             Route = route,
             RouteKind = kind,
             IsGateway = f.Gateway || _gatewayIps.Contains(f.ClientIp),
