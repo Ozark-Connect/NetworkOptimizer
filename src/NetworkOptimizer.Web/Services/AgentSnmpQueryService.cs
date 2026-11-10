@@ -72,14 +72,24 @@ public class AgentSnmpQueryService
         }
     }
 
-    /// <summary>Completes the matching pending query when an agent returns a result.</summary>
-    public void OnResult(SnmpOidResult result)
+    /// <summary>
+    /// Completes the matching pending query when an agent returns a result. Request ids are global,
+    /// so only the agent the query was sent to may complete it.
+    /// </summary>
+    public void OnResult(AgentTunnelConnection sender, SnmpOidResult result)
     {
         var matched = _pending.TryGetValue(result.RequestId, out var pending);
         _logger.LogDebug("OID query {Id} result received: matched={Matched} success={Success} error={Error}",
             result.RequestId, matched, result.Success, result.Error);
-        if (matched)
-            pending!.Completion.TrySetResult(result);
+        if (!matched) return;
+        if (!ReferenceEquals(pending!.Connection, sender))
+        {
+            _logger.LogWarning(
+                "Agent {AgentId} (site {Slug}) returned OID result {RequestId}, which was sent to agent {OwnerAgentId}; ignoring",
+                sender.AgentId, sender.SiteSlug, result.RequestId, pending.Connection.AgentId);
+            return;
+        }
+        pending.Completion.TrySetResult(result);
     }
 
     /// <summary>Fails any queries waiting on an agent whose tunnel just dropped.</summary>

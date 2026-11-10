@@ -82,11 +82,21 @@ public class AgentUwnService
         }
     }
 
-    /// <summary>Completes the matching pending run when an agent returns a result.</summary>
-    public void OnResult(UwnResult result)
+    /// <summary>
+    /// Completes the matching pending run when an agent returns a result. Request ids are global, so
+    /// only the agent the run was sent to may complete it.
+    /// </summary>
+    public void OnResult(AgentTunnelConnection sender, UwnResult result)
     {
-        if (_pending.TryGetValue(result.RequestId, out var pending))
-            pending.Completion.TrySetResult(result);
+        if (!_pending.TryGetValue(result.RequestId, out var pending)) return;
+        if (!ReferenceEquals(pending.Connection, sender))
+        {
+            _logger.LogWarning(
+                "Agent {AgentId} (site {Slug}) returned WAN speed test result {RequestId}, which was sent to agent {OwnerAgentId}; ignoring",
+                sender.AgentId, sender.SiteSlug, result.RequestId, pending.Connection.AgentId);
+            return;
+        }
+        pending.Completion.TrySetResult(result);
     }
 
     /// <summary>Fails any runs waiting on an agent whose tunnel just dropped.</summary>

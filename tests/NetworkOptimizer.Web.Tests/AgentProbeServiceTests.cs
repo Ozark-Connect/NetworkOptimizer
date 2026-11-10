@@ -20,7 +20,7 @@ public class AgentProbeServiceTests
         var oldRequest = new ProbeRequest();
         var oldProbe = service.RunAsync("branch-office", oldRequest, TimeSpan.FromSeconds(30), CancellationToken.None);
 
-        registry.Register(1, "branch-office", "Agent");
+        var current = registry.Register(1, "branch-office", "Agent");
         var newRequest = new ProbeRequest();
         var newProbe = service.RunAsync("branch-office", newRequest, TimeSpan.FromSeconds(30), CancellationToken.None);
 
@@ -30,7 +30,7 @@ public class AgentProbeServiceTests
         oldResult!.Success.Should().BeFalse();
         newProbe.IsCompleted.Should().BeFalse();
 
-        service.OnResult(new ProbeResponse { RequestId = newRequest.RequestId, Success = true });
+        service.OnResult(current, new ProbeResponse { RequestId = newRequest.RequestId, Success = true });
         (await newProbe)!.Success.Should().BeTrue();
     }
 }
