@@ -1,3 +1,4 @@
+using System.Globalization;
 using NetworkOptimizer.Core.Helpers;
 using NetworkOptimizer.Storage.Services;
 
@@ -161,5 +162,166 @@ public static class PonChartSeries
         if (seconds <= 0) return null;
 
         return Math.Round((bytes - bytesPrev) * 8 / seconds / 1e6, 3);
+    }
+
+    /// <summary>The loss budget of each ODN class the PON-ID message can name (G.984.2), in dB.</summary>
+    private static readonly (string Name, double MinDb, double MaxDb)[] OdnClasses =
+    {
+        ("A", 5, 20), ("B", 10, 25), ("B+", 13, 28), ("C", 15, 30), ("C+", 17, 32),
+    };
+
+    /// <summary>A path loss this far above the window's usual level is worth a line.</summary>
+    internal const double PathLossRiseHintDb = 2.0;
+    /// <summary>Less than this much budget left to the class limit is worth a line.</summary>
+    internal const double PathLossNearLimitDb = 3.0;
+    /// <summary>The OLT announces its power in 0.1 dB steps; a full step down is a change of level.</summary>
+    internal const double LaunchDropHintDb = 1.0;
+    /// <summary>The newest points that stand for "now", and the fewest older ones that make a usual level.</summary>
+    private const int RecentPoints = 3;
+    private const int MinBaselinePoints = 6;
+    private const int MaxChanges = 10;
+
+    /// <summary>One change in what the OLT announces about itself, which points at work on the provider's side.</summary>
+    public sealed record PonIdChange(string Time, string What, string From, string To);
+
+    /// <summary>
+    /// Where the optical path stands, from the window's points: the latest loss against the budget
+    /// of the class the OLT names, how far it has moved from the window's usual level and on which
+    /// side of the fibre the move is, and every change in the OLT's own announcement.
+    /// </summary>
+    public sealed record PathLossSummary
+    {
+        public double? LossDb { get; init; }
+        public double? LaunchDbm { get; init; }
+        /// <summary>Launch power less loss: the ONT's RX reading the loss was taken from.</summary>
+        public double? RxDbm { get; init; }
+        public bool ReachExtender { get; init; }
+        public string? OdnClass { get; init; }
+        public double? ClassMinDb { get; init; }
+        public double? ClassMaxDb { get; init; }
+        /// <summary>Budget left to the class limit; negative when the loss is over it.</summary>
+        public double? MarginDb { get; init; }
+        /// <summary>How far the loss is under the class minimum, when it is.</summary>
+        public double? BelowMinDb { get; init; }
+        /// <summary>The window's usual loss: the median of everything before the newest points.</summary>
+        public double? BaselineLossDb { get; init; }
+        /// <summary>Recent loss less the usual one. Positive is a path that got worse.</summary>
+        public double? LossChangeDb { get; init; }
+        /// <summary>Recent announced launch power less the usual one. Negative is the OLT side sending less.</summary>
+        public double? LaunchChangeDb { get; init; }
+        /// <summary>Recent RX less the usual one.</summary>
+        public double? RxChangeDb { get; init; }
+        /// <summary>"ok", "notice" or "warning": the worst of the hints below.</summary>
+        public string Level { get; init; } = "ok";
+        /// <summary>Stable keys of what applies: over_limit, near_limit, below_min, loss_rise, launch_drop.</summary>
+        public IReadOnlyList<string> Hints { get; init; } = [];
+        public IReadOnlyList<PonIdChange> Changes { get; init; } = [];
+    }
+
+    /// <summary>
+    /// Null when no point carries anything from a PON-ID message: an OLT that sends none, or a
+    /// source that does not relay it. The section then stays off the page. An OLT that names its
+    /// class but not its power gets the class and no loss.
+    /// </summary>
+    public static PathLossSummary? SummarizePathLoss(List<MonitoringInfluxClient.PonSeriesPoint>? points)
+    {
+        if (points is not { Count: > 0 }) return null;
+        var ordered = points.OrderBy(p => p.Time).ToList();
+        if (!ordered.Any(p => p.PathLossDb.HasValue || p.OltLaunchPowerDbm.HasValue || p.OdnClass.HasValue || p.ReachExtender.HasValue))
+            return null;
+
+        var latest = ordered.LastOrDefault(p => p.PathLossDb.HasValue);
+        var loss = latest?.PathLossDb;
+        var launch = ordered.LastOrDefault(p => p.OltLaunchPowerDbm.HasValue)?.OltLaunchPowerDbm;
+        var cls = ordered.LastOrDefault(p => p.OdnClass.HasValue)?.OdnClass;
+        var budget = cls is >= 0 and <= 4 ? OdnClasses[cls.Value] : ((string Name, double MinDb, double MaxDb)?)null;
+
+        double? margin = loss.HasValue && budget.HasValue ? Math.Round(budget.Value.MaxDb - loss.Value, 2) : null;
+        double? belowMin = loss.HasValue && budget.HasValue && loss.Value < budget.Value.MinDb
+            ? Math.Round(budget.Value.MinDb - loss.Value, 2) : null;
+
+        // Loss and launch power of the points that carry both, so the two changes and the RX
+        // change they imply describe the same samples.
+        var paired = ordered.Where(p => p.PathLossDb.HasValue && p.OltLaunchPowerDbm.HasValue).ToList();
+        double? baseline = null, lossChange = null, launchChange = null, rxChange = null;
+        if (paired.Count >= RecentPoints + MinBaselinePoints)
+        {
+            var recent = paired.Skip(paired.Count - RecentPoints).ToList();
+            var earlier = paired.Take(paired.Count - RecentPoints).ToList();
+            baseline = Math.Round(Median(earlier.Select(p => p.PathLossDb!.Value)), 2);
+            lossChange = Math.Round(Median(recent.Select(p => p.PathLossDb!.Value)) - baseline.Value, 2);
+            launchChange = Math.Round(
+                Median(recent.Select(p => p.OltLaunchPowerDbm!.Value)) - Median(earlier.Select(p => p.OltLaunchPowerDbm!.Value)), 2);
+            rxChange = Math.Round(launchChange.Value - lossChange.Value, 2);
+        }
+
+        var hints = new List<string>();
+        if (margin < 0) hints.Add("over_limit");
+        else if (margin < PathLossNearLimitDb) hints.Add("near_limit");
+        if (belowMin.HasValue) hints.Add("below_min");
+        if (lossChange >= PathLossRiseHintDb) hints.Add("loss_rise");
+        if (launchChange <= -LaunchDropHintDb) hints.Add("launch_drop");
+
+        return new PathLossSummary
+        {
+            LossDb = loss,
+            LaunchDbm = launch,
+            RxDbm = latest?.OltLaunchPowerDbm is double l && loss.HasValue ? Math.Round(l - loss.Value, 2) : null,
+            ReachExtender = ordered.LastOrDefault(p => p.ReachExtender.HasValue)?.ReachExtender == 1,
+            OdnClass = budget?.Name,
+            ClassMinDb = budget?.MinDb,
+            ClassMaxDb = budget?.MaxDb,
+            MarginDb = margin,
+            BelowMinDb = belowMin,
+            BaselineLossDb = baseline,
+            LossChangeDb = lossChange,
+            LaunchChangeDb = launchChange,
+            RxChangeDb = rxChange,
+            Level = hints.Contains("over_limit") ? "warning" : hints.Count > 0 ? "notice" : "ok",
+            Hints = hints,
+            Changes = PonIdChanges(ordered),
+        };
+    }
+
+    /// <summary>
+    /// Every point where the OLT's announcement differs from the last one seen: class, reach
+    /// extender, launch power. A point without the value is a missed read, not a change. The
+    /// newest few, oldest first.
+    /// </summary>
+    private static List<PonIdChange> PonIdChanges(List<MonitoringInfluxClient.PonSeriesPoint> ordered)
+    {
+        static string ClassName(long c) => c is >= 0 and <= 4 ? OdnClasses[c].Name : c.ToString(CultureInfo.InvariantCulture);
+        static string Dbm(double v) => v.ToString("+0.0;-0.0;0.0", CultureInfo.InvariantCulture) + " dBm";
+
+        var changes = new List<PonIdChange>();
+        long? cls = null, ext = null;
+        double? launch = null;
+        foreach (var p in ordered)
+        {
+            var time = p.Time.ToString("o");
+            if (p.OdnClass is long c)
+            {
+                if (cls is long was && was != c) changes.Add(new(time, "odn_class", ClassName(was), ClassName(c)));
+                cls = c;
+            }
+            if (p.ReachExtender is long e)
+            {
+                if (ext is long was && was != e) changes.Add(new(time, "reach_extender", was == 1 ? "yes" : "no", e == 1 ? "yes" : "no"));
+                ext = e;
+            }
+            if (p.OltLaunchPowerDbm is double l)
+            {
+                if (launch is double was && Math.Abs(was - l) >= 0.05) changes.Add(new(time, "launch_power", Dbm(was), Dbm(l)));
+                launch = l;
+            }
+        }
+        return changes.Count > MaxChanges ? changes.GetRange(changes.Count - MaxChanges, MaxChanges) : changes;
+    }
+
+    private static double Median(IEnumerable<double> values)
+    {
+        var sorted = values.OrderBy(v => v).ToList();
+        var mid = sorted.Count / 2;
+        return sorted.Count % 2 == 1 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
     }
 }

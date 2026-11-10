@@ -84,7 +84,8 @@ public static class OntChartEndpoints
 
                 // The same PON payload the SFP tab charts, for a provider serving it standalone.
                 // Null for every other provider, which is what keeps the section off their tab.
-                var pon = PonChartSeries.Build(pts.Select(p => p.Pon).OfType<MonitoringInfluxClient.PonSeriesPoint>().ToList());
+                var ponPoints = pts.Select(p => p.Pon).OfType<MonitoringInfluxClient.PonSeriesPoint>().ToList();
+                var pon = PonChartSeries.Build(ponPoints);
 
                 // Identity and link uptime are per-ONT rather than per-point: take the last
                 // reading that carried them, since a poll that skipped one still knows it.
@@ -99,6 +100,7 @@ public static class OntChartEndpoints
                     label = name,
                     data = items,
                     pon,
+                    ponPath = PonChartSeries.SummarizePathLoss(ponPoints),
                     linkUptime = lastWith.FirstOrDefault(p => p.LinkUptimeSeconds != null)?.LinkUptimeSeconds,
                     ponType = lastWith.FirstOrDefault(p => p.PonType != null)?.PonType,
                     olt,

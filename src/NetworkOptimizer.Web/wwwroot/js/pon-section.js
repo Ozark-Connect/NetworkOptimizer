@@ -161,6 +161,61 @@ export function ponLoadSummaryHtml(items, palette, slotOf) {
     return `${lines.join('')}<div>${note}</div>`;
 }
 
+const fmtDb = v => `${v.toFixed(1)} dB`;
+const fmtSignedDb = v => `${v > 0 ? '+' : ''}${v.toFixed(1)} dB`;
+const fmtDbmSigned = v => `${v > 0 ? '+' : ''}${v.toFixed(1)} dBm`;
+const CHANGE_LABELS = { odn_class: 'ODN class', reach_extender: 'reach extender', launch_power: 'announced launch power' };
+
+/// The lines under the Path Loss title, from the server's summary of the window (item.ponPath):
+/// the latest loss against the budget of the class the OLT names, what moved against the window's
+/// usual level and on which side of the fibre, and each change in the OLT's own announcement.
+/// Empty when no ONT's OLT announces anything.
+export function ponPathSummaryHtml(items) {
+    const withPath = (items || []).filter(item => item.ponPath);
+    if (!withPath.length) return '';
+    const multi = withPath.length > 1;
+    const warn = text => `<div style="color: var(--warning-color);">${text}</div>`;
+    return withPath.map(item => {
+        const s = item.ponPath;
+        const from = s.reachExtender ? 'the reach extender' : 'the OLT';
+        const out = [];
+        const head = [];
+        if (s.lossDb != null) {
+            head.push(`${fmtDb(s.lossDb)} from ${from}`
+                + (s.launchDbm != null && s.rxDbm != null ? ` (${fmtDbmSigned(s.launchDbm)} announced, ${fmtDbmSigned(s.rxDbm)} received)` : ''));
+        } else {
+            head.push('The OLT announces no launch power, so there is no loss to work out');
+        }
+        if (s.odnClass != null) {
+            head.push(`ODN class ${escapeHtml(s.odnClass)} allows ${s.classMinDb} to ${s.classMaxDb} dB`
+                + (s.marginDb != null && s.marginDb >= 0 ? `, ${fmtDb(s.marginDb)} in reserve` : ''));
+        }
+        out.push(`<div>${multi ? `${escapeHtml(item.label)}: ` : ''}${head.join('. ')}.</div>`);
+
+        const hints = s.hints || [];
+        if (hints.includes('over_limit')) out.push(warn(`${fmtDb(-s.marginDb)} over the limit of class ${escapeHtml(s.odnClass)}: the link runs outside its budget.`));
+        if (hints.includes('near_limit')) out.push(warn(`Only ${fmtDb(s.marginDb)} left to the limit of class ${escapeHtml(s.odnClass)}.`));
+        if (hints.includes('below_min')) out.push(warn(`${fmtDb(s.belowMinDb)} under the minimum of class ${escapeHtml(s.odnClass)}: less loss than the class expects.`));
+        if (hints.includes('loss_rise')) out.push(warn(`Path loss is ${fmtSignedDb(s.lossChangeDb)} against this window's usual ${fmtDb(s.baselineLossDb)}, RX ${fmtSignedDb(s.rxChangeDb)}`
+            + ` with the announced launch power ${Math.abs(s.launchChangeDb) < 0.05 ? 'unchanged' : fmtSignedDb(s.launchChangeDb)}: the fibre path (connector, fibre, splice, splitter).`));
+        if (hints.includes('launch_drop')) out.push(warn(`The announced launch power is ${fmtSignedDb(s.launchChangeDb)} against this window's usual level, RX ${fmtSignedDb(s.rxChangeDb)}: the OLT side.`));
+        for (const c of s.changes || []) {
+            const when = noTime.string(Date.parse(c.time), { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+            out.push(warn(`${escapeHtml(when)}: ${CHANGE_LABELS[c.what] || escapeHtml(c.what)} changed from ${escapeHtml(c.from)} to ${escapeHtml(c.to)}, which points at work on the provider's side.`));
+        }
+        return out.join('');
+    }).join('')
+        + '<div>Launch power is what the OLT announces, possibly a configured figure rather than a measurement; the ONT\'s RX reading can be off by up to about 3 dB, so read the level loosely and the changes closely.</div>';
+}
+
+/// The launch power the OLT announces, as a line for the RX / TX power chart: the far end of the
+/// same fibre in the same unit. Empty where the OLT announces none.
+export function ponLaunchSeries(item, label, color) {
+    const data = ponPoints(item, 'oltLaunch');
+    if (!data.length) return null;
+    return { name: `${label}${reachExtended(item) ? ' reach extender' : ' OLT'} launch (announced)`, color, data };
+}
+
 const ODN_CLASSES = ['A (5-20 dB)', 'B (10-25 dB)', 'B+ (13-28 dB)', 'C (15-30 dB)', 'C+ (17-32 dB)'];
 
 function pathLossCell(item) {
@@ -219,7 +274,7 @@ export function ponDetailsHtml(items, labelHeader, extras = []) {
             cell: pathLossCell,
         },
         {
-            header: '<span data-tooltip="Mean launch power the OLT announces in its PON-ID message. Not every OLT sends one.">OLT Launch Power</span>',
+            header: '<span data-tooltip="Mean launch power as the OLT announces it in its PON-ID message, not a measurement of this ONT. Not every OLT sends one.">OLT Launch Power (announced)</span>',
             cell: launchPowerCell,
         },
         {

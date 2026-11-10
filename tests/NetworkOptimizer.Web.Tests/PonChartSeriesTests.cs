@@ -174,4 +174,158 @@ public class PonChartSeriesTests
 
         json.Should().Contain("\"pathLoss\":null").And.Contain("\"oltLaunch\":null").And.Contain("\"dsOwnMbps\":null");
     }
+
+    private static readonly DateTime T0 = new(2026, 11, 10, 12, 0, 0, DateTimeKind.Utc);
+
+    /// <summary>One poll every five minutes: loss stored as launch less RX, as the writer does.</summary>
+    private static List<MonitoringInfluxClient.PonSeriesPoint> Path(
+        IEnumerable<(double? Launch, double? Rx)> samples, long? cls = 2, long? ext = 0) =>
+        samples.Select((x, i) => new MonitoringInfluxClient.PonSeriesPoint
+        {
+            Time = T0.AddMinutes(5 * i),
+            OltLaunchPowerDbm = x.Launch,
+            PathLossDb = x.Launch.HasValue && x.Rx.HasValue ? Math.Round(x.Launch.Value - x.Rx.Value, 2) : null,
+            OdnClass = cls,
+            ReachExtender = ext,
+        }).ToList();
+
+    private static IEnumerable<(double? Launch, double? Rx)> Steady(int n, double launch = 3.4, double rx = -16.5) =>
+        Enumerable.Repeat(((double?)launch, (double?)rx), n);
+
+    [Fact]
+    public void SummarizePathLoss_SteadyLine_ReadsLossAgainstItsClass()
+    {
+        var s = PonChartSeries.SummarizePathLoss(Path(Steady(20)))!;
+
+        s.LossDb.Should().BeApproximately(19.9, 1e-9);
+        s.LaunchDbm.Should().Be(3.4);
+        s.RxDbm.Should().BeApproximately(-16.5, 1e-9);
+        s.OdnClass.Should().Be("B+");
+        (s.ClassMinDb, s.ClassMaxDb).Should().Be((13, 28));
+        s.MarginDb.Should().BeApproximately(8.1, 1e-9);
+        s.BelowMinDb.Should().BeNull();
+        s.LossChangeDb.Should().Be(0);
+        s.Level.Should().Be("ok");
+        s.Hints.Should().BeEmpty();
+        s.Changes.Should().BeEmpty();
+    }
+
+    [Theory]
+    [InlineData(0L, "A", 5, 20)]
+    [InlineData(1L, "B", 10, 25)]
+    [InlineData(3L, "C", 15, 30)]
+    [InlineData(4L, "C+", 17, 32)]
+    public void SummarizePathLoss_UsesTheAnnouncedClass_NotAFixedOne(long cls, string name, double min, double max)
+    {
+        var s = PonChartSeries.SummarizePathLoss(Path(Steady(3), cls))!;
+
+        s.OdnClass.Should().Be(name);
+        s.MarginDb.Should().BeApproximately(max - 19.9, 1e-9);
+        (s.ClassMinDb, s.ClassMaxDb).Should().Be((min, max));
+    }
+
+    [Fact]
+    public void SummarizePathLoss_NearAndOverTheLimit_AreHinted()
+    {
+        var near = PonChartSeries.SummarizePathLoss(Path(Steady(3, rx: -22.6)))!; // 26.0 dB, 2.0 left
+        near.Hints.Should().Equal("near_limit");
+        near.Level.Should().Be("notice");
+
+        var over = PonChartSeries.SummarizePathLoss(Path(Steady(3, rx: -25.6)))!; // 29.0 dB
+        over.MarginDb.Should().BeApproximately(-1.0, 1e-9);
+        over.Hints.Should().Equal("over_limit");
+        over.Level.Should().Be("warning");
+    }
+
+    [Fact]
+    public void SummarizePathLoss_UnderTheClassMinimum_IsHinted()
+    {
+        var s = PonChartSeries.SummarizePathLoss(Path(Steady(3, rx: -8.4)))!; // 11.8 dB under B+'s 13
+
+        s.BelowMinDb.Should().BeApproximately(1.2, 1e-9);
+        s.Hints.Should().Equal("below_min");
+    }
+
+    [Fact]
+    public void SummarizePathLoss_RxFallsWithLaunchSteady_IsThePath()
+    {
+        var s = PonChartSeries.SummarizePathLoss(Path(Steady(12).Concat(Steady(3, rx: -19.0))))!;
+
+        s.BaselineLossDb.Should().BeApproximately(19.9, 1e-9);
+        s.LossChangeDb.Should().BeApproximately(2.5, 1e-9);
+        s.LaunchChangeDb.Should().Be(0);
+        s.RxChangeDb.Should().BeApproximately(-2.5, 1e-9);
+        s.Hints.Should().Equal("loss_rise");
+        s.Changes.Should().BeEmpty("the announcement itself did not change");
+    }
+
+    [Fact]
+    public void SummarizePathLoss_LaunchFallsAndRxWithIt_IsTheOltSide()
+    {
+        // Loss unchanged: the OLT sends 2 dB less and the ONT receives 2 dB less.
+        var s = PonChartSeries.SummarizePathLoss(Path(Steady(12).Concat(Steady(3, launch: 1.4, rx: -18.5))))!;
+
+        s.LossChangeDb.Should().Be(0);
+        s.LaunchChangeDb.Should().BeApproximately(-2.0, 1e-9);
+        s.RxChangeDb.Should().BeApproximately(-2.0, 1e-9);
+        s.Hints.Should().Equal("launch_drop");
+        s.Changes.Should().ContainSingle().Which.Should().BeEquivalentTo(
+            new PonChartSeries.PonIdChange(T0.AddMinutes(60).ToString("o"), "launch_power", "+3.4 dBm", "+1.4 dBm"));
+    }
+
+    [Fact]
+    public void SummarizePathLoss_SmallRiseOrShortHistory_GivesNoHint()
+    {
+        PonChartSeries.SummarizePathLoss(Path(Steady(12).Concat(Steady(3, rx: -18.0))))!
+            .Hints.Should().BeEmpty("1.5 dB is inside what the RX reading wanders");
+        var shortHistory = PonChartSeries.SummarizePathLoss(Path(Steady(4).Concat(Steady(3, rx: -19.5))))!;
+        shortHistory.LossChangeDb.Should().BeNull("too few points for a usual level");
+        shortHistory.Hints.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void SummarizePathLoss_OneOutlierPoll_IsNotARise()
+    {
+        var s = PonChartSeries.SummarizePathLoss(Path(Steady(12).Concat(Steady(1, rx: -21.0)).Concat(Steady(2))))!;
+
+        s.LossChangeDb.Should().Be(0);
+        s.Hints.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void SummarizePathLoss_ClassAndExtenderChange_AreRecorded()
+    {
+        var points = Path(Steady(4));
+        points[2].OdnClass = 4;
+        points[3].OdnClass = 4;
+        points[3].ReachExtender = 1;
+        points[1].OdnClass = null; // a missed read is not a change
+
+        var s = PonChartSeries.SummarizePathLoss(points)!;
+
+        s.ReachExtender.Should().BeTrue();
+        s.OdnClass.Should().Be("C+");
+        s.Changes.Select(c => (c.What, c.From, c.To)).Should().Equal(
+            ("odn_class", "B+", "C+"), ("reach_extender", "no", "yes"));
+    }
+
+    [Fact]
+    public void SummarizePathLoss_ClassButNoLaunchPower_HasNoLoss()
+    {
+        // An OLT that sends a PON-ID without its power.
+        var s = PonChartSeries.SummarizePathLoss(Path(Enumerable.Repeat(((double?)null, (double?)-16.5), 20)))!;
+
+        s.LossDb.Should().BeNull();
+        s.MarginDb.Should().BeNull();
+        s.OdnClass.Should().Be("B+");
+        s.Hints.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void SummarizePathLoss_NoPonIdAtAll_IsNull()
+    {
+        PonChartSeries.SummarizePathLoss(null).Should().BeNull();
+        PonChartSeries.SummarizePathLoss([]).Should().BeNull();
+        PonChartSeries.SummarizePathLoss([Point(0, 1000), Point(10, 2000)]).Should().BeNull("older firmware or an OLT without PON-ID");
+    }
 }

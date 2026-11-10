@@ -164,7 +164,8 @@ public static class SfpChartEndpoints
                         temp = p.TemperatureC,
                         voltage = p.VoltageV
                     }),
-                    pon = PonChartSeries.Build(ponData.TryGetValue(key, out var ponPts) ? ponPts : null)
+                    pon = PonChartSeries.Build(ponData.TryGetValue(key, out var ponPts) ? ponPts : null),
+                    ponPath = PonChartSeries.SummarizePathLoss(ponPts)
                 };
             }).ToList();
 

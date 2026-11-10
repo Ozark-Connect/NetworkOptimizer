@@ -7,7 +7,7 @@ import { valueSortedTooltip, tooltipHeld, alignedPoints } from './chart-tooltip.
 import { renderFilterReset, isFiltered } from './chart-filter.js?v=6';
 import { createMarkLayer } from './chart-event-marks.js?v=13';
 import { createAxisDateCaption } from './chart-axis-date.js?v=5';
-import { ponSeriesFor, ponDetailsHtml, ponErrorTotalsHtml, updatePonCard, ponPayloadMbps, fmtPonLoad, ponLoadSummaryHtml } from './pon-section.js?v=12';
+import { ponSeriesFor, ponDetailsHtml, ponErrorTotalsHtml, updatePonCard, ponPayloadMbps, fmtPonLoad, ponLoadSummaryHtml, ponPathSummaryHtml, ponLaunchSeries } from './pon-section.js?v=12';
 import { syncIdentity } from './chart-sync.js?v=9';
 import { awaitContainer } from './chart-mount.js?v=1';
 import { loadWindowHours, saveWindowHours, markActiveRange, notifyWindowMoved } from './chart-window.js?v=2';
@@ -215,6 +215,9 @@ function drawSeries() {
         powerSeries.push({ name: d.label + ' TX', color: c.tx, data: alignedPoints(pts, p => p.tx) });
         powerDash.push(0);
         powerDash.push(5);
+        // The far end of the same fibre, where the OLT announces it: dotted, in the RX color.
+        const launch = ponLaunchSeries(d, d.label, c.rx);
+        if (launch) { powerSeries.push(launch); powerDash.push(2); }
         tempSeries.push({ name: d.label, color: c.temp, data: alignedPoints(pts, p => p.temp) });
     });
     if (powerChart) {
@@ -327,6 +330,8 @@ async function updateErrorsChart() {
     ponPayload = ponPayloadMbps(withErrors);
     updatePonCard(container, '.ont-pon-util-card', ponUtilChart, utilSeries);
     updatePonCard(container, '.ont-pon-loss-card', ponLossChart, lossSeries);
+    const pathEl = container.querySelector('.ont-pon-loss-summary');
+    if (pathEl) pathEl.innerHTML = ponPathSummaryHtml(withErrors);
     const summaryEl = container.querySelector('.ont-pon-util-summary');
     if (summaryEl) summaryEl.innerHTML = ponLoadSummaryHtml(withErrors, PALETTE,
         d => Math.max(0, reporting.findIndex(x => x.id === d.id)));

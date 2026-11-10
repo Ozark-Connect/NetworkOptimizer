@@ -8,7 +8,7 @@ import { renderFilterReset, isFiltered } from './chart-filter.js?v=6';
 import { createMarkLayer } from './chart-event-marks.js?v=13';
 import { createAxisDateCaption } from './chart-axis-date.js?v=5';
 import { syncIdentity, extentsOf, spanTo } from './chart-sync.js?v=9';
-import { ponSeriesFor, ponDetailsHtml, ponErrorTotalsHtml, updatePonCard, ponPayloadMbps, fmtPonLoad, ponLoadSummaryHtml } from './pon-section.js?v=12';
+import { ponSeriesFor, ponDetailsHtml, ponErrorTotalsHtml, updatePonCard, ponPayloadMbps, fmtPonLoad, ponLoadSummaryHtml, ponPathSummaryHtml, ponLaunchSeries } from './pon-section.js?v=12';
 import { awaitContainer } from './chart-mount.js?v=1';
 import { loadWindowHours, saveWindowHours, markActiveRange, notifyWindowMoved } from './chart-window.js?v=2';
 
@@ -268,6 +268,9 @@ function drawSeries() {
         powerSeries.push({ name: `${m.label} TX`, color: color, data: alignedPoints(pts, p => p.tx) });
         powerDash.push(0);
         powerDash.push(5);
+        // The far end of the same fibre, where the OLT announces it: dotted, in the module's color.
+        const launch = ponLaunchSeries(m, m.label, color);
+        if (launch) { powerSeries.push(launch); powerDash.push(2); }
         tSeries.push({ name: m.label, color: color, data: alignedPoints(pts, p => p.temp) });
     });
     if (powerChart) {
@@ -327,6 +330,8 @@ async function refreshPonSection() {
         ponPayload = ponPayloadMbps(visiblePon);
         updatePonCard(container, '.sfp-pon-util-card', ponUtilChart, utilSeries, padFirst);
         updatePonCard(container, '.sfp-pon-loss-card', ponLossChart, lossSeries, padFirst);
+        const pathEl = container.querySelector('.sfp-pon-loss-summary');
+        if (pathEl) pathEl.innerHTML = ponPathSummaryHtml(visiblePon);
         const summaryEl = container.querySelector('.sfp-pon-util-summary');
         if (summaryEl) summaryEl.innerHTML = ponLoadSummaryHtml(visiblePon, PALETTE,
             m => Math.max(0, ponCapableModules.findIndex(x => x.id === m.id)));
