@@ -46,6 +46,11 @@ public sealed record LiveTrafficQuery
     public bool IncludeSankey { get; init; } = true;
     /// <summary>Where It Goes sized by flow count instead of rate.</summary>
     public bool SankeyByFlows { get; init; }
+    /// <summary>
+    /// The Where It Goes node under the pointer: it stays its own node even outside the busiest, and
+    /// idle at 0 when nothing moves through it, so a new node never takes its place mid-click.
+    /// </summary>
+    public LiveSankeyNode? SankeyKeep { get; init; }
     /// <summary>WAN and VPN flows only, as the Live View card shows them.</summary>
     public bool WanOnly { get; init; }
     public int MaxRows { get; init; } = 200;
