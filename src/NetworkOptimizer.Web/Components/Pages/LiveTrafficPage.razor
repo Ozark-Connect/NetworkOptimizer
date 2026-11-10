@@ -202,7 +202,7 @@
                             }
                             else
                             {
-                                <LiveTrafficSankey Sankey="_view.Sankey" Hold="Held" Pinned="SankeyPin" OnHover="HoverSankey" Filters="_filters" Searching="@(!string.IsNullOrWhiteSpace(_search))" OnFilter="ToggleFilter" />
+                                <LiveTrafficSankey Sankey="_view.Sankey" Hold="Held" Filters="_filters" Searching="@(!string.IsNullOrWhiteSpace(_search))" OnFilter="ToggleFilter" />
                             }
                         </div>
                         <div class="lt-legend-note">Click any client, app, or route to filter the page to it, and again to remove the filter. Width of bands is @(_sankeyByFlows ? "flow count" : "rate") on a log scale, so small flows stay visible.@(_sankeyByFlows ? "" : " Each band splits into download (strong) and upload (light), in its route's color.")</div>
@@ -417,31 +417,6 @@
 
     private void Touched() => _hold.Touched();
 
-    private LiveSankeyNode? _hoverNode;
-    private bool _hoverIn;
-    private DateTime _hoverUntil = DateTime.MinValue;
-    private static readonly TimeSpan HoverGrace = TimeSpan.FromSeconds(1.5);
-
-    /// <summary>
-    /// The Where It Goes node held under the pointer, and for a moment after it leaves: it stays in
-    /// the diagram and in its place while the rest updates, so a click never lands on a newcomer.
-    /// </summary>
-    private LiveSankeyNode? SankeyPin => _hoverNode != null && (_hoverIn || DateTime.UtcNow < _hoverUntil) ? _hoverNode : null;
-
-    private void HoverSankey(LiveSankeyNode? node)
-    {
-        if (node != null)
-        {
-            _hoverNode = node;
-            _hoverIn = true;
-        }
-        else if (_hoverIn)
-        {
-            _hoverIn = false;
-            _hoverUntil = DateTime.UtcNow + HoverGrace;
-        }
-    }
-
     private LiveTrafficView ApplyHold(LiveTrafficView view) =>
         _hold.Apply(view, $"{_groupBy}|{_ended}|{_flowSort}|{_flowDesc}|{_search}|{string.Join(",", _filters)}");
 
@@ -503,7 +478,6 @@
                     DnsMode = _dnsMode,
                     HideLocalDns = _hideLocalDns,
                     SankeyByFlows = _sankeyByFlows,
-                    SankeyKeep = SankeyPin,
                     Sort = _flowSort,
                     Descending = _flowDesc,
                 });

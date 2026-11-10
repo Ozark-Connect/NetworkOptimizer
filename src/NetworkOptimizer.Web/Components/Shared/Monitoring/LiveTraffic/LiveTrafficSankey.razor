@@ -30,9 +30,7 @@ else
             <g @key="(node.Column, node.Name)" class="lt-sankey-node @(clickable ? "is-clickable" : null) @(IsFiltered(node) ? "is-filtered" : null)"
                style="transform: translate(@(F(ColX[node.Column]))px, @(F(n.Y))px)"
                data-client-name="@(clientLink != null ? node.Name : null)" data-client-link="@clientLink"
-               @onclick="() => OnNodeClick(node)"
-               @onmouseenter="() => { if (clickable) OnHover?.Invoke(node); }"
-               @onmouseleave="() => { if (clickable) OnHover?.Invoke(null); }">
+               @onclick="() => OnNodeClick(node)">
                 <rect x="0" y="0" width="@NodeW" height="@F(n.Height)" style="height: @(F(n.Height))px" rx="2"
                       fill="@(node.Column == 2 ? RouteColor(node.RouteKind) : "var(--bg-elevated)")"
                       stroke="var(--text-muted)" stroke-width="0.5" />
@@ -75,18 +73,6 @@ else
 
     /// <summary>A click on a client, app, or route node: filter the page to it.</summary>
     [Parameter] public EventCallback<LiveTrafficFilter> OnFilter { get; set; }
-
-    /// <summary>
-    /// The pointer entered a clickable node (or left one, with null). A plain delegate, not an
-    /// EventCallback: the page only records it for its next query, so nothing needs to redraw.
-    /// </summary>
-    [Parameter] public Action<LiveSankeyNode?>? OnHover { get; set; }
-
-    /// <summary>The node held under the pointer: it keeps its place on screen while its column changes around it.</summary>
-    [Parameter] public LiveSankeyNode? Pinned { get; set; }
-
-    /// <summary>Each node's vertical center at the last render, by column and name.</summary>
-    private Dictionary<(int, string), double> _centers = new();
 
     private const int W = 790;
     private const int H = 360;
@@ -181,19 +167,20 @@ else
             var heights = column.Select(n => Size(n.Value, sankey.ValueIsFlows)).ToList();
             var total = heights.Sum();
             // Too many nodes for the column: shrink every height, keep a minimum gap.
-            var scale = total + MinGap * (column.Count - 1) > avail ? (avail - MinGap * (column.Count - 1)) / total : 1;
+            var scale = total + 4 * (column.Count - 1) > avail ? (avail - 4 * (column.Count - 1)) / total : 1;
             heights = heights.Select(h => Math.Max(2, h * scale)).ToList();
-            var ys = PinnedYs(column, heights, col) ?? SpreadYs(heights, Top, H - Bottom, endsAtEdges: true);
+            var gap = column.Count > 1 ? (avail - heights.Sum()) / (column.Count - 1) : 0;
+            var y = Top;
             for (var i = 0; i < column.Count; i++)
             {
-                var p = new PlacedNode(column[i], ys[i], heights[i]);
+                var p = new PlacedNode(column[i], y, heights[i]);
                 placed[(col, column[i].Name)] = p;
                 nodes.Add(p);
+                y += heights[i] + gap;
             }
         }
 
         _ranks = ranks;
-        _centers = nodes.ToDictionary(n => (n.Node.Column, n.Node.Name), n => n.Y + n.Height / 2);
 
         // Each node stacks its links in the order of the nodes at their other end, so a band keeps
         // its slot from one refresh to the next and bands cross as little as they can.
@@ -244,50 +231,6 @@ else
             if (up >= 0.5) paths.Add(new PlacedPath(key + "|u", Curve(width / 2 - up / 2), color, up, UpOpacity));
         }
         return new Placed(nodes, paths);
-    }
-
-    private const double MinGap = 4;
-
-    /// <summary>
-    /// Tops for nodes of these heights between top and bottom, gaps equal. With endsAtEdges the first
-    /// node starts at top and the last ends at bottom; without, there is a gap at each end as well.
-    /// </summary>
-    private static List<double> SpreadYs(IReadOnlyList<double> heights, double top, double bottom, bool endsAtEdges)
-    {
-        var gaps = endsAtEdges ? heights.Count - 1 : heights.Count + 1;
-        var gap = gaps > 0 ? (bottom - top - heights.Sum()) / gaps : 0;
-        var y = endsAtEdges ? top : top + gap;
-        var ys = new List<double>();
-        foreach (var h in heights)
-        {
-            ys.Add(y);
-            y += h + gap;
-        }
-        return ys;
-    }
-
-    /// <summary>
-    /// The column laid out around the pinned node: it keeps the center it had at the last render
-    /// (clamped so every other node still fits), and the nodes above and below spread in what is left.
-    /// Null when the pinned node is not in this column or was not drawn last time.
-    /// </summary>
-    private List<double>? PinnedYs(List<LiveSankeyNode> column, List<double> heights, int col)
-    {
-        if (Pinned == null || Pinned.Column != col) return null;
-        var k = column.FindIndex(n => n.Name == Pinned.Name);
-        if (k < 0 || !_centers.TryGetValue((col, Pinned.Name), out var center)) return null;
-        var above = heights.Take(k).ToList();
-        var below = heights.Skip(k + 1).ToList();
-        var lowest = Top + above.Sum() + MinGap * above.Count;
-        var highest = H - Bottom - heights[k] - below.Sum() - MinGap * below.Count;
-        if (lowest > highest) return null;
-        var y = Math.Clamp(center - heights[k] / 2, lowest, highest);
-        // A zero-height stand-in for the pinned node ends the run above and starts the run below, so
-        // each run keeps a gap against it.
-        var ys = SpreadYs(above.Append(0).ToList(), Top, y, endsAtEdges: true).Take(above.Count).ToList();
-        ys.Add(y);
-        ys.AddRange(SpreadYs(below.Prepend(0).ToList(), y + heights[k], H - Bottom, endsAtEdges: true).Skip(1));
-        return ys;
     }
 
     private const double BandOpacity = 0.35;
