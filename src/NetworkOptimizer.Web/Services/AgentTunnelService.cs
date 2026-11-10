@@ -220,16 +220,16 @@ public class AgentTunnelService : AgentTunnel.AgentTunnelBase
                             connection.TrySend(new ServerMessage { ResultAck = new ResultAck { Sequence = message.Sequence } });
                         break;
                     case AgentMessage.PayloadOneofCase.Iperf3Result:
-                        _iperf3.OnResult(message.Iperf3Result);
+                        _iperf3.OnResult(connection, message.Iperf3Result);
                         break;
                     case AgentMessage.PayloadOneofCase.UwnResult:
-                        _uwn.OnResult(message.UwnResult);
+                        _uwn.OnResult(connection, message.UwnResult);
                         break;
                     case AgentMessage.PayloadOneofCase.ProbeResponse:
-                        _probe.OnResult(message.ProbeResponse);
+                        _probe.OnResult(connection, message.ProbeResponse);
                         break;
                     case AgentMessage.PayloadOneofCase.SnmpOidResult:
-                        _snmpQuery.OnResult(message.SnmpOidResult);
+                        _snmpQuery.OnResult(connection, message.SnmpOidResult);
                         break;
                     case AgentMessage.PayloadOneofCase.ConntrackSamples:
                         // Same site-gone fencing as the probe/SNMP batches. Live batches carry

@@ -376,14 +376,14 @@ public class MonitoringInfluxClient : IAsyncDisposable
             var queryApi = _client.GetQueryApi();
 
             // Probe the primary bucket
-            var flux = $@"from(bucket: ""{_bucket}"") |> range(start: -1m) |> limit(n: 1)";
+            var flux = $@"from(bucket: {FluxLiteral.Quote(_bucket)}) |> range(start: -1m) |> limit(n: 1)";
             await queryApi.QueryAsync(flux, _org, ct);
 
             // Probe the longterm bucket too - SFP/modem charts query it and users
             // get confused by 500s when only this one is missing.
             if (!string.IsNullOrEmpty(_longtermBucket) && _longtermBucket != _bucket)
             {
-                var ltFlux = $@"from(bucket: ""{_longtermBucket}"") |> range(start: -1m) |> limit(n: 1)";
+                var ltFlux = $@"from(bucket: {FluxLiteral.Quote(_longtermBucket)}) |> range(start: -1m) |> limit(n: 1)";
                 await queryApi.QueryAsync(ltFlux, _org, ct);
             }
 
@@ -1314,9 +1314,9 @@ public class MonitoringInfluxClient : IAsyncDisposable
     {
         if (!IsConfigured) return Array.Empty<ClientWanRateSample>();
         var mac = NormalizeMac(clientMac);
-        var flux = $@"from(bucket: ""{_bucket}"")
+        var flux = $@"from(bucket: {FluxLiteral.Quote(_bucket)})
   |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
-  |> filter(fn: (r) => r._measurement == ""client_wan"" and (r.client_mac == ""{mac}"" or r.client_mac == ""{ClientWanCoverageMarker}""))
+  |> filter(fn: (r) => r._measurement == ""client_wan"" and (r.client_mac == {FluxLiteral.Quote(mac)} or r.client_mac == {FluxLiteral.Quote(ClientWanCoverageMarker)}))
   |> filter(fn: (r) => r._field == ""down_bytes"" or r._field == ""up_bytes"" or r._field == ""window_seconds"")
   |> pivot(rowKey:[""_time""], columnKey: [""_field""], valueColumn: ""_value"")
   |> filter(fn: (r) => exists r.down_bytes and exists r.window_seconds and r.window_seconds > 0)
@@ -1353,7 +1353,7 @@ public class MonitoringInfluxClient : IAsyncDisposable
     public async Task<int> RollupClientWanUsageHourAsync(DateTime hourStart, CancellationToken ct = default)
     {
         if (!IsConfigured || string.IsNullOrEmpty(_longtermBucket)) return 0;
-        var flux = $@"from(bucket: ""{_bucket}"")
+        var flux = $@"from(bucket: {FluxLiteral.Quote(_bucket)})
   |> range(start: {ToFluxInstant(hourStart)}, stop: {ToFluxInstant(hourStart.AddHours(1))})
   |> filter(fn: (r) => r._measurement == ""client_wan"")
   |> filter(fn: (r) => r._field == ""down_bytes"" or r._field == ""up_bytes"" or r._field == ""window_seconds"" or r._field == ""recon_down_bytes"" or r._field == ""recon_up_bytes"")
@@ -1393,7 +1393,7 @@ public class MonitoringInfluxClient : IAsyncDisposable
     private async Task<DateTime?> ClientWanRollupEdgeAsync(string edge, CancellationToken ct)
     {
         if (!IsConfigured || string.IsNullOrEmpty(_longtermBucket)) return null;
-        var flux = $@"from(bucket: ""{_longtermBucket}"")
+        var flux = $@"from(bucket: {FluxLiteral.Quote(_longtermBucket)})
   |> range(start: -400d)
   |> filter(fn: (r) => r._measurement == ""client_wan"" and r._field == ""rollup_v"" and r._value >= {ClientWanRollupVersion})
   |> keep(columns: [""_time""])
@@ -1416,9 +1416,9 @@ public class MonitoringInfluxClient : IAsyncDisposable
     {
         if (!IsConfigured) return Array.Empty<ClientWanPoint>();
         var mac = NormalizeMac(clientMac);
-        var flux = $@"from(bucket: ""{_bucket}"")
+        var flux = $@"from(bucket: {FluxLiteral.Quote(_bucket)})
   |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
-  |> filter(fn: (r) => r._measurement == ""client_wan"" and r.client_mac == ""{mac}"")
+  |> filter(fn: (r) => r._measurement == ""client_wan"" and r.client_mac == {FluxLiteral.Quote(mac)})
   |> filter(fn: (r) => r._field == ""down_bytes"" or r._field == ""up_bytes"" or r._field == ""recon_down_bytes"" or r._field == ""recon_up_bytes"")
   |> pivot(rowKey:[""_time""], columnKey: [""_field""], valueColumn: ""_value"")
   |> filter(fn: (r) => exists r.down_bytes and exists r.up_bytes)
@@ -1437,9 +1437,9 @@ public class MonitoringInfluxClient : IAsyncDisposable
     {
         if (!IsConfigured || string.IsNullOrEmpty(_longtermBucket)) return Array.Empty<ClientWanPoint>();
         var mac = NormalizeMac(clientMac);
-        var flux = $@"from(bucket: ""{_longtermBucket}"")
+        var flux = $@"from(bucket: {FluxLiteral.Quote(_longtermBucket)})
   |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
-  |> filter(fn: (r) => r._measurement == ""client_wan"" and r.client_mac == ""{mac}"")
+  |> filter(fn: (r) => r._measurement == ""client_wan"" and r.client_mac == {FluxLiteral.Quote(mac)})
   |> filter(fn: (r) => r._field == ""down_bytes_1h"" or r._field == ""up_bytes_1h"" or r._field == ""rollup_v"")
   |> pivot(rowKey:[""_time""], columnKey: [""_field""], valueColumn: ""_value"")
   |> filter(fn: (r) => exists r.down_bytes_1h and exists r.rollup_v and r.rollup_v >= {ClientWanRollupVersion})
@@ -1488,7 +1488,7 @@ public class MonitoringInfluxClient : IAsyncDisposable
             if (lastRolled is { } lr && lr >= from && hourOfTo > from)
             {
                 rolledThrough = lr.AddHours(1) < hourOfTo ? lr.AddHours(1) : hourOfTo;
-                var flux = $@"from(bucket: ""{_longtermBucket}"")
+                var flux = $@"from(bucket: {FluxLiteral.Quote(_longtermBucket)})
   |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(rolledThrough)})
   |> filter(fn: (r) => r._measurement == ""client_wan"")
   |> filter(fn: (r) => r._field == ""down_bytes_1h"" or r._field == ""up_bytes_1h"" or r._field == ""rollup_v"")
@@ -1511,7 +1511,7 @@ public class MonitoringInfluxClient : IAsyncDisposable
         // empty range rather than returning nothing.
         if (rolledThrough >= to)
             return totals.Select(kv => new ClientWanTotal(kv.Key, kv.Value.Down, kv.Value.Up)).ToList();
-        var rawFlux = $@"from(bucket: ""{_bucket}"")
+        var rawFlux = $@"from(bucket: {FluxLiteral.Quote(_bucket)})
   |> range(start: {ToFluxInstant(rolledThrough)}, stop: {ToFluxInstant(to)})
   |> filter(fn: (r) => r._measurement == ""client_wan"")
   |> filter(fn: (r) => r._field == ""down_bytes"" or r._field == ""up_bytes"" or r._field == ""recon_down_bytes"" or r._field == ""recon_up_bytes"")
@@ -1548,7 +1548,7 @@ public class MonitoringInfluxClient : IAsyncDisposable
     {
         if (!IsConfigured) return null;
         // Windows are ~6s but a stretched cadence can run longer; 90s of slack bounds the scan.
-        var flux = $@"from(bucket: ""{_bucket}"")
+        var flux = $@"from(bucket: {FluxLiteral.Quote(_bucket)})
   |> range(start: {ToFluxInstant(at.AddSeconds(-90))}, stop: {ToFluxInstant(at.AddSeconds(90))})
   |> filter(fn: (r) => r._measurement == ""client_wan"")
   |> filter(fn: (r) => r._field == ""down_bytes"" or r._field == ""up_bytes"" or r._field == ""window_seconds"")
@@ -1605,9 +1605,9 @@ public class MonitoringInfluxClient : IAsyncDisposable
         // empty range rather than returning nothing.
         if (rawStart < to)
         {
-            var rawFlux = $@"from(bucket: ""{_bucket}"")
+            var rawFlux = $@"from(bucket: {FluxLiteral.Quote(_bucket)})
   |> range(start: {ToFluxInstant(rawStart)}, stop: {ToFluxInstant(to)})
-  |> filter(fn: (r) => r._measurement == ""client_wan"" and r.client_mac == ""{ClientWanCoverageMarker}"")
+  |> filter(fn: (r) => r._measurement == ""client_wan"" and r.client_mac == {FluxLiteral.Quote(ClientWanCoverageMarker)})
   |> filter(fn: (r) => r._field == ""window_seconds"")
   |> truncateTimeColumn(unit: 1h)
   |> group(columns: [""_time""])
@@ -1624,9 +1624,9 @@ public class MonitoringInfluxClient : IAsyncDisposable
         }
         if (!string.IsNullOrEmpty(_longtermBucket))
         {
-            var rolledFlux = $@"from(bucket: ""{_longtermBucket}"")
+            var rolledFlux = $@"from(bucket: {FluxLiteral.Quote(_longtermBucket)})
   |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
-  |> filter(fn: (r) => r._measurement == ""client_wan"" and r.client_mac == ""{ClientWanCoverageMarker}"")
+  |> filter(fn: (r) => r._measurement == ""client_wan"" and r.client_mac == {FluxLiteral.Quote(ClientWanCoverageMarker)})
   |> filter(fn: (r) => r._field == ""coverage_seconds_1h"")
   |> group(columns: [""_time""])
   |> sum()
@@ -1678,11 +1678,11 @@ public class MonitoringInfluxClient : IAsyncDisposable
         {
             var macs = deviceMacs.Select(NormalizeMac).Distinct().ToList();
             macFilter = "\n  |> filter(fn: (r) => " +
-                string.Join(" or ", macs.Select(m => $@"r.device_mac == ""{m}""")) + ")";
+                string.Join(" or ", macs.Select(m => $@"r.device_mac == {FluxLiteral.Quote(m)}")) + ")";
         }
 
         var flux = $@"
-from(bucket: ""{_bucket}"")
+from(bucket: {FluxLiteral.Quote(_bucket)})
   |> {rangeClause}
   |> filter(fn: (r) => r._measurement == ""wired_client"")
   |> filter(fn: (r) => exists r.port)
@@ -1751,7 +1751,7 @@ from(bucket: ""{_bucket}"")
         if (!IsConfigured || string.IsNullOrEmpty(_longtermBucket)) return Array.Empty<SfpLatestPoint>();
 
         var flux = $@"
-from(bucket: ""{_longtermBucket}"")
+from(bucket: {FluxLiteral.Quote(_longtermBucket)})
   |> range(start: -6h)
   |> filter(fn: (r) => r._measurement == ""sfp"")
   |> last()
@@ -1830,7 +1830,7 @@ from(bucket: ""{_longtermBucket}"")
     };
 
     private static readonly string PonFieldFilter =
-        string.Join(" or ", PonFieldNames.Select(f => $@"r._field == ""{f}"""));
+        string.Join(" or ", PonFieldNames.Select(f => $@"r._field == {FluxLiteral.Quote(f)}"));
 
     /// <summary>Null when the row carries no PON field at all, which is every DDM-only module.</summary>
     private static PonSeriesPoint? ReadPonPoint(InfluxDB.Client.Core.Flux.Domain.FluxRecord record, DateTime time)
@@ -2282,10 +2282,10 @@ from(bucket: ""{_longtermBucket}"")
             return Array.Empty<HealthCheckEventPoint>();
 
         var flux = $@"
-from(bucket: ""{_longtermBucket}"")
+from(bucket: {FluxLiteral.Quote(_longtermBucket)})
   |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
   |> filter(fn: (r) => r._measurement == ""events"")
-  |> filter(fn: (r) => r.event_type == ""{HealthCheckEventType}"")
+  |> filter(fn: (r) => r.event_type == {FluxLiteral.Quote(HealthCheckEventType)})
   |> pivot(rowKey:[""_time""], columnKey: [""_field""], valueColumn: ""_value"")
 ";
         var results = new List<HealthCheckEventPoint>();
@@ -2365,11 +2365,11 @@ from(bucket: ""{_longtermBucket}"")
             return Array.Empty<CableModemLogEventPoint>();
 
         var flux = $@"
-from(bucket: ""{_longtermBucket}"")
+from(bucket: {FluxLiteral.Quote(_longtermBucket)})
   |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
   |> filter(fn: (r) => r._measurement == ""events"")
-  |> filter(fn: (r) => r.event_type == ""{CableModemLogEventType}"")
-  |> filter(fn: (r) => r.cm_id == ""{SanitizeFluxString(cmId)}"")
+  |> filter(fn: (r) => r.event_type == {FluxLiteral.Quote(CableModemLogEventType)})
+  |> filter(fn: (r) => r.cm_id == {FluxLiteral.Quote(cmId)})
   |> pivot(rowKey:[""_time""], columnKey: [""_field""], valueColumn: ""_value"")
 ";
         var results = new List<CableModemLogEventPoint>();
@@ -2480,10 +2480,10 @@ from(bucket: ""{_longtermBucket}"")
             return Array.Empty<DeviceRebootPoint>();
 
         var flux = $@"
-from(bucket: ""{_longtermBucket}"")
+from(bucket: {FluxLiteral.Quote(_longtermBucket)})
   |> range(start: -{(int)Math.Max(1, lookback.TotalHours)}h)
   |> filter(fn: (r) => r._measurement == ""events"")
-  |> filter(fn: (r) => r.event_type == ""{DeviceRebootEventType}"")
+  |> filter(fn: (r) => r.event_type == {FluxLiteral.Quote(DeviceRebootEventType)})
   |> pivot(rowKey:[""_time""], columnKey: [""_field""], valueColumn: ""_value"")
   |> group(columns: [""device_mac""])
   |> sort(columns: [""_time""])
@@ -2536,10 +2536,10 @@ from(bucket: ""{_longtermBucket}"")
             return Array.Empty<DeviceRebootPoint>();
 
         var flux = $@"
-from(bucket: ""{_longtermBucket}"")
+from(bucket: {FluxLiteral.Quote(_longtermBucket)})
   |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
   |> filter(fn: (r) => r._measurement == ""events"")
-  |> filter(fn: (r) => r.event_type == ""{DeviceRebootEventType}"")
+  |> filter(fn: (r) => r.event_type == {FluxLiteral.Quote(DeviceRebootEventType)})
   |> pivot(rowKey:[""_time""], columnKey: [""_field""], valueColumn: ""_value"")
 ";
         var results = new List<DeviceRebootPoint>();
@@ -2609,7 +2609,7 @@ from(bucket: ""{_longtermBucket}"")
         var macs = string.Join(" or ", deviceMacs
             .Select(NormalizeMac)
             .Distinct(StringComparer.OrdinalIgnoreCase)
-            .Select(m => $@"r.device_mac == ""{m}"""));
+            .Select(m => $@"r.device_mac == {FluxLiteral.Quote(m)}"));
 
         // A plain disjunction of tag regexes, NEVER the if/else that expresses port_id-then-if_name
         // precedence exactly - the conditional runs per row (82 s vs 0.26 s; see remarks). The two
@@ -2621,7 +2621,7 @@ from(bucket: ""{_longtermBucket}"")
             : "";
 
         var flux = $@"
-from(bucket: ""{_bucket}"")
+from(bucket: {FluxLiteral.Quote(_bucket)})
   |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
   |> filter(fn: (r) => r._measurement == ""interface_counters"")
   |> filter(fn: (r) => {macs})
@@ -2664,10 +2664,10 @@ from(bucket: ""{_bucket}"")
         var window = aggregateWindow ?? PickAggregateWindow(to - from);
         var mac = NormalizeMac(deviceMac);
         var flux = $@"
-from(bucket: ""{_bucket}"")
+from(bucket: {FluxLiteral.Quote(_bucket)})
   |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
   |> filter(fn: (r) => r._measurement == ""interface_counters"")
-  |> filter(fn: (r) => r.device_mac == ""{mac}"")
+  |> filter(fn: (r) => r.device_mac == {FluxLiteral.Quote(mac)})
   |> filter(fn: (r) => r._field == ""rate_in_bps"" or r._field == ""rate_out_bps"")
   |> aggregateWindow(every: {ToFluxDuration(window)}, fn: mean, createEmpty: false)
   |> pivot(rowKey:[""_time""], columnKey: [""_field""], valueColumn: ""_value"")
@@ -2706,10 +2706,10 @@ from(bucket: ""{_bucket}"")
         if (!IsConfigured) return Array.Empty<InterfaceLinkStatePoint>();
         var mac = NormalizeMac(deviceMac);
         var flux = $@"
-from(bucket: ""{_bucket}"")
+from(bucket: {FluxLiteral.Quote(_bucket)})
   |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
   |> filter(fn: (r) => r._measurement == ""interface_counters"")
-  |> filter(fn: (r) => r.device_mac == ""{mac}"")
+  |> filter(fn: (r) => r.device_mac == {FluxLiteral.Quote(mac)})
   |> filter(fn: (r) => r._field == ""oper_status"")
 ";
         var results = new List<InterfaceLinkStatePoint>();
@@ -2753,12 +2753,12 @@ from(bucket: ""{_bucket}"")
     {
         if (!IsConfigured) return null;
         var flux = $@"
-from(bucket: ""{_bucket}"")
+from(bucket: {FluxLiteral.Quote(_bucket)})
   |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
   |> filter(fn: (r) => r._measurement == ""interface_counters"")
-  |> filter(fn: (r) => r.device_mac == ""{NormalizeMac(deviceMac)}"")
-  |> filter(fn: (r) => r.if_name == ""{SanitizeFluxString(ifName)}"")
-  |> filter(fn: (r) => r._field == ""{InfluxFieldNames.LinkSpeedMbps}"")
+  |> filter(fn: (r) => r.device_mac == {FluxLiteral.Quote(NormalizeMac(deviceMac))})
+  |> filter(fn: (r) => r.if_name == {FluxLiteral.Quote(ifName)})
+  |> filter(fn: (r) => r._field == {FluxLiteral.Quote(InfluxFieldNames.LinkSpeedMbps)})
   |> max()
 ";
         int? max = null;
@@ -2784,12 +2784,12 @@ from(bucket: ""{_bucket}"")
     {
         if (!IsConfigured) return Array.Empty<(DateTime, int)>();
         var flux = $@"
-from(bucket: ""{_bucket}"")
+from(bucket: {FluxLiteral.Quote(_bucket)})
   |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
   |> filter(fn: (r) => r._measurement == ""interface_counters"")
-  |> filter(fn: (r) => r.device_mac == ""{NormalizeMac(deviceMac)}"")
-  |> filter(fn: (r) => r.if_name == ""{SanitizeFluxString(ifName)}"")
-  |> filter(fn: (r) => r._field == ""{InfluxFieldNames.LinkSpeedMbps}"")
+  |> filter(fn: (r) => r.device_mac == {FluxLiteral.Quote(NormalizeMac(deviceMac))})
+  |> filter(fn: (r) => r.if_name == {FluxLiteral.Quote(ifName)})
+  |> filter(fn: (r) => r._field == {FluxLiteral.Quote(InfluxFieldNames.LinkSpeedMbps)})
   |> aggregateWindow(every: {ToFluxDuration(window)}, fn: min, createEmpty: false)
 ";
         var results = new List<(DateTime Time, int MinMbps)>();
@@ -2817,11 +2817,11 @@ from(bucket: ""{_bucket}"")
         if (!IsConfigured) return Array.Empty<InterfaceRatePoint>();
         var mac = NormalizeMac(deviceMac);
         var flux = $@"
-from(bucket: ""{_bucket}"")
+from(bucket: {FluxLiteral.Quote(_bucket)})
   |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
   |> filter(fn: (r) => r._measurement == ""interface_counters"")
-  |> filter(fn: (r) => r.device_mac == ""{mac}"")
-  |> filter(fn: (r) => r._field == ""rate_in_bps"" or r._field == ""rate_out_bps"" or r._field == ""speed_bps"" or r._field == ""{InfluxFieldNames.LinkSpeedMbps}"")
+  |> filter(fn: (r) => r.device_mac == {FluxLiteral.Quote(mac)})
+  |> filter(fn: (r) => r._field == ""rate_in_bps"" or r._field == ""rate_out_bps"" or r._field == ""speed_bps"" or r._field == {FluxLiteral.Quote(InfluxFieldNames.LinkSpeedMbps)})
 ";
         var rateIn = new Dictionary<(string ifName, long ticks), double>();
         var rateOut = new Dictionary<(string ifName, long ticks), double>();
@@ -2889,7 +2889,7 @@ from(bucket: ""{_bucket}"")
     {
         if (!IsConfigured) return null;
         var flux = $@"
-from(bucket: ""{_bucket}"")
+from(bucket: {FluxLiteral.Quote(_bucket)})
   |> range(start: -90d)
   |> filter(fn: (r) => r._measurement == ""interface_counters"")
   |> filter(fn: (r) => r._field == ""rate_in_bps"")
@@ -2921,9 +2921,9 @@ from(bucket: ""{_bucket}"")
         if (macs.Count == 0) return new Dictionary<string, List<InterfaceRatePoint>>(StringComparer.OrdinalIgnoreCase);
 
         var window = aggregateWindow ?? PickAggregateWindow(to - from);
-        var macFilter = string.Join(" or ", macs.Select(m => $@"r.device_mac == ""{m}"""));
+        var macFilter = string.Join(" or ", macs.Select(m => $@"r.device_mac == {FluxLiteral.Quote(m)}"));
         var flux = $@"
-from(bucket: ""{_bucket}"")
+from(bucket: {FluxLiteral.Quote(_bucket)})
   |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
   |> filter(fn: (r) => r._measurement == ""interface_counters"")
   |> filter(fn: (r) => {macFilter})
@@ -2999,11 +2999,11 @@ from(bucket: ""{_bucket}"")
         {
             var macs = deviceMacs.Select(NormalizeMac).Distinct().ToList();
             macFilter = "\n  |> filter(fn: (r) => " +
-                string.Join(" or ", macs.Select(m => $@"r.device_mac == ""{m}""")) + ")";
+                string.Join(" or ", macs.Select(m => $@"r.device_mac == {FluxLiteral.Quote(m)}")) + ")";
         }
 
         var flux = $@"
-from(bucket: ""{_bucket}"")
+from(bucket: {FluxLiteral.Quote(_bucket)})
   |> {rangeClause}
   |> filter(fn: (r) => r._measurement == ""interface_counters""){macFilter}{lastClause}
   |> pivot(rowKey:[""_time""], columnKey: [""_field""], valueColumn: ""_value"")
@@ -3159,7 +3159,7 @@ from(bucket: ""{_bucket}"")
         var window = aggregateWindow ?? PickAggregateWindow(to - from, sampleIntervalSeconds);
         var mac = NormalizeMac(deviceMac);
         var ifFilter = string.Join(" or ", wanIfNames.Select(n =>
-            $@"r.if_name == ""{SanitizeFluxString(n)}"""));
+            $@"r.if_name == {FluxLiteral.Quote(n)}"));
         // Summing across interfaces groups by (_time, _field), which on a long window at a fine
         // aggregate means one server-side group per sample - measured at 6657ms against 490ms without,
         // for 148k samples over 30 days. With a single WAN there is nothing to sum: the stage returns
@@ -3172,10 +3172,10 @@ from(bucket: ""{_bucket}"")
   |> group()"
             : string.Empty;
         var flux = $@"
-from(bucket: ""{_bucket}"")
+from(bucket: {FluxLiteral.Quote(_bucket)})
   |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
   |> filter(fn: (r) => r._measurement == ""interface_counters"")
-  |> filter(fn: (r) => r.device_mac == ""{mac}"")
+  |> filter(fn: (r) => r.device_mac == {FluxLiteral.Quote(mac)})
   |> filter(fn: (r) => {ifFilter})
   |> filter(fn: (r) => r._field == ""rate_in_bps"" or r._field == ""rate_out_bps"")
   |> aggregateWindow(every: {ToFluxDuration(window)}, fn: mean, createEmpty: false){multiWanSum}
@@ -3226,10 +3226,10 @@ from(bucket: ""{_bucket}"")
         var window = aggregateWindow ?? PickAggregateWindow(to - from);
         var mac = NormalizeMac(deviceMac);
         var flux = $@"
-from(bucket: ""{_bucket}"")
+from(bucket: {FluxLiteral.Quote(_bucket)})
   |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
   |> filter(fn: (r) => r._measurement == ""device_health"")
-  |> filter(fn: (r) => r.device_mac == ""{mac}"")
+  |> filter(fn: (r) => r.device_mac == {FluxLiteral.Quote(mac)})
   |> filter(fn: (r) => r._field == ""cpu_percent"" or r._field == ""memory_used_percent"" or r._field == ""temperature_c"" or r._field == ""uptime_seconds"" or r._field == ""fan_speed_rpm"")
   |> map(fn: (r) => ({{ r with _value: if r._field == ""temperature_c"" and float(v: r._value) > {FluxMillidegreeThreshold} then float(v: r._value) / {FluxMillidegreeDivisor} else float(v: r._value) }}))
   |> aggregateWindow(every: {ToFluxDuration(window)}, fn: mean, createEmpty: false)
@@ -3266,10 +3266,10 @@ from(bucket: ""{_bucket}"")
     {
         if (!IsConfigured) return Array.Empty<(DateTime, double)>();
         var flux = $@"
-from(bucket: ""{_bucket}"")
+from(bucket: {FluxLiteral.Quote(_bucket)})
   |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
   |> filter(fn: (r) => r._measurement == ""device_health"")
-  |> filter(fn: (r) => r.device_mac == ""{NormalizeMac(deviceMac)}"")
+  |> filter(fn: (r) => r.device_mac == {FluxLiteral.Quote(NormalizeMac(deviceMac))})
   |> filter(fn: (r) => r._field == ""cpu_percent"")
   |> aggregateWindow(every: {ToFluxDuration(window)}, fn: mean, createEmpty: false)
 ";
@@ -3298,11 +3298,11 @@ from(bucket: ""{_bucket}"")
         if (!IsConfigured) await ReconfigureAsync(ct);
         if (!IsConfigured) return Array.Empty<TargetLatencyMean>();
         var idFilter = targetIds is { Count: > 0 }
-            ? $"\n  |> filter(fn: (r) => {string.Join(" or ", targetIds.Select(id => $@"r.target_id == ""{SanitizeFluxString(id)}"""))})"
+            ? $"\n  |> filter(fn: (r) => {string.Join(" or ", targetIds.Select(id => $@"r.target_id == {FluxLiteral.Quote(id)}"))})"
             : "";
         var internetService = includeInternetService ? @" or r.target_type == ""internetservice""" : "";
         var flux = $@"
-from(bucket: ""{_bucket}"")
+from(bucket: {FluxLiteral.Quote(_bucket)})
   |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
   |> filter(fn: (r) => r._measurement == ""latency"")
   |> filter(fn: (r) => r.target_type == ""accessisp"" or r.target_type == ""transit""{internetService}){idFilter}{BuildWanScopeFilter(wanScope)}
@@ -3340,7 +3340,7 @@ from(bucket: ""{_bucket}"")
         // Rollup rows are stamped at UTC midnight: start at the first day's midnight so the partial
         // first day is read (its point sits before `from`, where a chart clamps it to the edge).
         var flux = $@"
-from(bucket: ""{_longtermBucket}"")
+from(bucket: {FluxLiteral.Quote(_longtermBucket)})
   |> range(start: {ToFluxInstant(DateTime.SpecifyKind(from.ToUniversalTime().Date, DateTimeKind.Utc))}, stop: {ToFluxInstant(to)})
   |> filter(fn: (r) => r._measurement == ""wifi_client_daily"" and r._field == ""samples"")
   |> aggregateWindow(every: 1d, fn: count, createEmpty: false, timeSrc: ""_start"")
@@ -3369,7 +3369,7 @@ from(bucket: ""{_longtermBucket}"")
     {
         if (!IsConfigured) return Array.Empty<(DateTime, string, double)>();
         string Flux(string fn) => $@"
-from(bucket: ""{_bucket}"")
+from(bucket: {FluxLiteral.Quote(_bucket)})
   |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
   |> filter(fn: (r) => r._measurement == ""wifi_client"" and r._field == ""tx_rate_kbps"")
   |> aggregateWindow(every: {ToFluxDuration(window)}, fn: {fn}, createEmpty: false)
@@ -3404,12 +3404,12 @@ from(bucket: ""{_bucket}"")
     {
         if (!IsConfigured) return Array.Empty<TargetLatencyMean>();
         var selector = targetIds is { Count: > 0 }
-            ? $"\n  |> filter(fn: (r) => {string.Join(" or ", targetIds.Select(id => $@"r.target_id == ""{SanitizeFluxString(id)}"""))})"
+            ? $"\n  |> filter(fn: (r) => {string.Join(" or ", targetIds.Select(id => $@"r.target_id == {FluxLiteral.Quote(id)}"))})"
             : targetType != null ? $@"
-  |> filter(fn: (r) => r.target_type == ""{SanitizeFluxString(targetType)}"")" : null;
+  |> filter(fn: (r) => r.target_type == {FluxLiteral.Quote(targetType)})" : null;
         if (selector == null) return Array.Empty<TargetLatencyMean>();
         var flux = $@"
-from(bucket: ""{_bucket}"")
+from(bucket: {FluxLiteral.Quote(_bucket)})
   |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
   |> filter(fn: (r) => r._measurement == ""latency""){selector}{BuildWanScopeFilter(wanScope)}
   |> filter(fn: (r) => r._field == ""rtt_avg_ms"" or r._field == ""loss_percent"")
@@ -3441,7 +3441,7 @@ from(bucket: ""{_bucket}"")
         async Task<Dictionary<(DateTime, string, string), int>> Count(string cond)
         {
             var flux = $@"
-from(bucket: ""{_bucket}"")
+from(bucket: {FluxLiteral.Quote(_bucket)})
   |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
   |> filter(fn: (r) => r._measurement == ""wifi_client"" and r._field == ""satisfaction""){cond}
   |> aggregateWindow(every: 1h, fn: count, createEmpty: false, timeSrc: ""_start"")
@@ -3472,9 +3472,9 @@ from(bucket: ""{_bucket}"")
     {
         if (!IsConfigured || measurement is not ("wifi_client" or "wired_client")) return Array.Empty<(DateTime, string, int)>();
         var flux = $@"
-from(bucket: ""{_bucket}"")
+from(bucket: {FluxLiteral.Quote(_bucket)})
   |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
-  |> filter(fn: (r) => r._measurement == ""{measurement}"" and r._field == ""client_mac"")
+  |> filter(fn: (r) => r._measurement == {FluxLiteral.Quote(measurement)} and r._field == ""client_mac"")
   |> group(columns: [""device_mac""])
   |> window(every: 1h)
   |> distinct()
@@ -3499,7 +3499,7 @@ from(bucket: ""{_bucket}"")
         async Task<Dictionary<(DateTime, string, string, string), double>> Agg(string fn)
         {
             var flux = $@"
-from(bucket: ""{_bucket}"")
+from(bucket: {FluxLiteral.Quote(_bucket)})
   |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
   |> filter(fn: (r) => r._measurement == ""interface_counters"" and (r._field == ""errors_in"" or r._field == ""ucast_pkts_in""))
   |> aggregateWindow(every: 1h, fn: {fn}, createEmpty: false, timeSrc: ""_start"")
@@ -3529,7 +3529,7 @@ from(bucket: ""{_bucket}"")
     private async Task<List<(DateTime, string, int)>> RawWifiClientCountsAsync(DateTime from, DateTime to, TimeSpan window, CancellationToken ct)
     {
         var flux = $@"
-from(bucket: ""{_bucket}"")
+from(bucket: {FluxLiteral.Quote(_bucket)})
   |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
   |> filter(fn: (r) => r._measurement == ""wifi_client"")
   |> filter(fn: (r) => r._field == ""client_mac"")
@@ -3562,12 +3562,12 @@ from(bucket: ""{_bucket}"")
 
         var window = aggregateWindow ?? PickAggregateWindow(to - from);
         var mac = NormalizeMac(deviceMac);
-        var fieldFilter = string.Join(" or ", fieldNames.Select(f => $"r._field == \"{f}\""));
+        var fieldFilter = string.Join(" or ", fieldNames.Select(f => $"r._field == {FluxLiteral.Quote(f)}"));
         var flux = $@"
-from(bucket: ""{_bucket}"")
+from(bucket: {FluxLiteral.Quote(_bucket)})
   |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
   |> filter(fn: (r) => r._measurement == ""device_health"")
-  |> filter(fn: (r) => r.device_mac == ""{mac}"")
+  |> filter(fn: (r) => r.device_mac == {FluxLiteral.Quote(mac)})
   |> filter(fn: (r) => {fieldFilter})
   |> aggregateWindow(every: {ToFluxDuration(window)}, fn: mean, createEmpty: false)
 ";
@@ -3595,10 +3595,10 @@ from(bucket: ""{_bucket}"")
         if (!IsConfigured) return Array.Empty<DeviceHealthPoint>();
         var mac = NormalizeMac(deviceMac);
         var flux = $@"
-from(bucket: ""{_bucket}"")
+from(bucket: {FluxLiteral.Quote(_bucket)})
   |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
   |> filter(fn: (r) => r._measurement == ""device_health"")
-  |> filter(fn: (r) => r.device_mac == ""{mac}"")
+  |> filter(fn: (r) => r.device_mac == {FluxLiteral.Quote(mac)})
   |> filter(fn: (r) => r._field == ""cpu_percent"" or r._field == ""memory_used_percent"" or r._field == ""temperature_c"" or r._field == ""uptime_seconds"" or r._field == ""fan_speed_rpm"")
 ";
         var cpu = new Dictionary<long, double>();
@@ -3643,9 +3643,9 @@ from(bucket: ""{_bucket}"")
         var typeTag = targetType.ToString().ToLowerInvariant();
         var typeFilter = targetType == MonitoringTargetType.InternetService
             ? @"r.target_type == ""internetservice"" or r.target_type == ""wan"""
-            : $@"r.target_type == ""{typeTag}""";
+            : $@"r.target_type == {FluxLiteral.Quote(typeTag)}";
         var flux = $@"
-from(bucket: ""{_bucket}"")
+from(bucket: {FluxLiteral.Quote(_bucket)})
   |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
   |> filter(fn: (r) => r._measurement == ""latency"")
   |> filter(fn: (r) => {typeFilter})
@@ -3694,10 +3694,10 @@ from(bucket: ""{_bucket}"")
         // InternetService replaced Wan — old data has target_type=wan, new has internetservice.
         var typeFilter = targetType == MonitoringTargetType.InternetService
             ? @"r.target_type == ""internetservice"" or r.target_type == ""wan"""
-            : $@"r.target_type == ""{typeTag}""";
+            : $@"r.target_type == {FluxLiteral.Quote(typeTag)}";
 
         var flux = $@"
-from(bucket: ""{_bucket}"")
+from(bucket: {FluxLiteral.Quote(_bucket)})
   |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
   |> filter(fn: (r) => r._measurement == ""latency"")
   |> filter(fn: (r) => {typeFilter}){BuildWanScopeFilter(wanScope)}
@@ -3773,7 +3773,7 @@ from(bucket: ""{_bucket}"")
         clauses.AddRange(scope.WanTags
             .Where(t => !string.IsNullOrEmpty(t))
             .Distinct(StringComparer.Ordinal)
-            .Select(t => $@"r.wan == ""{SanitizeFluxString(t)}"""));
+            .Select(t => $@"r.wan == {FluxLiteral.Quote(t)}"));
         if (clauses.Count == 0)
             // A tags-only scope with no usable tag values can match nothing; emit an
             // always-false predicate rather than silently returning every WAN's data.
@@ -3802,10 +3802,10 @@ from(bucket: ""{_bucket}"")
         var typeTag = targetType.ToString().ToLowerInvariant();
         var typeFilter = targetType == MonitoringTargetType.InternetService
             ? @"r.target_type == ""internetservice"" or r.target_type == ""wan"""
-            : $@"r.target_type == ""{typeTag}""";
+            : $@"r.target_type == {FluxLiteral.Quote(typeTag)}";
 
         var flux = $@"
-from(bucket: ""{_bucket}"")
+from(bucket: {FluxLiteral.Quote(_bucket)})
   |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
   |> filter(fn: (r) => r._measurement == ""latency"")
   |> filter(fn: (r) => {typeFilter}){BuildWanScopeFilter(wanScope)}
@@ -3840,10 +3840,10 @@ from(bucket: ""{_bucket}"")
         if (!IsConfigured) return new List<LatencySeriesPoint>();
         var window = aggregateWindow ?? PickAggregateWindow(to - from);
         var flux = $@"
-from(bucket: ""{_bucket}"")
+from(bucket: {FluxLiteral.Quote(_bucket)})
   |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
   |> filter(fn: (r) => r._measurement == ""latency"")
-  |> filter(fn: (r) => r.target_id == ""{targetId}"")
+  |> filter(fn: (r) => r.target_id == {FluxLiteral.Quote(targetId)})
   |> filter(fn: (r) => r._field == ""rtt_avg_ms"" or r._field == ""rtt_max_ms"" or r._field == ""jitter_ms"" or r._field == ""loss_percent"")
   |> aggregateWindow(every: {ToFluxDuration(window)}, fn: mean, createEmpty: false)
   |> pivot(rowKey:[""_time""], columnKey: [""_field""], valueColumn: ""_value"")
@@ -3877,10 +3877,10 @@ from(bucket: ""{_bucket}"")
         if (!IsConfigured) return Array.Empty<LatencyPoint>();
         var window = aggregateWindow ?? PickAggregateWindow(to - from);
         var flux = $@"
-from(bucket: ""{_bucket}"")
+from(bucket: {FluxLiteral.Quote(_bucket)})
   |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
   |> filter(fn: (r) => r._measurement == ""latency"")
-  |> filter(fn: (r) => r.target_id == ""{targetId}"")
+  |> filter(fn: (r) => r.target_id == {FluxLiteral.Quote(targetId)})
   |> filter(fn: (r) => r._field == ""rtt_avg_ms"" or r._field == ""loss_percent"")
   |> aggregateWindow(every: {ToFluxDuration(window)}, fn: mean, createEmpty: false)
   |> pivot(rowKey:[""_time""], columnKey: [""_field""], valueColumn: ""_value"")
@@ -3920,12 +3920,12 @@ from(bucket: ""{_bucket}"")
         var window = (aggregateWindow is null or { Ticks: 0 }) ? PickAggregateWindow(to - from) : aggregateWindow.Value;
 
         var macFilter = string.Join(" or ", modules.Select(m =>
-            $@"(r.device_mac == ""{NormalizeMac(m.DeviceMac)}"" and r.port_name == ""{SanitizeFluxString(m.PortName)}"")"));
+            $@"(r.device_mac == {FluxLiteral.Quote(NormalizeMac(m.DeviceMac))} and r.port_name == {FluxLiteral.Quote(m.PortName)})"));
 
         var aggregateLine = raw ? "" : $@"  |> aggregateWindow(every: {ToFluxDuration(window)}, fn: mean, createEmpty: false)
 ";
         var flux = $@"
-from(bucket: ""{_longtermBucket}"")
+from(bucket: {FluxLiteral.Quote(_longtermBucket)})
   |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
   |> filter(fn: (r) => r._measurement == ""sfp"")
   |> filter(fn: (r) => {macFilter})
@@ -4022,12 +4022,12 @@ from(bucket: ""{_longtermBucket}"")
         var window = aggregateWindow ?? PickAggregateWindow(to - from);
 
         var macFilter = string.Join(" or ", modules.Select(m =>
-            $@"(r.device_mac == ""{NormalizeMac(m.DeviceMac)}"" and r.port_name == ""{SanitizeFluxString(m.PortName)}"")"));
+            $@"(r.device_mac == {FluxLiteral.Quote(NormalizeMac(m.DeviceMac))} and r.port_name == {FluxLiteral.Quote(m.PortName)})"));
 
         var fieldFilter = PonFieldFilter;
 
         var flux = $@"
-from(bucket: ""{_longtermBucket}"")
+from(bucket: {FluxLiteral.Quote(_longtermBucket)})
   |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
   |> filter(fn: (r) => r._measurement == ""sfp"")
   |> filter(fn: (r) => {macFilter})
@@ -4081,13 +4081,13 @@ from(bucket: ""{_longtermBucket}"")
 
         // device_mac is written normalized, so a caller's dashed or uppercase MAC is matched the same way.
         var tagFilter = string.Join(" and ", tags.Select(t =>
-            $@"r.{SanitizeFluxIdentifier(t.Tag)} == ""{(t.Tag == "device_mac" ? NormalizeMac(t.Value) : SanitizeFluxString(t.Value))}"""));
+            $@"r.{SanitizeFluxIdentifier(t.Tag)} == {FluxLiteral.Quote(t.Tag == "device_mac" ? NormalizeMac(t.Value) : t.Value)}"));
         foreach (var t in excludeTags ?? [])
-            tagFilter += $@" and r.{SanitizeFluxIdentifier(t.Tag)} != ""{SanitizeFluxString(t.Value)}""";
+            tagFilter += $@" and r.{SanitizeFluxIdentifier(t.Tag)} != {FluxLiteral.Quote(t.Value)}";
         var flux = $@"
-from(bucket: ""{_longtermBucket}"")
+from(bucket: {FluxLiteral.Quote(_longtermBucket)})
   |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
-  |> filter(fn: (r) => r._measurement == ""{SanitizeFluxString(measurement)}"" and r._field == ""{SanitizeFluxString(field)}"")
+  |> filter(fn: (r) => r._measurement == {FluxLiteral.Quote(measurement)} and r._field == {FluxLiteral.Quote(field)})
   |> filter(fn: (r) => {tagFilter})
   |> aggregateWindow(every: {ToFluxDuration(window)}, fn: mean, createEmpty: false)
 ";
@@ -4124,10 +4124,10 @@ from(bucket: ""{_longtermBucket}"")
         if (!IsConfigured || targetIds.Count == 0 || fields.Count == 0) return results;
 
         var idFilter = string.Join(" or ", targetIds.Distinct(StringComparer.Ordinal)
-            .Select(id => $@"r.target_id == ""{SanitizeFluxString(id)}"""));
-        var fieldFilter = string.Join(" or ", fields.Select(f => $@"r._field == ""{SanitizeFluxString(f)}"""));
+            .Select(id => $@"r.target_id == {FluxLiteral.Quote(id)}"));
+        var fieldFilter = string.Join(" or ", fields.Select(f => $@"r._field == {FluxLiteral.Quote(f)}"));
         var flux = $@"
-from(bucket: ""{_bucket}"")
+from(bucket: {FluxLiteral.Quote(_bucket)})
   |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
   |> filter(fn: (r) => r._measurement == ""latency"" and ({fieldFilter}))
   |> filter(fn: (r) => {idFilter})
@@ -4163,12 +4163,12 @@ from(bucket: ""{_bucket}"")
         if (!IsConfigured) await ReconfigureAsync(ct);
         if (!IsConfigured || string.IsNullOrEmpty(deviceMac) || fields.Count == 0) return results;
 
-        var fieldFilter = string.Join(" or ", fields.Select(f => $@"r._field == ""{SanitizeFluxString(f)}"""));
+        var fieldFilter = string.Join(" or ", fields.Select(f => $@"r._field == {FluxLiteral.Quote(f)}"));
         var flux = $@"
-from(bucket: ""{_bucket}"")
+from(bucket: {FluxLiteral.Quote(_bucket)})
   |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
   |> filter(fn: (r) => r._measurement == ""device_health"" and ({fieldFilter}))
-  |> filter(fn: (r) => r.device_mac == ""{NormalizeMac(deviceMac)}"")
+  |> filter(fn: (r) => r.device_mac == {FluxLiteral.Quote(NormalizeMac(deviceMac))})
   |> aggregateWindow(every: {ToFluxDuration(window)}, fn: mean, createEmpty: false)
 ";
         var raw = new Dictionary<string, List<(DateTime Time, double Value)>>();
@@ -4204,11 +4204,11 @@ from(bucket: ""{_bucket}"")
         var window = aggregateWindow ?? PickAggregateWindow(to - from);
 
         var modemFilter = !string.IsNullOrEmpty(modemId)
-            ? $@"|> filter(fn: (r) => r.modem_id == ""{SanitizeFluxString(modemId)}"")"
+            ? $@"|> filter(fn: (r) => r.modem_id == {FluxLiteral.Quote(modemId)})"
             : "";
 
         var flux = $@"
-from(bucket: ""{_longtermBucket}"")
+from(bucket: {FluxLiteral.Quote(_longtermBucket)})
   |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
   |> filter(fn: (r) => r._measurement == ""cellular"")
   {modemFilter}
@@ -4273,19 +4273,19 @@ from(bucket: ""{_longtermBucket}"")
         var window = aggregateWindow ?? PickAggregateWindow(to - from);
 
         var cmFilter = !string.IsNullOrEmpty(cmId)
-            ? $@"|> filter(fn: (r) => r.cm_id == ""{SanitizeFluxString(cmId)}"")"
+            ? $@"|> filter(fn: (r) => r.cm_id == {FluxLiteral.Quote(cmId)})"
             : "";
 
         var winDur = ToFluxDuration(window);
         var flux = $@"
-gauges = from(bucket: ""{_longtermBucket}"")
+gauges = from(bucket: {FluxLiteral.Quote(_longtermBucket)})
   |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
   |> filter(fn: (r) => r._measurement == ""cable_modem"")
   {cmFilter}
   |> filter(fn: (r) => r._field == ""ds_power_avg_dbmv"" or r._field == ""ds_snr_avg_db"" or r._field == ""us_power_avg_dbmv"" or r._field == ""locked_ds_channels"" or r._field == ""locked_us_channels"")
   |> aggregateWindow(every: {winDur}, fn: last, createEmpty: false)
 
-deltas = from(bucket: ""{_longtermBucket}"")
+deltas = from(bucket: {FluxLiteral.Quote(_longtermBucket)})
   |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
   |> filter(fn: (r) => r._measurement == ""cable_modem"")
   {cmFilter}
@@ -4341,26 +4341,26 @@ union(tables: [gauges, deltas])
         var window = aggregateWindow ?? PickAggregateWindow(to - from);
 
         var idFilter = !string.IsNullOrEmpty(starlinkId)
-            ? $@"|> filter(fn: (r) => r.starlink_id == ""{SanitizeFluxString(starlinkId)}"")"
+            ? $@"|> filter(fn: (r) => r.starlink_id == {FluxLiteral.Quote(starlinkId)})"
             : "";
 
         var winDur = ToFluxDuration(window);
         var flux = $@"
-gauges = from(bucket: ""{_longtermBucket}"")
+gauges = from(bucket: {FluxLiteral.Quote(_longtermBucket)})
   |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
   |> filter(fn: (r) => r._measurement == ""starlink"")
   {idFilter}
   |> filter(fn: (r) => r._field == ""power_in_avg_w"" or r._field == ""ping_drop_rate_avg"" or r._field == ""fraction_obstructed"" or r._field == ""eth_speed_mbps"" or r._field == ""uptime_s"" or r._field == ""gps_sats"" or r._field == ""alignment_offset_deg"" or r._field == ""alert_count"")
   |> aggregateWindow(every: {winDur}, fn: last, createEmpty: false)
 
-peaks = from(bucket: ""{_longtermBucket}"")
+peaks = from(bucket: {FluxLiteral.Quote(_longtermBucket)})
   |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
   |> filter(fn: (r) => r._measurement == ""starlink"")
   {idFilter}
   |> filter(fn: (r) => r._field == ""power_in_max_w"" or r._field == ""ping_drop_rate_max"")
   |> aggregateWindow(every: {winDur}, fn: max, createEmpty: false)
 
-deltas = from(bucket: ""{_longtermBucket}"")
+deltas = from(bucket: {FluxLiteral.Quote(_longtermBucket)})
   |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
   |> filter(fn: (r) => r._measurement == ""starlink"")
   {idFilter}
@@ -4425,7 +4425,7 @@ union(tables: [gauges, peaks, deltas])
         var window = (aggregateWindow is null or { Ticks: 0 }) ? PickAggregateWindow(to - from) : aggregateWindow.Value;
 
         var ontFilter = !string.IsNullOrEmpty(ontId)
-            ? $@"|> filter(fn: (r) => r.ont_id == ""{SanitizeFluxString(ontId)}"")"
+            ? $@"|> filter(fn: (r) => r.ont_id == {FluxLiteral.Quote(ontId)})"
             : "";
 
         var aggregateLine = raw ? "" : $@"  |> aggregateWindow(every: {ToFluxDuration(window)}, fn: last, createEmpty: false)
@@ -4436,9 +4436,9 @@ union(tables: [gauges, peaks, deltas])
         {
             "rx_power_dbm", "tx_power_dbm", "temperature_c", "voltage_v", "bias_ma",
             "fec_errors", "bip_errors", "pon_link_status", "link_uptime_seconds",
-        }.Select(f => $@"r._field == ""{f}""")) + (includePon ? $" or {PonFieldFilter}" : "");
+        }.Select(f => $@"r._field == {FluxLiteral.Quote(f)}")) + (includePon ? $" or {PonFieldFilter}" : "");
         var flux = $@"
-from(bucket: ""{_longtermBucket}"")
+from(bucket: {FluxLiteral.Quote(_longtermBucket)})
   |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
   |> filter(fn: (r) => r._measurement == ""ont"")
   {ontFilter}
@@ -4550,13 +4550,13 @@ from(bucket: ""{_longtermBucket}"")
         var flux = $@"import ""date""
 import ""math""
 
-means = from(bucket: ""{_bucket}"")
+means = from(bucket: {FluxLiteral.Quote(_bucket)})
   |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
   |> filter(fn: (r) => r._measurement == ""wifi_client"")
   |> filter(fn: (r) => r._field == ""tx_rate_kbps"" or r._field == ""tx_throughput_bps"" or r._field == ""rx_throughput_bps"" or r._field == ""signal_dbm"" or r._field == ""nss"")
   |> aggregateWindow(every: {ClientRateWindowEvery}, fn: mean, createEmpty: false)
 
-chan = from(bucket: ""{_bucket}"")
+chan = from(bucket: {FluxLiteral.Quote(_bucket)})
   |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
   |> filter(fn: (r) => r._measurement == ""wifi_client"")
   |> filter(fn: (r) => r._field == ""channel"" or r._field == ""channel_width"")
@@ -4647,9 +4647,9 @@ union(tables: [means, chan])
         // A port-tagged wired row with no rate is kept: the console's per-client counters move
         // every few minutes, so a quiet wired client's only regular row is that one, and it is
         // what says the client was on the port at the instant.
-        var flux = $@"from(bucket: ""{_bucket}"")
+        var flux = $@"from(bucket: {FluxLiteral.Quote(_bucket)})
   |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
-  |> filter(fn: (r) => r._measurement == ""{measurement}"")
+  |> filter(fn: (r) => r._measurement == {FluxLiteral.Quote(measurement)})
   |> filter(fn: (r) => r._field == ""tx_throughput_bps"" or r._field == ""rx_throughput_bps"" or r._field == ""client_mac"" or r._field == ""signal_dbm"" or r._field == ""tx_rate_kbps"" or r._field == ""rx_rate_kbps"" or r._field == ""client_name"")
   |> pivot(rowKey:[""_time""], columnKey: [""_field""], valueColumn: ""_value"")
   |> filter(fn: (r) => (exists r.tx_throughput_bps and r.tx_throughput_bps > 0.0) or (exists r.rx_throughput_bps and r.rx_throughput_bps > 0.0) or exists r.signal_dbm or (exists r.port and exists r.client_mac))";
@@ -4757,12 +4757,12 @@ union(tables: [means, chan])
     {
         if (!IsConfigured) return Array.Empty<ByteUsagePoint>();
         var mac = NormalizeMac(clientMac);
-        var flux = $@"from(bucket: ""{_bucket}"")
+        var flux = $@"from(bucket: {FluxLiteral.Quote(_bucket)})
   |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
   |> filter(fn: (r) => r._measurement == ""wifi_client"")
   |> filter(fn: (r) => r._field == ""client_mac"" or r._field == ""tx_bytes"" or r._field == ""rx_bytes"" {WifiCounterSourceFields})
   |> pivot(rowKey:[""_time""], columnKey: [""_field""], valueColumn: ""_value"")
-  |> filter(fn: (r) => r.client_mac == ""{mac}"" and exists r.tx_bytes and exists r.rx_bytes)
+  |> filter(fn: (r) => r.client_mac == {FluxLiteral.Quote(mac)} and exists r.tx_bytes and exists r.rx_bytes)
   {WifiCounterSourceColumn}
   |> group(columns: [""src""])
   |> sort(columns: [""_time""])
@@ -4791,11 +4791,11 @@ union(tables: [means, chan])
     {
         if (!IsConfigured || ifNames.Count == 0) return Array.Empty<ByteUsagePoint>();
         var mac = NormalizeMac(deviceMac);
-        var ifFilter = string.Join(" or ", ifNames.Select(n => $@"r.if_name == ""{n.Replace("\"", "")}"""));
-        var flux = $@"from(bucket: ""{_bucket}"")
+        var ifFilter = string.Join(" or ", ifNames.Select(n => $@"r.if_name == {FluxLiteral.Quote(n)}"));
+        var flux = $@"from(bucket: {FluxLiteral.Quote(_bucket)})
   |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
   |> filter(fn: (r) => r._measurement == ""interface_counters"")
-  |> filter(fn: (r) => r.device_mac == ""{mac}"")
+  |> filter(fn: (r) => r.device_mac == {FluxLiteral.Quote(mac)})
   |> filter(fn: (r) => {ifFilter})
   |> filter(fn: (r) => r._field == ""bytes_in"" or r._field == ""bytes_out"")
   |> pivot(rowKey:[""_time""], columnKey: [""_field""], valueColumn: ""_value"")
@@ -4860,7 +4860,7 @@ union(tables: [means, chan])
     public async Task<int> RollupWifiClientUsageHourAsync(DateTime hourStart, CancellationToken ct = default)
     {
         if (!IsConfigured || string.IsNullOrEmpty(_longtermBucket)) return 0;
-        var flux = $@"from(bucket: ""{_bucket}"")
+        var flux = $@"from(bucket: {FluxLiteral.Quote(_bucket)})
   |> range(start: {ToFluxInstant(hourStart - RollupLeadIn)}, stop: {ToFluxInstant(hourStart.AddHours(1))})
   |> filter(fn: (r) => r._measurement == ""wifi_client"")
   |> filter(fn: (r) => r._field == ""client_mac"" or r._field == ""tx_bytes"" or r._field == ""rx_bytes"" {WifiCounterSourceFields})
@@ -4925,7 +4925,7 @@ union(tables: [means, chan])
     public async Task<int> RollupPortUsageHourAsync(DateTime hourStart, CancellationToken ct = default)
     {
         if (!IsConfigured || string.IsNullOrEmpty(_longtermBucket)) return 0;
-        var flux = $@"from(bucket: ""{_bucket}"")
+        var flux = $@"from(bucket: {FluxLiteral.Quote(_bucket)})
   |> range(start: {ToFluxInstant(hourStart - RollupLeadIn)}, stop: {ToFluxInstant(hourStart.AddHours(1))})
   |> filter(fn: (r) => r._measurement == ""interface_counters"")
   |> filter(fn: (r) => r._field == ""bytes_in"" or r._field == ""bytes_out"")
@@ -4973,7 +4973,7 @@ union(tables: [means, chan])
     public async Task<DateTime?> QueryLastUsageRollupHourAsync(int minVersion = 0, CancellationToken ct = default)
     {
         if (!IsConfigured || string.IsNullOrEmpty(_longtermBucket)) return null;
-        var flux = $@"from(bucket: ""{_longtermBucket}"")
+        var flux = $@"from(bucket: {FluxLiteral.Quote(_longtermBucket)})
   |> range(start: -400d)
   |> filter(fn: (r) => r._measurement == ""wifi_client"" or r._measurement == ""interface_counters"")
   {RollupHourFilter(minVersion)}
@@ -4996,7 +4996,7 @@ union(tables: [means, chan])
     public async Task<DateTime?> QueryFirstUsageRollupHourAsync(int minVersion = 0, CancellationToken ct = default)
     {
         if (!IsConfigured || string.IsNullOrEmpty(_longtermBucket)) return null;
-        var flux = $@"from(bucket: ""{_longtermBucket}"")
+        var flux = $@"from(bucket: {FluxLiteral.Quote(_longtermBucket)})
   |> range(start: -400d)
   |> filter(fn: (r) => r._measurement == ""wifi_client"" or r._measurement == ""interface_counters"")
   {RollupHourFilter(minVersion)}
@@ -5019,7 +5019,7 @@ union(tables: [means, chan])
     public async Task<bool> UsageRollupReachesAsync(DateTime at, CancellationToken ct = default)
     {
         if (!IsConfigured || string.IsNullOrEmpty(_longtermBucket)) return false;
-        var flux = $@"from(bucket: ""{_longtermBucket}"")
+        var flux = $@"from(bucket: {FluxLiteral.Quote(_longtermBucket)})
   |> range(start: {ToFluxInstant(at)}, stop: {ToFluxInstant(at.AddHours(1).AddSeconds(1))})
   |> filter(fn: (r) => r._measurement == ""wifi_client"" or r._measurement == ""interface_counters"")
   {RollupHourFilter(RollupVersion)}
@@ -5037,9 +5037,9 @@ union(tables: [means, chan])
     {
         if (!IsConfigured || string.IsNullOrEmpty(_longtermBucket)) return Array.Empty<ByteUsagePoint>();
         var mac = NormalizeMac(clientMac);
-        var flux = $@"from(bucket: ""{_longtermBucket}"")
+        var flux = $@"from(bucket: {FluxLiteral.Quote(_longtermBucket)})
   |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
-  |> filter(fn: (r) => r._measurement == ""wifi_client"" and r.client_mac == ""{mac}"")
+  |> filter(fn: (r) => r._measurement == ""wifi_client"" and r.client_mac == {FluxLiteral.Quote(mac)})
   |> filter(fn: (r) => r._field == ""tx_bytes_1h"" or r._field == ""rx_bytes_1h"" or r._field == ""rollup_v"")
   |> pivot(rowKey:[""_time""], columnKey: [""_field""], valueColumn: ""_value"")
   |> filter(fn: (r) => exists r.tx_bytes_1h and {RollupRowCurrent})
@@ -5056,11 +5056,11 @@ union(tables: [means, chan])
     {
         if (!IsConfigured || string.IsNullOrEmpty(_longtermBucket) || ifNames.Count == 0) return Array.Empty<ByteUsagePoint>();
         var mac = NormalizeMac(deviceMac);
-        var ifFilter = string.Join(" or ", ifNames.Select(n => $@"r.if_name == ""{n.Replace("\"", "")}"""));
-        var flux = $@"from(bucket: ""{_longtermBucket}"")
+        var ifFilter = string.Join(" or ", ifNames.Select(n => $@"r.if_name == {FluxLiteral.Quote(n)}"));
+        var flux = $@"from(bucket: {FluxLiteral.Quote(_longtermBucket)})
   |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
   |> filter(fn: (r) => r._measurement == ""interface_counters"")
-  |> filter(fn: (r) => r.device_mac == ""{mac}"")
+  |> filter(fn: (r) => r.device_mac == {FluxLiteral.Quote(mac)})
   |> filter(fn: (r) => {ifFilter})
   |> filter(fn: (r) => r._field == ""bytes_in_1h"" or r._field == ""bytes_out_1h"" or r._field == ""rollup_v"")
   |> pivot(rowKey:[""_time""], columnKey: [""_field""], valueColumn: ""_value"")
@@ -5098,7 +5098,7 @@ union(tables: [means, chan])
         DateTime from, DateTime to, CancellationToken ct = default)
     {
         if (!IsConfigured) return Array.Empty<ClientByteTotal>();
-        var flux = $@"from(bucket: ""{_bucket}"")
+        var flux = $@"from(bucket: {FluxLiteral.Quote(_bucket)})
   |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
   |> filter(fn: (r) => r._measurement == ""wifi_client"")
   |> filter(fn: (r) => r._field == ""client_mac"" or r._field == ""tx_bytes"" or r._field == ""rx_bytes"" {WifiCounterSourceFields})
@@ -5122,7 +5122,7 @@ union(tables: [means, chan])
     {
         if (!IsConfigured || string.IsNullOrEmpty(_longtermBucket))
             return new UsageRollup<ClientByteTotal>(Array.Empty<ClientByteTotal>(), null, null);
-        var flux = $@"from(bucket: ""{_longtermBucket}"")
+        var flux = $@"from(bucket: {FluxLiteral.Quote(_longtermBucket)})
   |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
   |> filter(fn: (r) => r._measurement == ""wifi_client"")
   |> filter(fn: (r) => r._field == ""client_mac"" or r._field == ""tx_bytes_1h"" or r._field == ""rx_bytes_1h"" or r._field == ""rollup_v"")
@@ -5152,7 +5152,7 @@ union(tables: [means, chan])
         // seconds hands this half a million points per field for a two-hour top-up, and a total
         // over a window needs only the endpoints. Costs the opening minute of each interface
         // (the bytes before its first kept sample), a few tenths of a percent on a day.
-        var flux = $@"from(bucket: ""{_bucket}"")
+        var flux = $@"from(bucket: {FluxLiteral.Quote(_bucket)})
   |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
   |> filter(fn: (r) => r._measurement == ""interface_counters"")
   |> filter(fn: (r) => r._field == ""bytes_in"" or r._field == ""bytes_out"")
@@ -5177,7 +5177,7 @@ union(tables: [means, chan])
     {
         if (!IsConfigured || string.IsNullOrEmpty(_longtermBucket))
             return new UsageRollup<PortByteTotal>(Array.Empty<PortByteTotal>(), null, null);
-        var flux = $@"from(bucket: ""{_longtermBucket}"")
+        var flux = $@"from(bucket: {FluxLiteral.Quote(_longtermBucket)})
   |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
   |> filter(fn: (r) => r._measurement == ""interface_counters"")
   |> filter(fn: (r) => r._field == ""bytes_in_1h"" or r._field == ""bytes_out_1h"" or r._field == ""rollup_v"")
@@ -5206,7 +5206,7 @@ union(tables: [means, chan])
         var decimate = to - from > TimeSpan.FromHours(6)
             ? "\n  |> aggregateWindow(every: 15m, fn: last, createEmpty: false)"
             : "";
-        var flux = $@"from(bucket: ""{_bucket}"")
+        var flux = $@"from(bucket: {FluxLiteral.Quote(_bucket)})
   |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
   |> filter(fn: (r) => r._measurement == ""wired_client"")
   |> filter(fn: (r) => exists r.port)
@@ -5245,7 +5245,7 @@ union(tables: [means, chan])
         var decimate = to - from > TimeSpan.FromHours(6)
             ? "\n  |> aggregateWindow(every: 15m, fn: last, createEmpty: false)"
             : "";
-        var flux = $@"from(bucket: ""{_bucket}"")
+        var flux = $@"from(bucket: {FluxLiteral.Quote(_bucket)})
   |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
   |> filter(fn: (r) => r._measurement == ""wired_client"")
   |> filter(fn: (r) => exists r.port)
@@ -5282,11 +5282,11 @@ union(tables: [means, chan])
         if (!IsConfigured) return null;
         var mac = NormalizeMac(clientMac);
         if (mac.Length == 0) return null;
-        var flux = $@"from(bucket: ""{_bucket}"")
+        var flux = $@"from(bucket: {FluxLiteral.Quote(_bucket)})
   |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
   |> filter(fn: (r) => r._measurement == ""wired_client"")
   |> filter(fn: (r) => exists r.port)
-  |> filter(fn: (r) => r._field == ""client_mac"" and r._value == ""{mac}"")
+  |> filter(fn: (r) => r._field == ""client_mac"" and r._value == {FluxLiteral.Quote(mac)})
   |> group(columns: [""device_mac"", ""port""])
   |> count()";
         (string Device, int Port, long Samples)? best = null;
@@ -5344,9 +5344,9 @@ union(tables: [means, chan])
     /// <summary>The oldest and newest hours a rollup field carries in the window; nulls when none.</summary>
     private async Task<(DateTime? First, DateTime? Last)> RollupHourSpanAsync(string measurement, string field, DateTime from, DateTime to, CancellationToken ct)
     {
-        var flux = $@"span = from(bucket: ""{_longtermBucket}"")
+        var flux = $@"span = from(bucket: {FluxLiteral.Quote(_longtermBucket)})
   |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
-  |> filter(fn: (r) => r._measurement == ""{measurement}"" and r._field == ""rollup_v"" and r._value >= {RollupVersion})
+  |> filter(fn: (r) => r._measurement == {FluxLiteral.Quote(measurement)} and r._field == ""rollup_v"" and r._value >= {RollupVersion})
   |> keep(columns: [""_time"", ""_value""])
   |> group()
   |> sort(columns: [""_time""])
@@ -5373,12 +5373,12 @@ span |> last() |> yield(name: ""last"")";
     {
         if (!IsConfigured) return Array.Empty<ClientThroughputPoint>();
         var mac = NormalizeMac(clientMac);
-        var flux = $@"from(bucket: ""{_bucket}"")
+        var flux = $@"from(bucket: {FluxLiteral.Quote(_bucket)})
   |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
-  |> filter(fn: (r) => r._measurement == ""{measurement}"")
+  |> filter(fn: (r) => r._measurement == {FluxLiteral.Quote(measurement)})
   |> filter(fn: (r) => r._field == ""tx_throughput_bps"" or r._field == ""rx_throughput_bps"" or r._field == ""client_mac"")
   |> pivot(rowKey:[""_time""], columnKey: [""_field""], valueColumn: ""_value"")
-  |> filter(fn: (r) => r.client_mac == ""{mac}"")";
+  |> filter(fn: (r) => r.client_mac == {FluxLiteral.Quote(mac)})";
 
         var results = new List<ClientThroughputPoint>();
         await foreach (var record in QueryFluxAsync(flux, ct))
@@ -5416,33 +5416,32 @@ span |> last() |> yield(name: ""last"")";
         if (!IsConfigured) return Array.Empty<ThroughputWindowPoint>();
         var mac = NormalizeMac(clientMac);
         var range = $"range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})";
-        var seriesFlux = $@"from(bucket: ""{_bucket}"")
+        var seriesFlux = $@"from(bucket: {FluxLiteral.Quote(_bucket)})
   |> {range}
-  |> filter(fn: (r) => r._measurement == ""{measurement}"" and r._field == ""client_mac"")
-  |> filter(fn: (r) => r._value == ""{mac}"")
+  |> filter(fn: (r) => r._measurement == {FluxLiteral.Quote(measurement)} and r._field == ""client_mac"")
+  |> filter(fn: (r) => r._value == {FluxLiteral.Quote(mac)})
   |> first()
   |> keep(columns: [""device_mac"", ""band""])";
         var series = new HashSet<string>();
         await foreach (var record in QueryFluxAsync(seriesFlux, ct))
         {
             if (record.GetValueByKey("device_mac") is not string device || device.Length == 0) continue;
-            device = SanitizeFluxString(device);
             series.Add(record.GetValueByKey("band") is string band && band.Length > 0
-                ? $@"(r.device_mac == ""{device}"" and r.band == ""{SanitizeFluxString(band)}"")"
-                : $@"r.device_mac == ""{device}""");
+                ? $@"(r.device_mac == {FluxLiteral.Quote(device)} and r.band == {FluxLiteral.Quote(band)})"
+                : $@"r.device_mac == {FluxLiteral.Quote(device)}");
         }
         if (series.Count == 0) return Array.Empty<ThroughputWindowPoint>();
 
         // Not experimental.unpivot: user InfluxDB versions vary. Flux shares the pivoted base
         // between the four branches, so this costs about one pass.
         var every = ToFluxDuration(window);
-        var flux = $@"base = from(bucket: ""{_bucket}"")
+        var flux = $@"base = from(bucket: {FluxLiteral.Quote(_bucket)})
   |> {range}
-  |> filter(fn: (r) => r._measurement == ""{measurement}"")
+  |> filter(fn: (r) => r._measurement == {FluxLiteral.Quote(measurement)})
   |> filter(fn: (r) => {string.Join(" or ", series)})
   |> filter(fn: (r) => r._field == ""tx_throughput_bps"" or r._field == ""rx_throughput_bps"" or r._field == ""client_mac"")
   |> pivot(rowKey:[""_time""], columnKey: [""_field""], valueColumn: ""_value"")
-  |> filter(fn: (r) => r.client_mac == ""{mac}"")
+  |> filter(fn: (r) => r.client_mac == {FluxLiteral.Quote(mac)})
   |> group()
 tx = base |> map(fn: (r) => ({{_time: r._time, _value: if exists r.tx_throughput_bps then float(v: r.tx_throughput_bps) else 0.0}}))
 rx = base |> map(fn: (r) => ({{_time: r._time, _value: if exists r.rx_throughput_bps then float(v: r.rx_throughput_bps) else 0.0}}))
@@ -5469,11 +5468,11 @@ union(tables: [
     {
         if (!IsConfigured || ifNames.Count == 0) return Array.Empty<ThroughputWindowPoint>();
         var mac = NormalizeMac(deviceMac);
-        var ifFilter = string.Join(" or ", ifNames.Select(n => $@"r.if_name == ""{SanitizeFluxString(n)}"""));
+        var ifFilter = string.Join(" or ", ifNames.Select(n => $@"r.if_name == {FluxLiteral.Quote(n)}"));
         var every = ToFluxDuration(window);
-        var port = $@"from(bucket: ""{_bucket}"")
+        var port = $@"from(bucket: {FluxLiteral.Quote(_bucket)})
   |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
-  |> filter(fn: (r) => r._measurement == ""interface_counters"" and r.device_mac == ""{mac}"")
+  |> filter(fn: (r) => r._measurement == ""interface_counters"" and r.device_mac == {FluxLiteral.Quote(mac)})
   |> filter(fn: (r) => {ifFilter})";
         var flux = $@"base = {port}
   |> filter(fn: (r) => r._field == ""rate_out_bps"" or r._field == ""rate_in_bps"")
@@ -5534,12 +5533,12 @@ union(tables: [
         var ap = NormalizeMac(apMac);
 
         var fluxBuilder = new System.Text.StringBuilder();
-        fluxBuilder.AppendLine($@"from(bucket: ""{_bucket}"")");
+        fluxBuilder.AppendLine($@"from(bucket: {FluxLiteral.Quote(_bucket)})");
         fluxBuilder.AppendLine($@"  |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})");
         fluxBuilder.AppendLine($@"  |> filter(fn: (r) => r._measurement == ""wifi_client"")");
-        fluxBuilder.AppendLine($@"  |> filter(fn: (r) => r.device_mac == ""{ap}"")");
+        fluxBuilder.AppendLine($@"  |> filter(fn: (r) => r.device_mac == {FluxLiteral.Quote(ap)})");
         if (!string.IsNullOrEmpty(band))
-            fluxBuilder.AppendLine($@"  |> filter(fn: (r) => r.band == ""{band.ToLowerInvariant()}"")");
+            fluxBuilder.AppendLine($@"  |> filter(fn: (r) => r.band == {FluxLiteral.Quote(band.ToLowerInvariant())})");
         // The fields we want pivoted into one row per timestamp.
         fluxBuilder.AppendLine(@"  |> filter(fn: (r) => r._field == ""signal_dbm"" or r._field == ""tx_throughput_bps"" or r._field == ""rx_throughput_bps"" or r._field == ""tx_rate_kbps"" or r._field == ""rx_rate_kbps"" or r._field == ""client_mac"")");
         fluxBuilder.AppendLine($@"  |> aggregateWindow(every: {ToFluxDuration(window)}, fn: last, createEmpty: false)");
@@ -5548,7 +5547,7 @@ union(tables: [
         if (!string.IsNullOrEmpty(clientMac))
         {
             var c = NormalizeMac(clientMac);
-            fluxBuilder.AppendLine($@"  |> filter(fn: (r) => r.client_mac == ""{c}"")");
+            fluxBuilder.AppendLine($@"  |> filter(fn: (r) => r.client_mac == {FluxLiteral.Quote(c)})");
         }
 
         var results = new List<WifiClientHistoryPoint>();
@@ -5628,7 +5627,7 @@ union(tables: [
         // client_mac is a field rather than a tag (cardinality control), so the pivot is what makes
         // a row readable at all, and filtering on a client can only happen after it.
         var builder = new System.Text.StringBuilder();
-        builder.AppendLine($@"from(bucket: ""{_bucket}"")");
+        builder.AppendLine($@"from(bucket: {FluxLiteral.Quote(_bucket)})");
         builder.AppendLine($@"  |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})");
         builder.AppendLine(@"  |> filter(fn: (r) => r._measurement == ""wifi_client"")");
         builder.AppendLine(@"  |> filter(fn: (r) => r._field == ""client_mac"" or r._field == ""signal_dbm"" or r._field == ""noise_dbm"" or r._field == ""rssi"" or r._field == ""tx_rate_kbps"" or r._field == ""rx_rate_kbps"" or r._field == ""tx_throughput_bps"" or r._field == ""rx_throughput_bps"" or r._field == ""channel"" or r._field == ""channel_width"" or r._field == ""satisfaction"" or r._field == ""nss"" or r._field == ""ccq"" or r._field == ""tx_retries"" or r._field == ""tx_attempts"" or r._field == ""latency_avg_ms"" or r._field == ""idle_seconds"")");
@@ -5637,7 +5636,7 @@ union(tables: [
         builder.AppendLine(@"  |> pivot(rowKey:[""_time""], columnKey: [""_field""], valueColumn: ""_value"")");
         builder.AppendLine(@"  |> filter(fn: (r) => exists r.client_mac)");
         if (!string.IsNullOrEmpty(clientMac))
-            builder.AppendLine($@"  |> filter(fn: (r) => r.client_mac == ""{NormalizeMac(clientMac)}"")");
+            builder.AppendLine($@"  |> filter(fn: (r) => r.client_mac == {FluxLiteral.Quote(NormalizeMac(clientMac))})");
 
         var results = new List<WifiClientSamplePoint>();
         await foreach (var record in QueryFluxAsync(builder.ToString(), ct))
@@ -5698,7 +5697,7 @@ union(tables: [
     public async Task<int> RollupWifiClientDayAsync(DateTime dayStart, CancellationToken ct = default)
     {
         if (!IsConfigured || string.IsNullOrEmpty(_longtermBucket)) return 0;
-        var flux = $@"from(bucket: ""{_bucket}"")
+        var flux = $@"from(bucket: {FluxLiteral.Quote(_bucket)})
   |> range(start: {ToFluxInstant(dayStart)}, stop: {ToFluxInstant(dayStart.AddDays(1))})
   |> filter(fn: (r) => r._measurement == ""wifi_client"")
   |> filter(fn: (r) => r._field == ""client_mac"" or r._field == ""channel_width"" or r._field == ""nss"" or r._field == ""channel"" or r._field == ""signal_dbm"" or r._field == ""tx_rate_kbps"" or r._field == ""rx_rate_kbps"")
@@ -5760,7 +5759,7 @@ union(tables: [
     private async Task<DateTime?> WifiClientDailyRollupEdgeAsync(string edge, CancellationToken ct)
     {
         if (!IsConfigured || string.IsNullOrEmpty(_longtermBucket)) return null;
-        var flux = $@"from(bucket: ""{_longtermBucket}"")
+        var flux = $@"from(bucket: {FluxLiteral.Quote(_longtermBucket)})
   |> range(start: -400d)
   |> filter(fn: (r) => r._measurement == ""wifi_client_daily"" and r._field == ""rollup_v"" and r._value >= {WifiClientDailyRollupVersion})
   |> keep(columns: [""_time""])
@@ -5789,7 +5788,7 @@ union(tables: [
         var result = new Dictionary<string, IReadOnlyDictionary<string, int>>(StringComparer.OrdinalIgnoreCase);
         if (!IsConfigured || string.IsNullOrEmpty(_longtermBucket)) return result;
 
-        var flux = $@"from(bucket: ""{_longtermBucket}"")
+        var flux = $@"from(bucket: {FluxLiteral.Quote(_longtermBucket)})
   |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
   |> filter(fn: (r) => r._measurement == ""wifi_client_daily"" and r._field == ""width_max"")
   |> group(columns: [""client_mac"", ""band""])
@@ -5821,7 +5820,7 @@ union(tables: [
         var bands = new Dictionary<string, IReadOnlyCollection<string>>(StringComparer.OrdinalIgnoreCase);
         if (!IsConfigured) return bands;
 
-        var flux = $@"from(bucket: ""{_bucket}"")
+        var flux = $@"from(bucket: {FluxLiteral.Quote(_bucket)})
   |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
   |> filter(fn: (r) => r._measurement == ""wifi_client"")
   |> filter(fn: (r) => r._field == ""client_mac"")
@@ -6329,7 +6328,7 @@ union(tables: [
         var targetFilter = "";
         if (enabledTargetIds != null && enabledTargetIds.Count > 0)
         {
-            var conditions = string.Join(" or ", enabledTargetIds.Select(id => $"r.target_id == \"{id}\""));
+            var conditions = string.Join(" or ", enabledTargetIds.Select(id => $"r.target_id == {FluxLiteral.Quote(id)}"));
             targetFilter = $"\n  |> filter(fn: (r) => {conditions})";
         }
 
@@ -6337,7 +6336,7 @@ union(tables: [
         // events in memory. The caller bounds the window to just before/after the current event
         // (via before/after), so the boundary event we want is fully inside the range.
         var flux = $@"
-from(bucket: ""{_bucket}"")
+from(bucket: {FluxLiteral.Quote(_bucket)})
   |> range(start: {ToFluxInstant(rangeStart)}, stop: {ToFluxInstant(rangeStop)})
   |> filter(fn: (r) => r._measurement == ""latency"")
   |> filter(fn: (r) => r.target_type == ""accessisp"" or r.target_type == ""transit"" or r.target_type == ""internetservice"" or r.target_type == ""wan""){targetFilter}
@@ -6383,15 +6382,15 @@ from(bucket: ""{_bucket}"")
         var targetFilter = "";
         if (enabledTargetIds != null && enabledTargetIds.Count > 0)
         {
-            var conditions = string.Join(" or ", enabledTargetIds.Select(id => $"r.target_id == \"{id}\""));
+            var conditions = string.Join(" or ", enabledTargetIds.Select(id => $"r.target_id == {FluxLiteral.Quote(id)}"));
             targetFilter = $"\n  |> filter(fn: (r) => {conditions})";
         }
         var mac = NormalizeMac(gatewayMac);
-        var ifFilter = string.Join(" or ", wanIfNames.Select(n => $@"r.if_name == ""{SanitizeFluxString(n)}"""));
+        var ifFilter = string.Join(" or ", wanIfNames.Select(n => $@"r.if_name == {FluxLiteral.Quote(n)}"));
 
         var flux = $@"
 import ""join""
-loss = from(bucket: ""{_bucket}"")
+loss = from(bucket: {FluxLiteral.Quote(_bucket)})
   |> range(start: {ToFluxInstant(rangeStart)}, stop: {ToFluxInstant(rangeStop)})
   |> filter(fn: (r) => r._measurement == ""latency"")
   |> filter(fn: (r) => r.target_type == ""accessisp"" or r.target_type == ""transit"" or r.target_type == ""internetservice"" or r.target_type == ""wan""){targetFilter}
@@ -6401,10 +6400,10 @@ loss = from(bucket: ""{_bucket}"")
   |> group()
   |> keep(columns: [""_time"", ""_value"", ""target_id"", ""target_type""])
 
-load = from(bucket: ""{_bucket}"")
+load = from(bucket: {FluxLiteral.Quote(_bucket)})
   |> range(start: {ToFluxInstant(rangeStart)}, stop: {ToFluxInstant(rangeStop)})
   |> filter(fn: (r) => r._measurement == ""interface_counters"")
-  |> filter(fn: (r) => r.device_mac == ""{mac}"")
+  |> filter(fn: (r) => r.device_mac == {FluxLiteral.Quote(mac)})
   |> filter(fn: (r) => {ifFilter})
   |> filter(fn: (r) => r._field == ""rate_in_bps"" or r._field == ""rate_out_bps"")
   |> aggregateWindow(every: 1m, fn: max, createEmpty: false)
@@ -6445,11 +6444,11 @@ join.inner(left: loss, right: load, on: (l, r) => l._time == r._time, as: (l, r)
     {
         if (!IsConfigured) await ReconfigureAsync(ct);
         if (!IsConfigured || targetIds.Count == 0) return null;
-        var idFilter = string.Join(" or ", targetIds.Select(id => $@"r.target_id == ""{SanitizeFluxString(id)}"""));
+        var idFilter = string.Join(" or ", targetIds.Select(id => $@"r.target_id == {FluxLiteral.Quote(id)}"));
         // group() collapses every target's per-sample loss into one table so mean() is the pooled
         // average across the whole set, not per target.
         var flux = $@"
-from(bucket: ""{_bucket}"")
+from(bucket: {FluxLiteral.Quote(_bucket)})
   |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
   |> filter(fn: (r) => r._measurement == ""latency"")
   |> filter(fn: (r) => {idFilter})
@@ -6477,7 +6476,7 @@ from(bucket: ""{_bucket}"")
         var lookback = DateTime.UtcNow.AddDays(-7);
 
         var flux = $@"
-from(bucket: ""{_longtermBucket}"")
+from(bucket: {FluxLiteral.Quote(_longtermBucket)})
   |> range(start: {ToFluxInstant(lookback)})
   |> filter(fn: (r) => r._measurement == ""sfp"")
   |> filter(fn: (r) => r._field == ""temp_c"" or r._field == ""rx_power_dbm"")

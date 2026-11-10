@@ -96,11 +96,21 @@ public class AgentProbeService
             ? connections.FirstOrDefault(c => c.AgentId == wanted)
             : connections.FirstOrDefault();
 
-    /// <summary>Completes the matching pending probe when an agent returns a response.</summary>
-    public void OnResult(ProbeResponse response)
+    /// <summary>
+    /// Completes the matching pending probe when an agent returns a response. Request ids are global,
+    /// so only the agent the probe was sent to may complete it.
+    /// </summary>
+    public void OnResult(AgentTunnelConnection sender, ProbeResponse response)
     {
-        if (_pending.TryGetValue(response.RequestId, out var pending))
-            pending.Completion.TrySetResult(response);
+        if (!_pending.TryGetValue(response.RequestId, out var pending)) return;
+        if (!ReferenceEquals(pending.Connection, sender))
+        {
+            _logger.LogWarning(
+                "Agent {AgentId} (site {Slug}) returned probe response {RequestId}, which was sent to agent {OwnerAgentId}; ignoring",
+                sender.AgentId, sender.SiteSlug, response.RequestId, pending.Connection.AgentId);
+            return;
+        }
+        pending.Completion.TrySetResult(response);
     }
 
     /// <summary>Fails any probes waiting on an agent whose tunnel just dropped.</summary>

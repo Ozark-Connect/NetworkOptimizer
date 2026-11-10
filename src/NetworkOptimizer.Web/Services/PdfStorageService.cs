@@ -39,7 +39,12 @@ public class PdfStorageService
         ? _pdfDirectory
         : Path.Combine(_pdfDirectory, _siteContext.Slug);
 
-    private static string GetPdfDirectory()
+    /// <summary>A site's PDF directory by slug, the same layout as <see cref="SitePdfDirectory"/>.</summary>
+    internal static string GetSitePdfDirectory(string slug, bool isDefault) => isDefault
+        ? GetPdfDirectory()
+        : Path.Combine(GetPdfDirectory(), slug);
+
+    internal static string GetPdfDirectory()
     {
         var isDocker = string.Equals(
             Environment.GetEnvironmentVariable("DOTNET_RUNNING_IN_CONTAINER"),

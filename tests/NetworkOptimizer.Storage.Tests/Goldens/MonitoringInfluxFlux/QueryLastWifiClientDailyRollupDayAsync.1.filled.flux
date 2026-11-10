@@ -1,0 +1,6 @@
+from(bucket: "network_monitoring_longterm")
+  |> range(start: -400d)
+  |> filter(fn: (r) => r._measurement == "wifi_client_daily" and r._field == "rollup_v" and r._value >= 1)
+  |> keep(columns: ["_time"])
+  |> group()
+  |> max(column: "_time")

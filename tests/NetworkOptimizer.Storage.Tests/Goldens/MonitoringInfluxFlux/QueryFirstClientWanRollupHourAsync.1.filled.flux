@@ -1,0 +1,6 @@
+from(bucket: "network_monitoring_longterm")
+  |> range(start: -400d)
+  |> filter(fn: (r) => r._measurement == "client_wan" and r._field == "rollup_v" and r._value >= 2)
+  |> keep(columns: ["_time"])
+  |> group()
+  |> min(column: "_time")

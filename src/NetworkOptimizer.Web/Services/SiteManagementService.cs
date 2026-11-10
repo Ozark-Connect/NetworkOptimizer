@@ -35,6 +35,7 @@ public class SiteManagementService : ISiteManagementService
     private readonly ILogger<SiteManagementService> _logger;
     private readonly Authorization.ISiteAccessFilter _siteAccess;
     private readonly Gates.IAuditContext _auditContext;
+    private readonly SiteLeftoverCleanup _leftovers;
 
     public SiteManagementService(
         ISiteRepository siteRepository,
@@ -51,9 +52,11 @@ public class SiteManagementService : ISiteManagementService
         SiteRegistryChangeNotifier changeNotifier,
         Authorization.ISiteAccessFilter siteAccess,
         ILogger<SiteManagementService> logger,
-        Gates.IAuditContext auditContext)
+        Gates.IAuditContext auditContext,
+        SiteLeftoverCleanup leftovers)
     {
         _auditContext = auditContext;
+        _leftovers = leftovers;
         _siteAccess = siteAccess;
         _siteRepository = siteRepository;
         _siteRoles = siteRoles;
@@ -351,6 +354,10 @@ public class SiteManagementService : ISiteManagementService
                 "Site {Slug} was removed but its data directory could not be deleted; remove sites/{Slug} manually",
                 site.Slug, site.Slug);
         }
+
+        // Floor plans, report PDFs and the default InfluxDB buckets live outside sites/{slug}; a site
+        // created later under the same slug would otherwise inherit them. Best effort, like the delete above.
+        await _leftovers.RemoveAsync(site.Slug);
 
         // Only now, with the registry row and the database files gone, are the passive registries
         // safe to empty. Evicting them earlier does not hold: anything that touches the slug in the
