@@ -641,8 +641,10 @@ public sealed class LiveTrafficStore
         var cache = f.Lan ? null : DomainAppCatalog.EmbeddedCache(hostName, remoteAsn, org, match?.App ?? destinationApp ?? neighborApp);
         var ispCache = cache == null ? null
             : remoteAsn is { } asnNumber ? $"{cache} inside {org ?? "your ISP"} (AS{asnNumber})" : $"{cache} inside your ISP's network";
+        // A device's own protocol by port and vendor beats the DPI's guess for it.
+        var deviceApp = f.Lan ? DomainAppCatalog.LanDeviceApp(proto, f.RemotePort, peer?.Vendor) : null;
         var app = DomainAppCatalog.ProtocolApp(proto) ?? (toServer ? "Network Optimizer" : null)
-            ?? DomainAppCatalog.TailscaleApp(proto, f.ClientPort, f.RemotePort) ?? match?.App ?? DomainAppCatalog.AppFor(hostName)
+            ?? DomainAppCatalog.TailscaleApp(proto, f.ClientPort, f.RemotePort) ?? deviceApp ?? match?.App ?? DomainAppCatalog.AppFor(hostName)
             ?? destinationApp ?? neighborApp
             ?? DomainAppCatalog.SpeedtestApp(hostName, proto, f.RemotePort)
             ?? (f.Lan ? DomainAppCatalog.LanApp(proto, f.RemotePort, peer?.Vendor) : DomainAppCatalog.WifiCalling(proto, f.RemotePort, org) ?? DomainAppCatalog.OwnerApp(org))
@@ -684,7 +686,7 @@ public sealed class LiveTrafficStore
             DestinationIp = f.RemoteIp,
             DestinationSub = destSub,
             App = encryptedDns && match?.App == null ? (f.RemotePort == 853 ? "DNS over TLS" : "DNS over HTTPS") : app,
-            Category = match?.Category ?? (destinationApp != null ? destInfo?.Category : null),
+            Category = deviceApp != null ? null : match?.Category ?? (destinationApp != null ? destInfo?.Category : null),
             Route = route,
             RouteKind = kind,
             IsGateway = f.Gateway || _gatewayIps.Contains(f.ClientIp),

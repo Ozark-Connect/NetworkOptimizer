@@ -769,6 +769,34 @@ public class LiveTrafficStoreTests
     }
 
     [Fact]
+    public void DeviceProtocolByPortAndVendorBeatsTheDpiGuess()
+    {
+        var store = new LiveTrafficStore();
+        store.SetSiteData(
+            [
+                new LiveClientInfo(Laptop, "Apple TV", "192.0.2.20", "Port 3", "Main"),
+                new LiveClientInfo("aa:bb:cc:00:00:80", "IKEA Hub", "192.0.2.80", "Port 4", "IoT", null, null, "IKEA of Sweden AB"),
+            ],
+            ["192.0.2.1"], "Gateway", new Dictionary<string, LiveRouteInfo>(), null);
+        store.MergeUniFiFlows(
+        [
+            new UniFiTrafficFlow
+            {
+                Protocol = "TCP",
+                Application = new UniFiTrafficFlowApplication { App = 112, Category = 4 },
+                Source = new UniFiTrafficFlowEndpoint { Ip = "192.0.2.20", Port = 50000 },
+                Destination = new UniFiTrafficFlowEndpoint { Ip = "192.0.2.80", Port = 8000 },
+            },
+        ]);
+        store.Ingest(Batch(Flow("h", Laptop, "192.0.2.20", "192.0.2.80", 8000, "", 1000, 1000, lan: true)));
+
+        var row = store.BuildView(Query(), LiveTrafficState.Live).Flows.Single();
+
+        row.App.Should().Be("HomeKit");
+        row.Category.Should().BeNull("the DPI's category belongs to its guess");
+    }
+
+    [Fact]
     public void ConsoleRecordForAnotherConnectionDoesNotDateThisOne()
     {
         var store = SeededStore();

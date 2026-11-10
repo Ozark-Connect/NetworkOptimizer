@@ -181,7 +181,19 @@ public static class DomainAppCatalog
     /// Local protocols known by their port, named only between your own devices: on the internet the
     /// same ports mean something else (8009 is also Apache AJP).
     /// </summary>
-    public static string? LanApp(string proto, int remotePort, string? remoteVendor = null) => (proto, remotePort) switch
+    public static string? LanApp(string proto, int remotePort, string? remoteVendor = null) => LanDeviceApp(proto, remotePort, remoteVendor) ?? (proto, remotePort) switch
+    {
+        ("tcp", 8009) => "Google Cast",   // a Cast device's control channel
+        ("tcp", 6444) => "Midea",         // Midea appliances' local LAN protocol (Home Assistant's Midea LAN)
+        ("tcp", 8899) => "AP Agent",      // Network Optimizer polling its AP Agent (ApAgentPaths.AgentPort)
+        _ => null,
+    };
+
+    /// <summary>
+    /// A device's own protocol, told by its port and its MAC vendor together. Specific enough to beat
+    /// UniFi Network's DPI, which calls a DIRIGERA hub's HomeKit session "Web File Transfer".
+    /// </summary>
+    public static string? LanDeviceApp(string proto, int remotePort, string? remoteVendor) => (proto, remotePort) switch
     {
         // LG webOS's control channel (SSAP websocket; 3001 is TLS). Dev servers use these ports too
         // (Rails, Next.js, BrowserSync), so only to a device whose MAC vendor is LG.
@@ -189,9 +201,6 @@ public static class DomainAppCatalog
         // An IKEA DIRIGERA hub advertises its HomeKit (HAP) server on 8000: a home hub's session to it.
         // 8000 is also every dev server and Hikvision's SDK port, so only to an IKEA device.
         ("tcp", 8000) when remoteVendor != null && remoteVendor.StartsWith("IKEA", StringComparison.OrdinalIgnoreCase) => "HomeKit",
-        ("tcp", 8009) => "Google Cast",   // a Cast device's control channel
-        ("tcp", 6444) => "Midea",         // Midea appliances' local LAN protocol (Home Assistant's Midea LAN)
-        ("tcp", 8899) => "AP Agent",      // Network Optimizer polling its AP Agent (ApAgentPaths.AgentPort)
         _ => null,
     };
 
