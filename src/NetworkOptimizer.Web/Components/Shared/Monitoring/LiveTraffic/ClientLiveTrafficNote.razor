@@ -19,8 +19,7 @@
                 else
                 {
                     var busiest = view.Groups.Where(g => g.DownBps + g.UpBps > 0).Take(3).Select(g => g.Name).ToList();
-                    <strong>@view.MatchingFlows.ToString("N0") live Gateway @(view.MatchingFlows == 1 ? "flow" : "flows")</strong>
-                    <span>@(busiest.Count > 0 ? $", busiest {string.Join(", ", busiest)}" : "")</span>
+                    <strong>@view.MatchingFlows.ToString("N0") live Gateway @(view.MatchingFlows == 1 ? "flow" : "flows")</strong><span>@(busiest.Count > 0 ? $", busiest {string.Join(", ", busiest)}" : "")</span>
                 }
             </span>
             <span class="lt-note-line">
