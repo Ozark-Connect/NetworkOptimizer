@@ -649,7 +649,9 @@ else
     protected override async Task OnInitializedAsync()
     {
         ConnectionService.OnConnectionChanged += OnConnectionChanged;
-        _date = DisplayTime.Now.Date;
+        // The next 2:00 AM, so the fallback is never already past; LoadAsync overrides it with a booking or suggestion.
+        var now = DisplayTime.Now;
+        _date = now.TimeOfDay < _time.ToTimeSpan() ? now.Date : now.Date.AddDays(1);
         await LoadAsync();
         // A plan that is applying or watching changes on its own; keep the page current.
         _refresh = new Timer(_ => InvokeAsync(async () =>
@@ -778,6 +780,12 @@ else
     private DateTime? ScheduledUtc() =>
         _schedule ? DisplayTime.ToUtc(_date.Date + _time.ToTimeSpan()) : null;
 
+    // A past time books nothing: the apply would run at once, and an approved plan would apply on approval.
+    private string? PastSchedule() =>
+        ScheduledUtc() is { } at && at <= DateTime.UtcNow ? PastScheduleMessage : null;
+
+    private const string PastScheduleMessage = "That time has passed. Pick a later time, or Now.";
+
     // The action RunAsync is running, so its button shows a spinner: an apply or revert can take a while.
     private string? _running;
 
@@ -833,6 +841,7 @@ else
 
     private Task SubmitAsync() => RunAsync(async () =>
     {
+        if (PastSchedule() is { } past) return past;
         await Site.SavePlanAsync(PlanId, _acks, ScheduledUtc(), applyOnApproval: !_schedule);
         await Site.SubmitPlanAsync(PlanId);
         return null;
@@ -840,6 +849,7 @@ else
 
     private Task ApproveAsync() => RunAsync(async () =>
     {
+        if (PastSchedule() is { } past) return past;
         await Site.SavePlanAsync(PlanId, _acks, ScheduledUtc(), applyOnApproval: !_schedule);
         await Site.ApprovePlanAsync(PlanId);
         return null;
@@ -849,6 +859,7 @@ else
     {
         await RunAsync(async () =>
         {
+            if (PastSchedule() is { } past) return past;
             await Site.SavePlanAsync(PlanId, _acks, ScheduledUtc(), applyOnApproval: false);
             return await Site.ApplyPlanAsync(PlanId);
         }, _schedule ? "Scheduled." : "Applied.");
