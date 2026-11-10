@@ -2258,6 +2258,15 @@ public class ClientDashboardService
                     null, DpiCatalog.IconClass(u.Category, u.Application),
                     u.BytesReceived, u.BytesTransmitted, u.ActivitySeconds,
                     Note: "UniFi Network knows this application; our catalog has no name for it yet"))
+        // Two ids can share a name ("Apple" and the catalog's "Apple.com"): one row, its bytes summed. The
+        // largest row's category and icon stand; activity takes the longest, since the two overlap in time.
+        .GroupBy(r => r.Name, StringComparer.OrdinalIgnoreCase)
+        .Select(g => g.Count() == 1 ? g.First() : g.OrderByDescending(r => r.TotalBytes).First() with
+        {
+            DownloadBytes = g.Sum(r => r.DownloadBytes),
+            UploadBytes = g.Sum(r => r.UploadBytes),
+            ActivitySeconds = g.Max(r => r.ActivitySeconds),
+        })
         .OrderByDescending(r => r.TotalBytes)
         .ToList();
 
