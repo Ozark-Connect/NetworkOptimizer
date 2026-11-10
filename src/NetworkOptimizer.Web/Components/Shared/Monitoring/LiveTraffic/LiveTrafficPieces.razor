@@ -68,8 +68,17 @@
     /// <summary>The App with its icon, as one filter value.</summary>
     protected RenderFragment AppCell(LiveFlowRow f) => __builder =>
     {
-        <span class="lt-app-cell">@AppIcon(f.App, f.AppIconDomain, f.AppIconClass)@Pill(LiveTrafficField.App, f.App, cls: f.DnsBypass ? "lt-bypass" : null)</span>
+        var unnamed = f.UnnamedPort;
+        <span class="lt-app-cell @(unnamed != null ? "lt-app-unnamed" : null)" data-app-unnamed="@(unnamed != null ? f.App : null)"
+              data-app-seed="@unnamed?.Encode()" data-app-link="@NameAppLink(unnamed)">@AppIcon(f.App, f.AppIconDomain, f.AppIconClass)@Pill(LiveTrafficField.App, f.App, cls: f.DnsBypass ? "lt-bypass" : null)</span>
     };
+
+    /// <summary>
+    /// Name This App for an unnamed port, when the viewer may add custom apps; null otherwise. The
+    /// hover card (App.razor) reads it off <c>data-app-link</c> and leaves the link out when it is null.
+    /// </summary>
+    protected string? NameAppLink(CustomAppSeed? seed) =>
+        seed != null && Ctx.CanNameApps() ? LiveTrafficLinks.NameApp(seed) : null;
 
     protected RenderFragment RoutePill(LiveFlowRow f) => Pill(LiveTrafficField.Route, f.Route, cls: LiveTrafficDisplay.RouteClass(f.RouteKind));
 

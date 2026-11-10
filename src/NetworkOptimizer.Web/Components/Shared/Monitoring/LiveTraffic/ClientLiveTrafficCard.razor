@@ -5,6 +5,7 @@
 @inject IJSRuntime JS
 @inject Microsoft.AspNetCore.Mvc.ViewFeatures.IFileVersionProvider FileVersionProvider
 @inject ILogger<ClientLiveTrafficCard> Logger
+@inject Microsoft.AspNetCore.Authorization.IAuthorizationService Authz
 @implements IDisposable
 
 <div class="card results-card lt-client lt-client-flows" data-tour="client-live-traffic">
@@ -237,7 +238,19 @@
         {
             Logger.LogDebug(ex, "Client Live Traffic row motion failed");
         }
+        try
+        {
+            var user = AuthState == null ? null : (await AuthState).User;
+            Feed.CanNameApps = user != null && (await Authz.AuthorizeAsync(user, SiteContext.Slug, NetworkOptimizer.Web.Services.Authorization.Policies.SiteAdmin)).Succeeded;
+            if (Feed.CanNameApps) StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogDebug(ex, "Client Live Traffic: role check failed");
+        }
     }
+
+    [CascadingParameter] private Task<Microsoft.AspNetCore.Components.Authorization.AuthenticationState>? AuthState { get; set; }
 
     private RenderFragment SortHeader(LiveFlowSort col, string label) => __builder =>
     {

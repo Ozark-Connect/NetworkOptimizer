@@ -245,8 +245,12 @@ public sealed class ClientLiveFeed : IDisposable
         IsKept = (kind, value) => Kept(kind, value) != null,
         Toggle = (e, kind, value) => ToggleAsync(e.AltKey, kind, value),
         Exclude = AddFilterAsync,
+        CanNameApps = () => CanNameApps,
     };
     private LiveTrafficRowContext? _rowContext;
+
+    /// <summary>The viewer is a Site Admin here, so unnamed ports link to Name This App. The card sets it.</summary>
+    public bool CanNameApps { get; set; }
 
     public void Dispose()
     {

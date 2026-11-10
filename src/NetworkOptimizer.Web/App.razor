@@ -609,7 +609,10 @@
                 maxWidth: 'min(100vw - 10px, 400px)',
                 onShow: function (instance) {
                     if (innerTipHovered(cell)) return false;
-                    instance.setContent(html(cell));
+                    // Null: the cell no longer carries this card (a renamed app keeps its element).
+                    var content = html(cell);
+                    if (content == null) return false;
+                    instance.setContent(content);
                 }
             }).show();
         }
@@ -617,10 +620,56 @@
         // Live Traffic: full text for any name its ellipsis cuts. The ellipsis sits on the cell, not the
         // name, so data-tooltip-truncated (which measures the element itself) cannot see it; one
         // delegated handler finds the cut element and shows only while it is still cut.
+        // An App Live Traffic could only call "UDP 21324": what that means, and Name This App for a Site Admin.
+        function unnamedAppHtml(el) {
+            if (!el.hasAttribute('data-app-unnamed')) return null;
+            var link = el.getAttribute('data-app-link');
+            var seed = el.getAttribute('data-app-seed') || '';
+            return '<div><strong>' + escapeHtml(el.getAttribute('data-app-unnamed') || '') + '</strong></div>'
+                + '<div>Neither UniFi Network’s DPI nor Network Optimizer recognizes this port.</div>'
+                + (link
+                    ? '<div><a href="' + escapeHtml(link) + '" data-name-app="' + escapeHtml(seed) + '">Name This App</a></div>'
+                    : '<div>A Site Admin can name it.</div>');
+        }
+        // Live Traffic registers itself so Name This App opens its dialog in place; anywhere else the
+        // link navigates to Live Traffic, which opens it from the URL. A navigation within Live Traffic
+        // would re-run the router, focus the heading, and scroll the page.
+        var nameAppRef = null;
+        var nameAppOpener = null;
+        window.ltNameApp = {
+            register: function (ref) { nameAppRef = ref; },
+            unregister: function (ref) { if (nameAppRef === ref) nameAppRef = null; },
+            // The Custom Apps dialog hands focus back to what opened it. A hover card's link is gone by
+            // then, so it falls back to nothing rather than to a detached node.
+            rememberFocus: function () {
+                var el = document.activeElement;
+                nameAppOpener = el && el !== document.body && !el.closest('.tippy-box') ? el : null;
+            },
+            restoreFocus: function () {
+                if (nameAppOpener && nameAppOpener.isConnected) nameAppOpener.focus({ preventScroll: true });
+                nameAppOpener = null;
+            }
+        };
+        document.addEventListener('click', function (e) {
+            var a = e.target.closest && e.target.closest('a[data-name-app]');
+            if (!a || !nameAppRef) return;
+            e.preventDefault();
+            nameAppRef.invokeMethodAsync('OpenNameApp', a.getAttribute('data-name-app'))
+                .catch(function (err) { console.warn('Name This App', err); });
+        }, true);
+
         document.addEventListener('mouseover', function (e) {
             if (!window.tippy || !e.target.closest) return;
             var host = e.target.closest('.live-traffic, .bandwidth-hogs-card');
-            if (!host) return;
+            if (!host) {
+                // Client Performance's Live Traffic card takes only this card, not the others.
+                var cardHost = e.target.closest('.lt-client');
+                var cardApp = cardHost && e.target.closest('[data-app-unnamed]');
+                if (cardApp && cardHost.contains(cardApp)) showLinkCard(cardApp, unnamedAppHtml);
+                return;
+            }
+            var unnamed = e.target.closest('[data-app-unnamed]');
+            if (unnamed && host.contains(unnamed)) { showLinkCard(unnamed, unnamedAppHtml); return; }
             // Destination cells and client links have their own card: the name, then its link (Threats, Client Performance).
             // The card carries the full name, so it stands in for the cut-name tooltip.
             var dest = e.target.closest('[data-dest-ip]');

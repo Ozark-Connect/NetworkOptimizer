@@ -105,6 +105,16 @@ public sealed record LiveFlowRow
     /// sibling stream's real name may replace it. See <see cref="LiveTrafficStore.InheritSiblingApps"/>.
     /// </summary>
     public bool AppIsFallback { get; init; }
+    /// <summary>The site's custom app definition that named this row, or null.</summary>
+    public int? CustomAppId { get; init; }
+    /// <summary>
+    /// What Name This App prefills when the App is only "UDP 21324" (neither the DPI nor our catalog
+    /// knew the port), or null.
+    /// </summary>
+    public CustomAppSeed? UnnamedPort =>
+        CustomAppMatcher.ParseUnnamed(App, Proto, RemotePort) is { } p
+            ? new CustomAppSeed(p.Protocol, p.Port, RouteKind == LiveRouteKind.Lan ? NetworkOptimizer.Storage.Models.CustomAppScope.Lan : NetworkOptimizer.Storage.Models.CustomAppScope.Internet)
+            : null;
     /// <summary>
     /// The CDN cache inside the ISP's network this flow reaches ("Google Global Cache inside Example ISP
     /// (AS64496)"), or null: a content owner's hostname on an address another network announces.
@@ -160,7 +170,8 @@ public sealed record LiveGroupRow(
     long TotalBytes,
     int Flows,
     LiveRouteKind? RouteKind,
-    string? ClientMac);
+    string? ClientMac,
+    CustomAppSeed? Unnamed = null);
 
 /// <summary>One route's live load, for the tiles at the top of the full view.</summary>
 public sealed record LiveRouteStat(
@@ -199,7 +210,8 @@ public sealed record LiveSankey(IReadOnlyList<LiveSankeyNode> Nodes, IReadOnlyLi
 /// <param name="UpBps">The node's upload rate.</param>
 /// <param name="ClientIp">A client node's address, for its Client Performance link; null for Other and the other columns.</param>
 public sealed record LiveSankeyNode(int Column, string Name, double Value, LiveTrafficField Field, LiveRouteKind? RouteKind, bool IsOther,
-    string? IconDomain = null, string? IconClass = null, double DownBps = 0, double UpBps = 0, string? ClientIp = null);
+    string? IconDomain = null, string? IconClass = null, double DownBps = 0, double UpBps = 0, string? ClientIp = null,
+    CustomAppSeed? Unnamed = null);
 
 /// <summary>
 /// While the pointer is on a Where It Goes node, its column keeps the nodes it had when the hover

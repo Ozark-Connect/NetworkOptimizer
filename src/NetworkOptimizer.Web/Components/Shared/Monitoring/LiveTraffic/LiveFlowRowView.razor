@@ -90,7 +90,9 @@
             @if (!phone)
             {
                 <td>
-                    @Pill(LiveTrafficField.App, f.App)
+                    @{ var unnamed = f.UnnamedPort; }
+                    <span class="@(unnamed != null ? "lt-app-unnamed" : null)" data-app-unnamed="@(unnamed != null ? f.App : null)"
+                          data-app-seed="@unnamed?.Encode()" data-app-link="@NameAppLink(unnamed)">@Pill(LiveTrafficField.App, f.App)</span>
                     @RoutePill(f)
                 </td>
             }
@@ -226,7 +228,7 @@
                 <dl class="lt-kv">
                     <dt>Allowed by</dt><dd>@AllowedBy(f)</dd>
                     <dt>Exits</dt><dd><span class="lt-tag @LiveTrafficDisplay.RouteClass(f.RouteKind)">@f.Route</span></dd>
-                    <dt>App</dt><dd>@f.App@(f.Category != null ? $", category {f.Category}" : "")</dd>
+                    <dt>App</dt><dd>@AppDetail(f)</dd>
                 </dl>
                 @HideActions(f)
             </div>
@@ -290,7 +292,7 @@
                 <dl class="lt-kv">
                     <dt>@(blocked ? "Blocked by" : "Allowed by")</dt><dd>@(f.PolicyName ?? "Default policy")</dd>
                     <dt>Exits</dt><dd><span class="lt-tag @LiveTrafficDisplay.RouteClass(f.RouteKind)">@f.Route</span></dd>
-                    <dt>App</dt><dd>@f.App@(f.Category != null ? $", category {f.Category}" : "")</dd>
+                    <dt>App</dt><dd>@AppDetail(f)</dd>
                 </dl>
                 @HideActions(f)
             </div>
@@ -326,8 +328,41 @@
             }
             <button class="btn btn-secondary btn-sm" @onclick="() => exclude(new LiveTrafficFilter(LiveTrafficField.Destination, f.Destination, Exclude: true))">Hide This Destination</button>
             <button class="btn btn-secondary btn-sm" @onclick="() => exclude(new LiveTrafficFilter(LiveTrafficField.App, f.App, Exclude: true))">Hide This App</button>
+            @if (Ctx.CanNameApps() && NameSeed(f) is { } seed)
+            {
+                if (Ctx.NameApp is { } nameApp)
+                {
+                    <button class="btn btn-secondary btn-sm" @onclick="() => nameApp(seed)">Name This App</button>
+                }
+                else
+                {
+                    <a class="btn btn-secondary btn-sm" href="@LiveTrafficLinks.NameApp(seed)">Name This App</a>
+                }
+            }
         </div>
     };
+
+    /// <summary>The App, then its category, or that it is one of the site's custom apps.</summary>
+    private static string AppDetail(LiveFlowRow f) =>
+        f.App + (f.CustomAppId != null ? ", a custom app" : f.Category != null ? $", category {f.Category}" : "");
+
+    /// <summary>
+    /// What Name This App prefills for a row whose App is only a fallback (a port, a service name, an
+    /// address's owner); null for a named row, a custom app, or a flow with no TCP or UDP port.
+    /// </summary>
+    private static CustomAppSeed? NameSeed(LiveFlowRow f)
+    {
+        if (f.UnnamedPort is { } unnamed) return unnamed;
+        if (!f.AppIsFallback || f.CustomAppId != null || f.RemotePort <= 0) return null;
+        NetworkOptimizer.Storage.Models.CustomAppProtocol? proto = f.Proto switch
+        {
+            "TCP" => NetworkOptimizer.Storage.Models.CustomAppProtocol.Tcp,
+            "UDP" => NetworkOptimizer.Storage.Models.CustomAppProtocol.Udp,
+            _ => null,
+        };
+        return proto == null ? null : new CustomAppSeed(proto.Value, f.RemotePort,
+            f.RouteKind == LiveRouteKind.Lan ? NetworkOptimizer.Storage.Models.CustomAppScope.Lan : NetworkOptimizer.Storage.Models.CustomAppScope.Internet);
+    }
 
     private static RenderFragment DetailChart(IReadOnlyList<(double Down, double Up)> history) => __builder =>
     {

@@ -1,5 +1,6 @@
 using NetworkOptimizer.Web.Services.ChangeControl;
 using NetworkOptimizer.Web.Services.Monitoring.IspHealth;
+using NetworkOptimizer.Web.Services.Monitoring.LiveTraffic;
 using ApexCharts;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Mvc.ViewFeatures;
@@ -983,6 +984,7 @@ builder.Services.AddSiteScopedRegistry<NetworkOptimizer.Web.Services.Monitoring.
 builder.Services.AddScoped<NetworkOptimizer.Web.Services.Monitoring.LiveTraffic.LiveTrafficService>();
 builder.Services.AddMutatingService<NetworkOptimizer.Web.Services.Monitoring.LiveTraffic.ILiveTrafficService>(
     sp => sp.GetRequiredService<NetworkOptimizer.Web.Services.Monitoring.LiveTraffic.LiveTrafficService>());
+builder.Services.AddMutatingService<ICustomAppService, CustomAppService>();
 builder.Services.AddScoped<CustomOidService>();
 builder.Services.AddMutatingService<ICustomOidService>(sp => sp.GetRequiredService<CustomOidService>());
 // Device health checks: shipped templates (JSON files), one runner per site that executes the

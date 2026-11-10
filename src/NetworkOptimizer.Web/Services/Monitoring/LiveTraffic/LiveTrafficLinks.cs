@@ -21,4 +21,10 @@ public static class LiveTrafficLinks
     /// <summary>A client address on Client Performance's Data / Apps tab, or null when there is none.</summary>
     public static string? ClientPerformance(string? clientIp) =>
         string.IsNullOrEmpty(clientIp) ? null : "/client-dashboard?ip=" + Uri.EscapeDataString(clientIp) + "&tab=data";
+
+    /// <summary>Live Traffic with Name This App open, prefilled from the seed.</summary>
+    public static string NameApp(CustomAppSeed seed) => "/monitoring/live-traffic?nameApp=" + seed.Encode();
+
+    /// <summary>The query key <see cref="NameApp"/> uses.</summary>
+    public const string NameAppKey = "nameApp";
 }

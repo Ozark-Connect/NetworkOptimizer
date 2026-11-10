@@ -121,6 +121,10 @@ Time-series monitoring on your own InfluxDB, fed by SNMP polling (InfluxDB).
       - Apple and Backblaze traffic named from their own address space even with no domain seen; ICMP is ICMP whoever answers it
       - A stream with no name of its own takes the app of its named siblings (same client, protocol, and port), never on shared ports like 443
       - Network Optimizer's own traffic: On-Site Agents and browsers reaching this install (by its host name or address), and its polls of the AP Agent
+      - **Custom Apps** - name your own apps by protocol, port, and optionally a domain or address; checked first, in your order (Site Admin)
+        - Hover an unnamed port like UDP 21324 in the table or Where It Goes and **Name This App**, prefilled from the flow
+        - The form previews how many live flows it matches, and which custom app above it would name them first
+        - Also in Settings - Monitoring; applies to History, the Dashboard card, and Client Performance
     - **ISP cache** badge on a destination served from a content cache inside your ISP's network (Google Global Cache, Netflix Open Connect, Meta FNA, Akamai): the owner's hostname (or UniFi Network's DPI name for the flow) on an address your ISP announces, named with the ISP and its ASN (GeoLite2 ASN). A cache node the device resolved out of view takes the app its neighbors in the same /24 were named with
     - Destinations named by DNS, else by reverse DNS (PTR) or the address's owner; a public address of one of your sites carries a site badge, and a client or UniFi device on another VLAN carries its UniFi name and a network badge; hover a destination for its address and its Threat Intelligence drill-down
     - Parallel streams from one client to one destination shown as one row with a stream count

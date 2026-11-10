@@ -23,6 +23,15 @@ public sealed class LiveTrafficRowContext
     /// <summary>Where a value links to, for a list whose values open Live Traffic rather than filter.</summary>
     public Func<LiveTrafficField, string, string?>? LinkFor { get; init; }
 
+    /// <summary>
+    /// The viewer may add custom apps on this site (Site Admin): unnamed ports offer Name This App.
+    /// Read on each render, since the role is known only once the host has asked.
+    /// </summary>
+    public Func<bool> CanNameApps { get; init; } = () => false;
+
+    /// <summary>Opens Name This App in place. Null: the list links to Live Traffic, which opens it.</summary>
+    public Func<CustomAppSeed, Task>? NameApp { get; init; }
+
     /// <summary>Values that do nothing on click.</summary>
     public static LiveTrafficRowContext Inert { get; } = new();
 }
