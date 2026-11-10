@@ -350,7 +350,7 @@
             {
                 Protocol = seed?.Protocol ?? CustomAppProtocol.Udp,
                 Ports = seed?.Port.ToString() ?? "",
-                PortOn = CustomAppPortOn.Destination,
+                PortOn = seed?.PortOn ?? CustomAppPortOn.Destination,
                 Scope = seed?.Scope ?? CustomAppScope.Anywhere,
             };
         _mode = Mode.Form;

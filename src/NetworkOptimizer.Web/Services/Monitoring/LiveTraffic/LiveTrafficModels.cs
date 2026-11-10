@@ -112,8 +112,9 @@ public sealed record LiveFlowRow
     /// knew the port), or null.
     /// </summary>
     public CustomAppSeed? UnnamedPort =>
-        CustomAppMatcher.ParseUnnamed(App, Proto, RemotePort) is { } p
-            ? new CustomAppSeed(p.Protocol, p.Port, RouteKind == LiveRouteKind.Lan ? NetworkOptimizer.Storage.Models.CustomAppScope.Lan : NetworkOptimizer.Storage.Models.CustomAppScope.Internet)
+        (Proto is "TCP" or "UDP") && App == FlowNaming.BarePort(Proto, ClientPort, RemotePort)
+            ? CustomAppSeed.ForFlow(Proto, ClientPort, RemotePort,
+                RouteKind == LiveRouteKind.Lan ? NetworkOptimizer.Storage.Models.CustomAppScope.Lan : NetworkOptimizer.Storage.Models.CustomAppScope.Internet)
             : null;
     /// <summary>
     /// The CDN cache inside the ISP's network this flow reaches ("Google Global Cache inside Example ISP

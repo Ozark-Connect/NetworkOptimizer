@@ -348,19 +348,14 @@
 
     /// <summary>
     /// What Name This App prefills for a row whose App is only a fallback (a port, a service name, an
-    /// address's owner); null for a named row, a custom app, or a flow with no TCP or UDP port.
+    /// address's owner); null for a named row, a custom app, a flow with no TCP or UDP port, or one
+    /// whose ends are both ephemeral.
     /// </summary>
     private static CustomAppSeed? NameSeed(LiveFlowRow f)
     {
         if (f.UnnamedPort is { } unnamed) return unnamed;
-        if (!f.AppIsFallback || f.CustomAppId != null || f.RemotePort <= 0) return null;
-        NetworkOptimizer.Storage.Models.CustomAppProtocol? proto = f.Proto switch
-        {
-            "TCP" => NetworkOptimizer.Storage.Models.CustomAppProtocol.Tcp,
-            "UDP" => NetworkOptimizer.Storage.Models.CustomAppProtocol.Udp,
-            _ => null,
-        };
-        return proto == null ? null : new CustomAppSeed(proto.Value, f.RemotePort,
+        if (!f.AppIsFallback || f.CustomAppId != null) return null;
+        return CustomAppSeed.ForFlow(f.Proto, f.ClientPort, f.RemotePort,
             f.RouteKind == LiveRouteKind.Lan ? NetworkOptimizer.Storage.Models.CustomAppScope.Lan : NetworkOptimizer.Storage.Models.CustomAppScope.Internet);
     }
 

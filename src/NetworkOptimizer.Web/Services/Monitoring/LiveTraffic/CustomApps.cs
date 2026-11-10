@@ -28,22 +28,42 @@ public sealed record CustomAppRule(
 /// <param name="ShadowedBy">A saved definition above it that names those flows first, or null.</param>
 public sealed record CustomAppPreview(int LiveMatches, string? ShadowedBy);
 
-/// <summary>What a Name This App link prefills: the protocol, port, and where the flow went.</summary>
-public sealed record CustomAppSeed(CustomAppProtocol Protocol, int Port, CustomAppScope Scope)
+/// <summary>
+/// What a Name This App link prefills: the protocol, the service end's port and which end that is,
+/// and where the flow went.
+/// </summary>
+public sealed record CustomAppSeed(CustomAppProtocol Protocol, int Port, CustomAppScope Scope,
+    CustomAppPortOn PortOn = CustomAppPortOn.Destination)
 {
-    /// <summary>The URL form, "udp-21324-lan".</summary>
+    /// <summary>The URL form, "udp-21324-lan", with "-src" when the port is the client's own.</summary>
     public string Encode() =>
-        $"{(Protocol == CustomAppProtocol.Udp ? "udp" : "tcp")}-{Port}-{Scope switch { CustomAppScope.Lan => "lan", CustomAppScope.Internet => "internet", _ => "any" }}";
+        $"{(Protocol == CustomAppProtocol.Udp ? "udp" : "tcp")}-{Port}-{Scope switch { CustomAppScope.Lan => "lan", CustomAppScope.Internet => "internet", _ => "any" }}"
+        + (PortOn == CustomAppPortOn.Source ? "-src" : "");
 
     /// <summary>Reads <see cref="Encode"/>'s form; null for anything else.</summary>
     public static CustomAppSeed? Decode(string? value)
     {
         var parts = (value ?? "").Split('-');
-        if (parts.Length != 3) return null;
+        if (parts.Length is not (3 or 4)) return null;
         CustomAppProtocol? proto = parts[0].ToLowerInvariant() switch { "tcp" => CustomAppProtocol.Tcp, "udp" => CustomAppProtocol.Udp, _ => null };
         if (proto == null || !int.TryParse(parts[1], out var port) || port is < 1 or > 65535) return null;
         var scope = parts[2].ToLowerInvariant() switch { "lan" => CustomAppScope.Lan, "internet" => CustomAppScope.Internet, _ => CustomAppScope.Anywhere };
-        return new CustomAppSeed(proto.Value, port, scope);
+        if (parts.Length == 4 && !parts[3].Equals("src", StringComparison.OrdinalIgnoreCase)) return null;
+        return new CustomAppSeed(proto.Value, port, scope, parts.Length == 4 ? CustomAppPortOn.Source : CustomAppPortOn.Destination);
+    }
+
+    /// <summary>
+    /// The seed for a flow by its ports: the service end's port, and Source when that is the client's.
+    /// Null when there is no TCP or UDP port, or when both ends are ephemeral and neither names a service.
+    /// </summary>
+    public static CustomAppSeed? ForFlow(string proto, int clientPort, int remotePort, CustomAppScope scope)
+    {
+        CustomAppProtocol? p = proto switch { "TCP" => CustomAppProtocol.Tcp, "UDP" => CustomAppProtocol.Udp, _ => null };
+        if (p == null || remotePort <= 0) return null;
+        if (FlowNaming.ServiceOnClient(clientPort, remotePort))
+            return new CustomAppSeed(p.Value, clientPort, scope, CustomAppPortOn.Source);
+        if (remotePort >= FlowNaming.EphemeralFloor) return null;
+        return new CustomAppSeed(p.Value, remotePort, scope);
     }
 }
 
@@ -222,21 +242,6 @@ public static class CustomAppMatcher
     }
 
     public static string Describe(CustomAppRule rule) => Describe(rule.Protocol, rule.Ports, rule.PortOn, rule.Scope, rule.Remote);
-
-    /// <summary>
-    /// The protocol and port of an App that is only the bare "UDP 21324" fallback, or null. A row's
-    /// <see cref="LiveFlowRow.UnnamedPort"/> uses it; so do the Sankey node and the Group by App row.
-    /// </summary>
-    public static (CustomAppProtocol Protocol, int Port)? ParseUnnamed(string app, string? proto = null, int? port = null)
-    {
-        var space = app.IndexOf(' ');
-        if (space <= 0) return null;
-        CustomAppProtocol? p = app[..space] switch { "TCP" => CustomAppProtocol.Tcp, "UDP" => CustomAppProtocol.Udp, _ => null };
-        if (p == null || !int.TryParse(app[(space + 1)..], out var n) || n is < 1 or > 65535) return null;
-        if (proto != null && app[..space] != proto) return null;
-        if (port != null && n != port) return null;
-        return (p.Value, n);
-    }
 
     /// <summary>Where a set of rows went, for a seed: all LAN, all out, or mixed (Anywhere).</summary>
     public static CustomAppScope ScopeOf(IEnumerable<LiveFlowRow> rows)

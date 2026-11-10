@@ -117,6 +117,34 @@ public class CustomAppMatcherTests
         Row(proto: "ICMP", remotePort: 0, app: "ICMP").UnnamedPort.Should().BeNull();
     }
 
+    [Fact]
+    public void AServiceOnTheClientsEndSeedsItsPortAsTheSource()
+    {
+        // A device answering the gateway's query from its own port, to the gateway's throwaway one.
+        var reply = Row(clientPort: 21324, remotePort: 50690, app: "UDP 21324");
+        reply.UnnamedPort.Should().Be(new CustomAppSeed(CustomAppProtocol.Udp, 21324, CustomAppScope.Lan, CustomAppPortOn.Source));
+
+        Row(clientPort: 21324, remotePort: 50690, app: "UDP 50690").UnnamedPort.Should().BeNull("the label must name the service end");
+    }
+
+    [Fact]
+    public void BothEndsEphemeralOfferNothingToName()
+    {
+        Row(clientPort: 51000, remotePort: 51001, app: "UDP 51001").UnnamedPort.Should().BeNull();
+        CustomAppSeed.ForFlow("UDP", 51000, 51001, CustomAppScope.Lan).Should().BeNull();
+        CustomAppSeed.ForFlow("TCP", 51000, 8443, CustomAppScope.Internet)
+            .Should().Be(new CustomAppSeed(CustomAppProtocol.Tcp, 8443, CustomAppScope.Internet));
+    }
+
+    [Fact]
+    public void ASourceSeedRoundTripsThroughTheUrl()
+    {
+        var seed = new CustomAppSeed(CustomAppProtocol.Udp, 21324, CustomAppScope.Lan, CustomAppPortOn.Source);
+        seed.Encode().Should().Be("udp-21324-lan-src");
+        CustomAppSeed.Decode("udp-21324-lan-src").Should().Be(seed);
+        CustomAppSeed.Decode("udp-21324-lan-dst").Should().BeNull();
+    }
+
     // ---------------------------------------------------------------- matching
 
     [Fact]
@@ -261,6 +289,37 @@ public class CustomAppMatcherTests
         store.Ingest(batch);
         store.LiveCounts().Should().ContainKey(1);
     }
+
+    [Fact]
+    public void AClientsHistoryCacheNamesItsFlowsWithTheSitesRules()
+    {
+        var registry = new LiveTrafficRegistry();
+        var now = DateTime.UtcNow;
+        registry.LoadCustomApps("site", [Rule("21324", id: 1, name: "Before")]);
+        var cache = registry.ClientHistoryFor("site", "aa:bb:cc:dd:ee:02", "viewer", now);
+        cache.Merge([Record(21324)], now, cache.Generation);
+
+        AppIn(cache, now).Should().Be("Before", "a cache made after the rules loaded starts with them");
+
+        registry.SetCustomApps("site", [Rule("21324", id: 1, name: "After")]);
+        AppIn(cache, now).Should().Be("After", "a save reaches the client caches too");
+    }
+
+    private static NetworkOptimizer.UniFi.Models.UniFiTrafficFlow Record(int port) => new()
+    {
+        Id = "r1",
+        Action = "allowed",
+        Direction = "local",
+        Protocol = "UDP",
+        Time = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+        FlowStartTime = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+        TrafficData = new NetworkOptimizer.UniFi.Models.UniFiTrafficFlowData { BytesTotal = 100, PacketsTotal = 1 },
+        Source = new NetworkOptimizer.UniFi.Models.UniFiTrafficFlowEndpoint { Ip = "192.0.2.20", Port = 50000, Mac = Laptop, ZoneName = "Internal" },
+        Destination = new NetworkOptimizer.UniFi.Models.UniFiTrafficFlowEndpoint { Ip = "192.0.2.30", Port = port, ZoneName = "Internal" },
+    };
+
+    private static string AppIn(FlowHistoryCache cache, DateTime now) =>
+        cache.BuildView(new LiveHistoryQuery { ViewerId = "viewer" }, LiveHistoryState.Ready, now).Flows.Single().App;
 
     [Theory]
     [InlineData("", "Give the app a name.")]
