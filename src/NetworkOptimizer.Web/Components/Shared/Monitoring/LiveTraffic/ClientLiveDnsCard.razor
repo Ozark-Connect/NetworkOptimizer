@@ -14,6 +14,7 @@
                 <button class="time-btn @(Feed.DnsMode == LiveDnsMode.Nxdomain ? "active" : "")" @onclick="() => Feed.SetDnsModeAsync(LiveDnsMode.Nxdomain)" data-tooltip="NXDOMAIN, or 0.0.0.0 / :: answers">Blocked</button>
             </div>
         </div>
+        <ClientFilterChips Feed="Feed" />
         @if (rows.Count == 0)
         {
             <div class="empty-state lt-client-empty">

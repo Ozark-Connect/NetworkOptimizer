@@ -83,10 +83,7 @@
             }
         </div>
 
-        @if (Feed.Filters.Count > 0)
-        {
-            @FilterChips
-        }
+        <ClientFilterChips Feed="Feed" />
 
         @if (View.State == LiveTrafficState.Starting)
         {
@@ -275,10 +272,7 @@
                     <span class="lt-secondary lt-small">@TimeFormatHelper.Pluralize(h.MatchingFlows, "flow")@(h.MatchingBlocked > 0 ? $", {h.MatchingBlocked:N0} blocked" : ""), @DisplayFormatters.FormatBytes(h.MatchingBytes)</span>
                 }
             </div>
-            @if (Feed.Filters.Count > 0)
-            {
-                @FilterChips
-            }
+            <ClientFilterChips Feed="Feed" />
             @if (h == null || (h.State == LiveHistoryState.Loading && h.TotalFlows == 0))
             {
                 <div class="loading-container lt-client-state"><div class="spinner"></div><p>Reading UniFi Network's flow records</p></div>
@@ -331,21 +325,6 @@
                     </button>
                 }
             }
-        </div>
-    };
-
-    private RenderFragment FilterChips => __builder =>
-    {
-        <div class="lt-filterbar lt-client-chips">
-            @foreach (var f in Feed.Filters.ToList())
-            {
-                <span class="lt-chip @(f.Exclude ? "is-exclude" : null)">
-                    @(f.Exclude ? $"Not {LiveTrafficDisplay.FieldLabel(f.Field)}" : LiveTrafficDisplay.FieldLabel(f.Field))
-                    <b>@f.Value</b>
-                    <span class="lt-x" role="button" aria-label="Remove filter" @onclick="() => Feed.RemoveFilterAsync(f)">&#x2715;</span>
-                </span>
-            }
-            <a href="" class="lt-clear" @onclick="Feed.ClearFiltersAsync" @onclick:preventDefault>Clear</a>
         </div>
     };
 
