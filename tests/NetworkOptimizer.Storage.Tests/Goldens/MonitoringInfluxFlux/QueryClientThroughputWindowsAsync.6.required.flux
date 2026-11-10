@@ -1,0 +1,6 @@
+from(bucket: "network_monitoring")
+  |> range(start: 2026-01-15T10:00:00Z, stop: 2026-01-15T12:00:00Z)
+  |> filter(fn: (r) => r._measurement == "wifi_client" and r._field == "client_mac")
+  |> filter(fn: (r) => r._value == "aa:bb:cc:dd:ee:ff")
+  |> first()
+  |> keep(columns: ["device_mac", "band"])
