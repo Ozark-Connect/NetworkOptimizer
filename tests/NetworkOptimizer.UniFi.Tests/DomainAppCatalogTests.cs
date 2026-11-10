@@ -20,6 +20,9 @@ public class DomainAppCatalogTests
     [InlineData("music.apple.com", "Apple Music")]   // a listed app under apple.com still wins
     [InlineData("p42-caldav.icloud.com", "iCloud")]
     [InlineData("imap.mail.me.com", "iCloud")]
+    [InlineData("s3.us-west-004.backblazeb2.com", "Backblaze")]   // B2's S3 endpoint
+    [InlineData("f004.backblazeb2.com", "Backblaze")]
+    [InlineData("api.backblaze.com", "Backblaze")]
     [InlineData("www.microsoft.com", null)]
     [InlineData("com", null)]
     [InlineData("example.net", null)]
@@ -61,6 +64,8 @@ public class DomainAppCatalogTests
     [InlineData("APPLE-AUSTIN", "Apple")]
     [InlineData("Apple Inc.", "Apple")]
     [InlineData("Applebee's Hosting", null)]   // the owner only as a whole word
+    [InlineData("BACKBLAZE", "Backblaze")]
+    [InlineData("Backblaze Inc", "Backblaze")]
     [InlineData("Example Hosting", null)]
     [InlineData(null, null)]
     public void OwnerNamesTheAppForAddressesWithNoDomain(string? owner, string? app) =>
@@ -141,6 +146,7 @@ public class DomainAppCatalogTests
     [InlineData("Roku", "no-icon no-icon-roku")]
     [InlineData("Elasticsearch", "no-icon no-icon-elasticsearch")]   // the port name (9200, 9300)
     [InlineData("Tailscale", "no-icon no-icon-tailscale")]
+    [InlineData("Backblaze", "no-icon no-icon-backblaze")]          // in the DPI catalog, without a mark
     [InlineData("Akamai Technologies, Inc.", "no-icon no-icon-akamai")]   // an address's owner
     [InlineData("AKAMAI-AS", "no-icon no-icon-akamai")]
     public void MarksFontAwesomeLacksOrTheCatalogMisses(string app, string cls) =>

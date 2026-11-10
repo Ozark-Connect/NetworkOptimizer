@@ -50,6 +50,7 @@ public static class DomainAppCatalog
         ["Webex"] = ["webex.com"],
         ["Slack"] = ["slack.com", "slack-edge.com", "slack-msgs.com"],
         ["Dropbox"] = ["dropbox.com", "dropboxusercontent.com", "dropboxapi.com"],
+        ["Backblaze"] = ["backblaze.com", "backblazeb2.com"],
         ["Google Drive"] = ["drive.google.com", "docs.google.com", "drive.usercontent.google.com"],
         ["Gmail"] = ["mail.google.com", "gmail.com"],
         ["Google Play"] = ["play.google.com", "play.googleapis.com"],
@@ -91,6 +92,7 @@ public static class DomainAppCatalog
     private static readonly (string Owner, string App)[] AppByOwner =
     [
         ("Apple", "Apple"),
+        ("Backblaze", "Backblaze"),
     ];
 
     /// <summary>The app a remote network's owner names, matched on a whole word; null when none.</summary>

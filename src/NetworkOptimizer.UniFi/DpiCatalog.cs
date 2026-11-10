@@ -57,7 +57,7 @@ public static class DpiCatalog
         ["QUIC"] = "fa-solid fa-bolt",
         ["Wi-Fi Calling"] = "fa-solid fa-phone",
         ["Speedtest.net"] = "fa-solid fa-gauge-high",
-        ["Backblaze"] = "fa-solid fa-cloud-arrow-up",
+        ["Backblaze"] = "no-icon no-icon-backblaze",
         ["Microsoft Windows Update"] = "fa-brands fa-windows",
         // No Outlook mark in Font Awesome or Simple Icons: Microsoft's, as its other services carry.
         ["Outlook.com"] = "fa-brands fa-microsoft",
