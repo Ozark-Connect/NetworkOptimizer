@@ -709,18 +709,14 @@ builder.Services.AddSingleton<IPasswordHasher, PasswordHasher>();
 builder.Services.AddSingleton<NetworkOptimizer.Web.Services.AdminAuthCache>();
 builder.Services.AddScoped<IAdminAuthService, AdminAuthService>();
 
-// Register JWT service (singleton - caches secret key)
-builder.Services.AddSingleton<IJwtService, JwtService>();
-
 // Add HttpContextAccessor for accessing cookies in Blazor
 builder.Services.AddHttpContextAccessor();
 
 // ASP.NET Core Identity on the dedicated main-DB AuthDbContext (users, roles, RBAC, audit),
 // plus the interactive cookie authentication pipeline that REPLACES the legacy self-issued
 // JWT-in-cookie scheme. The Identity application cookie gains server-side revocation via security
-// stamps (which the JWT cookie fundamentally lacked). Sessions from before the upgrade survive via
-// the LegacyJwtBridgeMiddleware (added below). JwtService is retained only for that bridge and is
-// removed one release after the cutover (design docs 02, 06).
+// stamps (which the JWT cookie fundamentally lacked). A leftover legacy auth_token cookie is
+// ignored, and sign-out deletes it.
 builder.Services.AddNetOptIdentityCore(dbPath);
 builder.Services.AddNetOptIdentityAuthentication();
 builder.Services.AddCascadingAuthenticationState();
@@ -1571,12 +1567,6 @@ await app.Services.GetRequiredService<DynamicSchemeManager>().SyncAsync();
 // Standard ASP.NET Core authentication middleware (must come before auth check).
 // Authentication is now the Identity application cookie (see AddNetOptIdentityAuthentication).
 app.UseAuthentication();
-
-// Transitional bridge: upgrade a still-valid legacy auth_token JWT into an Identity cookie so
-// sessions from before the upgrade are not forced to re-login. Runs after UseAuthentication (so an
-// existing Identity cookie short-circuits it) and before authorization/the auth-required gate.
-// SUNSET: remove with JwtService one release after the cutover (30-day legacy token lifetime).
-app.UseMiddleware<NetworkOptimizer.Web.Services.Identity.LegacyJwtBridgeMiddleware>();
 
 // Populate the ambient caller context (actor/IP/UA/correlation) for HTTP requests, after auth so the
 // principal is resolved. Circuit calls are populated separately by CallerContextCircuitHandler.

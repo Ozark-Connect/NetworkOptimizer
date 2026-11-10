@@ -271,7 +271,6 @@ public sealed class IdentityAdminService : IIdentityAdminService
     private readonly IAuthPolicyOptions _policy;
     private readonly SiteRegistryChangeNotifier _siteRegistryChanges;
     private readonly UserSessionRevocationNotifier _revocations;
-    private readonly IJwtService? _legacyJwt;
     private readonly IAdminAuthService _adminAuth;
     private readonly ILogger<IdentityAdminService> _logger;
 
@@ -287,8 +286,7 @@ public sealed class IdentityAdminService : IIdentityAdminService
         SiteRegistryChangeNotifier siteRegistryChanges,
         UserSessionRevocationNotifier revocations,
         ILogger<IdentityAdminService> logger,
-        IAdminAuthService adminAuth,
-        IJwtService? legacyJwt = null)
+        IAdminAuthService adminAuth)
     {
         _userManager = userManager;
         _roleManager = roleManager;
@@ -301,29 +299,7 @@ public sealed class IdentityAdminService : IIdentityAdminService
         _siteRegistryChanges = siteRegistryChanges;
         _revocations = revocations;
         _adminAuth = adminAuth;
-        _legacyJwt = legacyJwt;
         _logger = logger;
-    }
-
-    /// <summary>
-    /// Revoking the built-in admin's sessions has to reach the legacy <c>auth_token</c> too. That JWT
-    /// carries no security stamp, so rotating the stamp leaves it valid, and the bridge would exchange
-    /// a token captured before this revocation for a brand new cookie carrying the CURRENT stamp -
-    /// which is to say a password change and a sign out everywhere would both appear to work and
-    /// revoke nothing. Only the signing key can retire those tokens. The admin account is the only
-    /// principal a legacy token maps to, so no other account needs this.
-    ///
-    /// Optional by design: a container with no <see cref="IJwtService"/> is one where legacy tokens
-    /// cannot exist, so there is nothing to retire. That is what makes this removable in one piece.
-    /// SUNSET: remove with <see cref="LegacyJwtBridgeMiddleware"/> one release after the cutover.
-    /// </summary>
-    private async Task RetireLegacyTokensIfBuiltInAdminAsync(ApplicationUser user)
-    {
-        if (_legacyJwt is not null
-            && string.Equals(user.UserName, IdentityBootstrapService.AdminUserName, StringComparison.OrdinalIgnoreCase))
-        {
-            await _legacyJwt.RotateSigningKeyAsync();
-        }
     }
 
     /// <summary>
@@ -517,7 +493,6 @@ public sealed class IdentityAdminService : IIdentityAdminService
         if (!result.Succeeded) return AdminActionResult.Fail(Describe(result));
 
         await _userManager.UpdateSecurityStampAsync(user);
-        await RetireLegacyTokensIfBuiltInAdminAsync(user);
         Emit(AuditCategories.User, AuditActions.ExternalUnlinked, user, new { loginProvider });
         return AdminActionResult.Ok();
     }
@@ -549,7 +524,6 @@ public sealed class IdentityAdminService : IIdentityAdminService
 
         await ClearTemporaryPasswordFlagAsync(user);
         await SyncAdminSettingsIfBuiltInAdminAsync(user, newPassword);
-        await RetireLegacyTokensIfBuiltInAdminAsync(user);
         Emit(AuditCategories.User, AuditActions.PasswordReset, user, new { self = true });
         return AdminActionResult.Ok();
     }
@@ -565,7 +539,6 @@ public sealed class IdentityAdminService : IIdentityAdminService
         var stamped = await _userManager.UpdateSecurityStampAsync(user);
         if (!stamped.Succeeded)
             return AdminActionResult.Fail(Describe(stamped));
-        await RetireLegacyTokensIfBuiltInAdminAsync(user);
         Emit(AuditCategories.Auth, AuditActions.SignedOutEverywhere, user, new { self = true });
         return AdminActionResult.Ok();
     }
@@ -586,7 +559,6 @@ public sealed class IdentityAdminService : IIdentityAdminService
 
         await ClearTemporaryPasswordFlagAsync(user);
         await SyncAdminSettingsIfBuiltInAdminAsync(user, newPassword);
-        await RetireLegacyTokensIfBuiltInAdminAsync(user);
         Emit(AuditCategories.Auth, AuditActions.PasswordChanged, user);
         return AdminActionResult.Ok();
     }
@@ -715,7 +687,6 @@ public sealed class IdentityAdminService : IIdentityAdminService
             await MarkPasswordTemporaryAsync(user);
         else
             await ClearTemporaryPasswordFlagAsync(user);
-        await RetireLegacyTokensIfBuiltInAdminAsync(user);
         Emit(AuditCategories.Auth, AuditActions.PasswordReset, user, new { mustChange = temporary });
         return AdminActionResult.Ok();
     }
@@ -1036,12 +1007,7 @@ public sealed class IdentityAdminService : IIdentityAdminService
 
         // Members revalidate against the new policy on their next stamp check.
         foreach (var member in await _userManager.GetUsersInRoleAsync(role))
-        {
             await _userManager.UpdateSecurityStampAsync(member);
-            // A bridged legacy session is precisely the one that never met the second-factor
-            // requirement, so turning the policy on has to reach it as well as the cookies.
-            await RetireLegacyTokensIfBuiltInAdminAsync(member);
-        }
 
         EmitSystemTarget(AuditCategories.Rbac, AuditActions.RoleGranted, "role", role, new { requireMfa });
         return AdminActionResult.Ok();

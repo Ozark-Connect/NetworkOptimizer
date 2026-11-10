@@ -267,7 +267,7 @@ public class ArchitectureTests
     /// <summary>
     /// A3: only the identity infrastructure may reference UserManager/RoleManager; product code must go
     /// through <see cref="IdentityAdminService"/>. The allowlist is the identity plumbing that
-    /// legitimately needs the managers (sign-in, bootstrap/seed, the session bridge, the claims factory).
+    /// legitimately needs the managers (sign-in, bootstrap/seed, the claims factory).
     /// </summary>
     [Fact]
     public void A3_OnlyIdentityInfrastructureReferencesUserManager()
@@ -277,7 +277,6 @@ public class ArchitectureTests
             nameof(IdentityAdminService),
             nameof(IdentityBootstrapService),
             nameof(IdentitySignInService),
-            nameof(LegacyJwtBridgeMiddleware),
             nameof(AppUserClaimsPrincipalFactory),
             nameof(RevalidatingIdentityAuthenticationStateProvider),
             nameof(MfaService),
