@@ -202,15 +202,12 @@ public sealed record LiveSankeyNode(int Column, string Name, double Value, LiveT
     string? IconDomain = null, string? IconClass = null, double DownBps = 0, double UpBps = 0, string? ClientIp = null);
 
 /// <summary>
-/// While the pointer is on a Where It Goes node, its column keeps the nodes it had when the hover
-/// began: a node that goes idle stays at 0, and a newcomer folds into Other (or, with no Other in the
-/// column, is left out) until the pointer leaves. The column then keeps its spacing, so nothing moves
-/// under the cursor before the click.
+/// While the pointer is on a Where It Goes node, that node stays in the diagram: its own node even
+/// outside the busiest, and at 0 when it goes idle. The diagram keeps it at the same height on screen
+/// (LiveTrafficSankey); every other node updates as usual.
 /// </summary>
 /// <param name="Node">The hovered node.</param>
-/// <param name="Column">The column's named nodes when the hover began, Other excluded.</param>
-/// <param name="HasOther">Whether the column had an Other node then.</param>
-public sealed record LiveSankeyHold(LiveSankeyNode Node, IReadOnlyList<LiveSankeyNode> Column, bool HasOther);
+public sealed record LiveSankeyHold(LiveSankeyNode Node);
 
 /// <param name="DownBps">The band's download rate: the band splits into a download and an upload strand by these.</param>
 /// <param name="UpBps">The band's upload rate.</param>

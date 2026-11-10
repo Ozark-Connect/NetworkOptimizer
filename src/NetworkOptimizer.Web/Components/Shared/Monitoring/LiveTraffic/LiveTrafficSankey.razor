@@ -31,8 +31,8 @@ else
                style="transform: translate(@(F(ColX[node.Column]))px, @(F(n.Y))px)"
                data-client-name="@(clientLink != null ? node.Name : null)" data-client-link="@clientLink"
                @onclick="() => OnNodeClick(node)"
-               @onmouseenter="() => { if (clickable) OnHover?.Invoke(node, DrawnColumn(node.Column)); }"
-               @onmouseleave="() => { if (clickable) OnHover?.Invoke(null, null); }">
+               @onmouseenter="() => { if (clickable) OnHover?.Invoke(node); }"
+               @onmouseleave="() => { if (clickable) OnHover?.Invoke(null); }">
                 <rect x="0" y="0" width="@NodeW" height="@F(n.Height)" style="height: @(F(n.Height))px" rx="2"
                       fill="@(node.Column == 2 ? RouteColor(node.RouteKind) : "var(--bg-elevated)")"
                       stroke="var(--text-muted)" stroke-width="0.5" />
@@ -77,17 +77,10 @@ else
     [Parameter] public EventCallback<LiveTrafficFilter> OnFilter { get; set; }
 
     /// <summary>
-    /// The pointer entered a clickable node, with the column as last drawn (or left one, with nulls).
-    /// A plain delegate, not an EventCallback: the page only records it for its next query, so
-    /// nothing needs to redraw.
+    /// The pointer entered a clickable node (or left one, with null). A plain delegate, not an
+    /// EventCallback: the page only records it for its next query, so nothing needs to redraw.
     /// </summary>
-    [Parameter] public Action<LiveSankeyNode?, IReadOnlyList<LiveSankeyNode>?>? OnHover { get; set; }
-
-    /// <summary>The column the pointer is on as it was drawn: newer data may already sit with the page.</summary>
-    private IReadOnlyList<LiveSankeyNode> DrawnColumn(int column) =>
-        _drawn.Where(n => n.Column == column).ToList();
-
-    private IReadOnlyList<LiveSankeyNode> _drawn = Array.Empty<LiveSankeyNode>();
+    [Parameter] public Action<LiveSankeyNode?>? OnHover { get; set; }
 
     /// <summary>The hovered node the page holds: it keeps its place on screen while it is held.</summary>
     [Parameter] public LiveSankeyNode? Pinned { get; set; }
@@ -204,8 +197,6 @@ else
 
         _ranks = ranks;
         _centers = nodes.ToDictionary(n => (n.Node.Column, n.Node.Name), n => n.Y + n.Height / 2);
-        _drawn = sankey.Nodes;
-
         // Each node stacks its links in the order of the nodes at their other end, so a band keeps
         // its slot from one refresh to the next and bands cross as little as they can.
         var ends = new List<(LiveSankeyLink Link, PlacedNode From, PlacedNode To, double SFrom, double STo)>();
@@ -262,8 +253,8 @@ else
 
     /// <summary>
     /// Tops for the pinned node's column: the pinned node keeps the center it had at the last render,
-    /// and the nodes above and below it spread evenly in the room left on each side. The page holds
-    /// the column's node set while it is pinned, so nothing new can crowd in beside it. Where holding
+    /// and the nodes above and below it spread evenly in the room left on each side, never closer
+    /// than the floor, so a node joining beside it gets a label's room. Where holding
     /// its center would close a gap below the floor, it moves only as far as the floor needs. Null
     /// (the ordinary even spread) when the pin is elsewhere, was not drawn last time, or cannot fit.
     /// </summary>
