@@ -377,6 +377,34 @@ public class LiveTrafficStoreTests
     }
 
     [Fact]
+    public void AStreamTheDpiNeverNamedTakesWhatItNamedItsAddress()
+    {
+        var store = SeededStore();
+        UniFiTrafficFlow Record(string client, int port, string remote, int? app) => new()
+        {
+            Protocol = "UDP",
+            Source = new UniFiTrafficFlowEndpoint { Ip = client, Port = port },
+            Destination = new UniFiTrafficFlowEndpoint { Ip = remote, Port = 443 },
+            Application = app is { } a ? new UniFiTrafficFlowApplication { App = a, Category = 4 } : null,
+        };
+        store.MergeUniFiFlows(
+        [
+            Record("192.0.2.10", 40001, "203.0.113.120", 112),   // another client's side connection: YouTube
+            Record("192.0.2.20", 50000, "203.0.113.120", null),  // the stream itself: the DPI never named it
+            Record("192.0.2.10", 40002, "203.0.113.121", 112),   // a front end the records disagree on
+            Record("192.0.2.10", 40003, "203.0.113.121", 132),
+        ]);
+        store.Ingest(Batch(
+            Flow("stream", Laptop, "192.0.2.20", "203.0.113.120", 443, "eth4", 900_000, 10, proto: "udp"),
+            Flow("mixed", Laptop, "192.0.2.20", "203.0.113.121", 443, "eth4", 1000, 10, proto: "udp")));
+
+        var flows = store.BuildView(Query(), LiveTrafficState.Live).Flows;
+
+        flows.Single(f => f.Key == "stream").App.Should().Be("YouTube");
+        flows.Single(f => f.Key == "mixed").App.Should().Be("HTTPS", "records that disagree name nothing");
+    }
+
+    [Fact]
     public void HttpsTakesInQuicButQuicStaysQuic()
     {
         var store = SeededStore();

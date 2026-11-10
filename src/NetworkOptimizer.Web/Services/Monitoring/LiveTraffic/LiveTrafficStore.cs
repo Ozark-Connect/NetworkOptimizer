@@ -348,6 +348,27 @@ public sealed class LiveTrafficStore
         }
     }
 
+    /// <summary>
+    /// The app UniFi Network's DPI gave each destination (address, port, protocol) across the console's
+    /// records, any client's; null where they disagree. A long flow the DPI never named (UniFi Network
+    /// names a stream's small side connection, not the stream) takes it: a CDN address serves one service,
+    /// and a multi-service front end shows up as a disagreement and names nothing.
+    /// </summary>
+    private Dictionary<(string Remote, int Port, string Proto), UniFiMatch?> _destinationApps = new();
+
+    private void IndexDestinationApps()
+    {
+        var index = new Dictionary<(string, int, string), UniFiMatch?>();
+        foreach (var (key, m) in _uniFiFlows)
+        {
+            if (m.App == null) continue;
+            var dest = (key.Remote, key.Port, key.Proto);
+            if (!index.TryGetValue(dest, out var seen)) index[dest] = m;
+            else if (seen != null && seen.App != m.App) index[dest] = null;
+        }
+        _destinationApps = index;
+    }
+
     /// <summary>Takes backfilled console records, keeping only those that match a live flow.</summary>
     public void MergeBackfill(IEnumerable<UniFiTrafficFlow> flows)
     {
@@ -467,6 +488,7 @@ public sealed class LiveTrafficStore
         var now = DateTime.UtcNow;
         lock (_gate)
         {
+            IndexDestinationApps();
             var active = InheritSiblingApps(_flows.Values.Select(s => ToRow(s.Last, s.DownBps, s.UpBps, s.History.ToList(), false, now)).ToList());
             var all = query.Ended
                 ? InheritSiblingApps(_ended.Select(e => ToRow(e.Flow, 0, 0, Array.Empty<(double, double)>(), true, now, e.EndedAt)).ToList())
@@ -566,13 +588,17 @@ public sealed class LiveTrafficStore
         var hostName = _names.TryGetValue(f.RemoteIp, out var named) && named.Expires > now ? named.Name
             : match?.Domain ?? (_ptr.TryGetValue(f.RemoteIp, out var ptrName) ? ptrName : null);
         var toServer = (hostName != null && _serverHosts.Contains(hostName.TrimEnd('.'))) || _serverHosts.Contains(f.RemoteIp);
+        // A flow the DPI never named takes what it named the other flows to the same address and port.
+        var destinationMatch = match?.App == null && !f.Lan
+            && _destinationApps.TryGetValue((f.RemoteIp, f.RemotePort, proto), out var dm) ? dm : null;
         // A content owner's hostname on an address from someone else's ASN: a CDN cache inside the ISP.
         int? remoteAsn = _asns.TryGetValue(f.RemoteIp, out var knownAsn) ? knownAsn : null;
-        var cache = f.Lan ? null : DomainAppCatalog.EmbeddedCache(hostName, remoteAsn, org, match?.App);
+        var cache = f.Lan ? null : DomainAppCatalog.EmbeddedCache(hostName, remoteAsn, org, match?.App ?? destinationMatch?.App);
         var ispCache = cache == null ? null
             : remoteAsn is { } asnNumber ? $"{cache} inside {org ?? "your ISP"} (AS{asnNumber})" : $"{cache} inside your ISP's network";
         var app = DomainAppCatalog.ProtocolApp(proto) ?? (toServer ? "Network Optimizer" : null)
             ?? DomainAppCatalog.TailscaleApp(proto, f.ClientPort, f.RemotePort) ?? match?.App ?? DomainAppCatalog.AppFor(hostName)
+            ?? destinationMatch?.App
             ?? DomainAppCatalog.SpeedtestApp(hostName, proto, f.RemotePort)
             ?? (f.Lan ? DomainAppCatalog.LanApp(proto, f.RemotePort) : DomainAppCatalog.WifiCalling(proto, f.RemotePort, org) ?? DomainAppCatalog.OwnerApp(org))
             // The client end may be the server (an iperf3 server answering a test): its port names it then.
@@ -613,7 +639,7 @@ public sealed class LiveTrafficStore
             DestinationIp = f.RemoteIp,
             DestinationSub = destSub,
             App = encryptedDns && match?.App == null ? (f.RemotePort == 853 ? "DNS over TLS" : "DNS over HTTPS") : app,
-            Category = match?.Category,
+            Category = match?.Category ?? destinationMatch?.Category,
             Route = route,
             RouteKind = kind,
             IsGateway = f.Gateway || _gatewayIps.Contains(f.ClientIp),
