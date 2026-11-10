@@ -16,27 +16,29 @@ const last = new WeakMap(); // container -> { pos, index, anchorKey, anchorY, re
 const scrolls = new WeakMap(); // scroller -> { lastTop, own, moved }: how far the user, not the hold, has scrolled
 const lists = new Set(); // containers settled at least once, for the scroll-time check below
 let observer = null;
-let visHandler = null;
+const visHandlers = new Map(); // watcher id -> visibilitychange handler
 // The tab just came back: the next update lands rows far from where they were, so it moves nothing.
 let quietNext = false;
 
 /**
- * Tells the page when its tab is hidden or shown, so a hidden page fetches without redrawing and a
- * tab left in the background has no backlog of redraws to catch up on.
+ * Tells a page when its tab is hidden or shown, so a hidden page fetches without redrawing and a
+ * tab left in the background has no backlog of redraws to catch up on. One watcher per id.
  */
-export function watchVisibility(dotnet) {
-    unwatchVisibility();
-    visHandler = () => {
+export function watchVisibility(id, dotnet) {
+    unwatchVisibility(id);
+    const handler = () => {
         if (!document.hidden) quietNext = true;
         dotnet.invokeMethodAsync('SetPageHidden', document.hidden).catch(() => { /* circuit gone */ });
     };
-    document.addEventListener('visibilitychange', visHandler);
-    if (document.hidden) visHandler();
+    visHandlers.set(id, handler);
+    document.addEventListener('visibilitychange', handler);
+    if (document.hidden) handler();
 }
 
-export function unwatchVisibility() {
-    if (visHandler) document.removeEventListener('visibilitychange', visHandler);
-    visHandler = null;
+export function unwatchVisibility(id) {
+    const handler = visHandlers.get(id);
+    if (handler) document.removeEventListener('visibilitychange', handler);
+    visHandlers.delete(id);
 }
 
 /**

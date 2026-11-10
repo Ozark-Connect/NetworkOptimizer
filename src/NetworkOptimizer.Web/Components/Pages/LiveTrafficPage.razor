@@ -408,6 +408,23 @@
         if (!hidden) await RefreshAsync();
     }
 
+    /// <summary>
+    /// The shown signal can be lost while the circuit reconnects, which would leave the page hidden
+    /// for good. While hidden, each refresh asks the browser directly.
+    /// </summary>
+    private async Task ProbeShownAsync()
+    {
+        try
+        {
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+            if (!await JS.InvokeAsync<bool>("eval", cts.Token, "document.hidden")) _pageHidden = false;
+        }
+        catch
+        {
+            // Still hidden, or not reachable: the next refresh asks again.
+        }
+    }
+
     /// <summary>Rows and Where It Goes nodes hold their order under the pointer: <see cref="LiveOrderHold"/>.</summary>
     private bool Held => _hold.Held;
 
@@ -461,7 +478,7 @@
             _motion ??= await JS.InvokeAsync<IJSObjectReference>("import", FileVersionProvider.AddFileVersionToPath("", "/js/live-traffic-motion.js"));
             await _motion.InvokeVoidAsync("watch", ".live-traffic", ".lt-flip");
             _selfRef ??= DotNetObjectReference.Create(this);
-            await _motion.InvokeVoidAsync("watchVisibility", _selfRef);
+            await _motion.InvokeVoidAsync("watchVisibility", "live-traffic", _selfRef);
         }
         catch (JSDisconnectedException) { }
         catch (Exception ex)
@@ -481,6 +498,7 @@
         if (_disposed || Interlocked.Exchange(ref _refreshing, 1) == 1) return;
         try
         {
+            if (_pageHidden) await ProbeShownAsync();
             if (_historyMode)
             {
                 _lastHistoryAt = DateTime.UtcNow;
@@ -1232,7 +1250,7 @@
         _timer?.Dispose();
         try { _ = LiveTrafficService.ReleaseAsync(_viewerId); }
         catch { /* circuit going away */ }
-        try { _ = _motion?.InvokeVoidAsync("unwatchVisibility").AsTask(); }
+        try { _ = _motion?.InvokeVoidAsync("unwatchVisibility", "live-traffic").AsTask(); }
         catch { /* circuit going away */ }
         _selfRef?.Dispose();
     }

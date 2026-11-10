@@ -67,6 +67,20 @@ public sealed class ClientLiveFeed : IDisposable
     /// <summary>Raised after every refresh, off the render thread: handlers marshal with InvokeAsync.</summary>
     public event Func<Task>? Changed;
 
+    /// <summary>
+    /// The page's tab is hidden: refreshes still run, which keeps the agent's lease, but the cards are
+    /// not told, so a tab left in the background has no backlog of redraws to catch up on.
+    /// </summary>
+    public bool Hidden { get; private set; }
+
+    /// <summary>Shown again: asks now, so the cards draw the latest at once.</summary>
+    public Task SetHiddenAsync(bool hidden)
+    {
+        if (Hidden == hidden) return Task.CompletedTask;
+        Hidden = hidden;
+        return hidden ? Task.CompletedTask : RefreshAsync();
+    }
+
     public void Start()
     {
         if (_disposed || _timer != null) return;
@@ -157,7 +171,7 @@ public sealed class ClientLiveFeed : IDisposable
 
     private async Task NotifyAsync()
     {
-        if (_disposed || Changed is not { } changed) return;
+        if (_disposed || Hidden || Changed is not { } changed) return;
         foreach (var handler in changed.GetInvocationList().Cast<Func<Task>>())
         {
             try { await handler(); }

@@ -1347,6 +1347,7 @@
             _liveFeed?.Dispose();
             var ips = new[] { c.Ip, c.FixedIp }.Where(ip => !string.IsNullOrEmpty(ip)).Select(ip => ip!).Distinct().ToList();
             _liveFeed = new ClientLiveFeed(LiveTraffic, InvokeAsync, c.Mac, c.Name ?? c.Hostname ?? "", ips, Logger);
+            _ = _liveFeed.SetHiddenAsync(_pageHidden);
             _liveFeed.Start();
             return _liveFeed;
         }
@@ -3854,13 +3855,15 @@
     {
         if (_pageHidden == hidden) return;
         _pageHidden = hidden;
-        if (!hidden) OnPageShown();
+        if (hidden) _ = _liveFeed?.SetHiddenAsync(true);
+        else OnPageShown();
     }
 
     // Back in view: paint what the ticks kept current, and let the next push refill the
     // chart from the store for the stretch it was not fed.
     private void OnPageShown()
     {
+        _ = _liveFeed?.SetHiddenAsync(false);
         _liveChartHistoryAt = DateTime.MinValue;
         StateHasChanged();
     }
