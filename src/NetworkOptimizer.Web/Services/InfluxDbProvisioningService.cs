@@ -200,6 +200,62 @@ public class InfluxDbProvisioningService : IInfluxDbProvisioningService, ISiteIn
         };
     }
 
+    /// <summary>
+    /// Deletes the named buckets in the given org. A name with no bucket is skipped. Returns the
+    /// names actually deleted.
+    /// </summary>
+    public async Task<IReadOnlyList<string>> DeleteBucketsAsync(
+        string url,
+        string token,
+        string orgId,
+        IReadOnlyList<string> bucketNames,
+        CancellationToken ct = default)
+    {
+        var deleted = new List<string>();
+        foreach (var name in bucketNames.Distinct(StringComparer.Ordinal))
+        {
+            var bucket = await FindBucketAsync(url, token, orgId, name, ct);
+            if (bucket == null || !string.Equals(bucket.Name, name, StringComparison.Ordinal)) continue;
+
+            using var http = _httpClientFactory.CreateClient();
+            var deleteReq = new HttpRequestMessage(HttpMethod.Delete,
+                $"{NormalizeUrl(url)}/api/v2/buckets/{Uri.EscapeDataString(bucket.Id)}");
+            deleteReq.Headers.Authorization = new AuthenticationHeaderValue("Token", token);
+            using var deleteResp = await http.SendAsync(deleteReq, ct);
+            if (deleteResp.StatusCode == System.Net.HttpStatusCode.NotFound) continue;
+            if (!deleteResp.IsSuccessStatusCode)
+            {
+                var errBody = await deleteResp.Content.ReadAsStringAsync(ct);
+                throw new InvalidOperationException($"Delete bucket {name} failed: HTTP {(int)deleteResp.StatusCode}: {errBody}");
+            }
+            deleted.Add(name);
+        }
+
+        if (deleted.Count == 0)
+        {
+            _auditContext.SuppressNoChange();
+        }
+        else
+        {
+            _auditContext.SetTarget(string.Join(",", deleted), string.Join(", ", deleted));
+            _auditContext.SetDetails(new { deletedBuckets = deleted, orgId });
+        }
+        return deleted;
+    }
+
+    /// <summary>The bucket with this name in the org, or null when there is none.</summary>
+    private async Task<InfluxBucket?> FindBucketAsync(string url, string token, string orgId, string name, CancellationToken ct)
+    {
+        using var http = _httpClientFactory.CreateClient();
+        var listUri = $"{NormalizeUrl(url)}/api/v2/buckets?orgID={Uri.EscapeDataString(orgId)}&name={Uri.EscapeDataString(name)}";
+        var listReq = new HttpRequestMessage(HttpMethod.Get, listUri);
+        listReq.Headers.Authorization = new AuthenticationHeaderValue("Token", token);
+        using var listResp = await http.SendAsync(listReq, ct);
+        if (!listResp.IsSuccessStatusCode) return null;
+        var listBody = await listResp.Content.ReadAsStringAsync(ct);
+        return JsonSerializer.Deserialize<InfluxBucketList>(listBody, SerializerOptions)?.Buckets?.FirstOrDefault();
+    }
+
     /// <summary>Finds or creates one bucket, reporting which of the two it did.</summary>
     private async Task<(InfluxBucket Bucket, bool Created)> EnsureBucketAsync(string url, string adminToken, string orgId, string name, long retentionSeconds, CancellationToken ct)
     {
