@@ -1,0 +1,102 @@
+name: Bug report
+description: Something in Network Optimizer is broken or behaves wrong.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report this. Logs, traces, and a clear repro drive a lot of what gets fixed, and they get credited in the release notes.
+
+        Security issues go privately to tj@ozarkconnect.net, never in a public issue.
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before you file
+      options:
+        - label: I searched [existing issues](https://github.com/Ozark-Connect/NetworkOptimizer/issues?q=is%3Aissue), open and closed.
+          required: true
+        - label: I checked the [latest release and preview notes](https://github.com/Ozark-Connect/NetworkOptimizer/releases). Fixes often ship in a preview before the next stable release.
+          required: true
+        - label: I removed credentials, API keys, and public IP addresses from everything I attach.
+          required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Network Optimizer version
+      description: Shown in the footer at the bottom of every page.
+      placeholder: "v2.10.7"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: install
+    attributes:
+      label: Install method
+      options:
+        - Docker
+        - Windows (MSI)
+        - macOS (native)
+        - Proxmox
+        - Other (say which in the description)
+    validations:
+      required: true
+
+  - type: textarea
+    id: devices
+    attributes:
+      label: UniFi devices
+      description: Your gateway or console model, plus any switch, AP, or modem involved in the problem.
+      placeholder: |
+        Gateway: UCG-Fiber
+        Devices involved: U7 Pro, USW-Pro-Max-24-PoE
+    validations:
+      required: true
+
+  - type: input
+    id: network-version
+    attributes:
+      label: UniFi Network version
+      description: In UniFi Network, Settings - Updates, or the gateway / console info at the upper right of the Dashboard.
+    validations:
+      required: true
+
+  - type: input
+    id: os-version
+    attributes:
+      label: UniFi OS version
+      description: In UniFi Network, Settings - Updates, or the gateway / console info at the upper right of the Dashboard.
+    validations:
+      required: true
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you saw, on which page, and what you expected instead.
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Go to ...
+        2. Click ...
+        3. See ...
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: |
+        The relevant lines from the Network Optimizer log, around the time of the problem. See [Logging Configuration](https://github.com/Ozark-Connect/NetworkOptimizer/blob/main/docker/DEPLOYMENT.md#logging-configuration) for how to read the log and turn on debug logging.
+      render: shell
+
+  - type: textarea
+    id: screenshots
+    attributes:
+      label: Screenshots
+      description: Drag images here. Crop or blur anything you don't want public.

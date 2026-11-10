@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Install, upgrade, or setup help
+    url: https://discord.gg/pHrmzbBCY3
+    about: Ask on the Network Optimizer Discord. Issues are for confirmed bugs and feature requests.
+  - name: Security issue
+    url: mailto:tj@ozarkconnect.net
+    about: Report security issues privately by email, never in a public issue.
+  - name: Deployment Guide
+    url: https://github.com/Ozark-Connect/NetworkOptimizer/blob/main/docker/DEPLOYMENT.md
+    about: Installation, upgrade, and troubleshooting for every platform.
