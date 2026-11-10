@@ -413,11 +413,34 @@ public class AlertRuleEvaluatorTests
     public void Evaluate_ValuePercentContext_ComparedAgainstThreshold(double reading, bool expected)
     {
         var evt = CreateTestEvent("device.gateway_high_cpu", source: "device");
-        evt.Context[AlertRuleEvaluator.ValuePercentContextKey] = reading.ToString("0.###");
+        evt.Context[AlertRuleEvaluator.ValuePercentContextKey] = reading.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture);
         var rule = CreateTestRule(eventTypePattern: "device.gateway_high_cpu");
         rule.ThresholdPercent = 80;
 
         _evaluator.Evaluate(evt, [rule]).Should().HaveCount(expected ? 1 : 0);
+    }
+
+    [Theory]
+    [InlineData("79.9", false)]
+    [InlineData("85.5", true)]
+    public void Evaluate_ValuePercentContext_ReadsDotDecimalsUnderACommaCulture(string reading, bool expected)
+    {
+        // Under de-DE a culture-sensitive parse reads "79.9" as 799 and fires the rule.
+        var culture = System.Globalization.CultureInfo.CurrentCulture;
+        System.Globalization.CultureInfo.CurrentCulture = new System.Globalization.CultureInfo("de-DE");
+        try
+        {
+            var evt = CreateTestEvent("device.gateway_high_cpu", source: "device");
+            evt.Context[AlertRuleEvaluator.ValuePercentContextKey] = reading;
+            var rule = CreateTestRule(eventTypePattern: "device.gateway_high_cpu");
+            rule.ThresholdPercent = 80;
+
+            _evaluator.Evaluate(evt, [rule]).Should().HaveCount(expected ? 1 : 0);
+        }
+        finally
+        {
+            System.Globalization.CultureInfo.CurrentCulture = culture;
+        }
     }
 
     #endregion

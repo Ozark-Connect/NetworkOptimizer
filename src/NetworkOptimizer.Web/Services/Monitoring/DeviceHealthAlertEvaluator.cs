@@ -123,7 +123,7 @@ public class DeviceHealthAlertEvaluator
                             ["device_mac"] = deviceMac,
                             ["device_type"] = deviceType,
                             ["metric"] = "cpu_percent",
-                            [AlertRuleEvaluator.ValuePercentContextKey] = avg.ToString("0.###")
+                            [AlertRuleEvaluator.ValuePercentContextKey] = avg.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture)
                         }
                     }, ct);
                 }
@@ -161,7 +161,7 @@ public class DeviceHealthAlertEvaluator
                         ["device_mac"] = deviceMac,
                         ["device_type"] = deviceType,
                         ["metric"] = "memory_used_percent",
-                        [AlertRuleEvaluator.ValuePercentContextKey] = memoryUsedPercent.Value.ToString("0.###")
+                        [AlertRuleEvaluator.ValuePercentContextKey] = memoryUsedPercent.Value.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture)
                     }
                 }, ct);
             }
