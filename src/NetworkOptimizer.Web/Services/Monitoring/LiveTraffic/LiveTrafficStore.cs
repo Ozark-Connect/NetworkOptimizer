@@ -568,7 +568,7 @@ public sealed class LiveTrafficStore
         var toServer = (hostName != null && _serverHosts.Contains(hostName.TrimEnd('.'))) || _serverHosts.Contains(f.RemoteIp);
         // A content owner's hostname on an address from someone else's ASN: a CDN cache inside the ISP.
         int? remoteAsn = _asns.TryGetValue(f.RemoteIp, out var knownAsn) ? knownAsn : null;
-        var cache = f.Lan ? null : DomainAppCatalog.EmbeddedCache(hostName, remoteAsn, org);
+        var cache = f.Lan ? null : DomainAppCatalog.EmbeddedCache(hostName, remoteAsn, org, match?.App);
         var ispCache = cache == null ? null
             : remoteAsn is { } asnNumber ? $"{cache} inside {org ?? "your ISP"} (AS{asnNumber})" : $"{cache} inside your ISP's network";
         var app = DomainAppCatalog.ProtocolApp(proto) ?? (toServer ? "Network Optimizer" : null)

@@ -106,30 +106,33 @@ public static class DomainAppCatalog
     /// organization word they announce their own addresses from, and (Netflix) the hostname mark an
     /// embedded node carries.
     /// </summary>
-    private static readonly (string Name, string[] Suffixes, int[] OwnerAsns, string OwnerWord, string? EmbeddedMark)[] CdnCaches =
+    private static readonly (string Name, string[] Suffixes, string[] Apps, int[] OwnerAsns, string OwnerWord, string? EmbeddedMark)[] CdnCaches =
     [
-        ("Google Global Cache", ["googlevideo.com"], [15169, 36040, 43515], "Google", null),
-        ("Netflix Open Connect", ["oca.nflxvideo.net"], [2906], "Netflix", "-isp"),
-        ("Meta FNA", ["fna.fbcdn.net"], [32934], "Facebook", null),
-        ("Akamai", ["akamaized.net", "akamaihd.net"], [20940, 16625, 21342], "Akamai", null),
+        ("Google Global Cache", ["googlevideo.com"], ["YouTube", "YouTube Kids"], [15169, 36040, 43515], "Google", null),
+        ("Netflix Open Connect", ["oca.nflxvideo.net"], ["Netflix"], [2906], "Netflix", "-isp"),
+        ("Meta FNA", ["fna.fbcdn.net"], ["Facebook", "Instagram", "WhatsApp", "Facebook Messenger"], [32934], "Facebook", null),
+        // Akamai serves every kind of app, so only its hostnames say a flow is Akamai's.
+        ("Akamai", ["akamaized.net", "akamaihd.net"], [], [20940, 16625, 21342], "Akamai", null),
     ];
 
     /// <summary>
-    /// The cache a flow reaches inside the ISP's network: its hostname belongs to a content owner, but its
-    /// address originates from someone else's ASN (an embedded Google Global Cache announces from the
-    /// ISP's). Null for the owner's own network, an unknown ASN, or a host no owner claims. The owner's
+    /// The cache a flow reaches inside the ISP's network: its hostname, or UniFi Network's DPI name for it,
+    /// belongs to a content owner, but its address originates from someone else's ASN (an embedded Google
+    /// Global Cache announces from the ISP's). The DPI name covers a cache node the client resolved out
+    /// of view. Null for the owner's own network, an unknown ASN, or a flow no owner claims. The owner's
     /// name in the address's organization also counts as its own: no ASN list is complete.
     /// </summary>
-    public static string? EmbeddedCache(string? host, int? asn, string? asnOrg)
+    public static string? EmbeddedCache(string? host, int? asn, string? asnOrg, string? app = null)
     {
-        if (string.IsNullOrEmpty(host)) return null;
-        var name = host.TrimEnd('.');
-        foreach (var (cache, suffixes, ownerAsns, ownerWord, mark) in CdnCaches)
+        var name = host?.TrimEnd('.');
+        foreach (var (cache, suffixes, apps, ownerAsns, ownerWord, mark) in CdnCaches)
         {
-            if (!suffixes.Any(s => name.Equals(s, StringComparison.OrdinalIgnoreCase)
-                    || name.EndsWith("." + s, StringComparison.OrdinalIgnoreCase))) continue;
+            var byHost = !string.IsNullOrEmpty(name) && suffixes.Any(s => name.Equals(s, StringComparison.OrdinalIgnoreCase)
+                || name.EndsWith("." + s, StringComparison.OrdinalIgnoreCase));
+            var byApp = app != null && apps.Contains(app, StringComparer.OrdinalIgnoreCase);
+            if (!byHost && !byApp) continue;
             // Netflix names an embedded node itself; that needs no ASN.
-            if (mark != null && name.Contains(mark, StringComparison.OrdinalIgnoreCase)) return cache;
+            if (byHost && mark != null && name!.Contains(mark, StringComparison.OrdinalIgnoreCase)) return cache;
             if (asn is not > 0 || ownerAsns.Contains(asn.Value)) return null;
             if (asnOrg != null && asnOrg.Contains(ownerWord, StringComparison.OrdinalIgnoreCase)) return null;
             return cache;

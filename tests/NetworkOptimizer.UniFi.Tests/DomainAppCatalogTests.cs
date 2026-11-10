@@ -102,6 +102,16 @@ public class DomainAppCatalogTests
         DomainAppCatalog.EmbeddedCache(host, asn, org).Should().Be(expected);
 
     [Theory]
+    [InlineData("YouTube", 7029, "Windstream Communications", "Google Global Cache")]   // DPI-named, node resolved out of view
+    [InlineData("YouTube", 15169, "Google LLC", null)]
+    [InlineData("Netflix", 7029, "Windstream Communications", "Netflix Open Connect")]
+    [InlineData("Instagram", 7029, "Windstream Communications", "Meta FNA")]
+    [InlineData("Microsoft Teams", 7029, "Windstream Communications", null)]          // not a content owner with caches
+    [InlineData("YouTube", null, null, null)]                                         // no ASN: never a guess
+    public void EmbeddedCacheByTheDpiNameWhenNoHostnameIsKnown(string app, int? asn, string? org, string? expected) =>
+        DomainAppCatalog.EmbeddedCache(null, asn, org, app).Should().Be(expected);
+
+    [Theory]
     [InlineData("speedtest.example.net", "tcp", 8080, "Speedtest.net")]
     [InlineData("speed1.example.com", "tcp", 8080, "Speedtest.net")]
     [InlineData("Speedtest-dfw.example.net", "tcp", 8080, "Speedtest.net")]
