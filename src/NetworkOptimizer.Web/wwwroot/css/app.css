@@ -25586,6 +25586,19 @@ body:has(.top-bar-hidden) .btn-fit {
     flex: 1 1 auto;
 }
 
+/* A same-page jump beside a card title ("Live DNS ↓"). */
+.lt-title-jump {
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+    text-decoration: none;
+    white-space: nowrap;
+    margin-left: 0.25rem;
+}
+
+.lt-title-jump:hover {
+    color: var(--primary-hover);
+}
+
 .lt-client-actions {
     display: flex;
     align-items: center;

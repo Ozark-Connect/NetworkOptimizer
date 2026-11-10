@@ -15,6 +15,10 @@
             {
                 <span class="lan-flow-map-mode">Live</span>
             }
+            @if (IsLive)
+            {
+                <a href="" class="lt-title-jump" @onclick="JumpToLiveDnsAsync" @onclick:preventDefault>Live DNS &darr;</a>
+            }
         </div>
         @* One group, so the switch and the jumps wrap together on a phone and never split apart. *@
         <div class="lt-client-actions">
@@ -28,10 +32,6 @@
             @if (ShowThroughputLink)
             {
                 <MonitoringJumpButton Icon="MonitoringJumpButton.JumpIcon.Watch" Tooltip="Watch Live Throughput on the Speed tab" OnClick="OnOpenThroughput" />
-            }
-            @if (IsLive)
-            {
-                <MonitoringJumpButton Icon="MonitoringJumpButton.JumpIcon.Below" Tooltip="Jump to Live DNS" OnClick="JumpToLiveDnsAsync" />
             }
             <MonitoringJumpButton Icon="MonitoringJumpButton.JumpIcon.Analyze" Tooltip="Open in Live Traffic" OnClick="OpenLiveTraffic" />
         </div>

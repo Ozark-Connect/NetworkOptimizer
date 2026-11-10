@@ -12,14 +12,6 @@
             <path d="M12 2v3M12 19v3M2 12h3M19 12h3" />
         </svg>
     }
-    else if (Icon == JumpIcon.Below)
-    {
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-             stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <path d="m7 6 5 5 5-5" />
-            <path d="m7 13 5 5 5-5" />
-        </svg>
-    }
     else if (Icon == JumpIcon.Analyze)
     {
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
@@ -39,8 +31,7 @@
 </button>
 
 @code {
-    /// <summary>Below: a card further down the same page.</summary>
-    public enum JumpIcon { Analyze, Watch, Locate, Below }
+    public enum JumpIcon { Analyze, Watch, Locate }
 
     [Parameter] public JumpIcon Icon { get; set; }
     [Parameter] public string Tooltip { get; set; } = "";
