@@ -205,7 +205,7 @@
                                 <LiveTrafficSankey Sankey="_view.Sankey" Hold="Held" Filters="_filters" Searching="@(!string.IsNullOrWhiteSpace(_search))" OnFilter="ToggleFilter" />
                             }
                         </div>
-                        <div class="lt-legend-note">Click any client, app, or route to filter the page to it, and again to remove the filter. Band width is @(_sankeyByFlows ? "flow count" : "rate") on a log scale, so small flows stay visible.@(_sankeyByFlows ? "" : " Each band splits into download (strong) and upload (light), in its route's color.")</div>
+                        <div class="lt-legend-note">Click any client, app, or route to filter the page to it, and again to remove the filter. Width of bands is @(_sankeyByFlows ? "flow count" : "rate") on a log scale, so small flows stay visible.@(_sankeyByFlows ? "" : " Each band splits into download (strong) and upload (light), in its route's color.")</div>
                     </div>
                 </div>
 
