@@ -721,6 +721,7 @@ Requires Gateway SSH.
   - Zyxel - PMG3000-D20B
   - Richerlink - RL821GWV-D (signs in and out around each poll)
   - Realtek RTL960x sticks - ODI DFP-34X-2C2, ODI DFP-34X-2IY3, V-SOL V2801F, T&W TWCGPON657, Luleey LL-XS2510
+  - odi-oss firmware sticks - ODI DFP-34X-2C2, Luleey LL-XS2510, and other RTL9601/RTL9602 sticks, read from the odi-oss Prometheus exporter with GPON line counters
   - 8311 firmware sticks - WAS-110, X-ONU-SFPP, WT-ONU-STICK
   - Peter-Pon firmware sticks - FS.com GPON-SFP-ONT-MAC-I, Huawei MA5671A, and other Lantiq PEB98035 sticks
   - Any GPON or XGS-PON ONT SFP module with DDM
