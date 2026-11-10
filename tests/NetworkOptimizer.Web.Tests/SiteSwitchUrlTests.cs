@@ -28,6 +28,13 @@ public class SiteSwitchUrlTests
     [InlineData("/client-dashboard?ip=192.0.2.10&wan=wan2#speed", "/client-dashboard#speed")]
     [InlineData("/alerts?tab=active&alert=12", "/alerts?tab=active")]
     [InlineData("/speedtest?result=5", "/speedtest")]
+    // Live Traffic: clients, routes, resolvers, and LAN-device destinations go; apps and internet destinations stay.
+    [InlineData("/monitoring/live-traffic?not-app=ICMP&client=NAS&route=Fiber%20WAN&not-resolver=Gateway",
+        "/monitoring/live-traffic?not-app=ICMP")]
+    [InlineData("/monitoring/live-traffic?dest=192.168.1.20&dest=youtube.com&not-dest=10.0.0.5",
+        "/monitoring/live-traffic?dest=youtube.com")]
+    [InlineData("/monitoring/live-traffic?dest=203.0.113.9&app=YouTube", "/monitoring/live-traffic?dest=203.0.113.9&app=YouTube")]
+    [InlineData("/monitoring/live-traffic?route=LAN&not-route=Fiber%20WAN", "/monitoring/live-traffic?route=LAN")]   // LAN is every site's
     // Threat Intelligence filters name an outside source, which every site shares.
     [InlineData("/threats?ip=203.0.113.5&port=22", "/threats?ip=203.0.113.5&port=22")]
     public void StripSiteBoundParams_DropsOnlyWhatBelongsToTheOldSite(string url, string expected)
