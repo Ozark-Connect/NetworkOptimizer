@@ -7,16 +7,25 @@ using NetworkOptimizer.Storage.Interfaces;
 using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.Storage.Repositories;
 using NetworkOptimizer.UniFi.Models;
-using NetworkOptimizer.Web.Services;
 using NetworkOptimizer.Web.Services.Firmware;
 using NetworkOptimizer.Web.Services.Gates;
 using NetworkOptimizer.Web.Services.Identity;
 
 namespace NetworkOptimizer.Web.Tests.Firmware;
 
+/// <summary>
+/// Answers every request 404 without touching the network. The harness's release feed must not be
+/// Ubiquiti's live one: a GA build published there changes what a preview picks.
+/// </summary>
 internal sealed class NullHttpClientFactory : IHttpClientFactory
 {
-    public HttpClient CreateClient(string name) => new();
+    public HttpClient CreateClient(string name) => new(new NotFoundHandler());
+
+    private sealed class NotFoundHandler : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
+            Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.NotFound) { RequestMessage = request });
+    }
 }
 
 /// <summary>Clock the executor's grace windows, budgets and cool-downs are driven by.</summary>
