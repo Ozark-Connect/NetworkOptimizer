@@ -79,11 +79,24 @@ public class FloorPlanService : IFloorPlanAdminService
         NetworkOptimizer.Storage.Services.SiteDbContextFactory siteDbFactory,
         SiteContextService siteContext,
         ILogger<FloorPlanService> logger)
+        : this(siteDbFactory, siteContext, logger,
+            GetFloorPlanDirectory(siteContext.Slug, siteContext.IsDefault))
+    {
+    }
+
+    /// <summary>
+    /// Test seam: the same service rooted at an explicit floor plan directory.
+    /// </summary>
+    internal FloorPlanService(
+        NetworkOptimizer.Storage.Services.SiteDbContextFactory siteDbFactory,
+        SiteContextService siteContext,
+        ILogger<FloorPlanService> logger,
+        string floorPlanDirectory)
     {
         _siteDbFactory = siteDbFactory;
         _siteContext = siteContext;
         _logger = logger;
-        _floorPlanDirectory = GetFloorPlanDirectory(_siteContext.Slug, _siteContext.IsDefault);
+        _floorPlanDirectory = floorPlanDirectory;
         Directory.CreateDirectory(_floorPlanDirectory);
     }
 
@@ -303,16 +316,14 @@ public class FloorPlanService : IFloorPlanAdminService
 
     public string? GetFloorImagePath(FloorPlan floor)
     {
-        if (string.IsNullOrEmpty(floor.ImagePath)) return null;
-        var fullPath = Path.Combine(_floorPlanDirectory, floor.ImagePath);
-        return File.Exists(fullPath) ? fullPath : null;
+        var fullPath = ResolveInside(floor.ImagePath, "floor", floor.Id);
+        return fullPath != null && File.Exists(fullPath) ? fullPath : null;
     }
 
     private void DeleteFloorPlanImage(FloorPlan floor)
     {
-        if (string.IsNullOrEmpty(floor.ImagePath)) return;
-        var fullPath = Path.Combine(_floorPlanDirectory, floor.ImagePath);
-        if (File.Exists(fullPath))
+        var fullPath = ResolveInside(floor.ImagePath, "floor", floor.Id);
+        if (fullPath != null && File.Exists(fullPath))
         {
             try { File.Delete(fullPath); }
             catch (Exception ex) { _logger.LogWarning(ex, "Failed to delete floor plan image {Path}", fullPath); }
@@ -429,19 +440,52 @@ public class FloorPlanService : IFloorPlanAdminService
 
     public string? GetFloorImageFilePath(FloorPlanImage image)
     {
-        if (string.IsNullOrEmpty(image.ImagePath)) return null;
-        var fullPath = Path.Combine(_floorPlanDirectory, image.ImagePath);
-        return File.Exists(fullPath) ? fullPath : null;
+        var fullPath = ResolveInside(image.ImagePath, "image", image.Id);
+        return fullPath != null && File.Exists(fullPath) ? fullPath : null;
     }
 
     private void DeleteImageFile(FloorPlanImage image)
     {
-        if (string.IsNullOrEmpty(image.ImagePath)) return;
-        var fullPath = Path.Combine(_floorPlanDirectory, image.ImagePath);
-        if (File.Exists(fullPath))
+        var fullPath = ResolveInside(image.ImagePath, "image", image.Id);
+        if (fullPath != null && File.Exists(fullPath))
         {
             try { File.Delete(fullPath); }
             catch (Exception ex) { _logger.LogWarning(ex, "Failed to delete floor plan image file {Path}", fullPath); }
         }
+    }
+
+    // The app has always written ImagePath as Path.Combine(buildingId, fileName). Requiring that
+    // shape also keeps the default site, whose directory holds the other sites', out of theirs.
+    private static readonly System.Text.RegularExpressions.Regex AppWrittenImagePath =
+        new(@"^\d+[/\\][^/\\]+$", System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+
+    /// <summary>
+    /// Full path of a stored ImagePath, or null when it is not an app-written
+    /// <c>{buildingId}/{file}</c> path inside this site's floor plan directory. A restored database
+    /// carries the column as is, so it is never trusted as a path on its own.
+    /// </summary>
+    private string? ResolveInside(string? relative, string kind, int id)
+    {
+        if (string.IsNullOrEmpty(relative)) return null;
+        var fullPath = ResolveInsideDirectory(_floorPlanDirectory, relative);
+        if (fullPath == null)
+            _logger.LogWarning("Ignoring the stored image path of floor plan {Kind} {Id}: it is outside the floor plan directory", kind, id);
+        return fullPath;
+    }
+
+    internal static string? ResolveInsideDirectory(string directory, string? relative)
+    {
+        if (string.IsNullOrEmpty(relative) || Path.IsPathRooted(relative)) return null;
+        if (!AppWrittenImagePath.IsMatch(relative)) return null;
+
+        var root = Path.GetFullPath(directory);
+        var within = Path.GetRelativePath(root, Path.GetFullPath(Path.Combine(root, relative)));
+        if (within == "." || within == ".." || Path.IsPathRooted(within)
+            || within.StartsWith(".." + Path.DirectorySeparatorChar, StringComparison.Ordinal)
+            || within.StartsWith(".." + Path.AltDirectorySeparatorChar, StringComparison.Ordinal))
+            return null;
+
+        // Same string the unchecked Path.Combine produced, so callers see no change.
+        return Path.Combine(directory, relative);
     }
 }
