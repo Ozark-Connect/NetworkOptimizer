@@ -78,7 +78,7 @@ public static class JsonExtensions
         return prop.ValueKind switch
         {
             JsonValueKind.Number => prop.GetDouble(),
-            JsonValueKind.String when double.TryParse(prop.GetString(), out var parsed) => parsed,
+            JsonValueKind.String when double.TryParse(prop.GetString(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var parsed) => parsed,
             _ => defaultValue
         };
     }

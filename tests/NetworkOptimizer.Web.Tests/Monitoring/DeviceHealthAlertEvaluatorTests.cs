@@ -82,7 +82,7 @@ public class DeviceHealthAlertEvaluatorTests
         var evt = bus.Published.Should().ContainSingle().Subject;
         evt.ThresholdValue.Should().Be(80);
         evt.Message.Should().Contain("exceeding the 80% threshold");
-        evt.Context[AlertRuleEvaluator.ValuePercentContextKey].Should().Be(evt.MetricValue!.Value.ToString("0.###"));
+        evt.Context[AlertRuleEvaluator.ValuePercentContextKey].Should().Be(evt.MetricValue!.Value.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture));
     }
 
     [Fact]

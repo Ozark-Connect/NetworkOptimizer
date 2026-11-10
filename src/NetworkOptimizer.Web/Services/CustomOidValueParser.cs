@@ -12,7 +12,7 @@ public static class CustomOidValueParser
     public static object Parse(string raw, CustomOidValueType valueType) => valueType switch
     {
         CustomOidValueType.Integer => long.TryParse(raw, out var l) ? l : (object)raw,
-        CustomOidValueType.Float => double.TryParse(raw, out var d) ? d : (object)raw,
+        CustomOidValueType.Float => double.TryParse(raw, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var d) ? d : (object)raw,
         _ => raw
     };
 }

@@ -496,7 +496,7 @@ public partial class CloudflareSpeedTestService : WanSpeedTestServiceBase
             return 0;
         var header = values.FirstOrDefault() ?? "";
         var match = ServerTimingRegex().Match(header);
-        return match.Success && double.TryParse(match.Groups[1].Value, out var ms) ? ms : 0;
+        return match.Success && double.TryParse(match.Groups[1].Value, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var ms) ? ms : 0;
     }
 
     [GeneratedRegex(@"cfRequestDuration;dur=([\d.]+)")]

@@ -88,20 +88,20 @@ public static class SpeedTestEndpoints
                 return Results.BadRequest(new { error = "Missing required parameters: d (download) and u (upload)" });
             }
 
-            if (!double.TryParse(downloadStr, out var download) || !double.TryParse(uploadStr, out var upload))
+            if (!double.TryParse(downloadStr, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var download) || !double.TryParse(uploadStr, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var upload))
             {
                 return Results.BadRequest(new { error = "Invalid speed values" });
             }
 
-            double? ping = double.TryParse(GetValue("p"), out var p) ? p : null;
-            double? jitter = double.TryParse(GetValue("j"), out var j) ? j : null;
-            double? downloadData = double.TryParse(GetValue("dd"), out var dd) ? dd : null;
-            double? uploadData = double.TryParse(GetValue("ud"), out var ud) ? ud : null;
+            double? ping = double.TryParse(GetValue("p"), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var p) ? p : null;
+            double? jitter = double.TryParse(GetValue("j"), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var j) ? j : null;
+            double? downloadData = double.TryParse(GetValue("dd"), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var dd) ? dd : null;
+            double? uploadData = double.TryParse(GetValue("ud"), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var ud) ? ud : null;
             var userAgent = GetValue("ua") ?? context.Request.Headers.UserAgent.ToString();
 
             // Geolocation (optional)
-            double? latitude = double.TryParse(GetValue("lat"), out var lat) ? lat : null;
-            double? longitude = double.TryParse(GetValue("lng"), out var lng) ? lng : null;
+            double? latitude = double.TryParse(GetValue("lat"), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var lat) ? lat : null;
+            double? longitude = double.TryParse(GetValue("lng"), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var lng) ? lng : null;
             int? locationAccuracy = int.TryParse(GetValue("acc"), out var acc) ? acc : null;
 
             // Test duration per direction (seconds)
