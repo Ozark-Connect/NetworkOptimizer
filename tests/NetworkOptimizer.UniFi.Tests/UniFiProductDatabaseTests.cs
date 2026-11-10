@@ -1141,6 +1141,28 @@ public class UniFiProductDatabaseTests
     }
 
     [Theory]
+    [InlineData("USWDA23", null)]
+    [InlineData("USWDA24", null)]
+    [InlineData(null, "UPS23")]
+    [InlineData(null, "UPSTOWERUS")]
+    [InlineData("UP1", null)]
+    [InlineData("UP6", null)]
+    [InlineData("USMINI", null)]
+    public void HasSsh_DevicesWithoutSshDaemon_ReturnFalse(string? model, string? shortname)
+    {
+        UniFiProductDatabase.HasSsh(model, shortname).Should().BeFalse();
+    }
+
+    [Theory]
+    [InlineData("UDMPRO")]
+    [InlineData("US24PRO")]
+    [InlineData(null)]
+    public void HasSsh_OtherDevices_ReturnTrue(string? model)
+    {
+        UniFiProductDatabase.HasSsh(model, null).Should().BeTrue();
+    }
+
+    [Theory]
     [InlineData("UDM-Pro")]
     [InlineData("UDM-SE")]
     [InlineData("USW-Pro-24")]
