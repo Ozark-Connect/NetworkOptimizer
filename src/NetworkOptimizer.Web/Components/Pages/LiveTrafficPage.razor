@@ -209,7 +209,7 @@
                     </div>
                 </div>
 
-                <div class="card">
+                <div class="card" data-tour="live-traffic-dns">
                     <div class="card-header">
                         <div class="card-title-group"><h2 class="card-title">Live DNS <span class="tooltip-icon tooltip-icon-sm" data-tooltip="Lookups that pass through your Gateway. A DNS server on the client's own VLAN is never seen.">?</span></h2></div>
                         <div class="card-header-right lt-dns-controls">
@@ -260,7 +260,8 @@
             </div>
 
             <div class="card">
-                <div class="card-header">
+                @* The header, not the card: the table under it can run hundreds of rows. *@
+                <div class="card-header" data-tour="live-traffic-flows">
                     <div class="card-title-group">
                         <h2 class="card-title">@(_groupBy == LiveTrafficGroupBy.Flows ? "Flows" : $"By {_groupBy}")</h2>
                         <span class="lt-secondary lt-small">@FlowCountLabel</span>

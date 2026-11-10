@@ -9,6 +9,7 @@
       "level": "major",
       "url": "/monitoring/live-traffic",
       "selector": "[data-tour=\"live-traffic-where\"]",
+      "alsoSelectors": ["[data-tour=\"live-traffic-dns\"]", "[data-tour=\"live-traffic-flows\"]"],
       "title": "Live Traffic",
       "listLabel": "See what is using your internet right now, flow by flow, with every DNS lookup",
       "body": "Every flow through your Gateway, ranked by what is using the link now. **Where It Goes** follows each client to its apps and out its WAN or VPN; click any of them to filter the page to it. **Live DNS** shows lookups as they happen, blocked ones and bypass to outside resolvers included, and **Flows** opens any connection to its two-minute chart and the Firewall Policy that allowed it.\n\nLive Traffic runs on the On-Site Agent on your Gateway.",
