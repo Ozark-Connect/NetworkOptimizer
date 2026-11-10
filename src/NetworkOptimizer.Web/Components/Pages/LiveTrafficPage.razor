@@ -452,7 +452,7 @@
         _sankeyHold != null && _sankeyHoldQuery == SankeyQueryKey
         && (_sankeyHoverIn || DateTime.UtcNow < _sankeyHoldUntil) ? _sankeyHold : null;
 
-    private void HoverSankey(LiveSankeyNode? node)
+    private void HoverSankey(LiveSankeyNode? node, IReadOnlyList<LiveSankeyNode>? drawn)
     {
         if (node == null)
         {
@@ -461,15 +461,19 @@
             _sankeyHoldUntil = DateTime.UtcNow + SankeyHoldGrace;
             return;
         }
-        _sankeyHoverIn = true;
-        // A column already held keeps the set it froze; a new column freezes what is on screen now.
+        // A column already held keeps the set it froze. A node outside that set, or outside the
+        // column as drawn, is one a refresh already took away: holding it would add a row.
         var current = ActiveSankeyHold;
         if (current != null && current.Node.Column == node.Column)
         {
+            if (!current.Column.Any(n => n.Name == node.Name) && current.Node.Name != node.Name) return;
+            _sankeyHoverIn = true;
             _sankeyHold = current with { Node = node };
             return;
         }
-        var column = _view?.Sankey?.Nodes.Where(n => n.Column == node.Column).ToList() ?? [];
+        var column = drawn ?? [];
+        if (!column.Any(n => n.Name == node.Name)) return;
+        _sankeyHoverIn = true;
         _sankeyHold = new LiveSankeyHold(node, column.Where(n => !n.IsOther).ToList(), column.Any(n => n.IsOther));
         _sankeyHoldQuery = SankeyQueryKey;
     }
