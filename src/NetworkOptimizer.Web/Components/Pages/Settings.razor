@@ -4756,7 +4756,7 @@
     private async Task RemoveSite(Site site)
     {
         if (!await JS.InvokeAsync<bool>("confirm",
-                $"Remove site \"{site.Name}\" permanently? This deletes the site, its database (monitoring history, speed test results, settings), and its agent enrollments. Its InfluxDB buckets are not removed - delete those in InfluxDB if you no longer want them."))
+                $"Remove site \"{site.Name}\" permanently? This deletes the site, its database (monitoring history, speed test results, settings), its agent enrollments, its floor plan images, its report PDFs, and its InfluxDB buckets. Buckets with a custom name are kept."))
             return;
         if (!await JS.InvokeAsync<bool>("confirm",
                 $"Last check: \"{site.Name}\" and all of its data will be gone for good. This cannot be undone. Remove it?"))
