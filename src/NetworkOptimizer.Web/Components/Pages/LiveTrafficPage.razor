@@ -204,7 +204,7 @@
 
                 <div class="card">
                     <div class="card-header">
-                        <div class="card-title-group"><h2 class="card-title">Live DNS</h2></div>
+                        <div class="card-title-group"><h2 class="card-title">Live DNS <span class="tooltip-icon tooltip-icon-sm" data-tooltip="Lookups that pass through your Gateway. A DNS server on the client's own VLAN is never seen.">?</span></h2></div>
                         <div class="card-header-right lt-dns-controls">
                             <label class="checkbox-label lt-dns-local" data-tooltip="Hide lookups whose every answer is an address on one of this site's Networks">
                                 <input type="checkbox" checked="@_hideLocalDns" @onchange="ToggleHideLocalDns" /><span>Hide Local</span>
@@ -242,7 +242,6 @@
                                 </tbody>
                             </table>
                         }
-                        <div class="lt-dns-foot">Seen at the Gateway: lookups to the Gateway, to a DNS server on another VLAN, and to any outside resolver. A lookup to a DNS server on the client's own VLAN never reaches the Gateway.</div>
                     </div>
                 </div>
             </div>

@@ -25151,13 +25151,6 @@ body:has(.top-bar-hidden) .btn-fit {
     font-size: 0.7rem;
 }
 
-.lt-dns-foot {
-    color: var(--text-muted);
-    font-size: 0.72rem;
-    margin-top: 0.6rem;
-    line-height: 1.4;
-}
-
 /* Live Traffic is a wide table plus Where It Goes and Live DNS side by side: it takes up to 1920px
    on a desktop instead of the layout's standard 1400px. */
 .content:has(.live-traffic) {
