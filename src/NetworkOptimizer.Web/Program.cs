@@ -431,6 +431,7 @@ builder.Services.AddSingleton<IOntProvider, ZyxelGponSfpOntProvider>();
 builder.Services.AddSingleton<IOntProvider, RicherlinkOntProvider>();
 builder.Services.AddSingleton<IOntProvider, PeterPonOntProvider>();
 builder.Services.AddSingleton<IOntProvider, NetOptCustomPonOntProvider>();
+builder.Services.AddSingleton<IOntProvider, OdiOssOntProvider>();
 
 // Starlink terminal monitoring is per site through ModemMonitorRegistry, which
 // builds each site's provider set (the gRPC provider keeps per-config history
