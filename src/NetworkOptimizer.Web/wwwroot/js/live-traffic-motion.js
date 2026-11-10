@@ -16,6 +16,28 @@ const last = new WeakMap(); // container -> { pos, index, anchorKey, anchorY, re
 const scrolls = new WeakMap(); // scroller -> { lastTop, own, moved }: how far the user, not the hold, has scrolled
 const lists = new Set(); // containers settled at least once, for the scroll-time check below
 let observer = null;
+let visHandler = null;
+// The tab just came back: the next update lands rows far from where they were, so it moves nothing.
+let quietNext = false;
+
+/**
+ * Tells the page when its tab is hidden or shown, so a hidden page fetches without redrawing and a
+ * tab left in the background has no backlog of redraws to catch up on.
+ */
+export function watchVisibility(dotnet) {
+    unwatchVisibility();
+    visHandler = () => {
+        if (!document.hidden) quietNext = true;
+        dotnet.invokeMethodAsync('SetPageHidden', document.hidden).catch(() => { /* circuit gone */ });
+    };
+    document.addEventListener('visibilitychange', visHandler);
+    if (document.hidden) visHandler();
+}
+
+export function unwatchVisibility() {
+    if (visHandler) document.removeEventListener('visibilitychange', visHandler);
+    visHandler = null;
+}
 
 /**
  * Counts the user's scrolling on a scroller. The hold's own scrollBy is recorded in `own` and taken
@@ -102,6 +124,8 @@ export function watch(rootSelector, listSelector) {
 }
 
 function settle(root, listSelector) {
+    const quiet = quietNext;
+    quietNext = false;
     for (const container of root.querySelectorAll(listSelector)) {
         // A hidden layout (the desktop table on a phone) has no positions to keep.
         if (!container.offsetParent) continue;
@@ -129,7 +153,7 @@ function settle(root, listSelector) {
         }
         last.set(container, { pos, index, anchorKey: openKey, anchorY, released, scroller });
         lists.add(container);
-        if (!before) continue;
+        if (!before || quiet) continue;
 
         // The expanded row keeps its place on screen while it was in view just before this update:
         // the user can scroll freely, and scrolling it nearly out of view, or scrolling around a lot,

@@ -390,7 +390,23 @@
     // ---------------------------------------------------------------- motion and order hold
 
     private IJSObjectReference? _motion;
+    private DotNetObjectReference<LiveTrafficPage>? _selfRef;
     private readonly LiveOrderHold _hold = new();
+
+    /// <summary>
+    /// The tab is hidden: refreshes still run, which keeps the agent's lease and History's records,
+    /// but draw nothing, so a tab left in the background has no backlog of redraws to catch up on.
+    /// </summary>
+    private bool _pageHidden;
+
+    /// <summary>Called by live-traffic-motion.js on visibilitychange. Shown again: draws the latest at once.</summary>
+    [JSInvokable]
+    public async Task SetPageHidden(bool hidden)
+    {
+        if (_pageHidden == hidden) return;
+        _pageHidden = hidden;
+        if (!hidden) await RefreshAsync();
+    }
 
     /// <summary>Rows and Where It Goes nodes hold their order under the pointer: <see cref="LiveOrderHold"/>.</summary>
     private bool Held => _hold.Held;
@@ -414,6 +430,8 @@
         {
             _motion ??= await JS.InvokeAsync<IJSObjectReference>("import", FileVersionProvider.AddFileVersionToPath("", "/js/live-traffic-motion.js"));
             await _motion.InvokeVoidAsync("watch", ".live-traffic", ".lt-flip");
+            _selfRef ??= DotNetObjectReference.Create(this);
+            await _motion.InvokeVoidAsync("watchVisibility", _selfRef);
         }
         catch (JSDisconnectedException) { }
         catch (Exception ex)
@@ -463,9 +481,9 @@
                     Sort = _flowSort,
                     Descending = _flowDesc,
                 });
-                _view = ApplyHold(view);
+                _view = _pageHidden ? view : ApplyHold(view);
             }
-            StateHasChanged();
+            if (!_pageHidden) StateHasChanged();
         }
         catch (Exception ex)
         {
@@ -1183,5 +1201,8 @@
         _timer?.Dispose();
         try { _ = LiveTrafficService.ReleaseAsync(_viewerId); }
         catch { /* circuit going away */ }
+        try { _ = _motion?.InvokeVoidAsync("unwatchVisibility").AsTask(); }
+        catch { /* circuit going away */ }
+        _selfRef?.Dispose();
     }
 }
