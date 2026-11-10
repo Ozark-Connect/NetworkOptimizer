@@ -1122,7 +1122,7 @@ Create a dedicated **Local Access Only** account on your UniFi controller for Ne
    - **User & Account Management:** None
 7. Set a secure password and save
 
-Network has no role between View (View Only) and Full (Site Admin), and two features write to UniFi Network: the Wi-Fi Optimizer's on-demand RF spectrum scans and **Apply Recommended Channels**. If you won't use either, **Network: View** works for everything else.
+Network has no role between View (View Only) and Full (Site Admin), and two features write to UniFi Network: the Wi-Fi Optimizer's on-demand RF spectrum scans and **Apply Recommended Channels**. UniFi Network 11 also withholds the SNMP Community String and SNMPv3 password from View, so SNMP monitoring needs Full (or an API key). If you won't use any of these, **Network: View** works for everything else.
 
 Use this username and password in Network Optimizer Settings.
 
