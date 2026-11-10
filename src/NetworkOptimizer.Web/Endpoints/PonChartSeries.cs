@@ -58,6 +58,11 @@ public static class PonChartSeries
                 gemDrop = Delta(p.GemRxDropped, prev?.GemRxDropped),
                 dsUtil = DownstreamUtilization(p, prev)?.Percent,
                 dsUsedMbps = DownstreamUtilization(p, prev)?.Mbps,
+                dsOwnMbps = OwnDownstreamMbps(p, prev),
+                pathLoss = p.PathLossDb,
+                oltLaunch = p.OltLaunchPowerDbm,
+                odnClass = p.OdnClass,
+                reachExt = p.ReachExtender,
                 allocLost = Delta(p.AllocLost, prev?.AllocLost),
                 lanFcs = Delta(p.LanRxFcsErrors, prev?.LanRxFcsErrors),
                 lanDrop = Delta(p.LanTxDropEvents, prev?.LanTxDropEvents),
@@ -103,12 +108,9 @@ public static class PonChartSeries
     {
         if (prev is null
             || cur.GemRxIdleFrames is not long idle || prev.GemRxIdleFrames is not long idlePrev
-            || cur.DsSuperframe is not long sf || prev.DsSuperframe is not long sfPrev
-            || idle < idlePrev)
+            || idle < idlePrev
+            || FramesBetween(cur, prev) is not long frames)
             return null;
-
-        var frames = sf >= sfPrev ? sf - sfPrev : sf + SuperframeModulus - sfPrev;
-        if (frames <= 0) return null;
 
         var payload = GponFrameBytes - (cur.DsFecEnabled == 1 ? GponFecParityBytes : 0);
         var usedPerFrame = payload - (idle - idlePrev) * GemIdleFrameBytes / frames;
@@ -116,5 +118,48 @@ public static class PonChartSeries
         if (percent < 0 || percent > 100) return null;
 
         return (Math.Round(percent, 3), Math.Round(usedPerFrame * 8 * GponFramesPerSecond / 1e6, 2));
+    }
+
+    /// <summary>
+    /// Downstream frames between two points, off the superframe counter. The counter sampled
+    /// together with the totals is used when both points carry it, so the idle count and its time
+    /// base come from one sample; a source that does not serve it (older firmware) falls back to
+    /// the live counter, which can be a sample ahead. Never one of each: the two differ by up to a
+    /// second's worth of frames. The counter is 30 bits wide, so a smaller value is one wrap.
+    /// Null without a pair, or when the counter stood still.
+    /// </summary>
+    internal static long? FramesBetween(
+        MonitoringInfluxClient.PonSeriesPoint cur, MonitoringInfluxClient.PonSeriesPoint prev)
+    {
+        long sf, sfPrev;
+        if (cur.DsSuperframeSampled is long s && prev.DsSuperframeSampled is long sp) { sf = s; sfPrev = sp; }
+        else if (cur.DsSuperframe is long l && prev.DsSuperframe is long lp) { sf = l; sfPrev = lp; }
+        else return null;
+
+        var frames = sf >= sfPrev ? sf - sfPrev : sf + SuperframeModulus - sfPrev;
+        return frames > 0 ? frames : null;
+    }
+
+    /// <summary>
+    /// This ONT's own downstream over one interval in Mbit/s, from the bytes on its GEM ports, to
+    /// set beside the load of the whole PON. Timed by the superframe counter like the PON load
+    /// where there is one, by the points' timestamps otherwise. Null when the byte counter is
+    /// missing or went backwards: it counts since the GEM flow was created, so a reboot or a
+    /// re-provisioning restarts it.
+    /// </summary>
+    public static double? OwnDownstreamMbps(
+        MonitoringInfluxClient.PonSeriesPoint cur, MonitoringInfluxClient.PonSeriesPoint? prev)
+    {
+        if (prev is null
+            || cur.GemRxBytes is not long bytes || prev.GemRxBytes is not long bytesPrev
+            || bytes < bytesPrev)
+            return null;
+
+        var seconds = FramesBetween(cur, prev) is long frames
+            ? frames / GponFramesPerSecond
+            : (cur.Time - prev.Time).TotalSeconds;
+        if (seconds <= 0) return null;
+
+        return Math.Round((bytes - bytesPrev) * 8 / seconds / 1e6, 3);
     }
 }

@@ -8,7 +8,7 @@ import { renderFilterReset, isFiltered } from './chart-filter.js?v=6';
 import { createMarkLayer } from './chart-event-marks.js?v=13';
 import { createAxisDateCaption } from './chart-axis-date.js?v=5';
 import { syncIdentity, extentsOf, spanTo } from './chart-sync.js?v=9';
-import { ponSeriesFor, ponDetailsHtml, ponErrorTotalsHtml, updatePonCard } from './pon-section.js?v=11';
+import { ponSeriesFor, ponDetailsHtml, ponErrorTotalsHtml, updatePonCard, ponPayloadMbps, fmtPonLoad, ponLoadSummaryHtml } from './pon-section.js?v=12';
 import { awaitContainer } from './chart-mount.js?v=1';
 import { loadWindowHours, saveWindowHours, markActiveRange, notifyWindowMoved } from './chart-window.js?v=2';
 
@@ -29,6 +29,9 @@ let tempChart = null;
 let ponErrChart = null;
 let ponGemChart = null;
 let ponUtilChart = null;
+let ponLossChart = null;
+// The downstream payload rate the load chart's tooltip takes its percentages from.
+let ponPayload = ponPayloadMbps([]);
 let ponHostChart = null;
 // Modules that currently have PON data, whether visible or not. The PON section and
 // its detail table are shown only for the ones selected in the filter.
@@ -68,7 +71,7 @@ function padFirst(series) {
 const PON_ONLY_GROUP = 'sfp-pon';
 
 function setPonSyncGroup(group) {
-    for (const chart of [ponErrChart, ponGemChart, ponUtilChart, ponHostChart]) {
+    for (const chart of [ponErrChart, ponGemChart, ponUtilChart, ponLossChart, ponHostChart]) {
         if (!chart?.w) continue;
         chart.w.config.chart.group = group;
         const entry = (window.Apex?._chartInstances || []).find(i => i.chart === chart);
@@ -306,7 +309,7 @@ async function refreshPonSection() {
     if (!ponErrChart) return;
     try {
         const multi = visiblePon.length > 1;
-        const errSeries = [], gemSeries = [], hostSeries = [], utilSeries = [];
+        const errSeries = [], gemSeries = [], hostSeries = [], utilSeries = [], lossSeries = [];
         visiblePon.forEach(m => {
             const prefix = multi ? `${m.label} ` : '';
             const slot = Math.max(0, ponCapableModules.findIndex(x => x.id === m.id));
@@ -315,12 +318,18 @@ async function refreshPonSection() {
             gemSeries.push(...series.gemSeries);
             hostSeries.push(...series.hostSeries);
             utilSeries.push(...series.utilSeries);
+            lossSeries.push(...series.lossSeries);
         });
         // Every section of the contract is optional, so an implementation serving the GTC
         // counters and no host-link ones leaves that card empty for good. Hide what nothing fills.
         updatePonCard(container, '.sfp-pon-errors-card', ponErrChart, errSeries, padFirst);
         updatePonCard(container, '.sfp-pon-gem-card', ponGemChart, gemSeries, padFirst);
+        ponPayload = ponPayloadMbps(visiblePon);
         updatePonCard(container, '.sfp-pon-util-card', ponUtilChart, utilSeries, padFirst);
+        updatePonCard(container, '.sfp-pon-loss-card', ponLossChart, lossSeries, padFirst);
+        const summaryEl = container.querySelector('.sfp-pon-util-summary');
+        if (summaryEl) summaryEl.innerHTML = ponLoadSummaryHtml(visiblePon, PALETTE,
+            m => Math.max(0, ponCapableModules.findIndex(x => x.id === m.id)));
         updatePonCard(container, '.sfp-pon-host-card', ponHostChart, hostSeries, padFirst);
         renderPonDetails(container, visiblePon);
     } catch (e) { /* leave the previous render if a chart update fails */ }
@@ -367,13 +376,21 @@ async function ensurePonChartsMounted() {
     if (!ponErrEl || !ponGemEl || !ponHostEl) return;
     ponErrChart = new ApexCharts(ponErrEl, { ...baseOpts(160, 'errors', fmtCount), series: [], colors: PALETTE });
     ponGemChart = new ApexCharts(ponGemEl, { ...baseOpts(160, 'frames', fmtCount), series: [], colors: PALETTE });
-    const ponUtilEl = container.querySelector('.sfp-pon-util-chart');
-    if (ponUtilEl) ponUtilChart = new ApexCharts(ponUtilEl, { ...baseOpts(160, '% in use', v => v == null ? '' : v.toFixed(2)), series: [], colors: PALETTE });
+    const utilEl = container.querySelector('.sfp-pon-util-chart');
+    if (utilEl) {
+        // Rate on the axis; the tooltip adds the share of the PON's downstream payload.
+        const utilOpts = baseOpts(180, 'Mbit/s', v => v == null ? '' : v >= 10 ? v.toFixed(0) : v.toFixed(1), { yaxis: { min: 0 } });
+        utilOpts.tooltip = { ...utilOpts.tooltip, custom: ctx => valueSortedTooltip(ctx, { format: v => fmtPonLoad(v, ponPayload) }) };
+        ponUtilChart = new ApexCharts(utilEl, { ...utilOpts, series: [], colors: PALETTE });
+    }
+    const lossEl = container.querySelector('.sfp-pon-loss-chart');
+    if (lossEl) ponLossChart = new ApexCharts(lossEl, { ...baseOpts(160, 'dB', v => v == null ? '' : v.toFixed(1) + ' dB', {
+        yaxis: { min: v => Math.floor(v - 1), max: v => Math.ceil(v + 1) } }), series: [], colors: PALETTE });
     ponHostChart = new ApexCharts(ponHostEl, { ...baseOpts(160, 'errors', fmtCount), series: [], colors: PALETTE });
     // No ponGem: GEM Frames takes no marks, so the layer never needs to reach it.
     chartEls.ponErr = ponErrEl;
     chartEls.ponHost = ponHostEl;
-    await Promise.all([ponErrChart.render(), ponGemChart.render(), ponHostChart.render(), ponUtilChart?.render()].filter(Boolean));
+    await Promise.all([ponErrChart.render(), ponGemChart.render(), ponHostChart.render(), ponUtilChart?.render(), ponLossChart?.render()].filter(Boolean));
     // These arrive after the first draw, so they start with no marks on them.
     ponMarkLayer.reset();
     applyAnnotations();
@@ -613,6 +630,7 @@ export async function mount(elId) {
     if (ponErrChart) { ponErrChart.destroy(); ponErrChart = null; }
     if (ponGemChart) { ponGemChart.destroy(); ponGemChart = null; }
     if (ponUtilChart) { ponUtilChart.destroy(); ponUtilChart = null; }
+    if (ponLossChart) { ponLossChart.destroy(); ponLossChart = null; }
     if (ponHostChart) { ponHostChart.destroy(); ponHostChart = null; }
 
     powerChart = new ApexCharts(powerEl, {
@@ -747,6 +765,7 @@ export function unmount() {
     if (ponErrChart) { ponErrChart.destroy(); ponErrChart = null; }
     if (ponGemChart) { ponGemChart.destroy(); ponGemChart = null; }
     if (ponUtilChart) { ponUtilChart.destroy(); ponUtilChart = null; }
+    if (ponLossChart) { ponLossChart.destroy(); ponLossChart = null; }
     if (ponHostChart) { ponHostChart.destroy(); ponHostChart = null; }
     containerId = null;
     moduleMeta = [];

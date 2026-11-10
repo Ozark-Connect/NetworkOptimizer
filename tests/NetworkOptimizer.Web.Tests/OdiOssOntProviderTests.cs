@@ -1,4 +1,5 @@
 using FluentAssertions;
+using NetworkOptimizer.Core.Models;
 using NetworkOptimizer.Monitoring.Models;
 using NetworkOptimizer.Web.Services.OntProviders;
 using Xunit;
@@ -88,6 +89,132 @@ public class OdiOssOntProviderTests
         pon.SfpUptimeS.Should().Be(155);
         pon.FirmwareVersion.Should().Be("v1.16.0-beta.1");
         pon.RxPowerDbm.Should().BeApproximately(-16.34512, 1e-6);
+    }
+
+    // What metricsd v1.9.0 on odi-oss v1.16.0-beta.4 adds: the PON-ID message's fields, and the
+    // per-port GEM byte counters (4095 is the multicast port, idle on this line).
+    private const string PonIdAndFlows = """
+
+    gpon_olt_launch_power_dbm 3.4
+    gpon_pon_id_odn_class 2
+    gpon_pon_id_reach_extender 0
+    gpon_gem_bytes_total{direction="ds",gem_port="4095"} 0
+    gpon_gem_bytes_total{direction="ds",gem_port="132"} 1376987815
+    gpon_gem_bytes_total{direction="us",gem_port="132"} 2800476136
+    """;
+
+    [Fact]
+    public void MapToSupplemental_PonId_MapsLaunchPowerClassAndExtender()
+    {
+        var pon = OdiOssOntProvider.MapToSupplemental(Metrics(Scrape + PonIdAndFlows));
+
+        pon.OltLaunchPowerDbm.Should().Be(3.4);
+        pon.OdnClass.Should().Be(2);
+        pon.ReachExtender.Should().Be(0);
+        PonSupplementalStats.PathLossDb(pon.OltLaunchPowerDbm, pon.RxPowerDbm).Should().BeApproximately(19.75, 0.005);
+    }
+
+    [Fact]
+    public void MapToSupplemental_ReachExtender_IsCarried()
+    {
+        var pon = OdiOssOntProvider.MapToSupplemental(
+            Metrics(Scrape + PonIdAndFlows.Replace("gpon_pon_id_reach_extender 0", "gpon_pon_id_reach_extender 1")));
+
+        pon.ReachExtender.Should().Be(1);
+        pon.OltLaunchPowerDbm.Should().Be(3.4, "the extender's launch power, still a reading");
+    }
+
+    [Fact]
+    public void MapToSupplemental_LaunchPowerNotReported_GivesNoPathLoss()
+    {
+        // An OLT that reports no power: the exporter drops the sample and keeps the other two.
+        var pon = OdiOssOntProvider.MapToSupplemental(
+            Metrics(Scrape + PonIdAndFlows.Replace("gpon_olt_launch_power_dbm 3.4", "")));
+
+        pon.OltLaunchPowerDbm.Should().BeNull();
+        pon.OdnClass.Should().Be(2);
+        PonSupplementalStats.PathLossDb(pon.OltLaunchPowerDbm, pon.RxPowerDbm).Should().BeNull();
+    }
+
+    [Theory]
+    [InlineData("NaN")]
+    [InlineData("+Inf")]
+    [InlineData("6523.5")] // the raw "not reported" code, had it been rendered
+    [InlineData("-31")]
+    public void MapToSupplemental_LaunchPowerNotAReading_IsNull(string value)
+    {
+        var pon = OdiOssOntProvider.MapToSupplemental(
+            Metrics(Scrape + PonIdAndFlows.Replace("gpon_olt_launch_power_dbm 3.4", $"gpon_olt_launch_power_dbm {value}")));
+
+        pon.OltLaunchPowerDbm.Should().BeNull();
+    }
+
+    [Fact]
+    public void MapToSupplemental_PonIdOutOfRange_IsNull()
+    {
+        var pon = OdiOssOntProvider.MapToSupplemental(Metrics(Scrape + PonIdAndFlows
+            .Replace("gpon_pon_id_odn_class 2", "gpon_pon_id_odn_class 7")
+            .Replace("gpon_pon_id_reach_extender 0", "gpon_pon_id_reach_extender 2")));
+
+        pon.OdnClass.Should().BeNull();
+        pon.ReachExtender.Should().BeNull();
+    }
+
+    [Fact]
+    public void MapToSupplemental_NoPonIdMetrics_LeavesThemNull()
+    {
+        // metricsd before v1.9.0, or no PON-ID since the last loss of signal.
+        var pon = OdiOssOntProvider.MapToSupplemental(Metrics());
+
+        pon.OltLaunchPowerDbm.Should().BeNull();
+        pon.OdnClass.Should().BeNull();
+        pon.ReachExtender.Should().BeNull();
+        pon.DsSuperframeSampled.Should().BeNull("this exporter has no counter-sample superframe");
+        pon.DsSuperframe.Should().Be(1223280, "the live counter stays, as the fallback");
+    }
+
+    [Fact]
+    public void MapToSupplemental_SampledSuperframe_IsReadBesideTheLiveOne()
+    {
+        var pon = OdiOssOntProvider.MapToSupplemental(
+            Metrics(Scrape + $"\n{OdiOssOntProvider.SampledSuperframeMetric} 1215280\n"));
+
+        pon.DsSuperframeSampled.Should().Be(1215280);
+        pon.DsSuperframe.Should().Be(1223280);
+    }
+
+    [Fact]
+    public void MapToSupplemental_OwnDownstreamBytes_SumsTheDownstreamGemPorts()
+    {
+        var pon = OdiOssOntProvider.MapToSupplemental(Metrics(Scrape + PonIdAndFlows));
+
+        pon.GemRxBytes.Should().Be(1376987815, "downstream ports only, the upstream counter left out");
+    }
+
+    [Fact]
+    public void SumLong_NoneOrUnreadable_IsNull()
+    {
+        Metrics("a{d=\"ds\"} 1\na{d=\"ds\"} 2\na{d=\"us\"} 4\n").SumLong("a", ("d", "ds")).Should().Be(3);
+        Metrics("a{d=\"us\"} 4\n").SumLong("a", ("d", "ds")).Should().BeNull("no downstream port");
+        Metrics("a{d=\"ds\"} 1\na{d=\"ds\"} NaN\n").SumLong("a", ("d", "ds")).Should().BeNull("a partial sum is not a total");
+        Metrics("a{d=\"ds\"} 9223372036854775807\na{d=\"ds\"} 1\n").SumLong("a", ("d", "ds")).Should().BeNull("overflow");
+    }
+
+    [Theory]
+    [InlineData(3.4, -16.5, 19.9)]
+    [InlineData(5.0, -27.25, 32.25)]
+    public void PathLossDb_IsLaunchLessReceived(double launch, double rx, double expected)
+    {
+        PonSupplementalStats.PathLossDb(launch, rx).Should().BeApproximately(expected, 1e-9);
+    }
+
+    [Fact]
+    public void PathLossDb_MissingOrImpossible_IsNull()
+    {
+        PonSupplementalStats.PathLossDb(null, -16.5).Should().BeNull("no launch power");
+        PonSupplementalStats.PathLossDb(3.4, null).Should().BeNull("no RX reading");
+        PonSupplementalStats.PathLossDb(3.4, double.NegativeInfinity).Should().BeNull("RX below the detector floor");
+        PonSupplementalStats.PathLossDb(-20, -10).Should().BeNull("more received than launched");
     }
 
     [Fact]

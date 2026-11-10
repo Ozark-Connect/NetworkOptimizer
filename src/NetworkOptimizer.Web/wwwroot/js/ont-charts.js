@@ -7,7 +7,7 @@ import { valueSortedTooltip, tooltipHeld, alignedPoints } from './chart-tooltip.
 import { renderFilterReset, isFiltered } from './chart-filter.js?v=6';
 import { createMarkLayer } from './chart-event-marks.js?v=13';
 import { createAxisDateCaption } from './chart-axis-date.js?v=5';
-import { ponSeriesFor, ponDetailsHtml, ponErrorTotalsHtml, updatePonCard } from './pon-section.js?v=11';
+import { ponSeriesFor, ponDetailsHtml, ponErrorTotalsHtml, updatePonCard, ponPayloadMbps, fmtPonLoad, ponLoadSummaryHtml } from './pon-section.js?v=12';
 import { syncIdentity } from './chart-sync.js?v=9';
 import { awaitContainer } from './chart-mount.js?v=1';
 import { loadWindowHours, saveWindowHours, markActiveRange, notifyWindowMoved } from './chart-window.js?v=2';
@@ -28,6 +28,9 @@ let tempChart = null;
 let errorsChart = null;
 let ponGemChart = null;
 let ponUtilChart = null;
+let ponLossChart = null;
+// The downstream payload rate the load chart's tooltip takes its percentages from.
+let ponPayload = ponPayloadMbps([]);
 let ponHostChart = null;
 let pollTimer = null;
 let currentRangeHours = 24;
@@ -254,7 +257,6 @@ async function loadAndUpdate() {
 
 const fmtDbm = v => v != null ? v.toFixed(2) : '-';
 const fmtTemp = v => v != null ? v.toFixed(1) : '-';
-const fmtPercent = v => v == null ? '' : v.toFixed(2);
 const fmtCount = v => v == null ? '' : v >= 1e6 ? (v / 1e6).toFixed(1) + 'M' : v >= 1e3 ? (v / 1e3).toFixed(1) + 'k' : String(Math.round(v));
 
 // Create the errors chart on first use, so ONTs that never report FEC/BIP don't
@@ -271,8 +273,16 @@ async function ensureErrorsChartMounted() {
     if (hostEl) { ponHostChart = new ApexCharts(hostEl, { ...baseOpts(160, 'errors', fmtCount), series: [], colors: PALETTE }); chartEls.ponHost = hostEl; }
     if (gemEl) ponGemChart = new ApexCharts(gemEl, { ...baseOpts(160, 'frames', fmtCount), series: [], colors: PALETTE });
     const utilEl = container.querySelector('.ont-pon-util-chart');
-    if (utilEl) ponUtilChart = new ApexCharts(utilEl, { ...baseOpts(160, '% in use', fmtPercent), series: [], colors: PALETTE });
-    await Promise.all([errorsChart.render(), ponHostChart?.render(), ponGemChart?.render(), ponUtilChart?.render()].filter(Boolean));
+    if (utilEl) {
+        // Rate on the axis; the tooltip adds the share of the PON's downstream payload.
+        const utilOpts = baseOpts(180, 'Mbit/s', v => v == null ? '' : v >= 10 ? v.toFixed(0) : v.toFixed(1), { yaxis: { min: 0 } });
+        utilOpts.tooltip = { ...utilOpts.tooltip, custom: ctx => valueSortedTooltip(ctx, { format: v => fmtPonLoad(v, ponPayload) }) };
+        ponUtilChart = new ApexCharts(utilEl, { ...utilOpts, series: [], colors: PALETTE });
+    }
+    const lossEl = container.querySelector('.ont-pon-loss-chart');
+    if (lossEl) ponLossChart = new ApexCharts(lossEl, { ...baseOpts(160, 'dB', v => v == null ? '' : v.toFixed(1) + ' dB', {
+        yaxis: { min: v => Math.floor(v - 1), max: v => Math.ceil(v + 1) } }), series: [], colors: PALETTE });
+    await Promise.all([errorsChart.render(), ponHostChart?.render(), ponGemChart?.render(), ponUtilChart?.render(), ponLossChart?.render()].filter(Boolean));
     // It arrives after the first draw, so it starts with no marks on it.
     markLayer.reset();
     applyAnnotations();
@@ -298,7 +308,7 @@ async function updateErrorsChart() {
 
     const withErrors = reporting.filter(d => visibility[d.id] !== false);
     const multi = withErrors.length > 1;
-    const errSeries = [], gemSeries = [], hostSeries = [], utilSeries = [];
+    const errSeries = [], gemSeries = [], hostSeries = [], utilSeries = [], lossSeries = [];
     withErrors.forEach(d => {
         const slot = Math.max(0, reporting.findIndex(x => x.id === d.id));
         const built = ponSeriesFor(d, multi ? `${d.label} ` : '', slot, PALETTE);
@@ -306,6 +316,7 @@ async function updateErrorsChart() {
         gemSeries.push(...built.gemSeries);
         hostSeries.push(...built.hostSeries);
         utilSeries.push(...built.utilSeries);
+        lossSeries.push(...built.lossSeries);
     });
     // Unlike SFP Stats, this tab mixes ONTs that serve the whole PON set with ones that report a
     // link state and no counters at all, so each card hides itself rather than drawing an empty
@@ -313,7 +324,12 @@ async function updateErrorsChart() {
     updatePonCard(container, '.ont-pon-errors-card', errorsChart, errSeries);
     updatePonCard(container, '.ont-pon-host-card', ponHostChart, hostSeries);
     updatePonCard(container, '.ont-pon-gem-card', ponGemChart, gemSeries);
+    ponPayload = ponPayloadMbps(withErrors);
     updatePonCard(container, '.ont-pon-util-card', ponUtilChart, utilSeries);
+    updatePonCard(container, '.ont-pon-loss-card', ponLossChart, lossSeries);
+    const summaryEl = container.querySelector('.ont-pon-util-summary');
+    if (summaryEl) summaryEl.innerHTML = ponLoadSummaryHtml(withErrors, PALETTE,
+        d => Math.max(0, reporting.findIndex(x => x.id === d.id)));
 
     const el = container.querySelector('.ont-pon-details');
     if (el) {
@@ -560,6 +576,7 @@ export async function mount(elId) {
     if (ponHostChart) { ponHostChart.destroy(); ponHostChart = null; }
     if (ponGemChart) { ponGemChart.destroy(); ponGemChart = null; }
     if (ponUtilChart) { ponUtilChart.destroy(); ponUtilChart = null; }
+    if (ponLossChart) { ponLossChart.destroy(); ponLossChart = null; }
 
     powerChart = new ApexCharts(powerEl, {
         ...baseOpts(220, 'dBm', v => v != null ? v.toFixed(1) + ' dBm' : '', {
@@ -666,6 +683,7 @@ export function unmount() {
     if (ponHostChart) { ponHostChart.destroy(); ponHostChart = null; }
     if (ponGemChart) { ponGemChart.destroy(); ponGemChart = null; }
     if (ponUtilChart) { ponUtilChart.destroy(); ponUtilChart = null; }
+    if (ponLossChart) { ponLossChart.destroy(); ponLossChart = null; }
     containerId = null;
     deviceMeta = [];
     visibility = {};

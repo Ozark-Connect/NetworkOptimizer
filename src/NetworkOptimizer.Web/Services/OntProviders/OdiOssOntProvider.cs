@@ -226,12 +226,36 @@ public sealed class OdiOssOntProvider : ISfpSupplementalOntProvider
             // Idle fill and the frame counter it is read against: the downstream load of the whole PON.
             GemRxIdleFrames = m.Long("gpon_ds_gem_frames_total", ("kind", "idle")),
             DsSuperframe = m.Long("gpon_ds_superframe"),
+            DsSuperframeSampled = m.Long(SampledSuperframeMetric),
+            // This ONT's own downstream, to set beside the PON's: every downstream GEM port it has.
+            GemRxBytes = m.SumLong("gpon_gem_bytes_total", ("direction", "ds")),
+            OltLaunchPowerDbm = LaunchPower(m.Double("gpon_olt_launch_power_dbm")),
+            OdnClass = m.Long("gpon_pon_id_odn_class") is long cls and >= 0 and <= 4 ? cls : null,
+            ReachExtender = m.Long("gpon_pon_id_reach_extender") is long re and (0 or 1) ? re : null,
             AllocTotal = m.Long("gpon_ds_bwmap_allocations_total"),
 
             SfpUptimeS = uptime is >= 0 and < long.MaxValue ? (long)Math.Floor(uptime.Value) : null,
             FirmwareVersion = Clean(m.Label("gpon_image_info", "image")),
         };
     }
+
+    /// <summary>
+    /// The superframe count from the same driver sample as the counter totals. The odi-oss driver
+    /// prints it since v1.16.0-beta.4 (ctr_ds_superframe in /proc/odi_gpon/counters), but metricsd
+    /// up to v1.9.0 skips that line, so no exporter serves it yet. The name follows the exporter's
+    /// own pattern for that file (ctr_samples is gpon_counter_samples_total) and has to be checked
+    /// against the release that adds it. Until then gpon_ds_superframe stands in, which is read
+    /// live and can be one sample (a second) ahead of the totals.
+    /// </summary>
+    internal const string SampledSuperframeMetric = "gpon_counter_ds_superframe";
+
+    /// <summary>
+    /// The exporter drops the sample when the OLT sends no PON-ID or reports no power, so absent
+    /// is the "not supported" case. The PON-ID field (TOL) spans -30 dBm upward in 0.1 dB steps;
+    /// anything outside what a PON transmitter can launch is not a reading.
+    /// </summary>
+    private static double? LaunchPower(double? dbm) =>
+        Finite(dbm) is double d && d >= -30 && d <= 30 ? d : null;
 
     /// <summary>gpon_onu_state is the N in O(N), the same raw numbering as the netopt-custom contract.</summary>
     private static PonLinkState ToPonLinkState(long? state) => NetOptCustomPonOntProvider.ToPonLinkState(state);
@@ -284,14 +308,18 @@ public sealed class PrometheusText
             return null;
         foreach (var s in list)
         {
-            var ok = true;
-            foreach (var (k, v) in match)
-            {
-                if (!s.Labels.TryGetValue(k, out var actual) || actual != v) { ok = false; break; }
-            }
-            if (ok) return s;
+            if (Matches(s, match)) return s;
         }
         return null;
+    }
+
+    private static bool Matches(Sample s, (string Key, string Value)[] match)
+    {
+        foreach (var (k, v) in match)
+        {
+            if (!s.Labels.TryGetValue(k, out var actual) || actual != v) return false;
+        }
+        return true;
     }
 
     public double? Double(string name, params (string Key, string Value)[] match)
@@ -321,6 +349,29 @@ public sealed class PrometheusText
             && double.IsFinite(d) && d >= long.MinValue && d < long.MaxValue)
             return (long)Math.Truncate(d);
         return null;
+    }
+
+    /// <summary>
+    /// The sum over every sample of <paramref name="name"/> whose labels include all of
+    /// <paramref name="match"/>. Null when there is none, or when one does not read as a whole
+    /// number or the sum leaves 64 bits: a partial sum would look like a counter that went back.
+    /// </summary>
+    public long? SumLong(string name, params (string Key, string Value)[] match)
+    {
+        if (!_series.TryGetValue(name, out var list))
+            return null;
+        long sum = 0;
+        var any = false;
+        foreach (var s in list)
+        {
+            if (!Matches(s, match)) continue;
+            if (!long.TryParse(s.Value, NumberStyles.None, CultureInfo.InvariantCulture, out var v))
+                return null;
+            try { sum = checked(sum + v); }
+            catch (OverflowException) { return null; }
+            any = true;
+        }
+        return any ? sum : null;
     }
 
     /// <summary>A label's value on the first sample of an info-style series.</summary>

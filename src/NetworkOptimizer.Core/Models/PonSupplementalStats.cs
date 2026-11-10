@@ -96,6 +96,48 @@ public class PonSupplementalStats
     /// </summary>
     public long? DsSuperframe { get; set; }
 
+    /// <summary>
+    /// The same superframe counter, as it stood at the sample the cumulative counters come from.
+    /// <see cref="DsSuperframe"/> is read live, up to one counter sample later than
+    /// <see cref="GemRxIdleFrames"/>; this one pairs with it exactly. Null where the source does not
+    /// serve it, and the live counter stands in.
+    /// </summary>
+    public long? DsSuperframeSampled { get; set; }
+
+    /// <summary>
+    /// Bytes received downstream on this ONT's own GEM ports, all ports together. This ONT's
+    /// traffic, as opposed to <see cref="GemRxIdleFrames"/>, which describes the whole PON.
+    /// </summary>
+    public long? GemRxBytes { get; set; }
+
+    /// <summary>
+    /// The mean launch power the OLT announces in its PON-ID PLOAM message (G.984.3 Annex C),
+    /// in dBm. A reach extender's when <see cref="ReachExtender"/> is 1. Null when the OLT sends
+    /// no PON-ID or does not report the power.
+    /// </summary>
+    public double? OltLaunchPowerDbm { get; set; }
+
+    /// <summary>The ODN class from the same PON-ID message: 0 A, 1 B, 2 B+, 3 C, 4 C+.</summary>
+    public long? OdnClass { get; set; }
+
+    /// <summary>1 when the announced launch power is a reach extender's, 0 when it is the OLT's.</summary>
+    public long? ReachExtender { get; set; }
+
+    /// <summary>
+    /// Optical path loss in dB: what the far end says it launches, less what this ONT receives.
+    /// With a reach extender in the path that is the stretch from the extender, not from the OLT.
+    /// Null without both readings, and null when the result is negative, since no passive path
+    /// delivers more than was launched and the two readings then do not belong together.
+    /// </summary>
+    public static double? PathLossDb(double? launchPowerDbm, double? rxPowerDbm)
+    {
+        if (launchPowerDbm is not double launch || rxPowerDbm is not double rx
+            || !double.IsFinite(launch) || !double.IsFinite(rx))
+            return null;
+        var loss = launch - rx;
+        return loss >= 0 ? Math.Round(loss, 2) : null;
+    }
+
     /// <summary>GEM frames dropped at reassembly.</summary>
     public long? GemRxDropped { get; set; }
 

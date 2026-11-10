@@ -1823,6 +1823,7 @@ from(bucket: {FluxLiteral.Quote(_longtermBucket)})
         "onu_response_time", "sfp_uptime_s", "ploam_elapsed_ms", "bip_errors", "fec_errors", "fec_corrected_words",
         "hec_corrected", "hec_uncorrected", "bwmap_corrected", "bwmap_uncorrected",
         "gem_tx_frames", "gem_tx_idle_frames", "gem_rx_frames", "gem_rx_idle_frames", "ds_superframe", "gem_rx_dropped",
+        "ds_superframe_sampled", "gem_rx_bytes", "olt_launch_power_dbm", "odn_class", "reach_extender", "path_loss_db",
         "alloc_lost", "lan_link_status", "lan_mode",
         "lan_rx_fcs_err", "lan_tx_drop_events", "lan_buffer_overflow",
         "olt_vendor_id", "registration_status", "key_exchange_status", "firmware_version",
@@ -1859,6 +1860,12 @@ from(bucket: {FluxLiteral.Quote(_longtermBucket)})
             GemRxFrames = AsLongOrNull(record.GetValueByKey("gem_rx_frames")),
             GemRxIdleFrames = AsLongOrNull(record.GetValueByKey("gem_rx_idle_frames")),
             DsSuperframe = AsLongOrNull(record.GetValueByKey("ds_superframe")),
+            DsSuperframeSampled = AsLongOrNull(record.GetValueByKey("ds_superframe_sampled")),
+            GemRxBytes = AsLongOrNull(record.GetValueByKey("gem_rx_bytes")),
+            OltLaunchPowerDbm = AsDoubleOrNull(record.GetValueByKey("olt_launch_power_dbm")),
+            OdnClass = AsLongOrNull(record.GetValueByKey("odn_class")),
+            ReachExtender = AsLongOrNull(record.GetValueByKey("reach_extender")),
+            PathLossDb = AsDoubleOrNull(record.GetValueByKey("path_loss_db")),
             GemRxDropped = AsLongOrNull(record.GetValueByKey("gem_rx_dropped")),
             AllocLost = AsLongOrNull(record.GetValueByKey("alloc_lost")),
             LanLinkStatus = AsLongOrNull(record.GetValueByKey("lan_link_status")),
@@ -1904,6 +1911,16 @@ from(bucket: {FluxLiteral.Quote(_longtermBucket)})
         if (stats.GemRxFrames.HasValue) point = point.Field("gem_rx_frames", stats.GemRxFrames.Value);
         if (stats.GemRxIdleFrames.HasValue) point = point.Field("gem_rx_idle_frames", stats.GemRxIdleFrames.Value);
         if (stats.DsSuperframe.HasValue) point = point.Field("ds_superframe", stats.DsSuperframe.Value);
+        if (stats.DsSuperframeSampled.HasValue) point = point.Field("ds_superframe_sampled", stats.DsSuperframeSampled.Value);
+        if (stats.GemRxBytes.HasValue) point = point.Field("gem_rx_bytes", stats.GemRxBytes.Value);
+        if (stats.OltLaunchPowerDbm.HasValue) point = point.Field("olt_launch_power_dbm", stats.OltLaunchPowerDbm.Value);
+        if (stats.OdnClass.HasValue) point = point.Field("odn_class", stats.OdnClass.Value);
+        if (stats.ReachExtender.HasValue) point = point.Field("reach_extender", stats.ReachExtender.Value);
+        // Launch power less the ONT's own RX reading from the same poll. Stored rather than derived
+        // at query time: the chart aggregates with fn: last, and the sfp series' rx_power_dbm can be
+        // the host device's DDM read of the module instead of the ONT's own.
+        if (PonSupplementalStats.PathLossDb(stats.OltLaunchPowerDbm, stats.RxPowerDbm) is double pathLoss)
+            point = point.Field("path_loss_db", pathLoss);
         if (stats.GemRxDropped.HasValue) point = point.Field("gem_rx_dropped", stats.GemRxDropped.Value);
         if (stats.AllocTotal.HasValue) point = point.Field("alloc_total", stats.AllocTotal.Value);
         if (stats.AllocLost.HasValue) point = point.Field("alloc_lost", stats.AllocLost.Value);
@@ -3993,6 +4010,12 @@ from(bucket: {FluxLiteral.Quote(_longtermBucket)})
         public long? GemRxFrames { get; set; }
         public long? GemRxIdleFrames { get; set; }
         public long? DsSuperframe { get; set; }
+        public long? DsSuperframeSampled { get; set; }
+        public long? GemRxBytes { get; set; }
+        public double? OltLaunchPowerDbm { get; set; }
+        public long? OdnClass { get; set; }
+        public long? ReachExtender { get; set; }
+        public double? PathLossDb { get; set; }
         public long? GemRxDropped { get; set; }
         public long? AllocLost { get; set; }
         public long? HecCorrected { get; set; }

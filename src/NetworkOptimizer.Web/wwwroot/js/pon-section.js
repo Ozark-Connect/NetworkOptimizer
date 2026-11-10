@@ -67,10 +67,18 @@ export function ponSeriesFor(item, prefix, slot, palette) {
             { name: `${prefix}RX frames`, data: ponPoints(item, 'gemRx') },
             { name: `${prefix}TX frames`, data: ponPoints(item, 'gemTx') },
         ],
-        // The idle fill the OLT sends is the same for every ONT on the PON, so this is the load of
-        // the whole PON's downstream, not of this ONT.
+        // The idle fill the OLT sends is the same for every ONT on the PON, so the first series is
+        // the load of the whole PON's downstream, not of this ONT. The second is this ONT's own
+        // GEM traffic on the same axis, which is what makes the difference readable. Colors are
+        // pinned so the summary line under the title can name them: the chart has no legend.
         utilSeries: [
-            { name: `${prefix}PON downstream in use`, data: ponPoints(item, 'dsUtil') },
+            { name: `${prefix}Whole PON (all ONTs)`, data: ponPoints(item, 'dsUsedMbps'), color: ponLoadColor(slot, 0, palette) },
+            { name: `${prefix}This ONT`, data: ponPoints(item, 'dsOwnMbps'), color: ponLoadColor(slot, 1, palette) },
+        ],
+        // What the far end announces it launches, less what this ONT receives. With a reach
+        // extender in the path the announced power is the extender's, and the name says so.
+        lossSeries: [
+            { name: `${prefix}${reachExtended(item) ? 'Path loss from reach extender' : 'Path loss'}`, data: ponPoints(item, 'pathLoss') },
         ],
         hostSeries: [
             { name: `${prefix}FCS errors`, data: ponPoints(item, 'lanFcs') },
@@ -78,6 +86,97 @@ export function ponSeriesFor(item, prefix, slot, palette) {
             { name: `${prefix}Buffer overflows`, data: ponPoints(item, 'lanOvfl') },
         ],
     };
+}
+
+function ponLoadColor(slot, which, palette) {
+    return palette[(slot * 2 + which) % palette.length];
+}
+
+function lastWithKey(item, key) {
+    return [...(item.pon || [])].reverse().find(p => p[key] != null)?.[key] ?? null;
+}
+
+function reachExtended(item) {
+    return lastWithKey(item, 'reachExt') === 1;
+}
+
+// A GPON downstream frame is 38880 bytes every 125 us; with FEC on, 16 parity bytes leave each of
+// its 153 codewords. The same constants PonChartSeries.DownstreamUtilization divides by.
+const GPON_DS_MBPS = 38880 * 8 * 8000 / 1e6;
+const GPON_DS_FEC_MBPS = (38880 - 153 * 16) * 8 * 8000 / 1e6;
+
+/// The downstream payload rate the load is a share of, by the FEC state the ONTs last reported.
+export function ponPayloadMbps(items) {
+    return (items || []).some(item => lastWithKey(item, 'dsFec') === 1) ? GPON_DS_FEC_MBPS : GPON_DS_MBPS;
+}
+
+function fmtMbps(v) {
+    return v >= 100 ? v.toFixed(0) : v >= 10 ? v.toFixed(1) : v.toFixed(2);
+}
+
+function fmtShare(pct) {
+    return pct >= 10 ? pct.toFixed(1) : pct >= 0.1 ? pct.toFixed(2) : pct.toFixed(3);
+}
+
+/// One value of the load chart as rate and share of the PON's downstream: "53.9 Mbit/s (2.31 %)".
+export function fmtPonLoad(v, payloadMbps) {
+    if (v == null) return '';
+    return `${fmtMbps(v)} Mbit/s (${fmtShare(v / payloadMbps * 100)} %)`;
+}
+
+// The time one point stands for, from the spacing of the points themselves: the polling interval
+// on a short window, the server's aggregate window on a long one.
+function pointSpanText(pon) {
+    const times = pon.map(p => Date.parse(p.time)).filter(t => !isNaN(t));
+    if (times.length < 2) return null;
+    const deltas = [];
+    for (let i = 1; i < times.length; i++) deltas.push(times[i] - times[i - 1]);
+    deltas.sort((a, b) => a - b);
+    const minutes = deltas[deltas.length >> 1] / 60000;
+    if (minutes < 1.5) return `${Math.round(minutes * 60)}-second`;
+    if (minutes < 90) return `${Math.round(minutes)}-minute`;
+    return `${(minutes / 60).toFixed(1)}-hour`;
+}
+
+/// The line under the load card's title: which line is which, the latest and the highest value of
+/// the window, and how long a stretch each point averages. Empty when no ONT reports a load.
+export function ponLoadSummaryHtml(items, palette, slotOf) {
+    const withLoad = (items || []).filter(item => (item.pon || []).some(p => p.dsUsedMbps != null));
+    if (!withLoad.length) return '';
+    const payload = ponPayloadMbps(withLoad);
+    const dot = color => `<span style="display:inline-block;width:0.6em;height:0.6em;border-radius:50%;background:${color};margin-right:0.35em"></span>`;
+    const multi = withLoad.length > 1;
+    const lines = withLoad.map(item => {
+        const slot = slotOf(item);
+        const used = item.pon.map(p => p.dsUsedMbps).filter(v => v != null);
+        const parts = [`${dot(ponLoadColor(slot, 0, palette))}Whole PON, all ONTs: ${fmtPonLoad(used[used.length - 1], payload)} latest, ${fmtPonLoad(Math.max(...used), payload)} highest in this window`];
+        const own = lastWithKey(item, 'dsOwnMbps');
+        if (own != null) parts.push(`${dot(ponLoadColor(slot, 1, palette))}This ONT: ${fmtPonLoad(own, payload)} latest`);
+        return `<div>${multi ? `${escapeHtml(item.label)}: ` : ''}${parts.join(' &nbsp; ')}</div>`;
+    });
+    const span = pointSpanText(withLoad[0].pon);
+    const note = span
+        ? `Each point is a ${span} mean, so shorter peaks do not show.`
+        : 'Each point is a mean over one polling interval, so shorter peaks do not show.';
+    return `${lines.join('')}<div>${note}</div>`;
+}
+
+const ODN_CLASSES = ['A (5-20 dB)', 'B (10-25 dB)', 'B+ (13-28 dB)', 'C (15-30 dB)', 'C+ (17-32 dB)'];
+
+function pathLossCell(item) {
+    const loss = lastWithKey(item, 'pathLoss');
+    const cls = ODN_CLASSES[lastWithKey(item, 'odnClass')];
+    if (loss == null && cls == null) return null;
+    const parts = [];
+    if (loss != null) parts.push(`${loss.toFixed(1)} dB${reachExtended(item) ? ' from reach extender' : ''}`);
+    if (cls != null) parts.push(`class ${cls}`);
+    return parts.join(', ');
+}
+
+function launchPowerCell(item) {
+    const launch = lastWithKey(item, 'oltLaunch');
+    if (launch == null) return null;
+    return `${launch > 0 ? '+' : ''}${launch.toFixed(1)} dBm${reachExtended(item) ? ' (reach extender)' : ''}`;
 }
 
 /// Draw one PON card, hiding it when nothing fills it. Which counters an ONT serves is a
@@ -115,6 +214,14 @@ export function ponDetailsHtml(items, labelHeader, extras = []) {
             cell: item => { const l = lastOf(item); return l.dsFec == null && l.usFec == null ? null : `${l.dsFec ? 'on' : 'off'} / ${l.usFec ? 'on' : 'off'}`; },
         },
         { header: 'Response Time', cell: item => lastOf(item).respTime },
+        {
+            header: '<span data-tooltip="Optical loss between the far end and this ONT: the launch power the OLT announces in its PON-ID message, less the power this ONT receives. With a reach extender in the path the announced power is the extender\'s, so the loss is that of the stretch from the extender. The class is the loss budget the OLT says the network is built for.">Path Loss</span>',
+            cell: pathLossCell,
+        },
+        {
+            header: '<span data-tooltip="Mean launch power the OLT announces in its PON-ID message. Not every OLT sends one.">OLT Launch Power</span>',
+            cell: launchPowerCell,
+        },
         {
             header: '<span data-tooltip="Raw device enums for the module-to-gateway link. Read them for change: a value that moves means the host link renegotiated, which the PON-side fields never show.">Host Link</span>',
             cell: item => { const l = lastOf(item); return l.lanLink == null && l.lanMode == null ? null : `${l.lanLink ?? '-'} / ${l.lanMode ?? '-'}`; },

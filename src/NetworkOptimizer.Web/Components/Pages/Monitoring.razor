@@ -885,6 +885,10 @@
                 <!-- Supplemental PON-layer charts: shown only when a module has an attached
                      Network Optimizer Custom ONT config feeding PON stats. -->
                 <div class="sfp-pon-section" style="display: none;">
+                    <div class="chart-card sfp-pon-loss-card">
+                        <div class="chart-header"><h3 class="chart-title"><span data-tooltip="The launch power the OLT announces in its PON-ID message, less the power this ONT receives: the optical loss of the fibre path, to read beside RX power above. A rise with steady launch power is the path getting worse (a connector, a bend, a splitter). With a reach extender in the path the announced power is the extender's, and the loss is that of the stretch from the extender. Shown only where the OLT announces its launch power.">Path Loss (OLT launch power less RX power)</span></h3></div>
+                        <div class="sfp-pon-loss-chart"></div>
+                    </div>
                     <div class="chart-card sfp-pon-errors-card">
                         <div class="chart-header"><h3 class="chart-title">PON Errors (per interval)</h3></div>
                         <div class="sfp-pon-errors-chart"></div>
@@ -898,7 +902,8 @@
                         <div class="sfp-pon-gem-chart"></div>
                     </div>
                     <div class="chart-card sfp-pon-util-card">
-                        <div class="chart-header"><h3 class="chart-title"><span data-tooltip="The OLT fills unused downstream capacity with idle frames that every ONT on the PON receives, so this is the load of the whole PON, neighbours included, not of this ONT. The frame header counts as in use. Downstream only: an ONT cannot see what the others send.">PON Downstream Load (all ONTs)</span></h3></div>
+                        <div class="chart-header"><h3 class="chart-title"><span data-tooltip="The OLT fills unused downstream capacity with idle frames that every ONT on the PON receives, so the first line is the load of the whole PON, neighbours included, not of this connection. The frame header counts as in use. The second line is this ONT's own downstream on the same scale. Percentages are shares of the PON's downstream payload rate. Downstream only: an ONT cannot see what the others send.">PON Downstream Load: whole PON, all subscribers (not this connection)</span></h3></div>
+                        <div class="sfp-pon-util-summary" style="color: var(--text-secondary); font-size: 0.8rem; margin: -0.25rem 0 0.25rem;"></div>
                         <div class="sfp-pon-util-chart"></div>
                     </div>
                     <div class="sfp-pon-details"></div>
@@ -1285,6 +1290,10 @@
                      link state and nothing else. Every card hides itself when nothing fills it, so
                      an ONT reporting no error counters gets the details table alone. -->
                 <div class="ont-errors-section" style="display: none;">
+                    <div class="chart-card ont-pon-loss-card">
+                        <div class="chart-header"><h3 class="chart-title"><span data-tooltip="The launch power the OLT announces in its PON-ID message, less the power this ONT receives: the optical loss of the fibre path, to read beside RX power above. A rise with steady launch power is the path getting worse (a connector, a bend, a splitter). With a reach extender in the path the announced power is the extender's, and the loss is that of the stretch from the extender. Shown only where the OLT announces its launch power.">Path Loss (OLT launch power less RX power)</span></h3></div>
+                        <div class="ont-pon-loss-chart"></div>
+                    </div>
                     <div class="chart-card ont-pon-errors-card">
                         <div class="chart-header"><h3 class="chart-title">PON Errors (per interval)</h3></div>
                         <div class="ont-errors-chart"></div>
@@ -1298,7 +1307,8 @@
                         <div class="ont-pon-gem-chart"></div>
                     </div>
                     <div class="chart-card ont-pon-util-card">
-                        <div class="chart-header"><h3 class="chart-title"><span data-tooltip="The OLT fills unused downstream capacity with idle frames that every ONT on the PON receives, so this is the load of the whole PON, neighbours included, not of this ONT. The frame header counts as in use. Downstream only: an ONT cannot see what the others send.">PON Downstream Load (all ONTs)</span></h3></div>
+                        <div class="chart-header"><h3 class="chart-title"><span data-tooltip="The OLT fills unused downstream capacity with idle frames that every ONT on the PON receives, so the first line is the load of the whole PON, neighbours included, not of this connection. The frame header counts as in use. The second line is this ONT's own downstream on the same scale. Percentages are shares of the PON's downstream payload rate. Downstream only: an ONT cannot see what the others send.">PON Downstream Load: whole PON, all subscribers (not this connection)</span></h3></div>
+                        <div class="ont-pon-util-summary" style="color: var(--text-secondary); font-size: 0.8rem; margin: -0.25rem 0 0.25rem;"></div>
                         <div class="ont-pon-util-chart"></div>
                     </div>
                     <div class="ont-pon-details"></div>
