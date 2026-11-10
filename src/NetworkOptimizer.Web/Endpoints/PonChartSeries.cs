@@ -56,6 +56,8 @@ public static class PonChartSeries
                 gemTxIdle = Delta(p.GemTxIdleFrames, prev?.GemTxIdleFrames),
                 gemRx = Delta(p.GemRxFrames, prev?.GemRxFrames),
                 gemDrop = Delta(p.GemRxDropped, prev?.GemRxDropped),
+                dsUtil = DownstreamUtilization(p, prev)?.Percent,
+                dsUsedMbps = DownstreamUtilization(p, prev)?.Mbps,
                 allocLost = Delta(p.AllocLost, prev?.AllocLost),
                 lanFcs = Delta(p.LanRxFcsErrors, prev?.LanRxFcsErrors),
                 lanDrop = Delta(p.LanTxDropEvents, prev?.LanTxDropEvents),
@@ -77,5 +79,42 @@ public static class PonChartSeries
             prev = p;
         }
         return items;
+    }
+
+    /// <summary>A GPON downstream frame: 125 us, 38880 bytes at 2.488 Gbit/s.</summary>
+    private const double GponFrameBytes = 38880;
+    /// <summary>With FEC on, RS(255,239) takes 16 parity bytes from each of the frame's 153 codewords.</summary>
+    private const double GponFecParityBytes = 153 * 16;
+    private const double GemIdleFrameBytes = 5;
+    private const double GponFramesPerSecond = 8000;
+    private const long SuperframeModulus = 1L << 30;
+
+    /// <summary>
+    /// How much of the PON's downstream was in use over one interval, all ONTs together: the OLT
+    /// fills what nobody needs with idle GEM frames, and every ONT counts the same ones. Read
+    /// against the superframe counter rather than the clock, so the interval length and the
+    /// sampling jitter drop out. The frame header (PCBd, with the bandwidth map) is counted as
+    /// in use, so a PON with no traffic at all still reads a little above zero. Null when either
+    /// counter is missing, went backwards (a reboot) or the result is outside 0 to 100 percent,
+    /// which is what a superframe counter that wrapped more than once produces.
+    /// </summary>
+    public static (double Percent, double Mbps)? DownstreamUtilization(
+        MonitoringInfluxClient.PonSeriesPoint cur, MonitoringInfluxClient.PonSeriesPoint? prev)
+    {
+        if (prev is null
+            || cur.GemRxIdleFrames is not long idle || prev.GemRxIdleFrames is not long idlePrev
+            || cur.DsSuperframe is not long sf || prev.DsSuperframe is not long sfPrev
+            || idle < idlePrev)
+            return null;
+
+        var frames = sf >= sfPrev ? sf - sfPrev : sf + SuperframeModulus - sfPrev;
+        if (frames <= 0) return null;
+
+        var payload = GponFrameBytes - (cur.DsFecEnabled == 1 ? GponFecParityBytes : 0);
+        var usedPerFrame = payload - (idle - idlePrev) * GemIdleFrameBytes / frames;
+        var percent = usedPerFrame / payload * 100;
+        if (percent < 0 || percent > 100) return null;
+
+        return (Math.Round(percent, 3), Math.Round(usedPerFrame * 8 * GponFramesPerSecond / 1e6, 2));
     }
 }

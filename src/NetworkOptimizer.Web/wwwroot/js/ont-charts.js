@@ -7,7 +7,7 @@ import { valueSortedTooltip, tooltipHeld, alignedPoints } from './chart-tooltip.
 import { renderFilterReset, isFiltered } from './chart-filter.js?v=6';
 import { createMarkLayer } from './chart-event-marks.js?v=13';
 import { createAxisDateCaption } from './chart-axis-date.js?v=5';
-import { ponSeriesFor, ponDetailsHtml, ponErrorTotalsHtml, updatePonCard } from './pon-section.js?v=10';
+import { ponSeriesFor, ponDetailsHtml, ponErrorTotalsHtml, updatePonCard } from './pon-section.js?v=11';
 import { syncIdentity } from './chart-sync.js?v=9';
 import { awaitContainer } from './chart-mount.js?v=1';
 import { loadWindowHours, saveWindowHours, markActiveRange, notifyWindowMoved } from './chart-window.js?v=2';
@@ -27,6 +27,7 @@ let tempChart = null;
 // FEC/BIP error-delta chart; its section stays hidden unless some ONT reports the counters.
 let errorsChart = null;
 let ponGemChart = null;
+let ponUtilChart = null;
 let ponHostChart = null;
 let pollTimer = null;
 let currentRangeHours = 24;
@@ -253,6 +254,7 @@ async function loadAndUpdate() {
 
 const fmtDbm = v => v != null ? v.toFixed(2) : '-';
 const fmtTemp = v => v != null ? v.toFixed(1) : '-';
+const fmtPercent = v => v == null ? '' : v.toFixed(2);
 const fmtCount = v => v == null ? '' : v >= 1e6 ? (v / 1e6).toFixed(1) + 'M' : v >= 1e3 ? (v / 1e3).toFixed(1) + 'k' : String(Math.round(v));
 
 // Create the errors chart on first use, so ONTs that never report FEC/BIP don't
@@ -268,7 +270,9 @@ async function ensureErrorsChartMounted() {
     const gemEl = container.querySelector('.ont-pon-gem-chart');
     if (hostEl) { ponHostChart = new ApexCharts(hostEl, { ...baseOpts(160, 'errors', fmtCount), series: [], colors: PALETTE }); chartEls.ponHost = hostEl; }
     if (gemEl) ponGemChart = new ApexCharts(gemEl, { ...baseOpts(160, 'frames', fmtCount), series: [], colors: PALETTE });
-    await Promise.all([errorsChart.render(), ponHostChart?.render(), ponGemChart?.render()].filter(Boolean));
+    const utilEl = container.querySelector('.ont-pon-util-chart');
+    if (utilEl) ponUtilChart = new ApexCharts(utilEl, { ...baseOpts(160, '% in use', fmtPercent), series: [], colors: PALETTE });
+    await Promise.all([errorsChart.render(), ponHostChart?.render(), ponGemChart?.render(), ponUtilChart?.render()].filter(Boolean));
     // It arrives after the first draw, so it starts with no marks on it.
     markLayer.reset();
     applyAnnotations();
@@ -294,13 +298,14 @@ async function updateErrorsChart() {
 
     const withErrors = reporting.filter(d => visibility[d.id] !== false);
     const multi = withErrors.length > 1;
-    const errSeries = [], gemSeries = [], hostSeries = [];
+    const errSeries = [], gemSeries = [], hostSeries = [], utilSeries = [];
     withErrors.forEach(d => {
         const slot = Math.max(0, reporting.findIndex(x => x.id === d.id));
         const built = ponSeriesFor(d, multi ? `${d.label} ` : '', slot, PALETTE);
         errSeries.push(...built.errSeries);
         gemSeries.push(...built.gemSeries);
         hostSeries.push(...built.hostSeries);
+        utilSeries.push(...built.utilSeries);
     });
     // Unlike SFP Stats, this tab mixes ONTs that serve the whole PON set with ones that report a
     // link state and no counters at all, so each card hides itself rather than drawing an empty
@@ -308,6 +313,7 @@ async function updateErrorsChart() {
     updatePonCard(container, '.ont-pon-errors-card', errorsChart, errSeries);
     updatePonCard(container, '.ont-pon-host-card', ponHostChart, hostSeries);
     updatePonCard(container, '.ont-pon-gem-card', ponGemChart, gemSeries);
+    updatePonCard(container, '.ont-pon-util-card', ponUtilChart, utilSeries);
 
     const el = container.querySelector('.ont-pon-details');
     if (el) {
@@ -553,6 +559,7 @@ export async function mount(elId) {
     if (errorsChart) { errorsChart.destroy(); errorsChart = null; }
     if (ponHostChart) { ponHostChart.destroy(); ponHostChart = null; }
     if (ponGemChart) { ponGemChart.destroy(); ponGemChart = null; }
+    if (ponUtilChart) { ponUtilChart.destroy(); ponUtilChart = null; }
 
     powerChart = new ApexCharts(powerEl, {
         ...baseOpts(220, 'dBm', v => v != null ? v.toFixed(1) + ' dBm' : '', {
@@ -658,6 +665,7 @@ export function unmount() {
     if (errorsChart) { errorsChart.destroy(); errorsChart = null; }
     if (ponHostChart) { ponHostChart.destroy(); ponHostChart = null; }
     if (ponGemChart) { ponGemChart.destroy(); ponGemChart = null; }
+    if (ponUtilChart) { ponUtilChart.destroy(); ponUtilChart = null; }
     containerId = null;
     deviceMeta = [];
     visibility = {};

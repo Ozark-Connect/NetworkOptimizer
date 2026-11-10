@@ -34,6 +34,7 @@ public class OdiOssOntProviderTests
     gpon_ds_bwmap_allocations_total 2021429
     gpon_ds_gem_frames_total{kind="idle"} 7782349680
     gpon_ds_gem_frames_total{kind="non_idle"} 173982
+    gpon_ds_superframe 1223280
     gpon_ds_gem_hec_corrected_total 31
     gpon_us_gem_frames_total 2021421
     gpon_fec_active{direction="ds"} 1
@@ -81,6 +82,8 @@ public class OdiOssOntProviderTests
         pon.HecCorrected.Should().Be(31);
         pon.GemTxFrames.Should().Be(2021421);
         pon.GemRxFrames.Should().Be(173982, "non-idle frames, never the idle count");
+        pon.GemRxIdleFrames.Should().Be(7782349680, "the idle fill of the whole PON, kept apart");
+        pon.DsSuperframe.Should().Be(1223280);
         pon.AllocTotal.Should().Be(2021429);
         pon.SfpUptimeS.Should().Be(155);
         pon.FirmwareVersion.Should().Be("v1.16.0-beta.1");

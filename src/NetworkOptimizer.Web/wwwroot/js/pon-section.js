@@ -67,6 +67,11 @@ export function ponSeriesFor(item, prefix, slot, palette) {
             { name: `${prefix}RX frames`, data: ponPoints(item, 'gemRx') },
             { name: `${prefix}TX frames`, data: ponPoints(item, 'gemTx') },
         ],
+        // The idle fill the OLT sends is the same for every ONT on the PON, so this is the load of
+        // the whole PON's downstream, not of this ONT.
+        utilSeries: [
+            { name: `${prefix}PON downstream in use`, data: ponPoints(item, 'dsUtil') },
+        ],
         hostSeries: [
             { name: `${prefix}FCS errors`, data: ponPoints(item, 'lanFcs') },
             { name: `${prefix}TX drops`, data: ponPoints(item, 'lanDrop') },

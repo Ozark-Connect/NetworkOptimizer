@@ -8,7 +8,7 @@ import { renderFilterReset, isFiltered } from './chart-filter.js?v=6';
 import { createMarkLayer } from './chart-event-marks.js?v=13';
 import { createAxisDateCaption } from './chart-axis-date.js?v=5';
 import { syncIdentity, extentsOf, spanTo } from './chart-sync.js?v=9';
-import { ponSeriesFor, ponDetailsHtml, ponErrorTotalsHtml, updatePonCard } from './pon-section.js?v=10';
+import { ponSeriesFor, ponDetailsHtml, ponErrorTotalsHtml, updatePonCard } from './pon-section.js?v=11';
 import { awaitContainer } from './chart-mount.js?v=1';
 import { loadWindowHours, saveWindowHours, markActiveRange, notifyWindowMoved } from './chart-window.js?v=2';
 
@@ -28,6 +28,7 @@ let tempChart = null;
 // the whole section stays hidden unless some module has PON data.
 let ponErrChart = null;
 let ponGemChart = null;
+let ponUtilChart = null;
 let ponHostChart = null;
 // Modules that currently have PON data, whether visible or not. The PON section and
 // its detail table are shown only for the ones selected in the filter.
@@ -67,7 +68,7 @@ function padFirst(series) {
 const PON_ONLY_GROUP = 'sfp-pon';
 
 function setPonSyncGroup(group) {
-    for (const chart of [ponErrChart, ponGemChart, ponHostChart]) {
+    for (const chart of [ponErrChart, ponGemChart, ponUtilChart, ponHostChart]) {
         if (!chart?.w) continue;
         chart.w.config.chart.group = group;
         const entry = (window.Apex?._chartInstances || []).find(i => i.chart === chart);
@@ -305,7 +306,7 @@ async function refreshPonSection() {
     if (!ponErrChart) return;
     try {
         const multi = visiblePon.length > 1;
-        const errSeries = [], gemSeries = [], hostSeries = [];
+        const errSeries = [], gemSeries = [], hostSeries = [], utilSeries = [];
         visiblePon.forEach(m => {
             const prefix = multi ? `${m.label} ` : '';
             const slot = Math.max(0, ponCapableModules.findIndex(x => x.id === m.id));
@@ -313,11 +314,13 @@ async function refreshPonSection() {
             errSeries.push(...series.errSeries);
             gemSeries.push(...series.gemSeries);
             hostSeries.push(...series.hostSeries);
+            utilSeries.push(...series.utilSeries);
         });
         // Every section of the contract is optional, so an implementation serving the GTC
         // counters and no host-link ones leaves that card empty for good. Hide what nothing fills.
         updatePonCard(container, '.sfp-pon-errors-card', ponErrChart, errSeries, padFirst);
         updatePonCard(container, '.sfp-pon-gem-card', ponGemChart, gemSeries, padFirst);
+        updatePonCard(container, '.sfp-pon-util-card', ponUtilChart, utilSeries, padFirst);
         updatePonCard(container, '.sfp-pon-host-card', ponHostChart, hostSeries, padFirst);
         renderPonDetails(container, visiblePon);
     } catch (e) { /* leave the previous render if a chart update fails */ }
@@ -364,11 +367,13 @@ async function ensurePonChartsMounted() {
     if (!ponErrEl || !ponGemEl || !ponHostEl) return;
     ponErrChart = new ApexCharts(ponErrEl, { ...baseOpts(160, 'errors', fmtCount), series: [], colors: PALETTE });
     ponGemChart = new ApexCharts(ponGemEl, { ...baseOpts(160, 'frames', fmtCount), series: [], colors: PALETTE });
+    const ponUtilEl = container.querySelector('.sfp-pon-util-chart');
+    if (ponUtilEl) ponUtilChart = new ApexCharts(ponUtilEl, { ...baseOpts(160, '% in use', v => v == null ? '' : v.toFixed(2)), series: [], colors: PALETTE });
     ponHostChart = new ApexCharts(ponHostEl, { ...baseOpts(160, 'errors', fmtCount), series: [], colors: PALETTE });
     // No ponGem: GEM Frames takes no marks, so the layer never needs to reach it.
     chartEls.ponErr = ponErrEl;
     chartEls.ponHost = ponHostEl;
-    await Promise.all([ponErrChart.render(), ponGemChart.render(), ponHostChart.render()]);
+    await Promise.all([ponErrChart.render(), ponGemChart.render(), ponHostChart.render(), ponUtilChart?.render()].filter(Boolean));
     // These arrive after the first draw, so they start with no marks on them.
     ponMarkLayer.reset();
     applyAnnotations();
@@ -607,6 +612,7 @@ export async function mount(elId) {
     if (tempChart) { tempChart.destroy(); tempChart = null; }
     if (ponErrChart) { ponErrChart.destroy(); ponErrChart = null; }
     if (ponGemChart) { ponGemChart.destroy(); ponGemChart = null; }
+    if (ponUtilChart) { ponUtilChart.destroy(); ponUtilChart = null; }
     if (ponHostChart) { ponHostChart.destroy(); ponHostChart = null; }
 
     powerChart = new ApexCharts(powerEl, {
@@ -740,6 +746,7 @@ export function unmount() {
     if (tempChart) { tempChart.destroy(); tempChart = null; }
     if (ponErrChart) { ponErrChart.destroy(); ponErrChart = null; }
     if (ponGemChart) { ponGemChart.destroy(); ponGemChart = null; }
+    if (ponUtilChart) { ponUtilChart.destroy(); ponUtilChart = null; }
     if (ponHostChart) { ponHostChart.destroy(); ponHostChart = null; }
     containerId = null;
     moduleMeta = [];

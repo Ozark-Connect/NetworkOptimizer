@@ -1822,7 +1822,7 @@ from(bucket: {FluxLiteral.Quote(_longtermBucket)})
         "pon_link_status", "pon_link_status_prev", "onu_id", "ds_fec_enabled", "us_fec_enabled",
         "onu_response_time", "sfp_uptime_s", "ploam_elapsed_ms", "bip_errors", "fec_errors", "fec_corrected_words",
         "hec_corrected", "hec_uncorrected", "bwmap_corrected", "bwmap_uncorrected",
-        "gem_tx_frames", "gem_tx_idle_frames", "gem_rx_frames", "gem_rx_dropped",
+        "gem_tx_frames", "gem_tx_idle_frames", "gem_rx_frames", "gem_rx_idle_frames", "ds_superframe", "gem_rx_dropped",
         "alloc_lost", "lan_link_status", "lan_mode",
         "lan_rx_fcs_err", "lan_tx_drop_events", "lan_buffer_overflow",
         "olt_vendor_id", "registration_status", "key_exchange_status", "firmware_version",
@@ -1857,6 +1857,8 @@ from(bucket: {FluxLiteral.Quote(_longtermBucket)})
             GemTxFrames = AsLongOrNull(record.GetValueByKey("gem_tx_frames")),
             GemTxIdleFrames = AsLongOrNull(record.GetValueByKey("gem_tx_idle_frames")),
             GemRxFrames = AsLongOrNull(record.GetValueByKey("gem_rx_frames")),
+            GemRxIdleFrames = AsLongOrNull(record.GetValueByKey("gem_rx_idle_frames")),
+            DsSuperframe = AsLongOrNull(record.GetValueByKey("ds_superframe")),
             GemRxDropped = AsLongOrNull(record.GetValueByKey("gem_rx_dropped")),
             AllocLost = AsLongOrNull(record.GetValueByKey("alloc_lost")),
             LanLinkStatus = AsLongOrNull(record.GetValueByKey("lan_link_status")),
@@ -1900,6 +1902,8 @@ from(bucket: {FluxLiteral.Quote(_longtermBucket)})
         if (stats.GemTxFrames.HasValue) point = point.Field("gem_tx_frames", stats.GemTxFrames.Value);
         if (stats.GemTxIdleFrames.HasValue) point = point.Field("gem_tx_idle_frames", stats.GemTxIdleFrames.Value);
         if (stats.GemRxFrames.HasValue) point = point.Field("gem_rx_frames", stats.GemRxFrames.Value);
+        if (stats.GemRxIdleFrames.HasValue) point = point.Field("gem_rx_idle_frames", stats.GemRxIdleFrames.Value);
+        if (stats.DsSuperframe.HasValue) point = point.Field("ds_superframe", stats.DsSuperframe.Value);
         if (stats.GemRxDropped.HasValue) point = point.Field("gem_rx_dropped", stats.GemRxDropped.Value);
         if (stats.AllocTotal.HasValue) point = point.Field("alloc_total", stats.AllocTotal.Value);
         if (stats.AllocLost.HasValue) point = point.Field("alloc_lost", stats.AllocLost.Value);
@@ -3987,6 +3991,8 @@ from(bucket: {FluxLiteral.Quote(_longtermBucket)})
         public long? GemTxFrames { get; set; }
         public long? GemTxIdleFrames { get; set; }
         public long? GemRxFrames { get; set; }
+        public long? GemRxIdleFrames { get; set; }
+        public long? DsSuperframe { get; set; }
         public long? GemRxDropped { get; set; }
         public long? AllocLost { get; set; }
         public long? HecCorrected { get; set; }

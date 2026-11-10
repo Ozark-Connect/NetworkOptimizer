@@ -84,6 +84,18 @@ public class PonSupplementalStats
     /// <summary>GEM frames received downstream.</summary>
     public long? GemRxFrames { get; set; }
 
+    /// <summary>
+    /// Idle GEM frames received downstream. Every ONT on a PON sees the same downstream, so
+    /// this is the unused capacity of the whole PON, not of this ONT.
+    /// </summary>
+    public long? GemRxIdleFrames { get; set; }
+
+    /// <summary>
+    /// The OLT's downstream superframe counter, one count per 125 us frame. It is the time base
+    /// the idle count is read against, and it wraps (30 bits on GPON).
+    /// </summary>
+    public long? DsSuperframe { get; set; }
+
     /// <summary>GEM frames dropped at reassembly.</summary>
     public long? GemRxDropped { get; set; }
 

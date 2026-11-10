@@ -897,6 +897,10 @@
                         <div class="chart-header"><h3 class="chart-title">GEM Frames (per interval)</h3></div>
                         <div class="sfp-pon-gem-chart"></div>
                     </div>
+                    <div class="chart-card sfp-pon-util-card">
+                        <div class="chart-header"><h3 class="chart-title"><span data-tooltip="The OLT fills unused downstream capacity with idle frames that every ONT on the PON receives, so this is the load of the whole PON, neighbours included, not of this ONT. The frame header counts as in use. Downstream only: an ONT cannot see what the others send.">PON Downstream Load (all ONTs)</span></h3></div>
+                        <div class="sfp-pon-util-chart"></div>
+                    </div>
                     <div class="sfp-pon-details"></div>
                     <div class="sfp-pon-error-totals"></div>
                 </div>
@@ -1292,6 +1296,10 @@
                     <div class="chart-card ont-pon-gem-card">
                         <div class="chart-header"><h3 class="chart-title">GEM Frames (per interval)</h3></div>
                         <div class="ont-pon-gem-chart"></div>
+                    </div>
+                    <div class="chart-card ont-pon-util-card">
+                        <div class="chart-header"><h3 class="chart-title"><span data-tooltip="The OLT fills unused downstream capacity with idle frames that every ONT on the PON receives, so this is the load of the whole PON, neighbours included, not of this ONT. The frame header counts as in use. Downstream only: an ONT cannot see what the others send.">PON Downstream Load (all ONTs)</span></h3></div>
+                        <div class="ont-pon-util-chart"></div>
                     </div>
                     <div class="ont-pon-details"></div>
                     <div class="ont-pon-error-totals"></div>

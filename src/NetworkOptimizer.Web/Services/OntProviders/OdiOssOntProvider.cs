@@ -192,7 +192,7 @@ public sealed class OdiOssOntProvider : ISfpSupplementalOntProvider
     /// The exporter series that carry the same meaning as the shared PON fields. What odi-oss
     /// does not expose with matching semantics stays null rather than approximated: previous
     /// state and time in the current state (the exporter keeps per-state totals, not the
-    /// current visit), uncorrectable HEC, lost allocations, idle GEM frames, the bridge-port
+    /// current visit), uncorrectable HEC, lost allocations, upstream idle GEM frames, the bridge-port
     /// discards, and the host link (port 0's MIB counters are reset every 15 minutes by the
     /// OMCI PM interval, and the link bit does not describe a 2500BASE-X host link).
     /// </summary>
@@ -223,6 +223,9 @@ public sealed class OdiOssOntProvider : ISfpSupplementalOntProvider
             HecCorrected = m.Long("gpon_ds_gem_hec_corrected_total"),
             GemTxFrames = m.Long("gpon_us_gem_frames_total"),
             GemRxFrames = m.Long("gpon_ds_gem_frames_total", ("kind", "non_idle")),
+            // Idle fill and the frame counter it is read against: the downstream load of the whole PON.
+            GemRxIdleFrames = m.Long("gpon_ds_gem_frames_total", ("kind", "idle")),
+            DsSuperframe = m.Long("gpon_ds_superframe"),
             AllocTotal = m.Long("gpon_ds_bwmap_allocations_total"),
 
             SfpUptimeS = uptime is >= 0 and < long.MaxValue ? (long)Math.Floor(uptime.Value) : null,
