@@ -25218,6 +25218,12 @@ body:has(.top-bar-hidden) .btn-fit {
     font-variant-numeric: tabular-nums;
 }
 
+/* Client Performance's page style gives .expand-chevron a 2rem centered box; the rank needs the room. */
+.lt-flows .lt-rank .lt-chev {
+    width: auto;
+    text-align: left;
+}
+
 .lt-flows .lt-sub {
     display: block;
     color: var(--text-muted);
