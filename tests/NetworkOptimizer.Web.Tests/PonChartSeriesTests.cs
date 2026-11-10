@@ -293,6 +293,27 @@ public class PonChartSeriesTests
     }
 
     [Fact]
+    public void SummarizePathLoss_LaunchPowerWanderingByAStep_IsNotAChange()
+    {
+        // Seen live: the OLT's reading moved from +3.4 to +3.5 dBm within the hour.
+        var s = PonChartSeries.SummarizePathLoss(Path(Steady(6).Concat(Steady(6, launch: 3.5)).Concat(Steady(3, launch: 3.3))))!;
+
+        s.Changes.Should().BeEmpty();
+        s.Hints.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void SummarizePathLoss_LaunchPowerDriftingAFullDb_IsRecordedOnce()
+    {
+        var drift = Enumerable.Range(0, 11).SelectMany(i => Steady(2, launch: 3.4 - 0.1 * i, rx: -16.5 - 0.1 * i));
+
+        var s = PonChartSeries.SummarizePathLoss(Path(drift))!;
+
+        s.Changes.Should().ContainSingle().Which.Should().Match<PonChartSeries.PonIdChange>(
+            c => c.What == "launch_power" && c.From == "+3.4 dBm" && c.To == "+2.4 dBm");
+    }
+
+    [Fact]
     public void SummarizePathLoss_ClassAndExtenderChange_AreRecorded()
     {
         var points = Path(Steady(4));

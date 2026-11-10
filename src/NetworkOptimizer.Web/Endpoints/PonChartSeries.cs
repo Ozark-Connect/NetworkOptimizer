@@ -286,7 +286,10 @@ public static class PonChartSeries
     /// <summary>
     /// Every point where the OLT's announcement differs from the last one seen: class, reach
     /// extender, launch power. A point without the value is a missed read, not a change. The
-    /// newest few, oldest first.
+    /// launch power is a measurement on OLTs that report one and wanders by a 0.1 dB step or two,
+    /// so it counts as changed only once it stands a full <see cref="LaunchDropHintDb"/> away from
+    /// the level last recorded; a slow drift is recorded when it has added up to that. The newest
+    /// few, oldest first.
     /// </summary>
     private static List<PonIdChange> PonIdChanges(List<MonitoringInfluxClient.PonSeriesPoint> ordered)
     {
@@ -311,8 +314,12 @@ public static class PonChartSeries
             }
             if (p.OltLaunchPowerDbm is double l)
             {
-                if (launch is double was && Math.Abs(was - l) >= 0.05) changes.Add(new(time, "launch_power", Dbm(was), Dbm(l)));
-                launch = l;
+                if (launch is not double was) launch = l;
+                else if (Math.Abs(was - l) >= LaunchDropHintDb - 1e-9)
+                {
+                    changes.Add(new(time, "launch_power", Dbm(was), Dbm(l)));
+                    launch = l;
+                }
             }
         }
         return changes.Count > MaxChanges ? changes.GetRange(changes.Count - MaxChanges, MaxChanges) : changes;
