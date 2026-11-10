@@ -720,6 +720,26 @@ public static class DefaultAlertRules
             MinSeverity = AlertSeverity.Warning,
             CooldownSeconds = 1800 // 30 minutes
         },
+        new AlertRule
+        {
+            // The OLT turned downstream AES on. Only providers that report AES state trip it.
+            Name = "ONT: AES Encryption Enabled",
+            IsEnabled = false,
+            EventTypePattern = "ont.encryption_enabled",
+            Source = "ont",
+            MinSeverity = AlertSeverity.Warning,
+            CooldownSeconds = 0
+        },
+        new AlertRule
+        {
+            // Downstream AES turned off: PON traffic to this ONT is unencrypted.
+            Name = "ONT: AES Encryption Disabled",
+            IsEnabled = false,
+            EventTypePattern = "ont.encryption_disabled",
+            Source = "ont",
+            MinSeverity = AlertSeverity.Error,
+            CooldownSeconds = 0
+        },
 
         // --- Cellular modem (disabled until user configures a cellular modem) ---
         new AlertRule

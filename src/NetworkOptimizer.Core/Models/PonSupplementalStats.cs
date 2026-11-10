@@ -54,6 +54,18 @@ public class PonSupplementalStats
     /// <summary>Raw ranging response time reported by the device; changes on re-ranging.</summary>
     public long? OnuResponseTime { get; set; }
 
+    /// <summary>GEM Port-IDs provisioned by the OLT, including the OMCI port.</summary>
+    public long? GemPorts { get; set; }
+
+    /// <summary>Whether any GEM port decrypts downstream AES. Null when the read failed or the device does not report it.</summary>
+    public bool? AesActive { get; set; }
+
+    /// <summary>GEM ports with the downstream AES decrypt bit set.</summary>
+    public long? GemPortsEncrypted { get; set; }
+
+    /// <summary>The enc: value of <c>dcli gponmgr show encryption</c>. Observed only on Calix EXOS so far.</summary>
+    public long? GponmgrEnc { get; set; }
+
     /// <summary>BIP (bit-interleaved parity) errors. Cumulative; 0 on a healthy link.</summary>
     public long? BipErrors { get; set; }
 

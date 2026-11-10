@@ -85,7 +85,8 @@ numeric strings; 64-bit counters are expected.
     "onu_id": 49,           // ONU ID assigned by the OLT; changes on re-ranging
     "ds_fec_enable": 0,     // OLT profile: downstream FEC on/off (0/1)
     "us_fec_enable": 0,     // OLT profile: upstream FEC on/off (0/1)
-    "onu_response_time": 34992  // raw ranging response time / equalization delay
+    "onu_response_time": 34992, // raw ranging response time / equalization delay
+    "gem_ports": 3          // GEM Port-IDs provisioned in the GTC Port-ID table, including the OMCI port
   },
   "gtc_counters": {
     "bip": 0,                     // BIP parity errors (0 on a healthy link)
@@ -120,6 +121,11 @@ numeric strings; 64-bit counters are expected.
     "ebp_good": 670798569,  "ebp_discard": 0,
     "learning_discard": 0
   },
+  "encryption": {           // downstream AES state, read fresh on every poll
+    "aes_active": false,        // true when any GEM port has its downstream AES decrypt bit set
+    "gponmgr_enc": 0,           // enc: value of `dcli gponmgr show encryption` (observed on Calix EXOS; null where absent)
+    "gem_ports_encrypted": 0    // GEM ports with the decrypt bit set
+  },
   "sfp_uptime_s": 358825,   // seconds since the ONT module booted (counter-reset anchor)
   "olt_vendor_id": "CALX",  // OLT vendor ID (4 letters, as the ONT reports it); shown decoded, e.g. "Calix (CALX)"
   "sfp_fw_version": "V1.0-220923", // the ONT module's firmware version, shown as-is
@@ -144,6 +150,10 @@ onto Network Optimizer's existing schema:
 | `gtc_status.onu_id` | `onu_id` | |
 | `gtc_status.ds_fec_enable` / `us_fec_enable` | `ds_fec_enabled` / `us_fec_enabled` | |
 | `gtc_status.onu_response_time` | `onu_response_time` | |
+| `gtc_status.gem_ports` | `gem_ports` | includes the OMCI port |
+| `encryption.aes_active` | `aes_active` | boolean; drives the AES alerts (see below) |
+| `encryption.gem_ports_encrypted` | `gem_ports_encrypted` | |
+| `encryption.gponmgr_enc` | `gponmgr_enc` | recorded as-is. Other ONT firmware also ships a `gponmgr`, but this command and its `enc:` output have been observed only on Calix EXOS |
 | `gtc_counters.bip` | `bip_errors` | standard field |
 | `gtc_counters.fec_words_uncorr` | `fec_errors` | standard field: uncorrectable codewords |
 | `gtc_counters.fec_words_corr` | `fec_corrected_words` | |
@@ -181,6 +191,21 @@ Note that the poll itself usually rides the same host link, so an implementation
 will more often report the outage as a failed poll (see [Failure shape](#failure-shape))
 than as a `link_status` of down. `sfp_uptime_s` continuing across the gap is what
 separates a host-link drop from a module reboot.
+
+### Encryption
+
+`encryption.aes_active` is the AES flag. A `null` (or absent) field means the read
+failed or the implementation does not serve it; Network Optimizer stores nothing
+for it on that poll, never `false`. Two ONT alerts run off transitions of this flag:
+
+- **ONT: AES Encryption Enabled** (`ont.encryption_enabled`, Warning): `false` to `true`.
+- **ONT: AES Encryption Disabled** (`ont.encryption_disabled`, Error): `true` to `false`.
+
+The first reading after a Network Optimizer restart only sets the baseline. A
+reading is skipped (it neither alerts nor moves the baseline) while PLOAM is not
+in O5, or when `aes_active` is `false` and `gtc_status.gem_ports` is 1 or less:
+a re-ranging ONT has no data GEM ports and so no decrypt bits, which is not the
+OLT turning encryption off.
 
 ### Duplicated counters
 

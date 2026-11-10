@@ -1890,6 +1890,10 @@ from(bucket: {FluxLiteral.Quote(_longtermBucket)})
         if (stats.DsFecEnabled.HasValue) point = point.Field("ds_fec_enabled", stats.DsFecEnabled.Value);
         if (stats.UsFecEnabled.HasValue) point = point.Field("us_fec_enabled", stats.UsFecEnabled.Value);
         if (stats.OnuResponseTime.HasValue) point = point.Field("onu_response_time", stats.OnuResponseTime.Value);
+        if (stats.GemPorts.HasValue) point = point.Field("gem_ports", stats.GemPorts.Value);
+        if (stats.AesActive.HasValue) point = point.Field("aes_active", stats.AesActive.Value);
+        if (stats.GemPortsEncrypted.HasValue) point = point.Field("gem_ports_encrypted", stats.GemPortsEncrypted.Value);
+        if (stats.GponmgrEnc.HasValue) point = point.Field("gponmgr_enc", stats.GponmgrEnc.Value);
         if (stats.BipErrors.HasValue) point = point.Field("bip_errors", stats.BipErrors.Value);
         if (stats.FecErrors.HasValue) point = point.Field("fec_errors", stats.FecErrors.Value);
         if (stats.FecCorrectedWords.HasValue) point = point.Field("fec_corrected_words", stats.FecCorrectedWords.Value);

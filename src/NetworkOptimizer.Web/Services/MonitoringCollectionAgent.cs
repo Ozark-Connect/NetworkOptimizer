@@ -2806,6 +2806,9 @@ public class MonitoringCollectionAgent : BackgroundService
                                 fecEnabled: fecEnabled,
                                 sourceUrl: sfpUrl,
                                 uptimeSeconds: stats.SfpUptimeS,
+                                aesActive: stats.AesActive,
+                                gemPorts: stats.GemPorts,
+                                gemPortsEncrypted: stats.GemPortsEncrypted,
                                 ct: ct);
                         }
                         catch (Exception ex)

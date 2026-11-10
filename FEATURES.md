@@ -685,7 +685,7 @@ Requires Gateway SSH.
   - Security Audit score drops and new findings; threat attack chains and patterns; Web Application Firewall events
   - A device reaching, or trying to reach, an address on a public block list
   - WAN port below its usual link speed or at half duplex, and its recovery
-  - ONT management unresponsive while its SFP still reads light; ONT rebooted
+  - ONT management unresponsive while its SFP still reads light; ONT rebooted; downstream AES encryption enabled or disabled (Network Optimizer Custom PON endpoints)
   - WAN, LAN, and client speed test regressions
   - UniFi Console and On-Site Agent connection loss; an On-Site Agent tunnel that keeps reconnecting
   - Monitoring target offline, sustained loss, full and partial WAN outages
