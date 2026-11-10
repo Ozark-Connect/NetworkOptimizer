@@ -118,11 +118,12 @@ else
                                 <small class="form-help">@_s.AgentCommitWindowMinutes minutes when the site is reached through an On-Site Agent.</small>
                             </div>
                             <div class="form-group">
-                                <label class="form-label">Schedule applies in</label>
+                                <label class="form-label">Default schedule time</label>
                                 <select class="form-control" @bind="ScheduleValue">
                                     <option value="true">Quietest hour (suggested)</option>
-                                    <option value="false">A time I choose</option>
+                                    <option value="false">None, I pick a time per plan</option>
                                 </select>
+                                <small class="form-help">Pre-fills the Time field in Review Plan when you schedule a plan. You can change it on every plan.</small>
                             </div>
                         </div>
                         <div class="form-group">
