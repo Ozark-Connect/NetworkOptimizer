@@ -1826,7 +1826,7 @@ from(bucket: {FluxLiteral.Quote(_longtermBucket)})
         "alloc_lost", "lan_link_status", "lan_mode",
         "lan_rx_fcs_err", "lan_tx_drop_events", "lan_buffer_overflow",
         "olt_vendor_id", "registration_status", "key_exchange_status", "firmware_version",
-        "olt_equipment_id", "olt_version",
+        "olt_equipment_id", "olt_version", "aes_active", "gem_ports_encrypted",
     };
 
     private static readonly string PonFieldFilter =
@@ -1870,6 +1870,8 @@ from(bucket: {FluxLiteral.Quote(_longtermBucket)})
             FirmwareVersion = record.GetValueByKey("firmware_version") as string,
             OltModel = record.GetValueByKey("olt_equipment_id") as string,
             OltVersion = record.GetValueByKey("olt_version") as string,
+            AesActive = record.GetValueByKey("aes_active") as bool?,
+            GemPortsEncrypted = AsLongOrNull(record.GetValueByKey("gem_ports_encrypted")),
         };
     }
 
@@ -4007,6 +4009,8 @@ from(bucket: {FluxLiteral.Quote(_longtermBucket)})
         public string? FirmwareVersion { get; set; }
         public string? OltModel { get; set; }
         public string? OltVersion { get; set; }
+        public bool? AesActive { get; set; }
+        public long? GemPortsEncrypted { get; set; }
     }
 
     /// <summary>
