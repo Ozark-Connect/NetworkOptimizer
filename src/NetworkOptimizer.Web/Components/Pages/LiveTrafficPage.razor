@@ -118,7 +118,12 @@
                 <div class="card lt-stat">
                     <div class="card-body">
                         <div class="lt-stat-label">@Pill(LiveTrafficField.Route, route.Name, cls: RouteClass(route.Kind))</div>
-                        @if (downPct is { } pct)
+                        @if (_view.State == LiveTrafficState.Starting)
+                        {
+                            <div class="lt-stat-value"><div class="spinner spinner-sm"></div></div>
+                            <div class="lt-stat-sub">Measuring rates</div>
+                        }
+                        else if (downPct is { } pct)
                         {
                             var capacity = (route.CapacityDownBps ?? 0) + (route.CapacityUpBps ?? 0);
                             <div class="lt-stat-value">@Math.Round(100 * (route.DownBps + route.UpBps) / capacity)%</div>
