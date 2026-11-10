@@ -8,7 +8,7 @@ import { renderFilterReset, isFiltered } from './chart-filter.js?v=6';
 import { createMarkLayer } from './chart-event-marks.js?v=13';
 import { createAxisDateCaption } from './chart-axis-date.js?v=5';
 import { syncIdentity, extentsOf, spanTo } from './chart-sync.js?v=9';
-import { ponSeriesFor, ponDetailsHtml, ponErrorTotalsHtml, updatePonCard, ponPayloadMbps, fmtPonLoad, ponLoadSummaryHtml, ponPathSummaryHtml, ponLaunchSeries } from './pon-section.js?v=12';
+import { ponSeriesFor, ponDetailsHtml, ponErrorTotalsHtml, updatePonCard, ponPayloadMbps, fmtPonLoad, ponLoadSummaryHtml, ponPathSummaryHtml, ponLaunchSeries, ponAvailSummaryHtml, ponGrantSummaryHtml, createPonLoadMap } from './pon-section.js?v=13';
 import { awaitContainer } from './chart-mount.js?v=1';
 import { loadWindowHours, saveWindowHours, markActiveRange, notifyWindowMoved } from './chart-window.js?v=2';
 
@@ -30,6 +30,12 @@ let ponErrChart = null;
 let ponGemChart = null;
 let ponUtilChart = null;
 let ponLossChart = null;
+let ponAvailChart = null;
+let ponGrantChart = null;
+const ponLoadMap = createPonLoadMap({
+    ApexCharts, url: '/api/monitoring/sfp-pon-load-hours',
+    cardSelector: '.sfp-pon-loadmap-card', chartSelector: '.sfp-pon-loadmap-chart', summarySelector: '.sfp-pon-loadmap-summary',
+});
 // The downstream payload rate the load chart's tooltip takes its percentages from.
 let ponPayload = ponPayloadMbps([]);
 let ponHostChart = null;
@@ -71,7 +77,7 @@ function padFirst(series) {
 const PON_ONLY_GROUP = 'sfp-pon';
 
 function setPonSyncGroup(group) {
-    for (const chart of [ponErrChart, ponGemChart, ponUtilChart, ponLossChart, ponHostChart]) {
+    for (const chart of [ponErrChart, ponGemChart, ponUtilChart, ponLossChart, ponAvailChart, ponGrantChart, ponHostChart]) {
         if (!chart?.w) continue;
         chart.w.config.chart.group = group;
         const entry = (window.Apex?._chartInstances || []).find(i => i.chart === chart);
@@ -312,7 +318,7 @@ async function refreshPonSection() {
     if (!ponErrChart) return;
     try {
         const multi = visiblePon.length > 1;
-        const errSeries = [], gemSeries = [], hostSeries = [], utilSeries = [], lossSeries = [];
+        const errSeries = [], gemSeries = [], hostSeries = [], utilSeries = [], lossSeries = [], availSeries = [], grantSeries = [];
         visiblePon.forEach(m => {
             const prefix = multi ? `${m.label} ` : '';
             const slot = Math.max(0, ponCapableModules.findIndex(x => x.id === m.id));
@@ -322,6 +328,8 @@ async function refreshPonSection() {
             hostSeries.push(...series.hostSeries);
             utilSeries.push(...series.utilSeries);
             lossSeries.push(...series.lossSeries);
+            availSeries.push(...series.availSeries);
+            grantSeries.push(...series.grantSeries);
         });
         // Every section of the contract is optional, so an implementation serving the GTC
         // counters and no host-link ones leaves that card empty for good. Hide what nothing fills.
@@ -330,6 +338,14 @@ async function refreshPonSection() {
         ponPayload = ponPayloadMbps(visiblePon);
         updatePonCard(container, '.sfp-pon-util-card', ponUtilChart, utilSeries, padFirst);
         updatePonCard(container, '.sfp-pon-loss-card', ponLossChart, lossSeries, padFirst);
+        updatePonCard(container, '.sfp-pon-avail-card', ponAvailChart, availSeries, padFirst);
+        updatePonCard(container, '.sfp-pon-grant-card', ponGrantChart, grantSeries, padFirst);
+        const availEl = container.querySelector('.sfp-pon-avail-summary');
+        if (availEl) availEl.innerHTML = ponAvailSummaryHtml(visiblePon);
+        const grantEl = container.querySelector('.sfp-pon-grant-summary');
+        if (grantEl) grantEl.innerHTML = ponGrantSummaryHtml(visiblePon);
+        // Fire-and-forget: its own request, and a failure there must not hold up the rest.
+        ponLoadMap.refresh(container, visiblePon).catch(() => {});
         const pathEl = container.querySelector('.sfp-pon-loss-summary');
         if (pathEl) pathEl.innerHTML = ponPathSummaryHtml(visiblePon);
         const summaryEl = container.querySelector('.sfp-pon-util-summary');
@@ -388,6 +404,10 @@ async function ensurePonChartsMounted() {
         utilOpts.tooltip = { ...utilOpts.tooltip, custom: ctx => valueSortedTooltip(ctx, { format: v => fmtPonLoad(v, ponPayload) }) };
         ponUtilChart = new ApexCharts(utilEl, { ...utilOpts, series: [], colors: PALETTE });
     }
+    const availEl = container.querySelector('.sfp-pon-avail-chart');
+    if (availEl) ponAvailChart = new ApexCharts(availEl, { ...baseOpts(160, 'seconds', v => v == null ? '' : v >= 10 ? v.toFixed(0) : v.toFixed(1), { yaxis: { min: 0 } }), series: [], colors: PALETTE });
+    const grantEl = container.querySelector('.sfp-pon-grant-chart');
+    if (grantEl) ponGrantChart = new ApexCharts(grantEl, { ...baseOpts(160, 'per second', fmtCount, { yaxis: { min: 0 } }), series: [], colors: PALETTE });
     const lossEl = container.querySelector('.sfp-pon-loss-chart');
     if (lossEl) ponLossChart = new ApexCharts(lossEl, { ...baseOpts(160, 'dB', v => v == null ? '' : v.toFixed(1) + ' dB', {
         yaxis: { min: v => Math.floor(v - 1), max: v => Math.ceil(v + 1) } }), series: [], colors: PALETTE });
@@ -395,7 +415,7 @@ async function ensurePonChartsMounted() {
     // No ponGem: GEM Frames takes no marks, so the layer never needs to reach it.
     chartEls.ponErr = ponErrEl;
     chartEls.ponHost = ponHostEl;
-    await Promise.all([ponErrChart.render(), ponGemChart.render(), ponHostChart.render(), ponUtilChart?.render(), ponLossChart?.render()].filter(Boolean));
+    await Promise.all([ponErrChart.render(), ponGemChart.render(), ponHostChart.render(), ponUtilChart?.render(), ponLossChart?.render(), ponAvailChart?.render(), ponGrantChart?.render()].filter(Boolean));
     // These arrive after the first draw, so they start with no marks on them.
     ponMarkLayer.reset();
     applyAnnotations();
@@ -636,6 +656,9 @@ export async function mount(elId) {
     if (ponGemChart) { ponGemChart.destroy(); ponGemChart = null; }
     if (ponUtilChart) { ponUtilChart.destroy(); ponUtilChart = null; }
     if (ponLossChart) { ponLossChart.destroy(); ponLossChart = null; }
+    if (ponAvailChart) { ponAvailChart.destroy(); ponAvailChart = null; }
+    if (ponGrantChart) { ponGrantChart.destroy(); ponGrantChart = null; }
+    ponLoadMap.destroy();
     if (ponHostChart) { ponHostChart.destroy(); ponHostChart = null; }
 
     powerChart = new ApexCharts(powerEl, {
@@ -771,6 +794,9 @@ export function unmount() {
     if (ponGemChart) { ponGemChart.destroy(); ponGemChart = null; }
     if (ponUtilChart) { ponUtilChart.destroy(); ponUtilChart = null; }
     if (ponLossChart) { ponLossChart.destroy(); ponLossChart = null; }
+    if (ponAvailChart) { ponAvailChart.destroy(); ponAvailChart = null; }
+    if (ponGrantChart) { ponGrantChart.destroy(); ponGrantChart = null; }
+    ponLoadMap.destroy();
     if (ponHostChart) { ponHostChart.destroy(); ponHostChart = null; }
     containerId = null;
     moduleMeta = [];

@@ -165,7 +165,8 @@ public static class SfpChartEndpoints
                         voltage = p.VoltageV
                     }),
                     pon = PonChartSeries.Build(ponData.TryGetValue(key, out var ponPts) ? ponPts : null),
-                    ponPath = PonChartSeries.SummarizePathLoss(ponPts)
+                    ponPath = PonChartSeries.SummarizePathLoss(ponPts),
+                    ponAvail = PonChartSeries.SummarizeAvailability(ponPts)
                 };
             }).ToList();
 
@@ -193,6 +194,36 @@ public static class SfpChartEndpoints
                 influx, db, hostsByNormalized, queryFrom, queryTo, ct, HostEventTypesMarkedHere);
 
             return Results.Ok(new { modules = result, events, deviceEvents });
+        });
+
+        // The PON's downstream load hour by hour over four weeks, for the hour-by-weekday map.
+        // Its own request rather than part of sfp-chart: that one is polled every few seconds
+        // and follows the window on screen, and this is a fixed month that changes once an hour.
+        group.MapGet("/api/monitoring/sfp-pon-load-hours", async (
+            MonitoringInfluxClient influx,
+            SiteDbContextFactory siteDbFactory,
+            SiteContextService siteContext,
+            CancellationToken ct) =>
+        {
+            await using var db = siteDbFactory.CreateForSite(siteContext.Slug, siteContext.IsDefault);
+            var sfps = await db.MonitoredSfps.AsNoTracking()
+                .Where(s => s.IsMonitoredOnt)
+                .Select(s => new { s.DeviceMac, s.PortName })
+                .ToListAsync(ct);
+            if (sfps.Count == 0)
+                return Results.Ok(new { days = -PonChartSeries.LoadMapDays, items = Array.Empty<object>() });
+
+            var to = DateTime.UtcNow;
+            var data = await influx.QuerySfpPonByModulesAsync(
+                sfps.Select(s => (s.DeviceMac, s.PortName)).ToList(),
+                to.AddDays(PonChartSeries.LoadMapDays), to, TimeSpan.FromHours(1), ct);
+            var items = sfps
+                .Select(s => $"{s.DeviceMac.Replace("-", ":").ToLowerInvariant()}:{s.PortName}")
+                .Distinct()
+                .Select(key => new { id = key, hours = PonChartSeries.HourlyLoad(data.TryGetValue(key, out var pts) ? pts : null) })
+                .Where(x => x.hours.Count > 0)
+                .ToList();
+            return Results.Ok(new { days = -PonChartSeries.LoadMapDays, items });
         });
     }
 

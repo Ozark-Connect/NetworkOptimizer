@@ -138,6 +138,48 @@ public class PonSupplementalStats
         return loss >= 0 ? Math.Round(loss, 2) : null;
     }
 
+    /// <summary>Bytes sent upstream in GEM frames, headers included.</summary>
+    public long? GemTxBytes { get; set; }
+
+    /// <summary>Upstream bursts sent: the transmit windows the OLT granted and the ONT used.</summary>
+    public long? UsBursts { get; set; }
+
+    /// <summary>Upstream DBRu reports sent: the ONT telling the OLT how much it has queued.</summary>
+    public long? UsDbru { get; set; }
+
+    /// <summary>Seconds spent in O5 (operation) since the ONT booted, as the ONT itself timed them.</summary>
+    public double? O5Seconds { get; set; }
+
+    /// <summary>Seconds spent in any other activation state since boot: the PON link being down.</summary>
+    public double? NotO5Seconds { get; set; }
+
+    /// <summary>Times the ONT left O5 since boot. Counts drops a poll every few minutes never sees.</summary>
+    public long? O5Exits { get; set; }
+
+    /// <summary>Loss-of-signal alarms raised since boot: the light went away.</summary>
+    public long? LosEvents { get; set; }
+
+    /// <summary>Seconds the loss-of-signal alarm stood since boot.</summary>
+    public double? LosSeconds { get; set; }
+
+    /// <summary>Loss-of-frame alarms raised since boot: light, but no frame to lock onto.</summary>
+    public long? LofEvents { get; set; }
+
+    /// <summary>Seconds the loss-of-frame alarm stood since boot.</summary>
+    public double? LofSeconds { get; set; }
+
+    /// <summary>
+    /// Downstream PLOAM messages by which the OLT takes an ONU off the PON, since boot:
+    /// Deactivate_ONU-ID and Disable_Serial_Number together.
+    /// </summary>
+    public long? OltDeactivations { get; set; }
+
+    /// <summary>Boots of the ONT since its last power cycle, this one included.</summary>
+    public long? BootCount { get; set; }
+
+    /// <summary>Why the ONT's previous boot ended, in the device's own word (reboot, power, panic, ...).</summary>
+    public string? LastResetReason { get; set; }
+
     /// <summary>GEM frames dropped at reassembly.</summary>
     public long? GemRxDropped { get; set; }
 

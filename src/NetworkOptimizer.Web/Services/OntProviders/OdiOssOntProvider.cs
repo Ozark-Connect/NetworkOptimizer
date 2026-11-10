@@ -201,6 +201,9 @@ public sealed class OdiOssOntProvider : ISfpSupplementalOntProvider
         var state = m.Long("gpon_onu_state");
         var known = ToPonLinkState(state) != PonLinkState.Unknown;
         var uptime = m.Double("gpon_uptime_seconds");
+        // A transition is printed once it has happened, so "never left O5" is the family being
+        // there without a from="O5" line, not a missing value.
+        var hasTransitions = m.Has("gpon_onu_state_transitions_total");
 
         return new PonSupplementalStats
         {
@@ -233,6 +236,22 @@ public sealed class OdiOssOntProvider : ISfpSupplementalOntProvider
             OdnClass = m.Long("gpon_pon_id_odn_class") is long cls and >= 0 and <= 4 ? cls : null,
             ReachExtender = m.Long("gpon_pon_id_reach_extender") is long re and (0 or 1) ? re : null,
             AllocTotal = m.Long("gpon_ds_bwmap_allocations_total"),
+            GemTxBytes = m.Long("gpon_us_gem_bytes_total"),
+            UsBursts = m.Long("gpon_us_bursts_total"),
+            UsDbru = m.Long("gpon_us_dbru_total"),
+
+            // The driver's own clock on the activation states and the alarms: what happened
+            // between two polls, which the state at poll time cannot say.
+            O5Seconds = Finite(m.Double("gpon_onu_state_seconds_total", ("state", "O5"))),
+            NotO5Seconds = m.SumDoubleExcept("gpon_onu_state_seconds_total", "state", "O5"),
+            O5Exits = m.SumLong("gpon_onu_state_transitions_total", ("from", "O5")) ?? (hasTransitions ? 0 : null),
+            LosEvents = m.Long("gpon_alarm_events_total", ("alarm", "los")),
+            LosSeconds = Finite(m.Double("gpon_alarm_seconds_total", ("alarm", "los"))),
+            LofEvents = m.Long("gpon_alarm_events_total", ("alarm", "lof")),
+            LofSeconds = Finite(m.Double("gpon_alarm_seconds_total", ("alarm", "lof"))),
+            OltDeactivations = OltDeactivations(m),
+            BootCount = m.Long("gpon_boot_count"),
+            LastResetReason = Clean(m.Label("gpon_last_reset_reason", "reason")),
 
             SfpUptimeS = uptime is >= 0 and < long.MaxValue ? (long)Math.Floor(uptime.Value) : null,
             FirmwareVersion = Clean(m.Label("gpon_image_info", "image")),
@@ -256,6 +275,18 @@ public sealed class OdiOssOntProvider : ISfpSupplementalOntProvider
     /// </summary>
     private static double? LaunchPower(double? dbm) =>
         Finite(dbm) is double d && d >= -30 && d <= 30 ? d : null;
+
+    /// <summary>
+    /// Deactivate_ONU-ID (message id 5) and Disable_Serial_Number (6) received, G.984.3 9.2.3: the
+    /// two ways an OLT takes an ONU off the PON. The exporter prints a type once it was seen, so
+    /// with the family present a missing type is zero.
+    /// </summary>
+    private static long? OltDeactivations(PrometheusText m)
+    {
+        if (!m.Has("gpon_ploam_messages_by_type_total")) return null;
+        return (m.Long("gpon_ploam_messages_by_type_total", ("direction", "ds"), ("type", "0x05")) ?? 0)
+             + (m.Long("gpon_ploam_messages_by_type_total", ("direction", "ds"), ("type", "0x06")) ?? 0);
+    }
 
     /// <summary>gpon_onu_state is the N in O(N), the same raw numbering as the netopt-custom contract.</summary>
     private static PonLinkState ToPonLinkState(long? state) => NetOptCustomPonOntProvider.ToPonLinkState(state);
@@ -369,6 +400,27 @@ public sealed class PrometheusText
                 return null;
             try { sum = checked(sum + v); }
             catch (OverflowException) { return null; }
+            any = true;
+        }
+        return any ? sum : null;
+    }
+
+    /// <summary>
+    /// The sum of <paramref name="name"/> over every sample whose <paramref name="label"/> is
+    /// not <paramref name="except"/>. Null when there is none or one is not a finite number.
+    /// </summary>
+    public double? SumDoubleExcept(string name, string label, string except)
+    {
+        if (!_series.TryGetValue(name, out var list))
+            return null;
+        double sum = 0;
+        var any = false;
+        foreach (var s in list)
+        {
+            if (!s.Labels.TryGetValue(label, out var value) || value == except) continue;
+            if (!double.TryParse(s.Value, NumberStyles.Float, CultureInfo.InvariantCulture, out var v) || !double.IsFinite(v))
+                return null;
+            sum += v;
             any = true;
         }
         return any ? sum : null;

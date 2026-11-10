@@ -80,6 +80,19 @@ export function ponSeriesFor(item, prefix, slot, palette) {
         lossSeries: [
             { name: `${prefix}${reachExtended(item) ? 'Path loss from reach extender' : 'Path loss'}`, data: ponPoints(item, 'pathLoss') },
         ],
+        // The ONT's own clock on its activation states and alarms: seconds of each interval the
+        // link was not in O5, and the seconds a loss of signal or of frame stood.
+        availSeries: [
+            { name: `${prefix}Link down`, data: ponPoints(item, 'downS') },
+            { name: `${prefix}Loss of signal`, data: ponPoints(item, 'losS') },
+            { name: `${prefix}Loss of frame`, data: ponPoints(item, 'lofS') },
+        ],
+        // What the OLT grants this ONT upstream, and what the ONT sends in those windows.
+        grantSeries: [
+            { name: `${prefix}Grants`, data: ponPoints(item, 'grantsPerS') },
+            { name: `${prefix}Bursts sent`, data: ponPoints(item, 'burstsPerS') },
+            { name: `${prefix}DBRu reports`, data: ponPoints(item, 'dbruPerS') },
+        ],
         hostSeries: [
             { name: `${prefix}FCS errors`, data: ponPoints(item, 'lanFcs') },
             { name: `${prefix}TX drops`, data: ponPoints(item, 'lanDrop') },
@@ -151,7 +164,11 @@ export function ponLoadSummaryHtml(items, palette, slotOf) {
         const used = item.pon.map(p => p.dsUsedMbps).filter(v => v != null);
         const parts = [`${dot(ponLoadColor(slot, 0, palette))}Whole PON, all ONTs: ${fmtPonLoad(used[used.length - 1], payload)} latest, ${fmtPonLoad(Math.max(...used), payload)} highest in this window`];
         const own = lastWithKey(item, 'dsOwnMbps');
-        if (own != null) parts.push(`${dot(ponLoadColor(slot, 1, palette))}This ONT: ${fmtPonLoad(own, payload)} latest`);
+        if (own != null) {
+            const share = lastWithKey(item, 'dsOwnShare');
+            parts.push(`${dot(ponLoadColor(slot, 1, palette))}This ONT: ${fmtPonLoad(own, payload)} latest`
+                + (share != null ? `, ${fmtShare(share)} % of what the PON carried` : ''));
+        }
         return `<div>${multi ? `${escapeHtml(item.label)}: ` : ''}${parts.join(' &nbsp; ')}</div>`;
     });
     const span = pointSpanText(withLoad[0].pon);
@@ -214,6 +231,167 @@ export function ponLaunchSeries(item, label, color) {
     const data = ponPoints(item, 'oltLaunch');
     if (!data.length) return null;
     return { name: `${label}${reachExtended(item) ? ' reach extender' : ' OLT'} launch (announced)`, color, data };
+}
+
+function fmtDuration(seconds) {
+    if (seconds < 60) return `${seconds < 10 ? seconds.toFixed(1) : Math.round(seconds)} s`;
+    if (seconds < 3600) return `${Math.floor(seconds / 60)} min ${Math.round(seconds % 60)} s`;
+    return `${Math.floor(seconds / 3600)} h ${Math.round(seconds % 3600 / 60)} min`;
+}
+
+const fmtWhen = t => noTime.string(Date.parse(t), { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+
+const OUTAGE_CAUSES = {
+    light: 'the light went away (loss of signal or frame)',
+    olt: 'the OLT sent the ONT away (deactivation message)',
+    'light+olt': 'loss of signal and a deactivation message from the OLT',
+    unknown: 'no alarm and no deactivation message in that interval',
+};
+
+/// The lines under the availability card's title, from the server's summary of the window
+/// (item.ponAvail): the share of time in O5 by the ONT's own clock, each stretch with a drop and
+/// what its counters point at, and the ONT's reboots, which are not downtime of the line.
+export function ponAvailSummaryHtml(items) {
+    const withAvail = (items || []).filter(item => item.ponAvail);
+    if (!withAvail.length) return '';
+    const multi = withAvail.length > 1;
+    const warn = text => `<div style="color: var(--warning-color);">${text}</div>`;
+    return withAvail.map(item => {
+        const s = item.ponAvail;
+        const out = [];
+        const head = s.availabilityPercent == null
+            ? 'No full interval in this window yet'
+            : `In O5 for ${s.availabilityPercent >= 99.995 && s.downSeconds > 0 ? s.availabilityPercent.toFixed(4) : s.availabilityPercent.toFixed(2)} % of this window`
+              + (s.drops || s.downSeconds
+                  ? `: ${s.drops} drop${s.drops === 1 ? '' : 's'}, ${fmtDuration(s.downSeconds)} down`
+                  : ', no drop');
+        const alarms = [];
+        if (s.losEvents) alarms.push(`${s.losEvents} loss of signal (${fmtDuration(s.losSeconds)})`);
+        if (s.lofEvents) alarms.push(`${s.lofEvents} loss of frame`);
+        if (s.oltDeactivations) alarms.push(`${s.oltDeactivations} deactivation by the OLT`);
+        out.push(`<div>${multi ? `${escapeHtml(item.label)}: ` : ''}${head}${alarms.length ? `. Alarms: ${alarms.join(', ')}` : ''}.</div>`);
+        for (const o of s.outages || []) {
+            out.push(warn(`${escapeHtml(fmtWhen(o.time))}: ${o.drops ? `${o.drops} drop${o.drops === 1 ? '' : 's'}, ` : ''}${fmtDuration(o.downSeconds)} down, ${OUTAGE_CAUSES[o.cause] || escapeHtml(o.cause)}.`));
+        }
+        for (const r of s.reboots || []) {
+            out.push(`<div>${escapeHtml(fmtWhen(r.time))}: the ONT restarted${r.reason ? ` (previous boot ended by: ${escapeHtml(r.reason)})` : ''}. Its counters began again, so that interval is left out.</div>`);
+        }
+        return out.join('');
+    }).join('')
+        + '<div>Timed by the ONT itself, so a drop between two polls counts. While the ONT restarts nothing is timed.</div>';
+}
+
+/// The line under the grants card's title: the latest rates, how much each burst carried, and the
+/// one condition worth a warning whatever the OLT's usual rate is: in O5 with no grants at all.
+export function ponGrantSummaryHtml(items) {
+    const withGrants = (items || []).filter(item => (item.pon || []).some(p => p.grantsPerS != null));
+    if (!withGrants.length) return '';
+    const multi = withGrants.length > 1;
+    const rate = v => v >= 100 ? Math.round(v).toLocaleString() : v.toFixed(1);
+    return withGrants.map(item => {
+        const last = [...item.pon].reverse().find(p => p.grantsPerS != null);
+        const parts = [`${rate(last.grantsPerS)} grants/s`];
+        if (last.burstsPerS != null) parts.push(`${rate(last.burstsPerS)} bursts/s sent`);
+        if (last.bytesPerBurst != null) parts.push(`${rate(last.bytesPerBurst)} bytes per burst`);
+        const line = `<div>${multi ? `${escapeHtml(item.label)}: ` : ''}Latest: ${parts.join(', ')}.</div>`;
+        const starved = last.state === 'operation' && last.grantsPerS === 0;
+        return line + (starved
+            ? '<div style="color: var(--warning-color);">In O5, but the OLT grants this ONT nothing: it is registered and cannot send.</div>'
+            : '');
+    }).join('')
+        + '<div>The usual grant rate is a property of the OLT, so read it for change, not against a fixed figure.</div>';
+}
+
+const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+const LOAD_MAP_REFRESH_MS = 10 * 60 * 1000;
+
+// Mean load per weekday and hour of day on the viewer's clock, from hourly values.
+function loadMapCells(hours) {
+    const sum = WEEKDAYS.map(() => new Array(24).fill(0));
+    const count = WEEKDAYS.map(() => new Array(24).fill(0));
+    for (const h of hours) {
+        const p = noTime.parts(Date.parse(h.time));
+        const day = (new Date(Date.UTC(p.year, p.month - 1, p.day)).getUTCDay() + 6) % 7;
+        sum[day][p.hour] += h.pct;
+        count[day][p.hour]++;
+    }
+    return { sum, count };
+}
+
+/// The hour-by-weekday map of the PON's downstream load: its own request (four weeks, hourly,
+/// refetched every ten minutes at most) and its own chart, so both tabs mount it with one call.
+/// `refresh` shows the map for the first visible ONT that has hours, and hides the card otherwise.
+export function createPonLoadMap({ ApexCharts, url, cardSelector, chartSelector, summarySelector }) {
+    let chart = null, data = null, fetchedAt = 0, pending = null;
+
+    async function load() {
+        if (data && Date.now() - fetchedAt < LOAD_MAP_REFRESH_MS) return data;
+        pending ??= fetch(url).then(r => r.ok ? r.json() : null).catch(() => null).finally(() => { pending = null; });
+        const fresh = await pending;
+        if (fresh) { data = fresh; fetchedAt = Date.now(); }
+        return data;
+    }
+
+    async function refresh(container, visibleItems) {
+        const card = container?.querySelector(cardSelector);
+        if (!card) return;
+        const loaded = await load();
+        const ids = new Set((visibleItems || []).map(i => String(i.id)));
+        const entry = (loaded?.items || []).find(i => ids.has(String(i.id)) && i.hours?.length);
+        if (!entry) { card.style.display = 'none'; return; }
+        // Shown before the chart mounts: a chart first rendered in a hidden container stays zero-size.
+        card.style.display = '';
+
+        const { sum, count } = loadMapCells(entry.hours);
+        // Apex draws the first series at the bottom, so Sunday goes in first to put Monday on top.
+        const series = WEEKDAYS.map((name, d) => ({
+            name,
+            data: sum[d].map((s, h) => ({ x: String(h).padStart(2, '0'), y: count[d][h] ? +(s / count[d][h]).toFixed(2) : null })),
+        })).reverse();
+
+        const el = card.querySelector(chartSelector);
+        if (el && !chart) {
+            chart = new ApexCharts(el, {
+                chart: { type: 'heatmap', height: 230, background: 'transparent', toolbar: { show: false }, animations: { enabled: false } },
+                series,
+                dataLabels: { enabled: false },
+                colors: ['#1F78C1'],
+                plotOptions: { heatmap: { radius: 1, enableShades: true, shadeIntensity: 0.9 } },
+                stroke: { width: 1, colors: ['#111827'] },
+                xaxis: { type: 'category', labels: { style: { colors: '#9ca3af' } }, title: { text: 'hour of day', style: { color: '#9ca3af' } } },
+                yaxis: { labels: { style: { colors: '#9ca3af' } } },
+                grid: { borderColor: '#374151' },
+                legend: { show: false },
+                tooltip: { theme: 'dark', y: { formatter: v => v == null ? 'no data' : `${fmtShare(v)} % mean` } },
+                noData: { text: 'No data yet', style: { color: '#64748b' } },
+            });
+            await chart.render();
+        } else if (chart) {
+            chart.updateSeries(series, false);
+        }
+
+        const summaryEl = card.querySelector(summarySelector);
+        if (summaryEl) {
+            let peak = null, low = null;
+            WEEKDAYS.forEach((name, d) => sum[d].forEach((s, h) => {
+                if (!count[d][h]) return;
+                const v = s / count[d][h];
+                if (!peak || v > peak.v) peak = { v, name, h };
+                if (!low || v < low.v) low = { v, name, h };
+            }));
+            const hourText = c => `${c.name} ${String(c.h).padStart(2, '0')}:00 (${fmtShare(c.v)} %)`;
+            const days = (Date.parse(entry.hours[entry.hours.length - 1].time) - Date.parse(entry.hours[0].time)) / 86400000;
+            const label = (visibleItems || []).find(i => String(i.id) === String(entry.id))?.label;
+            summaryEl.innerHTML = `<div>${ids.size > 1 && label ? `${escapeHtml(label)}: ` : ''}Busiest hour ${hourText(peak)}, quietest ${hourText(low)}.`
+                + ` Mean load of the whole PON per hour of the week, from ${days < 1.5 ? `${Math.round(days * 24)} hours` : `${Math.round(days)} days`} of data (up to ${loaded.days}).</div>`;
+        }
+    }
+
+    function destroy() {
+        if (chart) { chart.destroy(); chart = null; }
+    }
+
+    return { refresh, destroy };
 }
 
 const ODN_CLASSES = ['A (5-20 dB)', 'B (10-25 dB)', 'B+ (13-28 dB)', 'C (15-30 dB)', 'C+ (17-32 dB)'];

@@ -217,6 +217,82 @@ public class OdiOssOntProviderTests
         PonSupplementalStats.PathLossDb(-20, -10).Should().BeNull("more received than launched");
     }
 
+    // The driver's state clock, alarms, PLOAM types and upstream counters, from a live scrape
+    // 25 minutes after boot. A transition or a PLOAM type is printed once it has happened.
+    private const string LinkHistory = """
+
+    gpon_boot_count 6
+    gpon_last_reset_reason{reason="reboot"} 1
+    gpon_us_bursts_total 11685832
+    gpon_us_dbru_total 11631693
+    gpon_us_gem_bytes_total 1676665625
+    gpon_alarm_events_total{alarm="los"} 0
+    gpon_alarm_events_total{alarm="lof"} 1
+    gpon_alarm_events_total{alarm="lom"} 1
+    gpon_alarm_seconds_total{alarm="los"} 0.000
+    gpon_alarm_seconds_total{alarm="lof"} 0.300
+    gpon_onu_state_seconds_total{state="O1"} 0.000
+    gpon_onu_state_seconds_total{state="O2"} 1.024
+    gpon_onu_state_seconds_total{state="O3"} 1.024
+    gpon_onu_state_seconds_total{state="O4"} 0.000
+    gpon_onu_state_seconds_total{state="O5"} 1460.224
+    gpon_onu_state_seconds_total{state="O6"} 0.000
+    gpon_onu_state_seconds_total{state="O7"} 0.000
+    gpon_onu_state_transitions_total{from="O1",to="O2"} 1
+    gpon_onu_state_transitions_total{from="O4",to="O5"} 1
+    gpon_ploam_messages_by_type_total{direction="ds",type="0x01"} 771
+    gpon_ploam_messages_by_type_total{direction="us",type="0x05"} 6
+    """;
+
+    [Fact]
+    public void MapToSupplemental_LinkHistory_MapsStateClockAlarmsAndUpstream()
+    {
+        var pon = OdiOssOntProvider.MapToSupplemental(Metrics(Scrape + LinkHistory));
+
+        pon.O5Seconds.Should().Be(1460.224);
+        pon.NotO5Seconds.Should().BeApproximately(2.048, 1e-9, "every state but O5");
+        pon.O5Exits.Should().Be(0, "transitions are listed and none leaves O5");
+        pon.LosEvents.Should().Be(0);
+        pon.LofEvents.Should().Be(1);
+        pon.LofSeconds.Should().Be(0.3);
+        pon.OltDeactivations.Should().Be(0, "the upstream 0x05 is another message");
+        pon.BootCount.Should().Be(6);
+        pon.LastResetReason.Should().Be("reboot");
+        pon.UsBursts.Should().Be(11685832);
+        pon.UsDbru.Should().Be(11631693);
+        pon.GemTxBytes.Should().Be(1676665625);
+    }
+
+    [Fact]
+    public void MapToSupplemental_DropsAndDeactivations_AreCounted()
+    {
+        var pon = OdiOssOntProvider.MapToSupplemental(Metrics(Scrape + LinkHistory + """
+
+        gpon_onu_state_transitions_total{from="O5",to="O6"} 2
+        gpon_onu_state_transitions_total{from="O5",to="O2"} 1
+        gpon_ploam_messages_by_type_total{direction="ds",type="0x05"} 1
+        gpon_ploam_messages_by_type_total{direction="ds",type="0x06"} 2
+        """));
+
+        pon.O5Exits.Should().Be(3);
+        pon.OltDeactivations.Should().Be(3, "Deactivate_ONU-ID and Disable_Serial_Number");
+    }
+
+    [Fact]
+    public void MapToSupplemental_NoLinkHistory_LeavesItNull()
+    {
+        // The stock firmware's exporter, or an older metricsd: nothing to count from.
+        var pon = OdiOssOntProvider.MapToSupplemental(Metrics());
+
+        pon.O5Seconds.Should().BeNull();
+        pon.NotO5Seconds.Should().BeNull();
+        pon.O5Exits.Should().BeNull("no transition family is not zero drops");
+        pon.OltDeactivations.Should().BeNull();
+        pon.LosEvents.Should().BeNull();
+        pon.BootCount.Should().BeNull();
+        pon.LastResetReason.Should().BeNull();
+    }
+
     [Fact]
     public void MapToSupplemental_UnsupportedFields_StayNull()
     {

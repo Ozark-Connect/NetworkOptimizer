@@ -349,4 +349,189 @@ public class PonChartSeriesTests
         PonChartSeries.SummarizePathLoss([]).Should().BeNull();
         PonChartSeries.SummarizePathLoss([Point(0, 1000), Point(10, 2000)]).Should().BeNull("older firmware or an OLT without PON-ID");
     }
+
+    /// <summary>One poll every five minutes on one boot, the ONT's clocks running with the wall clock.</summary>
+    private static List<MonitoringInfluxClient.PonSeriesPoint> Link(int n) =>
+        Enumerable.Range(0, n).Select(i => new MonitoringInfluxClient.PonSeriesPoint
+        {
+            Time = T0.AddMinutes(5 * i),
+            PonLinkStatus = "operation",
+            SfpUptimeS = 1000 + 300 * i,
+            O5Seconds = 998 + 300.0 * i,
+            NotO5Seconds = 2,
+            O5Exits = 0,
+            LosEvents = 0,
+            LosSeconds = 0,
+            LofEvents = 0,
+            OltDeactivations = 0,
+            DsSuperframe = 8000L * 300 * i,
+            AllocTotal = 600_000L * i,
+            UsBursts = 300_000L * i,
+            UsDbru = 299_000L * i,
+            GemTxBytes = 30_000_000L * i,
+        }).ToList();
+
+    /// <summary>Puts a drop into the interval ending at point <paramref name="at"/>, and carries it forward.</summary>
+    private static void Drop(List<MonitoringInfluxClient.PonSeriesPoint> points, int at, double seconds, long los = 0, long deact = 0)
+    {
+        for (var i = at; i < points.Count; i++)
+        {
+            points[i].O5Seconds -= seconds;
+            points[i].NotO5Seconds += seconds;
+            points[i].O5Exits += 1;
+            points[i].LosEvents += los;
+            points[i].LosSeconds += los > 0 ? seconds : 0;
+            points[i].OltDeactivations += deact;
+        }
+    }
+
+    [Fact]
+    public void SummarizeAvailability_CleanWindow_IsFullyAvailable()
+    {
+        var s = PonChartSeries.SummarizeAvailability(Link(13))!;
+
+        s.AvailabilityPercent.Should().Be(100);
+        s.Drops.Should().Be(0);
+        s.DownSeconds.Should().Be(0);
+        s.Outages.Should().BeEmpty();
+        s.Reboots.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void SummarizeAvailability_DropBetweenPolls_CountsWithItsCause()
+    {
+        // Both polls saw O5; the ONT's own clock says it was out for 36 s in between.
+        var points = Link(13);
+        Drop(points, 4, 36, los: 1);
+        Drop(points, 9, 12, deact: 1);
+
+        var s = PonChartSeries.SummarizeAvailability(points)!;
+
+        s.Drops.Should().Be(2);
+        s.DownSeconds.Should().Be(48);
+        s.AvailabilityPercent.Should().BeApproximately(100 * (3600 - 48) / 3600.0, 0.001);
+        s.LosEvents.Should().Be(1);
+        s.LosSeconds.Should().Be(36);
+        s.OltDeactivations.Should().Be(1);
+        s.Outages.Select(o => (o.Time, o.DownSeconds, o.Cause)).Should().Equal(
+            (T0.AddMinutes(20).ToString("o"), 36, "light"),
+            (T0.AddMinutes(45).ToString("o"), 12, "olt"));
+    }
+
+    [Fact]
+    public void SummarizeAvailability_DropWithoutAlarmOrMessage_IsUnknown()
+    {
+        var points = Link(6);
+        Drop(points, 3, 5);
+
+        PonChartSeries.SummarizeAvailability(points)!.Outages.Should().ContainSingle().Which.Cause.Should().Be("unknown");
+    }
+
+    [Fact]
+    public void SummarizeAvailability_OntReboot_IsAnEventNotDowntime()
+    {
+        var points = Link(8);
+        // The ONT restarted before point 5: uptime and every counter began again.
+        for (var i = 5; i < points.Count; i++)
+        {
+            points[i].SfpUptimeS = 60 + 300 * (i - 5);
+            points[i].O5Seconds = 58 + 300.0 * (i - 5);
+            points[i].LastResetReason = "wdt_userland";
+        }
+
+        var s = PonChartSeries.SummarizeAvailability(points)!;
+
+        s.Reboots.Should().ContainSingle().Which.Should().Be(
+            new PonChartSeries.PonReboot(T0.AddMinutes(25).ToString("o"), "wdt_userland"));
+        s.Outages.Should().BeEmpty();
+        s.Drops.Should().Be(0);
+        s.AvailabilityPercent.Should().Be(100, "the interval across the reboot is left out");
+    }
+
+    [Fact]
+    public void SummarizeAvailability_NoStateClock_IsNull()
+    {
+        PonChartSeries.SummarizeAvailability(null).Should().BeNull();
+        PonChartSeries.SummarizeAvailability([Point(0, 1000), Point(10, 2000)]).Should().BeNull("a source without the state clock");
+    }
+
+    [Fact]
+    public void Build_LinkSeries_AreRatesAndSecondsPerInterval()
+    {
+        var points = Link(4);
+        Drop(points, 2, 36, los: 1);
+
+        var json = System.Text.Json.JsonSerializer.Serialize(PonChartSeries.Build(points)!);
+        var rows = System.Text.Json.JsonDocument.Parse(json).RootElement;
+
+        rows[0].GetProperty("grantsPerS").ValueKind.Should().Be(System.Text.Json.JsonValueKind.Null, "the first point has no interval");
+        rows[1].GetProperty("grantsPerS").GetDouble().Should().Be(2000);
+        rows[1].GetProperty("burstsPerS").GetDouble().Should().Be(1000);
+        rows[1].GetProperty("bytesPerBurst").GetDouble().Should().Be(100);
+        rows[1].GetProperty("downS").GetDouble().Should().Be(0);
+        rows[2].GetProperty("downS").GetDouble().Should().Be(36);
+        rows[2].GetProperty("losS").GetDouble().Should().Be(36);
+        rows[3].GetProperty("downS").GetDouble().Should().Be(0);
+    }
+
+    [Fact]
+    public void Build_AcrossAReboot_LeavesTheIntervalOut()
+    {
+        var points = Link(3);
+        points[2].SfpUptimeS = 30;
+        points[2].NotO5Seconds = 2;
+        points[2].AllocTotal = 1000;
+
+        var rows = System.Text.Json.JsonDocument.Parse(
+            System.Text.Json.JsonSerializer.Serialize(PonChartSeries.Build(points)!)).RootElement;
+
+        rows[2].GetProperty("downS").ValueKind.Should().Be(System.Text.Json.JsonValueKind.Null);
+        rows[2].GetProperty("grantsPerS").ValueKind.Should().Be(System.Text.Json.JsonValueKind.Null, "the counter went back");
+    }
+
+    [Fact]
+    public void OwnShare_IsOwnDownstreamOverThePonsLoad()
+    {
+        // 300 s: the PON carried 27.65 Mbit/s (see the measured interval above, scaled), this ONT 2.765.
+        var prev = Point(0, 0);
+        prev.GemRxBytes = 0;
+        var cur = Point(7200L * 2_400_000, 2_400_000);
+        cur.GemRxBytes = (long)(2.765e6 / 8 * 300);
+
+        PonChartSeries.OwnShare(cur, prev).Should().BeApproximately(10, 0.05);
+    }
+
+    [Fact]
+    public void OwnShare_NotComputable_IsNull()
+    {
+        var prev = Point(0, 0);
+        var cur = Point(7200L * 2_400_000, 2_400_000);
+
+        PonChartSeries.OwnShare(cur, prev).Should().BeNull("no byte counter");
+        PonChartSeries.OwnShare(cur, null).Should().BeNull();
+    }
+
+    [Fact]
+    public void HourlyLoad_OneValuePerHour_SkipsGaps()
+    {
+        MonitoringInfluxClient.PonSeriesPoint At(double hours, long frames) => new()
+        {
+            Time = T0.AddHours(hours), DsFecEnabled = 1, DsSuperframe = frames % (1L << 30), GemRxIdleFrames = 7200L * frames,
+        };
+        const long hourFrames = 8000L * 3600;
+        var points = new List<MonitoringInfluxClient.PonSeriesPoint>
+        {
+            At(0, 0), At(1, hourFrames), At(2, 2 * hourFrames),
+            // Five hours without data: not one long hour.
+            At(7, 7 * hourFrames), At(8, 8 * hourFrames),
+        };
+
+        var rows = System.Text.Json.JsonDocument.Parse(
+            System.Text.Json.JsonSerializer.Serialize(PonChartSeries.HourlyLoad(points))).RootElement;
+
+        rows.GetArrayLength().Should().Be(3);
+        rows[0].GetProperty("pct").GetDouble().Should().BeApproximately(1.186, 0.001);
+        rows[0].GetProperty("time").GetString().Should().Be(T0.AddMinutes(30).ToString("o"), "the middle of the hour it stands for");
+        rows[2].GetProperty("time").GetString().Should().Be(T0.AddHours(7.5).ToString("o"));
+    }
 }

@@ -1823,6 +1823,8 @@ from(bucket: {FluxLiteral.Quote(_longtermBucket)})
         "onu_response_time", "sfp_uptime_s", "ploam_elapsed_ms", "bip_errors", "fec_errors", "fec_corrected_words",
         "hec_corrected", "hec_uncorrected", "bwmap_corrected", "bwmap_uncorrected",
         "gem_tx_frames", "gem_tx_idle_frames", "gem_rx_frames", "gem_rx_idle_frames", "ds_superframe", "gem_rx_dropped",
+        "alloc_total", "gem_tx_bytes", "us_bursts", "us_dbru", "o5_seconds", "not_o5_seconds", "o5_exits",
+        "los_events", "los_seconds", "lof_events", "lof_seconds", "olt_deactivations", "boot_count", "last_reset_reason",
         "ds_superframe_sampled", "gem_rx_bytes", "olt_launch_power_dbm", "odn_class", "reach_extender", "path_loss_db",
         "alloc_lost", "lan_link_status", "lan_mode",
         "lan_rx_fcs_err", "lan_tx_drop_events", "lan_buffer_overflow",
@@ -1866,6 +1868,20 @@ from(bucket: {FluxLiteral.Quote(_longtermBucket)})
             OdnClass = AsLongOrNull(record.GetValueByKey("odn_class")),
             ReachExtender = AsLongOrNull(record.GetValueByKey("reach_extender")),
             PathLossDb = AsDoubleOrNull(record.GetValueByKey("path_loss_db")),
+            AllocTotal = AsLongOrNull(record.GetValueByKey("alloc_total")),
+            GemTxBytes = AsLongOrNull(record.GetValueByKey("gem_tx_bytes")),
+            UsBursts = AsLongOrNull(record.GetValueByKey("us_bursts")),
+            UsDbru = AsLongOrNull(record.GetValueByKey("us_dbru")),
+            O5Seconds = AsDoubleOrNull(record.GetValueByKey("o5_seconds")),
+            NotO5Seconds = AsDoubleOrNull(record.GetValueByKey("not_o5_seconds")),
+            O5Exits = AsLongOrNull(record.GetValueByKey("o5_exits")),
+            LosEvents = AsLongOrNull(record.GetValueByKey("los_events")),
+            LosSeconds = AsDoubleOrNull(record.GetValueByKey("los_seconds")),
+            LofEvents = AsLongOrNull(record.GetValueByKey("lof_events")),
+            LofSeconds = AsDoubleOrNull(record.GetValueByKey("lof_seconds")),
+            OltDeactivations = AsLongOrNull(record.GetValueByKey("olt_deactivations")),
+            BootCount = AsLongOrNull(record.GetValueByKey("boot_count")),
+            LastResetReason = record.GetValueByKey("last_reset_reason") as string,
             GemRxDropped = AsLongOrNull(record.GetValueByKey("gem_rx_dropped")),
             AllocLost = AsLongOrNull(record.GetValueByKey("alloc_lost")),
             LanLinkStatus = AsLongOrNull(record.GetValueByKey("lan_link_status")),
@@ -1921,6 +1937,19 @@ from(bucket: {FluxLiteral.Quote(_longtermBucket)})
         // the host device's DDM read of the module instead of the ONT's own.
         if (PonSupplementalStats.PathLossDb(stats.OltLaunchPowerDbm, stats.RxPowerDbm) is double pathLoss)
             point = point.Field("path_loss_db", pathLoss);
+        if (stats.GemTxBytes.HasValue) point = point.Field("gem_tx_bytes", stats.GemTxBytes.Value);
+        if (stats.UsBursts.HasValue) point = point.Field("us_bursts", stats.UsBursts.Value);
+        if (stats.UsDbru.HasValue) point = point.Field("us_dbru", stats.UsDbru.Value);
+        if (stats.O5Seconds.HasValue) point = point.Field("o5_seconds", stats.O5Seconds.Value);
+        if (stats.NotO5Seconds.HasValue) point = point.Field("not_o5_seconds", stats.NotO5Seconds.Value);
+        if (stats.O5Exits.HasValue) point = point.Field("o5_exits", stats.O5Exits.Value);
+        if (stats.LosEvents.HasValue) point = point.Field("los_events", stats.LosEvents.Value);
+        if (stats.LosSeconds.HasValue) point = point.Field("los_seconds", stats.LosSeconds.Value);
+        if (stats.LofEvents.HasValue) point = point.Field("lof_events", stats.LofEvents.Value);
+        if (stats.LofSeconds.HasValue) point = point.Field("lof_seconds", stats.LofSeconds.Value);
+        if (stats.OltDeactivations.HasValue) point = point.Field("olt_deactivations", stats.OltDeactivations.Value);
+        if (stats.BootCount.HasValue) point = point.Field("boot_count", stats.BootCount.Value);
+        if (!string.IsNullOrEmpty(stats.LastResetReason)) point = point.Field("last_reset_reason", stats.LastResetReason);
         if (stats.GemRxDropped.HasValue) point = point.Field("gem_rx_dropped", stats.GemRxDropped.Value);
         if (stats.AllocTotal.HasValue) point = point.Field("alloc_total", stats.AllocTotal.Value);
         if (stats.AllocLost.HasValue) point = point.Field("alloc_lost", stats.AllocLost.Value);
@@ -4016,6 +4045,20 @@ from(bucket: {FluxLiteral.Quote(_longtermBucket)})
         public long? OdnClass { get; set; }
         public long? ReachExtender { get; set; }
         public double? PathLossDb { get; set; }
+        public long? AllocTotal { get; set; }
+        public long? GemTxBytes { get; set; }
+        public long? UsBursts { get; set; }
+        public long? UsDbru { get; set; }
+        public double? O5Seconds { get; set; }
+        public double? NotO5Seconds { get; set; }
+        public long? O5Exits { get; set; }
+        public long? LosEvents { get; set; }
+        public double? LosSeconds { get; set; }
+        public long? LofEvents { get; set; }
+        public double? LofSeconds { get; set; }
+        public long? OltDeactivations { get; set; }
+        public long? BootCount { get; set; }
+        public string? LastResetReason { get; set; }
         public long? GemRxDropped { get; set; }
         public long? AllocLost { get; set; }
         public long? HecCorrected { get; set; }

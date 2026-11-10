@@ -101,6 +101,7 @@ public static class OntChartEndpoints
                     data = items,
                     pon,
                     ponPath = PonChartSeries.SummarizePathLoss(ponPoints),
+                    ponAvail = PonChartSeries.SummarizeAvailability(ponPoints),
                     linkUptime = lastWith.FirstOrDefault(p => p.LinkUptimeSeconds != null)?.LinkUptimeSeconds,
                     ponType = lastWith.FirstOrDefault(p => p.PonType != null)?.PonType,
                     olt,
@@ -117,6 +118,31 @@ public static class OntChartEndpoints
             var events = await BuildOntEventsAsync(siteDbFactory, siteContext, chartedOnts, queryFrom, queryTo, ct);
 
             return Results.Ok(new { devices = result, events });
+        });
+
+        // The PON's downstream load hour by hour over four weeks, for the hour-by-weekday map.
+        // Its own request rather than part of ont-chart: that one is polled every few seconds
+        // and follows the window on screen, and this is a fixed month that changes once an hour.
+        group.MapGet("/api/monitoring/ont-pon-load-hours", async (
+            MonitoringInfluxClient influx,
+            IOntMonitorService ontService,
+            CancellationToken ct) =>
+        {
+            var to = DateTime.UtcNow;
+            var data = await influx.QueryOntAsync(
+                to.AddDays(PonChartSeries.LoadMapDays), to, null, TimeSpan.FromHours(1), includePon: true, ct: ct);
+            var configs = await ontService.GetStandaloneConfigsAsync();
+            var known = configs.Select(c => c.Id.ToString()).ToHashSet();
+            var items = data
+                .Where(kvp => known.Contains(kvp.Key))
+                .Select(kvp => new
+                {
+                    id = kvp.Key,
+                    hours = PonChartSeries.HourlyLoad(kvp.Value.Select(p => p.Pon).OfType<MonitoringInfluxClient.PonSeriesPoint>().ToList()),
+                })
+                .Where(x => x.hours.Count > 0)
+                .ToList();
+            return Results.Ok(new { days = -PonChartSeries.LoadMapDays, items });
         });
     }
 

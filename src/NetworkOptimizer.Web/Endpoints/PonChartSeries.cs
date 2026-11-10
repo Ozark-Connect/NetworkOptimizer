@@ -60,6 +60,17 @@ public static class PonChartSeries
                 dsUtil = DownstreamUtilization(p, prev)?.Percent,
                 dsUsedMbps = DownstreamUtilization(p, prev)?.Mbps,
                 dsOwnMbps = OwnDownstreamMbps(p, prev),
+                dsOwnShare = OwnShare(p, prev),
+                // What the ONT's own clocks say happened inside the interval.
+                downS = SameBoot(p, prev) ? DeltaSeconds(p.NotO5Seconds, prev?.NotO5Seconds) : null,
+                losS = SameBoot(p, prev) ? DeltaSeconds(p.LosSeconds, prev?.LosSeconds) : null,
+                lofS = SameBoot(p, prev) ? DeltaSeconds(p.LofSeconds, prev?.LofSeconds) : null,
+                // Upstream scheduling: what the OLT grants this ONT and what the ONT makes of it.
+                grantsPerS = PerSecond(p.AllocTotal, prev?.AllocTotal, p, prev),
+                burstsPerS = PerSecond(p.UsBursts, prev?.UsBursts, p, prev),
+                dbruPerS = PerSecond(p.UsDbru, prev?.UsDbru, p, prev),
+                bytesPerBurst = Delta(p.GemTxBytes, prev?.GemTxBytes) is long txBytes && Delta(p.UsBursts, prev?.UsBursts) is long bursts and > 0
+                    ? Math.Round((double)txBytes / bursts, 1) : (double?)null,
                 pathLoss = p.PathLossDb,
                 oltLaunch = p.OltLaunchPowerDbm,
                 odnClass = p.OdnClass,
@@ -156,12 +167,174 @@ public static class PonChartSeries
             || bytes < bytesPrev)
             return null;
 
+        if (IntervalSeconds(cur, prev) is not double seconds) return null;
+
+        return Math.Round((bytes - bytesPrev) * 8 / seconds / 1e6, 3);
+    }
+
+    /// <summary>The length of one interval: by the superframe counter where there is one, by the clock otherwise.</summary>
+    private static double? IntervalSeconds(
+        MonitoringInfluxClient.PonSeriesPoint cur, MonitoringInfluxClient.PonSeriesPoint prev)
+    {
         var seconds = FramesBetween(cur, prev) is long frames
             ? frames / GponFramesPerSecond
             : (cur.Time - prev.Time).TotalSeconds;
-        if (seconds <= 0) return null;
+        return seconds > 0 ? seconds : null;
+    }
 
-        return Math.Round((bytes - bytesPrev) * 8 / seconds / 1e6, 3);
+    /// <summary>
+    /// This ONT's share of everything the PON carried downstream in the interval, in percent.
+    /// Both sides come from the same pair of points, so numerator and denominator cover the same
+    /// stretch. Null without both, and null when the PON's own figure is zero.
+    /// </summary>
+    public static double? OwnShare(
+        MonitoringInfluxClient.PonSeriesPoint cur, MonitoringInfluxClient.PonSeriesPoint? prev)
+    {
+        if (OwnDownstreamMbps(cur, prev) is not double own
+            || DownstreamUtilization(cur, prev) is not { Mbps: > 0 } load)
+            return null;
+        return Math.Round(Math.Min(100, own / load.Mbps * 100), 2);
+    }
+
+    /// <summary>
+    /// False across a reboot of the ONT: its uptime went back, so every counter restarted and the
+    /// interval says nothing about the line. Points without an uptime are taken as one boot.
+    /// </summary>
+    internal static bool SameBoot(
+        MonitoringInfluxClient.PonSeriesPoint cur, MonitoringInfluxClient.PonSeriesPoint? prev) =>
+        prev is not null && !(cur.SfpUptimeS is long up && prev.SfpUptimeS is long upPrev && up < upPrev);
+
+    private static double? DeltaSeconds(double? cur, double? prev) =>
+        cur is double c && prev is double p && c >= p ? Math.Round(c - p, 1) : null;
+
+    private static double? PerSecond(
+        long? cur, long? prev, MonitoringInfluxClient.PonSeriesPoint curPoint, MonitoringInfluxClient.PonSeriesPoint? prevPoint)
+    {
+        if (prevPoint is null || cur is not long c || prev is not long p || c < p
+            || IntervalSeconds(curPoint, prevPoint) is not double seconds)
+            return null;
+        return Math.Round((c - p) / seconds, 1);
+    }
+
+    /// <summary>One stretch in which the PON link was down, by the cause its counters point at.</summary>
+    public sealed record PonOutage(string Time, double DownSeconds, long Drops, string Cause);
+
+    /// <summary>
+    /// How available the PON link was over the window, from the ONT's own state clock rather than
+    /// from the state at each poll, so a drop between two polls counts.
+    /// </summary>
+    public sealed record AvailabilitySummary
+    {
+        /// <summary>Seconds in O5 as a share of all seconds the ONT timed, in percent.</summary>
+        public double? AvailabilityPercent { get; init; }
+        public double DownSeconds { get; init; }
+        /// <summary>Times the ONT left O5.</summary>
+        public long Drops { get; init; }
+        public long LosEvents { get; init; }
+        public double LosSeconds { get; init; }
+        public long LofEvents { get; init; }
+        public long OltDeactivations { get; init; }
+        /// <summary>Reboots of the ONT inside the window. Not counted as downtime of the line.</summary>
+        public IReadOnlyList<PonReboot> Reboots { get; init; } = [];
+        /// <summary>The newest stretches with a drop or downtime, oldest first.</summary>
+        public IReadOnlyList<PonOutage> Outages { get; init; } = [];
+    }
+
+    public sealed record PonReboot(string Time, string? Reason);
+
+    private const int MaxOutages = 10;
+
+    /// <summary>How far back the hour-by-weekday load map reads, as an offset in days: four of each weekday.</summary>
+    public const int LoadMapDays = -28;
+
+    /// <summary>
+    /// Null when no point carries the ONT's state clock. An interval across a reboot is left out of
+    /// the sums and listed as a reboot: the counters restarted, and what the line did meanwhile is
+    /// not known. The cause of an outage is read off what else moved in the same interval: a loss
+    /// of signal or of frame is the light ("light"), a deactivation message is the OLT sending the
+    /// ONT away ("olt"), both is "light+olt", neither is "unknown".
+    /// </summary>
+    public static AvailabilitySummary? SummarizeAvailability(List<MonitoringInfluxClient.PonSeriesPoint>? points)
+    {
+        if (points is not { Count: > 0 } || !points.Any(p => p.O5Seconds.HasValue)) return null;
+        var ordered = points.OrderBy(p => p.Time).ToList();
+
+        double up = 0, down = 0, losSeconds = 0;
+        long drops = 0, los = 0, lof = 0, deact = 0;
+        var outages = new List<PonOutage>();
+        var reboots = new List<PonReboot>();
+        for (var i = 1; i < ordered.Count; i++)
+        {
+            var (cur, prev) = (ordered[i], ordered[i - 1]);
+            if (!SameBoot(cur, prev))
+            {
+                reboots.Add(new(cur.Time.ToString("o"), cur.LastResetReason));
+                continue;
+            }
+            var dUp = DeltaSeconds(cur.O5Seconds, prev.O5Seconds) ?? 0;
+            var dDown = DeltaSeconds(cur.NotO5Seconds, prev.NotO5Seconds) ?? 0;
+            var dDrops = Delta(cur.O5Exits, prev.O5Exits) ?? 0;
+            var dLos = Delta(cur.LosEvents, prev.LosEvents) ?? 0;
+            var dLof = Delta(cur.LofEvents, prev.LofEvents) ?? 0;
+            var dDeact = Delta(cur.OltDeactivations, prev.OltDeactivations) ?? 0;
+            up += dUp;
+            down += dDown;
+            drops += dDrops;
+            los += dLos;
+            lof += dLof;
+            deact += dDeact;
+            losSeconds += DeltaSeconds(cur.LosSeconds, prev.LosSeconds) ?? 0;
+
+            if (dDrops > 0 || dDown > 0)
+            {
+                var light = dLos > 0 || dLof > 0;
+                var cause = (light, dDeact > 0) switch
+                {
+                    (true, true) => "light+olt",
+                    (true, false) => "light",
+                    (false, true) => "olt",
+                    _ => "unknown",
+                };
+                outages.Add(new(cur.Time.ToString("o"), dDown, dDrops, cause));
+            }
+        }
+
+        return new AvailabilitySummary
+        {
+            AvailabilityPercent = up + down > 0 ? Math.Round(up / (up + down) * 100, 4) : null,
+            DownSeconds = Math.Round(down, 1),
+            Drops = drops,
+            LosEvents = los,
+            LosSeconds = Math.Round(losSeconds, 1),
+            LofEvents = lof,
+            OltDeactivations = deact,
+            Reboots = reboots.Count > MaxOutages ? reboots.GetRange(reboots.Count - MaxOutages, MaxOutages) : reboots,
+            Outages = outages.Count > MaxOutages ? outages.GetRange(outages.Count - MaxOutages, MaxOutages) : outages,
+        };
+    }
+
+    private static long? Delta(long? cur, long? prev) =>
+        cur is long c && prev is long p && c >= p ? c - p : null;
+
+    /// <summary>
+    /// The PON's downstream load per point of an hourly series, for the hour-by-weekday map. The
+    /// points are the last reading of each hour, so each value is that hour's mean.
+    /// </summary>
+    public static List<object> HourlyLoad(List<MonitoringInfluxClient.PonSeriesPoint>? points)
+    {
+        var items = new List<object>();
+        if (points is not { Count: > 1 }) return items;
+        var ordered = points.OrderBy(p => p.Time).ToList();
+        for (var i = 1; i < ordered.Count; i++)
+        {
+            // A gap in the data is not an hour: two points far apart would smear days into one cell.
+            if ((ordered[i].Time - ordered[i - 1].Time).TotalHours > 1.5) continue;
+            if (DownstreamUtilization(ordered[i], ordered[i - 1]) is not { } load) continue;
+            // The middle of the hour the value stands for, so it lands in the right cell.
+            var mid = ordered[i - 1].Time + (ordered[i].Time - ordered[i - 1].Time) / 2;
+            items.Add(new { time = mid.ToString("o"), pct = load.Percent, mbps = load.Mbps, own = OwnDownstreamMbps(ordered[i], ordered[i - 1]) });
+        }
+        return items;
     }
 
     /// <summary>The loss budget of each ODN class the PON-ID message can name (G.984.2), in dB.</summary>
