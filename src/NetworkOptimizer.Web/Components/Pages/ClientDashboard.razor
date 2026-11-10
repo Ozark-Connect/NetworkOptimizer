@@ -1011,7 +1011,7 @@
                                         @foreach (var evt in GetPagedConnectionEvents())
                                         {
                                             <tr class="@GetEventRowClass(evt.Type)">
-                                                <td>@evt.Timestamp.ToLocalTime(DisplayTime).ToString(DisplayTime.Format.DateTime, DisplayFormat.Culture)</td>
+                                                <td>@evt.Timestamp.ToLocalTime(DisplayTime).ToString(DisplayTime.Format.DateTimeSeconds, DisplayFormat.Culture)</td>
                                                 <td>
                                                     <span class="event-badge @GetEventBadgeClass(evt.Type)">
                                                         @FormatEventType(evt.Type)
