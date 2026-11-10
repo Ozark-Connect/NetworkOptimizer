@@ -9,6 +9,7 @@
 @inject NavigationManager Nav
 @inject ILogger<LiveTrafficPage> Logger
 @inject NetworkOptimizer.Web.Services.Identity.IUserPreferences UserPreferences
+@inject AddressBarState AddressBar
 @inject IJSRuntime JS
 @inject Microsoft.AspNetCore.Mvc.ViewFeatures.IFileVersionProvider FileVersionProvider
 @implements IDisposable
@@ -790,10 +791,15 @@
             parts.Add($"sort={_flowSort.ToString().ToLowerInvariant()}");
             parts.Add($"dir={(_flowDesc ? "desc" : "asc")}");
         }
+        // The tab's ?site= stays, or a refresh would land on the browser's default site.
+        if (SiteContextService.SiteParamOf(AddressBar.Current) is { } site) parts.Add($"site={Uri.EscapeDataString(site)}");
         var path = new Uri(Nav.Uri).AbsolutePath;
+        var url = parts.Count == 0 ? path : $"{path}?{string.Join("&", parts)}";
         // The address bar only, never NavigateTo: a navigation re-runs the router, whose FocusOnNavigate
-        // focuses the h1 on every filter click and scrolls the page to it.
-        _ = ReplaceUrlAsync(parts.Count == 0 ? path : $"{path}?{string.Join("&", parts)}");
+        // focuses the h1 on every filter click and scrolls the page to it. AddressBar keeps what Blazor
+        // cannot see, so a site switch carries these filters, not the ones the page was opened with.
+        AddressBar.Wrote(url);
+        _ = ReplaceUrlAsync(url);
     }
 
     private async Task ReplaceUrlAsync(string url)

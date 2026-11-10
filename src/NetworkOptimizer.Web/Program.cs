@@ -269,6 +269,7 @@ builder.Services.AddScoped<SiteManagementService>();
 builder.Services.AddMutatingService<ISiteManagementService>(sp => sp.GetRequiredService<SiteManagementService>());
 builder.Services.AddScoped<SiteContextService>();
 builder.Services.AddScoped<SiteSwitchService>();
+builder.Services.AddScoped<AddressBarState>();
 // Scoped so a host that partitions the instance can answer per caller.
 builder.Services.AddScoped<IScopeBadgeText, InstanceScopeBadgeText>();
 // Registered twice so pages can subscribe to the same instance the circuit calls.
