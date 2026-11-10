@@ -25053,7 +25053,7 @@ body:has(.top-bar-hidden) .btn-fit {
     stroke-width: 1.5;
 }
 
-/* Where It Goes sits centered when Live DNS beside it runs taller. */
+/* Where It Goes sits centered when Live DNS beside it runs taller; the note stays at the bottom. */
 .lt-sankey-card {
     display: flex;
     flex-direction: column;
@@ -25063,7 +25063,23 @@ body:has(.top-bar-hidden) .btn-fit {
     flex: 1;
     display: flex;
     flex-direction: column;
+}
+
+.lt-sankey-stage {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
     justify-content: center;
+}
+
+/* The idle and loading states take the diagram's own height (its viewBox ratio), so the card does not shrink. */
+.lt-sankey-stage > .lt-sankey-empty {
+    aspect-ratio: 790 / 360;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    margin: 0;
 }
 
 /* Nodes and bands tween between refreshes instead of jumping. */
@@ -25170,6 +25186,11 @@ body:has(.top-bar-hidden) .btn-fit {
     display: block;
     color: var(--text-muted);
     font-size: 0.7rem;
+}
+
+.lt-dns-table td.lt-dns-empty-cell {
+    color: var(--text-secondary);
+    text-align: center;
 }
 
 /* Live Traffic is a wide table plus Where It Goes and Live DNS side by side: it takes up to 1920px
@@ -25709,7 +25730,8 @@ body:has(.top-bar-hidden) .btn-fit {
 }
 
 /* Padding rows: the height of a row with its sub-line, and nothing in them. */
-.lt-client tr.lt-slot-empty td {
+.lt-client tr.lt-slot-empty td,
+.live-traffic tr.lt-slot-empty td {
     border-bottom-color: transparent;
 }
 

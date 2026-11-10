@@ -195,14 +195,16 @@
                         </div>
                     </div>
                     <div class="card-body" @onmouseenter="PointerIn" @onmouseleave="PointerOut" @ontouchstart="Touched">
-                        @if (_view.State == LiveTrafficState.Starting)
-                        {
-                            <div class="loading-container lt-sankey-empty"><div class="spinner"></div><p>Measuring rates.</p></div>
-                        }
-                        else
-                        {
-                            <LiveTrafficSankey Sankey="_view.Sankey" Hold="Held" Filters="_filters" Searching="@(!string.IsNullOrWhiteSpace(_search))" OnFilter="ToggleFilter" />
-                        }
+                        <div class="lt-sankey-stage">
+                            @if (_view.State == LiveTrafficState.Starting)
+                            {
+                                <div class="loading-container lt-sankey-empty"><div class="spinner"></div><p>Measuring rates.</p></div>
+                            }
+                            else
+                            {
+                                <LiveTrafficSankey Sankey="_view.Sankey" Hold="Held" Filters="_filters" Searching="@(!string.IsNullOrWhiteSpace(_search))" OnFilter="ToggleFilter" />
+                            }
+                        </div>
                         <div class="lt-legend-note">Click any client, app, or route to filter the page to it, and again to remove the filter. Band width is @(_sankeyByFlows ? "flow count" : "rate") on a log scale, so small flows stay visible.@(_sankeyByFlows ? "" : " Each band splits into download (strong) and upload (light), in its route's color.")</div>
                     </div>
                 </div>
@@ -222,31 +224,37 @@
                         </div>
                     </div>
                     <div class="card-body">
-                        @if (_view.Dns.Count == 0)
+                        @{ var dnsRows = _view.Dns.Take(DnsRows).ToList(); }
+                        @if (dnsRows.Count == 0)
                         {
-                            <div class="empty-state lt-dns-empty">
-                                <p>@(_view.DnsActive ? "No lookups match." : "Waiting for DNS lookups.")</p>
+                            <div class="empty-state lt-dns-empty lt-mobile-list">
+                                <p>@DnsEmptyText</p>
                             </div>
                         }
                         else
                         {
                             <div class="lt-mobile-list">
-                                @foreach (var d in _view.Dns.Take(DnsRows))
+                                @foreach (var d in dnsRows)
                                 {
                                     <LiveDnsRowView Lookup="d" Layout="LiveDnsLayout.List" Context="Ctx" />
                                 }
                             </div>
-                            <table class="data-table lt-dns-table lt-desktop-only">
-                                <colgroup><col style="width:30%"><col><col style="width:24%"><col style="width:6.5rem"></colgroup>
-                                <thead><tr><th>Client</th><th>Query</th><th>Resolver</th><th>Answer</th></tr></thead>
-                                <tbody>
-                                    @foreach (var d in _view.Dns.Take(DnsRows))
-                                    {
-                                        <LiveDnsRowView Lookup="d" Layout="LiveDnsLayout.Table" Context="Ctx" />
-                                    }
-                                </tbody>
-                            </table>
                         }
+                        @* Always DnsRows rows tall on desktop, so the Flows card below never moves as lookups come and go. *@
+                        <table class="data-table lt-dns-table lt-desktop-only">
+                            <colgroup><col style="width:30%"><col><col style="width:24%"><col style="width:6.5rem"></colgroup>
+                            <thead><tr><th>Client</th><th>Query</th><th>Resolver</th><th>Answer</th></tr></thead>
+                            <tbody>
+                                @foreach (var d in dnsRows)
+                                {
+                                    <LiveDnsRowView Lookup="d" Layout="LiveDnsLayout.Table" Context="Ctx" />
+                                }
+                                @for (var i = dnsRows.Count; i < DnsRows; i++)
+                                {
+                                    <tr class="lt-slot-empty"><td colspan="4" class="@(i == 0 ? "lt-dns-empty-cell" : null)">@(i == 0 ? DnsEmptyText : " ")<span class="lt-dns-sub">&nbsp;</span></td></tr>
+                                }
+                            </tbody>
+                        </table>
                     </div>
                 </div>
             </div>
@@ -352,6 +360,8 @@
     private static readonly TimeSpan RefreshEvery = TimeSpan.FromSeconds(2);
     private const int HistoryPage = 200;
     private const int DnsRows = 10;
+
+    private string DnsEmptyText => _view?.DnsActive == true ? "No lookups match." : "Waiting for DNS lookups.";
 
     /// <summary>The link arrived with filters of its own: the active preset is not reapplied over it.</summary>
     private bool _linkHadFilters;
