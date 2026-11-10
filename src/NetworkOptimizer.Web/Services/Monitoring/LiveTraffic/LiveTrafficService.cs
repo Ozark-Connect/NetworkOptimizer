@@ -324,6 +324,7 @@ public sealed class LiveTrafficService : ILiveTrafficService
                 var networks = await client.GetNetworkConfigsAsync();
                 store.SetSiteNetworks(networks.SelectMany(n => new[] { n.IpSubnet, n.Ipv6Subnet }).OfType<string>());
                 store.SetNetworkPurposes(networks.Select(n => (n.IpSubnet, (string?)n.Purpose)).ToList());
+                store.SetTunnelNames(WireGuardClientNames(networks));
             }
 
             if (flows)
@@ -425,6 +426,24 @@ public sealed class LiveTrafficService : ILiveTrafficService
         {
             _logger.LogDebug(ex, "Live Traffic: site address books unavailable for site {Slug}", slug);
         }
+    }
+
+    /// <summary>
+    /// "wgclt{wireguard_id}" to the network's name for each WireGuard VPN Client, the name the Console's
+    /// flow records (and so History) give the route. InterfaceLabelResolver uses the same ifname rule.
+    /// </summary>
+    internal static Dictionary<string, string> WireGuardClientNames(IEnumerable<UniFiNetworkConfig> networks)
+    {
+        var names = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var n in networks)
+        {
+            if (n.WireguardId is not int id || string.IsNullOrWhiteSpace(n.Name)) continue;
+            var client = string.Equals(n.VpnType, "wireguard-client", StringComparison.OrdinalIgnoreCase)
+                || (string.Equals(n.Purpose, "vpn-client", StringComparison.OrdinalIgnoreCase)
+                    && (n.VpnType?.Contains("wireguard", StringComparison.OrdinalIgnoreCase) ?? false));
+            if (client) names.TryAdd($"wgclt{id}", n.Name.Trim());
+        }
+        return names;
     }
 
     private async Task<(Dictionary<string, LiveRouteInfo> ByIfname, LiveRouteInfo? Primary)> LoadRoutesAsync(string slug)

@@ -120,6 +120,26 @@ public class LiveTrafficStoreTests
     }
 
     [Fact]
+    public void WireGuardClientTunnelTakesItsNetworkNameWithoutAConsoleRecord()
+    {
+        var store = SeededStore();
+        store.SetTunnelNames(LiveTrafficService.WireGuardClientNames(
+        [
+            new UniFiNetworkConfig { Name = "Office VPN", Purpose = "vpn-client", VpnType = "wireguard-client", WireguardId = 1 },
+            new UniFiNetworkConfig { Name = "Road Warriors", Purpose = "remote-user-vpn", VpnType = "wireguard", WireguardId = 2 },
+        ]));
+        store.Ingest(Batch(
+            Flow("a", Laptop, "192.0.2.20", "203.0.113.5", 443, "wgclt1", 1000, 10),
+            Flow("b", Laptop, "192.0.2.20", "203.0.113.6", 443, "wgclt2", 1000, 10)));
+
+        var rows = store.BuildView(Query(), LiveTrafficState.Live).Flows.ToDictionary(f => f.Key);
+
+        rows["a"].Route.Should().Be("Office VPN");
+        rows["a"].RouteKind.Should().Be(LiveRouteKind.Vpn);
+        rows["b"].Route.Should().Be("wgclt2", "a remote-user VPN server is not a route out");
+    }
+
+    [Fact]
     public void DnsAnswerNamesTheDestination()
     {
         var store = SeededStore();

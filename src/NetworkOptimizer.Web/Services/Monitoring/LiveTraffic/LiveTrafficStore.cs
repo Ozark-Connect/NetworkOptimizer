@@ -696,6 +696,7 @@ public sealed class LiveTrafficStore
         if (f.Lan) return ("LAN", LiveRouteKind.Lan);
         var ifname = f.WanIfname;
         if (ifname.Length > 0 && _routesByIfname.TryGetValue(ifname, out var wan)) return (wan.Name, wan.Kind);
+        if (ifname.Length > 0 && _tunnelNames.TryGetValue(ifname, out var tunnel)) return (tunnel, LiveRouteKind.Vpn);
         if (ifname.Length > 0 && match?.OutNetwork is { Length: > 0 } outName)
         {
             // One matched flow names the interface for every flow that leaves by it.
@@ -1289,6 +1290,17 @@ public sealed class LiveTrafficStore
     }
 
     private IReadOnlyCollection<(string? IpSubnet, string? Purpose)>? _networkPurposes;
+
+    /// <summary>
+    /// Tunnel ifname to the site's VPN Client network name ("wgclt1" to its WireGuard client), from the
+    /// network config. Without it a tunnel is named only once a Console flow record for it matches.
+    /// </summary>
+    public void SetTunnelNames(IReadOnlyDictionary<string, string> namesByIfname)
+    {
+        lock (_gate) _tunnelNames = new Dictionary<string, string>(namesByIfname, StringComparer.OrdinalIgnoreCase);
+    }
+
+    private Dictionary<string, string> _tunnelNames = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
     /// "VPN Client" (inside a remote-user VPN network) or "Tailscale" for a VPN-sourced address; null for
