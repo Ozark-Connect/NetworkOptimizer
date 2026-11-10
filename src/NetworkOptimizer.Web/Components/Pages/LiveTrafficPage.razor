@@ -202,7 +202,7 @@
                             }
                             else
                             {
-                                <LiveTrafficSankey Sankey="_view.Sankey" Hold="Held" Filters="_filters" Searching="@(!string.IsNullOrWhiteSpace(_search))" OnFilter="ToggleFilter" />
+                                <LiveTrafficSankey Sankey="_view.Sankey" Hold="Held" OnHover="HoverSankey" Filters="_filters" Searching="@(!string.IsNullOrWhiteSpace(_search))" OnFilter="ToggleFilter" />
                             }
                         </div>
                         <div class="lt-legend-note">Click any client, app, or route to filter the page to it, and again to remove the filter. Width of bands is @(_sankeyByFlows ? "flow count" : "rate") on a log scale, so small flows stay visible.@(_sankeyByFlows ? "" : " Each band splits into download (strong) and upload (light), in its route's color.")</div>
@@ -417,6 +417,36 @@
 
     private void Touched() => _hold.Touched();
 
+    private LiveSankeyHold? _sankeyHold;
+    private bool _sankeyHoverIn;
+    private DateTime _sankeyHoldUntil = DateTime.MinValue;
+    private static readonly TimeSpan SankeyHoldGrace = TimeSpan.FromSeconds(1.5);
+
+    /// <summary>The hovered Where It Goes column, held while the pointer is on it and briefly after: <see cref="LiveSankeyHold"/>.</summary>
+    private LiveSankeyHold? ActiveSankeyHold =>
+        _sankeyHold != null && (_sankeyHoverIn || DateTime.UtcNow < _sankeyHoldUntil) ? _sankeyHold : null;
+
+    private void HoverSankey(LiveSankeyNode? node)
+    {
+        if (node == null)
+        {
+            if (!_sankeyHoverIn) return;
+            _sankeyHoverIn = false;
+            _sankeyHoldUntil = DateTime.UtcNow + SankeyHoldGrace;
+            return;
+        }
+        _sankeyHoverIn = true;
+        // A column already held keeps the set it froze; a new column freezes what is on screen now.
+        var current = ActiveSankeyHold;
+        if (current != null && current.Node.Column == node.Column)
+        {
+            _sankeyHold = current with { Node = node };
+            return;
+        }
+        var column = _view?.Sankey?.Nodes.Where(n => n.Column == node.Column).ToList() ?? [];
+        _sankeyHold = new LiveSankeyHold(node, column.Where(n => !n.IsOther).ToList(), column.Any(n => n.IsOther));
+    }
+
     private LiveTrafficView ApplyHold(LiveTrafficView view) =>
         _hold.Apply(view, $"{_groupBy}|{_ended}|{_flowSort}|{_flowDesc}|{_search}|{string.Join(",", _filters)}");
 
@@ -478,6 +508,7 @@
                     DnsMode = _dnsMode,
                     HideLocalDns = _hideLocalDns,
                     SankeyByFlows = _sankeyByFlows,
+                    SankeyHold = ActiveSankeyHold,
                     Sort = _flowSort,
                     Descending = _flowDesc,
                 });

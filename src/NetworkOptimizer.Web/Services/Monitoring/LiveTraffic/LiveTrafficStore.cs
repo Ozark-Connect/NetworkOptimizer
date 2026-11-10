@@ -571,7 +571,7 @@ public sealed class LiveTrafficStore
                 NxdomainPercent = recentDns.Count == 0 ? 0 : 100.0 * recentDns.Count(d => IsBlocked(d.Event)) / recentDns.Count,
                 BypassingClients = bypassers,
                 DnsActive = _dnsActive,
-                Sankey = query.IncludeSankey && !query.Ended ? BuildSankey(matching, query.SankeyByFlows) : null,
+                Sankey = query.IncludeSankey && !query.Ended ? BuildSankey(matching, query.SankeyByFlows, query.SankeyHold) : null,
             };
         }
     }
@@ -875,17 +875,33 @@ public sealed class LiveTrafficStore
         r.IsGateway && r.RouteKind == LiveRouteKind.Wan
         && (r.App.Contains("WireGuard", StringComparison.OrdinalIgnoreCase) || r.App.Contains("OpenVPN", StringComparison.OrdinalIgnoreCase));
 
-    private static LiveSankey? BuildSankey(IReadOnlyList<LiveFlowRow> rows, bool byFlows)
+    private static LiveSankey? BuildSankey(IReadOnlyList<LiveFlowRow> rows, bool byFlows, LiveSankeyHold? hold = null)
     {
         // The tunnel itself would count its clients' traffic a second time. The Flows table and the
         // WAN tile still include it: those bytes do cross the WAN.
         rows = rows.Where(r => !IsTunnelCarrier(r)).ToList();
         var moving = byFlows ? rows.ToList() : rows.Where(r => r.DownBps + r.UpBps > 0).ToList();
-        if (moving.Count == 0) return null;
+        if (hold?.Node.IsOther == true) hold = null;
+
+        // A held column keeps exactly its nodes; see LiveSankeyHold.
+        var held = hold?.Column.Where(n => !n.IsOther).Append(hold.Node).DistinctBy(n => n.Name).ToList();
+        var heldNames = held?.Select(n => n.Name).ToHashSet();
+        Func<LiveFlowRow, string>? heldKey = hold?.Node.Column switch
+        {
+            0 => r => r.ClientName,
+            1 => r => r.App,
+            2 => r => r.Route,
+            _ => null,
+        };
+        if (heldKey != null && (!hold!.HasOther || hold.Node.Column == 2))
+            moving = moving.Where(r => heldNames!.Contains(heldKey(r))).ToList();
+        if (moving.Count == 0 && hold == null) return null;
 
         double V(LiveFlowRow r) => byFlows ? 1 : r.DownBps + r.UpBps;
-        var topClients = moving.GroupBy(r => r.ClientName).OrderByDescending(g => g.Sum(V)).Take(SankeyNodesPerColumn).Select(g => g.Key).ToHashSet();
-        var topApps = moving.GroupBy(r => r.App).OrderByDescending(g => g.Sum(V)).Take(SankeyNodesPerColumn).Select(g => g.Key).ToHashSet();
+        var topClients = hold?.Node.Column == 0 ? heldNames!
+            : moving.GroupBy(r => r.ClientName).OrderByDescending(g => g.Sum(V)).Take(SankeyNodesPerColumn).Select(g => g.Key).ToHashSet();
+        var topApps = hold?.Node.Column == 1 ? heldNames!
+            : moving.GroupBy(r => r.App).OrderByDescending(g => g.Sum(V)).Take(SankeyNodesPerColumn).Select(g => g.Key).ToHashSet();
         var otherClients = moving.Select(r => r.ClientName).Distinct().Count(n => !topClients.Contains(n));
         var otherClientName = $"{otherClients} other{(otherClients == 1 ? "" : "s")}";
         const string otherApp = "Other";
@@ -904,6 +920,10 @@ public sealed class LiveTrafficStore
             g.First().AppIconDomain, g.First().AppIconClass, Down(g), Up(g))));
         nodes.AddRange(moving.GroupBy(r => r.Route).Select(g => new LiveSankeyNode(2, g.Key, g.Sum(V), LiveTrafficField.Route, g.First().RouteKind, false,
             DownBps: Down(g), UpBps: Up(g))));
+        // A held node with nothing moving through it now: shown idle, with no bands.
+        foreach (var n in held ?? [])
+            if (!nodes.Any(x => x.Column == n.Column && x.Name == n.Name))
+                nodes.Add(n with { Value = 0, DownBps = 0, UpBps = 0 });
 
         var links = new List<LiveSankeyLink>();
         links.AddRange(moving.GroupBy(r => (ClientNode(r), AppNode(r), r.RouteKind))

@@ -30,7 +30,9 @@ else
             <g @key="(node.Column, node.Name)" class="lt-sankey-node @(clickable ? "is-clickable" : null) @(IsFiltered(node) ? "is-filtered" : null)"
                style="transform: translate(@(F(ColX[node.Column]))px, @(F(n.Y))px)"
                data-client-name="@(clientLink != null ? node.Name : null)" data-client-link="@clientLink"
-               @onclick="() => OnNodeClick(node)">
+               @onclick="() => OnNodeClick(node)"
+               @onmouseenter="() => { if (clickable) OnHover?.Invoke(node); }"
+               @onmouseleave="() => { if (clickable) OnHover?.Invoke(null); }">
                 <rect x="0" y="0" width="@NodeW" height="@F(n.Height)" style="height: @(F(n.Height))px" rx="2"
                       fill="@(node.Column == 2 ? RouteColor(node.RouteKind) : "var(--bg-elevated)")"
                       stroke="var(--text-muted)" stroke-width="0.5" />
@@ -73,6 +75,12 @@ else
 
     /// <summary>A click on a client, app, or route node: filter the page to it.</summary>
     [Parameter] public EventCallback<LiveTrafficFilter> OnFilter { get; set; }
+
+    /// <summary>
+    /// The pointer entered a clickable node (or left one, with null). A plain delegate, not an
+    /// EventCallback: the page only records it for its next query, so nothing needs to redraw.
+    /// </summary>
+    [Parameter] public Action<LiveSankeyNode?>? OnHover { get; set; }
 
     private const int W = 790;
     private const int H = 360;

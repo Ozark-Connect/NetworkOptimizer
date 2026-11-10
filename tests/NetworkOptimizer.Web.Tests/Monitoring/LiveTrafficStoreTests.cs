@@ -941,6 +941,38 @@ public class LiveTrafficStoreTests
     }
 
     [Fact]
+    public void SankeyHeldColumnKeepsAnIdleNodeAndLeavesANewcomerOut()
+    {
+        var store = SeededStore();
+        store.Ingest(Batch(Flow("a", Laptop, "192.0.2.20", "203.0.113.5", 443, "eth4", 1000, 10)));
+        var nas = new LiveSankeyNode(0, "NAS", 500, LiveTrafficField.Client, null, false, ClientIp: "192.0.2.10");
+        var hold = new LiveSankeyHold(nas, [nas], HasOther: false);
+
+        var clients = store.BuildView(Query() with { SankeyHold = hold }, LiveTrafficState.Live).Sankey!
+            .Nodes.Where(n => n.Column == 0).ToList();
+
+        clients.Should().ContainSingle().Which.Should().Match<LiveSankeyNode>(n => n.Name == "NAS" && n.Value == 0,
+            "the held NAS went idle and the Laptop arrived while the column was held");
+    }
+
+    [Fact]
+    public void SankeyHeldColumnKeepsAQuietClientOutsideTheBusiest()
+    {
+        var store = SeededStore();
+        store.Ingest(Batch(Enumerable.Range(0, 7)
+            .Select(i => Flow($"f{i}", $"00:11:22:33:44:{i:x2}", $"192.0.2.{30 + i}", "203.0.113.5", 443, "eth4", 1000 * (i + 1), 10))
+            .ToArray()));
+        var view = store.BuildView(Query(), LiveTrafficState.Live);
+        var quietest = view.Flows.MinBy(f => f.DownBps)!.ClientName;
+        var column = view.Sankey!.Nodes.Where(n => n.Column == 0 && !n.IsOther).ToList();
+        var keep = new LiveSankeyNode(0, quietest, 1, LiveTrafficField.Client, null, false);
+
+        var sankey = store.BuildView(Query() with { SankeyHold = new LiveSankeyHold(keep, column, HasOther: true) }, LiveTrafficState.Live).Sankey!;
+
+        sankey.Nodes.Should().Contain(n => n.Column == 0 && n.Name == quietest && !n.IsOther && n.Value > 0);
+    }
+
+    [Fact]
     public void LeaseIsPushedForTheFirstViewerAndRenewedLater()
     {
         var store = new LiveTrafficStore();
