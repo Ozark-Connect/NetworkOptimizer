@@ -252,10 +252,6 @@
                     <div class="card-title-group">
                         <h2 class="card-title">@(_groupBy == LiveTrafficGroupBy.Flows ? "Flows" : $"By {_groupBy}")</h2>
                         <span class="lt-secondary lt-small">@FlowCountLabel</span>
-                        @if (Held)
-                        {
-                            <span class="lt-held" data-tooltip="Rows keep their places while the pointer is on the table, so they are easy to click">Order held</span>
-                        }
                     </div>
                     <div class="card-header-right">
                         <div class="time-range-selector">

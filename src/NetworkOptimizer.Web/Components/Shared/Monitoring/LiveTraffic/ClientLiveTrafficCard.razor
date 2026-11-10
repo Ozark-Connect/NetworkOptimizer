@@ -15,8 +15,6 @@
             {
                 <span class="lan-flow-map-mode">Live</span>
             }
-            @* Always laid out, shown only while held: appearing must not move the header. *@
-            <span class="lt-held @(Feed.Hold.Held && IsLive ? null : "is-off")" data-tooltip="Rows keep their places while the pointer is on the list, so they are easy to click">Order held</span>
         </div>
         @* One group, so the switch and the jumps wrap together on a phone and never split apart. *@
         <div class="lt-client-actions">

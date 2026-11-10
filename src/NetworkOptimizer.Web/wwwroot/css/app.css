@@ -25077,14 +25077,6 @@ body:has(.top-bar-hidden) .btn-fit {
     overflow-y: hidden;
 }
 
-.lt-held {
-    font-size: 0.72rem;
-    color: var(--text-muted);
-    border: 1px solid var(--border-color);
-    border-radius: 999px;
-    padding: 0.05rem 0.5rem;
-}
-
 .lt-sankey-node.is-clickable:hover .lt-node-label {
     fill: var(--primary-light);
 }
@@ -25625,20 +25617,9 @@ body:has(.top-bar-hidden) .btn-fit {
     }
 }
 
-.lt-held.is-off {
-    visibility: hidden;
-}
-
 /* Client Performance's table pads cells wider than Live Traffic's: the rank keeps its chevron and number. */
 .lt-client .lt-flows .lt-rank {
     padding-right: 4px;
-}
-
-/* A touch holds the order on a phone, where the pill would push the switch to a second line. */
-@media (max-width: 768px) {
-    .lt-client .lt-held {
-        display: none;
-    }
 }
 
 .lt-client-summary {
