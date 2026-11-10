@@ -447,7 +447,7 @@ public sealed class LiveTrafficStore
                 if (_uniFiFlows.TryGetValue(key, out var existing) && existing.Started is { } s && started is { } s2 && s < s2)
                     started = s;
                 _uniFiFlows[key] = new UniFiMatch(app, category, policy?.Name, policy?.Id, policy?.Type,
-                    f.Out?.NetworkName, started, f.Destination?.Domains?.FirstOrDefault(), f.Service, f.In?.NetworkName, now);
+                    f.Out?.NetworkName, started, f.Destination?.Domains?.FirstOrDefault(), FlowNaming.ConsoleService(f.Service), f.In?.NetworkName, now);
                 NoteDestination((key.Item3, key.Item4, key.Item5), app, category, f.Destination?.Domains?.FirstOrDefault(), now);
             }
             PruneDestinations(now);
@@ -626,7 +626,7 @@ public sealed class LiveTrafficStore
         var protoLabel = proto.ToUpperInvariant();
         var destSub = service != null && proto == "tcp" ? service
             : service != null ? (proto == "udp" && service is "HTTPS" ? "QUIC" : service)
-            : f.RemotePort > 0 ? $"{protoLabel} {f.RemotePort}" : protoLabel;
+            : FlowNaming.BarePort(protoLabel, f.ClientPort, f.RemotePort);
         // The gateway's DPI first, then the domain the flow went to, then the port, then the site or
         // who owns the address.
         var hostName = _names.TryGetValue(f.RemoteIp, out var named) && named.Expires > now ? named.Name
@@ -651,9 +651,9 @@ public sealed class LiveTrafficStore
             // The client end may be the server (an iperf3 server answering a test): its port names it then.
             ?? DomainAppCatalog.PortApp(proto, f.RemotePort) ?? (f.RemotePort >= 1024 ? DomainAppCatalog.PortApp(proto, f.ClientPort) : null)
             ?? portName ?? remoteSite ?? (org != null && !f.Lan ? org : null)
-            ?? (f.RemotePort > 0 ? $"{protoLabel} {f.RemotePort}" : protoLabel);
+            ?? FlowNaming.BarePort(protoLabel, f.ClientPort, f.RemotePort);
         var appIsFallback = app == portName || (org != null && app == org)
-            || app == (f.RemotePort > 0 ? $"{protoLabel} {f.RemotePort}" : protoLabel);
+            || app == FlowNaming.BarePort(protoLabel, f.ClientPort, f.RemotePort);
         var (appIconDomain, appIconClass) = remoteSite != null && app == remoteSite
             ? (null, "fa-solid fa-building")   // one of your sites, not an app: a site mark, not its initial
             : DpiCatalog.IconsForName(app);
@@ -753,7 +753,7 @@ public sealed class LiveTrafficStore
         || ifname.StartsWith("tap", StringComparison.OrdinalIgnoreCase)
         || ifname.StartsWith("ipsec", StringComparison.OrdinalIgnoreCase);
 
-    private static string NormalizeMac(string mac) => mac.Replace('-', ':').ToLowerInvariant();
+    internal static string NormalizeMac(string mac) => mac.Replace('-', ':').ToLowerInvariant();
 
     // ---------------------------------------------------------------- filters
 

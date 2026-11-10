@@ -16,11 +16,36 @@ public sealed class LiveTrafficRegistry : ISiteScopedRegistry
 
     public FlowHistoryCache HistoryFor(string slug) => _history.GetOrAdd(slug, _ => new FlowHistoryCache());
 
+    /// <summary>One client's History, read with the console's MAC filters, while the site's own is not loaded.</summary>
+    private readonly ConcurrentDictionary<(string Slug, string Mac), FlowHistoryCache> _clientHistory = new();
+
+    /// <summary>
+    /// A client's own History cache, touched for the viewer: the site's whole hour can be many pages,
+    /// one client's records are usually one. Caches nobody asked for within the viewer timeout go.
+    /// </summary>
+    public FlowHistoryCache ClientHistoryFor(string slug, string mac, string viewerId, DateTime now)
+    {
+        foreach (var (key, idle) in _clientHistory)
+            if (idle.Idle(now)) _clientHistory.TryRemove(key, out _);
+        var cache = _clientHistory.GetOrAdd((slug, mac), _ => new FlowHistoryCache());
+        cache.Touch(viewerId, now);
+        return cache;
+    }
+
+    /// <summary>A viewer left: drops it from the site's client caches, and any cache it was the last viewer of.</summary>
+    public void ReleaseClientHistory(string slug, string viewerId, DateTime now)
+    {
+        foreach (var (key, cache) in _clientHistory)
+            if (key.Slug == slug && cache.Release(viewerId, now)) _clientHistory.TryRemove(key, out _);
+    }
+
     /// <inheritdoc />
     public Func<ValueTask>? EvictSite(string slug)
     {
         _stores.TryRemove(slug, out _);
         _history.TryRemove(slug, out _);
+        foreach (var key in _clientHistory.Keys.Where(k => k.Slug == slug).ToList())
+            _clientHistory.TryRemove(key, out _);
         return null;
     }
 }

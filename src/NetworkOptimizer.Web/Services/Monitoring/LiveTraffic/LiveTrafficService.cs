@@ -176,9 +176,14 @@ public sealed class LiveTrafficService : ILiveTrafficService
     public async Task<LiveHistoryView> GetHistoryAsync(LiveHistoryQuery query, CancellationToken ct = default)
     {
         var slug = _site.Slug;
-        var cache = _registry.HistoryFor(slug);
         var now = DateTime.UtcNow;
-        cache.Touch(query.ViewerId, now);
+        // One client's History reads only that client's records, unless the site's hour is loaded
+        // already (Live Traffic's History is open), which holds them too.
+        var site = _registry.HistoryFor(slug);
+        var mac = NormalizedMac(query.Client?.Mac);
+        var clientOnly = mac != null && !site.Loaded;
+        var cache = clientOnly ? _registry.ClientHistoryFor(slug, mac!, query.ViewerId, now) : site;
+        if (!clientOnly) cache.Touch(query.ViewerId, now);
 
         var client = _connection.Client;
         if (client == null) return cache.BuildView(query, LiveHistoryState.NoConsole, now);
@@ -186,9 +191,10 @@ public sealed class LiveTrafficService : ILiveTrafficService
 
         if (cache.RefreshDue(now))
         {
+            var filter = clientOnly ? mac : null;
             // The first load is awaited so the page opens on data; later refreshes run behind the view.
-            if (!cache.Loaded) await RefreshHistoryAsync(slug, cache, client, ct);
-            else _ = Task.Run(() => RefreshHistoryAsync(slug, cache, client, CancellationToken.None));
+            if (!cache.Loaded) await RefreshHistoryAsync(slug, cache, client, filter, ct);
+            else _ = Task.Run(() => RefreshHistoryAsync(slug, cache, client, filter, CancellationToken.None));
         }
 
         now = DateTime.UtcNow;
@@ -205,6 +211,7 @@ public sealed class LiveTrafficService : ILiveTrafficService
         var slug = _site.Slug;
         var now = DateTime.UtcNow;
         _registry.HistoryFor(slug).Release(viewerId, now);
+        _registry.ReleaseClientHistory(slug, viewerId, now);
         var store = _registry.GetFor(slug);
         if (store.ReleaseViewer(viewerId, now))
         {
@@ -214,7 +221,16 @@ public sealed class LiveTrafficService : ILiveTrafficService
         return Task.CompletedTask;
     }
 
-    private async Task RefreshHistoryAsync(string slug, FlowHistoryCache cache, UniFiApiClient client, CancellationToken ct)
+    private static string? NormalizedMac(string? mac) =>
+        string.IsNullOrWhiteSpace(mac) ? null : LiveTrafficStore.NormalizeMac(mac.Trim());
+
+    /// <summary>The record has the client at either end.</summary>
+    private static bool HasMac(UniFiTrafficFlow f, string mac) =>
+        NormalizedMac(f.Source?.Mac) == mac || NormalizedMac(f.Destination?.Mac) == mac;
+
+    /// <param name="mac">One client's MAC: only its records are read (as either end), and nothing is
+    /// recorded in the console client's shared cache, which stands for the whole site.</param>
+    private async Task RefreshHistoryAsync(string slug, FlowHistoryCache cache, UniFiApiClient client, string? mac, CancellationToken ct)
     {
         var ok = true;
         var generation = cache.Generation;
@@ -242,28 +258,40 @@ public sealed class LiveTrafficService : ILiveTrafficService
             if (!cache.Loaded && client.FlowCache.Covered is { } covered
                 && covered.From <= from + TimeSpan.FromMinutes(2) && covered.To > from)
             {
-                cache.Merge(client.FlowCache.Since(from), DateTime.UtcNow, generation);
+                var held = client.FlowCache.Since(from);
+                cache.Merge(mac == null ? held : held.Where(f => HasMac(f, mac)), DateTime.UtcNow, generation);
                 from = (covered.To - TimeSpan.FromSeconds(30)).UtcDateTime;
             }
-            var read = new List<UniFiTrafficFlow>();
-            var complete = false;
-            for (var page = 0; page < FlowHistoryCache.MaxPages; page++)
+
+            // Pages one read until a short page (Complete) or the page cap. Answered is false once the
+            // console fails to answer a page.
+            async Task<(bool Answered, bool Complete, List<UniFiTrafficFlow> Read)> ReadAsync(string? sourceMac, string? destinationMac)
             {
-                var result = await client.GetTrafficFlowPageAsync(from, to, page, FlowHistoryCache.PageSize, ct);
-                if (result == null)
+                var read = new List<UniFiTrafficFlow>();
+                for (var page = 0; page < FlowHistoryCache.MaxPages; page++)
                 {
-                    ok = false;
-                    break;
+                    var result = await client.GetTrafficFlowPageAsync(from, to, page, FlowHistoryCache.PageSize, ct, sourceMac, destinationMac);
+                    if (result == null) return (false, false, read);
+                    cache.Merge(result.Data, DateTime.UtcNow, generation);
+                    read.AddRange(result.Data);
+                    if (result.Data.Count < FlowHistoryCache.PageSize) return (true, true, read);
                 }
-                cache.Merge(result.Data, DateTime.UtcNow, generation);
-                read.AddRange(result.Data);
-                if (result.Data.Count < FlowHistoryCache.PageSize)
-                {
-                    complete = true;
-                    break;
-                }
+                return (true, false, read);
             }
-            if (complete) client.FlowCache.Record(from, to, read, DateTimeOffset.UtcNow);
+
+            if (mac == null)
+            {
+                var site = await ReadAsync(null, null);
+                ok = site.Answered;
+                if (site.Complete) client.FlowCache.Record(from, to, site.Read, DateTimeOffset.UtcNow);
+            }
+            else
+            {
+                // The console applies a source and a destination filter together, so each end is its own read.
+                var asSource = await ReadAsync(mac, null);
+                var asDestination = asSource.Answered ? await ReadAsync(null, mac) : default;
+                ok = asSource.Answered && asDestination.Answered;
+            }
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {

@@ -4529,7 +4529,9 @@ public partial class UniFiApiClient : IDisposable
         string[]? actionFilter = null,
         string[]? directionFilter = null,
         string[]? destinationIpFilter = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        string[]? sourceMacFilter = null,
+        string[]? destinationMacFilter = null)
     {
         _logger.LogTrace("Fetching traffic flows from {Start} to {End}, page {Page}", start, end, pageNumber);
 
@@ -4553,7 +4555,7 @@ public partial class UniFiApiClient : IDisposable
             ["policy_type"] = Array.Empty<string>(),
             ["service"] = Array.Empty<string>(),
             ["source_host"] = Array.Empty<string>(),
-            ["source_mac"] = Array.Empty<string>(),
+            ["source_mac"] = sourceMacFilter ?? Array.Empty<string>(),
             ["source_ip"] = Array.Empty<string>(),
             ["source_port"] = Array.Empty<string>(),
             ["source_network_id"] = Array.Empty<string>(),
@@ -4561,7 +4563,7 @@ public partial class UniFiApiClient : IDisposable
             ["source_zone_id"] = Array.Empty<string>(),
             ["source_region"] = Array.Empty<string>(),
             ["destination_host"] = Array.Empty<string>(),
-            ["destination_mac"] = Array.Empty<string>(),
+            ["destination_mac"] = destinationMacFilter ?? Array.Empty<string>(),
             ["destination_ip"] = destinationIpFilter ?? Array.Empty<string>(),
             ["destination_port"] = Array.Empty<string>(),
             ["destination_network_id"] = Array.Empty<string>(),
@@ -4621,18 +4623,24 @@ public partial class UniFiApiClient : IDisposable
     public TrafficFlowCache FlowCache { get; } = new();
 
     /// <summary>
-    /// One page of <see cref="GetTrafficFlowsAsync(DateTimeOffset, DateTimeOffset, int, int, string[], string[], string[], string[], CancellationToken)"/>
+    /// One page of <see cref="GetTrafficFlowsAsync(DateTimeOffset, DateTimeOffset, int, int, string[], string[], string[], string[], CancellationToken, string[], string[])"/>
     /// as typed records, newest first. Null when the console cannot answer. Page until a short page:
     /// past page 0 the request skips the count, and the console then reports <c>has_next</c> false.
+    /// <paramref name="sourceMac"/> or <paramref name="destinationMac"/> narrows the read to one
+    /// client's records as that end; the console applies both together, so a client takes two reads.
     /// </summary>
     public async Task<UniFiTrafficFlowPage?> GetTrafficFlowPageAsync(
         DateTimeOffset start,
         DateTimeOffset end,
         int pageNumber,
         int pageSize,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        string? sourceMac = null,
+        string? destinationMac = null)
     {
-        var json = await GetTrafficFlowsAsync(start, end, pageNumber, pageSize, cancellationToken: cancellationToken);
+        var json = await GetTrafficFlowsAsync(start, end, pageNumber, pageSize, cancellationToken: cancellationToken,
+            sourceMacFilter: sourceMac == null ? null : [sourceMac],
+            destinationMacFilter: destinationMac == null ? null : [destinationMac]);
         return json.ValueKind == JsonValueKind.Object ? json.Deserialize<UniFiTrafficFlowPage>() : null;
     }
 

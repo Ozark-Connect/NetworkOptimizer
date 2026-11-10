@@ -58,6 +58,12 @@ public sealed class FlowHistoryCache
         lock (_gate) _viewers[viewerId] = now;
     }
 
+    /// <summary>No viewer has asked within the viewer timeout: a client's cache that can be let go.</summary>
+    public bool Idle(DateTime now)
+    {
+        lock (_gate) return _viewers.Values.All(seen => now - seen > ViewerTimeout);
+    }
+
     /// <summary>Drops a viewer, and every record once nobody is left. True when the cache emptied.</summary>
     public bool Release(string viewerId, DateTime now)
     {
@@ -251,17 +257,19 @@ public sealed class FlowHistoryCache
             app = DpiCatalog.AppName(c, a);
             category = DpiCatalog.CategoryName(c);
         }
-        var portName = NetworkUtilities.GetPortServiceName(remotePort);
-        var service = Clean(f.Service) ?? portName;
+        var clientPort = local.Port ?? 0;
+        var portName = FlowNaming.PortName(clientPort, remotePort);
+        var service = FlowNaming.ConsoleService(f.Service) ?? portName;
+        var barePort = FlowNaming.BarePort(proto, clientPort, remotePort);
         var destSub = service != null
             ? (proto == "UDP" && service is "HTTPS" ? "QUIC" : service)
-            : remotePort > 0 ? $"{proto} {remotePort}" : proto;
+            : barePort;
         var encryptedDns = remotePort == 853
             || (remotePort == 443 && kind != LiveRouteKind.Lan && DohProviderRegistry.IdentifyProviderFromIp(remote.Ip!) != null);
         if (app == null && encryptedDns) app = remotePort == 853 ? "DNS over TLS" : "DNS over HTTPS";
         // The console's own domains for the remote, as Live names an app it has not: before the port name.
         app ??= remote.Domains?.Select(d => DomainAppCatalog.AppFor(d)).FirstOrDefault(n => n != null);
-        app ??= service ?? (remotePort > 0 ? $"{proto} {remotePort}" : proto);
+        app ??= service ?? barePort;
 
         var policy = f.Policies?.FirstOrDefault(p => !string.IsNullOrEmpty(p.Name));
         var seenMs = f.Time > 0 ? f.Time : f.FlowEndTime > 0 ? f.FlowEndTime : f.FlowStartTime;
@@ -282,7 +290,7 @@ public sealed class FlowHistoryCache
             RouteKind = kind,
             Started = Utc(f.FlowStartTime),
             Proto = proto,
-            ClientPort = local.Port ?? 0,
+            ClientPort = clientPort,
             RemotePort = remotePort,
             PolicyName = policy?.Name,
             PolicyId = policy?.Id,
