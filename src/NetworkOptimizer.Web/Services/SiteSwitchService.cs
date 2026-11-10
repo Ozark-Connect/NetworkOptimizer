@@ -90,15 +90,15 @@ public class SiteSwitchService
 
     /// <summary>
     /// Per page, parameters whose site-boundness depends on the value: a Live Traffic route named for this
-    /// site's WAN or VPN goes but LAN, which every site has, stays; a destination that is a private address
-    /// (a LAN device) goes but an internet name or address stays.
+    /// site's WAN or VPN goes but LAN, which every site has, stays; a destination naming a LAN device (a
+    /// private address or a UniFi name) goes but an internet name or address stays.
     /// </summary>
     private static readonly Dictionary<string, (string[] Names, Func<string, bool> IsSiteBound)[]> SiteBoundValuesByPath = new(StringComparer.OrdinalIgnoreCase)
     {
         ["/monitoring/live-traffic"] =
         [
             (["route", "not-route"], v => !string.Equals(v, "LAN", StringComparison.OrdinalIgnoreCase)),
-            (["dest", "not-dest"], v => System.Net.IPAddress.TryParse(v, out var ip) && NetworkOptimizer.Core.Helpers.NetworkUtilities.IsPrivateIpAddress(ip)),
+            (["dest", "not-dest"], v => !IsInternetDestination(v)),
         ],
     };
 
@@ -121,6 +121,18 @@ public class SiteSwitchService
         if (SiteBoundValuesByPath.TryGetValue(path, out var byValue))
             url = RemoveSiteBoundValues(url, byValue);
         return url;
+    }
+
+    /// <summary>
+    /// A Live Traffic destination every site shares: a public address, or a DNS name (dotted, no spaces).
+    /// Anything else names this site: a private address, or a client or UniFi device by its UniFi name
+    /// ("[AP] Living Room"). An owner name ("Example Org") is dropped too, which costs nothing much.
+    /// </summary>
+    private static bool IsInternetDestination(string value)
+    {
+        if (System.Net.IPAddress.TryParse(value, out var ip)) return !NetworkOptimizer.Core.Helpers.NetworkUtilities.IsPrivateIpAddress(ip);
+        return value.Contains('.') && !value.Any(char.IsWhiteSpace) && !value.EndsWith(".local", StringComparison.OrdinalIgnoreCase)
+            && !value.EndsWith(".lan", StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>Drops each listed parameter's values its rule calls site-bound, keeping its other values.</summary>
