@@ -8,7 +8,7 @@ import { renderFilterReset, isFiltered } from './chart-filter.js?v=6';
 import { createMarkLayer } from './chart-event-marks.js?v=13';
 import { createAxisDateCaption } from './chart-axis-date.js?v=5';
 import { syncIdentity, extentsOf, spanTo } from './chart-sync.js?v=9';
-import { ponSeriesFor, ponDetailsHtml, ponErrorTotalsHtml, updatePonCard, ponPayloadMbps, fmtPonLoad, ponLoadSummaryHtml, ponPathSummaryHtml, ponLaunchSeries, ponAvailSummaryHtml, ponGrantSummaryHtml, createPonLoadMap, ponCheckHtml, ponFecSummaryHtml, ponLaserSummaryHtml, ponProviderHtml } from './pon-section.js?v=14';
+import { ponSeriesFor, ponDetailsHtml, ponErrorTotalsHtml, updatePonCard, ponPayloadMbps, fmtPonLoad, ponLoadSummaryHtml, ponPathSummaryHtml, ponLaunchSeries, ponAvailSummaryHtml, ponGrantSummaryHtml, createPonLoadMap, ponCheckHtml, ponFecSummaryHtml, ponLaserSummaryHtml, ponProviderHtml } from './pon-section.js?v=15';
 import { awaitContainer } from './chart-mount.js?v=1';
 import { loadWindowHours, saveWindowHours, markActiveRange, notifyWindowMoved } from './chart-window.js?v=2';
 

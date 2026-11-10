@@ -238,6 +238,10 @@ export function ponLaunchSeries(item, label, color) {
     return { name: `${label}${reachExtended(item) ? ' reach extender' : ' OLT'} launch (announced)`, color, data };
 }
 
+// Counts in the new read-outs sit beside values with a decimal point, so they group the same way
+// whatever the browser's locale: "15,999", never "15.999".
+const fmtInt = v => v.toLocaleString('en-US');
+
 function fmtDuration(seconds) {
     if (seconds < 60) return `${seconds < 10 ? seconds.toFixed(1) : Math.round(seconds)} s`;
     if (seconds < 3600) return `${Math.floor(seconds / 60)} min ${Math.round(seconds % 60)} s`;
@@ -292,7 +296,7 @@ export function ponGrantSummaryHtml(items) {
     const withGrants = (items || []).filter(item => (item.pon || []).some(p => p.grantsPerS != null));
     if (!withGrants.length) return '';
     const multi = withGrants.length > 1;
-    const rate = v => v >= 100 ? Math.round(v).toLocaleString() : v.toFixed(1);
+    const rate = v => v >= 100 ? fmtInt(Math.round(v)) : v.toFixed(1);
     return withGrants.map(item => {
         const last = [...item.pon].reverse().find(p => p.grantsPerS != null);
         const parts = [`${rate(last.grantsPerS)} grants/s`];
@@ -309,6 +313,7 @@ export function ponGrantSummaryHtml(items) {
 
 const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 const LOAD_MAP_REFRESH_MS = 10 * 60 * 1000;
+const LOAD_MAP_COLORS = ['#1e3a5f', '#1f5a94', '#1F78C1', '#4f9edb', '#9cc9ef'];
 
 // Mean load per weekday and hour of day on the viewer's clock, from hourly values.
 function loadMapCells(hours) {
@@ -351,8 +356,20 @@ export function createPonLoadMap({ ApexCharts, url, cardSelector, chartSelector,
         // Apex draws the first series at the bottom, so Sunday goes in first to put Monday on top.
         const series = WEEKDAYS.map((name, d) => ({
             name,
-            data: sum[d].map((s, h) => ({ x: String(h).padStart(2, '0'), y: count[d][h] ? +(s / count[d][h]).toFixed(2) : null })),
+            // An hour without data is -1, which the color scale below paints as background: the
+            // library draws a null cell white, and on a dark page a mostly empty map was all glare.
+            data: sum[d].map((s, h) => ({ x: String(h).padStart(2, '0'), y: count[d][h] ? +(s / count[d][h]).toFixed(2) : -1 })),
         })).reverse();
+        // Five steps up to the busiest hour, brighter for busier, so the scale fits a PON that
+        // peaks at 3 percent as well as one that peaks at 60.
+        const top = Math.max(0.01, ...series.flatMap(s => s.data.map(c => c.y)));
+        const ranges = [{ from: -1, to: -0.5, color: '#1f2937', name: 'no data' }]
+            .concat(LOAD_MAP_COLORS.map((color, i) => ({
+                from: i === 0 ? 0 : +(top * i / LOAD_MAP_COLORS.length).toFixed(4),
+                to: +(top * (i + 1) / LOAD_MAP_COLORS.length).toFixed(4),
+                color,
+            })));
+        const heatmap = { radius: 1, enableShades: false, colorScale: { ranges } };
 
         const el = card.querySelector(chartSelector);
         if (el && !chart) {
@@ -360,19 +377,18 @@ export function createPonLoadMap({ ApexCharts, url, cardSelector, chartSelector,
                 chart: { type: 'heatmap', height: 230, background: 'transparent', toolbar: { show: false }, animations: { enabled: false } },
                 series,
                 dataLabels: { enabled: false },
-                colors: ['#1F78C1'],
-                plotOptions: { heatmap: { radius: 1, enableShades: true, shadeIntensity: 0.9 } },
+                plotOptions: { heatmap },
                 stroke: { width: 1, colors: ['#111827'] },
                 xaxis: { type: 'category', labels: { style: { colors: '#9ca3af' } }, title: { text: 'hour of day', style: { color: '#9ca3af' } } },
                 yaxis: { labels: { style: { colors: '#9ca3af' } } },
                 grid: { borderColor: '#374151' },
                 legend: { show: false },
-                tooltip: { theme: 'dark', y: { formatter: v => v == null ? 'no data' : `${fmtShare(v)} % mean` } },
+                tooltip: { theme: 'dark', y: { formatter: v => v == null || v < 0 ? 'no data' : `${fmtShare(v)} % mean` } },
                 noData: { text: 'No data yet', style: { color: '#64748b' } },
             });
             await chart.render();
         } else if (chart) {
-            chart.updateSeries(series, false);
+            chart.updateOptions({ series, plotOptions: { heatmap } }, false, false);
         }
 
         const summaryEl = card.querySelector(summarySelector);
@@ -388,7 +404,7 @@ export function createPonLoadMap({ ApexCharts, url, cardSelector, chartSelector,
             const days = (Date.parse(entry.hours[entry.hours.length - 1].time) - Date.parse(entry.hours[0].time)) / 86400000;
             const label = (visibleItems || []).find(i => String(i.id) === String(entry.id))?.label;
             summaryEl.innerHTML = `<div>${ids.size > 1 && label ? `${escapeHtml(label)}: ` : ''}Busiest hour ${hourText(peak)}, quietest ${hourText(low)}.`
-                + ` Mean load of the whole PON per hour of the week, from ${days < 1.5 ? `${Math.round(days * 24)} hours` : `${Math.round(days)} days`} of data (up to ${loaded.days}).</div>`;
+                + ` Mean load of the whole PON per hour of the week, from ${days < 1.5 ? `${Math.round(days * 24)} hours` : `${Math.round(days)} days`} of data (up to ${loaded.days} days).</div>`;
         }
     }
 
@@ -436,13 +452,13 @@ export function ponFecSummaryHtml(items) {
     const multi = withFec.length > 1;
     return withFec.map(item => {
         const f = item.ponMore.fec;
-        const parts = [`${f.correctedCodewords.toLocaleString()} codewords corrected`];
-        if (f.correctedBits != null) parts.push(`${f.correctedBits.toLocaleString()} bits`);
+        const parts = [`${fmtInt(f.correctedCodewords)} codewords corrected`];
+        if (f.correctedBits != null) parts.push(`${fmtInt(f.correctedBits)} bits`);
         if (f.preFecBitErrorRatio != null) parts.push(`bit error ratio before FEC ${fmtBer(f.preFecBitErrorRatio)}`);
-        parts.push(`${f.bipErrors.toLocaleString()} BIP errors`);
+        parts.push(`${fmtInt(f.bipErrors)} BIP errors`);
         const line = `<div>${multi ? `${escapeHtml(item.label)}: ` : ''}FEC in this window: ${parts.join(', ')}.</div>`;
         if (f.level === 'warning')
-            return line + `<div style="color: var(--warning-color);">${f.uncorrectableCodewords.toLocaleString()} codewords could not be corrected: data was lost on the fibre.</div>`;
+            return line + `<div style="color: var(--warning-color);">${fmtInt(f.uncorrectableCodewords)} codewords could not be corrected: data was lost on the fibre.</div>`;
         if (f.level === 'notice')
             return line + '<div>Corrections without a loss: the line works, and a count that keeps rising is the early sign of a weakening one.</div>';
         return line;
@@ -500,8 +516,8 @@ export function ponProviderHtml(items) {
         const parts = [];
         if (p.pirMbps != null) {
             parts.push(p.cirMbps != null && p.cirMbps !== p.pirMbps
-                ? `Provisioned rate ${p.pirMbps.toLocaleString()} Mbit/s peak, ${p.cirMbps.toLocaleString()} Mbit/s committed`
-                : `Provisioned rate ${p.pirMbps.toLocaleString()} Mbit/s`);
+                ? `Provisioned rate ${p.pirMbps.toFixed(1)} Mbit/s peak, ${p.cirMbps.toFixed(1)} Mbit/s committed`
+                : `Provisioned rate ${p.pirMbps.toFixed(1)} Mbit/s`);
         }
         if (p.services != null) parts.push(`${p.services} service${p.services === 1 ? '' : 's'}`);
         if (p.omciPerMinute != null) parts.push(`${p.omciPerMinute} OMCI messages per minute from the OLT`);

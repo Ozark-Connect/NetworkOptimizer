@@ -759,9 +759,10 @@ public static class PonChartSeries
                 events.Add(new(time, "key_renewed", (prev.PloamKeySwitch ?? 0).ToString(inv), (cur.PloamKeySwitch ?? 0).ToString(inv)));
             if (stayedUp && Delta(cur.PloamRangingTime, prev.PloamRangingTime) is > 0)
                 events.Add(new(time, "reranged", prev.PloamRangingTime!.Value.ToString(inv), cur.PloamRangingTime!.Value.ToString(inv)));
+            // Only between two points that both had the OMCI daemon answering: a point from before
+            // the field was recorded, or one where the daemon was silent, has no rate to compare.
             if (cur.TrafficPirBytesPerSecond != prev.TrafficPirBytesPerSecond
-                && (cur.TrafficPirBytesPerSecond.HasValue || prev.TrafficPirBytesPerSecond.HasValue)
-                && cur.OmciUp != 0 && prev.OmciUp != 0)
+                && cur.OmciUp == 1 && prev.OmciUp == 1)
                 events.Add(new(time, "rate_changed", Rate(prev.TrafficPirBytesPerSecond), Rate(cur.TrafficPirBytesPerSecond)));
             if (cur.OmciServices is long svc && prev.OmciServices is long svcPrev && svc != svcPrev)
                 events.Add(new(time, "services_changed", svcPrev.ToString(inv), svc.ToString(inv)));

@@ -733,6 +733,20 @@ public class PonChartSeriesTests
     }
 
     [Fact]
+    public void SummarizeProvider_RateAppearingWithTheField_IsNotAChange()
+    {
+        // Seen live: the first poll after the field began to be recorded has a rate, the one before none.
+        var points = Healthy(4);
+        points[0].TrafficPirBytesPerSecond = null;
+        points[0].OmciUp = null;
+        // And a poll where the OMCI daemon was silent reports no rate without the OLT having changed it.
+        points[2].TrafficPirBytesPerSecond = null;
+        points[2].OmciUp = 0;
+
+        PonChartSeries.SummarizeProvider(points)!.Events.Should().BeEmpty();
+    }
+
+    [Fact]
     public void SummarizeProvider_AfterADropOrARestart_ReprovisioningIsNotNews()
     {
         // The link dropped and came back: a new activation ranges and keys again.
