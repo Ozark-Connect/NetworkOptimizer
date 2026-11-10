@@ -30,8 +30,19 @@ public static class DpiCatalog
             ?? throw new InvalidOperationException("dpi-catalog.json did not parse");
         foreach (var (key, entry) in catalog.Applications.ToList())
             if (BrandCasing(entry.N) is { } fixedName) catalog.Applications[key] = entry with { N = fixedName };
+        // "Apple.com" beside "Apple" splits one app in two wherever apps group: the bare name wins.
+        var bare = new HashSet<string>(catalog.Applications.Values.Select(e => e.N).Concat(NamedByDomain), StringComparer.OrdinalIgnoreCase);
+        foreach (var (key, entry) in catalog.Applications.ToList())
+        {
+            var dot = entry.N.LastIndexOf('.');
+            if (dot > 0 && entry.N[(dot + 1)..] is "com" or "net" or "org" or "tv" && bare.FirstOrDefault(n => n.Equals(entry.N[..dot], StringComparison.OrdinalIgnoreCase)) is { } name)
+                catalog.Applications[key] = entry with { N = name };
+        }
         return catalog;
     }
+
+    /// <summary>Names Live Traffic gives by domain or owner that the catalog also has with a ".com".</summary>
+    private static readonly string[] NamedByDomain = ["Apple", "Akamai"];
 
     /// <summary>
     /// Brands as their owners spell them, where UniFi Network's catalog does not: corrected by whole

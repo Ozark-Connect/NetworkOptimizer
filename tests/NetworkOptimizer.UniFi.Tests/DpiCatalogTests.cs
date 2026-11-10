@@ -26,6 +26,14 @@ public class DpiCatalogTests
         Assert.NotNull(DpiCatalog.IconsForName(expected).Class);
     }
 
+    [Theory]
+    [InlineData(13, 84, "Apple")]           // "Apple.com": Live Traffic names Apple by its domains
+    [InlineData(13, 126, "Akamai")]         // "Akamai.net"
+    [InlineData(13, 209, "Adobe")]          // "Adobe.com", the catalog's own duplicate of "Adobe"
+    [InlineData(13, 69, "Microsoft.com")]   // no bare "Microsoft" to fold into
+    public void A_dot_com_name_folds_into_its_bare_name(int category, int application, string expected) =>
+        Assert.Equal(expected, DpiCatalog.AppName(category, application));
+
     [Fact]
     public void Brand_casing_fixes_whole_words_only() =>
         Assert.Equal("Wowtv.co.kr", DpiCatalog.AppName(4, 175));
