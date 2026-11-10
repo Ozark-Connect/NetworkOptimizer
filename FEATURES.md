@@ -114,13 +114,14 @@ Time-series monitoring on your own InfluxDB, fed by SNMP polling (InfluxDB).
     - Click any client, destination, app, route, protocol, or port to filter to it, and again to let it go; hide a value with the button beside it or Alt-click; filters are in the link
       - An app filter for a service keeps the flows named for their app: HTTPS still lists the Apple or Netflix flows on 443, and takes in QUIC
       - Save the filters, search, and grouping to presets **1 2 3** and load one with a click, remembered per user and site
-    - Hover a client for its connection, address, and a link to its Client Performance page
+    - Hover a client for its connection, address, and a link to its Client Performance page; a remote-user VPN or Tailscale client reads as one ("VPN Client (address)")
     - Sort by any column, either way; rows and diagram nodes hold still under the pointer, slide when they move, and an expanded flow stays in place on screen while the list changes, again once you scroll back and settle on it
     - Apps named by the gateway's DPI (UniFi Network's own records), else by the domain the flow went to, the port, or the address's owner (GeoLite2 ASN), with the same app icons as Client Performance
-      - Recognized from their traffic: a phone's Wi-Fi Calling (IPsec to a mobile carrier), iperf3 (TCP and UDP 5201), and between your own devices Google Cast and Midea appliances
-      - Apple traffic named Apple from Apple's own address space even with no domain seen; ICMP is ICMP whoever answers it
+      - Recognized from their traffic: a phone's Wi-Fi Calling (IPsec to a mobile carrier), iperf3 (TCP and UDP 5201), Tailscale (UDP 41641 on either end), Ookla Speedtest servers (a speed* name on TCP 8080), and between your own devices Google Cast and Midea appliances
+      - Apple and Backblaze traffic named from their own address space even with no domain seen; ICMP is ICMP whoever answers it
+      - A stream with no name of its own takes the app of its named siblings (same client, protocol, and port), never on shared ports like 443
       - Network Optimizer's own traffic: On-Site Agents and browsers reaching this install (by its host name or address), and its polls of the AP Agent
-    - **ISP cache** badge on a destination served from a content cache inside your ISP's network (Google Global Cache, Netflix Open Connect, Meta FNA, Akamai): the owner's hostname on an address your ISP announces, named with the ISP and its ASN (GeoLite2 ASN)
+    - **ISP cache** badge on a destination served from a content cache inside your ISP's network (Google Global Cache, Netflix Open Connect, Meta FNA, Akamai): the owner's hostname (or UniFi Network's DPI name for the flow) on an address your ISP announces, named with the ISP and its ASN (GeoLite2 ASN)
     - Destinations named by DNS, else by reverse DNS (PTR) or the address's owner; a public address of one of your sites carries a site badge, and a client or UniFi device on another VLAN carries its UniFi name and a network badge; hover a destination for its address and its Threat Intelligence drill-down
     - Parallel streams from one client to one destination shown as one row with a stream count
     - **Where It Goes** - client to app to route, by rate or by flow count; by rate each band splits into download and upload in its route's color, and each node shows both rates; the gateway's own VPN tunnel is left out so tunneled traffic counts once
