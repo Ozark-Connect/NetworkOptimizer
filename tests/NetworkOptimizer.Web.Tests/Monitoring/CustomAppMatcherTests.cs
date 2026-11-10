@@ -219,6 +219,55 @@ public class CustomAppMatcherTests
         rules.Select(r => r.Name).Should().Equal("First", "Second");
     }
 
+    // ---------------------------------------------------------------- the registry
+
+    [Fact]
+    public void AFirstReadThatFinishesAfterAWriteDoesNotUndoIt()
+    {
+        var registry = new LiveTrafficRegistry();
+        var now = DateTime.UtcNow;
+        registry.CustomAppsLoadDue("site", now).Should().BeTrue();
+
+        registry.SetCustomApps("site", [Rule("21324", name: "Saved")]);
+        registry.LoadCustomApps("site", [Rule("21324", name: "Stale")]);
+
+        registry.CustomAppsFor("site").Single().Name.Should().Be("Saved");
+        registry.CustomAppsLoadDue("site", now).Should().BeFalse();
+    }
+
+    [Fact]
+    public void AFailedReadWaitsAMinuteBeforeTryingAgain()
+    {
+        var registry = new LiveTrafficRegistry();
+        var now = DateTime.UtcNow;
+        registry.CustomAppsLoadFailed("site", now);
+
+        registry.CustomAppsLoadDue("site", now.AddSeconds(30)).Should().BeFalse();
+        registry.CustomAppsLoadDue("site", now.AddMinutes(1)).Should().BeTrue();
+    }
+
+    [Fact]
+    public void ANewStoreStartsWithTheSitesRules()
+    {
+        var registry = new LiveTrafficRegistry();
+        registry.LoadCustomApps("site", [Rule("21324")]);
+        registry.EvictSite("site");
+        registry.CustomAppsLoadDue("site", DateTime.UtcNow).Should().BeTrue("an evicted site reads its rules again");
+
+        registry.LoadCustomApps("site", [Rule("21324")]);
+        var store = registry.GetFor("site");
+        var batch = new LiveTrafficBatch { WindowSeconds = 2, TotalFlows = 1 };
+        batch.Flows.Add(LanFlow("a", 21324));
+        store.Ingest(batch);
+        store.LiveCounts().Should().ContainKey(1);
+    }
+
+    [Theory]
+    [InlineData("", "Give the app a name.")]
+    [InlineData("A name well past eighty characters, which the form's maxlength stops but a direct call might not, ok", "Keep the name to 80 characters.")]
+    public void ValidateNamesTheFirstProblem(string name, string message) =>
+        CustomAppService.Validate(new CustomAppDefinition { Name = name, Ports = "21324" }).Should().Be(message);
+
     // ---------------------------------------------------------------- the store
 
     private static LiveFlow LanFlow(string key, int port, string proto = "udp") => new()

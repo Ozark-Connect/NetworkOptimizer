@@ -57,22 +57,49 @@ public sealed class CustomAppService : ICustomAppService
     private readonly SiteContextService _site;
     private readonly LiveTrafficRegistry _registry;
     private readonly IAuditContext _audit;
+    private readonly ILogger<CustomAppService> _logger;
 
-    public CustomAppService(SiteDbContextFactory siteDb, SiteContextService site, LiveTrafficRegistry registry, IAuditContext audit)
+    public CustomAppService(SiteDbContextFactory siteDb, SiteContextService site, LiveTrafficRegistry registry, IAuditContext audit,
+        ILogger<CustomAppService> logger)
     {
         _siteDb = siteDb;
         _site = site;
         _registry = registry;
         _audit = audit;
+        _logger = logger;
     }
 
-    /// <summary>Reads the site's definitions into the registry once; later changes push them in directly.</summary>
-    internal static async Task EnsureLoadedAsync(LiveTrafficRegistry registry, SiteDbContextFactory siteDb, string slug, CancellationToken ct)
+    /// <summary>Runs a write under the site's write lock.</summary>
+    private async Task<T> WriteAsync<T>(Func<Task<T>> write, CancellationToken ct)
     {
-        if (registry.CustomAppsLoaded(slug)) return;
-        await using var db = siteDb.CreateForSite(slug, slug == SiteManagementService.DefaultSiteSlug);
-        var all = await db.CustomAppDefinitions.AsNoTracking().ToListAsync(ct);
-        registry.SetCustomApps(slug, CustomAppMatcher.ToRules(all));
+        var gate = _registry.CustomAppsWriteLock(_site.Slug);
+        await gate.WaitAsync(ct);
+        try { return await write(); }
+        finally { gate.Release(); }
+    }
+
+    /// <summary>
+    /// Reads the site's definitions into the registry once; later changes push them in directly. Never
+    /// throws for a failed read: Live Traffic runs on without custom names and tries again in a minute.
+    /// </summary>
+    internal static async Task EnsureLoadedAsync(LiveTrafficRegistry registry, SiteDbContextFactory siteDb, string slug, ILogger logger, CancellationToken ct)
+    {
+        if (!registry.CustomAppsLoadDue(slug, DateTime.UtcNow)) return;
+        try
+        {
+            await using var db = siteDb.CreateForSite(slug, slug == SiteManagementService.DefaultSiteSlug);
+            var all = await db.CustomAppDefinitions.AsNoTracking().ToListAsync(ct);
+            registry.LoadCustomApps(slug, CustomAppMatcher.ToRules(all));
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            registry.CustomAppsLoadFailed(slug, DateTime.UtcNow);
+            logger.LogWarning(ex, "Live Traffic: could not read custom apps for site {Site}", slug);
+        }
     }
 
     private NetworkOptimizerDbContext OpenDb() =>
@@ -88,14 +115,14 @@ public sealed class CustomAppService : ICustomAppService
     /// <inheritdoc />
     public async Task<IReadOnlyDictionary<int, int>> LiveCountsAsync(CancellationToken ct = default)
     {
-        await EnsureLoadedAsync(_registry, _siteDb, _site.Slug, ct);
+        await EnsureLoadedAsync(_registry, _siteDb, _site.Slug, _logger, ct);
         return _registry.GetFor(_site.Slug).LiveCounts();
     }
 
     /// <inheritdoc />
     public async Task<CustomAppPreview?> PreviewAsync(CustomAppDefinition draft, CancellationToken ct = default)
     {
-        await EnsureLoadedAsync(_registry, _siteDb, _site.Slug, ct);
+        await EnsureLoadedAsync(_registry, _siteDb, _site.Slug, _logger, ct);
         // The name does not affect matching, and an empty one is the form's first state.
         var normalized = Normalized(draft);
         normalized.Name = "Preview";
@@ -104,7 +131,10 @@ public sealed class CustomAppService : ICustomAppService
     }
 
     /// <inheritdoc />
-    public async Task<CustomAppDefinition> SaveAsync(CustomAppDefinition definition, int? position = null, CancellationToken ct = default)
+    public Task<CustomAppDefinition> SaveAsync(CustomAppDefinition definition, int? position = null, CancellationToken ct = default) =>
+        WriteAsync(() => SaveLockedAsync(definition, position, ct), ct);
+
+    private async Task<CustomAppDefinition> SaveLockedAsync(CustomAppDefinition definition, int? position, CancellationToken ct)
     {
         var d = Normalized(definition);
         if (Validate(d) is { } error) throw new ArgumentException(error);
@@ -116,6 +146,12 @@ public sealed class CustomAppService : ICustomAppService
         if (d.Id > 0)
         {
             saved = all.FirstOrDefault(x => x.Id == d.Id) ?? throw new ArgumentException("That custom app was deleted. Add it again.");
+            if (saved.Name == d.Name && saved.Protocol == d.Protocol && saved.Ports == d.Ports && saved.PortOn == d.PortOn
+                && saved.Scope == d.Scope && saved.Remote == d.Remote && saved.IconClass == d.IconClass)
+            {
+                _audit.SuppressNoChange();
+                return saved;
+            }
             saved.Name = d.Name;
             saved.Protocol = d.Protocol;
             saved.Ports = d.Ports;
@@ -150,7 +186,10 @@ public sealed class CustomAppService : ICustomAppService
     }
 
     /// <inheritdoc />
-    public async Task MoveAsync(int id, int offset, CancellationToken ct = default)
+    public Task MoveAsync(int id, int offset, CancellationToken ct = default) =>
+        WriteAsync(async () => { await MoveLockedAsync(id, offset, ct); return true; }, ct);
+
+    private async Task MoveLockedAsync(int id, int offset, CancellationToken ct)
     {
         await using var db = OpenDb();
         var all = await db.CustomAppDefinitions.OrderBy(x => x.SortOrder).ThenBy(x => x.Id).ToListAsync(ct);
@@ -170,7 +209,10 @@ public sealed class CustomAppService : ICustomAppService
     }
 
     /// <inheritdoc />
-    public async Task<int?> DeleteAsync(int id, CancellationToken ct = default)
+    public Task<int?> DeleteAsync(int id, CancellationToken ct = default) =>
+        WriteAsync(() => DeleteLockedAsync(id, ct), ct);
+
+    private async Task<int?> DeleteLockedAsync(int id, CancellationToken ct)
     {
         await using var db = OpenDb();
         var all = await db.CustomAppDefinitions.OrderBy(x => x.SortOrder).ThenBy(x => x.Id).ToListAsync(ct);
@@ -194,6 +236,7 @@ public sealed class CustomAppService : ICustomAppService
     public static string? Validate(CustomAppDefinition d)
     {
         if (string.IsNullOrWhiteSpace(d.Name)) return "Give the app a name.";
+        if (d.Name.Trim().Length > 80) return "Keep the name to 80 characters.";
         if (!CustomAppMatcher.TryParsePorts(d.Ports, out _, out var portError)) return portError;
         return CustomAppMatcher.ValidateRemote(d.Remote);
     }

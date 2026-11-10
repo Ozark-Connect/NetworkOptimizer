@@ -28,8 +28,36 @@ public sealed class LiveTrafficRegistry : ISiteScopedRegistry
         return cache;
     });
 
-    /// <summary>Whether the site's custom apps have been read since start (or since the site was evicted).</summary>
-    public bool CustomAppsLoaded(string slug) => _customApps.ContainsKey(slug);
+    private readonly ConcurrentDictionary<string, DateTime> _customAppsFailedAt = new();
+    private readonly ConcurrentDictionary<string, SemaphoreSlim> _customAppsWrite = new();
+    private static readonly TimeSpan CustomAppsRetry = TimeSpan.FromMinutes(1);
+
+    /// <summary>
+    /// The site's custom apps still need reading from its database: not loaded yet, and no failed read
+    /// in the last minute (a failing read must not cost every Live Traffic refresh a database call).
+    /// </summary>
+    public bool CustomAppsLoadDue(string slug, DateTime now) =>
+        !_customApps.ContainsKey(slug)
+        && (!_customAppsFailedAt.TryGetValue(slug, out var failed) || now - failed >= CustomAppsRetry);
+
+    /// <summary>
+    /// The rules a first read found. A write that published while the read ran wins: the read saw the
+    /// table from before it.
+    /// </summary>
+    public void LoadCustomApps(string slug, IReadOnlyList<CustomAppRule> rules)
+    {
+        if (!_customApps.TryAdd(slug, rules)) return;
+        _customAppsFailedAt.TryRemove(slug, out _);
+        GetFor(slug).SetCustomApps(rules);
+        HistoryFor(slug).SetCustomApps(rules);
+        foreach (var (key, cache) in _clientHistory)
+            if (key.Slug == slug) cache.SetCustomApps(rules);
+    }
+
+    public void CustomAppsLoadFailed(string slug, DateTime now) => _customAppsFailedAt[slug] = now;
+
+    /// <summary>One writer per site: each write renumbers the whole list and publishes what it saved.</summary>
+    public SemaphoreSlim CustomAppsWriteLock(string slug) => _customAppsWrite.GetOrAdd(slug, _ => new SemaphoreSlim(1, 1));
 
     /// <summary>The site's custom apps, in list order; empty before they are loaded.</summary>
     public IReadOnlyList<CustomAppRule> CustomAppsFor(string slug) =>
@@ -81,6 +109,7 @@ public sealed class LiveTrafficRegistry : ISiteScopedRegistry
         foreach (var key in _clientHistory.Keys.Where(k => k.Slug == slug).ToList())
             _clientHistory.TryRemove(key, out _);
         _customApps.TryRemove(slug, out _);
+        _customAppsFailedAt.TryRemove(slug, out _);
         return null;
     }
 }
