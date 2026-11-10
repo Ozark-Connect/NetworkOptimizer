@@ -108,7 +108,8 @@ public class FloorPlanService : IFloorPlanAdminService
     private NetworkOptimizerDbContext CreateSiteDb() =>
         _siteDbFactory.CreateForSite(_siteContext.Slug, _siteContext.IsDefault);
 
-    private static string GetFloorPlanDirectory(string slug, bool isDefault)
+    /// <summary>A site's floor plan directory. The default site's is the floor plan root itself.</summary>
+    internal static string GetFloorPlanDirectory(string slug, bool isDefault)
     {
         var isDocker = string.Equals(
             Environment.GetEnvironmentVariable("DOTNET_RUNNING_IN_CONTAINER"),

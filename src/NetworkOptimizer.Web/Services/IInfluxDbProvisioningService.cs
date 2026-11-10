@@ -43,6 +43,12 @@ public interface IInfluxDbProvisioningService
     Task<InfluxDbProvisioningService.BucketProvisionResult> EnsureBucketsAsync(
         string url, string adminToken, string orgId, string primaryBucket, string longtermBucket, CancellationToken ct = default);
 
+    /// <summary>Deletes the named buckets, skipping any that do not exist. Used when a site is removed.</summary>
+    [RequireRole(Roles.Admin)]
+    [AuditAction(AuditActions.MonitoringSetupChanged, TargetType = "influx_bucket")]
+    Task<IReadOnlyList<string>> DeleteBucketsAsync(
+        string url, string token, string orgId, IReadOnlyList<string> bucketNames, CancellationToken ct = default);
+
     /// <summary>Creates a token scoped to read/write on the two monitoring buckets.</summary>
     [RequireRole(Roles.Admin)]
     [AuditAction(AuditActions.MonitoringSetupChanged, TargetType = "influx_token")]
