@@ -19,11 +19,16 @@ public class DpiCatalogTests
     [InlineData(4, 303, "YouTube Kids")]
     [InlineData(6, 4, "FaceTime")]           // "Facetime"
     [InlineData(8, 62, "Xbox")]              // "XBOX"
+    [InlineData(8, 22, "WoW Game")]          // "WOW Game", World of Warcraft: the Battle.net mark
     public void Brands_take_their_owners_spelling(int category, int application, string expected)
     {
         Assert.Equal(expected, DpiCatalog.AppName(category, application));
         Assert.NotNull(DpiCatalog.IconsForName(expected).Class);
     }
+
+    [Fact]
+    public void Brand_casing_fixes_whole_words_only() =>
+        Assert.Equal("Wowtv.co.kr", DpiCatalog.AppName(4, 175));
 
     [Fact]
     public void Icon_falls_through_catalog_mark_name_brand_word_and_category()

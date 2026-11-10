@@ -45,6 +45,7 @@ public static class DpiCatalog
         ["XBOX"] = "Xbox",
         ["Airplay"] = "AirPlay",
         ["Sharepoint"] = "SharePoint",
+        ["WOW"] = "WoW",
     };
 
     private static string? BrandCasing(string name)
@@ -174,6 +175,7 @@ public static class DpiCatalog
         ["Hearthstone"] = "fa-brands fa-battle-net",
         ["StarCraft2"] = "fa-brands fa-battle-net",
         ["Overwatch"] = "fa-brands fa-battle-net",
+        ["WoW Game"] = "fa-brands fa-battle-net",
         ["Opera browser"] = "fa-brands fa-opera",
         ["Opera VPN"] = "fa-brands fa-opera",
         ["Java Applet"] = "fa-brands fa-java",
