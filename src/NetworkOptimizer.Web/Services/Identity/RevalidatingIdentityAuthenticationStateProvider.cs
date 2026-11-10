@@ -30,6 +30,12 @@ public sealed class RevalidatingIdentityAuthenticationStateProvider
     /// </summary>
     private bool _membershipRefreshAsked;
 
+    /// <summary>
+    /// The same one-chance rule for a stale security stamp. Separate from the membership flag so one
+    /// branch's state never resets the other's.
+    /// </summary>
+    private bool _stampRefreshAsked;
+
     private readonly ILogger<RevalidatingIdentityAuthenticationStateProvider> _logger;
 
     public RevalidatingIdentityAuthenticationStateProvider(
@@ -90,9 +96,22 @@ public sealed class RevalidatingIdentityAuthenticationStateProvider
             var userStamp = await userManager.GetSecurityStampAsync(user);
             if (principalStamp != userStamp)
             {
+                // Asked once, like the membership refresh below: still stale on the next tick means the
+                // client dropped the navigation, and the circuit ends.
+                if (_stampRefreshAsked)
+                {
+                    _logger?.LogWarning(
+                        "Circuit for {User} still holds a stale security stamp after a revalidation was "
+                        + "issued; ending the session rather than asking again.",
+                        user.UserName);
+                    return false;
+                }
+
+                _stampRefreshAsked = true;
                 Revalidate();
                 return true;
             }
+            _stampRefreshAsked = false;
         }
 
         // Permissions changed since this cookie was issued. The account is still valid - only what it
