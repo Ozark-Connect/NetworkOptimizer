@@ -121,6 +121,14 @@ public class DomainAppCatalogTests
         DomainAppCatalog.EmbeddedCache(null, asn, org, app).Should().Be(expected);
 
     [Theory]
+    [InlineData("rr1---sn-test.googlevideo.com", null, "YouTube")]
+    [InlineData(null, "Netflix", "Netflix")]
+    [InlineData("a123.akamaized.net", null, null)]     // Akamai serves every kind of app
+    [InlineData("www.example.com", "Microsoft Teams", null)]
+    public void CacheAppIsTheAppACacheOwnersNameServes(string? host, string? app, string? expected) =>
+        DomainAppCatalog.CacheApp(host, app).Should().Be(expected);
+
+    [Theory]
     [InlineData("speedtest.example.net", "tcp", 8080, "Speedtest.net")]
     [InlineData("speed1.example.com", "tcp", 8080, "Speedtest.net")]
     [InlineData("Speedtest-dfw.example.net", "tcp", 8080, "Speedtest.net")]

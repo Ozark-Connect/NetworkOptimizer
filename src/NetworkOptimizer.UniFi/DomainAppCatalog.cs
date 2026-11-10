@@ -140,6 +140,25 @@ public static class DomainAppCatalog
         return null;
     }
 
+    /// <summary>
+    /// The app a cache-owner's hostname or DPI name says an address serves ("YouTube" for a
+    /// googlevideo.com node), whatever network the address is in; null for anything else. Akamai serves
+    /// every kind of app, so it never names one.
+    /// </summary>
+    public static string? CacheApp(string? host, string? app)
+    {
+        var name = host?.TrimEnd('.');
+        foreach (var (_, suffixes, apps, _, _, _) in CdnCaches)
+        {
+            if (apps.Length == 0) continue;
+            if (app != null && apps.Contains(app, StringComparer.OrdinalIgnoreCase)) return app;
+            if (!string.IsNullOrEmpty(name) && suffixes.Any(s => name.Equals(s, StringComparison.OrdinalIgnoreCase)
+                || name.EndsWith("." + s, StringComparison.OrdinalIgnoreCase)))
+                return AppFor(name) is { } named && apps.Contains(named, StringComparer.OrdinalIgnoreCase) ? named : apps[0];
+        }
+        return null;
+    }
+
     /// <summary>Mobile carriers by the start of their network owner's name, as GeoLite2 spells it.</summary>
     private static readonly string[] MobileCarriers =
     [

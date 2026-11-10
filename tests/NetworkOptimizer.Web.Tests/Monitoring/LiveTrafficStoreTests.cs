@@ -711,6 +711,64 @@ public class LiveTrafficStoreTests
     }
 
     [Fact]
+    public void LongQuicStreamTakesTheAppAnEndedSideConnectionToTheAddressHad()
+    {
+        var store = SeededStore();
+        store.Ingest(Batch(Flow("s", Laptop, "192.0.2.20", "203.0.113.80", 443, "eth4", 5_000_000, 10_000, proto: "udp")));
+        store.MergeUniFiFlows(
+        [
+            new UniFiTrafficFlow
+            {
+                Protocol = "UDP",
+                Time = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                FlowStartTime = DateTimeOffset.UtcNow.AddMinutes(-1).ToUnixTimeMilliseconds(),
+                Application = new UniFiTrafficFlowApplication { App = 112, Category = 4 },
+                Service = "HTTPS",
+                Source = new UniFiTrafficFlowEndpoint { Ip = "192.0.2.20", Port = 49374 },
+                Destination = new UniFiTrafficFlowEndpoint { Ip = "203.0.113.80", Port = 443, Domains = ["rr1---sn-test.googlevideo.com"] },
+            },
+        ]);
+        store.Ingest(Batch(Flow("s", Laptop, "192.0.2.20", "203.0.113.80", 443, "eth4", 5_000_000, 10_000, proto: "udp")));
+
+        var row = store.BuildView(Query(), LiveTrafficState.Live).Flows.Single();
+
+        row.App.Should().Be("YouTube");
+        row.Destination.Should().Be("rr1---sn-test.googlevideo.com");
+    }
+
+    [Theory]
+    [InlineData("203.0.113.14", 443, 7029, "YouTube")]       // a neighbor in the ISP's cache block
+    [InlineData("203.0.113.14", 443, 15169, "HTTPS")]        // Google's own network: not an embedded cache
+    [InlineData("203.0.113.14", 8443, 7029, null)]           // not the cache's port
+    [InlineData("198.51.100.14", 443, 7029, "HTTPS")]        // another /24
+    public void CacheNodeResolvedOutOfViewTakesItsBlocksApp(string remote, int port, int asn, string? expected)
+    {
+        var store = SeededStore();
+        var batch = Batch(Flow("s", Laptop, "192.0.2.20", remote, port, "eth4", 5_000_000, 10_000, proto: "udp"));
+        var dns = new LiveDnsEvent
+        {
+            AtUnixMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+            ClientIp = "192.0.2.20",
+            ServerIp = "192.0.2.1",
+            Name = "rr1---sn-test.googlevideo.com",
+            Qtype = "A",
+            Rcode = "NOERROR",
+            Answered = true,
+        };
+        dns.Answers.Add(new LiveDnsAnswer { Type = "A", Data = "203.0.113.12", Ttl = 300 });
+        batch.Dns.Add(dns);
+        store.Ingest(batch);
+        store.SetOwners(new Dictionary<string, string?> { [remote] = "Windstream" }, new Dictionary<string, int> { [remote] = asn });
+
+        var row = store.BuildView(Query(), LiveTrafficState.Live).Flows.Single();
+
+        if (expected == null) row.App.Should().NotBe("YouTube");
+        else row.App.Should().Be(expected);
+        if (expected == "YouTube") row.IspCache.Should().Contain("Google Global Cache").And.Contain("AS7029");
+        else row.IspCache.Should().BeNull();
+    }
+
+    [Fact]
     public void ConsoleRecordForAnotherConnectionDoesNotDateThisOne()
     {
         var store = SeededStore();

@@ -165,6 +165,7 @@ public sealed class LiveTrafficStore
                     if (_names.Count >= MaxNames && !_names.ContainsKey(a.Data)) continue;
                     var ttl = TimeSpan.FromSeconds(Math.Clamp(a.Ttl, 60, 3600));
                     _names[a.Data] = new DnsLookup(e.ClientIp, e.Name, e.Qtype, e.ServerIp, LatencyOf(e), at, now + ttl);
+                    NoteCacheBlock(a.Data, DomainAppCatalog.CacheApp(e.Name, null), now);
                 }
             }
 
@@ -360,9 +361,36 @@ public sealed class LiveTrafficStore
     private readonly Dictionary<(string Remote, int Port, string Proto), DestinationInfo> _destinations = new();
     private static readonly TimeSpan DestinationKept = TimeSpan.FromHours(1);
 
+    /// <summary>
+    /// IPv4 /24s where a cache owner's name pointed (a googlevideo.com answer or record), and the app it
+    /// serves. An ISP's cache block serves only that owner on 443, so a node the client resolved out of
+    /// view takes the app its neighbors were named with. Read only for an address outside the owner's ASN.
+    /// </summary>
+    private readonly Dictionary<string, (string App, DateTime Seen)> _cacheBlocks = new();
+
+    private void NoteCacheBlock(string ip, string? app, DateTime now)
+    {
+        if (app != null && Block24(ip) is { } block) _cacheBlocks[block] = (app, now);
+    }
+
+    private static string? Block24(string ip) =>
+        IPAddress.TryParse(ip, out var a) && a.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork
+            ? ip[..ip.LastIndexOf('.')]
+            : null;
+
+    /// <summary>The app an unnamed 443 flow takes from its /24's cache owner, when its ASN is not the owner's.</summary>
+    private string? CacheBlockApp(LiveFlow f, string proto, int? asn, string? org, DateTime now)
+    {
+        if (f.Lan || f.RemotePort != 443 || proto is not ("tcp" or "udp")) return null;
+        if (Block24(f.RemoteIp) is not { } block || !_cacheBlocks.TryGetValue(block, out var hit)) return null;
+        if (now - hit.Seen > DestinationKept) return null;
+        return DomainAppCatalog.EmbeddedCache(null, asn, org, hit.App) != null ? hit.App : null;
+    }
+
     private void NoteDestination((string Remote, int Port, string Proto) dest, string? app, string? category, string? domain, DateTime now)
     {
         if (app == null && domain == null) return;
+        if (dest.Port == 443) NoteCacheBlock(dest.Remote, DomainAppCatalog.CacheApp(domain, app), now);
         if (!_destinations.TryGetValue(dest, out var d)) d = new DestinationInfo(null, null, false, null, now);
         var conflict = d.AppConflict || (app != null && d.App != null && d.App != app);
         _destinations[dest] = new DestinationInfo(conflict ? null : app ?? d.App, conflict ? null : category ?? d.Category, conflict,
@@ -373,6 +401,8 @@ public sealed class LiveTrafficStore
     {
         foreach (var stale in _destinations.Where(kv => now - kv.Value.Seen > DestinationKept).Select(kv => kv.Key).ToList())
             _destinations.Remove(stale);
+        foreach (var stale in _cacheBlocks.Where(kv => now - kv.Value.Seen > DestinationKept).Select(kv => kv.Key).ToList())
+            _cacheBlocks.Remove(stale);
         if (_destinations.Count > MaxUniFiFlows)
             foreach (var key in _destinations.OrderBy(kv => kv.Value.Seen).Take(_destinations.Count - MaxUniFiFlows / 2).Select(kv => kv.Key).ToList())
                 _destinations.Remove(key);
@@ -606,12 +636,14 @@ public sealed class LiveTrafficStore
         var destinationApp = match?.App == null ? destInfo?.App : null;
         // A content owner's hostname on an address from someone else's ASN: a CDN cache inside the ISP.
         int? remoteAsn = _asns.TryGetValue(f.RemoteIp, out var knownAsn) ? knownAsn : null;
-        var cache = f.Lan ? null : DomainAppCatalog.EmbeddedCache(hostName, remoteAsn, org, match?.App ?? destinationApp);
+        var neighborApp = match?.App == null && destinationApp == null && DomainAppCatalog.AppFor(hostName) == null
+            ? CacheBlockApp(f, proto, remoteAsn, org, now) : null;
+        var cache = f.Lan ? null : DomainAppCatalog.EmbeddedCache(hostName, remoteAsn, org, match?.App ?? destinationApp ?? neighborApp);
         var ispCache = cache == null ? null
             : remoteAsn is { } asnNumber ? $"{cache} inside {org ?? "your ISP"} (AS{asnNumber})" : $"{cache} inside your ISP's network";
         var app = DomainAppCatalog.ProtocolApp(proto) ?? (toServer ? "Network Optimizer" : null)
             ?? DomainAppCatalog.TailscaleApp(proto, f.ClientPort, f.RemotePort) ?? match?.App ?? DomainAppCatalog.AppFor(hostName)
-            ?? destinationApp
+            ?? destinationApp ?? neighborApp
             ?? DomainAppCatalog.SpeedtestApp(hostName, proto, f.RemotePort)
             ?? (f.Lan ? DomainAppCatalog.LanApp(proto, f.RemotePort, peer?.Vendor) : DomainAppCatalog.WifiCalling(proto, f.RemotePort, org) ?? DomainAppCatalog.OwnerApp(org))
             // The client end may be the server (an iperf3 server answering a test): its port names it then.
