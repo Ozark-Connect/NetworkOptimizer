@@ -439,9 +439,18 @@
     private DateTime _sankeyHoldUntil = DateTime.MinValue;
     private static readonly TimeSpan SankeyHoldGrace = TimeSpan.FromSeconds(1.5);
 
-    /// <summary>The hovered Where It Goes column, held while the pointer is on it and briefly after: <see cref="LiveSankeyHold"/>.</summary>
+    /// <summary>The query the hold began under, Rate or Flows included.</summary>
+    private string? _sankeyHoldQuery;
+    private string SankeyQueryKey => $"{QueryKey}|{_sankeyByFlows}";
+
+    /// <summary>
+    /// The hovered Where It Goes column, held while the pointer is on it and briefly after:
+    /// <see cref="LiveSankeyHold"/>. A filter, search, or Rate / Flows change ends it at once, so
+    /// nodes the new query leaves out never linger at 0.
+    /// </summary>
     private LiveSankeyHold? ActiveSankeyHold =>
-        _sankeyHold != null && (_sankeyHoverIn || DateTime.UtcNow < _sankeyHoldUntil) ? _sankeyHold : null;
+        _sankeyHold != null && _sankeyHoldQuery == SankeyQueryKey
+        && (_sankeyHoverIn || DateTime.UtcNow < _sankeyHoldUntil) ? _sankeyHold : null;
 
     private void HoverSankey(LiveSankeyNode? node)
     {
@@ -462,10 +471,12 @@
         }
         var column = _view?.Sankey?.Nodes.Where(n => n.Column == node.Column).ToList() ?? [];
         _sankeyHold = new LiveSankeyHold(node, column.Where(n => !n.IsOther).ToList(), column.Any(n => n.IsOther));
+        _sankeyHoldQuery = SankeyQueryKey;
     }
 
-    private LiveTrafficView ApplyHold(LiveTrafficView view) =>
-        _hold.Apply(view, $"{_groupBy}|{_ended}|{_flowSort}|{_flowDesc}|{_search}|{string.Join(",", _filters)}");
+    private string QueryKey => $"{_groupBy}|{_ended}|{_flowSort}|{_flowDesc}|{_search}|{string.Join(",", _filters)}";
+
+    private LiveTrafficView ApplyHold(LiveTrafficView view) => _hold.Apply(view, QueryKey);
 
     /// <summary>
     /// Starts the browser-side watcher that slides moved rows into place and holds the expanded row
