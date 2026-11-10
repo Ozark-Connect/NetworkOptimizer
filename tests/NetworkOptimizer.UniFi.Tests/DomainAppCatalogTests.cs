@@ -98,6 +98,14 @@ public class DomainAppCatalogTests
         DomainAppCatalog.LanApp(proto, port, vendor).Should().Be(expected);
 
     [Theory]
+    [InlineData("tcp", 8000, "IKEA of Sweden AB", "HomeKit")]  // DIRIGERA's HAP server
+    [InlineData("tcp", 8000, "Hikvision", null)]               // a camera's SDK port
+    [InlineData("tcp", 8000, null, null)]                      // a dev server: never by port alone
+    [InlineData("tcp", 8443, "IKEA of Sweden AB", null)]
+    public void HomeKitOnlyToAnIkeaHub(string proto, int port, string? vendor, string? expected) =>
+        DomainAppCatalog.LanApp(proto, port, vendor).Should().Be(expected);
+
+    [Theory]
     [InlineData("rr3---sn-abc.googlevideo.com", 64496, "Example ISP", "Google Global Cache")] // embedded GGC
     [InlineData("rr3---sn-abc.googlevideo.com", 15169, "Google LLC", null)]          // Google's own network
     [InlineData("rr3---sn-abc.googlevideo.com", 396982, "Google LLC", null)]         // an owner ASN not listed: its name says Google

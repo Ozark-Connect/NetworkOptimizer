@@ -186,6 +186,9 @@ public static class DomainAppCatalog
         // LG webOS's control channel (SSAP websocket; 3001 is TLS). Dev servers use these ports too
         // (Rails, Next.js, BrowserSync), so only to a device whose MAC vendor is LG.
         ("tcp", 3000 or 3001) when remoteVendor != null && remoteVendor.StartsWith("LG", StringComparison.OrdinalIgnoreCase) => "LG webOS TV",
+        // An IKEA DIRIGERA hub advertises its HomeKit (HAP) server on 8000: a home hub's session to it.
+        // 8000 is also every dev server and Hikvision's SDK port, so only to an IKEA device.
+        ("tcp", 8000) when remoteVendor != null && remoteVendor.StartsWith("IKEA", StringComparison.OrdinalIgnoreCase) => "HomeKit",
         ("tcp", 8009) => "Google Cast",   // a Cast device's control channel
         ("tcp", 6444) => "Midea",         // Midea appliances' local LAN protocol (Home Assistant's Midea LAN)
         ("tcp", 8899) => "AP Agent",      // Network Optimizer polling its AP Agent (ApAgentPaths.AgentPort)

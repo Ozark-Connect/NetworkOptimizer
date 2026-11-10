@@ -112,6 +112,7 @@ public static class DpiCatalog
         ["Google Cast"] = "fa-brands fa-chromecast",
         ["Midea"] = "fa-solid fa-house-signal",
         ["LG webOS TV"] = "fa-solid fa-tv",
+        ["HomeKit"] = "fa-solid fa-house",
         ["iperf3"] = "fa-solid fa-gauge-high",
         // Mail protocols named by their port: the catalog's mail mark.
         ["SMTP"] = "fa-solid fa-envelope",
