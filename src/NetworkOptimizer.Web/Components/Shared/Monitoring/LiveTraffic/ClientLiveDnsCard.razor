@@ -5,7 +5,7 @@
 {
     var rows = view.Dns.Take(MaxRows).ToList();
     var slots = Slots(rows.Count);
-    <div class="card results-card lt-client lt-client-dns">
+    <div class="card results-card lt-client lt-client-dns" id="client-live-dns">
         <div class="chart-card-header">
             <h3>Live DNS <span class="tooltip-icon tooltip-icon-sm" data-tooltip="Lookups that pass through your Gateway. A DNS server on the client's own VLAN is never seen.">?</span></h3>
             <div class="time-range-selector">

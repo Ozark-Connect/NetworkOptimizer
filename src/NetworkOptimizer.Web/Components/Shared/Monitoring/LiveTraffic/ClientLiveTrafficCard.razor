@@ -29,6 +29,10 @@
             {
                 <MonitoringJumpButton Icon="MonitoringJumpButton.JumpIcon.Watch" Tooltip="Watch Live Throughput on the Speed tab" OnClick="OnOpenThroughput" />
             }
+            @if (IsLive)
+            {
+                <MonitoringJumpButton Icon="MonitoringJumpButton.JumpIcon.Below" Tooltip="Jump to Live DNS" OnClick="JumpToLiveDnsAsync" />
+            }
             <MonitoringJumpButton Icon="MonitoringJumpButton.JumpIcon.Analyze" Tooltip="Open in Live Traffic" OnClick="OpenLiveTraffic" />
         </div>
     </div>
@@ -208,6 +212,19 @@
     }
 
     private Task OnFeedChanged() => InvokeAsync(StateHasChanged);
+
+    /// <summary>The client's Live DNS card, further down Data / Apps; it shows whenever this card is live.</summary>
+    private async Task JumpToLiveDnsAsync()
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("eval", "document.getElementById('client-live-dns')?.scrollIntoView({ behavior: 'smooth', block: 'start' })");
+        }
+        catch (Exception ex)
+        {
+            Logger.LogDebug(ex, "Jump to Live DNS failed");
+        }
+    }
 
     /// <summary>Starts the watcher that slides moved rows into place and holds the expanded row where it is.</summary>
     protected override async Task OnAfterRenderAsync(bool firstRender)
