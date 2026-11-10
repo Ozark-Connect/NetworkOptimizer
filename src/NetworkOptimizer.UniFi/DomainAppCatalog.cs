@@ -10,7 +10,7 @@ public static class DomainAppCatalog
 {
     private static readonly Dictionary<string, string> ByDomain = Build(new()
     {
-        ["Youtube"] = ["youtube.com", "googlevideo.com", "ytimg.com", "youtu.be", "youtube-nocookie.com", "youtubei.googleapis.com"],
+        ["YouTube"] = ["youtube.com", "googlevideo.com", "ytimg.com", "youtu.be", "youtube-nocookie.com", "youtubei.googleapis.com"],
         ["Netflix"] = ["netflix.com", "netflix.net", "nflxvideo.net", "nflximg.net", "nflxso.net", "nflxext.com"],
         ["Disney+"] = ["disneyplus.com", "disney-plus.net", "dssott.com", "bamgrid.com", "dssedge.com"],
         ["Hulu"] = ["hulu.com", "hulustream.com", "huluim.com"],
@@ -29,12 +29,12 @@ public static class DomainAppCatalog
         ["Apple TV+"] = ["tv.apple.com", "hls.itunes.apple.com"],
         ["iCloud"] = ["icloud.com", "icloud-content.com", "apple-cloudkit.com", "icloud.apple.com", "me.com", "mac.com", "icloud.com.cn"],
         ["iTunes/App Store"] = ["mzstatic.com", "apps.apple.com"],
-        ["Facetime"] = ["facetime.apple.com"],
+        ["FaceTime"] = ["facetime.apple.com"],
         // Everything else Apple runs: its own domains (the specific apps above win), its CDNs, and APNs.
         ["Apple"] = ["apple.com", "aaplimg.com", "cdn-apple.com", "apple-dns.net", "apple-dns.cn", "itunes.com", "apple.news",
             "apple-mapkit.com", "push-apple.com.akadns.net", "safebrowsing.apple", "apple.com.cn"],
         ["Valve Steam"] = ["steampowered.com", "steamcontent.com", "steamserver.net", "steamstatic.com", "steamcommunity.com", "steam-chat.com"],
-        ["XBOX"] = ["xboxlive.com", "xbox.com", "xboxservices.com"],
+        ["Xbox"] = ["xboxlive.com", "xbox.com", "xboxservices.com"],
         ["Sony PlayStation"] = ["playstation.net", "playstation.com", "sonyentertainmentnetwork.com"],
         ["Epic Games"] = ["epicgames.com", "epicgames.dev", "unrealengine.com"],
         ["Fortnite"] = ["fortnite.com"],

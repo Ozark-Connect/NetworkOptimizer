@@ -14,6 +14,17 @@ public class DpiCatalogTests
         Assert.Null(DpiCatalog.AppName(255, 12345));
     }
 
+    [Theory]
+    [InlineData(4, 112, "YouTube")]          // UniFi Network's catalog: "Youtube"
+    [InlineData(4, 303, "YouTube Kids")]
+    [InlineData(6, 4, "FaceTime")]           // "Facetime"
+    [InlineData(8, 62, "Xbox")]              // "XBOX"
+    public void Brands_take_their_owners_spelling(int category, int application, string expected)
+    {
+        Assert.Equal(expected, DpiCatalog.AppName(category, application));
+        Assert.NotNull(DpiCatalog.IconsForName(expected).Class);
+    }
+
     [Fact]
     public void Icon_falls_through_catalog_mark_name_brand_word_and_category()
     {

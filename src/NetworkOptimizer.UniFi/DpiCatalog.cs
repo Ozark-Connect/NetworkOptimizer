@@ -26,8 +26,36 @@ public static class DpiCatalog
     {
         using var stream = typeof(DpiCatalog).Assembly.GetManifestResourceStream("dpi-catalog.json")
             ?? throw new InvalidOperationException("dpi-catalog.json is not embedded");
-        return JsonSerializer.Deserialize<Catalog>(stream, new JsonSerializerOptions { PropertyNameCaseInsensitive = true })
+        var catalog = JsonSerializer.Deserialize<Catalog>(stream, new JsonSerializerOptions { PropertyNameCaseInsensitive = true })
             ?? throw new InvalidOperationException("dpi-catalog.json did not parse");
+        foreach (var (key, entry) in catalog.Applications.ToList())
+            if (BrandCasing(entry.N) is { } fixedName) catalog.Applications[key] = entry with { N = fixedName };
+        return catalog;
+    }
+
+    /// <summary>
+    /// Brands as their owners spell them, where UniFi Network's catalog does not: corrected by whole
+    /// word, so "Youtube Kids" reads "YouTube Kids". Corrected here rather than in the JSON so a catalog
+    /// refresh keeps them.
+    /// </summary>
+    private static readonly Dictionary<string, string> BrandWords = new(StringComparer.Ordinal)
+    {
+        ["Youtube"] = "YouTube",
+        ["Facetime"] = "FaceTime",
+        ["XBOX"] = "Xbox",
+        ["Airplay"] = "AirPlay",
+        ["Sharepoint"] = "SharePoint",
+    };
+
+    private static string? BrandCasing(string name)
+    {
+        var words = name.Split(' ');
+        var changed = false;
+        for (var i = 0; i < words.Length; i++)
+        {
+            if (BrandWords.TryGetValue(words[i], out var brand)) { words[i] = brand; changed = true; }
+        }
+        return changed ? string.Join(' ', words) : null;
     }
 
     /// <summary>The catalog version the names come from.</summary>
@@ -62,7 +90,8 @@ public static class DpiCatalog
         // No Outlook mark in Font Awesome or Simple Icons: Microsoft's, as its other services carry.
         ["Outlook.com"] = "fa-brands fa-microsoft",
         ["Roku"] = "no-icon no-icon-roku",
-        ["XBOX"] = "fa-brands fa-xbox",
+        ["Xbox"] = "fa-brands fa-xbox",
+        ["FaceTime"] = "fa-brands fa-apple",
         ["iTunes"] = "fa-brands fa-itunes",
         // Marks Font Awesome lacks: app.css draws the no-icon-* classes (Simple Icons, CC0).
         ["WireGuard"] = "no-icon no-icon-wireguard",
@@ -105,7 +134,7 @@ public static class DpiCatalog
         ["TikTok"] = "fa-brands fa-tiktok",
         ["Facebook Messenger"] = "fa-brands fa-facebook-messenger",
         ["Google Drive"] = "fa-brands fa-google-drive",
-        ["Youtube Kids"] = "fa-brands fa-youtube",
+        ["YouTube Kids"] = "fa-brands fa-youtube",
         ["bilibili"] = "fa-brands fa-bilibili",
         ["Threads"] = "fa-brands fa-threads",
         ["Waze"] = "fa-brands fa-waze",

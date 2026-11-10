@@ -7,7 +7,7 @@ namespace NetworkOptimizer.UniFi.Tests;
 public class DomainAppCatalogTests
 {
     [Theory]
-    [InlineData("rr3---sn-abc.googlevideo.com", "Youtube")]
+    [InlineData("rr3---sn-abc.googlevideo.com", "YouTube")]
     [InlineData("ipv4-c001-ord001-ix.1.oca.nflxvideo.net.", "Netflix")]
     [InlineData("steamcontent.com", "Valve Steam")]
     [InlineData("teams.microsoft.com", "Microsoft Teams")]
@@ -34,7 +34,7 @@ public class DomainAppCatalogTests
     public void EveryAppItNamesHasACatalogIconOrTheInitial()
     {
         // A name the DPI catalog spells differently would lose its icon without failing anything else.
-        foreach (var app in new[] { "Youtube", "Netflix", "Valve Steam", "Discord", "Spotify" })
+        foreach (var app in new[] { "YouTube", "Netflix", "Valve Steam", "Discord", "Spotify", "FaceTime", "Xbox" })
         {
             var (domain, cls) = DpiCatalog.IconsForName(app);
             (domain != null || cls != null).Should().BeTrue($"{app} should have an icon");
