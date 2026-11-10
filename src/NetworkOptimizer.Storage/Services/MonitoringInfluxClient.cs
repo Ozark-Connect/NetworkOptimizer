@@ -2369,7 +2369,7 @@ from(bucket: {FluxLiteral.Quote(_longtermBucket)})
   |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
   |> filter(fn: (r) => r._measurement == ""events"")
   |> filter(fn: (r) => r.event_type == {FluxLiteral.Quote(CableModemLogEventType)})
-  |> filter(fn: (r) => r.cm_id == ""{SanitizeFluxString(cmId)}"")
+  |> filter(fn: (r) => r.cm_id == {FluxLiteral.Quote(cmId)})
   |> pivot(rowKey:[""_time""], columnKey: [""_field""], valueColumn: ""_value"")
 ";
         var results = new List<CableModemLogEventPoint>();
@@ -2757,7 +2757,7 @@ from(bucket: {FluxLiteral.Quote(_bucket)})
   |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
   |> filter(fn: (r) => r._measurement == ""interface_counters"")
   |> filter(fn: (r) => r.device_mac == {FluxLiteral.Quote(NormalizeMac(deviceMac))})
-  |> filter(fn: (r) => r.if_name == ""{SanitizeFluxString(ifName)}"")
+  |> filter(fn: (r) => r.if_name == {FluxLiteral.Quote(ifName)})
   |> filter(fn: (r) => r._field == {FluxLiteral.Quote(InfluxFieldNames.LinkSpeedMbps)})
   |> max()
 ";
@@ -2788,7 +2788,7 @@ from(bucket: {FluxLiteral.Quote(_bucket)})
   |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
   |> filter(fn: (r) => r._measurement == ""interface_counters"")
   |> filter(fn: (r) => r.device_mac == {FluxLiteral.Quote(NormalizeMac(deviceMac))})
-  |> filter(fn: (r) => r.if_name == ""{SanitizeFluxString(ifName)}"")
+  |> filter(fn: (r) => r.if_name == {FluxLiteral.Quote(ifName)})
   |> filter(fn: (r) => r._field == {FluxLiteral.Quote(InfluxFieldNames.LinkSpeedMbps)})
   |> aggregateWindow(every: {ToFluxDuration(window)}, fn: min, createEmpty: false)
 ";
@@ -3159,7 +3159,7 @@ from(bucket: {FluxLiteral.Quote(_bucket)})
         var window = aggregateWindow ?? PickAggregateWindow(to - from, sampleIntervalSeconds);
         var mac = NormalizeMac(deviceMac);
         var ifFilter = string.Join(" or ", wanIfNames.Select(n =>
-            $@"r.if_name == ""{SanitizeFluxString(n)}"""));
+            $@"r.if_name == {FluxLiteral.Quote(n)}"));
         // Summing across interfaces groups by (_time, _field), which on a long window at a fine
         // aggregate means one server-side group per sample - measured at 6657ms against 490ms without,
         // for 148k samples over 30 days. With a single WAN there is nothing to sum: the stage returns
@@ -3298,7 +3298,7 @@ from(bucket: {FluxLiteral.Quote(_bucket)})
         if (!IsConfigured) await ReconfigureAsync(ct);
         if (!IsConfigured) return Array.Empty<TargetLatencyMean>();
         var idFilter = targetIds is { Count: > 0 }
-            ? $"\n  |> filter(fn: (r) => {string.Join(" or ", targetIds.Select(id => $@"r.target_id == ""{SanitizeFluxString(id)}"""))})"
+            ? $"\n  |> filter(fn: (r) => {string.Join(" or ", targetIds.Select(id => $@"r.target_id == {FluxLiteral.Quote(id)}"))})"
             : "";
         var internetService = includeInternetService ? @" or r.target_type == ""internetservice""" : "";
         var flux = $@"
@@ -3404,9 +3404,9 @@ from(bucket: {FluxLiteral.Quote(_bucket)})
     {
         if (!IsConfigured) return Array.Empty<TargetLatencyMean>();
         var selector = targetIds is { Count: > 0 }
-            ? $"\n  |> filter(fn: (r) => {string.Join(" or ", targetIds.Select(id => $@"r.target_id == ""{SanitizeFluxString(id)}"""))})"
+            ? $"\n  |> filter(fn: (r) => {string.Join(" or ", targetIds.Select(id => $@"r.target_id == {FluxLiteral.Quote(id)}"))})"
             : targetType != null ? $@"
-  |> filter(fn: (r) => r.target_type == ""{SanitizeFluxString(targetType)}"")" : null;
+  |> filter(fn: (r) => r.target_type == {FluxLiteral.Quote(targetType)})" : null;
         if (selector == null) return Array.Empty<TargetLatencyMean>();
         var flux = $@"
 from(bucket: {FluxLiteral.Quote(_bucket)})
@@ -3773,7 +3773,7 @@ from(bucket: {FluxLiteral.Quote(_bucket)})
         clauses.AddRange(scope.WanTags
             .Where(t => !string.IsNullOrEmpty(t))
             .Distinct(StringComparer.Ordinal)
-            .Select(t => $@"r.wan == ""{SanitizeFluxString(t)}"""));
+            .Select(t => $@"r.wan == {FluxLiteral.Quote(t)}"));
         if (clauses.Count == 0)
             // A tags-only scope with no usable tag values can match nothing; emit an
             // always-false predicate rather than silently returning every WAN's data.
@@ -3920,7 +3920,7 @@ from(bucket: {FluxLiteral.Quote(_bucket)})
         var window = (aggregateWindow is null or { Ticks: 0 }) ? PickAggregateWindow(to - from) : aggregateWindow.Value;
 
         var macFilter = string.Join(" or ", modules.Select(m =>
-            $@"(r.device_mac == {FluxLiteral.Quote(NormalizeMac(m.DeviceMac))} and r.port_name == ""{SanitizeFluxString(m.PortName)}"")"));
+            $@"(r.device_mac == {FluxLiteral.Quote(NormalizeMac(m.DeviceMac))} and r.port_name == {FluxLiteral.Quote(m.PortName)})"));
 
         var aggregateLine = raw ? "" : $@"  |> aggregateWindow(every: {ToFluxDuration(window)}, fn: mean, createEmpty: false)
 ";
@@ -4022,7 +4022,7 @@ from(bucket: {FluxLiteral.Quote(_longtermBucket)})
         var window = aggregateWindow ?? PickAggregateWindow(to - from);
 
         var macFilter = string.Join(" or ", modules.Select(m =>
-            $@"(r.device_mac == {FluxLiteral.Quote(NormalizeMac(m.DeviceMac))} and r.port_name == ""{SanitizeFluxString(m.PortName)}"")"));
+            $@"(r.device_mac == {FluxLiteral.Quote(NormalizeMac(m.DeviceMac))} and r.port_name == {FluxLiteral.Quote(m.PortName)})"));
 
         var fieldFilter = PonFieldFilter;
 
@@ -4081,13 +4081,13 @@ from(bucket: {FluxLiteral.Quote(_longtermBucket)})
 
         // device_mac is written normalized, so a caller's dashed or uppercase MAC is matched the same way.
         var tagFilter = string.Join(" and ", tags.Select(t =>
-            $@"r.{SanitizeFluxIdentifier(t.Tag)} == ""{(t.Tag == "device_mac" ? NormalizeMac(t.Value) : SanitizeFluxString(t.Value))}"""));
+            $@"r.{SanitizeFluxIdentifier(t.Tag)} == {FluxLiteral.Quote(t.Tag == "device_mac" ? NormalizeMac(t.Value) : t.Value)}"));
         foreach (var t in excludeTags ?? [])
-            tagFilter += $@" and r.{SanitizeFluxIdentifier(t.Tag)} != ""{SanitizeFluxString(t.Value)}""";
+            tagFilter += $@" and r.{SanitizeFluxIdentifier(t.Tag)} != {FluxLiteral.Quote(t.Value)}";
         var flux = $@"
 from(bucket: {FluxLiteral.Quote(_longtermBucket)})
   |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
-  |> filter(fn: (r) => r._measurement == ""{SanitizeFluxString(measurement)}"" and r._field == ""{SanitizeFluxString(field)}"")
+  |> filter(fn: (r) => r._measurement == {FluxLiteral.Quote(measurement)} and r._field == {FluxLiteral.Quote(field)})
   |> filter(fn: (r) => {tagFilter})
   |> aggregateWindow(every: {ToFluxDuration(window)}, fn: mean, createEmpty: false)
 ";
@@ -4124,8 +4124,8 @@ from(bucket: {FluxLiteral.Quote(_longtermBucket)})
         if (!IsConfigured || targetIds.Count == 0 || fields.Count == 0) return results;
 
         var idFilter = string.Join(" or ", targetIds.Distinct(StringComparer.Ordinal)
-            .Select(id => $@"r.target_id == ""{SanitizeFluxString(id)}"""));
-        var fieldFilter = string.Join(" or ", fields.Select(f => $@"r._field == ""{SanitizeFluxString(f)}"""));
+            .Select(id => $@"r.target_id == {FluxLiteral.Quote(id)}"));
+        var fieldFilter = string.Join(" or ", fields.Select(f => $@"r._field == {FluxLiteral.Quote(f)}"));
         var flux = $@"
 from(bucket: {FluxLiteral.Quote(_bucket)})
   |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
@@ -4163,7 +4163,7 @@ from(bucket: {FluxLiteral.Quote(_bucket)})
         if (!IsConfigured) await ReconfigureAsync(ct);
         if (!IsConfigured || string.IsNullOrEmpty(deviceMac) || fields.Count == 0) return results;
 
-        var fieldFilter = string.Join(" or ", fields.Select(f => $@"r._field == ""{SanitizeFluxString(f)}"""));
+        var fieldFilter = string.Join(" or ", fields.Select(f => $@"r._field == {FluxLiteral.Quote(f)}"));
         var flux = $@"
 from(bucket: {FluxLiteral.Quote(_bucket)})
   |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
@@ -4204,7 +4204,7 @@ from(bucket: {FluxLiteral.Quote(_bucket)})
         var window = aggregateWindow ?? PickAggregateWindow(to - from);
 
         var modemFilter = !string.IsNullOrEmpty(modemId)
-            ? $@"|> filter(fn: (r) => r.modem_id == ""{SanitizeFluxString(modemId)}"")"
+            ? $@"|> filter(fn: (r) => r.modem_id == {FluxLiteral.Quote(modemId)})"
             : "";
 
         var flux = $@"
@@ -4273,7 +4273,7 @@ from(bucket: {FluxLiteral.Quote(_longtermBucket)})
         var window = aggregateWindow ?? PickAggregateWindow(to - from);
 
         var cmFilter = !string.IsNullOrEmpty(cmId)
-            ? $@"|> filter(fn: (r) => r.cm_id == ""{SanitizeFluxString(cmId)}"")"
+            ? $@"|> filter(fn: (r) => r.cm_id == {FluxLiteral.Quote(cmId)})"
             : "";
 
         var winDur = ToFluxDuration(window);
@@ -4341,7 +4341,7 @@ union(tables: [gauges, deltas])
         var window = aggregateWindow ?? PickAggregateWindow(to - from);
 
         var idFilter = !string.IsNullOrEmpty(starlinkId)
-            ? $@"|> filter(fn: (r) => r.starlink_id == ""{SanitizeFluxString(starlinkId)}"")"
+            ? $@"|> filter(fn: (r) => r.starlink_id == {FluxLiteral.Quote(starlinkId)})"
             : "";
 
         var winDur = ToFluxDuration(window);
@@ -4425,7 +4425,7 @@ union(tables: [gauges, peaks, deltas])
         var window = (aggregateWindow is null or { Ticks: 0 }) ? PickAggregateWindow(to - from) : aggregateWindow.Value;
 
         var ontFilter = !string.IsNullOrEmpty(ontId)
-            ? $@"|> filter(fn: (r) => r.ont_id == ""{SanitizeFluxString(ontId)}"")"
+            ? $@"|> filter(fn: (r) => r.ont_id == {FluxLiteral.Quote(ontId)})"
             : "";
 
         var aggregateLine = raw ? "" : $@"  |> aggregateWindow(every: {ToFluxDuration(window)}, fn: last, createEmpty: false)
@@ -5426,9 +5426,8 @@ span |> last() |> yield(name: ""last"")";
         await foreach (var record in QueryFluxAsync(seriesFlux, ct))
         {
             if (record.GetValueByKey("device_mac") is not string device || device.Length == 0) continue;
-            device = SanitizeFluxString(device);
             series.Add(record.GetValueByKey("band") is string band && band.Length > 0
-                ? $@"(r.device_mac == {FluxLiteral.Quote(device)} and r.band == ""{SanitizeFluxString(band)}"")"
+                ? $@"(r.device_mac == {FluxLiteral.Quote(device)} and r.band == {FluxLiteral.Quote(band)})"
                 : $@"r.device_mac == {FluxLiteral.Quote(device)}");
         }
         if (series.Count == 0) return Array.Empty<ThroughputWindowPoint>();
@@ -5469,7 +5468,7 @@ union(tables: [
     {
         if (!IsConfigured || ifNames.Count == 0) return Array.Empty<ThroughputWindowPoint>();
         var mac = NormalizeMac(deviceMac);
-        var ifFilter = string.Join(" or ", ifNames.Select(n => $@"r.if_name == ""{SanitizeFluxString(n)}"""));
+        var ifFilter = string.Join(" or ", ifNames.Select(n => $@"r.if_name == {FluxLiteral.Quote(n)}"));
         var every = ToFluxDuration(window);
         var port = $@"from(bucket: {FluxLiteral.Quote(_bucket)})
   |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
@@ -6387,7 +6386,7 @@ from(bucket: {FluxLiteral.Quote(_bucket)})
             targetFilter = $"\n  |> filter(fn: (r) => {conditions})";
         }
         var mac = NormalizeMac(gatewayMac);
-        var ifFilter = string.Join(" or ", wanIfNames.Select(n => $@"r.if_name == ""{SanitizeFluxString(n)}"""));
+        var ifFilter = string.Join(" or ", wanIfNames.Select(n => $@"r.if_name == {FluxLiteral.Quote(n)}"));
 
         var flux = $@"
 import ""join""
@@ -6445,7 +6444,7 @@ join.inner(left: loss, right: load, on: (l, r) => l._time == r._time, as: (l, r)
     {
         if (!IsConfigured) await ReconfigureAsync(ct);
         if (!IsConfigured || targetIds.Count == 0) return null;
-        var idFilter = string.Join(" or ", targetIds.Select(id => $@"r.target_id == ""{SanitizeFluxString(id)}"""));
+        var idFilter = string.Join(" or ", targetIds.Select(id => $@"r.target_id == {FluxLiteral.Quote(id)}"));
         // group() collapses every target's per-sample loss into one table so mean() is the pooled
         // average across the whole set, not per target.
         var flux = $@"
