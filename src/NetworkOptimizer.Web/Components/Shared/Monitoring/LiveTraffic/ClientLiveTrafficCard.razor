@@ -182,10 +182,10 @@
 
     /// <summary>
     /// The most rows shown since the user last changed the list. Rows are padded up to it, so flows
-    /// coming and going do not move the cards below up and down every two seconds.
+    /// coming and going do not move the cards below up and down every two seconds; it settles to fewer
+    /// once they have held for a while (<see cref="LiveSlotHold"/>).
     /// </summary>
-    private int _slots;
-    private string? _slotsFor;
+    private readonly LiveSlotHold _slots = new();
 
     private static readonly (LiveFlowSort Col, string Label)[] MobileSorts =
         [(LiveFlowSort.Download, "Down"), (LiveFlowSort.Upload, "Up"), (LiveFlowSort.Total, "Total"), (LiveFlowSort.Started, "Started")];
@@ -194,12 +194,8 @@
 
     private bool IsLive => View?.State is LiveTrafficState.Live or LiveTrafficState.Starting;
 
-    private int Slots(int shown)
-    {
-        var query = $"{Feed.Ended}|{Feed.Sort}|{Feed.Descending}|{_showAll}|{string.Join(",", Feed.Filters)}";
-        if (query != _slotsFor) (_slotsFor, _slots) = (query, 0);
-        return _slots = Math.Max(_slots, shown);
-    }
+    private int Slots(int shown) =>
+        _slots.Rows($"{Feed.Ended}|{Feed.Sort}|{Feed.Descending}|{_showAll}|{string.Join(",", Feed.Filters)}", shown, DateTime.UtcNow);
 
     protected override void OnParametersSet()
     {
@@ -207,7 +203,7 @@
         if (_subscribed != null) _subscribed.Changed -= OnFeedChanged;
         _subscribed = Feed;
         Feed.Changed += OnFeedChanged;
-        _slotsFor = null;
+        _slots.Reset();
         _openKey = null;
     }
 
