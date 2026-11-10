@@ -46,4 +46,16 @@ public class CommaDecimalCultureTests : IDisposable
         stats.Should().NotBeNull();
         stats!.Nr5g!.Snr.Should().Be(-8.5);
     }
+
+    [Fact]
+    public void Uiwwand_StringSignalValues_ReadDotDecimals()
+    {
+        var stats = UiwwandParser.Parse("""
+            { "result": { "rat-mode-active": "LTE", "rsrp": "-99.5", "rsrq": "-10.5", "rssi": -68, "snr": "19.5" } }
+            """, "192.0.2.10", "Test Modem", "U5G-Max");
+
+        stats.Should().NotBeNull();
+        stats!.Lte!.Rsrp.Should().Be(-99.5);
+        stats.Lte.Snr.Should().Be(19.5);
+    }
 }
