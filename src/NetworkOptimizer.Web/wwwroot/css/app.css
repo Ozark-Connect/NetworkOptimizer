@@ -25106,6 +25106,15 @@ body:has(.top-bar-hidden) .btn-fit {
     font-variant-numeric: tabular-nums;
 }
 
+/* A halo in the card's color, so a label stays legible where a wide ribbon runs under it. */
+.lt-sankey-svg .lt-node-label,
+.lt-sankey-svg .lt-node-sub {
+    paint-order: stroke;
+    stroke: var(--bg-card);
+    stroke-width: 3px;
+    stroke-linejoin: round;
+}
+
 .lt-sankey-svg .lt-col-label {
     fill: var(--text-muted);
     font-size: 10px;
