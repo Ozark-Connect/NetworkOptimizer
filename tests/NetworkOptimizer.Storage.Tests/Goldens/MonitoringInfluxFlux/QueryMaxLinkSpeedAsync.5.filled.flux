@@ -1,0 +1,8 @@
+
+from(bucket: "network_monitoring")
+  |> range(start: 2026-01-15T10:00:00Z, stop: 2026-01-15T12:00:00Z)
+  |> filter(fn: (r) => r._measurement == "interface_counters")
+  |> filter(fn: (r) => r.device_mac == "aa:bb:cc:dd:ee:ff")
+  |> filter(fn: (r) => r.if_name == "eth0.10")
+  |> filter(fn: (r) => r._field == "link_speed_mbps")
+  |> max()

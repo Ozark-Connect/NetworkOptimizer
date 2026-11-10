@@ -1,0 +1,7 @@
+from(bucket: "network_monitoring_longterm")
+  |> range(start: 2026-01-15T10:00:00Z, stop: 2026-01-15T11:00:01Z)
+  |> filter(fn: (r) => r._measurement == "wifi_client" or r._measurement == "interface_counters")
+  |> filter(fn: (r) => r._field == "rollup_v" and r._value >= 5)
+  |> keep(columns: ["_time"])
+  |> group()
+  |> limit(n: 1)

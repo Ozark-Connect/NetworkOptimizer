@@ -1,0 +1,8 @@
+
+from(bucket: "network_monitoring_longterm")
+  |> range(start: 2026-01-15T10:00:00Z, stop: 2026-01-15T12:00:00Z)
+  |> filter(fn: (r) => r._measurement == "sfp")
+  |> filter(fn: (r) => (r.device_mac == "cd" and r.port_name == "3") or (r.device_mac == "deceac" and r.port_name == "AA-BB-CC-DD-EE-FF"))
+  |> filter(fn: (r) => r._field == "rx_power_dbm" or r._field == "tx_power_dbm" or r._field == "temperature_c" or r._field == "voltage_v")
+  |> aggregateWindow(every: 48s, fn: mean, createEmpty: false)
+  |> pivot(rowKey:["_time"], columnKey: ["_field"], valueColumn: "_value")

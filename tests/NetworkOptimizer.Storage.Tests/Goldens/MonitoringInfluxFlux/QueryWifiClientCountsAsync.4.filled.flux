@@ -1,0 +1,9 @@
+
+from(bucket: "network_monitoring")
+  |> range(start: 2026-01-15T10:00:00Z, stop: 2026-01-15T12:00:00Z)
+  |> filter(fn: (r) => r._measurement == "wifi_client")
+  |> filter(fn: (r) => r._field == "client_mac")
+  |> group(columns: ["band"])
+  |> window(every: 300s)
+  |> distinct()
+  |> count()

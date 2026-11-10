@@ -1,0 +1,8 @@
+from(bucket: "network_monitoring")
+  |> range(start: 2026-01-15T10:00:00Z, stop: 2026-01-15T12:00:00Z)
+  |> filter(fn: (r) => r._measurement == "wifi_client")
+  |> filter(fn: (r) => r._field == "client_mac" or r._field == "signal_dbm" or r._field == "noise_dbm" or r._field == "rssi" or r._field == "tx_rate_kbps" or r._field == "rx_rate_kbps" or r._field == "tx_throughput_bps" or r._field == "rx_throughput_bps" or r._field == "channel" or r._field == "channel_width" or r._field == "satisfaction" or r._field == "nss" or r._field == "ccq" or r._field == "tx_retries" or r._field == "tx_attempts" or r._field == "latency_avg_ms" or r._field == "idle_seconds")
+  |> aggregateWindow(every: 300s, fn: last, createEmpty: false)
+  |> pivot(rowKey:["_time"], columnKey: ["_field"], valueColumn: "_value")
+  |> filter(fn: (r) => exists r.client_mac)
+  |> filter(fn: (r) => r.client_mac == "aa:bb:cc:dd:ee:ff")

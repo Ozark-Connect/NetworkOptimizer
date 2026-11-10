@@ -1,0 +1,13 @@
+
+from(bucket: "network_monitoring")
+  |> range(start: 2026-01-15T10:00:00Z, stop: 2026-01-15T12:00:00Z)
+  |> filter(fn: (r) => r._measurement == "interface_counters")
+  |> filter(fn: (r) => r.device_mac == "aa:bb:cc:dd:ee:ff")
+  |> filter(fn: (r) => r.if_name == "eth0.10" or r.if_name == "eth8")
+  |> filter(fn: (r) => r._field == "rate_in_bps" or r._field == "rate_out_bps")
+  |> aggregateWindow(every: 300s, fn: mean, createEmpty: false)
+  |> group(columns: ["_time", "_field"])
+  |> sum()
+  |> group()
+  |> pivot(rowKey:["_time"], columnKey: ["_field"], valueColumn: "_value")
+  |> sort(columns: ["_time"])
