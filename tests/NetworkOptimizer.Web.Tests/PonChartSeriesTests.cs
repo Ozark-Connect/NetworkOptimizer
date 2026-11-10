@@ -534,4 +534,240 @@ public class PonChartSeriesTests
         rows[0].GetProperty("time").GetString().Should().Be(T0.AddMinutes(30).ToString("o"), "the middle of the hour it stands for");
         rows[2].GetProperty("time").GetString().Should().Be(T0.AddHours(7.5).ToString("o"));
     }
+
+    /// <summary>A healthy line with everything the connection check reads.</summary>
+    private static List<MonitoringInfluxClient.PonSeriesPoint> Healthy(int n = 4)
+    {
+        var points = Link(n);
+        for (var i = 0; i < n; i++)
+        {
+            var p = points[i];
+            p.PathLossDb = 19.9;
+            p.OltLaunchPowerDbm = 3.4;
+            p.OdnClass = 2;
+            p.OmciUp = 1;
+            p.OmciServices = 3;
+            p.GemRxBytes = 1_000_000L * i;
+            p.OmciRxFrames = 30L * i;
+            p.MibDataSync = 160;
+            p.PloamRequestKey = 1;
+            p.PloamKeySwitch = 3;
+            p.PloamRangingTime = 3;
+            p.TrafficPirBytesPerSecond = 167772125;
+            p.TrafficCirBytesPerSecond = 167772125;
+            p.FecCorrectedWords = 0;
+            p.FecCorrectedBits = 0;
+            p.FecErrors = 0;
+            p.BipErrors = 0;
+            p.BiasMa = 14.5;
+            p.BiasWarnHighMa = 90;
+            p.OntTxPowerDbm = 1.8;
+            p.OntTemperatureC = 52;
+        }
+        return points;
+    }
+
+    private static string[] Statuses(List<MonitoringInfluxClient.PonSeriesPoint> points) =>
+        PonChartSeries.ConnectionCheck(points)!.Select(s => $"{s.Key}:{s.Status}").ToArray();
+
+    [Fact]
+    public void ConnectionCheck_HealthyLine_IsAllOk()
+    {
+        Statuses(Healthy()).Should().Equal("light:ok", "registered:ok", "management:ok", "service:ok", "traffic:ok");
+    }
+
+    [Fact]
+    public void ConnectionCheck_EachStep_FailsOnItsOwnEvidence()
+    {
+        var dark = Healthy();
+        dark[^1].PathLossDb = 29.5;
+        Statuses(dark)[0].Should().Be("light:fail");
+
+        var starved = Healthy();
+        starved[^1].AllocTotal = starved[^2].AllocTotal;
+        PonChartSeries.ConnectionCheck(starved)![1].Should().Be(
+            new PonChartSeries.CheckStep("registered", "fail", "in O5, but the OLT grants this ONT nothing"));
+
+        var ranging = Healthy();
+        ranging[^1].PonLinkStatus = "ranging";
+        Statuses(ranging)[1].Should().Be("registered:fail");
+
+        var noOmci = Healthy();
+        noOmci[^1].OmciUp = 0;
+        Statuses(noOmci)[2].Should().Be("management:fail");
+
+        var noService = Healthy();
+        noService[^1].OmciServices = 0;
+        Statuses(noService)[3].Should().Be("service:fail");
+
+        var silent = Healthy();
+        silent[^1].GemRxBytes = silent[^2].GemRxBytes;
+        silent[^1].GemTxBytes = silent[^2].GemTxBytes;
+        Statuses(silent)[4].Should().Be("traffic:fail");
+    }
+
+    [Fact]
+    public void ConnectionCheck_MissingSources_AreUnknownNotOk()
+    {
+        // An OLT without PON-ID and a source without OMCI state or byte counters.
+        var points = Link(3);
+        foreach (var p in points) p.GemTxBytes = null;
+
+        Statuses(points).Should().Equal("light:unknown", "registered:ok", "management:unknown", "service:unknown", "traffic:unknown");
+        PonChartSeries.ConnectionCheck([Point(0, 1000)]).Should().BeNull("an ONT that reports no state gets no check");
+    }
+
+    [Fact]
+    public void SummarizeFec_CleanLine_IsOkWithAZeroRatio()
+    {
+        var f = PonChartSeries.SummarizeFec(Healthy())!;
+
+        f.Level.Should().Be("ok");
+        f.CorrectedBits.Should().Be(0);
+        f.PreFecBitErrorRatio.Should().Be(0);
+    }
+
+    [Fact]
+    public void SummarizeFec_Corrections_GiveTheRatioBeforeFec()
+    {
+        var points = Healthy(3);
+        points[2].FecCorrectedWords = 40;
+        points[2].FecCorrectedBits = 120;
+
+        var f = PonChartSeries.SummarizeFec(points)!;
+
+        f.Level.Should().Be("notice");
+        f.CorrectedCodewords.Should().Be(40);
+        // 120 bits in two intervals of 2.4 million frames of 38880 bytes.
+        f.PreFecBitErrorRatio.Should().BeApproximately(120 / (2 * 2_400_000 * 38880.0 * 8), 1e-18);
+    }
+
+    [Fact]
+    public void SummarizeFec_UncorrectableCodewords_AreAWarning()
+    {
+        var points = Healthy(3);
+        points[2].FecErrors = 2;
+
+        var f = PonChartSeries.SummarizeFec(points)!;
+
+        f.UncorrectableCodewords.Should().Be(2);
+        f.Level.Should().Be("warning");
+        PonChartSeries.SummarizeFec([Point(0, 1000), Point(10, 2000)]).Should().BeNull("no FEC counters");
+    }
+
+    [Fact]
+    public void SummarizeLaser_MoreCurrentForTheSameLight_IsHinted()
+    {
+        var points = Healthy(12);
+        for (var i = 8; i < 12; i++) points[i].BiasMa = 16.5;
+
+        var l = PonChartSeries.SummarizeLaser(points)!;
+
+        l.BiasMa.Should().Be(16.5);
+        l.WarnHighMa.Should().Be(90);
+        l.BiasChangePercent.Should().BeApproximately(13.8, 0.05);
+        l.TxPowerChangeDb.Should().Be(0);
+        l.Hints.Should().Equal("bias_rise");
+    }
+
+    [Fact]
+    public void SummarizeLaser_WarmerModuleOrHigherPower_IsNotAgeing()
+    {
+        var warmer = Healthy(12);
+        for (var i = 8; i < 12; i++) { warmer[i].BiasMa = 16.5; warmer[i].OntTemperatureC = 60; }
+        PonChartSeries.SummarizeLaser(warmer)!.Hints.Should().BeEmpty();
+
+        var louder = Healthy(12);
+        for (var i = 8; i < 12; i++) { louder[i].BiasMa = 16.5; louder[i].OntTxPowerDbm = 2.6; }
+        PonChartSeries.SummarizeLaser(louder)!.Hints.Should().BeEmpty();
+
+        var blind = Healthy(12);
+        for (var i = 0; i < 12; i++) blind[i].OntTemperatureC = null;
+        for (var i = 8; i < 12; i++) blind[i].BiasMa = 16.5;
+        PonChartSeries.SummarizeLaser(blind)!.Hints.Should().BeEmpty("without the temperature the rise cannot be told from warming");
+    }
+
+    [Fact]
+    public void SummarizeLaser_ModuleFlagsAndLimit_AreHinted()
+    {
+        var points = Healthy(3);
+        points[2].BiasMa = 75;
+        points[2].TransceiverAlarms = "warning:rx_power_low";
+
+        var l = PonChartSeries.SummarizeLaser(points)!;
+
+        l.ModuleAlarms.Should().Equal("warning:rx_power_low");
+        l.Hints.Should().Equal("near_limit", "module_alarm");
+        PonChartSeries.SummarizeLaser(Link(3)).Should().BeNull("no bias current reported");
+    }
+
+    [Fact]
+    public void SummarizeProvider_QuietWindow_HasRatesAndNoEvents()
+    {
+        var s = PonChartSeries.SummarizeProvider(Healthy())!;
+
+        s.OmciPerMinute.Should().Be(6);
+        s.Services.Should().Be(3);
+        s.PirMbps.Should().BeApproximately(1342.2, 0.05);
+        s.CirMbps.Should().Be(s.PirMbps);
+        s.Events.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void SummarizeProvider_WritesKeyRenewalRerangingAndRateChange_AreEvents()
+    {
+        var points = Healthy(6);
+        for (var i = 2; i < 6; i++) points[i].MibDataSync = 163;
+        for (var i = 3; i < 6; i++) { points[i].PloamRequestKey = 2; points[i].PloamKeySwitch = 4; }
+        for (var i = 4; i < 6; i++) points[i].PloamRangingTime = 4;
+        points[5].TrafficPirBytesPerSecond = 62_500_000;
+
+        var s = PonChartSeries.SummarizeProvider(points)!;
+
+        s.Events.Select(e => (e.Time, e.What)).Should().Equal(
+            (T0.AddMinutes(10).ToString("o"), "config_written"),
+            (T0.AddMinutes(15).ToString("o"), "key_renewed"),
+            (T0.AddMinutes(20).ToString("o"), "reranged"),
+            (T0.AddMinutes(25).ToString("o"), "rate_changed"));
+        s.Events[^1].Should().Match<PonChartSeries.PonIdChange>(e => e.From == "1342.2 Mbit/s" && e.To == "500 Mbit/s");
+    }
+
+    [Fact]
+    public void SummarizeProvider_AfterADropOrARestart_ReprovisioningIsNotNews()
+    {
+        // The link dropped and came back: a new activation ranges and keys again.
+        var dropped = Healthy(5);
+        Drop(dropped, 3, 20, los: 1);
+        for (var i = 3; i < 5; i++) { dropped[i].PloamRangingTime = 4; dropped[i].PloamKeySwitch = 4; dropped[i].PloamRequestKey = 2; }
+        PonChartSeries.SummarizeProvider(dropped)!.Events.Should().BeEmpty();
+
+        // The ONT restarted: the OLT provisions it from nothing.
+        var restarted = Healthy(5);
+        for (var i = 3; i < 5; i++) { restarted[i].SfpUptimeS = 40 + 300 * (i - 3); restarted[i].MibDataSync = 12; restarted[i].OmciServices = 1; }
+        PonChartSeries.SummarizeProvider(restarted)!.Events.Where(e => e.Time == T0.AddMinutes(15).ToString("o")).Should().BeEmpty();
+    }
+
+    [Fact]
+    public void SummarizePathLoss_WanderingLoss_IsUnsteady()
+    {
+        // Back and forth by 1.4 dB with no lasting step: a connector, not a new level.
+        var wobble = Enumerable.Range(0, 18).SelectMany(i => Steady(1, rx: i % 3 == 0 ? -17.9 : -16.5));
+
+        var s = PonChartSeries.SummarizePathLoss(Path(wobble))!;
+
+        s.SpreadDb.Should().BeApproximately(1.4, 1e-9);
+        s.Jumps.Should().Be(11);
+        s.Hints.Should().Equal("unsteady");
+        PonChartSeries.SummarizePathLoss(Path(Steady(20)))!.Jumps.Should().Be(0);
+        // A single step to a new level is one jump, not unsteadiness.
+        PonChartSeries.SummarizePathLoss(Path(Steady(12).Concat(Steady(6, rx: -17.5))))!.Hints.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Insights_NothingReported_IsNull()
+    {
+        PonChartSeries.Insights(null).Should().BeNull();
+        PonChartSeries.Insights([Point(0, 1000), Point(10, 2000)]).Should().BeNull();
+        PonChartSeries.Insights(Healthy()).Should().NotBeNull();
+    }
 }

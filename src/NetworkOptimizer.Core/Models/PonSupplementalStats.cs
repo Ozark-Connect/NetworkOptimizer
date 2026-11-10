@@ -180,6 +180,51 @@ public class PonSupplementalStats
     /// <summary>Why the ONT's previous boot ended, in the device's own word (reboot, power, panic, ...).</summary>
     public string? LastResetReason { get; set; }
 
+    /// <summary>Laser bias current in mA, the ONT's own reading. Rises over the years as the laser ages.</summary>
+    public double? BiasMa { get; set; }
+
+    /// <summary>The module's own high warning limit for the bias current, in mA.</summary>
+    public double? BiasWarnHighMa { get; set; }
+
+    /// <summary>How many of the module's own alarm and warning flags are raised (SFF-8472).</summary>
+    public long? TransceiverAlarmCount { get; set; }
+
+    /// <summary>The raised module flags by name, comma separated ("warning:rx_power_low").</summary>
+    public string? TransceiverAlarms { get; set; }
+
+    /// <summary>Downstream bits the FEC decoder corrected. Cumulative; with the frame count, the bit error ratio before FEC.</summary>
+    public long? FecCorrectedBits { get; set; }
+
+    /// <summary>Downstream OMCI messages received: the OLT managing this ONT.</summary>
+    public long? OmciRxFrames { get; set; }
+
+    /// <summary>The OMCI MIB data sync counter. Moves whenever the OLT creates, sets or deletes something on the ONT (one byte, wraps).</summary>
+    public long? MibDataSync { get; set; }
+
+    /// <summary>1 when the ONT's OMCI daemon answered, 0 when it did not.</summary>
+    public long? OmciUp { get; set; }
+
+    /// <summary>Services (bridge connections) the OLT has provisioned on the ONT. 0 in O5 is registered but without a service.</summary>
+    public long? OmciServices { get; set; }
+
+    /// <summary>Request_Key PLOAM messages received: the OLT asking for a new encryption key.</summary>
+    public long? PloamRequestKey { get; set; }
+
+    /// <summary>Key_Switching_Time PLOAM messages received: the OLT switching to a new key.</summary>
+    public long? PloamKeySwitch { get; set; }
+
+    /// <summary>Ranging_Time PLOAM messages received: the OLT setting or adjusting the equalization delay.</summary>
+    public long? PloamRangingTime { get; set; }
+
+    /// <summary>Highest peak information rate among the traffic descriptors the OLT created, bytes per second.</summary>
+    public long? TrafficPirBytesPerSecond { get; set; }
+
+    /// <summary>Highest committed information rate among the traffic descriptors the OLT created, bytes per second.</summary>
+    public long? TrafficCirBytesPerSecond { get; set; }
+
+    /// <summary>1 while the ONT's host port (towards the gateway) has a link.</summary>
+    public long? HostLinkUp { get; set; }
+
     /// <summary>GEM frames dropped at reassembly.</summary>
     public long? GemRxDropped { get; set; }
 

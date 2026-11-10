@@ -204,6 +204,9 @@ public sealed class OdiOssOntProvider : ISfpSupplementalOntProvider
         // A transition is printed once it has happened, so "never left O5" is the family being
         // there without a from="O5" line, not a missing value.
         var hasTransitions = m.Has("gpon_onu_state_transitions_total");
+        var raised = m.Has("gpon_transceiver_alarm")
+            ? m.LabelsWhere("gpon_transceiver_alarm", "1", s => $"{s("kind")}:{s("condition")}")
+            : null;
 
         return new PonSupplementalStats
         {
@@ -231,12 +234,28 @@ public sealed class OdiOssOntProvider : ISfpSupplementalOntProvider
             DsSuperframe = m.Long("gpon_ds_superframe"),
             DsSuperframeSampled = m.Long(SampledSuperframeMetric),
             // This ONT's own downstream, to set beside the PON's: every downstream GEM port it has.
-            GemRxBytes = m.SumLong("gpon_gem_bytes_total", ("direction", "ds")),
+            GemRxBytes = OwnDownstreamBytes(m),
             OltLaunchPowerDbm = LaunchPower(m.Double("gpon_olt_launch_power_dbm")),
             OdnClass = m.Long("gpon_pon_id_odn_class") is long cls and >= 0 and <= 4 ? cls : null,
             ReachExtender = m.Long("gpon_pon_id_reach_extender") is long re and (0 or 1) ? re : null,
             AllocTotal = m.Long("gpon_ds_bwmap_allocations_total"),
             GemTxBytes = m.Long("gpon_us_gem_bytes_total"),
+
+            BiasMa = Finite(m.Double("gpon_bias_current_ma")),
+            BiasWarnHighMa = Finite(m.Double("gpon_transceiver_limit", ("measure", "bias_current"), ("level", "warning"), ("side", "high"))),
+            TransceiverAlarmCount = raised?.Count,
+            TransceiverAlarms = raised is { Count: > 0 } ? string.Join(",", raised) : null,
+            FecCorrectedBits = m.Long("gpon_ds_fec_corrected_bits_total"),
+            OmciRxFrames = m.Long("gpon_ds_omci_frames_total"),
+            MibDataSync = m.Long("gpon_provision_mib_data_sync"),
+            OmciUp = m.Long("gpon_omci_up") is long omciUp and (0 or 1) ? omciUp : null,
+            OmciServices = m.Long("gpon_omci_services"),
+            PloamRequestKey = PloamReceived(m, "0x0d"),
+            PloamKeySwitch = PloamReceived(m, "0x13"),
+            PloamRangingTime = PloamReceived(m, "0x04"),
+            TrafficPirBytesPerSecond = m.MaxLong("gpon_provision_traffic_descriptor_pir_bytes_per_second"),
+            TrafficCirBytesPerSecond = m.MaxLong("gpon_provision_traffic_descriptor_cir_bytes_per_second"),
+            HostLinkUp = m.Long("gpon_host_link_up") is long hostUp and (0 or 1) ? hostUp : null,
             UsBursts = m.Long("gpon_us_bursts_total"),
             UsDbru = m.Long("gpon_us_dbru_total"),
 
@@ -281,12 +300,26 @@ public sealed class OdiOssOntProvider : ISfpSupplementalOntProvider
     /// two ways an OLT takes an ONU off the PON. The exporter prints a type once it was seen, so
     /// with the family present a missing type is zero.
     /// </summary>
-    private static long? OltDeactivations(PrometheusText m)
-    {
-        if (!m.Has("gpon_ploam_messages_by_type_total")) return null;
-        return (m.Long("gpon_ploam_messages_by_type_total", ("direction", "ds"), ("type", "0x05")) ?? 0)
-             + (m.Long("gpon_ploam_messages_by_type_total", ("direction", "ds"), ("type", "0x06")) ?? 0);
-    }
+    private static long? OltDeactivations(PrometheusText m) =>
+        PloamReceived(m, "0x05") is long deactivate && PloamReceived(m, "0x06") is long disable ? deactivate + disable : null;
+
+    /// <summary>
+    /// Downstream PLOAM messages of one type (G.984.3 9.2.3). The exporter prints a type once it
+    /// was seen, so with the family present a missing type is zero; without the family it is unknown.
+    /// </summary>
+    private static long? PloamReceived(PrometheusText m, string type) =>
+        m.Has("gpon_ploam_messages_by_type_total")
+            ? m.Long("gpon_ploam_messages_by_type_total", ("direction", "ds"), ("type", type)) ?? 0
+            : null;
+
+    /// <summary>
+    /// This ONT's user traffic downstream: every downstream GEM port but 4095, which is the OMCI
+    /// channel and not traffic.
+    /// </summary>
+    private static long? OwnDownstreamBytes(PrometheusText m) =>
+        m.SumLong("gpon_gem_bytes_total", ("direction", "ds")) is long all
+            ? all - (m.Long("gpon_gem_bytes_total", ("direction", "ds"), ("gem_port", "4095")) ?? 0)
+            : null;
 
     /// <summary>gpon_onu_state is the N in O(N), the same raw numbering as the netopt-custom contract.</summary>
     private static PonLinkState ToPonLinkState(long? state) => NetOptCustomPonOntProvider.ToPonLinkState(state);
@@ -424,6 +457,37 @@ public sealed class PrometheusText
             any = true;
         }
         return any ? sum : null;
+    }
+
+    /// <summary>The largest whole-number sample of <paramref name="name"/>; null when there is none.</summary>
+    public long? MaxLong(string name)
+    {
+        if (!_series.TryGetValue(name, out var list))
+            return null;
+        long? max = null;
+        foreach (var s in list)
+        {
+            if (long.TryParse(s.Value, NumberStyles.None, CultureInfo.InvariantCulture, out var v) && (max is null || v > max))
+                max = v;
+        }
+        return max;
+    }
+
+    /// <summary>
+    /// For every sample of <paramref name="name"/> whose value is <paramref name="value"/>, what
+    /// <paramref name="describe"/> makes of its labels (a missing label reads as empty).
+    /// </summary>
+    public List<string> LabelsWhere(string name, string value, Func<Func<string, string>, string> describe)
+    {
+        var result = new List<string>();
+        if (!_series.TryGetValue(name, out var list))
+            return result;
+        foreach (var s in list)
+        {
+            if (s.Value == value)
+                result.Add(describe(key => s.Labels.TryGetValue(key, out var v) ? v : ""));
+        }
+        return result;
     }
 
     /// <summary>A label's value on the first sample of an info-style series.</summary>

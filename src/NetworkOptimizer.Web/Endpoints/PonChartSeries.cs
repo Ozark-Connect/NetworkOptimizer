@@ -61,6 +61,8 @@ public static class PonChartSeries
                 dsUsedMbps = DownstreamUtilization(p, prev)?.Mbps,
                 dsOwnMbps = OwnDownstreamMbps(p, prev),
                 dsOwnShare = OwnShare(p, prev),
+                bias = p.BiasMa,
+                hostLink = p.HostLinkUp,
                 // What the ONT's own clocks say happened inside the interval.
                 downS = SameBoot(p, prev) ? DeltaSeconds(p.NotO5Seconds, prev?.NotO5Seconds) : null,
                 losS = SameBoot(p, prev) ? DeltaSeconds(p.LosSeconds, prev?.LosSeconds) : null,
@@ -349,6 +351,10 @@ public static class PonChartSeries
     internal const double PathLossNearLimitDb = 3.0;
     /// <summary>The OLT announces its power in 0.1 dB steps; a full step down is a change of level.</summary>
     internal const double LaunchDropHintDb = 1.0;
+    /// <summary>A change this large from one point to the next is a jump, far outside the RX reading's noise.</summary>
+    internal const double PathLossJumpDb = 0.7;
+    /// <summary>This many jumps in one window is the loss going out and back at least twice.</summary>
+    internal const int PathLossUnsteadyJumps = 4;
     /// <summary>The newest points that stand for "now", and the fewest older ones that make a usual level.</summary>
     private const int RecentPoints = 3;
     private const int MinBaselinePoints = 6;
@@ -384,9 +390,19 @@ public static class PonChartSeries
         public double? LaunchChangeDb { get; init; }
         /// <summary>Recent RX less the usual one.</summary>
         public double? RxChangeDb { get; init; }
+        /// <summary>
+        /// How far the loss ranges in the window: the span between its 5th and 95th percentile.
+        /// </summary>
+        public double? SpreadDb { get; init; }
+        /// <summary>
+        /// Jumps of <see cref="PathLossJumpDb"/> or more from one point to the next. A steady fibre
+        /// has none and a step to a new level is one; several are the loss going back and forth,
+        /// which is what a loose or dirty connector does.
+        /// </summary>
+        public int Jumps { get; init; }
         /// <summary>"ok", "notice" or "warning": the worst of the hints below.</summary>
         public string Level { get; init; } = "ok";
-        /// <summary>Stable keys of what applies: over_limit, near_limit, below_min, loss_rise, launch_drop.</summary>
+        /// <summary>Stable keys of what applies: over_limit, near_limit, below_min, loss_rise, launch_drop, unsteady.</summary>
         public IReadOnlyList<string> Hints { get; init; } = [];
         public IReadOnlyList<PonIdChange> Changes { get; init; } = [];
     }
@@ -428,12 +444,23 @@ public static class PonChartSeries
             rxChange = Math.Round(launchChange.Value - lossChange.Value, 2);
         }
 
+        double? spread = null;
+        var inOrder = ordered.Where(p => p.PathLossDb.HasValue).Select(p => p.PathLossDb!.Value).ToList();
+        var losses = inOrder.OrderBy(v => v).ToList();
+        if (losses.Count >= RecentPoints + MinBaselinePoints)
+            spread = Math.Round(losses[(int)Math.Floor((losses.Count - 1) * 0.95)] - losses[(int)Math.Ceiling((losses.Count - 1) * 0.05)], 2);
+        var jumps = 0;
+        for (var i = 1; i < inOrder.Count; i++)
+            if (Math.Abs(inOrder[i] - inOrder[i - 1]) >= PathLossJumpDb - 1e-9) jumps++;
+
         var hints = new List<string>();
         if (margin < 0) hints.Add("over_limit");
         else if (margin < PathLossNearLimitDb) hints.Add("near_limit");
         if (belowMin.HasValue) hints.Add("below_min");
         if (lossChange >= PathLossRiseHintDb) hints.Add("loss_rise");
         if (launchChange <= -LaunchDropHintDb) hints.Add("launch_drop");
+        // One jump is a step to a new level, named above if it is large; this is back and forth.
+        if (jumps >= PathLossUnsteadyJumps) hints.Add("unsteady");
 
         return new PathLossSummary
         {
@@ -450,6 +477,8 @@ public static class PonChartSeries
             LossChangeDb = lossChange,
             LaunchChangeDb = launchChange,
             RxChangeDb = rxChange,
+            SpreadDb = spread,
+            Jumps = jumps,
             Level = hints.Contains("over_limit") ? "warning" : hints.Count > 0 ? "notice" : "ok",
             Hints = hints,
             Changes = PonIdChanges(ordered),
@@ -503,5 +532,266 @@ public static class PonChartSeries
         var sorted = values.OrderBy(v => v).ToList();
         var mid = sorted.Count / 2;
         return sorted.Count % 2 == 1 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+    }
+
+    // ---------------------------------------------------------------- further read-outs
+
+    /// <summary>One step of the connection check: "ok", "fail" or "unknown", and what it was read from.</summary>
+    public sealed record CheckStep(string Key, string Status, string Detail);
+
+    /// <summary>
+    /// The link from the fibre up to traffic in five steps, each read from the latest interval:
+    /// light (the path loss inside the window of the announced ODN class), registered (O5 and
+    /// being granted upstream), management channel (the OMCI daemon answers), service (the OLT
+    /// has provisioned at least one) and traffic (bytes moved on the ONT's GEM ports). A step
+    /// whose source is missing is "unknown", never "ok". Null when the ONT reports no state.
+    /// </summary>
+    public static List<CheckStep>? ConnectionCheck(List<MonitoringInfluxClient.PonSeriesPoint>? points)
+    {
+        if (points is not { Count: > 0 }) return null;
+        var ordered = points.OrderBy(p => p.Time).ToList();
+        var cur = ordered[^1];
+        var prev = ordered.Count > 1 ? ordered[^2] : null;
+        if (cur.PonLinkStatus is null && cur.OmciUp is null) return null;
+        var inv = CultureInfo.InvariantCulture;
+
+        CheckStep Light()
+        {
+            if (cur.PathLossDb is not double loss || cur.OdnClass is not (>= 0 and <= 4))
+                return new("light", "unknown", "the OLT announces no launch power or class");
+            var (name, min, max) = OdnClasses[cur.OdnClass.Value];
+            var ok = loss >= min && loss <= max;
+            return new("light", ok ? "ok" : "fail",
+                string.Create(inv, $"path loss {loss:0.0} dB, class {name} allows {min:0} to {max:0} dB"));
+        }
+
+        CheckStep Registered()
+        {
+            if (cur.PonLinkStatus is null) return new("registered", "unknown", "no ONU state reported");
+            if (cur.PonLinkStatus != "operation") return new("registered", "fail", $"ONU state is {cur.PonLinkStatus}, not O5");
+            var grants = prev is null ? null : PerSecond(cur.AllocTotal, prev.AllocTotal, cur, prev);
+            return grants switch
+            {
+                null => new("registered", "ok", "in O5"),
+                0 => new("registered", "fail", "in O5, but the OLT grants this ONT nothing"),
+                _ => new("registered", "ok", string.Create(inv, $"in O5, {grants:0} grants per second")),
+            };
+        }
+
+        CheckStep Management() => cur.OmciUp switch
+        {
+            1 => new("management", "ok", "the OMCI daemon answers"),
+            0 => new("management", "fail", "the OMCI daemon did not answer"),
+            _ => new("management", "unknown", "not reported"),
+        };
+
+        CheckStep Service() => cur.OmciServices switch
+        {
+            null => new("service", "unknown", "not reported"),
+            0 => new("service", "fail", "the OLT has provisioned no service"),
+            var n => new("service", "ok", string.Create(inv, $"{n} provisioned")),
+        };
+
+        CheckStep Traffic()
+        {
+            var down = prev is null ? null : Delta(cur.GemRxBytes, prev.GemRxBytes);
+            var up = prev is null ? null : Delta(cur.GemTxBytes, prev.GemTxBytes);
+            if (down is null && up is null) return new("traffic", "unknown", "no byte counters for this interval");
+            return (down ?? 0) > 0 || (up ?? 0) > 0
+                ? new("traffic", "ok", "bytes moved in the last interval")
+                : new("traffic", "fail", "no bytes moved in the last interval");
+        }
+
+        return [Light(), Registered(), Management(), Service(), Traffic()];
+    }
+
+    /// <summary>How much the forward error correction had to do over the window, and whether anything got past it.</summary>
+    public sealed record FecSummary
+    {
+        public long CorrectedCodewords { get; init; }
+        public long UncorrectableCodewords { get; init; }
+        public long? CorrectedBits { get; init; }
+        public long BipErrors { get; init; }
+        /// <summary>Corrected bits over all bits received in the same intervals: the line's error ratio before FEC.</summary>
+        public double? PreFecBitErrorRatio { get; init; }
+        /// <summary>"ok" (nothing to correct), "notice" (corrections, none lost) or "warning" (uncorrectable codewords: data was lost).</summary>
+        public string Level { get; init; } = "ok";
+    }
+
+    /// <summary>Null when no point carries a FEC counter: FEC off, or a source without them.</summary>
+    public static FecSummary? SummarizeFec(List<MonitoringInfluxClient.PonSeriesPoint>? points)
+    {
+        if (points is not { Count: > 1 } || !points.Any(p => p.FecCorrectedWords.HasValue || p.FecCorrectedBits.HasValue))
+            return null;
+        var ordered = points.OrderBy(p => p.Time).ToList();
+        long corrected = 0, uncorrectable = 0, bits = 0, bip = 0, frames = 0;
+        var anyBits = false;
+        for (var i = 1; i < ordered.Count; i++)
+        {
+            var (cur, prev) = (ordered[i], ordered[i - 1]);
+            corrected += Delta(cur.FecCorrectedWords, prev.FecCorrectedWords) ?? 0;
+            uncorrectable += Delta(cur.FecErrors, prev.FecErrors) ?? 0;
+            bip += Delta(cur.BipErrors, prev.BipErrors) ?? 0;
+            // Bits and the frames they were found in from the same intervals, or the ratio is skewed.
+            if (Delta(cur.FecCorrectedBits, prev.FecCorrectedBits) is long b && FramesBetween(cur, prev) is long f)
+            {
+                bits += b;
+                frames += f;
+                anyBits = true;
+            }
+        }
+        return new FecSummary
+        {
+            CorrectedCodewords = corrected,
+            UncorrectableCodewords = uncorrectable,
+            CorrectedBits = anyBits ? bits : null,
+            BipErrors = bip,
+            PreFecBitErrorRatio = anyBits && frames > 0 ? bits / (frames * GponFrameBytes * 8) : null,
+            Level = uncorrectable > 0 ? "warning" : corrected > 0 || bits > 0 ? "notice" : "ok",
+        };
+    }
+
+    /// <summary>The transmit laser's bias current over the window, against its own limit and against itself.</summary>
+    public sealed record LaserSummary
+    {
+        public double BiasMa { get; init; }
+        public double? WarnHighMa { get; init; }
+        /// <summary>Later third of the window against the first third, in percent of the earlier level.</summary>
+        public double? BiasChangePercent { get; init; }
+        public double? TxPowerChangeDb { get; init; }
+        public double? TemperatureChangeC { get; init; }
+        /// <summary>The module's own alarm and warning flags that are raised now.</summary>
+        public IReadOnlyList<string> ModuleAlarms { get; init; } = [];
+        /// <summary>Stable keys: bias_rise (more current for the same light at the same temperature), near_limit, module_alarm.</summary>
+        public IReadOnlyList<string> Hints { get; init; } = [];
+    }
+
+    /// <summary>More bias current than this for the same light is worth a line.</summary>
+    internal const double BiasRiseHintPercent = 10;
+
+    /// <summary>
+    /// Null when no point carries a bias current. A laser that ages needs more current for the
+    /// same light, so the rise only counts while TX power and temperature stayed where they were:
+    /// a warmer module or a higher set power draws more current with nothing wrong.
+    /// </summary>
+    public static LaserSummary? SummarizeLaser(List<MonitoringInfluxClient.PonSeriesPoint>? points)
+    {
+        var withBias = points?.Where(p => p.BiasMa.HasValue).OrderBy(p => p.Time).ToList();
+        if (withBias is not { Count: > 0 }) return null;
+        var latest = withBias[^1];
+
+        double? biasChange = null, txChange = null, tempChange = null;
+        var third = withBias.Count / 3;
+        if (third >= 3)
+        {
+            var early = withBias.Take(third).ToList();
+            var late = withBias.Skip(withBias.Count - third).ToList();
+            var earlyBias = Median(early.Select(p => p.BiasMa!.Value));
+            if (earlyBias > 0)
+                biasChange = Math.Round((Median(late.Select(p => p.BiasMa!.Value)) - earlyBias) / earlyBias * 100, 1);
+            if (early.All(p => p.OntTxPowerDbm.HasValue) && late.All(p => p.OntTxPowerDbm.HasValue))
+                txChange = Math.Round(Median(late.Select(p => p.OntTxPowerDbm!.Value)) - Median(early.Select(p => p.OntTxPowerDbm!.Value)), 2);
+            if (early.All(p => p.OntTemperatureC.HasValue) && late.All(p => p.OntTemperatureC.HasValue))
+                tempChange = Math.Round(Median(late.Select(p => p.OntTemperatureC!.Value)) - Median(early.Select(p => p.OntTemperatureC!.Value)), 1);
+        }
+
+        var alarms = string.IsNullOrEmpty(latest.TransceiverAlarms)
+            ? new List<string>()
+            : latest.TransceiverAlarms.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
+        var hints = new List<string>();
+        if (biasChange >= BiasRiseHintPercent && Math.Abs(txChange ?? double.MaxValue) < 0.5 && Math.Abs(tempChange ?? double.MaxValue) < 3)
+            hints.Add("bias_rise");
+        if (latest.BiasWarnHighMa is double limit && latest.BiasMa!.Value >= limit * 0.8) hints.Add("near_limit");
+        if (alarms.Count > 0) hints.Add("module_alarm");
+
+        return new LaserSummary
+        {
+            BiasMa = latest.BiasMa!.Value,
+            WarnHighMa = latest.BiasWarnHighMa,
+            BiasChangePercent = biasChange,
+            TxPowerChangeDb = txChange,
+            TemperatureChangeC = tempChange,
+            ModuleAlarms = alarms,
+            Hints = hints,
+        };
+    }
+
+    /// <summary>What the provider's side did to this ONT in the window, as the ONT's management counters show it.</summary>
+    public sealed record ProviderSummary
+    {
+        /// <summary>Downstream OMCI messages per minute over the latest interval: the OLT's polling pace.</summary>
+        public double? OmciPerMinute { get; init; }
+        public long? Services { get; init; }
+        /// <summary>The traffic descriptor's peak and committed rate in Mbit/s.</summary>
+        public double? PirMbps { get; init; }
+        public double? CirMbps { get; init; }
+        /// <summary>The newest events, oldest first: config_written, key_renewed, reranged, rate_changed, services_changed.</summary>
+        public IReadOnlyList<PonIdChange> Events { get; init; } = [];
+    }
+
+    /// <summary>
+    /// Null when no point carries any of it. Events are read only between two points of one boot:
+    /// after a restart the OLT provisions the ONT from nothing, which is not news. The first key
+    /// and the first ranging belong to activation, so only a count that rises afterwards is one.
+    /// </summary>
+    public static ProviderSummary? SummarizeProvider(List<MonitoringInfluxClient.PonSeriesPoint>? points)
+    {
+        if (points is not { Count: > 0 }
+            || !points.Any(p => p.OmciRxFrames.HasValue || p.MibDataSync.HasValue || p.TrafficPirBytesPerSecond.HasValue))
+            return null;
+        var ordered = points.OrderBy(p => p.Time).ToList();
+        var inv = CultureInfo.InvariantCulture;
+        static double Mbps(long bytesPerSecond) => Math.Round(bytesPerSecond * 8 / 1e6, 1);
+        string Rate(long? v) => v is long b ? string.Create(inv, $"{Mbps(b):0.#} Mbit/s") : "none";
+
+        var events = new List<PonIdChange>();
+        for (var i = 1; i < ordered.Count; i++)
+        {
+            var (cur, prev) = (ordered[i], ordered[i - 1]);
+            if (!SameBoot(cur, prev)) continue;
+            var time = cur.Time.ToString("o");
+            if (cur.MibDataSync is long sync && prev.MibDataSync is long syncPrev && sync != syncPrev)
+                events.Add(new(time, "config_written", syncPrev.ToString(inv), sync.ToString(inv)));
+            // A drop is followed by a new activation, with its own ranging and key: part of coming
+            // back, and already told by the availability read-out.
+            var stayedUp = (Delta(cur.O5Exits, prev.O5Exits) ?? 0) == 0;
+            if (stayedUp && (Delta(cur.PloamKeySwitch, prev.PloamKeySwitch) is > 0 || Delta(cur.PloamRequestKey, prev.PloamRequestKey) is > 0))
+                events.Add(new(time, "key_renewed", (prev.PloamKeySwitch ?? 0).ToString(inv), (cur.PloamKeySwitch ?? 0).ToString(inv)));
+            if (stayedUp && Delta(cur.PloamRangingTime, prev.PloamRangingTime) is > 0)
+                events.Add(new(time, "reranged", prev.PloamRangingTime!.Value.ToString(inv), cur.PloamRangingTime!.Value.ToString(inv)));
+            if (cur.TrafficPirBytesPerSecond != prev.TrafficPirBytesPerSecond
+                && (cur.TrafficPirBytesPerSecond.HasValue || prev.TrafficPirBytesPerSecond.HasValue)
+                && cur.OmciUp != 0 && prev.OmciUp != 0)
+                events.Add(new(time, "rate_changed", Rate(prev.TrafficPirBytesPerSecond), Rate(cur.TrafficPirBytesPerSecond)));
+            if (cur.OmciServices is long svc && prev.OmciServices is long svcPrev && svc != svcPrev)
+                events.Add(new(time, "services_changed", svcPrev.ToString(inv), svc.ToString(inv)));
+        }
+
+        var last = ordered[^1];
+        var before = ordered.Count > 1 ? ordered[^2] : null;
+        var omciRate = before is not null && SameBoot(last, before)
+            ? PerSecond(last.OmciRxFrames, before.OmciRxFrames, last, before) : null;
+        var pir = ordered.LastOrDefault(p => p.TrafficPirBytesPerSecond.HasValue)?.TrafficPirBytesPerSecond;
+        var cir = ordered.LastOrDefault(p => p.TrafficCirBytesPerSecond.HasValue)?.TrafficCirBytesPerSecond;
+        return new ProviderSummary
+        {
+            OmciPerMinute = omciRate is double r ? Math.Round(r * 60, 1) : null,
+            Services = ordered.LastOrDefault(p => p.OmciServices.HasValue)?.OmciServices,
+            PirMbps = pir is long p1 ? Mbps(p1) : null,
+            CirMbps = cir is long c1 ? Mbps(c1) : null,
+            Events = events.Count > MaxChanges ? events.GetRange(events.Count - MaxChanges, MaxChanges) : events,
+        };
+    }
+
+    /// <summary>The read-outs beyond the charts, bundled so both chart endpoints attach them with one call.</summary>
+    public static object? Insights(List<MonitoringInfluxClient.PonSeriesPoint>? points)
+    {
+        var check = ConnectionCheck(points);
+        var fec = SummarizeFec(points);
+        var laser = SummarizeLaser(points);
+        var provider = SummarizeProvider(points);
+        return check is null && fec is null && laser is null && provider is null
+            ? null
+            : new { check, fec, laser, provider };
     }
 }

@@ -93,6 +93,10 @@ export function ponSeriesFor(item, prefix, slot, palette) {
             { name: `${prefix}Bursts sent`, data: ponPoints(item, 'burstsPerS') },
             { name: `${prefix}DBRu reports`, data: ponPoints(item, 'dbruPerS') },
         ],
+        // The transmit laser's bias current, the ONT's own reading: flat for years on a healthy laser.
+        biasSeries: [
+            { name: `${prefix}Bias current`, data: ponPoints(item, 'bias') },
+        ],
         hostSeries: [
             { name: `${prefix}FCS errors`, data: ponPoints(item, 'lanFcs') },
             { name: `${prefix}TX drops`, data: ponPoints(item, 'lanDrop') },
@@ -215,6 +219,7 @@ export function ponPathSummaryHtml(items) {
         if (hints.includes('below_min')) out.push(warn(`${fmtDb(s.belowMinDb)} under the minimum of class ${escapeHtml(s.odnClass)}: less loss than the class expects.`));
         if (hints.includes('loss_rise')) out.push(warn(`Path loss is ${fmtSignedDb(s.lossChangeDb)} against this window's usual ${fmtDb(s.baselineLossDb)}, RX ${fmtSignedDb(s.rxChangeDb)}`
             + ` with the announced launch power ${Math.abs(s.launchChangeDb) < 0.05 ? 'unchanged' : fmtSignedDb(s.launchChangeDb)}: the fibre path (connector, fibre, splice, splitter).`));
+        if (hints.includes('unsteady')) out.push(warn(`Path loss jumped ${s.jumps} times in this window${s.spreadDb != null ? `, ranging over ${fmtDb(s.spreadDb)}` : ''}: a steady fibre does not move like that, so this points at a loose or dirty connector.`));
         if (hints.includes('launch_drop')) out.push(warn(`The announced launch power is ${fmtSignedDb(s.launchChangeDb)} against this window's usual level, RX ${fmtSignedDb(s.rxChangeDb)}: the OLT side.`));
         for (const c of s.changes || []) {
             const when = noTime.string(Date.parse(c.time), { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
@@ -394,6 +399,124 @@ export function createPonLoadMap({ ApexCharts, url, cardSelector, chartSelector,
     return { refresh, destroy };
 }
 
+const CHECK_LABELS = { light: 'Light', registered: 'Registered', management: 'Management channel', service: 'Service', traffic: 'Traffic' };
+const CHECK_COLORS = { ok: '#7EB26D', fail: '#E24D42', unknown: '#6b7280' };
+const CHECK_WORDS = { ok: 'ok', fail: 'failed', unknown: 'not known' };
+
+/// The five-step connection check as a row of lights, from the fibre up to traffic. Read-only:
+/// each light says what it was read from, and none of them does anything.
+export function ponCheckHtml(items) {
+    const withCheck = (items || []).filter(item => item.ponMore?.check);
+    if (!withCheck.length) return '';
+    const multi = withCheck.length > 1;
+    const rows = withCheck.map(item => {
+        const steps = item.ponMore.check.map(step =>
+            `<span data-tooltip="${escapeHtml(step.detail)}" style="display:inline-flex;align-items:center;margin-right:1.1em;white-space:nowrap;">`
+            + `<span style="display:inline-block;width:0.7em;height:0.7em;border-radius:50%;background:${CHECK_COLORS[step.status] || CHECK_COLORS.unknown};margin-right:0.4em"></span>`
+            + `${escapeHtml(CHECK_LABELS[step.key] || step.key)}: ${CHECK_WORDS[step.status] || escapeHtml(step.status)}</span>`).join('');
+        const failed = item.ponMore.check.filter(step => step.status === 'fail')
+            .map(step => `${CHECK_LABELS[step.key] || step.key}: ${step.detail}`);
+        return `<div style="margin: 0.15rem 0;">${multi ? `${escapeHtml(item.label)}: ` : ''}${steps}</div>`
+            + (failed.length ? `<div style="color: var(--warning-color); font-size: 0.8rem;">${escapeHtml(failed.join('. '))}.</div>` : '');
+    }).join('');
+    return `<div class="chart-header"><h3 class="chart-title">Connection Check</h3></div>${rows}`;
+}
+
+function fmtBer(v) {
+    if (v === 0) return '0';
+    const exp = Math.floor(Math.log10(v));
+    return `${(v / 10 ** exp).toFixed(1)}e${exp}`;
+}
+
+/// The line under the PON Errors title: what the FEC had to correct over the window and whether
+/// anything got past it.
+export function ponFecSummaryHtml(items) {
+    const withFec = (items || []).filter(item => item.ponMore?.fec);
+    if (!withFec.length) return '';
+    const multi = withFec.length > 1;
+    return withFec.map(item => {
+        const f = item.ponMore.fec;
+        const parts = [`${f.correctedCodewords.toLocaleString()} codewords corrected`];
+        if (f.correctedBits != null) parts.push(`${f.correctedBits.toLocaleString()} bits`);
+        if (f.preFecBitErrorRatio != null) parts.push(`bit error ratio before FEC ${fmtBer(f.preFecBitErrorRatio)}`);
+        parts.push(`${f.bipErrors.toLocaleString()} BIP errors`);
+        const line = `<div>${multi ? `${escapeHtml(item.label)}: ` : ''}FEC in this window: ${parts.join(', ')}.</div>`;
+        if (f.level === 'warning')
+            return line + `<div style="color: var(--warning-color);">${f.uncorrectableCodewords.toLocaleString()} codewords could not be corrected: data was lost on the fibre.</div>`;
+        if (f.level === 'notice')
+            return line + '<div>Corrections without a loss: the line works, and a count that keeps rising is the early sign of a weakening one.</div>';
+        return line;
+    }).join('');
+}
+
+const MODULE_CONDITIONS = { temperature: 'temperature', voltage: 'supply voltage', bias_current: 'bias current', tx_power: 'TX power', rx_power: 'RX power' };
+
+/// The lines under the laser card's title: the bias current against the module's own limit and
+/// against the start of the window, and any flag the module itself has raised.
+export function ponLaserSummaryHtml(items) {
+    const withLaser = (items || []).filter(item => item.ponMore?.laser);
+    if (!withLaser.length) return '';
+    const multi = withLaser.length > 1;
+    const warn = text => `<div style="color: var(--warning-color);">${text}</div>`;
+    return withLaser.map(item => {
+        const l = item.ponMore.laser;
+        const out = [];
+        let head = `${l.biasMa.toFixed(1)} mA` + (l.warnHighMa != null ? `, the module warns at ${l.warnHighMa.toFixed(0)} mA` : '');
+        if (l.biasChangePercent != null) {
+            head += `. Across this window ${l.biasChangePercent > 0 ? '+' : ''}${l.biasChangePercent.toFixed(1)} %`
+                + (l.txPowerChangeDb != null ? `, TX power ${fmtSignedDb(l.txPowerChangeDb)}` : '')
+                + (l.temperatureChangeC != null ? `, temperature ${l.temperatureChangeC > 0 ? '+' : ''}${l.temperatureChangeC.toFixed(1)} C` : '');
+        }
+        out.push(`<div>${multi ? `${escapeHtml(item.label)}: ` : ''}${head}.</div>`);
+        const hints = l.hints || [];
+        if (hints.includes('bias_rise')) out.push(warn('More bias current for the same light at the same temperature: how an ageing laser shows. Compare over weeks before acting on it.'));
+        if (hints.includes('near_limit')) out.push(warn('The bias current is within a fifth of the module\'s own warning limit.'));
+        for (const a of l.moduleAlarms || []) {
+            const [kind, condition] = a.split(':');
+            const m = /^(.*)_(high|low)$/.exec(condition || '');
+            out.push(warn(`The module itself raises ${kind === 'alarm' ? 'an alarm' : 'a warning'}: ${m ? `${MODULE_CONDITIONS[m[1]] || escapeHtml(m[1])} too ${m[2]}` : escapeHtml(a)}.`));
+        }
+        return out.join('');
+    }).join('')
+        + '<div>Ageing shows over months: use the 30 day window, and read the current only against the same TX power and temperature.</div>';
+}
+
+const PROVIDER_EVENTS = {
+    config_written: () => 'the OLT wrote configuration to the ONT',
+    key_renewed: () => 'the OLT renewed the encryption key',
+    reranged: () => 'the OLT adjusted the ranging while the link stayed up',
+    rate_changed: e => `the provisioned rate changed from ${escapeHtml(e.from)} to ${escapeHtml(e.to)}`,
+    services_changed: e => `the provisioned services changed from ${escapeHtml(e.from)} to ${escapeHtml(e.to)}`,
+};
+
+/// What the provider's side did in the window: the OLT's management pace, the rate it has
+/// provisioned, and each time it wrote to the ONT, renewed the key or adjusted the ranging.
+export function ponProviderHtml(items) {
+    const withProvider = (items || []).filter(item => item.ponMore?.provider);
+    if (!withProvider.length) return '';
+    const multi = withProvider.length > 1;
+    const body = withProvider.map(item => {
+        const p = item.ponMore.provider;
+        const parts = [];
+        if (p.pirMbps != null) {
+            parts.push(p.cirMbps != null && p.cirMbps !== p.pirMbps
+                ? `Provisioned rate ${p.pirMbps.toLocaleString()} Mbit/s peak, ${p.cirMbps.toLocaleString()} Mbit/s committed`
+                : `Provisioned rate ${p.pirMbps.toLocaleString()} Mbit/s`);
+        }
+        if (p.services != null) parts.push(`${p.services} service${p.services === 1 ? '' : 's'}`);
+        if (p.omciPerMinute != null) parts.push(`${p.omciPerMinute} OMCI messages per minute from the OLT`);
+        const lines = [`<div>${multi ? `${escapeHtml(item.label)}: ` : ''}${parts.join(', ') || 'Nothing reported'}.</div>`];
+        const events = p.events || [];
+        if (!events.length) lines.push('<div>No configuration write, key renewal or ranging adjustment in this window.</div>');
+        for (const e of events) {
+            lines.push(`<div>${escapeHtml(fmtWhen(e.time))}: ${(PROVIDER_EVENTS[e.what] || (() => escapeHtml(e.what)))(e)}.</div>`);
+        }
+        return lines.join('');
+    }).join('');
+    return `<div class="chart-header"><h3 class="chart-title"><span data-tooltip="What the OLT did to this ONT, read from the ONT's management counters: the provisioned rate is the traffic descriptor the OLT created (OMCI), a configuration write is the MIB data sync counter moving, and key renewals and ranging adjustments are PLOAM messages that arrived while the link stayed up.">Provider Activity</span></h3></div>`
+        + `<div style="color: var(--text-secondary); font-size: 0.8rem; margin-bottom: 0.5rem;">${body}</div>`;
+}
+
 const ODN_CLASSES = ['A (5-20 dB)', 'B (10-25 dB)', 'B+ (13-28 dB)', 'C (15-30 dB)', 'C+ (17-32 dB)'];
 
 function pathLossCell(item) {
@@ -458,6 +581,10 @@ export function ponDetailsHtml(items, labelHeader, extras = []) {
         {
             header: '<span data-tooltip="Raw device enums for the module-to-gateway link. Read them for change: a value that moves means the host link renegotiated, which the PON-side fields never show.">Host Link</span>',
             cell: item => { const l = lastOf(item); return l.lanLink == null && l.lanMode == null ? null : `${l.lanLink ?? '-'} / ${l.lanMode ?? '-'}`; },
+        },
+        {
+            header: '<span data-tooltip="Whether the ONT\'s host port, the side towards the gateway, has a link now. A state at poll time: a short drop between two polls does not show.">Host Port</span>',
+            cell: item => { const v = lastWithKey(item, 'hostLink'); return v == null ? null : v === 1 ? 'link up' : 'no link'; },
         },
         { header: 'ONT Uptime', cell: item => fmtUptime(lastOf(item).uptime ?? item.linkUptime) },
         { header: 'Firmware', cell: item => { const f = lastWith(item, 'firmware'); return f == null ? null : escapeHtml(f); } },

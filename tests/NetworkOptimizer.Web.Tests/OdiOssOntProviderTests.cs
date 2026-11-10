@@ -293,6 +293,88 @@ public class OdiOssOntProviderTests
         pon.LastResetReason.Should().BeNull();
     }
 
+    // Module limits and flags, OMCI state and the OLT's provisioning, from the same live scrape.
+    private const string ModuleAndProvisioning = """
+
+    gpon_transceiver_alarm{kind="alarm",condition="bias_current_high"} 0
+    gpon_transceiver_alarm{kind="warning",condition="rx_power_low"} 0
+    gpon_transceiver_limit{measure="bias_current",level="alarm",side="high"} 100.000000
+    gpon_transceiver_limit{measure="bias_current",level="warning",side="high"} 90.000000
+    gpon_transceiver_limit{measure="bias_current",level="warning",side="low"} 1.000000
+    gpon_ds_fec_corrected_bits_total 12
+    gpon_ds_omci_frames_total 663
+    gpon_provision_mib_data_sync 160
+    gpon_omci_up 1
+    gpon_omci_services 3
+    gpon_provision_traffic_descriptor_cir_bytes_per_second{descriptor="1"} 167772125
+    gpon_provision_traffic_descriptor_pir_bytes_per_second{descriptor="1"} 167772125
+    gpon_provision_traffic_descriptor_pir_bytes_per_second{descriptor="2"} 1250000
+    gpon_host_link_up 1
+    gpon_ploam_messages_by_type_total{direction="ds",type="0x04"} 3
+    gpon_ploam_messages_by_type_total{direction="ds",type="0x0d"} 1
+    gpon_ploam_messages_by_type_total{direction="ds",type="0x13"} 3
+    """;
+
+    [Fact]
+    public void MapToSupplemental_ModuleAndProvisioning_AreMapped()
+    {
+        var pon = OdiOssOntProvider.MapToSupplemental(Metrics(Scrape + ModuleAndProvisioning));
+
+        pon.BiasMa.Should().Be(15.15);
+        pon.BiasWarnHighMa.Should().Be(90, "the warning limit on the high side, not the alarm limit or the low side");
+        pon.TransceiverAlarmCount.Should().Be(0);
+        pon.TransceiverAlarms.Should().BeNull();
+        pon.FecCorrectedBits.Should().Be(12);
+        pon.OmciRxFrames.Should().Be(663);
+        pon.MibDataSync.Should().Be(160);
+        pon.OmciUp.Should().Be(1);
+        pon.OmciServices.Should().Be(3);
+        pon.TrafficPirBytesPerSecond.Should().Be(167772125, "the highest descriptor");
+        pon.TrafficCirBytesPerSecond.Should().Be(167772125);
+        pon.HostLinkUp.Should().Be(1);
+        pon.PloamRangingTime.Should().Be(3);
+        pon.PloamRequestKey.Should().Be(1);
+        pon.PloamKeySwitch.Should().Be(3);
+    }
+
+    [Fact]
+    public void MapToSupplemental_RaisedModuleFlags_AreNamed()
+    {
+        var pon = OdiOssOntProvider.MapToSupplemental(Metrics(Scrape + ModuleAndProvisioning
+            .Replace("condition=\"rx_power_low\"} 0", "condition=\"rx_power_low\"} 1")
+            .Replace("condition=\"bias_current_high\"} 0", "condition=\"bias_current_high\"} 1")));
+
+        pon.TransceiverAlarmCount.Should().Be(2);
+        pon.TransceiverAlarms.Should().Be("alarm:bias_current_high,warning:rx_power_low");
+    }
+
+    [Fact]
+    public void MapToSupplemental_OmciChannelPort_IsNotOwnTraffic()
+    {
+        var pon = OdiOssOntProvider.MapToSupplemental(Metrics(Scrape + """
+
+        gpon_gem_bytes_total{direction="ds",gem_port="4095"} 5000
+        gpon_gem_bytes_total{direction="ds",gem_port="132"} 70000
+        """));
+
+        pon.GemRxBytes.Should().Be(70000, "GEM port 4095 is the OMCI channel");
+    }
+
+    [Fact]
+    public void MapToSupplemental_NoModuleOrProvisioningMetrics_LeavesThemNull()
+    {
+        var pon = OdiOssOntProvider.MapToSupplemental(Metrics());
+
+        pon.BiasWarnHighMa.Should().BeNull();
+        pon.TransceiverAlarmCount.Should().BeNull("no flags reported is not zero flags raised");
+        pon.OmciUp.Should().BeNull();
+        pon.OmciServices.Should().BeNull();
+        pon.MibDataSync.Should().BeNull();
+        pon.TrafficPirBytesPerSecond.Should().BeNull();
+        pon.HostLinkUp.Should().BeNull();
+        pon.PloamKeySwitch.Should().BeNull();
+    }
+
     [Fact]
     public void MapToSupplemental_UnsupportedFields_StayNull()
     {
