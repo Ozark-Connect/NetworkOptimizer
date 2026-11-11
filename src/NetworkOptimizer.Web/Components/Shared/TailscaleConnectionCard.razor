@@ -1,4 +1,5 @@
 @inject ITailscaleDirectory Tailscale
+@implements IDisposable
 
 @* The site in context's tailnet connection. Rendered in Settings - Connection, after Managed SSH Key. *@
 
@@ -39,6 +40,10 @@
                         @if (status.AgentName is { } agentName)
                         {
                             <text>@agentName (connection paths@(status.AgentRoutes ? " and routed traffic" : ""))</text>
+                        }
+                        else if (status.AgentsConnecting)
+                        {
+                            <text>Waiting for agents to connect</text>
                         }
                         else
                         {
@@ -156,8 +161,29 @@
         catch (Exception)
         {
             // Below Site Admin the read is refused; the card is Settings-only and shows its defaults.
+            return;
         }
+        // The status lines follow agents that connect, or a device count that changes, while the card is open.
+        _poll = new System.Threading.Timer(async _ =>
+        {
+            try
+            {
+                await InvokeAsync(async () =>
+                {
+                    if (!_saved.Enabled) return;
+                    await Tailscale.GetPeersAsync();
+                    _status = await Tailscale.GetStatusAsync();
+                    StateHasChanged();
+                });
+            }
+            catch { /* prevent timer death */ }
+        }, null, PollEvery, PollEvery);
     }
+
+    private static readonly TimeSpan PollEvery = TimeSpan.FromSeconds(10);
+    private System.Threading.Timer? _poll;
+
+    public void Dispose() => _poll?.Dispose();
 
     private void Load(TailscaleSettings s)
     {

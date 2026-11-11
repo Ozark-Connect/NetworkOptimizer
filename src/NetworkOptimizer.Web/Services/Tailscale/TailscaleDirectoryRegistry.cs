@@ -1,6 +1,8 @@
 using System.Collections.Concurrent;
 using System.Text.Json;
+using Microsoft.EntityFrameworkCore;
 using NetworkOptimizer.AgentProtocol;
+using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.Monitoring.Tailscale;
 using NetworkOptimizer.Storage.Services;
 using NetworkOptimizer.Threats.Interfaces;
@@ -12,7 +14,9 @@ namespace NetworkOptimizer.Web.Services.Tailscale;
 /// <param name="Error">Why the device list could not be read, or null.</param>
 /// <param name="AgentName">The On-Site Agent whose host's Tailscale is also read, or null when none is.</param>
 /// <param name="AgentRoutes">Whether that host is the tailnet's subnet router or exit node.</param>
-public sealed record TailnetStatus(bool Enabled, int Devices, DateTime? ReadAt, string? Error, string? AgentName, bool AgentRoutes);
+/// <param name="AgentsConnecting">No agent found yet while one of the site's agents is still connecting or not yet asked.</param>
+public sealed record TailnetStatus(bool Enabled, int Devices, DateTime? ReadAt, string? Error, string? AgentName, bool AgentRoutes,
+    bool AgentsConnecting = false);
 
 /// <summary>What Test Connection found: the device count, or why the list could not be read.</summary>
 public sealed record TailnetTestResult(int? Devices, string? Error);
@@ -45,6 +49,7 @@ public sealed class TailscaleDirectoryRegistry : ISiteScopedRegistry
     private readonly ISiteHttpClientProvider _http;
     private readonly AgentTunnelRegistry _tunnels;
     private readonly AgentProbeService _agentProbes;
+    private readonly IDbContextFactory<NetworkOptimizerDbContext> _mainDbFactory;
     private readonly ILogger<TailscaleDirectoryRegistry> _logger;
     private readonly ConcurrentDictionary<string, SiteState> _sites = new(StringComparer.OrdinalIgnoreCase);
     private DerpMapClient.DerpMap? _derpMap;
@@ -56,8 +61,10 @@ public sealed class TailscaleDirectoryRegistry : ISiteScopedRegistry
         ISiteHttpClientProvider http,
         AgentTunnelRegistry tunnels,
         AgentProbeService agentProbes,
+        IDbContextFactory<NetworkOptimizerDbContext> mainDbFactory,
         ILogger<TailscaleDirectoryRegistry> logger)
     {
+        _mainDbFactory = mainDbFactory;
         _settings = settings;
         _credentials = credentials;
         _http = http;
@@ -192,7 +199,9 @@ public sealed class TailscaleDirectoryRegistry : ISiteScopedRegistry
         if (state.Settings == null || now - state.SettingsAt >= DeviceEvery) return true;
         if (!state.Settings.Settings.Enabled) return false;
         if (now - state.DevicesAt >= DeviceEvery) return true;
-        if (state.Agent == null) return now - state.AgentSearchedAt >= NoAgentRecheck || HasUnaskedAgent(slug, state);
+        if (state.Agent == null)
+            return now - state.AgentSearchedAt >= NoAgentRecheck || HasUnaskedAgent(slug, state)
+                || (state.Status is { AgentsConnecting: true, ReadAt: { } readAt } && now - readAt >= LocalEvery);
         if (now - state.LocalAt >= LocalEvery) return true;
         return state.Snapshot.Self?.RouterBadge != null && now < state.SnatWantedUntil && now - state.SnatAt >= SnatEvery;
     }
@@ -202,6 +211,22 @@ public sealed class TailscaleDirectoryRegistry : ISiteScopedRegistry
 
     private bool HasUnaskedAgent(string slug, SiteState state) =>
         CapableAgents(slug).Any(c => !state.AgentsAsked.Contains(c.AgentId));
+
+    /// <summary>
+    /// Whether "no agent" is not an answer yet: a connected agent is still to be asked, or an enabled agent
+    /// heard from recently has no tunnel up (it is reconnecting, as after a restart).
+    /// </summary>
+    private async Task<bool> AgentsConnectingAsync(string slug, SiteState state, CancellationToken ct)
+    {
+        if (HasUnaskedAgent(slug, state)) return true;
+        await using var db = await _mainDbFactory.CreateDbContextAsync(ct);
+        var siteId = await db.Sites.Where(s => s.Slug == slug).Select(s => s.Id).FirstOrDefaultAsync(ct);
+        var recent = await db.SiteAgents.AsNoTracking()
+            .Where(a => a.SiteId == siteId && a.Enabled && a.EnrolledAt != null)
+            .Select(a => new { a.Id, a.LastSeenAt })
+            .ToListAsync(ct);
+        return recent.Any(a => AgentEnrollmentService.IsOnline(a.LastSeenAt) && !_tunnels.IsConnected(a.Id));
+    }
 
     private async Task RefreshAsync(string slug, SiteState state, bool force, CancellationToken ct)
     {
@@ -245,7 +270,8 @@ public sealed class TailscaleDirectoryRegistry : ISiteScopedRegistry
             var snapshot = TailnetSnapshot.Build(state.Devices, state.Local, state.Snat, now, _derpMap);
             state.Snapshot = snapshot;
             state.Status = new TailnetStatus(true, snapshot.Peers.Count + (snapshot.Self != null ? 1 : 0), now, state.Error,
-                state.Agent?.AgentName, snapshot.Self?.RouterBadge != null && state.Agent != null);
+                state.Agent?.AgentName, snapshot.Self?.RouterBadge != null && state.Agent != null,
+                state.Agent == null && await AgentsConnectingAsync(slug, state, ct));
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
