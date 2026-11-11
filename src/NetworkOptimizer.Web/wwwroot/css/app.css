@@ -24698,6 +24698,10 @@ body:has(.top-bar-hidden) .btn-fit {
     margin-bottom: 0.5rem;
 }
 
+.lt-dns-card .card-title > .tooltip-icon-sm {
+    margin-left: 0.5rem;
+}
+
 /* A filter pill in a Live Traffic row, and the hide button that shows beside it on hover or focus */
 .lt-pill {
     display: inline-flex;
