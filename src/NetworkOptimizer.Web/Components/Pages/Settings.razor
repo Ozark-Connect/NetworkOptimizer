@@ -3983,6 +3983,10 @@
                                                                         Remove
                                                                     </button>
                                                                 </div>
+                                                                @if (_agentRenameErrors.TryGetValue(agent.Id, out var renameError))
+                                                                {
+                                                                    <div class="form-error">@renameError</div>
+                                                                }
                                                                 @if (_upgradeCommandAgentId == agent.Id)
                                                                 {
                                                                     <div class="agent-upgrade-cmd">
@@ -5326,23 +5330,45 @@
         }
     }
 
-    private async Task<string?> RenameAgentAsync(Site site, SiteAgent agent, string name)
+    // Agent id -> why its last rename did not save; shown under that agent's row.
+    private readonly Dictionary<int, string> _agentRenameErrors = new();
+
+    // Shows the new name at once and saves behind it; a failed save puts the old name back.
+    private Task<string?> RenameAgentAsync(Site site, SiteAgent agent, string name)
     {
         if (string.IsNullOrWhiteSpace(name))
-            return "Enter a name.";
+            return Task.FromResult<string?>("Enter a name.");
+        _agentRenameErrors.Remove(agent.Id);
         if (name == agent.Name)
-            return null;
+            return Task.FromResult<string?>(null);
+
+        var previous = agent.Name;
+        agent.Name = name;
+        _ = SaveAgentNameAsync(site, agent, previous, name);
+        return Task.FromResult<string?>(null);
+    }
+
+    private async Task SaveAgentNameAsync(Site site, SiteAgent agent, string previous, string name)
+    {
+        string? error;
         try
         {
-            if (!await AgentEnrollment.RenameAgentAsync(site.Slug, agent.Id, name))
-                return "This agent is no longer on this site.";
+            error = await AgentEnrollment.RenameAgentAsync(site.Slug, agent.Id, name)
+                ? null : "This agent is no longer on this site.";
         }
         catch (Exception ex)
         {
-            return ex.Message;
+            error = ex.Message;
         }
-        await LoadAgentsAsync();
-        return null;
+        if (error == null)
+            return;
+        await InvokeAsync(() =>
+        {
+            if (agent.Name == name)
+                agent.Name = previous;
+            _agentRenameErrors[agent.Id] = $"Rename not saved: {error}";
+            StateHasChanged();
+        });
     }
 
     private async Task ToggleAgentEnabled(Site site, SiteAgent agent)

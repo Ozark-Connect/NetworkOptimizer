@@ -26,6 +26,29 @@
             each one connects directly or through a relay. Read-only: Network Optimizer never changes the tailnet.
         </p>
 
+        @if (_saved.Enabled && _status is { Enabled: true } status)
+        {
+            <div class="form-group">
+                <div class="detail-row">
+                    <span class="detail-label">Devices:</span>
+                    <span class="detail-value">@(status.Error != null ? $"Not read: {status.Error}" : $"{status.Devices} in the tailnet")</span>
+                </div>
+                <div class="detail-row">
+                    <span class="detail-label">On-Site Agent:</span>
+                    <span class="detail-value">
+                        @if (status.AgentName is { } agentName)
+                        {
+                            <text>@agentName, reading how each device connects@(status.AgentRoutes ? " and the device behind traffic it routes" : "")</text>
+                        }
+                        else
+                        {
+                            <text>None whose host runs Tailscale</text>
+                        }
+                    </span>
+                </div>
+            </div>
+        }
+
         <div class="form-group">
             <label class="checkbox-label">
                 <input type="checkbox" @bind="_enabled" />
@@ -67,15 +90,6 @@
                 <div class="form-group">
                     <label class="form-label">API Key</label>
                     <input type="password" class="form-control" @bind="_headscaleKey" @bind:event="oninput" autocomplete="new-password" placeholder="@(_saved.HasHeadscaleKey ? "Saved - enter new to update" : "From headscale apikeys create")" data-1p-ignore data-lpignore="true" data-bwignore />
-                </div>
-            }
-
-            @if (_saved.Enabled && _status?.AgentName is { } agentName)
-            {
-                <div class="form-group">
-                    <small class="form-help">
-                        Also reading Tailscale on @agentName: how each device connects@(_status.AgentRoutes ? ", and the device behind traffic it routes" : "").
-                    </small>
                 </div>
             }
         }
