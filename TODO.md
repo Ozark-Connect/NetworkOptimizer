@@ -780,6 +780,18 @@ performance against firmware is the point of collecting them. Never as tags: a t
 series key, so it would fork every modem's series the day it upgrades. Do the same for the cable
 modem and ONT measurements when their fields land.
 
+### Cellular Stats: CellMapper integration
+
+Idea logged 2026-11-11. Cellular Stats already knows the serving cell (cell ID, eNB / gNB, PCI, band,
+carrier). Tie it to CellMapper's crowd-sourced tower data:
+
+- Name the serving tower and show it on a map beside the modem, with distance and bearing, so aiming an
+  outdoor antenna or picking a window for a desktop modem is one glance.
+- Link the serving cell straight to its CellMapper page.
+- Over time: which towers and bands the modem has used, against its signal and speed history.
+
+Check CellMapper's terms and whether it offers an API before building.
+
 ## VPN Clients Dashboard
 
 A dashboard for clients reaching the site over a VPN: connections through an external Tailscale
