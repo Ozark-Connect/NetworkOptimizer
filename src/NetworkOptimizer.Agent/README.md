@@ -550,9 +550,7 @@ sudo launchctl kickstart -k system/net.ozarkconnect.netopt-agent   # restart
 tail -f /usr/local/netopt-agent/agent.log
 ```
 
-On macOS the agent reads the host's Tailscale (paths and traffic counters) but not routed traffic,
-which needs Linux conntrack, as Live Traffic capture does. There is no macOS `uwnspeedtest`, so leave
-the WAN speed test to another agent.
+There is no macOS `uwnspeedtest`, so leave the WAN speed test to another agent.
 
 ## Reverse proxy
 
