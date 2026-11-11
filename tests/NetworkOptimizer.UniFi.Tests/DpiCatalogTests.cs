@@ -6,6 +6,15 @@ namespace NetworkOptimizer.UniFi.Tests;
 public class DpiCatalogTests
 {
     [Fact]
+    public void Long_protocol_names_read_as_the_plain_one()
+    {
+        Assert.Equal("HTTP", DpiCatalog.AppName(18, 63));
+        Assert.Equal("HTTPS", DpiCatalog.AppName(19, 94));
+        Assert.Equal("HTTP/3", DpiCatalog.AppName(13, 755));
+        Assert.Equal("fa-solid fa-chart-line", DpiCatalog.IconsForName("SNMP").Class);
+    }
+
+    [Fact]
     public void Names_resolve_from_the_packed_key()
     {
         Assert.Equal("Netflix", DpiCatalog.AppName(4, 132));

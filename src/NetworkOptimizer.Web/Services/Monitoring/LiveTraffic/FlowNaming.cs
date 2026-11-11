@@ -10,6 +10,13 @@ namespace NetworkOptimizer.Web.Services.Monitoring.LiveTraffic;
 /// </summary>
 public static class FlowNaming
 {
+    /// <summary>
+    /// DPI's SSL/TLS on a port whose service is HTTPS reads HTTPS: TLS on 443 is HTTPS, and the sub-line
+    /// then has nothing to repeat. TLS on any other service keeps the DPI name.
+    /// </summary>
+    public static string? TlsAsService(string? app, string? service) =>
+        app == "SSL/TLS" && service == "HTTPS" ? "HTTPS" : app;
+
     /// <summary>Ports from here up are treated as ephemeral, as Threat Intelligence treats them.</summary>
     public const int EphemeralFloor = NetworkOptimizer.Threats.Analysis.FlowInterestFilter.EphemeralPortFloor;
 

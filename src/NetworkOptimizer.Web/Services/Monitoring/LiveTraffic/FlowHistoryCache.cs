@@ -282,6 +282,7 @@ public sealed class FlowHistoryCache
         app ??= remote.Domains?.Select(d => DomainAppCatalog.AppFor(d)).FirstOrDefault(n => n != null);
         app ??= remote.Domains?.Select(DomainAppCatalog.HostingApp).FirstOrDefault(n => n != null);
         app ??= service ?? barePort;
+        app = FlowNaming.TlsAsService(app, destSub)!;
 
         var policy = f.Policies?.FirstOrDefault(p => !string.IsNullOrEmpty(p.Name));
         var seenMs = f.Time > 0 ? f.Time : f.FlowEndTime > 0 ? f.FlowEndTime : f.FlowStartTime;

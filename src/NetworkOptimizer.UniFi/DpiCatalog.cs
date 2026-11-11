@@ -29,7 +29,10 @@ public static class DpiCatalog
         var catalog = JsonSerializer.Deserialize<Catalog>(stream, new JsonSerializerOptions { PropertyNameCaseInsensitive = true })
             ?? throw new InvalidOperationException("dpi-catalog.json did not parse");
         foreach (var (key, entry) in catalog.Applications.ToList())
-            if (BrandCasing(entry.N) is { } fixedName) catalog.Applications[key] = entry with { N = fixedName };
+        {
+            if (Renames.TryGetValue(entry.N, out var renamed)) catalog.Applications[key] = entry with { N = renamed };
+            else if (BrandCasing(entry.N) is { } fixedName) catalog.Applications[key] = entry with { N = fixedName };
+        }
         // "Apple.com" beside "Apple" splits one app in two wherever apps group: the bare name wins.
         var bare = new HashSet<string>(catalog.Applications.Values.Select(e => e.N).Concat(NamedByDomain), StringComparer.OrdinalIgnoreCase);
         foreach (var (key, entry) in catalog.Applications.ToList())
@@ -57,6 +60,17 @@ public static class DpiCatalog
         ["Airplay"] = "AirPlay",
         ["Sharepoint"] = "SharePoint",
         ["WOW"] = "WoW",
+    };
+
+    /// <summary>
+    /// Catalog names for a protocol that already has a plain one: renamed to it, so the flows group under
+    /// one app ("World Wide Web HTTP" and "HTTP" are both HTTP). Here rather than in the JSON, as above.
+    /// </summary>
+    private static readonly Dictionary<string, string> Renames = new(StringComparer.Ordinal)
+    {
+        ["World Wide Web HTTP"] = "HTTP",
+        ["HTTP Protocol over TLS SSL"] = "HTTPS",
+        ["HTTP3"] = "HTTP/3",
     };
 
     private static string? BrandCasing(string name)
@@ -143,6 +157,8 @@ public static class DpiCatalog
         ["DNS over TLS"] = "fa-solid fa-server",
         ["DNS over QUIC"] = "fa-solid fa-server",
         ["NTP"] = "fa-solid fa-clock",
+        ["SNMP"] = "fa-solid fa-chart-line",
+        ["SNMP Trap"] = "fa-solid fa-bell",
         ["HTTP"] = "fa-solid fa-globe",
         ["HTTPS"] = "fa-solid fa-globe",
         ["HTTP-Alt"] = "fa-solid fa-globe",

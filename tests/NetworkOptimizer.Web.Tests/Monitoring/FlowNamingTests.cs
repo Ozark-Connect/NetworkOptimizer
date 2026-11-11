@@ -14,6 +14,16 @@ public class FlowNamingTests
     private static readonly HashSet<string> Wans = new(StringComparer.OrdinalIgnoreCase) { "Fiber WAN" };
 
     [Theory]
+    [InlineData("SSL/TLS", "HTTPS", "HTTPS")]
+    [InlineData("SSL/TLS", "IMAPS", "SSL/TLS")]
+    [InlineData("SSL/TLS", null, "SSL/TLS")]
+    [InlineData("Netflix", "HTTPS", "Netflix")]
+    public void Tls_on_the_HTTPS_service_reads_HTTPS(string app, string? service, string expected)
+    {
+        FlowNaming.TlsAsService(app, service).Should().Be(expected);
+    }
+
+    [Theory]
     [InlineData(null, null)]
     [InlineData("", null)]
     [InlineData("OTHER", null)]
