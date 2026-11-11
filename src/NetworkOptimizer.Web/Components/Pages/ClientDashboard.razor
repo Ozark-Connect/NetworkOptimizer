@@ -232,11 +232,6 @@
                                 }
                             </div>
                         </div>
-                        @if (_client.Tailnet is { } tailnetDevice)
-                        {
-                            <MonitoringJumpButton Icon="MonitoringJumpButton.JumpIcon.Analyze" Tooltip="Open in Live Traffic"
-                                                  OnClick="@(() => NavigationManager.NavigateTo($"/monitoring/live-traffic?dest={Uri.EscapeDataString(tailnetDevice.Name)}"))" />
-                        }
                     }
                     else
                     {
@@ -265,6 +260,11 @@
                     }
                 </div>
                 <div class="identity-signal">
+                    @if (_client.IsVpn && _client.Tailnet is { } tailnetDevice)
+                    {
+                        <MonitoringJumpButton Icon="MonitoringJumpButton.JumpIcon.Analyze" Tooltip="Open in Live Traffic"
+                                              OnClick="@(() => NavigationManager.NavigateTo($"/monitoring/live-traffic?dest={Uri.EscapeDataString(tailnetDevice.Name)}"))" />
+                    }
                     @if (_canSteer && !OnApWithoutSteering && _client is { IsWired: false, IsOffline: false, IsVpn: false })
                     {
                         @* The gate is the service; this is the UX half, so a Viewer is never shown a
@@ -4654,6 +4654,9 @@
         gap: 12px;
         margin-bottom: 8px;
     }
+    .identity-row-1:has(.identity-info-vpn) {
+        align-items: flex-start;
+    }
     .empty-state-detail {
         font-size: 0.8125rem;
         color: var(--text-muted);
@@ -5652,6 +5655,14 @@
         }
         .identity-signal {
             align-self: stretch;
+        }
+        /* A VPN client's row holds only its identity and the Live Traffic jump: one row, the jump upper right. */
+        .identity-row-1:has(.identity-info-vpn) {
+            flex-direction: row;
+            align-items: flex-start;
+        }
+        .identity-row-1:has(.identity-info-vpn) .identity-signal {
+            align-self: auto;
         }
         .identity-row-2 {
             display: grid;
