@@ -35,6 +35,7 @@
 @using NetworkOptimizer.Web.Services.Monitoring.LiveTraffic
 @using NetworkOptimizer.Web.Components.Shared.Monitoring.LiveTraffic
 @inject ILiveTrafficService LiveTraffic
+@inject ITailscaleDirectory Tailscale
 
 <PageTitle>Client Performance - Network Optimizer</PageTitle>
 
@@ -2071,7 +2072,11 @@
         // A viewer reaching the dashboard over Tailscale/Teleport/remote-user VPN is never
         // in the UniFi client list, so identity is null. Fall back to the simplified VPN
         // view - default site only, so managed-site behavior (whoami/picker) is untouched.
-        if (identity == null && SiteContext.IsDefault)
+        // A Tailscale device chosen from the selector opens the same view on any site. The pick reloads
+        // the page, so the tailnet is read here rather than taken from the selector.
+        if (identity == null && !SiteContext.IsDefault && _pickerTailnet == TailnetSnapshot.Empty)
+            await LoadPickerTailnetAsync();
+        if (identity == null && (SiteContext.IsDefault || _pickerTailnet.IsPeer(ip)))
             identity = await DashboardService.IdentifyVpnClientAsync(ip);
 
         return identity;
@@ -2219,6 +2224,7 @@
             Logger.LogDebug(ex, "Client selector list could not be loaded (site {Site})", SiteContext.Slug);
             return;
         }
+        await LoadPickerTailnetAsync();
         StateHasChanged();
         // The header's "This device" jump needs the viewer's own address to know whether to show.
         if (!_isOwnDevice && _ownIp == null && await ResolveOwnIpAsync() != null)
@@ -2242,6 +2248,7 @@
             {
                 if (_pickerClients.Count == 0) return;
                 var refreshed = await DashboardService.RefreshSelectableClientsAsync(_pickerClients);
+                await LoadPickerTailnetAsync();
                 await InvokeAsync(() =>
                 {
                     _pickerClients = refreshed;
@@ -2268,6 +2275,7 @@
     private async Task ShowClientPickerAsync()
     {
         _pickerClients = await DashboardService.GetSelectableClientsAsync();
+        await LoadPickerTailnetAsync();
         try
         {
             var remembered = await JS.InvokeAsync<string?>("eval",
@@ -2285,11 +2293,28 @@
         StateHasChanged();
     }
 
-    /// <summary>The picker's choices. Same shape Client Stats uses, so the two read alike.</summary>
+    /// <summary>
+    /// The picker's choices. Same shape Client Stats uses, so the two read alike. Tailscale devices
+    /// follow the site's clients, keyed by their tailnet address, which opens their Tailscale view.
+    /// Client Stats lists Wi-Fi clients only, so it does not take them.
+    /// </summary>
     private IReadOnlyList<ClientSelector.Item> PickerItems() =>
         _pickerClients
             .Select(c => new ClientSelector.Item(c.Ip, c.Name, c.Mac, c.IsOnline, c.Ip, c.IsWired))
+            .Concat(_pickerTailnet.Peers
+                .Select(p => (Peer: p, Ip: p.Addresses.FirstOrDefault(a => !a.Contains(':')) ?? p.Addresses.FirstOrDefault()))
+                .Where(x => x.Ip != null && !_pickerClients.Any(c => string.Equals(c.Ip, x.Ip, StringComparison.OrdinalIgnoreCase)))
+                .Select(x => new ClientSelector.Item(x.Ip!, x.Peer.Name, null, x.Peer.Online ?? false, x.Ip, Detail: $"Tailscale · {x.Ip}")))
             .ToList();
+
+    /// <summary>The site's tailnet, for the picker's Tailscale devices; empty when the site does not read one.</summary>
+    private TailnetSnapshot _pickerTailnet = TailnetSnapshot.Empty;
+
+    private async Task LoadPickerTailnetAsync()
+    {
+        try { _pickerTailnet = await Tailscale.GetPeersAsync(); }
+        catch (Exception ex) { Logger.LogDebug(ex, "Tailscale devices for the client selector not read (site {Site})", SiteContext.Slug); }
+    }
 
     private async Task ViewClientByIpAsync(string ip)
     {
