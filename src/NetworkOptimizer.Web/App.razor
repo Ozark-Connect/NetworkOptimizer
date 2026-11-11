@@ -575,9 +575,27 @@
             .observe(document.body, { childList: true, subtree: true });
         // An element in the cell with a tooltip of its own (the via line, a badge) shows only that one.
         function innerTipHovered(cell) { return !!cell.querySelector('[data-tooltip]:hover'); }
+        // Live Traffic's tables hold a card until the pointer has rested this long; elsewhere a card
+        // opens on the first hover. Tippy's own delay does not cover a .show() call, so this does.
+        var LT_TABLE_TIP_DELAY = 1000;
+        function tableTipDelay(el) { return el.closest('.live-traffic table') ? LT_TABLE_TIP_DELAY : 0; }
+        // Shows the element's tooltip once the pointer has rested on it for delay ms; each new
+        // mouseover inside it starts the wait again.
+        function showTip(el, delay) {
+            clearTimeout(el._ltShowTimer);
+            var show = function () {
+                var tip = el._tippy;
+                if (!tip || tip.state.isVisible || !el.isConnected || innerTipHovered(el)) return;
+                if (delay && !el.matches(':hover')) return;
+                tip.show();
+            };
+            if (delay) el._ltShowTimer = setTimeout(show, delay);
+            else show();
+        }
         function showLinkCard(cell, html) {
+            var delay = tableTipDelay(cell);
             if (cell._tippy) {
-                if (!cell._tippy.state.isVisible && !innerTipHovered(cell)) cell._tippy.show();
+                showTip(cell, delay);
                 return;
             }
             if (innerTipHovered(cell)) return;
@@ -590,7 +608,7 @@
                 interactiveBorder: 10,
                 trigger: 'mouseenter',
                 touch: false,
-                delay: [250, 0],
+                delay: [delay || 250, 0],
                 // The standard interactive model: a link click unmounts the card, or it outlives the
                 // page it came from and drops to the corner once its cell is gone.
                 onMount: function (instance) {
@@ -614,12 +632,10 @@
                     if (content == null) return false;
                     instance.setContent(content);
                 }
-            }).show();
+            });
+            showTip(cell, delay);
         }
 
-        // Live Traffic: full text for any name its ellipsis cuts. The ellipsis sits on the cell, not the
-        // name, so data-tooltip-truncated (which measures the element itself) cannot see it; one
-        // delegated handler finds the cut element and shows only while it is still cut.
         // An App Live Traffic could only call "UDP 21324": what that means, and Name This App for a Site Admin.
         function unnamedAppHtml(el) {
             if (!el.hasAttribute('data-app-unnamed')) return null;
@@ -658,6 +674,9 @@
                 .catch(function (err) { console.warn('Name This App', err); });
         }, true);
 
+        // Live Traffic: full text for any name its ellipsis cuts. The ellipsis sits on the cell, not the
+        // name, so data-tooltip-truncated (which measures the element itself) cannot see it; one
+        // delegated handler finds the cut element and shows only while it is still cut.
         document.addEventListener('mouseover', function (e) {
             if (!window.tippy || !e.target.closest) return;
             var host = e.target.closest('.live-traffic, .bandwidth-hogs-card');
@@ -685,11 +704,12 @@
             if (!el || el === host || el._tippy) return;
             var text = (el.textContent || '').trim();
             if (!text) return;
+            var cutDelay = tableTipDelay(el);
             tippy(el, {
                 content: function () { return (el.textContent || '').trim(); },
                 trigger: 'mouseenter',
                 touch: false,
-                delay: [100, 0],
+                delay: [cutDelay || 100, 0],
                 placement: 'top',
                 theme: 'custom',
                 appendTo: document.body,
@@ -708,7 +728,8 @@
                     }, 400);
                 },
                 onHidden: function (instance) { clearInterval(instance._follow); }
-            }).show();
+            });
+            showTip(el, cutDelay);
         });
 
         // Periodically check for new/stale tooltips (handles Blazor element reuse and dynamic content)
