@@ -220,15 +220,30 @@ public class LiveTrafficStoreTests
     private const string Printer = "aa:bb:cc:dd:ee:03";
 
     private static UniFiClientDetailResponse Seen(string mac, string ip, DateTime lastSeen, string? name = null,
-        string? displayName = null, string? hostname = null) => new()
+        string? displayName = null, string? hostname = null, string? oui = null) => new()
     {
         Mac = mac,
         LastIp = ip,
         Name = name,
         DisplayName = displayName,
         Hostname = hostname,
+        Oui = oui,
         LastSeen = new DateTimeOffset(lastSeen).ToUnixTimeSeconds(),
     };
+
+    [Fact]
+    public void AnOfflineDeviceKeepsItsVendorForTheAppName()
+    {
+        var now = DateTime.UtcNow;
+        var store = SeededStore();
+        store.SetRecentClients(LiveTrafficStore.RecentClients(
+            [Seen(Printer, "192.0.2.30", now.AddHours(-2), name: "Living Room TV", oui: "LG Electronics")], now));
+        store.Ingest(Batch(Flow("a", Laptop, "192.0.2.20", "192.0.2.30", 3000, "", 1000, 10, lan: true)));
+
+        var row = store.BuildView(Query(), LiveTrafficState.Live).Flows.Single();
+        row.Destination.Should().Be("Living Room TV");
+        row.App.Should().Be("LG webOS TV");
+    }
 
     [Fact]
     public void AnOfflineClientStillNamesTheDestination()

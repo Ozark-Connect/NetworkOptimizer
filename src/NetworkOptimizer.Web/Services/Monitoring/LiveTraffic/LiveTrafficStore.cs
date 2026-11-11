@@ -323,7 +323,7 @@ public sealed class LiveTrafficStore
     /// Offline clients from the console's client history, newest sighting first: named as the console
     /// names them, with an address only when seen within <see cref="RecentClientIpMaxAge"/>.
     /// </summary>
-    [NetworkOptimizer.Core.VendorSpecific("UniFi", "v2 clients/history name, display_name, hostname, last_ip, last_seen")]
+    [NetworkOptimizer.Core.VendorSpecific("UniFi", "v2 clients/history name, display_name, hostname, oui, last_ip, last_seen")]
     internal static IReadOnlyList<LiveClientInfo> RecentClients(IEnumerable<UniFiClientDetailResponse> history, DateTime now)
     {
         var cutoff = now - RecentClientIpMaxAge;
@@ -334,7 +334,7 @@ public sealed class LiveTrafficStore
             .Select(c => new LiveClientInfo(NormalizeMac(c.Mac),
                 !string.IsNullOrWhiteSpace(c.Name) ? c.Name! : !string.IsNullOrWhiteSpace(c.DisplayName) ? c.DisplayName!
                     : !string.IsNullOrWhiteSpace(c.Hostname) ? c.Hostname! : c.BestIp!,
-                c.BestIp!, null, null))
+                c.BestIp!, null, null, Vendor: string.IsNullOrWhiteSpace(c.Oui) ? null : c.Oui))
             .ToList();
     }
 
