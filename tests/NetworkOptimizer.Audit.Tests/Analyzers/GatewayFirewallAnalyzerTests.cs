@@ -266,6 +266,41 @@ public class GatewayFirewallAnalyzerTests
             .Which.Message.Should().Contain("IoT Zone to External");
     }
 
+    private const string EmptyZone = "zone-empty";
+    private const string EmptyToGatewayId = "88888888-8888-4888-8888-888888888888";
+
+    // A zone with policies to the gateway; its chain exists, but no interface dispatches to CUSTOM5.
+    private static (List<UniFiFirewallZone> Zones, List<FirewallRule> Policies, string Udapi, string Iptables) EmptyZoneSetup()
+    {
+        var zones = Zones.Append(new UniFiFirewallZone { Id = EmptyZone, ZoneKey = "", Name = "Work" }).ToList();
+        var policies = Policies.Append(Policy(EmptyToGatewayId, "Work DNS", EmptyZone, GatewayZone)).ToList();
+        var udapi = Udapi.TrimEnd().TrimEnd(']') + $$$"""
+            ,{"config":{"name":"CUSTOM5_LOCAL"},"rules":[{"id":5,"triggerTag":{"id":"{{{EmptyToGatewayId}}}","type":"FIREWALL_POLICY"}}]}]
+            """;
+        var iptables = Iptables(extraRules: ":UBIOS_CUSTOM5_LOCAL_USER - [0:0]");
+        return (zones, policies, udapi, iptables);
+    }
+
+    [Fact]
+    public void PolicyChainOfAZoneWithNoNetworks_IsNotFlagged()
+    {
+        var (zones, policies, udapi, iptables) = EmptyZoneSetup();
+
+        Run(iptables, udapi, policies: policies, zones: zones).Should().NotContain(i => i.Type == IssueTypes.GatewayZonePairUnwired);
+    }
+
+    [Fact]
+    public void PolicyChainOfAZoneWithNetworks_ButNoDispatch_IsFlagged()
+    {
+        var (zones, policies, udapi, iptables) = EmptyZoneSetup();
+        var networks = Networks.Append(new UniFiNetworkConfig
+            { Id = "net-work", Name = "Work", Purpose = "corporate", VlanEnabled = true, Vlan = 30, FirewallZoneId = EmptyZone }).ToList();
+
+        Run(iptables, udapi, networks: networks, policies: policies, zones: zones)
+            .Should().ContainSingle(i => i.Type == IssueTypes.GatewayZonePairUnwired)
+            .Which.Message.Should().Contain("Work to Gateway");
+    }
+
     [Fact]
     public void NoUdapi_SkipsPolicyChecksOnly()
     {
