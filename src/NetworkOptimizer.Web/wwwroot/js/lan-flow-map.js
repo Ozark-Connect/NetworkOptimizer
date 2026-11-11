@@ -412,9 +412,17 @@ export class LanFlowMap {
         this._resizeObserver = new ResizeObserver(() => this._handleResize());
         this._resizeObserver.observe(this.canvas.parentElement || this.canvas);
         // Off screen (Live View stacks both maps) or in a hidden page, the scene is not drawn.
+        // Scrolled into view, it starts drawing only once it has stayed there 500 ms: its first
+        // frames stall the page, which a reader scrolling past to Live Traffic should not feel.
+        // The first observation applies at once, so a map already in view draws on load.
         this._onScreen = true;
+        let firstSeen = true;
         this._visibilityObserver = new IntersectionObserver((entries) => {
-            for (const e of entries) this._onScreen = e.isIntersecting;
+            const visible = entries[entries.length - 1].isIntersecting;
+            clearTimeout(this._onScreenTimer);
+            if (!visible || firstSeen) this._onScreen = visible;
+            else this._onScreenTimer = setTimeout(() => { this._onScreen = true; }, 500);
+            firstSeen = false;
         });
         this._visibilityObserver.observe(this.canvas);
 
@@ -592,6 +600,7 @@ export class LanFlowMap {
         if (this._windowTickTimer) clearInterval(this._windowTickTimer);
         if (this._resizeObserver) this._resizeObserver.disconnect();
         if (this._visibilityObserver) this._visibilityObserver.disconnect();
+        clearTimeout(this._onScreenTimer);
         if (this._onKeyDown) document.removeEventListener('keydown', this._onKeyDown);
         if (this._onKeyUp) document.removeEventListener('keyup', this._onKeyUp);
         this.controls?.dispose();
