@@ -8967,12 +8967,12 @@ a.path-hop.hop-clickable:hover {
     vertical-align: text-top;
 }
 
-/* In a heading, text-top rides above the capitals: center on them instead. */
+/* In a heading, text-top rides above the capitals: center on them instead (-0.17em is measured on Inter at 18-19px). */
 h2 > .tooltip-icon-sm,
 h3 > .tooltip-icon-sm {
     vertical-align: middle;
     position: relative;
-    top: -0.12em;
+    top: -0.17em;
 }
 
 /* For icons sitting on an inner tertiary surface, where the default tertiary fill disappears. */
