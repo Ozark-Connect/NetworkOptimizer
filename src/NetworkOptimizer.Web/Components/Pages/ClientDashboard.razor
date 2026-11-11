@@ -232,6 +232,11 @@
                                 }
                             </div>
                         </div>
+                        @if (_client.Tailnet is { } tailnetDevice)
+                        {
+                            <MonitoringJumpButton Icon="MonitoringJumpButton.JumpIcon.Analyze" Tooltip="Open in Live Traffic"
+                                                  OnClick="@(() => NavigationManager.NavigateTo($"/monitoring/live-traffic?dest={Uri.EscapeDataString(tailnetDevice.Name)}"))" />
+                        }
                     }
                     else
                     {
