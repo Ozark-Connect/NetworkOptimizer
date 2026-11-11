@@ -184,7 +184,7 @@ public sealed class TailnetSnapshot
             ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         List<TailnetPeer> peers;
-        TailnetPeer? self = local?.Self is { } s ? FromLocal(s, now, isSelf: true) : null;
+        TailnetPeer? self = local?.Self is { } s ? FromLocal(s, now, isSelf: true, derp) : null;
         if (devices != null)
         {
             peers = new List<TailnetPeer>();
@@ -192,7 +192,7 @@ public sealed class TailnetSnapshot
             {
                 var localPeer = d.Addresses.Select(Normalize).OfType<string>()
                     .Select(ip => localByIp.GetValueOrDefault(ip)).FirstOrDefault(p => p != null);
-                var peer = FromDevice(d, localPeer, now);
+                var peer = FromDevice(d, localPeer, now, derp);
                 if (d.Addresses.Select(Normalize).Any(ip => ip != null && selfIps.Contains(ip)))
                     self = peer with { LanAddresses = peer.LanAddresses.Union(self?.LanAddresses ?? []).ToList() };
                 else
@@ -201,12 +201,12 @@ public sealed class TailnetSnapshot
         }
         else
         {
-            peers = (local?.Peers ?? []).Select(p => FromLocal(p, now, isSelf: false)).ToList();
+            peers = (local?.Peers ?? []).Select(p => FromLocal(p, now, isSelf: false, derp)).ToList();
         }
         return new TailnetSnapshot(peers, self, snat ?? [], now, connected: true, derp);
     }
 
-    private static TailnetPeer FromDevice(TailnetDevice d, TailscaleLocalPeer? local, DateTime now)
+    private static TailnetPeer FromDevice(TailnetDevice d, TailscaleLocalPeer? local, DateTime now, DerpMapClient.DerpMap? derp)
     {
         var (exit, subnets) = SplitRoutes(d.Routes);
         return new TailnetPeer
@@ -221,14 +221,14 @@ public sealed class TailnetSnapshot
             SubnetRoutes = subnets.Count > 0 ? subnets : SplitRoutes(local?.PrimaryRoutes ?? []).Subnets,
             LanAddresses = LanAddresses(d.Endpoints.Concat(local?.Addrs ?? [])),
             Endpoints = AllEndpoints(d.Endpoints, local?.Addrs ?? [], [local?.CurAddr]),
-            Path = local == null ? null : PathOf(local, now),
+            Path = local == null ? null : PathOf(local, now, derp),
             RxBytes = local?.RxBytes,
             TxBytes = local?.TxBytes,
             Online = local?.Online ?? d.Online,
         };
     }
 
-    private static TailnetPeer FromLocal(TailscaleLocalPeer p, DateTime now, bool isSelf) => new()
+    private static TailnetPeer FromLocal(TailscaleLocalPeer p, DateTime now, bool isSelf, DerpMapClient.DerpMap? derp) => new()
     {
         Name = TailnetNames.MachineName(p.DnsName) ?? p.HostName ?? p.TailscaleIps.FirstOrDefault() ?? "Tailscale device",
         Hostname = p.HostName,
@@ -240,7 +240,7 @@ public sealed class TailnetSnapshot
         SubnetRoutes = SplitRoutes(p.PrimaryRoutes).Subnets,
         LanAddresses = LanAddresses(p.Addrs),
         Endpoints = AllEndpoints(p.Addrs, [p.CurAddr]),
-        Path = isSelf ? null : PathOf(p, now),
+        Path = isSelf ? null : PathOf(p, now, derp),
         RxBytes = isSelf ? null : p.RxBytes,
         TxBytes = isSelf ? null : p.TxBytes,
         Online = isSelf ? null : p.Online,
@@ -250,7 +250,7 @@ public sealed class TailnetSnapshot
     /// The path tailscaled uses to a peer: direct when it holds a current address, else a peer relay,
     /// else its DERP region once the two have shaken hands. Null when nothing is flowing.
     /// </summary>
-    public static TailnetPathInfo? PathOf(TailscaleLocalPeer p, DateTime now)
+    public static TailnetPathInfo? PathOf(TailscaleLocalPeer p, DateTime now, DerpMapClient.DerpMap? derp = null)
     {
         TailnetPathKind kind;
         string? endpoint = null;
@@ -258,7 +258,8 @@ public sealed class TailnetSnapshot
         else if (p.PeerRelay != null) { kind = TailnetPathKind.PeerRelay; endpoint = p.PeerRelay; }
         else if (p.Relay != null && (p.Active || p.LastHandshake != null)) kind = TailnetPathKind.Derp;
         else return null;
-        return new TailnetPathInfo { Kind = kind, Relay = p.Relay, Endpoint = endpoint, LastHandshake = p.LastHandshake, ReadAt = now };
+        var relayName = p.Relay != null && derp != null && derp.ByCode.TryGetValue(p.Relay, out var region) ? region.Name : null;
+        return new TailnetPathInfo { Kind = kind, Relay = p.Relay, RelayName = relayName, Endpoint = endpoint, LastHandshake = p.LastHandshake, ReadAt = now };
     }
 
     private static (bool Exit, IReadOnlyList<string> Subnets) SplitRoutes(IEnumerable<string> routes)

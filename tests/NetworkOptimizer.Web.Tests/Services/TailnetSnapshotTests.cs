@@ -72,6 +72,19 @@ public class TailnetSnapshotTests
     }
 
     [Fact]
+    public void Relayed_path_names_its_DERP_region_from_the_map()
+    {
+        var peer = new TailscaleLocalPeer(null, "h", null, null, ["100.100.1.2"], null, "dfw", null, 0, 0, null,
+            true, true, false, [], [], []);
+        var derp = new DerpMapClient.DerpMap(new Dictionary<string, DerpRegion>(),
+            new Dictionary<string, DerpRegion> { ["dfw"] = new DerpRegion("dfw", "Dallas") });
+
+        var path = TailnetSnapshot.Build(null, new TailscaleLocalStatus("Running", null, [peer]), null, Now, derp).Peers.Single().Path!;
+
+        TailnetDisplay.PathLabel(path).Should().Be("Relayed (DERP Dallas)");
+    }
+
+    [Fact]
     public void Router_badge_needs_a_route_and_a_lan_endpoint()
     {
         var snapshot = TailnetSnapshot.Build(
