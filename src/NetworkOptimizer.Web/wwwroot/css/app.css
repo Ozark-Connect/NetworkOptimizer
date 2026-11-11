@@ -24367,6 +24367,13 @@ body:has(.top-bar-hidden) .btn-fit {
     }
 }
 
+/* Desktop: the controls sit on the description's line, just above the cards they drive. */
+@media (min-width: 769px) {
+    .live-traffic .page-header-actions {
+        align-self: flex-end;
+    }
+}
+
 /* Detailed View: in the By row on desktop, at the right of the title on a phone. */
 .bandwidth-hogs-card .lt-header-detail {
     display: none;
