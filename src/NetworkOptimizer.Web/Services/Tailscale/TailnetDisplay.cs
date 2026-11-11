@@ -41,10 +41,13 @@ public static class TailnetDisplay
             ? $"{TimeFormatHelper.FormatDurationExact(path.ReadAt - at)} before the read"
             : null;
 
-    /// <summary>"Received 1.2 GB, sent 34 MB" from this node's counters; null when they are not known.</summary>
+    /// <summary>
+    /// "Received 1.2 GB, sent 34 MB", from the device's side. The counters are the agent host's
+    /// (RxBytes is what the host received from the device), so they swap here.
+    /// </summary>
     public static string? Traffic(TailnetPeer peer) =>
-        peer.RxBytes is { } rx && peer.TxBytes is { } tx && rx + tx > 0
-            ? $"Received {DisplayFormatters.FormatBytes(rx)}, sent {DisplayFormatters.FormatBytes(tx)}"
+        peer.RxBytes is { } hostReceived && peer.TxBytes is { } hostSent && hostReceived + hostSent > 0
+            ? $"Received {DisplayFormatters.FormatBytes(hostSent)}, sent {DisplayFormatters.FormatBytes(hostReceived)}"
             : null;
 
     /// <summary>The device's owner, or for a tagged device (no owner) its tags; null when neither.</summary>

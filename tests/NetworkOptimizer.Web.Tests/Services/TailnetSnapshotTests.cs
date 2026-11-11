@@ -72,6 +72,15 @@ public class TailnetSnapshotTests
     }
 
     [Fact]
+    public void Traffic_reads_from_the_devices_side()
+    {
+        // The host received 1 MB from the device and sent it 10 MB: the device received 10 MB.
+        var peer = new TailnetPeer { Name = "phone", RxBytes = 1L << 20, TxBytes = 10L << 20 };
+
+        TailnetDisplay.Traffic(peer).Should().Be("Received 10 MB, sent 1 MB");
+    }
+
+    [Fact]
     public void Relayed_path_names_its_DERP_region_from_the_map()
     {
         var peer = new TailscaleLocalPeer(null, "h", null, null, ["100.100.1.2"], null, "dfw", null, 0, 0, null,
