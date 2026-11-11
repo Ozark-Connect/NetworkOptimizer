@@ -99,6 +99,7 @@ public static class DomainAppCatalog
     private static readonly (string Suffix, string App)[] HostingByDomain =
     [
         ("amazonaws.com", "AWS"),
+        ("awsglobalaccelerator.com", "AWS"),
     ];
 
     /// <summary>

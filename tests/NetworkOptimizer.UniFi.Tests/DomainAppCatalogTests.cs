@@ -35,6 +35,7 @@ public class DomainAppCatalogTests
     [InlineData("ec2-198-51-100-7.compute-1.amazonaws.com", "AWS")]
     [InlineData("s3.us-east-1.amazonaws.com.", "AWS")]
     [InlineData("amazonaws.com", "AWS")]
+    [InlineData("a1234567890abcdef.awsglobalaccelerator.com", "AWS")]
     [InlineData("notamazonaws.com", null)]
     [InlineData("www.amazon.com", null)]
     [InlineData(null, null)]
