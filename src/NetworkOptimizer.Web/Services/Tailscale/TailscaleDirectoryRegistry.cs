@@ -428,16 +428,35 @@ public sealed class TailscaleDirectoryRegistry : ISiteScopedRegistry
 
     private string? SiteArg(string slug) => slug == SiteManagementService.DefaultSiteSlug ? null : slug;
 
-    /// <summary>A Headscale URL at a private or local address is inside the site: reached through its tunnel when it has one.</summary>
-    internal static bool HeadscaleOnSite(string url) =>
-        Uri.TryCreate(url, UriKind.Absolute, out var uri)
-        && System.Net.IPAddress.TryParse(uri.Host.Trim('[', ']'), out var ip)
-        && (NetworkOptimizer.Core.Helpers.NetworkUtilities.IsPrivateIpAddress(ip) || System.Net.IPAddress.IsLoopback(ip) || ip.IsIPv6LinkLocal || ip.IsIPv6UniqueLocal);
+    /// <summary>
+    /// Whether a Headscale server is inside the site, so it is reached through the site's tunnel: its host
+    /// resolves here to a private or local address, or does not resolve here at all (a name only the
+    /// site's DNS knows; the agent resolves it there). A public address is read from this server.
+    /// </summary>
+    internal static async Task<bool> HeadscaleOnSiteAsync(string url, Func<string, Task<System.Net.IPAddress[]>> resolve)
+    {
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri)) return false;
+        var host = uri.Host.Trim('[', ']');
+        System.Net.IPAddress[] addresses;
+        if (System.Net.IPAddress.TryParse(host, out var literal)) addresses = [literal];
+        else
+        {
+            try { addresses = await resolve(host); }
+            catch (System.Net.Sockets.SocketException) { return true; }
+            if (addresses.Length == 0) return true;
+        }
+        return addresses.All(IsSiteLocal);
+    }
+
+    private static bool IsSiteLocal(System.Net.IPAddress ip) =>
+        NetworkOptimizer.Core.Helpers.NetworkUtilities.IsPrivateIpAddress(ip) || System.Net.IPAddress.IsLoopback(ip)
+        || ip.IsIPv6LinkLocal || ip.IsIPv6UniqueLocal;
 
     private async Task<IReadOnlyList<TailnetDevice>> ReadDevicesAsync(string slug, StoredSettings stored, SiteState? cacheIn, CancellationToken ct)
     {
         var s = stored.Settings;
-        var http = s.ControlServer == TailnetControlServer.Headscale && HeadscaleOnSite(s.HeadscaleUrl)
+        var http = s.ControlServer == TailnetControlServer.Headscale
+            && await HeadscaleOnSiteAsync(s.HeadscaleUrl, host => System.Net.Dns.GetHostAddressesAsync(host, ct))
             ? await _siteHttp.GetClientAsync(SiteArg(slug), ct)
             : Http();
         if (s.ControlServer == TailnetControlServer.Headscale)

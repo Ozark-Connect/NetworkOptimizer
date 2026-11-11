@@ -72,15 +72,21 @@ public class TailnetSnapshotTests
     }
 
     [Theory]
-    [InlineData("http://192.168.1.5:8080", true)]
-    [InlineData("https://10.0.0.2", true)]
-    [InlineData("http://127.0.0.1:8080", true)]
-    [InlineData("https://[fd00::5]:443", true)]
-    [InlineData("https://headscale.example.com", false)]
-    [InlineData("https://203.0.113.10", false)]
-    public void A_Headscale_at_a_private_address_is_inside_the_site(string url, bool onSite)
+    [InlineData("http://192.168.1.5:8080", null, true)]
+    [InlineData("https://10.0.0.2", null, true)]
+    [InlineData("http://127.0.0.1:8080", null, true)]
+    [InlineData("https://[fd00::5]:443", null, true)]
+    [InlineData("https://203.0.113.10", null, false)]
+    [InlineData("https://headscale.example.com", "203.0.113.10", false)]
+    [InlineData("https://headscale.example.com", "192.168.1.5", true)]
+    [InlineData("https://headscale.lan", "", true)]
+    public async Task A_Headscale_inside_the_site_goes_through_its_tunnel(string url, string? resolvesTo, bool onSite)
     {
-        TailscaleDirectoryRegistry.HeadscaleOnSite(url).Should().Be(onSite);
+        Task<System.Net.IPAddress[]> Resolve(string _) => resolvesTo is { Length: > 0 }
+            ? Task.FromResult(new[] { System.Net.IPAddress.Parse(resolvesTo) })
+            : throw new System.Net.Sockets.SocketException(11001);
+
+        (await TailscaleDirectoryRegistry.HeadscaleOnSiteAsync(url, Resolve)).Should().Be(onSite);
     }
 
     [Fact]
