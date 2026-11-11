@@ -313,7 +313,12 @@ public sealed class LiveTrafficService : ILiveTrafficService
     private async Task EnrichAsync(string slug, LiveTrafficStore store, bool clients, bool flows, IReadOnlyList<string> gatewayIps)
     {
         var client = _connection.Client;
-        if (client == null) return;
+        if (client == null)
+        {
+            if (clients) store.ClientsNotRead(DateTime.UtcNow);
+            return;
+        }
+        var clientsRead = false;
         try
         {
             if (clients)
@@ -360,6 +365,7 @@ public sealed class LiveTrafficService : ILiveTrafficService
 
                 var (routes, primary) = await LoadRoutesAsync(slug);
                 store.SetSiteData(infos, gatewayIps, gateway?.Name, routes, primary);
+                clientsRead = true;
 
                 // Offline clients, so a flow to a LAN device that dropped off still shows its name.
                 if (store.RecentClientsDue(DateTime.UtcNow))
@@ -456,6 +462,7 @@ public sealed class LiveTrafficService : ILiveTrafficService
         }
         catch (Exception ex)
         {
+            if (clients && !clientsRead) store.ClientsNotRead(DateTime.UtcNow);
             _logger.LogDebug(ex, "Live Traffic: label refresh failed for site {Slug}", slug);
         }
     }

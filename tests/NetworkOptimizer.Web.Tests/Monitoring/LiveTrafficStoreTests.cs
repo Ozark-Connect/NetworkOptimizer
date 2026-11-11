@@ -381,6 +381,16 @@ public class LiveTrafficStoreTests
     }
 
     [Fact]
+    public void WireGuardToThisInstallsHostIsTailscale()
+    {
+        var store = SeededStore();
+        store.SetServerHosts(new HashSet<string>(["203.0.113.80"], StringComparer.OrdinalIgnoreCase));
+        store.Ingest(Batch(Flow("wg", Laptop, "192.0.2.20", "203.0.113.80", 41641, "eth4", 1000, 10, proto: "udp")));
+
+        store.BuildView(Query(), LiveTrafficState.Live).Flows.Single().App.Should().Be("Tailscale");
+    }
+
+    [Fact]
     public void FlowsToThisInstallAreNetworkOptimizerAndApPollsAreApAgent()
     {
         var store = SeededStore();

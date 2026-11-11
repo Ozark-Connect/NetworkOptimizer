@@ -267,10 +267,21 @@ public sealed class LiveTrafficStore
     {
         lock (_gate)
         {
-            if (now - _lastClientsAt < TimeSpan.FromSeconds(30)) return false;
+            if (now - _lastClientsAt < ClientsEvery) return false;
             _lastClientsAt = now;
             return true;
         }
+    }
+
+    private static readonly TimeSpan ClientsEvery = TimeSpan.FromSeconds(30);
+
+    /// <summary>
+    /// A client refresh that could not run (no console yet, as while a site's agent reconnects after a
+    /// restart) is due again in 5 s, not a full interval later: until it runs, names read as addresses.
+    /// </summary>
+    public void ClientsNotRead(DateTime now)
+    {
+        lock (_gate) _lastClientsAt = now - ClientsEvery + TimeSpan.FromSeconds(5);
     }
 
     /// <summary>The console's client list, the gateway's own addresses and name, and the WAN routes.</summary>
@@ -863,8 +874,13 @@ public sealed class LiveTrafficStore
             : remoteAsn is { } asnNumber ? $"{cache} inside {org ?? "your ISP"} (AS{asnNumber})" : $"{cache} inside your ISP's network";
         // A device's own protocol by port and vendor beats the DPI's guess for it.
         var deviceApp = f.Lan ? DomainAppCatalog.LanDeviceApp(proto, f.RemotePort, peer?.Vendor) : null;
-        var app = DomainAppCatalog.ProtocolApp(proto) ?? (toServer ? "Network Optimizer" : null)
-            ?? DomainAppCatalog.TailscaleApp(proto, f.ClientPort, f.RemotePort) ?? deviceApp ?? match?.App ?? DomainAppCatalog.AppFor(hostName)
+        // Tailscale first: WireGuard to the host this server runs on is still Tailscale, not Network Optimizer.
+        var app = DomainAppCatalog.ProtocolApp(proto)
+            ?? DomainAppCatalog.TailscaleApp(proto, f.ClientPort, f.RemotePort)
+            // A DERP relay or STUN flow is Tailscale's, not its hosting company's (NetActuate, Vultr).
+            ?? (tailnetRole != null ? "Tailscale" : null)
+            ?? (toServer ? "Network Optimizer" : null)
+            ?? deviceApp ?? match?.App ?? DomainAppCatalog.AppFor(hostName)
             ?? destinationApp ?? neighborApp
             ?? DomainAppCatalog.SpeedtestApp(hostName, proto, f.RemotePort)
             ?? (f.Lan ? DomainAppCatalog.LanApp(proto, f.RemotePort, peer?.Vendor) : DomainAppCatalog.WifiCalling(proto, f.RemotePort, org) ?? DomainAppCatalog.OwnerApp(org) ?? DomainAppCatalog.HostingApp(hostName))

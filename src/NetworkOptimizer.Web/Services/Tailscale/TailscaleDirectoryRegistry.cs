@@ -91,6 +91,9 @@ public sealed class TailscaleDirectoryRegistry : ISiteScopedRegistry
         public TailscaleLocalStatus? Local;
         public IReadOnlyList<TailnetSnatEntry> Snat = [];
         public DateTime SettingsAt, DevicesAt, LocalAt, SnatAt, SnatWantedUntil, AgentSearchedAt;
+        /// <summary>The agent whose routed-traffic read last failed, and when.</summary>
+        public int? SnatFailedAgent;
+        public DateTime SnatFailedAt;
         /// <summary>Agents the last search asked; one connecting after it (a restart) is asked at once.</summary>
         public HashSet<int> AgentsAsked = [];
         public int Refreshing;
@@ -206,8 +209,16 @@ public sealed class TailscaleDirectoryRegistry : ISiteScopedRegistry
             return now - state.AgentSearchedAt >= NoAgentRecheck || HasUnaskedAgent(slug, state)
                 || (state.Status is { AgentsConnecting: true, ReadAt: { } readAt } && now - readAt >= LocalEvery);
         if (now - state.LocalAt >= LocalEvery) return true;
-        return state.Snapshot.Self?.RouterBadge != null && now < state.SnatWantedUntil && now - state.SnatAt >= SnatEvery;
+        return state.Snapshot.Self?.RouterBadge != null && now < state.SnatWantedUntil && now - state.SnatAt >= SnatEvery
+            && !SnatFailing(state, now);
     }
+
+    /// <summary>
+    /// Whether the agent read now could not attribute routed traffic within the recheck window (a macOS host,
+    /// no conntrack): not asked again every 10 s, and the card does not claim it.
+    /// </summary>
+    private static bool SnatFailing(SiteState state, DateTime now) =>
+        state.Agent != null && state.SnatFailedAgent == state.Agent.AgentId && now - state.SnatFailedAt < NoAgentRecheck;
 
     private IEnumerable<AgentTunnelConnection> CapableAgents(string slug) =>
         _tunnels.GetForSite(slug).Where(c => c.HasCapability(TailscaleLocal.Capability));
@@ -273,7 +284,7 @@ public sealed class TailscaleDirectoryRegistry : ISiteScopedRegistry
             var snapshot = TailnetSnapshot.Build(state.Devices, state.Local, state.Snat, now, _derpMap);
             state.Snapshot = snapshot;
             state.Status = new TailnetStatus(true, snapshot.Peers.Count + (snapshot.Self != null ? 1 : 0), now, state.Error,
-                state.Agent?.AgentName, snapshot.Self?.RouterBadge != null && state.Agent != null,
+                state.Agent?.AgentName, snapshot.Self?.RouterBadge != null && state.Agent != null && !SnatFailing(state, now),
                 state.Agent == null && await AgentsConnectingAsync(slug, state, ct));
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
@@ -338,7 +349,7 @@ public sealed class TailscaleDirectoryRegistry : ISiteScopedRegistry
         {
             state.Snat = [];
         }
-        else if (force || (now < state.SnatWantedUntil && now - state.SnatAt >= SnatEvery))
+        else if (force || (now < state.SnatWantedUntil && now - state.SnatAt >= SnatEvery && !SnatFailing(state, now)))
         {
             try
             {
@@ -348,6 +359,7 @@ public sealed class TailscaleDirectoryRegistry : ISiteScopedRegistry
             catch (TailscaleLocalException ex)
             {
                 state.Snat = [];
+                (state.SnatFailedAgent, state.SnatFailedAt) = (state.Agent!.AgentId, now);
                 _logger.LogDebug("Routed-traffic attribution on agent {Agent} for site {Site} not read: {Reason}", state.Agent!.AgentName, slug, ex.Message);
             }
             state.SnatAt = now;
