@@ -228,6 +228,16 @@ public sealed class SettingsSearchProvider : IAppSearchProvider
             ["dish", "grpc", "power draw", "obstruction", "outages", "alignment", "terminal",
              "polling interval", "show the starlink stats tab"]),
 
+        Entry("monitoring", "Monitoring", "custom-apps",
+            "Custom Apps",
+            ["Custom App Definitions", "Custom DPI", "DPI Definitions", "Custom Ports", "Port Naming", "Name This App"],
+            ["custom app", "app definitions", "custom definitions", "custom app defs", "dpi defs", "user-defined dpi", "dpi rules", "dpi signatures",
+             "application identification", "app identification", "traffic identification", "unknown app",
+             "unrecognized traffic", "unidentified traffic", "unnamed port", "name a port", "port names", "port labels",
+             "custom port", "custom service", "service names", "label traffic", "rename app", "app names",
+             "tcp", "udp", "port range", "source port", "destination port", "either end",
+             "live traffic", "live traffic apps", "flows", "where it goes", "domain suffix", "cidr"]),
+
         Entry("aptelemetry", "AP Telemetry", "ap-telemetry",
             "AP Telemetry",
             ["AP Agent", "access point agent", "WiFi", "Wi-Fi"],

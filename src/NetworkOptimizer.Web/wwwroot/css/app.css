@@ -24792,8 +24792,9 @@ body:has(.top-bar-hidden) .btn-fit {
     padding-right: 40px;
 }
 
-.custom-apps:not(.is-dialog) .custom-apps-header {
-    justify-content: flex-end;
+.custom-apps-header .custom-apps-intro {
+    flex: 1 1 240px;
+    margin: 0;
 }
 
 .custom-apps-title {

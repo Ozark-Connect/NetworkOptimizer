@@ -1146,30 +1146,6 @@
         </div>
     </div>
 
-    <!-- Live Traffic - Custom Apps -->
-    <div class="card settings-tab-monitoring" id="custom-apps">
-        <div class="card-header">
-            <div class="card-header-left">
-                <h2 class="card-title">Custom Apps</h2>
-                <a href="/monitoring/live-traffic" class="settings-title-link" data-tooltip="Open Live Traffic">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6"></path><path d="M10 14 21 3"></path><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path></svg>
-                </a>
-            </div>
-        </div>
-        <div class="card-body">
-            <p class="section-description">
-                Name traffic that UniFi Network's DPI doesn't recognize, by protocol, port, and remote. Live Traffic shows these names everywhere it shows an app.
-            </p>
-            @* Mounted only on this tab: the list keeps its live counts current on a timer. *@
-            @if (_activeTab == "monitoring")
-            {
-                <SiteAdminOnly>
-                    <CustomAppsManager />
-                </SiteAdminOnly>
-            }
-        </div>
-    </div>
-
     <!-- 5. Adaptive SQM Monitor -->
     <div class="card settings-tab-monitoring" id="sqm-monitor">
         <div class="card-header">
@@ -2387,6 +2363,30 @@
                         </div>
                     }
                 </div>
+            }
+        </div>
+    </div>
+
+    <!-- Live Traffic - Custom Apps -->
+    <div class="card settings-tab-monitoring" id="custom-apps">
+        <div class="card-header">
+            <div class="card-header-left">
+                <h2 class="card-title">Custom Apps</h2>
+                <a href="/monitoring/live-traffic" class="settings-title-link" data-tooltip="Open Live Traffic">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6"></path><path d="M10 14 21 3"></path><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path></svg>
+                </a>
+            </div>
+        </div>
+        <div class="card-body">
+            <p class="section-description">
+                Name traffic that UniFi Network's DPI doesn't recognize, by protocol, port, and remote. Live Traffic shows these names everywhere it shows an app.
+            </p>
+            @* Mounted only on this tab: the list keeps its live counts current on a timer. *@
+            @if (_activeTab == "monitoring")
+            {
+                <SiteAdminOnly>
+                    <CustomAppsManager />
+                </SiteAdminOnly>
             }
         </div>
     </div>
@@ -4294,6 +4294,7 @@
         ["cable-modem"] = "monitoring",
         ["ont-monitoring"] = "monitoring",
         ["starlink"] = "monitoring",
+        ["custom-apps"] = "monitoring",
         ["ap-telemetry"] = "aptelemetry",
         ["speed-test-settings"] = "speedtests",
         ["external-speedtest-settings"] = "speedtests",

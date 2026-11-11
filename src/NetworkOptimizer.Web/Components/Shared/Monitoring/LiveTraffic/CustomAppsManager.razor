@@ -132,10 +132,19 @@
     }
     else
     {
+        var listEmpty = _definitions is { Count: 0 } && _deleted == null;
+        var lead = _definitions == null ? null
+            : listEmpty ? "No custom apps yet. Hover a port like UDP 21324 in Live Traffic to name it, or add one here."
+            : "Checked top to bottom. The first match names the flow.";
         <div class="custom-apps-header">
             @if (InDialog)
             {
                 <h2 class="custom-apps-title" id="@TitleId">Custom Apps</h2>
+            }
+            else
+            {
+                @* Inline, the card header carries the title: the lead line shares the button's row. *@
+                <p class="custom-apps-intro">@lead</p>
             }
             <button type="button" class="btn btn-primary btn-sm custom-apps-add" @ref="_addButton" @onclick="() => OpenForm(null, null)">Add Custom App</button>
         </div>
@@ -144,15 +153,19 @@
         {
             <div class="loading-container"><div class="spinner spinner-sm"></div></div>
         }
-        else if (_definitions.Count == 0 && _deleted == null)
+        else if (listEmpty)
         {
-            <div class="empty-state custom-apps-empty">
-                <p>No custom apps yet. Hover a port like UDP 21324 in Live Traffic to name it, or add one here.</p>
-            </div>
+            if (InDialog)
+            {
+                <div class="empty-state custom-apps-empty"><p>@lead</p></div>
+            }
         }
         else
         {
-            <p class="custom-apps-intro">Checked top to bottom. The first match names the flow.</p>
+            if (InDialog)
+            {
+                <p class="custom-apps-intro">@lead</p>
+            }
             <ol class="custom-apps-list">
                 @for (var i = 0; i <= _definitions.Count; i++)
                 {
