@@ -9011,6 +9011,9 @@ h3 > .tooltip-icon-sm {
     text-decoration: none;
 }
 
+/* Two or more links on one card line (Live Traffic's destination card: Threats, Trace). */
+.tippy-box[data-theme~='custom'] .tip-links { display: flex; flex-wrap: wrap; gap: 0.75rem; }
+
 .tippy-box[data-theme~='custom'] .tip-link-icon {
     margin-left: 0.15em;
     vertical-align: -1px;
