@@ -71,8 +71,15 @@
     {
         if (!firstRender)
         {
-            // The filters moved off the active preset: drop it, so a return opens clean.
-            if (_loaded && _active != null && Current() != _activeValue) await SetActiveAsync(null);
+            // The lit slot follows the filters: off when they move away (so a return opens clean), on when
+            // they match a saved preset however they got there (a link, pills added by hand).
+            if (!_loaded || _saving) return;
+            var now = Current();
+            if (_active != null && SameFilters(now, _activeValue)) return;
+            var match = MatchingSlot(now);
+            if (match == _active) return;
+            await SetActiveAsync(match);
+            if (!_disposed) StateHasChanged();
             return;
         }
         for (var i = 0; i < Slots; i++)
@@ -91,6 +98,11 @@
             _active = slot;
             _activeValue = Current();
         }
+        else if (MatchingSlot(Current()) is { } match)
+        {
+            _active = match;
+            _activeValue = Current();
+        }
         _loaded = true;
         if (!_disposed) StateHasChanged();
     }
@@ -103,6 +115,21 @@
         try { await UserPreferences.SetAsync(ActiveKey, slot is { } s ? (s + 1).ToString() : ""); }
         catch (Exception ex) { Logger.LogDebug(ex, "Filter presets: {Scope} active slot not saved", Scope); }
     }
+
+    /// <summary>The first slot whose saved filters equal these, in any order; none for no filters.</summary>
+    private int? MatchingSlot(string filters)
+    {
+        if (filters.Length == 0) return null;
+        for (var i = 0; i < Slots; i++)
+            if (_presets[i] is { } saved && SameFilters(saved, filters)) return i;
+        return null;
+    }
+
+    /// <summary>Two filter query strings name the same filters, whatever order the parts are in.</summary>
+    private static bool SameFilters(string? a, string? b) => Canonical(a) == Canonical(b);
+
+    private static string Canonical(string? query) =>
+        string.Join('&', (query ?? "").Split('&', StringSplitOptions.RemoveEmptyEntries).Order(StringComparer.Ordinal));
 
     private void ToggleSave() => _saving = !_saving;
 
