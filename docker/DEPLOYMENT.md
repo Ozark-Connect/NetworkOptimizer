@@ -1472,7 +1472,7 @@ Settings - Connection - **Tailscale** resolves Tailscale devices in Client Perfo
 - **Tailscale**: in the Tailscale Admin console, go to Settings - Trust credentials, click **+ Credential**, and add an OAuth credential with the **Devices Core** scope set to **Read** (`devices:core:read`). Enter its client ID and secret. The credential's own tailnet is the one read.
 - **Headscale**: the server's URL and an API key from `headscale apikeys create`.
 
-On a site reached through its On-Site Agent, the API calls go out through the agent, so a Headscale server on that site's LAN works.
+The Tailscale API is read from the Network Optimizer server. So is a Headscale server, unless its address is private or its name resolves only inside the site: then, on a site reached through its On-Site Agent, it is read through the agent, so a Headscale server on that site's LAN works.
 
 ### What you get
 
@@ -1496,7 +1496,9 @@ Requirements:
 - For routed-traffic attribution, tailscaled in the host's network (`network_mode: host` for a container). Userspace networking leaves no conntrack entries.
 - tailscaled's LocalAPI socket at `/var/run/tailscale/tailscaled.sock`. When tailscaled runs in a container, set `TS_SOCKET=/var/run/tailscale/tailscaled.sock` on it and mount `/var/run/tailscale` from the host. For a root caller the socket allows changes as well as reads; the agent sends only `GET /localapi/v0/status`.
 
-When a site has several agents, the one whose host routes for the tailnet is used, else the first whose host runs Tailscale. Agents without it are asked again every 10 minutes, so Tailscale added to a host later is picked up within that time (saving the Tailscale card checks at once).
+An agent on macOS (built from source: see the agent README) gives the paths and counters but not routed traffic, since tailscaled on macOS does its NAT inside its own process rather than in a table the agent can read.
+
+When a site has several agents, the one whose host routes for the tailnet is used, else the first whose host runs Tailscale. An agent that connects later, as after a restart, is asked at once. Agents already asked without Tailscale are asked again every 10 minutes, so Tailscale added to a host later is picked up within that time (saving the Tailscale card checks at once).
 
 ## Next Steps
 
