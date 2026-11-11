@@ -36,6 +36,7 @@
 @using NetworkOptimizer.Web.Components.Shared.Monitoring.LiveTraffic
 @inject ILiveTrafficService LiveTraffic
 @inject ITailscaleDirectory Tailscale
+@inject IAuthorizationService Authz
 
 <PageTitle>Client Performance - Network Optimizer</PageTitle>
 
@@ -225,10 +226,10 @@
                                         <span class="meta-sep">·</span>
                                         <span data-tooltip="OS">@tailnetPeer.Os</span>
                                     }
-                                    @if (!string.IsNullOrEmpty(tailnetPeer.User))
+                                    @if (TailnetDisplay.Owner(tailnetPeer) is { } owner)
                                     {
                                         <span class="meta-sep">·</span>
-                                        <span data-tooltip="Tailscale user">@tailnetPeer.User</span>
+                                        <span data-tooltip="@(string.IsNullOrWhiteSpace(tailnetPeer.User) ? $"Tags: {owner}" : $"Owner: {owner}")">@TailnetDisplay.ShortOwner(owner)</span>
                                     }
                                 }
                             </div>
@@ -349,12 +350,27 @@
             <div class="identity-row-2">
                 @if (_client.IsVpn)
                 {
-                    @if (_client.Tailnet?.Path is { } tailnetPath)
+                    @if (_client.Tailnet != null && (_client.Tailnet.Path ?? _tailnetPath) is { } tailnetPath)
                     {
                         <span class="identity-detail" data-tooltip="@TailnetDisplay.PathDetail(tailnetPath)">@TailnetDisplay.PathLabel(tailnetPath)</span>
                         @if (TailnetDisplay.Traffic(_client.Tailnet) is { } tailnetTraffic)
                         {
                             <span class="identity-detail detail-dim">@tailnetTraffic</span>
+                        }
+                    }
+                    else if (_client.Tailnet != null)
+                    {
+                        <span class="identity-detail detail-dim">Connected over Tailscale</span>
+                    }
+                    else if (_client.VpnType == HopType.Tailscale && !_pickerTailnet.Connected)
+                    {
+                        @if (_canSetUpTailscale)
+                        {
+                            <span class="identity-detail detail-dim"><a href="/settings?tab=connection#tailscale">Set Up Tailscale</a> to see this device's name, owner, and how it connects</span>
+                        }
+                        else
+                        {
+                            <span class="identity-detail detail-dim">A Site Admin can set up Tailscale to show this device's name, owner, and how it connects</span>
                         }
                     }
                     else
@@ -1994,6 +2010,12 @@
             if (_client?.IsVpn == true && _activeTab != "speed")
                 _activeTab = "speed";
 
+            if (_client?.VpnType == HopType.Tailscale)
+            {
+                await LoadTailnetForVpnViewAsync();
+                _ = ReadTailnetPathAsync(_client.Ip);
+            }
+
             await RefreshSteeringAsync();
 
             // Poll now rather than at the next tick. The timer starts before the address is known,
@@ -2314,6 +2336,39 @@
     {
         try { _pickerTailnet = await Tailscale.GetPeersAsync(); }
         catch (Exception ex) { Logger.LogDebug(ex, "Tailscale devices for the client selector not read (site {Site})", SiteContext.Slug); }
+    }
+
+    /// <summary>How the Tailscale client connects, read after the page is up: off the gateway's flows it takes seconds.</summary>
+    private TailnetPathInfo? _tailnetPath;
+
+    /// <summary>A Site Admin here: the Tailscale setup line links to its Settings card.</summary>
+    private bool _canSetUpTailscale;
+
+    [CascadingParameter] private Task<Microsoft.AspNetCore.Components.Authorization.AuthenticationState>? AuthState { get; set; }
+
+    /// <summary>The tailnet and the viewer's role, for the Tailscale view's details or its setup line.</summary>
+    private async Task LoadTailnetForVpnViewAsync()
+    {
+        if (_pickerTailnet == TailnetSnapshot.Empty) await LoadPickerTailnetAsync();
+        if (AuthState != null)
+        {
+            var user = (await AuthState).User;
+            _canSetUpTailscale = (await Authz.AuthorizeAsync(user, SiteContext.Slug, Policies.SiteAdmin)).Succeeded;
+        }
+    }
+
+    private async Task ReadTailnetPathAsync(string? ip)
+    {
+        if (string.IsNullOrEmpty(ip) || !_pickerTailnet.Connected) return;
+        try
+        {
+            _tailnetPath = await Tailscale.GetPathAsync(ip);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogDebug(ex, "Tailscale path for {Ip} not read (site {Site})", ip, SiteContext.Slug);
+        }
+        if (!_disposed) await InvokeAsync(StateHasChanged);
     }
 
     private async Task ViewClientByIpAsync(string ip)

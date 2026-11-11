@@ -239,6 +239,61 @@ internal static class TailnetHttp
     }
 }
 
+/// <summary>One DERP relay region as Tailscale publishes it: its code ("dfw") and name ("Dallas").</summary>
+public sealed record DerpRegion(string Code, string Name);
+
+/// <summary>
+/// Tailscale's public DERP map (https://login.tailscale.com/derpmap/default, no credentials): every relay
+/// server's addresses with its region. It names relay traffic in Live Traffic by address, and region
+/// codes by name. Read-only and public; a failed read leaves relays matched by hostname only.
+/// </summary>
+public static class DerpMapClient
+{
+    public const string Url = "https://login.tailscale.com/derpmap/default";
+    private static readonly JsonSerializerOptions Json = new() { PropertyNameCaseInsensitive = true };
+
+    /// <summary>Region by relay address, and region by code.</summary>
+    public sealed record DerpMap(IReadOnlyDictionary<string, DerpRegion> ByAddress, IReadOnlyDictionary<string, DerpRegion> ByCode);
+
+    public static async Task<DerpMap> GetAsync(HttpClient http, CancellationToken ct)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Get, Url);
+        using var response = await TailnetHttp.SendAsync(http, request, ct);
+        TailnetHttp.EnsureOk(response, "Tailscale's DERP map");
+        var body = await response.Content.ReadFromJsonAsync<Map>(Json, ct);
+        var byAddress = new Dictionary<string, DerpRegion>(StringComparer.OrdinalIgnoreCase);
+        var byCode = new Dictionary<string, DerpRegion>(StringComparer.OrdinalIgnoreCase);
+        foreach (var region in (body?.Regions ?? []).Values)
+        {
+            if (string.IsNullOrWhiteSpace(region.RegionCode)) continue;
+            var r = new DerpRegion(region.RegionCode, string.IsNullOrWhiteSpace(region.RegionName) ? region.RegionCode : region.RegionName);
+            byCode.TryAdd(r.Code, r);
+            foreach (var node in region.Nodes ?? [])
+                foreach (var ip in new[] { node.IPv4, node.IPv6 })
+                    if (System.Net.IPAddress.TryParse(ip, out var parsed)) byAddress.TryAdd(parsed.ToString(), r);
+        }
+        return new DerpMap(byAddress, byCode);
+    }
+
+    private sealed class Map
+    {
+        public Dictionary<string, Region>? Regions { get; set; }
+    }
+
+    private sealed class Region
+    {
+        public string? RegionCode { get; set; }
+        public string? RegionName { get; set; }
+        public List<Node>? Nodes { get; set; }
+    }
+
+    private sealed class Node
+    {
+        public string? IPv4 { get; set; }
+        public string? IPv6 { get; set; }
+    }
+}
+
 /// <summary>Display names for tailnet nodes.</summary>
 public static class TailnetNames
 {

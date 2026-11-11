@@ -41,9 +41,7 @@ public static class TailnetSnat
         }
         catch (UnauthorizedAccessException ex)
         {
-            // Network Optimizer's container runs as a non-root user, and the table is root-only.
-            throw new TailscaleLocalException(
-                $"Only root can read {ConntrackPath}, and Network Optimizer does not run as root here. An On-Site Agent on this host can read it.", ex);
+            throw new TailscaleLocalException($"Only root can read {ConntrackPath}.", ex);
         }
         catch (IOException ex)
         {

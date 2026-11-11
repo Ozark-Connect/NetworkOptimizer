@@ -1465,56 +1465,29 @@ The schema is stable: measurement and field names only ever get added, never ren
 
 ## Tailscale (Optional)
 
-Settings - Connection - **Tailscale** resolves Tailscale devices in Client Performance, speed test results, and Live Traffic. Network Optimizer only reads: it never changes the tailnet. Set it per site.
+Settings - Connection - **Tailscale** resolves Tailscale devices in Client Performance, speed test results, and Live Traffic, and shows whether each one connects directly or through a relay. Network Optimizer only reads: it never changes the tailnet. Set it per site.
 
-### Device List
+### Connect
 
-Pick one source:
-
-- **Tailscale API**: in the Tailscale Admin console, go to Settings - Trust credentials, click **+ Credential**, and add an OAuth credential with the **Devices Core** scope set to **Read** (`devices:core:read`). Enter its client ID and secret. Leave **Tailnet** empty for the client's own tailnet.
-- **Headscale API**: the server's URL and an API key from `headscale apikeys create`.
-- **Local status only**: the peers a local tailscaled can see (below). No credentials needed.
+- **Tailscale**: in the Tailscale Admin console, go to Settings - Trust credentials, click **+ Credential**, and add an OAuth credential with the **Devices Core** scope set to **Read** (`devices:core:read`). Enter its client ID and secret. Leave **Tailnet** empty for the client's own tailnet.
+- **Headscale**: the server's URL and an API key from `headscale apikeys create`.
 
 On a site reached through its On-Site Agent, the API calls go out through the agent, so a Headscale server on that site's LAN works.
 
-### Local Status
+### What you get
 
-A tailscaled that Network Optimizer can read adds each peer's connection path (direct, DERP relay, or peer relay) and traffic counters, and records the path on Tailscale speed test results. Choose where it runs:
+- Tailscale devices by name, OS, and owner (or tags) in Client Performance, which also lists them in its device selector.
+- Tailscale flows in Live Traffic named by the device at the far end. Of a device's flows, the busiest reads **Direct** and the rest **Path probe** (tailscaled probes every endpoint a device has). Flows to Tailscale's relay servers read **DERP relay** or **STUN**.
+- How a device connects (Direct or Relayed), read off the gateway's flows. On a Tailscale speed test result it is read right after the test and labeled "(seen just after the test)".
 
-- **Network Optimizer's host**: tailscaled on the same machine. With nothing in **Socket Path**, Network Optimizer tries tailscaled's default socket (`/var/run/tailscale/tailscaled.sock` on Linux, `/var/run/tailscaled.socket` on macOS, the named pipe on Windows), then the `tailscale status --json` CLI.
-- **The site's On-Site Agent host**: tailscaled on the agent's machine. Needs a current agent (Linux).
+### Tailscale on an On-Site Agent's host
 
-**tailscaled in its own container** keeps its socket inside that container, where nothing else can reach it. Share it through a host directory:
+When an On-Site Agent's host runs Tailscale (a UniFi gateway with Tailscale installed, for example), Network Optimizer finds it and uses it with no setup, and the card says so:
 
-```yaml
-# The Tailscale container
-services:
-  tailscale:
-    image: tailscale/tailscale
-    network_mode: host
-    environment:
-      - TS_SOCKET=/var/run/tailscale/tailscaled.sock
-    volumes:
-      - /var/run/tailscale:/var/run/tailscale
+- The exact path for every device (direct, DERP relay with its region, or peer relay), and traffic counters.
+- When that host is the tailnet's subnet router or exit node, Live Traffic shows the Tailscale device behind each connection it routes, read from the host's conntrack table. By default a router source-NATs its peers to its own LAN address, so only that host's table holds which peer it was. A node started with `--snat-subnet-routes=false`, with the gateway routing `100.64.0.0/10` to it, needs none of this: its peers keep their tailnet addresses.
 
-# Network Optimizer's docker-compose.yml: add the same mount
-  network-optimizer:
-    volumes:
-      - /var/run/tailscale:/var/run/tailscale
-```
-
-For an On-Site Agent, the first half is enough: the agent runs on the host and reads `/var/run/tailscale/tailscaled.sock` there.
-
-**Security:** for a root caller, tailscaled's socket allows changes (preferences, logout) as well as reads, and a `:ro` mount does not stop that. Network Optimizer sends only `GET /localapi/v0/status`, but mounting the socket gives the Network Optimizer container that access to the node.
-
-### Routed Traffic
-
-When the host whose tailscaled you read is the tailnet's subnet router or exit node, it source-NATs its peers' traffic to its own LAN address by default, so the gateway sees only the router. **Attribute routed traffic to the Tailscale device** reads that host's conntrack table (`/proc/net/nf_conntrack`) and shows each connection in Live Traffic as the Tailscale device behind it. Requirements:
-
-- Linux, with tailscaled in the host's network (`network_mode: host` for a container; userspace networking leaves no conntrack entries)
-- Root on that host: the table is root-only. The On-Site Agent runs as root and can read it. The Network Optimizer container runs as a non-root user and cannot, so on a Docker install, run an On-Site Agent on the same host and choose it under **Local Status**
-
-A router with neither (tailscaled on a Mac, an Apple TV, a router appliance) cannot be attributed. A node started with `--snat-subnet-routes=false` needs none of this: its peers keep their tailnet addresses, and the device list names them.
+The agent reads the local status through tailscaled's LocalAPI socket (`/var/run/tailscale/tailscaled.sock`). When tailscaled runs in a container on that host, set `TS_SOCKET=/var/run/tailscale/tailscaled.sock` on it and mount `/var/run/tailscale` from the host. For a root caller the socket allows changes as well as reads; the agent sends only `GET /localapi/v0/status`.
 
 ## Next Steps
 

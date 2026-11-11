@@ -9,6 +9,15 @@ public sealed class TailnetPathInfo
     /// <summary>The DERP region code ("dfw"). For a direct path it is the peer's home region, not a relay.</summary>
     public string? Relay { get; set; }
 
+    /// <summary>The relay region's name ("Dallas") from Tailscale's DERP map; null when not known.</summary>
+    public string? RelayName { get; set; }
+
+    /// <summary>
+    /// True when the path was read off the gateway's flows rather than a tailscaled's own status: what
+    /// the gateway saw, which on a speed test result is just after the test, not during it.
+    /// </summary>
+    public bool Observed { get; set; }
+
     /// <summary>The peer's endpoint (ip:port) on a direct path, or the relay's on a peer relay.</summary>
     public string? Endpoint { get; set; }
 

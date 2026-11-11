@@ -1,12 +1,13 @@
 using NetworkOptimizer.Storage.Models.Identity;
+using NetworkOptimizer.UniFi.Models;
 using NetworkOptimizer.Web.Services.Gates;
 
 namespace NetworkOptimizer.Web.Services.Tailscale;
 
 /// <summary>
-/// The site in context's tailnet: names and routes for every Tailscale device, and how the local
-/// tailscaled reaches each one. Reads are open to any role, since Client Performance, speed test
-/// results, and Live Traffic show them; the settings are Site Admin, like the rest of Settings.
+/// The site in context's tailnet: names and routes for every Tailscale device, and how each one
+/// connects. Reads are open to any role, since Client Performance, speed test results, and Live Traffic
+/// show them; the settings are Site Admin, like the rest of Settings.
 /// </summary>
 [MutatingService(SiteScoped = true)]
 public interface ITailscaleDirectory
@@ -18,6 +19,13 @@ public interface ITailscaleDirectory
     /// <summary>The device at a tailnet address, or null.</summary>
     [RequireRole(Roles.Viewer)]
     Task<TailnetPeer?> GetPeerAsync(string ip, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// How the device at a tailnet address connects now: exact from an On-Site Agent host's Tailscale,
+    /// else read off the gateway's flows, which takes a few seconds. Null when neither can tell.
+    /// </summary>
+    [RequireRole(Roles.Viewer)]
+    Task<TailnetPathInfo?> GetPathAsync(string ip, CancellationToken cancellationToken = default);
 
     [RequireRole(Roles.Admin)]
     Task<TailscaleSettings> GetSettingsAsync(CancellationToken cancellationToken = default);
@@ -31,16 +39,20 @@ public interface ITailscaleDirectory
     [AuditAction(AuditActions.SettingsChanged, Category = AuditCategories.Settings, TargetType = "tailscale")]
     Task SaveSettingsAsync(TailscaleSettingsUpdate update, CancellationToken cancellationToken = default);
 
-    /// <summary>Reads everything the given settings point at, storing nothing; empty secrets use the stored ones.</summary>
+    /// <summary>Reads the device list the given settings point at, storing nothing; empty secrets use the stored ones.</summary>
     [RequireRole(Roles.Admin)]
     Task<TailnetTestResult> TestAsync(TailscaleSettingsUpdate update, CancellationToken cancellationToken = default);
 }
 
-public sealed class TailscaleDirectoryService(TailscaleDirectoryRegistry registry, SiteContextService site) : ITailscaleDirectory
+public sealed class TailscaleDirectoryService(TailscaleDirectoryRegistry registry, TailnetFlowObserver observer, SiteContextService site)
+    : ITailscaleDirectory
 {
     public Task<TailnetSnapshot> GetPeersAsync(CancellationToken ct = default) => registry.GetReadyAsync(site.Slug, ct);
 
     public async Task<TailnetPeer?> GetPeerAsync(string ip, CancellationToken ct = default) => (await registry.GetReadyAsync(site.Slug, ct)).Peer(ip);
+
+    public async Task<TailnetPathInfo?> GetPathAsync(string ip, CancellationToken ct = default) =>
+        (await registry.GetReadyAsync(site.Slug, ct)).Peer(ip)?.Path ?? await observer.ObserveAsync(site.Slug, ip, ct);
 
     public async Task<TailscaleSettings> GetSettingsAsync(CancellationToken ct = default) =>
         (await registry.ReadSettingsAsync(site.Slug)).Settings;
@@ -68,11 +80,9 @@ public sealed class TailscaleDirectoryService(TailscaleDirectoryRegistry registr
     private static void Validate(TailscaleSettings s)
     {
         if (!s.Enabled) return;
-        if (s.DeviceSource == TailnetDeviceSource.LocalStatus && s.LocalSource == TailnetLocalSource.Off)
-            throw new ArgumentException("Choose where to read local status from, or read the device list from an API.");
-        if (s.DeviceSource == TailnetDeviceSource.HeadscaleApi && HeadscaleApiClient.UrlProblem(s.HeadscaleUrl) is { } problem)
+        if (s.ControlServer == TailnetControlServer.Headscale && HeadscaleApiClient.UrlProblem(s.HeadscaleUrl) is { } problem)
             throw new ArgumentException(problem);
-        if (s.DeviceSource == TailnetDeviceSource.TailscaleApi && string.IsNullOrWhiteSpace(s.ClientId))
+        if (s.ControlServer == TailnetControlServer.Tailscale && string.IsNullOrWhiteSpace(s.ClientId))
             throw new ArgumentException("Enter the OAuth client ID.");
     }
 }

@@ -597,7 +597,39 @@ public sealed class LiveTrafficStore
     private List<LiveFlowRow> ActiveRows(DateTime now)
     {
         var rows = InheritSiblingApps(_flows.Values.Select(s => ToRow(s.Last, s.DownBps, s.UpBps, s.History.ToList(), false, now)).ToList());
-        return NameUniFiWebRtc(rows, rows, IsUniFiHost);
+        return MarkTailnetPaths(NameUniFiWebRtc(rows, rows, IsUniFiHost));
+    }
+
+    /// <summary>The active Tailscale flows (a device's endpoints, DERP, STUN), for reading a device's path off the gateway.</summary>
+    public IReadOnlyList<LiveFlowRow> TailnetFlows()
+    {
+        lock (_gate)
+            return ActiveRows(DateTime.UtcNow).Where(r => r.TailnetEndpointPeer != null || r.TailnetRole != null).ToList();
+    }
+
+    /// <summary>A device's endpoint flow carries its traffic only past this many bytes; probes stay far below.</summary>
+    internal const long TailnetDirectMinBytes = 64 * 1024;
+
+    /// <summary>
+    /// tailscaled probes every endpoint a device has, so one device shows as several flows. The busiest of
+    /// them carries its traffic: "Direct". The rest are "Path probe". None is marked when none has carried
+    /// real traffic, rather than calling a probe the path.
+    /// </summary>
+    internal static List<LiveFlowRow> MarkTailnetPaths(List<LiveFlowRow> rows)
+    {
+        var byPeer = rows.Select((r, i) => (Row: r, Index: i)).Where(x => x.Row.TailnetEndpointPeer != null)
+            .GroupBy(x => (x.Row.ClientIp, x.Row.TailnetEndpointPeer));
+        foreach (var flows in byPeer)
+        {
+            var busiest = flows.MaxBy(x => x.Row.TotalDownBytes + x.Row.TotalUpBytes);
+            if (busiest.Row.TotalDownBytes + busiest.Row.TotalUpBytes < TailnetDirectMinBytes) continue;
+            foreach (var (row, index) in flows)
+            {
+                var role = index == busiest.Index ? "Direct" : "Path probe";
+                rows[index] = row with { TailnetRole = role, DestinationSub = role };
+            }
+        }
+        return rows;
     }
 
     /// <summary>The OUI vendor the console reports for Ubiquiti hardware; adopted devices carry it too.</summary>
@@ -779,9 +811,9 @@ public sealed class LiveTrafficStore
         // A tailnet address at the far end, or, for WireGuard traffic between public endpoints, the peer
         // holding that endpoint: a direct path to it. The address alone matches only on Tailscale's port.
         var wireGuard = DomainAppCatalog.TailscaleApp(proto, f.ClientPort, f.RemotePort) != null;
-        var tailnetPeer = peer == null
-            ? _tailnet.Peer(f.RemoteIp) ?? (proto == "udp" ? _tailnet.PeerAtEndpoint(f.RemoteIp, f.RemotePort, addressAlone: wireGuard) : null)
-            : null;
+        var endpointPeer = peer == null && proto == "udp" && _tailnet.Peer(f.RemoteIp) == null
+            ? _tailnet.PeerAtEndpoint(f.RemoteIp, f.RemotePort, addressAlone: wireGuard) : null;
+        var tailnetPeer = peer == null ? _tailnet.Peer(f.RemoteIp) ?? endpointPeer : null;
         if (peer != null) destination = peer.Name;
         else if (tailnetPeer != null) destination = tailnetPeer.Name;
         else if (hasLookup) destination = lookup!.Name;
@@ -804,10 +836,12 @@ public sealed class LiveTrafficStore
         // who owns the address.
         var hostName = _names.TryGetValue(f.RemoteIp, out var named) && named.Expires > now ? named.Name
             : consoleDomain ?? (_ptr.TryGetValue(f.RemoteIp, out var ptrName) ? ptrName : null);
-        // Tailscale's DERP servers: TCP 443 relays traffic between peers without a direct path; UDP 3478 is
-        // STUN, which only discovers the node's public endpoint.
-        if (IsDerpHost(hostName))
-            destSub = proto == "tcp" ? "DERP relay" : proto == "udp" && f.RemotePort == 3478 ? "STUN" : destSub;
+        // Tailscale's DERP servers, by name or by the address Tailscale's DERP map lists: TCP 443 relays
+        // traffic between peers without a direct path; UDP 3478 is STUN, which only finds the public endpoint.
+        string? tailnetRole = null;
+        if (IsDerpHost(hostName) || _tailnet.DerpAt(f.RemoteIp) != null)
+            tailnetRole = proto == "tcp" ? "DERP relay" : proto == "udp" && f.RemotePort == 3478 ? "STUN" : null;
+        if (tailnetRole != null) destSub = tailnetRole;
         var toServer = (hostName != null && _serverHosts.Contains(hostName.TrimEnd('.'))) || _serverHosts.Contains(f.RemoteIp);
         // A flow the DPI never named takes what it named the other flows to the same address and port.
         var destinationApp = match?.App == null ? destInfo?.App : null;
@@ -862,6 +896,8 @@ public sealed class LiveTrafficStore
             Destination = destination,
             DestinationIp = f.RemoteIp,
             DestinationSub = destSub,
+            TailnetEndpointPeer = endpointPeer?.Name,
+            TailnetRole = tailnetRole,
             App = encryptedDns && match?.App == null ? (f.RemotePort == 853 ? "DNS over TLS" : "DNS over HTTPS") : app,
             Category = deviceApp != null ? null : match?.Category ?? (destinationApp != null ? destInfo?.Category : null),
             Route = route,

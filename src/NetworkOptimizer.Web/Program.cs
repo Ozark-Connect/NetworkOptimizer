@@ -654,6 +654,7 @@ builder.Services.AddMutatingService<NetworkOptimizer.Web.Services.IWafConnection
     sp => ActivatorUtilities.CreateInstance<NetworkOptimizer.Web.Services.WafConnectionAdminService>(sp));
 // Tailscale: each site's tailnet device names and local status, held in memory per site.
 builder.Services.AddSiteScopedRegistry<NetworkOptimizer.Web.Services.Tailscale.TailscaleDirectoryRegistry>();
+builder.Services.AddSingleton<NetworkOptimizer.Web.Services.Tailscale.TailnetFlowObserver>();
 builder.Services.AddMutatingService<NetworkOptimizer.Web.Services.Tailscale.ITailscaleDirectory>(
     sp => ActivatorUtilities.CreateInstance<NetworkOptimizer.Web.Services.Tailscale.TailscaleDirectoryService>(sp));
 builder.Services.AddMutatingService<NetworkOptimizer.Web.Services.IThreatBlockingAdmin>(

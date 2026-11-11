@@ -38,6 +38,7 @@ public class ClientSpeedTestService : IClientSpeedTestService
     private readonly string _siteSuffix;
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly Tailscale.TailscaleDirectoryRegistry? _tailscale;
+    private readonly Tailscale.TailnetFlowObserver? _tailnetObserver;
 
     /// <summary>
     /// Throws when this site is license-restricted. New client speed test
@@ -66,6 +67,7 @@ public class ClientSpeedTestService : IClientSpeedTestService
         SiteSpeedTestHostSelector? hostSelector = null,
         GatewaySshRegistry? gatewaySshRegistry = null,
         Tailscale.TailscaleDirectoryRegistry? tailscale = null,
+        Tailscale.TailnetFlowObserver? tailnetObserver = null,
         string siteSlug = SiteManagementService.DefaultSiteSlug)
     {
         _licenseState = licenseState;
@@ -88,6 +90,7 @@ public class ClientSpeedTestService : IClientSpeedTestService
         _apAgents = apAgents;
         _neighborTable = gatewaySshRegistry?.GetNeighborTableFor(_siteSlug);
         _tailscale = tailscale;
+        _tailnetObserver = tailnetObserver;
     }
 
     /// <summary>
@@ -728,14 +731,16 @@ public class ClientSpeedTestService : IClientSpeedTestService
                 result.DownloadBytes,
                 result.UploadBytes);
 
-            // How tailscaled reached the peer: the path changes, so it is read with the test and kept across
-            // re-analysis. A retry long after the test reads nothing, since today's path is not the test's.
+            // How the peer connected: exact from an agent host's Tailscale, else what the gateway's flows show
+            // right after the test. Kept across re-analysis; a retry long after the test reads nothing, since
+            // today's path is not the test's.
             if (_tailscale != null && analysis.Path.Hops.FirstOrDefault(h => h.Type == HopType.Tailscale) is { } tailscaleHop)
             {
                 tailscaleHop.TailnetPath = result.PathAnalysis?.Path?.Hops?
                     .FirstOrDefault(h => h.Type == HopType.Tailscale)?.TailnetPath;
                 if (tailscaleHop.TailnetPath == null && DateTime.UtcNow - result.TestTime < TimeSpan.FromMinutes(2))
-                    tailscaleHop.TailnetPath = await _tailscale.ReadPathAsync(_siteSlug, result.DeviceHost, CancellationToken.None);
+                    tailscaleHop.TailnetPath = await _tailscale.ReadPathAsync(_siteSlug, result.DeviceHost, CancellationToken.None)
+                        ?? (_tailnetObserver != null ? await _tailnetObserver.ObserveAsync(_siteSlug, result.DeviceHost, CancellationToken.None) : null);
             }
 
             result.PathAnalysis = analysis;

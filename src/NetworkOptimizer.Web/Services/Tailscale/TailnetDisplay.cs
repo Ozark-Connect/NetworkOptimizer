@@ -6,13 +6,20 @@ namespace NetworkOptimizer.Web.Services.Tailscale;
 /// <summary>How tailnet details read on screen, shared by every page that shows them.</summary>
 public static class TailnetDisplay
 {
-    /// <summary>"Direct", "Relayed (DERP dfw)", or "Peer relay".</summary>
-    public static string PathLabel(TailnetPathInfo path) => path.Kind switch
+    /// <summary>
+    /// "Direct", "Relayed (DERP Dallas)", or "Peer relay". <paramref name="afterTest"/> marks a path the
+    /// gateway saw after a speed test rather than during it.
+    /// </summary>
+    public static string PathLabel(TailnetPathInfo path, bool afterTest = false)
     {
-        TailnetPathKind.Direct => "Direct",
-        TailnetPathKind.Derp => string.IsNullOrEmpty(path.Relay) ? "Relayed (DERP)" : $"Relayed (DERP {path.Relay})",
-        _ => "Peer relay",
-    };
+        var label = path.Kind switch
+        {
+            TailnetPathKind.Direct => "Direct",
+            TailnetPathKind.Derp => (path.RelayName ?? path.Relay) is { Length: > 0 } region ? $"Relayed (DERP {region})" : "Relayed (DERP)",
+            _ => "Peer relay",
+        };
+        return afterTest && path.Observed ? $"{label} (seen just after the test)" : label;
+    }
 
     /// <summary>The endpoint and the last handshake, for the label's tooltip; null when there is neither.</summary>
     public static string? PathDetail(TailnetPathInfo path)
@@ -35,4 +42,14 @@ public static class TailnetDisplay
         peer.RxBytes is { } rx && peer.TxBytes is { } tx && rx + tx > 0
             ? $"Received {DisplayFormatters.FormatBytes(rx)}, sent {DisplayFormatters.FormatBytes(tx)}"
             : null;
+
+    /// <summary>The device's owner, or for a tagged device (no owner) its tags; null when neither.</summary>
+    public static string? Owner(TailnetPeer peer) =>
+        !string.IsNullOrWhiteSpace(peer.User) ? peer.User
+        : peer.Tags.Count > 0 ? string.Join(", ", peer.Tags)
+        : null;
+
+    /// <summary>An owner login shortened for one line ("user1@exam…"); the full value goes in a tooltip.</summary>
+    public static string ShortOwner(string owner, int max = 24) =>
+        owner.Length <= max ? owner : owner[..(max - 1)] + "…";
 }

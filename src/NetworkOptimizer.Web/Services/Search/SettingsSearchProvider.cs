@@ -186,10 +186,9 @@ public sealed class SettingsSearchProvider : IAppSearchProvider
         Entry("connection", "Connection", "tailscale",
             "Tailscale (Optional)",
             ["Tailscale", "Headscale", "tailnet"],
-            ["tailscale api", "oauth client", "client id", "client secret", "devices:core:read", "headscale url",
-             "api key", "device list", "local status", "tailscaled", "socket path", "ts_socket", "localapi",
-             "derp", "relay", "direct connection", "exit node", "subnet router", "routed traffic", "snat",
-             "conntrack", "magicdns", "peer names", "vpn client names", "on-site agent"]),
+            ["tailscale api", "control server", "oauth client", "oauth credential", "trust credentials", "client id",
+             "client secret", "devices:core:read", "headscale url", "api key", "derp", "relay", "direct connection",
+             "exit node", "subnet router", "routed traffic", "magicdns", "device names", "vpn client names"]),
 
         Entry("monitoring", "Monitoring", "monitoring",
             "Monitoring",

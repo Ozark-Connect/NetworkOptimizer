@@ -75,6 +75,15 @@ public sealed record LiveFlowRow
     public string DestinationIp { get; init; } = "";
     /// <summary>"HTTPS", "UDP 51820": the sub-line under the destination.</summary>
     public string DestinationSub { get; init; } = "";
+
+    /// <summary>The tailnet device whose WireGuard endpoint this flow goes to; null for any other flow.</summary>
+    public string? TailnetEndpointPeer { get; init; }
+
+    /// <summary>
+    /// What a Tailscale flow is: "Direct" (the busiest of a device's endpoint flows), "Path probe" (the
+    /// rest), "DERP relay", or "STUN"; null for any other flow.
+    /// </summary>
+    public string? TailnetRole { get; init; }
     public string App { get; init; } = "";
     public string? Category { get; init; }
     public string Route { get; init; } = "";

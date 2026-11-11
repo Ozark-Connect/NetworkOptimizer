@@ -53,7 +53,20 @@ public sealed record TailnetPeer
 public sealed class TailnetSnapshot
 {
     /// <summary>A snapshot with nothing in it, for a site with Tailscale off or not read yet.</summary>
-    public static readonly TailnetSnapshot Empty = new([], null, []);
+    public static readonly TailnetSnapshot Empty = new([], null, [], connected: false);
+
+    /// <summary>Whether the site reads its tailnet. False only for <see cref="Empty"/>: off, or not read yet.</summary>
+    public bool Connected { get; }
+
+    private readonly DerpMapClient.DerpMap? _derp;
+
+    /// <summary>The DERP region of a relay server's address, from Tailscale's DERP map; null when it is none.</summary>
+    public DerpRegion? DerpAt(string? ip) =>
+        _derp != null && Normalize(ip) is { } key && _derp.ByAddress.TryGetValue(key, out var r) ? r : null;
+
+    /// <summary>A DERP region's name ("Dallas") from its code ("dfw"); the code when the map is not read.</summary>
+    public string RegionName(string code) =>
+        _derp != null && _derp.ByCode.TryGetValue(code, out var r) ? r.Name : code;
 
     private readonly Dictionary<string, TailnetPeer> _byIp = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, TailnetPeer> _byLanIp = new(StringComparer.OrdinalIgnoreCase);
@@ -62,11 +75,14 @@ public sealed class TailnetSnapshot
     private readonly Dictionary<(string Ip, int Port), TailnetPeer?> _byEndpoint = new();
     private readonly Dictionary<string, TailnetPeer?> _byEndpointIp = new(StringComparer.OrdinalIgnoreCase);
 
-    public TailnetSnapshot(IReadOnlyList<TailnetPeer> peers, TailnetPeer? self, IReadOnlyList<TailnetSnatEntry> snat, DateTime? readAt = null)
+    public TailnetSnapshot(IReadOnlyList<TailnetPeer> peers, TailnetPeer? self, IReadOnlyList<TailnetSnatEntry> snat,
+        DateTime? readAt = null, bool connected = true, DerpMapClient.DerpMap? derp = null)
     {
         Peers = peers;
         Self = self;
         ReadAt = readAt;
+        Connected = connected;
+        _derp = derp;
         foreach (var peer in self == null ? peers : peers.Append(self))
         {
             foreach (var ip in peer.Addresses)
@@ -156,7 +172,7 @@ public sealed class TailnetSnapshot
     /// local status's peers are the list. A local peer joins the device that shares a tailnet address.
     /// </summary>
     public static TailnetSnapshot Build(IReadOnlyList<TailnetDevice>? devices, TailscaleLocalStatus? local,
-        IReadOnlyList<TailnetSnatEntry>? snat, DateTime now)
+        IReadOnlyList<TailnetSnatEntry>? snat, DateTime now, DerpMapClient.DerpMap? derp = null)
     {
         var localByIp = new Dictionary<string, TailscaleLocalPeer>(StringComparer.OrdinalIgnoreCase);
         if (local != null)
@@ -187,7 +203,7 @@ public sealed class TailnetSnapshot
         {
             peers = (local?.Peers ?? []).Select(p => FromLocal(p, now, isSelf: false)).ToList();
         }
-        return new TailnetSnapshot(peers, self, snat ?? [], now);
+        return new TailnetSnapshot(peers, self, snat ?? [], now, connected: true, derp);
     }
 
     private static TailnetPeer FromDevice(TailnetDevice d, TailscaleLocalPeer? local, DateTime now)

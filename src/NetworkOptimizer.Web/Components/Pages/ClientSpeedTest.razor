@@ -24,6 +24,7 @@
 @inject IApMapAdminService ApMapAdmin
 @inject IDisplayTimeZone DisplayTime
 @inject ITailscaleDirectory Tailscale
+@inject IAuthorizationService Authz
 
 @* Uses unified Iperf3Result model with Direction field to distinguish test sources *@
 
@@ -325,7 +326,10 @@
                                         }
                                         @if (vpnType != null)
                                         {
-                                            <span class="badge badge-vpn-@vpnType.ToLowerInvariant()">@vpnType</span>
+                                            var offerTailscale = vpnType == "Tailscale" && !_tailnet.Connected;
+                                            <span class="badge badge-vpn-@vpnType.ToLowerInvariant()"
+                                                  data-app-tailscale="@(offerTailscale ? vpnType : null)"
+                                                  data-tailscale-link="@(offerTailscale && _canSetUpTailscale ? "/settings?tab=connection#tailscale" : null)">@vpnType</span>
                                         }
                                         <span class="badge @GetSourceBadgeClass(result.Direction)">
                                             @GetSourceLabel(result.Direction)
@@ -871,6 +875,8 @@
         // Load networks for VPN detection
         _networks = await ConnectionService.GetNetworksAsync();
         _tailnet = await Tailscale.GetPeersAsync();
+        if (AuthState != null)
+            _canSetUpTailscale = (await Authz.AuthorizeAsync((await AuthState).User, SiteContext.Slug, Policies.SiteAdmin)).Succeeded;
 
         // Load configuration
         iperf3ServerEnabled = Configuration.GetValue("Iperf3Server:Enabled", false);
@@ -1067,6 +1073,11 @@
 
     /// <summary>The site's tailnet, which names a Tailscale result that has no device name of its own.</summary>
     private TailnetSnapshot _tailnet = TailnetSnapshot.Empty;
+
+    /// <summary>A Site Admin here: the Tailscale badge's setup card links to its Settings card.</summary>
+    private bool _canSetUpTailscale;
+
+    [CascadingParameter] private Task<Microsoft.AspNetCore.Components.Authorization.AuthenticationState>? AuthState { get; set; }
 
     /// <summary>The result's device name, else its tailnet name; null when it has neither.</summary>
     private string? DeviceNameOf(Iperf3Result result) =>

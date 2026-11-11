@@ -1,4 +1,3 @@
-@using NetworkOptimizer.Monitoring.Tailscale
 @inject ITailscaleDirectory Tailscale
 
 @* The site in context's tailnet connection. Rendered in Settings - Connection, after Managed SSH Key. *@
@@ -7,24 +6,17 @@
     <div class="card-header">
         <h2 class="card-title">Tailscale (Optional)</h2>
         <div class="card-header-badges">
-            @if (_saved.Enabled)
+            @if (!_saved.Enabled)
             {
-                @if (_status?.DeviceError is { } deviceError)
-                {
-                    <span class="status-badge status-error" data-tooltip="@deviceError">Error</span>
-                }
-                else if ((_status?.LocalError ?? _status?.SnatError) is { } localError)
-                {
-                    <span class="status-badge status-warning" data-tooltip="@localError">Partly Connected</span>
-                }
-                else
-                {
-                    <span class="status-badge status-connected">Connected</span>
-                }
+                <span class="status-badge status-disconnected">Not Configured</span>
+            }
+            else if (_status?.Error is { } error)
+            {
+                <span class="status-badge status-error" data-tooltip="@error">Error</span>
             }
             else
             {
-                <span class="status-badge status-disconnected">Not Configured</span>
+                <span class="status-badge status-connected">Connected</span>
             }
         </div>
     </div>
@@ -44,23 +36,14 @@
         @if (_enabled)
         {
             <div class="form-group">
-                <label class="form-label">Device List</label>
-                <select class="form-control" @bind="_deviceSource">
-                    <option value="@TailnetDeviceSource.TailscaleApi">Tailscale API</option>
-                    <option value="@TailnetDeviceSource.HeadscaleApi">Headscale API</option>
-                    <option value="@TailnetDeviceSource.LocalStatus">Local status only</option>
+                <label class="form-label">Control Server</label>
+                <select class="form-control" @bind="_controlServer">
+                    <option value="@TailnetControlServer.Tailscale">Tailscale</option>
+                    <option value="@TailnetControlServer.Headscale">Headscale</option>
                 </select>
-                <small class="form-help">
-                    @(_deviceSource switch
-                    {
-                        TailnetDeviceSource.TailscaleApi => "Every device in the tailnet, wherever it runs.",
-                        TailnetDeviceSource.HeadscaleApi => "Every node on your self-hosted Headscale control server.",
-                        _ => "The peers the local tailscaled below can see. No API credentials needed.",
-                    })
-                </small>
             </div>
 
-            @if (_deviceSource == TailnetDeviceSource.TailscaleApi)
+            @if (_controlServer == TailnetControlServer.Tailscale)
             {
                 <div class="form-group">
                     <label class="form-label">OAuth Client ID</label>
@@ -80,7 +63,7 @@
                     <small class="form-help">Leave empty for the OAuth client's own tailnet.</small>
                 </div>
             }
-            else if (_deviceSource == TailnetDeviceSource.HeadscaleApi)
+            else
             {
                 <div class="form-group">
                     <label class="form-label">Headscale URL</label>
@@ -92,51 +75,12 @@
                 </div>
             }
 
-            <div class="form-group">
-                <label class="form-label">
-                    Local Status
-                    <span class="tooltip-icon tooltip-icon-sm" data-tooltip="A tailscaled that Network Optimizer can read adds each peer's connection path (direct or DERP relay) and traffic counters, and records the path on Tailscale speed test results.">?</span>
-                </label>
-                <select class="form-control" @bind="_localSource">
-                    <option value="@TailnetLocalSource.Off">Off</option>
-                    <option value="@TailnetLocalSource.Server">Network Optimizer's host</option>
-                    <option value="@TailnetLocalSource.Agent">The site's On-Site Agent host</option>
-                </select>
-                @if (_localSource == TailnetLocalSource.Agent)
-                {
-                    <small class="form-help">
-                        @(_agentChoice ?? "Network Optimizer reads the agent whose host is the tailnet's subnet router or exit node, else the first whose host runs tailscaled.")
-                    </small>
-                }
-            </div>
-
-            @if (_localSource != TailnetLocalSource.Off)
+            @if (_saved.Enabled && _status?.AgentName is { } agentName)
             {
                 <div class="form-group">
-                    <label class="form-label">Socket Path</label>
-                    <input type="text" class="form-control" @bind="_socketPath" @bind:event="oninput" placeholder="@SocketPlaceholder" autocomplete="off" />
                     <small class="form-help">
-                        Leave empty for tailscaled's default. When tailscaled runs in its own container, set
-                        <code>TS_SOCKET=/var/run/tailscale/tailscaled.sock</code> on it and mount
-                        <code>/var/run/tailscale</code> into @(_localSource == TailnetLocalSource.Server ? "both containers" : "it from the host").
+                        Also reading Tailscale on @agentName: how each device connects@(_status.AgentRoutes ? ", and the device behind traffic it routes" : "").
                     </small>
-                </div>
-
-                <div class="form-group">
-                    <label class="checkbox-label">
-                        <input type="checkbox" @bind="_attributeRouted" />
-                        <span>Attribute routed traffic to the Tailscale device</span>
-                    </label>
-                    <small class="form-help">
-                        For a host that is the tailnet's subnet router or exit node: reads its conntrack table, so
-                        Live Traffic shows the Tailscale device behind each connection instead of the host. Linux, and
-                        tailscaled in the host's network.
-                    </small>
-                </div>
-
-                <div class="alert alert-warning">
-                    tailscaled's socket allows changes as well as reads for a root caller. Network Optimizer only reads
-                    the status, but access to the socket is access to the node.
                 </div>
             }
         }
@@ -169,14 +113,9 @@
             }
         </div>
 
-        @if (_messages.Count > 0)
+        @if (!string.IsNullOrEmpty(_message))
         {
-            <div class="alert alert-@_messageClass">
-                @foreach (var line in _messages)
-                {
-                    <div>@line</div>
-                }
-            </div>
+            <div class="alert alert-@_messageClass">@_message</div>
         }
     </div>
 </div>
@@ -184,26 +123,17 @@
 @code {
     private TailscaleSettings _saved = new();
     private TailnetStatus? _status;
-    /// <summary>Why local status reads the agent it does, from the last test or refresh.</summary>
-    private string? _agentChoice;
     private bool _enabled;
-    private TailnetDeviceSource _deviceSource = TailnetDeviceSource.TailscaleApi;
+    private TailnetControlServer _controlServer = TailnetControlServer.Tailscale;
     private string _clientId = "";
     private string _clientSecret = "";
     private string _tailnet = "";
     private string _headscaleUrl = "";
     private string _headscaleKey = "";
-    private TailnetLocalSource _localSource = TailnetLocalSource.Off;
-    private string _socketPath = "";
-    private bool _attributeRouted;
     private bool _saving;
     private bool _testing;
-    private List<string> _messages = [];
+    private string _message = "";
     private string _messageClass = "";
-
-    private string SocketPlaceholder => _localSource == TailnetLocalSource.Server
-        ? TailscaleLocalApi.DefaultSocketPath
-        : "/var/run/tailscale/tailscaled.sock";
 
     protected override async Task OnInitializedAsync()
     {
@@ -211,7 +141,6 @@
         {
             Load(await Tailscale.GetSettingsAsync());
             _status = await Tailscale.GetStatusAsync();
-            _agentChoice = _status?.AgentChoice;
         }
         catch (Exception)
         {
@@ -222,43 +151,36 @@
     private void Load(TailscaleSettings s)
     {
         _saved = s;
-        (_enabled, _deviceSource, _clientId, _tailnet, _headscaleUrl) = (s.Enabled, s.DeviceSource, s.ClientId, s.Tailnet, s.HeadscaleUrl);
-        (_localSource, _socketPath, _attributeRouted) = (s.LocalSource, s.SocketPath, s.AttributeRoutedTraffic);
+        (_enabled, _controlServer, _clientId, _tailnet, _headscaleUrl) = (s.Enabled, s.ControlServer, s.ClientId, s.Tailnet, s.HeadscaleUrl);
     }
 
     private TailscaleSettingsUpdate Draft() => new(
         _saved with
         {
             Enabled = _enabled,
-            DeviceSource = _deviceSource,
+            ControlServer = _controlServer,
             ClientId = _clientId,
             Tailnet = _tailnet,
             HeadscaleUrl = _headscaleUrl,
-            LocalSource = _localSource,
-            SocketPath = _socketPath,
-            AttributeRoutedTraffic = _attributeRouted,
         },
         _clientSecret, _headscaleKey);
 
     private async Task Save()
     {
         _saving = true;
-        _messages = [];
+        _message = "";
         try
         {
             await Tailscale.SaveSettingsAsync(Draft());
             (_clientSecret, _headscaleKey) = ("", "");
             Load(await Tailscale.GetSettingsAsync());
             _status = await Tailscale.GetStatusAsync();
-            _agentChoice = _status?.AgentChoice;
             if (!_enabled || _status == null)
                 Say("success", "Tailscale settings saved.");
+            else if (_status.Error is { } error)
+                Say("danger", $"Tailscale settings saved, but the device list could not be read: {error}");
             else
-                Summarize("Tailscale settings saved.",
-                    _status.Devices, _status.DeviceError,
-                    _status.LocalRead ? _status.LocalPeers : null, _status.DirectPeers, null, _status.LocalError,
-                    _status.SnatError == null && _attributeRouted && _localSource != TailnetLocalSource.Off ? _status.SnatEntries : null,
-                    _status.SnatError);
+                Say("success", $"Tailscale settings saved. {Connected(_status.Devices)}");
         }
         catch (ArgumentException ex)
         {
@@ -277,12 +199,12 @@
     private async Task Test()
     {
         _testing = true;
-        _messages = [];
+        _message = "";
         try
         {
             var r = await Tailscale.TestAsync(Draft());
-            _agentChoice = r.AgentChoice;
-            Summarize(null, r.Devices, r.DeviceError, r.LocalPeers, r.DirectPeers, r.LocalNode, r.LocalError, r.SnatEntries, r.SnatError);
+            if (r.Error is { } error) Say("danger", error);
+            else Say("success", Connected(r.Devices ?? 0));
         }
         catch (ArgumentException ex)
         {
@@ -298,46 +220,7 @@
         }
     }
 
-    private void Say(string cls, params string[] lines) => (_messages, _messageClass) = (lines.ToList(), cls);
+    private void Say(string cls, string message) => (_message, _messageClass) = (message, cls);
 
-    /// <summary>
-    /// One line per part that is on: what it read and what that gives, or why it failed and what still
-    /// works without it. A failed device list is an error; a failed local status or conntrack read only
-    /// loses what that part adds, so it is a warning.
-    /// </summary>
-    private void Summarize(string? heading, int? devices, string? deviceError, int? localPeers, int? directPeers,
-        string? localNode, string? localError, int? snat, string? snatError)
-    {
-        var lines = new List<string>();
-        if (heading != null) lines.Add(heading);
-        var localOn = _localSource != TailnetLocalSource.Off;
-        var fromLocal = _deviceSource == TailnetDeviceSource.LocalStatus;
-
-        if (fromLocal && localError != null)
-            lines.Add($"Device list: {localError} Until it answers, Tailscale devices show by address.");
-        else if (deviceError != null)
-            lines.Add($"Device list: {deviceError} Until it is read, Tailscale devices show by address.");
-        else if (devices is { } count)
-            lines.Add($"Device list: {TimeFormatHelper.Pluralize(count, "device")}. Tailscale devices show by name in Client Performance, speed test results, and Live Traffic.");
-
-        if (localOn && !fromLocal)
-        {
-            if (localError != null)
-                lines.Add($"Local status: {localError} Names still work. Connection paths and traffic counters wait for it.");
-            else if (localPeers is { } peers)
-                lines.Add($"Local status{(localNode != null ? $" on {localNode}" : "")}: {TimeFormatHelper.Pluralize(peers, "peer")}, {directPeers ?? 0} connected directly. Paths show in Client Performance and on new Tailscale speed test results.");
-        }
-
-        if (localOn && _attributeRouted)
-        {
-            if (snatError != null)
-                lines.Add($"Routed traffic: {snatError} Live Traffic shows that traffic as this host.");
-            else if (snat is { } entries)
-                lines.Add($"Routed traffic: {TimeFormatHelper.Pluralize(entries, "connection")} to attribute right now. Live Traffic shows the Tailscale device behind traffic this host routes.");
-        }
-
-        var deviceFailed = deviceError != null || (fromLocal && localError != null);
-        var partFailed = localError != null || snatError != null;
-        Say(deviceFailed ? "danger" : partFailed ? "warning" : "success", [.. lines]);
-    }
+    private static string Connected(int devices) => $"Connected: {TimeFormatHelper.Pluralize(devices, "device")} in the tailnet.";
 }

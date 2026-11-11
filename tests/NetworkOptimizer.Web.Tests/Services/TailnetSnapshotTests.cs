@@ -103,4 +103,62 @@ public class TailnetSnapshotTests
         TailnetDisplay.PathLabel(derp).Should().Be("Relayed (DERP dfw)");
         TailnetDisplay.PathDetail(derp).Should().Contain("40 seconds before this was read");
     }
+
+    private static NetworkOptimizer.Web.Services.Monitoring.LiveTraffic.LiveFlowRow Row(string key, string? peer, long total, string? role = null, double bps = 0, string dest = "198.51.100.7") => new()
+    {
+        Key = key,
+        ClientIp = "192.168.1.10",
+        DestinationIp = dest,
+        RemotePort = 41641,
+        TailnetEndpointPeer = peer,
+        TailnetRole = role,
+        TotalDownBytes = total,
+        DownBps = bps,
+    };
+
+    [Fact]
+    public void Busiest_endpoint_flow_is_direct_the_rest_are_probes()
+    {
+        var rows = NetworkOptimizer.Web.Services.Monitoring.LiveTraffic.LiveTrafficStore.MarkTailnetPaths(
+        [
+            Row("a", "phone", 5_000_000),
+            Row("b", "phone", 900),
+            Row("c", "laptop", 700),
+            Row("d", null, 9_000_000),
+        ]);
+
+        rows.Single(r => r.Key == "a").DestinationSub.Should().Be("Direct");
+        rows.Single(r => r.Key == "b").DestinationSub.Should().Be("Path probe");
+        rows.Single(r => r.Key == "c").TailnetRole.Should().BeNull("probes alone carry no traffic, so nothing is called the path");
+        rows.Single(r => r.Key == "d").TailnetRole.Should().BeNull();
+    }
+
+    [Fact]
+    public void Observer_reads_direct_off_the_marked_flow()
+    {
+        var path = TailnetFlowObserver.Direct([Row("a", "phone", 5_000_000, "Direct")], "phone", Now)!;
+
+        path.Kind.Should().Be(TailnetPathKind.Direct);
+        path.Endpoint.Should().Be("198.51.100.7:41641");
+        path.Observed.Should().BeTrue();
+        TailnetDisplay.PathLabel(path, afterTest: true).Should().Be("Direct (seen just after the test)");
+        TailnetDisplay.PathLabel(path).Should().Be("Direct");
+    }
+
+    [Fact]
+    public void Observer_calls_relayed_only_with_a_busy_relay_and_no_endpoint_traffic()
+    {
+        var busyRelay = Row("r", null, 1_000_000, "DERP relay", bps: 500_000, dest: "203.0.113.9");
+
+        TailnetFlowObserver.Relayed([busyRelay], "phone", TailnetSnapshot.Empty, Now)!.Kind.Should().Be(TailnetPathKind.Derp);
+        TailnetFlowObserver.Relayed([busyRelay, Row("a", "phone", 5_000_000)], "phone", TailnetSnapshot.Empty, Now).Should().BeNull();
+        TailnetFlowObserver.Relayed([Row("r", null, 1_000, "DERP relay", bps: 100)], "phone", TailnetSnapshot.Empty, Now).Should().BeNull();
+    }
+
+    [Fact]
+    public void Owner_falls_back_to_tags_and_shortens()
+    {
+        TailnetDisplay.Owner(new TailnetPeer { Name = "nas", Tags = ["tag:server"] }).Should().Be("tag:server");
+        TailnetDisplay.ShortOwner("someone-with-a-long-name@example.com").Should().HaveLength(24).And.EndWith("…");
+    }
 }

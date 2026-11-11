@@ -903,7 +903,7 @@
             }
             if (hop.TailnetPath is { } path)
             {
-                rows.Add(Row("Path", TailnetDisplay.PathLabel(path)));
+                rows.Add(Row("Path", TailnetDisplay.PathLabel(path, afterTest: true)));
                 if (TailnetDisplay.PathDetail(path) is { } detail) rows.Add(Row("Detail", detail));
             }
             return string.Concat(rows);
