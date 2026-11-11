@@ -125,7 +125,8 @@ public static class DohProviderRegistry
             Name = "ControlD",
             StampPrefix = "controld",
             Hostnames = new[] { "controld.com", "dns.controld.com" },
-            DnsIps = new[] { "76.76." }, // Prefix match fallback for ControlD anycast
+            // ControlD's two /24s only: the rest of 76.76.0.0/16 is other companies (Vercel's 76.76.21.0/24 serves tailscale.com).
+            DnsIps = new[] { "76.76.2.", "76.76.10." },
             // ControlD's resolvers sit across 2606:1a40::/32 (::11, ::22, f000::11 in the ctrld client source)
             Ipv6Prefixes = new[] { "2606:1a40:" },
             SupportsFiltering = true,
