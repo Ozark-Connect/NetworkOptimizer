@@ -904,7 +904,7 @@ public sealed class LiveTrafficStore
             DestinationSub = destSub,
             TailnetEndpointPeer = endpointPeer?.Name,
             TailnetRole = tailnetRole,
-            App = encryptedDns && match?.App == null ? (f.RemotePort == 853 ? "DNS over TLS" : "DNS over HTTPS") : app,
+            App = encryptedDns && match?.App == null ? (f.RemotePort == 853 ? (proto == "udp" ? "DNS over QUIC" : "DNS over TLS") : "DNS over HTTPS") : app,
             Category = deviceApp != null ? null : match?.Category ?? (destinationApp != null ? destInfo?.Category : null),
             Route = route,
             RouteKind = kind,
