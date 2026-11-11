@@ -1081,6 +1081,20 @@ public class LiveTrafficStoreTests
     }
 
     [Fact]
+    public void WanRouteCardNamesASitesPublicAddressBySite()
+    {
+        var store = SeededStore();
+        store.SetSiteAddresses([("203.0.113.77", "Branch Office")]);
+        store.Ingest(Batch(Flow("site", Laptop, "192.0.2.20", "203.0.113.77", 443, "eth4", 5000, 10)));
+
+        var wan = store.BuildView(Query(), LiveTrafficState.Live).Sankey!.Nodes.Single(n => n.Column == 2);
+
+        var dest = wan.Destinations!.Single();
+        dest.Site.Should().Be("Branch Office");
+        dest.Ip.Should().Be("203.0.113.77");
+    }
+
+    [Fact]
     public void SankeyLinksClientsAppsAndRoutes()
     {
         var store = SeededStore();

@@ -166,6 +166,8 @@ else
         {
             n = d.Name,
             ip = d.Ip != null && !d.Ip.Equals(d.Name, StringComparison.OrdinalIgnoreCase) ? d.Ip : null,
+            s = d.Site,
+            c = d.IspCache != null ? "ISP cache" : null,
             d = flows ? null : SubRate(hostSide ? d.UpBps : d.DownBps),
             u = flows ? null : SubRate(hostSide ? d.DownBps : d.UpBps),
             f = flows ? TimeFormatHelper.Pluralize((int)d.Value, "flow") : null,

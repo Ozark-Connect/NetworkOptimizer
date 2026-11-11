@@ -1083,11 +1083,13 @@ public sealed class LiveTrafficStore
         nodes.AddRange(moving.GroupBy(r => r.Route).Select(g =>
         {
             // Route is the last column: its hover card says where the traffic ends up (on the LAN, which host).
+            // The Flows table's Destination, with its site and ISP cache badges.
             var dests = g.GroupBy(r => r.Destination).OrderByDescending(d => d.Sum(V)).ToList();
             var top = dests.Take(SankeyRouteDestinations).Select(d =>
             {
                 var ips = d.Select(r => r.DestinationIp).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-                return new LiveSankeyDestination(d.Key, ips.Count == 1 ? ips[0] : null, d.Sum(V), Down(d), Up(d));
+                return new LiveSankeyDestination(d.Key, ips.Count == 1 ? ips[0] : null, d.Sum(V), Down(d), Up(d),
+                    d.Select(r => r.RemoteSite).FirstOrDefault(s => s != null), d.Select(r => r.IspCache).FirstOrDefault(c => c != null));
             }).ToList();
             return new LiveSankeyNode(2, g.Key, g.Sum(V), LiveTrafficField.Route, g.First().RouteKind, false,
                 DownBps: Down(g), UpBps: Up(g), Destinations: top, MoreDestinations: dests.Count - top.Count);

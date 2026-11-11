@@ -219,7 +219,10 @@ public sealed record LiveSankeyNode(int Column, string Name, double Value, LiveT
 /// <summary>One destination on a route node's hover card: a LAN host, or a name on the internet.</summary>
 /// <param name="Ip">The address when the destination has exactly one; null when it spans several.</param>
 /// <param name="Value">The rate, or the flow count when the diagram is sized by flows.</param>
-public sealed record LiveSankeyDestination(string Name, string? Ip, double Value, double DownBps, double UpBps);
+/// <param name="Site">The site whose public address this is (the Flows table's site badge), or null.</param>
+/// <param name="IspCache">The CDN cache inside the ISP this is (the table's ISP cache badge), or null.</param>
+public sealed record LiveSankeyDestination(string Name, string? Ip, double Value, double DownBps, double UpBps,
+    string? Site = null, string? IspCache = null);
 
 /// <summary>
 /// While the pointer is on a Where It Goes node, its column keeps the nodes it had when the hover

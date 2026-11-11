@@ -678,7 +678,9 @@
                     var value = r.f != null ? escapeHtml(r.f)
                         : '<span class="lt-route-tip-down">↓ ' + escapeHtml(r.d) + '</span> <span class="lt-route-tip-up">↑ ' + escapeHtml(r.u) + '</span>';
                     return '<div class="lt-route-tip-row"><span class="lt-route-tip-name">' + escapeHtml(r.n)
-                        + (r.ip ? ' <span class="lt-route-tip-ip">' + escapeHtml(r.ip) + '</span>' : '') + '</span>'
+                        + (r.ip ? ' <span class="lt-route-tip-ip">' + escapeHtml(r.ip) + '</span>' : '')
+                        + (r.s ? '<span class="lt-tag lt-site-badge">' + escapeHtml(r.s) + '</span>' : '')
+                        + (r.c ? '<span class="lt-tag lt-site-badge">' + escapeHtml(r.c) + '</span>' : '') + '</span>'
                         + '<span class="lt-route-tip-value">' + value + '</span></div>';
                 }).join('')
                 + (more > 0 ? '<div class="lt-route-tip-label">and ' + more + ' more</div>' : '');
