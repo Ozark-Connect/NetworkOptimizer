@@ -154,6 +154,23 @@ public class DohProviderRegistryTests : IDisposable
         result!.Name.Should().Be(expectedProvider);
     }
 
+    [Theory]
+    [InlineData("76.76.2.11")]
+    [InlineData("76.76.10.11")]
+    public void IdentifyProviderFromIp_ControlDRanges_ReturnsControlD(string ip)
+    {
+        DohProviderRegistry.IdentifyProviderFromIp(ip)!.Name.Should().Be("ControlD");
+    }
+
+    [Theory]
+    [InlineData("76.76.21.21")]   // Vercel (tailscale.com)
+    [InlineData("76.76.19.19")]   // Twingate
+    [InlineData("76.76.0.1")]     // CleanBrowsing infrastructure, not a listed resolver
+    public void IdentifyProviderFromIp_OtherOwnersIn7676_ReturnsNull(string ip)
+    {
+        DohProviderRegistry.IdentifyProviderFromIp(ip).Should().BeNull();
+    }
+
     [Fact]
     public void IdentifyProviderFromIp_NextDnsPrefixMatch_ReturnsNextDns()
     {
