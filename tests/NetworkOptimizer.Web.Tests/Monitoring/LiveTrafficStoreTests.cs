@@ -1206,4 +1206,42 @@ public class LiveTrafficStoreTests
 
         view.Flows[0].ClientName.Should().Be("Tailscale (100.100.1.2)");
         view.TailnetConnected.Should().BeFalse();
+    }
+
+    [Fact]
+    public void WireGuardFlowsAreNamedByThePeersEndpoint()
+    {
+        var store = SeededStore();
+        store.SetTailnet(new TailnetSnapshot(
+            [
+                new TailnetPeer { Name = "phone", Addresses = ["100.100.1.2"], Endpoints = ["203.0.113.40:40000", "192.168.1.50:41641"] },
+                new TailnetPeer { Name = "laptop", Addresses = ["100.100.1.3"], Endpoints = ["198.51.100.60:41641"] },
+                new TailnetPeer { Name = "tablet", Addresses = ["100.100.1.4"], Endpoints = ["198.51.100.60:5000"] },
+            ], null, []), true);
+        var flows = new[]
+        {
+            Flow("exact", Nas, "192.0.2.10", "192.168.1.50", 41641, "eth4", 1_000, 1_000, proto: "udp"),
+            Flow("remapped", Nas, "192.0.2.10", "203.0.113.40", 40001, "eth4", 1_000, 1_000, proto: "udp"),
+            Flow("shared", Nas, "192.0.2.10", "198.51.100.60", 9999, "eth4", 1_000, 1_000, proto: "udp"),
+            Flow("notwg", Nas, "192.0.2.10", "203.0.113.40", 443, "eth4", 1_000, 1_000),
+        };
+        foreach (var f in flows.Take(3)) f.ClientPort = 41641;
+        store.Ingest(Batch(flows));
+
+        var rows = store.BuildView(Query(), LiveTrafficState.Live).Flows.ToDictionary(f => f.Key);
+
+        rows["exact"].Destination.Should().Be("phone");
+        rows["remapped"].Destination.Should().Be("phone", "a remapped port still matches the only peer at that address");
+        rows["shared"].Destination.Should().NotBe("laptop").And.NotBe("tablet");
+        rows["notwg"].Destination.Should().NotBe("phone", "the address alone names only Tailscale's own traffic");
+    }
+
+    [Theory]
+    [InlineData("derp9e.tailscale.com", true)]
+    [InlineData("derp12e.tailscale.com.", true)]
+    [InlineData("login.tailscale.com", false)]
+    [InlineData("derp.example.com", false)]
+    public void DerpHosts(string host, bool expected)
+    {
+        LiveTrafficStore.IsDerpHost(host).Should().Be(expected);
     }}

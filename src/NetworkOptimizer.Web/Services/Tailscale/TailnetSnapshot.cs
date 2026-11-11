@@ -27,6 +27,9 @@ public sealed record TailnetPeer
     /// <summary>The device's private LAN addresses, from its endpoints.</summary>
     public IReadOnlyList<string> LanAddresses { get; init; } = [];
 
+    /// <summary>Every UDP endpoint (ip:port) the device is reached at, public and LAN: what a gateway sees its WireGuard traffic go to.</summary>
+    public IReadOnlyList<string> Endpoints { get; init; } = [];
+
     /// <summary>How the local tailscaled reaches it right now; null without local status or a live path.</summary>
     public TailnetPathInfo? Path { get; init; }
     public long? RxBytes { get; init; }
@@ -55,6 +58,9 @@ public sealed class TailnetSnapshot
     private readonly Dictionary<string, TailnetPeer> _byIp = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, TailnetPeer> _byLanIp = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<(string Proto, string Ip, int Port, string Remote, int RemotePort), string> _snat = new();
+    /// <summary>Peers by endpoint; a null value marks one two peers share, which names neither.</summary>
+    private readonly Dictionary<(string Ip, int Port), TailnetPeer?> _byEndpoint = new();
+    private readonly Dictionary<string, TailnetPeer?> _byEndpointIp = new(StringComparer.OrdinalIgnoreCase);
 
     public TailnetSnapshot(IReadOnlyList<TailnetPeer> peers, TailnetPeer? self, IReadOnlyList<TailnetSnatEntry> snat, DateTime? readAt = null)
     {
@@ -69,10 +75,37 @@ public sealed class TailnetSnapshot
                 foreach (var ip in peer.LanAddresses)
                     if (Normalize(ip) is { } key) _byLanIp.TryAdd(key, peer);
         }
+        // The local node's own endpoints are this host, not a peer it talks to.
+        foreach (var peer in peers)
+            foreach (var ep in peer.Endpoints)
+                if (ParseEndpoint(ep) is var (ip, port))
+                {
+                    var text = ip.ToString();
+                    Claim(_byEndpoint, (text, port), peer);
+                    Claim(_byEndpointIp, text, peer);
+                }
         foreach (var e in snat)
             if (Normalize(e.NatIp) is { } nat && Normalize(e.RemoteIp) is { } remote)
                 _snat.TryAdd((e.Proto, nat, e.NatPort, remote, e.RemotePort), e.PeerIp);
         SnatCount = _snat.Count;
+    }
+
+    private static void Claim<TKey>(Dictionary<TKey, TailnetPeer?> index, TKey key, TailnetPeer peer) where TKey : notnull
+    {
+        if (!index.TryGetValue(key, out var held)) index[key] = peer;
+        else if (held != null && !ReferenceEquals(held, peer)) index[key] = null;
+    }
+
+    /// <summary>
+    /// The peer a WireGuard flow goes to, by the remote end's address and port. With
+    /// <paramref name="addressAlone"/>, a port the peer's NAT has since remapped still matches, but only
+    /// while exactly one peer holds that address: a carrier's shared address names nobody.
+    /// </summary>
+    public TailnetPeer? PeerAtEndpoint(string? ip, int port, bool addressAlone)
+    {
+        if (Normalize(ip) is not { } key) return null;
+        if (_byEndpoint.TryGetValue((key, port), out var exact)) return exact;
+        return addressAlone && _byEndpointIp.TryGetValue(key, out var byIp) ? byIp : null;
     }
 
     /// <summary>Every device in the tailnet, the local node excluded.</summary>
@@ -171,6 +204,7 @@ public sealed class TailnetSnapshot
             IsExitNode = exit || local?.ExitNodeOption == true,
             SubnetRoutes = subnets.Count > 0 ? subnets : SplitRoutes(local?.PrimaryRoutes ?? []).Subnets,
             LanAddresses = LanAddresses(d.Endpoints.Concat(local?.Addrs ?? [])),
+            Endpoints = AllEndpoints(d.Endpoints, local?.Addrs ?? [], [local?.CurAddr]),
             Path = local == null ? null : PathOf(local, now),
             RxBytes = local?.RxBytes,
             TxBytes = local?.TxBytes,
@@ -189,6 +223,7 @@ public sealed class TailnetSnapshot
         IsExitNode = p.ExitNodeOption,
         SubnetRoutes = SplitRoutes(p.PrimaryRoutes).Subnets,
         LanAddresses = LanAddresses(p.Addrs),
+        Endpoints = AllEndpoints(p.Addrs, [p.CurAddr]),
         Path = isSelf ? null : PathOf(p, now),
         RxBytes = isSelf ? null : p.RxBytes,
         TxBytes = isSelf ? null : p.TxBytes,
@@ -227,16 +262,40 @@ public sealed class TailnetSnapshot
         var list = new List<string>();
         foreach (var ep in endpoints)
         {
-            // "192.0.2.10:41641" or "[fd00::1]:41641"
-            var host = ep.StartsWith('[') && ep.IndexOf(']') is > 0 and var close ? ep[1..close]
-                : ep.LastIndexOf(':') is > 0 and var colon && ep.IndexOf(':') == colon ? ep[..colon]
-                : ep;
-            if (IPAddress.TryParse(host, out var ip) && NetworkUtilities.IsPrivateIpAddress(ip) && !NetworkUtilities.IsTailscaleAddress(ip))
+            if (ParseEndpoint(ep) is var (ip, _) && NetworkUtilities.IsPrivateIpAddress(ip) && !NetworkUtilities.IsTailscaleAddress(ip))
             {
                 var text = ip.ToString();
                 if (!list.Contains(text, StringComparer.OrdinalIgnoreCase)) list.Add(text);
             }
         }
         return list;
+    }
+
+    /// <summary>Every distinct endpoint, as given: the API's, the local status's known ones, and the one in use.</summary>
+    private static IReadOnlyList<string> AllEndpoints(params IEnumerable<string?>[] sources) =>
+        sources.SelectMany(s => s).OfType<string>().Where(e => ParseEndpoint(e) != null)
+            .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+
+    /// <summary>"192.0.2.10:41641" or "[2001:db8::1]:41641" as an address and port; null when it is neither.</summary>
+    public static (IPAddress Ip, int Port)? ParseEndpoint(string? endpoint)
+    {
+        if (string.IsNullOrWhiteSpace(endpoint)) return null;
+        var ep = endpoint.Trim();
+        string host, port;
+        if (ep.StartsWith('['))
+        {
+            var close = ep.IndexOf(']');
+            if (close < 0 || close + 1 >= ep.Length || ep[close + 1] != ':') return null;
+            (host, port) = (ep[1..close], ep[(close + 2)..]);
+        }
+        else
+        {
+            var colon = ep.LastIndexOf(':');
+            // More than one colon without brackets is a bare IPv6 address: no port to match on.
+            if (colon <= 0 || ep.IndexOf(':') != colon) return null;
+            (host, port) = (ep[..colon], ep[(colon + 1)..]);
+        }
+        if (!IPAddress.TryParse(host, out var ip) || !int.TryParse(port, out var p) || p is <= 0 or > 65535) return null;
+        return (ip.IsIPv4MappedToIPv6 ? ip.MapToIPv4() : ip, p);
     }
 }

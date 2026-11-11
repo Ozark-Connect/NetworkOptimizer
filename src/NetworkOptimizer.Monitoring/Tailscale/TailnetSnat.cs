@@ -39,7 +39,13 @@ public static class TailnetSnat
             using var reader = new StreamReader(ConntrackPath);
             return await Task.Run(() => Parse(reader), ct);
         }
-        catch (Exception ex) when (ex is UnauthorizedAccessException or IOException)
+        catch (UnauthorizedAccessException ex)
+        {
+            // Network Optimizer's container runs as a non-root user, and the table is root-only.
+            throw new TailscaleLocalException(
+                $"Only root can read {ConntrackPath}, and Network Optimizer does not run as root here. An On-Site Agent on this host can read it.", ex);
+        }
+        catch (IOException ex)
         {
             throw new TailscaleLocalException($"Could not read {ConntrackPath}: {ex.Message}", ex);
         }

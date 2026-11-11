@@ -14,7 +14,8 @@ namespace NetworkOptimizer.Web.Services.Tailscale;
 /// <param name="SnatError">Why the conntrack table could not be read, or null.</param>
 public sealed record TailnetStatus(
     bool Enabled, int Devices, DateTime? ReadAt, string? DeviceError,
-    bool LocalRead, int DirectPeers, string? LocalError, int SnatEntries, string? SnatError);
+    bool LocalRead, int DirectPeers, string? LocalError, int SnatEntries, string? SnatError, int LocalPeers = 0,
+    string? AgentChoice = null);
 
 /// <summary>
 /// Each site's tailnet, held in memory and refreshed in the background: the device list every 60 s,
@@ -182,7 +183,7 @@ public sealed class TailscaleDirectoryRegistry : ISiteScopedRegistry
         string? localError = null;
         if (s.LocalSource != TailnetLocalSource.Off)
         {
-            try { local = await ReadLocalAsync(slug, s, ct); }
+            try { local = await ReadLocalAsync(slug, s, ct, devices); }
             catch (TailscaleLocalException ex) { localError = ex.Message; }
         }
 
@@ -199,7 +200,7 @@ public sealed class TailscaleDirectoryRegistry : ISiteScopedRegistry
             devices?.Count, deviceError,
             local == null ? null : local.Peers.Count, local == null ? null : snapshot.Peers.Count(p => p.Path?.Kind == TailnetPathKind.Direct),
             local?.Self == null ? null : TailnetNames.MachineName(local.Self.DnsName) ?? local.Self.HostName, localError,
-            snat, snatError);
+            snat, snatError, s.LocalSource == TailnetLocalSource.Agent ? AgentChoiceFor(slug) : null);
     }
 
     private static bool Due(SiteState state, DateTime now)
@@ -265,7 +266,7 @@ public sealed class TailscaleDirectoryRegistry : ISiteScopedRegistry
             {
                 try
                 {
-                    state.Local = await ReadLocalAsync(slug, s, ct);
+                    state.Local = await ReadLocalAsync(slug, s, ct, state.Devices);
                     state.LocalError = null;
                 }
                 catch (TailscaleLocalException ex)
@@ -304,7 +305,8 @@ public sealed class TailscaleDirectoryRegistry : ISiteScopedRegistry
             state.Status = new TailnetStatus(
                 true, snapshot.Peers.Count + (snapshot.Self != null ? 1 : 0), now, state.DeviceError,
                 state.Local != null, snapshot.Peers.Count(p => p.Path?.Kind == TailnetPathKind.Direct), state.LocalError,
-                snapshot.SnatCount, state.SnatError);
+                snapshot.SnatCount, state.SnatError, state.Local?.Peers.Count ?? 0,
+                s.LocalSource == TailnetLocalSource.Agent ? AgentChoiceFor(slug) : null);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -403,37 +405,93 @@ public sealed class TailscaleDirectoryRegistry : ISiteScopedRegistry
         return await api.GetDevicesAsync(ct);
     }
 
-    private async Task<TailscaleLocalStatus> ReadLocalAsync(string slug, TailscaleSettings s, CancellationToken ct)
+    private async Task<TailscaleLocalStatus> ReadLocalAsync(string slug, TailscaleSettings s, CancellationToken ct,
+        IReadOnlyList<TailnetDevice>? devices = null)
     {
         if (s.LocalSource == TailnetLocalSource.Server)
             return await TailscaleLocalApi.ReadStatusAsync(s.SocketPath, ct);
-        var json = await AskAgentAsync(slug, TailscaleLocal.StatusKind, ct, s.SocketPath);
-        return JsonSerializer.Deserialize<TailscaleLocalStatus>(json)
-            ?? throw new TailscaleLocalException("The On-Site Agent returned an empty Tailscale status.");
+
+        var agents = CapableAgents(slug);
+        // The agent chosen last time, while it still answers; otherwise every agent is asked again.
+        if (_agentChoice.TryGetValue(slug, out var chosen) && agents.FirstOrDefault(a => a.AgentId == chosen.AgentId) is { } kept)
+        {
+            try { return await AskStatusAsync(slug, kept.AgentId, s.SocketPath, ct); }
+            catch (TailscaleLocalException) { _agentChoice.TryRemove(slug, out _); }
+        }
+
+        var answered = new List<(AgentTunnelConnection Agent, TailscaleLocalStatus Status)>();
+        string? firstError = null;
+        foreach (var agent in agents)
+        {
+            try { answered.Add((agent, await AskStatusAsync(slug, agent.AgentId, s.SocketPath, ct))); }
+            catch (TailscaleLocalException ex) { firstError ??= ex.Message; }
+        }
+        if (answered.Count == 0)
+            throw new TailscaleLocalException(agents.Count == 1
+                ? firstError ?? "The On-Site Agent did not answer."
+                : $"None of this site's {agents.Count} On-Site Agents could read a tailscaled. {firstError}");
+
+        // The agent whose node routes for the tailnet is the one routed traffic can be attributed on.
+        var router = answered.Select(a => (a.Agent, a.Status, Badge: RouterBadgeOf(a.Status, devices)))
+            .FirstOrDefault(a => a.Badge != null);
+        var pick = router.Agent ?? answered[0].Agent;
+        var status = router.Agent != null ? router.Status : answered[0].Status;
+        var reason = router.Agent != null
+            ? $"Reading {pick.AgentName}: its host is the tailnet's {router.Badge!["Tailscale ".Length..]}, so routed traffic can be attributed."
+            : agents.Count == 1 ? $"Reading {pick.AgentName}, the site's On-Site Agent."
+            : answered.Count == 1 ? $"Reading {pick.AgentName}: the only On-Site Agent here whose host runs tailscaled."
+            : $"Reading {pick.AgentName}: its host runs tailscaled. No agent host here routes for the tailnet.";
+        _agentChoice[slug] = new AgentChoice(pick.AgentId, reason);
+        return status;
     }
+
+    /// <summary>"Tailscale exit node" and the like for the node a status was read on, from its own routes or the device list's.</summary>
+    private static string? RouterBadgeOf(TailscaleLocalStatus status, IReadOnlyList<TailnetDevice>? devices) =>
+        status.Self == null ? null : TailnetSnapshot.Build(devices, status, null, DateTime.UtcNow).Self?.RouterBadge;
 
     private async Task<IReadOnlyList<TailnetSnatEntry>> ReadSnatAsync(string slug, TailscaleSettings s, CancellationToken ct)
     {
         if (s.LocalSource == TailnetLocalSource.Server)
             return await TailnetSnat.ReadAsync(ct);
-        var json = await AskAgentAsync(slug, TailscaleLocal.SnatKind, ct);
+        // Attribution reads the agent local status chose: the one whose node routes, when there is one.
+        if (!_agentChoice.TryGetValue(slug, out var chosen))
+            throw new TailscaleLocalException("No On-Site Agent here could read a tailscaled, so there is no router host to read.");
+        var json = await AskAgentAsync(slug, chosen.AgentId, TailscaleLocal.SnatKind, null, ct);
         return JsonSerializer.Deserialize<List<TailnetSnatEntry>>(json) ?? [];
     }
 
-    private async Task<string> AskAgentAsync(string slug, string kind, CancellationToken ct, string? socketPath = null)
+    /// <summary>Why local status reads the agent it does, for the Settings card; null when it reads none.</summary>
+    public string? AgentChoiceFor(string slug) => _agentChoice.TryGetValue(slug, out var c) ? c.Reason : null;
+
+    private sealed record AgentChoice(int AgentId, string Reason);
+    private readonly ConcurrentDictionary<string, AgentChoice> _agentChoice = new(StringComparer.OrdinalIgnoreCase);
+
+    private List<AgentTunnelConnection> CapableAgents(string slug)
     {
-        var agent = _tunnels.GetForSite(slug).FirstOrDefault(c => c.HasCapability(TailscaleLocal.Capability));
-        if (agent == null)
-            throw new TailscaleLocalException(_tunnels.GetForSite(slug).Count > 0
+        var connected = _tunnels.GetForSite(slug);
+        var capable = connected.Where(c => c.HasCapability(TailscaleLocal.Capability)).ToList();
+        if (capable.Count == 0)
+            throw new TailscaleLocalException(connected.Count > 0
                 ? "This site's On-Site Agent is too old to read Tailscale. Update it in Settings - Multi-Site."
                 : "This site has no On-Site Agent connected.");
-        var response = await _agentProbes.RunAsync(slug, new ProbeRequest { Kind = kind, Address = socketPath?.Trim() ?? "" }, AgentTimeout, ct, agent.AgentId);
+        return capable;
+    }
+
+    private async Task<TailscaleLocalStatus> AskStatusAsync(string slug, int agentId, string? socketPath, CancellationToken ct)
+    {
+        var json = await AskAgentAsync(slug, agentId, TailscaleLocal.StatusKind, socketPath, ct);
+        return JsonSerializer.Deserialize<TailscaleLocalStatus>(json)
+            ?? throw new TailscaleLocalException("The On-Site Agent returned an empty Tailscale status.");
+    }
+
+    private async Task<string> AskAgentAsync(string slug, int agentId, string kind, string? socketPath, CancellationToken ct)
+    {
+        var response = await _agentProbes.RunAsync(slug, new ProbeRequest { Kind = kind, Address = socketPath?.Trim() ?? "" }, AgentTimeout, ct, agentId);
         if (response == null || !response.Success)
             throw new TailscaleLocalException(response?.Error is { Length: > 0 } error
                 ? $"On-Site Agent: {error}" : "The On-Site Agent did not answer.");
         return response.ResultJson;
     }
-
     /// <inheritdoc />
     public Func<ValueTask>? EvictSite(string slug)
     {
@@ -446,4 +504,4 @@ public sealed class TailscaleDirectoryRegistry : ISiteScopedRegistry
 public sealed record TailnetTestResult(
     int? Devices, string? DeviceError,
     int? LocalPeers, int? DirectPeers, string? LocalNode, string? LocalError,
-    int? SnatEntries, string? SnatError);
+    int? SnatEntries, string? SnatError, string? AgentChoice = null);

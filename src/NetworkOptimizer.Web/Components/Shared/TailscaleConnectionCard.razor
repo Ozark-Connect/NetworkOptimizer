@@ -66,7 +66,7 @@
                     <label class="form-label">OAuth Client ID</label>
                     <input type="text" class="form-control" @bind="_clientId" @bind:event="oninput" autocomplete="off" data-1p-ignore data-lpignore="true" data-bwignore />
                     <small class="form-help">
-                        In the Tailscale admin console, create an OAuth client with
+                        In the Tailscale Admin console, go to Settings - Trust credentials and add an OAuth credential with
                         the Devices Core scope set to Read (<code>devices:core:read</code>). Nothing else is needed.
                     </small>
                 </div>
@@ -102,6 +102,12 @@
                     <option value="@TailnetLocalSource.Server">Network Optimizer's host</option>
                     <option value="@TailnetLocalSource.Agent">The site's On-Site Agent host</option>
                 </select>
+                @if (_localSource == TailnetLocalSource.Agent)
+                {
+                    <small class="form-help">
+                        @(_agentChoice ?? "Network Optimizer reads the agent whose host is the tailnet's subnet router or exit node, else the first whose host runs tailscaled.")
+                    </small>
+                }
             </div>
 
             @if (_localSource != TailnetLocalSource.Off)
@@ -178,6 +184,8 @@
 @code {
     private TailscaleSettings _saved = new();
     private TailnetStatus? _status;
+    /// <summary>Why local status reads the agent it does, from the last test or refresh.</summary>
+    private string? _agentChoice;
     private bool _enabled;
     private TailnetDeviceSource _deviceSource = TailnetDeviceSource.TailscaleApi;
     private string _clientId = "";
@@ -203,6 +211,7 @@
         {
             Load(await Tailscale.GetSettingsAsync());
             _status = await Tailscale.GetStatusAsync();
+            _agentChoice = _status?.AgentChoice;
         }
         catch (Exception)
         {
@@ -241,13 +250,15 @@
             (_clientSecret, _headscaleKey) = ("", "");
             Load(await Tailscale.GetSettingsAsync());
             _status = await Tailscale.GetStatusAsync();
-            var problems = new[] { _status?.DeviceError, _status?.LocalError, _status?.SnatError }.OfType<string>().ToList();
-            if (!_enabled)
+            _agentChoice = _status?.AgentChoice;
+            if (!_enabled || _status == null)
                 Say("success", "Tailscale settings saved.");
-            else if (problems.Count > 0)
-                Say("warning", ["Tailscale settings saved, but:", .. problems]);
             else
-                Say("success", $"Tailscale settings saved. {DevicesLine(_status?.Devices ?? 0)}");
+                Summarize("Tailscale settings saved.",
+                    _status.Devices, _status.DeviceError,
+                    _status.LocalRead ? _status.LocalPeers : null, _status.DirectPeers, null, _status.LocalError,
+                    _status.SnatError == null && _attributeRouted && _localSource != TailnetLocalSource.Off ? _status.SnatEntries : null,
+                    _status.SnatError);
         }
         catch (ArgumentException ex)
         {
@@ -270,16 +281,8 @@
         try
         {
             var r = await Tailscale.TestAsync(Draft());
-            var lines = new List<string>();
-            if (r.DeviceError != null) lines.Add(r.DeviceError);
-            else if (r.Devices is { } devices) lines.Add($"Device list: {DevicesLine(devices)}");
-            if (r.LocalError != null) lines.Add(r.LocalError);
-            else if (r.LocalPeers is { } peers)
-                lines.Add($"Local status{(r.LocalNode != null ? $" on {r.LocalNode}" : "")}: {TimeFormatHelper.Pluralize(peers, "peer")}, {r.DirectPeers ?? 0} connected directly.");
-            if (r.SnatError != null) lines.Add(r.SnatError);
-            else if (r.SnatEntries is { } snat) lines.Add($"Routed traffic: {TimeFormatHelper.Pluralize(snat, "connection")} to attribute right now.");
-            var failed = r.DeviceError != null || r.LocalError != null || r.SnatError != null;
-            Say(failed ? "danger" : "success", [.. lines]);
+            _agentChoice = r.AgentChoice;
+            Summarize(null, r.Devices, r.DeviceError, r.LocalPeers, r.DirectPeers, r.LocalNode, r.LocalError, r.SnatEntries, r.SnatError);
         }
         catch (ArgumentException ex)
         {
@@ -297,5 +300,44 @@
 
     private void Say(string cls, params string[] lines) => (_messages, _messageClass) = (lines.ToList(), cls);
 
-    private static string DevicesLine(int devices) => $"{TimeFormatHelper.Pluralize(devices, "device")} in the tailnet.";
+    /// <summary>
+    /// One line per part that is on: what it read and what that gives, or why it failed and what still
+    /// works without it. A failed device list is an error; a failed local status or conntrack read only
+    /// loses what that part adds, so it is a warning.
+    /// </summary>
+    private void Summarize(string? heading, int? devices, string? deviceError, int? localPeers, int? directPeers,
+        string? localNode, string? localError, int? snat, string? snatError)
+    {
+        var lines = new List<string>();
+        if (heading != null) lines.Add(heading);
+        var localOn = _localSource != TailnetLocalSource.Off;
+        var fromLocal = _deviceSource == TailnetDeviceSource.LocalStatus;
+
+        if (fromLocal && localError != null)
+            lines.Add($"Device list: {localError} Until it answers, Tailscale devices show by address.");
+        else if (deviceError != null)
+            lines.Add($"Device list: {deviceError} Until it is read, Tailscale devices show by address.");
+        else if (devices is { } count)
+            lines.Add($"Device list: {TimeFormatHelper.Pluralize(count, "device")}. Tailscale devices show by name in Client Performance, speed test results, and Live Traffic.");
+
+        if (localOn && !fromLocal)
+        {
+            if (localError != null)
+                lines.Add($"Local status: {localError} Names still work. Connection paths and traffic counters wait for it.");
+            else if (localPeers is { } peers)
+                lines.Add($"Local status{(localNode != null ? $" on {localNode}" : "")}: {TimeFormatHelper.Pluralize(peers, "peer")}, {directPeers ?? 0} connected directly. Paths show in Client Performance and on new Tailscale speed test results.");
+        }
+
+        if (localOn && _attributeRouted)
+        {
+            if (snatError != null)
+                lines.Add($"Routed traffic: {snatError} Live Traffic shows that traffic as this host.");
+            else if (snat is { } entries)
+                lines.Add($"Routed traffic: {TimeFormatHelper.Pluralize(entries, "connection")} to attribute right now. Live Traffic shows the Tailscale device behind traffic this host routes.");
+        }
+
+        var deviceFailed = deviceError != null || (fromLocal && localError != null);
+        var partFailed = localError != null || snatError != null;
+        Say(deviceFailed ? "danger" : partFailed ? "warning" : "success", [.. lines]);
+    }
 }

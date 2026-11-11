@@ -1471,7 +1471,7 @@ Settings - Connection - **Tailscale** resolves Tailscale devices in Client Perfo
 
 Pick one source:
 
-- **Tailscale API**: in the Tailscale admin console, create an OAuth client with the **Devices Core** scope set to **Read** (`devices:core:read`). Enter its client ID and secret. Leave **Tailnet** empty for the client's own tailnet.
+- **Tailscale API**: in the Tailscale Admin console, go to Settings - Trust credentials, click **+ Credential**, and add an OAuth credential with the **Devices Core** scope set to **Read** (`devices:core:read`). Enter its client ID and secret. Leave **Tailnet** empty for the client's own tailnet.
 - **Headscale API**: the server's URL and an API key from `headscale apikeys create`.
 - **Local status only**: the peers a local tailscaled can see (below). No credentials needed.
 
@@ -1512,7 +1512,7 @@ For an On-Site Agent, the first half is enough: the agent runs on the host and r
 When the host whose tailscaled you read is the tailnet's subnet router or exit node, it source-NATs its peers' traffic to its own LAN address by default, so the gateway sees only the router. **Attribute routed traffic to the Tailscale device** reads that host's conntrack table (`/proc/net/nf_conntrack`) and shows each connection in Live Traffic as the Tailscale device behind it. Requirements:
 
 - Linux, with tailscaled in the host's network (`network_mode: host` for a container; userspace networking leaves no conntrack entries)
-- Network Optimizer (`network_mode: host`, as shipped) or the On-Site Agent on that same host, reading as root
+- Root on that host: the table is root-only. The On-Site Agent runs as root and can read it. The Network Optimizer container runs as a non-root user and cannot, so on a Docker install, run an On-Site Agent on the same host and choose it under **Local Status**
 
 A router with neither (tailscaled on a Mac, an Apple TV, a router appliance) cannot be attributed. A node started with `--snat-subnet-routes=false` needs none of this: its peers keep their tailnet addresses, and the device list names them.
 

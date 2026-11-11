@@ -776,7 +776,12 @@ public sealed class LiveTrafficStore
         // DPI's app, for a flow with no lookup seen and no record of its own (a long stream).
         var destInfo = !f.Lan && _destinations.TryGetValue((f.RemoteIp, f.RemotePort, proto), out var di) ? di : null;
         var consoleDomain = !string.IsNullOrEmpty(match?.Domain) ? match!.Domain : destInfo?.Domain;
-        var tailnetPeer = peer == null ? _tailnet.Peer(f.RemoteIp) : null;
+        // A tailnet address at the far end, or, for WireGuard traffic between public endpoints, the peer
+        // holding that endpoint: a direct path to it. The address alone matches only on Tailscale's port.
+        var wireGuard = DomainAppCatalog.TailscaleApp(proto, f.ClientPort, f.RemotePort) != null;
+        var tailnetPeer = peer == null
+            ? _tailnet.Peer(f.RemoteIp) ?? (proto == "udp" ? _tailnet.PeerAtEndpoint(f.RemoteIp, f.RemotePort, addressAlone: wireGuard) : null)
+            : null;
         if (peer != null) destination = peer.Name;
         else if (tailnetPeer != null) destination = tailnetPeer.Name;
         else if (hasLookup) destination = lookup!.Name;
@@ -799,6 +804,10 @@ public sealed class LiveTrafficStore
         // who owns the address.
         var hostName = _names.TryGetValue(f.RemoteIp, out var named) && named.Expires > now ? named.Name
             : consoleDomain ?? (_ptr.TryGetValue(f.RemoteIp, out var ptrName) ? ptrName : null);
+        // Tailscale's DERP servers: TCP 443 relays traffic between peers without a direct path; UDP 3478 is
+        // STUN, which only discovers the node's public endpoint.
+        if (IsDerpHost(hostName))
+            destSub = proto == "tcp" ? "DERP relay" : proto == "udp" && f.RemotePort == 3478 ? "STUN" : destSub;
         var toServer = (hostName != null && _serverHosts.Contains(hostName.TrimEnd('.'))) || _serverHosts.Contains(f.RemoteIp);
         // A flow the DPI never named takes what it named the other flows to the same address and port.
         var destinationApp = match?.App == null ? destInfo?.App : null;
@@ -1244,6 +1253,15 @@ public sealed class LiveTrafficStore
 
     private TailnetSnapshot _tailnet = TailnetSnapshot.Empty;
     private bool _tailnetConnected;
+
+    /// <summary>A Tailscale DERP server's name ("derp9e.tailscale.com").</summary>
+    internal static bool IsDerpHost(string? host)
+    {
+        if (string.IsNullOrEmpty(host)) return false;
+        var h = host.TrimEnd('.');
+        return h.StartsWith("derp", StringComparison.OrdinalIgnoreCase)
+            && h.EndsWith(".tailscale.com", StringComparison.OrdinalIgnoreCase);
+    }
 
     /// <summary>
     /// The site's tailnet: names for Tailscale clients and destinations, and the conntrack entries that
