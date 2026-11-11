@@ -1026,6 +1026,9 @@ public sealed class LiveTrafficStore
 
     private const int SankeyNodesPerColumn = 6;
 
+    /// <summary>Destinations a route node's hover card lists before "N more".</summary>
+    private const int SankeyRouteDestinations = 6;
+
     /// <summary>
     /// The gateway's own WireGuard or OpenVPN flow out a WAN: the outer tunnel whose bytes are the
     /// client flows routed through it, already shown under those clients.
@@ -1077,12 +1080,22 @@ public sealed class LiveTrafficStore
             DownBps: Down(g), UpBps: Up(g), ClientIp: topClients.Contains(g.Key) ? g.First().ClientIp : null)));
         nodes.AddRange(moving.GroupBy(AppNode).Select(g => new LiveSankeyNode(1, g.Key, g.Sum(V), LiveTrafficField.App, null, !topApps.Contains(g.Key),
             g.First().AppIconDomain, g.First().AppIconClass, Down(g), Up(g), Unnamed: topApps.Contains(g.Key) ? UnnamedSeed(g) : null)));
-        nodes.AddRange(moving.GroupBy(r => r.Route).Select(g => new LiveSankeyNode(2, g.Key, g.Sum(V), LiveTrafficField.Route, g.First().RouteKind, false,
-            DownBps: Down(g), UpBps: Up(g))));
+        nodes.AddRange(moving.GroupBy(r => r.Route).Select(g =>
+        {
+            // Route is the last column: its hover card says where the traffic ends up (on the LAN, which host).
+            var dests = g.GroupBy(r => r.Destination).OrderByDescending(d => d.Sum(V)).ToList();
+            var top = dests.Take(SankeyRouteDestinations).Select(d =>
+            {
+                var ips = d.Select(r => r.DestinationIp).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+                return new LiveSankeyDestination(d.Key, ips.Count == 1 ? ips[0] : null, d.Sum(V), Down(d), Up(d));
+            }).ToList();
+            return new LiveSankeyNode(2, g.Key, g.Sum(V), LiveTrafficField.Route, g.First().RouteKind, false,
+                DownBps: Down(g), UpBps: Up(g), Destinations: top, MoreDestinations: dests.Count - top.Count);
+        }));
         // A held node with nothing moving through it now: shown idle, with no bands.
         foreach (var n in held ?? [])
             if (!nodes.Any(x => x.Column == n.Column && x.Name == n.Name))
-                nodes.Add(n with { Value = 0, DownBps = 0, UpBps = 0 });
+                nodes.Add(n with { Value = 0, DownBps = 0, UpBps = 0, Destinations = null, MoreDestinations = 0 });
 
         var links = new List<LiveSankeyLink>();
         links.AddRange(moving.GroupBy(r => (ClientNode(r), AppNode(r), r.RouteKind))

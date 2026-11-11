@@ -210,9 +210,16 @@ public sealed record LiveSankey(IReadOnlyList<LiveSankeyNode> Nodes, IReadOnlyLi
 /// <param name="DownBps">The node's download rate, for its subtitle; 0 when sized by flow count.</param>
 /// <param name="UpBps">The node's upload rate.</param>
 /// <param name="ClientIp">A client node's address, for its Client Performance link; null for Other and the other columns.</param>
+/// <param name="Destinations">A route node's busiest destinations, for its hover card; null for the other columns.</param>
+/// <param name="MoreDestinations">How many destinations the route carries beyond <paramref name="Destinations"/>.</param>
 public sealed record LiveSankeyNode(int Column, string Name, double Value, LiveTrafficField Field, LiveRouteKind? RouteKind, bool IsOther,
     string? IconDomain = null, string? IconClass = null, double DownBps = 0, double UpBps = 0, string? ClientIp = null,
-    CustomAppSeed? Unnamed = null);
+    CustomAppSeed? Unnamed = null, IReadOnlyList<LiveSankeyDestination>? Destinations = null, int MoreDestinations = 0);
+
+/// <summary>One destination on a route node's hover card: a LAN host, or a name on the internet.</summary>
+/// <param name="Ip">The address when the destination has exactly one; null when it spans several.</param>
+/// <param name="Value">The rate, or the flow count when the diagram is sized by flows.</param>
+public sealed record LiveSankeyDestination(string Name, string? Ip, double Value, double DownBps, double UpBps);
 
 /// <summary>
 /// While the pointer is on a Where It Goes node, its column keeps the nodes it had when the hover

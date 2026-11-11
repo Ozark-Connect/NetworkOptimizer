@@ -28,10 +28,13 @@ else
             var tx = node.Column == 0 ? -8 : NodeW + 8 + (appIcon ? IconW : 0);
             var clientLink = node.Column == 0 ? LiveTrafficLinks.ClientPerformance(node.ClientIp) : null;
             var unnamed = node.Column == 1 ? node.Unnamed : null;
+            var routeDests = RouteDestinations(node, Sankey.ValueIsFlows);
             <g @key="(node.Column, node.Name)" class="lt-sankey-node @(clickable ? "is-clickable" : null) @(IsFiltered(node) ? "is-filtered" : null) @(unnamed != null ? "lt-app-unnamed" : null)"
                style="transform: translate(@(F(ColX[node.Column]))px, @(F(n.Y))px)"
                data-client-name="@(clientLink != null ? node.Name : null)" data-client-link="@clientLink"
                data-app-unnamed="@(unnamed != null ? node.Name : null)" data-app-seed="@unnamed?.Encode()" data-app-link="@NameAppLink(unnamed)"
+               data-route-name="@(routeDests != null ? node.Name : null)" data-route-lan="@(routeDests != null && node.RouteKind == LiveRouteKind.Lan ? "1" : null)"
+               data-route-dests="@routeDests" data-route-more="@(routeDests != null && node.MoreDestinations > 0 ? node.MoreDestinations : null)"
                @onclick="() => OnNodeClick(node)"
                @onmouseenter="() => { if (clickable) OnHover?.Invoke(node, DrawnColumn(node.Column)); }"
                @onmouseleave="() => { if (clickable) OnHover?.Invoke(null, null); }">
@@ -44,7 +47,7 @@ else
                         @* The tables' own icon markup: SVG cannot draw a favicon or a Font Awesome glyph itself. *@
                         <foreignObject class="lt-sankey-icon" x="@(NodeW + 6)" y="-9" width="18" height="18">@(node.IconDomain != null || node.IconClass != null ? AppIcon(node.Name, node.IconDomain, node.IconClass) : AppIcon(node.Name))</foreignObject>
                     }
-                    <text class="lt-node-label" text-anchor="@anchor" x="@tx" y="-1" data-tooltip="@(clientLink != null || unnamed != null || Fit(node.Name, node.Column) == node.Name ? null : node.Name)" data-tooltip-hover-only>@Fit(node.Name, node.Column)</text>
+                    <text class="lt-node-label" text-anchor="@anchor" x="@tx" y="-1" data-tooltip="@(clientLink != null || unnamed != null || routeDests != null || Fit(node.Name, node.Column) == node.Name ? null : node.Name)" data-tooltip-hover-only>@Fit(node.Name, node.Column)</text>
                     <text class="lt-node-sub" text-anchor="@anchor" x="@tx" y="12">@if (Sankey.ValueIsFlows)
                         {
                             @TimeFormatHelper.Pluralize((int)node.Value, "flow")
@@ -149,6 +152,21 @@ else
 
     /// <summary>A node's rate in one direction: an idle one reads "0 bps" (muted by its class), never "-".</summary>
     private static string SubRate(double bps) => bps >= 1 ? DisplayFormatters.FormatRate(bps) : "0 bps";
+
+    /// <summary>
+    /// A route node's hover card rows as JSON (name, address when it differs, and rates or a flow count),
+    /// for App.razor's card. Null for other columns and for a route with nothing moving.
+    /// </summary>
+    private static string? RouteDestinations(LiveSankeyNode node, bool flows) =>
+        node.Column != 2 || node.Destinations is not { Count: > 0 } dests ? null
+        : System.Text.Json.JsonSerializer.Serialize(dests.Select(d => new
+        {
+            n = d.Name,
+            ip = d.Ip != null && !d.Ip.Equals(d.Name, StringComparison.OrdinalIgnoreCase) ? d.Ip : null,
+            d = flows ? null : SubRate(d.DownBps),
+            u = flows ? null : SubRate(d.UpBps),
+            f = flows ? TimeFormatHelper.Pluralize((int)d.Value, "flow") : null,
+        }));
 
     private static string F2(double v) => v.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture);
 

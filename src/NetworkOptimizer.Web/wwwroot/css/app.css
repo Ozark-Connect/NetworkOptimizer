@@ -25479,6 +25479,15 @@ body:has(.top-bar-hidden) .btn-fit {
 .lt-sankey-svg .lt-node-sub .lt-sub-up { fill: var(--speed-upload-color); }
 .lt-sankey-svg .lt-node-sub .lt-sub-idle { fill: var(--text-muted); }
 
+/* A route node's hover card (App.razor routeHtml): one row per destination, name left, rate right. */
+.tippy-box[data-theme~='custom'] .lt-route-tip-label { color: var(--text-secondary); font-size: 0.8em; margin: 0.15rem 0; }
+.tippy-box[data-theme~='custom'] .lt-route-tip-row { display: flex; justify-content: space-between; gap: 1rem; }
+.tippy-box[data-theme~='custom'] .lt-route-tip-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tippy-box[data-theme~='custom'] .lt-route-tip-ip { color: var(--text-muted); }
+.tippy-box[data-theme~='custom'] .lt-route-tip-value { flex: 0 0 auto; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.tippy-box[data-theme~='custom'] .lt-route-tip-down { color: var(--speed-download-color); }
+.tippy-box[data-theme~='custom'] .lt-route-tip-up { color: var(--speed-upload-color); }
+
 .lt-sankey-svg .lt-node-sub {
     fill: var(--text-secondary);
     font-size: 10px;

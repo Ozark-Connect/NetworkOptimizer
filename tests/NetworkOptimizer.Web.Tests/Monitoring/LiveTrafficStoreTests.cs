@@ -1066,6 +1066,21 @@ public class LiveTrafficStoreTests
     }
 
     [Fact]
+    public void LanRouteNodeListsItsBusiestHostsFirst()
+    {
+        var store = SeededStore();
+        store.Ingest(Batch(
+            Flow("small", Laptop, "192.0.2.20", "192.0.2.10", 445, "", 1000, 10, lan: true),
+            Flow("big", Laptop, "192.0.2.20", "192.0.2.30", 8443, "", 50_000, 10, lan: true),
+            Flow("web", Laptop, "192.0.2.20", "203.0.113.5", 443, "eth4", 9_000, 10)));
+
+        var lan = store.BuildView(Query(), LiveTrafficState.Live).Sankey!.Nodes.Single(n => n.Column == 2 && n.Name == "LAN");
+
+        lan.Destinations!.Select(d => d.Ip).Should().Equal("192.0.2.30", "192.0.2.10");
+        lan.MoreDestinations.Should().Be(0);
+    }
+
+    [Fact]
     public void SankeyLinksClientsAppsAndRoutes()
     {
         var store = SeededStore();
