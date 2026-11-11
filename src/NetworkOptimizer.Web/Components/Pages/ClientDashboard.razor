@@ -366,11 +366,11 @@
                     {
                         @if (_canSetUpTailscale)
                         {
-                            <span class="identity-detail detail-dim"><a href="/settings?tab=connection#tailscale">Set Up Tailscale</a> to see this device's name, owner, and how it connects</span>
+                            <span class="identity-detail identity-note detail-dim"><a href="/settings?tab=connection#tailscale">Set Up Tailscale</a> to see this device's name, owner, and how it connects</span>
                         }
                         else
                         {
-                            <span class="identity-detail detail-dim">A Site Admin can set up Tailscale to show this device's name, owner, and how it connects</span>
+                            <span class="identity-detail identity-note detail-dim">A Site Admin can set up Tailscale to show this device's name, owner, and how it connects</span>
                         }
                     }
                     else
@@ -4825,6 +4825,11 @@
     }
     .identity-detail {
         white-space: nowrap;
+    }
+    /* A sentence in the detail row (the Tailscale setup line): it wraps, and on a phone spans the grid. */
+    .identity-row-2 .identity-note {
+        white-space: normal;
+        grid-column: 1 / -1;
     }
     .identity-figures {
         display: contents;
