@@ -13,7 +13,8 @@ namespace NetworkOptimizer.Web.Services.Tailscale;
 /// </summary>
 public sealed class TailnetFlowObserver(LiveTrafficRegistry liveTraffic, AgentTunnelRegistry tunnels, TailscaleDirectoryRegistry tailscale)
 {
-    private const string ViewerId = "tailscale-path";
+    /// <summary>Each read is its own viewer, so two at once never end each other's lease.</summary>
+    private static string NewViewerId() => "tailscale-path-" + Guid.NewGuid().ToString("N")[..8];
     private static readonly TimeSpan Watch = TimeSpan.FromSeconds(8);
     private static readonly TimeSpan Poll = TimeSpan.FromSeconds(1);
     /// <summary>A DERP connection idles with keepalives; below this rate it relays nothing.</summary>
@@ -29,13 +30,14 @@ public sealed class TailnetFlowObserver(LiveTrafficRegistry liveTraffic, AgentTu
 
         var store = liveTraffic.GetFor(slug);
         store.SetTailnet(snapshot, connected: true);
+        var viewerId = NewViewerId();
         var deadline = DateTime.UtcNow + Watch;
         try
         {
             while (true)
             {
                 var now = DateTime.UtcNow;
-                if (store.TouchViewer(ViewerId, now))
+                if (store.TouchViewer(viewerId, now))
                 {
                     foreach (var agent in agents)
                         agent.TrySend(new ServerMessage
@@ -53,7 +55,7 @@ public sealed class TailnetFlowObserver(LiveTrafficRegistry liveTraffic, AgentTu
         }
         finally
         {
-            if (store.ReleaseViewer(ViewerId, DateTime.UtcNow))
+            if (store.ReleaseViewer(viewerId, DateTime.UtcNow))
                 foreach (var agent in agents)
                     agent.TrySend(new ServerMessage { LiveTrafficConfig = new LiveTrafficConfig { LeaseSeconds = 0 } });
         }
