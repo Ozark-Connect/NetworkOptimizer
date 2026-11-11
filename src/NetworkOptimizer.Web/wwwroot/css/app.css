@@ -24687,7 +24687,8 @@ body:has(.top-bar-hidden) .btn-fit {
 }
 
 .no-icon-tailscale {
-    --no-icon: url("data:image/svg+xml,%3Csvg viewBox='0 0 24 24' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M24 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0zm-9 9a3 3 0 1 1-6 0 3 3 0 0 1 6 0zm0-9a3 3 0 1 1-6 0 3 3 0 0 1 6 0zm6-6a3 3 0 1 1 0-6 3 3 0 0 1 0 6zm0-.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5zM3 24a3 3 0 1 1 0-6 3 3 0 0 1 0 6zm0-.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5zm18 .5a3 3 0 1 1 0-6 3 3 0 0 1 0 6zm0-.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5zM6 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0zm9-9a3 3 0 1 1-6 0 3 3 0 0 1 6 0zm-3 2.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5zM6 3a3 3 0 1 1-6 0 3 3 0 0 1 6 0zM3 5.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5z'/%3E%3C/svg%3E");
+    /* The official mark (as VpnIcon draws it): faded dots filled at 20%, not the outlined rings that blur at 16px. */
+    --no-icon: url("data:image/svg+xml,%3Csvg viewBox='0 0 20 20' xmlns='http://www.w3.org/2000/svg'%3E%3Cellipse cx='2.45' cy='10.18' rx='2.45' ry='2.44'/%3E%3Cellipse cx='9.79' cy='10.18' rx='2.45' ry='2.44'/%3E%3Cellipse cx='17.13' cy='10.18' rx='2.45' ry='2.44'/%3E%3Cellipse cx='9.79' cy='17.51' rx='2.45' ry='2.44'/%3E%3Cellipse opacity='0.2' cx='2.45' cy='2.86' rx='2.45' ry='2.44'/%3E%3Cellipse opacity='0.2' cx='9.79' cy='2.86' rx='2.45' ry='2.44'/%3E%3Cellipse opacity='0.2' cx='17.13' cy='2.86' rx='2.45' ry='2.44'/%3E%3Cellipse opacity='0.2' cx='2.45' cy='17.51' rx='2.45' ry='2.44'/%3E%3Cellipse opacity='0.2' cx='17.13' cy='17.51' rx='2.45' ry='2.44'/%3E%3C/svg%3E");
 }
 
 .no-icon-backblaze {

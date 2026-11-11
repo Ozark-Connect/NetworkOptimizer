@@ -114,7 +114,7 @@ public class TailnetSnapshotTests
         var derp = new TailnetPathInfo { Kind = TailnetPathKind.Derp, Relay = "dfw", LastHandshake = Now.AddSeconds(-40), ReadAt = Now };
 
         TailnetDisplay.PathLabel(derp).Should().Be("Relayed (DERP dfw)");
-        TailnetDisplay.PathDetail(derp).Should().Contain("40 seconds before this was read");
+        TailnetDisplay.PathDetail(derp).Should().Contain("handshake 40 seconds before the read");
     }
 
     private static NetworkOptimizer.Web.Services.Monitoring.LiveTraffic.LiveFlowRow Row(string key, string? peer, long total, string? role = null, double bps = 0, string dest = "198.51.100.7") => new()

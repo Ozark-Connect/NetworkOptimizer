@@ -25,17 +25,21 @@ public static class TailnetDisplay
     public static string? PathDetail(TailnetPathInfo path)
     {
         var parts = new List<string>();
-        if (path.Kind == TailnetPathKind.Direct && !string.IsNullOrEmpty(path.Endpoint))
-            parts.Add($"Direct to {path.Endpoint}");
-        else if (path.Kind == TailnetPathKind.PeerRelay && !string.IsNullOrEmpty(path.Endpoint))
-            parts.Add($"Through the peer relay at {path.Endpoint}");
-        else if (path.Kind == TailnetPathKind.Derp)
-            parts.Add("No direct UDP path: traffic goes through Tailscale's relay");
-        // Relative to the read, not to now: a speed test result keeps the path it had at test time.
-        if (path.LastHandshake is { } at && path.ReadAt >= at)
-            parts.Add($"last handshake {TimeFormatHelper.FormatDurationExact(path.ReadAt - at)} before this was read");
-        return parts.Count == 0 ? null : string.Join(", ", parts);
+        if (PathEndpoint(path) is { } endpoint) parts.Add(endpoint);
+        else if (path.Kind == TailnetPathKind.Derp) parts.Add("No direct UDP path: traffic goes through Tailscale's relay");
+        if (PathHandshake(path) is { } handshake) parts.Add($"handshake {handshake}");
+        return parts.Count == 0 ? null : string.Join(" · ", parts);
     }
+
+    /// <summary>The direct endpoint or the peer relay's address; null on a DERP path.</summary>
+    public static string? PathEndpoint(TailnetPathInfo path) =>
+        path.Kind is TailnetPathKind.Direct or TailnetPathKind.PeerRelay && !string.IsNullOrEmpty(path.Endpoint) ? path.Endpoint : null;
+
+    /// <summary>"48 seconds before the read". Relative to the read, not to now: a speed test result keeps the path it had at test time.</summary>
+    public static string? PathHandshake(TailnetPathInfo path) =>
+        path.LastHandshake is { } at && path.ReadAt >= at
+            ? $"{TimeFormatHelper.FormatDurationExact(path.ReadAt - at)} before the read"
+            : null;
 
     /// <summary>"Received 1.2 GB, sent 34 MB" from this node's counters; null when they are not known.</summary>
     public static string? Traffic(TailnetPeer peer) =>
