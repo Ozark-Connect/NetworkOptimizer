@@ -223,13 +223,11 @@
                                 {
                                     @if (!string.IsNullOrEmpty(tailnetPeer.Os))
                                     {
-                                        <span class="meta-sep">·</span>
-                                        <span data-tooltip="OS">@tailnetPeer.Os</span>
+                                        <span class="identity-detail"><span class="meta-sep">·</span> <span data-tooltip="OS">@tailnetPeer.Os</span></span>
                                     }
                                     @if (TailnetDisplay.Owner(tailnetPeer) is { } owner)
                                     {
-                                        <span class="meta-sep">·</span>
-                                        <span data-tooltip="@(string.IsNullOrWhiteSpace(tailnetPeer.User) ? $"Tags: {owner}" : $"Owner: {owner}")">@TailnetDisplay.ShortOwner(owner)</span>
+                                        <span class="identity-detail"><span class="meta-sep">·</span> <span data-tooltip="@(string.IsNullOrWhiteSpace(tailnetPeer.User) ? $"Tags: {owner}" : $"Owner: {owner}")">@TailnetDisplay.ShortOwner(owner)</span></span>
                                     }
                                 }
                             </div>
