@@ -219,7 +219,10 @@ public sealed class OdiOssOntProvider : ISfpSupplementalOntProvider
             PloamStateRaw = known ? state : null,
             PonLinkStatus = known ? ToPonLinkState(state).ToInfluxValue() : null,
             OnuId = m.Long("gpon_onu_id"),
-            DsFecEnabled = m.Long("gpon_fec_active", ("direction", "ds")),
+            // The bit read in the counter sample is the one the frame and idle counts were taken under,
+            // so it is the one the load calculation needs; older exporters only have the status bit.
+            DsFecEnabled = m.Long("gpon_counter_sample_fec_active", ("direction", "ds"))
+                ?? m.Long("gpon_fec_active", ("direction", "ds")),
             UsFecEnabled = m.Long("gpon_fec_active", ("direction", "us")),
 
             // BIP-8 error blocks: what the REI reports to the OLT.

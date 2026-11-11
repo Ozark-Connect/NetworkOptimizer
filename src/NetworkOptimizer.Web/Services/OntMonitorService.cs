@@ -333,7 +333,9 @@ public class OntMonitorService : IOntMonitorService, IDisposable
                 {
                     _ = _alertEvaluator.EvaluatePathLossAsync(
                         config.Id, config.Name,
-                        NetworkOptimizer.Core.Models.PonSupplementalStats.PathLossDb(pon.OltLaunchPowerDbm, pon.RxPowerDbm), pon.OdnClass);
+                        NetworkOptimizer.Core.Models.PonSupplementalStats.PathLossDb(pon.OltLaunchPowerDbm, pon.RxPowerDbm), pon.OdnClass,
+                        priorLevel: NetworkOptimizer.Web.Services.Monitoring.OntAlertEvaluator.PriorPathLossFrom(
+                            _influx, "ont", ("ont_id", config.Id.ToString())));
                 }
 
                 _logger.LogDebug("ONT {Name} polled successfully: Rx={Rx} dBm", config.Name, stats.RxPowerDbm);

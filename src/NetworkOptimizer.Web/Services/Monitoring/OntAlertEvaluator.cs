@@ -121,6 +121,35 @@ public class OntAlertEvaluator
     private static readonly TimeSpan PathLossBaselineTime = TimeSpan.FromDays(1);
 
     /// <summary>The upper loss limit of each ODN class the PON-ID message can name (G.984.2), in dB.</summary>
+    /// <summary>How far back the stored history is read for the usual path loss after a restart.</summary>
+    internal static readonly TimeSpan PathLossPriorSpan = TimeSpan.FromDays(7);
+    /// <summary>Hourly means the history must hold before its median counts as the usual level.</summary>
+    internal const int PathLossPriorHours = 6;
+
+    /// <summary>
+    /// The usual path loss from stored hourly means: their median, so a fault of the last days
+    /// does not pull it up and still stands out against it. Null when the history is too short.
+    /// </summary>
+    internal static double? PriorPathLoss(IReadOnlyList<double> hourlyMeans)
+    {
+        if (hourlyMeans.Count < PathLossPriorHours) return null;
+        var sorted = hourlyMeans.OrderBy(v => v).ToList();
+        var mid = sorted.Count / 2;
+        return sorted.Count % 2 == 1 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+    }
+
+    /// <summary>The <c>priorLevel</c> source for <see cref="EvaluatePathLossAsync"/>: one query of the longterm history.</summary>
+    public static Func<CancellationToken, Task<double?>> PriorPathLossFrom(
+        NetworkOptimizer.Storage.Services.MonitoringInfluxClient influx, string measurement,
+        params (string Tag, string Value)[] tags) =>
+        async ct =>
+        {
+            var to = DateTime.UtcNow;
+            var series = await influx.QueryFieldSeriesAsync(
+                measurement, tags, "path_loss_db", to - PathLossPriorSpan, to, TimeSpan.FromHours(1), ct: ct);
+            return PriorPathLoss(series.Select(p => p.Value).ToList());
+        };
+
     private static readonly (string Name, double MaxDb)[] OdnClassLimits =
     {
         ("A", 20), ("B", 25), ("B+", 28), ("C", 30), ("C+", 32),
@@ -132,18 +161,38 @@ public class OntAlertEvaluator
     /// first is an absolute limit and needs the class; the second needs no class and catches a
     /// connector or splice going bad long before the budget is spent. The usual level is learned
     /// from the first readings after a start and then follows slowly, and it stands still while
-    /// the rise alert is raised, so a fault cannot become the new normal. It is kept in memory:
-    /// after a restart of the application a fault that is already there is learned as the level.
+    /// the rise alert is raised, so a fault cannot become the new normal. It is kept in memory,
+    /// so after a restart of the application <paramref name="priorLevel"/> is asked once for the
+    /// level the stored history shows; without it a fault that is already there is learned as the level.
     /// Only ONTs whose OLT announces its launch power reach here.
     /// </summary>
     public async ValueTask EvaluatePathLossAsync(
         int ontId, string ontName, double? pathLossDb, long? odnClass,
-        string? sourceUrl = null, DateTime? now = null, CancellationToken ct = default)
+        string? sourceUrl = null, DateTime? now = null, CancellationToken ct = default,
+        Func<CancellationToken, Task<double?>>? priorLevel = null)
     {
         if (pathLossDb is not double loss || !double.IsFinite(loss)) return;
         var state = _states.GetOrAdd(ontId, _ => new OntAlertState());
         if (!string.IsNullOrEmpty(sourceUrl)) state.SourceUrl = sourceUrl;
         var at = now ?? DateTime.UtcNow;
+
+        if (priorLevel is not null && !state.PathLossPriorAsked)
+        {
+            state.PathLossPriorAsked = true;
+            try
+            {
+                if (state.PathLossBaseline is null && await priorLevel(ct) is double prior && double.IsFinite(prior))
+                {
+                    state.PathLossBaseline = prior;
+                    state.PathLossBaselineCount = PathLossBaselineReadings;
+                    state.PathLossBaselineAt = at;
+                }
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                _logger.LogDebug(ex, "No stored path loss level for ONT {Name}; learning it from new readings", ontName);
+            }
+        }
 
         state.RecentPathLoss.Enqueue(loss);
         while (state.RecentPathLoss.Count > PathLossRecentReadings) state.RecentPathLoss.Dequeue();
@@ -523,6 +572,7 @@ public class OntAlertEvaluator
         /// <summary>0 inside the budget, 1 within the reserve of the limit, 2 over it.</summary>
         public int PathLossBudgetLevel;
         public bool PathLossRisen;
+        public bool PathLossPriorAsked;
         public double? PathLossBaseline;
         public int PathLossBaselineCount;
         public DateTime PathLossBaselineAt;

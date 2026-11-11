@@ -333,6 +333,46 @@ public class OntAlertEvaluatorTests
     }
 
     [Fact]
+    public async Task PathLoss_AfterARestart_TheStoredLevelIsAskedOnce_AndAFaultAlreadyThereIsRaised()
+    {
+        var (evaluator, bus) = Create();
+        var asked = 0;
+        Task<double?> Stored(CancellationToken _) { asked++; return Task.FromResult<double?>(19.8); }
+
+        for (var i = 0; i < 5; i++)
+            await evaluator.EvaluatePathLossAsync(1, "ONT", 22.3, 2, now: PathT0.AddMinutes(5 * i), priorLevel: Stored);
+
+        asked.Should().Be(1);
+        bus.Events.Should().ContainSingle(e => e.EventType == "ont.path_loss_rise")
+            .Which.ThresholdValue.Should().Be(21.8);
+    }
+
+    [Fact]
+    public async Task PathLoss_WithoutAStoredLevel_LearnsFromNewReadings()
+    {
+        var (evaluator, bus) = Create();
+        var asked = 0;
+        Task<double?> Fails(CancellationToken _) { asked++; throw new InvalidOperationException("no database"); }
+
+        for (var i = 0; i < 12; i++)
+            await evaluator.EvaluatePathLossAsync(1, "ONT", 22.3, 2, now: PathT0.AddMinutes(5 * i), priorLevel: Fails);
+        for (var i = 12; i < 16; i++)
+            await evaluator.EvaluatePathLossAsync(1, "ONT", 24.8, 2, now: PathT0.AddMinutes(5 * i),
+                priorLevel: _ => Task.FromResult<double?>(null));
+
+        asked.Should().Be(1, "a failed query is not repeated on every poll");
+        bus.Events.Should().ContainSingle(e => e.EventType == "ont.path_loss_rise");
+    }
+
+    [Fact]
+    public void PriorPathLoss_IsTheMedian_AndNeedsEnoughHours()
+    {
+        OntAlertEvaluator.PriorPathLoss(new[] { 19.8, 19.7, 19.9, 19.8, 19.8 }).Should().BeNull();
+        OntAlertEvaluator.PriorPathLoss(new[] { 19.8, 19.7, 19.9, 19.8, 23.0, 23.1, 19.8 }).Should().Be(19.8);
+        OntAlertEvaluator.PriorPathLoss(new[] { 19.0, 20.0, 19.0, 20.0, 19.0, 20.0 }).Should().Be(19.5);
+    }
+
+    [Fact]
     public async Task PathLoss_OneOutlierPoll_RaisesNothing()
     {
         var (evaluator, bus) = Create();

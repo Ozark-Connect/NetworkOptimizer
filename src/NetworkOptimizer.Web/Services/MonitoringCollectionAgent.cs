@@ -2810,7 +2810,9 @@ public class MonitoringCollectionAgent : BackgroundService
                             await _ontAlertEvaluator.EvaluatePathLossAsync(
                                 config.Id, config.Name,
                                 PonSupplementalStats.PathLossDb(stats.OltLaunchPowerDbm, stats.RxPowerDbm), stats.OdnClass,
-                                sourceUrl: sfpUrl, ct: ct);
+                                sourceUrl: sfpUrl, ct: ct,
+                                priorLevel: OntAlertEvaluator.PriorPathLossFrom(
+                                    _influx, "sfp", ("device_mac", sfp.DeviceMac), ("port_name", sfp.PortName)));
                         }
                         catch (Exception ex)
                         {

@@ -537,6 +537,23 @@ public class OdiOssOntProviderTests
         m.Long("s", ("direction", "us")).Should().BeNull();
     }
 
+    [Fact]
+    public void MapToSupplemental_DownstreamFec_PrefersTheBitFromTheCounterSample()
+    {
+        var statusOnly = OdiOssOntProvider.MapToSupplemental(Metrics("""
+            gpon_fec_active{direction="ds"} 1
+            """));
+        var both = OdiOssOntProvider.MapToSupplemental(Metrics("""
+            gpon_fec_active{direction="ds"} 1
+            gpon_fec_active{direction="us"} 1
+            gpon_counter_sample_fec_active{direction="ds"} 0
+            """));
+
+        statusOnly.DsFecEnabled.Should().Be(1, "an exporter without the sampled bit still reports FEC");
+        both.DsFecEnabled.Should().Be(0, "the sampled bit belongs to the counters the load is computed from");
+        both.UsFecEnabled.Should().Be(1);
+    }
+
     private const string RangingAndCpu = """
 
         gpon_ranging_eqd_bits 283549
