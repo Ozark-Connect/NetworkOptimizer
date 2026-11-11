@@ -36,7 +36,7 @@
             {
                 <span class="lan-flow-map-mode">Live</span>
             }
-            <button class="btn btn-secondary btn-sm lt-icon-btn" @onclick="TogglePause">
+            <button class="btn btn-secondary btn-sm lt-icon-btn lt-pause-btn" aria-label="@(_paused ? "Resume" : "Pause")" @onclick="TogglePause">
                 @if (_paused)
                 {
                     <svg viewBox="0 0 24 24" fill="currentColor"><path d="M7 5v14l12-7z" /></svg>

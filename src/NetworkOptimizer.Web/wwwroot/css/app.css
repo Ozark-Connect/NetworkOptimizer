@@ -24429,6 +24429,18 @@ body:has(.top-bar-hidden) .btn-fit {
     height: 14px;
 }
 
+@media (max-width: 768px) {
+    .lt-pause-btn {
+        width: 28px;
+        min-width: 0;
+        padding: 0;
+    }
+
+    .lt-pause-btn span {
+        display: none;
+    }
+}
+
 /* The app's .expand-chevron, inline beside a rank or a name instead of in its own cell. */
 .lt-chev {
     display: inline-block;
