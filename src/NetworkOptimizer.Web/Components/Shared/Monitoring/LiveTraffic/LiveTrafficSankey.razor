@@ -155,18 +155,22 @@ else
 
     /// <summary>
     /// A route node's hover card rows as JSON (name, address when it differs, and rates or a flow count),
-    /// for App.razor's card. Null for other columns and for a route with nothing moving.
+    /// for App.razor's card. Null for other columns and for a route with nothing moving. A LAN host is
+    /// a client too, so its rates read from its own side: what the source downloads, the host uploads.
     /// </summary>
-    private static string? RouteDestinations(LiveSankeyNode node, bool flows) =>
-        node.Column != 2 || node.Destinations is not { Count: > 0 } dests ? null
-        : System.Text.Json.JsonSerializer.Serialize(dests.Select(d => new
+    private static string? RouteDestinations(LiveSankeyNode node, bool flows)
+    {
+        if (node.Column != 2 || node.Destinations is not { Count: > 0 } dests) return null;
+        var hostSide = node.RouteKind == LiveRouteKind.Lan;
+        return System.Text.Json.JsonSerializer.Serialize(dests.Select(d => new
         {
             n = d.Name,
             ip = d.Ip != null && !d.Ip.Equals(d.Name, StringComparison.OrdinalIgnoreCase) ? d.Ip : null,
-            d = flows ? null : SubRate(d.DownBps),
-            u = flows ? null : SubRate(d.UpBps),
+            d = flows ? null : SubRate(hostSide ? d.UpBps : d.DownBps),
+            u = flows ? null : SubRate(hostSide ? d.DownBps : d.UpBps),
             f = flows ? TimeFormatHelper.Pluralize((int)d.Value, "flow") : null,
         }));
+    }
 
     private static string F2(double v) => v.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture);
 
