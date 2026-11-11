@@ -100,6 +100,21 @@ public class ConfigDiffEngineTests
     }
 
     [Fact]
+    public void TeleportAddresses_AreReadOnly_ButEnabledIsStillAChange()
+    {
+        const string Before = """{"_id":"s1","key":"teleport","enabled":true,"subnet_cidr":"192.0.2.1/24","server_ip":"192.0.2.1"}""";
+        var moved = State(("setting", """{"_id":"s1","key":"teleport","enabled":true,"subnet_cidr":"198.51.100.1/24","server_ip":"198.51.100.1"}"""));
+        ConfigDiffEngine.Compare(State(("setting", Before)), moved).IsEmpty.Should().BeTrue();
+
+        var off = State(("setting", """{"_id":"s1","key":"teleport","enabled":false,"subnet_cidr":"192.0.2.1/24","server_ip":"192.0.2.1"}"""));
+        ConfigDiffEngine.Compare(State(("setting", Before)), off).Objects.Single().Fields.Single().Path.Should().Be("enabled");
+
+        // Only Teleport's: another setting's server_ip is ordinary config.
+        var setting = ConfigCollections.Get("setting")!;
+        setting.IsReadOnly(System.Text.Json.Nodes.JsonNode.Parse("""{"key":"radius","server_ip":"192.0.2.5"}""")!.AsObject(), "server_ip").Should().BeFalse();
+    }
+
+    [Fact]
     public void FirewallGroupSource_MissingEqualsStatic_ButDynamicDiffers()
     {
         var none = State(("firewallgroup", """{"_id":"g1","name":"SNMP","group_type":"port-group","group_members":["161"]}"""));

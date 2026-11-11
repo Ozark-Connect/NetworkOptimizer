@@ -59,7 +59,7 @@
                                 data-tooltip="Clear-text secrets: Wi-Fi passphrases, VPN keys, RADIUS secrets. Store it like a password. The export is audited." aria-label="Download YAML with Secrets">@DownloadIcon(true) YAML w/ Secrets</button>
                     </SiteAdminOnly>
                 }
-                <button class="btn btn-contrast btn-sm" disabled="@(_edited.Count == 0)" @onclick="DiscardAsync">Discard Edits</button>
+                <button class="btn btn-danger btn-sm" disabled="@(_edited.Count == 0)" @onclick="DiscardAsync">Discard Edits</button>
                 </span>
             </div>
         </div>
