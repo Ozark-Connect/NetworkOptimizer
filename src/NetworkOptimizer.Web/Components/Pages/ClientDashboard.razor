@@ -1800,6 +1800,7 @@
                     await InvokeAsync(async () =>
                     {
                         await RefreshVpnSpeedAsync();
+                        await RefreshVpnTailnetAsync();
                         StateHasChanged();
                     });
                 }
@@ -1823,6 +1824,7 @@
                     await InvokeAsync(async () =>
                     {
                         await RefreshVpnSpeedAsync();
+                        await RefreshVpnTailnetAsync();
                         StateHasChanged();
                     });
                     return;
@@ -2358,6 +2360,17 @@
             var user = (await AuthState).User;
             _canSetUpTailscale = (await Authz.AuthorizeAsync(user, SiteContext.Slug, Policies.SiteAdmin)).Succeeded;
         }
+    }
+
+    /// <summary>
+    /// The VPN view's poll skips the identity poll, so the Tailscale details are re-read here: a cached
+    /// read that picks up an agent that connected after the page opened, and the path and counters it adds.
+    /// </summary>
+    private async Task RefreshVpnTailnetAsync()
+    {
+        if (_client is not { VpnType: HopType.Tailscale } client || string.IsNullOrEmpty(client.Ip)) return;
+        await LoadPickerTailnetAsync();
+        if (_pickerTailnet.Peer(client.Ip) is { } peer) client.Tailnet = peer;
     }
 
     private async Task ReadTailnetPathAsync(string? ip)
