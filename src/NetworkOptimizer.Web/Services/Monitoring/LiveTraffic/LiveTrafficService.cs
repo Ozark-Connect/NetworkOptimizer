@@ -351,6 +351,20 @@ public sealed class LiveTrafficService : ILiveTrafficService
                 var (routes, primary) = await LoadRoutesAsync(slug);
                 store.SetSiteData(infos, gatewayIps, gateway?.Name, routes, primary);
 
+                // Offline clients, so a flow to a LAN device that dropped off still shows its name.
+                if (store.RecentClientsDue(DateTime.UtcNow))
+                {
+                    try
+                    {
+                        var history = await client.GetClientHistoryAsync(withinHours: (int)LiveTrafficStore.RecentClientIpMaxAge.TotalHours);
+                        store.SetRecentClients(LiveTrafficStore.RecentClients(history, DateTime.UtcNow));
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogDebug(ex, "Live Traffic: client history read failed for site {Slug}", slug);
+                    }
+                }
+
                 var networks = await client.GetNetworkConfigsAsync();
                 store.SetSiteNetworks(networks.SelectMany(n => new[] { n.IpSubnet, n.Ipv6Subnet }).OfType<string>());
                 store.SetNetworkPurposes(networks.Select(n => (n.IpSubnet, (string?)n.Purpose)).ToList());

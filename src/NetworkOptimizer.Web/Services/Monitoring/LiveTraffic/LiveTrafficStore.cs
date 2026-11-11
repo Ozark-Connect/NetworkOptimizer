@@ -89,6 +89,16 @@ public sealed class LiveTrafficStore
 
     private Dictionary<string, LiveClientInfo> _clientsByMac = new(StringComparer.OrdinalIgnoreCase);
     private Dictionary<string, string> _macByIp = new(StringComparer.OrdinalIgnoreCase);
+    private IReadOnlyCollection<LiveClientInfo> _onlineClients = Array.Empty<LiveClientInfo>();
+    private IReadOnlyCollection<LiveClientInfo> _recentClients = Array.Empty<LiveClientInfo>();
+    private DateTime _lastRecentClientsAt = DateTime.MinValue;
+    private static readonly TimeSpan RecentClientsEvery = TimeSpan.FromMinutes(5);
+
+    /// <summary>
+    /// How long an offline client's last address still names it. Past that the lease may have moved to
+    /// another device; LAN Flow Map and the Client Performance picker make the same bet.
+    /// </summary>
+    internal static readonly TimeSpan RecentClientIpMaxAge = TimeSpan.FromHours(48);
     private Dictionary<string, LiveRouteInfo> _routesByIfname = new(StringComparer.OrdinalIgnoreCase);
     private LiveRouteInfo? _defaultRoute;
     private HashSet<string> _gatewayIps = new(StringComparer.OrdinalIgnoreCase);
@@ -274,14 +284,8 @@ public sealed class LiveTrafficStore
         {
             if (clients != null)
             {
-                _clientsByMac = clients
-                    .Where(c => !string.IsNullOrEmpty(c.Mac))
-                    .GroupBy(c => c.Mac, StringComparer.OrdinalIgnoreCase)
-                    .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
-                _macByIp = clients
-                    .Where(c => !string.IsNullOrEmpty(c.Ip) && !string.IsNullOrEmpty(c.Mac))
-                    .GroupBy(c => c.Ip, StringComparer.OrdinalIgnoreCase)
-                    .ToDictionary(g => g.Key, g => g.First().Mac, StringComparer.OrdinalIgnoreCase);
+                _onlineClients = clients;
+                RebuildClientMaps();
             }
             if (gatewayIps != null) _gatewayIps = new HashSet<string>(gatewayIps, StringComparer.OrdinalIgnoreCase);
             if (!string.IsNullOrWhiteSpace(gatewayName)) _gatewayName = gatewayName!;
@@ -289,6 +293,69 @@ public sealed class LiveTrafficStore
                 _routesByIfname = new Dictionary<string, LiveRouteInfo>(routesByIfname, StringComparer.OrdinalIgnoreCase);
             if (defaultRoute != null) _defaultRoute = defaultRoute;
         }
+    }
+
+    /// <summary>Whether the offline clients are due a refresh: they change slowly, and client history is a heavy read.</summary>
+    public bool RecentClientsDue(DateTime now)
+    {
+        lock (_gate)
+        {
+            if (now - _lastRecentClientsAt < RecentClientsEvery) return false;
+            _lastRecentClientsAt = now;
+            return true;
+        }
+    }
+
+    /// <summary>
+    /// Clients not connected now, newest sighting first, so a flow to one (a LAN device that dropped
+    /// off) still shows its name. They fill in only where no connected client has that MAC or address.
+    /// </summary>
+    public void SetRecentClients(IReadOnlyCollection<LiveClientInfo> recent)
+    {
+        lock (_gate)
+        {
+            _recentClients = recent;
+            RebuildClientMaps();
+        }
+    }
+
+    /// <summary>
+    /// Offline clients from the console's client history, newest sighting first: named as the console
+    /// names them, with an address only when seen within <see cref="RecentClientIpMaxAge"/>.
+    /// </summary>
+    [NetworkOptimizer.Core.VendorSpecific("UniFi", "v2 clients/history name, display_name, hostname, last_ip, last_seen")]
+    internal static IReadOnlyList<LiveClientInfo> RecentClients(IEnumerable<UniFiClientDetailResponse> history, DateTime now)
+    {
+        var cutoff = now - RecentClientIpMaxAge;
+        return history
+            .Where(c => !string.IsNullOrEmpty(c.Mac) && !string.IsNullOrEmpty(c.BestIp)
+                && c.LastSeen > 0 && DateTimeOffset.FromUnixTimeSeconds(c.LastSeen).UtcDateTime >= cutoff)
+            .OrderByDescending(c => c.LastSeen)
+            .Select(c => new LiveClientInfo(NormalizeMac(c.Mac),
+                !string.IsNullOrWhiteSpace(c.Name) ? c.Name! : !string.IsNullOrWhiteSpace(c.DisplayName) ? c.DisplayName!
+                    : !string.IsNullOrWhiteSpace(c.Hostname) ? c.Hostname! : c.BestIp!,
+                c.BestIp!, null, null))
+            .ToList();
+    }
+
+    // Connected clients first; an offline one only fills a MAC and an address no connected client holds.
+    private void RebuildClientMaps()
+    {
+        var byMac = _onlineClients
+            .Where(c => !string.IsNullOrEmpty(c.Mac))
+            .GroupBy(c => c.Mac, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
+        var macByIp = _onlineClients
+            .Where(c => !string.IsNullOrEmpty(c.Ip) && !string.IsNullOrEmpty(c.Mac))
+            .GroupBy(c => c.Ip, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(g => g.Key, g => g.First().Mac, StringComparer.OrdinalIgnoreCase);
+        foreach (var c in _recentClients)
+        {
+            if (string.IsNullOrEmpty(c.Mac) || !byMac.TryAdd(c.Mac, c)) continue;
+            if (!string.IsNullOrEmpty(c.Ip)) macByIp.TryAdd(c.Ip, c.Mac);
+        }
+        _clientsByMac = byMac;
+        _macByIp = macByIp;
     }
 
     /// <summary>

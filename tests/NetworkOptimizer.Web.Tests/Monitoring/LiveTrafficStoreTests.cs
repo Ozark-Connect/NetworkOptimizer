@@ -217,6 +217,69 @@ public class LiveTrafficStoreTests
         view.Flows.Should().OnlyContain(f => f.App == "Example Org" && f.RemoteOrg == "Example Org");
     }
 
+    private const string Printer = "aa:bb:cc:dd:ee:03";
+
+    private static UniFiClientDetailResponse Seen(string mac, string ip, DateTime lastSeen, string? name = null,
+        string? displayName = null, string? hostname = null) => new()
+    {
+        Mac = mac,
+        LastIp = ip,
+        Name = name,
+        DisplayName = displayName,
+        Hostname = hostname,
+        LastSeen = new DateTimeOffset(lastSeen).ToUnixTimeSeconds(),
+    };
+
+    [Fact]
+    public void AnOfflineClientStillNamesTheDestination()
+    {
+        var now = DateTime.UtcNow;
+        var store = SeededStore();
+        store.SetRecentClients(LiveTrafficStore.RecentClients([Seen(Printer, "192.0.2.30", now.AddHours(-3), name: "Office Printer")], now));
+        store.Ingest(Batch(Flow("a", Laptop, "192.0.2.20", "192.0.2.30", 9100, "", 1000, 10, lan: true)));
+
+        store.BuildView(Query(), LiveTrafficState.Live).Flows.Single().Destination.Should().Be("Office Printer");
+    }
+
+    [Fact]
+    public void AConnectedClientOnTheAddressBeatsTheOfflineOneThatHadIt()
+    {
+        var now = DateTime.UtcNow;
+        var store = SeededStore();
+        store.SetRecentClients(LiveTrafficStore.RecentClients([Seen(Printer, "192.0.2.10", now.AddHours(-1), name: "Old Printer")], now));
+        store.Ingest(Batch(Flow("a", Laptop, "192.0.2.20", "192.0.2.10", 445, "", 1000, 10, lan: true)));
+
+        store.BuildView(Query(), LiveTrafficState.Live).Flows.Single().Destination.Should().Be("NAS");
+    }
+
+    [Fact]
+    public void AConnectedClientKeepsItsOwnRecordOverItsHistory()
+    {
+        var now = DateTime.UtcNow;
+        var store = SeededStore();
+        // The NAS's history entry is an older address and name; neither replaces the connected record.
+        store.SetRecentClients(LiveTrafficStore.RecentClients([Seen(Nas, "192.0.2.99", now.AddHours(-1), name: "Old NAS")], now));
+        store.Ingest(Batch(Flow("a", Laptop, "192.0.2.20", "192.0.2.99", 445, "", 1000, 10, lan: true)));
+
+        store.BuildView(Query(), LiveTrafficState.Live).Flows.Single().Destination.Should().Be("192.0.2.99");
+    }
+
+    [Fact]
+    public void RecentClientsTakeOnlyAddressesSeenWithinTheWindowNewestFirst()
+    {
+        var now = DateTime.UtcNow;
+        var recent = LiveTrafficStore.RecentClients(
+        [
+            Seen("aa:bb:cc:dd:ee:10", "192.0.2.40", now.AddHours(-60), name: "Stale"),
+            Seen("aa:bb:cc:dd:ee:11", "192.0.2.41", now.AddHours(-5), displayName: "Vendor, Inc. ee:11"),
+            Seen("AA-BB-CC-DD-EE-12", "192.0.2.41", now.AddHours(-1), hostname: "sensor"),
+        ], now);
+
+        recent.Select(c => (c.Mac, c.Name, c.Ip)).Should().Equal(
+            ("aa:bb:cc:dd:ee:12", "sensor", "192.0.2.41"),
+            ("aa:bb:cc:dd:ee:11", "Vendor, Inc. ee:11", "192.0.2.41"));
+    }
+
     [Fact]
     public void AppleOwnedAddressIsAppleAndStillHttpsUnderAnAppFilter()
     {
