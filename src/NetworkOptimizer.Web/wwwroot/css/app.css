@@ -25926,11 +25926,17 @@ body:has(.top-bar-hidden) .btn-fit {
         margin-left: 0;
     }
 
-    /* The presets share the search row; the shorter hint replaces the placeholder, which CSS cannot reword. */
+    /* The presets share the search row and the pills wrap below it: the search leaves room for the presets
+       alone. The shorter hint replaces the placeholder, which CSS cannot reword. */
     .lt-filterbar .lt-search {
-        flex: 1 1 0;
+        order: -2;
+        flex: 1 1 calc(100% - 8rem);
         min-width: 0;
         max-width: none;
+    }
+
+    .lt-filterbar .filter-presets {
+        order: -1;
     }
 
     .lt-search .form-control::placeholder {
