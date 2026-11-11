@@ -142,6 +142,8 @@ public static class DpiCatalog
         ["NTP"] = "fa-solid fa-clock",
         ["HTTP"] = "fa-solid fa-globe",
         ["HTTPS"] = "fa-solid fa-globe",
+        ["HTTP-Alt"] = "fa-solid fa-globe",
+        ["HTTPS-Alt"] = "fa-solid fa-globe",
         ["Web Streaming"] = "fa-solid fa-play",
         ["ICMP"] = "no-icon no-icon-icmp",
         ["eBay"] = "fa-brands fa-ebay",
