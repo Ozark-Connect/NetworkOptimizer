@@ -515,6 +515,45 @@ sudo systemctl enable --now netopt-agent
 journalctl -u netopt-agent -f
 ```
 
+### Run as a service (macOS, launchd)
+
+There is no macOS installer or release asset: build `osx-arm64` from source. Apple Silicon kills an
+unsigned binary on launch, so sign it ad hoc after every copy:
+
+```bash
+sudo mkdir -p /usr/local/netopt-agent
+sudo cp NetworkOptimizer.Agent agent.json /usr/local/netopt-agent/
+sudo codesign --force --sign - /usr/local/netopt-agent/NetworkOptimizer.Agent
+sudo chmod 600 /usr/local/netopt-agent/agent.json
+```
+
+```xml
+<!-- /Library/LaunchDaemons/net.ozarkconnect.netopt-agent.plist -->
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key><string>net.ozarkconnect.netopt-agent</string>
+    <key>ProgramArguments</key><array><string>/usr/local/netopt-agent/NetworkOptimizer.Agent</string></array>
+    <key>WorkingDirectory</key><string>/usr/local/netopt-agent</string>
+    <key>RunAtLoad</key><true/>
+    <key>KeepAlive</key><true/>
+    <key>StandardOutPath</key><string>/usr/local/netopt-agent/agent.log</string>
+    <key>StandardErrorPath</key><string>/usr/local/netopt-agent/agent.log</string>
+</dict>
+</plist>
+```
+
+```bash
+sudo launchctl bootstrap system /Library/LaunchDaemons/net.ozarkconnect.netopt-agent.plist
+sudo launchctl kickstart -k system/net.ozarkconnect.netopt-agent   # restart
+tail -f /usr/local/netopt-agent/agent.log
+```
+
+On macOS the agent reads the host's Tailscale (paths and traffic counters) but not routed traffic,
+which needs Linux conntrack, as Live Traffic capture does. There is no macOS `uwnspeedtest`, so leave
+the WAN speed test to another agent.
+
 ## Reverse proxy
 
 The central server never serves TLS itself - it binds plain HTTP on 8042 by
