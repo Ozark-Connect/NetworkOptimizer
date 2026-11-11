@@ -184,6 +184,8 @@ public sealed class OdiOssOntProvider : ISfpSupplementalOntProvider
             },
             FecErrors = pon.FecErrors,
             BipErrors = pon.BipErrors,
+            OltVendor = pon.OltVendorId,
+            OltModel = pon.OltModel,
             Pon = pon,
         };
     }
@@ -281,6 +283,10 @@ public sealed class OdiOssOntProvider : ISfpSupplementalOntProvider
 
             SfpUptimeS = uptime is >= 0 and < long.MaxValue ? (long)Math.Floor(uptime.Value) : null,
             FirmwareVersion = Clean(m.Label("gpon_image_info", "image")),
+            // The OLT-G entity, as the OLT wrote it; an empty label is a field the OLT left blank.
+            OltVendorId = Clean(m.Label("gpon_olt_info", "vendor")),
+            OltModel = Clean(m.Label("gpon_olt_info", "equipment_id")),
+            OltVersion = Clean(m.Label("gpon_olt_info", "version")),
         };
     }
 

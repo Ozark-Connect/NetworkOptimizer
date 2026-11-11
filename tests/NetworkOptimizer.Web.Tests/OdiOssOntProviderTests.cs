@@ -554,6 +554,21 @@ public class OdiOssOntProviderTests
         both.UsFecEnabled.Should().Be(1);
     }
 
+    [Fact]
+    public void MapToSupplemental_OltInfo_IsReadFromTheLabels_AndABlankFieldStaysUnknown()
+    {
+        var pon = OdiOssOntProvider.MapToSupplemental(Metrics("""
+            gpon_olt_info{vendor="HWTC",version="10",equipment_id=""} 1
+            """));
+        var without = OdiOssOntProvider.MapToSupplemental(Metrics(Scrape));
+
+        pon.OltVendorId.Should().Be("HWTC");
+        pon.OltVersion.Should().Be("10");
+        pon.OltModel.Should().BeNull();
+        without.OltVendorId.Should().BeNull("an exporter up to v1.9.0 does not serve the family");
+        without.OltVersion.Should().BeNull();
+    }
+
     private const string RangingAndCpu = """
 
         gpon_ranging_eqd_bits 283549
