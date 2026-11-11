@@ -21498,6 +21498,7 @@ body.kiosk-mode .status-indicators {
 .shp-delta {
     font-size: 0.8125rem;
     font-weight: 500;
+    margin-right: 0.25rem;
 }
 
 .shp-delta.down { color: var(--danger-color); }
