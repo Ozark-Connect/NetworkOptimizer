@@ -115,7 +115,8 @@ public sealed class TailscaleDirectoryRegistry : ISiteScopedRegistry
     {
         var state = State(slug);
         // At most a few seconds: a slow control server finishes in the background instead of holding the page.
-        if (state.Status == null)
+        // Also waits for an agent that connected since the last search, so the answer includes it.
+        if (state.Status == null || (state.Status.Enabled && state.Agent == null && HasUnaskedAgent(slug, state)))
             await Task.WhenAny(RefreshAsync(slug, state, force: false, CancellationToken.None), Task.Delay(FirstReadWait, ct));
         return Get(slug);
     }
@@ -289,7 +290,10 @@ public sealed class TailscaleDirectoryRegistry : ISiteScopedRegistry
             foreach (var agent in capable)
             {
                 try { answered.Add((agent, await AskStatusAsync(slug, agent.AgentId, ct))); }
-                catch (TailscaleLocalException) { /* No Tailscale on this agent's host. */ }
+                catch (TailscaleLocalException ex)
+                {
+                    _logger.LogDebug("No Tailscale read on agent {Agent} for site {Site}: {Reason}", agent.AgentName, slug, ex.Message);
+                }
             }
             if (answered.Count > 0)
             {
