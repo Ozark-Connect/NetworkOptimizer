@@ -629,7 +629,9 @@
                 appendTo: document.body,
                 maxWidth: 'min(100vw - 10px, 400px)',
                 onShow: function (instance) {
-                    if (innerTipHovered(cell)) return false;
+                    // Tippy's own hover delay can fire after a navigation took the cell away (a card
+                    // link was clicked): shown then, the card strands at the top left of the next page.
+                    if (!cell.isConnected || innerTipHovered(cell)) return false;
                     // Null: the cell no longer carries this card (a renamed app keeps its element).
                     var content = html(cell);
                     if (content == null) return false;
@@ -720,7 +722,7 @@
                 // Tippy calls a content function once, at creation; Blazor reuses this element for
                 // whatever row lands in its place, so the text is read again on every show.
                 onShow: function (instance) {
-                    if (el.scrollWidth <= el.clientWidth + 1) return false;
+                    if (!el.isConnected || el.scrollWidth <= el.clientWidth + 1) return false;
                     instance.setContent((el.textContent || '').trim());
                 },
                 // A live list rewrites the row under an open tooltip: follow the text while it shows.
