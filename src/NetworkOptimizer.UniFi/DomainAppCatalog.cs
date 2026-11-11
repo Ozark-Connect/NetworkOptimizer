@@ -201,6 +201,9 @@ public static class DomainAppCatalog
         // An IKEA DIRIGERA hub advertises its HomeKit (HAP) server on 8000: a home hub's session to it.
         // 8000 is also every dev server and Hikvision's SDK port, so only to an IKEA device.
         ("tcp", 8000) when remoteVendor != null && remoteVendor.StartsWith("IKEA", StringComparison.OrdinalIgnoreCase) => "HomeKit",
+        // AirPlay's control port on a receiver (Apple TV, HomePod, a Mac with AirPlay Receiver). Cassandra
+        // and dev tools use 7000 too, so only to an Apple device.
+        ("tcp", 7000) when remoteVendor != null && remoteVendor.StartsWith("Apple", StringComparison.OrdinalIgnoreCase) => "AirPlay",
         _ => null,
     };
 

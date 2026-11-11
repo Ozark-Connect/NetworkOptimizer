@@ -106,6 +106,15 @@ public class DomainAppCatalogTests
         DomainAppCatalog.LanApp(proto, port, vendor).Should().Be(expected);
 
     [Theory]
+    [InlineData("tcp", 7000, "Apple", "AirPlay")]          // an Apple TV, HomePod, or a Mac receiving
+    [InlineData("tcp", 7000, "Apple, Inc.", "AirPlay")]
+    [InlineData("tcp", 7000, "Super Micro", null)]         // a Cassandra node
+    [InlineData("tcp", 7000, null, null)]                  // a dev tool: never by port alone
+    [InlineData("udp", 7000, "Apple", null)]
+    public void AirPlayOnlyToAnAppleDevice(string proto, int port, string? vendor, string? expected) =>
+        DomainAppCatalog.LanApp(proto, port, vendor).Should().Be(expected);
+
+    [Theory]
     [InlineData("rr3---sn-abc.googlevideo.com", 64496, "Example ISP", "Google Global Cache")] // embedded GGC
     [InlineData("rr3---sn-abc.googlevideo.com", 15169, "Google LLC", null)]          // Google's own network
     [InlineData("rr3---sn-abc.googlevideo.com", 396982, "Google LLC", null)]         // an owner ASN not listed: its name says Google
