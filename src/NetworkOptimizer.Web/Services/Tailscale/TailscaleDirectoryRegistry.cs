@@ -356,7 +356,6 @@ public sealed class TailscaleDirectoryRegistry : ISiteScopedRegistry
             Enabled = await Get(TailscaleSettingKeys.Enabled) == "true",
             ControlServer = Enum.TryParse<TailnetControlServer>(await Get(TailscaleSettingKeys.ControlServer), out var cs) ? cs : TailnetControlServer.Tailscale,
             ClientId = await Get(TailscaleSettingKeys.ClientId) ?? "",
-            Tailnet = await Get(TailscaleSettingKeys.Tailnet) ?? "",
             HeadscaleUrl = await Get(TailscaleSettingKeys.HeadscaleUrl) ?? "",
             HasClientSecret = !string.IsNullOrEmpty(clientSecret),
             HasHeadscaleKey = !string.IsNullOrEmpty(headscaleKey),
@@ -372,7 +371,6 @@ public sealed class TailscaleDirectoryRegistry : ISiteScopedRegistry
         await Set(TailscaleSettingKeys.Enabled, s.Enabled ? "true" : "false");
         await Set(TailscaleSettingKeys.ControlServer, s.ControlServer.ToString());
         await Set(TailscaleSettingKeys.ClientId, s.ClientId.Trim());
-        await Set(TailscaleSettingKeys.Tailnet, s.Tailnet.Trim());
         await Set(TailscaleSettingKeys.HeadscaleUrl, s.HeadscaleUrl.Trim());
         if (!string.IsNullOrWhiteSpace(update.ClientSecret))
             await Set(TailscaleSettingKeys.ClientSecret, _credentials.EncryptForSite(update.ClientSecret.Trim(), slug));
@@ -396,12 +394,12 @@ public sealed class TailscaleDirectoryRegistry : ISiteScopedRegistry
         if (string.IsNullOrWhiteSpace(s.ClientId) || string.IsNullOrWhiteSpace(stored.ClientSecret))
             throw new TailnetDirectoryException("Enter the OAuth client ID and secret.");
         // The client keeps its token for the hour it lives; a test builds its own and keeps nothing.
-        var key = $"{s.ClientId}|{stored.ClientSecret}|{s.Tailnet}";
+        var key = $"{s.ClientId}|{stored.ClientSecret}";
         TailscaleApiClient api;
         if (cacheIn != null && cacheIn.Api != null && cacheIn.ApiKey == key) api = cacheIn.Api;
         else
         {
-            api = new TailscaleApiClient(http, s.ClientId, stored.ClientSecret, s.Tailnet);
+            api = new TailscaleApiClient(http, s.ClientId, stored.ClientSecret);
             if (cacheIn != null) (cacheIn.Api, cacheIn.ApiKey) = (api, key);
         }
         return await api.GetDevicesAsync(ct);

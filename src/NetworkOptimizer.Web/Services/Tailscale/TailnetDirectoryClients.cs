@@ -37,24 +37,22 @@ public sealed class TailscaleApiClient
     private readonly HttpClient _http;
     private readonly string _clientId;
     private readonly string _clientSecret;
-    private readonly string _tailnet;
-    private string? _token;
+   private string? _token;
     private DateTime _tokenExpires;
 
-    public TailscaleApiClient(HttpClient http, string clientId, string clientSecret, string? tailnet)
+    public TailscaleApiClient(HttpClient http, string clientId, string clientSecret)
     {
         _http = http;
         _clientId = clientId.Trim();
         _clientSecret = clientSecret.Trim();
-        _tailnet = string.IsNullOrWhiteSpace(tailnet) ? "-" : tailnet.Trim();
-    }
+   }
 
     /// <summary>Every device in the tailnet, with routes and endpoints (<c>fields=all</c>).</summary>
     public async Task<IReadOnlyList<TailnetDevice>> GetDevicesAsync(CancellationToken ct)
     {
         var token = await TokenAsync(ct);
         using var request = new HttpRequestMessage(HttpMethod.Get,
-            $"{ApiBase}/tailnet/{Uri.EscapeDataString(_tailnet)}/devices?fields=all");
+            $"{ApiBase}/tailnet/-/devices?fields=all");
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
         using var response = await TailnetHttp.SendAsync(_http, request, ct);
         if (response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
@@ -63,7 +61,7 @@ public sealed class TailscaleApiClient
             throw new TailnetDirectoryException("The Tailscale API refused the device list. The OAuth client needs the Devices Core read scope (devices:core:read).");
         }
         if (response.StatusCode == HttpStatusCode.NotFound)
-            throw new TailnetDirectoryException($"The Tailscale API has no tailnet \"{_tailnet}\" for this OAuth client.");
+            throw new TailnetDirectoryException("The Tailscale API found no tailnet for this OAuth credential.");
         TailnetHttp.EnsureOk(response, "The Tailscale API");
         var body = await response.Content.ReadFromJsonAsync<DeviceList>(Json, ct);
         return (body?.Devices ?? []).Select(Map).ToList();

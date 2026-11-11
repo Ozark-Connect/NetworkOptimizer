@@ -57,11 +57,6 @@
                     <label class="form-label">OAuth Client Secret</label>
                     <input type="password" class="form-control" @bind="_clientSecret" @bind:event="oninput" autocomplete="new-password" placeholder="@(_saved.HasClientSecret ? "Saved - enter new to update" : "tskey-client-...")" data-1p-ignore data-lpignore="true" data-bwignore />
                 </div>
-                <div class="form-group">
-                    <label class="form-label">Tailnet</label>
-                    <input type="text" class="form-control" @bind="_tailnet" @bind:event="oninput" placeholder="-" autocomplete="off" />
-                    <small class="form-help">Leave empty for the OAuth client's own tailnet.</small>
-                </div>
             }
             else
             {
@@ -127,7 +122,6 @@
     private TailnetControlServer _controlServer = TailnetControlServer.Tailscale;
     private string _clientId = "";
     private string _clientSecret = "";
-    private string _tailnet = "";
     private string _headscaleUrl = "";
     private string _headscaleKey = "";
     private bool _saving;
@@ -151,7 +145,7 @@
     private void Load(TailscaleSettings s)
     {
         _saved = s;
-        (_enabled, _controlServer, _clientId, _tailnet, _headscaleUrl) = (s.Enabled, s.ControlServer, s.ClientId, s.Tailnet, s.HeadscaleUrl);
+        (_enabled, _controlServer, _clientId, _headscaleUrl) = (s.Enabled, s.ControlServer, s.ClientId, s.HeadscaleUrl);
     }
 
     private TailscaleSettingsUpdate Draft() => new(
@@ -160,7 +154,6 @@
             Enabled = _enabled,
             ControlServer = _controlServer,
             ClientId = _clientId,
-            Tailnet = _tailnet,
             HeadscaleUrl = _headscaleUrl,
         },
         _clientSecret, _headscaleKey);
