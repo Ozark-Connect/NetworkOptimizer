@@ -687,7 +687,7 @@ public sealed class LiveTrafficStore
             ?? DomainAppCatalog.TailscaleApp(proto, f.ClientPort, f.RemotePort) ?? deviceApp ?? match?.App ?? DomainAppCatalog.AppFor(hostName)
             ?? destinationApp ?? neighborApp
             ?? DomainAppCatalog.SpeedtestApp(hostName, proto, f.RemotePort)
-            ?? (f.Lan ? DomainAppCatalog.LanApp(proto, f.RemotePort, peer?.Vendor) : DomainAppCatalog.WifiCalling(proto, f.RemotePort, org) ?? DomainAppCatalog.OwnerApp(org))
+            ?? (f.Lan ? DomainAppCatalog.LanApp(proto, f.RemotePort, peer?.Vendor) : DomainAppCatalog.WifiCalling(proto, f.RemotePort, org) ?? DomainAppCatalog.OwnerApp(org) ?? DomainAppCatalog.HostingApp(hostName))
             // The client end may be the server (an iperf3 server answering a test): its port names it then.
             ?? DomainAppCatalog.PortApp(proto, f.RemotePort) ?? (f.RemotePort >= 1024 ? DomainAppCatalog.PortApp(proto, f.ClientPort) : null)
             ?? portName ?? remoteSite ?? (org != null && !f.Lan ? org : null)

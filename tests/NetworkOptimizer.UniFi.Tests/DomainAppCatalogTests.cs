@@ -23,14 +23,23 @@ public class DomainAppCatalogTests
     [InlineData("s3.us-west-004.backblazeb2.com", "Backblaze")]   // B2's S3 endpoint
     [InlineData("f004.backblazeb2.com", "Backblaze")]
     [InlineData("api.backblaze.com", "Backblaze")]
-    [InlineData("ec2-198-51-100-7.compute-1.amazonaws.com", "AWS")]
-    [InlineData("s3.us-east-1.amazonaws.com", "AWS")]
+    [InlineData("ec2-198-51-100-7.compute-1.amazonaws.com", null)]   // a hosting cloud, not an app: HostingApp
     [InlineData("www.microsoft.com", null)]
     [InlineData("com", null)]
     [InlineData("example.net", null)]
     [InlineData(null, null)]
     public void NamesTheAppByDomainOrParent(string? domain, string? app) =>
         DomainAppCatalog.AppFor(domain).Should().Be(app);
+
+    [Theory]
+    [InlineData("ec2-198-51-100-7.compute-1.amazonaws.com", "AWS")]
+    [InlineData("s3.us-east-1.amazonaws.com.", "AWS")]
+    [InlineData("amazonaws.com", "AWS")]
+    [InlineData("notamazonaws.com", null)]
+    [InlineData("www.amazon.com", null)]
+    [InlineData(null, null)]
+    public void NamesTheHostingCloudByDomain(string? host, string? app) =>
+        DomainAppCatalog.HostingApp(host).Should().Be(app);
 
     [Fact]
     public void EveryAppItNamesHasACatalogIconOrTheInitial()

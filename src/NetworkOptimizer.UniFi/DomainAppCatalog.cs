@@ -51,8 +51,6 @@ public static class DomainAppCatalog
         ["Slack"] = ["slack.com", "slack-edge.com", "slack-msgs.com"],
         ["Dropbox"] = ["dropbox.com", "dropboxusercontent.com", "dropboxapi.com"],
         ["Backblaze"] = ["backblaze.com", "backblazeb2.com"],
-        // Without it, an AWS host falls through to its address's owner, which reads "Amazon.com".
-        ["AWS"] = ["amazonaws.com"],
         ["Google Drive"] = ["drive.google.com", "docs.google.com", "drive.usercontent.google.com"],
         ["Gmail"] = ["mail.google.com", "gmail.com"],
         ["Google Play"] = ["play.google.com", "play.googleapis.com"],
@@ -96,6 +94,26 @@ public static class DomainAppCatalog
         ("Apple", "Apple"),
         ("Backblaze", "Backblaze"),
     ];
+
+    /// <summary>Clouds anyone's servers run in, by hostname suffix.</summary>
+    private static readonly (string Suffix, string App)[] HostingByDomain =
+    [
+        ("amazonaws.com", "AWS"),
+    ];
+
+    /// <summary>
+    /// The cloud a host runs in ("AWS" for an amazonaws.com host). A last resort, at the owner's level:
+    /// a game or service on EC2 is still named by the DPI, even a DPI name borrowed from a sibling flow.
+    /// </summary>
+    public static string? HostingApp(string? host)
+    {
+        if (string.IsNullOrWhiteSpace(host)) return null;
+        var name = host.Trim().TrimEnd('.');
+        foreach (var (suffix, app) in HostingByDomain)
+            if (name.Equals(suffix, StringComparison.OrdinalIgnoreCase)
+                || name.EndsWith("." + suffix, StringComparison.OrdinalIgnoreCase)) return app;
+        return null;
+    }
 
     /// <summary>The app a remote network's owner names, matched on a whole word; null when none.</summary>
     public static string? OwnerApp(string? owner) =>
