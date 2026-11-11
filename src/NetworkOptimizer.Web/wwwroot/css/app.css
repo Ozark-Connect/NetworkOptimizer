@@ -25481,8 +25481,10 @@ body:has(.top-bar-hidden) .btn-fit {
 
 /* A route node's hover card (App.razor routeHtml): one row per destination, name left, rate right. */
 .tippy-box[data-theme~='custom'] .lt-route-tip-label { color: var(--text-secondary); font-size: 0.8em; margin: 0.15rem 0; }
-.tippy-box[data-theme~='custom'] .lt-route-tip-row { display: flex; justify-content: space-between; gap: 1rem; }
-.tippy-box[data-theme~='custom'] .lt-route-tip-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tippy-box[data-theme~='custom'] .lt-route-tip-row { display: flex; justify-content: space-between; align-items: center; gap: 1rem; padding: 0.15rem 0; }
+.tippy-box[data-theme~='custom'] .lt-route-tip-name { display: flex; align-items: center; gap: 0.35rem; min-width: 0; overflow: hidden; white-space: nowrap; }
+.tippy-box[data-theme~='custom'] .lt-route-tip-name .lt-tag { margin-left: 0; flex: 0 0 auto; }
+.tippy-box[data-theme~='custom'] .lt-route-tip-name > span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .tippy-box[data-theme~='custom'] .lt-route-tip-ip { color: var(--text-muted); }
 .tippy-box[data-theme~='custom'] .lt-route-tip-value { flex: 0 0 auto; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .tippy-box[data-theme~='custom'] .lt-route-tip-down { color: var(--speed-download-color); }
