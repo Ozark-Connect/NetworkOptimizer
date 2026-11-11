@@ -923,6 +923,7 @@
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7" /><line x1="21" y1="21" x2="16.65" y2="16.65" /></svg>
                 <input class="form-control" placeholder="Filter by client, domain, app, IP, port, or protocol"
                        @bind="_search" @bind:event="oninput" @bind:after="OnSearchChanged" @onkeydown="OnSearchKey" />
+                <span class="lt-search-hint" aria-hidden="true">Client, domain, app, IP, port, or protocol</span>
                 @if (!string.IsNullOrWhiteSpace(_search))
                 {
                     <button type="button" class="lt-x lt-search-clear" aria-label="Clear the filter" data-tooltip="Clear the filter" @onclick="ClearSearch">×</button>

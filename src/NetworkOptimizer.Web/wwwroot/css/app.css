@@ -25157,6 +25157,23 @@ body:has(.top-bar-hidden) .btn-fit {
     padding-left: 2rem;
 }
 
+/* The phone's shorter placeholder (shown by the 768px rule). */
+.lt-search-hint {
+    display: none;
+    position: absolute;
+    left: calc(2rem + 1px);
+    right: 0.875rem;
+    top: 50%;
+    transform: translateY(-50%);
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+    opacity: 0.75;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    pointer-events: none;
+}
+
 .lt-search svg {
     position: absolute;
     left: 0.6rem;
@@ -25909,8 +25926,19 @@ body:has(.top-bar-hidden) .btn-fit {
         margin-left: 0;
     }
 
-    .lt-search {
+    /* The presets share the search row; the shorter hint replaces the placeholder, which CSS cannot reword. */
+    .lt-filterbar .lt-search {
+        flex: 1 1 0;
+        min-width: 0;
         max-width: none;
+    }
+
+    .lt-search .form-control::placeholder {
+        color: transparent;
+    }
+
+    .lt-search .form-control:placeholder-shown + .lt-search-hint {
+        display: block;
     }
 
     .lt-tl-svg {
