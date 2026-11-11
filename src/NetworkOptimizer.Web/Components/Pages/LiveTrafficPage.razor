@@ -12,6 +12,8 @@
 @inject AddressBarState AddressBar
 @inject IJSRuntime JS
 @inject Microsoft.AspNetCore.Mvc.ViewFeatures.IFileVersionProvider FileVersionProvider
+@inject Microsoft.AspNetCore.Authorization.IAuthorizationService Authz
+@inject ICustomAppService CustomApps
 @implements IDisposable
 
 <PageTitle>Live Traffic - Network Optimizer</PageTitle>
@@ -48,8 +50,17 @@
                     <span>Pause</span>
                 }
             </button>
+            @if (_canNameApps)
+            {
+                <button class="btn btn-secondary btn-sm" data-tour="live-traffic-custom-apps" @onclick="() => OpenCustomAppsAsync(null)">Custom Apps@(_customAppCount > 0 ? $" ({_customAppCount})" : "")</button>
+            }
         </div>
     </div>
+
+    @if (_customAppsOpen)
+    {
+        <CustomAppsDialog Seed="_nameSeed" OnClose="CloseCustomAppsAsync" OnChanged="n => _customAppCount = n" />
+    }
 
     @if (_historyMode)
     {
@@ -202,7 +213,7 @@
                             }
                             else
                             {
-                                <LiveTrafficSankey Sankey="_view.Sankey" Hold="Held" OnHover="HoverSankey" Pinned="@ActiveSankeyHold?.Node" Filters="_filters" Searching="@(!string.IsNullOrWhiteSpace(_search))" OnFilter="ToggleFilter" />
+                                <LiveTrafficSankey Context="Ctx" Sankey="_view.Sankey" Hold="Held" OnHover="HoverSankey" Pinned="@ActiveSankeyHold?.Node" Filters="_filters" Searching="@(!string.IsNullOrWhiteSpace(_search))" OnFilter="ToggleFilter" />
                             }
                         </div>
                         <div class="lt-legend-note">Click any client, app, or route to filter the page to it, and again to remove the filter. Width of bands is @(_sankeyByFlows ? "flow count" : "rate") on a log scale, so small flows stay visible.@(_sankeyByFlows ? "" : " Each band splits into download (strong) and upload (light), in its route's color.")</div>
@@ -378,6 +389,7 @@
         if (!firstRender) return;
         await StartRowMotionAsync();
         await LoadDnsPreferenceAsync();
+        await StartCustomAppsAsync();
         await RefreshAsync();
         if (_disposed) return;
         _timer = new System.Threading.Timer(_ =>
@@ -973,7 +985,72 @@
         IsKept = (kind, value) => KeptFilter(kind, value) != null,
         Toggle = TogglePill,
         Exclude = AddFilter,
+        CanNameApps = () => _canNameApps,
+        NameApp = seed => OpenCustomAppsAsync(seed),
     };
+
+    // ---------------------------------------------------------------- custom apps
+
+    /// <summary>A Site Admin here: the Custom Apps button and Name This App show. The service gate is the real check.</summary>
+    private bool _canNameApps;
+    [CascadingParameter] private Task<Microsoft.AspNetCore.Components.Authorization.AuthenticationState>? AuthState { get; set; }
+    private bool _customAppsOpen;
+    private CustomAppSeed? _nameSeed;
+    private int _customAppCount;
+    /// <summary>The page opened from a Name This App link: closing the dialog drops ?nameApp= from the address bar.</summary>
+    private bool _nameAppInUrl;
+
+    private async Task StartCustomAppsAsync()
+    {
+        try
+        {
+            var user = AuthState == null ? null : (await AuthState).User;
+            _canNameApps = user != null && (await Authz.AuthorizeAsync(user, SiteContext.Slug, NetworkOptimizer.Web.Services.Authorization.Policies.SiteAdmin)).Succeeded;
+            if (!_canNameApps) return;
+            _customAppCount = (await CustomApps.ListAsync()).Count;
+            _selfRef ??= DotNetObjectReference.Create(this);
+            await JS.InvokeVoidAsync("ltNameApp.register", _selfRef);
+            var query = Microsoft.AspNetCore.WebUtilities.QueryHelpers.ParseQuery(new Uri(Nav.Uri).Query);
+            if (query.TryGetValue(LiveTrafficLinks.NameAppKey, out var value) && CustomAppSeed.Decode(value) is { } seed)
+            {
+                _nameAppInUrl = true;
+                _nameSeed = seed;
+                _customAppsOpen = true;
+            }
+        }
+        catch (JSDisconnectedException) { }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Live Traffic: custom apps setup failed");
+        }
+    }
+
+    /// <summary>Called by the hover card's Name This App link (App.razor), with the seed it carries.</summary>
+    [JSInvokable]
+    public Task OpenNameApp(string seed) =>
+        CustomAppSeed.Decode(seed) is { } s ? InvokeAsync(() => OpenCustomAppsAsync(s)) : Task.CompletedTask;
+
+    private async Task OpenCustomAppsAsync(CustomAppSeed? seed)
+    {
+        if (!_canNameApps) return;
+        try { await JS.InvokeVoidAsync("ltNameApp.rememberFocus"); }
+        catch (JSDisconnectedException) { }
+        _nameSeed = seed;
+        _customAppsOpen = true;
+        StateHasChanged();
+    }
+
+    private Task CloseCustomAppsAsync()
+    {
+        _customAppsOpen = false;
+        _nameSeed = null;
+        if (_nameAppInUrl)
+        {
+            _nameAppInUrl = false;
+            WriteUrl();
+        }
+        return RefreshAsync();
+    }
 
     /// <summary>A shown flow to this destination (a name or an address), for its address; null when none is shown.</summary>
     private LiveFlowRow? DestinationOf(string value)
@@ -1182,7 +1259,7 @@
                                 }
                                 else
                                 {
-                                    <span class="lt-app-cell">@if (_groupBy == LiveTrafficGroupBy.App) { @AppIcon(g.Name) }<span class="lt-pivot">@g.Name</span></span>
+                                    @GroupName(g)
                                 }
                                 @if (!string.IsNullOrEmpty(g.Sub))
                                 {
@@ -1217,7 +1294,7 @@
                             }
                             else
                             {
-                                <span class="lt-app-cell">@if (_groupBy == LiveTrafficGroupBy.App) { @AppIcon(g.Name) }<span class="lt-pivot">@g.Name</span></span>
+                                @GroupName(g)
                             }
                         </span>
                         <span class="lt-m-rates">
@@ -1253,6 +1330,14 @@
         </svg>
     };
 
+    /// <summary>A group's name; an unnamed port ("UDP 21324") grouped by App carries the Name This App card.</summary>
+    private RenderFragment GroupName(LiveGroupRow g) => __builder =>
+    {
+        var unnamed = g.Unnamed;
+        <span class="lt-app-cell @(unnamed != null ? "lt-app-unnamed" : null)" data-app-unnamed="@(unnamed != null ? g.Name : null)"
+              data-app-seed="@unnamed?.Encode()" data-app-link="@NameAppLink(unnamed)">@if (_groupBy == LiveTrafficGroupBy.App) { @AppIcon(g.Name) }<span class="lt-pivot">@g.Name</span></span>
+    };
+
     /// <summary>A group row opens its flows: filter to the group, back to the flow list.</summary>
     private async Task DrillInto(LiveGroupRow g)
     {
@@ -1268,6 +1353,11 @@
         catch { /* circuit going away */ }
         try { _ = _motion?.InvokeVoidAsync("unwatchVisibility", "live-traffic").AsTask(); }
         catch { /* circuit going away */ }
+        if (_canNameApps && _selfRef != null)
+        {
+            try { _ = JS.InvokeVoidAsync("ltNameApp.unregister", _selfRef).AsTask(); }
+            catch { /* circuit going away */ }
+        }
         _selfRef?.Dispose();
     }
 }

@@ -27,6 +27,7 @@ public sealed class FlowHistoryCache
     private readonly Dictionary<string, DateTime> _viewers = new();
     private HashSet<string> _wanNames = new(StringComparer.OrdinalIgnoreCase);
     private string _gatewayName = "Gateway";
+    private IReadOnlyList<CustomAppRule> _customApps = Array.Empty<CustomAppRule>();
     private DateTime _lastRefresh = DateTime.MinValue;
     private DateTime? _newest;
     private bool _loaded;
@@ -112,6 +113,15 @@ public sealed class FlowHistoryCache
         }
     }
 
+    /// <summary>
+    /// The site's custom app definitions. Applied when a view is built, not when records arrive, so a
+    /// new definition renames the records already held.
+    /// </summary>
+    public void SetCustomApps(IReadOnlyList<CustomAppRule> rules)
+    {
+        lock (_gate) _customApps = rules;
+    }
+
     public void Merge(IEnumerable<UniFiTrafficFlow> flows, DateTime now, int generation)
     {
         lock (_gate)
@@ -154,7 +164,8 @@ public sealed class FlowHistoryCache
     {
         lock (_gate)
         {
-            var all = _rows.Values;
+            IReadOnlyCollection<LiveFlowRow> all = _customApps.Count == 0 ? _rows.Values
+                : CustomAppMatcher.Apply(_rows.Values.ToList(), _customApps);
             var oldest = all.Count == 0 ? null : all.Min(r => r.LastSeen);
             var matching = all
                 .Where(r => query.Client is not { } scope || LiveTrafficStore.InScope(r, scope))

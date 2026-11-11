@@ -117,6 +117,7 @@ public sealed class LiveTrafficService : ILiveTrafficService
         var store = _registry.GetFor(slug);
         var now = DateTime.UtcNow;
         store.SetServerHosts(_serverHosts);
+        await CustomAppService.EnsureLoadedAsync(_registry, _siteDb, slug, _logger, ct);
 
         var agents = _tunnels.GetForSite(slug).Where(c => c.HasCapability(AgentTunnelConnection.LiveTrafficCapability)).ToList();
         LiveTrafficState state;
@@ -184,6 +185,7 @@ public sealed class LiveTrafficService : ILiveTrafficService
         var clientOnly = mac != null && !site.Loaded;
         var cache = clientOnly ? _registry.ClientHistoryFor(slug, mac!, query.ViewerId, now) : site;
         if (!clientOnly) cache.Touch(query.ViewerId, now);
+        await CustomAppService.EnsureLoadedAsync(_registry, _siteDb, slug, _logger, ct);
 
         var client = _connection.Client;
         if (client == null) return cache.BuildView(query, LiveHistoryState.NoConsole, now);

@@ -10,6 +10,7 @@
 @inject UniFiConnectionService ConnectionService
 @inject NetworkOptimizer.Web.Services.Monitoring.LiveTraffic.ILiveTrafficService LiveTraffic
 @inject NavigationManager Nav
+@inject Microsoft.AspNetCore.Authorization.IAuthorizationService Authz
 @implements IDisposable
 @using NetworkOptimizer.Web.Services.Monitoring.LiveTraffic
 @using NetworkOptimizer.Web.Components.Shared.Monitoring.LiveTraffic
@@ -422,7 +423,26 @@ else
                 LiveTrafficField.Route => FullViewLink(("route", value)),
                 _ => null,
             },
+            CanNameApps = () => _canNameApps,
         };
+    }
+
+    /// <summary>A Site Admin here: an unnamed port's hover card links to Name This App on Live Traffic.</summary>
+    private bool _canNameApps;
+
+    [CascadingParameter] private Task<Microsoft.AspNetCore.Components.Authorization.AuthenticationState>? AuthState { get; set; }
+
+    private async Task CheckCanNameAppsAsync()
+    {
+        try
+        {
+            var user = AuthState == null ? null : (await AuthState).User;
+            _canNameApps = user != null && (await Authz.AuthorizeAsync(user, SiteContext.Slug, NetworkOptimizer.Web.Services.Authorization.Policies.SiteAdmin)).Succeeded;
+        }
+        catch (Exception ex)
+        {
+            Logger.LogDebug(ex, "Bandwidth Hogs: role check failed");
+        }
     }
 
     /// <summary>
@@ -737,6 +757,7 @@ else
         if (!firstRender) return;
         if (SelfFed) await ResolveSelfFedAsync();
         await RestorePreferencesAsync();
+        await CheckCanNameAppsAsync();
         _ready = true;
         await RefreshAsync();
         ArmTimer();

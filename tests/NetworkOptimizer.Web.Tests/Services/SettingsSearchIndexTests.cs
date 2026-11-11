@@ -242,6 +242,28 @@ public class SettingsSearchIndexTests
         best.Entry!.Anchor.Should().Be("security-audit");
     }
 
+    [Theory]
+    [InlineData("custom apps")]
+    [InlineData("custom ports")]
+    [InlineData("custom app defs")]
+    [InlineData("custom app definitions")]
+    [InlineData("dpi definitions")]
+    [InlineData("custom dpi")]
+    [InlineData("port naming")]
+    [InlineData("name this app")]
+    [InlineData("live traffic apps")]
+    public void Custom_apps_is_found_by_the_words_people_use_for_it(string query)
+    {
+        var best = Entries
+            .Select(e => (Entry: e, Match: AppSearchService.MatchEntry(e, query)))
+            .Where(x => x.Match.Matched > 0 && x.Match.Score >= NetworkOptimizer.Core.Helpers.FuzzyMatch.MinimumUsefulScore)
+            .OrderByDescending(x => x.Match.Matched).ThenByDescending(x => x.Match.Score)
+            .FirstOrDefault();
+
+        best.Entry.Should().NotBeNull();
+        best.Entry!.Anchor.Should().Be("custom-apps");
+    }
+
     [Fact]
     public void An_anchor_is_reachable_as_a_fragment_after_a_full_page_load()
     {

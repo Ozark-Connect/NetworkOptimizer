@@ -1759,6 +1759,55 @@ namespace NetworkOptimizer.Storage.Migrations
                     b.ToTable("ConsoleBackups", (string)null);
                 });
 
+            modelBuilder.Entity("NetworkOptimizer.Storage.Models.CustomAppDefinition", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("IconClass")
+                        .HasMaxLength(80)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(80)
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("PortOn")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Ports")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("Protocol")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Remote")
+                        .HasMaxLength(255)
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("Scope")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("SortOrder")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("SortOrder");
+
+                    b.ToTable("CustomAppDefinitions", (string)null);
+                });
+
             modelBuilder.Entity("NetworkOptimizer.Storage.Models.CustomOidConfiguration", b =>
                 {
                     b.Property<int>("Id")

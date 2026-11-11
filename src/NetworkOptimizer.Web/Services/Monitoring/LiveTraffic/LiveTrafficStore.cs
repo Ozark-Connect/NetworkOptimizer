@@ -95,6 +95,7 @@ public sealed class LiveTrafficStore
     /// <summary>This install's own host names and address: a flow to one is Network Optimizer's own traffic.</summary>
     private IReadOnlySet<string> _serverHosts = new HashSet<string>();
     private string _gatewayName = "Gateway";
+    private IReadOnlyList<CustomAppRule> _customApps = Array.Empty<CustomAppRule>();
 
     private DateTime _lastBatchAt = DateTime.MinValue;
     /// <summary>Batches received back to back; a gap of several windows starts it again.</summary>
@@ -524,14 +525,53 @@ public sealed class LiveTrafficStore
         lock (_gate) return _streak >= 2 && now - _lastBatchAt <= TimeSpan.FromSeconds(Math.Max(10, _windowSeconds * 4));
     }
 
+    /// <summary>The active flows as rows, before the site's custom apps rename any. Callers hold <c>_gate</c>.</summary>
+    private List<LiveFlowRow> ActiveRows(DateTime now) =>
+        InheritSiblingApps(_flows.Values.Select(s => ToRow(s.Last, s.DownBps, s.UpBps, s.History.ToList(), false, now)).ToList());
+
+    /// <summary>The site's custom app definitions, in list order: they rename matching rows on every view.</summary>
+    public void SetCustomApps(IReadOnlyList<CustomAppRule> rules)
+    {
+        lock (_gate) _customApps = rules;
+    }
+
+    /// <summary>
+    /// How an unsaved definition would land on the active flows: how many it matches, and the first
+    /// saved definition above it that names those flows first. <paramref name="editingId"/> is the
+    /// definition being edited (its own place in the list); null for a new one, which goes last.
+    /// </summary>
+    public CustomAppPreview Preview(CustomAppRule draft, int? editingId)
+    {
+        lock (_gate)
+        {
+            var matched = ActiveRows(DateTime.UtcNow).Where(r => CustomAppMatcher.Matches(draft, r)).ToList();
+            var above = editingId is { } id ? _customApps.TakeWhile(r => r.Id != id) : _customApps;
+            var shadow = matched.Count == 0 ? null
+                : above.FirstOrDefault(rule => rule.Id != editingId && matched.Any(m => CustomAppMatcher.Matches(rule, m)));
+            return new CustomAppPreview(matched.Count, shadow?.Name);
+        }
+    }
+
+    /// <summary>Live flows each saved definition names now, by definition id.</summary>
+    public IReadOnlyDictionary<int, int> LiveCounts()
+    {
+        lock (_gate)
+        {
+            return CustomAppMatcher.Apply(ActiveRows(DateTime.UtcNow), _customApps)
+                .Where(r => r.CustomAppId != null)
+                .GroupBy(r => r.CustomAppId!.Value)
+                .ToDictionary(g => g.Key, g => g.Count());
+        }
+    }
+
     public LiveTrafficView BuildView(LiveTrafficQuery query, LiveTrafficState state)
     {
         var now = DateTime.UtcNow;
         lock (_gate)
         {
-            var active = InheritSiblingApps(_flows.Values.Select(s => ToRow(s.Last, s.DownBps, s.UpBps, s.History.ToList(), false, now)).ToList());
+            var active = CustomAppMatcher.Apply(ActiveRows(now), _customApps);
             var all = query.Ended
-                ? InheritSiblingApps(_ended.Select(e => ToRow(e.Flow, 0, 0, Array.Empty<(double, double)>(), true, now, e.EndedAt)).ToList())
+                ? CustomAppMatcher.Apply(InheritSiblingApps(_ended.Select(e => ToRow(e.Flow, 0, 0, Array.Empty<(double, double)>(), true, now, e.EndedAt)).ToList()), _customApps)
                 : active;
             if (query.WanOnly) all = all.Where(r => r.RouteKind is LiveRouteKind.Wan or LiveRouteKind.Vpn).ToList();
             if (query.Client is { } scope) all = all.Where(r => InScope(r, scope)).ToList();
@@ -837,10 +877,18 @@ public sealed class LiveTrafficStore
                 return new LiveGroupRow(g.Key, sub, field,
                     g.Sum(r => r.DownBps), g.Sum(r => r.UpBps), g.Sum(r => r.TotalBytes), g.Count(),
                     field == LiveTrafficField.Route ? first.RouteKind : null,
-                    field == LiveTrafficField.Client ? first.ClientMac : null);
+                    field == LiveTrafficField.Client ? first.ClientMac : null,
+                    field == LiveTrafficField.App ? UnnamedSeed(g) : null);
             })
             .OrderByDescending(g => g.DownBps).ThenByDescending(g => g.UpBps).ThenByDescending(g => g.TotalBytes)
             .ToList();
+    }
+
+    /// <summary>Name This App's seed for rows that share one bare "UDP 21324" App, scoped to where they went; null otherwise.</summary>
+    private static CustomAppSeed? UnnamedSeed(IEnumerable<LiveFlowRow> rows)
+    {
+        var list = rows as IReadOnlyList<LiveFlowRow> ?? rows.ToList();
+        return list.Count > 0 && list[0].UnnamedPort is { } seed ? seed with { Scope = CustomAppMatcher.ScopeOf(list) } : null;
     }
 
     private IReadOnlyList<LiveRouteStat> RouteStats(IReadOnlyList<LiveFlowRow> active)
@@ -917,7 +965,7 @@ public sealed class LiveTrafficStore
         nodes.AddRange(moving.GroupBy(ClientNode).Select(g => new LiveSankeyNode(0, g.Key, g.Sum(V), LiveTrafficField.Client, null, !topClients.Contains(g.Key),
             DownBps: Down(g), UpBps: Up(g), ClientIp: topClients.Contains(g.Key) ? g.First().ClientIp : null)));
         nodes.AddRange(moving.GroupBy(AppNode).Select(g => new LiveSankeyNode(1, g.Key, g.Sum(V), LiveTrafficField.App, null, !topApps.Contains(g.Key),
-            g.First().AppIconDomain, g.First().AppIconClass, Down(g), Up(g))));
+            g.First().AppIconDomain, g.First().AppIconClass, Down(g), Up(g), Unnamed: topApps.Contains(g.Key) ? UnnamedSeed(g) : null)));
         nodes.AddRange(moving.GroupBy(r => r.Route).Select(g => new LiveSankeyNode(2, g.Key, g.Sum(V), LiveTrafficField.Route, g.First().RouteKind, false,
             DownBps: Down(g), UpBps: Up(g))));
         // A held node with nothing moving through it now: shown idle, with no bands.

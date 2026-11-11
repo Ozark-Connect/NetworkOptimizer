@@ -146,6 +146,9 @@ public class NetworkOptimizerDbContext : DbContext
     /// <summary>Instance-wide config templates. Meaningful only in the MAIN database.</summary>
     public DbSet<ConfigTemplate> ConfigTemplates { get; set; }
 
+    // Live Traffic
+    public DbSet<CustomAppDefinition> CustomAppDefinitions { get; set; }
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
@@ -931,6 +934,12 @@ public class NetworkOptimizerDbContext : DbContext
         });
 
         modelBuilder.Entity<ConfigTemplate>(entity => entity.ToTable("ConfigTemplates"));
+
+        modelBuilder.Entity<CustomAppDefinition>(entity =>
+        {
+            entity.ToTable("CustomAppDefinitions");
+            entity.HasIndex(e => e.SortOrder);
+        });
     }
 }
 
