@@ -1,7 +1,9 @@
 using FluentAssertions;
 using NetworkOptimizer.AgentProtocol;
 using NetworkOptimizer.UniFi.Models;
+using NetworkOptimizer.Monitoring.Tailscale;
 using NetworkOptimizer.Web.Services.Monitoring.LiveTraffic;
+using NetworkOptimizer.Web.Services.Tailscale;
 using Xunit;
 
 namespace NetworkOptimizer.Web.Tests.Monitoring;
@@ -1154,4 +1156,111 @@ public class LiveTrafficStoreTests
 
         store.ReleaseViewer("v1", t0.AddSeconds(17)).Should().BeTrue("nobody is left watching");
     }
-}
+
+    private static TailnetSnapshot Tailnet(params TailnetSnatEntry[] snat) => new(
+        [new TailnetPeer { Name = "phone", Os = "iOS", Addresses = ["100.100.1.2", "fd7a:115c:a1e0::2"] }],
+        new TailnetPeer { Name = "nas", Addresses = ["100.100.1.1"], IsExitNode = true, LanAddresses = ["192.0.2.10"] },
+        snat);
+
+    [Fact]
+    public void RoutedTrafficIsAttributedToTheTailscaleDevice()
+    {
+        var store = SeededStore();
+        // The NAS is the exit node: it NATed the phone's connection to its own port 50000.
+        store.SetTailnet(Tailnet(new TailnetSnatEntry("tcp", "100.100.1.2", 51515, "203.0.113.5", 443, "192.0.2.10", 50000)), true);
+        store.Ingest(Batch(
+            Flow("routed", Nas, "192.0.2.10", "203.0.113.5", 443, "eth4", 1_000_000, 10_000),
+            Flow("own", Nas, "192.0.2.10", "203.0.113.9", 443, "eth4", 500_000, 10_000)));
+
+        var rows = store.BuildView(Query(), LiveTrafficState.Live).Flows.ToDictionary(f => f.Key);
+
+        rows["routed"].ClientName.Should().Be("phone");
+        rows["routed"].ClientIp.Should().Be("100.100.1.2");
+        rows["routed"].ClientVia.Should().Be("Tailscale through NAS");
+        rows["own"].ClientName.Should().Be("NAS", "the router's own traffic stays its own");
+    }
+
+    [Fact]
+    public void TailscaleClientsAndDestinationsTakeTheirTailnetNames()
+    {
+        var store = SeededStore();
+        store.SetTailnet(Tailnet(), true);
+        store.Ingest(Batch(
+            Flow("in", "", "100.100.1.2", "203.0.113.5", 443, "eth4", 1_000_000, 10_000),
+            Flow("to", Laptop, "192.0.2.20", "100.100.1.2", 22, "", 1_000, 1_000, lan: true)));
+
+        var rows = store.BuildView(Query(), LiveTrafficState.Live).Flows.ToDictionary(f => f.Key);
+
+        rows["in"].ClientName.Should().Be("phone");
+        rows["in"].ClientVia.Should().Be("Tailscale");
+        rows["to"].Destination.Should().Be("phone");
+    }
+
+    [Fact]
+    public void WithoutATailnetTheTailscaleClientKeepsItsAddress()
+    {
+        var store = SeededStore();
+        store.Ingest(Batch(Flow("in", "", "100.100.1.2", "203.0.113.5", 443, "eth4", 1_000_000, 10_000)));
+
+        var view = store.BuildView(Query(), LiveTrafficState.Live);
+
+        view.Flows[0].ClientName.Should().Be("Tailscale (100.100.1.2)");
+        view.TailnetConnected.Should().BeFalse();
+    }
+
+    [Fact]
+    public void WireGuardFlowsAreNamedByThePeersEndpoint()
+    {
+        var store = SeededStore();
+        store.SetTailnet(new TailnetSnapshot(
+            [
+                new TailnetPeer { Name = "phone", Addresses = ["100.100.1.2"], Endpoints = ["203.0.113.40:40000", "192.168.1.50:41641"] },
+                new TailnetPeer { Name = "laptop", Addresses = ["100.100.1.3"], Endpoints = ["198.51.100.60:41641"] },
+                new TailnetPeer { Name = "tablet", Addresses = ["100.100.1.4"], Endpoints = ["198.51.100.60:5000"] },
+            ], null, []), true);
+        var flows = new[]
+        {
+            Flow("exact", Nas, "192.0.2.10", "192.168.1.50", 41641, "eth4", 1_000, 1_000, proto: "udp"),
+            Flow("remapped", Nas, "192.0.2.10", "203.0.113.40", 40001, "eth4", 1_000, 1_000, proto: "udp"),
+            Flow("shared", Nas, "192.0.2.10", "198.51.100.60", 9999, "eth4", 1_000, 1_000, proto: "udp"),
+            Flow("notwg", Nas, "192.0.2.10", "203.0.113.40", 443, "eth4", 1_000, 1_000),
+        };
+        foreach (var f in flows.Take(3)) f.ClientPort = 41641;
+        store.Ingest(Batch(flows));
+
+        var rows = store.BuildView(Query(), LiveTrafficState.Live).Flows.ToDictionary(f => f.Key);
+
+        rows["exact"].Destination.Should().Be("phone");
+        rows["remapped"].Destination.Should().Be("phone", "a remapped port still matches the only peer at that address");
+        rows["shared"].Destination.Should().NotBe("laptop").And.NotBe("tablet");
+        rows["notwg"].Destination.Should().NotBe("phone", "the address alone names only Tailscale's own traffic");
+    }
+
+    [Theory]
+    [InlineData("derp9e.tailscale.com", true)]
+    [InlineData("derp12e.tailscale.com.", true)]
+    [InlineData("login.tailscale.com", false)]
+    [InlineData("derp.example.com", false)]
+    public void DerpHosts(string host, bool expected)
+    {
+        LiveTrafficStore.IsDerpHost(host).Should().Be(expected);
+    }
+
+    [Fact]
+    public void DerpRelaysAreNamedByTheirRegion()
+    {
+        var derp = new DerpMapClient.DerpMap(
+            new Dictionary<string, DerpRegion> { ["203.0.113.60"] = new("dfw", "Dallas") },
+            new Dictionary<string, DerpRegion> { ["dfw"] = new("dfw", "Dallas") });
+        var store = SeededStore();
+        store.SetTailnet(new TailnetSnapshot([], null, [], derp: derp), true);
+        store.Ingest(Batch(
+            Flow("stun", Nas, "192.0.2.10", "203.0.113.60", 3478, "eth4", 100, 100, proto: "udp"),
+            Flow("relay", Nas, "192.0.2.10", "203.0.113.60", 443, "eth4", 1_000, 1_000)));
+
+        var rows = store.BuildView(Query(), LiveTrafficState.Live).Flows.ToDictionary(f => f.Key);
+
+        rows["stun"].Destination.Should().Be("Tailscale DERP (Dallas)");
+        rows["stun"].DestinationSub.Should().Be("STUN");
+        rows["relay"].DestinationSub.Should().Be("DERP relay");
+    }}

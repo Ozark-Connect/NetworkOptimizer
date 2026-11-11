@@ -687,6 +687,17 @@
                 }).join('')
                 + (more > 0 ? '<div class="lt-route-tip-label">and ' + more + ' more</div>' : '');
         }
+        // Tailscale traffic on a site that does not read its tailnet: what connecting it adds, and the
+        // Settings link for a Site Admin.
+        function tailscaleAppHtml(el) {
+            if (!el.hasAttribute('data-app-tailscale')) return null;
+            var link = el.getAttribute('data-tailscale-link');
+            return '<div><strong>' + escapeHtml(el.getAttribute('data-app-tailscale') || '') + '</strong></div>'
+                + '<div>Connect your tailnet to see each Tailscale device by name in Live Traffic, Client Performance, and speed test results, and whether it connects directly or through a relay.</div>'
+                + (link
+                    ? '<div><a href="' + escapeHtml(link) + '">Set Up Tailscale</a></div>'
+                    : '<div>A Site Admin can set it up in Settings.</div>');
+        }
         // Live Traffic registers itself so Name This App opens its dialog in place; anywhere else the
         // link navigates to Live Traffic, which opens it from the URL. A navigation within Live Traffic
         // would re-run the router, focus the heading, and scroll the page.
@@ -720,15 +731,22 @@
         document.addEventListener('mouseover', function (e) {
             if (!window.tippy || !e.target.closest) return;
             var host = e.target.closest('.live-traffic, .bandwidth-hogs-card');
+            // The Tailscale setup card also rides the speed test results' Tailscale badge and path trace hop.
+            var tailscaleBadge = !host && e.target.closest('.badge[data-app-tailscale], .path-hop[data-app-tailscale]');
+            if (tailscaleBadge) { showLinkCard(tailscaleBadge, tailscaleAppHtml); return; }
             if (!host) {
                 // Client Performance's Live Traffic card takes only this card, not the others.
                 var cardHost = e.target.closest('.lt-client');
                 var cardApp = cardHost && e.target.closest('[data-app-unnamed]');
-                if (cardApp && cardHost.contains(cardApp)) showLinkCard(cardApp, unnamedAppHtml);
+                if (cardApp && cardHost.contains(cardApp)) { showLinkCard(cardApp, unnamedAppHtml); return; }
+                var cardTailscale = cardHost && e.target.closest('[data-app-tailscale]');
+                if (cardTailscale && cardHost.contains(cardTailscale)) showLinkCard(cardTailscale, tailscaleAppHtml);
                 return;
             }
             var unnamed = e.target.closest('[data-app-unnamed]');
             if (unnamed && host.contains(unnamed)) { showLinkCard(unnamed, unnamedAppHtml); return; }
+            var tailscaleApp = e.target.closest('[data-app-tailscale]');
+            if (tailscaleApp && host.contains(tailscaleApp)) { showLinkCard(tailscaleApp, tailscaleAppHtml); return; }
             // Destination cells and client links have their own card: the name, then its link (Threats, Client Performance).
             // The card carries the full name, so it stands in for the cut-name tooltip.
             var dest = e.target.closest('[data-dest-ip]');

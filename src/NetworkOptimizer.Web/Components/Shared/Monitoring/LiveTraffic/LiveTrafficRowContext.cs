@@ -32,6 +32,12 @@ public sealed class LiveTrafficRowContext
     /// <summary>Opens Name This App in place. Null: the list links to Live Traffic, which opens it.</summary>
     public Func<CustomAppSeed, Task>? NameApp { get; init; }
 
+    /// <summary>
+    /// The site does not read its tailnet, so the Tailscale app's hover card says what connecting it
+    /// adds, with the Settings link for a Site Admin (<see cref="CanNameApps"/>, the same role).
+    /// </summary>
+    public Func<bool> OfferTailscaleSetup { get; init; } = () => false;
+
     /// <summary>Values that do nothing on click.</summary>
     public static LiveTrafficRowContext Inert { get; } = new();
 }

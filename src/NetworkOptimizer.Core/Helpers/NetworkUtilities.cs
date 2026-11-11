@@ -535,6 +535,25 @@ public static class NetworkUtilities
     }
 
     /// <summary>
+    /// Whether an address is in Tailscale's default tailnet ranges: 100.64.0.0/10 (shared with carrier
+    /// CGNAT) or fd7a:115c:a1e0::/48. A tailnet with a custom IP pool needs its device list to be known.
+    /// </summary>
+    /// <param name="ipAddress">The address; an IPv4-mapped IPv6 form is read as its IPv4 address.</param>
+    public static bool IsTailscaleAddress(string? ipAddress) =>
+        IPAddress.TryParse(ipAddress, out var ip) && IsTailscaleAddress(ip);
+
+    /// <inheritdoc cref="IsTailscaleAddress(string?)"/>
+    public static bool IsTailscaleAddress(IPAddress ip)
+    {
+        if (ip.IsIPv4MappedToIPv6) ip = ip.MapToIPv4();
+        var b = ip.GetAddressBytes();
+        if (ip.AddressFamily == AddressFamily.InterNetwork)
+            return b[0] == 100 && b[1] >= 64 && b[1] <= 127;
+        return ip.AddressFamily == AddressFamily.InterNetworkV6
+            && b[0] == 0xfd && b[1] == 0x7a && b[2] == 0x11 && b[3] == 0x5c && b[4] == 0xa1 && b[5] == 0xe0;
+    }
+
+    /// <summary>
     /// Check if an IP address is a public/routable address.
     /// </summary>
     /// <param name="ipAddress">IP address string to check</param>

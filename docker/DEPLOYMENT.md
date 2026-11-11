@@ -1463,6 +1463,32 @@ Your monitoring data sits in plain InfluxDB 2.x buckets, so you can point your o
 
 The schema is stable: measurement and field names only ever get added, never renamed or removed (Network Optimizer's own charts depend on them), so anything you build keeps working across upgrades.
 
+## Tailscale (Optional)
+
+Settings - Connection - **Tailscale** resolves Tailscale devices in Client Performance, speed test results, and Live Traffic, and shows whether each one connects directly or through a relay. Network Optimizer only reads: it never changes the tailnet. Set it per site.
+
+### Connect
+
+- **Tailscale**: in the Tailscale Admin console, go to Settings - Trust credentials, click **+ Credential**, and add an OAuth credential with the **Devices Core** scope set to **Read** (`devices:core:read`). Enter its client ID and secret. Leave **Tailnet** empty for the client's own tailnet.
+- **Headscale**: the server's URL and an API key from `headscale apikeys create`.
+
+On a site reached through its On-Site Agent, the API calls go out through the agent, so a Headscale server on that site's LAN works.
+
+### What you get
+
+- Tailscale devices by name, OS, and owner (or tags) in Client Performance, which also lists them in its device selector.
+- Tailscale flows in Live Traffic named by the device at the far end. Of a device's flows, the busiest reads **Direct** and the rest **Path probe** (tailscaled probes every endpoint a device has). Flows to Tailscale's relay servers read **DERP relay** or **STUN**.
+- How a device connects (Direct or Relayed), read off the gateway's flows. On a Tailscale speed test result it is read right after the test and labeled "(seen just after the test)".
+
+### Tailscale on an On-Site Agent's host
+
+When an On-Site Agent's host runs Tailscale (a UniFi gateway with Tailscale installed, for example), Network Optimizer finds it and uses it with no setup, and the card says so:
+
+- The exact path for every device (direct, DERP relay with its region, or peer relay), and traffic counters.
+- When that host is the tailnet's subnet router or exit node, Live Traffic shows the Tailscale device behind each connection it routes, read from the host's conntrack table. By default a router source-NATs its peers to its own LAN address, so only that host's table holds which peer it was. A node started with `--snat-subnet-routes=false`, with the gateway routing `100.64.0.0/10` to it, needs none of this: its peers keep their tailnet addresses.
+
+The agent reads the local status through tailscaled's LocalAPI socket (`/var/run/tailscale/tailscaled.sock`). When tailscaled runs in a container on that host, set `TS_SOCKET=/var/run/tailscale/tailscaled.sock` on it and mount `/var/run/tailscale` from the host. For a root caller the socket allows changes as well as reads; the agent sends only `GET /localapi/v0/status`.
+
 ## Next Steps
 
 After deployment:

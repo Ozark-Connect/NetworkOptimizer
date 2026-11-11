@@ -988,6 +988,7 @@
         Exclude = AddFilter,
         CanNameApps = () => _canNameApps,
         NameApp = seed => OpenCustomAppsAsync(seed),
+        OfferTailscaleSetup = () => _view is { TailnetConnected: false },
     };
 
     // ---------------------------------------------------------------- custom apps
@@ -1335,8 +1336,10 @@
     private RenderFragment GroupName(LiveGroupRow g) => __builder =>
     {
         var unnamed = g.Unnamed;
+        var tailscale = _groupBy == LiveTrafficGroupBy.App && OffersTailscaleSetup(g.Name);
         <span class="lt-app-cell @(unnamed != null ? "lt-app-unnamed" : null)" data-app-unnamed="@(unnamed != null ? g.Name : null)"
-              data-app-seed="@unnamed?.Encode()" data-app-link="@NameAppLink(unnamed)">@if (_groupBy == LiveTrafficGroupBy.App) { @AppIcon(g.Name) }<span class="lt-pivot">@g.Name</span></span>
+              data-app-seed="@unnamed?.Encode()" data-app-link="@NameAppLink(unnamed)"
+              data-app-tailscale="@(tailscale ? g.Name : null)" data-tailscale-link="@(tailscale ? TailscaleSetupLink : null)">@if (_groupBy == LiveTrafficGroupBy.App) { @AppIcon(g.Name) }<span class="lt-pivot">@g.Name</span></span>
     };
 
     /// <summary>A group row opens its flows: filter to the group, back to the flow list.</summary>

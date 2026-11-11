@@ -424,6 +424,7 @@ else
                 _ => null,
             },
             CanNameApps = () => _canNameApps,
+            OfferTailscaleSetup = () => _lt is { TailnetConnected: false },
         };
     }
 

@@ -18,6 +18,7 @@
 @inject IIperf3SpeedTestService SpeedTestService
 @inject SystemSettingsService SystemSettings
 @inject IDisplayTimeZone DisplayTime
+@inject ITailscaleDirectory Tailscale
 
 @if (HasAnyMapData)
 {
@@ -544,7 +545,11 @@
 
         // Load networks for VPN detection
         _networks = await ConnectionService.GetNetworksAsync();
+        _tailnet = await Tailscale.GetPeersAsync();
     }
+
+    /// <summary>The site's tailnet, which names a Tailscale result that has no device name of its own.</summary>
+    private TailnetSnapshot _tailnet = TailnetSnapshot.Empty;
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
@@ -1547,7 +1552,7 @@
 
     /// <summary>Source label for a result: Tailscale, VPN, Teleport, WAN, or null for the LAN.</summary>
     private string? DetectVpnType(Iperf3Result result) =>
-        SpeedTestClientSource.Detect(result.DeviceHost, _networks, result.ClientMac);
+        SpeedTestClientSource.Detect(result.DeviceHost, _networks, result.ClientMac, _tailnet.IsPeer);
 
     /// <summary>Channel and its width, or nothing when the channel is unknown.</summary>
     private static string FormatChannelForTooltip(int? channel, int? widthMhz)
@@ -1576,7 +1581,7 @@
 
     private string BuildPopup(Iperf3Result result, bool isExternal)
     {
-        var deviceName = result.DeviceName ?? result.DeviceHost;
+        var deviceName = result.DeviceName ?? _tailnet.NameFor(result.DeviceHost) ?? result.DeviceHost;
         var time = result.TestTime.ToLocalTime(DisplayTime).ToString(DisplayTime.Format.DayTime, DisplayFormat.Culture);
 
         // Determine badge based on VPN detection

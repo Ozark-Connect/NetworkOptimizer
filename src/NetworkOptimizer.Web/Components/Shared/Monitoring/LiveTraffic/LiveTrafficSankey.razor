@@ -29,12 +29,14 @@ else
             var clientLink = node.Column == 0 ? LiveTrafficLinks.ClientPerformance(node.ClientIp) : null;
             var unnamed = node.Column == 1 ? node.Unnamed : null;
             var routeDests = RouteDestinations(node, Sankey.ValueIsFlows);
+            var tailscale = node.Column == 1 && !node.IsOther && OffersTailscaleSetup(node.Name);
             <g @key="(node.Column, node.Name)" class="lt-sankey-node @(clickable ? "is-clickable" : null) @(IsFiltered(node) ? "is-filtered" : null) @(unnamed != null ? "lt-app-unnamed" : null)"
                style="transform: translate(@(F(ColX[node.Column]))px, @(F(n.Y))px)"
                data-client-name="@(clientLink != null ? node.Name : null)" data-client-link="@clientLink"
                data-app-unnamed="@(unnamed != null ? node.Name : null)" data-app-seed="@unnamed?.Encode()" data-app-link="@NameAppLink(unnamed)"
                data-route-name="@(routeDests != null ? node.Name : null)" data-route-lan="@(routeDests != null && node.RouteKind == LiveRouteKind.Lan ? "1" : null)"
                data-route-dests="@routeDests" data-route-more="@(routeDests != null && node.MoreDestinations > 0 ? node.MoreDestinations : null)"
+               data-app-tailscale="@(tailscale ? node.Name : null)" data-tailscale-link="@(tailscale ? TailscaleSetupLink : null)"
                @onclick="() => OnNodeClick(node)"
                @onmouseenter="() => { if (clickable) OnHover?.Invoke(node, DrawnColumn(node.Column)); }"
                @onmouseleave="() => { if (clickable) OnHover?.Invoke(null, null); }">

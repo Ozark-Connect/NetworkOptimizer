@@ -67,4 +67,15 @@ public class SpeedTestClientSourceTests
     {
         SpeedTestClientSource.Detect(clientIp, Networks, clientMac).Should().Be(expected);
     }
-}
+
+    [Fact]
+    public void TailnetIpv6_IsTailscale()
+    {
+        SpeedTestClientSource.Detect("fd7a:115c:a1e0::5", Networks).Should().Be("Tailscale");
+    }
+
+    [Fact]
+    public void DeviceListHit_IsTailscale()
+    {
+        SpeedTestClientSource.Detect("10.200.0.5", Networks, tailnetPeer: ip => ip == "10.200.0.5").Should().Be("Tailscale");
+    }}

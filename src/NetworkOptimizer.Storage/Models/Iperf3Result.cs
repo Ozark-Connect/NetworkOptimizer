@@ -313,13 +313,9 @@ public class Iperf3Result
         if (string.IsNullOrEmpty(DeviceHost) || !System.Net.IPAddress.TryParse(DeviceHost, out _))
             return false;
 
-        // Tailscale CGNAT range: 100.64.0.0/10
-        if (DeviceHost.StartsWith("100."))
-        {
-            var parts = DeviceHost.Split('.');
-            if (parts.Length >= 2 && int.TryParse(parts[1], out int secondOctet) && secondOctet >= 64 && secondOctet <= 127)
-                return false;
-        }
+        // Tailscale's ranges: 100.64.0.0/10 and fd7a:115c:a1e0::/48
+        if (NetworkOptimizer.Core.Helpers.NetworkUtilities.IsTailscaleAddress(DeviceHost))
+            return false;
 
         // Check path analysis for VPN/Teleport/Tailscale/WAN hops
         if (PathAnalysis?.Path?.Hops != null)

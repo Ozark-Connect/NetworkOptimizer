@@ -64,6 +64,7 @@ public sealed class LiveTrafficService : ILiveTrafficService
     private readonly LiveTrafficPolicyResolver _policies;
     private readonly ILogger<LiveTrafficService> _logger;
     private readonly IReadOnlySet<string> _serverHosts;
+    private readonly Tailscale.TailscaleDirectoryRegistry? _tailscale;
 
     /// <summary>This install's declared hosts (reverse-proxied name, HOST_NAME, HOST_IP), the names agents and browsers reach it by.</summary>
     private static IReadOnlySet<string> ServerHosts(CanonicalBaseUrlProvider canonical)
@@ -93,8 +94,10 @@ public sealed class LiveTrafficService : ILiveTrafficService
         GeoEnrichmentService geo,
         LiveTrafficPolicyResolver policies,
         CanonicalBaseUrlProvider canonical,
-        ILogger<LiveTrafficService> logger)
+        ILogger<LiveTrafficService> logger,
+        Tailscale.TailscaleDirectoryRegistry? tailscale = null)
     {
+        _tailscale = tailscale;
         _serverHosts = ServerHosts(canonical);
         _registry = registry;
         _tunnels = tunnels;
@@ -169,6 +172,10 @@ public sealed class LiveTrafficService : ILiveTrafficService
                 _ = Task.Run(() => EnrichAsync(slug, store, refreshClients, refreshFlows, gatewayIps));
             }
         }
+
+        // Until the site's settings are read, nothing is offered: a setup prompt that flashes and goes is noise.
+        if (_tailscale != null)
+            store.SetTailnet(_tailscale.Get(slug, wantSnat: true), _tailscale.StatusFor(slug)?.Enabled ?? true);
 
         return store.BuildView(query, state);
     }

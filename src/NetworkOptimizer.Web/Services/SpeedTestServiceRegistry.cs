@@ -44,6 +44,8 @@ public class SpeedTestServiceRegistry : ISiteScopedRegistry
             // A target hostname resolves from the site's vantage, so a LAN-only or split-horizon
             // name answers the way it does for the site's clients.
             var dnsResolver = _serviceProvider.GetService<Monitoring.SiteVantageDnsResolver>();
+            // The site's tailnet list classifies a peer at an address outside Tailscale's default ranges.
+            var tailscale = _serviceProvider.GetService<Tailscale.TailscaleDirectoryRegistry>();
             // Each site's path analyzer gets its own MemoryCache: the analyzer
             // caches topology under fixed keys, so a shared cache would leak
             // one site's topology into another site's path analysis. Non-default
@@ -54,7 +56,8 @@ public class SpeedTestServiceRegistry : ISiteScopedRegistry
                 new MemoryCache(new MemoryCacheOptions()),
                 _serviceProvider.GetRequiredService<ILoggerFactory>(),
                 isRemoteSite: s != SiteManagementService.DefaultSiteSlug,
-                hostnameResolver: dnsResolver == null ? null : (host, ct) => dnsResolver.ResolveAddressesAsync(s, host, ct));
+                hostnameResolver: dnsResolver == null ? null : (host, ct) => dnsResolver.ResolveAddressesAsync(s, host, ct),
+                tailnetPeer: tailscale == null ? null : ip => tailscale.IsPeer(s, ip));
             // Wrap the shared bus so every alert event these per-site services publish
             // is stamped with this site's slug, routing it to the site's rules, history,
             // and channels (same pattern as MonitoringAlertRegistry).

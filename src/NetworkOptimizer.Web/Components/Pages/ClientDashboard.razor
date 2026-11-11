@@ -35,6 +35,8 @@
 @using NetworkOptimizer.Web.Services.Monitoring.LiveTraffic
 @using NetworkOptimizer.Web.Components.Shared.Monitoring.LiveTraffic
 @inject ILiveTrafficService LiveTraffic
+@inject ITailscaleDirectory Tailscale
+@inject IAuthorizationService Authz
 
 <PageTitle>Client Performance - Network Optimizer</PageTitle>
 
@@ -217,6 +219,17 @@
                             <h2 class="identity-name">@_client.DisplayName</h2>
                             <div class="identity-meta">
                                 <span>@_client.Ip</span>
+                                @if (_client.Tailnet is { } tailnetPeer)
+                                {
+                                    @if (!string.IsNullOrEmpty(tailnetPeer.Os))
+                                    {
+                                        <span class="identity-detail"><span class="meta-sep">·</span> <span data-tooltip="OS">@tailnetPeer.Os</span></span>
+                                    }
+                                    @if (TailnetDisplay.Owner(tailnetPeer) is { } owner)
+                                    {
+                                        <span class="identity-detail"><span class="meta-sep">·</span> <span data-tooltip="@(string.IsNullOrWhiteSpace(tailnetPeer.User) ? $"Tags: {owner}" : $"Owner: {owner}")">@TailnetDisplay.ShortOwner(owner)</span></span>
+                                    }
+                                }
                             </div>
                         </div>
                     }
@@ -238,10 +251,20 @@
                                 <span class="meta-sep">·</span>
                                 <span data-tooltip="SSID">@_client.Essid</span>
                             }
+                            @if (!string.IsNullOrEmpty(_client.TailnetRouterBadge))
+                            {
+                                <span class="meta-sep">·</span>
+                                <span data-tooltip="Peers that route through this host appear as its own traffic, unless Network Optimizer reads its conntrack table">@_client.TailnetRouterBadge</span>
+                            }
                         </div>
                     }
                 </div>
                 <div class="identity-signal">
+                    @if (_client.IsVpn && _client.Tailnet is { } tailnetDevice)
+                    {
+                        <MonitoringJumpButton Icon="MonitoringJumpButton.JumpIcon.Analyze" Tooltip="Open in Live Traffic"
+                                              OnClick="@(() => NavigationManager.NavigateTo($"/monitoring/live-traffic?dest={Uri.EscapeDataString(tailnetDevice.Name)}"))" />
+                    }
                     @if (_canSteer && !OnApWithoutSteering && _client is { IsWired: false, IsOffline: false, IsVpn: false })
                     {
                         @* The gate is the service; this is the UX half, so a Viewer is never shown a
@@ -330,7 +353,33 @@
             <div class="identity-row-2">
                 @if (_client.IsVpn)
                 {
-                    <span class="identity-detail detail-dim">Remote client - limited data available</span>
+                    @if (_client.Tailnet != null && (_client.Tailnet.Path ?? _tailnetPath) is { } tailnetPath)
+                    {
+                        <span class="identity-detail" data-tooltip="@TailnetDisplay.PathDetail(tailnetPath)">@TailnetDisplay.PathLabel(tailnetPath)</span>
+                        @if (TailnetDisplay.Traffic(_client.Tailnet) is { } tailnetTraffic)
+                        {
+                            <span class="identity-detail detail-dim">@tailnetTraffic</span>
+                        }
+                    }
+                    else if (_client.Tailnet != null)
+                    {
+                        <span class="identity-detail detail-dim">Connected over Tailscale</span>
+                    }
+                    else if (_client.VpnType == HopType.Tailscale && !_pickerTailnet.Connected)
+                    {
+                        @if (_canSetUpTailscale)
+                        {
+                            <span class="identity-detail identity-note detail-dim"><a href="/settings?tab=connection#tailscale">Set Up Tailscale</a> to see this device's name, owner, and how it connects</span>
+                        }
+                        else
+                        {
+                            <span class="identity-detail identity-note detail-dim">A Site Admin can set up Tailscale to show this device's name, owner, and how it connects</span>
+                        }
+                    }
+                    else
+                    {
+                        <span class="identity-detail detail-dim">Remote client - limited data available</span>
+                    }
                 }
                 else if (!_client.IsWired)
                 {
@@ -1964,6 +2013,12 @@
             if (_client?.IsVpn == true && _activeTab != "speed")
                 _activeTab = "speed";
 
+            if (_client?.VpnType == HopType.Tailscale)
+            {
+                await LoadTailnetForVpnViewAsync();
+                _ = ReadTailnetPathAsync(_client.Ip);
+            }
+
             await RefreshSteeringAsync();
 
             // Poll now rather than at the next tick. The timer starts before the address is known,
@@ -2042,7 +2097,11 @@
         // A viewer reaching the dashboard over Tailscale/Teleport/remote-user VPN is never
         // in the UniFi client list, so identity is null. Fall back to the simplified VPN
         // view - default site only, so managed-site behavior (whoami/picker) is untouched.
-        if (identity == null && SiteContext.IsDefault)
+        // A Tailscale device chosen from the selector opens the same view on any site. The pick reloads
+        // the page, so the tailnet is read here rather than taken from the selector.
+        if (identity == null && !SiteContext.IsDefault && _pickerTailnet == TailnetSnapshot.Empty)
+            await LoadPickerTailnetAsync();
+        if (identity == null && (SiteContext.IsDefault || _pickerTailnet.IsPeer(ip)))
             identity = await DashboardService.IdentifyVpnClientAsync(ip);
 
         return identity;
@@ -2190,6 +2249,7 @@
             Logger.LogDebug(ex, "Client selector list could not be loaded (site {Site})", SiteContext.Slug);
             return;
         }
+        await LoadPickerTailnetAsync();
         StateHasChanged();
         // The header's "This device" jump needs the viewer's own address to know whether to show.
         if (!_isOwnDevice && _ownIp == null && await ResolveOwnIpAsync() != null)
@@ -2213,6 +2273,7 @@
             {
                 if (_pickerClients.Count == 0) return;
                 var refreshed = await DashboardService.RefreshSelectableClientsAsync(_pickerClients);
+                await LoadPickerTailnetAsync();
                 await InvokeAsync(() =>
                 {
                     _pickerClients = refreshed;
@@ -2239,6 +2300,7 @@
     private async Task ShowClientPickerAsync()
     {
         _pickerClients = await DashboardService.GetSelectableClientsAsync();
+        await LoadPickerTailnetAsync();
         try
         {
             var remembered = await JS.InvokeAsync<string?>("eval",
@@ -2256,11 +2318,61 @@
         StateHasChanged();
     }
 
-    /// <summary>The picker's choices. Same shape Client Stats uses, so the two read alike.</summary>
+    /// <summary>
+    /// The picker's choices. Same shape Client Stats uses, so the two read alike. Tailscale devices
+    /// follow the site's clients, keyed by their tailnet address, which opens their Tailscale view.
+    /// Client Stats lists Wi-Fi clients only, so it does not take them.
+    /// </summary>
     private IReadOnlyList<ClientSelector.Item> PickerItems() =>
         _pickerClients
             .Select(c => new ClientSelector.Item(c.Ip, c.Name, c.Mac, c.IsOnline, c.Ip, c.IsWired))
+            .Concat(_pickerTailnet.Peers
+                .Select(p => (Peer: p, Ip: p.Addresses.FirstOrDefault(a => !a.Contains(':')) ?? p.Addresses.FirstOrDefault()))
+                .Where(x => x.Ip != null && !_pickerClients.Any(c => string.Equals(c.Ip, x.Ip, StringComparison.OrdinalIgnoreCase)))
+                .Select(x => new ClientSelector.Item(x.Ip!, x.Peer.Name, null, x.Peer.Online ?? false, x.Ip, Detail: $"Tailscale · {x.Ip}")))
             .ToList();
+
+    /// <summary>The site's tailnet, for the picker's Tailscale devices; empty when the site does not read one.</summary>
+    private TailnetSnapshot _pickerTailnet = TailnetSnapshot.Empty;
+
+    private async Task LoadPickerTailnetAsync()
+    {
+        try { _pickerTailnet = await Tailscale.GetPeersAsync(); }
+        catch (Exception ex) { Logger.LogDebug(ex, "Tailscale devices for the client selector not read (site {Site})", SiteContext.Slug); }
+    }
+
+    /// <summary>How the Tailscale client connects, read after the page is up: off the gateway's flows it takes seconds.</summary>
+    private TailnetPathInfo? _tailnetPath;
+
+    /// <summary>A Site Admin here: the Tailscale setup line links to its Settings card.</summary>
+    private bool _canSetUpTailscale;
+
+    [CascadingParameter] private Task<Microsoft.AspNetCore.Components.Authorization.AuthenticationState>? AuthState { get; set; }
+
+    /// <summary>The tailnet and the viewer's role, for the Tailscale view's details or its setup line.</summary>
+    private async Task LoadTailnetForVpnViewAsync()
+    {
+        if (_pickerTailnet == TailnetSnapshot.Empty) await LoadPickerTailnetAsync();
+        if (AuthState != null)
+        {
+            var user = (await AuthState).User;
+            _canSetUpTailscale = (await Authz.AuthorizeAsync(user, SiteContext.Slug, Policies.SiteAdmin)).Succeeded;
+        }
+    }
+
+    private async Task ReadTailnetPathAsync(string? ip)
+    {
+        if (string.IsNullOrEmpty(ip) || !_pickerTailnet.Connected) return;
+        try
+        {
+            _tailnetPath = await Tailscale.GetPathAsync(ip);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogDebug(ex, "Tailscale path for {Ip} not read (site {Site})", ip, SiteContext.Slug);
+        }
+        if (!_disposed) await InvokeAsync(StateHasChanged);
+    }
 
     private async Task ViewClientByIpAsync(string ip)
     {
@@ -4542,6 +4654,9 @@
         gap: 12px;
         margin-bottom: 8px;
     }
+    .identity-row-1:has(.identity-info-vpn) {
+        align-items: flex-start;
+    }
     .empty-state-detail {
         font-size: 0.8125rem;
         color: var(--text-muted);
@@ -4716,6 +4831,11 @@
     }
     .identity-detail {
         white-space: nowrap;
+    }
+    /* A sentence in the detail row (the Tailscale setup line): it wraps, and on a phone spans the grid. */
+    .identity-row-2 .identity-note {
+        white-space: normal;
+        grid-column: 1 / -1;
     }
     .identity-figures {
         display: contents;
@@ -5535,6 +5655,14 @@
         }
         .identity-signal {
             align-self: stretch;
+        }
+        /* A VPN client's row holds only its identity and the Live Traffic jump: one row, the jump upper right. */
+        .identity-row-1:has(.identity-info-vpn) {
+            flex-direction: row;
+            align-items: flex-start;
+        }
+        .identity-row-1:has(.identity-info-vpn) .identity-signal {
+            align-self: auto;
         }
         .identity-row-2 {
             display: grid;

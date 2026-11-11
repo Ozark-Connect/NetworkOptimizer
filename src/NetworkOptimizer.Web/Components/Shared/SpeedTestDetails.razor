@@ -11,6 +11,7 @@
 @using NetworkOptimizer.WiFi.Helpers
 @implements IDisposable
 @inject IDisplayTimeZone DisplayTime
+@inject ITailscaleDirectory Tailscale
 
 @if (!PathOnly)
 {
@@ -329,7 +330,7 @@
                                        data-tooltip="@deviceTooltip" data-tooltip-html
                                        data-tooltip-interactive="@(hop.Type == HopType.WirelessClient ? "" : null)">
                                         <span class="hop-icon">@GetHopIconMarkup(hop)</span>
-                                        <span class="hop-name">@hop.DeviceName</span>
+                                        <span class="hop-name">@HopName(hop)</span>
                                     </a>
                                 }
                                 else if (!string.IsNullOrEmpty(deviceTooltip))
@@ -338,14 +339,17 @@
                                          data-tooltip="@deviceTooltip" data-tooltip-html
                                          data-tooltip-interactive="@(hop.Type == HopType.WirelessClient ? "" : null)">
                                         <span class="hop-icon">@GetHopIconMarkup(hop)</span>
-                                        <span class="hop-name">@hop.DeviceName</span>
+                                        <span class="hop-name">@HopName(hop)</span>
                                     </div>
                                 }
                                 else
                                 {
-                                    <div class="@hopClasses">
+                                    var offerTailscale = hop.Type == HopType.Tailscale && _tailnetRead && !_tailnet.Connected;
+                                    <div class="@hopClasses"
+                                         data-app-tailscale="@(offerTailscale ? "Tailscale" : null)"
+                                         data-tailscale-link="@(offerTailscale && _canConfigure ? "/settings?tab=connection#tailscale" : null)">
                                         <span class="hop-icon">@GetHopIconMarkup(hop)</span>
-                                        <span class="hop-name">@hop.DeviceName</span>
+                                        <span class="hop-name">@HopName(hop)</span>
                                     </div>
                                 }
 
@@ -435,8 +439,23 @@
 
     private bool _canConfigure;
 
+    /// <summary>The site's tailnet, read once: it names the Tailscale hop.</summary>
+    private TailnetSnapshot _tailnet = TailnetSnapshot.Empty;
+    private bool _tailnetRead;
+
+    /// <summary>The hop's label: a Tailscale hop takes the device's tailnet name; its path is in the tooltip.</summary>
+    private string HopName(NetworkHop hop) =>
+        hop.Type == HopType.Tailscale ? _tailnet.NameFor(hop.DeviceIp) ?? hop.DeviceName : hop.DeviceName;
+
     protected override async Task OnParametersSetAsync()
     {
+        if (!_tailnetRead)
+        {
+            _tailnetRead = true;
+            try { _tailnet = await Tailscale.GetPeersAsync(); }
+            catch (Exception) { /* Refused (no session, as on a public result page): the hop keeps its generic label. */ }
+        }
+
         if (AuthState is null)
         {
             _canOperate = _canConfigure = true;
@@ -871,6 +890,26 @@
             var adjacentHop = hopIdx >= 0 && hopIdx < hops.Count - 1 ? hops[hopIdx + 1] : null;
             if (adjacentHop != null)
                 return GetWifiTooltip(hop, adjacentHop, hop.IsBottleneck);
+        }
+
+        // Tailscale hop: the device and, where a local tailscaled was read at test time, its path.
+        if (hop.Type == HopType.Tailscale && (_tailnet.Peer(hop.DeviceIp) is not null || hop.TailnetPath is not null))
+        {
+            static string Row(string label, string value) =>
+                $"<div class='device-tooltip-row'><span class='device-tooltip-label'>{label}:</span> {System.Net.WebUtility.HtmlEncode(value)}</div>";
+            var rows = new List<string>();
+            if (_tailnet.Peer(hop.DeviceIp) is { } peer)
+            {
+                rows.Add(Row("Device", peer.Name));
+                if (!string.IsNullOrEmpty(peer.Os)) rows.Add(Row("OS", peer.Os));
+                if (!string.IsNullOrEmpty(peer.User)) rows.Add(Row("User", peer.User));
+            }
+            if (hop.TailnetPath is { } path)
+            {
+                rows.Add(Row("Path", TailnetDisplay.PathLabel(path, afterTest: true)));
+                if (TailnetDisplay.PathDetail(path) is { } detail) rows.Add(Row("Detail", detail));
+            }
+            return string.Concat(rows);
         }
 
         // WAN hops: show Smart Queues status if available
