@@ -63,6 +63,8 @@ public static class PonChartSeries
                 dsOwnShare = OwnShare(p, prev),
                 bias = p.BiasMa,
                 hostLink = p.HostLinkUp,
+                eqd = p.EqdBits,
+                cpuPct = CpuPercent(p, prev),
                 // What the ONT's own clocks say happened inside the interval.
                 downS = SameBoot(p, prev) ? DeltaSeconds(p.NotO5Seconds, prev?.NotO5Seconds) : null,
                 losS = SameBoot(p, prev) ? DeltaSeconds(p.LosSeconds, prev?.LosSeconds) : null,
@@ -784,6 +786,96 @@ public static class PonChartSeries
         };
     }
 
+    /// <summary>One upstream bit time at 1.24416 Gbit/s, in nanoseconds.</summary>
+    private const double UpstreamBitNs = 1e9 / 1_244_160_000;
+    /// <summary>
+    /// Fibre length one bit of equalization delay stands for, in metres: light covers about
+    /// 0.204 m per nanosecond in glass (group index 1.468), and the delay answers a round trip.
+    /// </summary>
+    private const double MetresPerEqdBit = UpstreamBitNs * 0.2042 / 2;
+    /// <summary>
+    /// A new ranging lands within a few bits of the last one on an unchanged fibre. From this
+    /// many bits on (about 0.8 m) the step is listed as a change of the path.
+    /// </summary>
+    internal const long EqdStepBits = 10;
+    /// <summary>The OLT repeats its PON-ID every few seconds; this long without one is worth a line.</summary>
+    internal const double PonIdStaleSeconds = 120;
+
+    /// <summary>
+    /// A step in the equalization delay: the OLT measured a different round trip. Metres are the
+    /// fibre length that step stands for, positive for a longer path (the delay shrinks as the
+    /// fibre grows). The loss change is taken across the same step, where both sides have one.
+    /// </summary>
+    public sealed record EqdStep(string Time, long DeltaBits, double DeltaMetres, double? LossChangeDb);
+
+    public sealed record RangingSummary
+    {
+        public long? EqdBits { get; init; }
+        public double? EqdMicros { get; init; }
+        public IReadOnlyList<EqdStep> Steps { get; init; } = [];
+        /// <summary>Seconds since the OLT last announced its launch power, at the latest poll.</summary>
+        public double? PonIdAgeSeconds { get; init; }
+        public bool PonIdStale { get; init; }
+    }
+
+    /// <summary>
+    /// The equalization delay and when the OLT last sent its PON-ID. A step in the delay next to
+    /// the path loss tells a rerouted or respliced path (both move) from a connector going bad
+    /// (loss moves, delay stays). The absolute delay is not a length: it hangs on a reference
+    /// only the OLT knows. Null when the ONT reports neither value.
+    /// </summary>
+    public static RangingSummary? SummarizeRanging(List<MonitoringInfluxClient.PonSeriesPoint>? points)
+    {
+        if (points is not { Count: > 0 }) return null;
+        var ordered = points.OrderBy(p => p.Time).ToList();
+        var latestEqd = ordered.LastOrDefault(p => p.EqdBits.HasValue)?.EqdBits;
+        var age = ordered.LastOrDefault(p => p.PonIdAgeSeconds.HasValue)?.PonIdAgeSeconds;
+        if (latestEqd is null && age is null) return null;
+
+        var steps = new List<EqdStep>();
+        MonitoringInfluxClient.PonSeriesPoint? last = null;
+        foreach (var p in ordered)
+        {
+            if (p.EqdBits is not long eqd) continue;
+            if (last?.EqdBits is long before && Math.Abs(eqd - before) >= EqdStepBits)
+            {
+                var delta = eqd - before;
+                steps.Add(new EqdStep(
+                    p.Time.ToString("o"),
+                    delta,
+                    Math.Round(-delta * MetresPerEqdBit, 1),
+                    p.PathLossDb is double after && last.PathLossDb is double lossBefore
+                        ? Math.Round(after - lossBefore, 2) : null));
+            }
+            last = p;
+        }
+
+        return new RangingSummary
+        {
+            EqdBits = latestEqd,
+            EqdMicros = latestEqd is long bits ? Math.Round(bits * UpstreamBitNs / 1000, 1) : null,
+            Steps = steps.Count > MaxChanges ? steps.GetRange(steps.Count - MaxChanges, MaxChanges) : steps,
+            PonIdAgeSeconds = age,
+            PonIdStale = age >= PonIdStaleSeconds,
+        };
+    }
+
+    /// <summary>
+    /// How busy the ONT's own processor was over one interval, in percent of all its CPU time.
+    /// Null across a restart, where both totals start again.
+    /// </summary>
+    public static double? CpuPercent(MonitoringInfluxClient.PonSeriesPoint cur, MonitoringInfluxClient.PonSeriesPoint? prev)
+    {
+        if (prev is null || !SameBoot(cur, prev)
+            || cur.CpuBusySeconds is not double busy || prev.CpuBusySeconds is not double busyPrev
+            || cur.CpuTotalSeconds is not double total || prev.CpuTotalSeconds is not double totalPrev)
+            return null;
+        var dTotal = total - totalPrev;
+        var dBusy = busy - busyPrev;
+        if (dTotal <= 0 || dBusy < 0 || dBusy > dTotal) return null;
+        return Math.Round(dBusy / dTotal * 100, 1);
+    }
+
     /// <summary>The read-outs beyond the charts, bundled so both chart endpoints attach them with one call.</summary>
     public static object? Insights(List<MonitoringInfluxClient.PonSeriesPoint>? points)
     {
@@ -791,8 +883,9 @@ public static class PonChartSeries
         var fec = SummarizeFec(points);
         var laser = SummarizeLaser(points);
         var provider = SummarizeProvider(points);
-        return check is null && fec is null && laser is null && provider is null
+        var ranging = SummarizeRanging(points);
+        return check is null && fec is null && laser is null && provider is null && ranging is null
             ? null
-            : new { check, fec, laser, provider };
+            : new { check, fec, laser, provider, ranging };
     }
 }

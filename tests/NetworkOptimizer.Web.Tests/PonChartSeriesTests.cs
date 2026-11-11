@@ -784,4 +784,84 @@ public class PonChartSeriesTests
         PonChartSeries.Insights([Point(0, 1000), Point(10, 2000)]).Should().BeNull();
         PonChartSeries.Insights(Healthy()).Should().NotBeNull();
     }
+
+    private static List<MonitoringInfluxClient.PonSeriesPoint> Ranged(params (long? Eqd, double? Loss)[] samples) =>
+        samples.Select((x, i) => new MonitoringInfluxClient.PonSeriesPoint
+        {
+            Time = T0.AddMinutes(5 * i),
+            SfpUptimeS = 1000 + 300 * i,
+            EqdBits = x.Eqd,
+            PathLossDb = x.Loss,
+        }).ToList();
+
+    [Fact]
+    public void SummarizeRanging_NothingReported_IsNull()
+    {
+        PonChartSeries.SummarizeRanging(Ranged((null, 19.8), (null, 19.8))).Should().BeNull();
+        PonChartSeries.SummarizeRanging(null).Should().BeNull();
+    }
+
+    [Fact]
+    public void SummarizeRanging_SteadyDelay_GivesTheValueAndNoStep()
+    {
+        var s = PonChartSeries.SummarizeRanging(Ranged((283549, 19.8), (283551, 19.8), (null, 19.9), (283547, 19.8)))!;
+
+        s.EqdBits.Should().Be(283547);
+        s.EqdMicros.Should().Be(227.9);
+        s.Steps.Should().BeEmpty("a new ranging lands a few bits off on the same fibre");
+        s.PonIdStale.Should().BeFalse();
+    }
+
+    [Fact]
+    public void SummarizeRanging_Step_NamesTheLengthAndTheLossAcrossIt()
+    {
+        // 610 bit times less delay: the OLT sees the ONT about 50 m further away.
+        var s = PonChartSeries.SummarizeRanging(Ranged((283549, 19.8), (283549, 19.8), (282939, 21.3), (282939, 21.3)))!;
+
+        var step = s.Steps.Should().ContainSingle().Subject;
+        step.DeltaBits.Should().Be(-610);
+        step.DeltaMetres.Should().BeApproximately(50.1, 0.2);
+        step.LossChangeDb.Should().Be(1.5);
+        step.Time.Should().Be(T0.AddMinutes(10).ToString("o"));
+    }
+
+    [Fact]
+    public void SummarizeRanging_StepAcrossAMissedRead_IsStillOneStep()
+    {
+        var s = PonChartSeries.SummarizeRanging(Ranged((283549, 19.8), (null, null), (283749, null)))!;
+
+        var step = s.Steps.Should().ContainSingle().Subject;
+        step.DeltaBits.Should().Be(200);
+        step.DeltaMetres.Should().BeLessThan(0, "more delay is a shorter fibre");
+        step.LossChangeDb.Should().BeNull();
+    }
+
+    [Fact]
+    public void SummarizeRanging_PonIdAge_IsStaleOnlyAfterTwoMinutes()
+    {
+        var fresh = Ranged((283549, 19.8), (283549, 19.8));
+        fresh[1].PonIdAgeSeconds = 4.2;
+        PonChartSeries.SummarizeRanging(fresh)!.PonIdStale.Should().BeFalse();
+
+        var old = Ranged((null, 19.8), (null, 19.8));
+        old[1].PonIdAgeSeconds = 5400;
+        var s = PonChartSeries.SummarizeRanging(old)!;
+        s.PonIdStale.Should().BeTrue();
+        s.PonIdAgeSeconds.Should().Be(5400);
+        s.EqdBits.Should().BeNull();
+    }
+
+    [Fact]
+    public void CpuPercent_IsTheBusyShareOfTheInterval_AndNullAcrossARestart()
+    {
+        var a = new MonitoringInfluxClient.PonSeriesPoint { Time = T0, SfpUptimeS = 1000, CpuBusySeconds = 100, CpuTotalSeconds = 1000 };
+        var b = new MonitoringInfluxClient.PonSeriesPoint { Time = T0.AddMinutes(5), SfpUptimeS = 1300, CpuBusySeconds = 115, CpuTotalSeconds = 1300 };
+        var rebooted = new MonitoringInfluxClient.PonSeriesPoint { Time = T0.AddMinutes(10), SfpUptimeS = 40, CpuBusySeconds = 9, CpuTotalSeconds = 40 };
+
+        PonChartSeries.CpuPercent(b, a).Should().Be(5.0);
+        PonChartSeries.CpuPercent(rebooted, b).Should().BeNull();
+        PonChartSeries.CpuPercent(a, null).Should().BeNull();
+        PonChartSeries.CpuPercent(new MonitoringInfluxClient.PonSeriesPoint { Time = T0.AddMinutes(5), SfpUptimeS = 1300 }, a).Should().BeNull();
+    }
+
 }

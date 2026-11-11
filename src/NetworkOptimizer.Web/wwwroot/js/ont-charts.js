@@ -7,7 +7,7 @@ import { valueSortedTooltip, tooltipHeld, alignedPoints } from './chart-tooltip.
 import { renderFilterReset, isFiltered } from './chart-filter.js?v=6';
 import { createMarkLayer } from './chart-event-marks.js?v=13';
 import { createAxisDateCaption } from './chart-axis-date.js?v=5';
-import { ponSeriesFor, ponDetailsHtml, ponErrorTotalsHtml, updatePonCard, ponPayloadMbps, fmtPonLoad, ponLoadSummaryHtml, ponPathSummaryHtml, ponLaunchSeries, ponAvailSummaryHtml, ponGrantSummaryHtml, createPonLoadMap, ponCheckHtml, ponFecSummaryHtml, ponLaserSummaryHtml, ponProviderHtml } from './pon-section.js?v=15';
+import { ponSeriesFor, ponDetailsHtml, ponErrorTotalsHtml, updatePonCard, ponPayloadMbps, fmtPonLoad, ponLoadSummaryHtml, ponPathSummaryHtml, ponLaunchSeries, ponAvailSummaryHtml, ponGrantSummaryHtml, createPonLoadMap, ponCheckHtml, ponFecSummaryHtml, ponLaserSummaryHtml, ponProviderHtml } from './pon-section.js?v=16';
 import { syncIdentity } from './chart-sync.js?v=9';
 import { awaitContainer } from './chart-mount.js?v=1';
 import { loadWindowHours, saveWindowHours, markActiveRange, notifyWindowMoved } from './chart-window.js?v=2';
@@ -32,6 +32,7 @@ let ponLossChart = null;
 let ponAvailChart = null;
 let ponGrantChart = null;
 let ponBiasChart = null;
+let ponCpuChart = null;
 const ponLoadMap = createPonLoadMap({
     ApexCharts, url: '/api/monitoring/ont-pon-load-hours',
     cardSelector: '.ont-pon-loadmap-card', chartSelector: '.ont-pon-loadmap-chart', summarySelector: '.ont-pon-loadmap-summary',
@@ -296,10 +297,12 @@ async function ensureErrorsChartMounted() {
     const biasEl = container.querySelector('.ont-pon-bias-chart');
     if (biasEl) ponBiasChart = new ApexCharts(biasEl, { ...baseOpts(160, 'mA', v => v == null ? '' : v.toFixed(1) + ' mA', {
         yaxis: { min: v => Math.floor(v - 1), max: v => Math.ceil(v + 1) } }), series: [], colors: PALETTE });
+    const cpuEl = container.querySelector('.ont-pon-cpu-chart');
+    if (cpuEl) ponCpuChart = new ApexCharts(cpuEl, { ...baseOpts(160, '%', v => v == null ? '' : v.toFixed(1) + ' %', { yaxis: { min: 0, max: 100 } }), series: [], colors: PALETTE });
     const lossEl = container.querySelector('.ont-pon-loss-chart');
     if (lossEl) ponLossChart = new ApexCharts(lossEl, { ...baseOpts(160, 'dB', v => v == null ? '' : v.toFixed(1) + ' dB', {
         yaxis: { min: v => Math.floor(v - 1), max: v => Math.ceil(v + 1) } }), series: [], colors: PALETTE });
-    await Promise.all([errorsChart.render(), ponHostChart?.render(), ponGemChart?.render(), ponUtilChart?.render(), ponLossChart?.render(), ponAvailChart?.render(), ponGrantChart?.render(), ponBiasChart?.render()].filter(Boolean));
+    await Promise.all([errorsChart.render(), ponHostChart?.render(), ponGemChart?.render(), ponUtilChart?.render(), ponLossChart?.render(), ponAvailChart?.render(), ponGrantChart?.render(), ponBiasChart?.render(), ponCpuChart?.render()].filter(Boolean));
     // It arrives after the first draw, so it starts with no marks on it.
     markLayer.reset();
     applyAnnotations();
@@ -325,7 +328,7 @@ async function updateErrorsChart() {
 
     const withErrors = reporting.filter(d => visibility[d.id] !== false);
     const multi = withErrors.length > 1;
-    const errSeries = [], gemSeries = [], hostSeries = [], utilSeries = [], lossSeries = [], availSeries = [], grantSeries = [], biasSeries = [];
+    const errSeries = [], gemSeries = [], hostSeries = [], utilSeries = [], lossSeries = [], availSeries = [], grantSeries = [], biasSeries = [], cpuSeries = [];
     withErrors.forEach(d => {
         const slot = Math.max(0, reporting.findIndex(x => x.id === d.id));
         const built = ponSeriesFor(d, multi ? `${d.label} ` : '', slot, PALETTE);
@@ -336,6 +339,7 @@ async function updateErrorsChart() {
         lossSeries.push(...built.lossSeries);
         availSeries.push(...built.availSeries);
         biasSeries.push(...built.biasSeries);
+        cpuSeries.push(...built.cpuSeries);
         grantSeries.push(...built.grantSeries);
     });
     // Unlike SFP Stats, this tab mixes ONTs that serve the whole PON set with ones that report a
@@ -350,6 +354,7 @@ async function updateErrorsChart() {
     updatePonCard(container, '.ont-pon-avail-card', ponAvailChart, availSeries);
     updatePonCard(container, '.ont-pon-grant-card', ponGrantChart, grantSeries);
     updatePonCard(container, '.ont-pon-bias-card', ponBiasChart, biasSeries);
+    updatePonCard(container, '.ont-pon-cpu-card', ponCpuChart, cpuSeries);
     for (const [selector, html] of [
         ['.ont-pon-check', ponCheckHtml(withErrors)], ['.ont-pon-fec-summary', ponFecSummaryHtml(withErrors)],
         ['.ont-pon-bias-summary', ponLaserSummaryHtml(withErrors)], ['.ont-pon-provider', ponProviderHtml(withErrors)],
@@ -618,6 +623,7 @@ export async function mount(elId) {
     if (ponAvailChart) { ponAvailChart.destroy(); ponAvailChart = null; }
     if (ponGrantChart) { ponGrantChart.destroy(); ponGrantChart = null; }
     if (ponBiasChart) { ponBiasChart.destroy(); ponBiasChart = null; }
+    if (ponCpuChart) { ponCpuChart.destroy(); ponCpuChart = null; }
     ponLoadMap.destroy();
 
     powerChart = new ApexCharts(powerEl, {
@@ -729,6 +735,7 @@ export function unmount() {
     if (ponAvailChart) { ponAvailChart.destroy(); ponAvailChart = null; }
     if (ponGrantChart) { ponGrantChart.destroy(); ponGrantChart = null; }
     if (ponBiasChart) { ponBiasChart.destroy(); ponBiasChart = null; }
+    if (ponCpuChart) { ponCpuChart.destroy(); ponCpuChart = null; }
     ponLoadMap.destroy();
     containerId = null;
     deviceMeta = [];

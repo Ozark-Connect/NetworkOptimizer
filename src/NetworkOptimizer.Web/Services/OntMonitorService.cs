@@ -329,6 +329,12 @@ public class OntMonitorService : IOntMonitorService, IDisposable
                     sourceUrl: NetworkOptimizer.Web.Services.Monitoring.MonitoringLinks.HardwareStats(
                         "ont", DateTime.UtcNow, $"&ont={config.Id}"),
                     uptimeSeconds: stats.Pon?.SfpUptimeS);
+                if (stats.Pon is { } pon)
+                {
+                    _ = _alertEvaluator.EvaluatePathLossAsync(
+                        config.Id, config.Name,
+                        NetworkOptimizer.Core.Models.PonSupplementalStats.PathLossDb(pon.OltLaunchPowerDbm, pon.RxPowerDbm), pon.OdnClass);
+                }
 
                 _logger.LogDebug("ONT {Name} polled successfully: Rx={Rx} dBm", config.Name, stats.RxPowerDbm);
                 return stats;

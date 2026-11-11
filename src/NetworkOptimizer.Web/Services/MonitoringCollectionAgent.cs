@@ -2807,6 +2807,10 @@ public class MonitoringCollectionAgent : BackgroundService
                                 sourceUrl: sfpUrl,
                                 uptimeSeconds: stats.SfpUptimeS,
                                 ct: ct);
+                            await _ontAlertEvaluator.EvaluatePathLossAsync(
+                                config.Id, config.Name,
+                                PonSupplementalStats.PathLossDb(stats.OltLaunchPowerDbm, stats.RxPowerDbm), stats.OdnClass,
+                                sourceUrl: sfpUrl, ct: ct);
                         }
                         catch (Exception ex)
                         {

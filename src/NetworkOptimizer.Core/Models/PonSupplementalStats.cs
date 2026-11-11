@@ -225,6 +225,26 @@ public class PonSupplementalStats
     /// <summary>1 while the ONT's host port (towards the gateway) has a link.</summary>
     public long? HostLinkUp { get; set; }
 
+    /// <summary>
+    /// The equalization delay the OLT assigned at the last ranging, in upstream bit times
+    /// (Ranging_Time PLOAM). The OLT sets it so that every ONT appears at the same distance:
+    /// a longer fibre gets a smaller delay. Its absolute value depends on the OLT's reference and
+    /// says nothing by itself; a step says the measured round trip changed.
+    /// </summary>
+    public long? EqdBits { get; set; }
+
+    /// <summary>
+    /// Seconds since the OLT last sent a PON-ID message, the source of
+    /// <see cref="OltLaunchPowerDbm"/>. Null when the ONT does not report when it came.
+    /// </summary>
+    public double? PonIdAgeSeconds { get; set; }
+
+    /// <summary>The ONT's own CPU time since boot that was not idle, in seconds.</summary>
+    public double? CpuBusySeconds { get; set; }
+
+    /// <summary>The ONT's own CPU time since boot over all modes, in seconds.</summary>
+    public double? CpuTotalSeconds { get; set; }
+
     /// <summary>GEM frames dropped at reassembly.</summary>
     public long? GemRxDropped { get; set; }
 

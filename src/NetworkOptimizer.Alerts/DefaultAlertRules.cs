@@ -720,6 +720,27 @@ public static class DefaultAlertRules
             MinSeverity = AlertSeverity.Warning,
             CooldownSeconds = 1800 // 30 minutes
         },
+        new AlertRule
+        {
+            // Path loss against the budget of the ODN class the OLT names. Opt-in: only ONTs
+            // whose OLT announces its launch power and class trip it.
+            Name = "ONT: Path Loss Near Class Limit",
+            IsEnabled = false,
+            EventTypePattern = "ont.path_loss_high",
+            Source = "ont",
+            MinSeverity = AlertSeverity.Warning,
+            CooldownSeconds = 3600 // 1 hour
+        },
+        new AlertRule
+        {
+            // Path loss well above the level this ONT usually runs at. Opt-in, same reason.
+            Name = "ONT: Path Loss Rose",
+            IsEnabled = false,
+            EventTypePattern = "ont.path_loss_rise",
+            Source = "ont",
+            MinSeverity = AlertSeverity.Warning,
+            CooldownSeconds = 3600 // 1 hour
+        },
 
         // --- Cellular modem (disabled until user configures a cellular modem) ---
         new AlertRule

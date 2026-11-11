@@ -1825,7 +1825,7 @@ from(bucket: {FluxLiteral.Quote(_longtermBucket)})
         "gem_tx_frames", "gem_tx_idle_frames", "gem_rx_frames", "gem_rx_idle_frames", "ds_superframe", "gem_rx_dropped",
         "alloc_total", "gem_tx_bytes", "us_bursts", "us_dbru", "o5_seconds", "not_o5_seconds", "o5_exits",
         "los_events", "los_seconds", "lof_events", "lof_seconds", "olt_deactivations", "boot_count", "last_reset_reason",
-        "ont_bias_ma", "bias_warn_high_ma", "transceiver_alarm_count", "transceiver_alarms", "fec_corrected_bits", "omci_rx_frames", "mib_data_sync", "omci_up", "omci_services", "ploam_request_key", "ploam_key_switch", "ploam_ranging_time", "td_pir_bytes_s", "td_cir_bytes_s", "host_link_up",
+        "ont_bias_ma", "bias_warn_high_ma", "transceiver_alarm_count", "transceiver_alarms", "fec_corrected_bits", "omci_rx_frames", "mib_data_sync", "omci_up", "omci_services", "ploam_request_key", "ploam_key_switch", "ploam_ranging_time", "td_pir_bytes_s", "td_cir_bytes_s", "host_link_up", "eqd_bits", "pon_id_age_s", "cpu_busy_s", "cpu_total_s",
         "ont_tx_power_dbm", "ont_temperature_c",
         "ds_superframe_sampled", "gem_rx_bytes", "olt_launch_power_dbm", "odn_class", "reach_extender", "path_loss_db",
         "alloc_lost", "lan_link_status", "lan_mode",
@@ -1886,6 +1886,10 @@ from(bucket: {FluxLiteral.Quote(_longtermBucket)})
             TrafficPirBytesPerSecond = AsLongOrNull(record.GetValueByKey("td_pir_bytes_s")),
             TrafficCirBytesPerSecond = AsLongOrNull(record.GetValueByKey("td_cir_bytes_s")),
             HostLinkUp = AsLongOrNull(record.GetValueByKey("host_link_up")),
+            EqdBits = AsLongOrNull(record.GetValueByKey("eqd_bits")),
+            PonIdAgeSeconds = AsDoubleOrNull(record.GetValueByKey("pon_id_age_s")),
+            CpuBusySeconds = AsDoubleOrNull(record.GetValueByKey("cpu_busy_s")),
+            CpuTotalSeconds = AsDoubleOrNull(record.GetValueByKey("cpu_total_s")),
             OntTxPowerDbm = AsDoubleOrNull(record.GetValueByKey("ont_tx_power_dbm")),
             OntTemperatureC = AsDoubleOrNull(record.GetValueByKey("ont_temperature_c")),
             GemTxBytes = AsLongOrNull(record.GetValueByKey("gem_tx_bytes")),
@@ -1971,6 +1975,10 @@ from(bucket: {FluxLiteral.Quote(_longtermBucket)})
         if (stats.TrafficPirBytesPerSecond.HasValue) point = point.Field("td_pir_bytes_s", stats.TrafficPirBytesPerSecond.Value);
         if (stats.TrafficCirBytesPerSecond.HasValue) point = point.Field("td_cir_bytes_s", stats.TrafficCirBytesPerSecond.Value);
         if (stats.HostLinkUp.HasValue) point = point.Field("host_link_up", stats.HostLinkUp.Value);
+        if (stats.EqdBits.HasValue) point = point.Field("eqd_bits", stats.EqdBits.Value);
+        if (stats.PonIdAgeSeconds.HasValue) point = point.Field("pon_id_age_s", stats.PonIdAgeSeconds.Value);
+        if (stats.CpuBusySeconds.HasValue) point = point.Field("cpu_busy_s", stats.CpuBusySeconds.Value);
+        if (stats.CpuTotalSeconds.HasValue) point = point.Field("cpu_total_s", stats.CpuTotalSeconds.Value);
         // The ONT's own TX power and temperature beside its bias current, so the three a laser's
         // ageing is read from come from one poll. Only where the source reports a bias current.
         if (stats.BiasMa.HasValue && stats.TxPowerDbm.HasValue) point = point.Field("ont_tx_power_dbm", stats.TxPowerDbm.Value);
@@ -4098,6 +4106,10 @@ from(bucket: {FluxLiteral.Quote(_longtermBucket)})
         public long? TrafficPirBytesPerSecond { get; set; }
         public long? TrafficCirBytesPerSecond { get; set; }
         public long? HostLinkUp { get; set; }
+        public long? EqdBits { get; set; }
+        public double? PonIdAgeSeconds { get; set; }
+        public double? CpuBusySeconds { get; set; }
+        public double? CpuTotalSeconds { get; set; }
         public double? OntTxPowerDbm { get; set; }
         public double? OntTemperatureC { get; set; }
         public long? GemTxBytes { get; set; }

@@ -536,4 +536,52 @@ public class OdiOssOntProviderTests
         m.Long("s", ("direction", "ds")).Should().Be(0, "the first match in file order wins");
         m.Long("s", ("direction", "us")).Should().BeNull();
     }
+
+    private const string RangingAndCpu = """
+
+        gpon_ranging_eqd_bits 283549
+        gpon_pon_id_received_uptime_seconds 4080.500
+        gpon_counter_sample_ds_superframe 1215280
+        gpon_cpu_seconds_total{mode="user"} 77.44
+        gpon_cpu_seconds_total{mode="system"} 893.09
+        gpon_cpu_seconds_total{mode="idle"} 39530.95
+        gpon_cpu_seconds_total{mode="softirq"} 7.74
+        """;
+
+    [Fact]
+    public void MapToSupplemental_RangingAndCpu_AreReadWhenTheExporterServesThem()
+    {
+        var pon = OdiOssOntProvider.MapToSupplemental(Metrics(Scrape + RangingAndCpu));
+
+        pon.EqdBits.Should().Be(283549);
+        pon.DsSuperframeSampled.Should().Be(1215280);
+        pon.CpuBusySeconds.Should().BeApproximately(978.27, 0.001);
+        pon.CpuTotalSeconds.Should().BeApproximately(40509.22, 0.001);
+    }
+
+    [Fact]
+    public void MapToSupplemental_OlderExporter_LeavesRangingAndCpuEmpty()
+    {
+        var pon = OdiOssOntProvider.MapToSupplemental(Metrics());
+
+        pon.EqdBits.Should().BeNull();
+        pon.PonIdAgeSeconds.Should().BeNull();
+        pon.CpuBusySeconds.Should().BeNull();
+        pon.CpuTotalSeconds.Should().BeNull();
+    }
+
+    [Theory]
+    [InlineData(4085.0, 4080.5, 4.5)]
+    [InlineData(4080.0, 4080.5, 0.0)] // read a moment apart
+    public void PonIdAge_IsTheUptimeLessTheStamp(double uptime, double stamp, double expected) =>
+        OdiOssOntProvider.PonIdAge(uptime, stamp).Should().Be(expected);
+
+    [Theory]
+    [InlineData(4085.0, null)]
+    [InlineData(null, 4080.5)]
+    [InlineData(4085.0, 9000.0)]      // a stamp from the future is not a reading
+    [InlineData(4400000.0, 105032.7)] // past 49.7 days the 32-bit stamp has wrapped
+    public void PonIdAge_IsNullWhenItCannotBeTrusted(double? uptime, double? stamp) =>
+        OdiOssOntProvider.PonIdAge(uptime, stamp).Should().BeNull();
+
 }

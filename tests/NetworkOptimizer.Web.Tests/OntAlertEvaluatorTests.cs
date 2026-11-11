@@ -295,6 +295,131 @@ public class OntAlertEvaluatorTests
         bus.Events.Count(e => e.EventType == "ont.management_unresponsive").Should().Be(2);
     }
 
+    private static readonly DateTime PathT0 = new(2026, 11, 1, 0, 0, 0, DateTimeKind.Utc);
+
+    private static async Task Feed(OntAlertEvaluator evaluator, int start, params double[] losses)
+    {
+        for (var i = 0; i < losses.Length; i++)
+            await evaluator.EvaluatePathLossAsync(1, "ONT", losses[i], 2, now: PathT0.AddMinutes(5 * (start + i)));
+    }
+
+    [Fact]
+    public async Task PathLoss_SteadyInsideTheBudget_RaisesNothing()
+    {
+        var (evaluator, bus) = Create();
+
+        await Feed(evaluator, 0, Enumerable.Range(0, 40).Select(i => 19.8 + 0.1 * (i % 2)).ToArray());
+
+        bus.Events.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task PathLoss_RiseAboveTheLearnedLevel_RaisesOnce_AndTheLevelStandsStill()
+    {
+        var (evaluator, bus) = Create();
+
+        await Feed(evaluator, 0, Enumerable.Repeat(19.8, 12).ToArray());
+        // Two readings up are not yet "now"; the third is.
+        await Feed(evaluator, 12, 22.3, 22.3);
+        bus.Events.Should().BeEmpty();
+        await Feed(evaluator, 14, Enumerable.Repeat(22.3, 300).ToArray());
+
+        var rise = bus.Events.Where(e => e.EventType == "ont.path_loss_rise").ToList();
+        rise.Should().HaveCount(1, "a day at the higher level must not become the usual one");
+        rise[0].Severity.Should().Be(AlertSeverity.Warning);
+        rise[0].MetricValue.Should().Be(22.3);
+        rise[0].Context!["ont_id"].Should().Be("1");
+        bus.Events.Should().OnlyContain(e => e.EventType == "ont.path_loss_rise", "22.3 dB is well inside class B+");
+    }
+
+    [Fact]
+    public async Task PathLoss_OneOutlierPoll_RaisesNothing()
+    {
+        var (evaluator, bus) = Create();
+
+        await Feed(evaluator, 0, Enumerable.Repeat(19.8, 12).ToArray());
+        await Feed(evaluator, 12, 23.0, 19.8, 19.8, 19.8);
+
+        bus.Events.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task PathLoss_RiseClearsWithHysteresis_ThenCanRaiseAgain()
+    {
+        var (evaluator, bus) = Create();
+
+        await Feed(evaluator, 0, Enumerable.Repeat(19.8, 12).ToArray());
+        await Feed(evaluator, 12, 22.0, 22.0, 22.0);
+        // 1.6 dB above the level is still inside the hysteresis; 1.0 dB is back.
+        await Feed(evaluator, 15, 21.4, 21.4, 21.4);
+        await Feed(evaluator, 18, 22.0, 22.0, 22.0);
+        bus.Events.Count(e => e.EventType == "ont.path_loss_rise").Should().Be(1);
+
+        await Feed(evaluator, 21, 20.8, 20.8, 20.8);
+        await Feed(evaluator, 24, 22.9, 22.9, 22.9);
+        bus.Events.Count(e => e.EventType == "ont.path_loss_rise").Should().Be(2);
+    }
+
+    [Fact]
+    public async Task PathLoss_SlowDrift_IsFollowedRatherThanRaised()
+    {
+        var (evaluator, bus) = Create();
+
+        // 3 dB over thirty days at five-minute polls: a season, not a fault.
+        var n = 30 * 288;
+        await Feed(evaluator, 0, Enumerable.Range(0, n).Select(i => 18.0 + 3.0 * i / n).ToArray());
+
+        bus.Events.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task PathLoss_NearTheClassLimit_WarnsOnce_ThenErrorsWhenOver()
+    {
+        var (evaluator, bus) = Create();
+
+        await Feed(evaluator, 0, 25.6, 25.6, 25.6, 25.7);
+        var high = bus.Events.Where(e => e.EventType == "ont.path_loss_high").ToList();
+        high.Should().HaveCount(1);
+        high[0].Severity.Should().Be(AlertSeverity.Warning);
+        high[0].ThresholdValue.Should().Be(25);
+        high[0].Context!["odn_class"].Should().Be("B+");
+
+        await Feed(evaluator, 4, 28.4, 28.4, 28.4);
+        high = bus.Events.Where(e => e.EventType == "ont.path_loss_high").ToList();
+        high.Should().HaveCount(2);
+        high[1].Severity.Should().Be(AlertSeverity.Error);
+        high[1].ThresholdValue.Should().Be(28);
+    }
+
+    [Fact]
+    public async Task PathLoss_BudgetAlertClearsWithHysteresis()
+    {
+        var (evaluator, bus) = Create();
+
+        await Feed(evaluator, 0, 25.6, 25.6, 25.6);
+        // 24.8 dB is back under the reserve line, but not by the hysteresis.
+        await Feed(evaluator, 3, 24.8, 24.8, 24.8, 25.6, 25.6, 25.6);
+        bus.Events.Count(e => e.EventType == "ont.path_loss_high").Should().Be(1);
+
+        await Feed(evaluator, 9, 24.2, 24.2, 24.2, 25.6, 25.6, 25.6);
+        bus.Events.Count(e => e.EventType == "ont.path_loss_high").Should().Be(2);
+    }
+
+    [Fact]
+    public async Task PathLoss_WithoutAClass_StillWatchesTheRise_AndWithoutALoss_DoesNothing()
+    {
+        var (evaluator, bus) = Create();
+
+        for (var i = 0; i < 12; i++)
+            await evaluator.EvaluatePathLossAsync(1, "ONT", 29.0, null, now: PathT0.AddMinutes(5 * i));
+        await evaluator.EvaluatePathLossAsync(1, "ONT", null, 2, now: PathT0.AddMinutes(60));
+        bus.Events.Should().BeEmpty("no class, no budget to hold the loss against");
+
+        for (var i = 13; i < 16; i++)
+            await evaluator.EvaluatePathLossAsync(1, "ONT", 31.5, null, now: PathT0.AddMinutes(5 * i));
+        bus.Events.Should().ContainSingle().Which.EventType.Should().Be("ont.path_loss_rise");
+    }
+
     private sealed class CapturingBus : IAlertEventBus
     {
         public List<AlertEvent> Events { get; } = new();

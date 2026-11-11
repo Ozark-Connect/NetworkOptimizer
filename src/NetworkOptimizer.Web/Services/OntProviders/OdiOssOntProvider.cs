@@ -256,6 +256,10 @@ public sealed class OdiOssOntProvider : ISfpSupplementalOntProvider
             TrafficPirBytesPerSecond = m.MaxLong("gpon_provision_traffic_descriptor_pir_bytes_per_second"),
             TrafficCirBytesPerSecond = m.MaxLong("gpon_provision_traffic_descriptor_cir_bytes_per_second"),
             HostLinkUp = m.Long("gpon_host_link_up") is long hostUp and (0 or 1) ? hostUp : null,
+            EqdBits = m.Long("gpon_ranging_eqd_bits") is long eqd and >= 0 ? eqd : null,
+            PonIdAgeSeconds = PonIdAge(uptime, m.Double("gpon_pon_id_received_uptime_seconds")),
+            CpuBusySeconds = m.SumDoubleExcept("gpon_cpu_seconds_total", "mode", "idle"),
+            CpuTotalSeconds = m.SumDoubleExcept("gpon_cpu_seconds_total", "mode", ""),
             UsBursts = m.Long("gpon_us_bursts_total"),
             UsDbru = m.Long("gpon_us_dbru_total"),
 
@@ -278,14 +282,30 @@ public sealed class OdiOssOntProvider : ISfpSupplementalOntProvider
     }
 
     /// <summary>
-    /// The superframe count from the same driver sample as the counter totals. The odi-oss driver
-    /// prints it since v1.16.0-beta.4 (ctr_ds_superframe in /proc/odi_gpon/counters), but metricsd
-    /// up to v1.9.0 skips that line, so no exporter serves it yet. The name follows the exporter's
-    /// own pattern for that file (ctr_samples is gpon_counter_samples_total) and has to be checked
-    /// against the release that adds it. Until then gpon_ds_superframe stands in, which is read
-    /// live and can be one sample (a second) ahead of the totals.
+    /// The superframe count from the same driver sample as the counter totals
+    /// (ctr_ds_superframe in /proc/odi_gpon/counters, odi-oss v1.16.0-beta.4 and later). The
+    /// exporter serves it under this name from the release after v1.9.0; before that the line is
+    /// skipped and gpon_ds_superframe stands in, which is read live and can be one sample
+    /// (a second) ahead of the totals.
     /// </summary>
-    internal const string SampledSuperframeMetric = "gpon_counter_ds_superframe";
+    internal const string SampledSuperframeMetric = "gpon_counter_sample_ds_superframe";
+
+    /// <summary>
+    /// The driver stamps a PON-ID message with the uptime at which it arrived, so its age is the
+    /// uptime less that stamp. The stamp is kept in 32 bits of milliseconds and wraps after 49.7
+    /// days, after which it reads as later than now or far in the past: no age then, rather than
+    /// a wrong one.
+    /// </summary>
+    internal static double? PonIdAge(double? uptime, double? receivedAt)
+    {
+        if (Finite(uptime) is not double up || Finite(receivedAt) is not double at || at < 0) return null;
+        if (up >= PonIdStampWrapSeconds) return null;
+        var age = up - at;
+        // A scrape reads the stamp and the uptime a moment apart.
+        return age >= -2 ? Math.Round(Math.Max(0, age), 1) : null;
+    }
+
+    private const double PonIdStampWrapSeconds = 4294967.296;
 
     /// <summary>
     /// The exporter drops the sample when the OLT sends no PON-ID or reports no power, so absent

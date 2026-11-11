@@ -8,7 +8,7 @@ import { renderFilterReset, isFiltered } from './chart-filter.js?v=6';
 import { createMarkLayer } from './chart-event-marks.js?v=13';
 import { createAxisDateCaption } from './chart-axis-date.js?v=5';
 import { syncIdentity, extentsOf, spanTo } from './chart-sync.js?v=9';
-import { ponSeriesFor, ponDetailsHtml, ponErrorTotalsHtml, updatePonCard, ponPayloadMbps, fmtPonLoad, ponLoadSummaryHtml, ponPathSummaryHtml, ponLaunchSeries, ponAvailSummaryHtml, ponGrantSummaryHtml, createPonLoadMap, ponCheckHtml, ponFecSummaryHtml, ponLaserSummaryHtml, ponProviderHtml } from './pon-section.js?v=15';
+import { ponSeriesFor, ponDetailsHtml, ponErrorTotalsHtml, updatePonCard, ponPayloadMbps, fmtPonLoad, ponLoadSummaryHtml, ponPathSummaryHtml, ponLaunchSeries, ponAvailSummaryHtml, ponGrantSummaryHtml, createPonLoadMap, ponCheckHtml, ponFecSummaryHtml, ponLaserSummaryHtml, ponProviderHtml } from './pon-section.js?v=16';
 import { awaitContainer } from './chart-mount.js?v=1';
 import { loadWindowHours, saveWindowHours, markActiveRange, notifyWindowMoved } from './chart-window.js?v=2';
 
@@ -33,6 +33,7 @@ let ponLossChart = null;
 let ponAvailChart = null;
 let ponGrantChart = null;
 let ponBiasChart = null;
+let ponCpuChart = null;
 const ponLoadMap = createPonLoadMap({
     ApexCharts, url: '/api/monitoring/sfp-pon-load-hours',
     cardSelector: '.sfp-pon-loadmap-card', chartSelector: '.sfp-pon-loadmap-chart', summarySelector: '.sfp-pon-loadmap-summary',
@@ -78,7 +79,7 @@ function padFirst(series) {
 const PON_ONLY_GROUP = 'sfp-pon';
 
 function setPonSyncGroup(group) {
-    for (const chart of [ponErrChart, ponGemChart, ponUtilChart, ponLossChart, ponAvailChart, ponGrantChart, ponBiasChart, ponHostChart]) {
+    for (const chart of [ponErrChart, ponGemChart, ponUtilChart, ponLossChart, ponAvailChart, ponGrantChart, ponBiasChart, ponCpuChart, ponHostChart]) {
         if (!chart?.w) continue;
         chart.w.config.chart.group = group;
         const entry = (window.Apex?._chartInstances || []).find(i => i.chart === chart);
@@ -319,7 +320,7 @@ async function refreshPonSection() {
     if (!ponErrChart) return;
     try {
         const multi = visiblePon.length > 1;
-        const errSeries = [], gemSeries = [], hostSeries = [], utilSeries = [], lossSeries = [], availSeries = [], grantSeries = [], biasSeries = [];
+        const errSeries = [], gemSeries = [], hostSeries = [], utilSeries = [], lossSeries = [], availSeries = [], grantSeries = [], biasSeries = [], cpuSeries = [];
         visiblePon.forEach(m => {
             const prefix = multi ? `${m.label} ` : '';
             const slot = Math.max(0, ponCapableModules.findIndex(x => x.id === m.id));
@@ -331,6 +332,7 @@ async function refreshPonSection() {
             lossSeries.push(...series.lossSeries);
             availSeries.push(...series.availSeries);
             biasSeries.push(...series.biasSeries);
+            cpuSeries.push(...series.cpuSeries);
             grantSeries.push(...series.grantSeries);
         });
         // Every section of the contract is optional, so an implementation serving the GTC
@@ -343,6 +345,7 @@ async function refreshPonSection() {
         updatePonCard(container, '.sfp-pon-avail-card', ponAvailChart, availSeries, padFirst);
         updatePonCard(container, '.sfp-pon-grant-card', ponGrantChart, grantSeries, padFirst);
         updatePonCard(container, '.sfp-pon-bias-card', ponBiasChart, biasSeries, padFirst);
+        updatePonCard(container, '.sfp-pon-cpu-card', ponCpuChart, cpuSeries, padFirst);
         for (const [selector, html] of [
             ['.sfp-pon-check', ponCheckHtml(visiblePon)], ['.sfp-pon-fec-summary', ponFecSummaryHtml(visiblePon)],
             ['.sfp-pon-bias-summary', ponLaserSummaryHtml(visiblePon)], ['.sfp-pon-provider', ponProviderHtml(visiblePon)],
@@ -421,6 +424,8 @@ async function ensurePonChartsMounted() {
     const biasEl = container.querySelector('.sfp-pon-bias-chart');
     if (biasEl) ponBiasChart = new ApexCharts(biasEl, { ...baseOpts(160, 'mA', v => v == null ? '' : v.toFixed(1) + ' mA', {
         yaxis: { min: v => Math.floor(v - 1), max: v => Math.ceil(v + 1) } }), series: [], colors: PALETTE });
+    const cpuEl = container.querySelector('.sfp-pon-cpu-chart');
+    if (cpuEl) ponCpuChart = new ApexCharts(cpuEl, { ...baseOpts(160, '%', v => v == null ? '' : v.toFixed(1) + ' %', { yaxis: { min: 0, max: 100 } }), series: [], colors: PALETTE });
     const lossEl = container.querySelector('.sfp-pon-loss-chart');
     if (lossEl) ponLossChart = new ApexCharts(lossEl, { ...baseOpts(160, 'dB', v => v == null ? '' : v.toFixed(1) + ' dB', {
         yaxis: { min: v => Math.floor(v - 1), max: v => Math.ceil(v + 1) } }), series: [], colors: PALETTE });
@@ -428,7 +433,7 @@ async function ensurePonChartsMounted() {
     // No ponGem: GEM Frames takes no marks, so the layer never needs to reach it.
     chartEls.ponErr = ponErrEl;
     chartEls.ponHost = ponHostEl;
-    await Promise.all([ponErrChart.render(), ponGemChart.render(), ponHostChart.render(), ponUtilChart?.render(), ponLossChart?.render(), ponAvailChart?.render(), ponGrantChart?.render(), ponBiasChart?.render()].filter(Boolean));
+    await Promise.all([ponErrChart.render(), ponGemChart.render(), ponHostChart.render(), ponUtilChart?.render(), ponLossChart?.render(), ponAvailChart?.render(), ponGrantChart?.render(), ponBiasChart?.render(), ponCpuChart?.render()].filter(Boolean));
     // These arrive after the first draw, so they start with no marks on them.
     ponMarkLayer.reset();
     applyAnnotations();
@@ -672,6 +677,7 @@ export async function mount(elId) {
     if (ponAvailChart) { ponAvailChart.destroy(); ponAvailChart = null; }
     if (ponGrantChart) { ponGrantChart.destroy(); ponGrantChart = null; }
     if (ponBiasChart) { ponBiasChart.destroy(); ponBiasChart = null; }
+    if (ponCpuChart) { ponCpuChart.destroy(); ponCpuChart = null; }
     ponLoadMap.destroy();
     if (ponHostChart) { ponHostChart.destroy(); ponHostChart = null; }
 
@@ -811,6 +817,7 @@ export function unmount() {
     if (ponAvailChart) { ponAvailChart.destroy(); ponAvailChart = null; }
     if (ponGrantChart) { ponGrantChart.destroy(); ponGrantChart = null; }
     if (ponBiasChart) { ponBiasChart.destroy(); ponBiasChart = null; }
+    if (ponCpuChart) { ponCpuChart.destroy(); ponCpuChart = null; }
     ponLoadMap.destroy();
     if (ponHostChart) { ponHostChart.destroy(); ponHostChart = null; }
     containerId = null;

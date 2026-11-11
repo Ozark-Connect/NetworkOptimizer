@@ -924,6 +924,10 @@
                         <div class="sfp-pon-bias-summary" style="color: var(--text-secondary); font-size: 0.8rem; margin: -0.25rem 0 0.25rem;"></div>
                         <div class="sfp-pon-bias-chart"></div>
                     </div>
+                    <div class="chart-card sfp-pon-cpu-card">
+                        <div class="chart-header"><h3 class="chart-title"><span data-tooltip="How busy the ONT's own processor was in each interval, from its CPU time counters. A stick that is busy all the time can answer late and drop management traffic.">ONT CPU Load</span></h3></div>
+                        <div class="sfp-pon-cpu-chart"></div>
+                    </div>
                     <div class="chart-card sfp-pon-grant-card">
                         <div class="chart-header"><h3 class="chart-title"><span data-tooltip="Upstream scheduling as this ONT sees it: the bandwidth-map allocations the OLT addresses to it, the bursts it sends in them and its DBRu reports of what it has queued, each per second. Only this ONT's own grants: it does not count what the OLT grants the others.">Upstream Grants (this ONT, per second)</span></h3></div>
                         <div class="sfp-pon-grant-summary" style="color: var(--text-secondary); font-size: 0.8rem; margin: -0.25rem 0 0.25rem;"></div>
@@ -1352,6 +1356,10 @@
                         <div class="chart-header"><h3 class="chart-title"><span data-tooltip="Bias current of the ONT's transmit laser, the ONT's own reading. An ageing laser needs more current for the same light, so a slow rise at unchanged TX power and temperature is the sign to watch for. The limit named is the module's own.">Laser Bias Current</span></h3></div>
                         <div class="ont-pon-bias-summary" style="color: var(--text-secondary); font-size: 0.8rem; margin: -0.25rem 0 0.25rem;"></div>
                         <div class="ont-pon-bias-chart"></div>
+                    </div>
+                    <div class="chart-card ont-pon-cpu-card">
+                        <div class="chart-header"><h3 class="chart-title"><span data-tooltip="How busy the ONT's own processor was in each interval, from its CPU time counters. A stick that is busy all the time can answer late and drop management traffic.">ONT CPU Load</span></h3></div>
+                        <div class="ont-pon-cpu-chart"></div>
                     </div>
                     <div class="chart-card ont-pon-grant-card">
                         <div class="chart-header"><h3 class="chart-title"><span data-tooltip="Upstream scheduling as this ONT sees it: the bandwidth-map allocations the OLT addresses to it, the bursts it sends in them and its DBRu reports of what it has queued, each per second. Only this ONT's own grants: it does not count what the OLT grants the others.">Upstream Grants (this ONT, per second)</span></h3></div>

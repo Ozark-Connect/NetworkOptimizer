@@ -97,6 +97,10 @@ export function ponSeriesFor(item, prefix, slot, palette) {
         biasSeries: [
             { name: `${prefix}Bias current`, data: ponPoints(item, 'bias') },
         ],
+        // The ONT's own processor: a stick that is busy all the time explains odd readings elsewhere.
+        cpuSeries: [
+            { name: `${prefix}CPU busy`, data: ponPoints(item, 'cpuPct') },
+        ],
         hostSeries: [
             { name: `${prefix}FCS errors`, data: ponPoints(item, 'lanFcs') },
             { name: `${prefix}TX drops`, data: ponPoints(item, 'lanDrop') },
@@ -225,9 +229,31 @@ export function ponPathSummaryHtml(items) {
             const when = noTime.string(Date.parse(c.time), { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
             out.push(warn(`${escapeHtml(when)}: ${CHANGE_LABELS[c.what] || escapeHtml(c.what)} changed from ${escapeHtml(c.from)} to ${escapeHtml(c.to)}, which points at work on the provider's side.`));
         }
+        out.push(...rangingLines(item.ponMore?.ranging, warn));
         return out.join('');
     }).join('')
         + '<div>Launch power is what the OLT announces, possibly a configured figure rather than a measurement; the ONT\'s RX reading can be off by up to about 3 dB, so read the level loosely and the changes closely.</div>';
+}
+
+/// What the ranging says beside the loss: the equalization delay, each step in it with the fibre
+/// length it stands for and what the loss did across it, and a PON-ID that stopped coming.
+function rangingLines(r, warn) {
+    if (!r) return [];
+    const out = [];
+    if (r.eqdBits != null) {
+        out.push(`<div>Equalization delay ${fmtInt(r.eqdBits)} bit times (${r.eqdMicros.toFixed(1)} µs)`
+            + `${(r.steps || []).length ? '' : ', unchanged in this window'}. It is set against a reference only the OLT knows, so it is not a fibre length; a step is a change in length.</div>`);
+    }
+    for (const s of r.steps || []) {
+        const metres = Math.abs(s.deltaMetres);
+        const length = `about ${metres >= 10 ? metres.toFixed(0) : metres.toFixed(1)} m ${s.deltaMetres > 0 ? 'longer' : 'shorter'}`;
+        const loss = s.lossChangeDb == null ? ''
+            : Math.abs(s.lossChangeDb) < 0.3 ? ', path loss unchanged'
+            : `, path loss ${fmtSignedDb(s.lossChangeDb)}`;
+        out.push(warn(`${escapeHtml(fmtWhen(s.time))}: the equalization delay moved by ${s.deltaBits > 0 ? '+' : ''}${fmtInt(s.deltaBits)} bit times, a fibre path ${length}${loss}. The OLT measured a different distance: a rerouted or respliced path, or another OLT port.`));
+    }
+    if (r.ponIdStale) out.push(warn(`The OLT last announced its launch power ${fmtDuration(r.ponIdAgeSeconds)} ago, so the loss above rests on an old figure.`));
+    return out;
 }
 
 /// The launch power the OLT announces, as a line for the RX / TX power chart: the far end of the

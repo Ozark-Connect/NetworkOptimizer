@@ -107,6 +107,139 @@ public class OntAlertEvaluator
         }
     }
 
+    /// <summary>A path loss this far above the learned level raises the rise alert.</summary>
+    internal const double PathLossRiseDb = 2.0;
+    /// <summary>Less than this much left to the class limit raises the budget alert as a warning.</summary>
+    internal const double PathLossReserveDb = 3.0;
+    /// <summary>Both alerts clear this far back inside their threshold, so a reading at the edge does not flap.</summary>
+    internal const double PathLossHysteresisDb = 0.5;
+    /// <summary>Readings that make up "now": one outlier poll does not raise or clear anything.</summary>
+    private const int PathLossRecentReadings = 3;
+    /// <summary>Readings before there is a level to compare against.</summary>
+    internal const int PathLossBaselineReadings = 6;
+    /// <summary>How slowly the learned level follows the loss: the seasons move it, a fault does not.</summary>
+    private static readonly TimeSpan PathLossBaselineTime = TimeSpan.FromDays(1);
+
+    /// <summary>The upper loss limit of each ODN class the PON-ID message can name (G.984.2), in dB.</summary>
+    private static readonly (string Name, double MaxDb)[] OdnClassLimits =
+    {
+        ("A", 20), ("B", 25), ("B+", 28), ("C", 30), ("C+", 32),
+    };
+
+    /// <summary>
+    /// Path loss (the OLT's announced launch power less the ONT's RX reading) against two things:
+    /// the budget of the ODN class the OLT names, and the level this ONT usually runs at. The
+    /// first is an absolute limit and needs the class; the second needs no class and catches a
+    /// connector or splice going bad long before the budget is spent. The usual level is learned
+    /// from the first readings after a start and then follows slowly, and it stands still while
+    /// the rise alert is raised, so a fault cannot become the new normal. It is kept in memory:
+    /// after a restart of the application a fault that is already there is learned as the level.
+    /// Only ONTs whose OLT announces its launch power reach here.
+    /// </summary>
+    public async ValueTask EvaluatePathLossAsync(
+        int ontId, string ontName, double? pathLossDb, long? odnClass,
+        string? sourceUrl = null, DateTime? now = null, CancellationToken ct = default)
+    {
+        if (pathLossDb is not double loss || !double.IsFinite(loss)) return;
+        var state = _states.GetOrAdd(ontId, _ => new OntAlertState());
+        if (!string.IsNullOrEmpty(sourceUrl)) state.SourceUrl = sourceUrl;
+        var at = now ?? DateTime.UtcNow;
+
+        state.RecentPathLoss.Enqueue(loss);
+        while (state.RecentPathLoss.Count > PathLossRecentReadings) state.RecentPathLoss.Dequeue();
+        var settled = state.RecentPathLoss.Count == PathLossRecentReadings;
+        // The lowest of the recent readings for raising, the highest for clearing: every one of
+        // them has to agree before the state changes.
+        var low = state.RecentPathLoss.Min();
+        var high = state.RecentPathLoss.Max();
+
+        if (odnClass is >= 0 and <= 4 && settled)
+        {
+            var (className, max) = OdnClassLimits[odnClass.Value];
+            var level = low > max ? 2 : low > max - PathLossReserveDb ? 1 : 0;
+            var holds = high > max - PathLossHysteresisDb ? 2 : high > max - PathLossReserveDb - PathLossHysteresisDb ? 1 : 0;
+            if (level > state.PathLossBudgetLevel)
+            {
+                state.PathLossBudgetLevel = level;
+                var over = level == 2;
+                await _eventBus.PublishAsync(new AlertEvent
+                {
+                    EventType = "ont.path_loss_high",
+                    Source = "ont",
+                    Severity = over ? AlertSeverity.Error : AlertSeverity.Warning,
+                    Title = $"{ontName} path loss {(over ? "over" : "near")} the class limit{_siteSuffix}",
+                    Message = over
+                        ? $"ONT {ontName} path loss {loss:0.0} dB is over the {max:0} dB limit of ODN class {className}: the link runs outside its budget."
+                        : $"ONT {ontName} path loss {loss:0.0} dB leaves {max - loss:0.0} dB to the {max:0} dB limit of ODN class {className}.",
+                    DeviceName = ontName,
+                    MetricValue = loss,
+                    ThresholdValue = over ? max : max - PathLossReserveDb,
+                    SourceUrl = state.SourceUrl,
+                    Tags = ["ont", "path_loss"],
+                    Context = new Dictionary<string, string>
+                    {
+                        ["ont_id"] = ontId.ToString(),
+                        ["metric"] = "path_loss",
+                        ["odn_class"] = className
+                    }
+                }, ct);
+            }
+            else if (holds < state.PathLossBudgetLevel)
+            {
+                state.PathLossBudgetLevel = holds;
+            }
+        }
+
+        if (state.PathLossBaseline is double baseline && state.PathLossBaselineCount >= PathLossBaselineReadings && settled)
+        {
+            if (!state.PathLossRisen && low - baseline >= PathLossRiseDb)
+            {
+                state.PathLossRisen = true;
+                await _eventBus.PublishAsync(new AlertEvent
+                {
+                    EventType = "ont.path_loss_rise",
+                    Source = "ont",
+                    Severity = AlertSeverity.Warning,
+                    Title = $"{ontName} path loss rose{_siteSuffix}",
+                    Message = $"ONT {ontName} path loss {loss:0.0} dB is {loss - baseline:0.0} dB above its usual {baseline:0.0} dB. " +
+                        "Check connectors, the patch cable and bends first; a loss that rose with the launch power unchanged is on the fibre path.",
+                    DeviceName = ontName,
+                    MetricValue = loss,
+                    ThresholdValue = Math.Round(baseline + PathLossRiseDb, 1),
+                    SourceUrl = state.SourceUrl,
+                    Tags = ["ont", "path_loss"],
+                    Context = new Dictionary<string, string>
+                    {
+                        ["ont_id"] = ontId.ToString(),
+                        ["metric"] = "path_loss"
+                    }
+                }, ct);
+            }
+            else if (state.PathLossRisen && high - baseline < PathLossRiseDb - PathLossHysteresisDb)
+            {
+                state.PathLossRisen = false;
+            }
+        }
+
+        // Learn after judging, so a reading is never compared against a level it has moved itself.
+        if (!state.PathLossRisen)
+        {
+            if (state.PathLossBaseline is not double level || state.PathLossBaselineCount < PathLossBaselineReadings)
+            {
+                var n = state.PathLossBaselineCount;
+                state.PathLossBaseline = ((state.PathLossBaseline ?? 0) * n + loss) / (n + 1);
+                state.PathLossBaselineCount = n + 1;
+            }
+            else
+            {
+                var elapsed = at - state.PathLossBaselineAt;
+                var weight = elapsed > TimeSpan.Zero ? 1 - Math.Exp(-elapsed / PathLossBaselineTime) : 0;
+                state.PathLossBaseline = level + (loss - level) * weight;
+            }
+            state.PathLossBaselineAt = at;
+        }
+    }
+
     /// <summary>
     /// Flags an attached ONT whose own page stops answering while its SFP module's DDM still reads
     /// light: the optics are fine and the management side has hung. A DDM read below the RX low
@@ -386,5 +519,12 @@ public class OntAlertEvaluator
         public int FailedPolls;
         public bool ManagementDown;
         public string SourceUrl = DefaultSourceUrl;
+        public readonly Queue<double> RecentPathLoss = new();
+        /// <summary>0 inside the budget, 1 within the reserve of the limit, 2 over it.</summary>
+        public int PathLossBudgetLevel;
+        public bool PathLossRisen;
+        public double? PathLossBaseline;
+        public int PathLossBaselineCount;
+        public DateTime PathLossBaselineAt;
     }
 }
