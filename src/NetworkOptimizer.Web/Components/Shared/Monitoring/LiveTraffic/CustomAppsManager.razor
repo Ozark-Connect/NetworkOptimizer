@@ -24,7 +24,7 @@
         <div class="custom-app-form">
             <div class="form-group">
                 <label class="form-label" for="custom-app-name">Name</label>
-                <input id="custom-app-name" class="form-control" maxlength="80" placeholder="ARGB Controller" autocomplete="off"
+                <input id="custom-app-name" class="form-control" maxlength="80" placeholder="Home Assistant" autocomplete="off"
                        @ref="_nameInput" value="@_draft.Name" @oninput="e => { _draft.Name = e.Value?.ToString() ?? string.Empty; }"
                        @onkeydown="OnTextKeyDown" />
             </div>
@@ -44,7 +44,7 @@
                 </div>
                 <div class="form-group">
                     <label class="form-label" for="custom-app-ports">Ports</label>
-                    <input id="custom-app-ports" class="form-control" maxlength="200" placeholder="21324" autocomplete="off" inputmode="numeric"
+                    <input id="custom-app-ports" class="form-control" maxlength="200" placeholder="8123" autocomplete="off" inputmode="numeric"
                            value="@_draft.Ports" @oninput="e => Set(() => _draft.Ports = e.Value?.ToString() ?? string.Empty)"
                            @onkeydown="OnTextKeyDown" />
                     <small class="form-help">One port, a range (5000-5010), or a list (80, 8080)</small>
