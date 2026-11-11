@@ -38,11 +38,11 @@
                     <span class="detail-value">
                         @if (status.AgentName is { } agentName)
                         {
-                            <text>@agentName, reading how each device connects@(status.AgentRoutes ? " and the device behind traffic it routes" : "")</text>
+                            <text>@agentName (connection paths@(status.AgentRoutes ? " and routed traffic" : ""))</text>
                         }
                         else
                         {
-                            <text>None whose host runs Tailscale</text>
+                            <text>None on a Tailscale host</text>
                         }
                     </span>
                 </div>

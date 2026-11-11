@@ -81,6 +81,8 @@ public sealed class TailscaleDirectoryRegistry : ISiteScopedRegistry
         public TailscaleLocalStatus? Local;
         public IReadOnlyList<TailnetSnatEntry> Snat = [];
         public DateTime SettingsAt, DevicesAt, LocalAt, SnatAt, SnatWantedUntil, AgentSearchedAt;
+        /// <summary>Agents the last search asked; one connecting after it (a restart) is asked at once.</summary>
+        public HashSet<int> AgentsAsked = [];
         public int Refreshing;
     }
 
@@ -96,7 +98,7 @@ public sealed class TailscaleDirectoryRegistry : ISiteScopedRegistry
         var state = State(slug);
         var now = DateTime.UtcNow;
         if (wantSnat) state.SnatWantedUntil = now + SnatWantedFor;
-        if (Due(state, now) && Interlocked.Exchange(ref state.Refreshing, 1) == 0)
+        if (Due(slug, state, now) && Interlocked.Exchange(ref state.Refreshing, 1) == 0)
             _ = Task.Run(async () =>
             {
                 try { await RefreshAsync(slug, state, force: false, CancellationToken.None); }
@@ -183,16 +185,22 @@ public sealed class TailscaleDirectoryRegistry : ISiteScopedRegistry
         }
     }
 
-    private static bool Due(SiteState state, DateTime now)
+    private bool Due(string slug, SiteState state, DateTime now)
     {
         // Settings are re-read on the device-list clock even while off, so a restored backup takes effect.
         if (state.Settings == null || now - state.SettingsAt >= DeviceEvery) return true;
         if (!state.Settings.Settings.Enabled) return false;
         if (now - state.DevicesAt >= DeviceEvery) return true;
-        if (state.Agent == null) return now - state.AgentSearchedAt >= NoAgentRecheck;
+        if (state.Agent == null) return now - state.AgentSearchedAt >= NoAgentRecheck || HasUnaskedAgent(slug, state);
         if (now - state.LocalAt >= LocalEvery) return true;
         return state.Snapshot.Self?.RouterBadge != null && now < state.SnatWantedUntil && now - state.SnatAt >= SnatEvery;
     }
+
+    private IEnumerable<AgentTunnelConnection> CapableAgents(string slug) =>
+        _tunnels.GetForSite(slug).Where(c => c.HasCapability(TailscaleLocal.Capability));
+
+    private bool HasUnaskedAgent(string slug, SiteState state) =>
+        CapableAgents(slug).Any(c => !state.AgentsAsked.Contains(c.AgentId));
 
     private async Task RefreshAsync(string slug, SiteState state, bool force, CancellationToken ct)
     {
@@ -272,11 +280,13 @@ public sealed class TailscaleDirectoryRegistry : ISiteScopedRegistry
             }
         }
 
-        if (state.Agent == null && (force || now - state.AgentSearchedAt >= NoAgentRecheck))
+        if (state.Agent == null && (force || now - state.AgentSearchedAt >= NoAgentRecheck || HasUnaskedAgent(slug, state)))
         {
             state.AgentSearchedAt = now;
             var answered = new List<(AgentTunnelConnection Agent, TailscaleLocalStatus Status)>();
-            foreach (var agent in _tunnels.GetForSite(slug).Where(c => c.HasCapability(TailscaleLocal.Capability)))
+            var capable = CapableAgents(slug).ToList();
+            state.AgentsAsked = capable.Select(c => c.AgentId).ToHashSet();
+            foreach (var agent in capable)
             {
                 try { answered.Add((agent, await AskStatusAsync(slug, agent.AgentId, ct))); }
                 catch (TailscaleLocalException) { /* No Tailscale on this agent's host. */ }
