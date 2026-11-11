@@ -126,7 +126,7 @@
             </div>
             @if (_formError != null)
             {
-                <div class="alert alert-dangercustom-apps-error" role="alert">@_formError</div>
+                <div class="alert alert-danger custom-apps-error" role="alert">@_formError</div>
             }
         </div>
     }
@@ -199,7 +199,7 @@
                         </div>
                         @if (_rowError is { } err && err.Id == d.Id)
                         {
-                            <div class="alert alert-dangercustom-apps-error custom-apps-row-error" role="alert">@err.Message</div>
+                            <div class="alert alert-danger custom-apps-error custom-apps-row-error" role="alert">@err.Message</div>
                         }
                     </li>
                 }
@@ -207,7 +207,7 @@
         }
         @if (_listError != null)
         {
-            <div class="alert alert-dangercustom-apps-error" role="alert">@_listError</div>
+            <div class="alert alert-danger custom-apps-error" role="alert">@_listError</div>
         }
     }
 </div>
