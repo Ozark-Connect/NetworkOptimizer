@@ -593,8 +593,49 @@ public sealed class LiveTrafficStore
     }
 
     /// <summary>The active flows as rows, before the site's custom apps rename any. Callers hold <c>_gate</c>.</summary>
-    private List<LiveFlowRow> ActiveRows(DateTime now) =>
-        InheritSiblingApps(_flows.Values.Select(s => ToRow(s.Last, s.DownBps, s.UpBps, s.History.ToList(), false, now)).ToList());
+    private List<LiveFlowRow> ActiveRows(DateTime now)
+    {
+        var rows = InheritSiblingApps(_flows.Values.Select(s => ToRow(s.Last, s.DownBps, s.UpBps, s.History.ToList(), false, now)).ToList());
+        return NameUniFiWebRtc(rows, rows, IsUniFiHost);
+    }
+
+    /// <summary>The OUI vendor the console reports for Ubiquiti hardware; adopted devices carry it too.</summary>
+    internal const string UbiquitiVendor = "Ubiquiti Inc";
+
+    /// <summary>The name of a UniFi app's WebRTC session to a UniFi Console (live video and the app's data).</summary>
+    internal const string UniFiWebRtcApp = "UniFi WebRTC";
+
+    /// <summary>A gateway, or a site client or device whose MAC vendor is Ubiquiti. Callers hold <c>_gate</c>.</summary>
+    private bool IsUniFiHost(string ip) =>
+        _gatewayIps.Contains(ip)
+        || (_macByIp.TryGetValue(ip, out var mac) && _clientsByMac.TryGetValue(mac, out var c)
+            && c.Vendor?.StartsWith("Ubiquiti", StringComparison.OrdinalIgnoreCase) == true);
+
+    /// <summary>
+    /// A UniFi app's WebRTC session: LAN UDP on an ephemeral port between a client and a UniFi host, while
+    /// that same client holds HTTPS to that host (the session's signaling). The port alone names nothing:
+    /// ICE picks a new one every session. Either end may originate the UDP flow, so both orientations count.
+    /// <paramref name="signaling"/> is where the HTTPS sessions are looked up: the active rows, also for ended ones.
+    /// </summary>
+    internal static List<LiveFlowRow> NameUniFiWebRtc(List<LiveFlowRow> rows, IEnumerable<LiveFlowRow> signaling, Func<string, bool> isUniFiHost)
+    {
+        var sessions = signaling
+            .Where(r => r.RouteKind == LiveRouteKind.Lan && r.RemotePort == 443
+                && r.Proto.Equals("TCP", StringComparison.OrdinalIgnoreCase) && isUniFiHost(r.DestinationIp))
+            .Select(r => (r.ClientIp, r.DestinationIp))
+            .ToHashSet();
+        if (sessions.Count == 0) return rows;
+        var (iconDomain, iconClass) = DpiCatalog.IconsForName(UniFiWebRtcApp);
+        for (var i = 0; i < rows.Count; i++)
+        {
+            var r = rows[i];
+            if (!r.AppIsFallback || r.RouteKind != LiveRouteKind.Lan || r.RemotePort < FlowNaming.EphemeralFloor
+                || !r.Proto.Equals("UDP", StringComparison.OrdinalIgnoreCase)) continue;
+            if (!sessions.Contains((r.ClientIp, r.DestinationIp)) && !sessions.Contains((r.DestinationIp, r.ClientIp))) continue;
+            rows[i] = r with { App = UniFiWebRtcApp, AppIconDomain = iconDomain, AppIconClass = iconClass, AppIsFallback = false };
+        }
+        return rows;
+    }
 
     /// <summary>The site's custom app definitions, in list order: they rename matching rows on every view.</summary>
     public void SetCustomApps(IReadOnlyList<CustomAppRule> rules)
@@ -637,9 +678,12 @@ public sealed class LiveTrafficStore
         lock (_gate)
         {
             var active = CustomAppMatcher.Apply(ActiveRows(now), _customApps);
-            var all = query.Ended
-                ? CustomAppMatcher.Apply(InheritSiblingApps(_ended.Select(e => ToRow(e.Flow, 0, 0, Array.Empty<(double, double)>(), true, now, e.EndedAt)).ToList()), _customApps)
-                : active;
+            var all = active;
+            if (query.Ended)
+            {
+                var ended = InheritSiblingApps(_ended.Select(e => ToRow(e.Flow, 0, 0, Array.Empty<(double, double)>(), true, now, e.EndedAt)).ToList());
+                all = CustomAppMatcher.Apply(NameUniFiWebRtc(ended, active.Concat(ended).ToList(), IsUniFiHost), _customApps);
+            }
             if (query.WanOnly) all = all.Where(r => r.RouteKind is LiveRouteKind.Wan or LiveRouteKind.Vpn).ToList();
             if (query.Client is { } scope) all = all.Where(r => InScope(r, scope)).ToList();
 

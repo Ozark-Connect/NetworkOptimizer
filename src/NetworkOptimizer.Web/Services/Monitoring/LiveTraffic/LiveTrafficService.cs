@@ -346,7 +346,8 @@ public sealed class LiveTrafficService : ILiveTrafficService
                     .Where(d => d != gateway && !string.IsNullOrEmpty(d.Mac) && !string.IsNullOrEmpty(d.DisplayIpAddress)
                         && !clientIps.Contains(d.DisplayIpAddress))
                     .Select(d => new LiveClientInfo(d.Mac.Replace('-', ':').ToLowerInvariant(),
-                        string.IsNullOrWhiteSpace(d.Name) ? d.FriendlyModelName : d.Name, d.DisplayIpAddress, d.FriendlyModelName, null)));
+                        string.IsNullOrWhiteSpace(d.Name) ? d.FriendlyModelName : d.Name, d.DisplayIpAddress, d.FriendlyModelName, null,
+                        Vendor: LiveTrafficStore.UbiquitiVendor)));
 
                 var (routes, primary) = await LoadRoutesAsync(slug);
                 store.SetSiteData(infos, gatewayIps, gateway?.Name, routes, primary);

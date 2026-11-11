@@ -438,6 +438,68 @@ public class LiveTrafficStoreTests
         LiveTrafficStore.InheritSiblingApps(rows).Single(r => r.Key == "b").App.Should().Be("HTTPS");
     }
 
+    private const string Phone = "192.0.2.70";
+    private const string Console = "192.0.2.5";
+    private const string OtherClient = "192.0.2.220";
+    private static bool UniFiConsoleOnly(string ip) => ip == Console;
+
+    private static LiveFlowRow Https(string client, string dest) => new()
+    {
+        Key = $"https-{client}-{dest}", ClientIp = client, DestinationIp = dest, Proto = "TCP",
+        ClientPort = 53473, RemotePort = 443, RouteKind = LiveRouteKind.Lan, App = "HTTPS", AppIsFallback = true,
+    };
+
+    private static LiveFlowRow Udp(string client, string dest, int clientPort, int remotePort, string app = "UDP", bool fallback = true) => new()
+    {
+        Key = $"udp-{client}-{dest}-{remotePort}", ClientIp = client, DestinationIp = dest, Proto = "UDP",
+        ClientPort = clientPort, RemotePort = remotePort, RouteKind = LiveRouteKind.Lan, App = app, AppIsFallback = fallback,
+    };
+
+    [Fact]
+    public void EphemeralUdpToAUniFiHostTheClientHoldsHttpsToIsUniFiWebRtc()
+    {
+        var rows = new List<LiveFlowRow> { Https(Phone, Console), Udp(Phone, Console, 61234, 35826, "UDP 35826") };
+        var named = LiveTrafficStore.NameUniFiWebRtc(rows, rows, UniFiConsoleOnly).Single(r => r.Proto == "UDP");
+        named.App.Should().Be(LiveTrafficStore.UniFiWebRtcApp);
+        named.AppIsFallback.Should().BeFalse();
+    }
+
+    [Fact]
+    public void UniFiWebRtcCountsAConsoleOriginatedUdpFlow()
+    {
+        var rows = new List<LiveFlowRow> { Https(Phone, Console), Udp(Console, Phone, 48821, 61234) };
+        LiveTrafficStore.NameUniFiWebRtc(rows, rows, UniFiConsoleOnly).Single(r => r.Proto == "UDP")
+            .App.Should().Be(LiveTrafficStore.UniFiWebRtcApp);
+    }
+
+    [Fact]
+    public void UniFiWebRtcNeedsTheSameClientsHttpsSession()
+    {
+        var rows = new List<LiveFlowRow> { Https(OtherClient, Console), Udp(Phone, Console, 61234, 35826) };
+        LiveTrafficStore.NameUniFiWebRtc(rows, rows, UniFiConsoleOnly).Single(r => r.Proto == "UDP").App.Should().Be("UDP");
+    }
+
+    [Fact]
+    public void UniFiWebRtcNeedsAUniFiHost()
+    {
+        var rows = new List<LiveFlowRow> { Https(Phone, Console), Udp(Phone, Console, 61234, 35826) };
+        LiveTrafficStore.NameUniFiWebRtc(rows, rows, _ => false).Single(r => r.Proto == "UDP").App.Should().Be("UDP");
+    }
+
+    [Fact]
+    public void UniFiWebRtcLeavesServicePortsAndNamedFlowsAlone()
+    {
+        var rows = new List<LiveFlowRow>
+        {
+            Https(Phone, Console),
+            Udp(Phone, Console, 61234, 10001, "UniFi Discovery", fallback: false),
+            Udp(Phone, Console, 61234, 3478),
+            Udp(Phone, Console, 61234, 40000, "STUN", fallback: false),
+        };
+        LiveTrafficStore.NameUniFiWebRtc(rows, rows, UniFiConsoleOnly).Where(r => r.Proto == "UDP")
+            .Select(r => r.App).Should().Equal("UniFi Discovery", "UDP", "STUN");
+    }
+
     [Fact]
     public void AnOwnersHostOnTheIspsAsnIsAnIspCache()
     {
