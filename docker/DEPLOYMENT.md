@@ -1465,7 +1465,7 @@ The schema is stable: measurement and field names only ever get added, never ren
 
 ## Tailscale (Optional)
 
-Settings - Connection - **Tailscale** names Tailscale devices in Client Performance, speed test results, and Live Traffic. Network Optimizer only reads: it never changes the tailnet. Set it per site.
+Settings - Connection - **Tailscale** resolves Tailscale devices in Client Performance, speed test results, and Live Traffic. Network Optimizer only reads: it never changes the tailnet. Set it per site.
 
 ### Device List
 
