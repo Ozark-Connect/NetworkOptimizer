@@ -24898,12 +24898,6 @@ body:has(.top-bar-hidden) .btn-fit {
     margin-top: 0.75rem;
 }
 
-@media (min-width: 769px) {
-    .custom-apps.is-dialog .custom-app-form .action-buttons {
-        justify-content: flex-end;
-    }
-}
-
 .custom-apps-intro {
     margin: 0 0 0.75rem;
     color: var(--text-secondary);
