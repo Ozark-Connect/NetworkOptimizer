@@ -116,7 +116,7 @@ Time-series monitoring on your own InfluxDB, fed by SNMP polling (InfluxDB).
       - Save the filters, search, and grouping to presets **1 2 3** and load one with a click, remembered per user and site
     - Hover a client for its connection, address, and a link to its Client Performance page; a remote-user VPN or Tailscale client reads as one ("VPN Client (address)")
     - With [Tailscale](#settings) connected, Tailscale clients and destinations show their tailnet names, including WireGuard flows to a device's endpoint
-      - A device's busiest endpoint flow reads **Direct**, the rest **Path probe**; flows to Tailscale's relays read **DERP relay** or **STUN**
+      - A device's busiest endpoint flow reads **Direct**, the rest **Path probe**; flows to Tailscale's relays are named by region (Tailscale DERP (Dallas)) and read **DERP relay** or **STUN**
       - With Tailscale on an [On-Site Agent](#on-site-agent)'s host that routes for the tailnet, traffic it carries for a device shows as that device
     - Sort by any column, either way; rows and diagram nodes hold still under the pointer, slide when they move, and an expanded flow stays in place on screen while the list changes, again once you scroll back and settle on it
     - Apps named by the gateway's DPI (UniFi Network's own records), else by the domain the flow went to, the port, or the address's owner (GeoLite2 ASN), with the same app icons as Client Performance

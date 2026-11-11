@@ -814,8 +814,11 @@ public sealed class LiveTrafficStore
         var endpointPeer = peer == null && proto == "udp" && _tailnet.Peer(f.RemoteIp) == null
             ? _tailnet.PeerAtEndpoint(f.RemoteIp, f.RemotePort, addressAlone: wireGuard) : null;
         var tailnetPeer = peer == null ? _tailnet.Peer(f.RemoteIp) ?? endpointPeer : null;
+        // A Tailscale relay server, named by its region from Tailscale's DERP map rather than its host's ASN.
+        var derpRegion = peer == null && tailnetPeer == null ? _tailnet.DerpAt(f.RemoteIp) : null;
         if (peer != null) destination = peer.Name;
         else if (tailnetPeer != null) destination = tailnetPeer.Name;
+        else if (derpRegion != null) destination = $"Tailscale DERP ({derpRegion.Name})";
         else if (hasLookup) destination = lookup!.Name;
         else if (!string.IsNullOrEmpty(consoleDomain)) destination = consoleDomain!;
         else if (remoteSite != null) destination = f.RemoteIp;

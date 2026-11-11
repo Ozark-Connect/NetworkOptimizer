@@ -1244,4 +1244,23 @@ public class LiveTrafficStoreTests
     public void DerpHosts(string host, bool expected)
     {
         LiveTrafficStore.IsDerpHost(host).Should().Be(expected);
+    }
+
+    [Fact]
+    public void DerpRelaysAreNamedByTheirRegion()
+    {
+        var derp = new DerpMapClient.DerpMap(
+            new Dictionary<string, DerpRegion> { ["203.0.113.60"] = new("dfw", "Dallas") },
+            new Dictionary<string, DerpRegion> { ["dfw"] = new("dfw", "Dallas") });
+        var store = SeededStore();
+        store.SetTailnet(new TailnetSnapshot([], null, [], derp: derp), true);
+        store.Ingest(Batch(
+            Flow("stun", Nas, "192.0.2.10", "203.0.113.60", 3478, "eth4", 100, 100, proto: "udp"),
+            Flow("relay", Nas, "192.0.2.10", "203.0.113.60", 443, "eth4", 1_000, 1_000)));
+
+        var rows = store.BuildView(Query(), LiveTrafficState.Live).Flows.ToDictionary(f => f.Key);
+
+        rows["stun"].Destination.Should().Be("Tailscale DERP (Dallas)");
+        rows["stun"].DestinationSub.Should().Be("STUN");
+        rows["relay"].DestinationSub.Should().Be("DERP relay");
     }}
