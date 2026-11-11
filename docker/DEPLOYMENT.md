@@ -1463,6 +1463,59 @@ Your monitoring data sits in plain InfluxDB 2.x buckets, so you can point your o
 
 The schema is stable: measurement and field names only ever get added, never renamed or removed (Network Optimizer's own charts depend on them), so anything you build keeps working across upgrades.
 
+## Tailscale (Optional)
+
+Settings - Connection - **Tailscale** names Tailscale devices in Client Performance, speed test results, and Live Traffic. Network Optimizer only reads: it never changes the tailnet. Set it per site.
+
+### Device List
+
+Pick one source:
+
+- **Tailscale API**: in the Tailscale admin console, create an OAuth client with the **Devices Core** scope set to **Read** (`devices:core:read`). Enter its client ID and secret. Leave **Tailnet** empty for the client's own tailnet.
+- **Headscale API**: the server's URL and an API key from `headscale apikeys create`.
+- **Local status only**: the peers a local tailscaled can see (below). No credentials needed.
+
+On a site reached through its On-Site Agent, the API calls go out through the agent, so a Headscale server on that site's LAN works.
+
+### Local Status
+
+A tailscaled that Network Optimizer can read adds each peer's connection path (direct, DERP relay, or peer relay) and traffic counters, and records the path on Tailscale speed test results. Choose where it runs:
+
+- **Network Optimizer's host**: tailscaled on the same machine. With nothing in **Socket Path**, Network Optimizer tries tailscaled's default socket (`/var/run/tailscale/tailscaled.sock` on Linux, `/var/run/tailscaled.socket` on macOS, the named pipe on Windows), then the `tailscale status --json` CLI.
+- **The site's On-Site Agent host**: tailscaled on the agent's machine. Needs a current agent (Linux).
+
+**tailscaled in its own container** keeps its socket inside that container, where nothing else can reach it. Share it through a host directory:
+
+```yaml
+# The Tailscale container
+services:
+  tailscale:
+    image: tailscale/tailscale
+    network_mode: host
+    environment:
+      - TS_SOCKET=/var/run/tailscale/tailscaled.sock
+    volumes:
+      - /var/run/tailscale:/var/run/tailscale
+
+# Network Optimizer's docker-compose.yml: add the same mount
+  network-optimizer:
+    volumes:
+      - /var/run/tailscale:/var/run/tailscale
+```
+
+For an On-Site Agent, the first half is enough: the agent runs on the host and reads `/var/run/tailscale/tailscaled.sock` there.
+
+**Security:** for a root caller, tailscaled's socket allows changes (preferences, logout) as well as reads, and a `:ro` mount does not stop that. Network Optimizer sends only `GET /localapi/v0/status`, but mounting the socket gives the Network Optimizer container that access to the node.
+
+### Routed Traffic
+
+When the host whose tailscaled you read is the tailnet's subnet router or exit node, it source-NATs its peers' traffic to its own LAN address by default, so the gateway sees only the router. **Attribute routed traffic to the Tailscale device** reads that host's conntrack table (`/proc/net/nf_conntrack`) and shows each connection in Live Traffic as the Tailscale device behind it. Requirements:
+
+- Linux, with tailscaled in the host's network (`network_mode: host` for a container; userspace networking leaves no conntrack entries)
+- Network Optimizer (`network_mode: host`, as shipped) or the On-Site Agent on that same host, reading as root
+
+A router with neither (tailscaled on a Mac, an Apple TV, a router appliance) cannot be attributed. A node started with `--snat-subnet-routes=false` needs none of this: its peers keep their tailnet addresses, and the device list names them.
+
 ## Next Steps
 
 After deployment:

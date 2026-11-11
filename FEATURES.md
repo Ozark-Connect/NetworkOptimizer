@@ -115,6 +115,8 @@ Time-series monitoring on your own InfluxDB, fed by SNMP polling (InfluxDB).
       - An app filter for a service keeps the flows named for their app: HTTPS still lists the Apple or Netflix flows on 443, and takes in QUIC
       - Save the filters, search, and grouping to presets **1 2 3** and load one with a click, remembered per user and site
     - Hover a client for its connection, address, and a link to its Client Performance page; a remote-user VPN or Tailscale client reads as one ("VPN Client (address)")
+    - With [Tailscale](#settings) connected, Tailscale clients and destinations show their tailnet names
+      - Traffic a subnet router or exit node carries for a Tailscale device shows as that device, read from the router's conntrack (Linux)
     - Sort by any column, either way; rows and diagram nodes hold still under the pointer, slide when they move, and an expanded flow stays in place on screen while the list changes, again once you scroll back and settle on it
     - Apps named by the gateway's DPI (UniFi Network's own records), else by the domain the flow went to, the port, or the address's owner (GeoLite2 ASN), with the same app icons as Client Performance
       - Recognized from their traffic: a phone's Wi-Fi Calling (IPsec to a mobile carrier), iperf3 (TCP and UDP 5201), Tailscale (UDP 41641 on either end), Ookla Speedtest servers (a speed* name on TCP 8080), and between your own devices Google Cast, Midea appliances, LG webOS TV control (to a device whose vendor is LG), HomeKit to an IKEA DIRIGERA hub (TCP 8000, to a device whose vendor is IKEA), AirPlay (TCP 7000, to a device whose vendor is Apple), and UniFi WebRTC (a UniFi app's live video and data session to a UniFi Console: UDP on a per-session port while the same client holds HTTPS to that console)
@@ -272,6 +274,8 @@ Time-series monitoring on your own InfluxDB, fed by SNMP polling (InfluxDB).
 - Live signal gauge, AP TX and RX rates, and live download and upload
 - Wired clients: switch port, link speed, live throughput, and port errors and drops (SNMP)
 - VPN clients (Tailscale, Teleport, One-Click and remote-user VPN, site-to-site) get a simplified view with speed tests and path traces
+  - A Tailscale client shows its tailnet name, OS, and user, and whether it connects directly or through a DERP relay ([Tailscale](#settings))
+  - A LAN client that is the tailnet's exit node or subnet router is labeled as one
 - Jump to the client on the Live View; its own Speed Map and Signal Map are built in
 - Rename a client and set or clear its **Fixed IP** in place
 - MLO links, AP Lock, channel, and width
@@ -670,6 +674,7 @@ Requires Gateway SSH.
 - iperf3 to the server from the command line, from any device; each run is captured and stored
 - Results identified by device, with path trace, Wi-Fi channel and MLO links, and personal bests
   - A personal best follows the device across IP address changes
+- Tailscale results carry the device's tailnet name, and the connection path at test time: direct or DERP relay ([Tailscale](#settings))
 - **Speed / Coverage Map** - results with GPS location, colored by speed (HTTPS)
   - Place APs, filter by LAN or external, GPS accuracy filter, AP popups
 
@@ -715,6 +720,8 @@ Requires Gateway SSH.
 - **Gateway SSH** and **Device SSH** credentials; iperf3 status on the gateway
 - **Managed SSH Key** - generate or upload one key and install it on the gateway, surviving reboots
   - GL.iNet and MikroTik cellular modems can sign in with it instead of a password, per modem
+- **Tailscale** - read the tailnet's device list from the Tailscale API (OAuth client, read-only), a Headscale server, or a local tailscaled
+  - Local status from Network Optimizer's host or the site's [On-Site Agent](#on-site-agent) adds direct or relay paths and traffic counters
 - **Monitoring** - SNMP status, InfluxDB, Adaptive SQM monitor, and cable modem, ONT, cellular, and Starlink devices
 - **AP Telemetry** - turn on and manage the AP agents; see [Wi-Fi Optimizer - AP Telemetry](#ap-telemetry)
 - **Speed Tests** - LAN test defaults and external WAN speed test servers
@@ -797,6 +804,7 @@ Requires Gateway SSH.
 - Alerts, schedules, audit log, and config backup APIs
 - PDF reports for Security Audit, ISP Health, and Firmware Rollout
 - Health check endpoint
+- Tailscale and Headscale device lists, read-only
 
 ## Installation and Platforms
 

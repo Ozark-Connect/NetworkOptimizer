@@ -23,6 +23,7 @@
 @inject SiteSpeedTestTargetResolver SiteTarget
 @inject IApMapAdminService ApMapAdmin
 @inject IDisplayTimeZone DisplayTime
+@inject ITailscaleDirectory Tailscale
 
 @* Uses unified Iperf3Result model with Direction field to distinguish test sources *@
 
@@ -287,10 +288,10 @@
                                             var isLan = result.IsLocalLanClient();
                                             var isDeviceFiltered = string.Equals(deviceFilter, result.DeviceHost, StringComparison.OrdinalIgnoreCase);
                                         }
-                                        @if (!string.IsNullOrEmpty(result.DeviceName))
+                                        @if (DeviceNameOf(result) is { } deviceName)
                                         {
-                                            <span>@result.DeviceName</span>
-                                            <button class="device-filter-btn @(isDeviceFiltered ? "active" : "")" @onclick="() => ToggleDeviceFilter(result.DeviceHost, result.DeviceName ?? result.DeviceHost)" @onclick:stopPropagation data-tooltip="@(isDeviceFiltered ? "Clear device filter" : "Filter to this device")" data-tooltip-hover-only>
+                                            <span>@deviceName</span>
+                                            <button class="device-filter-btn @(isDeviceFiltered ? "active" : "")" @onclick="() => ToggleDeviceFilter(result.DeviceHost, deviceName)" @onclick:stopPropagation data-tooltip="@(isDeviceFiltered ? "Clear device filter" : "Filter to this device")" data-tooltip-hover-only>
                                                 <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
                                             </button>
                                             @if (isLan)
@@ -869,6 +870,7 @@
 
         // Load networks for VPN detection
         _networks = await ConnectionService.GetNetworksAsync();
+        _tailnet = await Tailscale.GetPeersAsync();
 
         // Load configuration
         iperf3ServerEnabled = Configuration.GetValue("Iperf3Server:Enabled", false);
@@ -1061,7 +1063,14 @@
 
     /// <summary>Source label for a result: Tailscale, VPN, Teleport, WAN, or null for the LAN.</summary>
     private string? DetectVpnType(Iperf3Result result) =>
-        SpeedTestClientSource.Detect(result.DeviceHost, _networks, result.ClientMac);
+        SpeedTestClientSource.Detect(result.DeviceHost, _networks, result.ClientMac, _tailnet.IsPeer);
+
+    /// <summary>The site's tailnet, which names a Tailscale result that has no device name of its own.</summary>
+    private TailnetSnapshot _tailnet = TailnetSnapshot.Empty;
+
+    /// <summary>The result's device name, else its tailnet name; null when it has neither.</summary>
+    private string? DeviceNameOf(Iperf3Result result) =>
+        !string.IsNullOrEmpty(result.DeviceName) ? result.DeviceName : _tailnet.NameFor(result.DeviceHost);
 
     private async Task ChangePage(int delta)
     {

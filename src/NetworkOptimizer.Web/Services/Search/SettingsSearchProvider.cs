@@ -183,6 +183,14 @@ public sealed class SettingsSearchProvider : IAppSearchProvider
              "public key", "authorized_keys", "install on gateway", "remove from gateway",
              "speed test devices", "key instead of a password"]),
 
+        Entry("connection", "Connection", "tailscale",
+            "Tailscale (Optional)",
+            ["Tailscale", "Headscale", "tailnet"],
+            ["tailscale api", "oauth client", "client id", "client secret", "devices:core:read", "headscale url",
+             "api key", "device list", "local status", "tailscaled", "socket path", "ts_socket", "localapi",
+             "derp", "relay", "direct connection", "exit node", "subnet router", "routed traffic", "snat",
+             "conntrack", "magicdns", "peer names", "vpn client names", "on-site agent"]),
+
         Entry("monitoring", "Monitoring", "monitoring",
             "Monitoring",
             ["SNMP", "InfluxDB"],

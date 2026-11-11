@@ -90,9 +90,10 @@
             @if (!phone)
             {
                 <td>
-                    @{ var unnamed = f.UnnamedPort; }
+                    @{ var unnamed = f.UnnamedPort; var tailscale = OffersTailscaleSetup(f.App); }
                     <span class="@(unnamed != null ? "lt-app-unnamed" : null)" data-app-unnamed="@(unnamed != null ? f.App : null)"
-                          data-app-seed="@unnamed?.Encode()" data-app-link="@NameAppLink(unnamed)">@Pill(LiveTrafficField.App, f.App)</span>
+                          data-app-seed="@unnamed?.Encode()" data-app-link="@NameAppLink(unnamed)"
+                          data-app-tailscale="@(tailscale ? f.App : null)" data-tailscale-link="@(tailscale ? TailscaleSetupLink : null)">@Pill(LiveTrafficField.App, f.App)</span>
                     @RoutePill(f)
                 </td>
             }

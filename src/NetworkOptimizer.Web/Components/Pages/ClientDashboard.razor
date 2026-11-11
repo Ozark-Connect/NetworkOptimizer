@@ -217,6 +217,19 @@
                             <h2 class="identity-name">@_client.DisplayName</h2>
                             <div class="identity-meta">
                                 <span>@_client.Ip</span>
+                                @if (_client.Tailnet is { } tailnetPeer)
+                                {
+                                    @if (!string.IsNullOrEmpty(tailnetPeer.Os))
+                                    {
+                                        <span class="meta-sep">·</span>
+                                        <span data-tooltip="OS">@tailnetPeer.Os</span>
+                                    }
+                                    @if (!string.IsNullOrEmpty(tailnetPeer.User))
+                                    {
+                                        <span class="meta-sep">·</span>
+                                        <span data-tooltip="Tailscale user">@tailnetPeer.User</span>
+                                    }
+                                }
                             </div>
                         </div>
                     }
@@ -237,6 +250,11 @@
                             {
                                 <span class="meta-sep">·</span>
                                 <span data-tooltip="SSID">@_client.Essid</span>
+                            }
+                            @if (!string.IsNullOrEmpty(_client.TailnetRouterBadge))
+                            {
+                                <span class="meta-sep">·</span>
+                                <span data-tooltip="Peers that route through this host appear as its own traffic, unless Network Optimizer reads its conntrack table">@_client.TailnetRouterBadge</span>
                             }
                         </div>
                     }
@@ -330,7 +348,18 @@
             <div class="identity-row-2">
                 @if (_client.IsVpn)
                 {
-                    <span class="identity-detail detail-dim">Remote client - limited data available</span>
+                    @if (_client.Tailnet?.Path is { } tailnetPath)
+                    {
+                        <span class="identity-detail" data-tooltip="@TailnetDisplay.PathDetail(tailnetPath)">@TailnetDisplay.PathLabel(tailnetPath)</span>
+                        @if (TailnetDisplay.Traffic(_client.Tailnet) is { } tailnetTraffic)
+                        {
+                            <span class="identity-detail detail-dim">@tailnetTraffic</span>
+                        }
+                    }
+                    else
+                    {
+                        <span class="identity-detail detail-dim">Remote client - limited data available</span>
+                    }
                 }
                 else if (!_client.IsWired)
                 {

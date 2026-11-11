@@ -287,6 +287,9 @@ public sealed record LiveHistoryView
 public sealed record LiveTrafficView
 {
     public LiveTrafficState State { get; init; }
+
+    /// <summary>Whether the site reads its tailnet; when it does not, the Tailscale app's hover card offers setup.</summary>
+    public bool TailnetConnected { get; init; }
     public DateTime? At { get; init; }
     public IReadOnlyList<LiveFlowRow> Flows { get; init; } = Array.Empty<LiveFlowRow>();
     public IReadOnlyList<LiveGroupRow> Groups { get; init; } = Array.Empty<LiveGroupRow>();

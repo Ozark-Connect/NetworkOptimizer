@@ -266,6 +266,8 @@ if (floodCapable) capabilityList.Add(WanFloodRules.Capability);
 else if (config.OnGateway == true) capabilityList.Add(WanFloodRules.UnavailableCapability);
 // Change Control's revert needs only HTTPS to the console, which every agent host reaches.
 capabilityList.Add(ConfigRevert.Capability);
+// Reading a local tailscaled is per request: whether one runs here is the answer the server shows.
+capabilityList.Add(TailscaleLocal.Capability);
 var capabilities = capabilityList.ToArray();
 var configRevert = new ConfigRevertGuard();
 Task? configRevertTask = null;

@@ -69,9 +69,18 @@
     protected RenderFragment AppCell(LiveFlowRow f) => __builder =>
     {
         var unnamed = f.UnnamedPort;
+        var tailscale = OffersTailscaleSetup(f.App);
         <span class="lt-app-cell @(unnamed != null ? "lt-app-unnamed" : null)" data-app-unnamed="@(unnamed != null ? f.App : null)"
-              data-app-seed="@unnamed?.Encode()" data-app-link="@NameAppLink(unnamed)">@AppIcon(f.App, f.AppIconDomain, f.AppIconClass)@Pill(LiveTrafficField.App, f.App, cls: f.DnsBypass ? "lt-bypass" : null)</span>
+              data-app-seed="@unnamed?.Encode()" data-app-link="@NameAppLink(unnamed)"
+              data-app-tailscale="@(tailscale ? f.App : null)" data-tailscale-link="@(tailscale ? TailscaleSetupLink : null)">@AppIcon(f.App, f.AppIconDomain, f.AppIconClass)@Pill(LiveTrafficField.App, f.App, cls: f.DnsBypass ? "lt-bypass" : null)</span>
     };
+
+    /// <summary>Whether an App is Tailscale on a site that does not read its tailnet: its hover card offers setup.</summary>
+    protected bool OffersTailscaleSetup(string? app) =>
+        string.Equals(app, "Tailscale", StringComparison.OrdinalIgnoreCase) && Ctx.OfferTailscaleSetup();
+
+    /// <summary>The Settings card that connects the tailnet, for a Site Admin; null for anyone else.</summary>
+    protected string? TailscaleSetupLink => Ctx.CanNameApps() ? "/settings?tab=connection#tailscale" : null;
 
     /// <summary>
     /// Name This App for an unnamed port, when the viewer may add custom apps; null otherwise. The

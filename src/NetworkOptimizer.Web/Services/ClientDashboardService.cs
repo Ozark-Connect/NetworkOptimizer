@@ -39,6 +39,7 @@ public class ClientDashboardService
     private readonly WiredPortPresence.IWiredPortPresenceService? _portPresence;
     private readonly GatewayNeighborTable _neighborTable;
     private readonly IDisplayTimeZone? _displayTime;
+    private readonly Tailscale.TailscaleDirectoryRegistry? _tailscale;
 
     // For an IPv6 source, the IPv4 address UniFi Network lists the device under. WiFiman is
     // looked up by that address, including on the 1-second poll, which has no identity to read.
@@ -94,8 +95,10 @@ public class ClientDashboardService
         ApAgentTelemetryRegistry? apAgentTelemetry = null,
         Microsoft.Extensions.Caching.Memory.IMemoryCache? cache = null,
         WiredPortPresence.IWiredPortPresenceService? portPresence = null,
-        IDisplayTimeZone? displayTime = null)
+        IDisplayTimeZone? displayTime = null,
+        Tailscale.TailscaleDirectoryRegistry? tailscale = null)
     {
+        _tailscale = tailscale;
         _logger = logger;
         _displayTime = displayTime;
         _cache = cache;
@@ -295,6 +298,15 @@ public class ClientDashboardService
     /// instead of fetching all clients. Falls back to client history for offline devices.
     /// </summary>
     public async Task<ClientIdentity?> IdentifyClientAsync(string clientIp)
+    {
+        var identity = await IdentifyListedClientAsync(clientIp);
+        // A LAN host that is the tailnet's exit node or subnet router says so beside its name.
+        if (identity != null && _tailscale != null)
+            identity.TailnetRouterBadge = _tailscale.Get(_siteContext.Slug).RouterAtLanAddress(identity.Ip)?.RouterBadge;
+        return identity;
+    }
+
+    private async Task<ClientIdentity?> IdentifyListedClientAsync(string clientIp)
     {
         if (!_connectionService.IsConnected || _connectionService.Client == null)
             return null;
@@ -606,9 +618,11 @@ public class ClientDashboardService
             if (vpnType == null)
                 return null;
 
+            // The tailnet's own name for the device, where its device list or local status is read.
+            var peer = vpnType == HopType.Tailscale && _tailscale != null ? (await _tailscale.GetReadyAsync(_siteContext.Slug)).Peer(clientIp) : null;
             var name = vpnType switch
             {
-                HopType.Tailscale => "Tailscale Client",
+                HopType.Tailscale => peer?.Name ?? "Tailscale Client",
                 HopType.Teleport => "Teleport Client",
                 _ => "VPN Client"
             };
@@ -620,7 +634,8 @@ public class ClientDashboardService
                 Name = name,
                 Ip = clientIp,
                 IsWired = false,
-                VpnType = vpnType
+                VpnType = vpnType,
+                Tailnet = peer
             };
         }
         catch (Exception ex)

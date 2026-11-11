@@ -37,6 +37,7 @@ public class ClientSpeedTestService : IClientSpeedTestService
     private readonly bool _isDefault;
     private readonly string _siteSuffix;
     private readonly IServiceScopeFactory _scopeFactory;
+    private readonly Tailscale.TailscaleDirectoryRegistry? _tailscale;
 
     /// <summary>
     /// Throws when this site is license-restricted. New client speed test
@@ -64,6 +65,7 @@ public class ClientSpeedTestService : IClientSpeedTestService
         Monitoring.SiteVantageDnsResolver? dnsResolver = null,
         SiteSpeedTestHostSelector? hostSelector = null,
         GatewaySshRegistry? gatewaySshRegistry = null,
+        Tailscale.TailscaleDirectoryRegistry? tailscale = null,
         string siteSlug = SiteManagementService.DefaultSiteSlug)
     {
         _licenseState = licenseState;
@@ -85,6 +87,7 @@ public class ClientSpeedTestService : IClientSpeedTestService
         _influxRegistry = influxRegistry;
         _apAgents = apAgents;
         _neighborTable = gatewaySshRegistry?.GetNeighborTableFor(_siteSlug);
+        _tailscale = tailscale;
     }
 
     /// <summary>
@@ -724,6 +727,16 @@ public class ClientSpeedTestService : IClientSpeedTestService
                 result.UploadRetransmits,
                 result.DownloadBytes,
                 result.UploadBytes);
+
+            // How tailscaled reached the peer: the path changes, so it is read with the test and kept across
+            // re-analysis. A retry long after the test reads nothing, since today's path is not the test's.
+            if (_tailscale != null && analysis.Path.Hops.FirstOrDefault(h => h.Type == HopType.Tailscale) is { } tailscaleHop)
+            {
+                tailscaleHop.TailnetPath = result.PathAnalysis?.Path?.Hops?
+                    .FirstOrDefault(h => h.Type == HopType.Tailscale)?.TailnetPath;
+                if (tailscaleHop.TailnetPath == null && DateTime.UtcNow - result.TestTime < TimeSpan.FromMinutes(2))
+                    tailscaleHop.TailnetPath = await _tailscale.ReadPathAsync(_siteSlug, result.DeviceHost, CancellationToken.None);
+            }
 
             result.PathAnalysis = analysis;
 

@@ -246,6 +246,7 @@ public sealed class ClientLiveFeed : IDisposable
         Toggle = (e, kind, value) => ToggleAsync(e.AltKey, kind, value),
         Exclude = AddFilterAsync,
         CanNameApps = () => CanNameApps,
+        OfferTailscaleSetup = () => View is { TailnetConnected: false },
     };
     private LiveTrafficRowContext? _rowContext;
 

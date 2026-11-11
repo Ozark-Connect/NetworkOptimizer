@@ -4,6 +4,7 @@ using NetworkOptimizer.AgentProtocol;
 using NetworkOptimizer.Audit.Dns;
 using NetworkOptimizer.UniFi;
 using NetworkOptimizer.UniFi.Models;
+using NetworkOptimizer.Web.Services.Tailscale;
 
 namespace NetworkOptimizer.Web.Services.Monitoring.LiveTraffic;
 
@@ -723,6 +724,7 @@ public sealed class LiveTrafficStore
                 BypassingClients = bypassers,
                 DnsActive = _dnsActive,
                 Sankey = query.IncludeSankey && !query.Ended ? BuildSankey(matching, query.SankeyByFlows, query.SankeyHold) : null,
+                TailnetConnected = _tailnetConnected,
             };
         }
     }
@@ -744,6 +746,19 @@ public sealed class LiveTrafficStore
         _clientsByMac.TryGetValue(mac, out var client);
         var clientName = f.Gateway || _gatewayIps.Contains(f.ClientIp) ? _gatewayName
             : client?.Name ?? UnlistedClientName(f.ClientIp);
+        var clientIp = f.ClientIp;
+        var clientVia = f.Gateway ? null : client?.Via ?? client?.Network;
+        // A subnet router or exit node source-NATs its peers to its own address: its conntrack names the peer.
+        if (!f.Gateway && _tailnet.SnatSource(proto, f.ClientIp, f.ClientPort, f.RemoteIp, f.RemotePort) is { } tailnetSource)
+        {
+            clientVia = $"Tailscale through {clientName}";
+            clientName = UnlistedClientName(tailnetSource);
+            clientIp = tailnetSource;
+            mac = "";
+            client = null;
+        }
+        else if (client == null && _tailnet.IsPeer(f.ClientIp))
+            clientVia = "Tailscale";
 
         // Destination: the name DNS answered with, the console's domain, a site client, the address's
         // owner, or the address.
@@ -761,7 +776,9 @@ public sealed class LiveTrafficStore
         // DPI's app, for a flow with no lookup seen and no record of its own (a long stream).
         var destInfo = !f.Lan && _destinations.TryGetValue((f.RemoteIp, f.RemotePort, proto), out var di) ? di : null;
         var consoleDomain = !string.IsNullOrEmpty(match?.Domain) ? match!.Domain : destInfo?.Domain;
+        var tailnetPeer = peer == null ? _tailnet.Peer(f.RemoteIp) : null;
         if (peer != null) destination = peer.Name;
+        else if (tailnetPeer != null) destination = tailnetPeer.Name;
         else if (hasLookup) destination = lookup!.Name;
         else if (!string.IsNullOrEmpty(consoleDomain)) destination = consoleDomain!;
         else if (remoteSite != null) destination = f.RemoteIp;
@@ -831,8 +848,8 @@ public sealed class LiveTrafficStore
             Key = f.Key,
             ClientMac = mac,
             ClientName = clientName,
-            ClientIp = f.ClientIp,
-            ClientVia = f.Gateway ? null : client?.Via ?? client?.Network,
+            ClientIp = clientIp,
+            ClientVia = clientVia,
             Destination = destination,
             DestinationIp = f.RemoteIp,
             DestinationSub = destSub,
@@ -866,7 +883,7 @@ public sealed class LiveTrafficStore
             IspCache = ispCache,
             RemoteSite = remoteSite,
             RemoteClientMac = peer?.Mac,
-            RemoteClientVia = peer == null ? null : peer.Via ?? peer.Network,
+            RemoteClientVia = peer == null ? (tailnetPeer != null ? "Tailscale" : null) : peer.Via ?? peer.Network,
             RemoteNetwork = peer?.Network,
             RemoteOrg = f.Lan ? null : org,
             DnsBypass = encryptedDns && !resolverUpstream,
@@ -1219,9 +1236,28 @@ public sealed class LiveTrafficStore
 
     /// <summary>
     /// A client UniFi Network does not list: "VPN Client (192.0.2.7)" or "Tailscale (100.64.1.2)" when it
-    /// connects that way, else its address. The address stays in the name, so two never merge.
+    /// connects that way, else its address. The address stays in the name, so two never merge. A device the
+    /// site's tailnet lists takes its tailnet name instead, which the tailnet keeps unique.
     /// </summary>
-    private string UnlistedClientName(string ip) => VpnKind(ip) is { } kind ? $"{kind} ({ip})" : ip;
+    private string UnlistedClientName(string ip) =>
+        _tailnet.NameFor(ip) ?? (VpnKind(ip) is { } kind ? $"{kind} ({ip})" : ip);
+
+    private TailnetSnapshot _tailnet = TailnetSnapshot.Empty;
+    private bool _tailnetConnected;
+
+    /// <summary>
+    /// The site's tailnet: names for Tailscale clients and destinations, and the conntrack entries that
+    /// attribute a subnet router's or exit node's traffic to its peer. <paramref name="connected"/> is
+    /// whether the site reads its tailnet at all, which decides the Tailscale app's setup offer.
+    /// </summary>
+    public void SetTailnet(TailnetSnapshot snapshot, bool connected)
+    {
+        lock (_gate)
+        {
+            _tailnet = snapshot;
+            _tailnetConnected = connected;
+        }
+    }
 
     private string ResolverName(string ip)
     {
@@ -1534,7 +1570,8 @@ public sealed class LiveTrafficStore
     /// "VPN Client" (inside a remote-user VPN network) or "Tailscale" for a VPN-sourced address; null for
     /// anything else. No Teleport guess: a site-to-site peer's clients would read as Teleport here.
     /// </summary>
-    private string? VpnKind(string ip) => NetworkPathAnalyzer.ClassifyVpnClient(ip, _networkPurposes, teleportByElimination: false) switch
+    private string? VpnKind(string ip) => NetworkPathAnalyzer.ClassifyVpnClient(ip, _networkPurposes, teleportByElimination: false,
+        tailnetPeer: _tailnet.IsPeer) switch
     {
         HopType.Tailscale => "Tailscale",
         HopType.Vpn => "VPN Client",

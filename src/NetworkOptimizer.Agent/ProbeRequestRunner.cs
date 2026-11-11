@@ -3,6 +3,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using NetworkOptimizer.AgentProtocol;
 using NetworkOptimizer.Core.Enums;
 using NetworkOptimizer.Monitoring.Probes;
+using NetworkOptimizer.Monitoring.Tailscale;
 
 namespace NetworkOptimizer.Agent;
 
@@ -39,7 +40,16 @@ public sealed class ProbeRequestRunner
                 string.IsNullOrEmpty(request.SourceIp) ? null : request.SourceIp);
 
             string json;
-            if (string.Equals(request.Kind, "dns", StringComparison.OrdinalIgnoreCase))
+            if (string.Equals(request.Kind, TailscaleLocal.StatusKind, StringComparison.Ordinal))
+            {
+                var status = await TailscaleLocalApi.ReadStatusAsync(request.Address, ct);
+                json = JsonSerializer.Serialize(status);
+            }
+            else if (string.Equals(request.Kind, TailscaleLocal.SnatKind, StringComparison.Ordinal))
+            {
+                json = JsonSerializer.Serialize(await TailnetSnat.ReadAsync(ct));
+            }
+            else if (string.Equals(request.Kind, "dns", StringComparison.OrdinalIgnoreCase))
             {
                 var result = await _executor.LookupAsync(target, request.Reverse, ct);
                 json = JsonSerializer.Serialize(result);
