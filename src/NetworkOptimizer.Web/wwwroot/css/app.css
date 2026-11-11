@@ -7965,9 +7965,11 @@ a.path-hop.hop-clickable:hover {
     margin-top: 0.5rem;
 }
 
-/* Settings: each card's bottom button row sits on the right on desktop (centered on mobile, as everywhere) */
+/* A form's bottom button row sits on the right on desktop (centered on mobile, as everywhere): every
+   Settings card's last row, and any other form's row marked .form-footer. */
 @media (min-width: 769px) {
-    .settings-container > .card > .card-body > .action-buttons:not(:has(~ .action-buttons)) {
+    .settings-container > .card > .card-body > .action-buttons:not(:has(~ .action-buttons)),
+    .action-buttons.form-footer {
         justify-content: flex-end;
     }
 }
