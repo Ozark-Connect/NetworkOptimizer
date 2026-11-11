@@ -2044,6 +2044,7 @@
                             <select class="form-control" value="@_editingOnt.Provider" @onchange="OnOntProviderChanged">
                                 <option value="att-gateway">AT&T Gateway (HTTP)</option>
                                 <option value="realtek-ont">Realtek ONT Stick (HTTP)</option>
+                                <option value="odi-oss">odi-oss GPON Stick (Prometheus)</option>
                                 <option value="8311">8311 Community Firmware (HTTP)</option>
                                 <option value="quantum-q1000k">Quantum Fiber Q1000K (HTTP)</option>
                                 <option value="telekom-modem2">Telekom Glasfaser-Modem 2 (HTTP)</option>
@@ -8135,13 +8136,14 @@
     }
 
     /// <summary>Providers implementing ISfpSupplementalOntProvider, which can merge into a monitored SFP module.</summary>
-    private static readonly HashSet<string> SfpAttachableOntProviders = new() { "netopt-custom", "realtek-ont", "peter-pon" };
+    private static readonly HashSet<string> SfpAttachableOntProviders = new() { "netopt-custom", "realtek-ont", "peter-pon", "odi-oss" };
 
     private static int GetOntProviderDefaultPort(string provider) => provider switch
     {
         "8311" => 443,
         "quantum-q1000k" => 443,
         "netopt-custom" => 10012,
+        "odi-oss" => 9100,
         _ => 80,
     };
 
@@ -8156,6 +8158,7 @@
         "nokia-xs010x-q" => "192.168.100.1",
         "zyxel-gpon-sfp" => "10.10.1.1",
         "peter-pon" => "192.168.1.10",
+        "odi-oss" => "192.168.1.1",
         // realtek-ont, netopt-custom and generic-http-ont have no single sensible
         // default (vendor-dependent stick, gateway-served JSON, or generic), so nothing
         // is prefilled and the generic example placeholder is shown. richerlink-ont's
@@ -8182,6 +8185,7 @@
         "richerlink-ont" => "Richerlink RL821GWV-D (HTTP)",
         "peter-pon" => "Peter-Pon GPON Firmware (HTTP)",
         "netopt-custom" => "Network Optimizer Custom (HTTP JSON)",
+        "odi-oss" => "odi-oss GPON Stick (Prometheus)",
         "generic-http-ont" => "Generic HTTP ONT",
         _ => provider,
     };
