@@ -595,7 +595,10 @@
             if (delay) el._ltShowTimer = setTimeout(show, delay);
             else show();
         }
-        function showLinkCard(cell, html) {
+        // opts.wide: room for rows of name and rate. opts.follow: the cell's data changes under an open
+        // card (a live diagram), so the card re-reads it while it shows.
+        function showLinkCard(cell, html, opts) {
+            opts = opts || {};
             var delay = restTipDelay(cell);
             if (cell._tippy) {
                 showTip(cell, delay);
@@ -618,16 +621,27 @@
                     activeLinkCard = instance;
                     // A floor, not the cell's width (that read too wide): a short card is still easy to reach.
                     var box = instance.popper.firstElementChild;
-                    if (box) box.style.minWidth = '200px';
+                    if (box) box.style.minWidth = opts.wide ? 'min(100vw - 10px, 320px)' : '200px';
                     instance.popper.querySelectorAll('a').forEach(function (link) {
                         link.addEventListener('click', function () { instance.unmount(); });
                     });
                 },
-                onHidden: function (instance) { if (activeLinkCard === instance) activeLinkCard = null; },
+                onShown: function (instance) {
+                    if (!opts.follow) return;
+                    instance._follow = setInterval(function () {
+                        if (!cell.isConnected) { instance.hide(); return; }
+                        var now = html(cell);
+                        if (now != null && instance.props.content !== now) instance.setContent(now);
+                    }, 1000);
+                },
+                onHidden: function (instance) {
+                    clearInterval(instance._follow);
+                    if (activeLinkCard === instance) activeLinkCard = null;
+                },
                 placement: 'top',
                 theme: 'custom',
                 appendTo: document.body,
-                maxWidth: 'min(100vw - 10px, 400px)',
+                maxWidth: opts.wide ? 'min(100vw - 10px, 560px)' : 'min(100vw - 10px, 400px)',
                 onShow: function (instance) {
                     // Tippy's own hover delay can fire after a navigation took the cell away (a card
                     // link was clicked): shown then, the card strands at the top left of the next page.
@@ -718,7 +732,7 @@
             var client = e.target.closest('[data-client-link]');
             if (client && host.contains(client)) { showLinkCard(client, clientHtml); return; }
             var route = e.target.closest('[data-route-dests]');
-            if (route && host.contains(route)) { showLinkCard(route, routeHtml); return; }
+            if (route && host.contains(route)) { showLinkCard(route, routeHtml, { wide: true, follow: true }); return; }
             var el = e.target;
             while (el && el !== host) {
                 if (el.hasAttribute('data-tooltip')) return;
