@@ -25,7 +25,8 @@ else
             var clickable = !node.IsOther;
             var anchor = node.Column == 0 ? "end" : "start";
             var appIcon = node.Column == 1 && !node.IsOther;
-            var tx = node.Column == 0 ? -8 : NodeW + 8 + (appIcon ? IconW : 0);
+            var tailnetIcon = node.Column == 0 && node.Tailnet;
+            var tx = node.Column == 0 ? -8 - (tailnetIcon ? IconW : 0) : NodeW + 8 + (appIcon ? IconW : 0);
             var clientLink = node.Column == 0 ? LiveTrafficLinks.ClientPerformance(node.ClientIp) : null;
             var unnamed = node.Column == 1 ? node.Unnamed : null;
             var routeDests = RouteDestinations(node, Sankey.ValueIsFlows);
@@ -48,6 +49,10 @@ else
                     {
                         @* The tables' own icon markup: SVG cannot draw a favicon or a Font Awesome glyph itself. *@
                         <foreignObject class="lt-sankey-icon" x="@(NodeW + 6)" y="-9" width="18" height="18">@(node.IconDomain != null || node.IconClass != null ? AppIcon(node.Name, node.IconDomain, node.IconClass) : AppIcon(node.Name))</foreignObject>
+                    }
+                    else if (tailnetIcon)
+                    {
+                        <foreignObject class="lt-sankey-icon" x="-24" y="-9" width="18" height="18">@AppIcon("Tailscale")</foreignObject>
                     }
                     <text class="lt-node-label" text-anchor="@anchor" x="@tx" y="-1" data-tooltip="@(clientLink != null || unnamed != null || routeDests != null || Fit(node.Name, node.Column) == node.Name ? null : node.Name)" data-tooltip-hover-only>@Fit(node.Name, node.Column)</text>
                     <text class="lt-node-sub" text-anchor="@anchor" x="@tx" y="12">@if (Sankey.ValueIsFlows)

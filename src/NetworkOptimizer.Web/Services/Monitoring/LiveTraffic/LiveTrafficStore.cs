@@ -780,9 +780,11 @@ public sealed class LiveTrafficStore
             : client?.Name ?? UnlistedClientName(f.ClientIp);
         var clientIp = f.ClientIp;
         var clientVia = f.Gateway ? null : client?.Via ?? client?.Network;
+        var clientTailnet = false;
         // A subnet router or exit node source-NATs its peers to its own address: its conntrack names the peer.
         if (!f.Gateway && _tailnet.SnatSource(proto, f.ClientIp, f.ClientPort, f.RemoteIp, f.RemotePort) is { } tailnetSource)
         {
+            clientTailnet = true;
             clientVia = $"Tailscale through {clientName}";
             clientName = UnlistedClientName(tailnetSource);
             clientIp = tailnetSource;
@@ -790,7 +792,7 @@ public sealed class LiveTrafficStore
             client = null;
         }
         else if (client == null && _tailnet.IsPeer(f.ClientIp))
-            clientVia = "Tailscale";
+            (clientVia, clientTailnet) = ("Tailscale", true);
 
         // Destination: the name DNS answered with, the console's domain, a site client, the address's
         // owner, or the address.
@@ -896,6 +898,7 @@ public sealed class LiveTrafficStore
             ClientName = clientName,
             ClientIp = clientIp,
             ClientVia = clientVia,
+            ClientIsTailnet = clientTailnet,
             Destination = destination,
             DestinationIp = f.RemoteIp,
             DestinationSub = destSub,
@@ -1142,7 +1145,8 @@ public sealed class LiveTrafficStore
 
         var nodes = new List<LiveSankeyNode>();
         nodes.AddRange(moving.GroupBy(ClientNode).Select(g => new LiveSankeyNode(0, g.Key, g.Sum(V), LiveTrafficField.Client, null, !topClients.Contains(g.Key),
-            DownBps: Down(g), UpBps: Up(g), ClientIp: topClients.Contains(g.Key) ? g.First().ClientIp : null)));
+            DownBps: Down(g), UpBps: Up(g), ClientIp: topClients.Contains(g.Key) ? g.First().ClientIp : null,
+            Tailnet: topClients.Contains(g.Key) && g.First().ClientIsTailnet)));
         nodes.AddRange(moving.GroupBy(AppNode).Select(g => new LiveSankeyNode(1, g.Key, g.Sum(V), LiveTrafficField.App, null, !topApps.Contains(g.Key),
             g.First().AppIconDomain, g.First().AppIconClass, Down(g), Up(g), Unnamed: topApps.Contains(g.Key) ? UnnamedSeed(g) : null)));
         nodes.AddRange(moving.GroupBy(r => r.Route).Select(g =>

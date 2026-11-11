@@ -75,6 +75,17 @@
               data-app-tailscale="@(tailscale ? f.App : null)" data-tailscale-link="@(tailscale ? TailscaleSetupLink : null)">@AppIcon(f.App, f.AppIconDomain, f.AppIconClass)@Pill(LiveTrafficField.App, f.App, cls: f.DnsBypass ? "lt-bypass" : null)</span>
     };
 
+    /// <summary>The client's filter pill, after the Tailscale icon when the client is a Tailscale device.</summary>
+    protected RenderFragment ClientPill(LiveFlowRow f) => __builder =>
+    {
+        if (!f.ClientIsTailnet)
+        {
+            @Pill(LiveTrafficField.Client, f.ClientName)
+            return;
+        }
+        <span class="lt-app-cell">@AppIcon("Tailscale")@Pill(LiveTrafficField.Client, f.ClientName)</span>
+    };
+
     /// <summary>Whether an App is Tailscale on a site that does not read its tailnet: its hover card offers setup.</summary>
     protected bool OffersTailscaleSetup(string? app) =>
         string.Equals(app, "Tailscale", StringComparison.OrdinalIgnoreCase) && Ctx.OfferTailscaleSetup();

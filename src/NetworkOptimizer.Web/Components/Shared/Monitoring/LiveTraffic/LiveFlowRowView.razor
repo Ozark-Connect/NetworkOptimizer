@@ -11,7 +11,7 @@
             @if (ShowClient)
             {
                 <td data-client-name="@f.ClientName" data-client-link="@LiveTrafficLinks.ClientPerformance(f)" data-client-note="@LiveTrafficDisplay.ClientCardDetail(f)">
-                    @Pill(LiveTrafficField.Client, f.ClientName)
+                    @ClientPill(f)
                     @ClientLine(f)
                 </td>
             }
@@ -41,7 +41,7 @@
             <div class="lt-m-top">
                 @if (ShowClient)
                 {
-                    <span class="lt-m-name">@Pill(LiveTrafficField.Client, f.ClientName)</span>
+                    <span class="lt-m-name">@ClientPill(f)</span>
                 }
                 else
                 {
@@ -110,7 +110,7 @@
             @if (ShowClient)
             {
                 <td data-client-name="@f.ClientName" data-client-link="@LiveTrafficLinks.ClientPerformance(f)" data-client-note="@LiveTrafficDisplay.ClientCardDetail(f)">
-                    @Pill(LiveTrafficField.Client, f.ClientName)
+                    @ClientPill(f)
                     @ClientLine(f)
                 </td>
             }

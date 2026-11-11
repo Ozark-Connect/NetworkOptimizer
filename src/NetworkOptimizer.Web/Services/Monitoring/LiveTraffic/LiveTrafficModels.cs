@@ -71,6 +71,8 @@ public sealed record LiveFlowRow
     public string ClientIp { get; init; } = "";
     /// <summary>"Office Switch · # 3", "5 GHz", or the network name: the sub-line under the client.</summary>
     public string? ClientVia { get; init; }
+    /// <summary>The client is a Tailscale device (directly, or behind a subnet router or exit node).</summary>
+    public bool ClientIsTailnet { get; init; }
     public string Destination { get; init; } = "";
     public string DestinationIp { get; init; } = "";
     /// <summary>"HTTPS", "UDP 51820": the sub-line under the destination.</summary>
@@ -223,7 +225,8 @@ public sealed record LiveSankey(IReadOnlyList<LiveSankeyNode> Nodes, IReadOnlyLi
 /// <param name="MoreDestinations">How many destinations the route carries beyond <paramref name="Destinations"/>.</param>
 public sealed record LiveSankeyNode(int Column, string Name, double Value, LiveTrafficField Field, LiveRouteKind? RouteKind, bool IsOther,
     string? IconDomain = null, string? IconClass = null, double DownBps = 0, double UpBps = 0, string? ClientIp = null,
-    CustomAppSeed? Unnamed = null, IReadOnlyList<LiveSankeyDestination>? Destinations = null, int MoreDestinations = 0);
+    CustomAppSeed? Unnamed = null, IReadOnlyList<LiveSankeyDestination>? Destinations = null, int MoreDestinations = 0,
+    bool Tailnet = false);
 
 /// <summary>One destination on a route node's hover card: a LAN host, or a name on the internet.</summary>
 /// <param name="Ip">The address when the destination has exactly one; null when it spans several.</param>
