@@ -630,9 +630,9 @@
                     @if (_isOwnDevice && string.IsNullOrEmpty(_openSpeedTestUrl) && _agentOnGateway)
                     {
                         <p class="form-hint">
-                            Speed tests aren't available at this site - its agent runs on the UniFi gateway,
-                            which doesn't host the LAN speed test. Deploy a Docker or bare-metal agent on a
-                            separate box at the site to enable them.
+                            No speed test server at this site yet: its Agent runs on the UniFi Gateway without the
+                            LAN speed test. Re-run the gateway installer with <code>--lan-speed-test</code>, or add an
+                            Agent on another box at the site.
                         </p>
                     }
 
