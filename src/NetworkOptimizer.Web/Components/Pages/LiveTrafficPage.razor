@@ -945,7 +945,15 @@
                       data-dest-name="@(chipDest != null ? f.Value : null)" data-dest-ip="@chipDest?.DestinationIp"
                       data-dest-link="@(chipDest != null ? LiveTrafficLinks.ThreatsDrilldown(chipDest) : null)"
                       data-client-name="@(clientLink != null ? f.Value : null)" data-client-link="@clientLink">
-                    @(f.Exclude ? $"Not {FieldLabel(f.Field)}" : FieldLabel(f.Field))
+                    @* App = Tailscale spans clients, destinations and the tunnel, so it drops the App label. *@
+                    @if (f.Field == LiveTrafficField.App && LiveTrafficStore.IsTailscaleApp(f.Value))
+                    {
+                        @(f.Exclude ? "Not" : null)
+                    }
+                    else
+                    {
+                        @(f.Exclude ? $"Not {FieldLabel(f.Field)}" : FieldLabel(f.Field))
+                    }
                     @if (f.Field == LiveTrafficField.App)
                     {
                         @ChipAppIcon(f.Value)

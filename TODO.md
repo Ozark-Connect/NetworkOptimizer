@@ -806,6 +806,11 @@ server, and every UniFi VPN variant - Teleport, one-click VPN, the VPN servers, 
 tunnels. Speed test path analysis already tells Tailscale, Teleport, and VPN hops apart; nothing
 yet shows who is connected through which tunnel, or how much they move.
 
+Tailscale is done (the Tailscale connection, v2.11.1): tailnet devices are named in Client
+Performance, Live Traffic, and speed tests, with each device's path and, through an On-Site Agent on
+the tailnet's router, the device behind routed traffic. What is left is the UniFi VPN variants, and
+Live View nodes for all of them.
+
 The same data feeds three existing surfaces, so collect it once and share it:
 
 - **Monitoring - Live View**: VPN clients and tunnels as nodes on the topology maps.

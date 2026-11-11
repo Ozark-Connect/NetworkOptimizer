@@ -1004,7 +1004,7 @@ public sealed class LiveTrafficStore
     {
         LiveTrafficField.Client => Eq(r.ClientName, value) || Eq(r.ClientMac, value) || Eq(r.ClientIp, value),
         LiveTrafficField.Destination => Eq(r.Destination, value) || Eq(r.DestinationIp, value),
-        LiveTrafficField.App => AppOrService(r, value),
+        LiveTrafficField.App => AppOrService(r, value) || (IsTailscaleApp(value) && IsTailnetTraffic(r)),
         LiveTrafficField.Route => Eq(r.Route, value),
         LiveTrafficField.Protocol => Eq(r.Proto, value),
         LiveTrafficField.Port => r.RemotePort > 0 && r.RemotePort.ToString() == value.Trim(),
@@ -1019,6 +1019,16 @@ public sealed class LiveTrafficStore
     private static bool AppOrService(LiveFlowRow r, string value) =>
         Eq(r.App, value) || Eq(r.DestinationSub, value)
         || (Eq(value.Trim(), "HTTPS") && (Eq(r.App, "QUIC") || Eq(r.DestinationSub, "QUIC")));
+
+    /// <summary>The App chip that means all Tailscale traffic, not only flows whose app is Tailscale.</summary>
+    public static bool IsTailscaleApp(string value) => Eq(value.Trim(), "Tailscale");
+
+    /// <summary>
+    /// A flow Tailscale is part of: its tunnel (a device's endpoint, DERP, STUN), or traffic from or to a
+    /// Tailscale device, which carries its own app (HTTPS, QUIC).
+    /// </summary>
+    private static bool IsTailnetTraffic(LiveFlowRow r) =>
+        r.ClientIsTailnet || r.TailnetEndpointPeer != null || r.TailnetRole != null || Eq(r.RemoteClientVia, "Tailscale");
 
     private static bool Eq(string? a, string b) => string.Equals(a, b, StringComparison.OrdinalIgnoreCase);
     private static bool Contains(string? a, string b) => a?.Contains(b, StringComparison.OrdinalIgnoreCase) == true;

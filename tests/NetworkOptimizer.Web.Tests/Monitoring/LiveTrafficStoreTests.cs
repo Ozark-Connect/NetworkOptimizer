@@ -14,6 +14,22 @@ namespace NetworkOptimizer.Web.Tests.Monitoring;
 /// </summary>
 public class LiveTrafficStoreTests
 {
+    [Fact]
+    public void Tailscale_app_filter_keeps_Tailscale_devices_traffic_too()
+    {
+        LiveTrafficFilter[] tailscale = [new(LiveTrafficField.App, "Tailscale")];
+        var fromDevice = new LiveFlowRow { Key = "a", App = "HTTPS", ClientIsTailnet = true };
+        var toDevice = new LiveFlowRow { Key = "b", App = "SSH", RemoteClientVia = "Tailscale" };
+        var tunnel = new LiveFlowRow { Key = "c", App = "Tailscale" };
+        var other = new LiveFlowRow { Key = "d", App = "HTTPS" };
+
+        LiveTrafficStore.Matches(fromDevice, tailscale, null).Should().BeTrue();
+        LiveTrafficStore.Matches(toDevice, tailscale, null).Should().BeTrue();
+        LiveTrafficStore.Matches(tunnel, tailscale, null).Should().BeTrue();
+        LiveTrafficStore.Matches(other, tailscale, null).Should().BeFalse();
+        LiveTrafficStore.Matches(fromDevice, [new(LiveTrafficField.App, "Tailscale", Exclude: true)], null).Should().BeFalse();
+    }
+
     private const string Nas = "aa:bb:cc:dd:ee:01";
     private const string Laptop = "aa:bb:cc:dd:ee:02";
 
