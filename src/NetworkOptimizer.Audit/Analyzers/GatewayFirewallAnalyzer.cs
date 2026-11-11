@@ -258,7 +258,7 @@ public partial class GatewayFirewallAnalyzer
 
         // A zone with no networks has no interface to dispatch, so its policy chains are unreached by design.
         var unwired = udapi.PolicyChains
-            .Where(c => !v4.IsReachable($"UBIOS_{c}_USER") && !SourceZoneIsEmpty(c, tokens, networks, v4))
+            .Where(c => !v4.IsReachable($"UBIOS_{c}_USER") && !DispatchZoneIsEmpty(c, tokens, networks, v4))
             .Select(DisplayZonePair(tokens))
             .ToList();
         if (unwired.Count > 0)
@@ -278,13 +278,19 @@ public partial class GatewayFirewallAnalyzer
     }
 
     /// <summary>
-    /// Whether the chain's source zone has no members: no interface on the gateway dispatches to it, and UniFi
-    /// Network puts no network in it. A zone with networks but no dispatch is a fault, so it does not count.
+    /// Whether the zone whose interfaces dispatch to the chain has no members: no interface on the gateway dispatches
+    /// to it, and UniFi Network puts no network in it. A zone with networks but no dispatch is a fault, so it does not count.
     /// </summary>
-    private static bool SourceZoneIsEmpty(string chain, ZoneTokens tokens, IReadOnlyList<UniFiNetworkConfig>? networks, IptablesDump v4)
+    /// <remarks>
+    /// The gateway dispatches a chain by its source zone's ingress interfaces, except a Gateway-sourced chain
+    /// (<c>LOCAL_&lt;DST&gt;</c>), which it dispatches by the destination zone's egress interfaces.
+    /// </remarks>
+    private static bool DispatchZoneIsEmpty(string chain, ZoneTokens tokens, IReadOnlyList<UniFiNetworkConfig>? networks, IptablesDump v4)
     {
-        var token = chain.Split('_', 2)[0];
-        if (v4.HasDispatchTo(token) || tokens.ZoneOf(token) is not { } zone) return false;
+        var parts = chain.Split('_', 2);
+        if (parts.Length != 2) return false;
+        var token = parts[0] == "LOCAL" ? parts[1] : parts[0];
+        if (token == "LOCAL" || v4.HasDispatchTo(token) || tokens.ZoneOf(token) is not { } zone) return false;
         return zone.NetworkIds.Count == 0
                && !(networks ?? []).Any(n => string.Equals(n.FirewallZoneId, zone.Id, StringComparison.OrdinalIgnoreCase));
     }
@@ -541,10 +547,10 @@ public partial class GatewayFirewallAnalyzer
         /// <summary>The zone tokens traffic from <paramref name="iface"/> to the gateway itself is dispatched to.</summary>
         public HashSet<string> InputZones(string iface) => Dispatch(InputDispatchRegex(), iface);
 
-        /// <summary>Whether any interface's forwarded or gateway-bound traffic is dispatched to the zone token.</summary>
+        /// <summary>Whether any interface's forwarded, gateway-bound, or gateway-sent traffic is dispatched by the zone token.</summary>
         public bool HasDispatchTo(string token) =>
-            _rules.Any(r => ForwardDispatchRegex().Match(r) is { Success: true } f && f.Groups["zone"].Value == token
-                            || InputDispatchRegex().Match(r) is { Success: true } i && i.Groups["zone"].Value == token);
+            _rules.Any(r => new[] { ForwardDispatchRegex(), InputDispatchRegex(), OutputDispatchRegex() }
+                .Any(p => p.Match(r) is { Success: true } m && m.Groups["zone"].Value == token));
 
         private HashSet<string> Dispatch(Regex pattern, string iface)
         {
@@ -570,6 +576,9 @@ public partial class GatewayFirewallAnalyzer
 
         [GeneratedRegex(@"^-A UBIOS_INPUT_USER_HOOK -i (?<if>\S+) .*-j UBIOS_(?<zone>[A-Z0-9]+)_LOCAL_USER$")]
         private static partial Regex InputDispatchRegex();
+
+        [GeneratedRegex(@"^-A UBIOS_OUTPUT_USER_HOOK -o (?<if>\S+) .*-j UBIOS_LOCAL_(?<zone>[A-Z0-9]+)_USER$")]
+        private static partial Regex OutputDispatchRegex();
     }
 
     /// <summary>

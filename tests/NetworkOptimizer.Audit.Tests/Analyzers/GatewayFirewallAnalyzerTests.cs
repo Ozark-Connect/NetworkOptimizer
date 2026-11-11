@@ -301,6 +301,36 @@ public class GatewayFirewallAnalyzerTests
             .Which.Message.Should().Contain("Work to Gateway");
     }
 
+    private static (List<FirewallRule> Policies, string Udapi, string Iptables) GatewaySourced(
+        List<FirewallRule> policies, string udapi, string iptables, string dstZone, string token)
+    {
+        const string id = "99999999-9999-4999-8999-999999999999";
+        return (policies.Append(Policy(id, "Gateway Out", GatewayZone, dstZone)).ToList(),
+            udapi.TrimEnd().TrimEnd(']') + $$$"""
+                ,{"config":{"name":"LOCAL_{{{token}}}"},"rules":[{"id":6,"triggerTag":{"id":"{{{id}}}","type":"FIREWALL_POLICY"}}]}]
+                """,
+            iptables.Replace("COMMIT", $":UBIOS_LOCAL_{token}_USER - [0:0]\nCOMMIT"));
+    }
+
+    [Fact]
+    public void GatewayToAZoneWithNoNetworks_IsNotFlagged()
+    {
+        var (zones, policies, udapi, iptables) = EmptyZoneSetup();
+        (policies, udapi, iptables) = GatewaySourced(policies, udapi, iptables, EmptyZone, "CUSTOM5");
+
+        Run(iptables, udapi, policies: policies, zones: zones).Should().NotContain(i => i.Type == IssueTypes.GatewayZonePairUnwired);
+    }
+
+    [Fact]
+    public void GatewayToAZoneWithNetworks_ChainNothingJumpsTo_IsFlagged()
+    {
+        // The Gateway zone has no networks itself; the destination's interfaces decide.
+        var (policies, udapi, iptables) = GatewaySourced(Policies, Udapi, Iptables(), IotZone, "CUSTOM1");
+
+        Run(iptables, udapi, policies: policies).Should().ContainSingle(i => i.Type == IssueTypes.GatewayZonePairUnwired)
+            .Which.Message.Should().Contain("Gateway to IoT Zone");
+    }
+
     [Fact]
     public void NoUdapi_SkipsPolicyChecksOnly()
     {
