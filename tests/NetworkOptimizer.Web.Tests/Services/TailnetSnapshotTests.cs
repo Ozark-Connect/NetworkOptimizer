@@ -71,6 +71,18 @@ public class TailnetSnapshotTests
         TailnetSnapshot.PathOf(peer, Now)?.Kind.Should().Be(expected);
     }
 
+    [Theory]
+    [InlineData("http://192.168.1.5:8080", true)]
+    [InlineData("https://10.0.0.2", true)]
+    [InlineData("http://127.0.0.1:8080", true)]
+    [InlineData("https://[fd00::5]:443", true)]
+    [InlineData("https://headscale.example.com", false)]
+    [InlineData("https://203.0.113.10", false)]
+    public void A_Headscale_at_a_private_address_is_inside_the_site(string url, bool onSite)
+    {
+        TailscaleDirectoryRegistry.HeadscaleOnSite(url).Should().Be(onSite);
+    }
+
     [Fact]
     public void Traffic_reads_from_the_devices_side()
     {

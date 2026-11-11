@@ -46,7 +46,8 @@ public sealed class TailscaleDirectoryRegistry : ISiteScopedRegistry
 
     private readonly ISystemSettingsService _settings;
     private readonly ICredentialProtectionService _credentials;
-    private readonly ISiteHttpClientProvider _http;
+    private readonly IHttpClientFactory _httpFactory;
+    private readonly ISiteHttpClientProvider _siteHttp;
     private readonly AgentTunnelRegistry _tunnels;
     private readonly AgentProbeService _agentProbes;
     private readonly IDbContextFactory<NetworkOptimizerDbContext> _mainDbFactory;
@@ -58,7 +59,8 @@ public sealed class TailscaleDirectoryRegistry : ISiteScopedRegistry
     public TailscaleDirectoryRegistry(
         ISystemSettingsService settings,
         ICredentialProtectionService credentials,
-        ISiteHttpClientProvider http,
+        IHttpClientFactory httpFactory,
+        ISiteHttpClientProvider siteHttp,
         AgentTunnelRegistry tunnels,
         AgentProbeService agentProbes,
         IDbContextFactory<NetworkOptimizerDbContext> mainDbFactory,
@@ -67,7 +69,8 @@ public sealed class TailscaleDirectoryRegistry : ISiteScopedRegistry
         _mainDbFactory = mainDbFactory;
         _settings = settings;
         _credentials = credentials;
-        _http = http;
+        _httpFactory = httpFactory;
+        _siteHttp = siteHttp;
         _tunnels = tunnels;
         _agentProbes = agentProbes;
         _logger = logger;
@@ -356,7 +359,7 @@ public sealed class TailscaleDirectoryRegistry : ISiteScopedRegistry
         if (_derpMap != null && DateTime.UtcNow - _derpMapAt < DerpMapEvery) return;
         try
         {
-            _derpMap = await DerpMapClient.GetAsync(await _http.GetClientAsync(null, ct), ct);
+            _derpMap = await DerpMapClient.GetAsync(Http(), ct);
         }
         catch (Exception ex) when (ex is TailnetDirectoryException or JsonException)
         {
@@ -419,12 +422,24 @@ public sealed class TailscaleDirectoryRegistry : ISiteScopedRegistry
         Invalidate(slug);
     }
 
+    // From this server: the Tailscale API and the DERP map are public, and a site's agent tunnel dials
+    // only site-local addresses.
+    private HttpClient Http() => _httpFactory.CreateClient(nameof(TailscaleDirectoryRegistry));
+
     private string? SiteArg(string slug) => slug == SiteManagementService.DefaultSiteSlug ? null : slug;
+
+    /// <summary>A Headscale URL at a private or local address is inside the site: reached through its tunnel when it has one.</summary>
+    internal static bool HeadscaleOnSite(string url) =>
+        Uri.TryCreate(url, UriKind.Absolute, out var uri)
+        && System.Net.IPAddress.TryParse(uri.Host.Trim('[', ']'), out var ip)
+        && (NetworkOptimizer.Core.Helpers.NetworkUtilities.IsPrivateIpAddress(ip) || System.Net.IPAddress.IsLoopback(ip) || ip.IsIPv6LinkLocal || ip.IsIPv6UniqueLocal);
 
     private async Task<IReadOnlyList<TailnetDevice>> ReadDevicesAsync(string slug, StoredSettings stored, SiteState? cacheIn, CancellationToken ct)
     {
         var s = stored.Settings;
-        var http = await _http.GetClientAsync(SiteArg(slug), ct);
+        var http = s.ControlServer == TailnetControlServer.Headscale && HeadscaleOnSite(s.HeadscaleUrl)
+            ? await _siteHttp.GetClientAsync(SiteArg(slug), ct)
+            : Http();
         if (s.ControlServer == TailnetControlServer.Headscale)
         {
             if (string.IsNullOrWhiteSpace(stored.HeadscaleKey))
