@@ -577,7 +577,7 @@
         function innerTipHovered(cell) { return !!cell.querySelector('[data-tooltip]:hover'); }
         // Live Traffic's tables hold a card until the pointer has rested this long; elsewhere a card
         // opens on the first hover. Tippy's own delay does not cover a .show() call, so this does.
-        var LT_TABLE_TIP_DELAY = 1000;
+        var LT_TABLE_TIP_DELAY = 500;
         function tableTipDelay(el) { return el.closest('.live-traffic table') ? LT_TABLE_TIP_DELAY : 0; }
         // Shows the element's tooltip once the pointer has rested on it for delay ms; each new
         // mouseover inside it starts the wait again.
