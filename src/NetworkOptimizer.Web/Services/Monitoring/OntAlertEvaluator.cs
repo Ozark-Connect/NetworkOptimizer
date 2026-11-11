@@ -160,7 +160,7 @@ public class OntAlertEvaluator
     /// the budget of the ODN class the OLT names, and the level this ONT usually runs at. The
     /// first is an absolute limit and needs the class; the second needs no class and catches a
     /// connector or splice going bad long before the budget is spent. The usual level is learned
-    /// from the first readings after a start and then follows slowly, and it stands still while
+    /// from the first readings after a start and then follows slowly, a few readings behind, and it stands still while
     /// the rise alert is raised, so a fault cannot become the new normal. It is kept in memory,
     /// so after a restart of the application <paramref name="priorLevel"/> is asked once for the
     /// level the stored history shows; without it a fault that is already there is learned as the level.
@@ -176,116 +176,129 @@ public class OntAlertEvaluator
         if (!string.IsNullOrEmpty(sourceUrl)) state.SourceUrl = sourceUrl;
         var at = now ?? DateTime.UtcNow;
 
-        if (priorLevel is not null && !state.PathLossPriorAsked)
+        // One reading at a time per ONT: the timer and a manual refresh can both arrive here, and
+        // the recent readings and the level are not safe to move from two sides at once.
+        await state.PathLossGate.WaitAsync(ct);
+        try
         {
-            state.PathLossPriorAsked = true;
-            try
+            if (priorLevel is not null && !state.PathLossPriorAsked)
             {
-                if (state.PathLossBaseline is null && await priorLevel(ct) is double prior && double.IsFinite(prior))
+                state.PathLossPriorAsked = true;
+                try
                 {
-                    state.PathLossBaseline = prior;
-                    state.PathLossBaselineCount = PathLossBaselineReadings;
-                    state.PathLossBaselineAt = at;
+                    if (state.PathLossBaseline is null && await priorLevel(ct) is double prior && double.IsFinite(prior))
+                    {
+                        state.PathLossBaseline = prior;
+                        state.PathLossBaselineCount = PathLossBaselineReadings;
+                        state.PathLossBaselineAt = at;
+                    }
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    _logger.LogDebug(ex, "No stored path loss level for ONT {Name}; learning it from new readings", ontName);
                 }
             }
-            catch (Exception ex) when (ex is not OperationCanceledException)
-            {
-                _logger.LogDebug(ex, "No stored path loss level for ONT {Name}; learning it from new readings", ontName);
-            }
-        }
 
-        state.RecentPathLoss.Enqueue(loss);
-        while (state.RecentPathLoss.Count > PathLossRecentReadings) state.RecentPathLoss.Dequeue();
-        var settled = state.RecentPathLoss.Count == PathLossRecentReadings;
-        // The lowest of the recent readings for raising, the highest for clearing: every one of
-        // them has to agree before the state changes.
-        var low = state.RecentPathLoss.Min();
-        var high = state.RecentPathLoss.Max();
+            state.RecentPathLoss.Enqueue(loss);
+            double? leaving = null;
+            while (state.RecentPathLoss.Count > PathLossRecentReadings) leaving = state.RecentPathLoss.Dequeue();
+            var settled = state.RecentPathLoss.Count == PathLossRecentReadings;
+            // The lowest of the recent readings for raising, the highest for clearing: every one of
+            // them has to agree before the state changes.
+            var low = state.RecentPathLoss.Min();
+            var high = state.RecentPathLoss.Max();
 
-        if (odnClass is >= 0 and <= 4 && settled)
-        {
-            var (className, max) = OdnClassLimits[odnClass.Value];
-            var level = low > max ? 2 : low > max - PathLossReserveDb ? 1 : 0;
-            var holds = high > max - PathLossHysteresisDb ? 2 : high > max - PathLossReserveDb - PathLossHysteresisDb ? 1 : 0;
-            if (level > state.PathLossBudgetLevel)
+            if (odnClass is >= 0 and <= 4 && settled)
             {
-                state.PathLossBudgetLevel = level;
-                var over = level == 2;
-                await _eventBus.PublishAsync(new AlertEvent
+                var (className, max) = OdnClassLimits[odnClass.Value];
+                var level = low > max ? 2 : low > max - PathLossReserveDb ? 1 : 0;
+                var holds = high > max - PathLossHysteresisDb ? 2 : high > max - PathLossReserveDb - PathLossHysteresisDb ? 1 : 0;
+                if (level > state.PathLossBudgetLevel)
                 {
-                    EventType = "ont.path_loss_high",
-                    Source = "ont",
-                    Severity = over ? AlertSeverity.Error : AlertSeverity.Warning,
-                    Title = $"{ontName} path loss {(over ? "over" : "near")} the class limit{_siteSuffix}",
-                    Message = over
-                        ? $"ONT {ontName} path loss {loss:0.0} dB is over the {max:0} dB limit of ODN class {className}: the link runs outside its budget."
-                        : $"ONT {ontName} path loss {loss:0.0} dB leaves {max - loss:0.0} dB to the {max:0} dB limit of ODN class {className}.",
-                    DeviceName = ontName,
-                    MetricValue = loss,
-                    ThresholdValue = over ? max : max - PathLossReserveDb,
-                    SourceUrl = state.SourceUrl,
-                    Tags = ["ont", "path_loss"],
-                    Context = new Dictionary<string, string>
+                    state.PathLossBudgetLevel = level;
+                    var over = level == 2;
+                    await _eventBus.PublishAsync(new AlertEvent
                     {
-                        ["ont_id"] = ontId.ToString(),
-                        ["metric"] = "path_loss",
-                        ["odn_class"] = className
-                    }
-                }, ct);
-            }
-            else if (holds < state.PathLossBudgetLevel)
-            {
-                state.PathLossBudgetLevel = holds;
-            }
-        }
-
-        if (state.PathLossBaseline is double baseline && state.PathLossBaselineCount >= PathLossBaselineReadings && settled)
-        {
-            if (!state.PathLossRisen && low - baseline >= PathLossRiseDb)
-            {
-                state.PathLossRisen = true;
-                await _eventBus.PublishAsync(new AlertEvent
+                        EventType = "ont.path_loss_high",
+                        Source = "ont",
+                        Severity = over ? AlertSeverity.Error : AlertSeverity.Warning,
+                        Title = $"{ontName} path loss {(over ? "over" : "near")} the class limit{_siteSuffix}",
+                        Message = over
+                            ? $"ONT {ontName} path loss {loss:0.0} dB is over the {max:0} dB limit of ODN class {className}: the link runs outside its budget."
+                            : $"ONT {ontName} path loss {loss:0.0} dB leaves {max - loss:0.0} dB to the {max:0} dB limit of ODN class {className}.",
+                        DeviceName = ontName,
+                        MetricValue = loss,
+                        ThresholdValue = over ? max : max - PathLossReserveDb,
+                        SourceUrl = state.SourceUrl,
+                        Tags = ["ont", "path_loss"],
+                        Context = new Dictionary<string, string>
+                        {
+                            ["ont_id"] = ontId.ToString(),
+                            ["metric"] = "path_loss",
+                            ["odn_class"] = className
+                        }
+                    }, ct);
+                }
+                else if (holds < state.PathLossBudgetLevel)
                 {
-                    EventType = "ont.path_loss_rise",
-                    Source = "ont",
-                    Severity = AlertSeverity.Warning,
-                    Title = $"{ontName} path loss rose{_siteSuffix}",
-                    Message = $"ONT {ontName} path loss {loss:0.0} dB is {loss - baseline:0.0} dB above its usual {baseline:0.0} dB. " +
-                        "Check connectors, the patch cable and bends first; a loss that rose with the launch power unchanged is on the fibre path.",
-                    DeviceName = ontName,
-                    MetricValue = loss,
-                    ThresholdValue = Math.Round(baseline + PathLossRiseDb, 1),
-                    SourceUrl = state.SourceUrl,
-                    Tags = ["ont", "path_loss"],
-                    Context = new Dictionary<string, string>
-                    {
-                        ["ont_id"] = ontId.ToString(),
-                        ["metric"] = "path_loss"
-                    }
-                }, ct);
+                    state.PathLossBudgetLevel = holds;
+                }
             }
-            else if (state.PathLossRisen && high - baseline < PathLossRiseDb - PathLossHysteresisDb)
+
+            if (state.PathLossBaseline is double baseline && state.PathLossBaselineCount >= PathLossBaselineReadings && settled)
             {
-                state.PathLossRisen = false;
+                if (!state.PathLossRisen && low - baseline >= PathLossRiseDb)
+                {
+                    state.PathLossRisen = true;
+                    await _eventBus.PublishAsync(new AlertEvent
+                    {
+                        EventType = "ont.path_loss_rise",
+                        Source = "ont",
+                        Severity = AlertSeverity.Warning,
+                        Title = $"{ontName} path loss rose{_siteSuffix}",
+                        Message = $"ONT {ontName} path loss {loss:0.0} dB is {loss - baseline:0.0} dB above its usual {baseline:0.0} dB. " +
+                            "Check connectors, the patch cable and bends first; a loss that rose with the launch power unchanged is on the fibre path.",
+                        DeviceName = ontName,
+                        MetricValue = loss,
+                        ThresholdValue = Math.Round(baseline + PathLossRiseDb, 1),
+                        SourceUrl = state.SourceUrl,
+                        Tags = ["ont", "path_loss"],
+                        Context = new Dictionary<string, string>
+                        {
+                            ["ont_id"] = ontId.ToString(),
+                            ["metric"] = "path_loss"
+                        }
+                    }, ct);
+                }
+                else if (state.PathLossRisen && high - baseline < PathLossRiseDb - PathLossHysteresisDb)
+                {
+                    state.PathLossRisen = false;
+                }
+            }
+
+            // Learn from the reading that just left the recent ones, not from the newest: the level
+            // must not hold any reading it is being compared with, or a step of exactly the threshold
+            // pulls it up while it is still being confirmed and never raises.
+            if (!state.PathLossRisen && leaving is double learned)
+            {
+                if (state.PathLossBaseline is not double level || state.PathLossBaselineCount < PathLossBaselineReadings)
+                {
+                    var n = state.PathLossBaselineCount;
+                    state.PathLossBaseline = ((state.PathLossBaseline ?? 0) * n + learned) / (n + 1);
+                    state.PathLossBaselineCount = n + 1;
+                }
+                else
+                {
+                    var elapsed = at - state.PathLossBaselineAt;
+                    var weight = elapsed > TimeSpan.Zero ? 1 - Math.Exp(-elapsed / PathLossBaselineTime) : 0;
+                    state.PathLossBaseline = level + (learned - level) * weight;
+                }
+                state.PathLossBaselineAt = at;
             }
         }
-
-        // Learn after judging, so a reading is never compared against a level it has moved itself.
-        if (!state.PathLossRisen)
+        finally
         {
-            if (state.PathLossBaseline is not double level || state.PathLossBaselineCount < PathLossBaselineReadings)
-            {
-                var n = state.PathLossBaselineCount;
-                state.PathLossBaseline = ((state.PathLossBaseline ?? 0) * n + loss) / (n + 1);
-                state.PathLossBaselineCount = n + 1;
-            }
-            else
-            {
-                var elapsed = at - state.PathLossBaselineAt;
-                var weight = elapsed > TimeSpan.Zero ? 1 - Math.Exp(-elapsed / PathLossBaselineTime) : 0;
-                state.PathLossBaseline = level + (loss - level) * weight;
-            }
-            state.PathLossBaselineAt = at;
+            state.PathLossGate.Release();
         }
     }
 
@@ -573,6 +586,7 @@ public class OntAlertEvaluator
         public int PathLossBudgetLevel;
         public bool PathLossRisen;
         public bool PathLossPriorAsked;
+        public readonly SemaphoreSlim PathLossGate = new(1, 1);
         public double? PathLossBaseline;
         public int PathLossBaselineCount;
         public DateTime PathLossBaselineAt;

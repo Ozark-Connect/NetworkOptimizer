@@ -118,6 +118,51 @@ public class PonChartSeriesTests
     }
 
     [Fact]
+    public void AcrossAReboot_NothingIsRead_EvenWhenTheCountersAreAlreadyPastTheirOldValues()
+    {
+        // A stick that had run ten minutes restarts and is busier afterwards: by the next poll
+        // every restarted counter is above where it stood, so only the uptime gives it away.
+        var prev = Point(1_000, 100_000);
+        prev.SfpUptimeS = 600; prev.GemRxBytes = 1_000_000; prev.Time = T0;
+        var cur = Point(900_000, 100_000 + 290 * 8000);
+        cur.SfpUptimeS = 290; cur.GemRxBytes = 50_000_000; cur.Time = T0.AddMinutes(5);
+
+        PonChartSeries.FramesBetween(cur, prev).Should().BeNull();
+        PonChartSeries.DownstreamUtilization(cur, prev).Should().BeNull();
+        PonChartSeries.OwnDownstreamMbps(cur, prev).Should().BeNull();
+    }
+
+    [Fact]
+    public void AcrossAGapLongerThanTheCounterWraps_TheFrameCountIsNotTrusted()
+    {
+        // 40 hours without a point: the 30-bit counter wrapped once and reads as 9782 s, which
+        // would turn a steady 1 Mbit/s into 14.7 Mbit/s. The bytes are then timed by the clock.
+        const long gapFrames = 40L * 3600 * 8000;
+        var prev = Point(0, 100_000);
+        prev.GemRxBytes = 0; prev.Time = T0;
+        var cur = Point(0, (100_000 + gapFrames) % (1L << 30));
+        cur.GemRxBytes = 40L * 3600 * 125_000; cur.Time = T0.AddHours(40);
+
+        PonChartSeries.FramesBetween(cur, prev).Should().BeNull();
+        PonChartSeries.DownstreamUtilization(cur, prev).Should().BeNull();
+        PonChartSeries.OwnDownstreamMbps(cur, prev).Should().BeApproximately(1.0, 0.001);
+    }
+
+    [Fact]
+    public void FramesBetween_ACountFarFromTheClock_IsNull_ButWindowJitterIsNot()
+    {
+        var prev = Point(0, 100_000);
+        prev.Time = T0;
+        var late = Point(0, 100_000 + 3300 * 8000);
+        late.Time = T0.AddHours(1);
+        var wrong = Point(0, 100_000 + 300 * 8000);
+        wrong.Time = T0.AddHours(6);
+
+        PonChartSeries.FramesBetween(late, prev).Should().Be(3300 * 8000, "a sample sits anywhere inside its window");
+        PonChartSeries.FramesBetween(wrong, prev).Should().BeNull("five minutes of frames in six hours");
+    }
+
+    [Fact]
     public void OwnDownstreamMbps_TimedBySuperframes()
     {
         // 300 s of frames and 37.5 MB on the ONT's own GEM ports: 1 Mbit/s.
@@ -653,6 +698,19 @@ public class PonChartSeriesTests
         f.UncorrectableCodewords.Should().Be(2);
         f.Level.Should().Be("warning");
         PonChartSeries.SummarizeFec([Point(0, 1000), Point(10, 2000)]).Should().BeNull("no FEC counters");
+    }
+
+    [Fact]
+    public void SummarizeLaser_AlarmNamesLeftOverFromAnEarlierPoll_AreNotShownOnceTheCountIsZero()
+    {
+        var points = Healthy(4);
+        points[^1].TransceiverAlarmCount = 0;
+        points[^1].TransceiverAlarms = "alarm:rx_power_low";
+
+        PonChartSeries.SummarizeLaser(points)!.ModuleAlarms.Should().BeEmpty();
+
+        points[^1].TransceiverAlarmCount = 1;
+        PonChartSeries.SummarizeLaser(points)!.ModuleAlarms.Should().Equal("alarm:rx_power_low");
     }
 
     [Fact]

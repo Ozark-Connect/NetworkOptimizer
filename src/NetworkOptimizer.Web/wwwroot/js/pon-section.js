@@ -229,16 +229,19 @@ export function ponPathSummaryHtml(items) {
             const when = noTime.string(Date.parse(c.time), { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
             out.push(warn(`${escapeHtml(when)}: ${CHANGE_LABELS[c.what] || escapeHtml(c.what)} changed from ${escapeHtml(c.from)} to ${escapeHtml(c.to)}, which points at work on the provider's side.`));
         }
-        out.push(...rangingLines(item.ponMore?.ranging, warn));
+        const ranging = item.ponMore?.ranging;
+        if (ranging?.ponIdStale) out.push(warn(`The OLT last announced its launch power ${fmtDuration(ranging.ponIdAgeSeconds)} ago, so the loss above rests on an old figure.`));
         return out.join('');
     }).join('')
         + '<div>Launch power is what the OLT announces, possibly a configured figure rather than a measurement; the ONT\'s RX reading can be off by up to about 3 dB, so read the level loosely and the changes closely.</div>';
 }
 
-/// What the ranging says beside the loss: the equalization delay, each step in it with the fibre
-/// length it stands for and what the loss did across it, and a PON-ID that stopped coming.
-function rangingLines(r, warn) {
+/// What the ranging says: the equalization delay, and each step in it with the fibre length it
+/// stands for and what the loss did across it. Listed with the provider's activity, since a
+/// step is the OLT measuring a different distance, and so that it shows without a path loss.
+function rangingLines(r) {
     if (!r) return [];
+    const warn = text => `<div style="color: var(--warning-color);">${text}</div>`;
     const out = [];
     if (r.eqdBits != null) {
         out.push(`<div>Equalization delay ${fmtInt(r.eqdBits)} bit times (${r.eqdMicros.toFixed(1)} µs)`
@@ -252,7 +255,6 @@ function rangingLines(r, warn) {
             : `, path loss ${fmtSignedDb(s.lossChangeDb)}`;
         out.push(warn(`${escapeHtml(fmtWhen(s.time))}: the equalization delay moved by ${s.deltaBits > 0 ? '+' : ''}${fmtInt(s.deltaBits)} bit times, a fibre path ${length}${loss}. The OLT measured a different distance: a rerouted or respliced path, or another OLT port.`));
     }
-    if (r.ponIdStale) out.push(warn(`The OLT last announced its launch power ${fmtDuration(r.ponIdAgeSeconds)} ago, so the loss above rests on an old figure.`));
     return out;
 }
 
@@ -358,7 +360,10 @@ function loadMapCells(hours) {
 /// refetched every ten minutes at most) and its own chart, so both tabs mount it with one call.
 /// `refresh` shows the map for the first visible ONT that has hours, and hides the card otherwise.
 export function createPonLoadMap({ ApexCharts, url, cardSelector, chartSelector, summarySelector }) {
-    let chart = null, data = null, fetchedAt = 0, pending = null;
+    // `epoch` moves on destroy, so a refresh still waiting on its request or its first render
+    // when the tab is left does not mount a chart on an element that is gone and leave it there
+    // for the next visit to update.
+    let chart = null, data = null, fetchedAt = 0, pending = null, epoch = 0;
 
     async function load() {
         if (data && Date.now() - fetchedAt < LOAD_MAP_REFRESH_MS) return data;
@@ -371,7 +376,9 @@ export function createPonLoadMap({ ApexCharts, url, cardSelector, chartSelector,
     async function refresh(container, visibleItems) {
         const card = container?.querySelector(cardSelector);
         if (!card) return;
+        const started = epoch;
         const loaded = await load();
+        if (started !== epoch) return;
         const ids = new Set((visibleItems || []).map(i => String(i.id)));
         const entry = (loaded?.items || []).find(i => ids.has(String(i.id)) && i.hours?.length);
         if (!entry) { card.style.display = 'none'; return; }
@@ -399,7 +406,7 @@ export function createPonLoadMap({ ApexCharts, url, cardSelector, chartSelector,
 
         const el = card.querySelector(chartSelector);
         if (el && !chart) {
-            chart = new ApexCharts(el, {
+            const mounted = chart = new ApexCharts(el, {
                 chart: { type: 'heatmap', height: 230, background: 'transparent', toolbar: { show: false }, animations: { enabled: false } },
                 series,
                 dataLabels: { enabled: false },
@@ -412,7 +419,8 @@ export function createPonLoadMap({ ApexCharts, url, cardSelector, chartSelector,
                 tooltip: { theme: 'dark', y: { formatter: v => v == null || v < 0 ? 'no data' : `${fmtShare(v)} % mean` } },
                 noData: { text: 'No data yet', style: { color: '#64748b' } },
             });
-            await chart.render();
+            await mounted.render();
+            if (started !== epoch) return;
         } else if (chart) {
             chart.updateOptions({ series, plotOptions: { heatmap } }, false, false);
         }
@@ -435,6 +443,7 @@ export function createPonLoadMap({ ApexCharts, url, cardSelector, chartSelector,
     }
 
     function destroy() {
+        epoch++;
         if (chart) { chart.destroy(); chart = null; }
     }
 
@@ -534,11 +543,11 @@ const PROVIDER_EVENTS = {
 /// What the provider's side did in the window: the OLT's management pace, the rate it has
 /// provisioned, and each time it wrote to the ONT, renewed the key or adjusted the ranging.
 export function ponProviderHtml(items) {
-    const withProvider = (items || []).filter(item => item.ponMore?.provider);
+    const withProvider = (items || []).filter(item => item.ponMore?.provider || item.ponMore?.ranging?.eqdBits != null);
     if (!withProvider.length) return '';
     const multi = withProvider.length > 1;
     const body = withProvider.map(item => {
-        const p = item.ponMore.provider;
+        const p = item.ponMore.provider || {};
         const parts = [];
         if (p.pirMbps != null) {
             parts.push(p.cirMbps != null && p.cirMbps !== p.pirMbps
@@ -553,6 +562,7 @@ export function ponProviderHtml(items) {
         for (const e of events) {
             lines.push(`<div>${escapeHtml(fmtWhen(e.time))}: ${(PROVIDER_EVENTS[e.what] || (() => escapeHtml(e.what)))(e)}.</div>`);
         }
+        lines.push(...rangingLines(item.ponMore.ranging));
         return lines.join('');
     }).join('');
     return `<div class="chart-header"><h3 class="chart-title"><span data-tooltip="What the OLT did to this ONT, read from the ONT's management counters: the provisioned rate is the traffic descriptor the OLT created (OMCI), a configuration write is the MIB data sync counter moving, and key renewals and ranging adjustments are PLOAM messages that arrived while the link stayed up.">Provider Activity</span></h3></div>`

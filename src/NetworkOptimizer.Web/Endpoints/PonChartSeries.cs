@@ -109,6 +109,8 @@ public static class PonChartSeries
     private const double GemIdleFrameBytes = 5;
     private const double GponFramesPerSecond = 8000;
     private const long SuperframeModulus = 1L << 30;
+    /// <summary>How far a sample may sit from the time its point is stamped with.</summary>
+    private const double SampleSlackSeconds = 900;
 
     /// <summary>
     /// How much of the PON's downstream was in use over one interval, all ONTs together: the OLT
@@ -142,18 +144,30 @@ public static class PonChartSeries
     /// base come from one sample; a source that does not serve it (older firmware) falls back to
     /// the live counter, which can be a sample ahead. Never one of each: the two differ by up to a
     /// second's worth of frames. The counter is 30 bits wide, so a smaller value is one wrap.
-    /// Null without a pair, or when the counter stood still.
+    /// Null without a pair, across a reboot, when the counter stood still, or when the count is
+    /// far from what the clock says passed.
     /// </summary>
     internal static long? FramesBetween(
         MonitoringInfluxClient.PonSeriesPoint cur, MonitoringInfluxClient.PonSeriesPoint prev)
     {
+        if (!SameBoot(cur, prev)) return null;
         long sf, sfPrev;
         if (cur.DsSuperframeSampled is long s && prev.DsSuperframeSampled is long sp) { sf = s; sfPrev = sp; }
         else if (cur.DsSuperframe is long l && prev.DsSuperframe is long lp) { sf = l; sfPrev = lp; }
         else return null;
 
         var frames = sf >= sfPrev ? sf - sfPrev : sf + SuperframeModulus - sfPrev;
-        return frames > 0 ? frames : null;
+        if (frames <= 0) return null;
+
+        // The counter says nothing about how often it wrapped (once every 37 hours). Across a gap
+        // in the data the difference is then far too small, and every rate read against it far
+        // too high, so the count has to agree roughly with the clock. Roughly, because a point's
+        // time is the end of its aggregation window, not the moment of the sample.
+        var clock = (cur.Time - prev.Time).TotalSeconds;
+        var counted = frames / GponFramesPerSecond;
+        if (clock >= SuperframeModulus / GponFramesPerSecond / 2 || Math.Abs(counted - clock) > clock / 2 + SampleSlackSeconds)
+            return null;
+        return frames;
     }
 
     /// <summary>
@@ -176,10 +190,15 @@ public static class PonChartSeries
         return Math.Round((bytes - bytesPrev) * 8 / seconds / 1e6, 3);
     }
 
-    /// <summary>The length of one interval: by the superframe counter where there is one, by the clock otherwise.</summary>
+    /// <summary>
+    /// The length of one interval: by the superframe counter where there is a usable one, by the
+    /// clock otherwise. Null across a reboot, where a restarted counter can already be past its
+    /// old value and look like an ordinary rise.
+    /// </summary>
     private static double? IntervalSeconds(
         MonitoringInfluxClient.PonSeriesPoint cur, MonitoringInfluxClient.PonSeriesPoint prev)
     {
+        if (!SameBoot(cur, prev)) return null;
         var seconds = FramesBetween(cur, prev) is long frames
             ? frames / GponFramesPerSecond
             : (cur.Time - prev.Time).TotalSeconds;
@@ -697,7 +716,9 @@ public static class PonChartSeries
                 tempChange = Math.Round(Median(late.Select(p => p.OntTemperatureC!.Value)) - Median(early.Select(p => p.OntTemperatureC!.Value)), 1);
         }
 
-        var alarms = string.IsNullOrEmpty(latest.TransceiverAlarms)
+        // The names are only written while a flag is raised, so the last stored text outlives
+        // the alarm; the count is written on every poll and says when they are all clear.
+        var alarms = latest.TransceiverAlarmCount == 0 || string.IsNullOrEmpty(latest.TransceiverAlarms)
             ? new List<string>()
             : latest.TransceiverAlarms.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
         var hints = new List<string>();

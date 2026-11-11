@@ -373,6 +373,30 @@ public class OntAlertEvaluatorTests
     }
 
     [Fact]
+    public async Task PathLoss_AStepOfExactlyTheThreshold_IsRaised()
+    {
+        var (evaluator, bus) = Create();
+
+        await Feed(evaluator, 0, Enumerable.Repeat(20.0, 12).ToArray());
+        await Feed(evaluator, 12, Enumerable.Repeat(22.0, 100).ToArray());
+
+        bus.Events.Should().ContainSingle(e => e.EventType == "ont.path_loss_rise",
+            "the level must not learn from the readings that are still confirming the step");
+    }
+
+    [Fact]
+    public async Task PathLoss_ReadingsArrivingAtOnce_AreTakenOneAtATime()
+    {
+        var (evaluator, bus) = Create();
+        await Feed(evaluator, 0, Enumerable.Repeat(19.8, 12).ToArray());
+
+        await Task.WhenAll(Enumerable.Range(0, 200).Select(i => Task.Run(async () =>
+            await evaluator.EvaluatePathLossAsync(1, "ONT", 22.3, 2, now: PathT0.AddMinutes(60 + i)))));
+
+        bus.Events.Should().ContainSingle(e => e.EventType == "ont.path_loss_rise");
+    }
+
+    [Fact]
     public async Task PathLoss_OneOutlierPoll_RaisesNothing()
     {
         var (evaluator, bus) = Create();
