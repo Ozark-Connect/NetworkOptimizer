@@ -148,6 +148,9 @@
         try
         {
             Load(await Tailscale.GetSettingsAsync());
+            // Waits (briefly) for the first read after a restart, so the status lines have something to show.
+            if (_saved.Enabled)
+                await Tailscale.GetPeersAsync();
             _status = await Tailscale.GetStatusAsync();
         }
         catch (Exception)
