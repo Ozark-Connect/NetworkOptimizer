@@ -1482,7 +1482,7 @@ On a site reached through its On-Site Agent, the API calls go out through the ag
 
 ### Tailscale on an On-Site Agent's host
 
-When an On-Site Agent's host runs Tailscale (a UniFi gateway with Tailscale installed, for example), Network Optimizer finds it and uses it with no setup, and the card says so:
+When an On-Site Agent's host runs Tailscale (a Linux server or Raspberry Pi that is your subnet router or exit node, for example), Network Optimizer finds it and uses it with no setup, and the card says so:
 
 - The exact path for every device (direct, DERP relay with its region, or peer relay), and traffic counters.
 - When that host is the tailnet's subnet router or exit node, Live Traffic shows the Tailscale device behind each connection it routes, read from the host's conntrack table. By default a router source-NATs its peers to its own LAN address, so only that host's table holds which peer it was. A node started with `--snat-subnet-routes=false`, with the gateway routing `100.64.0.0/10` to it, needs none of this: its peers keep their tailnet addresses.
