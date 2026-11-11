@@ -3914,7 +3914,10 @@
                                                             {
                                                                 <div class="site-agent-row">
                                                                     <span class="status-dot @(agent.Enabled && TunnelRegistry.IsAgentLive(agent) ? "online" : "offline")"></span>
-                                                                    <span>@agent.Name</span>
+                                                                    <InlineEditField Tooltip="Rename agent" Placeholder="Agent name" SiteSlug="@site.Slug"
+                                                                                     Load="() => Task.FromResult(agent.Name)" Save="name => RenameAgentAsync(site, agent, name)">
+                                                                        <span>@agent.Name</span>
+                                                                    </InlineEditField>
                                                                     @* A gateway agent names itself by its detected interface, which on a gateway is the WAN
                                                                        address - so where it lives is said in words rather than shown as an address. *@
                                                                     @if (AgentOnGateway(agent.Id))
@@ -5321,6 +5324,25 @@
         {
             _creatingAgent = false;
         }
+    }
+
+    private async Task<string?> RenameAgentAsync(Site site, SiteAgent agent, string name)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+            return "Enter a name.";
+        if (name == agent.Name)
+            return null;
+        try
+        {
+            if (!await AgentEnrollment.RenameAgentAsync(site.Slug, agent.Id, name))
+                return "This agent is no longer on this site.";
+        }
+        catch (Exception ex)
+        {
+            return ex.Message;
+        }
+        await LoadAgentsAsync();
+        return null;
     }
 
     private async Task ToggleAgentEnabled(Site site, SiteAgent agent)

@@ -378,7 +378,8 @@ public sealed class AgentTunnelConnection
 
     public int AgentId { get; }
     public string SiteSlug { get; }
-    public string AgentName { get; }
+    /// <summary>The agent's name; a rename updates it on the live connection.</summary>
+    public string AgentName { get; internal set; }
     public DateTime ConnectedAt { get; }
     public DateTime LastMessageAt { get; internal set; }
 

@@ -30,7 +30,7 @@ else
 {
     <span class="inline-name-cell @Class">
         @ChildContent
-        <SiteAdminOnly>
+        <SiteAdminOnly SiteSlug="@SiteSlug">
             <button type="button" class="inline-name-edit-btn" data-tooltip="@Tooltip" aria-label="@Tooltip" data-tour="@TourId"
                     @onclick="StartAsync" @onclick:stopPropagation disabled="@_busy">
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
@@ -67,6 +67,9 @@ else
 
     /// <summary>Guided tour anchor on the pencil, which only a Site Admin sees; null for none.</summary>
     [Parameter] public string? TourId { get; set; }
+
+    /// <summary>The site whose Site Admin may edit; null for the site in context.</summary>
+    [Parameter] public string? SiteSlug { get; set; }
 
     /// <summary>The field's placeholder.</summary>
     [Parameter] public string? Placeholder { get; set; }

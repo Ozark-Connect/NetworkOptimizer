@@ -53,7 +53,7 @@ an On-Site Agent, AP Telemetry, InfluxDB, or HTTPS.
 - Per agent site: client speed test target override
 - Three sites free for personal use; a lapsed license keeps a site running through a 10-day grace period
 - License checks never downgrade a license on failure; a restricted site pauses until relicensed
-- Agent management - status, version, **Upgrade** commands, **Run It for Me** gateway upgrade, enrollment tokens
+- Agent management - rename in place, status, version, **Upgrade** commands, **Run It for Me** gateway upgrade, enrollment tokens
 - Per site: Automatic Blocking mode, blocked-source count, and [cross-site blocking](#automatic-blocking) with **Turn On Recommended for All Sites**
 - [Trusted Sources](#trusted-sources) - every site's WAN addresses as UniFi Network Lists, so sites admit each other and no one else
 

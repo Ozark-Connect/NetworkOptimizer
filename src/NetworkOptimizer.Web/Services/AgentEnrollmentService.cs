@@ -385,6 +385,28 @@ public class AgentEnrollmentService : IAgentEnrollmentService
             DropLiveTunnel(agent.Id, agent.Name, "disabled");
     }
 
+    /// <inheritdoc />
+    public async Task<bool> RenameAgentAsync(string siteSlug, int agentId, string name)
+    {
+        name = name?.Trim() ?? "";
+        if (name.Length == 0)
+            return false;
+
+        await using var db = await _mainDbFactory.CreateDbContextAsync();
+        var agent = await AgentOnSiteAsync(db, siteSlug, agentId);
+        if (agent == null)
+            return false;
+
+        agent.Name = name;
+        agent.UpdatedAt = DateTime.UtcNow;
+        await db.SaveChangesAsync();
+
+        // The connection carries the name for status lines and logs; without this it keeps the old one until a reconnect.
+        foreach (var connection in _tunnelRegistry.GetAll().Where(c => c.AgentId == agentId))
+            connection.AgentName = name;
+        return true;
+    }
+
     /// <summary>Whether a last-seen timestamp counts as online right now.</summary>
     public static bool IsOnline(DateTime? lastSeenAt) =>
         lastSeenAt != null && DateTime.UtcNow - lastSeenAt < OnlineWindow;
