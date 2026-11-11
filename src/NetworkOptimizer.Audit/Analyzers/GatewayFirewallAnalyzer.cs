@@ -90,7 +90,7 @@ public partial class GatewayFirewallAnalyzer
             AddWanZoneIssues(issues, v4, zones, networks, wanInterfaces, gatewayName);
             AddNetworkZoneIssues(issues, v4, zones, networks, tokens, gatewayName);
             if (udapi != null)
-                AddPolicyIssues(issues, udapi, v4, policies, tokens, gatewayName, _logger);
+                AddPolicyIssues(issues, udapi, v4, policies, networks, tokens, gatewayName, _logger);
         }
 
         if (blocklist != null && v4.HasRules)
@@ -202,7 +202,7 @@ public partial class GatewayFirewallAnalyzer
     // === Policies ===
 
     private static void AddPolicyIssues(List<AuditIssue> issues, UdapiFilter udapi, IptablesDump v4,
-        IReadOnlyList<FirewallRule>? policies, ZoneTokens tokens, string? gatewayName, ILogger logger)
+        IReadOnlyList<FirewallRule>? policies, IReadOnlyList<UniFiNetworkConfig>? networks, ZoneTokens tokens, string? gatewayName, ILogger logger)
     {
         var missing = new List<string>();
         var stillOn = new List<string>();
@@ -256,8 +256,9 @@ public partial class GatewayFirewallAnalyzer
             });
         }
 
+        // A zone with no networks has no interface to dispatch, so its policy chains are unreached by design.
         var unwired = udapi.PolicyChains
-            .Where(c => !v4.IsReachable($"UBIOS_{c}_USER"))
+            .Where(c => !v4.IsReachable($"UBIOS_{c}_USER") && !DispatchZoneIsEmpty(c, tokens, networks, v4))
             .Select(DisplayZonePair(tokens))
             .ToList();
         if (unwired.Count > 0)
@@ -274,6 +275,24 @@ public partial class GatewayFirewallAnalyzer
                 Metadata = new() { ["zone_pairs"] = unwired },
             });
         }
+    }
+
+    /// <summary>
+    /// Whether the zone whose interfaces dispatch to the chain has no members: no interface on the gateway dispatches
+    /// to it, and UniFi Network puts no network in it. A zone with networks but no dispatch is a fault, so it does not count.
+    /// </summary>
+    /// <remarks>
+    /// The gateway dispatches a chain by its source zone's ingress interfaces, except a Gateway-sourced chain
+    /// (<c>LOCAL_&lt;DST&gt;</c>), which it dispatches by the destination zone's egress interfaces.
+    /// </remarks>
+    private static bool DispatchZoneIsEmpty(string chain, ZoneTokens tokens, IReadOnlyList<UniFiNetworkConfig>? networks, IptablesDump v4)
+    {
+        var parts = chain.Split('_', 2);
+        if (parts.Length != 2) return false;
+        var token = parts[0] == "LOCAL" ? parts[1] : parts[0];
+        if (token == "LOCAL" || v4.HasDispatchTo(token) || tokens.ZoneOf(token) is not { } zone) return false;
+        return zone.NetworkIds.Count == 0
+               && !(networks ?? []).Any(n => string.Equals(n.FirewallZoneId, zone.Id, StringComparison.OrdinalIgnoreCase));
     }
 
     private static Func<string, string> DisplayZonePair(ZoneTokens tokens) => chain =>
@@ -438,10 +457,13 @@ public partial class GatewayFirewallAnalyzer
             zoneId == null ? null
             : (includeInterfaceGuesses ? guessed : learned).TryGetValue(zoneId, out var token) ? token : null;
 
-        public string NameOf(string token)
+        public string NameOf(string token) => ZoneOf(token)?.Name ?? token;
+
+        /// <summary>The UniFi Network zone behind a gateway token; null when the token is not resolved.</summary>
+        public UniFiFirewallZone? ZoneOf(string token)
         {
             var id = guessed.FirstOrDefault(kv => kv.Value == token).Key;
-            return zones.FirstOrDefault(z => z.Id == id)?.Name ?? token;
+            return zones.FirstOrDefault(z => z.Id == id);
         }
     }
 
@@ -525,6 +547,11 @@ public partial class GatewayFirewallAnalyzer
         /// <summary>The zone tokens traffic from <paramref name="iface"/> to the gateway itself is dispatched to.</summary>
         public HashSet<string> InputZones(string iface) => Dispatch(InputDispatchRegex(), iface);
 
+        /// <summary>Whether any interface's forwarded, gateway-bound, or gateway-sent traffic is dispatched by the zone token.</summary>
+        public bool HasDispatchTo(string token) =>
+            _rules.Any(r => new[] { ForwardDispatchRegex(), InputDispatchRegex(), OutputDispatchRegex() }
+                .Any(p => p.Match(r) is { Success: true } m && m.Groups["zone"].Value == token));
+
         private HashSet<string> Dispatch(Regex pattern, string iface)
         {
             var zones = new HashSet<string>(StringComparer.Ordinal);
@@ -549,6 +576,9 @@ public partial class GatewayFirewallAnalyzer
 
         [GeneratedRegex(@"^-A UBIOS_INPUT_USER_HOOK -i (?<if>\S+) .*-j UBIOS_(?<zone>[A-Z0-9]+)_LOCAL_USER$")]
         private static partial Regex InputDispatchRegex();
+
+        [GeneratedRegex(@"^-A UBIOS_OUTPUT_USER_HOOK -o (?<if>\S+) .*-j UBIOS_LOCAL_(?<zone>[A-Z0-9]+)_USER$")]
+        private static partial Regex OutputDispatchRegex();
     }
 
     /// <summary>
