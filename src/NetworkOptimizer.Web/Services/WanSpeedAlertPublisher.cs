@@ -14,14 +14,20 @@ namespace NetworkOptimizer.Web.Services;
 /// emit the same event shapes. Callers pass their per-site alert bus, so events
 /// carry the originating site. The site's first successful test also turns on the
 /// degradation rule, which ships disabled, unless a user has edited it.
+/// <para>
+/// A test that gets a background load check publishes its degradation only after the check
+/// (<see cref="PublishDegradationAsync"/>): a test marked Invalid measured other traffic, not the line.
+/// </para>
 /// </summary>
 public static class WanSpeedAlertPublisher
 {
+    /// <param name="checkDegradation">False when a background load check will publish the degradation once it has a verdict.</param>
     public static async Task PublishAsync(
         IAlertEventBus? alertEventBus,
         Iperf3Result result,
         Func<Task<NetworkOptimizerDbContext>> openSiteDb,
-        ILogger logger)
+        ILogger logger,
+        bool checkDegradation = true)
     {
         if (alertEventBus == null) return;
 
@@ -30,18 +36,7 @@ public static class WanSpeedAlertPublisher
             var downloadMbps = result.DownloadMbps;
             var uploadMbps = result.UploadMbps;
             var wanName = result.WanName ?? "Unknown";
-            // The page filters on the WAN key, which is what WanNetworkGroup already holds ("WAN",
-            // "WAN2"). Without it a multi-WAN site opens on whichever WAN it was left on, which is
-            // not the one the alert is about. Same filter the ISP Health hero link passes.
-            //
-            // A bonded test records "WAN+WAN2", which becomes the comma list the analysis charts
-            // already read. WAN Speed Test understands a single key today and ignores a list, but
-            // these URLs are frozen into history when the alert is raised: a row written without
-            // the filter never gains one, while a row carrying it starts working the day that page
-            // learns to read it.
-            var wanFilter = string.IsNullOrWhiteSpace(result.WanNetworkGroup)
-                ? "?"
-                : $"?wan={Uri.EscapeDataString(string.Join(",", result.WanNetworkGroup.ToLowerInvariant().Split('+', StringSplitOptions.RemoveEmptyEntries)))}&";
+            var wanFilter = WanFilter(result);
 
             await alertEventBus.PublishAsync(new AlertEvent
             {
@@ -75,49 +70,80 @@ public static class WanSpeedAlertPublisher
                 }
             }
 
-            // Check for degradation vs recent results (same WAN, same test kind), in both directions
-            try
-            {
-                await using var db = await openSiteDb();
-                var recent = await db.Iperf3Results
-                    .AsNoTracking()
-                    .Where(r => r.Direction == result.Direction && r.WanName == result.WanName && r.Id != result.Id && r.Success)
-                    .OrderByDescending(r => r.TestTime)
-                    .Take(SpeedTestRegression.RecentToRead)
-                    .ToListAsync();
-
-                if (SpeedTestRegression.Worst(result, recent) is { } drop)
-                {
-                    await alertEventBus.PublishAsync(new AlertEvent
-                    {
-                        EventType = "wan.speed_degradation",
-                        Severity = SpeedTestRegression.Severity(drop),
-                        Source = "wan",
-                        Title = $"WAN degradation: {drop.Direction} at {drop.CurrentMbps:F0} Mbps ({drop.DropPercent:F0}% below average)",
-                        Message = $"{wanName}: {drop.Direction} is {drop.DropPercent:F0}% below the recent average of {drop.AverageMbps:F0} Mbps",
-                        MetricValue = drop.CurrentMbps,
-                        ThresholdValue = drop.AverageMbps,
-                        SourceUrl = $"/wan-speedtest{wanFilter}result={result.Id}",
-                        Context = new Dictionary<string, string>
-                        {
-                            ["wan_name"] = wanName,
-                            ["drop_direction"] = drop.Direction,
-                            ["current_mbps"] = drop.CurrentMbps.ToString("F1"),
-                            ["average_mbps"] = drop.AverageMbps.ToString("F1"),
-                            ["drop_percent"] = drop.DropPercent.ToString("F0"),
-                            ["sample_count"] = drop.Samples.ToString()
-                        }
-                    });
-                }
-            }
-            catch (Exception degradeEx)
-            {
-                logger.LogDebug(degradeEx, "Failed to check WAN speed degradation");
-            }
+            if (checkDegradation)
+                await PublishDegradationAsync(alertEventBus, result, openSiteDb, logger);
         }
         catch (Exception ex)
         {
             logger.LogDebug(ex, "Failed to publish WAN speed test alert event");
         }
     }
+
+    /// <summary>
+    /// Publishes <c>wan.speed_degradation</c> when the result fell below the recent average for the same
+    /// WAN and test kind. A result marked Invalid neither alerts nor counts toward the average.
+    /// </summary>
+    public static async Task PublishDegradationAsync(
+        IAlertEventBus? alertEventBus,
+        Iperf3Result result,
+        Func<Task<NetworkOptimizerDbContext>> openSiteDb,
+        ILogger logger)
+    {
+        if (alertEventBus == null || result.BackgroundLoadInvalid) return;
+
+        var wanName = result.WanName ?? "Unknown";
+        var wanFilter = WanFilter(result);
+        try
+        {
+            await using var db = await openSiteDb();
+            var recent = await db.Iperf3Results
+                .AsNoTracking()
+                .Where(r => r.Direction == result.Direction && r.WanName == result.WanName && r.Id != result.Id
+                    && r.Success && !r.BackgroundLoadInvalid)
+                .OrderByDescending(r => r.TestTime)
+                .Take(SpeedTestRegression.RecentToRead)
+                .ToListAsync();
+
+            if (SpeedTestRegression.Worst(result, recent) is { } drop)
+            {
+                await alertEventBus.PublishAsync(new AlertEvent
+                {
+                    EventType = "wan.speed_degradation",
+                    Severity = SpeedTestRegression.Severity(drop),
+                    Source = "wan",
+                    Title = $"WAN degradation: {drop.Direction} at {drop.CurrentMbps:F0} Mbps ({drop.DropPercent:F0}% below average)",
+                    Message = $"{wanName}: {drop.Direction} is {drop.DropPercent:F0}% below the recent average of {drop.AverageMbps:F0} Mbps",
+                    MetricValue = drop.CurrentMbps,
+                    ThresholdValue = drop.AverageMbps,
+                    SourceUrl = $"/wan-speedtest{wanFilter}result={result.Id}",
+                    Context = new Dictionary<string, string>
+                    {
+                        ["wan_name"] = wanName,
+                        ["drop_direction"] = drop.Direction,
+                        ["current_mbps"] = drop.CurrentMbps.ToString("F1"),
+                        ["average_mbps"] = drop.AverageMbps.ToString("F1"),
+                        ["drop_percent"] = drop.DropPercent.ToString("F0"),
+                        ["sample_count"] = drop.Samples.ToString()
+                    }
+                });
+            }
+        }
+        catch (Exception degradeEx)
+        {
+            logger.LogDebug(degradeEx, "Failed to check WAN speed degradation");
+        }
+    }
+
+    // The page filters on the WAN key, which is what WanNetworkGroup already holds ("WAN",
+    // "WAN2"). Without it a multi-WAN site opens on whichever WAN it was left on, which is
+    // not the one the alert is about. Same filter the ISP Health hero link passes.
+    //
+    // A bonded test records "WAN+WAN2", which becomes the comma list the analysis charts
+    // already read. WAN Speed Test understands a single key today and ignores a list, but
+    // these URLs are frozen into history when the alert is raised: a row written without
+    // the filter never gains one, while a row carrying it starts working the day that page
+    // learns to read it.
+    private static string WanFilter(Iperf3Result result) => string.IsNullOrWhiteSpace(result.WanNetworkGroup)
+        ? "?"
+        : $"?wan={Uri.EscapeDataString(string.Join(",", result.WanNetworkGroup.ToLowerInvariant().Split('+', StringSplitOptions.RemoveEmptyEntries)))}&";
 }

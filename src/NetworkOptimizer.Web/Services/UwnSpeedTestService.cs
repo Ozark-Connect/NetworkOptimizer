@@ -110,10 +110,14 @@ public class UwnSpeedTestService : WanSpeedTestServiceBase, IUwnSpeedTestService
     /// <inheritdoc />
     protected override void OnResultSaved(Iperf3Result result)
     {
-        if (result.Success)
+        if (ChecksBackgroundLoad(result))
             WanTestBackgroundCheck.Schedule(_scopeFactory, SiteSlug, result.Id, result.WanNetworkGroup, _lastPhases,
-                () => CreateSiteDbAsync(), RaiseResultUpdated, Logger);
+                () => CreateSiteDbAsync(), RaiseResultUpdated, Logger, PublishDegradationAsync);
     }
+
+    /// <inheritdoc />
+    protected override bool ChecksBackgroundLoad(Iperf3Result result) =>
+        result.Success && WanTestBackgroundCheck.WillCheck(result.WanNetworkGroup, _lastPhases);
 
     private IServiceScope CreateSiteScope()
     {

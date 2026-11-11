@@ -51,6 +51,11 @@ internal static class WanTestBackgroundCheck
     /// then calls <paramref name="onUpdated"/> so open pages reload it. Bonded multi-WAN results
     /// ("WAN+WAN2") are skipped: their phases ran on several counter interfaces at once.
     /// </summary>
+    /// <param name="afterCheck">
+    /// Runs once the check ends, however it ends, with the stored result (null when it was deleted
+    /// meanwhile), so a degradation alert waits for the Invalid verdict. Never runs when
+    /// <see cref="WillCheck"/> is false: the caller publishes the alert itself then.
+    /// </param>
     public static void Schedule(
         IServiceScopeFactory scopeFactory,
         string siteSlug,
@@ -59,59 +64,87 @@ internal static class WanTestBackgroundCheck
         WanTestPhases? phases,
         Func<Task<NetworkOptimizerDbContext>> openSiteDb,
         Action<int>? onUpdated,
-        ILogger logger)
+        ILogger logger,
+        Func<Iperf3Result?, Task>? afterCheck = null)
     {
-        if (phases == null || string.IsNullOrEmpty(wanNetworkGroup) || wanNetworkGroup.Contains('+'))
+        if (!WillCheck(wanNetworkGroup, phases))
             return;
 
         _ = Task.Run(async () =>
         {
+            await CheckAsync(scopeFactory, siteSlug, resultId, wanNetworkGroup!, phases!, openSiteDb, onUpdated, logger);
+            if (afterCheck == null) return;
             try
             {
-                var windows = phases.All;
-                var wait = windows.Max(w => w.To) + CounterSettle - DateTime.UtcNow;
-                if (wait > TimeSpan.Zero)
-                    await Task.Delay(wait);
-
-                using var scope = scopeFactory.CreateScope();
-                scope.ServiceProvider.GetRequiredService<SiteContextService>().OverrideSite(siteSlug);
-                Identity.SystemScope.Enter(scope.ServiceProvider, "speedtest:wan-background");
-
-                var points = await scope.ServiceProvider.GetRequiredService<WanIdleGate>().ReadWindowAsync(
-                    wanNetworkGroup, windows.Min(w => w.From) - PointSpan, windows.Max(w => w.To) + PointSpan * 2,
-                    CancellationToken.None);
-                if (points == null || points.Count == 0)
-                    return;
-
                 await using var db = await openSiteDb();
-                var result = await db.Iperf3Results.FindAsync(resultId);
-                if (result == null)
-                    return;
-
-                var (planDown, planUp) = await PlanSpeedsAsync(scope.ServiceProvider, db, wanNetworkGroup);
-                var (bgDown, bgUp) = Measure(points, phases);
-
-                result.BackgroundDownloadMbps = bgDown;
-                result.BackgroundUploadMbps = bgUp;
-                result.ExpectedDownloadMbps = planDown;
-                result.ExpectedUploadMbps = planUp;
-                result.BackgroundLoadInvalid = IsInvalid(result.DownloadMbps, planDown, bgDown)
-                    || IsInvalid(result.UploadMbps, planUp, bgUp);
-                await db.SaveChangesAsync();
-                await SpeedTestInfluxExporter.ExportBackgroundLoadAsync(
-                    scope.ServiceProvider.GetRequiredService<MonitoringInfluxRegistry>(), siteSlug, result, logger);
-
-                logger.LogInformation(
-                    "WAN test {Id} background on {Group}: {BgDown:F0} down / {BgUp:F0} up Mbps vs plan {PlanDown} / {PlanUp} -> {Verdict}",
-                    resultId, wanNetworkGroup, bgDown, bgUp, planDown, planUp,
-                    result.BackgroundLoadInvalid ? "invalid" : "valid");
-                onUpdated?.Invoke(resultId);
+                await afterCheck(await db.Iperf3Results.AsNoTracking().FirstOrDefaultAsync(r => r.Id == resultId));
             }
             catch (Exception ex)
             {
-                logger.LogWarning(ex, "Background load check failed for WAN test {Id}", resultId);
+                logger.LogWarning(ex, "Post-check step failed for WAN test {Id}", resultId);
             }
         });
+    }
+
+    /// <summary>Whether <see cref="Schedule"/> runs a check for a result on this WAN group.</summary>
+    internal static bool WillCheck(string? wanNetworkGroup, WanTestPhases? phases) =>
+        phases != null && !string.IsNullOrEmpty(wanNetworkGroup) && !wanNetworkGroup.Contains('+');
+
+    private static async Task CheckAsync(
+        IServiceScopeFactory scopeFactory,
+        string siteSlug,
+        int resultId,
+        string wanNetworkGroup,
+        WanTestPhases phases,
+        Func<Task<NetworkOptimizerDbContext>> openSiteDb,
+        Action<int>? onUpdated,
+        ILogger logger)
+    {
+        try
+        {
+            var windows = phases.All;
+            var wait = windows.Max(w => w.To) + CounterSettle - DateTime.UtcNow;
+            if (wait > TimeSpan.Zero)
+                await Task.Delay(wait);
+
+            using var scope = scopeFactory.CreateScope();
+            scope.ServiceProvider.GetRequiredService<SiteContextService>().OverrideSite(siteSlug);
+            Identity.SystemScope.Enter(scope.ServiceProvider, "speedtest:wan-background");
+
+            var points = await scope.ServiceProvider.GetRequiredService<WanIdleGate>().ReadWindowAsync(
+                wanNetworkGroup, windows.Min(w => w.From) - PointSpan, windows.Max(w => w.To) + PointSpan * 2,
+                CancellationToken.None);
+            if (points == null || points.Count == 0)
+                return;
+
+            await using var db = await openSiteDb();
+            var result = await db.Iperf3Results.FindAsync(resultId);
+            if (result == null)
+                return;
+
+            var (planDown, planUp) = await PlanSpeedsAsync(scope.ServiceProvider, db, wanNetworkGroup);
+            var (bgDown, bgUp) = Measure(points, phases);
+
+            result.BackgroundDownloadMbps = bgDown;
+            result.BackgroundUploadMbps = bgUp;
+            result.ExpectedDownloadMbps = planDown;
+            result.ExpectedUploadMbps = planUp;
+            result.BackgroundLoadInvalid = IsInvalid(result.DownloadMbps, planDown, bgDown)
+                || IsInvalid(result.UploadMbps, planUp, bgUp);
+            await db.SaveChangesAsync();
+            await SpeedTestInfluxExporter.ExportBackgroundLoadAsync(
+                scope.ServiceProvider.GetRequiredService<MonitoringInfluxRegistry>(), siteSlug, result, logger);
+
+            logger.LogInformation(
+                "WAN test {Id} background on {Group}: {BgDown:F0} down / {BgUp:F0} up Mbps vs plan {PlanDown} / {PlanUp} -> {Verdict}",
+                resultId, wanNetworkGroup, bgDown, bgUp, planDown, planUp,
+                result.BackgroundLoadInvalid ? "invalid" : "valid");
+            onUpdated?.Invoke(resultId);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Background load check failed for WAN test {Id}", resultId);
+        }
     }
 
     /// <summary>

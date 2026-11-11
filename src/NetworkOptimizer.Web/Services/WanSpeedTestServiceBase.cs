@@ -112,6 +112,17 @@ public abstract class WanSpeedTestServiceBase
     /// <summary>Runs after a result is stored, alongside path analysis. No-op by default.</summary>
     protected virtual void OnResultSaved(Iperf3Result result) { }
 
+    /// <summary>
+    /// Whether <see cref="OnResultSaved"/> runs a background load check for the result. When it does,
+    /// the check publishes the degradation alert through <see cref="PublishDegradationAsync"/>.
+    /// </summary>
+    protected virtual bool ChecksBackgroundLoad(Iperf3Result result) => false;
+
+    /// <summary>The degradation alert for a stored result, once its background load verdict is in.</summary>
+    protected Task PublishDegradationAsync(Iperf3Result? stored) => stored == null
+        ? Task.CompletedTask
+        : WanSpeedAlertPublisher.PublishDegradationAsync(_alertEventBus, stored, () => CreateSiteDbAsync(), Logger);
+
     protected WanSpeedTestServiceBase(
         IDbContextFactory<NetworkOptimizerDbContext> dbFactory,
         INetworkPathAnalyzer pathAnalyzer,
@@ -223,8 +234,9 @@ public abstract class WanSpeedTestServiceBase
 
             lock (_lock) _lastCompletedResult = result;
 
-            // Publish alert event
-            await WanSpeedAlertPublisher.PublishAsync(_alertEventBus, result, () => CreateSiteDbAsync(), Logger);
+            // Publish alert event; a background load check publishes the degradation once it has a verdict
+            await WanSpeedAlertPublisher.PublishAsync(_alertEventBus, result, () => CreateSiteDbAsync(), Logger,
+                checkDegradation: !ChecksBackgroundLoad(result));
 
             // Trigger background path analysis
             var wanIp = LastMetadata?.WanIp;
