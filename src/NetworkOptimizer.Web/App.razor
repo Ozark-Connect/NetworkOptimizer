@@ -575,10 +575,13 @@
             .observe(document.body, { childList: true, subtree: true });
         // An element in the cell with a tooltip of its own (the via line, a badge) shows only that one.
         function innerTipHovered(cell) { return !!cell.querySelector('[data-tooltip]:hover'); }
-        // Live Traffic's tables hold a card until the pointer has rested this long; elsewhere a card
-        // opens on the first hover. Tippy's own delay does not cover a .show() call, so this does.
-        var LT_TABLE_TIP_DELAY = 500;
-        function tableTipDelay(el) { return el.closest('.live-traffic table') ? LT_TABLE_TIP_DELAY : 0; }
+        // Live Traffic's tables and Where It Goes hold a card until the pointer has rested this long;
+        // elsewhere a card opens on the first hover. Tippy's own delay does not cover a .show() call,
+        // so this does.
+        var LT_REST_TIP_DELAY = 500;
+        function restTipDelay(el) {
+            return el.closest('.live-traffic table, .live-traffic .lt-sankey-svg') ? LT_REST_TIP_DELAY : 0;
+        }
         // Shows the element's tooltip once the pointer has rested on it for delay ms; each new
         // mouseover inside it starts the wait again.
         function showTip(el, delay) {
@@ -593,7 +596,7 @@
             else show();
         }
         function showLinkCard(cell, html) {
-            var delay = tableTipDelay(cell);
+            var delay = restTipDelay(cell);
             if (cell._tippy) {
                 showTip(cell, delay);
                 return;
@@ -704,7 +707,7 @@
             if (!el || el === host || el._tippy) return;
             var text = (el.textContent || '').trim();
             if (!text) return;
-            var cutDelay = tableTipDelay(el);
+            var cutDelay = restTipDelay(el);
             tippy(el, {
                 content: function () { return (el.textContent || '').trim(); },
                 trigger: 'mouseenter',
