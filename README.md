@@ -5,7 +5,7 @@
 # Network Optimizer for UniFi
 
 [![GitHub Release](https://img.shields.io/github/v/release/Ozark-Connect/NetworkOptimizer)](https://github.com/Ozark-Connect/NetworkOptimizer/releases)
-[![Docker Pulls](https://img.shields.io/badge/docker_pulls-803k-blue?logo=docker)](https://github.com/orgs/Ozark-Connect/packages?repo_name=NetworkOptimizer)
+[![Docker Pulls](https://img.shields.io/badge/docker_pulls-832k-blue?logo=docker)](https://github.com/orgs/Ozark-Connect/packages?repo_name=NetworkOptimizer)
 [![Windows Downloads](https://img.shields.io/github/downloads/Ozark-Connect/NetworkOptimizer/total?label=windows%20downloads)](https://github.com/Ozark-Connect/NetworkOptimizer/releases)
 [![GitHub last commit](https://img.shields.io/github/last-commit/Ozark-Connect/NetworkOptimizer)](https://github.com/Ozark-Connect/NetworkOptimizer/commits)
 [![GitHub Stars](https://img.shields.io/github/stars/Ozark-Connect/NetworkOptimizer)](https://github.com/Ozark-Connect/NetworkOptimizer/stargazers)
@@ -20,7 +20,9 @@ Genuinely, thank you so much to everybody for taking the time to use Network Opt
 
 ## Coming Soon: Live Traffic
 
-Available on Preview Now: see every flow through your Gateway as it happens, ranked by what's using your internet right now, with the app, where it's going, the DNS lookup behind it, and the Firewall Policy that let it through. Live DNS shows every lookup as it happens, flags blocked ones and clients going around your DNS, and catches the attempts your Gateway DNATs. Client Performance gets the same live view for any single client.
+Available on Preview Now: see every flow through your Gateway as it happens, ranked by what's using your internet right now, with the app, where it's going (down to the ISP cache or the other site it's hitting), the DNS lookup behind it, and the Firewall Policy that let it through. Where It Goes maps it all from client to app to the WAN it takes, History lets you go back and search earlier flows, and you can name any app UniFi Network doesn't recognize. Live DNS shows every lookup as it happens, flags blocked ones and clients going around your DNS, and catches the attempts your Gateway DNATs. Client Performance gets the same live view for any single client.
+
+Tailscale too: connect your tailnet (Tailscale or Headscale, read-only) and your Tailscale devices show up by name in Live Traffic, Client Performance, and speed test results, along with whether each one connects directly or bounces through a DERP relay (and which one). Put an On-Site Agent on the Linux box that's your subnet router or exit node and it goes further: the exact path and traffic for every device, and the device behind every connection it routes, instead of that one box taking the credit for all of it.
 
 Check it out on Preview here: https://github.com/Ozark-Connect/NetworkOptimizer/releases
 
