@@ -98,6 +98,7 @@ public static class DpiCatalog
         ["Wi-Fi Calling"] = "fa-solid fa-phone",
         ["Speedtest.net"] = "fa-solid fa-gauge-high",
         ["Backblaze"] = "no-icon no-icon-backblaze",
+        ["AWS"] = "fa-brands fa-aws",
         ["Microsoft Windows Update"] = "fa-brands fa-windows",
         // No Outlook mark in Font Awesome or Simple Icons: Microsoft's, as its other services carry.
         ["Outlook.com"] = "fa-brands fa-microsoft",
@@ -188,6 +189,12 @@ public static class DpiCatalog
         ["StarCraft2"] = "fa-brands fa-battle-net",
         ["Overwatch"] = "fa-brands fa-battle-net",
         ["WoW Game"] = "fa-brands fa-battle-net",
+        // EA's launcher and games take EA's mark, as Blizzard's take Battle.net's.
+        ["Electronic Arts"] = "no-icon no-icon-ea",
+        ["Origin"] = "no-icon no-icon-ea",
+        ["Battlefield"] = "no-icon no-icon-ea",
+        ["Star Wars Battlefront"] = "no-icon no-icon-ea",
+        ["FIFA"] = "no-icon no-icon-ea",
         ["Opera browser"] = "fa-brands fa-opera",
         ["Opera VPN"] = "fa-brands fa-opera",
         ["Java Applet"] = "fa-brands fa-java",
@@ -218,6 +225,7 @@ public static class DpiCatalog
         // Valve's own network carries Steam; an app named only by its owner reads "Valve".
         ("Valve", "fa-brands fa-steam"),
         ("Blizzard", "fa-brands fa-battle-net"),
+        ("Electronic Arts", "no-icon no-icon-ea"),
         ("Steam", "fa-brands fa-steam"),
     };
 

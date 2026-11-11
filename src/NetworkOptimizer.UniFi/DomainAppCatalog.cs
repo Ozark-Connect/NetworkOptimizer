@@ -51,6 +51,8 @@ public static class DomainAppCatalog
         ["Slack"] = ["slack.com", "slack-edge.com", "slack-msgs.com"],
         ["Dropbox"] = ["dropbox.com", "dropboxusercontent.com", "dropboxapi.com"],
         ["Backblaze"] = ["backblaze.com", "backblazeb2.com"],
+        // Without it, an AWS host falls through to its address's owner, which reads "Amazon.com".
+        ["AWS"] = ["amazonaws.com"],
         ["Google Drive"] = ["drive.google.com", "docs.google.com", "drive.usercontent.google.com"],
         ["Gmail"] = ["mail.google.com", "gmail.com"],
         ["Google Play"] = ["play.google.com", "play.googleapis.com"],

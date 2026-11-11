@@ -23,6 +23,8 @@ public class DomainAppCatalogTests
     [InlineData("s3.us-west-004.backblazeb2.com", "Backblaze")]   // B2's S3 endpoint
     [InlineData("f004.backblazeb2.com", "Backblaze")]
     [InlineData("api.backblaze.com", "Backblaze")]
+    [InlineData("ec2-198-51-100-7.compute-1.amazonaws.com", "AWS")]
+    [InlineData("s3.us-east-1.amazonaws.com", "AWS")]
     [InlineData("www.microsoft.com", null)]
     [InlineData("com", null)]
     [InlineData("example.net", null)]
@@ -197,6 +199,10 @@ public class DomainAppCatalogTests
     [InlineData("Claude", "no-icon no-icon-claude")]
     [InlineData("Blizzard Entertainment", "fa-brands fa-battle-net")]
     [InlineData("Blizzard Entertainment, Inc.", "fa-brands fa-battle-net")]   // an address's owner
+    [InlineData("Electronic Arts", "no-icon no-icon-ea")]   // in the DPI catalog, without a mark
+    [InlineData("Battlefield", "no-icon no-icon-ea")]
+    [InlineData("Electronic Arts Inc.", "no-icon no-icon-ea")]   // an address's owner
+    [InlineData("AWS", "fa-brands fa-aws")]   // amazonaws.com's app, not its owner's brand word
     [InlineData("Overwatch", "fa-brands fa-battle-net")]
     [InlineData("ICMP", "no-icon no-icon-icmp")]
     [InlineData("Outlook.com", "fa-brands fa-microsoft")]
