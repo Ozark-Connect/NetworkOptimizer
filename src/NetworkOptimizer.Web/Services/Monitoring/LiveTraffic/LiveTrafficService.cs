@@ -328,7 +328,9 @@ public sealed class LiveTrafficService : ILiveTrafficService
 
                 var infos = list.Select(c =>
                 {
-                    var name = !string.IsNullOrWhiteSpace(c.Name) ? c.Name : !string.IsNullOrWhiteSpace(c.Hostname) ? c.Hostname : c.Ip;
+                    // A connected client can come back with no ip (an LG TV in standby): last_ip still names its flows.
+                    var ip = c.BestIp;
+                    var name = !string.IsNullOrWhiteSpace(c.Name) ? c.Name : !string.IsNullOrWhiteSpace(c.Hostname) ? c.Hostname : ip ?? c.Mac;
                     string? via = null;
                     // A port number means nothing without its switch. "#" keeps the cell short; its tooltip says Port.
                     if (c.IsWired && c.SwPort is { } port)
@@ -342,7 +344,7 @@ public sealed class LiveTrafficService : ILiveTrafficService
                         "6e" => "6 GHz",
                         _ => null,
                     };
-                    return new LiveClientInfo(c.Mac.Replace('-', ':').ToLowerInvariant(), name, c.Ip, via, c.Network,
+                    return new LiveClientInfo(c.Mac.Replace('-', ':').ToLowerInvariant(), name, ip ?? "", via, c.Network,
                         c.IsWired ? c.SwMac?.Replace('-', ':').ToLowerInvariant() : null, c.IsWired ? c.SwPort : null,
                         string.IsNullOrWhiteSpace(c.Oui) ? null : c.Oui);
                 }).ToList();

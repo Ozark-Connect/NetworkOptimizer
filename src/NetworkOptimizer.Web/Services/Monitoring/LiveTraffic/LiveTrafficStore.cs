@@ -352,8 +352,12 @@ public sealed class LiveTrafficStore
             .ToDictionary(g => g.Key, g => g.First().Mac, StringComparer.OrdinalIgnoreCase);
         foreach (var c in _recentClients)
         {
-            if (string.IsNullOrEmpty(c.Mac) || !byMac.TryAdd(c.Mac, c)) continue;
-            if (!string.IsNullOrEmpty(c.Ip)) macByIp.TryAdd(c.Ip, c.Mac);
+            if (string.IsNullOrEmpty(c.Mac)) continue;
+            var added = byMac.TryAdd(c.Mac, c);
+            if (string.IsNullOrEmpty(c.Ip)) continue;
+            // A connected client that came back with no address still takes its last one from history.
+            if (added || string.IsNullOrEmpty(byMac[c.Mac].Ip))
+                macByIp.TryAdd(c.Ip, c.Mac);
         }
         _clientsByMac = byMac;
         _macByIp = macByIp;

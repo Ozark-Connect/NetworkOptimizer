@@ -250,6 +250,26 @@ public class LiveTrafficStoreTests
     };
 
     [Fact]
+    public void AConnectedClientWithNoAddressTakesItsLastOneFromHistory()
+    {
+        var now = DateTime.UtcNow;
+        var store = new LiveTrafficStore();
+        store.SetSiteData(
+            [
+                new LiveClientInfo(Laptop, "Laptop", "192.0.2.20", "6 GHz", "Main"),
+                new LiveClientInfo(Printer, "Living Room TV", "", "Port 4", "Main", Vendor: "LG Electronics"),
+            ],
+            ["192.0.2.1"], "Gateway", new Dictionary<string, LiveRouteInfo>(), null);
+        store.SetRecentClients(LiveTrafficStore.RecentClients(
+            [Seen(Printer, "192.0.2.30", now.AddMinutes(-5), name: "Living Room TV", oui: "LG Electronics")], now));
+        store.Ingest(Batch(Flow("a", Laptop, "192.0.2.20", "192.0.2.30", 3001, "", 1000, 10, lan: true)));
+
+        var row = store.BuildView(Query(), LiveTrafficState.Live).Flows.Single();
+        row.Destination.Should().Be("Living Room TV");
+        row.App.Should().Be("LG webOS TV");
+    }
+
+    [Fact]
     public void AnOfflineDeviceKeepsItsVendorForTheAppName()
     {
         var now = DateTime.UtcNow;
