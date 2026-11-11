@@ -344,7 +344,10 @@
                                 }
                                 else
                                 {
-                                    <div class="@hopClasses">
+                                    var offerTailscale = hop.Type == HopType.Tailscale && _tailnetRead && !_tailnet.Connected;
+                                    <div class="@hopClasses"
+                                         data-app-tailscale="@(offerTailscale ? "Tailscale" : null)"
+                                         data-tailscale-link="@(offerTailscale && _canConfigure ? "/settings?tab=connection#tailscale" : null)">
                                         <span class="hop-icon">@GetHopIconMarkup(hop)</span>
                                         <span class="hop-name">@HopName(hop)</span>
                                     </div>

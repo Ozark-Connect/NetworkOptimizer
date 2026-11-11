@@ -731,8 +731,8 @@
         document.addEventListener('mouseover', function (e) {
             if (!window.tippy || !e.target.closest) return;
             var host = e.target.closest('.live-traffic, .bandwidth-hogs-card');
-            // The Tailscale setup card also rides the speed test results' Tailscale badge.
-            var tailscaleBadge = !host && e.target.closest('.badge[data-app-tailscale]');
+            // The Tailscale setup card also rides the speed test results' Tailscale badge and path trace hop.
+            var tailscaleBadge = !host && e.target.closest('.badge[data-app-tailscale], .path-hop[data-app-tailscale]');
             if (tailscaleBadge) { showLinkCard(tailscaleBadge, tailscaleAppHtml); return; }
             if (!host) {
                 // Client Performance's Live Traffic card takes only this card, not the others.
