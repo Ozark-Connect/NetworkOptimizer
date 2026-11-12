@@ -816,6 +816,10 @@
                 .catch(function (err) { console.warn('Name This App', err); });
         }, true);
 
+        // Live Traffic's filters in the address bar. Never a null state: history.state holds Blazor's
+        // entry index, and an entry without it breaks Back (a dead first click, then two steps).
+        window.ltReplaceUrl = function (url) { history.replaceState(history.state, '', url); };
+
         // Live Traffic filter chips: a double-click selects a value whole and copies it, for a search outside the app.
         document.addEventListener('dblclick', function (e) {
             var value = e.target.closest && e.target.closest('.lt-chip b');

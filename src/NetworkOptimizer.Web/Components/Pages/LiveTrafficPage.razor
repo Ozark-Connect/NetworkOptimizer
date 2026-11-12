@@ -1002,7 +1002,7 @@
 
     private async Task ReplaceUrlAsync(string url)
     {
-        try { await JS.InvokeVoidAsync("history.replaceState", null, "", url); }
+        try { await JS.InvokeVoidAsync("ltReplaceUrl", url); }
         catch (JSDisconnectedException) { }
         catch (Exception ex) { Logger.LogDebug(ex, "Live Traffic: address bar not updated"); }
     }
