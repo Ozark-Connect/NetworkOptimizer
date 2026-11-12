@@ -144,7 +144,9 @@ const cardHolds = new WeakMap();
  */
 function holdCards(root, recordOnly) {
     for (const card of root.querySelectorAll('[data-hold-in-view]')) {
-        if (!card.offsetParent) { cardHolds.delete(card); continue; }
+        // The attribute's value is the media query it holds under (Live DNS sits under Flows on a phone only).
+        const media = card.dataset.holdInView;
+        if (!card.offsetParent || (media && !window.matchMedia(media).matches)) { cardHolds.delete(card); continue; }
         const scroller = scrollerOf(card);
         const y = card.getBoundingClientRect().top + scroller.scrollTop;
         const before = cardHolds.get(card);
