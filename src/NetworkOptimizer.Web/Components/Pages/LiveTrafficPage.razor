@@ -758,12 +758,19 @@
     }
 
     /// <summary>
-    /// "N clients bypassing": exactly those clients and nothing that could hide them, so every chip and
-    /// the search go first (a Destination or App chip hides their lookups too). Live DNS on Bypass.
+    /// "N clients bypassing": exactly those clients and nothing that could hide them, so the chips and the
+    /// search go first (a Destination chip hides their lookups too). Live DNS on Bypass. A Not App chip
+    /// stays: it is a baseline people keep set, unless it hides DNS itself.
     /// </summary>
+    /// <summary>The apps a bypass is made of: hiding one of them would hide what the click is for.</summary>
+    private static readonly HashSet<string> DnsApps = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "DNS", "DNS over HTTPS", "DNS over TLS", "DNS over QUIC",
+    };
+
     private async Task FilterToBypassersAsync()
     {
-        _filters.Clear();
+        _filters.RemoveAll(f => !(f.Field == LiveTrafficField.App && f.Exclude && !DnsApps.Contains(f.Value)));
         _search = "";
         foreach (var name in _view?.BypassingClientNames ?? [])
             _filters.Add(new LiveTrafficFilter(LiveTrafficField.Client, name));
