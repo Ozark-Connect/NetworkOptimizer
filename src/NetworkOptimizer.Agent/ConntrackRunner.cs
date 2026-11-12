@@ -228,6 +228,7 @@ public sealed class ConntrackRunner
         }
 
         List<ConntrackFlow> flows;
+        var snapshotAt = DateTime.UtcNow;
         using (var reader = new StreamReader(new FileStream(
                    ProcPath, FileMode.Open, FileAccess.Read, FileShare.Read, ReadBufferBytes)))
             flows = ConntrackParser.Parse(reader);
@@ -253,9 +254,13 @@ public sealed class ConntrackRunner
         }
         LiveFlowPass? livePass = null;
         if (lease.Leased) livePass = _liveTracker.Track(flows, view, now, lease.MaxFlows);
-        else _liveTracker.Reset();
+        else
+        {
+            _liveTracker.Reset();
+            _dnsHeld.Clear();
+        }
         if (livePass != null && windowSeconds > 0)
-            SendLiveTraffic(livePass, now, windowSeconds, flows);
+            SendLiveTraffic(livePass, now, windowSeconds, flows, snapshotAt);
 
         if (!wasSeeded || windowSeconds == 0)
         {
@@ -293,7 +298,10 @@ public sealed class ConntrackRunner
             FlushAggregate(now);
     }
 
-    private void SendLiveTraffic(LiveFlowPass pass, DateTime now, int windowSeconds, List<ConntrackFlow> flows)
+    /// <summary>DNS lookups sent after the last conntrack snapshot, matched against the next one.</summary>
+    private List<LiveDnsRecord> _dnsHeld = new();
+
+    private void SendLiveTraffic(LiveFlowPass pass, DateTime now, int windowSeconds, List<ConntrackFlow> flows, DateTime snapshotAt)
     {
         var batch = new LiveTrafficBatch
         {
@@ -306,7 +314,9 @@ public sealed class ConntrackRunner
         foreach (var f in pass.Ended) batch.Ended.Add(ToWire(f));
         if (Dns != null)
         {
-            foreach (var (d, redirectedTo) in DnsRedirects.Apply(Dns.Drain(), DnsRedirects.From(flows)))
+            var held = _dnsHeld;
+            _dnsHeld = new List<LiveDnsRecord>();
+            foreach (var (d, redirectedTo) in DnsRedirects.Apply(held, Dns.Drain(), DnsRedirects.From(flows), snapshotAt, _dnsHeld))
             {
                 var e = new LiveDnsEvent
                 {

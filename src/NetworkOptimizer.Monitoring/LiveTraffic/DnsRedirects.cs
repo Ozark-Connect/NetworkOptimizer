@@ -30,14 +30,45 @@ public static class DnsRedirects
         IEnumerable<LiveDnsRecord> records, IReadOnlyDictionary<(string Client, int Port), (string Asked, string Answered)> redirects)
     {
         foreach (var r in records)
+            if (Resolve(r, redirects) is { } result) yield return result;
+    }
+
+    /// <summary>
+    /// How far before the snapshot a lookup can still be missing from it: the capture sees a query
+    /// just before netfilter creates its entry.
+    /// </summary>
+    private static readonly TimeSpan SnapshotSkew = TimeSpan.FromSeconds(1);
+
+    /// <summary>
+    /// As <see cref="Apply(IEnumerable{LiveDnsRecord}, IReadOnlyDictionary{ValueTuple{string, int}, ValueTuple{string, string}})"/>,
+    /// against a conntrack snapshot read from <paramref name="snapshotAt"/>. A lookup sent after it has
+    /// no entry there yet, so a fresh one that does not match goes to <paramref name="later"/> for the
+    /// next pass instead of reading as not redirected. <paramref name="held"/> are last pass's: never held twice.
+    /// </summary>
+    public static IEnumerable<(LiveDnsRecord Record, string RedirectedTo)> Apply(
+        IReadOnlyList<LiveDnsRecord> held, IReadOnlyList<LiveDnsRecord> fresh,
+        IReadOnlyDictionary<(string Client, int Port), (string Asked, string Answered)> redirects,
+        DateTime snapshotAt, List<LiveDnsRecord> later)
+    {
+        foreach (var r in held)
+            if (Resolve(r, redirects) is { } result) yield return result;
+        foreach (var r in fresh)
         {
-            if (r.ClientPort == 0 || !redirects.TryGetValue((r.ClientIp, r.ClientPort), out var d))
+            if (r.ClientPort != 0 && r.At >= snapshotAt - SnapshotSkew && !redirects.ContainsKey((r.ClientIp, r.ClientPort)))
             {
-                yield return (r, "");
+                later.Add(r);
                 continue;
             }
-            if (r.ServerIp == d.Asked) yield return (r, d.Answered);
-            else if (r.ServerIp != d.Answered) yield return (r, "");
+            if (Resolve(r, redirects) is { } result) yield return result;
         }
+    }
+
+    /// <summary>The lookup with the resolver that answered it, or null for a redirected leg already listed from the client's side.</summary>
+    private static (LiveDnsRecord, string)? Resolve(
+        LiveDnsRecord r, IReadOnlyDictionary<(string Client, int Port), (string Asked, string Answered)> redirects)
+    {
+        if (r.ClientPort == 0 || !redirects.TryGetValue((r.ClientIp, r.ClientPort), out var d)) return (r, "");
+        if (r.ServerIp == d.Asked) return (r, d.Answered);
+        return r.ServerIp != d.Answered ? (r, "") : null;
     }
 }
