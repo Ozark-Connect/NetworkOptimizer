@@ -15,10 +15,13 @@ public class FlowNamingTests
 
     [Theory]
     [InlineData("SSL/TLS", "HTTPS", "HTTPS")]
-    [InlineData("SSL/TLS", "IMAPS", "SSL/TLS")]
+    [InlineData("SSL/TLS", "IMAPS", "IMAPS")]
+    [InlineData("SSL/TLS", "POP3S", "POP3S")]
+    [InlineData("SSL/TLS", "SMTP Submit", "SMTP Submit")]
+    [InlineData("SSL/TLS", "HTTP", "SSL/TLS")]
     [InlineData("SSL/TLS", null, "SSL/TLS")]
     [InlineData("Netflix", "HTTPS", "Netflix")]
-    public void Tls_on_the_HTTPS_service_reads_HTTPS(string app, string? service, string expected)
+    public void Tls_on_a_TLS_service_reads_the_service(string app, string? service, string expected)
     {
         FlowNaming.TlsAsService(app, service).Should().Be(expected);
     }
