@@ -1311,6 +1311,24 @@ public class LiveTrafficStoreTests
         rows["notwg"].Destination.Should().NotBe("phone", "the address alone names only Tailscale's own traffic");
     }
 
+    [Fact]
+    public void WireGuardToAPeersEndpointOffTailscalesPortIsTailscale()
+    {
+        // tailscaled on a random port, the peer's NAT on another, and the peer behind this install's WAN.
+        var store = SeededStore();
+        store.SetServerHosts(new HashSet<string>(["203.0.113.80"], StringComparer.OrdinalIgnoreCase));
+        store.SetTailnet(new TailnetSnapshot(
+            [new TailnetPeer { Name = "desktop", Addresses = ["100.100.1.5"], Endpoints = ["203.0.113.80:10222"] }], null, []), true);
+        var flow = Flow("wg", Nas, "192.0.2.10", "203.0.113.80", 10222, "eth4", 1_000, 1_000, proto: "udp");
+        flow.ClientPort = 59464;
+        store.Ingest(Batch(flow));
+
+        var row = store.BuildView(Query(), LiveTrafficState.Live).Flows.Single();
+
+        row.Destination.Should().Be("desktop");
+        row.App.Should().Be("Tailscale");
+    }
+
     [Theory]
     [InlineData("derp9e.tailscale.com", true)]
     [InlineData("derp12e.tailscale.com.", true)]

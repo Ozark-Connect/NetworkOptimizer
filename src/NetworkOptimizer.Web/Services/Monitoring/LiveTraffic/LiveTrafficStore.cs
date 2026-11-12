@@ -879,6 +879,8 @@ public sealed class LiveTrafficStore
             ?? DomainAppCatalog.TailscaleApp(proto, f.ClientPort, f.RemotePort)
             // A DERP relay or STUN flow is Tailscale's, not its hosting company's (NetActuate, Vultr).
             ?? (tailnetRole != null ? "Tailscale" : null)
+            // A peer's own WireGuard endpoint, on whatever ports tailscaled and the NAT picked.
+            ?? (endpointPeer != null ? "Tailscale" : null)
             ?? (toServer ? "Network Optimizer" : null)
             ?? deviceApp ?? match?.App ?? DomainAppCatalog.AppFor(hostName)
             ?? destinationApp ?? neighborApp
