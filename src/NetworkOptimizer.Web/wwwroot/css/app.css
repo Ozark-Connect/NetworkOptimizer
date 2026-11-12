@@ -25313,6 +25313,9 @@ body:has(.top-bar-hidden) .btn-fit {
 }
 
 .lt-add-filter {
+    /* Above an open editor's click-outside layer, so one click starts over instead of first closing it. */
+    position: relative;
+    z-index: 62;
     background: transparent;
     border: 1px dashed var(--border-color);
     color: var(--text-secondary);
@@ -25495,6 +25498,11 @@ body:has(.top-bar-hidden) .btn-fit {
 @media (max-width: 768px) {
     .lt-fpop-backdrop:has(+ .lt-fpop) {
         background: rgba(0, 0, 0, 0.5);
+    }
+
+    /* Under the sheet's scrim like the rest of the page: a tap outside the sheet closes it. */
+    .lt-add-filter {
+        z-index: auto;
     }
 
     .lt-fpop {
