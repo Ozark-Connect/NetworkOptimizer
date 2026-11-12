@@ -52,6 +52,9 @@ public class DpiCatalogTests
     {
         Assert.Equal("fa-brands fa-spotify", DpiCatalog.IconClass(4, 130));    // the catalog's own mark
         Assert.Equal("fa-solid fa-lock", DpiCatalog.IconClass(20, 185));       // SSL/TLS, by name
+        Assert.Equal("SSH", DpiCatalog.AppName(10, 21));                        // "Secure Shell (SSH)", renamed
+        Assert.Equal("fa-solid fa-terminal", DpiCatalog.IconClass(10, 21));   // our mark, as port 22's
+        Assert.Equal("fa-solid fa-terminal", DpiCatalog.IconsForName("SSH").Class);
         Assert.Equal("fa-brands fa-ebay", DpiCatalog.IconClass(13, 17));       // eBay, by name
         Assert.Equal("fa-brands fa-microsoft", DpiCatalog.IconClass(13, 69));  // Microsoft.com, by brand word
         Assert.Equal("fa-solid fa-globe", DpiCatalog.IconClass(13, 60000));    // unknown app, Web services category

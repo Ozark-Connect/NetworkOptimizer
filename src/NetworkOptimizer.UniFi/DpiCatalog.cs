@@ -30,7 +30,8 @@ public static class DpiCatalog
             ?? throw new InvalidOperationException("dpi-catalog.json did not parse");
         foreach (var (key, entry) in catalog.Applications.ToList())
         {
-            if (Renames.TryGetValue(entry.N, out var renamed)) catalog.Applications[key] = entry with { N = renamed };
+            if (Renames.TryGetValue(entry.N, out var renamed))
+                catalog.Applications[key] = entry with { N = renamed, I = RenamedTakesOurMark.Contains(renamed) ? null : entry.I };
             else if (BrandCasing(entry.N) is { } fixedName) catalog.Applications[key] = entry with { N = fixedName };
         }
         // "Apple.com" beside "Apple" splits one app in two wherever apps group: the bare name wins.
@@ -71,7 +72,11 @@ public static class DpiCatalog
         ["World Wide Web HTTP"] = "HTTP",
         ["HTTP Protocol over TLS SSL"] = "HTTPS",
         ["HTTP3"] = "HTTP/3",
+        ["Secure Shell (SSH)"] = "SSH",
     };
+
+    /// <summary>Renamed entries that drop the catalog's mark for ours, so DPI's SSH and port 22's look alike.</summary>
+    private static readonly HashSet<string> RenamedTakesOurMark = new(StringComparer.Ordinal) { "SSH" };
 
     private static string? BrandCasing(string name)
     {
@@ -156,6 +161,8 @@ public static class DpiCatalog
         ["DNS over HTTPS"] = "fa-solid fa-server",
         ["DNS over TLS"] = "fa-solid fa-server",
         ["DNS over QUIC"] = "fa-solid fa-server",
+        ["SSH"] = "fa-solid fa-terminal",
+        ["SSH-Alt"] = "fa-solid fa-terminal",
         ["NTP"] = "fa-solid fa-clock",
         ["SNMP"] = "fa-solid fa-chart-line",
         ["SNMP Trap"] = "fa-solid fa-bell",
