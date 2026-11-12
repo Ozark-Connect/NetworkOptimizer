@@ -193,7 +193,7 @@
             <div class="alert-info lt-starting">Waiting for the Gateway's first sample. Flows appear within a few seconds.</div>
         }
 
-        <div class="lt-body">
+        <div class="lt-body" data-no-card-index>
             <div class="lt-grid">
                 <div class="card lt-sankey-card" data-tour="live-traffic-where">
                     <div class="card-header">
@@ -220,7 +220,7 @@
                     </div>
                 </div>
 
-                <div class="card lt-dns-card" data-tour="live-traffic-dns">
+                <div class="card lt-dns-card" id="lt-live-dns" data-tour="live-traffic-dns" data-hold-in-view>
                     <div class="card-header">
                         <div class="card-title-group"><h2 class="card-title">Live DNS<span class="tooltip-icon tooltip-icon-sm" data-tooltip="Lookups that pass through your Gateway. A DNS server on the client's own VLAN is never seen.">?</span></h2></div>
                         <div class="card-header-right lt-dns-controls">
@@ -276,6 +276,7 @@
                     <div class="card-title-group">
                         <h2 class="card-title">@(_groupBy == LiveTrafficGroupBy.Flows ? "Flows" : $"By {_groupBy}")</h2>
                         <span class="lt-secondary lt-small">@FlowCountLabel</span>
+                        <a href="" class="lt-title-jump lt-mobile-only" @onclick="JumpToLiveDnsAsync" @onclick:preventDefault>Live DNS &darr;</a>
                     </div>
                     <div class="card-header-right">
                         <div class="time-range-selector">
@@ -512,6 +513,19 @@
         catch (Exception ex)
         {
             Logger.LogDebug(ex, "Live Traffic row motion failed");
+        }
+    }
+
+    /// <summary>The Live DNS card, under Flows on a phone. Instant: a smooth scroll would fight the card's hold.</summary>
+    private async Task JumpToLiveDnsAsync()
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("eval", "document.getElementById('lt-live-dns')?.scrollIntoView({ block: 'start' })");
+        }
+        catch (Exception ex)
+        {
+            Logger.LogDebug(ex, "Jump to Live DNS failed");
         }
     }
 

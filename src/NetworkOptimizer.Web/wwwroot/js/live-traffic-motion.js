@@ -120,14 +120,48 @@ export function watch(rootSelector, listSelector) {
     const root = document.querySelector(rootSelector);
     if (!root) return;
     observer?.disconnect();
-    observer = new MutationObserver(() => settle(root, listSelector));
+    const update = () => {
+        const quiet = quietNext;
+        const held = settle(root, listSelector);
+        holdCards(root, quiet || held);
+    };
+    observer = new MutationObserver(update);
     observer.observe(root, { childList: true, subtree: true, attributes: true, attributeFilter: ['data-flip-open', 'class'] });
-    settle(root, listSelector);
+    update();
 }
 
+/** Each [data-hold-in-view] card's place in the scrolled content at the last update. */
+const cardHolds = new WeakMap();
+
+/**
+ * A [data-hold-in-view] card the user is reading (its top in the upper half of the view, or above it)
+ * keeps its place on screen while content above it changes height. iOS Safari has no scroll anchoring,
+ * so without this the Live DNS card under Flows drifts on every update.
+ * recordOnly: an expanded row was held this pass, or the tab just came back.
+ */
+function holdCards(root, recordOnly) {
+    for (const card of root.querySelectorAll('[data-hold-in-view]')) {
+        if (!card.offsetParent) { cardHolds.delete(card); continue; }
+        const scroller = scrollerOf(card);
+        const y = card.getBoundingClientRect().top + scroller.scrollTop;
+        const before = cardHolds.get(card);
+        cardHolds.set(card, { y, scroller });
+        if (recordOnly || !before || before.scroller !== scroller || Math.abs(y - before.y) < 1) continue;
+        const [viewTop, viewBottom] = viewOf(scroller);
+        const wasTop = before.y - scroller.scrollTop;
+        if (wasTop > viewTop + (viewBottom - viewTop) / 2 || wasTop + card.offsetHeight <= viewTop) continue;
+        const s = track(scroller);
+        const from = scroller.scrollTop;
+        scroller.scrollBy({ top: y - before.y, behavior: 'instant' });
+        s.own += scroller.scrollTop - from;
+    }
+}
+
+/** Settles every list; true when it scrolled the page to hold an expanded row. */
 function settle(root, listSelector) {
     const quiet = quietNext;
     quietNext = false;
+    let anyHeld = false;
     for (const container of root.querySelectorAll(listSelector)) {
         // A hidden layout (the desktop table on a phone) has no positions to keep.
         if (!container.offsetParent) continue;
@@ -177,6 +211,7 @@ function settle(root, listSelector) {
                 s.own += scroller.scrollTop - from;
                 carry = (pos.get(openKey) ?? 0) - (before.pos.get(openKey) ?? pos.get(openKey) ?? 0);
                 held = true;
+                anyHeld = true;
             }
         }
         if (reduced()) continue;
@@ -198,4 +233,5 @@ function settle(root, listSelector) {
                 { duration: DURATION, easing: 'ease-out' });
         }
     }
+    return anyHeld;
 }
