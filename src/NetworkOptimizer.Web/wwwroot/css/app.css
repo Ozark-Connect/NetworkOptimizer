@@ -26079,10 +26079,6 @@ body:has(.top-bar-hidden) .btn-fit {
     margin-top: 0.75rem;
 }
 
-.lt-history-blocked-only {
-    margin-bottom: 1rem;
-}
-
 .lt-detail-history {
     grid-template-columns: 1fr 1fr;
 }

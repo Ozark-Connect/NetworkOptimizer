@@ -1370,7 +1370,15 @@
         @* Some Gateways (a UDR7, for one) log only what they block: History then holds no allowed flows at all. *@
         if (h.TotalFlows > 0 && h.TotalBlocked == h.TotalFlows)
         {
-            <div class="alert-info lt-history-blocked-only">UniFi Network is recording only blocked traffic for this Gateway, so History shows what was blocked, not allowed flows.</div>
+            <div class="connection-banner pwa-banner">
+                <div class="banner-content">
+                    <span class="banner-icon" style="background: var(--info-color); color: white;">@GatewayIcon</span>
+                    <div class="banner-text">
+                        <strong style="color: var(--info-color);">UniFi Network is recording only blocked traffic for this Gateway</strong>
+                        <span style="color: var(--text-secondary);">History shows what was blocked, not allowed flows.</span>
+                    </div>
+                </div>
+            </div>
         }
         <div class="card lt-timeline-card">
             <div class="card-header">
