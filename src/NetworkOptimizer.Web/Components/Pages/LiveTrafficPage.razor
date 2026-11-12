@@ -85,6 +85,24 @@
             </div>
         </div>
     }
+    else if (_view.State == LiveTrafficState.TurnedOff)
+    {
+        <div class="connection-banner pwa-banner">
+            <div class="banner-content">
+                <span class="banner-icon" style="background: var(--info-color); color: white;">@GatewayIcon</span>
+                <div class="banner-text">
+                    <strong style="color: var(--info-color);">Live Traffic is turned off for this site</strong>
+                    <span style="color: var(--text-secondary);">The On-Site Agent on your Gateway sends no flows or DNS lookups. History works without it, from UniFi Network's own flow records.</span>
+                </div>
+                <div class="banner-actions">
+                    <button type="button" class="btn-pwa-action" @onclick="() => SetHistoryMode(true)">Open History</button>
+                    <SiteAdminOnly>
+                        <a href="/settings?tab=monitoring#live-traffic" class="btn-pwa-action">Settings</a>
+                    </SiteAdminOnly>
+                </div>
+            </div>
+        </div>
+    }
     else if (_view.State is LiveTrafficState.NoGatewayAgent or LiveTrafficState.AgentNeedsUpdate or LiveTrafficState.NoConntrack)
     {
         <div class="connection-banner pwa-banner" data-tour="live-traffic-agent">
@@ -193,7 +211,8 @@
             <div class="alert-info lt-starting">Waiting for the Gateway's first sample. Flows appear within a few seconds.</div>
         }
 
-        <div class="lt-body" data-no-card-index>
+        @MobileTabs(false)
+        <div class="lt-body @(_mobileDns ? "lt-mtab-dns" : "lt-mtab-flows")" data-no-card-index>
             <div class="lt-grid">
                 <div class="card lt-sankey-card" data-tour="live-traffic-where">
                     <div class="card-header">
@@ -220,7 +239,7 @@
                     </div>
                 </div>
 
-                <div class="card lt-dns-card" id="lt-live-dns" data-tour="live-traffic-dns" data-hold-in-view="(max-width: 768px)">
+                <div class="card lt-dns-card" data-tour="live-traffic-dns">
                     <div class="card-header">
                         <div class="card-title-group"><h2 class="card-title">Live DNS<span class="tooltip-icon tooltip-icon-sm" data-tooltip="Lookups that pass through your Gateway. A DNS server on the client's own VLAN is never seen.">?</span></h2></div>
                         <div class="card-header-right lt-dns-controls">
@@ -276,7 +295,6 @@
                     <div class="card-title-group">
                         <h2 class="card-title">@(_groupBy == LiveTrafficGroupBy.Flows ? "Flows" : $"By {_groupBy}")</h2>
                         <span class="lt-secondary lt-small">@FlowCountLabel</span>
-                        <a href="" class="lt-title-jump lt-mobile-only" @onclick="JumpToLiveDnsAsync" @onclick:preventDefault>Live DNS &darr;</a>
                     </div>
                     <div class="card-header-right">
                         <div class="time-range-selector">
@@ -344,6 +362,7 @@
                 </div>
             </div>
         </div>
+        @MobileTabs(true)
     }
 </div>
 
@@ -516,16 +535,34 @@
         }
     }
 
-    /// <summary>The Live DNS card, under Flows on a phone. Instant: a smooth scroll would fight the card's hold.</summary>
-    private async Task JumpToLiveDnsAsync()
+    /// <summary>
+    /// A phone shows Flows or Live DNS, never both: stacked, the growing Flows list moved Live DNS
+    /// under the reader. The same bar sits above and below the content.
+    /// </summary>
+    private bool _mobileDns;
+
+    private RenderFragment MobileTabs(bool bottom) => __builder =>
     {
+        <div class="wifi-view-tabs-wrapper lt-mobile-tabs @(bottom ? "lt-mobile-tabs-bottom" : null)" id="@(bottom ? null : "lt-mobile-tabs")">
+            <div class="wifi-view-tabs">
+                <button class="wifi-view-tab @(!_mobileDns ? "active" : "")" @onclick="() => SetMobileTabAsync(false, bottom)">@(_groupBy == LiveTrafficGroupBy.Flows ? "Flows" : $"By {_groupBy}")</button>
+                <button class="wifi-view-tab @(_mobileDns ? "active" : "")" @onclick="() => SetMobileTabAsync(true, bottom)">Live DNS</button>
+            </div>
+        </div>
+    };
+
+    /// <summary>From the bottom bar, scrolls up to the top one so the new tab opens at its start.</summary>
+    private async Task SetMobileTabAsync(bool dns, bool fromBottom)
+    {
+        _mobileDns = dns;
+        if (!fromBottom) return;
         try
         {
-            await JS.InvokeVoidAsync("eval", "document.getElementById('lt-live-dns')?.scrollIntoView({ block: 'start' })");
+            await JS.InvokeVoidAsync("eval", "document.getElementById('lt-mobile-tabs')?.scrollIntoView({ block: 'start' })");
         }
         catch (Exception ex)
         {
-            Logger.LogDebug(ex, "Jump to Live DNS failed");
+            Logger.LogDebug(ex, "Live Traffic: scroll to the tabs failed");
         }
     }
 
@@ -705,6 +742,8 @@
     private async Task SetDnsMode(LiveDnsMode mode)
     {
         _dnsMode = mode;
+        // The Live DNS tile's pivots land on the lookups they name, on a phone too.
+        _mobileDns = true;
         await RefreshAsync();
     }
 

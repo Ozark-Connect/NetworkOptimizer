@@ -98,7 +98,7 @@ else
         @if (LiveTrafficEnabled)
         {
             <div class="lt-card-tools">
-                @if (AgentCovered)
+                @if (FlowDetail)
                 {
                     <span class="lt-by-label">By</span>
                     <div class="time-range-selector">
@@ -172,7 +172,7 @@ else
                 </SiteAdminOnly>
             }
         }
-        @if (LiveTrafficEnabled && AgentCovered && _by != CardBy.Client)
+        @if (LiveTrafficEnabled && FlowDetail && _by != CardBy.Client)
         {
             @GroupedTable
         }
@@ -330,11 +330,17 @@ else
     /// <summary>Per-flow detail comes from the gateway agent only.</summary>
     private bool AgentCovered => _agentStatus?.State == GatewayAgentConntrackState.Covered;
 
+    /// <summary>The site has not turned Live Traffic off; off, the card ranks clients by usage only.</summary>
+    private bool _flowCaptureOn = true;
+
+    /// <summary>Per-flow views (By app, destination, route, an open client) need the agent and capture on.</summary>
+    private bool FlowDetail => AgentCovered && _flowCaptureOn;
+
     private bool Expandable(HogRow row) =>
-        LiveTrafficEnabled && AgentCovered && !row.IsPortGroup && !string.IsNullOrEmpty(row.ClientMac);
+        LiveTrafficEnabled && FlowDetail && !row.IsPortGroup && !string.IsNullOrEmpty(row.ClientMac);
 
     /// <summary>The agent sends per-flow detail only while a view needs it: a group or an open client.</summary>
-    private bool LiveTrafficWanted => LiveTrafficEnabled && AgentCovered && (_by != CardBy.Client || _expandedMac != null);
+    private bool LiveTrafficWanted => LiveTrafficEnabled && FlowDetail && (_by != CardBy.Client || _expandedMac != null);
 
     private async Task RefreshLiveTrafficAsync()
     {
@@ -774,6 +780,12 @@ else
         try
         {
             _agentStatus = await ConntrackStatus.GetStatusAsync();
+            _flowCaptureOn = await LiveTraffic.IsEnabledAsync();
+            if (!_flowCaptureOn)
+            {
+                _by = CardBy.Client;
+                _expandedMac = null;
+            }
         }
         catch (Exception ex)
         {

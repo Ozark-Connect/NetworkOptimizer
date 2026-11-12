@@ -1,4 +1,5 @@
 using FluentAssertions;
+using Moq;
 using NetworkOptimizer.AgentProtocol;
 using NetworkOptimizer.UniFi.Models;
 using NetworkOptimizer.Monitoring.Tailscale;
@@ -378,6 +379,45 @@ public class LiveTrafficStoreTests
         store.Ingest(Batch(Flow("a", Laptop, "192.0.2.20", "203.0.113.5", 443, "eth4", 2000, 10)));
         store.HasRates(DateTime.UtcNow).Should().BeTrue();
         store.BuildView(Query(), LiveTrafficState.Live).Flows.Single().DownBps.Should().Be(8000);
+    }
+
+    [Fact]
+    public void TurnedOffGrantsNoLeaseKeepsNoBatchAndDropsWhatItHeld()
+    {
+        var store = SeededStore();
+        store.TouchViewer("v", DateTime.UtcNow).Should().BeTrue();
+        store.Ingest(Batch(Flow("a", Laptop, "192.0.2.20", "203.0.113.5", 443, "eth4", 1000, 10)));
+        store.Ingest(Batch(Flow("a", Laptop, "192.0.2.20", "203.0.113.5", 443, "eth4", 1000, 10)));
+        store.HasRates(DateTime.UtcNow).Should().BeTrue();
+
+        store.SetTurnedOff(true);
+        store.BuildView(Query(), LiveTrafficState.TurnedOff).Flows.Should().BeEmpty("turning it off drops the rows held");
+        store.TouchViewer("v", DateTime.UtcNow).Should().BeFalse("no lease is granted while off");
+        store.Ingest(Batch(Flow("a", Laptop, "192.0.2.20", "203.0.113.5", 443, "eth4", 2000, 10)));
+        store.Ingest(Batch(Flow("a", Laptop, "192.0.2.20", "203.0.113.5", 443, "eth4", 2000, 10)));
+        store.HasRates(DateTime.UtcNow).Should().BeFalse("a batch already in flight is not kept");
+
+        store.SetTurnedOff(false);
+        store.TouchViewer("v", DateTime.UtcNow).Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task OptOutIsReadOnceAndASaveDuringTheReadWins()
+    {
+        var settings = new Mock<NetworkOptimizer.Web.Services.ISystemSettingsService>();
+        var registry = new LiveTrafficRegistry();
+        settings.Setup(s => s.GetAsync("site-a", LiveTrafficRegistry.EnabledKey))
+            .ReturnsAsync(() => { registry.SetTurnedOff("site-a", false); return "false"; });
+        settings.Setup(s => s.GetAsync("site-b", LiveTrafficRegistry.EnabledKey)).ReturnsAsync("false");
+        settings.Setup(s => s.GetAsync("site-c", LiveTrafficRegistry.EnabledKey)).ThrowsAsync(new InvalidOperationException());
+
+        (await registry.IsTurnedOffAsync(settings.Object, "site-a")).Should().BeFalse("the save that landed during the read wins");
+        (await registry.IsTurnedOffAsync(settings.Object, "site-b")).Should().BeTrue();
+        registry.GetFor("site-b").TurnedOff.Should().BeTrue();
+        (await registry.IsTurnedOffAsync(settings.Object, "site-b")).Should().BeTrue();
+        settings.Verify(s => s.GetAsync("site-b", LiveTrafficRegistry.EnabledKey), Times.Once());
+        (await registry.IsTurnedOffAsync(settings.Object, "site-c")).Should().BeTrue("a failed read never captures a site that may have opted out");
+        (await registry.IsTurnedOffAsync(settings.Object, "site-d")).Should().BeFalse("unset is on");
     }
 
     [Fact]

@@ -16,11 +16,23 @@ namespace NetworkOptimizer.Web.Services.Monitoring.LiveTraffic;
 /// Live Traffic for the site in context: every flow through the gateway ranked by what is using
 /// the link now, Where It Goes, and Live DNS. Each read also keeps the viewer's lease alive, which
 /// is what lets the gateway agent send per-flow and DNS detail at all; when the last viewer leaves
-/// the lease ends. Reads only, open to any role, as Live View is.
+/// the lease ends. Reads are open to any role, as Live View is; turning it off is a Site Admin's.
 /// </summary>
 [MutatingService(SiteScoped = true)]
 public interface ILiveTrafficService
 {
+    /// <summary>
+    /// Whether the site lets the gateway agent send per-flow and DNS detail. Off, no lease is granted;
+    /// per-client usage, which carries no flow detail, is collected either way.
+    /// </summary>
+    [RequireRole(Roles.Viewer)]
+    Task<bool> IsEnabledAsync();
+
+    /// <summary>Turns Live Traffic on or off for the site. Off ends any lease now and drops what is held.</summary>
+    [RequireRole(Roles.Admin)]
+    [AuditAction(AuditActions.SettingsChanged, Category = AuditCategories.Settings, TargetType = "live_traffic")]
+    Task SetEnabledAsync(bool enabled);
+
     /// <summary>The view for one refresh. Grants or renews the agent's lease for this viewer.</summary>
     [RequireRole(Roles.Viewer)]
     Task<LiveTrafficView> GetViewAsync(LiveTrafficQuery query, CancellationToken ct = default);
@@ -62,6 +74,7 @@ public sealed class LiveTrafficService : ILiveTrafficService
     private readonly ISiteManagementService _sites;
     private readonly GeoEnrichmentService _geo;
     private readonly LiveTrafficPolicyResolver _policies;
+    private readonly ISystemSettingsService _settings;
     private readonly ILogger<LiveTrafficService> _logger;
     private readonly IReadOnlySet<string> _serverHosts;
     private readonly Tailscale.TailscaleDirectoryRegistry? _tailscale;
@@ -94,9 +107,11 @@ public sealed class LiveTrafficService : ILiveTrafficService
         GeoEnrichmentService geo,
         LiveTrafficPolicyResolver policies,
         CanonicalBaseUrlProvider canonical,
+        ISystemSettingsService settings,
         ILogger<LiveTrafficService> logger,
         Tailscale.TailscaleDirectoryRegistry? tailscale = null)
     {
+        _settings = settings;
         _tailscale = tailscale;
         _serverHosts = ServerHosts(canonical);
         _registry = registry;
@@ -121,6 +136,7 @@ public sealed class LiveTrafficService : ILiveTrafficService
         var now = DateTime.UtcNow;
         store.SetServerHosts(_serverHosts);
         await CustomAppService.EnsureLoadedAsync(_registry, _siteDb, slug, _logger, ct);
+        if (await _registry.IsTurnedOffAsync(_settings, slug)) return store.BuildView(query, LiveTrafficState.TurnedOff);
 
         var agents = _tunnels.GetForSite(slug).Where(c => c.HasCapability(AgentTunnelConnection.LiveTrafficCapability)).ToList();
         LiveTrafficState state;
@@ -212,6 +228,20 @@ public sealed class LiveTrafficService : ILiveTrafficService
             : cache.Failed ? LiveHistoryState.Failed
             : LiveHistoryState.Loading;
         return cache.BuildView(query, state, now);
+    }
+
+    /// <inheritdoc />
+    public async Task<bool> IsEnabledAsync() => !await _registry.IsTurnedOffAsync(_settings, _site.Slug);
+
+    /// <inheritdoc />
+    public async Task SetEnabledAsync(bool enabled)
+    {
+        var slug = _site.Slug;
+        await _settings.SetAsync(slug, LiveTrafficRegistry.EnabledKey, enabled ? "true" : "false");
+        _registry.SetTurnedOff(slug, !enabled);
+        if (enabled) return;
+        foreach (var agent in _tunnels.GetForSite(slug).Where(c => c.HasCapability(AgentTunnelConnection.LiveTrafficCapability)))
+            agent.TrySend(new ServerMessage { LiveTrafficConfig = new LiveTrafficConfig { LeaseSeconds = 0 } });
     }
 
     /// <inheritdoc />

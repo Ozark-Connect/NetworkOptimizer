@@ -41,6 +41,7 @@
 @inject IHttpClientFactory HttpClientFactory
 @inject ISystemSettingsAdmin SettingsAdmin
 @inject ISiteSettingsAdmin SiteSettingsAdmin
+@inject NetworkOptimizer.Web.Services.Monitoring.LiveTraffic.ILiveTrafficService LiveTrafficSettings
 @inject Microsoft.AspNetCore.Authorization.IAuthorizationService Authz
 @inject NetworkOptimizer.Threats.ThreatCollectionService ThreatCollection
 @inject NavigationManager NavigationManager
@@ -2369,6 +2370,50 @@
         </div>
     </div>
 
+    <!-- Live Traffic -->
+    <div class="card settings-tab-monitoring" id="live-traffic">
+        <div class="card-header">
+            <div class="card-header-left">
+                <h2 class="card-title">Live Traffic</h2>
+                <a href="/monitoring/live-traffic" class="settings-title-link" data-tooltip="Open Live Traffic">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6"></path><path d="M10 14 21 3"></path><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path></svg>
+                </a>
+            </div>
+        </div>
+        <div class="card-body">
+            <p class="section-description">
+                Live Traffic shows every flow through the Gateway, with its app, protocol, and destination, and the DNS lookups behind them. The On-Site Agent on the Gateway sends that detail over its encrypted tunnel only while someone has Live Traffic open, and Network Optimizer keeps it in memory, never on disk. We've seen no appreciable CPU impact on the Gateway while it's open.
+            </p>
+
+            <div class="form-group">
+                <label class="checkbox-label">
+                    <input type="checkbox" @bind="_liveTrafficEnabled" />
+                    <span>Enable Live Traffic</span>
+                </label>
+                <small class="form-help">Turned off, the Agent sends no flows or DNS lookups. The Dashboard's Live Traffic card still ranks clients by usage, which is stored per device with no app or protocol, and History still reads UniFi Network's own flow records.</small>
+            </div>
+
+            <div class="action-buttons">
+                <button class="btn btn-primary" @onclick="SaveLiveTrafficSettings" disabled="@_savingLiveTraffic">
+                    @if (_savingLiveTraffic)
+                    {
+                        <span class="spinner"></span>
+                        <span>Saving...</span>
+                    }
+                    else
+                    {
+                        <span>Save</span>
+                    }
+                </button>
+            </div>
+
+            @if (!string.IsNullOrEmpty(_liveTrafficMessage))
+            {
+                <div class="alert alert-@_liveTrafficMessageClass">@_liveTrafficMessage</div>
+            }
+        </div>
+    </div>
+
     <!-- Live Traffic - Custom Apps -->
     <div class="card settings-tab-monitoring" id="custom-apps">
         <div class="card-header">
@@ -4312,6 +4357,7 @@
         ["cable-modem"] = "monitoring",
         ["ont-monitoring"] = "monitoring",
         ["starlink"] = "monitoring",
+        ["live-traffic"] = "monitoring",
         ["custom-apps"] = "monitoring",
         ["ap-telemetry"] = "aptelemetry",
         ["speed-test-settings"] = "speedtests",
@@ -5903,6 +5949,7 @@
         await LoadAuditSettings();
         await LoadAlertChannels();
         await LoadThreatSettings();
+        await LoadLiveTrafficSettings();
         await LoadMonitoringSettings();
         await LoadMapboxToken();
         SiteChangeNotifier.SitesChanged += OnSiteRegistryChanged;
@@ -9389,6 +9436,46 @@
     // does: the bare key for the default site (single-site unchanged), "threats.enabled:<slug>"
     // for secondary sites. Interval/retention/MaxMind/CrowdSec are one global value.
     private string ThreatsEnabledKey => NetworkOptimizer.Web.Services.SiteSettingsAdmin.ThreatCollectionKey(SiteContext);
+
+    private bool _liveTrafficEnabled = true;
+    private bool _savingLiveTraffic;
+    private string _liveTrafficMessage = "";
+    private string _liveTrafficMessageClass = "";
+
+    private async Task LoadLiveTrafficSettings()
+    {
+        try
+        {
+            _liveTrafficEnabled = await LiveTrafficSettings.IsEnabledAsync();
+        }
+        catch (Exception ex)
+        {
+            _liveTrafficMessage = $"Error loading Live Traffic settings: {ex.Message}";
+            _liveTrafficMessageClass = "danger";
+        }
+    }
+
+    private async Task SaveLiveTrafficSettings()
+    {
+        _savingLiveTraffic = true;
+        _liveTrafficMessage = "";
+        StateHasChanged();
+        try
+        {
+            await LiveTrafficSettings.SetEnabledAsync(_liveTrafficEnabled);
+            _liveTrafficMessage = "Live Traffic settings saved.";
+            _liveTrafficMessageClass = "success";
+        }
+        catch (Exception ex)
+        {
+            _liveTrafficMessage = $"Error saving settings: {ex.Message}";
+            _liveTrafficMessageClass = "danger";
+        }
+        finally
+        {
+            _savingLiveTraffic = false;
+        }
+    }
 
     private async Task LoadThreatSettings()
     {

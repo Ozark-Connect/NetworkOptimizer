@@ -60,7 +60,7 @@ public sealed record LiveTrafficQuery
 public enum LiveFlowSort { Download, Upload, Total, Started, Client, Destination, App, Route }
 
 /// <summary>Whether Live Traffic can run on this site, and why not.</summary>
-public enum LiveTrafficState { Live, Starting, NoGatewayAgent, AgentNeedsUpdate, NoConntrack, MonitoringOff, AwaitingAgent }
+public enum LiveTrafficState { Live, Starting, NoGatewayAgent, AgentNeedsUpdate, NoConntrack, MonitoringOff, AwaitingAgent, TurnedOff }
 
 /// <summary>One flow row, enriched and in the client's frame (download is toward the client).</summary>
 public sealed record LiveFlowRow

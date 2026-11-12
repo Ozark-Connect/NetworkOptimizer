@@ -118,6 +118,30 @@ public sealed class LiveTrafficStore
     private DateTime _lastEnrichAt = DateTime.MinValue;
     private DateTime _lastClientsAt = DateTime.MinValue;
     private DateTime? _uniFiNewest;
+    private bool _turnedOff;
+
+    /// <summary>Live Traffic is turned off for the site: no lease is granted and no batch is kept.</summary>
+    public bool TurnedOff
+    {
+        get { lock (_gate) return _turnedOff; }
+    }
+
+    /// <summary>Turns capture off or back on. Off forgets every viewer, flow, and DNS lookup held.</summary>
+    public void SetTurnedOff(bool off)
+    {
+        lock (_gate)
+        {
+            _turnedOff = off;
+            if (!off) return;
+            _viewers.Clear();
+            _lastPushAt = DateTime.MinValue;
+            _streak = 0;
+            _flows.Clear();
+            _ended.Clear();
+            _dns.Clear();
+            _names.Clear();
+        }
+    }
 
     // ---------------------------------------------------------------- agent side
 
@@ -128,6 +152,8 @@ public sealed class LiveTrafficStore
         var window = Math.Max(1, batch.WindowSeconds);
         lock (_gate)
         {
+            // A batch already in flight when capture was turned off.
+            if (_turnedOff) return;
             _streak = now - _lastBatchAt <= TimeSpan.FromSeconds(Math.Max(10, window * 4)) ? _streak + 1 : 1;
             // A new stream: rows from the last one carry rates from before the gap.
             if (_streak == 1) _flows.Clear();
@@ -213,6 +239,7 @@ public sealed class LiveTrafficStore
     {
         lock (_gate)
         {
+            if (_turnedOff) return false;
             var first = !_viewers.Keys.Any(k => now - _viewers[k] <= ViewerTimeout);
             _viewers[viewerId] = now;
             return first || now - _lastPushAt >= LeaseRenewEvery;

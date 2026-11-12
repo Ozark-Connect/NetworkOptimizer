@@ -25383,6 +25383,23 @@ body:has(.top-bar-hidden) .btn-fit {
     gap: 1rem;
 }
 
+/* Phone only: Flows and Live DNS as tabs, with the bar above and below the content. */
+.live-traffic .lt-mobile-tabs {
+    display: none;
+    margin-bottom: 1rem;
+}
+
+.live-traffic .lt-mobile-tabs-bottom {
+    margin: 1rem 0 0;
+}
+
+.lt-mobile-tabs-bottom .wifi-view-tabs {
+    border-bottom: none;
+    border-top: 1px solid var(--border-color);
+    margin-top: 0;
+    padding: 0.5rem 0 0;
+}
+
 .lt-grid {
     display: grid;
     grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr);
@@ -25950,8 +25967,13 @@ body:has(.top-bar-hidden) .btn-fit {
         display: flex;
     }
 
-    .lt-body > .lt-grid {
-        order: 2;
+    .live-traffic .lt-mobile-tabs {
+        display: flex;
+    }
+
+    .lt-body.lt-mtab-flows > .lt-grid,
+    .lt-body.lt-mtab-dns > .card {
+        display: none;
     }
 
     .lt-filterbar .lt-right,

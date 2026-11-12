@@ -8,10 +8,11 @@ namespace NetworkOptimizer.Web.Services.Tailscale;
 /// Reads how a Tailscale device connects off the gateway's own flows, with no Tailscale access on any
 /// host: a flow to one of its endpoints that carries traffic is a direct path; with none, a DERP relay
 /// connection that is moving traffic is a relayed one. The gateway agent sends flows only under a Live
-/// Traffic lease, so this holds one for a few seconds, as a viewer would. What it returns is observed,
-/// never guessed: no matching flow, no path.
+/// Traffic lease, so this holds one for a few seconds, as a viewer would, and reads nothing on a site
+/// that turned Live Traffic off. What it returns is observed, never guessed: no matching flow, no path.
 /// </summary>
-public sealed class TailnetFlowObserver(LiveTrafficRegistry liveTraffic, AgentTunnelRegistry tunnels, TailscaleDirectoryRegistry tailscale)
+public sealed class TailnetFlowObserver(LiveTrafficRegistry liveTraffic, AgentTunnelRegistry tunnels, TailscaleDirectoryRegistry tailscale,
+    ISystemSettingsService settings)
 {
     /// <summary>Each read is its own viewer, so two at once never end each other's lease.</summary>
     private static string NewViewerId() => "tailscale-path-" + Guid.NewGuid().ToString("N")[..8];
@@ -27,6 +28,7 @@ public sealed class TailnetFlowObserver(LiveTrafficRegistry liveTraffic, AgentTu
         if (snapshot.Peer(peerIp) is not { } peer) return null;
         var agents = tunnels.GetForSite(slug).Where(c => c.HasCapability(AgentTunnelConnection.LiveTrafficCapability)).ToList();
         if (agents.Count == 0) return null;
+        if (await liveTraffic.IsTurnedOffAsync(settings, slug)) return null;
 
         var store = liveTraffic.GetFor(slug);
         store.SetTailnet(snapshot, connected: true);

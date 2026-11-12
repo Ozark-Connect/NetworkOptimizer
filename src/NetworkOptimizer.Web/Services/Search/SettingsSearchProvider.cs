@@ -235,6 +235,12 @@ public sealed class SettingsSearchProvider : IAppSearchProvider
             ["dish", "grpc", "power draw", "obstruction", "outages", "alignment", "terminal",
              "polling interval", "show the starlink stats tab"]),
 
+        Entry("monitoring", "Monitoring", "live-traffic",
+            "Live Traffic",
+            ["Live Traffic Settings", "Live DNS", "Flow Capture"],
+            ["live traffic", "turn off live traffic", "disable live traffic", "opt out", "privacy",
+             "flows", "dns lookups", "conntrack", "per-flow", "what is stored", "gateway cpu"]),
+
         Entry("monitoring", "Monitoring", "custom-apps",
             "Custom Apps",
             ["Custom App Definitions", "Custom DPI", "DPI Definitions", "Custom Ports", "Port Naming", "Name This App"],

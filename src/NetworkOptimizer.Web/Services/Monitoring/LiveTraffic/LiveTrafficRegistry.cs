@@ -14,12 +14,43 @@ public sealed class LiveTrafficRegistry : ISiteScopedRegistry
     /// <summary>Each site's custom app rules once read from its database; absent until then.</summary>
     private readonly ConcurrentDictionary<string, IReadOnlyList<CustomAppRule>> _customApps = new();
 
+    /// <summary>Each site's Live Traffic opt-out once read from its settings: true when turned off.</summary>
+    private readonly ConcurrentDictionary<string, bool> _turnedOff = new();
+
     public LiveTrafficStore GetFor(string slug) => _stores.GetOrAdd(slug, s =>
     {
         var store = new LiveTrafficStore();
         if (_customApps.TryGetValue(s, out var rules)) store.SetCustomApps(rules);
+        if (_turnedOff.TryGetValue(s, out var off)) store.SetTurnedOff(off);
         return store;
     });
+
+    /// <summary>The site's setting key: unset or anything but "false" means Live Traffic is on.</summary>
+    public const string EnabledKey = "liveTraffic.enabled";
+
+    /// <summary>
+    /// Reads the site's opt-out once, before anything grants a lease. A failed read counts as off,
+    /// so a site that opted out is never captured on a database error; the next call reads again.
+    /// </summary>
+    public async Task<bool> IsTurnedOffAsync(ISystemSettingsService settings, string slug)
+    {
+        if (_turnedOff.TryGetValue(slug, out var known)) return known;
+        string? value;
+        try { value = await settings.GetAsync(slug, EnabledKey); }
+        catch { return true; }
+        // A save that landed while the read ran wins: the read saw the setting from before it.
+        if (!_turnedOff.TryAdd(slug, value == "false")) return _turnedOff[slug];
+        var off = _turnedOff[slug];
+        GetFor(slug).SetTurnedOff(off);
+        return off;
+    }
+
+    /// <summary>Applies the opt-out to the site's store; off drops what it holds at once.</summary>
+    public void SetTurnedOff(string slug, bool off)
+    {
+        _turnedOff[slug] = off;
+        GetFor(slug).SetTurnedOff(off);
+    }
 
     public FlowHistoryCache HistoryFor(string slug) => _history.GetOrAdd(slug, s =>
     {
@@ -110,6 +141,7 @@ public sealed class LiveTrafficRegistry : ISiteScopedRegistry
             _clientHistory.TryRemove(key, out _);
         _customApps.TryRemove(slug, out _);
         _customAppsFailedAt.TryRemove(slug, out _);
+        _turnedOff.TryRemove(slug, out _);
         return null;
     }
 }

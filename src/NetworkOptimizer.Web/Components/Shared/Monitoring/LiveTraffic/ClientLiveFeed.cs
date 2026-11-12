@@ -132,7 +132,7 @@ public sealed class ClientLiveFeed : IDisposable
             // read no more often than History refreshes them.
             var history = History;
             if (view.State is LiveTrafficState.NoGatewayAgent or LiveTrafficState.AgentNeedsUpdate
-                    or LiveTrafficState.NoConntrack or LiveTrafficState.MonitoringOff
+                    or LiveTrafficState.NoConntrack or LiveTrafficState.MonitoringOff or LiveTrafficState.TurnedOff
                 && (history is null or { State: LiveHistoryState.Loading } || _historyChanged
                     || DateTime.UtcNow - _historyAt >= FlowHistoryCache.RefreshEvery))
             {

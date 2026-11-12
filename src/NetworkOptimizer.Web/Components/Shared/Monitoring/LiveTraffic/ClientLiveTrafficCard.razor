@@ -57,10 +57,17 @@
                 {
                     LiveTrafficState.AgentNeedsUpdate => "Live Traffic needs a newer On-Site Agent on your Gateway.",
                     LiveTrafficState.NoConntrack => "The On-Site Agent cannot read the Gateway's connection table.",
+                    LiveTrafficState.TurnedOff => "Live Traffic is turned off for this site.",
                     _ => "Live Traffic needs the On-Site Agent on your Gateway.",
                 })
             </span>
-            @if (View.State is LiveTrafficState.NoGatewayAgent or LiveTrafficState.AgentNeedsUpdate)
+            @if (View.State == LiveTrafficState.TurnedOff)
+            {
+                <SiteAdminOnly>
+                    <a href="/settings?tab=monitoring#live-traffic">Settings</a>
+                </SiteAdminOnly>
+            }
+            else if (View.State is LiveTrafficState.NoGatewayAgent or LiveTrafficState.AgentNeedsUpdate)
             {
                 <SiteAdminOnly>
                     <a href="@($"/settings?tab=multisite&configure={SiteContext.Slug}")">@(View.State == LiveTrafficState.AgentNeedsUpdate ? "Upgrade Agent" : "Set It Up")</a>
