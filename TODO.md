@@ -799,7 +799,7 @@ against the coverage where it ran.
 
 Check CellMapper's terms and whether it offers an API before building.
 
-### Live Traffic: flows that end on the Gateway itself
+### Live Traffic: flows that end on the Gateway itself (only if a user asks)
 
 Live's Flows leave out traffic to the Gateway: Client DNS to the Gateway's resolver, SSH or the console
 UI on its address, and Network Optimizer polling Adaptive SQM's TC monitor (TCP 8088). History shows
