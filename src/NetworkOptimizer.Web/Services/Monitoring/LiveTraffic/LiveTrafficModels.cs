@@ -176,6 +176,8 @@ public sealed record LiveFlowRow
     public string? RemoteSite { get; init; }
     /// <summary>The organization that owns the remote address (GeoLite2 ASN), or null.</summary>
     public string? RemoteOrg { get; init; }
+    /// <summary>The ASN announcing the remote address (GeoLite2 ASN), or null.</summary>
+    public int? RemoteAsn { get; init; }
     /// <summary>DoH or DoT: a DNS lookup we cannot read.</summary>
     public bool EncryptedDns { get; init; }
     /// <summary>Encrypted DNS that is not a site resolver's own upstream.</summary>

@@ -323,7 +323,7 @@
         }
         else if (!string.IsNullOrEmpty(f.RemoteOrg))
         {
-            <dt>Owner</dt><dd>@f.RemoteOrg</dd>
+            <dt>ASN</dt><dd>@f.RemoteOrg@(f.RemoteAsn is { } asn ? $" (AS{asn})" : "")</dd>
         }
         @if (!string.IsNullOrEmpty(f.Network))
         {

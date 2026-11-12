@@ -1140,6 +1140,7 @@ public sealed class LiveTrafficStore
             RemoteClientVia = peer == null ? (tailnetPeer != null ? "Tailscale" : null) : peer.Via ?? peer.Network,
             RemoteNetwork = peer?.Network ?? (kind == LiveRouteKind.Lan ? NetworkFor(f.RemoteIp) : null),
             RemoteOrg = f.Lan ? null : org,
+            RemoteAsn = f.Lan ? null : remoteAsn,
             DnsBypass = encryptedDns && !resolverUpstream,
             History = history,
             Ended = ended,
