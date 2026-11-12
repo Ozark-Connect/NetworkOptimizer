@@ -147,7 +147,7 @@ Time-series monitoring on your own InfluxDB, fed by SNMP polling (InfluxDB).
     - **Live DNS** - lookups to the gateway, to DNS servers on other VLANs, and to outside resolvers; blocked lookups (NXDOMAIN, or a 0.0.0.0 / :: answer), response time, and DNS bypass (including DoH and DoT, not counting a site resolver's own encrypted upstream)
       - A lookup the gateway redirects (DNAT) to a site resolver shows the attempt and the resolver that answered, and is not counted as a bypass
       - **Hide Local** - leave out lookups answered only with addresses on the site's networks, remembered per user and site
-    - Per flow: two-minute rate chart, session start, bytes and packets each way, ports, the DNS lookup behind it, and the policy that allowed it - UniFi Network's record once the flow ends (UniFi Network 11), and for a live flow, the site's Firewall Policies evaluated by the Security Audit's engine (client, IP, network, domain, and region policies)
+    - Per flow: two-minute rate chart, session start, bytes and packets each way, ports, client and destination Networks, the remote address's ASN, the DNS lookup behind it, and the policy that allowed it - UniFi Network's record once the flow ends (UniFi Network 11), and for a live flow, the site's Firewall Policies evaluated by the Security Audit's engine (client, IP, network, domain, and region policies)
     - **Active** and **Ended** flows; **Pause**
     - Per-flow and DNS detail leaves the gateway only while someone is viewing it (and up to a minute after, so a return is live immediately), and is never stored
     - **History** - the flows UniFi Network still holds (its recent window, under an hour), allowed and blocked: a **Timeline** of flows or data per minute (drag to pick a window), the same filters, sorted by time or data, with each flow's duration and the policy that allowed or blocked it. Reads the console's own records, so it needs no agent (UniFi Network 11)
@@ -288,7 +288,7 @@ Time-series monitoring on your own InfluxDB, fed by SNMP polling (InfluxDB).
 - Wired clients: switch port, link speed, live throughput, and port errors and drops (SNMP)
 - VPN clients (Tailscale, Teleport, One-Click and remote-user VPN, site-to-site) get a simplified view with speed tests and path traces
   - A Tailscale client shows its tailnet name, OS, and owner (or tags), and whether it connects directly or through a DERP relay ([Tailscale](#settings))
-  - The client selector lists the site's Tailscale devices
+  - The client selector lists the site's Tailscale devices; **Open in Live Traffic** shows a device's flows
   - A LAN client that is the tailnet's exit node or subnet router is labeled as one
 - Jump to the client on the Live View; its own Speed Map and Signal Map are built in
 - Rename a client and set or clear its **Fixed IP** in place
@@ -394,7 +394,7 @@ Gateway tweaks for UCG-Fiber, UXG-Fiber, UCG-Max, and UXG-Max (Gateway SSH).
     - Devices find the Console at its new address: the Plan moves a UniFi OS Server's Inform Host override with it, and a Device still offline after the move gets set-inform over SSH (Device SSH)
     - **Lower Lease Times** a lease ahead so clients move within minutes (the move puts them back), and **Reconnect Clients** after it: wireless clients rejoin, PoE-powered wired clients optionally power-cycle
 - Alerts for security regressions, changes no admin made, management-path changes, drift, and UniFi Console admin and update settings
-- **Settings** - retention, change detection, commit-confirmed window, approvals
+- **Settings** - retention, change detection, commit-confirmed window, approvals, **Default schedule time** for applies
 
 ## Firmware Rollout
 
@@ -434,6 +434,7 @@ Gateway tweaks for UCG-Fiber, UXG-Fiber, UCG-Max, and UXG-Max (Gateway SSH).
 - **Client Band Distribution**, **Channel Optimization** summary, and per-AP radio cards
 - Mesh uplink details and **Re-pair Uplink**
 - **Health Issues** with recommendations; **Acknowledge** hides an issue but keeps it in the score
+  - Each affected AP, radio, or client links straight to it
   - Each affected AP, radio, or client links to where it is shown: its clients on that band, its channel, its metrics, or the client itself
 - Health Issue checks:
   - Signal and coverage: weak signal, weak signal population, coverage gaps, sticky clients ([AP Telemetry](#ap-telemetry))
