@@ -388,6 +388,7 @@ public class LiveTrafficStoreTests
         store.HasRates(DateTime.UtcNow).Should().BeTrue();
 
         store.ReleaseViewer("v", DateTime.UtcNow).Should().BeTrue();
+        store.EndLease();
         store.HasRates(DateTime.UtcNow).Should().BeFalse("the lease ended, so the agent's next batch only seeds");
         store.BuildView(Query(), LiveTrafficState.Starting).Flows.Should().BeEmpty("rows from before are not live");
 
@@ -398,6 +399,42 @@ public class LiveTrafficStoreTests
         store.Ingest(Batch(Flow("a", Laptop, "192.0.2.20", "203.0.113.5", 443, "eth4", 2000, 10)));
         store.HasRates(DateTime.UtcNow).Should().BeTrue();
         store.BuildView(Query(), LiveTrafficState.Live).Flows.Single().DownBps.Should().Be(8000);
+    }
+
+    [Fact]
+    public void LeavingLetsTheLeaseRunOutSoAQuickReturnIsStillLive()
+    {
+        var store = SeededStore();
+        var now = DateTime.UtcNow;
+        store.TouchViewer("v", now).Should().BeTrue();
+        store.NoteLeasePushed(now);
+        store.Ingest(Batch(Flow("a", Laptop, "192.0.2.20", "203.0.113.5", 443, "eth4", 1000, 10)));
+        store.Ingest(Batch(Flow("a", Laptop, "192.0.2.20", "203.0.113.5", 443, "eth4", 1000, 10)));
+
+        store.ReleaseViewer("v", now.AddSeconds(5)).Should().BeTrue();
+        store.HasRates(DateTime.UtcNow).Should().BeTrue("leaving does not end the lease, so the stream keeps its rows");
+
+        // Back within the lease: the same stream, live at once, and the lease is renewed.
+        store.TouchViewer("v", now.AddSeconds(20)).Should().BeTrue();
+        store.HasRates(DateTime.UtcNow).Should().BeTrue();
+        store.BuildView(Query(), LiveTrafficState.Live).Flows.Should().ContainSingle();
+    }
+
+    [Fact]
+    public void AReturnAfterTheLeaseLapsedForgetsTheOldStreamBeforeTheSeedBatch()
+    {
+        var store = SeededStore();
+        var now = DateTime.UtcNow;
+        store.TouchViewer("v", now);
+        store.NoteLeasePushed(now);
+        store.Ingest(Batch(Flow("a", Laptop, "192.0.2.20", "203.0.113.5", 443, "eth4", 1000, 10)));
+        store.Ingest(Batch(Flow("a", Laptop, "192.0.2.20", "203.0.113.5", 443, "eth4", 1000, 10)));
+        store.ReleaseViewer("v", now);
+
+        // Past the lease the agent's tracker reset: the old rows must not read as live.
+        store.TouchViewer("v", now + LiveTrafficStore.LeaseLength + TimeSpan.FromSeconds(1)).Should().BeTrue();
+        store.HasRates(DateTime.UtcNow).Should().BeFalse();
+        store.BuildView(Query(), LiveTrafficState.Starting).Flows.Should().BeEmpty();
     }
 
     [Fact]

@@ -18,8 +18,8 @@ public sealed record LiveRouteInfo(string Name, LiveRouteKind Kind, double? Capa
 /// <summary>
 /// One site's Live Traffic state, in memory only: the agent's latest flows with two minutes of
 /// rate history each, recently ended flows, ten minutes of DNS lookups, the names DNS answers gave
-/// remote addresses, and the console data that labels it all. Nothing here is persisted: when the
-/// last viewer leaves, the agent stops sending and this ages out.
+/// remote addresses, and the console data that labels it all. Nothing here is persisted: once the
+/// last viewer leaves, the lease runs out, the agent stops sending, and this ages out.
 /// </summary>
 public sealed class LiveTrafficStore
 {
@@ -240,6 +240,10 @@ public sealed class LiveTrafficStore
         lock (_gate)
         {
             if (_turnedOff) return false;
+            // A lease that ran out reset the agent's tracker, so its next batch only seeds. Forget the old
+            // stream and its rows, or a return reads them as live and the seed batch blanks them. The
+            // estimate counts from the push, so it lapses no later than the agent's own.
+            if (now >= _lastPushAt + LeaseLength) ForgetStream();
             var first = !_viewers.Keys.Any(k => now - _viewers[k] <= ViewerTimeout);
             _viewers[viewerId] = now;
             return first || now - _lastPushAt >= LeaseRenewEvery;
@@ -260,7 +264,10 @@ public sealed class LiveTrafficStore
         lock (_gate) _serverHosts = hosts;
     }
 
-    /// <summary>Drops a viewer. True when nobody is left, so the lease can end now rather than by timeout.</summary>
+    /// <summary>
+    /// Drops a viewer. True when nobody is left. The lease is not ended: it runs out on its own, so a
+    /// return within it finds the stream still live (TouchViewer forgets it once it has lapsed).
+    /// </summary>
     public bool ReleaseViewer(string viewerId, DateTime now)
     {
         lock (_gate)
@@ -268,14 +275,25 @@ public sealed class LiveTrafficStore
             _viewers.Remove(viewerId);
             foreach (var stale in _viewers.Where(kv => now - kv.Value > ViewerTimeout).Select(kv => kv.Key).ToList())
                 _viewers.Remove(stale);
-            if (_viewers.Count > 0) return false;
-            _lastPushAt = DateTime.MinValue;
-            // The lease ends now and the agent's tracker with it: its next batch only seeds. Forget the
-            // stream and its rows, or a return reads the old rows as live and the seed batch blanks them.
-            _streak = 0;
-            _flows.Clear();
-            return true;
+            return _viewers.Count == 0;
         }
+    }
+
+    /// <summary>The caller ended the agent's lease itself (LeaseSeconds 0): its tracker resets, so the stream goes too.</summary>
+    public void EndLease()
+    {
+        lock (_gate)
+        {
+            _lastPushAt = DateTime.MinValue;
+            ForgetStream();
+        }
+    }
+
+    /// <summary>Forgets the stream and its rows. Ended flows and DNS are kept. Callers hold <c>_gate</c>.</summary>
+    private void ForgetStream()
+    {
+        _streak = 0;
+        _flows.Clear();
     }
 
     // ---------------------------------------------------------------- enrichment

@@ -45,8 +45,9 @@ public interface ILiveTrafficService
     Task<LiveHistoryView> GetHistoryAsync(LiveHistoryQuery query, CancellationToken ct = default);
 
     /// <summary>
-    /// The viewer left (card collapsed, page closed, or switched mode): the lease ends now if nobody
-    /// else watches, and the History records go once no History viewer is left.
+    /// The viewer left (card collapsed, page closed, or switched mode). The agent's lease is left to run
+    /// out (under a minute), so coming back within it is live at once; the History records go once no
+    /// History viewer is left.
     /// </summary>
     [RequireRole(Roles.Viewer)]
     Task ReleaseAsync(string viewerId);
@@ -251,12 +252,8 @@ public sealed class LiveTrafficService : ILiveTrafficService
         var now = DateTime.UtcNow;
         _registry.HistoryFor(slug).Release(viewerId, now);
         _registry.ReleaseClientHistory(slug, viewerId, now);
-        var store = _registry.GetFor(slug);
-        if (store.ReleaseViewer(viewerId, now))
-        {
-            foreach (var agent in _tunnels.GetForSite(slug).Where(c => c.HasCapability(AgentTunnelConnection.LiveTrafficCapability)))
-                agent.TrySend(new ServerMessage { LiveTrafficConfig = new LiveTrafficConfig { LeaseSeconds = 0 } });
-        }
+        // Not ended: ending it resets the agent's tracker, and a return would wait on a fresh stream.
+        _registry.GetFor(slug).ReleaseViewer(viewerId, now);
         return Task.CompletedTask;
     }
 

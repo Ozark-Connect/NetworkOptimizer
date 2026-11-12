@@ -57,9 +57,13 @@ public sealed class TailnetFlowObserver(LiveTrafficRegistry liveTraffic, AgentTu
         }
         finally
         {
+            // Nobody is watching a path read, so its lease ends now rather than running out.
             if (store.ReleaseViewer(viewerId, DateTime.UtcNow))
+            {
                 foreach (var agent in agents)
                     agent.TrySend(new ServerMessage { LiveTrafficConfig = new LiveTrafficConfig { LeaseSeconds = 0 } });
+                store.EndLease();
+            }
         }
     }
 
