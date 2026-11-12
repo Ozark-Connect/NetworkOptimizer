@@ -3735,8 +3735,8 @@
             @if (_multiSiteLoaded && !_multiSiteEnabled)
             {
                 <p class="section-description">
-                    Multi-WAN monitoring needs this on as well: the agent that probes a second WAN
-                    enrolls through here, including on the main site.
+                    Multi-WAN monitoring needs this on as well: its agent enrolls here, including on
+                    the main site.
                 </p>
                 <AdminOnly>
                     <div class="form-group">
@@ -3753,25 +3753,33 @@
                 <div class="alert alert-info multi-wan-hint">
                     <div class="multi-wan-hint-body">
                     <span class="banner-icon banner-icon-info">i</span>
-                    @* Two leads, one card. Without multi-site there is no Configuration to open and
-                       no agent to enroll, so naming those steps first would send someone looking for
-                       controls that are not on the page yet. *@
+                    @* Three leads, one card. Without multi-site there is no Configuration to open, and
+                       a site whose gateway agent is enrolled needs only the vantage step. One gateway
+                       agent covers every WAN, so the copy never implies one agent per WAN. *@
                     <p>
-                        This site has more than one WAN, but only the primary is being monitored.
-                        @if (_multiSiteEnabled)
+                        This site has more than one WAN, but only the primary is monitored.
+                        @if (!_multiSiteEnabled)
                         {
                             <text>
-                                To monitor another, open @HintSitePhrase <strong>Configuration</strong>
-                                below, use <strong>Add Agent</strong> to enroll an agent for it,
-                                then give that WAN a vantage on <strong>Monitoring - Network Performance</strong>.
+                                One agent on the UniFi gateway covers them all: turn on
+                                <strong>Enable multi-site management</strong> above to add it.
+                            </text>
+                        }
+                        else if (_hintSiteHasGatewayAgent)
+                        {
+                            <text>
+                                Your gateway agent already reaches every WAN: give each additional WAN a
+                                vantage on <a href="/monitoring?tab=performance&contexts=1"><strong>Monitoring - Network Performance</strong></a>.
                             </text>
                         }
                         else
                         {
                             <text>
-                                Start by turning on <strong>Enable multi-site management</strong> above:
-                                the agent that probes another WAN enrolls through it, including on this
-                                site. The steps for adding one appear here once it is on.
+                                One agent on the UniFi gateway covers them all: add it with
+                                <strong>Add Agent</strong> in @HintSitePhrase
+                                <a href="@($"/settings?tab=multisite&configure={SiteContext.Slug}")" @onclick="OpenHintSiteConfigurationAsync" @onclick:preventDefault="true"><strong>Configuration</strong></a>
+                                below, then give each additional WAN a vantage on
+                                <a href="/monitoring?tab=performance&contexts=1"><strong>Monitoring - Network Performance</strong></a>.
                             </text>
                         }
                     </p>
@@ -4406,7 +4414,11 @@
             if (await db.WanContexts.AnyAsync(c => c.AgentId != null)) return;
 
             _showMultiWanHint = await UiHints.ShouldShowAsync(UiHintKeys.MultiWanVantageSetup);
-            if (_showMultiWanHint) StateHasChanged();
+            if (_showMultiWanHint)
+            {
+                await UpdateHintGatewayAgentAsync();
+                StateHasChanged();
+            }
         }
         catch (Exception ex)
         {
@@ -4415,6 +4427,31 @@
             // with one WAN advice about its second.
             Logger.LogDebug(ex, "Could not decide the multi-WAN vantage hint; leaving it hidden");
         }
+    }
+
+    /// <summary>
+    /// Whether the current site already has an agent on its UniFi gateway, which reaches every WAN,
+    /// so the multi-WAN card skips the Add Agent step. Refreshed with the agent poll, so an agent
+    /// installed while the page is open changes the advice.
+    /// </summary>
+    private bool _hintSiteHasGatewayAgent;
+
+    private async Task UpdateHintGatewayAgentAsync()
+    {
+        if (!_showMultiWanHint || !_multiSiteEnabled) return;
+        if (_sites.FirstOrDefault(s => s.Slug == SiteContext.Slug) is not { } site) return;
+        await LoadAgentsOnGatewayAsync(site);
+        _hintSiteHasGatewayAgent = SiteHasGatewayAgent(site.Id);
+    }
+
+    /// <summary>The card's Configuration link: opens the current site's panel in place.</summary>
+    private async Task OpenHintSiteConfigurationAsync()
+    {
+        if (_sites.FirstOrDefault(s => s.Slug == SiteContext.Slug) is not { } site) return;
+        if (_expandedSiteId != site.Id) await ToggleAgents(site.Id);
+        await Task.Delay(300);
+        await JS.InvokeVoidAsync("noHighlightTarget", $"site-config-{site.Id}", "center",
+            "0 0 var(--border-radius-lg) var(--border-radius-lg)");
     }
 
     private async Task DismissMultiWanHintAsync()
@@ -4641,6 +4678,7 @@
                     await InvokeAsync(async () =>
                     {
                         await LoadAgentsAsync();
+                        await UpdateHintGatewayAgentAsync();
                         if (_expandedSiteId is int openId && _sites.FirstOrDefault(s => s.Id == openId) is { } openSite)
                         {
                             await LoadAgentsOnGatewayAsync(openSite);
