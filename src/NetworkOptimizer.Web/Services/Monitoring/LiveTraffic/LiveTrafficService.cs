@@ -14,7 +14,7 @@ namespace NetworkOptimizer.Web.Services.Monitoring.LiveTraffic;
 
 /// <summary>
 /// Live Traffic for the site in context: every flow through the gateway ranked by what is using
-/// the link now, Where It Goes, and Live DNS. Each read also keeps the viewer's lease alive, which
+/// the link now, Where It's Going, and Live DNS. Each read also keeps the viewer's lease alive, which
 /// is what lets the gateway agent send per-flow and DNS detail at all; when the last viewer leaves
 /// the lease ends. Reads are open to any role, as Live View is; turning it off is a Site Admin's.
 /// </summary>

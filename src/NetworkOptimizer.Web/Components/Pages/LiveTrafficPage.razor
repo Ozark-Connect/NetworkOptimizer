@@ -219,7 +219,7 @@
             <div class="lt-grid">
                 <div class="card lt-sankey-card" data-tour="live-traffic-where">
                     <div class="card-header">
-                        <div class="card-title-group"><h2 class="card-title">Where It Goes</h2></div>
+                        <div class="card-title-group"><h2 class="card-title">Where It's Going</h2></div>
                         <div class="card-header-right">
                             <div class="time-range-selector">
                                 <button class="time-btn @(!_sankeyByFlows ? "active" : "")" @onclick="() => SetSankeyMetric(false)">Rate</button>
@@ -461,7 +461,7 @@
         }
     }
 
-    /// <summary>Rows and Where It Goes nodes hold their order under the pointer: <see cref="LiveOrderHold"/>.</summary>
+    /// <summary>Rows and Where It's Going nodes hold their order under the pointer: <see cref="LiveOrderHold"/>.</summary>
     private bool Held => _hold.Held;
 
     private void PointerIn() => _hold.PointerIn();
@@ -480,7 +480,7 @@
     private string SankeyQueryKey => $"{QueryKey}|{_sankeyByFlows}";
 
     /// <summary>
-    /// The hovered Where It Goes column, held while the pointer is on it and briefly after:
+    /// The hovered Where It's Going column, held while the pointer is on it and briefly after:
     /// <see cref="LiveSankeyHold"/>. A filter, search, or Rate / Flows change ends it at once, so
     /// nodes the new query leaves out never linger at 0.
     /// </summary>
@@ -672,7 +672,7 @@
         await FiltersChanged();
     }
 
-    /// <summary>A Where It Goes click: filters to the node, or, when that filter is already set, removes it.</summary>
+    /// <summary>A Where It's Going click: filters to the node, or, when that filter is already set, removes it.</summary>
     private async Task ToggleFilter(LiveTrafficFilter filter)
     {
         var removed = _filters.RemoveAll(f => !f.Exclude && f.Field == filter.Field

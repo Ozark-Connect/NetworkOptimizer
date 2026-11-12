@@ -667,7 +667,7 @@
             .observe(document.body, { childList: true, subtree: true });
         // An element in the cell with a tooltip of its own (the via line, a badge) shows only that one.
         function innerTipHovered(cell) { return !!cell.querySelector('[data-tooltip]:hover'); }
-        // Live Traffic's tables and Where It Goes hold a card until the pointer has rested this long;
+        // Live Traffic's tables and Where It's Going hold a card until the pointer has rested this long;
         // elsewhere a card opens on the first hover. Tippy's own delay does not cover a .show() call,
         // so this does.
         var LT_REST_TIP_DELAY = 500;
@@ -759,7 +759,7 @@
                     ? '<div><a href="' + escapeHtml(link) + '" data-name-app="' + escapeHtml(seed) + '">Name This App</a></div>'
                     : '<div>A Site Admin can name it.</div>');
         }
-        // A Where It Goes route node: where its traffic ends up, busiest first (on the LAN, which host).
+        // A Where It's Going route node: where its traffic ends up, busiest first (on the LAN, which host).
         function routeHtml(el) {
             var rows;
             try { rows = JSON.parse(el.getAttribute('data-route-dests') || '[]'); } catch (err) { console.warn('Route card', err); return null; }
@@ -875,7 +875,7 @@
             var dest = e.target.closest('[data-dest-ip]');
             if (dest && host.contains(dest) && dest.getAttribute('data-dest-ip')) { showLinkCard(dest, destinationHtml); return; }
             var client = e.target.closest('[data-client-link]');
-            // A client card off Where It Goes has room around it to move away: no X there.
+            // A client card off Where It's Going has room around it to move away: no X there.
             if (client && host.contains(client)) { showLinkCard(client, clientHtml, { noClose: !!client.closest('.lt-sankey-svg') }); return; }
             var route = e.target.closest('[data-route-dests]');
             if (route && host.contains(route)) { showLinkCard(route, routeHtml, { wide: true, follow: true }); return; }

@@ -44,9 +44,9 @@ public sealed record LiveTrafficQuery
     public bool HideLocalDns { get; init; }
     public bool IncludeDns { get; init; } = true;
     public bool IncludeSankey { get; init; } = true;
-    /// <summary>Where It Goes sized by flow count instead of rate.</summary>
+    /// <summary>Where It's Going sized by flow count instead of rate.</summary>
     public bool SankeyByFlows { get; init; }
-    /// <summary>The Where It Goes node under the pointer, and the column it froze. Null when nothing is hovered.</summary>
+    /// <summary>The Where It's Going node under the pointer, and the column it froze. Null when nothing is hovered.</summary>
     public LiveSankeyHold? SankeyHold { get; init; }
     /// <summary>WAN and VPN flows only, as the Live View card shows them.</summary>
     public bool WanOnly { get; init; }
@@ -243,7 +243,7 @@ public sealed record LiveDnsRow(
     string? RedirectedTo = null,
     string? ClientDeviceMac = null);
 
-/// <summary>The Where It Goes diagram: three columns of nodes and the links between them.</summary>
+/// <summary>The Where It's Going diagram: three columns of nodes and the links between them.</summary>
 public sealed record LiveSankey(IReadOnlyList<LiveSankeyNode> Nodes, IReadOnlyList<LiveSankeyLink> Links, bool ValueIsFlows = false);
 
 /// <param name="DownBps">The node's download rate, for its subtitle; 0 when sized by flow count.</param>
@@ -266,7 +266,7 @@ public sealed record LiveSankeyDestination(string Name, string? Ip, double Value
     string? Site = null, string? IspCache = null);
 
 /// <summary>
-/// While the pointer is on a Where It Goes node, its column keeps the nodes it had when the hover
+/// While the pointer is on a Where It's Going node, its column keeps the nodes it had when the hover
 /// began: a node that goes idle stays at 0, and a newcomer folds into Other (or, with no Other in the
 /// column, is left out) until the pointer leaves. The column then keeps its spacing, so nothing moves
 /// under the cursor before the click.

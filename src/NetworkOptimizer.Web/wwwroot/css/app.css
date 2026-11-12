@@ -24614,7 +24614,7 @@ body:has(.top-bar-hidden) .btn-fit {
     overflow-anchor: none;
 }
 
-/* In Where It Goes the icon sits alone in a foreignObject, not in a flex row, so it is sized as a block. */
+/* In Where It's Going the icon sits alone in a foreignObject, not in a flex row, so it is sized as a block. */
 .lt-sankey-icon {
     overflow: visible;
     pointer-events: none;
@@ -25755,7 +25755,7 @@ body:has(.top-bar-hidden) .btn-fit {
     stroke-width: 1.5;
 }
 
-/* Where It Goes sits centered when Live DNS beside it runs taller; the note stays at the bottom. */
+/* Where It's Going sits centered when Live DNS beside it runs taller; the note stays at the bottom. */
 .lt-sankey-card {
     display: flex;
     flex-direction: column;
@@ -25906,7 +25906,7 @@ body:has(.top-bar-hidden) .btn-fit {
     text-align: center;
 }
 
-/* Live Traffic is a wide table plus Where It Goes and Live DNS side by side: it takes up to 1920px
+/* Live Traffic is a wide table plus Where It's Going and Live DNS side by side: it takes up to 1920px
    on a desktop instead of the layout's standard 1400px. */
 .content:has(.live-traffic) {
     max-width: 1920px;
