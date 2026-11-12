@@ -820,6 +820,22 @@ public class LiveTrafficStoreTests
     }
 
     [Fact]
+    public void GatewayEncryptedUpstreamIsNotABypass()
+    {
+        var store = SeededStore();
+        var doh = Flow("doh", "", "198.51.100.7", "1.0.0.2", 443, "eth4", 1000, 1000);
+        doh.Gateway = true;
+        store.Ingest(Batch(doh));
+
+        var view = store.BuildView(Query(), LiveTrafficState.Live);
+
+        view.Flows.Single().EncryptedDns.Should().BeTrue();
+        view.Flows.Single().DnsBypass.Should().BeFalse();
+        view.BypassingClients.Should().Be(0);
+        view.Dns.Single(d => d.Encrypted).Bypass.Should().BeFalse();
+    }
+
+    [Fact]
     public void SiteResolverPlainUpstreamIsABypass()
     {
         var store = SeededStore();

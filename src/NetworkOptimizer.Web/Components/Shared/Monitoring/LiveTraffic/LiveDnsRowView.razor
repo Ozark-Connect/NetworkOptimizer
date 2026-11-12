@@ -16,7 +16,10 @@
                 <span data-client-name="@d.ClientName" data-client-link="@LiveTrafficLinks.ClientPerformance(d.ClientIp)" data-client-note="@d.ClientIp">@Pill(LiveTrafficField.Client, d.ClientName)</span>
             }
             @ResolverPill(d)
-            <span class="lt-muted lt-small">@d.QType</span>
+            @if (!d.Encrypted)
+            {
+                <span class="lt-muted lt-small">@d.QType</span>
+            }
         </div>
     </div>
 }

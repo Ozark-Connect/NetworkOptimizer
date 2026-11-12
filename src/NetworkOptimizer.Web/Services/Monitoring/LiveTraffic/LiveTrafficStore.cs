@@ -895,11 +895,12 @@ public sealed class LiveTrafficStore
             ? (null, "fa-solid fa-building")   // one of your sites, not an app: a site mark, not its initial
             : DpiCatalog.IconsForName(app);
 
-        // A site resolver's own encrypted upstream is the site's DNS working as intended, not a bypass.
-        // Its plain-DNS upstream still counts: that shows as a lookup to a public resolver.
+        // A site resolver's own encrypted upstream, the gateway's included, is the site's DNS working as
+        // intended, not a bypass. Its plain-DNS upstream still counts: that shows as a lookup to a public resolver.
         var encryptedDns = f.RemotePort == 853
             || (f.RemotePort == 443 && !f.Lan && DohProviderRegistry.IdentifyProviderFromIp(f.RemoteIp) != null);
-        var resolverUpstream = encryptedDns && IsSiteResolver(f.ClientIp, mac);
+        var resolverUpstream = encryptedDns
+            && (f.Gateway || _gatewayIps.Contains(f.ClientIp) || IsSiteResolver(f.ClientIp, mac));
 
         DateTime? started;
         var upperBound = false;
