@@ -56,6 +56,8 @@ public class DpiCatalogTests
         Assert.Equal("fa-solid fa-terminal", DpiCatalog.IconClass(10, 21));   // our mark, as port 22's
         Assert.Equal("fa-solid fa-terminal", DpiCatalog.IconsForName("SSH").Class);
         Assert.Equal("no-icon no-icon-ooma", DpiCatalog.IconClass(6, 31));    // Ooma, by name
+        Assert.Equal("no-icon no-icon-matter", DpiCatalog.IconsForName("Matter").Class); // LanApp's UDP 5540
+        Assert.Equal("fa-solid fa-tv", DpiCatalog.IconsForName("Samsung TV Control").Class);
         Assert.Equal("DNS over HTTPS", DpiCatalog.AppName(20, 199));          // "DNS over HTTPS (DoH)", renamed
         Assert.Equal("fa-solid fa-server", DpiCatalog.IconClass(20, 199));
         Assert.Equal("fa-solid fa-server", DpiCatalog.IconClass(20, 197));    // DNS over TLS

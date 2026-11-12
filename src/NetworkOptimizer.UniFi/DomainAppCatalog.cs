@@ -208,6 +208,7 @@ public static class DomainAppCatalog
         ("tcp", 8009) => "Google Cast",   // a Cast device's control channel
         ("tcp", 6444) => "Midea",         // Midea appliances' local LAN protocol (Home Assistant's Midea LAN)
         ("tcp", 8899) => "AP Agent",      // Network Optimizer polling its AP Agent (ApAgentPaths.AgentPort)
+        ("udp", 5540) => "Matter",        // Matter's operational port (IANA), every vendor's devices alike
         _ => null,
     };
 
@@ -226,6 +227,9 @@ public static class DomainAppCatalog
         // AirPlay's control port on a receiver (Apple TV, HomePod, a Mac with AirPlay Receiver). Cassandra
         // and dev tools use 7000 too, so only to an Apple device.
         ("tcp", 7000) when remoteVendor != null && remoteVendor.StartsWith("Apple", StringComparison.OrdinalIgnoreCase) => "AirPlay",
+        // Samsung's display control: MDC on 1515, and 1516 on 2020-on TVs (a control system driving the TV).
+        // IANA lists both for unrelated protocols, so only to a Samsung device.
+        ("tcp", 1515 or 1516) when remoteVendor != null && remoteVendor.StartsWith("Samsung", StringComparison.OrdinalIgnoreCase) => "Samsung TV Control",
         _ => null,
     };
 

@@ -95,6 +95,8 @@ public class DomainAppCatalogTests
     [Theory]
     [InlineData("tcp", 8009, "Google Cast")]
     [InlineData("tcp", 6444, "Midea")]
+    [InlineData("udp", 5540, "Matter")]
+    [InlineData("tcp", 5540, null)]
     [InlineData("udp", 8009, null)]
     [InlineData("tcp", 443, null)]
     public void LanProtocolsByPort(string proto, int port, string? expected) =>
@@ -124,6 +126,15 @@ public class DomainAppCatalogTests
     [InlineData("tcp", 7000, null, null)]                  // a dev tool: never by port alone
     [InlineData("udp", 7000, "Apple", null)]
     public void AirPlayOnlyToAnAppleDevice(string proto, int port, string? vendor, string? expected) =>
+        DomainAppCatalog.LanApp(proto, port, vendor).Should().Be(expected);
+
+    [Theory]
+    [InlineData("tcp", 1515, "Samsung Electronics Co.,Ltd", "Samsung TV Control")] // MDC
+    [InlineData("tcp", 1516, "Samsung", "Samsung TV Control")]                     // 2020-on TVs
+    [InlineData("tcp", 1516, "Super Micro", null)]
+    [InlineData("tcp", 1516, null, null)]                                          // never by port alone
+    [InlineData("udp", 1516, "Samsung", null)]
+    public void SamsungTvControlOnlyToASamsungDevice(string proto, int port, string? vendor, string? expected) =>
         DomainAppCatalog.LanApp(proto, port, vendor).Should().Be(expected);
 
     [Theory]
