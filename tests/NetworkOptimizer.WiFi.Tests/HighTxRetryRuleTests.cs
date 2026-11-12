@@ -45,6 +45,16 @@ public class HighTxRetryRuleTests
     }
 
     [Fact]
+    public void Each_radio_links_to_its_clients_on_that_band()
+    {
+        var issue = _rule.Evaluate(Context(Ap(RadioBand.Band5GHz, 18.5, 3)))!;
+
+        issue.AffectedLinks.Should().ContainSingle()
+            .Which.Url.Should().Be("./wifi-optimizer?tab=client&ap=aa%3Abb%3Acc%3Add%3Aee%3A01&band=5");
+        issue.AffectedEntity.Should().Be("AP-1 (5 GHz 18.5%, 3 clients, threshold 15%)");
+    }
+
+    [Fact]
     public void Two_clients_are_not_a_radio_problem()
     {
         _rule.Evaluate(Context(Ap(RadioBand.Band5GHz, 30, 2))).Should().BeNull();

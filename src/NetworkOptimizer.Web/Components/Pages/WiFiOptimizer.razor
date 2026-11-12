@@ -1234,7 +1234,8 @@
             _activeTab = "roaming";
             _initialEdge = EdgeQueryParam;
         }
-        else if (TabParam != _lastTabParam && _lastTabParam != null)
+        // A bare /wifi-optimizer leaves the last tab null, and a link from it (a health issue's) must still switch.
+        else if (TabParam != _lastTabParam)
         {
             var newTab = ResolveTab(TabParam);
             if (newTab != _activeTab)

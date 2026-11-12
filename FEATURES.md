@@ -431,6 +431,7 @@ Gateway tweaks for UCG-Fiber, UXG-Fiber, UCG-Max, and UXG-Max (Gateway SSH).
 - **Client Band Distribution**, **Channel Optimization** summary, and per-AP radio cards
 - Mesh uplink details and **Re-pair Uplink**
 - **Health Issues** with recommendations; **Acknowledge** hides an issue but keeps it in the score
+  - Each affected AP, radio, or client links to where it is shown: its clients on that band, its channel, its metrics, or the client itself
 - Health Issue checks:
   - Signal and coverage: weak signal, weak signal population, coverage gaps, sticky clients ([AP Telemetry](#ap-telemetry))
   - Channels: co-channel interference, high power overlap, non-standard 2.4 GHz channel, wide channel with weak clients or unused width

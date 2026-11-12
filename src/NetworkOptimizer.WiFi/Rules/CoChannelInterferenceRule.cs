@@ -158,7 +158,7 @@ public class CoChannelInterferenceRule : IWiFiOptimizerRule
                     Recommendation = recommendation,
                     ScoreImpact = impact,
                     AffectedChannels = primaries.ToHashSet()
-                };
+                }.WithLinks(reported.Select(r => new IssueLink(r.Ap.Name, IssueLinks.Channel(band, r.Channel))));
                 // Measured overlap keeps its severity; the hint only says whose choice the channels were.
                 if (reported.All(r => r.Radio.ChannelIsFixed))
                     RadioIntent.AppendHint(issue, RadioIntent.ChannelHint);

@@ -143,6 +143,12 @@ public class HealthIssue
     /// <summary>Deep link URL for this issue (e.g., link to roaming tab with specific edge selected)</summary>
     public string? LinkUrl { get; set; }
 
+    /// <summary>
+    /// The affected things one by one, each with its own deep link. When set, the UI shows these
+    /// in place of <see cref="AffectedEntity"/>, which still carries the same text joined.
+    /// </summary>
+    public List<IssueLink> AffectedLinks { get; set; } = new();
+
     /// <summary>Recommended action</summary>
     public string? Recommendation { get; set; }
 
