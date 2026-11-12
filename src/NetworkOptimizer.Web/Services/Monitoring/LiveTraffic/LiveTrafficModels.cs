@@ -319,6 +319,11 @@ public sealed record LiveTrafficView
     public double DnsPerSecond { get; init; }
     public double NxdomainPercent { get; init; }
     public int BypassingClients { get; init; }
+    /// <summary>
+    /// Your Clients' connections the Gateway blocked in the last ten minutes, from UniFi Network's flow
+    /// records (conntrack never holds a blocked flow). Inbound blocks from the internet are not counted.
+    /// </summary>
+    public int BlockedRecently { get; init; }
     /// <summary>The bypassing clients by their Client chip name.</summary>
     public IReadOnlyList<string> BypassingClientNames { get; init; } = Array.Empty<string>();
     public bool DnsActive { get; init; }

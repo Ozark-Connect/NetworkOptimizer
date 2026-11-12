@@ -178,7 +178,10 @@
                 <div class="card-body">
                     <div class="lt-stat-label">Active flows</div>
                     <div class="lt-stat-value">@_view.TotalFlows.ToString("N0")</div>
-                    <div class="lt-stat-sub"><span class="lt-sub-part">@TimeFormatHelper.Pluralize(_view.Clients, "client")</span><span class="lt-sub-sep"> &middot; </span><span class="lt-sub-part">@_view.NewLastMinute.ToString("N0") new in the last minute</span></div>
+                    <div class="lt-stat-sub"><span class="lt-sub-part">@TimeFormatHelper.Pluralize(_view.Clients, "client")</span><span class="lt-sub-sep"> &middot; </span><span class="lt-sub-part">@_view.NewLastMinute.ToString("N0") new in the last minute</span>@if (_view.BlockedRecently > 0)
+                        {
+                            <span class="lt-sub-sep"> &middot; </span><span class="lt-sub-part lt-pivot" data-tooltip="Connections from your Clients that your Gateway blocked in the last 10 minutes, from UniFi Network's flow records. Opens History filtered to Blocked." data-tooltip-hover-only @onclick="OpenBlockedHistoryAsync">@TimeFormatHelper.Pluralize(_view.BlockedRecently, "firewall block")</span>
+                        }</div>
                 </div>
             </div>
             <div class="card lt-stat">
@@ -624,6 +627,16 @@
     }
 
     // ---------------------------------------------------------------- mode
+
+    /// <summary>The Active flows tile's firewall blocks: History, filtered to Blocked, over the span the count covers.</summary>
+    private async Task OpenBlockedHistoryAsync()
+    {
+        _filters.RemoveAll(f => f.Field == LiveTrafficField.Action);
+        _filters.Add(new LiveTrafficFilter(LiveTrafficField.Action, "Blocked"));
+        _from = DateTime.UtcNow - LiveTrafficStore.BlockedWindow;
+        _to = null;
+        await SetHistoryMode(true);
+    }
 
     /// <summary>Switching mode ends what the other mode held: the agent's lease, or the History records.</summary>
     private async Task SetHistoryMode(bool history)

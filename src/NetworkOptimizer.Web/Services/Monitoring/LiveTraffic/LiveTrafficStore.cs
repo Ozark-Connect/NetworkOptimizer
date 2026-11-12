@@ -551,6 +551,15 @@ public sealed class LiveTrafficStore
             && live.Contains((c, f.Source.Port ?? 0, r, f.Destination.Port ?? 0, (f.Protocol ?? "").ToLowerInvariant()))));
     }
 
+    /// <summary>
+    /// The console's blocked records from the reads Live already makes, by record, with when each was
+    /// blocked: the Active flows tile counts the last <see cref="BlockedWindow"/>, which conntrack never sees.
+    /// </summary>
+    private readonly Dictionary<string, DateTime> _blocked = new();
+
+    /// <summary>How far back the blocked count reaches; the tile's link opens History over the same span.</summary>
+    public static readonly TimeSpan BlockedWindow = TimeSpan.FromMinutes(10);
+
     /// <summary>Takes a page of the console's flow history: application, policy, egress, and start time per flow.</summary>
     public void MergeUniFiFlows(IEnumerable<UniFiTrafficFlow> flows)
     {
@@ -565,6 +574,16 @@ public sealed class LiveTrafficStore
                 var remote = f.Destination?.Ip;
                 if (string.IsNullOrEmpty(client) || string.IsNullOrEmpty(remote)) continue;
                 var key = (client!, f.Source?.Port ?? 0, remote!, f.Destination?.Port ?? 0, (f.Protocol ?? "").ToLowerInvariant());
+                // Your own Clients' blocked connections only: inbound blocks are the internet's scanners, and
+                // thousands of them would bury the number.
+                if (string.Equals(f.Action, "blocked", StringComparison.OrdinalIgnoreCase)
+                    && !string.Equals(f.Direction, "incoming", StringComparison.OrdinalIgnoreCase)
+                    && _blocked.Count < MaxUniFiFlows)
+                {
+                    var blockedMs = f.Time > 0 ? f.Time : f.FlowEndTime > 0 ? f.FlowEndTime : f.FlowStartTime;
+                    if (blockedMs > 0)
+                        _blocked[f.Id ?? $"{key}|{f.FlowStartTime}"] = DateTimeOffset.FromUnixTimeMilliseconds(blockedMs).UtcDateTime;
+                }
                 string? app = null, category = null;
                 if (f.Application is { App: { } a, Category: { } c })
                 {
@@ -580,6 +599,8 @@ public sealed class LiveTrafficStore
                 NoteDestination((key.Item3, key.Item4, key.Item5), app, category, f.Destination?.Domains?.FirstOrDefault(), now);
             }
             PruneDestinations(now);
+            foreach (var old in _blocked.Where(kv => now - kv.Value > BlockedWindow).Select(kv => kv.Key).ToList())
+                _blocked.Remove(old);
             // A record whose flow is still live stays however long ago it was read: the console may not
             // write that flow again for as long as it runs.
             var live = _flows.Values
@@ -816,6 +837,7 @@ public sealed class LiveTrafficStore
                 DnsPerSecond = recentDns.Count / 60.0,
                 NxdomainPercent = recentDns.Count == 0 ? 0 : 100.0 * recentDns.Count(d => IsBlocked(d.Event)) / recentDns.Count,
                 BypassingClients = bypassers.Count,
+                BlockedRecently = _blocked.Count(kv => now - kv.Value <= BlockedWindow),
                 BypassingClientNames = bypassers,
                 DnsActive = _dnsActive,
                 Sankey = query.IncludeSankey && !query.Ended ? BuildSankey(matching, query.SankeyByFlows, query.SankeyHold) : null,

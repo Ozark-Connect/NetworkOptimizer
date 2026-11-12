@@ -402,6 +402,32 @@ public class LiveTrafficStoreTests
     }
 
     [Fact]
+    public void FirewallBlocksCountYourClientsBlockedConnectionsInTheLastTenMinutes()
+    {
+        static UniFiTrafficFlow Blocked(string id, string direction, DateTime at) => new()
+        {
+            Id = id,
+            Action = "blocked",
+            Direction = direction,
+            Protocol = "TCP",
+            Time = new DateTimeOffset(at, TimeSpan.Zero).ToUnixTimeMilliseconds(),
+            Source = new UniFiTrafficFlowEndpoint { Ip = direction == "incoming" ? "203.0.113.9" : "192.0.2.20", Port = 50000 },
+            Destination = new UniFiTrafficFlowEndpoint { Ip = direction == "incoming" ? "192.0.2.1" : "203.0.113.5", Port = 443 },
+        };
+        var store = SeededStore();
+        var now = DateTime.UtcNow;
+        store.MergeUniFiFlows([
+            Blocked("out", "outgoing", now.AddMinutes(-2)),
+            Blocked("lan", "local", now.AddMinutes(-5)),
+            Blocked("scan", "incoming", now.AddMinutes(-1)),   // the internet's scanners: not counted
+            Blocked("old", "outgoing", now.AddMinutes(-11)),   // past the window
+            Blocked("out", "outgoing", now.AddMinutes(-2)),    // the same record read again
+        ]);
+
+        store.BuildView(Query(), LiveTrafficState.Live).BlockedRecently.Should().Be(2);
+    }
+
+    [Fact]
     public void LeavingLetsTheLeaseRunOutSoAQuickReturnIsStillLive()
     {
         var store = SeededStore();
