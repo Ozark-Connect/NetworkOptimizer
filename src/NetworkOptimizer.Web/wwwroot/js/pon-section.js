@@ -599,6 +599,66 @@ export function updatePonCard(container, cardSelector, chart, series, prepare = 
     if (filled.length && chart) chart.updateSeries(prepare(filled), false);
 }
 
+// Which PON cards the viewer folded away, by the card's name ('loss', 'util', ...). One list for
+// both tabs: the same card shows the same thing over a module or a standalone ONT.
+const COLLAPSED_STORE = 'no-pon-cards-collapsed';
+
+function loadCollapsed() {
+    try {
+        const v = JSON.parse(localStorage.getItem(COLLAPSED_STORE) || '[]');
+        return new Set(Array.isArray(v) ? v.filter(x => typeof x === 'string') : []);
+    } catch { return new Set(); }
+}
+
+function saveCollapsed(set) {
+    try {
+        if (set.size) localStorage.setItem(COLLAPSED_STORE, JSON.stringify([...set]));
+        else localStorage.removeItem(COLLAPSED_STORE);
+    } catch { /* localStorage unavailable: the fold holds for this page only */ }
+}
+
+const CHEVRON_SVG = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 6 15 12 9 18"></polyline></svg>';
+
+/// Let the viewer fold each PON chart card down to its title, remembered per browser. Folding
+/// only hides the card's body: a card with nothing to show still hides itself entirely through
+/// updatePonCard. Safe to call on every mount; a card already wired is left alone.
+export function initPonCardCollapse(section) {
+    if (!section) return;
+    const collapsed = loadCollapsed();
+    section.querySelectorAll('.chart-card').forEach(card => {
+        const name = [...card.classList].map(c => c.match(/-pon-([a-z]+)-card$/)?.[1]).find(Boolean);
+        const header = card.querySelector(':scope > .chart-header');
+        if (!name || !header || header.dataset.ponCollapse) return;
+        header.dataset.ponCollapse = name;
+        header.classList.add('pon-card-header');
+        header.setAttribute('role', 'button');
+        header.tabIndex = 0;
+        const chevron = document.createElement('span');
+        chevron.className = 'collapse-chevron';
+        chevron.innerHTML = CHEVRON_SVG;
+        header.appendChild(chevron);
+        const apply = folded => {
+            card.classList.toggle('pon-card-collapsed', folded);
+            chevron.classList.toggle('expanded', !folded);
+            header.setAttribute('aria-expanded', String(!folded));
+        };
+        apply(collapsed.has(name));
+        const toggle = () => {
+            const set = loadCollapsed();
+            const folded = !card.classList.contains('pon-card-collapsed');
+            if (folded) set.add(name); else set.delete(name);
+            saveCollapsed(set);
+            apply(folded);
+            // A chart drawn or updated while folded has no width; let ApexCharts measure again.
+            if (!folded) window.dispatchEvent(new Event('resize'));
+        };
+        header.addEventListener('click', toggle);
+        header.addEventListener('keydown', e => {
+            if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(); }
+        });
+    });
+}
+
 /// The details table. `labelHeader` names the first column, `extras` appends tab-specific ones.
 /// A column no ONT fills is dropped rather than printed as a row of dashes.
 export function ponDetailsHtml(items, labelHeader, extras = []) {

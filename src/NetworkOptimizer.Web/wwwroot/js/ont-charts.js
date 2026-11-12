@@ -7,7 +7,7 @@ import { valueSortedTooltip, tooltipHeld, alignedPoints } from './chart-tooltip.
 import { renderFilterReset, isFiltered } from './chart-filter.js?v=6';
 import { createMarkLayer } from './chart-event-marks.js?v=13';
 import { createAxisDateCaption } from './chart-axis-date.js?v=5';
-import { ponSeriesFor, ponDetailsHtml, ponErrorTotalsHtml, updatePonCard, ponPayloadMbps, fmtPonLoad, ponLoadSummaryHtml, ponPathSummaryHtml, ponLaunchSeries, ponAvailSummaryHtml, ponGrantSummaryHtml, createPonLoadMap, ponCheckHtml, ponFecSummaryHtml, ponLaserSummaryHtml, ponProviderHtml } from './pon-section.js?v=17';
+import { ponSeriesFor, ponDetailsHtml, ponErrorTotalsHtml, updatePonCard, ponPayloadMbps, fmtPonLoad, ponLoadSummaryHtml, ponPathSummaryHtml, ponLaunchSeries, ponAvailSummaryHtml, ponGrantSummaryHtml, createPonLoadMap, ponCheckHtml, ponFecSummaryHtml, ponLaserSummaryHtml, ponProviderHtml, initPonCardCollapse } from './pon-section.js?v=18';
 import { syncIdentity } from './chart-sync.js?v=9';
 import { awaitContainer } from './chart-mount.js?v=1';
 import { loadWindowHours, saveWindowHours, markActiveRange, notifyWindowMoved } from './chart-window.js?v=2';
@@ -606,6 +606,7 @@ export async function mount(elId) {
     if (containerId !== elId) return;
 
     if (restoredHours !== null) markActiveRange(container, restoredHours);
+    initPonCardCollapse(container.querySelector('.ont-errors-section'));
 
     const powerEl = container.querySelector('.ont-power-chart');
     const tempEl = container.querySelector('.ont-temp-chart');
