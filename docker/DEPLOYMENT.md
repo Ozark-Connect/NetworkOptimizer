@@ -1463,6 +1463,16 @@ Your monitoring data sits in plain InfluxDB 2.x buckets, so you can point your o
 
 The schema is stable: measurement and field names only ever get added, never renamed or removed (Network Optimizer's own charts depend on them), so anything you build keeps working across upgrades.
 
+## What Live Traffic Stores
+
+Live Traffic shows which apps, protocols, destinations, and DNS lookups each client uses. Network Optimizer stores none of that detail. It exists only in memory, for as long as someone is viewing it.
+
+- **Flows and Live DNS** (On-Site Agent on the gateway): the agent reads the gateway's conntrack table, and DNS traffic, and sends per-flow and DNS detail only while a Live Traffic view is open. The detail travels over the agent's HTTPS tunnel. The agent never writes it to its disk buffer, and it stops sending on its own after the view closes. The server keeps it in memory only.
+- **Flow history**: for past time ranges, and on sites without a gateway agent, Live Traffic reads UniFi Network's own flow history from the UniFi Console. Network Optimizer caches it in memory and never copies it to its own storage. UniFi Network decides how long that history is kept.
+- **Usage totals**: the one thing Network Optimizer stores is how many bytes each client sent and received over the WAN, with no app, protocol, port, or destination attached. The gateway agent counts it, and with InfluxDB configured it goes to the `client_wan` measurement at the monitoring buckets' retention (90 days raw and 365 days as hourly totals, by default). It feeds the Live Traffic ranking from the last hour to 30 days, and the per-client usage in Client Performance.
+
+If a future release keeps a history of client activity (which apps, protocols, or destinations a client used), that history will be opt-in and off by default.
+
 ## Tailscale (Optional)
 
 Settings - Connection - **Tailscale** resolves Tailscale devices in Client Performance, speed test results, and Live Traffic, and shows whether each one connects directly or through a relay. Network Optimizer only reads: it never changes the tailnet. Set it per site.
