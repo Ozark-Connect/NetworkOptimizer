@@ -48,10 +48,13 @@ export function unwatchVisibility(id) {
 function track(scroller) {
     let s = scrolls.get(scroller);
     if (s) return s;
-    s = { lastTop: scroller.scrollTop, own: 0, moved: 0, idle: 0 };
+    const atEnd = () => scroller.scrollTop + scroller.clientHeight >= scroller.scrollHeight - 2;
+    s = { lastTop: scroller.scrollTop, own: 0, moved: 0, idle: 0, atEnd: atEnd() };
     const target = scroller === document.scrollingElement || scroller === document.documentElement ? window : scroller;
     target.addEventListener('scroll', () => {
         const top = scroller.scrollTop;
+        // Scrolled to the end, as of the last scroll: read before an update changes the page's height.
+        s.atEnd = atEnd();
         const user = Math.abs(top - s.lastTop - s.own);
         s.moved += user;
         s.own = 0;
@@ -134,9 +137,9 @@ export function watch(rootSelector, listSelector) {
 const cardHolds = new WeakMap();
 
 /**
- * A [data-hold-in-view] card the user is reading (its top in the upper half of the view, or above it)
- * keeps its place on screen while content above it changes height. iOS Safari has no scroll anchoring,
- * so without this the Live DNS card under Flows drifts on every update.
+ * A [data-hold-in-view] card the user is reading (its top in the upper half of the view or above it, or
+ * the page scrolled to its end with the card on screen) keeps its place on screen while content above
+ * it changes height. iOS Safari has no scroll anchoring, so without this Live DNS under Flows drifts.
  * recordOnly: an expanded row was held this pass, or the tab just came back.
  */
 function holdCards(root, recordOnly) {
@@ -146,11 +149,12 @@ function holdCards(root, recordOnly) {
         const y = card.getBoundingClientRect().top + scroller.scrollTop;
         const before = cardHolds.get(card);
         cardHolds.set(card, { y, scroller });
+        const s = track(scroller);
         if (recordOnly || !before || before.scroller !== scroller || Math.abs(y - before.y) < 1) continue;
         const [viewTop, viewBottom] = viewOf(scroller);
         const wasTop = before.y - scroller.scrollTop;
-        if (wasTop > viewTop + (viewBottom - viewTop) / 2 || wasTop + card.offsetHeight <= viewTop) continue;
-        const s = track(scroller);
+        const reading = wasTop <= viewTop + (viewBottom - viewTop) / 2 || (s.atEnd && wasTop < viewBottom);
+        if (!reading || wasTop + card.offsetHeight <= viewTop) continue;
         const from = scroller.scrollTop;
         scroller.scrollBy({ top: y - before.y, behavior: 'instant' });
         s.own += scroller.scrollTop - from;
