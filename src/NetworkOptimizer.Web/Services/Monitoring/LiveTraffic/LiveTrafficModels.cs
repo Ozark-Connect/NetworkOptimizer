@@ -174,6 +174,8 @@ public sealed record LiveFlowRow
     public string? RemoteNetwork { get; init; }
     /// <summary>The site whose public address the remote end is (a site WAN), or null.</summary>
     public string? RemoteSite { get; init; }
+    /// <summary>The remote end is in Trusted Sources' Extra Trusted Addresses (and is not one of the sites).</summary>
+    public bool RemoteTrusted { get; init; }
     /// <summary>The organization that owns the remote address (GeoLite2 ASN), or null.</summary>
     public string? RemoteOrg { get; init; }
     /// <summary>The ASN announcing the remote address (GeoLite2 ASN), or null.</summary>

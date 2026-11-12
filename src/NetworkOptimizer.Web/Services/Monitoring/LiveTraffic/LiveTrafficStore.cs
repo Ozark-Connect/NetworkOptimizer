@@ -1135,6 +1135,7 @@ public sealed class LiveTrafficStore
             AppIsFallback = appIsFallback,
             IspCache = ispCache,
             RemoteSite = remoteSite,
+            RemoteTrusted = !f.Lan && remoteSite == null && IsTrusted(f.RemoteIp),
             RemoteClientMac = peer?.Mac,
             RemoteDeviceMac = DeviceMacFor(_gatewayIps.Contains(f.RemoteIp), peer?.Mac ?? ""),
             RemoteClientVia = peer == null ? (tailnetPeer != null ? "Tailscale" : null) : peer.Via ?? peer.Network,
@@ -1392,7 +1393,8 @@ public sealed class LiveTrafficStore
             {
                 var ips = d.Select(r => r.DestinationIp).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
                 return new LiveSankeyDestination(d.Key, ips.Count == 1 ? ips[0] : null, d.Sum(V), Down(d), Up(d),
-                    d.Select(r => r.RemoteSite).FirstOrDefault(s => s != null), d.Select(r => r.IspCache).FirstOrDefault(c => c != null));
+                    d.Select(r => r.RemoteSite ?? (r.RemoteTrusted ? "Trusted" : null)).FirstOrDefault(s => s != null),
+                    d.Select(r => r.IspCache).FirstOrDefault(c => c != null));
             }).ToList();
             return new LiveSankeyNode(2, g.Key, g.Sum(V), LiveTrafficField.Route, g.First().RouteKind, false,
                 DownBps: Down(g), UpBps: Up(g), Destinations: top, MoreDestinations: dests.Count - top.Count);
@@ -1850,6 +1852,29 @@ public sealed class LiveTrafficStore
             _siteByPrefix = prefixes;
         }
     }
+
+    /// <summary>Trusted Sources' Extra Trusted Addresses: single addresses and CIDR ranges, IPv4 or IPv6.</summary>
+    public void SetTrustedAddresses(IEnumerable<string> addresses)
+    {
+        var exact = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var prefixes = new List<string>();
+        foreach (var address in addresses)
+        {
+            if (address.Contains('/')) prefixes.Add(address);
+            else exact.Add(address);
+        }
+        lock (_gate)
+        {
+            _trustedAddresses = exact;
+            _trustedPrefixes = prefixes;
+        }
+    }
+
+    private HashSet<string> _trustedAddresses = new(StringComparer.OrdinalIgnoreCase);
+    private List<string> _trustedPrefixes = new();
+
+    private bool IsTrusted(string ip) =>
+        _trustedAddresses.Contains(ip) || _trustedPrefixes.Any(p => NetworkUtilities.IsIpInSubnet(ip, p));
 
     /// <summary>The subnets of the site's own Networks (UniFi network configs), IPv4 and IPv6.</summary>
     public void SetSiteNetworks(IEnumerable<string> subnets)

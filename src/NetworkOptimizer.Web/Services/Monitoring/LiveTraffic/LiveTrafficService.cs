@@ -526,6 +526,7 @@ public sealed class LiveTrafficService : ILiveTrafficService
                 .ToDictionary(g => g.Key, g => g.First().Name, StringComparer.OrdinalIgnoreCase);
             store.SetSiteAddresses(overview.Sites.SelectMany(s =>
                 s.Addresses.Select(a => (a.Address, names.GetValueOrDefault(s.Slug) ?? s.Slug))));
+            store.SetTrustedAddresses(NetworkOptimizer.Threats.Blocking.BlockAllowlist.ParseList(overview.Extras));
         }
         catch (Exception ex)
         {

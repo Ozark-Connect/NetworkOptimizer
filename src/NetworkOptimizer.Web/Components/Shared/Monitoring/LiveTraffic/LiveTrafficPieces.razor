@@ -180,11 +180,12 @@
         </span>
     };
 
-    /// <summary>The site whose public address this is, beside the destination.</summary>
+    /// <summary>The site whose public address this is, or Trusted for an Extra Trusted Address, beside the destination.</summary>
     protected static RenderFragment SiteBadge(LiveFlowRow f) => __builder =>
     {
-        if (string.IsNullOrEmpty(f.RemoteSite)) return;
-        <span class="lt-tag lt-site-badge">@f.RemoteSite</span>
+        var badge = !string.IsNullOrEmpty(f.RemoteSite) ? f.RemoteSite : f.RemoteTrusted ? "Trusted" : null;
+        if (badge == null) return;
+        <span class="lt-tag lt-site-badge">@badge</span>
     };
 
     /// <summary>A CDN cache inside the ISP's network, beside the destination; the tooltip names the cache and the network.</summary>

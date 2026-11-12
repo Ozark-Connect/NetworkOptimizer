@@ -321,7 +321,11 @@
         {
             <dt>Site</dt><dd>@f.RemoteSite</dd>
         }
-        else if (!string.IsNullOrEmpty(f.RemoteOrg))
+        else if (f.RemoteTrusted)
+        {
+            <dt>Trusted</dt><dd>Extra Trusted Addresses</dd>
+        }
+        @if (string.IsNullOrEmpty(f.RemoteSite) && !string.IsNullOrEmpty(f.RemoteOrg))
         {
             <dt>ASN</dt><dd>@f.RemoteOrg@(f.RemoteAsn is { } asn ? $" (AS{asn})" : "")</dd>
         }

@@ -185,6 +185,27 @@ public class LiveTrafficStoreTests
     }
 
     [Fact]
+    public void ExtraTrustedAddressesMarkTheirDestinationsUnlessTheyAreASite()
+    {
+        var store = SeededStore();
+        store.SetSiteAddresses([("203.0.113.9", "Lake House")]);
+        store.SetTrustedAddresses(["203.0.113.0/28", "198.51.100.40"]);
+        store.Ingest(Batch(
+            Flow("range", Laptop, "192.0.2.20", "203.0.113.5", 443, "eth4", 3_000_000, 10_000),
+            Flow("exact", Laptop, "192.0.2.20", "198.51.100.40", 443, "eth4", 2_000_000, 10_000),
+            Flow("site", Laptop, "192.0.2.20", "203.0.113.9", 443, "eth4", 1_500_000, 10_000),
+            Flow("other", Laptop, "192.0.2.20", "198.51.100.41", 443, "eth4", 1_000_000, 10_000)));
+
+        var rows = store.BuildView(Query(), LiveTrafficState.Live).Flows.ToDictionary(f => f.Key);
+
+        rows["range"].RemoteTrusted.Should().BeTrue();
+        rows["exact"].RemoteTrusted.Should().BeTrue();
+        rows["site"].RemoteTrusted.Should().BeFalse("a site's own address shows the site instead");
+        rows["site"].RemoteSite.Should().Be("Lake House");
+        rows["other"].RemoteTrusted.Should().BeFalse();
+    }
+
+    [Fact]
     public void LanDestinationsThatAreTheSitesOwnLinkLikeClients()
     {
         const string ap = "aa:bb:cc:dd:ee:30";
