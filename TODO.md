@@ -799,6 +799,25 @@ against the coverage where it ran.
 
 Check CellMapper's terms and whether it offers an API before building.
 
+### Live Traffic: flows that end on the Gateway itself
+
+Live's Flows leave out traffic to the Gateway: Client DNS to the Gateway's resolver, SSH or the console
+UI on its address, and Network Optimizer polling Adaptive SQM's TC monitor (TCP 8088). History shows
+them, since UniFi Network's records include the Gateway zone.
+
+Why: `LiveFlowTracker.Describe` (Monitoring, runs in the On-Gateway Agent) keeps a flow only when
+`ConntrackClassifier` reads it as WAN (`ClassifyWan`) or routed LAN between two Clients
+(`ClassifyRoutedLan`). A flow whose destination is one of the Gateway's own addresses is neither, so it
+returns null and never leaves the Agent.
+
+To do: a third class in `ConntrackClassifier` for a LAN Client to a Gateway address (and the reverse,
+the Gateway reaching a Client), carried as `Lan` with the Gateway as the remote, so the server's naming
+applies: the Gateway by name, "Adaptive SQM" on 8088 (`LiveTrafficStore.AdaptiveSqmMonitor`, which
+today only ever fires in History), DNS to the Gateway. It is an Agent change: bump `LatestAgentVersion`
+in the release that ships it, optional for the fleet. Check the volume first: every Client's DNS to the
+Gateway is a flow, so these may need their own cap or to sort below routed traffic in a busy site's top
+500 (`LeaseMaxFlows`).
+
 ## VPN Clients Dashboard
 
 A dashboard for clients reaching the site over a VPN: connections through an external Tailscale
