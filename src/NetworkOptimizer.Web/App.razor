@@ -402,8 +402,11 @@
 
         // One tooltip on screen at a time: the newest one to mount hides the rest at once. A plugin, not a
         // default onMount, because a tooltip's own onMount replaces a default but runs beside a plugin.
+        // Fixed positioning: a tooltip or card that follows its reference out of the scroll area never
+        // grows the document, which flashed a second, whole-page scrollbar beside .page-content's.
         if (window.tippy) {
             tippy.setDefaultProps({
+                popperOptions: { strategy: 'fixed' },
                 plugins: [{
                     name: 'newestOnly',
                     fn: function (instance) {
