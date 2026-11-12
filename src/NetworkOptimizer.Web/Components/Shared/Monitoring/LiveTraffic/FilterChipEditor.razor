@@ -35,7 +35,7 @@
                 <div class="lt-fpop-sep">Not moving now</div>
             }
             var on = Selected.Contains(item.Value);
-            <label class="lt-fpop-item @(index == _highlight ? "is-active" : null) @(item.Idle ? "is-idle" : null)"
+            <label @key="item.Value" class="lt-fpop-item @(index == _highlight ? "is-active" : null) @(item.Idle ? "is-idle" : null)"
                    role="option" aria-selected="@(on ? "true" : "false")" @onmouseenter="() => _highlight = index">
                 <input type="checkbox" checked="@on" @onchange="() => OnToggle.InvokeAsync(item.Value)" />
                 <span class="lt-fpop-name">@(item.Typed ? $"Add \"{item.Value}\"" : item.Value)</span>
@@ -74,20 +74,18 @@
 
     private sealed record Item(string Value, int Count, bool Idle, bool Typed);
 
-    /// <summary>
-    /// The chip's own values first (one with no rows now still shows), then the rest by count, idle clients
-    /// last. A typed value nothing matches exactly is offered as an Add row.
-    /// </summary>
+    /// <summary>Fixed while the editor is open, so a tick or a refresh never moves a row under the pointer.</summary>
+    private readonly FacetRowOrder _order = new();
+
+    /// <summary>The rows in their fixed order; a typed value nothing matches exactly is offered as an Add row on top.</summary>
     private List<Item> Items()
     {
         var q = _search.Trim();
-        bool Hit(string v) => q.Length == 0 || v.Contains(q, StringComparison.OrdinalIgnoreCase);
-        var byValue = Facets.GroupBy(f => f.Value, StringComparer.OrdinalIgnoreCase).ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
-        var items = Selected.Where(Hit).Order(StringComparer.OrdinalIgnoreCase)
-            .Select(v => byValue.TryGetValue(v, out var f) ? new Item(f.Value, f.Count, false, false) : new Item(v, 0, false, false))
+        var now = Facets.GroupBy(f => f.Value, StringComparer.OrdinalIgnoreCase).ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
+        var items = _order.Arrange(Selected, Facets)
+            .Where(v => q.Length == 0 || v.Contains(q, StringComparison.OrdinalIgnoreCase))
+            .Select(v => now.TryGetValue(v, out var f) ? new Item(v, f.Count, f.Idle, false) : new Item(v, 0, _order.WasIdle(v), false))
             .ToList();
-        items.AddRange(Facets.Where(f => !Selected.Contains(f.Value) && Hit(f.Value))
-            .OrderBy(f => f.Idle).Select(f => new Item(f.Value, f.Count, f.Idle, false)));
         if (q.Length > 0 && !items.Any(i => i.Value.Equals(q, StringComparison.OrdinalIgnoreCase)))
             items.Insert(0, new Item(q, 0, false, Typed: true));
         return items;
