@@ -816,18 +816,7 @@
                 .catch(function (err) { console.warn('Name This App', err); });
         }, true);
 
-        // Live Traffic filter chips: a double-click selects a value whole and copies it, for a search
-        // outside the app. A value that links to Threats waits out the double-click before it navigates.
-        var chipLinkTimer = null;
-        document.addEventListener('click', function (e) {
-            var link = e.target.closest && e.target.closest('.lt-chip-link');
-            if (!link || e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;
-            e.preventDefault();
-            clearTimeout(chipLinkTimer);
-            if (e.detail > 1) return;
-            var href = link.href;
-            chipLinkTimer = setTimeout(function () { Blazor.navigateTo(href); }, 300);
-        }, true);
+        // Live Traffic filter chips: a double-click selects a value whole and copies it, for a search outside the app.
         document.addEventListener('dblclick', function (e) {
             var value = e.target.closest && e.target.closest('.lt-chip b');
             if (!value) return;

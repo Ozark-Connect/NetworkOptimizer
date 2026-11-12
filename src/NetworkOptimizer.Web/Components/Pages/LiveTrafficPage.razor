@@ -1207,14 +1207,7 @@
                             {
                                 @ChipAppIcon(value)
                             }
-                            @if (chipDest != null && LiveTrafficLinks.ThreatsDrilldown(chipDest) is { } drill)
-                            {
-                                <a class="lt-chip-link" href="@drill" @onclick:stopPropagation><b>@value</b></a>
-                            }
-                            else
-                            {
-                                <b>@value</b>
-                            }
+                            <b>@value</b>
                         }
                         @if (values.Count > ChipValuesShown)
                         {
