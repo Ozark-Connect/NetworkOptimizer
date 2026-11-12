@@ -61,8 +61,10 @@ public sealed record LiveTrafficQuery
 /// <summary>
 /// One value a chip editor offers, with how many rows carry it under every other filter (this field's own
 /// chips set aside, so a second value can be added). Hidden: in the data, but every row carrying it is
-/// filtered out by the other chips or the search. Idle: a site client with no traffic now, and Offline as
-/// well when the console lists it as recently offline. All of those have count 0.
+/// filtered out by the other chips or the search. Idle and Offline are the two quiet sections, by field:
+/// for Client, online with no traffic now and recently offline; for App, named by UniFi Network's records
+/// in the last ten minutes and the site's Custom Apps; for Route, the routes carrying nothing now. All of
+/// those have count 0.
 /// </summary>
 public sealed record LiveFacetValue(string Value, int Count, bool Idle = false, bool Hidden = false, bool Offline = false)
 {

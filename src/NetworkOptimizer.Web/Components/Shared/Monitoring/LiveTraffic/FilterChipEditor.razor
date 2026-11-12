@@ -83,10 +83,14 @@
     /// <summary>Rank is the section (<see cref="LiveFacetValue.Rank"/>): 0 has a count, the rest are muted under a label.</summary>
     private sealed record Item(string Value, int Count, int Rank, bool Typed);
 
-    private static string SectionLabel(int rank) => rank switch
+    /// <summary>The quiet sections mean different things by field: idle and offline clients, recent and custom apps, unused routes.</summary>
+    private string SectionLabel(int rank) => (rank, Field) switch
     {
-        1 => "Hidden by other filters",
-        2 => "No traffic now",
+        (1, _) => "Hidden by other filters",
+        (2, LiveTrafficField.App) => "Seen in the last 10 minutes",
+        (3, LiveTrafficField.App) => "Custom Apps",
+        (2, LiveTrafficField.Route) => "Not in use now",
+        (2, _) => "No traffic now",
         _ => "Offline",
     };
 

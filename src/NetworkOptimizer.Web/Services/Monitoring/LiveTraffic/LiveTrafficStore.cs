@@ -864,14 +864,26 @@ public sealed class LiveTrafficStore
             : rows.Where(r => Matches(r, filters, search)).Select(r => FacetValueOf(r, field));
         var counted = CountFacets(Values(others, query.Search));
         var result = WithHidden(counted, Values(Array.Empty<LiveTrafficFilter>(), null));
-        if (field != LiveTrafficField.Client) return result;
         var seen = result.Select(v => v.Value).ToHashSet(StringComparer.OrdinalIgnoreCase);
-        IEnumerable<string> Unseen(IEnumerable<LiveClientInfo> clients) => clients.Select(c => c.Name)
-            .Where(n => !string.IsNullOrWhiteSpace(n) && seen.Add(n)).Order(StringComparer.OrdinalIgnoreCase).ToList();
-        var idle = Unseen(_onlineClients).Select(n => new LiveFacetValue(n, 0, Idle: true))
-            .Concat(Unseen(_recentClients).Select(n => new LiveFacetValue(n, 0, Idle: true, Offline: true)))
-            .Take(Math.Max(0, MaxFacetValues - result.Count));
-        return result.Concat(idle).ToList();
+        IEnumerable<string> Unseen(IEnumerable<string?> names) =>
+            names.Where(n => !string.IsNullOrWhiteSpace(n) && seen.Add(n!)).Select(n => n!).Order(StringComparer.OrdinalIgnoreCase).ToList();
+        // The two quiet sections (ranks 2 and 3), by field. Client: online with no traffic, then recently
+        // offline. App: named by UniFi Network's records in the last ten minutes, then the site's Custom Apps.
+        var (quiet, quieter) = field switch
+        {
+            LiveTrafficField.Client => (Unseen(_onlineClients.Select(c => c.Name)), Unseen(_recentClients.Select(c => c.Name))),
+            LiveTrafficField.App => (Unseen(_uniFiFlows.Values.Where(m => now - m.Seen <= UniFiMatchKept).Select(m => m.App)),
+                Unseen(_customApps.Select(r => r.Name))),
+            // Route: the site's WANs and VPN routes, and LAN, that carry nothing right now.
+            LiveTrafficField.Route => (Unseen(_routesByIfname.Values.Append(_defaultRoute).Select(r => r?.Name).Append("LAN")),
+                Enumerable.Empty<string>()),
+            _ => (Enumerable.Empty<string>(), Enumerable.Empty<string>()),
+        };
+        return result
+            .Concat(quiet.Select(n => new LiveFacetValue(n, 0, Idle: true)))
+            .Concat(quieter.Select(n => new LiveFacetValue(n, 0, Idle: true, Offline: true)))
+            .Take(MaxFacetValues)
+            .ToList();
     }
 
     /// <summary>The counted values, then every other value in <paramref name="all"/> as Hidden, within the cap.</summary>

@@ -116,7 +116,7 @@ Time-series monitoring on your own InfluxDB, fed by SNMP polling (InfluxDB).
     - Click any client, destination, app, route, protocol, or port to filter to it, and again to let it go; hide a value with the button beside it or Alt-click; filters are in the link
       - Several values of one kind match any of them (this client or that one) and share one chip ("Client Laptop or TV"); different kinds all apply
       - Click a chip to edit it: every value of that kind with how many flows carry it, search or type one that is not on screen, Include or Exclude
-        - Muted below: values the other filters hide, and clients with no traffic now or offline
+        - Muted below: values the other filters hide; clients with no traffic now or offline; apps seen in the last 10 minutes and your Custom Apps; routes carrying nothing, LAN included
       - **+ Filter** picks a kind to filter by (Client, Destination, App, Route, Protocol, Port, Resolver, or Action in History)
       - **N clients bypassing** on the Live DNS tile filters to those clients, with Live DNS on **Bypass**
       - **N firewall blocks** on the Active flows tile: your clients' blocked connections in the last 10 minutes; opens History filtered to Blocked

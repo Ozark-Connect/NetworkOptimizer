@@ -426,6 +426,18 @@ public class LiveTrafficStoreTests
     }
 
     [Fact]
+    public void RoutesCarryingNothingAreOfferedQuietlyLanIncluded()
+    {
+        var store = SeededStore();
+        store.Ingest(Batch(Flow("a", Laptop, "192.0.2.20", "203.0.113.5", 443, "eth4", 1000, 10)));
+
+        var routes = store.BuildView(Query() with { FacetField = LiveTrafficField.Route }, LiveTrafficState.Live).Facets;
+
+        routes.First().Count.Should().Be(1, "the WAN the flow uses is moving");
+        routes.Should().Contain(new LiveFacetValue("LAN", 0, Idle: true), "no traffic between VLANs right now");
+    }
+
+    [Fact]
     public void FirewallBlocksCountYourClientsBlockedConnectionsInTheLastTenMinutes()
     {
         static UniFiTrafficFlow Blocked(string id, string direction, DateTime at) => new()
