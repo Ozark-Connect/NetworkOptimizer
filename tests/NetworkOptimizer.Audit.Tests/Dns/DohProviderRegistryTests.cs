@@ -64,6 +64,30 @@ public class DohProviderRegistryTests : IDisposable
         result.Should().BeNull();
     }
 
+    [Theory]
+    [InlineData("dns.nextdns.io", "NextDNS")]
+    [InlineData("dns.nextdns.io.", "NextDNS")]
+    [InlineData("dns2.nextdns.io", "NextDNS")]
+    [InlineData("security.cloudflare-dns.com", "Cloudflare")]
+    [InlineData("dns.google", "Google")]
+    [InlineData("dns.controld.com", "ControlD")]
+    public void IdentifyProviderFromResolverHost_ResolverHost_ReturnsProvider(string host, string expected)
+    {
+        DohProviderRegistry.IdentifyProviderFromResolverHost(host)!.Name.Should().Be(expected);
+    }
+
+    [Theory]
+    [InlineData("my.nextdns.io")]
+    [InlineData("api.nextdns.io")]
+    [InlineData("controld.example.com")]
+    [InlineData("dnsnextdns.io")]
+    [InlineData("")]
+    [InlineData(null)]
+    public void IdentifyProviderFromResolverHost_NotAResolverHost_ReturnsNull(string? host)
+    {
+        DohProviderRegistry.IdentifyProviderFromResolverHost(host).Should().BeNull();
+    }
+
     [Fact]
     public void IdentifyProvider_EmptyHostname_ReturnsNull()
     {

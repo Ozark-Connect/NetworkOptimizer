@@ -836,6 +836,19 @@ public class LiveTrafficStoreTests
     }
 
     [Fact]
+    public void EncryptedDnsToAnUnlistedAddressIsFoundByItsPtr()
+    {
+        var store = SeededStore();
+        store.Ingest(Batch(Flow("doh", Laptop, "192.0.2.20", "203.0.113.9", 443, "eth4", 1000, 1000)));
+        store.SetPtrNames(new Dictionary<string, string?> { ["203.0.113.9"] = "dns.nextdns.io" });
+
+        var view = store.BuildView(Query(), LiveTrafficState.Live);
+
+        view.Flows.Single().DnsBypass.Should().BeTrue();
+        view.Dns.Single(d => d.Encrypted).Name.Should().Be("NextDNS");
+    }
+
+    [Fact]
     public void SiteResolverPlainUpstreamIsABypass()
     {
         var store = SeededStore();

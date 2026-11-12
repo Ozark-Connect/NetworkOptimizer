@@ -276,7 +276,8 @@ public sealed class FlowHistoryCache
             ? (proto == "UDP" && service is "HTTPS" ? "QUIC" : service)
             : barePort;
         var encryptedDns = remotePort == 853
-            || (remotePort == 443 && kind != LiveRouteKind.Lan && DohProviderRegistry.IdentifyProviderFromIp(remote.Ip!) != null);
+            || (remotePort == 443 && kind != LiveRouteKind.Lan && (DohProviderRegistry.IdentifyProviderFromIp(remote.Ip!) != null
+                || remote.Domains?.Any(d => DohProviderRegistry.IdentifyProviderFromResolverHost(d) != null) == true));
         if (app == null && encryptedDns) app = remotePort == 853 ? (proto == "UDP" ? "DNS over QUIC" : "DNS over TLS") : "DNS over HTTPS";
         // The console's own domains for the remote, as Live names an app it has not: before the port name.
         app ??= remote.Domains?.Select(d => DomainAppCatalog.AppFor(d)).FirstOrDefault(n => n != null);

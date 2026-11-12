@@ -897,8 +897,10 @@ public sealed class LiveTrafficStore
 
         // A site resolver's own encrypted upstream, the gateway's included, is the site's DNS working as
         // intended, not a bypass. Its plain-DNS upstream still counts: that shows as a lookup to a public resolver.
+        // A provider's resolver by address first, then by its host name (NextDNS's unicast PoPs).
         var encryptedDns = f.RemotePort == 853
-            || (f.RemotePort == 443 && !f.Lan && DohProviderRegistry.IdentifyProviderFromIp(f.RemoteIp) != null);
+            || (f.RemotePort == 443 && !f.Lan && (DohProviderRegistry.IdentifyProviderFromIp(f.RemoteIp) != null
+                || DohProviderRegistry.IdentifyProviderFromResolverHost(hostName) != null));
         var resolverUpstream = encryptedDns
             && (f.Gateway || _gatewayIps.Contains(f.ClientIp) || IsSiteResolver(f.ClientIp, mac));
 
@@ -1232,7 +1234,8 @@ public sealed class LiveTrafficStore
         // A site resolver's own upstream is listed too, just not as a bypass.
         foreach (var r in active.Where(r => r.EncryptedDns))
         {
-            var provider = DohProviderRegistry.IdentifyProviderFromIp(r.DestinationIp)?.Name;
+            var provider = (DohProviderRegistry.IdentifyProviderFromIp(r.DestinationIp)
+                ?? DohProviderRegistry.IdentifyProviderFromResolverHost(r.Destination))?.Name;
             rows.Add(new LiveDnsRow(r.Started ?? now, r.ClientName, r.ClientIp, provider ?? r.Destination,
                 r.RemotePort == 853 ? "DoT" : "DoH", r.DestinationIp, r.DestinationIp, r.DnsBypass, true, "", 0, true,
                 ClientMac: r.ClientMac));
