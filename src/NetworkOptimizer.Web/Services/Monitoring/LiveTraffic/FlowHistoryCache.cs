@@ -293,6 +293,8 @@ public sealed class FlowHistoryCache
         }
 
         string? app = DomainAppCatalog.ProtocolApp(proto)
+            // UDP 41641 on either end, ahead of DPI (which calls it STUN or WireGuard), as Live names it.
+            ?? DomainAppCatalog.TailscaleApp(proto.ToLowerInvariant(), local.Port ?? 0, remotePort)
             ?? (LiveTrafficStore.AdaptiveSqmMonitor(proto, remotePort, remoteIsGateway) ? "Adaptive SQM" : null), category = null;
         if (app == null && f.Application is { App: { } a, Category: { } c })
         {

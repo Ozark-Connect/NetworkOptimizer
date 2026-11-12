@@ -90,6 +90,22 @@ public class FlowHistoryCacheTests
     }
 
     [Fact]
+    public void UdpOn41641EitherEndIsTailscale()
+    {
+        // The client's own source port, to a DERP / STUN server on 3478.
+        var fromSource = Record("a", DateTime.UtcNow, port: 3478, proto: "UDP");
+        fromSource.Source!.Port = 41641;
+        fromSource.Destination!.Domains = null;
+        // A peer's endpoint on 41641.
+        var toPeer = Record("b", DateTime.UtcNow, port: 41641, proto: "UDP");
+        toPeer.Destination!.Domains = null;
+
+        FlowHistoryCache.ToRow(fromSource, Wans, "Gateway")!.App.Should().Be("Tailscale");
+        FlowHistoryCache.ToRow(toPeer, Wans, "Gateway")!.App.Should().Be("Tailscale");
+        FlowHistoryCache.ToRow(Record("c", DateTime.UtcNow, port: 41641, proto: "TCP"), Wans, "Gateway")!.App.Should().NotBe("Tailscale");
+    }
+
+    [Fact]
     public void UniFiDevicesAreNamedByTheSitesDeviceList()
     {
         var devices = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
