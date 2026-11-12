@@ -1514,5 +1514,15 @@ public class LiveTrafficStoreTests
 
         rows["stun"].Destination.Should().Be("Tailscale DERP (Dallas)");
         rows["stun"].DestinationSub.Should().Be("STUN");
+        rows["stun"].App.Should().Be("Tailscale", "Tailscale's STUN is Tailscale's, ahead of the port's name");
         rows["relay"].DestinationSub.Should().Be("DERP relay");
+    }
+
+    [Fact]
+    public void StunToAnyoneElseIsNamedByItsPort()
+    {
+        var store = SeededStore();
+        store.Ingest(Batch(Flow("stun", Laptop, "192.0.2.20", "203.0.113.70", 3478, "eth4", 100, 100, proto: "udp")));
+
+        store.BuildView(Query(), LiveTrafficState.Live).Flows.Single().App.Should().Be("STUN");
     }}
