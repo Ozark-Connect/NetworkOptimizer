@@ -193,6 +193,7 @@ public sealed class FlowHistoryCache
                 MatchingBlocked = windowed.Count(IsBlocked),
                 MatchingBytes = windowed.Sum(r => r.TotalBytes),
                 TotalFlows = all.Count,
+                TotalBlocked = all.Count(IsBlocked),
                 Facets = query.FacetField is { } facet ? Facets(facet, all, query) : Array.Empty<LiveFacetValue>(),
             };
         }

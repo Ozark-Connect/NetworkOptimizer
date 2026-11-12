@@ -311,6 +311,11 @@ public sealed record LiveHistoryView
     public long MatchingBytes { get; init; }
     /// <summary>Every record the console holds.</summary>
     public int TotalFlows { get; init; }
+    /// <summary>
+    /// How many of <see cref="TotalFlows"/> were blocked, before any filter. Equal to it when the Gateway
+    /// logs only blocked traffic (a UDR7, for one), which the page says.
+    /// </summary>
+    public int TotalBlocked { get; init; }
     /// <summary>The open chip editor's values, most rows first; empty when none is open.</summary>
     public IReadOnlyList<LiveFacetValue> Facets { get; init; } = Array.Empty<LiveFacetValue>();
 }

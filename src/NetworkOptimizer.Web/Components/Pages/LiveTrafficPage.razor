@@ -23,7 +23,7 @@
         <PageBackButton />
         <div>
             <h1>Live Traffic</h1>
-            <p class="page-description">@(_historyMode ? "The flows UniFi Network still holds, to sift by time, client, app, or what was blocked" : "Every flow through the gateway, ranked by what is using the link right now")</p>
+            <p class="page-description">@(_historyMode ? "UniFi Network's recent flows, by time, Client, App, and what was blocked" : "Every flow through the Gateway, ranked by what is using the link right now")</p>
         </div>
         <div class="page-header-actions">
             <div class="time-range-selector" data-tour="live-traffic-history">
@@ -1367,6 +1367,11 @@
         }
 
         var h = _history;
+        @* Some Gateways (a UDR7, for one) log only what they block: History then holds no allowed flows at all. *@
+        if (h.TotalFlows > 0 && h.TotalBlocked == h.TotalFlows)
+        {
+            <div class="alert-info lt-history-blocked-only">UniFi Network is recording only blocked traffic for this Gateway, so History shows what was blocked, not allowed flows.</div>
+        }
         <div class="card lt-timeline-card">
             <div class="card-header">
                 <div class="card-title-group">

@@ -90,6 +90,22 @@ public class FlowHistoryCacheTests
     }
 
     [Fact]
+    public void TotalBlockedCountsEveryBlockedRecordBeforeTheFilters()
+    {
+        var now = DateTime.UtcNow;
+        var cache = new FlowHistoryCache();
+        cache.Merge([Record("a", now, action: "blocked"), Record("b", now, action: "blocked", clientIp: "192.0.2.21")], now, cache.Generation);
+
+        // A filter that matches nothing still leaves the totals: every record held is blocked.
+        var view = cache.BuildView(new LiveHistoryQuery { ViewerId = "v", Filters = [new(LiveTrafficField.App, "Nothing")] },
+            LiveHistoryState.Ready, now);
+
+        view.TotalFlows.Should().Be(2);
+        view.TotalBlocked.Should().Be(2);
+        view.MatchingFlows.Should().Be(0);
+    }
+
+    [Fact]
     public void UdpOn41641EitherEndIsTailscale()
     {
         // The client's own source port, to a DERP / STUN server on 3478.
