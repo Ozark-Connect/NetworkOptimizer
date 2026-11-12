@@ -129,11 +129,12 @@ public class TailnetSnapshotTests
     public void A_shared_in_node_missing_from_the_device_list_comes_from_local_status()
     {
         var local = new TailscaleLocalStatus("Running", Local("100.100.1.1"),
-            [Local("100.100.1.9", "shared.tail1111.ts.net.", curAddr: "203.0.113.5:41641", active: true)]);
+            [Local("100.100.1.9", "shared.tail1111.ts.net.", curAddr: "203.0.113.5:41641", active: true), Local("100.100.1.10")]);
 
         var snapshot = TailnetSnapshot.Build([Device("phone", "100.100.1.2")], local, null, Now);
 
         snapshot.NameFor("100.100.1.9").Should().Be("shared");
+        snapshot.IsPeer("100.100.1.10").Should().BeFalse("sharing's placeholder peer has no MagicDNS name and is no device");
         snapshot.Peers.Should().HaveCount(2);
     }
 

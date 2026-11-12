@@ -217,8 +217,10 @@ public sealed class TailnetSnapshot
                     peers.Add(peer);
             }
             // A node shared in from another tailnet is in the local status but not this tailnet's device list.
+            // Sharing also lists a placeholder ("device-of-shared-to-user") with no MagicDNS name: no device.
             if (local != null)
-                peers.AddRange(local.Peers.Where(p => !joined.Contains(p)).Select(p => FromLocal(p, now, isSelf: false, derp)));
+                peers.AddRange(local.Peers.Where(p => !joined.Contains(p) && p.DnsName != null)
+                    .Select(p => FromLocal(p, now, isSelf: false, derp)));
         }
         else
         {
