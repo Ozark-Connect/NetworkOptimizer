@@ -48,6 +48,7 @@ public static class DomainAppCatalog
         ["OneDrive"] = ["onedrive.com", "onedrive.live.com", "1drv.com", "1drv.ms"],
         ["Zoom"] = ["zoom.us", "zoom.com", "zoomgov.com"],
         ["Webex"] = ["webex.com"],
+        ["Ooma"] = ["ooma.com"],
         ["Slack"] = ["slack.com", "slack-edge.com", "slack-msgs.com"],
         ["Dropbox"] = ["dropbox.com", "dropboxusercontent.com", "dropboxapi.com"],
         ["Backblaze"] = ["backblaze.com", "backblazeb2.com"],

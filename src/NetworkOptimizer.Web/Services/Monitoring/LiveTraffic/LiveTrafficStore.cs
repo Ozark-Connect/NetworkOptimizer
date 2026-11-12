@@ -892,8 +892,10 @@ public sealed class LiveTrafficStore
             ?? portName ?? remoteSite ?? (org != null && !f.Lan ? org : null)
             ?? FlowNaming.BarePort(protoLabel, f.ClientPort, f.RemotePort);
         app = FlowNaming.TlsAsService(app, service)!;
-        if (!f.Lan && FlowNaming.IsGenericApp(app) && FlowNaming.IsGenericService(service) && DomainAppCatalog.HostingApp(hostName) is { } cloud)
-            app = cloud;
+        if (!f.Lan && FlowNaming.IsGenericApp(app))
+            app = DomainAppCatalog.AppFor(hostName)
+                ?? (FlowNaming.IsGenericService(service) ? DomainAppCatalog.HostingApp(hostName) : null)
+                ?? app;
         var appIsFallback = app == portName || (org != null && app == org)
             || app == FlowNaming.BarePort(protoLabel, f.ClientPort, f.RemotePort);
         var (appIconDomain, appIconClass) = remoteSite != null && app == remoteSite

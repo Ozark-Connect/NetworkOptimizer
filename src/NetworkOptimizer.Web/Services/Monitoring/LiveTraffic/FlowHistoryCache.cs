@@ -280,13 +280,14 @@ public sealed class FlowHistoryCache
                 || remote.Domains?.Any(d => DohProviderRegistry.IdentifyProviderFromResolverHost(d) != null) == true));
         if (app == null && encryptedDns) app = remotePort == 853 ? (proto == "UDP" ? "DNS over QUIC" : "DNS over TLS") : "DNS over HTTPS";
         // The console's own domains for the remote, as Live names an app it has not: before the port name.
-        app ??= remote.Domains?.Select(d => DomainAppCatalog.AppFor(d)).FirstOrDefault(n => n != null);
+        var domainApp = remote.Domains?.Select(d => DomainAppCatalog.AppFor(d)).FirstOrDefault(n => n != null);
         var cloud = FlowNaming.IsGenericService(service)
             ? remote.Domains?.Select(DomainAppCatalog.HostingApp).FirstOrDefault(n => n != null) : null;
-        app ??= cloud;
+        app ??= domainApp ?? cloud;
         app ??= service ?? barePort;
         app = FlowNaming.TlsAsService(app, service)!;
-        if (cloud != null && FlowNaming.IsGenericApp(app)) app = cloud;
+        // A domain's app or its cloud is more specific than a web or bare-TLS name.
+        if (FlowNaming.IsGenericApp(app)) app = domainApp ?? cloud ?? app;
 
         var policy = f.Policies?.FirstOrDefault(p => !string.IsNullOrEmpty(p.Name));
         var seenMs = f.Time > 0 ? f.Time : f.FlowEndTime > 0 ? f.FlowEndTime : f.FlowStartTime;

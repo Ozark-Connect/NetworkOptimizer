@@ -980,6 +980,27 @@ public class LiveTrafficStoreTests
         row.Destination.Should().Be("rr1---sn-test.googlevideo.com");
     }
 
+    [Fact]
+    public void ADomainsAppReplacesDpisGenericTls()
+    {
+        var store = SeededStore();
+        store.Ingest(Batch(Flow("s", Laptop, "192.0.2.20", "203.0.113.90", 8443, "eth4", 5_000, 1_000)));
+        store.MergeUniFiFlows(
+        [
+            new UniFiTrafficFlow
+            {
+                Protocol = "TCP",
+                Time = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                Application = new UniFiTrafficFlowApplication { App = 185, Category = 20 },
+                Source = new UniFiTrafficFlowEndpoint { Ip = "192.0.2.20", Port = 49374 },
+                Destination = new UniFiTrafficFlowEndpoint { Ip = "203.0.113.90", Port = 8443, Domains = ["rsyslog.ooma.com"] },
+            },
+        ]);
+        store.Ingest(Batch(Flow("s", Laptop, "192.0.2.20", "203.0.113.90", 8443, "eth4", 5_000, 1_000)));
+
+        store.BuildView(Query(), LiveTrafficState.Live).Flows.Single().App.Should().Be("Ooma", "SSL/TLS on HTTPS-Alt is generic");
+    }
+
     [Theory]
     [InlineData("203.0.113.14", 443, 7029, "YouTube")]       // a neighbor in the ISP's cache block
     [InlineData("203.0.113.14", 443, 15169, "HTTPS")]        // Google's own network: not an embedded cache
