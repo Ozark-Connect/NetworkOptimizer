@@ -146,7 +146,7 @@ Time-series monitoring on your own InfluxDB, fed by SNMP polling (InfluxDB).
       - **Hide Local** - leave out lookups answered only with addresses on the site's networks, remembered per user and site
     - Per flow: two-minute rate chart, session start, bytes and packets each way, ports, the DNS lookup behind it, and the policy that allowed it - UniFi Network's record once the flow ends (UniFi Network 11), and for a live flow, the site's Firewall Policies evaluated by the Security Audit's engine (client, IP, network, domain, and region policies)
     - **Active** and **Ended** flows; **Pause**
-    - Per-flow and DNS detail leaves the gateway only while someone is viewing it (and up to a minute after, so a return is live at once), and is never stored
+    - Per-flow and DNS detail leaves the gateway only while someone is viewing it (and up to a minute after, so a return is live immediately), and is never stored
     - **History** - the flows UniFi Network still holds (its recent window, under an hour), allowed and blocked: a **Timeline** of flows or data per minute (drag to pick a window), the same filters, sorted by time or data, with each flow's duration and the policy that allowed or blocked it. Reads the console's own records, so it needs no agent (UniFi Network 11)
 - **Port Statistics** - rate, bytes, unicast, multicast, broadcast, errors, and discards per port
 - **Add to Dashboard** - pin Live View to the top of the Dashboard
