@@ -103,15 +103,21 @@ public sealed class FlowHistoryCache
         lock (_gate) return _newest is { } n && _loaded ? n - Overlap : now - Window;
     }
 
-    /// <summary>The site's WAN names (any other external exit is a VPN) and the gateway's name.</summary>
-    public void SetSiteNames(IEnumerable<string> wanNames, string? gatewayName)
+    /// <summary>
+    /// The site's WAN names (any other external exit is a VPN), the gateway's name, and its UniFi devices'
+    /// names by MAC and LAN address: the console's records leave a device's end unnamed.
+    /// </summary>
+    public void SetSiteNames(IEnumerable<string> wanNames, string? gatewayName, IReadOnlyDictionary<string, string>? deviceNames = null)
     {
         lock (_gate)
         {
             _wanNames = new HashSet<string>(wanNames.Where(n => !string.IsNullOrWhiteSpace(n)), StringComparer.OrdinalIgnoreCase);
             if (!string.IsNullOrWhiteSpace(gatewayName)) _gatewayName = gatewayName!;
+            if (deviceNames != null) _deviceNames = deviceNames;
         }
     }
+
+    private IReadOnlyDictionary<string, string> _deviceNames = new Dictionary<string, string>();
 
     /// <summary>
     /// The site's custom app definitions. Applied when a view is built, not when records arrive, so a
@@ -129,7 +135,7 @@ public sealed class FlowHistoryCache
             if (generation != _generation) return;
             foreach (var f in flows)
             {
-                var row = ToRow(f, _wanNames, _gatewayName);
+                var row = ToRow(f, _wanNames, _gatewayName, _deviceNames);
                 if (row == null) continue;
                 _rows[row.Key] = row;
                 if (row.LastSeen is { } seen && (_newest == null || seen > _newest)) _newest = seen;
@@ -233,7 +239,8 @@ public sealed class FlowHistoryCache
     /// client as the source; incoming ones (a port forward, a WAN hit on the gateway) as the destination.
     /// </summary>
     [NetworkOptimizer.Core.VendorSpecific("UniFi", "traffic-flows direction, zone_name, and in/out network semantics")]
-    internal static LiveFlowRow? ToRow(UniFiTrafficFlow f, IReadOnlySet<string> wanNames, string gatewayName)
+    internal static LiveFlowRow? ToRow(UniFiTrafficFlow f, IReadOnlySet<string> wanNames, string gatewayName,
+        IReadOnlyDictionary<string, string>? deviceNames = null)
     {
         var incoming = Eq(f.Direction, "incoming");
         var local = incoming ? f.Destination : f.Source;
@@ -244,10 +251,15 @@ public sealed class FlowHistoryCache
         var remotePort = remote.Port ?? 0;
         var remoteIsGateway = Eq(remote.ZoneName, "Gateway");
 
+        // A UniFi device (an AP, a switch) is in no client list, so its end of a record carries no name.
+        string? DeviceName(string? mac, string ip) => deviceNames == null ? null
+            : !string.IsNullOrEmpty(mac) && deviceNames.TryGetValue(mac.Replace('-', ':').ToLowerInvariant(), out var byMac) ? byMac
+            : deviceNames.GetValueOrDefault(ip);
+
         var clientName = Clean(local.ClientName) ?? Clean(local.HostName)
-            ?? (Eq(local.ZoneName, "Gateway") ? gatewayName : local.Ip!);
+            ?? (Eq(local.ZoneName, "Gateway") ? gatewayName : DeviceName(local.Mac, local.Ip!) ?? local.Ip!);
         var destination = remote.Domains?.Select(Clean).FirstOrDefault(d => d != null)
-            ?? Clean(remote.ClientName) ?? (remoteIsGateway ? gatewayName : remote.Ip!);
+            ?? Clean(remote.ClientName) ?? (remoteIsGateway ? gatewayName : DeviceName(remote.Mac, remote.Ip!) ?? remote.Ip!);
 
         string route;
         LiveRouteKind kind;

@@ -90,6 +90,27 @@ public class FlowHistoryCacheTests
     }
 
     [Fact]
+    public void UniFiDevicesAreNamedByTheSitesDeviceList()
+    {
+        var devices = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["aa:bb:cc:dd:ee:10"] = "Office AP",
+            ["192.0.2.30"] = "Core Switch",
+        };
+        // To a switch, known by its LAN address: the record names neither end's device.
+        var toSwitch = Record("a", DateTime.UtcNow, remoteIp: "192.0.2.30", port: 22, remoteZone: "Internal", outNetwork: null);
+        toSwitch.Destination!.Domains = null;
+        // From an AP, known by its MAC.
+        var fromAp = Record("b", DateTime.UtcNow, clientIp: "192.0.2.40");
+        fromAp.Source!.ClientName = null;
+        fromAp.Source.Mac = "AA-BB-CC-DD-EE-10";
+
+        FlowHistoryCache.ToRow(toSwitch, Wans, "Gateway", devices)!.Destination.Should().Be("Core Switch");
+        FlowHistoryCache.ToRow(fromAp, Wans, "Gateway", devices)!.ClientName.Should().Be("Office AP");
+        FlowHistoryCache.ToRow(toSwitch, Wans, "Gateway")!.Destination.Should().Be("192.0.2.30", "no device list: the address");
+    }
+
+    [Fact]
     public void FiltersWindowAndSortShapeTheView()
     {
         var now = DateTime.UtcNow;

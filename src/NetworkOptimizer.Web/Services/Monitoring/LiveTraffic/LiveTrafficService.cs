@@ -284,7 +284,16 @@ public sealed class LiveTrafficService : ILiveTrafficService
                 }
                 var devices = await _connection.GetDiscoveredDevicesAsync();
                 var gateway = devices.FirstOrDefault(d => d.Type == DeviceType.Gateway || d.HardwareType == DeviceType.Gateway);
-                cache.SetSiteNames(wanNames!, gateway?.Name);
+                // UniFi devices by MAC and LAN address, named as Live names them.
+                var deviceNames = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                foreach (var d in devices.Where(d => d != gateway && !string.IsNullOrEmpty(d.Mac)))
+                {
+                    var name = string.IsNullOrWhiteSpace(d.Name) ? d.FriendlyModelName : d.Name;
+                    if (string.IsNullOrWhiteSpace(name)) continue;
+                    deviceNames.TryAdd(d.Mac.Replace('-', ':').ToLowerInvariant(), name);
+                    if (!string.IsNullOrEmpty(d.DisplayIpAddress)) deviceNames.TryAdd(d.DisplayIpAddress, name);
+                }
+                cache.SetSiteNames(wanNames!, gateway?.Name, deviceNames);
             }
 
             var to = DateTime.UtcNow;
