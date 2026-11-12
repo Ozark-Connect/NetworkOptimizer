@@ -1926,7 +1926,8 @@
             if (_activeTab != "speed") target += "?tab=" + _activeTab;
             if (!string.IsNullOrEmpty(RangeParam))
                 target += (target.Contains('?') ? "&" : "?") + "range=" + Uri.EscapeDataString(RangeParam);
-            NavigationManager.NavigateTo(await SiteSwitch.StampSiteAsync(target), forceLoad: true);
+            // Replaces the ?ip= entry: kept, Back would land on it and it would redirect forward again.
+            await FullLoadAsync(target, replace: true);
             return;
         }
 
@@ -2296,7 +2297,19 @@
     private async Task ViewOwnDeviceAsync()
     {
         var target = _activeTab == "speed" ? "/client-dashboard" : $"/client-dashboard?tab={_activeTab}";
-        NavigationManager.NavigateTo(await SiteSwitch.StampSiteAsync(target), forceLoad: true);
+        await FullLoadAsync(target, replace: false);
+    }
+
+    /// <summary>
+    /// A full page load that keeps this tab's place in Blazor's history, so the global Back button
+    /// stays: NavigateTo(forceLoad) restarts that history at the new page. <paramref name="replace"/>
+    /// swaps the current entry instead of adding one.
+    /// </summary>
+    private async Task FullLoadAsync(string target, bool replace)
+    {
+        var url = await SiteSwitch.StampSiteAsync(target);
+        try { await JS.InvokeVoidAsync("__fullLoad", url, replace); }
+        catch (JSDisconnectedException) { NavigationManager.NavigateTo(url, forceLoad: true); }
     }
 
     private async Task ShowClientPickerAsync()
@@ -2417,7 +2430,7 @@
         // Stay on the tab being compared across clients.
         if (_activeTab != "speed")
             target += (target.Contains('?') ? "&" : "?") + "tab=" + _activeTab;
-        NavigationManager.NavigateTo(await SiteSwitch.StampSiteAsync(target), forceLoad: true);
+        await FullLoadAsync(target, replace: false);
     }
 
     /// <summary>
@@ -2510,8 +2523,7 @@
     /// Full-page retry. The reload target is stamped with this tab's site so a tab
     /// pinned to a non-default site doesn't fall back to the browser default.
     /// </summary>
-    private async Task ReloadPageAsync() =>
-        NavigationManager.NavigateTo(await SiteSwitch.StampSiteAsync(NavigationManager.Uri), forceLoad: true);
+    private Task ReloadPageAsync() => FullLoadAsync(NavigationManager.Uri, replace: true);
 
     /// <summary>
     /// How fast the live tick runs. The AP Agent's own fast tier samples at 1 Hz and pushes

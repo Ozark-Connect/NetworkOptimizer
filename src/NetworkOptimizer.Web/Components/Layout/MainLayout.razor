@@ -316,6 +316,16 @@
         // loaded on), so above 0 there is an in-app page to go back to. history.length counts
         // pages from before the app too.
         window.__canGoBack = function() { var s = history.state; return !!(s && s._index > 0); };
+        // A full page load that keeps this tab's place in that numbering: Blazor reads _index back on
+        // start, and a reload keeps history.state. NavigateTo(forceLoad) starts a fresh entry at 0,
+        // which hid Back. replace swaps the current entry instead of adding one.
+        window.__fullLoad = function(url, replace) {
+            var s = history.state || {};
+            var i = s._index || 0;
+            if (replace) history.replaceState({ userState: s.userState, _index: i }, '', url);
+            else history.pushState({ userState: null, _index: i + 1 }, '', url);
+            location.reload();
+        };
         // Custom pull-to-refresh (replaces native, blocked by overscroll-behavior)
         (function() {
             if (window.innerWidth > 1024) return;
