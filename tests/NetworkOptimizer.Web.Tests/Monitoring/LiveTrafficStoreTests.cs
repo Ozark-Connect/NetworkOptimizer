@@ -980,6 +980,21 @@ public class LiveTrafficStoreTests
         row.Destination.Should().Be("rr1---sn-test.googlevideo.com");
     }
 
+    [Theory]
+    [InlineData("1.1.1.1", 443, "tcp", "DNS over HTTPS")]
+    [InlineData("1.1.1.1", 853, "tcp", "DNS over TLS")]
+    [InlineData("1.1.1.1", 853, "udp", "DNS over QUIC")]
+    public void EncryptedDnsTakesTheDnsMarkNotTheLock(string remote, int port, string proto, string expected)
+    {
+        var store = SeededStore();
+        store.Ingest(Batch(Flow("s", Laptop, "192.0.2.20", remote, port, "eth4", 5_000, 1_000, proto: proto)));
+
+        var row = store.BuildView(Query(), LiveTrafficState.Live).Flows.Single();
+
+        row.App.Should().Be(expected);
+        row.AppIconClass.Should().Be("fa-solid fa-server");
+    }
+
     [Fact]
     public void ADomainsAppReplacesDpisGenericTls()
     {

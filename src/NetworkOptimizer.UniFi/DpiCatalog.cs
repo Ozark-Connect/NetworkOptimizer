@@ -73,6 +73,7 @@ public static class DpiCatalog
         ["HTTP Protocol over TLS SSL"] = "HTTPS",
         ["HTTP3"] = "HTTP/3",
         ["Secure Shell (SSH)"] = "SSH",
+        ["DNS over HTTPS (DoH)"] = "DNS over HTTPS",
     };
 
     /// <summary>Renamed entries that drop the catalog's mark for ours, so DPI's SSH and port 22's look alike.</summary>

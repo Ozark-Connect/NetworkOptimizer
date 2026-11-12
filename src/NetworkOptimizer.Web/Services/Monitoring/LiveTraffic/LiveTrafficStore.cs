@@ -898,9 +898,6 @@ public sealed class LiveTrafficStore
                 ?? app;
         var appIsFallback = app == portName || (org != null && app == org)
             || app == FlowNaming.BarePort(protoLabel, f.ClientPort, f.RemotePort);
-        var (appIconDomain, appIconClass) = remoteSite != null && app == remoteSite
-            ? (null, "fa-solid fa-building")   // one of your sites, not an app: a site mark, not its initial
-            : DpiCatalog.IconsForName(app);
 
         // A site resolver's own encrypted upstream, the gateway's included, is the site's DNS working as
         // intended, not a bypass. Its plain-DNS upstream still counts: that shows as a lookup to a public resolver.
@@ -908,6 +905,12 @@ public sealed class LiveTrafficStore
         var encryptedDns = f.RemotePort == 853
             || (f.RemotePort == 443 && !f.Lan && (DohProviderRegistry.IdentifyProviderFromIp(f.RemoteIp) != null
                 || DohProviderRegistry.IdentifyProviderFromResolverHost(hostName) != null));
+        // Named before the icon, or the row keeps the mark of the HTTPS it replaces.
+        if (encryptedDns && match?.App == null)
+            app = f.RemotePort == 853 ? (proto == "udp" ? "DNS over QUIC" : "DNS over TLS") : "DNS over HTTPS";
+        var (appIconDomain, appIconClass) = remoteSite != null && app == remoteSite
+            ? (null, "fa-solid fa-building")   // one of your sites, not an app: a site mark, not its initial
+            : DpiCatalog.IconsForName(app);
         var resolverUpstream = encryptedDns
             && (f.Gateway || _gatewayIps.Contains(f.ClientIp) || IsSiteResolver(f.ClientIp, mac));
 
@@ -935,7 +938,7 @@ public sealed class LiveTrafficStore
             DestinationSub = destSub,
             TailnetEndpointPeer = endpointPeer?.Name,
             TailnetRole = tailnetRole,
-            App = encryptedDns && match?.App == null ? (f.RemotePort == 853 ? (proto == "udp" ? "DNS over QUIC" : "DNS over TLS") : "DNS over HTTPS") : app,
+            App = app,
             Category = deviceApp != null ? null : match?.Category ?? (destinationApp != null ? destInfo?.Category : null),
             Route = route,
             RouteKind = kind,
