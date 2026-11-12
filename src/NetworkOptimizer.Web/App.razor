@@ -413,6 +413,36 @@
             });
         }
 
+        // Live Traffic's filter editor is a bottom sheet on a phone: dragging its handle or header down
+        // closes it, through the backdrop tap that already does. Short of 80px it springs back.
+        (function () {
+            var drag = null;
+            var end = function () {
+                if (!drag) return;
+                var d = drag;
+                drag = null;
+                d.sheet.style.transition = 'transform 0.15s ease-out';
+                var backdrop = d.sheet.previousElementSibling;
+                if (d.dy > 80 && backdrop && backdrop.classList.contains('lt-fpop-backdrop')) backdrop.click();
+                else d.sheet.style.transform = '';
+            };
+            document.addEventListener('touchstart', function (e) {
+                if (!e.target.closest || !window.matchMedia('(max-width: 768px)').matches) return;
+                var handle = e.target.closest('.lt-fpop-grab, .lt-fpop-head');
+                // The header's Include / Exclude keep their taps.
+                if (!handle || e.target.closest('button, input')) return;
+                drag = { sheet: handle.closest('.lt-fpop'), y: e.touches[0].clientY, dy: 0 };
+                drag.sheet.style.transition = 'none';
+            }, { passive: true });
+            document.addEventListener('touchmove', function (e) {
+                if (!drag) return;
+                drag.dy = Math.max(0, e.touches[0].clientY - drag.y);
+                drag.sheet.style.transform = 'translateY(' + drag.dy + 'px)';
+            }, { passive: true });
+            document.addEventListener('touchend', end);
+            document.addEventListener('touchcancel', end);
+        })();
+
         // The X takes room at the right: a tooltip that has one may draw that much wider before it wraps.
         function withCloseRoom(maxWidth) {
             return String(maxWidth).replace(/(\d+)px\)$/, function (m, px) { return (+px + 24) + 'px)'; });

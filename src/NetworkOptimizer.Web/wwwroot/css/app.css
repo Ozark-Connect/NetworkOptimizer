@@ -25501,16 +25501,26 @@ body:has(.top-bar-hidden) .btn-fit {
         width: auto;
         max-width: none;
         border-radius: 16px 16px 0 0;
-        padding: 8px 16px 16px;
+        /* The bottom bar clears the home indicator on a phone that has one. */
+        padding: 8px 16px calc(22px + env(safe-area-inset-bottom, 0px));
     }
 
+    /* Drag the handle or the header down to close (App.razor); touch-action keeps the page from scrolling instead. */
     .lt-fpop-grab {
         display: block;
         width: 40px;
         height: 4px;
         border-radius: 2px;
         background: var(--border-color);
-        margin: 0 auto 10px;
+        background-clip: content-box;
+        box-sizing: content-box;
+        padding: 10px 40px;
+        margin: -8px auto 0;
+        touch-action: none;
+    }
+
+    .lt-fpop-head {
+        touch-action: none;
     }
 
     .lt-fpop-list {
