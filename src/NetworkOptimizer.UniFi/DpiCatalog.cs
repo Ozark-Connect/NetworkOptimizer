@@ -137,6 +137,7 @@ public static class DpiCatalog
         // Network Optimizer's own traffic: our favicon, in color (app-mark, not a mask).
         ["Network Optimizer"] = "app-mark app-mark-netopt",
         ["AP Agent"] = "app-mark app-mark-netopt",
+        ["Adaptive SQM"] = "app-mark app-mark-netopt",
         ["ChatGPT"] = "no-icon no-icon-openai",
         ["OpenAI"] = "no-icon no-icon-openai",
         ["Claude"] = "no-icon no-icon-claude",

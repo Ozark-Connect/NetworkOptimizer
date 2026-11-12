@@ -426,6 +426,23 @@ public class LiveTrafficStoreTests
     }
 
     [Fact]
+    public void TheGatewaysTcMonitorIsAdaptiveSqm()
+    {
+        var store = SeededStore();
+        store.Ingest(Batch(
+            Flow("sqm", Nas, "192.0.2.10", "192.0.2.1", 8088, "", 1000, 10),         // to the Gateway
+            Flow("proxy", Nas, "192.0.2.10", "203.0.113.9", 8088, "eth4", 1000, 10)));  // 8088 anywhere else
+        store.Ingest(Batch(
+            Flow("sqm", Nas, "192.0.2.10", "192.0.2.1", 8088, "", 1000, 10),
+            Flow("proxy", Nas, "192.0.2.10", "203.0.113.9", 8088, "eth4", 1000, 10)));
+
+        var rows = store.BuildView(Query(), LiveTrafficState.Live).Flows.ToDictionary(f => f.Key);
+
+        rows["sqm"].App.Should().Be("Adaptive SQM");
+        rows["proxy"].App.Should().NotBe("Adaptive SQM");
+    }
+
+    [Fact]
     public void RoutesCarryingNothingAreOfferedQuietlyLanIncluded()
     {
         var store = SeededStore();

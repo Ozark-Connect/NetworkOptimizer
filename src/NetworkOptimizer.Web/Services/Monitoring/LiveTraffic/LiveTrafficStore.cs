@@ -719,6 +719,13 @@ public sealed class LiveTrafficStore
     /// <summary>The name of a UniFi app's WebRTC session to a UniFi Console (live video and the app's data).</summary>
     internal const string UniFiWebRtcApp = "UniFi WebRTC";
 
+    /// <summary>
+    /// Adaptive SQM's TC monitor on the Gateway (TCP, <see cref="TcMonitorClient.DefaultPort"/>), which Network
+    /// Optimizer polls for live shaper rates. Only to the Gateway itself: 8088 elsewhere is often a web proxy.
+    /// </summary>
+    internal static bool AdaptiveSqmMonitor(string proto, int remotePort, bool toGateway) =>
+        toGateway && remotePort == TcMonitorClient.DefaultPort && proto.Equals("tcp", StringComparison.OrdinalIgnoreCase);
+
     /// <summary>A gateway, or a site client or device whose MAC vendor is Ubiquiti. Callers hold <c>_gate</c>.</summary>
     private bool IsUniFiHost(string ip) =>
         _gatewayIps.Contains(ip)
@@ -1035,6 +1042,8 @@ public sealed class LiveTrafficStore
             // A peer's own WireGuard endpoint, on whatever ports tailscaled and the NAT picked.
             ?? (endpointPeer != null ? "Tailscale" : null)
             ?? (toServer ? "Network Optimizer" : null)
+            // Network Optimizer reading the Gateway's shaper rates: ahead of DPI, which calls it HTTP.
+            ?? (AdaptiveSqmMonitor(proto, f.RemotePort, _gatewayIps.Contains(f.RemoteIp)) ? "Adaptive SQM" : null)
             ?? deviceApp ?? match?.App ?? DomainAppCatalog.AppFor(hostName)
             ?? destinationApp ?? neighborApp
             ?? DomainAppCatalog.SpeedtestApp(hostName, proto, f.RemotePort)
@@ -1550,6 +1559,15 @@ public sealed class LiveTrafficStore
     private static readonly HashSet<int> SharedPorts = [80, 443, 53, 853, 123, 3478, 1900, 5353];
 
     /// <summary>
+    /// Names that hold only for one far end (this install, an AP's agent, the Gateway's SQM monitor): a
+    /// flow on the same port to another host is not that, so these never lead a sibling group.
+    /// </summary>
+    private static readonly HashSet<string> AddressBoundApps = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "Network Optimizer", "AP Agent", "Adaptive SQM",
+    };
+
+    /// <summary>
     /// Sibling streams: flows from one client on the same protocol and destination port, where some are
     /// named (an Ookla test's server by its speed* name) and the rest only fall back to the port or the
     /// owner (its other servers, no name seen). When every named sibling agrees, the rest take that name.
@@ -1558,7 +1576,8 @@ public sealed class LiveTrafficStore
     internal static List<LiveFlowRow> InheritSiblingApps(List<LiveFlowRow> rows)
     {
         Dictionary<(string, string, int), LiveFlowRow>? named = null;
-        foreach (var g in rows.Where(r => !r.AppIsFallback && r.RemotePort > 0 && !SharedPorts.Contains(r.RemotePort))
+        foreach (var g in rows.Where(r => !r.AppIsFallback && r.RemotePort > 0 && !SharedPorts.Contains(r.RemotePort)
+                         && !AddressBoundApps.Contains(r.App))
                      .GroupBy(r => (r.ClientIp, r.Proto, r.RemotePort)))
         {
             var lead = g.First();

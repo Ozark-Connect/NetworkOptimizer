@@ -292,7 +292,8 @@ public sealed class FlowHistoryCache
             kind = LiveRouteKind.Lan;
         }
 
-        string? app = DomainAppCatalog.ProtocolApp(proto), category = null;
+        string? app = DomainAppCatalog.ProtocolApp(proto)
+            ?? (LiveTrafficStore.AdaptiveSqmMonitor(proto, remotePort, remoteIsGateway) ? "Adaptive SQM" : null), category = null;
         if (app == null && f.Application is { App: { } a, Category: { } c })
         {
             app = DpiCatalog.AppName(c, a);
