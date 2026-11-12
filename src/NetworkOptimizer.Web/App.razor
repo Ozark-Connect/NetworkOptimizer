@@ -379,6 +379,23 @@
                 .replace(/"/g, '&quot;').replace(/'/g, '&#39;').replace(/\n/g, '<br>');
         }
 
+        // A cut cell's full text, or the tooltip of a child marked data-tooltip-names-cut: that tooltip
+        // already names the full text and says more (Live DNS's redirect), so one tooltip covers both.
+        function cutText(el) {
+            var names = el.matches('[data-tooltip-names-cut]') ? el : el.querySelector('[data-tooltip-names-cut]');
+            return names ? (names.getAttribute('data-tooltip') || '') : (el.textContent || '').trim();
+        }
+
+        // The nearest ancestor its ellipsis is cutting, within a few levels, where the cut-name tooltip
+        // runs (the mouseover handler's hosts); null when none is, so the child keeps its own tooltip.
+        function cutAncestor(el) {
+            if (!el.closest('.live-traffic, .bandwidth-hogs-card')) return null;
+            for (var p = el.parentElement, i = 0; p && i < 4; p = p.parentElement, i++) {
+                if (getComputedStyle(p).textOverflow === 'ellipsis' && p.scrollWidth > p.clientWidth + 1) return p;
+            }
+            return null;
+        }
+
         // Initialize Tippy.js tooltips
         function initTooltips() {
             // Find all tooltip icons with content siblings
@@ -480,6 +497,10 @@
                         var ref = instance.reference;
                         // data-tooltip-truncated: only when the text is cut off by its ellipsis
                         if (ref.hasAttribute('data-tooltip-truncated') && ref.scrollWidth <= ref.clientWidth + 1) {
+                            return false;
+                        }
+                        // data-tooltip-names-cut: the cut-name tooltip on a cut ancestor shows this text instead.
+                        if (ref.hasAttribute('data-tooltip-names-cut') && cutAncestor(ref)) {
                             return false;
                         }
                         // Suppress if an adjacent sibling already shows the same tooltip
@@ -757,16 +778,16 @@
             if (route && host.contains(route)) { showLinkCard(route, routeHtml, { wide: true, follow: true }); return; }
             var el = e.target;
             while (el && el !== host) {
-                if (el.hasAttribute('data-tooltip')) return;
+                if (el.hasAttribute('data-tooltip') && !el.hasAttribute('data-tooltip-names-cut')) return;
                 if (getComputedStyle(el).textOverflow === 'ellipsis' && el.scrollWidth > el.clientWidth + 1) break;
                 el = el.parentElement;
             }
             if (!el || el === host || el._tippy) return;
-            var text = (el.textContent || '').trim();
+            var text = cutText(el);
             if (!text) return;
             var cutDelay = restTipDelay(el);
             tippy(el, {
-                content: function () { return (el.textContent || '').trim(); },
+                content: function () { return cutText(el); },
                 trigger: 'mouseenter',
                 touch: false,
                 delay: [cutDelay || 100, 0],
@@ -778,12 +799,12 @@
                 // whatever row lands in its place, so the text is read again on every show.
                 onShow: function (instance) {
                     if (!el.isConnected || el.scrollWidth <= el.clientWidth + 1) return false;
-                    instance.setContent((el.textContent || '').trim());
+                    instance.setContent(cutText(el));
                 },
                 // A live list rewrites the row under an open tooltip: follow the text while it shows.
                 onShown: function (instance) {
                     instance._follow = setInterval(function () {
-                        var now = (el.textContent || '').trim();
+                        var now = cutText(el);
                         if (instance.props.content !== now) instance.setContent(now);
                     }, 400);
                 },

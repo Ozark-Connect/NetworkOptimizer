@@ -51,7 +51,7 @@ else
             @Pill(LiveTrafficField.Resolver, d.Resolver, label: d.Encrypted ? d.QType : d.Resolver, cls: d.Bypass ? "lt-bypass" : d.RedirectedTo != null ? "lt-redirected" : "lt-site-dns")
             @if (d.RedirectedTo != null)
             {
-                <span class="lt-dns-redirect" data-tooltip="@($"Sent to {d.Resolver}; your Gateway redirected it to {d.RedirectedTo}")">→ @d.RedirectedTo</span>
+                <span class="lt-dns-redirect" data-tooltip-names-cut data-tooltip="@($"Sent to {d.Resolver}; your Gateway redirected it to {d.RedirectedTo}")">→ @d.RedirectedTo</span>
             }
         </span>
     };
