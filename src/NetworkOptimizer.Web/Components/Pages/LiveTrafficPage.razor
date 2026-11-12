@@ -1019,9 +1019,15 @@
     /// <summary>Values a chip names before "+N".</summary>
     private const int ChipValuesShown = 3;
 
-    /// <summary>One chip per field and kind, in the order the filters were added: values in one chip OR.</summary>
+    /// <summary>
+    /// One chip per field and kind, values in one chip OR. Newest first: a new chip lands beside + Filter,
+    /// where the pointer already is, instead of at the end of the row.
+    /// </summary>
     private IEnumerable<IGrouping<(LiveTrafficField Field, bool Exclude), LiveTrafficFilter>> ChipGroups() =>
-        _filters.GroupBy(f => (f.Field, f.Exclude));
+        _filters.GroupBy(f => (f.Field, f.Exclude)).Reverse();
+
+    /// <summary>The editor came from + Filter: it stays under + Filter while open, so ticking never moves it.</summary>
+    private bool _editorAtAdd;
 
     /// <summary>What "+ Filter" offers: Resolver only filters Live DNS, and Action exists only in History.</summary>
     private IEnumerable<(LiveTrafficField Field, string Icon)> EditableFields
@@ -1058,10 +1064,11 @@
     }
 
     /// <summary>Opens the chip's editor, and asks for its field's values at once rather than on the next tick.</summary>
-    private async Task OpenEditor(LiveTrafficField field, bool exclude)
+    private async Task OpenEditor(LiveTrafficField field, bool exclude, bool fromAdd = false)
     {
         _fieldMenu = false;
         _editor = (field, exclude);
+        _editorAtAdd = fromAdd;
         _facetsLoadedFor = null;
         await RefreshAsync();
     }
@@ -1138,11 +1145,11 @@
                     <div class="lt-fmenu" role="menu">
                         @foreach (var (pick, icon) in EditableFields)
                         {
-                            <button type="button" role="menuitem" @onclick="() => OpenEditor(pick, false)"><i class="@icon"></i>@FieldLabel(pick)</button>
+                            <button type="button" role="menuitem" @onclick="() => OpenEditor(pick, false, fromAdd: true)"><i class="@icon"></i>@FieldLabel(pick)</button>
                         }
                     </div>
                 }
-                @if (_editor is { } open && !ChipGroups().Any(g => g.Key == open))
+                @if (_editor is { } open && (_editorAtAdd || !ChipGroups().Any(g => g.Key == open)))
                 {
                     @Editor(open)
                 }
@@ -1205,7 +1212,7 @@
                         }
                         <span class="lt-x" role="button" aria-label="Remove filter" @onclick="() => RemoveChip(key)" @onclick:stopPropagation>&#x2715;</span>
                     </span>
-                    @if (_editor == key)
+                    @if (_editor == key && !_editorAtAdd)
                     {
                         @Editor(key)
                     }
