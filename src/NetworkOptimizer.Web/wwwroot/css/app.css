@@ -25389,6 +25389,8 @@ body:has(.top-bar-hidden) .btn-fit {
 .lt-fpop-list {
     max-height: 240px;
     overflow-y: auto;
+    /* At either end the scroll stays here: chained on, it scrolled the page behind the editor. */
+    overscroll-behavior: contain;
     margin: 0 -4px;
 }
 
@@ -25498,6 +25500,17 @@ body:has(.top-bar-hidden) .btn-fit {
 @media (max-width: 768px) {
     .lt-fpop-backdrop:has(+ .lt-fpop) {
         background: rgba(0, 0, 0, 0.5);
+    }
+
+    /* The page stays put under the sheet: only its list scrolls, and a drag on the scrim or the rest of
+       the sheet moves nothing (taps still work). */
+    .lt-fpop-backdrop,
+    .lt-fpop {
+        touch-action: none;
+    }
+
+    .lt-fpop .lt-fpop-list {
+        touch-action: pan-y;
     }
 
     /* Under the sheet's scrim like the rest of the page: a tap outside the sheet closes it. */
