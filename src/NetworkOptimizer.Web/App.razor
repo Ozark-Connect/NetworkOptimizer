@@ -709,7 +709,7 @@
                 // page it came from and drops to the corner once its cell is gone.
                 onMount: function (instance) {
                     activeLinkCard = instance;
-                    addTipClose(instance);
+                    if (!opts.noClose) addTipClose(instance);
                     // A floor, not the cell's width (that read too wide): a short card is still easy to reach.
                     var box = instance.popper.firstElementChild;
                     if (box) box.style.minWidth = opts.wide ? 'min(100vw - 10px, 320px)' : '200px';
@@ -732,7 +732,7 @@
                 placement: 'top',
                 theme: 'custom',
                 appendTo: document.body,
-                maxWidth: withCloseRoom(opts.wide ? 'min(100vw - 10px, 560px)' : 'min(100vw - 10px, 400px)'),
+                maxWidth: (opts.noClose ? String : withCloseRoom)(opts.wide ? 'min(100vw - 10px, 560px)' : 'min(100vw - 10px, 400px)'),
                 onShow: function (instance) {
                     // Tippy's own hover delay can fire after a navigation took the cell away (a card
                     // link was clicked): shown then, the card strands at the top left of the next page.
@@ -841,7 +841,8 @@
             var dest = e.target.closest('[data-dest-ip]');
             if (dest && host.contains(dest) && dest.getAttribute('data-dest-ip')) { showLinkCard(dest, destinationHtml); return; }
             var client = e.target.closest('[data-client-link]');
-            if (client && host.contains(client)) { showLinkCard(client, clientHtml); return; }
+            // A client card off Where It Goes has room around it to move away: no X there.
+            if (client && host.contains(client)) { showLinkCard(client, clientHtml, { noClose: !!client.closest('.lt-sankey-svg') }); return; }
             var route = e.target.closest('[data-route-dests]');
             if (route && host.contains(route)) { showLinkCard(route, routeHtml, { wide: true, follow: true }); return; }
             var el = e.target;
