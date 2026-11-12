@@ -148,6 +148,10 @@ public sealed class ProbeRunner
         catch (OperationCanceledException)
         {
         }
+        catch (ProbeInterruptedException)
+        {
+            // The service is stopping: its ping was killed with it. No sample.
+        }
         catch (Exception ex)
         {
             Console.Error.WriteLine($"Probe {spec.TargetId} failed: {ex.Message}");

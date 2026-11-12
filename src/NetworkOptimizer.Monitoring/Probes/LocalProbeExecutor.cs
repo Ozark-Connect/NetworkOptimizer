@@ -315,9 +315,11 @@ public class LocalProbeExecutor : IProbeExecutor
             var overall = TimeSpan.FromSeconds(interval * safeCount + timeoutSeconds + 5);
             using var killCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
             killCts.CancelAfter(overall);
+            var killedHere = false;
             try { await proc.WaitForExitAsync(killCts.Token); }
             catch (OperationCanceledException)
             {
+                killedHere = true;
                 try { proc.Kill(entireProcessTree: true); } catch { }
             }
             var stdout = await SafeReadAsync(stdoutTask);
@@ -325,14 +327,19 @@ public class LocalProbeExecutor : IProbeExecutor
             if (stdout is null)
                 throw new ProbeOutputTimeoutException(
                     $"ping output read for {target.Address} did not complete within {OutputReadGrace.TotalSeconds:0}s");
+            // ping exits 0, 1 or 2; above 128 is 128 + a signal sent from outside, as when the agent's
+            // service stops and takes its children with it. A burst cut short is not loss.
+            if (!killedHere && proc.HasExited && proc.ExitCode > 128)
+                throw new ProbeInterruptedException($"ping to {target.Address} was ended by signal {proc.ExitCode - 128}");
 
             var parsed = PingOutputParser.Parse(stdout, target, Vantage, safeCount);
             return parsed;
         }
         // Output-timeout means async completion delivery is broken, and the managed
         // Ping path depends on the same machinery - falling back would hang or
-        // fabricate. Let it propagate; callers drop the sample.
-        catch (Exception ex) when (ex is not ProbeOutputTimeoutException)
+        // fabricate. An interrupted ping has no outcome either. Let both propagate;
+        // callers drop the sample.
+        catch (Exception ex) when (ex is not ProbeOutputTimeoutException and not ProbeInterruptedException)
         {
             _logger.LogDebug(ex, "Native ping invocation failed; falling back to managed Ping");
             return await ManagedPingAsync(target, count, timeout, ct);
