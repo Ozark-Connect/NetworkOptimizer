@@ -11,19 +11,14 @@ namespace NetworkOptimizer.Web.Services.Monitoring.LiveTraffic;
 public static class FlowNaming
 {
     /// <summary>
-    /// DPI's SSL/TLS on a port whose service runs over TLS reads that service: TLS on 443 is HTTPS, on 993
-    /// IMAPS, on 587 SMTP after STARTTLS, and the sub-line then has nothing to repeat. TLS on any other
-    /// service (HTTP on 80) keeps the DPI name, which is the news there.
+    /// DPI's SSL/TLS on a known service reads the service, the more specific name: IMAPS on 993, RDP on
+    /// 3389. HTTP inside TLS is HTTPS. Only a port with no name keeps SSL/TLS.
     /// </summary>
-    public static string? TlsAsService(string? app, string? service) =>
-        app == "SSL/TLS" && service != null && TlsServices.Contains(service) ? service : app;
-
-    /// <summary>The port table's names for services that speak TLS from the first byte or upgrade to it.</summary>
-    private static readonly HashSet<string> TlsServices = new(StringComparer.Ordinal)
+    public static string? TlsAsService(string? app, string? service)
     {
-        "HTTPS", "HTTPS-Alt", "SMTPS", "LDAPS", "DNS over TLS", "IMAPS", "POP3S", "MQTT-TLS",
-        "SMTP", "SMTP Submit", "IMAP", "POP3", "LDAP", "FTP",
-    };
+        if (app != "SSL/TLS" || ConsoleService(service) is not { } name) return app;
+        return name is "HTTP" or "HTTP-Alt" ? "HTTPS" : name;
+    }
 
     /// <summary>Ports from here up are treated as ephemeral, as Threat Intelligence treats them.</summary>
     public const int EphemeralFloor = NetworkOptimizer.Threats.Analysis.FlowInterestFilter.EphemeralPortFloor;

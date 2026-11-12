@@ -890,7 +890,7 @@ public sealed class LiveTrafficStore
             ?? DomainAppCatalog.PortApp(proto, f.RemotePort) ?? (f.RemotePort >= 1024 ? DomainAppCatalog.PortApp(proto, f.ClientPort) : null)
             ?? portName ?? remoteSite ?? (org != null && !f.Lan ? org : null)
             ?? FlowNaming.BarePort(protoLabel, f.ClientPort, f.RemotePort);
-        app = FlowNaming.TlsAsService(app, destSub)!;
+        app = FlowNaming.TlsAsService(app, service)!;
         var appIsFallback = app == portName || (org != null && app == org)
             || app == FlowNaming.BarePort(protoLabel, f.ClientPort, f.RemotePort);
         var (appIconDomain, appIconClass) = remoteSite != null && app == remoteSite
