@@ -13,7 +13,7 @@
         <div class="lt-m-tags">
             @if (ShowClient)
             {
-                <span data-client-name="@d.ClientName" data-client-link="@LiveTrafficLinks.ClientPerformance(d.ClientIp)" data-client-note="@d.ClientIp">@Pill(LiveTrafficField.Client, d.ClientName)</span>
+                <span data-client-name="@d.ClientName" data-client-link="@LiveTrafficLinks.Client(d.ClientIp, d.ClientDeviceMac)" data-client-note="@d.ClientIp">@Pill(LiveTrafficField.Client, d.ClientName)</span>
             }
             @ResolverPill(d)
             @if (!d.Encrypted)
@@ -28,7 +28,7 @@ else
     <tr class="@(d.Bypass ? "is-bypass" : d.RedirectedTo != null ? "is-redirected" : null)">
         @if (ShowClient)
         {
-            <td data-client-name="@d.ClientName" data-client-link="@LiveTrafficLinks.ClientPerformance(d.ClientIp)" data-client-note="@d.ClientIp">@Pill(LiveTrafficField.Client, d.ClientName)</td>
+            <td data-client-name="@d.ClientName" data-client-link="@LiveTrafficLinks.Client(d.ClientIp, d.ClientDeviceMac)" data-client-note="@d.ClientIp">@Pill(LiveTrafficField.Client, d.ClientName)</td>
         }
         <td>
             @Pill(LiveTrafficField.Destination, d.Name)

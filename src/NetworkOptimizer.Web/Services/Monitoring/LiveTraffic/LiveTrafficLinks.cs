@@ -15,12 +15,17 @@ public static class LiveTrafficLinks
             ? "/threats?tab=drilldown&ip=" + Uri.EscapeDataString(f.DestinationIp)
             : null;
 
-    /// <summary>The flow's client on Client Performance's Data / Apps tab, or null when the flow carries no client address.</summary>
-    public static string? ClientPerformance(LiveFlowRow f) => ClientPerformance(f.ClientIp);
+    /// <summary>The flow's client: see <see cref="Client(string?, string?)"/>.</summary>
+    public static string? Client(LiveFlowRow f) => Client(f.ClientIp, f.ClientDeviceMac);
 
-    /// <summary>A client address on Client Performance's Data / Apps tab, or null when there is none.</summary>
-    public static string? ClientPerformance(string? clientIp) =>
-        string.IsNullOrEmpty(clientIp) ? null : "/client-dashboard?ip=" + Uri.EscapeDataString(clientIp) + "&tab=data";
+    /// <summary>
+    /// A client's page: Device Stats for a network device (the gateway or a UniFi device), else
+    /// Client Performance's Data / Apps tab. Null when there is no client address.
+    /// </summary>
+    public static string? Client(string? clientIp, string? deviceMac) =>
+        deviceMac != null ? MonitoringLinks.DeviceStats(deviceMac, MonitoringLinks.LiveAtToken)
+        : string.IsNullOrEmpty(clientIp) ? null
+        : "/client-dashboard?ip=" + Uri.EscapeDataString(clientIp) + "&tab=data";
 
     /// <summary>Live Traffic with Name This App open, prefilled from the seed.</summary>
     public static string NameApp(CustomAppSeed seed) => "/monitoring/live-traffic?nameApp=" + seed.Encode();

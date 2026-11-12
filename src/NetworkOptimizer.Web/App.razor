@@ -649,7 +649,7 @@
             return (name && name !== ip ? '<div>' + escapeHtml(name) + '</div>' : '') + '<div>' + escapeHtml(ip) + '</div>'
                 + '<div class="tip-links">' + (link ? tipLink(link, 'Threats') : '') + tipLink(trace, 'Trace') + '</div>';
         }
-        // A client: the name as its Client Performance link, then the cell's detail, one line each.
+        // A client: the name as its Client Performance (or a network device's Device Stats) link, then the cell's detail, one line each.
         function clientHtml(el) {
             var note = el.getAttribute('data-client-note') || '';
             return '<div>' + tipLink(el.getAttribute('data-client-link'), el.getAttribute('data-client-name') || '') + '</div>'

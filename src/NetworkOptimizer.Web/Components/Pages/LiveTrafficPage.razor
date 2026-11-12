@@ -1179,7 +1179,7 @@
                 // Hover cards name one destination or client; a chip holding several has no single one to name.
                 var chipDest = single != null && key.Field == LiveTrafficField.Destination ? DestinationOf(single) : null;
                 var chipClient = single != null && key.Field == LiveTrafficField.Client ? ClientOf(single) : null;
-                var clientLink = chipClient != null ? LiveTrafficLinks.ClientPerformance(chipClient) : null;
+                var clientLink = chipClient != null ? LiveTrafficLinks.Client(chipClient) : null;
                 <span class="lt-chip-anchor">
                     <span class="lt-chip @(key.Exclude ? "is-exclude" : null) @(_editor == key ? "is-open" : null)" role="button" tabindex="0" data-reveals=".lt-fpop"
                           aria-label="@($"Edit the {FieldLabel(key.Field)} filter")" @onclick="() => OpenEditor(key.Field, key.Exclude)"

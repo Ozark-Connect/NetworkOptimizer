@@ -286,14 +286,18 @@ public sealed class LiveTrafficService : ILiveTrafficService
                 var gateway = devices.FirstOrDefault(d => d.Type == DeviceType.Gateway || d.HardwareType == DeviceType.Gateway);
                 // UniFi devices by MAC and LAN address, named as Live names them.
                 var deviceNames = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                var deviceMacs = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
                 foreach (var d in devices.Where(d => d != gateway && !string.IsNullOrEmpty(d.Mac)))
                 {
+                    var deviceMac = d.Mac.Replace('-', ':').ToLowerInvariant();
+                    deviceMacs.TryAdd(deviceMac, deviceMac);
+                    if (!string.IsNullOrEmpty(d.DisplayIpAddress)) deviceMacs.TryAdd(d.DisplayIpAddress, deviceMac);
                     var name = string.IsNullOrWhiteSpace(d.Name) ? d.FriendlyModelName : d.Name;
                     if (string.IsNullOrWhiteSpace(name)) continue;
-                    deviceNames.TryAdd(d.Mac.Replace('-', ':').ToLowerInvariant(), name);
+                    deviceNames.TryAdd(deviceMac, name);
                     if (!string.IsNullOrEmpty(d.DisplayIpAddress)) deviceNames.TryAdd(d.DisplayIpAddress, name);
                 }
-                cache.SetSiteNames(wanNames!, gateway?.Name, deviceNames);
+                cache.SetSiteNames(wanNames!, gateway?.Name, deviceNames, gateway?.Mac, deviceMacs);
             }
 
             var to = DateTime.UtcNow;
@@ -397,10 +401,10 @@ public sealed class LiveTrafficService : ILiveTrafficService
                         && !clientIps.Contains(d.DisplayIpAddress))
                     .Select(d => new LiveClientInfo(d.Mac.Replace('-', ':').ToLowerInvariant(),
                         string.IsNullOrWhiteSpace(d.Name) ? d.FriendlyModelName : d.Name, d.DisplayIpAddress, d.FriendlyModelName, null,
-                        Vendor: LiveTrafficStore.UbiquitiVendor)));
+                        Vendor: LiveTrafficStore.UbiquitiVendor, IsDevice: true)));
 
                 var (routes, primary) = await LoadRoutesAsync(slug);
-                store.SetSiteData(infos, gatewayIps, gateway?.Name, routes, primary);
+                store.SetSiteData(infos, gatewayIps, gateway?.Name, routes, primary, gateway?.Mac);
                 clientsRead = true;
 
                 // Offline clients, so a flow to a LAN device that dropped off still shows its name.

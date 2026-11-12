@@ -158,6 +158,33 @@ public class LiveTrafficStoreTests
     }
 
     [Fact]
+    public void NetworkDevicesLinkToDeviceStatsAndClientsToClientPerformance()
+    {
+        const string ap = "aa:bb:cc:dd:ee:30";
+        const string gatewayMac = "aa:bb:cc:dd:ee:99";
+        var store = new LiveTrafficStore();
+        store.SetSiteData(
+            [
+                new LiveClientInfo(Laptop, "Laptop", "192.0.2.20", "6 GHz", "Main"),
+                new LiveClientInfo(ap, "Office AP", "192.0.2.30", "U7 Pro", null, Vendor: LiveTrafficStore.UbiquitiVendor, IsDevice: true),
+            ],
+            ["192.0.2.1"], "Gateway", new Dictionary<string, LiveRouteInfo>(), null, "AA-BB-CC-DD-EE-99");
+        store.Ingest(Batch(
+            Flow("laptop", Laptop, "192.0.2.20", "203.0.113.5", 443, "eth4", 3_000_000, 10_000),
+            Flow("ap", ap, "192.0.2.30", "203.0.113.6", 443, "eth4", 2_000_000, 10_000),
+            Flow("gw", "", "192.0.2.1", "203.0.113.7", 443, "eth4", 1_000_000, 10_000)));
+
+        var rows = store.BuildView(Query(), LiveTrafficState.Live).Flows.ToDictionary(f => f.Key);
+
+        rows["laptop"].ClientDeviceMac.Should().BeNull();
+        LiveTrafficLinks.Client(rows["laptop"]).Should().Be("/client-dashboard?ip=192.0.2.20&tab=data");
+        rows["ap"].ClientDeviceMac.Should().Be(ap);
+        LiveTrafficLinks.Client(rows["ap"]).Should().Be($"/monitoring?tab=devices&at=live&device={Uri.EscapeDataString(ap)}");
+        rows["gw"].ClientDeviceMac.Should().Be(gatewayMac);
+        LiveTrafficLinks.Client(rows["gw"]).Should().StartWith("/monitoring?tab=devices");
+    }
+
+    [Fact]
     public void WireGuardClientTunnelTakesItsNetworkNameWithoutAConsoleRecord()
     {
         var store = SeededStore();

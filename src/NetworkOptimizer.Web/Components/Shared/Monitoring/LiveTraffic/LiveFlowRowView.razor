@@ -10,7 +10,7 @@
             <td class="lt-rank"><span class="expand-chevron lt-chev">@(Open ? "▲" : "▼")</span> @Rank</td>
             @if (ShowClient)
             {
-                <td data-client-name="@f.ClientName" data-client-link="@LiveTrafficLinks.ClientPerformance(f)" data-client-note="@LiveTrafficDisplay.ClientCardDetail(f)">
+                <td data-client-name="@f.ClientName" data-client-link="@LiveTrafficLinks.Client(f)" data-client-note="@LiveTrafficDisplay.ClientCardDetail(f)">
                     @ClientPill(f)
                     @ClientLine(f)
                 </td>
@@ -109,7 +109,7 @@
             <td class="lt-secondary">@LastSeenLabel(f)</td>
             @if (ShowClient)
             {
-                <td data-client-name="@f.ClientName" data-client-link="@LiveTrafficLinks.ClientPerformance(f)" data-client-note="@LiveTrafficDisplay.ClientCardDetail(f)">
+                <td data-client-name="@f.ClientName" data-client-link="@LiveTrafficLinks.Client(f)" data-client-note="@LiveTrafficDisplay.ClientCardDetail(f)">
                     @ClientPill(f)
                     @ClientLine(f)
                 </td>
@@ -319,11 +319,15 @@
         }
     };
 
-    /// <summary>The flow's client on Client Performance; not on that client's own page, nor for a flow with no client address.</summary>
+    /// <summary>
+    /// The flow's client on Client Performance, or on Device Stats for a network device; not on that
+    /// client's own page, nor for a flow with no client address.
+    /// </summary>
     private RenderFragment ClientJump(LiveFlowRow f) => __builder =>
     {
-        if (!ShowClient || LiveTrafficLinks.ClientPerformance(f) is not { } href) return;
-        <MonitoringJumpButton Icon="MonitoringJumpButton.JumpIcon.Analyze" Tooltip="Open in Client Performance" Href="@href" />
+        if (!ShowClient || LiveTrafficLinks.Client(f) is not { } href) return;
+        <MonitoringJumpButton Icon="MonitoringJumpButton.JumpIcon.Analyze"
+                              Tooltip="@(f.ClientDeviceMac != null ? "Open in Device Stats" : "Open in Client Performance")" Href="@href" />
     };
 
     private RenderFragment HideActions(LiveFlowRow f) => __builder =>

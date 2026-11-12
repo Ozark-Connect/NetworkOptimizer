@@ -27,7 +27,7 @@ else
             var appIcon = node.Column == 1 && !node.IsOther;
             var tailnetIcon = node.Column == 0 && node.Tailnet;
             var tx = node.Column == 0 ? -8 - (tailnetIcon ? IconW : 0) : NodeW + 8 + (appIcon ? IconW : 0);
-            var clientLink = node.Column == 0 ? LiveTrafficLinks.ClientPerformance(node.ClientIp) : null;
+            var clientLink = node.Column == 0 ? LiveTrafficLinks.Client(node.ClientIp, node.ClientDeviceMac) : null;
             var unnamed = node.Column == 1 ? node.Unnamed : null;
             var routeDests = RouteDestinations(node, Sankey.ValueIsFlows);
             var tailscale = node.Column == 1 && !node.IsOther && OffersTailscaleSetup(node.Name);

@@ -143,6 +143,21 @@ public class FlowHistoryCacheTests
     }
 
     [Fact]
+    public void UniFiDevicesAsTheClientCarryTheirMacForDeviceStats()
+    {
+        var macs = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["aa:bb:cc:dd:ee:10"] = "aa:bb:cc:dd:ee:10",
+            ["192.0.2.40"] = "aa:bb:cc:dd:ee:10",
+        };
+        var fromAp = Record("a", DateTime.UtcNow, clientIp: "192.0.2.40");
+        var fromLaptop = Record("b", DateTime.UtcNow);
+
+        FlowHistoryCache.ToRow(fromAp, Wans, "Gateway", null, null, macs)!.ClientDeviceMac.Should().Be("aa:bb:cc:dd:ee:10");
+        FlowHistoryCache.ToRow(fromLaptop, Wans, "Gateway", null, null, macs)!.ClientDeviceMac.Should().BeNull();
+    }
+
+    [Fact]
     public void FiltersWindowAndSortShapeTheView()
     {
         var now = DateTime.UtcNow;

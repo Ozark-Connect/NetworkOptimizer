@@ -152,6 +152,11 @@ public sealed record LiveFlowRow
     public int Streams { get; init; } = 1;
     /// <summary>The gateway's own traffic, not a client's.</summary>
     public bool IsGateway { get; init; }
+    /// <summary>
+    /// The client is a network device (the gateway or a UniFi device): the MAC Device Stats opens on,
+    /// empty when not yet known. Null for a client.
+    /// </summary>
+    public string? ClientDeviceMac { get; init; }
     /// <summary>UniFi Network has a record of this flow; without one its policy is unknown, not "none".</summary>
     public bool ConsoleReported { get; init; }
     /// <summary>The policy was named by evaluating the site's firewall rules, not by UniFi Network's record.</summary>
@@ -213,6 +218,7 @@ public sealed record LiveRouteStat(
 
 /// <summary>One Live DNS row.</summary>
 /// <param name="Blocked">Refused the way DNS blockers refuse: NXDOMAIN, or an answer of 0.0.0.0 or ::.</param>
+/// <param name="ClientDeviceMac">As <see cref="LiveFlowRow.ClientDeviceMac"/>: set when the client is a network device.</param>
 public sealed record LiveDnsRow(
     DateTime At,
     string ClientName,
@@ -229,7 +235,8 @@ public sealed record LiveDnsRow(
     bool Blocked = false,
     string ClientMac = "",
     bool Local = false,
-    string? RedirectedTo = null);
+    string? RedirectedTo = null,
+    string? ClientDeviceMac = null);
 
 /// <summary>The Where It Goes diagram: three columns of nodes and the links between them.</summary>
 public sealed record LiveSankey(IReadOnlyList<LiveSankeyNode> Nodes, IReadOnlyList<LiveSankeyLink> Links, bool ValueIsFlows = false);
@@ -237,12 +244,13 @@ public sealed record LiveSankey(IReadOnlyList<LiveSankeyNode> Nodes, IReadOnlyLi
 /// <param name="DownBps">The node's download rate, for its subtitle; 0 when sized by flow count.</param>
 /// <param name="UpBps">The node's upload rate.</param>
 /// <param name="ClientIp">A client node's address, for its Client Performance link; null for Other and the other columns.</param>
+/// <param name="ClientDeviceMac">As <see cref="LiveFlowRow.ClientDeviceMac"/>: a network device node links to Device Stats instead.</param>
 /// <param name="Destinations">A route node's busiest destinations, for its hover card; null for the other columns.</param>
 /// <param name="MoreDestinations">How many destinations the route carries beyond <paramref name="Destinations"/>.</param>
 public sealed record LiveSankeyNode(int Column, string Name, double Value, LiveTrafficField Field, LiveRouteKind? RouteKind, bool IsOther,
     string? IconDomain = null, string? IconClass = null, double DownBps = 0, double UpBps = 0, string? ClientIp = null,
     CustomAppSeed? Unnamed = null, IReadOnlyList<LiveSankeyDestination>? Destinations = null, int MoreDestinations = 0,
-    bool Tailnet = false);
+    bool Tailnet = false, string? ClientDeviceMac = null);
 
 /// <summary>One destination on a route node's hover card: a LAN host, or a name on the internet.</summary>
 /// <param name="Ip">The address when the destination has exactly one; null when it spans several.</param>

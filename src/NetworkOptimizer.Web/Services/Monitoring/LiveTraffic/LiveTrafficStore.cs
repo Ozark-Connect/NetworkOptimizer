@@ -9,8 +9,9 @@ using NetworkOptimizer.Web.Services.Tailscale;
 namespace NetworkOptimizer.Web.Services.Monitoring.LiveTraffic;
 
 /// <summary>A site client as Live Traffic names it.</summary>
+/// <param name="IsDevice">A UniFi device (an AP, a switch), not a client: it links to Device Stats, not Client Performance.</param>
 public sealed record LiveClientInfo(string Mac, string Name, string Ip, string? Via, string? Network,
-    string? SwitchMac = null, int? SwitchPort = null, string? Vendor = null);
+    string? SwitchMac = null, int? SwitchPort = null, string? Vendor = null, bool IsDevice = false);
 
 /// <summary>A route a flow can leave by, with the console's expected speeds when it is a WAN.</summary>
 public sealed record LiveRouteInfo(string Name, LiveRouteKind Kind, double? CapacityDownBps, double? CapacityUpBps);
@@ -106,6 +107,7 @@ public sealed class LiveTrafficStore
     /// <summary>This install's own host names and address: a flow to one is Network Optimizer's own traffic.</summary>
     private IReadOnlySet<string> _serverHosts = new HashSet<string>();
     private string _gatewayName = "Gateway";
+    private string? _gatewayMac;
     private IReadOnlyList<CustomAppRule> _customApps = Array.Empty<CustomAppRule>();
 
     private DateTime _lastBatchAt = DateTime.MinValue;
@@ -329,13 +331,14 @@ public sealed class LiveTrafficStore
         lock (_gate) _lastClientsAt = now - ClientsEvery + TimeSpan.FromSeconds(5);
     }
 
-    /// <summary>The console's client list, the gateway's own addresses and name, and the WAN routes.</summary>
+    /// <summary>The console's client list, the gateway's own addresses, name and MAC, and the WAN routes.</summary>
     public void SetSiteData(
         IReadOnlyCollection<LiveClientInfo>? clients,
         IReadOnlyCollection<string>? gatewayIps,
         string? gatewayName,
         IReadOnlyDictionary<string, LiveRouteInfo>? routesByIfname,
-        LiveRouteInfo? defaultRoute)
+        LiveRouteInfo? defaultRoute,
+        string? gatewayMac = null)
     {
         lock (_gate)
         {
@@ -346,6 +349,7 @@ public sealed class LiveTrafficStore
             }
             if (gatewayIps != null) _gatewayIps = new HashSet<string>(gatewayIps, StringComparer.OrdinalIgnoreCase);
             if (!string.IsNullOrWhiteSpace(gatewayName)) _gatewayName = gatewayName!;
+            if (!string.IsNullOrEmpty(gatewayMac)) _gatewayMac = NormalizeMac(gatewayMac);
             if (routesByIfname != null)
                 _routesByIfname = new Dictionary<string, LiveRouteInfo>(routesByIfname, StringComparer.OrdinalIgnoreCase);
             if (defaultRoute != null) _defaultRoute = defaultRoute;
@@ -1105,6 +1109,8 @@ public sealed class LiveTrafficStore
             Route = route,
             RouteKind = kind,
             IsGateway = f.Gateway || _gatewayIps.Contains(f.ClientIp),
+            // A tailnet peer behind the gateway's NAT is the client, not the gateway.
+            ClientDeviceMac = clientTailnet ? null : DeviceMacFor(f.Gateway || _gatewayIps.Contains(f.ClientIp), mac),
             DownBps = down,
             UpBps = up,
             TotalDownBytes = f.TotalDownBytes,
@@ -1371,7 +1377,8 @@ public sealed class LiveTrafficStore
         var nodes = new List<LiveSankeyNode>();
         nodes.AddRange(moving.GroupBy(ClientNode).Select(g => new LiveSankeyNode(0, g.Key, g.Sum(V), LiveTrafficField.Client, null, !topClients.Contains(g.Key),
             DownBps: Down(g), UpBps: Up(g), ClientIp: topClients.Contains(g.Key) ? g.First().ClientIp : null,
-            Tailnet: topClients.Contains(g.Key) && g.First().ClientIsTailnet)));
+            Tailnet: topClients.Contains(g.Key) && g.First().ClientIsTailnet,
+            ClientDeviceMac: topClients.Contains(g.Key) ? g.First().ClientDeviceMac : null)));
         nodes.AddRange(moving.GroupBy(AppNode).Select(g => new LiveSankeyNode(1, g.Key, g.Sum(V), LiveTrafficField.App, null, !topApps.Contains(g.Key),
             g.First().AppIconDomain, g.First().AppIconClass, Down(g), Up(g), Unnamed: topApps.Contains(g.Key) ? UnnamedSeed(g) : null)));
         nodes.AddRange(moving.GroupBy(r => r.Route).Select(g =>
@@ -1417,9 +1424,11 @@ public sealed class LiveTrafficStore
             // A lookup the Gateway redirected to a site resolver tried to bypass it and did not.
             var redirected = e.RedirectedTo.Length > 0;
             var bypass = !redirected && IsBypassResolver(e.ServerIp);
+            var clientMac = ClientMacFor(e.ClientMac, e.ClientIp);
             rows.Add(new LiveDnsRow(d.At, ClientNameFor(e.ClientMac, e.ClientIp), e.ClientIp, e.Name, e.Qtype,
                 ResolverName(e.ServerIp), e.ServerIp, bypass, false, e.Rcode, LatencyOf(e), e.Answered, IsBlocked(e),
-                ClientMacFor(e.ClientMac, e.ClientIp), IsLocalLookup(e, d.At), redirected ? ResolverName(e.RedirectedTo) : null));
+                clientMac, IsLocalLookup(e, d.At), redirected ? ResolverName(e.RedirectedTo) : null,
+                DeviceMacFor(_gatewayIps.Contains(e.ClientIp), clientMac)));
         }
         // Encrypted DNS is a flow, not a lookup we can read: listed as a bypass with its provider.
         // A site resolver's own upstream is listed too, just not as a bypass.
@@ -1429,7 +1438,7 @@ public sealed class LiveTrafficStore
                 ?? DohProviderRegistry.IdentifyProviderFromResolverHost(r.Destination))?.Name;
             rows.Add(new LiveDnsRow(r.Started ?? now, r.ClientName, r.ClientIp, provider ?? r.Destination,
                 r.RemotePort == 853 ? "DoT" : "DoH", r.DestinationIp, r.DestinationIp, r.DnsBypass, true, "", 0, true,
-                ClientMac: r.ClientMac));
+                ClientMac: r.ClientMac, ClientDeviceMac: r.ClientDeviceMac));
         }
 
         IEnumerable<LiveDnsRow> filtered = rows;
@@ -1501,6 +1510,15 @@ public sealed class LiveTrafficStore
     /// <summary>The lookup's MAC: the agent's, else the console's IP map, else empty.</summary>
     private string ClientMacFor(string mac, string ip) =>
         mac.Length > 0 ? NormalizeMac(mac) : _macByIp.TryGetValue(ip, out var m) ? m : "";
+
+    /// <summary>
+    /// The MAC Device Stats opens on when the client is a network device (the gateway or a UniFi
+    /// device), else null. Empty for the gateway before its MAC is read: Device Stats still applies.
+    /// </summary>
+    private string? DeviceMacFor(bool gateway, string resolvedMac) =>
+        gateway ? _gatewayMac ?? ""
+        : resolvedMac.Length > 0 && _clientsByMac.TryGetValue(resolvedMac, out var c) && c.IsDevice ? resolvedMac
+        : null;
 
     private string ClientNameFor(string mac, string ip)
     {

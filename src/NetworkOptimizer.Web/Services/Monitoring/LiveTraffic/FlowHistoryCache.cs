@@ -27,6 +27,7 @@ public sealed class FlowHistoryCache
     private readonly Dictionary<string, DateTime> _viewers = new();
     private HashSet<string> _wanNames = new(StringComparer.OrdinalIgnoreCase);
     private string _gatewayName = "Gateway";
+    private string? _gatewayMac;
     private IReadOnlyList<CustomAppRule> _customApps = Array.Empty<CustomAppRule>();
     private DateTime _lastRefresh = DateTime.MinValue;
     private DateTime? _newest;
@@ -104,20 +105,24 @@ public sealed class FlowHistoryCache
     }
 
     /// <summary>
-    /// The site's WAN names (any other external exit is a VPN), the gateway's name, and its UniFi devices'
-    /// names by MAC and LAN address: the console's records leave a device's end unnamed.
+    /// The site's WAN names (any other external exit is a VPN), the gateway's name and MAC, and its UniFi
+    /// devices' names and MACs by MAC and LAN address: the console's records leave a device's end unnamed.
     /// </summary>
-    public void SetSiteNames(IEnumerable<string> wanNames, string? gatewayName, IReadOnlyDictionary<string, string>? deviceNames = null)
+    public void SetSiteNames(IEnumerable<string> wanNames, string? gatewayName, IReadOnlyDictionary<string, string>? deviceNames = null,
+        string? gatewayMac = null, IReadOnlyDictionary<string, string>? deviceMacs = null)
     {
         lock (_gate)
         {
             _wanNames = new HashSet<string>(wanNames.Where(n => !string.IsNullOrWhiteSpace(n)), StringComparer.OrdinalIgnoreCase);
             if (!string.IsNullOrWhiteSpace(gatewayName)) _gatewayName = gatewayName!;
+            if (!string.IsNullOrEmpty(gatewayMac)) _gatewayMac = gatewayMac.Replace('-', ':').ToLowerInvariant();
             if (deviceNames != null) _deviceNames = deviceNames;
+            if (deviceMacs != null) _deviceMacs = deviceMacs;
         }
     }
 
     private IReadOnlyDictionary<string, string> _deviceNames = new Dictionary<string, string>();
+    private IReadOnlyDictionary<string, string> _deviceMacs = new Dictionary<string, string>();
 
     /// <summary>
     /// The site's custom app definitions. Applied when a view is built, not when records arrive, so a
@@ -135,7 +140,7 @@ public sealed class FlowHistoryCache
             if (generation != _generation) return;
             foreach (var f in flows)
             {
-                var row = ToRow(f, _wanNames, _gatewayName, _deviceNames);
+                var row = ToRow(f, _wanNames, _gatewayName, _deviceNames, _gatewayMac, _deviceMacs);
                 if (row == null) continue;
                 _rows[row.Key] = row;
                 if (row.LastSeen is { } seen && (_newest == null || seen > _newest)) _newest = seen;
@@ -259,7 +264,8 @@ public sealed class FlowHistoryCache
     /// </summary>
     [NetworkOptimizer.Core.VendorSpecific("UniFi", "traffic-flows direction, zone_name, and in/out network semantics")]
     internal static LiveFlowRow? ToRow(UniFiTrafficFlow f, IReadOnlySet<string> wanNames, string gatewayName,
-        IReadOnlyDictionary<string, string>? deviceNames = null)
+        IReadOnlyDictionary<string, string>? deviceNames = null, string? gatewayMac = null,
+        IReadOnlyDictionary<string, string>? deviceMacs = null)
     {
         var incoming = Eq(f.Direction, "incoming");
         var local = incoming ? f.Destination : f.Source;
@@ -277,6 +283,12 @@ public sealed class FlowHistoryCache
 
         var clientName = Clean(local.ClientName) ?? Clean(local.HostName)
             ?? (Eq(local.ZoneName, "Gateway") ? gatewayName : DeviceName(local.Mac, local.Ip!) ?? local.Ip!);
+        // A network device's end links to Device Stats, not Client Performance.
+        var localMac = (local.Mac ?? "").Replace('-', ':').ToLowerInvariant();
+        var clientDeviceMac = Eq(local.ZoneName, "Gateway") ? gatewayMac ?? ""
+            : deviceMacs == null ? null
+            : localMac.Length > 0 && deviceMacs.TryGetValue(localMac, out var byMacKey) ? byMacKey
+            : deviceMacs.GetValueOrDefault(local.Ip!);
         var destination = remote.Domains?.Select(Clean).FirstOrDefault(d => d != null)
             ?? Clean(remote.ClientName) ?? (remoteIsGateway ? gatewayName : DeviceName(remote.Mac, remote.Ip!) ?? remote.Ip!);
 
@@ -332,6 +344,7 @@ public sealed class FlowHistoryCache
             ClientMac = (local.Mac ?? "").Replace('-', ':').ToLowerInvariant(),
             ClientName = clientName,
             ClientIp = local.Ip!,
+            ClientDeviceMac = clientDeviceMac,
             ClientVia = Clean(incoming ? f.Out?.NetworkName : f.In?.NetworkName) ?? Clean(local.NetworkName),
             Destination = destination,
             DestinationIp = remote.Ip!,
