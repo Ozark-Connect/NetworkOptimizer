@@ -391,6 +391,33 @@ public class LiveTrafficStoreTests
     }
 
     [Fact]
+    public void AnAwsHostIsAwsOnAWebPortAndKeepsAKnownPortsName()
+    {
+        var store = SeededStore();
+        var batch = Batch(
+            Flow("web", Laptop, "192.0.2.20", "203.0.113.70", 443, "eth4", 1000, 10),
+            Flow("mqtt", Laptop, "192.0.2.20", "203.0.113.70", 8883, "eth4", 1000, 10));
+        var dns = new LiveDnsEvent
+        {
+            AtUnixMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+            ClientIp = "192.0.2.20",
+            ServerIp = "192.0.2.1",
+            Name = "a1b2c3.iot.us-east-1.amazonaws.com",
+            Qtype = "A",
+            Rcode = "NOERROR",
+            Answered = true,
+        };
+        dns.Answers.Add(new LiveDnsAnswer { Type = "A", Data = "203.0.113.70", Ttl = 300 });
+        batch.Dns.Add(dns);
+        store.Ingest(batch);
+
+        var view = store.BuildView(Query(), LiveTrafficState.Live);
+
+        view.Flows.Single(f => f.Key == "web").App.Should().Be("AWS");
+        view.Flows.Single(f => f.Key == "mqtt").App.Should().Be("MQTT-TLS");
+    }
+
+    [Fact]
     public void FlowsToThisInstallAreNetworkOptimizerAndApPollsAreApAgent()
     {
         var store = SeededStore();

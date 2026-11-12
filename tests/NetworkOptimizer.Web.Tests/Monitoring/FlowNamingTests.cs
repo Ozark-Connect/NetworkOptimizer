@@ -31,6 +31,18 @@ public class FlowNamingTests
     }
 
     [Theory]
+    [InlineData(null, true)]
+    [InlineData("OTHER", true)]
+    [InlineData("HTTPS", true)]
+    [InlineData("HTTPS-Alt", true)]
+    [InlineData("MQTT-TLS", false)]
+    [InlineData("SMTP", false)]
+    public void A_cloud_name_replaces_only_a_web_port(string? service, bool generic)
+    {
+        FlowNaming.IsGenericService(service).Should().Be(generic);
+    }
+
+    [Theory]
     [InlineData(null, null)]
     [InlineData("", null)]
     [InlineData("OTHER", null)]

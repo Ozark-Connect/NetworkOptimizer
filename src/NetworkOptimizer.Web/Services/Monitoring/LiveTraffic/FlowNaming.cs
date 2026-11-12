@@ -20,6 +20,13 @@ public static class FlowNaming
         return name is "HTTP" or "HTTP-Alt" ? "HTTPS" : name;
     }
 
+    /// <summary>A web or bare-TLS protocol name, which a cloud's name (AWS) is more specific than.</summary>
+    public static bool IsGenericApp(string? app) => app is "HTTP" or "HTTPS" or "HTTP/3" or "QUIC" or "SSL/TLS";
+
+    /// <summary>A web port or no named port: a cloud's name may replace it. MQTT-TLS on 8883 keeps its name.</summary>
+    public static bool IsGenericService(string? service) =>
+        ConsoleService(service) is null or "HTTP" or "HTTPS" or "HTTP-Alt" or "HTTPS-Alt";
+
     /// <summary>Ports from here up are treated as ephemeral, as Threat Intelligence treats them.</summary>
     public const int EphemeralFloor = NetworkOptimizer.Threats.Analysis.FlowInterestFilter.EphemeralPortFloor;
 
