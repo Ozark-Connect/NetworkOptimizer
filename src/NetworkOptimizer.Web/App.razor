@@ -386,6 +386,25 @@
             return names ? (names.getAttribute('data-tooltip') || '') : (el.textContent || '').trim();
         }
 
+        // A small X at the top right of a tooltip that stays up (interactive: it has links to click), so
+        // it can be put away without moving off it. On the box, not the content: setContent keeps it.
+        function addTipClose(instance) {
+            var box = instance.popper.querySelector('.tippy-box');
+            if (!box || box.querySelector('.tip-close')) return;
+            var x = document.createElement('button');
+            x.type = 'button';
+            x.className = 'tip-close';
+            x.setAttribute('aria-label', 'Close');
+            x.textContent = '×';
+            x.addEventListener('click', function (e) { e.stopPropagation(); instance.hide(); });
+            box.appendChild(x);
+        }
+
+        // The X takes room at the right: a tooltip that has one may draw that much wider before it wraps.
+        function withCloseRoom(maxWidth) {
+            return String(maxWidth).replace(/(\d+)px\)$/, function (m, px) { return (+px + 24) + 'px)'; });
+        }
+
         // The nearest ancestor its ellipsis is cutting, within a few levels, where the cut-name tooltip
         // runs (the mouseover handler's hosts); null when none is, so the child keeps its own tooltip.
         function cutAncestor(el) {
@@ -517,7 +536,9 @@
                 if (isInteractive) {
                     opts.interactive = true;
                     opts.interactiveBorder = 10;
+                    opts.maxWidth = withCloseRoom(opts.maxWidth);
                     opts.onMount = function(instance) {
+                        addTipClose(instance);
                         instance.popper.querySelectorAll('a').forEach(function(link) {
                             link.addEventListener('click', function() { instance.unmount(); });
                         });
@@ -642,6 +663,7 @@
                 // page it came from and drops to the corner once its cell is gone.
                 onMount: function (instance) {
                     activeLinkCard = instance;
+                    addTipClose(instance);
                     // A floor, not the cell's width (that read too wide): a short card is still easy to reach.
                     var box = instance.popper.firstElementChild;
                     if (box) box.style.minWidth = opts.wide ? 'min(100vw - 10px, 320px)' : '200px';
@@ -664,7 +686,7 @@
                 placement: 'top',
                 theme: 'custom',
                 appendTo: document.body,
-                maxWidth: opts.wide ? 'min(100vw - 10px, 560px)' : 'min(100vw - 10px, 400px)',
+                maxWidth: withCloseRoom(opts.wide ? 'min(100vw - 10px, 560px)' : 'min(100vw - 10px, 400px)'),
                 onShow: function (instance) {
                     // Tippy's own hover delay can fire after a navigation took the cell away (a card
                     // link was clicked): shown then, the card strands at the top left of the next page.
@@ -866,7 +888,9 @@
                 if (isInteractive) {
                     opts.interactive = true;
                     opts.interactiveBorder = 10;
+                    opts.maxWidth = withCloseRoom(opts.maxWidth);
                     opts.onMount = function(instance) {
+                        addTipClose(instance);
                         instance.popper.querySelectorAll('a').forEach(function(link) {
                             link.addEventListener('click', function() { instance.unmount(); });
                         });

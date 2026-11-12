@@ -9005,6 +9005,30 @@ h3 > .tooltip-icon-sm {
     color: var(--border-color);
 }
 
+/* The X on a tooltip that stays up (addTipClose in App.razor); the content keeps clear of it. */
+.tippy-box[data-theme~='custom']:has(> .tip-close) .tippy-content {
+    padding-right: 1.6rem;
+}
+
+.tippy-box[data-theme~='custom'] .tip-close {
+    position: absolute;
+    top: 3px;
+    right: 4px;
+    width: 16px;
+    height: 16px;
+    padding: 0;
+    border: none;
+    background: transparent;
+    color: var(--text-muted);
+    font-size: 14px;
+    line-height: 16px;
+    cursor: pointer;
+}
+
+.tippy-box[data-theme~='custom'] .tip-close:hover {
+    color: var(--text-primary);
+}
+
 /* Links inside Tippy tooltips */
 .tippy-box[data-theme~='custom'] a {
     color: var(--primary-hover);
