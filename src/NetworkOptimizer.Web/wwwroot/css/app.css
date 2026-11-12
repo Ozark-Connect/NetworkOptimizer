@@ -25553,6 +25553,17 @@ body:has(.top-bar-hidden) .btn-fit {
     background: var(--bg-elevated);
 }
 
+/* Drawn, not the ✕ glyph: iOS's fallback font sat the glyph low in the circle. */
+.lt-chip .lt-x svg {
+    display: block;
+    width: 8px;
+    height: 8px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.6;
+    stroke-linecap: round;
+}
+
 .lt-clear {
     font-size: 0.78rem;
     color: var(--text-secondary);

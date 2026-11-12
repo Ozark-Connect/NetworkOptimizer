@@ -8,7 +8,7 @@
             <span class="lt-chip @(f.Exclude ? "is-exclude" : null)">
                 @(f.Exclude ? $"Not {LiveTrafficDisplay.FieldLabel(f.Field)}" : LiveTrafficDisplay.FieldLabel(f.Field))
                 <b>@f.Value</b>
-                <span class="lt-x" role="button" aria-label="Remove filter" @onclick="() => Feed.RemoveFilterAsync(f)">&#x2715;</span>
+                <span class="lt-x" role="button" aria-label="Remove filter" @onclick="() => Feed.RemoveFilterAsync(f)"><svg viewBox="0 0 10 10" aria-hidden="true"><path d="M2 2l6 6M8 2l-6 6" /></svg></span>
             </span>
         }
         <a href="" class="lt-clear" @onclick="Feed.ClearFiltersAsync" @onclick:preventDefault>Clear</a>

@@ -1168,7 +1168,7 @@
             {
                 <span class="lt-chip">
                     Time <b>@WindowLabel</b>
-                    <span class="lt-x" role="button" aria-label="Clear the time window" @onclick="ClearWindow">&#x2715;</span>
+                    <span class="lt-x" role="button" aria-label="Clear the time window" @onclick="ClearWindow"><svg viewBox="0 0 10 10" aria-hidden="true"><path d="M2 2l6 6M8 2l-6 6" /></svg></span>
                 </span>
             }
             @foreach (var group in ChipGroups())
@@ -1220,7 +1220,7 @@
                         {
                             <span class="lt-chip-or">+@(values.Count - ChipValuesShown)</span>
                         }
-                        <span class="lt-x" role="button" aria-label="Remove filter" @onclick="() => RemoveChip(key)" @onclick:stopPropagation>&#x2715;</span>
+                        <span class="lt-x" role="button" aria-label="Remove filter" @onclick="() => RemoveChip(key)" @onclick:stopPropagation><svg viewBox="0 0 10 10" aria-hidden="true"><path d="M2 2l6 6M8 2l-6 6" /></svg></span>
                     </span>
                     @if (_editor == key && !_editorAtAdd)
                     {
