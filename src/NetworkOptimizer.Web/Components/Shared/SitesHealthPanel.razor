@@ -121,7 +121,7 @@
                 {
                     var now = Now(s);
                     var level = s.Online ? SiteHealthSeriesBuilder.Level(now) : "down";
-                    <div class="shp-tile @level" data-tooltip="@TileTip(s)">
+                    <div class="shp-tile @level" data-tooltip="@TileTip(s)" data-tooltip-distinct>
                         <a class="shp-row-link" href="@SiteContextService.WithSiteParam("/", s.Slug)" data-site-switch="@s.Slug" aria-label="@s.Name"></a>
                         <span class="shp-tile-name"><span class="status-dot @(s.Online ? "online" : "offline")"></span>@s.Name</span>
                         <span class="shp-tile-health health-@(s.Online ? SiteHealthSeriesBuilder.Level(now) : "unknown")">@(s.Online && now is { } n ? F(n) : "--")</span>

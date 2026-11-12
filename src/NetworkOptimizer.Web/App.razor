@@ -568,7 +568,9 @@
                         if (ref.hasAttribute('data-tooltip-names-cut') && cutAncestor(ref)) {
                             return false;
                         }
-                        // Suppress if an adjacent sibling already shows the same tooltip
+                        // Suppress if an adjacent sibling already shows the same tooltip.
+                        // data-tooltip-distinct: siblings are separate things that can share a text (site tiles).
+                        if (ref.hasAttribute('data-tooltip-distinct')) return;
                         var siblings = [ref.previousElementSibling, ref.nextElementSibling];
                         for (var i = 0; i < siblings.length; i++) {
                             var sib = siblings[i];
@@ -922,6 +924,7 @@
                         if (ref.hasAttribute('data-tooltip-truncated') && ref.scrollWidth <= ref.clientWidth + 1) {
                             return false;
                         }
+                        if (ref.hasAttribute('data-tooltip-distinct')) return;
                         var siblings = [ref.previousElementSibling, ref.nextElementSibling];
                         for (var i = 0; i < siblings.length; i++) {
                             var sib = siblings[i];
