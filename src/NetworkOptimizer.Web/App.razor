@@ -640,21 +640,63 @@
         function tipLink(href, text) {
             return '<a href="' + escapeHtml(href) + '">' + escapeHtml(text) + tipLinkIcon + '</a>';
         }
+        // A copy button for an address or domain on a card; the delegated handler below does the copy.
+        var tipCopyIcon = '<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>';
+        var tipCheckIcon = '<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>';
+        function tipCopy(value) {
+            return '<button type="button" class="tip-copy" data-copy="' + escapeHtml(value) + '" aria-label="Copy ' + escapeHtml(value) + '">' + tipCopyIcon + '</button>';
+        }
+        var ipPattern = /^(\d{1,3}(\.\d{1,3}){3}|[0-9a-f]*:[0-9a-f:]+)$/i;
+        // A host name worth copying ("www.example.com"), not a provider or owner name ("Google LLC").
+        function isDomain(s) { return /^[a-z0-9_-]+(\.[a-z0-9_-]+)+\.?$/i.test(s) && !ipPattern.test(s); }
         function destinationHtml(cell) {
             var name = cell.getAttribute('data-dest-name') || '';
             var ip = cell.getAttribute('data-dest-ip') || '';
             var link = cell.getAttribute('data-dest-link');
+            if (!ip) return null;
             // Network Tools fills its target from ?target= and runs nothing until asked.
             var trace = '/network-tools?target=' + encodeURIComponent(ip);
-            return (name && name !== ip ? '<div>' + escapeHtml(name) + '</div>' : '') + '<div>' + escapeHtml(ip) + '</div>'
+            return (name && name !== ip ? '<div>' + escapeHtml(name) + (isDomain(name) ? tipCopy(name) : '') + '</div>' : '')
+                + '<div>' + escapeHtml(ip) + tipCopy(ip) + '</div>'
                 + '<div class="tip-links">' + (link ? tipLink(link, 'Threats') : '') + tipLink(trace, 'Trace') + '</div>';
         }
         // A client: the name as its Client Performance (or a network device's Device Stats) link, then the cell's detail, one line each.
+        // The address line ("192.0.2.10 · TCP 51512") copies the address alone.
         function clientHtml(el) {
             var note = el.getAttribute('data-client-note') || '';
+            if (!el.getAttribute('data-client-link')) return null;
             return '<div>' + tipLink(el.getAttribute('data-client-link'), el.getAttribute('data-client-name') || '') + '</div>'
-                + note.split('\n').filter(Boolean).map(function (line) { return '<div>' + escapeHtml(line) + '</div>'; }).join('');
+                + note.split('\n').filter(Boolean).map(function (line) {
+                    var address = line.split(' · ')[0];
+                    return '<div>' + escapeHtml(line) + (ipPattern.test(address) ? tipCopy(address) : '') + '</div>';
+                }).join('');
         }
+        document.addEventListener('click', function (e) {
+            var button = e.target.closest && e.target.closest('.tip-copy');
+            if (!button) return;
+            e.preventDefault();
+            e.stopPropagation();
+            var text = button.getAttribute('data-copy') || '';
+            var copied;
+            if (navigator.clipboard && window.isSecureContext) copied = navigator.clipboard.writeText(text);
+            else {
+                var scratch = document.createElement('textarea');
+                scratch.value = text;
+                scratch.setAttribute('readonly', '');
+                scratch.style.position = 'absolute';
+                scratch.style.left = '-9999px';
+                document.body.appendChild(scratch);
+                scratch.select();
+                document.execCommand('copy');
+                document.body.removeChild(scratch);
+                copied = Promise.resolve();
+            }
+            copied.then(function () {
+                button.innerHTML = tipCheckIcon;
+                button.classList.add('is-copied');
+                setTimeout(function () { button.innerHTML = tipCopyIcon; button.classList.remove('is-copied'); }, 1200);
+            }).catch(function (err) { console.warn('Copy from card', err); });
+        }, true);
         // The open card, dropped once its cell leaves the page (any navigation away) so it never sits orphaned.
         var activeLinkCard = null;
         function dropOrphanedLinkCard() {
@@ -692,10 +734,13 @@
         function showLinkCard(cell, html, opts) {
             opts = opts || {};
             var delay = restTipDelay(cell);
+            // A chip can change card (a destination that was a LAN client is no longer in view): a new card then.
+            if (cell._tippy && cell._ltCardHtml !== html) cell._tippy.destroy();
             if (cell._tippy) {
                 showTip(cell, delay);
                 return;
             }
+            cell._ltCardHtml = html;
             if (innerTipHovered(cell)) return;
             // A click on the cell itself (a client name is a link) navigates too.
             cell.addEventListener('click', function () { if (cell._tippy) cell._tippy.unmount(); });
@@ -770,8 +815,8 @@
                 + rows.map(function (r) {
                     var value = r.f != null ? escapeHtml(r.f)
                         : '<span class="lt-route-tip-down">↓ ' + escapeHtml(r.d) + '</span> <span class="lt-route-tip-up">↑ ' + escapeHtml(r.u) + '</span>';
-                    return '<div class="lt-route-tip-row"><span class="lt-route-tip-name"><span>' + escapeHtml(r.n) + '</span>'
-                        + (r.ip ? '<span class="lt-route-tip-ip">' + escapeHtml(r.ip) + '</span>' : '')
+                    return '<div class="lt-route-tip-row"><span class="lt-route-tip-name"><span>' + escapeHtml(r.n) + (isDomain(r.n) ? tipCopy(r.n) : '') + '</span>'
+                        + (r.ip ? '<span class="lt-route-tip-ip">' + escapeHtml(r.ip) + tipCopy(r.ip) + '</span>' : '')
                         + (r.s ? '<span class="lt-tag lt-site-badge">' + escapeHtml(r.s) + '</span>' : '')
                         + (r.c ? '<span class="lt-tag lt-site-badge">' + escapeHtml(r.c) + '</span>' : '') + '</span>'
                         + '<span class="lt-route-tip-value">' + value + '</span></div>';
@@ -819,34 +864,6 @@
         // Live Traffic's filters in the address bar. Never a null state: history.state holds Blazor's
         // entry index, and an entry without it breaks Back (a dead first click, then two steps).
         window.ltReplaceUrl = function (url) { history.replaceState(history.state, '', url); };
-
-        // Live Traffic filter chips: a double-click selects a value whole and copies it, for a search outside the app.
-        document.addEventListener('dblclick', function (e) {
-            var value = e.target.closest && e.target.closest('.lt-chip b');
-            if (!value) return;
-            function selectValue() {
-                if (!value.isConnected) return;
-                var range = document.createRange();
-                range.selectNodeContents(value);
-                var selection = window.getSelection();
-                selection.removeAllRanges();
-                selection.addRange(range);
-            }
-            selectValue();
-            // The first click opened the editor, whose search box takes focus a round trip later and with it the selection.
-            document.addEventListener('focusin', selectValue, { once: true });
-            setTimeout(function () { document.removeEventListener('focusin', selectValue); }, 1000);
-            var text = value.textContent.trim();
-            var copied = navigator.clipboard && window.isSecureContext
-                ? navigator.clipboard.writeText(text)
-                : Promise.resolve(document.execCommand('copy'));
-            copied.then(function () {
-                if (!window.tippy) return;
-                var tip = tippy(value, { content: 'Copied', trigger: 'manual', placement: 'top', theme: 'custom', appendTo: document.body });
-                tip.show();
-                setTimeout(function () { tip.destroy(); }, 1200);
-            }).catch(function (err) { console.warn('Copy filter value', err); });
-        });
 
         // Live Traffic: full text for any name its ellipsis cuts. The ellipsis sits on the cell, not the
         // name, so data-tooltip-truncated (which measures the element itself) cannot see it; one

@@ -1138,7 +1138,7 @@ public sealed class LiveTrafficStore
             RemoteClientMac = peer?.Mac,
             RemoteDeviceMac = DeviceMacFor(_gatewayIps.Contains(f.RemoteIp), peer?.Mac ?? ""),
             RemoteClientVia = peer == null ? (tailnetPeer != null ? "Tailscale" : null) : peer.Via ?? peer.Network,
-            RemoteNetwork = peer?.Network,
+            RemoteNetwork = peer?.Network ?? (kind == LiveRouteKind.Lan ? NetworkFor(f.RemoteIp) : null),
             RemoteOrg = f.Lan ? null : org,
             DnsBypass = encryptedDns && !resolverUpstream,
             History = history,
@@ -1855,6 +1855,21 @@ public sealed class LiveTrafficStore
     {
         var list = subnets.Where(s => !string.IsNullOrWhiteSpace(s) && s.Contains('/')).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
         lock (_gate) _siteSubnets = list;
+    }
+
+    /// <summary>The site's Networks by subnet, naming the Network of a LAN address no client record names (a UniFi device, an unlisted host).</summary>
+    public void SetNetworkNames(IReadOnlyCollection<(string Subnet, string Name)> networks)
+    {
+        lock (_gate) _networkNames = networks.Where(n => n.Subnet.Contains('/')).ToList();
+    }
+
+    private IReadOnlyList<(string Subnet, string Name)> _networkNames = [];
+
+    private string? NetworkFor(string ip)
+    {
+        foreach (var (subnet, name) in _networkNames)
+            if (NetworkUtilities.IsIpInSubnet(ip, subnet)) return name;
+        return null;
     }
 
     /// <summary>

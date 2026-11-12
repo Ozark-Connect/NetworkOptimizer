@@ -228,8 +228,8 @@
                 <div class="lt-detail-head"><h4>Policy and route</h4>@ClientJump(f)</div>
                 <dl class="lt-kv">
                     <dt>Allowed by</dt><dd>@AllowedBy(f)</dd>
-                    <dt>Exits</dt><dd><span class="lt-tag @LiveTrafficDisplay.RouteClass(f.RouteKind)">@f.Route</span></dd>
-                    <dt>App</dt><dd>@AppDetail(f)</dd>
+                    <dt>Exits</dt><dd>@RoutePill(f)</dd>
+                    <dt>App</dt><dd>@Pill(LiveTrafficField.App, f.App)@AppNote(f)</dd>
                 </dl>
                 @HideActions(f)
             </div>
@@ -292,8 +292,8 @@
                 <div class="lt-detail-head"><h4>Policy and route</h4>@ClientJump(f)</div>
                 <dl class="lt-kv">
                     <dt>@(blocked ? "Blocked by" : "Allowed by")</dt><dd>@(f.PolicyName ?? "Default policy")</dd>
-                    <dt>Exits</dt><dd><span class="lt-tag @LiveTrafficDisplay.RouteClass(f.RouteKind)">@f.Route</span></dd>
-                    <dt>App</dt><dd>@AppDetail(f)</dd>
+                    <dt>Exits</dt><dd>@RoutePill(f)</dd>
+                    <dt>App</dt><dd>@Pill(LiveTrafficField.App, f.App)@AppNote(f)</dd>
                 </dl>
                 @HideActions(f)
             </div>
@@ -301,9 +301,21 @@
     };
 
     /// <summary>Ports, addresses, then the remote site or owner, and the client's network.</summary>
-    private static RenderFragment PortsAndOwner(LiveFlowRow f) => __builder =>
+    private RenderFragment PortsAndOwner(LiveFlowRow f) => __builder =>
     {
-        <dt>Ports</dt><dd>@f.Proto @(f.ClientPort > 0 ? f.ClientPort.ToString() : "") to @(f.RemotePort > 0 ? f.RemotePort.ToString() : f.DestinationIp)</dd>
+        <dt>Ports</dt>
+        <dd>
+            @Pill(LiveTrafficField.Protocol, f.Proto)
+            @(f.ClientPort > 0 ? $" {f.ClientPort} to " : " to ")
+            @if (f.RemotePort > 0)
+            {
+                @Pill(LiveTrafficField.Port, f.RemotePort.ToString())
+            }
+            else
+            {
+                @f.DestinationIp
+            }
+        </dd>
         <dt>Addresses</dt><dd>@f.ClientIp to @f.DestinationIp</dd>
         @if (!string.IsNullOrEmpty(f.RemoteSite))
         {
@@ -315,7 +327,11 @@
         }
         @if (!string.IsNullOrEmpty(f.Network))
         {
-            <dt>Network</dt><dd>@f.Network</dd>
+            <dt>Client network</dt><dd>@f.Network</dd>
+        }
+        @if (!string.IsNullOrEmpty(f.RemoteNetwork))
+        {
+            <dt>Destination network</dt><dd>@f.RemoteNetwork</dd>
         }
     };
 
@@ -354,9 +370,9 @@
         </div>
     };
 
-    /// <summary>The App, then its category, or that it is one of the site's custom apps.</summary>
-    private static string AppDetail(LiveFlowRow f) =>
-        f.App + (f.CustomAppId != null ? ", a custom app" : f.Category != null ? $", category {f.Category}" : "");
+    /// <summary>After the App's filter pill: its category, or that it is one of the site's custom apps.</summary>
+    private static string AppNote(LiveFlowRow f) =>
+        f.CustomAppId != null ? " a custom app" : f.Category != null ? $" category {f.Category}" : "";
 
     /// <summary>
     /// What Name This App prefills for a row whose App is only a fallback (a port, a service name, an

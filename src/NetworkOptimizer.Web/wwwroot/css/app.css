@@ -9045,6 +9045,27 @@ h3 > .tooltip-icon-sm {
     vertical-align: -1px;
 }
 
+/* Copy beside an address or domain on a Live Traffic hover card. */
+.tippy-box[data-theme~='custom'] .tip-copy {
+    display: inline-flex;
+    align-items: center;
+    margin-left: 0.3em;
+    padding: 0 2px;
+    border: 0;
+    background: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    vertical-align: -1px;
+}
+
+.tippy-box[data-theme~='custom'] .tip-copy:hover {
+    color: var(--text-primary);
+}
+
+.tippy-box[data-theme~='custom'] .tip-copy.is-copied {
+    color: var(--success-color);
+}
+
 .tippy-box[data-theme~='custom'] a:hover {
     color: var(--accent-color);
     text-decoration: underline;

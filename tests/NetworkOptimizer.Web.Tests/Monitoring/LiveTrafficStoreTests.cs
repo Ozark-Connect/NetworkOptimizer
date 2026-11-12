@@ -196,6 +196,7 @@ public class LiveTrafficStoreTests
                 new LiveClientInfo(ap, "Office AP", "192.0.2.30", "U7 Pro", null, IsDevice: true),
             ],
             ["192.0.2.1"], "Gateway", new Dictionary<string, LiveRouteInfo>(), null, "aa:bb:cc:dd:ee:99");
+        store.SetNetworkNames([("192.0.2.0/24", "Default")]);
         store.Ingest(Batch(
             Flow("nas", Laptop, "192.0.2.20", "192.0.2.10", 445, "", 3_000_000, 10_000, lan: true),
             Flow("ap", Laptop, "192.0.2.20", "192.0.2.30", 22, "", 2_000_000, 10_000, lan: true),
@@ -210,6 +211,11 @@ public class LiveTrafficStoreTests
         LiveTrafficLinks.LanPeer(rows["gw"]).Should().Contain("tab=devices");
         LiveTrafficLinks.LanPeer(rows["lan"]).Should().BeNull("an unknown LAN host keeps the destination card");
         LiveTrafficLinks.LanPeer(rows["wan"]).Should().BeNull();
+
+        rows["nas"].RemoteNetwork.Should().Be("Main", "the client record's Network wins");
+        rows["ap"].RemoteNetwork.Should().Be("Default", "a device has no Network of its own: its subnet names it");
+        rows["lan"].RemoteNetwork.Should().Be("Default");
+        rows["wan"].RemoteNetwork.Should().BeNull();
     }
 
     [Fact]

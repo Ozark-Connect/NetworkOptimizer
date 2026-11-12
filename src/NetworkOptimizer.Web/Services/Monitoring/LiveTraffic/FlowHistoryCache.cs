@@ -349,6 +349,7 @@ public sealed class FlowHistoryCache
             ClientDeviceMac = DeviceMac(local),
             // The far end on the LAN: a device, or a client the console names, takes the client card.
             RemoteDeviceMac = kind == LiveRouteKind.Lan ? DeviceMac(remote) : null,
+            RemoteNetwork = kind == LiveRouteKind.Lan ? Clean(remote.NetworkName) : null,
             RemoteClientMac = kind == LiveRouteKind.Lan && Clean(remote.ClientName) != null && !string.IsNullOrEmpty(remote.Mac)
                 ? remote.Mac.Replace('-', ':').ToLowerInvariant() : null,
             ClientVia = Clean(incoming ? f.Out?.NetworkName : f.In?.NetworkName) ?? Clean(local.NetworkName),

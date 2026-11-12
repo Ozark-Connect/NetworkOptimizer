@@ -50,7 +50,10 @@ else
 
     private RenderFragment ResolverPill(LiveDnsRow d) => __builder =>
     {
-        <span class="lt-dns-resolver">
+        // An outside resolver (a public address) gets the destination card: address, copy, Threats, Trace.
+        var threats = LiveTrafficLinks.ThreatsDrilldown(d.ResolverIp);
+        <span class="lt-dns-resolver" data-dest-name="@(threats != null ? d.Resolver : null)"
+              data-dest-ip="@(threats != null ? d.ResolverIp : null)" data-dest-link="@threats">
             @Pill(LiveTrafficField.Resolver, d.Resolver, label: d.Encrypted ? d.QType : d.Resolver, cls: d.Bypass ? "lt-bypass" : d.RedirectedTo != null ? "lt-redirected" : "lt-site-dns")
             @if (d.RedirectedTo != null)
             {

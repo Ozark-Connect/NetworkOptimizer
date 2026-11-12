@@ -195,15 +195,15 @@
     };
 
     /// <summary>
-    /// For traffic between VLANs to one of your clients or UniFi devices: its network beside the
-    /// destination, and how it connects in the tooltip.
+    /// For traffic to a host on the LAN: its Network beside the destination, and in the tooltip that
+    /// Network and how the host connects (its switch port, its band).
     /// </summary>
     protected static RenderFragment PeerBadge(LiveFlowRow f) => __builder =>
     {
-        if (string.IsNullOrEmpty(f.RemoteClientMac)) return;
+        if (string.IsNullOrEmpty(f.RemoteClientMac) && (f.RouteKind != LiveRouteKind.Lan || string.IsNullOrEmpty(f.RemoteNetwork))) return;
         var via = LiveTrafficDisplay.ViaTooltip(f.RemoteClientVia) ?? (f.RemoteClientVia != f.RemoteNetwork ? f.RemoteClientVia : null);
-        var tip = string.IsNullOrEmpty(f.RemoteNetwork) ? "One of your clients" : $"One of your clients, on {f.RemoteNetwork}";
-        <span class="lt-tag lt-peer-badge" data-tooltip="@(via != null ? $"{tip}: {via}" : tip)" data-tooltip-hover-only>@(f.RemoteNetwork ?? "LAN")</span>
+        var tip = string.IsNullOrEmpty(f.RemoteNetwork) ? "On your LAN" : $"{f.RemoteNetwork} network";
+        <span class="lt-tag lt-peer-badge" data-tooltip="@(via != null ? $"{tip}\n{via}" : tip)" data-tooltip-hover-only>@(f.RemoteNetwork ?? "LAN")</span>
     };
 
     /// <summary>

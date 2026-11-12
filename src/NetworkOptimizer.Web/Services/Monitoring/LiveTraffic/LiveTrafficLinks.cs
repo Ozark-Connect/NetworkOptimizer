@@ -11,8 +11,12 @@ public static class LiveTrafficLinks
     /// address (a LAN peer or the gateway has nothing to drill into).
     /// </summary>
     public static string? ThreatsDrilldown(LiveFlowRow f) =>
-        f.RouteKind is not LiveRouteKind.Lan && IPAddress.TryParse(f.DestinationIp, out var ip) && NetworkUtilities.IsPublicIpAddress(ip)
-            ? "/threats?tab=drilldown&ip=" + Uri.EscapeDataString(f.DestinationIp)
+        f.RouteKind is not LiveRouteKind.Lan ? ThreatsDrilldown(f.DestinationIp) : null;
+
+    /// <summary>The Threat Intelligence drill-down for an address, or null when it is not a public address.</summary>
+    public static string? ThreatsDrilldown(string? address) =>
+        IPAddress.TryParse(address, out var ip) && NetworkUtilities.IsPublicIpAddress(ip)
+            ? "/threats?tab=drilldown&ip=" + Uri.EscapeDataString(address!)
             : null;
 
     /// <summary>The flow's client: see <see cref="Client(string?, string?)"/>.</summary>

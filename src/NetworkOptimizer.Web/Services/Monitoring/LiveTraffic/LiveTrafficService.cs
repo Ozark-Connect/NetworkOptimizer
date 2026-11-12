@@ -424,6 +424,10 @@ public sealed class LiveTrafficService : ILiveTrafficService
                 var networks = await client.GetNetworkConfigsAsync();
                 store.SetSiteNetworks(networks.SelectMany(n => new[] { n.IpSubnet, n.Ipv6Subnet }).OfType<string>());
                 store.SetNetworkPurposes(networks.Select(n => (n.IpSubnet, (string?)n.Purpose)).ToList());
+                store.SetNetworkNames(networks
+                    .Where(n => !string.IsNullOrWhiteSpace(n.Name) && !string.Equals(n.Purpose, "wan", StringComparison.OrdinalIgnoreCase))
+                    .SelectMany(n => new[] { n.IpSubnet, n.Ipv6Subnet }.OfType<string>().Select(s => (s, n.Name!)))
+                    .ToList());
                 store.SetTunnelNames(WireGuardClientNames(networks));
             }
 
