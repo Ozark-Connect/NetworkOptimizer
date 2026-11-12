@@ -1,0 +1,131 @@
+@* A Live Traffic filter chip's editor: every value of one field as a checklist, with how many rows carry
+   it under the other filters. Ticking applies at once; Done, Esc, or a click outside closes it. A
+   bottom sheet on a phone (app.css). *@
+@using NetworkOptimizer.Web.Services.Monitoring.LiveTraffic
+
+<div class="lt-fpop-backdrop" @onclick="CloseAsync"></div>
+<div class="lt-fpop" role="dialog" aria-label="@($"Filter by {Label}")" @onkeydown="OnKeyAsync">
+    <div class="lt-fpop-grab" aria-hidden="true"></div>
+    <div class="lt-fpop-head">
+        <span class="lt-fpop-title">@Label</span>
+        <div class="time-range-selector">
+            <button type="button" class="time-btn @(!Exclude ? "active" : null)" @onclick="() => OnSetExclude.InvokeAsync(false)">Include</button>
+            <button type="button" class="time-btn @(Exclude ? "active" : null)" @onclick="() => OnSetExclude.InvokeAsync(true)">Exclude</button>
+        </div>
+    </div>
+    <input @ref="_input" class="form-control lt-fpop-search" placeholder="@($"Search or type a {Label.ToLowerInvariant()}")"
+           @bind="_search" @bind:event="oninput" @bind:after="SearchChanged" />
+    <div class="lt-fpop-list" role="listbox" aria-multiselectable="true">
+        @{ var items = Items(); var idleShown = false; }
+        @if (Loading && items.Count == 0)
+        {
+            <div class="lt-fpop-empty"><span class="spinner spinner-sm"></span></div>
+        }
+        else if (items.Count == 0)
+        {
+            <div class="lt-fpop-empty">Nothing matches.</div>
+        }
+        @for (var i = 0; i < items.Count; i++)
+        {
+            var index = i;
+            var item = items[i];
+            if (item.Idle && !idleShown)
+            {
+                idleShown = true;
+                <div class="lt-fpop-sep">Not moving now</div>
+            }
+            var on = Selected.Contains(item.Value);
+            <label class="lt-fpop-item @(index == _highlight ? "is-active" : null) @(item.Idle ? "is-idle" : null)"
+                   role="option" aria-selected="@(on ? "true" : "false")" @onmouseenter="() => _highlight = index">
+                <input type="checkbox" checked="@on" @onchange="() => OnToggle.InvokeAsync(item.Value)" />
+                <span class="lt-fpop-name">@(item.Typed ? $"Add \"{item.Value}\"" : item.Value)</span>
+                @if (!item.Idle && !item.Typed)
+                {
+                    <span class="lt-fpop-n">@item.Count.ToString("N0")</span>
+                }
+            </label>
+        }
+    </div>
+    <div class="lt-fpop-foot">
+        <a href="" @onclick="SelectShownAsync" @onclick:preventDefault>Select shown</a>
+        <button type="button" class="btn btn-primary btn-sm" @onclick="CloseAsync">Done</button>
+    </div>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public LiveTrafficField Field { get; set; }
+    [Parameter] public bool Exclude { get; set; }
+    /// <summary>The values this chip holds now.</summary>
+    [Parameter] public IReadOnlySet<string> Selected { get; set; } = new HashSet<string>();
+    [Parameter] public IReadOnlyList<LiveFacetValue> Facets { get; set; } = Array.Empty<LiveFacetValue>();
+    /// <summary>The facets for this field have not come back yet.</summary>
+    [Parameter] public bool Loading { get; set; }
+    [Parameter] public EventCallback<string> OnToggle { get; set; }
+    [Parameter] public EventCallback<bool> OnSetExclude { get; set; }
+    [Parameter] public EventCallback<IReadOnlyList<string>> OnSelectMany { get; set; }
+    [Parameter] public EventCallback OnClose { get; set; }
+
+    private ElementReference _input;
+    private string _search = "";
+    /// <summary>The keyboard's row: none until typing or an arrow, as the app's other filterable lists.</summary>
+    private int _highlight = -1;
+
+    private string Label => LiveTrafficDisplay.FieldLabel(Field);
+
+    private sealed record Item(string Value, int Count, bool Idle, bool Typed);
+
+    /// <summary>
+    /// The chip's own values first (one with no rows now still shows), then the rest by count, idle clients
+    /// last. A typed value nothing matches exactly is offered as an Add row.
+    /// </summary>
+    private List<Item> Items()
+    {
+        var q = _search.Trim();
+        bool Hit(string v) => q.Length == 0 || v.Contains(q, StringComparison.OrdinalIgnoreCase);
+        var byValue = Facets.GroupBy(f => f.Value, StringComparer.OrdinalIgnoreCase).ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
+        var items = Selected.Where(Hit).Order(StringComparer.OrdinalIgnoreCase)
+            .Select(v => byValue.TryGetValue(v, out var f) ? new Item(f.Value, f.Count, false, false) : new Item(v, 0, false, false))
+            .ToList();
+        items.AddRange(Facets.Where(f => !Selected.Contains(f.Value) && Hit(f.Value))
+            .OrderBy(f => f.Idle).Select(f => new Item(f.Value, f.Count, f.Idle, false)));
+        if (q.Length > 0 && !items.Any(i => i.Value.Equals(q, StringComparison.OrdinalIgnoreCase)))
+            items.Insert(0, new Item(q, 0, false, Typed: true));
+        return items;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+        try { await _input.FocusAsync(); }
+        catch (Exception) { /* the editor closed before it drew */ }
+    }
+
+    private void SearchChanged() => _highlight = _search.Trim().Length > 0 ? 0 : -1;
+
+    private async Task OnKeyAsync(KeyboardEventArgs e)
+    {
+        var items = Items();
+        switch (e.Key)
+        {
+            case "ArrowDown":
+                _highlight = _highlight < 0 ? 0 : Math.Min(items.Count - 1, _highlight + 1);
+                break;
+            case "ArrowUp":
+                _highlight = _highlight < 0 ? items.Count - 1 : Math.Max(0, _highlight - 1);
+                break;
+            case "Enter" when _highlight >= 0 && _highlight < items.Count:
+                var value = items[_highlight].Value;
+                if (items[_highlight].Typed) _search = "";
+                await OnToggle.InvokeAsync(value);
+                break;
+            case "Escape":
+                await CloseAsync();
+                break;
+        }
+    }
+
+    private Task SelectShownAsync() =>
+        OnSelectMany.InvokeAsync(Items().Where(i => !i.Typed && !Selected.Contains(i.Value)).Select(i => i.Value).ToList());
+
+    private Task CloseAsync() => OnClose.InvokeAsync();
+}

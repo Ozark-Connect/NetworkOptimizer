@@ -114,11 +114,13 @@ Time-series monitoring on your own InfluxDB, fed by SNMP polling (InfluxDB).
   - **By** client, app, destination, or route; open a client to see its flows
   - **Detailed View** - every flow through the gateway ranked by current rate, with no row limit (On-Site Agent on the gateway)
     - Click any client, destination, app, route, protocol, or port to filter to it, and again to let it go; hide a value with the button beside it or Alt-click; filters are in the link
-      - Several values of one kind match any of them (this client or that one); different kinds all apply
+      - Several values of one kind match any of them (this client or that one) and share one chip ("Client Laptop or TV"); different kinds all apply
+      - Click a chip to edit it: every value of that kind with how many flows carry it, search or type one that is not on screen, Include or Exclude
+      - **+ Filter** picks a kind to filter by (Client, Destination, App, Route, Protocol, Port, Resolver, or Action in History)
       - **N clients bypassing** on the Live DNS tile filters to those clients, with Live DNS on **Bypass**
       - **N firewall blocks** on the Active flows tile: your clients' blocked connections in the last 10 minutes; opens History filtered to Blocked
       - An app filter for a service keeps the flows named for their app: HTTPS still lists the Apple or Netflix flows on 443, and takes in QUIC
-      - Save the filters, search, and grouping to presets **1 2 3** and load one with a click, remembered per user and site
+      - Save the filters, search, and grouping to presets **1** to **5** (**1** to **3** on a phone) and load one with a click, remembered per user and site
     - Hover a client for its connection, address, and a link to its Client Performance page; a remote-user VPN or Tailscale client reads as one ("VPN Client (address)")
     - With [Tailscale](#settings) connected, Tailscale clients and destinations show their tailnet names, including WireGuard flows to a device's endpoint
       - A device's busiest endpoint flow reads **Direct**, the rest **Path probe**; flows to Tailscale's relays are named by region (Tailscale DERP (Dallas)) and read **DERP relay** or **STUN**

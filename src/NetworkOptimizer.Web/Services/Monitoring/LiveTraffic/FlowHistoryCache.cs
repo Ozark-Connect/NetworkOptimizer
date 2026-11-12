@@ -193,8 +193,19 @@ public sealed class FlowHistoryCache
                 MatchingBlocked = windowed.Count(IsBlocked),
                 MatchingBytes = windowed.Sum(r => r.TotalBytes),
                 TotalFlows = all.Count,
+                Facets = query.FacetField is { } facet ? Facets(facet, all, query) : Array.Empty<LiveFacetValue>(),
             };
         }
+    }
+
+    /// <summary>The open chip editor's values: records in the window that pass every other filter.</summary>
+    private static IReadOnlyList<LiveFacetValue> Facets(LiveTrafficField field, IEnumerable<LiveFlowRow> all, LiveHistoryQuery query)
+    {
+        var others = query.Filters.Where(f => f.Field != field).ToList();
+        return LiveTrafficStore.CountFacets(all
+            .Where(r => query.Client is not { } scope || LiveTrafficStore.InScope(r, scope))
+            .Where(r => InWindow(r, query.From, query.To) && LiveTrafficStore.Matches(r, others, query.Search))
+            .Select(r => LiveTrafficStore.FacetValueOf(r, field)));
     }
 
     private static bool InWindow(LiveFlowRow r, DateTime? from, DateTime? to)

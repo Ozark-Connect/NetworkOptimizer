@@ -402,6 +402,29 @@ public class LiveTrafficStoreTests
     }
 
     [Fact]
+    public void FacetsSetTheirOwnFieldsChipsAsideAndKeepTheOthers()
+    {
+        var store = SeededStore();
+        store.Ingest(Batch(
+            Flow("a", Laptop, "192.0.2.20", "203.0.113.5", 443, "eth4", 1000, 10),
+            Flow("b", Laptop, "192.0.2.20", "203.0.113.6", 443, "eth4", 1000, 10),
+            Flow("c", Nas, "192.0.2.10", "203.0.113.7", 22, "eth4", 1000, 10)));
+        var laptopName = store.BuildView(Query(), LiveTrafficState.Live).Flows.First(f => f.ClientMac == Laptop).ClientName;
+
+        // A Client chip is open: its own chip is set aside, so every client is offered with its count.
+        var clients = store.BuildView(Query(new LiveTrafficFilter(LiveTrafficField.Client, laptopName)) with { FacetField = LiveTrafficField.Client },
+            LiveTrafficState.Live).Facets;
+        clients.Where(f => !f.Idle).Select(f => f.Count).Should().Equal(2, 1);
+        clients.First().Value.Should().Be(laptopName);
+
+        // Another field's chip still applies: Ports under the laptop chip are only the laptop's.
+        store.BuildView(Query(new LiveTrafficFilter(LiveTrafficField.Client, laptopName)) with { FacetField = LiveTrafficField.Port },
+            LiveTrafficState.Live).Facets.Should().ContainSingle().Which.Should().Be(new LiveFacetValue("443", 2));
+
+        store.BuildView(Query(), LiveTrafficState.Live).Facets.Should().BeEmpty("no editor is open");
+    }
+
+    [Fact]
     public void FirewallBlocksCountYourClientsBlockedConnectionsInTheLastTenMinutes()
     {
         static UniFiTrafficFlow Blocked(string id, string direction, DateTime at) => new()

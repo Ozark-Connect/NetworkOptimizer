@@ -15,7 +15,7 @@
     {
         var slot = i;
         @* Keyed by content: a new element binds a fresh tooltip when the preset or the mode changes. *@
-        <button type="button" @key="(slot, _presets[slot], _saving)" class="filter-preset @(_presets[slot] != null ? "is-set" : null) @(slot == _active ? "is-active" : null)"
+        <button type="button" @key="(slot, _presets[slot], _saving)" data-slot="@(slot + 1)" class="filter-preset @(_presets[slot] != null ? "is-set" : null) @(slot == _active ? "is-active" : null)"
                 aria-pressed="@(slot == _active ? "true" : "false")"
                 data-tooltip="@Tooltip(slot)" @onclick="() => ClickAsync(slot)">@(slot + 1)</button>
     }

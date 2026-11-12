@@ -54,7 +54,15 @@ public sealed record LiveTrafficQuery
     /// <summary>The Flows table's sort column; Ended flows default to most recently ended.</summary>
     public LiveFlowSort Sort { get; init; } = LiveFlowSort.Download;
     public bool Descending { get; init; } = true;
+    /// <summary>The field a chip editor is open on: the view carries its values (<see cref="LiveTrafficView.Facets"/>).</summary>
+    public LiveTrafficField? FacetField { get; init; }
 }
+
+/// <summary>
+/// One value a chip editor offers, with how many rows carry it under every other filter (this field's own
+/// chips set aside, so a second value can be added). Idle: a site client not moving now, count 0.
+/// </summary>
+public sealed record LiveFacetValue(string Value, int Count, bool Idle = false);
 
 /// <summary>The Flows table's sortable columns.</summary>
 public enum LiveFlowSort { Download, Upload, Total, Started, Client, Destination, App, Route }
@@ -269,6 +277,8 @@ public sealed record LiveHistoryQuery
     public DateTime? To { get; init; }
     public LiveHistorySort Sort { get; init; } = LiveHistorySort.Time;
     public int MaxRows { get; init; } = 200;
+    /// <summary>The field a chip editor is open on, as <see cref="LiveTrafficQuery.FacetField"/>.</summary>
+    public LiveTrafficField? FacetField { get; init; }
 }
 
 /// <summary>Whether History can answer for this site.</summary>
@@ -293,6 +303,8 @@ public sealed record LiveHistoryView
     public long MatchingBytes { get; init; }
     /// <summary>Every record the console holds.</summary>
     public int TotalFlows { get; init; }
+    /// <summary>The open chip editor's values, most rows first; empty when none is open.</summary>
+    public IReadOnlyList<LiveFacetValue> Facets { get; init; } = Array.Empty<LiveFacetValue>();
 }
 
 /// <summary>Everything one refresh of the card or the full view draws.</summary>
@@ -328,4 +340,6 @@ public sealed record LiveTrafficView
     public IReadOnlyList<string> BypassingClientNames { get; init; } = Array.Empty<string>();
     public bool DnsActive { get; init; }
     public LiveSankey? Sankey { get; init; }
+    /// <summary>The open chip editor's values, most rows first; empty when none is open.</summary>
+    public IReadOnlyList<LiveFacetValue> Facets { get; init; } = Array.Empty<LiveFacetValue>();
 }

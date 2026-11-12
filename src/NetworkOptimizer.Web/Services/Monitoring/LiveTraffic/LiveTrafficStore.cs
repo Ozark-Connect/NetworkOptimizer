@@ -842,9 +842,57 @@ public sealed class LiveTrafficStore
                 DnsActive = _dnsActive,
                 Sankey = query.IncludeSankey && !query.Ended ? BuildSankey(matching, query.SankeyByFlows, query.SankeyHold) : null,
                 TailnetConnected = _tailnetConnected,
+                Facets = query.FacetField is { } facet ? Facets(facet, all, query, active, now) : Array.Empty<LiveFacetValue>(),
             };
         }
     }
+
+    /// <summary>How many values a chip editor lists; typing still reaches any other.</summary>
+    internal const int MaxFacetValues = 200;
+
+    /// <summary>
+    /// The open chip editor's values under every other filter, most rows first. Resolver comes from Live
+    /// DNS; Client also lists the site's known clients that are not moving now. Callers hold <c>_gate</c>.
+    /// </summary>
+    private IReadOnlyList<LiveFacetValue> Facets(LiveTrafficField field, IReadOnlyList<LiveFlowRow> rows, LiveTrafficQuery query,
+        IReadOnlyList<LiveFlowRow> active, DateTime now)
+    {
+        var others = query.Filters.Where(f => f.Field != field).ToList();
+        var values = field == LiveTrafficField.Resolver
+            ? BuildDns(query with { Filters = others }, active, now).Select(d => d.Resolver)
+            : rows.Where(r => Matches(r, others, query.Search)).Select(r => FacetValueOf(r, field));
+        var counted = CountFacets(values);
+        if (field != LiveTrafficField.Client) return counted;
+        var seen = counted.Select(v => v.Value).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var idle = _onlineClients.Concat(_recentClients).Select(c => c.Name)
+            .Where(n => !string.IsNullOrWhiteSpace(n) && seen.Add(n))
+            .Order(StringComparer.OrdinalIgnoreCase)
+            .Take(Math.Max(0, MaxFacetValues - counted.Count))
+            .Select(n => new LiveFacetValue(n, 0, Idle: true));
+        return counted.Concat(idle).ToList();
+    }
+
+    /// <summary>Distinct values, most frequent first, capped at <see cref="MaxFacetValues"/>.</summary>
+    internal static List<LiveFacetValue> CountFacets(IEnumerable<string?> values) =>
+        values.Where(v => !string.IsNullOrEmpty(v))
+            .GroupBy(v => v!, StringComparer.OrdinalIgnoreCase)
+            .Select(g => new LiveFacetValue(g.Key, g.Count()))
+            .OrderByDescending(v => v.Count).ThenBy(v => v.Value, StringComparer.OrdinalIgnoreCase)
+            .Take(MaxFacetValues)
+            .ToList();
+
+    /// <summary>The value a chip on <paramref name="field"/> carries for this row: what its pill in the table shows.</summary>
+    public static string? FacetValueOf(LiveFlowRow r, LiveTrafficField field) => field switch
+    {
+        LiveTrafficField.Client => r.ClientName,
+        LiveTrafficField.Destination => r.Destination,
+        LiveTrafficField.App => r.App,
+        LiveTrafficField.Route => r.Route,
+        LiveTrafficField.Protocol => r.Proto,
+        LiveTrafficField.Port => r.RemotePort > 0 ? r.RemotePort.ToString() : null,
+        LiveTrafficField.Action => r.Action,
+        _ => null,
+    };
 
     // ---------------------------------------------------------------- row building
 

@@ -25291,6 +25291,228 @@ body:has(.top-bar-hidden) .btn-fit {
     border-color: rgba(238, 99, 104, 0.35);
 }
 
+/* ---------------------------------------------------------------- filter chips: grouped, editable */
+
+/* A chip and its editor: the editor opens under the chip it belongs to. */
+.lt-chip-anchor {
+    position: relative;
+    display: inline-flex;
+}
+
+.live-traffic .lt-chip[role="button"] {
+    cursor: pointer;
+}
+
+.lt-chip.is-open {
+    outline: 1px solid var(--primary-hover);
+}
+
+.lt-chip-or {
+    color: var(--text-muted);
+    font-weight: 400;
+}
+
+.lt-add-filter {
+    background: transparent;
+    border: 1px dashed var(--border-color);
+    color: var(--text-secondary);
+    border-radius: 999px;
+    padding: 0.25rem 0.7rem;
+    font-size: 0.78rem;
+    cursor: pointer;
+}
+
+.lt-add-filter:hover,
+.lt-add-filter[aria-expanded="true"] {
+    color: var(--text-primary);
+    border-color: var(--text-secondary);
+}
+
+/* A click outside closes the editor or the field menu. Transparent on a desktop, a scrim on a phone. */
+.lt-fpop-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 60;
+}
+
+.lt-fpop,
+.lt-fmenu {
+    position: absolute;
+    top: calc(100% + 6px);
+    left: 0;
+    z-index: 61;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--border-radius);
+    box-shadow: var(--shadow-lg);
+}
+
+.lt-fpop {
+    width: 290px;
+    max-width: calc(100vw - 32px);
+    padding: 10px 12px 12px;
+}
+
+.lt-fpop-grab {
+    display: none;
+}
+
+.lt-fpop-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    margin-bottom: 8px;
+}
+
+.lt-fpop-title {
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-muted);
+    font-weight: 600;
+}
+
+.lt-fpop-head .time-range-selector {
+    margin: 0;
+}
+
+.lt-fpop .lt-fpop-search {
+    height: 30px;
+    font-size: 0.8125rem;
+    margin-bottom: 6px;
+}
+
+.lt-fpop-list {
+    max-height: 240px;
+    overflow-y: auto;
+    margin: 0 -4px;
+}
+
+.lt-fpop-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 5px 4px;
+    border-radius: 4px;
+    font-size: 0.8125rem;
+    cursor: pointer;
+}
+
+.lt-fpop-item.is-active {
+    background: var(--bg-tertiary);
+}
+
+.lt-fpop-item.is-idle {
+    color: var(--text-secondary);
+}
+
+.lt-fpop-name {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.lt-fpop-n {
+    margin-left: auto;
+    color: var(--text-muted);
+    font-variant-numeric: tabular-nums;
+}
+
+.lt-fpop-sep {
+    font-size: 0.68rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-muted);
+    margin: 8px 4px 2px;
+}
+
+.lt-fpop-empty {
+    padding: 10px 4px;
+    color: var(--text-muted);
+    font-size: 0.8125rem;
+}
+
+.lt-fpop-foot {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-top: 10px;
+}
+
+.lt-fpop-foot a {
+    font-size: 0.78rem;
+    color: var(--text-secondary);
+}
+
+.lt-fmenu {
+    width: 190px;
+    padding: 6px;
+}
+
+.lt-fmenu button {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 6px 8px;
+    border: none;
+    border-radius: 4px;
+    background: transparent;
+    color: var(--text-primary);
+    font-size: 0.8125rem;
+    text-align: left;
+    cursor: pointer;
+}
+
+.lt-fmenu button:hover,
+.lt-fmenu button:focus-visible {
+    background: var(--bg-tertiary);
+}
+
+.lt-fmenu button i {
+    width: 14px;
+    color: var(--text-muted);
+}
+
+/* On a phone the editor is a bottom sheet over a dimmed page. */
+@media (max-width: 768px) {
+    .lt-fpop-backdrop:has(+ .lt-fpop) {
+        background: rgba(0, 0, 0, 0.5);
+    }
+
+    .lt-fpop {
+        position: fixed;
+        top: auto;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        width: auto;
+        max-width: none;
+        border-radius: 16px 16px 0 0;
+        padding: 8px 16px 16px;
+    }
+
+    .lt-fpop-grab {
+        display: block;
+        width: 40px;
+        height: 4px;
+        border-radius: 2px;
+        background: var(--border-color);
+        margin: 0 auto 10px;
+    }
+
+    .lt-fpop-list {
+        max-height: 45vh;
+    }
+
+    .lt-fpop-item {
+        padding: 9px 4px;
+        font-size: 0.9rem;
+    }
+}
+
 .lt-chip b {
     font-weight: 600;
     color: var(--text-primary);
@@ -25316,12 +25538,20 @@ body:has(.top-bar-hidden) .btn-fit {
     color: var(--text-secondary);
 }
 
-/* FilterPresets: a save button and slots 1 2 3, compact enough to sit beside filter chips. */
+/* FilterPresets: a save button and its slots, compact enough to sit beside filter chips. */
 .filter-presets {
     display: inline-flex;
     flex-wrap: wrap;
     align-items: center;
     gap: 0.25rem;
+}
+
+/* A phone keeps slots 1-3: the everyday presets go in the first slots, and five crowd the filter row. */
+@media (max-width: 768px) {
+    .filter-preset[data-slot="4"],
+    .filter-preset[data-slot="5"] {
+        display: none;
+    }
 }
 
 .filter-preset {

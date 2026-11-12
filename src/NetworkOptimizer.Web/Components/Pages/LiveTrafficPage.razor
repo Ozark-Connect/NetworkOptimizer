@@ -581,6 +581,7 @@
         try
         {
             if (_pageHidden) await ProbeShownAsync();
+            var facetField = _editor?.Field;
             if (_historyMode)
             {
                 _lastHistoryAt = DateTime.UtcNow;
@@ -594,7 +595,9 @@
                     To = _to,
                     Sort = _sort,
                     MaxRows = _historyRows,
+                    FacetField = facetField,
                 });
+                _facetsLoadedFor = facetField;
             }
             else
             {
@@ -611,8 +614,10 @@
                     SankeyHold = ActiveSankeyHold,
                     Sort = _flowSort,
                     Descending = _flowDesc,
+                    FacetField = facetField,
                 });
                 _view = _pageHidden ? view : ApplyHold(view);
+                _facetsLoadedFor = facetField;
             }
             if (!_pageHidden) StateHasChanged();
         }
@@ -753,12 +758,13 @@
     }
 
     /// <summary>
-    /// "N clients bypassing": exactly those clients, so any Client chip already set goes first (another
-    /// would OR in a client that is not bypassing; an exclude could hide one that is). Live DNS on Bypass.
+    /// "N clients bypassing": exactly those clients and nothing that could hide them, so every chip and
+    /// the search go first (a Destination or App chip hides their lookups too). Live DNS on Bypass.
     /// </summary>
     private async Task FilterToBypassersAsync()
     {
-        _filters.RemoveAll(f => f.Field == LiveTrafficField.Client);
+        _filters.Clear();
+        _search = "";
         foreach (var name in _view?.BypassingClientNames ?? [])
             _filters.Add(new LiveTrafficFilter(LiveTrafficField.Client, name));
         _dnsMode = LiveDnsMode.Bypass;
@@ -996,6 +1002,114 @@
 
     // ---------------------------------------------------------------- shared pieces
 
+    // ---------------------------------------------------------------- chip editor
+
+    /// <summary>The chip whose editor is open: a field and whether it excludes. Null when none is.</summary>
+    private (LiveTrafficField Field, bool Exclude)? _editor;
+    /// <summary>The field the last view's facets were built for, so the editor knows when its list is current.</summary>
+    private LiveTrafficField? _facetsLoadedFor;
+    private bool _fieldMenu;
+    /// <summary>Values a chip names before "+N".</summary>
+    private const int ChipValuesShown = 3;
+
+    /// <summary>One chip per field and kind, in the order the filters were added: values in one chip OR.</summary>
+    private IEnumerable<IGrouping<(LiveTrafficField Field, bool Exclude), LiveTrafficFilter>> ChipGroups() =>
+        _filters.GroupBy(f => (f.Field, f.Exclude));
+
+    /// <summary>What "+ Filter" offers: Resolver only filters Live DNS, and Action exists only in History.</summary>
+    private IEnumerable<(LiveTrafficField Field, string Icon)> EditableFields
+    {
+        get
+        {
+            yield return (LiveTrafficField.Client, "fa-solid fa-laptop");
+            yield return (LiveTrafficField.Destination, "fa-solid fa-globe");
+            yield return (LiveTrafficField.App, "fa-solid fa-cube");
+            yield return (LiveTrafficField.Route, "fa-solid fa-route");
+            yield return (LiveTrafficField.Protocol, "fa-solid fa-shuffle");
+            yield return (LiveTrafficField.Port, "fa-solid fa-hashtag");
+            if (_historyMode) yield return (LiveTrafficField.Action, "fa-solid fa-ban");
+            else yield return (LiveTrafficField.Resolver, "fa-solid fa-server");
+        }
+    }
+
+    private RenderFragment Editor((LiveTrafficField Field, bool Exclude) key) => __builder =>
+    {
+        var facets = (_historyMode ? _history?.Facets : _view?.Facets) ?? Array.Empty<LiveFacetValue>();
+        <FilterChipEditor @key="key" Field="key.Field" Exclude="key.Exclude" Selected="SelectedValues(key)"
+                          Facets="facets" Loading="_facetsLoadedFor != key.Field"
+                          OnToggle="v => ToggleEditorValueAsync(key, v)" OnSetExclude="ex => SetEditorKindAsync(key, ex)"
+                          OnSelectMany="vs => AddEditorValuesAsync(key, vs)" OnClose="CloseEditor" />
+    };
+
+    private IReadOnlySet<string> SelectedValues((LiveTrafficField Field, bool Exclude) key) =>
+        _filters.Where(f => f.Field == key.Field && f.Exclude == key.Exclude).Select(f => f.Value).ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+    private void ToggleFieldMenu()
+    {
+        _fieldMenu = !_fieldMenu;
+        _editor = null;
+    }
+
+    /// <summary>Opens the chip's editor, and asks for its field's values at once rather than on the next tick.</summary>
+    private async Task OpenEditor(LiveTrafficField field, bool exclude)
+    {
+        _fieldMenu = false;
+        _editor = (field, exclude);
+        _facetsLoadedFor = null;
+        await RefreshAsync();
+    }
+
+    private void CloseEditor() => _editor = null;
+
+    private async Task ChipKey(KeyboardEventArgs e, (LiveTrafficField Field, bool Exclude) key)
+    {
+        if (e.Key is "Enter" or " ") await OpenEditor(key.Field, key.Exclude);
+        else if (e.Key is "Delete" or "Backspace") await RemoveChip(key);
+    }
+
+    private async Task RemoveChip((LiveTrafficField Field, bool Exclude) key)
+    {
+        _filters.RemoveAll(f => f.Field == key.Field && f.Exclude == key.Exclude);
+        if (_editor == key) _editor = null;
+        await FiltersChanged();
+    }
+
+    /// <summary>Ticks or unticks a value. A value can be in only one kind, so ticking it here drops it from the other.</summary>
+    private async Task ToggleEditorValueAsync((LiveTrafficField Field, bool Exclude) key, string value)
+    {
+        var removed = _filters.RemoveAll(f => f.Field == key.Field && f.Exclude == key.Exclude && Same(f.Value, value));
+        if (removed == 0)
+        {
+            _filters.RemoveAll(f => f.Field == key.Field && Same(f.Value, value));
+            _filters.Add(new LiveTrafficFilter(key.Field, value, key.Exclude));
+        }
+        await FiltersChanged();
+    }
+
+    /// <summary>Include / Exclude: the chip's values move to the other kind, joining any already there.</summary>
+    private async Task SetEditorKindAsync((LiveTrafficField Field, bool Exclude) key, bool exclude)
+    {
+        if (exclude == key.Exclude) return;
+        var moving = _filters.Where(f => f.Field == key.Field && f.Exclude == key.Exclude).Select(f => f.Value).ToList();
+        _filters.RemoveAll(f => f.Field == key.Field && f.Exclude == key.Exclude);
+        foreach (var value in moving.Where(v => !_filters.Any(f => f.Field == key.Field && Same(f.Value, v))))
+            _filters.Add(new LiveTrafficFilter(key.Field, value, exclude));
+        _editor = (key.Field, exclude);
+        await FiltersChanged();
+    }
+
+    private async Task AddEditorValuesAsync((LiveTrafficField Field, bool Exclude) key, IReadOnlyList<string> values)
+    {
+        foreach (var value in values)
+        {
+            _filters.RemoveAll(f => f.Field == key.Field && Same(f.Value, value));
+            _filters.Add(new LiveTrafficFilter(key.Field, value, key.Exclude));
+        }
+        await FiltersChanged();
+    }
+
+    private static bool Same(string a, string b) => string.Equals(a, b, StringComparison.OrdinalIgnoreCase);
+
     private RenderFragment FilterBar => __builder =>
     {
         <div class="lt-filterbar">
@@ -1009,6 +1123,23 @@
                     <button type="button" class="lt-x lt-search-clear" aria-label="Clear the filter" data-tooltip="Clear the filter" @onclick="ClearSearch">×</button>
                 }
             </div>
+            <span class="lt-chip-anchor">
+                <button type="button" class="lt-add-filter" aria-haspopup="menu" aria-expanded="@(_fieldMenu ? "true" : "false")" @onclick="ToggleFieldMenu">+ Filter</button>
+                @if (_fieldMenu)
+                {
+                    <div class="lt-fpop-backdrop" @onclick="() => _fieldMenu = false"></div>
+                    <div class="lt-fmenu" role="menu">
+                        @foreach (var (pick, icon) in EditableFields)
+                        {
+                            <button type="button" role="menuitem" @onclick="() => OpenEditor(pick, false)"><i class="@icon"></i>@FieldLabel(pick)</button>
+                        }
+                    </div>
+                }
+                @if (_editor is { } open && !ChipGroups().Any(g => g.Key == open))
+                {
+                    @Editor(open)
+                }
+            </span>
             @if (_historyMode && (_from != null || _to != null))
             {
                 <span class="lt-chip">
@@ -1016,44 +1147,68 @@
                     <span class="lt-x" role="button" aria-label="Clear the time window" @onclick="ClearWindow">&#x2715;</span>
                 </span>
             }
-            @foreach (var f in _filters)
+            @foreach (var group in ChipGroups())
             {
-                var chipDest = f.Field == LiveTrafficField.Destination ? DestinationOf(f.Value) : null;
-                var chipClient = f.Field == LiveTrafficField.Client ? ClientOf(f.Value) : null;
+                var key = group.Key;
+                var values = group.Select(f => f.Value).ToList();
+                var single = values.Count == 1 ? values[0] : null;
+                // Hover cards name one destination or client; a chip holding several has no single one to name.
+                var chipDest = single != null && key.Field == LiveTrafficField.Destination ? DestinationOf(single) : null;
+                var chipClient = single != null && key.Field == LiveTrafficField.Client ? ClientOf(single) : null;
                 var clientLink = chipClient != null ? LiveTrafficLinks.ClientPerformance(chipClient) : null;
-                <span class="lt-chip @(f.Exclude ? "is-exclude" : null)"
-                      data-dest-name="@(chipDest != null ? f.Value : null)" data-dest-ip="@chipDest?.DestinationIp"
-                      data-dest-link="@(chipDest != null ? LiveTrafficLinks.ThreatsDrilldown(chipDest) : null)"
-                      data-client-name="@(clientLink != null ? f.Value : null)" data-client-link="@clientLink">
-                    @* App = Tailscale spans clients, destinations and the tunnel, so it drops the App label. *@
-                    @if (f.Field == LiveTrafficField.App && LiveTrafficStore.IsTailscaleApp(f.Value))
+                <span class="lt-chip-anchor">
+                    <span class="lt-chip @(key.Exclude ? "is-exclude" : null) @(_editor == key ? "is-open" : null)" role="button" tabindex="0"
+                          aria-label="@($"Edit the {FieldLabel(key.Field)} filter")" @onclick="() => OpenEditor(key.Field, key.Exclude)"
+                          @onkeydown="e => ChipKey(e, key)"
+                          data-dest-name="@(chipDest != null ? single : null)" data-dest-ip="@chipDest?.DestinationIp"
+                          data-dest-link="@(chipDest != null ? LiveTrafficLinks.ThreatsDrilldown(chipDest) : null)"
+                          data-client-name="@(clientLink != null ? single : null)" data-client-link="@clientLink">
+                        @* App = Tailscale spans clients, destinations and the tunnel, so it drops the App label. *@
+                        @if (key.Field == LiveTrafficField.App && single != null && LiveTrafficStore.IsTailscaleApp(single))
+                        {
+                            @(key.Exclude ? "Not" : null)
+                        }
+                        else
+                        {
+                            @(key.Exclude ? $"Not {FieldLabel(key.Field)}" : FieldLabel(key.Field))
+                        }
+                        @for (var i = 0; i < Math.Min(values.Count, ChipValuesShown); i++)
+                        {
+                            var value = values[i];
+                            if (i > 0)
+                            {
+                                <span class="lt-chip-or">or</span>
+                            }
+                            @if (key.Field == LiveTrafficField.App)
+                            {
+                                @ChipAppIcon(value)
+                            }
+                            @if (chipDest != null && LiveTrafficLinks.ThreatsDrilldown(chipDest) is { } drill)
+                            {
+                                <a class="lt-chip-link" href="@drill" @onclick:stopPropagation><b>@value</b></a>
+                            }
+                            else
+                            {
+                                <b>@value</b>
+                            }
+                        }
+                        @if (values.Count > ChipValuesShown)
+                        {
+                            <span class="lt-chip-or">+@(values.Count - ChipValuesShown)</span>
+                        }
+                        <span class="lt-x" role="button" aria-label="Remove filter" @onclick="() => RemoveChip(key)" @onclick:stopPropagation>&#x2715;</span>
+                    </span>
+                    @if (_editor == key)
                     {
-                        @(f.Exclude ? "Not" : null)
+                        @Editor(key)
                     }
-                    else
-                    {
-                        @(f.Exclude ? $"Not {FieldLabel(f.Field)}" : FieldLabel(f.Field))
-                    }
-                    @if (f.Field == LiveTrafficField.App)
-                    {
-                        @ChipAppIcon(f.Value)
-                    }
-                    @if (chipDest != null && LiveTrafficLinks.ThreatsDrilldown(chipDest) is { } drill)
-                    {
-                        <a class="lt-chip-link" href="@drill"><b>@f.Value</b></a>
-                    }
-                    else
-                    {
-                        <b>@f.Value</b>
-                    }
-                    <span class="lt-x" role="button" aria-label="Remove filter" @onclick="() => RemoveFilter(f)">&#x2715;</span>
                 </span>
             }
             @if (HasFilters)
             {
                 <a href="" class="lt-clear" @onclick="ClearFilters" @onclick:preventDefault>Clear</a>
             }
-            <FilterPresets Scope="live_traffic" Current="FilterQuery" OnLoad="LoadPresetAsync" Describe="DescribeFilters" ApplyActiveOnStart="!_linkHadFilters" />
+            <FilterPresets Scope="live_traffic" Slots="5" Current="FilterQuery" OnLoad="LoadPresetAsync" Describe="DescribeFilters" ApplyActiveOnStart="!_linkHadFilters" />
             <div class="lt-right">
                 <span class="lt-by-label">By</span>
                 <div class="time-range-selector">
