@@ -7,7 +7,7 @@
 {
     <div class="lt-m-row">
         <div class="lt-m-top">
-            <span class="lt-m-name">@Pill(LiveTrafficField.Destination, d.Name)</span>
+            <span class="lt-m-name" data-dest-name="@d.Name" data-dest-ip="@TraceTarget(d)">@Pill(LiveTrafficField.Destination, d.Name)</span>
             <span class="lt-m-rates">@Answer(d)</span>
         </div>
         <div class="lt-m-tags">
@@ -30,7 +30,7 @@ else
         {
             <td data-client-name="@d.ClientName" data-client-link="@LiveTrafficLinks.Client(d.ClientIp, d.ClientDeviceMac)" data-client-note="@d.ClientIp">@Pill(LiveTrafficField.Client, d.ClientName)</td>
         }
-        <td>
+        <td data-dest-name="@d.Name" data-dest-ip="@TraceTarget(d)">
             @Pill(LiveTrafficField.Destination, d.Name)
             <span class="lt-dns-sub">@d.QType &middot; @LocalTime(d.At)</span>
         </td>
@@ -44,6 +44,9 @@ else
     [Parameter] public LiveDnsLayout Layout { get; set; }
     /// <summary>The client's name; off where the list is one client's own.</summary>
     [Parameter] public bool ShowClient { get; set; } = true;
+
+    /// <summary>What the Query card's Trace runs against: the name looked up, or for encrypted DNS (named by its provider) the resolver's address.</summary>
+    private static string TraceTarget(LiveDnsRow d) => d.Encrypted ? d.ResolverIp : d.Name;
 
     private RenderFragment ResolverPill(LiveDnsRow d) => __builder =>
     {

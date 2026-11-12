@@ -816,6 +816,45 @@
                 .catch(function (err) { console.warn('Name This App', err); });
         }, true);
 
+        // Live Traffic filter chips: a double-click selects a value whole and copies it, for a search
+        // outside the app. A value that links to Threats waits out the double-click before it navigates.
+        var chipLinkTimer = null;
+        document.addEventListener('click', function (e) {
+            var link = e.target.closest && e.target.closest('.lt-chip-link');
+            if (!link || e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;
+            e.preventDefault();
+            clearTimeout(chipLinkTimer);
+            if (e.detail > 1) return;
+            var href = link.href;
+            chipLinkTimer = setTimeout(function () { Blazor.navigateTo(href); }, 300);
+        }, true);
+        document.addEventListener('dblclick', function (e) {
+            var value = e.target.closest && e.target.closest('.lt-chip b');
+            if (!value) return;
+            function selectValue() {
+                if (!value.isConnected) return;
+                var range = document.createRange();
+                range.selectNodeContents(value);
+                var selection = window.getSelection();
+                selection.removeAllRanges();
+                selection.addRange(range);
+            }
+            selectValue();
+            // The first click opened the editor, whose search box takes focus a round trip later and with it the selection.
+            document.addEventListener('focusin', selectValue, { once: true });
+            setTimeout(function () { document.removeEventListener('focusin', selectValue); }, 1000);
+            var text = value.textContent.trim();
+            var copied = navigator.clipboard && window.isSecureContext
+                ? navigator.clipboard.writeText(text)
+                : Promise.resolve(document.execCommand('copy'));
+            copied.then(function () {
+                if (!window.tippy) return;
+                var tip = tippy(value, { content: 'Copied', trigger: 'manual', placement: 'top', theme: 'custom', appendTo: document.body });
+                tip.show();
+                setTimeout(function () { tip.destroy(); }, 1200);
+            }).catch(function (err) { console.warn('Copy filter value', err); });
+        });
+
         // Live Traffic: full text for any name its ellipsis cuts. The ellipsis sits on the cell, not the
         // name, so data-tooltip-truncated (which measures the element itself) cannot see it; one
         // delegated handler finds the cut element and shows only while it is still cut.
