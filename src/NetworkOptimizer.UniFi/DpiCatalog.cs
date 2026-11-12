@@ -115,6 +115,7 @@ public static class DpiCatalog
         ["SSL/TLS"] = "fa-solid fa-lock",
         ["QUIC"] = "fa-solid fa-bolt",
         ["Wi-Fi Calling"] = "fa-solid fa-phone",
+        ["Ooma"] = "no-icon no-icon-ooma",
         ["Speedtest.net"] = "fa-solid fa-gauge-high",
         ["Backblaze"] = "no-icon no-icon-backblaze",
         ["AWS"] = "fa-brands fa-aws",
