@@ -420,7 +420,7 @@ public class LiveTrafficStoreTests
         // Another field's chip still applies: Ports under the laptop chip are only the laptop's, and the
         // port only the NAS uses is listed as hidden by that chip.
         store.BuildView(Query(new LiveTrafficFilter(LiveTrafficField.Client, laptopName)) with { FacetField = LiveTrafficField.Port },
-            LiveTrafficState.Live).Facets.Should().Equal(new LiveFacetValue("443", 2), new LiveFacetValue("22", 0, Hidden: true));
+            LiveTrafficState.Live).Facets.Take(2).Should().Equal(new LiveFacetValue("443", 2), new LiveFacetValue("22", 0, Hidden: true));
 
         store.BuildView(Query(), LiveTrafficState.Live).Facets.Should().BeEmpty("no editor is open");
     }
@@ -435,6 +435,14 @@ public class LiveTrafficStoreTests
 
         routes.First().Count.Should().Be(1, "the WAN the flow uses is moving");
         routes.Should().Contain(new LiveFacetValue("LAN", 0, Idle: true), "no traffic between VLANs right now");
+
+        var protocols = store.BuildView(Query() with { FacetField = LiveTrafficField.Protocol }, LiveTrafficState.Live).Facets;
+        protocols.Select(f => (f.Value, f.Idle)).Should().Equal(("TCP", false), ("ICMP", true), ("UDP", true));
+
+        var ports = store.BuildView(Query() with { FacetField = LiveTrafficField.Port }, LiveTrafficState.Live).Facets;
+        ports.First().Should().Be(new LiveFacetValue("443", 1));
+        ports.Skip(1).Select(f => int.Parse(f.Value)).Should().BeInAscendingOrder("well-known ports in number order");
+        ports.Should().NotContain(f => f.Value == "443" && f.Idle);
     }
 
     [Fact]

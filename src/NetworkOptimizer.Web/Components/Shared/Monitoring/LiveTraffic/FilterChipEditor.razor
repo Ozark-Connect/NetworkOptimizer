@@ -2,6 +2,7 @@
    it under the other filters. Ticking applies at once; Done, Esc, or a click outside closes it. A
    bottom sheet on a phone (app.css). *@
 @using NetworkOptimizer.Web.Services.Monitoring.LiveTraffic
+@using NetworkOptimizer.Core.Helpers
 
 <div class="lt-fpop-backdrop" @onclick="CloseAsync"></div>
 <div class="lt-fpop" role="dialog" aria-label="@($"Filter by {Label}")" @onkeydown="OnKeyAsync">
@@ -38,7 +39,10 @@
             <label @key="item.Value" class="lt-fpop-item @(index == _highlight ? "is-active" : null) @(item.Rank > 0 ? "is-idle" : null)"
                    role="option" aria-selected="@(on ? "true" : "false")" @onmouseenter="() => _highlight = index">
                 <input type="checkbox" checked="@on" @onchange="() => OnToggle.InvokeAsync(item.Value)" />
-                <span class="lt-fpop-name">@(item.Typed ? $"Add \"{item.Value}\"" : item.Value)</span>
+                <span class="lt-fpop-name">@(item.Typed ? $"Add \"{item.Value}\"" : item.Value)@if (!item.Typed && ServiceOf(item.Value) is { } service)
+                    {
+                        <span class="lt-fpop-service">@service</span>
+                    }</span>
                 @if (item.Rank == 0 && !item.Typed)
                 {
                     <span class="lt-fpop-n">@item.Count.ToString("N0")</span>
@@ -83,6 +87,10 @@
     /// <summary>Rank is the section (<see cref="LiveFacetValue.Rank"/>): 0 has a count, the rest are muted under a label.</summary>
     private sealed record Item(string Value, int Count, int Rank, bool Typed);
 
+    /// <summary>A port's service name ("HTTPS" beside 443), shown and searched with the number; null for any other field.</summary>
+    private string? ServiceOf(string value) =>
+        Field == LiveTrafficField.Port && int.TryParse(value, out var port) ? NetworkUtilities.GetPortServiceName(port) : null;
+
     /// <summary>The quiet sections mean different things by field: idle and offline clients, recent and custom apps, unused routes.</summary>
     private string SectionLabel(int rank) => (rank, Field) switch
     {
@@ -90,6 +98,7 @@
         (2, LiveTrafficField.App) => "Seen in the last 10 minutes",
         (3, LiveTrafficField.App) => "Custom Apps",
         (2, LiveTrafficField.Route) => "Not in use now",
+        (2, LiveTrafficField.Port) => "Well-known ports, no traffic now",
         (2, _) => "No traffic now",
         _ => "Offline",
     };
@@ -103,7 +112,8 @@
         var q = _search.Trim();
         var now = Facets.GroupBy(f => f.Value, StringComparer.OrdinalIgnoreCase).ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
         var items = _order.Arrange(Selected, Facets)
-            .Where(v => q.Length == 0 || v.Contains(q, StringComparison.OrdinalIgnoreCase))
+            .Where(v => q.Length == 0 || v.Contains(q, StringComparison.OrdinalIgnoreCase)
+                || ServiceOf(v)?.Contains(q, StringComparison.OrdinalIgnoreCase) == true)
             // A row keeps its section while the editor is open, so a refresh never moves it between them.
             .Select(v => new Item(v, now.TryGetValue(v, out var f) ? f.Count : 0, _order.RankOf(v), false))
             .ToList();

@@ -25414,6 +25414,11 @@ body:has(.top-bar-hidden) .btn-fit {
     white-space: nowrap;
 }
 
+.lt-fpop-service {
+    margin-left: 0.4rem;
+    color: var(--text-muted);
+}
+
 .lt-fpop-n {
     margin-left: auto;
     color: var(--text-muted);

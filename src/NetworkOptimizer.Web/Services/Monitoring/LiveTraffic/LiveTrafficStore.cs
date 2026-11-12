@@ -865,8 +865,11 @@ public sealed class LiveTrafficStore
         var counted = CountFacets(Values(others, query.Search));
         var result = WithHidden(counted, Values(Array.Empty<LiveTrafficFilter>(), null));
         var seen = result.Select(v => v.Value).ToHashSet(StringComparer.OrdinalIgnoreCase);
-        IEnumerable<string> Unseen(IEnumerable<string?> names) =>
-            names.Where(n => !string.IsNullOrWhiteSpace(n) && seen.Add(n!)).Select(n => n!).Order(StringComparer.OrdinalIgnoreCase).ToList();
+        IEnumerable<string> Unseen(IEnumerable<string?> names, bool sorted = true)
+        {
+            var unseen = names.Where(n => !string.IsNullOrWhiteSpace(n) && seen.Add(n!)).Select(n => n!);
+            return (sorted ? unseen.Order(StringComparer.OrdinalIgnoreCase) : unseen).ToList();
+        }
         // The two quiet sections (ranks 2 and 3), by field. Client: online with no traffic, then recently
         // offline. App: named by UniFi Network's records in the last ten minutes, then the site's Custom Apps.
         var (quiet, quieter) = field switch
@@ -877,6 +880,10 @@ public sealed class LiveTrafficStore
             // Route: the site's WANs and VPN routes, and LAN, that carry nothing right now.
             LiveTrafficField.Route => (Unseen(_routesByIfname.Values.Append(_defaultRoute).Select(r => r?.Name).Append("LAN")),
                 Enumerable.Empty<string>()),
+            // Protocol and Port: the common ones with no traffic now; ports in number order.
+            LiveTrafficField.Protocol => (Unseen(QuietProtocols), Enumerable.Empty<string>()),
+            LiveTrafficField.Port => (Unseen(NetworkUtilities.WellKnownPorts.Select(p => p.Port).Distinct().Order()
+                .Select(p => p.ToString()), sorted: false), Enumerable.Empty<string>()),
             _ => (Enumerable.Empty<string>(), Enumerable.Empty<string>()),
         };
         return result
@@ -885,6 +892,9 @@ public sealed class LiveTrafficStore
             .Take(MaxFacetValues)
             .ToList();
     }
+
+    /// <summary>The protocols a Protocol chip offers when they carry nothing, spelled as rows carry them.</summary>
+    private static readonly string[] QuietProtocols = ["TCP", "UDP", "ICMP"];
 
     /// <summary>The counted values, then every other value in <paramref name="all"/> as Hidden, within the cap.</summary>
     internal static List<LiveFacetValue> WithHidden(List<LiveFacetValue> counted, IEnumerable<string?> all)
