@@ -284,7 +284,7 @@ public partial class AuditService : IAuditScanService
     /// The stable part of a portless finding's identity, when its message carries live counts.
     /// Null means the message itself identifies the finding.
     /// </summary>
-    private static string? GetDismissalScope(AuditModels.AuditIssue issue) => issue.Type switch
+    internal static string? GetDismissalScope(AuditModels.AuditIssue issue) => issue.Type switch
     {
         // One per gateway (or per management network); the counts and lists change between audits
         Audit.IssueTypes.UpnpPortsExposed or Audit.IssueTypes.UpnpPrivilegedPort or
@@ -294,6 +294,8 @@ public partial class AuditService : IAuditScanService
         Audit.IssueTypes.UnusedApiKeys or Audit.IssueTypes.UnusedLocalAdmins => "",
         // One per gateway; the interfaces, policies, and sets named change between audits
         _ when IsGatewayFirewallIssue(issue.Type) => "",
+        // Rule Order Issue text names the slice taken, which can change; the analyzer supplies the stable text
+        Audit.IssueTypes.AllowSubvertsDeny when issue.Metadata?.TryGetValue("dismissal_scope", out var scope) == true => scope?.ToString(),
         _ => null
     };
 
