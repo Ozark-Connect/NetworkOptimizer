@@ -74,7 +74,7 @@
     {
         <div class="connection-banner pwa-banner" data-tour="live-traffic-agent">
             <div class="banner-content">
-                <span class="banner-icon" style="background: var(--info-color); color: white;">@GatewayIcon</span>
+                <span class="banner-icon" style="background: var(--info-color); color: white;"><GatewayIcon /></span>
                 <div class="banner-text">
                     <strong style="color: var(--info-color);">Waiting for the On-Site Agent on your Gateway to connect</strong>
                     <span style="color: var(--text-secondary);">Live Traffic starts as soon as it's up.</span>
@@ -89,7 +89,7 @@
     {
         <div class="connection-banner pwa-banner">
             <div class="banner-content">
-                <span class="banner-icon" style="background: var(--info-color); color: white;">@GatewayIcon</span>
+                <span class="banner-icon" style="background: var(--info-color); color: white;"><GatewayIcon /></span>
                 <div class="banner-text">
                     <strong style="color: var(--info-color);">Live Traffic flow and DNS capture is turned off for this site</strong>
                     <span style="color: var(--text-secondary);">The On-Site Agent on your Gateway sends no flows or DNS lookups. History works without it, from UniFi Network's own flow records.</span>
@@ -107,7 +107,7 @@
     {
         <div class="connection-banner pwa-banner" data-tour="live-traffic-agent">
             <div class="banner-content">
-                <span class="banner-icon" style="background: var(--info-color); color: white;">@GatewayIcon</span>
+                <span class="banner-icon" style="background: var(--info-color); color: white;"><GatewayIcon /></span>
                 <div class="banner-text">
                     @if (_view.State == LiveTrafficState.AgentNeedsUpdate)
                     {
@@ -1372,7 +1372,7 @@
         {
             <div class="connection-banner pwa-banner">
                 <div class="banner-content">
-                    <span class="banner-icon" style="background: var(--info-color); color: white;">@GatewayIcon</span>
+                    <span class="banner-icon" style="background: var(--info-color); color: white;"><GatewayIcon /></span>
                     <div class="banner-text">
                         <strong style="color: var(--info-color);">UniFi Network is recording only blocked traffic for this Gateway</strong>
                         <span style="color: var(--text-secondary);">History shows what was blocked, not allowed flows.</span>
@@ -1600,16 +1600,6 @@
                 </div>
             }
         </div>
-    };
-
-    /// <summary>A UCG-Fiber in three-quarter view: shaded top face, front, and its centered display.</summary>
-    private static readonly RenderFragment GatewayIcon = __builder =>
-    {
-        <svg xmlns="http://www.w3.org/2000/svg" width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M1.5 11.5 L3.5 8.5 H20.5 L22.5 11.5 V17.75 A1.25 1.25 0 0 1 21.25 19 H2.75 A1.25 1.25 0 0 1 1.5 17.75 Z" fill="currentColor" fill-opacity="0.18" />
-            <path d="M1.5 11.5 L3.5 8.5 H20.5 L22.5 11.5 Z" fill="currentColor" fill-opacity="0.35" />
-            <rect x="10" y="14" width="4" height="2.5" rx="0.5" fill="currentColor" stroke="none" />
-        </svg>
     };
 
     /// <summary>A group's name; an unnamed port ("UDP 21324") grouped by App carries the Name This App card.</summary>
