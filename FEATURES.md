@@ -114,6 +114,8 @@ Time-series monitoring on your own InfluxDB, fed by SNMP polling (InfluxDB).
   - **By** client, app, destination, or route; open a client to see its flows
   - **Detailed View** - every flow through the gateway ranked by current rate, with no row limit (On-Site Agent on the gateway)
     - Click any client, destination, app, route, protocol, or port to filter to it, and again to let it go; hide a value with the button beside it or Alt-click; filters are in the link
+      - Several values of one kind match any of them (this client or that one); different kinds all apply
+      - **N clients bypassing** on the Live DNS tile filters to those clients, with Live DNS on **Bypass**
       - An app filter for a service keeps the flows named for their app: HTTPS still lists the Apple or Netflix flows on 443, and takes in QUIC
       - Save the filters, search, and grouping to presets **1 2 3** and load one with a click, remembered per user and site
     - Hover a client for its connection, address, and a link to its Client Performance page; a remote-user VPN or Tailscale client reads as one ("VPN Client (address)")

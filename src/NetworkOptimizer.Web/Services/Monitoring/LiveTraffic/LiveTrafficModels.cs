@@ -319,6 +319,8 @@ public sealed record LiveTrafficView
     public double DnsPerSecond { get; init; }
     public double NxdomainPercent { get; init; }
     public int BypassingClients { get; init; }
+    /// <summary>The bypassing clients by their Client chip name.</summary>
+    public IReadOnlyList<string> BypassingClientNames { get; init; } = Array.Empty<string>();
     public bool DnsActive { get; init; }
     public LiveSankey? Sankey { get; init; }
 }

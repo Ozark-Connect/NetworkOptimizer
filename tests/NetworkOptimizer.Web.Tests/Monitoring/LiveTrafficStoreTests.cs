@@ -31,6 +31,25 @@ public class LiveTrafficStoreTests
         LiveTrafficStore.Matches(fromDevice, [new(LiveTrafficField.App, "Tailscale", Exclude: true)], null).Should().BeFalse();
     }
 
+    [Fact]
+    public void ChipsOnOneFieldOrTogetherAndFieldsAnd()
+    {
+        var laptopHttps = new LiveFlowRow { Key = "a", ClientName = "Laptop", App = "HTTPS" };
+        var tvHttps = new LiveFlowRow { Key = "b", ClientName = "TV", App = "HTTPS" };
+        var tvDns = new LiveFlowRow { Key = "c", ClientName = "TV", App = "DNS" };
+        var phone = new LiveFlowRow { Key = "d", ClientName = "Phone", App = "HTTPS" };
+        LiveTrafficFilter[] two = [new(LiveTrafficField.Client, "Laptop"), new(LiveTrafficField.Client, "TV")];
+        LiveTrafficFilter[] twoHttps = [.. two, new(LiveTrafficField.App, "HTTPS")];
+        LiveTrafficFilter[] notTv = [new(LiveTrafficField.Client, "TV", Exclude: true), new(LiveTrafficField.App, "HTTPS")];
+
+        new[] { laptopHttps, tvHttps, tvDns, phone }.Where(r => LiveTrafficStore.Matches(r, two, null))
+            .Select(r => r.Key).Should().BeEquivalentTo(["a", "b", "c"]);
+        new[] { laptopHttps, tvHttps, tvDns, phone }.Where(r => LiveTrafficStore.Matches(r, twoHttps, null))
+            .Select(r => r.Key).Should().BeEquivalentTo(["a", "b"]);
+        new[] { laptopHttps, tvHttps, tvDns, phone }.Where(r => LiveTrafficStore.Matches(r, notTv, null))
+            .Select(r => r.Key).Should().BeEquivalentTo(["a", "d"], "an exclude chip that hits drops the row");
+    }
+
     private const string Nas = "aa:bb:cc:dd:ee:01";
     private const string Laptop = "aa:bb:cc:dd:ee:02";
 

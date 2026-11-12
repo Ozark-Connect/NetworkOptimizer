@@ -770,12 +770,14 @@ public sealed class LiveTrafficStore
 
             var dnsRows = query.IncludeDns ? BuildDns(query, active, now) : new List<LiveDnsRow>();
             var recentDns = _dns.Where(d => now - d.At <= TimeSpan.FromSeconds(60)).ToList();
+            // By the name a Client chip carries, so the tile's click can filter to exactly these.
             var bypassers = _dns
                 .Where(d => d.Event.RedirectedTo.Length == 0 && IsBypassResolver(d.Event.ServerIp))
-                .Select(d => d.Event.ClientIp)
-                .Concat(active.Where(r => r.DnsBypass).Select(r => r.ClientIp))
+                .Select(d => ClientNameFor(d.Event.ClientMac, d.Event.ClientIp))
+                .Concat(active.Where(r => r.DnsBypass).Select(r => r.ClientName))
                 .Distinct(StringComparer.OrdinalIgnoreCase)
-                .Count();
+                .Order(StringComparer.OrdinalIgnoreCase)
+                .ToList();
 
             return new LiveTrafficView
             {
@@ -795,7 +797,8 @@ public sealed class LiveTrafficStore
                 Dns = dnsRows,
                 DnsPerSecond = recentDns.Count / 60.0,
                 NxdomainPercent = recentDns.Count == 0 ? 0 : 100.0 * recentDns.Count(d => IsBlocked(d.Event)) / recentDns.Count,
-                BypassingClients = bypassers,
+                BypassingClients = bypassers.Count,
+                BypassingClientNames = bypassers,
                 DnsActive = _dnsActive,
                 Sankey = query.IncludeSankey && !query.Ended ? BuildSankey(matching, query.SankeyByFlows, query.SankeyHold) : null,
                 TailnetConnected = _tailnetConnected,
@@ -1045,12 +1048,9 @@ public sealed class LiveTrafficStore
     /// <summary>Whether a row passes every chip and the search box. Live and History share it.</summary>
     internal static bool Matches(LiveFlowRow r, IReadOnlyList<LiveTrafficFilter> filters, string? search)
     {
-        foreach (var f in filters)
-        {
-            if (f.Field == LiveTrafficField.Resolver) continue;
-            var hit = FieldMatches(r, f.Field, f.Value);
-            if (hit == f.Exclude) return false;
-        }
+        if (!PassesFilters(r, filters, static (row, field, value) =>
+                field == LiveTrafficField.Resolver ? null : FieldMatches(row, field, value)))
+            return false;
         if (string.IsNullOrWhiteSpace(search)) return true;
         var s = search.Trim();
         return Contains(r.ClientName, s) || Contains(r.ClientIp, s) || Contains(r.Destination, s)
@@ -1058,6 +1058,28 @@ public sealed class LiveTrafficStore
             || Contains(r.DestinationSub, s) || AppOrService(r, s) || Eq(r.Proto, s) || Eq(r.Action, s)
             || (r.IspCache != null && (Contains("ISP cache", s) || Contains(r.IspCache, s)))
             || r.RemotePort.ToString() == s || r.ClientPort.ToString() == s;
+    }
+
+    /// <summary>
+    /// The filter chips' rule: include chips on one field OR together (Client A or Client B), fields
+    /// AND, and any exclude chip that hits drops the row. <paramref name="hit"/> returns null for a
+    /// field that does not apply to the row kind, which then neither keeps nor drops it.
+    /// </summary>
+    internal static bool PassesFilters<T>(T row, IReadOnlyList<LiveTrafficFilter> filters, Func<T, LiveTrafficField, string, bool?> hit)
+    {
+        HashSet<LiveTrafficField>? wanted = null, met = null;
+        foreach (var f in filters)
+        {
+            if (hit(row, f.Field, f.Value) is not { } on) continue;
+            if (f.Exclude)
+            {
+                if (on) return false;
+                continue;
+            }
+            (wanted ??= new()).Add(f.Field);
+            if (on) (met ??= new()).Add(f.Field);
+        }
+        return wanted == null || (met != null && wanted.IsSubsetOf(met));
     }
 
     /// <summary>Whether a row carries the value in that field; the chip and the click share this.</summary>
@@ -1287,17 +1309,14 @@ public sealed class LiveTrafficStore
             LiveDnsMode.Nxdomain => filtered.Where(r => r.Blocked),
             _ => filtered,
         };
-        foreach (var f in query.Filters)
-        {
-            Func<LiveDnsRow, bool>? test = f.Field switch
+        if (query.Filters.Count > 0)
+            filtered = filtered.Where(r => PassesFilters(r, query.Filters, static (row, field, value) => field switch
             {
-                LiveTrafficField.Client => r => Eq(r.ClientName, f.Value) || Eq(r.ClientMac, f.Value) || Eq(r.ClientIp, f.Value),
-                LiveTrafficField.Resolver => r => Eq(r.Resolver, f.Value) || Eq(r.ResolverIp, f.Value),
-                LiveTrafficField.Destination => r => Eq(r.Name, f.Value),
-                _ => null,
-            };
-            if (test != null) filtered = filtered.Where(r => test(r) != f.Exclude);
-        }
+                LiveTrafficField.Client => Eq(row.ClientName, value) || Eq(row.ClientMac, value) || Eq(row.ClientIp, value),
+                LiveTrafficField.Resolver => Eq(row.Resolver, value) || Eq(row.ResolverIp, value),
+                LiveTrafficField.Destination => Eq(row.Name, value),
+                _ => (bool?)null,
+            }));
         if (!string.IsNullOrWhiteSpace(query.Search))
         {
             var s = query.Search.Trim();

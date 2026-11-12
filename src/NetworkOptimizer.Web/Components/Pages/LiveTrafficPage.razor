@@ -191,7 +191,7 @@
                             <span class="lt-sub-part" data-tooltip="Answered NXDOMAIN, or 0.0.0.0 / :: the way DNS blockers refuse a name">@_view.NxdomainPercent.ToString("0.#")% blocked</span>
                             @if (_view.BypassingClients > 0)
                             {
-                                <span class="lt-sub-sep"> &middot; </span><span class="lt-sub-part lt-pivot" style="color: var(--warning-color);" @onclick="() => SetDnsMode(LiveDnsMode.Bypass)">@TimeFormatHelper.Pluralize(_view.BypassingClients, "client") bypassing</span>
+                                <span class="lt-sub-sep"> &middot; </span><span class="lt-sub-part lt-pivot" style="color: var(--warning-color);" @onclick="FilterToBypassersAsync">@TimeFormatHelper.Pluralize(_view.BypassingClients, "client") bypassing</span>
                             }
                         </div>
                     }
@@ -737,6 +737,19 @@
         _openKey = null;
         WriteUrl();
         await RefreshAsync();
+    }
+
+    /// <summary>"N clients bypassing": a Client chip for each of them (chips on one field OR) and Live DNS on Bypass.</summary>
+    private async Task FilterToBypassersAsync()
+    {
+        foreach (var name in _view?.BypassingClientNames ?? [])
+        {
+            _filters.RemoveAll(f => f.Field == LiveTrafficField.Client && string.Equals(f.Value, name, StringComparison.OrdinalIgnoreCase));
+            _filters.Add(new LiveTrafficFilter(LiveTrafficField.Client, name));
+        }
+        _dnsMode = LiveDnsMode.Bypass;
+        _mobileDns = true;
+        await FiltersChanged();
     }
 
     private async Task SetDnsMode(LiveDnsMode mode)
