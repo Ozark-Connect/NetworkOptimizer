@@ -1471,7 +1471,7 @@ Live Traffic shows which apps, protocols, destinations, and DNS lookups each cli
 - **Flow history**: for past time ranges, and on sites without a gateway agent, Live Traffic reads UniFi Network's own flow history from the UniFi Console. Network Optimizer caches it in memory and never copies it to its own storage. UniFi Network decides how long that history is kept.
 - **Usage totals**: what Network Optimizer stores per device is aggregate usage, not per app or protocol. WAN usage comes from the gateway agent (`client_wan`), and LAN + WAN usage from Wi-Fi stats (`wifi_client`) and switch port stats (`wired_client`, `interface_counters`). None of it carries an app, protocol, destination, or TCP/UDP port. With InfluxDB configured it is kept at the monitoring buckets' retention (90 days raw and 365 days as hourly totals, by default). It feeds the Live Traffic ranking from the last hour to 30 days, and the per-device usage in Client Performance.
 
-To turn off flow and DNS capture for a site, clear **Enable flow and DNS capture** in Settings - Monitoring - **Live Traffic**. The agent then sends no flows or DNS lookups, and the Dashboard's Live Traffic card ranks clients by usage only. History keeps working from UniFi Network's flow records.
+To turn off Live Traffic flow and DNS capture for a site, clear **Enable Live Traffic flow and DNS capture** in Settings - Monitoring - **Live Traffic**. The agent then sends no flows or DNS lookups, and the Dashboard's Live Traffic card ranks clients by usage only. History keeps working from UniFi Network's flow records.
 
 If a future release keeps a history of client activity (which apps, protocols, or destinations a client used), that history will be opt-in and off by default.
 
