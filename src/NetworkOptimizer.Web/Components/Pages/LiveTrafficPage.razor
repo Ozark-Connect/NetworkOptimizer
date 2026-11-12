@@ -752,14 +752,15 @@
         await RefreshAsync();
     }
 
-    /// <summary>"N clients bypassing": a Client chip for each of them (chips on one field OR) and Live DNS on Bypass.</summary>
+    /// <summary>
+    /// "N clients bypassing": exactly those clients, so any Client chip already set goes first (another
+    /// would OR in a client that is not bypassing; an exclude could hide one that is). Live DNS on Bypass.
+    /// </summary>
     private async Task FilterToBypassersAsync()
     {
+        _filters.RemoveAll(f => f.Field == LiveTrafficField.Client);
         foreach (var name in _view?.BypassingClientNames ?? [])
-        {
-            _filters.RemoveAll(f => f.Field == LiveTrafficField.Client && string.Equals(f.Value, name, StringComparison.OrdinalIgnoreCase));
             _filters.Add(new LiveTrafficFilter(LiveTrafficField.Client, name));
-        }
         _dnsMode = LiveDnsMode.Bypass;
         _mobileDns = true;
         await FiltersChanged();
