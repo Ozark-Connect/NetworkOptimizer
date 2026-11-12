@@ -25338,7 +25338,7 @@ body:has(.top-bar-hidden) .btn-fit {
 .lt-fpop,
 .lt-fmenu {
     position: absolute;
-    top: calc(100% + 6px);
+    top: calc(100% + 9px);
     left: 0;
     z-index: 61;
     background: var(--bg-secondary);
