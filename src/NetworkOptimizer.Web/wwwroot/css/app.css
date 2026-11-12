@@ -24258,7 +24258,7 @@ body:has(.top-bar-hidden) .btn-fit {
     visibility: hidden;
 }
 
-.bandwidth-hogs-table .hogs-col-rank { width: 3.55rem; }
+.bandwidth-hogs-table .hogs-col-rank { width: 3.6rem; }
 .bandwidth-hogs-table .hogs-col-via { width: 26%; }
 .bandwidth-hogs-table .hogs-col-rate { width: 14%; }
 .bandwidth-hogs-table .hogs-col-share { width: 17%; }
