@@ -27,6 +27,15 @@ public static class LiveTrafficLinks
         : string.IsNullOrEmpty(clientIp) ? null
         : "/client-dashboard?ip=" + Uri.EscapeDataString(clientIp) + "&tab=data";
 
+    /// <summary>
+    /// The far end's page when it is one of the site's own (a client, a UniFi device, the gateway):
+    /// Device Stats or Client Performance, as for a client. Null for anything else.
+    /// </summary>
+    public static string? LanPeer(LiveFlowRow f) =>
+        f.RemoteDeviceMac != null ? Client(f.DestinationIp, f.RemoteDeviceMac)
+        : f.RemoteClientMac != null ? Client(f.DestinationIp, null)
+        : null;
+
     /// <summary>Live Traffic with Name This App open, prefilled from the seed.</summary>
     public static string NameApp(CustomAppSeed seed) => "/monitoring/live-traffic?nameApp=" + seed.Encode();
 

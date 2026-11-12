@@ -284,11 +284,13 @@ public sealed class FlowHistoryCache
         var clientName = Clean(local.ClientName) ?? Clean(local.HostName)
             ?? (Eq(local.ZoneName, "Gateway") ? gatewayName : DeviceName(local.Mac, local.Ip!) ?? local.Ip!);
         // A network device's end links to Device Stats, not Client Performance.
-        var localMac = (local.Mac ?? "").Replace('-', ':').ToLowerInvariant();
-        var clientDeviceMac = Eq(local.ZoneName, "Gateway") ? gatewayMac ?? ""
-            : deviceMacs == null ? null
-            : localMac.Length > 0 && deviceMacs.TryGetValue(localMac, out var byMacKey) ? byMacKey
-            : deviceMacs.GetValueOrDefault(local.Ip!);
+        string? DeviceMac(UniFiTrafficFlowEndpoint end)
+        {
+            if (Eq(end.ZoneName, "Gateway")) return gatewayMac ?? "";
+            if (deviceMacs == null) return null;
+            var mac = (end.Mac ?? "").Replace('-', ':').ToLowerInvariant();
+            return mac.Length > 0 && deviceMacs.TryGetValue(mac, out var byMac) ? byMac : deviceMacs.GetValueOrDefault(end.Ip!);
+        }
         var destination = remote.Domains?.Select(Clean).FirstOrDefault(d => d != null)
             ?? Clean(remote.ClientName) ?? (remoteIsGateway ? gatewayName : DeviceName(remote.Mac, remote.Ip!) ?? remote.Ip!);
 
@@ -344,7 +346,11 @@ public sealed class FlowHistoryCache
             ClientMac = (local.Mac ?? "").Replace('-', ':').ToLowerInvariant(),
             ClientName = clientName,
             ClientIp = local.Ip!,
-            ClientDeviceMac = clientDeviceMac,
+            ClientDeviceMac = DeviceMac(local),
+            // The far end on the LAN: a device, or a client the console names, takes the client card.
+            RemoteDeviceMac = kind == LiveRouteKind.Lan ? DeviceMac(remote) : null,
+            RemoteClientMac = kind == LiveRouteKind.Lan && Clean(remote.ClientName) != null && !string.IsNullOrEmpty(remote.Mac)
+                ? remote.Mac.Replace('-', ':').ToLowerInvariant() : null,
             ClientVia = Clean(incoming ? f.Out?.NetworkName : f.In?.NetworkName) ?? Clean(local.NetworkName),
             Destination = destination,
             DestinationIp = remote.Ip!,

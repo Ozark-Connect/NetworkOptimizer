@@ -15,7 +15,7 @@
                     @ClientLine(f)
                 </td>
             }
-            <td data-dest-name="@f.Destination" data-dest-ip="@f.DestinationIp" data-dest-link="@LiveTrafficLinks.ThreatsDrilldown(f)">
+            <td @attributes="DestinationCard(f)">
                 @Pill(LiveTrafficField.Destination, f.Destination)
                 @SiteBadge(f)
                 @CacheBadge(f)
@@ -82,7 +82,7 @@
             {
                 <td></td>
             }
-            <td data-dest-name="@f.Destination" data-dest-ip="@f.DestinationIp" data-dest-link="@LiveTrafficLinks.ThreatsDrilldown(f)">
+            <td @attributes="DestinationCard(f)">
                 <a class="lt-pivot" href="@Ctx.LinkFor?.Invoke(LiveTrafficField.Destination, f.Destination)">@f.Destination</a>
                 <span class="lt-muted">@f.DestinationSub</span>
                 @StreamsBadge(f)
@@ -114,7 +114,7 @@
                     @ClientLine(f)
                 </td>
             }
-            <td data-dest-name="@f.Destination" data-dest-ip="@f.DestinationIp" data-dest-link="@LiveTrafficLinks.ThreatsDrilldown(f)">
+            <td @attributes="DestinationCard(f)">
                 @Pill(LiveTrafficField.Destination, f.Destination)
                 @PortLine(f)
             </td>

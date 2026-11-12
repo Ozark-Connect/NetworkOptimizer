@@ -47,6 +47,14 @@ public static class LiveTrafficDisplay
         return string.IsNullOrEmpty(via) ? address : via + "\n" + address;
     }
 
+    /// <summary>The client card's lines for a site client or device at the far end: how it connects, then its address and port.</summary>
+    public static string PeerCardDetail(LiveFlowRow f)
+    {
+        var via = ViaTooltip(f.RemoteClientVia) ?? f.RemoteClientVia;
+        var address = f.RemotePort > 0 ? $"{f.DestinationIp} · {f.Proto} {f.RemotePort}" : f.DestinationIp;
+        return string.IsNullOrEmpty(via) ? address : via + "\n" + address;
+    }
+
     public static string Pct(double v) => v.ToString("0.#", System.Globalization.CultureInfo.InvariantCulture);
 
     /// <summary>"12s ago", "Over 3 min ago" for a flow older than the agent, or "Ended just now".</summary>

@@ -163,6 +163,11 @@ public sealed record LiveFlowRow
     public bool PolicyEvaluated { get; init; }
     /// <summary>The far end's MAC when it is a site client or UniFi device (inter-VLAN traffic), else null.</summary>
     public string? RemoteClientMac { get; init; }
+    /// <summary>
+    /// The far end is a network device (the gateway or a UniFi device): the MAC Device Stats opens on,
+    /// empty when not yet known. Null otherwise.
+    /// </summary>
+    public string? RemoteDeviceMac { get; init; }
     /// <summary>How that far-end client connects ("Office Switch · # 9", "5 GHz", or its network), as the client column shows it.</summary>
     public string? RemoteClientVia { get; init; }
     /// <summary>The far-end client's network (VLAN name), for its badge.</summary>

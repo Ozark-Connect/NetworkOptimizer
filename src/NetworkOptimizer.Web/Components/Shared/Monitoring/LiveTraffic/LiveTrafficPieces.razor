@@ -184,7 +184,7 @@
     protected static RenderFragment SiteBadge(LiveFlowRow f) => __builder =>
     {
         if (string.IsNullOrEmpty(f.RemoteSite)) return;
-        <span class="lt-tag lt-site-badge" data-tooltip="A public address of this site">@f.RemoteSite</span>
+        <span class="lt-tag lt-site-badge">@f.RemoteSite</span>
     };
 
     /// <summary>A CDN cache inside the ISP's network, beside the destination; the tooltip names the cache and the network.</summary>
@@ -205,6 +205,24 @@
         var tip = string.IsNullOrEmpty(f.RemoteNetwork) ? "One of your clients" : $"One of your clients, on {f.RemoteNetwork}";
         <span class="lt-tag lt-peer-badge" data-tooltip="@(via != null ? $"{tip}: {via}" : tip)" data-tooltip-hover-only>@(f.RemoteNetwork ?? "LAN")</span>
     };
+
+    /// <summary>
+    /// The Destination cell's hover card: the client card for one of the site's own clients or devices,
+    /// else the destination card (Threats for a public address, Trace).
+    /// </summary>
+    protected static Dictionary<string, object> DestinationCard(LiveFlowRow f)
+    {
+        if (LiveTrafficLinks.LanPeer(f) is { } peer)
+            return new()
+            {
+                ["data-client-name"] = f.Destination,
+                ["data-client-link"] = peer,
+                ["data-client-note"] = LiveTrafficDisplay.PeerCardDetail(f),
+            };
+        var card = new Dictionary<string, object> { ["data-dest-name"] = f.Destination, ["data-dest-ip"] = f.DestinationIp };
+        if (LiveTrafficLinks.ThreatsDrilldown(f) is { } threats) card["data-dest-link"] = threats;
+        return card;
+    }
 
     protected string LocalTime(DateTime utc) =>
         TimeZoneInfo.ConvertTimeFromUtc(DateTime.SpecifyKind(utc, DateTimeKind.Utc), DisplayTime.Zone)

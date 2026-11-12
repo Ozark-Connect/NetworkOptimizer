@@ -1136,6 +1136,7 @@ public sealed class LiveTrafficStore
             IspCache = ispCache,
             RemoteSite = remoteSite,
             RemoteClientMac = peer?.Mac,
+            RemoteDeviceMac = DeviceMacFor(_gatewayIps.Contains(f.RemoteIp), peer?.Mac ?? ""),
             RemoteClientVia = peer == null ? (tailnetPeer != null ? "Tailscale" : null) : peer.Via ?? peer.Network,
             RemoteNetwork = peer?.Network,
             RemoteOrg = f.Lan ? null : org,

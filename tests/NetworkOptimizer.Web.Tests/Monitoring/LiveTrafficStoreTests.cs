@@ -185,6 +185,34 @@ public class LiveTrafficStoreTests
     }
 
     [Fact]
+    public void LanDestinationsThatAreTheSitesOwnLinkLikeClients()
+    {
+        const string ap = "aa:bb:cc:dd:ee:30";
+        var store = new LiveTrafficStore();
+        store.SetSiteData(
+            [
+                new LiveClientInfo(Nas, "NAS", "192.0.2.10", "Port 9", "Main"),
+                new LiveClientInfo(Laptop, "Laptop", "192.0.2.20", "6 GHz", "Main"),
+                new LiveClientInfo(ap, "Office AP", "192.0.2.30", "U7 Pro", null, IsDevice: true),
+            ],
+            ["192.0.2.1"], "Gateway", new Dictionary<string, LiveRouteInfo>(), null, "aa:bb:cc:dd:ee:99");
+        store.Ingest(Batch(
+            Flow("nas", Laptop, "192.0.2.20", "192.0.2.10", 445, "", 3_000_000, 10_000, lan: true),
+            Flow("ap", Laptop, "192.0.2.20", "192.0.2.30", 22, "", 2_000_000, 10_000, lan: true),
+            Flow("gw", Laptop, "192.0.2.20", "192.0.2.1", 53, "", 1_500_000, 10_000, proto: "udp", lan: true),
+            Flow("lan", Laptop, "192.0.2.20", "192.0.2.77", 80, "", 1_000_000, 10_000, lan: true),
+            Flow("wan", Laptop, "192.0.2.20", "203.0.113.5", 443, "eth4", 500_000, 10_000)));
+
+        var rows = store.BuildView(Query(), LiveTrafficState.Live).Flows.ToDictionary(f => f.Key);
+
+        LiveTrafficLinks.LanPeer(rows["nas"]).Should().Be("/client-dashboard?ip=192.0.2.10&tab=data");
+        LiveTrafficLinks.LanPeer(rows["ap"]).Should().Contain("tab=devices").And.Contain(Uri.EscapeDataString(ap));
+        LiveTrafficLinks.LanPeer(rows["gw"]).Should().Contain("tab=devices");
+        LiveTrafficLinks.LanPeer(rows["lan"]).Should().BeNull("an unknown LAN host keeps the destination card");
+        LiveTrafficLinks.LanPeer(rows["wan"]).Should().BeNull();
+    }
+
+    [Fact]
     public void WireGuardClientTunnelTakesItsNetworkNameWithoutAConsoleRecord()
     {
         var store = SeededStore();
