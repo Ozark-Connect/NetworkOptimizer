@@ -126,6 +126,38 @@ public class TailnetSnapshotTests
     }
 
     [Fact]
+    public void A_shared_in_node_missing_from_the_device_list_comes_from_local_status()
+    {
+        var local = new TailscaleLocalStatus("Running", Local("100.100.1.1"),
+            [Local("100.100.1.9", "shared.tail1111.ts.net.", curAddr: "203.0.113.5:41641", active: true)]);
+
+        var snapshot = TailnetSnapshot.Build([Device("phone", "100.100.1.2")], local, null, Now);
+
+        snapshot.NameFor("100.100.1.9").Should().Be("shared");
+        snapshot.Peers.Should().HaveCount(2);
+    }
+
+    [Fact]
+    public void A_live_direct_path_outranks_an_offline_peers_stale_endpoint()
+    {
+        // Both nodes sit behind one NAT. The offline one's device record still lists the address and port.
+        var stale = Device("offline", "100.100.1.2", endpoints: ["203.0.113.5:41641"]) with { Online = false };
+        var live = Local("100.100.1.9", "live.tail1111.ts.net.", curAddr: "203.0.113.5:41641", active: true);
+        var snapshot = TailnetSnapshot.Build([stale], new TailscaleLocalStatus("Running", Local("100.100.1.1"), [live]), null, Now);
+
+        snapshot.PeerAtEndpoint("203.0.113.5", 41641, addressAlone: false)!.Name.Should().Be("live");
+        snapshot.PeerAtEndpoint("203.0.113.5", 50000, addressAlone: true)!.Name.Should().Be("live");
+    }
+
+    [Fact]
+    public void An_offline_peers_listed_endpoint_names_nobody()
+    {
+        var stale = Device("offline", "100.100.1.2", endpoints: ["203.0.113.5:41641"]) with { Online = false };
+
+        TailnetSnapshot.Build([stale], null, null, Now).PeerAtEndpoint("203.0.113.5", 41641, addressAlone: true).Should().BeNull();
+    }
+
+    [Fact]
     public void Snat_lookup_matches_router_tuple()
     {
         var snapshot = TailnetSnapshot.Build(null, null,

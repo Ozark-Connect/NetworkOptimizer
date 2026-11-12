@@ -74,6 +74,9 @@ public sealed class TailnetSnapshot
     /// <summary>Peers by endpoint; a null value marks one two peers share, which names neither.</summary>
     private readonly Dictionary<(string Ip, int Port), TailnetPeer?> _byEndpoint = new();
     private readonly Dictionary<string, TailnetPeer?> _byEndpointIp = new(StringComparer.OrdinalIgnoreCase);
+    /// <summary>Peers by the endpoint the local tailscaled reaches them at right now.</summary>
+    private readonly Dictionary<(string Ip, int Port), TailnetPeer?> _byLiveEndpoint = new();
+    private readonly Dictionary<string, TailnetPeer?> _byLiveEndpointIp = new(StringComparer.OrdinalIgnoreCase);
 
     public TailnetSnapshot(IReadOnlyList<TailnetPeer> peers, TailnetPeer? self, IReadOnlyList<TailnetSnatEntry> snat,
         DateTime? readAt = null, bool connected = true, DerpMapClient.DerpMap? derp = null)
@@ -91,8 +94,17 @@ public sealed class TailnetSnapshot
                 foreach (var ip in peer.LanAddresses)
                     if (Normalize(ip) is { } key) _byLanIp.TryAdd(key, peer);
         }
-        // The local node's own endpoints are this host, not a peer it talks to.
+        // The local node's own endpoints are this host, not a peer it talks to. A peer's direct path
+        // outranks every listed endpoint, and an offline peer's list is stale: a peer behind the same
+        // NAT may hold that address and port now.
         foreach (var peer in peers)
+        {
+            if (peer.Path is { Kind: TailnetPathKind.Direct, Endpoint: var live } && ParseEndpoint(live) is var (lip, lport))
+            {
+                Claim(_byLiveEndpoint, (lip.ToString(), lport), peer);
+                Claim(_byLiveEndpointIp, lip.ToString(), peer);
+            }
+            if (peer.Online == false) continue;
             foreach (var ep in peer.Endpoints)
                 if (ParseEndpoint(ep) is var (ip, port))
                 {
@@ -100,6 +112,7 @@ public sealed class TailnetSnapshot
                     Claim(_byEndpoint, (text, port), peer);
                     Claim(_byEndpointIp, text, peer);
                 }
+        }
         foreach (var e in snat)
             if (Normalize(e.NatIp) is { } nat && Normalize(e.RemoteIp) is { } remote)
                 _snat.TryAdd((e.Proto, nat, e.NatPort, remote, e.RemotePort), e.PeerIp);
@@ -120,8 +133,11 @@ public sealed class TailnetSnapshot
     public TailnetPeer? PeerAtEndpoint(string? ip, int port, bool addressAlone)
     {
         if (Normalize(ip) is not { } key) return null;
+        if (_byLiveEndpoint.TryGetValue((key, port), out var live)) return live;
         if (_byEndpoint.TryGetValue((key, port), out var exact)) return exact;
-        return addressAlone && _byEndpointIp.TryGetValue(key, out var byIp) ? byIp : null;
+        if (!addressAlone) return null;
+        if (_byLiveEndpointIp.TryGetValue(key, out var liveIp)) return liveIp;
+        return _byEndpointIp.TryGetValue(key, out var byIp) ? byIp : null;
     }
 
     /// <summary>Every device in the tailnet, the local node excluded.</summary>
@@ -188,16 +204,21 @@ public sealed class TailnetSnapshot
         if (devices != null)
         {
             peers = new List<TailnetPeer>();
+            var joined = new HashSet<TailscaleLocalPeer>(ReferenceEqualityComparer.Instance);
             foreach (var d in devices)
             {
                 var localPeer = d.Addresses.Select(Normalize).OfType<string>()
                     .Select(ip => localByIp.GetValueOrDefault(ip)).FirstOrDefault(p => p != null);
+                if (localPeer != null) joined.Add(localPeer);
                 var peer = FromDevice(d, localPeer, now, derp);
                 if (d.Addresses.Select(Normalize).Any(ip => ip != null && selfIps.Contains(ip)))
                     self = peer with { LanAddresses = peer.LanAddresses.Union(self?.LanAddresses ?? []).ToList() };
                 else
                     peers.Add(peer);
             }
+            // A node shared in from another tailnet is in the local status but not this tailnet's device list.
+            if (local != null)
+                peers.AddRange(local.Peers.Where(p => !joined.Contains(p)).Select(p => FromLocal(p, now, isSelf: false, derp)));
         }
         else
         {
