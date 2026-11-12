@@ -25446,6 +25446,16 @@ body:has(.top-bar-hidden) .btn-fit {
     color: var(--text-secondary);
 }
 
+.lt-fpop-bulk {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+}
+
+.lt-fpop-bulk-sep {
+    color: var(--text-muted);
+}
+
 .lt-fmenu {
     width: 190px;
     padding: 6px;

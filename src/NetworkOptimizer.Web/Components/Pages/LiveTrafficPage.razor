@@ -1051,7 +1051,8 @@
         <FilterChipEditor @key="key" Field="key.Field" Exclude="key.Exclude" Selected="SelectedValues(key)"
                           Facets="facets" Loading="_facetsLoadedFor != key.Field"
                           OnToggle="v => ToggleEditorValueAsync(key, v)" OnSetExclude="ex => SetEditorKindAsync(key, ex)"
-                          OnSelectMany="vs => AddEditorValuesAsync(key, vs)" OnClose="CloseEditor" />
+                          OnSelectMany="vs => AddEditorValuesAsync(key, vs)" OnClearMany="vs => ClearEditorValuesAsync(key, vs)"
+                          OnClose="CloseEditor" />
     };
 
     private IReadOnlySet<string> SelectedValues((LiveTrafficField Field, bool Exclude) key) =>
@@ -1119,6 +1120,15 @@
             _filters.RemoveAll(f => f.Field == key.Field && Same(f.Value, value));
             _filters.Add(new LiveTrafficFilter(key.Field, value, key.Exclude));
         }
+        await FiltersChanged();
+    }
+
+    /// <summary>The editor's Clear: unticks these values; the editor stays open even when the chip goes.</summary>
+    private async Task ClearEditorValuesAsync((LiveTrafficField Field, bool Exclude) key, IReadOnlyList<string> values)
+    {
+        _filters.RemoveAll(f => f.Field == key.Field && f.Exclude == key.Exclude && values.Any(v => Same(f.Value, v)));
+        // The chip is gone: the editor settles under + Filter, where a re-ticked chip lands, and stays there.
+        if (!_filters.Any(f => f.Field == key.Field && f.Exclude == key.Exclude)) _editorAtAdd = true;
         await FiltersChanged();
     }
 

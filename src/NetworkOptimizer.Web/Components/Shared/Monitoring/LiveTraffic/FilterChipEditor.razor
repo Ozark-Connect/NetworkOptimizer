@@ -47,7 +47,14 @@
         }
     </div>
     <div class="lt-fpop-foot">
-        <a href="" @onclick="SelectShownAsync" @onclick:preventDefault>Select shown</a>
+        <span class="lt-fpop-bulk">
+            <a href="" @onclick="SelectShownAsync" @onclick:preventDefault>Select shown</a>
+            @if (ToClear().Count > 0)
+            {
+                <span class="lt-fpop-bulk-sep">&middot;</span>
+                <a href="" @onclick="ClearAsync" @onclick:preventDefault>@(_search.Trim().Length > 0 ? "Clear shown" : "Clear")</a>
+            }
+        </span>
         <button type="button" class="btn btn-primary btn-sm" @onclick="CloseAsync">Done</button>
     </div>
 </div>
@@ -63,6 +70,7 @@
     [Parameter] public EventCallback<string> OnToggle { get; set; }
     [Parameter] public EventCallback<bool> OnSetExclude { get; set; }
     [Parameter] public EventCallback<IReadOnlyList<string>> OnSelectMany { get; set; }
+    [Parameter] public EventCallback<IReadOnlyList<string>> OnClearMany { get; set; }
     [Parameter] public EventCallback OnClose { get; set; }
 
     private ElementReference _input;
@@ -124,6 +132,13 @@
 
     private Task SelectShownAsync() =>
         OnSelectMany.InvokeAsync(Items().Where(i => !i.Typed && !Selected.Contains(i.Value)).Select(i => i.Value).ToList());
+
+    /// <summary>The ticked values Clear would untick: all of them, or only those the search shows.</summary>
+    private List<string> ToClear() => _search.Trim().Length == 0
+        ? Selected.ToList()
+        : Items().Where(i => !i.Typed && Selected.Contains(i.Value)).Select(i => i.Value).ToList();
+
+    private Task ClearAsync() => OnClearMany.InvokeAsync(ToClear());
 
     private Task CloseAsync() => OnClose.InvokeAsync();
 }
