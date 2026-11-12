@@ -24557,6 +24557,7 @@ body:has(.top-bar-hidden) .btn-fit {
 .lt-route-lan { background: rgba(245, 158, 11, 0.15); color: #f59e0b; }
 .lt-bypass { background: rgba(231, 150, 19, 0.15); color: var(--warning-color); }
 .lt-redirected { background: rgba(71, 151, 255, 0.15); color: var(--info-color); }
+.lt-site-dns { background: rgba(43, 168, 154, 0.15); color: #2ba89a; }
 .lt-action-blocked { background: rgba(238, 99, 104, 0.15); color: var(--danger-color); }
 /* App icons, drawn as Client Performance draws them (its own .app-icon rules are scoped to that page). */
 .lt-app-cell {
