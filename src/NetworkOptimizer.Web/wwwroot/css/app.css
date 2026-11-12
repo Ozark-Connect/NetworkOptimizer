@@ -25963,6 +25963,10 @@ body:has(.top-bar-hidden) .btn-fit {
     display: block;
     color: var(--text-muted);
     font-size: 0.72rem;
+    /* Its own ellipsis: the cell's applies only to the cell's own text, so a cut port read as a
+       different port ("UDP 4164" for 41641) with no sign anything was missing. */
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .lt-flows tr.lt-selected td {
