@@ -400,6 +400,19 @@
             box.appendChild(x);
         }
 
+        // One tooltip on screen at a time: the newest one to mount hides the rest at once. A plugin, not a
+        // default onMount, because a tooltip's own onMount replaces a default but runs beside a plugin.
+        if (window.tippy) {
+            tippy.setDefaultProps({
+                plugins: [{
+                    name: 'newestOnly',
+                    fn: function (instance) {
+                        return { onMount: function () { tippy.hideAll({ exclude: instance, duration: 0 }); } };
+                    }
+                }]
+            });
+        }
+
         // The X takes room at the right: a tooltip that has one may draw that much wider before it wraps.
         function withCloseRoom(maxWidth) {
             return String(maxWidth).replace(/(\d+)px\)$/, function (m, px) { return (+px + 24) + 'px)'; });

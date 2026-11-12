@@ -9012,6 +9012,8 @@ h3 > .tooltip-icon-sm {
 
 .tippy-box[data-theme~='custom'] .tip-close {
     position: absolute;
+    /* Above .tippy-content, which Tippy's own CSS lifts to z-index 1 and would take the click. */
+    z-index: 2;
     top: 3px;
     right: 4px;
     width: 16px;
