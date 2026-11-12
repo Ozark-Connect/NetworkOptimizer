@@ -67,6 +67,23 @@ public class LoadImbalanceRuleTests
     }
 
     [Fact]
+    public void BothAps_LinkToTheirClients()
+    {
+        var aps = new List<AccessPointSnapshot>
+        {
+            CreateAp("aa:bb:cc:dd:ee:01", "AP-1", 12),
+            CreateAp("aa:bb:cc:dd:ee:02", "AP-2", 0)
+        };
+
+        var issue = _rule.Evaluate(CreateContext(aps))!;
+
+        issue.AffectedLinks.Select(l => (l.Text, l.Url)).Should().Equal(
+            ("AP-1 (12)", "./wifi-optimizer?tab=client&ap=aa%3Abb%3Acc%3Add%3Aee%3A01"),
+            ("AP-2 (0)", "./wifi-optimizer?tab=client&ap=aa%3Abb%3Acc%3Add%3Aee%3A02"));
+        issue.Description.Should().StartWith("AP-1 has 12 clients while AP-2 has none.");
+    }
+
+    [Fact]
     public void NoClients_NoIssue()
     {
         var aps = new List<AccessPointSnapshot>

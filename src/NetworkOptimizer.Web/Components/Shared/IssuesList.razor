@@ -31,7 +31,7 @@
                         }
                         <div class="issue-title">@firstIssue.Title</div>
                         <div class="issue-description">@firstIssue.Description</div>
-                        @if (ShowDetails && !string.IsNullOrEmpty(firstIssue.AffectedEntity))
+                        @if (ShowDetails && HasAffected(firstIssue))
                         {
                             <div class="issue-entity">Affected: @RenderAffected(firstIssue)</div>
                         }
@@ -74,7 +74,7 @@
                                     <div class="issue-type-item">
                                         <div class="issue-context">
                                             <span class="context-item issue-item-description">@issue.Description</span>
-                                            @if (ShowDetails && !string.IsNullOrEmpty(issue.AffectedEntity))
+                                            @if (ShowDetails && HasAffected(issue))
                                             {
                                                 <span class="context-item"><strong>Affected:</strong> @RenderAffected(issue)</span>
                                             }
@@ -114,6 +114,9 @@
     public EventCallback<HealthIssue> OnRestore { get; set; }
 
     private HashSet<string> _expandedGroups = new();
+
+    private static bool HasAffected(HealthIssue issue) =>
+        issue.AffectedLinks.Count > 0 || !string.IsNullOrEmpty(issue.AffectedEntity);
 
     private bool HasAction(HealthIssue issue) =>
         issue.IsAcknowledged ? OnRestore.HasDelegate : OnAcknowledge.HasDelegate;
