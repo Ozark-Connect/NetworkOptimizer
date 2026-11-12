@@ -52,6 +52,13 @@ public class FlowNamingTests
         FlowNaming.ConsoleService(service).Should().Be(expected);
 
     [Theory]
+    [InlineData("TELNET", "Telnet")]
+    [InlineData("SSH", "SSH")]
+    [InlineData("Bonjour", "Bonjour")]   // not a well-known port name: the console's spelling stays
+    public void AConsoleServiceTakesOurSpelling(string service, string expected) =>
+        FlowNaming.ConsoleService(service).Should().Be(expected);
+
+    [Theory]
     [InlineData(5353, 50690, 5353)]   // a reply to a query from a throwaway port
     [InlineData(51000, 443, 443)]     // an ordinary outbound connection
     [InlineData(51000, 51820, 51820)] // both high: the remote end stays the service

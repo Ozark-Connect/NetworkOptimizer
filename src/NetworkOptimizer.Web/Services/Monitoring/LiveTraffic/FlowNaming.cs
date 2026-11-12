@@ -34,11 +34,17 @@ public static class FlowNaming
     /// <summary>The console's own catch-all service label, which says less than the port's name.</summary>
     private const string ConsoleCatchAll = "OTHER";
 
-    /// <summary>The service name a console record carries, or null when it has none or only its catch-all.</summary>
+    /// <summary>Well-known port names by any casing, so the console's "TELNET" reads as Live's "Telnet".</summary>
+    private static readonly Dictionary<string, string> OurServiceSpelling = NetworkUtilities.WellKnownPorts
+        .GroupBy(p => p.Name, StringComparer.OrdinalIgnoreCase)
+        .ToDictionary(g => g.Key, g => g.First().Name, StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>The service name a console record carries, in our spelling, or null when it has none or only its catch-all.</summary>
     public static string? ConsoleService(string? service)
     {
         var value = service?.Trim();
-        return string.IsNullOrEmpty(value) || value.Equals(ConsoleCatchAll, StringComparison.OrdinalIgnoreCase) ? null : value;
+        if (string.IsNullOrEmpty(value) || value.Equals(ConsoleCatchAll, StringComparison.OrdinalIgnoreCase)) return null;
+        return OurServiceSpelling.GetValueOrDefault(value, value);
     }
 
     /// <summary>The remote port is a throwaway one and the client's is not: the client's end is the service.</summary>

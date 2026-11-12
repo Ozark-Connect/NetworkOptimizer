@@ -168,6 +168,7 @@ public static class DpiCatalog
         ["DNS over QUIC"] = "fa-solid fa-server",
         ["SSH"] = "fa-solid fa-terminal",
         ["SSH-Alt"] = "fa-solid fa-terminal",
+        ["Telnet"] = "fa-solid fa-terminal",
         ["NTP"] = "fa-solid fa-clock",
         ["SNMP"] = "fa-solid fa-chart-line",
         ["SNMP Trap"] = "fa-solid fa-bell",
