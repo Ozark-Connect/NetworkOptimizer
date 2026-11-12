@@ -320,21 +320,21 @@
                     <table class="results-table lt-flows">
                         <colgroup><col style="width:3rem"><col style="width:12%"><col style="width:30%"><col style="width:14%"><col style="width:13%"><col style="width:10%"><col style="width:10%"><col style="width:10%"></colgroup>
                         <thead><tr><th></th><th>Last Seen</th><th>Destination</th><th>App</th><th>Route</th><th>Action</th><th>Data</th><th>Duration</th></tr></thead>
-                        <tbody>
+                        <tbody class="lt-flip">
                             @foreach (var f in shown)
                             {
                                 var key = f.Key;
-                                <LiveFlowRowView Flow="f" Layout="LiveFlowLayout.HistoryTable" ShowClient="false"
+                                <LiveFlowRowView @key="key" Flow="f" Layout="LiveFlowLayout.HistoryTable" ShowClient="false"
                                                  Open="_openKey == key" OnToggle="() => ToggleRow(key)" Context="Feed.RowContext" />
                             }
                         </tbody>
                     </table>
                 </div>
-                <div class="lt-mobile-list">
+                <div class="lt-mobile-list lt-flip">
                     @foreach (var f in shown)
                     {
                         var key = f.Key;
-                        <LiveFlowRowView Flow="f" Layout="LiveFlowLayout.HistoryList" ShowClient="false"
+                        <LiveFlowRowView @key="key" Flow="f" Layout="LiveFlowLayout.HistoryList" ShowClient="false"
                                          Open="_openKey == key" OnToggle="() => ToggleRow(key)" Context="Feed.RowContext" />
                     }
                 </div>

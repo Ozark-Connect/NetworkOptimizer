@@ -104,7 +104,7 @@
         break;
 
     case LiveFlowLayout.HistoryTable:
-        <tr class="lt-flow-row @(Open ? "lt-selected" : null) @(f.Action == "Blocked" ? "is-blocked" : null)" @onclick="OnToggle">
+        <tr data-flip="@f.Key" data-flip-open="@(Open ? "" : null)" class="lt-flow-row @(Open ? "lt-selected" : null) @(f.Action == "Blocked" ? "is-blocked" : null)" @onclick="OnToggle">
             <td class="lt-rank"><span class="expand-chevron lt-chev">@(Open ? "▲" : "▼")</span></td>
             <td class="lt-secondary">@LastSeenLabel(f)</td>
             @if (ShowClient)
@@ -126,12 +126,12 @@
         </tr>
         @if (Open)
         {
-            <tr class="lt-detail"><td colspan="@(ShowClient ? 9 : 8)">@HistoryDetail(f)</td></tr>
+            <tr data-flip="@(f.Key + "|d")" class="lt-detail"><td colspan="@(ShowClient ? 9 : 8)">@HistoryDetail(f)</td></tr>
         }
         break;
 
     case LiveFlowLayout.HistoryList:
-        <div class="lt-m-row" @onclick="OnToggle">
+        <div data-flip="@f.Key" data-flip-open="@(Open ? "" : null)" class="lt-m-row" @onclick="OnToggle">
             <div class="lt-m-top">
                 <span class="lt-m-name">@Pill(ShowClient ? LiveTrafficField.Client : LiveTrafficField.Destination, ShowClient ? f.ClientName : f.Destination)</span>
                 <span class="lt-m-rates">@DisplayFormatters.FormatBytes(f.TotalBytes)</span>

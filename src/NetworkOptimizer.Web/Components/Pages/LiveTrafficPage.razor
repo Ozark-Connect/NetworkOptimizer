@@ -1255,20 +1255,20 @@
                                     <th>Duration</th>
                                 </tr>
                             </thead>
-                            <tbody>
+                            <tbody class="lt-flip">
                                 @foreach (var f in h.Flows)
                                 {
                                     var key = f.Key;
-                                    <LiveFlowRowView Flow="f" Layout="LiveFlowLayout.HistoryTable" Open="_openKey == key" OnToggle="() => ToggleRow(key)" Context="Ctx" />
+                                    <LiveFlowRowView @key="key" Flow="f" Layout="LiveFlowLayout.HistoryTable" Open="_openKey == key" OnToggle="() => ToggleRow(key)" Context="Ctx" />
                                 }
                             </tbody>
                         </table>
                     </div>
-                    <div class="lt-mobile-list">
+                    <div class="lt-mobile-list lt-flip">
                         @foreach (var f in h.Flows)
                         {
                             var key = f.Key;
-                            <LiveFlowRowView Flow="f" Layout="LiveFlowLayout.HistoryList" Open="_openKey == key" OnToggle="() => ToggleRow(key)" Context="Ctx" />
+                            <LiveFlowRowView @key="key" Flow="f" Layout="LiveFlowLayout.HistoryList" Open="_openKey == key" OnToggle="() => ToggleRow(key)" Context="Ctx" />
                         }
                     </div>
                     @if (h.MatchingFlows > h.Flows.Count)
