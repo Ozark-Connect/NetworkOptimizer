@@ -417,9 +417,10 @@ public class LiveTrafficStoreTests
         clients.Where(f => !f.Idle).Select(f => f.Count).Should().Equal(2, 1);
         clients.First().Value.Should().Be(laptopName);
 
-        // Another field's chip still applies: Ports under the laptop chip are only the laptop's.
+        // Another field's chip still applies: Ports under the laptop chip are only the laptop's, and the
+        // port only the NAS uses is listed as hidden by that chip.
         store.BuildView(Query(new LiveTrafficFilter(LiveTrafficField.Client, laptopName)) with { FacetField = LiveTrafficField.Port },
-            LiveTrafficState.Live).Facets.Should().ContainSingle().Which.Should().Be(new LiveFacetValue("443", 2));
+            LiveTrafficState.Live).Facets.Should().Equal(new LiveFacetValue("443", 2), new LiveFacetValue("22", 0, Hidden: true));
 
         store.BuildView(Query(), LiveTrafficState.Live).Facets.Should().BeEmpty("no editor is open");
     }

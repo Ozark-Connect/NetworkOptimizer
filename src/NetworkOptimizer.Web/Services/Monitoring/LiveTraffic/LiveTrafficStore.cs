@@ -851,25 +851,38 @@ public sealed class LiveTrafficStore
     internal const int MaxFacetValues = 200;
 
     /// <summary>
-    /// The open chip editor's values under every other filter, most rows first. Resolver comes from Live
-    /// DNS; Client also lists the site's known clients that are not moving now. Callers hold <c>_gate</c>.
+    /// The open chip editor's values under every other filter, most rows first; then the values those
+    /// filters hide (muted in the editor); Resolver comes from Live DNS. Client also lists the site's known
+    /// clients that are not moving now. Callers hold <c>_gate</c>.
     /// </summary>
     private IReadOnlyList<LiveFacetValue> Facets(LiveTrafficField field, IReadOnlyList<LiveFlowRow> rows, LiveTrafficQuery query,
         IReadOnlyList<LiveFlowRow> active, DateTime now)
     {
         var others = query.Filters.Where(f => f.Field != field).ToList();
-        var values = field == LiveTrafficField.Resolver
-            ? BuildDns(query with { Filters = others }, active, now).Select(d => d.Resolver)
-            : rows.Where(r => Matches(r, others, query.Search)).Select(r => FacetValueOf(r, field));
-        var counted = CountFacets(values);
-        if (field != LiveTrafficField.Client) return counted;
+        IEnumerable<string?> Values(IReadOnlyList<LiveTrafficFilter> filters, string? search) => field == LiveTrafficField.Resolver
+            ? BuildDns(query with { Filters = filters, Search = search }, active, now).Select(d => d.Resolver)
+            : rows.Where(r => Matches(r, filters, search)).Select(r => FacetValueOf(r, field));
+        var counted = CountFacets(Values(others, query.Search));
+        var result = WithHidden(counted, Values(Array.Empty<LiveTrafficFilter>(), null));
+        if (field != LiveTrafficField.Client) return result;
+        var seen = result.Select(v => v.Value).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        IEnumerable<string> Unseen(IEnumerable<LiveClientInfo> clients) => clients.Select(c => c.Name)
+            .Where(n => !string.IsNullOrWhiteSpace(n) && seen.Add(n)).Order(StringComparer.OrdinalIgnoreCase).ToList();
+        var idle = Unseen(_onlineClients).Select(n => new LiveFacetValue(n, 0, Idle: true))
+            .Concat(Unseen(_recentClients).Select(n => new LiveFacetValue(n, 0, Idle: true, Offline: true)))
+            .Take(Math.Max(0, MaxFacetValues - result.Count));
+        return result.Concat(idle).ToList();
+    }
+
+    /// <summary>The counted values, then every other value in <paramref name="all"/> as Hidden, within the cap.</summary>
+    internal static List<LiveFacetValue> WithHidden(List<LiveFacetValue> counted, IEnumerable<string?> all)
+    {
         var seen = counted.Select(v => v.Value).ToHashSet(StringComparer.OrdinalIgnoreCase);
-        var idle = _onlineClients.Concat(_recentClients).Select(c => c.Name)
-            .Where(n => !string.IsNullOrWhiteSpace(n) && seen.Add(n))
+        var hidden = all.Where(v => !string.IsNullOrEmpty(v) && seen.Add(v!))
             .Order(StringComparer.OrdinalIgnoreCase)
             .Take(Math.Max(0, MaxFacetValues - counted.Count))
-            .Select(n => new LiveFacetValue(n, 0, Idle: true));
-        return counted.Concat(idle).ToList();
+            .Select(v => new LiveFacetValue(v!, 0, Hidden: true));
+        return counted.Concat(hidden).ToList();
     }
 
     /// <summary>Distinct values, most frequent first, capped at <see cref="MaxFacetValues"/>.</summary>

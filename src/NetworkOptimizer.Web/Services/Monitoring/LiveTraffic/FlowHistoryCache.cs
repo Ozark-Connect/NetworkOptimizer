@@ -198,14 +198,21 @@ public sealed class FlowHistoryCache
         }
     }
 
-    /// <summary>The open chip editor's values: records in the window that pass every other filter.</summary>
+    /// <summary>
+    /// The open chip editor's values: records in the window that pass every other filter, then the values
+    /// those filters hide in the window, as Hidden.
+    /// </summary>
     private static IReadOnlyList<LiveFacetValue> Facets(LiveTrafficField field, IEnumerable<LiveFlowRow> all, LiveHistoryQuery query)
     {
         var others = query.Filters.Where(f => f.Field != field).ToList();
-        return LiveTrafficStore.CountFacets(all
+        var inView = all
             .Where(r => query.Client is not { } scope || LiveTrafficStore.InScope(r, scope))
-            .Where(r => InWindow(r, query.From, query.To) && LiveTrafficStore.Matches(r, others, query.Search))
+            .Where(r => InWindow(r, query.From, query.To))
+            .ToList();
+        var counted = LiveTrafficStore.CountFacets(inView
+            .Where(r => LiveTrafficStore.Matches(r, others, query.Search))
             .Select(r => LiveTrafficStore.FacetValueOf(r, field)));
+        return LiveTrafficStore.WithHidden(counted, inView.Select(r => LiveTrafficStore.FacetValueOf(r, field)));
     }
 
     private static bool InWindow(LiveFlowRow r, DateTime? from, DateTime? to)

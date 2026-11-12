@@ -7,14 +7,20 @@ namespace NetworkOptimizer.Web.Tests.Monitoring;
 /// <summary>A chip editor's rows stay where they are while it is open: ticks and refreshes never move them.</summary>
 public class FacetRowOrderTests
 {
-    private static LiveFacetValue F(string v, int n, bool idle = false) => new(v, n, idle);
+    private static LiveFacetValue F(string v, int n) => new(v, n);
+    private static LiveFacetValue Hidden(string v) => new(v, 0, Hidden: true);
+    private static LiveFacetValue NoTraffic(string v) => new(v, 0, Idle: true);
+    private static LiveFacetValue Offline(string v) => new(v, 0, Idle: true, Offline: true);
 
     [Fact]
-    public void OpensWithTheChipsValuesThenByCountThenIdle()
+    public void OpensWithTheChipsValuesThenByCountThenTheMutedSections()
     {
         var order = new FacetRowOrder();
-        order.Arrange(["Gateway"], [F("Archipelago", 37), F("Gateway", 30), F("192.0.2.9", 1), F("Thermostat", 0, idle: true)])
-            .Should().Equal("Gateway", "Archipelago", "192.0.2.9", "Thermostat");
+        order.Arrange(["Gateway"], [Offline("Thermostat"), F("Archipelago", 37), Hidden("Printer"), F("Gateway", 30), NoTraffic("TV")])
+            .Should().Equal("Gateway", "Archipelago", "Printer", "TV", "Thermostat");
+        order.RankOf("Printer").Should().Be(1);
+        order.RankOf("TV").Should().Be(2);
+        order.RankOf("Thermostat").Should().Be(3);
     }
 
     [Fact]
@@ -33,13 +39,12 @@ public class FacetRowOrderTests
     }
 
     [Fact]
-    public void ALaterValueGoesAboveTheIdleClients()
+    public void ALaterValueJoinsTheEndOfItsOwnSection()
     {
         var order = new FacetRowOrder();
-        order.Arrange([], [F("Laptop", 10), F("Thermostat", 0, idle: true)]);
+        order.Arrange([], [F("Laptop", 10), Hidden("Printer"), Offline("Thermostat")]);
 
-        order.Arrange([], [F("Laptop", 10), F("TV", 3), F("Thermostat", 0, idle: true)])
-            .Should().Equal("Laptop", "TV", "Thermostat");
-        order.WasIdle("Thermostat").Should().BeTrue();
+        order.Arrange([], [F("Laptop", 10), F("TV", 3), Hidden("Printer"), Hidden("NAS"), Offline("Thermostat")])
+            .Should().Equal("Laptop", "TV", "Printer", "NAS", "Thermostat");
     }
 }

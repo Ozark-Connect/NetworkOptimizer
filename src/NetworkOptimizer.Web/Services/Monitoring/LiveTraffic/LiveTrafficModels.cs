@@ -60,9 +60,15 @@ public sealed record LiveTrafficQuery
 
 /// <summary>
 /// One value a chip editor offers, with how many rows carry it under every other filter (this field's own
-/// chips set aside, so a second value can be added). Idle: a site client not moving now, count 0.
+/// chips set aside, so a second value can be added). Hidden: in the data, but every row carrying it is
+/// filtered out by the other chips or the search. Idle: a site client with no traffic now, and Offline as
+/// well when the console lists it as recently offline. All of those have count 0.
 /// </summary>
-public sealed record LiveFacetValue(string Value, int Count, bool Idle = false);
+public sealed record LiveFacetValue(string Value, int Count, bool Idle = false, bool Hidden = false, bool Offline = false)
+{
+    /// <summary>The editor's sections, in order: moving now, hidden by other filters, no traffic now, offline.</summary>
+    public int Rank => Hidden ? 1 : Offline ? 3 : Idle ? 2 : 0;
+}
 
 /// <summary>The Flows table's sortable columns.</summary>
 public enum LiveFlowSort { Download, Upload, Total, Started, Client, Destination, App, Route }
