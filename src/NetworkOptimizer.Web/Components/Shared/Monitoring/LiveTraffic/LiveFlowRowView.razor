@@ -225,7 +225,7 @@
                 </dl>
             </div>
             <div>
-                <h4>Policy and route</h4>
+                <div class="lt-detail-head"><h4>Policy and route</h4>@ClientJump(f)</div>
                 <dl class="lt-kv">
                     <dt>Allowed by</dt><dd>@AllowedBy(f)</dd>
                     <dt>Exits</dt><dd><span class="lt-tag @LiveTrafficDisplay.RouteClass(f.RouteKind)">@f.Route</span></dd>
@@ -289,7 +289,7 @@
                 </dl>
             </div>
             <div>
-                <h4>Policy and route</h4>
+                <div class="lt-detail-head"><h4>Policy and route</h4>@ClientJump(f)</div>
                 <dl class="lt-kv">
                     <dt>@(blocked ? "Blocked by" : "Allowed by")</dt><dd>@(f.PolicyName ?? "Default policy")</dd>
                     <dt>Exits</dt><dd><span class="lt-tag @LiveTrafficDisplay.RouteClass(f.RouteKind)">@f.Route</span></dd>
@@ -317,6 +317,13 @@
         {
             <dt>Network</dt><dd>@f.Network</dd>
         }
+    };
+
+    /// <summary>The flow's client on Client Performance; not on that client's own page, nor for a flow with no client address.</summary>
+    private RenderFragment ClientJump(LiveFlowRow f) => __builder =>
+    {
+        if (!ShowClient || LiveTrafficLinks.ClientPerformance(f) is not { } href) return;
+        <MonitoringJumpButton Icon="MonitoringJumpButton.JumpIcon.Analyze" Tooltip="Open in Client Performance" Href="@href" />
     };
 
     private RenderFragment HideActions(LiveFlowRow f) => __builder =>

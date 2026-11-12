@@ -25797,6 +25797,19 @@ body:has(.top-bar-hidden) .btn-fit {
     margin: 0 0 0.5rem;
 }
 
+/* A heading with Open in Client Performance at its right; the button's negative margins keep the row as
+   tall as its neighbors' bare headings. */
+.lt-detail-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 0.5rem;
+}
+
+.lt-detail-head .monitoring-jump-btn {
+    margin: -0.4rem -0.35rem -0.4rem 0;
+}
+
 .lt-kv {
     display: grid;
     grid-template-columns: max-content 1fr;
