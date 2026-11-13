@@ -58,6 +58,13 @@ function bandBaseColor(band) {
 
 // Fade-in (ms) applied to a client re-attached to a different AP during roam playback.
 const ROAM_FADE_MS = 350;
+
+// Opens an app page from the map, stamped with the tab's site, through Blazor's router so the page
+// it opens has Back (setting location.href is a full load that starts history over).
+function navigate(url) {
+    const u = window.noSiteContext ? window.noSiteContext.stampUrl(url) : url;
+    if (window.__navigate) window.__navigate(u); else window.location.href = u;
+}
 // How long the arrival focus glow shows once its node exists (mount option focusClient), and
 // how long to wait for the node before giving up.
 const FOCUS_MS = 5000;
@@ -3946,7 +3953,7 @@ export class LanFlowMap {
         // so they go to the default tab.
         const tab = node.kind === NODE_KIND.WifiClient ? '&tab=signal' : '';
         const url = `/client-dashboard?ip=${encodeURIComponent(ip)}${tab}`;
-        window.location.href = window.noSiteContext ? window.noSiteContext.stampUrl(url) : url;
+        navigate(url);
     }
 
     _showHover(node) {

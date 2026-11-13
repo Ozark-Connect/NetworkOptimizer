@@ -100,6 +100,12 @@ function nodeClr(k,b) {
 }
 function isInfra(k) { return k<=NK.AP||k===NK.VirtualHub; }
 function isClient(k) { return k===NK.WiredClient||k===NK.WifiClient; }
+// Opens an app page from the map, stamped with the tab's site, through Blazor's router so the page
+// it opens has Back (setting location.href is a full load that starts history over).
+function navigate(url) {
+    const u=window.noSiteContext?window.noSiteContext.stampUrl(url):url;
+    if(window.__navigate)window.__navigate(u); else window.location.href=u;
+}
 
 // Duration of the fade-in applied to a client that gets re-attached to a different
 // AP during historic playback (roam), so it doesn't pop at its new position.
@@ -1115,7 +1121,7 @@ class LanFlowMap2D {
             if(cloud){
                 const wan=cloud.d.wanInterface;
                 const url='/monitoring?tab=isp-health'+(wan?'&wan='+encodeURIComponent(wan):'');
-                window.location.href=window.noSiteContext?window.noSiteContext.stampUrl(url):url;
+                navigate(url);
                 return;
             }
         }
@@ -1138,7 +1144,7 @@ class LanFlowMap2D {
         // Wi-Fi clients land on the Signal tab; wired clients go to the default tab.
         const tab=d.kind===NK.WifiClient?'&tab=signal':'';
         const url=`/client-dashboard?ip=${encodeURIComponent(d.ip)}${tab}`;
-        window.location.href=window.noSiteContext?window.noSiteContext.stampUrl(url):url;
+        navigate(url);
     }
 
     _hitTest(sx,sy){

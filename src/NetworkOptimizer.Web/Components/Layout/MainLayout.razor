@@ -326,6 +326,12 @@
             else history.pushState({ userState: null, _index: i + 1 }, '', url);
             location.reload();
         };
+        // An in-app navigation from plain JS (a map double-click): Blazor adds and numbers the entry,
+        // so Back shows on the page it opens. Setting location.href instead is a full load at entry 0.
+        window.__navigate = function(url) {
+            if (window.Blazor && typeof Blazor.navigateTo === 'function') Blazor.navigateTo(url);
+            else window.__fullLoad(url, false);
+        };
         // Custom pull-to-refresh (replaces native, blocked by overscroll-behavior)
         (function() {
             if (window.innerWidth > 1024) return;
