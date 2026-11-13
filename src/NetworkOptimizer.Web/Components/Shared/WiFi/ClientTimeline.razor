@@ -112,7 +112,7 @@
                 <table class="data-table">
                     <thead>
                         <tr>
-                            <th class="sortable @GetSortClass("Status")" @onclick='() => SetSort("Status")'>Status</th>
+                            <th class="sortable col-status @GetSortClass("Status")" @onclick='() => SetSort("Status")'>Status</th>
                             <th class="sortable @GetSortClass("Name")" @onclick='() => SetSort("Name")'>Name</th>
                             <th class="sortable @GetSortClass("Ip")" @onclick='() => SetSort("Ip")'>IP</th>
                             <th class="sortable @GetSortClass("Mac")" @onclick='() => SetSort("Mac")'>MAC</th>
@@ -126,7 +126,7 @@
                         {
                             <tr @onclick="() => PickClientAsync(client.Mac)" class="@(client.IsOnline ? "" : "client-offline")">
                                 <td><span class="status-dot @(client.IsOnline ? "online" : "offline")" data-tooltip="@(client.IsOnline ? "Online" : GetOfflineTooltip(client))"></span></td>
-                                <td><ClientIcon Url="@_clientIcons.UrlFor(client.Mac)" Size="20" Class="client-icon-inline" />@client.Name @if (client.FixedApEnabled) { <span class="lock-icon" data-tooltip="Locked to @(client.FixedApName ?? client.FixedApMac ?? "AP")" data-tooltip-hover-only>&#128274;</span> }</td>
+                                <td><ClientIcon Url="@_clientIcons.UrlFor(client.Mac)" Size="20" Class="client-icon-inline" />@client.Name @if (client.FixedApEnabled) { <span class="lock-icon" data-tooltip="Locked to @(client.FixedApName ?? client.FixedApMac ?? "AP")" data-tooltip-hover-only><ApLockIcon /></span> }</td>
                                 <td>@if (!string.IsNullOrEmpty(client.Ip)) { <code>@client.Ip</code> } else { <text>-</text> }</td>
                                 <td><code>@client.Mac</code></td>
                                 <td>@(client.ApName ?? "-")</td>
@@ -257,7 +257,7 @@
                     {
                         <div class="info-item">
                             <span class="info-label">AP Lock:</span>
-                            <span class="info-value" style="color: var(--info-color);">&#128274; Locked to @(_selectedClient.FixedApName ?? _selectedClient.FixedApMac ?? "AP")</span>
+                            <span class="info-value" style="color: var(--info-color);"><ApLockIcon /> Locked to @(_selectedClient.FixedApName ?? _selectedClient.FixedApMac ?? "AP")</span>
                         </div>
                     }
                 </div>
