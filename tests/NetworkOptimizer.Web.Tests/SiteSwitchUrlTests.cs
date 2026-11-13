@@ -24,6 +24,7 @@ public class SiteSwitchUrlTests
     // Wi-Fi Optimizer: APs, clients, and roaming edges go; band and channel filters stay.
     [InlineData("/wifi-optimizer?tab=roaming&edge=ap1-ap2", "/wifi-optimizer?tab=roaming")]
     [InlineData("/wifi-optimizer?tab=channels&ap=aa:bb:cc:dd:ee:ff&band=5&channel=36", "/wifi-optimizer?tab=channels&band=5&channel=36")]
+    [InlineData("/wifi-optimizer?tab=client&ap=aa:bb:cc:dd:ee:ff&band=5&client=aa:bb:cc:dd:ee:01", "/wifi-optimizer?tab=client&band=5")]
     [InlineData("/client-dashboard?ip=192.0.2.10&range=24h", "/client-dashboard?range=24h")]
     [InlineData("/client-dashboard?ip=192.0.2.10&wan=wan2#speed", "/client-dashboard#speed")]
     [InlineData("/alerts?tab=active&alert=12", "/alerts?tab=active")]
