@@ -65,10 +65,10 @@ cd NetworkOptimizer
 
 # Build for your architecture
 # Apple Silicon (M1/M2/M3):
-dotnet publish src/NetworkOptimizer.Web -c Release -r osx-arm64 --self-contained -o ~/network-optimizer
+dotnet publish src/NetworkOptimizer.Web -c Release -r osx-arm64 --self-contained -p:PublishReadyToRun=true -o ~/network-optimizer
 
 # Intel Macs:
-# dotnet publish src/NetworkOptimizer.Web -c Release -r osx-x64 --self-contained -o ~/network-optimizer
+# dotnet publish src/NetworkOptimizer.Web -c Release -r osx-x64 --self-contained -p:PublishReadyToRun=true -o ~/network-optimizer
 
 cd ~/network-optimizer
 ```
@@ -229,7 +229,7 @@ brew upgrade dotnet
 # Pull latest from main and rebuild
 cd ~/NetworkOptimizer
 git fetch origin && git checkout main && git pull
-dotnet publish src/NetworkOptimizer.Web -c Release -r osx-arm64 --self-contained -o ~/network-optimizer
+dotnet publish src/NetworkOptimizer.Web -c Release -r osx-arm64 --self-contained -p:PublishReadyToRun=true -o ~/network-optimizer
 
 # Re-sign binaries
 cd ~/network-optimizer
@@ -297,14 +297,14 @@ sudo mkdir -p /opt/network-optimizer
 sudo chown $USER:$USER /opt/network-optimizer
 
 # Build for your architecture (x64)
-dotnet publish src/NetworkOptimizer.Web -c Release -r linux-x64 --self-contained -o /opt/network-optimizer
+dotnet publish src/NetworkOptimizer.Web -c Release -r linux-x64 --self-contained -p:PublishReadyToRun=true -o /opt/network-optimizer
 
 # For ARM64 (Raspberry Pi, etc.), the protoc bundled with Grpc.Tools segfaults (exit code 139)
 # on native arm64 Linux, so build with the distro's protoc instead. It must be 3.15 or newer
 # (check with protoc --version): Debian 12, Raspberry Pi OS Bookworm, and Ubuntu 24.04 qualify;
 # older releases need a protoc from https://github.com/protocolbuffers/protobuf/releases.
 # sudo apt install -y protobuf-compiler
-# PROTOBUF_PROTOC=/usr/bin/protoc dotnet publish src/NetworkOptimizer.Web -c Release -r linux-arm64 --self-contained -o /opt/network-optimizer
+# PROTOBUF_PROTOC=/usr/bin/protoc dotnet publish src/NetworkOptimizer.Web -c Release -r linux-arm64 --self-contained -p:PublishReadyToRun=true -o /opt/network-optimizer
 
 # Make executable
 chmod +x /opt/network-optimizer/NetworkOptimizer.Web
@@ -467,7 +467,7 @@ cp ~/.local/share/NetworkOptimizer/network_optimizer.db ~/network_optimizer.db.b
 # PROTOBUF_PROTOC=/usr/bin/protoc, as in Build from Source above)
 cd ~/NetworkOptimizer
 git fetch origin && git checkout main && git pull
-dotnet publish src/NetworkOptimizer.Web -c Release -r linux-x64 --self-contained -o /opt/network-optimizer
+dotnet publish src/NetworkOptimizer.Web -c Release -r linux-x64 --self-contained -p:PublishReadyToRun=true -o /opt/network-optimizer
 chmod +x /opt/network-optimizer/NetworkOptimizer.Web
 
 # Rebuild the Go helpers, every update: a release can change one or add a new target

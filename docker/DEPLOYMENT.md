@@ -836,7 +836,7 @@ cp ~/.local/share/NetworkOptimizer/network_optimizer.db ~/network_optimizer.db.b
 # Pull latest from main and rebuild
 cd ~/NetworkOptimizer   # wherever you cloned it
 git fetch origin && git checkout main && git pull
-dotnet publish src/NetworkOptimizer.Web -c Release -r linux-x64 --self-contained -o /opt/network-optimizer
+dotnet publish src/NetworkOptimizer.Web -c Release -r linux-x64 --self-contained -p:PublishReadyToRun=true -o /opt/network-optimizer
 chmod +x /opt/network-optimizer/NetworkOptimizer.Web
 
 # Rebuild the Go helpers, every update: a release can change one or add a new target
