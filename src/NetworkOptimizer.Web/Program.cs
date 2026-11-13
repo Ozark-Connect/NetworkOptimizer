@@ -657,6 +657,17 @@ builder.Services.AddSiteScopedRegistry<NetworkOptimizer.Web.Services.Tailscale.T
 builder.Services.AddSingleton<NetworkOptimizer.Web.Services.Tailscale.TailnetFlowObserver>();
 builder.Services.AddMutatingService<NetworkOptimizer.Web.Services.Tailscale.ITailscaleDirectory>(
     sp => ActivatorUtilities.CreateInstance<NetworkOptimizer.Web.Services.Tailscale.TailscaleDirectoryService>(sp));
+// Client icons: the icon UniFi Network shows per client, fetched once and kept on disk.
+builder.Services.AddSiteScopedRegistry<NetworkOptimizer.Web.Services.ClientIcons.ClientIconRegistry>();
+builder.Services.AddMutatingService<NetworkOptimizer.Web.Services.ClientIcons.IClientIcons>(
+    sp => ActivatorUtilities.CreateInstance<NetworkOptimizer.Web.Services.ClientIcons.ClientIconService>(sp));
+// The custom icon host answers 403 to a request with no User-Agent, which HttpClient sends by default.
+builder.Services.AddHttpClient(NetworkOptimizer.Web.Services.ClientIcons.ClientIconRegistry.HttpClientName, client =>
+    {
+        client.Timeout = TimeSpan.FromSeconds(10);
+        client.DefaultRequestHeaders.UserAgent.ParseAdd("NetworkOptimizer");
+    })
+    .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
 builder.Services.AddMutatingService<NetworkOptimizer.Web.Services.IThreatBlockingAdmin>(
     sp => ActivatorUtilities.CreateInstance<NetworkOptimizer.Web.Services.ThreatBlockingAdminService>(sp));
 builder.Services.AddMutatingService<NetworkOptimizer.Web.Services.IThreatBlockingSiteAdmin>(
