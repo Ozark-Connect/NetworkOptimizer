@@ -622,7 +622,7 @@ public class IspHealthPdfGenerator
             SectionHeading(column, "Path & Congestion Events");
 
             var fold = Fold(report);
-            var timeline = IspHealthPresentation.EventTimeline(report, fold.TraceByShift)
+            var timeline = IspHealthPresentation.EventTimeline(report, fold.TraceByShift, fold.ClearedByShift)
                 .Concat(PathLocalization.PathEpisodePresentation.Entries(fold.Unexplained(_episodes.Select(e => e.Episode), e => e.Id)))
                 .OrderBy(e => e.Time)
                 .ToList();

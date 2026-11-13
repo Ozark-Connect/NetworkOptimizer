@@ -73,7 +73,10 @@ public static class PathEpisodePresentation
     /// </summary>
     /// <param name="TraceByShift">The episode whose hop table each shift row shows.</param>
     /// <param name="Explained">Every episode a shift explains.</param>
-    public sealed record ShiftFold(IReadOnlyDictionary<PathShiftEvent, int> TraceByShift, IReadOnlySet<int> Explained)
+    /// <param name="ClearedByShift">When each shift's elevation cleared: the last close of the episodes it
+    /// explains, present only once every one of them has closed.</param>
+    public sealed record ShiftFold(IReadOnlyDictionary<PathShiftEvent, int> TraceByShift, IReadOnlySet<int> Explained,
+        IReadOnlyDictionary<PathShiftEvent, DateTime>? ClearedByShift = null)
     {
         public static readonly ShiftFold None = new(new Dictionary<PathShiftEvent, int>(), new HashSet<int>());
 
@@ -89,11 +92,14 @@ public static class PathEpisodePresentation
         var matched = PathShiftMatch.Match(episodes, report.PathShifts, options);
         if (matched.Count == 0) return ShiftFold.None;
         var openedAt = episodes.ToDictionary(e => e.Id, e => e.OpenedAt);
-        var traceByShift = matched
-            .GroupBy(m => m.Value, ReferenceEqualityComparer.Instance)
-            .ToDictionary(g => (PathShiftEvent)g.Key!, g => g.OrderBy(m => openedAt[m.Key]).First().Key,
-                (IEqualityComparer<PathShiftEvent>)ReferenceEqualityComparer.Instance);
-        return new ShiftFold(traceByShift, matched.Keys.ToHashSet());
+        var closedAt = episodes.ToDictionary(e => e.Id, e => e.ClosedAt);
+        var groups = matched.GroupBy(m => m.Value, ReferenceEqualityComparer.Instance).ToList();
+        var comparer = (IEqualityComparer<PathShiftEvent>)ReferenceEqualityComparer.Instance;
+        var traceByShift = groups.ToDictionary(g => (PathShiftEvent)g.Key!, g => g.OrderBy(m => openedAt[m.Key]).First().Key, comparer);
+        var clearedByShift = groups
+            .Where(g => g.All(m => closedAt[m.Key] != null))
+            .ToDictionary(g => (PathShiftEvent)g.Key!, g => g.Max(m => closedAt[m.Key]!.Value), comparer);
+        return new ShiftFold(traceByShift, matched.Keys.ToHashSet(), clearedByShift);
     }
 
     /// <summary>

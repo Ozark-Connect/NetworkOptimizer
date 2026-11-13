@@ -176,6 +176,39 @@ public class PathShiftMatchTests
         row.EpisodeId.Should().Be(3);
     }
 
+    [Fact]
+    public void Fold_ClearedStepUp_SaysHowLongItLasted()
+    {
+        var shift = Shift(Step, 1.6, 17.7);
+        var report = Report(shift);
+        // The later episode closes last: Step + 7 h + 6 h.
+        var episodes = new[] { Episode(3, Step.AddMinutes(-5), 1.63, 17.72, 1.33), Episode(4, Step.AddHours(7), 1.65, 17.44, 0.69) };
+
+        var fold = PathEpisodePresentation.FoldIntoShifts(episodes, report, Options);
+
+        IspHealthPresentation.EventTimeline(report, fold.TraceByShift, fold.ClearedByShift)
+            .Single(e => e.Category == EventCategory.Shift).Text
+            .Should().StartWith("RTT stepped up 16.1 ms on").And.Contain(" for 13 h (1.6 to 17.7 ms)");
+    }
+
+    [Fact]
+    public void Fold_StepUpStillElevated_HasNoSpan()
+    {
+        var shift = Shift(Step, 1.6, 17.7);
+        var report = Report(shift);
+        var open = Episode(4, Step.AddHours(7), 1.65, 17.44, 0.69);
+        var episodes = new[] { Episode(3, Step.AddMinutes(-5), 1.63, 17.72, 1.33), new PathEpisodeView
+        {
+            Id = open.Id, OpenedAt = open.OpenedAt, ClosedAt = null, Disposition = open.Disposition, Label = open.Label, Degraded = open.Degraded
+        } };
+
+        var fold = PathEpisodePresentation.FoldIntoShifts(episodes, report, Options);
+
+        fold.ClearedByShift.Should().NotContainKey(shift);
+        IspHealthPresentation.EventTimeline(report, fold.TraceByShift, fold.ClearedByShift)
+            .Single(e => e.Category == EventCategory.Shift).Text.Should().NotContain(" for ");
+    }
+
     // ---- A target that joins after the open: two targets stepping 45 min apart, levels from a real episode ----
 
     private static readonly DateTime Opened = new(2026, 11, 5, 16, 50, 0, DateTimeKind.Utc);

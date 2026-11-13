@@ -20424,6 +20424,11 @@ a.isp-health-hero-speed:hover {
     cursor: pointer;
 }
 
+/* Two toggles on one line (Show N paths, Show hop table): the space between them alone runs them together. */
+.isp-event-members-toggle + .isp-event-members-toggle {
+    margin-left: 0.75rem;
+}
+
 .isp-event-members-toggle:hover {
     text-decoration: underline;
 }
