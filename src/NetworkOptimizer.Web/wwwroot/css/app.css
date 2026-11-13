@@ -952,7 +952,7 @@ h1:focus {
     vertical-align: middle;
     /* The mark's solid dots sit low in its box (its top row is faded), so a centered box reads low. */
     position: relative;
-    top: -2px;
+    top: -1.5px;
 }
 
 .speed-test-row .speed-test-device {
