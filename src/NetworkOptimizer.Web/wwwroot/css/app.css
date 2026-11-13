@@ -28902,6 +28902,13 @@ body:has(.top-bar-hidden) .btn-fit {
     font-size: 0.8125rem;
 }
 
+/* Live View's WAN chart card has no bottom margin; the map card's own top margin spaced it before the row took its place. */
+@media (min-width: 769px) {
+    .wan-live-chart-card + .card-index-row {
+        margin-top: 0.75rem;
+    }
+}
+
 .card-index-row .card-index-link {
     color: var(--text-secondary);
     text-decoration: none;
