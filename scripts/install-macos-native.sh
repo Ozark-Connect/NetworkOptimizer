@@ -294,6 +294,7 @@ dotnet publish src/NetworkOptimizer.Web/NetworkOptimizer.Web.csproj \
     -c Release \
     -r "$RUNTIME" \
     --self-contained \
+    -p:PublishReadyToRun=true \
     -p:DebugType=None \
     -o "$INSTALL_DIR"
 

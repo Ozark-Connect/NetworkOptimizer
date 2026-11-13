@@ -60,6 +60,7 @@ dotnet publish $WebProject `
     -c $Configuration `
     -r win-x64 `
     --self-contained `
+    -p:PublishReadyToRun=true `
     -p:PublishSingleFile=true `
     -p:IncludeNativeLibrariesForSelfExtract=true `
     -p:EnableCompressionInSingleFile=true `
