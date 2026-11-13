@@ -615,6 +615,12 @@
                         <strong>Note:</strong> Removal will briefly stop UniFi Network while copying the PostgreSQL data back from SSD to eMMC, then restart it. The SSD copy and the backups are kept.
                     </div>
                 }
+                else if (_pendingRemoveTweakId == "lan-ntp-server")
+                {
+                    <div class="alert alert-warning" style="margin-top: 0.75rem;">
+                        <strong>Note:</strong> Clients that get the gateway as NTP server through DHCP keep asking it. Change the networks' NTP Server DHCP option back first.
+                    </div>
+                }
             </div>
             <div class="pt-modal-footer">
                 <button class="btn btn-secondary btn-sm" @onclick="CancelRemove">Cancel</button>
@@ -1163,7 +1169,11 @@ ls -la /var/config/run-syslog.sh</code></pre>
         new("sfp-sgmiiplus", "SFP+ 2.5 G SGMII+ Patch (Port 7)",
             "Loads a kernel module that forces the 2nd SFP+ port (Port 7 / eth6) from SGMII 1 G to SGMII+ (HSGMII) 2.5 G for GPON ONT SFP modules. Sets uniphy1 clock to 312.5 MHz, updates SerDes registers, and excludes the port from MAC sync polling to prevent speed reversion.",
             MutuallyExclusiveWith: "sfp-sgmiiplus-port6",
-            CompatibleModels: new[] { "ucg-fiber", "ucgf", "ucgfiber", "uxg-fiber", "uxgfiber" })
+            CompatibleModels: new[] { "ucg-fiber", "ucgf", "ucgfiber", "uxg-fiber", "uxgfiber" }),
+        new("lan-ntp-server", "LAN NTP Server",
+            "UniFi OS syncs the gateway's own clock but does not answer NTP requests, so LAN devices need an outside time server. This runs chrony on the gateway as a serving-only NTP server: it polls the NTP servers set for the gateway in UniFi Network, answers clients on your LAN networks with the corrected time and rate limits each client. It never sets the gateway's clock, so UniFi's own time sync keeps working. Accuracy is in the low milliseconds; devices that need better should use a local GPS or PTP source directly.",
+            ExtraNote: "Deploying downloads Debian's chrony package to the gateway (checked against a pinned SHA-256; chrony is GPLv2). Point clients at it by setting the gateway's address as NTP Server in the network's DHCP settings (option 42). Guest and DMZ networks need a firewall policy allowing UDP 123 to the gateway.",
+            CompatibleModels: new[] { "ucg-fiber", "ucgf", "ucgfiber" })
     };
 
     protected override async Task OnInitializedAsync()
