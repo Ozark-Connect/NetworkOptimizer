@@ -134,6 +134,9 @@ public class LanNode
     public long? PhyTxKbps { get; set; }
     public long? PhyRxKbps { get; set; }
 
+    /// <summary>A client's UniFi Network icon, set when the snapshot is served; null draws the plain dot.</summary>
+    public string? IconUrl { get; set; }
+
     /// <summary>Mesh AP whose backhaul is an MLO pairing; the Phy rates above are the
     /// aggregate across links. Drives the "(MLO)" tag on the map tooltips.</summary>
     public bool IsMloMesh { get; set; }
