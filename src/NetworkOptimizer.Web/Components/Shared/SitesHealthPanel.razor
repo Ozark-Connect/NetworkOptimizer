@@ -22,9 +22,11 @@
     double? avg = withData.Count > 0 ? withData.Average(s => s.Health.Average!.Value) : null;
     var prevSites = withData.Where(s => s.Health.PreviousAverage != null).ToList();
     double? prev = prevSites.Count > 0 ? prevSites.Average(s => s.Health.PreviousAverage!.Value) : null;
-    var down = sites.Count(s => !s.Online || SiteHealthSeriesBuilder.Level(Now(s)) == "down");
+    // Down means unreachable. Level()'s "down" is a color for a low score on a reachable site.
+    var down = sites.Count(s => !s.Online);
+    var unhealthy = sites.Count(s => s.Online && SiteHealthSeriesBuilder.Level(Now(s)) == "down");
     var degraded = sites.Count(s => s.Online && SiteHealthSeriesBuilder.Level(Now(s)) == "degraded");
-    var healthy = sites.Count - down - degraded;
+    var healthy = sites.Count - down - unhealthy - degraded;
     var cap = _more ? ExpandedCap : CondensedCap;
     var shown = sites.Take(cap).ToList();
 
@@ -60,7 +62,7 @@
                             <span class="shp-delta @(a2 < p ? "down" : "up")" data-tooltip="@($"{(a2 < p ? "Down" : "Up")} {F(Math.Abs(a2 - p))} from the 24 hours before")">@(a2 < p ? "▼" : "▲") @F(Math.Abs(a2 - p))</span>
                         }
                     </div>
-                    <div class="shp-avg-sub">@healthy healthy, @degraded degraded, @down down</div>
+                    <div class="shp-avg-sub">@healthy healthy, @degraded degraded, @unhealthy unhealthy@(down > 0 ? $", {down} down" : "")</div>
                 </div>
                 <div class="shp-chips">
                     @foreach (var chip in Chips(sites))
@@ -113,6 +115,7 @@
         {
             <div class="shp-count-chips">
                 @if (down > 0) { <span class="shp-chip danger">@down down</span> }
+                @if (unhealthy > 0) { <span class="shp-chip danger">@unhealthy unhealthy</span> }
                 @if (degraded > 0) { <span class="shp-chip warning">@degraded degraded</span> }
                 @if (sites.Sum(s => s.PendingApprovals) is var approvals && approvals > 0) { <span class="shp-chip info">@CcFormat.Plural(approvals, "approval", "approvals")</span> }
             </div>
