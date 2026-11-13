@@ -2,6 +2,7 @@ using System.Text.Json;
 using NetworkOptimizer.Web.Services;
 using NetworkOptimizer.Web.Services.LanFlowMap;
 using NetworkOptimizer.Web.Services.Authorization;
+using NetworkOptimizer.Web.Services.ClientIcons;
 
 namespace NetworkOptimizer.Web.Endpoints;
 
@@ -17,11 +18,13 @@ public static class LanFlowMapEndpoints
         var read = app.MapGroup("").RequireAuthorization(Policies.RequireViewer);
 
         read.MapGet("/api/monitoring/lan-flow-map/snapshot",
-            async (LanFlowMapService svc, ILogger<LanFlowMapService> logger, CancellationToken ct) =>
+            async (LanFlowMapService svc, IClientIcons icons, ILogger<LanFlowMapService> logger, CancellationToken ct) =>
             {
                 try
                 {
+                    var iconTask = icons.GetMapAsync(ct);
                     var snap = await svc.BuildSnapshotAsync(ct);
+                    ApplyClientIcons(snap.Nodes, await iconTask);
                     return Results.Ok(snap);
                 }
                 catch (Exception ex) when (IsConsoleUnavailable(ex))
@@ -31,11 +34,13 @@ public static class LanFlowMapEndpoints
             });
 
         read.MapGet("/api/monitoring/lan-flow-map/live",
-            async (LanFlowMapService svc, ILogger<LanFlowMapService> logger, CancellationToken ct) =>
+            async (LanFlowMapService svc, IClientIcons icons, ILogger<LanFlowMapService> logger, CancellationToken ct) =>
             {
                 try
                 {
                     var update = await svc.GetLiveUpdateAsync(ct);
+                    if (update.AddedClientNodes.Count > 0)
+                        ApplyClientIcons(update.AddedClientNodes, await icons.GetMapAsync(ct));
                     return Results.Ok(update);
                 }
                 catch (Exception ex) when (IsConsoleUnavailable(ex))
@@ -45,11 +50,13 @@ public static class LanFlowMapEndpoints
             });
 
         read.MapGet("/api/monitoring/lan-flow-map/history",
-            async (LanFlowMapService svc, ILogger<LanFlowMapService> logger, DateTime at, CancellationToken ct) =>
+            async (LanFlowMapService svc, IClientIcons icons, ILogger<LanFlowMapService> logger, DateTime at, CancellationToken ct) =>
             {
                 try
                 {
                     var update = await svc.GetHistoricUpdateAsync(at, ct);
+                    if (update.AddedClientNodes.Count > 0)
+                        ApplyClientIcons(update.AddedClientNodes, await icons.GetMapAsync(ct));
                     return Results.Ok(update);
                 }
                 catch (Exception ex) when (IsConsoleUnavailable(ex))
@@ -88,6 +95,36 @@ public static class LanFlowMapEndpoints
                 return Results.Ok();
             });
     }
+
+    /// <summary>
+    /// Gives each client node its UniFi Network icon, so the map draws it in place of the dot, and
+    /// each hub the most specific icon among its members (custom, then a vendor's, then generic).
+    /// </summary>
+    private static void ApplyClientIcons(IReadOnlyCollection<LanNode> nodes, ClientIconMap icons)
+    {
+        if (icons.Count == 0)
+            return;
+        foreach (var node in nodes)
+            if (node.Kind is LanNodeKind.WiredClient or LanNodeKind.WifiClient)
+                node.IconUrl = icons.UrlFor(node.Mac);
+
+        foreach (var hub in nodes.Where(n => n.Kind == LanNodeKind.VirtualHub))
+            hub.IconUrl = BestIcon(nodes.Where(n => n.ParentId == hub.Id), icons);
+    }
+
+    /// <summary>
+    /// The most specific icon among clients: highest rank, then the one most of them share, then by
+    /// URL so the pick holds still between snapshots.
+    /// </summary>
+    internal static string? BestIcon(IEnumerable<LanNode> members, ClientIconMap icons) =>
+        members
+            .Where(m => m.IconUrl != null)
+            .GroupBy(m => m.IconUrl!)
+            .OrderByDescending(g => g.Max(m => icons.RankFor(m.Mac)))
+            .ThenByDescending(g => g.Count())
+            .ThenBy(g => g.Key, StringComparer.Ordinal)
+            .Select(g => g.Key)
+            .FirstOrDefault();
 
     /// <summary>
     /// True for failures that mean the UniFi Console couldn't serve the request right now:
