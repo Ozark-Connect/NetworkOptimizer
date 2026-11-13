@@ -26,8 +26,13 @@ COPY ["src/NetworkOptimizer.WiFi/NetworkOptimizer.WiFi.csproj", "src/NetworkOpti
 COPY ["src/NetworkOptimizer.Alerts/NetworkOptimizer.Alerts.csproj", "src/NetworkOptimizer.Alerts/"]
 COPY ["src/NetworkOptimizer.Threats/NetworkOptimizer.Threats.csproj", "src/NetworkOptimizer.Threats/"]
 
+# ReadyToRun precompiles our assemblies for the target, so the first use of each page after a
+# start does not JIT on the server's CPU. It needs a RID, at restore and at publish.
+ARG TARGETARCH
+RUN if [ "$TARGETARCH" = "arm64" ]; then echo linux-arm64; else echo linux-x64; fi > /tmp/rid
+
 # Restore dependencies
-RUN dotnet restore "src/NetworkOptimizer.Web/NetworkOptimizer.Web.csproj"
+RUN dotnet restore "src/NetworkOptimizer.Web/NetworkOptimizer.Web.csproj" -r "$(cat /tmp/rid)" -p:PublishReadyToRun=true
 
 # Copy all source files
 COPY src/ src/
@@ -36,7 +41,6 @@ COPY src/ src/
 # arm64 runners (grpc/grpc#26032, #38538). Use the distro's protoc there; amd64 keeps
 # the bundled one so its build is unchanged. Only branches carrying AgentProtocol (.proto)
 # run protoc at all.
-ARG TARGETARCH
 RUN if [ "$TARGETARCH" = "arm64" ]; then \
         apt-get update && apt-get install -y --no-install-recommends protobuf-compiler && rm -rf /var/lib/apt/lists/*; \
     fi
@@ -47,6 +51,9 @@ RUN if [ "$TARGETARCH" = "arm64" ]; then export PROTOBUF_PROTOC=/usr/bin/protoc;
     dotnet publish "src/NetworkOptimizer.Web/NetworkOptimizer.Web.csproj" \
     -c Release \
     -o /app/publish \
+    -r "$(cat /tmp/rid)" \
+    --self-contained false \
+    -p:PublishReadyToRun=true \
     --no-restore \
     -p:MinVerVersionOverride=${VERSION}
 
