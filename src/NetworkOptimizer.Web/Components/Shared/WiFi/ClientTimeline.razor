@@ -26,14 +26,14 @@
 
         @if (!string.IsNullOrEmpty(_selectedClientMac))
         {
-            <button class="view-all-btn" @onclick="ViewAllClients">@(HasActiveFilters ? "Back" : "View All Clients")</button>
+            <button class="view-all-btn" @onclick="ShowListAsync">@(HasActiveFilters ? "Back" : "View All Clients")</button>
         }
 
         <!-- Client Selector -->
         <ClientSelector @ref="_selector"
                         Items="SelectorItems()"
                         SelectedKey="@_selectedClientMac"
-                        SelectedKeyChanged="SelectClient" />
+                        SelectedKeyChanged="PickClientAsync" />
 
         <!-- AP & Band Filters (only show on list view) -->
         @if (string.IsNullOrEmpty(_selectedClientMac))
@@ -123,7 +123,7 @@
                     <tbody>
                         @foreach (var client in GetPagedClients())
                         {
-                            <tr @onclick="() => SelectClient(client.Mac)" class="@(client.IsOnline ? "" : "client-offline")">
+                            <tr @onclick="() => PickClientAsync(client.Mac)" class="@(client.IsOnline ? "" : "client-offline")">
                                 <td><span class="status-dot @(client.IsOnline ? "online" : "offline")" data-tooltip="@(client.IsOnline ? "Online" : GetOfflineTooltip(client))"></span></td>
                                 <td>@client.Name @if (client.FixedApEnabled) { <span class="lock-icon" data-tooltip="Locked to @(client.FixedApName ?? client.FixedApMac ?? "AP")" data-tooltip-hover-only>&#128274;</span> }</td>
                                 <td>@if (!string.IsNullOrEmpty(client.Ip)) { <code>@client.Ip</code> } else { <text>-</text> }</td>
@@ -378,9 +378,20 @@
 </div>
 
 @code {
+    /// <summary>The client whose details show (from the page URL); null or empty shows the list.</summary>
     [Parameter] public string? InitialClientMac { get; set; }
     [Parameter] public string? InitialApMac { get; set; }
     [Parameter] public RadioBand? InitialBand { get; set; }
+
+    /// <summary>
+    /// A user picked a client (its MAC) or went back to the list (null). The page puts it in the URL, so
+    /// the browser's Back and Forward step between list and details; the details then follow
+    /// <see cref="InitialClientMac"/>. Without a handler the pick applies here directly.
+    /// </summary>
+    [Parameter] public EventCallback<string?> OnClientNavigate { get; set; }
+
+    /// <summary>The <see cref="InitialClientMac"/> last applied, so only a change to it moves the view.</summary>
+    private string? _appliedClientMac;
 
     private bool _loading = false;
     private string _selectedClientMac = "";
@@ -478,10 +489,47 @@
         await LoadClientsAsync();
 
         // Auto-select client from deep link parameter
+        _appliedClientMac = InitialClientMac;
         if (!string.IsNullOrEmpty(InitialClientMac) && _clients.Any(c => c.Mac.Equals(InitialClientMac, StringComparison.OrdinalIgnoreCase)))
         {
             SelectClient(InitialClientMac);
         }
+    }
+
+    protected override void OnParametersSet()
+    {
+        // The URL moved after the first load (a pick, Back, Forward, or a link): follow it. The first
+        // load is OnInitializedAsync's, which runs after the client list loads.
+        if (_loading || _clients.Count == 0 || string.Equals(InitialClientMac, _appliedClientMac, StringComparison.OrdinalIgnoreCase))
+            return;
+        _appliedClientMac = InitialClientMac;
+        if (string.IsNullOrEmpty(InitialClientMac))
+            ViewAllClients();
+        else if (_clients.Any(c => c.Mac.Equals(InitialClientMac, StringComparison.OrdinalIgnoreCase)))
+            SelectClient(InitialClientMac);
+    }
+
+    /// <summary>A user picked a client in the table or the selector; an empty pick means the list.</summary>
+    private async Task PickClientAsync(string mac)
+    {
+        if (string.IsNullOrEmpty(mac))
+        {
+            await ShowListAsync();
+            return;
+        }
+        if (OnClientNavigate.HasDelegate)
+            await OnClientNavigate.InvokeAsync(mac);
+        else
+            SelectClient(mac);
+    }
+
+    /// <summary>Back to the client list, through the URL when the page owns it.</summary>
+    private async Task ShowListAsync()
+    {
+        if (OnClientNavigate.HasDelegate)
+            await OnClientNavigate.InvokeAsync(null);
+        else
+            ViewAllClients();
     }
 
     private void InitializeChartOptions()
