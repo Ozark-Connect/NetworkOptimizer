@@ -8,7 +8,7 @@ Bug reports and feature requests go in [GitHub Issues](https://github.com/Ozark-
 
 Before you file, search existing issues (open and closed) and check the latest [release and preview notes](https://github.com/Ozark-Connect/NetworkOptimizer/releases). A fix often ships in a preview before the next stable release, so your bug may already be fixed there.
 
-For a feature request, also search [TODO.md](TODO.md). It is a rough working list, not a roadmap or a promise, but it shows whether something without a GitHub issue has already been considered, specced, or planned. If your idea is there, say so in the issue: what you need from it helps decide its priority.
+For a feature request, also search [TODO.md](TODO.md). It is a rough working list, not a roadmap or a promise, but it shows whether something without a GitHub issue has already been considered, spec'd, or planned. If your idea is there, say so in the issue: what you need from it helps decide its priority.
 
 Install, upgrade, and setup questions go to the [Network Optimizer Discord](https://discord.gg/pHrmzbBCY3). Issues are for confirmed bugs and feature requests.
 

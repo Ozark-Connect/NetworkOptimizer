@@ -16,7 +16,7 @@ body:
           required: true
         - label: I checked the [latest release and preview notes](https://github.com/Ozark-Connect/NetworkOptimizer/releases) and [FEATURES.md](https://github.com/Ozark-Connect/NetworkOptimizer/blob/main/FEATURES.md) for what already exists.
           required: true
-        - label: I searched [TODO.md](https://github.com/Ozark-Connect/NetworkOptimizer/blob/main/TODO.md), a rough working list that shows what has already been considered, specced, or planned without an issue.
+        - label: I searched [TODO.md](https://github.com/Ozark-Connect/NetworkOptimizer/blob/main/TODO.md), a rough working list that shows what has already been considered, spec'd, or planned without an issue.
           required: false
 
   - type: textarea
