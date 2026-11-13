@@ -18,10 +18,13 @@ public sealed record ClientIconImage(string Path, string ContentType);
 /// </summary>
 public sealed class ClientIconRegistry : ISiteScopedRegistry
 {
-    /// <summary>Online clients (<c>stat/sta</c>, which carries the fingerprinted id).</summary>
-    private static readonly TimeSpan OnlineEvery = TimeSpan.FromMinutes(5);
+    /// <summary>
+    /// Online clients (<c>stat/sta</c>, which carries the fingerprinted id). Short, so an icon just
+    /// changed in UniFi Network shows on the next page view; a page re-renders when the read lands.
+    /// </summary>
+    private static readonly TimeSpan OnlineEvery = TimeSpan.FromMinutes(1);
     /// <summary>Every known client (<c>rest/user</c>), for offline clients' custom and chosen icons.</summary>
-    private static readonly TimeSpan KnownEvery = TimeSpan.FromMinutes(30);
+    private static readonly TimeSpan KnownEvery = TimeSpan.FromMinutes(10);
     /// <summary>A failed image fetch is tried again after this long.</summary>
     private static readonly TimeSpan FailedRetry = TimeSpan.FromHours(6);
     private static readonly TimeSpan FirstReadWait = TimeSpan.FromSeconds(3);
