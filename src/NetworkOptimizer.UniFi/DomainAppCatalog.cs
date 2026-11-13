@@ -33,7 +33,8 @@ public static class DomainAppCatalog
         // Everything else Apple runs: its own domains (the specific apps above win), its CDNs, and APNs.
         ["Apple"] = ["apple.com", "aaplimg.com", "cdn-apple.com", "apple-dns.net", "apple-dns.cn", "itunes.com", "apple.news",
             "apple-mapkit.com", "push-apple.com.akadns.net", "safebrowsing.apple", "apple.com.cn"],
-        ["Valve Steam"] = ["steampowered.com", "steamcontent.com", "steamserver.net", "steamstatic.com", "steamcommunity.com", "steam-chat.com"],
+        ["Valve Steam"] = ["steampowered.com", "steamcontent.com", "steamserver.net", "steamstatic.com", "steamcommunity.com", "steam-chat.com",
+            "steamusercontent.com", "valve.net", "valvesoftware.com"],
         ["Xbox"] = ["xboxlive.com", "xbox.com", "xboxservices.com"],
         ["Sony PlayStation"] = ["playstation.net", "playstation.com", "sonyentertainmentnetwork.com"],
         ["Epic Games"] = ["epicgames.com", "epicgames.dev", "unrealengine.com"],
