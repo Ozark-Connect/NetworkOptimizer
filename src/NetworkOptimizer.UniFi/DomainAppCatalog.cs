@@ -242,12 +242,23 @@ public static class DomainAppCatalog
 
     /// <summary>
     /// An Ookla Speedtest server: hosted by ISPs on their own domains, so no domain list holds them, but
-    /// they run on TCP 8080 under a name whose first label starts with "speed" (speedtest.isp.net, speed1.isp.com).
+    /// they run on TCP 8080 under a name whose first label starts with "speed" (speedtest.isp.net, speed1.isp.com),
+    /// or with a deeper label starting "speedtest" or "ookla" (lr02.speedtest.isp.net). Only the first label takes
+    /// the looser "speed" prefix: deeper in a name it matches unrelated words (cdn.speedy.example.com).
     /// </summary>
     public static string? SpeedtestApp(string? hostName, string proto, int remotePort)
     {
         if (proto != "tcp" || remotePort != 8080 || string.IsNullOrEmpty(hostName)) return null;
-        return hostName.StartsWith("speed", StringComparison.OrdinalIgnoreCase) && hostName.Contains('.') ? "Speedtest.net" : null;
+        var labels = hostName.TrimEnd('.').Split('.');
+        if (labels.Length < 2) return null;
+        if (labels[0].StartsWith("speed", StringComparison.OrdinalIgnoreCase)) return "Speedtest.net";
+        for (var i = 1; i < labels.Length - 1; i++)
+        {
+            if (labels[i].StartsWith("speedtest", StringComparison.OrdinalIgnoreCase)
+                || labels[i].StartsWith("ookla", StringComparison.OrdinalIgnoreCase))
+                return "Speedtest.net";
+        }
+        return null;
     }
 
     /// <summary>

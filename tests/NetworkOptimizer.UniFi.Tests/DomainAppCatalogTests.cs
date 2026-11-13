@@ -173,7 +173,10 @@ public class DomainAppCatalogTests
     [InlineData("speed1.example.com", "tcp", 8080, "Speedtest.net")]
     [InlineData("Speedtest-dfw.example.net", "tcp", 8080, "Speedtest.net")]
     [InlineData("speedtest.example.net", "tcp", 443, null)]     // 8080 only
-    [InlineData("api.speedtest.example.net", "tcp", 8080, null)] // "speed" leads the name
+    [InlineData("lr02.speedtest.example.net", "tcp", 8080, "Speedtest.net")] // a deeper "speedtest" label
+    [InlineData("st1.ookla.example.com", "tcp", 8080, "Speedtest.net")]
+    [InlineData("cdn.speedy.example.com", "tcp", 8080, null)]    // deeper labels need "speedtest", not "speed"
+    [InlineData("host.example.speedtest", "tcp", 8080, null)]    // the TLD is not a server label
     [InlineData("speedtest", "tcp", 8080, null)]                 // a bare label is not a server name
     [InlineData(null, "tcp", 8080, null)]
     public void OoklaServersBySpeedNameOn8080(string? host, string proto, int port, string? expected) =>
