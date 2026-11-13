@@ -10,6 +10,7 @@
 @inject IIperf3SpeedTestService SpeedTestService
 @inject IUwnSpeedTestService WanSpeedTestService
 @inject IGatewayWanSpeedTestService GatewayWanTestService
+@inject ITailscaleDirectory Tailscale
 @inject IAdminAuthService AdminAuthService
 @inject ThreatDashboardService ThreatService
 @inject NavigationManager NavigationManager
@@ -239,6 +240,8 @@
     private List<ThreatTrendPoint> _threatTrend = [];
     private List<Services.DeviceInfo> devices = new();
     private List<Iperf3Result> _recentSpeedTests = new();
+    /// <summary>The site's tailnet, which names a Tailscale device that has no device name of its own.</summary>
+    private TailnetSnapshot _tailnet = TailnetSnapshot.Empty;
     private List<Iperf3Result> _recentWanTests = new();
     private int? _wifiHealthScore;
     private string? _wifiHealthGrade;
@@ -719,9 +722,9 @@
                             @foreach (var test in _recentSpeedTests)
                             {
                                 <div class="speed-test-row">
-                                    @if (!string.IsNullOrEmpty(test.DeviceName))
+                                    @if ((!string.IsNullOrEmpty(test.DeviceName) ? test.DeviceName : _tailnet.NameFor(test.DeviceHost)) is { } deviceName)
                                     {
-                                        <span class="speed-test-device">@test.DeviceName</span>
+                                        <span class="speed-test-device">@deviceName</span>
                                     }
                                     else if (!string.IsNullOrEmpty(test.DeviceHost))
                                     {
@@ -1192,6 +1195,7 @@
         {
             var results = await SpeedTestService.GetRecentResultsAsync(25);
             _recentSpeedTests = results.Where(r => r.Success).Take(5).ToList();
+            _tailnet = await Tailscale.GetPeersAsync();
         }
         catch { }
         finally { _speedTestLoading = false; }
