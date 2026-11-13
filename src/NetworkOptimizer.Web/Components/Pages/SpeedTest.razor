@@ -993,7 +993,7 @@
                                     }
                                     @if (SpeedTestClientSource.IsTailscale(result.DeviceHost, _tailnet.IsPeer))
                                     {
-                                        <VpnIcon Type="HopType.Tailscale" Size="13" Class="client-tailscale-icon" />
+                                        <VpnIcon Type="HopType.Tailscale" Size="16" Class="client-tailscale-icon" />
                                     }
                                     @if ((!string.IsNullOrEmpty(result.DeviceName) ? result.DeviceName : _tailnet.NameFor(result.DeviceHost)) is { } deviceName)
                                     {

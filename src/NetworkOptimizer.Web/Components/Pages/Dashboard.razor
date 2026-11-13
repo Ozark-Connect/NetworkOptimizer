@@ -727,11 +727,11 @@
                                     }
                                     @if ((!string.IsNullOrEmpty(test.DeviceName) ? test.DeviceName : _tailnet.NameFor(test.DeviceHost)) is { } deviceName)
                                     {
-                                        <span class="speed-test-device">@if (isTailscale) {<VpnIcon Type="NetworkOptimizer.UniFi.Models.HopType.Tailscale" Size="13" Class="client-tailscale-icon" />}@deviceName</span>
+                                        <span class="speed-test-device">@if (isTailscale) {<VpnIcon Type="NetworkOptimizer.UniFi.Models.HopType.Tailscale" Size="16" Class="client-tailscale-icon" />}@deviceName</span>
                                     }
                                     else if (!string.IsNullOrEmpty(test.DeviceHost))
                                     {
-                                        <span class="speed-test-device">@if (isTailscale) {<VpnIcon Type="NetworkOptimizer.UniFi.Models.HopType.Tailscale" Size="13" Class="client-tailscale-icon" />}<code>@test.DeviceHost</code></span>
+                                        <span class="speed-test-device">@if (isTailscale) {<VpnIcon Type="NetworkOptimizer.UniFi.Models.HopType.Tailscale" Size="16" Class="client-tailscale-icon" />}<code>@test.DeviceHost</code></span>
                                     }
                                     else
                                     {
