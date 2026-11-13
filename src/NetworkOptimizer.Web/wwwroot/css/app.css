@@ -955,6 +955,29 @@ h1:focus {
     top: -1.5px;
 }
 
+/* A client's UniFi Network icon (ClientIcon) */
+.client-icon {
+    display: inline-block;
+    flex-shrink: 0;
+    object-fit: contain;
+    vertical-align: middle;
+}
+
+/* Before a client name in a table cell or a heading. vertical-align: middle centers on the
+   x-height, which reads low beside capitalized names; 1.5px up matches the Tailscale mark. */
+.client-icon-inline {
+    margin-right: 0.4rem;
+    position: relative;
+    top: -1.5px;
+}
+
+/* The Tailscale mark in a speed test result row: padded to the 22px width of a client icon so names line up. */
+.result-tailscale-icon {
+    box-sizing: content-box;
+    padding: 0 3px;
+    margin-right: 0.4rem;
+}
+
 .speed-test-row .speed-test-device {
     font-weight: 500;
     white-space: nowrap;
@@ -12399,6 +12422,14 @@ h3 > .tooltip-icon-sm {
     display: flex;
     align-items: center;
     gap: 1rem;
+}
+
+/* The client's icon and name, kept together and closer than the banner's field gap. */
+.client-info-identity {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    min-width: 0;
 }
 
 .client-info-main .client-name {

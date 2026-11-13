@@ -12,6 +12,7 @@
 @implements IDisposable
 @inject IDisplayTimeZone DisplayTime
 @inject ITailscaleDirectory Tailscale
+@inject IClientIcons ClientIcons
 
 @if (!PathOnly)
 {
@@ -443,6 +444,9 @@
     private TailnetSnapshot _tailnet = TailnetSnapshot.Empty;
     private bool _tailnetRead;
 
+    /// <summary>The site's client icons and device images, for the hop icons. Empty until loaded.</summary>
+    private ClientIconMap _clientIcons = ClientIconMap.Empty;
+
     /// <summary>The hop's label: a Tailscale hop takes the device's tailnet name; its path is in the tooltip.</summary>
     private string HopName(NetworkHop hop) =>
         hop.Type == HopType.Tailscale ? _tailnet.NameFor(hop.DeviceIp) ?? hop.DeviceName : hop.DeviceName;
@@ -452,6 +456,8 @@
         if (!_tailnetRead)
         {
             _tailnetRead = true;
+            // Refused on a public result page too: the hops keep their bundled images and emoji.
+            _ = ClientIcons.LoadIntoAsync(map => InvokeAsync(() => { _clientIcons = map; StateHasChanged(); }));
             try { _tailnet = await Tailscale.GetPeersAsync(); }
             catch (Exception) { /* Refused (no session, as on a public result page): the hop keeps its generic label. */ }
         }
@@ -1480,6 +1486,20 @@
             builder.OpenComponent<VpnIcon>(0);
             builder.AddComponentParameter(1, nameof(VpnIcon.Type), hop.Type);
             builder.CloseComponent();
+            return;
+        }
+
+        // A client's UniFi Network icon by MAC (the client, and the server or On-Site Agent host, are
+        // clients), else a UniFi device's image by IP (bundled, else UniFi Network's catalog icon).
+        var mac = hop.DeviceMac ?? (hop.Type is HopType.Client or HopType.WirelessClient ? Result?.ClientMac : null);
+        if ((_clientIcons.UrlFor(mac) ?? _clientIcons.DeviceUrlFor(hop.DeviceIp)) is { } iconUrl)
+        {
+            builder.OpenElement(0, "img");
+            builder.AddAttribute(1, "src", iconUrl);
+            builder.AddAttribute(2, "alt", "");
+            builder.AddAttribute(3, "class", "client-icon device-icon device-icon-md");
+            builder.AddAttribute(4, "loading", "lazy");
+            builder.CloseElement();
             return;
         }
 
