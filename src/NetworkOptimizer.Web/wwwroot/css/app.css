@@ -950,6 +950,9 @@ h1:focus {
 .client-tailscale-icon {
     margin-right: calc(0.3rem + 2px);
     vertical-align: middle;
+    /* The mark's solid dots sit low in its box (its top row is faded), so a centered box reads low. */
+    position: relative;
+    top: -2px;
 }
 
 .speed-test-row .speed-test-device {
