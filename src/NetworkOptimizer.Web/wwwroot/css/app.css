@@ -948,8 +948,8 @@ h1:focus {
 
 /* The Tailscale mark before a client name in speed test lists */
 .client-tailscale-icon {
-    margin-right: 0.3rem;
-    vertical-align: -1px;
+    margin-right: calc(0.3rem + 2px);
+    vertical-align: middle;
 }
 
 .speed-test-row .speed-test-device {
