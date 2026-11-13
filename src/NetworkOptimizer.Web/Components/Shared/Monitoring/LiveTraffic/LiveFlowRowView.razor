@@ -1,0 +1,408 @@
+@* One flow, as every Live Traffic list draws it. The host keys it (@key) by the flow's Key. *@
+@inherits LiveTrafficPieces
+@{
+    var f = Flow;
+}
+@switch (Layout)
+{
+    case LiveFlowLayout.Table:
+        <tr data-flip="@f.Key" data-flip-open="@(Open ? "" : null)" class="lt-flow-row @(Open ? "lt-selected" : null)" @onclick="OnToggle">
+            <td class="lt-rank"><span class="expand-chevron lt-chev">@(Open ? "▲" : "▼")</span> @Rank</td>
+            @if (ShowClient)
+            {
+                <td data-client-name="@f.ClientName" data-client-link="@LiveTrafficLinks.Client(f)" data-client-note="@LiveTrafficDisplay.ClientCardDetail(f)">
+                    @ClientPill(f)
+                    @ClientLine(f)
+                </td>
+            }
+            <td @attributes="DestinationCard(f)">
+                @Pill(LiveTrafficField.Destination, f.Destination)
+                @SiteBadge(f)
+                @CacheBadge(f)
+                @PeerBadge(f)
+                @PortLine(f)
+            </td>
+            <td>@AppCell(f)</td>
+            <td>@RoutePill(f)</td>
+            <td>@Rate(f.Ended ? 0 : f.DownBps, "speed-down")</td>
+            <td>@Rate(f.Ended ? 0 : f.UpBps, "speed-up")</td>
+            <td>@DisplayFormatters.FormatBytes(f.TotalBytes)</td>
+            <td class="lt-secondary">@LiveTrafficDisplay.StartedLabel(f)</td>
+            <td>@Spark(f.History)</td>
+        </tr>
+        @if (Open)
+        {
+            <tr data-flip="@(f.Key + "|d")" class="lt-detail"><td colspan="@(ShowClient ? 10 : 9)">@Detail(f)</td></tr>
+        }
+        break;
+
+    case LiveFlowLayout.List:
+        <div data-flip="@f.Key" data-flip-open="@(Open ? "" : null)" class="lt-m-row" @onclick="OnToggle">
+            <div class="lt-m-top">
+                @if (ShowClient)
+                {
+                    <span class="lt-m-name">@ClientPill(f)</span>
+                }
+                else
+                {
+                    <span class="lt-m-name">@Pill(LiveTrafficField.Destination, f.Destination)</span>
+                }
+                <span class="lt-m-rates">@MobileRates(f.DownBps, f.UpBps)</span>
+            </div>
+            @if (ShowClient)
+            {
+                <div class="lt-m-dest">@f.Destination &middot; @f.DestinationSub</div>
+            }
+            else
+            {
+                @* The name is above; this line says where it is and on what port. *@
+                <div class="lt-m-dest">@(f.Destination != f.DestinationIp ? $"{f.DestinationIp} · " : "")@f.DestinationSub</div>
+            }
+            <div class="lt-m-tags">
+                @SiteBadge(f)
+                @CacheBadge(f)
+                @PeerBadge(f)
+                @StreamsBadge(f)
+                @AppCell(f)
+                @RoutePill(f)
+                <span class="lt-muted lt-small">@LiveTrafficDisplay.StartedLabel(f)</span>
+            </div>
+            @if (Open)
+            {
+                <div class="lt-m-detail" @onclick:stopPropagation>@Detail(f)</div>
+            }
+        </div>
+        break;
+
+    case LiveFlowLayout.Nested:
+    case LiveFlowLayout.NestedPhone:
+        var phone = Layout == LiveFlowLayout.NestedPhone;
+        <tr>
+            @if (!phone)
+            {
+                <td></td>
+            }
+            <td @attributes="DestinationCard(f)">
+                <a class="lt-pivot" href="@Ctx.LinkFor?.Invoke(LiveTrafficField.Destination, f.Destination)">@f.Destination</a>
+                <span class="lt-muted">@f.DestinationSub</span>
+                @StreamsBadge(f)
+            </td>
+            @if (!phone)
+            {
+                <td>
+                    @{ var unnamed = f.UnnamedPort; var tailscale = OffersTailscaleSetup(f.App); }
+                    <span class="@(unnamed != null ? "lt-app-unnamed" : null)" data-app-unnamed="@(unnamed != null ? f.App : null)"
+                          data-app-seed="@unnamed?.Encode()" data-app-link="@NameAppLink(unnamed)"
+                          data-app-tailscale="@(tailscale ? f.App : null)" data-tailscale-link="@(tailscale ? TailscaleSetupLink : null)">@Pill(LiveTrafficField.App, f.App)</span>
+                    @RoutePill(f)
+                </td>
+            }
+            <td>@Rate(f.DownBps, "speed-down")</td>
+            <td>@Rate(f.UpBps, "speed-up")</td>
+            <td class="lt-secondary">@LiveTrafficDisplay.StartedLabel(f)</td>
+        </tr>
+        break;
+
+    case LiveFlowLayout.HistoryTable:
+        <tr data-flip="@f.Key" data-flip-open="@(Open ? "" : null)" class="lt-flow-row @(Open ? "lt-selected" : null) @(f.Action == "Blocked" ? "is-blocked" : null)" @onclick="OnToggle">
+            <td class="lt-rank"><span class="expand-chevron lt-chev">@(Open ? "▲" : "▼")</span></td>
+            <td class="lt-secondary">@LastSeenLabel(f)</td>
+            @if (ShowClient)
+            {
+                <td data-client-name="@f.ClientName" data-client-link="@LiveTrafficLinks.Client(f)" data-client-note="@LiveTrafficDisplay.ClientCardDetail(f)">
+                    @ClientPill(f)
+                    @ClientLine(f)
+                </td>
+            }
+            <td @attributes="DestinationCard(f)">
+                @Pill(LiveTrafficField.Destination, f.Destination)
+                @PortLine(f)
+            </td>
+            <td>@AppCell(f)</td>
+            <td>@RoutePill(f)</td>
+            <td>@Pill(LiveTrafficField.Action, f.Action ?? "", cls: LiveTrafficDisplay.ActionClass(f.Action))</td>
+            <td>@DisplayFormatters.FormatBytes(f.TotalBytes)</td>
+            <td class="lt-secondary">@LiveTrafficDisplay.DurationLabel(f)</td>
+        </tr>
+        @if (Open)
+        {
+            <tr data-flip="@(f.Key + "|d")" class="lt-detail"><td colspan="@(ShowClient ? 9 : 8)">@HistoryDetail(f)</td></tr>
+        }
+        break;
+
+    case LiveFlowLayout.HistoryList:
+        <div data-flip="@f.Key" data-flip-open="@(Open ? "" : null)" class="lt-m-row" @onclick="OnToggle">
+            <div class="lt-m-top">
+                <span class="lt-m-name">@Pill(ShowClient ? LiveTrafficField.Client : LiveTrafficField.Destination, ShowClient ? f.ClientName : f.Destination)</span>
+                <span class="lt-m-rates">@DisplayFormatters.FormatBytes(f.TotalBytes)</span>
+            </div>
+            @if (ShowClient)
+            {
+                <div class="lt-m-dest">@f.Destination &middot; @f.DestinationSub</div>
+            }
+            else
+            {
+                <div class="lt-m-dest">@(f.Destination != f.DestinationIp ? $"{f.DestinationIp} · " : "")@f.DestinationSub</div>
+            }
+            <div class="lt-m-tags">
+                @AppCell(f)
+                @RoutePill(f)
+                @Pill(LiveTrafficField.Action, f.Action ?? "", cls: LiveTrafficDisplay.ActionClass(f.Action))
+                <span class="lt-muted lt-small">@LastSeenLabel(f)</span>
+            </div>
+            @if (Open)
+            {
+                <div class="lt-m-detail" @onclick:stopPropagation>@HistoryDetail(f)</div>
+            }
+        </div>
+        break;
+}
+
+@code {
+    [Parameter, EditorRequired] public LiveFlowRow Flow { get; set; } = default!;
+    [Parameter] public LiveFlowLayout Layout { get; set; }
+    /// <summary>The row's place in a ranked list, shown in the Table layout.</summary>
+    [Parameter] public int Rank { get; set; }
+    /// <summary>The row is expanded to its detail.</summary>
+    [Parameter] public bool Open { get; set; }
+    /// <summary>A click on the row: expand or collapse it.</summary>
+    [Parameter] public EventCallback OnToggle { get; set; }
+    /// <summary>The client's name and line; off in a list that is one client's own (Client Performance).</summary>
+    [Parameter] public bool ShowClient { get; set; } = true;
+
+    private string LastSeenLabel(LiveFlowRow f) => f.LastSeen is { } seen ? LocalTime(seen) : "";
+
+    private static RenderFragment Spark(IReadOnlyList<(double Down, double Up)> history) => __builder =>
+    {
+        if (history.Count < 2)
+        {
+            return;
+        }
+        const double w = 90, h = 22;
+        var max = Math.Max(1, history.Max(p => p.Down));
+        var pts = string.Join(" ", history.Select((p, i) =>
+            $"{LiveTrafficDisplay.Pct(i * w / (history.Count - 1))},{LiveTrafficDisplay.Pct(h - 1 - p.Down / max * (h - 2))}"));
+        <svg class="lt-spark" viewBox="0 0 90 22" preserveAspectRatio="none"><polyline points="@pts" fill="none" stroke="var(--speed-download-color)" stroke-width="1.4" /></svg>
+    };
+
+    private RenderFragment Detail(LiveFlowRow f) => __builder =>
+    {
+        <div class="lt-detail-wrap">
+            <div class="lt-chart">
+                <h4>Last 2 minutes</h4>
+                @DetailChart(f.History)
+                @if (f.History.Count > 0)
+                {
+                    <div class="lt-small lt-secondary" style="margin-top: 0.3rem;">
+                        <span class="speed-down">@RateText(f.DownBps)</span> down now, peak @RateText(f.History.Max(p => p.Down))
+                        &middot; <span class="speed-up">@RateText(f.UpBps)</span> up
+                    </div>
+                }
+            </div>
+            <div>
+                <h4>Connection</h4>
+                <dl class="lt-kv">
+                    @if (f.Started is { } started)
+                    {
+                        <dt>Session started</dt>
+                        var age = DateTime.UtcNow - started;
+                        <dd>
+                            @(f.StartedIsUpperBound ? "Before " : "")@TimeFormatHelper.FormatLocalDateTime(started, DisplayTime.Zone, DisplayTime.Format)
+                            @* A lower bound under a minute old says nothing: "over 0 minutes". *@
+                            @if (!f.StartedIsUpperBound || age >= TimeSpan.FromMinutes(1))
+                            {
+                                <text> (@(f.StartedIsUpperBound ? "over " : "")@TimeFormatHelper.FormatDuration(age))</text>
+                            }
+                        </dd>
+                    }
+                    <dt>Sent</dt><dd>@DisplayFormatters.FormatBytes(f.TotalUpBytes), @f.TotalUpPackets.ToString("N0") packets</dd>
+                    <dt>Received</dt><dd>@DisplayFormatters.FormatBytes(f.TotalDownBytes), @f.TotalDownPackets.ToString("N0") packets</dd>
+                    @PortsAndOwner(f)
+                    @if (!string.IsNullOrEmpty(f.DnsDetail))
+                    {
+                        <dt>DNS</dt><dd>@f.DnsDetail</dd>
+                    }
+                </dl>
+            </div>
+            <div>
+                <div class="lt-detail-head"><h4>Policy and route</h4>@ClientJump(f)</div>
+                <dl class="lt-kv">
+                    <dt>Allowed by</dt><dd>@AllowedBy(f)</dd>
+                    <dt>Exits</dt><dd>@RoutePill(f)</dd>
+                    <dt>App</dt><dd>@Pill(LiveTrafficField.App, f.App)@AppNote(f)</dd>
+                </dl>
+                @HideActions(f)
+            </div>
+        </div>
+    };
+
+    /// <summary>
+    /// The rule UniFi Network matched. A record with no rule went through the default policy. A live
+    /// flow has no record until it ends: its rule comes from evaluating the site's firewall rules, and
+    /// is said to be unknown when that cannot decide it.
+    /// </summary>
+    private static RenderFragment AllowedBy(LiveFlowRow f) => __builder =>
+    {
+        if (f.PolicyName != null && f.PolicyEvaluated)
+        {
+            <text>@f.PolicyName<span class="lt-kv-note">From your Firewall Policies</span></text>
+        }
+        else if (f.PolicyName != null)
+        {
+            @f.PolicyName
+        }
+        else if (f.ConsoleReported)
+        {
+            <text>Default policy</text>
+        }
+        else
+        {
+            @* No guess: an exception rule (a DNS-blocking allow, say) looks just like the default. *@
+            <text>Not reported yet by UniFi Network</text>
+        }
+    };
+
+    /// <summary>A rate in a sentence: idle reads "0 bps", not the table's "-".</summary>
+    private static string RateText(double bps) => bps > 0 ? DisplayFormatters.FormatRate(bps) : "0 bps";
+
+    private RenderFragment HistoryDetail(LiveFlowRow f) => __builder =>
+    {
+        var blocked = f.Action == "Blocked";
+        <div class="lt-detail-wrap lt-detail-history">
+            <div>
+                <h4>Connection</h4>
+                <dl class="lt-kv">
+                    @if (f.Started is { } started)
+                    {
+                        <dt>Started</dt><dd>@TimeFormatHelper.FormatLocalDateTime(started, DisplayTime.Zone, DisplayTime.Format)</dd>
+                    }
+                    @if (f.LastSeen is { } seen)
+                    {
+                        <dt>@(f.Ended ? "Ended" : "Last seen")</dt><dd>@TimeFormatHelper.FormatLocalDateTime(seen, DisplayTime.Zone, DisplayTime.Format)</dd>
+                    }
+                    @if (f.Duration is { } duration)
+                    {
+                        <dt>Duration</dt><dd>@TimeFormatHelper.FormatDuration(duration)</dd>
+                    }
+                    <dt>Data</dt><dd>@DisplayFormatters.FormatBytes(f.TotalBytes), @((f.CombinedPackets ?? 0).ToString("N0")) packets, both directions</dd>
+                    @PortsAndOwner(f)
+                </dl>
+            </div>
+            <div>
+                <div class="lt-detail-head"><h4>Policy and route</h4>@ClientJump(f)</div>
+                <dl class="lt-kv">
+                    <dt>@(blocked ? "Blocked by" : "Allowed by")</dt><dd>@(f.PolicyName ?? "Default policy")</dd>
+                    <dt>Exits</dt><dd>@RoutePill(f)</dd>
+                    <dt>App</dt><dd>@Pill(LiveTrafficField.App, f.App)@AppNote(f)</dd>
+                </dl>
+                @HideActions(f)
+            </div>
+        </div>
+    };
+
+    /// <summary>Ports, addresses, then the remote site or owner, and the client's network.</summary>
+    private RenderFragment PortsAndOwner(LiveFlowRow f) => __builder =>
+    {
+        <dt>Ports</dt>
+        <dd>
+            @Pill(LiveTrafficField.Protocol, f.Proto)
+            @(f.ClientPort > 0 ? $" {f.ClientPort} to " : " to ")
+            @if (f.RemotePort > 0)
+            {
+                @Pill(LiveTrafficField.Port, f.RemotePort.ToString())
+            }
+            else
+            {
+                @f.DestinationIp
+            }
+        </dd>
+        <dt>Addresses</dt><dd>@f.ClientIp to @f.DestinationIp</dd>
+        @if (!string.IsNullOrEmpty(f.RemoteSite))
+        {
+            <dt>Site</dt><dd>@f.RemoteSite</dd>
+        }
+        else if (f.RemoteTrusted)
+        {
+            <dt>Trusted</dt><dd>Extra Trusted Addresses</dd>
+        }
+        @if (string.IsNullOrEmpty(f.RemoteSite) && !string.IsNullOrEmpty(f.RemoteOrg))
+        {
+            <dt>ASN</dt><dd>@f.RemoteOrg@(f.RemoteAsn is { } asn ? $" (AS{asn})" : "")</dd>
+        }
+        @if (!string.IsNullOrEmpty(f.Network))
+        {
+            <dt>Client network</dt><dd>@f.Network</dd>
+        }
+        @if (!string.IsNullOrEmpty(f.RemoteNetwork))
+        {
+            <dt>Destination network</dt><dd>@f.RemoteNetwork</dd>
+        }
+    };
+
+    /// <summary>
+    /// The flow's client on Client Performance, or on Device Stats for a network device; not on that
+    /// client's own page, nor for a flow with no client address.
+    /// </summary>
+    private RenderFragment ClientJump(LiveFlowRow f) => __builder =>
+    {
+        if (!ShowClient || LiveTrafficLinks.Client(f) is not { } href) return;
+        <MonitoringJumpButton Icon="MonitoringJumpButton.JumpIcon.Analyze"
+                              Tooltip="@(f.ClientDeviceMac != null ? "Open in Device Stats" : "Open in Client Performance")" Href="@href" />
+    };
+
+    private RenderFragment HideActions(LiveFlowRow f) => __builder =>
+    {
+        if (Ctx.Exclude is not { } exclude) return;
+        <div class="lt-detail-actions">
+            @if (ShowClient)
+            {
+                <button class="btn btn-secondary btn-sm" @onclick="() => exclude(new LiveTrafficFilter(LiveTrafficField.Client, f.ClientName, Exclude: true))">Hide This Client</button>
+            }
+            <button class="btn btn-secondary btn-sm" @onclick="() => exclude(new LiveTrafficFilter(LiveTrafficField.Destination, f.Destination, Exclude: true))">Hide This Destination</button>
+            <button class="btn btn-secondary btn-sm" @onclick="() => exclude(new LiveTrafficFilter(LiveTrafficField.App, f.App, Exclude: true))">Hide This App</button>
+            @if (Ctx.CanNameApps() && NameSeed(f) is { } seed)
+            {
+                if (Ctx.NameApp is { } nameApp)
+                {
+                    <button class="btn btn-secondary btn-sm" @onclick="() => nameApp(seed)">Name This App</button>
+                }
+                else
+                {
+                    <a class="btn btn-secondary btn-sm" href="@LiveTrafficLinks.NameApp(seed)">Name This App</a>
+                }
+            }
+        </div>
+    };
+
+    /// <summary>After the App's filter pill: its category, or that it is one of the site's custom apps.</summary>
+    private static string AppNote(LiveFlowRow f) =>
+        f.CustomAppId != null ? " a custom app" : f.Category != null ? $" category {f.Category}" : "";
+
+    /// <summary>
+    /// What Name This App prefills for a row whose App is only a fallback (a port, a service name, an
+    /// address's owner); null for a named row, a custom app, a flow with no TCP or UDP port, or one
+    /// whose ends are both ephemeral.
+    /// </summary>
+    private static CustomAppSeed? NameSeed(LiveFlowRow f)
+    {
+        if (f.UnnamedPort is { } unnamed) return unnamed;
+        if (!f.AppIsFallback || f.CustomAppId != null) return null;
+        return CustomAppSeed.ForFlow(f.Proto, f.ClientPort, f.RemotePort,
+            f.RouteKind == LiveRouteKind.Lan ? NetworkOptimizer.Storage.Models.CustomAppScope.Lan : NetworkOptimizer.Storage.Models.CustomAppScope.Internet);
+    }
+
+    private static RenderFragment DetailChart(IReadOnlyList<(double Down, double Up)> history) => __builder =>
+    {
+        const double w = 400, h = 110;
+        var max = history.Count == 0 ? 1 : Math.Max(1, history.Max(p => Math.Max(p.Down, p.Up)));
+        string Line(Func<(double Down, double Up), double> pick) => history.Count < 2 ? "" :
+            string.Join(" ", history.Select((p, i) => $"{LiveTrafficDisplay.Pct(i * w / (history.Count - 1))},{LiveTrafficDisplay.Pct(h - 2 - pick(p) / max * (h - 6))}"));
+        <svg viewBox="0 0 400 110" preserveAspectRatio="none">
+            <line x1="0" x2="400" y1="27" y2="27" stroke="#374151" stroke-width="0.5" />
+            <line x1="0" x2="400" y1="55" y2="55" stroke="#374151" stroke-width="0.5" />
+            <line x1="0" x2="400" y1="82" y2="82" stroke="#374151" stroke-width="0.5" />
+            <polyline points="@Line(p => p.Down)" fill="none" stroke="var(--speed-download-color)" stroke-width="1.6" />
+            <polyline points="@Line(p => p.Up)" fill="none" stroke="var(--speed-upload-color)" stroke-width="1.6" />
+        </svg>
+    };
+}

@@ -46,6 +46,11 @@ public interface IAgentEnrollmentService
     [AuditAction(AuditActions.AgentEnrolled, Category = AuditCategories.Agent, TargetType = "agent")]
     Task SetEnabledAsync([SiteSlug] string siteSlug, int agentId, bool enabled);
 
+    /// <summary>Renames an agent. Returns false when the agent is not on that site.</summary>
+    [RequireSiteRole(SiteRole.SiteAdmin)]
+    [AuditAction(AuditActions.AgentEnrolled, Category = AuditCategories.Agent, TargetType = "agent")]
+    Task<bool> RenameAgentAsync([SiteSlug] string siteSlug, int agentId, string name);
+
     /// <summary>LAN address reported by the site's online agent, or null when none is connected.</summary>
     [RequireRole(Roles.Viewer)]
     Task<string?> GetOnlineAgentLanIpAsync(string siteSlug);

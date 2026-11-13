@@ -125,7 +125,8 @@ public static class DohProviderRegistry
             Name = "ControlD",
             StampPrefix = "controld",
             Hostnames = new[] { "controld.com", "dns.controld.com" },
-            DnsIps = new[] { "76.76." }, // Prefix match fallback for ControlD anycast
+            // ControlD's two /24s only: the rest of 76.76.0.0/16 is other companies (Vercel's 76.76.21.0/24 serves tailscale.com).
+            DnsIps = new[] { "76.76.2.", "76.76.10." },
             // ControlD's resolvers sit across 2606:1a40::/32 (::11, ::22, f000::11 in the ctrld client source)
             Ipv6Prefixes = new[] { "2606:1a40:" },
             SupportsFiltering = true,
@@ -149,6 +150,32 @@ public static class DohProviderRegistry
             if (provider.Hostnames.Any(h => hostLower.Contains(h.ToLowerInvariant())))
             {
                 return provider;
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Identify a provider from the name of a resolver host (a DNS answer or PTR for a flow's address),
+    /// for a resolver outside the static IP lists (NextDNS's unicast PoPs sit in hosting ASNs).
+    /// Stricter than <see cref="IdentifyProvider"/>: the name must be a listed hostname, or a subdomain
+    /// of one whose first label starts with "dns" (dns.nextdns.io), so a provider's web dashboard does not match.
+    /// </summary>
+    public static DohProviderInfo? IdentifyProviderFromResolverHost(string? hostname)
+    {
+        if (string.IsNullOrEmpty(hostname))
+            return null;
+
+        var host = hostname.TrimEnd('.').ToLowerInvariant();
+        var dnsLabel = host.StartsWith("dns", StringComparison.Ordinal);
+        foreach (var provider in Providers.Values)
+        {
+            foreach (var h in provider.Hostnames)
+            {
+                var listed = h.ToLowerInvariant();
+                if (host == listed || (dnsLabel && host.EndsWith("." + listed, StringComparison.Ordinal)))
+                    return provider;
             }
         }
 

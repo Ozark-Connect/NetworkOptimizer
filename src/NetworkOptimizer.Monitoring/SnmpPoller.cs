@@ -1112,7 +1112,7 @@ public class SnmpPoller : ISnmpPoller
 
             if (targetType == typeof(double))
             {
-                if (double.TryParse(dataString, out var doubleValue))
+                if (double.TryParse(dataString, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var doubleValue))
                     return (T)(object)doubleValue;
             }
         }

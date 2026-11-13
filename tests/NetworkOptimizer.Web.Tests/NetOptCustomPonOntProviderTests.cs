@@ -114,6 +114,38 @@ public class NetOptCustomPonOntProviderTests
     }
 
     [Fact]
+    public void Encryption_MapsToBothModes()
+    {
+        var p = NetOptCustomPonOntProvider.ParsePayload("""
+        {
+          "ploam": { "curr_state": 5 },
+          "gtc_status": { "onu_id": 25, "gem_ports": 3 },
+          "encryption": { "aes_active": true, "gponmgr_enc": 1, "gem_ports_encrypted": 2 }
+        }
+        """)!;
+
+        var s = NetOptCustomPonOntProvider.MapToSupplemental(p);
+        s.GemPorts.Should().Be(3);
+        s.AesActive.Should().BeTrue();
+        s.GponmgrEnc.Should().Be(1);
+        s.GemPortsEncrypted.Should().Be(2);
+        NetOptCustomPonOntProvider.MapToOntStats(p).Pon!.AesActive.Should().BeTrue();
+    }
+
+    [Theory]
+    [InlineData("""{ "ploam": { "curr_state": 5 } }""")]
+    [InlineData("""{ "ploam": { "curr_state": 5 }, "gtc_status": { "gem_ports": null }, "encryption": { "aes_active": null, "gponmgr_enc": null, "gem_ports_encrypted": null } }""")]
+    public void Encryption_AbsentOrNull_IsMissingNotFalse(string json)
+    {
+        var s = NetOptCustomPonOntProvider.MapToSupplemental(NetOptCustomPonOntProvider.ParsePayload(json)!);
+
+        s.GemPorts.Should().BeNull();
+        s.AesActive.Should().BeNull();
+        s.GponmgrEnc.Should().BeNull();
+        s.GemPortsEncrypted.Should().BeNull();
+    }
+
+    [Fact]
     public void OltVendorId_MapsToBothModes_AndIsOptional()
     {
         var p = NetOptCustomPonOntProvider.ParsePayload("""{ "ploam": { "curr_state": 5 }, "olt_vendor_id": " CALX " }""")!;

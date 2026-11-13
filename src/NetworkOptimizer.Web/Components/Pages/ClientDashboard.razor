@@ -32,6 +32,12 @@
 @inject MonitoringLiveStatsRegistry LiveStatsRegistry
 @inject CircuitReconnectNotifier CircuitReconnect
 @inject IDisplayTimeZone DisplayTime
+@using NetworkOptimizer.Web.Services.Monitoring.LiveTraffic
+@using NetworkOptimizer.Web.Components.Shared.Monitoring.LiveTraffic
+@inject ILiveTrafficService LiveTraffic
+@inject ITailscaleDirectory Tailscale
+@inject IClientIcons ClientIcons
+@inject IAuthorizationService Authz
 
 <PageTitle>Client Performance - Network Optimizer</PageTitle>
 
@@ -204,7 +210,10 @@
         @* Identity Bar *@
         <div class="card identity-bar" data-tour="client-live">
             <div class="identity-row-1">
-                <div class="identity-info @(_client.IsVpn ? "identity-info-vpn" : null)">
+                @{
+                    var clientIconUrl = _client.IsVpn ? null : _clientIcons.UrlFor(_client.Mac);
+                }
+                <div class="identity-info @(_client.IsVpn ? "identity-info-vpn" : clientIconUrl != null ? "identity-info-icon" : null)">
                     @if (_client.IsVpn)
                     {
                         <span class="identity-vpn-icon @GetVpnTintClass(_client.VpnType)">
@@ -214,11 +223,24 @@
                             <h2 class="identity-name">@_client.DisplayName</h2>
                             <div class="identity-meta">
                                 <span>@_client.Ip</span>
+                                @if (_client.Tailnet is { } tailnetPeer)
+                                {
+                                    @if (!string.IsNullOrEmpty(tailnetPeer.Os))
+                                    {
+                                        <span class="identity-detail"><span class="meta-sep">·</span> <span data-tooltip="OS">@tailnetPeer.Os</span></span>
+                                    }
+                                    @if (TailnetDisplay.Owner(tailnetPeer) is { } owner)
+                                    {
+                                        <span class="identity-detail"><span class="meta-sep">·</span> <span data-tooltip="@(string.IsNullOrWhiteSpace(tailnetPeer.User) ? $"Tags: {owner}" : $"Owner: {owner}")">@TailnetDisplay.ShortOwner(owner)</span></span>
+                                    }
+                                }
                             </div>
                         </div>
                     }
                     else
                     {
+                        <ClientIcon Url="@clientIconUrl" Size="40" Class="identity-client-icon" />
+                        <div class="identity-text">
                         <ClientNameEditor @key="_client.Mac" Mac="@_client.Mac" Name="@_client.Name" Hostname="@_client.Hostname" Class="identity-name-cell" TourId="client-rename"
                                           OnRenamed="OnClientRenamed">
                             <h2 class="identity-name">@_client.DisplayName</h2>
@@ -235,10 +257,21 @@
                                 <span class="meta-sep">·</span>
                                 <span data-tooltip="SSID">@_client.Essid</span>
                             }
+                            @if (!string.IsNullOrEmpty(_client.TailnetRouterBadge))
+                            {
+                                <span class="meta-sep">·</span>
+                                <span data-tooltip="Peers that route through this host appear as its own traffic, unless Network Optimizer reads its conntrack table">@_client.TailnetRouterBadge</span>
+                            }
+                        </div>
                         </div>
                     }
                 </div>
                 <div class="identity-signal">
+                    @if (_client.IsVpn && _client.Tailnet is { } tailnetDevice)
+                    {
+                        <MonitoringJumpButton Icon="MonitoringJumpButton.JumpIcon.Analyze" Tooltip="Open in Live Traffic"
+                                              OnClick="@(() => NavigationManager.NavigateTo($"/monitoring/live-traffic?dest={Uri.EscapeDataString(tailnetDevice.Name)}"))" />
+                    }
                     @if (_canSteer && !OnApWithoutSteering && _client is { IsWired: false, IsOffline: false, IsVpn: false })
                     {
                         @* The gate is the service; this is the UX half, so a Viewer is never shown a
@@ -327,7 +360,33 @@
             <div class="identity-row-2">
                 @if (_client.IsVpn)
                 {
-                    <span class="identity-detail detail-dim">Remote client - limited data available</span>
+                    @if (_client.Tailnet != null && (_client.Tailnet.Path ?? _tailnetPath) is { } tailnetPath)
+                    {
+                        <span class="identity-detail" data-tooltip="@TailnetDisplay.PathDetail(tailnetPath)">@TailnetDisplay.PathLabel(tailnetPath)</span>
+                        @if (TailnetDisplay.Traffic(_client.Tailnet) is { } tailnetTraffic)
+                        {
+                            <span class="identity-detail detail-dim">@tailnetTraffic</span>
+                        }
+                    }
+                    else if (_client.Tailnet != null)
+                    {
+                        <span class="identity-detail detail-dim">Connected over Tailscale</span>
+                    }
+                    else if (_client.VpnType == HopType.Tailscale && !_pickerTailnet.Connected)
+                    {
+                        @if (_canSetUpTailscale)
+                        {
+                            <span class="identity-detail identity-note detail-dim"><a href="/settings?tab=connection#tailscale">Set Up Tailscale</a> to see this device's name, owner, and how it connects</span>
+                        }
+                        else
+                        {
+                            <span class="identity-detail identity-note detail-dim">A Site Admin can set up Tailscale to show this device's name, owner, and how it connects</span>
+                        }
+                    }
+                    else
+                    {
+                        <span class="identity-detail detail-dim">Remote client - limited data available</span>
+                    }
                 }
                 else if (!_client.IsWired)
                 {
@@ -361,7 +420,7 @@
                         <span>@FormatProtocol(_client.Protocol)</span>
                         @if (_client.FixedApEnabled)
                         {
-                            <span class="badge-ap-lock" data-tooltip="Locked to @(_client.FixedApName ?? _client.FixedApMac ?? "AP")">&#128274; AP Locked</span>
+                            <span class="badge-ap-lock" data-tooltip="Locked to @(_client.FixedApName ?? _client.FixedApMac ?? "AP")"><ApLockIcon /> AP Locked</span>
                         }
                     </span>
                     <span class="identity-figures">
@@ -452,7 +511,7 @@
                         <button class="tab-btn @(_activeTab == "connection" ? "active" : "")"
                                 @onclick='() => SetActiveTab("connection")'>Connection</button>
                         <button class="tab-btn @(_activeTab == "data" ? "active" : "")"
-                                @onclick='() => SetActiveTab("data")'>Data</button>
+                                @onclick='() => SetActiveTab("data")'>Data / Apps</button>
                     </div>
                 }
                 @* On a desktop the Speed tab carries this filter on its Speed Tests heading instead: up
@@ -513,6 +572,10 @@
                                     <div class="usage-card-spinner"><span class="spinner"></span></div>
                                 }
                             </div>
+                            @if (_throughputHours == 0 && LiveFeed is { } noteFeed)
+                            {
+                                <ClientLiveTrafficNote Feed="noteFeed" OnOpen='() => SetActiveTab("data")' />
+                            }
                             @if (_throughputHours != 0 && _throughputSummary is { } ts)
                             {
                                 var wanView = _throughputView == "wan";
@@ -574,9 +637,9 @@
                     @if (_isOwnDevice && string.IsNullOrEmpty(_openSpeedTestUrl) && _agentOnGateway)
                     {
                         <p class="form-hint">
-                            Speed tests aren't available at this site - its agent runs on the UniFi gateway,
-                            which doesn't host the LAN speed test. Deploy a Docker or bare-metal agent on a
-                            separate box at the site to enable them.
+                            No speed test server at this site yet: its Agent runs on the UniFi Gateway without the
+                            LAN speed test. Re-run the gateway installer with <code>--lan-speed-test</code>, or add an
+                            Agent on another box at the site.
                         </p>
                     }
 
@@ -1011,7 +1074,7 @@
                                         @foreach (var evt in GetPagedConnectionEvents())
                                         {
                                             <tr class="@GetEventRowClass(evt.Type)">
-                                                <td>@evt.Timestamp.ToLocalTime(DisplayTime).ToString(DisplayTime.Format.DateTime, DisplayFormat.Culture)</td>
+                                                <td>@evt.Timestamp.ToLocalTime(DisplayTime).ToString(DisplayTime.Format.DateTimeSeconds, DisplayFormat.Culture)</td>
                                                 <td>
                                                     <span class="event-badge @GetEventBadgeClass(evt.Type)">
                                                         @FormatEventType(evt.Type)
@@ -1122,6 +1185,10 @@
             {
                 @* ===== DATA TAB ===== *@
                 <div class="tab-pane" data-tour="client-data">
+                    @if (LiveFeed is { } liveFeed)
+                    {
+                        <ClientLiveTrafficCard Feed="liveFeed" ShowThroughputLink="_client?.IsOffline == false" OnOpenThroughput="OpenLiveThroughput" />
+                    }
                     @if (!_tabLoading && !_dataUsageLoading && (_dataUsage == null || (_dataUsage.Wan.Count == 0 && _dataUsage.Lan.Count == 0)))
                     {
                         <div class="empty-state">
@@ -1219,14 +1286,22 @@
                             </div>
                         </div>
                         }
-                        @if (_appUsage.Count > 0 || _appLoading)
+                        @if (_appUsage.Count > 0 || _appLoading || LiveFeed?.View?.State is LiveTrafficState.Live or LiveTrafficState.Starting)
                         {
                             <div class="card results-card">
                                 <h3>Applications</h3>
+                                @if (LiveFeed is { } appsFeed)
+                                {
+                                    <ClientLiveAppsStrip Feed="appsFeed" />
+                                }
                                 <p class="form-hint app-table-hint">WAN traffic by application, as UniFi Network identifies it.</p>
-                                @if (_appUsage.Count == 0)
+                                @if (_appUsage.Count == 0 && _appLoading)
                                 {
                                     <div class="loading-container"><div class="spinner"></div></div>
+                                }
+                                else if (_appUsage.Count == 0)
+                                {
+                                    <p class="lt-muted">No application traffic recorded for this time range.</p>
                                 }
                                 else
                                 {
@@ -1282,6 +1357,10 @@
                             </div>
                         }
                     }
+                    @if (LiveFeed is { } dnsFeed)
+                    {
+                        <ClientLiveDnsCard Feed="dnsFeed" />
+                    }
                 </div>
             }
         </div>
@@ -1306,6 +1385,36 @@
     private bool _pendingChartUpdate;
     private bool _tabLoading;
     private ClientIdentity? _client;
+
+    // Live Traffic on Data / Apps: one feed per open tab and client, holding the agent's lease.
+    private ClientLiveFeed? _liveFeed;
+
+    /// <summary>Data / Apps is open, or Live Throughput is live on the Speed tab: the two share one feed.</summary>
+    private bool LiveFeedWanted => !_disposed && _client is { IsVpn: false } c && !string.IsNullOrEmpty(c.Mac)
+        && (_activeTab == "data" || (ShowLiveChart && _throughputHours == 0));
+
+    /// <summary>The client's feed while <see cref="LiveFeedWanted"/>, started on first ask.</summary>
+    private ClientLiveFeed? LiveFeed
+    {
+        get
+        {
+            if (!LiveFeedWanted || _client is not { } c) return null;
+            if (_liveFeed?.ClientMac == c.Mac) return _liveFeed;
+            _liveFeed?.Dispose();
+            var ips = new[] { c.Ip, c.FixedIp }.Where(ip => !string.IsNullOrEmpty(ip)).Select(ip => ip!).Distinct().ToList();
+            _liveFeed = new ClientLiveFeed(LiveTraffic, InvokeAsync, c.Mac, c.Name ?? c.Hostname ?? "", ips, Logger);
+            _ = _liveFeed.SetHiddenAsync(_pageHidden);
+            _liveFeed.Start();
+            return _liveFeed;
+        }
+    }
+
+    /// <summary>From Data / Apps' Live Traffic card: the Speed tab with Throughput on Live.</summary>
+    private void OpenLiveThroughput()
+    {
+        SetThroughputRange(0);
+        SetActiveTab("speed");
+    }
 
     private void OnClientRenamed((string Alias, string Shown) renamed)
     {
@@ -1698,6 +1807,7 @@
                     await InvokeAsync(async () =>
                     {
                         await RefreshVpnSpeedAsync();
+                        await RefreshVpnTailnetAsync();
                         StateHasChanged();
                     });
                 }
@@ -1721,6 +1831,7 @@
                     await InvokeAsync(async () =>
                     {
                         await RefreshVpnSpeedAsync();
+                        await RefreshVpnTailnetAsync();
                         StateHasChanged();
                     });
                     return;
@@ -1787,9 +1898,18 @@
         }, null, TimeSpan.Zero, TimeSpan.FromSeconds(5));
     }
 
+    /// <summary>The site's client icons, for the identity bar. Empty until loaded.</summary>
+    private ClientIconMap _clientIcons = ClientIconMap.Empty;
+
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         await EnsureLiveChartAsync();
+        // Nothing shows it any more, or the client changed: the feed releases the agent's lease.
+        if (_liveFeed != null && (!LiveFeedWanted || _client?.Mac != _liveFeed.ClientMac))
+        {
+            _liveFeed.Dispose();
+            _liveFeed = null;
+        }
 
         // Apply deferred chart updates after render cycle completes (chart is now mounted)
         if (_pendingChartUpdate)
@@ -1799,6 +1919,8 @@
         }
 
         if (!firstRender) return;
+
+        _ = ClientIcons.LoadIntoAsync(map => InvokeAsync(() => { _clientIcons = map; StateHasChanged(); }), Logger);
 
         // Check if browser is in a secure context (HTTPS or localhost) - GPS requires it
         // Must be in OnAfterRenderAsync because JS interop isn't available during prerender
@@ -1816,7 +1938,8 @@
             if (_activeTab != "speed") target += "?tab=" + _activeTab;
             if (!string.IsNullOrEmpty(RangeParam))
                 target += (target.Contains('?') ? "&" : "?") + "range=" + Uri.EscapeDataString(RangeParam);
-            NavigationManager.NavigateTo(await SiteSwitch.StampSiteAsync(target), forceLoad: true);
+            // Replaces the ?ip= entry: kept, Back would land on it and it would redirect forward again.
+            await FullLoadAsync(target, replace: true);
             return;
         }
 
@@ -1905,6 +2028,12 @@
             if (_client?.IsVpn == true && _activeTab != "speed")
                 _activeTab = "speed";
 
+            if (_client?.VpnType == HopType.Tailscale)
+            {
+                await LoadTailnetForVpnViewAsync();
+                _ = ReadTailnetPathAsync(_client.Ip);
+            }
+
             await RefreshSteeringAsync();
 
             // Poll now rather than at the next tick. The timer starts before the address is known,
@@ -1983,7 +2112,11 @@
         // A viewer reaching the dashboard over Tailscale/Teleport/remote-user VPN is never
         // in the UniFi client list, so identity is null. Fall back to the simplified VPN
         // view - default site only, so managed-site behavior (whoami/picker) is untouched.
-        if (identity == null && SiteContext.IsDefault)
+        // A Tailscale device chosen from the selector opens the same view on any site. The pick reloads
+        // the page, so the tailnet is read here rather than taken from the selector.
+        if (identity == null && !SiteContext.IsDefault && _pickerTailnet == TailnetSnapshot.Empty)
+            await LoadPickerTailnetAsync();
+        if (identity == null && (SiteContext.IsDefault || _pickerTailnet.IsPeer(ip)))
             identity = await DashboardService.IdentifyVpnClientAsync(ip);
 
         return identity;
@@ -2131,6 +2264,7 @@
             Logger.LogDebug(ex, "Client selector list could not be loaded (site {Site})", SiteContext.Slug);
             return;
         }
+        await LoadPickerTailnetAsync();
         StateHasChanged();
         // The header's "This device" jump needs the viewer's own address to know whether to show.
         if (!_isOwnDevice && _ownIp == null && await ResolveOwnIpAsync() != null)
@@ -2154,6 +2288,7 @@
             {
                 if (_pickerClients.Count == 0) return;
                 var refreshed = await DashboardService.RefreshSelectableClientsAsync(_pickerClients);
+                await LoadPickerTailnetAsync();
                 await InvokeAsync(() =>
                 {
                     _pickerClients = refreshed;
@@ -2174,12 +2309,25 @@
     private async Task ViewOwnDeviceAsync()
     {
         var target = _activeTab == "speed" ? "/client-dashboard" : $"/client-dashboard?tab={_activeTab}";
-        NavigationManager.NavigateTo(await SiteSwitch.StampSiteAsync(target), forceLoad: true);
+        await FullLoadAsync(target, replace: false);
+    }
+
+    /// <summary>
+    /// A full page load that keeps this tab's place in Blazor's history, so the global Back button
+    /// stays: NavigateTo(forceLoad) restarts that history at the new page. <paramref name="replace"/>
+    /// swaps the current entry instead of adding one.
+    /// </summary>
+    private async Task FullLoadAsync(string target, bool replace)
+    {
+        var url = await SiteSwitch.StampSiteAsync(target);
+        try { await JS.InvokeVoidAsync("__fullLoad", url, replace); }
+        catch (JSDisconnectedException) { NavigationManager.NavigateTo(url, forceLoad: true); }
     }
 
     private async Task ShowClientPickerAsync()
     {
         _pickerClients = await DashboardService.GetSelectableClientsAsync();
+        await LoadPickerTailnetAsync();
         try
         {
             var remembered = await JS.InvokeAsync<string?>("eval",
@@ -2197,11 +2345,72 @@
         StateHasChanged();
     }
 
-    /// <summary>The picker's choices. Same shape Client Stats uses, so the two read alike.</summary>
+    /// <summary>
+    /// The picker's choices. Same shape Client Stats uses, so the two read alike. Tailscale devices
+    /// follow the site's clients, keyed by their tailnet address, which opens their Tailscale view.
+    /// Client Stats lists Wi-Fi clients only, so it does not take them.
+    /// </summary>
     private IReadOnlyList<ClientSelector.Item> PickerItems() =>
         _pickerClients
             .Select(c => new ClientSelector.Item(c.Ip, c.Name, c.Mac, c.IsOnline, c.Ip, c.IsWired))
+            .Concat(_pickerTailnet.Peers
+                .Select(p => (Peer: p, Ip: p.Addresses.FirstOrDefault(a => !a.Contains(':')) ?? p.Addresses.FirstOrDefault()))
+                .Where(x => x.Ip != null && !_pickerClients.Any(c => string.Equals(c.Ip, x.Ip, StringComparison.OrdinalIgnoreCase)))
+                .Select(x => new ClientSelector.Item(x.Ip!, x.Peer.Name, null, x.Peer.Online ?? false, x.Ip, Detail: $"Tailscale · {x.Ip}")))
             .ToList();
+
+    /// <summary>The site's tailnet, for the picker's Tailscale devices; empty when the site does not read one.</summary>
+    private TailnetSnapshot _pickerTailnet = TailnetSnapshot.Empty;
+
+    private async Task LoadPickerTailnetAsync()
+    {
+        try { _pickerTailnet = await Tailscale.GetPeersAsync(); }
+        catch (Exception ex) { Logger.LogDebug(ex, "Tailscale devices for the client selector not read (site {Site})", SiteContext.Slug); }
+    }
+
+    /// <summary>How the Tailscale client connects, read after the page is up: off the gateway's flows it takes seconds.</summary>
+    private TailnetPathInfo? _tailnetPath;
+
+    /// <summary>A Site Admin here: the Tailscale setup line links to its Settings card.</summary>
+    private bool _canSetUpTailscale;
+
+    [CascadingParameter] private Task<Microsoft.AspNetCore.Components.Authorization.AuthenticationState>? AuthState { get; set; }
+
+    /// <summary>The tailnet and the viewer's role, for the Tailscale view's details or its setup line.</summary>
+    private async Task LoadTailnetForVpnViewAsync()
+    {
+        if (_pickerTailnet == TailnetSnapshot.Empty) await LoadPickerTailnetAsync();
+        if (AuthState != null)
+        {
+            var user = (await AuthState).User;
+            _canSetUpTailscale = (await Authz.AuthorizeAsync(user, SiteContext.Slug, Policies.SiteAdmin)).Succeeded;
+        }
+    }
+
+    /// <summary>
+    /// The VPN view's poll skips the identity poll, so the Tailscale details are re-read here: a cached
+    /// read that picks up an agent that connected after the page opened, and the path and counters it adds.
+    /// </summary>
+    private async Task RefreshVpnTailnetAsync()
+    {
+        if (_client is not { VpnType: HopType.Tailscale } client || string.IsNullOrEmpty(client.Ip)) return;
+        await LoadPickerTailnetAsync();
+        if (_pickerTailnet.Peer(client.Ip) is { } peer) client.Tailnet = peer;
+    }
+
+    private async Task ReadTailnetPathAsync(string? ip)
+    {
+        if (string.IsNullOrEmpty(ip) || !_pickerTailnet.Connected) return;
+        try
+        {
+            _tailnetPath = await Tailscale.GetPathAsync(ip);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogDebug(ex, "Tailscale path for {Ip} not read (site {Site})", ip, SiteContext.Slug);
+        }
+        if (!_disposed) await InvokeAsync(StateHasChanged);
+    }
 
     private async Task ViewClientByIpAsync(string ip)
     {
@@ -2233,7 +2442,7 @@
         // Stay on the tab being compared across clients.
         if (_activeTab != "speed")
             target += (target.Contains('?') ? "&" : "?") + "tab=" + _activeTab;
-        NavigationManager.NavigateTo(await SiteSwitch.StampSiteAsync(target), forceLoad: true);
+        await FullLoadAsync(target, replace: false);
     }
 
     /// <summary>
@@ -2326,8 +2535,7 @@
     /// Full-page retry. The reload target is stamped with this tab's site so a tab
     /// pinned to a non-default site doesn't fall back to the browser default.
     /// </summary>
-    private async Task ReloadPageAsync() =>
-        NavigationManager.NavigateTo(await SiteSwitch.StampSiteAsync(NavigationManager.Uri), forceLoad: true);
+    private Task ReloadPageAsync() => FullLoadAsync(NavigationManager.Uri, replace: true);
 
     /// <summary>
     /// How fast the live tick runs. The AP Agent's own fast tier samples at 1 Hz and pushes
@@ -3796,13 +4004,15 @@
     {
         if (_pageHidden == hidden) return;
         _pageHidden = hidden;
-        if (!hidden) OnPageShown();
+        if (hidden) _ = _liveFeed?.SetHiddenAsync(true);
+        else OnPageShown();
     }
 
     // Back in view: paint what the ticks kept current, and let the next push refill the
     // chart from the store for the stretch it was not fed.
     private void OnPageShown()
     {
+        _ = _liveFeed?.SetHiddenAsync(false);
         _liveChartHistoryAt = DateTime.MinValue;
         StateHasChanged();
     }
@@ -4392,6 +4602,7 @@
         _pollTimer?.Dispose();
         _identityRetryTimer?.Dispose();
         _pickerRefreshTimer?.Dispose();
+        _liveFeed?.Dispose();
         if (_liveChartMounted) await DisposeLiveChartAsync();
 
         // Stop GPS watcher
@@ -4480,6 +4691,9 @@
         gap: 12px;
         margin-bottom: 8px;
     }
+    .identity-row-1:has(.identity-info-vpn) {
+        align-items: flex-start;
+    }
     .empty-state-detail {
         font-size: 0.8125rem;
         color: var(--text-muted);
@@ -4488,7 +4702,8 @@
     .identity-info {
         min-width: 0;
     }
-    .identity-info-vpn {
+    .identity-info-vpn,
+    .identity-info-icon {
         display: flex;
         align-items: center;
         gap: 12px;
@@ -4654,6 +4869,11 @@
     }
     .identity-detail {
         white-space: nowrap;
+    }
+    /* A sentence in the detail row (the Tailscale setup line): it wraps, and on a phone spans the grid. */
+    .identity-row-2 .identity-note {
+        white-space: normal;
+        grid-column: 1 / -1;
     }
     .identity-figures {
         display: contents;
@@ -5474,6 +5694,14 @@
         .identity-signal {
             align-self: stretch;
         }
+        /* A VPN client's row holds only its identity and the Live Traffic jump: one row, the jump upper right. */
+        .identity-row-1:has(.identity-info-vpn) {
+            flex-direction: row;
+            align-items: flex-start;
+        }
+        .identity-row-1:has(.identity-info-vpn) .identity-signal {
+            align-self: auto;
+        }
         .identity-row-2 {
             display: grid;
             grid-template-columns: 1fr 1fr;
@@ -5512,10 +5740,12 @@
             justify-content: stretch;
             flex: 1;
         }
+        /* Sized to the label, never wrapped: "Data / Apps" in a quarter of a phone took two lines. */
         .tab-btn {
-            flex: 1;
+            flex: 1 1 auto;
+            white-space: nowrap;
             text-align: center;
-            padding: 0.5rem 0.5rem;
+            padding: 0.5rem 0.4rem;
         }
         .speed-hero-results {
             display: grid;

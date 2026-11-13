@@ -1,0 +1,6 @@
+from(bucket: "network_monitoring")
+  |> range(start: 2026-01-15T10:00:00Z, stop: 2026-01-15T12:00:00Z)
+  |> filter(fn: (r) => r._measurement == "wifi_client")
+  |> filter(fn: (r) => r._field == "tx_throughput_bps" or r._field == "rx_throughput_bps" or r._field == "client_mac")
+  |> pivot(rowKey:["_time"], columnKey: ["_field"], valueColumn: "_value")
+  |> filter(fn: (r) => r.client_mac == "aa:bb:cc:dd:ee:ff")

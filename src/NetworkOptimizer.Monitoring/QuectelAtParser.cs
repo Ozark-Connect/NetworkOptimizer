@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.RegularExpressions;
 using NetworkOptimizer.Monitoring.Models;
 
@@ -396,7 +397,7 @@ public static class QuectelAtParser
         field = Unquote(field).Trim();
         if (string.IsNullOrEmpty(field) || field == "-" || field == "-32768")
             return null;
-        return double.TryParse(field, out var val) ? val : null;
+        return double.TryParse(field, NumberStyles.Float, CultureInfo.InvariantCulture, out var val) ? val : null;
     }
 
     private static int? ParseIntField(string field)

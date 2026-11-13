@@ -110,6 +110,30 @@ public class AuditFindingDeltaTests
     }
 
     [Fact]
+    public void GetIssueKey_RuleOrderIssue_AcknowledgedUnderTheOldTextStaysAcknowledged()
+    {
+        // An Acknowledge stored before the slice text keyed on the old message
+        const string oldMessage = "Allow rule 'allow-dns' may subvert deny rule 'block-trackers'";
+        var acknowledged = new AuditIssue { Title = "Firewall: Rule Order Issue", Description = oldMessage };
+
+        var engineIssue = new NetworkOptimizer.Audit.Models.AuditIssue
+        {
+            Type = NetworkOptimizer.Audit.IssueTypes.AllowSubvertsDeny,
+            Severity = AuditSeverity.Recommended,
+            Message = "Allow rule 'allow-dns' takes TCP/UDP port 53 traffic out of deny rule 'block-trackers'",
+            Metadata = new Dictionary<string, object> { { "dismissal_scope", oldMessage } }
+        };
+        var current = new AuditIssue
+        {
+            Title = "Firewall: Rule Order Issue",
+            Description = engineIssue.Message,
+            DismissalScope = AuditService.GetDismissalScope(engineIssue)
+        };
+
+        AuditService.GetIssueKey(current).Should().Be(AuditService.GetIssueKey(acknowledged));
+    }
+
+    [Fact]
     public void GetIssueKey_PortAndClientFindings_IgnoreMessage()
     {
         var port = Issue("Port Lock Available");

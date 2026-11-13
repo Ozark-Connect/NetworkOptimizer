@@ -1,0 +1,361 @@
+@* One client's Live Traffic on Client Performance's Data / Apps tab: its flows, ranked by rate. *@
+@using NetworkOptimizer.Web.Components.Shared.Monitoring
+@inherits LiveTrafficPieces
+@inject NavigationManager Nav
+@inject IJSRuntime JS
+@inject Microsoft.AspNetCore.Mvc.ViewFeatures.IFileVersionProvider FileVersionProvider
+@inject ILogger<ClientLiveTrafficCard> Logger
+@inject Microsoft.AspNetCore.Authorization.IAuthorizationService Authz
+@implements IDisposable
+
+<div class="card results-card lt-client lt-client-flows" data-tour="client-live-traffic">
+    <div class="chart-card-header lt-client-header">
+        <div class="lt-client-title">
+            <h3>Live Traffic</h3>
+            @if (View?.State == LiveTrafficState.Live)
+            {
+                <span class="lan-flow-map-mode">Live</span>
+            }
+            @if (IsLive)
+            {
+                <a href="" class="lt-title-jump" @onclick="JumpToLiveDnsAsync" @onclick:preventDefault>Live DNS &darr;</a>
+            }
+        </div>
+        @* One group, so the switch and the jumps wrap together on a phone and never split apart. *@
+        <div class="lt-client-actions">
+            @if (IsLive)
+            {
+                <div class="time-range-selector">
+                    <button class="time-btn @(!Feed.Ended ? "active" : "")" @onclick="() => SetEndedAsync(false)">Active</button>
+                    <button class="time-btn @(Feed.Ended ? "active" : "")" @onclick="() => SetEndedAsync(true)">Ended</button>
+                </div>
+            }
+            @if (ShowThroughputLink)
+            {
+                <MonitoringJumpButton Icon="MonitoringJumpButton.JumpIcon.Watch" Tooltip="Watch Live Throughput on the Speed tab" OnClick="OnOpenThroughput" />
+            }
+            <MonitoringJumpButton Icon="MonitoringJumpButton.JumpIcon.Analyze" Tooltip="Open in Live Traffic" OnClick="OpenLiveTraffic" />
+        </div>
+    </div>
+
+    @if (View == null)
+    {
+        <div class="loading-container lt-client-state"><div class="spinner"></div></div>
+    }
+    else if (View.State == LiveTrafficState.AwaitingAgent)
+    {
+        <div class="lt-client-state">
+            <span class="spinner spinner-sm"></span>
+            <span><strong>Waiting for the On-Site Agent on your Gateway to connect.</strong> Live Traffic starts as soon as it's up.</span>
+        </div>
+    }
+    else if (!IsLive)
+    {
+        <div class="lt-client-state">
+            <span>
+                @(View.State switch
+                {
+                    LiveTrafficState.AgentNeedsUpdate => "Live Traffic needs a newer On-Site Agent on your Gateway.",
+                    LiveTrafficState.NoConntrack => "The On-Site Agent cannot read the Gateway's connection table.",
+                    LiveTrafficState.TurnedOff => "Live Traffic flow and DNS capture is turned off for this site.",
+                    _ => "Live Traffic needs the On-Site Agent on your Gateway.",
+                })
+            </span>
+            @if (View.State == LiveTrafficState.TurnedOff)
+            {
+                <SiteAdminOnly>
+                    <a href="/settings?tab=monitoring#live-traffic">Settings</a>
+                </SiteAdminOnly>
+            }
+            else if (View.State is LiveTrafficState.NoGatewayAgent or LiveTrafficState.AgentNeedsUpdate)
+            {
+                <SiteAdminOnly>
+                    <a href="@($"/settings?tab=multisite&configure={SiteContext.Slug}")">@(View.State == LiveTrafficState.AgentNeedsUpdate ? "Upgrade Agent" : "Set It Up")</a>
+                </SiteAdminOnly>
+            }
+        </div>
+        @HistoryBody
+    }
+    else
+    {
+        <div class="lt-client-summary">
+            @if (Feed.Ended)
+            {
+                <span>@TimeFormatHelper.Pluralize(View.MatchingFlows, "flow") ended in the last ten minutes</span>
+            }
+            else
+            {
+                @Rate(View.MatchingDownBps, "speed-down")<span> down &middot; </span>
+                @Rate(View.MatchingUpBps, "speed-up")<span> up &middot; </span>
+                <span>@TimeFormatHelper.Pluralize(View.MatchingFlows, "flow")</span>
+            }
+        </div>
+
+        <ClientFilterChips Feed="Feed" />
+
+        @if (View.State == LiveTrafficState.Starting)
+        {
+            <div class="loading-container lt-client-state"><div class="spinner"></div><p>Measuring rates.</p></div>
+        }
+        else if (View.Flows.Count == 0)
+        {
+            <div class="empty-state lt-client-empty">
+                <p>@(Feed.Ended ? "No flows have ended in the last ten minutes." : Feed.Filters.Count > 0 ? "No flows match." : "No traffic right now.")</p>
+            </div>
+        }
+        else
+        {
+            var shown = View.Flows.Take(_showAll ? View.Flows.Count : CollapsedRows).ToList();
+            var slots = Slots(shown.Count);
+            <div @onmouseenter="Feed.Hold.PointerIn" @onmouseleave="Feed.Hold.PointerOut" @ontouchstart="Feed.Hold.Touched">
+                <div class="table-responsive lt-desktop-only">
+                    <table class="results-table lt-flows">
+                        <colgroup><col style="width:3.3rem"><col style="width:27%"><col style="width:14%"><col style="width:13%"><col style="width:11%"><col style="width:10%"><col style="width:9%"><col style="width:11%"><col style="width:100px"></colgroup>
+                        <thead>
+                            <tr>
+                                <th>#</th>
+                                @SortHeader(LiveFlowSort.Destination, "Destination")
+                                @SortHeader(LiveFlowSort.App, "App")
+                                @SortHeader(LiveFlowSort.Route, "Route")
+                                @SortHeader(LiveFlowSort.Download, "Download")
+                                @SortHeader(LiveFlowSort.Upload, "Upload")
+                                @SortHeader(LiveFlowSort.Total, "Total")
+                                @SortHeader(LiveFlowSort.Started, Feed.Ended ? "Ended" : "Started")
+                                <th>Trend</th>
+                            </tr>
+                        </thead>
+                        <tbody class="lt-flip">
+                            @{ var rank = 0; }
+                            @foreach (var f in shown)
+                            {
+                                rank++;
+                                var key = f.Key;
+                                <LiveFlowRowView @key="key" Flow="f" Layout="LiveFlowLayout.Table" ShowClient="false" Rank="rank"
+                                                 Open="_openKey == key" OnToggle="() => ToggleRow(key)" Context="Feed.RowContext" />
+                            }
+                            @for (var i = shown.Count; i < slots; i++)
+                            {
+                                <tr class="lt-slot-empty"><td colspan="9">&nbsp;<span class="lt-sub">&nbsp;</span></td></tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+                <div class="lt-mobile-only lt-mobile-sort">
+                    <div class="time-range-selector">
+                        @foreach (var (col, label) in MobileSorts)
+                        {
+                            var active = Feed.Sort == col;
+                            <button class="time-btn @(active ? "active" : "")" @onclick="() => SetSortAsync(col)">@label@(active ? (Feed.Descending ? " ↓" : " ↑") : "")</button>
+                        }
+                    </div>
+                </div>
+                <div class="lt-mobile-list lt-flip">
+                    @foreach (var f in shown)
+                    {
+                        var key = f.Key;
+                        <LiveFlowRowView @key="key" Flow="f" Layout="LiveFlowLayout.List" ShowClient="false"
+                                         Open="_openKey == key" OnToggle="() => ToggleRow(key)" Context="Feed.RowContext" />
+                    }
+                    @for (var i = shown.Count; i < slots; i++)
+                    {
+                        <div class="lt-m-row lt-slot-empty" aria-hidden="true"></div>
+                    }
+                </div>
+            </div>
+            @if (View.Flows.Count > CollapsedRows)
+            {
+                <button type="button" class="btn btn-secondary btn-sm app-show-more" @onclick="ToggleShowAll">
+                    @(_showAll ? "Show fewer" : $"Show {View.Flows.Count - CollapsedRows} more")
+                </button>
+            }
+        }
+    }
+</div>
+
+@code {
+    /// <summary>The client's feed; the page owns it and disposes it when the tab closes.</summary>
+    [Parameter, EditorRequired] public ClientLiveFeed Feed { get; set; } = default!;
+
+    /// <summary>Opens the Speed tab's Live Throughput chart.</summary>
+    [Parameter] public EventCallback OnOpenThroughput { get; set; }
+
+    /// <summary>Live Throughput exists for this client (it is online): the eye beside the magnifier opens it.</summary>
+    [Parameter] public bool ShowThroughputLink { get; set; }
+
+
+    private const int CollapsedRows = 10;
+    private bool _showAll;
+    private string? _openKey;
+    private ClientLiveFeed? _subscribed;
+    private IJSObjectReference? _motion;
+
+    /// <summary>
+    /// The most rows shown since the user last changed the list. Rows are padded up to it, so flows
+    /// coming and going do not move the cards below up and down every two seconds; it settles to fewer
+    /// once they have held for a while (<see cref="LiveSlotHold"/>).
+    /// </summary>
+    private readonly LiveSlotHold _slots = new();
+
+    private static readonly (LiveFlowSort Col, string Label)[] MobileSorts =
+        [(LiveFlowSort.Download, "Down"), (LiveFlowSort.Upload, "Up"), (LiveFlowSort.Total, "Total"), (LiveFlowSort.Started, "Started")];
+
+    private LiveTrafficView? View => Feed.View;
+
+    private bool IsLive => View?.State is LiveTrafficState.Live or LiveTrafficState.Starting;
+
+    private int Slots(int shown) =>
+        _slots.Rows($"{Feed.Ended}|{Feed.Sort}|{Feed.Descending}|{_showAll}|{string.Join(",", Feed.Filters)}", shown, DateTime.UtcNow);
+
+    protected override void OnParametersSet()
+    {
+        if (ReferenceEquals(_subscribed, Feed)) return;
+        if (_subscribed != null) _subscribed.Changed -= OnFeedChanged;
+        _subscribed = Feed;
+        Feed.Changed += OnFeedChanged;
+        _slots.Reset();
+        _openKey = null;
+    }
+
+    private Task OnFeedChanged() => InvokeAsync(StateHasChanged);
+
+    /// <summary>The client's Live DNS card, further down Data / Apps; it shows whenever this card is live.</summary>
+    private async Task JumpToLiveDnsAsync()
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("eval", "document.getElementById('client-live-dns')?.scrollIntoView({ behavior: 'smooth', block: 'start' })");
+        }
+        catch (Exception ex)
+        {
+            Logger.LogDebug(ex, "Jump to Live DNS failed");
+        }
+    }
+
+    /// <summary>Starts the watcher that slides moved rows into place and holds the expanded row where it is.</summary>
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+        try
+        {
+            _motion ??= await JS.InvokeAsync<IJSObjectReference>("import", FileVersionProvider.AddFileVersionToPath("", "/js/live-traffic-motion.js"));
+            await _motion.InvokeVoidAsync("watch", ".lt-client-flows", ".lt-flip");
+        }
+        catch (JSDisconnectedException) { }
+        catch (Exception ex)
+        {
+            Logger.LogDebug(ex, "Client Live Traffic row motion failed");
+        }
+        try
+        {
+            var user = AuthState == null ? null : (await AuthState).User;
+            Feed.CanNameApps = user != null && (await Authz.AuthorizeAsync(user, SiteContext.Slug, NetworkOptimizer.Web.Services.Authorization.Policies.SiteAdmin)).Succeeded;
+            if (Feed.CanNameApps) StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogDebug(ex, "Client Live Traffic: role check failed");
+        }
+    }
+
+    [CascadingParameter] private Task<Microsoft.AspNetCore.Components.Authorization.AuthenticationState>? AuthState { get; set; }
+
+    private RenderFragment SortHeader(LiveFlowSort col, string label) => __builder =>
+    {
+        <th class="sortable @(Feed.Sort == col ? (Feed.Descending ? "sort-desc" : "sort-asc") : null)" @onclick="() => SetSortAsync(col)">@label</th>
+    };
+
+    private Task SetSortAsync(LiveFlowSort col)
+    {
+        _openKey = null;
+        return Feed.SetSortAsync(col);
+    }
+
+    private Task SetEndedAsync(bool ended)
+    {
+        _openKey = null;
+        return Feed.SetEndedAsync(ended);
+    }
+
+    private void ToggleShowAll() => _showAll = !_showAll;
+
+    private void ToggleRow(string key) => _openKey = _openKey == key ? null : key;
+
+    /// <summary>Without a Gateway agent: the client's flows from UniFi Network's own records, newest first.</summary>
+    private RenderFragment HistoryBody => __builder =>
+    {
+        var h = Feed.History;
+        <div class="lt-client-history">
+            <div class="lt-client-history-head">
+                <span class="lt-now-label">History from UniFi Network</span>
+                @if (h is { State: LiveHistoryState.Ready } && h.MatchingFlows > 0)
+                {
+                    <span class="lt-secondary lt-small">@TimeFormatHelper.Pluralize(h.MatchingFlows, "flow")@(h.MatchingBlocked > 0 ? $", {h.MatchingBlocked:N0} blocked" : ""), @DisplayFormatters.FormatBytes(h.MatchingBytes)</span>
+                }
+            </div>
+            <ClientFilterChips Feed="Feed" />
+            @if (h == null || (h.State == LiveHistoryState.Loading && h.TotalFlows == 0))
+            {
+                <div class="loading-container lt-client-state"><div class="spinner"></div><p>Reading UniFi Network's flow records</p></div>
+            }
+            else if (h.State is LiveHistoryState.Unsupported or LiveHistoryState.NoConsole
+                || (h.State == LiveHistoryState.Failed && h.TotalFlows == 0))
+            {
+                <p class="lt-muted lt-small">@(h.State switch
+                {
+                    LiveHistoryState.Unsupported => "The Network app on this UniFi Console does not serve its flow records.",
+                    LiveHistoryState.NoConsole => "Connect this site's UniFi Console to see its flow records.",
+                    _ => "UniFi Network did not answer. Network Optimizer tries again every 15 seconds.",
+                })</p>
+            }
+            else if (h.Flows.Count == 0)
+            {
+                <div class="empty-state lt-client-empty">
+                    <p>@(Feed.Filters.Count > 0 ? "No flows match." : "UniFi Network holds no flows for this client.")</p>
+                </div>
+            }
+            else
+            {
+                var shown = h.Flows.Take(_showAll ? h.Flows.Count : CollapsedRows).ToList();
+                <div class="table-responsive lt-desktop-only">
+                    <table class="results-table lt-flows">
+                        <colgroup><col style="width:3rem"><col style="width:12%"><col style="width:30%"><col style="width:14%"><col style="width:13%"><col style="width:10%"><col style="width:10%"><col style="width:10%"></colgroup>
+                        <thead><tr><th></th><th>Last Seen</th><th>Destination</th><th>App</th><th>Route</th><th>Action</th><th>Data</th><th>Duration</th></tr></thead>
+                        <tbody class="lt-flip">
+                            @foreach (var f in shown)
+                            {
+                                var key = f.Key;
+                                <LiveFlowRowView @key="key" Flow="f" Layout="LiveFlowLayout.HistoryTable" ShowClient="false"
+                                                 Open="_openKey == key" OnToggle="() => ToggleRow(key)" Context="Feed.RowContext" />
+                            }
+                        </tbody>
+                    </table>
+                </div>
+                <div class="lt-mobile-list lt-flip">
+                    @foreach (var f in shown)
+                    {
+                        var key = f.Key;
+                        <LiveFlowRowView @key="key" Flow="f" Layout="LiveFlowLayout.HistoryList" ShowClient="false"
+                                         Open="_openKey == key" OnToggle="() => ToggleRow(key)" Context="Feed.RowContext" />
+                    }
+                </div>
+                @if (h.Flows.Count > CollapsedRows)
+                {
+                    <button type="button" class="btn btn-secondary btn-sm app-show-more" @onclick="ToggleShowAll">
+                        @(_showAll ? "Show fewer" : $"Show {h.Flows.Count - CollapsedRows} more")
+                    </button>
+                }
+            }
+        </div>
+    };
+
+    private void OpenLiveTraffic()
+    {
+        var client = string.IsNullOrEmpty(Feed.ClientName) ? Feed.ClientMac : Feed.ClientName;
+        Nav.NavigateTo($"/monitoring/live-traffic?client={Uri.EscapeDataString(client)}");
+    }
+
+    public void Dispose()
+    {
+        if (_subscribed != null) _subscribed.Changed -= OnFeedChanged;
+    }
+}

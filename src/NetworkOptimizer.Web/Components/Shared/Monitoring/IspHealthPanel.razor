@@ -963,7 +963,7 @@ else
         <div class="card-body">
             @{
                 var ackedEpisodes = AckedEpisodeIds;
-                var allEvents = EventTimeline(r, _shiftFold.TraceByShift)
+                var allEvents = EventTimeline(r, _shiftFold.TraceByShift, _shiftFold.ClearedByShift)
                     .Concat(_episodeEntries.Select(e => e.EpisodeId is int id && ackedEpisodes.Contains(id)
                         ? e with { Category = EventCategory.Acknowledged } : e))
                     .OrderBy(e => e.Time)

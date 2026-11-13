@@ -421,6 +421,8 @@ public static class ConfigCollections
                 // x_api_token (mgmt) is issued anew by UniFi on every write of mgmt.
                 ReadOnlyFields = Set("site_id", "last_alert_id", "available_controller_channels", "available_firmware_channels", "layout_preference", "widgets", "hostname",
                     "network_defaults", "x_api_token"),
+                // UniFi assigns Teleport's addresses: a write of server_ip is refused and one of subnet_cidr does nothing.
+                ManagedField = (o, f) => Str(o, "key") == "teleport" && f is "server_ip" or "subnet_cidr",
                 ExtraSecretFields = Set("psk", "utm_token", "fingerbank_key"),
                 SetArrays = Set("enabled_networks", "excluded_network_ids", "enabled_categories", "geo_ip_filtering_countries"),
                 // ips dns_filters: one content filter per network. A "none" filter with no lists filters nothing,

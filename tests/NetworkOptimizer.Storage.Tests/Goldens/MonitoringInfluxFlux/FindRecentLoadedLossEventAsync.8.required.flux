@@ -1,0 +1,27 @@
+
+import "join"
+loss = from(bucket: "network_monitoring")
+  |> range(start: <now>, stop: <now>)
+  |> filter(fn: (r) => r._measurement == "latency")
+  |> filter(fn: (r) => r.target_type == "accessisp" or r.target_type == "transit" or r.target_type == "internetservice" or r.target_type == "wan")
+  |> filter(fn: (r) => r._field == "loss_percent")
+  |> aggregateWindow(every: 1m, fn: mean, createEmpty: false)
+  |> filter(fn: (r) => r._value > 1.0)
+  |> group()
+  |> keep(columns: ["_time", "_value", "target_id", "target_type"])
+
+load = from(bucket: "network_monitoring")
+  |> range(start: <now>, stop: <now>)
+  |> filter(fn: (r) => r._measurement == "interface_counters")
+  |> filter(fn: (r) => r.device_mac == "aa:bb:cc:dd:ee:ff")
+  |> filter(fn: (r) => r.if_name == "eth0.10")
+  |> filter(fn: (r) => r._field == "rate_in_bps" or r._field == "rate_out_bps")
+  |> aggregateWindow(every: 1m, fn: max, createEmpty: false)
+  |> filter(fn: (r) => (r._field == "rate_in_bps" and r._value >= 2.0)
+      or (r._field == "rate_out_bps" and r._value >= 2.0))
+  |> group()
+  |> keep(columns: ["_time"])
+  |> unique(column: "_time")
+
+join.inner(left: loss, right: load, on: (l, r) => l._time == r._time, as: (l, r) => l)
+  |> sort(columns: ["_time"], desc: false)

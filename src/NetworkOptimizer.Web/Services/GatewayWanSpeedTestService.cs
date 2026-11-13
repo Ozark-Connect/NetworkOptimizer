@@ -648,17 +648,21 @@ public class GatewayWanSpeedTestService : IGatewayWanSpeedTestService
         lock (_lock) _lastCompletedResult = testResult;
 
         // Publish alert event (same wan.speed_completed / wan.speed_degradation
-        // events the server-side WAN tests emit)
-        if (testResult.Success)
-            await WanSpeedAlertPublisher.PublishAsync(_alertEventBus, testResult, () => Task.FromResult(CreateSiteDb()), _logger);
-
+        // events the server-side WAN tests emit). Degradation waits for the background load check.
         var resolvedWanGroup = testResult.WanNetworkGroup;
-        _ = Task.Run(async () => await AnalyzePathInBackgroundAsync(resultId, resolvedWanGroup), CancellationToken.None);
-
         if (testResult.Success)
-            WanTestBackgroundCheck.Schedule(
-                _serviceProvider.GetRequiredService<IServiceScopeFactory>(), _siteSlug, resultId, resolvedWanGroup, phases,
-                () => Task.FromResult(CreateSiteDb()), id => OnPathAnalysisComplete?.Invoke(id), _logger);
+        {
+            Func<Task<NetworkOptimizerDbContext>> openDb = () => Task.FromResult(CreateSiteDb());
+            var checks = WanTestBackgroundCheck.WillCheck(resolvedWanGroup, phases);
+            await WanSpeedAlertPublisher.PublishAsync(_alertEventBus, testResult, openDb, _logger, checkDegradation: !checks);
+            if (checks)
+                WanTestBackgroundCheck.Schedule(
+                    _serviceProvider.GetRequiredService<IServiceScopeFactory>(), _siteSlug, resultId, resolvedWanGroup, phases,
+                    openDb, id => OnPathAnalysisComplete?.Invoke(id), _logger,
+                    stored => stored == null ? Task.CompletedTask : WanSpeedAlertPublisher.PublishDegradationAsync(_alertEventBus, stored, openDb, _logger));
+        }
+
+        _ = Task.Run(async () => await AnalyzePathInBackgroundAsync(resultId, resolvedWanGroup), CancellationToken.None);
 
         return testResult;
     }

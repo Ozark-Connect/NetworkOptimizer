@@ -48,6 +48,7 @@ public class AgentTunnelService : AgentTunnel.AgentTunnelBase
     private readonly GatewayAgentBlocklist _gatewayBlocklist;
     private readonly WanFlood.WanFloodService _wanFlood;
     private readonly ChangeControl.ChangeControlRegistry? _changeControl;
+    private readonly Monitoring.LiveTraffic.LiveTrafficRegistry? _liveTraffic;
     private readonly Licensing.LicenseStateService _licenseState;
     private readonly ILogger<AgentTunnelService> _logger;
 
@@ -65,9 +66,11 @@ public class AgentTunnelService : AgentTunnel.AgentTunnelBase
         WanFlood.WanFloodService wanFlood,
         Licensing.LicenseStateService licenseState,
         ILogger<AgentTunnelService> logger,
-        ChangeControl.ChangeControlRegistry? changeControl = null)
+        ChangeControl.ChangeControlRegistry? changeControl = null,
+        Monitoring.LiveTraffic.LiveTrafficRegistry? liveTraffic = null)
     {
         _changeControl = changeControl;
+        _liveTraffic = liveTraffic;
         _gatewayBlocklist = gatewayBlocklist;
         _wanFlood = wanFlood;
         _enrollment = enrollment;
@@ -217,16 +220,16 @@ public class AgentTunnelService : AgentTunnel.AgentTunnelBase
                             connection.TrySend(new ServerMessage { ResultAck = new ResultAck { Sequence = message.Sequence } });
                         break;
                     case AgentMessage.PayloadOneofCase.Iperf3Result:
-                        _iperf3.OnResult(message.Iperf3Result);
+                        _iperf3.OnResult(connection, message.Iperf3Result);
                         break;
                     case AgentMessage.PayloadOneofCase.UwnResult:
-                        _uwn.OnResult(message.UwnResult);
+                        _uwn.OnResult(connection, message.UwnResult);
                         break;
                     case AgentMessage.PayloadOneofCase.ProbeResponse:
-                        _probe.OnResult(message.ProbeResponse);
+                        _probe.OnResult(connection, message.ProbeResponse);
                         break;
                     case AgentMessage.PayloadOneofCase.SnmpOidResult:
-                        _snmpQuery.OnResult(message.SnmpOidResult);
+                        _snmpQuery.OnResult(connection, message.SnmpOidResult);
                         break;
                     case AgentMessage.PayloadOneofCase.ConntrackSamples:
                         // Same site-gone fencing as the probe/SNMP batches. Live batches carry
@@ -244,6 +247,10 @@ public class AgentTunnelService : AgentTunnel.AgentTunnelBase
                         }
                         if (message.Sequence > 0)
                             connection.TrySend(new ServerMessage { ResultAck = new ResultAck { Sequence = message.Sequence } });
+                        break;
+                    case AgentMessage.PayloadOneofCase.LiveTraffic:
+                        // Live only (sequence 0, never acked, never persisted): held in memory for viewers.
+                        _liveTraffic?.GetFor(siteSlug).Ingest(message.LiveTraffic);
                         break;
                     case AgentMessage.PayloadOneofCase.UciInformFrame:
                         // Live only (sequence 0, never acked): a lost frame is superseded by the next

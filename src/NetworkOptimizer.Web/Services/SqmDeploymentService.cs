@@ -1262,7 +1262,7 @@ public class SqmDeploymentService : ISqmDeploymentService
                     // Format: "Measured download speed: 206 Mbps"
                     var match = System.Text.RegularExpressions.Regex.Match(
                         resultFileResult.output, @"(\d+)\s*Mbps");
-                    if (match.Success && double.TryParse(match.Groups[1].Value, out var rate))
+                    if (match.Success && double.TryParse(match.Groups[1].Value, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var rate))
                     {
                         status.CurrentRateMbps = rate;
                     }
@@ -1308,7 +1308,7 @@ public class SqmDeploymentService : ISqmDeploymentService
             {
                 var measuredMatch = System.Text.RegularExpressions.Regex.Match(
                     line, @"Measured:\s*(\d+(?:\.\d+)?)\s*Mbps");
-                if (measuredMatch.Success && double.TryParse(measuredMatch.Groups[1].Value, out var measured))
+                if (measuredMatch.Success && double.TryParse(measuredMatch.Groups[1].Value, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var measured))
                 {
                     status.LastSpeedtestMeasured = measured;
                     status.LastSpeedtest = timestamp;
@@ -1320,7 +1320,7 @@ public class SqmDeploymentService : ISqmDeploymentService
             {
                 var adjustedMatch = System.Text.RegularExpressions.Regex.Match(
                     line, @"Adjusted to\s*(\d+(?:\.\d+)?)\s*Mbps");
-                if (adjustedMatch.Success && double.TryParse(adjustedMatch.Groups[1].Value, out var adjusted)
+                if (adjustedMatch.Success && double.TryParse(adjustedMatch.Groups[1].Value, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var adjusted)
                     && adjusted > 0)
                 {
                     status.LastSpeedtestAdjusted = adjusted;
@@ -1336,9 +1336,9 @@ public class SqmDeploymentService : ISqmDeploymentService
                     line, @"Ping adjusted to\s*(\d+(?:\.\d+)?)\s*Mbps\s*\(latency:\s*(\d+(?:\.\d+)?)ms\)");
                 if (pingMatch.Success)
                 {
-                    if (double.TryParse(pingMatch.Groups[1].Value, out var pingRate))
+                    if (double.TryParse(pingMatch.Groups[1].Value, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var pingRate))
                         status.LastPingRate = pingRate;
-                    if (double.TryParse(pingMatch.Groups[2].Value, out var latency))
+                    if (double.TryParse(pingMatch.Groups[2].Value, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var latency))
                         status.LastLatencyMs = latency;
                     status.LastPingAdjustment = timestamp;
                 }

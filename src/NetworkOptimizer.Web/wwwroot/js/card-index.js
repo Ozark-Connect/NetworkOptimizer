@@ -51,7 +51,7 @@
         var title = card.querySelector('.card-header .card-title');
         if (!title || title.closest('.card') !== card) return '';
         var copy = title.cloneNode(true);
-        Array.prototype.forEach.call(copy.querySelectorAll('.card-title-suffix, select, button, input, textarea'),
+        Array.prototype.forEach.call(copy.querySelectorAll('.card-title-suffix, .tooltip-icon, select, button, input, textarea'),
             function (n) { n.remove(); });
         return copy.textContent.replace(/\s+/g, ' ').trim();
     }

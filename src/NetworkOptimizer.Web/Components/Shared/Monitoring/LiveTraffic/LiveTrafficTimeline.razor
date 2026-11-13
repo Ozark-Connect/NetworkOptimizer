@@ -1,0 +1,172 @@
+@using NetworkOptimizer.Core.Helpers
+@using NetworkOptimizer.Web.Services.Monitoring.LiveTraffic
+@inject IDisplayTimeZone DisplayTime
+
+@if (Buckets.Count == 0)
+{
+    <div class="empty-state"><p>UniFi Network has no flow records yet.</p></div>
+}
+else
+{
+    var n = Buckets.Count;
+    var slot = (double)W / n;
+    var barW = Math.Max(1, slot * 0.78);
+    var max = Math.Max(1, Buckets.Max(b => ByData ? b.AllowedBytes + b.BlockedBytes : b.Allowed + b.Blocked));
+    var (selLo, selHi) = SelectionIndexes();
+    var shown = _hover is { } h ? Buckets.FirstOrDefault(b => b.Start == h) : null;
+    <div class="lt-tl-readout">
+        @if (shown != null)
+        {
+            <span class="lt-tl-readout-time">@Local(shown.Start)</span>
+            <span>@TimeFormatHelper.Pluralize(shown.Allowed + shown.Blocked, "flow")</span>
+            @if (shown.Blocked > 0)
+            {
+                <span class="lt-tl-blocked-text">@shown.Blocked.ToString("N0") blocked</span>
+            }
+            <span class="lt-secondary">@DisplayFormatters.FormatBytes(shown.AllowedBytes + shown.BlockedBytes)</span>
+        }
+        else
+        {
+            <span class="lt-muted">Drag across the bars to pick a window, or click one minute.</span>
+        }
+    </div>
+    <svg class="lt-tl-svg @(_dragFrom != null ? "is-dragging" : null)" viewBox="0 0 @W @H" preserveAspectRatio="none" role="img"
+         aria-label="Flows per minute, allowed and blocked"
+         @onmouseleave="OnLeave">
+        <line class="lt-tl-grid" x1="0" x2="@W" y1="@F(Top + Plot / 2)" y2="@F(Top + Plot / 2)" />
+        <line class="lt-tl-grid" x1="0" x2="@W" y1="@F(Top + Plot)" y2="@F(Top + Plot)" />
+        @if (selLo != null)
+        {
+            <rect class="lt-tl-selection" x="@F(selLo.Value * slot)" y="0" width="@F((selHi!.Value - selLo.Value + 1) * slot)" height="@F(Top + Plot)" />
+        }
+        @for (var i = 0; i < n; i++)
+        {
+            var b = Buckets[i];
+            var allowed = ByData ? b.AllowedBytes : b.Allowed;
+            var blocked = ByData ? b.BlockedBytes : b.Blocked;
+            var ha = Plot * allowed / (double)max;
+            var hb = Plot * blocked / (double)max;
+            var x = i * slot + (slot - barW) / 2;
+            var dim = selLo != null && (i < selLo || i > selHi);
+            var minute = b.Start;
+            <g class="@(dim ? "lt-tl-bar is-dim" : "lt-tl-bar")">
+                @if (ha > 0)
+                {
+                    <rect class="lt-tl-allowed" x="@F(x)" y="@F(Top + Plot - ha)" width="@F(barW)" height="@F(ha)" />
+                }
+                @if (hb > 0)
+                {
+                    <rect class="lt-tl-blocked" x="@F(x)" y="@F(Top + Plot - ha - hb)" width="@F(barW)" height="@F(hb)" />
+                }
+                <rect class="lt-tl-hit" x="@F(i * slot)" y="0" width="@F(slot)" height="@H"
+                      @onmousedown="() => OnDown(minute)" @onmouseenter="() => OnEnter(minute)" @onmouseup="() => OnUp(minute)" />
+            </g>
+        }
+    </svg>
+    <div class="lt-tl-ticks">
+        @for (var i = 0; i < n; i++)
+        {
+            if (IsTick(Buckets[i].Start, i))
+            {
+                <span style="left: @F((i + 0.5) * 100 / n)%">@Local(Buckets[i].Start)</span>
+            }
+        }
+    </div>
+}
+
+@code {
+    // Bars only: the SVG stretches to the card's width, so text in it would stretch too. Ticks are HTML.
+    private const int W = 1000;
+    private const int H = 124;
+    private const double Top = 6;
+    private const double Plot = 118;
+
+    /// <summary>One bucket per minute, oldest first.</summary>
+    [Parameter, EditorRequired] public IReadOnlyList<LiveHistoryBucket> Buckets { get; set; } = Array.Empty<LiveHistoryBucket>();
+
+    /// <summary>Bars sized by bytes instead of flow count.</summary>
+    [Parameter] public bool ByData { get; set; }
+
+    [Parameter] public DateTime? From { get; set; }
+    [Parameter] public DateTime? To { get; set; }
+
+    /// <summary>The picked window (UTC, end exclusive), or two nulls when the pick was cleared.</summary>
+    [Parameter] public EventCallback<(DateTime? From, DateTime? To)> OnSelect { get; set; }
+
+    // Drag and hover hold minute start times, not bucket indexes: a refresh mid-drag can shift or shorten Buckets.
+    private DateTime? _dragFrom;
+    private DateTime? _dragTo;
+    private DateTime? _hover;
+
+    private (int? Lo, int? Hi) SelectionIndexes()
+    {
+        DateTime? from = From, to = To;
+        if (_dragFrom is { } a && _dragTo is { } b)
+        {
+            from = a < b ? a : b;
+            to = (a < b ? b : a).AddMinutes(1);
+        }
+        if (from == null && to == null) return (null, null);
+        int? lo = null, hi = null;
+        for (var i = 0; i < Buckets.Count; i++)
+        {
+            var start = Buckets[i].Start;
+            if ((from == null || start >= from) && (to == null || start < to))
+            {
+                lo ??= i;
+                hi = i;
+            }
+        }
+        return (lo, hi);
+    }
+
+    private void OnDown(DateTime minute)
+    {
+        _dragFrom = _dragTo = minute;
+    }
+
+    private void OnEnter(DateTime minute)
+    {
+        _hover = minute;
+        if (_dragFrom != null) _dragTo = minute;
+    }
+
+    private Task OnUp(DateTime minute)
+    {
+        if (_dragFrom == null) return Task.CompletedTask;
+        _dragTo = minute;
+        return Commit();
+    }
+
+    private Task OnLeave()
+    {
+        _hover = null;
+        return _dragFrom == null ? Task.CompletedTask : Commit();
+    }
+
+    private async Task Commit()
+    {
+        var a = _dragFrom!.Value;
+        var b = _dragTo!.Value;
+        _dragFrom = _dragTo = null;
+        var from = a < b ? a : b;
+        var to = (a < b ? b : a).AddMinutes(1);
+        // Clicking the one minute already picked clears the pick.
+        if (to - from == TimeSpan.FromMinutes(1) && From == from && To == to)
+            await OnSelect.InvokeAsync((null, null));
+        else
+            await OnSelect.InvokeAsync((from, to));
+    }
+
+    private bool IsTick(DateTime start, int i)
+    {
+        var local = TimeZoneInfo.ConvertTimeFromUtc(DateTime.SpecifyKind(start, DateTimeKind.Utc), DisplayTime.Zone);
+        return local.Minute % 10 == 0 && i > 1 && i < Buckets.Count - 2;
+    }
+
+    private string Local(DateTime utc) =>
+        TimeZoneInfo.ConvertTimeFromUtc(DateTime.SpecifyKind(utc, DateTimeKind.Utc), DisplayTime.Zone)
+            .ToString(DisplayTime.Format.Time, DisplayFormat.Culture);
+
+    private static string F(double v) => v.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture);
+}

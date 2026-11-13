@@ -124,6 +124,7 @@ Track signal quality on your cable modem, fiber ONT, and cellular modems over ti
 - **Deutsche Telekom** - Glasfaser-Modem 2 (FTTH bridge mode)
 - **Richerlink** - RL821GWV-D
 - **Realtek-based GPON sticks** (RTL960x) - ODI DFP-34X-2C2, ODI DFP-34X-2IY3, V-SOL V2801F, T&W TWCGPON657, Luleey LL-XS2510
+- **odi-oss open firmware GPON sticks** - ODI DFP-34X-2C2 running [odi-oss](https://github.com/AndreZiviani/odi-oss), read from its Prometheus exporter: optics, ONU state, ONU ID, FEC state and the GPON line counters (BIP, FEC, HEC, GEM frames, upstream grants)
 - **Zyxel GPON stick** - PMG3000-D20B (MaxLinear / T&W based)
 - **8311 community firmware XGS-PON sticks** - WAS-110 (MaxLinear PRX126), X-ONU-SFPP, WT-ONU-STICK, and other sticks running 8311
 - **Peter-Pon firmware GPON sticks** - FS.com GPON-SFP-ONT-MAC-I, Huawei MA5671A, and other Lantiq PEB98035 sticks

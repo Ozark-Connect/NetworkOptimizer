@@ -24,10 +24,22 @@ public class SiteSwitchUrlTests
     // Wi-Fi Optimizer: APs, clients, and roaming edges go; band and channel filters stay.
     [InlineData("/wifi-optimizer?tab=roaming&edge=ap1-ap2", "/wifi-optimizer?tab=roaming")]
     [InlineData("/wifi-optimizer?tab=channels&ap=aa:bb:cc:dd:ee:ff&band=5&channel=36", "/wifi-optimizer?tab=channels&band=5&channel=36")]
+    [InlineData("/wifi-optimizer?tab=client&ap=aa:bb:cc:dd:ee:ff&band=5&client=aa:bb:cc:dd:ee:01", "/wifi-optimizer?tab=client&band=5")]
     [InlineData("/client-dashboard?ip=192.0.2.10&range=24h", "/client-dashboard?range=24h")]
     [InlineData("/client-dashboard?ip=192.0.2.10&wan=wan2#speed", "/client-dashboard#speed")]
     [InlineData("/alerts?tab=active&alert=12", "/alerts?tab=active")]
     [InlineData("/speedtest?result=5", "/speedtest")]
+    // Live Traffic: clients, routes, resolvers, and LAN-device destinations go; apps and internet destinations stay.
+    [InlineData("/monitoring/live-traffic?not-app=ICMP&client=NAS&route=Fiber%20WAN&not-resolver=Gateway",
+        "/monitoring/live-traffic?not-app=ICMP")]
+    [InlineData("/monitoring/live-traffic?dest=192.168.1.20&dest=youtube.com&not-dest=10.0.0.5",
+        "/monitoring/live-traffic?dest=youtube.com")]
+    [InlineData("/monitoring/live-traffic?dest=203.0.113.9&app=YouTube", "/monitoring/live-traffic?dest=203.0.113.9&app=YouTube")]
+    [InlineData("/monitoring/live-traffic?route=LAN&not-route=Fiber%20WAN", "/monitoring/live-traffic?route=LAN")]   // LAN is every site's
+    [InlineData("/monitoring/live-traffic?not-app=ICMP&route=LAN&dest=%5BAP%5D%20Living%20Room",
+        "/monitoring/live-traffic?not-app=ICMP&route=LAN")]                                                       // a UniFi device by name
+    [InlineData("/monitoring/live-traffic?dest=nas.lan&dest=printer.local&dest=rr4---sn-abc.googlevideo.com",
+        "/monitoring/live-traffic?dest=rr4---sn-abc.googlevideo.com")]
     // Threat Intelligence filters name an outside source, which every site shares.
     [InlineData("/threats?ip=203.0.113.5&port=22", "/threats?ip=203.0.113.5&port=22")]
     public void StripSiteBoundParams_DropsOnlyWhatBelongsToTheOldSite(string url, string expected)

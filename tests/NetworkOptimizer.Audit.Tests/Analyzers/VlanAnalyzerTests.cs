@@ -1,3 +1,4 @@
+using System.Text.Json;
 using FluentAssertions;
 using Microsoft.Extensions.Logging;
 using Moq;
@@ -24,6 +25,36 @@ public class VlanAnalyzerTests
             Mock.Of<ILogger<FirewallRuleAnalyzer>>(),
             new FirewallRuleParser(Mock.Of<ILogger<FirewallRuleParser>>()));
     }
+
+    #region ExtractNetworks WAN Tests
+
+    [Theory]
+    [InlineData("\"purpose\": \"wan\"")]
+    [InlineData("\"wan_networkgroup\": \"WAN3\"")]
+    [InlineData("\"wan_type\": \"wireless_5g\"")]
+    public void ExtractNetworks_CellularWanInNetworkTable_IsNotANetwork(string wanMarker)
+    {
+        var json = $$"""
+        {
+            "data": [
+                {
+                    "type": "udm",
+                    "name": "Gateway",
+                    "network_table": [
+                        { "_id": "lan-id", "name": "Main", "vlan": 2, "purpose": "corporate", "ip_subnet": "192.0.2.1/24", "networkgroup": "LAN" },
+                        { "_id": "wan-id", "name": "Cellular", {{wanMarker}} }
+                    ]
+                }
+            ]
+        }
+        """;
+
+        var networks = _analyzer.ExtractNetworks(JsonDocument.Parse(json).RootElement);
+
+        networks.Select(n => n.Name).Should().Equal("Main");
+    }
+
+    #endregion
 
     #region AnalyzeNetworkIsolation Tests
 

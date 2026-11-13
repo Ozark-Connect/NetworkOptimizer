@@ -1018,6 +1018,8 @@
         await Discovery.CommitAsync(_wanTracer);
         _state = Svc.State;
         _justSaved = true;
+        // The commit clears the review flag: the WAN pill's dot goes now, not on the minute check.
+        await RefreshReviewFlagAsync();
         await OnSaved.InvokeAsync();
         StateHasChanged();
 

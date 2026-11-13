@@ -150,7 +150,7 @@ public class LatencyMonitor
             var parts = rttLine.Split('=')[1].Trim().Split('/');
             if (parts.Length >= 2)
             {
-                return double.Parse(parts[1]);
+                return double.Parse(parts[1], System.Globalization.CultureInfo.InvariantCulture);
             }
         }
         catch

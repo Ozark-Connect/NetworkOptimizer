@@ -115,7 +115,7 @@ public class AlertRuleEvaluator
             alertEvent.Context.TryGetValue("drop", out dropStr) ||
             alertEvent.Context.TryGetValue(ValuePercentContextKey, out dropStr))
         {
-            if (double.TryParse(dropStr, out var dropValue))
+            if (double.TryParse(dropStr, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var dropValue))
                 return dropValue >= rule.ThresholdPercent.Value;
         }
 

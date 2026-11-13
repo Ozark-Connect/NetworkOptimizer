@@ -13,7 +13,7 @@
 else if (Type == HopType.Tailscale)
 {
     @* Official Tailscale logo - 3x3 dot grid: middle row + center bottom solid, corners faded *@
-    <svg viewBox="0 0 20 20" width="@Size" height="@Size" class="vpn-icon tailscale-icon">
+    <svg viewBox="0 0 20 20" width="@Size" height="@Size" class="vpn-icon tailscale-icon @Class">
         <ellipse cx="2.45" cy="10.18" rx="2.45" ry="2.44" fill="currentColor" />
         <ellipse cx="9.79" cy="10.18" rx="2.45" ry="2.44" fill="currentColor" />
         <ellipse cx="17.13" cy="10.18" rx="2.45" ry="2.44" fill="currentColor" />
@@ -36,4 +36,7 @@ else if (Type == HopType.Vpn)
 
     /// <summary>SVG icon size in px (Tailscale/Teleport). The shield PNG is sized via CSS.</summary>
     [Parameter] public int Size { get; set; } = 24;
+
+    /// <summary>Extra CSS class on the Tailscale icon, for placement beside other content.</summary>
+    [Parameter] public string? Class { get; set; }
 }

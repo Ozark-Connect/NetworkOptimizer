@@ -1,4 +1,5 @@
 using NetworkOptimizer.WiFi.Helpers;
+using NetworkOptimizer.WiFi.Models;
 
 namespace NetworkOptimizer.WiFi.Rules;
 
@@ -68,6 +69,6 @@ public class IoTSsidSeparationRule : IWiFiOptimizerRule
             Recommendation = "Create a 2.4 GHz-only SSID for IoT/legacy devices (with band steering off), " +
                 "then enable band steering on your main SSID to push capable devices to 5 GHz.",
             ScoreImpact = -5
-        };
+        }.WithLinks(new[] { new IssueLink("2.4 GHz clients", IssueLinks.Clients(band: RadioBand.Band2_4GHz)) });
     }
 }

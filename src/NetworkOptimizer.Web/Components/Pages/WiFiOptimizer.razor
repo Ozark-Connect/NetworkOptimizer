@@ -14,6 +14,7 @@
 @inject ClientDashboardService DashboardService
 @inject UniFiConnectionService ConnectionService
 @inject NavigationManager NavigationManager
+@inject IJSRuntime JS
 @inject ApMapService ApMapService
 @inject IMeshOptimizationService MeshService
 @inject NetworkOptimizer.Web.Services.Licensing.LicenseStateService LicenseState
@@ -245,7 +246,8 @@
         <!-- Client Stats Timeline -->
         <div class="card card-full-width">
             <div class="card-body">
-                <NetworkOptimizer.Web.Components.Shared.WiFi.ClientTimeline InitialClientMac="@_initialClientMac" InitialApMac="@_initialApMac" InitialBand="@_initialBand" />
+                <NetworkOptimizer.Web.Components.Shared.WiFi.ClientTimeline InitialClientMac="@_initialClientMac" InitialApMac="@_initialApMac" InitialBand="@_initialBand"
+                                                                            OnClientNavigate="HandleClientNavigate" />
             </div>
         </div>
     }
@@ -1158,6 +1160,9 @@
             _activeTab = "client";
             _initialClientMac = ClientQueryParam;
             _lastTabParam = "client";
+            // A client's URL carries the list's filters, so Back after a reload lands on the same list.
+            _initialApMac = ApQueryParam;
+            _initialBand = BandFromQueryString(BandQueryParam);
         }
         else if (!string.IsNullOrEmpty(TabParam))
         {
@@ -1229,12 +1234,19 @@
             _activeTab = "client";
             _initialClientMac = ClientQueryParam;
         }
+        // Back from a client's details: the URL keeps the Client Stats tab and drops the client.
+        else if (string.IsNullOrEmpty(ClientQueryParam) && _initialClientMac != null
+                 && _activeTab == "client" && ResolveTab(TabParam) == "client")
+        {
+            _initialClientMac = null;
+        }
         else if (!string.IsNullOrEmpty(EdgeQueryParam) && EdgeQueryParam != _initialEdge)
         {
             _activeTab = "roaming";
             _initialEdge = EdgeQueryParam;
         }
-        else if (TabParam != _lastTabParam && _lastTabParam != null)
+        // A bare /wifi-optimizer leaves the last tab null, and a link from it (a health issue's) must still switch.
+        else if (TabParam != _lastTabParam)
         {
             var newTab = ResolveTab(TabParam);
             if (newTab != _activeTab)
@@ -1462,6 +1474,40 @@
         _initialClientMac = mac;
         NavigationManager.NavigateTo("/wifi-optimizer?tab=client&client=" + Uri.EscapeDataString(mac), forceLoad: false, replace: false);
         _lastTabParam = "client";
+    }
+
+    /// <summary>A client was opened from the Client Stats list, so the list is the history entry right behind it.</summary>
+    private bool _listBehindClient;
+
+    /// <summary>
+    /// A client picked in Client Stats, or the list (null), goes in the URL so the browser's Back and
+    /// Forward step between the list and a client. The list's AP and band filters stay in it. Back
+    /// to the list steps back through history when the list is right behind, so Back after it does
+    /// not return to the client.
+    /// </summary>
+    private async Task HandleClientNavigate(string? mac)
+    {
+        if (string.IsNullOrEmpty(mac) && _listBehindClient)
+        {
+            _listBehindClient = false;
+            _initialClientMac = null;
+            await JS.InvokeVoidAsync("history.back");
+            return;
+        }
+        _listBehindClient = !string.IsNullOrEmpty(mac) && _initialClientMac == null;
+
+        var uri = "/wifi-optimizer?tab=client";
+        if (!string.IsNullOrEmpty(ApQueryParam))
+            uri += "&ap=" + Uri.EscapeDataString(ApQueryParam);
+        if (!string.IsNullOrEmpty(BandQueryParam))
+            uri += "&band=" + Uri.EscapeDataString(BandQueryParam);
+        if (!string.IsNullOrEmpty(mac))
+            uri += "&client=" + Uri.EscapeDataString(mac);
+
+        _activeTab = "client";
+        _initialClientMac = string.IsNullOrEmpty(mac) ? null : mac;
+        _lastTabParam = "client";
+        NavigationManager.NavigateTo(uri, forceLoad: false, replace: false);
     }
 
     private void HandleApLoadBalanceNavigate((string? ApMac, RadioBand? Band) filter)

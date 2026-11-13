@@ -192,7 +192,8 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
         IMemoryCache cache,
         ILoggerFactory loggerFactory,
         bool isRemoteSite = false,
-        Func<string, CancellationToken, Task<System.Net.IPAddress[]>>? hostnameResolver = null)
+        Func<string, CancellationToken, Task<System.Net.IPAddress[]>>? hostnameResolver = null,
+        Func<string, bool>? tailnetPeer = null)
     {
         _clientProvider = clientProvider;
         _cache = cache;
@@ -200,7 +201,11 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
         _logger = loggerFactory.CreateLogger<NetworkPathAnalyzer>();
         _isRemoteSite = isRemoteSite;
         _hostnameResolver = hostnameResolver;
+        _tailnetPeer = tailnetPeer;
     }
+
+    /// <summary>Whether the site's tailnet device list holds an address; null when none is configured.</summary>
+    private readonly Func<string, bool>? _tailnetPeer;
 
     /// <summary>
     /// Invalidates the cached topology so the next call fetches fresh data from the API.
@@ -2641,7 +2646,7 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
             !string.IsNullOrEmpty(n.IpSubnet) && NetworkUtilities.IsIpInSubnet(clientIp, n.IpSubnet));
 
         // Classify the VPN type (Tailscale / Teleport / remote-user VPN) via shared logic.
-        var vpnType = ClassifyVpnClient(clientIp, topology);
+        var vpnType = ClassifyVpnClient(clientIp, topology, _tailnetPeer);
         if (vpnType == HopType.Tailscale)
         {
             // Store directional WAN speeds: Ingress=download (FromDevice), Egress=upload (ToDevice)
@@ -2735,6 +2740,12 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
         if (string.IsNullOrEmpty(ip) || !System.Net.IPAddress.TryParse(ip, out var parsed))
             return false;
 
+        // Tailnet IPv6 (fd7a:115c:a1e0::/48) arrives over the Tailscale tunnel. It is unique-local, so the
+        // check below would read it as on the LAN. Tailnet IPv4 is decided by the networks, as before.
+        if (parsed.AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6 && !parsed.IsIPv4MappedToIPv6
+            && NetworkUtilities.IsTailscaleAddress(parsed))
+            return true;
+
         // Networks carry IPv4 subnets only, so an IPv6 unique-local or link-local address matches
         // none of them. It is still never an internet address.
         if (parsed.AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6
@@ -2764,33 +2775,44 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
     /// and the Client Dashboard's simplified VPN view.
     /// </summary>
     /// <remarks>
-    /// The Tailscale check is pure-IP (CGNAT 100.64.0.0/10) and works with a null
+    /// The Tailscale check is pure-IP (100.64.0.0/10 and fd7a:115c:a1e0::/48) and works with a null
     /// topology. Teleport and remote-user-VPN classification need the topology's
     /// networks; when topology is null only Tailscale can be identified.
     /// </remarks>
-    public static HopType? ClassifyVpnClient(string clientIp, NetworkTopology? topology)
+    public static HopType? ClassifyVpnClient(string clientIp, NetworkTopology? topology) =>
+        ClassifyVpnClient(clientIp, topology, tailnetPeer: null);
+
+    /// <inheritdoc cref="ClassifyVpnClient(string, NetworkTopology?)"/>
+    /// <param name="tailnetPeer">Whether the site's tailnet device list holds an address, for a custom IP pool.</param>
+    public static HopType? ClassifyVpnClient(string clientIp, NetworkTopology? topology, Func<string, bool>? tailnetPeer) =>
+        ClassifyVpnClient(clientIp, topology?.Networks.Select(n => ((string?)n.IpSubnet, (string?)n.Purpose)).ToList(),
+            tailnetPeer: tailnetPeer);
+
+    /// <summary>
+    /// <see cref="ClassifyVpnClient(string, NetworkTopology?, Func{string, bool}?)"/> from the site's networks alone (subnet and
+    /// purpose), for a caller that holds the network configs rather than a topology (Live Traffic).
+    /// <paramref name="teleportByElimination"/> off skips the "192.168 on no known network" Teleport guess,
+    /// which also catches a site-to-site peer's clients: a caller that sees other sites' traffic turns it off.
+    /// <paramref name="tailnetPeer"/> answers whether the site's tailnet device list holds an address.
+    /// </summary>
+    public static HopType? ClassifyVpnClient(string clientIp, IReadOnlyCollection<(string? IpSubnet, string? Purpose)>? networks,
+        bool teleportByElimination = true, Func<string, bool>? tailnetPeer = null)
     {
         if (string.IsNullOrEmpty(clientIp) || !System.Net.IPAddress.TryParse(clientIp, out _))
             return null;
 
-        // Tailscale CGNAT range: 100.64.0.0/10 (100.64.x.x - 100.127.x.x)
-        if (clientIp.StartsWith("100."))
-        {
-            var parts = clientIp.Split('.');
-            if (parts.Length >= 2 && int.TryParse(parts[1], out int secondOctet)
-                && secondOctet >= 64 && secondOctet <= 127)
-            {
-                return HopType.Tailscale;
-            }
-        }
+        // Tailscale's default ranges (100.64.0.0/10, fd7a:115c:a1e0::/48), or a device the tailnet's
+        // own list names at an address outside them (a custom IP pool).
+        if (NetworkUtilities.IsTailscaleAddress(clientIp) || tailnetPeer?.Invoke(clientIp) == true)
+            return HopType.Tailscale;
 
-        if (topology == null)
+        if (networks == null)
             return null;
 
         // Teleport: 192.168.x.x that's NOT in any known UniFi network
-        if (clientIp.StartsWith("192.168."))
+        if (teleportByElimination && clientIp.StartsWith("192.168."))
         {
-            var isInKnownNetwork = topology.Networks.Any(n =>
+            var isInKnownNetwork = networks.Any(n =>
                 !string.IsNullOrEmpty(n.IpSubnet) && NetworkUtilities.IsIpInSubnet(clientIp, n.IpSubnet));
 
             if (!isInKnownNetwork)
@@ -2798,10 +2820,10 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
         }
 
         // UniFi remote-user-vpn network (e.g., L2TP, OpenVPN server on gateway)
-        var matchingNetwork = topology.Networks.FirstOrDefault(n =>
+        var matchingNetwork = networks.FirstOrDefault(n =>
             !string.IsNullOrEmpty(n.IpSubnet) && NetworkUtilities.IsIpInSubnet(clientIp, n.IpSubnet));
 
-        if (matchingNetwork?.Purpose == "remote-user-vpn")
+        if (matchingNetwork.Purpose == "remote-user-vpn")
             return HopType.Vpn;
 
         return null;
@@ -2814,7 +2836,7 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
             return null;
 
         var topology = await GetTopologyAsync(cancellationToken);
-        return ClassifyVpnClient(clientIp, topology);
+        return ClassifyVpnClient(clientIp, topology, _tailnetPeer);
     }
 
     /// <inheritdoc />

@@ -87,7 +87,7 @@ public class HighPowerOverlapRule : IWiFiOptimizerRule
                         Recommendation = recommendation,
                         ScoreImpact = -5,
                         AffectedChannels = { channel }
-                    };
+                    }.WithLinks(highPowerAps.Select(ap => new IssueLink(ap.Name, IssueLinks.Channel(band, channel))));
                     // Measured overlap stays a warning; the hint only says whose choice it was.
                     if (highPowerAps.All(ap => ap.Radios.Any(r => r.Band == band && r.Channel == channel && r.ChannelIsFixed)))
                         RadioIntent.AppendHint(issue, RadioIntent.ChannelHint);

@@ -109,6 +109,15 @@ export function ponDetailsHtml(items, labelHeader, extras = []) {
             header: 'FEC DS / US',
             cell: item => { const l = lastOf(item); return l.dsFec == null && l.usFec == null ? null : `${l.dsFec ? 'on' : 'off'} / ${l.usFec ? 'on' : 'off'}`; },
         },
+        {
+            header: '<span data-tooltip="Downstream AES encryption, read from the ONT\'s GEM port table">AES DS</span>',
+            cell: item => {
+                const l = [...item.pon].reverse().find(p => p.aes != null);
+                if (!l) return null;
+                if (!l.aes) return 'off';
+                return l.aesPorts == null ? 'on' : `on (${l.aesPorts} GEM port${l.aesPorts === 1 ? '' : 's'})`;
+            },
+        },
         { header: 'Response Time', cell: item => lastOf(item).respTime },
         {
             header: '<span data-tooltip="Raw device enums for the module-to-gateway link. Read them for change: a value that moves means the host link renegotiated, which the PON-side fields never show.">Host Link</span>',

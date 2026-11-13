@@ -64,6 +64,30 @@ public class DohProviderRegistryTests : IDisposable
         result.Should().BeNull();
     }
 
+    [Theory]
+    [InlineData("dns.nextdns.io", "NextDNS")]
+    [InlineData("dns.nextdns.io.", "NextDNS")]
+    [InlineData("dns2.nextdns.io", "NextDNS")]
+    [InlineData("security.cloudflare-dns.com", "Cloudflare")]
+    [InlineData("dns.google", "Google")]
+    [InlineData("dns.controld.com", "ControlD")]
+    public void IdentifyProviderFromResolverHost_ResolverHost_ReturnsProvider(string host, string expected)
+    {
+        DohProviderRegistry.IdentifyProviderFromResolverHost(host)!.Name.Should().Be(expected);
+    }
+
+    [Theory]
+    [InlineData("my.nextdns.io")]
+    [InlineData("api.nextdns.io")]
+    [InlineData("controld.example.com")]
+    [InlineData("dnsnextdns.io")]
+    [InlineData("")]
+    [InlineData(null)]
+    public void IdentifyProviderFromResolverHost_NotAResolverHost_ReturnsNull(string? host)
+    {
+        DohProviderRegistry.IdentifyProviderFromResolverHost(host).Should().BeNull();
+    }
+
     [Fact]
     public void IdentifyProvider_EmptyHostname_ReturnsNull()
     {
@@ -152,6 +176,23 @@ public class DohProviderRegistryTests : IDisposable
 
         result.Should().NotBeNull();
         result!.Name.Should().Be(expectedProvider);
+    }
+
+    [Theory]
+    [InlineData("76.76.2.11")]
+    [InlineData("76.76.10.11")]
+    public void IdentifyProviderFromIp_ControlDRanges_ReturnsControlD(string ip)
+    {
+        DohProviderRegistry.IdentifyProviderFromIp(ip)!.Name.Should().Be("ControlD");
+    }
+
+    [Theory]
+    [InlineData("76.76.21.21")]   // Vercel (tailscale.com)
+    [InlineData("76.76.19.19")]   // Twingate
+    [InlineData("76.76.0.1")]     // CleanBrowsing infrastructure, not a listed resolver
+    public void IdentifyProviderFromIp_OtherOwnersIn7676_ReturnsNull(string ip)
+    {
+        DohProviderRegistry.IdentifyProviderFromIp(ip).Should().BeNull();
     }
 
     [Fact]

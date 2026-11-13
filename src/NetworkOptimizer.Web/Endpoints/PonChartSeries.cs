@@ -36,6 +36,8 @@ public static class PonChartSeries
                 onuId = p.OnuId,
                 dsFec = p.DsFecEnabled,
                 usFec = p.UsFecEnabled,
+                aes = p.AesActive,
+                aesPorts = p.GemPortsEncrypted,
                 respTime = p.OnuResponseTime,
                 uptime = p.SfpUptimeS,
                 ploamMs = p.PloamElapsedMs,

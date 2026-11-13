@@ -610,6 +610,18 @@ public class PlanEngineTests
     }
 
     [Fact]
+    public void EditingTeleportAddresses_PlansNoWrite()
+    {
+        var desired = State(("setting", """{"_id":"s1","key":"teleport","enabled":true,"subnet_cidr":"198.51.100.1/24","server_ip":"198.51.100.1"}"""));
+        var live = State(("setting", """{"_id":"s1","key":"teleport","enabled":true,"subnet_cidr":"192.0.2.1/24","server_ip":"192.0.2.1"}"""));
+
+        var doc = Plan(desired, live);
+
+        doc.Errors.Should().BeEmpty();
+        doc.Operations.Should().BeEmpty();
+    }
+
+    [Fact]
     public void WlanCreate_LeavesOutTheLegacyBandField()
     {
         const string other = """{"_id":"w0","name":"Other","networkconf_id":"n1"}""";

@@ -11,6 +11,8 @@
 @using NetworkOptimizer.WiFi.Helpers
 @implements IDisposable
 @inject IDisplayTimeZone DisplayTime
+@inject ITailscaleDirectory Tailscale
+@inject IClientIcons ClientIcons
 
 @if (!PathOnly)
 {
@@ -329,7 +331,7 @@
                                        data-tooltip="@deviceTooltip" data-tooltip-html
                                        data-tooltip-interactive="@(hop.Type == HopType.WirelessClient ? "" : null)">
                                         <span class="hop-icon">@GetHopIconMarkup(hop)</span>
-                                        <span class="hop-name">@hop.DeviceName</span>
+                                        <span class="hop-name">@HopName(hop)</span>
                                     </a>
                                 }
                                 else if (!string.IsNullOrEmpty(deviceTooltip))
@@ -338,14 +340,17 @@
                                          data-tooltip="@deviceTooltip" data-tooltip-html
                                          data-tooltip-interactive="@(hop.Type == HopType.WirelessClient ? "" : null)">
                                         <span class="hop-icon">@GetHopIconMarkup(hop)</span>
-                                        <span class="hop-name">@hop.DeviceName</span>
+                                        <span class="hop-name">@HopName(hop)</span>
                                     </div>
                                 }
                                 else
                                 {
-                                    <div class="@hopClasses">
+                                    var offerTailscale = hop.Type == HopType.Tailscale && _tailnetRead && !_tailnet.Connected;
+                                    <div class="@hopClasses"
+                                         data-app-tailscale="@(offerTailscale ? "Tailscale" : null)"
+                                         data-tailscale-link="@(offerTailscale && _canConfigure ? "/settings?tab=connection#tailscale" : null)">
                                         <span class="hop-icon">@GetHopIconMarkup(hop)</span>
-                                        <span class="hop-name">@hop.DeviceName</span>
+                                        <span class="hop-name">@HopName(hop)</span>
                                     </div>
                                 }
 
@@ -435,8 +440,28 @@
 
     private bool _canConfigure;
 
+    /// <summary>The site's tailnet, read once: it names the Tailscale hop.</summary>
+    private TailnetSnapshot _tailnet = TailnetSnapshot.Empty;
+    private bool _tailnetRead;
+
+    /// <summary>The site's client icons and device images, for the hop icons. Empty until loaded.</summary>
+    private ClientIconMap _clientIcons = ClientIconMap.Empty;
+
+    /// <summary>The hop's label: a Tailscale hop takes the device's tailnet name; its path is in the tooltip.</summary>
+    private string HopName(NetworkHop hop) =>
+        hop.Type == HopType.Tailscale ? _tailnet.NameFor(hop.DeviceIp) ?? hop.DeviceName : hop.DeviceName;
+
     protected override async Task OnParametersSetAsync()
     {
+        if (!_tailnetRead)
+        {
+            _tailnetRead = true;
+            // Refused on a public result page too: the hops keep their bundled images and emoji.
+            _ = ClientIcons.LoadIntoAsync(map => InvokeAsync(() => { _clientIcons = map; StateHasChanged(); }));
+            try { _tailnet = await Tailscale.GetPeersAsync(); }
+            catch (Exception) { /* Refused (no session, as on a public result page): the hop keeps its generic label. */ }
+        }
+
         if (AuthState is null)
         {
             _canOperate = _canConfigure = true;
@@ -871,6 +896,27 @@
             var adjacentHop = hopIdx >= 0 && hopIdx < hops.Count - 1 ? hops[hopIdx + 1] : null;
             if (adjacentHop != null)
                 return GetWifiTooltip(hop, adjacentHop, hop.IsBottleneck);
+        }
+
+        // Tailscale hop: the device and, where a local tailscaled was read at test time, its path.
+        if (hop.Type == HopType.Tailscale && (_tailnet.Peer(hop.DeviceIp) is not null || hop.TailnetPath is not null))
+        {
+            static string Row(string label, string value) =>
+                $"<div class='device-tooltip-row'><span class='device-tooltip-label'>{label}:</span> {System.Net.WebUtility.HtmlEncode(value)}</div>";
+            var rows = new List<string>();
+            if (_tailnet.Peer(hop.DeviceIp) is { } peer)
+            {
+                rows.Add(Row("Device", peer.Name));
+                if (!string.IsNullOrEmpty(peer.Os)) rows.Add(Row("OS", peer.Os));
+                if (!string.IsNullOrEmpty(peer.User)) rows.Add(Row("User", peer.User));
+            }
+            if (hop.TailnetPath is { } path)
+            {
+                rows.Add(Row("Path", TailnetDisplay.PathLabel(path, afterTest: true)));
+                if (TailnetDisplay.PathEndpoint(path) is { } endpoint) rows.Add(Row("Endpoint", endpoint));
+                if (TailnetDisplay.PathHandshake(path) is { } handshake) rows.Add(Row("Handshake", handshake));
+            }
+            return string.Concat(rows);
         }
 
         // WAN hops: show Smart Queues status if available
@@ -1440,6 +1486,20 @@
             builder.OpenComponent<VpnIcon>(0);
             builder.AddComponentParameter(1, nameof(VpnIcon.Type), hop.Type);
             builder.CloseComponent();
+            return;
+        }
+
+        // A client's UniFi Network icon by MAC (the client, and the server or On-Site Agent host, are
+        // clients), else a UniFi device's image by IP (bundled, else UniFi Network's catalog icon).
+        var mac = hop.DeviceMac ?? (hop.Type is HopType.Client or HopType.WirelessClient ? Result?.ClientMac : null);
+        if ((_clientIcons.UrlFor(mac) ?? _clientIcons.DeviceUrlFor(hop.DeviceIp)) is { } iconUrl)
+        {
+            builder.OpenElement(0, "img");
+            builder.AddAttribute(1, "src", iconUrl);
+            builder.AddAttribute(2, "alt", "");
+            builder.AddAttribute(3, "class", "client-icon device-icon device-icon-md");
+            builder.AddAttribute(4, "loading", "lazy");
+            builder.CloseElement();
             return;
         }
 

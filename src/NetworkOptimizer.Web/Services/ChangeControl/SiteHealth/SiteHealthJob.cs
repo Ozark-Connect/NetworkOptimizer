@@ -242,8 +242,8 @@ public sealed class SiteHealthJob
             var minutes = lasted * scale;
             if (a.EventType == "monitoring.wan_outage_partial")
             {
-                var hasFailing = double.TryParse(Context(a, "targets_failing"), out var f);
-                var hasTotal = double.TryParse(Context(a, "targets_total"), out var t);
+                var hasFailing = double.TryParse(Context(a, "targets_failing"), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var f);
+                var hasTotal = double.TryParse(Context(a, "targets_total"), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var t);
                 var known = hasFailing && hasTotal && t > 0;
                 // The label states how long it lasted; the provisional hour's scale is for the score only.
                 partialMinutes += lasted;

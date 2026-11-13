@@ -1,0 +1,7 @@
+from(bucket: "network_monitoring_longterm")
+  |> range(start: -400d)
+  |> filter(fn: (r) => r._measurement == "wifi_client" or r._measurement == "interface_counters")
+  |> filter(fn: (r) => r._field == "tx_bytes_1h" or r._field == "bytes_out_1h")
+  |> keep(columns: ["_time"])
+  |> group()
+  |> max(column: "_time")

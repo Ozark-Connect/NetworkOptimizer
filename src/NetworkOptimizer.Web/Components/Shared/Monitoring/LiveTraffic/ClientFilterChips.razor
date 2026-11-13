@@ -1,0 +1,21 @@
+@* The client feed's filters as removable chips. The Live Traffic and Live DNS cards share the filters,
+   so each shows them: a card that narrows its rows says why. *@
+@if (Feed.Filters.Count > 0)
+{
+    <div class="lt-filterbar lt-client-chips">
+        @foreach (var f in Feed.Filters.ToList())
+        {
+            <span class="lt-chip @(f.Exclude ? "is-exclude" : null)">
+                @(f.Exclude ? $"Not {LiveTrafficDisplay.FieldLabel(f.Field)}" : LiveTrafficDisplay.FieldLabel(f.Field))
+                <b>@f.Value</b>
+                <span class="lt-x" role="button" aria-label="Remove filter" @onclick="() => Feed.RemoveFilterAsync(f)"><svg viewBox="0 0 10 10" aria-hidden="true"><path d="M2 2l6 6M8 2l-6 6" /></svg></span>
+            </span>
+        }
+        <a href="" class="lt-clear" @onclick="Feed.ClearFiltersAsync" @onclick:preventDefault>Clear</a>
+    </div>
+}
+
+@code {
+    /// <summary>The client's feed, shared by its Live Traffic and Live DNS cards.</summary>
+    [Parameter, EditorRequired] public ClientLiveFeed Feed { get; set; } = default!;
+}

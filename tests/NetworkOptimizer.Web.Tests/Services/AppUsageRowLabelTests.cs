@@ -12,13 +12,13 @@ namespace NetworkOptimizer.Web.Tests.Services;
 /// </summary>
 public class AppUsageRowLabelTests
 {
-    private static UniFiAppUsage Usage(int category, int application, long rx = 1000, long tx = 100) => new()
+    private static UniFiAppUsage Usage(int category, int application, long rx = 1000, long tx = 100, long activity = 60) => new()
     {
         Category = category,
         Application = application,
         BytesReceived = rx,
         BytesTransmitted = tx,
-        ActivitySeconds = 60,
+        ActivitySeconds = activity,
     };
 
     [Fact]
@@ -47,6 +47,23 @@ public class AppUsageRowLabelTests
         row.Name.Should().Be("Application 64999");
         row.Category.Should().Be("Web services");
         row.Note.Should().Contain("no name for it yet");
+    }
+
+    [Fact]
+    public void Two_ids_with_one_name_are_one_row_with_their_totals()
+    {
+        // 14/32 is "Apple"; 13/84 is the catalog's "Apple.com", folded into "Apple".
+        var rows = ClientDashboardService.BuildAppRows(new[]
+        {
+            Usage(14, 32, rx: 5000, tx: 500, activity: 300),
+            Usage(13, 84, rx: 1000, tx: 100, activity: 120),
+            Usage(0, 27, rx: 10, tx: 10),   // "Apple iMessage" is its own app, never folded
+        });
+        rows.Select(r => r.Name).Should().BeEquivalentTo("Apple", "Apple iMessage");
+        var apple = rows.Single(r => r.Name == "Apple");
+        apple.DownloadBytes.Should().Be(6000);
+        apple.UploadBytes.Should().Be(600);
+        apple.ActivitySeconds.Should().Be(300, "the two overlap in time");
     }
 
     [Fact]

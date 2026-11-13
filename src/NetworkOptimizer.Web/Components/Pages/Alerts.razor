@@ -664,7 +664,7 @@
                                             <label>Data Cap (GB)</label>
                                             <input type="number" class="form-control" value="@capGb" min="0" step="1"
                                                    @oninput="() => _dirtyConfigs.Add(wanGroup)"
-                                                   @onchange="e => EditDataUsageConfig(wanGroup, capGb: double.TryParse(e.Value?.ToString(), out var v) ? v : 0)" disabled="@(!_canConfigure)"
+                                                   @onchange="e => EditDataUsageConfig(wanGroup, capGb: double.TryParse(e.Value?.ToString(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var v) ? v : 0)" disabled="@(!_canConfigure)"
                                                    data-tooltip="0 = tracking only, no cap alerts" />
                                         </div>
                                         <div class="form-group schedule-field schedule-field-compact">
@@ -701,7 +701,7 @@
                                                    style="@(!_unlockedAdjustmentWans.Contains(wanGroup) ? "cursor: pointer; opacity: 0.7;" : "")"
                                                    @onfocus="() => _unlockedAdjustmentWans.Add(wanGroup)"
                                                    @oninput="() => _dirtyConfigs.Add(wanGroup)"
-                                                   @onchange="e => EditDataUsageConfig(wanGroup, manualAdj: double.TryParse(e.Value?.ToString(), out var v) ? v : 0)" disabled="@(!_canConfigure)" />
+                                                   @onchange="e => EditDataUsageConfig(wanGroup, manualAdj: double.TryParse(e.Value?.ToString(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var v) ? v : 0)" disabled="@(!_canConfigure)" />
                                         </div>
                                     </div>
 
@@ -1269,7 +1269,7 @@
                             <label class="form-label">Target Devices (optional)</label>
                             <input type="text" class="form-control" @bind="_ruleTargetDevices" placeholder="Comma-separated IPs or MACs, empty = all" />
                         </div>
-                        <div class="form-actions">
+                        <div class="action-buttons form-footer">
                             <button class="btn btn-primary" @onclick="SaveRule" disabled="@_savingRule">
                                 @if (_savingRule)
                                 {
@@ -2106,6 +2106,8 @@
                         <div @onclick='() => SelectEventType("ont.high_temperature")'><code>ont.high_temperature</code> <span>Temperature above threshold</span></div>
                         <div @onclick='() => SelectEventType("ont.management_unresponsive")'><code>ont.management_unresponsive</code> <span>ONT page not answering while its SFP module reads light</span></div>
                         <div @onclick='() => SelectEventType("ont.rebooted")'><code>ont.rebooted</code> <span>ONT uptime went backwards</span></div>
+                        <div @onclick='() => SelectEventType("ont.encryption_enabled")'><code>ont.encryption_enabled</code> <span>Downstream AES turned on</span></div>
+                        <div @onclick='() => SelectEventType("ont.encryption_disabled")'><code>ont.encryption_disabled</code> <span>Downstream AES turned off</span></div>
                         <div @onclick='() => SelectEventType("ont.*")'><code>ont.*</code> <span>All ONT events</span></div>
                     </div>
                 </div>

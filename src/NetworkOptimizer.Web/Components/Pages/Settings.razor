@@ -5,6 +5,7 @@
 @using NetworkOptimizer.Web.Services
 @using NetworkOptimizer.Web.Services.Ssh
 @using NetworkOptimizer.Web.Services.CellularModemProviders
+@using NetworkOptimizer.Web.Components.Shared.Monitoring.LiveTraffic
 @using NetworkOptimizer.Storage.Models
 @using NetworkOptimizer.Storage.Interfaces
 @using NetworkOptimizer.Core.Interfaces
@@ -40,6 +41,7 @@
 @inject IHttpClientFactory HttpClientFactory
 @inject ISystemSettingsAdmin SettingsAdmin
 @inject ISiteSettingsAdmin SiteSettingsAdmin
+@inject NetworkOptimizer.Web.Services.Monitoring.LiveTraffic.ILiveTrafficService LiveTrafficSettings
 @inject Microsoft.AspNetCore.Authorization.IAuthorizationService Authz
 @inject NetworkOptimizer.Threats.ThreatCollectionService ThreatCollection
 @inject NavigationManager NavigationManager
@@ -348,7 +350,7 @@
                             <li>Set a secure password and save</li>
                         </ol>
                         <p>Use this username and password in the fields above.</p>
-                        <p><strong>Why Full?</strong> Network has no granular role between View (View Only) and Full (Site Admin), and the Channel Optimizer's on-demand RF spectrum scans and Apply Recommended Channels need write access. View works for everything else, so pick it instead if you don't plan to use either.</p>
+                        <p><strong>Why Full?</strong> Network has no granular role between View (View Only) and Full (Site Admin), and the Wi-Fi Optimizer's on-demand RF spectrum scans and Apply Recommended Channels need write access. UniFi Network 11 also withholds SNMP credentials from View, so SNMP monitoring needs Full. View works for everything else, so pick it instead if you don't plan to use any of these.</p>
                     </div>
                 </details>
             }
@@ -907,6 +909,8 @@
             }
         </div>
     </div>
+
+    <TailscaleConnectionCard />
 
     <!-- Monitoring Configuration -->
     <div class="card settings-tab-monitoring" id="monitoring">
@@ -2044,6 +2048,7 @@
                             <select class="form-control" value="@_editingOnt.Provider" @onchange="OnOntProviderChanged">
                                 <option value="att-gateway">AT&T Gateway (HTTP)</option>
                                 <option value="realtek-ont">Realtek ONT Stick (HTTP)</option>
+                                <option value="odi-oss">odi-oss GPON Stick (Prometheus)</option>
                                 <option value="8311">8311 Community Firmware (HTTP)</option>
                                 <option value="quantum-q1000k">Quantum Fiber Q1000K (HTTP)</option>
                                 <option value="telekom-modem2">Telekom Glasfaser-Modem 2 (HTTP)</option>
@@ -2361,6 +2366,74 @@
                         </div>
                     }
                 </div>
+            }
+        </div>
+    </div>
+
+    <!-- Live Traffic -->
+    <div class="card settings-tab-monitoring" id="live-traffic">
+        <div class="card-header">
+            <div class="card-header-left">
+                <h2 class="card-title">Live Traffic</h2>
+                <a href="/monitoring/live-traffic" class="settings-title-link" data-tooltip="Open Live Traffic">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6"></path><path d="M10 14 21 3"></path><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path></svg>
+                </a>
+            </div>
+        </div>
+        <div class="card-body">
+            <p class="section-description">
+                Live Traffic shows every flow through the Gateway, with its app, protocol, and destination, and the DNS lookups behind them. The On-Site Agent on the Gateway sends that detail over its encrypted tunnel only while someone has Live Traffic open (and up to a minute after, so coming back is instant), and Network Optimizer keeps it in memory, never on disk. We've seen no appreciable CPU impact on the Gateway while it's open.
+            </p>
+
+            <div class="form-group">
+                <label class="checkbox-label">
+                    <input type="checkbox" @bind="_liveTrafficEnabled" />
+                    <span>Enable Live Traffic flow and DNS capture</span>
+                </label>
+                <small class="form-help">Turned off, the Agent sends no flows or DNS lookups. The Live Traffic card in Live View still ranks clients by usage, which is stored per device with no app or protocol, and History still reads UniFi Network's own flow records.</small>
+            </div>
+
+            <div class="action-buttons">
+                <button class="btn btn-primary" @onclick="SaveLiveTrafficSettings" disabled="@_savingLiveTraffic">
+                    @if (_savingLiveTraffic)
+                    {
+                        <span class="spinner"></span>
+                        <span>Saving...</span>
+                    }
+                    else
+                    {
+                        <span>Save</span>
+                    }
+                </button>
+            </div>
+
+            @if (!string.IsNullOrEmpty(_liveTrafficMessage))
+            {
+                <div class="alert alert-@_liveTrafficMessageClass">@_liveTrafficMessage</div>
+            }
+        </div>
+    </div>
+
+    <!-- Live Traffic - Custom Apps -->
+    <div class="card settings-tab-monitoring" id="custom-apps">
+        <div class="card-header">
+            <div class="card-header-left">
+                <h2 class="card-title">Custom Apps</h2>
+                <a href="/monitoring/live-traffic" class="settings-title-link" data-tooltip="Open Live Traffic">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6"></path><path d="M10 14 21 3"></path><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path></svg>
+                </a>
+            </div>
+        </div>
+        <div class="card-body">
+            <p class="section-description">
+                Name traffic that UniFi Network's DPI doesn't recognize, by protocol, port, and remote. Live Traffic shows these names everywhere it shows an app.
+            </p>
+            @* Mounted only on this tab: the list keeps its live counts current on a timer. *@
+            @if (_activeTab == "monitoring")
+            {
+                <SiteAdminOnly>
+                    <CustomAppsManager />
+                </SiteAdminOnly>
             }
         </div>
     </div>
@@ -3707,8 +3780,8 @@
             @if (_multiSiteLoaded && !_multiSiteEnabled)
             {
                 <p class="section-description">
-                    Multi-WAN monitoring needs this on as well: the agent that probes a second WAN
-                    enrolls through here, including on the main site.
+                    Multi-WAN monitoring needs this on as well: its agent enrolls here, including on
+                    the main site.
                 </p>
                 <AdminOnly>
                     <div class="form-group">
@@ -3725,25 +3798,33 @@
                 <div class="alert alert-info multi-wan-hint">
                     <div class="multi-wan-hint-body">
                     <span class="banner-icon banner-icon-info">i</span>
-                    @* Two leads, one card. Without multi-site there is no Configuration to open and
-                       no agent to enroll, so naming those steps first would send someone looking for
-                       controls that are not on the page yet. *@
+                    @* Three leads, one card. Without multi-site there is no Configuration to open, and
+                       a site whose gateway agent is enrolled needs only the vantage step. One gateway
+                       agent covers every WAN, so the copy never implies one agent per WAN. *@
                     <p>
-                        This site has more than one WAN, but only the primary is being monitored.
-                        @if (_multiSiteEnabled)
+                        This site has more than one WAN, but only the primary is monitored.
+                        @if (!_multiSiteEnabled)
                         {
                             <text>
-                                To monitor another, open @HintSitePhrase <strong>Configuration</strong>
-                                below, use <strong>Add Agent</strong> to enroll an agent for it,
-                                then give that WAN a vantage on <strong>Monitoring - Network Performance</strong>.
+                                One agent on the UniFi gateway covers them all: turn on
+                                <strong>Enable multi-site management</strong> above to add it.
+                            </text>
+                        }
+                        else if (_hintSiteHasGatewayAgent)
+                        {
+                            <text>
+                                Your gateway agent already reaches every WAN: give each additional WAN a
+                                vantage on <a href="/monitoring?tab=performance&contexts=1"><strong>Monitoring - Network Performance</strong></a>.
                             </text>
                         }
                         else
                         {
                             <text>
-                                Start by turning on <strong>Enable multi-site management</strong> above:
-                                the agent that probes another WAN enrolls through it, including on this
-                                site. The steps for adding one appear here once it is on.
+                                One agent on the UniFi gateway covers them all: add it with
+                                <strong>Add Agent</strong> in @HintSitePhrase
+                                <a href="@($"/settings?tab=multisite&configure={SiteContext.Slug}")" @onclick="OpenHintSiteConfigurationAsync" @onclick:preventDefault="true"><strong>Configuration</strong></a>
+                                below, then give each additional WAN a vantage on
+                                <a href="/monitoring?tab=performance&contexts=1"><strong>Monitoring - Network Performance</strong></a>.
                             </text>
                         }
                     </p>
@@ -3886,7 +3967,10 @@
                                                             {
                                                                 <div class="site-agent-row">
                                                                     <span class="status-dot @(agent.Enabled && TunnelRegistry.IsAgentLive(agent) ? "online" : "offline")"></span>
-                                                                    <span>@agent.Name</span>
+                                                                    <InlineEditField Tooltip="Rename agent" Placeholder="Agent name" SiteSlug="@site.Slug"
+                                                                                     Load="() => Task.FromResult(agent.Name)" Save="name => RenameAgentAsync(site, agent, name)">
+                                                                        <span>@agent.Name</span>
+                                                                    </InlineEditField>
                                                                     @* A gateway agent names itself by its detected interface, which on a gateway is the WAN
                                                                        address - so where it lives is said in words rather than shown as an address. *@
                                                                     @if (AgentOnGateway(agent.Id))
@@ -3952,6 +4036,10 @@
                                                                         Remove
                                                                     </button>
                                                                 </div>
+                                                                @if (_agentRenameErrors.TryGetValue(agent.Id, out var renameError))
+                                                                {
+                                                                    <div class="form-error">@renameError</div>
+                                                                }
                                                                 @if (_upgradeCommandAgentId == agent.Id)
                                                                 {
                                                                     <div class="agent-upgrade-cmd">
@@ -4262,12 +4350,15 @@
         ["gateway-ssh"] = "connection",
         ["device-ssh"] = "connection",
         ["ssh-key"] = "connection",
+        ["tailscale"] = "connection",
         ["monitoring"] = "monitoring",
         ["sqm-monitor"] = "monitoring",
         ["cellular-modem"] = "monitoring",
         ["cable-modem"] = "monitoring",
         ["ont-monitoring"] = "monitoring",
         ["starlink"] = "monitoring",
+        ["live-traffic"] = "monitoring",
+        ["custom-apps"] = "monitoring",
         ["ap-telemetry"] = "aptelemetry",
         ["speed-test-settings"] = "speedtests",
         ["external-speedtest-settings"] = "speedtests",
@@ -4369,7 +4460,11 @@
             if (await db.WanContexts.AnyAsync(c => c.AgentId != null)) return;
 
             _showMultiWanHint = await UiHints.ShouldShowAsync(UiHintKeys.MultiWanVantageSetup);
-            if (_showMultiWanHint) StateHasChanged();
+            if (_showMultiWanHint)
+            {
+                await UpdateHintGatewayAgentAsync();
+                StateHasChanged();
+            }
         }
         catch (Exception ex)
         {
@@ -4378,6 +4473,31 @@
             // with one WAN advice about its second.
             Logger.LogDebug(ex, "Could not decide the multi-WAN vantage hint; leaving it hidden");
         }
+    }
+
+    /// <summary>
+    /// Whether the current site already has an agent on its UniFi gateway, which reaches every WAN,
+    /// so the multi-WAN card skips the Add Agent step. Refreshed with the agent poll, so an agent
+    /// installed while the page is open changes the advice.
+    /// </summary>
+    private bool _hintSiteHasGatewayAgent;
+
+    private async Task UpdateHintGatewayAgentAsync()
+    {
+        if (!_showMultiWanHint || !_multiSiteEnabled) return;
+        if (_sites.FirstOrDefault(s => s.Slug == SiteContext.Slug) is not { } site) return;
+        await LoadAgentsOnGatewayAsync(site);
+        _hintSiteHasGatewayAgent = SiteHasGatewayAgent(site.Id);
+    }
+
+    /// <summary>The card's Configuration link: opens the current site's panel in place.</summary>
+    private async Task OpenHintSiteConfigurationAsync()
+    {
+        if (_sites.FirstOrDefault(s => s.Slug == SiteContext.Slug) is not { } site) return;
+        if (_expandedSiteId != site.Id) await ToggleAgents(site.Id);
+        await Task.Delay(300);
+        await JS.InvokeVoidAsync("noHighlightTarget", $"site-config-{site.Id}", "center",
+            "0 0 var(--border-radius-lg) var(--border-radius-lg)");
     }
 
     private async Task DismissMultiWanHintAsync()
@@ -4604,6 +4724,7 @@
                     await InvokeAsync(async () =>
                     {
                         await LoadAgentsAsync();
+                        await UpdateHintGatewayAgentAsync();
                         if (_expandedSiteId is int openId && _sites.FirstOrDefault(s => s.Id == openId) is { } openSite)
                         {
                             await LoadAgentsOnGatewayAsync(openSite);
@@ -4756,7 +4877,7 @@
     private async Task RemoveSite(Site site)
     {
         if (!await JS.InvokeAsync<bool>("confirm",
-                $"Remove site \"{site.Name}\" permanently? This deletes the site, its database (monitoring history, speed test results, settings), and its agent enrollments. Its InfluxDB buckets are not removed - delete those in InfluxDB if you no longer want them."))
+                $"Remove site \"{site.Name}\" permanently? This deletes the site, its database (monitoring history, speed test results, settings), its agent enrollments, its floor plan images, its report PDFs, and its InfluxDB buckets. Buckets with a custom name are kept."))
             return;
         if (!await JS.InvokeAsync<bool>("confirm",
                 $"Last check: \"{site.Name}\" and all of its data will be gone for good. This cannot be undone. Remove it?"))
@@ -5293,6 +5414,47 @@
         }
     }
 
+    // Agent id -> why its last rename did not save; shown under that agent's row.
+    private readonly Dictionary<int, string> _agentRenameErrors = new();
+
+    // Shows the new name at once and saves behind it; a failed save puts the old name back.
+    private Task<string?> RenameAgentAsync(Site site, SiteAgent agent, string name)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+            return Task.FromResult<string?>("Enter a name.");
+        _agentRenameErrors.Remove(agent.Id);
+        if (name == agent.Name)
+            return Task.FromResult<string?>(null);
+
+        var previous = agent.Name;
+        agent.Name = name;
+        _ = SaveAgentNameAsync(site, agent, previous, name);
+        return Task.FromResult<string?>(null);
+    }
+
+    private async Task SaveAgentNameAsync(Site site, SiteAgent agent, string previous, string name)
+    {
+        string? error;
+        try
+        {
+            error = await AgentEnrollment.RenameAgentAsync(site.Slug, agent.Id, name)
+                ? null : "This agent is no longer on this site.";
+        }
+        catch (Exception ex)
+        {
+            error = ex.Message;
+        }
+        if (error == null)
+            return;
+        await InvokeAsync(() =>
+        {
+            if (agent.Name == name)
+                agent.Name = previous;
+            _agentRenameErrors[agent.Id] = $"Rename not saved: {error}";
+            StateHasChanged();
+        });
+    }
+
     private async Task ToggleAgentEnabled(Site site, SiteAgent agent)
     {
         await AgentEnrollment.SetEnabledAsync(site.Slug, agent.Id, !agent.Enabled);
@@ -5787,6 +5949,7 @@
         await LoadAuditSettings();
         await LoadAlertChannels();
         await LoadThreatSettings();
+        await LoadLiveTrafficSettings();
         await LoadMonitoringSettings();
         await LoadMapboxToken();
         SiteChangeNotifier.SitesChanged += OnSiteRegistryChanged;
@@ -8135,13 +8298,14 @@
     }
 
     /// <summary>Providers implementing ISfpSupplementalOntProvider, which can merge into a monitored SFP module.</summary>
-    private static readonly HashSet<string> SfpAttachableOntProviders = new() { "netopt-custom", "realtek-ont", "peter-pon" };
+    private static readonly HashSet<string> SfpAttachableOntProviders = new() { "netopt-custom", "realtek-ont", "peter-pon", "odi-oss" };
 
     private static int GetOntProviderDefaultPort(string provider) => provider switch
     {
         "8311" => 443,
         "quantum-q1000k" => 443,
         "netopt-custom" => 10012,
+        "odi-oss" => 9100,
         _ => 80,
     };
 
@@ -8156,6 +8320,7 @@
         "nokia-xs010x-q" => "192.168.100.1",
         "zyxel-gpon-sfp" => "10.10.1.1",
         "peter-pon" => "192.168.1.10",
+        "odi-oss" => "192.168.1.1",
         // realtek-ont, netopt-custom and generic-http-ont have no single sensible
         // default (vendor-dependent stick, gateway-served JSON, or generic), so nothing
         // is prefilled and the generic example placeholder is shown. richerlink-ont's
@@ -8182,6 +8347,7 @@
         "richerlink-ont" => "Richerlink RL821GWV-D (HTTP)",
         "peter-pon" => "Peter-Pon GPON Firmware (HTTP)",
         "netopt-custom" => "Network Optimizer Custom (HTTP JSON)",
+        "odi-oss" => "odi-oss GPON Stick (Prometheus)",
         "generic-http-ont" => "Generic HTTP ONT",
         _ => provider,
     };
@@ -9270,6 +9436,46 @@
     // does: the bare key for the default site (single-site unchanged), "threats.enabled:<slug>"
     // for secondary sites. Interval/retention/MaxMind/CrowdSec are one global value.
     private string ThreatsEnabledKey => NetworkOptimizer.Web.Services.SiteSettingsAdmin.ThreatCollectionKey(SiteContext);
+
+    private bool _liveTrafficEnabled = true;
+    private bool _savingLiveTraffic;
+    private string _liveTrafficMessage = "";
+    private string _liveTrafficMessageClass = "";
+
+    private async Task LoadLiveTrafficSettings()
+    {
+        try
+        {
+            _liveTrafficEnabled = await LiveTrafficSettings.IsEnabledAsync();
+        }
+        catch (Exception ex)
+        {
+            _liveTrafficMessage = $"Error loading Live Traffic settings: {ex.Message}";
+            _liveTrafficMessageClass = "danger";
+        }
+    }
+
+    private async Task SaveLiveTrafficSettings()
+    {
+        _savingLiveTraffic = true;
+        _liveTrafficMessage = "";
+        StateHasChanged();
+        try
+        {
+            await LiveTrafficSettings.SetEnabledAsync(_liveTrafficEnabled);
+            _liveTrafficMessage = "Live Traffic settings saved.";
+            _liveTrafficMessageClass = "success";
+        }
+        catch (Exception ex)
+        {
+            _liveTrafficMessage = $"Error saving settings: {ex.Message}";
+            _liveTrafficMessageClass = "danger";
+        }
+        finally
+        {
+            _savingLiveTraffic = false;
+        }
+    }
 
     private async Task LoadThreatSettings()
     {

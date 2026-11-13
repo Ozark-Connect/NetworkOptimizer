@@ -56,6 +56,9 @@ public class OntAlertEvaluator
         bool? fecEnabled = null,
         string? sourceUrl = null,
         long? uptimeSeconds = null,
+        bool? aesActive = null,
+        long? gemPorts = null,
+        long? gemPortsEncrypted = null,
         CancellationToken ct = default)
     {
         var state = _states.GetOrAdd(ontId, _ => new OntAlertState());
@@ -74,6 +77,11 @@ public class OntAlertEvaluator
         }
 
         await CheckPonLink(state, ontId, ontName, ponLinkStatus, ct);
+
+        if (aesActive.HasValue)
+        {
+            await CheckEncryption(state, ontId, ontName, aesActive.Value, ponLinkStatus, gemPorts, gemPortsEncrypted, ct);
+        }
 
         // BIP is always-on regardless of FEC, so it's evaluated whenever reported. Read the
         // uncorrectable counter for the same interval first: BIP counts line errors, and whether
@@ -291,6 +299,52 @@ public class OntAlertEvaluator
         }
     }
 
+    /// <summary>
+    /// Flags downstream AES turning on (Warning) or off (Error). The first reading only sets the
+    /// baseline, and a null reading keeps it. Readings outside O5, or with no data GEM port
+    /// provisioned (gem_ports counts the OMCI port), are skipped: a re-ranging ONT has no decrypt
+    /// bits set, and reading that as "off" would raise a false Error and a false Warning.
+    /// </summary>
+    private async ValueTask CheckEncryption(
+        OntAlertState state, int ontId, string ontName, bool aesActive, PonLinkState ponLinkStatus,
+        long? gemPorts, long? gemPortsEncrypted, CancellationToken ct)
+    {
+        if (ponLinkStatus != PonLinkState.Operation && ponLinkStatus != PonLinkState.Unknown) return;
+        if (!aesActive && gemPorts is <= 1) return;
+
+        var previous = state.PreviousAesActive;
+        state.PreviousAesActive = aesActive;
+        if (previous is not bool prev || prev == aesActive) return;
+
+        _logger.LogDebug("ONT {Name} downstream AES went from {Prev} to {Now}", ontName, prev, aesActive);
+
+        var ports = gemPortsEncrypted is long n
+            ? $" on {n} GEM port{(n == 1 ? "" : "s")}{(gemPorts is long total ? $" of {total}" : "")}"
+            : "";
+        await _eventBus.PublishAsync(new AlertEvent
+        {
+            EventType = aesActive ? "ont.encryption_enabled" : "ont.encryption_disabled",
+            Source = "ont",
+            Severity = aesActive ? AlertSeverity.Warning : AlertSeverity.Error,
+            Title = aesActive
+                ? $"{ontName} AES encryption enabled{_siteSuffix}"
+                : $"{ontName} AES encryption disabled{_siteSuffix}",
+            Message = aesActive
+                ? $"ONT {ontName} now decrypts downstream AES{ports}. The OLT turned encryption on for this ONT."
+                : $"ONT {ontName} no longer decrypts downstream AES on any GEM port. Downstream traffic on the PON is unencrypted.",
+            DeviceName = ontName,
+            MetricValue = gemPortsEncrypted,
+            SourceUrl = state.SourceUrl,
+            Tags = ["ont", "encryption"],
+            Context = new Dictionary<string, string>
+            {
+                ["ont_id"] = ontId.ToString(),
+                ["metric"] = "encryption",
+                ["aes_active"] = aesActive ? "true" : "false"
+            }
+        }, ct);
+    }
+
     private ValueTask CheckFecErrors(
         OntAlertState state, int ontId, string ontName, long fecErrors, CancellationToken ct) =>
         CheckErrorSpike(ontId, ontName, fecErrors, state.PreviousFecErrors, FecErrorDeltaThreshold,
@@ -383,6 +437,7 @@ public class OntAlertEvaluator
         public long? PreviousBipErrors;
         public long? PreviousHecErrors;
         public long? PreviousUptimeSeconds;
+        public bool? PreviousAesActive;
         public int FailedPolls;
         public bool ManagementDown;
         public string SourceUrl = DefaultSourceUrl;

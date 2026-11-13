@@ -1,0 +1,1635 @@
+@page "/monitoring/live-traffic"
+@attribute [Authorize(Policy = Policies.RequireViewer)]
+@using NetworkOptimizer.Core.Helpers
+@using NetworkOptimizer.Web.Services.Monitoring.LiveTraffic
+@using NetworkOptimizer.Web.Components.Shared.Monitoring.LiveTraffic
+@using static NetworkOptimizer.Web.Components.Shared.Monitoring.LiveTraffic.LiveTrafficDisplay
+@inherits LiveTrafficPieces
+@inject ILiveTrafficService LiveTrafficService
+@inject NavigationManager Nav
+@inject ILogger<LiveTrafficPage> Logger
+@inject NetworkOptimizer.Web.Services.Identity.IUserPreferences UserPreferences
+@inject AddressBarState AddressBar
+@inject IJSRuntime JS
+@inject Microsoft.AspNetCore.Mvc.ViewFeatures.IFileVersionProvider FileVersionProvider
+@inject Microsoft.AspNetCore.Authorization.IAuthorizationService Authz
+@inject ICustomAppService CustomApps
+@implements IDisposable
+
+<PageTitle>Live Traffic - Network Optimizer</PageTitle>
+
+<div class="live-traffic">
+    <div class="page-header">
+        <PageBackButton />
+        <div>
+            <h1>Live Traffic</h1>
+            <p class="page-description">@(_historyMode ? "UniFi Network's recent flows, by time, Client, App, and what was blocked" : "Every flow through the Gateway, ranked by what is using the link right now")</p>
+        </div>
+        <div class="page-header-actions">
+            <div class="time-range-selector" data-tour="live-traffic-history">
+                <button class="time-btn @(!_historyMode ? "active" : "")" @onclick="() => SetHistoryMode(false)">Live</button>
+                <button class="time-btn @(_historyMode ? "active" : "")" @onclick="() => SetHistoryMode(true)">History</button>
+            </div>
+            @if (_paused)
+            {
+                <span class="lan-flow-map-mode is-historic">Paused</span>
+            }
+            else if (!_historyMode && _view?.State == LiveTrafficState.Live)
+            {
+                <span class="lan-flow-map-mode">Live</span>
+            }
+            <button class="btn btn-secondary btn-sm lt-icon-btn lt-pause-btn" aria-label="@(_paused ? "Resume" : "Pause")" @onclick="TogglePause">
+                @if (_paused)
+                {
+                    <svg viewBox="0 0 24 24" fill="currentColor"><path d="M7 5v14l12-7z" /></svg>
+                    <span>Resume</span>
+                }
+                else
+                {
+                    <svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="5" width="4" height="14" rx="1" /><rect x="14" y="5" width="4" height="14" rx="1" /></svg>
+                    <span>Pause</span>
+                }
+            </button>
+            @if (_canNameApps)
+            {
+                <button class="btn btn-secondary btn-sm" data-tour="live-traffic-custom-apps" @onclick="() => OpenCustomAppsAsync(null)">Custom Apps@(_customAppCount > 0 ? $" ({_customAppCount})" : "")</button>
+            }
+        </div>
+    </div>
+
+    @if (_customAppsOpen)
+    {
+        <CustomAppsDialog Seed="_nameSeed" OnClose="CloseCustomAppsAsync" OnChanged="n => _customAppCount = n" />
+    }
+
+    @if (_historyMode)
+    {
+        @HistoryBody
+    }
+    else if (_view == null)
+    {
+        <div class="loading-container"><div class="spinner"></div></div>
+    }
+    else if (_view.State == LiveTrafficState.AwaitingAgent)
+    {
+        <div class="connection-banner pwa-banner" data-tour="live-traffic-agent">
+            <div class="banner-content">
+                <span class="banner-icon" style="background: var(--info-color); color: white;"><GatewayIcon /></span>
+                <div class="banner-text">
+                    <strong style="color: var(--info-color);">Waiting for the On-Site Agent on your Gateway to connect</strong>
+                    <span style="color: var(--text-secondary);">Live Traffic starts as soon as it's up.</span>
+                </div>
+                <div class="banner-actions">
+                    <div class="spinner spinner-sm"></div>
+                </div>
+            </div>
+        </div>
+    }
+    else if (_view.State == LiveTrafficState.TurnedOff)
+    {
+        <div class="connection-banner pwa-banner">
+            <div class="banner-content">
+                <span class="banner-icon" style="background: var(--info-color); color: white;"><GatewayIcon /></span>
+                <div class="banner-text">
+                    <strong style="color: var(--info-color);">Live Traffic flow and DNS capture is turned off for this site</strong>
+                    <span style="color: var(--text-secondary);">The On-Site Agent on your Gateway sends no flows or DNS lookups. History works without it, from UniFi Network's own flow records.</span>
+                </div>
+                <div class="banner-actions">
+                    <button type="button" class="btn-pwa-action" @onclick="() => SetHistoryMode(true)">Open History</button>
+                    <SiteAdminOnly>
+                        <a href="/settings?tab=monitoring#live-traffic" class="btn-pwa-action">Settings</a>
+                    </SiteAdminOnly>
+                </div>
+            </div>
+        </div>
+    }
+    else if (_view.State is LiveTrafficState.NoGatewayAgent or LiveTrafficState.AgentNeedsUpdate or LiveTrafficState.NoConntrack)
+    {
+        <div class="connection-banner pwa-banner" data-tour="live-traffic-agent">
+            <div class="banner-content">
+                <span class="banner-icon" style="background: var(--info-color); color: white;"><GatewayIcon /></span>
+                <div class="banner-text">
+                    @if (_view.State == LiveTrafficState.AgentNeedsUpdate)
+                    {
+                        <strong style="color: var(--info-color);">Update the On-Site Agent on your Gateway</strong>
+                        <span style="color: var(--text-secondary);">Live Traffic reads every flow and DNS lookup at the Gateway. This Agent build predates it. History works without it.</span>
+                    }
+                    else if (_view.State == LiveTrafficState.NoConntrack)
+                    {
+                        <strong style="color: var(--info-color);">The On-Site Agent cannot read the Gateway's connection table</strong>
+                        <span style="color: var(--text-secondary);">Live Traffic reads every flow from the Gateway's connection tracking (nf_conntrack), which the Agent could not open when it started. History works without it.</span>
+                    }
+                    else
+                    {
+                        <strong style="color: var(--info-color);">Live Traffic needs the On-Site Agent on your Gateway</strong>
+                        <span style="color: var(--text-secondary);">The Agent reads every flow and DNS lookup at the Gateway itself, with no row limit, and only while someone is watching this page (and up to a minute after). History works without it.</span>
+                    }
+                </div>
+                <div class="banner-actions">
+                    <button type="button" class="btn-pwa-action" @onclick="() => SetHistoryMode(true)">Open History</button>
+                    @if (_view.State != LiveTrafficState.NoConntrack)
+                    {
+                        <SiteAdminOnly>
+                            <a href="@($"/settings?tab=multisite&configure={SiteContext.Slug}")" class="btn-pwa-action">@(_view.State == LiveTrafficState.AgentNeedsUpdate ? "Upgrade Agent" : "Set It Up")</a>
+                        </SiteAdminOnly>
+                    }
+                </div>
+            </div>
+        </div>
+    }
+    else
+    {
+        <div class="lt-stats">
+            @foreach (var route in _view.Routes.Take(2))
+            {
+                var downPct = route.CapacityDownBps is > 0 ? Math.Min(100, 100 * route.DownBps / route.CapacityDownBps.Value) : (double?)null;
+                var upPct = route.CapacityUpBps is > 0 ? Math.Min(100, 100 * route.UpBps / route.CapacityUpBps.Value) : (double?)null;
+                <div class="card lt-stat">
+                    <div class="card-body">
+                        <div class="lt-stat-label">@Pill(LiveTrafficField.Route, route.Name, cls: RouteClass(route.Kind))</div>
+                        @if (_view.State == LiveTrafficState.Starting)
+                        {
+                            <div class="lt-stat-value"><div class="spinner spinner-sm"></div></div>
+                            <div class="lt-stat-sub">Measuring rates</div>
+                        }
+                        else if (downPct is { } pct)
+                        {
+                            var capacity = (route.CapacityDownBps ?? 0) + (route.CapacityUpBps ?? 0);
+                            <div class="lt-stat-value">@Math.Round(100 * (route.DownBps + route.UpBps) / capacity)%</div>
+                            <div class="lt-stat-sub">
+                                <span class="lt-sub-part lt-sub-ratio">@Rate(route.DownBps, "speed-down") <span class="lt-sub-of">of @DisplayFormatters.FormatRate(route.CapacityDownBps)</span></span><span class="lt-sub-sep"> &middot; </span><span class="lt-sub-part lt-sub-ratio">@Rate(route.UpBps, "speed-up") <span class="lt-sub-of">of @DisplayFormatters.FormatRate(route.CapacityUpBps)</span></span>
+                            </div>
+                            <div class="lt-meter">
+                                <span style="width: @Pct(pct / 2)%; background: var(--speed-download-color);"></span>
+                                <span style="width: @Pct((upPct ?? 0) / 2)%; background: var(--speed-upload-color);"></span>
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="lt-stat-value">@Rate(route.DownBps, "")</div>
+                            <div class="lt-stat-sub">
+                                <span class="lt-sub-part">@Rate(route.DownBps, "speed-down") down</span><span class="lt-sub-sep"> &middot; </span><span class="lt-sub-part">@Rate(route.UpBps, "speed-up") up</span><span class="lt-sub-sep"> &middot; </span><span class="lt-sub-part">@TimeFormatHelper.Pluralize(route.Clients, "client")</span>
+                            </div>
+                        }
+                    </div>
+                </div>
+            }
+            <div class="card lt-stat">
+                <div class="card-body">
+                    <div class="lt-stat-label">Active flows</div>
+                    <div class="lt-stat-value">@_view.TotalFlows.ToString("N0")</div>
+                    <div class="lt-stat-sub"><span class="lt-sub-part">@TimeFormatHelper.Pluralize(_view.Clients, "client")</span><span class="lt-sub-sep"> &middot; </span><span class="lt-sub-part">@_view.NewLastMinute.ToString("N0") new in the last minute</span>@if (_view.BlockedRecently > 0)
+                        {
+                            <span class="lt-sub-sep"> &middot; </span><span class="lt-sub-part lt-pivot" data-tooltip="Connections from your Clients that your Gateway blocked in the last 10 minutes, from UniFi Network's flow records. Opens History filtered to Blocked." data-tooltip-hover-only @onclick="OpenBlockedHistoryAsync">@TimeFormatHelper.Pluralize(_view.BlockedRecently, "firewall block")</span>
+                        }</div>
+                </div>
+            </div>
+            <div class="card lt-stat">
+                <div class="card-body">
+                    <div class="lt-stat-label">DNS</div>
+                    @if (_view.DnsActive || _view.Dns.Count > 0)
+                    {
+                        <div class="lt-stat-value">@_view.DnsPerSecond.ToString("0.#") / sec</div>
+                        <div class="lt-stat-sub">
+                            <span class="lt-sub-part" data-tooltip="Answered NXDOMAIN, or 0.0.0.0 / :: the way DNS blockers refuse a name">@_view.NxdomainPercent.ToString("0.#")% blocked</span>
+                            @if (_view.BypassingClients > 0)
+                            {
+                                <span class="lt-sub-sep"> &middot; </span><span class="lt-sub-part lt-pivot" style="color: var(--warning-color);" @onclick="FilterToBypassersAsync">@TimeFormatHelper.Pluralize(_view.BypassingClients, "client") bypassing</span>
+                            }
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="lt-stat-value lt-muted">-</div>
+                        <div class="lt-stat-sub">DNS capture is starting</div>
+                    }
+                </div>
+            </div>
+        </div>
+
+        @FilterBar
+
+        @if (_view.State == LiveTrafficState.Starting)
+        {
+            <div class="alert-info lt-starting">Waiting for the Gateway's first sample. Flows appear within a few seconds.</div>
+        }
+
+        @MobileTabs(false)
+        <div class="lt-body @(_mobileDns ? "lt-mtab-dns" : "lt-mtab-flows")" data-no-card-index>
+            <div class="lt-grid">
+                <div class="card lt-sankey-card" data-tour="live-traffic-where">
+                    <div class="card-header">
+                        <div class="card-title-group"><h2 class="card-title">Where It's Going</h2></div>
+                        <div class="card-header-right">
+                            <div class="time-range-selector">
+                                <button class="time-btn @(!_sankeyByFlows ? "active" : "")" @onclick="() => SetSankeyMetric(false)">Rate</button>
+                                <button class="time-btn @(_sankeyByFlows ? "active" : "")" @onclick="() => SetSankeyMetric(true)">Flows</button>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="card-body" @onmouseenter="PointerIn" @onmouseleave="PointerOut" @ontouchstart="Touched">
+                        <div class="lt-sankey-stage">
+                            @if (_view.State == LiveTrafficState.Starting)
+                            {
+                                <div class="loading-container lt-sankey-empty"><div class="spinner"></div><p>Measuring rates.</p></div>
+                            }
+                            else
+                            {
+                                <LiveTrafficSankey Context="Ctx" Sankey="_view.Sankey" Hold="Held" OnHover="HoverSankey" Pinned="@ActiveSankeyHold?.Node" Filters="_filters" Searching="@(!string.IsNullOrWhiteSpace(_search))" OnFilter="ToggleFilter" />
+                            }
+                        </div>
+                        <div class="lt-legend-note">Click any client, app, or route to filter the page to it, and again to remove the filter. Width of bands is @(_sankeyByFlows ? "flow count" : "rate") on a log scale, so small flows stay visible.@(_sankeyByFlows ? "" : " Each band splits into download (strong) and upload (light), in its route's color.")</div>
+                    </div>
+                </div>
+
+                <div class="card lt-dns-card" data-tour="live-traffic-dns">
+                    <div class="card-header">
+                        <div class="card-title-group"><h2 class="card-title">Live DNS<span class="tooltip-icon tooltip-icon-sm" data-tooltip="Lookups that pass through your Gateway. A DNS server on the client's own VLAN is never seen.">?</span></h2></div>
+                        <div class="card-header-right lt-dns-controls">
+                            <label class="checkbox-label lt-dns-local" data-tooltip="Hide lookups whose every answer is an address on one of this site's Networks">
+                                <input type="checkbox" checked="@_hideLocalDns" @onchange="ToggleHideLocalDns" /><span>Hide Local</span>
+                            </label>
+                            <div class="time-range-selector">
+                                <button class="time-btn @(_dnsMode == LiveDnsMode.All ? "active" : "")" @onclick="() => SetDnsMode(LiveDnsMode.All)">All</button>
+                                <button class="time-btn @(_dnsMode == LiveDnsMode.Bypass ? "active" : "")" @onclick="() => SetDnsMode(LiveDnsMode.Bypass)">Bypass</button>
+                                <button class="time-btn @(_dnsMode == LiveDnsMode.Nxdomain ? "active" : "")" @onclick="() => SetDnsMode(LiveDnsMode.Nxdomain)" data-tooltip="NXDOMAIN, or 0.0.0.0 / :: answers">Blocked</button>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="card-body">
+                        @{ var dnsRows = _view.Dns.Take(DnsRows).ToList(); }
+                        @if (dnsRows.Count == 0)
+                        {
+                            <div class="empty-state lt-dns-empty lt-mobile-list">
+                                <p>@DnsEmptyText</p>
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="lt-mobile-list">
+                                @foreach (var d in dnsRows)
+                                {
+                                    <LiveDnsRowView Lookup="d" Layout="LiveDnsLayout.List" Context="Ctx" />
+                                }
+                            </div>
+                        }
+                        @* Always DnsRows rows tall on desktop, so the Flows card below never moves as lookups come and go. *@
+                        <table class="data-table lt-dns-table lt-desktop-only">
+                            <colgroup><col style="width:30%"><col><col style="width:24%"><col style="width:6.5rem"></colgroup>
+                            <thead><tr><th>Client</th><th>Query</th><th>Resolver</th><th>Answer</th></tr></thead>
+                            <tbody>
+                                @foreach (var d in dnsRows)
+                                {
+                                    <LiveDnsRowView Lookup="d" Layout="LiveDnsLayout.Table" Context="Ctx" />
+                                }
+                                @for (var i = dnsRows.Count; i < DnsRows; i++)
+                                {
+                                    <tr class="lt-slot-empty"><td colspan="4" class="@(i == 0 ? "lt-dns-empty-cell" : null)">@(i == 0 ? DnsEmptyText : " ")<span class="lt-dns-sub">&nbsp;</span></td></tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card">
+                @* The header, not the card: the table under it can run hundreds of rows. *@
+                <div class="card-header" data-tour="live-traffic-flows">
+                    <div class="card-title-group">
+                        <h2 class="card-title">@(_groupBy == LiveTrafficGroupBy.Flows ? "Flows" : $"By {_groupBy}")</h2>
+                        <span class="lt-secondary lt-small">@FlowCountLabel</span>
+                    </div>
+                    <div class="card-header-right">
+                        <div class="time-range-selector">
+                            <button class="time-btn @(!_ended ? "active" : "")" @onclick="() => SetEnded(false)">Active</button>
+                            <button class="time-btn @(_ended ? "active" : "")" @onclick="() => SetEnded(true)">Ended</button>
+                        </div>
+                    </div>
+                </div>
+                <div class="card-body" @onmouseenter="PointerIn" @onmouseleave="PointerOut" @ontouchstart="Touched">
+                    @if (_groupBy != LiveTrafficGroupBy.Flows)
+                    {
+                        @GroupTable(_view.Groups, history: false)
+                    }
+                    else if (_view.Flows.Count == 0)
+                    {
+                        <div class="empty-state"><p>@(_ended ? "No flows have ended in the last ten minutes." : HasFilters ? "No flows match." : "No traffic right now.")</p></div>
+                    }
+                    else
+                    {
+                        <div class="table-responsive lt-desktop-only">
+                            <table class="data-table lt-flows">
+                                <colgroup><col style="width:3.9rem"><col style="width:14%"><col style="width:21%"><col style="width:10%"><col style="width:13%"><col style="width:10%"><col style="width:8%"><col style="width:7%"><col style="width:10%"><col style="width:100px"></colgroup>
+                                <thead>
+                                    <tr>
+                                        <th>#</th>
+                                        @FlowSortHeader(LiveFlowSort.Client, "Client")
+                                        @FlowSortHeader(LiveFlowSort.Destination, "Destination")
+                                        @FlowSortHeader(LiveFlowSort.App, "App")
+                                        @FlowSortHeader(LiveFlowSort.Route, "Route")
+                                        @FlowSortHeader(LiveFlowSort.Download, "Download")
+                                        @FlowSortHeader(LiveFlowSort.Upload, "Upload")
+                                        @FlowSortHeader(LiveFlowSort.Total, "Total")
+                                        @FlowSortHeader(LiveFlowSort.Started, _ended ? "Ended" : "Started")
+                                        <th>Trend</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="lt-flip">
+                                    @{ var rank = 0; }
+                                    @foreach (var f in _view.Flows)
+                                    {
+                                        rank++;
+                                        var key = f.Key;
+                                        <LiveFlowRowView @key="key" Flow="f" Layout="LiveFlowLayout.Table" Rank="rank" Open="_openKey == key" OnToggle="() => ToggleRow(key)" Context="Ctx" />
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                        <div class="lt-mobile-only lt-mobile-sort">
+                            <div class="time-range-selector">
+                                @foreach (var (col, label) in MobileFlowSorts)
+                                {
+                                    var active = _flowSort == col;
+                                    <button class="time-btn @(active ? "active" : "")" @onclick="() => SetFlowSort(col)">@label@(active ? (_flowDesc ? " ↓" : " ↑") : "")</button>
+                                }
+                            </div>
+                        </div>
+                        <div class="lt-mobile-list lt-flip">
+                            @foreach (var f in _view.Flows.Take(40))
+                            {
+                                var key = f.Key;
+                                <LiveFlowRowView @key="key" Flow="f" Layout="LiveFlowLayout.List" Open="_openKey == key" OnToggle="() => ToggleRow(key)" Context="Ctx" />
+                            }
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+        @MobileTabs(true)
+    }
+</div>
+
+@code {
+    private readonly string _viewerId = Guid.NewGuid().ToString("N");
+    private LiveTrafficView? _view;
+    private LiveHistoryView? _history;
+    private readonly List<LiveTrafficFilter> _filters = new();
+    private string _search = "";
+    private LiveTrafficGroupBy _groupBy = LiveTrafficGroupBy.Flows;
+    private LiveDnsMode _dnsMode = LiveDnsMode.All;
+    private bool _hideLocalDns;
+    private bool _ended;
+    private bool _sankeyByFlows;
+    private bool _paused;
+    private string? _openKey;
+    private bool _historyMode;
+    private DateTime? _from;
+    private DateTime? _to;
+    private LiveHistorySort _sort = LiveHistorySort.Time;
+    private bool _timelineByData;
+    private int _historyRows = HistoryPage;
+    private DateTime _lastHistoryAt = DateTime.MinValue;
+    private System.Threading.Timer? _timer;
+    private bool _disposed;
+    private int _refreshing;
+    private static readonly TimeSpan RefreshEvery = TimeSpan.FromSeconds(2);
+    private const int HistoryPage = 200;
+    private const int DnsRows = 10;
+
+    private string DnsEmptyText => _view?.DnsActive == true ? "No lookups match." : "Waiting for DNS lookups.";
+
+    /// <summary>The link arrived with filters of its own: the active preset is not reapplied over it.</summary>
+    private bool _linkHadFilters;
+
+    protected override void OnInitialized()
+    {
+        ReadUrl();
+        _linkHadFilters = FilterQuery().Length > 0;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+        await StartRowMotionAsync();
+        await LoadDnsPreferenceAsync();
+        await StartCustomAppsAsync();
+        await RefreshAsync();
+        if (_disposed) return;
+        _timer = new System.Threading.Timer(_ =>
+        {
+            if (_disposed || _paused || !TickDue()) return;
+            try { _ = InvokeAsync(RefreshAsync); }
+            catch { /* circuit going away */ }
+        }, null, RefreshEvery, RefreshEvery);
+    }
+
+    // ---------------------------------------------------------------- motion and order hold
+
+    private IJSObjectReference? _motion;
+    private DotNetObjectReference<LiveTrafficPage>? _selfRef;
+    private readonly LiveOrderHold _hold = new();
+
+    /// <summary>
+    /// The tab is hidden: refreshes still run, which keeps the agent's lease and History's records,
+    /// but draw nothing, so a tab left in the background has no backlog of redraws to catch up on.
+    /// </summary>
+    private bool _pageHidden;
+
+    /// <summary>Called by live-traffic-motion.js on visibilitychange. Shown again: draws the latest at once.</summary>
+    [JSInvokable]
+    public async Task SetPageHidden(bool hidden)
+    {
+        if (_pageHidden == hidden) return;
+        _pageHidden = hidden;
+        if (!hidden) await RefreshAsync();
+    }
+
+    /// <summary>
+    /// The shown signal can be lost while the circuit reconnects, which would leave the page hidden
+    /// for good. While hidden, each refresh asks the browser directly.
+    /// </summary>
+    private async Task ProbeShownAsync()
+    {
+        try
+        {
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+            if (!await JS.InvokeAsync<bool>("eval", cts.Token, "document.hidden")) _pageHidden = false;
+        }
+        catch
+        {
+            // Still hidden, or not reachable: the next refresh asks again.
+        }
+    }
+
+    /// <summary>Rows and Where It's Going nodes hold their order under the pointer: <see cref="LiveOrderHold"/>.</summary>
+    private bool Held => _hold.Held;
+
+    private void PointerIn() => _hold.PointerIn();
+
+    private void PointerOut() => _hold.PointerOut();
+
+    private void Touched() => _hold.Touched();
+
+    private LiveSankeyHold? _sankeyHold;
+    private bool _sankeyHoverIn;
+    private DateTime _sankeyHoldUntil = DateTime.MinValue;
+    private static readonly TimeSpan SankeyHoldGrace = TimeSpan.FromSeconds(1.5);
+
+    /// <summary>The query the hold began under, Rate or Flows included.</summary>
+    private string? _sankeyHoldQuery;
+    private string SankeyQueryKey => $"{QueryKey}|{_sankeyByFlows}";
+
+    /// <summary>
+    /// The hovered Where It's Going column, held while the pointer is on it and briefly after:
+    /// <see cref="LiveSankeyHold"/>. A filter, search, or Rate / Flows change ends it at once, so
+    /// nodes the new query leaves out never linger at 0.
+    /// </summary>
+    private LiveSankeyHold? ActiveSankeyHold =>
+        _sankeyHold != null && _sankeyHoldQuery == SankeyQueryKey
+        && (_sankeyHoverIn || DateTime.UtcNow < _sankeyHoldUntil) ? _sankeyHold : null;
+
+    private void HoverSankey(LiveSankeyNode? node, IReadOnlyList<LiveSankeyNode>? drawn)
+    {
+        if (node == null)
+        {
+            if (!_sankeyHoverIn) return;
+            _sankeyHoverIn = false;
+            _sankeyHoldUntil = DateTime.UtcNow + SankeyHoldGrace;
+            return;
+        }
+        // A column already held keeps the set it froze. A node outside that set, or outside the
+        // column as drawn, is one a refresh already took away: holding it would add a row.
+        var current = ActiveSankeyHold;
+        if (current != null && current.Node.Column == node.Column)
+        {
+            if (!current.Column.Any(n => n.Name == node.Name) && current.Node.Name != node.Name) return;
+            _sankeyHoverIn = true;
+            _sankeyHold = current with { Node = node };
+            return;
+        }
+        var column = drawn ?? [];
+        if (!column.Any(n => n.Name == node.Name)) return;
+        _sankeyHoverIn = true;
+        _sankeyHold = new LiveSankeyHold(node, column.Where(n => !n.IsOther).ToList(), column.Any(n => n.IsOther));
+        _sankeyHoldQuery = SankeyQueryKey;
+    }
+
+    private string QueryKey => $"{_groupBy}|{_ended}|{_flowSort}|{_flowDesc}|{_search}|{string.Join(",", _filters)}";
+
+    private LiveTrafficView ApplyHold(LiveTrafficView view) => _hold.Apply(view, QueryKey);
+
+    /// <summary>
+    /// Starts the browser-side watcher that slides moved rows into place and holds the expanded row
+    /// where it is on screen. It runs on every DOM update before paint, with no round trip.
+    /// </summary>
+    private async Task StartRowMotionAsync()
+    {
+        try
+        {
+            _motion ??= await JS.InvokeAsync<IJSObjectReference>("import", FileVersionProvider.AddFileVersionToPath("", "/js/live-traffic-motion.js"));
+            await _motion.InvokeVoidAsync("watch", ".live-traffic", ".lt-flip");
+            _selfRef ??= DotNetObjectReference.Create(this);
+            await _motion.InvokeVoidAsync("watchVisibility", "live-traffic", _selfRef);
+        }
+        catch (JSDisconnectedException) { }
+        catch (Exception ex)
+        {
+            Logger.LogDebug(ex, "Live Traffic row motion failed");
+        }
+    }
+
+    /// <summary>
+    /// A phone shows Flows or Live DNS, never both: stacked, the growing Flows list moved Live DNS
+    /// under the reader. The same bar sits above and below the content.
+    /// </summary>
+    private bool _mobileDns;
+
+    private RenderFragment MobileTabs(bool bottom) => __builder =>
+    {
+        <div class="wifi-view-tabs-wrapper lt-mobile-tabs @(bottom ? "lt-mobile-tabs-bottom" : null)" id="@(bottom ? null : "lt-mobile-tabs")">
+            <div class="wifi-view-tabs">
+                <button class="wifi-view-tab @(!_mobileDns ? "active" : "")" @onclick="() => SetMobileTabAsync(false, bottom)">@(_groupBy == LiveTrafficGroupBy.Flows ? "Flows" : $"By {_groupBy}")</button>
+                <button class="wifi-view-tab @(_mobileDns ? "active" : "")" @onclick="() => SetMobileTabAsync(true, bottom)">Live DNS</button>
+            </div>
+        </div>
+    };
+
+    /// <summary>From the bottom bar, scrolls up to the top one so the new tab opens at its start.</summary>
+    private async Task SetMobileTabAsync(bool dns, bool fromBottom)
+    {
+        _mobileDns = dns;
+        if (!fromBottom) return;
+        try
+        {
+            await JS.InvokeVoidAsync("eval", "document.getElementById('lt-mobile-tabs')?.scrollIntoView({ block: 'start' })");
+        }
+        catch (Exception ex)
+        {
+            Logger.LogDebug(ex, "Live Traffic: scroll to the tabs failed");
+        }
+    }
+
+    /// <summary>Live refreshes every tick; History every 15 s, or every tick while its first load runs.</summary>
+    private bool TickDue() =>
+        !_historyMode
+        || _history?.State is null or LiveHistoryState.Loading
+        || DateTime.UtcNow - _lastHistoryAt >= FlowHistoryCache.RefreshEvery;
+
+    private async Task RefreshAsync()
+    {
+        if (_disposed || Interlocked.Exchange(ref _refreshing, 1) == 1) return;
+        try
+        {
+            if (_pageHidden) await ProbeShownAsync();
+            var facetField = _editor?.Field;
+            if (_historyMode)
+            {
+                _lastHistoryAt = DateTime.UtcNow;
+                _history = await LiveTrafficService.GetHistoryAsync(new LiveHistoryQuery
+                {
+                    ViewerId = _viewerId,
+                    Filters = _filters.ToList(),
+                    Search = _search,
+                    GroupBy = _groupBy,
+                    From = _from,
+                    To = _to,
+                    Sort = _sort,
+                    MaxRows = _historyRows,
+                    FacetField = facetField,
+                });
+                _facetsLoadedFor = facetField;
+            }
+            else
+            {
+                var view = await LiveTrafficService.GetViewAsync(new LiveTrafficQuery
+                {
+                    ViewerId = _viewerId,
+                    Filters = _filters.ToList(),
+                    Search = _search,
+                    GroupBy = _groupBy,
+                    Ended = _ended,
+                    DnsMode = _dnsMode,
+                    HideLocalDns = _hideLocalDns,
+                    SankeyByFlows = _sankeyByFlows,
+                    SankeyHold = ActiveSankeyHold,
+                    Sort = _flowSort,
+                    Descending = _flowDesc,
+                    FacetField = facetField,
+                });
+                _view = _pageHidden ? view : ApplyHold(view);
+                _facetsLoadedFor = facetField;
+            }
+            if (!_pageHidden) StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogDebug(ex, "Live Traffic refresh failed");
+        }
+        finally
+        {
+            Interlocked.Exchange(ref _refreshing, 0);
+        }
+    }
+
+    // ---------------------------------------------------------------- mode
+
+    /// <summary>The Active flows tile's firewall blocks: History, filtered to Blocked, over the span the count covers.</summary>
+    private async Task OpenBlockedHistoryAsync()
+    {
+        _filters.RemoveAll(f => f.Field == LiveTrafficField.Action);
+        _filters.Add(new LiveTrafficFilter(LiveTrafficField.Action, "Blocked"));
+        _from = DateTime.UtcNow - LiveTrafficStore.BlockedWindow;
+        _to = null;
+        await SetHistoryMode(true);
+    }
+
+    /// <summary>Switching mode ends what the other mode held: the agent's lease, or the History records.</summary>
+    private async Task SetHistoryMode(bool history)
+    {
+        if (_historyMode == history) return;
+        _historyMode = history;
+        _openKey = null;
+        _paused = false;
+        try { await LiveTrafficService.ReleaseAsync(_viewerId); }
+        catch (Exception ex) { Logger.LogDebug(ex, "Live Traffic release failed"); }
+        if (!history)
+        {
+            _from = _to = null;
+            _filters.RemoveAll(f => f.Field == LiveTrafficField.Action);
+        }
+        WriteUrl();
+        await RefreshAsync();
+    }
+
+    // ---------------------------------------------------------------- filters
+
+    private bool HasFilters => _filters.Count > 0 || !string.IsNullOrWhiteSpace(_search) || _from != null || _to != null;
+
+    private async Task AddFilter(LiveTrafficFilter filter)
+    {
+        _filters.RemoveAll(f => f.Field == filter.Field && string.Equals(f.Value, filter.Value, StringComparison.OrdinalIgnoreCase));
+        _filters.Add(filter);
+        await FiltersChanged();
+    }
+
+    /// <summary>A Where It's Going click: filters to the node, or, when that filter is already set, removes it.</summary>
+    private async Task ToggleFilter(LiveTrafficFilter filter)
+    {
+        var removed = _filters.RemoveAll(f => !f.Exclude && f.Field == filter.Field
+            && string.Equals(f.Value, filter.Value, StringComparison.OrdinalIgnoreCase));
+        if (removed == 0)
+        {
+            await AddFilter(filter);
+            return;
+        }
+        await FiltersChanged();
+    }
+
+    private async Task RemoveFilter(LiveTrafficFilter filter)
+    {
+        _filters.Remove(filter);
+        await FiltersChanged();
+    }
+
+    private async Task ClearFilters()
+    {
+        _filters.Clear();
+        _search = "";
+        _from = _to = null;
+        await FiltersChanged();
+    }
+
+    private async Task FiltersChanged()
+    {
+        _openKey = null;
+        _historyRows = HistoryPage;
+        WriteUrl();
+        await RefreshAsync();
+    }
+
+    private LiveTrafficFilter? KeptFilter(LiveTrafficField field, string value) =>
+        _filters.FirstOrDefault(f => f.Field == field && !f.Exclude && string.Equals(f.Value, value, StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>A click keeps only that value, a second click lets it go again; Alt-click hides it.</summary>
+    private Task TogglePill(MouseEventArgs e, LiveTrafficField field, string value)
+    {
+        if (e.AltKey) return AddFilter(new LiveTrafficFilter(field, value, Exclude: true));
+        return KeptFilter(field, value) is { } kept ? RemoveFilter(kept) : AddFilter(new LiveTrafficFilter(field, value));
+    }
+
+    private async Task OnSearchChanged()
+    {
+        _historyRows = HistoryPage;
+        WriteUrl();
+        await RefreshAsync();
+    }
+
+    /// <summary>An App chip's icon: the one its flows show (a DPI app's own mark), else the catalog's by name.</summary>
+    private RenderFragment ChipAppIcon(string app)
+    {
+        var row = _view?.Flows.FirstOrDefault(r => string.Equals(r.App, app, StringComparison.OrdinalIgnoreCase));
+        return row != null && (row.AppIconDomain != null || row.AppIconClass != null)
+            ? AppIcon(app, row.AppIconDomain, row.AppIconClass)
+            : AppIcon(app);
+    }
+
+    private async Task ClearSearch()
+    {
+        _search = "";
+        await OnSearchChanged();
+    }
+
+    private async Task OnSearchKey(KeyboardEventArgs e)
+    {
+        if (e.Key == "Escape" && _search.Length > 0)
+        {
+            _search = "";
+            await OnSearchChanged();
+        }
+    }
+
+    private async Task SetGroupBy(LiveTrafficGroupBy by)
+    {
+        if (_groupBy == by) return;
+        _groupBy = by;
+        _openKey = null;
+        WriteUrl();
+        await RefreshAsync();
+    }
+
+    /// <summary>
+    /// "N clients bypassing": exactly those clients and nothing that could hide them, so the chips and the
+    /// search go first (a Destination chip hides their lookups too). Live DNS on Bypass. A Not App chip
+    /// stays: it is a baseline people keep set, unless it hides DNS itself.
+    /// </summary>
+    /// <summary>The apps a bypass is made of: hiding one of them would hide what the click is for.</summary>
+    private static readonly HashSet<string> DnsApps = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "DNS", "DNS over HTTPS", "DNS over TLS", "DNS over QUIC",
+    };
+
+    private async Task FilterToBypassersAsync()
+    {
+        _filters.RemoveAll(f => !(f.Field == LiveTrafficField.App && f.Exclude && !DnsApps.Contains(f.Value)));
+        _search = "";
+        foreach (var name in _view?.BypassingClientNames ?? [])
+            _filters.Add(new LiveTrafficFilter(LiveTrafficField.Client, name));
+        _dnsMode = LiveDnsMode.Bypass;
+        _mobileDns = true;
+        await FiltersChanged();
+    }
+
+    private async Task SetDnsMode(LiveDnsMode mode)
+    {
+        _dnsMode = mode;
+        // The Live DNS tile's pivots land on the lookups they name, on a phone too.
+        _mobileDns = true;
+        await RefreshAsync();
+    }
+
+    private string HideLocalDnsKey => $"live_traffic.dns_hide_local:{SiteContext.Slug}";
+
+    private async Task LoadDnsPreferenceAsync()
+    {
+        try { _hideLocalDns = await UserPreferences.GetAsync(HideLocalDnsKey) == "true"; }
+        catch (Exception ex) { Logger.LogDebug(ex, "Live Traffic: DNS preference unreadable"); }
+    }
+
+    private async Task ToggleHideLocalDns(ChangeEventArgs e)
+    {
+        _hideLocalDns = e.Value is true;
+        await RefreshAsync();
+        try { await UserPreferences.SetAsync(HideLocalDnsKey, _hideLocalDns ? "true" : "false"); }
+        catch (Exception ex) { Logger.LogDebug(ex, "Live Traffic: DNS preference not saved"); }
+    }
+
+    private async Task SetEnded(bool ended)
+    {
+        if (_ended == ended) return;
+        _ended = ended;
+        _openKey = null;
+        await RefreshAsync();
+    }
+
+    private async Task SetSankeyMetric(bool byFlows)
+    {
+        _sankeyByFlows = byFlows;
+        await RefreshAsync();
+    }
+
+    private async Task TogglePause()
+    {
+        _paused = !_paused;
+        if (!_paused) await RefreshAsync();
+    }
+
+    private void ToggleRow(string key) => _openKey = _openKey == key ? null : key;
+
+    // ---------------------------------------------------------------- History controls
+
+    private async Task SetWindow((DateTime? From, DateTime? To) window)
+    {
+        _from = window.From;
+        _to = window.To;
+        await FiltersChanged();
+    }
+
+    private Task ClearWindow() => SetWindow((null, null));
+
+    private async Task SetSort(LiveHistorySort sort)
+    {
+        if (_sort == sort) return;
+        _sort = sort;
+        _historyRows = HistoryPage;
+        WriteUrl();
+        await RefreshAsync();
+    }
+
+    private LiveFlowSort _flowSort = LiveFlowSort.Download;
+    private bool _flowDesc = true;
+
+    private static readonly (LiveFlowSort Col, string Label)[] MobileFlowSorts =
+        [(LiveFlowSort.Download, "Down"), (LiveFlowSort.Upload, "Up"), (LiveFlowSort.Total, "Total"), (LiveFlowSort.Started, "Started")];
+
+    /// <summary>A new column starts biggest or newest first, names A to Z; the same column again flips it.</summary>
+    private async Task SetFlowSort(LiveFlowSort col)
+    {
+        if (_flowSort == col) _flowDesc = !_flowDesc;
+        else
+        {
+            _flowSort = col;
+            _flowDesc = col is not (LiveFlowSort.Client or LiveFlowSort.Destination or LiveFlowSort.App or LiveFlowSort.Route);
+        }
+        WriteUrl();
+        await RefreshAsync();
+    }
+
+    private RenderFragment FlowSortHeader(LiveFlowSort col, string label) => __builder =>
+    {
+        <th class="sortable @(_flowSort == col ? (_flowDesc ? "sort-desc" : "sort-asc") : null)" @onclick="() => SetFlowSort(col)">@label</th>
+    };
+
+    private async Task ShowMoreHistory()
+    {
+        _historyRows += HistoryPage;
+        await RefreshAsync();
+    }
+
+    // ---------------------------------------------------------------- URL
+
+    private static readonly Dictionary<string, LiveTrafficField> FieldKeys = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["client"] = LiveTrafficField.Client,
+        ["dest"] = LiveTrafficField.Destination,
+        ["app"] = LiveTrafficField.App,
+        ["route"] = LiveTrafficField.Route,
+        ["resolver"] = LiveTrafficField.Resolver,
+        ["proto"] = LiveTrafficField.Protocol,
+        ["port"] = LiveTrafficField.Port,
+        ["action"] = LiveTrafficField.Action,
+    };
+
+    private void ReadUrl()
+    {
+        var uri = new Uri(Nav.Uri);
+        var query = Microsoft.AspNetCore.WebUtilities.QueryHelpers.ParseQuery(uri.Query);
+        ReadFilters(query);
+        _historyMode = query.TryGetValue("view", out var view) && string.Equals(view, "history", StringComparison.OrdinalIgnoreCase);
+        if (_historyMode)
+        {
+            _from = ReadUnix(query, "from");
+            _to = ReadUnix(query, "to");
+            if (query.TryGetValue("sort", out var sort) && Enum.TryParse<LiveHistorySort>(sort.ToString(), true, out var s)) _sort = s;
+        }
+        else
+        {
+            _filters.RemoveAll(f => f.Field == LiveTrafficField.Action);
+            if (query.TryGetValue("sort", out var sort) && Enum.TryParse<LiveFlowSort>(sort.ToString(), true, out var s)) _flowSort = s;
+            if (query.TryGetValue("dir", out var dir)) _flowDesc = !string.Equals(dir, "asc", StringComparison.OrdinalIgnoreCase);
+        }
+    }
+
+    /// <summary>The chips, the search, and the grouping from a query string: the URL's, or a preset's.</summary>
+    private void ReadFilters(Dictionary<string, Microsoft.Extensions.Primitives.StringValues> query)
+    {
+        foreach (var (key, values) in query)
+        {
+            var exclude = key.StartsWith("not-", StringComparison.OrdinalIgnoreCase);
+            var name = exclude ? key[4..] : key;
+            if (FieldKeys.TryGetValue(name, out var field))
+                foreach (var v in values.Where(v => !string.IsNullOrWhiteSpace(v)))
+                    _filters.Add(new LiveTrafficFilter(field, v!, exclude));
+        }
+        if (query.TryGetValue("q", out var q)) _search = q.ToString();
+        if (query.TryGetValue("by", out var by) && Enum.TryParse<LiveTrafficGroupBy>(by.ToString(), true, out var g)) _groupBy = g;
+    }
+
+    /// <summary>The chips, the search, and the grouping as a query string, in the URL's own keys.</summary>
+    private string FilterQuery()
+    {
+        var parts = new List<string>();
+        foreach (var f in _filters)
+        {
+            var key = FieldKeys.First(k => k.Value == f.Field).Key;
+            parts.Add($"{(f.Exclude ? "not-" : "")}{key}={Uri.EscapeDataString(f.Value)}");
+        }
+        if (!string.IsNullOrWhiteSpace(_search)) parts.Add($"q={Uri.EscapeDataString(_search)}");
+        if (_groupBy != LiveTrafficGroupBy.Flows) parts.Add($"by={_groupBy.ToString().ToLowerInvariant()}");
+        return string.Join("&", parts);
+    }
+
+    // ---------------------------------------------------------------- presets (FilterPresets)
+
+    /// <summary>A saved preset replaces the chips, the search, and the grouping; the view and time window stay.</summary>
+    private async Task LoadPresetAsync(string saved)
+    {
+        _filters.Clear();
+        _search = "";
+        _groupBy = LiveTrafficGroupBy.Flows;
+        ReadFilters(Microsoft.AspNetCore.WebUtilities.QueryHelpers.ParseQuery(saved));
+        if (!_historyMode) _filters.RemoveAll(f => f.Field == LiveTrafficField.Action);
+        await FiltersChanged();
+    }
+
+    /// <summary>A saved preset in words, for its slot's tooltip: "Client NAS, Not App HTTPS, By Client".</summary>
+    private static string DescribeFilters(string saved)
+    {
+        var query = Microsoft.AspNetCore.WebUtilities.QueryHelpers.ParseQuery(saved);
+        var parts = new List<string>();
+        foreach (var (key, values) in query)
+        {
+            var exclude = key.StartsWith("not-", StringComparison.OrdinalIgnoreCase);
+            var name = exclude ? key[4..] : key;
+            if (FieldKeys.TryGetValue(name, out var field))
+                parts.AddRange(values.Select(v => $"{(exclude ? "Not " : "")}{LiveTrafficDisplay.FieldLabel(field)} {v}"));
+        }
+        if (query.TryGetValue("q", out var q)) parts.Add($"Search \u201c{q}\u201d");
+        if (query.TryGetValue("by", out var by)) parts.Add($"By {by}");
+        return string.Join(", ", parts);
+    }
+
+    private static DateTime? ReadUnix(Dictionary<string, Microsoft.Extensions.Primitives.StringValues> query, string key) =>
+        query.TryGetValue(key, out var v) && long.TryParse(v.ToString(), out var seconds) && seconds > 0
+            ? DateTimeOffset.FromUnixTimeSeconds(seconds).UtcDateTime
+            : null;
+
+    private void WriteUrl()
+    {
+        var parts = new List<string>();
+        if (_historyMode) parts.Add("view=history");
+        if (FilterQuery() is { Length: > 0 } filters) parts.Add(filters);
+        if (_historyMode)
+        {
+            if (_from is { } from) parts.Add($"from={new DateTimeOffset(from, TimeSpan.Zero).ToUnixTimeSeconds()}");
+            if (_to is { } to) parts.Add($"to={new DateTimeOffset(to, TimeSpan.Zero).ToUnixTimeSeconds()}");
+            if (_sort != LiveHistorySort.Time) parts.Add($"sort={_sort.ToString().ToLowerInvariant()}");
+        }
+        else if (_flowSort != LiveFlowSort.Download || !_flowDesc)
+        {
+            parts.Add($"sort={_flowSort.ToString().ToLowerInvariant()}");
+            parts.Add($"dir={(_flowDesc ? "desc" : "asc")}");
+        }
+        // The tab's ?site= stays, or a refresh would land on the browser's default site.
+        if (SiteContextService.SiteParamOf(AddressBar.Current) is { } site) parts.Add($"site={Uri.EscapeDataString(site)}");
+        var path = new Uri(Nav.Uri).AbsolutePath;
+        var url = parts.Count == 0 ? path : $"{path}?{string.Join("&", parts)}";
+        // The address bar only, never NavigateTo: a navigation re-runs the router, whose FocusOnNavigate
+        // focuses the h1 on every filter click and scrolls the page to it. AddressBar keeps what Blazor
+        // cannot see, so a site switch carries these filters, not the ones the page was opened with.
+        AddressBar.Wrote(url);
+        _ = ReplaceUrlAsync(url);
+    }
+
+    private async Task ReplaceUrlAsync(string url)
+    {
+        try { await JS.InvokeVoidAsync("ltReplaceUrl", url); }
+        catch (JSDisconnectedException) { }
+        catch (Exception ex) { Logger.LogDebug(ex, "Live Traffic: address bar not updated"); }
+    }
+
+    // ---------------------------------------------------------------- shared pieces
+
+    // ---------------------------------------------------------------- chip editor
+
+    /// <summary>The chip whose editor is open: a field and whether it excludes. Null when none is.</summary>
+    private (LiveTrafficField Field, bool Exclude)? _editor;
+    /// <summary>The field the last view's facets were built for, so the editor knows when its list is current.</summary>
+    private LiveTrafficField? _facetsLoadedFor;
+    private bool _fieldMenu;
+    /// <summary>Values a chip names before "+N".</summary>
+    private const int ChipValuesShown = 3;
+
+    /// <summary>
+    /// One chip per field and kind, values in one chip OR. Newest first: a new chip lands beside + Filter,
+    /// where the pointer already is, instead of at the end of the row.
+    /// </summary>
+    private IEnumerable<IGrouping<(LiveTrafficField Field, bool Exclude), LiveTrafficFilter>> ChipGroups() =>
+        _filters.GroupBy(f => (f.Field, f.Exclude)).Reverse();
+
+    /// <summary>The editor came from + Filter: it stays under + Filter while open, so ticking never moves it.</summary>
+    private bool _editorAtAdd;
+
+    /// <summary>What "+ Filter" offers: Resolver only filters Live DNS, and Action exists only in History.</summary>
+    private IEnumerable<(LiveTrafficField Field, string Icon)> EditableFields
+    {
+        get
+        {
+            yield return (LiveTrafficField.Client, "fa-solid fa-laptop");
+            yield return (LiveTrafficField.Destination, "fa-solid fa-globe");
+            yield return (LiveTrafficField.App, "fa-solid fa-cube");
+            yield return (LiveTrafficField.Route, "fa-solid fa-route");
+            yield return (LiveTrafficField.Protocol, "fa-solid fa-shuffle");
+            yield return (LiveTrafficField.Port, "fa-solid fa-hashtag");
+            if (_historyMode) yield return (LiveTrafficField.Action, "fa-solid fa-ban");
+            else yield return (LiveTrafficField.Resolver, "fa-solid fa-server");
+        }
+    }
+
+    private RenderFragment Editor((LiveTrafficField Field, bool Exclude) key) => __builder =>
+    {
+        var facets = (_historyMode ? _history?.Facets : _view?.Facets) ?? Array.Empty<LiveFacetValue>();
+        <FilterChipEditor @key="key" Field="key.Field" Exclude="key.Exclude" Selected="SelectedValues(key)"
+                          Facets="facets" Loading="_facetsLoadedFor != key.Field"
+                          OnToggle="v => ToggleEditorValueAsync(key, v)" OnSetExclude="ex => SetEditorKindAsync(key, ex)"
+                          OnSelectMany="vs => AddEditorValuesAsync(key, vs)" OnClearMany="vs => ClearEditorValuesAsync(key, vs)"
+                          OnClose="CloseEditor" />
+    };
+
+    private IReadOnlySet<string> SelectedValues((LiveTrafficField Field, bool Exclude) key) =>
+        _filters.Where(f => f.Field == key.Field && f.Exclude == key.Exclude).Select(f => f.Value).ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+    private void ToggleFieldMenu()
+    {
+        _fieldMenu = !_fieldMenu;
+        _editor = null;
+    }
+
+    /// <summary>Opens the chip's editor, and asks for its field's values at once rather than on the next tick.</summary>
+    private async Task OpenEditor(LiveTrafficField field, bool exclude, bool fromAdd = false)
+    {
+        _fieldMenu = false;
+        _editor = (field, exclude);
+        _editorAtAdd = fromAdd;
+        _facetsLoadedFor = null;
+        await RefreshAsync();
+    }
+
+    private void CloseEditor() => _editor = null;
+
+    private async Task ChipKey(KeyboardEventArgs e, (LiveTrafficField Field, bool Exclude) key)
+    {
+        if (e.Key is "Enter" or " ") await OpenEditor(key.Field, key.Exclude);
+        else if (e.Key is "Delete" or "Backspace") await RemoveChip(key);
+    }
+
+    private async Task RemoveChip((LiveTrafficField Field, bool Exclude) key)
+    {
+        _filters.RemoveAll(f => f.Field == key.Field && f.Exclude == key.Exclude);
+        if (_editor == key) _editor = null;
+        await FiltersChanged();
+    }
+
+    /// <summary>Ticks or unticks a value. A value can be in only one kind, so ticking it here drops it from the other.</summary>
+    private async Task ToggleEditorValueAsync((LiveTrafficField Field, bool Exclude) key, string value)
+    {
+        var removed = _filters.RemoveAll(f => f.Field == key.Field && f.Exclude == key.Exclude && Same(f.Value, value));
+        if (removed == 0)
+        {
+            _filters.RemoveAll(f => f.Field == key.Field && Same(f.Value, value));
+            _filters.Add(new LiveTrafficFilter(key.Field, value, key.Exclude));
+        }
+        await FiltersChanged();
+    }
+
+    /// <summary>Include / Exclude: the chip's values move to the other kind, joining any already there.</summary>
+    private async Task SetEditorKindAsync((LiveTrafficField Field, bool Exclude) key, bool exclude)
+    {
+        if (exclude == key.Exclude) return;
+        var moving = _filters.Where(f => f.Field == key.Field && f.Exclude == key.Exclude).Select(f => f.Value).ToList();
+        _filters.RemoveAll(f => f.Field == key.Field && f.Exclude == key.Exclude);
+        foreach (var value in moving.Where(v => !_filters.Any(f => f.Field == key.Field && Same(f.Value, v))))
+            _filters.Add(new LiveTrafficFilter(key.Field, value, exclude));
+        _editor = (key.Field, exclude);
+        await FiltersChanged();
+    }
+
+    private async Task AddEditorValuesAsync((LiveTrafficField Field, bool Exclude) key, IReadOnlyList<string> values)
+    {
+        foreach (var value in values)
+        {
+            _filters.RemoveAll(f => f.Field == key.Field && Same(f.Value, value));
+            _filters.Add(new LiveTrafficFilter(key.Field, value, key.Exclude));
+        }
+        await FiltersChanged();
+    }
+
+    /// <summary>The editor's Clear: unticks these values; the editor stays open even when the chip goes.</summary>
+    private async Task ClearEditorValuesAsync((LiveTrafficField Field, bool Exclude) key, IReadOnlyList<string> values)
+    {
+        _filters.RemoveAll(f => f.Field == key.Field && f.Exclude == key.Exclude && values.Any(v => Same(f.Value, v)));
+        // The chip is gone: the editor settles under + Filter, where a re-ticked chip lands, and stays there.
+        if (!_filters.Any(f => f.Field == key.Field && f.Exclude == key.Exclude)) _editorAtAdd = true;
+        await FiltersChanged();
+    }
+
+    private static bool Same(string a, string b) => string.Equals(a, b, StringComparison.OrdinalIgnoreCase);
+
+    private RenderFragment FilterBar => __builder =>
+    {
+        <div class="lt-filterbar">
+            <div class="lt-search @(string.IsNullOrWhiteSpace(_search) ? "" : "is-active")">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7" /><line x1="21" y1="21" x2="16.65" y2="16.65" /></svg>
+                <input class="form-control" placeholder="Filter by client, domain, app, IP, port, or protocol"
+                       @bind="_search" @bind:event="oninput" @bind:after="OnSearchChanged" @onkeydown="OnSearchKey" />
+                <span class="lt-search-hint" aria-hidden="true">Client, domain, app, IP, port, or protocol</span>
+                @if (!string.IsNullOrWhiteSpace(_search))
+                {
+                    <button type="button" class="lt-x lt-search-clear" aria-label="Clear the filter" data-tooltip="Clear the filter" @onclick="ClearSearch">×</button>
+                }
+            </div>
+            <span class="lt-chip-anchor">
+                <button type="button" class="lt-add-filter" aria-haspopup="menu" data-reveals=".lt-fmenu" aria-expanded="@(_fieldMenu ? "true" : "false")" @onclick="ToggleFieldMenu">+ Filter</button>
+                @if (_fieldMenu)
+                {
+                    <div class="lt-fpop-backdrop" @onclick="() => _fieldMenu = false"></div>
+                    <div class="lt-fmenu" role="menu">
+                        @foreach (var (pick, icon) in EditableFields)
+                        {
+                            <button type="button" role="menuitem" @onclick="() => OpenEditor(pick, false, fromAdd: true)"><i class="@icon"></i>@FieldLabel(pick)</button>
+                        }
+                    </div>
+                }
+                @if (_editor is { } open && (_editorAtAdd || !ChipGroups().Any(g => g.Key == open)))
+                {
+                    @Editor(open)
+                }
+            </span>
+            @if (_historyMode && (_from != null || _to != null))
+            {
+                <span class="lt-chip">
+                    Time <b>@WindowLabel</b>
+                    <span class="lt-x" role="button" aria-label="Clear the time window" @onclick="ClearWindow"><svg viewBox="0 0 10 10" aria-hidden="true"><path d="M2 2l6 6M8 2l-6 6" /></svg></span>
+                </span>
+            }
+            @foreach (var group in ChipGroups())
+            {
+                var key = group.Key;
+                var values = group.Select(f => f.Value).ToList();
+                var single = values.Count == 1 ? values[0] : null;
+                // Hover cards name one destination or client; a chip holding several has no single one to name.
+                var destValue = single != null && key.Field == LiveTrafficField.Destination ? single : null;
+                var chipDest = destValue != null ? DestinationOf(destValue) : null;
+                var chipClient = single != null && key.Field == LiveTrafficField.Client ? ClientOf(single) : null;
+                // A destination that is one of the site's own clients or devices takes the client card, as its cell does.
+                var chipPeer = chipDest != null ? LiveTrafficLinks.LanPeer(chipDest) : null;
+                // With no flow to it in view, the card is built from the value alone: copy and Trace.
+                var destCardIp = chipPeer != null ? null : chipDest?.DestinationIp ?? destValue;
+                var clientLink = chipClient != null ? LiveTrafficLinks.Client(chipClient) : chipPeer;
+                <span class="lt-chip-anchor">
+                    <span class="lt-chip @(key.Exclude ? "is-exclude" : null) @(_editor == key ? "is-open" : null)" role="button" tabindex="0" data-reveals=".lt-fpop"
+                          aria-label="@($"Edit the {FieldLabel(key.Field)} filter")" @onclick="() => OpenEditor(key.Field, key.Exclude)"
+                          @onkeydown="e => ChipKey(e, key)"
+                          data-dest-name="@(destCardIp != null ? single : null)" data-dest-ip="@destCardIp"
+                          data-dest-link="@(destCardIp != null && chipDest != null ? LiveTrafficLinks.ThreatsDrilldown(chipDest) : null)"
+                          data-client-name="@(clientLink != null ? single : null)" data-client-link="@clientLink">
+                        @* App = Tailscale spans clients, destinations and the tunnel, so it drops the App label. *@
+                        @if (key.Field == LiveTrafficField.App && single != null && LiveTrafficStore.IsTailscaleApp(single))
+                        {
+                            @(key.Exclude ? "Not" : null)
+                        }
+                        else
+                        {
+                            @(key.Exclude ? $"Not {FieldLabel(key.Field)}" : FieldLabel(key.Field))
+                        }
+                        @for (var i = 0; i < Math.Min(values.Count, ChipValuesShown); i++)
+                        {
+                            var value = values[i];
+                            if (i > 0)
+                            {
+                                <span class="lt-chip-or">or</span>
+                            }
+                            @if (key.Field == LiveTrafficField.App)
+                            {
+                                @ChipAppIcon(value)
+                            }
+                            <b>@value</b>
+                        }
+                        @if (values.Count > ChipValuesShown)
+                        {
+                            <span class="lt-chip-or">+@(values.Count - ChipValuesShown)</span>
+                        }
+                        <span class="lt-x" role="button" aria-label="Remove filter" @onclick="() => RemoveChip(key)" @onclick:stopPropagation><svg viewBox="0 0 10 10" aria-hidden="true"><path d="M2 2l6 6M8 2l-6 6" /></svg></span>
+                    </span>
+                    @if (_editor == key && !_editorAtAdd)
+                    {
+                        @Editor(key)
+                    }
+                </span>
+            }
+            @if (HasFilters)
+            {
+                <a href="" class="lt-clear" @onclick="ClearFilters" @onclick:preventDefault>Clear</a>
+            }
+            <FilterPresets Scope="live_traffic" Slots="5" Current="FilterQuery" OnLoad="LoadPresetAsync" Describe="DescribeFilters" ApplyActiveOnStart="!_linkHadFilters" />
+            <div class="lt-right">
+                <span class="lt-by-label">By</span>
+                <div class="time-range-selector">
+                    @foreach (var by in Enum.GetValues<LiveTrafficGroupBy>())
+                    {
+                        <button class="time-btn @(_groupBy == by ? "active" : "")" @onclick="() => SetGroupBy(by)">@by</button>
+                    }
+                </div>
+            </div>
+        </div>
+    };
+
+    private LiveTrafficRowContext? _rowContext;
+
+    /// <summary>Every value on the page filters it: a click keeps it, a second click lets it go, hide drops it.</summary>
+    protected override LiveTrafficRowContext Ctx => _rowContext ??= new()
+    {
+        IsKept = (kind, value) => KeptFilter(kind, value) != null,
+        Toggle = TogglePill,
+        Exclude = AddFilter,
+        CanNameApps = () => _canNameApps,
+        NameApp = seed => OpenCustomAppsAsync(seed),
+        OfferTailscaleSetup = () => _view is { TailnetConnected: false },
+    };
+
+    // ---------------------------------------------------------------- custom apps
+
+    /// <summary>A Site Admin here: the Custom Apps button and Name This App show. The service gate is the real check.</summary>
+    private bool _canNameApps;
+    [CascadingParameter] private Task<Microsoft.AspNetCore.Components.Authorization.AuthenticationState>? AuthState { get; set; }
+    private bool _customAppsOpen;
+    private CustomAppSeed? _nameSeed;
+    private int _customAppCount;
+    /// <summary>The page opened from a Name This App link: closing the dialog drops ?nameApp= from the address bar.</summary>
+    private bool _nameAppInUrl;
+
+    private async Task StartCustomAppsAsync()
+    {
+        try
+        {
+            var user = AuthState == null ? null : (await AuthState).User;
+            _canNameApps = user != null && (await Authz.AuthorizeAsync(user, SiteContext.Slug, NetworkOptimizer.Web.Services.Authorization.Policies.SiteAdmin)).Succeeded;
+            if (!_canNameApps) return;
+            _customAppCount = (await CustomApps.ListAsync()).Count;
+            _selfRef ??= DotNetObjectReference.Create(this);
+            await JS.InvokeVoidAsync("ltNameApp.register", _selfRef);
+            var query = Microsoft.AspNetCore.WebUtilities.QueryHelpers.ParseQuery(new Uri(Nav.Uri).Query);
+            if (query.TryGetValue(LiveTrafficLinks.NameAppKey, out var value) && CustomAppSeed.Decode(value) is { } seed)
+            {
+                _nameAppInUrl = true;
+                _nameSeed = seed;
+                _customAppsOpen = true;
+            }
+        }
+        catch (JSDisconnectedException) { }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Live Traffic: custom apps setup failed");
+        }
+    }
+
+    /// <summary>Called by the hover card's Name This App link (App.razor), with the seed it carries.</summary>
+    [JSInvokable]
+    public Task OpenNameApp(string seed) =>
+        CustomAppSeed.Decode(seed) is { } s ? InvokeAsync(() => OpenCustomAppsAsync(s)) : Task.CompletedTask;
+
+    private async Task OpenCustomAppsAsync(CustomAppSeed? seed)
+    {
+        if (!_canNameApps) return;
+        try { await JS.InvokeVoidAsync("ltNameApp.rememberFocus"); }
+        catch (JSDisconnectedException) { }
+        _nameSeed = seed;
+        _customAppsOpen = true;
+        StateHasChanged();
+    }
+
+    private Task CloseCustomAppsAsync()
+    {
+        _customAppsOpen = false;
+        _nameSeed = null;
+        if (_nameAppInUrl)
+        {
+            _nameAppInUrl = false;
+            WriteUrl();
+        }
+        return RefreshAsync();
+    }
+
+    /// <summary>A shown flow to this destination (a name or an address), for its address; null when none is shown.</summary>
+    private LiveFlowRow? DestinationOf(string value)
+    {
+        var rows = _historyMode ? _history?.Flows : _view?.Flows;
+        return rows?.FirstOrDefault(r => string.Equals(r.Destination, value, StringComparison.OrdinalIgnoreCase)
+            || string.Equals(r.DestinationIp, value, StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <summary>A shown flow from this client, for its address; null when none is shown.</summary>
+    private LiveFlowRow? ClientOf(string value)
+    {
+        var rows = _historyMode ? _history?.Flows : _view?.Flows;
+        return rows?.FirstOrDefault(r => string.Equals(r.ClientName, value, StringComparison.OrdinalIgnoreCase));
+    }
+
+    // ---------------------------------------------------------------- History
+
+    private RenderFragment HistoryBody => __builder =>
+    {
+        if (_history == null || (_history.State == LiveHistoryState.Loading && _history.TotalFlows == 0))
+        {
+            <div class="loading-container">
+                <div class="spinner"></div>
+                <p class="lt-secondary lt-small">Reading UniFi Network's flow records</p>
+            </div>
+            return;
+        }
+        if (_history.State is LiveHistoryState.Unsupported or LiveHistoryState.NoConsole
+            || (_history.State == LiveHistoryState.Failed && _history.TotalFlows == 0))
+        {
+            <div class="card">
+                <div class="card-body">
+                    <div class="empty-state">
+                        <p>@(_history.State switch
+                        {
+                            LiveHistoryState.Unsupported => "History reads UniFi Network's own flow records, and the Network app on this UniFi Console does not serve them.",
+                            LiveHistoryState.NoConsole => "History reads UniFi Network's own flow records. Connect this site's UniFi Console to see them.",
+                            _ => "UniFi Network did not answer. Network Optimizer tries again every 15 seconds.",
+                        })</p>
+                    </div>
+                </div>
+            </div>
+            return;
+        }
+
+        var h = _history;
+        @* Some Gateways (a UDR7, for one) log only what they block: History then holds no allowed flows at all. *@
+        if (h.TotalFlows > 0 && h.TotalBlocked == h.TotalFlows)
+        {
+            <div class="connection-banner pwa-banner">
+                <div class="banner-content">
+                    <span class="banner-icon" style="background: var(--info-color); color: white;"><GatewayIcon /></span>
+                    <div class="banner-text">
+                        <strong style="color: var(--info-color);">UniFi Network is recording only blocked traffic for this Gateway</strong>
+                        <span style="color: var(--text-secondary);">History is only able to show blocked flows.</span>
+                    </div>
+                </div>
+            </div>
+        }
+        <div class="card lt-timeline-card">
+            <div class="card-header">
+                <div class="card-title-group">
+                    <h2 class="card-title">Timeline</h2>
+                    <span class="lt-secondary lt-small">@HistoryCountLabel(h)</span>
+                </div>
+                <div class="card-header-right">
+                    @if (_from != null || _to != null)
+                    {
+                        <a href="" class="lt-clear" @onclick="ClearWindow" @onclick:preventDefault>Clear Window</a>
+                    }
+                    <div class="time-range-selector">
+                        <button class="time-btn @(!_timelineByData ? "active" : "")" @onclick="() => _timelineByData = false">Flows</button>
+                        <button class="time-btn @(_timelineByData ? "active" : "")" @onclick="() => _timelineByData = true">Data</button>
+                    </div>
+                </div>
+            </div>
+            <div class="card-body">
+                <LiveTrafficTimeline Buckets="h.Buckets" ByData="_timelineByData" From="_from" To="_to" OnSelect="SetWindow" />
+                <div class="lt-tl-legend">
+                    @Pill(LiveTrafficField.Action, "Allowed", cls: "lt-action-allowed")
+                    @Pill(LiveTrafficField.Action, "Blocked", cls: "lt-action-blocked")
+                    <span class="lt-legend-note">UniFi Network keeps @RetentionLabel(h) of flow records. History holds them in memory while you look, and stores nothing.</span>
+                </div>
+            </div>
+        </div>
+
+        @FilterBar
+
+        <div class="card">
+            <div class="card-header">
+                <div class="card-title-group">
+                    <h2 class="card-title">@(_groupBy == LiveTrafficGroupBy.Flows ? "Flows" : $"By {_groupBy}")</h2>
+                    <span class="lt-secondary lt-small">@(_groupBy == LiveTrafficGroupBy.Flows ? $"{h.MatchingFlows:N0} of {h.TotalFlows:N0} flows" : TimeFormatHelper.Pluralize(h.Groups.Count, "row"))</span>
+                </div>
+                @if (_groupBy == LiveTrafficGroupBy.Flows)
+                {
+                    <div class="card-header-right lt-mobile-only">
+                        <div class="time-range-selector">
+                            <button class="time-btn @(_sort == LiveHistorySort.Time ? "active" : "")" @onclick="() => SetSort(LiveHistorySort.Time)">Last Seen</button>
+                            <button class="time-btn @(_sort == LiveHistorySort.Data ? "active" : "")" @onclick="() => SetSort(LiveHistorySort.Data)">Data</button>
+                        </div>
+                    </div>
+                }
+            </div>
+            <div class="card-body">
+                @if (_groupBy != LiveTrafficGroupBy.Flows)
+                {
+                    @GroupTable(h.Groups, history: true)
+                }
+                else if (h.Flows.Count == 0)
+                {
+                    <div class="empty-state"><p>@(HasFilters ? "No flows match." : "UniFi Network has no flow records yet.")</p></div>
+                }
+                else
+                {
+                    <div class="table-responsive lt-desktop-only">
+                        <table class="data-table lt-flows">
+                            <colgroup><col style="width:2.2rem"><col style="width:9%"><col style="width:15%"><col style="width:23%"><col style="width:11%"><col style="width:13%"><col style="width:9%"><col style="width:8%"><col style="width:9%"></colgroup>
+                            <thead>
+                                <tr>
+                                    <th></th>
+                                    <th class="sortable @(_sort == LiveHistorySort.Time ? "sort-desc" : null)" @onclick="() => SetSort(LiveHistorySort.Time)">Last Seen</th>
+                                    <th>Client</th><th>Destination</th><th>App</th><th>Route</th><th>Action</th>
+                                    <th class="sortable @(_sort == LiveHistorySort.Data ? "sort-desc" : null)" @onclick="() => SetSort(LiveHistorySort.Data)">Data</th>
+                                    <th>Duration</th>
+                                </tr>
+                            </thead>
+                            <tbody class="lt-flip">
+                                @foreach (var f in h.Flows)
+                                {
+                                    var key = f.Key;
+                                    <LiveFlowRowView @key="key" Flow="f" Layout="LiveFlowLayout.HistoryTable" Open="_openKey == key" OnToggle="() => ToggleRow(key)" Context="Ctx" />
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="lt-mobile-list lt-flip">
+                        @foreach (var f in h.Flows)
+                        {
+                            var key = f.Key;
+                            <LiveFlowRowView @key="key" Flow="f" Layout="LiveFlowLayout.HistoryList" Open="_openKey == key" OnToggle="() => ToggleRow(key)" Context="Ctx" />
+                        }
+                    </div>
+                    @if (h.MatchingFlows > h.Flows.Count)
+                    {
+                        <button type="button" class="btn btn-secondary btn-sm lt-show-more" @onclick="ShowMoreHistory">
+                            Show @Math.Min(HistoryPage, h.MatchingFlows - h.Flows.Count).ToString("N0") more
+                        </button>
+                    }
+                }
+            </div>
+        </div>
+    };
+
+    private string HistoryCountLabel(LiveHistoryView h)
+    {
+        var scope = _from != null || _to != null ? $"{WindowLabel}: " : "";
+        var blocked = h.MatchingBlocked > 0 ? $", {h.MatchingBlocked:N0} blocked" : "";
+        return $"{scope}{TimeFormatHelper.Pluralize(h.MatchingFlows, "flow")}{blocked}, {DisplayFormatters.FormatBytes(h.MatchingBytes)}";
+    }
+
+    private string WindowLabel
+    {
+        get
+        {
+            var from = _from is { } f ? LocalClock(f) : "start";
+            var to = _to is { } t ? LocalClock(t) : "now";
+            return _from is { } a && _to is { } b && b - a <= TimeSpan.FromMinutes(1) ? from : $"{from} - {to}";
+        }
+    }
+
+    private static string RetentionLabel(LiveHistoryView h) =>
+        h.Oldest is { } oldest ? $"about the last {TimeFormatHelper.FormatDuration(DateTime.UtcNow - oldest)}" : "a short window";
+
+    // ---------------------------------------------------------------- rendering helpers
+
+    private string FlowCountLabel => _view == null ? ""
+        : _groupBy != LiveTrafficGroupBy.Flows ? TimeFormatHelper.Pluralize(_view.Groups.Count, "row")
+        : HasFilters ? $"{_view.MatchingFlows:N0} of {_view.TotalFlows:N0} flows"
+        : _ended ? TimeFormatHelper.Pluralize(_view.MatchingFlows, "flow") + " ended"
+        : $"{_view.TotalFlows:N0} flows, {_view.MatchingFlows:N0} moving";
+
+    private string LocalClock(DateTime utc) =>
+        TimeZoneInfo.ConvertTimeFromUtc(DateTime.SpecifyKind(utc, DateTimeKind.Utc), DisplayTime.Zone)
+            .ToString(DisplayTime.Format.Time, DisplayFormat.Culture);
+
+    /// <summary>The roll-up table. History has no rates, so it shows flows, blocked, and data instead.</summary>
+    private RenderFragment GroupTable(IReadOnlyList<LiveGroupRow> groups, bool history) => __builder =>
+    {
+        if (groups.Count == 0)
+        {
+            <div class="empty-state"><p>@(HasFilters ? "No flows match." : history ? "UniFi Network has no flow records yet." : "No traffic right now.")</p></div>
+            return;
+        }
+        <div class="table-responsive lt-desktop-only">
+            <table class="data-table lt-flows lt-groups">
+                @if (history)
+                {
+                    <colgroup><col style="width:3.2rem"><col style="width:60%"><col style="width:16%"><col style="width:16%"></colgroup>
+                    <thead><tr><th>#</th><th>@_groupBy</th><th>Flows</th><th class="sortable sort-desc">Data</th></tr></thead>
+                }
+                else
+                {
+                    <colgroup><col style="width:3.2rem"><col style="width:40%"><col style="width:10%"><col style="width:15%"><col style="width:15%"><col style="width:12%"></colgroup>
+                    <thead><tr><th>#</th><th>@_groupBy</th><th>Flows</th><th class="sortable sort-desc">Download</th><th>Upload</th><th>Total</th></tr></thead>
+                }
+                <tbody class="lt-flip">
+                    @{ var rank = 0; }
+                    @foreach (var g in groups)
+                    {
+                        rank++;
+                        <tr @key="g.Name" data-flip="@("g|" + g.Name)" class="lt-flow-row" @onclick="() => DrillInto(g)">
+                            <td class="lt-rank">@rank</td>
+                            <td>
+                                @if (g.RouteKind is { } kind)
+                                {
+                                    <span class="lt-tag @RouteClass(kind)">@g.Name</span>
+                                }
+                                else
+                                {
+                                    @GroupName(g)
+                                }
+                                @if (!string.IsNullOrEmpty(g.Sub))
+                                {
+                                    <span class="lt-sub">@g.Sub</span>
+                                }
+                            </td>
+                            <td>@g.Flows.ToString("N0")</td>
+                            @if (history)
+                            {
+                                <td>@DisplayFormatters.FormatBytes(g.TotalBytes)</td>
+                            }
+                            else
+                            {
+                                <td>@Rate(g.DownBps, "speed-down")</td>
+                                <td>@Rate(g.UpBps, "speed-up")</td>
+                                <td>@DisplayFormatters.FormatBytes(g.TotalBytes)</td>
+                            }
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+        <div class="lt-mobile-list lt-flip">
+            @foreach (var g in groups)
+            {
+                <div @key="g.Name" data-flip="@("g|" + g.Name)" class="lt-m-row" @onclick="() => DrillInto(g)">
+                    <div class="lt-m-top">
+                        <span class="lt-m-name">
+                            @if (g.RouteKind is { } kind)
+                            {
+                                <span class="lt-tag @RouteClass(kind)">@g.Name</span>
+                            }
+                            else
+                            {
+                                @GroupName(g)
+                            }
+                        </span>
+                        <span class="lt-m-rates">
+                            @if (history)
+                            {
+                                @DisplayFormatters.FormatBytes(g.TotalBytes)
+                            }
+                            else
+                            {
+                                @MobileRates(g.DownBps, g.UpBps)
+                            }
+                        </span>
+                    </div>
+                    <div class="lt-m-tags">
+                        @if (!string.IsNullOrEmpty(g.Sub))
+                        {
+                            <span class="lt-muted lt-small">@g.Sub</span>
+                        }
+                        <span class="lt-muted lt-small">@TimeFormatHelper.Pluralize(g.Flows, "flow")@(history ? "" : $" · {DisplayFormatters.FormatBytes(g.TotalBytes)}")</span>
+                    </div>
+                </div>
+            }
+        </div>
+    };
+
+    /// <summary>A group's name; an unnamed port ("UDP 21324") grouped by App carries the Name This App card.</summary>
+    private RenderFragment GroupName(LiveGroupRow g) => __builder =>
+    {
+        var unnamed = g.Unnamed;
+        var tailscale = _groupBy == LiveTrafficGroupBy.App && OffersTailscaleSetup(g.Name);
+        <span class="lt-app-cell @(unnamed != null ? "lt-app-unnamed" : null)" data-app-unnamed="@(unnamed != null ? g.Name : null)"
+              data-app-seed="@unnamed?.Encode()" data-app-link="@NameAppLink(unnamed)"
+              data-app-tailscale="@(tailscale ? g.Name : null)" data-tailscale-link="@(tailscale ? TailscaleSetupLink : null)">@if (_groupBy == LiveTrafficGroupBy.App) { @AppIcon(g.Name) }<span class="lt-pivot">@g.Name</span></span>
+    };
+
+    /// <summary>A group row opens its flows: filter to the group, back to the flow list.</summary>
+    private async Task DrillInto(LiveGroupRow g)
+    {
+        _groupBy = LiveTrafficGroupBy.Flows;
+        await AddFilter(new LiveTrafficFilter(g.Field, g.Name));
+    }
+
+    public void Dispose()
+    {
+        _disposed = true;
+        _timer?.Dispose();
+        try { _ = LiveTrafficService.ReleaseAsync(_viewerId); }
+        catch { /* circuit going away */ }
+        try { _ = _motion?.InvokeVoidAsync("unwatchVisibility", "live-traffic").AsTask(); }
+        catch { /* circuit going away */ }
+        if (_canNameApps && _selfRef != null)
+        {
+            try { _ = JS.InvokeVoidAsync("ltNameApp.unregister", _selfRef).AsTask(); }
+            catch { /* circuit going away */ }
+        }
+        _selfRef?.Dispose();
+    }
+}

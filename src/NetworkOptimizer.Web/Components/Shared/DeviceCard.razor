@@ -5,7 +5,7 @@
         <div class="device-header">
             <div class="device-icon">
                 @{
-                    var imagePath = GetDeviceImagePath(Device.Model);
+                    var imagePath = GetDeviceImagePath(Device.Model) ?? FallbackImageUrl;
                 }
                 @if (!string.IsNullOrEmpty(imagePath))
                 {
@@ -228,6 +228,10 @@
 @code {
     [Parameter]
     public DeviceInfo? Device { get; set; }
+
+    /// <summary>The image to show when the app bundles none for the model (UniFi Network's icon for it).</summary>
+    [Parameter]
+    public string? FallbackImageUrl { get; set; }
 
     private bool HasLiveData => Device != null
         && (Device.LiveRateInBps.HasValue

@@ -1463,6 +1463,55 @@ Your monitoring data sits in plain InfluxDB 2.x buckets, so you can point your o
 
 The schema is stable: measurement and field names only ever get added, never renamed or removed (Network Optimizer's own charts depend on them), so anything you build keeps working across upgrades.
 
+## What Live Traffic Stores
+
+Live Traffic shows which apps, protocols, destinations, and DNS lookups each client uses. Network Optimizer stores none of that detail. It exists only in memory, for as long as someone is viewing it.
+
+- **Flows and Live DNS** (On-Site Agent on the gateway): the agent reads the gateway's conntrack table, and DNS traffic, and sends per-flow and DNS detail only while a Live Traffic view is open, and for up to a minute after it closes, so coming back to the page is live immediately. The detail travels over the agent's HTTPS tunnel. The agent never writes it to its disk buffer, and it stops sending on its own when that minute runs out. Turning capture off (below) stops it immediately. The server keeps it in memory only.
+- **Flow history**: for past time ranges, and on sites without a gateway agent, Live Traffic reads UniFi Network's own flow history from the UniFi Console. Network Optimizer caches it in memory and never copies it to its own storage. UniFi Network decides how long that history is kept.
+- **Usage totals**: what Network Optimizer stores per device is aggregate usage, not per app or protocol. WAN usage comes from the gateway agent (`client_wan`), and LAN + WAN usage from Wi-Fi stats (`wifi_client`) and switch port stats (`wired_client`, `interface_counters`). None of it carries an app, protocol, destination, or TCP/UDP port. With InfluxDB configured it is kept at the monitoring buckets' retention (90 days raw and 365 days as hourly totals, by default). It feeds the Live Traffic ranking from the last hour to 30 days, and the per-device usage in Client Performance.
+
+To turn off Live Traffic flow and DNS capture for a site, clear **Enable Live Traffic flow and DNS capture** in Settings - Monitoring - **Live Traffic**. The agent then sends no flows or DNS lookups, and the Live Traffic card on Monitoring - Live View ranks clients by usage only. History keeps working from UniFi Network's flow records.
+
+If a future release keeps a history of client activity (which apps, protocols, or destinations a client used), that history will be opt-in and off by default.
+
+## Tailscale (Optional)
+
+Settings - Connection - **Tailscale** resolves Tailscale devices in Client Performance, speed test results, and Live Traffic, and shows whether each one connects directly or through a relay. Network Optimizer only reads: it never changes the tailnet. Set it per site.
+
+### Connect
+
+- **Tailscale**: in the Tailscale Admin console, go to Settings - Trust credentials, click **+ Credential**, and add an OAuth credential with the **Devices Core** scope set to **Read** (`devices:core:read`). Enter its client ID and secret. The credential's own tailnet is the one read.
+- **Headscale**: the server's URL and an API key from `headscale apikeys create`.
+
+The Tailscale API is read from the Network Optimizer server. So is a Headscale server, unless its address is private or its name resolves only inside the site: then, on a site reached through its On-Site Agent, it is read through the agent, so a Headscale server on that site's LAN works.
+
+### What you get
+
+- Tailscale devices by name, OS, and owner (or tags) in Client Performance, which also lists them in its device selector and opens each one in Live Traffic (**Open in Live Traffic**).
+- Tailscale flows in Live Traffic named by the device at the far end. Of a device's flows, the busiest reads **Direct** and the rest **Path probe** (tailscaled probes every endpoint a device has). Flows to Tailscale's relay servers are named by region, such as Tailscale DERP (Dallas), and read **DERP relay** or **STUN**.
+- How a device connects (Direct or Relayed), read off the gateway's flows. On a Tailscale speed test result it is read right after the test and labeled "(seen just after the test)".
+- Tailscale speed test results named by the device, earlier results included.
+
+The API lists only devices your tailnet owns: a device another tailnet shares with you keeps its address.
+
+### Tailscale on an On-Site Agent's host
+
+With the Tailscale connection configured, an On-Site Agent whose host also runs Tailscale (a Linux server or Raspberry Pi that is your subnet router or exit node, for example) adds what the API and the gateway's flows cannot. Nothing here runs until the connection is configured, and the card names the agent while it is in use.
+
+- The exact path for every device (direct, DERP relay with its region, or peer relay), read from that host's tailscaled rather than observed, and per-device traffic counters. A speed test run through that host records its path exactly.
+- When that host is the tailnet's subnet router or exit node, Live Traffic shows the Tailscale device behind each connection it routes instead of the host, read from the host's conntrack table. By default a router source-NATs its peers to its own LAN address, so only that host's table holds which peer it was. A node started with `--snat-subnet-routes=false`, with the gateway routing `100.64.0.0/10` to it, needs none of this: its peers keep their tailnet addresses.
+
+Requirements:
+
+- The v2.11.1-preview5 On-Site Agent or later, installed natively (`install-native.sh`), so it runs as root on the host. Network Optimizer's own container runs as a non-root user and cannot read conntrack, so on a Docker install the agent goes beside it on the same host.
+- For routed-traffic attribution, tailscaled in the host's network (`network_mode: host` for a container). Userspace networking leaves no conntrack entries.
+- tailscaled's LocalAPI socket at `/var/run/tailscale/tailscaled.sock`. When tailscaled runs in a container, set `TS_SOCKET=/var/run/tailscale/tailscaled.sock` on it and mount `/var/run/tailscale` from the host. For a root caller the socket allows changes as well as reads; the agent sends only `GET /localapi/v0/status`.
+
+An agent on macOS (built from source: see the agent README) gives the paths and counters but not routed traffic, since tailscaled on macOS does its NAT inside its own process rather than in a table the agent can read.
+
+When a site has several agents, the one whose host routes for the tailnet is used, else the first whose host runs Tailscale. An agent that connects later, as after a restart, is asked at once. Agents already asked without Tailscale are asked again every 10 minutes, so Tailscale added to a host later is picked up within that time (saving the Tailscale card checks at once).
+
 ## Next Steps
 
 After deployment:

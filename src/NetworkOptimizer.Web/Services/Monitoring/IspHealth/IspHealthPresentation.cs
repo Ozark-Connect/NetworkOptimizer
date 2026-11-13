@@ -53,8 +53,10 @@ public static class IspHealthPresentation
     /// <param name="traceByShift">The Path Localization episode each path shift carries the hop table of,
     /// when the shift explains it. A shift built from a step-only episode is not in the report's list, so
     /// it is drawn from here.</param>
+    /// <param name="clearedByShift">When a traced shift's elevation cleared, so its row says how long it lasted.</param>
     public static IEnumerable<TimelineEntry> EventTimeline(IspHealthReport r,
-        IReadOnlyDictionary<PathShiftEvent, int>? traceByShift = null)
+        IReadOnlyDictionary<PathShiftEvent, int>? traceByShift = null,
+        IReadOnlyDictionary<PathShiftEvent, DateTime>? clearedByShift = null)
     {
         var entries = new List<TimelineEntry>();
         foreach (var group in GroupCongestion(r.CongestionEvents))
@@ -164,13 +166,17 @@ public static class IspHealthPresentation
             }
             var direction = shift.Direction == PathShiftDirection.Up ? "up" : "down";
             var correlated = shift.CorrelatedTargetCount > 1 ? $", seen on {shift.CorrelatedTargetCount} paths" : "";
+            // A step up whose traced elevation has cleared is over; without a span it reads as ongoing.
+            var lasted = shift.Direction == PathShiftDirection.Up && clearedByShift != null
+                && clearedByShift.TryGetValue(shift, out var cleared) && cleared > shift.Time
+                ? $" for {FormatDuration(cleared - shift.Time)}" : "";
             // The sentence quotes the named path's own levels; the members carry what each of the
             // others did, which is where a second step of a different size becomes visible.
             var shiftMembers = shift.Members.Count > 1
                 ? shift.Members.Select(m => $"{m.Name} - {m.BeforeMedianMs:0.#} to {m.AfterMedianMs:0.#} ms").ToList()
                 : null;
             entries.Add(new TimelineEntry(shift.Time, "Path shift", "isp-event-badge-shift",
-                $"RTT stepped {direction} {Math.Abs(shift.DeltaMs):0.#} ms on {where} ({shift.BeforeMedianMs:0.#} to {shift.AfterMedianMs:0.#} ms){correlated}. BGP or transport fabric change.",
+                $"RTT stepped {direction} {Math.Abs(shift.DeltaMs):0.#} ms on {where}{lasted} ({shift.BeforeMedianMs:0.#} to {shift.AfterMedianMs:0.#} ms){correlated}. BGP or transport fabric change.",
                 Category: EventCategory.Shift, Members: shiftMembers, MemberNoun: "path", TargetIds: shift.TargetIds,
                 EpisodeId: traceByShift != null && traceByShift.TryGetValue(shift, out var traced) ? traced : null));
         }

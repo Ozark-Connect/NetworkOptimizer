@@ -379,6 +379,88 @@
                 .replace(/"/g, '&quot;').replace(/'/g, '&#39;').replace(/\n/g, '<br>');
         }
 
+        // A cut cell's full text, or the tooltip of a child marked data-tooltip-names-cut: that tooltip
+        // already names the full text and says more (Live DNS's redirect), so one tooltip covers both.
+        function cutText(el) {
+            var names = el.matches('[data-tooltip-names-cut]') ? el : el.querySelector('[data-tooltip-names-cut]');
+            return names ? (names.getAttribute('data-tooltip') || '') : (el.textContent || '').trim();
+        }
+
+        // A small X at the top right of a tooltip that stays up (interactive: it has links to click), so
+        // it can be put away without moving off it. On the box, not the content: setContent keeps it.
+        function addTipClose(instance) {
+            var box = instance.popper.querySelector('.tippy-box');
+            if (!box || box.querySelector('.tip-close')) return;
+            var x = document.createElement('button');
+            x.type = 'button';
+            x.className = 'tip-close';
+            x.setAttribute('aria-label', 'Close');
+            x.textContent = '×';
+            x.addEventListener('click', function (e) { e.stopPropagation(); instance.hide(); });
+            box.appendChild(x);
+        }
+
+        // One tooltip on screen at a time: the newest one to mount hides the rest at once. A plugin, not a
+        // default onMount, because a tooltip's own onMount replaces a default but runs beside a plugin.
+        // Fixed positioning: a tooltip or card that follows its reference out of the scroll area never
+        // grows the document, which flashed a second, whole-page scrollbar beside .page-content's.
+        if (window.tippy) {
+            tippy.setDefaultProps({
+                popperOptions: { strategy: 'fixed' },
+                plugins: [{
+                    name: 'newestOnly',
+                    fn: function (instance) {
+                        return { onMount: function () { tippy.hideAll({ exclude: instance, duration: 0 }); } };
+                    }
+                }]
+            });
+        }
+
+        // Live Traffic's filter editor is a bottom sheet on a phone: dragging its handle or header down
+        // closes it, through the backdrop tap that already does. Short of 80px it springs back.
+        (function () {
+            var drag = null;
+            var end = function () {
+                if (!drag) return;
+                var d = drag;
+                drag = null;
+                d.sheet.style.transition = 'transform 0.15s ease-out';
+                var backdrop = d.sheet.previousElementSibling;
+                if (d.dy > 80 && backdrop && backdrop.classList.contains('lt-fpop-backdrop')) backdrop.click();
+                else d.sheet.style.transform = '';
+            };
+            document.addEventListener('touchstart', function (e) {
+                if (!e.target.closest || !window.matchMedia('(max-width: 768px)').matches) return;
+                var handle = e.target.closest('.lt-fpop-grab, .lt-fpop-head');
+                // The header's Include / Exclude keep their taps.
+                if (!handle || e.target.closest('button, input')) return;
+                drag = { sheet: handle.closest('.lt-fpop'), y: e.touches[0].clientY, dy: 0 };
+                drag.sheet.style.transition = 'none';
+            }, { passive: true });
+            document.addEventListener('touchmove', function (e) {
+                if (!drag) return;
+                drag.dy = Math.max(0, e.touches[0].clientY - drag.y);
+                drag.sheet.style.transform = 'translateY(' + drag.dy + 'px)';
+            }, { passive: true });
+            document.addEventListener('touchend', end);
+            document.addEventListener('touchcancel', end);
+        })();
+
+        // The X takes room at the right: a tooltip that has one may draw that much wider before it wraps.
+        function withCloseRoom(maxWidth) {
+            return String(maxWidth).replace(/(\d+)px\)$/, function (m, px) { return (+px + 24) + 'px)'; });
+        }
+
+        // The nearest ancestor its ellipsis is cutting, within a few levels, where the cut-name tooltip
+        // runs (the mouseover handler's hosts); null when none is, so the child keeps its own tooltip.
+        function cutAncestor(el) {
+            if (!el.closest('.live-traffic, .bandwidth-hogs-card')) return null;
+            for (var p = el.parentElement, i = 0; p && i < 4; p = p.parentElement, i++) {
+                if (getComputedStyle(p).textOverflow === 'ellipsis' && p.scrollWidth > p.clientWidth + 1) return p;
+            }
+            return null;
+        }
+
         // Initialize Tippy.js tooltips
         function initTooltips() {
             // Find all tooltip icons with content siblings
@@ -482,7 +564,13 @@
                         if (ref.hasAttribute('data-tooltip-truncated') && ref.scrollWidth <= ref.clientWidth + 1) {
                             return false;
                         }
-                        // Suppress if an adjacent sibling already shows the same tooltip
+                        // data-tooltip-names-cut: the cut-name tooltip on a cut ancestor shows this text instead.
+                        if (ref.hasAttribute('data-tooltip-names-cut') && cutAncestor(ref)) {
+                            return false;
+                        }
+                        // Suppress if an adjacent sibling already shows the same tooltip.
+                        // data-tooltip-distinct: siblings are separate things that can share a text (site tiles).
+                        if (ref.hasAttribute('data-tooltip-distinct')) return;
                         var siblings = [ref.previousElementSibling, ref.nextElementSibling];
                         for (var i = 0; i < siblings.length; i++) {
                             var sib = siblings[i];
@@ -496,7 +584,9 @@
                 if (isInteractive) {
                     opts.interactive = true;
                     opts.interactiveBorder = 10;
+                    opts.maxWidth = withCloseRoom(opts.maxWidth);
                     opts.onMount = function(instance) {
+                        addTipClose(instance);
                         instance.popper.querySelectorAll('a').forEach(function(link) {
                             link.addEventListener('click', function() { instance.unmount(); });
                         });
@@ -538,6 +628,311 @@
             });
         }
 
+        // Live Traffic link cards. Built from the cell's attributes on every show, since Blazor
+        // reuses the cell for whatever flow lands in its row.
+        function escapeHtml(s) {
+            return String(s).replace(/[&<>"']/g, function (c) {
+                return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+            });
+        }
+        // The app's link-out mark, as on the speed test result rows.
+        var tipLinkIcon = ' <svg class="tip-link-icon" xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg>';
+        function tipLink(href, text) {
+            return '<a href="' + escapeHtml(href) + '">' + escapeHtml(text) + tipLinkIcon + '</a>';
+        }
+        // A copy button for an address or domain on a card; the delegated handler below does the copy.
+        var tipCopyIcon = '<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>';
+        var tipCheckIcon = '<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>';
+        function tipCopy(value) {
+            return '<button type="button" class="tip-copy" data-copy="' + escapeHtml(value) + '" aria-label="Copy ' + escapeHtml(value) + '">' + tipCopyIcon + '</button>';
+        }
+        var ipPattern = /^(\d{1,3}(\.\d{1,3}){3}|[0-9a-f]*:[0-9a-f:]+)$/i;
+        // A host name worth copying ("www.example.com"), not a provider or owner name ("Google LLC").
+        function isDomain(s) { return /^[a-z0-9_-]+(\.[a-z0-9_-]+)+\.?$/i.test(s) && !ipPattern.test(s); }
+        function destinationHtml(cell) {
+            var name = cell.getAttribute('data-dest-name') || '';
+            var ip = cell.getAttribute('data-dest-ip') || '';
+            var link = cell.getAttribute('data-dest-link');
+            if (!ip) return null;
+            // Network Tools fills its target from ?target= and runs nothing until asked.
+            var trace = '/network-tools?target=' + encodeURIComponent(ip);
+            return (name && name !== ip ? '<div>' + escapeHtml(name) + (isDomain(name) ? tipCopy(name) : '') + '</div>' : '')
+                + '<div>' + escapeHtml(ip) + tipCopy(ip) + '</div>'
+                + '<div class="tip-links">' + (link ? tipLink(link, 'Threats') : '') + tipLink(trace, 'Trace') + '</div>';
+        }
+        // A client: the name as its Client Performance (or a network device's Device Stats) link, then the cell's detail, one line each.
+        // The address line ("192.0.2.10 · TCP 51512") copies the address alone.
+        function clientHtml(el) {
+            var note = el.getAttribute('data-client-note') || '';
+            if (!el.getAttribute('data-client-link')) return null;
+            return '<div>' + tipLink(el.getAttribute('data-client-link'), el.getAttribute('data-client-name') || '') + '</div>'
+                + note.split('\n').filter(Boolean).map(function (line) {
+                    var address = line.split(' · ')[0];
+                    return '<div>' + escapeHtml(line) + (ipPattern.test(address) ? tipCopy(address) : '') + '</div>';
+                }).join('');
+        }
+        document.addEventListener('click', function (e) {
+            var button = e.target.closest && e.target.closest('.tip-copy');
+            if (!button) return;
+            e.preventDefault();
+            e.stopPropagation();
+            var text = button.getAttribute('data-copy') || '';
+            var copied;
+            if (navigator.clipboard && window.isSecureContext) copied = navigator.clipboard.writeText(text);
+            else {
+                var scratch = document.createElement('textarea');
+                scratch.value = text;
+                scratch.setAttribute('readonly', '');
+                scratch.style.position = 'absolute';
+                scratch.style.left = '-9999px';
+                document.body.appendChild(scratch);
+                scratch.select();
+                document.execCommand('copy');
+                document.body.removeChild(scratch);
+                copied = Promise.resolve();
+            }
+            copied.then(function () {
+                button.innerHTML = tipCheckIcon;
+                button.classList.add('is-copied');
+                setTimeout(function () { button.innerHTML = tipCopyIcon; button.classList.remove('is-copied'); }, 1200);
+            }).catch(function (err) { console.warn('Copy from card', err); });
+        }, true);
+        // The open card, dropped once its cell leaves the page (any navigation away) so it never sits orphaned.
+        var activeLinkCard = null;
+        function dropOrphanedLinkCard() {
+            if (activeLinkCard && !activeLinkCard.reference.isConnected) {
+                activeLinkCard.destroy();
+                activeLinkCard = null;
+            }
+        }
+        new MutationObserver(function () { if (activeLinkCard) dropOrphanedLinkCard(); })
+            .observe(document.body, { childList: true, subtree: true });
+        // An element in the cell with a tooltip of its own (the via line, a badge) shows only that one.
+        function innerTipHovered(cell) { return !!cell.querySelector('[data-tooltip]:hover'); }
+        // Live Traffic's tables and Where It's Going hold a card until the pointer has rested this long;
+        // elsewhere a card opens on the first hover. Tippy's own delay does not cover a .show() call,
+        // so this does.
+        var LT_REST_TIP_DELAY = 500;
+        function restTipDelay(el) {
+            return el.closest('.live-traffic table, .live-traffic .lt-sankey-svg') ? LT_REST_TIP_DELAY : 0;
+        }
+        // Shows the element's tooltip once the pointer has rested on it for delay ms; each new
+        // mouseover inside it starts the wait again.
+        function showTip(el, delay) {
+            clearTimeout(el._ltShowTimer);
+            var show = function () {
+                var tip = el._tippy;
+                if (!tip || tip.state.isVisible || !el.isConnected || innerTipHovered(el)) return;
+                if (delay && !el.matches(':hover')) return;
+                tip.show();
+            };
+            if (delay) el._ltShowTimer = setTimeout(show, delay);
+            else show();
+        }
+        // opts.wide: room for rows of name and rate. opts.follow: the cell's data changes under an open
+        // card (a live diagram), so the card re-reads it while it shows.
+        function showLinkCard(cell, html, opts) {
+            opts = opts || {};
+            var delay = restTipDelay(cell);
+            // A chip can change card (a destination that was a LAN client is no longer in view): a new card then.
+            if (cell._tippy && cell._ltCardHtml !== html) cell._tippy.destroy();
+            if (cell._tippy) {
+                showTip(cell, delay);
+                return;
+            }
+            cell._ltCardHtml = html;
+            if (innerTipHovered(cell)) return;
+            // A click on the cell itself (a client name is a link) navigates too.
+            cell.addEventListener('click', function () { if (cell._tippy) cell._tippy.unmount(); });
+            tippy(cell, {
+                content: html(cell),
+                allowHTML: true,
+                interactive: true,
+                interactiveBorder: 10,
+                trigger: 'mouseenter',
+                touch: false,
+                delay: [delay || 250, 0],
+                // The standard interactive model: a link click unmounts the card, or it outlives the
+                // page it came from and drops to the corner once its cell is gone.
+                onMount: function (instance) {
+                    activeLinkCard = instance;
+                    if (!opts.noClose) addTipClose(instance);
+                    // A floor, not the cell's width (that read too wide): a short card is still easy to reach.
+                    var box = instance.popper.firstElementChild;
+                    if (box) box.style.minWidth = opts.wide ? 'min(100vw - 10px, 320px)' : '200px';
+                    instance.popper.querySelectorAll('a').forEach(function (link) {
+                        link.addEventListener('click', function () { instance.unmount(); });
+                    });
+                },
+                onShown: function (instance) {
+                    if (!opts.follow) return;
+                    instance._follow = setInterval(function () {
+                        if (!cell.isConnected) { instance.hide(); return; }
+                        var now = html(cell);
+                        if (now != null && instance.props.content !== now) instance.setContent(now);
+                    }, 1000);
+                },
+                onHidden: function (instance) {
+                    clearInterval(instance._follow);
+                    if (activeLinkCard === instance) activeLinkCard = null;
+                },
+                placement: 'top',
+                theme: 'custom',
+                appendTo: document.body,
+                maxWidth: (opts.noClose ? String : withCloseRoom)(opts.wide ? 'min(100vw - 10px, 560px)' : 'min(100vw - 10px, 400px)'),
+                onShow: function (instance) {
+                    // Tippy's own hover delay can fire after a navigation took the cell away (a card
+                    // link was clicked): shown then, the card strands at the top left of the next page.
+                    if (!cell.isConnected || innerTipHovered(cell)) return false;
+                    // Null: the cell no longer carries this card (a renamed app keeps its element).
+                    var content = html(cell);
+                    if (content == null) return false;
+                    instance.setContent(content);
+                }
+            });
+            showTip(cell, delay);
+        }
+
+        // An App Live Traffic could only call "UDP 21324": what that means, and Name This App for a Site Admin.
+        function unnamedAppHtml(el) {
+            if (!el.hasAttribute('data-app-unnamed')) return null;
+            var link = el.getAttribute('data-app-link');
+            var seed = el.getAttribute('data-app-seed') || '';
+            return '<div><strong>' + escapeHtml(el.getAttribute('data-app-unnamed') || '') + '</strong></div>'
+                + '<div>Neither UniFi Network’s DPI nor Network Optimizer recognizes this port.</div>'
+                + (link
+                    ? '<div><a href="' + escapeHtml(link) + '" data-name-app="' + escapeHtml(seed) + '">Name This App</a></div>'
+                    : '<div>A Site Admin can name it.</div>');
+        }
+        // A Where It's Going route node: where its traffic ends up, busiest first (on the LAN, which host).
+        function routeHtml(el) {
+            var rows;
+            try { rows = JSON.parse(el.getAttribute('data-route-dests') || '[]'); } catch (err) { console.warn('Route card', err); return null; }
+            if (!rows.length) return null;
+            var more = parseInt(el.getAttribute('data-route-more') || '0', 10);
+            return '<div><strong>' + escapeHtml(el.getAttribute('data-route-name') || '') + '</strong></div>'
+                + '<div class="lt-route-tip-label">' + (el.hasAttribute('data-route-lan') ? 'Top LAN hosts' : 'Top destinations') + '</div>'
+                + rows.map(function (r) {
+                    var value = r.f != null ? escapeHtml(r.f)
+                        : '<span class="lt-route-tip-down">↓ ' + escapeHtml(r.d) + '</span> <span class="lt-route-tip-up">↑ ' + escapeHtml(r.u) + '</span>';
+                    return '<div class="lt-route-tip-row"><span class="lt-route-tip-name"><span>' + escapeHtml(r.n) + (isDomain(r.n) ? tipCopy(r.n) : '') + '</span>'
+                        + (r.ip ? '<span class="lt-route-tip-ip">' + escapeHtml(r.ip) + tipCopy(r.ip) + '</span>' : '')
+                        + (r.s ? '<span class="lt-tag lt-site-badge">' + escapeHtml(r.s) + '</span>' : '')
+                        + (r.c ? '<span class="lt-tag lt-site-badge">' + escapeHtml(r.c) + '</span>' : '') + '</span>'
+                        + '<span class="lt-route-tip-value">' + value + '</span></div>';
+                }).join('')
+                + (more > 0 ? '<div class="lt-route-tip-label">and ' + more + ' more</div>' : '');
+        }
+        // Tailscale traffic on a site that does not read its tailnet: what connecting it adds, and the
+        // Settings link for a Site Admin.
+        function tailscaleAppHtml(el) {
+            if (!el.hasAttribute('data-app-tailscale')) return null;
+            var link = el.getAttribute('data-tailscale-link');
+            return '<div><strong>' + escapeHtml(el.getAttribute('data-app-tailscale') || '') + '</strong></div>'
+                + '<div>Connect your tailnet to see each Tailscale device by name in Live Traffic, Client Performance, and speed test results, and whether it connects directly or through a relay.</div>'
+                + (link
+                    ? '<div><a href="' + escapeHtml(link) + '">Set Up Tailscale</a></div>'
+                    : '<div>A Site Admin can set it up in Settings.</div>');
+        }
+        // Live Traffic registers itself so Name This App opens its dialog in place; anywhere else the
+        // link navigates to Live Traffic, which opens it from the URL. A navigation within Live Traffic
+        // would re-run the router, focus the heading, and scroll the page.
+        var nameAppRef = null;
+        var nameAppOpener = null;
+        window.ltNameApp = {
+            register: function (ref) { nameAppRef = ref; },
+            unregister: function (ref) { if (nameAppRef === ref) nameAppRef = null; },
+            // The Custom Apps dialog hands focus back to what opened it. A hover card's link is gone by
+            // then, so it falls back to nothing rather than to a detached node.
+            rememberFocus: function () {
+                var el = document.activeElement;
+                nameAppOpener = el && el !== document.body && !el.closest('.tippy-box') ? el : null;
+            },
+            restoreFocus: function () {
+                if (nameAppOpener && nameAppOpener.isConnected) nameAppOpener.focus({ preventScroll: true });
+                nameAppOpener = null;
+            }
+        };
+        document.addEventListener('click', function (e) {
+            var a = e.target.closest && e.target.closest('a[data-name-app]');
+            if (!a || !nameAppRef) return;
+            e.preventDefault();
+            nameAppRef.invokeMethodAsync('OpenNameApp', a.getAttribute('data-name-app'))
+                .catch(function (err) { console.warn('Name This App', err); });
+        }, true);
+
+        // Live Traffic's filters in the address bar. Never a null state: history.state holds Blazor's
+        // entry index, and an entry without it breaks Back (a dead first click, then two steps).
+        window.ltReplaceUrl = function (url) { history.replaceState(history.state, '', url); };
+
+        // Live Traffic: full text for any name its ellipsis cuts. The ellipsis sits on the cell, not the
+        // name, so data-tooltip-truncated (which measures the element itself) cannot see it; one
+        // delegated handler finds the cut element and shows only while it is still cut.
+        document.addEventListener('mouseover', function (e) {
+            if (!window.tippy || !e.target.closest) return;
+            var host = e.target.closest('.live-traffic, .bandwidth-hogs-card');
+            // The Tailscale setup card also rides the speed test results' Tailscale badge and path trace hop.
+            var tailscaleBadge = !host && e.target.closest('.badge[data-app-tailscale], .path-hop[data-app-tailscale]');
+            if (tailscaleBadge) { showLinkCard(tailscaleBadge, tailscaleAppHtml); return; }
+            if (!host) {
+                // Client Performance's Live Traffic card takes only this card, not the others.
+                var cardHost = e.target.closest('.lt-client');
+                var cardApp = cardHost && e.target.closest('[data-app-unnamed]');
+                if (cardApp && cardHost.contains(cardApp)) { showLinkCard(cardApp, unnamedAppHtml); return; }
+                var cardTailscale = cardHost && e.target.closest('[data-app-tailscale]');
+                if (cardTailscale && cardHost.contains(cardTailscale)) showLinkCard(cardTailscale, tailscaleAppHtml);
+                return;
+            }
+            var unnamed = e.target.closest('[data-app-unnamed]');
+            if (unnamed && host.contains(unnamed)) { showLinkCard(unnamed, unnamedAppHtml); return; }
+            var tailscaleApp = e.target.closest('[data-app-tailscale]');
+            if (tailscaleApp && host.contains(tailscaleApp)) { showLinkCard(tailscaleApp, tailscaleAppHtml); return; }
+            // Destination cells and client links have their own card: the name, then its link (Threats, Client Performance).
+            // The card carries the full name, so it stands in for the cut-name tooltip.
+            var dest = e.target.closest('[data-dest-ip]');
+            if (dest && host.contains(dest) && dest.getAttribute('data-dest-ip')) { showLinkCard(dest, destinationHtml); return; }
+            var client = e.target.closest('[data-client-link]');
+            // A client card off Where It's Going has room around it to move away: no X there.
+            if (client && host.contains(client)) { showLinkCard(client, clientHtml, { noClose: !!client.closest('.lt-sankey-svg') }); return; }
+            var route = e.target.closest('[data-route-dests]');
+            if (route && host.contains(route)) { showLinkCard(route, routeHtml, { wide: true, follow: true }); return; }
+            var el = e.target;
+            while (el && el !== host) {
+                if (el.hasAttribute('data-tooltip') && !el.hasAttribute('data-tooltip-names-cut')) return;
+                if (getComputedStyle(el).textOverflow === 'ellipsis' && el.scrollWidth > el.clientWidth + 1) break;
+                el = el.parentElement;
+            }
+            if (!el || el === host || el._tippy) return;
+            var text = cutText(el);
+            if (!text) return;
+            var cutDelay = restTipDelay(el);
+            tippy(el, {
+                content: function () { return cutText(el); },
+                trigger: 'mouseenter',
+                touch: false,
+                delay: [cutDelay || 100, 0],
+                placement: 'top',
+                theme: 'custom',
+                appendTo: document.body,
+                maxWidth: 'min(100vw - 10px, 400px)',
+                // Tippy calls a content function once, at creation; Blazor reuses this element for
+                // whatever row lands in its place, so the text is read again on every show.
+                onShow: function (instance) {
+                    if (!el.isConnected || el.scrollWidth <= el.clientWidth + 1) return false;
+                    instance.setContent(cutText(el));
+                },
+                // A live list rewrites the row under an open tooltip: follow the text while it shows.
+                onShown: function (instance) {
+                    instance._follow = setInterval(function () {
+                        var now = cutText(el);
+                        if (instance.props.content !== now) instance.setContent(now);
+                    }, 400);
+                },
+                onHidden: function (instance) { clearInterval(instance._follow); }
+            });
+            showTip(el, cutDelay);
+        });
+
         // Periodically check for new/stale tooltips (handles Blazor element reuse and dynamic content)
         setInterval(function() {
             // Elements Blazor kept but whose data-tooltip it removed - the tooltip is no longer true
@@ -578,6 +973,7 @@
                         if (ref.hasAttribute('data-tooltip-truncated') && ref.scrollWidth <= ref.clientWidth + 1) {
                             return false;
                         }
+                        if (ref.hasAttribute('data-tooltip-distinct')) return;
                         var siblings = [ref.previousElementSibling, ref.nextElementSibling];
                         for (var i = 0; i < siblings.length; i++) {
                             var sib = siblings[i];
@@ -591,7 +987,9 @@
                 if (isInteractive) {
                     opts.interactive = true;
                     opts.interactiveBorder = 10;
+                    opts.maxWidth = withCloseRoom(opts.maxWidth);
                     opts.onMount = function(instance) {
+                        addTipClose(instance);
                         instance.popper.querySelectorAll('a').forEach(function(link) {
                             link.addEventListener('click', function() { instance.unmount(); });
                         });

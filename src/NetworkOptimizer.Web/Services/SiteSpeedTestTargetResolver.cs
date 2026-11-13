@@ -116,6 +116,12 @@ public class SiteSpeedTestTargetResolver
         var selection = await _hostSelector.SelectAsync(_siteContext.Slug);
         var agentOffline = !selection.AgentReachable;
 
+        // The main site keeps this server's own speed test when no agent there hosts one (an agent that
+        // collects without the LAN speed test, or one on the gateway): it is what the site used before
+        // its agent covered it.
+        if (_siteContext.IsDefault && string.IsNullOrEmpty(targetOverride) && selection.AgentReachable && selection.Host == null)
+            return new Result(null, null, null, UsesAgent: false, AgentOffline: false);
+
         // Agents reachable but none hosts a speed test (a gateway agent, or one that says it serves
         // none): nothing to point clients at unless the operator named a box. AnyOnGateway is what
         // the pages explain, so it only says gateway when one actually is.

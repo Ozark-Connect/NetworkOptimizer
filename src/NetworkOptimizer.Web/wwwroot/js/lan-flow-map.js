@@ -58,6 +58,13 @@ function bandBaseColor(band) {
 
 // Fade-in (ms) applied to a client re-attached to a different AP during roam playback.
 const ROAM_FADE_MS = 350;
+
+// Opens an app page from the map, stamped with the tab's site, through Blazor's router so the page
+// it opens has Back (setting location.href is a full load that starts history over).
+function navigate(url) {
+    const u = window.noSiteContext ? window.noSiteContext.stampUrl(url) : url;
+    if (window.__navigate) window.__navigate(u); else window.location.href = u;
+}
 // How long the arrival focus glow shows once its node exists (mount option focusClient), and
 // how long to wait for the node before giving up.
 const FOCUS_MS = 5000;
@@ -412,9 +419,17 @@ export class LanFlowMap {
         this._resizeObserver = new ResizeObserver(() => this._handleResize());
         this._resizeObserver.observe(this.canvas.parentElement || this.canvas);
         // Off screen (Live View stacks both maps) or in a hidden page, the scene is not drawn.
+        // Scrolled into view, it starts drawing only once it has stayed there 500 ms: its first
+        // frames stall the page, which a reader scrolling past to Live Traffic should not feel.
+        // The first observation applies at once, so a map already in view draws on load.
         this._onScreen = true;
+        let firstSeen = true;
         this._visibilityObserver = new IntersectionObserver((entries) => {
-            for (const e of entries) this._onScreen = e.isIntersecting;
+            const visible = entries[entries.length - 1].isIntersecting;
+            clearTimeout(this._onScreenTimer);
+            if (!visible || firstSeen) this._onScreen = visible;
+            else this._onScreenTimer = setTimeout(() => { this._onScreen = true; }, 500);
+            firstSeen = false;
         });
         this._visibilityObserver.observe(this.canvas);
 
@@ -592,6 +607,7 @@ export class LanFlowMap {
         if (this._windowTickTimer) clearInterval(this._windowTickTimer);
         if (this._resizeObserver) this._resizeObserver.disconnect();
         if (this._visibilityObserver) this._visibilityObserver.disconnect();
+        clearTimeout(this._onScreenTimer);
         if (this._onKeyDown) document.removeEventListener('keydown', this._onKeyDown);
         if (this._onKeyUp) document.removeEventListener('keyup', this._onKeyUp);
         this.controls?.dispose();
@@ -2734,7 +2750,7 @@ export class LanFlowMap {
             <div class="lan-flow-map-help-row"><span>Pan</span><span class="kbd">Right-drag</span> or <span class="kbd">A</span> <span class="kbd">D</span></div>
             <div class="lan-flow-map-help-row"><span>Zoom</span><span class="kbd">Scroll</span> or <span class="kbd">W</span> <span class="kbd">S</span></div>
             <div class="lan-flow-map-help-row"><span>Hover detail</span><span class="kbd">Mouse over</span></div>
-            <div class="lan-flow-map-help-row"><span>Open client</span><span class="kbd">Double-click</span></div>
+            <div class="lan-flow-map-help-row"><span>Open Client</span><span class="kbd">Double-click</span></div>
             <div class="lan-flow-map-help-row"><span>Move device</span><span class="kbd">Right-click</span></div>
             <div class="lan-flow-map-help-row"><span>Pause / Play</span><span class="kbd">Space</span></div>
             <div class="lan-flow-map-help-row"><span>Scrub timeline</span><span class="kbd">←</span> <span class="kbd">→</span></div>
@@ -3937,7 +3953,7 @@ export class LanFlowMap {
         // so they go to the default tab.
         const tab = node.kind === NODE_KIND.WifiClient ? '&tab=signal' : '';
         const url = `/client-dashboard?ip=${encodeURIComponent(ip)}${tab}`;
-        window.location.href = window.noSiteContext ? window.noSiteContext.stampUrl(url) : url;
+        navigate(url);
     }
 
     _showHover(node) {

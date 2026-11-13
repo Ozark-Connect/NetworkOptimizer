@@ -1,0 +1,50 @@
+@* Custom Apps over Live Traffic: the page keeps updating behind it, so a saved name lands in view. *@
+@using NetworkOptimizer.Web.Services.Monitoring.LiveTraffic
+@inject IJSRuntime JS
+@implements IAsyncDisposable
+
+<div class="custom-apps-backdrop" @onmousedown="() => _pressOnBackdrop = true" @onclick="BackdropClickAsync">
+    <div class="custom-apps-dialog" role="dialog" aria-modal="true" aria-labelledby="custom-apps-dialog-title"
+         @onmousedown="() => _pressOnBackdrop = false" @onmousedown:stopPropagation @onclick:stopPropagation>
+        <button type="button" class="custom-apps-close" aria-label="Close" @onclick="CloseAsync">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><line x1="6" y1="6" x2="18" y2="18" /><line x1="18" y1="6" x2="6" y2="18" /></svg>
+        </button>
+        <CustomAppsManager InDialog="true" TitleId="custom-apps-dialog-title" Seed="Seed" OnClose="CloseAsync" OnChanged="OnChanged" />
+    </div>
+</div>
+
+@code {
+    /// <summary>Opens on Name This App, prefilled; null opens the list.</summary>
+    [Parameter] public CustomAppSeed? Seed { get; set; }
+
+    /// <summary>The dialog closed.</summary>
+    [Parameter] public EventCallback OnClose { get; set; }
+
+    /// <summary>The list changed; carries the new count.</summary>
+    [Parameter] public EventCallback<int> OnChanged { get; set; }
+
+    /// <summary>Only a press that also began on the backdrop closes it: a text selection dragged out of a field does not.</summary>
+    private bool _pressOnBackdrop;
+    private bool _closed;
+
+    private async Task BackdropClickAsync()
+    {
+        if (_pressOnBackdrop) await CloseAsync();
+        _pressOnBackdrop = false;
+    }
+
+    private async Task CloseAsync()
+    {
+        if (_closed) return;
+        _closed = true;
+        await OnClose.InvokeAsync();
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        // Back to the control that opened it; the host records it (ltNameApp.rememberFocus) before opening.
+        try { await JS.InvokeVoidAsync("ltNameApp.restoreFocus"); }
+        catch (JSDisconnectedException) { }
+        catch (TaskCanceledException) { }
+    }
+}

@@ -1,0 +1,6 @@
+from(bucket: "network_monitoring_longterm")
+  |> range(start: 2026-01-15T10:00:00Z, stop: 2026-01-15T12:00:00Z)
+  |> filter(fn: (r) => r._measurement == "wifi_client_daily" and r._field == "width_max")
+  |> group(columns: ["client_mac", "band"])
+  |> max()
+  |> group()

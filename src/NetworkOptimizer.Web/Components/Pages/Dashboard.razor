@@ -10,6 +10,8 @@
 @inject IIperf3SpeedTestService SpeedTestService
 @inject IUwnSpeedTestService WanSpeedTestService
 @inject IGatewayWanSpeedTestService GatewayWanTestService
+@inject ITailscaleDirectory Tailscale
+@inject IClientIcons ClientIcons
 @inject IAdminAuthService AdminAuthService
 @inject ThreatDashboardService ThreatService
 @inject NavigationManager NavigationManager
@@ -239,6 +241,10 @@
     private List<ThreatTrendPoint> _threatTrend = [];
     private List<Services.DeviceInfo> devices = new();
     private List<Iperf3Result> _recentSpeedTests = new();
+    /// <summary>The site's tailnet, which names a Tailscale device that has no device name of its own.</summary>
+    private TailnetSnapshot _tailnet = TailnetSnapshot.Empty;
+    /// <summary>The site's client icons, for the LAN Speed Test card. Empty until loaded.</summary>
+    private ClientIconMap _clientIcons = ClientIconMap.Empty;
     private List<Iperf3Result> _recentWanTests = new();
     private int? _wifiHealthScore;
     private string? _wifiHealthGrade;
@@ -251,6 +257,7 @@
 
     protected override async Task OnInitializedAsync()
     {
+        _ = ClientIcons.LoadIntoAsync(map => InvokeAsync(() => { _clientIcons = map; StateHasChanged(); }));
         ChartTimeFormat.ApplyTimeAxis(_threatSparklineOptions.Xaxis.Labels, DisplayTime);
         NavigationManager.LocationChanged += OnLocationChanged;
         ConnectionService.OnConnectionChanged += OnConnectionChanged;
@@ -719,13 +726,13 @@
                             @foreach (var test in _recentSpeedTests)
                             {
                                 <div class="speed-test-row">
-                                    @if (!string.IsNullOrEmpty(test.DeviceName))
+                                    @if ((!string.IsNullOrEmpty(test.DeviceName) ? test.DeviceName : _tailnet.NameFor(test.DeviceHost)) is { } deviceName)
                                     {
-                                        <span class="speed-test-device">@test.DeviceName</span>
+                                        <span class="speed-test-device"><ResultClientIcon Host="@test.DeviceHost" Mac="@test.ClientMac" Tailnet="_tailnet" Icons="_clientIcons" />@deviceName</span>
                                     }
                                     else if (!string.IsNullOrEmpty(test.DeviceHost))
                                     {
-                                        <span class="speed-test-device"><code>@test.DeviceHost</code></span>
+                                        <span class="speed-test-device"><ResultClientIcon Host="@test.DeviceHost" Mac="@test.ClientMac" Tailnet="_tailnet" Icons="_clientIcons" /><code>@test.DeviceHost</code></span>
                                     }
                                     else
                                     {
@@ -812,7 +819,7 @@
                     <div class="device-grid">
                         @foreach (var device in devices)
                         {
-                            <DeviceCard Device="@device" />
+                            <DeviceCard Device="@device" FallbackImageUrl="@_clientIcons.DeviceCatalogUrlFor(device.Mac)" />
                         }
                     </div>
                 }
@@ -1192,6 +1199,7 @@
         {
             var results = await SpeedTestService.GetRecentResultsAsync(25);
             _recentSpeedTests = results.Where(r => r.Success).Take(5).ToList();
+            _tailnet = await Tailscale.GetPeersAsync();
         }
         catch { }
         finally { _speedTestLoading = false; }

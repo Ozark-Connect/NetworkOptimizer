@@ -1,0 +1,7 @@
+from(bucket: "network_monitoring_longterm")
+  |> range(start: -400d)
+  |> filter(fn: (r) => r._measurement == "wifi_client" or r._measurement == "interface_counters")
+  |> filter(fn: (r) => r._field == "rollup_v" and r._value >= 7)
+  |> keep(columns: ["_time"])
+  |> group()
+  |> min(column: "_time")

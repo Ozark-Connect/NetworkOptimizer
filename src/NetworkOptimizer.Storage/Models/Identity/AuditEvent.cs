@@ -98,6 +98,7 @@ public static class AuditActions
     public const string PasswordReset = "auth.password.reset";
     public const string BreakGlassUsed = "auth.break_glass.used";
     public const string FederatedLoginRejected = "auth.federated.rejected";
+    // Nothing writes this since the legacy session bridge was removed; kept so stored events keep their name.
     public const string BridgeExchange = "auth.bridge.exchanged";
 
     // Identity admin
@@ -256,6 +257,9 @@ public static class AuditActions
     public const string ChangeControlAttentionDismissed = "change_control.attention.dismissed";
     public const string ChangeControlAttentionRestored = "change_control.attention.restored";
     public const string ChangeControlChangeRecomputed = "change_control.change.recomputed";
+    public const string LiveTrafficCustomAppSaved = "live_traffic.custom_app.saved";
+    public const string LiveTrafficCustomAppMoved = "live_traffic.custom_app.moved";
+    public const string LiveTrafficCustomAppDeleted = "live_traffic.custom_app.deleted";
     public const string MigrationPerformed = "audit.migration";
     public const string Pruned = "audit.pruned";
 }

@@ -1,4 +1,10 @@
 using FluentAssertions;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging.Abstractions;
+using Moq;
+using NetworkOptimizer.Core.Enums;
+using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.Storage.Services;
 using NetworkOptimizer.Web.Services;
 using Xunit;
@@ -100,5 +106,59 @@ public class WanTestBackgroundCheckTests
     {
         WanTestBackgroundCheck.IsInvalid(500, null, 400).Should().BeFalse();
         WanTestBackgroundCheck.IsInvalid(500, 1000, null).Should().BeFalse();
+    }
+
+    [Theory]
+    [InlineData("WAN", true, true)]
+    [InlineData("WAN+WAN2", true, false)]  // bonded: phases ran on several counter interfaces
+    [InlineData(null, true, false)]
+    [InlineData("WAN", false, false)]      // no phase windows to read counters for
+    public void Checks_only_a_single_wan_test_with_phases(string? group, bool hasPhases, bool expected)
+    {
+        WanTestBackgroundCheck.WillCheck(group, hasPhases ? Phases : null).Should().Be(expected);
+    }
+
+    [Fact]
+    public async Task A_check_that_fails_still_hands_on_the_stored_result()
+    {
+        var dbName = Guid.NewGuid().ToString();
+        Task<NetworkOptimizerDbContext> OpenDb() => Task.FromResult(new NetworkOptimizerDbContext(
+            new DbContextOptionsBuilder<NetworkOptimizerDbContext>().UseInMemoryDatabase(dbName).Options));
+        int id;
+        await using (var db = await OpenDb())
+        {
+            var stored = new Iperf3Result { Direction = SpeedTestDirection.UwnWan, WanNetworkGroup = "WAN", Success = true };
+            db.Iperf3Results.Add(stored);
+            await db.SaveChangesAsync();
+            id = stored.Id;
+        }
+
+        var handed = await RunAfterCheck(id, OpenDb);
+
+        handed.Should().NotBeNull();
+        handed!.Id.Should().Be(id);
+    }
+
+    [Fact]
+    public async Task A_result_deleted_before_the_check_ends_is_handed_on_as_null()
+    {
+        var dbName = Guid.NewGuid().ToString();
+        Task<NetworkOptimizerDbContext> OpenDb() => Task.FromResult(new NetworkOptimizerDbContext(
+            new DbContextOptionsBuilder<NetworkOptimizerDbContext>().UseInMemoryDatabase(dbName).Options));
+
+        (await RunAfterCheck(4242, OpenDb)).Should().BeNull();
+    }
+
+    // The scope factory throws, so the check itself fails at once: the phases ended long ago, so there is no wait.
+    private static async Task<Iperf3Result?> RunAfterCheck(int resultId, Func<Task<NetworkOptimizerDbContext>> openDb)
+    {
+        var scopes = new Mock<IServiceScopeFactory>();
+        scopes.Setup(s => s.CreateScope()).Throws(new InvalidOperationException("no scope in tests"));
+        var handed = new TaskCompletionSource<Iperf3Result?>();
+
+        WanTestBackgroundCheck.Schedule(scopes.Object, "default", resultId, "WAN", Phases, openDb, null,
+            NullLogger.Instance, r => { handed.SetResult(r); return Task.CompletedTask; });
+
+        return await handed.Task.WaitAsync(TimeSpan.FromSeconds(10));
     }
 }

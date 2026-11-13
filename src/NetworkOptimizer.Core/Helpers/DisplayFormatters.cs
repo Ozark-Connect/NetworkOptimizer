@@ -311,6 +311,17 @@ public static class DisplayFormatters
         return percent.ToString(percent < 10 ? "0.0" : "0", System.Globalization.CultureInfo.InvariantCulture);
     }
 
+    /// <summary>
+    /// A response time with at least two digits: one decimal under 10 ms ("0.5 ms", "1.5 ms"), whole
+    /// above ("22 ms"). Never "0 ms": under 0.1 ms reads "&lt;0.1 ms".
+    /// </summary>
+    public static string FormatResponseMs(double ms)
+    {
+        var inv = System.Globalization.CultureInfo.InvariantCulture;
+        if (ms < 0.05) return "<0.1 ms";
+        return Math.Round(ms, 1) < 10 ? $"{ms.ToString("0.0", inv)} ms" : $"{ms.ToString("0", inv)} ms";
+    }
+
     public static string FormatRate(double? bps)
     {
         if (!bps.HasValue || bps.Value < 1) return "-";

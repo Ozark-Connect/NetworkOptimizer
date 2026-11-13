@@ -841,11 +841,16 @@ public static class UniFiProductDatabase
     }
 
     /// <summary>
-    /// Switches that have no SSH daemon. These are managed exclusively through the
+    /// Devices that have no SSH daemon. These are managed exclusively through the
     /// UniFi Network Application and will reject SSH connections at the transport layer.
     /// </summary>
     private static readonly HashSet<string> DevicesWithoutSsh = new(StringComparer.OrdinalIgnoreCase)
     {
+        // Power devices. Not every one: keep a model off this list until it is confirmed without SSH.
+        "UPS-Tower",
+        "USP-Plug",
+        "USP-Strip",
+
         // Flex Series (excluding Flex XG, which does have SSH)
         "USW-Flex",
         "USW-Flex-Mini",
@@ -860,8 +865,8 @@ public static class UniFiProductDatabase
     };
 
     /// <summary>
-    /// Whether a device accepts SSH connections. Returns false for switch models known
-    /// to have no SSH daemon (Flex and Ultra families).
+    /// Whether a device accepts SSH connections. Returns false for models known to have
+    /// no SSH daemon (Flex and Ultra switches, UPS Tower, smart plugs and strips).
     /// </summary>
     public static bool HasSsh(string? model, string? shortname)
     {

@@ -662,7 +662,7 @@
         <!-- Upstream tracer wizard -->
         <div id="upstream-discovery" style="margin-top: 1.5rem;">
             <UpstreamTracerPanel @ref="_upstreamPanel" ForceExpand="_forceExpandUpstream" SelectWanKey="@_discoveryWanKey"
-                                 OnWanSelected="OnDiscoveryWanSelectedAsync" OnSaved="StateHasChanged" />
+                                 OnWanSelected="OnDiscoveryWanSelectedAsync" OnSaved="OnUpstreamSavedAsync" />
         </div>
 
         <div id="flaky-targets" style="margin-top: 1.5rem;">
@@ -3891,6 +3891,13 @@
         _scrollToDiscoveryPending = true;
         SetActiveTab("performance");
         if (_multiWanUiVisible) await OnDiscoveryWanSelectedAsync(_primaryWanKey);
+    }
+
+    /// <summary>A discovery commit cleared the review flag: the banner goes now, not on the next 15 s tick.</summary>
+    private async Task OnUpstreamSavedAsync()
+    {
+        await RefreshUpstreamReviewAsync();
+        StateHasChanged();
     }
 
     private async Task DismissUpstreamReviewAsync()

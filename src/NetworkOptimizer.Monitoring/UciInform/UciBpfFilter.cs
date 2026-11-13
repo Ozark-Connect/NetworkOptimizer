@@ -14,6 +14,11 @@ public static class UciBpfFilter
     private const ushort LdHalfAbs = 0x28;   // BPF_LD | BPF_H | BPF_ABS
     private const ushort JeqK = 0x15;        // BPF_JMP | BPF_JEQ | BPF_K
     private const ushort RetK = 0x06;        // BPF_RET | BPF_K
+    // The rest serve the Live DNS program (DnsBpfFilter), so one evaluator proves both.
+    private const ushort LdByteAbs = 0x30;   // BPF_LD | BPF_B | BPF_ABS
+    private const ushort LdHalfInd = 0x48;   // BPF_LD | BPF_H | BPF_IND
+    private const ushort LdxMsh = 0xb1;      // BPF_LDX | BPF_B | BPF_MSH
+    private const ushort JsetK = 0x45;       // BPF_JMP | BPF_JSET | BPF_K
 
     /// <summary>Bytes of each accepted frame handed to user space (covers a GRO-coalesced 64 KB segment).</summary>
     public const uint SnapLength = 262144;
@@ -80,6 +85,7 @@ public static class UciBpfFilter
     public static uint Evaluate(IReadOnlyList<Instruction> program, ReadOnlySpan<byte> frame)
     {
         uint acc = 0;
+        uint x = 0;
         var pc = 0;
         while (pc < program.Count)
         {
@@ -96,8 +102,26 @@ public static class UciBpfFilter
                     acc = BinaryPrimitives.ReadUInt16BigEndian(frame.Slice((int)ins.K, 2));
                     pc++;
                     break;
+                case LdByteAbs:
+                    if (ins.K + 1 > frame.Length) return 0;
+                    acc = frame[(int)ins.K];
+                    pc++;
+                    break;
+                case LdHalfInd:
+                    if (x + ins.K + 2 > frame.Length) return 0;
+                    acc = BinaryPrimitives.ReadUInt16BigEndian(frame.Slice((int)(x + ins.K), 2));
+                    pc++;
+                    break;
+                case LdxMsh:
+                    if (ins.K + 1 > frame.Length) return 0;
+                    x = (uint)(frame[(int)ins.K] & 0x0f) * 4;
+                    pc++;
+                    break;
                 case JeqK:
                     pc += 1 + (acc == ins.K ? ins.Jt : ins.Jf);
+                    break;
+                case JsetK:
+                    pc += 1 + ((acc & ins.K) != 0 ? ins.Jt : ins.Jf);
                     break;
                 case RetK:
                     return ins.K;

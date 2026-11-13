@@ -946,6 +946,38 @@ h1:focus {
     border-bottom: none;
 }
 
+/* The Tailscale mark before a client name in speed test lists */
+.client-tailscale-icon {
+    margin-right: calc(0.3rem + 2px);
+    vertical-align: middle;
+    /* The mark's solid dots sit low in its box (its top row is faded), so a centered box reads low. */
+    position: relative;
+    top: -1.5px;
+}
+
+/* A client's UniFi Network icon (ClientIcon) */
+.client-icon {
+    display: inline-block;
+    flex-shrink: 0;
+    object-fit: contain;
+    vertical-align: middle;
+}
+
+/* Before a client name in a table cell or a heading. vertical-align: middle centers on the
+   x-height, which reads low beside capitalized names; 1.5px up matches the Tailscale mark. */
+.client-icon-inline {
+    margin-right: 0.4rem;
+    position: relative;
+    top: -1.5px;
+}
+
+/* The Tailscale mark in a speed test result row: padded to the 22px width of a client icon so names line up. */
+.result-tailscale-icon {
+    box-sizing: content-box;
+    padding: 0 3px;
+    margin-right: 0.4rem;
+}
+
 .speed-test-row .speed-test-device {
     font-weight: 500;
     white-space: nowrap;
@@ -1775,6 +1807,7 @@ a.stat-card-link:active {
     display: inline-block;
     width: 8px;
     height: 8px;
+    flex-shrink: 0;
     border-radius: 50%;
     background: var(--text-muted);
 }
@@ -3639,6 +3672,19 @@ select.form-control {
     background-position: right 0.875rem center;
     appearance: none;
     -webkit-appearance: none;
+}
+
+/* iOS Safari gives native date/time inputs an intrinsic min-width that ignores width: 100% and overflows the card. */
+input[type="time"].form-control,
+input[type="date"].form-control,
+input[type="datetime-local"].form-control {
+    -webkit-appearance: none;
+    appearance: none;
+    min-width: 0;
+}
+
+input.form-control::-webkit-date-and-time-value {
+    text-align: left;
 }
 
 .form-help {
@@ -7952,9 +7998,11 @@ a.path-hop.hop-clickable:hover {
     margin-top: 0.5rem;
 }
 
-/* Settings: each card's bottom button row sits on the right on desktop (centered on mobile, as everywhere) */
+/* A form's bottom button row sits on the right on desktop (centered on mobile, as everywhere): every
+   Settings card's last row, and any other form's row marked .form-footer. */
 @media (min-width: 769px) {
-    .settings-container > .card > .card-body > .action-buttons:not(:has(~ .action-buttons)) {
+    .settings-container > .card > .card-body > .action-buttons:not(:has(~ .action-buttons)),
+    .action-buttons.form-footer {
         justify-content: flex-end;
     }
 }
@@ -8951,6 +8999,14 @@ a.path-hop.hop-clickable:hover {
     vertical-align: text-top;
 }
 
+/* In a heading, text-top rides above the capitals: center on them instead (-0.17em is measured on Inter at 18-19px). */
+h2 > .tooltip-icon-sm,
+h3 > .tooltip-icon-sm {
+    vertical-align: middle;
+    position: relative;
+    top: -0.17em;
+}
+
 /* For icons sitting on an inner tertiary surface, where the default tertiary fill disappears. */
 .tooltip-icon-contrast {
     background: var(--bg-elevated);
@@ -8981,10 +9037,65 @@ a.path-hop.hop-clickable:hover {
     color: var(--border-color);
 }
 
+/* The X on a tooltip that stays up (addTipClose in App.razor); the content keeps clear of it. */
+.tippy-box[data-theme~='custom']:has(> .tip-close) .tippy-content {
+    padding-right: 1.6rem;
+}
+
+.tippy-box[data-theme~='custom'] .tip-close {
+    position: absolute;
+    /* Above .tippy-content, which Tippy's own CSS lifts to z-index 1 and would take the click. */
+    z-index: 2;
+    top: 3px;
+    right: 4px;
+    width: 16px;
+    height: 16px;
+    padding: 0;
+    border: none;
+    background: transparent;
+    color: var(--text-muted);
+    font-size: 14px;
+    line-height: 16px;
+    cursor: pointer;
+}
+
+.tippy-box[data-theme~='custom'] .tip-close:hover {
+    color: var(--text-primary);
+}
+
 /* Links inside Tippy tooltips */
 .tippy-box[data-theme~='custom'] a {
     color: var(--primary-hover);
     text-decoration: none;
+}
+
+/* Two or more links on one card line (Live Traffic's destination card: Threats, Trace). */
+.tippy-box[data-theme~='custom'] .tip-links { display: flex; flex-wrap: wrap; gap: 0.75rem; }
+
+.tippy-box[data-theme~='custom'] .tip-link-icon {
+    margin-left: 0.15em;
+    vertical-align: -1px;
+}
+
+/* Copy beside an address or domain on a Live Traffic hover card. */
+.tippy-box[data-theme~='custom'] .tip-copy {
+    display: inline-flex;
+    align-items: center;
+    margin-left: 0.3em;
+    padding: 0 2px;
+    border: 0;
+    background: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    vertical-align: -1px;
+}
+
+.tippy-box[data-theme~='custom'] .tip-copy:hover {
+    color: var(--text-primary);
+}
+
+.tippy-box[data-theme~='custom'] .tip-copy.is-copied {
+    color: var(--success-color);
 }
 
 .tippy-box[data-theme~='custom'] a:hover {
@@ -11111,6 +11222,33 @@ a.path-hop.hop-clickable:hover {
 .lock-icon {
     font-size: 0.75rem;
     cursor: default;
+    margin-left: 0.35rem;
+}
+
+/* ApLockIcon: a round AP in the muted text color, the lock badge in amber on the card background. */
+.ap-lock-icon {
+    color: var(--text-secondary);
+    vertical-align: middle;
+    position: relative;
+    top: -1.5px;
+    flex-shrink: 0;
+}
+
+.ap-lock-icon-badge {
+    fill: var(--bg-card);
+}
+
+/* The AP's LED ring, in Ubiquiti blue */
+.ap-lock-icon-led {
+    stroke: var(--primary-color);
+}
+
+.ap-lock-icon-lock {
+    stroke: var(--warning-color);
+}
+
+.ap-lock-icon-lock-body {
+    fill: var(--warning-color);
 }
 
 .mesh-unit {
@@ -12313,6 +12451,20 @@ a.path-hop.hop-clickable:hover {
     gap: 1rem;
 }
 
+/* Client Stats: the Status column holds only a dot, so it takes no more than its header. */
+.client-list-section .col-status {
+    width: 1%;
+    white-space: nowrap;
+}
+
+/* The client's icon and name, kept together and closer than the banner's field gap. */
+.client-info-identity {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    min-width: 0;
+}
+
 .client-info-main .client-name {
     font-size: 1.1rem;
 }
@@ -12479,6 +12631,11 @@ a.path-hop.hop-clickable:hover {
     padding: 2rem;
     text-align: center;
     color: var(--text-muted);
+}
+
+.events-empty p {
+    margin: 0;
+    font-size: 0.8125rem;
 }
 
 .events-list {
@@ -20267,6 +20424,11 @@ a.isp-health-hero-speed:hover {
     cursor: pointer;
 }
 
+/* Two toggles on one line (Show N paths, Show hop table): the space between them alone runs them together. */
+.isp-event-members-toggle + .isp-event-members-toggle {
+    margin-left: 0.75rem;
+}
+
 .isp-event-members-toggle:hover {
     text-decoration: underline;
 }
@@ -21466,6 +21628,7 @@ body.kiosk-mode .status-indicators {
 .shp-delta {
     font-size: 0.8125rem;
     font-weight: 500;
+    margin-right: 0.25rem;
 }
 
 .shp-delta.down { color: var(--danger-color); }
@@ -24085,6 +24248,49 @@ body:has(.top-bar-hidden) .btn-fit {
     font-size: 0.85rem;
 }
 
+/* Down and up side by side, each with its rate at the left and "of 1 Gbps down" against its right
+   edge: a fixed width on desktop, half the line each on a phone. */
+.bandwidth-hogs-wan-line .hogs-wan-pair {
+    display: flex;
+    gap: 1.5rem;
+    font-variant-numeric: tabular-nums;
+}
+
+.bandwidth-hogs-wan-line .hogs-wan-half {
+    display: flex;
+    justify-content: space-between;
+    gap: 0.4rem;
+    /* Wide enough for "999.9 Mbps" and "of 10 Gbps down", no wider, so the capacity stays by its rate. */
+    width: 11.5rem;
+    max-width: 11.5rem;
+    min-width: 0;
+    white-space: nowrap;
+}
+
+.bandwidth-hogs-wan-line .hogs-wan-of {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+@media (max-width: 768px) {
+    .bandwidth-hogs-wan-line .hogs-wan-pair {
+        flex: 1 1 100%;
+        min-width: 0;
+        gap: 1rem;
+    }
+
+    .bandwidth-hogs-wan-line .hogs-wan-half {
+        width: auto;
+        flex: 1 1 0;
+    }
+
+    /* The colors say which is which; the words do not fit beside two rates at half width. */
+    .bandwidth-hogs-wan-line .hogs-wan-dir {
+        display: none;
+    }
+}
+
 /* Fixed proportions: the rates re-render every few seconds, and an auto-laid table let each
    new figure nudge its column. Digits are tabular for the same reason. */
 .bandwidth-hogs-table {
@@ -24130,13 +24336,24 @@ body:has(.top-bar-hidden) .btn-fit {
     visibility: hidden;
 }
 
-.bandwidth-hogs-table .hogs-col-rank { width: 2.6rem; }
+.bandwidth-hogs-table .hogs-col-rank { width: 3.6rem; }
 .bandwidth-hogs-table .hogs-col-via { width: 26%; }
 .bandwidth-hogs-table .hogs-col-rate { width: 14%; }
 .bandwidth-hogs-table .hogs-col-share { width: 17%; }
 
 .bandwidth-hogs-table .hogs-rank {
     color: var(--text-muted);
+    white-space: nowrap;
+}
+
+.bandwidth-hogs-table .hogs-chev-mobile {
+    display: none;
+}
+
+@media (max-width: 768px) {
+    .bandwidth-hogs-table .hogs-chev-mobile {
+        display: inline-block;
+    }
 }
 
 .bandwidth-hogs-table .hogs-client a {
@@ -24209,6 +24426,2291 @@ body:has(.top-bar-hidden) .btn-fit {
 
     .hogs-share .hogs-bar {
         display: none;
+    }
+}
+
+/* ============================================
+   Filter pills: a value in a table that filters the page on click (RF Environment's Heard By,
+   Live Traffic). .active is the kept value and carries a .filter-pill-x.
+   ============================================ */
+
+.filter-pills {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem;
+}
+
+.filter-pill {
+    display: inline-flex;
+    align-items: center;
+    max-width: 100%;
+    min-width: 0;
+    padding: 0.125rem 0.5rem;
+    border: 1px solid transparent;
+    border-radius: var(--border-radius);
+    background: var(--bg-tertiary);
+    color: var(--text-secondary);
+    font-family: inherit;
+    font-size: 0.8rem;
+    text-decoration: none;
+    white-space: nowrap;
+    cursor: pointer;
+    transition: color 0.15s ease, border-color 0.15s ease;
+}
+
+.filter-pill:hover {
+    color: var(--text-primary);
+    border-color: var(--primary-hover);
+}
+
+.filter-pill.active {
+    background: var(--primary-color);
+    color: var(--text-primary);
+    font-weight: 600;
+}
+
+.filter-pill-text {
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.filter-pill-x {
+    margin-left: 0.3rem;
+    opacity: 0.8;
+}
+
+.filter-pill-more {
+    background: transparent;
+    color: var(--text-muted);
+}
+
+/* ============================================
+   Live Traffic (Monitoring - Live View card + /monitoring/live-traffic).
+   lt- classes are this feature's own; nothing else uses the prefix.
+   ============================================ */
+
+/* On a phone the header controls wrap under the description: even space above and below them. */
+@media (max-width: 768px) {
+    /* The description's line height already leaves space above, and the cards' padding below. */
+    .live-traffic .page-header {
+        margin-bottom: 0.6rem;
+    }
+
+    .live-traffic .page-header-actions {
+        margin-top: 0.4rem;
+    }
+}
+
+/* Desktop: the controls sit on the description's line, just above the cards they drive. */
+@media (min-width: 769px) {
+    .live-traffic .page-header-actions {
+        align-self: flex-end;
+    }
+}
+
+/* Detailed View: in the By row on desktop, at the right of the title on a phone. */
+.bandwidth-hogs-card .lt-header-detail {
+    display: none;
+}
+
+@media (max-width: 768px) {
+    .bandwidth-hogs-card .card-title-group {
+        flex: 1 1 100%;
+    }
+
+    .bandwidth-hogs-card .lt-header-detail {
+        display: inline-flex;
+        margin-left: auto;
+    }
+
+    .bandwidth-hogs-card .lt-card-tools .lt-tools-right {
+        display: none;
+    }
+}
+
+/* The Dashboard card's header opens Live Traffic everywhere but its controls. */
+.bandwidth-hogs-card .lt-header-link {
+    cursor: pointer;
+}
+
+.bandwidth-hogs-card .lt-header-link:hover .card-title {
+    color: var(--primary-light);
+}
+
+.bandwidth-hogs-card .lt-header-link .bandwidth-hogs-controls {
+    cursor: default;
+}
+
+/* Card: the By row and Detailed View, the expand chevron, and a client's nested flows */
+.lt-card-tools {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem 0.75rem;
+    margin-bottom: 0.75rem;
+}
+
+.lt-card-tools .lt-tools-right {
+    margin-left: auto;
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+}
+
+.lt-by-label {
+    color: var(--text-secondary);
+    font-size: 0.8rem;
+}
+
+.lt-icon-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+}
+
+.lt-icon-btn svg {
+    width: 14px;
+    height: 14px;
+}
+
+@media (max-width: 768px) {
+    .lt-pause-btn {
+        width: 28px;
+        min-width: 0;
+        padding: 0;
+    }
+
+    .lt-pause-btn span {
+        display: none;
+    }
+}
+
+/* The app's .expand-chevron, inline beside a rank or a name instead of in its own cell. */
+.lt-chev {
+    display: inline-block;
+    width: auto;
+    margin-right: 0.35rem;
+}
+
+.bandwidth-hogs-table tr.lt-row-open td {
+    background: var(--bg-hover-subtle);
+}
+
+.bandwidth-hogs-table .lt-expandable {
+    cursor: pointer;
+}
+
+.bandwidth-hogs-table tr.lt-nested > td {
+    padding: 0 0 0.5rem 0;
+    background: var(--bg-hover-subtle);
+    white-space: normal;
+}
+
+.lt-nested-table {
+    width: 100%;
+    table-layout: fixed;
+    font-size: 0.8rem;
+    font-variant-numeric: tabular-nums;
+    border-collapse: collapse;
+}
+
+.lt-nested-table td,
+.lt-nested-table th {
+    padding: 0.3rem 0.75rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    text-align: left;
+}
+
+.lt-nested-table th {
+    color: var(--text-muted);
+    font-weight: 500;
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.lt-nested-table .hogs-col-rank { width: 2.6rem; }
+.lt-nested-table .hogs-col-via { width: 26%; }
+.lt-nested-table .hogs-col-rate { width: 14%; }
+.lt-nested-table .hogs-col-share { width: 17%; }
+
+.lt-nested-table td:nth-child(2) {
+    padding-left: 1.6rem;
+}
+
+.lt-nested-more {
+    padding: 0.25rem 0.75rem 0 4.2rem;
+    font-size: 0.75rem;
+}
+
+/* Any value that filters on click */
+.lt-pivot {
+    color: inherit;
+    border-bottom: 1px dotted transparent;
+    cursor: pointer;
+}
+
+.lt-pivot:hover {
+    color: var(--primary-light);
+    border-bottom-color: var(--primary-light);
+}
+
+.lt-muted { color: var(--text-muted); }
+/* An idle live rate keeps its direction class (for its fixed slot) but reads muted. */
+.speed-down.lt-muted, .speed-up.lt-muted { color: var(--text-muted); }
+.lt-secondary { color: var(--text-secondary); }
+.lt-small { font-size: 0.75rem; }
+
+/* App and route tags; routes take the graph palette (WAN teal, VPN purple, LAN amber) */
+.lt-tag {
+    display: inline-block;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    vertical-align: middle;
+    padding: 0.1rem 0.45rem;
+    border-radius: 3px;
+    font-size: 0.72rem;
+    font-weight: 500;
+    background: var(--bg-tertiary);
+    color: var(--text-secondary);
+}
+
+.lt-tag.lt-pivot:hover {
+    color: var(--primary-light);
+}
+
+.lt-route-wan { background: rgba(43, 168, 154, 0.15); color: #2ba89a; }
+.lt-route-vpn { background: rgba(167, 139, 250, 0.15); color: #a78bfa; }
+.lt-route-lan { background: rgba(245, 158, 11, 0.15); color: #f59e0b; }
+.lt-bypass { background: rgba(231, 150, 19, 0.15); color: var(--warning-color); }
+.lt-redirected { background: rgba(71, 151, 255, 0.15); color: var(--info-color); }
+.lt-site-dns { background: rgba(43, 168, 154, 0.15); color: #2ba89a; }
+.lt-action-blocked { background: rgba(238, 99, 104, 0.15); color: var(--danger-color); }
+/* App icons, drawn as Client Performance draws them (its own .app-icon rules are scoped to that page). */
+.lt-app-cell {
+    display: inline-flex;
+    align-items: center;
+    vertical-align: middle;
+    gap: 0.4rem;
+    max-width: 100%;
+    min-width: 0;
+}
+
+.lt-app-icon {
+    position: relative;
+    width: 16px;
+    height: 16px;
+    flex-shrink: 0;
+}
+
+/* live-traffic-motion.js holds an expanded row in place itself. Left on, the browser's scroll anchoring
+   corrected the same insertion as well, so the page moved twice as far and the row jumped away. */
+.lt-flip,
+.lt-flip * {
+    overflow-anchor: none;
+}
+
+/* In Where It's Going the icon sits alone in a foreignObject, not in a flex row, so it is sized as a block. */
+.lt-sankey-icon {
+    overflow: visible;
+    pointer-events: none;
+}
+
+.lt-sankey-icon .lt-app-icon {
+    display: block;
+    width: 18px;
+    height: 18px;
+    font-size: 11px;
+}
+
+.lt-app-icon img,
+.lt-app-initial,
+.lt-app-glyph {
+    position: absolute;
+    inset: 0;
+    border-radius: 4px;
+}
+
+.lt-app-glyph {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+}
+
+/* Font Awesome's .fa-solid / .fa-brands load after app.css and set display: inline-block, which drops
+   the glyph to the top of its box; this selector outranks them. */
+.lt-app-icon .lt-app-glyph {
+    display: flex;
+    line-height: 1;
+}
+
+/* A full-color app mark (our own favicon for Network Optimizer's traffic), filling the glyph box. */
+.lt-app-icon .lt-app-glyph.app-mark,
+.app-glyph.app-mark {
+    background: var(--bg-tertiary) center / 12px no-repeat;
+}
+
+.lt-app-icon .lt-app-glyph.app-mark-netopt,
+.app-glyph.app-mark.app-mark-netopt {
+    background-image: url('/favicon-32x32.png');
+}
+
+/* App marks Font Awesome lacks (Simple Icons, CC0), drawn like a glyph: 1em, in the text color, so
+   they sit in .lt-app-glyph and Client Performance's .app-glyph exactly as an fa-brands icon does. */
+.no-icon::before {
+    content: "";
+    width: 1em;
+    height: 1em;
+    background-color: currentColor;
+    -webkit-mask: var(--no-icon) no-repeat center / contain;
+    mask: var(--no-icon) no-repeat center / contain;
+}
+
+.no-icon-wireguard {
+    --no-icon: url("data:image/svg+xml,%3Csvg viewBox='0 0 24 24' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M23.98 11.645S24.533 0 11.735 0C.418 0 .064 11.17.064 11.17S-1.6 24 11.997 24C25.04 24 23.98 11.645 23.98 11.645zM8.155 7.576c2.4-1.47 5.469-.571 6.618 1.638.218.419.246 1.063.108 1.503-.477 1.516-1.601 2.366-3.145 2.728.455-.39.817-.832.933-1.442a2.112 2.112 0 0 0-.364-1.677 2.14 2.14 0 0 0-2.465-.75c-.95.36-1.47 1.228-1.377 2.294.087.99.839 1.632 2.245 1.876-.21.111-.372.193-.53.281a5.113 5.113 0 0 0-1.644 1.43c-.143.192-.24.208-.458.075-2.827-1.729-3.009-6.067.078-7.956zM6.04 18.258c-.455.116-.895.286-1.359.438.227-1.532 2.021-2.943 3.539-2.782a3.91 3.91 0 0 0-.74 2.072c-.504.093-.98.155-1.44.272zM15.703 3.3c.448.017.898.01 1.347.02a2.324 2.324 0 0 1 .334.047 3.249 3.249 0 0 1-.34.434c-.16.15-.341.296-.573.069-.055-.055-.187-.042-.283-.044-.447-.005-.894-.02-1.34-.003a8.323 8.323 0 0 0-1.154.118c-.072.013-.178.25-.146.338.078.207.191.435.359.567.619.49 1.277.928 1.9 1.413.604.472 1.167.99 1.51 1.7.446.928.46 1.9.267 2.877-.322 1.63-1.147 2.98-2.483 3.962-.538.395-1.205.62-1.821.903-.543.25-1.1.465-1.644.712-.98.446-1.53 1.51-1.369 2.615.149 1.015 1.04 1.862 2.059 2.037 1.223.21 2.486-.586 2.785-1.83.336-1.397-.423-2.646-1.845-3.024l-.256-.066c.38-.17.708-.291 1.012-.458q.793-.437 1.558-.925c.15-.096.231-.096.36.014.977.846 1.56 1.898 1.724 3.187.27 2.135-.74 4.096-2.646 5.101-2.948 1.555-6.557-.215-7.208-3.484-.558-2.8 1.418-5.34 3.797-5.83 1.023-.211 1.958-.637 2.685-1.425.47-.508.697-.944.775-1.141a3.165 3.165 0 0 0 .217-1.158 2.71 2.71 0 0 0-.237-.992c-.248-.566-1.2-1.466-1.435-1.656l-2.24-1.754c-.079-.065-.168-.06-.36-.047-.23.016-.815.048-1.067-.018.204-.155.76-.38 1-.56-.726-.49-1.554-.314-2.315-.46.176-.328 1.046-.831 1.541-.888a7.323 7.323 0 0 0-.135-.822c-.03-.111-.154-.22-.263-.283-.262-.154-.541-.281-.843-.434a1.755 1.755 0 0 1 .906-.28 3.385 3.385 0 0 1 .908.088c.54.123.97.042 1.399-.324-.338-.136-.676-.26-1.003-.407a9.843 9.843 0 0 1-.942-.493c.85.118 1.671.437 2.54.32l.022-.118-2.018-.47c1.203-.11 2.323-.128 3.384.388.299.146.61.266.897.432.14.08.233.24.348.365.09.098.164.23.276.29.424.225.89.234 1.366.223l.01-.16c.479.15 1.017.702 1.017 1.105-.776 0-1.55-.003-2.325.004-.083 0-.165.061-.247.094.078.046.155.128.235.131z M14.703 2.153a.118.118 0 0 0-.016.19.179.179 0 0 0 .246.065c.075-.038.148-.078.238-.125-.072-.062-.13-.114-.19-.163-.106-.087-.193-.032-.278.033z'/%3E%3C/svg%3E");
+}
+
+.no-icon-ooma {
+    /* Traced from Ooma's flower mark: one line, six petals, six inward loops. */
+    --no-icon: url("data:image/svg+xml,%3Csvg viewBox='0 0 24 24' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M10.1 8.7L10.5 8.3L10.8 7.9L11.0 7.4L11.1 6.8L11.0 6.2L10.8 5.6L10.4 5.0L9.9 4.5L9.3 4.1L8.5 3.8L7.7 3.6L6.9 3.6L6.0 3.7L5.1 4.0L4.3 4.4L3.6 5.0L2.9 5.6L2.3 6.4L1.9 7.3L1.7 8.2L1.6 9.1L1.6 10.1L1.8 11.0L2.2 11.8L2.6 12.5L3.2 13.1L3.8 13.6L4.5 13.9L5.2 14.1L5.9 14.1L6.5 14.0L7.0 13.8L7.5 13.4L7.9 13.0L8.1 12.5L8.1 12.0L8.1 11.5L7.9 11.0L7.5 10.6L7.0 10.2L6.5 10.0L5.9 9.9L5.2 9.9L4.5 10.1L3.8 10.4L3.2 10.9L2.6 11.5L2.2 12.2L1.8 13.0L1.6 13.9L1.6 14.9L1.7 15.8L1.9 16.7L2.3 17.6L2.9 18.4L3.6 19.0L4.3 19.6L5.1 20.0L6.0 20.3L6.9 20.4L7.7 20.4L8.5 20.2L9.3 19.9L9.9 19.5L10.4 19.0L10.8 18.4L11.0 17.8L11.1 17.2L11.0 16.6L10.8 16.1L10.5 15.7L10.1 15.3L9.6 15.1L9.1 15.1L8.5 15.2L8.0 15.4L7.5 15.8L7.1 16.3L6.8 16.9L6.6 17.6L6.5 18.3L6.6 19.1L6.9 19.9L7.3 20.6L7.8 21.3L8.5 22.0L9.3 22.5L10.1 22.8L11.0 23.1L12.0 23.1L13.0 23.1L13.9 22.8L14.7 22.5L15.5 22.0L16.2 21.3L16.7 20.6L17.1 19.9L17.4 19.1L17.5 18.3L17.4 17.6L17.2 16.9L16.9 16.3L16.5 15.8L16.0 15.4L15.5 15.2L14.9 15.1L14.4 15.1L13.9 15.3L13.5 15.7L13.2 16.1L13.0 16.6L12.9 17.2L13.0 17.8L13.2 18.4L13.6 19.0L14.1 19.5L14.7 19.9L15.5 20.2L16.3 20.4L17.1 20.4L18.0 20.3L18.9 20.0L19.7 19.6L20.4 19.0L21.1 18.4L21.7 17.6L22.1 16.7L22.3 15.8L22.4 14.9L22.4 13.9L22.2 13.0L21.8 12.2L21.4 11.5L20.8 10.9L20.2 10.4L19.5 10.1L18.8 9.9L18.1 9.9L17.5 10.0L17.0 10.2L16.5 10.6L16.1 11.0L15.9 11.5L15.9 12.0L15.9 12.5L16.1 13.0L16.5 13.4L17.0 13.8L17.5 14.0L18.1 14.1L18.8 14.1L19.5 13.9L20.2 13.6L20.8 13.1L21.4 12.5L21.8 11.8L22.2 11.0L22.4 10.1L22.4 9.1L22.3 8.2L22.1 7.3L21.7 6.4L21.1 5.6L20.4 5.0L19.7 4.4L18.9 4.0L18.0 3.7L17.1 3.6L16.3 3.6L15.5 3.8L14.7 4.1L14.1 4.5L13.6 5.0L13.2 5.6L13.0 6.2L12.9 6.8L13.0 7.4L13.2 7.9L13.5 8.3L13.9 8.7L14.4 8.9L14.9 8.9L15.5 8.8L16.0 8.6L16.5 8.2L16.9 7.7L17.2 7.1L17.4 6.4L17.5 5.7L17.4 4.9L17.1 4.1L16.7 3.4L16.2 2.7L15.5 2.0L14.7 1.5L13.9 1.2L13.0 0.9L12.0 0.9L11.0 0.9L10.1 1.2L9.3 1.5L8.5 2.0L7.8 2.7L7.3 3.4L6.9 4.1L6.6 4.9L6.5 5.7L6.6 6.4L6.8 7.1L7.1 7.7L7.5 8.2L8.0 8.6L8.5 8.8L9.1 8.9L9.6 8.9Z' fill='none' stroke='black' stroke-width='1.3' stroke-linejoin='round'/%3E%3C/svg%3E");
+}
+
+.no-icon-ea {
+    --no-icon: url("data:image/svg+xml,%3Csvg viewBox='0 0 24 24' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M16.635 6.162l-5.928 9.377H4.24l1.508-2.3h4.024l1.474-2.335H2.264L.79 13.239h2.156L0 17.84h12.072l4.563-7.259 1.652 2.66h-1.401l-1.473 2.299h4.347l1.473 2.3H24zm-11.461.107L3.7 8.604l9.52-.035 1.474-2.3z'/%3E%3C/svg%3E");
+}
+
+.no-icon-openvpn {
+    --no-icon: url("data:image/svg+xml,%3Csvg viewBox='0 0 24 24' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M12 .357C5.385.357 0 5.69 0 12.254c0 4.36 2.358 8.153 5.896 10.204l.77-5.076a7.046 7.046 0 01-1.846-4.719c0-3.897 3.18-7.076 7.13-7.076 3.948 0 7.126 3.18 7.126 7.076 0 1.847-.717 3.488-1.846 4.77L18 22.51c3.59-2.05 6-5.899 6-10.258C24 5.69 18.615.357 12 .357zm-.05 8.157a3.786 3.786 0 00-3.796 3.795 3.738 3.738 0 002.461 3.54L9.13 23.643h5.64l-1.435-7.795c1.385-.564 2.41-1.898 2.41-3.54a3.786 3.786 0 00-3.795-3.794z'/%3E%3C/svg%3E");
+}
+
+.no-icon-mqtt {
+    --no-icon: url("data:image/svg+xml,%3Csvg viewBox='0 0 24 24' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M10.657 23.994h-9.45A1.212 1.212 0 0 1 0 22.788v-9.18h.071c5.784 0 10.504 4.65 10.586 10.386Zm7.606 0h-4.045C14.135 16.246 7.795 9.977 0 9.942V6.038h.071c9.983 0 18.121 8.044 18.192 17.956Zm4.53 0h-.97C21.754 12.071 11.995 2.407 0 2.372v-1.16C0 .55.544.006 1.207.006h7.64C15.733 2.49 21.257 7.789 24 14.508v8.291c0 .663-.544 1.195-1.207 1.195ZM16.713.006h6.092A1.19 1.19 0 0 1 24 1.2v5.914c-.91-1.242-2.046-2.65-3.158-3.762C19.588 2.11 18.122.987 16.714.005Z'/%3E%3C/svg%3E");
+}
+
+.no-icon-openai {
+    --no-icon: url("data:image/svg+xml,%3Csvg viewBox='0 0 24 24' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M22.2819 9.8211a5.9847 5.9847 0 0 0-.5157-4.9108 6.0462 6.0462 0 0 0-6.5098-2.9A6.0651 6.0651 0 0 0 4.9807 4.1818a5.9847 5.9847 0 0 0-3.9977 2.9 6.0462 6.0462 0 0 0 .7427 7.0966 5.98 5.98 0 0 0 .511 4.9107 6.051 6.051 0 0 0 6.5146 2.9001A5.9847 5.9847 0 0 0 13.2599 24a6.0557 6.0557 0 0 0 5.7718-4.2058 5.9894 5.9894 0 0 0 3.9977-2.9001 6.0557 6.0557 0 0 0-.7475-7.0729zm-9.022 12.6081a4.4755 4.4755 0 0 1-2.8764-1.0408l.1419-.0804 4.7783-2.7582a.7948.7948 0 0 0 .3927-.6813v-6.7369l2.02 1.1686a.071.071 0 0 1 .038.052v5.5826a4.504 4.504 0 0 1-4.4945 4.4944zm-9.6607-4.1254a4.4708 4.4708 0 0 1-.5346-3.0137l.142.0852 4.783 2.7582a.7712.7712 0 0 0 .7806 0l5.8428-3.3685v2.3324a.0804.0804 0 0 1-.0332.0615L9.74 19.9502a4.4992 4.4992 0 0 1-6.1408-1.6464zM2.3408 7.8956a4.485 4.485 0 0 1 2.3655-1.9728V11.6a.7664.7664 0 0 0 .3879.6765l5.8144 3.3543-2.0201 1.1685a.0757.0757 0 0 1-.071 0l-4.8303-2.7865A4.504 4.504 0 0 1 2.3408 7.872zm16.5963 3.8558L13.1038 8.364 15.1192 7.2a.0757.0757 0 0 1 .071 0l4.8303 2.7913a4.4944 4.4944 0 0 1-.6765 8.1042v-5.6772a.79.79 0 0 0-.407-.667zm2.0107-3.0231l-.142-.0852-4.7735-2.7818a.7759.7759 0 0 0-.7854 0L9.409 9.2297V6.8974a.0662.0662 0 0 1 .0284-.0615l4.8303-2.7866a4.4992 4.4992 0 0 1 6.6802 4.66zM8.3065 12.863l-2.02-1.1638a.0804.0804 0 0 1-.038-.0567V6.0742a4.4992 4.4992 0 0 1 7.3757-3.4537l-.142.0805L8.704 5.459a.7948.7948 0 0 0-.3927.6813zm1.0976-2.3654l2.602-1.4998 2.6069 1.4998v2.9994l-2.5974 1.4997-2.6067-1.4997Z'/%3E%3C/svg%3E");
+}
+
+.no-icon-claude {
+    --no-icon: url("data:image/svg+xml,%3Csvg viewBox='0 0 24 24' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='m4.7144 15.9555 4.7174-2.6471.079-.2307-.079-.1275h-.2307l-.7893-.0486-2.6956-.0729-2.3375-.0971-2.2646-.1214-.5707-.1215-.5343-.7042.0546-.3522.4797-.3218.686.0608 1.5179.1032 2.2767.1578 1.6514.0972 2.4468.255h.3886l.0546-.1579-.1336-.0971-.1032-.0972L6.973 9.8356l-2.55-1.6879-1.3356-.9714-.7225-.4918-.3643-.4614-.1578-1.0078.6557-.7225.8803.0607.2246.0607.8925.686 1.9064 1.4754 2.4893 1.8336.3643.3035.1457-.1032.0182-.0728-.164-.2733-1.3539-2.4467-1.445-2.4893-.6435-1.032-.17-.6194c-.0607-.255-.1032-.4674-.1032-.7285L6.287.1335 6.6997 0l.9957.1336.419.3642.6192 1.4147 1.0018 2.2282 1.5543 3.0296.4553.8985.2429.8318.091.255h.1579v-.1457l.1275-1.706.2368-2.0947.2307-2.6957.0789-.7589.3764-.9107.7468-.4918.5828.2793.4797.686-.0668.4433-.2853 1.8517-.5586 2.9021-.3643 1.9429h.2125l.2429-.2429.9835-1.3053 1.6514-2.0643.7286-.8196.85-.9046.5464-.4311h1.0321l.759 1.1293-.34 1.1657-1.0625 1.3478-.8804 1.1414-1.2628 1.7-.7893 1.36.0729.1093.1882-.0183 2.8535-.607 1.5421-.2794 1.8396-.3157.8318.3886.091.3946-.3278.8075-1.967.4857-2.3072.4614-3.4364.8136-.0425.0304.0486.0607 1.5482.1457.6618.0364h1.621l3.0175.2247.7892.522.4736.6376-.079.4857-1.2142.6193-1.6393-.3886-3.825-.9107-1.3113-.3279h-.1822v.1093l1.0929 1.0686 2.0035 1.8092 2.5075 2.3314.1275.5768-.3218.4554-.34-.0486-2.2039-1.6575-.85-.7468-1.9246-1.621h-.1275v.17l.4432.6496 2.3436 3.5214.1214 1.0807-.17.3521-.6071.2125-.6679-.1214-1.3721-1.9246L14.38 17.959l-1.1414-1.9428-.1397.079-.674 7.2552-.3156.3703-.7286.2793-.6071-.4614-.3218-.7468.3218-1.4753.3886-1.9246.3157-1.53.2853-1.9004.17-.6314-.0121-.0425-.1397.0182-1.4328 1.9672-2.1796 2.9446-1.7243 1.8456-.4128.164-.7164-.3704.0667-.6618.4008-.5889 2.386-3.0357 1.4389-1.882.929-1.0868-.0062-.1579h-.0546l-6.3385 4.1164-1.1293.1457-.4857-.4554.0608-.7467.2307-.2429 1.9064-1.3114Z'/%3E%3C/svg%3E");
+}
+
+.no-icon-anthropic {
+    --no-icon: url("data:image/svg+xml,%3Csvg viewBox='0 0 24 24' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M17.3041 3.541h-3.6718l6.696 16.918H24Zm-10.6082 0L0 20.459h3.7442l1.3693-3.5527h7.0052l1.3693 3.5528h3.7442L10.5363 3.5409Zm-.3712 10.2232 2.2914-5.9456 2.2914 5.9456Z'/%3E%3C/svg%3E");
+}
+
+/* ICMP: a ping going out, a dot with fading waves. */
+.no-icon-icmp {
+    --no-icon: url("data:image/svg+xml,%3Csvg viewBox='0 0 24 24' xmlns='http://www.w3.org/2000/svg' fill='none' stroke='%23000' stroke-width='2.2' stroke-linecap='round'%3E%3Ccircle cx='5.0' cy='12.0' r='2.6' fill='%23000' stroke='none'/%3E%3Cpath d='M9.60 7.40A6.5 6.5 0 0 1 9.60 16.60'/%3E%3Cpath d='M12.78 4.22A11 11 0 0 1 12.78 19.78' opacity='.65'/%3E%3Cpath d='M15.96 1.04A15.5 15.5 0 0 1 15.96 22.96' opacity='.35'/%3E%3C/svg%3E");
+}
+
+/* Roku has only its wordmark: cropped to it, so it takes the glyph's full width. */
+.no-icon-roku {
+    --no-icon: url("data:image/svg+xml,%3Csvg viewBox='0 8 24 8' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M16.34 9.853l-2.254 2.254v-2.26H12.13v5.744h1.957v-2.33l2.353 2.33h2.46l-2.988-2.99 2.477-2.476v3.411c0 1.133.679 2.177 2.393 2.177.815 0 1.56-.462 1.922-.88l.88.759H24v-5.74h-1.951v3.718c-.22.384-.528.627-1.002.627-.482 0-.703-.286-.703-1.198V9.853zm-4.591 2.869A3.004 3.004 0 1 1 8.738 9.73a2.997 2.997 0 0 1 3.011 2.99m-3.011-1.57c-.518 0-.956.704-.956 1.572 0 .867.438 1.57.956 1.57.528 0 .968-.702.968-1.57 0-.869-.438-1.572-.968-1.572zm-2.206 4.447H4.313L2.55 13.153h-.594v2.44H0V8.26h2.8c1.616 0 2.935 1.1 2.935 2.45 0 .826-.505 1.562-1.273 2.013l2.07 2.875m-2.75-4.888A1.226 1.226 0 0 0 2.56 9.478h-.604v2.453h.605a1.225 1.225 0 0 0 1.22-1.221Z'/%3E%3C/svg%3E");
+}
+
+.no-icon-akamai {
+    --no-icon: url("data:image/svg+xml,%3Csvg viewBox='0 0 24 24' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M13.0548 0C6.384 0 .961 5.3802.961 12.0078.961 18.6354 6.3698 24 13.0548 24c.6168 0 .6454-.3572.0859-.5293-4.9349-1.5063-8.5352-6.069-8.5352-11.4629 0-5.4656 3.6725-10.0706 8.6934-11.5195C13.8153.3448 13.6716 0 13.0548 0Zm2.3242 1.8223c-5.2648 0-9.5254 4.2606-9.5254 9.5254 0 1.2193.2285 2.3818.6445 3.4433.1722.459.4454.4584.4024.0137-.0287-.3156-.0567-.6447-.0567-.9746 0-5.2648 4.2606-9.5254 9.5254-9.5254 4.9779 0 6.4698 2.2235 6.6563 2.08.2008-.1577-1.808-4.5624-7.6465-4.5624zm.4687 4.0703c-1.8622.0592-3.651.7168-5.1035 1.8554-.2582.2009-.1567.3284.1445.1993 2.4675-1.076 5.5812-1.1046 8.6368-.043 2.0514.7173 3.2413 1.7364 3.3418 1.6934.1578-.0718-1.1915-2.2226-3.6446-3.1407-1.1135-.4196-2.2576-.6-3.375-.5644z'/%3E%3C/svg%3E");
+}
+
+.no-icon-elasticsearch {
+    --no-icon: url("data:image/svg+xml,%3Csvg viewBox='0 0 24 24' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M13.394 0C8.683 0 4.609 2.716 2.644 6.667h15.641a4.77 4.77 0 0 0 3.073-1.11c.446-.375.864-.785 1.247-1.243l.001-.002A11.974 11.974 0 0 0 13.394 0zM1.804 8.889a12.009 12.009 0 0 0 0 6.222h14.7a3.111 3.111 0 1 0 0-6.222zm.84 8.444C4.61 21.283 8.684 24 13.395 24c3.701 0 7.011-1.677 9.212-4.312l-.001-.002a9.958 9.958 0 0 0-1.247-1.243 4.77 4.77 0 0 0-3.073-1.11z'/%3E%3C/svg%3E");
+}
+
+.no-icon-tailscale {
+    /* The official mark (as VpnIcon draws it): faded dots filled at 20%, not the outlined rings that blur at 16px. */
+    --no-icon: url("data:image/svg+xml,%3Csvg viewBox='0 0 20 20' xmlns='http://www.w3.org/2000/svg'%3E%3Cellipse cx='2.45' cy='10.18' rx='2.45' ry='2.44'/%3E%3Cellipse cx='9.79' cy='10.18' rx='2.45' ry='2.44'/%3E%3Cellipse cx='17.13' cy='10.18' rx='2.45' ry='2.44'/%3E%3Cellipse cx='9.79' cy='17.51' rx='2.45' ry='2.44'/%3E%3Cellipse opacity='0.2' cx='2.45' cy='2.86' rx='2.45' ry='2.44'/%3E%3Cellipse opacity='0.2' cx='9.79' cy='2.86' rx='2.45' ry='2.44'/%3E%3Cellipse opacity='0.2' cx='17.13' cy='2.86' rx='2.45' ry='2.44'/%3E%3Cellipse opacity='0.2' cx='2.45' cy='17.51' rx='2.45' ry='2.44'/%3E%3Cellipse opacity='0.2' cx='17.13' cy='17.51' rx='2.45' ry='2.44'/%3E%3C/svg%3E");
+}
+
+.no-icon-matter {
+    /* The Matter mark: three arrows pointing into the center. */
+    --no-icon: url("data:image/svg+xml,%3Csvg viewBox='0 0 512 500' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M152 128.5c21.5 17.5 47.1 29.2 74.4 34.2V17.1L256.1 0l29.6 17.1v145.5c27.3-4.9 52.9-16.7 74.5-34.2l53.8 31.1c-87.6 86.5-228.5 86.5-316.1 0zM217.5 500c31.2-119.1-39.4-241.1-158.2-273.5v62.3c25.9 9.9 48.9 26.2 66.8 47.4L0 408.8V443l29.7 17 126.1-72.7c9.4 26.1 12 54.2 7.6 81.4l54.1 31.4Zm235.3-273.5C334 259 263.6 381 294.8 500l54-31.2c-4.4-27.4-1.7-55.4 7.6-81.4l126 72.6 29.6-17.1v-34.2L385.9 336c17.9-21.2 40.9-37.5 66.8-47.4v-62.2Z'/%3E%3C/svg%3E");
+}
+
+.no-icon-backblaze {
+    --no-icon: url("data:image/svg+xml,%3Csvg viewBox='0 0 24 24' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M9.3108.0003c.6527 1.3502 1.5666 4.0812-1.3887 7.1738-1.8096 1.8796-3.078 3.8487-2.3496 6.0644.3642 1.1037 1.1864 2.5079 2.8867 2.7852.6107.1008 1.3425-.0006 1.7403-.1406 2.4538-.8544 2.098-3.4138 1.5546-5.0469-.07-.2129-.1915-.7333-.2363-.9238-.3726-1.6023.776-2.6562 1.129-3.8047.028-.0925.0534-.1819.0702-.2715.042-.21.067-.423.0781-.6387 0-1.8264-.9882-2.6303-1.7754-3.5996C10.1794.5643 9.3107.0003 9.3107.0003Zm6.2754 6.0175s-.709.3366-1.2188.8829c-.4454.4818-.8635.8789-1.2949 1.8593-.028.14-.0518.2863-.0742.4375-.2325 1.6416 1.1473 3.1446.7187 5.1895-.112.535-.3554.7123-.7812 1.6367-.5098 1.1065-.383 2.588.3594 3.5293.6723.8488 1.879 1.2321 3.0527.9492 2.1065-.5042 3.0646-2.2822 2.8965-4.2851-.1317-1.58-.8154-2.7536-2.754-4.961-.9607-1.0925-1.6072-2.409-1.5624-3.4062.1373-1.2074.6582-1.832.6582-1.832zM4.8928 15.1936c-.0222.0145-.0439.0614-.0586.1602a.0469.0469 0 0 1-.0059.0195v.01c-.1148.5406-.1649 1.823.1153 2.9687.353 1.4427 1.4175 3.902 4.412 5.129 2.5184 1.0336 5.718.5411 7.8497-1.627.5294-.5435.408-.4897-.4883-.2012v-.002c-1.1121.3558-3.5182.5463-4.7676-1-1.5239-1.8852-.4302-3.3633-1.3574-3.1504-3.6164.8348-5.2667-1.4657-5.5469-2.1016-.0023-.002-.0857-.2487-.1523-.205z'/%3E%3C/svg%3E");
+}
+
+/* In the phone list's badge row the gap spaces the site badge; its margin is for beside a name. */
+.lt-m-tags .lt-site-badge {
+    margin-left: 0;
+}
+
+.lt-app-icon img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    background: var(--bg-tertiary);
+}
+
+.lt-app-initial {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    background: var(--bg-tertiary);
+    color: var(--text-secondary);
+}
+
+/* A custom app with no glyph chosen shows its initial: the empty glyph box would cover it. */
+.lt-app-icon .lt-app-glyph.lt-app-initial-only {
+    display: none;
+}
+
+/* An App Live Traffic could only call "UDP 21324": dotted, like an abbr, so the hover card is findable.
+   A border, not text-decoration: .filter-pill-text clips its overflow, and that cuts an underline off. */
+.lt-app-unnamed .filter-pill-text,
+.lt-app-unnamed .lt-pivot {
+    color: var(--text-secondary);
+    border-bottom: 1px dotted var(--text-secondary);
+}
+
+/* The Dashboard card's pill is a link with its text directly inside. */
+.lt-app-unnamed a.filter-pill {
+    text-decoration: underline dotted;
+    text-underline-offset: 2px;
+}
+
+.lt-sankey-node.lt-app-unnamed .lt-node-label {
+    fill: var(--text-secondary);
+    text-decoration: underline dotted;
+}
+
+/* ---------------------------------------------------------------- Custom Apps (Live Traffic dialog, Settings card) */
+
+.custom-apps-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 1060;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+    background: rgba(0, 0, 0, 0.6);
+}
+
+.custom-apps-dialog {
+    position: relative;
+    width: 100%;
+    max-width: 680px;
+    max-height: calc(100vh - 32px);
+    overflow-y: auto;
+    padding: 24px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+}
+
+.custom-apps-close {
+    position: absolute;
+    top: 16px;
+    right: 16px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    border: none;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--text-secondary);
+    cursor: pointer;
+}
+
+.custom-apps-close:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+}
+
+.custom-apps-close svg {
+    width: 18px;
+    height: 18px;
+}
+
+.custom-apps-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    margin-bottom: 1rem;
+}
+
+/* Clear of the close button. */
+.custom-apps.is-dialog .custom-apps-header {
+    padding-right: 40px;
+}
+
+.custom-apps-header .custom-apps-intro {
+    flex: 1 1 240px;
+    margin: 0;
+}
+
+.custom-apps-title {
+    margin: 0;
+    font-size: 1.1rem;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.custom-apps-back,
+.custom-apps-link {
+    padding: 0;
+    border: none;
+    background: none;
+    color: var(--primary-hover);
+    font: inherit;
+    cursor: pointer;
+}
+
+.custom-apps-back {
+    font-size: 0.875rem;
+}
+
+.custom-apps-back:hover,
+.custom-apps-link:hover {
+    text-decoration: underline;
+}
+
+.custom-app-form .form-row {
+    display: flex;
+    gap: 1rem;
+    flex-wrap: wrap;
+}
+
+.custom-app-form .form-row > .form-group {
+    flex: 1 1 180px;
+    min-width: 0;
+}
+
+.custom-app-icons {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.custom-app-icon-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    background: var(--bg-tertiary);
+    color: var(--text-secondary);
+    font-size: 14px;
+    cursor: pointer;
+}
+
+.custom-app-icon-btn:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+}
+
+.custom-app-icon-btn.is-selected {
+    border-color: var(--primary-color);
+    background: rgba(5, 80, 181, 0.2);
+    color: var(--text-primary);
+}
+
+.custom-app-initial {
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.custom-app-preview {
+    margin-bottom: 1.5rem;
+}
+
+.custom-app-preview-row {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.5rem 1rem;
+    min-height: 28px;
+}
+
+.custom-app-live {
+    color: var(--text-secondary);
+    font-size: 0.85rem;
+}
+
+.custom-app-shadow {
+    display: block;
+    margin-top: 0.5rem;
+    color: var(--warning-color);
+}
+
+.custom-apps-error {
+    margin-top: 0.75rem;
+}
+
+.custom-apps-intro {
+    margin: 0 0 0.75rem;
+    color: var(--text-secondary);
+    font-size: 0.85rem;
+}
+
+.custom-apps-empty p {
+    margin: 0;
+}
+
+.custom-apps-list {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    border-top: 1px solid var(--border-color);
+}
+
+/* One definition: rank, name over its summary, then the actions; the actions wrap under on a phone. */
+.custom-apps-item {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.5rem 0.75rem;
+    padding: 0.75rem 0.5rem;
+    border-bottom: 1px solid var(--border-color);
+    transition: background 0.4s ease;
+}
+
+.custom-apps-item.is-new {
+    background: rgba(5, 80, 181, 0.15);
+}
+
+.custom-apps-rank {
+    flex: 0 0 1.25rem;
+    color: var(--text-muted);
+    font-size: 0.85rem;
+}
+
+.custom-apps-main {
+    flex: 1 1 240px;
+    min-width: 0;
+}
+
+.custom-apps-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.custom-apps-sub {
+    margin-top: 0.2rem;
+    color: var(--text-secondary);
+    font-size: 0.8rem;
+}
+
+.custom-apps-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+    margin-left: auto;
+}
+
+.custom-apps-move {
+    width: 28px;
+    min-width: 0;
+    padding: 0;
+}
+
+.custom-apps-move svg {
+    width: 14px;
+    height: 14px;
+}
+
+.custom-apps-deleted {
+    color: var(--text-secondary);
+    font-size: 0.875rem;
+}
+
+.custom-apps-row-error {
+    flex: 1 1 100%;
+    margin-top: 0;
+}
+
+@media (max-width: 768px) {
+    .custom-apps-dialog {
+        padding: 16px;
+    }
+
+    .custom-apps-close {
+        top: 8px;
+        right: 8px;
+    }
+
+    .custom-app-form .form-row {
+        flex-direction: column;
+        gap: 0;
+    }
+
+    .custom-app-form .form-row > .form-group {
+        flex: 0 0 auto;
+    }
+
+    /* Under the name, lined up with it rather than with the rank. */
+    .custom-apps-actions {
+        margin-left: calc(1.25rem + 0.75rem);
+    }
+}
+
+.lt-streams { background: var(--bg-tertiary); color: var(--text-secondary); font-size: 0.72rem; }
+.lt-site-badge { background: rgba(71, 151, 255, 0.15); color: var(--info-color); margin-left: 0.35rem; font-size: 0.72rem; }
+/* A LAN peer's network, in the LAN route's amber. */
+.lt-peer-badge { background: rgba(245, 158, 11, 0.15); color: #f59e0b; margin-left: 0.35rem; font-size: 0.72rem; }
+.lt-m-tags .lt-peer-badge { margin-left: 0; }
+
+.live-traffic .lt-mobile-sort {
+    margin-bottom: 0.5rem;
+}
+
+.lt-dns-card .card-title > .tooltip-icon-sm {
+    margin-left: 0.5rem;
+}
+
+/* A filter pill in a Live Traffic row, and the hide button that shows beside it on hover or focus */
+.lt-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    max-width: 100%;
+    min-width: 0;
+    vertical-align: middle;
+}
+
+.lt-pill-hide {
+    display: none;
+    flex: 0 0 auto;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    padding: 0;
+    border: 0;
+    border-radius: 50%;
+    background: transparent;
+    color: var(--text-muted);
+    cursor: pointer;
+}
+
+.lt-pill-hide svg {
+    width: 12px;
+    height: 12px;
+}
+
+.lt-pill-hide:hover {
+    color: var(--danger-color);
+    background: var(--bg-hover);
+}
+
+/* Keyboard focus only: a click leaves the pill focused, and :focus-within kept the button up after the pointer left. */
+.lt-pill:hover .lt-pill-hide,
+.lt-pill:has(:focus-visible) .lt-pill-hide {
+    display: inline-flex;
+}
+
+@media (hover: none) {
+    .lt-pill:hover .lt-pill-hide {
+        display: none;
+    }
+}
+
+.filter-pill.is-sub {
+    padding: 0 0.35rem;
+    font-size: 0.68rem;
+    background: transparent;
+    border-color: var(--border-color);
+    color: var(--text-muted);
+}
+
+.filter-pill.is-sub:hover {
+    color: var(--text-primary);
+    border-color: var(--primary-hover);
+}
+
+.filter-pill.is-sub.active {
+    background: var(--primary-color);
+    border-color: transparent;
+    color: var(--text-primary);
+}
+
+/* Full view */
+.live-traffic .lt-stats {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 1rem;
+    margin-bottom: 1rem;
+}
+
+.live-traffic .lt-stat {
+    margin: 0;
+}
+
+.live-traffic .lt-stat .card-body {
+    padding: 0.9rem 1rem;
+}
+
+.lt-stat-label {
+    color: var(--text-secondary);
+    font-size: 0.75rem;
+    margin-bottom: 0.3rem;
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+}
+
+.lt-stat-value {
+    font-size: 1.35rem;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+}
+
+.lt-stat-sub {
+    color: var(--text-secondary);
+    font-size: 0.78rem;
+    margin-top: 0.2rem;
+    font-variant-numeric: tabular-nums;
+}
+
+.lt-meter {
+    height: 6px;
+    border-radius: 3px;
+    background: var(--bg-tertiary);
+    overflow: hidden;
+    margin-top: 0.5rem;
+    display: flex;
+}
+
+.lt-meter span {
+    display: block;
+    height: 100%;
+}
+
+.lt-filterbar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem 0.75rem;
+    align-items: center;
+    margin-bottom: 1rem;
+}
+
+.lt-search {
+    flex: 1 1 320px;
+    max-width: 460px;
+    position: relative;
+}
+
+.lt-search .form-control {
+    padding-left: 2rem;
+}
+
+/* The phone's shorter placeholder (shown by the 768px rule). */
+.lt-search-hint {
+    display: none;
+    position: absolute;
+    left: calc(2rem + 1px);
+    right: 0.875rem;
+    top: 50%;
+    transform: translateY(-50%);
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+    opacity: 0.75;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    pointer-events: none;
+}
+
+.lt-search svg {
+    position: absolute;
+    left: 0.6rem;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 14px;
+    height: 14px;
+    color: var(--text-muted);
+}
+
+/* While it holds text the box is filtering the page: tinted like the filter chips beside it. */
+.lt-search.is-active .form-control {
+    background: rgba(46, 121, 196, 0.15);
+    border-color: rgba(46, 121, 196, 0.6);
+    box-shadow: 0 0 0 1px rgba(46, 121, 196, 0.35);
+    padding-right: 2rem;
+}
+
+.lt-search.is-active svg {
+    color: var(--primary-lighter);
+}
+
+.lt-search .lt-search-clear {
+    position: absolute;
+    right: 0.45rem;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 20px;
+    height: 20px;
+    border: none;
+    border-radius: 50%;
+    background: transparent;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-secondary);
+    font-size: 1rem;
+    line-height: 1;
+    cursor: pointer;
+}
+
+.lt-search .lt-search-clear:hover {
+    background: var(--bg-elevated);
+    color: var(--text-primary);
+}
+
+.lt-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.25rem 0.35rem 0.25rem 0.6rem;
+    border-radius: 999px;
+    background: rgba(46, 121, 196, 0.15);
+    color: var(--primary-lighter);
+    font-size: 0.78rem;
+    border: 1px solid rgba(46, 121, 196, 0.35);
+}
+
+.lt-chip.is-exclude {
+    background: rgba(238, 99, 104, 0.12);
+    color: var(--danger-color);
+    border-color: rgba(238, 99, 104, 0.35);
+}
+
+/* ---------------------------------------------------------------- filter chips: grouped, editable */
+
+/* A chip and its editor: the editor opens under the chip it belongs to. */
+.lt-chip-anchor {
+    position: relative;
+    display: inline-flex;
+}
+
+.live-traffic .lt-chip[role="button"] {
+    cursor: pointer;
+}
+
+.lt-chip.is-open {
+    outline: 1px solid var(--primary-hover);
+}
+
+.lt-chip-or {
+    color: var(--text-muted);
+    font-weight: 400;
+}
+
+.lt-add-filter {
+    /* Above an open editor's click-outside layer, so one click starts over instead of first closing it. */
+    position: relative;
+    z-index: 62;
+    background: transparent;
+    border: 1px dashed var(--border-color);
+    color: var(--text-secondary);
+    border-radius: 999px;
+    padding: 0.25rem 0.7rem;
+    font-size: 0.78rem;
+    cursor: pointer;
+}
+
+.lt-add-filter:hover,
+.lt-add-filter[aria-expanded="true"] {
+    color: var(--text-primary);
+    border-color: var(--text-secondary);
+}
+
+/* A click outside closes the editor or the field menu. Transparent on a desktop, a scrim on a phone. */
+.lt-fpop-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 60;
+}
+
+.lt-fpop,
+.lt-fmenu {
+    position: absolute;
+    top: calc(100% + 9px);
+    left: 0;
+    z-index: 61;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--border-radius);
+    box-shadow: var(--shadow-lg);
+}
+
+.lt-fpop {
+    width: 290px;
+    max-width: calc(100vw - 32px);
+    padding: 10px 12px 12px;
+}
+
+.lt-fpop-grab {
+    display: none;
+}
+
+.lt-fpop-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    margin-bottom: 8px;
+}
+
+.lt-fpop-title {
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-muted);
+    font-weight: 600;
+}
+
+.lt-fpop-head .time-range-selector {
+    margin: 0;
+}
+
+.lt-fpop .lt-fpop-search {
+    height: 30px;
+    font-size: 0.8125rem;
+    margin-bottom: 6px;
+}
+
+.lt-fpop-list {
+    max-height: 240px;
+    overflow-y: auto;
+    /* At either end the scroll stays here: chained on, it scrolled the page behind the editor. */
+    overscroll-behavior: contain;
+    margin: 0 -4px;
+}
+
+.lt-fpop-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 5px 4px;
+    border-radius: 4px;
+    font-size: 0.8125rem;
+    cursor: pointer;
+}
+
+.lt-fpop-item.is-active {
+    background: var(--bg-tertiary);
+}
+
+.lt-fpop-item.is-idle {
+    color: var(--text-secondary);
+}
+
+.lt-fpop-name {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.lt-fpop-service {
+    margin-left: 0.4rem;
+    color: var(--text-muted);
+}
+
+.lt-fpop-n {
+    margin-left: auto;
+    color: var(--text-muted);
+    font-variant-numeric: tabular-nums;
+}
+
+.lt-fpop-sep {
+    font-size: 0.68rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-muted);
+    margin: 8px 4px 2px;
+}
+
+.lt-fpop-empty {
+    padding: 10px 4px;
+    color: var(--text-muted);
+    font-size: 0.8125rem;
+}
+
+.lt-fpop-foot {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-top: 10px;
+}
+
+.lt-fpop-foot a {
+    font-size: 0.78rem;
+    color: var(--text-secondary);
+}
+
+.lt-fpop-bulk {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+}
+
+.lt-fpop-bulk-sep {
+    color: var(--text-muted);
+}
+
+.lt-fmenu {
+    width: 190px;
+    padding: 6px;
+}
+
+.lt-fmenu button {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 6px 8px;
+    border: none;
+    border-radius: 4px;
+    background: transparent;
+    color: var(--text-primary);
+    font-size: 0.8125rem;
+    text-align: left;
+    cursor: pointer;
+}
+
+.lt-fmenu button:hover,
+.lt-fmenu button:focus-visible {
+    background: var(--bg-tertiary);
+}
+
+.lt-fmenu button i {
+    width: 14px;
+    color: var(--text-muted);
+}
+
+/* On a phone the editor is a bottom sheet over a dimmed page. */
+@media (max-width: 768px) {
+    .lt-fpop-backdrop:has(+ .lt-fpop) {
+        background: rgba(0, 0, 0, 0.5);
+    }
+
+    /* The page stays put under the sheet: only its list scrolls, and a drag on the scrim or the rest of
+       the sheet moves nothing (taps still work). */
+    .lt-fpop-backdrop,
+    .lt-fpop {
+        touch-action: none;
+    }
+
+    .lt-fpop .lt-fpop-list {
+        touch-action: pan-y;
+    }
+
+    /* Under the sheet's scrim like the rest of the page: a tap outside the sheet closes it. */
+    .lt-add-filter {
+        z-index: auto;
+    }
+
+    .lt-fpop {
+        position: fixed;
+        top: auto;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        width: auto;
+        max-width: none;
+        border-radius: 16px 16px 0 0;
+        /* The bottom bar clears the home indicator on a phone that has one. */
+        padding: 8px 16px calc(22px + env(safe-area-inset-bottom, 0px));
+    }
+
+    /* Drag the handle or the header down to close (App.razor); touch-action keeps the page from scrolling instead. */
+    .lt-fpop-grab {
+        display: block;
+        width: 40px;
+        height: 4px;
+        border-radius: 2px;
+        background: var(--border-color);
+        background-clip: content-box;
+        box-sizing: content-box;
+        padding: 10px 40px;
+        margin: -8px auto 0;
+        touch-action: none;
+    }
+
+    .lt-fpop-head {
+        touch-action: none;
+    }
+
+    .lt-fpop-list {
+        max-height: 45vh;
+    }
+
+    .lt-fpop-item {
+        padding: 9px 4px;
+        font-size: 0.9rem;
+    }
+}
+
+.lt-chip b {
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.lt-chip .lt-x {
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-secondary);
+    cursor: pointer;
+}
+
+.lt-chip .lt-x:hover {
+    background: var(--bg-elevated);
+}
+
+/* Drawn, not the ✕ glyph: iOS's fallback font sat the glyph low in the circle. */
+.lt-chip .lt-x svg {
+    display: block;
+    width: 8px;
+    height: 8px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.6;
+    stroke-linecap: round;
+}
+
+.lt-clear {
+    font-size: 0.78rem;
+    color: var(--text-secondary);
+}
+
+/* FilterPresets: a save button and its slots, compact enough to sit beside filter chips. */
+.filter-presets {
+    display: inline-flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.25rem;
+}
+
+/* A phone keeps slots 1-3: the everyday presets go in the first slots, and five crowd the filter row. */
+@media (max-width: 768px) {
+    .filter-preset[data-slot="4"],
+    .filter-preset[data-slot="5"] {
+        display: none;
+    }
+}
+
+.filter-preset {
+    min-width: 24px;
+    height: 24px;
+    padding: 0 0.3rem;
+    border-radius: 6px;
+    border: 1px solid var(--border-color, #2e2e33);
+    background: transparent;
+    color: var(--text-muted);
+    font-size: 0.75rem;
+    font-weight: 600;
+    line-height: 1;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+}
+
+.filter-preset:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+}
+
+.filter-preset.is-set {
+    color: var(--text-primary);
+    border-color: rgba(46, 121, 196, 0.45);
+}
+
+/* The slot whose filters are on the page now. */
+.filter-preset.is-active {
+    background: var(--primary-color);
+    border-color: var(--primary-color);
+    color: #fff;
+}
+
+.filter-preset-save {
+    color: var(--text-secondary);
+}
+
+.filter-preset-save svg {
+    width: 13px;
+    height: 13px;
+}
+
+.filter-preset-save[aria-pressed="true"] {
+    background: rgba(46, 121, 196, 0.15);
+    border-color: var(--primary-hover);
+    color: var(--primary-lighter);
+}
+
+/* Save mode: every slot is a target. */
+.filter-presets.is-saving .filter-preset:not(.filter-preset-save) {
+    border-color: var(--primary-hover);
+    color: var(--text-primary);
+    animation: filter-preset-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes filter-preset-pulse {
+    50% { background: rgba(46, 121, 196, 0.2); }
+}
+
+.filter-preset-note {
+    font-size: 0.75rem;
+    color: var(--success-color);
+    margin-left: 0.15rem;
+}
+
+.filter-preset-note.is-error {
+    color: var(--danger-color);
+}
+
+.lt-filterbar .lt-right {
+    margin-left: auto;
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+}
+
+.lt-starting {
+    padding: 0.75rem 1rem;
+    border-radius: var(--border-radius);
+    margin-bottom: 1rem;
+    font-size: 0.85rem;
+}
+
+.lt-body {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+
+/* Phone only: Flows and Live DNS as tabs, with the bar above and below the content. */
+.live-traffic .lt-mobile-tabs {
+    display: none;
+    margin-bottom: 1rem;
+}
+
+.live-traffic .lt-mobile-tabs-bottom {
+    margin: 1rem 0 0;
+}
+
+.lt-mobile-tabs-bottom .wifi-view-tabs {
+    border-bottom: none;
+    border-top: 1px solid var(--border-color);
+    margin-top: 0;
+    padding: 0.5rem 0 0;
+}
+
+.lt-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr);
+    gap: 1rem;
+}
+
+.live-traffic .lt-grid .card,
+.live-traffic .lt-body > .card {
+    margin: 0;
+}
+
+.lt-sankey-svg {
+    width: 100%;
+    height: auto;
+    display: block;
+}
+
+.lt-sankey-node.is-clickable {
+    cursor: pointer;
+}
+
+/* A node the page is filtered to: clicking it again removes the filter. */
+.lt-sankey-svg .lt-sankey-node.is-filtered .lt-node-label {
+    fill: var(--primary-light);
+    font-weight: 600;
+}
+
+.lt-sankey-svg .lt-sankey-node.is-filtered rect {
+    stroke: var(--primary-light);
+    stroke-width: 1.5;
+}
+
+/* Where It's Going sits centered when Live DNS beside it runs taller; the note stays at the bottom. */
+.lt-sankey-card {
+    display: flex;
+    flex-direction: column;
+}
+
+.lt-sankey-card > .card-body {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+}
+
+.lt-sankey-stage {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+}
+
+/* The idle and loading states take the diagram's own height (its viewBox ratio), so the card does not shrink. */
+.lt-sankey-stage > .lt-sankey-empty {
+    aspect-ratio: 790 / 360;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    margin: 0;
+}
+
+/* Nodes and bands tween between refreshes instead of jumping. */
+.lt-sankey-svg .lt-sankey-node,
+.lt-sankey-svg .lt-node-text {
+    transition: transform 0.45s ease;
+}
+
+.lt-sankey-svg .lt-sankey-node rect {
+    transition: height 0.45s ease;
+}
+
+.lt-sankey-svg path {
+    transition: d 0.45s ease, stroke-width 0.45s ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .lt-sankey-svg .lt-sankey-node,
+    .lt-sankey-svg .lt-node-text,
+    .lt-sankey-svg .lt-sankey-node rect,
+    .lt-sankey-svg path {
+        transition: none;
+    }
+}
+
+/* A row sliding into place is translated past the list's edge for a moment: clip it rather than
+   let the scroll wrapper grow dead space and a scrollbar. */
+.live-traffic .table-responsive,
+.live-traffic .lt-mobile-list.lt-flip,
+.lt-client .table-responsive,
+.lt-client .lt-mobile-list.lt-flip {
+    overflow-y: hidden;
+}
+
+.lt-sankey-node.is-clickable:hover .lt-node-label {
+    fill: var(--primary-light);
+}
+
+.lt-sankey-svg .lt-node-label {
+    fill: var(--text-primary);
+    font-size: 12px;
+    font-family: Inter, sans-serif;
+}
+
+.lt-sankey-svg .lt-node-sub .lt-sub-down { fill: var(--speed-download-color); }
+.lt-sankey-svg .lt-node-sub .lt-sub-up { fill: var(--speed-upload-color); }
+.lt-sankey-svg .lt-node-sub .lt-sub-idle { fill: var(--text-muted); }
+
+/* A route node's hover card (App.razor routeHtml): one row per destination, name left, rate right. */
+.tippy-box[data-theme~='custom'] .lt-route-tip-label { color: var(--text-secondary); font-size: 0.8em; margin: 0.15rem 0; }
+.tippy-box[data-theme~='custom'] .lt-route-tip-row { display: flex; justify-content: space-between; align-items: center; gap: 1rem; padding: 0.15rem 0; }
+.tippy-box[data-theme~='custom'] .lt-route-tip-name { display: flex; align-items: center; gap: 0.35rem; min-width: 0; overflow: hidden; white-space: nowrap; }
+.tippy-box[data-theme~='custom'] .lt-route-tip-name .lt-tag { margin-left: 0; flex: 0 0 auto; }
+.tippy-box[data-theme~='custom'] .lt-route-tip-name > span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.tippy-box[data-theme~='custom'] .lt-route-tip-ip { color: var(--text-muted); }
+.tippy-box[data-theme~='custom'] .lt-route-tip-value { flex: 0 0 auto; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.tippy-box[data-theme~='custom'] .lt-route-tip-down { color: var(--speed-download-color); }
+.tippy-box[data-theme~='custom'] .lt-route-tip-up { color: var(--speed-upload-color); }
+
+.lt-sankey-svg .lt-node-sub {
+    fill: var(--text-secondary);
+    font-size: 10px;
+    font-family: Inter, sans-serif;
+    font-variant-numeric: tabular-nums;
+}
+
+/* A halo in the card's color, so a label stays legible where a wide ribbon runs under it. */
+.lt-sankey-svg .lt-node-label,
+.lt-sankey-svg .lt-node-sub {
+    paint-order: stroke;
+    stroke: var(--bg-card);
+    stroke-width: 3px;
+    stroke-linejoin: round;
+}
+
+.lt-sankey-svg .lt-col-label {
+    fill: var(--text-muted);
+    font-size: 10px;
+    font-family: Inter, sans-serif;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+}
+
+.lt-legend-note {
+    color: var(--text-muted);
+    font-size: 0.75rem;
+    margin-top: 0.5rem;
+}
+
+.lt-dns-table {
+    width: 100%;
+    min-width: 0;
+    table-layout: fixed;
+    font-size: 0.8rem;
+    font-variant-numeric: tabular-nums;
+}
+
+.lt-dns-table th,
+.lt-dns-table td {
+    padding: 0.38rem 0.5rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.lt-dns-table tr.is-bypass td {
+    background: rgba(231, 150, 19, 0.06);
+}
+
+.lt-dns-table tr.is-redirected td {
+    background: rgba(71, 151, 255, 0.07);
+}
+
+.lt-dns-sub {
+    display: block;
+    color: var(--text-muted);
+    font-size: 0.7rem;
+}
+
+.lt-dns-table td.lt-dns-empty-cell {
+    color: var(--text-secondary);
+    text-align: center;
+}
+
+/* Live Traffic is a wide table plus Where It's Going and Live DNS side by side: it takes up to 1920px
+   on a desktop instead of the layout's standard 1400px. */
+.content:has(.live-traffic) {
+    max-width: 1920px;
+}
+
+/* A lookup sent to an outside resolver that the Gateway redirected to a site one: the attempt, not a bypass. */
+.lt-dns-redirect {
+    color: var(--info-color);
+    font-size: 0.75rem;
+    margin-left: 0.3rem;
+    white-space: nowrap;
+}
+
+.lt-dns-controls {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+}
+
+.lt-dns-controls .lt-dns-local {
+    margin: 0;
+    font-size: 0.85rem;
+    white-space: nowrap;
+}
+
+.lt-flows {
+    table-layout: fixed;
+    width: 100%;
+    font-variant-numeric: tabular-nums;
+}
+
+.lt-flows th,
+.lt-flows td {
+    padding: 0.5rem 0.6rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.lt-flows .lt-flow-row {
+    cursor: pointer;
+}
+
+.lt-flows .lt-rank {
+    color: var(--text-muted);
+    white-space: nowrap;
+    padding-right: 0.25rem;
+    font-variant-numeric: tabular-nums;
+}
+
+/* Client Performance's page style gives .expand-chevron a 2rem centered box; the rank needs the room. */
+.lt-flows .lt-rank .lt-chev {
+    width: auto;
+    text-align: left;
+}
+
+.lt-flows .lt-sub {
+    display: block;
+    color: var(--text-muted);
+    font-size: 0.72rem;
+    /* Its own ellipsis: the cell's applies only to the cell's own text, so a cut port read as a
+       different port ("UDP 4164" for 41641) with no sign anything was missing. */
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.lt-flows tr.lt-selected td {
+    background: var(--bg-hover);
+}
+
+.lt-flows .lt-sub.lt-port-line {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    margin-top: 0.15rem;
+    overflow: hidden;
+}
+
+.lt-flows tr.is-blocked:not(.lt-selected) td {
+    background: rgba(238, 99, 104, 0.04);
+}
+
+/* History: the Timeline card */
+.live-traffic .lt-timeline-card {
+    margin: 0 0 1rem;
+}
+
+.lt-tl-readout {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    min-height: 1.2rem;
+    margin-bottom: 0.35rem;
+    font-size: 0.78rem;
+    font-variant-numeric: tabular-nums;
+}
+
+.lt-tl-readout-time {
+    color: var(--text-primary);
+    font-weight: 600;
+}
+
+.lt-tl-blocked-text {
+    color: #ef5858;
+}
+
+.lt-tl-svg {
+    display: block;
+    width: 100%;
+    height: 124px;
+    cursor: crosshair;
+    user-select: none;
+}
+
+.lt-tl-grid {
+    stroke: #374151;
+    stroke-width: 0.5;
+    vector-effect: non-scaling-stroke;
+}
+
+.lt-tl-allowed { fill: #3b82f6; }
+.lt-tl-blocked { fill: #ef5858; }
+.lt-tl-hit { fill: transparent; }
+.lt-tl-selection { fill: rgba(46, 121, 196, 0.15); }
+
+.lt-tl-bar.is-dim {
+    opacity: 0.3;
+}
+
+.lt-tl-bar:hover .lt-tl-allowed,
+.lt-tl-bar:hover .lt-tl-blocked {
+    filter: brightness(1.3);
+}
+
+.lt-tl-ticks {
+    position: relative;
+    height: 1.1rem;
+    font-size: 0.7rem;
+    color: #9ca3af;
+    font-variant-numeric: tabular-nums;
+}
+
+.lt-tl-ticks span {
+    position: absolute;
+    transform: translateX(-50%);
+    white-space: nowrap;
+}
+
+.lt-tl-legend {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+    margin-top: 0.4rem;
+}
+
+.lt-tl-legend .lt-legend-note {
+    margin: 0 0 0 0.25rem;
+}
+
+.lt-tl-legend .filter-pill-text::before {
+    content: "";
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    margin-right: 0.35rem;
+    border-radius: 2px;
+}
+
+.lt-tl-legend .lt-action-allowed .filter-pill-text::before { background: #3b82f6; }
+.lt-tl-legend .lt-action-blocked .filter-pill-text::before { background: #ef5858; }
+
+.lt-show-more {
+    margin-top: 0.75rem;
+}
+
+.lt-detail-history {
+    grid-template-columns: 1fr 1fr;
+}
+
+.lt-spark {
+    width: calc(100% - 0.25rem);
+    max-width: 90px;
+    height: 22px;
+    display: block;
+}
+
+.data-table.lt-flows tr.lt-detail > td,
+.lt-client .lt-flows tr.lt-detail > td {
+    white-space: normal;
+    background: var(--bg-hover-subtle);
+    padding: 0;
+}
+
+.lt-detail-wrap {
+    display: grid;
+    grid-template-columns: 1.2fr 1fr 1fr;
+    gap: 1.25rem;
+    padding: 1rem 1.25rem 1.1rem 3rem;
+    cursor: default;
+}
+
+.lt-detail-wrap h4 {
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-muted);
+    font-weight: 600;
+    margin: 0 0 0.5rem;
+}
+
+/* A heading with Open in Client Performance at its right; the button's negative margins keep the row as
+   tall as its neighbors' bare headings. */
+.lt-detail-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 0.5rem;
+}
+
+.lt-detail-head .monitoring-jump-btn {
+    margin: -0.4rem -0.35rem -0.4rem 0;
+}
+
+.lt-kv {
+    display: grid;
+    grid-template-columns: max-content 1fr;
+    gap: 0.3rem 0.9rem;
+    font-size: 0.8rem;
+    margin: 0;
+}
+
+.lt-kv dt {
+    color: var(--text-secondary);
+    font-weight: 400;
+}
+
+.lt-kv dd {
+    margin: 0;
+    color: var(--text-primary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* A short grey line under a value that explains where it came from; it wraps instead of cutting off. */
+.lt-kv dd .lt-kv-note {
+    display: block;
+    white-space: normal;
+    color: var(--text-muted);
+    font-size: 0.75rem;
+    line-height: 1.35;
+    margin-top: 0.1rem;
+}
+
+.lt-detail-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-top: 0.9rem;
+}
+
+.lt-chart svg {
+    width: 100%;
+    height: 110px;
+    display: block;
+}
+
+/* Phone: stacked rows replace the tables */
+.lt-mobile-list,
+.live-traffic .lt-mobile-only,
+.lt-client .lt-mobile-only {
+    display: none;
+}
+
+.lt-m-row {
+    padding: 0.65rem 0;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.lt-m-row:last-child {
+    border-bottom: 0;
+}
+
+.lt-m-top {
+    display: flex;
+    justify-content: space-between;
+    gap: 0.5rem;
+    font-size: 0.85rem;
+}
+
+.lt-m-top .lt-m-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-weight: 500;
+}
+
+.lt-m-dest {
+    color: var(--text-secondary);
+    font-size: 0.78rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    margin: 0.15rem 0 0.35rem;
+}
+
+.lt-m-top + .lt-m-tags {
+    margin-top: 0.4rem;
+}
+
+.lt-m-tags {
+    display: flex;
+    gap: 0.4rem 0.35rem;
+    flex-wrap: wrap;
+    align-items: center;
+    font-size: 0.78rem;
+}
+
+.lt-m-rates {
+    text-align: right;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+    font-size: 0.8rem;
+}
+
+.lt-m-detail .lt-detail-wrap {
+    grid-template-columns: minmax(0, 1fr);
+    padding: 0.75rem 0 0;
+}
+
+@media (max-width: 768px) {
+    .live-traffic .lt-stats {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 0.6rem;
+    }
+
+    /* One part per line, never wrapped: the card height must not follow the live rates. */
+    .live-traffic .lt-stat-label {
+        overflow: hidden;
+        white-space: nowrap;
+    }
+
+    .live-traffic .lt-sub-part {
+        display: block;
+        overflow: hidden;
+        white-space: nowrap;
+        text-overflow: ellipsis;
+    }
+
+    .live-traffic .lt-sub-sep {
+        display: none;
+    }
+
+    /* A rate and its capacity: the rate at the left, "of 1 Gbps" against the right edge. */
+    .live-traffic .lt-sub-part.lt-sub-ratio {
+        display: flex;
+        justify-content: space-between;
+        gap: 0.35rem;
+    }
+
+    .live-traffic .lt-sub-ratio .lt-sub-of {
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    /* Room for the longest sub (a WAN without capacity: down, up, clients), so a part that comes and goes moves nothing. */
+    .live-traffic .lt-stat-sub {
+        min-height: calc(3 * 1.5em);
+        line-height: 1.5;
+    }
+
+    /* After the desktop rule, so it wins: same specificity. */
+    .live-traffic .lt-stat .card-body {
+        padding: 0.5rem 0.6rem;
+    }
+
+    .lt-stat-value {
+        font-size: 1.1rem;
+    }
+
+    .lt-grid {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .lt-sankey-card,
+    .lt-desktop-only {
+        display: none;
+    }
+
+    .lt-mobile-list {
+        display: block;
+    }
+
+    .live-traffic .lt-mobile-only,
+    .lt-client .lt-mobile-only {
+        display: flex;
+    }
+
+    .live-traffic .lt-mobile-tabs {
+        display: flex;
+    }
+
+    .lt-body.lt-mtab-flows > .lt-grid,
+    .lt-body.lt-mtab-dns > .card {
+        display: none;
+    }
+
+    .lt-filterbar .lt-right,
+    .lt-card-tools .lt-tools-right {
+        margin-left: 0;
+    }
+
+    /* The presets share the search row and the pills wrap below it: the search leaves room for the presets
+       alone. The shorter hint replaces the placeholder, which CSS cannot reword. */
+    .lt-filterbar .lt-search {
+        order: -2;
+        flex: 1 1 calc(100% - 8rem);
+        min-width: 0;
+        max-width: none;
+    }
+
+    .lt-filterbar .filter-presets {
+        order: -1;
+    }
+
+    .lt-search .form-control::placeholder {
+        color: transparent;
+    }
+
+    .lt-search .form-control:placeholder-shown + .lt-search-hint {
+        display: block;
+    }
+
+    .lt-tl-svg {
+        height: 96px;
+    }
+
+    .lt-nested-table .hogs-col-rate { width: 25%; }
+    .lt-nested-table .hogs-col-share { width: 16%; }
+
+    .lt-nested-table td,
+    .lt-nested-table th {
+        padding: 0.3rem 0.4rem;
+    }
+
+    .lt-nested-table td:nth-child(2) {
+        padding-left: 0.9rem;
+    }
+
+    .lt-nested-more {
+        padding-left: 0.9rem;
+    }
+}
+
+/* Client Performance - Data / Apps: one client's Live Traffic, in that page's card style. */
+.lt-client .chart-card-header h3 {
+    margin: 0;
+}
+
+.lt-client-title {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    min-width: 0;
+}
+
+/* The header's controls sit together at its right; the title takes what is left. */
+.lt-client-header > .lt-client-title {
+    flex: 1 1 auto;
+}
+
+/* A same-page jump beside a card title ("Live DNS ↓"). */
+.lt-title-jump {
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+    text-decoration: none;
+    white-space: nowrap;
+    margin-left: 0.25rem;
+}
+
+.lt-title-jump:hover {
+    color: var(--primary-hover);
+}
+
+.lt-client-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-left: auto;
+}
+
+.lt-client-actions .monitoring-jump-btn:last-child {
+    margin-right: -0.35rem;
+}
+
+@media (max-width: 768px) {
+    .lt-client-actions .time-range-selector {
+        flex: 0 0 auto;
+        width: auto;
+    }
+
+    .lt-client-actions .time-range-selector .time-btn {
+        flex: 0 0 auto;
+        padding: 0.3rem 0.6rem;
+        font-size: 0.75rem;
+    }
+}
+
+/* Client Performance's table pads cells wider than Live Traffic's: the rank keeps its chevron and number. */
+.lt-client .lt-flows .lt-rank {
+    padding-right: 4px;
+}
+
+.lt-client-summary {
+    margin: -4px 0 10px;
+    color: var(--text-secondary);
+    font-size: 0.8125rem;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.lt-client-chips {
+    margin-bottom: 0.6rem;
+}
+
+.lt-client-state {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    min-height: 4.5rem;
+    color: var(--text-secondary);
+    font-size: 0.85rem;
+}
+
+/* The reason wraps whole; its link never breaks across lines. */
+.lt-client-state {
+    flex-wrap: wrap;
+}
+
+.lt-client-state > a {
+    white-space: nowrap;
+}
+
+.lt-client-state.loading-container {
+    flex-direction: column;
+    justify-content: center;
+}
+
+/* No Gateway agent: the one-line reason, then the client's History from UniFi Network. */
+.lt-client-state:has(+ .lt-client-history) {
+    min-height: 0;
+    margin-bottom: 0.9rem;
+}
+
+.lt-client-history-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0.25rem 0.6rem;
+    margin-bottom: 0.5rem;
+}
+
+.lt-client-empty {
+    padding: 1.25rem 0;
+}
+
+.lt-client .lt-mobile-sort {
+    margin-bottom: 0.5rem;
+}
+
+/* Padding rows: the height of a row with its sub-line, and nothing in them. */
+.lt-client tr.lt-slot-empty td,
+.live-traffic tr.lt-slot-empty td {
+    border-bottom-color: transparent;
+}
+
+.lt-client .lt-mobile-list .lt-m-row.lt-slot-empty {
+    min-height: 4.6rem;
+    border-bottom-color: transparent;
+}
+
+.lt-client .lt-mobile-list .lt-m-row.lt-dns-slot {
+    min-height: 3.4rem;
+}
+
+/* Applications - Right now: the client's live apps, wrapping so none is cut off at the card's edge.
+   Baseline: the label sits on the text line of the first row of chips, whatever their height. */
+.lt-now {
+    display: flex;
+    align-items: baseline;
+    gap: 0.6rem;
+    min-height: 2rem;
+    margin: 0 0 0.6rem;
+}
+
+.lt-now-label {
+    flex: 0 0 auto;
+    color: var(--text-secondary);
+    font-size: 0.6875rem;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.lt-now-chips {
+    display: flex;
+    flex: 1 1 auto;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    min-width: 0;
+}
+
+.lt-now-chip {
+    flex: 0 0 auto;
+    gap: 0.4rem;
+    padding: 0.25rem 0.55rem;
+}
+
+.lt-now-name {
+    color: var(--text-primary);
+}
+
+/* Each rate in a fixed slot, so a chip keeps its width as the rate moves. */
+.lt-now-rates {
+    font-size: 0.75rem;
+    font-variant-numeric: tabular-nums;
+}
+
+.lt-now-rates .speed-down,
+.lt-now-rates .speed-up {
+    display: inline-block;
+    min-width: 4.8em;
+}
+
+.lt-now-rates .speed-down {
+    text-align: right;
+}
+
+/* The kept app's chip is filled with the primary blue: its figures read in its text color. */
+.lt-now-chip.active .speed-down,
+.lt-now-chip.active .speed-up,
+.lt-now-chip.active .lt-now-flows {
+    color: inherit;
+}
+
+@media (max-width: 768px) {
+    .lt-now-flows {
+        display: none;
+    }
+}
+
+.lt-now-flows {
+    color: var(--text-muted);
+    font-size: 0.72rem;
+}
+
+.lt-now-empty {
+    color: var(--text-muted);
+    font-size: 0.8rem;
+    white-space: nowrap;
+}
+
+/* Client Performance - Speed: what the client moves through the Gateway, under Live Throughput. */
+.lt-note {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 0.75rem;
+    margin-top: 10px;
+    color: var(--text-secondary);
+    font-size: 0.8125rem;
+    font-variant-numeric: tabular-nums;
+}
+
+.lt-note-text {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+
+.lt-note-line {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.lt-note-link {
+    flex: 0 0 auto;
+    white-space: nowrap;
+}
+
+/* On a phone the link takes its own line under the two the note always has. */
+@media (max-width: 768px) {
+    .lt-note {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 0.2rem;
+    }
+
+    .lt-note-link {
+        align-self: flex-start;
     }
 }
 

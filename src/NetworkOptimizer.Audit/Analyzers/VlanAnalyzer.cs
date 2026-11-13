@@ -2,6 +2,7 @@ using System.Text.Json;
 using Microsoft.Extensions.Logging;
 using NetworkOptimizer.Audit.Models;
 using NetworkOptimizer.Audit.Services;
+using NetworkOptimizer.Core;
 using NetworkOptimizer.Core.Helpers;
 using NetworkOptimizer.UniFi.Models;
 using static NetworkOptimizer.Core.Enums.DeviceTypeExtensions;
@@ -276,6 +277,22 @@ public class VlanAnalyzer
     }
 
     /// <summary>
+    /// A network_table entry for a WAN: purpose "wan", a WAN network group ("WAN", "WAN3"), or a WAN type.
+    /// </summary>
+    [VendorSpecific("UniFi", "network_table WAN markers; the UDR 5G Max's cellular WAN shape is inferred (#1384)")]
+    internal static bool IsWanEntry(JsonElement network)
+    {
+        if (string.Equals(network.GetStringOrNull("purpose"), "wan", StringComparison.OrdinalIgnoreCase))
+            return true;
+        foreach (var key in new[] { "networkgroup", "wan_networkgroup" })
+        {
+            if (network.GetStringOrNull(key)?.StartsWith("WAN", StringComparison.OrdinalIgnoreCase) == true)
+                return true;
+        }
+        return !string.IsNullOrEmpty(network.GetStringOrNull("wan_type"));
+    }
+
+    /// <summary>
     /// Parse a single network from JSON
     /// </summary>
     private NetworkInfo? ParseNetwork(JsonElement network, FirewallZoneLookup? zoneLookup = null)
@@ -290,6 +307,14 @@ public class VlanAnalyzer
         {
             var sysName = network.GetStringOrDefault("name", "Unknown");
             _logger.LogDebug("Skipping system network '{Name}' (attr_hidden_id=ROUTE)", sysName);
+            return null;
+        }
+
+        // Skip a WAN. The table lists LAN networks, but a UDR 5G Max lists its built-in cellular WAN too,
+        // which then read as a VLAN 1 network with no subnet. Any one WAN marker is enough.
+        if (IsWanEntry(network))
+        {
+            _logger.LogDebug("Skipping WAN '{Name}' in network_table", network.GetStringOrDefault("name", "Unknown"));
             return null;
         }
 

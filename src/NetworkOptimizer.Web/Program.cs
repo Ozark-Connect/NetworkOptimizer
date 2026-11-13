@@ -1,5 +1,6 @@
 using NetworkOptimizer.Web.Services.ChangeControl;
 using NetworkOptimizer.Web.Services.Monitoring.IspHealth;
+using NetworkOptimizer.Web.Services.Monitoring.LiveTraffic;
 using ApexCharts;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Mvc.ViewFeatures;
@@ -265,10 +266,12 @@ builder.Services.AddScoped<NetworkOptimizer.Storage.Interfaces.ISqmLearningRepos
 builder.Services.AddScoped<NetworkOptimizer.Alerts.Interfaces.IAlertRepository, NetworkOptimizer.Storage.Repositories.AlertRepository>();
 builder.Services.AddScoped<NetworkOptimizer.Storage.Interfaces.ISiteRepository, NetworkOptimizer.Storage.Repositories.SiteRepository>();
 builder.Services.AddSingleton<SiteRegistryChangeNotifier>();
+builder.Services.AddScoped<SiteLeftoverCleanup>();
 builder.Services.AddScoped<SiteManagementService>();
 builder.Services.AddMutatingService<ISiteManagementService>(sp => sp.GetRequiredService<SiteManagementService>());
 builder.Services.AddScoped<SiteContextService>();
 builder.Services.AddScoped<SiteSwitchService>();
+builder.Services.AddScoped<AddressBarState>();
 // Scoped so a host that partitions the instance can answer per caller.
 builder.Services.AddScoped<IScopeBadgeText, InstanceScopeBadgeText>();
 // Registered twice so pages can subscribe to the same instance the circuit calls.
@@ -430,6 +433,7 @@ builder.Services.AddSingleton<IOntProvider, ZyxelGponSfpOntProvider>();
 builder.Services.AddSingleton<IOntProvider, RicherlinkOntProvider>();
 builder.Services.AddSingleton<IOntProvider, PeterPonOntProvider>();
 builder.Services.AddSingleton<IOntProvider, NetOptCustomPonOntProvider>();
+builder.Services.AddSingleton<IOntProvider, OdiOssOntProvider>();
 
 // Starlink terminal monitoring is per site through ModemMonitorRegistry, which
 // builds each site's provider set (the gRPC provider keeps per-config history
@@ -648,6 +652,22 @@ builder.Services.AddScoped<NetworkOptimizer.Threats.Interfaces.IProbedAddressPro
 builder.Services.AddScoped<NetworkOptimizer.Web.Services.ThreatBlockingOperations>();
 builder.Services.AddMutatingService<NetworkOptimizer.Web.Services.IWafConnectionAdmin>(
     sp => ActivatorUtilities.CreateInstance<NetworkOptimizer.Web.Services.WafConnectionAdminService>(sp));
+// Tailscale: each site's tailnet device names and local status, held in memory per site.
+builder.Services.AddSiteScopedRegistry<NetworkOptimizer.Web.Services.Tailscale.TailscaleDirectoryRegistry>();
+builder.Services.AddSingleton<NetworkOptimizer.Web.Services.Tailscale.TailnetFlowObserver>();
+builder.Services.AddMutatingService<NetworkOptimizer.Web.Services.Tailscale.ITailscaleDirectory>(
+    sp => ActivatorUtilities.CreateInstance<NetworkOptimizer.Web.Services.Tailscale.TailscaleDirectoryService>(sp));
+// Client icons: the icon UniFi Network shows per client, fetched once and kept on disk.
+builder.Services.AddSiteScopedRegistry<NetworkOptimizer.Web.Services.ClientIcons.ClientIconRegistry>();
+builder.Services.AddMutatingService<NetworkOptimizer.Web.Services.ClientIcons.IClientIcons>(
+    sp => ActivatorUtilities.CreateInstance<NetworkOptimizer.Web.Services.ClientIcons.ClientIconService>(sp));
+// The custom icon host answers 403 to a request with no User-Agent, which HttpClient sends by default.
+builder.Services.AddHttpClient(NetworkOptimizer.Web.Services.ClientIcons.ClientIconRegistry.HttpClientName, client =>
+    {
+        client.Timeout = TimeSpan.FromSeconds(10);
+        client.DefaultRequestHeaders.UserAgent.ParseAdd("NetworkOptimizer");
+    })
+    .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
 builder.Services.AddMutatingService<NetworkOptimizer.Web.Services.IThreatBlockingAdmin>(
     sp => ActivatorUtilities.CreateInstance<NetworkOptimizer.Web.Services.ThreatBlockingAdminService>(sp));
 builder.Services.AddMutatingService<NetworkOptimizer.Web.Services.IThreatBlockingSiteAdmin>(
@@ -709,18 +729,14 @@ builder.Services.AddSingleton<IPasswordHasher, PasswordHasher>();
 builder.Services.AddSingleton<NetworkOptimizer.Web.Services.AdminAuthCache>();
 builder.Services.AddScoped<IAdminAuthService, AdminAuthService>();
 
-// Register JWT service (singleton - caches secret key)
-builder.Services.AddSingleton<IJwtService, JwtService>();
-
 // Add HttpContextAccessor for accessing cookies in Blazor
 builder.Services.AddHttpContextAccessor();
 
 // ASP.NET Core Identity on the dedicated main-DB AuthDbContext (users, roles, RBAC, audit),
 // plus the interactive cookie authentication pipeline that REPLACES the legacy self-issued
 // JWT-in-cookie scheme. The Identity application cookie gains server-side revocation via security
-// stamps (which the JWT cookie fundamentally lacked). Sessions from before the upgrade survive via
-// the LegacyJwtBridgeMiddleware (added below). JwtService is retained only for that bridge and is
-// removed one release after the cutover (design docs 02, 06).
+// stamps (which the JWT cookie fundamentally lacked). A leftover legacy auth_token cookie is
+// ignored, and sign-out deletes it.
 builder.Services.AddNetOptIdentityCore(dbPath);
 builder.Services.AddNetOptIdentityAuthentication();
 builder.Services.AddCascadingAuthenticationState();
@@ -978,6 +994,13 @@ builder.Services.AddMutatingService<IUpnpNoteService>(sp => sp.GetRequiredServic
 builder.Services.AddScoped<NetworkOptimizer.Web.Services.Monitoring.BandwidthHogs.ConntrackStatusService>();
 builder.Services.AddMutatingService<NetworkOptimizer.Web.Services.Monitoring.BandwidthHogs.IConntrackStatusService>(
     sp => sp.GetRequiredService<NetworkOptimizer.Web.Services.Monitoring.BandwidthHogs.ConntrackStatusService>());
+// Live Traffic: per-site in-memory flows and DNS from the gateway agent, read under a viewer's lease.
+builder.Services.AddSiteScopedRegistry<NetworkOptimizer.Web.Services.Monitoring.LiveTraffic.LiveTrafficRegistry>();
+builder.Services.AddSiteScopedRegistry<NetworkOptimizer.Web.Services.Monitoring.LiveTraffic.LiveTrafficPolicyResolver>();
+builder.Services.AddScoped<NetworkOptimizer.Web.Services.Monitoring.LiveTraffic.LiveTrafficService>();
+builder.Services.AddMutatingService<NetworkOptimizer.Web.Services.Monitoring.LiveTraffic.ILiveTrafficService>(
+    sp => sp.GetRequiredService<NetworkOptimizer.Web.Services.Monitoring.LiveTraffic.LiveTrafficService>());
+builder.Services.AddMutatingService<ICustomAppService, CustomAppService>();
 builder.Services.AddScoped<CustomOidService>();
 builder.Services.AddMutatingService<ICustomOidService>(sp => sp.GetRequiredService<CustomOidService>());
 // Device health checks: shipped templates (JSON files), one runner per site that executes the
@@ -1455,6 +1478,9 @@ app.Services.GetRequiredService<NetworkOptimizer.Storage.Services.ICredentialPro
 var geoDataPath = Path.GetDirectoryName(dbPath)!;
 app.Services.GetRequiredService<NetworkOptimizer.Threats.Enrichment.GeoEnrichmentService>().Initialize(geoDataPath);
 
+// Reverse lookups ask for the PTR record only, never forward-resolving the answer through search domains.
+NetworkOptimizer.Core.Helpers.ReverseDnsCache.PtrLookup = NetworkOptimizer.Web.Services.Monitoring.DnsClientPtrLookup.LookupAsync;
+
 // Created before any console connects, so it reads each site's time zone as its connection comes up,
 // and loaded with the zones read before the restart, so no schedule starts on the server's clock.
 await app.Services.GetRequiredService<ISiteTimeZones>().LoadRememberedAsync();
@@ -1571,12 +1597,6 @@ await app.Services.GetRequiredService<DynamicSchemeManager>().SyncAsync();
 // Standard ASP.NET Core authentication middleware (must come before auth check).
 // Authentication is now the Identity application cookie (see AddNetOptIdentityAuthentication).
 app.UseAuthentication();
-
-// Transitional bridge: upgrade a still-valid legacy auth_token JWT into an Identity cookie so
-// sessions from before the upgrade are not forced to re-login. Runs after UseAuthentication (so an
-// existing Identity cookie short-circuits it) and before authorization/the auth-required gate.
-// SUNSET: remove with JwtService one release after the cutover (30-day legacy token lifetime).
-app.UseMiddleware<NetworkOptimizer.Web.Services.Identity.LegacyJwtBridgeMiddleware>();
 
 // Populate the ambient caller context (actor/IP/UA/correlation) for HTTP requests, after auth so the
 // principal is resolved. Circuit calls are populated separately by CallerContextCircuitHandler.

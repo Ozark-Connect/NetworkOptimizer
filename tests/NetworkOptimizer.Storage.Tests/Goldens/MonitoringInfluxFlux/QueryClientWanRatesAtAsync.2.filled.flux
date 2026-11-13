@@ -1,0 +1,6 @@
+from(bucket: "network_monitoring")
+  |> range(start: 2026-01-15T09:58:30Z, stop: 2026-01-15T10:01:30Z)
+  |> filter(fn: (r) => r._measurement == "client_wan")
+  |> filter(fn: (r) => r._field == "down_bytes" or r._field == "up_bytes" or r._field == "window_seconds")
+  |> pivot(rowKey:["_time"], columnKey: ["_field"], valueColumn: "_value")
+  |> filter(fn: (r) => exists r.window_seconds)

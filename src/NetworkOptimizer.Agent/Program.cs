@@ -242,6 +242,7 @@ Task? floodDetectorTask = null;
 Task? probeTask = null;
 Task? snmpTask = null;
 Task? conntrackTask = null;
+Task? liveDnsTask = null;
 Task? watchdogTask = null;
 
 // Capabilities for the hello. conntrack-accounting only when the installer said this is a
@@ -254,14 +255,19 @@ var uciCaptureCapable = config.OnGateway == true && UciInformCapture.Available()
 var blocklistCapable = config.OnGateway == true && GatewayBlocklistEnforcer.Available();
 // WAN Flood Protection needs the gateway's iptables, ipset, and tc.
 var floodCapable = config.OnGateway == true && WanFloodGuard.Available();
+// Live DNS opens the same kind of packet socket as the UCI capture.
+var liveDnsCapable = conntrackCapable && DnsCapture.Available();
 var capabilityList = new List<string>();
-if (conntrackCapable) capabilityList.Add("conntrack-accounting");
+if (conntrackCapable) capabilityList.AddRange(["conntrack-accounting", ConntrackRunner.LiveTrafficCapability]);
+if (liveDnsCapable) capabilityList.Add(DnsCapture.Capability);
 if (uciCaptureCapable) capabilityList.Add(UciInformCapture.Capability);
 if (blocklistCapable) capabilityList.AddRange([GatewayBlocklistEnforcer.Capability, GatewayBlocklistEnforcer.ExceptionsCapability]);
 if (floodCapable) capabilityList.Add(WanFloodRules.Capability);
 else if (config.OnGateway == true) capabilityList.Add(WanFloodRules.UnavailableCapability);
 // Change Control's revert needs only HTTPS to the console, which every agent host reaches.
 capabilityList.Add(ConfigRevert.Capability);
+// Reading a local tailscaled is per request: whether one runs here is the answer the server shows.
+capabilityList.Add(TailscaleLocal.Capability);
 var capabilities = capabilityList.ToArray();
 var configRevert = new ConfigRevertGuard();
 Task? configRevertTask = null;
@@ -335,6 +341,11 @@ if (!string.IsNullOrEmpty(config.TunnelUrl))
     if (conntrackCapable)
     {
         conntrackRunner = new ConntrackRunner(resultBuffer.Enqueue);
+        if (liveDnsCapable)
+        {
+            conntrackRunner.Dns = new DnsCapture();
+            liveDnsTask = conntrackRunner.Dns.RunAsync(cts.Token);
+        }
         conntrackTask = conntrackRunner.RunAsync(cts.Token);
     }
     if (uciCaptureCapable)
@@ -400,6 +411,7 @@ while (!cts.IsCancellationRequested)
         if (conntrackRunner != null)
         {
             tunnel.OnConntrackConfig = conntrackRunner.UpdateConfig;
+            tunnel.OnLiveTrafficConfig = conntrackRunner.UpdateLiveTraffic;
             // Live batches ride this tunnel directly (superseded by the next window, so a lost
             // one costs nothing); the ~6s aggregates ride the result buffer like everything else.
             conntrackRunner.LiveSend = tunnel.TrySend;
@@ -548,6 +560,10 @@ if (snmpTask != null)
 if (conntrackTask != null)
 {
     try { await conntrackTask; } catch (OperationCanceledException) { }
+}
+if (liveDnsTask != null)
+{
+    try { await liveDnsTask; } catch (OperationCanceledException) { }
 }
 if (uciCaptureTask != null)
 {

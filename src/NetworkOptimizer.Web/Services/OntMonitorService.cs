@@ -328,7 +328,10 @@ public class OntMonitorService : IOntMonitorService, IDisposable
                     fecEnabled: fecEnabled,
                     sourceUrl: NetworkOptimizer.Web.Services.Monitoring.MonitoringLinks.HardwareStats(
                         "ont", DateTime.UtcNow, $"&ont={config.Id}"),
-                    uptimeSeconds: stats.Pon?.SfpUptimeS);
+                    uptimeSeconds: stats.Pon?.SfpUptimeS,
+                    aesActive: stats.Pon?.AesActive,
+                    gemPorts: stats.Pon?.GemPorts,
+                    gemPortsEncrypted: stats.Pon?.GemPortsEncrypted);
 
                 _logger.LogDebug("ONT {Name} polled successfully: Rx={Rx} dBm", config.Name, stats.RxPowerDbm);
                 return stats;

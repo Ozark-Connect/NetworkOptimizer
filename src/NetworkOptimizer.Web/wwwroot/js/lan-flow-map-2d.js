@@ -100,10 +100,18 @@ function nodeClr(k,b) {
 }
 function isInfra(k) { return k<=NK.AP||k===NK.VirtualHub; }
 function isClient(k) { return k===NK.WiredClient||k===NK.WifiClient; }
+// Opens an app page from the map, stamped with the tab's site, through Blazor's router so the page
+// it opens has Back (setting location.href is a full load that starts history over).
+function navigate(url) {
+    const u=window.noSiteContext?window.noSiteContext.stampUrl(url):url;
+    if(window.__navigate)window.__navigate(u); else window.location.href=u;
+}
 
 // Duration of the fade-in applied to a client that gets re-attached to a different
 // AP during historic playback (roam), so it doesn't pop at its new position.
 const ROAM_FADE_MS = 350;
+/** How long the first frame waits for client icons before drawing dots in their place. */
+const ICON_PRELOAD_MS = 1500;
 
 function pipeClr(u,band) {
     const cool=bandClr(band)||C.pipeCool;
@@ -279,6 +287,7 @@ class LanFlowMap2D {
         this._liveRates={};
         this._streams=[];
         this._images=new Map();
+        this._clientIcons=new Map();
 
         this._animId=0;
         this._lastFrame=0;
@@ -553,7 +562,9 @@ class LanFlowMap2D {
                 <div class="lan-flow-map-help-row"><span>Pan</span><span class="kbd">Left-drag</span></div>
                 <div class="lan-flow-map-help-row"><span>Zoom</span><span class="kbd">Scroll</span></div>
                 <div class="lan-flow-map-help-row"><span>Hover detail</span><span class="kbd">Mouse over</span></div>
-                <div class="lan-flow-map-help-row"><span>Open client</span><span class="kbd">Double-click</span></div>${scrubRows}
+                <div class="lan-flow-map-help-row"><span>Open Client</span><span class="kbd">Double-click</span></div>
+                <div class="lan-flow-map-help-row"><span>Open Port Statistics</span><span class="kbd">Double-click</span></div>
+                <div class="lan-flow-map-help-row"><span>Open ISP Health</span><span class="kbd">Double-click</span></div>${scrubRows}
                 <div class="lan-flow-map-help-row"><span>Fullscreen</span><span class="kbd">Esc</span> to exit</div>`;
         help.appendChild(helpBody);
         helpTitle.addEventListener('click',()=>helpBody.classList.toggle('is-collapsed'));
@@ -1115,7 +1126,7 @@ class LanFlowMap2D {
             if(cloud){
                 const wan=cloud.d.wanInterface;
                 const url='/monitoring?tab=isp-health'+(wan?'&wan='+encodeURIComponent(wan):'');
-                window.location.href=window.noSiteContext?window.noSiteContext.stampUrl(url):url;
+                navigate(url);
                 return;
             }
         }
@@ -1138,7 +1149,7 @@ class LanFlowMap2D {
         // Wi-Fi clients land on the Signal tab; wired clients go to the default tab.
         const tab=d.kind===NK.WifiClient?'&tab=signal':'';
         const url=`/client-dashboard?ip=${encodeURIComponent(d.ip)}${tab}`;
-        window.location.href=window.noSiteContext?window.noSiteContext.stampUrl(url):url;
+        navigate(url);
     }
 
     _hitTest(sx,sy){
@@ -1883,6 +1894,13 @@ class LanFlowMap2D {
                 img.src=`/images/devices/${m}.png`;
             }));
         }
+        // Client icons too, so the first frame has them instead of dots that swap in one by one.
+        // Capped: a slow icon draws as a dot and appears when it lands.
+        const icons=[];
+        for(const n of snap.nodes){
+            if((isClient(n.kind)||n.kind===NK.VirtualHub)&&n.iconUrl&&!this._clientIcons.has(n.iconUrl))icons.push(this._loadClientIcon(n.iconUrl).promise);
+        }
+        if(icons.length>0)promises.push(Promise.race([Promise.all(icons),new Promise(r=>setTimeout(r,ICON_PRELOAD_MS))]));
         if(promises.length>0)await Promise.all(promises);
     }
 
@@ -2232,13 +2250,22 @@ class LanFlowMap2D {
         const x=n.x,y=n.y,color=C.virtualHub;
         const memberCount=n.infra.length+n.clients.length;
         const r=10;
+        let labelR=r;
 
-        // Small ring
-        ctx.strokeStyle=color; ctx.lineWidth=2; ctx.globalAlpha=0.6;
-        ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.stroke();
-        ctx.fillStyle=withAlpha(color,0.1);
-        ctx.beginPath(); ctx.arc(x,y,r-1,0,Math.PI*2); ctx.fill();
-        ctx.globalAlpha=1;
+        // The most specific icon among its members, chosen by the server; else the plain ring.
+        const icon=this._clientIcon(n.d.iconUrl);
+        if(icon){
+            const {w,h}=this._iconSize(icon,26);
+            this._drawIconRing(ctx,x,y,r,color);
+            ctx.drawImage(icon,x-w/2,y-h/2,w,h);
+            labelR=Math.max(r,h/2);
+        } else {
+            ctx.strokeStyle=color; ctx.lineWidth=2; ctx.globalAlpha=0.6;
+            ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.stroke();
+            ctx.fillStyle=withAlpha(color,0.1);
+            ctx.beginPath(); ctx.arc(x,y,r-1,0,Math.PI*2); ctx.fill();
+            ctx.globalAlpha=1;
+        }
 
         // Label - name may already include count from the server
         const name=demoMask(n.d.name||'Hub');
@@ -2248,7 +2275,7 @@ class LanFlowMap2D {
         ctx.fillStyle=C.textSec;
         ctx.font=`${G.nameFont}px ${FONT}`;
         ctx.textAlign='center'; ctx.textBaseline='top';
-        ctx.fillText(dn,x,y+r+4);
+        ctx.fillText(dn,x,y+labelR+4);
     }
 
     _drawInfraNode(ctx,n){
@@ -2343,7 +2370,24 @@ class LanFlowMap2D {
         }
 
         ctx.globalAlpha=op;
-        if(n.d.kind===NK.WifiClient){
+        const icon=this._clientIcon(n.d.iconUrl);
+        let labelR=r;
+        if(icon){
+            // The client's UniFi Network icon over a disc ringed in the color the plain dot would be.
+            // The icon is larger than the ring on purpose, and keeps its own aspect ratio.
+            const R=r+3;
+            const {w,h}=this._iconSize(icon,26);
+            this._drawIconRing(ctx,x,y,R,color);
+            ctx.globalAlpha=online?Math.min(1,op+0.3):op;
+            ctx.drawImage(icon,x-w/2,y-h/2,w,h);
+            ctx.globalAlpha=op;
+            labelR=Math.max(R,h/2);
+            if(n.d.kind===NK.WifiClient){
+                const sg=flowData.getClientStats()?.[n.d.id];
+                const sBars=sg?.signalBars??n.d.signalBars, sColor=sg?.signalColor??n.d.signalColor;
+                if(sBars!=null) this._drawSignalBars(ctx,x+Math.max(R,w/2)+2.5,y,sColor,sBars);
+            }
+        } else if(n.d.kind===NK.WifiClient){
             ctx.fillStyle=color;
             ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.fill();
             ctx.strokeStyle='rgba(255,255,255,0.5)'; ctx.lineWidth=0.8;
@@ -2374,10 +2418,47 @@ class LanFlowMap2D {
             ctx.fillStyle=C.textMuted;
             ctx.font=`${G.clientFont}px ${FONT}`;
             ctx.textAlign='center'; ctx.textBaseline='top';
-            ctx.fillText(dn,x,y+r+3);
+            ctx.fillText(dn,x,y+labelR+3);
             const tw=ctx.measureText(dn).width;
-            n._nameRect={x:x-tw/2,y:y+r+3,w:tw,h:G.clientFont+2};
+            n._nameRect={x:x-tw/2,y:y+labelR+3,w:tw,h:G.clientFont+2};
         }
+    }
+
+    // The disc behind an icon and its ring: full strength over the top, fading from 10 and 2
+    // o'clock (a quarter of the way down), already well faded at 3 and 9, faint at the bottom.
+    _drawIconRing(ctx,x,y,R,color){
+        ctx.fillStyle=C.bg;
+        ctx.beginPath(); ctx.arc(x,y,R,0,Math.PI*2); ctx.fill();
+        const ring=ctx.createLinearGradient(x,y-R,x,y+R);
+        ring.addColorStop(0,color); ring.addColorStop(0.25,color);
+        ring.addColorStop(0.5,withAlpha(color,0.4)); ring.addColorStop(1,withAlpha(color,0.1));
+        ctx.strokeStyle=ring; ctx.lineWidth=1.4;
+        ctx.beginPath(); ctx.arc(x,y,R,0,Math.PI*2); ctx.stroke();
+    }
+
+    // An icon box scaled to fit, keeping the image's aspect ratio.
+    _iconSize(icon,box){
+        const k=box/Math.max(icon.naturalWidth||1,icon.naturalHeight||1);
+        return {w:(icon.naturalWidth||box)*k,h:(icon.naturalHeight||box)*k};
+    }
+
+    // A client icon once loaded, else null (the plain dot draws meanwhile).
+    _clientIcon(url){
+        if(!url)return null;
+        const e=this._clientIcons.get(url)||this._loadClientIcon(url);
+        return e.ok?e.img:null;
+    }
+
+    // One Image per URL. Clients draw on the static layer, so a late load must ask for a redraw.
+    _loadClientIcon(url){
+        const e={img:new Image(),ok:false};
+        e.promise=new Promise(resolve=>{
+            e.img.onload=()=>{e.ok=true;this._needsStaticRedraw=true;resolve();};
+            e.img.onerror=()=>{console.debug('[lan-flow-map-2d] client icon failed to load',url);resolve();};
+        });
+        e.img.src=url;
+        this._clientIcons.set(url,e);
+        return e;
     }
 
     // Five bars rising left to right, the Client Performance hero at map scale. Lit count and

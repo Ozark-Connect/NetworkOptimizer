@@ -173,6 +173,15 @@ public class ClientIdentity
     /// <summary>True when this is a VPN-sourced client (renders the simplified dashboard view)</summary>
     public bool IsVpn => VpnType != null;
 
+    /// <summary>The tailnet device behind a Tailscale client, when the site reads its tailnet; null otherwise.</summary>
+    public NetworkOptimizer.Web.Services.Tailscale.TailnetPeer? Tailnet { get; set; }
+
+    /// <summary>
+    /// For a LAN client: "Tailscale exit node" or "Tailscale subnet router" when the site's tailnet
+    /// has a router at its address. A label on the host, not on its traffic.
+    /// </summary>
+    public string? TailnetRouterBadge { get; set; }
+
     /// <summary>Best display name (Name > Hostname > MAC)</summary>
     public string DisplayName => !string.IsNullOrEmpty(Name) ? Name
         : !string.IsNullOrEmpty(Hostname) ? Hostname

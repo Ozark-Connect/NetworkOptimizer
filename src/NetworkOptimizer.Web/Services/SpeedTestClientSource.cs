@@ -18,7 +18,9 @@ public static class SpeedTestClientSource
     /// <param name="networks">The site's networks; null when not loaded, which skips every network-based label.</param>
     /// <param name="clientMac">The device the result was tied to, if any. An IPv6 source tied to a device
     /// is on the LAN even when its prefix is not a configured subnet (a delegated prefix usually is not).</param>
-    public static string? Detect(string? clientIp, IReadOnlyCollection<NetworkInfo>? networks, string? clientMac = null)
+    /// <param name="tailnetPeer">Whether the site's tailnet device list holds an address, for a custom IP pool.</param>
+    public static string? Detect(string? clientIp, IReadOnlyCollection<NetworkInfo>? networks, string? clientMac = null,
+        Func<string, bool>? tailnetPeer = null)
     {
         if (string.IsNullOrEmpty(clientIp) || !IPAddress.TryParse(clientIp, out var address))
             return null;
@@ -30,8 +32,8 @@ public static class SpeedTestClientSource
             clientIp = address.ToString();
         }
 
-        // Tailscale CGNAT range: 100.64.0.0/10, checked regardless of the site's networks
-        if (IsCgnat(clientIp))
+        // Tailscale's ranges (100.64.0.0/10, fd7a:115c:a1e0::/48), checked regardless of the site's networks
+        if (NetworkUtilities.IsTailscaleAddress(address) || tailnetPeer?.Invoke(clientIp) == true)
             return "Tailscale";
 
         if (networks == null)
@@ -53,6 +55,14 @@ public static class SpeedTestClientSource
 
         return null;
     }
+
+    /// <summary>
+    /// Whether a client address is a Tailscale device: in Tailscale's ranges or in the site's tailnet.
+    /// </summary>
+    /// <param name="clientIp">The address the test came from.</param>
+    /// <param name="tailnetPeer">Whether the site's tailnet device list holds an address, for a custom IP pool.</param>
+    public static bool IsTailscale(string? clientIp, Func<string, bool>? tailnetPeer = null) =>
+        Detect(clientIp, networks: null, tailnetPeer: tailnetPeer) == "Tailscale";
 
     /// <summary>
     /// RFC 1918 or CGNAT for IPv4; unique-local, link-local, or loopback for IPv6.

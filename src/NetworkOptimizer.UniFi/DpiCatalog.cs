@@ -26,8 +26,68 @@ public static class DpiCatalog
     {
         using var stream = typeof(DpiCatalog).Assembly.GetManifestResourceStream("dpi-catalog.json")
             ?? throw new InvalidOperationException("dpi-catalog.json is not embedded");
-        return JsonSerializer.Deserialize<Catalog>(stream, new JsonSerializerOptions { PropertyNameCaseInsensitive = true })
+        var catalog = JsonSerializer.Deserialize<Catalog>(stream, new JsonSerializerOptions { PropertyNameCaseInsensitive = true })
             ?? throw new InvalidOperationException("dpi-catalog.json did not parse");
+        foreach (var (key, entry) in catalog.Applications.ToList())
+        {
+            if (Renames.TryGetValue(entry.N, out var renamed))
+                catalog.Applications[key] = entry with { N = renamed, I = RenamedTakesOurMark.Contains(renamed) ? null : entry.I };
+            else if (BrandCasing(entry.N) is { } fixedName) catalog.Applications[key] = entry with { N = fixedName };
+        }
+        // "Apple.com" beside "Apple" splits one app in two wherever apps group: the bare name wins.
+        var bare = new HashSet<string>(catalog.Applications.Values.Select(e => e.N).Concat(NamedByDomain), StringComparer.OrdinalIgnoreCase);
+        foreach (var (key, entry) in catalog.Applications.ToList())
+        {
+            var dot = entry.N.LastIndexOf('.');
+            if (dot > 0 && entry.N[(dot + 1)..] is "com" or "net" or "org" or "tv" && bare.FirstOrDefault(n => n.Equals(entry.N[..dot], StringComparison.OrdinalIgnoreCase)) is { } name)
+                catalog.Applications[key] = entry with { N = name };
+        }
+        return catalog;
+    }
+
+    /// <summary>Names Live Traffic gives by domain or owner that the catalog also has with a ".com".</summary>
+    private static readonly string[] NamedByDomain = ["Apple", "Akamai"];
+
+    /// <summary>
+    /// Brands as their owners spell them, where UniFi Network's catalog does not: corrected by whole
+    /// word, so "Youtube Kids" reads "YouTube Kids". Corrected here rather than in the JSON so a catalog
+    /// refresh keeps them.
+    /// </summary>
+    private static readonly Dictionary<string, string> BrandWords = new(StringComparer.Ordinal)
+    {
+        ["Youtube"] = "YouTube",
+        ["Facetime"] = "FaceTime",
+        ["XBOX"] = "Xbox",
+        ["Airplay"] = "AirPlay",
+        ["Sharepoint"] = "SharePoint",
+        ["WOW"] = "WoW",
+    };
+
+    /// <summary>
+    /// Catalog names for a protocol that already has a plain one: renamed to it, so the flows group under
+    /// one app ("World Wide Web HTTP" and "HTTP" are both HTTP). Here rather than in the JSON, as above.
+    /// </summary>
+    private static readonly Dictionary<string, string> Renames = new(StringComparer.Ordinal)
+    {
+        ["World Wide Web HTTP"] = "HTTP",
+        ["HTTP Protocol over TLS SSL"] = "HTTPS",
+        ["HTTP3"] = "HTTP/3",
+        ["Secure Shell (SSH)"] = "SSH",
+        ["DNS over HTTPS (DoH)"] = "DNS over HTTPS",
+    };
+
+    /// <summary>Renamed entries that drop the catalog's mark for ours, so DPI's SSH and port 22's look alike.</summary>
+    private static readonly HashSet<string> RenamedTakesOurMark = new(StringComparer.Ordinal) { "SSH" };
+
+    private static string? BrandCasing(string name)
+    {
+        var words = name.Split(' ');
+        var changed = false;
+        for (var i = 0; i < words.Length; i++)
+        {
+            if (BrandWords.TryGetValue(words[i], out var brand)) { words[i] = brand; changed = true; }
+        }
+        return changed ? string.Join(' ', words) : null;
     }
 
     /// <summary>The catalog version the names come from.</summary>
@@ -56,23 +116,74 @@ public static class DpiCatalog
         ["SSL/TLS"] = "fa-solid fa-lock",
         ["QUIC"] = "fa-solid fa-bolt",
         ["Wi-Fi Calling"] = "fa-solid fa-phone",
+        ["Ooma"] = "no-icon no-icon-ooma",
         ["Speedtest.net"] = "fa-solid fa-gauge-high",
-        ["Backblaze"] = "fa-solid fa-cloud-arrow-up",
+        ["Backblaze"] = "no-icon no-icon-backblaze",
+        ["AWS"] = "fa-brands fa-aws",
         ["Microsoft Windows Update"] = "fa-brands fa-windows",
-        ["XBOX"] = "fa-brands fa-xbox",
+        // No Outlook mark in Font Awesome or Simple Icons: Microsoft's, as its other services carry.
+        ["Outlook.com"] = "fa-brands fa-microsoft",
+        ["Roku"] = "no-icon no-icon-roku",
+        ["Xbox"] = "fa-brands fa-xbox",
+        ["FaceTime"] = "fa-brands fa-apple",
         ["iTunes"] = "fa-brands fa-itunes",
+        // Marks Font Awesome lacks: app.css draws the no-icon-* classes (Simple Icons, CC0).
+        ["WireGuard"] = "no-icon no-icon-wireguard",
+        ["OpenVPN"] = "no-icon no-icon-openvpn",
+        ["MQTT"] = "no-icon no-icon-mqtt",
+        ["MQTT-TLS"] = "no-icon no-icon-mqtt",
+        ["Elasticsearch"] = "no-icon no-icon-elasticsearch",
+        ["Tailscale"] = "no-icon no-icon-tailscale",
+        // Network Optimizer's own traffic: our favicon, in color (app-mark, not a mask).
+        ["Network Optimizer"] = "app-mark app-mark-netopt",
+        ["AP Agent"] = "app-mark app-mark-netopt",
+        ["Adaptive SQM"] = "app-mark app-mark-netopt",
+        ["ChatGPT"] = "no-icon no-icon-openai",
+        ["OpenAI"] = "no-icon no-icon-openai",
+        ["Claude"] = "no-icon no-icon-claude",
+        ["Anthropic"] = "no-icon no-icon-anthropic",
+        // Local protocols DomainAppCatalog.LanApp names by port.
+        ["Google Cast"] = "fa-brands fa-chromecast",
+        ["Midea"] = "fa-solid fa-house-signal",
+        ["LG webOS TV"] = "fa-solid fa-tv",
+        ["Samsung TV Control"] = "fa-solid fa-tv",
+        ["HomeKit"] = "fa-solid fa-house",
+        ["Matter"] = "no-icon no-icon-matter",
+        ["iperf3"] = "fa-solid fa-gauge-high",
+        // Mail protocols named by their port: the catalog's mail mark.
+        ["SMTP"] = "fa-solid fa-envelope",
+        ["SMTPS"] = "fa-solid fa-envelope",
+        ["SMTP Submit"] = "fa-solid fa-envelope",
+        ["POP3"] = "fa-solid fa-envelope",
+        ["POP3S"] = "fa-solid fa-envelope",
+        ["IMAP"] = "fa-solid fa-envelope",
+        ["IMAPS"] = "fa-solid fa-envelope",
+        // VPN protocols named by their port: the catalog's tunneling mark, not the initial.
+        ["IPSec NAT-T"] = "fa-solid fa-shield-halved",
+        ["IKE"] = "fa-solid fa-shield-halved",
+        ["PPTP"] = "fa-solid fa-shield-halved",
         ["DNS"] = "fa-solid fa-server",
+        ["DNS over HTTPS"] = "fa-solid fa-server",
+        ["DNS over TLS"] = "fa-solid fa-server",
+        ["DNS over QUIC"] = "fa-solid fa-server",
+        ["SSH"] = "fa-solid fa-terminal",
+        ["SSH-Alt"] = "fa-solid fa-terminal",
+        ["Telnet"] = "fa-solid fa-terminal",
         ["NTP"] = "fa-solid fa-clock",
+        ["SNMP"] = "fa-solid fa-chart-line",
+        ["SNMP Trap"] = "fa-solid fa-bell",
         ["HTTP"] = "fa-solid fa-globe",
         ["HTTPS"] = "fa-solid fa-globe",
+        ["HTTP-Alt"] = "fa-solid fa-globe",
+        ["HTTPS-Alt"] = "fa-solid fa-globe",
         ["Web Streaming"] = "fa-solid fa-play",
-        ["ICMP"] = "fa-solid fa-satellite-dish",
+        ["ICMP"] = "no-icon no-icon-icmp",
         ["eBay"] = "fa-brands fa-ebay",
         ["Discord"] = "fa-brands fa-discord",
         ["TikTok"] = "fa-brands fa-tiktok",
         ["Facebook Messenger"] = "fa-brands fa-facebook-messenger",
         ["Google Drive"] = "fa-brands fa-google-drive",
-        ["Youtube Kids"] = "fa-brands fa-youtube",
+        ["YouTube Kids"] = "fa-brands fa-youtube",
         ["bilibili"] = "fa-brands fa-bilibili",
         ["Threads"] = "fa-brands fa-threads",
         ["Waze"] = "fa-brands fa-waze",
@@ -105,6 +216,19 @@ public static class DpiCatalog
         ["Dailymotion"] = "fa-brands fa-dailymotion",
         ["iTunes Festival"] = "fa-brands fa-itunes",
         ["Battle.net"] = "fa-brands fa-battle-net",
+        // Blizzard has no mark of its own in Font Awesome or Simple Icons: its games take Battle.net's.
+        ["Diablo"] = "fa-brands fa-battle-net",
+        ["Diablo3"] = "fa-brands fa-battle-net",
+        ["Hearthstone"] = "fa-brands fa-battle-net",
+        ["StarCraft2"] = "fa-brands fa-battle-net",
+        ["Overwatch"] = "fa-brands fa-battle-net",
+        ["WoW Game"] = "fa-brands fa-battle-net",
+        // EA's launcher and games take EA's mark, as Blizzard's take Battle.net's.
+        ["Electronic Arts"] = "no-icon no-icon-ea",
+        ["Origin"] = "no-icon no-icon-ea",
+        ["Battlefield"] = "no-icon no-icon-ea",
+        ["Star Wars Battlefront"] = "no-icon no-icon-ea",
+        ["FIFA"] = "no-icon no-icon-ea",
         ["Opera browser"] = "fa-brands fa-opera",
         ["Opera VPN"] = "fa-brands fa-opera",
         ["Java Applet"] = "fa-brands fa-java",
@@ -130,6 +254,13 @@ public static class DpiCatalog
         ("Facebook", "fa-brands fa-facebook"),
         ("Yahoo", "fa-brands fa-yahoo"),
         ("Windows", "fa-brands fa-windows"),
+        ("Cloudflare", "fa-brands fa-cloudflare"),
+        ("Akamai", "no-icon no-icon-akamai"),
+        // Valve's own network carries Steam; an app named only by its owner reads "Valve".
+        ("Valve", "fa-brands fa-steam"),
+        ("Blizzard", "fa-brands fa-battle-net"),
+        ("Electronic Arts", "no-icon no-icon-ea"),
+        ("Steam", "fa-brands fa-steam"),
     };
 
     /// <summary>What an application in each category is broadly doing, for one with no mark of its own.</summary>
@@ -176,6 +307,45 @@ public static class DpiCatalog
             }
         }
         return IconByCategory.TryGetValue(category, out var byCategory) ? byCategory : IconByCategory[255];
+    }
+
+    private static readonly Lazy<Dictionary<string, Entry>> _byName = new(() => _catalog.Value.Applications.Values
+        .GroupBy(e => e.N, StringComparer.OrdinalIgnoreCase)
+        .ToDictionary(g => g.Key, g => g.OrderByDescending(e => e.D != null).ThenByDescending(e => e.I != null).First(), StringComparer.OrdinalIgnoreCase));
+
+    /// <summary>
+    /// The icons for an application known only by name (a domain match, a port service): the catalog
+    /// entry of that name, else a pick by name or brand word. Null class when nothing fits, so the
+    /// caller shows the initial rather than a question mark for a label that is not an application.
+    /// </summary>
+    public static (string? Domain, string? Class) IconsForName(string name)
+    {
+        if (_byName.Value.TryGetValue(name, out var e))
+            return (e.D, e.I ?? (IconByName.TryGetValue(e.N, out var c) ? c : BrandIcon(e.N)));
+        return (null, IconByName.TryGetValue(name, out var byName) ? byName : BrandIcon(name) ?? ProtocolIcon(name));
+    }
+
+    /// <summary>A flow named only by its transport ("TCP", "UDP 3478"): a connection mark for TCP, a datagram mark for UDP.</summary>
+    private static string? ProtocolIcon(string name)
+    {
+        var space = name.IndexOf(' ');
+        if (space >= 0 && !name[(space + 1)..].All(char.IsDigit)) return null;
+        var proto = space < 0 ? name : name[..space];
+        return proto.ToUpperInvariant() switch
+        {
+            "TCP" => "fa-solid fa-right-left",
+            "UDP" => "fa-solid fa-paper-plane",
+            _ => null,
+        };
+    }
+
+    private static string? BrandIcon(string name)
+    {
+        foreach (var (word, icon) in IconByBrandWord)
+        {
+            if (name.Contains(word, StringComparison.OrdinalIgnoreCase)) return icon;
+        }
+        return null;
     }
 
     /// <summary>Whether a domain is one the catalog names, so the icon path cannot be pointed anywhere else.</summary>

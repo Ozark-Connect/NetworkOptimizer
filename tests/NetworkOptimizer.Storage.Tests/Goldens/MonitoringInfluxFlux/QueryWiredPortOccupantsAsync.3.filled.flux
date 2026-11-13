@@ -1,0 +1,7 @@
+from(bucket: "network_monitoring")
+  |> range(start: 2026-01-15T10:00:00Z, stop: 2026-01-15T12:00:00Z)
+  |> filter(fn: (r) => r._measurement == "wired_client")
+  |> filter(fn: (r) => exists r.port)
+  |> filter(fn: (r) => r._field == "client_mac" or r._field == "client_ip" or r._field == "client_name")
+  |> pivot(rowKey:["_time"], columnKey: ["_field"], valueColumn: "_value")
+  |> filter(fn: (r) => exists r.client_mac)

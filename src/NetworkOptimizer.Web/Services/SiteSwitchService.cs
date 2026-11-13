@@ -83,6 +83,23 @@ public class SiteSwitchService
         ["/speedtest"] = ["result"],
         ["/wan-speedtest"] = ["result"],
         ["/client-speedtest"] = ["result"],
+        // Live Traffic: a client and a resolver are this site's; an app, a protocol, and a port mean the
+        // same anywhere. Routes and destinations are judged per value (SiteBoundValuesByPath).
+        ["/monitoring/live-traffic"] = ["client", "not-client", "resolver", "not-resolver"],
+    };
+
+    /// <summary>
+    /// Per page, parameters whose site-boundness depends on the value: a Live Traffic route named for this
+    /// site's WAN or VPN goes but LAN, which every site has, stays; a destination naming a LAN device (a
+    /// private address or a UniFi name) goes but an internet name or address stays.
+    /// </summary>
+    private static readonly Dictionary<string, (string[] Names, Func<string, bool> IsSiteBound)[]> SiteBoundValuesByPath = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["/monitoring/live-traffic"] =
+        [
+            (["route", "not-route"], v => !string.Equals(v, "LAN", StringComparison.OrdinalIgnoreCase)),
+            (["dest", "not-dest"], v => !IsInternetDestination(v)),
+        ],
     };
 
     /// <summary>
@@ -101,7 +118,46 @@ public class SiteSwitchService
             : SiteBoundEverywhere;
         foreach (var name in names)
             url = SiteContextService.RemoveQueryParam(url, name);
+        if (SiteBoundValuesByPath.TryGetValue(path, out var byValue))
+            url = RemoveSiteBoundValues(url, byValue);
         return url;
+    }
+
+    /// <summary>
+    /// A Live Traffic destination every site shares: a public address, or a DNS name (dotted, no spaces).
+    /// Anything else names this site: a private address, or a client or UniFi device by its UniFi name
+    /// ("[AP] Living Room"). An owner name ("Example Org") is dropped too, which costs nothing much.
+    /// </summary>
+    private static bool IsInternetDestination(string value)
+    {
+        if (System.Net.IPAddress.TryParse(value, out var ip)) return !NetworkOptimizer.Core.Helpers.NetworkUtilities.IsPrivateIpAddress(ip);
+        return value.Contains('.') && !value.Any(char.IsWhiteSpace) && !value.EndsWith(".local", StringComparison.OrdinalIgnoreCase)
+            && !value.EndsWith(".lan", StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>Drops each listed parameter's values its rule calls site-bound, keeping its other values.</summary>
+    private static string RemoveSiteBoundValues(string url, (string[] Names, Func<string, bool> IsSiteBound)[] rules)
+    {
+        var uri = new Uri(url);
+        var query = Microsoft.AspNetCore.WebUtilities.QueryHelpers.ParseQuery(uri.Query);
+        var changed = false;
+        var parts = new List<string>();
+        foreach (var (key, values) in query)
+        {
+            var rule = rules.FirstOrDefault(r => r.Names.Contains(key, StringComparer.OrdinalIgnoreCase));
+            foreach (var value in values)
+            {
+                if (value != null && rule.IsSiteBound != null && rule.IsSiteBound(value))
+                {
+                    changed = true;
+                    continue;
+                }
+                parts.Add($"{Uri.EscapeDataString(key)}={Uri.EscapeDataString(value ?? "")}");
+            }
+        }
+        if (!changed) return url;
+        // AbsoluteUri, not ToString: ToString unescapes, and a WAN name's %20 would come back a bare space.
+        return new UriBuilder(uri) { Query = string.Join("&", parts) }.Uri.AbsoluteUri;
     }
 
     /// <summary>

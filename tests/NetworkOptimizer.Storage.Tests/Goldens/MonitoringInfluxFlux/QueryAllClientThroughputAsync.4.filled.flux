@@ -1,0 +1,6 @@
+from(bucket: "network_monitoring")
+  |> range(start: 2026-01-15T10:00:00Z, stop: 2026-01-15T12:00:00Z)
+  |> filter(fn: (r) => r._measurement == "wifi_client")
+  |> filter(fn: (r) => r._field == "tx_throughput_bps" or r._field == "rx_throughput_bps" or r._field == "client_mac" or r._field == "signal_dbm" or r._field == "tx_rate_kbps" or r._field == "rx_rate_kbps" or r._field == "client_name")
+  |> pivot(rowKey:["_time"], columnKey: ["_field"], valueColumn: "_value")
+  |> filter(fn: (r) => (exists r.tx_throughput_bps and r.tx_throughput_bps > 0.0) or (exists r.rx_throughput_bps and r.rx_throughput_bps > 0.0) or exists r.signal_dbm or (exists r.port and exists r.client_mac))
