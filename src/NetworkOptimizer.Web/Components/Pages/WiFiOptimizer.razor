@@ -14,6 +14,7 @@
 @inject ClientDashboardService DashboardService
 @inject UniFiConnectionService ConnectionService
 @inject NavigationManager NavigationManager
+@inject IJSRuntime JS
 @inject ApMapService ApMapService
 @inject IMeshOptimizationService MeshService
 @inject NetworkOptimizer.Web.Services.Licensing.LicenseStateService LicenseState
@@ -1475,12 +1476,26 @@
         _lastTabParam = "client";
     }
 
+    /// <summary>A client was opened from the Client Stats list, so the list is the history entry right behind it.</summary>
+    private bool _listBehindClient;
+
     /// <summary>
     /// A client picked in Client Stats, or the list (null), goes in the URL so the browser's Back and
-    /// Forward step between the list and a client. The list's AP and band filters stay in it.
+    /// Forward step between the list and a client. The list's AP and band filters stay in it. Back
+    /// to the list steps back through history when the list is right behind, so Back after it does
+    /// not return to the client.
     /// </summary>
-    private void HandleClientNavigate(string? mac)
+    private async Task HandleClientNavigate(string? mac)
     {
+        if (string.IsNullOrEmpty(mac) && _listBehindClient)
+        {
+            _listBehindClient = false;
+            _initialClientMac = null;
+            await JS.InvokeVoidAsync("history.back");
+            return;
+        }
+        _listBehindClient = !string.IsNullOrEmpty(mac) && _initialClientMac == null;
+
         var uri = "/wifi-optimizer?tab=client";
         if (!string.IsNullOrEmpty(ApQueryParam))
             uri += "&ap=" + Uri.EscapeDataString(ApQueryParam);
