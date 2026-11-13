@@ -289,6 +289,10 @@
                                             var isLan = result.IsLocalLanClient();
                                             var isDeviceFiltered = string.Equals(deviceFilter, result.DeviceHost, StringComparison.OrdinalIgnoreCase);
                                         }
+                                        @if (SpeedTestClientSource.IsTailscale(result.DeviceHost, _tailnet.IsPeer))
+                                        {
+                                            <VpnIcon Type="NetworkOptimizer.UniFi.Models.HopType.Tailscale" Size="13" Class="client-tailscale-icon" />
+                                        }
                                         @if (DeviceNameOf(result) is { } deviceName)
                                         {
                                             <span>@deviceName</span>

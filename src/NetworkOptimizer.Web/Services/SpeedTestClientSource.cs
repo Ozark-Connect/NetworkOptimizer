@@ -57,6 +57,14 @@ public static class SpeedTestClientSource
     }
 
     /// <summary>
+    /// Whether a client address is a Tailscale device: in Tailscale's ranges or in the site's tailnet.
+    /// </summary>
+    /// <param name="clientIp">The address the test came from.</param>
+    /// <param name="tailnetPeer">Whether the site's tailnet device list holds an address, for a custom IP pool.</param>
+    public static bool IsTailscale(string? clientIp, Func<string, bool>? tailnetPeer = null) =>
+        Detect(clientIp, networks: null, tailnetPeer: tailnetPeer) == "Tailscale";
+
+    /// <summary>
     /// RFC 1918 or CGNAT for IPv4; unique-local, link-local, or loopback for IPv6.
     /// </summary>
     private static bool IsPrivate(IPAddress address, string clientIp)
