@@ -420,7 +420,7 @@
                         <span>@FormatProtocol(_client.Protocol)</span>
                         @if (_client.FixedApEnabled)
                         {
-                            <span class="badge-ap-lock" data-tooltip="Locked to @(_client.FixedApName ?? _client.FixedApMac ?? "AP")">&#128274; AP Locked</span>
+                            <span class="badge-ap-lock" data-tooltip="Locked to @(_client.FixedApName ?? _client.FixedApMac ?? "AP")"><ApLockIcon /> AP Locked</span>
                         }
                     </span>
                     <span class="identity-figures">

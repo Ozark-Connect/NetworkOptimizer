@@ -11222,6 +11222,33 @@ h3 > .tooltip-icon-sm {
 .lock-icon {
     font-size: 0.75rem;
     cursor: default;
+    margin-left: 0.35rem;
+}
+
+/* ApLockIcon: a round AP in the muted text color, the lock badge in amber on the card background. */
+.ap-lock-icon {
+    color: var(--text-secondary);
+    vertical-align: middle;
+    position: relative;
+    top: -1.5px;
+    flex-shrink: 0;
+}
+
+.ap-lock-icon-badge {
+    fill: var(--bg-card);
+}
+
+/* The AP's LED ring, in Ubiquiti blue */
+.ap-lock-icon-led {
+    stroke: var(--primary-color);
+}
+
+.ap-lock-icon-lock {
+    stroke: var(--warning-color);
+}
+
+.ap-lock-icon-lock-body {
+    fill: var(--warning-color);
 }
 
 .mesh-unit {
@@ -12422,6 +12449,12 @@ h3 > .tooltip-icon-sm {
     display: flex;
     align-items: center;
     gap: 1rem;
+}
+
+/* Client Stats: the Status column holds only a dot, so it takes no more than its header. */
+.client-list-section .col-status {
+    width: 1%;
+    white-space: nowrap;
 }
 
 /* The client's icon and name, kept together and closer than the banner's field gap. */
