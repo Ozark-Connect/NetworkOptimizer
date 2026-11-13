@@ -12454,6 +12454,26 @@ a.path-hop.hop-clickable:hover {
     font-size: 0.9rem;
 }
 
+/* PON chart cards fold down to their title (pon-section.js initPonCardCollapse). */
+.pon-card-header {
+    cursor: pointer;
+    user-select: none;
+    gap: 0.5rem;
+}
+
+.pon-card-header:hover .collapse-chevron,
+.pon-card-header:focus-visible .collapse-chevron {
+    color: var(--text-primary);
+}
+
+.pon-card-collapsed > :not(.chart-header) {
+    display: none;
+}
+
+.pon-card-collapsed > .chart-header {
+    border-bottom: none;
+}
+
 .chart-filters {
     display: flex;
     gap: 1rem;

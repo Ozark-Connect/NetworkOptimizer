@@ -2106,6 +2106,8 @@
                         <div @onclick='() => SelectEventType("ont.high_temperature")'><code>ont.high_temperature</code> <span>Temperature above threshold</span></div>
                         <div @onclick='() => SelectEventType("ont.management_unresponsive")'><code>ont.management_unresponsive</code> <span>ONT page not answering while its SFP module reads light</span></div>
                         <div @onclick='() => SelectEventType("ont.rebooted")'><code>ont.rebooted</code> <span>ONT uptime went backwards</span></div>
+                        <div @onclick='() => SelectEventType("ont.path_loss_high")'><code>ont.path_loss_high</code> <span>Path loss near or over the limit of the ODN class</span></div>
+                        <div @onclick='() => SelectEventType("ont.path_loss_rise")'><code>ont.path_loss_rise</code> <span>Path loss well above its usual level</span></div>
                         <div @onclick='() => SelectEventType("ont.*")'><code>ont.*</code> <span>All ONT events</span></div>
                     </div>
                 </div>

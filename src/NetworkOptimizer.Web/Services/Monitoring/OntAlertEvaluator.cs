@@ -107,6 +107,201 @@ public class OntAlertEvaluator
         }
     }
 
+    /// <summary>A path loss this far above the learned level raises the rise alert.</summary>
+    internal const double PathLossRiseDb = 2.0;
+    /// <summary>Less than this much left to the class limit raises the budget alert as a warning.</summary>
+    internal const double PathLossReserveDb = 3.0;
+    /// <summary>Both alerts clear this far back inside their threshold, so a reading at the edge does not flap.</summary>
+    internal const double PathLossHysteresisDb = 0.5;
+    /// <summary>Readings that make up "now": one outlier poll does not raise or clear anything.</summary>
+    private const int PathLossRecentReadings = 3;
+    /// <summary>Readings before there is a level to compare against.</summary>
+    internal const int PathLossBaselineReadings = 6;
+    /// <summary>How slowly the learned level follows the loss: the seasons move it, a fault does not.</summary>
+    private static readonly TimeSpan PathLossBaselineTime = TimeSpan.FromDays(1);
+
+    /// <summary>The upper loss limit of each ODN class the PON-ID message can name (G.984.2), in dB.</summary>
+    /// <summary>How far back the stored history is read for the usual path loss after a restart.</summary>
+    internal static readonly TimeSpan PathLossPriorSpan = TimeSpan.FromDays(7);
+    /// <summary>Hourly means the history must hold before its median counts as the usual level.</summary>
+    internal const int PathLossPriorHours = 6;
+
+    /// <summary>
+    /// The usual path loss from stored hourly means: their median, so a fault of the last days
+    /// does not pull it up and still stands out against it. Null when the history is too short.
+    /// </summary>
+    internal static double? PriorPathLoss(IReadOnlyList<double> hourlyMeans)
+    {
+        if (hourlyMeans.Count < PathLossPriorHours) return null;
+        var sorted = hourlyMeans.OrderBy(v => v).ToList();
+        var mid = sorted.Count / 2;
+        return sorted.Count % 2 == 1 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+    }
+
+    /// <summary>The <c>priorLevel</c> source for <see cref="EvaluatePathLossAsync"/>: one query of the longterm history.</summary>
+    public static Func<CancellationToken, Task<double?>> PriorPathLossFrom(
+        NetworkOptimizer.Storage.Services.MonitoringInfluxClient influx, string measurement,
+        params (string Tag, string Value)[] tags) =>
+        async ct =>
+        {
+            var to = DateTime.UtcNow;
+            var series = await influx.QueryFieldSeriesAsync(
+                measurement, tags, "path_loss_db", to - PathLossPriorSpan, to, TimeSpan.FromHours(1), ct: ct);
+            return PriorPathLoss(series.Select(p => p.Value).ToList());
+        };
+
+    private static readonly (string Name, double MaxDb)[] OdnClassLimits =
+    {
+        ("A", 20), ("B", 25), ("B+", 28), ("C", 30), ("C+", 32),
+    };
+
+    /// <summary>
+    /// Path loss (the OLT's announced launch power less the ONT's RX reading) against two things:
+    /// the budget of the ODN class the OLT names, and the level this ONT usually runs at. The
+    /// first is an absolute limit and needs the class; the second needs no class and catches a
+    /// connector or splice going bad long before the budget is spent. The usual level is learned
+    /// from the first readings after a start and then follows slowly, a few readings behind, and it stands still while
+    /// the rise alert is raised, so a fault cannot become the new normal. It is kept in memory,
+    /// so after a restart of the application <paramref name="priorLevel"/> is asked once for the
+    /// level the stored history shows; without it a fault that is already there is learned as the level.
+    /// Only ONTs whose OLT announces its launch power reach here.
+    /// </summary>
+    public async ValueTask EvaluatePathLossAsync(
+        int ontId, string ontName, double? pathLossDb, long? odnClass,
+        string? sourceUrl = null, DateTime? now = null, CancellationToken ct = default,
+        Func<CancellationToken, Task<double?>>? priorLevel = null)
+    {
+        if (pathLossDb is not double loss || !double.IsFinite(loss)) return;
+        var state = _states.GetOrAdd(ontId, _ => new OntAlertState());
+        if (!string.IsNullOrEmpty(sourceUrl)) state.SourceUrl = sourceUrl;
+        var at = now ?? DateTime.UtcNow;
+
+        // One reading at a time per ONT: the timer and a manual refresh can both arrive here, and
+        // the recent readings and the level are not safe to move from two sides at once.
+        await state.PathLossGate.WaitAsync(ct);
+        try
+        {
+            if (priorLevel is not null && !state.PathLossPriorAsked)
+            {
+                state.PathLossPriorAsked = true;
+                try
+                {
+                    if (state.PathLossBaseline is null && await priorLevel(ct) is double prior && double.IsFinite(prior))
+                    {
+                        state.PathLossBaseline = prior;
+                        state.PathLossBaselineCount = PathLossBaselineReadings;
+                        state.PathLossBaselineAt = at;
+                    }
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    _logger.LogDebug(ex, "No stored path loss level for ONT {Name}; learning it from new readings", ontName);
+                }
+            }
+
+            state.RecentPathLoss.Enqueue(loss);
+            double? leaving = null;
+            while (state.RecentPathLoss.Count > PathLossRecentReadings) leaving = state.RecentPathLoss.Dequeue();
+            var settled = state.RecentPathLoss.Count == PathLossRecentReadings;
+            // The lowest of the recent readings for raising, the highest for clearing: every one of
+            // them has to agree before the state changes.
+            var low = state.RecentPathLoss.Min();
+            var high = state.RecentPathLoss.Max();
+
+            if (odnClass is >= 0 and <= 4 && settled)
+            {
+                var (className, max) = OdnClassLimits[odnClass.Value];
+                var level = low > max ? 2 : low > max - PathLossReserveDb ? 1 : 0;
+                var holds = high > max - PathLossHysteresisDb ? 2 : high > max - PathLossReserveDb - PathLossHysteresisDb ? 1 : 0;
+                if (level > state.PathLossBudgetLevel)
+                {
+                    state.PathLossBudgetLevel = level;
+                    var over = level == 2;
+                    await _eventBus.PublishAsync(new AlertEvent
+                    {
+                        EventType = "ont.path_loss_high",
+                        Source = "ont",
+                        Severity = over ? AlertSeverity.Error : AlertSeverity.Warning,
+                        Title = $"{ontName} path loss {(over ? "over" : "near")} the class limit{_siteSuffix}",
+                        Message = over
+                            ? $"ONT {ontName} path loss {loss:0.0} dB is over the {max:0} dB limit of ODN class {className}: the link runs outside its budget."
+                            : $"ONT {ontName} path loss {loss:0.0} dB leaves {max - loss:0.0} dB to the {max:0} dB limit of ODN class {className}.",
+                        DeviceName = ontName,
+                        MetricValue = loss,
+                        ThresholdValue = over ? max : max - PathLossReserveDb,
+                        SourceUrl = state.SourceUrl,
+                        Tags = ["ont", "path_loss"],
+                        Context = new Dictionary<string, string>
+                        {
+                            ["ont_id"] = ontId.ToString(),
+                            ["metric"] = "path_loss",
+                            ["odn_class"] = className
+                        }
+                    }, ct);
+                }
+                else if (holds < state.PathLossBudgetLevel)
+                {
+                    state.PathLossBudgetLevel = holds;
+                }
+            }
+
+            if (state.PathLossBaseline is double baseline && state.PathLossBaselineCount >= PathLossBaselineReadings && settled)
+            {
+                if (!state.PathLossRisen && low - baseline >= PathLossRiseDb)
+                {
+                    state.PathLossRisen = true;
+                    await _eventBus.PublishAsync(new AlertEvent
+                    {
+                        EventType = "ont.path_loss_rise",
+                        Source = "ont",
+                        Severity = AlertSeverity.Warning,
+                        Title = $"{ontName} path loss rose{_siteSuffix}",
+                        Message = $"ONT {ontName} path loss {loss:0.0} dB is {loss - baseline:0.0} dB above its usual {baseline:0.0} dB. " +
+                            "Check connectors, the patch cable and bends first; a loss that rose with the launch power unchanged is on the fibre path.",
+                        DeviceName = ontName,
+                        MetricValue = loss,
+                        ThresholdValue = Math.Round(baseline + PathLossRiseDb, 1),
+                        SourceUrl = state.SourceUrl,
+                        Tags = ["ont", "path_loss"],
+                        Context = new Dictionary<string, string>
+                        {
+                            ["ont_id"] = ontId.ToString(),
+                            ["metric"] = "path_loss"
+                        }
+                    }, ct);
+                }
+                else if (state.PathLossRisen && high - baseline < PathLossRiseDb - PathLossHysteresisDb)
+                {
+                    state.PathLossRisen = false;
+                }
+            }
+
+            // Learn from the reading that just left the recent ones, not from the newest: the level
+            // must not hold any reading it is being compared with, or a step of exactly the threshold
+            // pulls it up while it is still being confirmed and never raises.
+            if (!state.PathLossRisen && leaving is double learned)
+            {
+                if (state.PathLossBaseline is not double level || state.PathLossBaselineCount < PathLossBaselineReadings)
+                {
+                    var n = state.PathLossBaselineCount;
+                    state.PathLossBaseline = ((state.PathLossBaseline ?? 0) * n + learned) / (n + 1);
+                    state.PathLossBaselineCount = n + 1;
+                }
+                else
+                {
+                    var elapsed = at - state.PathLossBaselineAt;
+                    var weight = elapsed > TimeSpan.Zero ? 1 - Math.Exp(-elapsed / PathLossBaselineTime) : 0;
+                    state.PathLossBaseline = level + (learned - level) * weight;
+                }
+                state.PathLossBaselineAt = at;
+            }
+        }
+        finally
+        {
+            state.PathLossGate.Release();
+        }
+    }
+
     /// <summary>
     /// Flags an attached ONT whose own page stops answering while its SFP module's DDM still reads
     /// light: the optics are fine and the management side has hung. A DDM read below the RX low
@@ -386,5 +581,14 @@ public class OntAlertEvaluator
         public int FailedPolls;
         public bool ManagementDown;
         public string SourceUrl = DefaultSourceUrl;
+        public readonly Queue<double> RecentPathLoss = new();
+        /// <summary>0 inside the budget, 1 within the reserve of the limit, 2 over it.</summary>
+        public int PathLossBudgetLevel;
+        public bool PathLossRisen;
+        public bool PathLossPriorAsked;
+        public readonly SemaphoreSlim PathLossGate = new(1, 1);
+        public double? PathLossBaseline;
+        public int PathLossBaselineCount;
+        public DateTime PathLossBaselineAt;
     }
 }

@@ -885,8 +885,20 @@
                 <!-- Supplemental PON-layer charts: shown only when a module has an attached
                      Network Optimizer Custom ONT config feeding PON stats. -->
                 <div class="sfp-pon-section" style="display: none;">
+                    <div class="sfp-pon-check" style="margin-bottom: 0.75rem;"></div>
+                    <div class="chart-card sfp-pon-loss-card">
+                        <div class="chart-header"><h3 class="chart-title"><span data-tooltip="The launch power the OLT announces in its PON-ID message, less the power this ONT receives: the optical loss of the fibre path, to read beside RX power above. A rise with steady launch power is the path getting worse (a connector, a bend, a splitter). With a reach extender in the path the announced power is the extender's, and the loss is that of the stretch from the extender. Shown only where the OLT announces its launch power.">Path Loss (OLT launch power less RX power)</span></h3></div>
+                        <div class="sfp-pon-loss-summary" style="color: var(--text-secondary); font-size: 0.8rem; margin: -0.25rem 0 0.25rem;"></div>
+                        <div class="sfp-pon-loss-chart"></div>
+                    </div>
+                    <div class="chart-card sfp-pon-avail-card">
+                        <div class="chart-header"><h3 class="chart-title"><span data-tooltip="Seconds of each interval the ONT was not in O5, by the ONT's own clock on its activation states, with the seconds a loss of signal or loss of frame alarm stood. A drop too short to show at a poll still counts here. A restart of the ONT is not downtime of the line and leaves a gap.">PON Link Downtime (seconds per interval)</span></h3></div>
+                        <div class="sfp-pon-avail-summary" style="color: var(--text-secondary); font-size: 0.8rem; margin: -0.25rem 0 0.25rem;"></div>
+                        <div class="sfp-pon-avail-chart"></div>
+                    </div>
                     <div class="chart-card sfp-pon-errors-card">
                         <div class="chart-header"><h3 class="chart-title">PON Errors (per interval)</h3></div>
+                        <div class="sfp-pon-fec-summary" style="color: var(--text-secondary); font-size: 0.8rem; margin: -0.25rem 0 0.25rem;"></div>
                         <div class="sfp-pon-errors-chart"></div>
                     </div>
                     <div class="chart-card sfp-pon-host-card">
@@ -897,6 +909,31 @@
                         <div class="chart-header"><h3 class="chart-title">GEM Frames (per interval)</h3></div>
                         <div class="sfp-pon-gem-chart"></div>
                     </div>
+                    <div class="chart-card sfp-pon-util-card">
+                        <div class="chart-header"><h3 class="chart-title"><span data-tooltip="The OLT fills unused downstream capacity with idle frames that every ONT on the PON receives, so the first line is the load of the whole PON, neighbours included, not of this connection. The frame header counts as in use. The second line is this ONT's own downstream on the same scale. Percentages are shares of the PON's downstream payload rate. Downstream only: an ONT cannot see what the others send.">PON Downstream Load: whole PON, all subscribers (not this connection)</span></h3></div>
+                        <div class="sfp-pon-util-summary" style="color: var(--text-secondary); font-size: 0.8rem; margin: -0.25rem 0 0.25rem;"></div>
+                        <div class="sfp-pon-util-chart"></div>
+                    </div>
+                    <div class="chart-card sfp-pon-loadmap-card" style="display: none;">
+                        <div class="chart-header"><h3 class="chart-title"><span data-tooltip="Mean downstream load of the whole PON for each hour of the week, over the last four weeks: when the neighbourhood is busy. Brighter is busier. All subscribers together, not this connection.">PON Downstream Load by Hour and Weekday (whole PON)</span></h3></div>
+                        <div class="sfp-pon-loadmap-summary" style="color: var(--text-secondary); font-size: 0.8rem; margin: -0.25rem 0 0.25rem;"></div>
+                        <div class="sfp-pon-loadmap-chart"></div>
+                    </div>
+                    <div class="chart-card sfp-pon-bias-card">
+                        <div class="chart-header"><h3 class="chart-title"><span data-tooltip="Bias current of the ONT's transmit laser, the ONT's own reading. An ageing laser needs more current for the same light, so a slow rise at unchanged TX power and temperature is the sign to watch for. The limit named is the module's own.">Laser Bias Current</span></h3></div>
+                        <div class="sfp-pon-bias-summary" style="color: var(--text-secondary); font-size: 0.8rem; margin: -0.25rem 0 0.25rem;"></div>
+                        <div class="sfp-pon-bias-chart"></div>
+                    </div>
+                    <div class="chart-card sfp-pon-cpu-card">
+                        <div class="chart-header"><h3 class="chart-title"><span data-tooltip="How busy the ONT's own processor was in each interval, from its CPU time counters. A stick that is busy all the time can answer late and drop management traffic.">ONT CPU Load</span></h3></div>
+                        <div class="sfp-pon-cpu-chart"></div>
+                    </div>
+                    <div class="chart-card sfp-pon-grant-card">
+                        <div class="chart-header"><h3 class="chart-title"><span data-tooltip="Upstream scheduling as this ONT sees it: the bandwidth-map allocations the OLT addresses to it, the bursts it sends in them and its DBRu reports of what it has queued, each per second. Only this ONT's own grants: it does not count what the OLT grants the others.">Upstream Grants (this ONT, per second)</span></h3></div>
+                        <div class="sfp-pon-grant-summary" style="color: var(--text-secondary); font-size: 0.8rem; margin: -0.25rem 0 0.25rem;"></div>
+                        <div class="sfp-pon-grant-chart"></div>
+                    </div>
+                    <div class="sfp-pon-provider"></div>
                     <div class="sfp-pon-details"></div>
                     <div class="sfp-pon-error-totals"></div>
                 </div>
@@ -1281,8 +1318,20 @@
                      link state and nothing else. Every card hides itself when nothing fills it, so
                      an ONT reporting no error counters gets the details table alone. -->
                 <div class="ont-errors-section" style="display: none;">
+                    <div class="ont-pon-check" style="margin-bottom: 0.75rem;"></div>
+                    <div class="chart-card ont-pon-loss-card">
+                        <div class="chart-header"><h3 class="chart-title"><span data-tooltip="The launch power the OLT announces in its PON-ID message, less the power this ONT receives: the optical loss of the fibre path, to read beside RX power above. A rise with steady launch power is the path getting worse (a connector, a bend, a splitter). With a reach extender in the path the announced power is the extender's, and the loss is that of the stretch from the extender. Shown only where the OLT announces its launch power.">Path Loss (OLT launch power less RX power)</span></h3></div>
+                        <div class="ont-pon-loss-summary" style="color: var(--text-secondary); font-size: 0.8rem; margin: -0.25rem 0 0.25rem;"></div>
+                        <div class="ont-pon-loss-chart"></div>
+                    </div>
+                    <div class="chart-card ont-pon-avail-card">
+                        <div class="chart-header"><h3 class="chart-title"><span data-tooltip="Seconds of each interval the ONT was not in O5, by the ONT's own clock on its activation states, with the seconds a loss of signal or loss of frame alarm stood. A drop too short to show at a poll still counts here. A restart of the ONT is not downtime of the line and leaves a gap.">PON Link Downtime (seconds per interval)</span></h3></div>
+                        <div class="ont-pon-avail-summary" style="color: var(--text-secondary); font-size: 0.8rem; margin: -0.25rem 0 0.25rem;"></div>
+                        <div class="ont-pon-avail-chart"></div>
+                    </div>
                     <div class="chart-card ont-pon-errors-card">
                         <div class="chart-header"><h3 class="chart-title">PON Errors (per interval)</h3></div>
+                        <div class="ont-pon-fec-summary" style="color: var(--text-secondary); font-size: 0.8rem; margin: -0.25rem 0 0.25rem;"></div>
                         <div class="ont-errors-chart"></div>
                     </div>
                     <div class="chart-card ont-pon-host-card">
@@ -1293,6 +1342,31 @@
                         <div class="chart-header"><h3 class="chart-title">GEM Frames (per interval)</h3></div>
                         <div class="ont-pon-gem-chart"></div>
                     </div>
+                    <div class="chart-card ont-pon-util-card">
+                        <div class="chart-header"><h3 class="chart-title"><span data-tooltip="The OLT fills unused downstream capacity with idle frames that every ONT on the PON receives, so the first line is the load of the whole PON, neighbours included, not of this connection. The frame header counts as in use. The second line is this ONT's own downstream on the same scale. Percentages are shares of the PON's downstream payload rate. Downstream only: an ONT cannot see what the others send.">PON Downstream Load: whole PON, all subscribers (not this connection)</span></h3></div>
+                        <div class="ont-pon-util-summary" style="color: var(--text-secondary); font-size: 0.8rem; margin: -0.25rem 0 0.25rem;"></div>
+                        <div class="ont-pon-util-chart"></div>
+                    </div>
+                    <div class="chart-card ont-pon-loadmap-card" style="display: none;">
+                        <div class="chart-header"><h3 class="chart-title"><span data-tooltip="Mean downstream load of the whole PON for each hour of the week, over the last four weeks: when the neighbourhood is busy. Brighter is busier. All subscribers together, not this connection.">PON Downstream Load by Hour and Weekday (whole PON)</span></h3></div>
+                        <div class="ont-pon-loadmap-summary" style="color: var(--text-secondary); font-size: 0.8rem; margin: -0.25rem 0 0.25rem;"></div>
+                        <div class="ont-pon-loadmap-chart"></div>
+                    </div>
+                    <div class="chart-card ont-pon-bias-card">
+                        <div class="chart-header"><h3 class="chart-title"><span data-tooltip="Bias current of the ONT's transmit laser, the ONT's own reading. An ageing laser needs more current for the same light, so a slow rise at unchanged TX power and temperature is the sign to watch for. The limit named is the module's own.">Laser Bias Current</span></h3></div>
+                        <div class="ont-pon-bias-summary" style="color: var(--text-secondary); font-size: 0.8rem; margin: -0.25rem 0 0.25rem;"></div>
+                        <div class="ont-pon-bias-chart"></div>
+                    </div>
+                    <div class="chart-card ont-pon-cpu-card">
+                        <div class="chart-header"><h3 class="chart-title"><span data-tooltip="How busy the ONT's own processor was in each interval, from its CPU time counters. A stick that is busy all the time can answer late and drop management traffic.">ONT CPU Load</span></h3></div>
+                        <div class="ont-pon-cpu-chart"></div>
+                    </div>
+                    <div class="chart-card ont-pon-grant-card">
+                        <div class="chart-header"><h3 class="chart-title"><span data-tooltip="Upstream scheduling as this ONT sees it: the bandwidth-map allocations the OLT addresses to it, the bursts it sends in them and its DBRu reports of what it has queued, each per second. Only this ONT's own grants: it does not count what the OLT grants the others.">Upstream Grants (this ONT, per second)</span></h3></div>
+                        <div class="ont-pon-grant-summary" style="color: var(--text-secondary); font-size: 0.8rem; margin: -0.25rem 0 0.25rem;"></div>
+                        <div class="ont-pon-grant-chart"></div>
+                    </div>
+                    <div class="ont-pon-provider"></div>
                     <div class="ont-pon-details"></div>
                     <div class="ont-pon-error-totals"></div>
                 </div>
