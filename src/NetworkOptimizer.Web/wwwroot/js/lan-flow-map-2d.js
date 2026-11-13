@@ -559,7 +559,7 @@ class LanFlowMap2D {
                 <div class="lan-flow-map-help-row"><span>Pan</span><span class="kbd">Left-drag</span></div>
                 <div class="lan-flow-map-help-row"><span>Zoom</span><span class="kbd">Scroll</span></div>
                 <div class="lan-flow-map-help-row"><span>Hover detail</span><span class="kbd">Mouse over</span></div>
-                <div class="lan-flow-map-help-row"><span>Open client</span><span class="kbd">Double-click</span></div>
+                <div class="lan-flow-map-help-row"><span>Open Client</span><span class="kbd">Double-click</span></div>
                 <div class="lan-flow-map-help-row"><span>Open Port Statistics</span><span class="kbd">Double-click</span></div>
                 <div class="lan-flow-map-help-row"><span>Open ISP Health</span><span class="kbd">Double-click</span></div>${scrubRows}
                 <div class="lan-flow-map-help-row"><span>Fullscreen</span><span class="kbd">Esc</span> to exit</div>`;
