@@ -6,6 +6,7 @@
 @inject WiFiOptimizerService WiFiService
 @inject UniFiConnectionService ConnectionService
 @inject ILogger<ClientTimeline> Logger
+@inject IClientIcons ClientIcons
 @inject IDisplayTimeZone DisplayTime
 
 <div class="client-timeline-container wifi-sections">
@@ -125,7 +126,7 @@
                         {
                             <tr @onclick="() => PickClientAsync(client.Mac)" class="@(client.IsOnline ? "" : "client-offline")">
                                 <td><span class="status-dot @(client.IsOnline ? "online" : "offline")" data-tooltip="@(client.IsOnline ? "Online" : GetOfflineTooltip(client))"></span></td>
-                                <td>@client.Name @if (client.FixedApEnabled) { <span class="lock-icon" data-tooltip="Locked to @(client.FixedApName ?? client.FixedApMac ?? "AP")" data-tooltip-hover-only>&#128274;</span> }</td>
+                                <td><ClientIcon Url="@_clientIcons.UrlFor(client.Mac)" Size="20" Class="client-icon-inline" />@client.Name @if (client.FixedApEnabled) { <span class="lock-icon" data-tooltip="Locked to @(client.FixedApName ?? client.FixedApMac ?? "AP")" data-tooltip-hover-only>&#128274;</span> }</td>
                                 <td>@if (!string.IsNullOrEmpty(client.Ip)) { <code>@client.Ip</code> } else { <text>-</text> }</td>
                                 <td><code>@client.Mac</code></td>
                                 <td>@(client.ApName ?? "-")</td>
@@ -176,6 +177,8 @@
         {
             <div class="client-info-banner">
                 <div class="client-info-main">
+                    <span class="client-info-identity">
+                    <ClientIcon Url="@_clientIcons.UrlFor(_selectedClient.Mac)" Size="32" />
                     <ClientNameEditor @key="_selectedClient.Mac" Mac="@_selectedClient.Mac" Name="@_selectedClient.Name"
                                       OnRenamed="OnClientRenamed">
                         @if (!string.IsNullOrEmpty(_selectedClient.Ip))
@@ -188,6 +191,7 @@
                             <span class="client-name">@_selectedClient.Name</span>
                         }
                     </ClientNameEditor>
+                    </span>
                     @if (!string.IsNullOrEmpty(_selectedClient.Ip))
                     {
                         <ClientFixedIpEditor @key="@($"ip-{_selectedClient.Mac}")"Mac="@_selectedClient.Mac" CurrentIp="@_selectedClient.Ip" OnChanged="OnFixedIpChanged"><span class="client-ip" data-tooltip="@ClientFixedIpEditor.PendingTooltip(_selectedClient.Ip, _selectedClient.FixedIp)">@_selectedClient.Ip</span></ClientFixedIpEditor>
@@ -476,8 +480,12 @@
         { "1M", TimeSpan.FromDays(30) }
     };
 
+    /// <summary>The site's client icons for the table and the details banner. Empty until loaded.</summary>
+    private ClientIconMap _clientIcons = ClientIconMap.Empty;
+
     protected override async Task OnInitializedAsync()
     {
+        _ = ClientIcons.LoadIntoAsync(map => InvokeAsync(() => { _clientIcons = map; StateHasChanged(); }), Logger);
         InitializeChartOptions();
 
         // Apply initial filters from parent navigation

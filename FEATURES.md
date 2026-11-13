@@ -103,6 +103,7 @@ Time-series monitoring on your own InfluxDB, fed by SNMP polling (InfluxDB).
   - **Reposition Device**; run Upstream Discovery from a WAN globe
   - Double-click a client for Client Performance, a switch or gateway for Port Statistics, or a WAN globe for its ISP Health
 - **LAN Topology Flow Map** (2D) - the same live data as a pan-and-zoom flow diagram
+  - Each client shows its UniFi Network icon, including custom icons
   - Per-client Wi-Fi LAN traffic, including LAN-only transfers ([AP Telemetry](#ap-telemetry))
 - Both maps: device tooltips, full-duplex load coloring, mesh and MLO backhaul, UniFi Device Bridge and Building Bridge links
 - Historic playback on both maps - scrub, play, change speed, ranges from 1 hour to 30 days or everything stored (InfluxDB)
@@ -284,6 +285,7 @@ Time-series monitoring on your own InfluxDB, fed by SNMP polling (InfluxDB).
 ## Client Performance
 
 - Detects your own device, or pick any client from the client selector
+- The client's UniFi Network icon (custom icons included) beside its name
 - Live signal gauge, AP TX and RX rates, and live download and upload
 - Wired clients: switch port, link speed, live throughput, and port errors and drops (SNMP)
 - VPN clients (Tailscale, Teleport, One-Click and remote-user VPN, site-to-site) get a simplified view with speed tests and path traces
@@ -470,6 +472,7 @@ Gateway tweaks for UCG-Fiber, UXG-Fiber, UCG-Max, and UXG-Max (Gateway SSH).
 ### Clients and Coverage
 
 - **Client Stats** - searchable client table, signal and TX retry history, connection events
+  - Each client's UniFi Network icon in the table and its details
 - **Roaming** - roaming topology, AP pair success rates, 802.11r usage, roaming clients
 - **Power/Coverage** - signal distribution, EIRP per AP, coverage quality, overlap
 - **Load Balance** - clients per AP and imbalance
@@ -668,7 +671,7 @@ Requires Gateway SSH.
 
 - Browser WAN speed test from any device against your own external OpenSpeedTest server (HTTPS strongly recommended)
 - Shareable URL; results identified by device, with a path trace through the WAN hop
-- History by device and server
+- History by device and server, each device with its UniFi Network icon
 - Deploy command for the external server in Settings
 
 ## LAN Speed Test
@@ -679,8 +682,10 @@ Requires Gateway SSH.
   - Select devices and test them one after another with **Run Selected**, with **Stop**
 - Each device's latest result shows under its row, with failures summarized and raw output collapsed
 - Path analysis - every hop, link speeds (LAG-aware), bottleneck, Wi-Fi signal, efficiency, inter-VLAN routing
+  - Each hop shows its client's UniFi Network icon or its device's product image
 - Runs from the [On-Site Agent](#on-site-agent) at agent sites
 - History with search across any device in the path; firmware versions recorded
+  - Clients carry their UniFi Network icon, UniFi devices their product image, Tailscale devices the Tailscale icon; so does the Dashboard card
 - Parallel streams per device type; one test duration
 
 ## Client Speed Test
@@ -689,6 +694,7 @@ Requires Gateway SSH.
 - Browser speed test from any phone, tablet, or laptop, with no SSH
 - iperf3 to the server from the command line, from any device; each run is captured and stored
 - Results identified by device, with path trace, Wi-Fi channel and MLO links, and personal bests
+  - Each device carries its UniFi Network icon, a Tailscale device the Tailscale icon
   - A personal best follows the device across IP address changes
 - Tailscale results carry the device's tailnet name, and whether it connected directly or through a DERP relay, seen just after the test ([Tailscale](#settings))
 - **Speed / Coverage Map** - results with GPS location, colored by speed (HTTPS)

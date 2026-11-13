@@ -20,6 +20,7 @@
 @inject IJSRuntime JS
 @inject PullToRefreshState PtrState
 @inject IDisplayTimeZone DisplayTime
+@inject IClientIcons ClientIcons
 
 <PageTitle>Client WAN Speed Test - Network Optimizer</PageTitle>
 
@@ -311,6 +312,7 @@
                                             @{
                                                 var isDeviceFiltered = string.Equals(_deviceFilter, result.DeviceHost, StringComparison.OrdinalIgnoreCase);
                                             }
+                                            <ResultClientIcon Host="@result.DeviceHost" Mac="@result.ClientMac" Icons="_clientIcons" />
                                             @if (!string.IsNullOrEmpty(result.DeviceName))
                                             {
                                                 <span>@result.DeviceName</span>
@@ -834,8 +836,12 @@
 
     private bool _liveViewLinkEnabled;
 
+    /// <summary>The site's client icons, for the results table. Empty until loaded.</summary>
+    private ClientIconMap _clientIcons = ClientIconMap.Empty;
+
     protected override async Task OnInitializedAsync()
     {
+        _ = ClientIcons.LoadIntoAsync(map => InvokeAsync(() => { _clientIcons = map; StateHasChanged(); }));
         _canConfigure = AuthState is null
             || (await Authz.AuthorizeAsync((await AuthState).User, SiteContext.Slug, Policies.SiteAdmin)).Succeeded;
 

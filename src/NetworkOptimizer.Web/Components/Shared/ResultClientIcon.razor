@@ -1,0 +1,27 @@
+@using NetworkOptimizer.UniFi.Models
+
+@* The mark before a speed test result's client or device: Tailscale's for a tailnet device, else the
+   client's UniFi Network icon, else the UniFi device's image, else nothing. *@
+
+@if (SpeedTestClientSource.IsTailscale(Host, Tailnet.IsPeer))
+{
+    <VpnIcon Type="HopType.Tailscale" Size="16" Class="client-tailscale-icon result-tailscale-icon" />
+}
+else if ((Icons.UrlFor(Mac) ?? Icons.DeviceUrlFor(Host)) is { } url)
+{
+    <ClientIcon Url="@url" Size="22" Class="client-icon-inline" />
+}
+
+@code {
+    /// <summary>The address the test ran against.</summary>
+    [Parameter] public string? Host { get; set; }
+
+    /// <summary>The client the result is tied to, if any.</summary>
+    [Parameter] public string? Mac { get; set; }
+
+    /// <summary>The site's tailnet, which marks a Tailscale device.</summary>
+    [Parameter] public TailnetSnapshot Tailnet { get; set; } = TailnetSnapshot.Empty;
+
+    /// <summary>The site's client icons.</summary>
+    [Parameter] public ClientIconMap Icons { get; set; } = ClientIconMap.Empty;
+}
