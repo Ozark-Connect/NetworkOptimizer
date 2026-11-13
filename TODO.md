@@ -818,6 +818,30 @@ in the release that ships it, optional for the fleet. Check the volume first: ev
 Gateway is a flow, so these may need their own cap or to sort below routed traffic in a busy site's top
 500 (`LeaseMaxFlows`).
 
+### Live Traffic: name flows by TLS / QUIC SNI (optional)
+
+Live Traffic names a remote from the DNS answers the Gateway sees (`DnsBpfFilter`, UDP 53 only) and
+from the UniFi Console's records. A Client on DoH, DoT, or DoQ (Chrome Secure DNS, iCloud Private
+Relay, an OS resolver set to DoH), or a connection that outlives the DNS answer, has no name in view.
+A read-only probe on a test site found no DNS name for 14% of new QUIC and 40% of new TLS connections.
+
+To do: the On-Gateway Agent reads the `server_name` from the Client's ClientHello and sends it with
+the flow, and the server uses it when no DNS answer names the address. TLS first; QUIC second.
+
+- Capture only while a Live Traffic lease is held, and only for flows that have no name yet: the same
+  privacy boundary as Live DNS.
+- TLS: a BPF on TCP 443 for the first data segments after the handshake, then parse the ClientHello.
+  It can span segments.
+- QUIC: a BPF on UDP 443 for long-header Initial packets. It needs the Initial keys (RFC 9001 for v1,
+  RFC 9369 for v2, different salts and labels), header protection removal, AES-128-GCM decrypt, and
+  CRYPTO reassembly across several Initials: current Chrome's ClientHello (post-quantum key shares)
+  does not fit in one packet.
+- ECH: the visible SNI is the outer public name (often a CDN's). Treat SNI as a hint; a DNS answer wins.
+- Cost: crypto per new QUIC flow on the Gateway CPU. Budget it per pass.
+
+It is an Agent change and a proto change: bump `LatestAgentVersion` in the release that ships it,
+optional for the fleet.
+
 ## VPN Clients Dashboard
 
 A dashboard for clients reaching the site over a VPN: connections through an external Tailscale
