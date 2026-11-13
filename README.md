@@ -18,13 +18,11 @@
 
 Genuinely, thank you so much to everybody for taking the time to use Network Optimizer and have it find a place on your network(s). It really means a lot to receive all of the bug reports, feature requests, feedback, support, and donations from everybody. Totally a whole new experience from writing code in a dayjob, and it greatly motivates me to keep on going!
 
-## Coming Soon: Live Traffic
+## New: Live Traffic
 
-Available on Preview Now: see every flow through your Gateway as it happens, ranked by what's using your internet right now, with the app, its destination (down to the ISP cache or the other site it's hitting), the DNS lookup behind it, and the Firewall Policy that let it through. Where It's Going maps it all from client to app to the WAN it takes, History lets you go back and search earlier flows, and you can name any app UniFi Network doesn't recognize. Live DNS shows every lookup as it happens, flags blocked ones and clients going around your DNS, and catches the attempts your Gateway DNATs. Client Performance gets the same live view for any single client.
+Available on the latest release: see every flow through your Gateway as it happens, ranked by what's using your internet right now, with the app, its destination (down to the ISP cache or the other site it's hitting), the DNS lookup behind it, and the Firewall Policy that let it through. Where It's Going maps it all from client to app to the WAN it takes, History lets you go back and search earlier flows, and you can name any app UniFi Network doesn't recognize. Live DNS shows every lookup as it happens, flags blocked ones and clients going around your DNS, and catches the attempts your Gateway DNATs. Client Performance gets the same live view for any single client.
 
 Tailscale too: connect your tailnet (Tailscale or Headscale, read-only) and your Tailscale devices show up by name in Live Traffic, Client Performance, and speed test results, along with whether each one connects directly or bounces through a DERP relay (and which one). Put an On-Site Agent on the Linux box that's your subnet router or exit node and it goes further: the exact path and traffic for every device, and the device behind every connection it routes, instead of that one box taking the credit for all of it.
-
-Check it out on Preview here: https://github.com/Ozark-Connect/NetworkOptimizer/releases
 
 ## New: Change Control
 
@@ -71,10 +69,6 @@ Channel Recommendation uses it too. Pin a radio and the plan works around it. Wi
 ## New: Firmware Rollout
 
 Firmware day on a site of any size is the same ritual: click Upgrade, wait, check it came back, click the next one, and hope nobody's on a call when their AP reboots. Firmware Rollout does the whole site, and it picks the moment from your own traffic history so the reboots land in the quietest window your network actually has. One device per model goes first; the rest wait until it's back on the new firmware with CPU, memory, and health looking like they did before. You can hold one model on Official, push another to Early Access, or leave a device out entirely. Autopilot runs it every time new firmware lands, with a heads-up before it starts and a way to stop it.
-
-## New: Bandwidth Hogs
-
-Somebody's eating the internet. Who? Bandwidth Hogs puts the answer on Live View, right above the map: who's on the WAN right now, and who used the most of it today, this week, or this month, biggest first, each one a click away from its Client Performance page. Scrub the maps back through history and the list goes with you. With the On-Site Agent on your gateway, the numbers are measured there rather than estimated. Counting bytes per client is all it does: no destinations, no ports, no flow records leave the box. It costs under 1% CPU on a UXG-Fiber or UCG-Fiber.
 
 ## New: Starlink Monitoring
 
