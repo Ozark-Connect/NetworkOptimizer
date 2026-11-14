@@ -256,9 +256,9 @@ else
         <div class="modem-nav">
             @if (TotalCount > 1)
             {
-                <button class="nav-btn" @onclick="Previous" @onclick:stopPropagation disabled="@(_currentIndex == 0)">‹</button>
+                <button class="nav-btn" @onclick="Previous" @onclick:stopPropagation disabled="@(_currentIndex == 0)"><AppIcon Name="chevron-left" /></button>
                 <span class="modem-counter">@(_currentIndex + 1)/@TotalCount</span>
-                <button class="nav-btn" @onclick="Next" @onclick:stopPropagation disabled="@(_currentIndex >= TotalCount - 1)">›</button>
+                <button class="nav-btn" @onclick="Next" @onclick:stopPropagation disabled="@(_currentIndex >= TotalCount - 1)"><AppIcon Name="chevron-right" /></button>
             }
         </div>
         @ModelBlock(current.SfpVendor, current.SfpPart)

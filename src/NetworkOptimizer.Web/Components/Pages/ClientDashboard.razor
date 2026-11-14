@@ -822,9 +822,9 @@
                             @if (SpeedTotalPages > 1)
                             {
                                 <div class="pagination">
-                                    <button class="btn btn-sm btn-secondary" disabled="@(_speedPage <= 1)" @onclick="() => ChangeSpeedPage(-1)">Prev</button>
+                                    <button class="btn btn-sm btn-secondary" disabled="@(_speedPage <= 1)" @onclick="() => ChangeSpeedPage(-1)"><AppIcon Name="chevron-left" /> Prev</button>
                                     <span class="pagination-info">Page @_speedPage of @SpeedTotalPages (@_speedResults.Count results)</span>
-                                    <button class="btn btn-sm btn-secondary" disabled="@(_speedPage >= SpeedTotalPages)" @onclick="() => ChangeSpeedPage(1)">Next</button>
+                                    <button class="btn btn-sm btn-secondary" disabled="@(_speedPage >= SpeedTotalPages)" @onclick="() => ChangeSpeedPage(1)">Next <AppIcon Name="chevron-right" /></button>
                                 </div>
                             }
                         </div>
@@ -1006,9 +1006,9 @@
                             @if (SignalTotalPages > 1)
                             {
                                 <div class="pagination">
-                                    <button class="btn btn-sm btn-secondary" disabled="@(_signalPage <= 1)" @onclick="() => ChangeSignalPage(-1)">Prev</button>
+                                    <button class="btn btn-sm btn-secondary" disabled="@(_signalPage <= 1)" @onclick="() => ChangeSignalPage(-1)"><AppIcon Name="chevron-left" /> Prev</button>
                                     <span class="pagination-info">Page @_signalPage of @SignalTotalPages (@_cachedCollapsed.Count rows)</span>
-                                    <button class="btn btn-sm btn-secondary" disabled="@(_signalPage >= SignalTotalPages)" @onclick="() => ChangeSignalPage(1)">Next</button>
+                                    <button class="btn btn-sm btn-secondary" disabled="@(_signalPage >= SignalTotalPages)" @onclick="() => ChangeSignalPage(1)">Next <AppIcon Name="chevron-right" /></button>
                                 </div>
                             }
                         </div>
@@ -1115,9 +1115,9 @@
                             @if (ConnectionTotalPages > 1)
                             {
                                 <div class="pagination">
-                                    <button class="btn btn-sm btn-secondary" disabled="@(_connectionPage <= 1)" @onclick="() => ChangeConnectionPage(-1)">Prev</button>
+                                    <button class="btn btn-sm btn-secondary" disabled="@(_connectionPage <= 1)" @onclick="() => ChangeConnectionPage(-1)"><AppIcon Name="chevron-left" /> Prev</button>
                                     <span class="pagination-info">Page @_connectionPage of @ConnectionTotalPages (@_connectionEvents.Count events)</span>
-                                    <button class="btn btn-sm btn-secondary" disabled="@(_connectionPage >= ConnectionTotalPages)" @onclick="() => ChangeConnectionPage(1)">Next</button>
+                                    <button class="btn btn-sm btn-secondary" disabled="@(_connectionPage >= ConnectionTotalPages)" @onclick="() => ChangeConnectionPage(1)">Next <AppIcon Name="chevron-right" /></button>
                                 </div>
                             }
                         </div>

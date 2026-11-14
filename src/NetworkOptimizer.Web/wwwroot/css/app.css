@@ -2984,8 +2984,9 @@ a.stat-card-link:active {
     }
 }
 
+/* Previous and next device: the same icon button as a table's pager. */
 .nav-btn {
-    background: var(--bg-card);
+    background: var(--bg-tertiary);
     border: 1px solid var(--border-color);
     color: var(--text-primary);
     width: 28px;
@@ -3000,7 +3001,14 @@ a.stat-card-link:active {
 }
 
 .nav-btn:hover:not(:disabled) {
-    background: var(--accent-color, #3b82f6);
+    background: var(--bg-elevated);
+    border-color: var(--border-strong);
+}
+
+.nav-btn .line-icon,
+.wifi-tabs-scroll-btn .line-icon {
+    width: 16px;
+    height: 16px;
 }
 
 .nav-btn:disabled {
@@ -7924,9 +7932,61 @@ a.path-hop.hop-clickable:hover {
     margin-top: 1rem;
 }
 
-.pagination-info {
+.pagination-info,
+.page-indicator {
+    font-family: var(--font-display);
+    font-variant-numeric: tabular-nums;
+    word-spacing: var(--display-word-spacing);
     color: var(--text-secondary);
     font-size: 0.875rem;
+}
+
+/* Previous and next, on every pager: a drawn chevron beside the word, the pair the same width
+   so the page count between them does not shift as the buttons enable. */
+.pagination .btn-sm,
+.audit-pager .btn-sm {
+    min-width: 4.75rem;
+    justify-content: center;
+}
+
+.pagination .btn .line-icon,
+.audit-pager .btn .line-icon,
+.pagination-info ~ .btn .line-icon,
+.btn:has(+ .pagination-info) .line-icon {
+    width: 1.1em;
+    height: 1.1em;
+    margin: 0 -0.2em;
+}
+
+/* First, previous, next, last as icon buttons (the Wi-Fi tables). */
+.page-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--border-radius);
+    color: var(--text-primary);
+    cursor: pointer;
+    transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.page-btn .line-icon {
+    width: 16px;
+    height: 16px;
+}
+
+.page-btn:hover:not(:disabled) {
+    background: var(--bg-elevated);
+    border-color: var(--border-strong);
+}
+
+.page-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
 }
 
 /* Sits inside the history card rather than between sections, so it needs the room underneath. */
@@ -12724,27 +12784,6 @@ h3 > .tooltip-icon-sm {
     display: flex;
     align-items: center;
     gap: 0.5rem;
-}
-
-.client-list-section .page-btn {
-    padding: 0.4rem 0.6rem;
-    font-size: 0.85rem;
-    background: var(--bg-secondary);
-    border: 1px solid var(--border-color);
-    border-radius: var(--border-radius);
-    color: var(--text-primary);
-    cursor: pointer;
-    transition: all 0.15s ease;
-}
-
-.client-list-section .page-btn:hover:not(:disabled) {
-    background: var(--bg-tertiary);
-    border-color: var(--primary-color);
-}
-
-.client-list-section .page-btn:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
 }
 
 .client-list-section .page-indicator {

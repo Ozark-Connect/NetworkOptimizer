@@ -153,9 +153,9 @@
         @if (TotalPages() > 1)
         {
             <div style="display: flex; align-items: center; gap: 0.75rem; margin-top: 0.75rem;">
-                <button class="btn btn-sm btn-secondary" disabled="@(_page == 0)" @onclick="() => { _page--; StateHasChanged(); }">Prev</button>
+                <button class="btn btn-sm btn-secondary" disabled="@(_page == 0)" @onclick="() => { _page--; StateHasChanged(); }"><AppIcon Name="chevron-left" /> Prev</button>
                 <span class="pagination-info">@(_page + 1) / @TotalPages()</span>
-                <button class="btn btn-sm btn-secondary" disabled="@(_page >= TotalPages() - 1)" @onclick="() => { _page++; StateHasChanged(); }">Next</button>
+                <button class="btn btn-sm btn-secondary" disabled="@(_page >= TotalPages() - 1)" @onclick="() => { _page++; StateHasChanged(); }">Next <AppIcon Name="chevron-right" /></button>
             </div>
         }
         @if (!_ontHintDismissed)

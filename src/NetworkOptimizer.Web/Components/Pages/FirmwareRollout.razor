@@ -692,9 +692,9 @@ else
             @if (HistoryPages > 1)
             {
                 <div class="pagination history-pagination">
-                    <button class="btn btn-sm btn-secondary" disabled="@(_historyPage <= 1)" @onclick="() => ChangeHistoryPageAsync(-1)"><span class="pag-arrow">←</span> Prev</button>
+                    <button class="btn btn-sm btn-secondary" disabled="@(_historyPage <= 1)" @onclick="() => ChangeHistoryPageAsync(-1)"><AppIcon Name="chevron-left" /> Prev</button>
                     <span class="pagination-info">Page @_historyPage of @HistoryPages (@_historyTotal total)</span>
-                    <button class="btn btn-sm btn-secondary" disabled="@(_historyPage >= HistoryPages)" @onclick="() => ChangeHistoryPageAsync(1)">Next <span class="pag-arrow">→</span></button>
+                    <button class="btn btn-sm btn-secondary" disabled="@(_historyPage >= HistoryPages)" @onclick="() => ChangeHistoryPageAsync(1)">Next <AppIcon Name="chevron-right" /></button>
                 </div>
             }
         </div>

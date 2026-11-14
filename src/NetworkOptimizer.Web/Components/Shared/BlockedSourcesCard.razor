@@ -76,9 +76,9 @@
                 @if (ActivePages > 1)
                 {
                     <div class="pagination">
-                        <button class="btn btn-sm btn-secondary" disabled="@(_activePage <= 1)" @onclick="() => _activePage--"><span class="pag-arrow">←</span> Prev</button>
+                        <button class="btn btn-sm btn-secondary" disabled="@(_activePage <= 1)" @onclick="() => _activePage--"><AppIcon Name="chevron-left" /> Prev</button>
                         <span class="pagination-info">Page @_activePage of @ActivePages (@_overview.Active.Count total)</span>
-                        <button class="btn btn-sm btn-secondary" disabled="@(_activePage >= ActivePages)" @onclick="() => _activePage++">Next <span class="pag-arrow">→</span></button>
+                        <button class="btn btn-sm btn-secondary" disabled="@(_activePage >= ActivePages)" @onclick="() => _activePage++">Next <AppIcon Name="chevron-right" /></button>
                     </div>
                 }
             }
@@ -117,9 +117,9 @@
                 @if (SharedPages > 1)
                 {
                     <div class="pagination">
-                        <button class="btn btn-sm btn-secondary" disabled="@(_sharedPage <= 1)" @onclick="() => _sharedPage--"><span class="pag-arrow">←</span> Prev</button>
+                        <button class="btn btn-sm btn-secondary" disabled="@(_sharedPage <= 1)" @onclick="() => _sharedPage--"><AppIcon Name="chevron-left" /> Prev</button>
                         <span class="pagination-info">Page @_sharedPage of @SharedPages (@_overview.Shared.Count total)</span>
-                        <button class="btn btn-sm btn-secondary" disabled="@(_sharedPage >= SharedPages)" @onclick="() => _sharedPage++">Next <span class="pag-arrow">→</span></button>
+                        <button class="btn btn-sm btn-secondary" disabled="@(_sharedPage >= SharedPages)" @onclick="() => _sharedPage++">Next <AppIcon Name="chevron-right" /></button>
                     </div>
                 }
             }

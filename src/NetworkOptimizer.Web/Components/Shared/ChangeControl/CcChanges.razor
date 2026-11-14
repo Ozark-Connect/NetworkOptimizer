@@ -336,9 +336,9 @@
         @if (PageCount > 1)
         {
             <div class="pagination history-pagination">
-                <button class="btn btn-secondary btn-sm" disabled="@(_page == 0)" @onclick="() => _page--"><span class="pag-arrow">&#8249;</span> Previous</button>
+                <button class="btn btn-secondary btn-sm" disabled="@(_page == 0)" @onclick="() => _page--"><AppIcon Name="chevron-left" /> Previous</button>
                 <span class="pagination-info">Page @(_page + 1) of @PageCount</span>
-                <button class="btn btn-secondary btn-sm" disabled="@(_page >= PageCount - 1)" @onclick="() => _page++">Next <span class="pag-arrow">&#8250;</span></button>
+                <button class="btn btn-secondary btn-sm" disabled="@(_page >= PageCount - 1)" @onclick="() => _page++">Next <AppIcon Name="chevron-right" /></button>
             </div>
         }
     }

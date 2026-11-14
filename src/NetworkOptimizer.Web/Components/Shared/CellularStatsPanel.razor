@@ -126,9 +126,9 @@
             <div class="modem-nav">
                 @if (configuredModems.Count > 1)
                 {
-                    <button class="nav-btn" @onclick="PreviousModem" @onclick:stopPropagation disabled="@(currentModemIndex == 0)">‹</button>
+                    <button class="nav-btn" @onclick="PreviousModem" @onclick:stopPropagation disabled="@(currentModemIndex == 0)"><AppIcon Name="chevron-left" /></button>
                     <span class="modem-counter">@(currentModemIndex + 1)/@configuredModems.Count</span>
-                    <button class="nav-btn" @onclick="NextModem" @onclick:stopPropagation disabled="@(currentModemIndex >= configuredModems.Count - 1)">›</button>
+                    <button class="nav-btn" @onclick="NextModem" @onclick:stopPropagation disabled="@(currentModemIndex >= configuredModems.Count - 1)"><AppIcon Name="chevron-right" /></button>
                 }
             </div>
             <div class="modem-identity" data-spark-model data-tour="cellular-identity" data-tooltip="@DeviceTooltip()" data-tooltip-wide @onclick:stopPropagation>

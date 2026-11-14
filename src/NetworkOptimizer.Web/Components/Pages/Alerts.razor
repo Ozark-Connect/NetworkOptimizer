@@ -50,7 +50,7 @@
     <div class="alerts-header-bar">
         <div class="wifi-view-tabs-wrapper" style="margin-bottom:0;">
             <button class="wifi-tabs-scroll-btn wifi-tabs-scroll-left"
-                    onclick="this.parentElement.querySelector('.wifi-view-tabs').scrollBy({left: -200, behavior: 'smooth'})">&#8249;</button>
+                    onclick="this.parentElement.querySelector('.wifi-view-tabs').scrollBy({left: -200, behavior: 'smooth'})"><AppIcon Name="chevron-left" /></button>
             <div class="wifi-view-tabs" style="border-bottom:none; padding-bottom:0;">
                 @if (FeatureFlags.SchedulingEnabled)
                 {
@@ -76,7 +76,7 @@
                 }
             </div>
             <button class="wifi-tabs-scroll-btn wifi-tabs-scroll-right"
-                    onclick="this.parentElement.querySelector('.wifi-view-tabs').scrollBy({left: 200, behavior: 'smooth'})">&#8250;</button>
+                    onclick="this.parentElement.querySelector('.wifi-view-tabs').scrollBy({left: 200, behavior: 'smooth'})"><AppIcon Name="chevron-right" /></button>
         </div>
     </div>
 
@@ -1097,12 +1097,12 @@
                     {
                         <div class="pagination history-pagination">
                             <button class="btn btn-sm btn-secondary" disabled="@(_historyPage == 0)"
-                                    @onclick="() => GoToHistoryPage(_historyPage - 1)">Prev</button>
+                                    @onclick="() => GoToHistoryPage(_historyPage - 1)"><AppIcon Name="chevron-left" /> Prev</button>
                             <span class="pagination-info">
                                 Page @(_historyPage + 1) of @HistoryPageCount (@_historyTotal alerts)
                             </span>
                             <button class="btn btn-sm btn-secondary" disabled="@(_historyPage >= HistoryPageCount - 1)"
-                                    @onclick="() => GoToHistoryPage(_historyPage + 1)">Next</button>
+                                    @onclick="() => GoToHistoryPage(_historyPage + 1)">Next <AppIcon Name="chevron-right" /></button>
                         </div>
                     }
                 </div>

@@ -407,12 +407,12 @@
                     @if (_totalPages > 1)
                     {
                         <div class="pagination">
-                            <button class="btn btn-sm btn-secondary" disabled="@(_page <= 1)" @onclick="() => ChangePage(-1)"><span class="pag-arrow">←</span> Prev</button>
+                            <button class="btn btn-sm btn-secondary" disabled="@(_page <= 1)" @onclick="() => ChangePage(-1)"><AppIcon Name="chevron-left" /> Prev</button>
                             @{
                                 var hasFilter = !string.IsNullOrEmpty(_deviceFilter) || !string.IsNullOrEmpty(_serverFilter);
                             }
                             <span class="pagination-info">Page @_page of @_totalPages (@_filteredResults.Count@(hasFilter ? $" of {_results.Count}" : " total"))</span>
-                            <button class="btn btn-sm btn-secondary" disabled="@(_page >= _totalPages)" @onclick="() => ChangePage(1)">Next <span class="pag-arrow">→</span></button>
+                            <button class="btn btn-sm btn-secondary" disabled="@(_page >= _totalPages)" @onclick="() => ChangePage(1)">Next <AppIcon Name="chevron-right" /></button>
                         </div>
                     }
                 }

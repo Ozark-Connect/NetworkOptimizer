@@ -275,17 +275,17 @@
                         </div>
                         <div class="pagination-buttons">
                             <button class="page-btn" @onclick="GoToFirstPage" disabled="@(_currentPage == 1)">
-                                <span>««</span>
+                                <AppIcon Name="chevron-first" />
                             </button>
                             <button class="page-btn" @onclick="GoToPreviousPage" disabled="@(_currentPage == 1)">
-                                <span>‹</span>
+                                <AppIcon Name="chevron-left" />
                             </button>
                             <span class="page-indicator">Page @_currentPage of @TotalPages</span>
                             <button class="page-btn" @onclick="GoToNextPage" disabled="@(_currentPage >= TotalPages)">
-                                <span>›</span>
+                                <AppIcon Name="chevron-right" />
                             </button>
                             <button class="page-btn" @onclick="GoToLastPage" disabled="@(_currentPage >= TotalPages)">
-                                <span>»»</span>
+                                <AppIcon Name="chevron-last" />
                             </button>
                         </div>
                     </div>
@@ -943,27 +943,6 @@
         display: flex;
         align-items: center;
         gap: 0.5rem;
-    }
-
-    .page-btn {
-        padding: 0.4rem 0.6rem;
-        font-size: 0.85rem;
-        background: var(--bg-secondary);
-        border: 1px solid var(--border-color);
-        border-radius: var(--border-radius);
-        color: var(--text-primary);
-        cursor: pointer;
-        transition: all 0.15s ease;
-    }
-
-    .page-btn:hover:not(:disabled) {
-        background: var(--bg-tertiary);
-        border-color: var(--primary-color);
-    }
-
-    .page-btn:disabled {
-        opacity: 0.5;
-        cursor: not-allowed;
     }
 
     .page-indicator {

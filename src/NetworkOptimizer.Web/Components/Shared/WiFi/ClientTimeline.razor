@@ -150,17 +150,17 @@
                     </div>
                     <div class="pagination-buttons">
                         <button class="page-btn" @onclick="GoToFirstPage" disabled="@(_currentPage == 1)">
-                            <span>««</span>
+                            <AppIcon Name="chevron-first" />
                         </button>
                         <button class="page-btn" @onclick="GoToPreviousPage" disabled="@(_currentPage == 1)">
-                            <span>‹</span>
+                            <AppIcon Name="chevron-left" />
                         </button>
                         <span class="page-indicator">Page @_currentPage of @TotalPages</span>
                         <button class="page-btn" @onclick="GoToNextPage" disabled="@(_currentPage >= TotalPages)">
-                            <span>›</span>
+                            <AppIcon Name="chevron-right" />
                         </button>
                         <button class="page-btn" @onclick="GoToLastPage" disabled="@(_currentPage >= TotalPages)">
-                            <span>»»</span>
+                            <AppIcon Name="chevron-last" />
                         </button>
                     </div>
                 </div>
