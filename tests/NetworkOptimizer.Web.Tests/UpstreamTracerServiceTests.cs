@@ -539,109 +539,26 @@ public class UpstreamCommitTests : IDisposable
 
     // ---- Helpers ----
 
-    // TODO: this is a copy of the commit logic, not UpstreamTracerService's own upserts, so these tests
-    // pass whatever the real code does. Drive them through UpsertTargetAsync / UpsertTransitTargetAsync /
-    // PauseUnselected*Async / PauseUnproposedAccessRowsAsync instead (UpstreamTracerUnproposedAccessTests does).
+    // The real commit methods, in the order UpstreamTracerService's commit runs them, as an operator's commit.
     private async Task CommitAsync(List<AccessHopCandidate> hops, List<TransitAsnCandidate> transits)
     {
-        var wanInterface = "wan";
+        const string wan = "wan";
+        var ct = CancellationToken.None;
 
         foreach (var hop in hops.Where(h => h.Enabled))
-        {
-            var existing = await _db.MonitoringTargets.FirstOrDefaultAsync(t => t.TargetId == hop.TargetId)
-                           ?? await _db.MonitoringTargets.FirstOrDefaultAsync(t => t.Address == hop.Address);
-            if (existing == null)
-            {
-                _db.MonitoringTargets.Add(new MonitoringTarget
-                {
-                    TargetId = hop.TargetId,
-                    Name = hop.Label,
-                    Address = hop.Address,
-                    ProbeMode = hop.RespondedTo,
-                    TargetType = MonitoringTargetType.AccessIsp,
-                    AsnNumber = hop.AsnNumber,
-                    AsnName = UpstreamTracerService.CleanAsnName(hop.AsnName),
-                    VantagePoint = "server",
-                    PollIntervalSeconds = 10,
-                    PingCount = 5,
-                    Enabled = true,
-                    AutoDiscovered = true,
-                    DiscoveryMethod = hop.Method,
-                    WanInterface = wanInterface,
-                    CreatedAt = DateTime.UtcNow,
-                    LastVerified = DateTime.UtcNow
-                });
-            }
-            else
-            {
-                existing.Enabled = true;
-                existing.Name = hop.Label;
-                if (hop.AsnNumber.HasValue) existing.AsnNumber = hop.AsnNumber;
-                if (!string.IsNullOrEmpty(hop.AsnName)) existing.AsnName = UpstreamTracerService.CleanAsnName(hop.AsnName);
-                existing.LastVerified = DateTime.UtcNow;
-            }
-        }
+            await UpstreamTracerService.UpsertTargetAsync(_db, hop, wan, wanContextId: null, ct);
         foreach (var hop in hops.Where(h => !h.Enabled))
-        {
-            var existing = await _db.MonitoringTargets.FirstOrDefaultAsync(t => t.Address == hop.Address);
-            if (existing != null)
-            {
-                existing.Enabled = false;
-                existing.Name = hop.Label;
-                if (!string.IsNullOrEmpty(hop.AsnName)) existing.AsnName = UpstreamTracerService.CleanAsnName(hop.AsnName);
-            }
-        }
+            await UpstreamTracerService.PauseUnselectedAccessHopAsync(_db, hop, wan, isUnboundRun: true, automatic: false, ct);
+        await UpstreamTracerService.PauseUnproposedAccessRowsAsync(_db, hops.Select(h => h.Address).ToList(), wan,
+            isUnboundRun: true, automatic: false, ct);
         foreach (var transit in transits.Where(t => t.Enabled))
-        {
-            var targetType = transit.Method == DiscoveryMethod.PathProxy
-                ? MonitoringTargetType.InternetService
-                : MonitoringTargetType.Transit;
-            var address = transit.HopAddress ?? transit.PathProxyTarget;
-            var existing = await _db.MonitoringTargets.FirstOrDefaultAsync(t => t.TargetId == transit.TargetId)
-                           ?? (address != null ? await _db.MonitoringTargets.FirstOrDefaultAsync(t => t.Address == address) : null);
-            if (existing == null && !string.IsNullOrEmpty(address))
-            {
-                _db.MonitoringTargets.Add(new MonitoringTarget
-                {
-                    TargetId = transit.TargetId ?? $"transit-{Guid.NewGuid():N}",
-                    Name = transit.Label ?? transit.AsnName,
-                    Address = address,
-                    ProbeMode = transit.RespondedTo ?? ProbeMode.Icmp,
-                    TargetType = targetType,
-                    AsnNumber = transit.AsnNumber,
-                    AsnName = transit.AsnName,
-                    VantagePoint = "server",
-                    PollIntervalSeconds = 15,
-                    PingCount = 5,
-                    Enabled = true,
-                    AutoDiscovered = true,
-                    DiscoveryMethod = transit.Method,
-                    WanInterface = wanInterface,
-                    CreatedAt = DateTime.UtcNow,
-                    LastVerified = DateTime.UtcNow
-                });
-            }
-            else if (existing != null)
-            {
-                existing.Enabled = true;
-                existing.Name = transit.Label ?? transit.AsnName;
-                existing.Address = address ?? existing.Address;
-                if (transit.AsnNumber > 0) existing.AsnNumber = transit.AsnNumber;
-                if (!string.IsNullOrEmpty(transit.AsnName)) existing.AsnName = transit.AsnName;
-                existing.LastVerified = DateTime.UtcNow;
-            }
-        }
+            await UpstreamTracerService.UpsertTransitTargetAsync(_db, transit, wan, wanContextId: null, ct);
         foreach (var transit in transits.Where(t => !t.Enabled))
         {
-            var addr = transit.HopAddress ?? transit.PathProxyTarget;
-            if (string.IsNullOrEmpty(addr)) continue;
-            var existing = await _db.MonitoringTargets.FirstOrDefaultAsync(t => t.Address == addr);
-            if (existing != null)
-            {
-                existing.Enabled = false;
-                existing.Name = transit.Label ?? transit.AsnName;
-                if (!string.IsNullOrEmpty(transit.AsnName)) existing.AsnName = transit.AsnName;
-            }
+            if (transit.Method == DiscoveryMethod.PathProxy)
+                await UpstreamTracerService.UpsertTransitTargetAsync(_db, transit, wan, wanContextId: null, ct, enabled: false);
+            else
+                await UpstreamTracerService.PauseUnselectedTransitAsync(_db, transit, wan, isUnboundRun: true, automatic: false, ct);
         }
 
         await _db.SaveChangesAsync();
