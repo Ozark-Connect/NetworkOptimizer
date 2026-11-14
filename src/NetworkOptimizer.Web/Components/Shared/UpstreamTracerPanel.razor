@@ -278,7 +278,17 @@
                                             </td>
                                             <td><code>@hop.Address</code> @(string.IsNullOrEmpty(hop.PtrHostname) ? "" : $"({hop.PtrHostname})")</td>
                                             <td>@(hop.Method == DiscoveryMethod.L2Neighbor ? "L2 neighbor" : hop.Method == DiscoveryMethod.ConfiguredFallback ? "Curated" : $"Hop {hop.HopNumber}")</td>
-                                            <td>@hop.Role.ToDisplayName()</td>
+                                            <td>
+                                                @if (hop.CustomerPremises)
+                                                {
+                                                    @("Customer premises")
+                                                    <span class="tooltip-icon tooltip-icon-sm" data-tooltip="@CustomerPremisesNote">?</span>
+                                                }
+                                                else
+                                                {
+                                                    @hop.Role.ToDisplayName()
+                                                }
+                                            </td>
                                             <td>
                                                 @(hop.Unreachable ? "Unreachable" : hop.VerifiedRttMs.HasValue ? $"{hop.VerifiedRttMs:F1} ms" : "-")
                                                 @if (hop.UnansweredWhileBusy)
@@ -728,6 +738,8 @@
 
     private const string BusyUnansweredNote =
         "It did not answer during a busy run. It is already monitored, so it stays checked; untick it to pause it.";
+    private const string CustomerPremisesNote =
+        "Answers faster than your ISP's side of the connection, so it looks like equipment in your home or building (an ISP gateway or modem). Left unchecked; check it to monitor it anyway.";
     private const string HighRttNote =
         "Far slower than the other transit routers on your path, so it is left unchecked. Check it to monitor it anyway.";
     /// <summary>Whether this run has already told the pin to stop following. Once per run.</summary>

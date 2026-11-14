@@ -124,8 +124,9 @@ public class UpstreamCommitTests : IDisposable
     }
 
     [Fact]
-    public async Task Disabled_access_hop_does_not_create_target()
+    public async Task Unchecked_new_access_hop_is_saved_paused()
     {
+        // Saved paused, as path-end hosts are, so the next run proposes it unchecked.
         var hops = new List<AccessHopCandidate>
         {
             MakeAccessHop("192.0.2.1", "TestISP bng", enabled: false)
@@ -134,7 +135,21 @@ public class UpstreamCommitTests : IDisposable
         await CommitAsync(hops, new List<TransitAsnCandidate>());
 
         var target = await _db.MonitoringTargets.FirstOrDefaultAsync(t => t.Address == "192.0.2.1");
-        target.Should().BeNull();
+        target.Should().NotBeNull();
+        target!.Enabled.Should().BeFalse();
+        target.Name.Should().Be("TestISP bng");
+        target.TargetType.Should().Be(MonitoringTargetType.AccessIsp);
+    }
+
+    [Fact]
+    public async Task Unreachable_new_access_hop_does_not_create_target()
+    {
+        var hop = MakeAccessHop("192.0.2.2", "TestISP olt", enabled: false);
+        hop.Unreachable = true;
+
+        await CommitAsync(new List<AccessHopCandidate> { hop }, new List<TransitAsnCandidate>());
+
+        (await _db.MonitoringTargets.FirstOrDefaultAsync(t => t.Address == "192.0.2.2")).Should().BeNull();
     }
 
     [Fact]
