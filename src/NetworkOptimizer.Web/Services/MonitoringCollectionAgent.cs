@@ -73,6 +73,7 @@ public class MonitoringCollectionAgent : BackgroundService
 
     // Counter delta cache for server-side rate computation. Key = "deviceMac/ifName".
     private readonly ConcurrentDictionary<string, InterfaceRateCalculator.State> _counterCache = new();
+    private readonly FanSpeedGuard _fanGuard = new();
     private bool _fabricSeeded;
     // Per-target last-probed time, for per-target poll intervals on a shared loop.
     private readonly ConcurrentDictionary<int, DateTime> _targetLastProbed = new();
@@ -922,7 +923,7 @@ public class MonitoringCollectionAgent : BackgroundService
                 var memPct = metrics.MemoryUsage > 0 ? metrics.MemoryUsage : (double?)null;
                 var temp = metrics.Temperature > 0 ? metrics.Temperature : (double?)null;
                 var uptime = metrics.Uptime > 0 ? metrics.Uptime / 100 : (long?)null;
-                var fanRpm = metrics.FanSpeedRpm;
+                var fanRpm = _fanGuard.Accept(NormalizeMac(device.Mac), metrics.FanSpeedRpm);
 
                 if (cpu != null || memPct != null)
                     snmpHealthHits[NormalizeMac(device.Mac)] = true;
@@ -2212,7 +2213,7 @@ public class MonitoringCollectionAgent : BackgroundService
 
         // A read the calculator does not trust is not stored either: one zero or corrupt sample in
         // the counter series reads as the whole counter's worth of traffic once differenced.
-        if (calc.Outcome is InterfaceRateCalculator.Outcome.ResetPending or InterfaceRateCalculator.Outcome.ImplausibleRate)
+        if (calc.Outcome is InterfaceRateCalculator.Outcome.ResetPending or InterfaceRateCalculator.Outcome.ImplausibleRate || calc.NewState.ProvisionalSeed)
             return (rateInBps, rateOutBps);
 
         _ = _influx.WriteInterfaceCountersAsync(
