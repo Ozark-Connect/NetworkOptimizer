@@ -257,7 +257,7 @@ else if (_wizardOpen)
                     var n = i + 1;
                     var stepClass = n < _step ? "done" : n == _step ? "current" : "upcoming";
                     <div class="site-wizard-step @stepClass">
-                        <span class="site-wizard-step-node">@if (n < _step) { <text>&#x2713;</text> } else { @n }</span>
+                        <span class="site-wizard-step-node">@if (n < _step) { <AppIcon Name="check" /> } else { @n }</span>
                         <span class="site-wizard-step-label">@stepNames[i]</span>
                     </div>
                 }

@@ -79,7 +79,7 @@
     {
         <div class="connection-banner">
             <div class="banner-content">
-                <span class="banner-icon">!</span>
+                <span class="banner-icon"><AppIcon Name="console" /></span>
                 <div class="banner-text">
                     <strong>Not Connected</strong>
                     <span>Unable to reach the UniFi Console. Signal polling is paused.</span>
@@ -92,7 +92,7 @@
     {
         <div class="connection-banner">
             <div class="banner-content">
-                <span class="banner-icon">!</span>
+                <span class="banner-icon"><AppIcon Name="warning" /></span>
                 <div class="banner-text">
                     <strong>Polling Interrupted</strong>
                     <span>@_consecutiveFailures consecutive polls failed. Retrying...</span>
@@ -105,7 +105,7 @@
     {
         <div class="connection-banner">
             <div class="banner-content">
-                <span class="banner-icon">!</span>
+                <span class="banner-icon"><AppIcon Name="location" /></span>
                 <div class="banner-text">
                     <strong>GPS Unavailable</strong>
                     <span>Location data for signal mapping requires HTTPS. Connect via HTTPS to enable walk-test mapping.</span>
@@ -118,7 +118,7 @@
     {
         <div class="connection-banner">
             <div class="banner-content">
-                <span class="banner-icon">!</span>
+                <span class="banner-icon"><AppIcon Name="location" /></span>
                 <div class="banner-text">
                     <strong>Location Permission Denied</strong>
                     <span>Enable location access in your browser or device settings to collect GPS data for walk-test signal mapping.</span>
@@ -131,7 +131,7 @@
     {
         <div class="connection-banner">
             <div class="banner-content">
-                <span class="banner-icon">!</span>
+                <span class="banner-icon"><AppIcon Name="warning" /></span>
                 <div class="banner-text">
                     <strong>Device Offline</strong>
                     <span>This device is currently offline. Showing historical data. Live data will appear when it reconnects.</span>
@@ -4810,7 +4810,8 @@
         gap: 2px;
         padding: 6px 10px;
         border-radius: var(--border-radius-lg);
-        background: var(--bg-tertiary);
+        background: var(--bg-inset);
+        box-shadow: inset 0 0 0 1px var(--border-color);
     }
     .signal-value {
         font-size: 1.5rem;
@@ -4866,9 +4867,33 @@
         font-size: 0.8125rem;
         color: var(--text-secondary);
         margin-bottom: 1rem;
+        position: relative;
+    }
+    /* Rules between the header's three groups (identity and signal, link details, figures). They
+       are drawn in the gaps the layout already has, so no row moves. */
+    .identity-row-2::before {
+        content: "";
+        position: absolute;
+        left: 0;
+        right: 0;
+        top: -4px;
+        height: 1px;
+        background: var(--border-color);
     }
     .identity-detail {
         white-space: nowrap;
+    }
+    .identity-row-2 .speed-down,
+    .identity-row-2 .speed-up,
+    .signal-summary .summary-value {
+        font-family: var(--font-display);
+        word-spacing: var(--display-word-spacing);
+    }
+    .identity-row-2 .identity-tx,
+    .identity-row-2 .identity-rx,
+    .identity-row-2 .identity-throughput {
+        font-family: var(--font-display);
+        word-spacing: var(--display-word-spacing);
     }
     /* A sentence in the detail row (the Tailscale setup line): it wraps, and on a phone spans the grid. */
     .identity-row-2 .identity-note {
@@ -5707,6 +5732,22 @@
             grid-template-columns: 1fr 1fr;
             gap: 6px 12px;
             margin-bottom: 0;
+        }
+        .identity-figures > .identity-detail {
+            position: relative;
+        }
+        .identity-figures > .identity-detail:nth-child(-n+2)::before {
+            content: "";
+            position: absolute;
+            left: 0;
+            right: 0;
+            top: -3.5px;
+            height: 1px;
+            background: var(--border-color);
+        }
+        /* The first one bridges the column gap, so the pair reads as one rule. */
+        .identity-figures > .identity-detail:first-child::before {
+            right: -12px;
         }
         .logging-toggle-desktop {
             display: none;

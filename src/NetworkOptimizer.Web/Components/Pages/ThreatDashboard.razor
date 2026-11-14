@@ -123,7 +123,7 @@
                 <button class="btn btn-sm btn-secondary filter-gear-btn"
                         @onclick="() => _showFilterPanel = !_showFilterPanel"
                         data-tooltip="Configure noise filters"
-                        data-tooltip-hover-only>&#9881;</button>
+                        data-tooltip-hover-only><AppIcon Name="settings" /></button>
             </div>
         }
         else
@@ -845,7 +845,7 @@ else
                     else
                     {
                         <div class="empty-state">
-                            <div class="empty-icon">&#10003;</div>
+                            <div class="empty-icon"><AppIcon Name="check" /></div>
                             <h3>No Exposed Services</h3>
                             <p>No port forward rules detected, or no threats are targeting forwarded ports.</p>
                         </div>
@@ -995,7 +995,7 @@ else
                 else
                 {
                     <div class="empty-state">
-                        <div class="empty-icon">&#10003;</div>
+                        <div class="empty-icon"><AppIcon Name="check" /></div>
                         <h3>No Multi-Stage Sequences</h3>
                         <p>No source IPs exhibited activity across multiple kill chain stages in this period.</p>
                     </div>

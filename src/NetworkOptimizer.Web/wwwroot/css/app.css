@@ -85,6 +85,8 @@
     --border-color: #1e232a;
     /* Unlit gauge ticks, meter tracks, and the edge of a control that sits on a card */
     --border-strong: #2b323c;
+    /* Cuts a meter's track and fill into the dial's ticks */
+    --meter-ticks: repeating-linear-gradient(90deg, #000 0 3px, transparent 0 5px);
     --border-radius: 2px;
     --border-radius-lg: 3px;
     --shadow: none;
@@ -115,12 +117,20 @@ html, body {
 }
 
 /* AppIcon: a line icon the size of the text around it. */
-.app-icon {
+.line-icon {
     display: inline-block;
     width: 1em;
     height: 1em;
     flex-shrink: 0;
     vertical-align: -0.125em;
+}
+
+/* Where the glyph it replaced was set bold */
+.no-alerts-icon .line-icon,
+.empty-icon .line-icon,
+.stage-icon .line-icon,
+.site-wizard-success-icon .line-icon {
+    stroke-width: 2.2;
 }
 
 /* Numeric readouts take the display face with fixed-width figures, so a value that ticks does
@@ -5526,6 +5536,12 @@ input.form-control::-webkit-date-and-time-value {
     justify-content: center;
 }
 
+/* A drawn icon in the banner's circle, at GatewayIcon's size */
+.banner-icon .line-icon {
+    width: 28px;
+    height: 28px;
+}
+
 .banner-icon-info {
     background: var(--info-color);
     color: var(--text-primary);
@@ -9073,12 +9089,17 @@ a.path-hop.hop-clickable:hover {
     border-bottom: none;
 }
 
+/* The AppIcon check, as a mask: a list marker cannot hold a component. */
 .hardening-list li::before {
-    content: "✓";
+    content: "";
     position: absolute;
     left: 0;
-    color: var(--success-color);
-    font-weight: bold;
+    top: calc(0.5rem + 0.3em);
+    width: 1em;
+    height: 1em;
+    background: var(--success-color);
+    -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 12.5l4.5 4.5L19 7.5'/%3E%3C/svg%3E") center / contain no-repeat;
+    mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 12.5l4.5 4.5L19 7.5'/%3E%3C/svg%3E") center / contain no-repeat;
 }
 
 /* DNS Security summary */
@@ -10797,12 +10818,8 @@ h3 > .tooltip-icon-sm {
     color: var(--text-secondary);
 }
 
-/* A meter in the dial's own ticks: the track and its fill are both cut by the one mask. */
 .dimension-bar-container {
     height: 8px;
-    background: var(--border-strong);
-    -webkit-mask: repeating-linear-gradient(90deg, #000 0 3px, transparent 0 5px);
-    mask: repeating-linear-gradient(90deg, #000 0 3px, transparent 0 5px);
     overflow: hidden;
 }
 
@@ -20392,6 +20409,26 @@ a.isp-health-hero-speed:hover {
     overflow: hidden;
 }
 
+/* Score meters, in the dial's own ticks: the track and its fill are both cut by the one mask.
+   After the rules it restyles, so it wins on background and radius without outranking them. */
+.dimension-bar-container,
+.util-bar-container,
+.retry-bar-container,
+.band-env-metric .metric-bar,
+.stage-bar,
+.ap-success-bar-container,
+.isp-factor-bar-track,
+.isp-asn-score-track {
+    background: var(--border-strong);
+    border-radius: 0;
+    -webkit-mask: var(--meter-ticks);
+    mask: var(--meter-ticks);
+}
+
+.isp-factor-bar-track.isp-factor-bar-track-empty {
+    background: transparent;
+}
+
 .isp-event-timeline {
     position: relative;
     display: flex;
@@ -24817,7 +24854,7 @@ body:has(.top-bar-hidden) .btn-fit {
 .lt-redirected { background: rgba(71, 151, 255, 0.15); color: var(--info-color); }
 .lt-site-dns { background: rgba(43, 168, 154, 0.15); color: #2ba89a; }
 .lt-action-blocked { background: rgba(238, 99, 104, 0.15); color: var(--danger-color); }
-/* App icons, drawn as Client Performance draws them (its own .app-icon rules are scoped to that page). */
+/* App icons, drawn as Client Performance draws them (its own .line-icon rules are scoped to that page). */
 .lt-app-cell {
     display: inline-flex;
     align-items: center;

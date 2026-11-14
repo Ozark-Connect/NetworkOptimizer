@@ -44,7 +44,7 @@
 {
     <div class="connection-banner @(!string.IsNullOrEmpty(ConnectionService.LastError) ? "connection-error" : "")">
         <div class="banner-content">
-            <span class="banner-icon">!</span>
+            <span class="banner-icon"><AppIcon Name="console" /></span>
             <div class="banner-text">
                 @if (!string.IsNullOrEmpty(ConnectionService.LastError))
                 {
