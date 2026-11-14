@@ -1597,8 +1597,10 @@
         var firstDescending = column == "signal" || column == "lastSeen";
         if (sortColumn != column)
         {
+            // Cleared is already strongest signal first, so Signal's first click from there goes
+            // the other way: a click always changes the order.
+            sortDescending = sortColumn == null && column == "signal" ? !firstDescending : firstDescending;
             sortColumn = column;
-            sortDescending = firstDescending;
         }
         else if (sortDescending == firstDescending)
         {
