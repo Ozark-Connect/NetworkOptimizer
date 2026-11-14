@@ -402,7 +402,7 @@ public static class ConfigFieldOrder
         new("Identity",
         [
             "name", "mac", "display_name", "hostname", "note", "noted", "blocked", "usergroup_id", "dev_id_override",
-            "fingerprint_override"
+            "fingerprint_override", "ai_icon"
         ]),
         new("Fixed IP",
         [
