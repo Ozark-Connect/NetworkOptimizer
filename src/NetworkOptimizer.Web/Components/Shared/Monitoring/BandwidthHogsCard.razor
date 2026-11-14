@@ -489,11 +489,15 @@ else
                 {
                     <tr><td colspan="@(phone ? 4 : 6)"><span class="spinner spinner-sm"></span></td></tr>
                 }
+                else if (_lt.State == LiveTrafficState.Starting)
+                {
+                    <tr><td colspan="@(phone ? 4 : 6)" class="lt-muted"><span class="spinner spinner-sm"></span> Measuring rates.</td></tr>
+                }
                 else if (flows.Count == 0)
                 {
                     <tr><td colspan="@(phone ? 4 : 6)" class="lt-muted">No WAN flows moving right now.</td></tr>
                 }
-                @foreach (var f in flows)
+                @foreach (var f in _lt?.State == LiveTrafficState.Starting ? Array.Empty<LiveFlowRow>() : flows)
                 {
                     <LiveFlowRowView @key="f.Key" Flow="f" Layout="@(phone ? LiveFlowLayout.NestedPhone : LiveFlowLayout.Nested)" Context="NestedContext(row)" />
                 }
@@ -510,6 +514,12 @@ else
         if (_lt == null)
         {
             <div class="loading-container hogs-loading"><div class="spinner spinner-sm"></div></div>
+            return;
+        }
+        // Until the Gateway's second sample there are no rates, so an empty list is not "no traffic" yet.
+        if (_lt.State == LiveTrafficState.Starting)
+        {
+            <div class="loading-container hogs-loading"><div class="spinner spinner-sm"></div><p>Measuring rates.</p></div>
             return;
         }
         var groups = _lt.Groups.Take(_showAll ? MaxRows : CollapsedRows).ToList();
