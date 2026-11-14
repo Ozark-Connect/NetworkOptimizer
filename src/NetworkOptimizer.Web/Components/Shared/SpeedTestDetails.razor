@@ -1,6 +1,7 @@
 @using NetworkOptimizer.Storage.Models
 @using NetworkOptimizer.UniFi
 @using NetworkOptimizer.UniFi.Models
+@using NetworkOptimizer.Web.Models
 @using NetworkOptimizer.Web.Services
 @using Microsoft.AspNetCore.Authorization
 @using Microsoft.AspNetCore.Components.Authorization
@@ -654,6 +655,12 @@
     [Parameter] public string? ClientRadio { get; set; }
 
     /// <summary>
+    /// The client's Wi-Fi link as it is now, for a path drawn without a test (PathOnly). It gives the
+    /// path the tooltip and the two directional maximums a stored test's capture gives it.
+    /// </summary>
+    [Parameter] public ClientWifiLink? LiveWifi { get; set; }
+
+    /// <summary>
     /// Path analysis result (set automatically when using Result parameter)
     /// </summary>
     [Parameter] public PathAnalysisResult? PathAnalysis { get; set; }
@@ -724,8 +731,23 @@
     private bool _wanSaved;
     private System.Timers.Timer? _wanSavedTimer;
 
+    // The wireless client's link: the test's capture when there is a test, else the live link.
+    private ClientWifiLink? _wifi;
+    private Iperf3Result? _wifiSource;
+
     protected override void OnParametersSet()
     {
+        if (Result == null)
+        {
+            _wifi = LiveWifi;
+            _wifiSource = null;
+        }
+        else if (!ReferenceEquals(Result, _wifiSource))
+        {
+            _wifi = ClientWifiLink.FromResult(Result);
+            _wifiSource = Result;
+        }
+
         if (Result != null)
         {
             // Detect if Result changed (different test)
@@ -890,7 +912,8 @@
     private string? GetDeviceTooltip(NetworkHop hop)
     {
         // Wireless client hop: show WiFi stats (same as connector, mutually exclusive via Tippy)
-        if (hop.Type == HopType.WirelessClient && Result?.PathAnalysis?.Path?.Hops is { } hops)
+        if (hop.Type == HopType.WirelessClient
+            && (Result?.PathAnalysis ?? (LiveWifi != null ? PathAnalysis : null))?.Path?.Hops is { } hops)
         {
             var hopIdx = hops.IndexOf(hop);
             var adjacentHop = hopIdx >= 0 && hopIdx < hops.Count - 1 ? hops[hopIdx + 1] : null;
@@ -1050,8 +1073,8 @@
         // For wireless client hops, signal lives on the Iperf3Result or component params, not the hop
         if (!signalDbm.HasValue && (hop.Type == HopType.WirelessClient || nextHop.Type == HopType.WirelessClient))
         {
-            signalDbm = Result?.WifiSignalDbm ?? ClientSignalDbm;
-            band ??= Result?.WifiRadio ?? ClientRadio;
+            signalDbm = _wifi?.SignalDbm ?? ClientSignalDbm;
+            band ??= _wifi?.Radio ?? ClientRadio;
         }
         var signalClass = signalDbm.HasValue
             ? SignalClassification.GetSignalClass(signalDbm.Value, band)
@@ -1167,13 +1190,13 @@
         else if (nextHop.IsWirelessIngress && !string.IsNullOrEmpty(nextHop.WirelessIngressBand))
             band = nextHop.WirelessIngressBand;
 
-        // For client wireless, also show signal/noise from Result
-        if (isClientWireless && Result != null)
+        // For client wireless, also show signal/noise from the test's capture or the live link
+        if (isClientWireless && _wifi is { } wifi)
         {
-            var clientMac = Result.ClientMac ?? hop.DeviceMac;
+            var clientMac = wifi.ClientMac ?? hop.DeviceMac;
 
             // Check for MLO (Multi-Link Operation) - use unified styling
-            if (Result.WifiIsMlo && !string.IsNullOrEmpty(Result.WifiMloLinksJson))
+            if (wifi.IsMlo && wifi.MloLinks.Count > 0)
             {
                 var mloTooltip = BuildMloTooltip();
                 if (isBottleneck)
@@ -1185,60 +1208,60 @@
 
             // Single-link wireless - use same styled format as MLO
             var lines = new List<string>();
-            var clientBand = !string.IsNullOrEmpty(Result.WifiRadio) ? Result.WifiRadio : band;
+            var clientBand = !string.IsNullOrEmpty(wifi.Radio) ? wifi.Radio : band;
 
             // Header with protocol
-            if (!string.IsNullOrEmpty(Result.WifiRadioProto))
-                lines.Add($"<div class='wifi-tooltip-header'>Wi-Fi {FormatRadioProto(Result.WifiRadioProto, clientBand)}</div>");
+            if (!string.IsNullOrEmpty(wifi.RadioProto))
+                lines.Add($"<div class='wifi-tooltip-header'>Wi-Fi {FormatRadioProto(wifi.RadioProto, clientBand)}</div>");
 
             // RX/TX speeds - order follows the frame:
             // server frame: RX first (↓ from device) then TX (↑ to device)
             // device frame: TX first (↓ the device's download) then RX (↑ its upload)
-            if (Result.WifiTxRateKbps.HasValue || Result.WifiRxRateKbps.HasValue)
+            if (wifi.TxRateKbps.HasValue || wifi.RxRateKbps.HasValue)
             {
                 var speedParts = new List<string>();
                 if (DeviceFrame)
                 {
                     // Device frame: TX = download (blue), RX = upload (green)
-                    if (Result.WifiTxRateKbps.HasValue && Result.WifiTxRateKbps.Value > 0)
-                        speedParts.Add($"<span class='wifi-speed-rx'>TX {Math.Round(Result.WifiTxRateKbps.Value / 1000.0)} Mbps</span>");
-                    if (Result.WifiRxRateKbps.HasValue && Result.WifiRxRateKbps.Value > 0)
-                        speedParts.Add($"<span class='wifi-speed-tx'>RX {Math.Round(Result.WifiRxRateKbps.Value / 1000.0)} Mbps</span>");
+                    if (wifi.TxRateKbps.HasValue && wifi.TxRateKbps.Value > 0)
+                        speedParts.Add($"<span class='wifi-speed-rx'>TX {Math.Round(wifi.TxRateKbps.Value / 1000.0)} Mbps</span>");
+                    if (wifi.RxRateKbps.HasValue && wifi.RxRateKbps.Value > 0)
+                        speedParts.Add($"<span class='wifi-speed-tx'>RX {Math.Round(wifi.RxRateKbps.Value / 1000.0)} Mbps</span>");
                 }
                 else
                 {
                     // Server frame: RX = from device (blue), TX = to device (green)
-                    if (Result.WifiRxRateKbps.HasValue && Result.WifiRxRateKbps.Value > 0)
-                        speedParts.Add($"<span class='wifi-speed-rx'>RX {Math.Round(Result.WifiRxRateKbps.Value / 1000.0)} Mbps</span>");
-                    if (Result.WifiTxRateKbps.HasValue && Result.WifiTxRateKbps.Value > 0)
-                        speedParts.Add($"<span class='wifi-speed-tx'>TX {Math.Round(Result.WifiTxRateKbps.Value / 1000.0)} Mbps</span>");
+                    if (wifi.RxRateKbps.HasValue && wifi.RxRateKbps.Value > 0)
+                        speedParts.Add($"<span class='wifi-speed-rx'>RX {Math.Round(wifi.RxRateKbps.Value / 1000.0)} Mbps</span>");
+                    if (wifi.TxRateKbps.HasValue && wifi.TxRateKbps.Value > 0)
+                        speedParts.Add($"<span class='wifi-speed-tx'>TX {Math.Round(wifi.TxRateKbps.Value / 1000.0)} Mbps</span>");
                 }
                 if (speedParts.Count > 0)
                     lines.Add($"<div class='wifi-tooltip-row wifi-tooltip-speed'>{string.Join(" · ", speedParts)}</div>");
             }
 
             // Link info with band badge
-            if (!string.IsNullOrEmpty(clientBand) || Result.WifiChannel.HasValue)
+            if (!string.IsNullOrEmpty(clientBand) || wifi.Channel.HasValue)
             {
                 var linkParts = new List<string>();
                 if (!string.IsNullOrEmpty(clientBand))
                     linkParts.Add($"<span class='wifi-band-badge wifi-band-{clientBand}'>{FormatRadioBand(clientBand)}</span>");
-                if (Result.WifiChannel.HasValue)
+                if (wifi.Channel.HasValue)
                 {
-                    var ch = $"Ch {Result.WifiChannel.Value}";
-                    if (Result.WifiChannelWidthMhz is > 0)
-                        ch += $" <span class='text-muted'>{Result.WifiChannelWidthMhz.Value} MHz</span>";
+                    var ch = $"Ch {wifi.Channel.Value}";
+                    if (wifi.ChannelWidthMhz is > 0)
+                        ch += $" <span class='text-muted'>{wifi.ChannelWidthMhz.Value} MHz</span>";
                     linkParts.Add(ch);
                 }
                 lines.Add($"<div class='wifi-tooltip-link'>{string.Join(" ", linkParts)}</div>");
             }
 
             // Signal line
-            if (Result.WifiSignalDbm.HasValue)
+            if (wifi.SignalDbm.HasValue)
             {
-                var sigParts = new List<string> { $"<span class='wifi-tooltip-signal-value'>{Result.WifiSignalDbm.Value} dBm</span>" };
-                if (Result.WifiNoiseDbm.HasValue)
-                    sigParts.Add($"SNR {Result.WifiSignalDbm.Value - Result.WifiNoiseDbm.Value} dB");
+                var sigParts = new List<string> { $"<span class='wifi-tooltip-signal-value'>{wifi.SignalDbm.Value} dBm</span>" };
+                if (wifi.NoiseDbm.HasValue)
+                    sigParts.Add($"SNR {wifi.SignalDbm.Value - wifi.NoiseDbm.Value} dB");
                 lines.Add($"<div class='wifi-tooltip-link-signal'>{string.Join(" ", sigParts)}</div>");
             }
 
@@ -1370,23 +1393,19 @@
     /// </summary>
     private string BuildMloTooltip()
     {
-        if (Result == null || string.IsNullOrEmpty(Result.WifiMloLinksJson))
+        var links = _wifi?.MloLinks;
+        if (links == null || links.Count == 0)
             return "Wi-Fi 7 MLO";
 
-        try
         {
-            var links = System.Text.Json.JsonSerializer.Deserialize<List<MloLinkData>>(Result.WifiMloLinksJson);
-            if (links == null || links.Count == 0)
-                return "Wi-Fi 7 MLO";
-
             var lines = new List<string>();
 
             // Header with Wi-Fi 7 MLO badge
             lines.Add("<div class='wifi-tooltip-header'>Wi-Fi 7 (be) · MLO</div>");
 
             // Sum link speeds
-            var totalTxMbps = links.Where(l => l.txRate.HasValue).Sum(l => l.txRate!.Value / 1000.0);
-            var totalRxMbps = links.Where(l => l.rxRate.HasValue).Sum(l => l.rxRate!.Value / 1000.0);
+            var totalTxMbps = links.Where(l => l.TxRateKbps.HasValue).Sum(l => l.TxRateKbps!.Value / 1000.0);
+            var totalRxMbps = links.Where(l => l.RxRateKbps.HasValue).Sum(l => l.RxRateKbps!.Value / 1000.0);
 
             if (totalTxMbps > 0 || totalRxMbps > 0)
             {
@@ -1400,20 +1419,20 @@
             lines.Add("<div class='wifi-tooltip-divider'></div>");
 
             // Each link
-            foreach (var link in links.OrderByDescending(l => l.channelWidth ?? 0))
+            foreach (var link in links.OrderByDescending(l => l.ChannelWidthMhz ?? 0))
             {
                 var linkParts = new List<string>();
 
                 // Band badge
-                if (!string.IsNullOrEmpty(link.radio))
-                    linkParts.Add($"<span class='wifi-band-badge wifi-band-{link.radio}'>{FormatRadioBand(link.radio)}</span>");
+                if (!string.IsNullOrEmpty(link.Radio))
+                    linkParts.Add($"<span class='wifi-band-badge wifi-band-{link.Radio}'>{FormatRadioBand(link.Radio)}</span>");
 
                 // Channel/width
-                if (link.channel.HasValue)
+                if (link.Channel.HasValue)
                 {
-                    var chInfo = $"Ch {link.channel.Value}";
-                    if (link.channelWidth.HasValue)
-                        chInfo += $" <span class='text-muted'>{link.channelWidth.Value} MHz</span>";
+                    var chInfo = $"Ch {link.Channel.Value}";
+                    if (link.ChannelWidthMhz.HasValue)
+                        chInfo += $" <span class='text-muted'>{link.ChannelWidthMhz.Value} MHz</span>";
                     linkParts.Add(chInfo);
                 }
 
@@ -1421,11 +1440,11 @@
 
                 // Per-link RX/TX rates, the download-limiting rate first in blue: RX in the
                 // server frame, TX in the device frame.
-                if (link.txRate.HasValue || link.rxRate.HasValue)
+                if (link.TxRateKbps.HasValue || link.RxRateKbps.HasValue)
                 {
                     var linkSpeedParts = new List<string>();
-                    var rx = link.rxRate.HasValue ? $"RX {Math.Round(link.rxRate.Value / 1000.0)} Mbps" : null;
-                    var tx = link.txRate.HasValue ? $"TX {Math.Round(link.txRate.Value / 1000.0)} Mbps" : null;
+                    var rx = link.RxRateKbps.HasValue ? $"RX {Math.Round(link.RxRateKbps.Value / 1000.0)} Mbps" : null;
+                    var tx = link.TxRateKbps.HasValue ? $"TX {Math.Round(link.TxRateKbps.Value / 1000.0)} Mbps" : null;
                     var (first, second) = DeviceFrame ? (tx, rx) : (rx, tx);
                     if (first != null) linkSpeedParts.Add($"<span class='wifi-speed-rx'>{first}</span>");
                     if (second != null) linkSpeedParts.Add($"<span class='wifi-speed-tx'>{second}</span>");
@@ -1433,34 +1452,20 @@
                 }
 
                 // Signal for this link
-                if (link.signal.HasValue)
+                if (link.SignalDbm.HasValue)
                 {
-                    var sigParts = new List<string> { $"<span class='wifi-tooltip-signal-value'>{link.signal.Value} dBm</span>" };
-                    if (link.signal.HasValue && link.noise.HasValue)
-                        sigParts.Add($"SNR {link.signal.Value - link.noise.Value} dB");
+                    var sigParts = new List<string> { $"<span class='wifi-tooltip-signal-value'>{link.SignalDbm.Value} dBm</span>" };
+                    if (link.SignalDbm.HasValue && link.NoiseDbm.HasValue)
+                        sigParts.Add($"SNR {link.SignalDbm.Value - link.NoiseDbm.Value} dB");
                     lines.Add($"<div class='wifi-tooltip-link-signal'>{string.Join(" ", sigParts)}</div>");
                 }
             }
 
             return string.Join("", lines);
         }
-        catch
-        {
-            return "Wi-Fi 7 MLO";
-        }
     }
 
     // DTO for deserializing MLO link JSON
-    private record MloLinkData(
-        string? radio,
-        int? channel,
-        int? channelWidth,
-        int? signal,
-        int? noise,
-        long? txRate,
-        long? rxRate
-    );
-
     private string FormatRadioBand(string? radio) => RadioFormatHelper.FormatBand(radio);
 
     /// <summary>Sorts MLO backhaul links highest band first (6 GHz, 5 GHz, 2.4 GHz).</summary>
@@ -1709,15 +1714,15 @@
     private (long? rxKbps, long? txKbps) GetDirectionalRates()
     {
         // First check if rates are stored on the result (Wi-Fi clients)
-        if (Result?.WifiRxRateKbps > 0 && Result?.WifiTxRateKbps > 0)
+        if (_wifi is { RxRateKbps: > 0, TxRateKbps: > 0 })
         {
             // For WAN client tests, swap RX/TX for efficiency calculation.
             // LAN: FromDevice = client upload = limited by RX, ToDevice = client download = limited by TX
             // WAN: FromDevice = client download = limited by TX, ToDevice = client upload = limited by RX
-            if (Result.Direction == SpeedTestDirection.OpenSpeedTestWan)
-                return (Result.WifiTxRateKbps, Result.WifiRxRateKbps);
+            if (Result?.Direction == SpeedTestDirection.OpenSpeedTestWan)
+                return (_wifi.TxRateKbps, _wifi.RxRateKbps);
 
-            return (Result.WifiRxRateKbps, Result.WifiTxRateKbps);
+            return (_wifi.RxRateKbps, _wifi.TxRateKbps);
         }
 
         // Fall back to extracting from path (mesh hops, WAN)
@@ -1743,7 +1748,7 @@
     /// </summary>
     private (double fromMaxMbps, double toMaxMbps, double fromEff, double toEff, int fromOverheadPct, int toOverheadPct) GetDirectionalEfficiencyData()
     {
-        if (PathAnalysis == null || Result == null)
+        if (PathAnalysis == null || (Result == null && LiveWifi == null))
         {
             return (0, 0, 0, 0, 6, 6); // Default overhead
         }

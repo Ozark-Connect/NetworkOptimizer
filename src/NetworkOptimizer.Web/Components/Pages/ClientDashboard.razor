@@ -1025,6 +1025,8 @@
                         <div class="card trace-card">
                             <h3>Network Path</h3>
                             <SpeedTestDetails PathAnalysis="_latestPoll.PathAnalysis" PathOnly="true"
+                                              Perspective="SpeedPerspective.Device"
+                                              LiveWifi="@ClientWifiLink.FromClient(_client)"
                                               ClientSignalDbm="@(_client?.SignalDbm)" ClientRadio="@(_client?.Band)" />
                         </div>
                     }

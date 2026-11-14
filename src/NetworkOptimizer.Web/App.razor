@@ -379,6 +379,18 @@
                 .replace(/"/g, '&quot;').replace(/'/g, '&#39;').replace(/\n/g, '<br>');
         }
 
+        // A tooltip that is open takes changed text in place. Rebuilding it closes it, so one whose
+        // text carries a live reading (a Wi-Fi link's signal) shut on every poll. Returns true if it did.
+        function refreshOpenTip(el) {
+            var tip = el._tippy;
+            if (!tip || !tip.state.isVisible) return false;
+            tip.setContent(tooltipContent(el));
+            tip.popper.querySelectorAll('a').forEach(function (link) {
+                link.addEventListener('click', function () { tip.unmount(); });
+            });
+            return true;
+        }
+
         // A cut cell's full text, or the tooltip of a child marked data-tooltip-names-cut: that tooltip
         // already names the full text and says more (Live DNS's redirect), so one tooltip covers both.
         function cutText(el) {
@@ -541,6 +553,7 @@
                     if (el._tippy.props.content === tooltipContent(el)) {
                         return; // Content unchanged, keep existing
                     }
+                    if (refreshOpenTip(el)) return;
                     el._tippy.destroy();
                 }
                 var isInteractive = el.hasAttribute('data-tooltip-interactive');
@@ -1028,7 +1041,7 @@
                 }
                 if (el._tippy) {
                     // Update existing tooltip if content changed
-                    if (el._tippy.props.content !== tooltipContent(el)) {
+                    if (el._tippy.props.content !== tooltipContent(el) && !refreshOpenTip(el)) {
                         el._tippy.destroy();
                         tippy(el, opts);
                     }
