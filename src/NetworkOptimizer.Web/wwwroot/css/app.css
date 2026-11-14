@@ -1136,8 +1136,8 @@ a.stat-card-link:visited {
 }
 
 a.stat-card-link:hover {
-    transform: translateY(-1px);
     background: var(--bg-hover);
+    border-color: var(--border-strong);
 }
 
 a.stat-card-link:active {
@@ -4338,8 +4338,9 @@ input.form-control::-webkit-date-and-time-value {
 }
 
 .badge-premium {
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    color: white;
+    background: color-mix(in srgb, var(--purple-color) 18%, transparent);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--purple-color) 40%, transparent);
+    color: var(--purple-light);
 }
 
 /* Tabs */
@@ -14454,7 +14455,7 @@ h3 > .tooltip-icon-sm {
 
 /* Recommend Best Channels button - accent gradient matching Cleanest Channels box */
 .btn-recommend {
-    background: linear-gradient(135deg, var(--accent-color) 0%, var(--primary-color) 100%);
+    background: var(--accent-color);
     color: white;
     border: none;
     height: 34px;
@@ -15515,12 +15516,13 @@ h3 > .tooltip-icon-sm {
 .power-bar-container {
     flex: 1;
     height: 20px;
-    background: var(--bg-secondary);
-    border-radius: 0 var(--border-radius) var(--border-radius) 0;
+    background: var(--border-strong);
     overflow: hidden;
     position: relative;
     display: flex;
     align-items: center;
+    -webkit-mask: var(--meter-ticks);
+    mask: var(--meter-ticks);
 }
 
 .power-bar-stack {
@@ -15537,10 +15539,10 @@ h3 > .tooltip-icon-sm {
     transition: width 0.3s ease;
 }
 
-.power-bar-tx.power-high { background: linear-gradient(90deg, #f97316, #ea580c); }
-.power-bar-tx.power-medium { background: linear-gradient(90deg, #22c55e, #16a34a); }
-.power-bar-tx.power-low { background: linear-gradient(90deg, #3b82f6, #2563eb); }
-.power-bar-tx.power-auto { background: linear-gradient(90deg, #3b82f6, #2563eb); }
+.power-bar-tx.power-high { background: var(--signal-weak); }
+.power-bar-tx.power-medium { background: var(--signal-good); }
+.power-bar-tx.power-low { background: var(--good-color); }
+.power-bar-tx.power-auto { background: var(--good-color); }
 
 .power-bar-gain {
     height: 100%;
@@ -15685,9 +15687,10 @@ h3 > .tooltip-icon-sm {
 .coverage-distribution {
     height: 8px;
     display: flex;
-    border-radius: var(--border-radius);
     overflow: hidden;
-    background: var(--bg-secondary);
+    background: var(--border-strong);
+    -webkit-mask: var(--meter-ticks);
+    mask: var(--meter-ticks);
 }
 
 .dist-segment {
@@ -16120,11 +16123,12 @@ h3 > .tooltip-icon-sm {
 .wifi-gen-bar-container {
     flex: 1;
     height: 16px;
-    background: var(--bg-tertiary);
-    border-radius: 0 var(--border-radius) var(--border-radius) 0;
+    background: var(--border-strong);
     overflow: hidden;
     font-size: 0;
     white-space: nowrap;
+    -webkit-mask: var(--meter-ticks);
+    mask: var(--meter-ticks);
 }
 
 .wifi-gen-bar {
@@ -16236,6 +16240,8 @@ h3 > .tooltip-icon-sm {
 
     .wifi-gen-bar-container {
         flex: 1;
+        -webkit-mask: var(--meter-ticks);
+        mask: var(--meter-ticks);
     }
 
     .legacy-clients-list {
@@ -16509,11 +16515,12 @@ h3 > .tooltip-icon-sm {
 .gen-bar-container {
     flex: 1;
     height: 20px;
-    background: var(--bg-tertiary);
-    border-radius: 0 var(--border-radius) var(--border-radius) 0;
+    background: var(--border-strong);
     overflow: hidden;
     font-size: 0;
     white-space: nowrap;
+    -webkit-mask: var(--meter-ticks);
+    mask: var(--meter-ticks);
 }
 
 .gen-bar {
@@ -17994,7 +18001,7 @@ a.affected-client:hover {
     height: 4px;
     -webkit-appearance: none;
     appearance: none;
-    background: linear-gradient(to right, #3b82f6, #60a5fa);
+    background: var(--primary-hover);
     border-radius: 2px;
     cursor: pointer;
 }
@@ -20292,10 +20299,10 @@ a.isp-health-hero-speed:hover {
     transition: width 0.6s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
-.isp-bar-excellent { background: linear-gradient(90deg, #1a9d5c, #24bc70); }
-.isp-bar-good { background: linear-gradient(90deg, #2563eb, #3b82f6); }
-.isp-bar-fair { background: linear-gradient(90deg, #d97706, #f59e0b); }
-.isp-bar-poor { background: linear-gradient(90deg, #dc2626, #ef4444); }
+.isp-bar-excellent { background: var(--success-color); }
+.isp-bar-good { background: var(--good-color); }
+.isp-bar-fair { background: var(--warning-color); }
+.isp-bar-poor { background: var(--danger-color); }
 .isp-bar-none { background: var(--bg-hover); }
 
 .isp-factor-score {

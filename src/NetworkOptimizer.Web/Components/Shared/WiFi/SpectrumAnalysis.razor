@@ -459,8 +459,8 @@
 
     /* Your Channels Card */
     .your-channels-card {
-        background: linear-gradient(135deg, var(--bg-secondary) 0%, var(--bg-tertiary) 100%);
-        border: 1px solid var(--primary-color);
+        background: color-mix(in srgb, var(--primary-color) 9%, var(--bg-card));
+        border: 1px solid color-mix(in srgb, var(--primary-hover) 45%, transparent);
     }
 
     .your-channels-header {
@@ -493,31 +493,31 @@
         flex-direction: column;
         align-items: center;
         padding: 0.5rem 1rem;
-        border-radius: 8px;
-        background: var(--bg-primary);
+        border-radius: var(--border-radius-lg);
+        background: var(--bg-inset);
         border: 2px solid transparent;
         cursor: pointer;
         transition: all 0.15s ease;
     }
 
     .your-channel-chip:hover {
-        background: var(--bg-secondary);
+        background: var(--bg-hover);
     }
 
     .your-channel-chip.active {
-        box-shadow: 0 0 0 2px var(--primary-color);
+        box-shadow: 0 0 0 2px var(--primary-hover);
     }
 
     .your-channel-chip.band-2_4 {
-        border-color: #22c55e;
+        border-color: var(--band-24-color);
     }
 
     .your-channel-chip.band-5 {
-        border-color: #3b82f6;
+        border-color: var(--band-5-color);
     }
 
     .your-channel-chip.band-6 {
-        border-color: #a855f7;
+        border-color: var(--band-6-color);
     }
 
     .your-channel-chip .channel-number {
@@ -547,13 +547,15 @@
         flex: 1;
         min-width: 120px;
         padding: 1rem;
-        background: var(--bg-secondary);
+        background: var(--bg-inset);
+        box-shadow: inset 0 0 0 1px var(--border-color);
         border-radius: var(--border-radius-lg);
         text-align: center;
     }
 
     .spectrum-stat-card.highlight {
-        background: linear-gradient(135deg, var(--accent-color) 0%, var(--primary-color) 100%);
+        background: color-mix(in srgb, var(--accent-color) 12%, var(--bg-inset));
+        box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent-color) 50%, transparent);
     }
 
     .ap-filter-chip {
@@ -571,8 +573,10 @@
     }
 
     .spectrum-stat-card.clickable:hover {
-        transform: translateY(-1px);
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+        background: var(--bg-hover);
+    }
+    .spectrum-stat-card.highlight.clickable:hover {
+        background: color-mix(in srgb, var(--accent-color) 20%, var(--bg-inset));
     }
 
     .spectrum-stat-card .stat-value {
@@ -582,7 +586,7 @@
     }
 
     .spectrum-stat-card.highlight .stat-value {
-        color: white;
+        color: var(--accent-color);
     }
 
     .spectrum-stat-card .stat-label {
@@ -592,7 +596,7 @@
     }
 
     .spectrum-stat-card.highlight .stat-label {
-        color: rgba(255, 255, 255, 0.8);
+        color: var(--text-secondary);
     }
 
     /* Channel Heatmap */
@@ -619,7 +623,8 @@
         display: inline-block;
         width: 16px;
         height: 10px;
-        border-radius: 2px;
+        -webkit-mask: var(--meter-ticks);
+        mask: var(--meter-ticks);
     }
 
     .legend-bar.neighbors {
@@ -627,11 +632,11 @@
     }
 
     .legend-bar.your-ap {
-        background: #3b82f6;
+        background: var(--good-color);
     }
 
     .legend-bar.selected-ap {
-        background: #a855f7;
+        background: var(--purple-color);
     }
 
     .channel-bar-container {
@@ -649,12 +654,12 @@
     }
 
     .channel-label.your-channel {
-        color: #3b82f6;
+        color: var(--good-color);
         font-weight: 600;
     }
 
     .channel-label.selected-ap-channel {
-        color: #a855f7;
+        color: var(--purple-color);
         font-weight: 600;
     }
 
@@ -681,9 +686,10 @@
 
     .channel-bar-wrapper {
         height: 12px;
-        background: var(--bg-secondary);
-        border-radius: 0 3px 3px 0;
+        background: var(--border-strong);
         overflow: hidden;
+        -webkit-mask: var(--meter-ticks);
+        mask: var(--meter-ticks);
     }
 
     .your-ap-bar-wrapper {
@@ -692,7 +698,6 @@
 
     .channel-bar {
         height: 100%;
-        border-radius: 0 3px 3px 0;
         transition: width 0.3s ease;
     }
 
@@ -709,11 +714,11 @@
     }
 
     .channel-bar.your-ap-bar {
-        background: #3b82f6;
+        background: var(--good-color);
     }
 
     .channel-bar.your-ap-bar.selected-ap {
-        background: #a855f7;
+        background: var(--purple-color);
     }
 
     .channel-count-wrapper {
@@ -732,13 +737,13 @@
 
     .your-ap-count {
         font-size: 0.7rem;
-        color: #3b82f6;
+        color: var(--good-color);
         font-weight: 600;
         line-height: 1;
     }
 
     .your-ap-count.selected-ap {
-        color: #a855f7;
+        color: var(--purple-color);
     }
 
     /* Network Table */
@@ -768,19 +773,27 @@
         font-weight: 500;
     }
 
+    .channel-badge,
+    .channel-label,
+    .channel-count,
+    .your-ap-count {
+        font-family: var(--font-display);
+        font-variant-numeric: tabular-nums;
+    }
+
     .channel-badge.band-2g {
-        background: rgba(59, 130, 246, 0.2);
-        color: #60a5fa;
+        background: color-mix(in srgb, var(--band-24-color) 18%, transparent);
+        color: var(--band-24-color);
     }
 
     .channel-badge.band-5g {
-        background: rgba(34, 197, 94, 0.2);
-        color: #4ade80;
+        background: color-mix(in srgb, var(--band-5-color) 18%, transparent);
+        color: var(--band-5-color);
     }
 
     .channel-badge.band-6g {
-        background: rgba(168, 85, 247, 0.2);
-        color: #c084fc;
+        background: color-mix(in srgb, var(--band-6-color) 18%, transparent);
+        color: var(--band-6-color);
     }
 
     .channel-badge.dfs {
@@ -796,7 +809,7 @@
     }
 
     .signal-indicator.signal-good {
-        color: #4ade80;
+        color: var(--signal-good);
     }
 
     .signal-indicator.signal-fair {
@@ -819,8 +832,8 @@
         padding: 0.75rem;
         border-radius: var(--border-radius-lg);
         text-align: center;
-        background: var(--bg-secondary);
-        border: 2px solid transparent;
+        background: var(--bg-inset);
+        border: 2px solid var(--border-color);
     }
 
     .dfs-channel-card.available {
