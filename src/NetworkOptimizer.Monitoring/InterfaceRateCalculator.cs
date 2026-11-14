@@ -117,7 +117,10 @@ public static class InterfaceRateCalculator
             // and the recovery read computed ~6.7 Gbps - under the 14 Gbps ceiling, so it
             // was emitted. Seed provisionally and wait for the first trustworthy nonzero
             // read before establishing the baseline.
-            if (useHcCounters && inOctets == 0 && outOctets == 0)
+            // An interface with no known link speed (gre*, wg*, ifb*) is held to the same rule on
+            // any counter width: its only ceiling is the absolute one, which a snap-back from zero
+            // fits under.
+            if ((useHcCounters || linkSpeedBps <= 0) && inOctets == 0 && outOctets == 0)
                 return new Result(null, null, fresh with { ProvisionalSeed = true }, Outcome.SeededBaseline);
             return new Result(null, null, fresh, Outcome.SeededBaseline);
         }
@@ -142,10 +145,14 @@ public static class InterfaceRateCalculator
 
         // 32-bit wrap recovery for low-speed interfaces that only expose the
         // 32-bit ifInOctets/ifOutOctets counters.
-        if (!useHcCounters)
+        // Never for an all-zero read: both directions landing on exactly 0 is an SNMP agent
+        // restarting, not two counters wrapping at once, and wrap arithmetic turns it into most of
+        // 2^32 bytes of traffic. Never for a baseline above the 32-bit range either: that counter
+        // is 64-bit whatever the interface's speed says (virtual interfaces report none).
+        if (!useHcCounters && !(inOctets == 0 && outOctets == 0))
         {
-            if (deltaIn < 0) deltaIn += (long)uint.MaxValue + 1;
-            if (deltaOut < 0) deltaOut += (long)uint.MaxValue + 1;
+            if (deltaIn < 0 && prev.InOctets <= uint.MaxValue) deltaIn += (long)uint.MaxValue + 1;
+            if (deltaOut < 0 && prev.OutOctets <= uint.MaxValue) deltaOut += (long)uint.MaxValue + 1;
         }
 
         if (deltaIn < 0 || deltaOut < 0)
@@ -158,9 +165,10 @@ public static class InterfaceRateCalculator
             // candidate; only a second below-baseline poll confirms a real reset.
             // An all-zero confirming read is the corrupt poll the seed path distrusts, so it seeds
             // provisionally too; a zero baseline makes the next real read a near-line-rate phantom.
+            // On any counter width: a restarting SNMP agent answers zeros for more than one poll.
             if (prev.CandidateTimestamp is not null)
                 return new Result(null, null,
-                    useHcCounters && inOctets == 0 && outOctets == 0 ? fresh with { ProvisionalSeed = true } : fresh,
+                    inOctets == 0 && outOctets == 0 ? fresh with { ProvisionalSeed = true } : fresh,
                     Outcome.ResetConfirmed);
 
             var holding = prev with
