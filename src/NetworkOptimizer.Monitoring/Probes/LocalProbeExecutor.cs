@@ -30,13 +30,14 @@ public class LocalProbeExecutor : IProbeExecutor
     private bool _tracerouteBinaryAvailable;
     private TracerouteBinaryTraits _tracerouteTraits = TracerouteBinaryTraits.FullyBindable;
 
-    // Throttle native Process.Start. macOS ARM64 has a .NET 10 runtime bug
+    // Throttle native Process.Start on macOS only. macOS ARM64 has a .NET 10 runtime bug
     // (dotnet/runtime#112167) where concurrent Process.Start with redirected
-    // stdout/stderr causes heap corruption and Abort trap: 6. Limit to 2 on
-    // macOS (faster 0.1s ping interval compensates). Linux is unaffected.
+    // stdout/stderr causes heap corruption and Abort trap: 6. Limit to 2 there
+    // (faster 0.1s ping interval compensates). Linux is unaffected, and a cap there queued a
+    // discovery sweep's traces past the server's per-request wait on an agent, so none applies.
     private readonly SemaphoreSlim _processLaunchLimiter = new(
-        OperatingSystem.IsMacOS() ? 2 : 4,
-        OperatingSystem.IsMacOS() ? 2 : 4);
+        OperatingSystem.IsMacOS() ? 2 : int.MaxValue,
+        OperatingSystem.IsMacOS() ? 2 : int.MaxValue);
 
     public LocalProbeExecutor(ILogger<LocalProbeExecutor> logger)
     {
