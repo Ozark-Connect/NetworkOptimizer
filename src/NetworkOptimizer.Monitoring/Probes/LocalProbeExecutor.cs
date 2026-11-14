@@ -28,7 +28,6 @@ public class LocalProbeExecutor : IProbeExecutor
     private ProbeCapability? _capability;
     private readonly SemaphoreSlim _capabilityLock = new(1, 1);
     private bool _tracerouteBinaryAvailable;
-    private DateTime _capabilityDetectedAt;
     private TracerouteBinaryTraits _tracerouteTraits = TracerouteBinaryTraits.FullyBindable;
 
     // Throttle native Process.Start. macOS ARM64 has a .NET 10 runtime bug
@@ -58,23 +57,17 @@ public class LocalProbeExecutor : IProbeExecutor
 
     public async Task<ProbeCapability> GetCapabilityAsync(CancellationToken ct = default)
     {
-        if (_capability != null && !RedetectDue()) return _capability;
+        if (_capability != null) return _capability;
         await _capabilityLock.WaitAsync(ct);
         try
         {
-            if (_capability != null && !RedetectDue()) return _capability;
-            var previous = _capability;
+            if (_capability != null) return _capability;
 
             // On Linux/macOS, prefer the native `traceroute` binary because it supports UDP
             // and TCP modes. The managed Ping-with-TTL traceroute is always available as a
             // fallback and is the primary path on Windows (where `tracert.exe` has a
             // different output format that would need its own parser).
-            var (available, traits) = OperatingSystem.IsWindows()
-                ? (false, TracerouteBinaryTraits.FullyBindable)
-                : await DetectTracerouteAsync(ct);
-            _tracerouteTraits = traits;
-            _tracerouteBinaryAvailable = available;
-            _capabilityDetectedAt = DateTime.UtcNow;
+            _tracerouteBinaryAvailable = !OperatingSystem.IsWindows() && await IsTracerouteInstalledAsync(ct);
 
             _capability = new ProbeCapability
             {
@@ -86,11 +79,10 @@ public class LocalProbeExecutor : IProbeExecutor
                 IsBusyBoxTraceroute = _tracerouteBinaryAvailable && _tracerouteTraits.IsBusyBox
             };
 
-            if (previous == null || previous != _capability)
-                _logger.LogInformation(
-                    "Local probe capabilities: {Caps} (traceroute binary: {Binary})",
-                    _capability.Describe(),
-                    _tracerouteBinaryAvailable ? "available" : "absent (using managed fallback)");
+            _logger.LogInformation(
+                "Local probe capabilities: {Caps} (traceroute binary: {Binary})",
+                _capability.Describe(),
+                _tracerouteBinaryAvailable ? "available" : "absent (using managed fallback)");
             return _capability;
         }
         finally
@@ -99,19 +91,7 @@ public class LocalProbeExecutor : IProbeExecutor
         }
     }
 
-    /// <summary>
-    /// Without a full traceroute binary, detection runs again every few minutes: a gateway agent installs
-    /// the package after it starts, and its traces should use it without a restart. Windows never has one.
-    /// </summary>
-    private bool RedetectDue() =>
-        !OperatingSystem.IsWindows()
-        && (!_tracerouteBinaryAvailable || _tracerouteTraits.ViaBusyBoxMultiCall)
-        && DateTime.UtcNow - _capabilityDetectedAt >= RedetectEvery;
-
-    private static readonly TimeSpan RedetectEvery = TimeSpan.FromMinutes(5);
-
-    /// <summary>Whether a traceroute binary or BusyBox applet is present, and what it can do.</summary>
-    private async Task<(bool Available, TracerouteBinaryTraits Traits)> DetectTracerouteAsync(CancellationToken ct)
+    private async Task<bool> IsTracerouteInstalledAsync(CancellationToken ct)
     {
         var banner = await ReadTracerouteBannerAsync("traceroute", "-V", ct);
         var viaBusyBox = false;
@@ -121,10 +101,11 @@ public class LocalProbeExecutor : IProbeExecutor
             // applet. Run with no arguments it prints its usage; without the applet it says so instead.
             banner = await ReadTracerouteBannerAsync("busybox", "traceroute", ct);
             if (banner == null || banner.IndexOf("Usage: traceroute", StringComparison.OrdinalIgnoreCase) < 0)
-                return (false, TracerouteBinaryTraits.FullyBindable);
+                return false;
             viaBusyBox = true;
         }
-        return (true, InterpretTracerouteBanner(banner) with { ViaBusyBoxMultiCall = viaBusyBox });
+        _tracerouteTraits = InterpretTracerouteBanner(banner) with { ViaBusyBoxMultiCall = viaBusyBox };
+        return true;
     }
 
     /// <summary>Runs a traceroute just to read its version or usage text; null when it cannot be started.</summary>
