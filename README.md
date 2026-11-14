@@ -46,7 +46,7 @@ If you haven't already checked out [our Traefik based reverse proxy](https://git
 
 ## It's Here: Hosted Network Optimizer
 
-For people who don't have a home server or don't want to set up the infrastructure, a fully hosted Network Optimizer is available: $15/month for up to 3 sites, with a [14-day free trial](https://ozarkconnect.net/network-optimizer/signup) and enterprise-grade security. The commercial hosted plan is $25/month per site, adding full management and consulting - see [pricing and licensing](https://ozarkconnect.net/network-optimizer/licensing). The [on-site agent](src/NetworkOptimizer.Agent/README.md) runs on your gateway, so the only thing you give up is LAN speed testing. WAN speed testing is included, with some data limits.
+For people who don't have a home server or don't want to set up the infrastructure, a fully hosted Network Optimizer is available: $15/month for up to 3 sites, with a [14-day free trial](https://ozarkconnect.net/network-optimizer/signup) and enterprise-grade security. The commercial hosted plan is $25/month per site, adding full management and consulting - see [pricing and licensing](https://ozarkconnect.net/network-optimizer/licensing). The [on-site agent](src/NetworkOptimizer.Agent/README.md) runs on your gateway, so the only thing you give up is LAN speed testing. WAN speed testing is included, with some data limits. Your data stays in your own organization on the service, is used only to run and support it, and is never sold or shared: see [where your data goes](src/NetworkOptimizer.Agent/README.md#where-your-data-goes) and the [Privacy Policy](https://ozarkconnect.net/privacy).
 
 ## Multi-Site Support
 
