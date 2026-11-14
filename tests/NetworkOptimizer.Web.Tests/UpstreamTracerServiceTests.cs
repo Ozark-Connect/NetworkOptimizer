@@ -539,6 +539,9 @@ public class UpstreamCommitTests : IDisposable
 
     // ---- Helpers ----
 
+    // TODO: this is a copy of the commit logic, not UpstreamTracerService's own upserts, so these tests
+    // pass whatever the real code does. Drive them through UpsertTargetAsync / UpsertTransitTargetAsync /
+    // PauseUnselected*Async / PauseUnproposedAccessRowsAsync instead (UpstreamTracerUnproposedAccessTests does).
     private async Task CommitAsync(List<AccessHopCandidate> hops, List<TransitAsnCandidate> transits)
     {
         var wanInterface = "wan";

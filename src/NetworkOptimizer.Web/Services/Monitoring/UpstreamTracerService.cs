@@ -76,6 +76,10 @@ public class UpstreamTracerService
     // DetectPublicIpAsync from the gateway's port_table.
     private readonly HashSet<string> _gatewayIps = new(StringComparer.OrdinalIgnoreCase);
 
+    // Hops a trace crosses before reaching our gateway: a container's bridge (172.17/16 and up on a
+    // Docker install without host networking), a LAN router. Never ISP or transit equipment.
+    private readonly HashSet<string> _localSideIps = new(StringComparer.OrdinalIgnoreCase);
+
     // The OS-level interface name backing the WAN port (e.g. "ethN",
     // "ethN.M" for VLAN-tagged, "pppN" for PPPoE), read from the device's
     // wan1...wan6 uplink_ifname during DetectPublicIpAsync. The L2-neighbor
@@ -1240,6 +1244,17 @@ public class UpstreamTracerService
         // Keep the raw per-trace sequences for same-path hop-order persistence at commit.
         _lastTraces = results.Select(r => r.Result).ToList();
 
+        _localSideIps.Clear();
+        _localSideIps.UnionWith(HopsBeforeGateway(
+            _lastTraces.Select(t => (IReadOnlyList<(int, string)>)t.Hops
+                .Where(h => h.Responded && !string.IsNullOrEmpty(h.Address))
+                .Select(h => (h.HopNumber, h.Address!))
+                .ToList()),
+            _gatewayIps));
+        if (_localSideIps.Count > 0)
+            _logger.LogInformation("Tracer: dropped {Count} hop(s) on our side of the gateway: {Addresses}",
+                _localSideIps.Count, string.Join(", ", _localSideIps));
+
         // Summarize per CDN for the live progress UI.
         foreach (var (label, result) in results)
         {
@@ -1277,7 +1292,7 @@ public class UpstreamTracerService
 
             foreach (var hop in result.Hops)
             {
-                if (!hop.Responded || string.IsNullOrEmpty(hop.Address)) continue;
+                if (!hop.Responded || string.IsNullOrEmpty(hop.Address) || _localSideIps.Contains(hop.Address)) continue;
                 var rtt = hop.RttMinMs ?? hop.RttAvgMs;
                 if (trustTraceRtts
                     && rtt is double seen
@@ -1344,8 +1359,10 @@ public class UpstreamTracerService
         }
         else
         {
-            _accessHopsResolved = candidateHops
-                .TakeWhile(h => h.Asn == null)
+            _accessHopsResolved = LeadingUnattributedAccessHops(
+                candidateHops.Select(h => (h.Address, h.Asn != null)).ToList(),
+                _traceEndpoints.Select(e => e.Address))
+                .Select(a => candidateHops.First(h => h.Address == a))
                 .ToList();
         }
 
@@ -2749,6 +2766,11 @@ public class UpstreamTracerService
         }
         foreach (var hop in State.AccessHops.Where(h => !h.Enabled))
             await PauseUnselectedAccessHopAsync(db, hop, wanInterface, isUnboundRun, automatic, ct);
+        var unproposed = await PauseUnproposedAccessRowsAsync(db, State.AccessHops.Select(h => h.Address).ToList(),
+            wanInterface, isUnboundRun, automatic, ct);
+        if (unproposed > 0)
+            _logger.LogInformation("Commit: paused {Count} discovered access target(s) on {Wan} this run no longer proposes",
+                unproposed, wanInterface);
         foreach (var transit in State.TransitAsns.Where(t => t.Enabled))
         {
             _logger.LogDebug("Commit transit: id={TargetId} label='{Label}' addr={Address} method={Method}",
@@ -2914,6 +2936,27 @@ public class UpstreamTracerService
         if (PausesExistingRow(hop.Unreachable, offPath: false, automatic)) existing.Enabled = false;
         existing.Name = hop.Label;
         if (!string.IsNullOrEmpty(hop.AsnName)) existing.AsnName = CleanAsnName(hop.AsnName);
+    }
+
+    /// <summary>
+    /// Pauses this WAN's auto-discovered access rows that an operator's run no longer proposes, so a
+    /// re-run and commit corrects targets an earlier run got wrong (a container bridge, or a whole
+    /// path committed as access hops when ASN lookups failed). Only on an operator's commit that
+    /// found access hops: an automatic run or an empty result proves nothing about the old rows.
+    /// Hand-added rows are never touched. Paused, never deleted. Does not SaveChanges.
+    /// </summary>
+    internal static async Task<int> PauseUnproposedAccessRowsAsync(NetworkOptimizerDbContext db,
+        IReadOnlyCollection<string> proposedAddresses, string wanInterface, bool isUnboundRun, bool automatic, CancellationToken ct)
+    {
+        if (automatic || proposedAddresses.Count == 0) return 0;
+        var proposed = new HashSet<string>(proposedAddresses, StringComparer.OrdinalIgnoreCase);
+        var stale = (await db.MonitoringTargets
+                .Where(t => t.TargetType == MonitoringTargetType.AccessIsp && t.Enabled && t.AutoDiscovered)
+                .ToListAsync(ct))
+            .Where(t => !proposed.Contains(t.Address) && OwnsTargetRow(t.WanInterface, wanInterface, isUnboundRun))
+            .ToList();
+        foreach (var t in stale) t.Enabled = false;
+        return stale.Count;
     }
 
     /// <summary>Pauses the row this WAN owns for a transit router left unchecked. Does not SaveChanges.</summary>
@@ -3241,6 +3284,9 @@ public class UpstreamTracerService
             // current run resolves them - rows committed before the GeoLite2 fix
             // landed have nulls and never refreshed without this.
             existing.Enabled = true;
+            // Retyped in place, never re-created: the target_id, and the history filed under it, stay.
+            // A hand-added row keeps the type its owner gave it.
+            if (existing.AutoDiscovered) existing.TargetType = MonitoringTargetType.AccessIsp;
             existing.Address = hop.Address;
             existing.ProbeMode = hop.RespondedTo;
             existing.WanInterface = wanInterface;
@@ -3319,6 +3365,9 @@ public class UpstreamTracerService
         else
         {
             existing.Enabled = enabled;
+            // Retyped in place, as UpsertTargetAsync does: an earlier run's access row for this host
+            // becomes the transit or path-end target it is, with its history.
+            if (existing.AutoDiscovered) existing.TargetType = targetType;
             existing.Name = transit.Label ?? transit.AsnName;
             existing.Address = transit.HopAddress ?? transit.PathProxyTarget ?? existing.Address;
             existing.ProbeMode = transit.RespondedTo ?? existing.ProbeMode;
@@ -3378,11 +3427,56 @@ public class UpstreamTracerService
     private List<IReadOnlyList<string>> BuildTraceSequences() =>
         _lastTraces
             .Select(t => (IReadOnlyList<string>)t.Hops
-                .Where(hp => hp.Responded && !string.IsNullOrEmpty(hp.Address))
+                .Where(hp => hp.Responded && !string.IsNullOrEmpty(hp.Address) && !_localSideIps.Contains(hp.Address))
                 .OrderBy(hp => hp.HopNumber)
                 .Select(hp => hp.Address!)
                 .ToList())
             .ToList();
+
+    /// <summary>
+    /// The access hops when no access ASN could be determined: the leading run of unattributed hops,
+    /// in hop order, that sit in private or CGNAT space. A public address with no ASN means the lookup
+    /// failed, not that the ISP left it unannounced, so the run stops there. Without that stop, a
+    /// sweep whose ASN lookups all failed made every hop on the path an access hop, destinations
+    /// included. A trace endpoint is never an access hop.
+    /// </summary>
+    internal static List<string> LeadingUnattributedAccessHops(
+        IReadOnlyList<(string Address, bool Attributed)> hopsInOrder,
+        IEnumerable<string> traceEndpoints)
+    {
+        var endpoints = new HashSet<string>(traceEndpoints, StringComparer.OrdinalIgnoreCase);
+        var result = new List<string>();
+        foreach (var (address, attributed) in hopsInOrder)
+        {
+            if (attributed || endpoints.Contains(address)
+                || NetworkUtilities.ClassifyPublicAddress(address) == PublicAddressClass.PublicIPv4)
+                break;
+            result.Add(address);
+        }
+        return result;
+    }
+
+    /// <summary>
+    /// Every hop a trace crossed before our gateway answered on it. A probe that starts inside a
+    /// bridge-networked container or behind another LAN router passes those first; they are on our
+    /// side, never the ISP's first mile. Decided by position, not RTT, so it holds when trace RTTs
+    /// are untrusted. A trace on which the gateway never answered contributes nothing.
+    /// </summary>
+    internal static HashSet<string> HopsBeforeGateway(
+        IEnumerable<IReadOnlyList<(int HopNumber, string Address)>> traces,
+        IReadOnlyCollection<string> gatewayIps)
+    {
+        var local = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var trace in traces)
+        {
+            var gatewayHop = trace.Where(h => gatewayIps.Contains(h.Address)).Select(h => h.HopNumber).DefaultIfEmpty(0).Min();
+            if (gatewayHop <= 1) continue;
+            foreach (var hop in trace)
+                if (hop.HopNumber < gatewayHop && !gatewayIps.Contains(hop.Address))
+                    local.Add(hop.Address);
+        }
+        return local;
+    }
 
     /// <summary>
     /// Resolves the ASN + org name of every non-transit-probe endpoint in the rotation
