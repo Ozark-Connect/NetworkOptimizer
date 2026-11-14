@@ -392,7 +392,7 @@
                 Database password takes priority when enabled.
             </p>
 
-            <div class="info-row" style="margin-bottom: 1rem; padding: 0.75rem; background: var(--bg-secondary); border-radius: 8px;">
+            <div class="info-row" style="margin-bottom: 1rem; padding: 0.75rem; background: var(--bg-secondary); border-radius: var(--border-radius-lg);">
                 <span class="info-label">Current Source:</span>
                 <span class="info-value">
                     @switch (adminPasswordSource)
@@ -559,7 +559,7 @@
 
             @if (iperf3Status != null)
             {
-                <div class="iperf3-status" style="margin-top: 1rem; padding: 1rem; background: var(--bg-secondary); border-radius: 8px;">
+                <div class="iperf3-status" style="margin-top: 1rem; padding: 1rem; background: var(--bg-secondary); border-radius: var(--border-radius-lg);">
                     <h4 style="margin: 0 0 0.5rem 0;">iperf3 Status</h4>
                     <div class="info-row">
                         <span class="info-label">Installed:</span>
@@ -2575,9 +2575,9 @@
                         {
                             <div style="padding: 0 0 0.75rem;">
                                 <p style="color: var(--text-secondary); font-size: 0.8125rem; margin-bottom: 0.5rem;">Install on a new server:</p>
-                                <pre style="background: var(--bg-primary); padding: 0.75rem; border-radius: 6px; font-size: 0.8125rem; overflow-x: auto; white-space: pre-wrap; word-break: break-all;">curl -fsSL https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main/scripts/deploy-external-speedtest.sh | bash -s -- @GetOptimizerUrl() @(server.ServerId)@GetDeployPortParam(server)</pre>
+                                <pre style="background: var(--bg-primary); padding: 0.75rem; border-radius: var(--border-radius-lg); font-size: 0.8125rem; overflow-x: auto; white-space: pre-wrap; word-break: break-all;">curl -fsSL https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main/scripts/deploy-external-speedtest.sh | bash -s -- @GetOptimizerUrl() @(server.ServerId)@GetDeployPortParam(server)</pre>
                                 <p style="color: var(--text-secondary); font-size: 0.8125rem; margin-top: 0.75rem; margin-bottom: 0.5rem;">Update existing:</p>
-                                <pre style="background: var(--bg-primary); padding: 0.75rem; border-radius: 6px; font-size: 0.8125rem; overflow-x: auto;">curl -fsSL https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main/scripts/deploy-external-speedtest.sh | bash -s -- --update</pre>
+                                <pre style="background: var(--bg-primary); padding: 0.75rem; border-radius: var(--border-radius-lg); font-size: 0.8125rem; overflow-x: auto;">curl -fsSL https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main/scripts/deploy-external-speedtest.sh | bash -s -- --update</pre>
                             </div>
                         }
                     </div>
@@ -2592,7 +2592,7 @@
 
             @if (showExtServerForm)
             {
-                <div style="margin-top: 1rem; padding: 1rem; background: var(--bg-primary); border-radius: 6px;">
+                <div style="margin-top: 1rem; padding: 1rem; background: var(--bg-primary); border-radius: var(--border-radius-lg);">
                     <h4 style="color: var(--text-primary); margin-bottom: 1rem;">@(editingExtServerId.HasValue ? "Edit" : "Add") Server</h4>
 
                     @if (extServerFormScheme != "https")
@@ -2951,7 +2951,7 @@
 
             @if (showChannelForm)
             {
-                <div style="margin-top: 1rem; padding: 1rem; background: var(--bg-primary); border-radius: 6px;">
+                <div style="margin-top: 1rem; padding: 1rem; background: var(--bg-primary); border-radius: var(--border-radius-lg);">
                     <h4 style="color: var(--text-primary); margin-bottom: 1rem;">@(editingChannelId.HasValue ? "Edit" : "Add") Channel</h4>
 
                     <div class="form-group">
@@ -3295,7 +3295,7 @@
                 MaxMind GeoLite2 databases add country, city, and ASN data to threat sources for geographic analysis. With credentials saved, the databases auto-download and refresh monthly.
             </p>
 
-            <div class="info-row" style="margin-bottom: 1rem; padding: 0.75rem; background: var(--bg-primary); border-radius: 6px;">
+            <div class="info-row" style="margin-bottom: 1rem; padding: 0.75rem; background: var(--bg-primary); border-radius: var(--border-radius-lg);">
                 <span class="info-label">GeoLite2 Database:</span>
                 <span class="info-value" style="color: var(--text-secondary);">@threatGeoStatus</span>
             </div>
@@ -3404,7 +3404,7 @@
                     <small class="form-help">Your plan's daily lookup limit (free tier: 30)</small>
                 </div>
 
-                <div class="info-row" style="margin-top: 1rem; padding: 0.75rem; background: var(--bg-primary); border-radius: 6px;">
+                <div class="info-row" style="margin-top: 1rem; padding: 0.75rem; background: var(--bg-primary); border-radius: var(--border-radius-lg);">
                     <span class="info-label">Usage Today:</span>
                     <span class="info-value" style="color: var(--text-secondary);">@crowdsecUsageDisplay</span>
                 </div>
