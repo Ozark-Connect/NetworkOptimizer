@@ -5542,6 +5542,12 @@ input.form-control::-webkit-date-and-time-value {
     height: 30px;
 }
 
+/* GatewayIcon's drawing sits 1.75 units below the middle of its box. Raised here for the
+   console connection banners; the notice banners keep it where it was placed. */
+.banner-icon-console > svg {
+    transform: translateY(-2px);
+}
+
 .banner-icon-info {
     background: var(--info-color);
     color: var(--text-primary);
