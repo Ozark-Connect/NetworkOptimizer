@@ -199,7 +199,7 @@
             </button>
             <button class="wifi-view-tab @(_activeTab == "power" ? "active" : "")"
                     @onclick="@(() => SetActiveTab("power"))">
-                Power / Coverage
+                Power &amp; Coverage
             </button>
             <button class="wifi-view-tab @(_activeTab == "loadbalance" ? "active" : "")"
                     @onclick="@(() => SetActiveTab("loadbalance"))">
@@ -244,6 +244,7 @@
         <div class="card card-full-width">
             <div class="card-body">
                 <NetworkOptimizer.Web.Components.Shared.WiFi.ClientTimeline InitialClientMac="@_initialClientMac" InitialApMac="@_initialApMac" InitialBand="@_initialBand"
+                                                                            InitialSignalMin="@_initialSignalMin" InitialSignalMax="@_initialSignalMax"
                                                                             OnClientNavigate="HandleClientNavigate" />
             </div>
         </div>
@@ -308,7 +309,7 @@
         <!-- Power & Coverage Analysis -->
         <div class="card card-full-width">
             <div class="card-body">
-                <NetworkOptimizer.Web.Components.Shared.WiFi.PowerCoverageAnalysis OnClientClick="HandleMapClientClick" />
+                <NetworkOptimizer.Web.Components.Shared.WiFi.PowerCoverageAnalysis OnClientClick="HandleMapClientClick" OnNavigateToClients="HandleSignalRangeNavigate" />
             </div>
         </div>
     }
@@ -892,6 +893,13 @@
     [SupplyParameterFromQuery(Name = "channel")]
     public int? ChannelQueryParam { get; set; }
 
+    /// <summary>Client Stats signal range in dBm, either end optional (a Signal Strength Distribution bar).</summary>
+    [SupplyParameterFromQuery(Name = "sigmin")]
+    public int? SignalMinQueryParam { get; set; }
+
+    [SupplyParameterFromQuery(Name = "sigmax")]
+    public int? SignalMaxQueryParam { get; set; }
+
     [SupplyParameterFromQuery(Name = "recommend")]
     public bool? RecommendQueryParam { get; set; }
 
@@ -911,6 +919,8 @@
     private string? _initialApMac;
     private RadioBand? _initialBand;
     private int? _initialChannel;
+    private int? _initialSignalMin;
+    private int? _initialSignalMax;
     private bool _autoRunRecommendation;
     private string? _initialEdge;
     private string? _initialRange;
@@ -937,6 +947,8 @@
         _initialApMac = null;
         _initialBand = null;
         _initialChannel = null;
+        _initialSignalMin = null;
+        _initialSignalMax = null;
         _initialEdge = null;
         _initialRange = null;
         _autoRunRecommendation = false;
@@ -951,12 +963,15 @@
         _lastTabParam = tab;
     }
 
-    private void NavigateToTab(string tab, string? apMac = null, RadioBand? band = null, int? channel = null)
+    private void NavigateToTab(string tab, string? apMac = null, RadioBand? band = null, int? channel = null,
+        int? signalMin = null, int? signalMax = null)
     {
         _activeTab = tab;
         _initialApMac = apMac;
         _initialBand = band;
         _initialChannel = channel;
+        _initialSignalMin = signalMin;
+        _initialSignalMax = signalMax;
         _initialClientMac = null;
         _initialRange = null;
         _autoRunRecommendation = false;
@@ -969,10 +984,18 @@
             uri += "&band=" + BandToQueryString(band.Value);
         if (channel.HasValue)
             uri += "&channel=" + channel.Value;
+        uri += SignalQuery(signalMin, signalMax);
 
         NavigationManager.NavigateTo(uri, forceLoad: false, replace: false);
         _lastTabParam = tab;
     }
+
+    private static string SignalQuery(int? min, int? max) =>
+        (min.HasValue ? "&sigmin=" + min.Value.ToString(System.Globalization.CultureInfo.InvariantCulture) : "")
+        + (max.HasValue ? "&sigmax=" + max.Value.ToString(System.Globalization.CultureInfo.InvariantCulture) : "");
+
+    private void HandleSignalRangeNavigate((int? Min, int? Max) range) =>
+        NavigateToTab("client", signalMin: range.Min, signalMax: range.Max);
 
     private static string BandToQueryString(RadioBand band) => band switch
     {
@@ -1161,6 +1184,8 @@
             // A client's URL carries the list's filters, so Back after a reload lands on the same list.
             _initialApMac = ApQueryParam;
             _initialBand = BandFromQueryString(BandQueryParam);
+            _initialSignalMin = SignalMinQueryParam;
+            _initialSignalMax = SignalMaxQueryParam;
         }
         else if (!string.IsNullOrEmpty(TabParam))
         {
@@ -1170,6 +1195,8 @@
             // Parse drill-down filter params
             _initialApMac = ApQueryParam;
             _initialBand = BandFromQueryString(BandQueryParam);
+            _initialSignalMin = SignalMinQueryParam;
+            _initialSignalMax = SignalMaxQueryParam;
             _initialChannel = ChannelQueryParam;
             _autoRunRecommendation = RecommendQueryParam == true;
             _initialEdge = EdgeQueryParam;
@@ -1255,6 +1282,8 @@
                 // Re-parse drill-down params for the new tab
                 _initialApMac = ApQueryParam;
                 _initialBand = BandFromQueryString(BandQueryParam);
+                _initialSignalMin = SignalMinQueryParam;
+                _initialSignalMax = SignalMaxQueryParam;
                 _initialChannel = ChannelQueryParam;
                 _autoRunRecommendation = RecommendQueryParam == true;
                 _initialEdge = EdgeQueryParam;
@@ -1499,6 +1528,7 @@
             uri += "&ap=" + Uri.EscapeDataString(ApQueryParam);
         if (!string.IsNullOrEmpty(BandQueryParam))
             uri += "&band=" + Uri.EscapeDataString(BandQueryParam);
+        uri += SignalQuery(SignalMinQueryParam, SignalMaxQueryParam);
         if (!string.IsNullOrEmpty(mac))
             uri += "&client=" + Uri.EscapeDataString(mac);
 

@@ -33,7 +33,7 @@ public static class IssueLinks
     public static string Channel(RadioBand band, int? channel = null) =>
         $"{Page}?tab=channels&band={band.ToPropagationBand()}" + (channel.HasValue ? $"&channel={channel}" : "");
 
-    /// <summary>Power / Coverage.</summary>
+    /// <summary>Power &amp; Coverage.</summary>
     public static string Power() => $"{Page}?tab=power";
 
     /// <summary>Sets the issue's links and its <see cref="HealthIssue.AffectedEntity"/> to their joined text.</summary>

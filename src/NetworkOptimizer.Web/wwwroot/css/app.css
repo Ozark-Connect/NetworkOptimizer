@@ -15550,6 +15550,22 @@ h3 > .tooltip-icon-sm {
     position: relative;
 }
 
+.signal-bar.clickable {
+    cursor: pointer;
+}
+
+.signal-bar.clickable:hover::before {
+    background: color-mix(in srgb, var(--bar) 60%, transparent);
+}
+
+/* The signal range Client Stats is filtered to, beside Clear Filters. */
+.client-signal-filter {
+    font-family: var(--font-display);
+    font-size: 0.8125rem;
+    color: var(--text-secondary);
+    white-space: nowrap;
+}
+
 /* The fill is its own layer, so the count can sit above the bar. A wide bar keeps a rounded
    free end, which a border draws cleanly where the meter mask would cut the corners. */
 .signal-distribution .signal-bar::before {
