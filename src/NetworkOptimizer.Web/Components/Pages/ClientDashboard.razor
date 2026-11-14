@@ -5256,10 +5256,10 @@
     }
     /* The chart's own series colors (CreateUsageChartOptions), so a marker matches its bars. */
     .usage-legend-download {
-        background: #3385d6;
+        background: var(--speed-download-color);
     }
     .usage-legend-upload {
-        background: #24bc70;
+        background: var(--speed-upload-color);
     }
     .speed-tests-title {
         display: flex;
@@ -5584,10 +5584,10 @@
         border-radius: var(--border-radius);
     }
     .skeleton-title { width: 200px; height: 28px; }
-    .skeleton-gauge { width: 90px; height: 48px; border-radius: 8px; margin-left: auto; }
+    .skeleton-gauge { width: 90px; height: 48px; border-radius: var(--border-radius-lg); margin-left: auto; }
     .skeleton-detail { width: 100px; height: 36px; }
-    .skeleton-tab { width: 80px; height: 44px; border-radius: 6px; }
-    .skeleton-chart-area { width: 100%; height: 200px; border-radius: 4px; }
+    .skeleton-tab { width: 80px; height: 44px; border-radius: var(--border-radius-lg); }
+    .skeleton-chart-area { width: 100%; height: 200px; border-radius: var(--border-radius); }
 
     @@keyframes skeleton-shimmer {
         0% { background-position: 200% 0; }
