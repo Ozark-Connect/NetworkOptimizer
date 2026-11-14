@@ -39,6 +39,7 @@ public class AgentProbeResultSink
     // Counter delta cache for agent-relayed interface samples. Key =
     // "slug/deviceMac/ifName" - same rate computation as the local fast tier.
     private readonly ConcurrentDictionary<string, InterfaceRateCalculator.State> _counterCache = new();
+    private readonly FanSpeedGuard _fanGuard = new();
 
     // Device display names per site (slug -> normalized MAC -> name), captured from
     // the device list each SNMP config push assembles. Health samples relayed by the
@@ -1634,7 +1635,7 @@ public class AgentProbeResultSink
 
             // A read the calculator does not trust is not stored: differenced, one bad sample
             // reads as the whole counter's worth of traffic.
-            if (calc.Outcome is InterfaceRateCalculator.Outcome.ResetPending or InterfaceRateCalculator.Outcome.ImplausibleRate)
+            if (calc.Outcome is InterfaceRateCalculator.Outcome.ResetPending or InterfaceRateCalculator.Outcome.ImplausibleRate || calc.NewState.ProvisionalSeed)
                 continue;
 
             await influx.WriteInterfaceCountersAsync(
@@ -1808,7 +1809,7 @@ public class AgentProbeResultSink
             double? mem = health.HasMemoryUsedPercent ? health.MemoryUsedPercent : null;
             double? temp = health.HasTemperatureC ? health.TemperatureC : null;
             long? uptime = health.HasUptimeSeconds ? health.UptimeSeconds : null;
-            int? fanRpm = health.HasFanSpeedRpm ? health.FanSpeedRpm : null;
+            int? fanRpm = _fanGuard.Accept($"{connection.SiteSlug}/{health.DeviceMac}", health.HasFanSpeedRpm ? health.FanSpeedRpm : null);
 
             // Fill health fields SNMP didn't return from the console's cached UniFi device
             // data, mirroring the directly-monitored medium tier's CollectApiHealthFallbackAsync:
