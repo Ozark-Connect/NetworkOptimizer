@@ -995,7 +995,8 @@
     private string selectedApMac = "";
     private RadioBand selectedBand = RadioBand.Band5GHz;
     private string selectedTimeRange = "1D";
-    private string? sortColumn;
+    // Loads sorted by signal, strongest first, with that header marked. Null once a header is cleared.
+    private string? sortColumn = "signal";
     private bool sortDescending = true;
     private int _currentPage = 1;
     private const int _pageSize = 25;
