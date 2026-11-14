@@ -40,21 +40,30 @@ internal static class GatewayTraceroute
             .Split(':', StringSplitOptions.RemoveEmptyEntries)
             .Any(dir => File.Exists(Path.Combine(dir, "traceroute")));
 
+    /// <summary>
+    /// Runs apt in its own transient unit, outside the agent's cgroup, and never kills it: apt stopped
+    /// mid-dpkg leaves dpkg interrupted, which blocks every later install on the gateway, UniFi's included.
+    /// A stop or timeout here only stops waiting. A second run while one is going fails on the unit name.
+    /// </summary>
     private static async Task<(bool Ok, string Output)> InstallAsync(CancellationToken ct)
     {
         try
         {
-            var psi = new ProcessStartInfo("/bin/sh")
+            var psi = new ProcessStartInfo("systemd-run")
             {
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
                 UseShellExecute = false
             };
-            psi.ArgumentList.Add("-c");
-            psi.ArgumentList.Add("apt-get update -qq && apt-get install -y -qq traceroute");
-            psi.Environment["DEBIAN_FRONTEND"] = "noninteractive";
+            foreach (var arg in new[]
+            {
+                "--unit=netopt-traceroute-install", "--collect", "--wait", "--quiet",
+                "--setenv=DEBIAN_FRONTEND=noninteractive",
+                "/bin/sh", "-c", "apt-get update -qq && apt-get install -y -qq traceroute"
+            })
+                psi.ArgumentList.Add(arg);
             using var proc = Process.Start(psi);
-            if (proc == null) return (false, "could not start /bin/sh");
+            if (proc == null) return (false, "could not start systemd-run");
 
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
             timeout.CancelAfter(InstallTimeout);
@@ -63,10 +72,12 @@ internal static class GatewayTraceroute
             try { await proc.WaitForExitAsync(timeout.Token); }
             catch (OperationCanceledException)
             {
-                try { proc.Kill(entireProcessTree: true); } catch { }
-                return (false, ct.IsCancellationRequested ? "stopped" : $"timed out after {InstallTimeout.TotalMinutes:0} minutes");
+                return (false, ct.IsCancellationRequested ? "stopped" : $"still running after {InstallTimeout.TotalMinutes:0} minutes");
             }
-            return (proc.ExitCode == 0, await stdout + "\n" + await stderr);
+            var output = await stdout + "\n" + await stderr;
+            return proc.ExitCode == 0
+                ? (true, output)
+                : (false, $"{output.Trim()} (journalctl -u netopt-traceroute-install)");
         }
         catch (Exception ex)
         {
