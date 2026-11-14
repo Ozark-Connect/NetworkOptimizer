@@ -1025,16 +1025,18 @@ h1:focus {
 }
 
 /* Speed Test List (Dashboard - multiple results) */
+/* One grid for the whole list, so the down and up speeds line up in columns across rows. */
 .speed-test-list {
-    display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
+    display: grid;
+    grid-template-columns: minmax(33%, auto) auto auto 1fr;
+    gap: 0.5rem 0.75rem;
 }
 
 .speed-test-row {
-    display: flex;
+    display: grid;
+    grid-template-columns: subgrid;
+    grid-column: 1 / -1;
     align-items: center;
-    gap: 0.75rem;
     padding: 0.75rem 0;
     border-bottom: 1px solid var(--border-color);
 }
@@ -1084,12 +1086,11 @@ h1:focus {
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    min-width: 33%;
+    min-width: 0;
 }
 
 .speed-test-speeds {
-    display: flex;
-    gap: 0.75rem;
+    display: contents;
     font-family: var(--font-display);
     font-variant-numeric: tabular-nums;
     font-weight: 500;
@@ -1108,7 +1109,7 @@ h1:focus {
     font-size: 0.75rem;
     color: var(--text-muted);
     white-space: nowrap;
-    margin-left: auto;
+    justify-self: end;
 }
 
 /* Stats Row */
