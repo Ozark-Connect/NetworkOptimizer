@@ -375,6 +375,19 @@ printf '\n%sNetwork Optimizer on-site agent (%s)%s\n' "$_b" "$MODE_LABEL" "$_rst
 note "Installing to ${INSTALL_DIR}  (${RID})"
 mkdir -p "$INSTALL_DIR"
 
+# UniFi OS ships only BusyBox's traceroute applet, which probes one hop at a time and cannot
+# finish a Path Localization trace inside the agent's deadline. Installed before the agent
+# (re)starts, since the agent detects its traceroute at startup. A firmware upgrade drops the
+# package; any re-run of this script (the agent Upgrade command is one) puts it back.
+if ! command -v traceroute >/dev/null 2>&1; then
+    step "Installing traceroute"
+    if apt-get update -qq >/dev/null 2>&1 && apt-get install -y -qq traceroute >/dev/null 2>&1; then
+        ok "traceroute installed"
+    else
+        warn "could not install traceroute - traces fall back to BusyBox's, which cannot finish a path trace. Re-run this script, or run: apt-get update && apt-get install -y traceroute"
+    fi
+fi
+
 # Download to a temp name and rename into place: writing over the binary while
 # the agent is running fails with ETXTBSY, but rename swaps the directory entry
 # and the running process keeps its old inode until the restart below.
