@@ -17,7 +17,8 @@ import { eventColor, chartSurfaceColor } from './chart-colors.js?v=2';
 // a planned firmware restart and a panic are both ↻, in different colours, which is the
 // distinction the operator is actually scanning for. An action is something Network Optimizer
 // did to the device on a health check's behalf.
-const EVENT_GLYPH = { reboot: '↻', alert: '⚠', action: '⚙', speedtest: '⇅' };
+// \uFE0E holds a glyph to its text form: without it iOS draws these two as color emoji.
+const EVENT_GLYPH = { reboot: '↻', alert: '⚠\uFE0E', action: '⚙\uFE0E', speedtest: '⇅' };
 
 const SEVERITY_RANK = { info: 0, warning: 1, critical: 2 };
 

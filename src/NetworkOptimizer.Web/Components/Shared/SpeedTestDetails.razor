@@ -395,7 +395,7 @@
             @if (PathAnalysis.Path.RequiresRouting && !PathAnalysis.Path.IsExternalPath)
             {
                 <div class="routing-badge">
-                    🔀 Inter-VLAN via @(PathAnalysis.Path.GatewayDevice ?? "gateway")
+                    <AppIcon Name="routed" /> Inter-VLAN via @(PathAnalysis.Path.GatewayDevice ?? "gateway")
                 </div>
             }
         }
@@ -985,16 +985,16 @@
 
     private string GetHopIcon(HopType type) => type switch
     {
-        HopType.Client => "🖥️",
-        HopType.WirelessClient => "💻",
-        HopType.Switch => "🔀",
-        HopType.AccessPoint => "📶",
-        HopType.Gateway => "🌐",
-        HopType.Server => "🖥️",
-        HopType.Teleport => "🔒",
-        HopType.Tailscale => "🔒",
-        HopType.Wan => "🌐",
-        HopType.Vpn => "🔒",
+        HopType.Client => "computer",
+        HopType.WirelessClient => "laptop",
+        HopType.Switch => "switch",
+        HopType.AccessPoint => "access-point",
+        HopType.Gateway => "globe",
+        HopType.Server => "computer",
+        HopType.Teleport => "lock",
+        HopType.Tailscale => "lock",
+        HopType.Wan => "globe",
+        HopType.Vpn => "lock",
         _ => "•"
     };
 
@@ -1505,7 +1505,7 @@
 
         var model = hop.DeviceModel;
 
-        // Show device icons for any device with a model name - onerror falls back to emoji
+        // Show device icons for any device with a model name - onerror falls back to the type's line icon
         if (!string.IsNullOrEmpty(model))
         {
             var iconPath = DeviceIcon.GetIconPath(model);
@@ -1521,14 +1521,18 @@
                 // Fallback span (hidden by default)
                 builder.OpenElement(6, "span");
                 builder.AddAttribute(7, "style", "display:none");
-                builder.AddContent(8, GetHopIcon(hop.Type));
+                builder.OpenComponent<AppIcon>(8);
+                builder.AddComponentParameter(9, nameof(AppIcon.Name), GetHopIcon(hop.Type));
+                builder.CloseComponent();
                 builder.CloseElement();
                 return;
             }
         }
 
-        // Fallback to emoji
-        builder.AddContent(0, GetHopIcon(hop.Type));
+        // No image for this hop: the line icon for its type
+        builder.OpenComponent<AppIcon>(0);
+        builder.AddComponentParameter(1, nameof(AppIcon.Name), GetHopIcon(hop.Type));
+        builder.CloseComponent();
     };
 
     private void DebounceSaveNotes()

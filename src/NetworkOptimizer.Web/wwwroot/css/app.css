@@ -7,9 +7,13 @@
 :root {
     color-scheme: dark;
 
-    /* Typography - Two font families only */
+    /* Typography - three roles. Sans carries prose and controls; display carries titles and
+       every numeric readout; mono is for identifiers only (MAC, IP, commands). */
     --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-    --font-mono: 'SF Mono', SFMono-Regular, ui-monospace, Menlo, Consolas, monospace;
+    --font-display: 'Barlow', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    --font-mono: 'Geist Mono', 'SF Mono', SFMono-Regular, ui-monospace, Menlo, Consolas, monospace;
+    /* Barlow's word space is narrow: without this a value runs into its unit ("23.9dB"). */
+    --display-word-spacing: 0.09em;
 
     /* Brand Colors - Ozark Connect Blue + Orange */
     --primary-color: #0550B5;
@@ -33,6 +37,10 @@
     /* What "look here" is drawn in: the nav-to-card ring and a card held called out. Its own name
        rather than borrowing a score color, so changing either cannot move the other. */
     --highlight-color: var(--primary-color);
+    /* The selected item in a set (page tab, time range, WAN pill): the brand blue held back into
+       the slate, with a full-strength edge under it. Buttons keep the solid brand blue. */
+    --selected-bg: color-mix(in srgb, var(--primary-color) 42%, var(--bg-tertiary));
+    --selected-edge: inset 0 -2px 0 var(--primary-hover);
 
     /* Purple/Violet - WiFi 6E, sponsorship */
     --purple-color: #a855f7;
@@ -44,25 +52,25 @@
     --band-5-color:  #3b82f6;
     --band-6-color:  #a855f7;
 
-    /* Dark Mode Backgrounds - neutral dark, Linear/Vercel inspired */
-    --bg-primary: #0f0f11;
-    --bg-inset: #131315;
-    --bg-secondary: #161618;
-    --bg-tertiary: #232326;
-    --bg-elevated: #2c2c30;
-    --bg-card: #161618;
-    --bg-hover: #232326;
-    --bg-hover-subtle: #1c1c1f;
+    /* Dark Mode Backgrounds - slate, leaning toward the brand blue */
+    --bg-primary: #0b0d10;
+    --bg-inset: #0e1114;
+    --bg-secondary: #12151a;
+    --bg-tertiary: #1c2128;
+    --bg-elevated: #262c35;
+    --bg-card: #12151a;
+    --bg-hover: #1c2128;
+    --bg-hover-subtle: #171b21;
     /* Hovering a row that is already expanded. One step above --bg-hover so the row still answers
        the mouse, without climbing to --bg-elevated and reading as a different surface. */
-    --bg-row-expanded-hover: #27272b;
-    --surface: #161618;
-    --surface-secondary: #1c1c1f;
+    --bg-row-expanded-hover: #21262e;
+    --surface: #12151a;
+    --surface-secondary: #171b21;
 
-    /* Text Colors - neutral, no blue tint */
-    --text-primary: #ededef;
-    --text-secondary: #a0a0a8;
-    --text-muted: #5c5c66;
+    /* Text Colors - a shade cooler than neutral, to sit on the slate */
+    --text-primary: #e8eaed;
+    --text-secondary: #9ba2ad;
+    --text-muted: #5f6672;
     --text-dark: #171717;
 
     /* Blue accent variants for text/links */
@@ -71,12 +79,14 @@
 
     /* Map toolbar buttons */
     --btn-map-bg: var(--bg-elevated);
-    --btn-map-hover: #35353a;
+    --btn-map-hover: #303742;
 
     /* Borders & Effects */
-    --border-color: #232326;
-    --border-radius: 4px;
-    --border-radius-lg: 6px;
+    --border-color: #1e232a;
+    /* Unlit gauge ticks, meter tracks, and the edge of a control that sits on a card */
+    --border-strong: #2b323c;
+    --border-radius: 2px;
+    --border-radius-lg: 3px;
     --shadow: none;
     --shadow-lg: rgba(0, 0, 0, 0.4) 0px 4px 12px 0px;
     --focus-ring: 0 0 0 1px var(--primary-color);
@@ -102,6 +112,62 @@ html, body {
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     scroll-behavior: smooth;
+}
+
+/* AppIcon: a line icon the size of the text around it. */
+.app-icon {
+    display: inline-block;
+    width: 1em;
+    height: 1em;
+    flex-shrink: 0;
+    vertical-align: -0.125em;
+}
+
+/* Numeric readouts take the display face with fixed-width figures, so a value that ticks does
+   not shift. A new readout class joins this list rather than naming the font itself. */
+.count-value,
+.cc-tile-value,
+.channel-rec-count,
+.rate-value,
+.isp-dimension-score,
+.isp-speed-measured,
+.isp-uptime-value,
+.issue-count .count,
+.quality-value,
+.roaming-stat-value,
+.channel-stat-value,
+.load-stat-value,
+.power-stat-value,
+.airtime-stat-value,
+.shp-avg-value,
+.shp-tile-health,
+.signal-value,
+.speed-stat-value,
+.speed-value,
+.stage-count,
+.status-value,
+.success-rate-value,
+.summary-card .summary-value,
+.threat-stat-value,
+.stat-value,
+.metric-value,
+.rx-power-value,
+.score-value,
+.dimension-score {
+    font-family: var(--font-display);
+    font-variant-numeric: tabular-nums;
+    word-spacing: var(--display-word-spacing);
+}
+
+.card-title,
+.page-header h1,
+.chart-title,
+.drilldown-title,
+.login-header h1,
+.tour-modal-title,
+.tour-card-title {
+    font-family: var(--font-display);
+    word-spacing: var(--display-word-spacing);
 }
 
 /* Anchor Links - Ubiquiti Blue primary, Orange for hover emphasis */
@@ -375,7 +441,7 @@ a:hover {
 .page-header h1 {
     font-size: 1.5rem;
     font-weight: 600;
-    letter-spacing: -0.015em;
+    letter-spacing: 0;
     margin-bottom: 4px;
     display: flex;
     align-items: center;
@@ -403,7 +469,7 @@ a:hover {
     padding: 0;
     background: var(--bg-secondary);
     border: 1px solid var(--border-color);
-    border-radius: 8px;
+    border-radius: var(--border-radius-lg);
     color: var(--text-secondary);
     cursor: pointer;
     transition: color 0.15s ease, background 0.15s ease;
@@ -479,7 +545,7 @@ h1:focus {
     justify-content: center;
     width: 36px;
     height: 36px;
-    border-radius: 8px;
+    border-radius: var(--border-radius-lg);
     color: var(--text-secondary);
     transition: color 0.15s ease, background 0.15s ease;
 }
@@ -753,7 +819,8 @@ h1:focus {
 
 .card-title {
     font-size: 1.125rem;
-    font-weight: 500;
+    font-weight: 600;
+    letter-spacing: 0.005em;
     margin: 0;
 }
 
@@ -989,8 +1056,10 @@ h1:focus {
 .speed-test-speeds {
     display: flex;
     gap: 0.75rem;
-    font-family: var(--font-mono);
-    font-size: 0.875rem;
+    font-family: var(--font-display);
+    font-variant-numeric: tabular-nums;
+    font-weight: 500;
+    font-size: 0.9375rem;
 }
 
 .speed-down {
@@ -1120,7 +1189,7 @@ a.stat-card-link:active {
     gap: 0.75rem;
 }
 .monitoring-stat-card {
-    background: var(--bg-card);
+    background: var(--bg-inset);
     border: 1px solid var(--border-color);
     border-radius: var(--border-radius);
     padding: 0.75rem 1rem;
@@ -1353,7 +1422,7 @@ a.stat-card-link:active {
     width: 26px;
     height: 26px;
     border: 1px solid var(--border-color);
-    border-radius: 4px;
+    border-radius: var(--border-radius);
     background: var(--bg-secondary);
     color: var(--text-secondary);
     cursor: pointer;
@@ -1397,7 +1466,7 @@ a.stat-card-link:active {
     z-index: 5;
     padding: 2px 6px;
     background: var(--bg-tertiary);
-    border-radius: 4px;
+    border-radius: var(--border-radius);
     border: 1px solid var(--border-color);
     white-space: nowrap;
 }
@@ -1409,7 +1478,7 @@ a.stat-card-link:active {
     width: 20px;
     height: 18px;
     border: none;
-    border-radius: 3px;
+    border-radius: var(--border-radius);
     background: transparent;
     color: var(--text-secondary);
     cursor: pointer;
@@ -1451,7 +1520,7 @@ a.stat-card-link:active {
     padding: 6px 10px;
     background: transparent;
     border: 1px solid var(--border-color);
-    border-radius: 4px;
+    border-radius: var(--border-radius);
     color: var(--text-secondary);
     font-size: 0.8rem;
     cursor: pointer;
@@ -1580,7 +1649,7 @@ a.stat-card-link:active {
     font-weight: 600;
     text-transform: uppercase;
     padding: 2px 6px;
-    border-radius: 3px;
+    border-radius: var(--border-radius);
     white-space: nowrap;
     flex-shrink: 0;
 }
@@ -1643,7 +1712,7 @@ a.stat-card-link:active {
 
 .wifi-issue-group-header:hover {
     background: var(--bg-hover);
-    border-radius: 4px;
+    border-radius: var(--border-radius);
 }
 
 .group-count-badge {
@@ -1870,39 +1939,69 @@ a.stat-card-link:active {
     margin-top: 0.5rem;
 }
 
+/* The dial (ScoreDial): ticks lit up to the score in the rating's color. */
+.score-dial {
+    --rating-color: var(--text-muted);
+}
+
+.score-dial.rating-excellent { --rating-color: var(--success-color); }
+.score-dial.rating-good { --rating-color: var(--good-color); }
+.score-dial.rating-fair { --rating-color: var(--warning-color); }
+.score-dial.rating-weak { --rating-color: var(--signal-weak); }
+.score-dial.rating-poor { --rating-color: var(--danger-color); }
+
+.gauge-svg .gauge-tick {
+    stroke: var(--border-strong);
+    stroke-width: 1.6;
+}
+
+.score-dial-small .gauge-tick {
+    stroke-width: 2.4;
+}
+
+.gauge-svg .gauge-score-rated {
+    fill: var(--rating-color);
+}
+
+.gauge-svg .gauge-tick.lit {
+    stroke: var(--rating-color);
+}
+
+.gauge-svg .gauge-rail,
+.gauge-svg .gauge-threshold {
+    stroke: var(--border-strong);
+    stroke-width: 1;
+}
+
+.gauge-svg .gauge-score {
+    font-family: var(--font-display);
+    font-size: 38px;
+    font-weight: 600;
+    fill: var(--text-primary);
+}
+
+.gauge-svg .gauge-label {
+    font-size: 11px;
+    fill: var(--text-muted);
+}
+
 .rating-badge {
     display: inline-block;
-    padding: 0.5rem 1.5rem;
-    border-radius: 2rem;
+    padding: 0.5rem 1.25rem;
+    border-radius: var(--border-radius);
+    font-family: var(--font-display);
     font-weight: 600;
     font-size: 0.875rem;
+    letter-spacing: 0.04em;
+    color: var(--rating-color, var(--text-secondary));
+    background: color-mix(in srgb, var(--rating-color, var(--text-muted)) 12%, transparent);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--rating-color, var(--text-muted)) 40%, transparent);
 }
 
-.rating-badge.rating-excellent {
-    background: var(--success-color);
-    color: white;
-}
-
-.rating-badge.rating-good {
-    background: var(--primary-color);
-    color: white;
-}
-
-.rating-badge.rating-fair {
-    background: var(--warning-color);
-    color: white;
-}
-
-.rating-badge.rating-poor {
-    background: var(--danger-color);
-    color: white;
-}
-
-.rating-badge.rating-none {
-    background: var(--bg-secondary);
-    color: var(--text-secondary);
-    border: 1px solid var(--border-color);
-}
+.rating-badge.rating-excellent { --rating-color: var(--success-color); }
+.rating-badge.rating-good { --rating-color: var(--good-color); }
+.rating-badge.rating-fair { --rating-color: var(--warning-color); }
+.rating-badge.rating-poor { --rating-color: var(--danger-color); }
 
 .security-summary {
     display: flex;
@@ -1971,6 +2070,7 @@ a.stat-card-link:active {
 
 .status-indicator.status-active {
     background: var(--success-color);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--success-color) 18%, transparent);
 }
 
 .status-indicator.status-inactive {
@@ -2004,7 +2104,7 @@ a.stat-card-link:active {
 
 .metric-value {
     font-size: 1.3rem;
-    font-weight: 600;
+    font-weight: 500;
     line-height: 1;
     margin-bottom: 0.25rem;
 }
@@ -2051,8 +2151,9 @@ a.stat-card-link:active {
     align-items: center;
     gap: 1rem;
     padding: 0.75rem;
-    background: var(--bg-tertiary);
-    border-radius: 8px;
+    background: var(--bg-inset);
+    box-shadow: inset 0 0 0 1px var(--border-color);
+    border-radius: var(--border-radius-lg);
 }
 
 .ont-rx-gauge {
@@ -2154,11 +2255,11 @@ a.stat-card-link:active {
 /* A halo in the card's own background behind the text: a line crossing the letters breaks up
    their shapes, which reads as faded text even at full color. --spark-halo is the host's background. */
 .signal-spark-host {
-    --spark-halo: var(--bg-tertiary);
+    --spark-halo: var(--bg-inset);
 }
 
 .monitoring-stat-card.signal-spark-host {
-    --spark-halo: var(--bg-card);
+    --spark-halo: var(--bg-inset);
 }
 
 /* Muted labels a shade brighter where a chart sits behind them, so the eye still finds them.
@@ -2817,7 +2918,7 @@ a.stat-card-link:active {
     color: var(--text-primary);
     width: 28px;
     height: 28px;
-    border-radius: 4px;
+    border-radius: var(--border-radius);
     cursor: pointer;
     font-size: 1.2rem;
     line-height: 1;
@@ -2849,18 +2950,30 @@ a.stat-card-link:active {
 }
 
 .metric-box {
-    background: var(--bg-tertiary);
-    border-radius: 8px;
+    background: var(--bg-inset);
+    box-shadow: inset 0 0 0 1px var(--border-color);
+    border-radius: var(--border-radius-lg);
     padding: 0.75rem;
 }
 
 .metric-header {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-family: var(--font-display);
     font-size: 0.9rem;
     font-weight: 600;
     color: var(--accent-color, #3b82f6);
     margin-bottom: 0.5rem;
     text-transform: uppercase;
-    letter-spacing: 0.05em;
+    letter-spacing: 0.09em;
+}
+
+.metric-header::after {
+    content: "";
+    flex: 1;
+    height: 1px;
+    background: var(--border-color);
 }
 
 .metric-row {
@@ -2886,6 +2999,7 @@ a.stat-card-link:active {
     }
     .metric-row {
         font-size: 1rem;
+        max-width: none;
     }
     .metric-value.ont-err-counts {
         font-size: 1rem;
@@ -3097,7 +3211,7 @@ a.stat-card-link:active {
 .data-table code {
     background: var(--bg-primary);
     padding: 0.125rem 0.375rem;
-    border-radius: 0.25rem;
+    border-radius: var(--border-radius);
     font-size: 0.8125rem;
 }
 
@@ -3106,7 +3220,7 @@ code.text-code {
     background: var(--bg-primary);
     color: var(--text-primary);
     padding: 0.0625rem 0.375rem;
-    border-radius: 0.25rem;
+    border-radius: var(--border-radius);
     font-size: 0.8125em;
 }
 
@@ -3984,7 +4098,7 @@ input.form-control::-webkit-date-and-time-value {
     background: var(--bg-primary);
     padding: 0.75rem;
     padding-right: 3rem;
-    border-radius: 6px;
+    border-radius: var(--border-radius-lg);
     overflow-x: auto;
     max-width: 100%;
     font-size: 0.8125rem;
@@ -4127,7 +4241,7 @@ input.form-control::-webkit-date-and-time-value {
 .code-dark {
     background: rgba(0, 0, 0, 0.3);
     padding: 0.15rem 0.4rem;
-    border-radius: 3px;
+    border-radius: var(--border-radius);
     font-family: var(--font-mono);
     font-size: 0.8125rem;
 }
@@ -4182,7 +4296,7 @@ input.form-control::-webkit-date-and-time-value {
 .badge {
     display: inline-block;
     padding: 0.25rem 0.625rem;
-    border-radius: 0.25rem;
+    border-radius: var(--border-radius);
     font-size: 0.75rem;
     font-weight: 600;
 }
@@ -4329,7 +4443,7 @@ input.form-control::-webkit-date-and-time-value {
 .issue-severity {
     display: inline-block;
     padding: 0.125rem 0.5rem;
-    border-radius: 0.25rem;
+    border-radius: var(--border-radius);
     font-size: 0.7rem;
     font-weight: 600;
     text-transform: uppercase;
@@ -4406,7 +4520,7 @@ input.form-control::-webkit-date-and-time-value {
     text-transform: uppercase;
     letter-spacing: 0.05em;
     padding: 0.125rem 0.375rem;
-    border-radius: 3px;
+    border-radius: var(--border-radius);
     background: var(--text-muted);
     color: var(--bg-primary);
 }
@@ -5261,7 +5375,7 @@ input.form-control::-webkit-date-and-time-value {
     background: var(--bg-tertiary);
     color: var(--text-primary);
     border: 1px solid var(--border-color);
-    border-radius: 4px;
+    border-radius: var(--border-radius);
     padding: 0.375rem 0.5rem;
     font-size: 0.875rem;
     line-height: 1.4;
@@ -5298,7 +5412,7 @@ input.form-control::-webkit-date-and-time-value {
     margin-bottom: 1rem;
     background: rgba(71, 151, 255, 0.08);
     border: 1px solid rgba(71, 151, 255, 0.25);
-    border-radius: 6px;
+    border-radius: var(--border-radius-lg);
     font-size: 0.8125rem;
     color: var(--text-secondary);
 }
@@ -5352,7 +5466,9 @@ input.form-control::-webkit-date-and-time-value {
 
 /* Connection Banner */
 .connection-banner {
-    background: linear-gradient(135deg, var(--warning-color) 0%, #d97706 100%);
+    --banner-color: var(--warning-color);
+    background: color-mix(in srgb, var(--banner-color) 10%, var(--bg-card));
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--banner-color) 34%, transparent), inset 3px 0 0 var(--banner-color);
     border-radius: var(--border-radius);
     padding: 1rem 1.5rem;
     margin-bottom: 1.5rem;
@@ -5398,7 +5514,10 @@ input.form-control::-webkit-date-and-time-value {
 
 .banner-icon {
     font-size: 1.5rem;
-    background: rgba(255, 255, 255, 0.2);
+    font-family: var(--font-display);
+    font-weight: 600;
+    background: color-mix(in srgb, var(--banner-color, var(--text-secondary)) 20%, transparent);
+    color: var(--banner-color, var(--text-primary));
     border-radius: 50%;
     width: 40px;
     height: 40px;
@@ -5491,7 +5610,7 @@ tr:hover .snmp-row-chevron {
     font-size: 0.8rem;
     padding: 0.15rem 0.4rem;
     background: var(--bg-tertiary);
-    border-radius: 3px;
+    border-radius: var(--border-radius);
     color: var(--text-secondary);
     word-break: break-all;
 }
@@ -5500,7 +5619,7 @@ tr:hover .snmp-row-chevron {
     margin-top: 0.75rem;
     padding: 1rem;
     background: var(--bg-tertiary);
-    border-radius: 6px;
+    border-radius: var(--border-radius-lg);
     border: 1px solid var(--border-color);
 }
 
@@ -5529,7 +5648,7 @@ tr:hover .snmp-row-chevron {
     margin-top: 0.35rem;
     font-size: 0.8rem;
     padding: 0.3rem 0.5rem;
-    border-radius: 4px;
+    border-radius: var(--border-radius);
 }
 
 .snmp-test-success {
@@ -5577,12 +5696,12 @@ tr:hover .snmp-row-chevron {
 
 .banner-text strong {
     font-size: 1rem;
-    color: white;
+    color: var(--text-primary);
 }
 
 .banner-text span {
     font-size: 0.875rem;
-    color: rgba(255, 255, 255, 0.9);
+    color: var(--text-secondary);
 }
 
 .banner-actions {
@@ -5623,18 +5742,19 @@ tr:hover .snmp-row-chevron {
 }
 
 .connection-banner .btn-secondary {
-    background: white;
-    color: var(--warning-color) !important;
+    background: color-mix(in srgb, var(--banner-color) 18%, transparent);
+    color: var(--banner-color) !important;
     border: none;
 }
 
 .connection-banner .btn-secondary:hover {
-    background: rgba(255, 255, 255, 0.9);
+    background: color-mix(in srgb, var(--banner-color) 30%, transparent);
 }
 
 .connection-banner.module-update-banner {
     background: var(--bg-tertiary);
     border: 1px solid rgba(255, 255, 255, 0.1);
+    box-shadow: none;
 }
 
 .module-update-banner .banner-icon {
@@ -5681,8 +5801,8 @@ tr:hover .snmp-row-chevron {
 
 /* PWA Install Banner */
 .pwa-banner {
-    background: linear-gradient(135deg, rgba(71, 151, 255, 0.12) 0%, rgba(71, 151, 255, 0.05) 100%);
-    border: 1px solid rgba(71, 151, 255, 0.3);
+    --banner-color: var(--info-color);
+    border: 1px solid transparent;
 }
 
 .pwa-banner .banner-text strong {
@@ -5699,7 +5819,7 @@ tr:hover .snmp-row-chevron {
     border: none;
     padding: 0.35rem 0.75rem;
     font-size: 0.8rem;
-    border-radius: 4px;
+    border-radius: var(--border-radius);
     cursor: pointer;
     transition: background 0.15s, color 0.15s;
     white-space: nowrap;
@@ -5717,7 +5837,7 @@ tr:hover .snmp-row-chevron {
     border: none;
     padding: 0.35rem 0.75rem;
     font-size: 0.8rem;
-    border-radius: 4px;
+    border-radius: var(--border-radius);
     cursor: pointer;
     transition: background 0.15s, color 0.15s;
     white-space: nowrap;
@@ -6577,7 +6697,7 @@ tr:hover .snmp-row-chevron {
 .test-details code {
     background: var(--bg-primary);
     padding: 0.125rem 0.375rem;
-    border-radius: 0.25rem;
+    border-radius: var(--border-radius);
     font-size: 0.8125rem;
 }
 
@@ -6848,7 +6968,7 @@ tr:hover .snmp-row-chevron {
     align-items: center;
     padding: 0.75rem 1rem;
     background: var(--bg-card);
-    border-radius: 6px;
+    border-radius: var(--border-radius-lg);
     min-width: 80px;
 }
 
@@ -6904,7 +7024,7 @@ tr:hover .snmp-row-chevron {
     margin-bottom: 0.75rem;
     padding: 0.75rem;
     background: var(--bg-card);
-    border-radius: 6px;
+    border-radius: var(--border-radius-lg);
     row-gap: 0.75rem;
 }
 
@@ -7380,7 +7500,7 @@ tr:hover .snmp-row-chevron {
 .wifi-band-badge {
     display: inline-block;
     padding: 0.1rem 0.35rem;
-    border-radius: 3px;
+    border-radius: var(--border-radius);
     font-size: 0.7rem;
     font-weight: 600;
 }
@@ -8583,47 +8703,72 @@ a.path-hop.hop-clickable:hover {
     gap: 0.75rem;
 }
 
+/* A score dial: a 270 degree ring of ticks, lit up to --score (0-100, set inline) in the
+   rating's color. The ring is one conic fill cut into ticks by the mask. */
+.score-circle,
+.wifi-health-icon {
+    --dial-color: var(--text-muted);
+    --dial-tick: 1.5deg;
+    --dial-step: 4.5deg;
+    --dial-depth: 10px;
+    position: relative;
+}
+
 .score-circle {
     display: flex;
-    align-items: center;
+    align-items: baseline;
     justify-content: center;
+    align-content: center;
+    flex-wrap: wrap;
     width: 130px;
     height: 130px;
+}
+
+.score-circle::before,
+.wifi-health-icon::before {
+    content: "";
+    position: absolute;
+    inset: 0;
     border-radius: 50%;
-    background: var(--bg-tertiary);
-    border: 4px solid var(--border-color);
+    background: conic-gradient(from 225deg,
+        var(--dial-color) calc(var(--score, 0) * 0.75%),
+        var(--border-strong) 0 75%,
+        transparent 0);
+    -webkit-mask: repeating-conic-gradient(from 225deg, #000 0 var(--dial-tick), transparent 0 var(--dial-step)),
+        radial-gradient(closest-side, transparent calc(100% - var(--dial-depth) - 1px), #000 calc(100% - var(--dial-depth)));
+    -webkit-mask-composite: source-in;
+    mask: repeating-conic-gradient(from 225deg, #000 0 var(--dial-tick), transparent 0 var(--dial-step)),
+        radial-gradient(closest-side, transparent calc(100% - var(--dial-depth) - 1px), #000 calc(100% - var(--dial-depth)));
+    mask-composite: intersect;
+    pointer-events: none;
 }
 
-.score-circle.score-excellent {
-    border-color: var(--success-color);
-    background: rgba(36, 188, 112, 0.1);
-}
+.score-circle.score-excellent,
+.wifi-health-icon.score-excellent { --dial-color: var(--success-color); }
 
-.score-circle.score-good {
-    border-color: var(--primary-color);
-    background: rgba(5, 89, 201, 0.1);
-}
+.score-circle.score-good,
+.wifi-health-icon.score-good { --dial-color: var(--good-color); }
 
-.score-circle.score-fair {
-    border-color: var(--warning-color);
-    background: rgba(245, 158, 11, 0.1);
-}
+.score-circle.score-fair,
+.wifi-health-icon.score-fair { --dial-color: var(--warning-color); }
 
-.score-circle.score-poor {
-    border-color: var(--danger-color);
-    background: rgba(239, 68, 68, 0.1);
-}
+.score-circle.score-poor,
+.wifi-health-icon.score-poor { --dial-color: var(--danger-color); }
 
 .score-value {
     font-size: 2.5rem;
     font-weight: 600;
+    line-height: 1;
     color: var(--text-primary);
 }
 
 .score-max {
-    font-size: 1rem;
+    flex-basis: 100%;
+    text-align: center;
+    font-family: var(--font-display);
+    font-size: 0.8125rem;
+    line-height: 1.2;
     color: var(--text-muted);
-    margin-left: 0.125rem;
 }
 
 .score-label {
@@ -8641,7 +8786,7 @@ a.path-hop.hop-clickable:hover {
 
 .score-good .score-label,
 .summary-score:has(.score-good) .score-label {
-    color: var(--primary-color);
+    color: var(--good-color);
 }
 
 .score-fair .score-label,
@@ -9863,7 +10008,7 @@ h3 > .tooltip-icon-sm {
 .upnp-controls .filter-select {
     background: var(--bg-primary);
     border: 1px solid var(--border-color);
-    border-radius: 6px;
+    border-radius: var(--border-radius-lg);
     color: var(--text-primary);
     padding: 0.4rem 0.75rem;
     font-size: 0.875rem;
@@ -10043,7 +10188,7 @@ h3 > .tooltip-icon-sm {
     background: rgba(59, 130, 246, 0.2);
     color: var(--primary-light);
     padding: 0.125rem 0.375rem;
-    border-radius: 3px;
+    border-radius: var(--border-radius);
     font-size: 0.75rem;
     font-weight: 500;
 }
@@ -10065,7 +10210,7 @@ h3 > .tooltip-icon-sm {
 .rule-ports code {
     background: var(--bg-primary);
     padding: 0.125rem 0.375rem;
-    border-radius: 0.25rem;
+    border-radius: var(--border-radius);
     font-size: 0.8125rem;
 }
 
@@ -10368,7 +10513,7 @@ h3 > .tooltip-icon-sm {
 .severity-badge {
     display: inline-block;
     padding: 0.125rem 0.5rem;
-    border-radius: 0.25rem;
+    border-radius: var(--border-radius);
     font-size: 0.7rem;
     font-weight: 600;
     text-transform: uppercase;
@@ -10550,39 +10695,22 @@ h3 > .tooltip-icon-sm {
 
 /* Health score icon in stat card */
 .wifi-health-icon {
+    --dial-tick: 5deg;
+    --dial-step: 9deg;
+    --dial-depth: 4px;
     display: flex;
     align-items: center;
     justify-content: center;
     width: 48px;
     height: 48px;
-    border-radius: 50%;
-    background: var(--bg-secondary);
-    border: 2px solid var(--border-color);
+    color: var(--dial-color);
 }
 
 .wifi-health-icon .health-score-num {
+    font-family: var(--font-display);
+    font-variant-numeric: tabular-nums;
     font-size: 1.25rem;
     font-weight: 600;
-}
-
-.wifi-health-icon.score-excellent {
-    border-color: var(--success-color);
-    color: var(--success-color);
-}
-
-.wifi-health-icon.score-good {
-    border-color: var(--primary-color);
-    color: var(--primary-color);
-}
-
-.wifi-health-icon.score-fair {
-    border-color: var(--warning-color);
-    color: var(--warning-color);
-}
-
-.wifi-health-icon.score-poor {
-    border-color: var(--danger-color);
-    color: var(--danger-color);
 }
 
 /* Score label colors and font for stat card */
@@ -10669,16 +10797,17 @@ h3 > .tooltip-icon-sm {
     color: var(--text-secondary);
 }
 
+/* A meter in the dial's own ticks: the track and its fill are both cut by the one mask. */
 .dimension-bar-container {
     height: 8px;
-    background: var(--bg-tertiary);
-    border-radius: 0 var(--border-radius) var(--border-radius) 0;
+    background: var(--border-strong);
+    -webkit-mask: repeating-linear-gradient(90deg, #000 0 3px, transparent 0 5px);
+    mask: repeating-linear-gradient(90deg, #000 0 3px, transparent 0 5px);
     overflow: hidden;
 }
 
 .dimension-bar {
     height: 100%;
-    border-radius: 0 var(--border-radius) var(--border-radius) 0;
     transition: width 0.3s ease;
 }
 
@@ -10711,7 +10840,7 @@ h3 > .tooltip-icon-sm {
 
 .band-item.clickable {
     cursor: pointer;
-    border-radius: 8px;
+    border-radius: var(--border-radius-lg);
     transition: background-color 0.15s ease;
 }
 
@@ -10940,7 +11069,7 @@ h3 > .tooltip-icon-sm {
     font-size: 0.8rem;
     padding: 0.5rem 0.75rem;
     background: var(--bg-secondary);
-    border-radius: 6px;
+    border-radius: var(--border-radius-lg);
     color: var(--text-secondary);
     white-space: nowrap;
 }
@@ -11336,7 +11465,7 @@ h3 > .tooltip-icon-sm {
 /* Clickable elements in AP cards */
 .ap-card .clickable {
     cursor: pointer;
-    border-radius: 4px;
+    border-radius: var(--border-radius);
     transition: background-color 0.15s ease;
 }
 
@@ -11346,7 +11475,7 @@ h3 > .tooltip-icon-sm {
 
 .ap-stat.clickable:hover {
     background-color: var(--bg-hover);
-    border-radius: 6px;
+    border-radius: var(--border-radius-lg);
     padding: 0 4px;
     margin: 0 -4px;
 }
@@ -11367,7 +11496,7 @@ h3 > .tooltip-icon-sm {
     padding: 0 0.75rem;
     background: var(--bg-primary);
     border: 1px solid var(--border-color);
-    border-radius: 6px;
+    border-radius: var(--border-radius-lg);
     color: var(--text-primary);
 }
 
@@ -11620,7 +11749,7 @@ h3 > .tooltip-icon-sm {
     display: flex;
     gap: 0.25rem;
     background: var(--bg-primary);
-    border-radius: 6px;
+    border-radius: var(--border-radius-lg);
     padding: 0.25rem;
 }
 
@@ -11631,7 +11760,7 @@ h3 > .tooltip-icon-sm {
     z-index: 50;
     background: var(--bg-card);
     border: 1px solid var(--border-color);
-    border-radius: 8px;
+    border-radius: var(--border-radius-lg);
     padding: 1rem;
     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
     min-width: 240px;
@@ -11651,7 +11780,7 @@ h3 > .tooltip-icon-sm {
     background: var(--bg-tertiary);
     color: var(--text-primary);
     border: 1px solid var(--border-color);
-    border-radius: 6px;
+    border-radius: var(--border-radius-lg);
     padding: 6px 10px;
     font-size: 0.85rem;
     width: 100%;
@@ -11766,7 +11895,8 @@ h3 > .tooltip-icon-sm {
 
 .pill-btn.active,
 .time-btn.active {
-    background: var(--primary-color);
+    background: var(--selected-bg);
+    box-shadow: var(--selected-edge);
     color: white;
 }
 
@@ -12095,7 +12225,7 @@ h3 > .tooltip-icon-sm {
 .client-selector .form-select {
     background: var(--bg-primary);
     border: 1px solid var(--border-color);
-    border-radius: 6px;
+    border-radius: var(--border-radius-lg);
     color: var(--text-primary);
     padding: 0.5rem 0.75rem;
     font-size: 0.875rem;
@@ -12209,7 +12339,7 @@ h3 > .tooltip-icon-sm {
     padding: 0 2.5rem 0 0.75rem;
     background: var(--bg-primary);
     border: 1px solid var(--border-color);
-    border-radius: 6px;
+    border-radius: var(--border-radius-lg);
     color: var(--text-primary);
     font-size: 0.875rem;
     background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%239ca3af' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
@@ -12234,7 +12364,7 @@ h3 > .tooltip-icon-sm {
     padding: 0 2.5rem 0 0.75rem;
     background: var(--bg-primary);
     border: 1px solid var(--border-color);
-    border-radius: 6px;
+    border-radius: var(--border-radius-lg);
     cursor: pointer;
     background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%239ca3af' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
     background-repeat: no-repeat;
@@ -12307,7 +12437,7 @@ h3 > .tooltip-icon-sm {
     margin-top: 2px;
     background: var(--bg-primary);
     border: 1px solid var(--border-color);
-    border-radius: 6px;
+    border-radius: var(--border-radius-lg);
     max-height: 300px;
     overflow-y: auto;
     z-index: 1000;
@@ -12485,7 +12615,7 @@ h3 > .tooltip-icon-sm {
     gap: 0.375rem;
     margin-left: auto;
     padding: 0.25rem 0.625rem;
-    border-radius: 6px;
+    border-radius: var(--border-radius-lg);
     background: var(--bg-tertiary);
     color: var(--text-secondary);
     text-decoration: none;
@@ -12742,7 +12872,7 @@ h3 > .tooltip-icon-sm {
     color: var(--text-secondary);
     font-size: 0.9rem;
     cursor: pointer;
-    border-radius: 6px;
+    border-radius: var(--border-radius-lg);
     transition: all 0.15s ease;
     white-space: nowrap;
     flex-shrink: 0;
@@ -12826,7 +12956,7 @@ h3 > .tooltip-icon-sm {
     color: var(--text-secondary);
     font-size: 0.9rem;
     cursor: pointer;
-    border-radius: 6px;
+    border-radius: var(--border-radius-lg);
     transition: all 0.15s ease;
     white-space: nowrap;
     flex-shrink: 0;
@@ -12838,7 +12968,8 @@ h3 > .tooltip-icon-sm {
 }
 
 .wifi-view-tab.active {
-    background: var(--primary-color);
+    background: var(--selected-bg);
+    box-shadow: var(--selected-edge);
     color: white;
     border-radius: var(--border-radius);
 }
@@ -13085,7 +13216,7 @@ h3 > .tooltip-icon-sm {
 
 .roaming-paths-table {
     border: 1px solid var(--border-color);
-    border-radius: 6px;
+    border-radius: var(--border-radius-lg);
     overflow: hidden;
 }
 
@@ -13157,7 +13288,7 @@ h3 > .tooltip-icon-sm {
 
 .direction-card {
     background: var(--bg-tertiary);
-    border-radius: 6px;
+    border-radius: var(--border-radius-lg);
     padding: 1rem;
 }
 
@@ -13283,7 +13414,7 @@ h3 > .tooltip-icon-sm {
 
 .client-card {
     background: var(--bg-tertiary);
-    border-radius: 6px;
+    border-radius: var(--border-radius-lg);
     padding: 0.75rem;
 }
 
@@ -13426,7 +13557,7 @@ h3 > .tooltip-icon-sm {
     padding: 0.5rem 1rem;
     background: var(--bg-tertiary);
     border: 1px solid var(--border-color);
-    border-radius: 6px;
+    border-radius: var(--border-radius-lg);
     color: var(--text-secondary);
     font-size: 0.875rem;
     cursor: pointer;
@@ -13512,7 +13643,7 @@ h3 > .tooltip-icon-sm {
     height: 64px;
     background: var(--bg-tertiary);
     border: 1px solid var(--border-color);
-    border-radius: 6px;
+    border-radius: var(--border-radius-lg);
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -13831,7 +13962,7 @@ h3 > .tooltip-icon-sm {
     padding: 0.75rem 1rem;
     background: rgba(231, 150, 19, 0.1);
     border: 1px solid var(--warning-color);
-    border-radius: 6px;
+    border-radius: var(--border-radius-lg);
     margin-bottom: 1rem;
     font-size: 0.875rem;
     color: var(--warning-color);
@@ -13857,7 +13988,7 @@ h3 > .tooltip-icon-sm {
     padding: 0.75rem 1rem;
     background: rgba(59, 130, 246, 0.1);
     border: 1px solid #60a5fa;
-    border-radius: 6px;
+    border-radius: var(--border-radius-lg);
     margin-bottom: 1rem;
     font-size: 0.875rem;
     color: var(--primary-light);
@@ -13884,7 +14015,7 @@ h3 > .tooltip-icon-sm {
 
 .channel-ap-card {
     background: var(--bg-tertiary);
-    border-radius: 6px;
+    border-radius: var(--border-radius-lg);
     padding: 1rem;
 }
 
@@ -13950,7 +14081,7 @@ h3 > .tooltip-icon-sm {
 .aps-band-table {
     background: var(--bg-inset);
     border: 1px solid var(--border-color);
-    border-radius: 6px;
+    border-radius: var(--border-radius-lg);
     overflow: hidden;
 }
 
@@ -14138,7 +14269,7 @@ h3 > .tooltip-icon-sm {
     border: none;
     padding: 0.35rem 0.75rem;
     font-size: 0.8rem;
-    border-radius: 4px;
+    border-radius: var(--border-radius);
     cursor: pointer;
     transition: background 0.15s, color 0.15s;
 }
@@ -14208,7 +14339,7 @@ h3 > .tooltip-icon-sm {
     padding: 0.125rem 0.5rem;
     background: rgba(59, 130, 246, 0.15);
     color: #3b82f6;
-    border-radius: 3px;
+    border-radius: var(--border-radius);
     margin-left: 0.5rem;
 }
 
@@ -14221,7 +14352,7 @@ h3 > .tooltip-icon-sm {
     height: 24px;
     padding: 0;
     border: none;
-    border-radius: 4px;
+    border-radius: var(--border-radius);
     background: transparent;
     color: var(--text-muted);
     cursor: pointer;
@@ -14250,7 +14381,7 @@ h3 > .tooltip-icon-sm {
     padding: 0.125rem 0.5rem;
     background: rgba(43, 168, 154, 0.15);
     color: #2ba89a;
-    border-radius: 3px;
+    border-radius: var(--border-radius);
     margin-left: 0.5rem;
 }
 
@@ -14728,7 +14859,7 @@ h3 > .tooltip-icon-sm {
     color: var(--text-muted);
     background: var(--bg-secondary);
     padding: 2px 6px;
-    border-radius: 3px;
+    border-radius: var(--border-radius);
 }
 
 /* AP Details Section */
@@ -14747,7 +14878,7 @@ h3 > .tooltip-icon-sm {
 
 .ap-detail-card {
     background: var(--bg-tertiary);
-    border-radius: 6px;
+    border-radius: var(--border-radius-lg);
     padding: 1rem;
     border: 1px solid transparent;
 }
@@ -14789,7 +14920,7 @@ h3 > .tooltip-icon-sm {
 
 .ap-client-count.clickable {
     cursor: pointer;
-    border-radius: 6px;
+    border-radius: var(--border-radius-lg);
     transition: background-color 0.15s ease;
 }
 
@@ -14920,7 +15051,7 @@ h3 > .tooltip-icon-sm {
     gap: 0.75rem;
     padding: 0.75rem;
     background: var(--bg-tertiary);
-    border-radius: 6px;
+    border-radius: var(--border-radius-lg);
     border-left: 3px solid var(--border-color);
 }
 
@@ -15242,7 +15373,7 @@ h3 > .tooltip-icon-sm {
 
 .ap-power-card {
     background: var(--bg-tertiary);
-    border-radius: 6px;
+    border-radius: var(--border-radius-lg);
     padding: 1rem;
 }
 
@@ -15410,7 +15541,7 @@ h3 > .tooltip-icon-sm {
 
 .coverage-card {
     background: var(--bg-tertiary);
-    border-radius: 6px;
+    border-radius: var(--border-radius-lg);
     padding: 1rem;
     border: 1px solid transparent;
 }
@@ -15511,7 +15642,7 @@ h3 > .tooltip-icon-sm {
     gap: 0.75rem;
     padding: 0.75rem;
     background: var(--bg-tertiary);
-    border-radius: 6px;
+    border-radius: var(--border-radius-lg);
     border-left: 3px solid var(--warning-color);
 }
 
@@ -15694,7 +15825,7 @@ h3 > .tooltip-icon-sm {
 .effectiveness-bar {
     height: 32px;
     display: flex;
-    border-radius: 6px;
+    border-radius: var(--border-radius-lg);
     overflow: hidden;
     background: var(--bg-tertiary);
 }
@@ -15829,7 +15960,7 @@ h3 > .tooltip-icon-sm {
 
 .band-badge {
     padding: 0.125rem 0.5rem;
-    border-radius: 3px;
+    border-radius: var(--border-radius);
     font-size: 0.7rem;
     font-weight: 500;
 }
@@ -15886,7 +16017,7 @@ h3 > .tooltip-icon-sm {
 
 .gen-badge {
     padding: 0.125rem 0.5rem;
-    border-radius: 3px;
+    border-radius: var(--border-radius);
     font-size: 0.7rem;
     font-weight: 600;
 }
@@ -15949,7 +16080,7 @@ h3 > .tooltip-icon-sm {
 
 .legacy-client-card {
     background: var(--bg-tertiary);
-    border-radius: 6px;
+    border-radius: var(--border-radius-lg);
     padding: 0.75rem;
 }
 
@@ -16398,7 +16529,7 @@ h3 > .tooltip-icon-sm {
 
 .airtime-client-card {
     background: var(--bg-tertiary);
-    border-radius: 6px;
+    border-radius: var(--border-radius-lg);
     padding: 0.75rem;
     border-left: 3px solid var(--border-color);
 }
@@ -16427,7 +16558,7 @@ h3 > .tooltip-icon-sm {
 .airtime-indicator {
     font-size: 0.7rem;
     padding: 0.125rem 0.5rem;
-    border-radius: 3px;
+    border-radius: var(--border-radius);
     background: var(--bg-secondary);
     color: var(--text-muted);
     white-space: nowrap;
@@ -16657,7 +16788,7 @@ h3 > .tooltip-icon-sm {
 
 .tod-card {
     background: var(--bg-tertiary);
-    border-radius: 6px;
+    border-radius: var(--border-radius-lg);
     padding: 1rem;
     border-left: 3px solid var(--border-color);
 }
@@ -16710,7 +16841,7 @@ h3 > .tooltip-icon-sm {
     background: rgba(239, 68, 68, 0.1);
     color: var(--danger-color);
     font-size: 0.7rem;
-    border-radius: 3px;
+    border-radius: var(--border-radius);
     text-align: center;
 }
 
@@ -16750,7 +16881,7 @@ h3 > .tooltip-icon-sm {
     flex: 1;
     min-width: 30px;
     height: 24px;
-    border-radius: 3px;
+    border-radius: var(--border-radius);
     cursor: default;
 }
 
@@ -16775,7 +16906,7 @@ h3 > .tooltip-icon-sm {
 .heat-color {
     width: 16px;
     height: 16px;
-    border-radius: 3px;
+    border-radius: var(--border-radius);
 }
 
 .heat-color.heat-low { background: #22c55e; }
@@ -16795,7 +16926,7 @@ h3 > .tooltip-icon-sm {
     gap: 0.75rem;
     padding: 0.75rem;
     background: var(--bg-tertiary);
-    border-radius: 6px;
+    border-radius: var(--border-radius-lg);
     border-left: 3px solid var(--border-color);
 }
 
@@ -16856,7 +16987,7 @@ h3 > .tooltip-icon-sm {
 
 .band-env-card {
     background: var(--bg-tertiary);
-    border-radius: 6px;
+    border-radius: var(--border-radius-lg);
     padding: 1rem;
     border-top: 3px solid var(--border-color);
 }
@@ -17318,7 +17449,7 @@ a.affected-client:hover {
     align-items: center;
     padding: 0.75rem;
     background: var(--bg-tertiary);
-    border-radius: 6px;
+    border-radius: var(--border-radius-lg);
 }
 
 .ap-info {
@@ -17625,7 +17756,7 @@ a.affected-client:hover {
 .wan-speedtest .wan-result-summary {
     background: var(--bg-primary);
     padding: 0.125rem 0.375rem;
-    border-radius: 0.25rem;
+    border-radius: var(--border-radius);
     font-size: 0.8125rem;
     color: var(--text-secondary);
     white-space: nowrap;
@@ -18146,7 +18277,7 @@ tr.stats-row-filtered {
 .event-type-modal {
     background: var(--bg-secondary);
     border: 1px solid var(--border-color);
-    border-radius: 8px;
+    border-radius: var(--border-radius-lg);
     padding: 1.5rem;
     max-width: 960px;
     width: 100%;
@@ -18225,7 +18356,7 @@ tr.stats-row-filtered {
     line-height: 1.4;
     cursor: pointer;
     padding: 0.25rem 0.375rem;
-    border-radius: 4px;
+    border-radius: var(--border-radius);
     margin: 0 -0.375rem;
 }
 
@@ -18238,7 +18369,7 @@ tr.stats-row-filtered {
     font-size: 0.75rem;
     padding: 0.125rem 0.375rem;
     background: var(--bg-tertiary);
-    border-radius: 3px;
+    border-radius: var(--border-radius);
     color: var(--info-color);
 }
 
@@ -18290,7 +18421,7 @@ tr.stats-row-filtered {
     backdrop-filter: blur(10px);
     -webkit-backdrop-filter: blur(10px);
     border: 1px solid rgba(255, 255, 255, 0.06);
-    border-radius: 10px;
+    border-radius: var(--border-radius-lg);
     color: var(--text-primary);
     padding: 0.6rem 0.75rem;
     font-size: 0.85rem;
@@ -18360,7 +18491,7 @@ tr.stats-row-filtered {
     background: var(--bg-tertiary);
     color: var(--text-primary);
     padding: 0.05rem 0.35rem;
-    border-radius: 3px;
+    border-radius: var(--border-radius);
     font-family: var(--font-mono, monospace);
     font-size: 0.825rem;
 }
@@ -18420,7 +18551,7 @@ tr.stats-row-filtered {
     background: rgba(255, 255, 255, 0.05);
     border: 1px solid rgba(255, 255, 255, 0.08);
     color: var(--text-primary);
-    border-radius: 6px;
+    border-radius: var(--border-radius-lg);
     padding: 0.32rem 0.5rem;
     font-size: 0.82rem;
 }
@@ -18442,7 +18573,7 @@ tr.stats-row-filtered {
     backdrop-filter: blur(10px);
     -webkit-backdrop-filter: blur(10px);
     border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 8px;
+    border-radius: var(--border-radius-lg);
     overflow: hidden;
     box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
 }
@@ -18551,7 +18682,7 @@ tr.stats-row-filtered {
     backdrop-filter: blur(10px);
     -webkit-backdrop-filter: blur(10px);
     border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 8px;
+    border-radius: var(--border-radius-lg);
     box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
     overflow: hidden;
     max-height: 280px;
@@ -18610,7 +18741,7 @@ tr.stats-row-filtered {
     backdrop-filter: blur(10px);
     -webkit-backdrop-filter: blur(10px);
     border: 1px solid rgba(255, 255, 255, 0.1);
-    border-radius: 4px;
+    border-radius: var(--border-radius);
     color: var(--text-secondary);
     cursor: pointer;
     transition: background 0.15s, color 0.15s, border-color 0.15s;
@@ -18639,7 +18770,7 @@ tr.stats-row-filtered {
 .map-sat-confirm {
     background: var(--bg-card);
     border: 1px solid rgba(255, 255, 255, 0.1);
-    border-radius: 10px;
+    border-radius: var(--border-radius-lg);
     box-shadow: 0 8px 30px rgba(0, 0, 0, 0.45);
     max-width: 420px;
     width: 100%;
@@ -18764,7 +18895,7 @@ tr.stats-row-filtered {
     backdrop-filter: blur(10px);
     -webkit-backdrop-filter: blur(10px);
     border: 1px solid rgba(255, 255, 255, 0.06);
-    border-radius: 10px;
+    border-radius: var(--border-radius-lg);
     padding: 0.55rem 0.75rem;
     display: flex;
     flex-direction: column;
@@ -18808,7 +18939,7 @@ tr.stats-row-filtered {
     border: 1px solid var(--border-color, #334155);
     color: var(--text-secondary);
     height: 1.75rem;
-    border-radius: 0.25rem;
+    border-radius: var(--border-radius);
     font-size: 0.825rem;
     padding: 0 0.2rem;
     cursor: pointer;
@@ -18844,14 +18975,13 @@ tr.stats-row-filtered {
     color: var(--text-secondary);
     width: 1.75rem;
     height: 1.75rem;
-    border-radius: 0.25rem;
+    border-radius: var(--border-radius);
     cursor: pointer;
     display: inline-flex;
     align-items: center;
     justify-content: center;
     font-size: 0.8rem;
     padding: 0;
-    padding-bottom: 3px;
     flex-shrink: 0;
 }
 .lan-flow-map-scrubber-playpause:hover {
@@ -18901,7 +19031,7 @@ tr.stats-row-filtered {
     backdrop-filter: blur(10px);
     -webkit-backdrop-filter: blur(10px);
     border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 10px;
+    border-radius: var(--border-radius-lg);
     box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
     font-size: 0.78rem;
     color: var(--text-secondary);
@@ -18965,7 +19095,7 @@ tr.stats-row-filtered {
     background: var(--bg-secondary);
     color: var(--text-primary);
     border: 1px solid var(--bg-hover);
-    border-radius: 4px;
+    border-radius: var(--border-radius);
     padding: 0.15rem 0.35rem;
     font-size: 0.85rem;
     cursor: pointer;
@@ -18998,7 +19128,7 @@ tr.stats-row-filtered {
     background: rgba(16, 24, 32, 0.78);
     backdrop-filter: blur(10px);
     border: 1px solid rgba(255, 255, 255, 0.06);
-    border-radius: 6px;
+    border-radius: var(--border-radius-lg);
     color: var(--text-secondary);
     cursor: pointer;
     pointer-events: auto;
@@ -19025,7 +19155,7 @@ tr.stats-row-filtered {
     background: rgba(16, 24, 32, 0.78);
     backdrop-filter: blur(10px);
     border: 1px solid rgba(255, 255, 255, 0.06);
-    border-radius: 6px;
+    border-radius: var(--border-radius-lg);
     color: var(--text-secondary);
     cursor: pointer;
     pointer-events: auto;
@@ -19054,7 +19184,7 @@ tr.stats-row-filtered {
     background: rgba(16, 24, 32, 0.78);
     color: var(--text-primary);
     padding: 0.2rem 0.55rem;
-    border-radius: 6px;
+    border-radius: var(--border-radius-lg);
     font-size: 0.74rem;
     line-height: 1.25;
     white-space: nowrap;
@@ -19085,7 +19215,7 @@ tr.stats-row-filtered {
     background: rgba(16, 24, 32, 0.82);
     color: var(--text-primary);
     padding: 0.12rem 0.45rem;
-    border-radius: 4px;
+    border-radius: var(--border-radius);
     font-size: 0.7rem;
     line-height: 1.25;
     white-space: nowrap;
@@ -19144,7 +19274,7 @@ tr.stats-row-filtered {
     position: absolute;
     background: rgba(16, 24, 32, 0.92);
     border: 1px solid rgba(255, 255, 255, 0.06);
-    border-radius: 8px;
+    border-radius: var(--border-radius-lg);
     padding: 0.5rem 0.65rem;
     font-size: 0.78rem;
     line-height: 1.35;
@@ -19275,7 +19405,7 @@ tr.stats-row-filtered {
 }
 .lan-flow-map-2d-body {
     padding: 0;
-    background: #202023;
+    background: #1c2128;
     position: relative;
 }
 .lan-flow-map-2d-stage {
@@ -19305,7 +19435,7 @@ tr.stats-row-filtered {
     position: absolute;
     background: rgba(16, 24, 32, 0.92);
     border: 1px solid rgba(255, 255, 255, 0.06);
-    border-radius: 8px;
+    border-radius: var(--border-radius-lg);
     padding: 0.5rem 0.65rem;
     font-size: 0.78rem;
     line-height: 1.35;
@@ -19334,7 +19464,7 @@ tr.stats-row-filtered {
     width: 32px;
     height: 32px;
     border: 1px solid rgba(255,255,255,0.1);
-    border-radius: 6px;
+    border-radius: var(--border-radius-lg);
     background: rgba(26,29,35,0.9);
     color: var(--text-secondary);
     font-size: 16px;
@@ -19368,7 +19498,7 @@ tr.stats-row-filtered {
     z-index: 20;
     background: rgba(16, 24, 32, 0.95);
     border: 1px solid rgba(255, 255, 255, 0.10);
-    border-radius: 6px;
+    border-radius: var(--border-radius-lg);
     padding: 4px 0;
     min-width: 160px;
     box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
@@ -19391,7 +19521,7 @@ tr.stats-row-filtered {
     z-index: 15;
     background: rgba(16, 24, 32, 0.92);
     border: 1px solid var(--primary-color);
-    border-radius: 8px;
+    border-radius: var(--border-radius-lg);
     padding: 8px 16px;
     display: flex;
     align-items: center;
@@ -19413,7 +19543,7 @@ tr.stats-row-filtered {
     font-size: 0.825rem;
     background: var(--bg-tertiary);
     border: 1px solid rgba(255, 255, 255, 0.12);
-    border-radius: 3px;
+    border-radius: var(--border-radius);
     font-family: inherit;
     line-height: 1.4;
 }
@@ -19623,7 +19753,7 @@ tr.stats-row-filtered {
     height: 30px;
     padding: 0 10px;
     border: 1px solid var(--warning-color);
-    border-radius: 6px;
+    border-radius: var(--border-radius-lg);
     background: rgba(231, 150, 19, 0.12);
     color: var(--warning-color);
     font-size: 0.8rem;
@@ -19742,21 +19872,19 @@ tr.stats-row-filtered {
     filter: none;
 }
 
-.isp-gauge-small .isp-gauge-score {
-    font-size: 30px;
+.isp-gauge-small .gauge-score {
+    font-size: 34px;
 }
 
-.isp-gauge-small .isp-gauge-label {
+.isp-gauge-small .gauge-label {
     font-size: 17px;
 }
 
-.isp-gauge-score {
+.isp-gauge .gauge-score {
     font-size: 40px;
-    font-weight: 700;
-    letter-spacing: -1px;
 }
 
-.isp-gauge-label {
+.isp-gauge .gauge-label {
     font-size: 13px;
     fill: var(--text-secondary);
 }
@@ -19866,7 +19994,7 @@ a.isp-health-hero-speed {
     text-align: center;
     color: inherit;
     text-decoration: none;
-    border-radius: 0.5rem;
+    border-radius: var(--border-radius-lg);
     padding: 0.5rem;
     margin: -0.5rem;
     transition: background-color 0.15s ease;
@@ -20112,13 +20240,13 @@ a.isp-health-hero-speed:hover {
 .upstream-tech-unset {
     outline: 2px solid rgba(59, 130, 246, 0.5);
     outline-offset: 2px;
-    border-radius: 6px;
+    border-radius: var(--border-radius-lg);
 }
 
 .upstream-tech-inferred {
     outline: 2px solid var(--warning-color);
     outline-offset: 2px;
-    border-radius: 6px;
+    border-radius: var(--border-radius-lg);
 }
 
 .upstream-tech-inferred-help {
@@ -20298,7 +20426,7 @@ a.isp-health-hero-speed:hover {
 .isp-event-badge {
     display: inline-block;
     padding: 0.15rem 0.55rem;
-    border-radius: 4px;
+    border-radius: var(--border-radius);
     font-size: 0.68rem;
     font-weight: 600;
     text-transform: uppercase;
@@ -20734,7 +20862,7 @@ a.isp-outage-ack:hover {
 
 .isp-outage-hop-track {
     height: 7px;
-    border-radius: 4px;
+    border-radius: var(--border-radius);
     background: linear-gradient(90deg, var(--bg-tertiary) 0, var(--bg-tertiary) 3px, var(--primary-color) 3px);
     overflow: hidden;
 }
@@ -20932,7 +21060,7 @@ a.isp-outage-ack:hover {
     .isp-gauge-small {
         width: min(115px, 28vw);
     }
-    .isp-gauge-small .isp-gauge-label {
+    .isp-gauge-small .gauge-label {
         font-size: 19px;
     }
     .isp-event-timeline {
@@ -21026,7 +21154,7 @@ a.isp-outage-ack:hover {
     box-sizing: border-box;
     padding: 0.15rem 0.4rem;
     border: 0;
-    border-radius: 4px;
+    border-radius: var(--border-radius);
     font-family: inherit;
     font-size: 0.62rem;
     font-weight: 600;
@@ -21949,7 +22077,7 @@ a.shp-issue {
 .agent-install pre {
     background: var(--bg-primary);
     padding: 0.75rem;
-    border-radius: 6px;
+    border-radius: var(--border-radius-lg);
     overflow-x: auto;
     max-width: 100%;
     margin: 0.5rem 0 0;
@@ -22378,7 +22506,7 @@ a.shp-issue {
     padding: 0.2rem;
     background: transparent;
     border: none;
-    border-radius: 4px;
+    border-radius: var(--border-radius);
     color: var(--text-muted);
     cursor: pointer;
     transition: color 0.15s ease, background 0.15s ease;
@@ -22651,7 +22779,7 @@ a.shp-issue {
 .site-wizard pre {
     background: var(--bg-primary);
     padding: 0.75rem;
-    border-radius: 6px;
+    border-radius: var(--border-radius-lg);
     font-size: 0.8125rem;
     overflow-x: auto;
 }
@@ -22668,7 +22796,7 @@ a.shp-issue {
 }
 
 .connection-banner.license-restricted-banner {
-    background: var(--danger-color);
+    --banner-color: var(--danger-color);
 }
 
 .license-key-cell {
@@ -22751,7 +22879,7 @@ a.shp-issue {
 .tour-modal {
     background: var(--bg-secondary);
     border: 1px solid var(--border-color);
-    border-radius: 8px;
+    border-radius: var(--border-radius-lg);
     max-width: 480px;
     width: 100%;
     padding: 24px;
@@ -22842,7 +22970,7 @@ a.shp-issue {
     position: fixed;
     background: var(--bg-secondary);
     border: 1px solid var(--border-color);
-    border-radius: 8px;
+    border-radius: var(--border-radius-lg);
     padding: 16px;
     width: 320px;
     max-width: calc(100vw - 20px);
@@ -22932,7 +23060,7 @@ a.shp-issue {
     gap: 12px;
     padding: 10px 12px;
     background: var(--bg-tertiary);
-    border-radius: 6px;
+    border-radius: var(--border-radius-lg);
 }
 
 .tour-list-info {
@@ -23362,7 +23490,7 @@ a.shp-issue {
     bottom: 2px;
     background: var(--info-color);
     opacity: 0.65;
-    border-radius: 5px;
+    border-radius: var(--border-radius);
     min-width: 4px;
 }
 
@@ -23456,7 +23584,7 @@ a.shp-issue {
     height: 420px;
     background: var(--bg-primary);
     border: 1px solid var(--border-color);
-    border-radius: 8px;
+    border-radius: var(--border-radius-lg);
     overflow: hidden;
 }
 
@@ -23591,7 +23719,7 @@ a.shp-issue {
 
 .firmware-rollout-expander {
     border: 1px solid var(--border-color);
-    border-radius: 8px;
+    border-radius: var(--border-radius-lg);
     margin: 0.6rem 0;
 }
 
@@ -23834,7 +23962,7 @@ a.shp-issue {
     gap: 0.75rem;
     padding: 0.35rem 0.5rem;
     background: var(--bg-tertiary);
-    border-radius: 6px;
+    border-radius: var(--border-radius-lg);
 }
 
 .firmware-rollout-wave-no {
@@ -23956,7 +24084,7 @@ a.firmware-rollout-version-badge:hover {
 
 .mlo-state {
     padding: 0.125rem 0.5rem;
-    border-radius: 3px;
+    border-radius: var(--border-radius);
     font-size: 0.7rem;
     font-weight: 500;
 }
@@ -24671,7 +24799,7 @@ body:has(.top-bar-hidden) .btn-fit {
     text-overflow: ellipsis;
     vertical-align: middle;
     padding: 0.1rem 0.45rem;
-    border-radius: 3px;
+    border-radius: var(--border-radius);
     font-size: 0.72rem;
     font-weight: 500;
     background: var(--bg-tertiary);
@@ -24731,7 +24859,7 @@ body:has(.top-bar-hidden) .btn-fit {
 .lt-app-glyph {
     position: absolute;
     inset: 0;
-    border-radius: 4px;
+    border-radius: var(--border-radius);
 }
 
 .lt-app-glyph {
@@ -24906,7 +25034,7 @@ body:has(.top-bar-hidden) .btn-fit {
     padding: 24px;
     background: var(--bg-secondary);
     border: 1px solid var(--border-color);
-    border-radius: 8px;
+    border-radius: var(--border-radius-lg);
 }
 
 .custom-apps-close {
@@ -24920,7 +25048,7 @@ body:has(.top-bar-hidden) .btn-fit {
     height: 32px;
     padding: 0;
     border: none;
-    border-radius: 6px;
+    border-radius: var(--border-radius-lg);
     background: transparent;
     color: var(--text-secondary);
     cursor: pointer;
@@ -25006,7 +25134,7 @@ body:has(.top-bar-hidden) .btn-fit {
     height: 32px;
     padding: 0;
     border: 1px solid var(--border-color);
-    border-radius: 6px;
+    border-radius: var(--border-radius-lg);
     background: var(--bg-tertiary);
     color: var(--text-secondary);
     font-size: 14px;
@@ -25284,7 +25412,7 @@ body:has(.top-bar-hidden) .btn-fit {
 
 .lt-meter {
     height: 6px;
-    border-radius: 3px;
+    border-radius: var(--border-radius);
     background: var(--bg-tertiary);
     overflow: hidden;
     margin-top: 0.5rem;
@@ -25503,7 +25631,7 @@ body:has(.top-bar-hidden) .btn-fit {
     align-items: center;
     gap: 8px;
     padding: 5px 4px;
-    border-radius: 4px;
+    border-radius: var(--border-radius);
     font-size: 0.8125rem;
     cursor: pointer;
 }
@@ -25582,7 +25710,7 @@ body:has(.top-bar-hidden) .btn-fit {
     width: 100%;
     padding: 6px 8px;
     border: none;
-    border-radius: 4px;
+    border-radius: var(--border-radius);
     background: transparent;
     color: var(--text-primary);
     font-size: 0.8125rem;
@@ -25719,7 +25847,7 @@ body:has(.top-bar-hidden) .btn-fit {
     min-width: 24px;
     height: 24px;
     padding: 0 0.3rem;
-    border-radius: 6px;
+    border-radius: var(--border-radius-lg);
     border: 1px solid var(--border-color, #2e2e33);
     background: transparent;
     color: var(--text-muted);
@@ -27410,7 +27538,7 @@ body:has(.top-bar-hidden) .btn-fit {
     display: flex;
     gap: 0.4rem;
     padding: 0.15rem 0.35rem;
-    border-radius: 4px;
+    border-radius: var(--border-radius);
     color: var(--text-secondary);
 }
 
@@ -28992,7 +29120,7 @@ body:has(.top-bar-hidden) .btn-fit {
     padding: 0.75rem 0.75rem 0.75rem 1rem;
     background: var(--bg-elevated);
     border: 1px solid var(--border-color);
-    border-radius: 10px;
+    border-radius: var(--border-radius-lg);
     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
     color: var(--text-primary);
 }

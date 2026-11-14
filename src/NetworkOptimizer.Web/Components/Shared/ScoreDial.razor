@@ -1,0 +1,52 @@
+@*
+    The half dial every 0-100 score is drawn on: ticks lit up to the score in the rating's color,
+    over an inner rail that marks where each rating starts. Colors come from .score-dial.rating-*.
+*@
+<svg viewBox="0 0 200 120" class="gauge-svg score-dial rating-@Rating @(Small ? "score-dial-small" : "")">
+    <path class="gauge-rail" d="M 34 100 A 66 66 0 0 1 166 100" fill="none"/>
+    @foreach (var threshold in Thresholds)
+    {
+        <path class="gauge-threshold" d="@TickPath(threshold / 100.0, 66, 71)"/>
+    }
+    @for (var i = 0; i < TickCount; i++)
+    {
+        var at = i / (double)(TickCount - 1);
+        <path class="gauge-tick @(Score > 0 && at * 100 <= Score ? "lit" : "")" d="@TickPath(at, i % MajorEvery == 0 ? 75 : 79, 91)"/>
+    }
+    <text x="100" y="94" text-anchor="middle" class="gauge-score @(ColorScore ? "gauge-score-rated" : "")">@(Score?.ToString() ?? "--")</text>
+    <text x="100" y="113" text-anchor="middle" class="gauge-label">@Label</text>
+</svg>
+
+@code {
+    /// <summary>The score, 0-100. Null draws an unlit dial with a "--" readout.</summary>
+    [Parameter] public int? Score { get; set; }
+
+    /// <summary>The caption under the score.</summary>
+    [Parameter] public string Label { get; set; } = "";
+
+    /// <summary>The rating suffix of the .rating-* class: excellent, good, fair, weak, poor, or none.</summary>
+    [Parameter] public string Rating { get; set; } = "none";
+
+    /// <summary>The scores where a rating starts, marked on the inner rail.</summary>
+    [Parameter] public int[] Thresholds { get; set; } = { 60, 75, 90 };
+
+    /// <summary>A dial drawn small on the page: fewer, heavier ticks so they stay distinct.</summary>
+    [Parameter] public bool Small { get; set; }
+
+    /// <summary>Draws the score itself in the rating's color.</summary>
+    [Parameter] public bool ColorScore { get; set; }
+
+    private int TickCount => Small ? 41 : 61;
+
+    // Every tenth of the scale gets a longer tick.
+    private int MajorEvery => Small ? 4 : 6;
+
+    /// <summary>A radial stroke at a 0-1 position along the half circle, from one radius to another.</summary>
+    private static string TickPath(double at, double fromRadius, double toRadius)
+    {
+        var angle = Math.PI * (1 - at);
+        var (cos, sin) = (Math.Cos(angle), Math.Sin(angle));
+        return FormattableString.Invariant(
+            $"M {100 + fromRadius * cos:0.##} {100 - fromRadius * sin:0.##} L {100 + toRadius * cos:0.##} {100 - toRadius * sin:0.##}");
+    }
+}

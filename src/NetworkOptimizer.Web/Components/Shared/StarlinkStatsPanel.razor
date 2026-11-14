@@ -244,7 +244,10 @@
     }
 
     .starlink-metric-value {
-        font-family: monospace;
+        font-family: var(--font-display);
+        font-variant-numeric: tabular-nums;
+        word-spacing: var(--display-word-spacing);
+        font-weight: 500;
         color: var(--text-primary);
         text-align: right;
         display: flex;
@@ -265,7 +268,7 @@
 
     .starlink-badge {
         padding: 2px 8px;
-        border-radius: 4px;
+        border-radius: var(--border-radius);
         font-size: 0.7rem;
         font-weight: 600;
     }

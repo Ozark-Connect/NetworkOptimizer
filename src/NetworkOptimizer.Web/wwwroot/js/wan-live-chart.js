@@ -856,7 +856,7 @@ function syncModeUi() {
     modeCluster.classList.toggle('is-comparing', comparing());
     if (!playBtn) return;
     const paused = flowData.isPaused();
-    playBtn.textContent = paused ? '▶' : '⏸';
+    playBtn.innerHTML = paused ? '<svg viewBox="0 0 12 12" width="10" height="10" fill="currentColor" aria-hidden="true"><path d="M3 1.500v9l7.500-4.500z"/></svg>' : '<svg viewBox="0 0 12 12" width="10" height="10" fill="currentColor" aria-hidden="true"><rect x="2" y="1.500" width="2.800" height="9" rx="0.500"/><rect x="7.200" y="1.500" width="2.800" height="9" rx="0.500"/></svg>';
     playBtn.setAttribute('aria-label', paused ? 'Play' : 'Pause');
 }
 

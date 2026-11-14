@@ -43,7 +43,7 @@
         <div class="card">
             <div class="card-body">
                 <div class="empty-state">
-                    <span class="empty-icon">🌐</span>
+                    <span class="empty-icon"><AppIcon Name="globe" /></span>
                     <h3>External Speed Test Server Not Configured</h3>
                     <p>@(_canConfigure ? "To use Client WAN Speed Tests, configure an external OpenSpeedTest server in Settings." : "Client WAN Speed Tests need an external OpenSpeedTest server, which a site administrator configures.")</p>
                     <a href="/settings#external-speedtest-settings" class="btn btn-primary">Configure External Server</a>
@@ -118,7 +118,7 @@
                             <div class="url-copy-row">
                                 <input type="text" class="url-display" value="@ExternalShareUrl" readonly />
                                 <button type="button" class="btn-icon" title="Copy URL" onclick="copyFromInput(this)">
-                                    <span class="copy-icon">📋</span>
+                                    <span class="copy-icon"><AppIcon Name="copy" /></span>
                                     <span class="copy-check" style="display:none;">✓</span>
                                 </button>
                             </div>

@@ -329,6 +329,12 @@ public class SqmDeploymentService : ISqmDeploymentService
           [ -z "$busy" ] && { echo '{{SqmRunsDoneMarker}}'; break; }; sleep 1; done; true
         """.Replace("\r\n", "\n");
 
+    /// <summary>
+    /// Leads a deployment step that is a warning. The Deployment Progress list draws it as the
+    /// warning icon; anything else that prints a step shows it as plain words.
+    /// </summary>
+    public const string StepWarningMark = "Warning: ";
+
     /// <summary>What <see cref="BuildWaitForSqmRunsCommand"/> prints when no run is left.</summary>
     internal const string SqmRunsDoneMarker = "SQM_RUNS_DONE";
 
@@ -932,7 +938,7 @@ public class SqmDeploymentService : ISqmDeploymentService
             // A running ping, calibration or learning probe retunes the trees when it ends, and the
             // probe's lock is in the directory deleted below: let them finish first.
             if (!await WaitForSqmRunsAsync())
-                steps.Add($"⚠️ {SqmRunsStillGoingWarning}");
+                steps.Add($"{StepWarningMark}{SqmRunsStillGoingWarning}");
 
             // Remove boot scripts (new format: 20-sqm-{name}.sh)
             steps.Add("Removing SQM boot scripts...");
@@ -956,7 +962,7 @@ public class SqmDeploymentService : ISqmDeploymentService
             steps.Add("Restoring UniFi's Smart Queues...");
             var removed = await RemoveCakeRootsAsync(Array.Empty<string>());
             var restoreError = await RestoreUniFiQueuesAsync(removed);
-            steps.Add(restoreError == null ? "UniFi's Smart Queues restored" : $"⚠️ {RestoreWarning(restoreError, removed)}");
+            steps.Add(restoreError == null ? "UniFi's Smart Queues restored" : $"{StepWarningMark}{RestoreWarning(restoreError, removed)}");
 
             // Remove SQM Monitor if requested
             if (includeTcMonitor)

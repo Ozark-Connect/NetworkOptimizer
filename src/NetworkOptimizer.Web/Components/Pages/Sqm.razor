@@ -288,14 +288,14 @@
                     @if (sqmMonitorData.Wan1.LastSpeedtestFailed)
                     {
                         <div class="speedtest-failed-indicator">
-                            <span class="warning-icon">⚠</span>
+                            <span class="warning-icon"><AppIcon Name="warning" /></span>
                             <span>Last speedtest failed - <a href="./sqm#check-logs">check logs</a></span>
                         </div>
                     }
                     @if (sqmMonitorData.Wan1.LastError != null && !sqmMonitorData.Wan1.SpeedtestRunning)
                     {
                         <div class="sqm-error-indicator">
-                            <span class="warning-icon">⚠</span>
+                            <span class="warning-icon"><AppIcon Name="warning" /></span>
                             <span>@sqmMonitorData.Wan1.LastError.Message</span>
                         </div>
                     }
@@ -373,14 +373,14 @@
                     @if (sqmMonitorData.Wan2.LastSpeedtestFailed)
                     {
                         <div class="speedtest-failed-indicator">
-                            <span class="warning-icon">⚠</span>
+                            <span class="warning-icon"><AppIcon Name="warning" /></span>
                             <span>Last speedtest failed - <a href="./sqm#check-logs">check logs</a></span>
                         </div>
                     }
                     @if (sqmMonitorData.Wan2.LastError != null && !sqmMonitorData.Wan2.SpeedtestRunning)
                     {
                         <div class="sqm-error-indicator">
-                            <span class="warning-icon">⚠</span>
+                            <span class="warning-icon"><AppIcon Name="warning" /></span>
                             <span>@sqmMonitorData.Wan2.LastError.Message</span>
                         </div>
                     }
@@ -981,7 +981,14 @@
                     <ul class="step-list" id="deployment-step-list">
                         @foreach (var step in deploymentSteps)
                         {
-                            <li>@step</li>
+                            @if (step.StartsWith(SqmDeploymentService.StepWarningMark, StringComparison.Ordinal))
+                            {
+                                <li class="step-warning"><AppIcon Name="warning" /> @step[SqmDeploymentService.StepWarningMark.Length..]</li>
+                            }
+                            else
+                            {
+                                <li>@step</li>
+                            }
                         }
                     </ul>
                 </div>
@@ -1087,7 +1094,7 @@
 
     .calculated-params {
         background: var(--surface-secondary);
-        border-radius: 0.5rem;
+        border-radius: var(--border-radius-lg);
         padding: 1rem;
         margin: 1rem 0;
     }
@@ -1122,7 +1129,7 @@
         gap: 0.25rem;
         padding: 0.5rem;
         background: var(--surface);
-        border-radius: 0.375rem;
+        border-radius: var(--border-radius-lg);
         text-align: center;
     }
 
@@ -1147,7 +1154,7 @@
         color: var(--text-primary);
         background: var(--bg-tertiary);
         border: 1px solid transparent;
-        border-radius: 4px;
+        border-radius: var(--border-radius);
         text-align: center;
         width: 5rem;
         padding: 2px 4px;
@@ -1174,7 +1181,7 @@
         text-align: center;
         padding: 1.25rem;
         background: var(--surface-secondary);
-        border-radius: 0.5rem;
+        border-radius: var(--border-radius-lg);
     }
 
     .metric-label {
@@ -1226,7 +1233,7 @@
         gap: 0.5rem;
         padding: 0.5rem 1rem;
         background: var(--surface-secondary);
-        border-radius: 0.5rem;
+        border-radius: var(--border-radius-lg);
     }
 
     .tc-name {
@@ -1257,7 +1264,7 @@
 
     .deployment-log {
         background: var(--surface-secondary);
-        border-radius: 0.5rem;
+        border-radius: var(--border-radius-lg);
         padding: 1rem;
     }
 
@@ -1303,7 +1310,7 @@
     .wan-status-card {
         background: linear-gradient(315deg, var(--surface) 0%, var(--surface-secondary) 100%);
         border: 1px solid var(--border-color);
-        border-radius: 1rem;
+        border-radius: var(--border-radius-lg);
         padding: 1.5rem;
         box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
     }
@@ -1416,7 +1423,7 @@
         padding: 0.5rem;
         margin-bottom: 0.5rem;
         background: rgba(239, 68, 68, 0.1);
-        border-radius: 0.375rem;
+        border-radius: var(--border-radius-lg);
     }
 
     .sqm-error-indicator .warning-icon {
@@ -1426,7 +1433,7 @@
     .log-output {
         background: var(--surface-secondary);
         border: 1px solid var(--border-color);
-        border-radius: 0.5rem;
+        border-radius: var(--border-radius-lg);
         padding: 1rem;
         font-family: var(--font-mono);
         font-size: 0.8rem;
@@ -1446,7 +1453,7 @@
 
     .detail-section {
         background: var(--surface-secondary);
-        border-radius: 0.5rem;
+        border-radius: var(--border-radius-lg);
         padding: 0.75rem 1rem;
     }
 
@@ -1575,7 +1582,7 @@
     .adjustment-result {
         margin-top: 1rem;
         padding: 0.75rem 1rem;
-        border-radius: 0.375rem;
+        border-radius: var(--border-radius-lg);
         font-size: 0.9rem;
     }
 
@@ -1617,7 +1624,7 @@
         color: var(--text-primary);
         background: var(--bg-tertiary);
         border: 1px solid transparent;
-        border-radius: 4px;
+        border-radius: var(--border-radius);
         padding: 2px 4px;
         max-width: 100%;
     }
@@ -3427,7 +3434,7 @@
                     planned.NominalUploadSpeed))
                 {
                     deploymentWarnings.Add(warning);
-                    deploymentSteps.Add($"⚠️ {warning}");
+                    deploymentSteps.Add($"{SqmDeploymentService.StepWarningMark}{warning}");
                 }
             }
             await ScrollDeploymentLog();
@@ -3466,7 +3473,7 @@
                 throw new Exception($"Failed to clean existing scripts: {cleanResult.message}");
             }
             deploymentWarnings.AddRange(cleanResult.warnings);
-            deploymentSteps.AddRange(cleanResult.warnings.Select(w => $"⚠️ {w}"));
+            deploymentSteps.AddRange(cleanResult.warnings.Select(w => $"{SqmDeploymentService.StepWarningMark}{w}"));
             deploymentSteps.Add("Existing scripts cleaned");
             await ScrollDeploymentLog();
 
@@ -3549,7 +3556,7 @@
                 if (!monitorSuccess)
                 {
                     deploymentWarnings.Add(monitorError ?? "SQM Monitor deployment failed");
-                    deploymentSteps.Add($"⚠️ SQM Monitor deployment failed: {monitorError ?? "Unknown error"}");
+                    deploymentSteps.Add($"{SqmDeploymentService.StepWarningMark}SQM Monitor deployment failed: {monitorError ?? "Unknown error"}");
                     deploymentSteps.Add("SQM Monitor cleaned up after failure");
                 }
                 else
@@ -3640,7 +3647,7 @@
             }
             else
             {
-                deploymentSteps.Add($"⚠️ SQM Monitor deployment failed: {errorMessage ?? "Unknown error"}");
+                deploymentSteps.Add($"{SqmDeploymentService.StepWarningMark}SQM Monitor deployment failed: {errorMessage ?? "Unknown error"}");
                 deploymentSteps.Add("SQM Monitor cleaned up after failure");
                 statusMessage = $"SQM Monitor deployment failed: {errorMessage ?? "Unknown error"}";
                 statusSuccess = false;

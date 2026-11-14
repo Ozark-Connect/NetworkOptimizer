@@ -1,28 +1,7 @@
 @using NetworkOptimizer.Web.Services.Monitoring.IspHealth
 
 <div class="isp-gauge @(Small ? "isp-gauge-small" : "")">
-    <svg viewBox="0 0 200 120" class="gauge-svg">
-        @* Flat origin, rounded leading end: butt caps with a cap dot at each arc's tip *@
-        <path d="@ArcPath"
-              fill="none"
-              stroke="#232326"
-              stroke-width="@StrokeWidth"
-              stroke-linecap="butt"/>
-        <circle cx="180" cy="100" r="@CapRadius" fill="#232326"/>
-        <path d="@ArcPath"
-              fill="none"
-              stroke="@ScoreColor()"
-              stroke-width="@StrokeWidth"
-              stroke-linecap="butt"
-              stroke-dasharray="@DashArray()"
-              stroke-dashoffset="0"/>
-        @if (Score is > 0)
-        {
-            <circle cx="@TipX" cy="@TipY" r="@CapRadius" fill="@ScoreColor()"/>
-        }
-        <text x="100" y="86" text-anchor="middle" class="isp-gauge-score" fill="@ScoreColor()">@(Score?.ToString() ?? "--")</text>
-        <text x="100" y="112" text-anchor="middle" class="isp-gauge-label">@Label</text>
-    </svg>
+    <ScoreDial Score="@Score" Label="@Label" Rating="@RatingClass()" Small="@Small" ColorScore="true" />
     @if (!Small)
     {
         <span class="rating-badge rating-@RatingClass()">@RatingLabel()</span>
@@ -34,44 +13,6 @@
     [Parameter] public string Label { get; set; } = "ISP Health";
     [Parameter] public bool Small { get; set; }
 
-    private int StrokeWidth => Small ? 14 : 20;
-
-    private string CapRadius => (StrokeWidth / 2.0).ToString("0.#", System.Globalization.CultureInfo.InvariantCulture);
-
-    // The butt origin wraps CCW past 180 degrees toward the cap-radius angle so its span
-    // approaches the rounded leading end's reach. Dialed to 75% of a full mirror by taste.
-    private double Delta => 0.75 * StrokeWidth / 160.0;
-
-    private string ArcStartX => (100 - 80 * Math.Cos(Delta)).ToString("0.##", System.Globalization.CultureInfo.InvariantCulture);
-
-    private string ArcStartY => (100 + 80 * Math.Sin(Delta)).ToString("0.##", System.Globalization.CultureInfo.InvariantCulture);
-
-    private string ArcPath => $"M {ArcStartX} {ArcStartY} A 80 80 0 1 1 180 100";
-
-    private double TipPhi => -Delta + (Score ?? 0) / 100.0 * (Math.PI + Delta);
-
-    private string TipX => (100 - 80 * Math.Cos(TipPhi))
-        .ToString("0.##", System.Globalization.CultureInfo.InvariantCulture);
-
-    private string TipY => (100 - 80 * Math.Sin(TipPhi))
-        .ToString("0.##", System.Globalization.CultureInfo.InvariantCulture);
-
-    private string ScoreColor() => Score switch
-    {
-        null => "#6b7280",
-        >= 90 => "#24bc70",
-        >= 75 => "#3b82f6",
-        >= 60 => "#f59e0b",
-        _ => "#ef4444"
-    };
-
-    private string DashArray()
-    {
-        double totalLength = (Math.PI + Delta) * 80;
-        double scoreLength = (Score ?? 0) / 100.0 * totalLength;
-        return $"{scoreLength} {totalLength - scoreLength}";
-    }
-
     private string RatingClass() => Score switch
     {
         null => "none",
@@ -81,5 +22,5 @@
         _ => "poor"
     };
 
-    private string RatingLabel() => Score == null ? "NO DATA" : IspHealthReport.GradeLabel(Score.Value).ToUpperInvariant();
+    private string RatingLabel() => Score == null ? "No Data" : IspHealthReport.GradeLabel(Score.Value);
 }

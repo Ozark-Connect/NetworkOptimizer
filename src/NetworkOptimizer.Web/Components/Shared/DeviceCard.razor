@@ -13,7 +13,7 @@
                 }
                 else
                 {
-                    <span class="device-emoji">@GetDeviceIcon(Device.Type)</span>
+                    <span class="device-emoji"><AppIcon Name="@GetDeviceIcon(Device.Type)" /></span>
                 }
             </div>
             <div class="device-info">
@@ -58,7 +58,7 @@
                     @if (ShowRebootIcon)
                     {
                         <span class="reboot-reason-icon @(Device.RebootWasUnexpected ? "reboot-unexpected" : "")"
-                              data-tooltip="@UptimeTooltip" data-tooltip-click>@(Device.RebootWasUnexpected ? "⚠" : "↻")</span>
+                              data-tooltip="@UptimeTooltip" data-tooltip-click>@if (Device.RebootWasUnexpected) { <AppIcon Name="warning" /> } else { <text>↻</text> }</span>
                     }
                     <span class="detail-value uptime-value @(UptimeTooltip is null ? null : "has-reboot-reason")"
                           data-tooltip="@UptimeTooltip" data-tooltip-click>@Device.Uptime</span>
@@ -295,15 +295,15 @@
     {
         return deviceType switch
         {
-            DeviceType.Gateway => "🌐",
-            DeviceType.Switch => "🔀",
-            DeviceType.AccessPoint => "📡",
-            DeviceType.CellularModem => "📶",
-            DeviceType.BuildingBridge => "🌉",
-            DeviceType.CloudKey => "☁️",
-            DeviceType.DeviceBridge => "🔗",
-            DeviceType.SmartPower => "⚡",
-            _ => "🖥️"
+            DeviceType.Gateway => "globe",
+            DeviceType.Switch => "switch",
+            DeviceType.AccessPoint => "access-point",
+            DeviceType.CellularModem => "cellular",
+            DeviceType.BuildingBridge => "bridge",
+            DeviceType.CloudKey => "cloud",
+            DeviceType.DeviceBridge => "link",
+            DeviceType.SmartPower => "power",
+            _ => "computer"
         };
     }
 }

@@ -12,7 +12,7 @@ function demoMask(text) {
 
 // ---- Color palette (matches 3D map) ----
 const C = {
-    bg:           '#202023',
+    bg:           '#1c2128',
     gateway:      '#facc15',
     switchNode:   '#9aa6b2',
     ap:           '#3385d6',
@@ -592,7 +592,7 @@ class LanFlowMap2D {
         scrubber.dataset.tour='live-view-timeline';
         scrubber.innerHTML=`
             <div class="lan-flow-map-scrubber-row">
-                <button class="lan-flow-map-scrubber-playpause" data-role="playpause" type="button" aria-label="Pause">⏸</button>
+                <button class="lan-flow-map-scrubber-playpause" data-role="playpause" type="button" aria-label="Pause"><svg viewBox="0 0 12 12" width="10" height="10" fill="currentColor" aria-hidden="true"><rect x="2" y="1.500" width="2.800" height="9" rx="0.500"/><rect x="7.200" y="1.500" width="2.800" height="9" rx="0.500"/></svg></button>
                 <div class="lan-flow-map-speed-control" data-role="speed">
                     <button class="lan-flow-map-speed-step" data-dir="-1" type="button" aria-label="Slower">-</button>
                     <span class="lan-flow-map-speed-label" data-role="speed-label">1x</span>
@@ -977,7 +977,7 @@ class LanFlowMap2D {
         // rates aren't mistaken for live data. Historic keeps its timestamp.
         this._scrubberEls.right.textContent=(mode!=='historic'&&paused)?'Live (Paused)':s.right;
         this._scrubberEls.speedLabel.textContent=`${s.speed}x`;
-        this._scrubberEls.playPause.textContent=paused?'▶':'⏸';
+        this._scrubberEls.playPause.innerHTML=paused?'<svg viewBox="0 0 12 12" width="10" height="10" fill="currentColor" aria-hidden="true"><path d="M3 1.500v9l7.500-4.500z"/></svg>':'<svg viewBox="0 0 12 12" width="10" height="10" fill="currentColor" aria-hidden="true"><rect x="2" y="1.500" width="2.800" height="9" rx="0.500"/><rect x="7.200" y="1.500" width="2.800" height="9" rx="0.500"/></svg>';
         // Mode badge
         if(this._modeBadge){
             this._modeBadge.textContent=mode==='historic'?'Historic':'Live';
