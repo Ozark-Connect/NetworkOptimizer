@@ -20,6 +20,30 @@ For a public address on a UniFi gateway at the server's site, that is a port
 forward of 443/TCP to the reverse proxy (**UniFi Network > Settings > Policy
 Table > Port Forwarding**). The site itself needs no inbound access.
 
+## Where your data goes
+
+The agent sends data to one place: the Network Optimizer server whose URL you
+install it with. It sends nothing to Ozark Connect. There is no telemetry, no
+analytics, and no usage reporting.
+
+- **Self-hosted Network Optimizer:** that server is yours, so everything the
+  agent collects stays on your infrastructure. The server itself contacts Ozark
+  Connect for one thing only: activating a license key. Personal use needs no
+  key, so it sends nothing (see [Licensing and firewalls](../../README.md#multi-site-support)).
+- **Hosted Network Optimizer:** the agent's URL is your organization on the
+  hosted service at `optimizer.ozarkconnect.net`, reached through Cloudflare.
+  Your data is kept there, isolated to your organization, and used only to run,
+  secure, troubleshoot, and support the service. It is never sold or shared, and
+  only Ozark Connect's own team works with it. The
+  [Privacy Policy](https://ozarkconnect.net/privacy) and the
+  [hosted terms](https://ozarkconnect.net/network-optimizer/hosted-terms) set
+  this out in full.
+
+Over that connection the agent carries probe and SNMP results, the console and
+SSH sessions the server opens through it, and Live Traffic. Live Traffic's
+per-flow and DNS detail leaves the gateway only while someone is viewing it, and
+is never stored.
+
 ## When you need an agent
 
 The on-site agent is the recommended way to bring a site online: one outbound
