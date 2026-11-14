@@ -46,6 +46,27 @@ public class IspHealthPresentationTests
     }
 
     [Fact]
+    public void One_dark_target_of_a_network_with_more_is_named_by_the_target()
+    {
+        var r = Report();
+        r.IspTargets.Add(new IspTargetHealth { TargetId = "t1", Name = "Example ISP 10" });
+        r.IspAsns.Add(new IspAsnHealth { AsnName = "Example ISP", TargetIds = { "t1", "t2" } });
+        r.PathShifts.Add(Unreachable("Example ISP", "t1"));
+        var text = TextOf(r);
+        text.Should().StartWith("Example ISP 10 went fully unreachable");
+        text.Should().EndWith("still counted against Example ISP's own network grade.");
+    }
+
+    [Fact]
+    public void Every_target_of_a_network_dark_is_named_by_the_network()
+    {
+        var r = Report();
+        r.IspAsns.Add(new IspAsnHealth { AsnName = "Example ISP", TargetIds = { "t1", "t2" } });
+        r.PathShifts.Add(Unreachable("Example ISP", "t1", "t2"));
+        TextOf(r).Should().StartWith("Example ISP went fully unreachable");
+    }
+
+    [Fact]
     public void A_path_with_no_network_is_named_by_its_target()
     {
         var r = Report();

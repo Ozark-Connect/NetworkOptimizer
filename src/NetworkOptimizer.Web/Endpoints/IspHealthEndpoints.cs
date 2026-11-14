@@ -161,11 +161,11 @@ public static class IspHealthEndpoints
                         type = "unreachable",
                         start = e.Time.ToString("o"),
                         end = e.UnreachableEnd?.ToString("o"),
-                        // Same names as the events feed: a host reads as down, a hop by its
-                        // network, and a hop with no network by the target itself.
+                        // Same names as the events feed: a host reads as down, a whole network by its
+                        // name, and anything less by the targets that went dark.
                         label = e.IsHostOutage
                             ? $"{IspHealthPresentation.PathLabel(e, report)} down"
-                            : $"{IspHealthPresentation.NetworkLabel(e, report) ?? IspHealthPresentation.PathLabel(e, report)} unreachable",
+                            : $"{IspHealthPresentation.UnreachableLabel(e, report)} unreachable",
                         shared = false,
                         targets = e.TargetIds
                     }
