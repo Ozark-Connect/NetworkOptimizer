@@ -1864,11 +1864,10 @@ else
 
     /* Horizontal distribution bars (matches Wi-Fi Optimizer load-bar pattern) */
     .threat-bar-track {
-        background: var(--border-strong);
+        background: var(--bg-inset);
+        box-shadow: inset 0 0 0 1px var(--border-strong);
         height: 18px;
         overflow: hidden;
-        -webkit-mask: var(--meter-ticks);
-        mask: var(--meter-ticks);
     }
 
     .threat-bar-fill {

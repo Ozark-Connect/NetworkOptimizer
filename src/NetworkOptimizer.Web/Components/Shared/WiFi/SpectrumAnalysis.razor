@@ -554,8 +554,8 @@
     }
 
     .spectrum-stat-card.highlight {
-        background: color-mix(in srgb, var(--accent-color) 12%, var(--bg-inset));
-        box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent-color) 50%, transparent);
+        background: linear-gradient(135deg, var(--accent-color) 0%, var(--primary-color) 100%);
+        box-shadow: none;
     }
 
     .ap-filter-chip {
@@ -576,7 +576,8 @@
         background: var(--bg-hover);
     }
     .spectrum-stat-card.highlight.clickable:hover {
-        background: color-mix(in srgb, var(--accent-color) 20%, var(--bg-inset));
+        background: linear-gradient(135deg, var(--accent-color) 0%, var(--primary-color) 100%);
+        filter: brightness(1.15);
     }
 
     .spectrum-stat-card .stat-value {
@@ -586,7 +587,7 @@
     }
 
     .spectrum-stat-card.highlight .stat-value {
-        color: var(--accent-color);
+        color: white;
     }
 
     .spectrum-stat-card .stat-label {
@@ -596,7 +597,7 @@
     }
 
     .spectrum-stat-card.highlight .stat-label {
-        color: var(--text-secondary);
+        color: rgba(255, 255, 255, 0.8);
     }
 
     /* Channel Heatmap */
@@ -623,8 +624,6 @@
         display: inline-block;
         width: 16px;
         height: 10px;
-        -webkit-mask: var(--meter-ticks);
-        mask: var(--meter-ticks);
     }
 
     .legend-bar.neighbors {
@@ -686,10 +685,9 @@
 
     .channel-bar-wrapper {
         height: 12px;
-        background: var(--border-strong);
+        background: var(--bg-inset);
+        box-shadow: inset 0 0 0 1px var(--border-strong);
         overflow: hidden;
-        -webkit-mask: var(--meter-ticks);
-        mask: var(--meter-ticks);
     }
 
     .your-ap-bar-wrapper {

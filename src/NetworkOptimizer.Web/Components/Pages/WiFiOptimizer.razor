@@ -78,7 +78,8 @@
     <!-- Quick Stats Row -->
     <div class="stats-row wifi-stats-row">
         <div class="stat-card">
-            <div class="stat-icon wifi-health-icon @GetScoreClass(_summary?.HealthScore)" style="--score: @(_summary?.HealthScore ?? 0)">
+            <div class="stat-icon wifi-health-icon @GetScoreClass(_summary?.HealthScore)">
+                <ScoreRing Score="@_summary?.HealthScore" Small="true" />
                 @if (_loading)
                 {
                     <span class="spinner-sm"></span>
@@ -389,7 +390,8 @@
                 {
                     <div class="health-score-display">
                         <div class="health-score-main">
-                            <div class="score-circle @GetScoreClass(_healthScore.OverallScore)" style="--score: @_healthScore.OverallScore">
+                            <div class="score-circle @GetScoreClass(_healthScore.OverallScore)">
+                                <ScoreRing Score="@_healthScore.OverallScore" />
                                 <span class="score-value @(_healthScore.OverallScore == 100 ? "score-perfect" : "")">@_healthScore.OverallScore</span>
                                 <span class="score-max">/100</span>
                             </div>

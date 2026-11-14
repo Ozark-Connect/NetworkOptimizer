@@ -144,7 +144,8 @@
             <div class="card-body">
                 <div class="results-summary">
                     <div class="summary-score">
-                        <div class="score-circle score-@scoreClass" style="--score: @securityScore">
+                        <div class="score-circle score-@scoreClass">
+                            <ScoreRing Score="@securityScore" />
                             <span class="score-value">@securityScore</span>
                             <span class="score-max">/100</span>
                         </div>

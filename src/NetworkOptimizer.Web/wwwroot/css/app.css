@@ -86,7 +86,12 @@
     /* Unlit gauge ticks, meter tracks, and the edge of a control that sits on a card */
     --border-strong: #2b323c;
     /* Cuts a meter's track and fill into the dial's ticks */
-    --meter-ticks: repeating-linear-gradient(90deg, #000 0 3px, transparent 0 5px);
+    /* A meter fill's face: the fill's own color at part strength inside a full-strength edge. */
+    --meter-face: linear-gradient(#000, #000) top / 100% 1px no-repeat,
+        linear-gradient(#000, #000) bottom / 100% 1px no-repeat,
+        linear-gradient(#000, #000) left / 1px 100% no-repeat,
+        linear-gradient(#000, #000) right / 1px 100% no-repeat,
+        linear-gradient(rgb(0 0 0 / 0.42), rgb(0 0 0 / 0.42));
     --border-radius: 2px;
     --border-radius-lg: 3px;
     --shadow: none;
@@ -1969,7 +1974,7 @@ a.stat-card-link:active {
     margin-top: 0.5rem;
 }
 
-/* The dial (ScoreDial): ticks lit up to the score in the rating's color. */
+/* The dial (ScoreDial): one facet per rating, shaded up to the score in the rating's color. */
 .score-dial {
     --rating-color: var(--text-muted);
 }
@@ -1980,27 +1985,32 @@ a.stat-card-link:active {
 .score-dial.rating-weak { --rating-color: var(--signal-weak); }
 .score-dial.rating-poor { --rating-color: var(--danger-color); }
 
-.gauge-svg .gauge-tick {
+.gauge-svg .gauge-facet {
+    fill: var(--bg-inset);
     stroke: var(--border-strong);
-    stroke-width: 1.6;
+    stroke-width: 1.4;
+    stroke-linejoin: round;
 }
 
-.score-dial-small .gauge-tick {
-    stroke-width: 2.4;
+.gauge-svg .gauge-facet.lit {
+    fill: color-mix(in srgb, var(--rating-color) 16%, transparent);
+    stroke: color-mix(in srgb, var(--rating-color) 55%, transparent);
+}
+
+.gauge-svg .gauge-fill {
+    fill: color-mix(in srgb, var(--rating-color) 42%, transparent);
+    stroke: var(--rating-color);
+    stroke-width: 1.4;
+    stroke-linejoin: round;
+}
+
+.score-dial-small .gauge-facet,
+.score-dial-small .gauge-fill {
+    stroke-width: 2;
 }
 
 .gauge-svg .gauge-score-rated {
     fill: var(--rating-color);
-}
-
-.gauge-svg .gauge-tick.lit {
-    stroke: var(--rating-color);
-}
-
-.gauge-svg .gauge-rail,
-.gauge-svg .gauge-threshold {
-    stroke: var(--border-strong);
-    stroke-width: 1;
 }
 
 .gauge-svg .gauge-score {
@@ -8746,14 +8756,10 @@ a.path-hop.hop-clickable:hover {
     gap: 0.75rem;
 }
 
-/* A score dial: a 270 degree ring of ticks, lit up to --score (0-100, set inline) in the
-   rating's color. The ring is one conic fill cut into ticks by the mask. */
+/* A score ring (ScoreRing): a 270 degree ring of facets around the readout, in the rating's color. */
 .score-circle,
 .wifi-health-icon {
     --dial-color: var(--text-muted);
-    --dial-tick: 1.5deg;
-    --dial-step: 4.5deg;
-    --dial-depth: 10px;
     position: relative;
 }
 
@@ -8767,23 +8773,38 @@ a.path-hop.hop-clickable:hover {
     height: 130px;
 }
 
-.score-circle::before,
-.wifi-health-icon::before {
-    content: "";
+.score-ring {
     position: absolute;
     inset: 0;
-    border-radius: 50%;
-    background: conic-gradient(from 225deg,
-        var(--dial-color) calc(var(--score, 0) * 0.75%),
-        var(--border-strong) 0 75%,
-        transparent 0);
-    -webkit-mask: repeating-conic-gradient(from 225deg, #000 0 var(--dial-tick), transparent 0 var(--dial-step)),
-        radial-gradient(closest-side, transparent calc(100% - var(--dial-depth) - 1px), #000 calc(100% - var(--dial-depth)));
-    -webkit-mask-composite: source-in;
-    mask: repeating-conic-gradient(from 225deg, #000 0 var(--dial-tick), transparent 0 var(--dial-step)),
-        radial-gradient(closest-side, transparent calc(100% - var(--dial-depth) - 1px), #000 calc(100% - var(--dial-depth)));
-    mask-composite: intersect;
+    width: 100%;
+    height: 100%;
+    overflow: visible;
     pointer-events: none;
+}
+
+.score-ring path {
+    vector-effect: non-scaling-stroke;
+    stroke-width: 1.4px;
+    stroke-linejoin: round;
+}
+
+.score-ring-small path {
+    stroke-width: 1px;
+}
+
+.score-ring .ring-facet {
+    fill: var(--bg-inset);
+    stroke: var(--border-strong);
+}
+
+.score-ring .ring-facet.lit {
+    fill: color-mix(in srgb, var(--dial-color) 16%, transparent);
+    stroke: color-mix(in srgb, var(--dial-color) 55%, transparent);
+}
+
+.score-ring .ring-fill {
+    fill: color-mix(in srgb, var(--dial-color) 42%, transparent);
+    stroke: var(--dial-color);
 }
 
 .score-circle.score-excellent,
@@ -10747,9 +10768,6 @@ h3 > .tooltip-icon-sm {
 
 /* Health score icon in stat card */
 .wifi-health-icon {
-    --dial-tick: 5deg;
-    --dial-step: 9deg;
-    --dial-depth: 4px;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -14469,7 +14487,7 @@ h3 > .tooltip-icon-sm {
 
 /* Recommend Best Channels button - accent gradient matching Cleanest Channels box */
 .btn-recommend {
-    background: var(--accent-color);
+    background: linear-gradient(135deg, var(--accent-color) 0%, var(--primary-color) 100%);
     color: white;
     border: none;
     height: 34px;
@@ -15530,13 +15548,12 @@ h3 > .tooltip-icon-sm {
 .power-bar-container {
     flex: 1;
     height: 20px;
-    background: var(--border-strong);
+    background: var(--bg-inset);
+    box-shadow: inset 0 0 0 1px var(--border-strong);
     overflow: hidden;
     position: relative;
     display: flex;
     align-items: center;
-    -webkit-mask: var(--meter-ticks);
-    mask: var(--meter-ticks);
 }
 
 .power-bar-stack {
@@ -15702,9 +15719,8 @@ h3 > .tooltip-icon-sm {
     height: 8px;
     display: flex;
     overflow: hidden;
-    background: var(--border-strong);
-    -webkit-mask: var(--meter-ticks);
-    mask: var(--meter-ticks);
+    background: var(--bg-inset);
+    box-shadow: inset 0 0 0 1px var(--border-strong);
 }
 
 .dist-segment {
@@ -16137,12 +16153,11 @@ h3 > .tooltip-icon-sm {
 .wifi-gen-bar-container {
     flex: 1;
     height: 16px;
-    background: var(--border-strong);
+    background: var(--bg-inset);
+    box-shadow: inset 0 0 0 1px var(--border-strong);
     overflow: hidden;
     font-size: 0;
     white-space: nowrap;
-    -webkit-mask: var(--meter-ticks);
-    mask: var(--meter-ticks);
 }
 
 .wifi-gen-bar {
@@ -16254,8 +16269,6 @@ h3 > .tooltip-icon-sm {
 
     .wifi-gen-bar-container {
         flex: 1;
-        -webkit-mask: var(--meter-ticks);
-        mask: var(--meter-ticks);
     }
 
     .legacy-clients-list {
@@ -16529,12 +16542,11 @@ h3 > .tooltip-icon-sm {
 .gen-bar-container {
     flex: 1;
     height: 20px;
-    background: var(--border-strong);
+    background: var(--bg-inset);
+    box-shadow: inset 0 0 0 1px var(--border-strong);
     overflow: hidden;
     font-size: 0;
     white-space: nowrap;
-    -webkit-mask: var(--meter-ticks);
-    mask: var(--meter-ticks);
 }
 
 .gen-bar {
@@ -20508,10 +20520,28 @@ a.isp-health-hero-speed:hover {
 .ap-success-bar-container,
 .isp-factor-bar-track,
 .isp-asn-score-track {
-    background: var(--border-strong);
+    background: var(--bg-inset);
+    box-shadow: inset 0 0 0 1px var(--border-strong);
     border-radius: 0;
-    -webkit-mask: var(--meter-ticks);
-    mask: var(--meter-ticks);
+}
+/* Every meter fill: its own color as a shaded face with a full-strength edge. */
+.power-bar-stack > *,
+.coverage-distribution > *,
+.wifi-gen-bar-container > *,
+.gen-bar-container > *,
+.dimension-bar-container > *,
+.util-bar-container > *,
+.retry-bar-container > *,
+.band-env-metric .metric-bar > *,
+.flow-stage .stage-bar > *,
+.ap-success-bar-container > *,
+.isp-factor-bar-track > *,
+.isp-asn-score-track > *,
+.threat-bar-track > *,
+.channel-bar-wrapper > *,
+.spectrum-container .legend-bar {
+    -webkit-mask: var(--meter-face);
+    mask: var(--meter-face);
 }
 
 .isp-factor-bar-track.isp-factor-bar-track-empty {
