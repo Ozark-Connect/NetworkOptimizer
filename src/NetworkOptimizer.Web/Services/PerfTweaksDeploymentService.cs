@@ -51,7 +51,8 @@ public class PerfTweaksDeploymentService : IPerfTweaksDeploymentService
         ["postgresql-backup"] = "09-postgresql-ssd-backup.sh",
         ["journald-volatile"] = "10-journald-volatile.sh",
         ["sfp-sgmiiplus-port6"] = "19-sfp-sgmiiplus-eth5.sh",
-        ["sfp-sgmiiplus"] = "20-sfp-sgmiiplus.sh"
+        ["sfp-sgmiiplus"] = "20-sfp-sgmiiplus.sh",
+        ["pppoe-reconnect"] = "40-pppoe-reconnect.sh"
     };
 
     // Additional boot scripts a tweak deploys beyond its primary, for out-of-date
@@ -222,7 +223,7 @@ public class PerfTweaksDeploymentService : IPerfTweaksDeploymentService
                 "echo '---GATEWAY_MODEL---'; ubnt-device-info model_short 2>/dev/null || (grep -i '^shortname=' /proc/ubnthal/system.info 2>/dev/null | cut -d= -f2-) || echo 'unknown'; echo; " +
                 "echo '---FIRMWARE_VERSION---'; ubnt-device-info firmware 2>/dev/null || (grep -i '^version=' /etc/os-release 2>/dev/null | cut -d= -f2- | tr -d '\"') || echo 'unknown'; echo; " +
                 // Boot script hashes (for version checking)
-                $"echo '---SCRIPT_HASHES---'; for s in 15-fan-control-tuning.sh 06-mongodb-ssd-offload.sh 07-mongodb-ssd-backup.sh 08-postgresql-ssd-offload.sh 09-postgresql-ssd-backup.sh 10-journald-volatile.sh 19-sfp-sgmiiplus-eth5.sh 20-sfp-sgmiiplus.sh; do [ -f {OnBootDir}/$s ] && echo \"$s:$(md5sum {OnBootDir}/$s | cut -d' ' -f1)\"; done; " +
+                $"echo '---SCRIPT_HASHES---'; for s in 15-fan-control-tuning.sh 06-mongodb-ssd-offload.sh 07-mongodb-ssd-backup.sh 08-postgresql-ssd-offload.sh 09-postgresql-ssd-backup.sh 10-journald-volatile.sh 19-sfp-sgmiiplus-eth5.sh 20-sfp-sgmiiplus.sh 40-pppoe-reconnect.sh; do [ -f {OnBootDir}/$s ] && echo \"$s:$(md5sum {OnBootDir}/$s | cut -d' ' -f1)\"; done; " +
                 // Fan control
                 $"echo '---FAN_BOOT_SCRIPT---'; test -f {OnBootDir}/15-fan-control-tuning.sh && echo 'exists' || echo 'missing'; " +
                 "echo '---FAN_PWM---'; cat /sys/class/hwmon/hwmon0/pwm1 2>/dev/null || echo 'N/A'; " +
@@ -290,7 +291,15 @@ public class PerfTweaksDeploymentService : IPerfTweaksDeploymentService
                 "echo '---SFP_CLOCK_RATE---'; cat /sys/kernel/debug/clk/uniphy1_gcc_tx_clk/clk_rate 2>/dev/null || echo 'N/A'; " +
                 $"echo '---SFP_SERDES_REG---'; if [ -f {OnBootDir}/20-sfp-sgmiiplus.sh ] || lsmod | grep -q force_uniphy1_sgmiiplus; then busybox devmem 0x07A10218 32 2>/dev/null || echo 'N/A'; else echo 'N/A'; fi; " +
                 "echo '---SFP_ETH6_SPEED---'; ethtool eth6 2>/dev/null | grep Speed | awk '{print $2}' || echo 'N/A'; " +
-                "echo '---SFP_LOG---'; tail -3 /var/log/sfp-sgmiiplus.log 2>/dev/null || echo 'no log'";
+                "echo '---SFP_LOG---'; tail -3 /var/log/sfp-sgmiiplus.log 2>/dev/null || echo 'no log'; " +
+                // Scheduled PPPoE reconnect
+                $"echo '---PPPOE_RC_BOOT_SCRIPT---'; test -f {OnBootDir}/40-pppoe-reconnect.sh && echo 'exists' || echo 'missing'; " +
+                "echo '---PPPOE_RC_TIMER---'; systemctl is-active pppoe-reconnect.timer 2>/dev/null || true; " +
+                $"echo '---PPPOE_RC_TIME---'; cat {PppoeReconnectDir}/time 2>/dev/null; " +
+                "echo '---PPPOE_RC_TZ---'; cat /etc/timezone 2>/dev/null || date +%Z; " +
+                "echo '---PPPOE_RC_WANS---'; for f in /etc/ppp/peers/ppp[0-9]*; do [ -f \"$f\" ] && basename \"$f\"; done; " +
+                // Last in the probe: a missing record (no run yet) must not fail the whole status read
+                $"echo '---PPPOE_RC_LAST---'; cat {PppoeReconnectDir}/last-run 2>/dev/null || true";
 
             var result = await RunCommandAsync(combinedCommand, TimeSpan.FromSeconds(25));
             if (!result.success)
@@ -500,6 +509,8 @@ public class PerfTweaksDeploymentService : IPerfTweaksDeploymentService
         }
         status.Tweaks["journald-volatile"] = journaldStatus;
 
+        status.Tweaks["pppoe-reconnect"] = ParsePppoeReconnectStatus(sections, status);
+
         // qca-ssdk is shared between both SFP ports
         var sfpQcaSsdkLoaded = GetSection(sections, "SFP_QCA_SSDK").Trim() == "loaded";
         status.SfpQcaSsdkMissing = !sfpQcaSsdkLoaded;
@@ -634,6 +645,98 @@ public class PerfTweaksDeploymentService : IPerfTweaksDeploymentService
         }
     }
 
+    private const string PppoeReconnectDir = "/data/pppoe-reconnect";
+    internal const string PppoeReconnectDefaultTime = "04:00";
+    private static readonly System.Text.RegularExpressions.Regex PppoeReconnectTimeFormat =
+        new(@"\A([01][0-9]|2[0-3]):[0-5][0-9]\z", System.Text.RegularExpressions.RegexOptions.Compiled);
+
+    // Stops the timer and a reconnect in progress before deleting them, and reports "removed"
+    // only once nothing of the tweak is left.
+    private const string PppoeReconnectRemoveCommand =
+        $"rm -f {OnBootDir}/40-pppoe-reconnect.sh; " +
+        "systemctl stop pppoe-reconnect.timer pppoe-reconnect.service 2>/dev/null; " +
+        "rm -f /etc/systemd/system/pppoe-reconnect.service /etc/systemd/system/pppoe-reconnect.timer; " +
+        "systemctl daemon-reload; " +
+        $"rm -rf {PppoeReconnectDir}; " +
+        $"if [ ! -e {OnBootDir}/40-pppoe-reconnect.sh ] && [ ! -e /etc/systemd/system/pppoe-reconnect.timer ] " +
+        $"&& [ ! -e {PppoeReconnectDir} ] && ! systemctl is-active --quiet pppoe-reconnect.timer; then echo 'removed'; fi";
+
+    /// <summary>True for a 24-hour HH:MM time, the form the boot script accepts.</summary>
+    internal static bool IsValidPppoeReconnectTime(string? time) =>
+        time != null && PppoeReconnectTimeFormat.IsMatch(time);
+
+    private static TweakDeploymentStatus ParsePppoeReconnectStatus(Dictionary<string, string> sections, PerfTweaksStatus status)
+    {
+        var tweak = new TweakDeploymentStatus { Id = "pppoe-reconnect" };
+        var time = GetSection(sections, "PPPOE_RC_TIME").Trim();
+        status.PppoeReconnectTime = IsValidPppoeReconnectTime(time) ? time : PppoeReconnectDefaultTime;
+
+        tweak.BootScriptDeployed = GetSection(sections, "PPPOE_RC_BOOT_SCRIPT").Contains("exists");
+        var timerActive = GetSection(sections, "PPPOE_RC_TIMER").Trim() == "active";
+        tweak.RuntimeDetected = timerActive;
+        if (!tweak.BootScriptDeployed && !timerActive)
+            return tweak;
+
+        var timeZone = GetSection(sections, "PPPOE_RC_TZ").Trim();
+        tweak.HealthChecks.Add(timerActive
+            ? new("Schedule", $"Daily at {status.PppoeReconnectTime}{(timeZone.Length > 0 ? $" ({timeZone})" : "")}", HealthCheckStatus.Ok)
+            : new("Schedule", "Timer not running", HealthCheckStatus.Error));
+
+        var wans = GetSection(sections, "PPPOE_RC_WANS")
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        tweak.HealthChecks.Add(wans.Length > 0
+            ? new("PPPoE WANs", string.Join(", ", wans), HealthCheckStatus.Ok)
+            : new("PPPoE WANs", "None found, nothing to reconnect", HealthCheckStatus.Warning));
+
+        foreach (var line in GetSection(sections, "PPPOE_RC_LAST").Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            // "<date> <time> <unit> <ok|skipped|failed> <detail>", the unit "-" when there was none
+            var fields = line.Split(' ', 5);
+            if (fields.Length < 4)
+                continue;
+            var label = fields[2] == "-" ? "Last Run" : $"Last Run ({fields[2]})";
+            var detail = fields.Length == 5 ? fields[4] : fields[3];
+            var health = fields[3] switch
+            {
+                "ok" => HealthCheckStatus.Ok,
+                "failed" => HealthCheckStatus.Error,
+                _ => HealthCheckStatus.Warning
+            };
+            // A WAN that was down or freshly reconnected was rightly left alone
+            if (fields[3] == "skipped" && !detail.StartsWith("pppd", StringComparison.Ordinal))
+                health = HealthCheckStatus.Ok;
+            tweak.HealthChecks.Add(new(label, $"{fields[0]} {fields[1]}: {detail}", health));
+        }
+
+        tweak.IsActive = tweak.BootScriptDeployed && timerActive;
+        return tweak;
+    }
+
+    public async Task<(bool success, string message)> SetPppoeReconnectTimeAsync(string time)
+    {
+        if (!IsValidPppoeReconnectTime(time))
+            return (false, "Enter the time as HH:MM (24-hour).");
+        if (!_licenseState.IsSiteOperational(_siteContext.Slug))
+            return (false, Licensing.LicenseGuard.RestrictedMessage);
+        try
+        {
+            // The boot script rewrites the timer from the file when it is deployed; otherwise the
+            // time waits there for the deploy.
+            var script = $"{OnBootDir}/40-pppoe-reconnect.sh";
+            var result = await RunCommandAsync(
+                $"mkdir -p {PppoeReconnectDir} && echo '{time}' > {PppoeReconnectDir}/time && " +
+                $"if [ -x {script} ]; then {script} 2>&1 || exit 1; fi && echo 'saved'");
+            return result.success && result.output.Contains("saved")
+                ? (true, $"Reconnect time set to {time}")
+                : (false, $"Saving the time failed: {Tail(result.output)}");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to set the PPPoE reconnect time");
+            return (false, ex.Message);
+        }
+    }
+
     /// <summary>Applies the site's stored PerfTweakSettings (manual deploys, decommission record).</summary>
     private async Task ApplyStoredSettingsAsync(PerfTweaksStatus status)
     {
@@ -735,6 +838,12 @@ public class PerfTweaksDeploymentService : IPerfTweaksDeploymentService
             using var networkRestart = tweakId == "mongodb-ssd" ? NetworkRestartWindow() : null;
             Report($"Running {scriptName}...");
             var runResult = await RunCommandAsync($"{OnBootDir}/{scriptName} 2>&1", TimeSpan.FromMinutes(5));
+            if (!runResult.success && tweakId == "pppoe-reconnect")
+            {
+                // Its boot run only writes and starts the timer; a non-zero exit means no schedule
+                Report($"Script failed. Output: {runResult.output}");
+                return (false, $"Could not start the reconnect timer: {runResult.output}", steps);
+            }
             if (!runResult.success)
             {
                 Report($"Warning: Script returned non-zero exit. Output: {runResult.output}");
@@ -1062,6 +1171,10 @@ public class PerfTweaksDeploymentService : IPerfTweaksDeploymentService
                     "rm -f /var/log/sfp-sgmiiplus.log; " +
                     "echo 'removed'";
             }
+            else if (tweakId == "pppoe-reconnect")
+            {
+                removeCmd = PppoeReconnectRemoveCommand;
+            }
             else
             {
                 removeCmd = $"rm -f {OnBootDir}/{scriptName} && echo 'removed'";
@@ -1317,6 +1430,9 @@ public class PerfTweaksStatus
     public bool SfpModuleAlreadyLoaded { get; set; }
     public bool SfpPort6ModuleAlreadyLoaded { get; set; }
     public bool SfpQcaSsdkMissing { get; set; }
+
+    /// <summary>Daily reconnect time (HH:MM, gateway local time) of the scheduled PPPoE reconnect.</summary>
+    public string PppoeReconnectTime { get; set; } = PerfTweaksDeploymentService.PppoeReconnectDefaultTime;
 
     /// <summary>Which database the UniFi Network app runs on; picks the MongoDB or PostgreSQL SSD card.</summary>
     public DatabaseBackend DatabaseBackend { get; set; } = DatabaseBackend.Indeterminate;

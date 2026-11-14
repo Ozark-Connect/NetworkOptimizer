@@ -30,6 +30,14 @@ public interface IPerfTweaksDeploymentService
     [AuditAction(AuditActions.PerfTweakApplied, TargetType = "perftweak")]
     Task SetManuallyDeployedAsync(string tweakId, bool isManual);
 
+    /// <summary>
+    /// Sets the daily time (HH:MM, gateway local time) of the scheduled PPPoE reconnect and, when the
+    /// tweak is deployed, rewrites its timer.
+    /// </summary>
+    [RequireRole(Roles.Admin)]
+    [AuditAction(AuditActions.PerfTweakApplied, TargetType = "perftweak")]
+    Task<(bool success, string message)> SetPppoeReconnectTimeAsync(string time);
+
     /// <summary>Installs udm-boot on the gateway so boot scripts survive firmware upgrades.</summary>
     [RequireRole(Roles.Admin)]
     [AuditAction(AuditActions.PerfTweakApplied, TargetType = "udm_boot")]
