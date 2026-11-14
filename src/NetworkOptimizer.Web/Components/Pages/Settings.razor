@@ -2542,7 +2542,7 @@
                                     <span class="status-badge status-active" style="font-size: 0.7rem;">Default</span>
                                 }
                             </div>
-                            <div style="color: var(--text-secondary); font-family: monospace; font-size: 0.8125rem; margin-top: 0.25rem;">@server.Url</div>
+                            <div style="color: var(--text-secondary); font-family: var(--font-mono); font-size: 0.8125rem; margin-top: 0.25rem;">@server.Url</div>
                         </div>
                         @if (_canEditInstanceSettings)
                         {
@@ -2611,7 +2611,7 @@
                     {
                         <div class="form-group">
                             <label class="form-label">Server ID</label>
-                            <input type="text" class="form-control" value="@ExternalSpeedTestServer.GenerateServerId(extServerFormName)" readonly style="color: var(--text-secondary); font-family: monospace; font-size: 0.8125rem;" />
+                            <input type="text" class="form-control" value="@ExternalSpeedTestServer.GenerateServerId(extServerFormName)" readonly style="color: var(--text-secondary); font-family: var(--font-mono); font-size: 0.8125rem;" />
                             <small class="form-help">Auto-generated identifier used to link speed test results to this server</small>
                         </div>
                     }
@@ -2638,7 +2638,7 @@
                     {
                         <div class="form-group">
                             <label class="form-label">Speed Test URL (preview)</label>
-                            <input type="text" class="form-control" value="@ComputeExtServerFormUrl()" readonly style="color: var(--text-secondary); font-family: monospace; font-size: 0.8125rem;" />
+                            <input type="text" class="form-control" value="@ComputeExtServerFormUrl()" readonly style="color: var(--text-secondary); font-family: var(--font-mono); font-size: 0.8125rem;" />
                         </div>
                     }
 

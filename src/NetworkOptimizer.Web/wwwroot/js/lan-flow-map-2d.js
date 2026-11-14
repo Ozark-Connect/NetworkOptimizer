@@ -73,7 +73,7 @@ const G = {
 const RATE_THRESH = 500_000;
 const EMIT_MAX = 12;
 const MAX_DOTS = 80;
-const FONT = 'system-ui, -apple-system, sans-serif';
+const FONT = 'Inter, system-ui, -apple-system, sans-serif';
 
 // ---- Helpers ----
 

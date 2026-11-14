@@ -1397,11 +1397,11 @@ export class LanFlowMap {
         const fontSize = 36;
         const subFontSize = 22;
         const pad = 16;
-        ctx.font = `${fontSize}px ui-sans-serif, system-ui, sans-serif`;
+        ctx.font = `${fontSize}px Inter, ui-sans-serif, system-ui, sans-serif`;
         const titleW = Math.ceil(ctx.measureText(text).width);
         let subW = 0;
         if (subText) {
-            ctx.font = `${subFontSize}px ui-sans-serif, system-ui, sans-serif`;
+            ctx.font = `${subFontSize}px Inter, ui-sans-serif, system-ui, sans-serif`;
             subW = Math.ceil(ctx.measureText(subText).width);
         }
         const w = Math.max(titleW, subW) + pad * 2;
@@ -1412,11 +1412,11 @@ export class LanFlowMap {
         roundRect(ctx, 0, 0, w, h, 12);
         ctx.fillStyle = '#f1f5f9';
         ctx.textBaseline = 'top';
-        ctx.font = `${fontSize}px ui-sans-serif, system-ui, sans-serif`;
+        ctx.font = `${fontSize}px Inter, ui-sans-serif, system-ui, sans-serif`;
         ctx.fillText(text, pad, pad);
         if (subText) {
             ctx.fillStyle = '#94a3b8';
-            ctx.font = `${subFontSize}px ui-sans-serif, system-ui, sans-serif`;
+            ctx.font = `${subFontSize}px Inter, ui-sans-serif, system-ui, sans-serif`;
             ctx.fillText(subText, pad, pad + fontSize + 6);
         }
         const tex = new THREE.CanvasTexture(canvas);

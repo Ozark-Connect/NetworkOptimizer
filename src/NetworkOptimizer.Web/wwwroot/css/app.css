@@ -214,6 +214,11 @@ a:hover {
     color: var(--primary-hover);
 }
 
+/* Leaflet sets its own font on the map container; popups and controls take ours. */
+body .leaflet-container {
+    font-family: var(--font-sans);
+}
+
 .leaflet-container a.map-popup-link {
     color: var(--primary-hover);
 }
@@ -2419,7 +2424,8 @@ a.stat-card-link:active {
     display: flex;
     align-items: baseline;
     gap: 0.4rem;
-    font-family: monospace;
+    font-family: var(--font-display);
+    font-variant-numeric: tabular-nums;
     font-size: 0.85rem;
     font-weight: 600;
     opacity: 0;
@@ -5675,7 +5681,7 @@ tr:hover .snmp-row-chevron {
 }
 
 .snmp-add-oid-form textarea.form-control {
-    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-family: var(--font-mono);
     resize: vertical;
 }
 
@@ -10130,7 +10136,7 @@ h3 > .tooltip-icon-sm {
 
 .upnp-device-header .device-ip {
     font-weight: 600;
-    font-family: ui-monospace, monospace;
+    font-family: var(--font-mono);
     color: var(--text-primary);
 }
 
@@ -10247,7 +10253,7 @@ h3 > .tooltip-icon-sm {
 }
 
 .rule-details .rule-port-mapping {
-    font-family: ui-monospace, monospace;
+    font-family: var(--font-mono);
 }
 
 .rule-ports code {
@@ -12161,6 +12167,7 @@ h3 > .tooltip-icon-sm {
 
 /* Chart axes, legends, and tooltips in the display face, so a figure on a chart matches the
    readout beside it. ApexCharts writes its font inline, hence !important as on the rules here. */
+.apexcharts-svg text,
 .apexcharts-text,
 .apexcharts-legend-text,
 .apexcharts-tooltip,
@@ -12196,7 +12203,7 @@ h3 > .tooltip-icon-sm {
     margin-left: auto;
     padding-left: 10px;
     color: var(--text-muted);
-    font-family: Helvetica, Arial, sans-serif;
+    font-family: inherit;
     font-size: 12px;
 }
 
@@ -12458,7 +12465,7 @@ h3 > .tooltip-icon-sm {
 .filterable-select-display .option-mac {
     font-size: 0.7rem;
     color: var(--text-muted);
-    font-family: monospace;
+    font-family: var(--font-mono);
 }
 
 /* Overlay for click-outside-to-close */
@@ -12547,7 +12554,7 @@ h3 > .tooltip-icon-sm {
 .filterable-select-option .option-mac {
     font-size: 0.7rem;
     color: var(--text-muted);
-    font-family: monospace;
+    font-family: var(--font-mono);
 }
 
 .filterable-select-empty {
@@ -12733,7 +12740,7 @@ h3 > .tooltip-icon-sm {
 .client-ip {
     font-size: 0.875rem;
     color: var(--text-muted);
-    font-family: monospace;
+    font-family: var(--font-mono);
 }
 
 .client-info-details {
@@ -18591,7 +18598,7 @@ tr.stats-row-filtered {
     color: var(--text-primary);
     padding: 0.05rem 0.35rem;
     border-radius: var(--border-radius);
-    font-family: var(--font-mono, monospace);
+    font-family: var(--font-mono);
     font-size: 0.825rem;
 }
 .lan-flow-map-status {
@@ -21657,7 +21664,7 @@ body.kiosk-mode .status-indicators {
 .site-switcher-item-slug {
     flex-shrink: 0;
     color: var(--text-muted);
-    font-family: monospace;
+    font-family: var(--font-mono);
     font-size: 0.75rem;
     white-space: nowrap;
 }
@@ -21753,7 +21760,7 @@ body.kiosk-mode .status-indicators {
 }
 
 .site-card-slug {
-    font-family: monospace;
+    font-family: var(--font-mono);
     font-size: 0.8rem;
     color: var(--text-muted);
     margin-right: auto;
@@ -22724,7 +22731,7 @@ a.shp-issue {
 /* Client Stats: the IP's font lives on .client-ip, which edit mode removes, so the wrapper carries it. */
 .client-info-main .inline-edit-compact {
     font-size: 0.875rem;
-    font-family: monospace;
+    font-family: var(--font-mono);
 }
 
 .checkbox-toggle {
@@ -22923,7 +22930,7 @@ a.shp-issue {
 }
 
 .license-key-cell {
-    font-family: monospace;
+    font-family: var(--font-mono);
 }
 
 .license-check-error {
@@ -26173,7 +26180,7 @@ body:has(.top-bar-hidden) .btn-fit {
 .lt-sankey-svg .lt-node-label {
     fill: var(--text-primary);
     font-size: 12px;
-    font-family: Inter, sans-serif;
+    font-family: var(--font-sans);
 }
 
 .lt-sankey-svg .lt-node-sub .lt-sub-down { fill: var(--speed-download-color); }
@@ -26194,7 +26201,7 @@ body:has(.top-bar-hidden) .btn-fit {
 .lt-sankey-svg .lt-node-sub {
     fill: var(--text-secondary);
     font-size: 10px;
-    font-family: Inter, sans-serif;
+    font-family: var(--font-sans);
     font-variant-numeric: tabular-nums;
 }
 
@@ -26210,7 +26217,7 @@ body:has(.top-bar-hidden) .btn-fit {
 .lt-sankey-svg .lt-col-label {
     fill: var(--text-muted);
     font-size: 10px;
-    font-family: Inter, sans-serif;
+    font-family: var(--font-sans);
     text-transform: uppercase;
     letter-spacing: 0.06em;
 }
@@ -28839,7 +28846,7 @@ body:has(.top-bar-hidden) .btn-fit {
 }
 
 .change-control .cc-template-yaml {
-    font-family: var(--font-mono, ui-monospace, monospace);
+    font-family: var(--font-mono);
     font-size: 0.8125rem;
 }
 

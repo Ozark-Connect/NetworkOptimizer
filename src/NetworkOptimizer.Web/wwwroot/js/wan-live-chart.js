@@ -4,7 +4,7 @@
 
 import ApexCharts from '/_content/Blazor-ApexCharts/js/apexcharts.esm.js';
 import * as flowData from './lan-flow-data.js?v=18';
-import { valueSortedTooltip } from './chart-tooltip.js?v=21';
+import { valueSortedTooltip } from './chart-tooltip.js?v=22';
 import { downloadColor, uploadColor } from './chart-colors.js?v=2';
 import { formatBps } from './chart-format.js?v=1';
 
