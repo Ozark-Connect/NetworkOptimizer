@@ -7,9 +7,13 @@
 :root {
     color-scheme: dark;
 
-    /* Typography - Two font families only */
+    /* Typography - three roles. Sans carries prose and controls; display carries titles and
+       every numeric readout; mono is for identifiers only (MAC, IP, commands). */
     --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-    --font-mono: 'SF Mono', SFMono-Regular, ui-monospace, Menlo, Consolas, monospace;
+    --font-display: 'Barlow', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    --font-mono: 'Geist Mono', 'SF Mono', SFMono-Regular, ui-monospace, Menlo, Consolas, monospace;
+    /* Barlow's word space is narrow: without this a value runs into its unit ("23.9dB"). */
+    --display-word-spacing: 0.09em;
 
     /* Brand Colors - Ozark Connect Blue + Orange */
     --primary-color: #0550B5;
@@ -33,6 +37,10 @@
     /* What "look here" is drawn in: the nav-to-card ring and a card held called out. Its own name
        rather than borrowing a score color, so changing either cannot move the other. */
     --highlight-color: var(--primary-color);
+    /* The selected item in a set (page tab, time range, WAN pill): the brand blue held back into
+       the slate, with a full-strength edge under it. Buttons keep the solid brand blue. */
+    --selected-bg: color-mix(in srgb, var(--primary-color) 42%, var(--bg-tertiary));
+    --selected-edge: inset 0 -2px 0 var(--primary-hover);
 
     /* Purple/Violet - WiFi 6E, sponsorship */
     --purple-color: #a855f7;
@@ -44,25 +52,25 @@
     --band-5-color:  #3b82f6;
     --band-6-color:  #a855f7;
 
-    /* Dark Mode Backgrounds - neutral dark, Linear/Vercel inspired */
-    --bg-primary: #0f0f11;
-    --bg-inset: #131315;
-    --bg-secondary: #161618;
-    --bg-tertiary: #232326;
-    --bg-elevated: #2c2c30;
-    --bg-card: #161618;
-    --bg-hover: #232326;
-    --bg-hover-subtle: #1c1c1f;
+    /* Dark Mode Backgrounds - slate, leaning toward the brand blue */
+    --bg-primary: #0b0d10;
+    --bg-inset: #0e1114;
+    --bg-secondary: #12151a;
+    --bg-tertiary: #1c2128;
+    --bg-elevated: #262c35;
+    --bg-card: #12151a;
+    --bg-hover: #1c2128;
+    --bg-hover-subtle: #171b21;
     /* Hovering a row that is already expanded. One step above --bg-hover so the row still answers
        the mouse, without climbing to --bg-elevated and reading as a different surface. */
-    --bg-row-expanded-hover: #27272b;
-    --surface: #161618;
-    --surface-secondary: #1c1c1f;
+    --bg-row-expanded-hover: #21262e;
+    --surface: #12151a;
+    --surface-secondary: #171b21;
 
-    /* Text Colors - neutral, no blue tint */
-    --text-primary: #ededef;
-    --text-secondary: #a0a0a8;
-    --text-muted: #5c5c66;
+    /* Text Colors - a shade cooler than neutral, to sit on the slate */
+    --text-primary: #e8eaed;
+    --text-secondary: #9ba2ad;
+    --text-muted: #5f6672;
     --text-dark: #171717;
 
     /* Blue accent variants for text/links */
@@ -71,12 +79,41 @@
 
     /* Map toolbar buttons */
     --btn-map-bg: var(--bg-elevated);
-    --btn-map-hover: #35353a;
+    --btn-map-hover: #303742;
 
     /* Borders & Effects */
-    --border-color: #232326;
-    --border-radius: 4px;
-    --border-radius-lg: 6px;
+    --border-color: #1e232a;
+    /* Unlit gauge ticks, meter tracks, and the edge of a control that sits on a card */
+    --border-strong: #2b323c;
+    /* Cuts a meter's track and fill into the dial's ticks */
+    /* A meter fill's face: the fill's own color at part strength inside a full-strength edge. */
+    --meter-face: linear-gradient(#000, #000) top / 100% 1px no-repeat,
+        linear-gradient(#000, #000) bottom / 100% 1px no-repeat,
+        linear-gradient(#000, #000) left / 1px 100% no-repeat,
+        linear-gradient(#000, #000) right / 1px 100% no-repeat,
+        linear-gradient(rgb(0 0 0 / 0.42), rgb(0 0 0 / 0.42));
+    /* The same face for a second segment that continues the first: fainter, no edge where they meet. */
+    /* A segment that follows another in a stacked bar: it overlaps its neighbor's edge by the
+       1px line and draws its own at half strength there, so the two share one blended line. */
+    --meter-face-joined: linear-gradient(#000, #000) top / 100% 1px no-repeat,
+        linear-gradient(#000, #000) bottom / 100% 1px no-repeat,
+        linear-gradient(#000, #000) right / 1px 100% no-repeat,
+        linear-gradient(rgb(0 0 0 / 0.5), rgb(0 0 0 / 0.5)) left / 1px 100% no-repeat,
+        linear-gradient(rgb(0 0 0 / 0.42), rgb(0 0 0 / 0.42)) 1px 0 / calc(100% - 1px) 100% no-repeat;
+    /* The free end of a wide bar (a histogram column, a band bar) stays rounded. */
+    --bar-end-radius: 5px;
+    /* The Channel Plan mark's face: fainter inside than a meter's, since a label sits on it. */
+    --brand-face: linear-gradient(#000, #000) top / 100% 1px no-repeat,
+        linear-gradient(#000, #000) bottom / 100% 1px no-repeat,
+        linear-gradient(#000, #000) left / 1px 100% no-repeat,
+        linear-gradient(#000, #000) right / 1px 100% no-repeat,
+        linear-gradient(rgb(0 0 0 / 0.34), rgb(0 0 0 / 0.34));
+    --meter-face-extension: linear-gradient(#000, #000) top / 100% 1px no-repeat,
+        linear-gradient(#000, #000) bottom / 100% 1px no-repeat,
+        linear-gradient(#000, #000) right / 1px 100% no-repeat,
+        linear-gradient(rgb(0 0 0 / 0.18), rgb(0 0 0 / 0.18));
+    --border-radius: 2px;
+    --border-radius-lg: 3px;
     --shadow: none;
     --shadow-lg: rgba(0, 0, 0, 0.4) 0px 4px 12px 0px;
     --focus-ring: 0 0 0 1px var(--primary-color);
@@ -104,6 +141,109 @@ html, body {
     scroll-behavior: smooth;
 }
 
+/* AppIcon: a line icon the size of the text around it. */
+.line-icon {
+    display: inline-block;
+    width: 1em;
+    height: 1em;
+    flex-shrink: 0;
+    vertical-align: -0.125em;
+}
+
+/* Where the glyph it replaced was set bold */
+.no-alerts-icon .line-icon,
+.empty-icon .line-icon,
+.stage-icon .line-icon,
+.site-wizard-success-icon .line-icon {
+    stroke-width: 2.2;
+}
+
+/* Numeric readouts take the display face with fixed-width figures, so a value that ticks does
+   not shift. A new readout class joins this list rather than naming the font itself. */
+.count-value,
+.cc-tile-value,
+.channel-rec-count,
+.rate-value,
+.isp-dimension-score,
+.isp-speed-measured,
+.isp-uptime-value,
+.issue-count .count,
+.quality-value,
+.roaming-stat-value,
+.channel-stat-value,
+.load-stat-value,
+.power-stat-value,
+.airtime-stat-value,
+.shp-avg-value,
+.shp-tile-health,
+.signal-value,
+.speed-stat-value,
+.speed-value,
+.stage-count,
+.status-value,
+.success-rate-value,
+.summary-card .summary-value,
+.threat-stat-value,
+.result-speed,
+.isp-asn-grade,
+.site-card-health > span:first-child,
+.shp-inline-avg b,
+.band-value,
+.connection-issue-count,
+.dfs-channel-number,
+.lt-stat-value,
+.steering-stat-value,
+.your-channel-chip .channel-number,
+.stat-value,
+.metric-value,
+.rx-power-value,
+.score-value,
+.lt-num,
+.lt-flows .lt-rank,
+.lt-stat-sub,
+.lt-m-rates,
+.lt-now-rates,
+.lt-tl-readout,
+.lt-tl-ticks,
+.lt-fpop-n,
+.tippy-box[data-theme~='custom'] .lt-route-tip-value,
+.change-control .cc-side-value,
+.change-control .cc-card-footer .cc-edit-count,
+.change-control .cc-step-num,
+.change-control .cc-collections .cc-count,
+.change-control .cc-find-count,
+.change-control .cc-net .cc-vlan,
+.band-stat-value,
+.stat-stack-value,
+.signal-bar .bar-count,
+.isp-factor-score,
+.group-count-badge,
+.issue-count-badge,
+.ap-popup-test-speeds,
+.change-control .cc-tl-axis-labels,
+.change-control .cc-tl-counts,
+.change-control .cc-lane-latest,
+.dimension-score {
+    font-family: var(--font-display);
+    font-variant-numeric: tabular-nums;
+    word-spacing: var(--display-word-spacing);
+}
+
+.card-title,
+.page-header h1,
+.page-header-suffix,
+.client-timeline-title,
+.custom-apps-title,
+.metrics-title h3,
+.chart-title,
+.drilldown-title,
+.login-header h1,
+.tour-modal-title,
+.tour-card-title {
+    font-family: var(--font-display);
+    word-spacing: var(--display-word-spacing);
+}
+
 /* Anchor Links - Ubiquiti Blue primary, Orange for hover emphasis */
 a {
     color: var(--primary-color);
@@ -122,6 +262,11 @@ a {
 
 a:hover {
     color: var(--primary-hover);
+}
+
+/* Leaflet sets its own font on the map container; popups and controls take ours. */
+body .leaflet-container {
+    font-family: var(--font-sans);
 }
 
 .leaflet-container a.map-popup-link {
@@ -375,7 +520,7 @@ a:hover {
 .page-header h1 {
     font-size: 1.5rem;
     font-weight: 600;
-    letter-spacing: -0.015em;
+    letter-spacing: 0;
     margin-bottom: 4px;
     display: flex;
     align-items: center;
@@ -403,7 +548,7 @@ a:hover {
     padding: 0;
     background: var(--bg-secondary);
     border: 1px solid var(--border-color);
-    border-radius: 8px;
+    border-radius: var(--border-radius-lg);
     color: var(--text-secondary);
     cursor: pointer;
     transition: color 0.15s ease, background 0.15s ease;
@@ -479,7 +624,7 @@ h1:focus {
     justify-content: center;
     width: 36px;
     height: 36px;
-    border-radius: 8px;
+    border-radius: var(--border-radius-lg);
     color: var(--text-secondary);
     transition: color 0.15s ease, background 0.15s ease;
 }
@@ -753,7 +898,8 @@ h1:focus {
 
 .card-title {
     font-size: 1.125rem;
-    font-weight: 500;
+    font-weight: 600;
+    letter-spacing: 0.005em;
     margin: 0;
 }
 
@@ -924,16 +1070,18 @@ h1:focus {
 }
 
 /* Speed Test List (Dashboard - multiple results) */
+/* One grid for the whole list, so the down and up speeds line up in columns across rows. */
 .speed-test-list {
-    display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
+    display: grid;
+    grid-template-columns: minmax(33%, auto) auto auto 1fr;
+    gap: 0.5rem 0.75rem;
 }
 
 .speed-test-row {
-    display: flex;
+    display: grid;
+    grid-template-columns: subgrid;
+    grid-column: 1 / -1;
     align-items: center;
-    gap: 0.75rem;
     padding: 0.75rem 0;
     border-bottom: 1px solid var(--border-color);
 }
@@ -983,14 +1131,15 @@ h1:focus {
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    min-width: 33%;
+    min-width: 0;
 }
 
 .speed-test-speeds {
-    display: flex;
-    gap: 0.75rem;
-    font-family: var(--font-mono);
-    font-size: 0.875rem;
+    display: contents;
+    font-family: var(--font-display);
+    font-variant-numeric: tabular-nums;
+    font-weight: 500;
+    font-size: 0.9375rem;
 }
 
 .speed-down {
@@ -1005,7 +1154,7 @@ h1:focus {
     font-size: 0.75rem;
     color: var(--text-muted);
     white-space: nowrap;
-    margin-left: auto;
+    justify-self: end;
 }
 
 /* Stats Row */
@@ -1050,8 +1199,8 @@ a.stat-card-link:visited {
 }
 
 a.stat-card-link:hover {
-    transform: translateY(-1px);
     background: var(--bg-hover);
+    border-color: var(--border-strong);
 }
 
 a.stat-card-link:active {
@@ -1120,7 +1269,7 @@ a.stat-card-link:active {
     gap: 0.75rem;
 }
 .monitoring-stat-card {
-    background: var(--bg-card);
+    background: var(--bg-inset);
     border: 1px solid var(--border-color);
     border-radius: var(--border-radius);
     padding: 0.75rem 1rem;
@@ -1353,7 +1502,7 @@ a.stat-card-link:active {
     width: 26px;
     height: 26px;
     border: 1px solid var(--border-color);
-    border-radius: 4px;
+    border-radius: var(--border-radius);
     background: var(--bg-secondary);
     color: var(--text-secondary);
     cursor: pointer;
@@ -1397,7 +1546,7 @@ a.stat-card-link:active {
     z-index: 5;
     padding: 2px 6px;
     background: var(--bg-tertiary);
-    border-radius: 4px;
+    border-radius: var(--border-radius);
     border: 1px solid var(--border-color);
     white-space: nowrap;
 }
@@ -1409,7 +1558,7 @@ a.stat-card-link:active {
     width: 20px;
     height: 18px;
     border: none;
-    border-radius: 3px;
+    border-radius: var(--border-radius);
     background: transparent;
     color: var(--text-secondary);
     cursor: pointer;
@@ -1451,7 +1600,7 @@ a.stat-card-link:active {
     padding: 6px 10px;
     background: transparent;
     border: 1px solid var(--border-color);
-    border-radius: 4px;
+    border-radius: var(--border-radius);
     color: var(--text-secondary);
     font-size: 0.8rem;
     cursor: pointer;
@@ -1580,7 +1729,7 @@ a.stat-card-link:active {
     font-weight: 600;
     text-transform: uppercase;
     padding: 2px 6px;
-    border-radius: 3px;
+    border-radius: var(--border-radius);
     white-space: nowrap;
     flex-shrink: 0;
 }
@@ -1643,7 +1792,7 @@ a.stat-card-link:active {
 
 .wifi-issue-group-header:hover {
     background: var(--bg-hover);
-    border-radius: 4px;
+    border-radius: var(--border-radius);
 }
 
 .group-count-badge {
@@ -1732,10 +1881,11 @@ a.stat-card-link:active {
 
 /* Device Card */
 .device-card {
-    background: var(--bg-tertiary);
+    background: var(--bg-inset);
     border-radius: var(--border-radius);
     padding: 12px;
     border-left: 2px solid var(--border-color);
+    box-shadow: inset 0 0 0 1px var(--border-color);
 }
 
 .device-card.device-online {
@@ -1870,39 +2020,74 @@ a.stat-card-link:active {
     margin-top: 0.5rem;
 }
 
+/* The dial (ScoreDial): one facet per rating, shaded up to the score in the rating's color. */
+.score-dial {
+    --rating-color: var(--text-muted);
+}
+
+.score-dial.rating-excellent { --rating-color: var(--success-color); }
+.score-dial.rating-good { --rating-color: var(--good-color); }
+.score-dial.rating-fair { --rating-color: var(--warning-color); }
+.score-dial.rating-weak { --rating-color: var(--signal-weak); }
+.score-dial.rating-poor { --rating-color: var(--danger-color); }
+
+.gauge-svg .gauge-facet {
+    fill: var(--bg-inset);
+    stroke: var(--border-strong);
+    stroke-width: 1.4;
+    stroke-linejoin: round;
+}
+
+.gauge-svg .gauge-facet.lit {
+    fill: color-mix(in srgb, var(--rating-color) 16%, transparent);
+    stroke: color-mix(in srgb, var(--rating-color) 55%, transparent);
+}
+
+.gauge-svg .gauge-fill {
+    fill: color-mix(in srgb, var(--rating-color) 42%, transparent);
+    stroke: var(--rating-color);
+    stroke-width: 1.4;
+    stroke-linejoin: round;
+}
+
+.score-dial-small .gauge-facet,
+.score-dial-small .gauge-fill {
+    stroke-width: 2;
+}
+
+.gauge-svg .gauge-score-rated {
+    fill: var(--rating-color);
+}
+
+.gauge-svg .gauge-score {
+    font-family: var(--font-display);
+    font-size: 38px;
+    font-weight: 600;
+    fill: var(--text-primary);
+}
+
+.gauge-svg .gauge-label {
+    font-size: 11px;
+    fill: var(--text-muted);
+}
+
 .rating-badge {
     display: inline-block;
-    padding: 0.5rem 1.5rem;
-    border-radius: 2rem;
+    padding: 0.5rem 1.25rem;
+    border-radius: var(--border-radius);
+    font-family: var(--font-display);
     font-weight: 600;
     font-size: 0.875rem;
+    letter-spacing: 0.04em;
+    color: var(--rating-color, var(--text-secondary));
+    background: color-mix(in srgb, var(--rating-color, var(--text-muted)) 12%, transparent);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--rating-color, var(--text-muted)) 40%, transparent);
 }
 
-.rating-badge.rating-excellent {
-    background: var(--success-color);
-    color: white;
-}
-
-.rating-badge.rating-good {
-    background: var(--primary-color);
-    color: white;
-}
-
-.rating-badge.rating-fair {
-    background: var(--warning-color);
-    color: white;
-}
-
-.rating-badge.rating-poor {
-    background: var(--danger-color);
-    color: white;
-}
-
-.rating-badge.rating-none {
-    background: var(--bg-secondary);
-    color: var(--text-secondary);
-    border: 1px solid var(--border-color);
-}
+.rating-badge.rating-excellent { --rating-color: var(--success-color); }
+.rating-badge.rating-good { --rating-color: var(--good-color); }
+.rating-badge.rating-fair { --rating-color: var(--warning-color); }
+.rating-badge.rating-poor { --rating-color: var(--danger-color); }
 
 .security-summary {
     display: flex;
@@ -1971,6 +2156,7 @@ a.stat-card-link:active {
 
 .status-indicator.status-active {
     background: var(--success-color);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--success-color) 18%, transparent);
 }
 
 .status-indicator.status-inactive {
@@ -2004,7 +2190,7 @@ a.stat-card-link:active {
 
 .metric-value {
     font-size: 1.3rem;
-    font-weight: 600;
+    font-weight: 500;
     line-height: 1;
     margin-bottom: 0.25rem;
 }
@@ -2051,8 +2237,9 @@ a.stat-card-link:active {
     align-items: center;
     gap: 1rem;
     padding: 0.75rem;
-    background: var(--bg-tertiary);
-    border-radius: 8px;
+    background: var(--bg-inset);
+    box-shadow: inset 0 0 0 1px var(--border-color);
+    border-radius: var(--border-radius-lg);
 }
 
 .ont-rx-gauge {
@@ -2154,11 +2341,11 @@ a.stat-card-link:active {
 /* A halo in the card's own background behind the text: a line crossing the letters breaks up
    their shapes, which reads as faded text even at full color. --spark-halo is the host's background. */
 .signal-spark-host {
-    --spark-halo: var(--bg-tertiary);
+    --spark-halo: var(--bg-inset);
 }
 
 .monitoring-stat-card.signal-spark-host {
-    --spark-halo: var(--bg-card);
+    --spark-halo: var(--bg-inset);
 }
 
 /* Muted labels a shade brighter where a chart sits behind them, so the eye still finds them.
@@ -2293,7 +2480,8 @@ a.stat-card-link:active {
     display: flex;
     align-items: baseline;
     gap: 0.4rem;
-    font-family: monospace;
+    font-family: var(--font-display);
+    font-variant-numeric: tabular-nums;
     font-size: 0.85rem;
     font-weight: 600;
     opacity: 0;
@@ -2811,13 +2999,14 @@ a.stat-card-link:active {
     }
 }
 
+/* Previous and next device: the same icon button as a table's pager. */
 .nav-btn {
-    background: var(--bg-card);
+    background: var(--bg-tertiary);
     border: 1px solid var(--border-color);
     color: var(--text-primary);
     width: 28px;
     height: 28px;
-    border-radius: 4px;
+    border-radius: var(--border-radius);
     cursor: pointer;
     font-size: 1.2rem;
     line-height: 1;
@@ -2827,7 +3016,14 @@ a.stat-card-link:active {
 }
 
 .nav-btn:hover:not(:disabled) {
-    background: var(--accent-color, #3b82f6);
+    background: var(--bg-elevated);
+    border-color: var(--border-strong);
+}
+
+.nav-btn .line-icon,
+.wifi-tabs-scroll-btn .line-icon {
+    width: 16px;
+    height: 16px;
 }
 
 .nav-btn:disabled {
@@ -2849,18 +3045,30 @@ a.stat-card-link:active {
 }
 
 .metric-box {
-    background: var(--bg-tertiary);
-    border-radius: 8px;
+    background: var(--bg-inset);
+    box-shadow: inset 0 0 0 1px var(--border-color);
+    border-radius: var(--border-radius-lg);
     padding: 0.75rem;
 }
 
 .metric-header {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-family: var(--font-display);
     font-size: 0.9rem;
     font-weight: 600;
     color: var(--accent-color, #3b82f6);
     margin-bottom: 0.5rem;
     text-transform: uppercase;
-    letter-spacing: 0.05em;
+    letter-spacing: 0.09em;
+}
+
+.metric-header::after {
+    content: "";
+    flex: 1;
+    height: 1px;
+    background: var(--border-color);
 }
 
 .metric-row {
@@ -2886,6 +3094,7 @@ a.stat-card-link:active {
     }
     .metric-row {
         font-size: 1rem;
+        max-width: none;
     }
     .metric-value.ont-err-counts {
         font-size: 1rem;
@@ -3073,6 +3282,8 @@ a.stat-card-link:active {
 .data-table th {
     padding: 0.75rem 1rem;
     text-align: left;
+    font-family: var(--font-display);
+    word-spacing: var(--display-word-spacing);
     font-weight: 600;
     font-size: 0.875rem;
     color: var(--text-secondary);
@@ -3097,7 +3308,7 @@ a.stat-card-link:active {
 .data-table code {
     background: var(--bg-primary);
     padding: 0.125rem 0.375rem;
-    border-radius: 0.25rem;
+    border-radius: var(--border-radius);
     font-size: 0.8125rem;
 }
 
@@ -3106,7 +3317,7 @@ code.text-code {
     background: var(--bg-primary);
     color: var(--text-primary);
     padding: 0.0625rem 0.375rem;
-    border-radius: 0.25rem;
+    border-radius: var(--border-radius);
     font-size: 0.8125em;
 }
 
@@ -3510,10 +3721,11 @@ a.btn-lg {
 }
 
 /* Outline variant - primary only */
+/* The lighter brand blue: the base one is too dark to read as text on the slate. */
 .btn-outline-primary {
     background: transparent;
-    border: 1px solid var(--primary-color);
-    color: var(--primary-color);
+    border: 1px solid var(--primary-hover);
+    color: var(--primary-hover);
 }
 
 .btn-outline-primary:hover:not(:disabled) {
@@ -3984,7 +4196,7 @@ input.form-control::-webkit-date-and-time-value {
     background: var(--bg-primary);
     padding: 0.75rem;
     padding-right: 3rem;
-    border-radius: 6px;
+    border-radius: var(--border-radius-lg);
     overflow-x: auto;
     max-width: 100%;
     font-size: 0.8125rem;
@@ -4127,7 +4339,7 @@ input.form-control::-webkit-date-and-time-value {
 .code-dark {
     background: rgba(0, 0, 0, 0.3);
     padding: 0.15rem 0.4rem;
-    border-radius: 3px;
+    border-radius: var(--border-radius);
     font-family: var(--font-mono);
     font-size: 0.8125rem;
 }
@@ -4144,7 +4356,7 @@ input.form-control::-webkit-date-and-time-value {
     left: 0;
     top: 0;
     height: 100%;
-    background: linear-gradient(90deg, rgba(5, 89, 201, 0.4) 0%, rgba(5, 89, 201, 0.25) 100%);
+    background: color-mix(in srgb, var(--primary-color) 32%, transparent);
     transition: width 0.25s ease-out;
     border-right: 2px solid rgba(5, 89, 201, 0.6);
 }
@@ -4165,7 +4377,6 @@ input.form-control::-webkit-date-and-time-value {
 
 .alert-link:hover {
     background: rgba(36, 188, 112, 0.25);
-    transform: translateY(-1px);
 }
 
 .alert-link:active {
@@ -4182,7 +4393,7 @@ input.form-control::-webkit-date-and-time-value {
 .badge {
     display: inline-block;
     padding: 0.25rem 0.625rem;
-    border-radius: 0.25rem;
+    border-radius: var(--border-radius);
     font-size: 0.75rem;
     font-weight: 600;
 }
@@ -4203,8 +4414,9 @@ input.form-control::-webkit-date-and-time-value {
 }
 
 .badge-premium {
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    color: white;
+    background: color-mix(in srgb, var(--purple-color) 18%, transparent);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--purple-color) 40%, transparent);
+    color: var(--purple-light);
 }
 
 /* Tabs */
@@ -4329,7 +4541,7 @@ input.form-control::-webkit-date-and-time-value {
 .issue-severity {
     display: inline-block;
     padding: 0.125rem 0.5rem;
-    border-radius: 0.25rem;
+    border-radius: var(--border-radius);
     font-size: 0.7rem;
     font-weight: 600;
     text-transform: uppercase;
@@ -4406,7 +4618,7 @@ input.form-control::-webkit-date-and-time-value {
     text-transform: uppercase;
     letter-spacing: 0.05em;
     padding: 0.125rem 0.375rem;
-    border-radius: 3px;
+    border-radius: var(--border-radius);
     background: var(--text-muted);
     color: var(--bg-primary);
 }
@@ -5261,7 +5473,7 @@ input.form-control::-webkit-date-and-time-value {
     background: var(--bg-tertiary);
     color: var(--text-primary);
     border: 1px solid var(--border-color);
-    border-radius: 4px;
+    border-radius: var(--border-radius);
     padding: 0.375rem 0.5rem;
     font-size: 0.875rem;
     line-height: 1.4;
@@ -5298,7 +5510,7 @@ input.form-control::-webkit-date-and-time-value {
     margin-bottom: 1rem;
     background: rgba(71, 151, 255, 0.08);
     border: 1px solid rgba(71, 151, 255, 0.25);
-    border-radius: 6px;
+    border-radius: var(--border-radius-lg);
     font-size: 0.8125rem;
     color: var(--text-secondary);
 }
@@ -5352,7 +5564,9 @@ input.form-control::-webkit-date-and-time-value {
 
 /* Connection Banner */
 .connection-banner {
-    background: linear-gradient(135deg, var(--warning-color) 0%, #d97706 100%);
+    --banner-color: var(--warning-color);
+    background: color-mix(in srgb, var(--banner-color) 10%, var(--bg-card));
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--banner-color) 34%, transparent), inset 3px 0 0 var(--banner-color);
     border-radius: var(--border-radius);
     padding: 1rem 1.5rem;
     margin-bottom: 1.5rem;
@@ -5398,13 +5612,22 @@ input.form-control::-webkit-date-and-time-value {
 
 .banner-icon {
     font-size: 1.5rem;
-    background: rgba(255, 255, 255, 0.2);
+    font-family: var(--font-display);
+    font-weight: 600;
+    background: color-mix(in srgb, var(--banner-color, var(--text-secondary)) 20%, transparent);
+    color: var(--banner-color, var(--text-primary));
     border-radius: 50%;
     width: 40px;
     height: 40px;
     display: flex;
     align-items: center;
     justify-content: center;
+}
+
+/* A drawn icon in the banner's circle, at GatewayIcon's size */
+.banner-icon .line-icon {
+    width: 30px;
+    height: 30px;
 }
 
 .banner-icon-info {
@@ -5491,7 +5714,7 @@ tr:hover .snmp-row-chevron {
     font-size: 0.8rem;
     padding: 0.15rem 0.4rem;
     background: var(--bg-tertiary);
-    border-radius: 3px;
+    border-radius: var(--border-radius);
     color: var(--text-secondary);
     word-break: break-all;
 }
@@ -5500,7 +5723,7 @@ tr:hover .snmp-row-chevron {
     margin-top: 0.75rem;
     padding: 1rem;
     background: var(--bg-tertiary);
-    border-radius: 6px;
+    border-radius: var(--border-radius-lg);
     border: 1px solid var(--border-color);
 }
 
@@ -5521,7 +5744,7 @@ tr:hover .snmp-row-chevron {
 }
 
 .snmp-add-oid-form textarea.form-control {
-    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-family: var(--font-mono);
     resize: vertical;
 }
 
@@ -5529,7 +5752,7 @@ tr:hover .snmp-row-chevron {
     margin-top: 0.35rem;
     font-size: 0.8rem;
     padding: 0.3rem 0.5rem;
-    border-radius: 4px;
+    border-radius: var(--border-radius);
 }
 
 .snmp-test-success {
@@ -5577,12 +5800,12 @@ tr:hover .snmp-row-chevron {
 
 .banner-text strong {
     font-size: 1rem;
-    color: white;
+    color: var(--text-primary);
 }
 
 .banner-text span {
     font-size: 0.875rem;
-    color: rgba(255, 255, 255, 0.9);
+    color: var(--text-secondary);
 }
 
 .banner-actions {
@@ -5623,18 +5846,19 @@ tr:hover .snmp-row-chevron {
 }
 
 .connection-banner .btn-secondary {
-    background: white;
-    color: var(--warning-color) !important;
+    background: color-mix(in srgb, var(--banner-color) 18%, transparent);
+    color: var(--banner-color) !important;
     border: none;
 }
 
 .connection-banner .btn-secondary:hover {
-    background: rgba(255, 255, 255, 0.9);
+    background: color-mix(in srgb, var(--banner-color) 30%, transparent);
 }
 
 .connection-banner.module-update-banner {
     background: var(--bg-tertiary);
     border: 1px solid rgba(255, 255, 255, 0.1);
+    box-shadow: none;
 }
 
 .module-update-banner .banner-icon {
@@ -5681,8 +5905,8 @@ tr:hover .snmp-row-chevron {
 
 /* PWA Install Banner */
 .pwa-banner {
-    background: linear-gradient(135deg, rgba(71, 151, 255, 0.12) 0%, rgba(71, 151, 255, 0.05) 100%);
-    border: 1px solid rgba(71, 151, 255, 0.3);
+    --banner-color: var(--info-color);
+    border: 1px solid transparent;
 }
 
 .pwa-banner .banner-text strong {
@@ -5699,7 +5923,7 @@ tr:hover .snmp-row-chevron {
     border: none;
     padding: 0.35rem 0.75rem;
     font-size: 0.8rem;
-    border-radius: 4px;
+    border-radius: var(--border-radius);
     cursor: pointer;
     transition: background 0.15s, color 0.15s;
     white-space: nowrap;
@@ -5717,7 +5941,7 @@ tr:hover .snmp-row-chevron {
     border: none;
     padding: 0.35rem 0.75rem;
     font-size: 0.8rem;
-    border-radius: 4px;
+    border-radius: var(--border-radius);
     cursor: pointer;
     transition: background 0.15s, color 0.15s;
     white-space: nowrap;
@@ -6178,7 +6402,7 @@ tr:hover .snmp-row-chevron {
 }
 
 .tc-interface-card {
-    background: var(--bg-tertiary);
+    background: var(--bg-inset);
     border-radius: var(--border-radius);
     padding: 1rem;
     text-align: center;
@@ -6577,7 +6801,7 @@ tr:hover .snmp-row-chevron {
 .test-details code {
     background: var(--bg-primary);
     padding: 0.125rem 0.375rem;
-    border-radius: 0.25rem;
+    border-radius: var(--border-radius);
     font-size: 0.8125rem;
 }
 
@@ -6818,9 +7042,10 @@ tr:hover .snmp-row-chevron {
 .path-analysis {
     margin-top: 1.25rem;
     padding: 1rem 1rem 0.75rem;
-    background: var(--bg-tertiary);
+    background: var(--bg-inset);
     border-radius: var(--border-radius);
     font-size: 0.875rem;
+    box-shadow: inset 0 0 0 1px var(--border-color);
 }
 
 .history-details .test-details {
@@ -6848,7 +7073,7 @@ tr:hover .snmp-row-chevron {
     align-items: center;
     padding: 0.75rem 1rem;
     background: var(--bg-card);
-    border-radius: 6px;
+    border-radius: var(--border-radius-lg);
     min-width: 80px;
 }
 
@@ -6904,7 +7129,7 @@ tr:hover .snmp-row-chevron {
     margin-bottom: 0.75rem;
     padding: 0.75rem;
     background: var(--bg-card);
-    border-radius: 6px;
+    border-radius: var(--border-radius-lg);
     row-gap: 0.75rem;
 }
 
@@ -7157,6 +7382,73 @@ tr:hover .snmp-row-chevron {
     background: var(--warning-color);
 }
 
+/* A hooked turn (trace-fit.js picks it when a row is too full for the turn above): a short top
+   segment to the row's end, down, then back along the next row into the side of its first hop. */
+@media (min-width: 769px) {
+    .path-analysis .path-switchback .path-row.turn-hook > .path-connector.path-turn {
+        flex: 1 1 0;
+        min-width: 2.25rem;
+        margin-left: 0;
+        margin-right: 0;
+    }
+
+    .path-analysis .path-switchback .path-row.turn-hook > .path-connector.path-turn .connector-line {
+        align-self: stretch;
+        width: auto;
+        min-width: 0;
+        margin-left: -11px;
+        /* The corner sits 14px in from the connector's edge; the connector's own padding
+           would leave the line short of it. */
+        margin-right: calc(14px - 0.2rem);
+    }
+
+    .path-analysis .path-switchback .path-row.turn-hook > .path-connector.path-turn .turn-corner {
+        right: 14px;
+    }
+
+    .path-analysis .path-switchback .path-row.turn-hook > .path-connector.path-turn .turn-corner::after {
+        width: calc(4.5rem + 6px);
+    }
+
+    .path-analysis .path-switchback .path-row.turn-hook > .path-connector.path-turn.turn-left .connector-line {
+        margin-left: calc(14px - 0.2rem);
+        margin-right: -11px;
+    }
+
+    .path-analysis .path-switchback .path-row.turn-hook > .path-connector.path-turn.turn-left .turn-corner {
+        right: auto;
+        left: 14px;
+    }
+
+    /* The row a hooked turn leads into starts clear of the hook. */
+    .path-analysis .path-switchback .path-row.after-hook.reversed {
+        padding-right: 62px;
+    }
+
+    .path-analysis .path-switchback .path-row.after-hook:not(.reversed) {
+        padding-left: 62px;
+    }
+
+    /* No room on the top segment: the speed sits under the lower one. The spacer keeps the
+       connector's height, which the corner's length is measured from. */
+    .path-analysis .path-switchback .path-row.turn-label-below > .path-connector.path-turn .connector-speed {
+        position: absolute;
+        top: calc(100% + 2.55rem + 3px);
+        right: 22px;
+    }
+
+    .path-analysis .path-switchback .path-row.turn-label-below > .path-connector.path-turn.turn-left .connector-speed {
+        right: auto;
+        left: 22px;
+    }
+
+    .path-analysis .path-switchback .path-row.turn-label-below > .path-connector.path-turn .connector-speed-spacer {
+        display: block;
+        visibility: hidden;
+        font-size: 0.6rem;
+    }
+}
+
 /* Mobile adjustments */
 @media (max-width: 768px) {
     /* Wrap path-summary (grades + notes) on mobile */
@@ -7380,7 +7672,7 @@ tr:hover .snmp-row-chevron {
 .wifi-band-badge {
     display: inline-block;
     padding: 0.1rem 0.35rem;
-    border-radius: 3px;
+    border-radius: var(--border-radius);
     font-size: 0.7rem;
     font-weight: 600;
 }
@@ -7655,9 +7947,61 @@ a.path-hop.hop-clickable:hover {
     margin-top: 1rem;
 }
 
-.pagination-info {
+.pagination-info,
+.page-indicator {
+    font-family: var(--font-display);
+    font-variant-numeric: tabular-nums;
+    word-spacing: var(--display-word-spacing);
     color: var(--text-secondary);
     font-size: 0.875rem;
+}
+
+/* Previous and next, on every pager: a drawn chevron beside the word, the pair the same width
+   so the page count between them does not shift as the buttons enable. */
+.pagination .btn-sm,
+.audit-pager .btn-sm {
+    min-width: 4.75rem;
+    justify-content: center;
+}
+
+.pagination .btn .line-icon,
+.audit-pager .btn .line-icon,
+.pagination-info ~ .btn .line-icon,
+.btn:has(+ .pagination-info) .line-icon {
+    width: 1.1em;
+    height: 1.1em;
+    margin: 0 -0.2em;
+}
+
+/* First, previous, next, last as icon buttons (the Wi-Fi tables). */
+.page-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--border-radius);
+    color: var(--text-primary);
+    cursor: pointer;
+    transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.page-btn .line-icon {
+    width: 16px;
+    height: 16px;
+}
+
+.page-btn:hover:not(:disabled) {
+    background: var(--bg-elevated);
+    border-color: var(--border-strong);
+}
+
+.page-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
 }
 
 /* Sits inside the history card rather than between sections, so it needs the room underneath. */
@@ -7725,12 +8069,13 @@ a.path-hop.hop-clickable:hover {
     align-items: center;
     justify-content: space-between;
     padding: 0.75rem 1rem;
-    background: var(--bg-tertiary);
+    background: var(--bg-inset);
     border-radius: var(--border-radius);
     text-decoration: none;
     color: var(--text-primary);
     transition: background 0.15s ease-out;
     margin: 1rem 0 0;
+    box-shadow: inset 0 0 0 1px var(--border-color);
 }
 
 .result-summary:hover {
@@ -8583,47 +8928,83 @@ a.path-hop.hop-clickable:hover {
     gap: 0.75rem;
 }
 
+/* A score ring (ScoreRing): a 270 degree ring of facets around the readout, in the rating's color. */
+.score-circle,
+.wifi-health-icon {
+    --dial-color: var(--text-muted);
+    position: relative;
+}
+
 .score-circle {
     display: flex;
-    align-items: center;
+    align-items: baseline;
     justify-content: center;
+    align-content: center;
+    flex-wrap: wrap;
     width: 130px;
     height: 130px;
-    border-radius: 50%;
-    background: var(--bg-tertiary);
-    border: 4px solid var(--border-color);
 }
 
-.score-circle.score-excellent {
-    border-color: var(--success-color);
-    background: rgba(36, 188, 112, 0.1);
+.score-ring {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    overflow: visible;
+    pointer-events: none;
 }
 
-.score-circle.score-good {
-    border-color: var(--primary-color);
-    background: rgba(5, 89, 201, 0.1);
+.score-ring path {
+    vector-effect: non-scaling-stroke;
+    stroke-width: 1.4px;
+    stroke-linejoin: round;
 }
 
-.score-circle.score-fair {
-    border-color: var(--warning-color);
-    background: rgba(245, 158, 11, 0.1);
+.score-ring-small path {
+    stroke-width: 1px;
 }
 
-.score-circle.score-poor {
-    border-color: var(--danger-color);
-    background: rgba(239, 68, 68, 0.1);
+.score-ring .ring-facet {
+    fill: var(--bg-inset);
+    stroke: var(--border-strong);
 }
+
+.score-ring .ring-facet.lit {
+    fill: color-mix(in srgb, var(--dial-color) 16%, transparent);
+    stroke: color-mix(in srgb, var(--dial-color) 55%, transparent);
+}
+
+.score-ring .ring-fill {
+    fill: color-mix(in srgb, var(--dial-color) 42%, transparent);
+    stroke: var(--dial-color);
+}
+
+.score-circle.score-excellent,
+.wifi-health-icon.score-excellent { --dial-color: var(--success-color); }
+
+.score-circle.score-good,
+.wifi-health-icon.score-good { --dial-color: var(--good-color); }
+
+.score-circle.score-fair,
+.wifi-health-icon.score-fair { --dial-color: var(--warning-color); }
+
+.score-circle.score-poor,
+.wifi-health-icon.score-poor { --dial-color: var(--danger-color); }
 
 .score-value {
     font-size: 2.5rem;
     font-weight: 600;
+    line-height: 1;
     color: var(--text-primary);
 }
 
 .score-max {
-    font-size: 1rem;
+    flex-basis: 100%;
+    text-align: center;
+    font-family: var(--font-display);
+    font-size: 0.8125rem;
+    line-height: 1.2;
     color: var(--text-muted);
-    margin-left: 0.125rem;
 }
 
 .score-label {
@@ -8641,7 +9022,7 @@ a.path-hop.hop-clickable:hover {
 
 .score-good .score-label,
 .summary-score:has(.score-good) .score-label {
-    color: var(--primary-color);
+    color: var(--good-color);
 }
 
 .score-fair .score-label,
@@ -8666,8 +9047,8 @@ a.path-hop.hop-clickable:hover {
     align-items: center;
     gap: 0.25rem;
     padding: 1rem 1.5rem;
-    background: var(--bg-tertiary);
-    border: 1px solid transparent;
+    background: var(--bg-inset);
+    border: 1px solid var(--border-color);
     border-radius: var(--border-radius);
     min-width: 80px;
     font: inherit;
@@ -8726,9 +9107,10 @@ a.path-hop.hop-clickable:hover {
     padding: 0.25rem 0.5rem;
     font-size: 0.75rem;
     font-weight: 500;
-    background: var(--bg-tertiary);
+    background: var(--bg-inset);
     border-radius: var(--border-radius);
     color: var(--text-muted);
+    box-shadow: inset 0 0 0 1px var(--border-color);
 }
 
 /* Audit Timestamp */
@@ -8928,12 +9310,17 @@ a.path-hop.hop-clickable:hover {
     border-bottom: none;
 }
 
+/* The AppIcon check, as a mask: a list marker cannot hold a component. */
 .hardening-list li::before {
-    content: "✓";
+    content: "";
     position: absolute;
     left: 0;
-    color: var(--success-color);
-    font-weight: bold;
+    top: calc(0.5rem + 0.3em);
+    width: 1em;
+    height: 1em;
+    background: var(--success-color);
+    -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 12.5l4.5 4.5L19 7.5'/%3E%3C/svg%3E") center / contain no-repeat;
+    mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 12.5l4.5 4.5L19 7.5'/%3E%3C/svg%3E") center / contain no-repeat;
 }
 
 /* DNS Security summary */
@@ -9242,7 +9629,7 @@ h3 > .tooltip-icon-sm {
     display: flex;
     align-items: center;
     justify-content: center;
-    background: linear-gradient(135deg, var(--bg-primary) 0%, var(--bg-primary) 50%, var(--bg-secondary) 100%);
+    background: var(--bg-primary);
     padding: 1rem;
 }
 
@@ -9863,7 +10250,7 @@ h3 > .tooltip-icon-sm {
 .upnp-controls .filter-select {
     background: var(--bg-primary);
     border: 1px solid var(--border-color);
-    border-radius: 6px;
+    border-radius: var(--border-radius-lg);
     color: var(--text-primary);
     padding: 0.4rem 0.75rem;
     font-size: 0.875rem;
@@ -9942,7 +10329,7 @@ h3 > .tooltip-icon-sm {
 
 .upnp-device-header .device-ip {
     font-weight: 600;
-    font-family: ui-monospace, monospace;
+    font-family: var(--font-mono);
     color: var(--text-primary);
 }
 
@@ -10043,7 +10430,7 @@ h3 > .tooltip-icon-sm {
     background: rgba(59, 130, 246, 0.2);
     color: var(--primary-light);
     padding: 0.125rem 0.375rem;
-    border-radius: 3px;
+    border-radius: var(--border-radius);
     font-size: 0.75rem;
     font-weight: 500;
 }
@@ -10059,13 +10446,13 @@ h3 > .tooltip-icon-sm {
 }
 
 .rule-details .rule-port-mapping {
-    font-family: ui-monospace, monospace;
+    font-family: var(--font-mono);
 }
 
 .rule-ports code {
     background: var(--bg-primary);
     padding: 0.125rem 0.375rem;
-    border-radius: 0.25rem;
+    border-radius: var(--border-radius);
     font-size: 0.8125rem;
 }
 
@@ -10078,7 +10465,9 @@ h3 > .tooltip-icon-sm {
 .rule-lease .lease-time {
     font-size: 0.875rem;
     color: var(--text-muted);
-    font-family: ui-monospace, monospace;
+    font-family: var(--font-display);
+    font-variant-numeric: tabular-nums;
+    word-spacing: var(--display-word-spacing);
 }
 
 .rule-lease .lease-time.expiring {
@@ -10304,9 +10693,10 @@ h3 > .tooltip-icon-sm {
     align-items: center;
     gap: 0.25rem;
     padding: 1rem 1.5rem;
-    background: var(--bg-tertiary);
+    background: var(--bg-inset);
     border-radius: var(--border-radius);
     min-width: 100px;
+    box-shadow: inset 0 0 0 1px var(--border-color);
 }
 
 .stat-item .stat-value {
@@ -10368,7 +10758,7 @@ h3 > .tooltip-icon-sm {
 .severity-badge {
     display: inline-block;
     padding: 0.125rem 0.5rem;
-    border-radius: 0.25rem;
+    border-radius: var(--border-radius);
     font-size: 0.7rem;
     font-weight: 600;
     text-transform: uppercase;
@@ -10548,6 +10938,12 @@ h3 > .tooltip-icon-sm {
     height: 2.5rem;
 }
 
+/* A drawn line icon in that slot: strokes need the lighter blue to read on the card. */
+.line-icon.stat-icon-svg {
+    color: var(--primary-hover);
+    opacity: 1;
+}
+
 /* Health score icon in stat card */
 .wifi-health-icon {
     display: flex;
@@ -10555,34 +10951,14 @@ h3 > .tooltip-icon-sm {
     justify-content: center;
     width: 48px;
     height: 48px;
-    border-radius: 50%;
-    background: var(--bg-secondary);
-    border: 2px solid var(--border-color);
+    color: var(--dial-color);
 }
 
 .wifi-health-icon .health-score-num {
+    font-family: var(--font-display);
+    font-variant-numeric: tabular-nums;
     font-size: 1.25rem;
     font-weight: 600;
-}
-
-.wifi-health-icon.score-excellent {
-    border-color: var(--success-color);
-    color: var(--success-color);
-}
-
-.wifi-health-icon.score-good {
-    border-color: var(--primary-color);
-    color: var(--primary-color);
-}
-
-.wifi-health-icon.score-fair {
-    border-color: var(--warning-color);
-    color: var(--warning-color);
-}
-
-.wifi-health-icon.score-poor {
-    border-color: var(--danger-color);
-    color: var(--danger-color);
 }
 
 /* Score label colors and font for stat card */
@@ -10671,14 +11047,11 @@ h3 > .tooltip-icon-sm {
 
 .dimension-bar-container {
     height: 8px;
-    background: var(--bg-tertiary);
-    border-radius: 0 var(--border-radius) var(--border-radius) 0;
     overflow: hidden;
 }
 
 .dimension-bar {
     height: 100%;
-    border-radius: 0 var(--border-radius) var(--border-radius) 0;
     transition: width 0.3s ease;
 }
 
@@ -10711,7 +11084,7 @@ h3 > .tooltip-icon-sm {
 
 .band-item.clickable {
     cursor: pointer;
-    border-radius: 8px;
+    border-radius: var(--border-radius-lg);
     transition: background-color 0.15s ease;
 }
 
@@ -10722,8 +11095,9 @@ h3 > .tooltip-icon-sm {
 .band-bar-container {
     width: 60px;
     height: 96px;
-    background: var(--bg-tertiary);
-    border-radius: 6px 6px 0 0;
+    background: var(--bg-inset);
+    box-shadow: inset 0 0 0 1px var(--border-strong);
+    border-radius: var(--bar-end-radius) var(--bar-end-radius) 0 0;
     overflow: hidden;
     display: flex;
     align-items: flex-end;
@@ -10731,14 +11105,16 @@ h3 > .tooltip-icon-sm {
 
 .band-bar {
     width: 100%;
-    border-radius: 6px 6px 0 0;
     transition: height 0.3s ease;
     min-height: 4px;
+    border: 1px solid var(--bar);
+    border-radius: var(--bar-end-radius) var(--bar-end-radius) 0 0;
+    background: color-mix(in srgb, var(--bar) 42%, transparent);
 }
 
-.band-bar.band-2ghz { background: #fbbf24; }
-.band-bar.band-5ghz { background: #3b82f6; }
-.band-bar.band-6ghz { background: #a855f7; }
+.band-bar.band-2ghz { --bar: var(--band-24-color); }
+.band-bar.band-5ghz { --bar: var(--band-5-color); }
+.band-bar.band-6ghz { --bar: var(--band-6-color); }
 
 .band-value {
     font-size: 1.25rem;
@@ -10855,9 +11231,10 @@ h3 > .tooltip-icon-sm {
     gap: 1rem;
     align-items: center;
     padding: 1rem;
-    background: var(--bg-tertiary);
+    background: var(--bg-inset);
     border-radius: var(--border-radius-lg);
     border-left: 4px solid var(--border-color);
+    box-shadow: inset 0 0 0 1px var(--border-color);
 }
 
 .wifi-issue-item.issue-critical {
@@ -10940,7 +11317,7 @@ h3 > .tooltip-icon-sm {
     font-size: 0.8rem;
     padding: 0.5rem 0.75rem;
     background: var(--bg-secondary);
-    border-radius: 6px;
+    border-radius: var(--border-radius-lg);
     color: var(--text-secondary);
     white-space: nowrap;
 }
@@ -10984,7 +11361,7 @@ h3 > .tooltip-icon-sm {
 }
 
 .ap-card {
-    background: var(--bg-tertiary);
+    background: var(--bg-inset);
     border: 1px solid var(--border-color);
     border-radius: var(--border-radius-lg);
     padding: 1rem;
@@ -11118,6 +11495,17 @@ h3 > .tooltip-icon-sm {
     font-size: 0.7rem;
     color: var(--text-muted);
     text-transform: uppercase;
+}
+
+/* The card's figures (client count, mesh signal and rates, the radio rows) in the display face.
+   It is narrower than the body face, so the radio rows' fixed column widths still hold. */
+.ap-stat-value,
+.mesh-signal-value,
+.mesh-rates,
+.ap-radio {
+    font-family: var(--font-display);
+    font-variant-numeric: tabular-nums;
+    word-spacing: var(--display-word-spacing);
 }
 
 .ap-mesh-info {
@@ -11286,18 +11674,18 @@ h3 > .tooltip-icon-sm {
 }
 
 .radio-band.band-2ghz {
-    background: rgba(251, 191, 36, 0.2);
-    color: #fbbf24;
+    background: color-mix(in srgb, var(--band-24-color) 20%, transparent);
+    color: var(--band-24-color);
 }
 
 .radio-band.band-5ghz {
-    background: rgba(59, 130, 246, 0.2);
-    color: #3b82f6;
+    background: color-mix(in srgb, var(--band-5-color) 20%, transparent);
+    color: var(--band-5-color);
 }
 
 .radio-band.band-6ghz {
-    background: rgba(168, 85, 247, 0.2);
-    color: #a855f7;
+    background: color-mix(in srgb, var(--band-6-color) 20%, transparent);
+    color: var(--band-6-color);
 }
 
 .radio-disabled {
@@ -11336,7 +11724,7 @@ h3 > .tooltip-icon-sm {
 /* Clickable elements in AP cards */
 .ap-card .clickable {
     cursor: pointer;
-    border-radius: 4px;
+    border-radius: var(--border-radius);
     transition: background-color 0.15s ease;
 }
 
@@ -11346,7 +11734,7 @@ h3 > .tooltip-icon-sm {
 
 .ap-stat.clickable:hover {
     background-color: var(--bg-hover);
-    border-radius: 6px;
+    border-radius: var(--border-radius-lg);
     padding: 0 4px;
     margin: 0 -4px;
 }
@@ -11367,7 +11755,7 @@ h3 > .tooltip-icon-sm {
     padding: 0 0.75rem;
     background: var(--bg-primary);
     border: 1px solid var(--border-color);
-    border-radius: 6px;
+    border-radius: var(--border-radius-lg);
     color: var(--text-primary);
 }
 
@@ -11384,7 +11772,7 @@ h3 > .tooltip-icon-sm {
     display: flex;
     gap: 0.25rem;
     background: var(--bg-primary);
-    border-radius: 6px;
+    border-radius: var(--border-radius-lg);
     padding: 0.25rem;
 }
 
@@ -11396,7 +11784,7 @@ h3 > .tooltip-icon-sm {
     font-size: 0.8rem;
     font-weight: 500;
     cursor: pointer;
-    border-radius: 4px;
+    border-radius: var(--border-radius);
     transition: background-color 0.15s ease, color 0.15s ease;
 }
 
@@ -11620,7 +12008,7 @@ h3 > .tooltip-icon-sm {
     display: flex;
     gap: 0.25rem;
     background: var(--bg-primary);
-    border-radius: 6px;
+    border-radius: var(--border-radius-lg);
     padding: 0.25rem;
 }
 
@@ -11631,7 +12019,7 @@ h3 > .tooltip-icon-sm {
     z-index: 50;
     background: var(--bg-card);
     border: 1px solid var(--border-color);
-    border-radius: 8px;
+    border-radius: var(--border-radius-lg);
     padding: 1rem;
     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
     min-width: 240px;
@@ -11651,7 +12039,7 @@ h3 > .tooltip-icon-sm {
     background: var(--bg-tertiary);
     color: var(--text-primary);
     border: 1px solid var(--border-color);
-    border-radius: 6px;
+    border-radius: var(--border-radius-lg);
     padding: 6px 10px;
     font-size: 0.85rem;
     width: 100%;
@@ -11766,7 +12154,8 @@ h3 > .tooltip-icon-sm {
 
 .pill-btn.active,
 .time-btn.active {
-    background: var(--primary-color);
+    background: var(--selected-bg);
+    box-shadow: var(--selected-edge);
     color: white;
 }
 
@@ -11975,6 +12364,18 @@ h3 > .tooltip-icon-sm {
     fill: var(--text-muted) !important;
 }
 
+/* Chart axes, legends, and tooltips in the display face, so a figure on a chart matches the
+   readout beside it. ApexCharts writes its font inline, hence !important as on the rules here. */
+.apexcharts-svg text,
+.apexcharts-text,
+.apexcharts-legend-text,
+.apexcharts-tooltip,
+.apexcharts-xaxistooltip-text,
+.apexcharts-yaxistooltip-text {
+    font-family: var(--font-display) !important;
+    font-variant-numeric: tabular-nums;
+}
+
 .apexcharts-gridline {
     stroke: var(--border-color) !important;
 }
@@ -12001,7 +12402,7 @@ h3 > .tooltip-icon-sm {
     margin-left: auto;
     padding-left: 10px;
     color: var(--text-muted);
-    font-family: Helvetica, Arial, sans-serif;
+    font-family: inherit;
     font-size: 12px;
 }
 
@@ -12095,7 +12496,7 @@ h3 > .tooltip-icon-sm {
 .client-selector .form-select {
     background: var(--bg-primary);
     border: 1px solid var(--border-color);
-    border-radius: 6px;
+    border-radius: var(--border-radius-lg);
     color: var(--text-primary);
     padding: 0.5rem 0.75rem;
     font-size: 0.875rem;
@@ -12209,7 +12610,7 @@ h3 > .tooltip-icon-sm {
     padding: 0 2.5rem 0 0.75rem;
     background: var(--bg-primary);
     border: 1px solid var(--border-color);
-    border-radius: 6px;
+    border-radius: var(--border-radius-lg);
     color: var(--text-primary);
     font-size: 0.875rem;
     background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%239ca3af' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
@@ -12234,7 +12635,7 @@ h3 > .tooltip-icon-sm {
     padding: 0 2.5rem 0 0.75rem;
     background: var(--bg-primary);
     border: 1px solid var(--border-color);
-    border-radius: 6px;
+    border-radius: var(--border-radius-lg);
     cursor: pointer;
     background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%239ca3af' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
     background-repeat: no-repeat;
@@ -12263,7 +12664,7 @@ h3 > .tooltip-icon-sm {
 .filterable-select-display .option-mac {
     font-size: 0.7rem;
     color: var(--text-muted);
-    font-family: monospace;
+    font-family: var(--font-mono);
 }
 
 /* Overlay for click-outside-to-close */
@@ -12307,7 +12708,7 @@ h3 > .tooltip-icon-sm {
     margin-top: 2px;
     background: var(--bg-primary);
     border: 1px solid var(--border-color);
-    border-radius: 6px;
+    border-radius: var(--border-radius-lg);
     max-height: 300px;
     overflow-y: auto;
     z-index: 1000;
@@ -12352,7 +12753,7 @@ h3 > .tooltip-icon-sm {
 .filterable-select-option .option-mac {
     font-size: 0.7rem;
     color: var(--text-muted);
-    font-family: monospace;
+    font-family: var(--font-mono);
 }
 
 .filterable-select-empty {
@@ -12398,27 +12799,6 @@ h3 > .tooltip-icon-sm {
     display: flex;
     align-items: center;
     gap: 0.5rem;
-}
-
-.client-list-section .page-btn {
-    padding: 0.4rem 0.6rem;
-    font-size: 0.85rem;
-    background: var(--bg-secondary);
-    border: 1px solid var(--border-color);
-    border-radius: var(--border-radius);
-    color: var(--text-primary);
-    cursor: pointer;
-    transition: all 0.15s ease;
-}
-
-.client-list-section .page-btn:hover:not(:disabled) {
-    background: var(--bg-tertiary);
-    border-color: var(--primary-color);
-}
-
-.client-list-section .page-btn:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
 }
 
 .client-list-section .page-indicator {
@@ -12485,7 +12865,7 @@ h3 > .tooltip-icon-sm {
     gap: 0.375rem;
     margin-left: auto;
     padding: 0.25rem 0.625rem;
-    border-radius: 6px;
+    border-radius: var(--border-radius-lg);
     background: var(--bg-tertiary);
     color: var(--text-secondary);
     text-decoration: none;
@@ -12538,7 +12918,7 @@ h3 > .tooltip-icon-sm {
 .client-ip {
     font-size: 0.875rem;
     color: var(--text-muted);
-    font-family: monospace;
+    font-family: var(--font-mono);
 }
 
 .client-info-details {
@@ -12742,7 +13122,7 @@ h3 > .tooltip-icon-sm {
     color: var(--text-secondary);
     font-size: 0.9rem;
     cursor: pointer;
-    border-radius: 6px;
+    border-radius: var(--border-radius-lg);
     transition: all 0.15s ease;
     white-space: nowrap;
     flex-shrink: 0;
@@ -12754,7 +13134,8 @@ h3 > .tooltip-icon-sm {
 }
 
 .view-tab.active {
-    background: var(--primary-color);
+    background: var(--selected-bg);
+    box-shadow: var(--selected-edge);
     color: white;
     border-radius: var(--border-radius);
 }
@@ -12826,7 +13207,7 @@ h3 > .tooltip-icon-sm {
     color: var(--text-secondary);
     font-size: 0.9rem;
     cursor: pointer;
-    border-radius: 6px;
+    border-radius: var(--border-radius-lg);
     transition: all 0.15s ease;
     white-space: nowrap;
     flex-shrink: 0;
@@ -12838,7 +13219,8 @@ h3 > .tooltip-icon-sm {
 }
 
 .wifi-view-tab.active {
-    background: var(--primary-color);
+    background: var(--selected-bg);
+    box-shadow: var(--selected-edge);
     color: white;
     border-radius: var(--border-radius);
 }
@@ -12914,10 +13296,11 @@ h3 > .tooltip-icon-sm {
 .roaming-stat-card {
     flex: 1;
     min-width: 120px;
-    background: var(--bg-tertiary);
+    background: var(--bg-inset);
     border-radius: var(--border-radius-lg);
     padding: 1rem;
     text-align: center;
+    box-shadow: inset 0 0 0 1px var(--border-color);
 }
 
 
@@ -12961,10 +13344,11 @@ h3 > .tooltip-icon-sm {
 .topology-graph {
     width: 100%;
     height: 300px;
-    background: var(--bg-tertiary);
+    background: var(--bg-inset);
     border-radius: var(--border-radius-lg);
     overflow: hidden;
     padding: 10px 0;
+    box-shadow: inset 0 0 0 1px var(--border-color);
 }
 
 .topology-graph-inner {
@@ -13085,7 +13469,7 @@ h3 > .tooltip-icon-sm {
 
 .roaming-paths-table {
     border: 1px solid var(--border-color);
-    border-radius: 6px;
+    border-radius: var(--border-radius-lg);
     overflow: hidden;
 }
 
@@ -13156,9 +13540,10 @@ h3 > .tooltip-icon-sm {
 }
 
 .direction-card {
-    background: var(--bg-tertiary);
-    border-radius: 6px;
+    background: var(--bg-inset);
+    border-radius: var(--border-radius-lg);
     padding: 1rem;
+    box-shadow: inset 0 0 0 1px var(--border-color);
 }
 
 .direction-header {
@@ -13242,9 +13627,10 @@ h3 > .tooltip-icon-sm {
     align-items: center;
     gap: 1rem;
     padding: 0.5rem;
-    background: var(--bg-tertiary);
+    background: var(--bg-inset);
     border-radius: var(--border-radius);
     font-size: 0.8rem;
+    box-shadow: inset 0 0 0 1px var(--border-color);
 }
 
 .top-client-item .client-name {
@@ -13282,9 +13668,10 @@ h3 > .tooltip-icon-sm {
 }
 
 .client-card {
-    background: var(--bg-tertiary);
-    border-radius: 6px;
+    background: var(--bg-inset);
+    border-radius: var(--border-radius-lg);
     padding: 0.75rem;
+    box-shadow: inset 0 0 0 1px var(--border-color);
 }
 
 .client-info {
@@ -13399,10 +13786,11 @@ h3 > .tooltip-icon-sm {
 .channel-stat-card {
     flex: 1;
     min-width: 100px;
-    background: var(--bg-tertiary);
+    background: var(--bg-inset);
     border-radius: var(--border-radius-lg);
     padding: 1rem;
     text-align: center;
+    box-shadow: inset 0 0 0 1px var(--border-color);
 }
 
 .channel-stat-card.stat-warning .channel-stat-value { color: var(--warning-color); }
@@ -13426,7 +13814,7 @@ h3 > .tooltip-icon-sm {
     padding: 0.5rem 1rem;
     background: var(--bg-tertiary);
     border: 1px solid var(--border-color);
-    border-radius: 6px;
+    border-radius: var(--border-radius-lg);
     color: var(--text-secondary);
     font-size: 0.875rem;
     cursor: pointer;
@@ -13442,6 +13830,8 @@ h3 > .tooltip-icon-sm {
     color: var(--text-primary);
 }
 
+/* No --selected-edge here: a chip filled in its own color (a band, an event kind) is already
+   marked as on, and a blue edge under a yellow or purple fill reads as a second, wrong signal. */
 .band-tab.active {
     background: var(--primary-color);
     border-color: var(--primary-color);
@@ -13512,7 +13902,7 @@ h3 > .tooltip-icon-sm {
     height: 64px;
     background: var(--bg-tertiary);
     border: 1px solid var(--border-color);
-    border-radius: 6px;
+    border-radius: var(--border-radius-lg);
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -13831,7 +14221,7 @@ h3 > .tooltip-icon-sm {
     padding: 0.75rem 1rem;
     background: rgba(231, 150, 19, 0.1);
     border: 1px solid var(--warning-color);
-    border-radius: 6px;
+    border-radius: var(--border-radius-lg);
     margin-bottom: 1rem;
     font-size: 0.875rem;
     color: var(--warning-color);
@@ -13857,7 +14247,7 @@ h3 > .tooltip-icon-sm {
     padding: 0.75rem 1rem;
     background: rgba(59, 130, 246, 0.1);
     border: 1px solid #60a5fa;
-    border-radius: 6px;
+    border-radius: var(--border-radius-lg);
     margin-bottom: 1rem;
     font-size: 0.875rem;
     color: var(--primary-light);
@@ -13883,9 +14273,10 @@ h3 > .tooltip-icon-sm {
 }
 
 .channel-ap-card {
-    background: var(--bg-tertiary);
-    border-radius: 6px;
+    background: var(--bg-inset);
+    border-radius: var(--border-radius-lg);
     padding: 1rem;
+    box-shadow: inset 0 0 0 1px var(--border-color);
 }
 
 .channel-ap-card .ap-info {
@@ -13950,7 +14341,7 @@ h3 > .tooltip-icon-sm {
 .aps-band-table {
     background: var(--bg-inset);
     border: 1px solid var(--border-color);
-    border-radius: 6px;
+    border-radius: var(--border-radius-lg);
     overflow: hidden;
 }
 
@@ -14138,7 +14529,7 @@ h3 > .tooltip-icon-sm {
     border: none;
     padding: 0.35rem 0.75rem;
     font-size: 0.8rem;
-    border-radius: 4px;
+    border-radius: var(--border-radius);
     cursor: pointer;
     transition: background 0.15s, color 0.15s;
 }
@@ -14208,7 +14599,7 @@ h3 > .tooltip-icon-sm {
     padding: 0.125rem 0.5rem;
     background: rgba(59, 130, 246, 0.15);
     color: #3b82f6;
-    border-radius: 3px;
+    border-radius: var(--border-radius);
     margin-left: 0.5rem;
 }
 
@@ -14221,7 +14612,7 @@ h3 > .tooltip-icon-sm {
     height: 24px;
     padding: 0;
     border: none;
-    border-radius: 4px;
+    border-radius: var(--border-radius);
     background: transparent;
     color: var(--text-muted);
     cursor: pointer;
@@ -14250,13 +14641,34 @@ h3 > .tooltip-icon-sm {
     padding: 0.125rem 0.5rem;
     background: rgba(43, 168, 154, 0.15);
     color: #2ba89a;
-    border-radius: 3px;
+    border-radius: var(--border-radius);
     margin-left: 0.5rem;
 }
 
 /* Recommend Best Channels button - accent gradient matching Cleanest Channels box */
+/* The Channel Plan mark, in both brand colors: an orange-to-blue outline around a faint face of
+   the same blend. Shared with the Cleanest Channels card on RF Environment, which opens the
+   same plan. The blend is its own layer so the label keeps full strength. */
+.btn-recommend,
+.spectrum-stat-card.highlight {
+    position: relative;
+    isolation: isolate;
+    background: none;
+}
+
+.btn-recommend::before,
+.spectrum-stat-card.highlight::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    border-radius: inherit;
+    background: linear-gradient(100deg, var(--accent-color) 0%, var(--primary-color) 55%);
+    -webkit-mask: var(--brand-face);
+    mask: var(--brand-face);
+}
+
 .btn-recommend {
-    background: linear-gradient(135deg, var(--accent-color) 0%, var(--primary-color) 100%);
     color: white;
     border: none;
     height: 34px;
@@ -14593,10 +15005,11 @@ h3 > .tooltip-icon-sm {
 .load-stat-card {
     flex: 1;
     min-width: 100px;
-    background: var(--bg-tertiary);
+    background: var(--bg-inset);
     border-radius: var(--border-radius-lg);
     padding: 1rem;
     text-align: center;
+    box-shadow: inset 0 0 0 1px var(--border-color);
 }
 
 
@@ -14634,12 +15047,13 @@ h3 > .tooltip-icon-sm {
 .load-chart-section .legend-color {
     width: 12px;
     height: 12px;
-    border-radius: 2px;
+    -webkit-mask: var(--meter-face);
+    mask: var(--meter-face);
 }
 
-.load-chart-section .legend-color.band-2ghz { background: #fbbf24; }
-.load-chart-section .legend-color.band-5ghz { background: #3b82f6; }
-.load-chart-section .legend-color.band-6ghz { background: #a855f7; }
+.load-chart-section .legend-color.band-2ghz { background: var(--band-24-color); }
+.load-chart-section .legend-color.band-5ghz { background: var(--band-5-color); }
+.load-chart-section .legend-color.band-6ghz { background: var(--band-6-color); }
 
 .load-chart {
     display: flex;
@@ -14681,7 +15095,6 @@ h3 > .tooltip-icon-sm {
 
 .load-bar {
     height: 24px;
-    border-radius: 0 var(--border-radius) var(--border-radius) 0;
     display: flex;
     overflow: hidden;
     min-width: 4px;
@@ -14690,11 +15103,13 @@ h3 > .tooltip-icon-sm {
 .load-segment {
     height: 100%;
     transition: width 0.3s ease;
+    -webkit-mask: var(--meter-face);
+    mask: var(--meter-face);
 }
 
-.load-segment.band-2ghz { background: #fbbf24; }
-.load-segment.band-5ghz { background: #3b82f6; }
-.load-segment.band-6ghz { background: #a855f7; }
+.load-segment.band-2ghz { background: var(--band-24-color); }
+.load-segment.band-5ghz { background: var(--band-5-color); }
+.load-segment.band-6ghz { background: var(--band-6-color); }
 
 .overload-indicator {
     width: 20px;
@@ -14728,7 +15143,7 @@ h3 > .tooltip-icon-sm {
     color: var(--text-muted);
     background: var(--bg-secondary);
     padding: 2px 6px;
-    border-radius: 3px;
+    border-radius: var(--border-radius);
 }
 
 /* AP Details Section */
@@ -14746,10 +15161,10 @@ h3 > .tooltip-icon-sm {
 }
 
 .ap-detail-card {
-    background: var(--bg-tertiary);
-    border-radius: 6px;
+    background: var(--bg-inset);
+    border-radius: var(--border-radius-lg);
     padding: 1rem;
-    border: 1px solid transparent;
+    border: 1px solid var(--border-color);
 }
 
 .ap-detail-card.ap-overloaded {
@@ -14789,7 +15204,7 @@ h3 > .tooltip-icon-sm {
 
 .ap-client-count.clickable {
     cursor: pointer;
-    border-radius: 6px;
+    border-radius: var(--border-radius-lg);
     transition: background-color 0.15s ease;
 }
 
@@ -14851,7 +15266,7 @@ h3 > .tooltip-icon-sm {
 
 .radio-summary .radio-clients.clickable {
     cursor: pointer;
-    border-radius: 4px;
+    border-radius: var(--border-radius);
     transition: background-color 0.15s ease;
 }
 
@@ -14919,9 +15334,10 @@ h3 > .tooltip-icon-sm {
     display: flex;
     gap: 0.75rem;
     padding: 0.75rem;
-    background: var(--bg-tertiary);
-    border-radius: 6px;
+    background: var(--bg-inset);
+    border-radius: var(--border-radius-lg);
     border-left: 3px solid var(--border-color);
+    box-shadow: inset 0 0 0 1px var(--border-color);
 }
 
 .recommendation-item.warning {
@@ -15066,10 +15482,11 @@ h3 > .tooltip-icon-sm {
 .power-stat-card {
     flex: 1;
     min-width: 100px;
-    background: var(--bg-tertiary);
+    background: var(--bg-inset);
     border-radius: var(--border-radius-lg);
     padding: 1rem;
     text-align: center;
+    box-shadow: inset 0 0 0 1px var(--border-color);
 }
 
 
@@ -15156,6 +15573,8 @@ h3 > .tooltip-icon-sm {
     padding: 1rem 0;
 }
 
+/* A histogram: bars stand on one baseline, each a shaded face with a full-strength edge, its
+   count above it and the bin labels in one row below. */
 .signal-bars {
     display: flex;
     align-items: flex-end;
@@ -15165,18 +15584,28 @@ h3 > .tooltip-icon-sm {
     margin-bottom: 0;
 }
 
+/* Room for a count over the tallest bar. Scoped: Cellular Stats and Client Performance have
+   their own .signal-bars (the five-bar signal icon), and this must never reach them. */
+.signal-distribution .signal-bars {
+    height: 166px;
+    padding-top: 16px;
+}
+
+.signal-distribution .signal-bar {
+    min-height: 2px;
+}
+
 .signal-bar-wrapper {
     flex: 1;
     display: flex;
     flex-direction: column;
     align-items: center;
+    justify-content: flex-end;
     height: 100%;
-    border-radius: 0 0 var(--border-radius) var(--border-radius);
 }
 
 .signal-bar {
     width: 100%;
-    border-radius: 0 0 var(--border-radius) var(--border-radius);
     display: flex;
     align-items: flex-end;
     justify-content: center;
@@ -15185,24 +15614,54 @@ h3 > .tooltip-icon-sm {
     position: relative;
 }
 
-.signal-bar .bar-count {
-    font-size: 0.65rem;
-    color: white;
-    font-weight: 600;
-    position: absolute;
-    top: 4px;
+.signal-bar.clickable {
+    cursor: pointer;
 }
 
-.signal-bar.signal-excellent { background: #10b981; }
-.signal-bar.signal-good { background: #22c55e; }
-.signal-bar.signal-fair { background: #eab308; }
-.signal-bar.signal-weak { background: #f97316; }
-.signal-bar.signal-poor { background: #ef4444; }
+.signal-bar.clickable:hover::before {
+    background: color-mix(in srgb, var(--bar) 60%, transparent);
+}
+
+/* The signal range Client Stats is filtered to, beside Clear Filters. */
+.client-signal-filter {
+    font-family: var(--font-display);
+    font-size: 0.8125rem;
+    color: var(--text-secondary);
+    white-space: nowrap;
+}
+
+/* The fill is its own layer, so the count can sit above the bar. A wide bar keeps a rounded
+   free end, which a border draws cleanly where the meter mask would cut the corners. */
+.signal-distribution .signal-bar::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border: 1px solid var(--bar);
+    border-radius: var(--bar-end-radius) var(--bar-end-radius) 0 0;
+    background: color-mix(in srgb, var(--bar) 42%, transparent);
+}
+
+.signal-bar .bar-count {
+    font-size: 0.75rem;
+    color: var(--text-primary);
+    font-weight: 600;
+    position: absolute;
+    bottom: calc(100% + 3px);
+}
+
+.signal-bar.signal-excellent { --bar: var(--signal-excellent); }
+.signal-bar.signal-good { --bar: var(--signal-good); }
+.signal-bar.signal-fair { --bar: var(--signal-fair); }
+.signal-bar.signal-weak { --bar: var(--signal-weak); }
+.signal-bar.signal-poor { --bar: var(--signal-poor); }
 
 .signal-bar-label {
-    font-size: 0.65rem;
+    width: 100%;
+    font-family: var(--font-display);
+    font-size: 0.7rem;
     color: var(--text-muted);
-    margin-top: 0.5rem;
+    padding-top: 0.4rem;
+    border-top: 1px solid var(--border-strong);
     text-align: center;
 }
 
@@ -15224,14 +15683,15 @@ h3 > .tooltip-icon-sm {
 .signal-legend .legend-color {
     width: 12px;
     height: 12px;
-    border-radius: 2px;
+    -webkit-mask: var(--meter-face);
+    mask: var(--meter-face);
 }
 
-.signal-legend .legend-color.signal-excellent { background: #10b981; }
-.signal-legend .legend-color.signal-good { background: #22c55e; }
-.signal-legend .legend-color.signal-fair { background: #eab308; }
-.signal-legend .legend-color.signal-weak { background: #f97316; }
-.signal-legend .legend-color.signal-poor { background: #ef4444; }
+.signal-legend .legend-color.signal-excellent { background: var(--signal-excellent); }
+.signal-legend .legend-color.signal-good { background: var(--signal-good); }
+.signal-legend .legend-color.signal-fair { background: var(--signal-fair); }
+.signal-legend .legend-color.signal-weak { background: var(--signal-weak); }
+.signal-legend .legend-color.signal-poor { background: var(--signal-poor); }
 
 /* TX Power Grid */
 .ap-power-grid {
@@ -15241,9 +15701,10 @@ h3 > .tooltip-icon-sm {
 }
 
 .ap-power-card {
-    background: var(--bg-tertiary);
-    border-radius: 6px;
+    background: var(--bg-inset);
+    border-radius: var(--border-radius-lg);
     padding: 1rem;
+    box-shadow: inset 0 0 0 1px var(--border-color);
 }
 
 .ap-power-header {
@@ -15313,8 +15774,8 @@ h3 > .tooltip-icon-sm {
 .power-bar-container {
     flex: 1;
     height: 20px;
-    background: var(--bg-secondary);
-    border-radius: 0 var(--border-radius) var(--border-radius) 0;
+    background: var(--bg-inset);
+    box-shadow: inset 0 0 0 1px var(--border-strong);
     overflow: hidden;
     position: relative;
     display: flex;
@@ -15335,30 +15796,26 @@ h3 > .tooltip-icon-sm {
     transition: width 0.3s ease;
 }
 
-.power-bar-tx.power-high { background: linear-gradient(90deg, #f97316, #ea580c); }
-.power-bar-tx.power-medium { background: linear-gradient(90deg, #22c55e, #16a34a); }
-.power-bar-tx.power-low { background: linear-gradient(90deg, #3b82f6, #2563eb); }
-.power-bar-tx.power-auto { background: linear-gradient(90deg, #3b82f6, #2563eb); }
+.power-bar-tx.power-high { background: var(--signal-weak); }
+.power-bar-tx.power-medium { background: var(--signal-good); }
+.power-bar-tx.power-low { background: var(--good-color); }
+.power-bar-tx.power-auto { background: var(--good-color); }
 
+/* Antenna gain: the TX power's color carried on as a fainter face, open on the side it joins. */
 .power-bar-gain {
     height: 100%;
-    border-left: 1px dashed rgba(255, 255, 255, 0.3);
-    border-radius: 0 var(--border-radius) var(--border-radius) 0;
     transition: width 0.3s ease;
 }
 
-.power-bar-gain.power-high {
-    background: repeating-linear-gradient(90deg, #f97316 0px, #f97316 3px, #ea580c 3px, #ea580c 6px);
+.power-bar-stack > .power-bar-gain {
+    -webkit-mask: var(--meter-face-extension);
+    mask: var(--meter-face-extension);
 }
-.power-bar-gain.power-medium {
-    background: repeating-linear-gradient(90deg, #22c55e 0px, #22c55e 3px, #16a34a 3px, #16a34a 6px);
-}
-.power-bar-gain.power-low {
-    background: repeating-linear-gradient(90deg, #3b82f6 0px, #3b82f6 3px, #2563eb 3px, #2563eb 6px);
-}
-.power-bar-gain.power-auto {
-    background: repeating-linear-gradient(90deg, #3b82f6 0px, #3b82f6 3px, #2563eb 3px, #2563eb 6px);
-}
+
+.power-bar-gain.power-high { background: var(--signal-weak); }
+.power-bar-gain.power-medium { background: var(--signal-good); }
+.power-bar-gain.power-low { background: var(--good-color); }
+.power-bar-gain.power-auto { background: var(--good-color); }
 
 .power-values {
     position: absolute;
@@ -15366,6 +15823,8 @@ h3 > .tooltip-icon-sm {
     display: flex;
     align-items: center;
     gap: 2px;
+    font-family: var(--font-display);
+    font-variant-numeric: tabular-nums;
     font-size: 0.7rem;
     font-weight: 500;
     color: var(--text-primary);
@@ -15377,7 +15836,11 @@ h3 > .tooltip-icon-sm {
 }
 
 .power-eirp {
-    font-style: italic;
+    font-weight: 600;
+}
+
+.power-unit {
+    color: var(--text-secondary);
 }
 
 .power-unit {
@@ -15409,10 +15872,10 @@ h3 > .tooltip-icon-sm {
 }
 
 .coverage-card {
-    background: var(--bg-tertiary);
-    border-radius: 6px;
+    background: var(--bg-inset);
+    border-radius: var(--border-radius-lg);
     padding: 1rem;
-    border: 1px solid transparent;
+    border: 1px solid var(--border-color);
 }
 
 .coverage-card.coverage-poor {
@@ -15483,9 +15946,9 @@ h3 > .tooltip-icon-sm {
 .coverage-distribution {
     height: 8px;
     display: flex;
-    border-radius: var(--border-radius);
     overflow: hidden;
-    background: var(--bg-secondary);
+    background: var(--bg-inset);
+    box-shadow: inset 0 0 0 1px var(--border-strong);
 }
 
 .dist-segment {
@@ -15510,9 +15973,10 @@ h3 > .tooltip-icon-sm {
     display: flex;
     gap: 0.75rem;
     padding: 0.75rem;
-    background: var(--bg-tertiary);
-    border-radius: 6px;
+    background: var(--bg-inset);
+    border-radius: var(--border-radius-lg);
     border-left: 3px solid var(--warning-color);
+    box-shadow: inset 0 0 0 1px var(--border-color);
 }
 
 .overlap-icon {
@@ -15627,10 +16091,11 @@ h3 > .tooltip-icon-sm {
 .steering-stat-card {
     flex: 1;
     min-width: 100px;
-    background: var(--bg-tertiary);
+    background: var(--bg-inset);
     border-radius: var(--border-radius-lg);
     padding: 1rem;
     text-align: center;
+    box-shadow: inset 0 0 0 1px var(--border-color);
 }
 
 .steering-stat-value {
@@ -15694,9 +16159,9 @@ h3 > .tooltip-icon-sm {
 .effectiveness-bar {
     height: 32px;
     display: flex;
-    border-radius: 6px;
     overflow: hidden;
-    background: var(--bg-tertiary);
+    background: var(--bg-inset);
+    box-shadow: inset 0 0 0 1px var(--border-strong);
 }
 
 .eff-segment {
@@ -15704,9 +16169,29 @@ h3 > .tooltip-icon-sm {
     transition: width 0.3s ease;
 }
 
-.eff-segment.optimal { background: #22c55e; }
-.eff-segment.suboptimal { background: #f97316; }
-.eff-segment.legacy { background: #6b7280; }
+.eff-segment,
+.effectiveness-legend .legend-color {
+    -webkit-mask: var(--meter-face);
+    mask: var(--meter-face);
+}
+
+/* Stacked bars: neighbors share one blended edge. An empty segment has no edge to share, so
+   the one after it stands as a first segment does. */
+:is(.effectiveness-bar, .coverage-distribution, .wifi-gen-bar-container, .gen-bar-container, .load-bar, .lt-meter) > * + * {
+    margin-left: -1px;
+    -webkit-mask: var(--meter-face-joined);
+    mask: var(--meter-face-joined);
+}
+
+:is(.effectiveness-bar, .coverage-distribution, .wifi-gen-bar-container, .gen-bar-container, .load-bar, .lt-meter) > [style*="width: 0%"] + * {
+    margin-left: 0;
+    -webkit-mask: var(--meter-face);
+    mask: var(--meter-face);
+}
+
+.eff-segment.optimal { background: var(--signal-good); }
+.eff-segment.suboptimal { background: var(--signal-weak); }
+.eff-segment.legacy { background: var(--text-secondary); }
 
 .effectiveness-labels {
     display: flex;
@@ -15715,6 +16200,7 @@ h3 > .tooltip-icon-sm {
 }
 
 .eff-label {
+    font-family: var(--font-display);
     font-size: 0.65rem;
     color: var(--text-muted);
 }
@@ -15737,12 +16223,11 @@ h3 > .tooltip-icon-sm {
 .effectiveness-legend .legend-color {
     width: 12px;
     height: 12px;
-    border-radius: 2px;
 }
 
-.effectiveness-legend .legend-color.optimal { background: #22c55e; }
-.effectiveness-legend .legend-color.suboptimal { background: #f97316; }
-.effectiveness-legend .legend-color.legacy { background: #6b7280; }
+.effectiveness-legend .legend-color.optimal { background: var(--signal-good); }
+.effectiveness-legend .legend-color.suboptimal { background: var(--signal-weak); }
+.effectiveness-legend .legend-color.legacy { background: var(--text-secondary); }
 
 /* Steerable Groups */
 .steerable-group {
@@ -15793,8 +16278,9 @@ h3 > .tooltip-icon-sm {
     align-items: center;
     gap: 1rem;
     padding: 0.5rem 0.75rem;
-    background: var(--bg-tertiary);
+    background: var(--bg-inset);
     border-radius: var(--border-radius);
+    box-shadow: inset 0 0 0 1px var(--border-color);
 }
 
 .steerable-client-row .client-info {
@@ -15829,7 +16315,7 @@ h3 > .tooltip-icon-sm {
 
 .band-badge {
     padding: 0.125rem 0.5rem;
-    border-radius: 3px;
+    border-radius: var(--border-radius);
     font-size: 0.7rem;
     font-weight: 500;
 }
@@ -15886,7 +16372,7 @@ h3 > .tooltip-icon-sm {
 
 .gen-badge {
     padding: 0.125rem 0.5rem;
-    border-radius: 3px;
+    border-radius: var(--border-radius);
     font-size: 0.7rem;
     font-weight: 600;
 }
@@ -15915,8 +16401,8 @@ h3 > .tooltip-icon-sm {
 .wifi-gen-bar-container {
     flex: 1;
     height: 16px;
-    background: var(--bg-tertiary);
-    border-radius: 0 var(--border-radius) var(--border-radius) 0;
+    background: var(--bg-inset);
+    box-shadow: inset 0 0 0 1px var(--border-strong);
     overflow: hidden;
     font-size: 0;
     white-space: nowrap;
@@ -15948,9 +16434,10 @@ h3 > .tooltip-icon-sm {
 }
 
 .legacy-client-card {
-    background: var(--bg-tertiary);
-    border-radius: 6px;
+    background: var(--bg-inset);
+    border-radius: var(--border-radius-lg);
     padding: 0.75rem;
+    box-shadow: inset 0 0 0 1px var(--border-color);
 }
 
 .legacy-client-info {
@@ -16087,10 +16574,11 @@ h3 > .tooltip-icon-sm {
 .airtime-stat-card {
     flex: 1;
     min-width: 100px;
-    background: var(--bg-tertiary);
+    background: var(--bg-inset);
     border-radius: var(--border-radius-lg);
     padding: 1rem;
     text-align: center;
+    box-shadow: inset 0 0 0 1px var(--border-color);
 }
 
 .airtime-stat-label {
@@ -16173,9 +16661,10 @@ h3 > .tooltip-icon-sm {
 }
 
 .radio-util-card {
-    background: var(--bg-tertiary);
-    border-radius: 6px;
+    background: var(--bg-inset);
+    border-radius: var(--border-radius-lg);
     padding: 1rem;
+    box-shadow: inset 0 0 0 1px var(--border-color);
 }
 
 .radio-util-header {
@@ -16230,21 +16719,22 @@ h3 > .tooltip-icon-sm {
 .radio-util-bar-container {
     flex: 1;
     height: 16px;
-    background: var(--bg-secondary);
-    border-radius: 0 var(--border-radius) var(--border-radius) 0;
+    background: var(--bg-inset);
+    box-shadow: inset 0 0 0 1px var(--border-strong);
     overflow: hidden;
     position: relative;
 }
 
 .radio-util-bar {
     height: 100%;
-    border-radius: 0 var(--border-radius) var(--border-radius) 0;
     transition: width 0.3s ease;
+    -webkit-mask: var(--meter-face);
+    mask: var(--meter-face);
 }
 
-.radio-util-bar.util-low { background: #22c55e; }
-.radio-util-bar.util-medium { background: #eab308; }
-.radio-util-bar.util-high { background: #ef4444; }
+.radio-util-bar.util-low { background: var(--signal-good); }
+.radio-util-bar.util-medium { background: var(--signal-fair); }
+.radio-util-bar.util-high { background: var(--signal-poor); }
 
 .radio-util-value {
     position: absolute;
@@ -16301,8 +16791,8 @@ h3 > .tooltip-icon-sm {
 .gen-bar-container {
     flex: 1;
     height: 20px;
-    background: var(--bg-tertiary);
-    border-radius: 0 var(--border-radius) var(--border-radius) 0;
+    background: var(--bg-inset);
+    box-shadow: inset 0 0 0 1px var(--border-strong);
     overflow: hidden;
     font-size: 0;
     white-space: nowrap;
@@ -16397,10 +16887,11 @@ h3 > .tooltip-icon-sm {
 }
 
 .airtime-client-card {
-    background: var(--bg-tertiary);
-    border-radius: 6px;
+    background: var(--bg-inset);
+    border-radius: var(--border-radius-lg);
     padding: 0.75rem;
     border-left: 3px solid var(--border-color);
+    box-shadow: inset 0 0 0 1px var(--border-color);
 }
 
 .airtime-client-card.airtime-high {
@@ -16427,7 +16918,7 @@ h3 > .tooltip-icon-sm {
 .airtime-indicator {
     font-size: 0.7rem;
     padding: 0.125rem 0.5rem;
-    border-radius: 3px;
+    border-radius: var(--border-radius);
     background: var(--bg-secondary);
     color: var(--text-muted);
     white-space: nowrap;
@@ -16656,10 +17147,11 @@ h3 > .tooltip-icon-sm {
 }
 
 .tod-card {
-    background: var(--bg-tertiary);
-    border-radius: 6px;
+    background: var(--bg-inset);
+    border-radius: var(--border-radius-lg);
     padding: 1rem;
     border-left: 3px solid var(--border-color);
+    box-shadow: inset 0 0 0 1px var(--border-color);
 }
 
 .tod-card.period-good { border-left-color: var(--success-color); }
@@ -16710,7 +17202,7 @@ h3 > .tooltip-icon-sm {
     background: rgba(239, 68, 68, 0.1);
     color: var(--danger-color);
     font-size: 0.7rem;
-    border-radius: 3px;
+    border-radius: var(--border-radius);
     text-align: center;
 }
 
@@ -16750,7 +17242,7 @@ h3 > .tooltip-icon-sm {
     flex: 1;
     min-width: 30px;
     height: 24px;
-    border-radius: 3px;
+    border-radius: var(--border-radius);
     cursor: default;
 }
 
@@ -16775,7 +17267,7 @@ h3 > .tooltip-icon-sm {
 .heat-color {
     width: 16px;
     height: 16px;
-    border-radius: 3px;
+    border-radius: var(--border-radius);
 }
 
 .heat-color.heat-low { background: #22c55e; }
@@ -16794,9 +17286,10 @@ h3 > .tooltip-icon-sm {
     display: flex;
     gap: 0.75rem;
     padding: 0.75rem;
-    background: var(--bg-tertiary);
-    border-radius: 6px;
+    background: var(--bg-inset);
+    border-radius: var(--border-radius-lg);
     border-left: 3px solid var(--border-color);
+    box-shadow: inset 0 0 0 1px var(--border-color);
 }
 
 .pattern-card.warning { border-left-color: var(--warning-color); }
@@ -16855,10 +17348,11 @@ h3 > .tooltip-icon-sm {
 }
 
 .band-env-card {
-    background: var(--bg-tertiary);
-    border-radius: 6px;
+    background: var(--bg-inset);
+    border-radius: var(--border-radius-lg);
     padding: 1rem;
     border-top: 3px solid var(--border-color);
+    box-shadow: inset 0 0 0 1px var(--border-color);
 }
 
 .band-env-card.band-2ghz { border-top-color: #fbbf24; }
@@ -17061,9 +17555,10 @@ h3 > .tooltip-icon-sm {
     display: flex;
     flex-direction: column;
     padding: 1rem;
-    background: var(--bg-tertiary);
+    background: var(--bg-inset);
     border-radius: var(--border-radius-lg);
     min-width: 140px;
+    box-shadow: inset 0 0 0 1px var(--border-color);
 }
 
 .stage-header {
@@ -17197,8 +17692,9 @@ h3 > .tooltip-icon-sm {
     gap: 1rem;
     padding: 1rem;
     margin-top: 1rem;
-    background: var(--bg-tertiary);
+    background: var(--bg-inset);
     border-radius: var(--border-radius-lg);
+    box-shadow: inset 0 0 0 1px var(--border-color);
 }
 
 .success-rate-label {
@@ -17268,12 +17764,13 @@ a.affected-client:hover {
 }
 
 .status-card {
-    background: var(--bg-tertiary);
+    background: var(--bg-inset);
     border-radius: var(--border-radius-lg);
     padding: 1.25rem;
     text-align: center;
     position: relative;
     border-top: 3px solid var(--border-color);
+    box-shadow: inset 0 0 0 1px var(--border-color);
 }
 
 .status-card.status-connected { border-top-color: var(--success-color); }
@@ -17317,8 +17814,9 @@ a.affected-client:hover {
     gap: 1rem;
     align-items: center;
     padding: 0.75rem;
-    background: var(--bg-tertiary);
-    border-radius: 6px;
+    background: var(--bg-inset);
+    border-radius: var(--border-radius-lg);
+    box-shadow: inset 0 0 0 1px var(--border-color);
 }
 
 .ap-info {
@@ -17625,7 +18123,7 @@ a.affected-client:hover {
 .wan-speedtest .wan-result-summary {
     background: var(--bg-primary);
     padding: 0.125rem 0.375rem;
-    border-radius: 0.25rem;
+    border-radius: var(--border-radius);
     font-size: 0.8125rem;
     color: var(--text-secondary);
     white-space: nowrap;
@@ -17778,7 +18276,7 @@ a.affected-client:hover {
     height: 4px;
     -webkit-appearance: none;
     appearance: none;
-    background: linear-gradient(to right, #3b82f6, #60a5fa);
+    background: var(--primary-hover);
     border-radius: 2px;
     cursor: pointer;
 }
@@ -18146,7 +18644,7 @@ tr.stats-row-filtered {
 .event-type-modal {
     background: var(--bg-secondary);
     border: 1px solid var(--border-color);
-    border-radius: 8px;
+    border-radius: var(--border-radius-lg);
     padding: 1.5rem;
     max-width: 960px;
     width: 100%;
@@ -18225,7 +18723,7 @@ tr.stats-row-filtered {
     line-height: 1.4;
     cursor: pointer;
     padding: 0.25rem 0.375rem;
-    border-radius: 4px;
+    border-radius: var(--border-radius);
     margin: 0 -0.375rem;
 }
 
@@ -18238,7 +18736,7 @@ tr.stats-row-filtered {
     font-size: 0.75rem;
     padding: 0.125rem 0.375rem;
     background: var(--bg-tertiary);
-    border-radius: 3px;
+    border-radius: var(--border-radius);
     color: var(--info-color);
 }
 
@@ -18290,7 +18788,7 @@ tr.stats-row-filtered {
     backdrop-filter: blur(10px);
     -webkit-backdrop-filter: blur(10px);
     border: 1px solid rgba(255, 255, 255, 0.06);
-    border-radius: 10px;
+    border-radius: var(--border-radius-lg);
     color: var(--text-primary);
     padding: 0.6rem 0.75rem;
     font-size: 0.85rem;
@@ -18360,8 +18858,8 @@ tr.stats-row-filtered {
     background: var(--bg-tertiary);
     color: var(--text-primary);
     padding: 0.05rem 0.35rem;
-    border-radius: 3px;
-    font-family: var(--font-mono, monospace);
+    border-radius: var(--border-radius);
+    font-family: var(--font-mono);
     font-size: 0.825rem;
 }
 .lan-flow-map-status {
@@ -18420,7 +18918,7 @@ tr.stats-row-filtered {
     background: rgba(255, 255, 255, 0.05);
     border: 1px solid rgba(255, 255, 255, 0.08);
     color: var(--text-primary);
-    border-radius: 6px;
+    border-radius: var(--border-radius-lg);
     padding: 0.32rem 0.5rem;
     font-size: 0.82rem;
 }
@@ -18442,7 +18940,7 @@ tr.stats-row-filtered {
     backdrop-filter: blur(10px);
     -webkit-backdrop-filter: blur(10px);
     border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 8px;
+    border-radius: var(--border-radius-lg);
     overflow: hidden;
     box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
 }
@@ -18551,7 +19049,7 @@ tr.stats-row-filtered {
     backdrop-filter: blur(10px);
     -webkit-backdrop-filter: blur(10px);
     border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 8px;
+    border-radius: var(--border-radius-lg);
     box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
     overflow: hidden;
     max-height: 280px;
@@ -18610,7 +19108,7 @@ tr.stats-row-filtered {
     backdrop-filter: blur(10px);
     -webkit-backdrop-filter: blur(10px);
     border: 1px solid rgba(255, 255, 255, 0.1);
-    border-radius: 4px;
+    border-radius: var(--border-radius);
     color: var(--text-secondary);
     cursor: pointer;
     transition: background 0.15s, color 0.15s, border-color 0.15s;
@@ -18639,7 +19137,7 @@ tr.stats-row-filtered {
 .map-sat-confirm {
     background: var(--bg-card);
     border: 1px solid rgba(255, 255, 255, 0.1);
-    border-radius: 10px;
+    border-radius: var(--border-radius-lg);
     box-shadow: 0 8px 30px rgba(0, 0, 0, 0.45);
     max-width: 420px;
     width: 100%;
@@ -18764,7 +19262,7 @@ tr.stats-row-filtered {
     backdrop-filter: blur(10px);
     -webkit-backdrop-filter: blur(10px);
     border: 1px solid rgba(255, 255, 255, 0.06);
-    border-radius: 10px;
+    border-radius: var(--border-radius-lg);
     padding: 0.55rem 0.75rem;
     display: flex;
     flex-direction: column;
@@ -18808,7 +19306,7 @@ tr.stats-row-filtered {
     border: 1px solid var(--border-color, #334155);
     color: var(--text-secondary);
     height: 1.75rem;
-    border-radius: 0.25rem;
+    border-radius: var(--border-radius);
     font-size: 0.825rem;
     padding: 0 0.2rem;
     cursor: pointer;
@@ -18844,14 +19342,13 @@ tr.stats-row-filtered {
     color: var(--text-secondary);
     width: 1.75rem;
     height: 1.75rem;
-    border-radius: 0.25rem;
+    border-radius: var(--border-radius);
     cursor: pointer;
     display: inline-flex;
     align-items: center;
     justify-content: center;
     font-size: 0.8rem;
     padding: 0;
-    padding-bottom: 3px;
     flex-shrink: 0;
 }
 .lan-flow-map-scrubber-playpause:hover {
@@ -18901,7 +19398,7 @@ tr.stats-row-filtered {
     backdrop-filter: blur(10px);
     -webkit-backdrop-filter: blur(10px);
     border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 10px;
+    border-radius: var(--border-radius-lg);
     box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
     font-size: 0.78rem;
     color: var(--text-secondary);
@@ -18965,7 +19462,7 @@ tr.stats-row-filtered {
     background: var(--bg-secondary);
     color: var(--text-primary);
     border: 1px solid var(--bg-hover);
-    border-radius: 4px;
+    border-radius: var(--border-radius);
     padding: 0.15rem 0.35rem;
     font-size: 0.85rem;
     cursor: pointer;
@@ -18998,7 +19495,7 @@ tr.stats-row-filtered {
     background: rgba(16, 24, 32, 0.78);
     backdrop-filter: blur(10px);
     border: 1px solid rgba(255, 255, 255, 0.06);
-    border-radius: 6px;
+    border-radius: var(--border-radius-lg);
     color: var(--text-secondary);
     cursor: pointer;
     pointer-events: auto;
@@ -19025,7 +19522,7 @@ tr.stats-row-filtered {
     background: rgba(16, 24, 32, 0.78);
     backdrop-filter: blur(10px);
     border: 1px solid rgba(255, 255, 255, 0.06);
-    border-radius: 6px;
+    border-radius: var(--border-radius-lg);
     color: var(--text-secondary);
     cursor: pointer;
     pointer-events: auto;
@@ -19054,7 +19551,7 @@ tr.stats-row-filtered {
     background: rgba(16, 24, 32, 0.78);
     color: var(--text-primary);
     padding: 0.2rem 0.55rem;
-    border-radius: 6px;
+    border-radius: var(--border-radius-lg);
     font-size: 0.74rem;
     line-height: 1.25;
     white-space: nowrap;
@@ -19085,7 +19582,7 @@ tr.stats-row-filtered {
     background: rgba(16, 24, 32, 0.82);
     color: var(--text-primary);
     padding: 0.12rem 0.45rem;
-    border-radius: 4px;
+    border-radius: var(--border-radius);
     font-size: 0.7rem;
     line-height: 1.25;
     white-space: nowrap;
@@ -19144,7 +19641,7 @@ tr.stats-row-filtered {
     position: absolute;
     background: rgba(16, 24, 32, 0.92);
     border: 1px solid rgba(255, 255, 255, 0.06);
-    border-radius: 8px;
+    border-radius: var(--border-radius-lg);
     padding: 0.5rem 0.65rem;
     font-size: 0.78rem;
     line-height: 1.35;
@@ -19275,7 +19772,7 @@ tr.stats-row-filtered {
 }
 .lan-flow-map-2d-body {
     padding: 0;
-    background: #202023;
+    background: #1c2128;
     position: relative;
 }
 .lan-flow-map-2d-stage {
@@ -19305,7 +19802,7 @@ tr.stats-row-filtered {
     position: absolute;
     background: rgba(16, 24, 32, 0.92);
     border: 1px solid rgba(255, 255, 255, 0.06);
-    border-radius: 8px;
+    border-radius: var(--border-radius-lg);
     padding: 0.5rem 0.65rem;
     font-size: 0.78rem;
     line-height: 1.35;
@@ -19334,7 +19831,7 @@ tr.stats-row-filtered {
     width: 32px;
     height: 32px;
     border: 1px solid rgba(255,255,255,0.1);
-    border-radius: 6px;
+    border-radius: var(--border-radius-lg);
     background: rgba(26,29,35,0.9);
     color: var(--text-secondary);
     font-size: 16px;
@@ -19368,7 +19865,7 @@ tr.stats-row-filtered {
     z-index: 20;
     background: rgba(16, 24, 32, 0.95);
     border: 1px solid rgba(255, 255, 255, 0.10);
-    border-radius: 6px;
+    border-radius: var(--border-radius-lg);
     padding: 4px 0;
     min-width: 160px;
     box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
@@ -19391,7 +19888,7 @@ tr.stats-row-filtered {
     z-index: 15;
     background: rgba(16, 24, 32, 0.92);
     border: 1px solid var(--primary-color);
-    border-radius: 8px;
+    border-radius: var(--border-radius-lg);
     padding: 8px 16px;
     display: flex;
     align-items: center;
@@ -19413,7 +19910,7 @@ tr.stats-row-filtered {
     font-size: 0.825rem;
     background: var(--bg-tertiary);
     border: 1px solid rgba(255, 255, 255, 0.12);
-    border-radius: 3px;
+    border-radius: var(--border-radius);
     font-family: inherit;
     line-height: 1.4;
 }
@@ -19623,7 +20120,7 @@ tr.stats-row-filtered {
     height: 30px;
     padding: 0 10px;
     border: 1px solid var(--warning-color);
-    border-radius: 6px;
+    border-radius: var(--border-radius-lg);
     background: rgba(231, 150, 19, 0.12);
     color: var(--warning-color);
     font-size: 0.8rem;
@@ -19742,21 +20239,19 @@ tr.stats-row-filtered {
     filter: none;
 }
 
-.isp-gauge-small .isp-gauge-score {
-    font-size: 30px;
+.isp-gauge-small .gauge-score {
+    font-size: 34px;
 }
 
-.isp-gauge-small .isp-gauge-label {
+.isp-gauge-small .gauge-label {
     font-size: 17px;
 }
 
-.isp-gauge-score {
+.isp-gauge .gauge-score {
     font-size: 40px;
-    font-weight: 700;
-    letter-spacing: -1px;
 }
 
-.isp-gauge-label {
+.isp-gauge .gauge-label {
     font-size: 13px;
     fill: var(--text-secondary);
 }
@@ -19866,7 +20361,7 @@ a.isp-health-hero-speed {
     text-align: center;
     color: inherit;
     text-decoration: none;
-    border-radius: 0.5rem;
+    border-radius: var(--border-radius-lg);
     padding: 0.5rem;
     margin: -0.5rem;
     transition: background-color 0.15s ease;
@@ -20079,10 +20574,10 @@ a.isp-health-hero-speed:hover {
     transition: width 0.6s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
-.isp-bar-excellent { background: linear-gradient(90deg, #1a9d5c, #24bc70); }
-.isp-bar-good { background: linear-gradient(90deg, #2563eb, #3b82f6); }
-.isp-bar-fair { background: linear-gradient(90deg, #d97706, #f59e0b); }
-.isp-bar-poor { background: linear-gradient(90deg, #dc2626, #ef4444); }
+.isp-bar-excellent { background: var(--success-color); }
+.isp-bar-good { background: var(--good-color); }
+.isp-bar-fair { background: var(--warning-color); }
+.isp-bar-poor { background: var(--danger-color); }
 .isp-bar-none { background: var(--bg-hover); }
 
 .isp-factor-score {
@@ -20112,13 +20607,13 @@ a.isp-health-hero-speed:hover {
 .upstream-tech-unset {
     outline: 2px solid rgba(59, 130, 246, 0.5);
     outline-offset: 2px;
-    border-radius: 6px;
+    border-radius: var(--border-radius-lg);
 }
 
 .upstream-tech-inferred {
     outline: 2px solid var(--warning-color);
     outline-offset: 2px;
-    border-radius: 6px;
+    border-radius: var(--border-radius-lg);
 }
 
 .upstream-tech-inferred-help {
@@ -20154,7 +20649,7 @@ a.isp-health-hero-speed:hover {
     padding: 0.9rem 1rem;
     border: 1px solid var(--border-color);
     border-radius: var(--border-radius-lg);
-    background: var(--bg-tertiary);
+    background: var(--bg-inset);
     transition: border-color 0.2s ease, transform 0.2s ease;
 }
 
@@ -20264,6 +20759,45 @@ a.isp-health-hero-speed:hover {
     overflow: hidden;
 }
 
+/* Score meters, in the dial's own ticks: the track and its fill are both cut by the one mask.
+   After the rules it restyles, so it wins on background and radius without outranking them. */
+.dimension-bar-container,
+.util-bar-container,
+.retry-bar-container,
+.band-env-metric .metric-bar,
+.flow-stage .stage-bar,
+.ap-success-bar-container,
+.isp-factor-bar-track,
+.isp-asn-score-track {
+    background: var(--bg-inset);
+    box-shadow: inset 0 0 0 1px var(--border-strong);
+    border-radius: 0;
+}
+/* Every meter fill: its own color as a shaded face with a full-strength edge. */
+.power-bar-stack > *,
+.coverage-distribution > *,
+.wifi-gen-bar-container > *,
+.gen-bar-container > *,
+.dimension-bar-container > *,
+.util-bar-container > *,
+.retry-bar-container > *,
+.band-env-metric .metric-bar > *,
+.flow-stage .stage-bar > *,
+.ap-success-bar-container > *,
+.isp-factor-bar-track > *,
+.isp-asn-score-track > *,
+.threat-bar-track > *,
+.channel-bar-wrapper > *,
+.spectrum-container .legend-bar {
+    border-radius: 0;
+    -webkit-mask: var(--meter-face);
+    mask: var(--meter-face);
+}
+
+.isp-factor-bar-track.isp-factor-bar-track-empty {
+    background: transparent;
+}
+
 .isp-event-timeline {
     position: relative;
     display: flex;
@@ -20298,7 +20832,7 @@ a.isp-health-hero-speed:hover {
 .isp-event-badge {
     display: inline-block;
     padding: 0.15rem 0.55rem;
-    border-radius: 4px;
+    border-radius: var(--border-radius);
     font-size: 0.68rem;
     font-weight: 600;
     text-transform: uppercase;
@@ -20349,6 +20883,10 @@ a.isp-health-hero-speed:hover {
 .isp-events-header {
     flex-wrap: wrap;
     gap: 0.4rem;
+}
+
+.isp-event-filter .time-btn.active[class*="evt-"] {
+    box-shadow: none;
 }
 
 .isp-event-filter .time-btn.active.evt-congestion {
@@ -20627,9 +21165,9 @@ a.isp-health-hero-speed:hover {
     flex-direction: column;
     gap: 0.75rem;
     padding: 0.9rem 1rem;
-    border: 1px solid var(--border-color);
     border-radius: var(--border-radius-lg);
-    background: var(--bg-tertiary);
+    background: var(--bg-inset);
+    box-shadow: inset 0 0 0 1px var(--border-color);
 }
 
 .isp-outage-head {
@@ -20639,9 +21177,16 @@ a.isp-health-hero-speed:hover {
     gap: 0.4rem 0.7rem;
 }
 
+.isp-outage-duration,
+.isp-outage-window,
+.isp-outage-hop-status {
+    font-family: var(--font-display);
+    word-spacing: var(--display-word-spacing);
+}
+
 .isp-outage-duration {
     font-size: 1rem;
-    font-weight: 700;
+    font-weight: 600;
     color: var(--text-primary);
     font-variant-numeric: tabular-nums;
 }
@@ -20732,16 +21277,33 @@ a.isp-outage-ack:hover {
     text-overflow: ellipsis;
 }
 
+/* An outlined well. What the dark or lossy part leaves is the time the target was up, a shaded
+   face in the hatching's own blue with no edge on the side where the two meet, so the stripes
+   run into it. */
 .isp-outage-hop-track {
+    --recovered-face: linear-gradient(#000, #000) top / 100% 1px no-repeat,
+        linear-gradient(#000, #000) bottom / 100% 1px no-repeat,
+        linear-gradient(#000, #000) right / 1px 100% no-repeat,
+        linear-gradient(rgb(0 0 0 / 0.5), rgb(0 0 0 / 0.5));
+    display: flex;
     height: 7px;
-    border-radius: 4px;
-    background: linear-gradient(90deg, var(--bg-tertiary) 0, var(--bg-tertiary) 3px, var(--primary-color) 3px);
+    background: var(--bg-inset);
+    box-shadow: inset 0 0 0 1px var(--border-strong);
     overflow: hidden;
 }
 
+.isp-outage-hop-track::after {
+    content: "";
+    flex: 1 1 0;
+    min-width: 0;
+    background: var(--primary-color);
+    -webkit-mask: var(--recovered-face);
+    mask: var(--recovered-face);
+}
+
 .isp-outage-hop-dark {
+    flex: none;
     height: 100%;
-    border-radius: 4px 0 0 4px;
     background:
         repeating-linear-gradient(45deg, transparent 0, transparent 2px, var(--bg-tertiary) 2px, var(--bg-tertiary) 5px),
         linear-gradient(90deg, var(--text-muted), 75%, var(--primary-color));
@@ -20749,9 +21311,11 @@ a.isp-outage-ack:hover {
 }
 
 .isp-outage-hop-loss {
+    flex: none;
     height: 100%;
-    border-radius: 4px 0 0 4px;
     background: var(--warning-color);
+    -webkit-mask: var(--meter-face);
+    mask: var(--meter-face);
     transition: width 0.6s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
@@ -20932,7 +21496,7 @@ a.isp-outage-ack:hover {
     .isp-gauge-small {
         width: min(115px, 28vw);
     }
-    .isp-gauge-small .isp-gauge-label {
+    .isp-gauge-small .gauge-label {
         font-size: 19px;
     }
     .isp-event-timeline {
@@ -21026,7 +21590,7 @@ a.isp-outage-ack:hover {
     box-sizing: border-box;
     padding: 0.15rem 0.4rem;
     border: 0;
-    border-radius: 4px;
+    border-radius: var(--border-radius);
     font-family: inherit;
     font-size: 0.62rem;
     font-weight: 600;
@@ -21406,7 +21970,7 @@ body.kiosk-mode .status-indicators {
 .site-switcher-item-slug {
     flex-shrink: 0;
     color: var(--text-muted);
-    font-family: monospace;
+    font-family: var(--font-mono);
     font-size: 0.75rem;
     white-space: nowrap;
 }
@@ -21502,7 +22066,7 @@ body.kiosk-mode .status-indicators {
 }
 
 .site-card-slug {
-    font-family: monospace;
+    font-family: var(--font-mono);
     font-size: 0.8rem;
     color: var(--text-muted);
     margin-right: auto;
@@ -21949,7 +22513,7 @@ a.shp-issue {
 .agent-install pre {
     background: var(--bg-primary);
     padding: 0.75rem;
-    border-radius: 6px;
+    border-radius: var(--border-radius-lg);
     overflow-x: auto;
     max-width: 100%;
     margin: 0.5rem 0 0;
@@ -22378,7 +22942,7 @@ a.shp-issue {
     padding: 0.2rem;
     background: transparent;
     border: none;
-    border-radius: 4px;
+    border-radius: var(--border-radius);
     color: var(--text-muted);
     cursor: pointer;
     transition: color 0.15s ease, background 0.15s ease;
@@ -22473,7 +23037,7 @@ a.shp-issue {
 /* Client Stats: the IP's font lives on .client-ip, which edit mode removes, so the wrapper carries it. */
 .client-info-main .inline-edit-compact {
     font-size: 0.875rem;
-    font-family: monospace;
+    font-family: var(--font-mono);
 }
 
 .checkbox-toggle {
@@ -22651,7 +23215,7 @@ a.shp-issue {
 .site-wizard pre {
     background: var(--bg-primary);
     padding: 0.75rem;
-    border-radius: 6px;
+    border-radius: var(--border-radius-lg);
     font-size: 0.8125rem;
     overflow-x: auto;
 }
@@ -22668,11 +23232,11 @@ a.shp-issue {
 }
 
 .connection-banner.license-restricted-banner {
-    background: var(--danger-color);
+    --banner-color: var(--danger-color);
 }
 
 .license-key-cell {
-    font-family: monospace;
+    font-family: var(--font-mono);
 }
 
 .license-check-error {
@@ -22751,7 +23315,7 @@ a.shp-issue {
 .tour-modal {
     background: var(--bg-secondary);
     border: 1px solid var(--border-color);
-    border-radius: 8px;
+    border-radius: var(--border-radius-lg);
     max-width: 480px;
     width: 100%;
     padding: 24px;
@@ -22842,7 +23406,7 @@ a.shp-issue {
     position: fixed;
     background: var(--bg-secondary);
     border: 1px solid var(--border-color);
-    border-radius: 8px;
+    border-radius: var(--border-radius-lg);
     padding: 16px;
     width: 320px;
     max-width: calc(100vw - 20px);
@@ -22932,7 +23496,7 @@ a.shp-issue {
     gap: 12px;
     padding: 10px 12px;
     background: var(--bg-tertiary);
-    border-radius: 6px;
+    border-radius: var(--border-radius-lg);
 }
 
 .tour-list-info {
@@ -23362,7 +23926,7 @@ a.shp-issue {
     bottom: 2px;
     background: var(--info-color);
     opacity: 0.65;
-    border-radius: 5px;
+    border-radius: var(--border-radius);
     min-width: 4px;
 }
 
@@ -23456,7 +24020,7 @@ a.shp-issue {
     height: 420px;
     background: var(--bg-primary);
     border: 1px solid var(--border-color);
-    border-radius: 8px;
+    border-radius: var(--border-radius-lg);
     overflow: hidden;
 }
 
@@ -23591,7 +24155,7 @@ a.shp-issue {
 
 .firmware-rollout-expander {
     border: 1px solid var(--border-color);
-    border-radius: 8px;
+    border-radius: var(--border-radius-lg);
     margin: 0.6rem 0;
 }
 
@@ -23834,7 +24398,7 @@ a.shp-issue {
     gap: 0.75rem;
     padding: 0.35rem 0.5rem;
     background: var(--bg-tertiary);
-    border-radius: 6px;
+    border-radius: var(--border-radius-lg);
 }
 
 .firmware-rollout-wave-no {
@@ -23956,7 +24520,7 @@ a.firmware-rollout-version-badge:hover {
 
 .mlo-state {
     padding: 0.125rem 0.5rem;
-    border-radius: 3px;
+    border-radius: var(--border-radius);
     font-size: 0.7rem;
     font-weight: 500;
 }
@@ -24399,16 +24963,17 @@ body:has(.top-bar-hidden) .btn-fit {
     display: block;
     width: 80px;
     height: 6px;
-    border-radius: 0 3px 3px 0;
-    background: var(--bg-tertiary);
+    background: var(--bg-inset);
+    box-shadow: inset 0 0 0 1px var(--border-strong);
     overflow: hidden;
 }
 
 .hogs-share .hogs-fill {
     display: block;
     height: 100%;
-    border-radius: 0 3px 3px 0;
     background: var(--speed-download-color);
+    -webkit-mask: var(--meter-face);
+    mask: var(--meter-face);
 }
 
 @media (max-width: 768px) {
@@ -24671,7 +25236,7 @@ body:has(.top-bar-hidden) .btn-fit {
     text-overflow: ellipsis;
     vertical-align: middle;
     padding: 0.1rem 0.45rem;
-    border-radius: 3px;
+    border-radius: var(--border-radius);
     font-size: 0.72rem;
     font-weight: 500;
     background: var(--bg-tertiary);
@@ -24689,7 +25254,7 @@ body:has(.top-bar-hidden) .btn-fit {
 .lt-redirected { background: rgba(71, 151, 255, 0.15); color: var(--info-color); }
 .lt-site-dns { background: rgba(43, 168, 154, 0.15); color: #2ba89a; }
 .lt-action-blocked { background: rgba(238, 99, 104, 0.15); color: var(--danger-color); }
-/* App icons, drawn as Client Performance draws them (its own .app-icon rules are scoped to that page). */
+/* App icons, drawn as Client Performance draws them (its own .line-icon rules are scoped to that page). */
 .lt-app-cell {
     display: inline-flex;
     align-items: center;
@@ -24731,7 +25296,7 @@ body:has(.top-bar-hidden) .btn-fit {
 .lt-app-glyph {
     position: absolute;
     inset: 0;
-    border-radius: 4px;
+    border-radius: var(--border-radius);
 }
 
 .lt-app-glyph {
@@ -24906,7 +25471,7 @@ body:has(.top-bar-hidden) .btn-fit {
     padding: 24px;
     background: var(--bg-secondary);
     border: 1px solid var(--border-color);
-    border-radius: 8px;
+    border-radius: var(--border-radius-lg);
 }
 
 .custom-apps-close {
@@ -24920,7 +25485,7 @@ body:has(.top-bar-hidden) .btn-fit {
     height: 32px;
     padding: 0;
     border: none;
-    border-radius: 6px;
+    border-radius: var(--border-radius-lg);
     background: transparent;
     color: var(--text-secondary);
     cursor: pointer;
@@ -25006,7 +25571,7 @@ body:has(.top-bar-hidden) .btn-fit {
     height: 32px;
     padding: 0;
     border: 1px solid var(--border-color);
-    border-radius: 6px;
+    border-radius: var(--border-radius-lg);
     background: var(--bg-tertiary);
     color: var(--text-secondary);
     font-size: 14px;
@@ -25284,8 +25849,8 @@ body:has(.top-bar-hidden) .btn-fit {
 
 .lt-meter {
     height: 6px;
-    border-radius: 3px;
-    background: var(--bg-tertiary);
+    background: var(--bg-inset);
+    box-shadow: inset 0 0 0 1px var(--border-strong);
     overflow: hidden;
     margin-top: 0.5rem;
     display: flex;
@@ -25294,6 +25859,12 @@ body:has(.top-bar-hidden) .btn-fit {
 .lt-meter span {
     display: block;
     height: 100%;
+}
+
+/* The first segment's face; the stacked bar rule gives the second its shared edge. */
+.lt-meter > :first-child {
+    -webkit-mask: var(--meter-face);
+    mask: var(--meter-face);
 }
 
 .lt-filterbar {
@@ -25503,7 +26074,7 @@ body:has(.top-bar-hidden) .btn-fit {
     align-items: center;
     gap: 8px;
     padding: 5px 4px;
-    border-radius: 4px;
+    border-radius: var(--border-radius);
     font-size: 0.8125rem;
     cursor: pointer;
 }
@@ -25582,7 +26153,7 @@ body:has(.top-bar-hidden) .btn-fit {
     width: 100%;
     padding: 6px 8px;
     border: none;
-    border-radius: 4px;
+    border-radius: var(--border-radius);
     background: transparent;
     color: var(--text-primary);
     font-size: 0.8125rem;
@@ -25630,7 +26201,7 @@ body:has(.top-bar-hidden) .btn-fit {
         bottom: 0;
         width: auto;
         max-width: none;
-        border-radius: 16px 16px 0 0;
+        border-radius: var(--border-radius-lg) var(--border-radius-lg) 0 0;
         /* The bottom bar clears the home indicator on a phone that has one. */
         padding: 8px 16px calc(22px + env(safe-area-inset-bottom, 0px));
     }
@@ -25719,7 +26290,7 @@ body:has(.top-bar-hidden) .btn-fit {
     min-width: 24px;
     height: 24px;
     padding: 0 0.3rem;
-    border-radius: 6px;
+    border-radius: var(--border-radius-lg);
     border: 1px solid var(--border-color, #2e2e33);
     background: transparent;
     color: var(--text-muted);
@@ -25922,7 +26493,7 @@ body:has(.top-bar-hidden) .btn-fit {
 .lt-sankey-svg .lt-node-label {
     fill: var(--text-primary);
     font-size: 12px;
-    font-family: Inter, sans-serif;
+    font-family: var(--font-sans);
 }
 
 .lt-sankey-svg .lt-node-sub .lt-sub-down { fill: var(--speed-download-color); }
@@ -25943,7 +26514,7 @@ body:has(.top-bar-hidden) .btn-fit {
 .lt-sankey-svg .lt-node-sub {
     fill: var(--text-secondary);
     font-size: 10px;
-    font-family: Inter, sans-serif;
+    font-family: var(--font-sans);
     font-variant-numeric: tabular-nums;
 }
 
@@ -25959,7 +26530,7 @@ body:has(.top-bar-hidden) .btn-fit {
 .lt-sankey-svg .lt-col-label {
     fill: var(--text-muted);
     font-size: 10px;
-    font-family: Inter, sans-serif;
+    font-family: var(--font-sans);
     text-transform: uppercase;
     letter-spacing: 0.06em;
 }
@@ -26961,8 +27532,7 @@ body:has(.top-bar-hidden) .btn-fit {
 
 .change-control .cc-progress {
     height: 4px;
-    background: var(--bg-tertiary);
-    border-radius: 2px;
+    background: var(--border-strong);
     margin-top: 0.6rem;
     overflow: hidden;
 }
@@ -27410,7 +27980,7 @@ body:has(.top-bar-hidden) .btn-fit {
     display: flex;
     gap: 0.4rem;
     padding: 0.15rem 0.35rem;
-    border-radius: 4px;
+    border-radius: var(--border-radius);
     color: var(--text-secondary);
 }
 
@@ -28588,7 +29158,7 @@ body:has(.top-bar-hidden) .btn-fit {
 }
 
 .change-control .cc-template-yaml {
-    font-family: var(--font-mono, ui-monospace, monospace);
+    font-family: var(--font-mono);
     font-size: 0.8125rem;
 }
 
@@ -28992,7 +29562,7 @@ body:has(.top-bar-hidden) .btn-fit {
     padding: 0.75rem 0.75rem 0.75rem 1rem;
     background: var(--bg-elevated);
     border: 1px solid var(--border-color);
-    border-radius: 10px;
+    border-radius: var(--border-radius-lg);
     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
     color: var(--text-primary);
 }

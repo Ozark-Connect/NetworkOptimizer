@@ -205,7 +205,7 @@
                             <div class="client-details">
                                 <div class="client-detail">
                                     <span class="detail-label">Wi-Fi</span>
-                                    <span class="detail-value">@(client.WifiProtocol ?? "Unknown")</span>
+                                    <span class="detail-value">@(string.IsNullOrEmpty(client.WifiProtocol) ? "Unknown" : NetworkOptimizer.UniFi.RadioFormatHelper.FormatProtocol(client.WifiProtocol))</span>
                                 </div>
                                 <div class="client-detail">
                                     <span class="detail-label">Band</span>

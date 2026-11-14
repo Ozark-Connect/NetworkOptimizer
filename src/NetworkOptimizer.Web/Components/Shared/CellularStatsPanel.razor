@@ -126,9 +126,9 @@
             <div class="modem-nav">
                 @if (configuredModems.Count > 1)
                 {
-                    <button class="nav-btn" @onclick="PreviousModem" @onclick:stopPropagation disabled="@(currentModemIndex == 0)">‹</button>
+                    <button class="nav-btn" @onclick="PreviousModem" @onclick:stopPropagation disabled="@(currentModemIndex == 0)"><AppIcon Name="chevron-left" /></button>
                     <span class="modem-counter">@(currentModemIndex + 1)/@configuredModems.Count</span>
-                    <button class="nav-btn" @onclick="NextModem" @onclick:stopPropagation disabled="@(currentModemIndex >= configuredModems.Count - 1)">›</button>
+                    <button class="nav-btn" @onclick="NextModem" @onclick:stopPropagation disabled="@(currentModemIndex >= configuredModems.Count - 1)"><AppIcon Name="chevron-right" /></button>
                 }
             </div>
             <div class="modem-identity" data-spark-model data-tour="cellular-identity" data-tooltip="@DeviceTooltip()" data-tooltip-wide @onclick:stopPropagation>
@@ -420,29 +420,33 @@
 
     .network-mode-badge {
         padding: 2px 8px;
-        border-radius: 4px;
+        border-radius: var(--border-radius);
         font-size: 0.75rem;
         font-weight: 600;
     }
 
     .network-mode-badge.mode-5g-sa {
-        background: linear-gradient(135deg, #22c55e, #16a34a);
-        color: #fff;
+        background: color-mix(in srgb, var(--success-color) 18%, transparent);
+        box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--success-color) 40%, transparent);
+        color: var(--success-color);
     }
 
     .network-mode-badge.mode-5g-nsa {
-        background: linear-gradient(135deg, #3b82f6, #2563eb);
-        color: #fff;
+        background: color-mix(in srgb, var(--info-color) 18%, transparent);
+        box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--info-color) 40%, transparent);
+        color: var(--info-color);
     }
 
     .network-mode-badge.mode-lte {
-        background: linear-gradient(135deg, #0ea5e9, #0284c7);
-        color: #fff;
+        background: color-mix(in srgb, #38bdf8 18%, transparent);
+        box-shadow: inset 0 0 0 1px color-mix(in srgb, #38bdf8 40%, transparent);
+        color: #38bdf8;
     }
 
     .network-mode-badge.mode-unknown {
-        background: var(--text-muted, #666);
-        color: #fff;
+        background: color-mix(in srgb, var(--text-secondary) 18%, transparent);
+        box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--text-secondary) 40%, transparent);
+        color: var(--text-secondary);
     }
 
     .network-mode-description {
@@ -455,7 +459,7 @@
         padding: 2px 8px;
         background: var(--warning-color, #f59e0b);
         color: #000;
-        border-radius: 4px;
+        border-radius: var(--border-radius);
         font-size: 0.7rem;
         font-weight: 600;
     }
@@ -479,7 +483,7 @@
         height: 28px;
         padding: 0;
         border: 1px solid var(--border-color);
-        border-radius: 4px;
+        border-radius: var(--border-radius);
         background: var(--bg-tertiary);
         color: var(--text-secondary);
         font-size: 1rem;
@@ -520,7 +524,6 @@
     }
 
     .metric-value {
-        font-family: monospace;
         color: var(--text-primary);
         text-align: right;
     }
@@ -542,9 +545,10 @@
         flex-direction: column;
         gap: 0.25rem;
         padding: 0.75rem;
-        background: var(--bg-tertiary);
-        border-radius: 8px;
+        background: var(--bg-inset);
+        border-radius: var(--border-radius-lg);
         font-size: 0.8rem;
+        box-shadow: inset 0 0 0 1px var(--border-color);
     }
 
     .info-item {
@@ -565,7 +569,9 @@
 
     .info-value {
         color: var(--text-primary);
-        font-family: monospace;
+        font-family: var(--font-display);
+        font-variant-numeric: tabular-nums;
+        word-spacing: var(--display-word-spacing);
     }
 </style>
 

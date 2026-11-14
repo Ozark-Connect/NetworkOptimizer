@@ -158,7 +158,7 @@ public class MarkdownReportGenerator
         // Critical Issues
         if (data.CriticalIssues.Any())
         {
-            sb.AppendLine($"### 🔴 Critical ({data.CriticalIssues.Count})");
+            sb.AppendLine($"### Critical ({data.CriticalIssues.Count})");
             sb.AppendLine();
             sb.AppendLine("| Device | Port | Issue | Action |");
             sb.AppendLine("|--------|------|-------|--------|");
@@ -178,7 +178,7 @@ public class MarkdownReportGenerator
         // Recommended Improvements
         if (data.RecommendedImprovements.Any())
         {
-            sb.AppendLine($"### 🟡 Recommended ({data.RecommendedImprovements.Count})");
+            sb.AppendLine($"### Recommended ({data.RecommendedImprovements.Count})");
             sb.AppendLine();
             sb.AppendLine("| Device | Port | Issue |");
             sb.AppendLine("|--------|------|-------|");

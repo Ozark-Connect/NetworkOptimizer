@@ -56,7 +56,7 @@
                         var n = i + 1;
                         var state = n < _step ? "done" : n == _step ? "current" : "";
                         <span class="@state">
-                            <span class="cc-step-num @state">@(n < _step ? "✓" : n.ToString())</span>
+                            <span class="cc-step-num @state">@if (n < _step) { <AppIcon Name="check" /> } else { @n }</span>
                             <span class="hide-mobile">@StepLabel(i)</span>
                             <span class="cc-phone-inline">@PhoneStepLabel(i)</span>
                         </span>

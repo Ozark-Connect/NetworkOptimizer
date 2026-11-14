@@ -1,31 +1,6 @@
 <div class="security-score-gauge">
     <div class="gauge-container">
-        <svg viewBox="0 0 200 120" class="gauge-svg">
-            @* Flat origin, rounded leading end: butt caps with a cap dot at each arc's tip *@
-            <path d="@ArcPath"
-                  fill="none"
-                  stroke="#232326"
-                  stroke-width="20"
-                  stroke-linecap="butt"/>
-            <circle cx="180" cy="100" r="10" fill="#232326"/>
-
-            <!-- Score arc -->
-            <path d="@ArcPath"
-                  fill="none"
-                  stroke="@GetScoreColor()"
-                  stroke-width="20"
-                  stroke-linecap="butt"
-                  stroke-dasharray="@GetDashArray()"
-                  stroke-dashoffset="0"/>
-            @if (Score > 0)
-            {
-                <circle cx="@TipX" cy="@TipY" r="10" fill="@GetScoreColor()"/>
-            }
-
-            <!-- Score text -->
-            <text x="100" y="90" text-anchor="middle" class="gauge-score">@Score</text>
-            <text x="100" y="110" text-anchor="middle" class="gauge-label">Wi-Fi Health</text>
-        </svg>
+        <ScoreDial Score="@Score" Label="Wi-Fi Health" Rating="@GetDialRating()" Thresholds="RatingThresholds" />
     </div>
 
     <div class="gauge-rating">
@@ -37,43 +12,21 @@
     [Parameter]
     public int Score { get; set; } = 0;
 
-    // The butt origin wraps CCW past 180 degrees toward the cap-radius angle so its span
-    // approaches the rounded leading end's reach. Dialed to 75% of a full mirror by taste.
-    private const double Delta = 0.75 * 10.0 / 80.0;
+    // Where Needs Work, Fair, Good, and Excellent start.
+    private static readonly int[] RatingThresholds = { 60, 70, 80, 90 };
 
-    private string ArcStartX => (100 - 80 * Math.Cos(Delta)).ToString("0.##", System.Globalization.CultureInfo.InvariantCulture);
-
-    private string ArcStartY => (100 + 80 * Math.Sin(Delta)).ToString("0.##", System.Globalization.CultureInfo.InvariantCulture);
-
-    private string ArcPath => $"M {ArcStartX} {ArcStartY} A 80 80 0 1 1 180 100";
-
-    private double TipPhi => -Delta + Score / 100.0 * (Math.PI + Delta);
-
-    private string TipX => (100 - 80 * Math.Cos(TipPhi))
-        .ToString("0.##", System.Globalization.CultureInfo.InvariantCulture);
-
-    private string TipY => (100 - 80 * Math.Sin(TipPhi))
-        .ToString("0.##", System.Globalization.CultureInfo.InvariantCulture);
-
-    private string GetScoreColor()
+    /// <summary>The dial's color step. Finer than the badge's: 60-69 is its own step here.</summary>
+    private string GetDialRating()
     {
         return Score switch
         {
-            0 => "#6b7280",     // Gray - No Data
-            >= 90 => "#24bc70", // Green - Excellent
-            >= 80 => "#3b82f6", // Blue - Good
-            >= 70 => "#f59e0b", // Orange - Fair
-            >= 60 => "#f97316", // Orange - Weak
-            _ => "#ef4444"      // Red - Poor
+            0 => "none",
+            >= 90 => "excellent",
+            >= 80 => "good",
+            >= 70 => "fair",
+            >= 60 => "weak",
+            _ => "poor"
         };
-    }
-
-    private string GetDashArray()
-    {
-        double totalLength = (Math.PI + Delta) * 80;
-        double scoreLength = (Score / 100.0) * totalLength;
-        double remainingLength = totalLength - scoreLength;
-        return $"{scoreLength} {remainingLength}";
     }
 
     private string GetRatingClass()
@@ -92,25 +45,12 @@
     {
         return Score switch
         {
-            0 => "NO DATA",
-            >= 90 => "EXCELLENT",
-            >= 80 => "GOOD",
-            >= 70 => "FAIR",
-            >= 60 => "NEEDS WORK",
-            _ => "POOR"
+            0 => "No Data",
+            >= 90 => "Excellent",
+            >= 80 => "Good",
+            >= 70 => "Fair",
+            >= 60 => "Needs Work",
+            _ => "Poor"
         };
     }
 }
-
-<style>
-    .gauge-score {
-        font-size: 32px;
-        font-weight: bold;
-        fill: currentColor;
-    }
-
-    .gauge-label {
-        font-size: 12px;
-        fill: var(--text-muted);
-    }
-</style>

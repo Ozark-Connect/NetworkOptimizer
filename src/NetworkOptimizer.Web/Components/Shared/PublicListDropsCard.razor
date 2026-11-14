@@ -85,9 +85,9 @@
                 @if (Pages > 1)
                 {
                     <div class="pagination">
-                        <button class="btn btn-sm btn-secondary" disabled="@(_page <= 1)" @onclick="() => _page--"><span class="pag-arrow">←</span> Prev</button>
+                        <button class="btn btn-sm btn-secondary" disabled="@(_page <= 1)" @onclick="() => _page--"><AppIcon Name="chevron-left" /> Prev</button>
                         <span class="pagination-info">Page @_page of @Pages (@_drops.Count total)</span>
-                        <button class="btn btn-sm btn-secondary" disabled="@(_page >= Pages)" @onclick="() => _page++">Next <span class="pag-arrow">→</span></button>
+                        <button class="btn btn-sm btn-secondary" disabled="@(_page >= Pages)" @onclick="() => _page++">Next <AppIcon Name="chevron-right" /></button>
                     </div>
                 }
             }

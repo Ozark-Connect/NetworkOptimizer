@@ -13,7 +13,7 @@
                 }
                 else
                 {
-                    <span class="device-emoji">@GetDeviceIcon(Device.Type)</span>
+                    <span class="device-emoji"><AppIcon Name="@GetDeviceIcon(Device.Type)" /></span>
                 }
             </div>
             <div class="device-info">
@@ -30,7 +30,7 @@
         <div class="device-body">
             <div class="device-detail">
                 <span class="detail-label">IP Address:</span>
-                <span class="detail-value">@Device.IpAddress</span>
+                <span class="detail-value detail-id">@Device.IpAddress</span>
             </div>
             @if (!string.IsNullOrEmpty(Device.Model))
             {
@@ -43,7 +43,7 @@
             {
                 <div class="device-detail">
                     <span class="detail-label">Firmware:</span>
-                    <span class="detail-value">@Device.Firmware</span>
+                    <span class="detail-value detail-id">@Device.Firmware</span>
                 </div>
             }
             @if (!string.IsNullOrEmpty(Device.Uptime))
@@ -58,7 +58,7 @@
                     @if (ShowRebootIcon)
                     {
                         <span class="reboot-reason-icon @(Device.RebootWasUnexpected ? "reboot-unexpected" : "")"
-                              data-tooltip="@UptimeTooltip" data-tooltip-click>@(Device.RebootWasUnexpected ? "⚠" : "↻")</span>
+                              data-tooltip="@UptimeTooltip" data-tooltip-click>@if (Device.RebootWasUnexpected) { <AppIcon Name="warning" /> } else { <text>↻</text> }</span>
                     }
                     <span class="detail-value uptime-value @(UptimeTooltip is null ? null : "has-reboot-reason")"
                           data-tooltip="@UptimeTooltip" data-tooltip-click>@Device.Uptime</span>
@@ -152,6 +152,18 @@
     }
     .device-card-link:hover {
         border-color: var(--primary-color);
+    }
+
+    /* Readouts in the display face; the address and the firmware version are identifiers. */
+    .device-card .detail-value,
+    .device-live-stats {
+        font-family: var(--font-display);
+        font-variant-numeric: tabular-nums;
+        word-spacing: var(--display-word-spacing);
+    }
+    .device-card .detail-value.detail-id {
+        font-family: var(--font-mono);
+        word-spacing: normal;
     }
 
     .device-live-stats {
@@ -295,15 +307,15 @@
     {
         return deviceType switch
         {
-            DeviceType.Gateway => "🌐",
-            DeviceType.Switch => "🔀",
-            DeviceType.AccessPoint => "📡",
-            DeviceType.CellularModem => "📶",
-            DeviceType.BuildingBridge => "🌉",
-            DeviceType.CloudKey => "☁️",
-            DeviceType.DeviceBridge => "🔗",
-            DeviceType.SmartPower => "⚡",
-            _ => "🖥️"
+            DeviceType.Gateway => "globe",
+            DeviceType.Switch => "switch",
+            DeviceType.AccessPoint => "access-point",
+            DeviceType.CellularModem => "cellular",
+            DeviceType.BuildingBridge => "bridge",
+            DeviceType.CloudKey => "cloud",
+            DeviceType.DeviceBridge => "link",
+            DeviceType.SmartPower => "power",
+            _ => "computer"
         };
     }
 }

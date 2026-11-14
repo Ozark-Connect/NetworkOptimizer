@@ -18,8 +18,8 @@ import { buildBuildings } from './lan-flow-buildings.js?v=1';
 import * as flowData from './lan-flow-data.js?v=18';
 
 const COLORS = {
-    background: 0x202023,
-    fog: 0x202023,
+    background: 0x1c2128,
+    fog: 0x1c2128,
     gateway: 0xfacc15,
     switchNode: 0x9aa6b2,
     ap: 0x3385d6,
@@ -1397,11 +1397,11 @@ export class LanFlowMap {
         const fontSize = 36;
         const subFontSize = 22;
         const pad = 16;
-        ctx.font = `${fontSize}px ui-sans-serif, system-ui, sans-serif`;
+        ctx.font = `${fontSize}px Inter, ui-sans-serif, system-ui, sans-serif`;
         const titleW = Math.ceil(ctx.measureText(text).width);
         let subW = 0;
         if (subText) {
-            ctx.font = `${subFontSize}px ui-sans-serif, system-ui, sans-serif`;
+            ctx.font = `${subFontSize}px Inter, ui-sans-serif, system-ui, sans-serif`;
             subW = Math.ceil(ctx.measureText(subText).width);
         }
         const w = Math.max(titleW, subW) + pad * 2;
@@ -1412,11 +1412,11 @@ export class LanFlowMap {
         roundRect(ctx, 0, 0, w, h, 12);
         ctx.fillStyle = '#f1f5f9';
         ctx.textBaseline = 'top';
-        ctx.font = `${fontSize}px ui-sans-serif, system-ui, sans-serif`;
+        ctx.font = `${fontSize}px Inter, ui-sans-serif, system-ui, sans-serif`;
         ctx.fillText(text, pad, pad);
         if (subText) {
             ctx.fillStyle = '#94a3b8';
-            ctx.font = `${subFontSize}px ui-sans-serif, system-ui, sans-serif`;
+            ctx.font = `${subFontSize}px Inter, ui-sans-serif, system-ui, sans-serif`;
             ctx.fillText(subText, pad, pad + fontSize + 6);
         }
         const tex = new THREE.CanvasTexture(canvas);
@@ -2784,7 +2784,7 @@ export class LanFlowMap {
         scrubber.dataset.tour = 'live-view-timeline';
         scrubber.innerHTML = `
             <div class="lan-flow-map-scrubber-row">
-                <button class="lan-flow-map-scrubber-playpause" data-role="playpause" type="button" aria-label="Pause">⏸</button>
+                <button class="lan-flow-map-scrubber-playpause" data-role="playpause" type="button" aria-label="Pause"><svg viewBox="0 0 12 12" width="10" height="10" fill="currentColor" aria-hidden="true"><rect x="2" y="1.500" width="2.800" height="9" rx="0.500"/><rect x="7.200" y="1.500" width="2.800" height="9" rx="0.500"/></svg></button>
                 <div class="lan-flow-map-speed-control" data-role="speed">
                     <button class="lan-flow-map-speed-step" data-dir="-1" type="button" aria-label="Slower">-</button>
                     <span class="lan-flow-map-speed-label" data-role="speed-label">1x</span>
@@ -3258,7 +3258,7 @@ export class LanFlowMap {
     _syncPlayPauseIcon() {
         const btn = this._panels.scrubberPlayPause;
         if (!btn) return;
-        btn.textContent = this._paused ? '▶' : '⏸';
+        btn.innerHTML = this._paused ? '<svg viewBox="0 0 12 12" width="10" height="10" fill="currentColor" aria-hidden="true"><path d="M3 1.500v9l7.500-4.500z"/></svg>' : '<svg viewBox="0 0 12 12" width="10" height="10" fill="currentColor" aria-hidden="true"><rect x="2" y="1.500" width="2.800" height="9" rx="0.500"/><rect x="7.200" y="1.500" width="2.800" height="9" rx="0.500"/></svg>';
         btn.setAttribute('aria-label', this._paused ? 'Play' : 'Pause');
     }
 

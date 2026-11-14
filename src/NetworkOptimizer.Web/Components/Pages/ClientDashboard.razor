@@ -79,7 +79,7 @@
     {
         <div class="connection-banner">
             <div class="banner-content">
-                <span class="banner-icon">!</span>
+                <span class="banner-icon"><GatewayIcon /></span>
                 <div class="banner-text">
                     <strong>Not Connected</strong>
                     <span>Unable to reach the UniFi Console. Signal polling is paused.</span>
@@ -92,7 +92,7 @@
     {
         <div class="connection-banner">
             <div class="banner-content">
-                <span class="banner-icon">!</span>
+                <span class="banner-icon"><AppIcon Name="warning" /></span>
                 <div class="banner-text">
                     <strong>Polling Interrupted</strong>
                     <span>@_consecutiveFailures consecutive polls failed. Retrying...</span>
@@ -105,7 +105,7 @@
     {
         <div class="connection-banner">
             <div class="banner-content">
-                <span class="banner-icon">!</span>
+                <span class="banner-icon"><AppIcon Name="location" /></span>
                 <div class="banner-text">
                     <strong>GPS Unavailable</strong>
                     <span>Location data for signal mapping requires HTTPS. Connect via HTTPS to enable walk-test mapping.</span>
@@ -118,7 +118,7 @@
     {
         <div class="connection-banner">
             <div class="banner-content">
-                <span class="banner-icon">!</span>
+                <span class="banner-icon"><AppIcon Name="location" /></span>
                 <div class="banner-text">
                     <strong>Location Permission Denied</strong>
                     <span>Enable location access in your browser or device settings to collect GPS data for walk-test signal mapping.</span>
@@ -131,7 +131,7 @@
     {
         <div class="connection-banner">
             <div class="banner-content">
-                <span class="banner-icon">!</span>
+                <span class="banner-icon"><AppIcon Name="warning" /></span>
                 <div class="banner-text">
                     <strong>Device Offline</strong>
                     <span>This device is currently offline. Showing historical data. Live data will appear when it reconnects.</span>
@@ -822,9 +822,9 @@
                             @if (SpeedTotalPages > 1)
                             {
                                 <div class="pagination">
-                                    <button class="btn btn-sm btn-secondary" disabled="@(_speedPage <= 1)" @onclick="() => ChangeSpeedPage(-1)">Prev</button>
+                                    <button class="btn btn-sm btn-secondary" disabled="@(_speedPage <= 1)" @onclick="() => ChangeSpeedPage(-1)"><AppIcon Name="chevron-left" /> Prev</button>
                                     <span class="pagination-info">Page @_speedPage of @SpeedTotalPages (@_speedResults.Count results)</span>
-                                    <button class="btn btn-sm btn-secondary" disabled="@(_speedPage >= SpeedTotalPages)" @onclick="() => ChangeSpeedPage(1)">Next</button>
+                                    <button class="btn btn-sm btn-secondary" disabled="@(_speedPage >= SpeedTotalPages)" @onclick="() => ChangeSpeedPage(1)">Next <AppIcon Name="chevron-right" /></button>
                                 </div>
                             }
                         </div>
@@ -1006,9 +1006,9 @@
                             @if (SignalTotalPages > 1)
                             {
                                 <div class="pagination">
-                                    <button class="btn btn-sm btn-secondary" disabled="@(_signalPage <= 1)" @onclick="() => ChangeSignalPage(-1)">Prev</button>
+                                    <button class="btn btn-sm btn-secondary" disabled="@(_signalPage <= 1)" @onclick="() => ChangeSignalPage(-1)"><AppIcon Name="chevron-left" /> Prev</button>
                                     <span class="pagination-info">Page @_signalPage of @SignalTotalPages (@_cachedCollapsed.Count rows)</span>
-                                    <button class="btn btn-sm btn-secondary" disabled="@(_signalPage >= SignalTotalPages)" @onclick="() => ChangeSignalPage(1)">Next</button>
+                                    <button class="btn btn-sm btn-secondary" disabled="@(_signalPage >= SignalTotalPages)" @onclick="() => ChangeSignalPage(1)">Next <AppIcon Name="chevron-right" /></button>
                                 </div>
                             }
                         </div>
@@ -1115,9 +1115,9 @@
                             @if (ConnectionTotalPages > 1)
                             {
                                 <div class="pagination">
-                                    <button class="btn btn-sm btn-secondary" disabled="@(_connectionPage <= 1)" @onclick="() => ChangeConnectionPage(-1)">Prev</button>
+                                    <button class="btn btn-sm btn-secondary" disabled="@(_connectionPage <= 1)" @onclick="() => ChangeConnectionPage(-1)"><AppIcon Name="chevron-left" /> Prev</button>
                                     <span class="pagination-info">Page @_connectionPage of @ConnectionTotalPages (@_connectionEvents.Count events)</span>
-                                    <button class="btn btn-sm btn-secondary" disabled="@(_connectionPage >= ConnectionTotalPages)" @onclick="() => ChangeConnectionPage(1)">Next</button>
+                                    <button class="btn btn-sm btn-secondary" disabled="@(_connectionPage >= ConnectionTotalPages)" @onclick="() => ChangeConnectionPage(1)">Next <AppIcon Name="chevron-right" /></button>
                                 </div>
                             }
                         </div>
@@ -4743,7 +4743,7 @@
         gap: 6px;
         color: var(--text-secondary);
         font-size: 0.75rem;
-        font-family: monospace;
+        font-family: var(--font-mono);
         flex-wrap: wrap;
     }
     .meta-sep {
@@ -4770,7 +4770,7 @@
         gap: 10px;
         padding: 20px;
         border: 1px solid var(--border-color);
-        border-radius: 8px;
+        border-radius: var(--border-radius-lg);
         background: var(--bg-secondary);
     }
     /* One button, two places. Desktop takes DOM order and puts it left of the gauge; on a phone the
@@ -4811,8 +4811,9 @@
         align-items: baseline;
         gap: 2px;
         padding: 6px 10px;
-        border-radius: 6px;
-        background: var(--bg-tertiary);
+        border-radius: var(--border-radius-lg);
+        background: var(--bg-inset);
+        box-shadow: inset 0 0 0 1px var(--border-color);
     }
     .signal-value {
         font-size: 1.5rem;
@@ -4868,9 +4869,33 @@
         font-size: 0.8125rem;
         color: var(--text-secondary);
         margin-bottom: 1rem;
+        position: relative;
+    }
+    /* Rules between the header's three groups (identity and signal, link details, figures). They
+       are drawn in the gaps the layout already has, so no row moves. */
+    .identity-row-2::before {
+        content: "";
+        position: absolute;
+        left: 0;
+        right: 0;
+        top: -4px;
+        height: 1px;
+        background: var(--border-color);
     }
     .identity-detail {
         white-space: nowrap;
+    }
+    .identity-row-2 .speed-down,
+    .identity-row-2 .speed-up,
+    .signal-summary .summary-value {
+        font-family: var(--font-display);
+        word-spacing: var(--display-word-spacing);
+    }
+    .identity-row-2 .identity-tx,
+    .identity-row-2 .identity-rx,
+    .identity-row-2 .identity-throughput {
+        font-family: var(--font-display);
+        word-spacing: var(--display-word-spacing);
     }
     /* A sentence in the detail row (the Tailscale setup line): it wraps, and on a phone spans the grid. */
     .identity-row-2 .identity-note {
@@ -4931,7 +4956,7 @@
     /* MLO badge (not in app.css) */
     .badge-mlo {
         padding: 0.125rem 0.5rem;
-        border-radius: 3px;
+        border-radius: var(--border-radius);
         font-size: 0.7rem;
         font-weight: 500;
         background: rgba(251, 191, 36, 0.15);
@@ -4941,7 +4966,7 @@
     .badge-ap-lock {
         margin-left: 0.5rem;
         padding: 0.125rem 0.375rem 0.125rem 0.25rem;
-        border-radius: 3px;
+        border-radius: var(--border-radius);
         font-size: 0.7rem;
         font-weight: 500;
         background: rgba(71, 151, 255, 0.15);
@@ -4984,7 +5009,7 @@
         display: flex;
         gap: 0.25rem;
         background: var(--bg-primary);
-        border-radius: 6px;
+        border-radius: var(--border-radius-lg);
         padding: 0.25rem;
     }
     .tab-btn {
@@ -4992,7 +5017,7 @@
         border: none;
         background: transparent;
         color: var(--text-secondary);
-        border-radius: 6px;
+        border-radius: var(--border-radius-lg);
         cursor: pointer;
         font-size: 0.875rem;
         font-weight: 500;
@@ -5004,7 +5029,8 @@
         background: var(--bg-tertiary);
     }
     .tab-btn.active {
-        background: var(--primary-color);
+        background: var(--selected-bg);
+        box-shadow: var(--selected-edge);
         color: white;
     }
 
@@ -5035,7 +5061,7 @@
     .speed-hero-link {
         cursor: pointer;
         border: 1px solid var(--bg-tertiary);
-        border-radius: 8px;
+        border-radius: var(--border-radius-lg);
         padding: 12px 16px;
         width: fit-content;
         margin: 0 auto;
@@ -5230,10 +5256,10 @@
     }
     /* The chart's own series colors (CreateUsageChartOptions), so a marker matches its bars. */
     .usage-legend-download {
-        background: #3385d6;
+        background: var(--speed-download-color);
     }
     .usage-legend-upload {
-        background: #24bc70;
+        background: var(--speed-upload-color);
     }
     .speed-tests-title {
         display: flex;
@@ -5290,7 +5316,7 @@
     .app-glyph {
         position: absolute;
         inset: 0;
-        border-radius: 4px;
+        border-radius: var(--border-radius);
     }
     .app-glyph {
         display: flex;
@@ -5320,15 +5346,16 @@
         display: block;
         width: 120px;
         height: 6px;
-        border-radius: 0 3px 3px 0;
-        background: var(--bg-tertiary);
+        background: var(--bg-inset);
+        box-shadow: inset 0 0 0 1px var(--border-strong);
         overflow: hidden;
     }
     .share-fill {
         display: block;
         height: 100%;
-        border-radius: 0 3px 3px 0;
         background: var(--speed-download-color);
+        -webkit-mask: var(--meter-face);
+        mask: var(--meter-face);
     }
     /* On a phone the two totals cards stay side by side, scaled down: Download over Upload in
        each, smaller figures, the meta lines stacked. */
@@ -5463,7 +5490,7 @@
         gap: 8px 20px;
         padding: 8px 16px;
         background: var(--bg-card);
-        border-radius: 8px;
+        border-radius: var(--border-radius-lg);
         font-size: 0.8125rem;
     }
     .summary-item {
@@ -5484,7 +5511,7 @@
     .event-badge {
         display: inline-block;
         padding: 2px 8px;
-        border-radius: 3px;
+        border-radius: var(--border-radius);
         font-size: 0.6875rem;
         font-weight: 500;
     }
@@ -5555,13 +5582,13 @@
         background: linear-gradient(90deg, var(--bg-tertiary) 25%, rgba(255,255,255,0.06) 50%, var(--bg-tertiary) 75%);
         background-size: 200% 100%;
         animation: skeleton-shimmer 1.5s ease-in-out infinite;
-        border-radius: 4px;
+        border-radius: var(--border-radius);
     }
     .skeleton-title { width: 200px; height: 28px; }
-    .skeleton-gauge { width: 90px; height: 48px; border-radius: 8px; margin-left: auto; }
+    .skeleton-gauge { width: 90px; height: 48px; border-radius: var(--border-radius-lg); margin-left: auto; }
     .skeleton-detail { width: 100px; height: 36px; }
-    .skeleton-tab { width: 80px; height: 44px; border-radius: 6px; }
-    .skeleton-chart-area { width: 100%; height: 200px; border-radius: 4px; }
+    .skeleton-tab { width: 80px; height: 44px; border-radius: var(--border-radius-lg); }
+    .skeleton-chart-area { width: 100%; height: 200px; border-radius: var(--border-radius); }
 
     @@keyframes skeleton-shimmer {
         0% { background-position: 200% 0; }
@@ -5709,6 +5736,22 @@
             grid-template-columns: 1fr 1fr;
             gap: 6px 12px;
             margin-bottom: 0;
+        }
+        .identity-figures > .identity-detail {
+            position: relative;
+        }
+        .identity-figures > .identity-detail:nth-child(-n+2)::before {
+            content: "";
+            position: absolute;
+            left: 0;
+            right: 0;
+            top: -3.5px;
+            height: 1px;
+            background: var(--border-color);
+        }
+        /* The first one bridges the column gap, so the pair reads as one rule. */
+        .identity-figures > .identity-detail:first-child::before {
+            right: -12px;
         }
         .logging-toggle-desktop {
             display: none;

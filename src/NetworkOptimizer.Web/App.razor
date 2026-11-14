@@ -10,7 +10,7 @@
     <base href="/" />
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Barlow:wght@500;600&family=Geist+Mono:wght@400;500;600&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="@FileVersionProvider.AddFileVersionToPath("/", "css/app.css")" />
     @* Font Awesome Free 6, brands and solid: the marks the Data tab's application list shows. *@
     <link rel="stylesheet" href="@FileVersionProvider.AddFileVersionToPath("/", "lib/fontawesome/css/fontawesome.min.css")" />
@@ -152,6 +152,7 @@
     <script src="@FileVersionProvider.AddFileVersionToPath("/", "js/scrollRestoration.js")"></script>
     <script src="@FileVersionProvider.AddFileVersionToPath("/", "js/updateCheck.js")"></script>
     <script src="@FileVersionProvider.AddFileVersionToPath("/", "js/steppedScaleBar.js")"></script>
+    <script src="@FileVersionProvider.AddFileVersionToPath("/", "js/trace-fit.js")"></script>
     <script src="@FileVersionProvider.AddFileVersionToPath("/", "js/tour.js")"></script>
     <script src="@FileVersionProvider.AddFileVersionToPath("/", "js/map-address-search.js")"></script>
     <script src="@FileVersionProvider.AddFileVersionToPath("/", "js/map-satellite.js")"></script>
@@ -955,6 +956,13 @@
             document.querySelectorAll('[data-tooltip-bound]:not([data-tooltip])').forEach(function(el) {
                 if (el._tippy) el._tippy.destroy();
                 el.removeAttribute('data-tooltip-bound');
+            });
+
+            // A tooltip left open on an element Blazor has since removed: a click that navigates in
+            // code (a bar, a tile, a row) is not a link, so the link cleanup below never runs for it.
+            document.querySelectorAll('[data-tippy-root]').forEach(function(root) {
+                var tip = root._tippy;
+                if (tip && tip.reference && !tip.reference.isConnected) tip.destroy();
             });
 
             // Icons Blazor kept but whose data-tooltip changed: initTooltips only runs when nodes

@@ -87,6 +87,10 @@
                     }
                 </div>
             }
+            @if (HasSignalFilter && string.IsNullOrEmpty(_selectedClientMac))
+            {
+                <span class="client-signal-filter">@SignalFilterLabel</span>
+            }
             @if (HasActiveFilters && string.IsNullOrEmpty(_selectedClientMac))
             {
                 <button class="btn btn-outline-primary btn-sm" @onclick="ClearFilters">Clear Filters</button>
@@ -146,17 +150,17 @@
                     </div>
                     <div class="pagination-buttons">
                         <button class="page-btn" @onclick="GoToFirstPage" disabled="@(_currentPage == 1)">
-                            <span>««</span>
+                            <AppIcon Name="chevron-first" />
                         </button>
                         <button class="page-btn" @onclick="GoToPreviousPage" disabled="@(_currentPage == 1)">
-                            <span>‹</span>
+                            <AppIcon Name="chevron-left" />
                         </button>
                         <span class="page-indicator">Page @_currentPage of @TotalPages</span>
                         <button class="page-btn" @onclick="GoToNextPage" disabled="@(_currentPage >= TotalPages)">
-                            <span>›</span>
+                            <AppIcon Name="chevron-right" />
                         </button>
                         <button class="page-btn" @onclick="GoToLastPage" disabled="@(_currentPage >= TotalPages)">
-                            <span>»»</span>
+                            <AppIcon Name="chevron-last" />
                         </button>
                     </div>
                 </div>
@@ -387,6 +391,12 @@
     [Parameter] public string? InitialApMac { get; set; }
     [Parameter] public RadioBand? InitialBand { get; set; }
 
+    /// <summary>List only clients at or above this signal (dBm).</summary>
+    [Parameter] public int? InitialSignalMin { get; set; }
+
+    /// <summary>List only clients at or below this signal (dBm).</summary>
+    [Parameter] public int? InitialSignalMax { get; set; }
+
     /// <summary>
     /// A user picked a client (its MAC) or went back to the list (null). The page puts it in the URL, so
     /// the browser's Back and Forward step between list and details; the details then follow
@@ -419,6 +429,8 @@
     private string _statusFilter = "all"; // "all", "online", "offline"
     private string _apFilter = "";  // Empty = all APs
     private RadioBand? _bandFilter;  // null = all bands
+    private int? _signalMin;
+    private int? _signalMax;
     private bool _refreshing = false;
 
     private List<WirelessClientSnapshot> _clients = new();
@@ -493,6 +505,13 @@
             _apFilter = InitialApMac;
         if (InitialBand.HasValue)
             _bandFilter = InitialBand.Value;
+        if (InitialSignalMin.HasValue || InitialSignalMax.HasValue)
+        {
+            _signalMin = InitialSignalMin;
+            _signalMax = InitialSignalMax;
+            // A signal range is a reading of connected clients, as the chart that links here counts them.
+            _statusFilter = "online";
+        }
 
         await LoadClientsAsync();
 
@@ -937,6 +956,14 @@
             filtered = filtered.Where(c => c.Band == _bandFilter.Value);
         }
 
+        // Apply signal range filter
+        if (_signalMin.HasValue || _signalMax.HasValue)
+        {
+            filtered = filtered.Where(c => c.Signal.HasValue
+                && (!_signalMin.HasValue || c.Signal.Value >= _signalMin.Value)
+                && (!_signalMax.HasValue || c.Signal.Value <= _signalMax.Value));
+        }
+
         // Apply search text filter
         if (!string.IsNullOrWhiteSpace(_clientSearchText))
         {
@@ -961,12 +988,24 @@
         _currentPage = 1;
     }
 
-    private bool HasActiveFilters => !string.IsNullOrEmpty(_apFilter) || _bandFilter.HasValue;
+    private bool HasSignalFilter => _signalMin.HasValue || _signalMax.HasValue;
+
+    private bool HasActiveFilters => !string.IsNullOrEmpty(_apFilter) || _bandFilter.HasValue || HasSignalFilter;
+
+    private string SignalFilterLabel => (_signalMin, _signalMax) switch
+    {
+        ({ } min, { } max) => $"Signal {min} to {max} dBm",
+        ({ } min, null) => $"Signal {min} dBm or better",
+        (null, { } max) => $"Signal {max} dBm or worse",
+        _ => "",
+    };
 
     private void ClearFilters()
     {
         _apFilter = "";
         _bandFilter = null;
+        _signalMin = null;
+        _signalMax = null;
         _currentPage = 1;
     }
 

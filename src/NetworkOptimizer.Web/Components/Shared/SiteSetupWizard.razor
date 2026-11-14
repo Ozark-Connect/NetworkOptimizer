@@ -35,7 +35,7 @@
                 <span class="site-wizard-step-node">
                     @if (i < currentPos)
                     {
-                        <text>&#x2713;</text>
+                        <AppIcon Name="check" />
                     }
                     else
                     {
@@ -277,7 +277,7 @@
     else if (_step == 4 && _site != null)
     {
         <div class="site-wizard-success">
-            <span class="site-wizard-success-icon">&#x2713;</span>
+            <span class="site-wizard-success-icon"><AppIcon Name="check" /></span>
             <div>
                 <h3 class="site-wizard-title">@_site.Name is ready</h3>
                 <p class="section-description">

@@ -3,6 +3,9 @@
 // the first screen, gets it; a page opts out with data-no-card-index on any element, and a card
 // with no .card-title joins with data-card-index="Name". A card with data-card-index-side-only shows
 // in the side list but not the row, for a card whose own control already sits beside the row.
+// The row leaves out the cards already on the first screen: it sits at the top, where they are in
+// view. A page with data-card-index-merge on any element (the Dashboard) also folds neighbors in
+// the row that end in the same words into one link ("LAN & WAN Speed Test").
 //
 // Two forms, by the room there is. Beside the content, when its left gutter fits the list: a list
 // that follows the scroll, the card in view highlighted. Otherwise a row of card names just above
@@ -19,6 +22,11 @@
     var GAP = 12;          // between the list and the content, and the list and the gutter's far edge
     var IDLE_MS = 1000;    // the side list dims after this long without a scroll (.card-index-idle)
     var list = null, row = null, cards = [], signature = '', pending = 0, scroller = null;
+    // The cards behind each link: one, or several where the row folds neighbors into one link.
+    var linkCards = [];
+    // The row's cards so far for one set of cards. It only grows: a card moving back onto the
+    // first screen as data loads would otherwise drop out, and the row's height would jitter.
+    var listed = { key: '', names: {} };
     // The card a click jumped to stays highlighted until the reader scrolls: one near the end
     // cannot reach the top, and the page's bottom would otherwise mark the last card.
     var pinned = -1;
@@ -71,6 +79,61 @@
         return at.map(function (a) { return a.c; });
     }
 
+    // The cards the row lists: those that start below the first screen, plus any it listed before.
+    function belowFirstScreen(found, sc) {
+        var key = found.map(nameOf).join('|');
+        if (listed.key !== key) listed = { key: key, names: {} };
+        var paneTop = paneRect(sc).top;
+        return found.filter(function (c) {
+            var name = nameOf(c);
+            var start = c.getBoundingClientRect().top - paneTop + sc.scrollTop;
+            if (start > sc.clientHeight - LINE) listed.names[name] = true;
+            return listed.names[name] === true;
+        });
+    }
+
+    // A name's words and its trailing parenthetical: "ONT Stats (GPON/XGS-PON)" is ONT, Stats, and the bracket.
+    function nameParts(name) {
+        var m = /^(.*?)\s*(\([^)]*\))\s*$/.exec(name);
+        return { words: (m ? m[1] : name).split(' '), paren: m ? m[2] : '' };
+    }
+
+    // The trailing words two names share, each keeping at least one word of its own.
+    function sharedTail(a, b) {
+        var n = 0;
+        while (n < a.length - 1 && n < b.length - 1 && a[a.length - 1 - n] === b[b.length - 1 - n]) n++;
+        return n;
+    }
+
+    // Neighbors that end in the same words become one link, the shared words said once:
+    // "ONT Stats (GPON/XGS-PON)" and "Starlink Stats" read "ONT (GPON/XGS-PON) & Starlink Stats".
+    function groupsOf(names, merge) {
+        var groups = [];
+        for (var i = 0; i < names.length;) {
+            var first = nameParts(names[i]), members = [i], tail = 0;
+            while (merge && i + members.length < names.length) {
+                var next = nameParts(names[i + members.length]);
+                var shared = sharedTail(first.words, next.words);
+                if (shared === 0 || (tail && shared < tail)) break;
+                tail = tail ? tail : shared;
+                members.push(i + members.length);
+            }
+            var label = names[i];
+            if (members.length > 1) {
+                var heads = members.map(function (m) {
+                    var p = nameParts(names[m]);
+                    return p.words.slice(0, p.words.length - tail).join(' ') + (p.paren ? ' ' + p.paren : '');
+                });
+                var joined = heads.length === 2 ? heads.join(' & ')
+                    : heads.slice(0, -1).join(', ') + ', & ' + heads[heads.length - 1];
+                label = joined + ' ' + first.words.slice(first.words.length - tail).join(' ');
+            }
+            groups.push({ label: label, cards: members });
+            i += members.length;
+        }
+        return groups;
+    }
+
     // By index, not node: a re-render replaces the cards under the same links.
     function link(i, name, cls) {
         var a = document.createElement('a');
@@ -108,6 +171,7 @@
         if (scroller) scroller.removeEventListener('scroll', onScroll);
         scroller = null;
         cards = [];
+        linkCards = [];
     }
 
     // Before the first card, unless it sits in a grid or a side-by-side flex row: then before the
@@ -128,6 +192,7 @@
         var root = content();
         if (!root) return clear();
         var found = root.querySelector('[data-no-card-index]') ? [] : findCards(root);
+        var first = found[0];
         var sc = found.length ? scrollerOf(found[0]) : null;
         var gutter = root.getBoundingClientRect().left - (sc ? paneRect(sc).left : 0);
         var mode = gutter >= LIST_WIDTH + 2 * GAP + 8 ? 'list' : 'row';
@@ -139,13 +204,19 @@
         var hidden = sc && found.some(function (c) {
             return c.getBoundingClientRect().top - paneRect(sc).top + sc.scrollTop > sc.clientHeight;
         });
-        var names = found.length >= MIN_CARDS ? found.map(nameOf).join('|') : '';
+        var enough = found.length >= MIN_CARDS;
+        if (mode === 'row' && sc && hidden) found = belowFirstScreen(found, sc);
+        var groups = groupsOf(found.map(nameOf), mode === 'row' && !!root.querySelector('[data-card-index-merge]'));
+        var names = enough ? groups.map(function (g) { return g.label; }).join('|') : '';
         // Once shown, the same cards keep it: a page near one screen tall (Edit, as its Problems list
         // grows and shrinks) would otherwise add and drop it, shifting the whole page each time.
         var sig = hidden || (names && names === signature) ? names : '';
         // Same cards, same form, row still in the page: keep the index, follow the new nodes.
         if (sig === signature && (sig === '' || (mode === 'list' ? list : row && row.isConnected))) {
-            if (sig) cards = found;
+            if (sig) {
+                cards = found;
+                linkCards = groups.map(function (g) { return g.cards; });
+            }
             place();
             return;
         }
@@ -154,6 +225,7 @@
         signature = sig;
         if (!sig) return;
         cards = found;
+        linkCards = groups.map(function (g) { return g.cards; });
         if (keep) pinned = found.map(nameOf).indexOf(keep);
         scroller = sc;
         if (mode === 'list') {
@@ -178,8 +250,9 @@
             row = document.createElement('nav');
             row.className = 'card-index-row';
             row.setAttribute('aria-label', 'On this page');
-            cards.forEach(function (c, i) { row.appendChild(link(i, nameOf(c), 'card-index-link')); });
-            var anchor = rowAnchor(cards[0], root);
+            groups.forEach(function (g) { row.appendChild(link(g.cards[0], g.label, 'card-index-link')); });
+            // Before the page's first card, which the row may not list.
+            var anchor = rowAnchor(first, root);
             anchor.parentElement.insertBefore(row, anchor);
         }
         scroller.addEventListener('scroll', onScroll, { passive: true });
@@ -237,8 +310,13 @@
         if (pinned >= 0) shown = pinned;
         else if (shown < 0 || shown >= cards.length || (dir < 0 ? natural < shown : dir > 0 ? natural > shown : false)) shown = natural;
         var links = (list || row).querySelectorAll('.card-index-link');
+        // The row can start at a card further down: nothing is lit until the reader gets to one.
+        var notReached = !!row && pinned < 0 && tops[shown] >= pane.bottom;
         Array.prototype.forEach.call(links, function (a, i) {
-            a.classList.toggle('active', pinned >= 0 ? i === pinned : Math.abs(tops[i] - tops[shown]) < 4);
+            var behind = linkCards[i] || [i];
+            a.classList.toggle('active', !notReached && behind.some(function (c) {
+                return pinned >= 0 ? c === pinned : Math.abs(tops[c] - tops[shown]) < 4;
+            }));
         });
         if (list) {
             var root = content().getBoundingClientRect();
@@ -376,7 +454,7 @@
             place(-1);
         });
         // A resize can change the form (list or row), so rebuild even with the same cards.
-        window.addEventListener('resize', function () { signature = null; schedule(); });
+        window.addEventListener('resize', function () { signature = null; listed = { key: '', names: {} }; schedule(); });
         schedule();
     }
 

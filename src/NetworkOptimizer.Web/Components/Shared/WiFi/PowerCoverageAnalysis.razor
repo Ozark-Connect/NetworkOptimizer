@@ -72,8 +72,8 @@
                         var heightPct = _maxBucketCount > 0 ? (double)bucket.Count / _maxBucketCount * 100 : 0;
                         var barClass = GetSignalBucketClass(bucket.MinSignal);
                         <div class="signal-bar-wrapper">
-                            <div class="signal-bar @barClass" style="height: @heightPct%"
-                                 data-tooltip="@bucket.Count clients at @bucket.Label">
+                            <div class="signal-bar @barClass @(bucket.Count > 0 ? "clickable" : "")" style="height: @heightPct%"
+                                 @onclick="() => OpenBucket(bucket)">
                                 @if (bucket.Count > 0)
                                 {
                                     <span class="bar-count">@bucket.Count</span>
@@ -251,6 +251,15 @@
 
 @code {
     [Parameter] public EventCallback<string> OnClientClick { get; set; }
+
+    /// <summary>Opens Client Stats on the clients in a signal range (dBm, either end open).</summary>
+    [Parameter] public EventCallback<(int? Min, int? Max)> OnNavigateToClients { get; set; }
+
+    private Task OpenBucket(SignalBucket bucket) => bucket.Count == 0
+        ? Task.CompletedTask
+        : OnNavigateToClients.InvokeAsync((
+            bucket.MinSignal == int.MinValue ? null : bucket.MinSignal,
+            bucket.MaxSignal == int.MaxValue ? null : bucket.MaxSignal));
 
     private bool _loading = true;
     private List<AccessPointSnapshot> _accessPoints = new();

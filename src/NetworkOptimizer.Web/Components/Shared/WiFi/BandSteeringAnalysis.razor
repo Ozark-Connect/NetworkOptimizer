@@ -110,7 +110,7 @@
                                 <div class="steerable-client-row">
                                     <div class="client-info">
                                         <a href="javascript:void(0)" @onclick="() => OnClientClick.InvokeAsync(client.Mac)" class="client-name client-link">@client.Name</a>
-                                        <span class="client-meta">@client.Manufacturer - @client.WifiProtocol</span>
+                                        <span class="client-meta">@client.Manufacturer - @(NetworkOptimizer.UniFi.RadioFormatHelper.FormatProtocol(client.WifiProtocol))</span>
                                     </div>
                                     <div class="client-current-band">
                                         <span class="current-label">Currently on:</span>
@@ -140,7 +140,7 @@
                                 <div class="steerable-client-row">
                                     <div class="client-info">
                                         <a href="javascript:void(0)" @onclick="() => OnClientClick.InvokeAsync(client.Mac)" class="client-name client-link">@client.Name</a>
-                                        <span class="client-meta">@client.Manufacturer - @(client.WifiProtocol ?? "Unknown")</span>
+                                        <span class="client-meta">@client.Manufacturer - @(string.IsNullOrEmpty(client.WifiProtocol) ? "Unknown" : NetworkOptimizer.UniFi.RadioFormatHelper.FormatProtocol(client.WifiProtocol))</span>
                                     </div>
                                     <div class="client-current-band">
                                         <span class="current-label">Currently on:</span>
@@ -224,7 +224,7 @@
                             <div class="legacy-client-stats">
                                 <div class="legacy-stat">
                                     <span class="stat-label">Protocol</span>
-                                    <span class="stat-value">@(client.WifiProtocol ?? "n/a")</span>
+                                    <span class="stat-value">@(string.IsNullOrEmpty(client.WifiProtocol) ? "n/a" : NetworkOptimizer.UniFi.RadioFormatHelper.FormatProtocol(client.WifiProtocol))</span>
                                 </div>
                                 <div class="legacy-stat">
                                     <span class="stat-label">Signal</span>

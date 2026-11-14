@@ -80,7 +80,7 @@
 {
     <!-- Tab bar -->
     <div class="wifi-view-tabs-wrapper">
-        <button class="wifi-tabs-scroll-btn wifi-tabs-scroll-left" onclick="this.parentElement.querySelector('.wifi-view-tabs').scrollBy({left: -200, behavior: 'smooth'})">&#8249;</button>
+        <button class="wifi-tabs-scroll-btn wifi-tabs-scroll-left" onclick="this.parentElement.querySelector('.wifi-view-tabs').scrollBy({left: -200, behavior: 'smooth'})"><AppIcon Name="chevron-left" /></button>
         <div class="wifi-view-tabs">
             <button class="wifi-view-tab @(_activeTab == "live" ? "active" : "")"
                     @onclick="@(() => SetActiveTab("live"))"
@@ -153,7 +153,7 @@
                 Setup
             </button>
         </div>
-        <button class="wifi-tabs-scroll-btn wifi-tabs-scroll-right" onclick="this.parentElement.querySelector('.wifi-view-tabs').scrollBy({left: 200, behavior: 'smooth'})">&#8250;</button>
+        <button class="wifi-tabs-scroll-btn wifi-tabs-scroll-right" onclick="this.parentElement.querySelector('.wifi-view-tabs').scrollBy({left: 200, behavior: 'smooth'})"><AppIcon Name="chevron-right" /></button>
     </div>
 
     @* ──────────────── Tab: Live View ──────────────── *@
@@ -628,7 +628,7 @@
             <div class="card lan-flaky-hint">
                 <div class="card-body">
                     <p class="section-description">
-                        <span class="lan-flaky-warn">&#9888;</span>
+                        <span class="lan-flaky-warn"><AppIcon Name="warning" /></span>
                         These LAN devices are showing packet loss that's usually a measurement artifact -
                         Wi-Fi roaming or the device deprioritizing pings - rather than a real network problem.
                         If one isn't useful to monitor, pause it in Latency Targets to keep it out of your charts.
@@ -1815,11 +1815,11 @@
                                     <span class="page-description" style="margin-left: 0.5rem;">
                                         @if (_influxReachable == true)
                                         {
-                                            <span style="color: var(--success-color);">&#x2713; Connected</span>
+                                            <span style="color: var(--success-color);"><AppIcon Name="check" /> Connected</span>
                                         }
                                         else
                                         {
-                                            <span style="color: var(--danger-color);">&#x2717; @(_influxError ?? "Unreachable")</span>
+                                            <span style="color: var(--danger-color);"><AppIcon Name="close" /> @(_influxError ?? "Unreachable")</span>
                                         }
                                     </span>
                                 }
@@ -3854,7 +3854,7 @@
     /// </summary>
     private RenderFragment NoAgentProbeBanner => @<div class="alert alert-warning" style="margin-bottom: 1rem;">
         <div class="banner-content">
-            <span class="banner-icon">!</span>
+            <span class="banner-icon"><AppIcon Name="agent" /></span>
             <div class="banner-text" style="flex: 1;">
                 <strong>No agent for this site</strong>
                 Probe-based monitoring needs an On-Site Agent. SNMP collection is unaffected.
