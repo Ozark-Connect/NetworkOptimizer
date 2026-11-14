@@ -92,6 +92,11 @@
         linear-gradient(#000, #000) left / 1px 100% no-repeat,
         linear-gradient(#000, #000) right / 1px 100% no-repeat,
         linear-gradient(rgb(0 0 0 / 0.42), rgb(0 0 0 / 0.42));
+    /* The same face for a second segment that continues the first: fainter, no edge where they meet. */
+    --meter-face-extension: linear-gradient(#000, #000) top / 100% 1px no-repeat,
+        linear-gradient(#000, #000) bottom / 100% 1px no-repeat,
+        linear-gradient(#000, #000) right / 1px 100% no-repeat,
+        linear-gradient(rgb(0 0 0 / 0.18), rgb(0 0 0 / 0.18));
     --border-radius: 2px;
     --border-radius-lg: 3px;
     --shadow: none;
@@ -15660,25 +15665,21 @@ h3 > .tooltip-icon-sm {
 .power-bar-tx.power-low { background: var(--good-color); }
 .power-bar-tx.power-auto { background: var(--good-color); }
 
+/* Antenna gain: the TX power's color carried on as a fainter face, open on the side it joins. */
 .power-bar-gain {
     height: 100%;
-    border-left: 1px dashed rgba(255, 255, 255, 0.3);
-    border-radius: 0 var(--border-radius) var(--border-radius) 0;
     transition: width 0.3s ease;
 }
 
-.power-bar-gain.power-high {
-    background: repeating-linear-gradient(90deg, #f97316 0px, #f97316 3px, #ea580c 3px, #ea580c 6px);
+.power-bar-stack > .power-bar-gain {
+    -webkit-mask: var(--meter-face-extension);
+    mask: var(--meter-face-extension);
 }
-.power-bar-gain.power-medium {
-    background: repeating-linear-gradient(90deg, #22c55e 0px, #22c55e 3px, #16a34a 3px, #16a34a 6px);
-}
-.power-bar-gain.power-low {
-    background: repeating-linear-gradient(90deg, #3b82f6 0px, #3b82f6 3px, #2563eb 3px, #2563eb 6px);
-}
-.power-bar-gain.power-auto {
-    background: repeating-linear-gradient(90deg, #3b82f6 0px, #3b82f6 3px, #2563eb 3px, #2563eb 6px);
-}
+
+.power-bar-gain.power-high { background: var(--signal-weak); }
+.power-bar-gain.power-medium { background: var(--signal-good); }
+.power-bar-gain.power-low { background: var(--good-color); }
+.power-bar-gain.power-auto { background: var(--good-color); }
 
 .power-values {
     position: absolute;
@@ -15686,6 +15687,8 @@ h3 > .tooltip-icon-sm {
     display: flex;
     align-items: center;
     gap: 2px;
+    font-family: var(--font-display);
+    font-variant-numeric: tabular-nums;
     font-size: 0.7rem;
     font-weight: 500;
     color: var(--text-primary);
@@ -15697,7 +15700,11 @@ h3 > .tooltip-icon-sm {
 }
 
 .power-eirp {
-    font-style: italic;
+    font-weight: 600;
+}
+
+.power-unit {
+    color: var(--text-secondary);
 }
 
 .power-unit {
@@ -21001,9 +21008,9 @@ a.isp-health-hero-speed:hover {
     flex-direction: column;
     gap: 0.75rem;
     padding: 0.9rem 1rem;
-    border: 1px solid var(--border-color);
     border-radius: var(--border-radius-lg);
-    background: var(--bg-tertiary);
+    background: var(--bg-inset);
+    box-shadow: inset 0 0 0 1px var(--border-color);
 }
 
 .isp-outage-head {
@@ -21013,9 +21020,16 @@ a.isp-health-hero-speed:hover {
     gap: 0.4rem 0.7rem;
 }
 
+.isp-outage-duration,
+.isp-outage-window,
+.isp-outage-hop-status {
+    font-family: var(--font-display);
+    word-spacing: var(--display-word-spacing);
+}
+
 .isp-outage-duration {
     font-size: 1rem;
-    font-weight: 700;
+    font-weight: 600;
     color: var(--text-primary);
     font-variant-numeric: tabular-nums;
 }
@@ -21106,16 +21120,33 @@ a.isp-outage-ack:hover {
     text-overflow: ellipsis;
 }
 
+/* An outlined well. What the dark or lossy part leaves is the time the target was up, a shaded
+   face in the hatching's own blue with no edge on the side where the two meet, so the stripes
+   run into it. */
 .isp-outage-hop-track {
+    --recovered-face: linear-gradient(#000, #000) top / 100% 1px no-repeat,
+        linear-gradient(#000, #000) bottom / 100% 1px no-repeat,
+        linear-gradient(#000, #000) right / 1px 100% no-repeat,
+        linear-gradient(rgb(0 0 0 / 0.5), rgb(0 0 0 / 0.5));
+    display: flex;
     height: 7px;
-    border-radius: var(--border-radius);
-    background: linear-gradient(90deg, var(--bg-tertiary) 0, var(--bg-tertiary) 3px, var(--primary-color) 3px);
+    background: var(--bg-inset);
+    box-shadow: inset 0 0 0 1px var(--border-strong);
     overflow: hidden;
 }
 
+.isp-outage-hop-track::after {
+    content: "";
+    flex: 1 1 0;
+    min-width: 0;
+    background: var(--primary-color);
+    -webkit-mask: var(--recovered-face);
+    mask: var(--recovered-face);
+}
+
 .isp-outage-hop-dark {
+    flex: none;
     height: 100%;
-    border-radius: 4px 0 0 4px;
     background:
         repeating-linear-gradient(45deg, transparent 0, transparent 2px, var(--bg-tertiary) 2px, var(--bg-tertiary) 5px),
         linear-gradient(90deg, var(--text-muted), 75%, var(--primary-color));
@@ -21123,9 +21154,11 @@ a.isp-outage-ack:hover {
 }
 
 .isp-outage-hop-loss {
+    flex: none;
     height: 100%;
-    border-radius: 4px 0 0 4px;
     background: var(--warning-color);
+    -webkit-mask: var(--meter-face);
+    mask: var(--meter-face);
     transition: width 0.6s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
