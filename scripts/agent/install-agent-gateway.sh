@@ -297,7 +297,11 @@ if [ "$UNINSTALL" = true ]; then
     systemctl stop netopt-flood-cleanup.timer netopt-flood-cleanup.service 2>/dev/null || true
     rm -f "/etc/systemd/system/${SERVICE_NAME}.service"
     # The traceroute package stays: it is a stock Debian tool, and removing it could take one the user relies on.
-    systemctl disable --now --quiet "${TRACEROUTE_SERVICE}.service" 2>/dev/null || true
+    # Stopped only while it waits to retry: stopping it while apt runs would leave dpkg interrupted.
+    systemctl disable --quiet "${TRACEROUTE_SERVICE}.service" 2>/dev/null || true
+    if [ "$(systemctl is-active "${TRACEROUTE_SERVICE}.service" 2>/dev/null || true)" = activating ]; then
+        systemctl stop "${TRACEROUTE_SERVICE}.service" 2>/dev/null || true
+    fi
     rm -f "/etc/systemd/system/${TRACEROUTE_SERVICE}.service"
     systemctl daemon-reload 2>/dev/null || true
     systemctl reset-failed "${SERVICE_NAME}.service" 2>/dev/null || true
@@ -396,7 +400,7 @@ Wants=network-online.target
 [Service]
 Type=exec
 Environment=DEBIAN_FRONTEND=noninteractive
-ExecStart=/bin/sh -c 'command -v traceroute >/dev/null 2>&1 && exit 0; apt-get update -qq && apt-get install -y -qq traceroute && systemctl try-restart ${SERVICE_NAME}.service'
+ExecStart=/bin/sh -c 'command -v traceroute >/dev/null 2>&1 && exit 0; apt-get update -qq && apt-get install -y -qq traceroute || exit 1; systemctl try-restart ${SERVICE_NAME}.service 2>/dev/null; exit 0'
 Nice=19
 IOSchedulingClass=idle
 Restart=on-failure
