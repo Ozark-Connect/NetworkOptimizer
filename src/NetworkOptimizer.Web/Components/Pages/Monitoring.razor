@@ -2196,7 +2196,7 @@
                 await JS.InvokeVoidAsync("localStorage.setItem", SharedWanScopeKey, FocusedWanKeyOrNull ?? "");
                 // persist:true is the user's own pick - the link and the restore both pass false - so
                 // this is the moment the link's WAN stops describing what is on screen.
-                ClearLinkedWan();
+                ClearLinkedWan(andCategory: true);
             }
             // Held rather than dropped when the module is not there yet: window.__latencyCharts is
             // assigned inside the mount's own import, so a plain ?. swallowed every push that beat
@@ -4610,16 +4610,34 @@
     /// <see cref="ClearLinkedInstant"/> - the parameter records which WAN a link wanted, and left in
     /// place a reload or the back button re-narrows to it over the choice they just made.
     /// </summary>
-    private void ClearLinkedWan()
+    /// <param name="andCategory">
+    /// True for a scope pick on the Latency &amp; Packet Loss chart: ?category= and ?target= go too,
+    /// in the same navigation. Left in place, a reload replays the link's category over the scope
+    /// just picked, and the LAN scope cannot show an ISP, Transit, or Internet category.
+    /// </param>
+    private void ClearLinkedWan(bool andCategory = false)
     {
-        if (string.IsNullOrWhiteSpace(WanParam)) return;
         // Never before the link has been read. Loading the live scope self-selects a WAN and raises
         // its own change, so on a cold load this threw the parameter away while it was still the
         // only record of where the user asked to go.
         if (LinkNarrowsWanFilter && _appliedLinkWanKey != LinkWanKey) return;
 
-        var stripped = SiteContextService.RemoveQueryParam(NavigationManager.Uri, "wan");
-        if (stripped == NavigationManager.Uri) return;
+        var current = NavigationManager.Uri;
+        var stripped = string.IsNullOrWhiteSpace(WanParam)
+            ? current
+            : SiteContextService.RemoveQueryParam(current, "wan");
+        // Only once the chart mount has read the link's category.
+        if (andCategory && _latencyChartsMounted && !string.IsNullOrEmpty(CategoryParam))
+        {
+            stripped = SiteContextService.RemoveQueryParam(stripped, "category");
+            if (!string.IsNullOrWhiteSpace(TargetParam))
+                stripped = SiteContextService.RemoveQueryParam(stripped, "target");
+            // Re-supplied parameters re-arm these on every navigation, so the next mount would
+            // replay the link's category without this.
+            _preSelectCategory = null;
+            _soloTargetId = null;
+        }
+        if (stripped == current) return;
         // The URL is about to change, which re-arms the linked instant unless the arm moves with it -
         // a WAN change would then seek them back to the link's moment. _pendingAtMs is deliberately
         // left as it stands: this is not a statement about time. The investigation arm moves too -

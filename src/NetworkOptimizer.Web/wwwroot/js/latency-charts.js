@@ -960,9 +960,7 @@ function frameCustomWindow(ts, category, halfWindowMs) {
 
     const container = document.getElementById(containerId);
     if (container) {
-        container.querySelectorAll('[data-category]').forEach(b => {
-            b.classList.toggle('active', b.dataset.category === currentCategory);
-        });
+        applyCategoryAvailability();
         container.querySelectorAll('[data-range]').forEach(b => b.classList.remove('active'));
         container.querySelector('.custom-range-btn')?.classList.add('active');
         syncPopoverInputs(container);
@@ -1021,9 +1019,7 @@ export function frameTrailing(category) {
     if (category) currentCategory = category;
     const container = document.getElementById(containerId);
     if (!container) return;
-    container.querySelectorAll('[data-category]').forEach(b => {
-        b.classList.toggle('active', b.dataset.category === currentCategory);
-    });
+    applyCategoryAvailability();
     // The trailing hour, the same span the Live View tiles' sparklines show.
     selectPresetRange(container, 1);
 }
@@ -1093,12 +1089,8 @@ export function setWanScope(scope) {
 
 export function setCategory(cat) {
     currentCategory = cat;
-    const container = document.getElementById(containerId);
-    if (container) {
-        container.querySelectorAll('[data-category]').forEach(b => {
-            b.classList.toggle('active', b.dataset.category === cat);
-        });
-    }
+    // Through the scope's own rule: a link can name a category the scope hides.
+    applyCategoryAvailability();
     visibility = {};
     // Each category answers "are there any inactive series" for itself, so asking for them does
     // not follow the reader from one tab to the next.
