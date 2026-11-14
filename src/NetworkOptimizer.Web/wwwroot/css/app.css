@@ -10834,6 +10834,12 @@ h3 > .tooltip-icon-sm {
     height: 2.5rem;
 }
 
+/* A drawn line icon in that slot: strokes need the lighter blue to read on the card. */
+.line-icon.stat-icon-svg {
+    color: var(--primary-hover);
+    opacity: 1;
+}
+
 /* Health score icon in stat card */
 .wifi-health-icon {
     display: flex;
@@ -14554,12 +14560,14 @@ h3 > .tooltip-icon-sm {
 }
 
 /* Recommend Best Channels button - accent gradient matching Cleanest Channels box */
+/* The Channel Plan mark, in both brand colors: an angled orange tab on a blue body. Shared with
+   the Cleanest Channels card on RF Environment, which opens the same plan. */
 .btn-recommend {
-    background: linear-gradient(135deg, var(--accent-color) 0%, var(--primary-color) 100%);
+    background: linear-gradient(115deg, var(--accent-color) 0 1.6rem, var(--primary-color) calc(1.6rem + 1px));
     color: white;
     border: none;
     height: 34px;
-    padding: 0 1.25rem;
+    padding: 0 1.25rem 0 2.6rem;
     font-size: 0.875rem;
     font-weight: 500;
     border-radius: var(--border-radius);

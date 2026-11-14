@@ -30,7 +30,7 @@
         <div class="device-body">
             <div class="device-detail">
                 <span class="detail-label">IP Address:</span>
-                <span class="detail-value">@Device.IpAddress</span>
+                <span class="detail-value detail-id">@Device.IpAddress</span>
             </div>
             @if (!string.IsNullOrEmpty(Device.Model))
             {
@@ -43,7 +43,7 @@
             {
                 <div class="device-detail">
                     <span class="detail-label">Firmware:</span>
-                    <span class="detail-value">@Device.Firmware</span>
+                    <span class="detail-value detail-id">@Device.Firmware</span>
                 </div>
             }
             @if (!string.IsNullOrEmpty(Device.Uptime))
@@ -152,6 +152,18 @@
     }
     .device-card-link:hover {
         border-color: var(--primary-color);
+    }
+
+    /* Readouts in the display face; the address and the firmware version are identifiers. */
+    .device-card .detail-value,
+    .device-live-stats {
+        font-family: var(--font-display);
+        font-variant-numeric: tabular-nums;
+        word-spacing: var(--display-word-spacing);
+    }
+    .device-card .detail-value.detail-id {
+        font-family: var(--font-mono);
+        word-spacing: normal;
     }
 
     .device-live-stats {

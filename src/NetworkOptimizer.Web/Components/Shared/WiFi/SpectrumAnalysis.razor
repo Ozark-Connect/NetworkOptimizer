@@ -554,7 +554,7 @@
     }
 
     .spectrum-stat-card.highlight {
-        background: linear-gradient(135deg, var(--accent-color) 0%, var(--primary-color) 100%);
+        background: linear-gradient(115deg, var(--accent-color) 0 1.25rem, var(--primary-color) calc(1.25rem + 1px));
         box-shadow: none;
     }
 
@@ -576,7 +576,7 @@
         background: var(--bg-hover);
     }
     .spectrum-stat-card.highlight.clickable:hover {
-        background: linear-gradient(135deg, var(--accent-color) 0%, var(--primary-color) 100%);
+        background: linear-gradient(115deg, var(--accent-color) 0 1.25rem, var(--primary-color) calc(1.25rem + 1px));
         filter: brightness(1.15);
     }
 
@@ -1016,7 +1016,7 @@
     private string selectedApMac = "";
     private RadioBand selectedBand = RadioBand.Band5GHz;
     private string selectedTimeRange = "1D";
-    private string sortColumn = "signal";
+    private string? sortColumn;
     private bool sortDescending = true;
     private int _currentPage = 1;
     private const int _pageSize = 25;
@@ -1578,7 +1578,9 @@
     {
         IEnumerable<RfNeighborRow> networks = filteredNeighbors;
 
-        networks = sortColumn switch
+        // No column picked: the default order, strongest signal first.
+        var sortDescending = sortColumn == null || this.sortDescending;
+        networks = (sortColumn ?? "signal") switch
         {
             "ssid" => sortDescending ? networks.OrderByDescending(n => n.Network.Ssid) : networks.OrderBy(n => n.Network.Ssid),
             "bssid" => sortDescending ? networks.OrderByDescending(n => n.Network.Bssid) : networks.OrderBy(n => n.Network.Bssid),
@@ -1608,8 +1610,8 @@
     private void GoToNextPage() { if (_currentPage < TotalPages) _currentPage++; }
     private void GoToLastPage() => _currentPage = TotalPages;
 
-    // Three states per header: its first direction, the other direction, then back to the
-    // default order, strongest signal first.
+    // Three states per header, as on the other data tables: its first direction, the other
+    // direction, then cleared, which is the default order with no header marked.
     private void SetSort(string column)
     {
         var firstDescending = column == "signal" || column == "lastSeen";
@@ -1624,8 +1626,7 @@
         }
         else
         {
-            sortColumn = "signal";
-            sortDescending = true;
+            sortColumn = null;
         }
         _currentPage = 1;
     }
