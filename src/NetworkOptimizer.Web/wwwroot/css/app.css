@@ -15574,15 +15574,25 @@ h3 > .tooltip-icon-sm {
 }
 
 /* A histogram: bars stand on one baseline, each a shaded face with a full-strength edge, its
-   count above it and the bin labels in one row below. The top padding is room for a count
-   over the tallest bar. */
+   count above it and the bin labels in one row below. */
 .signal-bars {
     display: flex;
     align-items: flex-end;
-    height: 166px;
+    height: 150px;
     gap: 4px;
-    padding: 16px 0.5rem 0;
+    padding: 0 0.5rem;
     margin-bottom: 0;
+}
+
+/* Room for a count over the tallest bar. Scoped: Cellular Stats and Client Performance have
+   their own .signal-bars (the five-bar signal icon), and this must never reach them. */
+.signal-distribution .signal-bars {
+    height: 166px;
+    padding-top: 16px;
+}
+
+.signal-distribution .signal-bar {
+    min-height: 2px;
 }
 
 .signal-bar-wrapper {
@@ -15599,7 +15609,7 @@ h3 > .tooltip-icon-sm {
     display: flex;
     align-items: flex-end;
     justify-content: center;
-    min-height: 2px;
+    min-height: 4px;
     transition: height 0.3s ease;
     position: relative;
 }
