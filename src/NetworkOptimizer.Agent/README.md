@@ -27,9 +27,13 @@ install it with. It sends nothing to Ozark Connect. There is no telemetry, no
 analytics, and no usage reporting.
 
 - **Self-hosted Network Optimizer:** that server is yours, so everything the
-  agent collects stays on your infrastructure. The server itself contacts Ozark
-  Connect for one thing only: activating a license key. Personal use needs no
-  key, so it sends nothing (see [Licensing and firewalls](../../README.md#multi-site-support)).
+  agent collects stays on your infrastructure. Personal use needs no license
+  key, so nothing at all goes to Ozark Connect. A licensed install checks its key
+  with `licensing.ozarkconnect.net`, sending only the key, a random installation
+  ID, the app version, and the site count. A perpetual key checks at activation
+  and once more 30 days later, then never again; a term key checks daily in the
+  30 days before it expires, so a renewal is picked up (see
+  [Licensing and firewalls](../../README.md#multi-site-support)).
 - **Hosted Network Optimizer:** the agent's URL is your organization on the
   hosted service at `optimizer.ozarkconnect.net`, reached through Cloudflare.
   Your data is kept there, isolated to your organization, and used only to run,
