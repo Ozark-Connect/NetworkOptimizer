@@ -7054,6 +7054,7 @@ tr:hover .snmp-row-chevron {
     border-top: 1px solid var(--bg-card);
     padding-left: 1rem;
     padding-right: 1rem;
+    padding-bottom: 1rem;
 }
 
 .history-details .path-analysis {
