@@ -109,7 +109,7 @@ Time-series monitoring on your own InfluxDB, fed by SNMP polling (InfluxDB).
 - Historic playback on both maps - scrub, play, change speed, ranges from 1 hour to 30 days or everything stored (InfluxDB)
 - **Live Traffic** (formerly Bandwidth Hogs) - who is using the WAN now, and who used the most from the last hour to 30 days
   - **WAN** or **LAN + WAN** view; follows the playback timeline
-  - Measured at the gateway rather than estimated ([On-Site Agent](#on-site-agent) on the gateway)
+  - Measured at the gateway rather than estimated ([On-Site Agent](#on-site-agent) on the gateway); the **WAN** view then lists each interface behind a shared switch port (a hypervisor, a NAS) on its own row
   - Apps, protocols, destinations, and DNS stay in memory; only aggregate usage per device is stored, not per app or protocol ([What Live Traffic Stores](docker/DEPLOYMENT.md#what-live-traffic-stores))
   - Turn off Live Traffic flow and DNS capture per site in Settings - Monitoring - **Live Traffic**; the card still ranks clients by usage (Site Admin)
   - **By** client, app, destination, or route; open a client to see its flows

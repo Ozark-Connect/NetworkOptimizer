@@ -1047,13 +1047,15 @@ else
     /// <summary>
     /// The rows this view can show. In the Data WAN view the DPI report already names every
     /// interface behind a shared port, so the port's own row would count them twice and is left out.
+    /// Throughput with measured WAN does the same: the WAN view lists the port's interfaces, LAN + WAN the port.
     /// </summary>
     private IEnumerable<HogRow> VisibleRows(View view)
     {
         if (_result == null) return Enumerable.Empty<HogRow>();
-        return _mode == Mode.Data && view == View.Wan
+        if (view != View.Wan) return _result.Rows.Where(r => !r.WanOnly);
+        return _mode == Mode.Data
             ? _result.Rows.Where(r => !r.IsPortGroup)
-            : _result.Rows;
+            : _result.Rows.Where(r => !r.SplitForWan);
     }
 
     private bool Qualifies(HogRow row, View view, double denominator) =>
