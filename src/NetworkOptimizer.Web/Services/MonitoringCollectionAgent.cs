@@ -2199,6 +2199,11 @@ public class MonitoringCollectionAgent : BackgroundService
                     mac, ifName, calc.RejectedRateInBps ?? 0, calc.RejectedRateOutBps ?? 0, speedBps,
                     InterfaceRateCalculator.LinkSpeedToleranceFactor);
                 break;
+            case InterfaceRateCalculator.Outcome.CeilingHeld:
+                _logger.LogDebug(
+                    "Holding SNMP baseline for {Mac}/{IfName}: in={RateIn:F0} out={RateOut:F0} bps is marginally over link speed {LinkBps} bps; the next window absorbs it.",
+                    mac, ifName, calc.RejectedRateInBps ?? 0, calc.RejectedRateOutBps ?? 0, speedBps);
+                break;
         }
 
         if (rateInBps.HasValue && rateOutBps.HasValue)
@@ -2213,7 +2218,7 @@ public class MonitoringCollectionAgent : BackgroundService
 
         // A read the calculator does not trust is not stored either: one zero or corrupt sample in
         // the counter series reads as the whole counter's worth of traffic once differenced.
-        if (calc.Outcome is InterfaceRateCalculator.Outcome.ResetPending or InterfaceRateCalculator.Outcome.ImplausibleRate || calc.NewState.ProvisionalSeed)
+        if (calc.IsUntrusted)
             return (rateInBps, rateOutBps);
 
         _ = _influx.WriteInterfaceCountersAsync(
