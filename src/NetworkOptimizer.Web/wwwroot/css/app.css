@@ -3205,6 +3205,8 @@ a.stat-card-link:active {
 .data-table th {
     padding: 0.75rem 1rem;
     text-align: left;
+    font-family: var(--font-display);
+    word-spacing: var(--display-word-spacing);
     font-weight: 600;
     font-size: 0.875rem;
     color: var(--text-secondary);
@@ -3642,10 +3644,11 @@ a.btn-lg {
 }
 
 /* Outline variant - primary only */
+/* The lighter brand blue: the base one is too dark to read as text on the slate. */
 .btn-outline-primary {
     background: transparent;
-    border: 1px solid var(--primary-color);
-    color: var(--primary-color);
+    border: 1px solid var(--primary-hover);
+    color: var(--primary-hover);
 }
 
 .btn-outline-primary:hover:not(:disabled) {
@@ -12146,6 +12149,17 @@ h3 > .tooltip-icon-sm {
 
 .apexcharts-text {
     fill: var(--text-muted) !important;
+}
+
+/* Chart axes, legends, and tooltips in the display face, so a figure on a chart matches the
+   readout beside it. ApexCharts writes its font inline, hence !important as on the rules here. */
+.apexcharts-text,
+.apexcharts-legend-text,
+.apexcharts-tooltip,
+.apexcharts-xaxistooltip-text,
+.apexcharts-yaxistooltip-text {
+    font-family: var(--font-display) !important;
+    font-variant-numeric: tabular-nums;
 }
 
 .apexcharts-gridline {
