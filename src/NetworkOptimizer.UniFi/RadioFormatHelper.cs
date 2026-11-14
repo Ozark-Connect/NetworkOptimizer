@@ -27,7 +27,7 @@ public static class RadioFormatHelper
     /// <summary>
     /// Formats a UniFi radio protocol code to a Wi-Fi generation string
     /// </summary>
-    /// <param name="proto">Protocol code (a, b, g, n, ac, ax, be)</param>
+    /// <param name="proto">Protocol code (a, b, g, n, ng, na, ac, ax, be)</param>
     /// <param name="radio">Optional radio band to determine 6E vs 6</param>
     /// <returns>Wi-Fi generation string (e.g., "Wi-Fi 6 (ax)" or "Wi-Fi 6E (ax)")</returns>
     public static string FormatProtocol(string? proto, string? radio = null)
@@ -43,7 +43,8 @@ public static class RadioFormatHelper
             "a" => "Wi-Fi 1/2 (a)",
             "b" => "Wi-Fi 1 (b)",
             "g" => "Wi-Fi 3 (g)",
-            "n" => "Wi-Fi 4 (n)",
+            // A client record reports 802.11n with its band: ng on 2.4 GHz, na on 5 GHz.
+            "n" or "ng" or "na" => "Wi-Fi 4 (n)",
             "ac" => "Wi-Fi 5 (ac)",
             "ax" => is6GHz ? "Wi-Fi 6E (ax)" : "Wi-Fi 6 (ax)",
             "be" => "Wi-Fi 7 (be)",
@@ -70,7 +71,7 @@ public static class RadioFormatHelper
             "a" => "1/2 (a)",
             "b" => "1 (b)",
             "g" => "3 (g)",
-            "n" => "4 (n)",
+            "n" or "ng" or "na" => "4 (n)",
             "ac" => "5 (ac)",
             "ax" => is6GHz ? "6E (ax)" : "6 (ax)",
             "be" => "7 (be)",

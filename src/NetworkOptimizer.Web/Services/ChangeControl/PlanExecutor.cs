@@ -225,6 +225,26 @@ public sealed class PlanExecutor
         return response.IsSuccess ? null : Error(response);
     }
 
+    /// <summary>
+    /// A client's custom icon, generated or uploaded: rest/user answers 200 and stores nothing, so it is set by MAC on
+    /// its own route, or cleared there (Network 11.0.97). Any client's icon object is accepted, which is how one icon
+    /// is reused on another client. Null when nothing was needed or it applied, else the console's refusal.
+    /// </summary>
+    [VendorSpecific("UniFi", "v2 clients/{mac}/ai-icon: PUT the ai_icon object sets, DELETE clears")]
+    private async Task<string?> WriteCustomIconAsync(PlanOperation op, JsonNode? body, CancellationToken ct)
+    {
+        if (op.Collection != "user" || op.StationMac is not { Length: > 0 } mac || body is not JsonObject b) return null;
+        if (!op.WriteFields.Contains(CustomIconField) && !b.ContainsKey(CustomIconField)) return null;
+        var path = $"clients/{mac}/ai-icon";
+        var response = b[CustomIconField] is JsonObject { Count: > 0 } icon
+            ? await _api.SendAsync(UniFiApiScope.SiteV2, HttpMethod.Put, path, icon.ToJsonString(), ct)
+            : await _api.SendAsync(UniFiApiScope.SiteV2, HttpMethod.Delete, path, null, ct);
+        // Clearing an icon that is already gone is done.
+        return response.IsSuccess || (response.Status == 404 && b[CustomIconField] is not JsonObject { Count: > 0 }) ? null : Error(response);
+    }
+
+    private const string CustomIconField = "ai_icon";
+
     private static void Record(PlanResult result, Action<OperationResult>? progress, OperationResult r)
     {
         result.Operations.Add(r);
@@ -285,6 +305,8 @@ public sealed class PlanExecutor
             }
             if (await WriteDeviceTypeAsync(op, body, ct) is { } refused)
                 return new OperationResult { Key = op.Key, Outcome = "Error", Message = $"Device type: {refused}" };
+            if (await WriteCustomIconAsync(op, body, ct) is { } refusedIcon)
+                return new OperationResult { Key = op.Key, Outcome = "Error", Message = $"Custom icon: {refusedIcon}" };
             return new OperationResult { Key = op.Key, Outcome = "Applied" };
         }
         // Delete of something already gone counts as done.

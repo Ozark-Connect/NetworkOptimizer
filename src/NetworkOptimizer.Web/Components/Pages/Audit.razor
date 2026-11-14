@@ -36,7 +36,7 @@
 {
     <div class="connection-banner @(!string.IsNullOrEmpty(ConnectionService.LastError) ? "connection-error" : "")">
         <div class="banner-content">
-            <span class="banner-icon">!</span>
+            <span class="banner-icon"><GatewayIcon /></span>
             <div class="banner-text">
                 @if (!string.IsNullOrEmpty(ConnectionService.LastError))
                 {
@@ -145,6 +145,7 @@
                 <div class="results-summary">
                     <div class="summary-score">
                         <div class="score-circle score-@scoreClass">
+                            <ScoreRing Score="@securityScore" />
                             <span class="score-value">@securityScore</span>
                             <span class="score-max">/100</span>
                         </div>

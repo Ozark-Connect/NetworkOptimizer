@@ -10,6 +10,8 @@ public class DomainAppCatalogTests
     [InlineData("rr3---sn-abc.googlevideo.com", "YouTube")]
     [InlineData("ipv4-c001-ord001-ix.1.oca.nflxvideo.net.", "Netflix")]
     [InlineData("steamcontent.com", "Valve Steam")]
+    [InlineData("cm1-iad1.cm.valve.net", "Valve Steam")]   // Steam's connection managers
+    [InlineData("media.valvesoftware.com", "Valve Steam")]
     [InlineData("teams.microsoft.com", "Microsoft Teams")]
     [InlineData("claude.ai", "Claude")]
     [InlineData("api.anthropic.com", "Claude")]

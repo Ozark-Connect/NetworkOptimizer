@@ -130,6 +130,7 @@ public static partial class ConfigDiffEngine
                 return true;
             }
             if (v is JsonArray arr && arr.Count > 0) return true;
+            if (v is JsonObject obj && obj.Count > 0) return true;
         }
         return false;
     }
@@ -137,7 +138,7 @@ public static partial class ConfigDiffEngine
     private static readonly string[] ClientConfigMarkers =
     [
         "name", "note", "use_fixedip", "fixed_ap_enabled", "blocked", "local_dns_record_enabled",
-        "virtual_network_override_enabled", "dev_id_override", "network_members_group_ids", "usergroup_id",
+        "virtual_network_override_enabled", "dev_id_override", "network_members_group_ids", "usergroup_id", "ai_icon",
     ];
 
     /// <summary>Networks devices are managed on: each device's mgmt_network_id and current connection network, plus the default LAN.</summary>
@@ -304,6 +305,12 @@ public static partial class ConfigDiffEngine
             if (isTop && def.KeyedArrays.TryGetValue(key, out var keyField) && (b is JsonArray || a is JsonArray))
             {
                 CompareKeyedArray(def, key, childPath, b as JsonArray, a as JsonArray, keyField, fields, noOwned);
+                continue;
+            }
+
+            if (isTop && def.WholeFields.Contains(key))
+            {
+                if (!CanonicalJson.DeepEquals(b, a) && !(IsEmpty(b) && IsEmpty(a))) fields.Add(new FieldChange(childPath, b, a));
                 continue;
             }
 

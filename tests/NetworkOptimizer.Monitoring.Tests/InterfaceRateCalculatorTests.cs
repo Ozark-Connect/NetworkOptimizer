@@ -305,6 +305,62 @@ public class InterfaceRateCalculatorTests
         r.RateInBps.Should().BeApproximately(1_000_000, 1);
     }
 
+    // ─── An SNMP agent restarting: all-zero reads on an interface with no known speed ───
+
+    [Fact]
+    public void AllZeroRead_OnUnknownSpeed32BitInterface_IsNeverAWrap_NoPhantomRate()
+    {
+        // A tunnel interface reports no speed, so it is polled as 32-bit and its only ceiling is
+        // the absolute one. Wrap arithmetic on a (0,0) read made 2^32 bytes of traffic out of it.
+        var prev = Seed(2_182_017, 1_500_000, T0);
+        var zero = InterfaceRateCalculator.Compute(
+            prev, inOctets: 0, outOctets: 0, now: T0.AddSeconds(8),
+            useHcCounters: false, linkSpeedBps: 0);
+
+        zero.Outcome.Should().Be(InterfaceRateCalculator.Outcome.ResetPending);
+        zero.RateInBps.Should().BeNull();
+        zero.NewState.InOctets.Should().Be(2_182_017, "the baseline is held");
+
+        var zeroAgain = InterfaceRateCalculator.Compute(
+            zero.NewState, 0, 0, T0.AddSeconds(10), useHcCounters: false, linkSpeedBps: 0);
+        zeroAgain.Outcome.Should().Be(InterfaceRateCalculator.Outcome.ResetConfirmed);
+        zeroAgain.NewState.ProvisionalSeed.Should().BeTrue("a zero baseline makes the next real read a phantom");
+
+        var back = InterfaceRateCalculator.Compute(
+            zeroAgain.NewState, 2_182_917, 1_500_400, T0.AddSeconds(36), useHcCounters: false, linkSpeedBps: 0);
+        back.Outcome.Should().Be(InterfaceRateCalculator.Outcome.SeededBaseline);
+        back.RateInBps.Should().BeNull();
+
+        var next = InterfaceRateCalculator.Compute(
+            back.NewState, 2_183_917, 1_500_400, T0.AddSeconds(38), useHcCounters: false, linkSpeedBps: 0);
+        next.Outcome.Should().Be(InterfaceRateCalculator.Outcome.Normal);
+        next.RateInBps.Should().BeApproximately(4_000, 1);
+    }
+
+    [Fact]
+    public void BaselineAboveThe32BitRange_IsNeverWrapRecovered()
+    {
+        // 6.1 GB cannot be a 32-bit counter, whatever the interface's speed says.
+        var prev = Seed(6_163_152_232, 10, T0);
+        var r = InterfaceRateCalculator.Compute(
+            prev, inOctets: 5_000_000_000, outOctets: 20, now: T0.AddSeconds(8),
+            useHcCounters: false, linkSpeedBps: 0);
+
+        r.Outcome.Should().Be(InterfaceRateCalculator.Outcome.ResetPending);
+        r.RateInBps.Should().BeNull();
+    }
+
+    [Fact]
+    public void ZeroSeed_OnUnknownSpeedInterface_DefersBaseline()
+    {
+        var r = InterfaceRateCalculator.Compute(
+            previous: null, inOctets: 0, outOctets: 0, now: T0,
+            useHcCounters: false, linkSpeedBps: 0);
+
+        r.Outcome.Should().Be(InterfaceRateCalculator.Outcome.SeededBaseline);
+        r.NewState.ProvisionalSeed.Should().BeTrue();
+    }
+
     [Fact]
     public void ZeroSeed_On32BitCounters_SeedsNormally_NotDeferred()
     {

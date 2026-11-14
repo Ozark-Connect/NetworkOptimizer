@@ -231,11 +231,11 @@ export function valueSortedTooltip({ series, seriesIndex, dataPointIndex, w }, o
     const when = ts ? noTime.string(noTime.instantOf(ts, w), timeParts) : '';
     const hidden = syncedCopy ? Math.max(0, rows.length - SYNCED_ROW_CAP) : 0;
     const shown = hidden ? rows.slice(0, SYNCED_ROW_CAP) : rows;
-    return (when ? '<div class="apexcharts-tooltip-title" style="font-family:Helvetica, Arial, sans-serif;font-size:12px">' + esc(when) + '</div>' : '')
+    return (when ? '<div class="apexcharts-tooltip-title" style="font-size:12px">' + esc(when) + '</div>' : '')
         + shown.map((r, idx) =>
             '<div class="apexcharts-tooltip-series-group apexcharts-active" style="display:flex">'
             + '<span class="apexcharts-tooltip-marker" style="background-color:' + r.color + ';border-radius:50%;width:12px;height:12px"></span>'
-            + '<div class="apexcharts-tooltip-text" style="font-family:Helvetica, Arial, sans-serif;font-size:12px"><div class="apexcharts-tooltip-y-group">'
+            + '<div class="apexcharts-tooltip-text" style="font-size:12px"><div class="apexcharts-tooltip-y-group">'
             + '<span class="apexcharts-tooltip-text-y-label">' + esc(r.name) + ': </span>'
             + '<span class="apexcharts-tooltip-text-y-value">' + esc(fmtFor(r.i)(r.v)) + '</span>'
             + '</div></div>'

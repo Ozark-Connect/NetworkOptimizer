@@ -109,7 +109,7 @@ Time-series monitoring on your own InfluxDB, fed by SNMP polling (InfluxDB).
 - Historic playback on both maps - scrub, play, change speed, ranges from 1 hour to 30 days or everything stored (InfluxDB)
 - **Live Traffic** (formerly Bandwidth Hogs) - who is using the WAN now, and who used the most from the last hour to 30 days
   - **WAN** or **LAN + WAN** view; follows the playback timeline
-  - Measured at the gateway rather than estimated ([On-Site Agent](#on-site-agent) on the gateway)
+  - Measured at the gateway rather than estimated ([On-Site Agent](#on-site-agent) on the gateway); the **WAN** view then lists each interface behind a shared switch port (a hypervisor, a NAS) on its own row
   - Apps, protocols, destinations, and DNS stay in memory; only aggregate usage per device is stored, not per app or protocol ([What Live Traffic Stores](docker/DEPLOYMENT.md#what-live-traffic-stores))
   - Turn off Live Traffic flow and DNS capture per site in Settings - Monitoring - **Live Traffic**; the card still ranks clients by usage (Site Admin)
   - **By** client, app, destination, or route; open a client to see its flows
@@ -367,6 +367,7 @@ Gateway tweaks for UCG-Fiber, UXG-Fiber, UCG-Max, and UXG-Max (Gateway SSH).
 - **Edit** - edit the config as YAML with live checks, then **Review Plan**; upload or download YAML files, for the whole site or a single collection
   - Remove an object with one click; references to it in lists are removed in the same plan
   - Remove a client to forget it in UniFi Network, each one an item to acknowledge; Roll Back and Return to Baseline also forget a client the snapshot lacks, Restore never does
+  - Copy a client's custom icon (AI-generated or uploaded) to another client by copying its `ai_icon` block, which UniFi Network has no way to do; remove the block to clear it
   - **+ Add** a WLAN, network, port profile, firewall policy, zone, group, or Local DNS record from UniFi's own defaults
   - Search field names and values across every collection (common names find UniFi's: VLAN finds networks, SSID finds WLANs), with each collection's match count and Previous / Next through the matches
   - Edit a saved template the same way
@@ -474,7 +475,7 @@ Gateway tweaks for UCG-Fiber, UXG-Fiber, UCG-Max, and UXG-Max (Gateway SSH).
 - **Client Stats** - searchable client table, signal and TX retry history, connection events
   - Each client's UniFi Network icon in the table and its details
 - **Roaming** - roaming topology, AP pair success rates, 802.11r usage, roaming clients
-- **Power/Coverage** - signal distribution, EIRP per AP, coverage quality, overlap
+- **Power & Coverage** - signal distribution (click a bar to list its clients in Client Stats), EIRP per AP, coverage quality, overlap
 - **Load Balance** - clients per AP and imbalance
 - **Connectivity** - success rate per connection stage and per AP
 - **Band Steering** - steering opportunities and clients by Wi-Fi generation

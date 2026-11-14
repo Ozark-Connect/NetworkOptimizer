@@ -43,7 +43,7 @@
         <div class="card">
             <div class="card-body">
                 <div class="empty-state">
-                    <span class="empty-icon">🌐</span>
+                    <span class="empty-icon"><AppIcon Name="globe" /></span>
                     <h3>External Speed Test Server Not Configured</h3>
                     <p>@(_canConfigure ? "To use Client WAN Speed Tests, configure an external OpenSpeedTest server in Settings." : "Client WAN Speed Tests need an external OpenSpeedTest server, which a site administrator configures.")</p>
                     <a href="/settings#external-speedtest-settings" class="btn btn-primary">Configure External Server</a>
@@ -118,8 +118,8 @@
                             <div class="url-copy-row">
                                 <input type="text" class="url-display" value="@ExternalShareUrl" readonly />
                                 <button type="button" class="btn-icon" title="Copy URL" onclick="copyFromInput(this)">
-                                    <span class="copy-icon">📋</span>
-                                    <span class="copy-check" style="display:none;">✓</span>
+                                    <span class="copy-icon"><AppIcon Name="copy" /></span>
+                                    <span class="copy-check" style="display:none;"><AppIcon Name="check" /></span>
                                 </button>
                             </div>
                             <p class="form-help browser-tip">
@@ -407,12 +407,12 @@
                     @if (_totalPages > 1)
                     {
                         <div class="pagination">
-                            <button class="btn btn-sm btn-secondary" disabled="@(_page <= 1)" @onclick="() => ChangePage(-1)"><span class="pag-arrow">←</span> Prev</button>
+                            <button class="btn btn-sm btn-secondary" disabled="@(_page <= 1)" @onclick="() => ChangePage(-1)"><AppIcon Name="chevron-left" /> Prev</button>
                             @{
                                 var hasFilter = !string.IsNullOrEmpty(_deviceFilter) || !string.IsNullOrEmpty(_serverFilter);
                             }
                             <span class="pagination-info">Page @_page of @_totalPages (@_filteredResults.Count@(hasFilter ? $" of {_results.Count}" : " total"))</span>
-                            <button class="btn btn-sm btn-secondary" disabled="@(_page >= _totalPages)" @onclick="() => ChangePage(1)">Next <span class="pag-arrow">→</span></button>
+                            <button class="btn btn-sm btn-secondary" disabled="@(_page >= _totalPages)" @onclick="() => ChangePage(1)">Next <AppIcon Name="chevron-right" /></button>
                         </div>
                     }
                 }
@@ -486,9 +486,10 @@
     }
 
     .test-option {
-        background: var(--bg-tertiary);
+        background: var(--bg-inset);
         border-radius: var(--border-radius);
         padding: 1.25rem;
+        box-shadow: inset 0 0 0 1px var(--border-color);
     }
 
     .test-option-header {
@@ -548,7 +549,7 @@
         background: transparent;
         border: none;
         outline: none;
-        font-family: monospace;
+        font-family: var(--font-mono);
         width: 100%;
     }
 

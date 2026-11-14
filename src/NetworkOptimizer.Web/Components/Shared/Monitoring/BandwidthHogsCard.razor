@@ -281,7 +281,9 @@ else
                         }
                         @for (var i = rows.Count; i < slots; i++)
                         {
-                            <tr class="hogs-slot-empty"><td colspan="6">&nbsp;</td></tr>
+                            @* One cell per breakpoint, as in NestedFlows: a phone shows four columns, and a
+                               six-wide span there adds two phantom columns that squeeze the real ones. *@
+                            <tr class="hogs-slot-empty"><td colspan="6" class="hide-mobile">&nbsp;</td><td colspan="4" class="show-mobile">&nbsp;</td></tr>
                         }
                     </tbody>
                 </table>
@@ -485,13 +487,17 @@ else
             <tbody>
                 @if (_lt == null)
                 {
-                    <tr><td colspan="6"><span class="spinner spinner-sm"></span></td></tr>
+                    <tr><td colspan="@(phone ? 4 : 6)"><span class="spinner spinner-sm"></span></td></tr>
+                }
+                else if (_lt.State == LiveTrafficState.Starting)
+                {
+                    <tr><td colspan="@(phone ? 4 : 6)" class="lt-muted"><span class="spinner spinner-sm"></span> Measuring rates.</td></tr>
                 }
                 else if (flows.Count == 0)
                 {
-                    <tr><td colspan="6" class="lt-muted">No WAN flows moving right now.</td></tr>
+                    <tr><td colspan="@(phone ? 4 : 6)" class="lt-muted">No WAN flows moving right now.</td></tr>
                 }
-                @foreach (var f in flows)
+                @foreach (var f in _lt?.State == LiveTrafficState.Starting ? Array.Empty<LiveFlowRow>() : flows)
                 {
                     <LiveFlowRowView @key="f.Key" Flow="f" Layout="@(phone ? LiveFlowLayout.NestedPhone : LiveFlowLayout.Nested)" Context="NestedContext(row)" />
                 }
@@ -508,6 +514,12 @@ else
         if (_lt == null)
         {
             <div class="loading-container hogs-loading"><div class="spinner spinner-sm"></div></div>
+            return;
+        }
+        // Until the Gateway's second sample there are no rates, so an empty list is not "no traffic" yet.
+        if (_lt.State == LiveTrafficState.Starting)
+        {
+            <div class="loading-container hogs-loading"><div class="spinner spinner-sm"></div><p>Measuring rates.</p></div>
             return;
         }
         var groups = _lt.Groups.Take(_showAll ? MaxRows : CollapsedRows).ToList();
@@ -1045,13 +1057,15 @@ else
     /// <summary>
     /// The rows this view can show. In the Data WAN view the DPI report already names every
     /// interface behind a shared port, so the port's own row would count them twice and is left out.
+    /// Throughput with measured WAN does the same: the WAN view lists the port's interfaces, LAN + WAN the port.
     /// </summary>
     private IEnumerable<HogRow> VisibleRows(View view)
     {
         if (_result == null) return Enumerable.Empty<HogRow>();
-        return _mode == Mode.Data && view == View.Wan
+        if (view != View.Wan) return _result.Rows.Where(r => !r.WanOnly);
+        return _mode == Mode.Data
             ? _result.Rows.Where(r => !r.IsPortGroup)
-            : _result.Rows;
+            : _result.Rows.Where(r => !r.SplitForWan);
     }
 
     private bool Qualifies(HogRow row, View view, double denominator) =>

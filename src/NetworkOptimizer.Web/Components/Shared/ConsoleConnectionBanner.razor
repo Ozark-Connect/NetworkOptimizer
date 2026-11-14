@@ -23,7 +23,7 @@ else if (ConnectionService.IsInitialized && !ConnectionService.IsConnected)
     {
         <div class="connection-banner">
             <div class="banner-content">
-                <span class="banner-icon">!</span>
+                <span class="banner-icon"><AppIcon Name="agent" /></span>
                 <div class="banner-text">
                     <strong>Waiting for the site's agent</strong>
                     <span>@ConnectionService.LastError</span>
@@ -36,7 +36,7 @@ else if (ConnectionService.IsInitialized && !ConnectionService.IsConnected)
     {
         <div class="connection-banner">
             <div class="banner-content">
-                <span class="banner-icon">!</span>
+                <span class="banner-icon"><GatewayIcon /></span>
                 <div class="banner-text">
                     <strong>Console isn't responding</strong>
                     <span>@ConnectionService.LastError</span>
@@ -50,7 +50,7 @@ else if (ConnectionService.IsInitialized && !ConnectionService.IsConnected)
         var hasError = !string.IsNullOrEmpty(ConnectionService.LastError);
         <div class="connection-banner @(Prominent && hasError ? "connection-error" : "")">
             <div class="banner-content">
-                <span class="banner-icon">!</span>
+                <span class="banner-icon"><GatewayIcon /></span>
                 <div class="banner-text">
                     @if (hasError)
                     {
