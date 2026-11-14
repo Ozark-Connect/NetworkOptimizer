@@ -73,6 +73,7 @@ SPEED_TEST_PORT=24443
 PORT_REQUESTED=false
 HTTP_PORT=""
 SPEEDTEST_SERVICE="netopt-speedtest-nginx"
+TRACEROUTE_SERVICE="netopt-traceroute"
 
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -295,6 +296,13 @@ if [ "$UNINSTALL" = true ]; then
     ip link del netopt_probe 2>/dev/null || true
     systemctl stop netopt-flood-cleanup.timer netopt-flood-cleanup.service 2>/dev/null || true
     rm -f "/etc/systemd/system/${SERVICE_NAME}.service"
+    # The traceroute package stays: it is a stock Debian tool, and removing it could take one the user relies on.
+    # Stopped only while it waits to retry: stopping it while apt runs would leave dpkg interrupted.
+    systemctl disable --quiet "${TRACEROUTE_SERVICE}.service" 2>/dev/null || true
+    if [ "$(systemctl is-active "${TRACEROUTE_SERVICE}.service" 2>/dev/null || true)" = activating ]; then
+        systemctl stop "${TRACEROUTE_SERVICE}.service" 2>/dev/null || true
+    fi
+    rm -f "/etc/systemd/system/${TRACEROUTE_SERVICE}.service"
     systemctl daemon-reload 2>/dev/null || true
     systemctl reset-failed "${SERVICE_NAME}.service" 2>/dev/null || true
     # After the agent is gone, so its iperf3 child no longer holds 5201.
@@ -376,16 +384,42 @@ note "Installing to ${INSTALL_DIR}  (${RID})"
 mkdir -p "$INSTALL_DIR"
 
 # UniFi OS ships only BusyBox's traceroute applet, which probes one hop at a time and cannot
-# finish a Path Localization trace inside the agent's deadline. Installed before the agent
-# (re)starts, since the agent detects its traceroute at startup. A firmware upgrade drops the
-# package; any re-run of this script (the agent Upgrade command is one) puts it back.
-if ! command -v traceroute >/dev/null 2>&1; then
-    step "Installing traceroute"
-    if apt-get update -qq >/dev/null 2>&1 && apt-get install -y -qq traceroute >/dev/null 2>&1; then
-        ok "traceroute installed"
-    else
-        warn "could not install traceroute - traces fall back to BusyBox's, which cannot finish a path trace. Re-run this script, or run: apt-get update && apt-get install -y traceroute"
-    fi
+# finish a Path Localization trace inside the agent's deadline. This unit keeps the package
+# installed: it runs at every boot (its unit persists on /data like the agent's, see the top of
+# this file), retries while the WAN or apt is unavailable, and restarts the agent after an install
+# so its traces pick the binary up. Its own unit, so an agent stop never kills apt mid-dpkg.
+# Type=exec, never oneshot: a oneshot would hold multi-user.target, and so the boot, until apt
+# finished. Traceroute is not worth delaying a gateway's startup.
+step "Keeping traceroute installed"
+cat > "/etc/systemd/system/${TRACEROUTE_SERVICE}.service" <<UNIT
+[Unit]
+Description=Network Optimizer: keep traceroute installed for the agent
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=exec
+Environment=DEBIAN_FRONTEND=noninteractive
+ExecStart=/bin/sh -c 'command -v traceroute >/dev/null 2>&1 && exit 0; apt-get update -qq && apt-get install -y -qq traceroute || exit 1; systemctl try-restart ${SERVICE_NAME}.service 2>/dev/null; exit 0'
+Nice=19
+IOSchedulingClass=idle
+Restart=on-failure
+RestartSec=1min
+# systemd 254+: back off from 1 minute to hourly while apt keeps failing. Older systemd ignores these.
+RestartSteps=6
+RestartMaxDelaySec=1h
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+systemctl daemon-reload
+systemctl enable --quiet "${TRACEROUTE_SERVICE}.service"
+# --wait so this run reports the outcome; at boot nothing waits on it.
+systemctl start --wait "${TRACEROUTE_SERVICE}.service" 2>/dev/null || true
+if command -v traceroute >/dev/null 2>&1; then
+    ok "traceroute installed"
+else
+    warn "could not install traceroute yet - ${TRACEROUTE_SERVICE}.service keeps retrying (journalctl -u ${TRACEROUTE_SERVICE}). Until then traces fall back to BusyBox's, which cannot finish a path trace."
 fi
 
 # Download to a temp name and rename into place: writing over the binary while
