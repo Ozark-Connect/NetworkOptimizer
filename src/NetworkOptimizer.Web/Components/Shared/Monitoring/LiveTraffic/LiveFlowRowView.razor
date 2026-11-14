@@ -24,10 +24,10 @@
             </td>
             <td>@AppCell(f)</td>
             <td>@RoutePill(f)</td>
-            <td>@Rate(f.Ended ? 0 : f.DownBps, "speed-down")</td>
-            <td>@Rate(f.Ended ? 0 : f.UpBps, "speed-up")</td>
-            <td>@DisplayFormatters.FormatBytes(f.TotalBytes)</td>
-            <td class="lt-secondary">@LiveTrafficDisplay.StartedLabel(f)</td>
+            <td class="lt-num">@Rate(f.Ended ? 0 : f.DownBps, "speed-down")</td>
+            <td class="lt-num">@Rate(f.Ended ? 0 : f.UpBps, "speed-up")</td>
+            <td class="lt-num">@DisplayFormatters.FormatBytes(f.TotalBytes)</td>
+            <td class="lt-secondary lt-num">@LiveTrafficDisplay.StartedLabel(f)</td>
             <td>@Spark(f.History)</td>
         </tr>
         @if (Open)
@@ -97,16 +97,16 @@
                     @RoutePill(f)
                 </td>
             }
-            <td>@Rate(f.DownBps, "speed-down")</td>
-            <td>@Rate(f.UpBps, "speed-up")</td>
-            <td class="lt-secondary">@LiveTrafficDisplay.StartedLabel(f)</td>
+            <td class="lt-num">@Rate(f.DownBps, "speed-down")</td>
+            <td class="lt-num">@Rate(f.UpBps, "speed-up")</td>
+            <td class="lt-secondary lt-num">@LiveTrafficDisplay.StartedLabel(f)</td>
         </tr>
         break;
 
     case LiveFlowLayout.HistoryTable:
         <tr data-flip="@f.Key" data-flip-open="@(Open ? "" : null)" class="lt-flow-row @(Open ? "lt-selected" : null) @(f.Action == "Blocked" ? "is-blocked" : null)" @onclick="OnToggle">
             <td class="lt-rank"><span class="expand-chevron lt-chev">@(Open ? "▲" : "▼")</span></td>
-            <td class="lt-secondary">@LastSeenLabel(f)</td>
+            <td class="lt-secondary lt-num">@LastSeenLabel(f)</td>
             @if (ShowClient)
             {
                 <td data-client-name="@f.ClientName" data-client-link="@LiveTrafficLinks.Client(f)" data-client-note="@LiveTrafficDisplay.ClientCardDetail(f)">
@@ -121,8 +121,8 @@
             <td>@AppCell(f)</td>
             <td>@RoutePill(f)</td>
             <td>@Pill(LiveTrafficField.Action, f.Action ?? "", cls: LiveTrafficDisplay.ActionClass(f.Action))</td>
-            <td>@DisplayFormatters.FormatBytes(f.TotalBytes)</td>
-            <td class="lt-secondary">@LiveTrafficDisplay.DurationLabel(f)</td>
+            <td class="lt-num">@DisplayFormatters.FormatBytes(f.TotalBytes)</td>
+            <td class="lt-secondary lt-num">@LiveTrafficDisplay.DurationLabel(f)</td>
         </tr>
         @if (Open)
         {

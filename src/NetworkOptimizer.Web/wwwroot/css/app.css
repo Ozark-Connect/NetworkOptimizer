@@ -198,6 +198,21 @@ html, body {
 .metric-value,
 .rx-power-value,
 .score-value,
+.lt-num,
+.lt-flows .lt-rank,
+.lt-stat-sub,
+.lt-m-rates,
+.lt-now-rates,
+.lt-tl-readout,
+.lt-tl-ticks,
+.lt-fpop-n,
+.tippy-box[data-theme~='custom'] .lt-route-tip-value,
+.change-control .cc-side-value,
+.change-control .cc-card-footer .cc-edit-count,
+.change-control .cc-step-num,
+.change-control .cc-collections .cc-count,
+.change-control .cc-find-count,
+.change-control .cc-net .cc-vlan,
 .band-stat-value,
 .stat-stack-value,
 .signal-bar .bar-count,
@@ -16152,13 +16167,13 @@ h3 > .tooltip-icon-sm {
 
 /* Stacked bars: neighbors share one blended edge. An empty segment has no edge to share, so
    the one after it stands as a first segment does. */
-:is(.effectiveness-bar, .coverage-distribution, .wifi-gen-bar-container, .gen-bar-container, .load-bar) > * + * {
+:is(.effectiveness-bar, .coverage-distribution, .wifi-gen-bar-container, .gen-bar-container, .load-bar, .lt-meter) > * + * {
     margin-left: -1px;
     -webkit-mask: var(--meter-face-joined);
     mask: var(--meter-face-joined);
 }
 
-:is(.effectiveness-bar, .coverage-distribution, .wifi-gen-bar-container, .gen-bar-container, .load-bar) > [style*="width: 0%"] + * {
+:is(.effectiveness-bar, .coverage-distribution, .wifi-gen-bar-container, .gen-bar-container, .load-bar, .lt-meter) > [style*="width: 0%"] + * {
     margin-left: 0;
     -webkit-mask: var(--meter-face);
     mask: var(--meter-face);
@@ -25822,8 +25837,8 @@ body:has(.top-bar-hidden) .btn-fit {
 
 .lt-meter {
     height: 6px;
-    border-radius: var(--border-radius);
-    background: var(--bg-tertiary);
+    background: var(--bg-inset);
+    box-shadow: inset 0 0 0 1px var(--border-strong);
     overflow: hidden;
     margin-top: 0.5rem;
     display: flex;
@@ -25832,6 +25847,12 @@ body:has(.top-bar-hidden) .btn-fit {
 .lt-meter span {
     display: block;
     height: 100%;
+}
+
+/* The first segment's face; the stacked bar rule gives the second its shared edge. */
+.lt-meter > :first-child {
+    -webkit-mask: var(--meter-face);
+    mask: var(--meter-face);
 }
 
 .lt-filterbar {
@@ -26168,7 +26189,7 @@ body:has(.top-bar-hidden) .btn-fit {
         bottom: 0;
         width: auto;
         max-width: none;
-        border-radius: 16px 16px 0 0;
+        border-radius: var(--border-radius-lg) var(--border-radius-lg) 0 0;
         /* The bottom bar clears the home indicator on a phone that has one. */
         padding: 8px 16px calc(22px + env(safe-area-inset-bottom, 0px));
     }
@@ -27499,8 +27520,7 @@ body:has(.top-bar-hidden) .btn-fit {
 
 .change-control .cc-progress {
     height: 4px;
-    background: var(--bg-tertiary);
-    border-radius: 2px;
+    background: var(--border-strong);
     margin-top: 0.6rem;
     overflow: hidden;
 }
