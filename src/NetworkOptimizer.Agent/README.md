@@ -38,7 +38,9 @@ analytics, and no usage reporting.
   hosted service at `optimizer.ozarkconnect.net`, reached through Cloudflare.
   Your data is kept there, isolated to your organization, and used only to run,
   secure, troubleshoot, and support the service. It is never sold or shared, and
-  only Ozark Connect's own team works with it. The
+  only Ozark Connect's own team works with it. Every credential you enter is
+  encrypted with a key unique to your organization; close your account and that
+  key is destroyed, so those credentials become unreadable. The
   [Privacy Policy](https://ozarkconnect.net/privacy) and the
   [hosted terms](https://ozarkconnect.net/network-optimizer/hosted-terms) set
   this out in full.
