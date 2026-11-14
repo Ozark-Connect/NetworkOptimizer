@@ -164,6 +164,10 @@
                                                 </svg>
                                             </button>
                                         </SiteOperatorOnly>
+                                        @if (TwinWanLabel(t) is { } twinWan)
+                                        {
+                                            <span class="status-badge status-neutral" data-tooltip="@($"Discovered on {twinWan}")">@twinWan</span>
+                                        }
                                     </span>
                                 }
                             </td>
@@ -1143,6 +1147,20 @@
         }
     }
 
+
+    /// <summary>
+    /// The WAN a discovered per-WAN twin was found on, for a twin listed as unpinned: its id still
+    /// names that WAN (WanQualifiedTargetId), so it is marked rather than read as this WAN's own.
+    /// </summary>
+    private static string? TwinWanLabel(MonitoringTarget t)
+    {
+        if (!NetworkOptimizer.Storage.Models.MonitoringTarget.IsUnpinned(t.WanInterface)) return null;
+        var at = t.TargetId.LastIndexOf('@');
+        if (at < 0 || at == t.TargetId.Length - 1) return null;
+        var key = t.TargetId[(at + 1)..];
+        var index = NetworkOptimizer.UniFi.GatewayWanHelper.WanIndexFromKey(key);
+        return index >= 1 ? $"WAN{index}" : key.ToUpperInvariant();
+    }
 
     private static string TargetTypeBadgeClass(MonitoringTargetType type) => type switch
     {

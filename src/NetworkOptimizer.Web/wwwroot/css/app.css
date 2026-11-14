@@ -22936,6 +22936,10 @@ a.shp-issue {
     gap: 0.2rem;
 }
 
+.inline-name-cell .status-badge {
+    margin-left: 0.4rem;
+}
+
 .site-name-edit-btn,
 .inline-name-edit-btn {
     display: inline-flex;
