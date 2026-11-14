@@ -159,6 +159,12 @@ html, body {
 .success-rate-value,
 .summary-card .summary-value,
 .threat-stat-value,
+.band-value,
+.connection-issue-count,
+.dfs-channel-number,
+.lt-stat-value,
+.steering-stat-value,
+.your-channel-chip .channel-number,
 .stat-value,
 .metric-value,
 .rx-power-value,
@@ -171,6 +177,7 @@ html, body {
 
 .card-title,
 .page-header h1,
+.metrics-title h3,
 .chart-title,
 .drilldown-title,
 .login-header h1,
@@ -1811,10 +1818,11 @@ a.stat-card-link:active {
 
 /* Device Card */
 .device-card {
-    background: var(--bg-tertiary);
+    background: var(--bg-inset);
     border-radius: var(--border-radius);
     padding: 12px;
     border-left: 2px solid var(--border-color);
+    box-shadow: inset 0 0 0 1px var(--border-color);
 }
 
 .device-card.device-online {
@@ -6314,7 +6322,7 @@ tr:hover .snmp-row-chevron {
 }
 
 .tc-interface-card {
-    background: var(--bg-tertiary);
+    background: var(--bg-inset);
     border-radius: var(--border-radius);
     padding: 1rem;
     text-align: center;
@@ -6954,9 +6962,10 @@ tr:hover .snmp-row-chevron {
 .path-analysis {
     margin-top: 1.25rem;
     padding: 1rem 1rem 0.75rem;
-    background: var(--bg-tertiary);
+    background: var(--bg-inset);
     border-radius: var(--border-radius);
     font-size: 0.875rem;
+    box-shadow: inset 0 0 0 1px var(--border-color);
 }
 
 .history-details .test-details {
@@ -7861,12 +7870,13 @@ a.path-hop.hop-clickable:hover {
     align-items: center;
     justify-content: space-between;
     padding: 0.75rem 1rem;
-    background: var(--bg-tertiary);
+    background: var(--bg-inset);
     border-radius: var(--border-radius);
     text-decoration: none;
     color: var(--text-primary);
     transition: background 0.15s ease-out;
     margin: 1rem 0 0;
+    box-shadow: inset 0 0 0 1px var(--border-color);
 }
 
 .result-summary:hover {
@@ -8827,8 +8837,8 @@ a.path-hop.hop-clickable:hover {
     align-items: center;
     gap: 0.25rem;
     padding: 1rem 1.5rem;
-    background: var(--bg-tertiary);
-    border: 1px solid transparent;
+    background: var(--bg-inset);
+    border: 1px solid var(--border-color);
     border-radius: var(--border-radius);
     min-width: 80px;
     font: inherit;
@@ -8887,9 +8897,10 @@ a.path-hop.hop-clickable:hover {
     padding: 0.25rem 0.5rem;
     font-size: 0.75rem;
     font-weight: 500;
-    background: var(--bg-tertiary);
+    background: var(--bg-inset);
     border-radius: var(--border-radius);
     color: var(--text-muted);
+    box-shadow: inset 0 0 0 1px var(--border-color);
 }
 
 /* Audit Timestamp */
@@ -10244,7 +10255,9 @@ h3 > .tooltip-icon-sm {
 .rule-lease .lease-time {
     font-size: 0.875rem;
     color: var(--text-muted);
-    font-family: ui-monospace, monospace;
+    font-family: var(--font-display);
+    font-variant-numeric: tabular-nums;
+    word-spacing: var(--display-word-spacing);
 }
 
 .rule-lease .lease-time.expiring {
@@ -10470,9 +10483,10 @@ h3 > .tooltip-icon-sm {
     align-items: center;
     gap: 0.25rem;
     padding: 1rem 1.5rem;
-    background: var(--bg-tertiary);
+    background: var(--bg-inset);
     border-radius: var(--border-radius);
     min-width: 100px;
+    box-shadow: inset 0 0 0 1px var(--border-color);
 }
 
 .stat-item .stat-value {
@@ -11001,9 +11015,10 @@ h3 > .tooltip-icon-sm {
     gap: 1rem;
     align-items: center;
     padding: 1rem;
-    background: var(--bg-tertiary);
+    background: var(--bg-inset);
     border-radius: var(--border-radius-lg);
     border-left: 4px solid var(--border-color);
+    box-shadow: inset 0 0 0 1px var(--border-color);
 }
 
 .wifi-issue-item.issue-critical {
@@ -13074,10 +13089,11 @@ h3 > .tooltip-icon-sm {
 .roaming-stat-card {
     flex: 1;
     min-width: 120px;
-    background: var(--bg-tertiary);
+    background: var(--bg-inset);
     border-radius: var(--border-radius-lg);
     padding: 1rem;
     text-align: center;
+    box-shadow: inset 0 0 0 1px var(--border-color);
 }
 
 
@@ -13121,10 +13137,11 @@ h3 > .tooltip-icon-sm {
 .topology-graph {
     width: 100%;
     height: 300px;
-    background: var(--bg-tertiary);
+    background: var(--bg-inset);
     border-radius: var(--border-radius-lg);
     overflow: hidden;
     padding: 10px 0;
+    box-shadow: inset 0 0 0 1px var(--border-color);
 }
 
 .topology-graph-inner {
@@ -13316,9 +13333,10 @@ h3 > .tooltip-icon-sm {
 }
 
 .direction-card {
-    background: var(--bg-tertiary);
+    background: var(--bg-inset);
     border-radius: var(--border-radius-lg);
     padding: 1rem;
+    box-shadow: inset 0 0 0 1px var(--border-color);
 }
 
 .direction-header {
@@ -13402,9 +13420,10 @@ h3 > .tooltip-icon-sm {
     align-items: center;
     gap: 1rem;
     padding: 0.5rem;
-    background: var(--bg-tertiary);
+    background: var(--bg-inset);
     border-radius: var(--border-radius);
     font-size: 0.8rem;
+    box-shadow: inset 0 0 0 1px var(--border-color);
 }
 
 .top-client-item .client-name {
@@ -13442,9 +13461,10 @@ h3 > .tooltip-icon-sm {
 }
 
 .client-card {
-    background: var(--bg-tertiary);
+    background: var(--bg-inset);
     border-radius: var(--border-radius-lg);
     padding: 0.75rem;
+    box-shadow: inset 0 0 0 1px var(--border-color);
 }
 
 .client-info {
@@ -13559,10 +13579,11 @@ h3 > .tooltip-icon-sm {
 .channel-stat-card {
     flex: 1;
     min-width: 100px;
-    background: var(--bg-tertiary);
+    background: var(--bg-inset);
     border-radius: var(--border-radius-lg);
     padding: 1rem;
     text-align: center;
+    box-shadow: inset 0 0 0 1px var(--border-color);
 }
 
 .channel-stat-card.stat-warning .channel-stat-value { color: var(--warning-color); }
@@ -14044,9 +14065,10 @@ h3 > .tooltip-icon-sm {
 }
 
 .channel-ap-card {
-    background: var(--bg-tertiary);
+    background: var(--bg-inset);
     border-radius: var(--border-radius-lg);
     padding: 1rem;
+    box-shadow: inset 0 0 0 1px var(--border-color);
 }
 
 .channel-ap-card .ap-info {
@@ -14754,10 +14776,11 @@ h3 > .tooltip-icon-sm {
 .load-stat-card {
     flex: 1;
     min-width: 100px;
-    background: var(--bg-tertiary);
+    background: var(--bg-inset);
     border-radius: var(--border-radius-lg);
     padding: 1rem;
     text-align: center;
+    box-shadow: inset 0 0 0 1px var(--border-color);
 }
 
 
@@ -14907,10 +14930,10 @@ h3 > .tooltip-icon-sm {
 }
 
 .ap-detail-card {
-    background: var(--bg-tertiary);
+    background: var(--bg-inset);
     border-radius: var(--border-radius-lg);
     padding: 1rem;
-    border: 1px solid transparent;
+    border: 1px solid var(--border-color);
 }
 
 .ap-detail-card.ap-overloaded {
@@ -15080,9 +15103,10 @@ h3 > .tooltip-icon-sm {
     display: flex;
     gap: 0.75rem;
     padding: 0.75rem;
-    background: var(--bg-tertiary);
+    background: var(--bg-inset);
     border-radius: var(--border-radius-lg);
     border-left: 3px solid var(--border-color);
+    box-shadow: inset 0 0 0 1px var(--border-color);
 }
 
 .recommendation-item.warning {
@@ -15227,10 +15251,11 @@ h3 > .tooltip-icon-sm {
 .power-stat-card {
     flex: 1;
     min-width: 100px;
-    background: var(--bg-tertiary);
+    background: var(--bg-inset);
     border-radius: var(--border-radius-lg);
     padding: 1rem;
     text-align: center;
+    box-shadow: inset 0 0 0 1px var(--border-color);
 }
 
 
@@ -15402,9 +15427,10 @@ h3 > .tooltip-icon-sm {
 }
 
 .ap-power-card {
-    background: var(--bg-tertiary);
+    background: var(--bg-inset);
     border-radius: var(--border-radius-lg);
     padding: 1rem;
+    box-shadow: inset 0 0 0 1px var(--border-color);
 }
 
 .ap-power-header {
@@ -15570,10 +15596,10 @@ h3 > .tooltip-icon-sm {
 }
 
 .coverage-card {
-    background: var(--bg-tertiary);
+    background: var(--bg-inset);
     border-radius: var(--border-radius-lg);
     padding: 1rem;
-    border: 1px solid transparent;
+    border: 1px solid var(--border-color);
 }
 
 .coverage-card.coverage-poor {
@@ -15671,9 +15697,10 @@ h3 > .tooltip-icon-sm {
     display: flex;
     gap: 0.75rem;
     padding: 0.75rem;
-    background: var(--bg-tertiary);
+    background: var(--bg-inset);
     border-radius: var(--border-radius-lg);
     border-left: 3px solid var(--warning-color);
+    box-shadow: inset 0 0 0 1px var(--border-color);
 }
 
 .overlap-icon {
@@ -15788,10 +15815,11 @@ h3 > .tooltip-icon-sm {
 .steering-stat-card {
     flex: 1;
     min-width: 100px;
-    background: var(--bg-tertiary);
+    background: var(--bg-inset);
     border-radius: var(--border-radius-lg);
     padding: 1rem;
     text-align: center;
+    box-shadow: inset 0 0 0 1px var(--border-color);
 }
 
 .steering-stat-value {
@@ -15954,8 +15982,9 @@ h3 > .tooltip-icon-sm {
     align-items: center;
     gap: 1rem;
     padding: 0.5rem 0.75rem;
-    background: var(--bg-tertiary);
+    background: var(--bg-inset);
     border-radius: var(--border-radius);
+    box-shadow: inset 0 0 0 1px var(--border-color);
 }
 
 .steerable-client-row .client-info {
@@ -16109,9 +16138,10 @@ h3 > .tooltip-icon-sm {
 }
 
 .legacy-client-card {
-    background: var(--bg-tertiary);
+    background: var(--bg-inset);
     border-radius: var(--border-radius-lg);
     padding: 0.75rem;
+    box-shadow: inset 0 0 0 1px var(--border-color);
 }
 
 .legacy-client-info {
@@ -16248,10 +16278,11 @@ h3 > .tooltip-icon-sm {
 .airtime-stat-card {
     flex: 1;
     min-width: 100px;
-    background: var(--bg-tertiary);
+    background: var(--bg-inset);
     border-radius: var(--border-radius-lg);
     padding: 1rem;
     text-align: center;
+    box-shadow: inset 0 0 0 1px var(--border-color);
 }
 
 .airtime-stat-label {
@@ -16334,9 +16365,10 @@ h3 > .tooltip-icon-sm {
 }
 
 .radio-util-card {
-    background: var(--bg-tertiary);
+    background: var(--bg-inset);
     border-radius: 6px;
     padding: 1rem;
+    box-shadow: inset 0 0 0 1px var(--border-color);
 }
 
 .radio-util-header {
@@ -16558,10 +16590,11 @@ h3 > .tooltip-icon-sm {
 }
 
 .airtime-client-card {
-    background: var(--bg-tertiary);
+    background: var(--bg-inset);
     border-radius: var(--border-radius-lg);
     padding: 0.75rem;
     border-left: 3px solid var(--border-color);
+    box-shadow: inset 0 0 0 1px var(--border-color);
 }
 
 .airtime-client-card.airtime-high {
@@ -16817,10 +16850,11 @@ h3 > .tooltip-icon-sm {
 }
 
 .tod-card {
-    background: var(--bg-tertiary);
+    background: var(--bg-inset);
     border-radius: var(--border-radius-lg);
     padding: 1rem;
     border-left: 3px solid var(--border-color);
+    box-shadow: inset 0 0 0 1px var(--border-color);
 }
 
 .tod-card.period-good { border-left-color: var(--success-color); }
@@ -16955,9 +16989,10 @@ h3 > .tooltip-icon-sm {
     display: flex;
     gap: 0.75rem;
     padding: 0.75rem;
-    background: var(--bg-tertiary);
+    background: var(--bg-inset);
     border-radius: var(--border-radius-lg);
     border-left: 3px solid var(--border-color);
+    box-shadow: inset 0 0 0 1px var(--border-color);
 }
 
 .pattern-card.warning { border-left-color: var(--warning-color); }
@@ -17016,10 +17051,11 @@ h3 > .tooltip-icon-sm {
 }
 
 .band-env-card {
-    background: var(--bg-tertiary);
+    background: var(--bg-inset);
     border-radius: var(--border-radius-lg);
     padding: 1rem;
     border-top: 3px solid var(--border-color);
+    box-shadow: inset 0 0 0 1px var(--border-color);
 }
 
 .band-env-card.band-2ghz { border-top-color: #fbbf24; }
@@ -17222,9 +17258,10 @@ h3 > .tooltip-icon-sm {
     display: flex;
     flex-direction: column;
     padding: 1rem;
-    background: var(--bg-tertiary);
+    background: var(--bg-inset);
     border-radius: var(--border-radius-lg);
     min-width: 140px;
+    box-shadow: inset 0 0 0 1px var(--border-color);
 }
 
 .stage-header {
@@ -17358,8 +17395,9 @@ h3 > .tooltip-icon-sm {
     gap: 1rem;
     padding: 1rem;
     margin-top: 1rem;
-    background: var(--bg-tertiary);
+    background: var(--bg-inset);
     border-radius: var(--border-radius-lg);
+    box-shadow: inset 0 0 0 1px var(--border-color);
 }
 
 .success-rate-label {
@@ -17429,12 +17467,13 @@ a.affected-client:hover {
 }
 
 .status-card {
-    background: var(--bg-tertiary);
+    background: var(--bg-inset);
     border-radius: var(--border-radius-lg);
     padding: 1.25rem;
     text-align: center;
     position: relative;
     border-top: 3px solid var(--border-color);
+    box-shadow: inset 0 0 0 1px var(--border-color);
 }
 
 .status-card.status-connected { border-top-color: var(--success-color); }
@@ -17478,8 +17517,9 @@ a.affected-client:hover {
     gap: 1rem;
     align-items: center;
     padding: 0.75rem;
-    background: var(--bg-tertiary);
+    background: var(--bg-inset);
     border-radius: var(--border-radius-lg);
+    box-shadow: inset 0 0 0 1px var(--border-color);
 }
 
 .ap-info {
@@ -20312,7 +20352,7 @@ a.isp-health-hero-speed:hover {
     padding: 0.9rem 1rem;
     border: 1px solid var(--border-color);
     border-radius: var(--border-radius-lg);
-    background: var(--bg-tertiary);
+    background: var(--bg-inset);
     transition: border-color 0.2s ease, transform 0.2s ease;
 }
 
