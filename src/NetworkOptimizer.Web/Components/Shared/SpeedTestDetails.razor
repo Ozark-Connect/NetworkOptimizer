@@ -14,6 +14,7 @@
 @inject IDisplayTimeZone DisplayTime
 @inject ITailscaleDirectory Tailscale
 @inject IClientIcons ClientIcons
+@inject IJSRuntime JS
 
 @if (!PathOnly)
 {
@@ -249,14 +250,14 @@
                 var rows = GetHopRows(hops);
                 var needsSwitchback = rows.Count > 1;
 
-                <div class="path-visualization @(needsSwitchback ? "path-switchback" : "")">
+                <div class="path-visualization @(needsSwitchback ? "path-switchback" : "")" @ref="_traceEl" data-fit="@TraceFitKey(rows)">
                     @for (var rowIndex = 0; rowIndex < rows.Count; rowIndex++)
                     {
                         var row = rows[rowIndex];
                         var isReversed = rowIndex % 2 == 1;
                         var isLastRow = rowIndex == rows.Count - 1;
 
-                        <div class="path-row @(isReversed ? "reversed" : "")">
+                        <div class="path-row @(isReversed ? "reversed" : "") @TurnClasses(rowIndex)">
                             @{
                                 // For reversed rows, iterate backwards through the row
                                 var indices = isReversed
@@ -279,7 +280,7 @@
                                     var isBottleneckLink = IsBottleneckLink(lastHop, nextHopGlobal, isWirelessLink, linkSpeed);
                                     var turnTooltip = GetConnectorTooltip(lastHop, nextHopGlobal, isWirelessLink, isBottleneckLink);
 
-                                    <div class="path-connector path-turn turn-left @(isBottleneckLink ? "bottleneck" : "") @(isWirelessLink ? "wireless" : "")" data-tooltip="@turnTooltip" data-tooltip-html data-tooltip-interactive="@(isWirelessLink ? "" : null)">
+                                    <div class="path-connector path-turn turn-left @(isBottleneckLink ? "bottleneck" : "") @(isWirelessLink ? "wireless" : "")" data-link="@lastGlobalIdx" data-tooltip="@turnTooltip" data-tooltip-html data-tooltip-interactive="@(isWirelessLink ? "" : null)">
                                         @if (isWirelessLink)
                                         {
                                             @RenderSignalBars(lastHop, nextHopGlobal)
@@ -310,7 +311,7 @@
                                     var isBottleneckLink = IsBottleneckLink(hop, nextHopGlobal, isWirelessLink, linkSpeed);
                                     var connectorTooltip1 = GetConnectorTooltip(hop, nextHopGlobal, isWirelessLink, isBottleneckLink);
 
-                                    <div class="path-connector arrow-left @(isBottleneckLink ? "bottleneck" : "") @(isWirelessLink ? "wireless" : "")" data-tooltip="@connectorTooltip1" data-tooltip-html data-tooltip-interactive="@(isWirelessLink ? "" : null)">
+                                    <div class="path-connector arrow-left @(isBottleneckLink ? "bottleneck" : "") @(isWirelessLink ? "wireless" : "")" data-link="@globalIdx" data-tooltip="@connectorTooltip1" data-tooltip-html data-tooltip-interactive="@(isWirelessLink ? "" : null)">
                                         @if (isWirelessLink)
                                         {
                                             @RenderSignalBars(hop, nextHopGlobal)
@@ -328,7 +329,7 @@
 
                                 @if (isClickableClient)
                                 {
-                                    <a href="./wifi-optimizer?tab=client&client=@Uri.EscapeDataString(clientLinkMac)" class="@hopClasses hop-clickable"
+                                    <a href="./wifi-optimizer?tab=client&client=@Uri.EscapeDataString(clientLinkMac)" class="@hopClasses hop-clickable" data-hop="@globalIdx"
                                        data-tooltip="@deviceTooltip" data-tooltip-html
                                        data-tooltip-interactive="@(hop.Type == HopType.WirelessClient ? "" : null)">
                                         <span class="hop-icon">@GetHopIconMarkup(hop)</span>
@@ -337,7 +338,7 @@
                                 }
                                 else if (!string.IsNullOrEmpty(deviceTooltip))
                                 {
-                                    <div class="@hopClasses"
+                                    <div class="@hopClasses" data-hop="@globalIdx"
                                          data-tooltip="@deviceTooltip" data-tooltip-html
                                          data-tooltip-interactive="@(hop.Type == HopType.WirelessClient ? "" : null)">
                                         <span class="hop-icon">@GetHopIconMarkup(hop)</span>
@@ -347,7 +348,7 @@
                                 else
                                 {
                                     var offerTailscale = hop.Type == HopType.Tailscale && _tailnetRead && !_tailnet.Connected;
-                                    <div class="@hopClasses"
+                                    <div class="@hopClasses" data-hop="@globalIdx"
                                          data-app-tailscale="@(offerTailscale ? "Tailscale" : null)"
                                          data-tailscale-link="@(offerTailscale && _canConfigure ? "/settings?tab=connection#tailscale" : null)">
                                         <span class="hop-icon">@GetHopIconMarkup(hop)</span>
@@ -365,7 +366,7 @@
                                     var needsTurn = isLastHopInRow && !isLastRow;
                                     var connectorTooltip2 = GetConnectorTooltip(hop, nextHopGlobal, isWirelessLink, isBottleneckLink);
 
-                                    <div class="path-connector @(needsTurn ? "path-turn" : "") @(isBottleneckLink ? "bottleneck" : "") @(isWirelessLink ? "wireless" : "")" data-tooltip="@connectorTooltip2" data-tooltip-html data-tooltip-interactive="@(isWirelessLink ? "" : null)">
+                                    <div class="path-connector @(needsTurn ? "path-turn" : "") @(isBottleneckLink ? "bottleneck" : "") @(isWirelessLink ? "wireless" : "")" data-link="@globalIdx" data-tooltip="@connectorTooltip2" data-tooltip-html data-tooltip-interactive="@(isWirelessLink ? "" : null)">
                                         @if (isWirelessLink)
                                         {
                                             @RenderSignalBars(hop, nextHopGlobal)
@@ -831,9 +832,74 @@
     private const int MaxHopsPerRow = 6;
     private const int MaxCharsPerRow = 142; // Approximate character budget per row
 
+    // The browser's fit of the trace to its container (trace-fit.js): where each row starts and
+    // how each row turns into the next. Null until measured; the character estimate is used then.
+    private ElementReference _traceEl;
+    private string? _watchedTraceId;
+    private DotNetObjectReference<SpeedTestDetails>? _selfRef;
+    private int[]? _fitStarts;
+    private int[] _fitTurns = [];
+    private int _fitHopCount;
+
+    private const int TurnHook = 1;
+    private const int TurnHookLabelBelow = 2;
+
+    /// <summary>Takes the measured row starts and turn styles from trace-fit.js.</summary>
+    [JSInvokable]
+    public void SetTraceFit(int[] starts, int[] turns)
+    {
+        if (_disposed) return;
+        _fitStarts = starts;
+        _fitTurns = turns;
+        _fitHopCount = PathAnalysis?.Path.Hops.Count ?? 0;
+        StateHasChanged();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_disposed || PathAnalysis?.Path.Hops.Count is not > 0 || _traceEl.Id is null || _traceEl.Id == _watchedTraceId) return;
+        _watchedTraceId = _traceEl.Id;
+        try
+        {
+            await JS.InvokeVoidAsync("traceFit.watch", _traceEl, _selfRef ??= DotNetObjectReference.Create(this));
+        }
+        catch (Exception ex) when (ex is JSException or JSDisconnectedException or OperationCanceledException)
+        {
+        }
+    }
+
+    private bool FitApplies(int hopCount) =>
+        _fitStarts is { Length: > 0 } s && _fitHopCount == hopCount && s[0] == 0 && s[^1] < hopCount;
+
+    private int TurnOf(int rowIndex) =>
+        _fitStarts != null && rowIndex >= 0 && rowIndex < _fitTurns.Length ? _fitTurns[rowIndex] : 0;
+
+    private string TurnClasses(int rowIndex)
+    {
+        var turn = TurnOf(rowIndex);
+        return (turn >= TurnHook ? "turn-hook " : "")
+            + (turn == TurnHookLabelBelow ? "turn-label-below " : "")
+            + (TurnOf(rowIndex - 1) >= TurnHook ? "after-hook" : "");
+    }
+
+    /// <summary>The fit as rendered, in the form trace-fit.js compares its own result against.</summary>
+    private string TraceFitKey(List<List<HopData>> rows) =>
+        string.Join(',', rows.Select(r => r[0].GlobalIndex)) + "|"
+        + string.Join(',', Enumerable.Range(0, rows.Count - 1).Select(TurnOf));
+
     private List<List<HopData>> GetHopRows(IList<NetworkHop> hops)
     {
         var rows = new List<List<HopData>>();
+        if (FitApplies(hops.Count))
+        {
+            for (var r = 0; r < _fitStarts!.Length; r++)
+            {
+                var end = r + 1 < _fitStarts.Length ? _fitStarts[r + 1] : hops.Count;
+                rows.Add(Enumerable.Range(_fitStarts[r], end - _fitStarts[r]).Select(i => new HopData(hops[i], i)).ToList());
+            }
+            return rows;
+        }
+
         var currentRow = new List<HopData>();
         var currentRowChars = 0;
 
@@ -2051,5 +2117,6 @@
         _notesDebounceTimer?.Dispose();
         _notesSavedTimer?.Dispose();
         _wanSavedTimer?.Dispose();
+        _selfRef?.Dispose();
     }
 }
