@@ -475,7 +475,7 @@ Gateway tweaks for UCG-Fiber, UXG-Fiber, UCG-Max, and UXG-Max (Gateway SSH).
 - **Client Stats** - searchable client table, signal and TX retry history, connection events
   - Each client's UniFi Network icon in the table and its details
 - **Roaming** - roaming topology, AP pair success rates, 802.11r usage, roaming clients
-- **Power/Coverage** - signal distribution, EIRP per AP, coverage quality, overlap
+- **Power / Coverage** - signal distribution, EIRP per AP, coverage quality, overlap
 - **Load Balance** - clients per AP and imbalance
 - **Connectivity** - success rate per connection stage and per AP
 - **Band Steering** - steering opportunities and clients by Wi-Fi generation
