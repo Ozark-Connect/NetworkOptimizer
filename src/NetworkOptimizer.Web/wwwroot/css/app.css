@@ -16023,9 +16023,9 @@ h3 > .tooltip-icon-sm {
 .effectiveness-bar {
     height: 32px;
     display: flex;
-    border-radius: var(--border-radius-lg);
     overflow: hidden;
-    background: var(--bg-tertiary);
+    background: var(--bg-inset);
+    box-shadow: inset 0 0 0 1px var(--border-strong);
 }
 
 .eff-segment {
@@ -16033,9 +16033,15 @@ h3 > .tooltip-icon-sm {
     transition: width 0.3s ease;
 }
 
-.eff-segment.optimal { background: #22c55e; }
-.eff-segment.suboptimal { background: #f97316; }
-.eff-segment.legacy { background: #6b7280; }
+.eff-segment,
+.effectiveness-legend .legend-color {
+    -webkit-mask: var(--meter-face);
+    mask: var(--meter-face);
+}
+
+.eff-segment.optimal { background: var(--signal-good); }
+.eff-segment.suboptimal { background: var(--signal-weak); }
+.eff-segment.legacy { background: var(--text-secondary); }
 
 .effectiveness-labels {
     display: flex;
@@ -16044,6 +16050,7 @@ h3 > .tooltip-icon-sm {
 }
 
 .eff-label {
+    font-family: var(--font-display);
     font-size: 0.65rem;
     color: var(--text-muted);
 }
@@ -16066,12 +16073,11 @@ h3 > .tooltip-icon-sm {
 .effectiveness-legend .legend-color {
     width: 12px;
     height: 12px;
-    border-radius: 2px;
 }
 
-.effectiveness-legend .legend-color.optimal { background: #22c55e; }
-.effectiveness-legend .legend-color.suboptimal { background: #f97316; }
-.effectiveness-legend .legend-color.legacy { background: #6b7280; }
+.effectiveness-legend .legend-color.optimal { background: var(--signal-good); }
+.effectiveness-legend .legend-color.suboptimal { background: var(--signal-weak); }
+.effectiveness-legend .legend-color.legacy { background: var(--text-secondary); }
 
 /* Steerable Groups */
 .steerable-group {
