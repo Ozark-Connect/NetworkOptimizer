@@ -93,6 +93,13 @@
         linear-gradient(#000, #000) right / 1px 100% no-repeat,
         linear-gradient(rgb(0 0 0 / 0.42), rgb(0 0 0 / 0.42));
     /* The same face for a second segment that continues the first: fainter, no edge where they meet. */
+    /* A segment that follows another in a stacked bar: it overlaps its neighbor's edge by the
+       1px line and draws its own at half strength there, so the two share one blended line. */
+    --meter-face-joined: linear-gradient(#000, #000) top / 100% 1px no-repeat,
+        linear-gradient(#000, #000) bottom / 100% 1px no-repeat,
+        linear-gradient(#000, #000) right / 1px 100% no-repeat,
+        linear-gradient(rgb(0 0 0 / 0.5), rgb(0 0 0 / 0.5)) left / 1px 100% no-repeat,
+        linear-gradient(rgb(0 0 0 / 0.42), rgb(0 0 0 / 0.42)) 1px 0 / calc(100% - 1px) 100% no-repeat;
     /* The free end of a wide bar (a histogram column, a band bar) stays rounded. */
     --bar-end-radius: 5px;
     /* The Channel Plan mark's face: fainter inside than a meter's, since a label sits on it. */
@@ -14986,12 +14993,13 @@ h3 > .tooltip-icon-sm {
 .load-chart-section .legend-color {
     width: 12px;
     height: 12px;
-    border-radius: 2px;
+    -webkit-mask: var(--meter-face);
+    mask: var(--meter-face);
 }
 
-.load-chart-section .legend-color.band-2ghz { background: #fbbf24; }
-.load-chart-section .legend-color.band-5ghz { background: #3b82f6; }
-.load-chart-section .legend-color.band-6ghz { background: #a855f7; }
+.load-chart-section .legend-color.band-2ghz { background: var(--band-24-color); }
+.load-chart-section .legend-color.band-5ghz { background: var(--band-5-color); }
+.load-chart-section .legend-color.band-6ghz { background: var(--band-6-color); }
 
 .load-chart {
     display: flex;
@@ -15033,7 +15041,6 @@ h3 > .tooltip-icon-sm {
 
 .load-bar {
     height: 24px;
-    border-radius: 0 var(--border-radius) var(--border-radius) 0;
     display: flex;
     overflow: hidden;
     min-width: 4px;
@@ -15042,11 +15049,13 @@ h3 > .tooltip-icon-sm {
 .load-segment {
     height: 100%;
     transition: width 0.3s ease;
+    -webkit-mask: var(--meter-face);
+    mask: var(--meter-face);
 }
 
-.load-segment.band-2ghz { background: #fbbf24; }
-.load-segment.band-5ghz { background: #3b82f6; }
-.load-segment.band-6ghz { background: #a855f7; }
+.load-segment.band-2ghz { background: var(--band-24-color); }
+.load-segment.band-5ghz { background: var(--band-5-color); }
+.load-segment.band-6ghz { background: var(--band-6-color); }
 
 .overload-indicator {
     width: 20px;
@@ -16082,6 +16091,20 @@ h3 > .tooltip-icon-sm {
 
 .eff-segment,
 .effectiveness-legend .legend-color {
+    -webkit-mask: var(--meter-face);
+    mask: var(--meter-face);
+}
+
+/* Stacked bars: neighbors share one blended edge. An empty segment has no edge to share, so
+   the one after it stands as a first segment does. */
+:is(.effectiveness-bar, .coverage-distribution, .wifi-gen-bar-container, .gen-bar-container, .load-bar) > * + * {
+    margin-left: -1px;
+    -webkit-mask: var(--meter-face-joined);
+    mask: var(--meter-face-joined);
+}
+
+:is(.effectiveness-bar, .coverage-distribution, .wifi-gen-bar-container, .gen-bar-container, .load-bar) > [style*="width: 0%"] + * {
+    margin-left: 0;
     -webkit-mask: var(--meter-face);
     mask: var(--meter-face);
 }
