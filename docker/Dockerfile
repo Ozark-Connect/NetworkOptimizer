@@ -29,7 +29,8 @@ COPY ["src/NetworkOptimizer.Threats/NetworkOptimizer.Threats.csproj", "src/Netwo
 # ReadyToRun precompiles our assemblies for the target, so the first use of each page after a
 # start does not JIT on the server's CPU. It needs a RID, at restore and at publish.
 ARG TARGETARCH
-RUN if [ "$TARGETARCH" = "arm64" ]; then echo linux-arm64; else echo linux-x64; fi > /tmp/rid
+# The legacy builder sets no TARGETARCH; this stage runs on the target, so uname stands in for it.
+RUN case "${TARGETARCH:-$(uname -m)}" in arm64|aarch64) echo linux-arm64 ;; *) echo linux-x64 ;; esac > /tmp/rid
 
 # Restore dependencies
 RUN dotnet restore "src/NetworkOptimizer.Web/NetworkOptimizer.Web.csproj" -r "$(cat /tmp/rid)" -p:PublishReadyToRun=true
@@ -41,13 +42,13 @@ COPY src/ src/
 # arm64 runners (grpc/grpc#26032, #38538). Use the distro's protoc there; amd64 keeps
 # the bundled one so its build is unchanged. Only branches carrying AgentProtocol (.proto)
 # run protoc at all.
-RUN if [ "$TARGETARCH" = "arm64" ]; then \
+RUN if [ "$(cat /tmp/rid)" = "linux-arm64" ]; then \
         apt-get update && apt-get install -y --no-install-recommends protobuf-compiler && rm -rf /var/lib/apt/lists/*; \
     fi
 
 # Build and publish Web UI (includes all dependent projects)
 # MinVerVersionOverride tells MinVer to use this version instead of reading git tags
-RUN if [ "$TARGETARCH" = "arm64" ]; then export PROTOBUF_PROTOC=/usr/bin/protoc; fi; \
+RUN if [ "$(cat /tmp/rid)" = "linux-arm64" ]; then export PROTOBUF_PROTOC=/usr/bin/protoc; fi; \
     dotnet publish "src/NetworkOptimizer.Web/NetworkOptimizer.Web.csproj" \
     -c Release \
     -o /app/publish \
