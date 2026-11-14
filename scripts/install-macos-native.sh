@@ -80,6 +80,15 @@ if [ ! -f "$REPO_ROOT/src/NetworkOptimizer.Web/NetworkOptimizer.Web.csproj" ]; t
     exit 1
 fi
 
+# Go build cache and GOPATH, one per line. Defaults apply when Go is not installed yet.
+go_cache_dirs() {
+    if command -v go &> /dev/null; then
+        go env GOCACHE GOPATH 2>/dev/null
+    else
+        printf '%s\n' "$HOME/Library/Caches/go-build" "$HOME/go"
+    fi
+}
+
 # Check for root-owned remnants from a previous sudo installation.
 # If someone ran this script with sudo, all files and processes end up owned by root.
 # A normal user can't overwrite those files or kill those processes, so the next
@@ -105,6 +114,17 @@ check_root_remnants() {
         fi
     done
 
+    # Check Go caches for any root-owned entry (blocks go build at step 3b). Search inside:
+    # a sudo build leaves root-owned subdirectories under a top level the user still owns.
+    local go_dirs
+    go_dirs=$(go_cache_dirs)
+    while IFS= read -r godir; do
+        if [ -n "$godir" ] && [ -d "$godir" ] && \
+           [ -n "$(find "$godir" -user root -print -quit 2>/dev/null)" ]; then
+            root_files=true
+        fi
+    done <<< "$go_dirs"
+
     if [ "$root_files" = false ]; then
         return 0
     fi
@@ -116,7 +136,8 @@ check_root_remnants() {
 
     # Validate sudo credentials upfront so a failed password doesn't leave
     # things half-cleaned (some processes killed but files still root-owned)
-    if ! sudo -v; then
+    # sudo true, not sudo -v: -v asks for a password unless every sudoers rule is NOPASSWD.
+    if ! sudo true; then
         echo "Error: sudo authentication failed. Please re-run the script and try again."
         exit 1
     fi
@@ -173,6 +194,15 @@ check_root_remnants() {
             sudo chown -R "$current_user:staff" "$dotdir"
         fi
     done
+
+    # Fix Go caches
+    while IFS= read -r godir; do
+        if [ -n "$godir" ] && [ -d "$godir" ] && \
+           [ -n "$(find "$godir" -user root -print -quit 2>/dev/null)" ]; then
+            echo "Fixing ownership: ${godir/#$HOME/~}"
+            sudo chown -R "$current_user:staff" "$godir"
+        fi
+    done <<< "$go_dirs"
 
     echo ""
     echo "Cleanup complete. Continuing with installation..."
