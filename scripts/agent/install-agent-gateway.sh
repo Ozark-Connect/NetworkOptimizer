@@ -380,10 +380,12 @@ note "Installing to ${INSTALL_DIR}  (${RID})"
 mkdir -p "$INSTALL_DIR"
 
 # UniFi OS ships only BusyBox's traceroute applet, which probes one hop at a time and cannot
-# finish a Path Localization trace inside the agent's deadline. A oneshot unit keeps the package
-# installed: it runs at every boot (the unit file persists on /data), retries while the WAN or
-# apt is unavailable, and restarts the agent after an install so its traces pick the binary up.
-# Its own unit, so an agent stop never kills apt mid-dpkg. Started before the agent (re)starts.
+# finish a Path Localization trace inside the agent's deadline. This unit keeps the package
+# installed: it runs at every boot (its unit persists on /data like the agent's, see the top of
+# this file), retries while the WAN or apt is unavailable, and restarts the agent after an install
+# so its traces pick the binary up. Its own unit, so an agent stop never kills apt mid-dpkg.
+# Type=exec, never oneshot: a oneshot would hold multi-user.target, and so the boot, until apt
+# finished. Traceroute is not worth delaying a gateway's startup.
 step "Keeping traceroute installed"
 cat > "/etc/systemd/system/${TRACEROUTE_SERVICE}.service" <<UNIT
 [Unit]
@@ -392,22 +394,28 @@ After=network-online.target
 Wants=network-online.target
 
 [Service]
-Type=oneshot
+Type=exec
 Environment=DEBIAN_FRONTEND=noninteractive
 ExecStart=/bin/sh -c 'command -v traceroute >/dev/null 2>&1 && exit 0; apt-get update -qq && apt-get install -y -qq traceroute && systemctl try-restart ${SERVICE_NAME}.service'
+Nice=19
+IOSchedulingClass=idle
 Restart=on-failure
-RestartSec=10min
+RestartSec=1min
+# systemd 254+: back off from 1 minute to hourly while apt keeps failing. Older systemd ignores these.
+RestartSteps=6
+RestartMaxDelaySec=1h
 
 [Install]
 WantedBy=multi-user.target
 UNIT
 systemctl daemon-reload
 systemctl enable --quiet "${TRACEROUTE_SERVICE}.service"
-systemctl start "${TRACEROUTE_SERVICE}.service" 2>/dev/null || true
+# --wait so this run reports the outcome; at boot nothing waits on it.
+systemctl start --wait "${TRACEROUTE_SERVICE}.service" 2>/dev/null || true
 if command -v traceroute >/dev/null 2>&1; then
     ok "traceroute installed"
 else
-    warn "could not install traceroute yet - ${TRACEROUTE_SERVICE}.service retries every 10 minutes (journalctl -u ${TRACEROUTE_SERVICE}). Until then traces fall back to BusyBox's, which cannot finish a path trace."
+    warn "could not install traceroute yet - ${TRACEROUTE_SERVICE}.service keeps retrying (journalctl -u ${TRACEROUTE_SERVICE}). Until then traces fall back to BusyBox's, which cannot finish a path trace."
 fi
 
 # Download to a temp name and rename into place: writing over the binary while
