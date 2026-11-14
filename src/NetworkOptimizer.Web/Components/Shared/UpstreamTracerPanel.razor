@@ -335,6 +335,10 @@
                                             {
                                                 <td>
                                                     @(asn.Unreachable ? "Unreachable" : asn.VerifiedRttMs.HasValue ? $"{asn.VerifiedRttMs:F1} ms" : "-")
+                                                    @if (asn.HighRtt)
+                                                    {
+                                                        <span class="tooltip-icon tooltip-icon-sm" data-tooltip="@HighRttNote">?</span>
+                                                    }
                                                     @if (asn.UnansweredWhileBusy)
                                                     {
                                                         <span class="tooltip-icon tooltip-icon-sm" data-tooltip="@BusyUnansweredNote">?</span>
@@ -724,6 +728,8 @@
 
     private const string BusyUnansweredNote =
         "It did not answer during a busy run. It is already monitored, so it stays checked; untick it to pause it.";
+    private const string HighRttNote =
+        "Far slower than the other transit routers on your path, so it is left unchecked. Check it to monitor it anyway.";
     /// <summary>Whether this run has already told the pin to stop following. Once per run.</summary>
     private bool _pinFrozen;
 
