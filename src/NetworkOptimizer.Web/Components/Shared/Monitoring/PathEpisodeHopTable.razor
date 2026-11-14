@@ -42,6 +42,15 @@
             <div class="path-episode-table-head">
                 <span class="path-episode-table-title path-episode-target-name">@table.Target.Name<MonitoringJumpButton Icon="MonitoringJumpButton.JumpIcon.Analyze"
                     Tooltip="@JumpTooltip(table.Target)" OnClick="() => Jump(table.Target)" /></span>
+                @if (table.VantageName == null)
+                {
+                    @if (_detail.Episode.Tracing)
+                    {
+                        <span class="text-muted">Tracing every minute</span>
+                    }
+                }
+                else
+                {
                 <span class="text-muted">
                     @table.Rounds @(table.Rounds == 1 ? "trace" : "traces") from @table.VantageName@(_detail.Episode.Tracing ? ", every minute" : "")@(table.HasRecovery ? ", traced again after it recovered" : _detail.Episode.ClosedAt == null ? "" : ", no trace after recovery yet")
                 </span>
@@ -51,6 +60,7 @@
                 }
                 <a class="path-episode-rerun" href="@PathEpisodePresentation.RerunUrl(table.TracedAddress ?? table.Address, table.Vantage, _detail.Episode.WanContextId)"
                    data-tooltip="Fill Network Tools with this target and vantage" data-tooltip-hover-only>Re-run</a>
+                }
             </div>
             @if (table.Hops.Count == 0)
             {

@@ -113,7 +113,7 @@ public sealed class PathEpisodeService : IPathEpisodeService
             var tt = degraded.First(d => d.TargetId == t.TargetId);
             var vantage = trace?.Vantage ?? "server";
             return new PathEpisodeHopTable(t, tt.Address, vantage, trace?.SourceInterface,
-                tt.PathRounds.Count, tt.Recovery != null, v?.Hops ?? Array.Empty<HopReading>(), VantageName(vantage, agentNames),
+                tt.PathRounds.Count, tt.Recovery != null, v?.Hops ?? Array.Empty<HopReading>(), trace == null ? null : VantageName(vantage, agentNames),
                 trace?.ResolvedAddress);
         }).ToList();
 
