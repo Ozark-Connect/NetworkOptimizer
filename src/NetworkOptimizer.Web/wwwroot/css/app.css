@@ -20540,6 +20540,7 @@ a.isp-health-hero-speed:hover {
 .threat-bar-track > *,
 .channel-bar-wrapper > *,
 .spectrum-container .legend-bar {
+    border-radius: 0;
     -webkit-mask: var(--meter-face);
     mask: var(--meter-face);
 }
