@@ -1608,16 +1608,24 @@
     private void GoToNextPage() { if (_currentPage < TotalPages) _currentPage++; }
     private void GoToLastPage() => _currentPage = TotalPages;
 
+    // Three states per header: its first direction, the other direction, then back to the
+    // default order, strongest signal first.
     private void SetSort(string column)
     {
-        if (sortColumn == column)
+        var firstDescending = column == "signal" || column == "lastSeen";
+        if (sortColumn != column)
         {
-            sortDescending = !sortDescending;
+            sortColumn = column;
+            sortDescending = firstDescending;
+        }
+        else if (sortDescending == firstDescending)
+        {
+            sortDescending = !firstDescending;
         }
         else
         {
-            sortColumn = column;
-            sortDescending = column == "signal" || column == "lastSeen"; // Default descending for these
+            sortColumn = "signal";
+            sortDescending = true;
         }
         _currentPage = 1;
     }
