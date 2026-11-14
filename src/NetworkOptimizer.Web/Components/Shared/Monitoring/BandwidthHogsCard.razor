@@ -281,7 +281,9 @@ else
                         }
                         @for (var i = rows.Count; i < slots; i++)
                         {
-                            <tr class="hogs-slot-empty"><td colspan="6">&nbsp;</td></tr>
+                            @* One cell per breakpoint, as in NestedFlows: a phone shows four columns, and a
+                               six-wide span there adds two phantom columns that squeeze the real ones. *@
+                            <tr class="hogs-slot-empty"><td colspan="6" class="hide-mobile">&nbsp;</td><td colspan="4" class="show-mobile">&nbsp;</td></tr>
                         }
                     </tbody>
                 </table>
@@ -485,11 +487,11 @@ else
             <tbody>
                 @if (_lt == null)
                 {
-                    <tr><td colspan="6"><span class="spinner spinner-sm"></span></td></tr>
+                    <tr><td colspan="@(phone ? 4 : 6)"><span class="spinner spinner-sm"></span></td></tr>
                 }
                 else if (flows.Count == 0)
                 {
-                    <tr><td colspan="6" class="lt-muted">No WAN flows moving right now.</td></tr>
+                    <tr><td colspan="@(phone ? 4 : 6)" class="lt-muted">No WAN flows moving right now.</td></tr>
                 }
                 @foreach (var f in flows)
                 {
