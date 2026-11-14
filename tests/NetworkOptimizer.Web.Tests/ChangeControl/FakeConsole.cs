@@ -92,6 +92,16 @@ internal sealed class FakeConsole : IUniFiConfigApi
             }
             return Task.FromResult(new UniFiRawResponse(200, "{}"));
         }
+        // A client's custom icon, by MAC: PUT stores the icon object, DELETE removes it (Network 11.0.97).
+        if (scope == UniFiApiScope.SiteV2 && path.StartsWith("clients/", StringComparison.Ordinal) && path.EndsWith("/ai-icon", StringComparison.Ordinal))
+        {
+            var mac = path.Split('/')[1];
+            var client = (State.Collections.GetValueOrDefault("user") ?? []).FirstOrDefault(u => string.Equals(u["mac"]?.ToString(), mac, StringComparison.OrdinalIgnoreCase));
+            if (client == null) return Task.FromResult(new UniFiRawResponse(404, "{}"));
+            if (method == HttpMethod.Put) client["ai_icon"] = JsonNode.Parse(json!);
+            else client.Remove("ai_icon");
+            return Task.FromResult(new UniFiRawResponse(method == HttpMethod.Put ? 200 : 204, method == HttpMethod.Put ? json! : ""));
+        }
         // A client forget answers with the records it removed (main console, Network 11.0.97).
         if (method == HttpMethod.Post && path == "cmd/stamgr" && JsonNode.Parse(json!) is JsonObject { } cmd && cmd["cmd"]?.ToString() == "forget-sta")
         {

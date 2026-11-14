@@ -500,7 +500,7 @@ public sealed class PlanCoordinatorTests : IDisposable
     /// <summary>Applies a plan from the live clients to <paramref name="desired"/>, with rest/user dropping the device type as UniFi does.</summary>
     private async Task<(int PlanId, string? Why)> ApplyClientsAsync(List<JsonObject> desired)
     {
-        _console.DropFields.UnionWith(["dev_id_override", "fingerprint_override"]);
+        _console.DropFields.UnionWith(["dev_id_override", "fingerprint_override", "ai_icon"]);
         var state = _console.State.Clone();
         state.Collections["user"] = desired;
         var plan = await _plans.CreateAsync(ConfigPlanKind.Edit, "Clients", "test", null, null, state,
@@ -569,6 +569,77 @@ public sealed class PlanCoordinatorTests : IDisposable
 
         _console.Requests.Should().NotContain(r => r.Path.StartsWith("station/"));
         _console.State.Get("user").Single()["dev_id_override"]!.ToString().Should().Be("4978");
+    }
+
+    private static JsonObject CustomIcon(string iconId = "icon-a") => new()
+    {
+        ["icon_id"] = iconId, ["icon_set_id"] = "gen_1", ["request_id"] = "req_1", ["manufacturer"] = "Maker", ["model"] = "Model One",
+        ["assets"] = new JsonArray(new JsonObject { ["url"] = $"https://image.icon-gen.svc.ui.com/image/v2/{iconId}_rev_1_25x25.png", ["width"] = 25, ["height"] = 25 }),
+    };
+
+    private static JsonObject Camera(JsonObject? icon)
+    {
+        var client = new JsonObject { ["_id"] = "u8", ["mac"] = "aa:bb:cc:dd:ee:08", ["name"] = "[Lab] Camera" };
+        if (icon != null) client["ai_icon"] = icon;
+        return client;
+    }
+
+    [Fact]
+    public async Task AClientsCustomIcon_CopiedFromAnotherClient_IsSetThroughTheIconRoute()
+    {
+        _console.State.Collections["user"] = [Camera(null)];
+
+        var (planId, why) = await ApplyClientsAsync([Camera(CustomIcon())]);
+
+        why.Should().BeNull();
+        var call = _console.Requests.Should().ContainSingle(r => r.Path == "clients/aa:bb:cc:dd:ee:08/ai-icon").Subject;
+        call.Method.Should().Be(HttpMethod.Put);
+        JsonNode.Parse(call.Body!)!["icon_id"]!.ToString().Should().Be("icon-a");
+        JsonNode.Parse(call.Body!)!["assets"]!.AsArray().Should().HaveCount(1);
+        _console.State.Get("user").Single()["ai_icon"]!["model"]!.ToString().Should().Be("Model One");
+        (await PlanAsync(planId))!.Status.Should().Be(ConfigPlanStatus.Applied, "the read-back finds the icon");
+    }
+
+    [Fact]
+    public async Task AClientsCustomIcon_Changed_IsOneRowNamedByItsModel()
+    {
+        _console.State.Collections["user"] = [Camera(CustomIcon())];
+        var other = CustomIcon("icon-b");
+        other["model"] = "Model Two";
+
+        var (planId, _) = await ApplyClientsAsync([Camera(other)]);
+
+        var (_, doc, _) = (await _plans.LoadAsync(planId, CancellationToken.None))!.Value;
+        var row = doc.Operations.Single().Fields.Should().ContainSingle().Subject;
+        row.Label.Should().Be("Custom Icon");
+        row.Old.Should().Be("Model One");
+        row.New.Should().Be("Model Two");
+        _console.State.Get("user").Single()["ai_icon"]!["icon_id"]!.ToString().Should().Be("icon-b");
+    }
+
+    [Fact]
+    public async Task AClientsCustomIcon_Removed_IsClearedThroughTheIconRoute()
+    {
+        _console.State.Collections["user"] = [Camera(CustomIcon())];
+
+        var (planId, _) = await ApplyClientsAsync([Camera(null)]);
+
+        _console.Requests.Should().ContainSingle(r => r.Path == "clients/aa:bb:cc:dd:ee:08/ai-icon").Which.Method.Should().Be(HttpMethod.Delete);
+        _console.State.Get("user").Single().ContainsKey("ai_icon").Should().BeFalse();
+        (await PlanAsync(planId))!.Status.Should().Be(ConfigPlanStatus.Applied);
+    }
+
+    [Fact]
+    public async Task AClientRename_SendsNoCustomIconCall()
+    {
+        _console.State.Collections["user"] = [Camera(CustomIcon())];
+        var renamed = Camera(CustomIcon());
+        renamed["name"] = "[Lab] Camera 2";
+
+        await ApplyClientsAsync([renamed]);
+
+        _console.Requests.Should().NotContain(r => r.Path.EndsWith("/ai-icon"));
+        _console.State.Get("user").Single()["ai_icon"]!["icon_id"]!.ToString().Should().Be("icon-a");
     }
 
     [Fact]

@@ -367,6 +367,7 @@ Gateway tweaks for UCG-Fiber, UXG-Fiber, UCG-Max, and UXG-Max (Gateway SSH).
 - **Edit** - edit the config as YAML with live checks, then **Review Plan**; upload or download YAML files, for the whole site or a single collection
   - Remove an object with one click; references to it in lists are removed in the same plan
   - Remove a client to forget it in UniFi Network, each one an item to acknowledge; Roll Back and Return to Baseline also forget a client the snapshot lacks, Restore never does
+  - Copy a client's custom icon (AI-generated or uploaded) to another client by copying its `ai_icon` block, which UniFi Network has no way to do; remove the block to clear it
   - **+ Add** a WLAN, network, port profile, firewall policy, zone, group, or Local DNS record from UniFi's own defaults
   - Search field names and values across every collection (common names find UniFi's: VLAN finds networks, SSID finds WLANs), with each collection's match count and Previous / Next through the matches
   - Edit a saved template the same way
