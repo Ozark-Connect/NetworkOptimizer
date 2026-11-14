@@ -2064,6 +2064,14 @@ public class UpstreamTracerService
         // ingress + far egress), instead of blindly keeping the lowest hop number.
         ApplyTransitClumpSelection(State.TransitAsns);
 
+        foreach (var outlier in OutlierTransitRouters(State.TransitAsns))
+        {
+            outlier.Enabled = false;
+            outlier.HighRtt = true;
+            _logger.LogDebug("Transit router {Address} at {Rtt:F1} ms is far above the other transit routers; proposed unchecked",
+                outlier.HopAddress, outlier.VerifiedRttMs);
+        }
+
         // Item A: whenever a curated transit ASN (e.g. Level 3 / AS3356) is near-transit, attach its
         // anycast witness (4.2.2.2) as a transit target - alongside any real routers, not only as a
         // fallback - so ISP Health always has a stable Lumen transit anchor even when the real hops
@@ -2081,6 +2089,33 @@ public class UpstreamTracerService
             (0, _) => $"Reachability check complete: {offPath} of {allTargets.Count} target(s) answer by a different route and were excluded.",
             _ => $"Reachability check complete: {unreachable} of {allTargets.Count} target(s) did not respond and {offPath} answer by a different route; all were excluded."
         };
+    }
+
+    /// <summary>How many times the transit routers' median RTT a new router must exceed to be an outlier.</summary>
+    internal const double TransitOutlierFactor = 3.0;
+
+    /// <summary>How far (ms) above the transit routers' median RTT a new router must also sit to be an outlier.</summary>
+    internal const double TransitOutlierFloorMs = 100.0;
+
+    /// <summary>
+    /// New, checked transit routers whose verified RTT is far above the rest: over
+    /// <see cref="TransitOutlierFactor"/> times the median of the answering routers and at least
+    /// <see cref="TransitOutlierFloorMs"/> above it. A distant router a trace passed through measures
+    /// that distance, not the transit your traffic uses. Needs three answering routers for a median
+    /// worth judging by; a router already monitored keeps the operator's choice.
+    /// </summary>
+    internal static List<TransitAsnCandidate> OutlierTransitRouters(IReadOnlyList<TransitAsnCandidate> candidates)
+    {
+        var timed = candidates
+            .Where(c => c.Method == DiscoveryMethod.DirectRouter && !c.Unreachable && c.VerifiedRttMs.HasValue)
+            .ToList();
+        if (timed.Count < 3) return [];
+        var median = IspHealth.SeriesStats.Median(timed.Select(c => c.VerifiedRttMs!.Value).ToList())!.Value;
+        return timed
+            .Where(c => c.Enabled && !c.PreservedFromExisting
+                && c.VerifiedRttMs > median * TransitOutlierFactor
+                && c.VerifiedRttMs - median >= TransitOutlierFloorMs)
+            .ToList();
     }
 
     /// <summary>Minimum excess (ms) of a hop's direct-ping RTT over its trace RTT that marks it off path.</summary>

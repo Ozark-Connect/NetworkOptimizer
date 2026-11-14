@@ -174,6 +174,12 @@ public class TransitAsnCandidate
     /// stored choices.
     /// </summary>
     public bool PreservedFromExisting { get; set; }
+
+    /// <summary>
+    /// A new transit router whose ping is far above the other transit routers' (see
+    /// UpstreamTracerService.OutlierTransitRouters). Proposed unchecked; the operator can check it.
+    /// </summary>
+    public bool HighRtt { get; set; }
 }
 
 /// <summary>
