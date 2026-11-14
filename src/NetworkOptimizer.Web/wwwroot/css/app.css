@@ -13637,10 +13637,11 @@ h3 > .tooltip-icon-sm {
     color: var(--text-primary);
 }
 
+/* No --selected-edge here: a chip filled in its own color (a band, an event kind) is already
+   marked as on, and a blue edge under a yellow or purple fill reads as a second, wrong signal. */
 .band-tab.active {
-    background: var(--selected-bg);
-    border-color: var(--selected-bg);
-    box-shadow: var(--selected-edge);
+    background: var(--primary-color);
+    border-color: var(--primary-color);
     color: white;
 }
 
@@ -20581,6 +20582,10 @@ a.isp-health-hero-speed:hover {
 .isp-events-header {
     flex-wrap: wrap;
     gap: 0.4rem;
+}
+
+.isp-event-filter .time-btn.active[class*="evt-"] {
+    box-shadow: none;
 }
 
 .isp-event-filter .time-btn.active.evt-congestion {
