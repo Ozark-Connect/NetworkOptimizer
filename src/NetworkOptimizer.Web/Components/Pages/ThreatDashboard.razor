@@ -72,7 +72,7 @@
     @if (_activeTab != "drilldown")
     {
         <div class="wifi-view-tabs-wrapper" style="margin-bottom:0;">
-            <button class="wifi-tabs-scroll-btn wifi-tabs-scroll-left" onclick="this.parentElement.querySelector('.wifi-view-tabs').scrollBy({left: -200, behavior: 'smooth'})">&#8249;</button>
+            <button class="wifi-tabs-scroll-btn wifi-tabs-scroll-left" onclick="this.parentElement.querySelector('.wifi-view-tabs').scrollBy({left: -200, behavior: 'smooth'})"><AppIcon Name="chevron-left" /></button>
             <div class="wifi-view-tabs" style="border-bottom:none; padding-bottom:0;">
                 <button class="wifi-view-tab @(_activeTab == "overview" ? "active" : "")"
                         @onclick='() => SetActiveTab("overview")'>Overview</button>
@@ -89,7 +89,7 @@
                 <button class="wifi-view-tab"
                         @onclick='() => NavigationManager.NavigateTo("/settings#threat-intelligence")'>Settings</button>
             </div>
-            <button class="wifi-tabs-scroll-btn wifi-tabs-scroll-right" onclick="this.parentElement.querySelector('.wifi-view-tabs').scrollBy({left: 200, behavior: 'smooth'})">&#8250;</button>
+            <button class="wifi-tabs-scroll-btn wifi-tabs-scroll-right" onclick="this.parentElement.querySelector('.wifi-view-tabs').scrollBy({left: 200, behavior: 'smooth'})"><AppIcon Name="chevron-right" /></button>
         </div>
     }
     else
@@ -123,7 +123,7 @@
                 <button class="btn btn-sm btn-secondary filter-gear-btn"
                         @onclick="() => _showFilterPanel = !_showFilterPanel"
                         data-tooltip="Configure noise filters"
-                        data-tooltip-hover-only>&#9881;</button>
+                        data-tooltip-hover-only><AppIcon Name="settings" /></button>
             </div>
         }
         else
@@ -845,7 +845,7 @@ else
                     else
                     {
                         <div class="empty-state">
-                            <div class="empty-icon">&#10003;</div>
+                            <div class="empty-icon"><AppIcon Name="check" /></div>
                             <h3>No Exposed Services</h3>
                             <p>No port forward rules detected, or no threats are targeting forwarded ports.</p>
                         </div>
@@ -995,7 +995,7 @@ else
                 else
                 {
                     <div class="empty-state">
-                        <div class="empty-icon">&#10003;</div>
+                        <div class="empty-icon"><AppIcon Name="check" /></div>
                         <h3>No Multi-Stage Sequences</h3>
                         <p>No source IPs exhibited activity across multiple kill chain stages in this period.</p>
                     </div>
@@ -1864,8 +1864,8 @@ else
 
     /* Horizontal distribution bars (matches Wi-Fi Optimizer load-bar pattern) */
     .threat-bar-track {
-        background: var(--bg-hover);
-        border-radius: 0 var(--border-radius) var(--border-radius) 0;
+        background: var(--bg-inset);
+        box-shadow: inset 0 0 0 1px var(--border-strong);
         height: 18px;
         overflow: hidden;
     }
@@ -1873,7 +1873,6 @@ else
     .threat-bar-fill {
         height: 100%;
         background: #3b82f6;
-        border-radius: 0 var(--border-radius) var(--border-radius) 0;
         min-width: 4px;
         transition: width 0.3s ease;
     }
@@ -1932,7 +1931,7 @@ else
     .category-badge {
         display: inline-block;
         padding: 0.15rem 0.5rem;
-        border-radius: 4px;
+        border-radius: var(--border-radius);
         font-size: 0.78rem;
         white-space: nowrap;
         margin-right: 0.25rem;
@@ -1955,7 +1954,7 @@ else
         justify-content: center;
         min-width: 16px;
         height: 16px;
-        border-radius: 8px;
+        border-radius: var(--border-radius-lg);
         background: var(--accent-color);
         color: white;
         font-size: 0.65rem;
@@ -1983,7 +1982,7 @@ else
         background: rgba(168, 85, 247, 0.15);
         color: #c4b5fd;
         padding: 0.15rem 0.5rem;
-        border-radius: 4px;
+        border-radius: var(--border-radius);
         margin: 0.2rem 0.25rem 0.2rem 0;
         font-size: 0.8rem;
         cursor: default;
@@ -2271,7 +2270,7 @@ else
     .role-badge {
         display: inline-block;
         padding: 0.15rem 0.5rem;
-        border-radius: 4px;
+        border-radius: var(--border-radius);
         font-size: 0.75rem;
         font-weight: 600;
         letter-spacing: 0.02em;

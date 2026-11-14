@@ -1546,16 +1546,16 @@
                                     <span class="lt-sub">@g.Sub</span>
                                 }
                             </td>
-                            <td>@g.Flows.ToString("N0")</td>
+                            <td class="lt-num">@g.Flows.ToString("N0")</td>
                             @if (history)
                             {
-                                <td>@DisplayFormatters.FormatBytes(g.TotalBytes)</td>
+                                <td class="lt-num">@DisplayFormatters.FormatBytes(g.TotalBytes)</td>
                             }
                             else
                             {
-                                <td>@Rate(g.DownBps, "speed-down")</td>
-                                <td>@Rate(g.UpBps, "speed-up")</td>
-                                <td>@DisplayFormatters.FormatBytes(g.TotalBytes)</td>
+                                <td class="lt-num">@Rate(g.DownBps, "speed-down")</td>
+                                <td class="lt-num">@Rate(g.UpBps, "speed-up")</td>
+                                <td class="lt-num">@DisplayFormatters.FormatBytes(g.TotalBytes)</td>
                             }
                         </tr>
                     }

@@ -115,9 +115,9 @@
             </div>
 
             <div class="audit-pager">
-                <button class="btn btn-sm btn-secondary" disabled="@(_skip == 0)" @onclick="PrevAsync">Previous</button>
+                <button class="btn btn-sm btn-secondary" disabled="@(_skip == 0)" @onclick="PrevAsync"><AppIcon Name="chevron-left" /> Prev</button>
                 <span class="pagination-info">@(_skip + 1)-@(_skip + _events.Count) of @_total</span>
-                <button class="btn btn-sm btn-secondary" disabled="@(_skip + PageSize >= _total)" @onclick="NextAsync">Next</button>
+                <button class="btn btn-sm btn-secondary" disabled="@(_skip + PageSize >= _total)" @onclick="NextAsync">Next <AppIcon Name="chevron-right" /></button>
             </div>
         }
     </div>
