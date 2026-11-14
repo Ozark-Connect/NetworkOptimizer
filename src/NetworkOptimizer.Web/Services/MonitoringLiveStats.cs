@@ -513,6 +513,29 @@ public class MonitoringLiveStats
 
     // Each target's RTT probes over the last MedianWindow; a few hundred values per target at most.
     private readonly ConcurrentDictionary<string, Queue<(DateTime At, double Rtt)>> _targetRttHistory = new();
+    private readonly ConcurrentDictionary<string, byte> _seededRttHistory = new();
+
+    /// <summary>
+    /// Fills a target's RTT history with stored readings older than any it holds, once per process.
+    /// The history starts empty at every restart, and the Transit tile's baselines need the hour.
+    /// </summary>
+    public void SeedRttHistory(string targetId, IReadOnlyList<(DateTime Time, double Value)> stored)
+    {
+        if (string.IsNullOrEmpty(targetId) || stored.Count == 0 || !_seededRttHistory.TryAdd(targetId, 0)) return;
+        var history = _targetRttHistory.GetOrAdd(targetId, _ => new Queue<(DateTime, double)>());
+        lock (history)
+        {
+            var before = history.Count > 0 ? history.Peek().Item1 : DateTime.MaxValue;
+            var cutoff = DateTime.UtcNow - MedianWindow;
+            var merged = stored.Where(p => p.Time >= cutoff && p.Time < before)
+                .OrderBy(p => p.Time)
+                .Select(p => (p.Time, p.Value))
+                .Concat(history)
+                .ToList();
+            history.Clear();
+            foreach (var p in merged) history.Enqueue(p);
+        }
+    }
 
     /// <summary>
     /// Of <paramref name="targetIds"/>, the one with the lowest median RTT over the last hour, or
@@ -554,6 +577,44 @@ public class MonitoringLiveStats
             fresh.Add((id, st.RttAvgMs, st.LossPercent));
         }
         return AccessFloor.Live(fresh, LowestMedianTarget(ids));
+    }
+
+    /// <summary>
+    /// An ISP or Transit tile's live RTT and loss for <paramref name="targetIds"/>, shared by the
+    /// Monitoring page and the Dashboard's Live View. ISP reads as the access floor
+    /// (<see cref="GetIspAccessFloorLive"/>), as ISP Health does. Transit reads as
+    /// <see cref="HopLatencyBlend"/> over the fresh hops, with their mean loss. Null RTT and zero
+    /// loss with no fresh hop.
+    /// </summary>
+    public (double? RttAvgMs, double LossPercent) GetTileLatencyLive(MonitoringTargetType type, IEnumerable<string> targetIds)
+    {
+        var ids = targetIds as IReadOnlyCollection<string> ?? targetIds.ToList();
+        if (ids.Count == 0) return (null, 0);
+        if (type == MonitoringTargetType.AccessIsp)
+        {
+            var (floorRtt, floorLoss) = GetIspAccessFloorLive(ids);
+            return (floorRtt, floorLoss ?? 0);
+        }
+        var stale = DateTime.UtcNow - LiveReadingMaxAge;
+        var hops = new List<IReadOnlyList<double>>();
+        var losses = new List<double>();
+        foreach (var id in ids)
+        {
+            var st = GetTargetStats(id);
+            if (st == null || st.LastUpdate < stale) continue;
+            losses.Add(st.LossPercent);
+            if (st.RttAvgMs is not double rtt) continue;
+            // The history ends with the current reading (RecordTargetProbe appends it).
+            var history = RttHistory(id);
+            hops.Add(history.Count > 0 ? history : [rtt]);
+        }
+        return (HopLatencyBlend.Live(hops), losses.Count > 0 ? losses.Average() : 0);
+    }
+
+    private List<double> RttHistory(string targetId)
+    {
+        if (!_targetRttHistory.TryGetValue(targetId, out var history)) return [];
+        lock (history) return history.Select(h => h.Rtt).ToList();
     }
 
     /// <summary>Cached list of enabled ISP+Transit monitoring targets. Refreshed every 30s.</summary>
