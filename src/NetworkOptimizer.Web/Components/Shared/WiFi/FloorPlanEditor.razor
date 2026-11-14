@@ -526,7 +526,7 @@
         flex-direction: column;
         gap: 0;
         background: var(--bg-card, #161618);
-        border-radius: 6px;
+        border-radius: var(--border-radius-lg);
         overflow: hidden;
     }
 
@@ -591,7 +591,7 @@
         background: var(--bg-primary, #0f0f11);
         color: var(--text-primary, #ededef);
         border: 1px solid var(--border-color, #232326);
-        border-radius: 4px;
+        border-radius: var(--border-radius);
         padding: 4px 8px;
         font-size: 13px;
     }
@@ -603,7 +603,7 @@
         background: var(--btn-map-bg);
         color: var(--text-primary, #ededef);
         border: 1px solid var(--border-color, #232326);
-        border-radius: 4px;
+        border-radius: var(--border-radius);
         padding: 4px 10px;
         font-size: 13px;
         cursor: pointer;
@@ -628,7 +628,7 @@
         background: var(--btn-map-bg);
         color: var(--text-primary, #ededef);
         border: 1px solid var(--border-color, #232326);
-        border-radius: 4px;
+        border-radius: var(--border-radius);
         padding: 2px 8px;
         font-size: 12px;
         cursor: pointer;
@@ -676,7 +676,7 @@
         background: var(--btn-map-bg);
         color: var(--text-primary, #ededef);
         border: 1px solid var(--border-color, #232326);
-        border-radius: 4px;
+        border-radius: var(--border-radius);
         padding: 4px 10px;
         font-size: 13px;
         cursor: pointer;
@@ -763,7 +763,7 @@
     .fp-dialog {
         background: var(--bg-card, #161618);
         border: 1px solid var(--border-color, #232326);
-        border-radius: 6px;
+        border-radius: var(--border-radius-lg);
         padding: 20px;
         min-width: 300px;
     }
@@ -784,7 +784,7 @@
         background: var(--bg-primary, #0f0f11);
         color: var(--text-primary, #ededef);
         border: 1px solid var(--border-color, #232326);
-        border-radius: 4px;
+        border-radius: var(--border-radius);
         padding: 6px 10px;
         font-size: 14px;
         box-sizing: border-box;
@@ -802,7 +802,7 @@
         background: var(--bg-tertiary, #334155);
         color: var(--text-primary, #f1f5f9);
         border: 1px solid var(--border-color, #232326);
-        border-radius: 4px;
+        border-radius: var(--border-radius);
         cursor: pointer;
         font-size: 16px;
         font-weight: 600;
@@ -822,7 +822,7 @@
         background: var(--bg-primary, #0f0f11);
         color: var(--text-primary, #ededef);
         border: 1px solid var(--border-color, #232326);
-        border-radius: 4px;
+        border-radius: var(--border-radius);
         padding: 6px;
         font-size: 14px;
         -moz-appearance: textfield;
@@ -849,7 +849,7 @@
         z-index: 1000;
         background: rgba(22, 22, 24, 0.95);
         border: 1px solid var(--border-color, #232326);
-        border-radius: 6px;
+        border-radius: var(--border-radius-lg);
         padding: 0.75rem;
         max-width: 220px;
         max-height: 400px;
@@ -876,7 +876,7 @@
         padding: 0.4rem 0.5rem;
         background: var(--bg-tertiary, #232326);
         border: 1px solid transparent;
-        border-radius: 4px;
+        border-radius: var(--border-radius);
         cursor: pointer;
         color: var(--text-primary, #ededef);
         font-size: 0.8rem;
@@ -929,7 +929,7 @@
         background: rgba(234, 179, 8, 0.9);
         color: #1e293b;
         padding: 0.35rem 0.75rem;
-        border-radius: 4px;
+        border-radius: var(--border-radius);
         font-size: 0.8rem;
         font-weight: 600;
         pointer-events: none;
@@ -950,7 +950,7 @@
         z-index: 1000;
         background: rgba(15, 23, 42, 0.9);
         border: 1px solid rgba(100, 116, 139, 0.4);
-        border-radius: 6px;
+        border-radius: var(--border-radius-lg);
         padding: 8px 10px;
         pointer-events: none;
     }
@@ -996,7 +996,7 @@
         height: 4px;
         -webkit-appearance: none;
         appearance: none;
-        background: linear-gradient(to right, #3b82f6, #60a5fa);
+        background: var(--primary-hover);
         border-radius: 2px;
         cursor: pointer;
     }
@@ -1093,7 +1093,7 @@
         font-size: 10px;
         font-weight: 600;
         padding: 1px 6px;
-        border-radius: 3px;
+        border-radius: var(--border-radius);
         white-space: nowrap;
         margin-right: 0.6rem;
     }
@@ -1110,7 +1110,7 @@
         background: var(--bg-tertiary, #232326);
         border: 1px solid var(--border-color, #232326);
         color: var(--text-primary, #ededef);
-        border-radius: 3px;
+        border-radius: var(--border-radius);
         padding: 2px 6px;
         font-size: 13px;
         font-weight: 600;
@@ -1123,7 +1123,7 @@
         background: rgba(239, 68, 68, 0.15);
         color: #ef4444;
         border: 1px solid rgba(239, 68, 68, 0.3);
-        border-radius: 4px;
+        border-radius: var(--border-radius);
         cursor: pointer;
         font-size: 12px;
         font-weight: 500;
@@ -1201,7 +1201,7 @@
         background: rgba(234, 179, 8, 0.95);
         color: #1a1a1a;
         padding: 10px 18px;
-        border-radius: 8px;
+        border-radius: var(--border-radius-lg);
         font-size: 13px;
         font-weight: 600;
         max-width: 360px;
@@ -1218,7 +1218,7 @@
         color: #1e293b;
         background: rgba(255, 255, 255, 0.92) !important;
         padding: 2px 6px;
-        border-radius: 3px;
+        border-radius: var(--border-radius);
         border: 1px solid rgba(0, 0, 0, 0.25) !important;
         white-space: nowrap;
         text-align: center;
@@ -1302,7 +1302,7 @@
     .leaflet-popup-content-wrapper {
         background: #1e293b;
         color: #f1f5f9;
-        border-radius: 6px;
+        border-radius: var(--border-radius-lg);
         font-family: var(--font-sans);
     }
 
@@ -1391,7 +1391,7 @@
         background: #1e293b;
         color: #e0e0e0;
         border: 1px solid #475569;
-        border-radius: 3px;
+        border-radius: var(--border-radius);
         font-size: 12px;
     }
 
@@ -1412,7 +1412,7 @@
         padding: 2px 4px;
         background: #1e293b;
         border: 1px solid #334155;
-        border-radius: 4px;
+        border-radius: var(--border-radius);
         color: #e0e0e0;
         font-size: 13px;
         text-align: right;
@@ -1491,7 +1491,7 @@
         border: 1px solid #4b5563;
         color: #9ca3af;
         padding: 3px 10px;
-        border-radius: 4px;
+        border-radius: var(--border-radius);
         cursor: pointer;
         font-size: 11px;
         transition: background 0.15s, color 0.15s, border-color 0.15s;
@@ -1578,7 +1578,7 @@
         margin-top: 5px;
         text-align: center;
         border-radius: 15px;
-        font: 12px "Helvetica Neue", Arial, Helvetica, sans-serif;
+        font: 12px var(--font-display);
         font-weight: bold;
         color: #fff;
         line-height: 30px;
