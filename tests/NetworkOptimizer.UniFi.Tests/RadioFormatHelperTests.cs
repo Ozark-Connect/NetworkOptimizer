@@ -69,6 +69,8 @@ public class RadioFormatHelperTests
     [InlineData("b", null, "Wi-Fi 1 (b)")]
     [InlineData("g", null, "Wi-Fi 3 (g)")]
     [InlineData("n", null, "Wi-Fi 4 (n)")]
+    [InlineData("ng", null, "Wi-Fi 4 (n)")]
+    [InlineData("na", null, "Wi-Fi 4 (n)")]
     [InlineData("ac", null, "Wi-Fi 5 (ac)")]
     [InlineData("ax", null, "Wi-Fi 6 (ax)")]
     [InlineData("be", null, "Wi-Fi 7 (be)")]

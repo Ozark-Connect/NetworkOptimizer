@@ -133,7 +133,7 @@
                 <!-- Stage 4: Full Connectivity -->
                 <div class="flow-stage">
                     <div class="stage-header">
-                        <div class="stage-icon success-icon">✓</div>
+                        <div class="stage-icon success-icon"><AppIcon Name="check" /></div>
                         <div class="stage-info">
                             <span class="stage-name">Connected</span>
                             <span class="stage-desc">Full network access</span>
@@ -207,17 +207,17 @@
                 <div class="status-card status-connected">
                     <div class="status-value">@_fullyConnectedClients</div>
                     <div class="status-label">Fully Connected</div>
-                    <div class="status-icon">✓</div>
+                    <div class="status-icon"><AppIcon Name="check" /></div>
                 </div>
                 <div class="status-card status-authorized">
                     <div class="status-value">@_authorizedClients</div>
                     <div class="status-label">Authorized</div>
-                    <div class="status-icon">🔓</div>
+                    <div class="status-icon"><AppIcon Name="unlock" /></div>
                 </div>
                 <div class="status-card status-guest">
                     <div class="status-value">@_guestClients</div>
                     <div class="status-label">Guest Network</div>
-                    <div class="status-icon">👤</div>
+                    <div class="status-icon"><AppIcon Name="user" /></div>
                 </div>
                 <div class="status-card status-issue">
                     <div class="status-value">@_clientsWithIssues</div>
@@ -404,7 +404,7 @@
         {
             _connectionIssues.Add(new ConnectionIssue
             {
-                Icon = "⚠",
+                Icon = "warning",
                 Severity = "warning",
                 Title = "No IP Address",
                 Description = "These clients connected but didn't receive an IP address. Check DHCP server capacity and lease availability.",
@@ -419,7 +419,7 @@
         {
             _connectionIssues.Add(new ConnectionIssue
             {
-                Icon = "🚫",
+                Icon = "close",
                 Severity = "info",
                 Title = "Blocked/Unauthorized",
                 Description = "These clients are blocked from network access. This may be intentional.",
@@ -434,7 +434,7 @@
         {
             _connectionIssues.Add(new ConnectionIssue
             {
-                Icon = "📶",
+                Icon = "wifi",
                 Severity = "warning",
                 Title = "Weak Signal",
                 Description = "These clients have signal below -75 dBm and may experience intermittent connectivity or slow speeds.",
@@ -449,7 +449,7 @@
         {
             _connectionIssues.Add(new ConnectionIssue
             {
-                Icon = "📱",
+                Icon = "phone",
                 Severity = "info",
                 Title = "Legacy Wi-Fi Clients",
                 Description = "These clients use older Wi-Fi standards and may have compatibility or performance issues.",

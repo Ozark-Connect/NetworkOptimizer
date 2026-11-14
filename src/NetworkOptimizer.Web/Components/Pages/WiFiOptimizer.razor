@@ -44,7 +44,7 @@
 {
     <div class="connection-banner @(!string.IsNullOrEmpty(ConnectionService.LastError) ? "connection-error" : "")">
         <div class="banner-content">
-            <span class="banner-icon">!</span>
+            <span class="banner-icon"><GatewayIcon /></span>
             <div class="banner-text">
                 @if (!string.IsNullOrEmpty(ConnectionService.LastError))
                 {
@@ -79,6 +79,7 @@
     <div class="stats-row wifi-stats-row">
         <div class="stat-card">
             <div class="stat-icon wifi-health-icon @GetScoreClass(_summary?.HealthScore)">
+                <ScoreRing Score="@_summary?.HealthScore" Small="true" />
                 @if (_loading)
                 {
                     <span class="spinner-sm"></span>
@@ -126,9 +127,7 @@
         </div>
 
         <div class="stat-card">
-            <svg class="stat-icon-svg stat-icon-sm" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg" width="32" height="32">
-                <path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5s-3 1.34-3 3 1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/>
-            </svg>
+            <AppIcon Name="clients" Class="stat-icon-svg stat-icon-sm" />
             <div class="stat-content">
                 <div class="stat-value">
                     @if (_loading)
@@ -145,9 +144,7 @@
         </div>
 
         <div class="stat-card @(_summary?.WeakSignalClients > 0 ? "stat-warning" : "")">
-            <svg class="stat-icon-svg stat-icon-sm" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg" width="32" height="32">
-                <path d="M1 9l2 2c4.97-4.97 13.03-4.97 18 0l2-2C16.93 2.93 7.08 2.93 1 9zm8 8l3 3 3-3c-1.65-1.66-4.34-1.66-6 0zm-4-4l2 2c2.76-2.76 7.24-2.76 10 0l2-2C15.14 9.14 8.87 9.14 5 13z"/>
-            </svg>
+            <AppIcon Name="wifi-weak" Class="stat-icon-svg stat-icon-sm" />
             <div class="stat-content">
                 <div class="stat-value">
                     @if (_loading)
@@ -166,7 +163,7 @@
 
     <!-- View Tabs -->
     <div class="wifi-view-tabs-wrapper">
-        <button class="wifi-tabs-scroll-btn wifi-tabs-scroll-left" onclick="this.parentElement.querySelector('.wifi-view-tabs').scrollBy({left: -200, behavior: 'smooth'})">&#8249;</button>
+        <button class="wifi-tabs-scroll-btn wifi-tabs-scroll-left" onclick="this.parentElement.querySelector('.wifi-view-tabs').scrollBy({left: -200, behavior: 'smooth'})"><AppIcon Name="chevron-left" /></button>
         <div class="wifi-view-tabs">
             <button class="wifi-view-tab @(_activeTab == "overview" ? "active" : "")"
                     @onclick="@(() => SetActiveTab("overview"))">
@@ -202,7 +199,7 @@
             </button>
             <button class="wifi-view-tab @(_activeTab == "power" ? "active" : "")"
                     @onclick="@(() => SetActiveTab("power"))">
-                Power/Coverage
+                Power &amp; Coverage
             </button>
             <button class="wifi-view-tab @(_activeTab == "loadbalance" ? "active" : "")"
                     @onclick="@(() => SetActiveTab("loadbalance"))">
@@ -229,7 +226,7 @@
                 AP Telemetry
             </button>
         </div>
-        <button class="wifi-tabs-scroll-btn wifi-tabs-scroll-right" onclick="this.parentElement.querySelector('.wifi-view-tabs').scrollBy({left: 200, behavior: 'smooth'})">&#8250;</button>
+        <button class="wifi-tabs-scroll-btn wifi-tabs-scroll-right" onclick="this.parentElement.querySelector('.wifi-view-tabs').scrollBy({left: 200, behavior: 'smooth'})"><AppIcon Name="chevron-right" /></button>
     </div>
 
     @if (_activeTab == "metrics")
@@ -247,6 +244,7 @@
         <div class="card card-full-width">
             <div class="card-body">
                 <NetworkOptimizer.Web.Components.Shared.WiFi.ClientTimeline InitialClientMac="@_initialClientMac" InitialApMac="@_initialApMac" InitialBand="@_initialBand"
+                                                                            InitialSignalMin="@_initialSignalMin" InitialSignalMax="@_initialSignalMax"
                                                                             OnClientNavigate="HandleClientNavigate" />
             </div>
         </div>
@@ -311,7 +309,7 @@
         <!-- Power & Coverage Analysis -->
         <div class="card card-full-width">
             <div class="card-body">
-                <NetworkOptimizer.Web.Components.Shared.WiFi.PowerCoverageAnalysis OnClientClick="HandleMapClientClick" />
+                <NetworkOptimizer.Web.Components.Shared.WiFi.PowerCoverageAnalysis OnClientClick="HandleMapClientClick" OnNavigateToClients="HandleSignalRangeNavigate" />
             </div>
         </div>
     }
@@ -390,6 +388,7 @@
                     <div class="health-score-display">
                         <div class="health-score-main">
                             <div class="score-circle @GetScoreClass(_healthScore.OverallScore)">
+                                <ScoreRing Score="@_healthScore.OverallScore" />
                                 <span class="score-value @(_healthScore.OverallScore == 100 ? "score-perfect" : "")">@_healthScore.OverallScore</span>
                                 <span class="score-max">/100</span>
                             </div>
@@ -894,6 +893,13 @@
     [SupplyParameterFromQuery(Name = "channel")]
     public int? ChannelQueryParam { get; set; }
 
+    /// <summary>Client Stats signal range in dBm, either end optional (a Signal Strength Distribution bar).</summary>
+    [SupplyParameterFromQuery(Name = "sigmin")]
+    public int? SignalMinQueryParam { get; set; }
+
+    [SupplyParameterFromQuery(Name = "sigmax")]
+    public int? SignalMaxQueryParam { get; set; }
+
     [SupplyParameterFromQuery(Name = "recommend")]
     public bool? RecommendQueryParam { get; set; }
 
@@ -913,6 +919,8 @@
     private string? _initialApMac;
     private RadioBand? _initialBand;
     private int? _initialChannel;
+    private int? _initialSignalMin;
+    private int? _initialSignalMax;
     private bool _autoRunRecommendation;
     private string? _initialEdge;
     private string? _initialRange;
@@ -939,6 +947,8 @@
         _initialApMac = null;
         _initialBand = null;
         _initialChannel = null;
+        _initialSignalMin = null;
+        _initialSignalMax = null;
         _initialEdge = null;
         _initialRange = null;
         _autoRunRecommendation = false;
@@ -953,12 +963,15 @@
         _lastTabParam = tab;
     }
 
-    private void NavigateToTab(string tab, string? apMac = null, RadioBand? band = null, int? channel = null)
+    private void NavigateToTab(string tab, string? apMac = null, RadioBand? band = null, int? channel = null,
+        int? signalMin = null, int? signalMax = null)
     {
         _activeTab = tab;
         _initialApMac = apMac;
         _initialBand = band;
         _initialChannel = channel;
+        _initialSignalMin = signalMin;
+        _initialSignalMax = signalMax;
         _initialClientMac = null;
         _initialRange = null;
         _autoRunRecommendation = false;
@@ -971,10 +984,18 @@
             uri += "&band=" + BandToQueryString(band.Value);
         if (channel.HasValue)
             uri += "&channel=" + channel.Value;
+        uri += SignalQuery(signalMin, signalMax);
 
         NavigationManager.NavigateTo(uri, forceLoad: false, replace: false);
         _lastTabParam = tab;
     }
+
+    private static string SignalQuery(int? min, int? max) =>
+        (min.HasValue ? "&sigmin=" + min.Value.ToString(System.Globalization.CultureInfo.InvariantCulture) : "")
+        + (max.HasValue ? "&sigmax=" + max.Value.ToString(System.Globalization.CultureInfo.InvariantCulture) : "");
+
+    private void HandleSignalRangeNavigate((int? Min, int? Max) range) =>
+        NavigateToTab("client", signalMin: range.Min, signalMax: range.Max);
 
     private static string BandToQueryString(RadioBand band) => band switch
     {
@@ -1163,6 +1184,8 @@
             // A client's URL carries the list's filters, so Back after a reload lands on the same list.
             _initialApMac = ApQueryParam;
             _initialBand = BandFromQueryString(BandQueryParam);
+            _initialSignalMin = SignalMinQueryParam;
+            _initialSignalMax = SignalMaxQueryParam;
         }
         else if (!string.IsNullOrEmpty(TabParam))
         {
@@ -1172,6 +1195,8 @@
             // Parse drill-down filter params
             _initialApMac = ApQueryParam;
             _initialBand = BandFromQueryString(BandQueryParam);
+            _initialSignalMin = SignalMinQueryParam;
+            _initialSignalMax = SignalMaxQueryParam;
             _initialChannel = ChannelQueryParam;
             _autoRunRecommendation = RecommendQueryParam == true;
             _initialEdge = EdgeQueryParam;
@@ -1257,6 +1282,8 @@
                 // Re-parse drill-down params for the new tab
                 _initialApMac = ApQueryParam;
                 _initialBand = BandFromQueryString(BandQueryParam);
+                _initialSignalMin = SignalMinQueryParam;
+                _initialSignalMax = SignalMaxQueryParam;
                 _initialChannel = ChannelQueryParam;
                 _autoRunRecommendation = RecommendQueryParam == true;
                 _initialEdge = EdgeQueryParam;
@@ -1501,6 +1528,7 @@
             uri += "&ap=" + Uri.EscapeDataString(ApQueryParam);
         if (!string.IsNullOrEmpty(BandQueryParam))
             uri += "&band=" + Uri.EscapeDataString(BandQueryParam);
+        uri += SignalQuery(SignalMinQueryParam, SignalMaxQueryParam);
         if (!string.IsNullOrEmpty(mac))
             uri += "&client=" + Uri.EscapeDataString(mac);
 
