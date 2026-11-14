@@ -958,6 +958,13 @@
                 el.removeAttribute('data-tooltip-bound');
             });
 
+            // A tooltip left open on an element Blazor has since removed: a click that navigates in
+            // code (a bar, a tile, a row) is not a link, so the link cleanup below never runs for it.
+            document.querySelectorAll('[data-tippy-root]').forEach(function(root) {
+                var tip = root._tippy;
+                if (tip && tip.reference && !tip.reference.isConnected) tip.destroy();
+            });
+
             // Icons Blazor kept but whose data-tooltip changed: initTooltips only runs when nodes
             // are added, so this scan is what sees an attribute-only change.
             document.querySelectorAll('.tooltip-icon[data-tooltip]').forEach(function(icon) {
