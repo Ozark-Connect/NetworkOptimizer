@@ -1951,19 +1951,22 @@
     /* Data Usage bar */
     .data-usage-bar {
         height: 24px;
-        background: var(--bg-tertiary);
-        border-radius: var(--border-radius);
+        background: var(--bg-inset);
+        box-shadow: inset 0 0 0 1px var(--border-strong);
+        border-radius: var(--border-radius) var(--bar-end-radius) var(--bar-end-radius) var(--border-radius);
         overflow: hidden;
         position: relative;
     }
     .data-usage-bar-fill {
         height: 100%;
-        border-radius: var(--border-radius);
+        border: 1px solid var(--bar);
+        border-radius: var(--border-radius) var(--bar-end-radius) var(--bar-end-radius) var(--border-radius);
+        background: color-mix(in srgb, var(--bar) 42%, transparent);
         transition: width 0.3s;
     }
-    .data-usage-bar-fill.usage-normal { background: var(--success-color); }
-    .data-usage-bar-fill.usage-warning { background: var(--warning-color); }
-    .data-usage-bar-fill.usage-exceeded { background: var(--danger-color); }
+    .data-usage-bar-fill.usage-normal { --bar: var(--success-color); }
+    .data-usage-bar-fill.usage-warning { --bar: var(--warning-color); }
+    .data-usage-bar-fill.usage-exceeded { --bar: var(--danger-color); }
     .data-usage-bar-warning {
         position: absolute;
         top: 0;

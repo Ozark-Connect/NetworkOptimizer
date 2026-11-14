@@ -16709,21 +16709,22 @@ h3 > .tooltip-icon-sm {
 .radio-util-bar-container {
     flex: 1;
     height: 16px;
-    background: var(--bg-secondary);
-    border-radius: 0 var(--border-radius) var(--border-radius) 0;
+    background: var(--bg-inset);
+    box-shadow: inset 0 0 0 1px var(--border-strong);
     overflow: hidden;
     position: relative;
 }
 
 .radio-util-bar {
     height: 100%;
-    border-radius: 0 var(--border-radius) var(--border-radius) 0;
     transition: width 0.3s ease;
+    -webkit-mask: var(--meter-face);
+    mask: var(--meter-face);
 }
 
-.radio-util-bar.util-low { background: #22c55e; }
-.radio-util-bar.util-medium { background: #eab308; }
-.radio-util-bar.util-high { background: #ef4444; }
+.radio-util-bar.util-low { background: var(--signal-good); }
+.radio-util-bar.util-medium { background: var(--signal-fair); }
+.radio-util-bar.util-high { background: var(--signal-poor); }
 
 .radio-util-value {
     position: absolute;
@@ -24952,16 +24953,17 @@ body:has(.top-bar-hidden) .btn-fit {
     display: block;
     width: 80px;
     height: 6px;
-    border-radius: 0 3px 3px 0;
-    background: var(--bg-tertiary);
+    background: var(--bg-inset);
+    box-shadow: inset 0 0 0 1px var(--border-strong);
     overflow: hidden;
 }
 
 .hogs-share .hogs-fill {
     display: block;
     height: 100%;
-    border-radius: 0 3px 3px 0;
     background: var(--speed-download-color);
+    -webkit-mask: var(--meter-face);
+    mask: var(--meter-face);
 }
 
 @media (max-width: 768px) {

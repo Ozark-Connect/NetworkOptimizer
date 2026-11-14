@@ -5346,15 +5346,16 @@
         display: block;
         width: 120px;
         height: 6px;
-        border-radius: 0 3px 3px 0;
-        background: var(--bg-tertiary);
+        background: var(--bg-inset);
+        box-shadow: inset 0 0 0 1px var(--border-strong);
         overflow: hidden;
     }
     .share-fill {
         display: block;
         height: 100%;
-        border-radius: 0 3px 3px 0;
         background: var(--speed-download-color);
+        -webkit-mask: var(--meter-face);
+        mask: var(--meter-face);
     }
     /* On a phone the two totals cards stay side by side, scaled down: Download over Upload in
        each, smaller figures, the meta lines stacked. */
