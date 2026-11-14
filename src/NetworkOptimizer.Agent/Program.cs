@@ -390,6 +390,7 @@ if (!string.IsNullOrEmpty(config.TunnelUrl))
 // buffer the spool callback is a no-op.
 watchdogTask = AsyncIoWatchdog.RunAsync(SaveSpool, cts.Token);
 configRevertTask = configRevert.RunAsync(cts.Token);
+var tracerouteTask = config.OnGateway == true ? GatewayTraceroute.KeepInstalledAsync(cts.Token) : null;
 
 // Prefer the persistent gRPC tunnel; REST heartbeats keep the agent visible as
 // Online whenever the tunnel is unavailable (tunnel disabled server-side, an
@@ -577,7 +578,7 @@ if (blocklistHitsTask != null)
 {
     try { await blocklistHitsTask; } catch (OperationCanceledException) { }
 }
-foreach (var task in new[] { floodGuardTask, floodDetectorTask, kernelLogTask, configRevertTask })
+foreach (var task in new[] { floodGuardTask, floodDetectorTask, kernelLogTask, configRevertTask, tracerouteTask })
 {
     if (task == null) continue;
     try { await task; } catch (OperationCanceledException) { }
