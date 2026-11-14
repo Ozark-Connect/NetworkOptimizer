@@ -1,0 +1,69 @@
+@*
+    The half dial every 0-100 score is drawn on: one outlined facet per rating, cut at the scores
+    where a rating starts, shaded up to the score. Colors come from .score-dial.rating-*.
+*@
+<svg viewBox="0 0 200 120" class="gauge-svg score-dial rating-@Rating @(Small ? "score-dial-small" : "")">
+    @foreach (var (from, to) in Facets(Thresholds, Small ? 1.3 : 0.9))
+    {
+        var reached = Score > from;
+        <path class="gauge-facet @(reached ? "lit" : "")" d="@Facet(100, 100, 180, 180, from, to, InnerRadius, OuterRadius)"/>
+        @if (reached && Score > 0)
+        {
+            <path class="gauge-fill" d="@Facet(100, 100, 180, 180, from, Math.Min(to, Score ?? 0), InnerRadius, OuterRadius)"/>
+        }
+    }
+    <text x="100" y="94" text-anchor="middle" class="gauge-score @(ColorScore ? "gauge-score-rated" : "")">@(Score?.ToString() ?? "--")</text>
+    <text x="100" y="113" text-anchor="middle" class="gauge-label">@Label</text>
+</svg>
+
+@code {
+    private const double InnerRadius = 72;
+    private const double OuterRadius = 90;
+
+    /// <summary>The score, 0-100. Null draws an unlit dial with a "--" readout.</summary>
+    [Parameter] public int? Score { get; set; }
+
+    /// <summary>The caption under the score.</summary>
+    [Parameter] public string Label { get; set; } = "";
+
+    /// <summary>The rating suffix of the .rating-* class: excellent, good, fair, weak, poor, or none.</summary>
+    [Parameter] public string Rating { get; set; } = "none";
+
+    /// <summary>The scores where a rating starts. Each one is a cut between two facets.</summary>
+    [Parameter] public int[] Thresholds { get; set; } = { 60, 75, 90 };
+
+    /// <summary>A dial drawn small on the page: wider cuts and heavier outlines so the facets stay distinct.</summary>
+    [Parameter] public bool Small { get; set; }
+
+    /// <summary>Draws the score itself in the rating's color.</summary>
+    [Parameter] public bool ColorScore { get; set; }
+
+    /// <summary>The facet spans between thresholds, each pulled in by half a cut where it meets a neighbor.</summary>
+    internal static IEnumerable<(double From, double To)> Facets(int[] thresholds, double cut)
+    {
+        var bounds = thresholds.Prepend(0).Append(100).ToArray();
+        for (var i = 0; i < bounds.Length - 1; i++)
+        {
+            yield return (bounds[i] + (i == 0 ? 0 : cut), bounds[i + 1] - (i == bounds.Length - 2 ? 0 : cut));
+        }
+    }
+
+    /// <summary>
+    /// A closed band between two radii, from one score to another, on an arc that starts at
+    /// startDegrees (counterclockwise from 3 o'clock) and runs clockwise for sweepDegrees.
+    /// </summary>
+    internal static string Facet(double cx, double cy, double startDegrees, double sweepDegrees,
+        double from, double to, double innerRadius, double outerRadius)
+    {
+        if (to <= from)
+        {
+            return "";
+        }
+
+        var a1 = (startDegrees - from / 100 * sweepDegrees) * Math.PI / 180;
+        var a2 = (startDegrees - to / 100 * sweepDegrees) * Math.PI / 180;
+        var large = (to - from) / 100 * sweepDegrees > 180 ? 1 : 0;
+        return FormattableString.Invariant(
+            $"M {cx + outerRadius * Math.Cos(a1):0.##} {cy - outerRadius * Math.Sin(a1):0.##} A {outerRadius} {outerRadius} 0 {large} 1 {cx + outerRadius * Math.Cos(a2):0.##} {cy - outerRadius * Math.Sin(a2):0.##} L {cx + innerRadius * Math.Cos(a2):0.##} {cy - innerRadius * Math.Sin(a2):0.##} A {innerRadius} {innerRadius} 0 {large} 0 {cx + innerRadius * Math.Cos(a1):0.##} {cy - innerRadius * Math.Sin(a1):0.##} Z");
+    }
+}
