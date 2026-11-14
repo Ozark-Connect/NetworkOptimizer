@@ -93,6 +93,14 @@
         linear-gradient(#000, #000) right / 1px 100% no-repeat,
         linear-gradient(rgb(0 0 0 / 0.42), rgb(0 0 0 / 0.42));
     /* The same face for a second segment that continues the first: fainter, no edge where they meet. */
+    /* The free end of a wide bar (a histogram column, a band bar) stays rounded. */
+    --bar-end-radius: 5px;
+    /* The Channel Plan mark's face: fainter inside than a meter's, since a label sits on it. */
+    --brand-face: linear-gradient(#000, #000) top / 100% 1px no-repeat,
+        linear-gradient(#000, #000) bottom / 100% 1px no-repeat,
+        linear-gradient(#000, #000) left / 1px 100% no-repeat,
+        linear-gradient(#000, #000) right / 1px 100% no-repeat,
+        linear-gradient(rgb(0 0 0 / 0.34), rgb(0 0 0 / 0.34));
     --meter-face-extension: linear-gradient(#000, #000) top / 100% 1px no-repeat,
         linear-gradient(#000, #000) bottom / 100% 1px no-repeat,
         linear-gradient(#000, #000) right / 1px 100% no-repeat,
@@ -11005,8 +11013,9 @@ h3 > .tooltip-icon-sm {
 .band-bar-container {
     width: 60px;
     height: 96px;
-    background: var(--bg-tertiary);
-    border-radius: var(--border-radius) var(--border-radius) 0 0;
+    background: var(--bg-inset);
+    box-shadow: inset 0 0 0 1px var(--border-strong);
+    border-radius: var(--bar-end-radius) var(--bar-end-radius) 0 0;
     overflow: hidden;
     display: flex;
     align-items: flex-end;
@@ -11014,14 +11023,16 @@ h3 > .tooltip-icon-sm {
 
 .band-bar {
     width: 100%;
-    border-radius: var(--border-radius) var(--border-radius) 0 0;
     transition: height 0.3s ease;
     min-height: 4px;
+    border: 1px solid var(--bar);
+    border-radius: var(--bar-end-radius) var(--bar-end-radius) 0 0;
+    background: color-mix(in srgb, var(--bar) 42%, transparent);
 }
 
-.band-bar.band-2ghz { background: #fbbf24; }
-.band-bar.band-5ghz { background: #3b82f6; }
-.band-bar.band-6ghz { background: #a855f7; }
+.band-bar.band-2ghz { --bar: var(--band-24-color); }
+.band-bar.band-5ghz { --bar: var(--band-5-color); }
+.band-bar.band-6ghz { --bar: var(--band-6-color); }
 
 .band-value {
     font-size: 1.25rem;
@@ -14574,14 +14585,33 @@ h3 > .tooltip-icon-sm {
 }
 
 /* Recommend Best Channels button - accent gradient matching Cleanest Channels box */
-/* The Channel Plan mark, in both brand colors: an angled orange tab on a blue body. Shared with
-   the Cleanest Channels card on RF Environment, which opens the same plan. */
+/* The Channel Plan mark, in both brand colors: an orange-to-blue outline around a faint face of
+   the same blend. Shared with the Cleanest Channels card on RF Environment, which opens the
+   same plan. The blend is its own layer so the label keeps full strength. */
+.btn-recommend,
+.spectrum-stat-card.highlight {
+    position: relative;
+    isolation: isolate;
+    background: none;
+}
+
+.btn-recommend::before,
+.spectrum-stat-card.highlight::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    border-radius: inherit;
+    background: linear-gradient(100deg, var(--accent-color) 0%, var(--primary-color) 55%);
+    -webkit-mask: var(--brand-face);
+    mask: var(--brand-face);
+}
+
 .btn-recommend {
-    background: linear-gradient(115deg, var(--accent-color) 0 1.6rem, var(--primary-color) calc(1.6rem + 1px));
     color: white;
     border: none;
     height: 34px;
-    padding: 0 1.25rem 0 2.6rem;
+    padding: 0 1.25rem;
     font-size: 0.875rem;
     font-weight: 500;
     border-radius: var(--border-radius);
@@ -15480,12 +15510,15 @@ h3 > .tooltip-icon-sm {
     padding: 1rem 0;
 }
 
+/* A histogram: bars stand on one baseline, each a shaded face with a full-strength edge, its
+   count above it and the bin labels in one row below. The top padding is room for a count
+   over the tallest bar. */
 .signal-bars {
     display: flex;
     align-items: flex-end;
-    height: 150px;
+    height: 166px;
     gap: 4px;
-    padding: 0 0.5rem;
+    padding: 16px 0.5rem 0;
     margin-bottom: 0;
 }
 
@@ -15494,39 +15527,52 @@ h3 > .tooltip-icon-sm {
     display: flex;
     flex-direction: column;
     align-items: center;
+    justify-content: flex-end;
     height: 100%;
-    border-radius: 0 0 var(--border-radius) var(--border-radius);
 }
 
 .signal-bar {
     width: 100%;
-    border-radius: 0 0 var(--border-radius) var(--border-radius);
     display: flex;
     align-items: flex-end;
     justify-content: center;
-    min-height: 4px;
+    min-height: 2px;
     transition: height 0.3s ease;
     position: relative;
 }
 
-.signal-bar .bar-count {
-    font-size: 0.65rem;
-    color: white;
-    font-weight: 600;
+/* The fill is its own layer, so the count can sit above the bar. A wide bar keeps a rounded
+   free end, which a border draws cleanly where the meter mask would cut the corners. */
+.signal-distribution .signal-bar::before {
+    content: "";
     position: absolute;
-    top: 4px;
+    inset: 0;
+    border: 1px solid var(--bar);
+    border-radius: var(--bar-end-radius) var(--bar-end-radius) 0 0;
+    background: color-mix(in srgb, var(--bar) 42%, transparent);
 }
 
-.signal-bar.signal-excellent { background: #10b981; }
-.signal-bar.signal-good { background: #22c55e; }
-.signal-bar.signal-fair { background: #eab308; }
-.signal-bar.signal-weak { background: #f97316; }
-.signal-bar.signal-poor { background: #ef4444; }
+.signal-bar .bar-count {
+    font-size: 0.75rem;
+    color: var(--text-primary);
+    font-weight: 600;
+    position: absolute;
+    bottom: calc(100% + 3px);
+}
+
+.signal-bar.signal-excellent { --bar: var(--signal-excellent); }
+.signal-bar.signal-good { --bar: var(--signal-good); }
+.signal-bar.signal-fair { --bar: var(--signal-fair); }
+.signal-bar.signal-weak { --bar: var(--signal-weak); }
+.signal-bar.signal-poor { --bar: var(--signal-poor); }
 
 .signal-bar-label {
-    font-size: 0.65rem;
+    width: 100%;
+    font-family: var(--font-display);
+    font-size: 0.7rem;
     color: var(--text-muted);
-    margin-top: 0.5rem;
+    padding-top: 0.4rem;
+    border-top: 1px solid var(--border-strong);
     text-align: center;
 }
 
@@ -15548,14 +15594,15 @@ h3 > .tooltip-icon-sm {
 .signal-legend .legend-color {
     width: 12px;
     height: 12px;
-    border-radius: 2px;
+    -webkit-mask: var(--meter-face);
+    mask: var(--meter-face);
 }
 
-.signal-legend .legend-color.signal-excellent { background: #10b981; }
-.signal-legend .legend-color.signal-good { background: #22c55e; }
-.signal-legend .legend-color.signal-fair { background: #eab308; }
-.signal-legend .legend-color.signal-weak { background: #f97316; }
-.signal-legend .legend-color.signal-poor { background: #ef4444; }
+.signal-legend .legend-color.signal-excellent { background: var(--signal-excellent); }
+.signal-legend .legend-color.signal-good { background: var(--signal-good); }
+.signal-legend .legend-color.signal-fair { background: var(--signal-fair); }
+.signal-legend .legend-color.signal-weak { background: var(--signal-weak); }
+.signal-legend .legend-color.signal-poor { background: var(--signal-poor); }
 
 /* TX Power Grid */
 .ap-power-grid {
