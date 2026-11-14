@@ -1089,11 +1089,11 @@
                 @if (historyTotalPages > 1)
                 {
                     <div class="pagination" id="history-pagination">
-                        <button class="btn btn-sm btn-secondary" disabled="@(historyPage <= 1)" @onclick="() => ChangePage(-1)"><span class="pag-arrow">←</span> Prev</button>
+                        <button class="btn btn-sm btn-secondary" disabled="@(historyPage <= 1)" @onclick="() => ChangePage(-1)"><AppIcon Name="chevron-left" /> Prev</button>
                         <span class="pagination-info">
                             Page @historyPage of @historyTotalPages (@filteredHistory.Count@(string.IsNullOrEmpty(historySearchFilter) && string.IsNullOrEmpty(deviceFilter) ? " total" : $" of {testHistory.Count}"))
                         </span>
-                        <button class="btn btn-sm btn-secondary" disabled="@(historyPage >= historyTotalPages)" @onclick="() => ChangePage(1)">Next <span class="pag-arrow">→</span></button>
+                        <button class="btn btn-sm btn-secondary" disabled="@(historyPage >= historyTotalPages)" @onclick="() => ChangePage(1)">Next <AppIcon Name="chevron-right" /></button>
                     </div>
                 }
             }
@@ -1177,11 +1177,12 @@
 
     /* iperf3 status display */
     .iperf3-status {
-        background: var(--bg-tertiary);
+        background: var(--bg-inset);
         border-radius: var(--border-radius);
         padding: 1rem;
         margin: 1rem 0;
         font-size: 0.8125rem;
+        box-shadow: inset 0 0 0 1px var(--border-color);
     }
 
     .status-row {
@@ -1214,7 +1215,7 @@
     .info-section code {
         background: var(--bg-primary);
         padding: 0.125rem 0.375rem;
-        border-radius: 4px;
+        border-radius: var(--border-radius);
         font-size: 0.875rem;
     }
 
@@ -1309,7 +1310,7 @@
     .iperf3-error-detail code {
         background: rgba(0, 0, 0, 0.1);
         padding: 0.125rem 0.375rem;
-        border-radius: 4px;
+        border-radius: var(--border-radius);
     }
 
     .iperf3-install-hint {
@@ -1323,13 +1324,13 @@
     .iperf3-install-hint code {
         background: rgba(0, 0, 0, 0.1);
         padding: 0.125rem 0.375rem;
-        border-radius: 4px;
+        border-radius: var(--border-radius);
     }
 
     /* Client speed test promotion card */
     .client-speedtest-card {
-        background: linear-gradient(135deg, var(--bg-secondary) 0%, var(--bg-tertiary) 100%);
-        border: 1px solid var(--accent-color);
+        background: color-mix(in srgb, var(--accent-color) 7%, var(--bg-card));
+        border: 1px solid color-mix(in srgb, var(--accent-color) 45%, transparent);
         margin-bottom: 1.5rem;
     }
 

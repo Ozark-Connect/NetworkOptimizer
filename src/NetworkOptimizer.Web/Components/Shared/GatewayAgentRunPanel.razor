@@ -21,7 +21,7 @@
             }
             else if (_run.Status == GatewayAgentInstallStatus.Succeeded)
             {
-                <span class="gw-run-ok">&#x2713;</span>
+                <span class="gw-run-ok"><AppIcon Name="check" /></span>
                 <span>@(_run.IsUpgrade
                     ? "Finished - the agent restarted on the new binary."
                     : "Finished - the agent is installed and should come Online within a minute or two.")</span>
@@ -32,7 +32,7 @@
             }
             else
             {
-                <span class="gw-run-fail">&#x2715;</span>
+                <span class="gw-run-fail"><AppIcon Name="close" /></span>
                 @* Error first: a failure can carry both a message and an exit code (the
                    no-output guard), and the message is the one that says what to do. *@
                 <span>@(_run.Error

@@ -50,7 +50,7 @@
     <div class="alerts-header-bar">
         <div class="wifi-view-tabs-wrapper" style="margin-bottom:0;">
             <button class="wifi-tabs-scroll-btn wifi-tabs-scroll-left"
-                    onclick="this.parentElement.querySelector('.wifi-view-tabs').scrollBy({left: -200, behavior: 'smooth'})">&#8249;</button>
+                    onclick="this.parentElement.querySelector('.wifi-view-tabs').scrollBy({left: -200, behavior: 'smooth'})"><AppIcon Name="chevron-left" /></button>
             <div class="wifi-view-tabs" style="border-bottom:none; padding-bottom:0;">
                 @if (FeatureFlags.SchedulingEnabled)
                 {
@@ -76,7 +76,7 @@
                 }
             </div>
             <button class="wifi-tabs-scroll-btn wifi-tabs-scroll-right"
-                    onclick="this.parentElement.querySelector('.wifi-view-tabs').scrollBy({left: 200, behavior: 'smooth'})">&#8250;</button>
+                    onclick="this.parentElement.querySelector('.wifi-view-tabs').scrollBy({left: 200, behavior: 'smooth'})"><AppIcon Name="chevron-right" /></button>
         </div>
     </div>
 
@@ -853,7 +853,7 @@
             @if (_unresolvedAlerts.Count == 0)
             {
                 <div class="empty-state" data-tour="active-alerts">
-                    <div class="no-alerts-icon">&#10003;</div>
+                    <div class="no-alerts-icon"><AppIcon Name="check" /></div>
                     <h3>All Clear</h3>
                     <p>No active alerts at this time.</p>
                 </div>
@@ -1097,12 +1097,12 @@
                     {
                         <div class="pagination history-pagination">
                             <button class="btn btn-sm btn-secondary" disabled="@(_historyPage == 0)"
-                                    @onclick="() => GoToHistoryPage(_historyPage - 1)">Prev</button>
+                                    @onclick="() => GoToHistoryPage(_historyPage - 1)"><AppIcon Name="chevron-left" /> Prev</button>
                             <span class="pagination-info">
                                 Page @(_historyPage + 1) of @HistoryPageCount (@_historyTotal alerts)
                             </span>
                             <button class="btn btn-sm btn-secondary" disabled="@(_historyPage >= HistoryPageCount - 1)"
-                                    @onclick="() => GoToHistoryPage(_historyPage + 1)">Next</button>
+                                    @onclick="() => GoToHistoryPage(_historyPage + 1)">Next <AppIcon Name="chevron-right" /></button>
                         </div>
                     }
                 </div>
@@ -1951,19 +1951,22 @@
     /* Data Usage bar */
     .data-usage-bar {
         height: 24px;
-        background: var(--bg-tertiary);
-        border-radius: 4px;
+        background: var(--bg-inset);
+        box-shadow: inset 0 0 0 1px var(--border-strong);
+        border-radius: var(--border-radius) var(--bar-end-radius) var(--bar-end-radius) var(--border-radius);
         overflow: hidden;
         position: relative;
     }
     .data-usage-bar-fill {
         height: 100%;
-        border-radius: 4px;
+        border: 1px solid var(--bar);
+        border-radius: var(--border-radius) var(--bar-end-radius) var(--bar-end-radius) var(--border-radius);
+        background: color-mix(in srgb, var(--bar) 42%, transparent);
         transition: width 0.3s;
     }
-    .data-usage-bar-fill.usage-normal { background: var(--success-color); }
-    .data-usage-bar-fill.usage-warning { background: var(--warning-color); }
-    .data-usage-bar-fill.usage-exceeded { background: var(--danger-color); }
+    .data-usage-bar-fill.usage-normal { --bar: var(--success-color); }
+    .data-usage-bar-fill.usage-warning { --bar: var(--warning-color); }
+    .data-usage-bar-fill.usage-exceeded { --bar: var(--danger-color); }
     .data-usage-bar-warning {
         position: absolute;
         top: 0;

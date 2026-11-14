@@ -12,7 +12,7 @@
 
 <div class="change-control">
     <div class="wifi-view-tabs-wrapper">
-        <button class="wifi-tabs-scroll-btn wifi-tabs-scroll-left" onclick="this.parentElement.querySelector('.wifi-view-tabs').scrollBy({left: -200, behavior: 'smooth'})">&#8249;</button>
+        <button class="wifi-tabs-scroll-btn wifi-tabs-scroll-left" onclick="this.parentElement.querySelector('.wifi-view-tabs').scrollBy({left: -200, behavior: 'smooth'})"><AppIcon Name="chevron-left" /></button>
         <div class="wifi-view-tabs">
             @foreach (var (key, label) in Tabs)
             {
@@ -27,7 +27,7 @@
                 <CcGatewayStatus @key="_changesSite" SiteSlug="@_changesSite" />
             }
         </div>
-        <button class="wifi-tabs-scroll-btn wifi-tabs-scroll-right" onclick="this.parentElement.querySelector('.wifi-view-tabs').scrollBy({left: 200, behavior: 'smooth'})">&#8250;</button>
+        <button class="wifi-tabs-scroll-btn wifi-tabs-scroll-right" onclick="this.parentElement.querySelector('.wifi-view-tabs').scrollBy({left: 200, behavior: 'smooth'})"><AppIcon Name="chevron-right" /></button>
     </div>
 
     @if (SiteTabs.Contains(ActiveTab))
