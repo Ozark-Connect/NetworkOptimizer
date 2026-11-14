@@ -26,7 +26,7 @@
 {
     <div class="connection-banner @(!string.IsNullOrEmpty(ConnectionService.LastError) ? "connection-error" : "")">
         <div class="banner-content">
-            <span class="banner-icon banner-icon-console"><GatewayIcon /></span>
+            <span class="banner-icon"><GatewayIcon /></span>
             <div class="banner-text">
                 @if (!string.IsNullOrEmpty(ConnectionService.LastError))
                 {
