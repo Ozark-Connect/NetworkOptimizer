@@ -526,6 +526,28 @@ chmod +x "${INSTALL_DIR}/uwnspeedtest.new"
 mv -f "${INSTALL_DIR}/uwnspeedtest.new" "${INSTALL_DIR}/uwnspeedtest"
 ok "WAN speed test helper"
 
+# iperf3 runs the client leg of LAN speed tests the server starts, on every agent, and the
+# iperf3 server with --lan-speed-test. Best effort: without it the agent still installs, and
+# those tests fail with a message that names the missing binary.
+install_iperf3() {
+    command -v iperf3 >/dev/null 2>&1 && return 0
+    # stdin is closed for the package manager: under `curl | bash` it is this script.
+    if command -v apt-get >/dev/null 2>&1; then
+        # Debian's package can run its own iperf3 daemon, which would hold port 5201.
+        echo "iperf3 iperf3/start_daemon boolean false" | debconf-set-selections >/dev/null 2>&1 || true
+        { apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq iperf3; } </dev/null >/dev/null 2>&1 || true
+    elif command -v dnf >/dev/null 2>&1; then dnf install -y -q iperf3 </dev/null >/dev/null 2>&1 || true
+    elif command -v yum >/dev/null 2>&1; then yum install -y -q iperf3 </dev/null >/dev/null 2>&1 || true
+    elif command -v apk >/dev/null 2>&1; then apk add --no-cache iperf3 </dev/null >/dev/null 2>&1 || true
+    fi
+    command -v iperf3 >/dev/null 2>&1
+}
+if install_iperf3; then
+    ok "iperf3"
+else
+    warn "could not install iperf3 automatically - install it to run LAN speed tests from this agent."
+fi
+
 CONFIG="${INSTALL_DIR}/agent.json"
 
 # Whether this host is a UniFi OS gateway, for agent.json's onGateway key. The refusal

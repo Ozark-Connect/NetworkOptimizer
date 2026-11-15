@@ -1009,7 +1009,8 @@ a loopback results relay (nginx proxies the result posts to it), which forwards
 them to the central server tagged with the site slug and the client's real IP, so
 they land in the site's own database with no CORS or exposure of the central
 server to browsers. If an `iperf3` binary is on the agent's PATH, an iperf3 server
-(port 5201) runs alongside for wired/CLI throughput tests.
+(port 5201) runs alongside for wired/CLI throughput tests. The Docker image bundles
+iperf3, and `install-native.sh` installs it when the host has none.
 
 If the host's nginx is confined by AppArmor, it may be denied access to the
 install dir and the page won't serve (the agent and monitoring are unaffected).
