@@ -63,9 +63,10 @@ public static class HopLocations
             }
             else if (NamedNeighbor(list, named, i, g) is { } near)
             {
-                var source = $"Near {list[near.Index].Hostname}, {near.GapMs:0.0} ms away, whose hostname names {near.City.Name}.";
+                var router = list[near.Index].Hostname!.Split('.')[0];
+                var source = $"{near.GapMs:0.0} ms from {router}, a {near.City.Name} router";
                 result[h.Address!] = CityView(near.City, g.City is { Length: > 0 } geoCity
-                    ? $"{source} GeoLite2's {geoCity} is too far for that round trip."
+                    ? $"{source}. GeoLite2 says {geoCity}."
                     : source);
             }
             else if (g is { CountryCode.Length: > 0 })

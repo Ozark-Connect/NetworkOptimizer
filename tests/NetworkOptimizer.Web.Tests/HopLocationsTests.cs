@@ -33,7 +33,7 @@ public class HopLocationsTests
         ], Geo);
 
         found["198.51.100.20"].Text.Should().Be("Kansas City, United States");
-        found["198.51.100.20"].Tooltip.Should().Contain(KansasCityRouter).And.Contain("San Diego");
+        found["198.51.100.20"].Tooltip.Should().Be("1.0 ms from bbr01, a Kansas City router. GeoLite2 says San Diego.");
     }
 
     [Fact]
