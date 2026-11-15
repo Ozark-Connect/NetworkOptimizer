@@ -533,6 +533,9 @@ public class SnmpPoller : ISnmpPoller
             else if (oid == UniFiOids.SysDescr) metrics.Description = v.Data.ToString();
             else if (oid == UniFiOids.SysLocation) metrics.Location = v.Data.ToString();
             else if (oid == UniFiOids.SysContact) metrics.Contact = v.Data.ToString();
+            // The SNMP service's uptime, not the OS's (see UniFiOids.SysUpTime): it feeds reboot
+            // detection, which confirms each reset on the device. Do not swap in the console's uptime
+            // field to "fix" it: the two disagree by weeks on some devices.
             else if (oid == UniFiOids.SysUpTime) metrics.Uptime = ConvertSnmpValue<long>(v.Data);
             else if (oid == UniFiOids.SysObjectID) metrics.ObjectId = v.Data.ToString();
         }
