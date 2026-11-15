@@ -47,6 +47,18 @@ public class DeviceRebootTracker
     private readonly ConcurrentDictionary<string, DeviceBootRecord> _records = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
+    /// Boot instants an uptime sample claimed and the device's own /proc/uptime refuted, mapped to its
+    /// real boot. SNMP's sysUpTime counts from the SNMP service's start, so turning SNMP off and on or
+    /// a provision restarts the count; every later sample keeps claiming that instant, and the map
+    /// turns it back into the real boot instead of a reboot on every poll.
+    /// </summary>
+    private readonly ConcurrentDictionary<string, (DateTime ClaimedBootAt, DateTime RealBootAt)> _refutedBoots =
+        new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>The record a new boot displaced, restored if the device refutes that boot.</summary>
+    private readonly ConcurrentDictionary<string, DeviceBootRecord> _displaced = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
     /// Timestamp each device's stored record already occupies, including records dropped as stale.
     ///
     /// A record is one point per boot, keyed by the boot instant - but that instant is derived from
@@ -145,7 +157,8 @@ public class DeviceRebootTracker
     public DeviceRebootReason? GetReasonForReportedUptime(string deviceMac, long? uptimeSeconds, DateTime observedAt)
     {
         if (string.IsNullOrWhiteSpace(deviceMac)) return null;
-        if (!_records.TryGetValue(Normalize(deviceMac), out var record) || record.Reason == null) return null;
+        var mac = Normalize(deviceMac);
+        if (!_records.TryGetValue(mac, out var record) || record.Reason == null) return null;
 
         // Nothing to check against - an offline device reports no uptime - so the record stands.
         // That is an absence of evidence, not evidence of a restart we missed.
@@ -156,6 +169,8 @@ public class DeviceRebootTracker
         // system-stats.uptime, the console the device's own field), which is not news and must not
         // silence a perfectly good reason.
         var reportedBootAt = observedAt.ToUniversalTime().AddSeconds(-uptimeSeconds.Value);
+        if (_refutedBoots.TryGetValue(mac, out var refuted) && WithinTolerance(refuted.ClaimedBootAt, reportedBootAt))
+            reportedBootAt = refuted.RealBootAt;
         return reportedBootAt - record.BootedAt > BootMatchTolerance ? null : record.Reason;
     }
 
@@ -178,9 +193,11 @@ public class DeviceRebootTracker
     /// <param name="firmwareVersion">Reported firmware, used to spot an upgrade across the boot.</param>
     /// <param name="observedAt">Sample time.</param>
     /// <summary>
-    /// Where an uptime sample came from. The monitoring tiers read system-stats.uptime; the console
-    /// observer reads the device's own uptime field. The two do not always agree, so only one may
-    /// speak for a site at a time - see <see cref="MonitoringIsFeeding"/>.
+    /// Where an uptime sample came from. The monitoring tiers read system-stats.uptime, or SNMP's
+    /// sysUpTime when SNMP reports the device; the console observer reads the device's own uptime
+    /// field. The two do not always agree (39 days against 4 on one device), so only one may speak
+    /// for a device at a time - see <see cref="MonitoringIsFeeding"/>. Never cross-check one against
+    /// the other: the device's /proc/uptime, read by the probe, is what confirms a boot.
     /// </summary>
     public enum UptimeSource
     {
@@ -227,6 +244,10 @@ public class DeviceRebootTracker
         var mac = Normalize(deviceMac);
         var bootedAt = observedAt.ToUniversalTime().AddSeconds(-uptimeSeconds.Value);
 
+        // The device already said this instant is its SNMP service starting, not a boot.
+        if (_refutedBoots.TryGetValue(mac, out var refuted) && WithinTolerance(refuted.ClaimedBootAt, bootedAt))
+            bootedAt = refuted.RealBootAt;
+
         var known = _records.TryGetValue(mac, out var existing) ? existing : null;
 
         // A version change between the firmware we last recorded for this device and what the
@@ -254,7 +275,7 @@ public class DeviceRebootTracker
         else if (known != null)
         {
             _logger.LogInformation(
-                "Device {Device} ({Mac}) rebooted: uptime {Uptime}s puts boot at {BootedAt:u} (was {PreviousBoot:u})",
+                "Device {Device} ({Mac}) rebooted: uptime {Uptime}s puts boot at {BootedAt:u} (was {PreviousBoot:u}); the probe confirms it on the device",
                 deviceName ?? "unknown", mac, uptimeSeconds, bootedAt, known.BootedAt);
 
             RaiseRebooted(new DeviceBootEvent(mac, deviceName, deviceType, host, bootedAt));
@@ -277,7 +298,9 @@ public class DeviceRebootTracker
 
         if (!sameBoot)
         {
-            // New boot: keep the boot instant, drop any reason belonging to the previous run.
+            // New boot: keep the boot instant, drop any reason belonging to the previous run. The
+            // previous record is held until the probe confirms the boot on the device itself.
+            if (known != null) _displaced[mac] = known;
             _records[mac] = new DeviceBootRecord(bootedAt, null, firmwareVersion);
             _lastProbeAttempt.TryRemove(mac, out _);
 
@@ -508,8 +531,22 @@ public class DeviceRebootTracker
                 deviceName ?? "unknown", mac, deviceType, host, bootedAt);
 
             var pastWindow = DateTime.UtcNow - bootedAt >= ProvisionalWindow;
-            var probed = await _probe.ProbeAsync(mac, host, deviceType, firmwareChanged, firmwareKnownUnchanged,
+            var result = await _probe.ProbeAsync(mac, host, deviceType, firmwareChanged, firmwareKnownUnchanged,
                 trustDeviceClock: pastWindow);
+
+            // Confirm the boot before any reason or alert goes out. Without this, an SNMP restart
+            // published "Power loss" with the reason the console logged for the real, older boot.
+            if (result.DeviceUptimeSeconds is long deviceUptime
+                && RefutedBoot(bootedAt, deviceUptime, DateTime.UtcNow) is DateTime realBoot)
+            {
+                RestoreRefutedBoot(mac, bootedAt, realBoot);
+                _logger.LogInformation(
+                    "{Device} ({Mac}) did not reboot: its uptime reset put a boot at {Claimed:u}, but the device has been up since {RealBoot:u}, so its SNMP service restarted",
+                    deviceName ?? "unknown", mac, bootedAt, realBoot);
+                return;
+            }
+
+            var probed = result.Reason;
 
             // A console that never writes this boot's entry (an Express (UX, UX7) adopted as an AP) would be
             // re-probed every couple of minutes for its whole uptime. Past the window, settle.
@@ -639,6 +676,30 @@ public class DeviceRebootTracker
         DateTime sampledBootAt, string? sampledFirmware) =>
         WithinTolerance(recordedBootAt, sampledBootAt) &&
         !RebootReasonParser.NamesADifferentImage(recordedFirmware, sampledFirmware);
+
+    /// <summary>
+    /// The device's real boot when its own uptime refutes a boot a sample claimed: the device has
+    /// been up since well before it. Null when the boot is real (within the match tolerance).
+    /// </summary>
+    internal static DateTime? RefutedBoot(DateTime claimedBootAt, long deviceUptimeSeconds, DateTime probedAtUtc)
+    {
+        var realBoot = probedAtUtc.ToUniversalTime().AddSeconds(-deviceUptimeSeconds);
+        return claimedBootAt.ToUniversalTime() - realBoot > BootMatchTolerance ? realBoot : null;
+    }
+
+    /// <summary>
+    /// Undoes a boot the device refuted: later samples claiming it map to the real boot, and the
+    /// record it displaced comes back (reason included) when that record is the real boot's.
+    /// </summary>
+    internal void RestoreRefutedBoot(string mac, DateTime claimedBootAt, DateTime realBootAt)
+    {
+        mac = Normalize(mac);
+        _refutedBoots[mac] = (claimedBootAt.ToUniversalTime(), realBootAt.ToUniversalTime());
+        var firmware = _records.TryGetValue(mac, out var current) ? current.FirmwareVersion : null;
+        _records[mac] = _displaced.TryRemove(mac, out var prior) && WithinTolerance(prior.BootedAt, realBootAt)
+            ? prior
+            : new DeviceBootRecord(realBootAt.ToUniversalTime(), null, firmware);
+    }
 
     private static bool WithinTolerance(DateTime a, DateTime b) =>
         (a - b).Duration() <= BootMatchTolerance;
