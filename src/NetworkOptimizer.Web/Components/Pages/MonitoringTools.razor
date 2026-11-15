@@ -59,7 +59,7 @@
     </div>
 }
 
-<div class="card">
+<div class="card" id="run-a-probe">
     <div class="card-header">
         <h2 class="card-title">Run a Probe</h2>
     </div>
@@ -1654,6 +1654,12 @@ else if (_diagResult != null && !string.IsNullOrEmpty(_diagResult.InterfaceError
         _dnsResult = null;
         _runError = null;
         StateHasChanged();
+        // Run a Probe goes to the top of the view, so the result and its map land on screen below it.
+        try { await JS.InvokeVoidAsync("noScrollTo", "run-a-probe", "start"); }
+        catch (Exception ex) when (ex is JSException or InvalidOperationException or JSDisconnectedException)
+        {
+            Logger.LogDebug(ex, "Could not scroll to Run a Probe");
+        }
         try
         {
             var executor = await ResolveExecutorAsync();
