@@ -112,7 +112,9 @@ shared router - workstation GC plus a memory limit (256 MB soft, 512 MB hard) as
 a safety backstop. In practice it uses 100-170 MB and 2-3 CPU-seconds a minute,
 under 1.2% of a 4-core gateway's CPU (measured on a UXG-Fiber, two UCG-Fibers,
 and a UDR7, 2026-11). Polling SNMP every 2 seconds instead of the default 5
-raised it to about 7 CPU-seconds a minute (2.8%). The limit only bounds a
+raised it to about 7 CPU-seconds a minute (2.8%). On a gateway with less free
+memory, the .NET garbage collector scales its memory use down a bit from these
+figures. The limit only bounds a
 worst-case fault, keeping it well clear of routing and IPS. Even a 2 GB gateway
 has ample headroom.
 
