@@ -13,6 +13,7 @@ const SOURCE_TEXT = {
 };
 const LEG_COLOR = '#2ba89a';
 const LEG_UNSURE = '#9ca3af';
+const WHEEL_REST_MS = 350;
 
 let leafletLoading = null;
 const hosts = new Set();
@@ -141,9 +142,18 @@ export async function render(host, path, dotNet) {
             attribution: '© OpenStreetMap',
         }).addTo(map);
         map.attributionControl.setPrefix('<a href="https://leafletjs.com" target="_blank" rel="noopener">Leaflet</a>');
-        // The page scrolls past the map until the reader clicks into it.
-        map.on('click', () => map.scrollWheelZoom.enable());
-        host.addEventListener('mouseleave', () => map.scrollWheelZoom.disable());
+        // The wheel zooms once the pointer has rested on the map, or after a click. A page scroll
+        // that carries the pointer over the map keeps scrolling the page: each wheel event that
+        // arrives before the rest restarts the wait.
+        let rest = null;
+        const arm = () => {
+            clearTimeout(rest);
+            rest = setTimeout(() => map.scrollWheelZoom.enable(), WHEEL_REST_MS);
+        };
+        host.addEventListener('mouseenter', arm);
+        host.addEventListener('wheel', () => { if (!map.scrollWheelZoom.enabled()) arm(); }, { passive: true });
+        host.addEventListener('mouseleave', () => { clearTimeout(rest); map.scrollWheelZoom.disable(); });
+        map.on('click', () => { clearTimeout(rest); map.scrollWheelZoom.enable(); });
         const fitControl = L.control({ position: 'topleft' });
         fitControl.onAdd = () => {
             const bar = el('div', 'leaflet-bar trace-map-fit');
