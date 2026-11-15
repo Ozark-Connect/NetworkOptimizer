@@ -1,0 +1,189 @@
+using FluentAssertions;
+using NetworkOptimizer.Core.Helpers;
+using Xunit;
+
+namespace NetworkOptimizer.Core.Tests;
+
+/// <summary>
+/// Router hostnames as transit operators publish them, taken from real traces. Each operator has
+/// its own scheme, so each gets a case.
+/// </summary>
+public class RouterHostnameLocatorTests
+{
+    private static readonly (double, double) Dallas = (32.78, -96.80);
+    private static readonly (double, double) SaltLakeCity = (40.76, -111.89);
+
+    [Theory]
+    // NTT: CLLI place code with a site number
+    [InlineData("ae-20.r22.dllstx14.us.bb.gin.ntt.net", "Dallas")]
+    [InlineData("ae-0.r26.asbnva02.us.bb.gin.ntt.net", "Ashburn")]
+    [InlineData("ae-22.a03.lsanca07.us.bb.gin.ntt.net", "Los Angeles")]
+    [InlineData("ae-3.r23.parsfr04.fr.bb.gin.ntt.net", "Paris")]
+    [InlineData("ae-5.r29.osakjp02.jp.bb.gin.ntt.net", "Osaka")]
+    // Lumen and Level 3: city name with a site number
+    [InlineData("ae1.3511.edge2.dallas1.net.lumen.tech", "Dallas")]
+    [InlineData("ae1.3503.ear2.losangeles1.net.lumen.tech", "Los Angeles")]
+    [InlineData("ae3.3.bar3.saltlakecity1.net.lumen.tech", "Salt Lake City")]
+    [InlineData("ae8.edge4.atl2.sp.lumen.tech", "Atlanta")]
+    [InlineData("lag-101.ear1.littlerock2.level3.net", "Little Rock")]
+    [InlineData("xe-10-0-5-0.bar1.saltlakecity1.level3.net", "Salt Lake City")]
+    // Arelion (Twelve99): an operator code before the router role
+    [InlineData("ash-bb2-link.ip.twelve99.net", "Ashburn")]
+    [InlineData("kanc-b2-link.ip.twelve99.net", "Kansas City")]
+    [InlineData("ldn-b3-link.ip.twelve99.net", "London")]
+    [InlineData("slou-b2-link.ip.twelve99.net", "Slough")]
+    [InlineData("chi-bb2-link.ip.twelve99.net", "Chicago")]
+    // Cogent: airport code with a site number
+    [InlineData("be2932.ccr42.lax01.atlas.cogentco.com", "Los Angeles")]
+    [InlineData("port-channel3704.ccr92.jan02.atlas.cogentco.com", "Jackson")]
+    [InlineData("be2915.ccr81.tyo01.atlas.cogentco.com", "Tokyo")]
+    [InlineData("be4130.ccr71.gum01.atlas.cogentco.com", "Guam")]
+    // Comcast: city name or facility, then the state
+    [InlineData("be-501-arsc1.saltlakecity.ut.utah.comcast.net", "Salt Lake City")]
+    [InlineData("po-1-xar01.ogden.ut.utah.comcast.net", "Ogden")]
+    [InlineData("be-1114-cs01.champa.co.ibone.comcast.net", "Denver")]
+    [InlineData("be-203-pe11.56marietta.ga.ibone.comcast.net", "Atlanta")]
+    // Uniti: CLLI split by a dash
+    [InlineData("ae1.cr01.dlls02-tx.us.uniti.net", "Dallas")]
+    [InlineData("ae6-0.agr01.ltrk01-ar.us.uniti.net", "Little Rock")]
+    // Akamai: the city's code wins over the network tag after it, which is also an airport code
+    [InlineData("ae1.r21.atl01.icn.netarch.akamai.com", "Atlanta")]
+    [InlineData("ae34.r02.border101.ord02.fab.netarch.akamai.com", "Chicago")]
+    // Others
+    [InlineData("108-232-152-1.lightspeed.tukrga.sbcglobal.net", "Tucker")]
+    [InlineData("lo0.mar2.slc.xmission.net", "Salt Lake City")]
+    [InlineData("peer1.rtr1.dfw.opendns.com", "Dallas")]
+    [InlineData("indatel-agg.ord.glcom.net", "Chicago")]
+    public void Locate_KnownSchemes_NameTheCity(string hostname, string city)
+    {
+        RouterHostnameLocator.Locate(hostname)?.City.Name.Should().Be(city);
+        RouterHostnameLocator.Locate(hostname).Should().NotBeNull();
+    }
+
+    [Theory]
+    [InlineData("one.one.one.one")]
+    [InlineData("dns.google")]
+    [InlineData("br1.core.xmission.net")]
+    [InlineData("ec2-3-218-180-192.compute-1.amazonaws.com")]
+    [InlineData("dynamodb.us-east-2.amazonaws.com")]
+    [InlineData("h121.217.134.40.static.ip.windstream.net")]
+    [InlineData("a23-205-167-239.deploy.static.akamaitechnologies.com")]
+    [InlineData("apple.as714.any2ix.coresite.com")]
+    [InlineData("dalsbprj01-ae2.rd.dl.cox.net")]
+    [InlineData("dallas.net")]
+    [InlineData("")]
+    [InlineData(null)]
+    public void Locate_NoLocationToken_ReturnsNull(string? hostname)
+    {
+        RouterHostnameLocator.Locate(hostname).Should().BeNull();
+    }
+
+    [Fact]
+    public void Locate_TheOperatorsOwnDomainIsNeverRead()
+    {
+        // "chicago" here is the operator's name, not where the router sits.
+        RouterHostnameLocator.Locate("ae1.chicago-isp.net").Should().BeNull();
+    }
+
+    [Fact]
+    public void Locate_ACityTooFarForTheRoundTrip_IsRuledOut()
+    {
+        // "maa" is Chennai's airport code; a hop 16 ms from Dallas cannot be in India.
+        const string host = "lo1.bharent-maa3.netarch.akamai.com";
+        RouterHostnameLocator.Locate(host)!.City.Name.Should().Be("Chennai");
+        RouterHostnameLocator.Locate(host, 16.6, Dallas).Should().BeNull();
+    }
+
+    [Fact]
+    public void Locate_AFarCityWithAMatchingRoundTrip_IsKept()
+    {
+        var osaka = RouterHostnameLocator.Locate("ae-5.r29.osakjp02.jp.bb.gin.ntt.net", 151.6, SaltLakeCity);
+        osaka!.City.Name.Should().Be("Osaka");
+    }
+
+    [Fact]
+    public void Locate_TheRoundTripLeavesOneOfTwoCities()
+    {
+        // Both tokens are bare codes. 3 ms from Dallas reaches Dallas, not Chicago.
+        RouterHostnameLocator.Locate("dfw-ord.example.net").Should().BeNull();
+        RouterHostnameLocator.Locate("dfw-ord.example.net", 3, Dallas)!.City.Name.Should().Be("Dallas");
+    }
+
+    [Fact]
+    public void Locate_ARegionLabelThatDisagrees_RulesTheNameOut()
+    {
+        RouterHostnameLocator.Locate("cr1.portland.me.example.net").Should().BeNull();
+        RouterHostnameLocator.Locate("cr1.portland.or.example.net")!.City.Name.Should().Be("Portland");
+    }
+
+    [Fact]
+    public void Locate_ClliBeatsABareCode()
+    {
+        var found = RouterHostnameLocator.Locate("ash.r1.dllstx09.example.net");
+        found!.City.Name.Should().Be("Dallas");
+        found.Match.Should().Be(RouterLocationMatch.Exact);
+    }
+
+    [Theory]
+    [InlineData("ae-20.r22.dllstx14.us.bb.gin.ntt.net", "dllstx14", RouterLocationMatch.Exact)]
+    [InlineData("be2932.ccr42.lax01.atlas.cogentco.com", "lax01", RouterLocationMatch.NumberedCode)]
+    [InlineData("ash-bb2-link.ip.twelve99.net", "ash", RouterLocationMatch.Code)]
+    [InlineData("ae1.3511.edge2.dallas1.net.lumen.tech", "dallas1", RouterLocationMatch.Name)]
+    public void Locate_ReportsTheTokenAndHowItMatched(string hostname, string token, RouterLocationMatch match)
+    {
+        var found = RouterHostnameLocator.Locate(hostname)!;
+        found.Token.Should().Be(token);
+        found.Match.Should().Be(match);
+    }
+
+    [Fact]
+    public void Locate_IsCaseInsensitiveAndIgnoresATrailingDot()
+    {
+        RouterHostnameLocator.Locate("AE-20.R22.DLLSTX14.US.BB.GIN.NTT.NET.")!.City.Name.Should().Be("Dallas");
+    }
+
+    [Fact]
+    public void IsWithinReach_UsesLightInFiberPlusSlack()
+    {
+        var atlanta = RouterLocationCities.All.Single(c => c.Name == "Atlanta");
+        // Dallas to Atlanta is about 1,160 km: out of reach at 6 ms (1,100 km), in reach at 7 ms.
+        RouterHostnameLocator.IsWithinReach(atlanta, 6, Dallas).Should().BeFalse();
+        RouterHostnameLocator.IsWithinReach(atlanta, 7, Dallas).Should().BeTrue();
+    }
+
+    [Fact]
+    public void Cities_TokensAreWellFormed()
+    {
+        foreach (var c in RouterLocationCities.All)
+        {
+            c.Latitude.Should().BeInRange(-90, 90, c.Name);
+            c.Longitude.Should().BeInRange(-180, 180, c.Name);
+            c.CountryCode.Should().MatchRegex("^[A-Z]{2}$", c.Name);
+            c.Codes.Should().OnlyContain(t => System.Text.RegularExpressions.Regex.IsMatch(t, "^[a-z]{3,4}$"), c.Name);
+            c.Clli.Should().OnlyContain(t => System.Text.RegularExpressions.Regex.IsMatch(t, "^[a-z]{6}$"), c.Name);
+            c.Names.Should().OnlyContain(t => System.Text.RegularExpressions.Regex.IsMatch(t, "^[0-9]*[a-z]{4,}$"), c.Name);
+        }
+    }
+
+    [Fact]
+    public void Cities_NoTokenNamesTwoCities()
+    {
+        var tokens = RouterLocationCities.All
+            .SelectMany(c => c.Codes.Concat(c.Clli).Concat(c.Names).Select(t => (Token: t, c.Name)))
+            .GroupBy(x => x.Token)
+            .Where(g => g.Select(x => x.Name).Distinct().Count() > 1)
+            .Select(g => g.Key);
+        tokens.Should().BeEmpty();
+    }
+
+    [Theory]
+    // Router role and interface words that must never read as a city.
+    [InlineData("core")] [InlineData("edge")] [InlineData("agg")] [InlineData("bar")] [InlineData("ear")]
+    [InlineData("ebr")] [InlineData("ccr")] [InlineData("man")] [InlineData("lag")] [InlineData("sat")]
+    [InlineData("san")] [InlineData("van")] [InlineData("tor")] [InlineData("mag")] [InlineData("ien")]
+    [InlineData("fab")] [InlineData("gin")] [InlineData("net")] [InlineData("link")] [InlineData("peer")]
+    public void Cities_RouterWordsAreNotCodes(string word)
+    {
+        RouterLocationCities.All.Should().NotContain(c => c.Codes.Contains(word) || c.Names.Contains(word), word);
+    }
+}
