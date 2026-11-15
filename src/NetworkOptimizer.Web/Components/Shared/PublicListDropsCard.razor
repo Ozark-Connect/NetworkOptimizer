@@ -46,7 +46,7 @@
                                 var covering = Covering(d);
                                 <tr>
                                     <td><a href="@DrilldownUrl(d.DeviceIp)"><code>@d.DeviceIp</code></a>@if (DeviceName?.Invoke(d.DeviceIp) is { } name) {<span class="ip-client-name">@name</span>}</td>
-                                    <td><a href="@DrilldownUrl(d.Address)"><code>@d.Address</code></a><span class="drop-port">@PortText(d)</span></td>
+                                    <td><a href="@DrilldownUrl(d.Address)" @attributes="NetworkOptimizer.Web.Services.Monitoring.LiveTraffic.LiveTrafficLinks.DestinationCard(d.Address, threatsLink: false)"><code>@d.Address</code></a><span class="drop-port">@PortText(d)</span></td>
                                     <td class="hide-mobile"><code>@PortText(d)</code></td>
                                     <td class="hide-mobile">@d.List</td>
                                     <td class="hide-mobile">@d.Drops.ToString("N0")</td>

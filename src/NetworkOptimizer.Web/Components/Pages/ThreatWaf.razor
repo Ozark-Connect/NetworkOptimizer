@@ -233,7 +233,7 @@ else if (_tab == "events")
                             {
                                 <tr>
                                     <td>@e.Timestamp.ToLocalTime(DisplayTime).ToString(DisplayTime.Format.DayTime, DisplayFormat.Culture)</td>
-                                    <td><a href="/threats?tab=drilldown&ip=@Uri.EscapeDataString(e.SourceIp)"><code>@e.SourceIp</code></a></td>
+                                    <td><a href="/threats?tab=drilldown&ip=@Uri.EscapeDataString(e.SourceIp)" @attributes="NetworkOptimizer.Web.Services.Monitoring.LiveTraffic.LiveTrafficLinks.DestinationCard(e.SourceIp, threatsLink: false)"><code>@e.SourceIp</code></a></td>
                                     <td class="text-truncate-300">@e.Domain</td>
                                     <td class="text-truncate-300"><code>@e.Service</code></td>
                                     <td>

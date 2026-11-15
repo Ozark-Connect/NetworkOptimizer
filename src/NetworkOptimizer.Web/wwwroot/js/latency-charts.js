@@ -324,7 +324,9 @@ function renderBadges(container) {
         // The chip's own `inactive` class already means "filtered off by this row", so the
         // not-probed state needs its own name here even though the control calls it inactive.
         const unprobed = g.unprobed ? ' wan-badge-unprobed' : '';
-        return `<button class="wan-filter-badge ${vis ? 'active' : 'inactive'}${unprobed}" data-target="${escapeHtml(g.key)}">
+        // App.razor's delegated handler opens the destination card for any [data-dest-ip].
+        const card = g.address ? ` data-dest-ip="${escapeHtml(g.address)}" data-dest-name="${escapeHtml(g.key)}"` : '';
+        return `<button class="wan-filter-badge ${vis ? 'active' : 'inactive'}${unprobed}" data-target="${escapeHtml(g.key)}"${card}>
             <span class="wan-badge-dot" style="background-color: ${g.color}"></span>
             <span>${escapeHtml(g.key)}</span>
         </button>`;
@@ -397,7 +399,7 @@ function badgeGroups() {
         const key = t.hostName ?? t.name;
         // A host is shown as not-probed only when every series it owns is: a host with a retired
         // target and a live replacement is still being probed, and saying otherwise would be wrong.
-        if (!byHost.has(key)) byHost.set(key, { key, color: t.color, ids: [], unprobed: true });
+        if (!byHost.has(key)) byHost.set(key, { key, color: t.color, ids: [], unprobed: true, address: t.address });
         if (!t.inactive) byHost.get(key).unprobed = false;
         byHost.get(key).ids.push(t.id);
     });
@@ -533,6 +535,8 @@ async function loadAndUpdate() {
         hostName: t.name,
         color: hashColor(t.name),
         inactive: t.inactive === true,
+        // An external target's address, for the chip's destination card (copy, Threats, Trace).
+        address: t.isLan ? null : (t.address || null),
     }));
 
     lastFetchData = { ...data, targets: scopedTargets };
