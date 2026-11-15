@@ -3,6 +3,7 @@
 @inject IPathEpisodeService PathEpisodes
 @inject ILogger<PathEpisodeHopTable> Logger
 @inject NavigationManager NavigationManager
+@inject NetworkOptimizer.Threats.Enrichment.GeoEnrichmentService Geo
 
 @* The hop table behind one Path Localization episode: every TTL of each degraded target's rounds,
    pooled, with the hop where the degradation first appears and the last clean one marked. Loaded
@@ -68,12 +69,17 @@
             }
             else
             {
+            var locations = LocationsFor(table);
             <div class="table-responsive">
-                <table class="data-table path-episode-hops @(table.Hops.Any(ReturnHopsWorthShowing) ? "has-return" : "")">
+                <table class="data-table path-episode-hops @(table.Hops.Any(ReturnHopsWorthShowing) ? "has-return" : "") @(locations.Count > 0 ? "has-location" : "")">
                     <colgroup>
                         <col class="path-col-hop" />
                         <col />
                         <col class="path-col-network" />
+                        @if (locations.Count > 0)
+                        {
+                            <col class="path-col-location" />
+                        }
                         <col class="path-col-loss" />
                         <col class="path-col-rtt" />
                         @if (table.Hops.Any(ReturnHopsWorthShowing))
@@ -86,6 +92,10 @@
                             <th>Hop</th>
                             <th>Address / PTR</th>
                             <th>Network</th>
+                            @if (locations.Count > 0)
+                            {
+                                <th class="hide-mobile" data-tooltip="The city in the router's hostname when it names one, else where GeoLite2 places the address. Hover a location for its source.">Location</th>
+                            }
                             <th>Loss</th>
                             <th data-tooltip="One bar per trace. Taller is slower.">RTT (normal &rarr; during)</th>
                             @if (table.Hops.Any(ReturnHopsWorthShowing))
@@ -143,6 +153,20 @@
                                     }
                                 </td>
                                 <td><TextWithCode Text="@PathTraceAnalyzer.NetworkCell(hop)" /></td>
+                                @if (locations.Count > 0)
+                                {
+                                    <td class="hide-mobile">
+                                        @if (hop.Responses > 0 && hop.Address != null && locations.TryGetValue(hop.Address, out var location))
+                                        {
+                                            <span class="flag-icon" data-tooltip="@CountryDisplay.CountryTooltip(location.CountryCode)">@CountryDisplay.CountryFlag(location.CountryCode)</span>
+                                            <span data-tooltip="@location.Tooltip">@location.Text</span>
+                                        }
+                                        else
+                                        {
+                                            <span>-</span>
+                                        }
+                                    </td>
+                                }
                                 <td class="path-hop-nowrap">
                                     @if (LossCell(hop) is { } loss)
                                     {
@@ -236,6 +260,7 @@
         try
         {
             _detail = await PathEpisodes.GetEpisodeAsync(EpisodeId);
+            _locations.Clear();
             _failed = _detail == null;
         }
         catch (Exception ex)
@@ -246,6 +271,20 @@
     }
 
     private PathHopLoss? LossCell(HopReading hop) => PathEpisodePresentation.HopLoss(hop, _detail!);
+
+    // Each table's hop locations, worked out once per load: a GeoLite2 read per hop is not free.
+    private readonly Dictionary<NetworkOptimizer.Web.Services.Monitoring.PathLocalization.PathEpisodeHopTable, Dictionary<string, NetworkOptimizer.Web.Services.Monitoring.HopLocationView>> _locations = new();
+
+    private Dictionary<string, NetworkOptimizer.Web.Services.Monitoring.HopLocationView> LocationsFor(NetworkOptimizer.Web.Services.Monitoring.PathLocalization.PathEpisodeHopTable table)
+    {
+        if (!_locations.TryGetValue(table, out var found))
+        {
+            found = NetworkOptimizer.Web.Services.Monitoring.HopLocations.Resolve(
+                table.Hops.Where(h => h.Responses > 0).Select(h => (h.Address, h.Hostname, h.MinRttMs)), Geo.Enrich);
+            _locations[table] = found;
+        }
+        return found;
+    }
 
     // A reply that came home by as many hops as it went out says nothing, and is most of them.
     private static bool ReturnHopsWorthShowing(HopReading h) =>

@@ -21092,6 +21092,26 @@ a.isp-health-hero-speed:hover {
 .path-episode-hops .path-col-loss { width: 9rem; }
 .path-episode-hops .path-col-rtt { width: 12rem; }
 .path-episode-hops .path-col-return { width: 7.5rem; }
+.path-episode-hops .path-col-location { width: 11rem; }
+
+/* Location is a desktop column: on a phone its col takes no width and its cells are hidden. */
+.path-episode-table .path-episode-hops.has-location { min-width: calc(37rem + 16rem + 11rem); }
+.path-episode-table .path-episode-hops.has-location.has-return { min-width: calc(44.5rem + 16rem + 11rem); }
+
+@media (max-width: 768px) {
+    .path-episode-hops .path-col-location { width: 0; }
+    .path-episode-table .path-episode-hops.has-location { min-width: calc(37rem + 16rem); }
+    .path-episode-table .path-episode-hops.has-location.has-return { min-width: calc(44.5rem + 16rem); }
+}
+
+/* An open hop table spans the event row, under the badge and time as well as the text. */
+.isp-event-detail {
+    grid-column: 1 / -1;
+    min-width: 0;
+    justify-self: stretch;
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+}
 
 .path-episode-hops td,
 .path-episode-hops th {

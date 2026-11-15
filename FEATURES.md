@@ -176,6 +176,7 @@ Time-series monitoring on your own InfluxDB, fed by SNMP polling (InfluxDB).
   - Hop table per episode: loss, normal to during RTT with one bar per trace behind it, return hops, ICMP-limited hops; **Re-run** in Network Tools; each target opens on Network Performance over the episode
   - A slowdown that comes and goes is read trace by trace: hops that slow in the same traces as the destination show where it first appears, and the verdict says when that could be the return path
   - Hops a trace reads as elevated are pinged during the episode, so a router that limits traceroute replies is not blamed; a hostname target is traced at one address for the whole episode
+  - The hop table shows each hop's location on desktop, read the same way as Network Tools' traceroute
   - A traced route change shows once, as its path shift with the hop table; it is not congestion and does not score
   - A sustained rise on RTT alone, with no loss and no wider jitter, is a route change too: it shows as a path shift with its hop table even when no step was detected
   - On the Per-Network RTT chart, an episode that is a route change is shaded as a path shift, in the path shift's blue, not as congestion
@@ -281,7 +282,7 @@ Time-series monitoring on your own InfluxDB, fed by SNMP polling (InfluxDB).
 - **Run a Probe** - ping, traceroute, or forward and reverse DNS lookup
   - From the server, an [On-Site Agent](#on-site-agent), a WAN vantage, or any UniFi device (Device SSH)
   - ICMP, TCP, or UDP (traceroute only); choose the gateway's WAN interface
-  - Traceroute hops show their location (flag, city, country) with the GeoLite2 City database installed
+  - Traceroute hops show their location (flag, city, country): the city a transit router's hostname names, checked against its round trip, else GeoLite2 City
   - DNS lookups use the vantage's own resolver, which shows DNS segregation per network
   - **Other Sites** targets: each of your other sites' latest WAN address, for inter-site traces
 - **Inspect a Gateway Interface** - **Addresses and DHCP Lease**, **SFP Module**, and **Neighbors** (Gateway SSH)
