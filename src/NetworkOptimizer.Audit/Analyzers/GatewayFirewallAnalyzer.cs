@@ -113,6 +113,9 @@ public partial class GatewayFirewallAnalyzer
         {
             var forward = v4.ForwardZones(wan.Interface);
             var input = v4.InputZones(wan.Interface);
+            // A disabled port leaves the gateway's zone dispatch; with no dispatch at all it carries nothing to police.
+            if (wan.PortDisabled && forward.Count == 0 && input.Count == 0)
+                continue;
             if (forward.SetEquals(["WAN"]) && input.SetEquals(["WAN"]))
                 enforced.Add(wan.NetworkName);
             else

@@ -1839,7 +1839,7 @@ public partial class AuditService : IAuditScanService
             .Where(n => n.Enabled && string.Equals(n.Purpose, "wan", StringComparison.OrdinalIgnoreCase) && !string.IsNullOrEmpty(n.WanNetworkgroup))
             .Select(n => (Network: n, Wan: interfaces.FirstOrDefault(i => string.Equals(i.NetworkGroup, n.WanNetworkgroup, StringComparison.OrdinalIgnoreCase))))
             .Where(p => (p.Wan?.UplinkIfName ?? p.Wan?.PhysicalIfName) is { Length: > 0 })
-            .Select(p => new Audit.Models.GatewayWanPath(p.Network.Id, p.Network.Name, p.Wan!.UplinkIfName ?? p.Wan.PhysicalIfName!))
+            .Select(p => new Audit.Models.GatewayWanPath(p.Network.Id, p.Network.Name, p.Wan!.UplinkIfName ?? p.Wan.PhysicalIfName!, p.Wan.PortDisabled))
             .ToList();
 
     /// <summary>

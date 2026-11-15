@@ -127,10 +127,10 @@ public class GatewayFirewallAnalyzerTests
 
     private List<AuditIssue> Run(string? iptables = null, string? udapi = Udapi, string? ipsets = null,
         List<UniFiNetworkConfig>? networks = null, List<FirewallRule>? policies = null, GatewayBlocklistExpectation? blocklist = null,
-        List<UniFiFirewallZone>? zones = null) =>
+        List<UniFiFirewallZone>? zones = null, List<GatewayWanPath>? wans = null) =>
         _analyzer.Analyze(
             new GatewayFirewallSnapshot { Iptables = iptables ?? Iptables(), Ip6tables = Ip6tables, UdapiFilterJson = udapi, IpsetHeaders = ipsets ?? Ipsets() },
-            policies ?? Policies, zones ?? Zones, networks ?? Networks, Wans, blocklist, "Gateway");
+            policies ?? Policies, zones ?? Zones, networks ?? Networks, wans ?? Wans, blocklist, "Gateway");
 
     [Fact]
     public void HealthyGateway_NoIssues()
@@ -153,6 +153,21 @@ public class GatewayFirewallAnalyzerTests
     {
         var iptables = Iptables().Replace("-i eth4", "-i eth9");
         Run(iptables).Should().Contain(i => i.Type == IssueTypes.GatewayWanNotExternal);
+    }
+
+    [Fact]
+    public void DisabledWanPortWithNoDispatch_IsNotFlagged()
+    {
+        var iptables = Iptables().Replace("-i eth4", "-i eth9");
+        Run(iptables, wans: [new("net-wan", "Internet 1", "eth4", PortDisabled: true)])
+            .Should().NotContain(i => i.Type == IssueTypes.GatewayWanNotExternal);
+    }
+
+    [Fact]
+    public void DisabledWanPortStillDispatchedToAnotherZone_IsCritical()
+    {
+        Run(Iptables(wanZone: "LAN"), wans: [new("net-wan", "Internet 1", "eth4", PortDisabled: true)])
+            .Should().Contain(i => i.Type == IssueTypes.GatewayWanNotExternal);
     }
 
     [Fact]

@@ -21,7 +21,8 @@ public sealed record GatewayFirewallSnapshot
 }
 
 /// <summary>A WAN network and the interface its traffic uses on the gateway (the data path: <c>eth4</c>, <c>eth6.7</c>, <c>ppp0</c>).</summary>
-public sealed record GatewayWanPath(string NetworkId, string NetworkName, string Interface);
+/// <param name="PortDisabled">UniFi Network reports the WAN's physical port disabled and down, so it carries no traffic.</param>
+public sealed record GatewayWanPath(string NetworkId, string NetworkName, string Interface, bool PortDisabled = false);
 
 /// <summary>
 /// What Threat Intelligence's gateway agent blocking should have in place on the gateway, from what the server

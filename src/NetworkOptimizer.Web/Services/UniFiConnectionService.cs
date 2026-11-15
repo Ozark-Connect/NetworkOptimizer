@@ -19,11 +19,13 @@ namespace NetworkOptimizer.Web.Services;
 /// <param name="PhysicalIfName">Physical port ifname, e.g. "eth6".</param>
 /// <param name="UplinkIfName">Data-path ifname, e.g. "eth6.100"/"ppp0" (where SQM deploys).</param>
 /// <param name="CounterIfName">SNMP counter ifname, e.g. "eth6" (where InfluxDB rates are stored).</param>
+/// <param name="PortDisabled">The gateway's port_table reports the physical port disabled and down.</param>
 public record PrimaryWanInterfaces(
     string NetworkGroup,
     string? PhysicalIfName,
     string? UplinkIfName,
-    string? CounterIfName);
+    string? CounterIfName,
+    bool PortDisabled = false);
 
 /// <summary>
 /// Manages the UniFi controller connection and configuration persistence.
@@ -1922,7 +1924,10 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
                 ifnameToNg.TryGetValue(wan.IfName, out ng);
             ng ??= GatewayWanHelper.WanNetworkGroupFromKey(wan.Key);
             var counter = NetworkUtilities.PreferredWanCounterInterface(wan.IfName, wan.UplinkIfName);
-            results.Add(new PrimaryWanInterfaces(ng, wan.IfName, wan.UplinkIfName, counter));
+            // Both flags: a console that omits them leaves the port counted as live.
+            var portDisabled = !string.IsNullOrEmpty(wan.IfName) && gw.PortTable?.FirstOrDefault(p =>
+                string.Equals(p.IfName ?? p.Name, wan.IfName, StringComparison.OrdinalIgnoreCase)) is { Enable: false, Up: false };
+            results.Add(new PrimaryWanInterfaces(ng, wan.IfName, wan.UplinkIfName, counter, portDisabled));
         }
         return results;
     }
