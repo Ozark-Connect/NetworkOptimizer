@@ -55,8 +55,12 @@ public class RouterHostnameLocatorTests
     [InlineData("kbn-bb6-link.ip.twelve99.net", "Copenhagen")]
     [InlineData("stlo-b5-link.ip.twelve99.net", "St. Louis")]
     [InlineData("rest-bb1-link.ip.twelve99.net", "Reston")]
-    // Cox: site code and router role in one word
-    [InlineData("mcibbrj01.rd.ks.cox.net", "Kansas City")]
+    // Cox: its own site code, then role, vendor, and number
+    [InlineData("kscybbrj01-ae2.rd.ks.cox.net", "Kansas City")]
+    [InlineData("dalsbprj01-ae2.rd.dl.cox.net", "Dallas")]
+    [InlineData("dllsdsrj01-so000.rd.dl.cox.net", "Dallas")]
+    [InlineData("chgobbrj02-ae10.rd.ch.cox.net", "Chicago")]
+    [InlineData("LANGBBRJ01-ae0.rd.la.cox.net", "Los Angeles")]
     // IIJ: site code, site number, router role
     [InlineData("tky001bb01.iij.net", "Tokyo")]
     [InlineData("osk004ip57.iij.net", "Osaka")]
@@ -90,7 +94,8 @@ public class RouterHostnameLocatorTests
     [InlineData("h121.217.134.40.static.ip.windstream.net")]
     [InlineData("a23-205-167-239.deploy.static.akamaitechnologies.com")]
     [InlineData("apple.as714.any2ix.coresite.com")]
-    [InlineData("dalsbprj01-ae2.rd.dl.cox.net")]
+    [InlineData("tulsbbrj02-ae0.rd.tu.cox.net")] // a Cox site outside the city list
+    [InlineData("speedtest.rd.ks.cox.net")]
     [InlineData("dallas.net")]
     [InlineData("")]
     [InlineData(null)]
@@ -201,6 +206,7 @@ public class RouterHostnameLocatorTests
     public void Cities_EveryExchangeDomainNamesAListedCity()
     {
         RouterLocationCities.ExchangeDomains.Values.Concat(RouterLocationCities.EquinixMetros.Values)
+            .Concat(RouterLocationCities.CoxSites.Values)
             .Should().OnlyContain(name => RouterLocationCities.All.Any(c => c.Name == name));
     }
 

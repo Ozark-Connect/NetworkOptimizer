@@ -51,8 +51,8 @@ public static class RouterHostnameLocator
     private const int MinNameLength = 4;
     private static readonly char[] Digits = "0123456789".ToCharArray();
 
-    // Router roles an operator appends to the site code: Cox's backbone and border peering routers.
-    private static readonly string[] RoleSuffixes = ["bbrj", "bprj"];
+    private static readonly System.Text.RegularExpressions.Regex CoxRouter =
+        new("^([a-z0-9]{4})(?:bbr|bpr|dsr|hdr|tcr)[jc][0-9]{2}$", System.Text.RegularExpressions.RegexOptions.Compiled);
 
     private static readonly System.Text.RegularExpressions.Regex SiteRoleShape =
         new("^([a-z]{3})[0-9]{3}[a-z]{2}[0-9]{2}$", System.Text.RegularExpressions.RegexOptions.Compiled);
@@ -118,6 +118,15 @@ public static class RouterHostnameLocator
             }
         }
 
+        // Cox: site code, router role, vendor, and number ("kscybbrj01-ae2.rd.ks.cox.net").
+        if ($"{labels[^2]}.{labels[^1]}" == "cox.net"
+            && CoxRouter.Match(labels[0].Split('-')[0]) is { Success: true } cox
+            && RouterLocationCities.CoxSites.TryGetValue(cox.Groups[1].Value, out var coxCity))
+        {
+            found.AddRange(RouterLocationCities.All.Where(c => c.Name == coxCity)
+                .Select(c => new RouterHostnameLocation(c, labels[0].Split('-')[0], RouterLocationMatch.NumberedCode)));
+        }
+
         // An exchange's own domain is the one operator domain that names a city.
         if (RouterLocationCities.ExchangeDomains.TryGetValue($"{labels[^2]}.{labels[^1]}", out var exchangeCity))
         {
@@ -165,14 +174,6 @@ public static class RouterHostnameLocator
         {
             var match = numbered ? RouterLocationMatch.NumberedCode : RouterLocationMatch.Code;
             found.AddRange(code.Select(c => new RouterHostnameLocation(c, raw, match)));
-            return;
-        }
-
-        // Cox writes the site code and the router role as one word: "mcibbrj01" is mci + bbrj + 01.
-        var role = RoleSuffixes.FirstOrDefault(token.EndsWith);
-        if (numbered && role != null && ByCode.TryGetValue(token[..^role.Length], out var site))
-        {
-            found.AddRange(site.Select(c => new RouterHostnameLocation(c, raw, RouterLocationMatch.NumberedCode)));
         }
     }
 

@@ -359,8 +359,9 @@
                             <td>
                                 @if (hop.Responded)
                                 {
-                                    @if (!string.IsNullOrEmpty(hop.Hostname) && hop.Hostname != hop.Address)
-                                    { <span>@hop.Hostname (@hop.Address)</span> }
+                                    var hopName = TraceHostname(hop);
+                                    @if (!string.IsNullOrEmpty(hopName) && hopName != hop.Address)
+                                    { <span>@hopName (@hop.Address)</span> }
                                     else
                                     { <span>@hop.Address</span> }
                                 }
@@ -1620,6 +1621,7 @@ else if (_diagResult != null && !string.IsNullOrEmpty(_diagResult.InterfaceError
                 return;
             }
             var target = new ProbeTarget(_targetAddress.Trim(), _probeMode, _probeMode == ProbeMode.Tcp ? _port : null, SelectedSourceBind());
+            _tracePtrs = new(StringComparer.OrdinalIgnoreCase);
             _traceResult = await executor.TracerouteAsync(
                 target,
                 maxHops: 30,
@@ -1654,9 +1656,28 @@ else if (_diagResult != null && !string.IsNullOrEmpty(_diagResult.InterfaceError
         }
         _traceAsns = asns;
 
+        // A public hop the vantage named nothing is looked up again from here: the server's resolver
+        // can hold a name the vantage's does not.
+        var ptrs = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var address in trace.Hops
+            .Where(h => h.Responded && string.IsNullOrEmpty(h.Hostname) && NetworkUtilities.IsPublicIpAddress(h.Address!))
+            .Select(h => h.Address!).Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            if ((await ReverseDnsCache.ResolveAsync(address)).Hostname is { } name) ptrs[address] = name;
+        }
+        _tracePtrs = ptrs;
+
         _traceLocations = NetworkOptimizer.Web.Services.Monitoring.HopLocations.Resolve(
-            trace.Hops.Where(h => h.Responded).Select(h => (h.Address, h.Hostname, h.RttMinMs)), Geo.Enrich);
+            trace.Hops.Where(h => h.Responded).Select(h => (h.Address, TraceHostname(h), h.RttMinMs)), Geo.Enrich);
     }
+
+    // PTR names looked up here for hops the vantage returned without one, by address.
+    private Dictionary<string, string> _tracePtrs = new(StringComparer.OrdinalIgnoreCase);
+
+    private string? TraceHostname(TraceHop hop) =>
+        !string.IsNullOrEmpty(hop.Hostname) ? hop.Hostname
+            : hop.Address != null && _tracePtrs.TryGetValue(hop.Address, out var name) ? name
+            : null;
 
     // Each traced hop's location, by address: its hostname's city, else GeoLite2. The column is left out when none is placed.
     private Dictionary<string, NetworkOptimizer.Web.Services.Monitoring.HopLocationView> _traceLocations = new(StringComparer.OrdinalIgnoreCase);

@@ -51,6 +51,7 @@ public static class HopLocations
             var from = string.Equals(list[i].Address, nearest.Address, StringComparison.OrdinalIgnoreCase) ? null : vantage;
             named[i] = RouterHostnameLocator.Locate(list[i].Hostname, list[i].MinRttMs, from);
         }
+        var anchors = Anchors(list, named, geoByAddress, nearest.Address);
 
         for (var i = 0; i < list.Count; i++)
         {
@@ -59,13 +60,16 @@ public static class HopLocations
             var g = geoByAddress[h.Address!];
             if (named[i] is { } own)
             {
-                result[h.Address!] = CityView(own.City, $"From the router's hostname ({own.Token})");
+                result[h.Address!] = CityView(own.City.Name, own.City.CountryCode, $"From the router's hostname ({own.Token})");
             }
-            else if (NamedNeighbor(list, named, i, g) is { } near)
+            // A private or CGNAT address can sit anywhere behind its network, so it never borrows a city.
+            else if (anchors[i] == null && NetworkUtilities.IsPublicIpAddress(h.Address!)
+                     && Neighbor(list, anchors, i, g) is { } near)
             {
-                var router = list[near.Index].Hostname!.Split('.')[0];
-                var source = $"{near.GapMs:0.0} ms from {router}, a {near.City.Name} router";
-                result[h.Address!] = CityView(near.City, g.City is { Length: > 0 } geoCity
+                var source = near.Anchor.FromHostname
+                    ? $"{near.GapMs:0.0} ms from {near.Anchor.Label}, a {near.Anchor.City} router"
+                    : $"{near.GapMs:0.0} ms from {near.Anchor.Label}, which GeoLite2 places in {near.Anchor.City}";
+                result[h.Address!] = CityView(near.Anchor.City, near.Anchor.CountryCode, g.City is { Length: > 0 } geoCity
                     ? $"{source}. GeoLite2 says {geoCity}."
                     : source);
             }
@@ -81,47 +85,100 @@ public static class HopLocations
     }
 
     /// <summary>
-    /// A hop with no city of its own takes the city of the hostname-placed hop nearest it in the
-    /// trace, when their round trips are within <see cref="NeighborGapMs"/>. GeoLite2's city wins
-    /// unless it is too far from that neighbor for the round-trip gap.
+    /// A hop with no city of its own takes the city of the anchor nearest it in the trace, when their
+    /// round trips are within <see cref="NeighborGapMs"/>. GeoLite2's city wins unless it is too far
+    /// from that anchor for the round-trip gap.
     /// </summary>
     internal const double NeighborGapMs = 3;
 
-    private static (int Index, RouterCity City, double GapMs)? NamedNeighbor(
-        List<(string? Address, string? Hostname, double? MinRttMs)> list,
-        RouterHostnameLocation?[] named, int i, GeoInfo geo)
+    /// <summary>A hop other hops are placed against.</summary>
+    private sealed record Anchor(string City, string CountryCode, double Latitude, double Longitude, string Label, bool FromHostname);
+
+    /// <summary>
+    /// The anchors, by hop: every hostname-placed hop, the vantage hop, and the last hop GeoLite2
+    /// places in a city, when that last one is in reach of the vantage and no hostname-placed hop
+    /// follows it. The hops between them give
+    /// way to the anchors, not the other way round.
+    /// </summary>
+    private static Anchor?[] Anchors(
+        List<(string? Address, string? Hostname, double? MinRttMs)> list, RouterHostnameLocation?[] named,
+        Dictionary<string, GeoInfo> geo, string? vantageAddress)
+    {
+        var anchors = new Anchor?[list.Count];
+        for (var i = 0; i < list.Count; i++)
+        {
+            if (named[i] is { } n)
+            {
+                anchors[i] = new Anchor(n.City.Name, n.City.CountryCode, n.City.Latitude, n.City.Longitude,
+                    list[i].Hostname!.Split('.')[0], FromHostname: true);
+            }
+        }
+
+        var vantageIndex = list.FindIndex(h => string.Equals(h.Address, vantageAddress, StringComparison.OrdinalIgnoreCase));
+        if (vantageIndex < 0 || anchors[vantageIndex] != null || GeoAnchor(list[vantageIndex], geo) is not { } vantage)
+            return anchors;
+        anchors[vantageIndex] = vantage;
+
+        // A hostname-placed hop after it outranks it, so it anchors nothing then.
+        var lastIndex = list.FindLastIndex(h => GeoAnchor(h, geo) != null);
+        if (lastIndex > vantageIndex && anchors[lastIndex] == null
+            && !anchors.Skip(lastIndex + 1).Any(a => a is { FromHostname: true })
+            && GeoAnchor(list[lastIndex], geo) is { } last
+            && list[lastIndex].MinRttMs is double lastRtt && list[vantageIndex].MinRttMs is double vantageRtt
+            && InReach(vantage, last.Latitude, last.Longitude, Math.Abs(lastRtt - vantageRtt)))
+        {
+            anchors[lastIndex] = last;
+        }
+        return anchors;
+    }
+
+    private static Anchor? GeoAnchor((string? Address, string? Hostname, double? MinRttMs) hop, Dictionary<string, GeoInfo> geo) =>
+        geo[hop.Address!] is { City.Length: > 0, CountryCode.Length: > 0, Latitude: double lat, Longitude: double lon } g
+            ? new Anchor(g.City!, g.CountryCode!, lat, lon, hop.Address!, FromHostname: false)
+            : null;
+
+    private static (Anchor Anchor, double GapMs)? Neighbor(
+        List<(string? Address, string? Hostname, double? MinRttMs)> list, Anchor?[] anchors, int i, GeoInfo geo)
     {
         if (list[i].MinRttMs is not double rtt) return null;
-        (int Index, RouterCity City, double GapMs)? best = null;
-        foreach (var j in new[] { Nearest(named, i, -1), Nearest(named, i, +1) })
+        (Anchor Anchor, double GapMs)? best = null;
+        var inGap = new List<string>();
+        foreach (var j in new[] { Nearest(anchors, i, -1), Nearest(anchors, i, +1) })
         {
             if (j < 0 || list[j].MinRttMs is not double other) continue;
             var gap = Math.Abs(rtt - other);
-            if (gap <= NeighborGapMs && (best == null || gap < best.Value.GapMs))
-                best = (j, named[j]!.City, gap);
+            if (gap > NeighborGapMs) continue;
+            inGap.Add(anchors[j]!.City);
+            if (best == null || gap < best.Value.GapMs) best = (anchors[j]!, gap);
         }
         if (best is not { } b) return null;
 
-        // A different country, or a GeoLite2 city the neighbor's round trip can reach, stands.
-        if (geo.CountryCode is { Length: > 0 } cc && !string.Equals(cc, b.City.CountryCode, StringComparison.OrdinalIgnoreCase))
+        // A different country stands. So does a GeoLite2 city the anchor's round trip can reach,
+        // unless the hop sits between two anchors in the same city.
+        if (geo.CountryCode is { Length: > 0 } cc && !string.Equals(cc, b.Anchor.CountryCode, StringComparison.OrdinalIgnoreCase))
             return null;
-        if (!string.IsNullOrEmpty(geo.City) && geo is { Latitude: double lat, Longitude: double lon }
-            && RouterHostnameLocator.IsWithinReach(b.City, b.GapMs, (lat, lon)))
+        var between = inGap.Count == 2 && inGap[0] == inGap[1];
+        if (!between && !string.IsNullOrEmpty(geo.City) && geo is { Latitude: double lat, Longitude: double lon }
+            && InReach(b.Anchor, lat, lon, b.GapMs))
             return null;
         return b;
     }
 
-    private static int Nearest(RouterHostnameLocation?[] named, int i, int step)
+    private static bool InReach(Anchor from, double latitude, double longitude, double rttGapMs) =>
+        GeoDistance.Kilometers(from.Latitude, from.Longitude, latitude, longitude)
+            <= rttGapMs * RouterHostnameLocator.KmPerMsRtt + RouterHostnameLocator.VantageSlackKm;
+
+    private static int Nearest(Anchor?[] anchors, int i, int step)
     {
-        for (var j = i + step; j >= 0 && j < named.Length; j += step)
+        for (var j = i + step; j >= 0 && j < anchors.Length; j += step)
         {
-            if (named[j] != null) return j;
+            if (anchors[j] != null) return j;
         }
         return -1;
     }
 
-    private static HopLocationView CityView(RouterCity city, string tooltip) =>
-        new(city.CountryCode, $"{city.Name}, {CountryName(city.CountryCode)}", tooltip);
+    private static HopLocationView CityView(string city, string countryCode, string tooltip) =>
+        new(countryCode, $"{city}, {CountryName(countryCode)}", tooltip);
 
     private static string CountryName(string code) =>
         CountryDisplay.CountryNames.TryGetValue(code, out var name) ? name : code.ToUpperInvariant();

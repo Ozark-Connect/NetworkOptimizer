@@ -16,6 +16,9 @@ public class HopLocationsTests
         "198.51.100.20" => new GeoInfo { CountryCode = "US", City = "San Diego", Latitude = 32.72, Longitude = -117.16 },
         "198.51.100.21" => new GeoInfo { CountryCode = "US" },
         "198.51.100.22" => new GeoInfo { CountryCode = "US", City = "Overland Park", Latitude = 38.98, Longitude = -94.67 },
+        "198.51.100.30" => new GeoInfo { CountryCode = "US", City = "Tulsa", Latitude = 36.15, Longitude = -95.99 },
+        "198.51.100.31" => new GeoInfo { CountryCode = "US", City = "Pensacola", Latitude = 30.42, Longitude = -87.22 },
+        "198.51.100.32" => new GeoInfo { CountryCode = "US", City = "Kansas City", Latitude = 39.10, Longitude = -94.58 },
         _ => GeoInfo.Empty,
     };
 
@@ -78,6 +81,72 @@ public class HopLocationsTests
 
         found["198.51.100.20"].Text.Should().Be("San Diego, United States");
         found.Should().NotContainKey("192.0.2.50");
+    }
+
+    [Fact]
+    public void Resolve_AHopBetweenTwoRoutersInOneCity_TakesThatCityOverGeoLite2()
+    {
+        var found = HopLocations.Resolve(
+        [
+            ("198.51.100.1", null, 1.0),
+            ("203.0.113.5", KansasCityRouter, 12.8),
+            ("198.51.100.22", null, 12.8),
+            ("203.0.113.6", "ae2.mci02.example.net", 13.0),
+        ], Geo);
+
+        found["198.51.100.22"].Text.Should().Be("Kansas City, United States");
+        found["198.51.100.22"].Tooltip.Should().Be("0.0 ms from bbr01, a Kansas City router. GeoLite2 says Overland Park.");
+    }
+
+    [Fact]
+    public void Resolve_NoHostnames_TransitHopsGiveWayToTheLastPlacedHop()
+    {
+        // Pensacola and San Diego cannot sit within 1 ms of Kansas City; the vantage can reach Kansas City.
+        var found = HopLocations.Resolve(
+        [
+            ("198.51.100.30", null, 2.7),
+            ("100.64.0.1", null, 5.3),
+            ("198.51.100.31", null, 12.6),
+            ("198.51.100.20", null, 13.7),
+            ("198.51.100.32", null, 13.4),
+            ("192.0.2.50", null, 12.8),
+        ], Geo);
+
+        found["198.51.100.30"].Text.Should().Be("Tulsa, United States");
+        found["198.51.100.31"].Text.Should().Be("Kansas City, United States");
+        found["198.51.100.31"].Tooltip.Should().Be("0.8 ms from 198.51.100.32, which GeoLite2 places in Kansas City. GeoLite2 says Pensacola.");
+        found["198.51.100.20"].Text.Should().Be("Kansas City, United States");
+        found["192.0.2.50"].Text.Should().Be("Kansas City, United States");
+        found.Should().NotContainKey("100.64.0.1");
+    }
+
+    [Fact]
+    public void Resolve_ALastPlacedHopOutOfReachOfTheVantage_AnchorsNothing()
+    {
+        // San Diego is too far from Tulsa for 11 ms, so the Pensacola hop keeps GeoLite2's answer.
+        var found = HopLocations.Resolve(
+        [
+            ("198.51.100.30", null, 2.7),
+            ("198.51.100.31", null, 13.0),
+            ("198.51.100.20", null, 13.7),
+        ], Geo);
+
+        found["198.51.100.31"].Text.Should().Be("Pensacola, United States");
+        found["198.51.100.20"].Text.Should().Be("San Diego, United States");
+    }
+
+    [Theory]
+    [InlineData("192.168.1.254")]
+    [InlineData("100.64.0.1")]
+    public void Resolve_APrivateHop_NeverBorrowsANeighborsCity(string address)
+    {
+        var found = HopLocations.Resolve(
+        [
+            (address, null, 1.4),
+            ("203.0.113.5", KansasCityRouter, 2.7),
+        ], Geo);
+
+        found.Should().NotContainKey(address);
     }
 
     [Fact]

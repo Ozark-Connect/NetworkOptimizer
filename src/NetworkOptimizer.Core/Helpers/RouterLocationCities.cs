@@ -151,6 +151,17 @@ public static class RouterLocationCities
     };
 
     /// <summary>
+    /// Cox's own four-character site codes, as its router names begin ("kscybbrj01", "dalsbprj01"),
+    /// by city. Only sites whose city this list carries.
+    /// </summary>
+    public static readonly IReadOnlyDictionary<string, string> CoxSites = new Dictionary<string, string>
+    {
+        ["ashb"] = "Ashburn", ["chgo"] = "Chicago", ["cled"] = "Cleveland", ["dals"] = "Dallas",
+        ["dlls"] = "Dallas", ["kscy"] = "Kansas City", ["lang"] = "Los Angeles", ["nyrk"] = "New York",
+        ["palt"] = "Palo Alto", ["sanj"] = "San Jose",
+    };
+
+    /// <summary>
     /// Equinix metro codes, as members write a data center into a hostname ("eqix-ch1", "eqix-da3"),
     /// by the city each metro's data centers cluster around.
     /// </summary>
