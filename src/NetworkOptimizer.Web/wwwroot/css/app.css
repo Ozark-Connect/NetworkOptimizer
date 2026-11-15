@@ -8855,6 +8855,7 @@ a.path-hop.hop-clickable:hover {
 }
 
 .blocked-sources .blocked-sources-dry,
+.blocked-sources .blocked-sources-direction,
 .blocked-sources .blocked-sources-strikes {
     margin-left: 0.5rem;
 }

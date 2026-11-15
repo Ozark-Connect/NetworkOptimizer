@@ -60,6 +60,7 @@ public class ThreatCollectionService : BackgroundService
     private readonly IThreatSystemAudit? _systemAudit;
     private readonly IInfrastructureSourceProvider? _infrastructureSources;
     private readonly Blocking.IPublicListLookup? _publicLists;
+    private readonly Blocking.IIpsOutboundSink? _ipsOutbound;
     // Outbound drops gateway agents reported, saved with each site's next cycle so they run through
     // the same tagging, de-duplication, and alerting as collected flows ("" = default site).
     private readonly System.Collections.Concurrent.ConcurrentDictionary<string, System.Collections.Concurrent.ConcurrentQueue<ThreatEvent>> _gatewayDrops = new();
@@ -79,8 +80,10 @@ public class ThreatCollectionService : BackgroundService
         IThreatSystemAudit? systemAudit = null,
         ISiteHttpClientProvider? siteHttp = null,
         IInfrastructureSourceProvider? infrastructureSources = null,
-        Blocking.IPublicListLookup? publicLists = null)
+        Blocking.IPublicListLookup? publicLists = null,
+        Blocking.IIpsOutboundSink? ipsOutbound = null)
     {
+        _ipsOutbound = ipsOutbound;
         _publicLists = publicLists;
         _systemAudit = systemAudit;
         _infrastructureSources = infrastructureSources;
@@ -434,6 +437,23 @@ public class ThreatCollectionService : BackgroundService
         }
 
         await repository.SaveEventsAsync(events, cancellationToken);
+
+        // The console's outbound IPS alerts: the fallback for a site without a gateway agent relaying them, and
+        // the confirmation of the ones an agent did relay.
+        if (_ipsOutbound != null)
+        {
+            foreach (var alert in events.Select(Blocking.IpsOutboundDecision.FromConsoleEvent).OfType<Blocking.IpsOutboundAlert>())
+            {
+                try
+                {
+                    await _ipsOutbound.OnIpsOutboundAlertAsync(alertSiteSlug, alert, cancellationToken);
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    _logger.LogWarning(ex, "Automatic Blocking could not act on an outbound IPS alert from {Client} to {Remote}", alert.ClientIp, alert.RemoteIp);
+                }
+            }
+        }
 
         // Load noise filters once for all alert checks in this cycle
         List<ThreatNoiseFilter> noiseFilters;

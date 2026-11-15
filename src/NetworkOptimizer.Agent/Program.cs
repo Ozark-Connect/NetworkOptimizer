@@ -235,6 +235,8 @@ GatewayBlocklistHitReporter? blocklistHits = null;
 Task? blocklistHitsTask = null;
 KernelLogFollower? kernelLog = null;
 Task? kernelLogTask = null;
+IpsAlertFollower? ipsAlerts = null;
+Task? ipsAlertsTask = null;
 WanFloodGuard? floodGuard = null;
 Task? floodGuardTask = null;
 WanFloodDetector? floodDetector = null;
@@ -257,11 +259,14 @@ var blocklistCapable = config.OnGateway == true && GatewayBlocklistEnforcer.Avai
 var floodCapable = config.OnGateway == true && WanFloodGuard.Available();
 // Live DNS opens the same kind of packet socket as the UCI capture.
 var liveDnsCapable = conntrackCapable && DnsCapture.Available();
+// Outbound IPS alerts are relayed only from the gateway, which writes them.
+var ipsAlertsCapable = config.OnGateway == true && IpsAlertFollower.Available();
 var capabilityList = new List<string>();
 if (conntrackCapable) capabilityList.AddRange(["conntrack-accounting", ConntrackRunner.LiveTrafficCapability]);
 if (liveDnsCapable) capabilityList.Add(DnsCapture.Capability);
 if (uciCaptureCapable) capabilityList.Add(UciInformCapture.Capability);
 if (blocklistCapable) capabilityList.AddRange([GatewayBlocklistEnforcer.Capability, GatewayBlocklistEnforcer.ExceptionsCapability]);
+if (ipsAlertsCapable) capabilityList.Add(IpsAlertLine.Capability);
 if (floodCapable) capabilityList.Add(WanFloodRules.Capability);
 else if (config.OnGateway == true) capabilityList.Add(WanFloodRules.UnavailableCapability);
 // Change Control's revert needs only HTTPS to the console, which every agent host reaches.
@@ -379,6 +384,11 @@ if (!string.IsNullOrEmpty(config.TunnelUrl))
         floodDetector = new WanFloodDetector(floodGuard, resultBuffer.Enqueue, kernelLog);
         floodDetectorTask = floodDetector.RunAsync(cts.Token);
     }
+    if (ipsAlertsCapable)
+    {
+        ipsAlerts = new IpsAlertFollower();
+        ipsAlertsTask = ipsAlerts.RunAsync(cts.Token);
+    }
     // One kernel log reader for every subscriber, started once they have all subscribed.
     kernelLogTask = kernelLog?.RunAsync(cts.Token);
 }
@@ -427,6 +437,7 @@ while (!cts.IsCancellationRequested)
             blocklist.LiveSend = tunnel.TrySend;
         }
         if (blocklistHits != null) blocklistHits.LiveSend = tunnel.TrySend;
+        if (ipsAlerts != null) ipsAlerts.LiveSend = tunnel.TrySend;
         if (floodGuard != null)
         {
             tunnel.OnWanFloodConfig = floodGuard.Update;
@@ -488,6 +499,7 @@ while (!cts.IsCancellationRequested)
             if (uciCapture != null) uciCapture.LiveSend = null;
             if (blocklist != null) blocklist.LiveSend = null;
             if (blocklistHits != null) blocklistHits.LiveSend = null;
+            if (ipsAlerts != null) ipsAlerts.LiveSend = null;
             if (floodGuard != null) floodGuard.LiveSend = null;
             configRevert.LiveSend = null;
             configRevert.TunnelUp = () => false;
@@ -577,7 +589,7 @@ if (blocklistHitsTask != null)
 {
     try { await blocklistHitsTask; } catch (OperationCanceledException) { }
 }
-foreach (var task in new[] { floodGuardTask, floodDetectorTask, kernelLogTask, configRevertTask })
+foreach (var task in new[] { floodGuardTask, floodDetectorTask, kernelLogTask, ipsAlertsTask, configRevertTask })
 {
     if (task == null) continue;
     try { await task; } catch (OperationCanceledException) { }

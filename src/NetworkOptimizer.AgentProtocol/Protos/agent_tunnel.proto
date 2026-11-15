@@ -34,6 +34,7 @@ message AgentMessage {
     WanFloodIncident wan_flood_incident = 18;
     ConfigRevertReport config_revert_report = 19;
     LiveTrafficBatch live_traffic = 20;
+    IpsAlert ips_alert = 21;
   }
   // Monotonic per-agent sequence for store-and-forward acking. Set on
   // probe_results / snmp_results / aggregated conntrack_samples / wan_flood_incident frames only
@@ -699,6 +700,37 @@ message GatewayBlocklistHit {
   // From the gateway's neighbor table when the summary is sent, lowercase; empty when not found. Names
   // IPv6 clients, which the console's client list knows by their IPv4 address only.
   string client_mac = 8;
+}
+
+// ---- IPS alert relay (capability "ips-alert-relay") ----
+// A CyberSecure (Suricata) alert on a flow a device on the site started toward the internet, sent the
+// moment the gateway logs it, so Automatic Blocking can block the remote end on every sharing site in
+// seconds. Live only: an alert lost with the tunnel reaches the server through the console's threat log.
+message IpsAlert {
+  // The flow's initiator, on the site.
+  string client_ip = 1;
+  // Lowercase; empty when the alert does not carry it.
+  string client_mac = 2;
+  // The flow's internet end.
+  string remote_ip = 3;
+  int32 remote_port = 4;
+  string protocol = 5;
+  int64 signature_id = 6;
+  string signature = 7;
+  // The rule's classtype description.
+  string category = 8;
+  // UniFi's rule group, e.g. MALWARE or BOTCC.
+  string ubnt_category = 9;
+  int32 severity = 10;
+  // The rule's confidence metadata; empty when absent.
+  string confidence = 11;
+  repeated string attack_targets = 12;
+  // HTTP host or TLS server name; empty when absent.
+  string hostname = 13;
+  int64 timestamp_unix_ms = 14;
+  int64 flow_id = 15;
+  // "blocked" (IPS mode) or "allowed" (IDS mode).
+  string action = 16;
 }
 
 message GatewayBlocklistStatus {

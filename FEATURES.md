@@ -66,6 +66,7 @@ an On-Site Agent, AP Telemetry, InfluxDB, or HTTPS.
 - Per-client WAN usage at the gateway for Live Traffic, plus per-flow and DNS detail while Live Traffic, or a client's Live Traffic in Client Performance, is open (and up to a minute after)
 - UniFi Cable Internet DOCSIS capture (agent on the gateway)
 - [Automatic Blocking](#automatic-blocking) enforcement on the gateway in seconds, inbound and outbound, with Exceptions (agent on the gateway)
+- Relays CyberSecure's outbound threat alerts the moment the gateway logs them (agent on the gateway)
 - LAN speed test server (OpenSpeedTest and iperf3) and site-local WAN speed tests
 - LAN speed test hosted on the UniFi gateway itself (agent on the gateway, `--lan-speed-test`)
 - Buffers up to 12 hours of results to disk through outages; watchdog restarts a stuck agent
@@ -577,6 +578,11 @@ models such as U6-Lite, U6-Mesh, and UAP-AC-Pro, and gateways with built-in Wi-F
 Set up in **Settings - Security & Alerts**, per site.
 
 - Blocks the sources the WAF and attack pattern detection flag, with longer bans for repeat offenders
+- **CyberSecure outbound threats** - an address CyberSecure flags a device reaching is blocked both ways, for every device
+  - UniFi Network's CyberSecure blocks that one device, port, and address for 5 minutes; Automatic Blocking blocks the address for every device and every site sharing blocks
+  - At every site sharing blocks within seconds ([On-Site Agent](#on-site-agent) on the gateway); without one, outbound only with the public lists' outbound block
+  - Command servers held a day to start; never an attack's victim or shared hosting such as Cloudflare
+  - Marked **Outbound** in **Blocking**, with the device and the CyberSecure signature
 - **Where Blocks Are Enforced** - the gateway, the [Web Application Firewall](#web-application-firewall), and **Cloudflare Edge Blocking**
   - With an [On-Site Agent](#on-site-agent) on the gateway, blocks apply in seconds with no gateway reprovisioning
   - Gateway policies follow the site's zones, including zones added later in UniFi Network

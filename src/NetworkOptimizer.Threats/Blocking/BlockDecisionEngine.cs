@@ -23,7 +23,7 @@ public static class BlockDecisionEngine
     /// </summary>
     /// <param name="wafEventCounts">WAF events per source within the window.</param>
     /// <param name="patterns">Patterns seen within the window.</param>
-    /// <param name="activeSources">Sources with an active block (Dry Run or Enforce).</param>
+    /// <param name="activeSources">Sources with an active inbound block (Dry Run or Enforce).</param>
     /// <param name="priorStrikes">Blocks per source within <see cref="StrikeWindow"/>.</param>
     public static List<ThreatBlock> Decide(
         BlockingSettings settings,
@@ -82,11 +82,12 @@ public static class BlockDecisionEngine
 
     /// <summary>
     /// The entries to send to a target: active Enforce blocks, newest first, capped. Newest wins
-    /// because an older entry is closer to expiring anyway.
+    /// because an older entry is closer to expiring anyway. An address blocked both ways keeps one
+    /// block per <see cref="BlockDirection"/>.
     /// </summary>
     public static List<ThreatBlock> DesiredSet(IEnumerable<ThreatBlock> blocks, DateTime now, int maxEntries) =>
         blocks.Where(b => b.Enforced && b.IsActive(now))
-            .GroupBy(b => b.SourceIp, StringComparer.OrdinalIgnoreCase)
+            .GroupBy(b => (Ip: b.SourceIp.ToLowerInvariant(), b.Direction))
             .Select(g => g.OrderByDescending(b => b.ExpiresAt).First())
             .OrderByDescending(b => b.CreatedAt)
             .Take(maxEntries)

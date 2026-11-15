@@ -167,6 +167,52 @@ public sealed class GatewayAgentBlocklist : IGatewayAgentBlocklist
         collection.QueueGatewayDrops(connection.SiteSlug, drops);
     }
 
+    /// <summary>
+    /// Hands an outbound IPS alert from a site's gateway agent to Automatic Blocking, which decides on it at
+    /// once. Runs off the tunnel's read loop: deciding reads the database.
+    /// </summary>
+    public void OnIpsAlert(AgentTunnelConnection connection, IpsAlert alert)
+    {
+        // Only the gateway writes the threat log; an alert from any other agent is not one.
+        if (connection.OnGateway != true || !connection.HasCapability(IpsAlertLine.Capability))
+        {
+            _logger.LogWarning("Ignored an IPS alert from agent {Agent} ({Site}): not a gateway agent relaying IPS alerts",
+                connection.AgentName, connection.SiteSlug);
+            return;
+        }
+        if (_services.GetService<ThreatBlockingService>() is not { } blocking) return;
+        var site = connection.SiteSlug == SiteManagementService.DefaultSiteSlug ? null : connection.SiteSlug;
+        var normalized = new IpsOutboundAlert
+        {
+            ClientIp = alert.ClientIp,
+            ClientMac = string.IsNullOrEmpty(alert.ClientMac) ? null : alert.ClientMac,
+            RemoteIp = alert.RemoteIp,
+            RemotePort = alert.RemotePort,
+            Protocol = alert.Protocol,
+            SignatureId = alert.SignatureId,
+            Signature = alert.Signature,
+            Category = alert.Category,
+            UbntCategory = alert.UbntCategory,
+            Severity = alert.Severity,
+            Confidence = alert.Confidence,
+            AttackTargets = alert.AttackTargets.ToList(),
+            Hostname = string.IsNullOrEmpty(alert.Hostname) ? null : alert.Hostname,
+            Timestamp = DateTimeOffset.FromUnixTimeMilliseconds(alert.TimestampUnixMs).UtcDateTime,
+            FromAgent = true,
+        };
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await blocking.OnIpsOutboundAlertAsync(site, normalized, CancellationToken.None);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "IPS alert from agent {Agent} ({Site}) failed", connection.AgentName, connection.SiteSlug);
+            }
+        });
+    }
+
     /// <summary>Records an agent's report of what it applied.</summary>
     public void OnStatus(AgentTunnelConnection connection, GatewayBlocklistStatus status)
     {

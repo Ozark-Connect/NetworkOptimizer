@@ -59,7 +59,7 @@
                             @foreach (var b in ActivePageRows)
                             {
                                 <tr>
-                                    <td><a href="@DrilldownUrl(b.SourceIp)"><code>@b.SourceIp</code></a>@if (!IsSent(b)) {<span class="status-badge blocked-sources-dry">Detection Only</span>}</td>
+                                    <td><a href="@DrilldownUrl(b.SourceIp)"><code>@b.SourceIp</code></a>@if (b.Direction == BlockDirection.Outbound) {<span class="status-badge blocked-sources-direction" data-tooltip="@OutboundTip(b)">Outbound</span>}@if (!IsSent(b)) {<span class="status-badge blocked-sources-dry">Detection Only</span>}</td>
                                     <td>@b.Reason@if (b.Strikes > 0) {<span class="blocked-sources-strikes" data-tooltip="Blocked @b.Strikes time(s) before in the last 30 days; each repeat blocks 4x longer">repeat</span>}</td>
                                     <td class="hide-mobile">@TimeFormatHelper.FormatRelativeTime(b.CreatedAt, DisplayTime.Zone, DisplayTime.Format)</td>
                                     <td>in @TimeFormatHelper.FormatDurationCompact(b.ExpiresAt - DateTime.UtcNow)</td>
@@ -105,7 +105,7 @@
                             @foreach (var s in SharedPageRows)
                             {
                                 <tr>
-                                    <td><a href="@DrilldownUrl(s.Block.SourceIp)"><code>@s.Block.SourceIp</code></a></td>
+                                    <td><a href="@DrilldownUrl(s.Block.SourceIp)"><code>@s.Block.SourceIp</code></a>@if (s.Block.Direction == BlockDirection.Outbound) {<span class="status-badge blocked-sources-direction" data-tooltip="@OutboundTip(s.Block)">Outbound</span>}</td>
                                     <td>@SiteName(s)</td>
                                     <td class="hide-mobile">@s.Block.Reason</td>
                                     <td>in @TimeFormatHelper.FormatDurationCompact(s.Block.ExpiresAt - DateTime.UtcNow)</td>
@@ -291,6 +291,16 @@
         var top = otherSites == 2 ? 1 : 2;
         var held = shared.GroupBy(s => s.SiteSlug).Select(g => g.Count()).OrderDescending().Take(top).Sum();
         return held >= shared.Count * 0.8;
+    }
+
+    // Who reached it and what CyberSecure saw; a block shared from another site carries no device.
+    private static string OutboundTip(ThreatBlock b)
+    {
+        var e = IpsBlockEvidence.Parse(b.Evidence);
+        var who = string.IsNullOrEmpty(e?.ClientIp) ? "A device" : e.ClientIp;
+        var host = string.IsNullOrEmpty(e?.Hostname) ? "" : $" ({e.Hostname})";
+        var signature = e == null ? "" : $": {e.Signature} (SID {e.SignatureId})";
+        return $"{who} reached this address{host} and CyberSecure flagged it{signature}. Devices on every site enforcing this block can no longer reach it.";
     }
 
     private static string DrilldownUrl(string ip) => "/threats?tab=drilldown&ip=" + Uri.EscapeDataString(ip);

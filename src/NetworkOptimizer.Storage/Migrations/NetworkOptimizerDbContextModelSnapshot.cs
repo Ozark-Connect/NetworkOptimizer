@@ -5307,8 +5307,15 @@ namespace NetworkOptimizer.Storage.Migrations
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("TEXT");
 
+                    b.Property<int>("Direction")
+                        .HasColumnType("INTEGER");
+
                     b.Property<bool>("Enforced")
                         .HasColumnType("INTEGER");
+
+                    b.Property<string>("Evidence")
+                        .HasMaxLength(2048)
+                        .HasColumnType("TEXT");
 
                     b.Property<DateTime>("ExpiresAt")
                         .HasColumnType("TEXT");

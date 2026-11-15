@@ -36,6 +36,11 @@ public static class BlockingSettingKeys
     public const string Share = "blocking.share";
     /// <summary>Comma-separated <see cref="PublicBlockLists"/> ids. Unset = the lists that are on by default.</summary>
     public const string Feeds = "blocking.feeds";
+    /// <summary>
+    /// "false" to stop blocking the remote end of an outbound CyberSecure (IPS) threat alert. Unset is on:
+    /// it acts only in Blocking mode, which is itself a deliberate choice.
+    /// </summary>
+    public const string IpsOutbound = "blocking.ips_outbound";
     /// <summary>"true" to also block devices from reaching the public lists' addresses (gateway only).</summary>
     public const string FeedsOutbound = "blocking.feeds_outbound";
     /// <summary>A public list's API token, encrypted (only lists that need one, see <see cref="PublicBlockList.NeedsToken"/>).</summary>
@@ -98,6 +103,9 @@ public sealed record BlockingSettings
     /// <summary>Also block outbound connections to the public lists on the gateway. Optional, off by default.</summary>
     public bool FeedsOutbound { get; init; }
 
+    /// <summary>Block the remote end of an outbound IPS threat alert, here and on the sharing sites (gateway only).</summary>
+    public bool IpsOutbound { get; init; } = true;
+
     public bool TargetGateway { get; init; }
     public bool TargetWaf { get; init; }
     public bool TargetCloudflare { get; init; }
@@ -147,6 +155,7 @@ public sealed record BlockingSettings
                 ? feeds.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Where(id => PublicBlockLists.Find(id) != null).Distinct().ToList()
                 : d.Feeds,
             FeedsOutbound = Bool(await get(BlockingSettingKeys.FeedsOutbound), false),
+            IpsOutbound = Bool(await get(BlockingSettingKeys.IpsOutbound), d.IpsOutbound),
             TargetGateway = Bool(await get(BlockingSettingKeys.TargetGateway), false),
             TargetWaf = Bool(await get(BlockingSettingKeys.TargetWaf), false),
             TargetCloudflare = Bool(await get(BlockingSettingKeys.TargetCloudflare), false),

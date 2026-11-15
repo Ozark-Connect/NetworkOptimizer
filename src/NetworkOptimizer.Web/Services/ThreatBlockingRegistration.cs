@@ -16,6 +16,8 @@ public static class ThreatBlockingRegistration
         services.AddHostedService(sp => sp.GetRequiredService<NetworkOptimizer.Threats.Blocking.ThreatBlockingService>());
         services.AddSingleton<NetworkOptimizer.Threats.Blocking.IPublicListLookup>(sp =>
             sp.GetRequiredService<NetworkOptimizer.Threats.Blocking.ThreatBlockingService>());
+        services.AddSingleton<NetworkOptimizer.Threats.Blocking.IIpsOutboundSink>(sp =>
+            sp.GetRequiredService<NetworkOptimizer.Threats.Blocking.ThreatBlockingService>());
         services.AddSingleton<GatewayAgentBlocklist>();
         services.AddSingleton<NetworkOptimizer.Threats.Blocking.IGatewayAgentBlocklist>(sp => sp.GetRequiredService<GatewayAgentBlocklist>());
         return services;

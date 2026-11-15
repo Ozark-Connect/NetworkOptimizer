@@ -688,6 +688,8 @@ public class NetworkOptimizerDbContext : DbContext
             entity.Property(e => e.Reason).HasMaxLength(256);
             entity.Property(e => e.ReleasedBy).HasMaxLength(256);
             entity.Property(e => e.Trigger).HasConversion<int>();
+            entity.Property(e => e.Direction).HasConversion<int>();
+            entity.Property(e => e.Evidence).HasMaxLength(2048);
             entity.HasIndex(e => e.ExpiresAt);
             entity.HasIndex(e => new { e.SourceIp, e.CreatedAt });
         });
