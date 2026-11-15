@@ -1893,13 +1893,19 @@ public class UpstreamTracerService
         }
         foreach (var hop in State.AccessHops)
         {
-            if (existingByAddress.TryGetValue(hop.Address, out var rows)
-                && rows.FirstOrDefault(t => t.ProbeMode == hop.RespondedTo) is { } existing)
+            var existing = existingByAddress.TryGetValue(hop.Address, out var rows)
+                ? ReviewRowForAccessHop(rows, hop)
+                : null;
+            if (existing != null)
             {
                 hop.Enabled = existing.Enabled;
                 if (!string.IsNullOrEmpty(existing.Name))
                     hop.Label = existing.Name;
             }
+            _logger.LogDebug("Review access hop {Address} (found by {Mode}): {Match}",
+                hop.Address, hop.RespondedTo,
+                existing == null ? "no saved row, proposed checked"
+                    : $"saved row {existing.TargetId} ({existing.ProbeMode}, {(existing.Enabled ? "on" : "off")})");
         }
 
         State.TransitAsns = candidates;
@@ -2887,7 +2893,8 @@ public class UpstreamTracerService
 
         foreach (var hop in State.AccessHops.Where(h => h.Enabled))
         {
-            _logger.LogDebug("Commit access hop: id={TargetId} label='{Label}' addr={Address}", hop.TargetId, hop.Label, hop.Address);
+            _logger.LogDebug("Commit access hop: id={TargetId} label='{Label}' addr={Address} found by {Mode}, checked",
+                hop.TargetId, hop.Label, hop.Address, hop.RespondedTo);
             await UpsertTargetAsync(db, hop, wanInterface, wanContextId, ct, probePlan.PollIntervalSeconds, isUnboundRun);
         }
         foreach (var hop in State.AccessHops.Where(h => !h.Enabled))
@@ -3370,6 +3377,26 @@ public class UpstreamTracerService
     /// <param name="ct">Cancellation.</param>
     /// <param name="pollIntervalSeconds">Cadence new rows are created at.</param>
     /// <param name="isUnboundRun">Whether this is the unbound (primary) run - see OwnsTargetRow.</param>
+    /// <summary>
+    /// How an access hop is pinged. A UDP traceroute surfaces a hop, but ping has no UDP mode (every
+    /// prober falls back to an ICMP echo), so a hop found by UDP is an ICMP Target.
+    /// </summary>
+    internal static ProbeMode AccessPingMode(ProbeMode respondedTo) =>
+        respondedTo == ProbeMode.Udp ? ProbeMode.Icmp : respondedTo;
+
+    /// <summary>Whether two probe modes ping a host the same way (ICMP and UDP do).</summary>
+    internal static bool SameAccessProbe(ProbeMode a, ProbeMode b) => AccessPingMode(a) == AccessPingMode(b);
+
+    /// <summary>
+    /// The saved row the review shows a proposed access hop as, so its checkbox carries that row's
+    /// state: the one the commit (<see cref="UpsertTargetAsync"/>) writes to, by target id first,
+    /// then by address and probe. Matching by exact probe mode alone showed a hop found by ICMP as
+    /// new and checked, and the commit then turned the operator's paused UDP row back on.
+    /// </summary>
+    internal static MonitoringTarget? ReviewRowForAccessHop(IReadOnlyList<MonitoringTarget> rowsForAddress, AccessHopCandidate hop) =>
+        rowsForAddress.FirstOrDefault(t => string.Equals(t.TargetId, hop.TargetId, StringComparison.OrdinalIgnoreCase))
+        ?? rowsForAddress.FirstOrDefault(t => SameAccessProbe(t.ProbeMode, hop.RespondedTo));
+
     internal static async Task UpsertTargetAsync(NetworkOptimizerDbContext db, AccessHopCandidate hop, string wanInterface, int? wanContextId, CancellationToken ct, int pollIntervalSeconds = MeteredProbePolicy.DefaultIntervalSeconds, bool isUnboundRun = true)
     {
         // UniFi's WAN SLA probe targets (1.1.1.1 / 8.8.8.8) are public DNS resolvers, not
@@ -3394,10 +3421,10 @@ public class UpstreamTracerService
             .ToListAsync(ct);
         var existing = rows.FirstOrDefault(t => t.TargetId == hop.TargetId && OwnsTargetRow(t.WanInterface, wanInterface, isUnboundRun))
             ?? rows.FirstOrDefault(t => t.TargetId == twinId)
-            // Matched on address alone, so the probe has to agree too: a row checking this host a
-            // different way measures a different thing, and merging the two rewrites one probe's
-            // history as the other's.
-            ?? rows.FirstOrDefault(t => t.ProbeMode == hop.RespondedTo
+            // Matched on address alone, so the probe has to agree too: a TCP row checks this host a
+            // different way, and merging the two rewrites one probe's history as the other's. ICMP
+            // and UDP are one probe (see AccessPingMode).
+            ?? rows.FirstOrDefault(t => SameAccessProbe(t.ProbeMode, hop.RespondedTo)
                 && OwnsTargetRow(t.WanInterface, wanInterface, isUnboundRun));
         var claimedByOtherWan = existing == null && rows.Count > 0;
         if (existing == null)
@@ -3407,7 +3434,7 @@ public class UpstreamTracerService
                 TargetId = claimedByOtherWan ? twinId : hop.TargetId,
                 Name = hop.Label,
                 Address = hop.Address,
-                ProbeMode = hop.RespondedTo,
+                ProbeMode = AccessPingMode(hop.RespondedTo),
                 DiscoveredProbeMode = hop.RespondedTo,
                 TargetType = MonitoringTargetType.AccessIsp,
                 AsnNumber = hop.AsnNumber,
@@ -3437,7 +3464,9 @@ public class UpstreamTracerService
             // A hand-added row keeps the type its owner gave it.
             if (existing.AutoDiscovered) existing.TargetType = MonitoringTargetType.AccessIsp;
             existing.Address = hop.Address;
-            existing.ProbeMode = hop.RespondedTo;
+            // Never the trace mode that found the hop this run: that flipped rows between ICMP and
+            // UDP and broke the review's match. A TCP row was set that way on purpose and keeps it.
+            if (existing.ProbeMode != ProbeMode.Tcp) existing.ProbeMode = AccessPingMode(hop.RespondedTo);
             existing.WanInterface = wanInterface;
             // Written, never cleared: a target the user assigned to a context by hand keeps
             // that assignment when the primary run re-verifies it.
