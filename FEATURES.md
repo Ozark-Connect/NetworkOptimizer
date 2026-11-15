@@ -283,6 +283,7 @@ Time-series monitoring on your own InfluxDB, fed by SNMP polling (InfluxDB).
   - From the server, an [On-Site Agent](#on-site-agent), a WAN vantage, or any UniFi device (Device SSH)
   - ICMP, TCP, or UDP (traceroute only); choose the gateway's WAN interface
   - Traceroute hops show their location (flag, city, country): the city a transit router's hostname names, checked against its round trip, else GeoLite2 City
+  - Route Map: the traced path drawn on a map, city to city, with each point marked by what placed it (hostname, nearby hop, or GeoLite2)
   - DNS lookups use the vantage's own resolver, which shows DNS segregation per network
   - **Other Sites** targets: each of your other sites' latest WAN address, for inter-site traces
 - **Inspect a Gateway Interface** - **Addresses and DHCP Lease**, **SFP Module**, and **Neighbors** (Gateway SSH)

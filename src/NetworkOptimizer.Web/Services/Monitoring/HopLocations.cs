@@ -7,7 +7,30 @@ namespace NetworkOptimizer.Web.Services.Monitoring;
 /// <param name="CountryCode">ISO country code, for the flag.</param>
 /// <param name="Text">"Dallas, United States", or the country alone.</param>
 /// <param name="Tooltip">Where the location came from.</param>
-public sealed record HopLocationView(string? CountryCode, string Text, string Tooltip);
+/// <param name="City">The city alone, when the hop is placed in one.</param>
+/// <param name="Latitude">The placed city's latitude, in degrees; null when only the country is known.</param>
+/// <param name="Longitude">The placed city's longitude, in degrees.</param>
+/// <param name="Source">Which evidence placed the hop.</param>
+public sealed record HopLocationView(
+    string? CountryCode, string Text, string Tooltip,
+    string? City = null, double? Latitude = null, double? Longitude = null,
+    HopLocationSource Source = HopLocationSource.Country);
+
+/// <summary>What placed a hop, strongest first.</summary>
+public enum HopLocationSource
+{
+    /// <summary>The city its router hostname names.</summary>
+    Hostname,
+
+    /// <summary>The city of an anchor hop a few ms away.</summary>
+    Neighbor,
+
+    /// <summary>GeoLite2's city for the address.</summary>
+    GeoLite2,
+
+    /// <summary>The country only: no city, or a GeoLite2 city the round trip rules out.</summary>
+    Country,
+}
 
 /// <summary>
 /// Places each hop of a trace: by the city its router hostname names when it names one
@@ -62,7 +85,8 @@ public static class HopLocations
             var g = geoByAddress[h.Address!];
             if (named[i] is { } own)
             {
-                result[h.Address!] = CityView(own.City.Name, own.City.CountryCode, $"From the router's hostname ({own.Token})");
+                result[h.Address!] = CityView(own.City.Name, own.City.CountryCode, $"From the router's hostname ({own.Token})",
+                    own.City.Latitude, own.City.Longitude, HopLocationSource.Hostname);
             }
             // A private or CGNAT address can sit anywhere behind its network, so it never borrows a city.
             else if (anchors[i] == null && NetworkUtilities.IsPublicIpAddress(h.Address!)
@@ -78,7 +102,8 @@ public static class HopLocations
                         ? CountryName(geoCountry)
                         : null;
                 result[h.Address!] = CityView(near.Anchor.City, near.Anchor.CountryCode,
-                    geoSays != null ? $"{source}. GeoLite2 says {geoSays}." : source);
+                    geoSays != null ? $"{source}. GeoLite2 says {geoSays}." : source,
+                    near.Anchor.Latitude, near.Anchor.Longitude, HopLocationSource.Neighbor);
             }
             else if (g is { CountryCode.Length: > 0, City.Length: > 0 }
                      && OutOfReach(bounded, anchors, i, g) is { } far)
@@ -90,9 +115,12 @@ public static class HopLocations
             else if (g is { CountryCode.Length: > 0 })
             {
                 var country = CountryName(g.CountryCode!);
+                var hasCity = !string.IsNullOrEmpty(g.City);
                 result[h.Address!] = new HopLocationView(g.CountryCode,
-                    string.IsNullOrEmpty(g.City) ? country : $"{g.City}, {country}",
-                    "Where GeoLite2 places the address. For a transit router this can be where its network is registered, not where the router sits.");
+                    hasCity ? $"{g.City}, {country}" : country,
+                    "Where GeoLite2 places the address. For a transit router this can be where its network is registered, not where the router sits.",
+                    hasCity ? g.City : null, hasCity ? g.Latitude : null, hasCity ? g.Longitude : null,
+                    hasCity ? HopLocationSource.GeoLite2 : HopLocationSource.Country);
             }
         }
         return result;
@@ -242,8 +270,9 @@ public static class HopLocations
         return -1;
     }
 
-    private static HopLocationView CityView(string city, string countryCode, string tooltip) =>
-        new(countryCode, $"{city}, {CountryName(countryCode)}", tooltip);
+    private static HopLocationView CityView(
+        string city, string countryCode, string tooltip, double latitude, double longitude, HopLocationSource source) =>
+        new(countryCode, $"{city}, {CountryName(countryCode)}", tooltip, city, latitude, longitude, source);
 
     private static string CountryName(string code) =>
         CountryDisplay.CountryNames.TryGetValue(code, out var name) ? name : code.ToUpperInvariant();

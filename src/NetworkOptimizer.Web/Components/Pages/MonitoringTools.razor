@@ -396,6 +396,7 @@
                 </tbody>
             </table>
             </div>
+            <NetworkOptimizer.Web.Components.Shared.Monitoring.TracerouteMap Path="_tracePath" />
             @if (!string.IsNullOrEmpty(_traceResult.ErrorMessage))
             {
                 <div class="alert alert-warning">@_traceResult.ErrorMessage</div>
@@ -1627,7 +1628,8 @@ else if (_diagResult != null && !string.IsNullOrEmpty(_diagResult.InterfaceError
                 maxHops: 30,
                 perHopTimeout: TimeSpan.FromSeconds(2),
                 totalDeadline: TimeSpan.FromSeconds(10));
-            // Shown before the networks resolve; the Network column fills in when they do.
+            // Shown before the networks resolve; the Network column and the map fill in when they do.
+            _tracePath = null;
             StateHasChanged();
             await ResolveTraceAsnsAsync(_traceResult);
         }
@@ -1669,7 +1671,13 @@ else if (_diagResult != null && !string.IsNullOrEmpty(_diagResult.InterfaceError
 
         _traceLocations = NetworkOptimizer.Web.Services.Monitoring.HopLocations.Resolve(
             trace.Hops.Where(h => h.Responded).Select(h => (h.Address, TraceHostname(h), h.RttMinMs)), Geo.Enrich);
+        _tracePath = NetworkOptimizer.Web.Services.Monitoring.TraceMapPath.Build(
+            trace.Hops.Where(h => h.Responded).Select(h => (h.HopNumber, h.Address, TraceHostname(h), h.RttMinMs)),
+            _traceLocations);
     }
+
+    // The traced path as places and legs, for the Route Map under the hop table.
+    private NetworkOptimizer.Web.Services.Monitoring.TraceMapPath? _tracePath;
 
     // PTR names looked up here for hops the vantage returned without one, by address.
     private Dictionary<string, string> _tracePtrs = new(StringComparer.OrdinalIgnoreCase);
