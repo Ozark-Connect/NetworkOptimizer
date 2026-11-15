@@ -34,6 +34,7 @@
 @inject ISiteManagementService SiteManagement
 @inject AsnResolutionService AsnResolver
 @inject ILogger<MonitoringTools> Logger
+@inject NetworkOptimizer.Threats.Enrichment.GeoEnrichmentService Geo
 @inject IDisplayTimeZone DisplayTime
 
 <PageTitle>Network Tools - Network Optimizer</PageTitle>
@@ -330,6 +331,7 @@
                 <div class="form-value">@VantageLabel(_traceResult.Vantage.Id)</div>
             </div>
             @{ var showReturn = _traceResult.Hops.Any(h => h.ReturnHops.HasValue); }
+            @{ var showLocation = _traceGeo.Count > 0; }
             <div class="table-responsive">
             <table class="data-table path-episode-hops">
                 <thead>
@@ -337,6 +339,10 @@
                         <th>Hop</th>
                         <th>Address / PTR</th>
                         <th>Network</th>
+                        @if (showLocation)
+                        {
+                            <th data-tooltip="Where GeoLite2 places the address. For a transit router this can be where its network is registered, not where the router sits.">Location</th>
+                        }
                         <th>Loss</th>
                         <th data-tooltip="Minimum and average RTT across the hop's probes. The minimum tracks the forwarding path; ICMP slow-path handling inflates the average.">RTT (min / avg)</th>
                         @if (showReturn)
@@ -364,6 +370,20 @@
                                 }
                             </td>
                             <td><NetworkOptimizer.Web.Components.Shared.Monitoring.TextWithCode Text="@TraceNetworkLabel(hop.Address)" /></td>
+                            @if (showLocation)
+                            {
+                                <td>
+                                    @if (hop.Address != null && _traceGeo.TryGetValue(hop.Address, out var geo))
+                                    {
+                                        <span class="flag-icon" data-tooltip="@CountryDisplay.CountryTooltip(geo.CountryCode)">@CountryDisplay.CountryFlag(geo.CountryCode)</span>
+                                        <span>@TraceLocationText(geo)</span>
+                                    }
+                                    else
+                                    {
+                                        <span>-</span>
+                                    }
+                                </td>
+                            }
                             <td>@(hop.Responses > 0 && hop.Probes > 0 ? $"{100.0 * (hop.Probes - hop.Responses) / hop.Probes:0.#}%" : "-")</td>
                             <td>@(hop.RttMinMs is double min ? $"{min:0.0} / {hop.RttAvgMs ?? min:0.0} ms" : "-")</td>
                             @if (showReturn)
@@ -1633,6 +1653,24 @@ else if (_diagResult != null && !string.IsNullOrEmpty(_diagResult.InterfaceError
             catch (Exception ex) { Logger.LogDebug(ex, "ASN lookup for {Address} failed", address); }
         }
         _traceAsns = asns;
+
+        // Location needs the GeoLite2 City database; without it the column is left out.
+        var geo = new Dictionary<string, NetworkOptimizer.Threats.Models.GeoInfo>(StringComparer.OrdinalIgnoreCase);
+        foreach (var address in trace.Hops.Where(h => h.Responded).Select(h => h.Address!).Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            if (Geo.Enrich(address) is { CountryCode.Length: > 0 } found) geo[address] = found;
+        }
+        _traceGeo = geo;
+    }
+
+    // Each traced hop's GeoLite2 location, by address. Only addresses the database places.
+    private Dictionary<string, NetworkOptimizer.Threats.Models.GeoInfo> _traceGeo = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>"Dallas, United States", or the country alone when the database has no city.</summary>
+    private static string TraceLocationText(NetworkOptimizer.Threats.Models.GeoInfo geo)
+    {
+        var country = CountryDisplay.CountryNames.TryGetValue(geo.CountryCode ?? "", out var name) ? name : geo.CountryCode ?? "";
+        return string.IsNullOrEmpty(geo.City) ? country : $"{geo.City}, {country}";
     }
 
     /// <summary>"Cox Communications `AS22773`" (the ASN renders as code), or "-" when the hop's network is unknown or private.</summary>
