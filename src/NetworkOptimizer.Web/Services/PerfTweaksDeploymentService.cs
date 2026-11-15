@@ -653,13 +653,23 @@ public class PerfTweaksDeploymentService : IPerfTweaksDeploymentService
     // Stops the timer and a reconnect in progress before deleting them, and reports "removed"
     // only once nothing of the tweak is left.
     private const string PppoeReconnectRemoveCommand =
-        $"rm -f {OnBootDir}/40-pppoe-reconnect.sh; " +
-        "systemctl stop pppoe-reconnect.timer pppoe-reconnect.service 2>/dev/null; " +
-        "rm -f /etc/systemd/system/pppoe-reconnect.service /etc/systemd/system/pppoe-reconnect.timer; " +
-        "systemctl daemon-reload; " +
-        $"rm -rf {PppoeReconnectDir}; " +
+        "pppoe_unit_stopped() { " +
+        "state=$(systemctl show -p ActiveState --value \"$1\") || return 1; " +
+        "case \"$state\" in inactive|failed) return 0 ;; *) return 1 ;; esac; }; " +
+        "for unit in pppoe-reconnect.timer pppoe-reconnect.service; do " +
+        "if ! systemctl stop \"$unit\"; then " +
+        "load_state=$(systemctl show -p LoadState --value \"$unit\") || exit 1; " +
+        "if [ \"$load_state\" != not-found ]; then echo \"Stopping $unit failed.\" >&2; exit 1; fi; fi; " +
+        "if ! pppoe_unit_stopped \"$unit\"; then echo \"$unit is not stopped.\" >&2; exit 1; fi; done; " +
+        $"rm -f {OnBootDir}/40-pppoe-reconnect.sh && " +
+        "rm -f /etc/systemd/system/pppoe-reconnect.service /etc/systemd/system/pppoe-reconnect.timer && " +
+        "systemctl daemon-reload && " +
+        $"rm -rf {PppoeReconnectDir} && " +
         $"if [ ! -e {OnBootDir}/40-pppoe-reconnect.sh ] && [ ! -e /etc/systemd/system/pppoe-reconnect.timer ] " +
-        $"&& [ ! -e {PppoeReconnectDir} ] && ! systemctl is-active --quiet pppoe-reconnect.timer; then echo 'removed'; fi";
+        "&& [ ! -e /etc/systemd/system/pppoe-reconnect.service ] " +
+        $"&& [ ! -e {PppoeReconnectDir} ] && pppoe_unit_stopped pppoe-reconnect.timer " +
+        "&& pppoe_unit_stopped pppoe-reconnect.service; then echo 'removed'; " +
+        "else echo 'PPPoE reconnect cleanup incomplete.' >&2; exit 1; fi";
 
     /// <summary>True for a 24-hour HH:MM time, the form the boot script accepts.</summary>
     internal static bool IsValidPppoeReconnectTime(string? time) =>

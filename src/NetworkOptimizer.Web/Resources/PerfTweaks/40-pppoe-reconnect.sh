@@ -178,7 +178,7 @@ install_if_changed() {
     echo "changed"
 }
 
-UNIT_CHANGED=$(install_if_changed "$UNIT" <<EOF
+if ! install_if_changed "$UNIT" >/dev/null <<EOF
 [Unit]
 Description=Scheduled PPPoE reconnect (Network Optimizer)
 
@@ -187,10 +187,13 @@ Type=oneshot
 ExecStart=$SCRIPT run
 TimeoutStartSec=30min
 EOF
-) || { log "Writing $UNIT failed."; exit 1; }
+then
+    log "Writing $UNIT failed."
+    exit 1
+fi
 
 # Persistent=false: a reconnect missed while the gateway was off is not made up at boot
-TIMER_CHANGED=$(install_if_changed "$TIMER" <<EOF
+if ! install_if_changed "$TIMER" >/dev/null <<EOF
 [Unit]
 Description=Scheduled PPPoE reconnect (Network Optimizer)
 
@@ -199,13 +202,20 @@ OnCalendar=*-*-* $TIME:00
 AccuracySec=1s
 Persistent=false
 EOF
-) || { log "Writing $TIMER failed."; exit 1; }
+then
+    log "Writing $TIMER failed."
+    exit 1
+fi
 
-if [ -n "$UNIT_CHANGED$TIMER_CHANGED" ]; then
-    systemctl daemon-reload
-    systemctl restart pppoe-reconnect.timer
-else
-    systemctl start pppoe-reconnect.timer
+# Reload and restart even when the files match: a previous attempt may have written
+# the new schedule but failed to load it. An active timer can still hold the old time.
+if ! systemctl daemon-reload; then
+    log "systemctl daemon-reload failed."
+    exit 1
+fi
+if ! systemctl restart pppoe-reconnect.timer; then
+    log "Restarting pppoe-reconnect.timer failed."
+    exit 1
 fi
 if ! systemctl is-active --quiet pppoe-reconnect.timer; then
     log "Starting pppoe-reconnect.timer failed."
