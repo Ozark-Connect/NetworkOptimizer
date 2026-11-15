@@ -51,7 +51,8 @@ public static class HopLocations
             var from = string.Equals(list[i].Address, nearest.Address, StringComparison.OrdinalIgnoreCase) ? null : vantage;
             named[i] = RouterHostnameLocator.Locate(list[i].Hostname, list[i].MinRttMs, from);
         }
-        var anchors = Anchors(list, named, geoByAddress, nearest.Address);
+        var bounded = BoundedByLaterHops(list);
+        var anchors = Anchors(bounded, named, geoByAddress, nearest.Address);
 
         for (var i = 0; i < list.Count; i++)
         {
@@ -64,11 +65,13 @@ public static class HopLocations
             }
             // A private or CGNAT address can sit anywhere behind its network, so it never borrows a city.
             else if (anchors[i] == null && NetworkUtilities.IsPublicIpAddress(h.Address!)
-                     && Neighbor(list, anchors, i, g) is { } near)
+                     && Neighbor(bounded, anchors, i, g) is { } near)
             {
+                // The measured gap, as the table shows it; the bounded one only decides.
+                var shown = Math.Abs((h.MinRttMs ?? 0) - (list[near.Index].MinRttMs ?? 0));
                 var source = near.Anchor.FromHostname
-                    ? $"{near.GapMs:0.0} ms from {near.Anchor.Label}, a {near.Anchor.City} router"
-                    : $"{near.GapMs:0.0} ms from {near.Anchor.Label}, which GeoLite2 places in {near.Anchor.City}";
+                    ? $"{shown:0.0} ms from {near.Anchor.Label}, a {near.Anchor.City} router"
+                    : $"{shown:0.0} ms from {near.Anchor.Label}, which GeoLite2 places in {near.Anchor.City}";
                 result[h.Address!] = CityView(near.Anchor.City, near.Anchor.CountryCode, g.City is { Length: > 0 } geoCity
                     ? $"{source}. GeoLite2 says {geoCity}."
                     : source);
@@ -90,6 +93,24 @@ public static class HopLocations
     /// from that anchor for the round-trip gap.
     /// </summary>
     internal const double NeighborGapMs = 3;
+
+    /// <summary>
+    /// Each hop's round trip, lowered to the lowest of any later hop's: packets to a later hop pass
+    /// this one, so its round trip bounds this hop's. A router can answer its own probes slower than
+    /// the hop after it answers (6.4 ms, then 2.1 ms).
+    /// </summary>
+    private static List<(string? Address, string? Hostname, double? MinRttMs)> BoundedByLaterHops(
+        List<(string? Address, string? Hostname, double? MinRttMs)> list)
+    {
+        var bounded = new List<(string? Address, string? Hostname, double? MinRttMs)>(list);
+        double? lowest = null;
+        for (var i = bounded.Count - 1; i >= 0; i--)
+        {
+            if (bounded[i].MinRttMs is double rtt) lowest = lowest is double l ? Math.Min(l, rtt) : rtt;
+            bounded[i] = bounded[i] with { MinRttMs = lowest };
+        }
+        return bounded;
+    }
 
     /// <summary>A hop other hops are placed against.</summary>
     private sealed record Anchor(string City, string CountryCode, double Latitude, double Longitude, string Label, bool FromHostname);
@@ -115,7 +136,7 @@ public static class HopLocations
         }
 
         var vantageIndex = list.FindIndex(h => string.Equals(h.Address, vantageAddress, StringComparison.OrdinalIgnoreCase));
-        if (vantageIndex < 0 || anchors[vantageIndex] != null || GeoAnchor(list[vantageIndex], geo) is not { } vantage)
+        if (vantageIndex < 0 || (anchors[vantageIndex] ?? GeoAnchor(list[vantageIndex], geo)) is not { } vantage)
             return anchors;
         anchors[vantageIndex] = vantage;
 
@@ -137,11 +158,11 @@ public static class HopLocations
             ? new Anchor(g.City!, g.CountryCode!, lat, lon, hop.Address!, FromHostname: false)
             : null;
 
-    private static (Anchor Anchor, double GapMs)? Neighbor(
+    private static (Anchor Anchor, double GapMs, int Index)? Neighbor(
         List<(string? Address, string? Hostname, double? MinRttMs)> list, Anchor?[] anchors, int i, GeoInfo geo)
     {
         if (list[i].MinRttMs is not double rtt) return null;
-        (Anchor Anchor, double GapMs)? best = null;
+        (Anchor Anchor, double GapMs, int Index)? best = null;
         var inGap = new List<string>();
         foreach (var j in new[] { Nearest(anchors, i, -1), Nearest(anchors, i, +1) })
         {
@@ -149,7 +170,7 @@ public static class HopLocations
             var gap = Math.Abs(rtt - other);
             if (gap > NeighborGapMs) continue;
             inGap.Add(anchors[j]!.City);
-            if (best == null || gap < best.Value.GapMs) best = (anchors[j]!, gap);
+            if (best == null || gap < best.Value.GapMs) best = (anchors[j]!, gap, j);
         }
         if (best is not { } b) return null;
 

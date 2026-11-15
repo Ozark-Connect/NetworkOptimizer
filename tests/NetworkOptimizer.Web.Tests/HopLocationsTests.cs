@@ -135,6 +135,39 @@ public class HopLocationsTests
         found["198.51.100.20"].Text.Should().Be("San Diego, United States");
     }
 
+    [Fact]
+    public void Resolve_ASlowAnsweringHop_IsBoundedByTheFasterHopAfterIt()
+    {
+        // The second Kansas City router answers its own probes in 6.4 ms, but the hop behind it answers
+        // in 2.1 ms, so both sit within 3 ms of the first.
+        var found = HopLocations.Resolve(
+        [
+            ("198.51.100.32", null, 1.0),
+            ("203.0.113.7", KansasCityRouter, 1.9),
+            ("198.51.100.22", null, 1.9),
+            ("203.0.113.6", "ae2.mci02.example.net", 6.4),
+            ("192.0.2.50", null, 2.1),
+        ], Geo);
+
+        found["198.51.100.22"].Text.Should().Be("Kansas City, United States");
+        found["192.0.2.50"].Text.Should().Be("Kansas City, United States");
+    }
+
+    [Fact]
+    public void Resolve_AHostnamePlacedVantage_StillLetsTheLastPlacedHopAnchor()
+    {
+        // The anycast hop borrows from the slow-answering hop right before it, not the router three hops back.
+        var found = HopLocations.Resolve(
+        [
+            ("203.0.113.5", KansasCityRouter, 1.6),
+            ("198.51.100.22", null, 2.7),
+            ("198.51.100.32", null, 5.4),
+            ("192.0.2.50", null, 2.8),
+        ], Geo);
+
+        found["192.0.2.50"].Tooltip.Should().Be("2.6 ms from 198.51.100.32, which GeoLite2 places in Kansas City");
+    }
+
     [Theory]
     [InlineData("192.168.1.254")]
     [InlineData("100.64.0.1")]
