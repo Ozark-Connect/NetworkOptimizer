@@ -5144,6 +5144,27 @@ input.form-control::-webkit-date-and-time-value {
         margin: 0;
     }
 
+    /* Collapsed, the device icon is all that is left of the identity, so it joins the signal row
+       when the row has room, and wraps above it when it does not. */
+    .identity-bar.identity-collapsed:has(.signal-gauge) .identity-row-1:has(.identity-info-icon) {
+        flex-direction: row;
+        flex-wrap: wrap;
+        align-items: stretch;
+        position: relative;
+    }
+    .identity-bar.identity-collapsed:has(.signal-gauge) .identity-info-icon {
+        flex-shrink: 0;
+        align-self: center;
+    }
+    .identity-bar.identity-collapsed:has(.signal-gauge) .identity-info-icon .identity-text {
+        display: none;
+    }
+    /* Static, so the rule under the signal row anchors to the whole row and spans the icon too. */
+    .identity-bar.identity-collapsed:has(.signal-gauge) .identity-row-1:has(.identity-info-icon) .identity-signal {
+        flex: 1 1 auto;
+        position: static;
+    }
+
     .identity-bar.identity-collapsed {
         border-radius: 0;
         margin-left: -16px;
