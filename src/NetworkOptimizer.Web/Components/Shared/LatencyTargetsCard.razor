@@ -252,17 +252,42 @@
                     <p class="alert alert-danger">@_targetError</p>
                 }
             </div>
-            @if (ShowScopeFilter)
+        }
+
+        @* Filters and footnote first in the markup, so a phone stacks them above the buttons; on
+           desktop the row is reversed and the buttons sit at its left. *@
+        <div class="lt-bottom-bar">
+            @if (Targets.Count > 0)
             {
-                <div class="lt-filters-bottom">
-                    @ScopeFilters()
+                <div class="lt-bottom-info">
+                    @if (ShowScopeFilter)
+                    {
+                        <div class="lt-filters-bottom">
+                            @ScopeFilters()
+                        </div>
+                    }
+                    <p class="page-description page-description-footnote lt-footnote">
+                        <strong>Pause</strong> stops probing a target. <strong>Remove</strong> hides it as
+                        well, but keeps everything it measured so <strong>Restore</strong> can bring it back.
+                    </p>
                 </div>
             }
-            <p class="page-description page-description-footnote lt-footnote">
-                <strong>Pause</strong> stops probing a target. <strong>Remove</strong> hides it as
-                well, but keeps everything it measured so <strong>Restore</strong> can bring it back.
-            </p>
-        }
+            @if (CanAddTargets && !_showAddTarget)
+            {
+                @* Adding a target is Operator; REMOVING one stays Admin. The target list is curated and
+                   expensive to rebuild - it accumulates over time and nothing recreates it - so the
+                   asymmetry is deliberate: measuring one more thing is cheap and reversible, losing one
+                   that someone established months ago is not. *@
+                <div class="lt-actions lt-actions-bottom">
+                    <a href="@RunProbeUrl" class="btn btn-sm btn-secondary">Run Probe</a>
+                    <SiteOperatorOnly>
+                        <button class="btn btn-sm btn-primary" @onclick="ShowAddTarget">
+                            + Add Target
+                        </button>
+                    </SiteOperatorOnly>
+                </div>
+            }
+        </div>
 
         @if (!CanAddTargets)
         {
@@ -345,21 +370,6 @@
                 }
             </div>
         }
-        else
-        {
-            @* Adding a target is Operator; REMOVING one stays Admin. The target list is curated and
-               expensive to rebuild - it accumulates over time and nothing recreates it - so the
-               asymmetry is deliberate: measuring one more thing is cheap and reversible, losing one
-               that someone established months ago is not. *@
-            <div class="lt-actions lt-actions-bottom">
-                <a href="@RunProbeUrl" class="btn btn-sm btn-secondary">Run Probe</a>
-                <SiteOperatorOnly>
-                    <button class="btn btn-sm btn-primary" @onclick="ShowAddTarget">
-                        + Add Target
-                    </button>
-                </SiteOperatorOnly>
-            </div>
-        }
     </div>
         </div>
     </div>
@@ -420,7 +430,23 @@
         margin-right: 0;
     }
 
+    .lt-bottom-info {
+        min-width: 0;
+    }
+
     @@media (min-width: 769px) {
+        .lt-bottom-bar {
+            display: flex;
+            flex-direction: row-reverse;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 1rem;
+        }
+
+        .lt-bottom-info {
+            flex: 1 1 auto;
+        }
+
         .lt-footnote {
             text-align: right;
         }
