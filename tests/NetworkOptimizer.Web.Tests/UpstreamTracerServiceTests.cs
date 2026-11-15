@@ -564,8 +564,8 @@ public class UpstreamCommitTests : IDisposable
             await UpstreamTracerService.UpsertTargetAsync(_db, hop, wan, wanContextId: null, ct);
         foreach (var hop in hops.Where(h => !h.Enabled))
             await UpstreamTracerService.PauseUnselectedAccessHopAsync(_db, hop, wan, isUnboundRun: true, automatic: false, ct);
-        await UpstreamTracerService.PauseUnproposedAccessRowsAsync(_db, hops.Select(h => h.Address).ToList(), wan,
-            isUnboundRun: true, automatic: false, ct);
+        await UpstreamTracerService.PauseUnproposedAccessRowsAsync(_db, hops.Select(h => h.Address).ToList(),
+            _db.MonitoringTargets.Select(t => t.Address).ToList(), wan, isUnboundRun: true, automatic: false, ct);
         foreach (var transit in transits.Where(t => t.Enabled))
             await UpstreamTracerService.UpsertTransitTargetAsync(_db, transit, wan, wanContextId: null, ct);
         foreach (var transit in transits.Where(t => !t.Enabled))

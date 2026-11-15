@@ -7,8 +7,9 @@ using Xunit;
 namespace NetworkOptimizer.Web.Tests.Monitoring;
 
 /// <summary>
-/// A re-run and commit corrects access rows an earlier run got wrong: rows the new run no longer
-/// proposes are paused, on an operator's commit only, and hand-added rows are left alone.
+/// A re-run and commit corrects access rows an earlier run got wrong: rows the new run saw and no
+/// longer proposes are paused, on an operator's commit only; rows it never saw and hand-added rows
+/// are left alone.
 /// </summary>
 public class UpstreamTracerUnproposedAccessTests : IDisposable
 {
@@ -38,6 +39,21 @@ public class UpstreamTracerUnproposedAccessTests : IDisposable
         Row("100.64.0.1").Enabled.Should().BeTrue();
         Row("172.18.0.1").Enabled.Should().BeFalse();
         Row("203.0.113.53").Enabled.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task ARowThisRunNeverSaw_IsLeftAlone()
+    {
+        // A real access hop this run's traces happened to miss (route variance): not evidence.
+        Seed("100.64.0.1");
+        Seed("198.51.100.18");
+        Seed("172.18.0.1");
+
+        var paused = await Pause(["100.64.0.1"], automatic: false, seen: ["100.64.0.1", "172.18.0.1"]);
+
+        paused.Should().Be(1);
+        Row("198.51.100.18").Enabled.Should().BeTrue();
+        Row("172.18.0.1").Enabled.Should().BeFalse("seen on the traces and filed as our side");
     }
 
     [Fact]
@@ -169,10 +185,12 @@ public class UpstreamTracerUnproposedAccessTests : IDisposable
         Row("203.0.113.54").TargetType.Should().Be(MonitoringTargetType.AccessIsp);
     }
 
-    private async Task<int> Pause(IReadOnlyCollection<string> proposed, bool automatic)
+    // The run saw every seeded row on its traces unless told otherwise.
+    private async Task<int> Pause(IReadOnlyCollection<string> proposed, bool automatic, IReadOnlyCollection<string>? seen = null)
     {
+        seen ??= _db.MonitoringTargets.AsNoTracking().Select(t => t.Address).ToList();
         var count = await UpstreamTracerService.PauseUnproposedAccessRowsAsync(
-            _db, proposed, "wan", isUnboundRun: true, automatic, CancellationToken.None);
+            _db, proposed, seen, "wan", isUnboundRun: true, automatic, CancellationToken.None);
         await _db.SaveChangesAsync();
         return count;
     }
