@@ -95,25 +95,20 @@ install_if_changed() {
     return 1
 }
 
-# The pinned hashes as a file, so the unit checks the binaries before every start as well
-if ! install_if_changed "$HASHES" 644 >/dev/null <<EOF
+binaries_ok() {
+    [ -x "$BIN/chronyd" ] && [ -x "$BIN/chronyc" ] && "$SHA256SUM" -c --strict --status <<EOF
 $CHRONYD_SHA256  $BIN/chronyd
 $CHRONYC_SHA256  $BIN/chronyc
 EOF
-then
-    log "Writing $HASHES failed."
-    exit 1
-fi
-
-binaries_ok() {
-    [ -x "$BIN/chronyd" ] && [ -x "$BIN/chronyc" ] && "$SHA256SUM" -c --strict --status "$HASHES"
 }
 
 # Downloads the pinned .deb and extracts chronyd and chronyc. Only on first deploy, after a
 # version bump or when a binary on /data no longer matches its hash.
 fetch_chrony() {
-    local work deb url
-    work=$(mktemp -d /run/lan-ntp-server-fetch.XXXXXX) || return 1
+    local work deb url file restore rollback_failed
+    # Stage and keep rollback copies on the destination filesystem, so each rename is atomic.
+    # The installed hashes remain valid until the download and compatibility checks succeed.
+    work=$(mktemp -d "$DIR/.chrony-install.XXXXXX") || return 1
     deb="$work/$CHRONY_DEB"
     for url in $CHRONY_URLS; do
         if curl -fsSL --max-time 60 --max-filesize 4000000 -o "$deb" "$url" \
@@ -128,22 +123,62 @@ fetch_chrony() {
         return 1
     fi
     if ! dpkg-deb -x "$deb" "$work/x" \
-        || ! install -m 755 "$work/x/usr/sbin/chronyd" "$BIN/chronyd.new" \
-        || ! install -m 755 "$work/x/usr/bin/chronyc" "$BIN/chronyc.new" \
-        || ! install -m 644 "$work/x/usr/share/doc/chrony/copyright" "$DIR/chrony-copyright"; then
-        rm -rf "$work" "$BIN/chronyd.new" "$BIN/chronyc.new"
+        || ! mkdir -p "$work/new/bin" "$work/old/bin" \
+        || ! install -m 755 "$work/x/usr/sbin/chronyd" "$work/new/bin/chronyd" \
+        || ! install -m 755 "$work/x/usr/bin/chronyc" "$work/new/bin/chronyc" \
+        || ! install -m 644 "$work/x/usr/share/doc/chrony/copyright" "$work/new/chrony-copyright"; then
+        rm -rf "$work"
+        return 1
+    fi
+    if ! "$SHA256SUM" -c --strict --status <<EOF
+$CHRONYD_SHA256  $work/new/bin/chronyd
+$CHRONYC_SHA256  $work/new/bin/chronyc
+EOF
+    then
+        log "The extracted binaries did not match the pinned SHA-256."
+        rm -rf "$work"
         return 1
     fi
     # A new version that does not run on this firmware must not replace one that does
-    if ! "$BIN/chronyd.new" -v >/dev/null 2>&1; then
+    if ! "$work/new/bin/chronyd" -v >/dev/null 2>&1; then
         log "The downloaded chronyd does not run on this firmware, keeping the current one."
-        rm -rf "$work" "$BIN/chronyd.new" "$BIN/chronyc.new"
+        rm -rf "$work"
         return 1
     fi
-    mv -f "$BIN/chronyd.new" "$BIN/chronyd" && mv -f "$BIN/chronyc.new" "$BIN/chronyc"
-    local rc=$?
+    if ! install_if_changed "$work/new/chrony.sha256" 644 >/dev/null <<EOF
+$CHRONYD_SHA256  $BIN/chronyd
+$CHRONYC_SHA256  $BIN/chronyc
+EOF
+    then
+        rm -rf "$work"
+        return 1
+    fi
+    for file in bin/chronyd bin/chronyc chrony-copyright chrony.sha256; do
+        if [ -e "$DIR/$file" ] && ! cp -p "$DIR/$file" "$work/old/$file"; then
+            rm -rf "$work"
+            return 1
+        fi
+    done
+    for file in bin/chronyd bin/chronyc chrony-copyright chrony.sha256; do
+        if ! mv -f "$work/new/$file" "$DIR/$file"; then
+            rollback_failed=""
+            for restore in bin/chronyd bin/chronyc chrony.sha256 chrony-copyright; do
+                if [ -e "$work/old/$restore" ]; then
+                    mv -f "$work/old/$restore" "$DIR/$restore" || rollback_failed=1
+                else
+                    rm -f "$DIR/$restore" || rollback_failed=1
+                fi
+            done
+            if [ -n "$rollback_failed" ]; then
+                log "Restoring chrony failed; recovery files kept in $work."
+            else
+                rm -rf "$work"
+            fi
+            return 1
+        fi
+    done
     rm -rf "$work"
-    return $rc
+    return 0
 }
 
 BIN_CHANGED=""
@@ -155,6 +190,16 @@ if ! binaries_ok; then
     fi
     log "chrony extracted to $BIN."
     BIN_CHANGED="changed"
+else
+    # Repair a missing/stale start-check file only after the installed binaries were verified.
+    if ! install_if_changed "$HASHES" 644 >/dev/null <<EOF
+$CHRONYD_SHA256  $BIN/chronyd
+$CHRONYC_SHA256  $BIN/chronyc
+EOF
+    then
+        log "Writing $HASHES failed."
+        exit 1
+    fi
 fi
 
 # A firmware update can drop a library chronyd links against
