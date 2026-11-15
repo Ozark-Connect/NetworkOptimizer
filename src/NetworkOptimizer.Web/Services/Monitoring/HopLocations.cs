@@ -35,9 +35,10 @@ public static class HopLocations
         }
 
         // The placed hop with the lowest round trip is the nearest to where the trace started: usually
-        // the access ISP's edge, whose GeoLite2 city is close to the site.
+        // the access ISP's edge, whose GeoLite2 city is close to the site. A country-only location is
+        // the country's center, which says nothing about where the trace started.
         var nearest = list
-            .Where(h => geoByAddress[h.Address!] is { Latitude: not null, Longitude: not null })
+            .Where(h => geoByAddress[h.Address!] is { City.Length: > 0, Latitude: not null, Longitude: not null })
             .OrderBy(h => h.MinRttMs ?? double.MaxValue)
             .FirstOrDefault();
         (double, double)? vantage = nearest.Address is { } at

@@ -201,6 +201,20 @@ public class HopLocationsTests
     }
 
     [Fact]
+    public void Resolve_ACountryOnlyHop_IsNeverTheVantage()
+    {
+        // The anycast hop answers fastest, but GeoLite2 has only the country's center for it.
+        var found = HopLocations.Resolve(
+        [
+            ("203.0.113.7", "ae-41.a03.atlnga05.example.net", 2.7),
+            ("192.0.2.61", null, 2.6),
+        ], Geo);
+
+        found["203.0.113.7"].Text.Should().Be("Atlanta, United States");
+        found["192.0.2.61"].Text.Should().Be("Atlanta, United States");
+    }
+
+    [Fact]
     public void Resolve_ATransitHopOutsideTheDestinationsNetwork_DoesNotAnchorTheEnd()
     {
         var found = HopLocations.Resolve(
