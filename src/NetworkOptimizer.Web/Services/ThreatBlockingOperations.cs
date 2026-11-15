@@ -274,6 +274,7 @@ public sealed class ThreatBlockingOperations
         await Set(BlockingSettingKeys.FeedsOutbound, s.FeedsOutbound.ToString());
         if (s.FeedsOutbound != before.FeedsOutbound && await IsGatewaySetUpAsync(slug, ct))
             await _gateway.SetFeedsOutboundAsync(Site(slug), s.FeedsOutbound, ct);
+        await Set(BlockingSettingKeys.IpsOutbound, s.IpsOutbound.ToString());
         await Set(BlockingSettingKeys.TargetGateway, s.TargetGateway.ToString());
         await Set(BlockingSettingKeys.TargetWaf, s.TargetWaf.ToString());
         await Set(BlockingSettingKeys.TargetCloudflare, s.TargetCloudflare.ToString());

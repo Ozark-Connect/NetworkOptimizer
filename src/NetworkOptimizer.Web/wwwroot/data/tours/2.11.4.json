@@ -1,0 +1,18 @@
+{
+  "id": "2.11.4",
+  "kind": "whats-new",
+  "title": "What's new in v2.11.4",
+  "summary": "Malware phones home once, and every site blocks the host.",
+  "steps": [
+    {
+      "id": "ips-outbound-blocking",
+      "level": "major",
+      "url": "/settings?tab=security#automatic-blocking",
+      "selector": "[data-tour=\"ips-outbound-blocking\"]",
+      "title": "Outbound Threat Blocking",
+      "listLabel": "Malware phones home once, and every site blocks the host",
+      "body": "CyberSecure blocks the one device, port, and connection it caught, for 5 minutes. Network Optimizer now blocks the malicious host itself, for every device on every site sharing blocks, within seconds of the alert.\n\nYou'll find these marked **Outbound** in **Threat Intelligence - Blocking**, with the device and the signature that caught it.",
+      "optional": true
+    }
+  ]
+}

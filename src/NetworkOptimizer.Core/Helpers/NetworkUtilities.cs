@@ -318,6 +318,33 @@ public static class NetworkUtilities
     }
 
     /// <summary>
+    /// The CIDR subnets in a list such as Suricata's HOME_NET ("[10.0.1.1/24,fd00::/64]"): brackets, quotes,
+    /// commas, and whitespace separate entries; a bare address becomes a host prefix; anything else is skipped.
+    /// </summary>
+    public static List<string> ParseCidrList(string? text)
+    {
+        var result = new List<string>();
+        if (string.IsNullOrWhiteSpace(text)) return result;
+        foreach (var raw in text.Split([',', ' ', '\t', '\n', '\r', '[', ']', '"', '\''], StringSplitOptions.RemoveEmptyEntries))
+        {
+            var slash = raw.IndexOf('/');
+            var host = slash < 0 ? raw : raw[..slash];
+            if (!IPAddress.TryParse(host, out var ip)) continue;
+            var max = ip.AddressFamily == AddressFamily.InterNetworkV6 ? 128 : 32;
+            if (slash < 0) result.Add($"{ip}/{max}");
+            else if (int.TryParse(raw[(slash + 1)..], out var prefix) && prefix >= 0 && prefix <= max) result.Add($"{ip}/{prefix}");
+        }
+        return result;
+    }
+
+    /// <summary>
+    /// Whether an address belongs to the site: inside one of <paramref name="localSubnets"/>, or private
+    /// (RFC 1918, ULA, CGNAT, link-local). A LAN's global IPv6 addresses are local only through the subnets.
+    /// </summary>
+    public static bool IsLocalAddress(string ipAddress, IEnumerable<string> localSubnets) =>
+        IPAddress.TryParse(ipAddress, out var ip) && (IsPrivateIpAddress(ip) || IsIpInAnySubnet(ip.ToString(), localSubnets));
+
+    /// <summary>
     /// Whether an address falls in a firewall address entry as UniFi stores them: one address, a range
     /// ("10.0.1.10-10.0.1.20"), or a CIDR. The two ends of a range must be the same family as the address.
     /// </summary>

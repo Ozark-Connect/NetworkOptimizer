@@ -35,6 +35,16 @@ public sealed class ThreatSystemAudit : IThreatSystemAudit
             details: new { reason, expiresAt, targets = string.Join(",", targets) }));
 
     /// <inheritdoc />
+    public void DestinationBlocked(string? siteSlug, string address, string reason, DateTime expiresAt, string clientIp, long signatureId) =>
+        _services.GetService<IAuditLogger>()?.Log(AuditEventBuilder.FromSystem(
+            AuditCategories.Settings,
+            AuditActions.ThreatSourceBlocked,
+            targetType: "threat_block",
+            targetName: address,
+            siteSlug: siteSlug,
+            details: new { reason, expiresAt, direction = "outbound", client = clientIp, signatureId, targets = "Gateway" }));
+
+    /// <inheritdoc />
     public void BlockExpired(string? siteSlug, string sourceIp) =>
         _services.GetService<IAuditLogger>()?.Log(AuditEventBuilder.FromSystem(
             AuditCategories.Settings,

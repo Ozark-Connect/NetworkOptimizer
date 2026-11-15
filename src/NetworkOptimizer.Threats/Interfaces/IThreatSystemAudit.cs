@@ -18,6 +18,12 @@ public interface IThreatSystemAudit
     /// <summary>Automatic Blocking blocked a source on a site (Enforce mode only; null site = default).</summary>
     void SourceBlocked(string? siteSlug, string sourceIp, string reason, DateTime expiresAt, IReadOnlyList<string> targets);
 
+    /// <summary>
+    /// Automatic Blocking blocked the remote end of an outbound IPS alert on a site, for the site and the sites
+    /// sharing its blocks (Enforce mode only; null site = default).
+    /// </summary>
+    void DestinationBlocked(string? siteSlug, string address, string reason, DateTime expiresAt, string clientIp, long signatureId);
+
     /// <summary>A site's block ended on its own and its source was removed from the targets.</summary>
     void BlockExpired(string? siteSlug, string sourceIp);
 

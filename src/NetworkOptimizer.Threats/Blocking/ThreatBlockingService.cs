@@ -20,7 +20,7 @@ public sealed record BlockTargetStatus(BlockTargetKind Kind, DateTime At, bool O
 /// enforcing them, so there only manual blocks are sent. A
 /// target that stops being wanted is emptied once, so nothing Network Optimizer added is left behind.
 /// </summary>
-public sealed class ThreatBlockingService : BackgroundService, IPublicListLookup
+public sealed class ThreatBlockingService : BackgroundService, IPublicListLookup, IIpsOutboundSink
 {
     private static readonly TimeSpan Interval = TimeSpan.FromMinutes(1);
     private static readonly TimeSpan Resync = TimeSpan.FromHours(1);
@@ -218,6 +218,7 @@ public sealed class ThreatBlockingService : BackgroundService, IPublicListLookup
     internal async Task RunCycleAsync(DateTime now, CancellationToken ct)
     {
         if (_startedAt == DateTime.MinValue) _startedAt = now;
+        CheckIpsCorroboration(now);
         var sites = await SitesAsync(ct);
         var settingsBySite = new Dictionary<string, BlockingSettings>();
         // Filter on ct, not on OperationCanceledException: a Console's HttpClient timeout is one, and
@@ -317,7 +318,8 @@ public sealed class ThreatBlockingService : BackgroundService, IPublicListLookup
             var patterns = settings.UsePatterns ? await repository.GetPatternsSeenAsync(windowStart, now, ct) : [];
             var current = await repository.GetBlocksAsync(now, now, ct);
             // In Blocking mode a Detection Only record is not a block: a source still attacking gets a real one.
-            var active = current.Where(b => b.IsActive(now) && (b.Enforced || settings.Mode != BlockingMode.Enforce))
+            var active = current.Where(b => b.IsActive(now) && b.Direction == BlockDirection.Inbound
+                    && (b.Enforced || settings.Mode != BlockingMode.Enforce))
                 .Select(b => b.SourceIp).ToHashSet(StringComparer.OrdinalIgnoreCase);
             var strikes = await repository.GetBlockCountsBySourceAsync(now - BlockDecisionEngine.StrikeWindow, ct);
 
@@ -354,13 +356,50 @@ public sealed class ThreatBlockingService : BackgroundService, IPublicListLookup
         return settings;
     }
 
+    /// <summary>
+    /// The active blocks a site enforces: its sharing group's, minus what its own allowlist exempts. Dry Run
+    /// enforces only manual blocks. Empty when the site is Off.
+    /// </summary>
+    private async Task<(List<ThreatBlock> Desired, BlockAllowlist? Allowlist)> DesiredBlocksAsync(string? site, BlockingSettings settings,
+        IServiceProvider services, IThreatSettingsAccessor accessor, DateTime now, CancellationToken ct)
+    {
+        if (settings.Mode == BlockingMode.Off) return ([], null);
+        var sharing = services.GetService<IBlockSharingScope>();
+        var peers = sharing == null ? [site] : await sharing.GetPeerSitesAsync(site, ct);
+        var union = new List<ThreatBlock>();
+        foreach (var peer in peers)
+        {
+            // A peer switched Off neither contributes nor enforces; its old blocks stay with it.
+            if (peer != site && (await BlockingSettings.LoadAsync(k => accessor.GetSettingAsync(k, ct), peer)).Mode == BlockingMode.Off)
+                continue;
+            using var peerScope = peer == site ? null : ScopeFor(peer);
+            var repo = (peerScope?.ServiceProvider ?? services).GetRequiredService<IThreatRepository>();
+            var blocks = await repo.GetBlocksAsync(now, now, ct);
+            // A peer's manual reason names its user, and the reason reaches this site's Cloudflare list.
+            union.AddRange(peer == site ? blocks : blocks.Select(b => b.ForOtherSites()));
+        }
+        // This site's own allowlist governs what it enforces, whoever raised the block.
+        var allowlist = await BuildAllowlistAsync(services, site, settings, now, ct, peers);
+        var desired = BlockDecisionEngine.DesiredSet(union.Where(b => allowlist.Exempts(b.SourceIp) == null
+            && (settings.Mode == BlockingMode.Enforce || b.Trigger == BlockTrigger.Manual)), now, settings.MaxEntries);
+        return (desired, allowlist);
+    }
+
+    // What each site's last cycle sent its gateway agent besides its blocks, so an IPS alert can re-push
+    // the blocks at once without re-reading the public lists.
+    private readonly ConcurrentDictionary<string, (IReadOnlyList<string> Feeds, IReadOnlyList<string> FeedsOut,
+        IReadOnlyList<BlockingException> Exceptions)> _agentInputs = new();
+
+    // Bumped by every IPS outbound block; a cycle that read its blocks before one does not push over it.
+    private int _ipsVersion;
+
     // Pass 2: send this site's targets the active Enforce blocks of its sharing group.
     private async Task ReconcileAsync(string? site, BlockingSettings settings, DateTime now, CancellationToken ct)
     {
         using var scope = ScopeFor(site);
         var services = scope.ServiceProvider;
         var accessor = services.GetRequiredService<IThreatSettingsAccessor>();
-        List<ThreatBlock> desired = [];
+        var version = Volatile.Read(ref _ipsVersion);
         IReadOnlyList<string> feeds = [];
         IReadOnlyList<string> feedsOut = [];
         IReadOnlyList<string> consoleFeeds = [];
@@ -368,26 +407,9 @@ public sealed class ThreatBlockingService : BackgroundService, IPublicListLookup
 
         // Off sends nothing. Dry Run sends only manual blocks and no public lists: automatic blocks
         // enforced before the switch to Dry Run stay Enforced in the table, so Enforced alone is not enough.
-        if (settings.Mode != BlockingMode.Off)
+        var (desired, allowlist) = await DesiredBlocksAsync(site, settings, services, accessor, now, ct);
+        if (allowlist != null)
         {
-            var sharing = services.GetService<IBlockSharingScope>();
-            var peers = sharing == null ? [site] : await sharing.GetPeerSitesAsync(site, ct);
-            var union = new List<ThreatBlock>();
-            foreach (var peer in peers)
-            {
-                // A peer switched Off neither contributes nor enforces; its old blocks stay with it.
-                if (peer != site && (await BlockingSettings.LoadAsync(k => accessor.GetSettingAsync(k, ct), peer)).Mode == BlockingMode.Off)
-                    continue;
-                using var peerScope = peer == site ? null : ScopeFor(peer);
-                var repo = (peerScope?.ServiceProvider ?? services).GetRequiredService<IThreatRepository>();
-                var blocks = await repo.GetBlocksAsync(now, now, ct);
-                // A peer's manual reason names its user, and the reason reaches this site's Cloudflare list.
-                union.AddRange(peer == site ? blocks : blocks.Select(b => b.ForOtherSites()));
-            }
-            // This site's own allowlist governs what it enforces, whoever raised the block.
-            var allowlist = await BuildAllowlistAsync(services, site, settings, now, ct, peers);
-            desired = BlockDecisionEngine.DesiredSet(union.Where(b => allowlist.Exempts(b.SourceIp) == null
-                && (settings.Mode == BlockingMode.Enforce || b.Trigger == BlockTrigger.Manual)), now, settings.MaxEntries);
             // Dry Run downloads the chosen lists without sending them, so Settings shows their counts,
             // devices reaching them are flagged, and the first Enforce has them at once.
             // The site's own blocks come first in what UniFi Network's Network Lists hold.
@@ -400,7 +422,9 @@ public sealed class ThreatBlockingService : BackgroundService, IPublicListLookup
                 feeds = set.Entries;
                 feedsOut = set.Outbound;
                 consoleFeeds = set.ConsoleEntries;
-                consoleFeedsOut = set.ConsoleOutbound;
+                // UniFi Network's outbound Network List holds the site's own outbound blocks first.
+                var ownOut = OwnOutbound(desired);
+                consoleFeedsOut = ownOut.Concat(set.ConsoleOutbound.Except(ownOut, StringComparer.OrdinalIgnoreCase)).ToList();
             }
         }
         else
@@ -412,7 +436,10 @@ public sealed class ThreatBlockingService : BackgroundService, IPublicListLookup
         var exceptions = settings.Mode == BlockingMode.Enforce
             ? BlockingExceptions.Active(await BlockingExceptions.LoadAsync(accessor, site, ct), now)
             : [];
-        PushToGatewayAgent(site, settings, desired, feeds, feedsOut, exceptions, now);
+        _agentInputs[Key(site)] = (feeds, feedsOut, exceptions);
+        // An IPS block since this cycle read its blocks already went out with a newer set; the cycle it triggered follows.
+        if (version == Volatile.Read(ref _ipsVersion))
+            PushToGatewayAgent(site, settings, desired, feeds, feedsOut, exceptions, now);
         await ReconcileTargetsAsync(site, services, accessor, settings, desired, feeds, now, ct);
         await EnsureZonePoliciesAsync(site, services, settings, now, ct);
         await ReconcileGatewayFeedsAsync(site, services, settings, consoleFeeds, consoleFeedsOut, now, ct);
@@ -429,16 +456,22 @@ public sealed class ThreatBlockingService : BackgroundService, IPublicListLookup
         var enabled = settings.Mode != BlockingMode.Off && settings.TargetGateway;
         var entries = new List<GatewayAgentEntry>();
         var feedEntries = new List<GatewayAgentEntry>();
+        var outbound = new List<GatewayAgentEntry>();
         if (enabled)
         {
-            entries.AddRange(desired.Select(b => new GatewayAgentEntry(b.SourceIp, b.ExpiresAt)));
+            // An address blocked both ways is one source entry, with the later expiry.
+            entries.AddRange(desired.GroupBy(b => b.SourceIp, StringComparer.OrdinalIgnoreCase)
+                .Select(g => new GatewayAgentEntry(g.First().SourceIp, g.Max(b => b.ExpiresAt))));
             var own = desired.Select(b => b.SourceIp).ToHashSet(StringComparer.OrdinalIgnoreCase);
             feedEntries.AddRange(feeds.Where(f => !own.Contains(f)).Select(f => new GatewayAgentEntry(f, now + AgentFeedTtl)));
+            // The site's own outbound blocks always; the outbound public lists only where the site blocks them outbound.
+            outbound.AddRange(desired.Where(b => b.Direction == BlockDirection.Outbound).Select(b => new GatewayAgentEntry(b.SourceIp, b.ExpiresAt)));
+            if (settings.FeedsOutbound)
+            {
+                var ownOut = outbound.Select(o => o.Address).ToHashSet(StringComparer.OrdinalIgnoreCase);
+                outbound.AddRange(feedsOut.Where(f => !ownOut.Contains(f)).Select(f => new GatewayAgentEntry(f, now + AgentFeedTtl)));
+            }
         }
-        // Outbound only for the outbound public lists, and only where the site blocks them outbound.
-        var outbound = enabled && settings.FeedsOutbound
-            ? feedsOut.Select(f => new GatewayAgentEntry(f, now + AgentFeedTtl)).ToList()
-            : [];
         var sentExceptions = enabled ? exceptions : [];
         var fingerprint = AgentFingerprint(enabled, desired, feeds, outbound.Count > 0, outbound.Select(o => o.Address), sentExceptions);
         var connected = _agents.Push(site, enabled, entries, outbound, fingerprint, feedEntries, sentExceptions);
@@ -467,6 +500,151 @@ public sealed class ThreatBlockingService : BackgroundService, IPublicListLookup
             _status[key] = new BlockTargetStatus(BlockTargetKind.GatewayAgent, now, true, held, null);
     }
 
+    private static List<string> OwnOutbound(IEnumerable<ThreatBlock> desired) =>
+        desired.Where(b => b.Direction == BlockDirection.Outbound).Select(b => b.SourceIp)
+            .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+
+    // Each IPS alert seen per site, so the same alert from the gateway agent and the console acts once.
+    private readonly ConcurrentDictionary<string, IpsSeen> _ipsSeen = new();
+    private sealed record IpsSeen(DateTime At, string? Site, IpsOutboundAlert Alert, bool Corroborated, bool Warned, bool Threat = false);
+    private static readonly TimeSpan IpsSeenFor = TimeSpan.FromHours(1);
+    // The console's threat log runs about a minute behind; an agent alert it never shows is logged.
+    private static readonly TimeSpan IpsCorroborateWithin = TimeSpan.FromMinutes(10);
+    // One alert decides at a time, so two alerts on one address cannot both record a block.
+    private readonly SemaphoreSlim _ipsGate = new(1, 1);
+    // A site's gateway agent may raise at most this many blocks an hour: they reach every sharing site, so a
+    // tampered agent or a flood of junk lines stops here. Past it, the console's threat log still decides.
+    internal const int MaxAgentIpsBlocksPerHour = 30;
+    private readonly Dictionary<string, Queue<DateTime>> _agentIpsBlocks = new();
+
+    /// <summary>
+    /// Acts on an outbound CyberSecure (IPS) alert from a site (null = default site): when it names a threat,
+    /// records an outbound block of its remote end and sends it at once to the gateway agents of every site
+    /// that enforces the site's blocks. Null when the alert was already handled.
+    /// </summary>
+    public async Task<IpsOutboundOutcome?> OnIpsOutboundAlertAsync(string? site, IpsOutboundAlert alert, CancellationToken ct)
+    {
+        var now = DateTime.UtcNow;
+        // The collector's backfill hands over history too; nothing that old is read further.
+        if (now - alert.Timestamp > IpsOutboundDecision.MaxAlertAge) return null;
+        foreach (var old in _ipsSeen.Where(kv => now - kv.Value.At > IpsSeenFor).Select(kv => kv.Key).ToList())
+            _ipsSeen.TryRemove(old, out _);
+        var key = Key(site) + "|" + alert.DedupKey;
+        if (_ipsSeen.TryGetValue(key, out var seen))
+        {
+            if (!alert.FromAgent && !seen.Corroborated) _ipsSeen[key] = seen with { Corroborated = true };
+            return null;
+        }
+        _ipsSeen[key] = new IpsSeen(now, site, alert, !alert.FromAgent, false);
+        var cls = IpsOutboundDecision.Classify(alert);
+        if (cls is IpsAlertClass.Noise or IpsAlertClass.DeviceAttacking) return new IpsOutboundOutcome(cls, null, null);
+        _ipsSeen[key] = _ipsSeen[key] with { Threat = true };
+
+        IpsOutboundOutcome outcome;
+        await _ipsGate.WaitAsync(ct);
+        try
+        {
+            using var scope = ScopeFor(site);
+            var services = scope.ServiceProvider;
+            var repository = services.GetRequiredService<IThreatRepository>();
+            var accessor = services.GetRequiredService<IThreatSettingsAccessor>();
+            var settings = await BlockingSettings.LoadAsync(k => accessor.GetSettingAsync(k, ct), site);
+            var allowlist = await BuildAllowlistAsync(services, site, settings, now, ct);
+            var current = await repository.GetBlocksAsync(now, now, ct);
+            var activeOutbound = current.Where(b => b.IsActive(now) && b.Direction == BlockDirection.Outbound
+                    && (b.Enforced || settings.Mode != BlockingMode.Enforce))
+                .Select(b => b.SourceIp).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var strikes = await repository.GetBlockCountsBySourceAsync(now - BlockDecisionEngine.StrikeWindow, ct);
+            var asn = services.GetService<Enrichment.GeoEnrichmentService>()?.Enrich(alert.RemoteIp).Asn;
+
+            outcome = IpsOutboundDecision.Decide(alert, site, settings, now, activeOutbound, strikes, allowlist, asn);
+            if (outcome.Block != null && alert.FromAgent && !AdmitAgentBlock(site, now))
+            {
+                _logger.LogWarning("Automatic Blocking on {Site}: over {Max} gateway agent IPS blocks this hour; {Ip} is left to UniFi Network's threat log",
+                    site ?? SiteSlugs.Default, MaxAgentIpsBlocksPerHour, alert.RemoteIp);
+                // Forgotten, so the console's copy of the alert decides instead of being taken as a duplicate.
+                _ipsSeen.TryRemove(key, out _);
+                outcome = outcome with { Block = null, Skipped = "Gateway agent over its hourly limit" };
+            }
+            if (outcome.Block is { } block)
+            {
+                await repository.AddBlocksAsync([block], ct);
+                if (block.Enforced) Interlocked.Increment(ref _ipsVersion);
+                _logger.LogInformation("Automatic Blocking ({Mode}) on {Site}: {Ip} blocked outbound after {Client} hit \"{Signature}\" ({Source})",
+                    settings.Mode, site ?? SiteSlugs.Default, block.SourceIp, alert.ClientIp, alert.Signature, alert.FromAgent ? "gateway agent" : "console");
+                if (block.Enforced)
+                    _audit?.DestinationBlocked(site, block.SourceIp, block.Reason, block.ExpiresAt, alert.ClientIp, alert.SignatureId);
+            }
+            else if (outcome.Skipped != null)
+            {
+                _logger.LogInformation("Automatic Blocking on {Site}: {Ip} not blocked after {Client} hit \"{Signature}\": {Why}",
+                    site ?? SiteSlugs.Default, alert.RemoteIp, alert.ClientIp, alert.Signature, outcome.Skipped);
+            }
+        }
+        finally
+        {
+            _ipsGate.Release();
+        }
+
+        if (outcome.Block is { Enforced: true })
+        {
+            try
+            {
+                await PushOutboundNowAsync(site, now, ct);
+            }
+            catch (Exception ex) when (!ct.IsCancellationRequested)
+            {
+                _logger.LogWarning(ex, "Automatic Blocking: the fast push after an IPS block on {Site} failed; the next cycle sends it", site ?? SiteSlugs.Default);
+            }
+            // The full cycle then reaches the consoles of sites without a gateway agent.
+            Trigger();
+        }
+        return outcome;
+    }
+
+    // Called under _ipsGate.
+    private bool AdmitAgentBlock(string? site, DateTime now)
+    {
+        if (!_agentIpsBlocks.TryGetValue(Key(site), out var recent))
+            _agentIpsBlocks[Key(site)] = recent = new Queue<DateTime>();
+        while (recent.Count > 0 && now - recent.Peek() > TimeSpan.FromHours(1)) recent.Dequeue();
+        if (recent.Count >= MaxAgentIpsBlocksPerHour) return false;
+        recent.Enqueue(now);
+        return true;
+    }
+
+    // Re-sends the blocks, and nothing else, to the gateway agent of the origin and of every site sharing its
+    // blocks: the public lists and exceptions are the ones each site's last cycle sent.
+    private async Task PushOutboundNowAsync(string? origin, DateTime now, CancellationToken ct)
+    {
+        using var scope = ScopeFor(origin);
+        var sharing = scope.ServiceProvider.GetService<IBlockSharingScope>();
+        var sites = sharing == null ? [origin] : await sharing.GetPeerSitesAsync(origin, ct);
+        foreach (var site in sites.Append(origin).Distinct())
+        {
+            if (!_agentInputs.TryGetValue(Key(site), out var inputs)) continue;
+            using var siteScope = ScopeFor(site);
+            var accessor = siteScope.ServiceProvider.GetRequiredService<IThreatSettingsAccessor>();
+            var settings = await BlockingSettings.LoadAsync(k => accessor.GetSettingAsync(k, ct), site);
+            if (settings.Mode != BlockingMode.Enforce || !settings.TargetGateway) continue;
+            var (desired, _) = await DesiredBlocksAsync(site, settings, siteScope.ServiceProvider, accessor, now, ct);
+            PushToGatewayAgent(site, settings, desired, inputs.Feeds, inputs.FeedsOut, inputs.Exceptions, now);
+        }
+    }
+
+    // An agent alert the console's threat log never showed is logged once: a gateway agent relays only what
+    // the gateway logged, so a gap means the console is not collecting, or the log was written by something else.
+    private void CheckIpsCorroboration(DateTime now)
+    {
+        foreach (var (key, seen) in _ipsSeen)
+        {
+            if (!seen.Threat || seen.Corroborated || seen.Warned || now - seen.At < IpsCorroborateWithin) continue;
+            _ipsSeen[key] = seen with { Warned = true };
+            _logger.LogWarning("Automatic Blocking on {Site}: the gateway agent's IPS alert {Client} -> {Remote} \"{Signature}\" never appeared in UniFi Network's threat log",
+                seen.Site ?? SiteSlugs.Default, seen.Alert.ClientIp, seen.Alert.RemoteIp, seen.Alert.Signature);
+        }
+    }
+
     /// <summary>Whether the site has a connected gateway On-Site Agent that can hold its blocklist (null site = default site).</summary>
     public bool GatewayAgentPresent(string? site) => _agents?.HasGatewayAgent(site) == true;
 
@@ -483,8 +661,9 @@ public sealed class ThreatBlockingService : BackgroundService, IPublicListLookup
         IEnumerable<string>? outboundEntries = null, IEnumerable<BlockingException>? exceptions = null)
     {
         var text = new System.Text.StringBuilder(enabled ? "on|" : "off|").Append(outbound ? "out|" : "in|");
-        foreach (var b in blocks.OrderBy(b => b.SourceIp, StringComparer.OrdinalIgnoreCase))
-            text.Append(b.SourceIp.ToLowerInvariant()).Append('@').Append(b.ExpiresAt.ToString("yyyyMMddHHmm")).Append(',');
+        foreach (var b in blocks.OrderBy(b => b.SourceIp, StringComparer.OrdinalIgnoreCase).ThenBy(b => b.Direction))
+            text.Append(b.Direction == BlockDirection.Outbound ? ">" : "").Append(b.SourceIp.ToLowerInvariant())
+                .Append('@').Append(b.ExpiresAt.ToString("yyyyMMddHHmm")).Append(',');
         text.Append('|');
         foreach (var f in feeds.Order(StringComparer.OrdinalIgnoreCase))
             text.Append(f.ToLowerInvariant()).Append(',');
@@ -917,11 +1096,17 @@ public sealed class ThreatBlockingService : BackgroundService, IPublicListLookup
         BlockingSettings settings, List<ThreatBlock> desired, IReadOnlyList<string> feeds, DateTime now, CancellationToken ct)
     {
         var enabled = settings.Mode != BlockingMode.Off ? EnabledTargets(settings, site) : [];
-        var fingerprint = string.Join(",", desired.Select(b => b.SourceIp).Order(StringComparer.OrdinalIgnoreCase));
+        // The gateway blocks an outbound block's address as a source too; the WAF and Cloudflare guard inbound
+        // web traffic only, so they never take one.
+        var inbound = desired.Where(b => b.Direction == BlockDirection.Inbound).ToList();
 
         foreach (var kind in Enum.GetValues<BlockTargetKind>())
         {
             if (kind == BlockTargetKind.GatewayAgent) continue;
+            var forKind = kind == BlockTargetKind.Gateway
+                ? desired.DistinctBy(b => b.SourceIp, StringComparer.OrdinalIgnoreCase).ToList()
+                : inbound;
+            var fingerprint = string.Join(",", forKind.Select(b => b.SourceIp).Order(StringComparer.OrdinalIgnoreCase));
             var key = (Key(site), kind);
             var known = _sent.TryGetValue(key, out var last);
             var target = await CreateTargetAsync(kind, site, services, settingsAccessor, ct);
@@ -954,7 +1139,7 @@ public sealed class ThreatBlockingService : BackgroundService, IPublicListLookup
             // lists change, when it restarts (its start time is in the fingerprint), and every WafResync,
             // well inside the list entries' lifetime there.
             var isWaf = kind == BlockTargetKind.Waf;
-            var targetFingerprint = isWaf ? WafFingerprint(desired, feeds, WafStarted(services, site)) : fingerprint;
+            var targetFingerprint = isWaf ? WafFingerprint(forKind, feeds, WafStarted(services, site)) : fingerprint;
             var due = target.SyncEveryCycle || !known || !last.Ok || last.Fingerprint != targetFingerprint
                       || now - last.At > (isWaf ? WafResync : Resync);
             if (!due) continue;
@@ -962,8 +1147,8 @@ public sealed class ThreatBlockingService : BackgroundService, IPublicListLookup
 
             var feedTarget = target as IFeedBlockTarget;
             if (feedTarget != null) feedTarget.Feeds = feeds;
-            var result = await target.SyncAsync(desired, ct);
-            _sent[key] = (targetFingerprint, now, result.Ok, !result.Ok || desired.Count > 0 || (feedTarget != null && feeds.Count > 0));
+            var result = await target.SyncAsync(forKind, ct);
+            _sent[key] = (targetFingerprint, now, result.Ok, !result.Ok || forKind.Count > 0 || (feedTarget != null && feeds.Count > 0));
             _status[key] = new BlockTargetStatus(kind, now, result.Ok, result.Count, result.Error);
             if (!result.Ok)
                 _logger.LogWarning("Automatic Blocking: {Target} sync failed on {Site}: {Error}", kind, site ?? SiteSlugs.Default, result.Error);

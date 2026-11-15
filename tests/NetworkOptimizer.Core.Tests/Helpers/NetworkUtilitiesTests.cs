@@ -910,4 +910,34 @@ public class NetworkUtilitiesTests
         NetworkUtilities.IsIpInEntry(address, entry).Should().Be(inside);
 
     #endregion
+
+    #region ParseCidrList / IsLocalAddress Tests
+
+    [Fact]
+    public void ParseCidrList_ReadsABracketedList()
+    {
+        NetworkUtilities.ParseCidrList("\"[192.168.1.1/24, 192.168.64.1/24,fd00::1/64]\"")
+            .Should().Equal("192.168.1.1/24", "192.168.64.1/24", "fd00::1/64");
+    }
+
+    [Fact]
+    public void ParseCidrList_MakesBareAddressesHostPrefixes_AndSkipsJunk()
+    {
+        NetworkUtilities.ParseCidrList("10.0.0.1, 2001:db8::1, !$HOME_NET, 10.0.0.0/33, any")
+            .Should().Equal("10.0.0.1/32", "2001:db8::1/128");
+        NetworkUtilities.ParseCidrList(null).Should().BeEmpty();
+    }
+
+    [Theory]
+    [InlineData("192.168.1.50", true)]
+    [InlineData("100.64.0.9", true)]
+    [InlineData("fd00::9", true)]
+    [InlineData("2001:db8:1::50", true)]
+    [InlineData("2001:db8:2::50", false)]
+    [InlineData("203.0.113.10", false)]
+    [InlineData("not-an-ip", false)]
+    public void IsLocalAddress_PrivateOrInTheSubnets(string address, bool local) =>
+        NetworkUtilities.IsLocalAddress(address, ["2001:db8:1::/64"]).Should().Be(local);
+
+    #endregion
 }

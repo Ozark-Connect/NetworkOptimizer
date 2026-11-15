@@ -91,6 +91,21 @@
                         <span>Also block the sources of scan sweeps, brute force, and exploit campaigns</span>
                     </label>
                 </div>
+                <div class="form-group" data-tour="ips-outbound-blocking">
+                    <label class="checkbox-label">
+                        <input type="checkbox" @bind="_form.IpsOutbound" />
+                        <span>When CyberSecure flags outbound traffic to a malicious host, block that host on every site</span>
+                    </label>
+                    <small class="form-help">
+                        CyberSecure's own block stops one device, on one port, for 5 minutes, and only after the first exchange gets through.
+                        This blocks the host itself, both ways, for every device on this site and every site sharing blocks, within seconds with the
+                        On-Site Agent on your gateway. Command servers stay blocked for a day to start. A host your device was attacking, and shared
+                        hosting like Cloudflare or AWS, never gets blocked.
+                    </small>
+                    <small class="form-help">
+                        Needs <strong>Gateway</strong> selected under Where Blocks Are Enforced. Without the agent: inbound within a couple of minutes, outbound within 15 minutes if you block the public lists outbound.
+                    </small>
+                </div>
                 <div class="form-row">
                     <div class="form-group">
                         <label class="form-label">First block (minutes)</label>
@@ -345,6 +360,7 @@
         public bool Share { get; set; }
         public HashSet<string> Feeds { get; set; } = [];
         public bool FeedsOutbound { get; set; }
+        public bool IpsOutbound { get; set; }
         public bool TargetGateway { get; set; }
         public bool TargetWaf { get; set; }
         public bool TargetCloudflare { get; set; }
@@ -385,6 +401,7 @@
             Share = _saved.Share,
             Feeds = _saved.Feeds.ToHashSet(),
             FeedsOutbound = _saved.FeedsOutbound,
+            IpsOutbound = _saved.IpsOutbound,
             TargetGateway = _saved.TargetGateway,
             TargetWaf = _saved.TargetWaf,
             TargetCloudflare = _saved.TargetCloudflare,
@@ -538,6 +555,7 @@
             Share = f.Share,
             Feeds = PublicBlockLists.All.Select(l => l.Id).Where(f.Feeds.Contains).ToList(),
             FeedsOutbound = f.FeedsOutbound,
+            IpsOutbound = f.IpsOutbound,
             TargetGateway = f.TargetGateway,
             TargetWaf = f.TargetWaf,
             TargetCloudflare = f.TargetCloudflare,

@@ -260,6 +260,9 @@ public class AgentTunnelService : AgentTunnel.AgentTunnelBase
                     case AgentMessage.PayloadOneofCase.GatewayBlocklistStatus:
                         _gatewayBlocklist.OnStatus(connection, message.GatewayBlocklistStatus);
                         break;
+                    case AgentMessage.PayloadOneofCase.IpsAlert:
+                        _gatewayBlocklist.OnIpsAlert(connection, message.IpsAlert);
+                        break;
                     case AgentMessage.PayloadOneofCase.GatewayBlocklistHits:
                         _gatewayBlocklist.OnHits(connection, message.GatewayBlocklistHits);
                         break;
