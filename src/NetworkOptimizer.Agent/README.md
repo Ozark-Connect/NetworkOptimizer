@@ -109,9 +109,12 @@ any gateway with the headroom works. The published
 `install-agent-gateway.sh` installer (below, and generated for you in the setup
 wizard) puts it under `/data` so it persists, with a systemd unit tuned for a
 shared router - workstation GC plus a memory limit (256 MB soft, 512 MB hard) as
-a safety backstop. In practice it uses ~50 MB; the limit only bounds a worst-case
-fault, keeping it well clear of routing and IPS. Even a 2 GB gateway has ample
-headroom.
+a safety backstop. In practice it uses 100-170 MB and 2-3 CPU-seconds a minute,
+under 1.2% of a 4-core gateway's CPU (measured on a UXG-Fiber, two UCG-Fibers,
+and a UDR7, 2026-11). Polling SNMP every 2 seconds instead of the default 5
+raised it to about 7 CPU-seconds a minute (2.8%). The limit only bounds a
+worst-case fault, keeping it well clear of routing and IPS. Even a 2 GB gateway
+has ample headroom.
 
 The LAN speed test is optional here (`--lan-speed-test`). Higher-end gateways
 like the EFG and UDM-Beast can max out 10 Gbps; the UXG/UCG-Fiber class sees
