@@ -1001,6 +1001,10 @@ else if (_diagResult != null && !string.IsNullOrEmpty(_diagResult.InterfaceError
     // Set once the vantages are loaded; the run starts from the first interactive render after that.
     private bool _runLinkedTrace;
 
+    // A traceroute result just rendered: put Run a Probe at the top of the view, with the result
+    // and its map below it. Done after the render, because the page is too short to scroll before.
+    private bool _scrollToProbe;
+
     private async Task RunLinkedTraceAsync()
     {
         try
@@ -1088,6 +1092,15 @@ else if (_diagResult != null && !string.IsNullOrEmpty(_diagResult.InterfaceError
         {
             _runLinkedTrace = false;
             _ = InvokeAsync(RunLinkedTraceAsync);
+        }
+        if (_scrollToProbe)
+        {
+            _scrollToProbe = false;
+            try { await JS.InvokeVoidAsync("noScrollTo", "run-a-probe", "start"); }
+            catch (Exception ex) when (ex is JSException or InvalidOperationException or JSDisconnectedException)
+            {
+                Logger.LogDebug(ex, "Could not scroll to Run a Probe");
+            }
         }
         if (!_focusTarget || _targetInput.Context == null) return;
         _focusTarget = false;
@@ -1654,12 +1667,6 @@ else if (_diagResult != null && !string.IsNullOrEmpty(_diagResult.InterfaceError
         _dnsResult = null;
         _runError = null;
         StateHasChanged();
-        // Run a Probe goes to the top of the view, so the result and its map land on screen below it.
-        try { await JS.InvokeVoidAsync("noScrollTo", "run-a-probe", "start"); }
-        catch (Exception ex) when (ex is JSException or InvalidOperationException or JSDisconnectedException)
-        {
-            Logger.LogDebug(ex, "Could not scroll to Run a Probe");
-        }
         try
         {
             var executor = await ResolveExecutorAsync();
@@ -1679,8 +1686,11 @@ else if (_diagResult != null && !string.IsNullOrEmpty(_diagResult.InterfaceError
             _tracePath = null;
             _mapHops = [];
             _activeHops = [];
+            _scrollToProbe = true;
             StateHasChanged();
             await ResolveTraceAsnsAsync(_traceResult);
+            // Again once the map is in: the page is taller now, so the card can reach the top.
+            _scrollToProbe = true;
         }
         catch (Exception ex)
         {
