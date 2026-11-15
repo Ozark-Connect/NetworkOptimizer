@@ -1350,6 +1350,58 @@ public class AccessIspFallbackTests
         UpstreamTracerService.IsOffPath(traceRtt, laterRtt, pingRtt).Should().Be(expected);
     }
 
+    // Access ISP 192.0.2.x (AS64500), the transit the trace takes (AS64501), another carrier (AS64502),
+    // and the exchange router being judged (AS64510).
+    private static readonly Dictionary<string, int> PathCheckAsns = new()
+    {
+        ["192.0.2.1"] = 64500, ["192.0.2.2"] = 64500,
+        ["198.51.100.1"] = 64501, ["198.51.100.2"] = 64501,
+        ["203.0.113.1"] = 64502, ["203.0.113.2"] = 64502,
+        ["203.0.113.200"] = 64510, ["203.0.113.201"] = 64510,
+    };
+
+    [Fact]
+    public void AsnsOffTheTrace_flags_a_direct_route_through_another_carrier()
+    {
+        var trace = new[] { (IReadOnlyList<string>)new[] { "192.0.2.1", "192.0.2.2", "198.51.100.1" } };
+        var direct = new[] { "192.0.2.1", "192.0.2.2", "100.64.0.1", "203.0.113.1", "203.0.113.2" };
+
+        UpstreamTracerService.AsnsOffTheTrace(direct, trace, PathCheckAsns, 64510)
+            .Should().Equal(64502);
+    }
+
+    [Fact]
+    public void AsnsOffTheTrace_keeps_a_route_that_follows_the_trace()
+    {
+        var trace = new[] { (IReadOnlyList<string>)new[] { "192.0.2.1", "192.0.2.2", "198.51.100.1" } };
+        // Another router of the same transit network (ECMP), and the router's own network ahead of it.
+        var direct = new[] { "192.0.2.1", "192.0.2.2", "198.51.100.2", "203.0.113.201" };
+
+        UpstreamTracerService.AsnsOffTheTrace(direct, trace, PathCheckAsns, 64510).Should().BeEmpty();
+    }
+
+    [Fact]
+    public void AsnsOffTheTrace_takes_any_discovery_trace_that_reached_the_router()
+    {
+        var traces = new[]
+        {
+            (IReadOnlyList<string>)new[] { "192.0.2.1", "198.51.100.1" },
+            new[] { "192.0.2.1", "203.0.113.1" },
+        };
+        var direct = new[] { "192.0.2.1", "203.0.113.2" };
+
+        UpstreamTracerService.AsnsOffTheTrace(direct, traces, PathCheckAsns, 64510).Should().BeEmpty();
+    }
+
+    [Fact]
+    public void AsnsOffTheTrace_ignores_hops_with_no_resolved_network()
+    {
+        var trace = new[] { (IReadOnlyList<string>)new[] { "192.0.2.1" } };
+        var direct = new[] { "192.0.2.1", "10.0.0.1", "100.64.0.9" };
+
+        UpstreamTracerService.AsnsOffTheTrace(direct, trace, PathCheckAsns, 64510).Should().BeEmpty();
+    }
+
     [Fact]
     public void LaterHopRtts_takes_the_lowest_rtt_after_each_hop_and_skips_silent_hops()
     {

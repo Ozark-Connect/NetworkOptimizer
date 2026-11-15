@@ -2151,6 +2151,8 @@ public class UpstreamTracerService
             }
         }
 
+        offPath += await VerifyTransitPathsAsync(ct);
+
         State.ReachabilityChecked = allTargets.Count;
         State.ReachabilityFailed = unreachable;
 
@@ -2186,6 +2188,114 @@ public class UpstreamTracerService
             (0, _) => $"Reachability check complete: {offPath} of {allTargets.Count} target(s) answer by a different route and were excluded.",
             _ => $"Reachability check complete: {unreachable} of {allTargets.Count} target(s) did not respond and {offPath} answer by a different route; all were excluded."
         };
+    }
+
+    /// <summary>
+    /// Traces each transit router that passed the ping check, and marks it off path when the route to
+    /// it crosses a network that no discovery trace crossed before reaching it. An exchange
+    /// peering-LAN address can answer a ping only a few ms slower than its trace reply while sitting
+    /// on another carrier's route entirely, which no RTT margin separates. A trace that never reaches
+    /// the router decides nothing. Returns how many it marked.
+    /// </summary>
+    private async Task<int> VerifyTransitPathsAsync(CancellationToken ct)
+    {
+        var candidates = State.TransitAsns
+            .Where(t => t.Method == DiscoveryMethod.DirectRouter && t.HopAddress != null && !t.Unreachable && !t.OffPath)
+            .ToList();
+        if (candidates.Count == 0) return 0;
+        State.CurrentActivity = $"Tracing {candidates.Count} transit router(s) to confirm each sits on your path...";
+
+        var traced = await Task.WhenAll(candidates.Select(async c =>
+            (Candidate: c, Direct: await TraceAddressAsync(c.HopAddress!, c.RespondedTo ?? ProbeMode.Icmp, ct))));
+
+        var asnByIp = BuildAsnByIpMap();
+        var marked = 0;
+        foreach (var (candidate, direct) in traced)
+        {
+            var address = candidate.HopAddress!;
+            var directHops = direct is null ? null : RespondersBefore(direct.Hops, address);
+            var discoveryPrefixes = _lastTraces
+                .Select(t => RespondersBefore(t.Hops, address))
+                .OfType<IReadOnlyList<string>>()
+                .ToList();
+            if (directHops is null || discoveryPrefixes.Count == 0)
+            {
+                _logger.LogDebug("Path check for {Address}: the direct trace did not reach it, kept", address);
+                continue;
+            }
+
+            foreach (var hop in directHops.Concat(discoveryPrefixes.SelectMany(p => p)))
+                if (!asnByIp.ContainsKey(hop) && await _asnResolution.ResolveAsync(hop, ct) is { } lookup)
+                    asnByIp[hop] = lookup.Asn;
+
+            var foreign = AsnsOffTheTrace(directHops, discoveryPrefixes, asnByIp, candidate.AsnNumber);
+            if (foreign.Count == 0)
+            {
+                _logger.LogDebug("Path check for {Address}: the direct route follows the trace, on path", address);
+                continue;
+            }
+
+            candidate.Enabled = false;
+            candidate.Unreachable = true;
+            candidate.OffPath = true;
+            marked++;
+            _logger.LogDebug("Path check for {Address}: the direct route crosses {Asns}, which the trace it was found on does not ({Route}); marked off path and excluded",
+                address, string.Join(", ", foreign.Select(a => $"AS{a}")), string.Join(" > ", directHops));
+        }
+        return marked;
+    }
+
+    /// <summary>One traceroute to an address from this run's vantage; null when it fails.</summary>
+    private async Task<TracerouteResult?> TraceAddressAsync(string address, ProbeMode mode, CancellationToken ct)
+    {
+        try
+        {
+            return await _traceExecutor.TracerouteAsync(
+                new ProbeTarget(address, mode, Port: null, SourceInterface: _binding?.Source),
+                maxHops: 30, perHopTimeout: TimeSpan.FromSeconds(1), totalDeadline: TimeSpan.FromSeconds(10), ct: ct);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogDebug(ex, "Path check trace failed for {Address}", address);
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// The responding addresses before <paramref name="address"/> on a trace, in hop order, without
+    /// our own side of the gateway. Null when the trace never reached it.
+    /// </summary>
+    private IReadOnlyList<string>? RespondersBefore(IReadOnlyList<TraceHop> hops, string address)
+    {
+        var at = hops.Where(h => h.Responded && string.Equals(h.Address, address, StringComparison.OrdinalIgnoreCase))
+            .Select(h => (int?)h.HopNumber).Min();
+        if (at is null) return null;
+        return hops
+            .Where(h => h.Responded && h.HopNumber < at && !_localSideIps.Contains(h.Address!) && !_gatewayIps.Contains(h.Address!))
+            .OrderBy(h => h.HopNumber)
+            .Select(h => h.Address!)
+            .ToList();
+    }
+
+    /// <summary>
+    /// The networks a direct route to a transit router crosses that none of the discovery traces
+    /// reaching it crossed first. The router's own network is allowed (a direct trace can show its
+    /// ingress router), and a hop with no resolved ASN (private, CGNAT) is ignored. Any network left
+    /// means the router is reached another way, so it measures a path the traffic does not take.
+    /// </summary>
+    internal static IReadOnlyList<int> AsnsOffTheTrace(
+        IReadOnlyList<string> directHops,
+        IReadOnlyList<IReadOnlyList<string>> discoveryPrefixes,
+        IReadOnlyDictionary<string, int> asnByIp,
+        int candidateAsn)
+    {
+        var seen = new HashSet<string>(discoveryPrefixes.SelectMany(p => p), StringComparer.OrdinalIgnoreCase);
+        var allowed = new HashSet<int>(seen.Where(asnByIp.ContainsKey).Select(a => asnByIp[a])) { candidateAsn };
+        return directHops
+            .Where(a => !seen.Contains(a) && asnByIp.TryGetValue(a, out var asn) && !allowed.Contains(asn))
+            .Select(a => asnByIp[a])
+            .Distinct()
+            .ToList();
     }
 
     /// <summary>How many times the transit routers' median RTT a new router must exceed to be an outlier.</summary>
