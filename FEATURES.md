@@ -578,7 +578,7 @@ models such as U6-Lite, U6-Mesh, and UAP-AC-Pro, and gateways with built-in Wi-F
 Set up in **Settings - Security & Alerts**, per site.
 
 - Blocks the sources the WAF and attack pattern detection flag, with longer bans for repeat offenders
-- **CyberSecure outbound threats** - an address CyberSecure flags a device reaching is blocked both ways, for every device
+- **CyberSecure outbound threats** - when CyberSecure flags a device talking to a malicious host, that host is blocked both ways for every device
   - UniFi Network's CyberSecure blocks that one device, port, and address for 5 minutes; Automatic Blocking blocks the address for every device and every site sharing blocks
   - At every site sharing blocks within seconds ([On-Site Agent](#on-site-agent) on the gateway); without one, outbound only with the public lists' outbound block
   - Command servers held a day to start; never an attack's victim or shared hosting such as Cloudflare

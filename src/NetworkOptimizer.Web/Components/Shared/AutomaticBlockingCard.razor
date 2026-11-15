@@ -94,15 +94,16 @@
                 <div class="form-group" data-tour="ips-outbound-blocking">
                     <label class="checkbox-label">
                         <input type="checkbox" @bind="_form.IpsOutbound" />
-                        <span>Block the threats CyberSecure catches your devices reaching</span>
+                        <span>When CyberSecure flags outbound traffic to a malicious host, block that host on every site</span>
                     </label>
                     <small class="form-help">
-                        When CyberSecure (IPS or IDS) flags a connection a device started, such as malware checking in with its command server, the address
-                        it reached is blocked both ways for every device, on this site and the sites sharing its blocks, within seconds.
-                        CyberSecure's own block covers only that device, that port, and 5 minutes. A command server is blocked for a day to start.
-                        Alerts where your device is the attacker, and shared hosting such as Cloudflare or AWS, are never blocked.
-                        Needs gateway blocking. Instant with the On-Site Agent on the gateway. Without it, the address is blocked inbound within a couple of
-                        minutes, and outbound within 15 minutes where outbound blocking of the public lists is on.
+                        CyberSecure's own block stops one device, on one port, for 5 minutes, and only after the first exchange gets through.
+                        This blocks the host itself, both ways, for every device on this site and every site sharing blocks, within seconds with the
+                        On-Site Agent on your gateway. Command servers stay blocked for a day to start. A host your device was attacking, and shared
+                        hosting like Cloudflare or AWS, never gets blocked.
+                    </small>
+                    <small class="form-help">
+                        Without the agent: inbound within a couple of minutes, outbound within 15 minutes if you block the public lists outbound.
                     </small>
                 </div>
                 <div class="form-row">
