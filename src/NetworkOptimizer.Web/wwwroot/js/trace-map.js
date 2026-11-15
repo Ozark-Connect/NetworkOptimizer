@@ -120,7 +120,13 @@ export async function render(host, path, dotNet) {
             button.dataset.tooltip = 'Fit the route';
             button.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6"/><path d="M9 21H3v-6"/><path d="M21 3l-7 7"/><path d="M3 21l7-7"/></svg>';
             L.DomEvent.disableClickPropagation(bar);
-            L.DomEvent.on(button, 'click', e => { L.DomEvent.preventDefault(e); fit(host._traceMap); });
+            L.DomEvent.on(button, 'click', e => {
+                L.DomEvent.preventDefault(e);
+                fit(host._traceMap);
+                // The press is the answer to the tooltip: drop it, and the focus that would hold it up.
+                button.blur();
+                if (button._tippy) button._tippy.hide();
+            });
             bar.appendChild(button);
             return bar;
         };
