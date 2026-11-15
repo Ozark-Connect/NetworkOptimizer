@@ -119,7 +119,7 @@ public sealed class PathEpisodeService : IPathEpisodeService
         }).ToList();
 
         return new PathEpisodeDetail(view, tables, new HashSet<string>(snapshot.PingedHops, StringComparer.OrdinalIgnoreCase), snapshot.HopPings,
-            snapshot.MonitoredLoss);
+            snapshot.MonitoredLoss, snapshot.MonitoredRtt);
     }
 
     /// <summary>The site's agents by id, for naming a trace's vantage.</summary>

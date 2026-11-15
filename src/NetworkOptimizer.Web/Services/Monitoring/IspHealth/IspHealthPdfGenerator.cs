@@ -228,8 +228,9 @@ public class IspHealthPdfGenerator
                                 : !string.IsNullOrEmpty(hop.Hostname) && hop.Hostname != hop.Address ? $"{hop.Hostname} ({hop.Address})" : hop.Address ?? "");
                             Cell(t, Plain(PathLocalization.PathTraceAnalyzer.NetworkCell(hop)));
                             Cell(t, PathLocalization.PathEpisodePresentation.HopLossText(PathLocalization.PathEpisodePresentation.HopLoss(hop, detail)));
-                            Cell(t, hop.EpisodeRttMs is double during
-                                ? (PathLocalization.PathEpisodePresentation.DisplayBaseline(hop) is double b ? $"{b:0.0} to {during:0.0} ms" : $"{during:0.0} ms")
+                            Cell(t, PathLocalization.PathEpisodePresentation.HopRtt(hop, detail, " to ") is { } rtt
+                                ? rtt.Text
+                                  + (rtt.TraceMs is double traceMs ? $" (trace {traceMs:0.0})" : "")
                                   + (hop.SlowRounds > 0 ? $" (slower in {hop.SlowRounds} of {hop.RoundMinRttMs.Count(v => v.HasValue)} traces)" : "")
                                 : "-");
                             Cell(t, HopReadingText(hop, detail));
@@ -245,6 +246,7 @@ public class IspHealthPdfGenerator
     {
         var parts = new List<string>();
         if (PathLocalization.PathEpisodePresentation.HopTagLabel(hop) is string tag) parts.Add(tag);
+        if (hop.Has(PathLocalization.HopTag.SeriesOnly)) parts.Add("Degraded");
         if (hop.Has(PathLocalization.HopTag.Anchored))
             parts.Add(hop.Address != null && detail.PingedHops?.Contains(hop.Address) == true ? "Pinged" : "Monitored");
         if (hop.Has(PathLocalization.HopTag.RateLimited)) parts.Add("Rate-limited");

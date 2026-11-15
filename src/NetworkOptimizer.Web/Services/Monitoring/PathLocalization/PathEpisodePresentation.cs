@@ -6,6 +6,9 @@ namespace NetworkOptimizer.Web.Services.Monitoring.PathLocalization;
 /// <summary>A hop's Loss cell: the figure shown, and the highest raw one with its source when it differs.</summary>
 public sealed record PathHopLoss(double Shown, double? Higher, string HigherSource, string? Tooltip);
 
+/// <summary>A hop's RTT cell: "normal → during", and the trace's own figure when the cell reads a series that disagrees with it.</summary>
+public sealed record PathHopRtt(string Text, double? TraceMs, bool FromSeries);
+
 /// <summary>The ISP Health banner for one episode.</summary>
 /// <param name="EpisodeId">The episode it is about.</param>
 /// <param name="Phase">"tracing", "ongoing", or "done": a dismissal covers one phase, so the next phase still shows after an earlier banner was dismissed.</param>
@@ -376,7 +379,8 @@ public static class PathEpisodePresentation
     /// <summary>
     /// A hop's Loss cell, lowest first: the trace's loss capped at what the hops beyond it lost, the
     /// hop's own pings, or a monitored hop's own series. The highest raw figure follows, named by its
-    /// source, when it differs. Null for a hop that never answered. Shared by the page and the PDF.
+    /// source, when it differs. A degraded destination instead leads with its own series and follows with
+    /// the trace. Null for a hop that never answered. Shared by the page and the PDF.
     /// </summary>
     public static PathHopLoss? HopLoss(HopReading hop, PathEpisodeDetail detail)
     {
@@ -385,6 +389,13 @@ public static class PathEpisodePresentation
         // A router that answered no ping at all ignores ping; its 100% is not loss, as the analysis reads it.
         var pingLoss = ping is { Sent: > 0, Received: > 0 } ? ping.LossPct : (double?)null;
         var seriesLoss = hop.Address != null && detail.MonitoredLoss?.TryGetValue(hop.Address, out var s) == true ? s : (double?)null;
+
+        // A degraded destination's own series leads: a few trace probes routinely miss loss its pings caught.
+        if (hop.Has(HopTag.Destination) && seriesLoss is double dl)
+        {
+            return new PathHopLoss(dl, Math.Abs(hop.LossPct - dl) >= 0.5 ? hop.LossPct : null, "trace",
+                $"Its own ping series lost {dl:0.#}% over the episode. The traces' {hop.Sent} probes to it lost {hop.LossPct:0.#}%.");
+        }
 
         var figures = new List<(string Source, double Raw, double Forwarding)> { ("trace", hop.LossPct, hop.EffectiveLossPct) };
         if (pingLoss is double pf) figures.Add(("ping", pf, pf));
@@ -401,6 +412,24 @@ public static class PathEpisodePresentation
             notes.Add($"The trace lost {hop.LossPct:0.#}% here but only {hop.DownstreamFloorPct:0.#}% further along, so the rest is this router limiting its replies, not forwarding loss.");
         return new PathHopLoss(shown, highest.Raw - shown >= 0.5 ? highest.Raw : null, highest.Source,
             notes.Count > 0 ? string.Join(" ", notes) : null);
+    }
+
+    /// <summary>
+    /// A hop's RTT cell. A hop with its own series (monitored, or the degraded destination) reads the series'
+    /// normal against the series' own median over the episode, like for like, with the trace's figure as a
+    /// note when it differs. Any other hop reads <see cref="DisplayBaseline"/> against the trace. Null with no trace RTT.
+    /// </summary>
+    /// <param name="arrow">" → " on the page, " to " in the PDF.</param>
+    public static PathHopRtt? HopRtt(HopReading hop, PathEpisodeDetail detail, string arrow = " → ")
+    {
+        if (hop.EpisodeRttMs is not double trace) return null;
+        if (hop.SeriesBaselineRttMs is double normal && hop.Address != null
+            && detail.MonitoredRtt?.TryGetValue(hop.Address, out var during) == true)
+        {
+            var note = Math.Abs(trace - during) >= Math.Max(1.0, during * 0.1) ? trace : (double?)null;
+            return new PathHopRtt($"{normal:0.0}{arrow}{during:0.0} ms", note, true);
+        }
+        return new PathHopRtt(DisplayBaseline(hop) is double b ? $"{b:0.0}{arrow}{trace:0.0} ms" : $"{trace:0.0} ms", null, false);
     }
 
     /// <summary>"0% (trace 85%)": a hop's Loss cell as text, for the PDF.</summary>
