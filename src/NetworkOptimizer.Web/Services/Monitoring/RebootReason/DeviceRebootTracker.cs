@@ -272,6 +272,14 @@ public class DeviceRebootTracker
             // Neither does a provisional one, whose stronger source has yet to write its verdict.
             if (known!.Reason?.IsConclusive == true && !known.Reason.Provisional) return;
         }
+        else if (known != null && bootedAt < known.BootedAt)
+        {
+            // A boot cannot move backwards: the recorded one was wrong (an SNMP restart recorded
+            // before the device could refute it). Correct the record; nothing rebooted.
+            _logger.LogInformation(
+                "Device {Device} ({Mac}) boot corrected from {PreviousBoot:u} to {BootedAt:u}: uptime {Uptime}s puts it earlier, so the recorded one was not a reboot",
+                deviceName ?? "unknown", mac, known.BootedAt, bootedAt, uptimeSeconds);
+        }
         else if (known != null)
         {
             _logger.LogInformation(

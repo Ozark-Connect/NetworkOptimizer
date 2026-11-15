@@ -113,6 +113,45 @@ public class DeviceRebootRefutedBootTests
         reboots.Should().Be(1);
     }
 
+    [Fact]
+    public void EveryMarkerTheProbeEchoes_IsParsedAsASection()
+    {
+        var echoed = System.Text.RegularExpressions.Regex.Matches(DeviceRebootProbe.ProbeCommand, "echo '(###[A-Z]+)'")
+            .Select(m => m.Groups[1].Value)
+            .ToList();
+
+        echoed.Should().NotBeEmpty();
+        DeviceRebootProbe.Markers.Should().Contain(echoed);
+    }
+
+    [Fact]
+    public void TheDeviceUptime_IsReadFromItsOwnSection_LeavingTheClockIntact()
+    {
+        var output = "###REBOOTLOGAGE\n-51\n###DEVICECLOCK\n1763166114\n###UPTIME\n879734\n";
+
+        var sections = DeviceRebootProbe.SplitSections(output);
+
+        DeviceRebootProbe.ParseDeviceUptime(sections).Should().Be(879734);
+        sections["###DEVICECLOCK"].Trim().Should().Be("1763166114");
+    }
+
+    [Fact]
+    public void ABootEarlierThanTheRecordedOne_IsACorrection_NotAReboot()
+    {
+        var tracker = BuildTracker();
+        var reboots = 0;
+        tracker.DeviceRebooted += _ => reboots++;
+
+        // The false boot an SNMP restart recorded before this fix, then a sample from the real boot.
+        tracker.RecordUptimeSample(Mac, "Gateway", DeviceType.Gateway, null,
+            uptimeSeconds: 120, firmwareVersion: "5.1.10", observedAt: SnmpRestart.AddSeconds(120));
+        var later = SnmpRestart.AddHours(1);
+        tracker.RecordUptimeSample(Mac, "Gateway", DeviceType.Gateway, null,
+            uptimeSeconds: (long)(later - RealBoot).TotalSeconds, firmwareVersion: "5.1.10", observedAt: later);
+
+        reboots.Should().Be(0);
+    }
+
     private static void SetReason(DeviceRebootTracker tracker, DateTime bootedAt, DeviceRebootReason reason)
     {
         var field = typeof(DeviceRebootTracker)
