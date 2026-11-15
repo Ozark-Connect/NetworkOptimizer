@@ -19,6 +19,10 @@ public class HopLocationsTests
         "198.51.100.30" => new GeoInfo { CountryCode = "US", City = "Tulsa", Latitude = 36.15, Longitude = -95.99 },
         "198.51.100.31" => new GeoInfo { CountryCode = "US", City = "Pensacola", Latitude = 30.42, Longitude = -87.22 },
         "198.51.100.32" => new GeoInfo { CountryCode = "US", City = "Kansas City", Latitude = 39.10, Longitude = -94.58 },
+        // A transit block GeoLite2 places far from its routers, and a destination network with no city.
+        "198.51.100.40" => new GeoInfo { CountryCode = "US", City = "Warner Robins", Latitude = 32.62, Longitude = -83.63, AccuracyRadiusKm = 5, Asn = 64500 },
+        "192.0.2.60" or "192.0.2.61" => new GeoInfo { CountryCode = "US", Latitude = 37.75, Longitude = -97.82, AccuracyRadiusKm = 1000, Asn = 64501 },
+        "192.0.2.70" => new GeoInfo { CountryCode = "GB", Latitude = 51.50, Longitude = -0.12, AccuracyRadiusKm = 200 },
         _ => GeoInfo.Empty,
     };
 
@@ -194,6 +198,37 @@ public class HopLocationsTests
         ], Geo);
 
         found["192.0.2.50"].Tooltip.Should().Be("2.6 ms from 198.51.100.32, which GeoLite2 places in Kansas City");
+    }
+
+    [Fact]
+    public void Resolve_ATransitHopOutsideTheDestinationsNetwork_DoesNotAnchorTheEnd()
+    {
+        var found = HopLocations.Resolve(
+        [
+            ("198.51.100.30", null, 3.0),
+            ("203.0.113.8", "dalsbprj01-ae2.rd.dl.cox.net", 16.5),
+            ("198.51.100.40", null, 15.8),
+            ("192.0.2.60", null, 15.1),
+            ("192.0.2.61", null, 15.4),
+        ], Geo);
+
+        found["203.0.113.8"].Text.Should().Be("Dallas, United States");
+        found["192.0.2.60"].Text.Should().Be("Dallas, United States");
+        found["192.0.2.61"].Text.Should().Be("Dallas, United States");
+    }
+
+    [Fact]
+    public void Resolve_AForeignCountryTooFarForTheRoundTrip_TakesTheNeighborsCity()
+    {
+        var found = HopLocations.Resolve(
+        [
+            ("198.51.100.32", null, 1.0),
+            ("203.0.113.7", KansasCityRouter, 1.9),
+            ("192.0.2.70", null, 2.7),
+        ], Geo);
+
+        found["192.0.2.70"].Text.Should().Be("Kansas City, United States");
+        found["192.0.2.70"].Tooltip.Should().Be("0.8 ms from bbr01, a Kansas City router. GeoLite2 says United Kingdom.");
     }
 
     [Theory]

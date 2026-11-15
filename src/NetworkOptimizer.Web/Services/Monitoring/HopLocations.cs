@@ -72,9 +72,12 @@ public static class HopLocations
                 var source = near.Anchor.FromHostname
                     ? $"{shown:0.0} ms from {near.Anchor.Label}, a {near.Anchor.City} router"
                     : $"{shown:0.0} ms from {near.Anchor.Label}, which GeoLite2 places in {near.Anchor.City}";
-                result[h.Address!] = CityView(near.Anchor.City, near.Anchor.CountryCode, g.City is { Length: > 0 } geoCity
-                    ? $"{source}. GeoLite2 says {geoCity}."
-                    : source);
+                var geoSays = g.City is { Length: > 0 } geoCity ? geoCity
+                    : g.CountryCode is { Length: > 0 } geoCountry && !string.Equals(geoCountry, near.Anchor.CountryCode, StringComparison.OrdinalIgnoreCase)
+                        ? CountryName(geoCountry)
+                        : null;
+                result[h.Address!] = CityView(near.Anchor.City, near.Anchor.CountryCode,
+                    geoSays != null ? $"{source}. GeoLite2 says {geoSays}." : source);
             }
             else if (g is { CountryCode.Length: > 0, City.Length: > 0 }
                      && OutOfReach(bounded, anchors, i, g) is { } far)
@@ -120,7 +123,7 @@ public static class HopLocations
     }
 
     /// <summary>A hop other hops are placed against.</summary>
-    private sealed record Anchor(string City, string CountryCode, double Latitude, double Longitude, string Label, bool FromHostname);
+    private sealed record Anchor(string City, string CountryCode, double Latitude, double Longitude, string Label, bool FromHostname, int AccuracyKm = 0);
 
     /// <summary>
     /// The anchors, by hop: every hostname-placed hop, the vantage hop, and the last hop GeoLite2
@@ -147,13 +150,17 @@ public static class HopLocations
             return anchors;
         anchors[vantageIndex] = vantage;
 
-        // A hostname-placed hop after it outranks it, so it anchors nothing then.
+        // A hostname-placed hop after it outranks it, so it anchors nothing then. It must sit in the
+        // destination's network (the last hop's ASN, when both are known): a transit hop's GeoLite2
+        // city can be far from the router (a Dallas Cox hop placed in Warner Robins, GA).
         var lastIndex = list.FindLastIndex(h => GeoAnchor(h, geo) != null);
+        var destinationAsn = list.Count > 0 ? geo[list[^1].Address!].Asn : null;
         if (lastIndex > vantageIndex && anchors[lastIndex] == null
+            && (destinationAsn == null || geo[list[lastIndex].Address!].Asn is not int lastAsn || lastAsn == destinationAsn)
             && !anchors.Skip(lastIndex + 1).Any(a => a is { FromHostname: true })
             && GeoAnchor(list[lastIndex], geo) is { } last
             && list[lastIndex].MinRttMs is double lastRtt && list[vantageIndex].MinRttMs is double vantageRtt
-            && InReach(vantage, last.Latitude, last.Longitude, Math.Abs(lastRtt - vantageRtt)))
+            && InReach(vantage, last.Latitude, last.Longitude, Math.Abs(lastRtt - vantageRtt), last.AccuracyKm))
         {
             anchors[lastIndex] = last;
 
@@ -162,7 +169,7 @@ public static class HopLocations
             for (var j = vantageIndex + 1; j < lastIndex; j++)
             {
                 if (anchors[j] is not { FromHostname: true } a || list[j].MinRttMs is not double rtt) continue;
-                if (InReach(last, a.Latitude, a.Longitude, Math.Abs(lastRtt - rtt))) continue;
+                if (InReach(last, a.Latitude, a.Longitude, Math.Abs(lastRtt - rtt), a.AccuracyKm)) continue;
                 anchors[j] = null;
                 named[j] = null;
             }
@@ -172,7 +179,7 @@ public static class HopLocations
 
     private static Anchor? GeoAnchor((string? Address, string? Hostname, double? MinRttMs) hop, Dictionary<string, GeoInfo> geo) =>
         geo[hop.Address!] is { City.Length: > 0, CountryCode.Length: > 0, Latitude: double lat, Longitude: double lon } g
-            ? new Anchor(g.City!, g.CountryCode!, lat, lon, hop.Address!, FromHostname: false)
+            ? new Anchor(g.City!, g.CountryCode!, lat, lon, hop.Address!, FromHostname: false, g.AccuracyRadiusKm ?? 0)
             : null;
 
     private static (Anchor Anchor, double GapMs, int Index)? Neighbor(
@@ -191,13 +198,17 @@ public static class HopLocations
         }
         if (best is not { } b) return null;
 
-        // A different country stands. So does a GeoLite2 city the anchor's round trip can reach,
-        // unless the hop sits between two anchors in the same city.
-        if (geo.CountryCode is { Length: > 0 } cc && !string.Equals(cc, b.Anchor.CountryCode, StringComparison.OrdinalIgnoreCase))
+        // A different country stands when GeoLite2's location for it fits the round trip, or has none.
+        // A GeoLite2 city the anchor's round trip can reach stands too, unless the hop sits between
+        // two anchors in the same city.
+        var accuracy = geo.AccuracyRadiusKm ?? 0;
+        var located = geo is { Latitude: not null, Longitude: not null };
+        var fits = located && InReach(b.Anchor, geo.Latitude!.Value, geo.Longitude!.Value, b.GapMs, accuracy);
+        if (geo.CountryCode is { Length: > 0 } cc && !string.Equals(cc, b.Anchor.CountryCode, StringComparison.OrdinalIgnoreCase)
+            && (!located || fits))
             return null;
         var between = inGap.Count == 2 && inGap[0] == inGap[1];
-        if (!between && !string.IsNullOrEmpty(geo.City) && geo is { Latitude: double lat, Longitude: double lon }
-            && InReach(b.Anchor, lat, lon, b.GapMs))
+        if (!between && !string.IsNullOrEmpty(geo.City) && fits)
             return null;
         return b;
     }
@@ -211,13 +222,14 @@ public static class HopLocations
         foreach (var j in new[] { Nearest(anchors, i, -1), Nearest(anchors, i, +1) })
         {
             if (j < 0 || list[j].MinRttMs is not double other) continue;
-            if (!InReach(anchors[j]!, lat, lon, Math.Abs(rtt - other))) return (anchors[j]!, j);
+            if (!InReach(anchors[j]!, lat, lon, Math.Abs(rtt - other), geo.AccuracyRadiusKm ?? 0)) return (anchors[j]!, j);
         }
         return null;
     }
 
-    private static bool InReach(Anchor from, double latitude, double longitude, double rttGapMs) =>
-        GeoDistance.Kilometers(from.Latitude, from.Longitude, latitude, longitude)
+    // Both GeoLite2 accuracy radii count toward the reach: either location can be off by that much.
+    private static bool InReach(Anchor from, double latitude, double longitude, double rttGapMs, int accuracyKm) =>
+        GeoDistance.Kilometers(from.Latitude, from.Longitude, latitude, longitude) - from.AccuracyKm - accuracyKm
             <= rttGapMs * RouterHostnameLocator.KmPerMsRtt + RouterHostnameLocator.VantageSlackKm;
 
     private static int Nearest(Anchor?[] anchors, int i, int step)

@@ -96,6 +96,7 @@ public class GeoEnrichmentService : IDisposable
         string? city = null;
         double? lat = null;
         double? lon = null;
+        int? accuracyKm = null;
         int? asn = null;
         string? asnOrg = null;
 
@@ -109,6 +110,7 @@ public class GeoEnrichmentService : IDisposable
                     city = cityResult?.City?.Name;
                     lat = cityResult?.Location?.Latitude;
                     lon = cityResult?.Location?.Longitude;
+                    accuracyKm = cityResult?.Location?.AccuracyRadius;
                 }
             }
             catch (Exception ex)
@@ -139,6 +141,7 @@ public class GeoEnrichmentService : IDisposable
             City = city,
             Latitude = lat,
             Longitude = lon,
+            AccuracyRadiusKm = accuracyKm,
             Asn = asn,
             AsnOrg = asnOrg
         };
