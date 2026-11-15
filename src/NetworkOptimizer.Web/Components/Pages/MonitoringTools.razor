@@ -59,7 +59,7 @@
     </div>
 }
 
-<div class="card" id="run-a-probe">
+<div class="card">
     <div class="card-header">
         <h2 class="card-title">Run a Probe</h2>
     </div>
@@ -317,7 +317,7 @@
 
 @if (_traceResult != null)
 {
-    <div class="card" style="margin-top: 1.5rem;" data-tour="@(_traceResolved ? "traceroute-result" : null)">
+    <div class="card" id="traceroute-result" style="margin-top: 1.5rem;" data-tour="@(_traceResolved ? "traceroute-result" : null)">
         <div class="card-header">
             <h2 class="card-title">Traceroute Result</h2>
             <span class="status-badge @(_traceResult.Reached ? "status-connected" : "status-error")">
@@ -1005,9 +1005,9 @@ else if (_diagResult != null && !string.IsNullOrEmpty(_diagResult.InterfaceError
     // so the tour step waits for the whole result, not the bare hop table.
     private bool _traceResolved;
 
-    // A traceroute result just rendered: put Run a Probe at the top of the view, with the result
-    // and its map below it. Done after the render, because the page is too short to scroll before.
-    private bool _scrollToProbe;
+    // A traceroute result just rendered: put Traceroute Result at the top of the view, so the hop
+    // table and its map are on screen. Done after the render: the card does not exist before.
+    private bool _scrollToTrace;
 
     private async Task RunLinkedTraceAsync()
     {
@@ -1097,13 +1097,13 @@ else if (_diagResult != null && !string.IsNullOrEmpty(_diagResult.InterfaceError
             _runLinkedTrace = false;
             _ = InvokeAsync(RunLinkedTraceAsync);
         }
-        if (_scrollToProbe)
+        if (_scrollToTrace)
         {
-            _scrollToProbe = false;
-            try { await JS.InvokeVoidAsync("noScrollTo", "run-a-probe", "start"); }
+            _scrollToTrace = false;
+            try { await JS.InvokeVoidAsync("noScrollTo", "traceroute-result", "start"); }
             catch (Exception ex) when (ex is JSException or InvalidOperationException or JSDisconnectedException)
             {
-                Logger.LogDebug(ex, "Could not scroll to Run a Probe");
+                Logger.LogDebug(ex, "Could not scroll to Traceroute Result");
             }
         }
         if (!_focusTarget || _targetInput.Context == null) return;
@@ -1690,13 +1690,14 @@ else if (_diagResult != null && !string.IsNullOrEmpty(_diagResult.InterfaceError
             _tracePath = null;
             _mapHops = [];
             _activeHops = [];
-            _scrollToProbe = true;
+            _scrollToTrace = true;
             _traceResolved = false;
             StateHasChanged();
             try { await ResolveTraceAsnsAsync(_traceResult); }
             finally { _traceResolved = true; }
             // Again once the map is in: the page is taller now, so the card can reach the top.
-            _scrollToProbe = true;
+            // Only a traceroute scrolls; a ping or a DNS lookup leaves the view where it is.
+            _scrollToTrace = true;
         }
         catch (Exception ex)
         {
