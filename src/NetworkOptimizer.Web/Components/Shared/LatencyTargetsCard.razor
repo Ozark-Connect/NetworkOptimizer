@@ -13,43 +13,7 @@
         <h2 class="card-title">Latency Targets</h2>
         @if (ShowScopeFilter)
         {
-            <div class="time-range-selector wan-selector @(_wanChoices.Count > 3 ? "wan-selector-many" : "")" @onclick:stopPropagation>
-                <button class="time-btn @(LanScope || ShowingAll ? "active" : "")"
-                        @onclick="PickLanAsync" @onclick:stopPropagation>LAN</button>
-                @foreach (var w in _wanChoices)
-                {
-                    @* All lights every pill: it shows every WAN, and on a single-WAN site the
-                       parent has no option list to fill the selection from. *@
-                    <button class="time-btn @(!LanScope && (ShowingAll || SelectedWanKeys.Contains(w.Key)) ? "active" : "")"
-                            @onclick="() => PickWanAsync(w.Key)" @onclick:stopPropagation>
-                        @{
-                            var wp = NetworkOptimizer.UniFi.GatewayWanHelper.SplitWanLabel(
-                                w.Label, NetworkOptimizer.UniFi.GatewayWanHelper.WanIndexFromKey(w.Key));
-                        }@(wp.Name ?? w.Label)@if (wp.WanToken != null && wp.Name != null)
-                        {<span class="wan-pill-token">@wp.WanToken</span>}
-                    </button>
-                }
-                @if (!ShowingAll)
-                {
-                    <button class="time-btn wan-all-btn"
-                            @onclick="() => PickWanAsync(AllWansKey)" @onclick:stopPropagation>All</button>
-                }
-                @if (ScopeIsNarrowed)
-                {
-                    <WanFilterResetButton OnReset="ResetScopeAsync" />
-                }
-            </div>
-            @* Narrows the rows the scope already chose. Hidden on mobile: the scope row alone
-               already wraps there, and the Type column still says what each row is. *@
-            <div class="time-range-selector lt-type-filter hide-mobile" @onclick:stopPropagation>
-                @foreach (var t in AvailableTypes())
-                {
-                    <button class="time-btn @(_typeFilter == t ? "active" : "")"
-                            @onclick="() => PickTypeAsync(t)" @onclick:stopPropagation>@TypeFilterLabel(t)</button>
-                }
-                <button class="time-btn @(_typeFilter == null ? "active" : "")"
-                        @onclick="() => PickTypeAsync(null)" @onclick:stopPropagation>All</button>
-            </div>
+            @ScopeFilters()
         }
         <div class="card-header-badges">
             <span class="status-badge status-active" @onclick:stopPropagation="true">@VisibleTargets().Count(t => t.Enabled && !t.IsRetired) active</span>
@@ -288,6 +252,12 @@
                     <p class="alert alert-danger">@_targetError</p>
                 }
             </div>
+            @if (ShowScopeFilter)
+            {
+                <div class="lt-filters-bottom">
+                    @ScopeFilters()
+                </div>
+            }
             <p class="page-description page-description-footnote">
                 <strong>Pause</strong> stops probing a target. <strong>Remove</strong> hides it as
                 well, but keeps everything it measured so <strong>Restore</strong> can bring it back.
@@ -438,6 +408,18 @@
         margin-top: 0.75rem;
     }
 
+    .lt-filters-bottom {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: flex-end;
+        gap: 0.5rem 0;
+        margin-top: 0.75rem;
+    }
+
+    .lt-filters-bottom .lt-type-filter {
+        margin-right: 0;
+    }
+
     .lt-add-form {
         margin-top: 1rem;
         padding: 1rem 1.25rem 1.25rem;
@@ -501,6 +483,48 @@
 </style>
 
 @code {
+    /// <summary>The scope and type filters: in the card header and again under the table.</summary>
+    private RenderFragment ScopeFilters() => __builder =>
+    {
+        <div class="time-range-selector wan-selector @(_wanChoices.Count > 3 ? "wan-selector-many" : "")" @onclick:stopPropagation>
+            <button class="time-btn @(LanScope || ShowingAll ? "active" : "")"
+                    @onclick="PickLanAsync" @onclick:stopPropagation>LAN</button>
+            @foreach (var w in _wanChoices)
+            {
+                @* All lights every pill: it shows every WAN, and on a single-WAN site the
+                   parent has no option list to fill the selection from. *@
+                <button class="time-btn @(!LanScope && (ShowingAll || SelectedWanKeys.Contains(w.Key)) ? "active" : "")"
+                        @onclick="() => PickWanAsync(w.Key)" @onclick:stopPropagation>
+                    @{
+                        var wp = NetworkOptimizer.UniFi.GatewayWanHelper.SplitWanLabel(
+                            w.Label, NetworkOptimizer.UniFi.GatewayWanHelper.WanIndexFromKey(w.Key));
+                    }@(wp.Name ?? w.Label)@if (wp.WanToken != null && wp.Name != null)
+                    {<span class="wan-pill-token">@wp.WanToken</span>}
+                </button>
+            }
+            @if (!ShowingAll)
+            {
+                <button class="time-btn wan-all-btn"
+                        @onclick="() => PickWanAsync(AllWansKey)" @onclick:stopPropagation>All</button>
+            }
+            @if (ScopeIsNarrowed)
+            {
+                <WanFilterResetButton OnReset="ResetScopeAsync" />
+            }
+        </div>
+        @* Narrows the rows the scope already chose. Hidden on mobile: the scope row alone
+           already wraps there, and the Type column still says what each row is. *@
+        <div class="time-range-selector lt-type-filter hide-mobile" @onclick:stopPropagation>
+            @foreach (var t in AvailableTypes())
+            {
+                <button class="time-btn @(_typeFilter == t ? "active" : "")"
+                        @onclick="() => PickTypeAsync(t)" @onclick:stopPropagation>@TypeFilterLabel(t)</button>
+            }
+            <button class="time-btn @(_typeFilter == null ? "active" : "")"
+                    @onclick="() => PickTypeAsync(null)" @onclick:stopPropagation>All</button>
+        </div>
+    };
+
     [Parameter, EditorRequired]
     public List<MonitoringTarget> Targets { get; set; } = new();
 
