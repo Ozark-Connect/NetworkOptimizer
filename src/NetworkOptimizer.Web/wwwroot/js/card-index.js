@@ -158,9 +158,22 @@
             aim = i;
             aimTries = 0;
             place();
+            openIfCollapsed(card);
             jumpTo(card);
         });
         return a;
+    }
+
+    // A collapsed card opens on the way there. The header's own click handler does it, so the page
+    // keeps and saves the state. A body still display:none has not loaded its saved state yet.
+    function openIfCollapsed(card) {
+        var header = card.querySelector('.card-header-collapsible');
+        if (!header || header.closest('.card') !== card) return;
+        var body = Array.prototype.filter.call(header.parentElement.children, function (n) {
+            return n.classList.contains('expand-wrapper');
+        })[0];
+        if (!body || body.classList.contains('expanded') || body.style.display === 'none') return;
+        header.click();
     }
 
     // fade: the index is going away rather than being replaced, so let it fade out.
