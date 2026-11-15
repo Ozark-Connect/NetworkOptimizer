@@ -82,7 +82,8 @@ public sealed class PathEpisodeService : IPathEpisodeService
                 mine.LastOrDefault(r => r.Trace.Kind == PathEpisodeTraceKind.Recovery).Result);
         }
 
-        var degraded = view.Degraded.Select(t => Traces(t, PathEpisodeTraceKind.Path)).ToList();
+        var degraded = view.Degraded.Select(t => Traces(t, PathEpisodeTraceKind.Path)
+            with { Series = new TargetSeries(t.PeakLossPct ?? 0, t.BaselineRttMs, t.PeakRttMs) }).ToList();
         var controls = view.Controls.Select(t => Traces(t, PathEpisodeTraceKind.Control)).Where(c => c.PathRounds.Count > 0).ToList();
 
         var asns = new Dictionary<string, AsnLookup?>(StringComparer.OrdinalIgnoreCase);

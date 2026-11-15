@@ -98,7 +98,17 @@ public sealed record HopReading
 /// <param name="PathRounds">Path rounds for a degraded target; the single control round for a control.</param>
 /// <param name="Recovery">The recovery round, once it has run.</param>
 public sealed record TargetTraces(string TargetId, string Name, string Address,
-    IReadOnlyList<TracerouteResult> PathRounds, TracerouteResult? Recovery);
+    IReadOnlyList<TracerouteResult> PathRounds, TracerouteResult? Recovery)
+{
+    /// <summary>What the target's own ping series recorded while degraded; null when unknown.</summary>
+    public TargetSeries? Series { get; init; }
+}
+
+/// <summary>A degraded target's own ping series over the episode: what opened it, in the reader's terms.</summary>
+/// <param name="PeakLossPct">Worst window loss while degraded.</param>
+/// <param name="BaselineRttMs">The series' typical RTT before it degraded.</param>
+/// <param name="PeakRttMs">Worst window median RTT while degraded.</param>
+public sealed record TargetSeries(double PeakLossPct, double? BaselineRttMs, double? PeakRttMs);
 
 /// <summary>A degraded target's verdict and the hop table behind it.</summary>
 public sealed record TargetVerdict
@@ -114,6 +124,8 @@ public sealed record TargetVerdict
     public bool PathChanged { get; init; }
     /// <summary>The elevation shows from an access-layer hop: the access network, not a path.</summary>
     public bool AccessLayer { get; init; }
+    /// <summary>Every trace ran clean to the destination: the traces missed the problem and place nothing.</summary>
+    public bool Missed { get; init; }
     public ReturnPathFinding ReturnFinding { get; init; }
     public IReadOnlyList<HopReading> Hops { get; init; } = Array.Empty<HopReading>();
 }
@@ -188,10 +200,57 @@ public static class PathTraceAnalyzer
             return new EpisodeVerdict { Summary = "No trace has completed yet." };
 
         var controlNames = controls.Select(c => c.Name).ToList();
-        var verdict = verdicts.Count == 1
-            ? FromSingle(verdicts[0], controlNames)
-            : FromSet(verdicts, controlNames, together);
-        return verdict with { Summary = verdict.Summary + ReturnSentences(verdicts) };
+        // A target the traces missed places nothing, so it stays out of the set analysis and gets its own sentence.
+        var caught = verdicts.Where(v => !v.Missed).ToList();
+        var missed = string.Join(" ", verdicts.Where(v => v.Missed).Select(v => v.Label));
+        var verdict = caught.Count switch
+        {
+            0 => new EpisodeVerdict { Label = missed, Summary = missed },
+            1 => FromSingle(caught[0], controlNames),
+            _ => FromSet(caught, controlNames, together)
+        };
+        if (caught.Count > 0 && missed.Length > 0) verdict = verdict with { Summary = $"{verdict.Summary} {missed}" };
+        return verdict with { Summary = verdict.Summary + ReturnSentences(verdicts), Targets = verdicts };
+    }
+
+    /// <summary>
+    /// Whether every trace ran clean to the destination: no loss over the line, no slow round, and no rise
+    /// over a baseline outside the episode. A steady rise shows in no round against the others, so when
+    /// the series says the target slowed, only a recovery or control baseline can rule it out.
+    /// </summary>
+    private static bool TracesMissed(HopReading dest, TargetSeries? series, IspHealthOptions options)
+    {
+        // Without the series there is nothing to say the traces missed.
+        if (series == null) return false;
+        if (dest.Responses == 0 || dest.LossPct >= options.PathHopLossElevatedPct || dest.SlowRounds > 0) return false;
+        if (dest.DeltaRttMs is double d && dest.BaselineMinRttMs is double b && d >= RttThreshold(b, options)) return false;
+        return !SeriesSlowed(series, options) || dest.BaselineMinRttMs.HasValue;
+    }
+
+    private static bool SeriesSlowed(TargetSeries s, IspHealthOptions options) =>
+        s.BaselineRttMs is double b && s.PeakRttMs is double p && p - b >= RttThreshold(b, options);
+
+    /// <summary>
+    /// "Google's pings lost up to 6%, but its 7 traces to it ran clean, so they can't place the problem."
+    /// Names an RTT that fell meanwhile, since the hop table shows it and reads as a recovery otherwise.
+    /// </summary>
+    private static string MissedLabel(TargetTraces t, IspHealthOptions options)
+    {
+        var s = t.Series;
+        var lost = s is { PeakLossPct: >= 0.5 } ? $"lost up to {s.PeakLossPct:0.#}%" : null;
+        var slowed = s != null && SeriesSlowed(s, options) ? $"slowed from {s.BaselineRttMs:0.#} to {s.PeakRttMs:0.#} ms" : null;
+        var what = (lost, slowed) switch
+        {
+            (string l, string r) => $"{t.Name}'s pings {l} and {r}",
+            (string l, null) => $"{t.Name}'s pings {l}",
+            (null, string r) => $"{t.Name}'s pings {r}",
+            _ => $"{t.Name} degraded"
+        };
+        var n = t.PathRounds.Count;
+        var label = $"{what}, but {(n == 1 ? "its trace" : $"its {n} traces")} ran clean, so {(n == 1 ? "it can't" : "they can't")} place the problem.";
+        if (s is { BaselineRttMs: double b, PeakRttMs: double p } && p < b * (1 - options.PathHopRttDeltaFraction))
+            label += $" Its RTT fell from {b:0.#} to {p:0.#} ms over the same time.";
+        return label;
     }
 
     /// <summary>
@@ -462,6 +521,14 @@ public static class PathTraceAnalyzer
             if (pairedOnly[i]) tags[i] |= HopTag.PairedOnly;
         }
 
+        // The destination is degraded on its series' word. When every trace ran clean to it and no hop on
+        // the way is elevated, the traces missed the problem: nothing is placed and nothing is marked.
+        var destIdx = hops.FindIndex(h => h.Has(HopTag.Destination));
+        var missed = destIdx >= 0 && TracesMissed(hops[destIdx], t.Series, options)
+            && !Enumerable.Range(0, hops.Count).Any(i => i != destIdx && decided[i] == true)
+            && PathChange(rounds, t.Recovery, destination, asnOf) == null;
+        if (missed) decided[destIdx] = false;
+
         // Slow-path tell: needs the next responding hop to compare against.
         for (var i = 0; i < hops.Count; i++)
         {
@@ -475,7 +542,8 @@ public static class PathTraceAnalyzer
                 tags[i] |= HopTag.SlowPath;
         }
 
-        var onset = ElevatedRun.Onset(hops.Count, i => decided[i])!.Value;
+        // Null only when the traces missed it: then no hop is elevated and the run starts past the path.
+        var onset = ElevatedRun.Onset(hops.Count, i => decided[i]) ?? hops.Count;
         for (var i = 0; i < hops.Count; i++)
         {
             if (i >= onset && decided[i] == true) tags[i] |= HopTag.InRun;
@@ -485,17 +553,35 @@ public static class PathTraceAnalyzer
                      && hops[i].LossPct >= options.PathHopLossElevatedPct && hops[i].EffectiveLossPct < options.PathHopLossElevatedPct)
                 tags[i] |= HopTag.IcmpLimited;
         }
-        tags[onset] |= HopTag.Onset;
         int? lastClean = null;
-        for (var i = onset - 1; i >= 0; i--)
-            if (decided[i] == false) { lastClean = i; break; }
-        if (lastClean is int lc) tags[lastClean.Value] |= HopTag.LastClean;
+        if (!missed)
+        {
+            tags[onset] |= HopTag.Onset;
+            for (var i = onset - 1; i >= 0; i--)
+                if (decided[i] == false) { lastClean = i; break; }
+            if (lastClean is int lc) tags[lastClean.Value] |= HopTag.LastClean;
+        }
 
         for (var i = 0; i < hops.Count; i++)
         {
             if (hops[i].ReturnHops is int rh && Math.Abs(rh - hops[i].Ttl) >= options.PathReturnAsymmetryHops)
                 tags[i] |= HopTag.ReturnDiffers;
             hops[i] = hops[i] with { Elevated = decided[i], Tags = tags[i] };
+        }
+
+        if (missed)
+        {
+            return new TargetVerdict
+            {
+                TargetId = t.TargetId,
+                Name = t.Name,
+                Scope = CongestionScope.Unlocalized,
+                Disposition = CongestionDisposition.Unverifiable,
+                Label = MissedLabel(t, options),
+                Missed = true,
+                ReturnFinding = ReturnFinding(hops, onset),
+                Hops = hops
+            };
         }
 
         var onsetHop = hops[onset];
