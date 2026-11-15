@@ -276,7 +276,7 @@
                                                        @bind="hop.Label" @bind:event="oninput"
                                                        disabled="@hopLocked" />
                                             </td>
-                                            <td><code @attributes="NetworkOptimizer.Web.Services.Monitoring.LiveTraffic.LiveTrafficLinks.DestinationCard(hop.Address, hop.PtrHostname)">@hop.Address</code> @(string.IsNullOrEmpty(hop.PtrHostname) ? "" : $"({hop.PtrHostname})")</td>
+                                            <td><code @attributes="NetworkOptimizer.Web.Services.Monitoring.LiveTraffic.LiveTrafficLinks.DestinationCard(hop.Address, hop.PtrHostname, threatsLink: false)">@hop.Address</code> @(string.IsNullOrEmpty(hop.PtrHostname) ? "" : $"({hop.PtrHostname})")</td>
                                             <td>@(hop.Method == DiscoveryMethod.L2Neighbor ? "L2 neighbor" : hop.Method == DiscoveryMethod.ConfiguredFallback ? "Curated" : $"Hop {hop.HopNumber}")</td>
                                             <td>
                                                 @if (hop.CustomerPremises)

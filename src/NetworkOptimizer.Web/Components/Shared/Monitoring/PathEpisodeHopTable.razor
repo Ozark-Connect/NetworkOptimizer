@@ -111,11 +111,11 @@
                                     }
                                     else if (!string.IsNullOrEmpty(hop.Hostname))
                                     {
-                                        <span @attributes="NetworkOptimizer.Web.Services.Monitoring.LiveTraffic.LiveTrafficLinks.DestinationCard(hop.Address, hop.Hostname)">@hop.Hostname (@hop.Address)</span>
+                                        <span @attributes="NetworkOptimizer.Web.Services.Monitoring.LiveTraffic.LiveTrafficLinks.DestinationCard(hop.Address, hop.Hostname, threatsLink: false)">@hop.Hostname (@hop.Address)</span>
                                     }
                                     else
                                     {
-                                        <span @attributes="NetworkOptimizer.Web.Services.Monitoring.LiveTraffic.LiveTrafficLinks.DestinationCard(hop.Address)">@hop.Address</span>
+                                        <span @attributes="NetworkOptimizer.Web.Services.Monitoring.LiveTraffic.LiveTrafficLinks.DestinationCard(hop.Address, threatsLink: false)">@hop.Address</span>
                                     }
                                     @if (tag != null)
                                     {
