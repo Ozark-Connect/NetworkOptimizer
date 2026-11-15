@@ -258,7 +258,7 @@
                     @ScopeFilters()
                 </div>
             }
-            <p class="page-description page-description-footnote">
+            <p class="page-description page-description-footnote lt-footnote">
                 <strong>Pause</strong> stops probing a target. <strong>Remove</strong> hides it as
                 well, but keeps everything it measured so <strong>Restore</strong> can bring it back.
             </p>
@@ -418,6 +418,12 @@
 
     .lt-filters-bottom .lt-type-filter {
         margin-right: 0;
+    }
+
+    @@media (min-width: 769px) {
+        .lt-footnote {
+            text-align: right;
+        }
     }
 
     .lt-add-form {
