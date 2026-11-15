@@ -68,6 +68,7 @@ public class PathTraceAnalyzerMissedTests
         t.Scope.Should().Be(CongestionScope.Unlocalized);
         t.Hops.Should().NotContain(h => h.Has(HopTag.InRun) || h.Has(HopTag.Onset) || h.Has(HopTag.LastClean));
         t.Hops.Single(h => h.Has(HopTag.Destination)).Elevated.Should().BeFalse();
+        t.Hops.Single(h => h.Has(HopTag.Destination)).Has(HopTag.SeriesOnly).Should().BeTrue();
         v.Summary.Should().Be("Example DNS's pings lost up to 6%, but its 7 traces ran clean, so they can't place the problem. "
             + "Its RTT fell from 4.6 to 2.1 ms over the same time.");
     }
@@ -82,6 +83,47 @@ public class PathTraceAnalyzerMissedTests
         t.Missed.Should().BeFalse();
         t.Hops.Single(h => h.Has(HopTag.Destination)).Has(HopTag.InRun).Should().BeTrue();
     }
+
+    [Fact]
+    public void The_destination_row_leads_with_its_own_series()
+    {
+        var t = Analyze(Target("dns", "Example DNS", Dest, Clean(Dest), new TargetSeries(6, 4.6, 2.1))).Targets[0];
+        var dest = t.Hops.Single(h => h.Has(HopTag.Destination)) with { SeriesBaselineRttMs = 4.6 };
+        var detail = Detail(new Dictionary<string, double> { [Dest] = 1.6 }, new Dictionary<string, double> { [Dest] = 2.1 });
+
+        var loss = PathEpisodePresentation.HopLoss(dest, detail)!;
+        PathEpisodePresentation.HopLossText(loss).Should().Be("1.6% (trace 0%)");
+
+        var rtt = PathEpisodePresentation.HopRtt(dest, detail)!;
+        rtt.Text.Should().Be("4.6 → 2.1 ms");
+        rtt.FromSeries.Should().BeTrue();
+        rtt.TraceMs.Should().BeNull();
+    }
+
+    [Fact]
+    public void A_series_rtt_far_from_the_trace_names_the_trace_figure()
+    {
+        var hop = new HopReading { Ttl = 3, Address = Dest, Sent = 35, Responses = 35, EpisodeRttMs = 85, SeriesBaselineRttMs = 71, Tags = HopTag.Destination };
+        var detail = Detail(new Dictionary<string, double>(), new Dictionary<string, double> { [Dest] = 98 });
+
+        var rtt = PathEpisodePresentation.HopRtt(hop, detail)!;
+        rtt.Text.Should().Be("71.0 → 98.0 ms");
+        rtt.TraceMs.Should().Be(85);
+    }
+
+    [Fact]
+    public void A_hop_with_no_series_reads_the_trace_as_before()
+    {
+        var hop = new HopReading { Ttl = 2, Address = Edge, Sent = 35, Responses = 35, EpisodeRttMs = 2.0, ReferenceRttMs = 2.0 };
+
+        var rtt = PathEpisodePresentation.HopRtt(hop, Detail(new Dictionary<string, double>(), new Dictionary<string, double>()))!;
+        rtt.Text.Should().Be("2.0 → 2.0 ms");
+        rtt.FromSeries.Should().BeFalse();
+    }
+
+    private static PathEpisodeDetail Detail(Dictionary<string, double> loss, Dictionary<string, double> rtt) =>
+        new(new PathEpisodeView { Id = 1, OpenedAt = DateTime.UtcNow },Array.Empty<NetworkOptimizer.Web.Services.Monitoring.PathLocalization.PathEpisodeHopTable>(),
+            MonitoredLoss: loss, MonitoredRtt: rtt);
 
     [Fact]
     public void A_series_rise_with_no_baseline_outside_the_episode_is_not_called_missed()

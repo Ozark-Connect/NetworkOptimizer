@@ -175,6 +175,15 @@ public sealed class TargetDegradation
     public (double LossPct, int Probes)? LossSince(DateTime from, DateTime? until = null) => LossOver(from, until);
 
     /// <summary>
+    /// Median of the window RTTs overlapping [<paramref name="from"/>, <paramref name="until"/>): the series'
+    /// RTT during an episode, comparable to <see cref="BaselineRttMs"/>. Null when no window read one.
+    /// </summary>
+    public double? RttSince(DateTime from, DateTime? until = null) => SeriesStats.Median(_windows
+        .Where(w => w.Start + _windowLength > from && (until == null || w.Start < until) && w.MedianRttMs.HasValue)
+        .Select(w => w.MedianRttMs!.Value)
+        .ToList());
+
+    /// <summary>
     /// Picks a degradation back up after a restart, for a target whose episode was still open. Seeded
     /// history never moves the degraded state, so without this the restarted target reads clean and
     /// the episode closes as if it had cleared. It clears the usual way from here: enough clean windows.

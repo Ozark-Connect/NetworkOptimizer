@@ -58,9 +58,11 @@ public sealed record PathEpisodeHopTable(PathEpisodeTargetView Target, string Ad
 /// <summary>An episode with its hop tables.</summary>
 /// <param name="PingedHops">Hops decided by pinging them during the episode rather than by a monitored series.</param>
 /// <param name="HopPings">What each pinged hop's echoes returned, by address.</param>
-/// <param name="MonitoredLoss">Each monitored hop's own series loss over the episode, by address.</param>
+/// <param name="MonitoredLoss">Each monitored hop's and degraded destination's own series loss over the episode, by address.</param>
+/// <param name="MonitoredRtt">The same series' median RTT over the episode, by address.</param>
 public sealed record PathEpisodeDetail(PathEpisodeView Episode, IReadOnlyList<PathEpisodeHopTable> Tables, IReadOnlySet<string>? PingedHops = null,
-    IReadOnlyDictionary<string, PathGateSnapshot.HopPingStats>? HopPings = null, IReadOnlyDictionary<string, double>? MonitoredLoss = null);
+    IReadOnlyDictionary<string, PathGateSnapshot.HopPingStats>? HopPings = null, IReadOnlyDictionary<string, double>? MonitoredLoss = null,
+    IReadOnlyDictionary<string, double>? MonitoredRtt = null);
 
 /// <summary>
 /// Path Localization's episodes for the site in context. Reads only: episodes are evidence the app

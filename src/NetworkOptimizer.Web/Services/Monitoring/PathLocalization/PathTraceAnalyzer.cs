@@ -29,7 +29,9 @@ public enum HopTag
     /// <summary>Part of the elevated run from the onset to the destination.</summary>
     InRun = 256,
     /// <summary>Elevated only by slowing in the same traces as the destination: moved with it, direction unknown.</summary>
-    PairedOnly = 512
+    PairedOnly = 512,
+    /// <summary>The destination of a target the traces missed: degraded on its own series only.</summary>
+    SeriesOnly = 1024
 }
 
 /// <summary>One TTL of a target's episode, pooled across its path rounds.</summary>
@@ -527,7 +529,11 @@ public static class PathTraceAnalyzer
         var missed = destIdx >= 0 && TracesMissed(hops[destIdx], t.Series, options)
             && !Enumerable.Range(0, hops.Count).Any(i => i != destIdx && decided[i] == true)
             && PathChange(rounds, t.Recovery, destination, asnOf) == null;
-        if (missed) decided[destIdx] = false;
+        if (missed)
+        {
+            decided[destIdx] = false;
+            tags[destIdx] |= HopTag.SeriesOnly;
+        }
 
         // Slow-path tell: needs the next responding hop to compare against.
         for (var i = 0; i < hops.Count; i++)

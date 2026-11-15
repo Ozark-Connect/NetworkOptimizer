@@ -121,6 +121,10 @@
                                     {
                                         <span class="path-hop-tag @TagClass(hop)" data-tooltip="@TagTooltip(hop)">@tag</span>
                                     }
+                                    @if (hop.Has(HopTag.SeriesOnly))
+                                    {
+                                        <span class="path-hop-tag path-hop-tag-onset" data-tooltip="Its own ping series is degraded over the episode, but the traces didn't catch it, so they can't place where. Loss and RTT here are from that series.">Degraded</span>
+                                    }
                                     @if (hop.Has(HopTag.Anchored) && hop.Address != null && _detail.PingedHops?.Contains(hop.Address) == true)
                                     {
                                         <span class="path-hop-tag path-hop-tag-muted" data-tooltip="Pinged directly during the episode, which decided it. A router limits the replies a traceroute reads far more than ping replies, and a ping to it crosses the same path.">Pinged</span>
@@ -165,13 +169,18 @@
                                             }
                                         </span>
                                     }
-                                    @if (RttTooltip(hop, table) is { } rttTip)
+                                    @{ var rtt = PathEpisodePresentation.HopRtt(hop, _detail); }
+                                    @if (RttTooltip(hop, table, rtt) is { } rttTip)
                                     {
-                                        <span class="path-rtt-value" data-tooltip="@rttTip">@RttLabel(hop)</span>
+                                        <span class="path-rtt-value" data-tooltip="@rttTip">@(rtt?.Text ?? "-")</span>
                                     }
                                     else
                                     {
-                                        <span class="path-rtt-value">@RttLabel(hop)</span>
+                                        <span class="path-rtt-value">@(rtt?.Text ?? "-")</span>
+                                    }
+                                    @if (rtt?.TraceMs is double traceMs)
+                                    {
+                                        @(" ")<span class="path-rtt-value text-muted">(trace @($"{traceMs:0.0}"))</span>
                                     }
                                 </td>
                                 @if (table.Hops.Any(ReturnHopsWorthShowing))
@@ -254,16 +263,12 @@
         : "Elevated, but the hops beyond it were not: this router deprioritizes its own ICMP replies. Shown, never blamed.";
 
 
-    private static string RttLabel(HopReading h)
+    private static string? RttTooltip(HopReading h, NetworkOptimizer.Web.Services.Monitoring.PathLocalization.PathEpisodeHopTable table, PathHopRtt? rtt)
     {
-        if (h.EpisodeRttMs is not double during) return "-";
-        return PathEpisodePresentation.DisplayBaseline(h) is double b ? $"{b:0.0} → {during:0.0} ms" : $"{during:0.0} ms";
-    }
-
-    private static string? RttTooltip(HopReading h, NetworkOptimizer.Web.Services.Monitoring.PathLocalization.PathEpisodeHopTable table)
-    {
-        if (!h.EpisodeRttMs.HasValue) return null;
+        if (rtt == null) return null;
         var reading = PathEpisodePresentation.RoundsReading(h, table.Hops, table.Target.Name);
+        if (rtt.FromSeries)
+            return $"{reading}. Both figures are from its own ping series: the typical RTT over the last 24 hours, then the median over the episode.";
         return h.SeriesBaselineRttMs.HasValue
             ? $"{reading}. Normal is from its own monitored series: the typical RTT over the last 24 hours."
             : reading;

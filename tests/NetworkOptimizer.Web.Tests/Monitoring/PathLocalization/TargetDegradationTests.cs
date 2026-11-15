@@ -231,6 +231,18 @@ public class TargetDegradationTests
     }
 
     [Fact]
+    public void RttSince_IsTheMedianOfTheWindowsFromAPoint()
+    {
+        var t = WithBaseline(out var now);
+        var from = now;
+        now = Feed(t, now, TimeSpan.FromMinutes(15), 60);
+        t.Record(now, 60, 5, 5, () => false);
+
+        t.BaselineRttMs.Should().Be(42);
+        t.RttSince(from).Should().Be(60);
+    }
+
+    [Fact]
     public void ThreeCleanWindows_Clear()
     {
         var t = WithBaseline(out var now);

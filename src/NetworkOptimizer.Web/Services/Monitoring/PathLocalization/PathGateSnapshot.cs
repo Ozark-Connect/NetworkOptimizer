@@ -38,8 +38,11 @@ public sealed class PathGateSnapshot
     /// <summary>Monitored access-layer hops (Access ISP, WAN L2 neighbor) on the episode's WAN, by address.</summary>
     public List<string> AccessHops { get; set; } = new();
 
-    /// <summary>Each monitored hop's own series loss over the episode, by address: what decided it.</summary>
+    /// <summary>Each monitored hop's and degraded destination's own series loss over the episode, by address.</summary>
     public Dictionary<string, double> MonitoredLoss { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>The same series' median RTT over the episode, by address: the "during" to <see cref="SeriesBaselines"/>.</summary>
+    public Dictionary<string, double> MonitoredRtt { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>Monitored hops' and destinations' own series baseline RTT, by address, as first read in the episode.</summary>
     public Dictionary<string, double> SeriesBaselines { get; set; } = new(StringComparer.OrdinalIgnoreCase);
@@ -55,6 +58,7 @@ public sealed class PathGateSnapshot
             snapshot.HopPings = new Dictionary<string, HopPingStats>(snapshot.HopPings, StringComparer.OrdinalIgnoreCase);
             snapshot.MonitoredLoss = new Dictionary<string, double>(snapshot.MonitoredLoss, StringComparer.OrdinalIgnoreCase);
             snapshot.SeriesBaselines = new Dictionary<string, double>(snapshot.SeriesBaselines, StringComparer.OrdinalIgnoreCase);
+            snapshot.MonitoredRtt = new Dictionary<string, double>(snapshot.MonitoredRtt, StringComparer.OrdinalIgnoreCase);
             return snapshot;
         }
         catch (JsonException)
