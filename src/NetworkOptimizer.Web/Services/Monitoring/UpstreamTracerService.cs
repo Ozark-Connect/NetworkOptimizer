@@ -1,7 +1,6 @@
 using System.Text.RegularExpressions;
 using Microsoft.EntityFrameworkCore;
 using NetworkOptimizer.Core.Enums;
-using NetworkOptimizer.Core.Helpers;
 using NetworkOptimizer.Monitoring.Probes;
 using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.UniFi;
@@ -2206,7 +2205,7 @@ public class UpstreamTracerService
         State.CurrentActivity = $"Tracing {candidates.Count} transit router(s) to confirm each sits on your path...";
 
         var traced = await Task.WhenAll(candidates.Select(async c =>
-            (Candidate: c, Direct: await TraceAddressAsync(c.HopAddress!, c.RespondedTo ?? ProbeMode.Icmp, ct))));
+            (Candidate: c, Direct: await TraceToRouterAsync(c.HopAddress!, c.RespondedTo, ct))));
 
         var asnByIp = BuildAsnByIpMap();
         var marked = 0;
@@ -2220,7 +2219,9 @@ public class UpstreamTracerService
                 .ToList();
             if (directHops is null || discoveryPrefixes.Count == 0)
             {
-                _logger.LogDebug("Path check for {Address}: the direct trace did not reach it, kept", address);
+                _logger.LogDebug("Path check for {Address}: the direct trace did not reach it ({Mode}: {Route}), kept",
+                    address, direct?.ModeUsed.ToString() ?? "failed",
+                    direct is null ? "" : string.Join(" > ", direct.Hops.Where(h => h.Responded).Select(h => h.Address)));
                 continue;
             }
 
@@ -2243,6 +2244,19 @@ public class UpstreamTracerService
                 address, string.Join(", ", foreign.Select(a => $"AS{a}")), string.Join(" > ", directHops));
         }
         return marked;
+    }
+
+    /// <summary>
+    /// A trace that reaches the router, by ICMP first. A router found on a UDP trace answers the TTL
+    /// expiry there, but often not a UDP probe addressed to itself, so a UDP trace to it never ends.
+    /// The mode it was found by is the fallback.
+    /// </summary>
+    private async Task<TracerouteResult?> TraceToRouterAsync(string address, ProbeMode? foundBy, CancellationToken ct)
+    {
+        var icmp = await TraceAddressAsync(address, ProbeMode.Icmp, ct);
+        if (icmp is not null && RespondersBefore(icmp.Hops, address) is not null) return icmp;
+        if (foundBy is not { } mode || mode == ProbeMode.Icmp) return icmp;
+        return await TraceAddressAsync(address, mode, ct) ?? icmp;
     }
 
     /// <summary>One traceroute to an address from this run's vantage; null when it fails.</summary>
