@@ -2893,10 +2893,15 @@ public class UpstreamTracerService
         foreach (var hop in State.AccessHops.Where(h => !h.Enabled))
             await PauseUnselectedAccessHopAsync(db, hop, wanInterface, isUnboundRun, automatic, ct,
                 wanContextId, probePlan.PollIntervalSeconds);
+        var seenOnTraces = _lastTraces
+            .SelectMany(t => t.Hops)
+            .Where(h => h.Responded && !string.IsNullOrEmpty(h.Address))
+            .Select(h => h.Address!)
+            .ToList();
         var unproposed = await PauseUnproposedAccessRowsAsync(db, State.AccessHops.Select(h => h.Address).ToList(),
-            wanInterface, isUnboundRun, automatic, ct);
+            seenOnTraces, wanInterface, isUnboundRun, automatic, ct);
         if (unproposed > 0)
-            _logger.LogInformation("Commit: paused {Count} discovered access target(s) on {Wan} this run no longer proposes",
+            _logger.LogInformation("Commit: paused {Count} discovered access target(s) on {Wan} this run saw and filed as something else",
                 unproposed, wanInterface);
         foreach (var transit in State.TransitAsns.Where(t => t.Enabled))
         {
@@ -3078,21 +3083,26 @@ public class UpstreamTracerService
     }
 
     /// <summary>
-    /// Pauses this WAN's auto-discovered access rows that an operator's run no longer proposes, so a
-    /// re-run and commit corrects targets an earlier run got wrong (a container bridge, or a whole
-    /// path committed as access hops when ASN lookups failed). Only on an operator's commit that
-    /// found access hops: an automatic run or an empty result proves nothing about the old rows.
-    /// Hand-added rows are never touched. Paused, never deleted. Does not SaveChanges.
+    /// Pauses this WAN's auto-discovered access rows that an operator's run saw on its traces and
+    /// filed as something else, so a re-run and commit corrects targets an earlier run got wrong (a
+    /// container bridge, or a whole path committed as access hops when ASN lookups failed). A row the
+    /// run never saw is left alone: one run missing a hop is route variance, not evidence, and
+    /// retiring a hop that is really gone takes sustained absence, as transit removals do. Only on an
+    /// operator's commit that found access hops. Hand-added rows are never touched. Paused, never
+    /// deleted. Does not SaveChanges.
     /// </summary>
     internal static async Task<int> PauseUnproposedAccessRowsAsync(NetworkOptimizerDbContext db,
-        IReadOnlyCollection<string> proposedAddresses, string wanInterface, bool isUnboundRun, bool automatic, CancellationToken ct)
+        IReadOnlyCollection<string> proposedAddresses, IReadOnlyCollection<string> seenAddresses,
+        string wanInterface, bool isUnboundRun, bool automatic, CancellationToken ct)
     {
         if (automatic || proposedAddresses.Count == 0) return 0;
         var proposed = new HashSet<string>(proposedAddresses, StringComparer.OrdinalIgnoreCase);
+        var seen = new HashSet<string>(seenAddresses, StringComparer.OrdinalIgnoreCase);
         var stale = (await db.MonitoringTargets
                 .Where(t => t.TargetType == MonitoringTargetType.AccessIsp && t.Enabled && t.AutoDiscovered)
                 .ToListAsync(ct))
-            .Where(t => !proposed.Contains(t.Address) && OwnsTargetRow(t.WanInterface, wanInterface, isUnboundRun))
+            .Where(t => !proposed.Contains(t.Address) && seen.Contains(t.Address)
+                        && OwnsTargetRow(t.WanInterface, wanInterface, isUnboundRun))
             .ToList();
         foreach (var t in stale) t.Enabled = false;
         return stale.Count;
