@@ -93,6 +93,7 @@ Time-series monitoring on your own InfluxDB, fed by SNMP polling (InfluxDB).
 
 - Live stat tiles: **WAN Download**, **WAN Upload**, **ISP Health**, ISP and transit RTT and loss
   - ISP RTT and loss read the access floor across access hops, as ISP Health does
+  - Transit RTT discounts a router that answers pings slowly; real slowdowns still show
 - Gateway tiles: RTT, loss, CPU, memory, temperature, **Fabric Ingress**, **Fabric Egress**
 - Last-hour sparkline behind the ISP, transit, and gateway tiles; hover to bring it forward (InfluxDB)
 - WAN pill selector - one WAN, several to compare, or all
@@ -199,6 +200,9 @@ Time-series monitoring on your own InfluxDB, fed by SNMP polling (InfluxDB).
   - A target that stops answering is paused only after three automatic runs, and resumes when it answers
   - Detects hops that left the path and asks whether the ISP changed
   - Metered WANs get fewer targets and a slower cadence
+  - Proposes ISP gateways (passthrough or router mode) and far-slower transit routers unchecked
+  - Keeps your choices: unchecked or paused targets stay that way on re-runs
+  - A re-run and commit corrects earlier mistyped targets, keeping their history
 - **Flaky Monitoring Targets** - targets losing more than their peers, with **Disable** and **Disable all**
 - **Latency Targets** - add, rename, pause, remove, and restore targets
   - ICMP or TCP probes, per-WAN path, interval from 2 seconds to 5 minutes
