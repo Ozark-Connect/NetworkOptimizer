@@ -317,7 +317,7 @@
 
 @if (_traceResult != null)
 {
-    <div class="card" style="margin-top: 1.5rem;" data-tour="traceroute-result">
+    <div class="card" style="margin-top: 1.5rem;" data-tour="@(_traceResolved ? "traceroute-result" : null)">
         <div class="card-header">
             <h2 class="card-title">Traceroute Result</h2>
             <span class="status-badge @(_traceResult.Reached ? "status-connected" : "status-error")">
@@ -1000,6 +1000,10 @@ else if (_diagResult != null && !string.IsNullOrEmpty(_diagResult.InterfaceError
 
     // Set once the vantages are loaded; the run starts from the first interactive render after that.
     private bool _runLinkedTrace;
+
+    // The result's networks, locations, and map are in. The card carries its tour anchor only then,
+    // so the tour step waits for the whole result, not the bare hop table.
+    private bool _traceResolved;
 
     // A traceroute result just rendered: put Run a Probe at the top of the view, with the result
     // and its map below it. Done after the render, because the page is too short to scroll before.
@@ -1687,8 +1691,10 @@ else if (_diagResult != null && !string.IsNullOrEmpty(_diagResult.InterfaceError
             _mapHops = [];
             _activeHops = [];
             _scrollToProbe = true;
+            _traceResolved = false;
             StateHasChanged();
-            await ResolveTraceAsnsAsync(_traceResult);
+            try { await ResolveTraceAsnsAsync(_traceResult); }
+            finally { _traceResolved = true; }
             // Again once the map is in: the page is taller now, so the card can reach the top.
             _scrollToProbe = true;
         }
