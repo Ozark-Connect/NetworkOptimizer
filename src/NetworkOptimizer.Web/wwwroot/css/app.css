@@ -29714,6 +29714,13 @@ body:has(.top-bar-hidden) .btn-fit {
     filter: invert(1) hue-rotate(180deg) brightness(0.8) contrast(0.92) saturate(0.45);
 }
 
+/* On fractional display scaling Leaflet's tiles show hairlines between them; a half-pixel overlap
+   closes them. !important because Leaflet sizes each tile inline. */
+.trace-map .leaflet-tile-container img {
+    width: 256.5px !important;
+    height: 256.5px !important;
+}
+
 .trace-map.leaflet-container {
     background: var(--bg-primary);
     font-family: inherit;

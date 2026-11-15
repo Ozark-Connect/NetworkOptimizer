@@ -1,4 +1,4 @@
-// The Network Tools trace map: a traced path drawn as places and great-circle legs on a Leaflet map.
+// The Network Tools trace map: a traced path drawn as places and straight legs on a Leaflet map.
 // Hostnames come from PTR records, which anyone can set, so every label is written as text, never HTML.
 
 const LEAFLET_JS = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
@@ -46,39 +46,6 @@ function el(tag, className, text) {
     if (className) node.className = className;
     if (text != null) node.textContent = text;
     return node;
-}
-
-// Points along the great circle from a to b. Longitudes run on from a's, so a leg over the
-// antimeridian stays one line.
-function arc(a, b, steps) {
-    const rad = Math.PI / 180;
-    const toVec = p => {
-        const lat = p.lat * rad, lng = p.lng * rad;
-        return [Math.cos(lat) * Math.cos(lng), Math.cos(lat) * Math.sin(lng), Math.sin(lat)];
-    };
-    const va = toVec(a), vb = toVec(b);
-    const dot = Math.min(1, Math.max(-1, va[0] * vb[0] + va[1] * vb[1] + va[2] * vb[2]));
-    const omega = Math.acos(dot);
-    const points = [];
-    let previousLng = a.lng;
-    for (let i = 0; i <= steps; i++) {
-        const t = i / steps;
-        let v;
-        if (omega < 1e-6) {
-            v = va;
-        } else {
-            const s = Math.sin(omega);
-            const ka = Math.sin((1 - t) * omega) / s, kb = Math.sin(t * omega) / s;
-            v = [ka * va[0] + kb * vb[0], ka * va[1] + kb * vb[1], ka * va[2] + kb * vb[2]];
-        }
-        const lat = Math.atan2(v[2], Math.hypot(v[0], v[1])) / rad;
-        let lng = Math.atan2(v[1], v[0]) / rad;
-        while (lng - previousLng > 180) lng -= 360;
-        while (lng - previousLng < -180) lng += 360;
-        previousLng = lng;
-        points.push([lat, lng]);
-    }
-    return points;
 }
 
 function nodeIcon(L, node, labeled) {
@@ -182,7 +149,9 @@ export async function render(host, path, dotNet) {
     const bounds = [];
     for (const leg of path.legs) {
         const from = path.nodes[leg.from], to = path.nodes[leg.to];
-        const points = arc(position[leg.from], position[leg.to], 64);
+        // A straight line on the map: a great-circle arc bends over the pole and reads as a route
+        // the path does not take.
+        const points = [[position[leg.from].lat, position[leg.from].lng], [position[leg.to].lat, position[leg.to].lng]];
         const unsure = from.source === 'geolite2' || to.source === 'geolite2';
         const color = unsure ? LEG_UNSURE : LEG_COLOR;
         L.polyline(points, { color, weight: 9, opacity: 0.14, interactive: false, className: 'trace-leg-glow' }).addTo(layers);
