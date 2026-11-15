@@ -27,6 +27,7 @@ public class SignalSparklineService : ISignalSparklineService
 
     private readonly MonitoringInfluxRegistry _influxRegistry;
     private readonly SiteContextService _siteContext;
+    private readonly MonitoringLiveStats _liveStats;
     private readonly ILogger<SignalSparklineService> _logger;
     private readonly ConcurrentDictionary<string, (DateTime At, IReadOnlyList<SparkPoint>? Value)> _cache = new();
     private readonly Dictionary<string, (DateTime At, Task<LiveViewSparklines> Task)> _liveView = new();
@@ -34,10 +35,12 @@ public class SignalSparklineService : ISignalSparklineService
     public SignalSparklineService(
         MonitoringInfluxRegistry influxRegistry,
         SiteContextService siteContext,
+        MonitoringLiveStats liveStats,
         ILogger<SignalSparklineService> logger)
     {
         _influxRegistry = influxRegistry;
         _siteContext = siteContext;
+        _liveStats = liveStats;
         _logger = logger;
     }
 
@@ -97,6 +100,10 @@ public class SignalSparklineService : ISignalSparklineService
             await Task.WhenAll(latencyTask, healthTask);
             var latency = latencyTask.Result;
             var health = healthTask.Result;
+            // The Transit tile's live figure needs each hop's hour, which a restart empties.
+            foreach (var id in request.TransitTargetIds)
+                if (latency.TryGetValue((id, RttField), out var stored))
+                    _liveStats.SeedRttHistory(id, stored);
 
             var series = new Dictionary<LiveViewSpark, IReadOnlyList<SparkPoint>>();
             void Put(LiveViewSpark tile, IEnumerable<(DateTime Time, double Value)>? rows)
@@ -113,7 +120,7 @@ public class SignalSparklineService : ISignalSparklineService
             var (floor, floorLoss) = IspAccessFloor(latency, request.IspTargetIds);
             Put(LiveViewSpark.IspRtt, floor.Where(s => s.RttAvgMs.HasValue).Select(s => (s.Time, s.RttAvgMs!.Value)));
             Put(LiveViewSpark.IspLoss, floorLoss);
-            Put(LiveViewSpark.TransitRtt, MeanAcrossTargets(latency, request.TransitTargetIds, RttField));
+            Put(LiveViewSpark.TransitRtt, BlendAcrossTargets(latency, request.TransitTargetIds));
             Put(LiveViewSpark.TransitLoss, MeanAcrossTargets(latency, request.TransitTargetIds, LossField));
             Put(LiveViewSpark.GatewayCpu, health.GetValueOrDefault(CpuField));
             Put(LiveViewSpark.GatewayMemory, health.GetValueOrDefault(MemoryField));
@@ -163,7 +170,17 @@ public class SignalSparklineService : ISignalSparklineService
         return (AccessFloor.Build(hops, lowest), AccessFloor.LossSeries(hops, lowest));
     }
 
-    /// <summary>The mean across targets per window, as the Transit tiles read their hops. Windows no target reported in are left out.</summary>
+    /// <summary>The Transit RTT tile's line: <see cref="HopLatencyBlend.Series"/> over the targets' RTT, as the tile reads its live value.</summary>
+    internal static List<(DateTime Time, double Value)> BlendAcrossTargets(
+        IReadOnlyDictionary<(string TargetId, string Field), List<(DateTime Time, double Value)>> perTarget,
+        IEnumerable<string> targetIds) =>
+        HopLatencyBlend.Series(targetIds.Distinct(StringComparer.Ordinal)
+            .Select(id => perTarget.TryGetValue((id, RttField), out var rows) ? rows : [])
+            .Where(rows => rows.Count > 0)
+            .Select(rows => (IReadOnlyList<(DateTime Time, double Value)>)rows)
+            .ToList());
+
+    /// <summary>The mean across targets per window, as the Transit Loss tile reads its hops. Windows no target reported in are left out.</summary>
     internal static List<(DateTime Time, double Value)> MeanAcrossTargets(
         IReadOnlyDictionary<(string TargetId, string Field), List<(DateTime Time, double Value)>> perTarget,
         IEnumerable<string> targetIds, string field) =>

@@ -64,9 +64,12 @@ public class ConsoleAccessAnalyzer
                 .Select(c => c!)
                 .ToList();
 
+            // Scored 0: UniFi records only sign-ins, so a service holding a long-lived session reads
+            // as unused while in use. The finding stays at its severity for the operator to Acknowledge.
             var issue = BuildIssue(unused, IssueTypes.UnusedLocalAdmins, "CONSOLE-ADMIN-001",
                 one: "Local Admin account", many: "Local Admin accounts",
-                "Remove or deactivate Local Admin accounts that are no longer in use, in UniFi Network - People or UniFi Site Manager - People. A Local Admin account has no UI.com sign-in protection.");
+                "Remove or deactivate Local Admin accounts that are no longer in use, in UniFi Network - People or UniFi Site Manager - People. A Local Admin account has no UI.com sign-in protection. This issue does not affect the security score: if a service keeps the account signed in (an MCP server or another integration), Acknowledge it to dismiss it.",
+                scored: false);
             if (issue != null) issues.Add(issue);
         }
 
@@ -119,7 +122,7 @@ public class ConsoleAccessAnalyzer
     }
 
     private static AuditIssue? BuildIssue(List<UnusedCredential> unused, string type, string ruleId,
-        string one, string many, string recommendation)
+        string one, string many, string recommendation, bool scored = true)
     {
         if (unused.Count == 0)
             return null;
@@ -134,7 +137,7 @@ public class ConsoleAccessAnalyzer
             Severity = critical ? AuditSeverity.Critical : AuditSeverity.Recommended,
             Message = $"{unused.Count} {noun} unused for {RecommendedIdleDays}+ days: {list}.",
             RuleId = ruleId,
-            ScoreImpact = critical ? CriticalScoreImpact : RecommendedScoreImpact,
+            ScoreImpact = !scored ? 0 : critical ? CriticalScoreImpact : RecommendedScoreImpact,
             RecommendedAction = recommendation,
             Metadata = new Dictionary<string, object>
             {

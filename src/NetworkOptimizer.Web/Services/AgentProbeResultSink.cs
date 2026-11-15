@@ -1550,6 +1550,27 @@ public class AgentProbeResultSink
                 prevState, sample.InOctets, sample.OutOctets, timestamp, sample.HcCounters, sample.SpeedBps);
             _counterCache[key] = calc.NewState;
 
+            switch (calc.Outcome)
+            {
+                case InterfaceRateCalculator.Outcome.ResetConfirmed:
+                    _logger.LogInformation(
+                        "SNMP counter reset confirmed for {Slug} {Mac}/{IfName}; reseeding baseline.",
+                        connection.SiteSlug, sample.DeviceMac, sample.IfName);
+                    break;
+                case InterfaceRateCalculator.Outcome.ImplausibleRate:
+                    _logger.LogWarning(
+                        "Discarding implausible SNMP rate for {Slug} {Mac}/{IfName}: in={RateIn:F0} out={RateOut:F0} bps exceed link speed {LinkBps} bps (x{Margin}). Likely a corrupt counter read.",
+                        connection.SiteSlug, sample.DeviceMac, sample.IfName, calc.RejectedRateInBps ?? 0, calc.RejectedRateOutBps ?? 0,
+                        sample.SpeedBps, InterfaceRateCalculator.LinkSpeedToleranceFactor);
+                    break;
+                case InterfaceRateCalculator.Outcome.CeilingHeld:
+                    _logger.LogDebug(
+                        "Holding SNMP baseline for {Slug} {Mac}/{IfName}: in={RateIn:F0} out={RateOut:F0} bps is marginally over link speed {LinkBps} bps; the next window absorbs it.",
+                        connection.SiteSlug, sample.DeviceMac, sample.IfName, calc.RejectedRateInBps ?? 0, calc.RejectedRateOutBps ?? 0,
+                        sample.SpeedBps);
+                    break;
+            }
+
             // Mirror into the site's live caches the same way the local fast
             // tier does, so the site's Live View port table and map refresh
             // from memory.
@@ -1635,7 +1656,7 @@ public class AgentProbeResultSink
 
             // A read the calculator does not trust is not stored: differenced, one bad sample
             // reads as the whole counter's worth of traffic.
-            if (calc.Outcome is InterfaceRateCalculator.Outcome.ResetPending or InterfaceRateCalculator.Outcome.ImplausibleRate || calc.NewState.ProvisionalSeed)
+            if (calc.IsUntrusted)
                 continue;
 
             await influx.WriteInterfaceCountersAsync(

@@ -122,9 +122,39 @@ public class InterfaceRateCalculatorTests
 
         r.Outcome.Should().Be(InterfaceRateCalculator.Outcome.ResetConfirmed);
         r.RateInBps.Should().BeNull();
-        // Baseline reseeded to the current post-reset sample.
+        // Baseline reseeded to the current post-reset sample, provisionally.
         r.NewState.InOctets.Should().Be(1_500_000);
         r.NewState.CandidateInOctets.Should().BeNull();
+        r.NewState.ProvisionalSeed.Should().BeTrue();
+        r.IsUntrusted.Should().BeTrue("the confirming read is not stored");
+    }
+
+    [Fact]
+    public void SnmpAgentRestart_LowNonzeroReads_ConfirmReset_RealCounterReturns_NoPhantomRate()
+    {
+        // A gateway's eth0 while its SNMP service restarted: two low nonzero reads confirmed a
+        // "reset", then the real counter came back. Against the low read that was 404 Mbps.
+        var baseline = Seed(856_074_906, 412_000_000, T0);
+
+        var low1 = InterfaceRateCalculator.Compute(
+            baseline, 740_241_477, 380_000_000, T0.AddSeconds(11), useHcCounters: true, linkSpeedBps: TenGbps);
+        low1.Outcome.Should().Be(InterfaceRateCalculator.Outcome.ResetPending);
+
+        var low2 = InterfaceRateCalculator.Compute(
+            low1.NewState, 740_241_477, 380_000_000, T0.AddSeconds(13), useHcCounters: true, linkSpeedBps: TenGbps);
+        low2.Outcome.Should().Be(InterfaceRateCalculator.Outcome.ResetConfirmed);
+        low2.IsUntrusted.Should().BeTrue();
+
+        var back = InterfaceRateCalculator.Compute(
+            low2.NewState, 856_103_093, 412_010_000, T0.AddSeconds(15), useHcCounters: true, linkSpeedBps: TenGbps);
+        back.Outcome.Should().Be(InterfaceRateCalculator.Outcome.SeededBaseline);
+        back.RateInBps.Should().BeNull("the real counter's return is not traffic");
+        back.IsUntrusted.Should().BeFalse();
+
+        var next = InterfaceRateCalculator.Compute(
+            back.NewState, 856_103_959, 412_010_500, T0.AddSeconds(20), useHcCounters: true, linkSpeedBps: TenGbps);
+        next.Outcome.Should().Be(InterfaceRateCalculator.Outcome.Normal);
+        next.RateInBps.Should().BeApproximately(866 * 8.0 / 5.0, 1);
     }
 
     [Fact]
@@ -404,7 +434,7 @@ public class InterfaceRateCalculatorTests
     }
 
     [Fact]
-    public void UnknownLinkSpeed_RateOverCeiling_IsRejected()
+    public void UnknownLinkSpeed_RateOverCeiling_IsNeverEmitted()
     {
         var prev = Seed(0, 0, T0);
         long bytes = (long)(20_000_000_000d / 8.0 * 5.0); // 20 Gbps, over the 14 Gbps ceiling
@@ -412,7 +442,111 @@ public class InterfaceRateCalculatorTests
             prev, inOctets: bytes, outOctets: 0, now: T0.AddSeconds(5),
             useHcCounters: true, linkSpeedBps: 0);
 
+        // No link speed, so no hold: discarded at once, however close to the ceiling.
         r.Outcome.Should().Be(InterfaceRateCalculator.Outcome.ImplausibleRate);
         r.RateInBps.Should().BeNull();
+    }
+
+    [Fact]
+    public void TunnelJumpAfterAnSnmpRestart_IsDiscarded_NotHeldIntoTheNextWindow()
+    {
+        // wgclt2 at a 2 s poll when the gateway's SNMP restarted: a ~4 GB forward jump (16 Gbps).
+        // Held, the next window absorbed it and 7.9 Gbps was stored.
+        var prev = Seed(10_000_000_000, 5_000_000, T0);
+        var jump = InterfaceRateCalculator.Compute(
+            prev, 10_000_000_000 + 4_010_000_000, 5_000_100, T0.AddSeconds(2),
+            useHcCounters: true, linkSpeedBps: 0);
+
+        jump.Outcome.Should().Be(InterfaceRateCalculator.Outcome.ImplausibleRate);
+        jump.IsUntrusted.Should().BeTrue();
+
+        var next = InterfaceRateCalculator.Compute(
+            jump.NewState, 10_000_000_000 + 4_010_000_000 + 250_000, 5_000_200, T0.AddSeconds(4),
+            useHcCounters: true, linkSpeedBps: 0);
+
+        next.Outcome.Should().Be(InterfaceRateCalculator.Outcome.Normal);
+        next.RateInBps.Should().BeApproximately(1_000_000, 1, "only the real 1 Mbps, none of the jump");
+    }
+
+    // ─── Line-rate traffic read marginally over the ceiling ───
+
+    [Fact]
+    public void LineRateInflatedByTiming_IsHeldOnce_ThenAveragedAcrossBothWindows()
+    {
+        // A 9.4 Gbps transfer on a 10G port, polled every 2 s. The first counter read carries 3 s
+        // of traffic, so it computes 14.1 Gbps - just over the 14 Gbps ceiling.
+        const double rate = 9_400_000_000d;
+        long BytesFor(double seconds) => (long)(rate / 8.0 * seconds);
+        var prev = Seed(1_000_000_000, 50_000_000, T0);
+
+        var early = InterfaceRateCalculator.Compute(
+            prev, 1_000_000_000 + BytesFor(3), 50_100_000, T0.AddSeconds(2),
+            useHcCounters: true, linkSpeedBps: TenGbps);
+
+        early.Outcome.Should().Be(InterfaceRateCalculator.Outcome.CeilingHeld);
+        early.RateInBps.Should().BeNull();
+        early.IsUntrusted.Should().BeTrue("a held sample is not stored");
+        early.NewState.InOctets.Should().Be(1_000_000_000, "the baseline is held");
+        early.NewState.Timestamp.Should().Be(T0);
+
+        var next = InterfaceRateCalculator.Compute(
+            early.NewState, 1_000_000_000 + BytesFor(4), 50_200_000, T0.AddSeconds(4),
+            useHcCounters: true, linkSpeedBps: TenGbps);
+
+        next.Outcome.Should().Be(InterfaceRateCalculator.Outcome.Normal);
+        next.RateInBps.Should().BeApproximately(rate, 1_000);
+        next.NewState.CeilingHeld.Should().BeFalse();
+    }
+
+    [Fact]
+    public void FarOverTheHoldBand_IsDiscardedAtOnce()
+    {
+        var prev = Seed(0, 0, T0);
+        long bytes = (long)(TenGbps * 3.0 / 8.0 * 2.0); // 30 Gbps on a 10G port
+        var r = InterfaceRateCalculator.Compute(
+            prev, bytes, 0, T0.AddSeconds(2), useHcCounters: true, linkSpeedBps: TenGbps);
+
+        r.Outcome.Should().Be(InterfaceRateCalculator.Outcome.ImplausibleRate);
+        r.NewState.InOctets.Should().Be(bytes);
+    }
+
+    [Fact]
+    public void WrapRecoveredDelta_OverTheCeiling_IsNeverHeld()
+    {
+        // A longer window would bring a false wrap under the ceiling, so it is discarded at once.
+        var prev = Seed(3_000_000_000, 1_000, T0);
+        var r = InterfaceRateCalculator.Compute(
+            prev, 500_000_000, 2_000, T0.AddSeconds(60), useHcCounters: false, linkSpeedBps: 100_000_000L);
+
+        r.Outcome.Should().Be(InterfaceRateCalculator.Outcome.ImplausibleRate);
+        r.RateInBps.Should().BeNull();
+    }
+
+    // ─── 32-bit wrap needs the counter to go back by more than half its range ───
+
+    [Fact]
+    public void SlightlyBackwardRead_On32BitUnknownSpeed_IsNotAWrap_NoPhantomRate()
+    {
+        // An access point's wifi0 read a little below its baseline in both directions. Wrapped,
+        // that is ~2^32 bytes each way: 6.9 Gbps at a 5 s poll, under the 14 Gbps ceiling.
+        var prev = Seed(3_000_000_000, 2_900_000_000, T0);
+        var r = InterfaceRateCalculator.Compute(
+            prev, 2_999_000_000, 2_899_000_000, T0.AddSeconds(5), useHcCounters: false, linkSpeedBps: 0);
+
+        r.Outcome.Should().Be(InterfaceRateCalculator.Outcome.ResetPending);
+        r.RateInBps.Should().BeNull();
+        r.NewState.InOctets.Should().Be(3_000_000_000, "the baseline is held");
+    }
+
+    [Fact]
+    public void ThirtyTwoBitWrap_InOneDirectionOnly_RecoversThatDirection()
+    {
+        var prev = Seed(uint.MaxValue - 1_000, 2_000_000, T0);
+        var r = InterfaceRateCalculator.Compute(
+            prev, 4_000, 2_500_000, T0.AddSeconds(5), useHcCounters: false, linkSpeedBps: 0);
+
+        r.Outcome.Should().Be(InterfaceRateCalculator.Outcome.Normal);
+        r.RateInBps.Should().BeApproximately(5_001 * 8.0 / 5.0, 1);
+        r.RateOutBps.Should().BeApproximately(500_000 * 8.0 / 5.0, 1);
     }
 }

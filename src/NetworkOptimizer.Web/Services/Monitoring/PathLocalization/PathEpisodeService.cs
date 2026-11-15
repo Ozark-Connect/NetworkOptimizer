@@ -82,7 +82,8 @@ public sealed class PathEpisodeService : IPathEpisodeService
                 mine.LastOrDefault(r => r.Trace.Kind == PathEpisodeTraceKind.Recovery).Result);
         }
 
-        var degraded = view.Degraded.Select(t => Traces(t, PathEpisodeTraceKind.Path)).ToList();
+        var degraded = view.Degraded.Select(t => Traces(t, PathEpisodeTraceKind.Path)
+            with { Series = new TargetSeries(t.PeakLossPct ?? 0, t.BaselineRttMs, t.PeakRttMs) }).ToList();
         var controls = view.Controls.Select(t => Traces(t, PathEpisodeTraceKind.Control)).Where(c => c.PathRounds.Count > 0).ToList();
 
         var asns = new Dictionary<string, AsnLookup?>(StringComparer.OrdinalIgnoreCase);
@@ -113,12 +114,12 @@ public sealed class PathEpisodeService : IPathEpisodeService
             var tt = degraded.First(d => d.TargetId == t.TargetId);
             var vantage = trace?.Vantage ?? "server";
             return new PathEpisodeHopTable(t, tt.Address, vantage, trace?.SourceInterface,
-                tt.PathRounds.Count, tt.Recovery != null, v?.Hops ?? Array.Empty<HopReading>(), VantageName(vantage, agentNames),
+                tt.PathRounds.Count, tt.Recovery != null, v?.Hops ?? Array.Empty<HopReading>(), trace == null ? null : VantageName(vantage, agentNames),
                 trace?.ResolvedAddress);
         }).ToList();
 
         return new PathEpisodeDetail(view, tables, new HashSet<string>(snapshot.PingedHops, StringComparer.OrdinalIgnoreCase), snapshot.HopPings,
-            snapshot.MonitoredLoss);
+            snapshot.MonitoredLoss, snapshot.MonitoredRtt);
     }
 
     /// <summary>The site's agents by id, for naming a trace's vantage.</summary>

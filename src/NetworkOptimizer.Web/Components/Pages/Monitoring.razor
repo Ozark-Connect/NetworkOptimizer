@@ -305,13 +305,13 @@
                     <div class="isp-tile-bar"><div class="isp-tile-bar-fill" style="width: @(ispHealth.Score)%"></div></div>
                 }
             </div>
-            @{ var ispTarget = ScopedTargetStats(MonitoringTargetType.AccessIsp, meanAcrossTargets: false); var ispIds = ScopedTargetIds(MonitoringTargetType.AccessIsp); }
+            @{ var ispTarget = ScopedTargetStats(MonitoringTargetType.AccessIsp); var ispIds = ScopedTargetIds(MonitoringTargetType.AccessIsp); }
             <div class="monitoring-stat-card clickable-stat-card signal-spark-host" @onclick="@(() => JumpToAnalysis(AccessIspCategory))">
                 <StatTileSparkline Spark="LiveViewSpark.IspRtt" Request="@LiveSparkRequest()" Current="ispTarget.rtt" Live="@(_mapHistoricAt == null && _historicSnapshot == null && !LiveWan.IsComparing)" />
                 @if (LiveWan.IsComparing)
                 {
                     <div class="stat-value stat-value-stacked">
-                        @foreach (var r in PerWanTargetStats(MonitoringTargetType.AccessIsp, meanAcrossTargets: false))
+                        @foreach (var r in PerWanTargetStats(MonitoringTargetType.AccessIsp))
                         {
                             <div class="stat-stack-row"><span class="stat-stack-wan"><span class="desktop-label">@r.Label</span><span class="mobile-label">@NetworkOptimizer.UniFi.GatewayWanHelper.ShortWanToken(r.Label)</span></span><span class="stat-stack-value">@FormatRtt(r.Rtt)</span></div>
                         }
@@ -332,7 +332,7 @@
                 @if (LiveWan.IsComparing)
                 {
                     <div class="stat-value stat-value-stacked">
-                        @foreach (var r in PerWanTargetStats(MonitoringTargetType.AccessIsp, meanAcrossTargets: false))
+                        @foreach (var r in PerWanTargetStats(MonitoringTargetType.AccessIsp))
                         {
                             <div class="stat-stack-row @(r.Loss > 0 ? "stat-danger" : "")"><span class="stat-stack-wan"><span class="desktop-label">@r.Label</span><span class="mobile-label">@NetworkOptimizer.UniFi.GatewayWanHelper.ShortWanToken(r.Label)</span></span><span class="stat-stack-value">@FormatLoss(r.Loss)</span></div>
                         }
@@ -348,13 +348,13 @@
                 }
                 <div class="stat-label">ISP Loss</div>
             </div>
-            @{ var transitTarget = ScopedTargetStats(MonitoringTargetType.Transit, meanAcrossTargets: true); var transitIds = ScopedTargetIds(MonitoringTargetType.Transit); }
+            @{ var transitTarget = ScopedTargetStats(MonitoringTargetType.Transit); var transitIds = ScopedTargetIds(MonitoringTargetType.Transit); }
             <div class="monitoring-stat-card clickable-stat-card stat-card-no-minheight signal-spark-host" @onclick="@(() => JumpToAnalysis(TransitCategory))">
                 <StatTileSparkline Spark="LiveViewSpark.TransitRtt" Request="@LiveSparkRequest()" Current="transitTarget.rtt" Live="@(_mapHistoricAt == null && _historicSnapshot == null && !LiveWan.IsComparing)" />
                 @if (LiveWan.IsComparing)
                 {
                     <div class="stat-value stat-value-stacked">
-                        @foreach (var r in PerWanTargetStats(MonitoringTargetType.Transit, meanAcrossTargets: true))
+                        @foreach (var r in PerWanTargetStats(MonitoringTargetType.Transit))
                         {
                             <div class="stat-stack-row"><span class="stat-stack-wan"><span class="desktop-label">@r.Label</span><span class="mobile-label">@NetworkOptimizer.UniFi.GatewayWanHelper.ShortWanToken(r.Label)</span></span><span class="stat-stack-value">@FormatRtt(r.Rtt)</span></div>
                         }
@@ -375,7 +375,7 @@
                 @if (LiveWan.IsComparing)
                 {
                     <div class="stat-value stat-value-stacked">
-                        @foreach (var r in PerWanTargetStats(MonitoringTargetType.Transit, meanAcrossTargets: true))
+                        @foreach (var r in PerWanTargetStats(MonitoringTargetType.Transit))
                         {
                             <div class="stat-stack-row @(r.Loss > 0 ? "stat-danger" : "")"><span class="stat-stack-wan"><span class="desktop-label">@r.Label</span><span class="mobile-label">@NetworkOptimizer.UniFi.GatewayWanHelper.ShortWanToken(r.Label)</span></span><span class="stat-stack-value">@FormatLoss(r.Loss)</span></div>
                         }
@@ -2196,7 +2196,7 @@
                 await JS.InvokeVoidAsync("localStorage.setItem", SharedWanScopeKey, FocusedWanKeyOrNull ?? "");
                 // persist:true is the user's own pick - the link and the restore both pass false - so
                 // this is the moment the link's WAN stops describing what is on screen.
-                ClearLinkedWan();
+                ClearLinkedWan(andCategory: true);
             }
             // Held rather than dropped when the module is not there yet: window.__latencyCharts is
             // assigned inside the mount's own import, so a plain ?. swallowed every push that beat
@@ -4610,16 +4610,34 @@
     /// <see cref="ClearLinkedInstant"/> - the parameter records which WAN a link wanted, and left in
     /// place a reload or the back button re-narrows to it over the choice they just made.
     /// </summary>
-    private void ClearLinkedWan()
+    /// <param name="andCategory">
+    /// True for a scope pick on the Latency &amp; Packet Loss chart: ?category= and ?target= go too,
+    /// in the same navigation. Left in place, a reload replays the link's category over the scope
+    /// just picked, and the LAN scope cannot show an ISP, Transit, or Internet category.
+    /// </param>
+    private void ClearLinkedWan(bool andCategory = false)
     {
-        if (string.IsNullOrWhiteSpace(WanParam)) return;
         // Never before the link has been read. Loading the live scope self-selects a WAN and raises
         // its own change, so on a cold load this threw the parameter away while it was still the
         // only record of where the user asked to go.
         if (LinkNarrowsWanFilter && _appliedLinkWanKey != LinkWanKey) return;
 
-        var stripped = SiteContextService.RemoveQueryParam(NavigationManager.Uri, "wan");
-        if (stripped == NavigationManager.Uri) return;
+        var current = NavigationManager.Uri;
+        var stripped = string.IsNullOrWhiteSpace(WanParam)
+            ? current
+            : SiteContextService.RemoveQueryParam(current, "wan");
+        // Only once the chart mount has read the link's category.
+        if (andCategory && _latencyChartsMounted && !string.IsNullOrEmpty(CategoryParam))
+        {
+            stripped = SiteContextService.RemoveQueryParam(stripped, "category");
+            if (!string.IsNullOrWhiteSpace(TargetParam))
+                stripped = SiteContextService.RemoveQueryParam(stripped, "target");
+            // Re-supplied parameters re-arm these on every navigation, so the next mount would
+            // replay the link's category without this.
+            _preSelectCategory = null;
+            _soloTargetId = null;
+        }
+        if (stripped == current) return;
         // The URL is about to change, which re-arms the linked instant unless the arm moves with it -
         // a WAN change would then seek them back to the link's moment. _pendingAtMs is deliberately
         // left as it stands: this is not a statement about time. The investigation arm moves too -
@@ -5192,29 +5210,12 @@
         return (s?.RttAvgMs, s?.LossPercent ?? 0);
     }
 
-    private (double? rtt, double loss) GetBestTargetStats(MonitoringTargetType type)
-    {
-        if (_historicSnapshot != null)
-        {
-            return type switch
-            {
-                MonitoringTargetType.AccessIsp => (_historicSnapshot.IspRttMs, _historicSnapshot.IspLossPercent),
-                _ => (null, 0)
-            };
-        }
-        var targets = _targets.Where(t => t.TargetType == type && t.Enabled).ToList();
-        if (targets.Count == 0) return (null, 0);
-        // The access floor, as ISP Health reads the access layer; see MonitoringLiveStats.GetIspAccessFloorLive.
-        var (rtt, loss) = LiveStats.GetIspAccessFloorLive(targets.Select(t => t.TargetId));
-        return (rtt, loss ?? 0);
-    }
-
-
     /// <summary>
     /// One WAN's share of a target type. Targets carry the WAN their data describes, and an
     /// unstamped target is a primary-path measurement - the same rule every per-WAN reader uses,
     /// so the tiles cannot disagree with the reports about which WAN a number belongs to.
     /// </summary>
+    // TODO: duplicated in LiveViewPanel.razor (TargetsForWan); move into one shared helper.
     private List<MonitoringTarget> TargetsForWan(MonitoringTargetType type, string wanKey, bool isPrimary) =>
         _targets.Where(t => t.TargetType == type && t.Enabled)
             .Where(t => NetworkOptimizer.Storage.Models.MonitoringTarget.IsUnpinned(t.WanInterface)
@@ -5238,7 +5239,8 @@
     /// latency beside that WAN's throughput - a number that belongs to another connection,
     /// presented as this one's. A WAN with no targets of its own reads as no data.
     /// </summary>
-    private (double? rtt, double loss) ScopedTargetStats(MonitoringTargetType type, bool meanAcrossTargets)
+    // TODO: duplicated in LiveViewPanel.razor (ScopedTargetStats); move the tile figures into one shared component or service.
+    private (double? rtt, double loss) ScopedTargetStats(MonitoringTargetType type)
     {
         // Playback answers from the snapshot, which is already scoped to the WAN in focus
         // (BuildSnapshotWanScope). The per-WAN path below reads live stats only, so during
@@ -5253,9 +5255,10 @@
             };
         }
         var wan = LiveWan.Selected;
-        if (wan == null) return meanAcrossTargets ? GetMeanTargetStats(type) : GetBestTargetStats(type);
+        if (wan == null)
+            return LiveStats.GetTileLatencyLive(type, _targets.Where(t => t.TargetType == type && t.Enabled).Select(t => t.TargetId));
 
-        var rows = PerWanTargetStats(type, meanAcrossTargets);
+        var rows = PerWanTargetStats(type);
         var row = rows.FirstOrDefault(r => string.Equals(
             r.Label,
             NetworkOptimizer.UniFi.GatewayWanHelper.SplitWanLabel(
@@ -5270,10 +5273,12 @@
             wan.Label, NetworkOptimizer.UniFi.GatewayWanHelper.WanIndexFromKey(wan.Key)).WanToken ?? wan.Label;
 
     /// <summary>What every Live View tile's sparkline reads; the same for all of them, so they share one fetch.</summary>
+    // TODO: duplicated in LiveViewPanel.razor (LiveSparkRequest); move into one shared helper.
     private LiveViewSparkRequest LiveSparkRequest() => new(
         _gatewayMac, GetGatewayFabricTargetId(),
         ScopedTargetIds(MonitoringTargetType.AccessIsp), ScopedTargetIds(MonitoringTargetType.Transit));
     /// <summary>The targets an ISP or Transit tile reads right now: the selected WAN's own, or every enabled one.</summary>
+    // TODO: duplicated in LiveViewPanel.razor (ScopedTargetIds); move into one shared helper.
     private IReadOnlyList<string> ScopedTargetIds(MonitoringTargetType type)
     {
         var wan = LiveWan.Selected;
@@ -5282,7 +5287,8 @@
             : TargetsForWan(type, wan.Key, wan.IsPrimary);
         return targets.Select(t => t.TargetId).ToList();
     }
-    private List<(string Label, double? Rtt, double Loss)> PerWanTargetStats(MonitoringTargetType type, bool meanAcrossTargets)
+    // TODO: duplicated in LiveViewPanel.razor (PerWanTargetStats); move the tile figures into one shared component or service.
+    private List<(string Label, double? Rtt, double Loss)> PerWanTargetStats(MonitoringTargetType type)
     {
         var rows = new List<(string, double?, double)>();
         foreach (var wan in LiveWan.SelectedOptions)
@@ -5297,65 +5303,10 @@
                     type == MonitoringTargetType.AccessIsp ? historic.IspLossPercent : historic.TransitLossPercent));
                 continue;
             }
-            var targets = TargetsForWan(type, wan.Key, wan.IsPrimary);
-            double? rtt = null;
-            double loss = 0;
-            if (targets.Count > 0)
-            {
-                var rtts = new List<double>();
-                var losses = new List<double>();
-                var freshAfter = DateTime.UtcNow - Services.MonitoringLiveStats.LiveReadingMaxAge;
-                foreach (var t in targets)
-                {
-                    var st = LiveStats.GetTargetStats(t.TargetId);
-                    // A reading only counts while it is current: a target that stops reporting
-                    // otherwise keeps presenting the reading it carried before it went quiet.
-                    if (st == null || st.LastUpdate < freshAfter) continue;
-                    losses.Add(st.LossPercent);
-                    if (st.RttAvgMs == null) continue;
-                    rtts.Add(st.RttAvgMs.Value);
-                }
-                if (meanAcrossTargets)
-                {
-                    // Transit reads as the mean of its hops.
-                    rtt = rtts.Count > 0 ? rtts.Average() : null;
-                    loss = losses.Count > 0 ? losses.Average() : 0;
-                }
-                else
-                {
-                    // The access ISP reads as its access floor, as ISP Health does.
-                    var floor = LiveStats.GetIspAccessFloorLive(targets.Select(t => t.TargetId));
-                    rtt = floor.RttAvgMs;
-                    loss = floor.LossPercent ?? 0;
-                }
-            }
+            var (rtt, loss) = LiveStats.GetTileLatencyLive(type, TargetsForWan(type, wan.Key, wan.IsPrimary).Select(t => t.TargetId));
             rows.Add((WanRowLabel(wan), rtt, loss));
         }
         return rows;
-    }
-
-    private (double? rtt, double loss) GetMeanTargetStats(MonitoringTargetType type)
-    {
-        if (_historicSnapshot != null)
-        {
-            return type switch
-            {
-                MonitoringTargetType.Transit => (_historicSnapshot.TransitRttMs, _historicSnapshot.TransitLossPercent),
-                _ => (null, 0)
-            };
-        }
-        var targets = _targets.Where(t => t.TargetType == type && t.Enabled).ToList();
-        if (targets.Count == 0) return (null, 0);
-
-        var rtts = new List<double>();
-        var losses = new List<double>();
-        foreach (var t in targets)
-        {
-            var s = LiveStats.GetTargetStats(t.TargetId);
-            if (s?.RttAvgMs != null) rtts.Add(s.RttAvgMs.Value);
-            if (s != null) losses.Add(s.LossPercent);
-        }
-        return (rtts.Count > 0 ? rtts.Average() : null, losses.Count > 0 ? losses.Average() : 0);
     }
 
     private (double ingress, double egress) GetTotalFabricLoad()

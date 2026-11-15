@@ -3,6 +3,15 @@ using NetworkOptimizer.Web.Services.Ssh;
 
 namespace NetworkOptimizer.Web.Services.Monitoring.RebootReason;
 
+/// <summary>What one probe found: the reason, if any, and the device's own uptime, if SSH reached it.</summary>
+/// <param name="Reason">The reason, or null when SSH gave nothing usable.</param>
+/// <param name="DeviceUptimeSeconds">The device's /proc/uptime, or null when SSH did not answer.</param>
+public sealed record DeviceRebootProbeResult(DeviceRebootReason? Reason, long? DeviceUptimeSeconds)
+{
+    /// <summary>SSH gave nothing at all.</summary>
+    public static readonly DeviceRebootProbeResult Nothing = new(null, null);
+}
+
 /// <summary>
 /// Reads the reboot evidence a UniFi device keeps across a restart, over SSH, in one
 /// read-only round trip.
@@ -28,6 +37,17 @@ public class DeviceRebootProbe
     private const string ConsoleRingMarker = "###CONSOLERING";
     private const string CrashAgeMarker = "###CRASHAGE";
     private const string DeviceClockMarker = "###DEVICECLOCK";
+    private const string UptimeMarker = "###UPTIME";
+
+    /// <summary>
+    /// Every marker the probe command echoes. A marker missing here is not a section: its output is
+    /// appended to the previous one, silently corrupting both (###UPTIME did, emptying the device clock).
+    /// </summary>
+    internal static readonly HashSet<string> Markers = new(StringComparer.Ordinal)
+    {
+        PstoreMarker, ConsoleMarker, CrashMarker, RebootLogMarker, RebootLogAgeMarker, UpgradeMarker,
+        UpgradeAgeMarker, ConsoleRingMarker, CrashAgeMarker, DeviceClockMarker, UptimeMarker,
+    };
 
     /// <summary>
     /// How far the device's clock may sit from the server's before the reason log's age, which is
@@ -42,7 +62,7 @@ public class DeviceRebootProbe
     /// </summary>
     /// The markers MUST stay single-quoted: unquoted, the shell reads the leading '#' as the start
     /// of a comment and discards the whole rest of the line, which is every command after it.
-    private static readonly string ProbeCommand = string.Join("; ",
+    internal static readonly string ProbeCommand = string.Join("; ",
         $"echo '{PstoreMarker}'",
         "ls /sys/fs/pstore/ 2>/dev/null",
         $"echo '{ConsoleMarker}'",
@@ -81,6 +101,10 @@ public class DeviceRebootProbe
         // The device's clock, so the server can tell when the ages above were measured on a wrong one.
         $"echo '{DeviceClockMarker}'",
         "date +%s 2>/dev/null",
+        // The OS's own uptime. SNMP's sysUpTime counts from the SNMP service's start, so this is
+        // what tells a real reboot from an SNMP restart (see DeviceRebootTracker). Do not drop it.
+        $"echo '{UptimeMarker}'",
+        "awk '{print int($1)}' /proc/uptime 2>/dev/null",
         // Absent paths make the last command exit non-zero, which the SSH layer reports as a
         // failed run even though the probe output is right there. Land on a success either way.
         "true");
@@ -108,10 +132,11 @@ public class DeviceRebootProbe
     /// the server's: past the provisional window a clock that never syncs gets the same answer as before.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>
-    /// The reason, or null when SSH produced nothing usable (not configured, unreachable, or a
-    /// platform that keeps no pstore). Callers fall back to the UniFi Network event in that case.
+    /// The reason, null when SSH produced nothing usable (not configured, unreachable, or a
+    /// platform that keeps no pstore; callers fall back to the UniFi Network event), and the
+    /// device's own uptime when SSH reached it.
     /// </returns>
-    public async Task<DeviceRebootReason?> ProbeAsync(
+    public async Task<DeviceRebootProbeResult> ProbeAsync(
         string deviceMac,
         string host,
         DeviceType deviceType,
@@ -125,7 +150,7 @@ public class DeviceRebootProbe
         if (string.IsNullOrWhiteSpace(host))
         {
             _logger.LogDebug("Reboot reason probe skipped: no host address for a {DeviceType}", deviceType);
-            return null;
+            return DeviceRebootProbeResult.Nothing;
         }
 
         var (success, output) = await RunProbeAsync(deviceMac, host, deviceType, cancellationToken);
@@ -137,7 +162,7 @@ public class DeviceRebootProbe
             _logger.LogDebug(
                 "Reboot reason probe could not reach {Host} ({DeviceType}) using the {CredentialSet} credentials: {Error}",
                 host, deviceType, credentialSet, Summarize(output));
-            return null;
+            return DeviceRebootProbeResult.Nothing;
         }
 
         if (string.IsNullOrWhiteSpace(output))
@@ -145,10 +170,11 @@ public class DeviceRebootProbe
             _logger.LogDebug(
                 "Reboot reason probe connected to {Host} ({DeviceType}) but the probe returned nothing",
                 host, deviceType);
-            return null;
+            return DeviceRebootProbeResult.Nothing;
         }
 
         var sections = SplitSections(output);
+        var uptime = ParseDeviceUptime(sections);
         var rebootLogAge = ParseSeconds(sections.GetValueOrDefault(RebootLogAgeMarker));
         var rebootLog = sections.GetValueOrDefault(RebootLogMarker);
 
@@ -183,7 +209,7 @@ public class DeviceRebootProbe
             _logger.LogDebug(
                 "Reboot reason probe found no evidence on {Host} ({DeviceType}): {Evidence}",
                 host, deviceType, DescribeEvidence(sections));
-            return null;
+            return new DeviceRebootProbeResult(null, uptime);
         }
 
         // This console keeps a reason log and has not written this boot's entry into it yet, or its
@@ -198,14 +224,14 @@ public class DeviceRebootProbe
                 clockSkewed ? "cannot be dated on the device's clock" : "still holds the previous boot's entry",
                 DescribeEvidence(sections));
 
-            return reason with { Provisional = true };
+            return new DeviceRebootProbeResult(reason with { Provisional = true }, uptime);
         }
 
         _logger.LogDebug(
             "Reboot reason probe on {Host} ({DeviceType}) resolved {Category} from {Source}; evidence: {Evidence}",
             host, deviceType, reason.Category, reason.Source, DescribeEvidence(sections));
 
-        return reason;
+        return new DeviceRebootProbeResult(reason, uptime);
     }
 
     /// <summary>One line describing which evidence sources answered, for the debug log.</summary>
@@ -267,7 +293,11 @@ public class DeviceRebootProbe
         }
     }
 
-    private static Dictionary<string, string> SplitSections(string output)
+    /// <summary>The device's /proc/uptime from the probe output, or null when it is missing.</summary>
+    internal static long? ParseDeviceUptime(Dictionary<string, string> sections) =>
+        long.TryParse(sections.GetValueOrDefault(UptimeMarker)?.Trim(), out var up) && up > 0 ? up : null;
+
+    internal static Dictionary<string, string> SplitSections(string output)
     {
         var sections = new Dictionary<string, string>(StringComparer.Ordinal);
         string? current = null;
@@ -285,9 +315,7 @@ public class DeviceRebootProbe
             var line = raw.TrimEnd('\r');
             var trimmed = line.Trim();
 
-            if (trimmed is PstoreMarker or ConsoleMarker or CrashMarker or RebootLogMarker
-                or RebootLogAgeMarker or UpgradeMarker or UpgradeAgeMarker or ConsoleRingMarker
-                or CrashAgeMarker or DeviceClockMarker)
+            if (Markers.Contains(trimmed))
             {
                 Flush();
                 current = trimmed;

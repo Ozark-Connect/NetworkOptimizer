@@ -188,7 +188,7 @@ public sealed class PathEpisodeWatcher
 
     /// <summary>The analysis over the rounds so far, and which hops' own series decided them.</summary>
     private sealed record Analysis(EpisodeVerdict Verdict, Dictionary<string, bool> Anchors, HashSet<string> Pinged, HashSet<string> Monitored,
-        Dictionary<string, double> MonitoredLoss, HashSet<string> AccessHops);
+        Dictionary<string, double> MonitoredLoss, Dictionary<string, double> MonitoredRtt, HashSet<string> AccessHops);
 
     /// <summary>Most hops pinged in one round, across the episode's targets.</summary>
     private const int MaxPingedHopsPerRound = 8;
@@ -1090,7 +1090,11 @@ public sealed class PathEpisodeWatcher
         HashSet<string> accessHops;
         lock (_lock)
         {
-            degraded = run.Degraded.Select(ToTraces).ToList();
+            degraded = run.Degraded.Select(d => ToTraces(d) with
+            {
+                Series = _trackers.GetValueOrDefault(d.Target.TargetId) is { } tr
+                    ? new TargetSeries(tr.PeakLossPct, tr.BaselineRttMs, tr.PeakRttMs) : null
+            }).ToList();
             controls = run.Control is { } c && c.Rounds.Count > 0 ? new List<TargetTraces> { ToTraces(c) } : new();
             monitoredByAddress = _watched.Values
                 .Where(w => w.Role != GateRole.Path && w.ContextKey == run.ContextKey)
@@ -1127,6 +1131,23 @@ public sealed class PathEpisodeWatcher
         var anchors = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
         var pinged = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var monitoredLoss = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
+        var monitoredRtt = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
+        // Only while the episode was open: the recovery wait after it would dilute the figures. Caller holds _lock.
+        void KeepSeries(string ip, TargetDegradation t)
+        {
+            if (t.LossSince(openedAt, run.Row.ClosedAt) is { } series) monitoredLoss[ip] = series.LossPct;
+            if (t.RttSince(openedAt, run.Row.ClosedAt) is double rtt) monitoredRtt[ip] = rtt;
+        }
+        lock (_lock)
+        {
+            // A degraded destination's own series: the trace often misses what it saw, so the table shows both.
+            foreach (var d in run.Degraded)
+            {
+                if (!_trackers.TryGetValue(d.Target.TargetId, out var t)) continue;
+                foreach (var ip in d.Rounds.Select(r => r.ResolvedAddress).Append(d.ResolvedAddress).Append(d.Target.Address))
+                    if (!string.IsNullOrEmpty(ip)) KeepSeries(ip, t);
+            }
+        }
         bool? Anchor(string ip)
         {
             bool? monitored = null;
@@ -1135,8 +1156,7 @@ public sealed class PathEpisodeWatcher
                 if (monitoredByAddress.TryGetValue(ip, out var id) && _trackers.TryGetValue(id, out var t))
                 {
                     monitored = t.ElevatedSince(openedAt);
-                    // Only while the episode was open: the recovery wait after it would dilute the figure.
-                    if (monitored != null && t.LossSince(openedAt, run.Row.ClosedAt) is { } series) monitoredLoss[ip] = series.LossPct;
+                    if (monitored != null) KeepSeries(ip, t);
                 }
             }
             if (monitored is bool m) { anchors[ip] = m; return m; }
@@ -1154,7 +1174,7 @@ public sealed class PathEpisodeWatcher
         var verdict = PathTraceAnalyzer.Analyze(degraded, controls, ip => asns.GetValueOrDefault(ip), Anchor, _options, together, accessHops,
             seriesBaselines);
         return new Analysis(verdict, anchors, pinged, new HashSet<string>(monitoredByAddress.Keys, StringComparer.OrdinalIgnoreCase), monitoredLoss,
-            accessHops);
+            monitoredRtt, accessHops);
     }
 
     /// <summary>
@@ -1249,13 +1269,14 @@ public sealed class PathEpisodeWatcher
     /// <summary>Re-runs the analysis over every round so far and writes the verdict onto the episode.</summary>
     private async Task AnalyzeAndSaveAsync(EpisodeRun run, CancellationToken ct)
     {
-        var (verdict, anchors, pinged, _, monitoredLoss, accessHops) = await AnalyzeAsync(run, ct);
+        var (verdict, anchors, pinged, _, monitoredLoss, monitoredRtt, accessHops) = await AnalyzeAsync(run, ct);
 
         var row = run.Row;
         var snapshot = PathGateSnapshot.Read(row.GateSnapshot);
         snapshot.Anchors = anchors;
         snapshot.PingedHops = pinged.ToList();
         snapshot.MonitoredLoss = monitoredLoss;
+        snapshot.MonitoredRtt = monitoredRtt;
         snapshot.AccessHops = accessHops.ToList();
         lock (_lock) snapshot.SeriesBaselines = new Dictionary<string, double>(run.SeriesBaselines, StringComparer.OrdinalIgnoreCase);
         snapshot.HopPings = run.HopPings.ToDictionary(kv => kv.Key,

@@ -135,14 +135,21 @@ public class AgentOnGatewayDetector : ISiteScopedRegistry
 
     /// <summary>
     /// The connected agent a LAN test runs from: one that is not on the site's gateway (a test
-    /// from the gateway to the gateway measures nothing), most recently heard from first. Null
+    /// from the gateway to the gateway measures nothing). A live agent that serves the LAN speed
+    /// test comes first, since its install carries iperf3; then the lowest agent id. Null
     /// when every connected agent sits on the gateway, or none is connected - a disabled or
     /// unreachable agent holds no connection, so it is never chosen.
     /// </summary>
     public async Task<AgentTunnelConnection?> LanTestAgentAsync(string siteSlug, CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(siteSlug)) return null;
-        foreach (var connection in _tunnelRegistry.GetForSite(siteSlug).OrderByDescending(c => c.LastMessageAt))
+        // Never order by LastMessageAt: each leg of a test resolves the agent on its own, and
+        // that order flips between two healthy agents, splitting one test across both.
+        var candidates = _tunnelRegistry.GetForSite(siteSlug)
+            .OrderBy(c => c.IsStale)
+            .ThenByDescending(c => c.ServesSpeedTest == true)
+            .ThenBy(c => c.AgentId);
+        foreach (var connection in candidates)
         {
             var onGateway = connection.OnGateway
                 ?? await IsAgentOnGatewayAsync(siteSlug, connection.AgentId, connection.HostAddresses, ct);

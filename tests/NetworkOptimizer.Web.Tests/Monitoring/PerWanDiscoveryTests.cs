@@ -476,11 +476,28 @@ public class PerWanDiscoveryTests
     }
 
     [Fact]
-    public void SelectAgent_WithNoAgentAskedForTakesTheSitesFirst()
+    public void SelectAgent_WithNoAgentAskedForAndNoCollectorTakesTheLowestId()
     {
-        var connections = Connections(1, 2);
+        // In hash order, as the registry enumerates them: 94 comes before 7.
+        var connections = Connections(94, 7, 117);
 
-        AgentProbeService.SelectAgent(connections, null)!.AgentId.Should().Be(1);
+        AgentProbeService.SelectAgent(connections, null)!.AgentId.Should().Be(7);
+    }
+
+    [Fact]
+    public void SelectAgent_WithNoAgentAskedForTakesTheCollector()
+    {
+        var connections = Connections(94, 7, 117);
+
+        AgentProbeService.SelectAgent(connections, null, collectorId: 117)!.AgentId.Should().Be(117);
+    }
+
+    [Fact]
+    public void SelectAgent_ACollectorThatIsNotConnected_FallsBackToTheLowestId()
+    {
+        var connections = Connections(94, 117);
+
+        AgentProbeService.SelectAgent(connections, null, collectorId: 7)!.AgentId.Should().Be(94);
     }
 
     [Fact]

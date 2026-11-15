@@ -27,6 +27,13 @@ public static class InterfaceRateCalculator
     /// </summary>
     public const double AbsoluteCeilingBps = 14_000_000_000d; // 14 Gbps
 
+    /// <summary>
+    /// A rate up to this multiple of the ceiling is held for one poll instead of discarded. At a
+    /// 2 s cadence a counter refresh landing late makes line-rate traffic read 1.4-2x over; holding
+    /// the baseline folds those bytes into the next window, which then averages to the true rate.
+    /// </summary>
+    public const double CeilingHoldFactor = 2.0;
+
     public enum Outcome
     {
         /// <summary>Rate computed and emitted normally.</summary>
@@ -57,6 +64,13 @@ public static class InterfaceRateCalculator
         /// baseline can't wedge the interface. Worth a WARN log.
         /// </summary>
         ImplausibleRate,
+
+        /// <summary>
+        /// Computed rate was over the ceiling but within <see cref="CeilingHoldFactor"/> of it.
+        /// Rate withheld and baseline held once, so the next sample spans both windows. A
+        /// second over-ceiling sample in a row is <see cref="ImplausibleRate"/>.
+        /// </summary>
+        CeilingHeld,
     }
 
     /// <summary>
@@ -65,6 +79,7 @@ public static class InterfaceRateCalculator
     /// awaiting confirmation before we trust it). <see cref="ProvisionalSeed"/>
     /// marks a baseline seeded from an all-zero read that is not yet trusted: the
     /// real baseline is established from the first nonzero read instead (see Compute).
+    /// <see cref="CeilingHeld"/> marks a baseline already held once for an over-ceiling rate.
     /// </summary>
     public readonly record struct State(
         long InOctets,
@@ -73,7 +88,8 @@ public static class InterfaceRateCalculator
         long? CandidateInOctets = null,
         long? CandidateOutOctets = null,
         DateTime? CandidateTimestamp = null,
-        bool ProvisionalSeed = false);
+        bool ProvisionalSeed = false,
+        bool CeilingHeld = false);
 
     public readonly record struct Result(
         double? RateInBps,
@@ -81,7 +97,16 @@ public static class InterfaceRateCalculator
         State NewState,
         Outcome Outcome,
         double? RejectedRateInBps = null,
-        double? RejectedRateOutBps = null);
+        double? RejectedRateOutBps = null)
+    {
+        /// <summary>
+        /// True when this sample's counters must not be stored: differenced, one untrusted read
+        /// reads as the whole counter's worth of traffic.
+        /// </summary>
+        public bool IsUntrusted =>
+            Outcome is Outcome.ResetPending or Outcome.ImplausibleRate or Outcome.CeilingHeld
+            || NewState.ProvisionalSeed;
+    }
 
     /// <summary>
     /// Compute the rate for a new counter sample against the previous state.
@@ -149,10 +174,11 @@ public static class InterfaceRateCalculator
         // restarting, not two counters wrapping at once, and wrap arithmetic turns it into most of
         // 2^32 bytes of traffic. Never for a baseline above the 32-bit range either: that counter
         // is 64-bit whatever the interface's speed says (virtual interfaces report none).
+        bool wrapped = false;
         if (!useHcCounters && !(inOctets == 0 && outOctets == 0))
         {
-            if (deltaIn < 0 && prev.InOctets <= uint.MaxValue) deltaIn += (long)uint.MaxValue + 1;
-            if (deltaOut < 0 && prev.OutOctets <= uint.MaxValue) deltaOut += (long)uint.MaxValue + 1;
+            if (IsWrap32(prev.InOctets, inOctets)) { deltaIn += (long)uint.MaxValue + 1; wrapped = true; }
+            if (IsWrap32(prev.OutOctets, outOctets)) { deltaOut += (long)uint.MaxValue + 1; wrapped = true; }
         }
 
         if (deltaIn < 0 || deltaOut < 0)
@@ -163,13 +189,11 @@ public static class InterfaceRateCalculator
             // value would make the next clean poll snap back to a terabit/sec
             // spike. Hold the last good baseline and remember this as a reset
             // candidate; only a second below-baseline poll confirms a real reset.
-            // An all-zero confirming read is the corrupt poll the seed path distrusts, so it seeds
-            // provisionally too; a zero baseline makes the next real read a near-line-rate phantom.
-            // On any counter width: a restarting SNMP agent answers zeros for more than one poll.
+            // A confirmed reset always seeds provisionally, so the next read becomes the baseline
+            // with no rate. A restarting SNMP agent answers low reads, zero or not, for several
+            // polls; trusting one as the baseline makes the real counter's return a phantom rate.
             if (prev.CandidateTimestamp is not null)
-                return new Result(null, null,
-                    inOctets == 0 && outOctets == 0 ? fresh with { ProvisionalSeed = true } : fresh,
-                    Outcome.ResetConfirmed);
+                return new Result(null, null, fresh with { ProvisionalSeed = true }, Outcome.ResetConfirmed);
 
             var holding = prev with
             {
@@ -203,6 +227,21 @@ public static class InterfaceRateCalculator
         var ceiling = linkSpeedBps > 0 ? linkSpeedBps * LinkSpeedToleranceFactor : AbsoluteCeilingBps;
         if (rateInBps > ceiling || rateOutBps > ceiling)
         {
+            // Marginally over: hold the baseline once so the next window absorbs the bytes. Never
+            // for a wrap-recovered delta: a false wrap adds up to 2^31 bytes, which a longer window
+            // would bring under the ceiling instead of rejecting. Never with no link speed either:
+            // the hold is for a real port's late refresh at line rate, and a tunnel's absolute
+            // ceiling means nothing; held, an SNMP restart's 4 GB jump stored 7.9 Gbps on wgclt*.
+            var holdCeiling = ceiling * CeilingHoldFactor;
+            if (linkSpeedBps > 0 && !prev.CeilingHeld && !wrapped && rateInBps <= holdCeiling && rateOutBps <= holdCeiling)
+                return new Result(
+                    null,
+                    null,
+                    prev with { CandidateInOctets = null, CandidateOutOctets = null, CandidateTimestamp = null, CeilingHeld = true },
+                    Outcome.CeilingHeld,
+                    rateInBps,
+                    rateOutBps);
+
             // Physically impossible for this link - a corrupt high read or a
             // snap-back from a momentarily-low counter. The rate is discarded
             // (surfaced on RejectedRate*Bps for logging only; callers must not
@@ -222,4 +261,14 @@ public static class InterfaceRateCalculator
 
         return new Result(rateInBps, rateOutBps, fresh, Outcome.Normal);
     }
+
+    /// <summary>
+    /// True when a backwards 32-bit read is a counter wrap: both reads fit 32 bits and the
+    /// counter went back by more than half its range (RFC 1982 serial arithmetic). A read a little
+    /// below the baseline is a glitch or a reset, and wrapping it makes ~2^32 bytes of traffic.
+    /// </summary>
+    private static bool IsWrap32(long previous, long current) =>
+        current < previous
+        && previous <= uint.MaxValue
+        && previous - current > (long)int.MaxValue;
 }
