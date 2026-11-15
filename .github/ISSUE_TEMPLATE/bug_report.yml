@@ -7,6 +7,8 @@ body:
       value: |
         Thanks for taking the time to report this. Logs, traces, and a clear repro drive a lot of what gets fixed, and they get credited in the release notes.
 
+        Bug reports are for problems you hit on your own install. Reports from code analysis or automated tools, with no reproduction on a running install, are closed without review. No root-cause analysis or patch needed: what you saw and the logs are what count.
+
         Security issues go privately to tj@ozarkconnect.net, never in a public issue.
 
   - type: checkboxes

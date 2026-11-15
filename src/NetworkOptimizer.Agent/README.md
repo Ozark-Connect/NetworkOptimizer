@@ -109,9 +109,14 @@ any gateway with the headroom works. The published
 `install-agent-gateway.sh` installer (below, and generated for you in the setup
 wizard) puts it under `/data` so it persists, with a systemd unit tuned for a
 shared router - workstation GC plus a memory limit (256 MB soft, 512 MB hard) as
-a safety backstop. In practice it uses ~50 MB; the limit only bounds a worst-case
-fault, keeping it well clear of routing and IPS. Even a 2 GB gateway has ample
-headroom.
+a safety backstop. In practice it uses 100-170 MB and 2-3 CPU-seconds a minute,
+under 1.2% of a 4-core gateway's CPU (measured on a UXG-Fiber, two UCG-Fibers,
+and a UDR7, 2026-11). Polling SNMP every 2 seconds instead of the default 5
+raised it to about 7 CPU-seconds a minute (2.8%). On a gateway with less free
+memory, the .NET garbage collector scales its memory use down a bit from these
+figures. The limit only bounds a
+worst-case fault, keeping it well clear of routing and IPS. Even a 2 GB gateway
+has ample headroom.
 
 The LAN speed test is optional here (`--lan-speed-test`). Higher-end gateways
 like the EFG and UDM-Beast can max out 10 Gbps; the UXG/UCG-Fiber class sees
@@ -1004,7 +1009,8 @@ a loopback results relay (nginx proxies the result posts to it), which forwards
 them to the central server tagged with the site slug and the client's real IP, so
 they land in the site's own database with no CORS or exposure of the central
 server to browsers. If an `iperf3` binary is on the agent's PATH, an iperf3 server
-(port 5201) runs alongside for wired/CLI throughput tests.
+(port 5201) runs alongside for wired/CLI throughput tests. The Docker image bundles
+iperf3, and `install-native.sh` installs it when the host has none.
 
 If the host's nginx is confined by AppArmor, it may be denied access to the
 install dir and the page won't serve (the agent and monitoring are unaffected).

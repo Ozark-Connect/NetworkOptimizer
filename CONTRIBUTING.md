@@ -14,6 +14,8 @@ Install, upgrade, and setup questions go to the [Network Optimizer Discord](http
 
 A good issue is the most useful thing you can send: logs, traces, and a clear repro have driven a lot of what's in this project, and they get credited in the release notes.
 
+A bug report is for a problem you hit on your own install. It needs the evidence only a running install produces: your version, logs, or a screenshot of what went wrong. Reports that come from reading the code or running an analysis tool against the repo, with no reproduction on a real install, are closed without review. A bug report also doesn't need a root-cause analysis or a suggested patch: tell me what you saw, and I'll find the cause.
+
 Report security issues privately by email to tj@ozarkconnect.net, never in a public issue. Patch releases ship often, so a valid security concern is typically fixed in a release within a few days.
 
 ## Pull requests start with an issue
