@@ -29719,14 +29719,20 @@ body:has(.top-bar-hidden) .btn-fit {
     font-family: inherit;
 }
 
-.trace-map .leaflet-control-zoom a {
+.trace-map .leaflet-bar a {
     background: var(--bg-card);
     color: var(--text-primary);
     border-color: var(--bg-tertiary);
 }
 
-.trace-map .leaflet-control-zoom a:hover {
+.trace-map .leaflet-bar a:hover {
     background: var(--bg-tertiary);
+}
+
+.trace-map .trace-map-fit a {
+    display: flex;
+    align-items: center;
+    justify-content: center;
 }
 
 .trace-map .leaflet-control-attribution {

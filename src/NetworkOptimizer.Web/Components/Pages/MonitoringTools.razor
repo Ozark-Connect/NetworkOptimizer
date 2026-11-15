@@ -317,7 +317,7 @@
 
 @if (_traceResult != null)
 {
-    <div class="card" style="margin-top: 1.5rem;">
+    <div class="card" style="margin-top: 1.5rem;" data-tour="traceroute-result">
         <div class="card-header">
             <h2 class="card-title">Traceroute Result</h2>
             <span class="status-badge @(_traceResult.Reached ? "status-connected" : "status-error")">
@@ -988,6 +988,40 @@ else if (_diagResult != null && !string.IsNullOrEmpty(_diagResult.InterfaceError
         await ApplyInitialVantageAsync();
         await RefreshAgentAvailabilityAsync();
         StartAgentStatusPolling();
+        _runLinkedTrace = string.Equals(RunParam, "trace", StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// "trace" runs a traceroute once the page is ready, to <see cref="TargetParam"/> or the default
+    /// target. Sent by the guided tour, whose step shows the result.
+    /// </summary>
+    [SupplyParameterFromQuery(Name = "run")]
+    public string? RunParam { get; set; }
+
+    // Set once the vantages are loaded; the run starts from the first interactive render after that.
+    private bool _runLinkedTrace;
+
+    private async Task RunLinkedTraceAsync()
+    {
+        try
+        {
+            if (string.IsNullOrWhiteSpace(_targetAddress))
+            {
+                _targetAddress = "1.1.1.1";
+                _probeMode = ProbeMode.Icmp;
+            }
+            // A site that traces from its On-Site Agent waits for the Agent to connect.
+            for (var i = 0; i < 10 && !CanTraceroute; i++)
+            {
+                await Task.Delay(2000);
+                await RefreshAgentAvailabilityAsync();
+            }
+            if (CanTraceroute && !_running) await RunTraceroute();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogDebug(ex, "Linked traceroute did not run");
+        }
     }
 
     private async Task LoadOtherSitesAsync()
@@ -1050,6 +1084,11 @@ else if (_diagResult != null && !string.IsNullOrEmpty(_diagResult.InterfaceError
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
+        if (_runLinkedTrace)
+        {
+            _runLinkedTrace = false;
+            _ = InvokeAsync(RunLinkedTraceAsync);
+        }
         if (!_focusTarget || _targetInput.Context == null) return;
         _focusTarget = false;
         try { await _targetInput.FocusAsync(preventScroll: true); }
@@ -1677,10 +1716,30 @@ else if (_diagResult != null && !string.IsNullOrEmpty(_diagResult.InterfaceError
             trace.Hops.Where(h => h.Responded).Select(h => (h.Address, TraceHostname(h), h.RttMinMs)), Geo.Enrich);
         _tracePath = NetworkOptimizer.Web.Services.Monitoring.TraceMapPath.Build(
             trace.Hops.Where(h => h.Responded).Select(h => (h.HopNumber, h.Address, TraceHostname(h), h.RttMinMs)),
-            _traceLocations);
+            _traceLocations, await TraceStartAsync(trace.Target.SourceInterface));
         _mapHops = _tracePath.HasRoute
             ? _tracePath.Nodes.SelectMany(n => n.Hops).Select(h => h.Number).Where(n => n > 0).ToHashSet()
             : [];
+    }
+
+    /// <summary>
+    /// Where the trace left the site, for the map's first point: GeoLite2's city for the address of
+    /// the WAN the probe was bound to, or of the primary WAN when it was not bound. Null when that
+    /// WAN is unknown, its address is not public IPv4, or GeoLite2 has no city for it.
+    /// </summary>
+    private async Task<(string Label, string City, string? CountryCode, double Latitude, double Longitude)?> TraceStartAsync(string? sourceBind)
+    {
+        static bool Same(string? a, string? b) => !string.IsNullOrEmpty(a) && string.Equals(a, b, StringComparison.OrdinalIgnoreCase);
+
+        var wans = await LoadWanSummariesAsync();
+        var wan = string.IsNullOrEmpty(sourceBind)
+            ? wans.FirstOrDefault(w => w.IsPrimary)
+            : wans.FirstOrDefault(w => Same(w.UplinkIfName, sourceBind) || Same(w.PhysicalIfName, sourceBind) || Same(w.IpAddress, sourceBind));
+        if (wan?.IpAddress is not { Length: > 0 } ip || wan.IpClass != PublicAddressClass.PublicIPv4) return null;
+
+        return Geo.Enrich(ip) is { City.Length: > 0, Latitude: double lat, Longitude: double lon } g
+            ? (ip, g.City!, g.CountryCode, lat, lon)
+            : null;
     }
 
     // The traced path as places and legs, for the Route Map under the hop table.

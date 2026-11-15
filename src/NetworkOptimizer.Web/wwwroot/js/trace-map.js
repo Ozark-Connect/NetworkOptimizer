@@ -144,6 +144,21 @@ export async function render(host, path, dotNet) {
         // The page scrolls past the map until the reader clicks into it.
         map.on('click', () => map.scrollWheelZoom.enable());
         host.addEventListener('mouseleave', () => map.scrollWheelZoom.disable());
+        const fitControl = L.control({ position: 'topleft' });
+        fitControl.onAdd = () => {
+            const bar = el('div', 'leaflet-bar trace-map-fit');
+            const button = el('a');
+            button.href = '#';
+            button.setAttribute('role', 'button');
+            button.setAttribute('aria-label', 'Fit the route');
+            button.dataset.tooltip = 'Fit the route';
+            button.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6"/><path d="M9 21H3v-6"/><path d="M21 3l-7 7"/><path d="M3 21l7-7"/></svg>';
+            L.DomEvent.disableClickPropagation(bar);
+            L.DomEvent.on(button, 'click', e => { L.DomEvent.preventDefault(e); fit(host._traceMap); });
+            bar.appendChild(button);
+            return bar;
+        };
+        fitControl.addTo(map);
         const layers = L.layerGroup().addTo(map);
         const resize = new ResizeObserver(() => map.invalidateSize());
         resize.observe(host);
@@ -199,11 +214,18 @@ export async function render(host, path, dotNet) {
         state.markers.push({ marker, hops });
     });
 
+    state.bounds = bounds;
     map.invalidateSize();
-    if (bounds.length === 1) {
-        map.setView(bounds[0], 6);
-    } else if (bounds.length > 1) {
-        map.fitBounds(bounds, { padding: [56, 56], maxZoom: 8 });
+    fit(state);
+}
+
+// Brings the whole route back into view.
+function fit(state) {
+    if (!state || !state.bounds || state.bounds.length === 0) return;
+    if (state.bounds.length === 1) {
+        state.map.setView(state.bounds[0], 6);
+    } else {
+        state.map.fitBounds(state.bounds, { padding: [56, 56], maxZoom: 8 });
     }
 }
 
