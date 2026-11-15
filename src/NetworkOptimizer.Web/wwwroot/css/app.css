@@ -29725,8 +29725,16 @@ body:has(.top-bar-hidden) .btn-fit {
     border-color: var(--bg-tertiary);
 }
 
-.trace-map .leaflet-bar a:hover {
+/* Leaflet turns a focused control near-white; keep it on the dark theme after a click. */
+.trace-map .leaflet-bar a:focus {
+    background: var(--bg-card);
+    color: var(--text-primary);
+}
+
+.trace-map .leaflet-bar a:hover,
+.trace-map .leaflet-bar a:focus-visible {
     background: var(--bg-tertiary);
+    color: var(--text-primary);
 }
 
 .trace-map .trace-map-fit a {

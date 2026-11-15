@@ -369,6 +369,11 @@ export class LanFlowMap {
         this.controls.minDistance = 5;
         this.controls.maxDistance = 220;
         this.controls.target.set(0, 0, 0);
+        // The wheel zooms after the pointer rests on the map or a click (wheel-gate.js); always in fullscreen.
+        this._wheelGate = window.WheelGate?.attach(this.stage, {
+            onChange: (armed) => { this.controls.enableZoom = armed; },
+            exempt: () => this.stage.classList.contains('lan-flow-map-fullscreen'),
+        });
 
         // Restore persisted camera target for fly-in destination.
         try {
@@ -610,6 +615,7 @@ export class LanFlowMap {
         clearTimeout(this._onScreenTimer);
         if (this._onKeyDown) document.removeEventListener('keydown', this._onKeyDown);
         if (this._onKeyUp) document.removeEventListener('keyup', this._onKeyUp);
+        this._wheelGate?.dispose();
         this.controls?.dispose();
         this.renderer?.dispose();
         this._disposeScene();
@@ -3498,6 +3504,8 @@ export class LanFlowMap {
             // Pills accept pointer events for the tooltip, which would swallow
             // the scroll wheel - forward it to the canvas so zoom keeps working.
             el.addEventListener('wheel', (e) => {
+                // Before the wheel gate opens, the wheel scrolls the page here as it does over the canvas.
+                if (this._wheelGate && !this._wheelGate.armed) return;
                 e.preventDefault();
                 this.canvas.dispatchEvent(new WheelEvent('wheel', e));
             }, { passive: false });

@@ -711,6 +711,8 @@
                     if (window._speedTestMaps['{mapId}']) return;
 
                     const map = L.map('{mapId}', {{ maxZoom: 22 }}).setView([39.8, -98.6], 4);
+                    // The wheel zooms after the pointer rests on the map or a click (wheel-gate.js).
+                    if (window.WheelGate) window.WheelGate.leaflet(map);
                     const isDemoMode = {IsDemoMode.ToString().ToLower()};
                     // Demo mode: use Voyager no-labels (better rendering than light_nolabels)
                     // CartoDB tiles only go to zoom 18, OSM goes to 19

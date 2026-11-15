@@ -744,6 +744,8 @@ class LanFlowMap2D {
 
         // Events
         canvas.addEventListener('wheel',(e)=>this._onWheel(e),{passive:false});
+        // The wheel zooms after the pointer rests on the map or a click (wheel-gate.js); always in fullscreen.
+        this._wheelGate=window.WheelGate?.attach(this._el,{exempt:()=>(this._fsTarget||this._el).classList.contains('lan-flow-map-fullscreen')});
         canvas.addEventListener('pointerdown',(e)=>this._onDown(e));
         canvas.addEventListener('pointermove',(e)=>this._onMove(e));
         canvas.addEventListener('pointerup',(e)=>this._onUp(e));
@@ -791,6 +793,8 @@ class LanFlowMap2D {
     }
 
     _onWheel(e){
+        // Before the wheel gate opens, the wheel scrolls the page.
+        if(this._wheelGate&&!this._wheelGate.armed)return;
         e.preventDefault();
         const rect=this._canvas.getBoundingClientRect();
         const sx=e.clientX-rect.left, sy=e.clientY-rect.top;
