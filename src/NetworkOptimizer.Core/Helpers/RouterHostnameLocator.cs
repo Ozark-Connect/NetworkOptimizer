@@ -54,6 +54,9 @@ public static class RouterHostnameLocator
     // Router roles an operator appends to the site code: Cox's backbone and border peering routers.
     private static readonly string[] RoleSuffixes = ["bbrj", "bprj"];
 
+    private static readonly System.Text.RegularExpressions.Regex SiteRoleShape =
+        new("^([a-z]{3})[0-9]{3}[a-z]{2}[0-9]{2}$", System.Text.RegularExpressions.RegexOptions.Compiled);
+
     private static readonly Dictionary<string, RouterCity[]> ByCode = Index(c => c.Codes);
     private static readonly Dictionary<string, RouterCity[]> ByClli = Index(c => c.Clli);
     private static readonly Dictionary<string, RouterCity[]> ByName = Index(c => c.Names);
@@ -111,7 +114,15 @@ public static class RouterHostnameLocator
                     : i + 1 < labels.Length ? TwoLetters(labels[i + 1])
                     : null;
                 AddMatches(parts[j], qualifier, found);
+                if (parts[j] is "eqix" or "equinix" && j + 1 < parts.Length) AddEquinix(parts[j + 1], found);
             }
+        }
+
+        // An exchange's own domain is the one operator domain that names a city.
+        if (RouterLocationCities.ExchangeDomains.TryGetValue($"{labels[^2]}.{labels[^1]}", out var exchangeCity))
+        {
+            found.AddRange(RouterLocationCities.All.Where(c => c.Name == exchangeCity)
+                .Select(c => new RouterHostnameLocation(c, labels[^2], RouterLocationMatch.Name)));
         }
         return found;
     }
@@ -121,6 +132,13 @@ public static class RouterHostnameLocator
         if (ByName.TryGetValue(raw, out var named))
         {
             AddNamed(raw, named, qualifier, found);
+            return;
+        }
+
+        // IIJ puts a site number and the router role after the code: "tky001bb01", "osk004ip57".
+        if (SiteRoleShape.Match(raw) is { Success: true } shaped && ByCode.TryGetValue(shaped.Groups[1].Value, out var iijSite))
+        {
+            found.AddRange(iijSite.Select(c => new RouterHostnameLocation(c, raw, RouterLocationMatch.NumberedCode)));
             return;
         }
 
@@ -156,6 +174,16 @@ public static class RouterHostnameLocator
         {
             found.AddRange(site.Select(c => new RouterHostnameLocation(c, raw, RouterLocationMatch.NumberedCode)));
         }
+    }
+
+    // An Equinix data center: the metro code and its number ("ch1").
+    private static void AddEquinix(string part, List<RouterHostnameLocation> found)
+    {
+        if (part.Length < 3 || !char.IsAsciiLetterLower(part[0]) || !char.IsAsciiLetterLower(part[1])
+            || !part[2..].All(char.IsAsciiDigit)) return;
+        if (!RouterLocationCities.EquinixMetros.TryGetValue(part[..2], out var metro)) return;
+        found.AddRange(RouterLocationCities.All.Where(c => c.Name == metro)
+            .Select(c => new RouterHostnameLocation(c, part, RouterLocationMatch.Name)));
     }
 
     // A region label after a name confirms it, and one that names a different region rules it out.

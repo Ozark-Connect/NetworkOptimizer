@@ -49,8 +49,27 @@ public class RouterHostnameLocatorTests
     // Akamai: the city's code wins over the network tag after it, which is also an airport code
     [InlineData("ae1.r21.atl01.icn.netarch.akamai.com", "Atlanta")]
     [InlineData("ae34.r02.border101.ord02.fab.netarch.akamai.com", "Chicago")]
+    [InlineData("dls-bb4-link.ip.twelve99.net", "Dallas")]
+    [InlineData("nyk-bb5-link.ip.twelve99.net", "New York")]
+    [InlineData("adm-bb1-link.ip.twelve99.net", "Amsterdam")]
+    [InlineData("kbn-bb6-link.ip.twelve99.net", "Copenhagen")]
+    [InlineData("stlo-b5-link.ip.twelve99.net", "St. Louis")]
+    [InlineData("rest-bb1-link.ip.twelve99.net", "Reston")]
     // Cox: site code and router role in one word
     [InlineData("mcibbrj01.rd.ks.cox.net", "Kansas City")]
+    // IIJ: site code, site number, router role
+    [InlineData("tky001bb01.iij.net", "Tokyo")]
+    [InlineData("osk004ip57.iij.net", "Osaka")]
+    // GTT, Linode, Tata
+    [InlineData("ae3.cr3-was1.ip4.gtt.net", "Washington")]
+    [InlineData("lo0-0.gw1.rin1.us.linode.com", "Dallas")]
+    [InlineData("if-bundle-3-2.qcore1.hnn-haarlem.as6453.net", "Haarlem")]
+    // Equinix data centers, and Comcast's Dallas Infomart
+    [InlineData("eqix-ch1.opendns.com", "Chicago")]
+    [InlineData("eqix-da3.example.com", "Dallas")]
+    [InlineData("be-105-pe12.1950stemmons.tx.ibone.comcast.net", "Dallas")]
+    // An exchange whose own domain is the location
+    [InlineData("cloudflare.slix.net", "Salt Lake City")]
     // Others
     [InlineData("108-232-152-1.lightspeed.tukrga.sbcglobal.net", "Tucker")]
     [InlineData("lo0.mar2.slc.xmission.net", "Salt Lake City")]
@@ -176,6 +195,13 @@ public class RouterHostnameLocatorTests
             .Where(g => g.Select(x => x.Name).Distinct().Count() > 1)
             .Select(g => g.Key);
         tokens.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Cities_EveryExchangeDomainNamesAListedCity()
+    {
+        RouterLocationCities.ExchangeDomains.Values.Concat(RouterLocationCities.EquinixMetros.Values)
+            .Should().OnlyContain(name => RouterLocationCities.All.Any(c => c.Name == name));
     }
 
     [Theory]

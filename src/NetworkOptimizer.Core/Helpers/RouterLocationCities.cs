@@ -32,7 +32,7 @@ public static class RouterLocationCities
     public static readonly IReadOnlyList<RouterCity> All =
     [
         // United States
-        new("Dallas", "TX", "US", 32.78, -96.80, ["dfw", "dal"], ["dllstx"], ["dallas"]),
+        new("Dallas", "TX", "US", 32.78, -96.80, ["dfw", "dal", "dls", "rin"], ["dllstx"], ["dallas", "1950stemmons"]),
         new("Houston", "TX", "US", 29.76, -95.37, ["hou", "iah"], ["hstntx"], ["houston"]),
         new("Austin", "TX", "US", 30.27, -97.74, ["aus"], ["austtx"], ["austin"]),
         new("San Antonio", "TX", "US", 29.42, -98.49, [], ["snantx"], ["sanantonio"]),
@@ -51,7 +51,7 @@ public static class RouterLocationCities
         new("Little Rock", "AR", "US", 34.75, -92.29, ["lit"], ["ltrkar"], ["littlerock"]),
         new("New Orleans", "LA", "US", 29.95, -90.07, ["msy"], ["nworla"], ["neworleans"]),
         new("Kansas City", "MO", "US", 39.10, -94.58, ["mci", "kanc", "kcm"], ["kscymo"], ["kansascity"]),
-        new("St. Louis", "MO", "US", 38.63, -90.20, ["stl"], ["stlsmo"], ["stlouis", "saintlouis"]),
+        new("St. Louis", "MO", "US", 38.63, -90.20, ["stl", "stlo"], ["stlsmo"], ["stlouis", "saintlouis"]),
         new("Chicago", "IL", "US", 41.88, -87.63, ["ord", "chi", "mdw"], ["chcgil"], ["chicago"]),
         new("Minneapolis", "MN", "US", 44.98, -93.27, ["msp"], ["mplsmn"], ["minneapolis"]),
         new("Detroit", "MI", "US", 42.33, -83.05, ["dtw"], ["dtrtmi"], ["detroit"]),
@@ -74,9 +74,9 @@ public static class RouterLocationCities
         new("Portland", "OR", "US", 45.52, -122.68, ["pdx"], ["ptldor"], ["portland"]),
         new("Boise", "ID", "US", 43.62, -116.21, ["boi"], ["boisid"], ["boise"]),
         new("Ashburn", "VA", "US", 39.04, -77.49, ["iad", "ash"], ["asbnva"], ["ashburn"]),
-        new("Reston", "VA", "US", 38.96, -77.36, [], ["rstnva"], ["reston"]),
-        new("Washington", "DC", "US", 38.90, -77.04, ["dca", "wdc"], ["wshndc"], ["washington"]),
-        new("New York", "NY", "US", 40.71, -74.01, ["jfk", "lga", "nyc"], ["nycmny"], ["newyork"]),
+        new("Reston", "VA", "US", 38.96, -77.36, ["rest"], ["rstnva"], ["reston"]),
+        new("Washington", "DC", "US", 38.90, -77.04, ["dca", "wdc", "was"], ["wshndc"], ["washington"]),
+        new("New York", "NY", "US", 40.71, -74.01, ["jfk", "lga", "nyc", "nyk"], ["nycmny"], ["newyork"]),
         new("Newark", "NJ", "US", 40.74, -74.17, ["ewr"], ["nwrknj"], ["newark"]),
         new("Philadelphia", "PA", "US", 39.95, -75.17, ["phl"], ["phlapa"], ["philadelphia"]),
         new("Pittsburgh", "PA", "US", 40.44, -80.00, ["pit"], ["pitbpa"], ["pittsburgh"]),
@@ -106,7 +106,8 @@ public static class RouterLocationCities
         new("London", "", "GB", 51.51, -0.13, ["lhr", "lon", "ldn"], ["londen"], ["london"]),
         new("Slough", "", "GB", 51.51, -0.59, ["slou"], [], ["slough"]),
         new("Manchester", "", "GB", 53.48, -2.24, [], [], ["manchester"]),
-        new("Amsterdam", "", "NL", 52.37, 4.90, ["ams"], ["amstnl"], ["amsterdam"]),
+        new("Amsterdam", "", "NL", 52.37, 4.90, ["ams", "adm"], ["amstnl"], ["amsterdam"]),
+        new("Haarlem", "", "NL", 52.38, 4.64, [], [], ["haarlem"]),
         new("Frankfurt", "", "DE", 50.11, 8.68, ["fra", "ffm"], ["frnkge"], ["frankfurt"]),
         new("Paris", "", "FR", 48.86, 2.35, ["cdg", "par", "prs"], ["parsfr"], ["paris"]),
         new("Marseille", "", "FR", 43.30, 5.37, ["mrs"], [], ["marseille"]),
@@ -117,14 +118,14 @@ public static class RouterLocationCities
         new("Zurich", "", "CH", 47.38, 8.54, ["zrh"], [], ["zurich"]),
         new("Vienna", "", "AT", 48.21, 16.37, ["vie"], [], ["vienna"]),
         new("Stockholm", "", "SE", 59.33, 18.07, ["arn", "sto"], [], ["stockholm"]),
-        new("Copenhagen", "", "DK", 55.68, 12.57, ["cph"], [], ["copenhagen"]),
+        new("Copenhagen", "", "DK", 55.68, 12.57, ["cph", "kbn"], [], ["copenhagen"]),
         new("Oslo", "", "NO", 59.91, 10.75, ["osl"], [], ["oslo"]),
         new("Warsaw", "", "PL", 52.23, 21.01, ["waw"], [], ["warsaw"]),
         new("Dublin", "", "IE", 53.35, -6.26, ["dub"], [], ["dublin"]),
 
         // Asia, Pacific, Africa, Middle East
-        new("Tokyo", "", "JP", 35.68, 139.69, ["nrt", "hnd", "tyo"], ["tokyjp"], ["tokyo"]),
-        new("Osaka", "", "JP", 34.69, 135.50, ["kix", "osa"], ["osakjp"], ["osaka"]),
+        new("Tokyo", "", "JP", 35.68, 139.69, ["nrt", "hnd", "tyo", "tky"], ["tokyjp"], ["tokyo"]),
+        new("Osaka", "", "JP", 34.69, 135.50, ["kix", "osa", "osk"], ["osakjp"], ["osaka"]),
         new("Seoul", "", "KR", 37.57, 126.98, ["icn", "sel"], [], ["seoul"]),
         new("Hong Kong", "", "HK", 22.32, 114.17, ["hkg"], [], ["hongkong"]),
         new("Taipei", "", "TW", 25.03, 121.57, ["tpe"], [], ["taipei"]),
@@ -139,4 +140,25 @@ public static class RouterLocationCities
         new("Dubai", "", "AE", 25.20, 55.27, ["dxb"], [], ["dubai"]),
         new("Johannesburg", "", "ZA", -26.20, 28.05, ["jnb"], [], ["johannesburg"]),
     ];
+
+    /// <summary>
+    /// Internet exchanges in one city whose own domain is the only location in a member's hostname
+    /// ("cloudflare.slix.net"), by that domain.
+    /// </summary>
+    public static readonly IReadOnlyDictionary<string, string> ExchangeDomains = new Dictionary<string, string>
+    {
+        ["slix.net"] = "Salt Lake City",
+    };
+
+    /// <summary>
+    /// Equinix metro codes, as members write a data center into a hostname ("eqix-ch1", "eqix-da3"),
+    /// by the city each metro's data centers cluster around.
+    /// </summary>
+    public static readonly IReadOnlyDictionary<string, string> EquinixMetros = new Dictionary<string, string>
+    {
+        ["at"] = "Atlanta", ["ch"] = "Chicago", ["da"] = "Dallas", ["dc"] = "Ashburn", ["la"] = "Los Angeles",
+        ["mi"] = "Miami", ["ny"] = "New York", ["se"] = "Seattle", ["sv"] = "San Jose",
+        ["am"] = "Amsterdam", ["fr"] = "Frankfurt", ["ld"] = "London", ["pa"] = "Paris",
+        ["os"] = "Osaka", ["sg"] = "Singapore", ["sy"] = "Sydney", ["ty"] = "Tokyo",
+    };
 }
