@@ -132,7 +132,35 @@ public class HopLocationsTests
         ], Geo);
 
         found["198.51.100.31"].Text.Should().Be("Pensacola, United States");
-        found["198.51.100.20"].Text.Should().Be("San Diego, United States");
+        found["198.51.100.20"].Text.Should().Be("United States");
+    }
+
+    [Fact]
+    public void Resolve_AGeoLite2CityTooFarFromAnAnchor_ShowsTheCountryOnly()
+    {
+        var found = HopLocations.Resolve(
+        [
+            ("198.51.100.32", null, 1.0),
+            ("198.51.100.20", null, 8.0),
+            ("203.0.113.7", "ae1.lax01.example.net", 40.0),
+        ], Geo);
+
+        found["198.51.100.20"].Text.Should().Be("United States");
+        found["198.51.100.20"].Tooltip.Should().Be("GeoLite2 says San Diego: too far from Kansas City for 7.0 ms.");
+    }
+
+    [Fact]
+    public void Resolve_AHostnameCityTheEndOfTheTraceCannotReach_IsRuledOut()
+    {
+        // 1 ms before a hop in Kansas City's suburbs cannot be Los Angeles.
+        var found = HopLocations.Resolve(
+        [
+            ("198.51.100.32", null, 1.0),
+            ("203.0.113.7", "ae1.lax01.example.net", 40.0),
+            ("198.51.100.22", null, 41.0),
+        ], Geo);
+
+        found["203.0.113.7"].Text.Should().Be("Overland Park, United States");
     }
 
     [Fact]

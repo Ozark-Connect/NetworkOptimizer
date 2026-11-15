@@ -76,6 +76,13 @@ public static class HopLocations
                     ? $"{source}. GeoLite2 says {geoCity}."
                     : source);
             }
+            else if (g is { CountryCode.Length: > 0, City.Length: > 0 }
+                     && OutOfReach(bounded, anchors, i, g) is { } far)
+            {
+                var shown = Math.Abs((h.MinRttMs ?? 0) - (list[far.Index].MinRttMs ?? 0));
+                result[h.Address!] = new HopLocationView(g.CountryCode, CountryName(g.CountryCode!),
+                    $"GeoLite2 says {g.City}: too far from {far.Anchor.City} for {shown:0.0} ms.");
+            }
             else if (g is { CountryCode.Length: > 0 })
             {
                 var country = CountryName(g.CountryCode!);
@@ -118,8 +125,8 @@ public static class HopLocations
     /// <summary>
     /// The anchors, by hop: every hostname-placed hop, the vantage hop, and the last hop GeoLite2
     /// places in a city, when that last one is in reach of the vantage and no hostname-placed hop
-    /// follows it. The hops between them give
-    /// way to the anchors, not the other way round.
+    /// follows it. The hops between them give way to the anchors, not the other way round. Clears
+    /// <paramref name="named"/> for a hostname city the last anchor rules out.
     /// </summary>
     private static Anchor?[] Anchors(
         List<(string? Address, string? Hostname, double? MinRttMs)> list, RouterHostnameLocation?[] named,
@@ -149,6 +156,16 @@ public static class HopLocations
             && InReach(vantage, last.Latitude, last.Longitude, Math.Abs(lastRtt - vantageRtt)))
         {
             anchors[lastIndex] = last;
+
+            // A hostname city the end of the trace cannot reach in the round-trip gap is ruled out,
+            // as the vantage rules out one too far from the start.
+            for (var j = vantageIndex + 1; j < lastIndex; j++)
+            {
+                if (anchors[j] is not { FromHostname: true } a || list[j].MinRttMs is not double rtt) continue;
+                if (InReach(last, a.Latitude, a.Longitude, Math.Abs(lastRtt - rtt))) continue;
+                anchors[j] = null;
+                named[j] = null;
+            }
         }
         return anchors;
     }
@@ -183,6 +200,20 @@ public static class HopLocations
             && InReach(b.Anchor, lat, lon, b.GapMs))
             return null;
         return b;
+    }
+
+    // The nearest anchor on either side that GeoLite2's city is too far from for the round-trip gap.
+    private static (Anchor Anchor, int Index)? OutOfReach(
+        List<(string? Address, string? Hostname, double? MinRttMs)> list, Anchor?[] anchors, int i, GeoInfo geo)
+    {
+        if (anchors[i] != null || list[i].MinRttMs is not double rtt || geo is not { Latitude: double lat, Longitude: double lon })
+            return null;
+        foreach (var j in new[] { Nearest(anchors, i, -1), Nearest(anchors, i, +1) })
+        {
+            if (j < 0 || list[j].MinRttMs is not double other) continue;
+            if (!InReach(anchors[j]!, lat, lon, Math.Abs(rtt - other))) return (anchors[j]!, j);
+        }
+        return null;
     }
 
     private static bool InReach(Anchor from, double latitude, double longitude, double rttGapMs) =>
