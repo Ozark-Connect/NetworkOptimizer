@@ -442,15 +442,30 @@ public class InterfaceRateCalculatorTests
             prev, inOctets: bytes, outOctets: 0, now: T0.AddSeconds(5),
             useHcCounters: true, linkSpeedBps: 0);
 
-        // Within the hold band: withheld once, then discarded if the next window agrees.
-        r.Outcome.Should().Be(InterfaceRateCalculator.Outcome.CeilingHeld);
+        // No link speed, so no hold: discarded at once, however close to the ceiling.
+        r.Outcome.Should().Be(InterfaceRateCalculator.Outcome.ImplausibleRate);
         r.RateInBps.Should().BeNull();
+    }
 
-        var again = InterfaceRateCalculator.Compute(
-            r.NewState, inOctets: bytes * 2, outOctets: 0, now: T0.AddSeconds(10),
+    [Fact]
+    public void TunnelJumpAfterAnSnmpRestart_IsDiscarded_NotHeldIntoTheNextWindow()
+    {
+        // wgclt2 at a 2 s poll when the gateway's SNMP restarted: a ~4 GB forward jump (16 Gbps).
+        // Held, the next window absorbed it and 7.9 Gbps was stored.
+        var prev = Seed(10_000_000_000, 5_000_000, T0);
+        var jump = InterfaceRateCalculator.Compute(
+            prev, 10_000_000_000 + 4_010_000_000, 5_000_100, T0.AddSeconds(2),
             useHcCounters: true, linkSpeedBps: 0);
-        again.Outcome.Should().Be(InterfaceRateCalculator.Outcome.ImplausibleRate);
-        again.RateInBps.Should().BeNull();
+
+        jump.Outcome.Should().Be(InterfaceRateCalculator.Outcome.ImplausibleRate);
+        jump.IsUntrusted.Should().BeTrue();
+
+        var next = InterfaceRateCalculator.Compute(
+            jump.NewState, 10_000_000_000 + 4_010_000_000 + 250_000, 5_000_200, T0.AddSeconds(4),
+            useHcCounters: true, linkSpeedBps: 0);
+
+        next.Outcome.Should().Be(InterfaceRateCalculator.Outcome.Normal);
+        next.RateInBps.Should().BeApproximately(1_000_000, 1, "only the real 1 Mbps, none of the jump");
     }
 
     // ─── Line-rate traffic read marginally over the ceiling ───

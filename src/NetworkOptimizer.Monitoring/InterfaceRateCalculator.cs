@@ -229,9 +229,11 @@ public static class InterfaceRateCalculator
         {
             // Marginally over: hold the baseline once so the next window absorbs the bytes. Never
             // for a wrap-recovered delta: a false wrap adds up to 2^31 bytes, which a longer window
-            // would bring under the ceiling instead of rejecting.
+            // would bring under the ceiling instead of rejecting. Never with no link speed either:
+            // the hold is for a real port's late refresh at line rate, and a tunnel's absolute
+            // ceiling means nothing; held, an SNMP restart's 4 GB jump stored 7.9 Gbps on wgclt*.
             var holdCeiling = ceiling * CeilingHoldFactor;
-            if (!prev.CeilingHeld && !wrapped && rateInBps <= holdCeiling && rateOutBps <= holdCeiling)
+            if (linkSpeedBps > 0 && !prev.CeilingHeld && !wrapped && rateInBps <= holdCeiling && rateOutBps <= holdCeiling)
                 return new Result(
                     null,
                     null,
