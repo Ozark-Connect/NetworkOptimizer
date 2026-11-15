@@ -412,6 +412,8 @@ For commercial licensing inquiries, contact tj@ozarkconnect.net.
 
 © 2026 Ozark Connect
 
+Country flags use the [Twemoji Country Flags](https://github.com/talkjs/country-flag-emoji-polyfill) font. Its flag art is from [Twemoji](https://github.com/jdecked/twemoji), licensed under [CC-BY 4.0](https://creativecommons.org/licenses/by/4.0/); see `src/NetworkOptimizer.Web/wwwroot/lib/twemoji-country-flags/LICENSE.md`.
+
 ## Support
 
 - Help and discussion: [Discord](https://discord.gg/pHrmzbBCY3) - install help, troubleshooting, feature ideas, and UniFi R&D
