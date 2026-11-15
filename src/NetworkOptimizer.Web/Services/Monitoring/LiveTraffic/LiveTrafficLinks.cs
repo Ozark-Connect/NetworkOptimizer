@@ -31,7 +31,15 @@ public static class LiveTrafficLinks
     public static Dictionary<string, object>? DestinationCard(string? address, string? name = null, bool threatsLink = true)
     {
         if (string.IsNullOrWhiteSpace(address)) return null;
-        if (IPAddress.TryParse(address, out var ip) && !NetworkUtilities.IsPublicIpAddress(ip)) return null;
+        if (IPAddress.TryParse(address, out var ip))
+        {
+            if (!NetworkUtilities.IsPublicIpAddress(ip)) return null;
+        }
+        // Not an address: only a host name can be traced, not an owner or provider name.
+        else if (Uri.CheckHostName(address) != UriHostNameType.Dns || !address.Contains('.'))
+        {
+            return null;
+        }
         var card = new Dictionary<string, object> { ["data-dest-ip"] = address };
         if (!string.IsNullOrEmpty(name) && name != address) card["data-dest-name"] = name;
         if (threatsLink && ThreatsDrilldown(address) is { } threats) card["data-dest-link"] = threats;

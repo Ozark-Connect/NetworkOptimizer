@@ -88,7 +88,7 @@ export function renderStatsTable(el, container, opts) {
             return `<td${colCls}>${filtered ? '-' : columns[i].format(v)}</td>`;
         }).join('');
         return `<tr${cls}>
-            <td data-stat-id="${r.id}"><span class="stat-filter-badge"><span class="wan-badge-dot" style="background-color:${r.color}"></span>${escapeHtml(r.label)}</span></td>
+            <td data-stat-id="${r.id}"><span class="stat-filter-badge"${r.destIp ? ` data-dest-ip="${escapeHtml(r.destIp)}" data-dest-name="${escapeHtml(r.destName || r.label)}"` : ''}><span class="wan-badge-dot" style="background-color:${r.color}"></span>${escapeHtml(r.label)}</span></td>
             ${cells}
         </tr>`;
     }).join('');

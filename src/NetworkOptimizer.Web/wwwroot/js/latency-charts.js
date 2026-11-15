@@ -5,7 +5,7 @@
 // device-health-charts, and future chart sets share one implementation.
 
 import ApexCharts from '/_content/Blazor-ApexCharts/js/apexcharts.esm.js';
-import { computeStats, renderStatsTable as renderTable } from './chart-stats.js?v=9';
+import { computeStats, renderStatsTable as renderTable } from './chart-stats.js?v=10';
 import { valueSortedTooltip, tooltipHeld } from './chart-tooltip.js?v=22';
 import { renderFilterReset, renderInactiveToggle, isFiltered } from './chart-filter.js?v=6';
 import { downloadColor, uploadColor } from './chart-colors.js?v=2';
@@ -636,7 +636,7 @@ function renderStatsTable(container, showAll) {
         const rtt = computeStats(rttVals);
         const loss = computeStats(lossVals);
         const meta = targetMeta.find(m => m.id === t.targetId);
-        return { id: t.targetId, label: meta?.name || t.name, color: meta?.color || '#9ca3af',
+        return { id: t.targetId, label: meta?.name || t.name, color: meta?.color || '#9ca3af', destIp: meta?.address, destName: meta?.hostName,
             visible: meta && visibility[meta.id] !== false,
             values: [rtt?.mean, rtt?.min, rtt?.max, rtt?.p95, rtt?.p99, loss?.mean, loss?.max] };
     });

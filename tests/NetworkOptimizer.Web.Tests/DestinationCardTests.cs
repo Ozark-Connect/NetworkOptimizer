@@ -48,6 +48,15 @@ public class DestinationCardTests
         card.Should().NotContainKey("data-dest-link");
     }
 
+    [Theory]
+    [InlineData("Example Networks LLC")]
+    [InlineData("localhost")]
+    [InlineData("-")]
+    public void NotAHostName_GetsNoCard(string text)
+    {
+        LiveTrafficLinks.DestinationCard(text).Should().BeNull();
+    }
+
     [Fact]
     public void NameEqualToAddress_IsNotRepeated()
     {
