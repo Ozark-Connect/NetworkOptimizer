@@ -39,6 +39,30 @@ public class AgentResultSenderTests
     }
 
     [Fact]
+    public async Task LanTestAgent_PrefersTheAgentServingTheSpeedTest_OverTheLastHeardFrom()
+    {
+        var registry = new AgentTunnelRegistry(new AgentTunnelOptions(Enabled: true, Port: 0));
+        var gateway = registry.Register(1, "site-a", "Gateway");
+        gateway.OnGateway = true;
+        gateway.ServesSpeedTest = true;
+        var plain = registry.Register(2, "site-a", "Plain");
+        plain.OnGateway = false;
+        plain.ServesSpeedTest = false;
+        var serving = registry.Register(3, "site-a", "Serving");
+        serving.OnGateway = false;
+        serving.ServesSpeedTest = true;
+        await Task.Delay(20);
+        var last = registry.Register(4, "site-a", "Last heard from");
+        last.OnGateway = false;
+        var detector = new AgentOnGatewayDetector(null!, null!, null!, null!, registry, NullLogger<AgentOnGatewayDetector>.Instance);
+
+        (await detector.LanTestAgentAsync("site-a")).Should().BeSameAs(serving);
+
+        serving.ServesSpeedTest = false;
+        (await detector.LanTestAgentAsync("site-a")).Should().BeSameAs(plain);
+    }
+
+    [Fact]
     public async Task Uwn_ResultFromTheAskedAgent_CompletesTheRun()
     {
         var (registry, asked, _) = TwoSites();
