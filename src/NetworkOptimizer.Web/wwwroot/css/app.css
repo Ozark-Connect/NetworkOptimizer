@@ -21041,10 +21041,15 @@ a.isp-health-hero-speed:hover {
     border-top: 1px solid var(--border-color);
 }
 
-/* Fixed columns so every target's table lines up with the next. */
+/* Fixed columns so every target's table lines up with the next. The min-width is the fixed
+   columns plus 16rem, so Address / PTR (the only auto column) never collapses on a narrow screen. */
 .path-episode-table .path-episode-hops {
     table-layout: fixed;
-    min-width: 760px;
+    min-width: calc(37rem + 16rem);
+}
+
+.path-episode-table .path-episode-hops.has-return {
+    min-width: calc(44.5rem + 16rem);
 }
 
 .path-episode-hops .path-col-hop { width: 3rem; }
