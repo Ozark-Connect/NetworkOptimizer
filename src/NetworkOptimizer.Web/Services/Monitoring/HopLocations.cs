@@ -97,13 +97,16 @@ public static class HopLocations
                 var source = near.Anchor.FromHostname
                     ? $"{shown:0.0} ms from {near.Anchor.Label}, a {near.Anchor.City} router"
                     : $"{shown:0.0} ms from {near.Anchor.Label}, which GeoLite2 places in {near.Anchor.City}";
+                // The borrowing hop is near the anchor, not at it: shown at the hub the anchor's suburb belongs to.
+                var hub = Hub(near.Anchor);
+                if (hub != null) source += $", near {hub.Name}";
                 var geoSays = g.City is { Length: > 0 } geoCity ? geoCity
                     : g.CountryCode is { Length: > 0 } geoCountry && !string.Equals(geoCountry, near.Anchor.CountryCode, StringComparison.OrdinalIgnoreCase)
                         ? CountryName(geoCountry)
                         : null;
-                result[h.Address!] = CityView(near.Anchor.City, near.Anchor.CountryCode,
+                result[h.Address!] = CityView(hub?.Name ?? near.Anchor.City, near.Anchor.CountryCode,
                     geoSays != null ? $"{source}. GeoLite2 says {geoSays}." : source,
-                    near.Anchor.Latitude, near.Anchor.Longitude, HopLocationSource.Neighbor);
+                    hub?.Latitude ?? near.Anchor.Latitude, hub?.Longitude ?? near.Anchor.Longitude, HopLocationSource.Neighbor);
             }
             else if (g is { CountryCode.Length: > 0, City.Length: > 0 }
                      && OutOfReach(bounded, anchors, i, g) is { } far)
@@ -254,6 +257,23 @@ public static class HopLocations
             if (!InReach(anchors[j]!, lat, lon, Math.Abs(rtt - other), geo.AccuracyRadiusKm ?? 0)) return (anchors[j]!, j);
         }
         return null;
+    }
+
+    /// <summary>How far an anchor's city can be from a hub and still count as its suburb.</summary>
+    internal const double HubRadiusKm = 60;
+
+    // The nearest listed city with an airport or operator code, when the anchor's own city is a
+    // different place within HubRadiusKm of it (Tucker to Atlanta). Null when the anchor is a hub.
+    private static RouterCity? Hub(Anchor anchor)
+    {
+        var hub = RouterLocationCities.All
+            .Where(c => c.Codes.Length > 0 && string.Equals(c.CountryCode, anchor.CountryCode, StringComparison.OrdinalIgnoreCase))
+            .Select(c => (City: c, Km: GeoDistance.Kilometers(anchor.Latitude, anchor.Longitude, c.Latitude, c.Longitude)))
+            .Where(x => x.Km <= HubRadiusKm)
+            .OrderBy(x => x.Km)
+            .Select(x => x.City)
+            .FirstOrDefault();
+        return hub == null || hub.Name == anchor.City ? null : hub;
     }
 
     // Both GeoLite2 accuracy radii count toward the reach: either location can be off by that much.

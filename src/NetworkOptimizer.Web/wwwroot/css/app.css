@@ -29887,3 +29887,34 @@ body:has(.top-bar-hidden) .btn-fit {
         max-width: 12rem;
     }
 }
+
+/* A hop row and its place on the Route Map mark each other. */
+.path-episode-hops tr.trace-hop-on-map {
+    cursor: pointer;
+}
+
+.path-episode-hops tr.trace-hop-on-map.is-active td {
+    background: color-mix(in srgb, var(--primary-color) 22%, transparent);
+}
+
+.path-episode-hops tr.trace-hop-on-map.is-active td:first-child {
+    box-shadow: inset 3px 0 0 var(--primary-hover);
+}
+
+.trace-node-active .trace-node-dot {
+    transform: scale(1.25);
+    background: var(--trace-node-color);
+    color: var(--bg-primary);
+    animation: trace-node-pulse 1.6s ease-out infinite;
+}
+
+@keyframes trace-node-pulse {
+    0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--trace-node-color) 60%, transparent), 0 2px 6px rgba(0, 0, 0, 0.5); }
+    100% { box-shadow: 0 0 0 14px transparent, 0 2px 6px rgba(0, 0, 0, 0.5); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .trace-node-active .trace-node-dot {
+        animation: none;
+    }
+}

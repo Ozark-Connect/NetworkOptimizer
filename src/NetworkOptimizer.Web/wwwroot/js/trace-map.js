@@ -113,8 +113,9 @@ function legTip(from, to, km) {
  * Draws the path into the element, replacing whatever it drew before.
  * @param {HTMLElement} host - the map's container
  * @param {{nodes: Array, legs: Array}} path - TraceMapPath, as serialized
+ * @param {object} [dotNet] - told the hop numbers of a place the reader clicks (OnPlaceClicked)
  */
-export async function render(host, path) {
+export async function render(host, path, dotNet) {
     if (!host || !path || !path.nodes) return;
     await loadLeaflet();
     const L = window.L;
@@ -179,6 +180,8 @@ export async function render(host, path) {
     }
 
     const last = path.nodes.length - 1;
+    state.markers = [];
+    state.dotNet = dotNet || null;
     path.nodes.forEach((node, i) => {
         const at = [position[i].lat, position[i].lng];
         bounds.push(at);
@@ -188,6 +191,12 @@ export async function render(host, path) {
             zIndexOffset: i === 0 || i === last ? 500 : 0,
         }).addTo(layers);
         marker.bindTooltip(nodeTip(node), { direction: 'top', offset: [0, -14], className: 'trace-map-tooltip', opacity: 1 });
+        const hops = node.hops.map(h => h.number).filter(n => n > 0);
+        marker.on('click', () => {
+            setActive(state, i);
+            if (state.dotNet) state.dotNet.invokeMethodAsync('OnPlaceClicked', hops);
+        });
+        state.markers.push({ marker, hops });
     });
 
     map.invalidateSize();
@@ -196,6 +205,30 @@ export async function render(host, path) {
     } else if (bounds.length > 1) {
         map.fitBounds(bounds, { padding: [56, 56], maxZoom: 8 });
     }
+}
+
+function setActive(state, index) {
+    state.markers.forEach((m, i) => {
+        const icon = m.marker.getElement();
+        if (icon) icon.classList.toggle('trace-node-active', i === index);
+        m.marker.setZIndexOffset(i === index ? 1000 : 0);
+    });
+}
+
+/**
+ * Marks the place a hop sits at, brings it into view, and shows its hops. A hop with no place
+ * on the map clears the mark.
+ */
+export function highlight(host, hopNumber) {
+    const state = host && host._traceMap;
+    if (!state || !state.markers) return;
+    const index = state.markers.findIndex(m => m.hops.includes(hopNumber));
+    setActive(state, index);
+    state.markers.forEach(m => m.marker.closeTooltip());
+    if (index < 0) return;
+    const marker = state.markers[index].marker;
+    if (!state.map.getBounds().pad(-0.1).contains(marker.getLatLng())) state.map.panTo(marker.getLatLng());
+    marker.openTooltip();
 }
 
 /** Removes the map from the element. */

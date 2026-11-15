@@ -164,7 +164,22 @@ public class HopLocationsTests
             ("198.51.100.22", null, 41.0),
         ], Geo);
 
-        found["203.0.113.7"].Text.Should().Be("Overland Park, United States");
+        // Borrowed from the Overland Park end hop, so shown at its hub.
+        found["203.0.113.7"].Text.Should().Be("Kansas City, United States");
+    }
+
+    [Fact]
+    public void Resolve_ACityBorrowedFromASuburb_IsShownAtTheNearestHub()
+    {
+        var found = HopLocations.Resolve(
+        [
+            ("203.0.113.7", "108-0-2-1.lightspeed.tukrga.example.net", 2.5),
+            ("192.0.2.61", null, 2.6),
+        ], Geo);
+
+        found["203.0.113.7"].Text.Should().Be("Tucker, United States");
+        found["192.0.2.61"].Text.Should().Be("Atlanta, United States");
+        found["192.0.2.61"].Tooltip.Should().Be("0.1 ms from 108-0-2-1, a Tucker router, near Atlanta");
     }
 
     [Fact]

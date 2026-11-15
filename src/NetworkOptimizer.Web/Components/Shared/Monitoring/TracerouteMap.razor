@@ -35,9 +35,26 @@
     [Parameter]
     public TraceMapPath? Path { get; set; }
 
+    /// <summary>Fires with the hop numbers placed at a point the reader clicks on the map.</summary>
+    [Parameter]
+    public EventCallback<IReadOnlyList<int>> OnPlaceSelected { get; set; }
+
     private ElementReference _host;
     private IJSObjectReference? _module;
     private TraceMapPath? _drawn;
+    private DotNetObjectReference<TracerouteMap>? _self;
+
+    /// <summary>Marks the place a hop sits at and shows its hops; a hop not on the map clears the mark.</summary>
+    public async Task HighlightHopAsync(int hopNumber)
+    {
+        if (_module == null || _drawn == null) return;
+        try { await _module.InvokeVoidAsync("highlight", _host, hopNumber); }
+        catch (JSDisconnectedException) { }
+        catch (Exception ex) { Logger.LogDebug(ex, "Trace map failed to highlight hop {Hop}", hopNumber); }
+    }
+
+    [JSInvokable]
+    public Task OnPlaceClicked(int[] hops) => OnPlaceSelected.InvokeAsync(hops);
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
@@ -46,7 +63,8 @@
         {
             _module ??= await JS.InvokeAsync<IJSObjectReference>(
                 "import", FileVersionProvider.AddFileVersionToPath("", "/js/trace-map.js"));
-            await _module.InvokeVoidAsync("render", _host, Path);
+            _self ??= DotNetObjectReference.Create(this);
+            await _module.InvokeVoidAsync("render", _host, Path, _self);
             _drawn = Path;
         }
         catch (JSDisconnectedException) { }
@@ -58,6 +76,7 @@
 
     public async ValueTask DisposeAsync()
     {
+        _self?.Dispose();
         if (_module == null) return;
         try
         {
