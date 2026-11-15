@@ -40,6 +40,16 @@ public class DeviceRebootProbe
     private const string UptimeMarker = "###UPTIME";
 
     /// <summary>
+    /// Every marker the probe command echoes. A marker missing here is not a section: its output is
+    /// appended to the previous one, silently corrupting both (###UPTIME did, emptying the device clock).
+    /// </summary>
+    internal static readonly HashSet<string> Markers = new(StringComparer.Ordinal)
+    {
+        PstoreMarker, ConsoleMarker, CrashMarker, RebootLogMarker, RebootLogAgeMarker, UpgradeMarker,
+        UpgradeAgeMarker, ConsoleRingMarker, CrashAgeMarker, DeviceClockMarker, UptimeMarker,
+    };
+
+    /// <summary>
     /// How far the device's clock may sit from the server's before the reason log's age, which is
     /// measured on the device clock, stops being trusted.
     /// </summary>
@@ -52,7 +62,7 @@ public class DeviceRebootProbe
     /// </summary>
     /// The markers MUST stay single-quoted: unquoted, the shell reads the leading '#' as the start
     /// of a comment and discards the whole rest of the line, which is every command after it.
-    private static readonly string ProbeCommand = string.Join("; ",
+    internal static readonly string ProbeCommand = string.Join("; ",
         $"echo '{PstoreMarker}'",
         "ls /sys/fs/pstore/ 2>/dev/null",
         $"echo '{ConsoleMarker}'",
@@ -164,7 +174,7 @@ public class DeviceRebootProbe
         }
 
         var sections = SplitSections(output);
-        var uptime = long.TryParse(sections.GetValueOrDefault(UptimeMarker)?.Trim(), out var up) && up > 0 ? up : (long?)null;
+        var uptime = ParseDeviceUptime(sections);
         var rebootLogAge = ParseSeconds(sections.GetValueOrDefault(RebootLogAgeMarker));
         var rebootLog = sections.GetValueOrDefault(RebootLogMarker);
 
@@ -283,7 +293,11 @@ public class DeviceRebootProbe
         }
     }
 
-    private static Dictionary<string, string> SplitSections(string output)
+    /// <summary>The device's /proc/uptime from the probe output, or null when it is missing.</summary>
+    internal static long? ParseDeviceUptime(Dictionary<string, string> sections) =>
+        long.TryParse(sections.GetValueOrDefault(UptimeMarker)?.Trim(), out var up) && up > 0 ? up : null;
+
+    internal static Dictionary<string, string> SplitSections(string output)
     {
         var sections = new Dictionary<string, string>(StringComparer.Ordinal);
         string? current = null;
@@ -301,9 +315,7 @@ public class DeviceRebootProbe
             var line = raw.TrimEnd('\r');
             var trimmed = line.Trim();
 
-            if (trimmed is PstoreMarker or ConsoleMarker or CrashMarker or RebootLogMarker
-                or RebootLogAgeMarker or UpgradeMarker or UpgradeAgeMarker or ConsoleRingMarker
-                or CrashAgeMarker or DeviceClockMarker)
+            if (Markers.Contains(trimmed))
             {
                 Flush();
                 current = trimmed;
