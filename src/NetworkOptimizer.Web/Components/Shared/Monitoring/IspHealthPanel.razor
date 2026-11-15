@@ -1017,29 +1017,31 @@ else
                                     @(" ")
                                     <button type="button" class="isp-event-members-toggle" aria-expanded="@episodeOpen"
                                             @onclick="() => ToggleEventMembers(episodeKey)">@(episodeOpen ? "Hide hop table" : "Show hop table")</button>
-                                    @if (episodeOpen)
-                                    {
-                                        <PathEpisodeHopTable @key="episodeId" EpisodeId="episodeId" UpdatedAt="@(_episodes.FirstOrDefault(e => e.Id == episodeId)?.UpdatedAt ?? default)" WanKey="@_selectedWanKey" />
-                                        @if (TraceAckKey(episodeId) is { } traceAck)
-                                        {
-                                            <SiteAdminOnly>
-                                                <div class="isp-trace-actions">
-                                                    @if (_findingAcks.Contains(traceAck))
-                                                    {
-                                                        <button class="btn btn-sm btn-ghost issue-action" disabled="@_findingAckBusy"
-                                                                @onclick="() => SetFindingAcknowledgedAsync(traceAck, false)" data-tooltip="Restore its recurring finding">Restore</button>
-                                                    }
-                                                    else
-                                                    {
-                                                        <button class="btn btn-sm btn-ghost issue-action" disabled="@_findingAckBusy"
-                                                                @onclick="() => SetFindingAcknowledgedAsync(traceAck, true)" data-tooltip="Hide its recurring finding - still scored">Acknowledge</button>
-                                                    }
-                                                </div>
-                                            </SiteAdminOnly>
-                                        }
-                                    }
                                 }
                             </span>
+                            @if (entry.EpisodeId is int openEpisode && _expandedEvents.Contains($"episode:{openEpisode}"))
+                            {
+                                <div class="isp-event-detail">
+                                    <PathEpisodeHopTable @key="openEpisode" EpisodeId="openEpisode" UpdatedAt="@(_episodes.FirstOrDefault(e => e.Id == openEpisode)?.UpdatedAt ?? default)" WanKey="@_selectedWanKey" />
+                                    @if (TraceAckKey(openEpisode) is { } traceAck)
+                                    {
+                                        <SiteAdminOnly>
+                                            <div class="isp-trace-actions">
+                                                @if (_findingAcks.Contains(traceAck))
+                                                {
+                                                    <button class="btn btn-sm btn-ghost issue-action" disabled="@_findingAckBusy"
+                                                            @onclick="() => SetFindingAcknowledgedAsync(traceAck, false)" data-tooltip="Restore its recurring finding">Restore</button>
+                                                }
+                                                else
+                                                {
+                                                    <button class="btn btn-sm btn-ghost issue-action" disabled="@_findingAckBusy"
+                                                            @onclick="() => SetFindingAcknowledgedAsync(traceAck, true)" data-tooltip="Hide its recurring finding - still scored">Acknowledge</button>
+                                                }
+                                            </div>
+                                        </SiteAdminOnly>
+                                    }
+                                </div>
+                            }
                         </div>
                     }
                 </div>
