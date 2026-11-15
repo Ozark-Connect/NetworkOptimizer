@@ -51,6 +51,9 @@ public static class RouterHostnameLocator
     private const int MinNameLength = 4;
     private static readonly char[] Digits = "0123456789".ToCharArray();
 
+    // Router roles an operator appends to the site code: Cox's backbone and border peering routers.
+    private static readonly string[] RoleSuffixes = ["bbrj", "bprj"];
+
     private static readonly Dictionary<string, RouterCity[]> ByCode = Index(c => c.Codes);
     private static readonly Dictionary<string, RouterCity[]> ByClli = Index(c => c.Clli);
     private static readonly Dictionary<string, RouterCity[]> ByName = Index(c => c.Names);
@@ -144,6 +147,14 @@ public static class RouterHostnameLocator
         {
             var match = numbered ? RouterLocationMatch.NumberedCode : RouterLocationMatch.Code;
             found.AddRange(code.Select(c => new RouterHostnameLocation(c, raw, match)));
+            return;
+        }
+
+        // Cox writes the site code and the router role as one word: "mcibbrj01" is mci + bbrj + 01.
+        var role = RoleSuffixes.FirstOrDefault(token.EndsWith);
+        if (numbered && role != null && ByCode.TryGetValue(token[..^role.Length], out var site))
+        {
+            found.AddRange(site.Select(c => new RouterHostnameLocation(c, raw, RouterLocationMatch.NumberedCode)));
         }
     }
 

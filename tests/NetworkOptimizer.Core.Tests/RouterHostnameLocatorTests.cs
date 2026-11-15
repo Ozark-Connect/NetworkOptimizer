@@ -49,6 +49,8 @@ public class RouterHostnameLocatorTests
     // Akamai: the city's code wins over the network tag after it, which is also an airport code
     [InlineData("ae1.r21.atl01.icn.netarch.akamai.com", "Atlanta")]
     [InlineData("ae34.r02.border101.ord02.fab.netarch.akamai.com", "Chicago")]
+    // Cox: site code and router role in one word
+    [InlineData("mcibbrj01.rd.ks.cox.net", "Kansas City")]
     // Others
     [InlineData("108-232-152-1.lightspeed.tukrga.sbcglobal.net", "Tucker")]
     [InlineData("lo0.mar2.slc.xmission.net", "Salt Lake City")]
