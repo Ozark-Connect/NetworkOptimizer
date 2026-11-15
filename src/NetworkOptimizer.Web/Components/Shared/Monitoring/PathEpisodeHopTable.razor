@@ -69,7 +69,7 @@
             else
             {
             <div class="table-responsive">
-                <table class="data-table path-episode-hops">
+                <table class="data-table path-episode-hops @(table.Hops.Any(ReturnHopsWorthShowing) ? "has-return" : "")">
                     <colgroup>
                         <col class="path-col-hop" />
                         <col />
