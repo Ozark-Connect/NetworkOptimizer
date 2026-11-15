@@ -1090,7 +1090,11 @@ public sealed class PathEpisodeWatcher
         HashSet<string> accessHops;
         lock (_lock)
         {
-            degraded = run.Degraded.Select(ToTraces).ToList();
+            degraded = run.Degraded.Select(d => ToTraces(d) with
+            {
+                Series = _trackers.GetValueOrDefault(d.Target.TargetId) is { } tr
+                    ? new TargetSeries(tr.PeakLossPct, tr.BaselineRttMs, tr.PeakRttMs) : null
+            }).ToList();
             controls = run.Control is { } c && c.Rounds.Count > 0 ? new List<TargetTraces> { ToTraces(c) } : new();
             monitoredByAddress = _watched.Values
                 .Where(w => w.Role != GateRole.Path && w.ContextKey == run.ContextKey)
