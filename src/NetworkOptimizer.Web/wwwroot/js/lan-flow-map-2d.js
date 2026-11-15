@@ -79,7 +79,7 @@ const MAX_DOTS = 80;
 const DOT_PATH_MIN_PX = 1.5;
 const DOT_TINY_PAD_PX = 0.16;
 // Half-extents of the box a client can draw into (32-character name, rate label below).
-const CLIENT_CULL_X = 130;
+const CLIENT_CULL_X = 150;
 const CLIENT_CULL_Y = 60;
 const FONT = 'Inter, system-ui, -apple-system, sans-serif';
 
