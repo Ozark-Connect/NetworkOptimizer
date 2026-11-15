@@ -2518,8 +2518,7 @@ public class ChannelRecommendationService
         // Each entry: (observerIndex, channel, width, signal, confidence). Confidence is 1.0
         // for live scan sightings; remembered (long-term memory) sightings carry an
         // age-decayed confidence that scales their weight down.
-        var allNeighbors = new Dictionary<string, List<(int ObserverIndex, int Channel, int? Width, int Signal, double Confidence)>>(
-            StringComparer.OrdinalIgnoreCase);
+        var allNeighbors = new Dictionary<string, List<NeighborSighting>>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var scan in scanResults.Where(s => s.Band == band))
         {
@@ -2532,18 +2531,24 @@ public class ChannelRecommendationService
             {
                 if (!allNeighbors.TryGetValue(neighbor.Bssid, out var sightings))
                 {
-                    sightings = new List<(int, int, int?, int, double)>();
+                    sightings = new List<NeighborSighting>();
                     allNeighbors[neighbor.Bssid] = sightings;
                 }
-                sightings.Add((observerIndex, neighbor.Channel, neighbor.Width, neighbor.Signal!.Value, neighbor.Confidence));
+                sightings.Add(new NeighborSighting(observerIndex, neighbor.Channel, neighbor.Width, neighbor.Signal!.Value, neighbor.Confidence));
             }
         }
 
-        // Phase 2: For each unique BSSID, estimate its effect at every AP
+        // Phase 2: For each neighbor radio, estimate its effect at every AP. A radio's BSSIDs
+        // (one per SSID, hidden ones included) share its airtime, so they count once, at the
+        // strongest sighting.
         int directCount = 0, triangulatedCount = 0, filteredCount = 0;
+        var radios = NeighborRadioGrouping.Group(allNeighbors);
 
-        foreach (var (bssid, sightings) in allNeighbors)
+        foreach (var radio in radios)
         {
+            var bssid = radio[0];
+            var sightings = radio.Count == 1 ? allNeighbors[bssid] : radio.SelectMany(b => allNeighbors[b]).ToList();
+
             for (int j = 0; j < n; j++)
             {
                 var apWidth = graph.Nodes[j].CurrentWidth;
@@ -2642,8 +2647,8 @@ public class ChannelRecommendationService
         if (allNeighbors.Count > 0 || directCount > 0 || triangulatedCount > 0)
         {
             _logger.LogDebug(
-                "External load for {Band}: {BssidCount} unique BSSIDs pooled, {Direct} direct + {Triangulated} triangulated entries ({Filtered} filtered below threshold)",
-                band, allNeighbors.Count, directCount, triangulatedCount, filteredCount);
+                "External load for {Band}: {BssidCount} unique BSSIDs pooled into {RadioCount} radios, {Direct} direct + {Triangulated} triangulated entries ({Filtered} filtered below threshold)",
+                band, allNeighbors.Count, radios.Count, directCount, triangulatedCount, filteredCount);
         }
     }
 

@@ -325,6 +325,37 @@ public class ChannelRecommendationServiceTests
     }
 
     [Fact]
+    public void BuildInterferenceGraph_SsidsOfOneNeighborRadio_CountOnce()
+    {
+        var aps = new List<AccessPointSnapshot>
+        {
+            CreateAp("aa:bb:cc:dd:ee:01", "AP-1", RadioBand.Band5GHz, 36)
+        };
+
+        ChannelScanResult Scan(params NeighborNetwork[] neighbors) => new()
+        {
+            ApMac = "aa:bb:cc:dd:ee:01",
+            Band = RadioBand.Band5GHz,
+            Neighbors = neighbors.ToList()
+        };
+
+        // One radio with three SSIDs (the last hidden), against the same radio with one SSID.
+        var three = _service.BuildInterferenceGraph(aps, RadioBand.Band5GHz, null, new List<ChannelScanResult>
+        {
+            Scan(
+                new NeighborNetwork { Bssid = "00:11:22:33:44:50", Ssid = "Main", Channel = 36, Signal = -60 },
+                new NeighborNetwork { Bssid = "02:11:22:33:44:50", Ssid = "Guest", Channel = 36, Signal = -61 },
+                new NeighborNetwork { Bssid = "06:11:22:33:44:50", Ssid = "", Channel = 36, Signal = -62 })
+        }, null);
+        var one = _service.BuildInterferenceGraph(aps, RadioBand.Band5GHz, null, new List<ChannelScanResult>
+        {
+            Scan(new NeighborNetwork { Bssid = "00:11:22:33:44:50", Ssid = "Main", Channel = 36, Signal = -60 })
+        }, null);
+
+        three.ExternalLoad[0][36].Should().BeApproximately(one.ExternalLoad[0][36], 0.0001);
+    }
+
+    [Fact]
     public void BuildInterferenceGraph_OwnNetworkNeighbors_Excluded()
     {
         var aps = new List<AccessPointSnapshot>
