@@ -721,6 +721,17 @@
         }
         new MutationObserver(function () { if (activeLinkCard) dropOrphanedLinkCard(); })
             .observe(document.body, { childList: true, subtree: true });
+        // A filter chip's click filters and re-renders the chips, which would drop the card and open it
+        // again on the new chip under the pointer. The address of the chip just clicked: its card stays
+        // away until the pointer moves off that chip.
+        var clickedChipDest = null;
+        document.addEventListener('click', function (e) {
+            var chip = e.target.closest && e.target.closest('.wan-filter-badge[data-dest-ip], .stat-filter-badge[data-dest-ip]');
+            if (!chip) return;
+            clickedChipDest = chip.getAttribute('data-dest-ip');
+            if (chip._tippy) chip._tippy.hide();
+            clearTimeout(chip._ltShowTimer);
+        }, true);
         // An element in the cell with a tooltip of its own (the via line, a badge) shows only that one.
         function innerTipHovered(cell) { return !!cell.querySelector('[data-tooltip]:hover'); }
         // Live Traffic's tables and Where It's Going hold a card until the pointer has rested this long,
@@ -895,7 +906,11 @@
             if (!host) {
                 // The destination card rides any page that marks an external address (LiveTrafficLinks.DestinationCard).
                 var anyDest = !e.target.closest('.lt-client') && e.target.closest('[data-dest-ip]');
-                if (anyDest && anyDest.getAttribute('data-dest-ip')) { showLinkCard(anyDest, destinationHtml); return; }
+                var anyDestIp = anyDest && anyDest.getAttribute('data-dest-ip');
+                // A clicked filter chip stays quiet until the pointer has left it (see clickedChipDest).
+                if (clickedChipDest && anyDestIp !== clickedChipDest) clickedChipDest = null;
+                if (anyDestIp && anyDestIp !== clickedChipDest) { showLinkCard(anyDest, destinationHtml); return; }
+                if (anyDestIp) return;
                 // Client Performance's Live Traffic card takes only this card, not the others.
                 var cardHost = e.target.closest('.lt-client');
                 var cardApp = cardHost && e.target.closest('[data-app-unnamed]');
