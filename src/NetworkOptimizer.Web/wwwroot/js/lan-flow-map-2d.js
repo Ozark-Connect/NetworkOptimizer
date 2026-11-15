@@ -44,6 +44,8 @@ const FOCUS_GIVE_UP_MS = 30000;
 // Signal color arrives per node, blended on the server's per-band ramp. Nothing about the curve
 // is decided here - a palette in the browser is how the map drifted from the gauges before.
 const LK = { Uplink:0, WiredClient:1, WifiClient:2, Wan:3, Transit:4, MeshBackhaul:5 };
+// Every color a Stream is built with (_initStreams): the particle loop fills one path per entry.
+const STREAM_COLORS = [C.downstream, C.upstream];
 const CT = { Solid:0, PathProxy:1, Unresolved:2 }; // LanCloudTier
 
 // ---- Layout geometry ----
@@ -73,6 +75,12 @@ const G = {
 const RATE_THRESH = 500_000;
 const EMIT_MAX = 12;
 const MAX_DOTS = 80;
+// A dot under this on-screen radius (device px) is drawn as a square, outside the batched path.
+const DOT_PATH_MIN_PX = 1.5;
+const DOT_TINY_PAD_PX = 0.16;
+// Half-extents of the box a client can draw into (32-character name, rate label below).
+const CLIENT_CULL_X = 150;
+const CLIENT_CULL_Y = 60;
 const FONT = 'Inter, system-ui, -apple-system, sans-serif';
 
 // ---- Helpers ----
@@ -170,30 +178,41 @@ function orthoLen(x1,y1,x2,y2,midYOff,hz) {
     return (top-cr)+(bot-cr)+Math.PI*cr+(ax-2*cr);
 }
 
-function orthoAt(x1,y1,x2,y2,t,midYOff,hz) {
-    if(hz){const p=orthoAt(y1,x1,y2,x2,t,midYOff,false);return{x:p.y,y:p.x};}
-    if(Math.abs(x2-x1)<0.5)return{x:x1,y:y1+(y2-y1)*t};
+// `out`, when given, receives the point instead of a new object: the particle loop calls this
+// for every dot on every frame.
+function orthoAt(x1,y1,x2,y2,t,midYOff,hz,out) {
+    if(hz){const p=orthoAt(y1,x1,y2,x2,t,midYOff,false,out);const px=p.x;p.x=p.y;p.y=px;return p;}
+    const o=out||{x:0,y:0};
+    if(Math.abs(x2-x1)<0.5){o.x=x1;o.y=y1+(y2-y1)*t;return o;}
     const midY=(y1+y2)/2+(midYOff||0);
     const dx=x2-x1,s=dx>0?1:-1,ax=Math.abs(dx);
     const top=midY-y1,bot=y2-midY;
     const cr=Math.min(G.cornerR,ax/2,Math.min(top,bot));
-    if(cr<1){const tot=top+ax+bot;let d=t*tot;if(d<=top)return{x:x1,y:y1+d};d-=top;if(d<=ax)return{x:x1+s*d,y:midY};d-=ax;return{x:x2,y:midY+d};}
-    const s1=top-cr,s2=Math.PI/2*cr,s3=ax-2*cr,s4=s2,s5=bot-cr;
-    const tot=s1+s2+s3+s4+s5;let d=t*tot;
-    if(d<=s1)return{x:x1,y:y1+d};d-=s1;
+    if(cr<1){
+        const tot=top+ax+bot;let d=t*tot;
+        if(d<=top){o.x=x1;o.y=y1+d;return o;}d-=top;
+        if(d<=ax){o.x=x1+s*d;o.y=midY;return o;}d-=ax;
+        o.x=x2;o.y=midY+d;return o;
+    }
+    const s1=top-cr,s2=Math.PI/2*cr,s3=ax-2*cr,s4=s2;
+    const tot=s1+s2+s3+s4+(bot-cr);let d=t*tot;
+    if(d<=s1){o.x=x1;o.y=y1+d;return o;}d-=s1;
     if(d<=s2){
         // Quadratic bezier matching strokeOrtho: P0=(x1,midY-cr) P1=(x1,midY) P2=(x1+s*cr,midY)
         const bt=d/s2,u=1-bt;
-        return{x:u*u*x1+2*u*bt*x1+bt*bt*(x1+s*cr), y:u*u*(midY-cr)+2*u*bt*midY+bt*bt*midY};
+        o.x=u*u*x1+2*u*bt*x1+bt*bt*(x1+s*cr); o.y=u*u*(midY-cr)+2*u*bt*midY+bt*bt*midY;
+        return o;
     }d-=s2;
-    if(d<=s3)return{x:x1+s*(cr+d),y:midY};d-=s3;
+    if(d<=s3){o.x=x1+s*(cr+d);o.y=midY;return o;}d-=s3;
     if(d<=s4){
         // Quadratic bezier: P0=(x2-s*cr,midY) P1=(x2,midY) P2=(x2,midY+cr)
         const bt=d/s4,u=1-bt;
-        return{x:u*u*(x2-s*cr)+2*u*bt*x2+bt*bt*x2, y:u*u*midY+2*u*bt*midY+bt*bt*(midY+cr)};
+        o.x=u*u*(x2-s*cr)+2*u*bt*x2+bt*bt*x2; o.y=u*u*midY+2*u*bt*midY+bt*bt*(midY+cr);
+        return o;
     }d-=s4;
-    return{x:x2,y:midY+cr+d};
+    o.x=x2;o.y=midY+cr+d;return o;
 }
+const _dotPt={x:0,y:0};
 
 function strokeOrtho(ctx,x1,y1,x2,y2,midYOff,hz) {
     if(hz)return strokeOrtho(axisSwap(ctx),y1,x1,y2,x2,midYOff,false);
@@ -229,6 +248,8 @@ class Stream {
         this.pathLen=orthoLen(edge._x1,edge._y1,edge._x2,edge._y2,this.midYOff,edge._hz);
         this.slots=[];
         for(let i=0;i<MAX_DOTS;i++)this.slots.push({t:-1,size:0});
+        // Dots in flight. An idle stream with none is skipped by advance and by the draw.
+        this.live=0;
         this._seeded=false;
     }
     setRate(bps){
@@ -252,20 +273,22 @@ class Stream {
                 if(this.dir<0)this.slots[i].t=1-this.slots[i].t;
                 this.slots[i].size=this.dotSize;
             }
+            this.live=steadyState;
         }
     }
     advance(dt){
+        if(this.density===0&&this.live===0)return;
         // Emission: density²*12 dots/sec, jittered ±20% (3D uses ±40% but
         // shorter 2D links need tighter spacing to avoid visible gaps)
         this.spawnAcc+=this.density*this.density*EMIT_MAX*dt;
         while(this.spawnAcc>=1){
             this.spawnAcc-=(0.8+Math.random()*0.4);
-            for(const sl of this.slots){if(sl.t<0){sl.t=this.dir>0?0:1;sl.size=this.dotSize;break;}}
+            for(const sl of this.slots){if(sl.t<0){sl.t=this.dir>0?0:1;sl.size=this.dotSize;this.live++;break;}}
         }
         for(const sl of this.slots){
             if(sl.t<0)continue;
             sl.t+=this.velNorm*dt*this.dir;
-            if(sl.t>1||sl.t<0){sl.t=-1;continue;}
+            if(sl.t>1||sl.t<0){sl.t=-1;this.live--;}
         }
     }
 }
@@ -431,6 +454,9 @@ class LanFlowMap2D {
         this._ctx=canvas.getContext('2d');
 
         this._staticCanvas=document.createElement('canvas');
+        // Rate and link-speed labels: they sit above the particles, so they cannot share the
+        // static layer, and they change only when it does.
+        this._labelCanvas=document.createElement('canvas');
 
         // Tooltip div
         this._tooltip=document.createElement('div');
@@ -743,6 +769,8 @@ class LanFlowMap2D {
         this._canvas.height=rect.height*this._dpr;
         this._staticCanvas.width=this._canvas.width;
         this._staticCanvas.height=this._canvas.height;
+        this._labelCanvas.width=this._canvas.width;
+        this._labelCanvas.height=this._canvas.height;
         this._needsStaticRedraw=true;
 
         // A tree drawn top-down grows wide and shallow, which is the wrong shape for a portrait
@@ -1959,21 +1987,38 @@ class LanFlowMap2D {
             (cw/2-this._ox*this._scale)*dpr,
             (ch/2-this._oy*this._scale)*dpr);
 
+        // One path and one fill per color, not per dot. Dots follow a link's visibility (_vis,
+        // set with the line in _drawAllLinks) and are skipped for a link outside the viewport.
+        // Never batch the sub-pixel dots into the path: a path of thousands of tiny contours
+        // rasterizes them away and the streams go dim at fit-all zoom. Those draw as squares,
+        // which no eye can tell from a circle at that size. DOT_TINY_PAD_PX keeps their
+        // brightness where a lone anti-aliased arc put it: an arc that small covers more than
+        // its area.
+        this._calcView();
         ctx.globalCompositeOperation='lighter';
-        for(const s of this._streams){
-            if(s.edge._isWan&&!this._isCloudVisible())continue;
-            if(s.edge._isCl){const child=s.edge.tn||s.edge.fn;if(child&&!this._isNodeVisible(child))continue;}
-            // Without this the dots keep streaming along a link whose line is hidden.
-            if(!this._isEdgeVisible(s.edge))continue;
-            ctx.fillStyle=s.color;
-            for(const sl of s.slots){
-                if(sl.t<0)continue;
-                const pt=orthoAt(s.edge._x1,s.edge._y1,s.edge._x2,s.edge._y2,sl.t,s.midYOff,s.edge._hz);
-                ctx.globalAlpha=0.85;
-                ctx.beginPath();
-                ctx.arc(pt.x,pt.y,sl.size,0,Math.PI*2);
-                ctx.fill();
+        ctx.globalAlpha=0.85;
+        const TAU=Math.PI*2, pxWorld=1/(this._scale*dpr);
+        const tinyR=DOT_PATH_MIN_PX*pxWorld, tinyPad=DOT_TINY_PAD_PX*pxWorld;
+        for(const color of STREAM_COLORS){
+            ctx.fillStyle=color;
+            ctx.beginPath();
+            for(const s of this._streams){
+                if(s.live===0||s.color!==color)continue;
+                const e=s.edge;
+                if(!e._vis||!this._edgeInView(e))continue;
+                for(const sl of s.slots){
+                    if(sl.t<0)continue;
+                    const pt=orthoAt(e._x1,e._y1,e._x2,e._y2,sl.t,s.midYOff,e._hz,_dotPt);
+                    if(sl.size<tinyR){
+                        const h=(sl.size+tinyPad)*0.8862; // half-side of the square with the circle's area
+                        ctx.fillRect(pt.x-h,pt.y-h,h*2,h*2);
+                        continue;
+                    }
+                    ctx.moveTo(pt.x+sl.size,pt.y);
+                    ctx.arc(pt.x,pt.y,sl.size,0,TAU);
+                }
             }
+            ctx.fill();
         }
         ctx.globalCompositeOperation='source-over';
         ctx.globalAlpha=1;
@@ -2032,9 +2077,40 @@ class LanFlowMap2D {
 
         // Labels on top of everything (including particles)
         if(!this._hideRates){
-            this._drawLinkSpeedLabels(ctx);
-            this._drawRateLabels(ctx);
+            ctx.setTransform(1,0,0,1,0,0);
+            ctx.drawImage(this._labelCanvas,0,0);
         }
+    }
+
+    // The viewport in world coordinates, for culling.
+    _calcView(){
+        const hw=this._cw/2/this._scale, hh=this._ch/2/this._scale;
+        this._vx0=this._ox-hw; this._vx1=this._ox+hw;
+        this._vy0=this._oy-hh; this._vy1=this._oy+hh;
+    }
+
+    _inView(x,y,mx,my){
+        return x+mx>=this._vx0&&x-mx<=this._vx1&&y+my>=this._vy0&&y-my<=this._vy1;
+    }
+
+    // A link's path stays inside its endpoints' box, give or take the elbow offset and line width.
+    _edgeInView(e){
+        const m=Math.abs(e._midYOff||0)+8;
+        return Math.max(e._x1,e._x2)+m>=this._vx0&&Math.min(e._x1,e._x2)-m<=this._vx1
+            &&Math.max(e._y1,e._y2)+m>=this._vy0&&Math.min(e._y1,e._y2)-m<=this._vy1;
+    }
+
+    _drawLabelLayer(){
+        const c=this._labelCanvas, ctx=c.getContext('2d');
+        ctx.setTransform(1,0,0,1,0,0);
+        ctx.clearRect(0,0,c.width,c.height);
+        if(!this._root||this._hideRates)return;
+        const dpr=this._dpr;
+        ctx.setTransform(this._scale*dpr,0,0,this._scale*dpr,
+            (this._cw/2-this._ox*this._scale)*dpr,
+            (this._ch/2-this._oy*this._scale)*dpr);
+        this._drawLinkSpeedLabels(ctx);
+        this._drawRateLabels(ctx);
     }
 
     _drawStatic(){
@@ -2051,7 +2127,8 @@ class LanFlowMap2D {
             (cw/2-this._ox*this._scale)*dpr,
             (ch/2-this._oy*this._scale)*dpr);
 
-        if(!this._root)return;
+        if(!this._root){this._drawLabelLayer();return;}
+        this._calcView();
 
         // Links (pipes only)
         this._pendingLinkLabels=[];
@@ -2060,12 +2137,17 @@ class LanFlowMap2D {
         if(this._isCloudVisible())this._drawAllClouds(ctx);
         // Infra + client nodes
         this._drawAllNodes(ctx,this._root);
+        // After the nodes: label placement reads the rects they record.
+        this._drawLabelLayer();
     }
 
     // ---- Link drawing ----
 
     _drawAllLinks(ctx){
         for(const e of this._edges){
+            // Cached for the particle loop, which runs every frame; everything that changes a
+            // link's visibility also redraws this layer.
+            e._vis=false;
             if(e._x1==null)continue;
             // Hide links to filtered-out nodes
             if(e._isWan&&!this._isCloudVisible())continue;
@@ -2074,6 +2156,9 @@ class LanFlowMap2D {
                 if(child&&!this._isNodeVisible(child))continue;
             }
             if(!this._isEdgeVisible(e))continue;
+            e._vis=true;
+            // A client link carries no label, so off screen it has nothing to draw.
+            if(e._isCl&&!this._edgeInView(e))continue;
             const off=this._isOffline(e.lk.fromNodeId)||this._isOffline(e.lk.toNodeId);
             const r=off?null:(this._liveRates[e.lk.portKey]||this._liveRates[e.lk.id]);
             const dn=r?.downstreamBps??0,up=r?.upstreamBps??0;
@@ -2236,7 +2321,14 @@ class LanFlowMap2D {
         }
         this._drawInfraNode(ctx,n);
         for(const c of n.infra)this._drawAllNodes(ctx,c);
-        for(const c of n.clients.slice(0,G.maxClients)){if(this._isNodeVisible(c))this._drawClientNode(ctx,c);}
+        const shown=Math.min(n.clients.length,G.maxClients);
+        for(let i=0;i<shown;i++){
+            const c=n.clients[i];
+            if(!this._isNodeVisible(c))continue;
+            // Off screen: the margin covers the name label, the widest thing a client draws.
+            if(this._inView(c.x,c.y,CLIENT_CULL_X,CLIENT_CULL_Y))this._drawClientNode(ctx,c);
+            else c._nameRect=null;
+        }
         if(n.clients.length>G.maxClients){
             const last=n.clients[G.maxClients-1];
             ctx.fillStyle=C.textMuted;
