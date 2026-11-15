@@ -426,6 +426,11 @@
         justify-content: flex-end;
     }
 
+    /* The container's gap already spaces the bar; the card's own margin would double it. */
+    .spectrum-container .card:has(+ .spectrum-controls-bottom) {
+        margin-bottom: 0;
+    }
+
     /* Your Channels Card */
     .your-channels-card {
         background: color-mix(in srgb, var(--primary-color) 9%, var(--bg-card));
