@@ -55,9 +55,9 @@ public static class HopLocations
     /// <param name="geo">GeoLite2 lookup for an address (empty when the database is missing).</param>
     /// <param name="overrides">Cities set by hand, by address (<see cref="IHopLocationOverrideService"/>). They win over every other source and anchor
     /// the hops around them, and nothing rules them out.</param>
-    /// <param name="learned">The site's learned places (<see cref="LearnedHopLocations"/>): one replaces a hop this trace
-    /// places only by GeoLite2 or the country, or not at all, and a hostname-learned one also replaces a nearby hop's
-    /// city. Never a hostname's, a hand-set one, or an anycast address's, and it anchors nothing.</param>
+    /// <param name="learned">Learned places (<see cref="LearnedHopLocations"/>): one replaces a hop this trace places only
+    /// by GeoLite2 or the country, or not at all, when it fits this trace's round trips from every hop placed by hand,
+    /// hostname, or a nearby hop. Never this trace's own evidence or an anycast address's, and it anchors nothing.</param>
     public static Dictionary<string, HopLocationView> Resolve(
         IEnumerable<(string? Address, string? Hostname, double? MinRttMs)> hops, Func<string, GeoInfo> geo,
         IReadOnlyDictionary<string, HopLocationSetting>? overrides = null,
@@ -168,20 +168,35 @@ public static class HopLocations
                     hasCity ? HopLocationSource.GeoLite2 : HopLocationSource.Country);
             }
         }
-        if (learned != null) ApplyLearned(result, list, learned);
+        if (learned != null) ApplyLearned(result, list, bounded, learned);
         return result;
     }
 
+    // A learned city replaces only what this trace cannot place better itself, and only when this trace's own round
+    // trips allow it: a handoff port learned under a far-end hostname once overrode the city its neighbors gave it.
     private static void ApplyLearned(Dictionary<string, HopLocationView> result,
-        List<(string? Address, string? Hostname, double? MinRttMs)> list, IReadOnlyDictionary<string, LearnedHop> learned)
+        List<(string? Address, string? Hostname, double? MinRttMs)> list,
+        List<(string? Address, string? Hostname, double? MinRttMs)> bounded, IReadOnlyDictionary<string, LearnedHop> learned)
     {
-        foreach (var h in list)
+        var placed = new List<(double Lat, double Lon, double? Rtt, double SlackKm)>();
+        for (var j = 0; j < list.Count; j++)
         {
+            if (result.GetValueOrDefault(list[j].Address!) is { Latitude: double lat, Longitude: double lon } v
+                && v.Source is HopLocationSource.Set or HopLocationSource.Hostname or HopLocationSource.Neighbor)
+                placed.Add((lat, lon, bounded[j].MinRttMs,
+                    v.Source == HopLocationSource.Neighbor ? RouterHostnameLocator.VantageSlackKm : CitySlackKm));
+        }
+
+        for (var i = 0; i < list.Count; i++)
+        {
+            var h = list[i];
             if (AnycastAddresses.Contains(h.Address) || !learned.TryGetValue(h.Address!, out var l)) continue;
             var now = result.GetValueOrDefault(h.Address!);
-            var weaker = now == null || now.Source is HopLocationSource.GeoLite2 or HopLocationSource.Country
-                || (now.Source == HopLocationSource.Neighbor && l.Source == HopLocationSource.Hostname);
+            var weaker = now == null || now.Source is HopLocationSource.GeoLite2 or HopLocationSource.Country;
             if (!weaker || string.Equals(now?.City, l.City, StringComparison.OrdinalIgnoreCase)) continue;
+            if (bounded[i].MinRttMs is double rtt && placed.Any(p => p.Rtt is double other
+                    && GeoDistance.Kilometers(l.Latitude, l.Longitude, p.Lat, p.Lon) > Math.Abs(rtt - other) * RouterHostnameLocator.KmPerMsRtt + p.SlackKm))
+                continue;
             var how = l.Source == HopLocationSource.Hostname ? "its hostname" : "a hop a few ms away";
             var tooltip = $"Learned from an earlier trace, which placed it by {how} ({l.Detail}).";
             if (now != null) tooltip += $" This trace alone says {now.Text}.";
@@ -203,9 +218,15 @@ public static class HopLocations
         if (list.Count < 2) yield break;
         var destination = list[^1].Address!;
         var destinationAsn = geo(destination).Asn;
-        foreach (var h in list.Take(list.Count - 1))
+        for (var i = 0; i < list.Count - 1; i++)
         {
+            var h = list[i];
             var address = h.Address!;
+            // A handoff port named for the network after it ("ae-0.<customer>.lsanca07") answers from the customer's
+            // city, not the one it names: never learned from its name.
+            var next = list[i + 1];
+            if (found.GetValueOrDefault(address)?.Source == HopLocationSource.Hostname
+                && NamesNetwork(h.Hostname, next.Hostname, geo(next.Address!).AsnOrg)) continue;
             if (!found.TryGetValue(address, out var v) || v.Source is not (HopLocationSource.Hostname or HopLocationSource.Neighbor)
                 || v is not { City.Length: > 0, CountryCode.Length: > 0, Latitude: double lat, Longitude: double lon }
                 || !NetworkUtilities.IsPublicIpAddress(address) || AnycastAddresses.Contains(address)

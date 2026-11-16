@@ -719,21 +719,50 @@ public class HopLocationsTests
     }
 
     [Fact]
-    public void Resolve_ANearbyHopCity_IsReplacedOnlyByAHostnameLearnedOne()
+    public void Resolve_ANearbyHopCity_IsNeverReplacedByALearnedOne()
     {
-        (string?, string?, double?)[] trace =
+        // The trace's own neighbor places the hop; a hostname learned elsewhere never overrides it.
+        var found = HopLocations.Resolve(
         [
             ("198.51.100.1", null, 1.0),
             ("203.0.113.5", KansasCityRouter, 10.0),
             ("198.51.100.20", null, 11.0),
+        ], Geo, learned: Learned("198.51.100.20", "Los Angeles", 34.05, -118.24));
+
+        found["198.51.100.20"].Source.Should().Be(HopLocationSource.Neighbor);
+        found["198.51.100.20"].City.Should().Be("Kansas City");
+    }
+
+    [Fact]
+    public void Resolve_ALearnedCityTheRoundTripsRuleOut_IsNotUsed()
+    {
+        // GeoLite2 alone for the hop, 1 ms past a Kansas City router: a learned Los Angeles is 2,200 km too far.
+        var found = HopLocations.Resolve(
+        [
+            ("198.51.100.1", null, 1.0),
+            ("203.0.113.5", KansasCityRouter, 10.0),
+            ("198.51.100.31", null, 11.0),
+        ], Geo, learned: Learned("198.51.100.31", "Los Angeles", 34.05, -118.24));
+
+        found.GetValueOrDefault("198.51.100.31")?.Source.Should().NotBe(HopLocationSource.Learned);
+    }
+
+    [Fact]
+    public void Learnable_AHandoffPortNamedForTheNextNetwork_IsNotLearned()
+    {
+        static GeoInfo AsnOf(string address) => new() { Asn = 64500, AsnOrg = "Example Transit" };
+        (string?, string?, double?)[] hops =
+        [
+            ("203.0.113.5", "ae-0.examplecust.lsanca07.example.net", 60.0),
+            ("203.0.113.6", "core1.examplecust.net", 61.0),
+            ("192.0.2.9", null, 62.0),
         ];
+        var found = new Dictionary<string, HopLocationView>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["203.0.113.5"] = new("US", "Los Angeles, United States", "x", "Los Angeles", 34.05, -118.24, HopLocationSource.Hostname),
+        };
 
-        var byNeighbor = HopLocations.Resolve(trace, Geo, learned: Learned("198.51.100.20", "Dallas", 32.78, -96.80, HopLocationSource.Neighbor));
-        byNeighbor["198.51.100.20"].Source.Should().Be(HopLocationSource.Neighbor);
-
-        var byHostname = HopLocations.Resolve(trace, Geo, learned: Learned("198.51.100.20", "Dallas", 32.78, -96.80));
-        byHostname["198.51.100.20"].Source.Should().Be(HopLocationSource.Learned);
-        byHostname["198.51.100.20"].City.Should().Be("Dallas");
+        HopLocations.Learnable(hops, found, AsnOf, DateTime.UtcNow).Should().BeEmpty();
     }
 
     [Fact]
