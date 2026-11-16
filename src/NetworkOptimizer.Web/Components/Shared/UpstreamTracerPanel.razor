@@ -219,7 +219,7 @@
                                     @foreach (var trace in _state.Traces)
                                     {
                                         <tr>
-                                            <td>@trace.CdnLabel <span class="text-muted">(@trace.CdnEndpoint)</span></td>
+                                            <td>@trace.CdnLabel <span class="text-muted">(<span @attributes="NetworkOptimizer.Web.Services.Monitoring.LiveTraffic.LiveTrafficLinks.DestinationCard(trace.CdnEndpoint, trace.CdnLabel, threatsLink: false)">@trace.CdnEndpoint</span>)</span></td>
                                             <td>@trace.Mode.ToDisplayName()</td>
                                             <td>@trace.HopsResponding / @trace.HopsRecorded</td>
                                             <td>
