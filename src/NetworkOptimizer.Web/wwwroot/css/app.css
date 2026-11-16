@@ -29724,6 +29724,12 @@ body:has(.top-bar-hidden) .btn-fit {
     filter: invert(1) hue-rotate(180deg) brightness(0.8) contrast(0.92) saturate(0.45);
 }
 
+/* Leaflet paints its container light gray, which shows while tiles load and past the edge of the
+   world when zoomed out. Dark on every map, to match the dark street tiles. */
+.leaflet-container {
+    background: var(--bg-secondary);
+}
+
 .trace-map.leaflet-container {
     background: var(--bg-primary);
     font-family: inherit;
