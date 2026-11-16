@@ -735,7 +735,7 @@ public class ChannelRecommendationService
         // Channels currently held by a soaking group. Other APs must not be moved onto them
         // (see the second pass below) - stacking onto a radio that is mid-soak corrupts the very
         // measurement the soak exists to gather, and the soaking radio is locked and can't escape.
-        var soakingChannels = new HashSet<int>();
+        var soakingChannels = new HashSet<(int Channel, int Width)>();
         for (int i = 0; i < n; i++)
         {
             var node = graph.Nodes[i];
@@ -770,9 +770,11 @@ public class ChannelRecommendationService
 
             // Report only the recently-left channels that are still real candidates - a channel
             // excluded for another reason (the user's DFS setting, a non-standard channel) must
-            // not be presented as merely soaking. The current channel is never "left".
-            var removed = node.ValidChannels
-                .Where(ch => ch != node.CurrentChannel && soaked.Contains(ch))
+            // not be presented as merely soaking. The current channel is never "left". Matched by
+            // bonding group: at 160 MHz a radio that left ch116 left the block whose candidate is ch100.
+            var removed = soaked
+                .Where(s => node.ValidChannels.Any(ch =>
+                    ch != node.CurrentChannel && IsSameBondingGroup(band, ch, s, node.CurrentWidth)))
                 .OrderBy(ch => ch)
                 .ToList();
             if (removed.Count == 0) continue;
@@ -789,13 +791,15 @@ public class ChannelRecommendationService
             {
                 node.ValidChannels = new[] { node.CurrentChannel };
                 node.ValidWidths = new[] { node.CurrentWidth };
-                soakingChannels.Add(node.CurrentChannel);
+                soakingChannels.Add((node.CurrentChannel, node.CurrentWidth));
             }
             else
             {
                 // Current channel isn't valid (e.g. a non-standard 2.4 GHz channel) - the AP must
                 // move SOMEWHERE, so only drop the recently-left channels rather than strand it.
-                var filtered = node.ValidChannels.Where(ch => !soaked.Contains(ch)).ToArray();
+                var filtered = node.ValidChannels
+                    .Where(ch => !soaked.Any(s => IsSameBondingGroup(band, ch, s, node.CurrentWidth)))
+                    .ToArray();
                 if (filtered.Length == 0) continue;
                 node.ValidChannels = filtered;
             }
@@ -822,7 +826,8 @@ public class ChannelRecommendationService
                 if (soakRemoved[i] != null) continue; // this AP is itself soak-locked
                 if (node.MeshGroupLeader >= 0 && node.MeshGroupLeader != i) continue; // child follows leader
                 var filtered = node.ValidChannels
-                    .Where(ch => ch == node.CurrentChannel || !soakingChannels.Contains(ch))
+                    .Where(ch => ch == node.CurrentChannel
+                        || !soakingChannels.Any(h => OverlapsHeld(band, ch, node.CurrentWidth, h.Channel, h.Width)))
                     .ToArray();
                 if (filtered.Length == node.ValidChannels.Length || filtered.Length == 0) continue;
                 var reserved = node.ValidChannels.Except(filtered).OrderBy(ch => ch).ToList();
@@ -2925,6 +2930,29 @@ public class ChannelRecommendationService
             .ToArray();
 
         return deduped;
+    }
+
+    /// <summary>
+    /// True when two control channels occupy the same block at the width, the grouping
+    /// <see cref="DeduplicateByBondingGroup"/> uses. A candidate list holds one channel per block,
+    /// so a channel compared against it must be compared by block, not by number.
+    /// </summary>
+    private static bool IsSameBondingGroup(RadioBand band, int a, int b, int width) =>
+        a == b || (width > 20 && band != RadioBand.Band2_4GHz
+            && ChannelSpanHelper.GetChannelSpan(band, a, width) == ChannelSpanHelper.GetChannelSpan(band, b, width));
+
+    /// <summary>
+    /// True when a candidate at the AP's width shares spectrum with a soaking radio's held channel.
+    /// At 5/6 GHz the comparison is by span: a candidate of ch100@160 lands on a radio holding
+    /// ch116@160 or ch104@80. 2.4 GHz compares channel numbers.
+    /// </summary>
+    private static bool OverlapsHeld(RadioBand band, int candidate, int width, int held, int heldWidth)
+    {
+        if (candidate == held) return true;
+        if (band == RadioBand.Band2_4GHz) return false;
+        var c = ChannelSpanHelper.GetChannelSpan(band, candidate, width);
+        var h = ChannelSpanHelper.GetChannelSpan(band, held, heldWidth);
+        return c.Low <= h.High && h.Low <= c.High;
     }
 
     private int[] GetValidChannels(

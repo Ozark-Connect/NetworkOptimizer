@@ -2710,6 +2710,72 @@ public class ChannelRecommendationServiceTests
     }
 
     [Fact]
+    public void Optimize_WideSoak_MatchesLeftChannelByBlock()
+    {
+        // At 160 MHz the candidate list holds one channel per block (ch100 for 100-128). A radio
+        // that left ch116 left that block, so it soaks even though 116 itself is no candidate.
+        var aps = new List<AccessPointSnapshot>
+        {
+            CreateAp("aa:bb:cc:dd:ee:01", "AP-1", RadioBand.Band5GHz, 36, width: 160, hasDfs: true)
+        };
+        var reg = StdUsRegulatory();
+        var options = new RecommendationOptions { DfsPreference = DfsPreference.IncludeWithPenalty };
+        var probe = _service.BuildInterferenceGraph(aps, RadioBand.Band5GHz, null, null, reg, options);
+        probe.Nodes[0].ValidChannels.Should().Contain(100, "the test needs the 100-128 block in play");
+        probe.Nodes[0].ValidChannels.Should().NotContain(116);
+
+        var soakInfo = new Dictionary<string, ChannelSoakInfo>
+        {
+            ["aa:bb:cc:dd:ee:01"] = new ChannelSoakInfo
+            {
+                SoakedChannels = new HashSet<int> { 116 },
+                LastChangeAt = DateTimeOffset.UtcNow.AddHours(-2),
+                SoakEndsAt = DateTimeOffset.UtcNow.AddHours(14)
+            }
+        };
+        var graph = _service.BuildInterferenceGraph(
+            aps, RadioBand.Band5GHz, null, null, reg, options, null, soakInfo);
+        var plan = _service.Optimize(graph, RadioBand.Band5GHz, reg, options);
+
+        var rec = plan.Recommendations[0];
+        rec.IsSoaking.Should().BeTrue();
+        rec.SoakSuppressedChannels.Should().Equal(116);
+        rec.RecommendedChannel.Should().Be(36);
+    }
+
+    [Fact]
+    public void Optimize_SoakingWideChannel_BlockReservedFromOtherAps()
+    {
+        // AP-A holds ch116@160 mid-soak. AP-B's candidate for that block is ch100, a different
+        // number on the same spectrum, so it must be kept off it too.
+        var aps = new List<AccessPointSnapshot>
+        {
+            CreateAp("aa:bb:cc:dd:ee:01", "AP-A", RadioBand.Band5GHz, 116, width: 160, hasDfs: true),
+            CreateAp("aa:bb:cc:dd:ee:02", "AP-B", RadioBand.Band5GHz, 36, width: 160, hasDfs: true)
+        };
+        var soakInfo = new Dictionary<string, ChannelSoakInfo>
+        {
+            ["aa:bb:cc:dd:ee:01"] = new ChannelSoakInfo
+            {
+                SoakedChannels = new HashSet<int> { 36 },
+                LastChangeAt = DateTimeOffset.UtcNow.AddHours(-2),
+                SoakEndsAt = DateTimeOffset.UtcNow.AddHours(14)
+            }
+        };
+        var reg = StdUsRegulatory();
+        var options = new RecommendationOptions { DfsPreference = DfsPreference.IncludeWithPenalty };
+        var graph = _service.BuildInterferenceGraph(
+            aps, RadioBand.Band5GHz, null, null, reg, options, null, soakInfo);
+        graph.Nodes[1].ValidChannels.Should().Contain(100, "the test needs AP-B to have the 100-128 block");
+
+        var plan = _service.Optimize(graph, RadioBand.Band5GHz, reg, options);
+
+        plan.Recommendations.First(r => r.ApName == "AP-A").IsSoaking.Should().BeTrue();
+        graph.Nodes[1].ValidChannels.Should().NotContain(100,
+            "ch100@160 is the same spectrum AP-A is holding at ch116@160");
+    }
+
+    [Fact]
     public void Optimize_NoSoakInfo_BehaviorUnchanged()
     {
         var withSoakNull = BuildStressedSingleApGraph(60, soak: null);
