@@ -140,9 +140,7 @@ public sealed class GatewayBlocklist : IGatewayBlocklistWriter
                          ("IPV4", state.FeedsV4Id, FeedsPolicyName, FeedsDescription), ("IPV6", state.FeedsV6Id, FeedsPolicyName, FeedsDescription),
                      })
             {
-                var existing = policies.FirstOrDefault(p => !p.Predefined
-                    && p.Source.ZoneId == external.Id && p.Destination.ZoneId == zone.Id
-                    && p.Source.IpGroupId == groupId);
+                var existing = ExistingBlock(policies, external.Id, zone.Id, groupId!, groupIsSource: true);
                 if (existing != null)
                 {
                     adopted++;
@@ -201,6 +199,19 @@ public sealed class GatewayBlocklist : IGatewayBlocklistWriter
     }
 
     /// <summary>
+    /// The Block policy already on the console for one zone pair and group, for Set Up to adopt. Never an
+    /// exception's Allow policy: one for every listed address has the same zones and group.
+    /// </summary>
+    public static UniFiFirewallPolicy? ExistingBlock(IEnumerable<UniFiFirewallPolicy> policies, string sourceZoneId,
+        string destinationZoneId, string groupId, bool groupIsSource) =>
+        policies.FirstOrDefault(p => !p.Predefined && !IsAllow(p)
+            && p.Source.ZoneId == sourceZoneId && p.Destination.ZoneId == destinationZoneId
+            && (groupIsSource ? p.Source.IpGroupId : p.Destination.IpGroupId) == groupId);
+
+    private static bool IsAllow(UniFiFirewallPolicy policy) =>
+        string.Equals(policy.Action, "ALLOW", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
     /// The Block policies on the site's blocklist and public list groups that still match more than new
     /// connections. Never the exceptions' Allow policies: they share the public list groups as their
     /// source, and their reply-only ones must keep their states.
@@ -209,8 +220,7 @@ public sealed class GatewayBlocklist : IGatewayBlocklistWriter
     {
         var groups = new[] { state.GroupV4Id, state.GroupV6Id, state.FeedsV4Id, state.FeedsV6Id }.OfType<string>().ToHashSet();
         return policies
-            .Where(p => !p.Predefined && !string.Equals(p.Action, "ALLOW", StringComparison.OrdinalIgnoreCase)
-                        && groups.Contains(p.Source.IpGroupId ?? "") && !IsNewConnectionsOnly(p))
+            .Where(p => !p.Predefined && !IsAllow(p) && groups.Contains(p.Source.IpGroupId ?? "") && !IsNewConnectionsOnly(p))
             .ToList();
     }
 
@@ -281,8 +291,7 @@ public sealed class GatewayBlocklist : IGatewayBlocklistWriter
         {
             foreach (var (version, groupId) in new[] { ("IPV4", state.FeedsOutV4Id), ("IPV6", state.FeedsOutV6Id) })
             {
-                var existing = policies.FirstOrDefault(p => !p.Predefined
-                    && p.Source.ZoneId == zone.Id && p.Destination.ZoneId == external.Id && p.Destination.IpGroupId == groupId);
+                var existing = ExistingBlock(policies, zone.Id, external.Id, groupId, groupIsSource: false);
                 var id = existing?.Id;
                 if (id == null)
                 {

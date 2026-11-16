@@ -58,6 +58,29 @@ public class GatewayBlocklistOrderTests
     }
 
     [Fact]
+    public void ExistingBlock_SkipsAnExceptionAllowOnTheSameZonesAndGroup()
+    {
+        UniFiFirewallPolicy Policy(string id, string action, string src, string dst, string? sourceGroup, string? destinationGroup) => new()
+        {
+            Id = id,
+            Action = action,
+            Source = new UniFiFirewallPolicyEndpoint { ZoneId = src, IpGroupId = sourceGroup },
+            Destination = new UniFiFirewallPolicyEndpoint { ZoneId = dst, IpGroupId = destinationGroup },
+        };
+        var policies = new[]
+        {
+            Policy("exception-out-reply", "ALLOW", "ext", "int", "feed4", null), // ordered ahead of the Block
+            Policy("feed-block", "BLOCK", "ext", "int", "feed4", null),
+            Policy("exception-out", "ALLOW", "int", "ext", null, "out4"),
+            Policy("out-block", "BLOCK", "int", "ext", null, "out4"),
+        };
+
+        GatewayBlocklist.ExistingBlock(policies, "ext", "int", "feed4", groupIsSource: true)!.Id.Should().Be("feed-block");
+        GatewayBlocklist.ExistingBlock(policies, "int", "ext", "out4", groupIsSource: false)!.Id.Should().Be("out-block");
+        GatewayBlocklist.ExistingBlock(policies.Where(p => p.Action == "ALLOW"), "ext", "int", "feed4", groupIsSource: true).Should().BeNull();
+    }
+
+    [Fact]
     public void OursMoveToTheFront_OthersKeepTheirOrder()
     {
         var policies = new[]
