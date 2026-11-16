@@ -44,7 +44,7 @@ public sealed class PathRouteRecorder
         var executor = watcher.ExecutorFor(vantage);
         var witness = target.TargetType is MonitoringTargetType.InternetService or MonitoringTargetType.Custom;
         var result = await watcher.InTraceSlotAsync(
-            () => TargetAncestry.TraceAsync(executor, db, target.Id, target.Address, vantage, _placer, witness, _logger, ct), ct);
+            () => TargetAncestry.TraceAsync(executor, db, slug, target.Id, target.Address, vantage, _placer, witness, _logger, ct), ct);
 
         if (result.Route != null) await _placer.LearnAsync(slug, result.Route, ct);
 

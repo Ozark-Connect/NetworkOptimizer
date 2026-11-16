@@ -30,12 +30,14 @@ public static class TargetAncestry
     /// destination as its ancestry, and the full route with its path-shift state. Best-effort: swallows
     /// failures (the caller retries on the next cycle).
     /// </summary>
+    /// <param name="siteSlug">The site the trace runs for: its traces use its own cities set by hand.</param>
     /// <param name="placer">Places the route for its path-shift signature; without one, no shift is detected.</param>
     /// <param name="witness">An Internet/Custom target, whose ancestry this writes. An ISP or Transit target
     /// keeps the ancestry discovery gave it, and gets its route only when discovery made it a row.</param>
     public static async Task<AncestryTrace> TraceAsync(
         IProbeExecutor executor,
         NetworkOptimizerDbContext db,
+        string siteSlug,
         int targetId,
         string address,
         PathVantage vantage,
@@ -71,7 +73,7 @@ public static class TargetAncestry
             var reached = result.Hops.Any(h => h.Responded && IsDestination(h.Address));
             if (ancestors.Count == 0 && !reached) return new AncestryTrace(false, null, null);
 
-            var route = await RecordRouteAsync(result, vantage, destination, placer, ct);
+            var route = await RecordRouteAsync(result, vantage, destination, siteSlug, placer, ct);
 
             var existing = await db.UpstreamDiscoveries.FirstOrDefaultAsync(d => d.MonitoringTargetId == targetId, ct);
             if (existing == null && ancestors.Count == 0) return new AncestryTrace(false, route, null);
@@ -103,7 +105,7 @@ public static class TargetAncestry
             // The signatures carry each trace's own placement: a hop placed better since is not a route change.
             if (shift != null && placer != null)
             {
-                var overrides = await placer.OverridesAsync(ct);
+                var overrides = await placer.OverridesAsync(siteSlug, ct);
                 if (!RouteChanges.IsReal(await placer.PlaceAsync(shift.From, overrides, ct), await placer.PlaceAsync(shift.To, overrides, ct)))
                     shift = null;
             }
@@ -126,7 +128,7 @@ public static class TargetAncestry
     /// whose resolver can hold a name the vantage's does not, then the route is placed for its signature.
     /// </summary>
     private static async Task<StoredRoute> RecordRouteAsync(TracerouteResult result, PathVantage vantage, string? destination,
-        RoutePlacer? placer, CancellationToken ct)
+        string siteSlug, RoutePlacer? placer, CancellationToken ct)
     {
         var ptrs = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         foreach (var hop in result.Hops.Where(h => h.Responded && string.IsNullOrEmpty(h.Hostname)
@@ -137,7 +139,7 @@ public static class TargetAncestry
 
         var route = StoredRoutes.FromTrace(result, vantage.Label, vantage.SourceInterface, destination, ptrs, signature: null);
         if (placer == null) return route;
-        var placed = await placer.PlaceAsync(route, await placer.OverridesAsync(ct), ct);
+        var placed = await placer.PlaceAsync(route, await placer.OverridesAsync(siteSlug, ct), ct);
         return route with { Signature = RoutePlacer.Signature(placed) };
     }
 }
