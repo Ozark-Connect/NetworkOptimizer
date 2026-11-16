@@ -1008,7 +1008,7 @@ else if (_diagResult != null && !string.IsNullOrEmpty(_diagResult.InterfaceError
     // so the tour step waits for the whole result, not the bare hop table.
     private bool _traceResolved;
 
-    // A traceroute result just rendered: put Traceroute Result at the top of the view, so the hop
+    // A traceroute result just rendered: bring Traceroute Result up toward the top of the view, so the hop
     // table and its map are on screen. Done after the render: the card does not exist before.
     private bool _scrollToTrace;
 
@@ -1103,7 +1103,8 @@ else if (_diagResult != null && !string.IsNullOrEmpty(_diagResult.InterfaceError
         if (_scrollToTrace)
         {
             _scrollToTrace = false;
-            try { await JS.InvokeVoidAsync("noScrollTo", "traceroute-result", "start"); }
+            // No further than the Route Map's bottom at the view's bottom: below it is only the next card.
+            try { await JS.InvokeVoidAsync("noScrollToEnd", "traceroute-result", ".trace-map-block"); }
             catch (Exception ex) when (ex is JSException or InvalidOperationException or JSDisconnectedException)
             {
                 Logger.LogDebug(ex, "Could not scroll to Traceroute Result");

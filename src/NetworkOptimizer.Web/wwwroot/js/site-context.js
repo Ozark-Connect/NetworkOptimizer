@@ -221,6 +221,27 @@ window.noScrollTo = function (id, block) {
     el.scrollIntoView({ behavior: 'smooth', block: block || 'start' });
 };
 
+// Like noScrollTo with 'start', but never further than puts the end of what matters in it (`endSelector`
+// inside it, else its own bottom) at the bottom of the view: past that the view shows only empty space or
+// the next card. Already in view whole: no scroll.
+window.noScrollToEnd = function (id, endSelector) {
+    var el = document.getElementById(id);
+    if (!el) return;
+    var end = (endSelector && el.querySelector(endSelector)) || el;
+    var box = el.parentElement;
+    while (box && box !== document.body && !(box.scrollHeight > box.clientHeight
+        && /(auto|scroll)/.test(getComputedStyle(box).overflowY))) box = box.parentElement;
+    var scroller = box && box !== document.body ? box : document.scrollingElement;
+    var view = scroller === document.scrollingElement
+        ? { top: 0, bottom: window.innerHeight }
+        : scroller.getBoundingClientRect();
+    var margin = parseFloat(getComputedStyle(el).scrollMarginTop) || 0;
+    var toStart = el.getBoundingClientRect().top - view.top - margin;
+    var toEnd = end.getBoundingClientRect().bottom - view.bottom + 16;
+    var delta = toStart > 0 ? Math.max(0, Math.min(toStart, toEnd)) : toStart;
+    if (delta !== 0) scroller.scrollBy({ top: delta, behavior: 'smooth' });
+};
+
 // Holds an element at the same place on screen while something ABOVE it changes height, for a
 // control the user is about to press again. Filtering the Latency Targets bar re-picks the chart
 // series above it, and the statistics table that grows or shrinks with them drags the whole card -
