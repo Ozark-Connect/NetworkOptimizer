@@ -21094,12 +21094,20 @@ a.isp-health-hero-speed:hover {
 .path-episode-hops .path-col-return { width: 7.5rem; }
 .path-episode-hops .path-col-location { width: 11rem; }
 
-/* Location is a desktop column: on a phone its col takes no width and its cells are hidden. */
+/* Location is a desktop column. On a phone its col takes no width and its cells stay in the row
+   but show nothing: a display:none cell would shift every later cell into the wrong col. */
 .path-episode-table .path-episode-hops.has-location { min-width: calc(37rem + 16rem + 11rem); }
 .path-episode-table .path-episode-hops.has-location.has-return { min-width: calc(44.5rem + 16rem + 11rem); }
 
 @media (max-width: 768px) {
     .path-episode-hops .path-col-location { width: 0; }
+    .path-episode-hops .path-loc-cell {
+        padding: 0;
+        border: 0;
+        overflow: hidden;
+        font-size: 0;
+        visibility: hidden;
+    }
     .path-episode-table .path-episode-hops.has-location { min-width: calc(37rem + 16rem); }
     .path-episode-table .path-episode-hops.has-location.has-return { min-width: calc(44.5rem + 16rem); }
 }

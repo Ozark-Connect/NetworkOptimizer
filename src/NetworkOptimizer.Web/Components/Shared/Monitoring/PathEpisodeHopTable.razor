@@ -94,7 +94,7 @@
                             <th>Network</th>
                             @if (locations.Count > 0)
                             {
-                                <th class="hide-mobile" data-tooltip="The city in the router's hostname when it names one, else where GeoLite2 places the address. Hover a location for its source.">Location</th>
+                                <th class="path-loc-cell" data-tooltip="The city in the router's hostname when it names one, else where GeoLite2 places the address. Hover a location for its source.">Location</th>
                             }
                             <th>Loss</th>
                             <th data-tooltip="One bar per trace. Taller is slower.">RTT (normal &rarr; during)</th>
@@ -155,7 +155,7 @@
                                 <td><TextWithCode Text="@PathTraceAnalyzer.NetworkCell(hop)" /></td>
                                 @if (locations.Count > 0)
                                 {
-                                    <td class="hide-mobile">
+                                    <td class="path-loc-cell">
                                         @if (hop.Responses > 0 && hop.Address != null && locations.TryGetValue(hop.Address, out var location))
                                         {
                                             <span class="flag-icon" data-tooltip="@CountryDisplay.CountryTooltip(location.CountryCode)">@CountryDisplay.CountryFlag(location.CountryCode)</span>
