@@ -97,8 +97,9 @@ export async function render(host, path, dotNet) {
     if (!state) {
         const map = L.map(host, {
             scrollWheelZoom: false,
-            // Whole zoom levels only: a fractional zoom scales the tiles and shows seams between them.
-            zoomSnap: 1,
+            // Quarter steps, so a route fits closely instead of dropping a whole level; the tiles
+            // overlap by a pixel (app.css) so a fractional zoom shows no seams.
+            zoomSnap: 0.25,
             minZoom: 2,
             worldCopyJump: false,
             attributionControl: true,
@@ -117,15 +118,12 @@ export async function render(host, path, dotNet) {
             button.href = '#';
             button.setAttribute('role', 'button');
             button.setAttribute('aria-label', 'Fit the route');
-            button.dataset.tooltip = 'Fit the route';
             button.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6"/><path d="M9 21H3v-6"/><path d="M21 3l-7 7"/><path d="M3 21l7-7"/></svg>';
             L.DomEvent.disableClickPropagation(bar);
             L.DomEvent.on(button, 'click', e => {
                 L.DomEvent.preventDefault(e);
                 fit(host._traceMap);
-                // The press is the answer to the tooltip: drop it, and the focus that would hold it up.
                 button.blur();
-                if (button._tippy) button._tippy.hide();
             });
             bar.appendChild(button);
             return bar;
@@ -198,9 +196,19 @@ function fit(state) {
     if (!state || !state.bounds || state.bounds.length === 0) return;
     if (state.bounds.length === 1) {
         state.map.setView(state.bounds[0], 6);
-    } else {
-        state.map.fitBounds(state.bounds, { padding: [56, 56], maxZoom: 8 });
+        return;
     }
+    // The route fills the map, a marker's width from the edge. Only the start and the end carry a
+    // label, to the right of the point: when one of them is the easternmost point, its label gets room.
+    const pad = 28;
+    const east = Math.max(...state.bounds.map(b => b[1]));
+    const last = state.bounds.length - 1;
+    const labelEast = state.bounds[0][1] === east || state.bounds[last][1] === east;
+    state.map.fitBounds(state.bounds, {
+        paddingTopLeft: [pad, pad],
+        paddingBottomRight: [labelEast ? pad + 96 : pad, pad],
+        maxZoom: 8,
+    });
 }
 
 function setActive(state, index) {
