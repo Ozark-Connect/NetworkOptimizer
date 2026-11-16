@@ -29892,6 +29892,18 @@ tr:hover .hop-loc-edit,
     stroke-dasharray: 7 7;
 }
 
+.trace-map .trace-leg-silent {
+    stroke-dasharray: 1 7;
+    stroke-linecap: round;
+}
+
+.trace-legend-line-silent {
+    display: inline-block;
+    width: 16px;
+    border-top: 3px dotted var(--text-secondary);
+    vertical-align: middle;
+}
+
 /* Bright dashes run from the start toward the target. */
 .trace-map .trace-leg-flow {
     stroke-dasharray: 3 21;

@@ -17,7 +17,8 @@ public sealed record TraceMapNode(
 /// <param name="From">Index into <see cref="TraceMapPath.Nodes"/>.</param>
 /// <param name="To">Index into <see cref="TraceMapPath.Nodes"/>.</param>
 /// <param name="Kilometers">Great-circle distance between the two places.</param>
-public sealed record TraceMapLeg(int From, int To, double Kilometers);
+/// <param name="SilentHops">Hop numbers between the two places that answered no probe: the way between them is not known.</param>
+public sealed record TraceMapLeg(int From, int To, double Kilometers, int SilentHops = 0);
 
 /// <summary>
 /// A traced path as places and the legs between them, for the Network Tools trace map. Hops placed
@@ -43,6 +44,9 @@ public sealed record TraceMapPath(List<TraceMapNode> Nodes, List<TraceMapLeg> Le
         var legs = new List<TraceMapLeg>();
         var unplaced = 0;
         var previous = -1;
+        // Hop numbers missing from the responding hops answered nothing; they count toward the next leg.
+        var silent = 0;
+        var lastNumber = 0;
 
         void Visit(double lat, double lon, string city, string? country, HopLocationSource? source, TraceMapHop hop)
         {
@@ -63,9 +67,10 @@ public sealed record TraceMapPath(List<TraceMapNode> Nodes, List<TraceMapLeg> Le
             if (previous >= 0 && previous != index && !legs.Any(l => l.From == previous && l.To == index))
             {
                 legs.Add(new TraceMapLeg(previous, index, GeoDistance.Kilometers(
-                    nodes[previous].Latitude, nodes[previous].Longitude, nodes[index].Latitude, nodes[index].Longitude)));
+                    nodes[previous].Latitude, nodes[previous].Longitude, nodes[index].Latitude, nodes[index].Longitude), silent));
             }
             previous = index;
+            silent = 0;
         }
 
         if (start is { } from)
@@ -74,6 +79,8 @@ public sealed record TraceMapPath(List<TraceMapNode> Nodes, List<TraceMapLeg> Le
         foreach (var h in hops)
         {
             if (string.IsNullOrEmpty(h.Address)) continue;
+            if (h.Number > lastNumber + 1) silent += h.Number - lastNumber - 1;
+            lastNumber = Math.Max(lastNumber, h.Number);
             if (!locations.TryGetValue(h.Address, out var view)
                 || view is not { City.Length: > 0, Latitude: double lat, Longitude: double lon })
             {

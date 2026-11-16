@@ -26,6 +26,10 @@
                     <span class="trace-legend-item"><span class="trace-legend-dot trace-legend-learned"></span>Learned</span>
                 }
                 <span class="trace-legend-item"><span class="trace-legend-dot trace-legend-geolite2"></span>GeoLite2</span>
+                @if (Path.Legs.Any(l => l.SilentHops > 0))
+                {
+                    <span class="trace-legend-item"><span class="trace-legend-line-silent"></span>Hops did not answer</span>
+                }
             </div>
         </div>
         <div class="trace-map" @ref="_host"></div>

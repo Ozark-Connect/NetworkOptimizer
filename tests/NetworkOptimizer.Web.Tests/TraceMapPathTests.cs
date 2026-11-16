@@ -36,6 +36,23 @@ public class TraceMapPathTests
     }
 
     [Fact]
+    public void Build_HopNumbersThatDidNotAnswer_CountTowardTheNextLeg()
+    {
+        // Hops 2 and 3 answered nothing; hop 4 answered but has only a country, which is not silence.
+        var path = TraceMapPath.Build(
+        [
+            (1, "198.51.100.2", null, 1.0),
+            (4, "198.51.100.4", null, 8.0),
+            (5, "198.51.100.3", null, 12.0),
+        ], Locations);
+
+        path.Legs.Should().ContainSingle().Which.SilentHops.Should().Be(2);
+
+        var heard = TraceMapPath.Build([(1, "198.51.100.2", null, 1.0), (2, "198.51.100.3", null, 12.0)], Locations);
+        heard.Legs.Single().SilentHops.Should().Be(0);
+    }
+
+    [Fact]
     public void Build_UnplacedPublicHopsAreCounted_PrivateOnesAreNot()
     {
         var path = TraceMapPath.Build(

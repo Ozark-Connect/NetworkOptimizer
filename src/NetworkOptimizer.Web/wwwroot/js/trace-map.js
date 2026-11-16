@@ -73,9 +73,14 @@ function nodeTip(node) {
     return tip;
 }
 
-function legTip(from, to, km) {
+function legTip(from, to, km, silentHops) {
     const distance = km >= 100 ? Math.round(km / 10) * 10 : Math.round(km);
-    return el('div', 'trace-tip trace-tip-leg', `${from.city} to ${to.city} · ${distance.toLocaleString()} km`);
+    const tip = el('div', 'trace-tip trace-tip-leg', `${from.city} to ${to.city} · ${distance.toLocaleString()} km`);
+    if (silentHops > 0) {
+        tip.appendChild(el('div', 'trace-tip-source',
+            `${silentHops} ${silentHops === 1 ? 'hop' : 'hops'} between here did not answer: the way between these places is not known, only its ends.`));
+    }
+    return tip;
 }
 
 /**
@@ -155,11 +160,15 @@ export async function render(host, path, dotNet) {
         const unsure = from.source === 'geolite2' || to.source === 'geolite2';
         const color = unsure ? LEG_UNSURE : LEG_COLOR;
         L.polyline(points, { color, weight: 9, opacity: 0.14, interactive: false, className: 'trace-leg-glow' }).addTo(layers);
+        // Dotted: hops between the two places answered nothing, so the way between them is not known.
+        const silent = leg.silentHops > 0;
         const line = L.polyline(points, {
-            color, weight: 2.5, opacity: 0.95, className: unsure ? 'trace-leg trace-leg-unsure' : 'trace-leg',
+            color, weight: 2.5, opacity: 0.95,
+            className: silent ? 'trace-leg trace-leg-silent' : unsure ? 'trace-leg trace-leg-unsure' : 'trace-leg',
         }).addTo(layers);
-        line.bindTooltip(legTip(from, to, leg.kilometers), { sticky: true, className: 'trace-map-tooltip', opacity: 1 });
-        L.polyline(points, { color: '#ffffff', weight: 2.5, opacity: 0.9, interactive: false, className: 'trace-leg-flow' }).addTo(layers);
+        line.bindTooltip(legTip(from, to, leg.kilometers, leg.silentHops), { sticky: true, className: 'trace-map-tooltip', opacity: 1 });
+        // The flowing dashes would hide the dots.
+        if (!silent) L.polyline(points, { color: '#ffffff', weight: 2.5, opacity: 0.9, interactive: false, className: 'trace-leg-flow' }).addTo(layers);
     }
 
     const last = path.nodes.length - 1;

@@ -283,7 +283,7 @@ Time-series monitoring on your own InfluxDB, fed by SNMP polling (InfluxDB).
   - From the server, an [On-Site Agent](#on-site-agent), a WAN vantage, or any UniFi device (Device SSH)
   - ICMP, TCP, or UDP (traceroute only); choose the gateway's WAN interface
   - Traceroute hops show their location (flag, city, country): the city a transit router's hostname names, checked against its round trip, else GeoLite2 City
-  - Route Map: the traced path drawn on a map, city to city, with each point marked by what placed it (hostname, nearby hop, or GeoLite2)
+  - Route Map: the traced path drawn on a map, city to city, with each point marked by what placed it (hostname, nearby hop, learned, or GeoLite2), and a dotted leg where hops in between did not answer
   - Set location: an Admin can set the city of any public hop from a trace table (Network Tools or ISP Health), install-wide, and the hops around it place against it
   - Learned locations: a transit or peering router one trace placed by its hostname or a nearby hop keeps that city on later traces that only have GeoLite2 for it, install-wide (an address two sites place in different cities stays with each site); never anycast or the destination's own network
   - DNS lookups use the vantage's own resolver, which shows DNS segregation per network
