@@ -270,17 +270,17 @@
                     @foreach (var w in LiveWan.Options)
                     {
                         <button class="time-btn @(LiveWan.IsSelected(w.Key) ? "active" : "")"
-                                @onclick="e => LiveWan.SelectAsync(w.Key, toggle: e.CtrlKey || e.MetaKey)">@{
+                                @onclick="e => PickLiveWanAsync(() => LiveWan.SelectAsync(w.Key, toggle: e.CtrlKey || e.MetaKey))">@{
                                     var wp = NetworkOptimizer.UniFi.GatewayWanHelper.SplitWanLabel(
                                         w.Label, NetworkOptimizer.UniFi.GatewayWanHelper.WanIndexFromKey(w.Key));
                                 }@(wp.Name ?? w.Label)@if (wp.WanToken != null && wp.Name != null)
                                 {<span class="wan-pill-token">@wp.WanToken</span>}</button>
                     }
                     <button class="time-btn wan-all-btn @(LiveWan.AllSelected ? "active" : "")"
-                            @onclick="() => LiveWan.SelectAllAsync()">All</button>
+                            @onclick="() => PickLiveWanAsync(() => LiveWan.SelectAllAsync())">All</button>
                     @if (LiveWanIsNarrowed)
                     {
-                        <WanFilterResetButton OnReset="ResetLiveWanAsync" />
+                        <WanFilterResetButton OnReset="() => PickLiveWanAsync(ResetLiveWanAsync)" />
                     }
                 </div>
             }
@@ -2929,6 +2929,17 @@
     /// <summary>Set while a link's WAN is being applied, so the change callback can tell the link's
     /// own selection from the user's and only strip the parameter for theirs.</summary>
     private bool _applyingLinkWan;
+
+    // Set while the reader picks a WAN on Live View's own pills: that pick ends the link. The selection's
+    // change callback also fires when the saved selection restores on arrival, which must not.
+    private bool _liveWanPickedByUser;
+
+    private async Task PickLiveWanAsync(Func<Task> pick)
+    {
+        _liveWanPickedByUser = true;
+        try { await pick(); }
+        finally { _liveWanPickedByUser = false; }
+    }
     private bool _wanLiveChartMounted = false;
     private bool _portStatsMounted = false;
     private bool _latencyChartsMounted;
@@ -4240,7 +4251,7 @@
     {
         // Not while the link itself is being applied: that fires this same callback, and stripping
         // there would be the clear-on-arrival that cost a navigation per jump.
-        if (!_applyingLinkWan) ClearLinkedWan();
+        if (!_applyingLinkWan) ClearLinkedWan(endLink: _liveWanPickedByUser && _activeTab == "live");
         await InvokeAsync(StateHasChanged);
         try { await JS.InvokeVoidAsync("eval", $"window.__wanLiveChart?.setWans({LiveWanJsLiteral()});"); }
         catch { /* chart not mounted yet - it takes the scope at mount instead */ }
@@ -4764,8 +4775,9 @@
     /// just picked, and the LAN scope cannot show an ISP, Transit, or Internet category.
     /// </param>
     /// <param name="endLink">
-    /// True for a LAN or WAN scope pick: ?at=, ?span=, ?investigate=, ?target=, and ?via= go too, so nothing
-    /// of the link is left and the link context chip goes. A category pick leaves the link's moment.
+    /// True for a LAN or WAN scope pick on Network Performance, or a WAN pick on Live View: ?at=, ?span=,
+    /// ?investigate=, ?target=, and ?via= go too, so nothing of the link is left and the link context chip
+    /// goes. What is on screen stays for the visit. A category pick leaves the link's moment.
     /// </param>
     private void ClearLinkedWan(bool andCategory = false, bool endLink = false)
     {
@@ -4794,7 +4806,7 @@
             _soloTargetId = null;
         }
         var endsInstant = false;
-        if (endLink && _latencyChartsMounted)
+        if (endLink && (_latencyChartsMounted || _activeTab == "live"))
         {
             foreach (var (name, value) in new[] { ("at", AtParam), ("span", SpanParam), ("investigate", InvestigateParam), ("target", TargetParam), ("via", ViaParam) })
                 if (!string.IsNullOrWhiteSpace(value)) stripped = SiteContextService.RemoveQueryParam(stripped, name);
