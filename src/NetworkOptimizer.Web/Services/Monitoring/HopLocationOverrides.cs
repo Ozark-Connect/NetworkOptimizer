@@ -17,6 +17,9 @@ namespace NetworkOptimizer.Web.Services.Monitoring;
 public sealed record HopLocationSetting(
     string Address, string City, string? Region, string CountryCode, double Latitude, double Longitude, string? SetBy);
 
+/// <summary>A Set location editor's subject: the hop, where it is placed now, and the icon that opened it.</summary>
+public sealed record HopLocationEdit(string Address, HopLocationView? Location, Microsoft.AspNetCore.Components.ElementReference Anchor);
+
 /// <summary>
 /// Cities set by hand for traced hops, by address: Network Tools' traceroute and ISP Health's hop
 /// tables show them in place of the location read from the hop. Instance-wide: every site's traces

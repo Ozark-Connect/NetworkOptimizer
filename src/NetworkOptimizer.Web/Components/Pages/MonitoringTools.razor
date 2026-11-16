@@ -380,7 +380,8 @@
                                 <td>
                                     <NetworkOptimizer.Web.Components.Shared.Monitoring.HopLocationCell Address="@hop.Address"
                                         Location="@(hop.Address != null && _traceLocations.TryGetValue(hop.Address, out var location) ? location : null)"
-                                        OnChanged="TraceLocationChangedAsync" />
+                                        Selected="@(_selectedTraceHop == hop.HopNumber)" Open="@(_locationEdit?.Address == hop.Address)"
+                                        OnEdit="e => _locationEdit = e" />
                                 </td>
                             }
                             <td>@(hop.Responses > 0 && hop.Probes > 0 ? $"{100.0 * (hop.Probes - hop.Responses) / hop.Probes:0.#}%" : "-")</td>
@@ -401,6 +402,11 @@
             }
         </div>
     </div>
+    @if (_locationEdit != null)
+    {
+        <NetworkOptimizer.Web.Components.Shared.Monitoring.HopLocationEditor Edit="_locationEdit"
+            OnClose="() => _locationEdit = null" OnChanged="TraceLocationChangedAsync" />
+    }
 }
 
 @if (_hasGateway)
@@ -1755,6 +1761,9 @@ else if (_diagResult != null && !string.IsNullOrEmpty(_diagResult.InterfaceError
         if (_traceResult != null) await PlaceTraceAsync(_traceResult);
     }
 
+    // The hop whose Set location editor is open.
+    private NetworkOptimizer.Web.Services.Monitoring.HopLocationEdit? _locationEdit;
+
     /// <summary>
     /// Where the trace left the site, for the map's first point: GeoLite2's city for the address of
     /// the WAN the probe was bound to, or of the primary WAN when it was not bound. Null when that
@@ -1783,9 +1792,13 @@ else if (_diagResult != null && !string.IsNullOrEmpty(_diagResult.InterfaceError
     private HashSet<int> _mapHops = [];
     private HashSet<int> _activeHops = [];
 
+    // The row last clicked, whose Set location icon shows without a hover (on or off the map).
+    private int? _selectedTraceHop;
+
     // A row click marks the hop's place on the map; a second click on the same row clears it.
     private async Task SelectTraceHop(int hopNumber)
     {
+        _selectedTraceHop = hopNumber;
         if (!_mapHops.Contains(hopNumber) || _traceMap == null) return;
         var clear = _activeHops.Count == 1 && _activeHops.Contains(hopNumber);
         _activeHops = clear ? [] : [hopNumber];

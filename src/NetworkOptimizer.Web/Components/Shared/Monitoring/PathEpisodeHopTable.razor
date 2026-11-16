@@ -109,7 +109,7 @@
                         @foreach (var hop in table.Hops)
                         {
                             var tag = PathEpisodePresentation.HopTagLabel(hop);
-                            <tr class="@RowClass(hop)">
+                            <tr class="@RowClass(hop)" @onclick="() => _selectedHop = hop">
                                 <td>@hop.Ttl</td>
                                 <td>
                                     @if (hop.Has(HopTag.Destination) && hop.Responses == 0)
@@ -159,7 +159,8 @@
                                     <td class="path-loc-cell">
                                         <HopLocationCell Address="@(hop.Responses > 0 ? hop.Address : null)"
                                             Location="@(hop.Responses > 0 && hop.Address != null && locations.TryGetValue(hop.Address, out var location) ? location : null)"
-                                            OnChanged="LocationSetChangedAsync" />
+                                            Selected="@ReferenceEquals(_selectedHop, hop)" Open="@(_locationEdit?.Address == hop.Address)"
+                                            OnEdit="e => _locationEdit = e" />
                                     </td>
                                 }
                                 <td class="path-hop-nowrap">
@@ -230,6 +231,11 @@
     }
 </div>
 
+@if (_locationEdit != null)
+{
+    <HopLocationEditor Edit="_locationEdit" OnClose="() => _locationEdit = null" OnChanged="LocationSetChangedAsync" />
+}
+
 @code {
     [Parameter, EditorRequired] public int EpisodeId { get; set; }
 
@@ -292,6 +298,10 @@
     }
 
     private Task LocationSetChangedAsync() => LoadLocationSetsAsync();
+
+    // The tapped row, whose Set location icon shows without a hover, and the hop whose editor is open.
+    private HopReading? _selectedHop;
+    private NetworkOptimizer.Web.Services.Monitoring.HopLocationEdit? _locationEdit;
 
     // A reply that came home by as many hops as it went out says nothing, and is most of them.
     private static bool ReturnHopsWorthShowing(HopReading h) =>
