@@ -206,7 +206,9 @@ export async function render(host, path, dotNet) {
                 theme: 'custom',
                 appendTo: document.body,
                 trigger: 'mouseenter',
-                touch: false,
+                // A tap shows it too: touch has no hover, and with touch off Tippy refuses even the
+                // marker click's show().
+                touch: true,
                 maxWidth: 'min(100vw - 10px, 420px)',
             });
             state.tips.push(entry.tip);
