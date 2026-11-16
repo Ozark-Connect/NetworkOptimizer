@@ -3891,6 +3891,15 @@ select.form-control {
     -webkit-appearance: none;
 }
 
+/* A press held by js/select-wheel-guard.js: a spinner takes the chevron's place until the list opens. */
+select.select-wheel-wait {
+    cursor: progress;
+}
+
+select.form-control.select-wheel-wait {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%239ca3af' stroke-width='3' stroke-linecap='round'%3E%3Ccircle cx='12' cy='12' r='9' stroke-opacity='.25'/%3E%3Cpath d='M21 12a9 9 0 0 0-9-9'%3E%3CanimateTransform attributeName='transform' type='rotate' from='0 12 12' to='360 12 12' dur='.7s' repeatCount='indefinite'/%3E%3C/path%3E%3C/svg%3E");
+}
+
 /* iOS Safari gives native date/time inputs an intrinsic min-width that ignores width: 100% and overflows the card. */
 input[type="time"].form-control,
 input[type="date"].form-control,
