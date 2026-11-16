@@ -360,12 +360,6 @@ public static class HopLocations
 
     private static double Slack(Anchor from) => from.FromHostname ? CitySlackKm : RouterHostnameLocator.VantageSlackKm;
 
-    /// <summary>
-    /// Kilometers per ms of round trip a real path tends to cover (fiber is not a straight line, and
-    /// routers add delay): what an anycast hop's distance from the anchor before it is judged against.
-    /// </summary>
-    internal const double AnycastTypicalKmPerMs = 70;
-
     /// <summary>The least a real path covers per ms of round trip, for the near edge of an anycast hop's reach.</summary>
     internal const double AnycastMinKmPerMs = 40;
 
@@ -373,9 +367,10 @@ public static class HopLocations
         "Anycast: many sites answer this address, so GeoLite2's one place for it says nothing about which site did.";
 
     /// <summary>
-    /// An anycast hop's metro, from its round trip past the last placed hop before it: the
-    /// interconnection metro (<see cref="AnycastAddresses.Metros"/>) whose distance fits the gap best.
-    /// With no placed hop before it, or no metro in reach, it gets no location.
+    /// An anycast hop's metro, from its round trip past the last placed hop before it: that hop's own
+    /// metro within <see cref="NeighborGapMs"/>, else the one interconnection metro
+    /// (<see cref="AnycastAddresses.Metros"/>) the gap reaches. With no placed hop before it, or none
+    /// or several metros in reach, it gets no location.
     /// </summary>
     private static HopLocationView Anycast(
         List<(string? Address, string? Hostname, double? MinRttMs)> list, Anchor?[] anchors, int i, string address)
@@ -402,13 +397,16 @@ public static class HopLocations
             .Where(c => c != null)
             .Select(c => (City: c!, Km: GeoDistance.Kilometers(anchor.Latitude, anchor.Longitude, c!.Latitude, c.Longitude)))
             .Where(x => x.Km >= min && x.Km <= max)
-            .OrderBy(x => Math.Abs(x.Km - gap * AnycastTypicalKmPerMs))
             .ToList();
         if (fits.Count == 0)
             return new HopLocationView(null, "Anycast", $"{AnycastNote} No interconnection metro fits {from}.");
+        // Placed only when the round trip leaves one metro: picking among several is a guess, and a
+        // wrong city reads worse than none.
+        if (fits.Count > 1)
+            return new HopLocationView(null, "Anycast",
+                $"{AnycastNote} {from}, could be {string.Join(", ", fits.Select(f => f.City.Name))}.");
         var pick = fits[0].City;
-        var others = fits.Count > 1 ? $" (the closest fit; {string.Join(", ", fits.Skip(1).Select(f => f.City.Name))} also in reach)" : "";
-        return CityView(pick.Name, pick.CountryCode, $"{AnycastNote} {from}, puts the site that answered near {pick.Name}{others}.",
+        return CityView(pick.Name, pick.CountryCode, $"{AnycastNote} {from}, leaves {pick.Name} as the only metro in reach.",
             pick.Latitude, pick.Longitude, HopLocationSource.Neighbor);
     }
 

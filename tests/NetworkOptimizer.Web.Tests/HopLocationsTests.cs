@@ -586,6 +586,22 @@ public class HopLocationsTests
     }
 
     [Fact]
+    public void Resolve_Anycast_WithSeveralMetrosInReach_IsNotGuessed()
+    {
+        // 8 ms past a Kansas City router reaches Chicago, Dallas, and Denver: no one metro to name.
+        var found = HopLocations.Resolve(
+        [
+            ("198.51.100.1", null, 1.0),
+            ("203.0.113.5", KansasCityRouter, 12.8),
+            ("4.2.2.2", "b.resolvers.level3.net", 20.8),
+        ], GeoAnycast);
+
+        found["4.2.2.2"].City.Should().BeNull();
+        found["4.2.2.2"].Text.Should().Be("Anycast");
+        found["4.2.2.2"].Tooltip.Should().Contain("Chicago").And.Contain("Dallas");
+    }
+
+    [Fact]
     public void Resolve_Anycast_WithNothingPlacedBeforeIt_HasNoCity()
     {
         var found = HopLocations.Resolve([("4.2.2.2", null, 13.0)], GeoAnycast);
