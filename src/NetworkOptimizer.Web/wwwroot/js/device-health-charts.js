@@ -9,7 +9,7 @@ import { createMarkLayer } from './chart-event-marks.js?v=14';
 import { createAxisDateCaption } from './chart-axis-date.js?v=5';
 import { syncIdentity, extentsOf, spanTo } from './chart-sync.js?v=9';
 import { awaitContainer } from './chart-mount.js?v=1';
-import { loadWindowHours, saveWindowHours, markActiveRange } from './chart-window.js?v=2';
+import { loadWindowHours, saveWindowHours, markActiveRange } from './chart-window.js?v=3';
 import { downloadColor, uploadColor } from './chart-colors.js?v=2';
 import { formatBps } from './chart-format.js?v=1';
 

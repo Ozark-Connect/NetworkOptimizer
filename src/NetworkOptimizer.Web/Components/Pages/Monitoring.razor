@@ -2581,11 +2581,11 @@
     }
 
     /// <summary>
-    /// Applies a WAN filter carried in from the Live tab, for this visit only. Runs BEFORE the
-    /// stored selection is read and claims the restore, so the link decides what the analysis is
-    /// scoped to without the saved filter being read over the top of it - or written to. Gated on
-    /// a category riding along, which only the Live tab's jump sends: a discovery link carries a
-    /// WAN too, and narrowing this filter is not what that one is asking for.
+    /// Applies the scope a link lands on (<see cref="MonitoringViewState.LinkScope"/>), for this
+    /// visit only. Claims the restore, so the link decides what the analysis is scoped to without
+    /// the saved filter being read over the top of it - or written to. Gated by
+    /// <see cref="LinkNarrowsWanFilter"/>: a discovery link carries a WAN too, and narrowing this
+    /// filter is not what that one is asking for.
     /// </summary>
     private async Task ApplyLinkWanSelectionAsync()
     {
@@ -2681,7 +2681,14 @@
 
             await AdoptSharedWanFocusAsync(apply: false);
         }
-        catch { }
+        catch (Exception ex) when (ex is InvalidOperationException or JSException or JSDisconnectedException)
+        {
+            // Storage not readable yet (no interop before the first render): the one shot is not spent, so the
+            // chart mount reads the saved scope. Spent here, a first load could skip it. Unless a link claimed
+            // the restore while this read was pending: the saved scope must not land over it.
+            if (!_linkNarrowedWanSelection) _wanSelectionRestored = false;
+            return;
+        }
         await ApplyWanSelectionAsync(persist: false);
     }
 
@@ -3159,6 +3166,11 @@
 
         // Armed once per link, not on every re-supply: the page's own rewrites (a drag-zoom drops ?at= and keeps
         // ?category=) re-armed it, and the next visit's mount replayed the old link's category.
+        // A link applies once per VISIT: a stamp left by a tab that is no longer showing ends with that visit, so
+        // the same Live View link followed again after leaving applies again (only Network Performance cleared it).
+        if (_appliedLinkWanKey != null && !_appliedLinkWanKey.StartsWith(_activeTab + "|", StringComparison.Ordinal))
+            _appliedLinkWanKey = null;
+
         var preSelectKey = $"{CategoryParam}|{TargetParam}|{AtParam}|{SpanParam}";
         if (_activeTab != "performance") _armedPreSelectKey = null;
         else if (!string.IsNullOrEmpty(CategoryParam) && preSelectKey != _armedPreSelectKey
@@ -4346,23 +4358,8 @@
                 NavigateToUpstreamDiscovery();
         }
         else
-            NavigationManager.NavigateTo($"/monitoring?tab=isp-health{IspHealthWanQuery()}");
+            NavigationManager.NavigateTo(IspHealth(LiveWan.Selected?.Key));
     }
-
-    /// <summary>
-    /// Carries the live tiles' WAN into the ISP Health link, so clicking a WAN's score opens that
-    /// WAN's report. The two selections have their own storage on purpose - watching a WAN should
-    /// not move the analysis focus - but following a link IS the intent to move it, so the
-    /// parameter travels and the panel adopts it.
-    /// <para>
-    /// The PRIMARY is named too. Leaving it out on the grounds that its report is the default
-    /// assumed the destination had no opinion, and it does: it remembers the WAN it was last left
-    /// on. Clicking WAN1's score after reading WAN4's report opened WAN4 again, which is the one
-    /// case where the tile and what it opens disagree outright.
-    /// </para>
-    /// </summary>
-    private string IspHealthWanQuery() =>
-        LiveWan.Selected is { } w ? $"&wan={Uri.EscapeDataString(w.Key)}" : "";
 
     /// <summary>Same land-and-highlight as the discovery link, for the card a WAN needs first.</summary>
     private async Task ScrollToWanContextsAsync()
@@ -5788,7 +5785,7 @@
             try
             {
                 await JS.InvokeVoidAsync("eval",
-                    $"(async () => {{ const m = await import('{VersionedJs("/js/lan-flow-map-2d.js")}'); window.__lanFlowMap2d = m; await m.mount('lan-flow-map-2d-stage', {{ storagePrefix: '{SiteCtx.ScopeStorageKey("lanFlowMap2d")}', focusClient: '{FocusClientMac}' }}); }})();");
+                    $"(async () => {{ const m = await import('{VersionedJs("/js/lan-flow-map-2d.js")}'); window.__lanFlowMap2d = m; await m.mount('lan-flow-map-2d-stage', {{ storagePrefix: '{System.Text.Encodings.Web.JavaScriptEncoder.Default.Encode(SiteCtx.ScopeStorageKey("lanFlowMap2d"))}', focusClient: '{System.Text.Encodings.Web.JavaScriptEncoder.Default.Encode(FocusClientMac)}' }}); }})();");
             }
             catch (Exception ex) { _map2dMounted = false; Logger.LogDebug(ex, "2D map mount failed; will retry on next render"); }
             // The focus is a one-time arrival cue: once both maps have it, the parameter leaves the

@@ -494,7 +494,7 @@ else
             return LiveWan.Selected is { IsPrimary: false, HasContext: false }
                 ? "/monitoring?tab=performance&contexts=1"
                 : $"/monitoring?tab=performance&discover=1{IspHealthWanQuery()}";
-        return $"/monitoring?tab=isp-health{IspHealthWanQuery()}";
+        return IspHealth(LiveWan.Selected?.Key);
     }
 
     /// <summary>

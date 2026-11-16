@@ -12,7 +12,7 @@ import { downloadColor, uploadColor } from './chart-colors.js?v=2';
 import { createAxisDateCaption } from './chart-axis-date.js?v=5';
 import { syncIdentity, extentsOf, spanTo } from './chart-sync.js?v=9';
 import { awaitContainer } from './chart-mount.js?v=1';
-import { loadWindowHours, saveWindowHours, markActiveRange } from './chart-window.js?v=2';
+import { loadWindowHours, saveWindowHours, markActiveRange } from './chart-window.js?v=3';
 import { formatBps } from './chart-format.js?v=1';
 
 // Storage scope for this tab's remembered time window.
@@ -76,6 +76,10 @@ let showInactive = false;
 let inactiveCount = 0;
 // A target to solo once the category a map click switched to has loaded.
 let pendingSolo = null;
+// Scopes pushed by the page (setWanScope), so a mount keeps one pushed while it waited for its container.
+let scopePushes = 0;
+// The custom-range popover's click-outside listener, for unmount to remove.
+let outsideClickHandler = null;
 // Per-WAN scope, set by Blazor (which owns the WAN pill bar and its visibility gate).
 // null = no scoping at all: single-WAN sites never reach this code path and render
 // exactly as before. Shape: { primaryKey, selected: [wanKey...], tokens: {key: 'WAN1'} };
@@ -846,6 +850,7 @@ export async function mount(elId, initialWanScope, initialCategory) {
     // for. Null leaves this tab's own default standing.
     const restoredHours = loadWindowHours(WINDOW_TAB);
     if (restoredHours !== null) currentRangeHours = restoredHours;
+    const pushesAtCall = scopePushes;
 
     // Awaited, not read once: Blazor can call mount before it has rendered this tab.
     const container = await awaitContainer(elId);
@@ -855,7 +860,8 @@ export async function mount(elId, initialWanScope, initialCategory) {
 
     if (restoredHours !== null) markActiveRange(container, restoredHours);
 
-    setWanScope(initialWanScope);
+    // The scope this mount was called with, unless the page pushed a newer one while it waited.
+    if (scopePushes === pushesAtCall) applyWanScope(initialWanScope);
 
     // The opening category comes from the server, which knows whether the WANs on screen have any
     // LAN targets. From here the module owns it: the buttons carry no server-rendered active class,
@@ -935,12 +941,15 @@ export async function mount(elId, initialWanScope, initialCategory) {
         popover?.classList.remove('open');
     });
 
-    document.addEventListener('click', (e) => {
+    // One per mount, removed on unmount: each visit added another that outlived it.
+    if (outsideClickHandler) document.removeEventListener('click', outsideClickHandler);
+    outsideClickHandler = (e) => {
         if (!popover?.classList.contains('open')) return;
         const customBtn = container.querySelector('[data-action="custom-range"]');
         if (popover.contains(e.target) || customBtn?.contains(e.target)) return;
         popover.classList.remove('open');
-    });
+    };
+    document.addEventListener('click', outsideClickHandler);
 
     container.querySelector('[data-action="apply-custom"]')?.addEventListener('click', () => {
         const from = fromInput?.value ? noTime.fromInputValue(fromInput.value) : null;
@@ -1021,13 +1030,6 @@ export function navigateToTime(isoTimestamp, category, label, loaded, eventStart
 }
 
 /**
- * Frames the window on a moment carried in from the Live tab while it was PARKED on that instant:
- * 7.5 minutes either side, the same 15 minutes wide as the live jump below, so the two arrive at
- * the same zoom and an event looks like itself whichever way you came in.
- * Deliberately NOT navigateToTime - that is the Investigate flow, and it carries an event marker
- * and label this has no business drawing. Same window machinery, no marker.
- */
-/**
  * Frames a window of a stated width on a moment, for a link that carries its own span - a jump
  * from a view that is itself a window rather than an instant. Used only when the link says so;
  * without a span, frameMoment's 15 minutes still applies.
@@ -1037,18 +1039,24 @@ export function frameWindow(isoTimestamp, category, spanMs) {
     frameCustomWindow(new Date(isoTimestamp).getTime(), category, Math.max(60000, spanMs) / 2);
 }
 
+/**
+ * Frames the window on a moment carried in from the Live tab while it was PARKED on that instant:
+ * 7.5 minutes either side, 15 minutes wide.
+ * Deliberately NOT navigateToTime - that is the Investigate flow, and it carries an event marker
+ * and label this has no business drawing. Same window machinery, no marker.
+ */
 export function frameMoment(isoTimestamp, category) {
     investigateMarker = null;
     frameCustomWindow(new Date(isoTimestamp).getTime(), category, 7.5 * 60000);
 }
 
 /**
- * Frames a trailing 15-minute window for a jump made while the Live tab was LIVE rather than
+ * Frames the trailing hour for a jump made while the Live tab was LIVE rather than
  * parked. Centering on "now" would leave half the window in the future and freeze the chart at
  * the instant of the click - and a frozen chart and a quiet network look identical, so someone
  * who was watching would end up reading a still frame as the present. Someone who was watching
- * carries on watching. 15m is also the shortest preset that keeps polling: startPoll stands down
- * on custom ranges, so a trailing custom window would be the frozen chart this avoids.
+ * carries on watching. A preset, because a preset keeps polling: startPoll stands down on custom
+ * ranges, so a trailing custom window would be the frozen chart this avoids.
  */
 export function frameTrailing(category) {
     investigateMarker = null;
@@ -1114,13 +1122,21 @@ export function restoreState() {
 // Blazor pushes the WAN pill bar's state here. Passing null clears scoping entirely
 // (the gate is closed - single WAN, no contexts).
 export function setWanScope(scope) {
+    scopePushes++;
+    applyWanScope(scope);
+    // Unmounted, or still mounting (no chart yet): the scope is kept for the mount's own first load. A fetch here
+    // had no container, and its flaky-LAN report re-armed the advisory the page had just cleared.
+    if (!rttChart) return;
+    loadAndUpdate();
+}
+
+function applyWanScope(scope) {
     // The LAN scope carries no WAN keys, so it must survive the empty-selected check that used to
     // mean "no scoping at all".
     wanScope = scope && (scope.lan || (Array.isArray(scope.selected) && scope.selected.length > 0))
         ? scope : null;
     visibility = {};
     applyCategoryAvailability();
-    loadAndUpdate();
 }
 
 export function setCategory(cat) {
@@ -1173,6 +1189,7 @@ export function soloTarget(targetId) {
 
 export function unmount() {
     stopPoll();
+    if (outsideClickHandler) { document.removeEventListener('click', outsideClickHandler); outsideClickHandler = null; }
     if (visibilityObserver) { visibilityObserver.disconnect(); visibilityObserver = null; }
     if (fetchController) { fetchController.abort(); fetchController = null; }
     if (rttChart) { rttChart.destroy(); rttChart = null; }
@@ -1191,6 +1208,7 @@ export function unmount() {
     savedState = null;
     showInactive = false;
     inactiveCount = 0;
+    pendingSolo = null;
     investigateMarker = null;
     isInViewport = true;
     wanScope = null;
