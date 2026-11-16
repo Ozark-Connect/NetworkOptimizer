@@ -144,6 +144,11 @@
         </div>
     </div>
 }
+else
+{
+    // The card, and the map's element with it, is gone: when it comes back it is a new element.
+    _mapElementGone = true;
+}
 
 @code {
     [Parameter]
@@ -551,13 +556,40 @@
     /// <summary>The site's tailnet, which names a Tailscale result that has no device name of its own.</summary>
     private TailnetSnapshot _tailnet = TailnetSnapshot.Empty;
 
+    // Set by a render without the card. The Leaflet map drawn into the old element is detached: it is
+    // removed and drawn again, or the card comes back blank (results empty briefly while a page loads).
+    private bool _mapElementGone;
+
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
+        if (_mapElementGone)
+        {
+            _mapElementGone = false;
+            if (mapInitialized) await RemoveDetachedMapAsync();
+        }
+
         // Initialize map when we have any data (speed tests with location OR placed APs) and DOM is ready
         if (!mapInitialized && HasAnyMapData)
         {
             await InitializeMap();
         }
+    }
+
+    private async Task RemoveDetachedMapAsync()
+    {
+        mapInitialized = false;
+        try
+        {
+            await JS.InvokeVoidAsync("eval", $@"
+                (function() {{
+                    const md = window._speedTestMaps && window._speedTestMaps['{mapId}'];
+                    if (!md) return;
+                    try {{ md.map.remove(); }} catch (e) {{ console.warn('Speed test map: removing the detached map failed', e); }}
+                    delete window._speedTestMaps['{mapId}'];
+                }})();
+            ");
+        }
+        catch (JSDisconnectedException) { }
     }
 
     protected override async Task OnParametersSetAsync()
