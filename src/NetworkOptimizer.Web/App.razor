@@ -152,6 +152,8 @@
     <script src="@FileVersionProvider.AddFileVersionToPath("/", "js/scrollRestoration.js")"></script>
     <script src="@FileVersionProvider.AddFileVersionToPath("/", "js/updateCheck.js")"></script>
     <script src="@FileVersionProvider.AddFileVersionToPath("/", "js/steppedScaleBar.js")"></script>
+    <script src="@FileVersionProvider.AddFileVersionToPath("/", "js/wheel-gate.js")"></script>
+    <script src="@FileVersionProvider.AddFileVersionToPath("/", "js/select-wheel-guard.js")"></script>
     <script src="@FileVersionProvider.AddFileVersionToPath("/", "js/trace-fit.js")"></script>
     <script src="@FileVersionProvider.AddFileVersionToPath("/", "js/tour.js")"></script>
     <script src="@FileVersionProvider.AddFileVersionToPath("/", "js/map-address-search.js")"></script>
@@ -668,8 +670,9 @@
             var ip = cell.getAttribute('data-dest-ip') || '';
             var link = cell.getAttribute('data-dest-link');
             if (!ip) return null;
-            // Network Tools fills its target from ?target= and runs nothing until asked.
-            var trace = '/network-tools?target=' + encodeURIComponent(ip);
+            // Network Tools fills its target from ?target= and runs nothing until asked; the fragment
+            // puts Run a Probe at the top of the view (scrollRestoration.js).
+            var trace = '/network-tools?target=' + encodeURIComponent(ip) + '#run-a-probe';
             return (name && name !== ip ? '<div>' + escapeHtml(name) + (isDomain(name) ? tipCopy(name) : '') + '</div>' : '')
                 + '<div>' + escapeHtml(ip) + tipCopy(ip) + '</div>'
                 + '<div class="tip-links">' + (link ? tipLink(link, 'Threats') : '') + tipLink(trace, 'Trace') + '</div>';
@@ -721,14 +724,29 @@
         }
         new MutationObserver(function () { if (activeLinkCard) dropOrphanedLinkCard(); })
             .observe(document.body, { childList: true, subtree: true });
+        // A filter chip's click filters and re-renders the chips, which would drop the card and open it
+        // again on the new chip under the pointer. The address of the chip just clicked: its card stays
+        // away until the pointer moves off that chip.
+        var clickedChipDest = null;
+        document.addEventListener('click', function (e) {
+            var chip = e.target.closest && e.target.closest('.wan-filter-badge[data-dest-ip], .stat-filter-badge[data-dest-ip]');
+            if (!chip) return;
+            clickedChipDest = chip.getAttribute('data-dest-ip');
+            if (chip._tippy) chip._tippy.hide();
+            clearTimeout(chip._ltShowTimer);
+        }, true);
         // An element in the cell with a tooltip of its own (the via line, a badge) shows only that one.
         function innerTipHovered(cell) { return !!cell.querySelector('[data-tooltip]:hover'); }
-        // Live Traffic's tables and Where It's Going hold a card until the pointer has rested this long;
-        // elsewhere a card opens on the first hover. Tippy's own delay does not cover a .show() call,
+        // Live Traffic's tables and Where It's Going hold a card until the pointer has rested this long,
+        // and so does a destination card anywhere else it sits in a table or a row of filter chips:
+        // crossing packed targets on the way up the page would otherwise strobe cards over them.
+        // Elsewhere a card opens on the first hover. Tippy's own delay does not cover a .show() call,
         // so this does.
         var LT_REST_TIP_DELAY = 500;
         function restTipDelay(el) {
-            return el.closest('.live-traffic table, .live-traffic .lt-sankey-svg') ? LT_REST_TIP_DELAY : 0;
+            if (el.closest('.live-traffic table, .live-traffic .lt-sankey-svg')) return LT_REST_TIP_DELAY;
+            if (el.closest('.live-traffic, .bandwidth-hogs-card')) return 0;
+            return el.closest('table, .wan-filter-badge') ? LT_REST_TIP_DELAY : 0;
         }
         // Shows the element's tooltip once the pointer has rested on it for delay ms; each new
         // mouseover inside it starts the wait again.
@@ -806,6 +824,30 @@
             });
             showTip(cell, delay);
         }
+
+        // A tap on a destination that is plain text opens its card: touch has no hover. One that is also a
+        // filter chip, link, or button keeps the tap for that action. Every page with the card, Live Traffic included.
+        var lastPointerType = '';
+        document.addEventListener('pointerdown', function (e) { lastPointerType = e.pointerType; }, true);
+        var DEST_ACTION = 'a, button, input, select, textarea, label, summary, [role="button"], [onclick], .wan-filter-badge, .stat-filter-badge';
+        function destIsAction(dest) {
+            for (var el = dest; el && !el.matches('td, th, li, tr, .card, body'); el = el.parentElement) {
+                if (el.matches(DEST_ACTION) || getComputedStyle(el).cursor === 'pointer') return true;
+            }
+            return false;
+        }
+        document.addEventListener('click', function (e) {
+            if (lastPointerType !== 'touch' || !window.tippy || !e.target.closest) return;
+            if (e.target.closest('.tippy-box')) return;
+            var dest = e.target.closest('[data-dest-ip]');
+            if (!dest || !dest.getAttribute('data-dest-ip') || destIsAction(dest)) return;
+            showLinkCard(dest, destinationHtml);
+            var tip = dest._tippy;
+            if (!tip) return;
+            clearTimeout(dest._ltShowTimer);
+            tip.setProps({ touch: true });
+            tip.show();
+        });
 
         // An App Live Traffic could only call "UDP 21324": what that means, and Name This App for a Site Admin.
         function unnamedAppHtml(el) {
@@ -889,6 +931,13 @@
             var tailscaleBadge = !host && e.target.closest('.badge[data-app-tailscale], .path-hop[data-app-tailscale]');
             if (tailscaleBadge) { showLinkCard(tailscaleBadge, tailscaleAppHtml); return; }
             if (!host) {
+                // The destination card rides any page that marks an external address (LiveTrafficLinks.DestinationCard).
+                var anyDest = !e.target.closest('.lt-client') && e.target.closest('[data-dest-ip]');
+                var anyDestIp = anyDest && anyDest.getAttribute('data-dest-ip');
+                // A clicked filter chip stays quiet until the pointer has left it (see clickedChipDest).
+                if (clickedChipDest && anyDestIp !== clickedChipDest) clickedChipDest = null;
+                if (anyDestIp && anyDestIp !== clickedChipDest) { showLinkCard(anyDest, destinationHtml); return; }
+                if (anyDestIp) return;
                 // Client Performance's Live Traffic card takes only this card, not the others.
                 var cardHost = e.target.closest('.lt-client');
                 var cardApp = cardHost && e.target.closest('[data-app-unnamed]');

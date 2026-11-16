@@ -264,9 +264,13 @@ a:hover {
     color: var(--primary-hover);
 }
 
-/* Leaflet sets its own font on the map container; popups and controls take ours. */
+/* Leaflet sets its own font and a light gray background on the map container; popups and controls
+   take our font, and the background is dark to match the dark street tiles (it shows while tiles load
+   and past the edge of the world). body raises the rule over leaflet.css, which some maps load after
+   this file. */
 body .leaflet-container {
     font-family: var(--font-sans);
+    background: var(--bg-secondary);
 }
 
 .leaflet-container a.map-popup-link {
@@ -3887,6 +3891,15 @@ select.form-control {
     -webkit-appearance: none;
 }
 
+/* A press held by js/select-wheel-guard.js: a spinner takes the chevron's place until the list opens. */
+select.select-wheel-wait {
+    cursor: progress;
+}
+
+select.form-control.select-wheel-wait {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%239ca3af' stroke-width='3' stroke-linecap='round'%3E%3Ccircle cx='12' cy='12' r='9' stroke-opacity='.25'/%3E%3Cpath d='M21 12a9 9 0 0 0-9-9'%3E%3CanimateTransform attributeName='transform' type='rotate' from='0 12 12' to='360 12 12' dur='.7s' repeatCount='indefinite'/%3E%3C/path%3E%3C/svg%3E");
+}
+
 /* iOS Safari gives native date/time inputs an intrinsic min-width that ignores width: 100% and overflows the card. */
 input[type="time"].form-control,
 input[type="date"].form-control,
@@ -5142,6 +5155,27 @@ input.form-control::-webkit-date-and-time-value {
         max-height: 0;
         opacity: 0;
         margin: 0;
+    }
+
+    /* Collapsed, the device icon is all that is left of the identity, so it joins the signal row
+       when the row has room, and wraps above it when it does not. */
+    .identity-bar.identity-collapsed:has(.signal-gauge) .identity-row-1:has(.identity-info-icon) {
+        flex-direction: row;
+        flex-wrap: wrap;
+        align-items: stretch;
+        position: relative;
+    }
+    .identity-bar.identity-collapsed:has(.signal-gauge) .identity-info-icon {
+        flex-shrink: 0;
+        align-self: center;
+    }
+    .identity-bar.identity-collapsed:has(.signal-gauge) .identity-info-icon .identity-text {
+        display: none;
+    }
+    /* Static, so the rule under the signal row anchors to the whole row and spans the icon too. */
+    .identity-bar.identity-collapsed:has(.signal-gauge) .identity-row-1:has(.identity-info-icon) .identity-signal {
+        flex: 1 1 auto;
+        position: static;
     }
 
     .identity-bar.identity-collapsed {
@@ -9974,6 +10008,19 @@ h3 > .tooltip-icon-sm {
 .device-icon-xl {
     width: 48px;
     height: 48px;
+}
+
+/* Country flags (lib/twemoji-country-flags, Twemoji art, CC-BY 4.0). Windows has no flag glyphs and
+   draws the two letters instead; the unicode-range keeps the font off every other character. */
+@font-face {
+    font-family: 'Twemoji Country Flags';
+    src: url('../lib/twemoji-country-flags/TwemojiCountryFlags.woff2') format('woff2');
+    unicode-range: U+1F1E6-1F1FF, U+1F3F4, U+E0062-E0063, U+E0065, U+E0067, U+E006C, U+E006E, U+E0073-E0074, U+E0077, U+E007F;
+    font-display: swap;
+}
+
+.flag-icon {
+    font-family: 'Twemoji Country Flags', var(--font-sans);
 }
 
 /* Fallback emoji display */
@@ -19507,10 +19554,11 @@ tr.stats-row-filtered {
     color: var(--text-primary);
     background: rgba(16, 24, 32, 0.92);
 }
+/* The size of the 2D map's zoom and fit buttons (.lfm2d-btn), whose column starts under it. */
 .lan-flow-map-fullscreen-btn,
 .lan-flow-map-fit-btn {
-    width: 30px;
-    height: 30px;
+    width: 32px;
+    height: 32px;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -21058,6 +21106,34 @@ a.isp-health-hero-speed:hover {
 .path-episode-hops .path-col-loss { width: 9rem; }
 .path-episode-hops .path-col-rtt { width: 12rem; }
 .path-episode-hops .path-col-return { width: 7.5rem; }
+.path-episode-hops .path-col-location { width: 11rem; }
+
+/* Location is a desktop column. On a phone its col takes no width and its cells stay in the row
+   but show nothing: a display:none cell would shift every later cell into the wrong col. */
+.path-episode-table .path-episode-hops.has-location { min-width: calc(37rem + 16rem + 11rem); }
+.path-episode-table .path-episode-hops.has-location.has-return { min-width: calc(44.5rem + 16rem + 11rem); }
+
+@media (max-width: 768px) {
+    .path-episode-hops .path-col-location { width: 0; }
+    .path-episode-hops .path-loc-cell {
+        padding: 0;
+        border: 0;
+        overflow: hidden;
+        font-size: 0;
+        visibility: hidden;
+    }
+    .path-episode-table .path-episode-hops.has-location { min-width: calc(37rem + 16rem); }
+    .path-episode-table .path-episode-hops.has-location.has-return { min-width: calc(44.5rem + 16rem); }
+}
+
+/* An open hop table spans the event row, under the badge and time as well as the text. */
+.isp-event-detail {
+    grid-column: 1 / -1;
+    min-width: 0;
+    justify-self: stretch;
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+}
 
 .path-episode-hops td,
 .path-episode-hops th {
@@ -29595,4 +29671,417 @@ body:has(.top-bar-hidden) .btn-fit {
     line-height: 1;
     padding: 0.25rem 0.4rem;
     cursor: pointer;
+}
+
+/* Network Tools - Route Map (trace-map.js) */
+.trace-map-block {
+    margin-top: 1.5rem;
+}
+
+.trace-map-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    flex-wrap: wrap;
+    margin-bottom: 0.75rem;
+}
+
+.trace-map-title {
+    margin: 0;
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.trace-map-legend {
+    display: flex;
+    gap: 1rem;
+    flex-wrap: wrap;
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+}
+
+.trace-legend-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+}
+
+.trace-legend-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    border: 2px solid var(--bg-card);
+    box-shadow: 0 0 0 1px currentColor;
+}
+
+.trace-legend-start { background: #ededef; color: #ededef; }
+.trace-legend-set { background: #a78bfa; color: #a78bfa; }
+.trace-legend-hostname { background: #2ba89a; color: #2ba89a; }
+.trace-legend-neighbor { background: #3b82f6; color: #3b82f6; }
+.trace-legend-learned { background: #a0a0a8; color: #a0a0a8; }
+.trace-legend-geolite2 { background: #f59e0b; color: #f59e0b; }
+
+/* A trace table's location cell: the Set location icon shows on the row's hover, or on the selected
+   row (a tap, where there is no hover). */
+.hop-loc {
+    white-space: nowrap;
+}
+
+.hop-loc-set {
+    margin-left: 0.35rem;
+    font-size: 0.7rem;
+    color: #a78bfa;
+}
+
+.hop-loc-edit {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    margin-left: 0.3rem;
+    padding: 0;
+    vertical-align: middle;
+    border: 0;
+    border-radius: 4px;
+    background: transparent;
+    color: var(--text-muted);
+    cursor: pointer;
+    opacity: 0;
+}
+
+tr:hover .hop-loc-edit,
+.hop-loc-edit:focus-visible,
+.hop-loc.is-selected .hop-loc-edit,
+.hop-loc-edit.is-open {
+    opacity: 1;
+}
+
+@media (hover: none) {
+    tr:hover .hop-loc:not(.is-selected) .hop-loc-edit:not(.is-open) {
+        opacity: 0;
+    }
+}
+
+.hop-loc-edit:hover,
+.hop-loc-edit.is-open {
+    color: var(--text-primary);
+    background: var(--bg-tertiary);
+}
+
+.hop-loc-pop {
+    white-space: normal;
+}
+
+/* The popover's width is desktop only: on a phone the sheet spans the screen as Live Traffic's does,
+   and its list keeps room for about four results before a search, so the sheet neither opens short
+   nor jumps when they come in. */
+@media (min-width: 769px) {
+    .hop-loc-pop {
+        width: 320px;
+    }
+}
+
+@media (max-width: 768px) {
+    .hop-loc-pop .lt-fpop-list {
+        min-height: 160px;
+    }
+}
+
+.hop-loc-for {
+    margin: -2px 0 8px;
+    font-size: 0.78rem;
+    color: var(--text-secondary);
+}
+
+/* The city search runs on Enter or the magnifier, as the maps' address search does. */
+.hop-loc-search {
+    position: relative;
+    margin-bottom: 6px;
+}
+
+.lt-fpop .hop-loc-search .lt-fpop-search {
+    margin-bottom: 0;
+    padding-right: 2rem;
+}
+
+.hop-loc-search-go {
+    position: absolute;
+    top: 50%;
+    right: 0.25rem;
+    transform: translateY(-50%);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.5rem;
+    height: 1.5rem;
+    padding: 0;
+    border: none;
+    background: none;
+    color: var(--text-muted);
+    cursor: pointer;
+}
+
+.hop-loc-search-go:hover,
+.hop-loc-search-go:focus-visible {
+    color: var(--text-primary);
+}
+
+.hop-loc-region {
+    margin-left: 0.4rem;
+    color: var(--text-muted);
+}
+
+.hop-loc-now {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+}
+
+.hop-loc-error {
+    margin-top: 8px;
+}
+
+.trace-map {
+    /* Set here so Leaflet does not set it inline, which would beat fullscreen's position: fixed. */
+    position: relative;
+    height: 400px;
+    border-radius: 8px;
+    border: 1px solid var(--bg-tertiary);
+    background: var(--bg-primary);
+    overflow: hidden;
+    /* Leaflet's panes use z-index up to 1000; keep them under the app's menus and tooltips. */
+    isolation: isolate;
+}
+
+/* Restates fixed: the position above comes later in this file than the shared fullscreen rule. */
+.trace-map.lan-flow-map-fullscreen {
+    position: fixed;
+    border: none;
+}
+
+/* The 2D LAN map's fullscreen button and toolbar, above Leaflet's panes. */
+.trace-map > .lan-flow-map-fullscreen-btn,
+.trace-map > .lfm2d-toolbar {
+    z-index: 1000;
+}
+
+/* OpenStreetMap's light tiles, turned to the app's dark theme. */
+/* The street map's light tiles turned to the app's dark theme, on every map. A class on the
+   street layer, not the tile pane, so satellite imagery keeps its own colors. */
+.leaflet-layer.map-tiles-dark {
+    filter: invert(1) hue-rotate(180deg) brightness(0.8) contrast(0.92) saturate(0.45);
+}
+
+.trace-map.leaflet-container {
+    background: var(--bg-primary);
+    font-family: inherit;
+}
+
+.trace-map .leaflet-control-attribution {
+    background: rgba(15, 15, 17, 0.7);
+    color: var(--text-muted);
+}
+
+.trace-map .leaflet-control-attribution a {
+    color: var(--text-secondary);
+}
+
+.trace-map .trace-leg-unsure {
+    stroke-dasharray: 7 7;
+}
+
+.trace-map .trace-leg-silent {
+    stroke-dasharray: 1 7;
+    stroke-linecap: round;
+}
+
+.trace-legend-line-silent {
+    display: inline-block;
+    width: 16px;
+    border-top: 3px dotted var(--text-secondary);
+    vertical-align: middle;
+}
+
+/* Bright dashes run from the start toward the target. */
+.trace-map .trace-leg-flow {
+    stroke-dasharray: 3 21;
+    stroke-linecap: round;
+    animation: trace-leg-flow 1.4s linear infinite;
+}
+
+@keyframes trace-leg-flow {
+    to { stroke-dashoffset: -24; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .trace-map .trace-leg-flow {
+        animation: none;
+        display: none;
+    }
+}
+
+.trace-node-icon {
+    background: none;
+    border: none;
+}
+
+.trace-node {
+    position: relative;
+    width: 26px;
+    height: 26px;
+}
+
+.trace-node-dot {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    background: var(--bg-card);
+    border: 2px solid var(--trace-node-color);
+    color: var(--text-primary);
+    font-size: 0.72rem;
+    font-weight: 600;
+    line-height: 1;
+    box-shadow: 0 0 0 4px color-mix(in srgb, var(--trace-node-color) 22%, transparent), 0 2px 6px rgba(0, 0, 0, 0.5);
+    transition: transform 0.15s ease;
+}
+
+.trace-node:hover .trace-node-dot {
+    transform: scale(1.15);
+}
+
+.trace-node-start .trace-node-dot::after {
+    content: '';
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: var(--trace-node-color);
+}
+
+.trace-node-label {
+    position: absolute;
+    left: 34px;
+    top: 50%;
+    transform: translateY(-50%);
+    padding: 0.15rem 0.5rem;
+    border-radius: 4px;
+    background: rgba(22, 22, 24, 0.92);
+    border: 1px solid var(--bg-tertiary);
+    color: var(--text-primary);
+    font-size: 0.78rem;
+    font-weight: 500;
+    white-space: nowrap;
+    pointer-events: none;
+}
+
+.leaflet-tooltip.trace-map-tooltip {
+    padding: 0;
+    background: var(--bg-card);
+    border: 1px solid var(--bg-tertiary);
+    border-radius: 6px;
+    color: var(--text-primary);
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.55);
+}
+
+.leaflet-tooltip.trace-map-tooltip::before {
+    display: none;
+}
+
+.trace-tip {
+    /* Leaflet's tooltip pane has no width, so the tip sizes to its own content. */
+    width: max-content;
+    padding: 0.55rem 0.7rem;
+    font-size: 0.8rem;
+    white-space: nowrap;
+}
+
+/* In the app's tooltip the box already has padding and a background. */
+.tippy-box .trace-tip {
+    padding: 0;
+}
+
+.trace-tip-city {
+    font-weight: 600;
+}
+
+.trace-tip-source {
+    margin-bottom: 0.4rem;
+    color: var(--text-secondary);
+    font-size: 0.74rem;
+}
+
+.trace-tip-hop {
+    display: grid;
+    grid-template-columns: 1.4rem auto auto;
+    gap: 0.6rem;
+    align-items: baseline;
+    padding: 0.1rem 0;
+}
+
+.trace-tip-num {
+    color: var(--text-muted);
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+
+.trace-tip-name {
+    max-width: 24rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.trace-tip-rtt {
+    color: var(--text-secondary);
+    font-variant-numeric: tabular-nums;
+}
+
+.trace-map-note {
+    margin-top: 0.5rem;
+    font-size: 0.8rem;
+    color: var(--text-muted);
+}
+
+@media (max-width: 768px) {
+    .trace-map {
+        height: 300px;
+    }
+
+    .trace-tip-name {
+        max-width: 12rem;
+    }
+}
+
+/* A hop row and its place on the Route Map mark each other. */
+.path-episode-hops tr.trace-hop-on-map {
+    cursor: pointer;
+}
+
+.path-episode-hops tr.trace-hop-on-map.is-active td {
+    background: color-mix(in srgb, var(--primary-color) 22%, transparent);
+}
+
+.path-episode-hops tr.trace-hop-on-map.is-active td:first-child {
+    box-shadow: inset 3px 0 0 var(--primary-hover);
+}
+
+.trace-node-active .trace-node-dot {
+    transform: scale(1.25);
+    background: var(--trace-node-color);
+    color: var(--bg-primary);
+    animation: trace-node-pulse 1.6s ease-out infinite;
+}
+
+@keyframes trace-node-pulse {
+    0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--trace-node-color) 60%, transparent), 0 2px 6px rgba(0, 0, 0, 0.5); }
+    100% { box-shadow: 0 0 0 14px transparent, 0 2px 6px rgba(0, 0, 0, 0.5); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .trace-node-active .trace-node-dot {
+        animation: none;
+    }
 }

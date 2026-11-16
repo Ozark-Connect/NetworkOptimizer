@@ -1712,6 +1712,16 @@ public class MonitoringCollectionAgent : BackgroundService
 
             if (ct.IsCancellationRequested) return;
 
+            var (cleanMin, cleanAvg, cleanMax, cleanJitter) = Monitoring.LatencySanity.Clean(
+                ping.RttMinMs, ping.RttAvgMs, ping.RttMaxMs, ping.JitterMs);
+            if (cleanMax != ping.RttMaxMs || cleanAvg != ping.RttAvgMs)
+            {
+                _logger.LogWarning(
+                    "Dropped an impossible round trip for target {Target}: ping reported max {Max} ms",
+                    target.TargetId, ping.RttMaxMs);
+                ping = ping with { RttMinMs = cleanMin, RttAvgMs = cleanAvg, RttMaxMs = cleanMax, JitterMs = cleanJitter };
+            }
+
             await _influx.WriteLatencyAsync(
                 targetId: target.TargetId,
                 vantagePoint: vantage,

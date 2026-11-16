@@ -149,6 +149,12 @@ public class NetworkOptimizerDbContext : DbContext
     // Live Traffic
     public DbSet<CustomAppDefinition> CustomAppDefinitions { get; set; }
 
+    /// <summary>Instance-wide trace hop locations set by hand. Meaningful only in the MAIN database.</summary>
+    public DbSet<HopLocationOverride> HopLocationOverrides { get; set; }
+
+    /// <summary>Places traces gave hop addresses, per site that saw them (<see cref="LearnedHopLocation"/>). Meaningful only in the MAIN database.</summary>
+    public DbSet<LearnedHopLocation> LearnedHopLocations { get; set; }
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
@@ -939,6 +945,18 @@ public class NetworkOptimizerDbContext : DbContext
         {
             entity.ToTable("CustomAppDefinitions");
             entity.HasIndex(e => e.SortOrder);
+        });
+
+        modelBuilder.Entity<HopLocationOverride>(entity =>
+        {
+            entity.ToTable("HopLocationOverrides");
+            entity.HasIndex(e => e.Address).IsUnique();
+        });
+
+        modelBuilder.Entity<LearnedHopLocation>(entity =>
+        {
+            entity.ToTable("LearnedHopLocations");
+            entity.HasIndex(e => new { e.SiteSlug, e.Address }).IsUnique();
         });
     }
 }

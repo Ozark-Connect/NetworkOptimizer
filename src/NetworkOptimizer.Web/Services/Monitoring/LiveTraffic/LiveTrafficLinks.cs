@@ -19,6 +19,33 @@ public static class LiveTrafficLinks
             ? "/threats?tab=drilldown&ip=" + Uri.EscapeDataString(address!)
             : null;
 
+    /// <summary>
+    /// Attributes that put Live Traffic's destination card (the address with a copy button, Threats,
+    /// Trace) on an element on any page: splat them with <c>@attributes</c>. Null when the address is
+    /// a private one, which has no Threats page and is not worth a trace link. A hostname gets the
+    /// card with Trace alone.
+    /// </summary>
+    /// <param name="address">The address or hostname shown.</param>
+    /// <param name="name">A name shown above the address, when it differs from it.</param>
+    /// <param name="threatsLink">False where the element already sits on, or links to, the Threats page.</param>
+    public static Dictionary<string, object>? DestinationCard(string? address, string? name = null, bool threatsLink = true)
+    {
+        if (string.IsNullOrWhiteSpace(address)) return null;
+        if (IPAddress.TryParse(address, out var ip))
+        {
+            if (!NetworkUtilities.IsPublicIpAddress(ip)) return null;
+        }
+        // Not an address: only a host name can be traced, not an owner or provider name.
+        else if (Uri.CheckHostName(address) != UriHostNameType.Dns || !address.Contains('.'))
+        {
+            return null;
+        }
+        var card = new Dictionary<string, object> { ["data-dest-ip"] = address };
+        if (!string.IsNullOrEmpty(name) && name != address) card["data-dest-name"] = name;
+        if (threatsLink && ThreatsDrilldown(address) is { } threats) card["data-dest-link"] = threats;
+        return card;
+    }
+
     /// <summary>The flow's client: see <see cref="Client(string?, string?)"/>.</summary>
     public static string? Client(LiveFlowRow f) => Client(f.ClientIp, f.ClientDeviceMac);
 

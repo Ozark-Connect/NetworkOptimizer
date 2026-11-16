@@ -877,6 +877,13 @@
                                     <span class="summary-value">@_client.ApClientCount</span>
                                 </div>
                             }
+                            @if (!string.IsNullOrEmpty(_client.Mac))
+                            {
+                                <a href="/wifi-optimizer?tab=client&client=@Uri.EscapeDataString(_client.Mac)" class="summary-wifi-link"
+                                   data-tooltip="View in Wi-Fi Optimizer" aria-label="View in Wi-Fi Optimizer">
+                                    <AppIcon Name="wifi" />
+                                </a>
+                            }
                         </div>
                     }
                     else if (_client.IsWired)
@@ -5506,6 +5513,17 @@
     .summary-value {
         color: var(--text-primary);
         font-variant-numeric: tabular-nums;
+    }
+    .signal-summary .summary-wifi-link {
+        display: inline-flex;
+        align-items: center;
+        margin-left: auto;
+        font-size: 1.125rem;
+        color: var(--text-muted);
+        transition: color 0.15s;
+    }
+    .signal-summary .summary-wifi-link:hover {
+        color: var(--primary-color);
     }
 
     /* Connection Event badges */

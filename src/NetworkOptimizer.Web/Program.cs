@@ -1,4 +1,5 @@
 using NetworkOptimizer.Web.Services.ChangeControl;
+using NetworkOptimizer.Web.Services.Monitoring;
 using NetworkOptimizer.Web.Services.Monitoring.IspHealth;
 using NetworkOptimizer.Web.Services.Monitoring.LiveTraffic;
 using ApexCharts;
@@ -879,6 +880,11 @@ builder.Services.AddMutatingService<NetworkOptimizer.Web.Services.Firmware.IFirm
 builder.Services.AddChangeControl();
 builder.Services.AddMutatingService<IChangeControlService, ChangeControlService>();
 builder.Services.AddMutatingService<IConfigTemplateService, ConfigTemplateService>();
+// Trace hop locations set by hand: install-wide, read on every trace render.
+builder.Services.AddSingleton<HopLocationOverrideCache>();
+// Places each site's own traces gave hop addresses, for traces that later have only GeoLite2.
+builder.Services.AddSingleton<LearnedHopLocations>();
+builder.Services.AddMutatingService<IHopLocationOverrideService, HopLocationOverrideService>();
 builder.Services.AddMutatingService<IChangeControlFleetService, ChangeControlFleetService>();
 // Re-runs upstream tracer discovery every 7 days; flips a review flag on diff.
 builder.Services.AddHostedService<NetworkOptimizer.Web.Services.Monitoring.UpstreamRediscoveryService>();

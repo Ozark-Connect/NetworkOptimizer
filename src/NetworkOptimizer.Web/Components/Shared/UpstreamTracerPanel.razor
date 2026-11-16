@@ -219,7 +219,7 @@
                                     @foreach (var trace in _state.Traces)
                                     {
                                         <tr>
-                                            <td>@trace.CdnLabel <span class="text-muted">(@trace.CdnEndpoint)</span></td>
+                                            <td>@trace.CdnLabel <span class="text-muted">(<span @attributes="NetworkOptimizer.Web.Services.Monitoring.LiveTraffic.LiveTrafficLinks.DestinationCard(trace.CdnEndpoint, trace.CdnLabel, threatsLink: false)">@trace.CdnEndpoint</span>)</span></td>
                                             <td>@trace.Mode.ToDisplayName()</td>
                                             <td>@trace.HopsResponding / @trace.HopsRecorded</td>
                                             <td>
@@ -276,7 +276,7 @@
                                                        @bind="hop.Label" @bind:event="oninput"
                                                        disabled="@hopLocked" />
                                             </td>
-                                            <td><code>@hop.Address</code> @(string.IsNullOrEmpty(hop.PtrHostname) ? "" : $"({hop.PtrHostname})")</td>
+                                            <td><code @attributes="NetworkOptimizer.Web.Services.Monitoring.LiveTraffic.LiveTrafficLinks.DestinationCard(hop.Address, hop.PtrHostname, threatsLink: false)">@hop.Address</code> @(string.IsNullOrEmpty(hop.PtrHostname) ? "" : $"({hop.PtrHostname})")</td>
                                             <td>@(hop.Method == DiscoveryMethod.L2Neighbor ? "L2 neighbor" : hop.Method == DiscoveryMethod.ConfiguredFallback ? "Curated" : $"Hop {hop.HopNumber}")</td>
                                             <td>
                                                 @if (hop.CustomerPremises)
@@ -335,7 +335,7 @@
                                                        @bind="asn.Label" @bind:event="oninput"
                                                        disabled="@asnLocked" />
                                             </td>
-                                            <td><code>@asn.HopAddress</code></td>
+                                            <td><code @attributes="NetworkOptimizer.Web.Services.Monitoring.LiveTraffic.LiveTrafficLinks.DestinationCard(asn.HopAddress, null, threatsLink: false)">@asn.HopAddress</code></td>
                                             <td><code>AS@(asn.AsnNumber)</code> <span class="text-muted">@asn.AsnName</span></td>
                                             @if (asn.OffPath)
                                             {
@@ -452,7 +452,7 @@
                                                 <input type="text" class="form-control form-control-sm"
                                                        @bind="host.Label" @bind:event="oninput" />
                                             </td>
-                                            <td><code>@host.PathProxyTarget</code></td>
+                                            <td><code @attributes="NetworkOptimizer.Web.Services.Monitoring.LiveTraffic.LiveTrafficLinks.DestinationCard(host.PathProxyTarget, null, threatsLink: false)">@host.PathProxyTarget</code></td>
                                             <td><code>AS@(host.AsnNumber)</code> <span class="text-muted">@host.AsnName</span></td>
                                             <td>
                                                 @if (host.ViaAsnNumber is int viaAsn)

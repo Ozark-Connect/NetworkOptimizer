@@ -176,6 +176,7 @@ Time-series monitoring on your own InfluxDB, fed by SNMP polling (InfluxDB).
   - Hop table per episode: loss, normal to during RTT with one bar per trace behind it, return hops, ICMP-limited hops; **Re-run** in Network Tools; each target opens on Network Performance over the episode
   - A slowdown that comes and goes is read trace by trace: hops that slow in the same traces as the destination show where it first appears, and the verdict says when that could be the return path
   - Hops a trace reads as elevated are pinged during the episode, so a router that limits traceroute replies is not blamed; a hostname target is traced at one address for the whole episode
+  - The hop table shows each hop's location on desktop, read the same way as Network Tools' traceroute
   - A traced route change shows once, as its path shift with the hop table; it is not congestion and does not score
   - A sustained rise on RTT alone, with no loss and no wider jitter, is a route change too: it shows as a path shift with its hop table even when no step was detected
   - On the Per-Network RTT chart, an episode that is a route change is shaded as a path shift, in the path shift's blue, not as congestion
@@ -193,6 +194,7 @@ Time-series monitoring on your own InfluxDB, fed by SNMP polling (InfluxDB).
 - **Latency & Packet Loss** - RTT, loss, and WAN throughput charts with a stats table
   - Categories: Fabric, ISP, Transit, Internet, Custom; LAN or per-WAN scope
   - Ranges from 15 minutes to 30 days, custom ranges, synced hover, jump to Live View
+  - Hover a host's chip, a Latency Targets address, or an Upstream Path Discovery address for its card: copy, and **Trace**
 - **Investigate** - step through **Packet Loss Events** and **Loaded Loss Events**
 - **Upstream Path Discovery** - ICMP and UDP traceroutes that map OLT/CMTS, ISP edge, transit ASNs, and internet hosts
   - Sets the access technology, saves monitoring targets, and re-runs every 7 days
@@ -281,6 +283,10 @@ Time-series monitoring on your own InfluxDB, fed by SNMP polling (InfluxDB).
 - **Run a Probe** - ping, traceroute, or forward and reverse DNS lookup
   - From the server, an [On-Site Agent](#on-site-agent), a WAN vantage, or any UniFi device (Device SSH)
   - ICMP, TCP, or UDP (traceroute only); choose the gateway's WAN interface
+  - Traceroute hops show their location (flag, city, country): the city a transit router's hostname names, checked against its round trip, else GeoLite2 City
+  - Route Map: the traced path drawn on a map, city to city, with each point marked by what placed it (hostname, nearby hop, learned, or GeoLite2), and a dotted leg where hops in between did not answer
+  - Set location: an Admin can set the city of any public hop from a trace table (Network Tools or ISP Health), install-wide, and the hops around it place against it
+  - Learned locations: a transit or peering router one trace placed by its hostname or a nearby hop keeps that city on later traces that only have GeoLite2 for it, install-wide (an address two sites place in different cities stays with each site); never anycast or the destination's own network
   - DNS lookups use the vantage's own resolver, which shows DNS segregation per network
   - **Other Sites** targets: each of your other sites' latest WAN address, for inter-site traces
 - **Inspect a Gateway Interface** - **Addresses and DHCP Lease**, **SFP Module**, and **Neighbors** (Gateway SSH)
@@ -479,6 +485,7 @@ Gateway tweaks for UCG-Fiber, UXG-Fiber, UCG-Max, and UXG-Max (Gateway SSH).
 
 - **Client Stats** - searchable client table, signal and TX retry history, connection events
   - Each client's UniFi Network icon in the table and its details
+  - Each client's SSID, as a sortable column (desktop) and in its details
 - **Roaming** - roaming topology, AP pair success rates, 802.11r usage, roaming clients
 - **Power & Coverage** - signal distribution (click a bar to list its clients in Client Stats), EIRP per AP, coverage quality, overlap
 - **Load Balance** - clients per AP and imbalance
@@ -552,6 +559,7 @@ models such as U6-Lite, U6-Mesh, and UAP-AC-Pro, and gateways with built-in Wi-F
 
 - Collects IPS events (IPS v1 and v2), traffic flows, and [Web Application Firewall](#web-application-firewall) events, with history backfill
 - Suricata signature enrichment
+- Hover an external address or host name anywhere in Threat Intelligence or a Web Application Firewall event for its card: copy, and **Trace**
 - **Overview** - totals, threat timeline, kill chain distribution, blocked vs detected
   - **Top Sources**, **Top Targeted Ports**, **Attack Patterns** (scan, brute force, exploit campaign, DDoS)
   - **Protection Setup** - checklist from watching to blocking, with **Turn On Recommended**

@@ -28,6 +28,59 @@ public class GatewayBlocklistOrderTests
     }
 
     [Fact]
+    public void SourcePoliciesToNarrow_BlocklistAndPublicListBlocks_NeverExceptionAllows()
+    {
+        var state = new GatewayBlocklistState { GroupV4Id = "own4", GroupV6Id = "own6", FeedsV4Id = "feed4", FeedsV6Id = "feed6", FeedsOutV4Id = "out4" };
+        UniFiFirewallPolicy Policy(string id, string action, string? sourceGroup, string type, string[]? states = null, string? destinationGroup = null) => new()
+        {
+            Id = id,
+            Action = action,
+            ConnectionStateType = type,
+            ConnectionStates = states?.ToList(),
+            Source = new UniFiFirewallPolicyEndpoint { ZoneId = "ext", IpGroupId = sourceGroup },
+            Destination = new UniFiFirewallPolicyEndpoint { ZoneId = "int", IpGroupId = destinationGroup },
+        };
+        var policies = new[]
+        {
+            Policy("own-all", "BLOCK", "own4", "ALL"),
+            Policy("own-new", "BLOCK", "own6", "CUSTOM", ["NEW"]),
+            Policy("feed-all-v4", "BLOCK", "feed4", "ALL"),
+            Policy("feed-all-v6", "BLOCK", "feed6", "ALL"),
+            Policy("feed-new", "BLOCK", "feed4", "CUSTOM", ["NEW"]),
+            Policy("exception-in", "ALLOW", "feed4", "ALL"),
+            Policy("exception-out-reply", "ALLOW", "feed4", "CUSTOM", ["ESTABLISHED", "RELATED"]),
+            Policy("outbound", "BLOCK", null, "ALL", destinationGroup: "out4"),
+            Policy("user", "BLOCK", "other", "ALL"),
+        };
+
+        GatewayBlocklist.SourcePoliciesToNarrow(policies, state).Select(p => p.Id)
+            .Should().Equal("own-all", "feed-all-v4", "feed-all-v6");
+    }
+
+    [Fact]
+    public void ExistingBlock_SkipsAnExceptionAllowOnTheSameZonesAndGroup()
+    {
+        UniFiFirewallPolicy Policy(string id, string action, string src, string dst, string? sourceGroup, string? destinationGroup) => new()
+        {
+            Id = id,
+            Action = action,
+            Source = new UniFiFirewallPolicyEndpoint { ZoneId = src, IpGroupId = sourceGroup },
+            Destination = new UniFiFirewallPolicyEndpoint { ZoneId = dst, IpGroupId = destinationGroup },
+        };
+        var policies = new[]
+        {
+            Policy("exception-out-reply", "ALLOW", "ext", "int", "feed4", null), // ordered ahead of the Block
+            Policy("feed-block", "BLOCK", "ext", "int", "feed4", null),
+            Policy("exception-out", "ALLOW", "int", "ext", null, "out4"),
+            Policy("out-block", "BLOCK", "int", "ext", null, "out4"),
+        };
+
+        GatewayBlocklist.ExistingBlock(policies, "ext", "int", "feed4", groupIsSource: true)!.Id.Should().Be("feed-block");
+        GatewayBlocklist.ExistingBlock(policies, "int", "ext", "out4", groupIsSource: false)!.Id.Should().Be("out-block");
+        GatewayBlocklist.ExistingBlock(policies.Where(p => p.Action == "ALLOW"), "ext", "int", "feed4", groupIsSource: true).Should().BeNull();
+    }
+
+    [Fact]
     public void OursMoveToTheFront_OthersKeepTheirOrder()
     {
         var policies = new[]

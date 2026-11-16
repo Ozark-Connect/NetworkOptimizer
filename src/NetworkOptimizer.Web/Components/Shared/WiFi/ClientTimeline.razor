@@ -121,6 +121,7 @@
                             <th class="sortable @GetSortClass("Ip")" @onclick='() => SetSort("Ip")'>IP</th>
                             <th class="sortable @GetSortClass("Mac")" @onclick='() => SetSort("Mac")'>MAC</th>
                             <th class="sortable @GetSortClass("ApName")" @onclick='() => SetSort("ApName")'>AP</th>
+                            <th class="sortable hide-mobile @GetSortClass("Ssid")" @onclick='() => SetSort("Ssid")'>SSID</th>
                             <th class="sortable @GetSortClass("Band")" @onclick='() => SetSort("Band")'>Band</th>
                             <th class="sortable @GetSortClass("Signal")" @onclick='() => SetSort("Signal")'>Signal</th>
                         </tr>
@@ -134,6 +135,7 @@
                                 <td>@if (!string.IsNullOrEmpty(client.Ip)) { <code>@client.Ip</code> } else { <text>-</text> }</td>
                                 <td><code>@client.Mac</code></td>
                                 <td>@(client.ApName ?? "-")</td>
+                                <td class="hide-mobile">@(string.IsNullOrEmpty(client.Essid) ? "-" : client.Essid)</td>
                                 <td>@if (client.IsOnline && client.Band != RadioBand.Unknown) { <span class="band-badge @GetBandCssClass(client.Band)">@client.Band.ToDisplayString()</span> } else { <text>-</text> }</td>
                                 <td class="@SignalClassification.GetSignalClass(client.Signal, client.Band)" style="color: @SignalClassification.GetSignalColor(client.Signal, client.Band)">@(client.IsOnline && client.Signal.HasValue ? $"{client.Signal} dBm" : "-")</td>
                             </tr>
@@ -219,6 +221,13 @@
                         <span class="info-label">@(_selectedClient.IsOnline ? "Connected To:" : "Last Connected To:")</span>
                         <span class="info-value">@(_selectedClient.ApName ?? "Unknown AP")</span>
                     </div>
+                    @if (!string.IsNullOrEmpty(_selectedClient.Essid))
+                    {
+                        <div class="info-item">
+                            <span class="info-label">SSID:</span>
+                            <span class="info-value">@_selectedClient.Essid</span>
+                        </div>
+                    }
                     @if (!_selectedClient.IsOnline)
                     {
                         <div class="info-item">
@@ -1037,6 +1046,7 @@
                 : WiFiAnalysisHelpers.SortByIp(clients),
             "Mac" => _sortDescending ? clients.OrderByDescending(c => c.Mac) : clients.OrderBy(c => c.Mac),
             "ApName" => _sortDescending ? clients.OrderByDescending(c => c.ApName ?? "") : clients.OrderBy(c => c.ApName ?? ""),
+            "Ssid" => _sortDescending ? clients.OrderByDescending(c => c.Essid ?? "") : clients.OrderBy(c => c.Essid ?? ""),
             "Band" => _sortDescending ? clients.OrderByDescending(c => c.Band) : clients.OrderBy(c => c.Band),
             "Signal" => _sortDescending ? clients.OrderByDescending(c => c.Signal ?? int.MinValue) : clients.OrderBy(c => c.Signal ?? int.MinValue),
             _ => clients

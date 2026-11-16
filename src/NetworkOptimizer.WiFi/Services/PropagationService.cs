@@ -13,7 +13,6 @@ public class PropagationService
     private readonly AntennaPatternLoader _antennaLoader;
     private readonly ILogger<PropagationService> _logger;
 
-    private const double EarthRadiusMeters = 6371000.0;
     private const double DefaultFloorHeightMeters = 3.0;
 
     // ITU-R P.1238 indoor path loss exponent (2.8 for residential/office at 5 GHz)
@@ -597,16 +596,8 @@ public class PropagationService
     /// <summary>
     /// Haversine distance in meters between two lat/lng points.
     /// </summary>
-    public static double HaversineDistance(double lat1, double lng1, double lat2, double lng2)
-    {
-        var dLat = (lat2 - lat1) * Math.PI / 180.0;
-        var dLng = (lng2 - lng1) * Math.PI / 180.0;
-        var a = Math.Sin(dLat / 2) * Math.Sin(dLat / 2) +
-                Math.Cos(lat1 * Math.PI / 180.0) * Math.Cos(lat2 * Math.PI / 180.0) *
-                Math.Sin(dLng / 2) * Math.Sin(dLng / 2);
-        var c = 2 * Math.Atan2(Math.Sqrt(a), Math.Sqrt(1 - a));
-        return EarthRadiusMeters * c;
-    }
+    public static double HaversineDistance(double lat1, double lng1, double lat2, double lng2) =>
+        NetworkOptimizer.Core.Helpers.GeoDistance.Meters(lat1, lng1, lat2, lng2);
 
     /// <summary>
     /// Calculate bearing (compass direction) from point 1 to point 2 in degrees.

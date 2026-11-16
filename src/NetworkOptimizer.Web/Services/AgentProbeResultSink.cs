@@ -946,6 +946,26 @@ public class AgentProbeResultSink
         => agentCoversPrimary || contextAgentId == agentId;
 
     /// <summary>
+    /// Clears round-trip figures no probe could have measured (<see cref="Monitoring.LatencySanity"/>)
+    /// from an agent's result, in place, so storage, scoring, and the live caches all read the same
+    /// cleaned result. The agent's parser has no bound of its own. True when anything was cleared.
+    /// </summary>
+    internal static bool ScrubImplausibleRtt(ProbeResult result)
+    {
+        var (min, avg, max, jitter) = Monitoring.LatencySanity.Clean(
+            result.HasRttMinMs ? result.RttMinMs : null,
+            result.HasRttAvgMs ? result.RttAvgMs : null,
+            result.HasRttMaxMs ? result.RttMaxMs : null,
+            result.HasJitterMs ? result.JitterMs : null);
+        var changed = false;
+        if (min == null && result.HasRttMinMs) { result.ClearRttMinMs(); changed = true; }
+        if (avg == null && result.HasRttAvgMs) { result.ClearRttAvgMs(); changed = true; }
+        if (max == null && result.HasRttMaxMs) { result.ClearRttMaxMs(); changed = true; }
+        if (jitter == null && result.HasJitterMs) { result.ClearJitterMs(); changed = true; }
+        return changed;
+    }
+
+    /// <summary>
     /// Whether an agent should be sent the site's SNMP config and speed-test server list.
     ///
     /// A STEERED agent is a probe vantage behind one WAN, not a second collector: polling SNMP
@@ -2327,6 +2347,11 @@ public class AgentProbeResultSink
 
             var timestamp = DateTimeOffset.FromUnixTimeMilliseconds(result.TimestampUnixMs).UtcDateTime;
             var wanContext = context?.InfluxWanTag;
+
+            if (ScrubImplausibleRtt(result))
+                _logger.LogWarning(
+                    "Dropped an impossible round trip from agent {Id} for target {Target}",
+                    connection.AgentId, target.TargetId);
 
             await influx.WriteLatencyAsync(
                 targetId: target.TargetId,
