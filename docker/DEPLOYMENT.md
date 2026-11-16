@@ -381,7 +381,11 @@ network-optimizer             Up (healthy)
 
 ### HTTPS with Reverse Proxy
 
-Network Optimizer works behind any reverse proxy (nginx, Caddy, Traefik, SWAG, etc.) for SSL termination. Setting up the proxy itself is only half the story though - you also need to tell the app it's being proxied so it builds the correct URLs for things like speed test result reporting and canonical redirects.
+Run Network Optimizer behind a reverse proxy that terminates TLS. We don't recommend or support serving it over plain HTTP: it has admin access to your UniFi Console and network devices, and passkey sign-in and speed test locations only work over HTTPS.
+
+Any reverse proxy works (nginx, Caddy, Traefik, SWAG, etc.). Many self-hosters already run one, so the choice is yours. If you don't have one yet, [NetworkOptimizer-Proxy](https://github.com/Ozark-Connect/NetworkOptimizer-Proxy), our ready-made Traefik setup, is the recommended starting point (see [Traefik](#traefik-recommended-for-speed-testing) below).
+
+Setting up the proxy itself is only half the story though - you also need to tell the app it's being proxied so it builds the correct URLs for things like speed test result reporting and canonical redirects.
 
 If your proxy setup still won't cooperate, ask in `#install-help` on the [Network Optimizer Discord](https://discord.gg/pHrmzbBCY3) with your proxy, its config, and what you see.
 
@@ -410,13 +414,13 @@ See [`.env.example`](.env.example) for the full list of variables and detailed e
 ```env
 BIND_LOCALHOST_ONLY=true
 ```
-This binds the app to localhost only (`127.0.0.1` and `::1`) instead of all interfaces, so only the local proxy can reach it directly. Both loopback families are bound, so a proxy dialing `localhost` reaches it whichever one the host resolves first. The On-Site Agent tunnel port (8043) is the exception: it always listens on all interfaces, because agents at other sites connect to it directly rather than through the proxy.
+This binds the app to localhost only (`127.0.0.1` and `::1`) instead of all interfaces, so only the local proxy can reach it directly. Both loopback families are bound, so a proxy dialing `localhost` reaches it whichever one the host resolves first. The On-Site Agent tunnel port (8043) is the exception: it always listens on all interfaces. Agents normally reach it through the proxy's agent tunnel route (below); connecting them to 8043 directly works, but is an unusual setup.
 
 #### Traefik (Recommended for Speed Testing)
 
 If you use the browser-based speed test (OpenSpeedTest), Traefik is the recommended reverse proxy. Most proxies negotiate HTTP/2 at the TLS level, and HTTP/2 multiplexing interferes with speed test throughput measurements. Traefik's per-router TLS options let you force HTTP/1.1 for the speed test hostname while keeping HTTP/2 for the main app - all on one port 443.
 
-See [NetworkOptimizer-Proxy](https://github.com/Ozark-Connect/NetworkOptimizer-Proxy) for a ready-to-use Docker Compose setup with automatic Let's Encrypt certificates via Cloudflare DNS-01.
+See [NetworkOptimizer-Proxy](https://github.com/Ozark-Connect/NetworkOptimizer-Proxy) for a ready-to-use Docker Compose setup with automatic Let's Encrypt certificates via DNS-01 (Cloudflare by default; other DNS providers are available through an `.env` setting).
 
 **Running multi-site or multi-WAN agents?** They dial home over a long-lived gRPC tunnel that needs its own proxy route. New installs ship it enabled; older ones don't, since `setup.sh` only copies the example config on first run. Add it with:
 
@@ -1092,11 +1096,12 @@ Now a leak of the data volume no longer includes the key. **Migration note:** to
 
 ### Network Access
 
-Network Optimizer stores UniFi controller credentials and SSH passwords. Limit access to the web UI:
+Network Optimizer has admin access to your UniFi Console and network devices. Before you expose it beyond your local network:
 
-- Use a reverse proxy with authentication if exposing beyond your local network
-- Consider firewall rules to restrict access to trusted IPs
-- Use HTTPS via reverse proxy (see examples above)
+- Serve it over HTTPS (see [HTTPS with Reverse Proxy](#https-with-reverse-proxy))
+- Give every person their own account, and turn on **Require MFA / passkey** for each role in **Settings > Identity**
+- Prefer passkeys. Where a password is used, make it strong and add an authenticator app. Each user sets both up on the **Security** page (the lock icon at the top)
+- Restrict access to known IPs (your sites' public addresses, for example) with an allow list in your reverse proxy or firewall, where you can
 
 ### SSH host keys
 
