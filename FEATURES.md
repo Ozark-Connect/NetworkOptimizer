@@ -197,7 +197,19 @@ Time-series monitoring on your own InfluxDB, fed by SNMP polling (InfluxDB).
   - Ranges from 15 minutes to 30 days, custom ranges, synced hover, jump to Live View
   - Hover a host's chip, a Latency Targets address, or an Upstream Path Discovery address for its card: copy, and **Trace**
   - Opened from Live View, ISP Health, or the Dashboard, a chip beside the title names where from, with the way back and **×** for your own filters; your own WAN or LAN scope or time preset ends it
-- **Investigate** - step through **Packet Loss Events** and **Loaded Loss Events**
+- **Path Map** - every ISP, Transit, Internet, and Custom target's route on one map, merged where routes share hops
+  - Each target's live state against its own baseline: normal, elevated, degraded, unreachable
+  - Several WANs on one map, each in its own line style, showing where their routes split
+  - Views: **All** (every route in full), **Transit** (the networks between you and each target), and **Local** (your ISP and where it hands off, with each place's round trip); each fits and names its part of the map and fades the rest, never hiding a target off its baseline. Remembered per user
+  - Re-traced every minute while open; hourly in the background, and at once when a target degrades
+  - Metered WANs trace once per view, skipping routes checked in the last 15 minutes
+  - Route changes: grouped by network across the targets they moved, listed under the map with each target's round trip before and after; select one to draw its old routes
+  - A hop placed better between two traces (a hostname, a set location) is not a route change
+  - A router slow only on its own replies, with clean targets beyond it, is not counted as a problem
+  - Problems list, worst first; a click solos the target in the charts below
+  - Follows the charts' WAN, category, and time window
+  - A card on every target, place, leg, and cluster (a sheet on a phone) lists the targets there; each opens in the charts or runs a traceroute in Network Tools
+- **Investigate** - step through **Packet Loss Events** and **Loaded Loss Events**; the stepper rides in the chart header, so it stays in view as you scroll the charts
 - **Upstream Path Discovery** - ICMP and UDP traceroutes that map OLT/CMTS, ISP edge, transit ASNs, and internet hosts
   - Sets the access technology, saves monitoring targets, and re-runs every 7 days
   - Waits for a quiet WAN (no outage, load, or loss above the access technology's idle level); a manual run on a busy WAN warns first, with **Run Anyway**
