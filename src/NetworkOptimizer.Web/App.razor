@@ -823,6 +823,30 @@
             showTip(cell, delay);
         }
 
+        // A tap on a destination that is plain text opens its card: touch has no hover. One that is also a
+        // filter chip, link, or button keeps the tap for that action. Every page with the card, Live Traffic included.
+        var lastPointerType = '';
+        document.addEventListener('pointerdown', function (e) { lastPointerType = e.pointerType; }, true);
+        var DEST_ACTION = 'a, button, input, select, textarea, label, summary, [role="button"], [onclick], .wan-filter-badge, .stat-filter-badge';
+        function destIsAction(dest) {
+            for (var el = dest; el && !el.matches('td, th, li, tr, .card, body'); el = el.parentElement) {
+                if (el.matches(DEST_ACTION) || getComputedStyle(el).cursor === 'pointer') return true;
+            }
+            return false;
+        }
+        document.addEventListener('click', function (e) {
+            if (lastPointerType !== 'touch' || !window.tippy || !e.target.closest) return;
+            if (e.target.closest('.tippy-box')) return;
+            var dest = e.target.closest('[data-dest-ip]');
+            if (!dest || !dest.getAttribute('data-dest-ip') || destIsAction(dest)) return;
+            showLinkCard(dest, destinationHtml);
+            var tip = dest._tippy;
+            if (!tip) return;
+            clearTimeout(dest._ltShowTimer);
+            tip.setProps({ touch: true });
+            tip.show();
+        });
+
         // An App Live Traffic could only call "UDP 21324": what that means, and Name This App for a Site Admin.
         function unnamedAppHtml(el) {
             if (!el.hasAttribute('data-app-unnamed')) return null;
