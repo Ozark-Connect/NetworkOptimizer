@@ -883,7 +883,9 @@ builder.Services.AddMutatingService<IChangeControlService, ChangeControlService>
 builder.Services.AddMutatingService<IConfigTemplateService, ConfigTemplateService>();
 // Trace hop locations set by hand: install-wide, read on every trace render.
 builder.Services.AddSingleton<HopLocationOverrideCache>();
+builder.Services.AddSingleton<IHopLocationOverrideSource, InstallHopLocationOverrideSource>();
 // Places each site's own traces gave hop addresses, for traces that later have only GeoLite2.
+builder.Services.AddSingleton<ILearnedHopPeers, InstallLearnedHopPeers>();
 builder.Services.AddSingleton<LearnedHopLocations>();
 builder.Services.AddMutatingService<IHopLocationOverrideService, HopLocationOverrideService>();
 // Path Map: target routes traced from the vantage that measures them, placed with the Route Map's engine.

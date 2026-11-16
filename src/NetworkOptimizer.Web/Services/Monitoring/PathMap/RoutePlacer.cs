@@ -17,16 +17,14 @@ public sealed class RoutePlacer
 {
     private readonly GeoEnrichmentService _geo;
     private readonly AsnResolutionService _asn;
-    private readonly IDbContextFactory<NetworkOptimizerDbContext> _mainDb;
-    private readonly HopLocationOverrideCache _overrides;
+    private readonly IHopLocationOverrideSource _overrides;
     private readonly LearnedHopLocations _learned;
 
-    public RoutePlacer(GeoEnrichmentService geo, AsnResolutionService asn,
-        IDbContextFactory<NetworkOptimizerDbContext> mainDb, HopLocationOverrideCache overrides, LearnedHopLocations learned)
+    public RoutePlacer(GeoEnrichmentService geo, AsnResolutionService asn, IHopLocationOverrideSource overrides,
+        LearnedHopLocations learned)
     {
         _geo = geo;
         _asn = asn;
-        _mainDb = mainDb;
         _overrides = overrides;
         _learned = learned;
     }
@@ -42,14 +40,17 @@ public sealed class RoutePlacer
     public async Task LearnAsync(string siteSlug, StoredRoute route, CancellationToken ct = default)
     {
         var hops = route.Hops.Where(h => h.Address != null).Select(h => (h.Address, h.Hostname, h.MinRttMs)).ToList();
-        var found = HopLocations.Resolve(hops, _geo.Enrich, await OverridesAsync(ct));
+        var found = HopLocations.Resolve(hops, _geo.Enrich, await OverridesAsync(siteSlug, ct));
         await _learned.LearnAsync(siteSlug, hops, found, _geo.Enrich, route.CheckedAt, ct);
     }
 
-    /// <summary>The cities set by hand. Empty when they cannot be read: placement still runs without them.</summary>
-    public async Task<IReadOnlyDictionary<string, HopLocationSetting>> OverridesAsync(CancellationToken ct = default)
+    /// <summary>
+    /// The cities set by hand that a site's traces use. Empty when they cannot be read: placement still runs
+    /// without them.
+    /// </summary>
+    public async Task<IReadOnlyDictionary<string, HopLocationSetting>> OverridesAsync(string siteSlug, CancellationToken ct = default)
     {
-        try { return await HopLocationOverrideService.LoadAsync(_mainDb, _overrides, ct); }
+        try { return await _overrides.ForSiteAsync(siteSlug, ct); }
         catch (Exception) when (!ct.IsCancellationRequested) { return new Dictionary<string, HopLocationSetting>(); }
     }
 

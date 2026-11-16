@@ -46,6 +46,34 @@ public interface IHopLocationOverrideService
     Task ClearAsync(string address, CancellationToken ct = default);
 }
 
+/// <summary>
+/// The cities set by hand that a site's traces use, for the app's own background work (the Path Map's
+/// traces), which has no caller to pass the gate. Here every site uses the install's; the SaaS fork
+/// replaces this to key them as it keys <see cref="IHopLocationOverrideService"/>.
+/// </summary>
+public interface IHopLocationOverrideSource
+{
+    /// <summary>The overrides a trace from <paramref name="siteSlug"/> uses, by address.</summary>
+    Task<IReadOnlyDictionary<string, HopLocationSetting>> ForSiteAsync(string siteSlug, CancellationToken ct = default);
+}
+
+/// <summary>Every site uses the install's overrides, through the cache.</summary>
+public sealed class InstallHopLocationOverrideSource : IHopLocationOverrideSource
+{
+    private readonly IDbContextFactory<NetworkOptimizerDbContext> _mainDb;
+    private readonly HopLocationOverrideCache _cache;
+
+    public InstallHopLocationOverrideSource(IDbContextFactory<NetworkOptimizerDbContext> mainDb, HopLocationOverrideCache cache)
+    {
+        _mainDb = mainDb;
+        _cache = cache;
+    }
+
+    /// <inheritdoc />
+    public Task<IReadOnlyDictionary<string, HopLocationSetting>> ForSiteAsync(string siteSlug, CancellationToken ct = default) =>
+        HopLocationOverrideService.LoadAsync(_mainDb, _cache, ct);
+}
+
 /// <inheritdoc cref="IHopLocationOverrideService" />
 public sealed class HopLocationOverrideService : IHopLocationOverrideService
 {
@@ -67,10 +95,7 @@ public sealed class HopLocationOverrideService : IHopLocationOverrideService
     public Task<IReadOnlyDictionary<string, HopLocationSetting>> GetAllAsync(CancellationToken ct = default) =>
         LoadAsync(_mainDb, _cache, ct);
 
-    /// <summary>
-    /// The overrides, through the cache: for the app's own background work (the Path Map's traces),
-    /// which has no caller to pass the gate.
-    /// </summary>
+    /// <summary>The overrides, through the cache (<see cref="InstallHopLocationOverrideSource"/>).</summary>
     internal static async Task<IReadOnlyDictionary<string, HopLocationSetting>> LoadAsync(
         IDbContextFactory<NetworkOptimizerDbContext> mainDb, HopLocationOverrideCache cache, CancellationToken ct = default)
     {

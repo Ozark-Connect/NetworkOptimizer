@@ -69,7 +69,7 @@ public sealed class PathMapService : IPathMapService
             .SelectMany(s => new[] { s!.Latest, s.Previous, s.Stable }).Where(r => r != null).Select(r => r!).ToList();
 
         var watcher = _episodes.GetFor(_site.Slug);
-        var overrides = await _placer.OverridesAsync(ct);
+        var overrides = await _placer.OverridesAsync(_site.Slug, ct);
         var learned = await _placer.LearnedAsync(_site.Slug, ct);
         var wans = await WansAsync(ct);
         var starts = Starts(wans, overrides);
