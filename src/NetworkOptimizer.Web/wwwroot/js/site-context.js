@@ -208,20 +208,29 @@ window.noHighlightTarget = function (id, block, radius) { noHighlight(id, block,
 
 // Where the reader was on a tab they jump away from and back to (Live View, Analyze, Watch in Live View). A page's tabs
 // share one scroll box, so without this the jump back lands at the depth reached on the other tab. Saved per tab
-// for the session; restored once the tab is tall enough again, else the top. A touch, wheel, or key stops it.
+// for the session as the card at the middle of the view and its distance from the top, not a raw offset: the cards
+// above load and grow after the return, and an offset drifted further down on every round trip. Restored by keeping
+// that card there until the layout holds still; with nothing saved, the top. A touch, wheel, or key stops it.
 window.noTabScroll = {
     save: function (key) {
         var c = window.scrollRestoration && window.scrollRestoration.container();
         if (!c) return;
-        try { sessionStorage.setItem('no.tabScroll.' + key, String(c.scrollTop)); } catch (e) { }
+        var box = c.getBoundingClientRect();
+        var cards = Array.prototype.slice.call(c.querySelectorAll('.card'));
+        var mid = box.top + Math.min(box.height, window.innerHeight) / 2;
+        var index = cards.findIndex(function (el) { var r = el.getBoundingClientRect(); return r.top <= mid && r.bottom >= mid; });
+        if (index < 0) index = cards.findIndex(function (el) { return el.getBoundingClientRect().bottom > box.top; });
+        var saved = index < 0 ? { top: c.scrollTop }
+            : { card: index, offset: cards[index].getBoundingClientRect().top - box.top, top: c.scrollTop };
+        try { sessionStorage.setItem('no.tabScroll.' + key, JSON.stringify(saved)); } catch (e) { }
     },
     restore: function (key) {
-        var target = 0;
+        var saved = null;
         try {
-            target = Number(sessionStorage.getItem('no.tabScroll.' + key)) || 0;
+            saved = JSON.parse(sessionStorage.getItem('no.tabScroll.' + key) || 'null');
             sessionStorage.removeItem('no.tabScroll.' + key);
         } catch (e) { }
-        var started = Date.now(), timer = null;
+        var started = Date.now(), timer = null, steadySince = 0, lastTop = null;
         var events = ['touchstart', 'wheel', 'pointerdown', 'keydown'];
         function stop() {
             clearInterval(timer);
@@ -229,13 +238,27 @@ window.noTabScroll = {
         }
         function apply() {
             var c = window.scrollRestoration && window.scrollRestoration.container();
-            var done = Date.now() - started >= 3000;
-            if (c) {
-                var max = c.scrollHeight - c.clientHeight;
-                // Short of the target, wait for the tab's content; at the deadline take the closest point.
-                if (max >= target || done) { c.scrollTop = Math.min(target, max); stop(); return; }
+            var now = Date.now();
+            if (now - started >= 4000) { stop(); return; }
+            if (!c) return;
+            var want = 0;
+            if (saved && saved.card != null) {
+                var el = c.querySelectorAll('.card')[saved.card];
+                if (!el) return;
+                want = c.scrollTop + (el.getBoundingClientRect().top - c.getBoundingClientRect().top) - saved.offset;
+            } else if (saved) {
+                want = saved.top || 0;
             }
-            if (done) stop();
+            want = Math.max(0, Math.min(want, c.scrollHeight - c.clientHeight));
+            if (Math.abs(c.scrollTop - want) > 1) c.scrollTop = want;
+            // Done once the card has held its place for half a second: the tab has finished growing above it.
+            if (lastTop !== null && Math.abs(want - lastTop) <= 1) {
+                if (!steadySince) steadySince = now;
+                else if (now - steadySince >= 500) stop();
+            } else {
+                steadySince = 0;
+            }
+            lastTop = want;
         }
         events.forEach(function (e) { window.addEventListener(e, stop, { capture: true, passive: true }); });
         timer = setInterval(apply, 100);
