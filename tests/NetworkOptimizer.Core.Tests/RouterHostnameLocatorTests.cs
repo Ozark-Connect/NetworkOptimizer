@@ -71,6 +71,7 @@ public class RouterHostnameLocatorTests
     // Equinix data centers, and Comcast's Dallas Infomart
     [InlineData("eqix-ch1.opendns.com", "Chicago")]
     [InlineData("eqix-da3.example.com", "Dallas")]
+    [InlineData("eqix.da4.example.com", "Dallas")]
     [InlineData("be-105-pe12.1950stemmons.tx.ibone.comcast.net", "Dallas")]
     // An exchange whose own domain is the location
     [InlineData("cloudflare.slix.net", "Salt Lake City")]

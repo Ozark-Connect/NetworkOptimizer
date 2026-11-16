@@ -116,6 +116,8 @@ public static class RouterHostnameLocator
                 AddMatches(parts[j], qualifier, found);
                 if (parts[j] is "eqix" or "equinix" && j + 1 < parts.Length) AddEquinix(parts[j + 1], found);
             }
+            // The metro code can be the next label, as well as the next part ("eqix.da4.example.com").
+            if (labels[i] is "eqix" or "equinix" && i + 1 < labels.Length - 2) AddEquinix(labels[i + 1], found);
         }
 
         // Cox: site code, router role, vendor, and number ("kscybbrj01-ae2.rd.ks.cox.net").

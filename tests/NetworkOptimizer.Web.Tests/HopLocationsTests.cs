@@ -23,6 +23,7 @@ public class HopLocationsTests
         "198.51.100.40" => new GeoInfo { CountryCode = "US", City = "Warner Robins", Latitude = 32.62, Longitude = -83.63, AccuracyRadiusKm = 5, Asn = 64500 },
         "192.0.2.60" or "192.0.2.61" => new GeoInfo { CountryCode = "US", Latitude = 37.75, Longitude = -97.82, AccuracyRadiusKm = 1000, Asn = 64501 },
         "192.0.2.70" => new GeoInfo { CountryCode = "GB", Latitude = 51.50, Longitude = -0.12, AccuracyRadiusKm = 200 },
+        "192.0.2.71" => new GeoInfo { CountryCode = "FR", Latitude = 48.86, Longitude = 2.34, AccuracyRadiusKm = 1000 },
         _ => GeoInfo.Empty,
     };
 
@@ -258,6 +259,42 @@ public class HopLocationsTests
 
         found["192.0.2.70"].Text.Should().Be("Kansas City, United States");
         found["192.0.2.70"].Tooltip.Should().Be("0.8 ms from bbr01, a Kansas City router. GeoLite2 says United Kingdom.");
+    }
+
+    [Fact]
+    public void Resolve_HopsGeoLite2PutsAbroad_TakeTheEquinixAnchorAfterThem()
+    {
+        // A carrier's hops GeoLite2 places in its home country, before an exchange hop named for an
+        // Equinix Dallas data center: bounded by it, they sit within a few ms of Dallas.
+        var found = HopLocations.Resolve(
+        [
+            ("198.51.100.30", null, 2.4),
+            ("203.0.113.11", "kanc-bb2-link.ip.twelve99.net", 12.9),
+            ("203.0.113.12", "dls-bb4-link.ip.twelve99.net", 19.9),
+            ("192.0.2.70", null, 26.0),
+            ("192.0.2.71", null, 32.5),
+            ("203.0.113.13", "eqix.da4.example.com", 27.0),
+        ], Geo);
+
+        found["203.0.113.13"].Text.Should().Be("Dallas, United States");
+        found["192.0.2.70"].Text.Should().Be("Dallas, United States");
+        found["192.0.2.71"].Text.Should().Be("Dallas, United States");
+    }
+
+    [Fact]
+    public void Resolve_AForeignCountryTooFarFromAnAnchor_HasNoLocation()
+    {
+        // 6 ms past a Dallas router cannot be in the United Kingdom, and no anchor is within 3 ms.
+        var found = HopLocations.Resolve(
+        [
+            ("198.51.100.30", null, 3.0),
+            ("203.0.113.7", "ae1.r1.dllstx09.example.net", 19.9),
+            ("192.0.2.70", null, 26.0),
+        ], Geo);
+
+        found["192.0.2.70"].Text.Should().Be("-");
+        found["192.0.2.70"].CountryCode.Should().BeNull();
+        found["192.0.2.70"].Tooltip.Should().Be("GeoLite2 says United Kingdom: too far from Dallas for 6.1 ms.");
     }
 
     [Theory]

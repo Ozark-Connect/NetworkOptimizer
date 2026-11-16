@@ -108,12 +108,16 @@ public static class HopLocations
                     geoSays != null ? $"{source}. GeoLite2 says {geoSays}." : source,
                     hub?.Latitude ?? near.Anchor.Latitude, hub?.Longitude ?? near.Anchor.Longitude, HopLocationSource.Neighbor);
             }
-            else if (g is { CountryCode.Length: > 0, City.Length: > 0 }
-                     && OutOfReach(bounded, anchors, i, g) is { } far)
+            // GeoLite2's location, city or country alone, cannot fit the round trip from an anchor:
+            // the country stays when it is the anchor's, and otherwise the hop has no location.
+            else if (g is { CountryCode.Length: > 0 } && OutOfReach(bounded, anchors, i, g) is { } far)
             {
                 var shown = Math.Abs((h.MinRttMs ?? 0) - (list[far.Index].MinRttMs ?? 0));
-                result[h.Address!] = new HopLocationView(g.CountryCode, CountryName(g.CountryCode!),
-                    $"GeoLite2 says {g.City}: too far from {far.Anchor.City} for {shown:0.0} ms.");
+                var says = string.IsNullOrEmpty(g.City) ? CountryName(g.CountryCode!) : g.City;
+                var tooltip = $"GeoLite2 says {says}: too far from {far.Anchor.City} for {shown:0.0} ms.";
+                result[h.Address!] = string.Equals(g.CountryCode, far.Anchor.CountryCode, StringComparison.OrdinalIgnoreCase)
+                    ? new HopLocationView(g.CountryCode, CountryName(g.CountryCode!), tooltip)
+                    : new HopLocationView(null, "-", tooltip);
             }
             else if (g is { CountryCode.Length: > 0 })
             {
