@@ -54,6 +54,41 @@ public class HopLocationsTests
     }
 
     [Fact]
+    public void Resolve_ACitySetOnADelayedHop_LendsItToNoNeighbor()
+    {
+        // An MPLS hop answers at its tunnel's far end (30 ms) between hops at 2 and 25 ms: set by hand to Atlanta, it is
+        // Atlanta itself, but its round trip says nothing about the routers after it.
+        var found = HopLocations.Resolve(
+        [
+            ("198.51.100.1", null, 1.0),
+            ("203.0.113.70", null, 2.0),
+            ("203.0.113.71", null, 30.0),
+            ("203.0.113.72", null, 25.0),
+            ("203.0.113.73", null, 25.2),
+        ], Geo, SetTo("203.0.113.71", "Atlanta", 33.75, -84.39));
+
+        found["203.0.113.71"].City.Should().Be("Atlanta");
+        found.GetValueOrDefault("203.0.113.72")?.City.Should().NotBe("Atlanta");
+        found.GetValueOrDefault("203.0.113.73")?.City.Should().NotBe("Atlanta");
+    }
+
+    [Fact]
+    public void Resolve_ACitySetOnASlowHopWithANarrowRange_StillLendsIt()
+    {
+        // Slow to answer (9 ms), but the hops either side hold its round trip to 2.0 to 2.2 ms: it still anchors.
+        var found = HopLocations.Resolve(
+        [
+            ("198.51.100.1", null, 1.0),
+            ("203.0.113.70", null, 2.0),
+            ("203.0.113.71", null, 9.0),
+            ("203.0.113.72", null, 2.2),
+        ], Geo, SetTo("203.0.113.71", "Atlanta", 33.75, -84.39));
+
+        found["203.0.113.72"].City.Should().Be("Atlanta");
+        found["203.0.113.72"].Source.Should().Be(HopLocationSource.Neighbor);
+    }
+
+    [Fact]
     public void Resolve_AnchorWithNoPtr_IsNamedByItsWholeAddress()
     {
         // The vantage reports a hop with no PTR record by its address as its hostname.
