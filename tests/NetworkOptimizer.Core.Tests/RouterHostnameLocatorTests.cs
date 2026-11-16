@@ -229,6 +229,10 @@ public class RouterHostnameLocatorTests
     [InlineData("ae13.mpr1.huf2.us.zip.zayo.com", "Terre Haute")]
     [InlineData("ae3.r01.cwb01.icn.netarch.akamai.com", "Curitiba")]
     [InlineData("if-bundle-7-2.qcore1.esv00-santaclara.as6453.net", "Santa Clara")]
+    [InlineData("hbg-bb2-link.ip.twelve99.net", "Hamburg")]
+    [InlineData("hnk-b4-link.ip.twelve99.net", "Hong Kong")]
+    [InlineData("be11.ibr02.cpt20.ntwk.msn.net", "Cape Town")]
+    [InlineData("sk-bts04a-rd1-ae-7-0.aorta.net", "Bratislava")]
     public void Locate_AKnownOperator_IsReadWithItsOwnScheme(string hostname, string city)
     {
         RouterHostnameLocator.Locate(hostname)!.City.Name.Should().Be(city);
@@ -240,6 +244,8 @@ public class RouterHostnameLocatorTests
     [InlineData("chg-bb1-link.ip.twelve99.net")]
     [InlineData("ae-1.dallas.example.ntt.net")]
     [InlineData("ae1.r01.icn.netarch.akamai.com")]
+    // A country label that names another country rules a code's city out.
+    [InlineData("be21002.rb-dca-3.za.example.net")]
     public void Locate_AKnownOperator_IgnoresOtherSchemes(string hostname)
     {
         RouterHostnameLocator.Locate(hostname).Should().BeNull();

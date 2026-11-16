@@ -178,9 +178,13 @@ public static class RouterLocationCities
         new("Dubai", "", "AE", 25.20, 55.27, ["dxb"], [], ["dubai"]),
         new("Santa Clara", "CA", "US", 37.35, -121.96, [], [], ["santaclara"]),
         new("Terre Haute", "IN", "US", 39.47, -87.41, ["huf"], [], ["terrehaute"]),
+        new("Norfolk", "VA", "US", 36.85, -76.29, ["orf"], [], ["norfolk"]),
         new("Lille", "", "FR", 50.63, 3.06, ["lil"], [], ["lille"]),
         new("Bratislava", "", "SK", 48.15, 17.11, ["bts"], [], ["bratislava"]),
         new("Curitiba", "", "BR", -25.43, -49.27, ["cwb"], [], ["curitiba"]),
+        new("Cape Town", "", "ZA", -33.92, 18.42, ["cpt"], [], ["capetown"]),
+        new("Hamburg", "", "DE", 53.55, 9.99, [], [], ["hamburg"]),
+        new("Bilbao", "", "ES", 43.26, -2.93, ["bio"], [], ["bilbao"]),
         new("Johannesburg", "", "ZA", -26.20, 28.05, ["jnb"], [], ["johannesburg"]),
     ];
 
@@ -204,7 +208,7 @@ public static class RouterLocationCities
         new("Arelion", 1299, ["twelve99.net", "twelve99-cust.net"], RouterNamingScheme.OwnCode, new Dictionary<string, string>
         {
             ["adm"] = "Amsterdam", ["ash"] = "Ashburn", ["atl"] = "Atlanta", ["chi"] = "Chicago", ["den"] = "Denver",
-            ["dls"] = "Dallas", ["ewr"] = "Newark", ["ffm"] = "Frankfurt", ["hou"] = "Houston", ["kanc"] = "Kansas City",
+            ["dls"] = "Dallas", ["ewr"] = "Newark", ["hbg"] = "Hamburg", ["hnk"] = "Hong Kong", ["ffm"] = "Frankfurt", ["hou"] = "Houston", ["kanc"] = "Kansas City",
             ["kbn"] = "Copenhagen", ["lax"] = "Los Angeles", ["ldn"] = "London", ["nash"] = "Nashville",
             ["nyk"] = "New York", ["omha"] = "Omaha", ["palo"] = "Palo Alto", ["prs"] = "Paris", ["rest"] = "Reston",
             ["san"] = "San Antonio", ["sea"] = "Seattle", ["slou"] = "Slough", ["stlo"] = "St. Louis", ["sto"] = "Stockholm",

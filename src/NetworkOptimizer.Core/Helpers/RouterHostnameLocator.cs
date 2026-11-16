@@ -124,9 +124,11 @@ public static class RouterHostnameLocator
             var parts = labels[i].Split('-', '_');
             for (var j = 0; j < parts.Length; j++)
             {
-                // A two-letter part or label right after a token is its state or country ("dlls02-tx", "ogden.ut").
-                var qualifier = j + 1 < parts.Length ? TwoLetters(parts[j + 1])
-                    : i + 1 < labels.Length ? TwoLetters(labels[i + 1])
+                // A two-letter part or label right after a token is its state or country ("dlls02-tx",
+                // "ogden.ut"). Only numbers between them still count: "rb-dca-3.za".
+                var onlyNumbersAfter = parts.Skip(j + 1).All(p => p.All(char.IsAsciiDigit));
+                var qualifier = j + 1 < parts.Length && TwoLetters(parts[j + 1]) is { } next ? next
+                    : onlyNumbersAfter && i + 1 < labels.Length ? TwoLetters(labels[i + 1])
                     : null;
                 if (op?.NotPlaces is { } notPlaces && notPlaces.Contains(parts[j].Trim(Digits))) continue;
                 if (!AddOwnCode(parts[j], op, found)) AddMatches(parts[j], qualifier, found);
@@ -206,9 +208,20 @@ public static class RouterHostnameLocator
         if (ByCode.TryGetValue(token, out var code))
         {
             var match = numbered ? RouterLocationMatch.NumberedCode : RouterLocationMatch.Code;
-            found.AddRange(code.Select(c => new RouterHostnameLocation(c, raw, match) { Scheme = RouterNamingScheme.AirportCode }));
+            // A country or state label after the code that names another place rules the city out:
+            // "rb-dca-3.za" is not Washington.
+            found.AddRange(code
+                .Where(c => qualifier == null || !GeoQualifiers.Contains(qualifier) || InRegion(c, qualifier))
+                .Select(c => new RouterHostnameLocation(c, raw, match) { Scheme = RouterNamingScheme.AirportCode }));
         }
     }
+
+    // The two-letter labels that name a place: every state and country the city list uses.
+    private static readonly HashSet<string> GeoQualifiers = RouterLocationCities.All
+        .SelectMany(c => new[] { c.Region, c.CountryCode })
+        .Where(q => q.Length == 2)
+        .Select(q => q.ToLowerInvariant())
+        .ToHashSet();
 
     // An Equinix data center: the metro code and its number ("ch1").
     private static void AddEquinix(string part, List<RouterHostnameLocation> found)
