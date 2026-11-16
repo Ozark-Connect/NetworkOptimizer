@@ -980,18 +980,36 @@ else if (_diagResult != null && !string.IsNullOrEmpty(_diagResult.InterfaceError
         if (!_consoleDataLoaded)
             _ = WaitForConnectionThenReloadAsync();
 
-        if (!string.IsNullOrWhiteSpace(TargetParam) && TargetParam.Trim().Length <= 253)
-        {
-            _targetAddress = TargetParam.Trim();
-            _probeMode = ProbeMode.Icmp;
-            _focusTarget = true;
-        }
+        ApplyLinkedTarget();
 
         await LoadProbeVantagesAsync();
         await ApplyInitialVantageAsync();
         await RefreshAgentAvailabilityAsync();
         StartAgentStatusPolling();
         _runLinkedTrace = string.Equals(RunParam, "trace", StringComparison.OrdinalIgnoreCase);
+        _appliedLink = (TargetParam, FromParam, RunParam);
+    }
+
+    // The link's target, vantage, and run as last applied. A link to this page from this page (a
+    // Trace link on a map card, back and forward) re-renders it without re-initializing it.
+    private (string? Target, string? From, string? Run)? _appliedLink;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (_appliedLink is not { } applied || applied == (TargetParam, FromParam, RunParam)) return;
+        _appliedLink = (TargetParam, FromParam, RunParam);
+        ApplyLinkedTarget();
+        if (!string.IsNullOrEmpty(FromParam)) await ApplyInitialVantageAsync();
+        _runLinkedTrace = string.Equals(RunParam, "trace", StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>A link's ?target= replaces what the input holds.</summary>
+    private void ApplyLinkedTarget()
+    {
+        if (string.IsNullOrWhiteSpace(TargetParam) || TargetParam.Trim().Length > 253) return;
+        _targetAddress = TargetParam.Trim();
+        _probeMode = ProbeMode.Icmp;
+        _focusTarget = true;
     }
 
     /// <summary>
