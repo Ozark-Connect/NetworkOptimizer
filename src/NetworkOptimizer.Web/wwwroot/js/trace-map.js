@@ -132,9 +132,12 @@ export async function render(host, path, dotNet) {
         const layers = L.layerGroup().addTo(map);
         const resize = new ResizeObserver(() => map.invalidateSize());
         resize.observe(host);
-        state = host._traceMap = { map, layers, resize };
+        state = host._traceMap = { map, layers, resize, tips: [] };
+        map.on('move zoom', () => followTips(host._traceMap));
     }
     const { map, layers } = state;
+    (state.tips || []).forEach(t => t.destroy());
+    state.tips = [];
     layers.clearLayers();
 
     // Each node's longitude runs on from the node before it on the path, so the whole path draws
@@ -177,18 +180,40 @@ export async function render(host, path, dotNet) {
             keyboard: false,
             zIndexOffset: i === 0 || i === last ? 500 : 0,
         }).addTo(layers);
-        marker.bindTooltip(nodeTip(node), { direction: 'top', offset: [0, -14], className: 'trace-map-tooltip', opacity: 1 });
         const hops = node.hops.map(h => h.number).filter(n => n > 0);
+        const entry = { marker, hops, node, tip: null };
         marker.on('click', () => {
             setActive(state, i);
+            if (entry.tip) entry.tip.show();
             if (state.dotNet) state.dotNet.invokeMethodAsync('OnPlaceClicked', hops);
         });
-        state.markers.push({ marker, hops });
+        state.markers.push(entry);
     });
 
     state.bounds = bounds;
     map.invalidateSize();
     fit(state);
+
+    // After the fit: a marker added before the map has a view gets its element only then.
+    // A point's hops show in the app's own tooltip, drawn on the page and flipped to fit: a
+    // Leaflet tooltip lives inside the map and is cut off at its edge.
+    for (const entry of state.markers) {
+        const icon = entry.marker.getElement();
+        if (window.tippy && icon) {
+            entry.tip = window.tippy(icon, {
+                content: nodeTip(entry.node),
+                placement: 'top',
+                theme: 'custom',
+                appendTo: document.body,
+                trigger: 'mouseenter',
+                touch: false,
+                maxWidth: 'min(100vw - 10px, 420px)',
+            });
+            state.tips.push(entry.tip);
+        } else {
+            entry.marker.bindTooltip(nodeTip(entry.node), { direction: 'top', offset: [0, -14], className: 'trace-map-tooltip', opacity: 1 });
+        }
+    }
 }
 
 // Brings the whole route back into view.
@@ -228,11 +253,16 @@ export function highlight(host, hopNumber) {
     if (!state || !state.markers) return;
     const index = state.markers.findIndex(m => m.hops.includes(hopNumber));
     setActive(state, index);
-    state.markers.forEach(m => m.marker.closeTooltip());
+    state.markers.forEach(m => (m.tip ? m.tip.hide() : m.marker.closeTooltip()));
     if (index < 0) return;
-    const marker = state.markers[index].marker;
+    const { marker, tip } = state.markers[index];
     if (!state.map.getBounds().pad(-0.1).contains(marker.getLatLng())) state.map.panTo(marker.getLatLng());
-    marker.openTooltip();
+    if (tip) tip.show(); else marker.openTooltip();
+}
+
+// An open point tooltip sits on the page, not the map: it follows its point as the map moves.
+function followTips(state) {
+    (state.tips || []).forEach(t => { if (t.state.isVisible && t.popperInstance) t.popperInstance.update(); });
 }
 
 /** Removes the map from the element. */
@@ -240,6 +270,7 @@ export function dispose(host) {
     const state = host && host._traceMap;
     hosts.delete(host);
     if (!state) return;
+    (state.tips || []).forEach(t => t.destroy());
     state.resize.disconnect();
     state.map.remove();
     host._traceMap = null;

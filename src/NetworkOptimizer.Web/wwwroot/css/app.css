@@ -29859,6 +29859,11 @@ body:has(.top-bar-hidden) .btn-fit {
     white-space: nowrap;
 }
 
+/* In the app's tooltip the box already has padding and a background. */
+.tippy-box .trace-tip {
+    padding: 0;
+}
+
 .trace-tip-city {
     font-weight: 600;
 }
