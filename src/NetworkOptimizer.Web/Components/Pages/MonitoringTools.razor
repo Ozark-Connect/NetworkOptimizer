@@ -36,6 +36,7 @@
 @inject ILogger<MonitoringTools> Logger
 @inject NetworkOptimizer.Threats.Enrichment.GeoEnrichmentService Geo
 @inject IDisplayTimeZone DisplayTime
+@inject NetworkOptimizer.Web.Services.Monitoring.IHopLocationOverrideService HopLocationSets
 
 <PageTitle>Network Tools - Network Optimizer</PageTitle>
 
@@ -377,15 +378,9 @@
                             @if (showLocation)
                             {
                                 <td>
-                                    @if (hop.Address != null && _traceLocations.TryGetValue(hop.Address, out var location))
-                                    {
-                                        <span class="flag-icon" data-tooltip="@CountryDisplay.CountryTooltip(location.CountryCode)">@CountryDisplay.CountryFlag(location.CountryCode)</span>
-                                        <span data-tooltip="@location.Tooltip">@location.Text</span>
-                                    }
-                                    else
-                                    {
-                                        <span>-</span>
-                                    }
+                                    <NetworkOptimizer.Web.Components.Shared.Monitoring.HopLocationCell Address="@hop.Address"
+                                        Location="@(hop.Address != null && _traceLocations.TryGetValue(hop.Address, out var location) ? location : null)"
+                                        OnChanged="TraceLocationChangedAsync" />
                                 </td>
                             }
                             <td>@(hop.Responses > 0 && hop.Probes > 0 ? $"{100.0 * (hop.Probes - hop.Responses) / hop.Probes:0.#}%" : "-")</td>
@@ -1736,15 +1731,28 @@ else if (_diagResult != null && !string.IsNullOrEmpty(_diagResult.InterfaceError
             if ((await ReverseDnsCache.ResolveAsync(address)).Hostname is { } name) ptrs[address] = name;
         }
         _tracePtrs = ptrs;
+        await PlaceTraceAsync(trace);
+    }
 
+    /// <summary>Places the trace's hops and builds its map: after a run, and again when a hop's location is set or reset.</summary>
+    private async Task PlaceTraceAsync(TracerouteResult trace)
+    {
+        IReadOnlyDictionary<string, NetworkOptimizer.Web.Services.Monitoring.HopLocationSetting>? set = null;
+        try { set = await HopLocationSets.GetAllAsync(); }
+        catch (Exception ex) { Logger.LogWarning(ex, "Could not read the hop locations set by hand"); }
         _traceLocations = NetworkOptimizer.Web.Services.Monitoring.HopLocations.Resolve(
-            trace.Hops.Where(h => h.Responded).Select(h => (h.Address, TraceHostname(h), h.RttMinMs)), Geo.Enrich);
+            trace.Hops.Where(h => h.Responded).Select(h => (h.Address, TraceHostname(h), h.RttMinMs)), Geo.Enrich, set);
         _tracePath = NetworkOptimizer.Web.Services.Monitoring.TraceMapPath.Build(
             trace.Hops.Where(h => h.Responded).Select(h => (h.HopNumber, h.Address, TraceHostname(h), h.RttMinMs)),
             _traceLocations, await TraceStartAsync(trace.Target.SourceInterface));
         _mapHops = _tracePath.HasRoute
             ? _tracePath.Nodes.SelectMany(n => n.Hops).Select(h => h.Number).Where(n => n > 0).ToHashSet()
             : [];
+    }
+
+    private async Task TraceLocationChangedAsync()
+    {
+        if (_traceResult != null) await PlaceTraceAsync(_traceResult);
     }
 
     /// <summary>

@@ -29,6 +29,54 @@ public class HopLocationsTests
 
     private const string KansasCityRouter = "bbr01.mci01.example.net";
 
+    private static Dictionary<string, HopLocationSetting> SetTo(string address, string city, double lat, double lon,
+        string country = "US", string? by = "Admin") =>
+        new(StringComparer.OrdinalIgnoreCase) { [address] = new HopLocationSetting(address, city, null, country, lat, lon, by) };
+
+    [Fact]
+    public void Resolve_ASetLocation_WinsOverTheHostname()
+    {
+        var found = HopLocations.Resolve(
+        [
+            ("198.51.100.1", null, 1.0),
+            ("203.0.113.5", KansasCityRouter, 12.8),
+        ], Geo, SetTo("203.0.113.5", "Tulsa", 36.15, -95.99));
+
+        found["203.0.113.5"].Text.Should().Be("Tulsa, United States");
+        found["203.0.113.5"].Source.Should().Be(HopLocationSource.Set);
+        found["203.0.113.5"].Tooltip.Should().Be("Set by Admin");
+    }
+
+    [Fact]
+    public void Resolve_ASetLocation_AnchorsTheHopsBesideIt()
+    {
+        // The hop 1 ms on, with only a country from GeoLite2, borrows the set city.
+        var found = HopLocations.Resolve(
+        [
+            ("198.51.100.1", null, 1.0),
+            ("203.0.113.5", null, 12.8),
+            ("198.51.100.21", null, 13.8),
+        ], Geo, SetTo("203.0.113.5", "Tulsa", 36.15, -95.99));
+
+        found["198.51.100.21"].Text.Should().Be("Tulsa, United States");
+        found["198.51.100.21"].Source.Should().Be(HopLocationSource.Neighbor);
+    }
+
+    [Fact]
+    public void Resolve_ASetLocation_IsNotRuledOutByTheRoundTrip()
+    {
+        // 0.5 ms from a Dallas vantage cannot reach Tokyo, but a person said so.
+        var found = HopLocations.Resolve(
+        [
+            ("198.51.100.1", null, 1.0),
+            ("203.0.113.5", null, 1.5),
+            ("198.51.100.30", null, 9.0),
+        ], Geo, SetTo("203.0.113.5", "Tokyo", 35.68, 139.69, country: "JP", by: null));
+
+        found["203.0.113.5"].Text.Should().Be("Tokyo, Japan");
+        found["203.0.113.5"].Tooltip.Should().Be("Set by hand");
+    }
+
     [Fact]
     public void Resolve_AGeoLite2CityTooFarFromTheNamedNeighbor_TakesTheNeighborsCity()
     {

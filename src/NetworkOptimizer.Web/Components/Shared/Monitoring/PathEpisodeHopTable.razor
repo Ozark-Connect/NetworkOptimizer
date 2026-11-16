@@ -4,6 +4,7 @@
 @inject ILogger<PathEpisodeHopTable> Logger
 @inject NavigationManager NavigationManager
 @inject NetworkOptimizer.Threats.Enrichment.GeoEnrichmentService Geo
+@inject NetworkOptimizer.Web.Services.Monitoring.IHopLocationOverrideService HopLocationSets
 
 @* The hop table behind one Path Localization episode: every TTL of each degraded target's rounds,
    pooled, with the hop where the degradation first appears and the last clean one marked. Loaded
@@ -156,15 +157,9 @@
                                 @if (locations.Count > 0)
                                 {
                                     <td class="path-loc-cell">
-                                        @if (hop.Responses > 0 && hop.Address != null && locations.TryGetValue(hop.Address, out var location))
-                                        {
-                                            <span class="flag-icon" data-tooltip="@CountryDisplay.CountryTooltip(location.CountryCode)">@CountryDisplay.CountryFlag(location.CountryCode)</span>
-                                            <span data-tooltip="@location.Tooltip">@location.Text</span>
-                                        }
-                                        else
-                                        {
-                                            <span>-</span>
-                                        }
+                                        <HopLocationCell Address="@(hop.Responses > 0 ? hop.Address : null)"
+                                            Location="@(hop.Responses > 0 && hop.Address != null && locations.TryGetValue(hop.Address, out var location) ? location : null)"
+                                            OnChanged="LocationSetChangedAsync" />
                                     </td>
                                 }
                                 <td class="path-hop-nowrap">
@@ -260,7 +255,7 @@
         try
         {
             _detail = await PathEpisodes.GetEpisodeAsync(EpisodeId);
-            _locations.Clear();
+            await LoadLocationSetsAsync();
             _failed = _detail == null;
         }
         catch (Exception ex)
@@ -280,11 +275,23 @@
         if (!_locations.TryGetValue(table, out var found))
         {
             found = NetworkOptimizer.Web.Services.Monitoring.HopLocations.Resolve(
-                table.Hops.Where(h => h.Responses > 0).Select(h => (h.Address, h.Hostname, h.MinRttMs)), Geo.Enrich);
+                table.Hops.Where(h => h.Responses > 0).Select(h => (h.Address, h.Hostname, h.MinRttMs)), Geo.Enrich, _locationSets);
             _locations[table] = found;
         }
         return found;
     }
+
+    private IReadOnlyDictionary<string, NetworkOptimizer.Web.Services.Monitoring.HopLocationSetting>? _locationSets;
+
+    // Re-reads the locations set by hand and drops the worked-out tables, so the next render places the hops again.
+    private async Task LoadLocationSetsAsync()
+    {
+        try { _locationSets = await HopLocationSets.GetAllAsync(); }
+        catch (Exception ex) { Logger.LogWarning(ex, "Could not read the hop locations set by hand"); }
+        _locations.Clear();
+    }
+
+    private Task LocationSetChangedAsync() => LoadLocationSetsAsync();
 
     // A reply that came home by as many hops as it went out says nothing, and is most of them.
     private static bool ReturnHopsWorthShowing(HopReading h) =>

@@ -89,6 +89,7 @@ public sealed record TraceMapPath(List<TraceMapNode> Nodes, List<TraceMapLeg> Le
 
     private static string SourceName(HopLocationSource source) => source switch
     {
+        HopLocationSource.Set => "set",
         HopLocationSource.Hostname => "hostname",
         HopLocationSource.Neighbor => "neighbor",
         _ => "geolite2",
@@ -98,8 +99,9 @@ public sealed record TraceMapPath(List<TraceMapNode> Nodes, List<TraceMapLeg> Le
     private static int Rank(string source) => source switch
     {
         "start" => 0,
-        "hostname" => 1,
-        "neighbor" => 2,
-        _ => 3,
+        "set" => 1,
+        "hostname" => 2,
+        "neighbor" => 3,
+        _ => 4,
     };
 }

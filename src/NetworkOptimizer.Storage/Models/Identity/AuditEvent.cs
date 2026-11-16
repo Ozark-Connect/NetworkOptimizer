@@ -253,6 +253,8 @@ public static class AuditActions
     public const string ChangeControlDeviceForgotten = "change_control.device.forgotten";
     public const string ChangeControlTemplateSaved = "change_control.template.saved";
     public const string ChangeControlTemplateDeleted = "change_control.template.deleted";
+    public const string HopLocationSet = "network_tools.hop_location.set";
+    public const string HopLocationCleared = "network_tools.hop_location.cleared";
     public const string ChangeControlConsoleBackupDownloaded = "change_control.console_backup.downloaded";
     public const string ChangeControlAttentionDismissed = "change_control.attention.dismissed";
     public const string ChangeControlAttentionRestored = "change_control.attention.restored";

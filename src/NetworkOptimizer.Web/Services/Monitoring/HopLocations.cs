@@ -19,6 +19,9 @@ public sealed record HopLocationView(
 /// <summary>What placed a hop, strongest first.</summary>
 public enum HopLocationSource
 {
+    /// <summary>The city someone set for the address (<see cref="IHopLocationOverrideService"/>).</summary>
+    Set,
+
     /// <summary>The city its router hostname names.</summary>
     Hostname,
 
@@ -46,8 +49,11 @@ public static class HopLocations
     /// </summary>
     /// <param name="hops">The responding hops, in hop order.</param>
     /// <param name="geo">GeoLite2 lookup for an address (empty when the database is missing).</param>
+    /// <param name="set">Cities set by hand, by address. They win over every other source and anchor
+    /// the hops around them, and nothing rules them out.</param>
     public static Dictionary<string, HopLocationView> Resolve(
-        IEnumerable<(string? Address, string? Hostname, double? MinRttMs)> hops, Func<string, GeoInfo> geo)
+        IEnumerable<(string? Address, string? Hostname, double? MinRttMs)> hops, Func<string, GeoInfo> geo,
+        IReadOnlyDictionary<string, HopLocationSetting>? set = null)
     {
         var result = new Dictionary<string, HopLocationView>(StringComparer.OrdinalIgnoreCase);
         var list = hops.Where(h => !string.IsNullOrEmpty(h.Address)).ToList();
@@ -64,26 +70,39 @@ public static class HopLocations
             .Where(h => geoByAddress[h.Address!] is { City.Length: > 0, Latitude: not null, Longitude: not null })
             .OrderBy(h => h.MinRttMs ?? double.MaxValue)
             .FirstOrDefault();
-        (double, double)? vantage = nearest.Address is { } at
-            ? (geoByAddress[at].Latitude!.Value, geoByAddress[at].Longitude!.Value)
-            : null;
+        // A city set by hand for that hop stands in for GeoLite2's.
+        (double, double)? vantage = nearest.Address is not { } at ? null
+            : set != null && set.TryGetValue(at, out var setAt) ? (setAt.Latitude, setAt.Longitude)
+            : (geoByAddress[at].Latitude!.Value, geoByAddress[at].Longitude!.Value);
 
+        var pinned = new HopLocationSetting?[list.Count];
         var named = new RouterHostnameLocation?[list.Count];
         for (var i = 0; i < list.Count; i++)
         {
+            if (set != null && set.TryGetValue(list[i].Address!, out var s))
+            {
+                pinned[i] = s;
+                continue;
+            }
             // The vantage hop is never checked against its own GeoLite2 location.
             var from = string.Equals(list[i].Address, nearest.Address, StringComparison.OrdinalIgnoreCase) ? null : vantage;
             named[i] = RouterHostnameLocator.Locate(list[i].Hostname, list[i].MinRttMs, from);
         }
         var bounded = BoundedByLaterHops(list);
-        var anchors = Anchors(bounded, named, geoByAddress, nearest.Address);
+        var anchors = Anchors(bounded, named, pinned, geoByAddress, nearest.Address);
 
         for (var i = 0; i < list.Count; i++)
         {
             var h = list[i];
             if (result.ContainsKey(h.Address!)) continue;
             var g = geoByAddress[h.Address!];
-            if (named[i] is { } own)
+            if (pinned[i] is { } p)
+            {
+                result[h.Address!] = CityView(p.City, p.CountryCode,
+                    string.IsNullOrEmpty(p.SetBy) ? "Set by hand" : $"Set by {p.SetBy}",
+                    p.Latitude, p.Longitude, HopLocationSource.Set);
+            }
+            else if (named[i] is { } own)
             {
                 result[h.Address!] = CityView(own.City.Name, own.City.CountryCode, $"From the router's hostname ({own.Token})",
                     own.City.Latitude, own.City.Longitude, HopLocationSource.Hostname);
@@ -159,24 +178,30 @@ public static class HopLocations
     }
 
     /// <summary>A hop other hops are placed against.</summary>
-    private sealed record Anchor(string City, string CountryCode, double Latitude, double Longitude, string Label, bool FromHostname, int AccuracyKm = 0);
+    private sealed record Anchor(string City, string CountryCode, double Latitude, double Longitude, string Label, bool FromHostname,
+        int AccuracyKm = 0, bool Set = false);
 
     /// <summary>
-    /// The anchors, by hop: every hostname-placed hop, the vantage hop, and the last hop GeoLite2
-    /// places in a city, when that last one is in reach of the vantage and no hostname-placed hop
-    /// follows it. The hops between them give way to the anchors, not the other way round. Clears
-    /// <paramref name="named"/> for a hostname city the last anchor rules out.
+    /// The anchors, by hop: every hop with a city set by hand, every hostname-placed hop, the vantage
+    /// hop, and the last hop GeoLite2 places in a city, when that last one is in reach of the vantage
+    /// and no hostname-placed hop follows it. The hops between them give way to the anchors, not the
+    /// other way round. Clears <paramref name="named"/> for a hostname city the last anchor rules out.
     /// </summary>
     private static Anchor?[] Anchors(
         List<(string? Address, string? Hostname, double? MinRttMs)> list, RouterHostnameLocation?[] named,
-        Dictionary<string, GeoInfo> geo, string? vantageAddress)
+        HopLocationSetting?[] pinned, Dictionary<string, GeoInfo> geo, string? vantageAddress)
     {
         var anchors = new Anchor?[list.Count];
         for (var i = 0; i < list.Count; i++)
         {
+            if (pinned[i] is { } p)
+            {
+                var label = string.IsNullOrEmpty(list[i].Hostname) ? list[i].Address! : list[i].Hostname!.Split('.')[0];
+                anchors[i] = new Anchor(p.City, p.CountryCode, p.Latitude, p.Longitude, label, FromHostname: true, Set: true);
+            }
             // An exchange's name places its own hop but anchors nothing: it names the exchange fabric,
             // and the member answering on it can sit far from it.
-            if (named[i] is { IsExchange: false } n)
+            else if (named[i] is { IsExchange: false } n)
             {
                 anchors[i] = new Anchor(n.City.Name, n.City.CountryCode, n.City.Latitude, n.City.Longitude,
                     list[i].Hostname!.Split('.')[0], FromHostname: true);
@@ -206,7 +231,7 @@ public static class HopLocations
             // as the vantage rules out one too far from the start.
             for (var j = vantageIndex + 1; j < lastIndex; j++)
             {
-                if (anchors[j] is not { FromHostname: true } a || list[j].MinRttMs is not double rtt) continue;
+                if (anchors[j] is not { FromHostname: true, Set: false } a || list[j].MinRttMs is not double rtt) continue;
                 if (InReach(last, a.Latitude, a.Longitude, Math.Abs(lastRtt - rtt), a.AccuracyKm)) continue;
                 anchors[j] = null;
                 named[j] = null;
