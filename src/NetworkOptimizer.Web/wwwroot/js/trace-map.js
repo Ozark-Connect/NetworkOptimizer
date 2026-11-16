@@ -78,7 +78,7 @@ function legTip(from, to, km, silentHops) {
     const tip = el('div', 'trace-tip trace-tip-leg', `${from.city} to ${to.city} · ${distance.toLocaleString()} km`);
     if (silentHops > 0) {
         tip.appendChild(el('div', 'trace-tip-source',
-            `${silentHops} ${silentHops === 1 ? 'hop' : 'hops'} between here did not answer: the way between these places is not known, only its ends.`));
+            `${silentHops} ${silentHops === 1 ? 'hop' : 'hops'} did not answer.`));
     }
     return tip;
 }
