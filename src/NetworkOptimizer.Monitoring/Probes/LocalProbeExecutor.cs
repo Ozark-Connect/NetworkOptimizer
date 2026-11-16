@@ -224,8 +224,12 @@ public class LocalProbeExecutor : IProbeExecutor
             : null;
     }
 
-    /// <summary>Whether a usage line lists a single-letter option, either bare or inside a bundled flag group.</summary>
-    private static bool MentionsOption(string banner, char option)
+    /// <summary>
+    /// Whether a usage line lists a single-letter option, either bare or inside a bundled flag group
+    /// ("[ -46dFITnreAUDV ]"). Case matters: -I is ICMP, -i an interface. Public so the SSH vantage
+    /// reads a remote traceroute's usage the same way.
+    /// </summary>
+    public static bool MentionsOption(string banner, char option)
     {
         for (var i = 0; i < banner.Length - 1; i++)
         {

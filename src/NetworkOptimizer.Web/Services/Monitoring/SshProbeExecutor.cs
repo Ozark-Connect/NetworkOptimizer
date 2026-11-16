@@ -36,6 +36,10 @@ public class SshProbeExecutor : IProbeExecutor
 
     public ProbeVantage Vantage { get; }
 
+    // Every way a traceroute prints its options: the Linux build on UniFi gateways rejects -h with
+    // "Bad option `-h'" and lists them only for --help or a bare call; busybox answers -h.
+    private const string TraceHelpCommand = "{ traceroute --help; traceroute -h; traceroute; } 2>&1 || true";
+
     public async Task<ProbeCapability> GetCapabilityAsync(CancellationToken ct = default)
     {
         if (_capability != null) return _capability;
@@ -47,7 +51,7 @@ public class SshProbeExecutor : IProbeExecutor
             // `ping -h` and `traceroute -h` print help on both standard Linux and busybox,
             // typically with non-zero exit. The signal we want is the help text content.
             var pingHelp = await _ssh.ExecuteCommandAsync(_connection, "ping -h 2>&1 || true", TimeSpan.FromSeconds(5), ct);
-            var traceHelp = await _ssh.ExecuteCommandAsync(_connection, "traceroute -h 2>&1 || true", TimeSpan.FromSeconds(5), ct);
+            var traceHelp = await _ssh.ExecuteCommandAsync(_connection, TraceHelpCommand, TimeSpan.FromSeconds(5), ct);
 
             var traceOut0 = (traceHelp.Output + traceHelp.Error).ToLowerInvariant();
             if (traceHelp.ExitCode == 127 || traceOut0.Contains("not found"))
@@ -60,7 +64,7 @@ public class SshProbeExecutor : IProbeExecutor
                 await _ssh.ExecuteCommandAsync(_connection,
                     "apt-get update 2>/dev/null; apt-get install -y traceroute 2>/dev/null || true",
                     TimeSpan.FromSeconds(60), ct);
-                traceHelp = await _ssh.ExecuteCommandAsync(_connection, "traceroute -h 2>&1 || true", TimeSpan.FromSeconds(5), ct);
+                traceHelp = await _ssh.ExecuteCommandAsync(_connection, TraceHelpCommand, TimeSpan.FromSeconds(5), ct);
             }
 
             var pingOut = (pingHelp.Output + pingHelp.Error).ToLowerInvariant();
@@ -70,10 +74,12 @@ public class SshProbeExecutor : IProbeExecutor
             bool traceBusyBox = traceOut.Contains("busybox") || (!traceOut.Contains("--icmp") && traceOut.Contains("[-n]"));
 
             // Standard Linux traceroute exposes -I (ICMP), -T (TCP). Busybox build does too on
-            // newer firmware but may lack -T. Detect by flag mentions in the help text.
-            bool canIcmpTrace = traceOut.Contains("-i") || traceOut.Contains("icmp");
+            // newer firmware but may lack -T. Detect by flag mentions in the help text, with case:
+            // -i is an interface, and a bundled usage group ("[ -46dFITnreAUDV ]") lists both.
+            var traceBanner = traceHelp.Output + traceHelp.Error;
+            bool canIcmpTrace = LocalProbeExecutor.MentionsOption(traceBanner, 'I') || traceOut.Contains("--icmp");
             bool canUdpTrace = !string.IsNullOrWhiteSpace(traceOut);
-            bool canTcpTrace = traceOut.Contains("-t") || traceOut.Contains("tcp");
+            bool canTcpTrace = LocalProbeExecutor.MentionsOption(traceBanner, 'T') || traceOut.Contains("--tcp");
 
             _capability = new ProbeCapability
             {
@@ -328,7 +334,17 @@ public class SshProbeExecutor : IProbeExecutor
         parts.Add(ShellEscape(target.Address));
         var cmd = string.Join(" ", parts);
         var overall = totalDeadline ?? TimeSpan.FromSeconds(10);
-        var result = await _ssh.ExecuteCommandAsync(_connection, cmd, overall, ct);
+        // The box stops the trace itself, so a path whose far end never answers still returns the hops
+        // it reached; an SSH command timeout would discard all of them. The SSH limit sits beyond it.
+        var onBox = Math.Max(3, (int)overall.TotalSeconds - 1);
+        var result = await _ssh.ExecuteCommandAsync(_connection, $"timeout {onBox} {cmd}", overall + TimeSpan.FromSeconds(5), ct);
+        if (!result.Output.Contains("traceroute to", StringComparison.OrdinalIgnoreCase)
+            && (result.Output + result.Error).Contains("timeout", StringComparison.OrdinalIgnoreCase)
+            && (result.Output + result.Error).Contains("not found", StringComparison.OrdinalIgnoreCase))
+        {
+            // No timeout command on this box.
+            result = await _ssh.ExecuteCommandAsync(_connection, cmd, overall, ct);
+        }
 
         var output = string.IsNullOrWhiteSpace(result.Output) ? result.Error : result.Output;
         return TracerouteOutputParser.Parse(output ?? string.Empty, target, Vantage, target.Mode);
