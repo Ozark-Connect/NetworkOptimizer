@@ -20,7 +20,17 @@ public enum RouterLocationMatch
 /// <param name="City">The city.</param>
 /// <param name="Token">The hostname token that named it.</param>
 /// <param name="Match">How strongly the token named it.</param>
-public sealed record RouterHostnameLocation(RouterCity City, string Token, RouterLocationMatch Match);
+public sealed record RouterHostnameLocation(RouterCity City, string Token, RouterLocationMatch Match)
+{
+    /// <summary>
+    /// The name is an internet exchange's (an Equinix data center, an exchange's own domain): it names
+    /// the exchange fabric, and the member answering on it can sit far from it.
+    /// </summary>
+    public bool IsExchange { get; init; }
+
+    /// <summary>The scheme the token was read as.</summary>
+    public RouterNamingScheme Scheme { get; init; }
+}
 
 /// <summary>
 /// Places a router by the city its operator wrote into its hostname: CLLI codes ("dllstx09"), city
@@ -53,6 +63,9 @@ public static class RouterHostnameLocator
 
     private static readonly System.Text.RegularExpressions.Regex CoxRouter =
         new("^([a-z0-9]{4})(?:bbr|bpr|dsr|hdr|tcr)[jc][0-9]{2}$", System.Text.RegularExpressions.RegexOptions.Compiled);
+
+    private static readonly System.Text.RegularExpressions.Regex SiteLetterShape =
+        new("^([a-z]{3})[0-9]{2}[a-z]$", System.Text.RegularExpressions.RegexOptions.Compiled);
 
     private static readonly System.Text.RegularExpressions.Regex SiteRoleShape =
         new("^([a-z]{3})[0-9]{3}[a-z]{2}[0-9]{2}$", System.Text.RegularExpressions.RegexOptions.Compiled);
@@ -103,6 +116,8 @@ public static class RouterHostnameLocator
         var labels = hostname.Trim().TrimEnd('.').ToLowerInvariant().Split('.');
         if (labels.Length < 3) return found;
         var read = labels.Length - 2;
+        var domain = $"{labels[^2]}.{labels[^1]}";
+        var op = RouterLocationCities.OperatorFor(domain);
 
         for (var i = 0; i < read; i++)
         {
@@ -113,29 +128,42 @@ public static class RouterHostnameLocator
                 var qualifier = j + 1 < parts.Length ? TwoLetters(parts[j + 1])
                     : i + 1 < labels.Length ? TwoLetters(labels[i + 1])
                     : null;
-                AddMatches(parts[j], qualifier, found);
+                if (op?.NotPlaces is { } notPlaces && notPlaces.Contains(parts[j].Trim(Digits))) continue;
+                if (!AddOwnCode(parts[j], op, found)) AddMatches(parts[j], qualifier, found);
                 if (parts[j] is "eqix" or "equinix" && j + 1 < parts.Length) AddEquinix(parts[j + 1], found);
             }
             // The metro code can be the next label, as well as the next part ("eqix.da4.example.com").
             if (labels[i] is "eqix" or "equinix" && i + 1 < labels.Length - 2) AddEquinix(labels[i + 1], found);
         }
 
-        // Cox: site code, router role, vendor, and number ("kscybbrj01-ae2.rd.ks.cox.net").
-        if ($"{labels[^2]}.{labels[^1]}" == "cox.net"
-            && CoxRouter.Match(labels[0].Split('-')[0]) is { Success: true } cox
-            && RouterLocationCities.CoxSites.TryGetValue(cox.Groups[1].Value, out var coxCity))
-        {
-            found.AddRange(RouterLocationCities.All.Where(c => c.Name == coxCity)
-                .Select(c => new RouterHostnameLocation(c, labels[0].Split('-')[0], RouterLocationMatch.NumberedCode)));
-        }
-
         // An exchange's own domain is the one operator domain that names a city.
-        if (RouterLocationCities.ExchangeDomains.TryGetValue($"{labels[^2]}.{labels[^1]}", out var exchangeCity))
+        if (RouterLocationCities.ExchangeDomains.TryGetValue(domain, out var exchangeCity))
         {
             found.AddRange(RouterLocationCities.All.Where(c => c.Name == exchangeCity)
-                .Select(c => new RouterHostnameLocation(c, labels[^2], RouterLocationMatch.Name)));
+                .Select(c => new RouterHostnameLocation(c, labels[^2], RouterLocationMatch.Name)
+                    { IsExchange = true, Scheme = RouterNamingScheme.Exchange }));
         }
-        return found;
+
+        // A known operator's names are read with its own schemes and codes alone; an exchange's name is read for all.
+        return op == null
+            ? found
+            : found.Where(c => c.Scheme is RouterNamingScheme.Exchange or RouterNamingScheme.OwnCode || (op.Schemes & c.Scheme) != 0).ToList();
+    }
+
+    // The operator's own site code, bare, numbered ("kanc", "kan1"), or ahead of Cox's router role
+    // ("kscybbrj01"). True when the token was one.
+    private static bool AddOwnCode(string raw, RouterOperator? op, List<RouterHostnameLocation> found)
+    {
+        if (op?.OwnCodes is not { } codes) return false;
+        var core = raw.Trim(Digits);
+        if (CoxRouter.Match(raw) is { Success: true } cox) core = cox.Groups[1].Value;
+        else if (SiteRoleShape.Match(raw) is { Success: true } site) core = site.Groups[1].Value;
+        if (!codes.TryGetValue(core, out var cityName)) return false;
+        var numbered = raw.Length > core.Length && char.IsAsciiDigit(raw[^1]);
+        found.AddRange(RouterLocationCities.All.Where(c => c.Name == cityName)
+            .Select(c => new RouterHostnameLocation(c, raw,
+                numbered ? RouterLocationMatch.NumberedCode : RouterLocationMatch.Code) { Scheme = RouterNamingScheme.OwnCode }));
+        return true;
     }
 
     private static void AddMatches(string raw, string? qualifier, List<RouterHostnameLocation> found)
@@ -146,10 +174,13 @@ public static class RouterHostnameLocator
             return;
         }
 
-        // IIJ puts a site number and the router role after the code: "tky001bb01", "osk004ip57".
-        if (SiteRoleShape.Match(raw) is { Success: true } shaped && ByCode.TryGetValue(shaped.Groups[1].Value, out var iijSite))
+        // A code with its site number and a trailing letter or role: "tky001bb01" (IIJ), "chi01a" (Liberty Global).
+        var site = SiteRoleShape.Match(raw);
+        if (!site.Success) site = SiteLetterShape.Match(raw);
+        if (site.Success && ByCode.TryGetValue(site.Groups[1].Value, out var siteCities))
         {
-            found.AddRange(iijSite.Select(c => new RouterHostnameLocation(c, raw, RouterLocationMatch.NumberedCode)));
+            found.AddRange(siteCities.Select(c => new RouterHostnameLocation(c, raw, RouterLocationMatch.NumberedCode)
+                { Scheme = RouterNamingScheme.AirportCode }));
             return;
         }
 
@@ -159,12 +190,12 @@ public static class RouterHostnameLocator
 
         if (token.Length == 6 && ByClli.TryGetValue(token, out var clli))
         {
-            found.AddRange(clli.Select(c => new RouterHostnameLocation(c, raw, RouterLocationMatch.Exact)));
+            found.AddRange(clli.Select(c => new RouterHostnameLocation(c, raw, RouterLocationMatch.Exact) { Scheme = RouterNamingScheme.Clli }));
             return;
         }
         if (token.Length == 4 && qualifier != null && ByClli.TryGetValue(token + qualifier, out var split))
         {
-            found.AddRange(split.Select(c => new RouterHostnameLocation(c, raw, RouterLocationMatch.Exact)));
+            found.AddRange(split.Select(c => new RouterHostnameLocation(c, raw, RouterLocationMatch.Exact) { Scheme = RouterNamingScheme.Clli }));
             return;
         }
         if (token.Length >= MinNameLength && ByName.TryGetValue(token, out var name))
@@ -175,7 +206,7 @@ public static class RouterHostnameLocator
         if (ByCode.TryGetValue(token, out var code))
         {
             var match = numbered ? RouterLocationMatch.NumberedCode : RouterLocationMatch.Code;
-            found.AddRange(code.Select(c => new RouterHostnameLocation(c, raw, match)));
+            found.AddRange(code.Select(c => new RouterHostnameLocation(c, raw, match) { Scheme = RouterNamingScheme.AirportCode }));
         }
     }
 
@@ -186,7 +217,8 @@ public static class RouterHostnameLocator
             || !part[2..].All(char.IsAsciiDigit)) return;
         if (!RouterLocationCities.EquinixMetros.TryGetValue(part[..2], out var metro)) return;
         found.AddRange(RouterLocationCities.All.Where(c => c.Name == metro)
-            .Select(c => new RouterHostnameLocation(c, part, RouterLocationMatch.Name)));
+            .Select(c => new RouterHostnameLocation(c, part, RouterLocationMatch.Name)
+                { IsExchange = true, Scheme = RouterNamingScheme.Exchange }));
     }
 
     // A region label after a name confirms it, and one that names a different region rules it out.
@@ -194,12 +226,12 @@ public static class RouterHostnameLocator
     {
         if (qualifier == null)
         {
-            found.AddRange(cities.Select(c => new RouterHostnameLocation(c, raw, RouterLocationMatch.Name)));
+            found.AddRange(cities.Select(c => new RouterHostnameLocation(c, raw, RouterLocationMatch.Name) { Scheme = RouterNamingScheme.CityName }));
             return;
         }
         found.AddRange(cities
             .Where(c => InRegion(c, qualifier))
-            .Select(c => new RouterHostnameLocation(c, raw, RouterLocationMatch.Exact)));
+            .Select(c => new RouterHostnameLocation(c, raw, RouterLocationMatch.Exact) { Scheme = RouterNamingScheme.CityName }));
     }
 
     private static bool InRegion(RouterCity city, string qualifier) =>

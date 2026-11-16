@@ -21,6 +21,44 @@ public sealed record RouterCity(
     string[] Clli,
     string[] Names);
 
+/// <summary>How an operator writes a router's location into its name.</summary>
+[Flags]
+public enum RouterNamingScheme
+{
+    /// <summary>No scheme.</summary>
+    None = 0,
+
+    /// <summary>An airport code, usually with a site number ("lax01", "dfw7").</summary>
+    AirportCode = 1,
+
+    /// <summary>A six-letter CLLI place code ("dllstx14", "dlls02-tx").</summary>
+    Clli = 2,
+
+    /// <summary>The city's name or a facility that stands for it ("dallas2", "350ecermak").</summary>
+    CityName = 4,
+
+    /// <summary>The operator's own site codes ("kanc", "kscy").</summary>
+    OwnCode = 8,
+
+    /// <summary>An internet exchange's name (an Equinix data center, an exchange's own domain).</summary>
+    Exchange = 16,
+}
+
+/// <summary>A network operator, as its router names identify it.</summary>
+/// <param name="Name">The operator's name.</param>
+/// <param name="Asn">Its main autonomous system number.</param>
+/// <param name="Domains">The domains it names routers in.</param>
+/// <param name="Schemes">How it writes a location; exchange names are read for every operator.</param>
+/// <param name="OwnCodes">Its own site codes, by city name.</param>
+/// <param name="NotPlaces">Tokens of its that look like codes but name no place (Akamai's network tags).</param>
+public sealed record RouterOperator(
+    string Name,
+    int Asn,
+    string[] Domains,
+    RouterNamingScheme Schemes,
+    IReadOnlyDictionary<string, string>? OwnCodes = null,
+    string[]? NotPlaces = null);
+
 /// <summary>
 /// The cities <see cref="RouterHostnameLocator"/> can name: backbone and peering hubs, not every city.
 /// A curated list keeps three-letter matches precise; a full airport list would match router role
@@ -32,12 +70,12 @@ public static class RouterLocationCities
     public static readonly IReadOnlyList<RouterCity> All =
     [
         // United States
-        new("Dallas", "TX", "US", 32.78, -96.80, ["dfw", "dal", "dls", "rin"], ["dllstx"], ["dallas", "1950stemmons"]),
+        new("Dallas", "TX", "US", 32.78, -96.80, ["dfw", "dal"], ["dllstx"], ["dallas", "1950stemmons"]),
         new("Houston", "TX", "US", 29.76, -95.37, ["hou", "iah"], ["hstntx"], ["houston"]),
         new("Austin", "TX", "US", 30.27, -97.74, ["aus"], ["austtx"], ["austin"]),
         new("San Antonio", "TX", "US", 29.42, -98.49, [], ["snantx"], ["sanantonio"]),
         new("El Paso", "TX", "US", 31.76, -106.49, ["elp"], ["elpstx"], ["elpaso"]),
-        new("Atlanta", "GA", "US", 33.75, -84.39, ["atl"], ["atlnga"], ["atlanta", "56marietta"]),
+        new("Atlanta", "GA", "US", 33.75, -84.39, ["atl"], ["atlnga"], ["atlanta", "56marietta", "doraville"]),
         new("Tucker", "GA", "US", 33.85, -84.22, [], ["tukrga"], ["tucker"]),
         new("Miami", "FL", "US", 25.76, -80.19, ["mia"], ["miamfl"], ["miami"]),
         new("Tampa", "FL", "US", 27.95, -82.46, ["tpa"], ["tampfl"], ["tampa"]),
@@ -51,14 +89,14 @@ public static class RouterLocationCities
         new("Little Rock", "AR", "US", 34.75, -92.29, ["lit"], ["ltrkar"], ["littlerock"]),
         new("New Orleans", "LA", "US", 29.95, -90.07, ["msy"], ["nworla"], ["neworleans"]),
         new("Kansas City", "MO", "US", 39.10, -94.58, ["mci", "kanc", "kcm"], ["kscymo"], ["kansascity"]),
-        new("St. Louis", "MO", "US", 38.63, -90.20, ["stl", "stlo"], ["stlsmo"], ["stlouis", "saintlouis"]),
-        new("Chicago", "IL", "US", 41.88, -87.63, ["ord", "chi", "mdw"], ["chcgil"], ["chicago"]),
+        new("St. Louis", "MO", "US", 38.63, -90.20, ["stl"], ["stlsmo"], ["stlouis", "saintlouis"]),
+        new("Chicago", "IL", "US", 41.88, -87.63, ["ord", "chi", "mdw"], ["chcgil"], ["chicago", "350ecermak", "northlake"]),
         new("Minneapolis", "MN", "US", 44.98, -93.27, ["msp"], ["mplsmn"], ["minneapolis"]),
         new("Detroit", "MI", "US", 42.33, -83.05, ["dtw"], ["dtrtmi"], ["detroit"]),
         new("Cleveland", "OH", "US", 41.50, -81.69, ["cle"], ["clevoh"], ["cleveland"]),
         new("Columbus", "OH", "US", 39.96, -83.00, ["cmh"], ["clmboh"], ["columbus"]),
         new("Indianapolis", "IN", "US", 39.77, -86.16, ["ind"], ["ipltin"], ["indianapolis"]),
-        new("Denver", "CO", "US", 39.74, -104.99, ["den", "dvr"], ["dnvrco"], ["denver", "champa"]),
+        new("Denver", "CO", "US", 39.74, -104.99, ["den", "dvr"], ["dnvrco"], ["denver", "champa", "1601milehigh"]),
         new("Salt Lake City", "UT", "US", 40.76, -111.89, ["slc"], ["slkcut"], ["saltlakecity"]),
         new("Ogden", "UT", "US", 41.22, -111.97, ["ogd"], ["ogdnut"], ["ogden"]),
         new("Phoenix", "AZ", "US", 33.45, -112.07, ["phx"], ["phnxaz"], ["phoenix"]),
@@ -74,9 +112,9 @@ public static class RouterLocationCities
         new("Portland", "OR", "US", 45.52, -122.68, ["pdx"], ["ptldor"], ["portland"]),
         new("Boise", "ID", "US", 43.62, -116.21, ["boi"], ["boisid"], ["boise"]),
         new("Ashburn", "VA", "US", 39.04, -77.49, ["iad", "ash"], ["asbnva"], ["ashburn"]),
-        new("Reston", "VA", "US", 38.96, -77.36, ["rest"], ["rstnva"], ["reston"]),
+        new("Reston", "VA", "US", 38.96, -77.36, [], ["rstnva"], ["reston"]),
         new("Washington", "DC", "US", 38.90, -77.04, ["dca", "wdc", "was"], ["wshndc"], ["washington"]),
-        new("New York", "NY", "US", 40.71, -74.01, ["jfk", "lga", "nyc", "nyk"], ["nycmny"], ["newyork"]),
+        new("New York", "NY", "US", 40.71, -74.01, ["jfk", "lga", "nyc"], ["nycmny"], ["newyork"]),
         new("Newark", "NJ", "US", 40.74, -74.17, ["ewr"], ["nwrknj"], ["newark"]),
         new("Philadelphia", "PA", "US", 39.95, -75.17, ["phl"], ["phlapa"], ["philadelphia"]),
         new("Pittsburgh", "PA", "US", 40.44, -80.00, ["pit"], ["pitbpa"], ["pittsburgh"]),
@@ -106,7 +144,7 @@ public static class RouterLocationCities
         new("London", "", "GB", 51.51, -0.13, ["lhr", "lon", "ldn"], ["londen"], ["london"]),
         new("Slough", "", "GB", 51.51, -0.59, ["slou"], [], ["slough"]),
         new("Manchester", "", "GB", 53.48, -2.24, [], [], ["manchester"]),
-        new("Amsterdam", "", "NL", 52.37, 4.90, ["ams", "adm"], ["amstnl"], ["amsterdam"]),
+        new("Amsterdam", "", "NL", 52.37, 4.90, ["ams"], ["amstnl"], ["amsterdam"]),
         new("Haarlem", "", "NL", 52.38, 4.64, [], [], ["haarlem"]),
         new("Frankfurt", "", "DE", 50.11, 8.68, ["fra", "ffm"], ["frnkge"], ["frankfurt"]),
         new("Paris", "", "FR", 48.86, 2.35, ["cdg", "par", "prs"], ["parsfr"], ["paris"]),
@@ -118,14 +156,14 @@ public static class RouterLocationCities
         new("Zurich", "", "CH", 47.38, 8.54, ["zrh"], [], ["zurich"]),
         new("Vienna", "", "AT", 48.21, 16.37, ["vie"], [], ["vienna"]),
         new("Stockholm", "", "SE", 59.33, 18.07, ["arn", "sto"], [], ["stockholm"]),
-        new("Copenhagen", "", "DK", 55.68, 12.57, ["cph", "kbn"], [], ["copenhagen"]),
+        new("Copenhagen", "", "DK", 55.68, 12.57, ["cph"], [], ["copenhagen"]),
         new("Oslo", "", "NO", 59.91, 10.75, ["osl"], [], ["oslo"]),
         new("Warsaw", "", "PL", 52.23, 21.01, ["waw"], [], ["warsaw"]),
         new("Dublin", "", "IE", 53.35, -6.26, ["dub"], [], ["dublin"]),
 
         // Asia, Pacific, Africa, Middle East
-        new("Tokyo", "", "JP", 35.68, 139.69, ["nrt", "hnd", "tyo", "tky"], ["tokyjp"], ["tokyo"]),
-        new("Osaka", "", "JP", 34.69, 135.50, ["kix", "osa", "osk"], ["osakjp"], ["osaka"]),
+        new("Tokyo", "", "JP", 35.68, 139.69, ["nrt", "hnd", "tyo"], ["tokyjp"], ["tokyo"]),
+        new("Osaka", "", "JP", 34.69, 135.50, ["kix", "osa"], ["osakjp"], ["osaka"]),
         new("Seoul", "", "KR", 37.57, 126.98, ["icn", "sel"], [], ["seoul"]),
         new("Hong Kong", "", "HK", 22.32, 114.17, ["hkg"], [], ["hongkong"]),
         new("Taipei", "", "TW", 25.03, 121.57, ["tpe"], [], ["taipei"]),
@@ -138,6 +176,11 @@ public static class RouterLocationCities
         new("Mumbai", "", "IN", 19.08, 72.88, ["bom"], [], ["mumbai"]),
         new("Chennai", "", "IN", 13.08, 80.27, ["maa"], [], ["chennai"]),
         new("Dubai", "", "AE", 25.20, 55.27, ["dxb"], [], ["dubai"]),
+        new("Santa Clara", "CA", "US", 37.35, -121.96, [], [], ["santaclara"]),
+        new("Terre Haute", "IN", "US", 39.47, -87.41, ["huf"], [], ["terrehaute"]),
+        new("Lille", "", "FR", 50.63, 3.06, ["lil"], [], ["lille"]),
+        new("Bratislava", "", "SK", 48.15, 17.11, ["bts"], [], ["bratislava"]),
+        new("Curitiba", "", "BR", -25.43, -49.27, ["cwb"], [], ["curitiba"]),
         new("Johannesburg", "", "ZA", -26.20, 28.05, ["jnb"], [], ["johannesburg"]),
     ];
 
@@ -151,15 +194,56 @@ public static class RouterLocationCities
     };
 
     /// <summary>
-    /// Cox's own four-character site codes, as its router names begin ("kscybbrj01", "dalsbprj01"),
-    /// by city. Only sites whose city this list carries.
+    /// Operators whose router names were read from traces, by the domain they name routers in: the
+    /// schemes each one writes, its own site codes, and tokens of its that are not places. A known
+    /// operator's names are read with its schemes alone, so its own code means what it means there
+    /// ("san" is San Antonio to Arelion, where an airport code would read San Diego).
     /// </summary>
-    public static readonly IReadOnlyDictionary<string, string> CoxSites = new Dictionary<string, string>
-    {
-        ["ashb"] = "Ashburn", ["chgo"] = "Chicago", ["cled"] = "Cleveland", ["dals"] = "Dallas",
-        ["dlls"] = "Dallas", ["kscy"] = "Kansas City", ["lang"] = "Los Angeles", ["nyrk"] = "New York",
-        ["palt"] = "Palo Alto", ["sanj"] = "San Jose",
-    };
+    public static readonly IReadOnlyList<RouterOperator> Operators =
+    [
+        new("Arelion", 1299, ["twelve99.net", "twelve99-cust.net"], RouterNamingScheme.OwnCode, new Dictionary<string, string>
+        {
+            ["adm"] = "Amsterdam", ["ash"] = "Ashburn", ["atl"] = "Atlanta", ["chi"] = "Chicago", ["den"] = "Denver",
+            ["dls"] = "Dallas", ["ewr"] = "Newark", ["ffm"] = "Frankfurt", ["hou"] = "Houston", ["kanc"] = "Kansas City",
+            ["kbn"] = "Copenhagen", ["lax"] = "Los Angeles", ["ldn"] = "London", ["nash"] = "Nashville",
+            ["nyk"] = "New York", ["omha"] = "Omaha", ["palo"] = "Palo Alto", ["prs"] = "Paris", ["rest"] = "Reston",
+            ["san"] = "San Antonio", ["sea"] = "Seattle", ["slou"] = "Slough", ["stlo"] = "St. Louis", ["sto"] = "Stockholm",
+        }),
+        new("NTT", 2914, ["ntt.net"], RouterNamingScheme.Clli),
+        new("Lumen", 3356, ["lumen.tech", "level3.net"], RouterNamingScheme.CityName | RouterNamingScheme.AirportCode,
+            new Dictionary<string, string> { ["kac"] = "Kansas City" }),
+        new("Cogent", 174, ["cogentco.com"], RouterNamingScheme.AirportCode),
+        new("GTT", 3257, ["gtt.net"], RouterNamingScheme.AirportCode,
+            new Dictionary<string, string> { ["kan"] = "Kansas City" }),
+        new("Tata", 6453, ["as6453.net"], RouterNamingScheme.CityName),
+        new("Hurricane Electric", 6939, ["he.net"], RouterNamingScheme.AirportCode | RouterNamingScheme.CityName),
+        new("Zayo", 6461, ["zayo.com", "above.net"], RouterNamingScheme.AirportCode),
+        new("Verizon", 701, ["alter.net"], RouterNamingScheme.AirportCode),
+        new("Comcast", 7922, ["comcast.net"], RouterNamingScheme.CityName),
+        new("Cox", 22773, ["cox.net"], RouterNamingScheme.OwnCode, new Dictionary<string, string>
+        {
+            ["ashb"] = "Ashburn", ["chgo"] = "Chicago", ["cled"] = "Cleveland", ["dals"] = "Dallas",
+            ["dlls"] = "Dallas", ["kscy"] = "Kansas City", ["lang"] = "Los Angeles", ["nyrk"] = "New York",
+            ["palt"] = "Palo Alto", ["sanj"] = "San Jose",
+        }),
+        new("Uniti", 7029, ["uniti.net"], RouterNamingScheme.Clli),
+        new("Liberty Global", 6830, ["aorta.net"], RouterNamingScheme.AirportCode),
+        new("Akamai", 20940, ["akamai.com"], RouterNamingScheme.AirportCode,
+            NotPlaces: ["icn", "ien", "mag", "fab", "sdn"]),
+        new("Linode", 63949, ["linode.com"], RouterNamingScheme.AirportCode,
+            new Dictionary<string, string> { ["rin"] = "Dallas" }),
+        new("Microsoft", 8075, ["msn.net"], RouterNamingScheme.AirportCode),
+        new("Meta", 32934, ["tfbnw.net"], RouterNamingScheme.AirportCode),
+        new("IIJ", 2497, ["iij.net"], RouterNamingScheme.OwnCode,
+            new Dictionary<string, string> { ["tky"] = "Tokyo", ["osk"] = "Osaka" }),
+    ];
+
+    private static readonly Dictionary<string, RouterOperator> OperatorsByDomain = Operators
+        .SelectMany(o => o.Domains.Select(d => (Domain: d, Operator: o)))
+        .ToDictionary(x => x.Domain, x => x.Operator, StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>The operator that names routers in a domain ("twelve99.net"), or null when it is not a known one.</summary>
+    public static RouterOperator? OperatorFor(string domain) => OperatorsByDomain.GetValueOrDefault(domain);
 
     /// <summary>
     /// Equinix metro codes, as members write a data center into a hostname ("eqix-ch1", "eqix-da3"),

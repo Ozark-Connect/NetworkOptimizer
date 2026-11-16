@@ -262,23 +262,24 @@ public class HopLocationsTests
     }
 
     [Fact]
-    public void Resolve_HopsGeoLite2PutsAbroad_TakeTheEquinixAnchorAfterThem()
+    public void Resolve_AnExchangeHopPlacesItselfButAnchorsNothing()
     {
-        // A carrier's hops GeoLite2 places in its home country, before an exchange hop named for an
-        // Equinix Dallas data center: bounded by it, they sit within a few ms of Dallas.
+        // Arelion's "san" is San Antonio. The hop after it, which GeoLite2 places in France, takes San
+        // Antonio, not the Equinix Dallas exchange hop: that name is the fabric's, and the member
+        // answering on it can sit far from it.
         var found = HopLocations.Resolve(
         [
             ("198.51.100.30", null, 2.4),
             ("203.0.113.11", "kanc-bb2-link.ip.twelve99.net", 12.9),
             ("203.0.113.12", "dls-bb4-link.ip.twelve99.net", 19.9),
-            ("192.0.2.70", null, 26.0),
+            ("203.0.113.14", "san-b2-link.ip.twelve99.net", 26.0),
             ("192.0.2.71", null, 32.5),
             ("203.0.113.13", "eqix.da4.example.com", 27.0),
         ], Geo);
 
+        found["203.0.113.14"].Text.Should().Be("San Antonio, United States");
+        found["192.0.2.71"].Text.Should().Be("San Antonio, United States");
         found["203.0.113.13"].Text.Should().Be("Dallas, United States");
-        found["192.0.2.70"].Text.Should().Be("Dallas, United States");
-        found["192.0.2.71"].Text.Should().Be("Dallas, United States");
     }
 
     [Fact]

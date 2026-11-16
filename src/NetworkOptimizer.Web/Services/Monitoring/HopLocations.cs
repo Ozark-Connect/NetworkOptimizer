@@ -174,7 +174,9 @@ public static class HopLocations
         var anchors = new Anchor?[list.Count];
         for (var i = 0; i < list.Count; i++)
         {
-            if (named[i] is { } n)
+            // An exchange's name places its own hop but anchors nothing: it names the exchange fabric,
+            // and the member answering on it can sit far from it.
+            if (named[i] is { IsExchange: false } n)
             {
                 anchors[i] = new Anchor(n.City.Name, n.City.CountryCode, n.City.Latitude, n.City.Longitude,
                     list[i].Hostname!.Split('.')[0], FromHostname: true);

@@ -207,8 +207,50 @@ public class RouterHostnameLocatorTests
     public void Cities_EveryExchangeDomainNamesAListedCity()
     {
         RouterLocationCities.ExchangeDomains.Values.Concat(RouterLocationCities.EquinixMetros.Values)
-            .Concat(RouterLocationCities.CoxSites.Values)
+            .Concat(RouterLocationCities.Operators.SelectMany(o => o.OwnCodes?.Values ?? []))
             .Should().OnlyContain(name => RouterLocationCities.All.Any(c => c.Name == name));
+    }
+
+    [Theory]
+    // Arelion writes its own site codes, not airport codes.
+    [InlineData("san-b2-link.ip.twelve99.net", "San Antonio")]
+    [InlineData("nash-bb3-link.ip.twelve99.net", "Nashville")]
+    [InlineData("omha-b3-link.ip.twelve99.net", "Omaha")]
+    [InlineData("palo-bb4-link.ip.twelve99.net", "Palo Alto")]
+    // Operators' own codes among their airport codes or city names.
+    [InlineData("ae3-300.cr4-kan1.ip4.gtt.net", "Kansas City")]
+    [InlineData("6939-3356-kac.sp.lumen.tech", "Kansas City")]
+    [InlineData("lo0-0.gw1.rin1.us.linode.com", "Dallas")]
+    // Comcast's facility and suburb names, Liberty Global's site codes, Zayo's and Akamai's airport codes.
+    [InlineData("be-100-pe11.350ecermak.il.ibone.comcast.net", "Chicago")]
+    [InlineData("be-302-cr12.1601milehigh.co.ibone.comcast.net", "Denver")]
+    [InlineData("be-301-cr21.doraville.ga.ibone.comcast.net", "Atlanta")]
+    [InlineData("us-chi01a-ri3-ae-10-0.aorta.net", "Chicago")]
+    [InlineData("ae13.mpr1.huf2.us.zip.zayo.com", "Terre Haute")]
+    [InlineData("ae3.r01.cwb01.icn.netarch.akamai.com", "Curitiba")]
+    [InlineData("if-bundle-7-2.qcore1.esv00-santaclara.as6453.net", "Santa Clara")]
+    public void Locate_AKnownOperator_IsReadWithItsOwnScheme(string hostname, string city)
+    {
+        RouterHostnameLocator.Locate(hostname)!.City.Name.Should().Be(city);
+    }
+
+    [Theory]
+    // A known operator's names are read with its schemes alone: no airport code in Arelion's names,
+    // no city name in NTT's, and none of Akamai's network tags.
+    [InlineData("chg-bb1-link.ip.twelve99.net")]
+    [InlineData("ae-1.dallas.example.ntt.net")]
+    [InlineData("ae1.r01.icn.netarch.akamai.com")]
+    public void Locate_AKnownOperator_IgnoresOtherSchemes(string hostname)
+    {
+        RouterHostnameLocator.Locate(hostname).Should().BeNull();
+    }
+
+    [Fact]
+    public void Operators_DomainsAreUniqueAndOwnCodesWellFormed()
+    {
+        RouterLocationCities.Operators.SelectMany(o => o.Domains).Should().OnlyHaveUniqueItems();
+        foreach (var op in RouterLocationCities.Operators)
+            (op.OwnCodes?.Keys ?? []).Should().OnlyContain(k => System.Text.RegularExpressions.Regex.IsMatch(k, "^[a-z]{3,4}$"), op.Name);
     }
 
     [Theory]
