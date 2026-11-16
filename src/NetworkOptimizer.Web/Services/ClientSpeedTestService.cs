@@ -1081,6 +1081,13 @@ public class ClientSpeedTestService : IClientSpeedTestService
         if (string.IsNullOrEmpty(result.ClientMac) && !string.IsNullOrEmpty(path.DestinationMac))
             result.ClientMac = path.DestinationMac;
 
+        // A UniFi device running the test is never in the client list, so its name comes from the path
+        if (string.IsNullOrEmpty(result.DeviceName) && TargetDeviceName(path) is { } targetDeviceName)
+        {
+            result.DeviceName = targetDeviceName;
+            _logger.LogDebug("Backfilled device name from path analysis for {Ip}: {Name}", result.DeviceHost, targetDeviceName);
+        }
+
         // Backfill DeviceName from the wireless client hop
         var wirelessHop = path.Hops?.FirstOrDefault(h => h.Type == HopType.WirelessClient);
         if (wirelessHop == null)
@@ -1108,6 +1115,19 @@ public class ClientSpeedTestService : IClientSpeedTestService
             _logger.LogDebug("Backfilled from path analysis for {Ip}: MAC={Mac}, Name={Name}, Channel={Channel}, Radio={Radio}",
                 result.DeviceHost, result.ClientMac, result.DeviceName, result.WifiChannel, result.WifiRadio);
         }
+    }
+
+    /// <summary>
+    /// The name of the UniFi device at the start of the path (an AP, switch, or gateway that ran the
+    /// test itself), or null when the path starts at a client or names nothing.
+    /// </summary>
+    internal static string? TargetDeviceName(NetworkPath path)
+    {
+        var first = path.Hops?.FirstOrDefault(h => h.Order == 0);
+        return first is { Type: HopType.AccessPoint or HopType.Switch or HopType.Gateway }
+            && !string.IsNullOrEmpty(first.DeviceName)
+            ? first.DeviceName
+            : null;
     }
 
     /// <summary>
