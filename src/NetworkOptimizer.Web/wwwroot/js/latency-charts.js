@@ -359,6 +359,7 @@ function renderBadges(container) {
 
                 if (onlyThis) {
                     visibility = {};
+                    emitFilterCleared(container);
                 } else if (allVis) {
                     targetMeta.forEach(t => visibility[t.id] = inGroup.has(t.id));
                 } else {
@@ -378,6 +379,7 @@ function renderBadges(container) {
     renderInactiveToggle(el, inactiveCount > 0, showInactive, toggleInactive);
     renderFilterReset(el, isFiltered(visibility), () => {
         visibility = {};
+        emitFilterCleared(container);
         updateChartVisibility();
         renderBadges(container);
         if (lastFetchData) renderStatsTable(container, false);
@@ -421,6 +423,7 @@ function badgeGroups() {
 function updateChartVisibility() {
     if (!rttChart || !lossChart) return;
     const shown = (lastFetchData?.targets || []).filter(t => visibility[t.targetId] !== false);
+    shownIds = shown.map(t => t.targetId);
 
     const seriesOf = key => shown.map(t => ({
         name: wanDisplayName(t),
@@ -441,6 +444,84 @@ function updateChartVisibility() {
     // chart would otherwise be handed it - which is how WAN Throughput's upload went dashed.
     rttChart.updateOptions(opts, false, false, false);
     lossChart.updateOptions(opts, false, false, false);
+    applyFocus();
+}
+
+// ─── The Path Map above the charts (path-map.js) ───
+// The map follows this module's category, window, and WAN scope through a 'latency-view' event on
+// the card, and hovering a chip or a stats row tells it which targets to mark ('latency-target-hover').
+
+// The targets drawn, in series order, and the ones the map's hover marks.
+let shownIds = [];
+let focusIds = null;
+let lastViewKey = null;
+
+function emitView(container) {
+    const from = getEffectiveFrom();
+    const to = getEffectiveTo();
+    const detail = {
+        category: currentCategory,
+        live: !isCustomRange && windowOffset === 0,
+        from: from ? from.toISOString() : null,
+        to: to ? to.toISOString() : null,
+        rangeHours: currentRangeHours,
+        wanScope,
+    };
+    const key = JSON.stringify(detail);
+    if (key === lastViewKey) return;
+    lastViewKey = key;
+    container.dispatchEvent(new CustomEvent('latency-view', { detail }));
+}
+
+/** The view the map draws for, as of now (the map asks once on mount; changes arrive as events). */
+export function currentMapView() {
+    lastViewKey = null;
+    const container = document.getElementById(containerId);
+    if (container) emitView(container);
+}
+
+// The reader put every target back on the charts: the Path Map lets go of its pick with them.
+function emitFilterCleared(container) {
+    container?.dispatchEvent(new CustomEvent('latency-filter-cleared'));
+}
+
+function emitTargetHover(ids) {
+    const container = document.getElementById(containerId);
+    if (container) container.dispatchEvent(new CustomEvent('latency-target-hover', { detail: { targetIds: ids } }));
+}
+
+// Fades every other series on both charts, and marks the targets' rows in the stats table.
+function applyFocus() {
+    const container = document.getElementById(containerId);
+    if (!container) return;
+    const focused = focusIds ? new Set(focusIds) : null;
+    container.querySelectorAll('.latency-rtt-chart .apexcharts-series, .latency-loss-chart .apexcharts-series').forEach(el => {
+        const index = parseInt(el.getAttribute('data:realIndex'), 10);
+        const id = Number.isFinite(index) ? shownIds[index] : null;
+        el.classList.toggle('path-map-faded', !!focused && id != null && !focused.has(id));
+    });
+    container.querySelectorAll('.latency-stats-table [data-stat-id]').forEach(td => {
+        td.closest('tr')?.classList.toggle('path-map-linked', !!focused && focused.has(td.dataset.statId));
+    });
+}
+
+/** Marks a target's series and stats row while the map's pointer is on it; null clears. */
+export function focusTargets(targetIds) {
+    focusIds = targetIds && targetIds.length ? targetIds : null;
+    applyFocus();
+}
+
+/**
+ * Solos a target, switching to its category first when it is in another one (a dimmed target on
+ * the map). The category's targets load before the solo can find it.
+ */
+export function soloInCategory(category, targetId) {
+    if (category && category !== currentCategory) {
+        pendingSolo = targetId;
+        setCategory(category);
+        return;
+    }
+    soloTarget(targetId);
 }
 
 // Mean loss (%) over the visible window at or above which a LAN fabric target is treated as
@@ -580,6 +661,8 @@ async function loadAndUpdate() {
     if (container) {
         renderBadges(container);
         renderStatsTable(container);
+        applyFocus();
+        emitView(container);
     }
 
     notifyLanFlakyHints(data);
@@ -916,6 +999,26 @@ export async function mount(elId, initialWanScope, initialCategory) {
         });
     });
 
+    // A chip or a stats row under the pointer marks its target's route on the Path Map.
+    if (!container._pathMapHover) {
+        container._pathMapHover = true;
+        let hovered = null;
+        const idsAt = (target) => {
+            const chip = target.closest?.('.latency-filter-badges button[data-target]');
+            if (chip) return badgeGroups().find(g => g.key === chip.dataset.target)?.ids ?? null;
+            const row = target.closest?.('.latency-stats-table tr')?.querySelector('[data-stat-id]');
+            return row ? [row.dataset.statId] : null;
+        };
+        container.addEventListener('mouseover', e => {
+            const ids = idsAt(e.target);
+            const key = ids ? ids.join(',') : null;
+            if (key === hovered) return;
+            hovered = key;
+            emitTargetHover(ids);
+        });
+        container.addEventListener('mouseleave', () => { if (hovered) { hovered = null; emitTargetHover(null); } });
+    }
+
     // Preset range buttons: a preset is saved as the reader's own, so it ends a link (a shift or a drag does not).
     container.querySelectorAll('[data-range]').forEach(btn => {
         btn.addEventListener('click', () => {
@@ -1161,18 +1264,6 @@ export function setCategory(cat) {
     startPoll();
 }
 
-/**
- * Solos a target, switching to its category first when it is in another one (a dimmed target on
- * the map). The category's targets load before the solo can find it.
- */
-export function soloInCategory(category, targetId) {
-    if (category && category !== currentCategory) {
-        pendingSolo = targetId;
-        setCategory(category);
-        return;
-    }
-    soloTarget(targetId);
-}
 
 /**
  * Solos a link's target once the load a link just started (setCategory, frame*) brings its category's
@@ -1217,6 +1308,9 @@ export function unmount() {
     savedState = null;
     showInactive = false;
     inactiveCount = 0;
+    shownIds = [];
+    focusIds = null;
+    lastViewKey = null;
     pendingSolo = null;
     investigateMarker = null;
     isInViewport = true;

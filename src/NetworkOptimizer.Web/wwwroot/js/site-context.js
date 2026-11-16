@@ -180,7 +180,8 @@
 function noHighlight(id, block, variant, radius) {
     var el = document.getElementById(id);
     if (!el) return;
-    el.scrollIntoView({ behavior: 'smooth', block: block || 'start' });
+    // false: ring it where it is, the caller has scrolled already.
+    if (block !== false) el.scrollIntoView({ behavior: 'smooth', block: block || 'start' });
     // The caller says what shape it is pointing at; the default suits a card.
     if (radius) el.style.setProperty('--nav-highlight-radius', radius);
     el.classList.add(variant);
@@ -206,11 +207,52 @@ function noHighlight(id, block, variant, radius) {
 // e.g. "var(--border-radius)" for a form or control inside a card.
 window.noHighlightTarget = function (id, block, radius) { noHighlight(id, block, 'nav-highlight', radius); };
 
+// A link landing on a chart in a card whose header is sticky on a desktop (.chart-card-sticky-header): there the
+// header stays in view, so the chart is centered. Narrower, the header does not stick, so the card's top lands at the
+// top (its controls and the way back in reach) and the chart is ringed where it is. quiet: no ring, for a jump the
+// reader made from a card about this very chart (Live View's Analyze), where it says nothing.
+window.noLandOnChart = function (cardId, chartId, quiet) {
+    var narrow = window.matchMedia('(max-width: 1024px)').matches;
+    var target = document.getElementById(narrow ? cardId : chartId);
+    if (quiet) {
+        if (target) target.scrollIntoView({ behavior: 'smooth', block: narrow ? 'start' : 'center' });
+    } else if (narrow) {
+        if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        noHighlight(chartId, false, 'nav-highlight');
+    } else {
+        noHighlight(chartId, 'center', 'nav-highlight');
+    }
+};
+
 // Where the reader was on a tab they jump away from and back to (Live View, Analyze, Watch in Live View). A page's tabs
 // share one scroll box, so without this the jump back lands at the depth reached on the other tab. Saved per tab
 // for the session as the card at the middle of the view and its distance from the top, not a raw offset: the cards
 // above load and grow after the return, and an offset drifted further down on every round trip. Restored by keeping
 // that card there until the layout holds still; with nothing saved, the top. A touch, wheel, or key stops it.
+// The loss event stepper sits centered between a chart header's scope pills and its controls only while all three
+// share a line: once the header wraps (many WANs, a narrow window), it takes its own line instead, and the controls
+// keep their place on the right. CSS cannot tell a wrapped row from a full one, so this measures, on every resize.
+window.noLossNavFit = function (header) {
+    if (typeof header === 'string') header = document.querySelector(header);
+    if (!header) return;
+    function fit() {
+        var slot = header.querySelector('.loss-nav-slot');
+        if (!slot) return;
+        slot.classList.remove('loss-nav-own-line');
+        var before = header.querySelector('.wan-selector') || header.querySelector('.card-title');
+        var after = header.querySelector('.chart-header-controls');
+        var mid = function (el) { var r = el.getBoundingClientRect(); return r.top + r.height / 2; };
+        var m = mid(slot);
+        var shared = (!before || Math.abs(mid(before) - m) < 10) && (!after || Math.abs(mid(after) - m) < 10);
+        if (!shared) slot.classList.add('loss-nav-own-line');
+    }
+    if (!header._noLossNavFit) {
+        header._noLossNavFit = new ResizeObserver(fit);
+        header._noLossNavFit.observe(header);
+    }
+    fit();
+};
+
 window.noTabScroll = {
     save: function (key) {
         var c = window.scrollRestoration && window.scrollRestoration.container();
