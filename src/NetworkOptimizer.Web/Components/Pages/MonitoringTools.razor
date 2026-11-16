@@ -145,7 +145,7 @@
         <div class="form-group">
             <label class="form-label">To (target)</label>
             <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
-                <select class="form-control" style="max-width: 320px;"
+                <select class="form-control" style="max-width: 320px;" value="@_targetPreset"
                         @onchange="OnTargetPresetChange">
                     <option value="">Custom address</option>
                     <optgroup label="External">
@@ -171,7 +171,7 @@
                         </optgroup>
                     }
                 </select>
-                <input type="text" class="form-control" @bind="_targetAddress" @ref="_targetInput"
+                <input type="text" class="form-control" @bind="_targetAddress" @bind:after="ClearTargetPreset" @ref="_targetInput"
                        placeholder="hostname or IP" style="flex: 1; min-width: 180px;" />
             </div>
         </div>
@@ -1008,6 +1008,7 @@ else if (_diagResult != null && !string.IsNullOrEmpty(_diagResult.InterfaceError
     {
         if (string.IsNullOrWhiteSpace(TargetParam) || TargetParam.Trim().Length > 253) return;
         _targetAddress = TargetParam.Trim();
+        _targetPreset = string.Empty;
         _probeMode = ProbeMode.Icmp;
         _focusTarget = true;
     }
@@ -1560,9 +1561,15 @@ else if (_diagResult != null && !string.IsNullOrEmpty(_diagResult.InterfaceError
         return _probeVantages.FirstOrDefault(v => v.Key == _fromKey)?.SourceBind;
     }
 
+    // The target list's pick. An address from anywhere else (typed, or a link's ?target=) is a custom address.
+    private string _targetPreset = string.Empty;
+
+    private void ClearTargetPreset() => _targetPreset = string.Empty;
+
     private void OnTargetPresetChange(ChangeEventArgs e)
     {
         var v = e.Value?.ToString() ?? string.Empty;
+        _targetPreset = v;
         if (string.IsNullOrEmpty(v)) return;
         if (v.StartsWith("ext:"))
         {
