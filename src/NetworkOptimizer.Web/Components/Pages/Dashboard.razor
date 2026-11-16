@@ -739,8 +739,22 @@
                                         <span class="speed-test-device">Unknown</span>
                                     }
                                     <span class="speed-test-speeds">
-                                        <span class="speed-down">↓@test.DownloadMbps.ToString("F0")</span>
-                                        <span class="speed-up">↑@test.UploadMbps.ToString("F0")</span>
+                                        @if (test.DownloadMbps > 0)
+                                        {
+                                            <span class="speed-down">↓@test.DownloadMbps.ToString("F0")</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="text-muted">-</span>
+                                        }
+                                        @if (test.UploadMbps > 0)
+                                        {
+                                            <span class="speed-up">↑@test.UploadMbps.ToString("F0")</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="text-muted">-</span>
+                                        }
                                     </span>
                                     <span class="speed-test-time">@test.TestTime.ToLocalTime(DisplayTime).ToString(DisplayTime.Format.DayTime, DisplayFormat.Culture)</span>
                                 </div>
