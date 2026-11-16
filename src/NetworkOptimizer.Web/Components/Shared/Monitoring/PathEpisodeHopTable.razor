@@ -286,7 +286,7 @@
             found = NetworkOptimizer.Web.Services.Monitoring.HopLocations.Resolve(hops, Geo.Enrich, _locationSets, _learned);
             _locations[table] = found;
             // Rendering cannot wait on it, and it never throws.
-            _ = LearnedLocations.LearnAsync(SiteContext.Slug, hops, found, Geo.Enrich);
+            _ = LearnedLocations.LearnAsync(SiteContext.Slug, hops, found, Geo.Enrich, _detail?.Episode.ClosedAt ?? _detail?.Episode.OpenedAt);
         }
         return found;
     }

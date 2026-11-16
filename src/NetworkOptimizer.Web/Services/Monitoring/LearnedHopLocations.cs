@@ -59,18 +59,24 @@ public sealed class LearnedHopLocations
 
     /// <summary>
     /// Keeps the transit and peering routers a trace from <paramref name="siteSlug"/> placed by hostname or a nearby
-    /// hop: a stronger source replaces that site's weaker one, the same source a different or older one. Never throws.
+    /// hop: a stronger source replaces that site's weaker one, a newer trace of the same source a different city.
+    /// Never throws.
     /// </summary>
     /// <param name="hops">The trace's responding hops, in hop order.</param>
+    /// <param name="tracedAt">When the trace ran, UTC; now when null. A trace older than <see cref="MaxAge"/> teaches
+    /// nothing: a stored trace can hold a hostname that has since changed.</param>
     public async Task LearnAsync(string siteSlug, IReadOnlyList<(string? Address, string? Hostname, double? MinRttMs)> hops,
-        IReadOnlyDictionary<string, HopLocationView> found, Func<string, GeoInfo> geo, CancellationToken ct = default)
+        IReadOnlyDictionary<string, HopLocationView> found, Func<string, GeoInfo> geo, DateTime? tracedAt = null,
+        CancellationToken ct = default)
     {
         try
         {
             var now = DateTime.UtcNow;
+            var seenAt = tracedAt is DateTime t && t < now ? t : now;
+            if (now - seenAt > MaxAge) return;
             var mine = (await RowsAsync(ct)).Where(r => string.Equals(r.Site, siteSlug, StringComparison.OrdinalIgnoreCase))
                 .ToDictionary(r => r.Hop.Address, r => r.Hop, StringComparer.OrdinalIgnoreCase);
-            var changes = HopLocations.Learnable(hops, found, geo, now)
+            var changes = HopLocations.Learnable(hops, found, geo, seenAt)
                 .Where(h => Replaces(h, mine.GetValueOrDefault(h.Address), now)).ToList();
             if (changes.Count == 0) return;
 
@@ -96,7 +102,7 @@ public sealed class LearnedHopLocations
                     row.Longitude = c.Longitude;
                     row.Source = (int)c.Source;
                     row.Detail = c.Detail.Length > 300 ? c.Detail[..300] : c.Detail;
-                    row.SeenAt = now;
+                    row.SeenAt = c.SeenAt;
                 }
                 await db.SaveChangesAsync(ct);
                 var expired = now - MaxAge;
@@ -114,13 +120,16 @@ public sealed class LearnedHopLocations
         }
     }
 
-    /// <summary>Whether <paramref name="next"/> should be kept over the same site's <paramref name="current"/>.</summary>
+    /// <summary>
+    /// Whether <paramref name="next"/> should be kept over the same site's <paramref name="current"/>: the stronger
+    /// source, else the newer trace (a different city, or the same one seen again after a while).
+    /// </summary>
     internal static bool Replaces(LearnedHop next, LearnedHop? current, DateTime now)
     {
         if (current == null || now - current.SeenAt > MaxAge) return true;
         if (next.Source < current.Source) return true;
-        if (next.Source > current.Source) return false;
-        return !string.Equals(next.City, current.City, StringComparison.OrdinalIgnoreCase) || now - current.SeenAt >= RefreshEvery;
+        if (next.Source > current.Source || next.SeenAt < current.SeenAt) return false;
+        return !string.Equals(next.City, current.City, StringComparison.OrdinalIgnoreCase) || next.SeenAt - current.SeenAt >= RefreshEvery;
     }
 
     private async Task<IReadOnlyList<(string Site, LearnedHop Hop)>> RowsAsync(CancellationToken ct)

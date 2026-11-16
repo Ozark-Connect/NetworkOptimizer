@@ -808,5 +808,7 @@ public class HopLocationsTests
         LearnedHopLocations.Replaces(Hop("Tulsa", HopLocationSource.Hostname, now), Hop("Dallas", HopLocationSource.Hostname, now), now).Should().BeTrue();
         LearnedHopLocations.Replaces(Hop("Dallas", HopLocationSource.Hostname, now), Hop("Dallas", HopLocationSource.Hostname, now.AddMinutes(-5)), now).Should().BeFalse();
         LearnedHopLocations.Replaces(Hop("Tulsa", HopLocationSource.Neighbor, now), Hop("Dallas", HopLocationSource.Hostname, now.AddDays(-31)), now).Should().BeTrue();
+        // An older trace of the same source does not undo what a newer one learned.
+        LearnedHopLocations.Replaces(Hop("Tulsa", HopLocationSource.Hostname, now.AddDays(-3)), Hop("Dallas", HopLocationSource.Hostname, now.AddDays(-1)), now).Should().BeFalse();
     }
 }
