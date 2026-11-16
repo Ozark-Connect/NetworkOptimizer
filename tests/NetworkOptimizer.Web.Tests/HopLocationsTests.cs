@@ -602,6 +602,22 @@ public class HopLocationsTests
     }
 
     [Fact]
+    public void Resolve_Anycast_SlowToAnswer_KeepsTheHopsOwnMetroInReach()
+    {
+        // 6 ms past a Dallas router can be the resolver's own slow reply, not distance: Dallas stays a
+        // candidate, so it is not placed in Houston by elimination.
+        var found = HopLocations.Resolve(
+        [
+            ("198.51.100.1", null, 1.0),
+            ("203.0.113.6", "ae1.3511.edge2.Dallas1.net.lumen.tech", 15.0),
+            ("4.2.2.2", "b.resolvers.level3.net", 21.0),
+        ], GeoAnycast);
+
+        found["4.2.2.2"].City.Should().NotBe("Houston");
+        found["4.2.2.2"].Tooltip.Should().Contain("Dallas");
+    }
+
+    [Fact]
     public void Resolve_Anycast_WithNothingPlacedBeforeIt_HasNoCity()
     {
         var found = HopLocations.Resolve([("4.2.2.2", null, 13.0)], GeoAnycast);

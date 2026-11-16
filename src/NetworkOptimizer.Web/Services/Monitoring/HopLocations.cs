@@ -360,9 +360,6 @@ public static class HopLocations
 
     private static double Slack(Anchor from) => from.FromHostname ? CitySlackKm : RouterHostnameLocator.VantageSlackKm;
 
-    /// <summary>The least a real path covers per ms of round trip, for the near edge of an anycast hop's reach.</summary>
-    internal const double AnycastMinKmPerMs = 40;
-
     private const string AnycastNote =
         "Anycast: many sites answer this address, so GeoLite2's one place for it says nothing about which site did.";
 
@@ -389,14 +386,15 @@ public static class HopLocations
             return CityView(hub?.Name ?? anchor.City, anchor.CountryCode, $"{AnycastNote} It answered {from}.",
                 hub?.Latitude ?? anchor.Latitude, hub?.Longitude ?? anchor.Longitude, HopLocationSource.Neighbor);
         }
+        // Only too far rules a metro out. A gap is no floor on the distance: a resolver slow to answer
+        // its own probes, or a queue, adds ms without adding km, and the hop's own metro must stay in.
         var max = gap * RouterHostnameLocator.KmPerMsRtt + Slack(anchor) + anchor.AccuracyKm;
-        var min = Math.Max(0, gap * AnycastMinKmPerMs - Slack(anchor) - anchor.AccuracyKm);
         var fits = AnycastAddresses.Metros
             .Select(m => RouterLocationCities.All.FirstOrDefault(c => c.Name == m.Name
                 && string.Equals(c.CountryCode, m.CountryCode, StringComparison.OrdinalIgnoreCase)))
             .Where(c => c != null)
             .Select(c => (City: c!, Km: GeoDistance.Kilometers(anchor.Latitude, anchor.Longitude, c!.Latitude, c.Longitude)))
-            .Where(x => x.Km >= min && x.Km <= max)
+            .Where(x => x.Km <= max)
             .ToList();
         if (fits.Count == 0)
             return new HopLocationView(null, "Anycast", $"{AnycastNote} No interconnection metro fits {from}.");
