@@ -742,11 +742,12 @@ connections - which are additionally HTTPS end-to-end inside the tunnel.
 
 ### Behind Cloudflare's proxy
 
-Proxying the central server's hostname through Cloudflare (its DNS record's
-**Proxy status** set to **Proxied**) is a good fit for agents: they reach the server through Cloudflare's
-edge from anywhere, so the server's port forward only has to admit Cloudflare's
-ranges rather than every site's address. The tunnel is gRPC, which Cloudflare
-proxies only when you turn it on:
+Cloudflare's proxy (the hostname's DNS record set to **Proxied**) can sit in
+front of the central server's reverse proxy. It never replaces it: Cloudflare
+must connect to the origin over TLS (Full or Full (strict), below), so the
+server still needs a reverse proxy that terminates TLS (see
+[Reverse proxy](#reverse-proxy)). The tunnel is gRPC, which
+Cloudflare proxies only when you turn it on:
 
 - **Turn on gRPC** - in the Cloudflare dashboard, open the domain, go to
   **Network**, and set **gRPC** to **On**. It is available on every plan,
@@ -756,13 +757,19 @@ proxies only when you turn it on:
 - **The origin** must serve the hostname on port 443 with TLS and HTTP/2
   advertised over ALPN. NetworkOptimizer-Proxy (Traefik) already does.
 - **Use a Proxied DNS record, not a Cloudflare Tunnel** - Cloudflare Tunnel
-  public hostnames do not support gRPC.
+  public hostnames do not support gRPC, so agents cannot connect through one.
 - **Keep Cloudflare Access off the tunnel path** - Access does not support gRPC
   through Cloudflare's proxy.
 
 Source: Cloudflare's
 [gRPC connections](https://developers.cloudflare.com/network/grpc-connections/)
 documentation.
+
+A proxied hostname is open to the whole internet. Protect the server as in
+[Network Access](../../docker/DEPLOYMENT.md#network-access). An IP allow list
+goes in Cloudflare (a WAF custom rule or an IP Access Rule on the hostname),
+not in your reverse proxy: behind Cloudflare, the origin sees Cloudflare's
+addresses, not your sites'.
 
 ### After the proxy is up: the agent's server URL
 
