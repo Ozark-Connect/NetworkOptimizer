@@ -214,6 +214,7 @@ public sealed class PathEpisodeWatcher
             target.Address, role.Value, key, target.WanContextId, context?.WanInterface, vantage);
 
         bool evaluate;
+        bool turnedDegraded;
         lock (_lock)
         {
             if (!_started)
@@ -224,12 +225,19 @@ public sealed class PathEpisodeWatcher
             _watched[target.TargetId] = watched;
             if (!_trackers.TryGetValue(target.TargetId, out var tracker))
                 _trackers[target.TargetId] = tracker = new TargetDegradation(target.TargetId, _options);
+            var wasDegraded = tracker.Degraded;
             var closed = tracker.Record(timestamp, rttAvgMs, sent, received,
                 () => _alerts.GetFor(_slug).Targets.IsWanOutageOpen(context?.WanInterface) || InOpenEpisode(target.TargetId, now),
                 jitterMs);
             evaluate = closed != null && role == GateRole.Path && tracker.Degraded && _evaluating.Add(key);
+            turnedDegraded = !wasDegraded && tracker.Degraded;
         }
         if (evaluate) _ = EvaluateContextAsync(key);
+        if (turnedDegraded)
+        {
+            try { TargetDegraded?.Invoke(target.TargetId); }
+            catch (Exception ex) { _logger.LogDebug(ex, "A TargetDegraded handler failed for {Target}", target.TargetId); }
+        }
     }
 
     /// <summary>
@@ -980,7 +988,15 @@ public sealed class PathEpisodeWatcher
             : null;
     }
 
-    private async Task TraceBoundedAsync(EpisodeRun run, RunTarget target, PathEpisodeTraceKind kind, CancellationToken ct)
+    private Task TraceBoundedAsync(EpisodeRun run, RunTarget target, PathEpisodeTraceKind kind, CancellationToken ct) =>
+        InTraceSlotAsync(async () => { await TraceAsync(run, target, kind, ct); return true; }, ct);
+
+    /// <summary>
+    /// Runs one trace in this site's single trace slot, after the gap since the last one. The Path Map's
+    /// traces run here too: two traces at once, or back to back, lose Time Exceeded replies at the
+    /// gateway, and the first hop reads as lossy.
+    /// </summary>
+    public async Task<T> InTraceSlotAsync<T>(Func<Task<T>> trace, CancellationToken ct)
     {
         await _traceSlots.WaitAsync(ct);
         try
@@ -989,13 +1005,57 @@ public sealed class PathEpisodeWatcher
             // bucket from the last one's TTL-1 burst, and the first hop reads as lossy.
             var wait = _lastTraceEnded + TraceGap - DateTime.UtcNow;
             if (wait > TimeSpan.Zero) await Task.Delay(wait, ct);
-            await TraceAsync(run, target, kind, ct);
+            return await trace();
         }
         finally
         {
             _lastTraceEnded = DateTime.UtcNow;
             _traceSlots.Release();
         }
+    }
+
+    // ---- Read-only views for the Path Map ----
+
+    /// <summary>Fires with a target's TargetId when its series turns degraded. Raised outside the lock.</summary>
+    public event Action<string>? TargetDegraded;
+
+    /// <summary>
+    /// The vantage that measures a target: the one its latest result came from, else the one its WAN
+    /// context names (agent and bind), else this server on the default route.
+    /// </summary>
+    public PathVantage VantageFor(MonitoringTarget target, WanContext? context)
+    {
+        lock (_lock)
+        {
+            if (_watched.TryGetValue(target.TargetId, out var live)) return live.Vantage;
+        }
+        return ResumedVantage(null, context);
+    }
+
+    /// <summary>A target's state against its own baseline, as of now; null before its first sample.</summary>
+    public PathTargetState? StateOf(string targetId, DateTime now)
+    {
+        lock (_lock)
+        {
+            return _trackers.TryGetValue(targetId, out var t) ? PathTargetState.From(t, now) : null;
+        }
+    }
+
+    /// <summary>A target's closed evaluation windows overlapping [<paramref name="from"/>, <paramref name="to"/>).</summary>
+    public IReadOnlyList<DegradationWindow> WindowsOf(string targetId, DateTime from, DateTime to)
+    {
+        lock (_lock)
+        {
+            return _trackers.TryGetValue(targetId, out var t) ? t.WindowsIn(from, to) : Array.Empty<DegradationWindow>();
+        }
+    }
+
+    /// <summary>Whether the WAN's traffic costs money: the same rule Path Localization traces a metered WAN by.</summary>
+    /// <param name="wanInterface">The WAN's interface key; null for the primary.</param>
+    public async Task<bool> IsWanMeteredAsync(string? wanInterface, bool primary)
+    {
+        await using var db = _siteDb.CreateForSite(_slug, _isDefault);
+        return await IsMeteredAsync(db, wanInterface, primary);
     }
 
     /// <summary>The gap between one trace and the next: a 5-probe TTL-1 burst refills at one token a second.</summary>

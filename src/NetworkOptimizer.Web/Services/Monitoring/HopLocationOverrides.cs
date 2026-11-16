@@ -64,13 +64,21 @@ public sealed class HopLocationOverrideService : IHopLocationOverrideService
     }
 
     /// <inheritdoc />
-    public async Task<IReadOnlyDictionary<string, HopLocationSetting>> GetAllAsync(CancellationToken ct = default)
+    public Task<IReadOnlyDictionary<string, HopLocationSetting>> GetAllAsync(CancellationToken ct = default) =>
+        LoadAsync(_mainDb, _cache, ct);
+
+    /// <summary>
+    /// The overrides, through the cache: for the app's own background work (the Path Map's traces),
+    /// which has no caller to pass the gate.
+    /// </summary>
+    internal static async Task<IReadOnlyDictionary<string, HopLocationSetting>> LoadAsync(
+        IDbContextFactory<NetworkOptimizerDbContext> mainDb, HopLocationOverrideCache cache, CancellationToken ct = default)
     {
-        if (_cache.Current is { } cached) return cached;
-        var version = _cache.Version;
-        await using var db = await _mainDb.CreateDbContextAsync(ct);
+        if (cache.Current is { } cached) return cached;
+        var version = cache.Version;
+        await using var db = await mainDb.CreateDbContextAsync(ct);
         var rows = await db.HopLocationOverrides.AsNoTracking().ToListAsync(ct);
-        return _cache.Set(rows.Select(ToSetting), version);
+        return cache.Set(rows.Select(ToSetting), version);
     }
 
     /// <inheritdoc />

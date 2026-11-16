@@ -140,6 +140,13 @@ public sealed class TargetDegradation
 
     public DegradationWindow? LastWindow => _windows.Last?.Value;
 
+    /// <summary>The evaluation window length.</summary>
+    public TimeSpan WindowLength => _windowLength;
+
+    /// <summary>The closed windows overlapping [<paramref name="from"/>, <paramref name="to"/>), oldest first.</summary>
+    public IReadOnlyList<DegradationWindow> WindowsIn(DateTime from, DateTime to) =>
+        _windows.Where(w => w.Start + _windowLength > from && w.Start < to).ToList();
+
     public DateTime? LastSampleAt { get; private set; }
 
     /// <summary>Whether enough history exists to judge a window at all.</summary>

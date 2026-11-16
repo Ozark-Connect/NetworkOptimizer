@@ -48,6 +48,7 @@ public class UpstreamRediscoveryService : BackgroundService
     private readonly SiteVantageDnsResolver? _dnsResolver;
     private readonly UpstreamDiscoveryGate? _healthGate;
     private readonly Auditing.IAuditLogger? _audit;
+    private readonly PathMap.PathRouteRecorder? _routes;
 
     // A run where more than this share of candidates failed reachability, after a committed run
     // where fewer than DegradedBaselineShare did, measured the WAN's state, not the path.
@@ -63,8 +64,10 @@ public class UpstreamRediscoveryService : BackgroundService
         ILogger<UpstreamRediscoveryService> logger,
         SiteVantageDnsResolver? dnsResolver = null,
         UpstreamDiscoveryGate? healthGate = null,
-        Auditing.IAuditLogger? audit = null)
+        Auditing.IAuditLogger? audit = null,
+        PathMap.PathRouteRecorder? routes = null)
     {
+        _routes = routes;
         _healthGate = healthGate;
         _audit = audit;
         _dnsResolver = dnsResolver;
@@ -156,13 +159,22 @@ public class UpstreamRediscoveryService : BackgroundService
         // Keep Custom/Internet witness targets' ancestry filled and fresh every tick (hourly),
         // independent of the 7-day full re-discovery cadence below. They aren't part of the sweep,
         // so this is what keeps them usable as routes-through witnesses.
-        await tracer.BackfillWitnessAncestryAsync(ct);
+        if (_routes != null) await tracer.BackfillWitnessAncestryAsync(_routes, ct);
 
         // Secondary WANs discover on their own per-WAN cadence, before the primary's gates below:
         // a primary WAN sitting in "needs review" must not stall the other WANs' discovery, and
         // there is nothing to review for them anyway (they commit as they go). No contexts means
         // this returns immediately, which is every single-WAN install.
-        await RunWanContextDiscoveriesAsync(slug, db, ct);
+        // WANs a confirmed Path Map path shift asked to re-discover early (at most once a day each).
+        HashSet<string> shiftDue;
+        try { shiftDue = await PathMap.ShiftRediscovery.DueAsync(db, DateTime.UtcNow, ct); }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Could not read path-shift re-discovery requests for site {Slug}", slug);
+            shiftDue = new HashSet<string>();
+        }
+
+        await RunWanContextDiscoveriesAsync(slug, db, shiftDue, ct);
 
         if (settings.UpstreamDiscoveryNeedsReview) return; // already flagged - waiting for user
         if (!settings.LastUpstreamDiscoveryAt.HasValue) return; // never committed - nothing to re-discover
@@ -183,11 +195,18 @@ public class UpstreamRediscoveryService : BackgroundService
         var threshold = pendingRecheck ? PendingRecheckInterval : RediscoveryThreshold;
 
         var sinceLast = DateTime.UtcNow - settings.LastUpstreamDiscoveryAt.Value;
-        if (sinceLast < threshold) return;
+        var shiftEarly = shiftDue.Contains(PathMap.ShiftRediscovery.PrimaryKey);
+        if (sinceLast < threshold && !shiftEarly) return;
 
         if (!await HealthGateAllowsAsync(slug, null, "the primary WAN", ct)) return;
 
-        _logger.LogInformation("Running scheduled upstream re-discovery (last commit {Days:0.0} days ago)", sinceLast.TotalDays);
+        if (sinceLast < threshold)
+        {
+            _logger.LogInformation("Running upstream re-discovery early: a target's route shifted (last commit {Days:0.0} days ago)", sinceLast.TotalDays);
+            await PathMap.ShiftRediscovery.MarkRanAsync(db, PathMap.ShiftRediscovery.PrimaryKey, DateTime.UtcNow, ct);
+        }
+        else
+            _logger.LogInformation("Running scheduled upstream re-discovery (last commit {Days:0.0} days ago)", sinceLast.TotalDays);
 
         await tracer.StartDiscoveryAsync(ct);
         await tracer.WaitForCompletionAsync();
@@ -261,8 +280,10 @@ public class UpstreamRediscoveryService : BackgroundService
     /// </summary>
     /// <param name="slug">Site being ticked.</param>
     /// <param name="db">The site's database.</param>
+    /// <param name="shiftDue">WANs a confirmed path shift asked to re-discover early.</param>
     /// <param name="ct">Cancellation.</param>
-    private async Task RunWanContextDiscoveriesAsync(string slug, NetworkOptimizerDbContext db, CancellationToken ct)
+    private async Task RunWanContextDiscoveriesAsync(string slug, NetworkOptimizerDbContext db, IReadOnlySet<string> shiftDue,
+        CancellationToken ct)
     {
         List<WanContext> contexts;
         try
@@ -280,8 +301,10 @@ public class UpstreamRediscoveryService : BackgroundService
             .ToDictionaryAsync(c => c.WanInterface, c => c.LastDiscoveryAt, StringComparer.OrdinalIgnoreCase, ct);
 
         var recheckWans = await LoadUnansweredPendingWansAsync(db, ct);
-        foreach (var context in ContextsDueForDiscovery(contexts, lastByWan, DateTime.UtcNow, RediscoveryThreshold,
-                     recheckWans, PendingRecheckInterval))
+        var scheduled = ContextsDueForDiscovery(contexts, lastByWan, DateTime.UtcNow, RediscoveryThreshold, recheckWans, PendingRecheckInterval);
+        var early = contexts.Where(c => !string.IsNullOrWhiteSpace(c.WanInterface) && shiftDue.Contains(c.WanInterface!)
+            && !scheduled.Any(s => s.Id == c.Id)).ToList();
+        foreach (var context in scheduled.Concat(early))
         {
             if (ct.IsCancellationRequested) return;
             if (!CanBindForContext(context, slug))
@@ -301,6 +324,9 @@ public class UpstreamRediscoveryService : BackgroundService
                 var tracer = _tracerRegistry.GetForContext(slug, context);
                 _logger.LogInformation("Running upstream discovery for WAN context '{Context}' ({Wan}) on site {Slug}",
                     context.Name, context.WanInterface, slug);
+                // Due early or on schedule, the run satisfies a path shift's request either way.
+                if (shiftDue.Contains(context.WanInterface!))
+                    await PathMap.ShiftRediscovery.MarkRanAsync(db, context.WanInterface!, DateTime.UtcNow, ct);
                 await tracer.StartDiscoveryAsync(ct);
                 await tracer.WaitForCompletionAsync();
                 if (tracer.State.Step != TracerStep.ReviewingResults)

@@ -4920,6 +4920,12 @@ namespace NetworkOptimizer.Storage.Migrations
                     b.Property<int>("Role")
                         .HasColumnType("INTEGER");
 
+                    b.Property<string>("RouteJson")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("RouteShiftsJson")
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("WanInterface")
                         .HasMaxLength(50)
                         .HasColumnType("TEXT");
