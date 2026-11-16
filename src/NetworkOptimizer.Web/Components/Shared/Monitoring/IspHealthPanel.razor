@@ -1693,13 +1693,12 @@ else
                 .TryGetValue("wan", out var v) ? v.ToString() : null;
             if (string.IsNullOrWhiteSpace(value)) return null;
 
-            var key = value.Trim().ToLowerInvariant();
-            // "primary" names the role rather than a WAN group, for links from somewhere that
-            // shows the primary's figures without knowing which WAN holds that role - it is a
-            // role in UniFi Network and any group can hold it, so those links cannot spell a key.
-            return string.Equals(key, Services.Monitoring.LiveWanScope.PrimaryWanToken, StringComparison.Ordinal)
-                ? _wanOptions.FirstOrDefault(w => w.IsPrimary)?.Key
-                : key;
+            // The same matching as the other tabs (MonitoringViewState.ResolveWanKeys): "primary" names the role,
+            // and a key matches by WAN index, so "wan", "wan1" and "WAN" are all WAN1. An exact match missed a
+            // link spelled another way, and the stored WAN won instead.
+            var wans = _wanOptions.Select(w => new Services.Monitoring.SiteWan(w.Key, w.IsPrimary)).ToList();
+            return Services.Monitoring.MonitoringViewState.ResolveWanKeys(value, wans).FirstOrDefault()
+                ?? value.Trim().ToLowerInvariant();
         }
         catch { return null; }
     }

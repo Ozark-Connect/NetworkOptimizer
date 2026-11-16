@@ -2557,7 +2557,9 @@
             _lanScope = false;
             _allScope = false;
             _selectedWanKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { focus };
-            if (apply) await ApplyWanSelectionAsync(persist: true);
+            // For the visit only: written, it replaced a saved comparison for good whenever another WAN was
+            // read on ISP Health first. The saved set is what the next visit restores.
+            if (apply) await ApplyWanSelectionAsync(persist: false);
         }
         catch { /* no interop yet - the stored set stands */ }
     }
@@ -2639,7 +2641,9 @@
         {
             var category = MonitoringViewState.LandingCategory(
                 CategoryParam, ChartScopeKind, HasTargetsInWanScope(MonitoringTargetType.Fabric));
-            try { await JS.InvokeVoidAsync("eval", $"window.__latencyCharts?.setCategory('{System.Text.Encodings.Web.JavaScriptEncoder.Default.Encode(category)}');"); }
+            var enc = System.Text.Encodings.Web.JavaScriptEncoder.Default;
+            var solo = string.IsNullOrEmpty(TargetParam) ? "" : $"window.__latencyCharts?.soloAfterLoad('{enc.Encode(TargetParam)}');";
+            try { await JS.InvokeVoidAsync("eval", $"window.__latencyCharts?.setCategory('{enc.Encode(category)}');{solo}"); }
             catch (Exception ex) when (ex is JSException or JSDisconnectedException) { Logger.LogDebug(ex, "Could not set the link's category"); }
         }
     }
@@ -2898,6 +2902,8 @@
     private bool _latencyChartsMounted;
     // The chart module is imported and mounted: a link whose scope lands after this sets its category itself.
     private bool _latencyChartsReady;
+    // The link (category|target|at|span) the pre-select was armed from; null off Network Performance.
+    private string? _armedPreSelectKey;
     private bool _healthChartsMounted;
     private bool _sfpChartsMounted;
     private bool _cellularChartsMounted;
@@ -3151,8 +3157,14 @@
             _pendingAtMs = long.TryParse(AtParam, out var armAtMs) && armAtMs > 0 ? armAtMs : null;
         }
 
-        if (!string.IsNullOrEmpty(CategoryParam) && _activeTab == "performance")
+        // Armed once per link, not on every re-supply: the page's own rewrites (a drag-zoom drops ?at= and keeps
+        // ?category=) re-armed it, and the next visit's mount replayed the old link's category.
+        var preSelectKey = $"{CategoryParam}|{TargetParam}|{AtParam}|{SpanParam}";
+        if (_activeTab != "performance") _armedPreSelectKey = null;
+        else if (!string.IsNullOrEmpty(CategoryParam) && preSelectKey != _armedPreSelectKey
+                 && !(_latencyChartsMounted && _armedPreSelectKey != null))
         {
+            _armedPreSelectKey = preSelectKey;
             _preSelectCategory = CategoryParam;
             _soloTargetId = TargetParam;
             // An instant rode in with the category: a jump from the Live tab, which frames the
@@ -3980,8 +3992,16 @@
             ? new DateTimeOffset(parkedAt.ToUniversalTime()).ToUnixTimeMilliseconds().ToString()
             : LiveAtToken;
 
-    private void JumpToAnalysis(string category) =>
+    private async Task JumpToAnalysis(string category)
+    {
+        // Where the reader is on Live View, for Watch in Live View to bring them back to (noTabScroll).
+        if (_activeTab == "live")
+        {
+            try { await JS.InvokeVoidAsync("noTabScroll.save", "monitoring-live"); }
+            catch (Exception ex) when (ex is JSException or JSDisconnectedException) { Logger.LogDebug(ex, "Could not keep the Live View scroll"); }
+        }
         NavigationManager.NavigateTo(Analysis(category, CurrentAtToken(), LiveWan));
+    }
 
     private sealed record LatencyChartView(string AtIso, string Category);
 
@@ -4001,10 +4021,15 @@
             var atMs = new DateTimeOffset(at.ToUniversalTime()).ToUnixTimeMilliseconds();
             var wan = MonitoringViewState.LiveJumpWan(CurrentAnalysisScope, _multiWanUiVisible);
             var wanQuery = wan != null ? $"&wan={Uri.EscapeDataString(wan)}" : "";
+            _restoreLiveScrollPending = true;
             NavigationManager.NavigateTo($"/monitoring?tab=live&at={atMs}{wanQuery}");
         }
         catch (Exception ex) { Logger.LogDebug(ex, "Live view jump failed; latency charts not ready"); }
     }
+
+    // Set by Watch in Live View: once the Live tab renders, it returns to where Analyze left it (or the top), not the
+    // depth reached on Latency and Packet Loss, which shares the page's scroll box.
+    private bool _restoreLiveScrollPending;
 
     private string LiveWanJsLiteral()
     {
@@ -4576,6 +4601,13 @@
     public void OnTimelineMovedByUser() => ClearLinkedInstant();
 
     /// <summary>
+    /// Told by the analysis charts that the user picked a category: a link's ?category= and ?target= stop
+    /// describing the view and go, as on a scope pick, so a reload keeps the pick.
+    /// </summary>
+    [JSInvokable]
+    public void OnChartCategoryPickedByUser() => ClearLinkedWan(andCategory: true);
+
+    /// <summary>
     /// Drops ?wan= once the user picks their own WAN, and leaves ?at= alone: choosing which WAN is
     /// on screen says nothing about the instant they are looking at. Otherwise the same reasoning as
     /// <see cref="ClearLinkedInstant"/> - the parameter records which WAN a link wanted, and left in
@@ -4592,6 +4624,10 @@
         // its own change, so on a cold load this threw the parameter away while it was still the
         // only record of where the user asked to go.
         if (LinkNarrowsWanFilter && _appliedLinkWanKey != LinkWanKey) return;
+        // The same for a Live View or ISP Health link, which carries no category: the Live selection's own
+        // restore raised a change before the link was applied and threw its ?wan= away.
+        if (_activeTab is "live" or "isp-health" && !string.IsNullOrWhiteSpace(WanParam)
+            && _appliedLinkWanKey != LinkWanKey) return;
 
         var current = NavigationManager.Uri;
         var stripped = string.IsNullOrWhiteSpace(WanParam)
@@ -5843,6 +5879,13 @@
         }
 
         // Latency charts - Performance tab only
+        if (_restoreLiveScrollPending && _activeTab == "live")
+        {
+            _restoreLiveScrollPending = false;
+            try { await JS.InvokeVoidAsync("noTabScroll.restore", "monitoring-live"); }
+            catch (Exception ex) when (ex is JSException or JSDisconnectedException) { Logger.LogDebug(ex, "Could not return to the Live View scroll"); }
+        }
+
         if (_activeTab == "performance" && _monitoringReady && !_latencyChartsMounted)
         {
             _latencyChartsMounted = true;
@@ -5889,7 +5932,8 @@
                             ? $"m.frameTrailing('{category}');"
                             : $"m.setCategory('{category}');";
                     if (!string.IsNullOrEmpty(_soloTargetId))
-                        postMount += $"m.soloTarget('{System.Text.Encodings.Web.JavaScriptEncoder.Default.Encode(_soloTargetId)}');";
+                        // After the load the framing above started: soloTarget searched the opening category's targets.
+                        postMount += $"m.soloAfterLoad('{System.Text.Encodings.Web.JavaScriptEncoder.Default.Encode(_soloTargetId)}');";
                     _preSelectCategory = null;
                     _soloTargetId = null;
                     _preSelectAtMs = null;
@@ -5915,6 +5959,12 @@
         {
             _latencyChartsMounted = false;
             _latencyChartsReady = false;
+            // A link's category not consumed by this visit's mount must not open the next visit.
+            _preSelectCategory = null;
+            _soloTargetId = null;
+            _preSelectAtMs = null;
+            _preSelectSpanMs = null;
+            _preSelectTrailing = false;
             // Leaving ends the visit a link governed, so the next arrival gets to be honoured even
             // when it names the same WAN. The stamp is once-PER-VISIT; left set across the leave it
             // was once ever, and a second jump on the same WAN silently kept the scope it found.

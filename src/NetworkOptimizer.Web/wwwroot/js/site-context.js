@@ -206,6 +206,43 @@ function noHighlight(id, block, variant, radius) {
 // e.g. "var(--border-radius)" for a form or control inside a card.
 window.noHighlightTarget = function (id, block, radius) { noHighlight(id, block, 'nav-highlight', radius); };
 
+// Where the reader was on a tab they jump away from and back to (Live View, Analyze, Watch in Live View). A page's tabs
+// share one scroll box, so without this the jump back lands at the depth reached on the other tab. Saved per tab
+// for the session; restored once the tab is tall enough again, else the top. A touch, wheel, or key stops it.
+window.noTabScroll = {
+    save: function (key) {
+        var c = window.scrollRestoration && window.scrollRestoration.container();
+        if (!c) return;
+        try { sessionStorage.setItem('no.tabScroll.' + key, String(c.scrollTop)); } catch (e) { }
+    },
+    restore: function (key) {
+        var target = 0;
+        try {
+            target = Number(sessionStorage.getItem('no.tabScroll.' + key)) || 0;
+            sessionStorage.removeItem('no.tabScroll.' + key);
+        } catch (e) { }
+        var started = Date.now(), timer = null;
+        var events = ['touchstart', 'wheel', 'pointerdown', 'keydown'];
+        function stop() {
+            clearInterval(timer);
+            events.forEach(function (e) { window.removeEventListener(e, stop, true); });
+        }
+        function apply() {
+            var c = window.scrollRestoration && window.scrollRestoration.container();
+            var done = Date.now() - started >= 3000;
+            if (c) {
+                var max = c.scrollHeight - c.clientHeight;
+                // Short of the target, wait for the tab's content; at the deadline take the closest point.
+                if (max >= target || done) { c.scrollTop = Math.min(target, max); stop(); return; }
+            }
+            if (done) stop();
+        }
+        events.forEach(function (e) { window.addEventListener(e, stop, { capture: true, passive: true }); });
+        timer = setInterval(apply, 100);
+        apply();
+    },
+};
+
 // A table row: tinted, because an offset ring around a row collides with the rows either side.
 window.noHighlightRow = function (id, block) { noHighlight(id, block || 'center', 'nav-highlight-row'); };
 

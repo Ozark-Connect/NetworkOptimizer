@@ -74,6 +74,8 @@ let savedState = null;
 // it is what decides whether the control to ask for them is offered at all.
 let showInactive = false;
 let inactiveCount = 0;
+// A target to solo once the category a map click switched to has loaded.
+let pendingSolo = null;
 // Per-WAN scope, set by Blazor (which owns the WAN pill bar and its visibility gate).
 // null = no scoping at all: single-WAN sites never reach this code path and render
 // exactly as before. Shape: { primaryKey, selected: [wanKey...], tokens: {key: 'WAN1'} };
@@ -468,12 +470,20 @@ function notifyTimelineMoved() {
     catch { /* no ref yet, or the circuit is gone - the window still moved */ }
 }
 
+// The reader picked a category: a link's ?category= and ?target= no longer describe the view, so Blazor
+// drops them (a reload replayed the link's category over the pick).
+function notifyCategoryPicked() {
+    try { window.__netoptLatencyRef?.invokeMethodAsync('OnChartCategoryPickedByUser'); }
+    catch { /* no ref yet, or the circuit is gone - the category still changed */ }
+}
+
 function notifyLanFlakyHints(data) {
     try {
         const ref = window.__netoptLatencyRef;
         if (!ref) return;
         let ids = [];
-        if (scopeName() === 'lan' && currentCategory === 'Fabric' && data && Array.isArray(data.targets)) {
+        // Wherever the LAN category is shown: the LAN scope, All, and a site without the scope bar.
+        if (scopeName() !== 'wan' && currentCategory === 'Fabric' && data && Array.isArray(data.targets)) {
             // Mask out timestamps whose loss rode an outage rather than one target's own flakiness,
             // so a switch isn't flagged for loss the gateway (or a shared upstream) caused. A
             // timestamp is an outage when EITHER holds:
@@ -518,6 +528,8 @@ function notifyLanFlakyHints(data) {
 }
 
 async function loadAndUpdate() {
+    // The category this load fetches: a load still in flight for the one before must not settle a pending solo.
+    const loadCategory = currentCategory;
     const data = await fetchData();
     if (!data || !data.targets) return;
 
@@ -541,6 +553,15 @@ async function loadAndUpdate() {
 
     lastFetchData = { ...data, targets: scopedTargets };
     groupExtents = extentsOf(scopedTargets.flatMap(t => [t.rtt || [], t.loss || []]));
+
+    // A map click that switched category solos its target once that category's targets are here.
+    if (loadCategory === currentCategory) {
+        if (pendingSolo && targetMeta.some(t => t.id === pendingSolo)) {
+            const solo = pendingSolo;
+            targetMeta.forEach(t => { visibility[t.id] = t.id === solo; });
+        }
+        pendingSolo = null;
+    }
 
     // Ahead of the redraw below - see apply().
     axisDate.apply();
@@ -870,6 +891,11 @@ export async function mount(elId, initialWanScope, initialCategory) {
             container.querySelectorAll('[data-category]').forEach(b => b.classList.remove('active'));
             btn.classList.add('active');
             visibility = {};
+            // As setCategory: each category answers "show inactive" for itself.
+            showInactive = false;
+            inactiveCount = 0;
+            pendingSolo = null;
+            notifyCategoryPicked();
             loadAndUpdate();
             startPoll();
         });
@@ -960,7 +986,13 @@ function frameCustomWindow(ts, category, halfWindowMs) {
     customTo = new Date(ts + halfWindowMs);
     isCustomRange = true;
     windowOffset = 0;
-    if (category) currentCategory = category;
+    if (category && category !== currentCategory) {
+        currentCategory = category;
+        // A new category answers "show inactive" for itself, as setCategory.
+        visibility = {};
+        showInactive = false;
+        inactiveCount = 0;
+    }
 
     const container = document.getElementById(containerId);
     if (container) {
@@ -1102,6 +1134,28 @@ export function setCategory(cat) {
     inactiveCount = 0;
     loadAndUpdate();
     startPoll();
+}
+
+/**
+ * Solos a target, switching to its category first when it is in another one (a dimmed target on
+ * the map). The category's targets load before the solo can find it.
+ */
+export function soloInCategory(category, targetId) {
+    if (category && category !== currentCategory) {
+        pendingSolo = targetId;
+        setCategory(category);
+        return;
+    }
+    soloTarget(targetId);
+}
+
+/**
+ * Solos a link's target once the load a link just started (setCategory, frame*) brings its category's
+ * targets: soloTarget right after it searched the previous category's, and a target in another
+ * category than the chart opened on was never soloed.
+ */
+export function soloAfterLoad(targetId) {
+    pendingSolo = targetId;
 }
 
 export function soloTarget(targetId) {

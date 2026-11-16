@@ -590,7 +590,8 @@ export class LanFlowMap {
         if (needed > this._scrubSpan) {
             const preset = flowData.SCRUBBER_PRESETS.find(p => (p.ms ?? Infinity) >= needed)
                 || flowData.SCRUBBER_PRESETS[flowData.SCRUBBER_PRESETS.length - 1];
-            this._setScrubSpan(preset.key);
+            // For this visit: a link's window never becomes the remembered span.
+            this._setScrubSpan(preset.key, false);
         }
         this.seekTo(ms);
     }
@@ -3322,7 +3323,7 @@ export class LanFlowMap {
     // the instant stays under the thumb when it still falls inside the new window;
     // an instant older than the new window clamps to the left edge (the oldest
     // reachable point) and seeks there.
-    _setScrubSpan(key) {
+    _setScrubSpan(key, persist = true) {
         const preset = flowData.SCRUBBER_PRESETS.find(p => p.key === key);
         if (!preset) return;
         const now = Date.now();
@@ -3330,7 +3331,9 @@ export class LanFlowMap {
         const range = this._panels.scrubberRange;
         const value = Number(range?.value ?? 10000);
         this._scrubSpanKey = key;
-        try { localStorage.setItem(this._storagePrefix + 'ScrubSpan', key); } catch { /* localStorage unavailable */ }
+        if (persist) {
+            try { localStorage.setItem(this._storagePrefix + 'ScrubSpan', key); } catch { /* localStorage unavailable */ }
+        }
         if (this._mode === 'live' || this._isLiveValue(value)) {
             this._scrubSpan = span;
         } else {

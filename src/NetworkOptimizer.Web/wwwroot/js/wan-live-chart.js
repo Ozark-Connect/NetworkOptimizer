@@ -1298,4 +1298,6 @@ export function unmount() {
     removeMouseTracking();
     buffer = [];
     elId = null;
+    // The module outlives the tab: left parked, the next mount's play bailed on the old instant and froze.
+    histAt = 0;
 }
