@@ -131,7 +131,7 @@ public static class RouterHostnameLocator
                     : onlyNumbersAfter && i + 1 < labels.Length ? TwoLetters(labels[i + 1])
                     : null;
                 if (op?.NotPlaces is { } notPlaces && notPlaces.Contains(parts[j].Trim(Digits))) continue;
-                if (!AddOwnCode(parts[j], op, found)) AddMatches(parts[j], qualifier, found);
+                if (!AddOwnCode(parts[j], op, found)) AddMatches(parts[j], qualifier, op, found);
                 if (parts[j] is "eqix" or "equinix" && j + 1 < parts.Length) AddEquinix(parts[j + 1], found);
             }
             // The metro code can be the next label, as well as the next part ("eqix.da4.example.com").
@@ -168,7 +168,7 @@ public static class RouterHostnameLocator
         return true;
     }
 
-    private static void AddMatches(string raw, string? qualifier, List<RouterHostnameLocation> found)
+    private static void AddMatches(string raw, string? qualifier, RouterOperator? op, List<RouterHostnameLocation> found)
     {
         if (ByName.TryGetValue(raw, out var named))
         {
@@ -207,13 +207,37 @@ public static class RouterHostnameLocator
         }
         if (ByCode.TryGetValue(token, out var code))
         {
-            var match = numbered ? RouterLocationMatch.NumberedCode : RouterLocationMatch.Code;
-            // A country or state label after the code that names another place rules the city out:
-            // "rb-dca-3.za" is not Washington.
-            found.AddRange(code
-                .Where(c => qualifier == null || !GeoQualifiers.Contains(qualifier) || InRegion(c, qualifier))
-                .Select(c => new RouterHostnameLocation(c, raw, match) { Scheme = RouterNamingScheme.AirportCode }));
+            AddCodes(raw, code, numbered, qualifier, found);
+            return;
         }
+        AddGenerated(raw, token, numbered, qualifier, op, found);
+    }
+
+    private static void AddCodes(string raw, IEnumerable<RouterCity> cities, bool numbered, string? qualifier, List<RouterHostnameLocation> found)
+    {
+        var match = numbered ? RouterLocationMatch.NumberedCode : RouterLocationMatch.Code;
+        // A country or state label after the code that names another place rules the city out:
+        // "rb-dca-3.za" is not Washington.
+        found.AddRange(cities
+            .Where(c => qualifier == null || !GeoQualifiers.Contains(qualifier) || InRegion(c, qualifier))
+            .Select(c => new RouterHostnameLocation(c, raw, match) { Scheme = RouterNamingScheme.AirportCode }));
+    }
+
+    // The generated codes, read only when the curated list has no match for the token: a derived CLLI
+    // code ("lncl01-ne"), or an airport. A medium airport needs an operator known to use airport codes,
+    // and router words that are also airport codes are never read.
+    private static void AddGenerated(string raw, string token, bool numbered, string? qualifier, RouterOperator? op, List<RouterHostnameLocation> found)
+    {
+        var clliKey = token.Length == 6 ? token : token.Length == 4 && qualifier != null ? token + qualifier : null;
+        if (clliKey != null && RouterPlaceData.Clli.TryGetValue(clliKey, out var clliCity))
+        {
+            found.Add(new RouterHostnameLocation(clliCity, raw, RouterLocationMatch.Exact) { Scheme = RouterNamingScheme.Clli });
+            return;
+        }
+        if (token.Length != 3 || RouterPlaceData.NotAirports.Contains(token)
+            || !RouterPlaceData.Airports.TryGetValue(token, out var airport)) return;
+        if (!airport.Large && (op == null || (op.Schemes & RouterNamingScheme.AirportCode) == 0)) return;
+        AddCodes(raw, [airport.City], numbered, qualifier, found);
     }
 
     // The two-letter labels that name a place: every state and country the city list uses.

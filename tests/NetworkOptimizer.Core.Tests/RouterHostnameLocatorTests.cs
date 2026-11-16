@@ -105,6 +105,30 @@ public class RouterHostnameLocatorTests
         RouterHostnameLocator.Locate(hostname).Should().BeNull();
     }
 
+    [Theory]
+    // A CLLI code derived from GeoNames, not in the curated list: Uniti's city code, site number, and state.
+    [InlineData("ae5-0.agr01.lncl01-ne.us.uniti.net", "Lincoln")]
+    [InlineData("ae6-0.agr01.cmrc01-ga.us.uniti.net", "Commerce")]
+    // A large airport from OurAirports, for any operator.
+    [InlineData("ae1.cr1.ist02.example.net", "Istanbul")]
+    // A medium airport, for an operator known to name routers by airport code (Microsoft).
+    [InlineData("be6.owr01.cys13.ntwk.msn.net", "Cheyenne")]
+    public void Locate_GeneratedCodes_NameTheCity(string hostname, string city)
+    {
+        RouterHostnameLocator.Locate(hostname)!.City.Name.Should().Be(city);
+    }
+
+    [Theory]
+    // A medium airport needs an operator known to use airport codes.
+    [InlineData("be6.owr01.cys13.example.net")]
+    // Router words that are also airport codes: Cogent's core router (Concord), aggregation (Agra).
+    [InlineData("be2093.ccr21.example.net")]
+    [InlineData("ae1.agr02.example.net")]
+    public void Locate_GeneratedCodesTheGatesLeaveOut_ReturnNull(string hostname)
+    {
+        RouterHostnameLocator.Locate(hostname).Should().BeNull();
+    }
+
     [Fact]
     public void Locate_TheOperatorsOwnDomainIsNeverRead()
     {

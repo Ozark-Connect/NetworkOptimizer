@@ -60,9 +60,10 @@ public sealed record RouterOperator(
     string[]? NotPlaces = null);
 
 /// <summary>
-/// The cities <see cref="RouterHostnameLocator"/> can name: backbone and peering hubs, not every city.
-/// A curated list keeps three-letter matches precise; a full airport list would match router role
-/// tokens ("man", "sat") as cities. Codes that are also common router words are left out on purpose.
+/// The curated cities <see cref="RouterHostnameLocator"/> reads first: backbone and peering hubs, with
+/// their operator codes, facility names, and irregular CLLI codes. It is the only list hub snapping
+/// uses. Every other airport and CLLI code comes from <see cref="RouterPlaceData"/>, read only when
+/// this list has no match, with router words that are also airport codes ("man", "sat") left out.
 /// </summary>
 public static class RouterLocationCities
 {
