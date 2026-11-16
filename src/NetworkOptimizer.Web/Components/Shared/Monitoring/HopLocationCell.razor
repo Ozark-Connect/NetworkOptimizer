@@ -38,8 +38,13 @@
             <div class="lt-fpop-grab" aria-hidden="true"></div>
             <div class="lt-fpop-head"><span class="lt-fpop-title">Set location</span></div>
             <div class="hop-loc-for">For <code class="text-code">@Address</code> on every trace</div>
-            <input @ref="_input" class="form-control lt-fpop-search" placeholder="Search a city, then Enter" aria-label="City"
-                   @bind="_query" @bind:event="oninput" @bind:after="QueryChanged" />
+            <div class="hop-loc-search">
+                <input @ref="_input" class="form-control lt-fpop-search" placeholder="Search for a city..." aria-label="City"
+                       @bind="_query" @bind:event="oninput" @bind:after="QueryChanged" />
+                <button type="button" class="hop-loc-search-go" aria-label="Search" @onclick="SearchAsync">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7" /><line x1="21" y1="21" x2="16.65" y2="16.65" /></svg>
+                </button>
+            </div>
             <div class="lt-fpop-list" role="listbox">
                 @if (_searching)
                 {

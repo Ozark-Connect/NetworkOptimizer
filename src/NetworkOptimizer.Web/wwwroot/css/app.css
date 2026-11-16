@@ -29771,6 +29771,39 @@ tr:hover .hop-loc-edit,
     color: var(--text-secondary);
 }
 
+/* The city search runs on Enter or the magnifier, as the maps' address search does. */
+.hop-loc-search {
+    position: relative;
+    margin-bottom: 6px;
+}
+
+.lt-fpop .hop-loc-search .lt-fpop-search {
+    margin-bottom: 0;
+    padding-right: 2rem;
+}
+
+.hop-loc-search-go {
+    position: absolute;
+    top: 50%;
+    right: 0.25rem;
+    transform: translateY(-50%);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.5rem;
+    height: 1.5rem;
+    padding: 0;
+    border: none;
+    background: none;
+    color: var(--text-muted);
+    cursor: pointer;
+}
+
+.hop-loc-search-go:hover,
+.hop-loc-search-go:focus-visible {
+    color: var(--text-primary);
+}
+
 .hop-loc-region {
     margin-left: 0.4rem;
     color: var(--text-muted);
