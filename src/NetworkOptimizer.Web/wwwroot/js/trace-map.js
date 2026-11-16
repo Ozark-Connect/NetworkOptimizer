@@ -1,54 +1,14 @@
 // The Network Tools trace map: a traced path drawn as places and straight legs on a Leaflet map.
 // Hostnames come from PTR records, which anyone can set, so every label is written as text, never HTML.
 
-const LEAFLET_JS = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
-const LEAFLET_CSS = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+import {
+    loadLeaflet, el, createMap, fitPoints, unwrapLongitudes, markerTip, clearTips, destroyMap, SOURCE_COLOR, SOURCE_TEXT, legText,
+} from './map-core.js?v=4';
 
-const SOURCE_COLOR = { start: '#ededef', set: '#a78bfa', hostname: '#2ba89a', neighbor: '#3b82f6', learned: '#a0a0a8', geolite2: '#f59e0b' };
-const SOURCE_TEXT = {
-    start: 'Where the trace started',
-    set: 'Set by hand',
-    hostname: "From the router's hostname",
-    neighbor: 'From a hop a few ms away',
-    learned: 'Learned from an earlier trace',
-    geolite2: 'Where GeoLite2 places the address',
-};
 const LEG_COLOR = '#2ba89a';
 const LEG_UNSURE = '#9ca3af';
 
-let leafletLoading = null;
 const hosts = new Set();
-
-function loadLeaflet() {
-    if (window.L) return Promise.resolve();
-    if (leafletLoading) return leafletLoading;
-    leafletLoading = new Promise((resolve, reject) => {
-        if (!document.querySelector(`link[href="${LEAFLET_CSS}"]`)) {
-            const link = document.createElement('link');
-            link.rel = 'stylesheet';
-            link.href = LEAFLET_CSS;
-            document.head.appendChild(link);
-        }
-        const existing = document.querySelector(`script[src="${LEAFLET_JS}"]`);
-        const script = existing || document.createElement('script');
-        script.addEventListener('load', () => resolve());
-        script.addEventListener('error', () => { leafletLoading = null; reject(new Error('Leaflet failed to load')); });
-        if (!existing) {
-            script.src = LEAFLET_JS;
-            document.head.appendChild(script);
-        } else if (window.L) {
-            resolve();
-        }
-    });
-    return leafletLoading;
-}
-
-function el(tag, className, text) {
-    const node = document.createElement(tag);
-    if (className) node.className = className;
-    if (text != null) node.textContent = text;
-    return node;
-}
 
 function nodeIcon(L, node, labeled) {
     const wrap = el('div', `trace-node trace-node-${node.source}`);
@@ -74,8 +34,7 @@ function nodeTip(node) {
 }
 
 function legTip(from, to, km, silentHops) {
-    const distance = km >= 100 ? Math.round(km / 10) * 10 : Math.round(km);
-    const tip = el('div', 'trace-tip trace-tip-leg', `${from.city} to ${to.city} · ${distance.toLocaleString()} km`);
+    const tip = el('div', 'trace-tip trace-tip-leg', legText(from.city, to.city, km));
     if (silentHops > 0) {
         tip.appendChild(el('div', 'trace-tip-source',
             `${silentHops} ${silentHops === 1 ? 'hop' : 'hops'} did not answer.`));
@@ -101,57 +60,13 @@ export async function render(host, path, dotNet) {
     hosts.add(host);
 
     let state = host._traceMap;
-    if (!state) {
-        const map = L.map(host, {
-            scrollWheelZoom: false,
-            // Quarter steps, so a route fits closely instead of dropping a whole level; the tiles
-            // overlap by a pixel (app.css) so a fractional zoom shows no seams.
-            zoomSnap: 0.25,
-            minZoom: 2,
-            worldCopyJump: false,
-            attributionControl: true,
-            // The 2D LAN map's controls replace Leaflet's: fullscreen top right, zoom and fit below it.
-            zoomControl: false,
-        });
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-            maxZoom: 12,
-            attribution: '© OpenStreetMap',
-            className: 'map-tiles-dark',
-        }).addTo(map);
-        map.attributionControl.setPrefix('<a href="https://leafletjs.com" target="_blank" rel="noopener">Leaflet</a>');
-        // The wheel zooms after the pointer rests on the map or a click (wheel-gate.js).
-        // Always armed in fullscreen, as the 2D LAN map.
-        const wheelGate = window.WheelGate
-            ? window.WheelGate.leaflet(map, { exempt: () => host.classList.contains('lan-flow-map-fullscreen') })
-            : null;
-        const fsButton = addControls(host, map);
-        const layers = L.layerGroup().addTo(map);
-        const resize = new ResizeObserver(() => map.invalidateSize());
-        resize.observe(host);
-        const onKey = e => { if (e.key === 'Escape' && host.classList.contains('lan-flow-map-fullscreen')) toggleFullscreen(host); };
-        document.addEventListener('keydown', onKey);
-        state = host._traceMap = { map, layers, resize, tips: [], fsButton, onKey };
-        map.on('move zoom', () => followTips(host._traceMap));
-    }
+    if (!state) state = host._traceMap = createMap(host, { onFit: () => fit(host._traceMap) });
     const { map, layers } = state;
-    (state.tips || []).forEach(t => t.destroy());
-    state.tips = [];
+    clearTips(state);
     layers.clearLayers();
 
-    // Each node's longitude runs on from the node before it on the path, so the whole path draws
-    // on one copy of the world.
-    const position = path.nodes.map(n => ({ lat: n.latitude, lng: n.longitude }));
-    const placed = new Set([0]);
-    for (const leg of path.legs) {
-        if (placed.has(leg.to)) continue;
-        let lng = position[leg.to].lng;
-        while (lng - position[leg.from].lng > 180) lng -= 360;
-        while (lng - position[leg.from].lng < -180) lng += 360;
-        position[leg.to].lng = lng;
-        placed.add(leg.to);
-    }
+    const position = unwrapLongitudes(path.nodes, path.legs);
 
-    const bounds = [];
     for (const leg of path.legs) {
         const from = path.nodes[leg.from], to = path.nodes[leg.to];
         // A straight line on the map: a great-circle arc bends over the pole and reads as a route
@@ -174,6 +89,7 @@ export async function render(host, path, dotNet) {
     }
 
     const last = path.nodes.length - 1;
+    const bounds = [];
     state.markers = [];
     state.dotNet = dotNet || null;
     path.nodes.forEach((node, i) => {
@@ -199,97 +115,17 @@ export async function render(host, path, dotNet) {
     fit(state);
 
     // After the fit: a marker added before the map has a view gets its element only then.
-    // A point's hops show in the app's own tooltip, drawn on the page and flipped to fit: a
-    // Leaflet tooltip lives inside the map and is cut off at its edge.
-    for (const entry of state.markers) {
-        const icon = entry.marker.getElement();
-        if (window.tippy && icon) {
-            entry.tip = window.tippy(icon, {
-                content: nodeTip(entry.node),
-                placement: 'top',
-                theme: 'custom',
-                appendTo: document.body,
-                trigger: 'mouseenter',
-                // A tap shows it too: touch has no hover, and with touch off Tippy refuses even the
-                // marker click's show().
-                touch: true,
-                maxWidth: 'min(100vw - 10px, 420px)',
-            });
-            state.tips.push(entry.tip);
-        } else {
-            entry.marker.bindTooltip(nodeTip(entry.node), { direction: 'top', offset: [0, -14], className: 'trace-map-tooltip', opacity: 1 });
-        }
-    }
-}
-
-// Brings the whole route back into view.
-const FS_ENTER_ICON = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 8 3 3 8 3"></polyline><polyline points="16 3 21 3 21 8"></polyline><polyline points="21 16 21 21 16 21"></polyline><polyline points="8 21 3 21 3 16"></polyline></svg>';
-const FS_EXIT_ICON = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 10 10 10 10 4"></polyline><polyline points="14 4 14 10 20 10"></polyline><polyline points="20 14 14 14 14 20"></polyline><polyline points="10 20 10 14 4 14"></polyline></svg>';
-const FIT_ICON = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 14 4 20 10 20"></polyline><polyline points="20 10 20 4 14 4"></polyline><line x1="14" y1="10" x2="20" y2="4"></line><line x1="4" y1="20" x2="10" y2="14"></line></svg>';
-
-// The 2D LAN map's controls and classes (lan-flow-map-2d.js): fullscreen top right, then zoom in,
-// zoom out, and fit in a column below it. Fit carries no tooltip. Returns the fullscreen button.
-function addControls(host, map) {
-    const fsButton = el('button', 'lan-flow-map-fullscreen-btn');
-    fsButton.type = 'button';
-    fsButton.setAttribute('data-tooltip', 'Fullscreen');
-    fsButton.setAttribute('data-tooltip-hover-only', '');
-    fsButton.setAttribute('aria-label', 'Fullscreen');
-    fsButton.innerHTML = FS_ENTER_ICON;
-    fsButton.addEventListener('click', () => toggleFullscreen(host));
-
-    const bar = el('div', 'lfm2d-toolbar');
-    const button = (label, html, onClick) => {
-        const b = el('button', 'lfm2d-btn');
-        b.type = 'button';
-        b.setAttribute('aria-label', label);
-        b.innerHTML = html;
-        b.addEventListener('click', () => { onClick(); b.blur(); });
-        bar.appendChild(b);
-    };
-    button('Zoom in', '+', () => map.zoomIn());
-    button('Zoom out', '&minus;', () => map.zoomOut());
-    button('Fit the route', FIT_ICON, () => fit(host._traceMap));
-
-    for (const node of [fsButton, bar]) {
-        L.DomEvent.disableClickPropagation(node);
-        L.DomEvent.disableScrollPropagation(node);
-        host.appendChild(node);
-    }
-    return fsButton;
-}
-
-function toggleFullscreen(host) {
-    const state = host._traceMap;
-    if (!state) return;
-    const on = host.classList.toggle('lan-flow-map-fullscreen');
-    state.fsButton.innerHTML = on ? FS_EXIT_ICON : FS_ENTER_ICON;
-    state.fsButton.setAttribute('data-tooltip', on ? 'Exit fullscreen (Esc)' : 'Fullscreen');
-    state.fsButton.setAttribute('aria-label', on ? 'Exit fullscreen' : 'Fullscreen');
-    requestAnimationFrame(() => requestAnimationFrame(() => {
-        state.map.invalidateSize();
-        fit(state);
-    }));
+    for (const entry of state.markers) entry.tip = markerTip(state, entry.marker, nodeTip(entry.node));
 }
 
 function fit(state) {
     if (!state || !state.bounds || state.bounds.length === 0) return;
-    // Places are city centers, so the closest fit is a metro across the map (11), never streets.
-    if (state.bounds.length === 1) {
-        state.map.setView(state.bounds[0], 10);
-        return;
-    }
-    // The route fills the map, a marker's width from the edge. Only the start and the end carry a
-    // label, to the right of the point: when one of them is the easternmost point, its label gets room.
-    const pad = 28;
+    // Only the start and the end carry a label, to the right of the point: when one of them is the
+    // easternmost point, its label gets room.
     const east = Math.max(...state.bounds.map(b => b[1]));
     const last = state.bounds.length - 1;
     const labelEast = state.bounds[0][1] === east || state.bounds[last][1] === east;
-    state.map.fitBounds(state.bounds, {
-        paddingTopLeft: [pad, pad],
-        paddingBottomRight: [labelEast ? pad + 96 : pad, pad],
-        maxZoom: 11,
-    });
+    fitPoints(state, state.bounds, labelEast ? 96 : 0);
 }
 
 function setActive(state, index) {
@@ -316,20 +152,11 @@ export function highlight(host, hopNumber) {
     if (tip) tip.show(); else marker.openTooltip();
 }
 
-// An open point tooltip sits on the page, not the map: it follows its point as the map moves.
-function followTips(state) {
-    (state.tips || []).forEach(t => { if (t.state.isVisible && t.popperInstance) t.popperInstance.update(); });
-}
-
 /** Removes the map from the element. */
 export function dispose(host) {
     const state = host && host._traceMap;
     hosts.delete(host);
     if (!state) return;
-    (state.tips || []).forEach(t => t.destroy());
-    state.resize.disconnect();
-    document.removeEventListener('keydown', state.onKey);
-    host.classList.remove('lan-flow-map-fullscreen');
-    state.map.remove();
+    destroyMap(state);
     host._traceMap = null;
 }

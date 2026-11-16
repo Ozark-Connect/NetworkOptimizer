@@ -476,7 +476,8 @@ class LanFlowMap2D {
         this._fsBtn=fsBtn;
 
         // Esc key exits fullscreen
-        this._onKeyDown=(e)=>{if(e.key==='Escape'&&this._isFullscreen)this._toggleFullscreen();};
+        // A key press: the fullscreen button the click left focused would show its focus ring, so Esc drops the focus.
+        this._onKeyDown=(e)=>{if(e.key==='Escape'&&this._isFullscreen){this._toggleFullscreen();if(document.activeElement?.tagName==='BUTTON')document.activeElement.blur();}};
         document.addEventListener('keydown',this._onKeyDown);
 
         // Filter + overlay state

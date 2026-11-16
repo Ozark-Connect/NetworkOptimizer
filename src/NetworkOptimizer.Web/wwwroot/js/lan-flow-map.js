@@ -471,6 +471,8 @@ export class LanFlowMap {
                 }
                 if (this.stage?.classList.contains('lan-flow-map-fullscreen')) {
                     this._toggleFullscreen();
+                    // A key press: the fullscreen button the click left focused would show its focus ring.
+                    if (document.activeElement?.tagName === 'BUTTON') document.activeElement.blur();
                     return;
                 }
             }

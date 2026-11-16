@@ -483,14 +483,8 @@
                 <div class="investigate-actions-row">
                 @if (_lossNavActive)
                 {
-                    <button class="btn btn-sm btn-secondary loss-nav-arrow" @onclick="LossNavBack" disabled="@_investigatingLoss"
-                            data-tooltip="Previous loss event">&#x25C0;</button>
-                    <button class="btn btn-primary investigate-btn" @onclick="LossNavDeactivate"
-                            data-tooltip="Exit @(_lossNavLoadedOnly ? "loaded" : "packet") loss investigation">
-                        @(_lossNavLoadedOnly ? "Loaded Loss Events" : "Packet Loss Events")
-                    </button>
-                    <button class="btn btn-sm btn-secondary loss-nav-arrow" @onclick="LossNavForward" disabled="@_investigatingLoss"
-                            data-tooltip="Next loss event">&#x25B6;</button>
+                    <span class="investigate-stepping">Stepping through @(_lossNavLoadedOnly ? "loaded" : "packet") loss events on the chart</span>
+                    <button class="btn btn-secondary investigate-btn" @onclick="LossNavDeactivate">Exit</button>
                 }
                 else
                 {
@@ -506,7 +500,7 @@
                     </button>
                 }
                 </div>
-                @if (!string.IsNullOrEmpty(_lossInvestigateResult))
+                @if (!_lossNavActive && !string.IsNullOrEmpty(_lossInvestigateResult))
                 {
                     <span class="page-description investigate-result">@_lossInvestigateResult</span>
                 }
@@ -517,7 +511,7 @@
         </div>
 
         <!-- Latency time-series charts -->
-        <div class="card" id="latency-charts-container" style="margin-top: 1.5rem;">
+        <div class="card chart-card-sticky-header" id="latency-charts-container" style="margin-top: 1.5rem;">
             <div class="card-header monitoring-chart-header @(ScopeBarVisible ? "chart-header-stacked" : "")">
                 @if (LinkContextVisible)
                 {
@@ -559,6 +553,10 @@
                             <WanFilterResetButton OnReset="ResetWanFilterAsync" />
                         }
                     </div>
+                }
+                @if (_lossNavActive)
+                {
+                    <div class="loss-nav-slot">@LossNavPill</div>
                 }
                 <div class="chart-header-controls">
                     @* No active class here: the chart module owns which category is current, and
@@ -609,6 +607,10 @@
                                       Tour="jump-to-live"
                                       OnClick="JumpToLiveAsync" />
             </div>
+            @if (_lossNavActive)
+            {
+                <div class="loss-nav-float">@LossNavPill</div>
+            }
             <div class="card-body">
                 @if (FocusedWanProbesViaDefaultRoute)
                 {
@@ -628,10 +630,25 @@
                         </div>
                     </div>
                 }
-                <div class="latency-filter-badges wan-filter-badges"></div>
+                @* The Path Map (path-map.js): every routed target's route, following the card's own
+                   WAN pills, category, and window. Its body and header chips are built by the module. *@
+                <div class="chart-card path-map-card @(_pathMapNoRoute ? "path-map-noroute" : "")" @ref="_pathMapCard" data-tour="path-map">
+                    <div class="chart-header card-header-collapsible path-map-header" role="button" tabindex="0"
+                         aria-expanded="@(PathMapOpen ? "true" : "false")" @onclick="TogglePathMapAsync">
+                        <h3 class="chart-title">Path Map</h3>
+                        <div class="path-map-chips"></div>
+                        <span class="issue-type-chevron">@(PathMapOpen ? "▲" : "▼")</span>
+                    </div>
+                    <div class="expand-wrapper @(PathMapOpen ? "expanded" : "")" style="@(!_pathMapStateLoaded ? "display:none" : "")">
+                        <div class="expand-content">
+                            <div class="path-map-body"></div>
+                        </div>
+                    </div>
+                </div>
+                <div class="latency-filter-badges wan-filter-badges" id="latency-chart-chips"></div>
                 @* Anchored on the chart rather than the card: the sync is something the plot does
                    under the pointer, and it only reads as that with a line to hover. *@
-                <div class="chart-card" data-tour="chart-hover-sync">
+                <div class="chart-card" data-tour="chart-hover-sync" id="latency-rtt-card">
                     <div class="chart-header"><h3 class="chart-title">Round-trip time</h3></div>
                     <div class="latency-rtt-chart"></div>
                 </div>
@@ -2960,6 +2977,79 @@
     // target metadata lives. _latencyTargetsCard is the @ref used to expand+scroll the matching
     // Latency Targets row.
     private DotNetObjectReference<Monitoring>? _latencyDotNetRef;
+
+    // ─── Path Map (path-map.js), the first chart in the Latency & Packet Loss card ───
+    private ElementReference _pathMapCard;
+    private IJSObjectReference? _pathMapModule;
+    private bool _pathMapMounted;
+    // Collapsed or open, per user per site (IUserPreferences); read once the tab shows.
+    private bool _pathMapCollapsed;
+    private bool _pathMapStateLoaded;
+    private bool _pathMapStateLoading;
+    // The scope or category has no routes (LAN, Fabric): the map stays closed whatever is saved.
+    private bool _pathMapNoRoute;
+    // A link into the charts (category, target, at, investigate) scrolls them into view once they
+    // have rendered, whatever state the map is in. Armed once per navigation.
+    private bool _scrollToChartsPending;
+    private string? _armedChartsLink;
+
+    /// <summary>
+    /// Whether <paramref name="now"/> is the page's own rewrite of the armed link: every parameter kept or dropped,
+    /// none added or changed (a scope pick dropping ?category= and ?target=).
+    /// </summary>
+    private static bool IsOwnRewrite(string? armed, string now)
+    {
+        if (armed == null) return false;
+        var was = armed.Split('|');
+        var next = now.Split('|');
+        return was.Length == next.Length && next.Select((v, i) => v.Length == 0 || v == was[i]).All(x => x);
+    }
+    private string? _pathMapLinkTarget;
+
+    private bool PathMapOpen => _pathMapStateLoaded && !_pathMapCollapsed && !_pathMapNoRoute;
+
+    private string PathMapCollapseKey => $"pathMap.collapsed:{SiteCtx.Slug}";
+
+    // The map's view (All, Transit, Local), per user on every site; null until one is picked.
+    private const string PathMapPresetKey = "pathMap.preset";
+    private string? _pathMapPreset;
+
+    /// <summary>Called by path-map.js when the reader picks a view: saved for them.</summary>
+    [JSInvokable]
+    public async Task OnPathMapPresetChanged(string preset)
+    {
+        if (preset is not ("all" or "transit" or "local") || preset == _pathMapPreset) return;
+        _pathMapPreset = preset;
+        try { await UserPreferences.SetAsync(PathMapPresetKey, preset); }
+        catch (Exception ex) { Logger.LogDebug(ex, "Could not save the Path Map's view"); }
+    }
+
+    private async Task TogglePathMapAsync()
+    {
+        if (_pathMapNoRoute || !_pathMapStateLoaded) return;
+        _pathMapCollapsed = !_pathMapCollapsed;
+        await PushPathMapOpenAsync();
+        try { await UserPreferences.SetAsync(PathMapCollapseKey, _pathMapCollapsed ? "true" : "false"); }
+        catch (Exception ex) { Logger.LogDebug(ex, "Could not save the Path Map's collapsed state"); }
+    }
+
+    private async Task PushPathMapOpenAsync()
+    {
+        if (_pathMapModule == null) return;
+        try { await _pathMapModule.InvokeVoidAsync("setExpanded", PathMapOpen); }
+        catch (JSDisconnectedException) { }
+        catch (Exception ex) { Logger.LogDebug(ex, "Path Map setExpanded failed"); }
+    }
+
+    /// <summary>Called by path-map.js when the scope or category turns to one with no routes, or back.</summary>
+    [JSInvokable]
+    public async Task OnNoRouteChanged(bool noRoute)
+    {
+        if (_pathMapNoRoute == noRoute) return;
+        _pathMapNoRoute = noRoute;
+        await PushPathMapOpenAsync();
+        await InvokeAsync(StateHasChanged);
+    }
     private LatencyTargetsCard? _latencyTargetsCard;
     private bool _lanFlakyCategoryActive;
     private List<string> _lanFlakyTargetIds = new();
@@ -3199,6 +3289,23 @@
             _armedAtUri = NavigationManager.Uri;
             _pendingAtMs = long.TryParse(AtParam, out var armAtMs) && armAtMs > 0 ? armAtMs : null;
         }
+
+        // A link into the charts lands on them, whatever state the Path Map above them is in. Armed by the link's own
+        // parameters, not the URL: a scope or filter pick rewrites the URL (dropping ?category= and keeping ?at=) and
+        // must not land and ring the chart again. Leaving the tab disarms, so following the same link again does.
+        var chartsLink = _activeTab != "performance" ? null
+            : !string.IsNullOrEmpty(CategoryParam) || !string.IsNullOrEmpty(TargetParam)
+              || !string.IsNullOrEmpty(AtParam) || InvestigateParam is "packet-loss" or "loaded-loss"
+                ? $"{CategoryParam}|{TargetParam}|{AtParam}|{InvestigateParam}"
+                : null;
+        if (_activeTab != "performance") _armedChartsLink = null;
+        else if (chartsLink != null && chartsLink != _armedChartsLink
+                 && !IsOwnRewrite(_armedChartsLink, chartsLink))
+        {
+            _scrollToChartsPending = true;
+            _pathMapLinkTarget = TargetParam;
+        }
+        if (chartsLink != null) _armedChartsLink = chartsLink;
 
         // Armed once per link, not on every re-supply: the page's own rewrites (a drag-zoom drops ?at= and keeps
         // ?category=) re-armed it, and the next visit's mount replayed the old link's category.
@@ -3902,6 +4009,25 @@
         </div>
     </div>;
 
+    /// <summary>
+    /// The loss event stepper, in the chart header where it stays in view while the chart is read: the sticky
+    /// header on desktop, its own sticky strip on a phone (the header does not stick there).
+    /// </summary>
+    private RenderFragment LossNavPill => @<span class="loss-nav-pill" role="group" aria-label="Loss events">
+        <button class="lnp-arrow" type="button" @onclick="LossNavBack" disabled="@_investigatingLoss"
+                aria-label="Previous loss event" data-tooltip="Previous loss event">&#x25C0;</button>
+        <span class="lnp-text">
+            <span class="lnp-label">@(_lossNavLoadedOnly ? "Loaded Loss Events" : "Packet Loss Events")</span>@if (_investigatingLoss)
+            {<span class="spinner-sm"></span>}
+            else if (!string.IsNullOrEmpty(_lossInvestigateResult))
+            {<span class="lnp-detail">· @_lossInvestigateResult</span>}
+        </span>
+        <button class="lnp-arrow" type="button" @onclick="LossNavForward" disabled="@_investigatingLoss"
+                aria-label="Next loss event" data-tooltip="Next loss event">&#x25B6;</button>
+        <button class="lnp-exit" type="button" @onclick="LossNavDeactivate"
+                aria-label="Exit the loss investigation" data-tooltip="Exit the loss investigation">&times;</button>
+    </span>;
+
     private RenderFragment UpstreamReviewBanner => @<div class="alert alert-info" style="margin-bottom: 1rem;">
         <div class="banner-content">
             <span class="banner-icon banner-icon-info">i</span>
@@ -4045,9 +4171,11 @@
 
     private async Task JumpToAnalysis(string category)
     {
-        // Where the reader is on Live View, for Watch in Live View to bring them back to (noTabScroll).
+        // Where the reader is on Live View, for Watch in Live View to bring them back to (noTabScroll). The landing is
+        // quiet: they clicked a card about this chart, so a ring on it says nothing.
         if (_activeTab == "live")
         {
+            _quietChartsLanding = true;
             try { await JS.InvokeVoidAsync("noTabScroll.save", "monitoring-live"); }
             catch (Exception ex) when (ex is JSException or JSDisconnectedException) { Logger.LogDebug(ex, "Could not keep the Live View scroll"); }
         }
@@ -4082,6 +4210,10 @@
     // Set by Watch in Live View: once the Live tab renders, it returns to where Analyze left it (or the top), not the
     // depth reached on Latency and Packet Loss, which shares the page's scroll box.
     private bool _restoreLiveScrollPending;
+
+    // Set by Analyze on Live View: the charts landing scrolls without the ring (noLandOnChart's quiet). A link from
+    // ISP Health (?via=isp-health) lands quiet as well.
+    private bool _quietChartsLanding;
 
     // The category Latency & Packet Loss was on when Watch in Live View left it, for the Live chip's way back.
     private string? _analysisReturnCategory;
@@ -6115,11 +6247,10 @@
         }
 
         // Latency charts - Performance tab only
-        if (_restoreLiveScrollPending && _activeTab == "live")
+        if (_lossNavActive && _activeTab == "performance")
         {
-            _restoreLiveScrollPending = false;
-            try { await JS.InvokeVoidAsync("noTabScroll.restore", "monitoring-live"); }
-            catch (Exception ex) when (ex is JSException or JSDisconnectedException) { Logger.LogDebug(ex, "Could not return to the Live View scroll"); }
+            try { await JS.InvokeVoidAsync("noLossNavFit", "#latency-charts-container .monitoring-chart-header"); }
+            catch (Exception ex) when (ex is JSException or JSDisconnectedException) { Logger.LogDebug(ex, "Could not place the loss event stepper"); }
         }
 
         if (_activeTab == "performance" && _monitoringReady && !_latencyChartsMounted && !_awaitingOwnFilters)
@@ -6191,7 +6322,76 @@
             }
             catch (Exception ex) { _latencyChartsMounted = false; _latencyChartsReady = false; Logger.LogDebug(ex, "Latency charts mount failed; will retry on next render"); }
         }
-        else if (_activeTab != "performance" && _latencyChartsMounted)
+        // The Path Map's saved state, then the map itself, once the charts it follows are mounting.
+        if (_activeTab == "performance" && _monitoringReady && !_pathMapStateLoaded && !_pathMapStateLoading)
+        {
+            _pathMapStateLoading = true;
+            string? saved = null;
+            try { saved = await UserPreferences.GetAsync(PathMapCollapseKey); }
+            catch (Exception ex) { Logger.LogDebug(ex, "Could not read the Path Map's collapsed state"); }
+            var collapsed = saved == "true";
+            // With nothing saved, a phone opens it collapsed: the chips do the work until a tap.
+            if (saved is not ("true" or "false"))
+            {
+                try { collapsed = await JS.InvokeAsync<bool>("eval", "window.matchMedia('(max-width: 768px)').matches"); }
+                catch { collapsed = false; }
+            }
+            _pathMapCollapsed = collapsed;
+            try { _pathMapPreset = await UserPreferences.GetAsync(PathMapPresetKey); }
+            catch (Exception ex) { Logger.LogDebug(ex, "Could not read the Path Map's view"); }
+            _pathMapStateLoaded = true;
+            _pathMapStateLoading = false;
+            StateHasChanged();
+        }
+
+        if (_activeTab == "performance" && _latencyChartsMounted && _pathMapStateLoaded && !_pathMapMounted)
+        {
+            _pathMapMounted = true;
+            try
+            {
+                _pathMapModule ??= await JS.InvokeAsync<IJSObjectReference>("import", VersionedJs("/js/path-map.js"));
+                _latencyDotNetRef ??= DotNetObjectReference.Create(this);
+                await _pathMapModule.InvokeVoidAsync("mount", _pathMapCard, _latencyDotNetRef, PathMapOpen, _pathMapPreset);
+                if (!string.IsNullOrEmpty(_pathMapLinkTarget))
+                {
+                    await _pathMapModule.InvokeVoidAsync("markTarget", _pathMapLinkTarget);
+                    _pathMapLinkTarget = null;
+                }
+            }
+            catch (JSDisconnectedException) { }
+            catch (Exception ex) { _pathMapMounted = false; Logger.LogDebug(ex, "Path Map mount failed; will retry on next render"); }
+        }
+
+        if (_restoreLiveScrollPending && _activeTab == "live")
+        {
+            _restoreLiveScrollPending = false;
+            try { await JS.InvokeVoidAsync("noTabScroll.restore", "monitoring-live"); }
+            catch (Exception ex) when (ex is JSException or JSDisconnectedException) { Logger.LogDebug(ex, "Could not return to the Live View scroll"); }
+        }
+
+        if (_scrollToChartsPending && _activeTab == "performance" && _latencyChartsMounted)
+        {
+            _scrollToChartsPending = false;
+            // After the charts have drawn: scroll restoration settles after the navigation, and an
+            // earlier scroll is overridden by it.
+            await Task.Delay(500);
+            // Quiet from ISP Health too: its links name the event they open on, so a ring adds nothing.
+            var quiet = _quietChartsLanding || string.Equals(ViaParam, "isp-health", StringComparison.OrdinalIgnoreCase);
+            _quietChartsLanding = false;
+            try { await JS.InvokeVoidAsync("noLandOnChart", "latency-charts-container", "latency-rtt-card", quiet); }
+            catch (JSDisconnectedException) { }
+            catch (Exception ex) { Logger.LogDebug(ex, "Scroll to the latency charts failed"); }
+        }
+
+        if (_activeTab != "performance" && _pathMapMounted)
+        {
+            _pathMapMounted = false;
+            try { if (_pathMapModule != null) await _pathMapModule.InvokeVoidAsync("unmount"); }
+            catch (JSDisconnectedException) { }
+            catch (Exception ex) { Logger.LogDebug(ex, "Path Map unmount failed"); }
+        }
+
+        if (_activeTab != "performance" && _latencyChartsMounted)
         {
             await UnmountLatencyChartsAsync();
         }
@@ -6451,6 +6651,15 @@
         _sfpChartDebounce?.Dispose();
         _mapDotNetRef?.Dispose();
         _latencyDotNetRef?.Dispose();
+        if (_pathMapModule != null)
+        {
+            var module = _pathMapModule;
+            _ = Task.Run(async () =>
+            {
+                try { await module.InvokeVoidAsync("unmount"); await module.DisposeAsync(); }
+                catch { /* circuit gone: the page and its map went with it */ }
+            });
+        }
         if (_latencyChartsMounted)
         {
             try { _ = JS.InvokeVoidAsync("eval", "window.__latencyCharts?.unmount();").AsTask(); }
