@@ -270,7 +270,7 @@ window.fpEditor = {
 
             var m = L.map(containerId, { center: [centerLat, centerLng], zoom: zoom, zoomControl: true, maxZoom: 24, zoomSnap: 0.5, zoomDelta: zoom >= 21 ? 0.5 : 1 });
             var osmLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-                maxZoom: 24, maxNativeZoom: 19, attribution: 'OpenStreetMap'
+                maxZoom: 24, maxNativeZoom: 19, attribution: 'OpenStreetMap', className: 'map-tiles-dark'
             }).addTo(m);
             self._map = m;
             // The wheel zooms after the pointer rests on the map or a click (wheel-gate.js); always in fullscreen.

@@ -29718,7 +29718,9 @@ body:has(.top-bar-hidden) .btn-fit {
 }
 
 /* OpenStreetMap's light tiles, turned to the app's dark theme. */
-.trace-map .leaflet-tile-pane {
+/* The street map's light tiles turned to the app's dark theme, on every map. A class on the
+   street layer, not the tile pane, so satellite imagery keeps its own colors. */
+.leaflet-layer.map-tiles-dark {
     filter: invert(1) hue-rotate(180deg) brightness(0.8) contrast(0.92) saturate(0.45);
 }
 

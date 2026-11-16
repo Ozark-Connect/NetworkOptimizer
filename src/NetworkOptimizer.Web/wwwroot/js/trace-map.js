@@ -107,6 +107,7 @@ export async function render(host, path, dotNet) {
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
             maxZoom: 12,
             attribution: '© OpenStreetMap',
+            className: 'map-tiles-dark',
         }).addTo(map);
         map.attributionControl.setPrefix('<a href="https://leafletjs.com" target="_blank" rel="noopener">Leaflet</a>');
         // The wheel zooms after the pointer rests on the map or a click (wheel-gate.js).

@@ -724,7 +724,8 @@
                     const osmLayer = L.tileLayer(tileUrl, {{
                         maxZoom: 22,
                         maxNativeZoom: maxNative,
-                        attribution: tileAttribution
+                        attribution: tileAttribution,
+                        className: 'map-tiles-dark'
                     }}).addTo(map);
 
                     // Custom panes for z-ordering (bottom to top):
