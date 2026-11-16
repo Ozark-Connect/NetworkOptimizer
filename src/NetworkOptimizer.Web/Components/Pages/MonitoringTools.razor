@@ -366,7 +366,7 @@
                                     var hopName = TraceHostname(hop);
                                     var hopCard = NetworkOptimizer.Web.Services.Monitoring.LiveTraffic.LiveTrafficLinks.DestinationCard(hop.Address, hopName, threatsLink: false);
                                     @if (!string.IsNullOrEmpty(hopName) && hopName != hop.Address)
-                                    { <span>@hopName (<span @attributes="hopCard">@hop.Address</span>)</span> }
+                                    { <span @attributes="hopCard">@hopName (@hop.Address)</span> }
                                     else
                                     { <span @attributes="hopCard">@hop.Address</span> }
                                 }
