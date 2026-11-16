@@ -1,6 +1,8 @@
 // Wheel gate for maps: the mouse wheel zooms a map only after the pointer has rested on it, or
 // after a click on it, and stops when the pointer leaves. A page scroll that carries the pointer
-// over a map keeps scrolling the page, because each wheel event before the rest restarts the wait.
+// over a map keeps scrolling the page: a wheel event restarts the wait only when the page moved the
+// map since the last one. When the map stands still under the wheel (the page is at its end), the
+// wait runs out and the wheel zooms.
 // A classic script, so the eval-built and global maps can use it as well as the ES modules.
 (function () {
     'use strict';
@@ -30,21 +32,33 @@
                 open = value;
                 if (opts.onChange) opts.onChange(value);
             }
+            var lastTop = null;
             function exempt() { return !!(opts.exempt && opts.exempt()); }
             function wait() {
                 clearTimeout(rest);
                 rest = setTimeout(function () { set(true); }, REST_MS);
             }
-            function onEnter() { if (exempt()) set(true); else wait(); }
-            function onWheel() { if (!open) { if (exempt()) set(true); else wait(); } }
-            function onLeave() { set(false); }
+            function onEnter() {
+                lastTop = host.getBoundingClientRect().top;
+                if (exempt()) set(true); else wait();
+            }
+            function onWheel() {
+                if (open) return;
+                if (exempt()) { set(true); return; }
+                var top = host.getBoundingClientRect().top;
+                // The page scrolled the map since the last wheel: still passing over it, so wait again.
+                // Standing still, the wait already running is left to finish.
+                if (rest === null || top !== lastTop) wait();
+                lastTop = top;
+            }
+            function onLeave() { lastTop = null; set(false); }
             function onDown() { set(true); }
 
             host.addEventListener('mouseenter', onEnter);
-            // Capture, so the gate sees the wheel before the map's own handler decides on it.
+            // Capture, so the gate sees the wheel and the press before the map's own handlers act on them.
             host.addEventListener('wheel', onWheel, { passive: true, capture: true });
             host.addEventListener('mouseleave', onLeave);
-            host.addEventListener('pointerdown', onDown);
+            host.addEventListener('pointerdown', onDown, true);
             if (opts.onChange) opts.onChange(false);
 
             return {
@@ -54,7 +68,7 @@
                     host.removeEventListener('mouseenter', onEnter);
                     host.removeEventListener('wheel', onWheel, { capture: true });
                     host.removeEventListener('mouseleave', onLeave);
-                    host.removeEventListener('pointerdown', onDown);
+                    host.removeEventListener('pointerdown', onDown, true);
                 }
             };
         },
