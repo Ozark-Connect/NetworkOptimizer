@@ -751,7 +751,7 @@ public class OutageDetectorTests
         var hops = new[]
         {
             new OutageDetector.Hop("AT&T nokia-olt", 0, LossSeries(ds, de, 80), AsnLabel: "AT&T"),
-            new OutageDetector.Hop("AT&T mtnview-border", 1, LossSeries(ds, de, 80), AsnLabel: "AT&T"),
+            new OutageDetector.Hop("AT&T border-a", 1, LossSeries(ds, de, 80), AsnLabel: "AT&T"),
             new OutageDetector.Hop("Cloudflare", 2, LossSeries(ds, de, 80), AsnLabel: "Cloudflare"),
             new OutageDetector.Hop("Fastly", 3, LossSeries(ds, de, 80), AsnLabel: "Fastly"),
         };
@@ -761,7 +761,7 @@ public class OutageDetectorTests
         events.Should().ContainSingle();
         var names = events[0].Tiers.Select(t => t.Name).ToList();
         names.Should().Contain("AT&T nokia-olt");
-        names.Should().Contain("AT&T mtnview-border");
+        names.Should().Contain("AT&T border-a");
         names.Should().NotContain("AT&T");                 // the bare duplicate label is replaced
         names.Should().Contain("Cloudflare");              // unique labels stay clean
         names.Should().Contain("Fastly");
