@@ -149,9 +149,8 @@ public sealed class GatewayBlocklist : IGatewayBlocklistWriter
                     refs.Add(new GatewayBlockPolicyRef(existing.Id, zone.Id, version));
                     continue;
                 }
-                var isSourceBlock = groupId == state.GroupV4Id || groupId == state.GroupV6Id;
                 var policy = await client.CreateFirewallPolicyAsync(UniFiGroupBlockPolicyWrite.Create(
-                    name, description, version, external.Id, groupId!, zone.Id, newConnectionsOnly: isSourceBlock), ct);
+                    name, description, version, external.Id, groupId!, zone.Id, newConnectionsOnly: true), ct);
                 created++;
                 refs.Add(new GatewayBlockPolicyRef(policy.Id, zone.Id, version));
             }
@@ -159,7 +158,7 @@ public sealed class GatewayBlocklist : IGatewayBlocklistWriter
         state.Policies = refs;
         await SaveStateAsync(site, state, ct);
 
-        // Adopted blocklist policies predate new-connections-only matching.
+        // Adopted policies may predate new-connections-only matching.
         await EnsureSourcePoliciesNewOnlyAsync(site, ct);
 
         // New custom policies land after the ones already there, so a user ALLOW from External
@@ -184,23 +183,35 @@ public sealed class GatewayBlocklist : IGatewayBlocklistWriter
     /// <remarks>
     /// A source block exists to stop unsolicited inbound traffic. Matching every state also dropped
     /// replies to connections LAN devices opened (our policies sit ahead of UniFi's Allow Return
-    /// Traffic), so a wrongly blocked CDN broke the apps using it. The public list policies keep
-    /// matching every state, paired with the optional outbound block.
+    /// Traffic), so a listed address that also serves legitimate content broke the apps using it.
+    /// The public list policies are narrowed too, as the gateway agent's rules are: only the
+    /// outbound policies stop a device reaching a listed address.
     /// </remarks>
     public async Task<int> EnsureSourcePoliciesNewOnlyAsync(string? site, CancellationToken ct)
     {
         var state = await LoadStateAsync(site, ct);
         if (state?.GroupV4Id == null || state.GroupV6Id == null) return 0;
         var client = Client(site);
-        var groups = new HashSet<string> { state.GroupV4Id, state.GroupV6Id };
-        var stale = (await client.GetFirewallPoliciesAsync(ct))
-            .Where(p => !p.Predefined && groups.Contains(p.Source.IpGroupId ?? "") && !IsNewConnectionsOnly(p))
-            .ToList();
+        var stale = SourcePoliciesToNarrow(await client.GetFirewallPoliciesAsync(ct), state);
         foreach (var policy in stale)
             await client.SetFirewallPolicyConnectionStatesAsync(policy.Id, UniFiGroupBlockPolicyWrite.NewConnectionsOnly, ct);
         if (stale.Count > 0)
             _logger.LogInformation("Gateway blocking: {Count} blocklist policies now match new connections only", stale.Count);
         return stale.Count;
+    }
+
+    /// <summary>
+    /// The Block policies on the site's blocklist and public list groups that still match more than new
+    /// connections. Never the exceptions' Allow policies: they share the public list groups as their
+    /// source, and their reply-only ones must keep their states.
+    /// </summary>
+    public static List<UniFiFirewallPolicy> SourcePoliciesToNarrow(IEnumerable<UniFiFirewallPolicy> policies, GatewayBlocklistState state)
+    {
+        var groups = new[] { state.GroupV4Id, state.GroupV6Id, state.FeedsV4Id, state.FeedsV6Id }.OfType<string>().ToHashSet();
+        return policies
+            .Where(p => !p.Predefined && !string.Equals(p.Action, "ALLOW", StringComparison.OrdinalIgnoreCase)
+                        && groups.Contains(p.Source.IpGroupId ?? "") && !IsNewConnectionsOnly(p))
+            .ToList();
     }
 
     /// <summary>Whether a policy matches exactly <see cref="UniFiGroupBlockPolicyWrite.NewConnectionsOnly"/>.</summary>
