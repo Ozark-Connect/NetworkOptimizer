@@ -305,6 +305,27 @@ public static class HopLocations
             }
         }
 
+        // A city set by hand rules out the hostname city of a hop right beside it (two hops, NeighborGapMs) that it cannot
+        // reach in the gap, wherever it sits on the trace: a handoff port named for the far end of its link answers
+        // beside the router it hands off to. Only beside it: a slow-answering router's bounded round trip says too little
+        // about one further away (a Dallas router ruled out by Salt Lake City four hops on).
+        var ruledOut = new List<int>();
+        for (var k = 0; k < list.Count; k++)
+        {
+            if (anchors[k] is not { SetByHand: true } set || list[k].MinRttMs is not double setRtt) continue;
+            for (var j = Math.Max(0, k - 2); j <= Math.Min(list.Count - 1, k + 2); j++)
+            {
+                if (j == k || anchors[j] is not { FromHostname: true, SetByHand: false } a || list[j].MinRttMs is not double rtt
+                    || Math.Abs(setRtt - rtt) > NeighborGapMs) continue;
+                if (!InReach(set, a.Latitude, a.Longitude, Math.Abs(setRtt - rtt), a.AccuracyKm)) ruledOut.Add(j);
+            }
+        }
+        foreach (var j in ruledOut.Distinct().Where(j => !Corroborated(list, anchors, j)).ToList())
+        {
+            anchors[j] = null;
+            named[j] = null;
+        }
+
         var vantageIndex = list.FindIndex(h => string.Equals(h.Address, vantageAddress, StringComparison.OrdinalIgnoreCase));
         if (vantageIndex < 0 || (anchors[vantageIndex] ?? GeoAnchor(list[vantageIndex], geo)) is not { } vantage)
             return anchors;
@@ -313,7 +334,30 @@ public static class HopLocations
         // The final PoP, the router right before the destination, naming its city outranks the
         // destination's GeoLite2 city: the routers along the way can answer from elsewhere, but the
         // last one is where the destination is reached. GeoLite2's end then anchors nothing.
-        if (FinalPopNamed(list, anchors, geo)) return anchors;
+        // It still rules out a hostname city it cannot reach in the gap, as GeoLite2's end would: without this, setting
+        // the final PoP's city skipped the check and a handoff port named for the far end of its link kept that city.
+        if (FinalPopNamed(list, anchors, geo))
+        {
+            var popIndex = list.Count - 2;
+            if (anchors[popIndex] is { } pop && list[popIndex].MinRttMs is double popRtt)
+            {
+                var far = new List<int>();
+                for (var j = vantageIndex + 1; j < popIndex; j++)
+                {
+                    if (anchors[j] is not { FromHostname: true, SetByHand: false } a || list[j].MinRttMs is not double rtt) continue;
+                    if (!InReach(pop, a.Latitude, a.Longitude, Math.Abs(popRtt - rtt), a.AccuracyKm)) far.Add(j);
+                }
+                if (!far.Any(j => Corroborated(list, anchors, j)))
+                {
+                    foreach (var j in far)
+                    {
+                        anchors[j] = null;
+                        named[j] = null;
+                    }
+                }
+            }
+            return anchors;
+        }
 
         // The last hop GeoLite2 places in a city anchors the end of the trace. A hostname-placed hop
         // after it outranks it, so it anchors nothing then. It must sit in the destination's network

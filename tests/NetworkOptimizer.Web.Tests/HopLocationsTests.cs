@@ -54,6 +54,25 @@ public class HopLocationsTests
     }
 
     [Fact]
+    public void Resolve_ACitySetByHand_RulesOutAFarHostnameRightBesideIt_NotOneFurtherAway()
+    {
+        // A handoff port named for Kansas City answers 0.5 ms from a router set to Salt Lake City, at the trace's end.
+        // A Kansas City router four hops earlier, its round trip bounded by later hops, keeps its hostname city.
+        var found = HopLocations.Resolve(
+        [
+            ("198.51.100.1", null, 1.0),
+            ("203.0.113.5", KansasCityRouter, 50.0),
+            ("203.0.113.40", null, 61.0),
+            ("203.0.113.41", null, 61.5),
+            ("203.0.113.42", "ae-0.examplecust.mci01.example.net", 62.0),
+            ("203.0.113.43", null, 61.5),
+        ], Geo, SetTo("203.0.113.43", "Salt Lake City", 40.76, -111.89));
+
+        found["203.0.113.42"].Source.Should().NotBe(HopLocationSource.Hostname);
+        found["203.0.113.5"].Source.Should().Be(HopLocationSource.Hostname);
+    }
+
+    [Fact]
     public void Resolve_ASetLocation_WinsOverTheHostname()
     {
         var found = HopLocations.Resolve(
