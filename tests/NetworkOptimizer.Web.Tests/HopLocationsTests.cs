@@ -73,6 +73,25 @@ public class HopLocationsTests
     }
 
     [Fact]
+    public void Resolve_ACitySetFarOverAnAnchorInItsOwnMetro_LendsItToNoNeighbor()
+    {
+        // Set to Kansas City, it answers 24 ms past a Kansas City router, and only 0.5 ms over the hops after it: the
+        // 24 ms is not distance, so the routers at 26 ms are not beside it.
+        var found = HopLocations.Resolve(
+        [
+            ("198.51.100.32", null, 0.5),
+            ("203.0.113.5", KansasCityRouter, 2.0),
+            ("203.0.113.81", null, 26.5),
+            ("203.0.113.82", null, 26.0),
+            ("203.0.113.83", null, 26.2),
+        ], Geo, SetTo("203.0.113.81", "Kansas City", 39.10, -94.58));
+
+        found["203.0.113.81"].City.Should().Be("Kansas City");
+        found.GetValueOrDefault("203.0.113.82")?.City.Should().NotBe("Kansas City");
+        found.GetValueOrDefault("203.0.113.83")?.City.Should().NotBe("Kansas City");
+    }
+
+    [Fact]
     public void Resolve_ACitySetOnASlowHopWithANarrowRange_StillLendsIt()
     {
         // Slow to answer (9 ms), but the hops either side hold its round trip to 2.0 to 2.2 ms: it still anchors.

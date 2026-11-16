@@ -308,6 +308,19 @@ public static class HopLocations
             }
         }
 
+        // A city set by hand whose round trip sits more than NeighborGapMs over an earlier anchor's in the same metro: the
+        // extra is not distance (an MPLS hop set to Atlanta answering 25 ms past a Tucker router), so it lends nothing.
+        for (var k = 0; k < list.Count; k++)
+        {
+            if (anchors[k] is not { SetByHand: true } set || delayed[k] || list[k].MinRttMs is not double rk) continue;
+            for (var e = 0; e < k && !delayed[k]; e++)
+            {
+                if (anchors[e] is { } a && !delayed[e] && list[e].MinRttMs is double re && rk - re > NeighborGapMs
+                    && GeoDistance.Kilometers(set.Latitude, set.Longitude, a.Latitude, a.Longitude) <= CitySlackKm)
+                    delayed[k] = true;
+            }
+        }
+
         // A city set by hand rules out the hostname city of a hop right beside it (two hops, NeighborGapMs) that it cannot
         // reach in the gap, wherever it sits on the trace: a handoff port named for the far end of its link answers
         // beside the router it hands off to. Only beside it: a slow-answering router's bounded round trip says too little
@@ -475,8 +488,9 @@ public static class HopLocations
         return delayed;
     }
 
-    // A city set by hand on a delayed hop places that hop only: lent to its neighbors by a round trip that is not its
-    // own, it pulled the hops after it to the set city (an MPLS hop set to Atlanta took three Little Rock routers along).
+    // A city set by hand on a hop whose round trip is not its distance (Delayed, or far over an anchor in its own metro,
+    // see Anchors) places that hop only: lent to its neighbors, it pulled the hops after it to the set city (an MPLS hop
+    // set to Atlanta took three Little Rock routers along).
     // Hostname and GeoLite2 anchors keep lending: replayed congestion traces lost right cities when they stopped.
     private static bool Unmeasured(Anchor anchor, bool delayed) => delayed && anchor.SetByHand;
 
