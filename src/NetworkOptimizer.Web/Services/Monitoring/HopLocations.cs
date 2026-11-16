@@ -293,7 +293,9 @@ public static class HopLocations
         {
             if (pinned[i] is { } p)
             {
-                var label = string.IsNullOrEmpty(list[i].Hostname) ? list[i].Address! : list[i].Hostname!.Split('.')[0];
+                // A vantage reports a hop with no PTR record by its address as the hostname: its first label is "32".
+                var host = list[i].Hostname;
+                var label = string.IsNullOrEmpty(host) || System.Net.IPAddress.TryParse(host, out _) ? list[i].Address! : host.Split('.')[0];
                 anchors[i] = new Anchor(p.City, p.CountryCode, p.Latitude, p.Longitude, label, FromHostname: true, SetByHand: true);
             }
             // An exchange's name places its own hop but anchors nothing: it names the exchange fabric,

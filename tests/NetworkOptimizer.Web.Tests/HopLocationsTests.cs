@@ -54,6 +54,20 @@ public class HopLocationsTests
     }
 
     [Fact]
+    public void Resolve_AnchorWithNoPtr_IsNamedByItsWholeAddress()
+    {
+        // The vantage reports a hop with no PTR record by its address as its hostname.
+        var found = HopLocations.Resolve(
+        [
+            ("198.51.100.1", null, 1.0),
+            ("203.0.113.61", null, 4.5),
+            ("203.0.113.60", "203.0.113.60", 4.0),
+        ], Geo, SetTo("203.0.113.60", "Little Rock", 34.75, -92.29));
+
+        found["203.0.113.61"].Tooltip.Should().StartWith("0.5 ms from 203.0.113.60, a Little Rock router");
+    }
+
+    [Fact]
     public void Resolve_ACitySetByHand_RulesOutAFarHostnameRightBesideIt_NotOneFurtherAway()
     {
         // A handoff port named for Kansas City answers 0.5 ms from a router set to Salt Lake City, at the trace's end.
