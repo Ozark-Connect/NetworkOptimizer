@@ -480,4 +480,70 @@ public class HopLocationsTests
 
         found.Should().ContainSingle().Which.Value.Text.Should().Be("Dallas, United States");
     }
+
+    // An anycast resolver GeoLite2 places far from where a trace reaches it.
+    private static GeoInfo GeoAnycast(string address) => address switch
+    {
+        "4.2.2.1" or "4.2.2.2" => new GeoInfo { CountryCode = "US", City = "Greenville", Latitude = 34.85, Longitude = -82.40, AccuracyRadiusKm = 5, Asn = 3356 },
+        "198.51.100.50" => new GeoInfo { CountryCode = "US", City = "Birmingham", Latitude = 33.52, Longitude = -86.80, AccuracyRadiusKm = 5 },
+        _ => Geo(address),
+    };
+
+    [Fact]
+    public void Resolve_AnycastAtTheEnd_DoesNotRuleOutTheHostnameCityBeforeIt()
+    {
+        var found = HopLocations.Resolve(
+        [
+            ("198.51.100.1", null, 1.0),
+            ("203.0.113.6", "ae1.3511.edge2.Dallas1.net.lumen.tech", 15.7),
+            ("4.2.2.1", "a.resolvers.level3.net", 15.6),
+        ], GeoAnycast);
+
+        found["203.0.113.6"].City.Should().Be("Dallas");
+        found["203.0.113.6"].Source.Should().Be(HopLocationSource.Hostname);
+        found["4.2.2.1"].City.Should().Be("Dallas");
+        found["4.2.2.1"].Tooltip.Should().StartWith("Anycast:");
+    }
+
+    [Fact]
+    public void Resolve_Anycast_IsPlacedAtTheMetroItsRoundTripFits()
+    {
+        // 3 ms past a Houston router: Dallas is the interconnection metro in reach.
+        var found = HopLocations.Resolve(
+        [
+            ("198.51.100.1", null, 1.0),
+            ("203.0.113.7", "ae1.edge1.Houston1.Level3.net", 10.0),
+            ("4.2.2.2", "b.resolvers.level3.net", 13.0),
+        ], GeoAnycast);
+
+        found["203.0.113.7"].City.Should().Be("Houston");
+        found["4.2.2.2"].City.Should().Be("Dallas");
+        found["4.2.2.2"].Text.Should().NotContain("Greenville");
+    }
+
+    [Fact]
+    public void Resolve_Anycast_WithNothingPlacedBeforeIt_HasNoCity()
+    {
+        var found = HopLocations.Resolve([("4.2.2.2", null, 13.0)], GeoAnycast);
+
+        found["4.2.2.2"].City.Should().BeNull();
+        found["4.2.2.2"].Text.Should().Be("Anycast");
+    }
+
+    [Fact]
+    public void Resolve_AGeoLite2CityPastAHostnameRouter_IsHeldToCityScaleSlack()
+    {
+        // About 920 km from Houston in 4.9 ms: out of reach once the anchor is an exact city. A hostname
+        // router after it keeps the end of the trace from anchoring it.
+        var found = HopLocations.Resolve(
+        [
+            ("198.51.100.1", null, 1.0),
+            ("203.0.113.7", "ae1.edge1.Houston1.Level3.net", 10.0),
+            ("198.51.100.50", null, 14.9),
+            ("203.0.113.8", "ae2.edge1.Houston1.Level3.net", 19.0),
+        ], GeoAnycast);
+
+        found["198.51.100.50"].City.Should().BeNull();
+        found["198.51.100.50"].Tooltip.Should().Contain("too far from Houston");
+    }
 }

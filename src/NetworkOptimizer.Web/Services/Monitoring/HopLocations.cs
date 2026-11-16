@@ -60,7 +60,10 @@ public static class HopLocations
         var geoByAddress = new Dictionary<string, GeoInfo>(StringComparer.OrdinalIgnoreCase);
         foreach (var h in list)
         {
-            if (!geoByAddress.ContainsKey(h.Address!)) geoByAddress[h.Address!] = geo(h.Address!);
+            // An anycast address answers from its nearest site: GeoLite2's one place for it would
+            // anchor the trace, and rule out true hostname cities, from the wrong metro.
+            if (!geoByAddress.ContainsKey(h.Address!))
+                geoByAddress[h.Address!] = AnycastAddresses.Contains(h.Address) ? GeoInfo.Empty : geo(h.Address!);
         }
 
         // The placed hop with the lowest round trip is the nearest to where the trace started: usually
@@ -106,6 +109,10 @@ public static class HopLocations
             {
                 result[h.Address!] = CityView(own.City.Name, own.City.CountryCode, $"From the router's hostname ({own.Token})",
                     own.City.Latitude, own.City.Longitude, HopLocationSource.Hostname);
+            }
+            else if (AnycastAddresses.Contains(h.Address))
+            {
+                result[h.Address!] = Anycast(bounded, anchors, i, h.Address!);
             }
             // A private or CGNAT address can sit anywhere behind its network, so it never borrows a city.
             else if (anchors[i] == null && NetworkUtilities.IsPublicIpAddress(h.Address!)
@@ -325,7 +332,59 @@ public static class HopLocations
     // Both GeoLite2 accuracy radii count toward the reach: either location can be off by that much.
     private static bool InReach(Anchor from, double latitude, double longitude, double rttGapMs, int accuracyKm) =>
         GeoDistance.Kilometers(from.Latitude, from.Longitude, latitude, longitude) - from.AccuracyKm - accuracyKm
-            <= rttGapMs * RouterHostnameLocator.KmPerMsRtt + RouterHostnameLocator.VantageSlackKm;
+            <= rttGapMs * RouterHostnameLocator.KmPerMsRtt + Slack(from);
+
+    /// <summary>
+    /// Slack on an anchor's reach for a router a few km from its city's center: a city set by hand
+    /// or named by a router's hostname is exact. A GeoLite2 anchor keeps the vantage's wider slack.
+    /// </summary>
+    internal const double CitySlackKm = 100;
+
+    private static double Slack(Anchor from) => from.FromHostname ? CitySlackKm : RouterHostnameLocator.VantageSlackKm;
+
+    /// <summary>
+    /// Kilometers per ms of round trip a real path tends to cover (fiber is not a straight line, and
+    /// routers add delay): what an anycast hop's distance from the anchor before it is judged against.
+    /// </summary>
+    internal const double AnycastTypicalKmPerMs = 70;
+
+    /// <summary>The least a real path covers per ms of round trip, for the near edge of an anycast hop's reach.</summary>
+    internal const double AnycastMinKmPerMs = 40;
+
+    private const string AnycastNote =
+        "Anycast: many sites answer this address, so GeoLite2's one place for it says nothing about which site did.";
+
+    /// <summary>
+    /// An anycast hop's metro, from its round trip past the last placed hop before it: the
+    /// interconnection metro (<see cref="AnycastAddresses.Metros"/>) whose distance fits the gap best.
+    /// With no placed hop before it, or no metro in reach, it gets no location.
+    /// </summary>
+    private static HopLocationView Anycast(
+        List<(string? Address, string? Hostname, double? MinRttMs)> list, Anchor?[] anchors, int i, string address)
+    {
+        var j = Nearest(anchors, i, -1);
+        if (j < 0 || list[i].MinRttMs is not double rtt || list[j].MinRttMs is not double before)
+            return new HopLocationView(null, "Anycast", AnycastNote);
+        var anchor = anchors[j]!;
+        var gap = Math.Max(0, rtt - before);
+        var max = gap * RouterHostnameLocator.KmPerMsRtt + Slack(anchor) + anchor.AccuracyKm;
+        var min = Math.Max(0, gap * AnycastMinKmPerMs - Slack(anchor) - anchor.AccuracyKm);
+        var fits = AnycastAddresses.Metros
+            .Select(m => RouterLocationCities.All.FirstOrDefault(c => c.Name == m.Name
+                && string.Equals(c.CountryCode, m.CountryCode, StringComparison.OrdinalIgnoreCase)))
+            .Where(c => c != null)
+            .Select(c => (City: c!, Km: GeoDistance.Kilometers(anchor.Latitude, anchor.Longitude, c!.Latitude, c.Longitude)))
+            .Where(x => x.Km >= min && x.Km <= max)
+            .OrderBy(x => Math.Abs(x.Km - gap * AnycastTypicalKmPerMs))
+            .ToList();
+        var from = $"{gap:0.0} ms past {anchor.Label}, {(anchor.FromHostname ? "a" : "placed in")} {anchor.City}{(anchor.FromHostname ? " router" : "")}";
+        if (fits.Count == 0)
+            return new HopLocationView(null, "Anycast", $"{AnycastNote} No interconnection metro fits {from}.");
+        var pick = fits[0].City;
+        var others = fits.Count > 1 ? $" (the closest fit; {string.Join(", ", fits.Skip(1).Select(f => f.City.Name))} also in reach)" : "";
+        return CityView(pick.Name, pick.CountryCode, $"{AnycastNote} {from}, puts the site that answered near {pick.Name}{others}.",
+            pick.Latitude, pick.Longitude, HopLocationSource.Neighbor);
+    }
 
     private static int Nearest(Anchor?[] anchors, int i, int step)
     {
