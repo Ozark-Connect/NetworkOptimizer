@@ -858,7 +858,11 @@ export async function mount(elId, initialWanScope, initialCategory) {
     // A second mount while this one waited owns the tab now.
     if (containerId !== elId) return;
 
-    if (restoredHours !== null) markActiveRange(container, restoredHours);
+    // The range buttons are page markup and outlive an unmount: a link's custom window left the custom
+    // range button lit, with its clear, on the next mount. Both are set from this mount's state.
+    markActiveRange(container, currentRangeHours);
+    updateCustomLabel(container);
+    syncPopoverInputs(container);
 
     // The scope this mount was called with, unless the page pushed a newer one while it waited.
     if (scopePushes === pushesAtCall) applyWanScope(initialWanScope);
