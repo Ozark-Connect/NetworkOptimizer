@@ -57,6 +57,7 @@ public class RouterHostnameLocatorTests
     [InlineData("rest-bb1-link.ip.twelve99.net", "Reston")]
     // Cox: its own site code, then role, vendor, and number
     [InlineData("kscybbrj01-ae2.rd.ks.cox.net", "Kansas City")]
+    [InlineData("mcibbrj01.rd.ks.cox.net", "Kansas City")]
     [InlineData("dalsbprj01-ae2.rd.dl.cox.net", "Dallas")]
     [InlineData("dllsdsrj01-so000.rd.dl.cox.net", "Dallas")]
     [InlineData("chgobbrj02-ae10.rd.ch.cox.net", "Chicago")]

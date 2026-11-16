@@ -62,7 +62,7 @@ public static class RouterHostnameLocator
     private static readonly char[] Digits = "0123456789".ToCharArray();
 
     private static readonly System.Text.RegularExpressions.Regex CoxRouter =
-        new("^([a-z0-9]{4})(?:bbr|bpr|dsr|hdr|tcr)[jc][0-9]{2}$", System.Text.RegularExpressions.RegexOptions.Compiled);
+        new("^([a-z0-9]{3,4}?)(?:bbr|bpr|dsr|hdr|tcr)[jc][0-9]{2}$", System.Text.RegularExpressions.RegexOptions.Compiled);
 
     private static readonly System.Text.RegularExpressions.Regex SiteLetterShape =
         new("^([a-z]{3})[0-9]{2}[a-z]$", System.Text.RegularExpressions.RegexOptions.Compiled);
@@ -153,7 +153,7 @@ public static class RouterHostnameLocator
     }
 
     // The operator's own site code, bare, numbered ("kanc", "kan1"), or ahead of Cox's router role
-    // ("kscybbrj01"). True when the token was one.
+    // ("kscybbrj01", or three letters: "mcibbrj01"). True when the token was one.
     private static bool AddOwnCode(string raw, RouterOperator? op, List<RouterHostnameLocation> found)
     {
         if (op?.OwnCodes is not { } codes) return false;
