@@ -19554,10 +19554,11 @@ tr.stats-row-filtered {
     color: var(--text-primary);
     background: rgba(16, 24, 32, 0.92);
 }
+/* The size of the 2D map's zoom and fit buttons (.lfm2d-btn), whose column starts under it. */
 .lan-flow-map-fullscreen-btn,
 .lan-flow-map-fit-btn {
-    width: 30px;
-    height: 30px;
+    width: 32px;
+    height: 32px;
     display: flex;
     align-items: center;
     justify-content: center;
