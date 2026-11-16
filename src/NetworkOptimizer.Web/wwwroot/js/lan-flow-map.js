@@ -4749,7 +4749,6 @@ function formatAge(ms) {
     return `${d}d ago`;
 }
 
-const _p = (n) => String(n).padStart(2, '0');
 // Compact duration for the trailing Max window's left label, e.g. -12d or -18h.
 function _fmtSpan(ms) {
     const days = ms / 86400000;
@@ -4757,9 +4756,9 @@ function _fmtSpan(ms) {
     return `${Math.round(ms / 3600000)}h`;
 }
 
+// The scrubber's instant in the viewer's time and date format, like the charts' tooltips.
 function _fmtDateTime(d) {
-    const p = noTime.parts(d);
-    return `${_p(p.month)}/${_p(p.day)}/${String(p.year).slice(2)} ${_p(p.hour)}:${_p(p.minute)}:${_p(p.second)}`;
+    return noTime.tooltipLabel(d);
 }
 
 function escapeHtml(s) {

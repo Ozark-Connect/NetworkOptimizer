@@ -1,0 +1,38 @@
+@* Says a tab is showing what a link asked for, where it came from, a way back, and a clear to the reader's own filters. *@
+<span class="link-context-chip" role="status">
+    @if (OnBack.HasDelegate)
+    {
+        <button class="lcc-back" type="button" data-tooltip="@BackTooltip" @onclick="OnBack">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 14 4 9l5-5" /><path d="M4 9h10a6 6 0 0 1 0 12h-3" /></svg>
+            <span class="lcc-from">@Origin</span>@if (!string.IsNullOrEmpty(Detail))
+            {<span class="lcc-detail">· @Detail</span>}
+        </button>
+    }
+    else
+    {
+        <span class="lcc-back">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7" /><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7" /></svg>
+            <span class="lcc-from">@Origin</span>@if (!string.IsNullOrEmpty(Detail))
+            {<span class="lcc-detail">· @Detail</span>}
+        </span>
+    }
+    <button class="lcc-clear" type="button" aria-label="@ClearLabel" data-tooltip="@ClearLabel" @onclick="OnClear">&times;</button>
+</span>
+
+@code {
+    /// <summary>Where the link came from: "From Live View".</summary>
+    [Parameter, EditorRequired] public string Origin { get; set; } = "";
+
+    /// <summary>What the link set that the filters do not show, such as its moment and WAN.</summary>
+    [Parameter] public string? Detail { get; set; }
+
+    /// <summary>Returns to where the link came from. Without it the origin is a label, not a button.</summary>
+    [Parameter] public EventCallback OnBack { get; set; }
+
+    [Parameter] public string? BackTooltip { get; set; }
+
+    /// <summary>Drops the link and puts the reader's own filters back.</summary>
+    [Parameter] public EventCallback OnClear { get; set; }
+
+    [Parameter] public string ClearLabel { get; set; } = "Use my filters";
+}

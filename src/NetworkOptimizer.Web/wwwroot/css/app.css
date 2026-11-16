@@ -782,6 +782,118 @@ h1:focus {
     flex-basis: 100%;
 }
 
+/* The link context chip: a tab showing what a link asked for, beside the card title (Network
+   Performance) or the WAN pills (Live View). */
+.chart-title-row {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.5rem 0.75rem;
+    min-width: 0;
+}
+
+.monitoring-chart-header.chart-header-stacked .chart-title-row {
+    flex-basis: 100%;
+}
+
+.monitoring-chart-header.chart-header-stacked .chart-title-row .card-title {
+    flex-basis: auto;
+}
+
+.link-context-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    min-width: 0;
+    max-width: 100%;
+    height: 30px;
+    padding: 0 0.25rem 0 0.65rem;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--info-color) 13%, transparent);
+    border: 1px solid color-mix(in srgb, var(--info-color) 40%, transparent);
+    color: var(--text-primary);
+    font-size: 0.8rem;
+}
+
+.link-context-chip .lcc-back {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    min-width: 0;
+    background: none;
+    border: 0;
+    padding: 0;
+    color: inherit;
+    font: inherit;
+}
+
+.link-context-chip button.lcc-back {
+    cursor: pointer;
+}
+
+.link-context-chip .lcc-back svg {
+    flex: none;
+    width: 14px;
+    height: 14px;
+    fill: none;
+    stroke: var(--info-color);
+    stroke-width: 2.2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+.link-context-chip .lcc-from {
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.link-context-chip .lcc-detail {
+    color: var(--text-secondary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    min-width: 0;
+}
+
+.link-context-chip button.lcc-back:hover .lcc-from {
+    text-decoration: underline;
+}
+
+.link-context-chip .lcc-clear {
+    flex: none;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    border: 0;
+    background: transparent;
+    color: var(--text-secondary);
+    cursor: pointer;
+    display: grid;
+    place-items: center;
+    font-size: 15px;
+    line-height: 1;
+}
+
+.link-context-chip .lcc-clear:hover {
+    background: color-mix(in srgb, var(--info-color) 25%, transparent);
+    color: var(--text-primary);
+}
+
+.live-view-jump-row .link-context-chip {
+    align-self: center;
+}
+
+@media (max-width: 768px) {
+    /* Its own line under the pills and the Analyze button, which keep their row. */
+    .live-view-jump-row .link-context-chip {
+        order: 10;
+    }
+
+    .monitoring-chart-header .chart-title-row {
+        flex-basis: 100%;
+    }
+}
+
 @media (max-width: 768px) {
     .monitoring-chart-header.chart-header-stacked .wan-selector,
     .monitoring-chart-header .chart-header-controls {
@@ -18447,6 +18559,10 @@ a.affected-client:hover {
     align-items: flex-start;
     gap: 0.5rem;
     margin-bottom: 0.75rem;
+}
+
+.live-view-jump-row.has-link-context {
+    flex-wrap: wrap;
 }
 
 .live-view-jump-row .monitoring-jump-btn {

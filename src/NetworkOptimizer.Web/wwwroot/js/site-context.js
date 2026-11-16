@@ -220,8 +220,15 @@ window.noTabScroll = {
         var mid = box.top + Math.min(box.height, window.innerHeight) / 2;
         var index = cards.findIndex(function (el) { var r = el.getBoundingClientRect(); return r.top <= mid && r.bottom >= mid; });
         if (index < 0) index = cards.findIndex(function (el) { return el.getBoundingClientRect().bottom > box.top; });
-        var saved = index < 0 ? { top: c.scrollTop }
-            : { card: index, offset: cards[index].getBoundingClientRect().top - box.top, top: c.scrollTop };
+        var saved = { top: c.scrollTop };
+        if (index >= 0) {
+            var el = cards[index];
+            // By name where the card has one: a card above it that renders late shifts every index after it.
+            saved.sel = el.id ? '#' + CSS.escape(el.id)
+                : el.dataset.tour ? '.card[data-tour="' + CSS.escape(el.dataset.tour) + '"]' : null;
+            saved.card = index;
+            saved.offset = el.getBoundingClientRect().top - box.top;
+        }
         try { sessionStorage.setItem('no.tabScroll.' + key, JSON.stringify(saved)); } catch (e) { }
     },
     restore: function (key) {
@@ -243,7 +250,7 @@ window.noTabScroll = {
             if (!c) return;
             var want = 0;
             if (saved && saved.card != null) {
-                var el = c.querySelectorAll('.card')[saved.card];
+                var el = (saved.sel && c.querySelector(saved.sel)) || c.querySelectorAll('.card')[saved.card];
                 if (!el) return;
                 want = c.scrollTop + (el.getBoundingClientRect().top - c.getBoundingClientRect().top) - saved.offset;
             } else if (saved) {

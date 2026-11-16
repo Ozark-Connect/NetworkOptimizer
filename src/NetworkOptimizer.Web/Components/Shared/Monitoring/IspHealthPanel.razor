@@ -457,7 +457,7 @@ else
                             @if (!string.IsNullOrEmpty(issue.InvestigateUrl))
                             {
                                 <div class="issue-investigate">
-                                    <a class="isp-factor-link" href="@(issue.InvestigateUrl + WanLinkQuery())"
+                                    <a class="isp-factor-link" href="@(issue.InvestigateUrl + WanLinkQuery() + "&via=isp-health")"
                                        data-tooltip="Jump to the most recent matching loss event on the Network Performance charts" data-tooltip-hover-only>@(issue.InvestigateText ?? "Investigate on the charts")</a>
                                 </div>
                             }
@@ -1770,7 +1770,7 @@ else
                     .ToUniversalTime()).ToUnixTimeMilliseconds();
             NavigationManager.NavigateTo(NetworkOptimizer.Web.Services.Monitoring.MonitoringLinks.Analysis(
                 NetworkOptimizer.Web.Services.Monitoring.MonitoringLinks.TransitCategory,
-                at, view.SpanMs, _selectedWanKey));
+                at, view.SpanMs, _selectedWanKey) + "&via=isp-health");
         }
         catch (Exception ex)
         {
@@ -2470,8 +2470,8 @@ else
     /// </summary>
     private string? FactorInvestigateUrl(string factorName) => factorName switch
     {
-        "Packet Loss" => $"/monitoring?tab=performance&investigate=packet-loss{WanLinkQuery()}",
-        "Loaded Loss" => $"/monitoring?tab=performance&investigate=loaded-loss{WanLinkQuery()}",
+        "Packet Loss" => $"/monitoring?tab=performance&investigate=packet-loss{WanLinkQuery()}&via=isp-health",
+        "Loaded Loss" => $"/monitoring?tab=performance&investigate=loaded-loss{WanLinkQuery()}&via=isp-health",
         _ => null
     };
 
