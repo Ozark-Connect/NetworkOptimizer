@@ -194,6 +194,7 @@ Time-series monitoring on your own InfluxDB, fed by SNMP polling (InfluxDB).
 - **Latency & Packet Loss** - RTT, loss, and WAN throughput charts with a stats table
   - Categories: Fabric, ISP, Transit, Internet, Custom; LAN or per-WAN scope
   - Ranges from 15 minutes to 30 days, custom ranges, synced hover, jump to Live View
+  - Hover a host's chip, a Latency Targets address, or an Upstream Path Discovery address for its card: copy, and **Trace**
 - **Investigate** - step through **Packet Loss Events** and **Loaded Loss Events**
 - **Upstream Path Discovery** - ICMP and UDP traceroutes that map OLT/CMTS, ISP edge, transit ASNs, and internet hosts
   - Sets the access technology, saves monitoring targets, and re-runs every 7 days
@@ -484,6 +485,7 @@ Gateway tweaks for UCG-Fiber, UXG-Fiber, UCG-Max, and UXG-Max (Gateway SSH).
 
 - **Client Stats** - searchable client table, signal and TX retry history, connection events
   - Each client's UniFi Network icon in the table and its details
+  - Each client's SSID, as a sortable column (desktop) and in its details
 - **Roaming** - roaming topology, AP pair success rates, 802.11r usage, roaming clients
 - **Power & Coverage** - signal distribution (click a bar to list its clients in Client Stats), EIRP per AP, coverage quality, overlap
 - **Load Balance** - clients per AP and imbalance
@@ -557,6 +559,7 @@ models such as U6-Lite, U6-Mesh, and UAP-AC-Pro, and gateways with built-in Wi-F
 
 - Collects IPS events (IPS v1 and v2), traffic flows, and [Web Application Firewall](#web-application-firewall) events, with history backfill
 - Suricata signature enrichment
+- Hover an external address or host name anywhere in Threat Intelligence or a Web Application Firewall event for its card: copy, and **Trace**
 - **Overview** - totals, threat timeline, kill chain distribution, blocked vs detected
   - **Top Sources**, **Top Targeted Ports**, **Attack Patterns** (scan, brute force, exploit campaign, DDoS)
   - **Protection Setup** - checklist from watching to blocking, with **Turn On Recommended**
