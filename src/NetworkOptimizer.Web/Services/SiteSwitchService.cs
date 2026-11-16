@@ -75,7 +75,8 @@ public class SiteSwitchService
 
     private static readonly Dictionary<string, string[]> SiteBoundByPath = new(StringComparer.OrdinalIgnoreCase)
     {
-        ["/monitoring"] = ["target", "device", "client", "sfp", "modem", "cm", "ont", "starlink", "mifip"],
+        // ?investigate= is an action: carried over, it re-ran the old site's search on the new one.
+        ["/monitoring"] = ["target", "device", "client", "sfp", "modem", "cm", "ont", "starlink", "mifip", "investigate"],
         // ?run= is an action, not a view: a switch must not run the linked traceroute again on the new site.
         ["/network-tools"] = ["from", "run"],
         ["/wifi-optimizer"] = ["client", "ap", "edge"],
@@ -96,6 +97,13 @@ public class SiteSwitchService
     /// </summary>
     private static readonly Dictionary<string, (string[] Names, Func<string, bool> IsSiteBound)[]> SiteBoundValuesByPath = new(StringComparer.OrdinalIgnoreCase)
     {
+        // A WAN key is this site's; the LAN and All scopes are every site's, and a LAN link carried across
+        // without its scope landed on a WAN scope that hides the LAN category.
+        ["/monitoring"] =
+        [
+            (["wan"], v => !string.Equals(v, Monitoring.MonitoringLinks.LanScopeToken, StringComparison.OrdinalIgnoreCase)
+                && !string.Equals(v, Monitoring.LiveWanScope.AllWansToken, StringComparison.OrdinalIgnoreCase)),
+        ],
         ["/monitoring/live-traffic"] =
         [
             (["route", "not-route"], v => !string.Equals(v, "LAN", StringComparison.OrdinalIgnoreCase)),
@@ -114,12 +122,14 @@ public class SiteSwitchService
         var path = new Uri(url).AbsolutePath.TrimEnd('/');
         // A plan's ID is a row in the old site's database: on the new site it is another plan or none.
         if (PlanPath.IsMatch(path)) return new Uri(new Uri(url), "/change-control").ToString();
+        SiteBoundValuesByPath.TryGetValue(path, out var byValue);
         var names = SiteBoundByPath.TryGetValue(path, out var forPage)
             ? SiteBoundEverywhere.Concat(forPage)
             : SiteBoundEverywhere;
-        foreach (var name in names)
+        // A name the page judges per value is left to that rule.
+        foreach (var name in names.Where(n => byValue == null || !byValue.Any(r => r.Names.Contains(n, StringComparer.OrdinalIgnoreCase))))
             url = SiteContextService.RemoveQueryParam(url, name);
-        if (SiteBoundValuesByPath.TryGetValue(path, out var byValue))
+        if (byValue != null)
             url = RemoveSiteBoundValues(url, byValue);
         return url;
     }

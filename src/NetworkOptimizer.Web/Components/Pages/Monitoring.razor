@@ -17,6 +17,11 @@
 @inject IAuthorizationService Authz
 @using NetworkOptimizer.Web.Components.Shared.Monitoring
 @using static NetworkOptimizer.Web.Services.Monitoring.MonitoringLinks
+@using MonitoringViewState = NetworkOptimizer.Web.Services.Monitoring.MonitoringViewState
+@using AnalysisScope = NetworkOptimizer.Web.Services.Monitoring.AnalysisScope
+@using AnalysisScopeKind = NetworkOptimizer.Web.Services.Monitoring.AnalysisScopeKind
+@using MonitoringLink = NetworkOptimizer.Web.Services.Monitoring.MonitoringLink
+@using SiteWan = NetworkOptimizer.Web.Services.Monitoring.SiteWan
 @using NetworkOptimizer.Web.Services.Monitoring.IspHealth
 @using NetworkOptimizer.Storage.Models
 @using NetworkOptimizer.Core.Enums
@@ -2301,10 +2306,6 @@
         }
     }
 
-    /// <summary>Whether every WAN is on screen, which is what the All pill means.</summary>
-    private bool AllWansSelected =>
-        _wanOptions.Count > 1 && _wanOptions.All(w => _selectedWanKeys.Contains(w.Key));
-
     private async Task SelectAllWansAsync()
     {
         _lanScope = false;
@@ -2381,7 +2382,21 @@
     /// Read once at mount - after that the chart owns the category, including the user's own picks.
     /// </summary>
     private string DefaultChartCategory() =>
-        HasTargetsInWanScope(MonitoringTargetType.Fabric) ? "Fabric" : "AccessIsp";
+        MonitoringViewState.LandingCategory(null, ChartScopeKind, HasTargetsInWanScope(MonitoringTargetType.Fabric));
+
+    /// <summary>The scope the chart is in: All on a site without the scope bar, where the chart gets no scope.</summary>
+    private AnalysisScopeKind ChartScopeKind =>
+        !ScopeBarVisible ? AnalysisScopeKind.All
+        : _lanScope ? AnalysisScopeKind.Lan
+        : _allScope ? AnalysisScopeKind.All
+        : AnalysisScopeKind.Wans;
+
+    /// <summary>The query as a link, for <see cref="MonitoringViewState"/>.</summary>
+    private MonitoringLink CurrentLink => new(CategoryParam, TargetParam, AtParam, SpanParam, InvestigateParam, WanParam);
+
+    private IReadOnlyList<SiteWan> SiteWans => _wanOptions.Select(o => new SiteWan(o.Key, o.IsPrimary)).ToList();
+
+    private AnalysisScope CurrentAnalysisScope => new(ChartScopeKind, _selectedWanKeys.ToList());
 
     private string WanScopeJson()
     {
@@ -2577,7 +2592,7 @@
         // visit, and the stored filter that was read a line earlier stood instead. Whether that
         // happened came down to which finished first, so the same link kept or lost its WAN from
         // one load to the next. The flag lets the load itself finish the job.
-        if (string.IsNullOrWhiteSpace(WanParam) || !LinkNarrowsWanFilter)
+        if (!LinkNarrowsWanFilter)
         {
             _linkWanAwaitingOptions = false;
             return;
@@ -2587,89 +2602,48 @@
             _linkWanAwaitingOptions = false;
             return;
         }
-        // Nothing to resolve against yet. The mount that calls this runs once, so returning
-        // without remembering the link dropped it for the rest of the visit and left the stored
-        // filter - read a line earlier - standing in its place. Whether that happened came down
-        // to which finished first, so the same link kept or lost its WAN from one load to the
-        // next. The flag holds it until the answers arrive.
-        if (!_wanOptionsLoaded)
+        var link = CurrentLink;
+        // Nothing to resolve WANs against yet: held, and applied from the load that brings them.
+        // An EMPTY list waits too (an Agent site's console right after a reconnect): returning
+        // without the hold lost the link's scope for the visit. A LAN landing needs no WANs.
+        if (MonitoringViewState.LinkNeedsWans(link) && (!_wanOptionsLoaded || _wanOptions.Count == 0))
         {
             _linkWanAwaitingOptions = true;
             return;
         }
         _linkWanAwaitingOptions = false;
-        // One WAN still has a scope to set: the bar splits it from the LAN, so a link naming it
-        // (or naming All) decides which of the two the user lands in. Gating this on multi-WAN
-        // left those sites on whatever scope was saved, and the chart dropped the category the
-        // link asked for whenever the two disagreed.
-        if (_wanOptions.Count == 0) return;
 
-        // The LAN scope: the same claim on the restore and the same never-persisted narrowing as a
-        // WAN link below, with the WAN selection left as it was, as the LAN pill leaves it.
-        if (IsLanScopeToken(WanParam))
-        {
-            _appliedLinkWanKey = LinkWanKey;
-            _linkNarrowedWanSelection = true;
-            _wanSelectionRestored = true;
-            _lanScope = true;
-            _allScope = false;
-            await ApplyWanSelectionAsync(persist: false);
-            return;
-        }
-
-        var keys = ResolveLinkWanKeys(WanParam);
-        // Stamped before the resolve is judged: the link has been CONSIDERED either way, and the
-        // options are loaded by here, so a WAN this site does not have will not resolve on a later
-        // pass either. Leaving it unstamped would hold the deep-link gate open forever.
+        var scope = MonitoringViewState.LinkScope(link, SiteWans, CurrentAnalysisScope);
+        // Stamped before the result is judged: the link has been CONSIDERED, and a WAN this site
+        // does not have will not resolve on a later pass either. Unstamped, the deep-link gate
+        // would stay open forever.
         _appliedLinkWanKey = LinkWanKey;
-        Logger.LogDebug("Link WAN: resolved {Wan} to [{Keys}] against [{Options}]",
-            WanParam, string.Join(",", keys), string.Join(",", _wanOptions.Select(o => o.Key)));
-        if (keys.Count == 0) return;
-        // Narrowing for as long as the link does. Never persisted, and released on the way back
-        // in without one, so a saved All is what the tab has again next time.
+        Logger.LogDebug("Link scope: {Category} {Wan} -> {Scope} [{Keys}]", CategoryParam, WanParam,
+            scope?.Kind.ToString() ?? "saved", scope == null ? "" : string.Join(",", scope.WanKeys));
+        if (scope == null) return;
+        // For the visit only: never persisted, released on the way back in without a link, so the
+        // saved filter (a saved All included) is what the tab has next time. Claims the restore, so
+        // the stored selection cannot be read over the top of the link on a first load.
         _linkNarrowedWanSelection = true;
-        // Claims the restore as well, so the stored selection cannot be read over the top of the
-        // link on a first load - and is never written, so the saved filter survives the visit.
         _wanSelectionRestored = true;
-        // A link naming WANs lands on those WANs, not on whatever scope was left over. Covering
-        // every one of them is the whole site, which is what All means.
-        _lanScope = false;
-        _selectedWanKeys = new HashSet<string>(keys, StringComparer.OrdinalIgnoreCase);
-        // The token, not just the keys it resolved to: on a single-WAN site "all" and that one WAN
-        // resolve to the same key, and only All keeps the LAN categories on the chart - which is
-        // what a link from a LAN view came to see.
-        _allScope = IsAllWansToken(WanParam)
-            || (_wanOptions.Count > 1 && _wanOptions.All(w => _selectedWanKeys.Contains(w.Key)));
+        _lanScope = scope.Kind == AnalysisScopeKind.Lan;
+        _allScope = scope.Kind == AnalysisScopeKind.All;
+        // The LAN scope keeps the WAN set as it was, unlit, as the LAN pill leaves it.
+        if (scope.Kind != AnalysisScopeKind.Lan)
+            _selectedWanKeys = new HashSet<string>(scope.WanKeys, StringComparer.OrdinalIgnoreCase);
         await ApplyWanSelectionAsync(persist: false);
+
+        // Landed after the chart mounted (the WANs arrived late): the chart opened on a category
+        // resolved against the scope before this one, so it gets the link's own now.
+        if (_latencyChartsReady && !string.IsNullOrEmpty(CategoryParam))
+        {
+            var category = MonitoringViewState.LandingCategory(
+                CategoryParam, ChartScopeKind, HasTargetsInWanScope(MonitoringTargetType.Fabric));
+            try { await JS.InvokeVoidAsync("eval", $"window.__latencyCharts?.setCategory('{System.Text.Encodings.Web.JavaScriptEncoder.Default.Encode(category)}');"); }
+            catch (Exception ex) when (ex is JSException or JSDisconnectedException) { Logger.LogDebug(ex, "Could not set the link's category"); }
+        }
     }
 
-    /// <summary>
-    /// The WAN keys a link's <c>?wan=</c> names: "all" for a view that spans every WAN, otherwise
-    /// a comma list. Matched on WAN index rather than string for the same reason the live scope
-    /// does it - the primary answers to "wan", "wan1" and "WAN" depending on who wrote the link.
-    /// </summary>
-    private List<string> ResolveLinkWanKeys(string wanParam)
-    {
-        var trimmed = wanParam.Trim();
-        if (IsAllWansToken(trimmed))
-            return _wanOptions.Select(o => o.Key).ToList();
-        if (string.Equals(trimmed, Services.Monitoring.LiveWanScope.PrimaryWanToken, StringComparison.OrdinalIgnoreCase))
-            return _wanOptions.Where(o => o.IsPrimary).Select(o => o.Key).ToList();
-
-        return trimmed
-            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-            .Select(NetworkOptimizer.UniFi.GatewayWanHelper.WanIndexFromKey)
-            .Where(index => index > 0)
-            .Select(index => _wanOptions
-                .FirstOrDefault(o => NetworkOptimizer.UniFi.GatewayWanHelper.WanIndexFromKey(o.Key) == index)?.Key)
-            .OfType<string>()
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToList();
-    }
-
-    /// <summary>Whether a link's <c>?wan=</c> asks for the whole site rather than named WANs.</summary>
-    private static bool IsAllWansToken(string? wanParam) =>
-        string.Equals(wanParam?.Trim(), Services.Monitoring.LiveWanScope.AllWansToken, StringComparison.OrdinalIgnoreCase);
 
     private async Task RestoreWanSelectionAsync()
     {
@@ -2899,17 +2873,16 @@
         || (_wanOptionsLoaded && _wanOptions.Count == 0);
 
     /// <summary>
-    /// Whether the link in the address bar is one whose <c>?wan=</c> should narrow this filter. A
-    /// category jump from Live View and an ISP Health investigate jump both are: each says which
-    /// WAN's trouble you came to look at. So is <c>?wan=lan</c> on its own (the Sites card's LAN
-    /// issue): it names the LAN scope outright. A discovery link carries a WAN too and is NOT - it is
-    /// asking to run discovery on that WAN, not to re-scope the analysis.
+    /// Whether the link in the address bar may set this filter's scope for the visit
+    /// (<see cref="MonitoringViewState.LinkScope"/> decides which). A category link is: its category
+    /// decides the scope, with or without a <c>?wan=</c>. So is an investigate jump with a WAN, and
+    /// <c>?wan=lan</c> on its own (the Sites card's LAN issue). A discovery link carries a WAN too and
+    /// is NOT - it is asking to run discovery on that WAN, not to re-scope the analysis.
     /// </summary>
     private bool LinkNarrowsWanFilter =>
-        !string.IsNullOrWhiteSpace(WanParam)
-        && (!string.IsNullOrEmpty(CategoryParam)
-            || InvestigateParam is "packet-loss" or "loaded-loss"
-            || (IsLanScopeToken(WanParam) && _activeTab == "performance"));
+        !string.IsNullOrEmpty(CategoryParam)
+        || (!string.IsNullOrWhiteSpace(WanParam) && InvestigateParam is "packet-loss" or "loaded-loss")
+        || (IsLanScopeToken(WanParam) && _activeTab == "performance");
 
     /// <summary>Whether a link's <c>?wan=</c> asks for the LAN scope rather than WANs.</summary>
     private static bool IsLanScopeToken(string? wanParam) =>
@@ -2923,6 +2896,8 @@
     private bool _wanLiveChartMounted = false;
     private bool _portStatsMounted = false;
     private bool _latencyChartsMounted;
+    // The chart module is imported and mounted: a link whose scope lands after this sets its category itself.
+    private bool _latencyChartsReady;
     private bool _healthChartsMounted;
     private bool _sfpChartsMounted;
     private bool _cellularChartsMounted;
@@ -4012,10 +3987,10 @@
 
     /// <summary>
     /// Plays back the moment Latency and Packet Loss is framing - the center of the window on
-    /// screen, which is where someone puts the spike they are looking at. A LAN or Custom view
-    /// spans every WAN and asks for all of them; ISP, Transit and Internet carry their WAN filter
-    /// across. The Live tab's own saved filter is left where it was either way: the link applies
-    /// for the visit only.
+    /// screen, which is where someone puts the spike they are looking at - with the WANs on screen
+    /// (<see cref="MonitoringViewState.LiveJumpWan"/>). From the LAN scope it carries no WAN: Live
+    /// View has no LAN view, and sending every WAN showed an All filter nobody picked. The Live
+    /// tab's own saved filter is left where it was either way: the link applies for the visit only.
     /// </summary>
     private async Task JumpToLiveAsync()
     {
@@ -4024,11 +3999,8 @@
             var view = await JS.InvokeAsync<LatencyChartView>("__latencyCharts.currentView");
             var at = DateTime.Parse(view.AtIso, null, System.Globalization.DateTimeStyles.RoundtripKind);
             var atMs = new DateTimeOffset(at.ToUniversalTime()).ToUnixTimeMilliseconds();
-            var spansEveryWan = view.Category == FabricCategory || view.Category == CustomCategory;
-            var wan = spansEveryWan || AllWansSelected
-                ? Services.Monitoring.LiveWanScope.AllWansToken
-                : string.Join(",", _selectedWanKeys);
-            var wanQuery = _multiWanUiVisible && wan.Length > 0 ? $"&wan={Uri.EscapeDataString(wan)}" : "";
+            var wan = MonitoringViewState.LiveJumpWan(CurrentAnalysisScope, _multiWanUiVisible);
+            var wanQuery = wan != null ? $"&wan={Uri.EscapeDataString(wan)}" : "";
             NavigationManager.NavigateTo($"/monitoring?tab=live&at={atMs}{wanQuery}");
         }
         catch (Exception ex) { Logger.LogDebug(ex, "Live view jump failed; latency charts not ready"); }
@@ -5901,9 +5873,8 @@
                 {
                     // LAN with nothing to draw is a dead end, so it falls through to ISP the same
                     // way the card's own opening choice does - one rule, not a second copy of it.
-                    var resolved = _preSelectCategory == FabricCategory
-                        ? DefaultChartCategory()
-                        : _preSelectCategory;
+                    var resolved = MonitoringViewState.LandingCategory(
+                        _preSelectCategory, ChartScopeKind, HasTargetsInWanScope(MonitoringTargetType.Fabric));
                     var category = System.Text.Encodings.Web.JavaScriptEncoder.Default.Encode(resolved);
                     // A jump from the Live tab carries what it was showing: an instant if it was
                     // parked there, which the window is framed on, or "live" if it was not - and
@@ -5931,17 +5902,19 @@
                     $"(async () => {{ const m = await import('{chartsUrl}'); window.__latencyCharts = m; await m.mount('latency-charts-container', {WanScopeJson()}, '{DefaultChartCategory()}'); "
                     + "if (window.__netoptPendingWanScope !== undefined) { m.setWanScope(window.__netoptPendingWanScope); window.__netoptPendingWanScope = undefined; } "
                     + $"{postMount} }})();");
+                _latencyChartsReady = true;
                 // The link's WAN is applied above, so a deep-linked investigation held back at the
                 // top of this method can run now. Done here rather than left to the next render:
                 // the apply does not always raise one, and waiting for an unrelated render is the
                 // race all over again.
                 await TryRunPendingInvestigationAsync();
             }
-            catch (Exception ex) { _latencyChartsMounted = false; Logger.LogDebug(ex, "Latency charts mount failed; will retry on next render"); }
+            catch (Exception ex) { _latencyChartsMounted = false; _latencyChartsReady = false; Logger.LogDebug(ex, "Latency charts mount failed; will retry on next render"); }
         }
         else if (_activeTab != "performance" && _latencyChartsMounted)
         {
             _latencyChartsMounted = false;
+            _latencyChartsReady = false;
             // Leaving ends the visit a link governed, so the next arrival gets to be honoured even
             // when it names the same WAN. The stamp is once-PER-VISIT; left set across the leave it
             // was once ever, and a second jump on the same WAN silently kept the scope it found.
