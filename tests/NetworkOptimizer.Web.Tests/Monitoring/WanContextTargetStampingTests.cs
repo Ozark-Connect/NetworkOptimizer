@@ -1,4 +1,4 @@
-﻿using FluentAssertions;
+using FluentAssertions;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -48,7 +48,7 @@ public class WanContextTargetStampingTests : IDisposable
     private NetworkOptimizerDbContext Db() => _factory.CreateForSite(_siteContext.Slug, _siteContext.IsDefault);
 
     private MonitoringTargetService Targets() => new(
-        _factory, _siteContext, asnResolution: null!, executorFactory: null!, _audit,
+        _factory, _siteContext, asnResolution: null!, routes: null!, _audit,
         NullLogger<MonitoringTargetService>.Instance);
 
     private async Task<int> SeedContextAsync(string name, string? wanInterface)

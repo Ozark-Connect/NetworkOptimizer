@@ -334,7 +334,8 @@ public class UpstreamTracerService
     /// rate-limited to <see cref="MaxWitnessTracesPerTick"/> per call. Called every re-discovery
     /// tick (hourly), independent of the full re-discovery cadence. Best-effort.
     /// </summary>
-    public async Task BackfillWitnessAncestryAsync(CancellationToken ct = default)
+    /// <param name="routes">Traces each target from the vantage and bind that measure it.</param>
+    public async Task BackfillWitnessAncestryAsync(PathMap.PathRouteRecorder routes, CancellationToken ct = default)
     {
         try
         {
@@ -364,8 +365,7 @@ public class UpstreamTracerService
             {
                 if (ct.IsCancellationRequested || traced >= MaxWitnessTracesPerTick) break;
                 if (freshIds.Contains(t.Id)) continue;
-                await using var wdb = await CreateDbAsync(ct);
-                if (await TargetAncestry.TraceAndPersistAsync(_traceExecutor, wdb, t.Id, t.Address, _logger, ct))
+                if ((await routes.TraceAsync(_siteSlug, t.Id, ct)).Persisted)
                     traced++;
             }
             if (traced > 0)

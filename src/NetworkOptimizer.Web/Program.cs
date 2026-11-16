@@ -27,6 +27,7 @@ using NetworkOptimizer.Web.Services.OntProviders;
 using NetworkOptimizer.Web.Services.SqmLearning;
 using NetworkOptimizer.Web.Services.Ssh;
 using NetworkOptimizer.Web.Services.WiredPortPresence;
+using NetworkOptimizer.Web.Services.Monitoring.PathMap;
 using Serilog;
 using Serilog.Events;
 
@@ -885,6 +886,13 @@ builder.Services.AddSingleton<HopLocationOverrideCache>();
 // Places each site's own traces gave hop addresses, for traces that later have only GeoLite2.
 builder.Services.AddSingleton<LearnedHopLocations>();
 builder.Services.AddMutatingService<IHopLocationOverrideService, HopLocationOverrideService>();
+// Path Map: target routes traced from the vantage that measures them, placed with the Route Map's engine.
+builder.Services.AddSingleton<NetworkOptimizer.Web.Services.Monitoring.PathMap.RoutePlacer>();
+builder.Services.AddSingleton<NetworkOptimizer.Web.Services.Monitoring.PathMap.PathRouteRecorder>();
+// One re-trace loop per site, shared by every viewer of the map, plus the slow background pass.
+builder.Services.AddSingleton<NetworkOptimizer.Web.Services.Monitoring.PathMap.PathMapTraceScheduler>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<NetworkOptimizer.Web.Services.Monitoring.PathMap.PathMapTraceScheduler>());
+builder.Services.AddMutatingService<IPathMapService, PathMapService>();
 builder.Services.AddMutatingService<IChangeControlFleetService, ChangeControlFleetService>();
 // Re-runs upstream tracer discovery every 7 days; flips a review flag on diff.
 builder.Services.AddHostedService<NetworkOptimizer.Web.Services.Monitoring.UpstreamRediscoveryService>();
