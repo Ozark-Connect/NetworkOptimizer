@@ -1743,14 +1743,14 @@ else if (_diagResult != null && !string.IsNullOrEmpty(_diagResult.InterfaceError
     /// <summary>Places the trace's hops and builds its map: after a run, and again when a hop's location is set or reset.</summary>
     private async Task PlaceTraceAsync(TracerouteResult trace)
     {
-        IReadOnlyDictionary<string, NetworkOptimizer.Web.Services.Monitoring.HopLocationSetting>? set = null;
-        try { set = await HopLocationSets.GetAllAsync(); }
+        IReadOnlyDictionary<string, NetworkOptimizer.Web.Services.Monitoring.HopLocationSetting>? overrides = null;
+        try { overrides = await HopLocationSets.GetAllAsync(); }
         catch (Exception ex) { Logger.LogWarning(ex, "Could not read the hop locations set by hand"); }
         _traceLocations = NetworkOptimizer.Web.Services.Monitoring.HopLocations.Resolve(
-            trace.Hops.Where(h => h.Responded).Select(h => (h.Address, TraceHostname(h), h.RttMinMs)), Geo.Enrich, set);
+            trace.Hops.Where(h => h.Responded).Select(h => (h.Address, TraceHostname(h), h.RttMinMs)), Geo.Enrich, overrides);
         _tracePath = NetworkOptimizer.Web.Services.Monitoring.TraceMapPath.Build(
             trace.Hops.Where(h => h.Responded).Select(h => (h.HopNumber, h.Address, TraceHostname(h), h.RttMinMs)),
-            _traceLocations, await TraceStartAsync(trace.Target.SourceInterface, set));
+            _traceLocations, await TraceStartAsync(trace.Target.SourceInterface, overrides));
         _mapHops = _tracePath.HasRoute
             ? _tracePath.Nodes.SelectMany(n => n.Hops).Select(h => h.Number).Where(n => n > 0).ToHashSet()
             : [];
@@ -1770,7 +1770,7 @@ else if (_diagResult != null && !string.IsNullOrEmpty(_diagResult.InterfaceError
     /// Null when that WAN is unknown, its address is not public IPv4, or neither gives a city.
     /// </summary>
     private async Task<(string Label, string City, string? CountryCode, double Latitude, double Longitude)?> TraceStartAsync(
-        string? sourceBind, IReadOnlyDictionary<string, NetworkOptimizer.Web.Services.Monitoring.HopLocationSetting>? set)
+        string? sourceBind, IReadOnlyDictionary<string, NetworkOptimizer.Web.Services.Monitoring.HopLocationSetting>? overrides)
     {
         static bool Same(string? a, string? b) => !string.IsNullOrEmpty(a) && string.Equals(a, b, StringComparison.OrdinalIgnoreCase);
 
@@ -1780,7 +1780,7 @@ else if (_diagResult != null && !string.IsNullOrEmpty(_diagResult.InterfaceError
             : wans.FirstOrDefault(w => Same(w.UplinkIfName, sourceBind) || Same(w.PhysicalIfName, sourceBind) || Same(w.IpAddress, sourceBind));
         if (wan?.IpAddress is not { Length: > 0 } ip || wan.IpClass != PublicAddressClass.PublicIPv4) return null;
 
-        return NetworkOptimizer.Web.Services.Monitoring.HopLocations.Start(ip, Geo.Enrich, set) is { } at
+        return NetworkOptimizer.Web.Services.Monitoring.HopLocations.Start(ip, Geo.Enrich, overrides) is { } at
             ? (ip, at.City, at.CountryCode, at.Latitude, at.Longitude)
             : null;
     }

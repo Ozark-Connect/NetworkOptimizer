@@ -49,11 +49,11 @@ public static class HopLocations
     /// </summary>
     /// <param name="hops">The responding hops, in hop order.</param>
     /// <param name="geo">GeoLite2 lookup for an address (empty when the database is missing).</param>
-    /// <param name="set">Cities set by hand, by address. They win over every other source and anchor
+    /// <param name="overrides">Cities set by hand, by address (<see cref="IHopLocationOverrideService"/>). They win over every other source and anchor
     /// the hops around them, and nothing rules them out.</param>
     public static Dictionary<string, HopLocationView> Resolve(
         IEnumerable<(string? Address, string? Hostname, double? MinRttMs)> hops, Func<string, GeoInfo> geo,
-        IReadOnlyDictionary<string, HopLocationSetting>? set = null)
+        IReadOnlyDictionary<string, HopLocationSetting>? overrides = null)
     {
         var result = new Dictionary<string, HopLocationView>(StringComparer.OrdinalIgnoreCase);
         var list = hops.Where(h => !string.IsNullOrEmpty(h.Address)).ToList();
@@ -79,14 +79,14 @@ public static class HopLocations
             .FirstOrDefault();
         // A city set by hand for that hop stands in for GeoLite2's.
         (double, double)? vantage = nearest.Address is not { } at ? null
-            : set != null && set.TryGetValue(at, out var setAt) ? (setAt.Latitude, setAt.Longitude)
+            : overrides != null && overrides.TryGetValue(at, out var setAt) ? (setAt.Latitude, setAt.Longitude)
             : (geoByAddress[at].Latitude!.Value, geoByAddress[at].Longitude!.Value);
 
         var pinned = new HopLocationSetting?[list.Count];
         var named = new RouterHostnameLocation?[list.Count];
         for (var i = 0; i < list.Count; i++)
         {
-            if (set != null && set.TryGetValue(list[i].Address!, out var s))
+            if (overrides != null && overrides.TryGetValue(list[i].Address!, out var s))
             {
                 pinned[i] = s;
                 continue;
@@ -168,9 +168,9 @@ public static class HopLocations
     /// WAN's address, else GeoLite2's city for it. Null when neither gives a city.
     /// </summary>
     public static (string City, string? CountryCode, double Latitude, double Longitude)? Start(
-        string address, Func<string, GeoInfo> geo, IReadOnlyDictionary<string, HopLocationSetting>? set)
+        string address, Func<string, GeoInfo> geo, IReadOnlyDictionary<string, HopLocationSetting>? overrides)
     {
-        if (set != null && set.TryGetValue(address, out var s)) return (s.City, s.CountryCode, s.Latitude, s.Longitude);
+        if (overrides != null && overrides.TryGetValue(address, out var s)) return (s.City, s.CountryCode, s.Latitude, s.Longitude);
         return geo(address) is { City.Length: > 0, Latitude: double lat, Longitude: double lon } g
             ? (g.City!, g.CountryCode, lat, lon)
             : null;
@@ -203,7 +203,7 @@ public static class HopLocations
 
     /// <summary>A hop other hops are placed against.</summary>
     private sealed record Anchor(string City, string CountryCode, double Latitude, double Longitude, string Label, bool FromHostname,
-        int AccuracyKm = 0, bool Set = false);
+        int AccuracyKm = 0, bool SetByHand = false);
 
     /// <summary>
     /// The anchors, by hop: every hop with a city set by hand, every hostname-placed hop, the vantage
@@ -221,7 +221,7 @@ public static class HopLocations
             if (pinned[i] is { } p)
             {
                 var label = string.IsNullOrEmpty(list[i].Hostname) ? list[i].Address! : list[i].Hostname!.Split('.')[0];
-                anchors[i] = new Anchor(p.City, p.CountryCode, p.Latitude, p.Longitude, label, FromHostname: true, Set: true);
+                anchors[i] = new Anchor(p.City, p.CountryCode, p.Latitude, p.Longitude, label, FromHostname: true, SetByHand: true);
             }
             // An exchange's name places its own hop but anchors nothing: it names the exchange fabric,
             // and the member answering on it can sit far from it.
@@ -263,7 +263,7 @@ public static class HopLocations
             var unreachable = new List<int>();
             for (var j = vantageIndex + 1; j < lastIndex; j++)
             {
-                if (anchors[j] is not { FromHostname: true, Set: false } a || list[j].MinRttMs is not double rtt) continue;
+                if (anchors[j] is not { FromHostname: true, SetByHand: false } a || list[j].MinRttMs is not double rtt) continue;
                 if (!InReach(last, a.Latitude, a.Longitude, Math.Abs(lastRtt - rtt), a.AccuracyKm)) unreachable.Add(j);
             }
             if (unreachable.Any(j => Corroborated(list, anchors, j))) return anchors;
@@ -284,12 +284,12 @@ public static class HopLocations
     /// </summary>
     private static bool FinalPopNamed(List<(string? Address, string? Hostname, double? MinRttMs)> list, Anchor?[] anchors,
         Dictionary<string, GeoInfo> geo) =>
-        list.Count >= 2 && anchors[^1] == null && anchors[^2] is { FromHostname: true, Set: var set }
+        list.Count >= 2 && anchors[^1] == null && anchors[^2] is { FromHostname: true, SetByHand: var setByHand }
         // Adjacent in time too: a destination tens of ms past it was reached somewhere else.
         && list[^1].MinRttMs is double end && list[^2].MinRttMs is double pop && Math.Abs(end - pop) <= NeighborGapMs
         // A port named for the network it hands off to is the far end of its link, not a PoP: an NTT
         // ae-0.<customer>.lsanca07 port answers from the customer's city, 900 km away. A city set by hand stands.
-        && (set || !NamesNetwork(list[^2].Hostname, list[^1].Hostname, geo[list[^1].Address!].AsnOrg));
+        && (setByHand || !NamesNetwork(list[^2].Hostname, list[^1].Hostname, geo[list[^1].Address!].AsnOrg));
 
     /// <summary>
     /// Whether a router's hostname names another network: a label part matching the other hop's own
@@ -324,8 +324,8 @@ public static class HopLocations
 
     // Another hop within NeighborGapMs has a router hostname naming the same city as this one's.
     private static bool Corroborated(List<(string? Address, string? Hostname, double? MinRttMs)> list, Anchor?[] anchors, int i) =>
-        anchors[i] is { FromHostname: true, Set: false } a && list[i].MinRttMs is double rtt
-        && anchors.Where((other, j) => j != i && other is { FromHostname: true, Set: false } o
+        anchors[i] is { FromHostname: true, SetByHand: false } a && list[i].MinRttMs is double rtt
+        && anchors.Where((other, j) => j != i && other is { FromHostname: true, SetByHand: false } o
             && o.City == a.City && o.CountryCode == a.CountryCode
             && list[j].MinRttMs is double otherRtt && Math.Abs(otherRtt - rtt) <= NeighborGapMs).Any();
 
