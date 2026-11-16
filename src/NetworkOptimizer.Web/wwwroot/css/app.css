@@ -29761,8 +29761,21 @@ tr:hover .hop-loc-edit,
 }
 
 .hop-loc-pop {
-    width: 320px;
     white-space: normal;
+}
+
+/* The popover's width is desktop only: on a phone the sheet spans the screen as Live Traffic's does,
+   and its list keeps its height before a search so the sheet does not open short. */
+@media (min-width: 769px) {
+    .hop-loc-pop {
+        width: 320px;
+    }
+}
+
+@media (max-width: 768px) {
+    .hop-loc-pop .lt-fpop-list {
+        height: 45vh;
+    }
 }
 
 .hop-loc-for {
