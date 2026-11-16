@@ -21,6 +21,7 @@ public class SiteSwitchUrlTests
     [InlineData("/monitoring?tab=setup&mifip=192.0.2.1&mitype=cm", "/monitoring?tab=setup&mitype=cm")]
     // Network Tools: the probe host is the same everywhere, the vantage is not.
     [InlineData("/network-tools?target=198.51.100.7&from=wan2", "/network-tools?target=198.51.100.7")]
+    [InlineData("/network-tools?from=server&target=198.51.100.7&run=trace#run-a-probe", "/network-tools?target=198.51.100.7#run-a-probe")]
     // Wi-Fi Optimizer: APs, clients, and roaming edges go; band and channel filters stay.
     [InlineData("/wifi-optimizer?tab=roaming&edge=ap1-ap2", "/wifi-optimizer?tab=roaming")]
     [InlineData("/wifi-optimizer?tab=channels&ap=aa:bb:cc:dd:ee:ff&band=5&channel=36", "/wifi-optimizer?tab=channels&band=5&channel=36")]

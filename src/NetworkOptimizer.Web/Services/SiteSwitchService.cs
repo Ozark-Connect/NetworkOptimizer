@@ -76,7 +76,8 @@ public class SiteSwitchService
     private static readonly Dictionary<string, string[]> SiteBoundByPath = new(StringComparer.OrdinalIgnoreCase)
     {
         ["/monitoring"] = ["target", "device", "client", "sfp", "modem", "cm", "ont", "starlink", "mifip"],
-        ["/network-tools"] = ["from"],
+        // ?run= is an action, not a view: a switch must not run the linked traceroute again on the new site.
+        ["/network-tools"] = ["from", "run"],
         ["/wifi-optimizer"] = ["client", "ap", "edge"],
         ["/client-dashboard"] = ["ip"],
         ["/alerts"] = ["alert"],
