@@ -164,6 +164,19 @@ public static class HopLocations
     }
 
     /// <summary>
+    /// Where a trace from a WAN starts, for a route map's first point: the city set by hand for the
+    /// WAN's address, else GeoLite2's city for it. Null when neither gives a city.
+    /// </summary>
+    public static (string City, string? CountryCode, double Latitude, double Longitude)? Start(
+        string address, Func<string, GeoInfo> geo, IReadOnlyDictionary<string, HopLocationSetting>? set)
+    {
+        if (set != null && set.TryGetValue(address, out var s)) return (s.City, s.CountryCode, s.Latitude, s.Longitude);
+        return geo(address) is { City.Length: > 0, Latitude: double lat, Longitude: double lon } g
+            ? (g.City!, g.CountryCode, lat, lon)
+            : null;
+    }
+
+    /// <summary>
     /// A hop with no city of its own takes the city of the anchor nearest it in the trace, when their
     /// round trips are within <see cref="NeighborGapMs"/>. GeoLite2's city wins unless it is too far
     /// from that anchor for the round-trip gap.
@@ -224,14 +237,15 @@ public static class HopLocations
             return anchors;
         anchors[vantageIndex] = vantage;
 
-        // A hostname-placed hop after it outranks it, so it anchors nothing then. It must sit in the
-        // destination's network (the last hop's ASN, when both are known): a transit hop's GeoLite2
-        // city can be far from the router (a Dallas Cox hop placed in Warner Robins, GA).
         // The final PoP, the router right before the destination, naming its city outranks the
         // destination's GeoLite2 city: the routers along the way can answer from elsewhere, but the
         // last one is where the destination is reached. GeoLite2's end then anchors nothing.
-        if (FinalPopNamed(list, anchors)) return anchors;
+        if (FinalPopNamed(list, anchors, geo)) return anchors;
 
+        // The last hop GeoLite2 places in a city anchors the end of the trace. A hostname-placed hop
+        // after it outranks it, so it anchors nothing then. It must sit in the destination's network
+        // (the last hop's ASN, when both are known): a transit hop's GeoLite2 city can be far from the
+        // router (a Dallas Cox hop placed in Warner Robins, GA).
         var lastIndex = list.FindLastIndex(h => GeoAnchor(h, geo) != null);
         var destinationAsn = list.Count > 0 ? geo[list[^1].Address!].Asn : null;
         if (lastIndex > vantageIndex && anchors[lastIndex] == null
@@ -268,10 +282,45 @@ public static class HopLocations
     /// The router right before the destination (the last responding hop before it) is placed by a
     /// city set by hand or one its hostname names, and the destination is not itself so placed.
     /// </summary>
-    private static bool FinalPopNamed(List<(string? Address, string? Hostname, double? MinRttMs)> list, Anchor?[] anchors) =>
-        list.Count >= 2 && anchors[^1] == null && anchors[^2] is { FromHostname: true }
+    private static bool FinalPopNamed(List<(string? Address, string? Hostname, double? MinRttMs)> list, Anchor?[] anchors,
+        Dictionary<string, GeoInfo> geo) =>
+        list.Count >= 2 && anchors[^1] == null && anchors[^2] is { FromHostname: true, Set: var set }
         // Adjacent in time too: a destination tens of ms past it was reached somewhere else.
-        && list[^1].MinRttMs is double end && list[^2].MinRttMs is double pop && Math.Abs(end - pop) <= NeighborGapMs;
+        && list[^1].MinRttMs is double end && list[^2].MinRttMs is double pop && Math.Abs(end - pop) <= NeighborGapMs
+        // A port named for the network it hands off to is the far end of its link, not a PoP: an NTT
+        // ae-0.<customer>.lsanca07 port answers from the customer's city, 900 km away. A city set by hand stands.
+        && (set || !NamesNetwork(list[^2].Hostname, list[^1].Hostname, geo[list[^1].Address!].AsnOrg));
+
+    /// <summary>
+    /// Whether a router's hostname names another network: a label part matching the other hop's own
+    /// domain name ("examplenet" in core1.examplenet.net) or a word of its network's name.
+    /// </summary>
+    internal static bool NamesNetwork(string? hostname, string? otherHostname, string? otherAsnOrg)
+    {
+        if (string.IsNullOrEmpty(hostname)) return false;
+        var labels = hostname.ToLowerInvariant().TrimEnd('.').Split('.');
+        if (labels.Length < 3) return false;
+        // The router's own operator (its last two labels) never counts.
+        var own = labels[^2];
+        var parts = labels[..^2].SelectMany(l => l.Split('-', '_')).Where(p => p.Length >= 4).ToHashSet();
+
+        var names = new HashSet<string>();
+        var other = otherHostname?.ToLowerInvariant().TrimEnd('.').Split('.');
+        if (other is { Length: >= 2 }) names.Add(other[^2]);
+        foreach (var word in (otherAsnOrg ?? "").ToLowerInvariant().Split(' ', ',', '.', '-', '/'))
+            if (word.Length >= 4 && !GenericNetworkWords.Contains(word)) names.Add(word);
+        names.Remove(own);
+        return names.Any(parts.Contains);
+    }
+
+    // Words in many networks' names that say nothing about which network it is.
+    private static readonly HashSet<string> GenericNetworkWords = new(StringComparer.Ordinal)
+    {
+        "communications", "communication", "network", "networks", "internet", "telecom", "telecommunications",
+        "cable", "services", "service", "limited", "company", "group", "holdings", "technologies", "technology",
+        "online", "global", "broadband", "fiber", "fibre", "wireless", "telephone", "systems", "solutions", "corp",
+        "corporation", "level", "data", "cloud", "hosting", "core",
+    };
 
     // Another hop within NeighborGapMs has a router hostname naming the same city as this one's.
     private static bool Corroborated(List<(string? Address, string? Hostname, double? MinRttMs)> list, Anchor?[] anchors, int i) =>

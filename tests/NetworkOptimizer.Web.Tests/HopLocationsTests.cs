@@ -572,6 +572,46 @@ public class HopLocationsTests
     }
 
     [Fact]
+    public void Resolve_AHandoffPortNamedForTheDestinationsNetwork_IsNotTrustedAsTheFinalPop()
+    {
+        // NTT's port to a customer network, named for the Los Angeles router at its other end, answers
+        // from the customer's city: the end of the trace still rules its Los Angeles name out.
+        var found = HopLocations.Resolve(
+        [
+            ("198.51.100.1", null, 1.0),
+            ("203.0.113.20", "ae-2.a03.lsanca07.us.bb.gin.ntt.net", 46.3),
+            ("203.0.113.21", "ae-0.examplenet.lsanca07.us.bb.gin.ntt.net", 62.0),
+            ("198.51.100.60", "mar2.core.examplenet.net", 61.3),
+        ], GeoHandoff);
+
+        found["203.0.113.21"].City.Should().NotBe("Los Angeles");
+        found["198.51.100.60"].City.Should().Be("Lindon");
+    }
+
+    private static GeoInfo GeoHandoff(string address) => address switch
+    {
+        "198.51.100.60" => new GeoInfo { CountryCode = "US", City = "Lindon", Latitude = 40.34, Longitude = -111.72, AccuracyRadiusKm = 5, Asn = 64600, AsnOrg = "Examplenet" },
+        _ => Geo(address),
+    };
+
+    [Fact]
+    public void Start_ACitySetByHandForTheWanAddress_WinsOverGeoLite2()
+    {
+        HopLocations.Start("198.51.100.1", Geo, SetTo("198.51.100.1", "Tulsa", 36.15, -95.99))!.Value.City.Should().Be("Tulsa");
+        HopLocations.Start("198.51.100.1", Geo, null)!.Value.City.Should().Be("Dallas");
+        HopLocations.Start("192.0.2.200", Geo, null).Should().BeNull();
+    }
+
+    [Fact]
+    public void NamesNetwork_ReadsTheOtherHopsDomainAndNetworkName_NotGenericWords()
+    {
+        HopLocations.NamesNetwork("ae-0.examplenet.lsanca07.us.bb.gin.ntt.net", "mar2.core.examplenet.net", null).Should().BeTrue();
+        HopLocations.NamesNetwork("ae-0.examplenet.lsanca07.us.bb.gin.ntt.net", null, "Examplenet, L.C.").Should().BeTrue();
+        HopLocations.NamesNetwork("ae1.edge1.Houston1.Level3.net", null, "Example Communications Cable").Should().BeFalse();
+        HopLocations.NamesNetwork("ae1.edge1.Houston1.Level3.net", "host.example.com", null).Should().BeFalse();
+    }
+
+    [Fact]
     public void Resolve_AnycastRightAfterANamedFinalPop_TakesThePopsCity()
     {
         var found = HopLocations.Resolve(

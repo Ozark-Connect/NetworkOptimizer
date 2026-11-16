@@ -1750,7 +1750,7 @@ else if (_diagResult != null && !string.IsNullOrEmpty(_diagResult.InterfaceError
             trace.Hops.Where(h => h.Responded).Select(h => (h.Address, TraceHostname(h), h.RttMinMs)), Geo.Enrich, set);
         _tracePath = NetworkOptimizer.Web.Services.Monitoring.TraceMapPath.Build(
             trace.Hops.Where(h => h.Responded).Select(h => (h.HopNumber, h.Address, TraceHostname(h), h.RttMinMs)),
-            _traceLocations, await TraceStartAsync(trace.Target.SourceInterface));
+            _traceLocations, await TraceStartAsync(trace.Target.SourceInterface, set));
         _mapHops = _tracePath.HasRoute
             ? _tracePath.Nodes.SelectMany(n => n.Hops).Select(h => h.Number).Where(n => n > 0).ToHashSet()
             : [];
@@ -1765,11 +1765,12 @@ else if (_diagResult != null && !string.IsNullOrEmpty(_diagResult.InterfaceError
     private NetworkOptimizer.Web.Services.Monitoring.HopLocationEdit? _locationEdit;
 
     /// <summary>
-    /// Where the trace left the site, for the map's first point: GeoLite2's city for the address of
-    /// the WAN the probe was bound to, or of the primary WAN when it was not bound. Null when that
-    /// WAN is unknown, its address is not public IPv4, or GeoLite2 has no city for it.
+    /// Where the trace left the site, for the map's first point: the city set by hand for the address
+    /// of the WAN the probe was bound to (or of the primary WAN when it was not bound), else GeoLite2's.
+    /// Null when that WAN is unknown, its address is not public IPv4, or neither gives a city.
     /// </summary>
-    private async Task<(string Label, string City, string? CountryCode, double Latitude, double Longitude)?> TraceStartAsync(string? sourceBind)
+    private async Task<(string Label, string City, string? CountryCode, double Latitude, double Longitude)?> TraceStartAsync(
+        string? sourceBind, IReadOnlyDictionary<string, NetworkOptimizer.Web.Services.Monitoring.HopLocationSetting>? set)
     {
         static bool Same(string? a, string? b) => !string.IsNullOrEmpty(a) && string.Equals(a, b, StringComparison.OrdinalIgnoreCase);
 
@@ -1779,8 +1780,8 @@ else if (_diagResult != null && !string.IsNullOrEmpty(_diagResult.InterfaceError
             : wans.FirstOrDefault(w => Same(w.UplinkIfName, sourceBind) || Same(w.PhysicalIfName, sourceBind) || Same(w.IpAddress, sourceBind));
         if (wan?.IpAddress is not { Length: > 0 } ip || wan.IpClass != PublicAddressClass.PublicIPv4) return null;
 
-        return Geo.Enrich(ip) is { City.Length: > 0, Latitude: double lat, Longitude: double lon } g
-            ? (ip, g.City!, g.CountryCode, lat, lon)
+        return NetworkOptimizer.Web.Services.Monitoring.HopLocations.Start(ip, Geo.Enrich, set) is { } at
+            ? (ip, at.City, at.CountryCode, at.Latitude, at.Longitude)
             : null;
     }
 
