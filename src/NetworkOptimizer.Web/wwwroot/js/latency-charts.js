@@ -469,6 +469,11 @@ const SHARED_OUTAGE_MIN_TARGETS = 3;
 // that stops being true, so Blazor is told to drop the parameter - otherwise a reload or the back
 // button drags them back to the linked instant. Called from the user's own handlers only, never
 // from frameMoment/frameTrailing, which ARE the link landing. Best-effort, like the hints below.
+function notifyPresetPicked() {
+    try { window.__netoptLatencyRef?.invokeMethodAsync('OnWindowPresetPickedByUser'); }
+    catch { /* no ref yet, or the circuit is gone - the window still moved */ }
+}
+
 function notifyTimelineMoved() {
     try { window.__netoptLatencyRef?.invokeMethodAsync('OnTimelineMovedByUser'); }
     catch { /* no ref yet, or the circuit is gone - the window still moved */ }
@@ -911,10 +916,10 @@ export async function mount(elId, initialWanScope, initialCategory) {
         });
     });
 
-    // Preset range buttons
+    // Preset range buttons: a preset is saved as the reader's own, so it ends a link (a shift or a drag does not).
     container.querySelectorAll('[data-range]').forEach(btn => {
         btn.addEventListener('click', () => {
-            notifyTimelineMoved();
+            notifyPresetPicked();
             const hours = parseInt(btn.dataset.range);
             // Saved HERE rather than in selectPresetRange: a deep link's framing calls that
             // too, and a window the link chose must not become a remembered preference.

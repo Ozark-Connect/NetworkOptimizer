@@ -4089,16 +4089,21 @@
     // Set by the chip's clear on Network Performance: the chart stays down until the link's parameters are gone.
     private bool _awaitingOwnFilters;
 
+    // Set by the chip's clear on Live View until the map's return to live has stripped the link.
+    private bool _liveLinkClearing;
+
     /// <summary>
     /// Whether the tab is showing what a link asked for rather than the reader's own filters: the
     /// parameters each tab's link handling reads, which the page drops as the reader takes over.
     /// </summary>
     private bool LinkContextVisible => _activeTab switch
     {
+        // ?via= too: a shift, a drag, or a scrub drops the link's moment but leaves the link.
         "performance" => !string.IsNullOrWhiteSpace(AtParam) || !string.IsNullOrWhiteSpace(SpanParam)
             || !string.IsNullOrWhiteSpace(InvestigateParam) || !string.IsNullOrEmpty(CategoryParam)
-            || !string.IsNullOrWhiteSpace(TargetParam) || LinkNarrowsWanFilter,
-        "live" => !string.IsNullOrWhiteSpace(AtParam) || !string.IsNullOrWhiteSpace(WanParam),
+            || !string.IsNullOrWhiteSpace(TargetParam) || LinkNarrowsWanFilter || !string.IsNullOrWhiteSpace(ViaParam),
+        "live" => !string.IsNullOrWhiteSpace(AtParam) || !string.IsNullOrWhiteSpace(WanParam)
+            || !string.IsNullOrWhiteSpace(ViaParam),
         _ => false,
     };
 
@@ -4187,6 +4192,8 @@
         }
         if (_activeTab == "live")
         {
+            // The return to live below strips ?at= and ?wan=; this has it take ?via= in the same navigation.
+            _liveLinkClearing = true;
             LiveWan.ForgetVisitClaim();
             await LiveWan.RestoreAsync();
             // The map's own return to live reports back through OnMapTimeChanged, which drops ?at= and ?wan=.
@@ -4723,8 +4730,10 @@
 
         if (isoTimestamp == null)
         {
-            // Back to live under their own hand, so the linked instant is behind them.
-            ClearLinkedInstant();
+            // Back to live under their own hand, so the linked instant is behind them. From the chip's clear,
+            // the whole link goes.
+            ClearLinkedInstant(endLink: _liveLinkClearing);
+            _liveLinkClearing = false;
             _mapHistoricAt = null;
             _historicSnapshot = null;
             _hogsWanRateAt = null;
@@ -4750,15 +4759,22 @@
 
     /// <summary>
     /// Told by the analysis charts that the user moved their own window - a range button, a shift
-    /// arrow, a custom range, a drag-zoom. On Network Performance that ends the link: a preset pick is
-    /// saved as the reader's own, so ?category= and ?target= go too, and the link context chip with them.
+    /// arrow, a custom range, a drag-zoom. The link's moment goes; the link itself, and its chip, stay.
     /// </summary>
     [JSInvokable]
-    public void OnTimelineMovedByUser() => ClearLinkedInstant(endLink: _activeTab == "performance");
+    public void OnTimelineMovedByUser() => ClearLinkedInstant();
+
+    /// <summary>
+    /// Told by Latency &amp; Packet Loss that the reader picked a time preset. A preset is saved as their own,
+    /// so it ends the link: ?category=, ?target=, and ?via= go with the moment, and the link context chip goes.
+    /// </summary>
+    [JSInvokable]
+    public void OnWindowPresetPickedByUser() => ClearLinkedInstant(endLink: _activeTab == "performance");
 
     /// <summary>
     /// Told by the analysis charts that the user picked a category: a link's ?category= and ?target= stop
-    /// describing the view and go, as on a scope pick, so a reload keeps the pick.
+    /// describing the view and go, so a reload keeps the pick. The link's moment stays, and with it the
+    /// chip: a category is a different look at the same event, not a saved filter.
     /// </summary>
     [JSInvokable]
     public void OnChartCategoryPickedByUser() => ClearLinkedWan(andCategory: true);
@@ -4856,7 +4872,7 @@
         if (!keepInvestigation && !string.IsNullOrWhiteSpace(WanParam))
             stripped = SiteContextService.RemoveQueryParam(stripped, "wan");
         // Only once the chart mount has read the link's category, as in ClearLinkedWan.
-        if (endLink && _latencyChartsMounted)
+        if (endLink && (_latencyChartsMounted || _activeTab == "live"))
         {
             if (!string.IsNullOrEmpty(CategoryParam))
                 stripped = SiteContextService.RemoveQueryParam(stripped, "category");
