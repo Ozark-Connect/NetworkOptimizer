@@ -4739,10 +4739,11 @@
 
     /// <summary>
     /// Told by the analysis charts that the user moved their own window - a range button, a shift
-    /// arrow, a custom range, a drag-zoom.
+    /// arrow, a custom range, a drag-zoom. On Network Performance that ends the link: a preset pick is
+    /// saved as the reader's own, so ?category= and ?target= go too, and the link context chip with them.
     /// </summary>
     [JSInvokable]
-    public void OnTimelineMovedByUser() => ClearLinkedInstant();
+    public void OnTimelineMovedByUser() => ClearLinkedInstant(endLink: _activeTab == "performance");
 
     /// <summary>
     /// Told by the analysis charts that the user picked a category: a link's ?category= and ?target= stop
@@ -4811,7 +4812,11 @@
     /// True for paging inside an investigation: it moves the window, so ?at= and ?span= go, but it is
     /// still the investigation (and the WAN) the link opened, so ?investigate= and ?wan= stay.
     /// </param>
-    private void ClearLinkedInstant(bool keepInvestigation = false)
+    /// <param name="endLink">
+    /// True when the reader moved the Latency &amp; Packet Loss window: ?category=, ?target=, and ?via= go
+    /// too, so nothing of the link is left. What is on screen stays for the visit; a reload reads the saved filters.
+    /// </param>
+    private void ClearLinkedInstant(bool keepInvestigation = false, bool endLink = false)
     {
         _linkedInstantMs = null;
         var current = NavigationManager.Uri;
@@ -4824,6 +4829,18 @@
             stripped = SiteContextService.RemoveQueryParam(stripped, "investigate");
         if (!keepInvestigation && !string.IsNullOrWhiteSpace(WanParam))
             stripped = SiteContextService.RemoveQueryParam(stripped, "wan");
+        // Only once the chart mount has read the link's category, as in ClearLinkedWan.
+        if (endLink && _latencyChartsMounted)
+        {
+            if (!string.IsNullOrEmpty(CategoryParam))
+                stripped = SiteContextService.RemoveQueryParam(stripped, "category");
+            if (!string.IsNullOrWhiteSpace(TargetParam))
+                stripped = SiteContextService.RemoveQueryParam(stripped, "target");
+            if (!string.IsNullOrWhiteSpace(ViaParam))
+                stripped = SiteContextService.RemoveQueryParam(stripped, "via");
+            _preSelectCategory = null;
+            _soloTargetId = null;
+        }
         if (stripped == current) return;
         // Armed against the new URL first, or being re-supplied under it would arm a fresh seek
         // and pull them straight back to where they just left. Set even when only the WAN was
