@@ -225,7 +225,25 @@ public class HopLocationsTests
     [Fact]
     public void Resolve_AHostnameCityTheEndOfTheTraceCannotReach_IsRuledOut()
     {
-        // 1 ms before a hop in Kansas City's suburbs cannot be Los Angeles.
+        // 1 ms before a hop in Kansas City's suburbs cannot be Los Angeles: an interface named for the
+        // far end of its link. A hop after it keeps it from being the final PoP.
+        var found = HopLocations.Resolve(
+        [
+            ("198.51.100.32", null, 1.0),
+            ("203.0.113.7", "ae1.lax01.example.net", 40.0),
+            ("203.0.113.9", null, 40.5),
+            ("198.51.100.22", null, 41.0),
+        ], Geo);
+
+        // Borrowed from the Overland Park end hop, so shown at its hub.
+        found["203.0.113.7"].Text.Should().Be("Kansas City, United States");
+    }
+
+    [Fact]
+    public void Resolve_ANamedFinalPopRightBeforeTheDestination_IsNotRuledOutByTheDestinationsGeoLite2City()
+    {
+        // The router right before the destination is where the destination was reached: its name
+        // outranks the destination's GeoLite2 city, and the destination 1 ms past it is there too.
         var found = HopLocations.Resolve(
         [
             ("198.51.100.32", null, 1.0),
@@ -233,8 +251,8 @@ public class HopLocationsTests
             ("198.51.100.22", null, 41.0),
         ], Geo);
 
-        // Borrowed from the Overland Park end hop, so shown at its hub.
-        found["203.0.113.7"].Text.Should().Be("Kansas City, United States");
+        found["203.0.113.7"].Text.Should().Be("Los Angeles, United States");
+        found["198.51.100.22"].Text.Should().Be("Los Angeles, United States");
     }
 
     [Fact]
@@ -508,17 +526,63 @@ public class HopLocationsTests
     [Fact]
     public void Resolve_Anycast_IsPlacedAtTheMetroItsRoundTripFits()
     {
-        // 3 ms past a Houston router: Dallas is the interconnection metro in reach.
+        // 4.5 ms past a Houston router (beyond a neighbor's few ms): Dallas is the interconnection metro in reach.
         var found = HopLocations.Resolve(
         [
             ("198.51.100.1", null, 1.0),
             ("203.0.113.7", "ae1.edge1.Houston1.Level3.net", 10.0),
-            ("4.2.2.2", "b.resolvers.level3.net", 13.0),
+            ("4.2.2.2", "b.resolvers.level3.net", 14.5),
         ], GeoAnycast);
 
         found["203.0.113.7"].City.Should().Be("Houston");
         found["4.2.2.2"].City.Should().Be("Dallas");
         found["4.2.2.2"].Text.Should().NotContain("Greenville");
+    }
+
+    [Fact]
+    public void Resolve_ADestinationRightAfterANamedFinalPop_TakesThePopsCity()
+    {
+        // GeoLite2 places the destination ~920 km away; it answered 0.4 ms past a Houston router.
+        var found = HopLocations.Resolve(
+        [
+            ("198.51.100.1", null, 1.0),
+            ("203.0.113.7", "ae1.edge1.Houston1.Level3.net", 10.0),
+            ("198.51.100.50", null, 10.4),
+        ], GeoAnycast);
+
+        found["203.0.113.7"].City.Should().Be("Houston");
+        found["198.51.100.50"].City.Should().Be("Houston");
+        found["198.51.100.50"].Source.Should().Be(HopLocationSource.Neighbor);
+    }
+
+    [Fact]
+    public void Resolve_TheDestinationsGeoLite2City_DoesNotRuleOutANamedFinalPop()
+    {
+        // The end's GeoLite2 city cannot reach Houston in 0.4 ms; the final PoP's name wins.
+        var found = HopLocations.Resolve(
+        [
+            ("198.51.100.1", null, 1.0),
+            ("203.0.113.5", null, 5.0),
+            ("203.0.113.7", "ae1.edge1.Houston1.Level3.net", 10.0),
+            ("198.51.100.50", null, 10.4),
+        ], GeoAnycast);
+
+        found["203.0.113.7"].Source.Should().Be(HopLocationSource.Hostname);
+        found["203.0.113.7"].City.Should().Be("Houston");
+    }
+
+    [Fact]
+    public void Resolve_AnycastRightAfterANamedFinalPop_TakesThePopsCity()
+    {
+        var found = HopLocations.Resolve(
+        [
+            ("198.51.100.1", null, 1.0),
+            ("203.0.113.6", "ae1.3511.edge2.Dallas1.net.lumen.tech", 15.1),
+            ("4.2.2.1", "a.resolvers.level3.net", 15.6),
+        ], GeoAnycast);
+
+        found["4.2.2.1"].City.Should().Be("Dallas");
+        found["4.2.2.1"].Tooltip.Should().Contain("0.5 ms past");
     }
 
     [Fact]

@@ -61,9 +61,13 @@ public static class HopLocations
         foreach (var h in list)
         {
             // An anycast address answers from its nearest site: GeoLite2's one place for it would
-            // anchor the trace, and rule out true hostname cities, from the wrong metro.
-            if (!geoByAddress.ContainsKey(h.Address!))
-                geoByAddress[h.Address!] = AnycastAddresses.Contains(h.Address) ? GeoInfo.Empty : geo(h.Address!);
+            // anchor the trace, and rule out true hostname cities, from the wrong metro. Its network
+            // stays: it is still the destination's, which decides which hop may end the trace.
+            if (geoByAddress.ContainsKey(h.Address!)) continue;
+            var g = geo(h.Address!);
+            geoByAddress[h.Address!] = AnycastAddresses.Contains(h.Address)
+                ? new GeoInfo { Asn = g.Asn, AsnOrg = g.AsnOrg }
+                : g;
         }
 
         // The placed hop with the lowest round trip is the nearest to where the trace started: usually
@@ -223,6 +227,11 @@ public static class HopLocations
         // A hostname-placed hop after it outranks it, so it anchors nothing then. It must sit in the
         // destination's network (the last hop's ASN, when both are known): a transit hop's GeoLite2
         // city can be far from the router (a Dallas Cox hop placed in Warner Robins, GA).
+        // The final PoP, the router right before the destination, naming its city outranks the
+        // destination's GeoLite2 city: the routers along the way can answer from elsewhere, but the
+        // last one is where the destination is reached. GeoLite2's end then anchors nothing.
+        if (FinalPopNamed(list, anchors)) return anchors;
+
         var lastIndex = list.FindLastIndex(h => GeoAnchor(h, geo) != null);
         var destinationAsn = list.Count > 0 ? geo[list[^1].Address!].Asn : null;
         if (lastIndex > vantageIndex && anchors[lastIndex] == null
@@ -254,6 +263,15 @@ public static class HopLocations
         }
         return anchors;
     }
+
+    /// <summary>
+    /// The router right before the destination (the last responding hop before it) is placed by a
+    /// city set by hand or one its hostname names, and the destination is not itself so placed.
+    /// </summary>
+    private static bool FinalPopNamed(List<(string? Address, string? Hostname, double? MinRttMs)> list, Anchor?[] anchors) =>
+        list.Count >= 2 && anchors[^1] == null && anchors[^2] is { FromHostname: true }
+        // Adjacent in time too: a destination tens of ms past it was reached somewhere else.
+        && list[^1].MinRttMs is double end && list[^2].MinRttMs is double pop && Math.Abs(end - pop) <= NeighborGapMs;
 
     // Another hop within NeighborGapMs has a router hostname naming the same city as this one's.
     private static bool Corroborated(List<(string? Address, string? Hostname, double? MinRttMs)> list, Anchor?[] anchors, int i) =>
@@ -367,6 +385,15 @@ public static class HopLocations
             return new HopLocationView(null, "Anycast", AnycastNote);
         var anchor = anchors[j]!;
         var gap = Math.Max(0, rtt - before);
+        var from = $"{gap:0.0} ms past {anchor.Label}, {(anchor.FromHostname ? "a" : "placed in")} {anchor.City}{(anchor.FromHostname ? " router" : "")}";
+        // A few ms past a placed hop: the site that answered is in that hop's metro, shown at its hub
+        // as a borrowing neighbor is.
+        if (gap <= NeighborGapMs)
+        {
+            var hub = Hub(anchor);
+            return CityView(hub?.Name ?? anchor.City, anchor.CountryCode, $"{AnycastNote} It answered {from}.",
+                hub?.Latitude ?? anchor.Latitude, hub?.Longitude ?? anchor.Longitude, HopLocationSource.Neighbor);
+        }
         var max = gap * RouterHostnameLocator.KmPerMsRtt + Slack(anchor) + anchor.AccuracyKm;
         var min = Math.Max(0, gap * AnycastMinKmPerMs - Slack(anchor) - anchor.AccuracyKm);
         var fits = AnycastAddresses.Metros
@@ -377,7 +404,6 @@ public static class HopLocations
             .Where(x => x.Km >= min && x.Km <= max)
             .OrderBy(x => Math.Abs(x.Km - gap * AnycastTypicalKmPerMs))
             .ToList();
-        var from = $"{gap:0.0} ms past {anchor.Label}, {(anchor.FromHostname ? "a" : "placed in")} {anchor.City}{(anchor.FromHostname ? " router" : "")}";
         if (fits.Count == 0)
             return new HopLocationView(null, "Anycast", $"{AnycastNote} No interconnection metro fits {from}.");
         var pick = fits[0].City;
