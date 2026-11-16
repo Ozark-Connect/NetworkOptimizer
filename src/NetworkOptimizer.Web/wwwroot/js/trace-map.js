@@ -262,8 +262,9 @@ function toggleFullscreen(host) {
 
 function fit(state) {
     if (!state || !state.bounds || state.bounds.length === 0) return;
+    // Places are city centers, so the closest fit is a metro across the map (11), never streets.
     if (state.bounds.length === 1) {
-        state.map.setView(state.bounds[0], 6);
+        state.map.setView(state.bounds[0], 10);
         return;
     }
     // The route fills the map, a marker's width from the edge. Only the start and the end carry a
@@ -275,7 +276,7 @@ function fit(state) {
     state.map.fitBounds(state.bounds, {
         paddingTopLeft: [pad, pad],
         paddingBottomRight: [labelEast ? pad + 96 : pad, pad],
-        maxZoom: 8,
+        maxZoom: 11,
     });
 }
 
