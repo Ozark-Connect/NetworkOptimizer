@@ -162,11 +162,13 @@ export async function render(host, path, dotNet) {
         L.polyline(points, { color, weight: 9, opacity: 0.14, interactive: false, className: 'trace-leg-glow' }).addTo(layers);
         // Dotted: hops between the two places answered nothing, so the way between them is not known.
         const silent = leg.silentHops > 0;
-        const line = L.polyline(points, {
-            color, weight: 2.5, opacity: 0.95,
+        L.polyline(points, {
+            color, weight: 2.5, opacity: 0.95, interactive: false,
             className: silent ? 'trace-leg trace-leg-silent' : unsure ? 'trace-leg trace-leg-unsure' : 'trace-leg',
         }).addTo(layers);
-        line.bindTooltip(legTip(from, to, leg.kilometers, leg.silentHops), { sticky: true, className: 'trace-map-tooltip', opacity: 1 });
+        // An invisible band carries the hover: a 2.5 px line, and a dotted one most of all, is hard to land on.
+        L.polyline(points, { color: '#000', weight: 16, opacity: 0 }).addTo(layers)
+            .bindTooltip(legTip(from, to, leg.kilometers, leg.silentHops), { sticky: true, className: 'trace-map-tooltip', opacity: 1 });
         // The flowing dashes would hide the dots.
         if (!silent) L.polyline(points, { color: '#ffffff', weight: 2.5, opacity: 0.9, interactive: false, className: 'trace-leg-flow' }).addTo(layers);
     }
