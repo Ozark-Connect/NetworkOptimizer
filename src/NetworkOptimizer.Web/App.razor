@@ -669,8 +669,9 @@
             var ip = cell.getAttribute('data-dest-ip') || '';
             var link = cell.getAttribute('data-dest-link');
             if (!ip) return null;
-            // Network Tools fills its target from ?target= and runs nothing until asked.
-            var trace = '/network-tools?target=' + encodeURIComponent(ip);
+            // Network Tools fills its target from ?target= and runs nothing until asked; the fragment
+            // puts Run a Probe at the top of the view (scrollRestoration.js).
+            var trace = '/network-tools?target=' + encodeURIComponent(ip) + '#run-a-probe';
             return (name && name !== ip ? '<div>' + escapeHtml(name) + (isDomain(name) ? tipCopy(name) : '') + '</div>' : '')
                 + '<div>' + escapeHtml(ip) + tipCopy(ip) + '</div>'
                 + '<div class="tip-links">' + (link ? tipLink(link, 'Threats') : '') + tipLink(trace, 'Trace') + '</div>';

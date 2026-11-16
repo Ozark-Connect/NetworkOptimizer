@@ -508,6 +508,7 @@ public static class PathEpisodePresentation
         var from = PathVantage.FromLabel(vantage, null).AgentId is int id
             ? wanContextId is int ctx ? $"agent:{id}:{ctx}" : $"agent:{id}"
             : "server";
-        return $"/network-tools?from={Uri.EscapeDataString(from)}&target={Uri.EscapeDataString(address)}";
+        // The fragment puts Run a Probe at the top of the view (scrollRestoration.js).
+        return $"/network-tools?from={Uri.EscapeDataString(from)}&target={Uri.EscapeDataString(address)}#run-a-probe";
     }
 }
