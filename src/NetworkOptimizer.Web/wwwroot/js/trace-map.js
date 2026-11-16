@@ -104,6 +104,8 @@ export async function render(host, path, dotNet) {
             minZoom: 2,
             worldCopyJump: false,
             attributionControl: true,
+            // The 2D LAN map's controls replace Leaflet's: fullscreen top right, zoom and fit below it.
+            zoomControl: false,
         });
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
             maxZoom: 12,
@@ -112,29 +114,17 @@ export async function render(host, path, dotNet) {
         }).addTo(map);
         map.attributionControl.setPrefix('<a href="https://leafletjs.com" target="_blank" rel="noopener">Leaflet</a>');
         // The wheel zooms after the pointer rests on the map or a click (wheel-gate.js).
-        const wheelGate = window.WheelGate ? window.WheelGate.leaflet(map) : null;
-        const fitControl = L.control({ position: 'topleft' });
-        fitControl.onAdd = () => {
-            const bar = el('div', 'leaflet-bar trace-map-fit');
-            const button = el('a');
-            button.href = '#';
-            button.setAttribute('role', 'button');
-            button.setAttribute('aria-label', 'Fit the route');
-            button.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6"/><path d="M9 21H3v-6"/><path d="M21 3l-7 7"/><path d="M3 21l7-7"/></svg>';
-            L.DomEvent.disableClickPropagation(bar);
-            L.DomEvent.on(button, 'click', e => {
-                L.DomEvent.preventDefault(e);
-                fit(host._traceMap);
-                button.blur();
-            });
-            bar.appendChild(button);
-            return bar;
-        };
-        fitControl.addTo(map);
+        // Always armed in fullscreen, as the 2D LAN map.
+        const wheelGate = window.WheelGate
+            ? window.WheelGate.leaflet(map, { exempt: () => host.classList.contains('lan-flow-map-fullscreen') })
+            : null;
+        const fsButton = addControls(host, map);
         const layers = L.layerGroup().addTo(map);
         const resize = new ResizeObserver(() => map.invalidateSize());
         resize.observe(host);
-        state = host._traceMap = { map, layers, resize, tips: [] };
+        const onKey = e => { if (e.key === 'Escape' && host.classList.contains('lan-flow-map-fullscreen')) toggleFullscreen(host); };
+        document.addEventListener('keydown', onKey);
+        state = host._traceMap = { map, layers, resize, tips: [], fsButton, onKey };
         map.on('move zoom', () => followTips(host._traceMap));
     }
     const { map, layers } = state;
@@ -221,6 +211,55 @@ export async function render(host, path, dotNet) {
 }
 
 // Brings the whole route back into view.
+const FS_ENTER_ICON = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 8 3 3 8 3"></polyline><polyline points="16 3 21 3 21 8"></polyline><polyline points="21 16 21 21 16 21"></polyline><polyline points="8 21 3 21 3 16"></polyline></svg>';
+const FS_EXIT_ICON = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 10 10 10 10 4"></polyline><polyline points="14 4 14 10 20 10"></polyline><polyline points="20 14 14 14 14 20"></polyline><polyline points="10 20 10 14 4 14"></polyline></svg>';
+const FIT_ICON = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 14 4 20 10 20"></polyline><polyline points="20 10 20 4 14 4"></polyline><line x1="14" y1="10" x2="20" y2="4"></line><line x1="4" y1="20" x2="10" y2="14"></line></svg>';
+
+// The 2D LAN map's controls and classes (lan-flow-map-2d.js): fullscreen top right, then zoom in,
+// zoom out, and fit in a column below it. Fit carries no tooltip. Returns the fullscreen button.
+function addControls(host, map) {
+    const fsButton = el('button', 'lan-flow-map-fullscreen-btn');
+    fsButton.type = 'button';
+    fsButton.setAttribute('data-tooltip', 'Fullscreen');
+    fsButton.setAttribute('data-tooltip-hover-only', '');
+    fsButton.setAttribute('aria-label', 'Fullscreen');
+    fsButton.innerHTML = FS_ENTER_ICON;
+    fsButton.addEventListener('click', () => toggleFullscreen(host));
+
+    const bar = el('div', 'lfm2d-toolbar');
+    const button = (label, html, onClick) => {
+        const b = el('button', 'lfm2d-btn');
+        b.type = 'button';
+        b.setAttribute('aria-label', label);
+        b.innerHTML = html;
+        b.addEventListener('click', () => { onClick(); b.blur(); });
+        bar.appendChild(b);
+    };
+    button('Zoom in', '+', () => map.zoomIn());
+    button('Zoom out', '&minus;', () => map.zoomOut());
+    button('Fit the route', FIT_ICON, () => fit(host._traceMap));
+
+    for (const node of [fsButton, bar]) {
+        L.DomEvent.disableClickPropagation(node);
+        L.DomEvent.disableScrollPropagation(node);
+        host.appendChild(node);
+    }
+    return fsButton;
+}
+
+function toggleFullscreen(host) {
+    const state = host._traceMap;
+    if (!state) return;
+    const on = host.classList.toggle('lan-flow-map-fullscreen');
+    state.fsButton.innerHTML = on ? FS_EXIT_ICON : FS_ENTER_ICON;
+    state.fsButton.setAttribute('data-tooltip', on ? 'Exit fullscreen (Esc)' : 'Fullscreen');
+    state.fsButton.setAttribute('aria-label', on ? 'Exit fullscreen' : 'Fullscreen');
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+        state.map.invalidateSize();
+        fit(state);
+    }));
+}
+
 function fit(state) {
     if (!state || !state.bounds || state.bounds.length === 0) return;
     if (state.bounds.length === 1) {
@@ -276,6 +315,8 @@ export function dispose(host) {
     if (!state) return;
     (state.tips || []).forEach(t => t.destroy());
     state.resize.disconnect();
+    document.removeEventListener('keydown', state.onKey);
+    host.classList.remove('lan-flow-map-fullscreen');
     state.map.remove();
     host._traceMap = null;
 }

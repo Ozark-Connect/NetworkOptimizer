@@ -29833,6 +29833,8 @@ tr:hover .hop-loc-edit,
 }
 
 .trace-map {
+    /* Set here so Leaflet does not set it inline, which would beat fullscreen's position: fixed. */
+    position: relative;
     height: 400px;
     border-radius: 8px;
     border: 1px solid var(--bg-tertiary);
@@ -29840,6 +29842,18 @@ tr:hover .hop-loc-edit,
     overflow: hidden;
     /* Leaflet's panes use z-index up to 1000; keep them under the app's menus and tooltips. */
     isolation: isolate;
+}
+
+/* Restates fixed: the position above comes later in this file than the shared fullscreen rule. */
+.trace-map.lan-flow-map-fullscreen {
+    position: fixed;
+    border: none;
+}
+
+/* The 2D LAN map's fullscreen button and toolbar, above Leaflet's panes. */
+.trace-map > .lan-flow-map-fullscreen-btn,
+.trace-map > .lfm2d-toolbar {
+    z-index: 1000;
 }
 
 /* OpenStreetMap's light tiles, turned to the app's dark theme. */
@@ -29852,30 +29866,6 @@ tr:hover .hop-loc-edit,
 .trace-map.leaflet-container {
     background: var(--bg-primary);
     font-family: inherit;
-}
-
-.trace-map .leaflet-bar a {
-    background: var(--bg-card);
-    color: var(--text-primary);
-    border-color: var(--bg-tertiary);
-}
-
-/* Leaflet turns a focused control near-white; keep it on the dark theme after a click. */
-.trace-map .leaflet-bar a:focus {
-    background: var(--bg-card);
-    color: var(--text-primary);
-}
-
-.trace-map .leaflet-bar a:hover,
-.trace-map .leaflet-bar a:focus-visible {
-    background: var(--bg-tertiary);
-    color: var(--text-primary);
-}
-
-.trace-map .trace-map-fit a {
-    display: flex;
-    align-items: center;
-    justify-content: center;
 }
 
 .trace-map .leaflet-control-attribution {
