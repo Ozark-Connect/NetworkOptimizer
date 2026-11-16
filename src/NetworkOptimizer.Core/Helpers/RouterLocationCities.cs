@@ -228,8 +228,7 @@ public static class RouterLocationCities
         new("Cox", 22773, ["cox.net"], RouterNamingScheme.OwnCode, new Dictionary<string, string>
         {
             ["ashb"] = "Ashburn", ["chgo"] = "Chicago", ["cled"] = "Cleveland", ["dals"] = "Dallas",
-            ["dlls"] = "Dallas", ["kscy"] = "Kansas City", ["lang"] = "Los Angeles", ["mci"] = "Kansas City",
-            ["nyrk"] = "New York",
+            ["dlls"] = "Dallas", ["kscy"] = "Kansas City", ["lang"] = "Los Angeles", ["nyrk"] = "New York",
             ["palt"] = "Palo Alto", ["sanj"] = "San Jose",
         }),
         new("Uniti", 7029, ["uniti.net"], RouterNamingScheme.Clli),
