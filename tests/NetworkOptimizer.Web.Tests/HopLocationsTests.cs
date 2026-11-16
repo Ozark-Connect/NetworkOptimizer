@@ -23,6 +23,8 @@ public class HopLocationsTests
         "198.51.100.40" => new GeoInfo { CountryCode = "US", City = "Warner Robins", Latitude = 32.62, Longitude = -83.63, AccuracyRadiusKm = 5, Asn = 64500 },
         "192.0.2.60" or "192.0.2.61" => new GeoInfo { CountryCode = "US", Latitude = 37.75, Longitude = -97.82, AccuracyRadiusKm = 1000, Asn = 64501 },
         "192.0.2.70" => new GeoInfo { CountryCode = "GB", Latitude = 51.50, Longitude = -0.12, AccuracyRadiusKm = 200 },
+        // An operator's block GeoLite2 places at its headquarters, far from the routers that answer.
+        "192.0.2.80" => new GeoInfo { CountryCode = "US", City = "Akron", Latitude = 41.08, Longitude = -81.52, AccuracyRadiusKm = 500, Asn = 64510 },
         "192.0.2.71" => new GeoInfo { CountryCode = "FR", Latitude = 48.86, Longitude = 2.34, AccuracyRadiusKm = 1000 },
         _ => GeoInfo.Empty,
     };
@@ -32,6 +34,24 @@ public class HopLocationsTests
     private static Dictionary<string, HopLocationSetting> SetTo(string address, string city, double lat, double lon,
         string country = "US", string? by = "Admin") =>
         new(StringComparer.OrdinalIgnoreCase) { [address] = new HopLocationSetting(address, city, null, country, lat, lon, by) };
+
+    [Fact]
+    public void Resolve_AHostnameCityTwoHopsAgreeOn_IsNotRuledOutByTheEnd()
+    {
+        // Two routers 0.1 ms apart both name Little Rock; GeoLite2 puts the last hop 1,150 km away.
+        var found = HopLocations.Resolve(
+        [
+            ("198.51.100.1", null, 1.0),
+            ("203.0.113.20", "agr02.ltrk01-ar.example.net", 8.0),
+            ("203.0.113.21", "cdn27.ltrk01-ar.example.net", 8.1),
+            ("192.0.2.80", null, 8.0),
+        ], Geo);
+
+        found["203.0.113.20"].Text.Should().Be("Little Rock, United States");
+        found["203.0.113.21"].Text.Should().Be("Little Rock, United States");
+        found["192.0.2.80"].Text.Should().Be("Little Rock, United States");
+        found["192.0.2.80"].Source.Should().Be(HopLocationSource.Neighbor);
+    }
 
     [Fact]
     public void Resolve_ASetLocation_WinsOverTheHostname()

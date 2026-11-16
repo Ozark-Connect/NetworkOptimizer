@@ -225,20 +225,35 @@ public static class HopLocations
             && list[lastIndex].MinRttMs is double lastRtt && list[vantageIndex].MinRttMs is double vantageRtt
             && InReach(vantage, last.Latitude, last.Longitude, Math.Abs(lastRtt - vantageRtt), last.AccuracyKm))
         {
-            anchors[lastIndex] = last;
-
             // A hostname city the end of the trace cannot reach in the round-trip gap is ruled out,
-            // as the vantage rules out one too far from the start.
+            // as the vantage rules out one too far from the start: one interface can be named for
+            // the far end of its link. A city a second hostname hop within NeighborGapMs agrees on is
+            // not: then GeoLite2's end is the evidence that is wrong (an operator's block placed at
+            // its headquarters), and it anchors nothing.
+            var unreachable = new List<int>();
             for (var j = vantageIndex + 1; j < lastIndex; j++)
             {
                 if (anchors[j] is not { FromHostname: true, Set: false } a || list[j].MinRttMs is not double rtt) continue;
-                if (InReach(last, a.Latitude, a.Longitude, Math.Abs(lastRtt - rtt), a.AccuracyKm)) continue;
+                if (!InReach(last, a.Latitude, a.Longitude, Math.Abs(lastRtt - rtt), a.AccuracyKm)) unreachable.Add(j);
+            }
+            if (unreachable.Any(j => Corroborated(list, anchors, j))) return anchors;
+
+            anchors[lastIndex] = last;
+            foreach (var j in unreachable)
+            {
                 anchors[j] = null;
                 named[j] = null;
             }
         }
         return anchors;
     }
+
+    // Another hop within NeighborGapMs has a router hostname naming the same city as this one's.
+    private static bool Corroborated(List<(string? Address, string? Hostname, double? MinRttMs)> list, Anchor?[] anchors, int i) =>
+        anchors[i] is { FromHostname: true, Set: false } a && list[i].MinRttMs is double rtt
+        && anchors.Where((other, j) => j != i && other is { FromHostname: true, Set: false } o
+            && o.City == a.City && o.CountryCode == a.CountryCode
+            && list[j].MinRttMs is double otherRtt && Math.Abs(otherRtt - rtt) <= NeighborGapMs).Any();
 
     private static Anchor? GeoAnchor((string? Address, string? Hostname, double? MinRttMs) hop, Dictionary<string, GeoInfo> geo) =>
         geo[hop.Address!] is { City.Length: > 0, CountryCode.Length: > 0, Latitude: double lat, Longitude: double lon } g
