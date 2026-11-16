@@ -92,6 +92,7 @@ public sealed record TraceMapPath(List<TraceMapNode> Nodes, List<TraceMapLeg> Le
         HopLocationSource.Set => "set",
         HopLocationSource.Hostname => "hostname",
         HopLocationSource.Neighbor => "neighbor",
+        HopLocationSource.Learned => "learned",
         _ => "geolite2",
     };
 
@@ -102,6 +103,7 @@ public sealed record TraceMapPath(List<TraceMapNode> Nodes, List<TraceMapLeg> Le
         "set" => 1,
         "hostname" => 2,
         "neighbor" => 3,
-        _ => 4,
+        "learned" => 4,
+        _ => 5,
     };
 }

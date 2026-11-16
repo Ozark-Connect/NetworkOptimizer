@@ -5,6 +5,8 @@
 @inject NavigationManager NavigationManager
 @inject NetworkOptimizer.Threats.Enrichment.GeoEnrichmentService Geo
 @inject NetworkOptimizer.Web.Services.Monitoring.IHopLocationOverrideService HopLocationSets
+@inject NetworkOptimizer.Web.Services.Monitoring.LearnedHopLocations LearnedLocations
+@inject SiteContextService SiteContext
 
 @* The hop table behind one Path Localization episode: every TTL of each degraded target's rounds,
    pooled, with the hop where the degradation first appears and the last clean one marked. Loaded
@@ -280,20 +282,24 @@
     {
         if (!_locations.TryGetValue(table, out var found))
         {
-            found = NetworkOptimizer.Web.Services.Monitoring.HopLocations.Resolve(
-                table.Hops.Where(h => h.Responses > 0).Select(h => (h.Address, h.Hostname, h.MinRttMs)), Geo.Enrich, _locationSets);
+            var hops = table.Hops.Where(h => h.Responses > 0).Select(h => (h.Address, h.Hostname, h.MinRttMs)).ToList();
+            found = NetworkOptimizer.Web.Services.Monitoring.HopLocations.Resolve(hops, Geo.Enrich, _locationSets, _learned);
             _locations[table] = found;
+            // Rendering cannot wait on it, and it never throws.
+            _ = LearnedLocations.LearnAsync(SiteContext.Slug, hops, found, Geo.Enrich);
         }
         return found;
     }
 
     private IReadOnlyDictionary<string, NetworkOptimizer.Web.Services.Monitoring.HopLocationSetting>? _locationSets;
+    private IReadOnlyDictionary<string, NetworkOptimizer.Web.Services.Monitoring.LearnedHop>? _learned;
 
     // Re-reads the locations set by hand and drops the worked-out tables, so the next render places the hops again.
     private async Task LoadLocationSetsAsync()
     {
         try { _locationSets = await HopLocationSets.GetAllAsync(); }
         catch (Exception ex) { Logger.LogWarning(ex, "Could not read the hop locations set by hand"); }
+        _learned = await LearnedLocations.GetAsync(SiteContext.Slug);
         _locations.Clear();
     }
 

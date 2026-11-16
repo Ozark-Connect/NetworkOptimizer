@@ -29720,6 +29720,7 @@ body:has(.top-bar-hidden) .btn-fit {
 .trace-legend-set { background: #a78bfa; color: #a78bfa; }
 .trace-legend-hostname { background: #2ba89a; color: #2ba89a; }
 .trace-legend-neighbor { background: #3b82f6; color: #3b82f6; }
+.trace-legend-learned { background: #a0a0a8; color: #a0a0a8; }
 .trace-legend-geolite2 { background: #f59e0b; color: #f59e0b; }
 
 /* A trace table's location cell: the Set location icon shows on the row's hover, or on the selected

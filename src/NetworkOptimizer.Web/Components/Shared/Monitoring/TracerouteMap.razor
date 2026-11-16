@@ -21,6 +21,10 @@
                 }
                 <span class="trace-legend-item"><span class="trace-legend-dot trace-legend-hostname"></span>Hostname</span>
                 <span class="trace-legend-item"><span class="trace-legend-dot trace-legend-neighbor"></span>Nearby hop</span>
+                @if (Path.Nodes.Any(n => n.Source == "learned"))
+                {
+                    <span class="trace-legend-item"><span class="trace-legend-dot trace-legend-learned"></span>Learned</span>
+                }
                 <span class="trace-legend-item"><span class="trace-legend-dot trace-legend-geolite2"></span>GeoLite2</span>
             </div>
         </div>

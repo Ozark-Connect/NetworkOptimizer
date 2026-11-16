@@ -682,4 +682,131 @@ public class HopLocationsTests
         found["198.51.100.50"].City.Should().BeNull();
         found["198.51.100.50"].Tooltip.Should().Contain("too far from Houston");
     }
+
+    private static Dictionary<string, LearnedHop> Learned(string address, string city, double lat, double lon,
+        HopLocationSource source = HopLocationSource.Hostname) =>
+        new(StringComparer.OrdinalIgnoreCase)
+        {
+            [address] = new LearnedHop(address, city, "US", lat, lon, source, "From the router's hostname (mci01)", DateTime.UtcNow),
+        };
+
+    [Fact]
+    public void Resolve_AGeoLite2OnlyHop_TakesTheCityLearnedOnAnEarlierTrace()
+    {
+        // GeoLite2 places the router at its network's registration; an earlier trace read its hostname.
+        var found = HopLocations.Resolve(
+        [
+            ("198.51.100.1", null, 1.0),
+            ("198.51.100.31", null, 10.0),
+        ], Geo, learned: Learned("198.51.100.31", "Kansas City", 39.10, -94.58));
+
+        found["198.51.100.31"].Text.Should().Be("Kansas City, United States");
+        found["198.51.100.31"].Source.Should().Be(HopLocationSource.Learned);
+        found["198.51.100.31"].Tooltip.Should().Contain("This trace alone says Pensacola");
+    }
+
+    [Fact]
+    public void Resolve_AHostnameOrAHandSetCity_IsNeverReplacedByALearnedOne()
+    {
+        var found = HopLocations.Resolve(
+        [
+            ("198.51.100.1", null, 1.0),
+            ("203.0.113.5", KansasCityRouter, 10.0),
+        ], Geo, SetTo("198.51.100.1", "Plano", 33.02, -96.70), Learned("203.0.113.5", "Chicago", 41.88, -87.63));
+
+        found["203.0.113.5"].Source.Should().Be(HopLocationSource.Hostname);
+        found["198.51.100.1"].Source.Should().Be(HopLocationSource.Set);
+    }
+
+    [Fact]
+    public void Resolve_ANearbyHopCity_IsReplacedOnlyByAHostnameLearnedOne()
+    {
+        (string?, string?, double?)[] trace =
+        [
+            ("198.51.100.1", null, 1.0),
+            ("203.0.113.5", KansasCityRouter, 10.0),
+            ("198.51.100.20", null, 11.0),
+        ];
+
+        var byNeighbor = HopLocations.Resolve(trace, Geo, learned: Learned("198.51.100.20", "Dallas", 32.78, -96.80, HopLocationSource.Neighbor));
+        byNeighbor["198.51.100.20"].Source.Should().Be(HopLocationSource.Neighbor);
+
+        var byHostname = HopLocations.Resolve(trace, Geo, learned: Learned("198.51.100.20", "Dallas", 32.78, -96.80));
+        byHostname["198.51.100.20"].Source.Should().Be(HopLocationSource.Learned);
+        byHostname["198.51.100.20"].City.Should().Be("Dallas");
+    }
+
+    [Fact]
+    public void Resolve_AnAnycastAddress_NeverTakesALearnedCity()
+    {
+        var found = HopLocations.Resolve(
+        [
+            ("198.51.100.1", null, 1.0),
+            ("8.8.8.8", null, 30.0),
+        ], Geo, learned: Learned("8.8.8.8", "Chicago", 41.88, -87.63));
+
+        found.GetValueOrDefault("8.8.8.8")?.Source.Should().NotBe(HopLocationSource.Learned);
+    }
+
+    [Fact]
+    public void Learnable_KeepsTransitHopsPlacedByHostnameOrANearbyHop()
+    {
+        static GeoInfo AsnOf(string address) => new() { Asn = address.StartsWith("192.0.2.") ? 64999 : 64500 };
+        var at = DateTime.UtcNow;
+        (string?, string?, double?)[] hops =
+        [
+            ("10.0.0.1", null, 0.5),
+            ("203.0.113.5", null, 5), ("203.0.113.6", null, 6), ("203.0.113.7", null, 7), ("198.51.100.8", null, 8),
+            ("8.8.8.8", null, 9),
+            ("192.0.2.9", null, 20), ("192.0.2.10", null, 21),
+        ];
+        HopLocationView At(HopLocationSource source) => new("US", "Kansas City, United States", "x", "Kansas City", 39.1, -94.58, source);
+        var found = new Dictionary<string, HopLocationView>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["10.0.0.1"] = At(HopLocationSource.Neighbor),
+            ["203.0.113.5"] = At(HopLocationSource.Hostname),
+            ["203.0.113.6"] = At(HopLocationSource.Neighbor),
+            ["203.0.113.7"] = At(HopLocationSource.GeoLite2),
+            ["198.51.100.8"] = At(HopLocationSource.Set),
+            ["8.8.8.8"] = At(HopLocationSource.Neighbor),
+            // The destination's own network: a CDN edge in front of it, and the destination itself.
+            ["192.0.2.9"] = At(HopLocationSource.Hostname),
+            ["192.0.2.10"] = At(HopLocationSource.Hostname),
+        };
+
+        HopLocations.Learnable(hops, found, AsnOf, at).Select(h => h.Address).Should().BeEquivalentTo(["203.0.113.5", "203.0.113.6"]);
+    }
+
+    [Fact]
+    public void LearnedForSite_SharesWhatSitesAgreeOn_AndKeepsADisagreementToEachSite()
+    {
+        var now = DateTime.UtcNow;
+        LearnedHop Hop(string address, string city, HopLocationSource source = HopLocationSource.Hostname) =>
+            new(address, city, "US", 0, 0, source, "", now.AddHours(-1));
+        (string, LearnedHop)[] rows =
+        [
+            ("site-a", Hop("203.0.113.5", "Kansas City")),
+            ("site-b", Hop("203.0.113.5", "Kansas City", HopLocationSource.Neighbor)),
+            ("site-a", Hop("203.0.113.6", "Chicago")),
+            ("site-b", Hop("203.0.113.6", "Atlanta")),
+        ];
+
+        var other = LearnedHopLocations.ForSite(rows, "site-c", now);
+        other["203.0.113.5"].Source.Should().Be(HopLocationSource.Hostname);
+        other.Should().NotContainKey("203.0.113.6");
+        LearnedHopLocations.ForSite(rows, "site-b", now)["203.0.113.6"].City.Should().Be("Atlanta");
+    }
+
+    [Fact]
+    public void LearnedReplaces_StrongerOrChangedOrStale_ButNotWeaker()
+    {
+        var now = DateTime.UtcNow;
+        LearnedHop Hop(string city, HopLocationSource source, DateTime seen) => new("203.0.113.5", city, "US", 0, 0, source, "", seen);
+
+        LearnedHopLocations.Replaces(Hop("Dallas", HopLocationSource.Hostname, now), Hop("Dallas", HopLocationSource.Neighbor, now), now).Should().BeTrue();
+        LearnedHopLocations.Replaces(Hop("Tulsa", HopLocationSource.Neighbor, now), Hop("Dallas", HopLocationSource.Hostname, now), now).Should().BeFalse();
+        LearnedHopLocations.Replaces(Hop("Tulsa", HopLocationSource.Hostname, now), Hop("Dallas", HopLocationSource.Hostname, now), now).Should().BeTrue();
+        LearnedHopLocations.Replaces(Hop("Dallas", HopLocationSource.Hostname, now), Hop("Dallas", HopLocationSource.Hostname, now.AddMinutes(-5)), now).Should().BeFalse();
+        LearnedHopLocations.Replaces(Hop("Tulsa", HopLocationSource.Neighbor, now), Hop("Dallas", HopLocationSource.Hostname, now.AddDays(-31)), now).Should().BeTrue();
+    }
 }

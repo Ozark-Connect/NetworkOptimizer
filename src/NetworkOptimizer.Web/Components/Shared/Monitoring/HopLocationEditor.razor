@@ -196,6 +196,7 @@
     {
         HopLocationSource.Set or HopLocationSource.Hostname => $"Now: {char.ToLowerInvariant(Edit.Location.Tooltip[0])}{Edit.Location.Tooltip[1..]}",
         HopLocationSource.Neighbor => "Now: from a hop a few ms away",
+        HopLocationSource.Learned => "Now: learned from an earlier trace",
         HopLocationSource.GeoLite2 => "Now: from GeoLite2",
         HopLocationSource.Country => "Now: the country only",
         _ => "Now: no location",

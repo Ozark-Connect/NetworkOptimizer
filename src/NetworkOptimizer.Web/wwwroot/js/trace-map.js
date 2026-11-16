@@ -4,12 +4,13 @@
 const LEAFLET_JS = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
 const LEAFLET_CSS = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
 
-const SOURCE_COLOR = { start: '#ededef', set: '#a78bfa', hostname: '#2ba89a', neighbor: '#3b82f6', geolite2: '#f59e0b' };
+const SOURCE_COLOR = { start: '#ededef', set: '#a78bfa', hostname: '#2ba89a', neighbor: '#3b82f6', learned: '#a0a0a8', geolite2: '#f59e0b' };
 const SOURCE_TEXT = {
     start: 'Where the trace started',
     set: 'Set by hand',
     hostname: "From the router's hostname",
     neighbor: 'From a hop a few ms away',
+    learned: 'Learned from an earlier trace',
     geolite2: 'Where GeoLite2 places the address',
 };
 const LEG_COLOR = '#2ba89a';

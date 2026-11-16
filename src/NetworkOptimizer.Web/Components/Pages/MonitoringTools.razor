@@ -37,6 +37,7 @@
 @inject NetworkOptimizer.Threats.Enrichment.GeoEnrichmentService Geo
 @inject IDisplayTimeZone DisplayTime
 @inject NetworkOptimizer.Web.Services.Monitoring.IHopLocationOverrideService HopLocationSets
+@inject NetworkOptimizer.Web.Services.Monitoring.LearnedHopLocations LearnedLocations
 
 <PageTitle>Network Tools - Network Optimizer</PageTitle>
 
@@ -1746,8 +1747,10 @@ else if (_diagResult != null && !string.IsNullOrEmpty(_diagResult.InterfaceError
         IReadOnlyDictionary<string, NetworkOptimizer.Web.Services.Monitoring.HopLocationSetting>? overrides = null;
         try { overrides = await HopLocationSets.GetAllAsync(); }
         catch (Exception ex) { Logger.LogWarning(ex, "Could not read the hop locations set by hand"); }
-        _traceLocations = NetworkOptimizer.Web.Services.Monitoring.HopLocations.Resolve(
-            trace.Hops.Where(h => h.Responded).Select(h => (h.Address, TraceHostname(h), h.RttMinMs)), Geo.Enrich, overrides);
+        var learned = await LearnedLocations.GetAsync(SiteContext.Slug);
+        var hops = trace.Hops.Where(h => h.Responded).Select(h => (h.Address, TraceHostname(h), h.RttMinMs)).ToList();
+        _traceLocations = NetworkOptimizer.Web.Services.Monitoring.HopLocations.Resolve(hops, Geo.Enrich, overrides, learned);
+        await LearnedLocations.LearnAsync(SiteContext.Slug, hops, _traceLocations, Geo.Enrich);
         _tracePath = NetworkOptimizer.Web.Services.Monitoring.TraceMapPath.Build(
             trace.Hops.Where(h => h.Responded).Select(h => (h.HopNumber, h.Address, TraceHostname(h), h.RttMinMs)),
             _traceLocations, await TraceStartAsync(trace.Target.SourceInterface, overrides));

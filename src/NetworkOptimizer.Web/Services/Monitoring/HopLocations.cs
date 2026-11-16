@@ -28,6 +28,10 @@ public enum HopLocationSource
     /// <summary>The city of an anchor hop a few ms away.</summary>
     Neighbor,
 
+    /// <summary>The city an earlier trace gave the address by its hostname or a nearby hop
+    /// (<see cref="LearnedHopLocations"/>), where this trace has only GeoLite2 or nothing.</summary>
+    Learned,
+
     /// <summary>GeoLite2's city for the address.</summary>
     GeoLite2,
 
@@ -51,9 +55,13 @@ public static class HopLocations
     /// <param name="geo">GeoLite2 lookup for an address (empty when the database is missing).</param>
     /// <param name="overrides">Cities set by hand, by address (<see cref="IHopLocationOverrideService"/>). They win over every other source and anchor
     /// the hops around them, and nothing rules them out.</param>
+    /// <param name="learned">The site's learned places (<see cref="LearnedHopLocations"/>): one replaces a hop this trace
+    /// places only by GeoLite2 or the country, or not at all, and a hostname-learned one also replaces a nearby hop's
+    /// city. Never a hostname's, a hand-set one, or an anycast address's, and it anchors nothing.</param>
     public static Dictionary<string, HopLocationView> Resolve(
         IEnumerable<(string? Address, string? Hostname, double? MinRttMs)> hops, Func<string, GeoInfo> geo,
-        IReadOnlyDictionary<string, HopLocationSetting>? overrides = null)
+        IReadOnlyDictionary<string, HopLocationSetting>? overrides = null,
+        IReadOnlyDictionary<string, LearnedHop>? learned = null)
     {
         var result = new Dictionary<string, HopLocationView>(StringComparer.OrdinalIgnoreCase);
         var list = hops.Where(h => !string.IsNullOrEmpty(h.Address)).ToList();
@@ -160,7 +168,51 @@ public static class HopLocations
                     hasCity ? HopLocationSource.GeoLite2 : HopLocationSource.Country);
             }
         }
+        if (learned != null) ApplyLearned(result, list, learned);
         return result;
+    }
+
+    private static void ApplyLearned(Dictionary<string, HopLocationView> result,
+        List<(string? Address, string? Hostname, double? MinRttMs)> list, IReadOnlyDictionary<string, LearnedHop> learned)
+    {
+        foreach (var h in list)
+        {
+            if (AnycastAddresses.Contains(h.Address) || !learned.TryGetValue(h.Address!, out var l)) continue;
+            var now = result.GetValueOrDefault(h.Address!);
+            var weaker = now == null || now.Source is HopLocationSource.GeoLite2 or HopLocationSource.Country
+                || (now.Source == HopLocationSource.Neighbor && l.Source == HopLocationSource.Hostname);
+            if (!weaker || string.Equals(now?.City, l.City, StringComparison.OrdinalIgnoreCase)) continue;
+            var how = l.Source == HopLocationSource.Hostname ? "its hostname" : "a hop a few ms away";
+            var tooltip = $"Learned from an earlier trace, which placed it by {how} ({l.Detail}).";
+            if (now != null) tooltip += $" This trace alone says {now.Text}.";
+            result[h.Address!] = CityView(l.City, l.CountryCode, tooltip, l.Latitude, l.Longitude, HopLocationSource.Learned);
+        }
+    }
+
+    /// <summary>
+    /// The places in <paramref name="found"/> worth learning: transit and peering routers, a public unicast address
+    /// placed by its hostname or a hop a few ms away. Never a hop on the destination's own network (a CDN edge, a
+    /// cloud host, an anycast service), which can answer from another place for another vantage. A hand-set city is
+    /// already kept for every trace, and GeoLite2's is no better next time.
+    /// </summary>
+    /// <param name="hops">The trace's responding hops, in hop order: the last one is the destination.</param>
+    public static IEnumerable<LearnedHop> Learnable(IReadOnlyList<(string? Address, string? Hostname, double? MinRttMs)> hops,
+        IReadOnlyDictionary<string, HopLocationView> found, Func<string, GeoInfo> geo, DateTime seenAt)
+    {
+        var list = hops.Where(h => !string.IsNullOrEmpty(h.Address)).ToList();
+        if (list.Count < 2) yield break;
+        var destination = list[^1].Address!;
+        var destinationAsn = geo(destination).Asn;
+        foreach (var h in list.Take(list.Count - 1))
+        {
+            var address = h.Address!;
+            if (!found.TryGetValue(address, out var v) || v.Source is not (HopLocationSource.Hostname or HopLocationSource.Neighbor)
+                || v is not { City.Length: > 0, CountryCode.Length: > 0, Latitude: double lat, Longitude: double lon }
+                || !NetworkUtilities.IsPublicIpAddress(address) || AnycastAddresses.Contains(address)
+                || string.Equals(address, destination, StringComparison.OrdinalIgnoreCase)
+                || (destinationAsn is int asn && geo(address).Asn == asn)) continue;
+            yield return new LearnedHop(address, v.City!, v.CountryCode!, lat, lon, v.Source, v.Tooltip, seenAt);
+        }
     }
 
     /// <summary>
