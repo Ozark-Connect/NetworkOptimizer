@@ -264,9 +264,13 @@ a:hover {
     color: var(--primary-hover);
 }
 
-/* Leaflet sets its own font on the map container; popups and controls take ours. */
+/* Leaflet sets its own font and a light gray background on the map container; popups and controls
+   take our font, and the background is dark to match the dark street tiles (it shows while tiles load
+   and past the edge of the world). body raises the rule over leaflet.css, which some maps load after
+   this file. */
 body .leaflet-container {
     font-family: var(--font-sans);
+    background: var(--bg-secondary);
 }
 
 .leaflet-container a.map-popup-link {
@@ -29722,12 +29726,6 @@ body:has(.top-bar-hidden) .btn-fit {
    street layer, not the tile pane, so satellite imagery keeps its own colors. */
 .leaflet-layer.map-tiles-dark {
     filter: invert(1) hue-rotate(180deg) brightness(0.8) contrast(0.92) saturate(0.45);
-}
-
-/* Leaflet paints its container light gray, which shows while tiles load and past the edge of the
-   world when zoomed out. Dark on every map, to match the dark street tiles. */
-.leaflet-container {
-    background: var(--bg-secondary);
 }
 
 .trace-map.leaflet-container {
