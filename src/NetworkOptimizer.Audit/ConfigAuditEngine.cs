@@ -799,7 +799,7 @@ public class ConfigAuditEngine
             return;
 
         var isRecent = historyClient.LastSeen >= twoWeeksAgo;
-        var displayName = historyClient.DisplayName ?? historyClient.Name ?? historyClient.Hostname ?? historyClient.Mac;
+        var displayName = UniFi.ClientNames.For(historyClient) ?? historyClient.Mac;
 
         // Different messaging for allowed vs not-allowed devices
         string message;
@@ -844,7 +844,7 @@ public class ConfigAuditEngine
             return;
 
         var isRecent = historyClient.LastSeen >= twoWeeksAgo;
-        var displayName = historyClient.DisplayName ?? historyClient.Name ?? historyClient.Hostname ?? historyClient.Mac;
+        var displayName = UniFi.ClientNames.For(historyClient) ?? historyClient.Mac;
 
         var ruleId = isCloudCamera ? "OFFLINE-CLOUD-CAMERA-VLAN" : "OFFLINE-CAMERA-VLAN";
         var message = isCloudCamera
@@ -876,7 +876,7 @@ public class ConfigAuditEngine
             return;
 
         var isRecent = historyClient.LastSeen >= twoWeeksAgo;
-        var displayName = historyClient.DisplayName ?? historyClient.Name ?? historyClient.Hostname ?? historyClient.Mac;
+        var displayName = UniFi.ClientNames.For(historyClient) ?? historyClient.Mac;
 
         // Different messaging for allowed vs not-allowed devices
         string message;

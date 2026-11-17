@@ -1976,7 +1976,7 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
 
             // Set device name from UniFi
             if (setDeviceName)
-                result.DeviceName = !string.IsNullOrEmpty(client.Name) ? client.Name : client.Hostname;
+                result.DeviceName = ClientNames.For(client);
 
             // Capture Wi-Fi signal for wireless clients
             if (!client.IsWired)

@@ -153,9 +153,7 @@ public class ClientDashboardService
                     if (string.IsNullOrEmpty(h.BestIp) || !seen.Add(h.BestIp)) continue;
                     online.Add(new SelectableClient(
                         h.BestIp!,
-                        !string.IsNullOrWhiteSpace(h.DisplayName) ? h.DisplayName
-                            : !string.IsNullOrWhiteSpace(h.Name) ? h.Name
-                            : !string.IsNullOrWhiteSpace(h.Hostname) ? h.Hostname : h.BestIp!,
+                        ClientNames.For(h) ?? h.BestIp!,
                         h.IsWired,
                         h.Mac,
                         IsOnline: h.Mac != null && byPort.Contains(h.Mac)));

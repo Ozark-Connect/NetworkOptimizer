@@ -364,6 +364,7 @@ public sealed class LiveTrafficService : ILiveTrafficService
             if (clients)
             {
                 var list = await client.GetClientsAsync();
+                var displayNames = await ClientDisplayNameCache.GetAsync(client);
                 var devices = await _connection.GetDiscoveredDevicesAsync();
                 var deviceNames = devices
                     .Where(d => !string.IsNullOrEmpty(d.Mac))
@@ -375,7 +376,8 @@ public sealed class LiveTrafficService : ILiveTrafficService
                 {
                     // A connected client can come back with no ip (an LG TV in standby): last_ip still names its flows.
                     var ip = c.BestIp;
-                    var name = !string.IsNullOrWhiteSpace(c.Name) ? c.Name : !string.IsNullOrWhiteSpace(c.Hostname) ? c.Hostname : ip ?? c.Mac;
+                    var name = ClientNames.Choose(displayNames.GetValueOrDefault(c.Mac.ToLowerInvariant()), c.Name,
+                        c.UnifiDeviceInfoFromUcore?.Name, c.Hostname, c.IsUniFiDevice) ?? ip ?? c.Mac;
                     string? via = null;
                     // A port number means nothing without its switch. "#" keeps the cell short; its tooltip says Port.
                     if (c.IsWired && c.SwPort is { } port)

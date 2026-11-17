@@ -556,7 +556,7 @@ public sealed partial class ChangeControlService
             var isStatic = gatewayLeases != null ? !gatewayLeases.Contains(mac)
                 : !reserved && (ipTable != null ? !ipTable.Contains(mac) : network != null && !InDhcpRange(network, ip));
             if (!isStatic) continue;
-            var name = c["name"]?.ToString() is { Length: > 0 } nm ? nm : c["hostname"]?.ToString() is { Length: > 0 } hn ? hn : mac;
+            var name = RawClientName(c, mac);
             result.Add(new StaticClient(name, mac, ipText, Readdressing.Format(moved), network?["name"]?.ToString() ?? "", reserved));
         }
         return result;
@@ -566,6 +566,12 @@ public sealed partial class ChangeControlService
     /// Known clients not connected now that were likely set on the device: last seen in a moved subnet,
     /// with no reservation and no lease, on an address outside their network's DHCP range.
     /// </summary>
+    /// <summary>A client's name from a raw stat/sta or rest/user object, chosen as <see cref="ClientNames"/> does everywhere else.</summary>
+    [NetworkOptimizer.Core.VendorSpecific("UniFi", "name, hostname, product_line, unifi_device_info_from_ucore.name")]
+    private static string RawClientName(JsonNode c, string mac) =>
+        ClientNames.Choose(null, c["name"]?.ToString(), c["unifi_device_info_from_ucore"]?["name"]?.ToString(), c["hostname"]?.ToString(),
+            isUniFiDevice: c["product_line"]?.ToString() is { Length: > 0 } || c["unifi_device_info_from_ucore"] is JsonObject) ?? mac;
+
     [NetworkOptimizer.Core.VendorSpecific("UniFi", "rest/user last_ip, last_seen, fixed_ip")]
     private async Task<List<StaticClient>> OfflineClientsAsync(List<JsonObject> connected, HashSet<string>? leased,
         Dictionary<string, JsonObject> networks, List<(Readdressing.Subnet Old, Readdressing.Subnet New)> map, CancellationToken ct)
@@ -588,7 +594,7 @@ public sealed partial class ChangeControlService
             var reserved = false;
             DateTime? seen = long.TryParse(u["last_seen"]?.ToString(), out var s) && s > 0 ? DateTimeOffset.FromUnixTimeSeconds(s).UtcDateTime : DateTime.MinValue;
             var network = u["last_connection_network_id"]?.ToString() is { } nid && networks.TryGetValue(nid, out var n) ? n["name"]?.ToString() ?? "" : "";
-            var name = u["name"]?.ToString() is { Length: > 0 } nm ? nm : u["hostname"]?.ToString() is { Length: > 0 } hn ? hn : mac;
+            var name = RawClientName(u, mac);
             result.Add(new StaticClient(name, mac, ipText!, Readdressing.Format(moved), network, reserved, seen));
         }
         return result.OrderByDescending(c => c.LastSeen).ToList();

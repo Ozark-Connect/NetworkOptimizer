@@ -145,7 +145,7 @@ public class CameraVlanRule : AuditRuleBase
         else
         {
             // Active port: use connected client name if available
-            var clientName = port.ConnectedClient?.Name ?? port.ConnectedClient?.Hostname;
+            var clientName = port.ConnectedClient is { } connected ? UniFi.ClientNames.For(connected) : null;
             if (!string.IsNullOrEmpty(clientName))
             {
                 deviceName = $"{clientName} on {port.Switch.Name}";

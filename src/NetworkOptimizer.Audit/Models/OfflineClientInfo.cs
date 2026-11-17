@@ -26,9 +26,7 @@ public class OfflineClientInfo
     /// Display name for the client (name, hostname, product, category, or MAC)
     /// </summary>
     public string DisplayName =>
-        !string.IsNullOrWhiteSpace(HistoryClient.DisplayName) ? HistoryClient.DisplayName :
-        !string.IsNullOrWhiteSpace(HistoryClient.Name) ? HistoryClient.Name :
-        !string.IsNullOrWhiteSpace(HistoryClient.Hostname) ? HistoryClient.Hostname :
+        UniFi.ClientNames.For(HistoryClient) is { } name ? name :
         !string.IsNullOrWhiteSpace(Detection.ProductName) ? Detection.ProductName :
         Detection.Category != Core.Enums.ClientDeviceCategory.Unknown ? Detection.CategoryName :
         !string.IsNullOrWhiteSpace(HistoryClient.Mac) ? HistoryClient.Mac : "Unknown";

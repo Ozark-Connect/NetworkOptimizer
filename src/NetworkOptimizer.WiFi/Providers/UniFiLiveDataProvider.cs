@@ -1433,10 +1433,7 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
         return new WirelessClientSnapshot
         {
             Mac = client.Mac,
-            Name = !string.IsNullOrEmpty(client.DisplayName) ? client.DisplayName
-                 : !string.IsNullOrEmpty(client.Name) ? client.Name
-                 : !string.IsNullOrEmpty(client.Hostname) ? client.Hostname
-                 : client.Mac,
+            Name = ClientNames.For(client) ?? client.Mac,
             Ip = client.BestIp,
             FixedIp = client.UseFixedIp && !string.IsNullOrEmpty(client.FixedIp) ? client.FixedIp : null,
             ApMac = client.LastUplinkMac ?? "",

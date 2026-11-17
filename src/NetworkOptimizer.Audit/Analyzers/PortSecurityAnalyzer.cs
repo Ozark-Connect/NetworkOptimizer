@@ -348,7 +348,7 @@ public class PortSecurityAnalyzer
                 continue;
 
             var key = (client.LastUplinkMac.ToLowerInvariant(), client.LastUplinkRemotePort.Value);
-            var clientName = client.DisplayName ?? client.Name ?? client.Hostname ?? client.Mac;
+            var clientName = UniFi.ClientNames.For(client) ?? client.Mac;
 
             // Keep the most recently seen client per port
             if (lookup.TryGetValue(key, out var existing))

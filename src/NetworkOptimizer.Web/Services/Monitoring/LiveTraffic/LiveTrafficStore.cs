@@ -415,8 +415,7 @@ public sealed class LiveTrafficStore
                 && c.LastSeen > 0 && DateTimeOffset.FromUnixTimeSeconds(c.LastSeen).UtcDateTime >= cutoff)
             .OrderByDescending(c => c.LastSeen)
             .Select(c => new LiveClientInfo(NormalizeMac(c.Mac),
-                !string.IsNullOrWhiteSpace(c.Name) ? c.Name! : !string.IsNullOrWhiteSpace(c.DisplayName) ? c.DisplayName!
-                    : !string.IsNullOrWhiteSpace(c.Hostname) ? c.Hostname! : c.BestIp!,
+                ClientNames.Choose(c.DisplayName, c.Name, null, c.Hostname, c.UnifiDevice) ?? c.BestIp!,
                 c.BestIp!, null, null, Vendor: string.IsNullOrWhiteSpace(c.Oui) ? null : c.Oui))
             .ToList();
     }

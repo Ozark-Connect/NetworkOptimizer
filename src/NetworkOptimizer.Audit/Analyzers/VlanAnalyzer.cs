@@ -911,8 +911,7 @@ public class VlanAnalyzer
                 continue;
 
             var deviceNames = clientsWithoutFixedIp
-                .Select(c => !string.IsNullOrEmpty(c.Name) ? c.Name :
-                             !string.IsNullOrEmpty(c.Hostname) ? c.Hostname : c.Mac)
+                .Select(c => UniFi.ClientNames.For(c) ?? c.Mac)
                 .ToList();
 
             var deviceList = string.Join(", ", deviceNames.Take(5));

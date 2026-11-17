@@ -156,7 +156,7 @@ public sealed partial class ChangeControlService
                 continue;
             }
             var mac = c["mac"]?.ToString()?.ToLowerInvariant() ?? "";
-            var name = c["name"]?.ToString() is { Length: > 0 } nm ? nm : c["hostname"]?.ToString() is { Length: > 0 } hn ? hn : mac;
+            var name = RawClientName(c, mac);
             // Network Optimizer's own host: never cut. No lease and no reservation: set on the device, nothing to gain.
             // No lease with a reservation is set on the device, served by another DHCP server, or a lapsed lease:
             // a wireless rejoin is harmless and settles it, but a power-cycle is only for clients known to be on this

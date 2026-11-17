@@ -39,6 +39,19 @@ public class ClientNamesTests
     }
 
     [Fact]
+    public void V2Client_UsesUnifiDeviceToApplyTheDeviceRule()
+    {
+        var aiKey = new Models.UniFiClientDetailResponse
+        {
+            Mac = "aa:bb:cc:dd:ee:01", Name = "[Security] AI Key", DisplayName = "SecurityAIKey", Hostname = "SecurityAIKey", UnifiDevice = true,
+        };
+        var phone = new Models.UniFiClientDetailResponse { Mac = "aa:bb:cc:dd:ee:02", DisplayName = "iPhone 24:ae", Hostname = "Users-iPhone" };
+
+        ClientNames.For(aiKey).Should().Be("[Security] AI Key");
+        ClientNames.For(phone).Should().Be("iPhone 24:ae");
+    }
+
+    [Fact]
     public void UniFiDevice_OfflineWithNoAppName_FallsBackToTheAlias()
     {
         ClientNames.Choose(null, "[Cam] Chicken Coop", null, "cam-dogs", isUniFiDevice: true).Should().Be("[Cam] Chicken Coop");
