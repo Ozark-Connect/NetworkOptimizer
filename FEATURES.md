@@ -105,7 +105,7 @@ Time-series monitoring on your own InfluxDB, fed by SNMP polling (InfluxDB).
   - Clients sized and shaped by what they are (phone, laptop, TV, desktop, appliance), relative to each other rather than to scale; a TV sits parallel to the nearest wall
   - Buildings with wings get a gable roof per wing, joined in valleys, and floors that follow the drawn outline
   - Search by name or MAC, filter by band, WASD and mouse camera, fullscreen
-  - **Reposition Device**; **Hide Device** takes a client out of your own view of the map, or collapses a switch or access point so everything behind it draws from the device upstream, with **Hidden Devices** in Overlays to bring it back; run Upstream Discovery from a WAN globe
+  - **Reposition Device**; **Hide Device** takes a client out of your own view of the map, and **Hide Group** removes a multi-client port's group node so its members draw from the device upstream, with **Hidden Devices** in Overlays to bring either back; run Upstream Discovery from a WAN globe
   - Double-click a client for Client Performance, an access point for its clients in Wi-Fi Optimizer's Client Stats, a UniFi cellular modem monitored in Cellular Stats for its series there, a switch or gateway for Port Statistics, or a WAN globe for its ISP Health
 - **LAN Topology Flow Map** (2D) - the same live data as a pan-and-zoom flow diagram
   - Each client shows its UniFi Network icon, including custom icons

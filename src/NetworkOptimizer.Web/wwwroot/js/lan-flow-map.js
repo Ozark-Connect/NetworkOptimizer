@@ -156,6 +156,9 @@ const LABEL_ZOOM_REF_DIST = 60;
 const LABEL_ZOOM_MIN = 0.25;
 // Distant device labels fade out entirely - past these camera distances
 // they'd be illegible smudges, so ramp opacity down and hide.
+// Client name labels draw at this share of their old size: the icon bodies now say what a
+// client is, and at full size the labels crowd them out.
+const CLIENT_LABEL_SCALE = 0.75;
 const LABEL_FADE_START_DIST = 82;
 const LABEL_FADE_END_DIST = 128;
 // Network device (DOM) labels fade sooner than the client sprites above -
@@ -259,7 +262,8 @@ export class LanFlowMap {
         this._focusGlowing = null; // the group's original emissive/halo, restored when the glow ends
 
         this._snapshot = null;
-        this._hidden = new Set();       // client MACs this user hid on this site (Hide Device)
+        this._hidden = new Set();       // client MACs and group node ids this user hid on this site
+        this._labelProbe = new THREE.Vector3();
         this._deviceScale = 1;         // property-size factor for device radii (set in _layoutNodes)
         this._cloudScale = 1;           // gentler property-size factor for WAN globes
         this._linkScale = 1;            // gentler property-size factor for pipes + particle dots
@@ -996,6 +1000,21 @@ export class LanFlowMap {
             p.x = pp.x + dx * spread;
             p.y = pp.y + dy * spread;
             p.z = pp.z + dz * spread;
+        }
+
+        // A group node sits at the centre of the members the viewer can see. The springs alone
+        // leave it pulled toward its switch, and off-centre once members are placed by hand.
+        for (const hub of snap.nodes) {
+            if (hub.kind !== NODE_KIND.VirtualHub) continue;
+            const hp = positions.get(hub.id);
+            if (!hp || hp.pinned) continue;
+            let n = 0, sx = 0, sy = 0, sz = 0;
+            for (const m of snap.nodes) {
+                const mp = m.parentId === hub.id && !hiddenIds.has(m.id) ? positions.get(m.id) : null;
+                if (mp) { n += 1; sx += mp.x; sy += mp.y; sz += mp.z; }
+            }
+            // With one member left the centre is that member: leave the hub where the springs put it.
+            if (n > 1) { hp.x = sx / n; hp.y = sy / n; hp.z = sz / n; }
         }
 
         // Safety net: should never trigger given the step clamp above, but if any
@@ -2395,19 +2414,43 @@ export class LanFlowMap {
         // The Y offset tracks the rendered top of the core mesh each frame.
         const labelRef = LABEL_ZOOM_REF_DIST / this._deviceScale;
         this._devZoomMax = devMax;
+        // Pixels per scene unit at distance 1, to size a label on screen for the crowding pass.
+        const canvasH = this.renderer.domElement.clientHeight || 1, canvasW = this.renderer.domElement.clientWidth || 1;
+        const pxAtUnit = canvasH / 2 / Math.tan(this.camera.fov * Math.PI / 360);
+        const shown = [];
         for (const [nodeId, sprite] of this._labelSprites) {
             const base = sprite.userData?.baseScale;
             const group = this._nodeMeshes.get(nodeId);
             if (!base || !group) continue;
             const dist = camPos.distanceTo(group.position);
-            const f = Math.max(LABEL_ZOOM_MIN, Math.min(1.0, dist / labelRef));
+            const f = Math.max(LABEL_ZOOM_MIN, Math.min(1.0, dist / labelRef)) * CLIENT_LABEL_SCALE;
             sprite.scale.set(base.x * f, base.y * f, 1);
             const z = this._deviceZoom(group, dist, devMax);
             sprite.position.y = this._topHalf(group) * z + 0.35 * this._deviceScale;
+            // A bigger device keeps its label further out: zoomed out, the TVs and desktops are
+            // named and the plugs and phones are not.
+            const sizeM = group.userData.node?.bodySizeM ?? 0;
+            const reach = sizeM >= 0.7 ? 1 : sizeM >= 0.45 ? 0.7 : 0.45;
             const fade = 1 - Math.min(1, Math.max(0,
-                (dist - LABEL_FADE_START_DIST) / (LABEL_FADE_END_DIST - LABEL_FADE_START_DIST)));
+                (dist - LABEL_FADE_START_DIST * reach) / ((LABEL_FADE_END_DIST - LABEL_FADE_START_DIST) * reach)));
             sprite.material.opacity = fade;
             sprite.visible = fade > 0.01;
+            if (sprite.visible && group.visible) shown.push({ sprite, group, dist, sizeM, w: sprite.scale.x, h: sprite.scale.y });
+        }
+
+        // Crowding: where labels overlap on screen, the bigger device's stays, then the nearer one's.
+        shown.sort((a, b) => b.sizeM - a.sizeM || a.dist - b.dist);
+        const kept = [];
+        for (const s of shown) {
+            const p = this._labelProbe.copy(s.group.position);
+            p.y += s.sprite.position.y;
+            p.project(this.camera);
+            if (p.z > 1) continue;
+            const hw = s.w * pxAtUnit / s.dist / 2, hh = s.h * pxAtUnit / s.dist / 2;
+            const cx = (p.x + 1) / 2 * canvasW, cy = (1 - p.y) / 2 * canvasH;
+            const box = { x0: cx - hw, x1: cx + hw, y0: cy - hh, y1: cy + hh };
+            if (kept.some((k) => box.x0 < k.x1 && box.x1 > k.x0 && box.y0 < k.y1 && box.y1 > k.y0)) s.sprite.visible = false;
+            else kept.push(box);
         }
     }
 
@@ -3277,13 +3320,14 @@ export class LanFlowMap {
         this._updateHiddenRow();
     }
 
-    // The snapshot as this user sees it: a hidden switch or access point is taken out, and
-    // everything behind it is drawn from the device upstream of it. The raw snapshot is left as
-    // it is (the 2D map shares it). Hidden clients stay in: they are filtered, not removed.
+    // The snapshot as this user sees it: a hidden group node (the hub a multi-client port draws)
+    // is taken out, and its members are drawn from the device upstream of it. The raw snapshot is
+    // left as it is (the 2D map shares it). Hidden clients stay in: they are filtered, not removed.
+    // A client is hidden by MAC, a group node by its id (it has no MAC).
     _collapseHidden(raw) {
-        this._namesByMac = new Map((raw.nodes ?? []).filter((n) => n.mac).map((n) => [n.mac, n.name]));
+        this._hiddenNames = new Map((raw.nodes ?? []).map((n) => [n.kind === NODE_KIND.VirtualHub ? n.id : n.mac, n.name]));
         const gone = new Set((raw.nodes ?? [])
-            .filter((n) => n.mac && this._hidden.has(n.mac) && (n.kind === NODE_KIND.Switch || n.kind === NODE_KIND.AccessPoint))
+            .filter((n) => n.kind === NODE_KIND.VirtualHub && this._hidden.has(n.id))
             .map((n) => n.id));
         if (gone.size === 0) return raw;
 
@@ -3297,7 +3341,7 @@ export class LanFlowMap {
 
         const links = [];
         for (const l of raw.links ?? []) {
-            if (gone.has(l.toNodeId)) continue;                 // the hidden device's own uplink
+            if (gone.has(l.toNodeId)) continue;                 // the hidden group's own uplink
             if (!gone.has(l.fromNodeId)) { links.push(l); continue; }
             const from = visibleUpstream(l.fromNodeId);
             if (from) links.push({ ...l, fromNodeId: from });
@@ -3310,7 +3354,7 @@ export class LanFlowMap {
         return { ...raw, nodes, links };
     }
 
-    // Whether a node is a client this user hid. A hidden switch or AP is not a node at all here:
+    // Whether a node is a client this user hid. A hidden group node is not a node at all here:
     // _collapseHidden has already taken it out.
     _isHiddenNode(node) {
         return !!node.mac && this._hidden.has(node.mac)
@@ -3361,8 +3405,8 @@ export class LanFlowMap {
             menu.appendChild(item);
         };
         const mask = window.DemoMask?.isEnabled() ? (s => window.DemoMask.maskString?.(s) ?? s) : (s => s);
-        // From the raw snapshot: a hidden switch or AP is not in the collapsed one.
-        const names = this._namesByMac ?? new Map();
+        // From the raw snapshot: a hidden group node is not in the collapsed one.
+        const names = this._hiddenNames ?? new Map();
         add('Show All', [...this._hidden], 'lan-flow-map-hidden-menu-all');
         for (const mac of this._hidden) add(mask(names.get(mac) || mac), [mac]);
 
@@ -4555,7 +4599,7 @@ export class LanFlowMap {
         }
 
         const node = g.userData.node;
-        if (node.kind === NODE_KIND.Cloud || node.kind === NODE_KIND.VirtualHub) return;
+        if (node.kind === NODE_KIND.Cloud) return;
         this._showContextMenu(e.clientX, e.clientY, node, g);
     }
 
@@ -4563,31 +4607,26 @@ export class LanFlowMap {
         this._dismissContextMenu();
         const menu = document.createElement('div');
         menu.className = 'lan-flow-map-context-menu';
-        const item = document.createElement('div');
-        item.className = 'lan-flow-map-context-menu-item';
-        item.textContent = 'Reposition Device';
-        item.addEventListener('click', (e) => {
-            e.stopPropagation();
-            this._dismissContextMenu();
-            this._enterReposition(node, group);
-        });
-        menu.appendChild(item);
-
-        // A client is filtered out. A switch or an access point is collapsed: everything behind
-        // it is drawn from the device upstream. Never the gateway: the WAN globes hang off it.
-        const hideable = node.kind === NODE_KIND.WiredClient || node.kind === NODE_KIND.WifiClient
-            || node.kind === NODE_KIND.Switch || node.kind === NODE_KIND.AccessPoint;
-        if (node.mac && hideable) {
-            const hide = document.createElement('div');
-            hide.className = 'lan-flow-map-context-menu-item';
-            hide.textContent = 'Hide Device';
-            hide.addEventListener('click', (e) => {
+        const add = (text, run) => {
+            const item = document.createElement('div');
+            item.className = 'lan-flow-map-context-menu-item';
+            item.textContent = text;
+            item.addEventListener('click', (e) => {
                 e.stopPropagation();
                 this._dismissContextMenu();
-                this._setHidden([node.mac], true);
+                run();
             });
-            menu.appendChild(hide);
-        }
+            menu.appendChild(item);
+        };
+        const isGroup = node.kind === NODE_KIND.VirtualHub;
+        const isClient = node.kind === NODE_KIND.WiredClient || node.kind === NODE_KIND.WifiClient;
+        // A group node is synthetic: it has no placement of its own to save.
+        if (!isGroup) add('Reposition Device', () => this._enterReposition(node, group));
+        // A client is filtered out of the view. A group node is collapsed: its members are drawn
+        // from the device upstream. Switches, APs and the gateway cannot be hidden.
+        if (isClient && node.mac) add('Hide Device', () => this._setHidden([node.mac], true));
+        if (isGroup) add('Hide Group', () => this._setHidden([node.id], true));
+        if (!menu.firstChild) return;
 
         const stageRect = this.stage.getBoundingClientRect();
         menu.style.left = `${clientX - stageRect.left}px`;

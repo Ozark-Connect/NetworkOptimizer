@@ -30,6 +30,25 @@ public class HiddenMapDevicesTests
         Assert.Empty(HiddenMapDevices.Normalize([value, null]));
     }
 
+    [Theory]
+    [InlineData("hub-dev-aa:bb:cc:dd:ee:ff-5")]
+    [InlineData("hub-dev-aa:bb:cc:dd:ee:ff-eth0.20")]
+    public void Normalize_KeepsAGroupNodeId_AsWritten(string id)
+    {
+        Assert.Equal([id], HiddenMapDevices.Normalize([id]));
+    }
+
+    [Theory]
+    [InlineData("hub-")]
+    [InlineData("hub-dev-not-a-mac-5")]
+    [InlineData("hub-dev-aa:bb:cc:dd:ee:ff-")]
+    [InlineData("hub-dev-aa:bb:cc:dd:ee:ff-<script>")]
+    [InlineData("dev-aa:bb:cc:dd:ee:ff")]
+    public void Normalize_DropsAnIdThatIsNotAGroupNode(string id)
+    {
+        Assert.Empty(HiddenMapDevices.Normalize([id]));
+    }
+
     [Fact]
     public void Normalize_BoundsTheList()
     {
