@@ -866,8 +866,12 @@ export class LanFlowMap {
         // Force-directed relaxation: spring along every link, Coulomb-style repulsion
         // between all pairs. Anchors stay fixed. Converges in a few hundred iterations
         // since the graph is small (< ~200 nodes for a typical home/prosumer LAN).
-        const links = (snap.links || []).filter((l) => positions.has(l.fromNodeId) && positions.has(l.toNodeId));
-        const ids = Array.from(positions.keys());
+        // A hidden client (Hide Device) takes no part in the layout: it neither pulls its parent
+        // toward it nor pushes anything away, so every node settles among what the viewer sees.
+        const hiddenIds = new Set(snap.nodes.filter((n) => this._isHiddenNode(n)).map((n) => n.id));
+        const links = (snap.links || []).filter((l) => positions.has(l.fromNodeId) && positions.has(l.toNodeId)
+            && !hiddenIds.has(l.fromNodeId) && !hiddenIds.has(l.toNodeId));
+        const ids = Array.from(positions.keys()).filter((id) => !hiddenIds.has(id));
         const repulsion = 28.0;
         const springRest = 6.0;
         const springK = 0.22;
@@ -955,12 +959,17 @@ export class LanFlowMap {
         this._buildRoomWalls(snap, scale);
         const takenByParent = new Map();
         for (const [id, pos] of positions) {
-            if (!pos.pinned) continue;
+            if (!pos.pinned || hiddenIds.has(id)) continue;
             takenByParent.set(id, pos);
         }
         const placedNear = [...takenByParent.values()];
+        // A hidden client still needs a position for its unseen mesh: it rides on its parent.
         for (const node of snap.nodes) {
-            if (node.kind !== NODE_KIND.WifiClient) continue;
+            const p = positions.get(node.id), pp = positions.get(node.parentId);
+            if (hiddenIds.has(node.id) && p && !p.pinned && pp) { p.x = pp.x; p.y = pp.y; p.z = pp.z; }
+        }
+        for (const node of snap.nodes) {
+            if (node.kind !== NODE_KIND.WifiClient || hiddenIds.has(node.id)) continue;
             const p = positions.get(node.id);
             if (!p || p.pinned) continue;
             const parentId = node.parentId;
@@ -3264,8 +3273,15 @@ export class LanFlowMap {
         this._updateHiddenRow();
     }
 
+    // Whether a node is a client this user hid. Only clients can be hidden.
+    _isHiddenNode(node) {
+        return !!node.mac && this._hidden.has(node.mac)
+            && (node.kind === NODE_KIND.WiredClient || node.kind === NODE_KIND.WifiClient);
+    }
+
     // Hide or show clients by MAC, and save the list for this user. The view changes at once; a
-    // failed save only means the choice does not survive a reload.
+    // failed save only means the choice does not survive a reload. The scene is rebuilt, because
+    // the layout leaves hidden clients out and the nodes around them settle differently.
     _setHidden(macs, hide) {
         for (const mac of macs) hide ? this._hidden.add(mac) : this._hidden.delete(mac);
         this._clearHover();
@@ -3277,6 +3293,7 @@ export class LanFlowMap {
             credentials: 'same-origin',
             body: JSON.stringify([...this._hidden]),
         }).catch(err => console.error('[LanFlowMap] Failed to save hidden devices:', err));
+        this._reloadSnapshot().catch(err => console.error('[LanFlowMap] Failed to rebuild after hiding:', err));
     }
 
     // The Overlays panel row that counts the hidden clients. Absent while there are none.
