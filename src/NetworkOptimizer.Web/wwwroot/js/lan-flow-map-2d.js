@@ -1260,21 +1260,24 @@ class LanFlowMap2D {
 
     // ---- Hover grow ----
     // Whatever is under the pointer eases up to HOVER_GROW of its size and back down when the
-    // pointer leaves. Each object keeps its own progress (_hs, 0..1), so a quick pass across a row
-    // leaves a short wake instead of snapping.
+    // pointer leaves. Each object keeps its own progress (0..1), so a quick pass across a row leaves a
+    // short wake instead of snapping. Keyed by node id, never held on the node: a client joining or
+    // leaving rebuilds the tree with new node objects, and progress on the old one restarted the
+    // grow from nothing, a pulse under a pointer that never moved.
     _stepHover(dt){
-        const set=this._hoverAnim||(this._hoverAnim=new Set());
-        if(this._hoverNode)set.add(this._hoverNode);
-        if(this._hoverCloud)set.add(this._hoverCloud);
-        if(!set.size)return;
+        const prog=this._hoverProg||(this._hoverProg=new Map());
+        const targets=new Set();
+        if(this._hoverNode)targets.add(this._hoverNode.d.id);
+        if(this._hoverCloud)targets.add(this._hoverCloud.d.id);
+        for(const id of targets)if(!prog.has(id))prog.set(id,0);
+        if(!prog.size)return;
         const step=this._reducedMotion()?1:dt*1000/HOVER_MS;
         let moved=false;
-        for(const o of set){
-            const target=o===this._hoverNode||o===this._hoverCloud?1:0;
-            const t=o._hs||0;
+        for(const[id,t]of prog){
+            const target=targets.has(id)?1:0;
             const next=target>t?Math.min(1,t+step):Math.max(0,t-step);
-            if(next!==t){o._hs=next;moved=true;}
-            if(next===0&&target===0)set.delete(o);
+            if(next!==t){prog.set(id,next);moved=true;}
+            if(next===0&&target===0)prog.delete(id);
         }
         // Only while something is still easing: a node held at full size needs no redraw.
         if(moved)this._needsStaticRedraw=true;
@@ -1282,7 +1285,7 @@ class LanFlowMap2D {
 
     // The scale an object's icon draws at: smoothstep over its hover progress.
     _hoverScale(o,grow){
-        const t=o._hs||0;
+        const t=this._hoverProg?.get(o.d.id)||0;
         return t>0?1+(grow-1)*t*t*(3-2*t):1;
     }
 
