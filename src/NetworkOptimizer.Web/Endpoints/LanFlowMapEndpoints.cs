@@ -3,7 +3,6 @@ using NetworkOptimizer.Web.Services;
 using NetworkOptimizer.Web.Services.LanFlowMap;
 using NetworkOptimizer.Web.Services.Authorization;
 using NetworkOptimizer.Web.Services.ClientIcons;
-using NetworkOptimizer.Web.Services.Identity;
 
 namespace NetworkOptimizer.Web.Endpoints;
 
@@ -83,19 +82,13 @@ public static class LanFlowMapEndpoints
                 return Results.Ok(items);
             });
 
-        // The clients the caller has hidden from the 3D map on this site. A personal view choice,
-        // stored per user, so any role may set its own: it changes nothing anyone else sees.
+        // The clients the caller has hidden from the 3D map on this site. ILanMapView is the gate:
+        // Viewer on the site in context, which the group's install-wide policy does not check.
         read.MapGet("/api/monitoring/lan-flow-map/hidden-devices",
-            async (IUserPreferences prefs, SiteContextService site) =>
-                Results.Ok(HiddenMapDevices.Parse(await prefs.GetAsync(HiddenMapDevices.Key(site.Slug)))));
+            async (ILanMapView view) => Results.Ok(await view.GetHiddenDevicesAsync()));
 
         read.MapPut("/api/monitoring/lan-flow-map/hidden-devices",
-            async (string[] macs, IUserPreferences prefs, SiteContextService site) =>
-            {
-                var hidden = HiddenMapDevices.Normalize(macs);
-                await prefs.SetAsync(HiddenMapDevices.Key(site.Slug), JsonSerializer.Serialize(hidden));
-                return Results.Ok(hidden);
-            });
+            async (string[] macs, ILanMapView view) => Results.Ok(await view.SetHiddenDevicesAsync(macs)));
 
         // Placing a device is the same act as placing an AP, and IApMapAdminService already says
         // who may: Site Operator on the site in context. Going through the interface rather than

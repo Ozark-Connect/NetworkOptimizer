@@ -659,6 +659,9 @@ builder.Services.AddSiteScopedRegistry<NetworkOptimizer.Web.Services.Tailscale.T
 builder.Services.AddSingleton<NetworkOptimizer.Web.Services.Tailscale.TailnetFlowObserver>();
 builder.Services.AddMutatingService<NetworkOptimizer.Web.Services.Tailscale.ITailscaleDirectory>(
     sp => ActivatorUtilities.CreateInstance<NetworkOptimizer.Web.Services.Tailscale.TailscaleDirectoryService>(sp));
+// The caller's own view of the 3D LAN Flow Map (Hide Device), per user per site.
+builder.Services.AddMutatingService<NetworkOptimizer.Web.Services.LanFlowMap.ILanMapView>(
+    sp => ActivatorUtilities.CreateInstance<NetworkOptimizer.Web.Services.LanFlowMap.LanMapViewService>(sp));
 // Client icons: the icon UniFi Network shows per client, fetched once and kept on disk.
 builder.Services.AddSiteScopedRegistry<NetworkOptimizer.Web.Services.ClientIcons.ClientIconRegistry>();
 builder.Services.AddMutatingService<NetworkOptimizer.Web.Services.ClientIcons.IClientIcons>(
