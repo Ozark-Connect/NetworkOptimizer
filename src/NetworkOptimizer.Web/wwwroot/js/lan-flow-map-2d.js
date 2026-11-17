@@ -123,6 +123,9 @@ function navigate(url) {
 const ROAM_FADE_MS = 350;
 // How long nodes, links and the fitted camera take to slide to a new layout.
 const LAYOUT_MS = 450;
+// Hover grow: how long the ease takes each way, and the size reached per object type.
+const HOVER_MS = 160;
+const HOVER_GROW = {device: 1.07, hub: 1.15, client: 1.22, cloud: 1.08};
 // A pan or zoom left alone this long, on a view still showing REFIT_SHARE of the map, re-fits again.
 const REFIT_IDLE_MS = 30_000;
 const REFIT_SHARE = 0.95;
@@ -1225,6 +1228,48 @@ class LanFlowMap2D {
         } else if(!hit){
             this._hideTooltip();
         }
+        // WAN globes carry no tooltip, but they grow on hover like the nodes.
+        const w=this._screenToWorld(sx,sy);
+        this._hoverCloud=!hit&&this._isCloudVisible()?this._clouds.find(c=>Math.hypot(w.x-c.x,w.y-c.y)<=G.cloudR)||null:null;
+    }
+
+    // ---- Hover grow ----
+    // Whatever is under the pointer eases up to HOVER_GROW of its size and back down when the
+    // pointer leaves. Each object keeps its own progress (_hs, 0..1), so a quick pass across a row
+    // leaves a short wake instead of snapping.
+    _stepHover(dt){
+        const set=this._hoverAnim||(this._hoverAnim=new Set());
+        if(this._hoverNode)set.add(this._hoverNode);
+        if(this._hoverCloud)set.add(this._hoverCloud);
+        if(!set.size)return;
+        const step=this._reducedMotion()?1:dt*1000/HOVER_MS;
+        let moved=false;
+        for(const o of set){
+            const target=o===this._hoverNode||o===this._hoverCloud?1:0;
+            const t=o._hs||0;
+            const next=target>t?Math.min(1,t+step):Math.max(0,t-step);
+            if(next!==t){o._hs=next;moved=true;}
+            if(next===0&&target===0){set.delete(o);o._drawScale=1;}
+        }
+        // Only while something is still easing: a node held at full size needs no redraw.
+        if(moved)this._needsStaticRedraw=true;
+    }
+
+    // The scale an object draws at: smoothstep over its hover progress.
+    _hoverScale(o,grow){
+        const t=o._hs||0;
+        return t>0?1+(grow-1)*t*t*(3-2*t):1;
+    }
+
+    // Draws fn around (x,y) at the object's hover scale.
+    _withHover(ctx,o,grow,fn){
+        const s=this._hoverScale(o,grow);
+        o._drawScale=s;
+        if(s===1){fn();return;}
+        ctx.save();
+        ctx.translate(o.x,o.y); ctx.scale(s,s); ctx.translate(-o.x,-o.y);
+        fn();
+        ctx.restore();
     }
 
     _showTooltip(node,sx,sy){
@@ -1359,6 +1404,7 @@ class LanFlowMap2D {
 
     _hideTooltip(){
         this._hoverNode=null;
+        this._hoverCloud=null;
         if(this._tooltip){this._tooltip.style.opacity='0';this._tooltip.style.visibility='hidden';}
     }
 
@@ -2455,7 +2501,7 @@ class LanFlowMap2D {
     // ---- Cloud drawing ----
 
     _drawAllClouds(ctx){
-        for(const cloud of this._clouds){
+        for(const cloud of this._clouds)this._withHover(ctx,cloud,HOVER_GROW.cloud,()=>{
             const cx=cloud.x, cy=cloud.y, r=G.cloudR;
             // Unresolved tier: inactive WAN or discovery pending - render the globe
             // greyed, matching the 3D map.
@@ -2505,7 +2551,7 @@ class LanFlowMap2D {
                 ctx.font=`${G.rateFont-1}px ${FONT}`;
                 ctx.fillText(rttTxt,cx,cy+r+22+(G.rateFont-1)/2);
             }
-        }
+        });
     }
 
     // ---- Node drawing ----
@@ -2513,17 +2559,19 @@ class LanFlowMap2D {
     _drawAllNodes(ctx,n){
         // VirtualHub: show as compact label with member count, skip children
         if(n.d.kind===NK.VirtualHub){
-            if(!this._hideVirtualHubs)this._drawFading(ctx,n,c=>this._drawHubNode(c,n));
+            if(!this._hideVirtualHubs)this._drawFading(ctx,n,c=>this._withHover(c,n,HOVER_GROW.hub,()=>this._drawHubNode(c,n)));
             return;
         }
-        this._drawFading(ctx,n,c=>this._drawInfraNode(c,n));
+        this._drawFading(ctx,n,c=>this._withHover(c,n,HOVER_GROW.device,()=>this._drawInfraNode(c,n)));
+        // The rate label sits on the label layer, unscaled: push it below the grown name.
+        if(n._rateY!=null&&n._drawScale>1)n._rateY=n.y+(n._rateY-n.y-9.5)*n._drawScale+9.5;
         for(const c of n.infra)this._drawAllNodes(ctx,c);
         const shown=Math.min(n.clients.length,G.maxClients);
         for(let i=0;i<shown;i++){
             const c=n.clients[i];
             if(!this._isNodeVisible(c))continue;
             // Off screen: the margin covers the name label, the widest thing a client draws.
-            if(this._inView(c.x,c.y,CLIENT_CULL_X,CLIENT_CULL_Y))this._drawFading(ctx,c,x=>this._drawClientNode(x,c));
+            if(this._inView(c.x,c.y,CLIENT_CULL_X,CLIENT_CULL_Y))this._drawFading(ctx,c,x=>this._withHover(x,c,HOVER_GROW.client,()=>this._drawClientNode(x,c)));
             else c._nameRect=null;
         }
         if(n.clients.length>G.maxClients){
@@ -2886,8 +2934,9 @@ class LanFlowMap2D {
             const dn=r.downstreamBps??0,up=r.upstreamBps??0;
             if(dn>THRESH||up>THRESH){
                 const cx=child.x;
-                // Below the name, which an icon pushes further down than the plain dot.
-                const cy=child.y+(child._labelR??G.clientR)+24;
+                // Below the name, which an icon pushes further down than the plain dot and a hover
+                // grow pushes further still (the name's bottom scales; the gap under it does not).
+                const cy=child.y+((child._labelR??G.clientR)+14)*(child._drawScale||1)+10;
                 const dTxt='↓'+formatBps(dn), uTxt='↑'+formatBps(up);
                 const tw=ctx.measureText(dTxt+'  '+uTxt).width+12;
                 ctx.fillStyle=C.labelBg;
@@ -2974,6 +3023,7 @@ class LanFlowMap2D {
             for(const s of this._streams)s.advance(dt);
         }
         if(this._trans)this._stepTransition(now);
+        this._stepHover(dt);
         // Clients live on the cached static layer; force it to redraw while a roam
         // fade is in flight so the fade-in actually animates.
         if(this._roamFadeUntil&&now<this._roamFadeUntil)this._needsStaticRedraw=true;
