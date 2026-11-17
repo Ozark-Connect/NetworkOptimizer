@@ -56,6 +56,9 @@ const G = {
     infraGap:    90,
     clientCellW: 145,
     clientCellH: 55,
+    // Left to right, a stacked client sits straight below the one above, not staggered sideways,
+    // so the pitch has to clear an icon client's name and rate label.
+    clientCellHz: 64,
     clientR:     7,
     clientCols:  6,
     maxClients:  80,
@@ -1500,7 +1503,7 @@ class LanFlowMap2D {
     // Compute contour (left/right extent at each depth relative to node x=0)
     // and store relative child offsets on the node.
     _contourLayout(n){
-        const cellCross=this._hz?G.clientCellH:G.clientCellW;
+        const cellCross=this._hz?G.clientCellHz:G.clientCellW;
         const selfW=isClient(n.d.kind)?cellCross:(this._hz?G.boxH:G.boxW)+40;
         n._isGrid=false;
         const visCl=n.clients.filter(c=>this._isNodeVisible(c));
@@ -1646,13 +1649,13 @@ class LanFlowMap2D {
         const vc=n._visClients||[];
         const cols=n._gridCols;
         if(this._hz){
-            const span=cols*G.clientCellH;
+            const span=cols*G.clientCellHz;
             const top=centerOff-span/2;
             const startX=nodeX+G.clientTierGap;
-            const stagger=G.clientCellH/2;
+            const stagger=G.clientCellHz/2;
             for(let i=0;i<vc.length;i++){
                 const col=i%cols,row=Math.floor(i/cols);
-                vc[i].y=top+col*G.clientCellH+G.clientCellH/2+(row%2)*stagger;
+                vc[i].y=top+col*G.clientCellHz+G.clientCellHz/2+(row%2)*stagger;
                 vc[i].x=startX+row*G.clientCellW;
             }
             return;
@@ -1891,7 +1894,7 @@ class LanFlowMap2D {
             y0=Math.min(y0,y-up); y1=Math.max(y1,y+down);
         };
         const INFRA_UP=G.boxH/2+6, INFRA_DOWN=G.boxH/2+44;   // box top ; box + name + rate label
-        const CLIENT_UP=G.clientR+4, CLIENT_DOWN=G.clientR+24; // dot top ; dot + name label
+        const CLIENT_UP=G.clientR+4, CLIENT_DOWN=G.clientR+38; // dot top ; icon + name + rate label
         const walk=(n)=>{
             exp(n.x,n.y,G.boxW,INFRA_UP,INFRA_DOWN);
             for(const c of n.infra)walk(c);
@@ -2505,6 +2508,7 @@ class LanFlowMap2D {
             ctx.strokeStyle=color; ctx.lineWidth=1.2; ctx.stroke();
         }
         ctx.globalAlpha=1;
+        n._labelR=labelR;
 
         // Name label
         const name=demoMask(n.d.name||n.d.ip||'');
@@ -2673,7 +2677,8 @@ class LanFlowMap2D {
             const dn=r.downstreamBps??0,up=r.upstreamBps??0;
             if(dn>THRESH||up>THRESH){
                 const cx=child.x;
-                const cy=child.y+G.clientR+24;
+                // Below the name, which an icon pushes further down than the plain dot.
+                const cy=child.y+(child._labelR??G.clientR)+24;
                 const dTxt='↓'+formatBps(dn), uTxt='↑'+formatBps(up);
                 const tw=ctx.measureText(dTxt+'  '+uTxt).width+12;
                 ctx.fillStyle=C.labelBg;
