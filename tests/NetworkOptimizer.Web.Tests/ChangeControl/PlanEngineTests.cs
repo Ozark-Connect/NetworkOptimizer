@@ -263,11 +263,13 @@ public class PlanEngineTests
     [Fact]
     public async Task Executor_Wpa3WlanCreate_IsNotPartial_ForWhatTheFollowUpSets()
     {
-        // The create goes out on WPA2 without 6 GHz and the update right after sets WPA3; one re-read verifies both.
+        // The create goes out on WPA2 without 6 GHz and the update right after sets WPA3. The console stores its own
+        // WPA3 and PMF values on the create (a real console did, 2026-11-16); the update's verify is what counts.
         var live = State(("networkconf", Lan));
         var desired = State(("networkconf", Lan), ("wlanconf",
             """{"_id":"w1","name":"Test-SSID","networkconf_id":"n1","security":"wpapsk","wpa_mode":"wpa2","wpa3_support":true,"wpa3_transition":true,"pmf_mode":"optional","wlan_bands":["2g","5g","6g"]}"""));
         var console = new FakeConsole(live);
+        console.StoredOnCreate["wlanconf"] = new JsonObject { ["wpa3_support"] = true, ["wpa3_transition"] = true, ["pmf_mode"] = "required" };
         var doc = Plan(desired, console.State.Clone());
         doc.Operations.Count(o => o.Collection == "wlanconf").Should().Be(2);
 

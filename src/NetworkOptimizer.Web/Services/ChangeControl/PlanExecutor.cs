@@ -119,13 +119,12 @@ public sealed class PlanExecutor
                     result.Operations.Add(new OperationResult { Key = $"{def.Key}:verify", Outcome = "Error", Message = $"Could not re-read {def.DisplayName}: {readError}" });
                     return (false, result);
                 }
-                for (var v = 0; v < verified.Count; v++)
+                foreach (var (op, r, before) in verified)
                 {
-                    var (op, r, before) = verified[v];
                     (r.Outcome, r.Message) = before;
                     r.NotApplied.Clear();
                     r.Normalized.Clear();
-                    Verify(def, op, objects, r, SupersededFields(op, verified.Skip(v + 1).Select(x => x.Op)));
+                    Verify(def, op, objects, r, SupersededFields(op, ops.Skip(ops.IndexOf(op) + 1)));
                 }
                 var unconfirmed = verified.Count(x => x.Sent.Outcome == "Applied" && x.R.Outcome is "Partial" or "Error");
                 if (unconfirmed == 0 || attempt >= _readBackRetries.Count) break;
@@ -364,8 +363,8 @@ public sealed class PlanExecutor
     };
 
     /// <summary>
-    /// Fields a later write in the same run sets on the same object: the re-read shows that write's value, so
-    /// the earlier one is not judged on them (a WLAN created on WPA2, then set to WPA3 right after).
+    /// Fields a later write in the plan sets on the same object. That write is verified on them, so the
+    /// earlier one is not (a WLAN created on WPA2, then set to WPA3 right after: UniFi may store its own).
     /// </summary>
     private HashSet<string> SupersededFields(PlanOperation op, IEnumerable<PlanOperation> later)
     {
