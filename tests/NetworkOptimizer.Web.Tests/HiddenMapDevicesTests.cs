@@ -31,10 +31,22 @@ public class HiddenMapDevicesTests
     }
 
     [Theory]
-    [InlineData("hub-dev-aa:bb:cc:dd:ee:ff-5")]
-    [InlineData("hub-dev-aa:bb:cc:dd:ee:ff-eth0.20")]
+    [InlineData("hub-dev-aa:bb:cc:dd:ee:ff-aa:bb:cc:dd:ee:ff|eth5")]
+    [InlineData("hub-dev-aa:bb:cc:dd:ee:ff-aa:bb:cc:dd:ee:ff|Port 5")]
+    [InlineData("hub-dev-aa:bb:cc:dd:ee:ff-aa:bb:cc:dd:ee:ff|eth0.20")]
+    [InlineData("hub-dev-aa:bb:cc:dd:ee:ff-aa:bb:cc:dd:ee:ff|GigabitEthernet1/0/5")]
     public void Normalize_KeepsAGroupNodeId_AsWritten(string id)
     {
+        Assert.Equal([id], HiddenMapDevices.Normalize([id]));
+    }
+
+    [Fact]
+    public void Normalize_KeepsTheIdTheMapServiceBuilds()
+    {
+        // The exact shape LanFlowMapService gives a group node: hub-{parent node id}-{PortKey}.
+        const string parentMac = "aa:bb:cc:dd:ee:ff";
+        var id = $"hub-dev-{parentMac}-{parentMac}|eth5";
+
         Assert.Equal([id], HiddenMapDevices.Normalize([id]));
     }
 
@@ -42,7 +54,8 @@ public class HiddenMapDevicesTests
     [InlineData("hub-")]
     [InlineData("hub-dev-not-a-mac-5")]
     [InlineData("hub-dev-aa:bb:cc:dd:ee:ff-")]
-    [InlineData("hub-dev-aa:bb:cc:dd:ee:ff-<script>")]
+    [InlineData("hub-dev-aa:bb:cc:dd:ee:ff-aa:bb:cc:dd:ee:ff|")]
+    [InlineData("hub-dev-aa:bb:cc:dd:ee:ff-aa:bb:cc:dd:ee:ff|<script>")]
     [InlineData("dev-aa:bb:cc:dd:ee:ff")]
     public void Normalize_DropsAnIdThatIsNotAGroupNode(string id)
     {
