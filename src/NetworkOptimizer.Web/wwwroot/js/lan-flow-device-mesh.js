@@ -9,7 +9,7 @@
 import * as THREE from 'three';
 
 /** Slab thickness as a share of the device's longest side. */
-export const DEPTH = { accessPoint: 0.20, wallPlate: 0.14, chassis: 0.60, client: 0.10 };
+export const DEPTH = { accessPoint: 0.20, wallPlate: 0.14, chassis: 0.60, panel: 0.24, client: 0.10 };
 
 // Width in texels of the solid body-colour strip beside the icon. Sides and back sample it.
 const STRIP = 8;
@@ -25,6 +25,11 @@ export function deviceIconUrl(model) {
 export function isRoundBody(model) {
     const m = (model || '').toLowerCase().replace(/ /g, '-');
     return /mesh(?!-pro)|^udr|^ux\d*$|^udm$|express|flexhd/.test(m);
+}
+
+/** Whether a model is a flat panel whose icon is its broad face (the U-LTE and U5G cellular modems), not a chassis front. */
+export function isPanelModel(model) {
+    return /^(u-?lte|u5g)/.test((model || '').toLowerCase().replace(/ /g, '-'));
 }
 
 /** Whether a model stands upright on a desk (in-wall and wall models on their stand). Mirrors PropagationService.IsStandMountModel. */
