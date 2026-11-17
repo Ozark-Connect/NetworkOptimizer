@@ -303,4 +303,27 @@ public class CellularModemStatsTests
     }
 
     #endregion
+
+    #region Signal Quality Steps
+
+    [Theory]
+    [InlineData(100, 5, "signal-excellent", "#10b981")]
+    [InlineData(80, 5, "signal-excellent", "#10b981")]
+    [InlineData(79, 4, "signal-good", "#22c55e")]
+    [InlineData(60, 4, "signal-good", "#22c55e")]
+    [InlineData(59, 3, "signal-fair", "#eab308")]
+    [InlineData(40, 3, "signal-fair", "#eab308")]
+    [InlineData(39, 2, "signal-weak", "#f97316")]
+    [InlineData(20, 2, "signal-weak", "#f97316")]
+    [InlineData(19, 1, "signal-poor", "#ef4444")]
+    [InlineData(1, 1, "signal-poor", "#ef4444")]
+    [InlineData(0, 0, "signal-poor", "#ef4444")]
+    public void Quality_StepsEveryTwentyPoints(int quality, int bars, string cls, string color)
+    {
+        CellularModemStats.QualityBars(quality).Should().Be(bars);
+        CellularModemStats.QualityClass(quality).Should().Be(cls);
+        CellularModemStats.QualityColor(quality).Should().Be(color);
+    }
+
+    #endregion
 }

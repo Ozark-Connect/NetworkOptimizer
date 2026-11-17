@@ -37,6 +37,10 @@ public class LanFlowMapService
     private readonly ILoggerFactory _loggerFactory;
     private readonly ILogger<LanFlowMapService> _logger;
     private readonly NetworkOptimizer.Core.Interfaces.IAgentClientPresenceSource _agentPresence;
+    private readonly ModemMonitorRegistry _modems;
+
+    // A cellular reading older than this is not shown: Cellular Stats polls every 5 minutes by default.
+    private static readonly TimeSpan CellularMaxAge = TimeSpan.FromMinutes(15);
 
     public LanFlowMapService(
         UniFiConnectionService connection,
@@ -51,11 +55,13 @@ public class LanFlowMapService
         SiteContextService siteContext,
         NetworkOptimizer.Core.Interfaces.IAgentClientPresenceSource agentPresence,
         ClientDashboardService dashboard,
+        ModemMonitorRegistry modems,
         ILoggerFactory loggerFactory,
         ILogger<LanFlowMapService> logger,
         WiredPortPresence.IWiredPortPresenceService? portPresence = null)
     {
         _dashboard = dashboard;
+        _modems = modems;
         _portPresence = portPresence;
         _connection = connection;
         _liveStats = liveStats;
@@ -262,6 +268,7 @@ public class LanFlowMapService
             .ToDictionary(m => NormalizeMac(m.Mac), m => m.MountType, StringComparer.OrdinalIgnoreCase);
 
         BuildInfrastructureGraph(topology, anchors, snapshot, nameMaps);
+        await ApplyCellularSignalAsync(snapshot);
 
         foreach (var node in snapshot.Nodes)
         {
@@ -883,6 +890,14 @@ public class LanFlowMapService
                 PhyRxKbps = p.RxRateKbps,
                 ApNodeId = parentMac != null && deviceNodeMacs.Contains(parentMac) ? "dev-" + parentMac : null,
             };
+        }
+
+        // A cellular modem's Signal Quality at the scrub instant: its last reading at or before it.
+        foreach (var (nodeId, readings) in cached.CellularQualityByNode ?? new())
+        {
+            var last = readings.LastOrDefault(r => r.Time <= at);
+            if (last.Time != default && at - last.Time <= CellularMaxAge)
+                ClientStatsFor(update, nodeId).CellularSignalQuality = last.Quality;
         }
 
         AddHistoricOnlyClients(snapshot, update, wifiClientRates, wiredClientRates, ratesByDevice, cached.LinkStateByDevice);
@@ -1573,6 +1588,52 @@ public class LanFlowMapService
         }
     }
 
+    /// <summary>The site's own cellular monitor, read directly: the snapshot also builds with no user.</summary>
+    private ICellularModemService Cellular => _modems.GetFor(_siteContext.Slug).Cellular;
+
+    /// <summary>
+    /// Enabled cellular modems by id, mapped to the device node whose IP their Host names. Host is the
+    /// address Cellular Stats polls, so an IP match is the modem itself; a hostname matches nothing.
+    /// </summary>
+    private async Task<Dictionary<int, string>> CellularModemNodesAsync(LanFlowMapSnapshot snapshot)
+    {
+        var result = new Dictionary<int, string>();
+        var byIp = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var n in snapshot.Nodes)
+        {
+            if ((n.Kind is LanNodeKind.Gateway or LanNodeKind.Switch or LanNodeKind.AccessPoint) && !string.IsNullOrEmpty(n.Ip))
+                byIp.TryAdd(n.Ip!, n.Id);
+        }
+        if (byIp.Count == 0) return result;
+        foreach (var modem in await Cellular.GetModemsAsync())
+        {
+            if (modem.Enabled && byIp.TryGetValue(modem.Host.Trim(), out var nodeId)) result[modem.Id] = nodeId;
+        }
+        return result;
+    }
+
+    /// <summary>Puts each monitored modem's latest Signal Quality on its device node, for the map's signal meter.</summary>
+    private async Task ApplyCellularSignalAsync(LanFlowMapSnapshot snapshot)
+    {
+        try
+        {
+            var modemNodes = await CellularModemNodesAsync(snapshot);
+            if (modemNodes.Count == 0) return;
+            var nodesById = snapshot.Nodes.GroupBy(n => n.Id).ToDictionary(g => g.Key, g => g.First());
+            foreach (var (modemId, nodeId) in modemNodes)
+            {
+                var stats = await Cellular.GetCachedStatsAsync(modemId);
+                if (stats == null || DateTime.UtcNow - stats.Timestamp > CellularMaxAge) continue;
+                if (nodesById.TryGetValue(nodeId, out var node)) node.CellularSignalQuality = stats.SignalQuality;
+            }
+        }
+        catch (Exception ex)
+        {
+            // Advisory: without it the modem's card simply has no meter.
+            _logger.LogDebug(ex, "LAN map [{Site}]: cellular signal lookup failed", _siteContext.Slug);
+        }
+    }
+
     // ---------------------------------------------------------------------------------
     // Internal: topology -> nodes + links
     // ---------------------------------------------------------------------------------
@@ -1610,6 +1671,9 @@ public class LanFlowMapService
                 node.PhyTxKbps = d.UplinkTxRateKbps > 0 ? d.UplinkTxRateKbps : null;
                 node.PhyRxKbps = d.UplinkRxRateKbps > 0 ? d.UplinkRxRateKbps : null;
                 node.Band = NormalizeBand(d.UplinkRadioBand);
+                // The backhaul's signal as the child hears it, for the map's signal meter. Wi-Fi
+                // bands only: the class curves have no 60 GHz scale, and the 5 GHz one would misread it.
+                if (node.Band is "2.4" or "5" or "6") node.SignalDbm = d.UplinkSignalDbm;
                 node.IsMloMesh = d.UplinkIsMlo;
                 // The child's uplink rates already sum its MLO links. The parent's claim is the
                 // same aggregate from the other end (its perspective, so inverted) and only ever
@@ -3214,12 +3278,39 @@ public class LanFlowMapService
         }
         catch (Exception ex) { _logger.LogDebug(ex, "Historic mean ISP/transit latency fetch failed"); }
 
+        // Cellular Signal Quality per modem node. Modems are polled minutes apart, so the read
+        // reaches back the age a live reading may have. In 5G NSA only the NR point carries it.
+        var cellularByNode = new Dictionary<string, IReadOnlyList<(DateTime Time, int Quality)>>(StringComparer.OrdinalIgnoreCase);
+        try
+        {
+            var modemNodes = await CellularModemNodesAsync(snapshot);
+            if (modemNodes.Count > 0)
+            {
+                var series = await _influx.QueryCellularAsync(at - CellularMaxAge, to, aggregateWindow: TimeSpan.FromMinutes(1), ct: ct);
+                var merged = new Dictionary<string, List<(DateTime Time, int Quality)>>(StringComparer.OrdinalIgnoreCase);
+                foreach (var (key, points) in series)
+                {
+                    // Keys are "modemId" or "modemId:networkMode".
+                    if (!int.TryParse(key.Split(':')[0], out var modemId) || !modemNodes.TryGetValue(modemId, out var nodeId)) continue;
+                    if (!merged.TryGetValue(nodeId, out var list)) merged[nodeId] = list = new();
+                    list.AddRange(points.Where(p => p.SignalQuality.HasValue).Select(p => (p.Time, p.SignalQuality!.Value)));
+                }
+                foreach (var (nodeId, list) in merged)
+                {
+                    list.Sort((a, b) => a.Time.CompareTo(b.Time));
+                    cellularByNode[nodeId] = list;
+                }
+            }
+        }
+        catch (Exception ex) { _logger.LogDebug(ex, "Historic cellular signal fetch failed"); }
+
         // Every catch above swallows a cancelled query as a per-item miss, so a fetch a scrub cut
         // off comes out with holes. Never return one: the caller caches it as the window, and
         // every instant inside it then reads those links as idle until the window rolls.
         ct.ThrowIfCancellationRequested();
         return new HistoricDataCache(
-            from, to, ratesByDevice, linkStateByDevice, wifi, wired, healthByDevice, latencyByType, latencyByTarget, meanIspTransit);
+            from, to, ratesByDevice, linkStateByDevice, wifi, wired, healthByDevice, latencyByType, latencyByTarget, meanIspTransit,
+            cellularByNode);
     }
 
     private async Task<LinkLiveRates?> QueryClientThroughputAsync(

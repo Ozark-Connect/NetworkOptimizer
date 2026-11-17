@@ -151,6 +151,37 @@ public class CellularModemStats
     // Computed signal quality (0-100)
     public int SignalQuality => CalculateSignalQuality();
 
+    /// <summary>The signal class ("signal-excellent" .. "signal-poor") for a Signal Quality, in 20-point steps.</summary>
+    public static string QualityClass(int quality) => quality switch
+    {
+        >= 80 => "signal-excellent",
+        >= 60 => "signal-good",
+        >= 40 => "signal-fair",
+        >= 20 => "signal-weak",
+        _ => "signal-poor",
+    };
+
+    /// <summary>How many of five bars a Signal Quality lights: one per 20 points, none at 0.</summary>
+    public static int QualityBars(int quality) => quality switch
+    {
+        >= 80 => 5,
+        >= 60 => 4,
+        >= 40 => 3,
+        >= 20 => 2,
+        > 0 => 1,
+        _ => 0,
+    };
+
+    /// <summary>The class color for a Signal Quality, matching app.css's --signal-* variables.</summary>
+    public static string QualityColor(int quality) => QualityClass(quality) switch
+    {
+        "signal-excellent" => "#10b981",
+        "signal-good" => "#22c55e",
+        "signal-fair" => "#eab308",
+        "signal-weak" => "#f97316",
+        _ => "#ef4444",
+    };
+
     /// <summary>
     /// Get the primary signal source (5G if it has data, otherwise LTE)
     /// </summary>

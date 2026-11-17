@@ -1905,6 +1905,8 @@ class LanFlowMap2D {
                 tn.d.phyRxKbps=n.phyRxKbps;
                 tn.d.band=n.band;
                 tn.d.signalDbm=n.signalDbm;
+                tn.d.signalBars=n.signalBars;
+                tn.d.signalColor=n.signalColor;
                 // A client first drawn from the live overlay, or before its DHCP lease, has no
                 // address yet; the console's later reading is what makes it openable.
                 if(isClient(n.kind)){
@@ -2601,6 +2603,10 @@ class LanFlowMap2D {
             ctx.textAlign='center'; ctx.textBaseline='middle';
             ctx.fillText((n.d.name||'D').charAt(0).toUpperCase(),x,y);
         }
+        // A wireless uplink (mesh AP, Device Bridge) or a monitored cellular modem: its signal down the
+        // card's right edge. Playback stats first, bars and color from the same source.
+        const sig=flowData.getClientStats()?.[n.d.id]?.signalBars!=null?flowData.getClientStats()[n.d.id]:n.d;
+        if(sig.signalBars!=null)this._drawUplinkMeter(ctx,x+hw-3.5,y,sig.signalColor,sig.signalBars);
         ctx.globalAlpha=1;
 
         // Name label
@@ -2754,6 +2760,18 @@ class LanFlowMap2D {
             const bh=h*(0.2+i*0.2);
             ctx.fillStyle=i<lit?on:'rgba(255,255,255,0.10)';
             ctx.fillRect(x+i*(w+gap), base-bh, w, bh);
+        }
+    }
+
+    // The client bars turned upright for a device card: five segments rising bottom to top, each
+    // wider than the one below and right-aligned at `right`, in the gap beside the device icon.
+    _drawUplinkMeter(ctx,right,y,color,lit){
+        const h=4.4, gap=1.5, top=y-(5*h+4*gap)/2, on=color||C.textMuted;
+        for(let i=0;i<5;i++){
+            const w=2+i*0.5, sy=top+(4-i)*(h+gap);
+            ctx.fillStyle=i<lit?on:'rgba(255,255,255,0.10)';
+            this._roundRect(ctx,right-w,sy,w,h,0.8);
+            ctx.fill();
         }
     }
 

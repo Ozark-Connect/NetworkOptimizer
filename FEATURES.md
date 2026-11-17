@@ -107,6 +107,8 @@ Time-series monitoring on your own InfluxDB, fed by SNMP polling (InfluxDB).
 - **LAN Topology Flow Map** (2D) - the same live data as a pan-and-zoom flow diagram
   - Each client shows its UniFi Network icon, including custom icons
   - Per-client Wi-Fi LAN traffic, including LAN-only transfers ([AP Telemetry](#ap-telemetry))
+  - A signal meter on the card of a mesh AP or UniFi Device Bridge (its uplink signal) and of a UniFi cellular modem monitored in [Cellular Stats](#cellular-stats) (its Signal Quality), following playback
+  - Layout changes slide into place: clients and devices joining, leaving, or roaming, and filter or overlay changes
 - Both maps: device tooltips, full-duplex load coloring, mesh and MLO backhaul, UniFi Device Bridge and Building Bridge links
 - Historic playback on both maps - scrub, play, change speed, ranges from 1 hour to 30 days or everything stored (InfluxDB)
 - **Live Traffic** (formerly Bandwidth Hogs) - who is using the WAN now, and who used the most from the last hour to 30 days

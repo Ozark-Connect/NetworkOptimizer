@@ -118,19 +118,31 @@ public class LanNode
     /// curves. Computed here so the map cannot drift from every other surface that shows signal -
     /// the thresholds never reach the browser.
     /// </summary>
-    public string? SignalClass => SignalDbm.HasValue && Band != null
-        ? NetworkOptimizer.WiFi.Helpers.SignalClassification.GetSignalClass(SignalDbm.Value, Band)
-        : null;
+    public string? SignalClass => CellularSignalQuality is int q
+        ? NetworkOptimizer.Monitoring.Models.CellularModemStats.QualityClass(q)
+        : SignalDbm.HasValue && Band != null
+            ? NetworkOptimizer.WiFi.Helpers.SignalClassification.GetSignalClass(SignalDbm.Value, Band)
+            : null;
 
     /// <inheritdoc cref="SignalClass"/>
-    public int? SignalBars => SignalDbm.HasValue && Band != null
-        ? NetworkOptimizer.WiFi.Helpers.SignalClassification.GetSignalBars(SignalDbm.Value, Band)
-        : null;
+    public int? SignalBars => CellularSignalQuality is int q
+        ? NetworkOptimizer.Monitoring.Models.CellularModemStats.QualityBars(q)
+        : SignalDbm.HasValue && Band != null
+            ? NetworkOptimizer.WiFi.Helpers.SignalClassification.GetSignalBars(SignalDbm.Value, Band)
+            : null;
 
     /// <summary>The blended color for this reading, so the map bars shade like every other gauge.</summary>
-    public string? SignalColor => SignalDbm.HasValue && Band != null
-        ? NetworkOptimizer.WiFi.Helpers.SignalClassification.GetSignalColor(SignalDbm.Value, Band)
-        : null;
+    public string? SignalColor => CellularSignalQuality is int q
+        ? NetworkOptimizer.Monitoring.Models.CellularModemStats.QualityColor(q)
+        : SignalDbm.HasValue && Band != null
+            ? NetworkOptimizer.WiFi.Helpers.SignalClassification.GetSignalColor(SignalDbm.Value, Band)
+            : null;
+
+    /// <summary>
+    /// A monitored cellular modem's Signal Quality (0-100), as Cellular Stats shows it. Set on the
+    /// device node whose IP the modem's Host names; when set it drives the signal fields above.
+    /// </summary>
+    public int? CellularSignalQuality { get; set; }
     public long? PhyTxKbps { get; set; }
     public long? PhyRxKbps { get; set; }
 
@@ -435,19 +447,29 @@ public class NodeClientStats
     /// arrives on the live tick before the snapshot rebuild catches up, and reading the class off
     /// the node then colors the bars after a different, staler reading than the label shows.
     /// </summary>
-    public string? SignalClass => SignalDbm.HasValue && Band != null
-        ? NetworkOptimizer.WiFi.Helpers.SignalClassification.GetSignalClass(SignalDbm.Value, Band)
-        : null;
+    public string? SignalClass => CellularSignalQuality is int q
+        ? NetworkOptimizer.Monitoring.Models.CellularModemStats.QualityClass(q)
+        : SignalDbm.HasValue && Band != null
+            ? NetworkOptimizer.WiFi.Helpers.SignalClassification.GetSignalClass(SignalDbm.Value, Band)
+            : null;
 
     /// <inheritdoc cref="SignalClass"/>
-    public int? SignalBars => SignalDbm.HasValue && Band != null
-        ? NetworkOptimizer.WiFi.Helpers.SignalClassification.GetSignalBars(SignalDbm.Value, Band)
-        : null;
+    public int? SignalBars => CellularSignalQuality is int q
+        ? NetworkOptimizer.Monitoring.Models.CellularModemStats.QualityBars(q)
+        : SignalDbm.HasValue && Band != null
+            ? NetworkOptimizer.WiFi.Helpers.SignalClassification.GetSignalBars(SignalDbm.Value, Band)
+            : null;
 
     /// <summary>The blended color for this reading, so the map bars shade like every other gauge.</summary>
-    public string? SignalColor => SignalDbm.HasValue && Band != null
-        ? NetworkOptimizer.WiFi.Helpers.SignalClassification.GetSignalColor(SignalDbm.Value, Band)
-        : null;
+    public string? SignalColor => CellularSignalQuality is int q
+        ? NetworkOptimizer.Monitoring.Models.CellularModemStats.QualityColor(q)
+        : SignalDbm.HasValue && Band != null
+            ? NetworkOptimizer.WiFi.Helpers.SignalClassification.GetSignalColor(SignalDbm.Value, Band)
+            : null;
+
+    /// <summary>A cellular modem's Signal Quality at the scrub instant; see <see cref="LanNode.CellularSignalQuality"/>.</summary>
+    public int? CellularSignalQuality { get; set; }
+
     /// <summary>Node id ("dev-{mac}") of the AP the client was associated with at the
     /// scrub instant, so the maps can re-attach the client to its historic AP (roam).
     /// Null when unknown.</summary>
