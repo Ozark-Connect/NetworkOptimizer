@@ -402,6 +402,20 @@ public class ClientInfoDisplayNameTests
         };
     }
 
+    [Fact]
+    public void OfflineClient_LastUplinkName_IsTheApsCurrentName_ElseTheStoredOne()
+    {
+        var history = new UniFiClientDetailResponse
+        {
+            Mac = "aa:bb:cc:dd:ee:01", LastUplinkMac = "aa:bb:cc:dd:ee:99", LastUplinkName = "[AP] Old Name",
+        };
+
+        new OfflineClientInfo { HistoryClient = history, Detection = new DeviceDetectionResult(), CurrentUplinkName = "[AP] New Name" }
+            .LastUplinkName.Should().Be("[AP] New Name");
+        new OfflineClientInfo { HistoryClient = history, Detection = new DeviceDetectionResult() }
+            .LastUplinkName.Should().Be("[AP] Old Name", "an AP that is gone keeps the name the history stored");
+    }
+
     private static OfflineClientInfo CreateOfflineClientInfo(
         UniFiClientDetailResponse historyClient,
         string? productName,
