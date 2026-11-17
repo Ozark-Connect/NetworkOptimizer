@@ -236,6 +236,54 @@ public class ChangeDetectionTests
     }
 
     [Fact]
+    public void Attribute_ClientRenamedInUniFi_MatchesTheEventByMac()
+    {
+        // The event names the client by MAC and by its name from before the edit.
+        var renamed = Event("aa:bb:cc:dd:ee:ff", admin: "TJ") with
+        {
+            Section = "CLIENT", SettingCollection = "user", SettingField = "name", ObjectName = "Old Rig",
+        };
+        var diff = new ObjectDiff
+        {
+            Collection = "user", ObjectId = "u1", Name = "Rig", Action = ConfigChangeAction.Updated,
+            Fields = [new FieldChange("name", "Old Rig", "Rig")],
+            Before = new JsonObject { ["_id"] = "u1", ["mac"] = "aa:bb:cc:dd:ee:ff", ["name"] = "Old Rig" },
+            After = new JsonObject { ["_id"] = "u1", ["mac"] = "aa:bb:cc:dd:ee:ff", ["name"] = "Rig" },
+        };
+
+        var g = ChangeAttributor.Attribute([diff], [renamed], [], Now, false).Single();
+        g.ActorKind.Should().Be(ConfigChangeActorKind.Person);
+        g.ActorName.Should().Be("TJ");
+    }
+
+    [Fact]
+    public void Attribute_RenameWithoutAnId_MatchesTheNameFromBeforeTheEdit()
+    {
+        var renamed = Event(null!) with { Section = "WIFI", SettingField = "name", ObjectName = "Home" };
+        var diff = new ObjectDiff
+        {
+            Collection = "wlanconf", ObjectId = "w1", Name = "Home 2", Action = ConfigChangeAction.Updated,
+            Fields = [new FieldChange("name", "Home", "Home 2")],
+            Before = new JsonObject { ["_id"] = "w1", ["name"] = "Home" },
+            After = new JsonObject { ["_id"] = "w1", ["name"] = "Home 2" },
+        };
+
+        var g = ChangeAttributor.Attribute([diff], [renamed], [], Now, false).Single();
+        g.ActorKind.Should().Be(ConfigChangeActorKind.Person);
+    }
+
+    [Fact]
+    public void Values_TwoIconsOfTheSameModel_ShowTheirIds()
+    {
+        var before = new JsonObject { ["model"] = "Wall Server", ["icon_id"] = "2e80f468ec8d" };
+        var after = new JsonObject { ["model"] = "Wall Server", ["icon_id"] = "743cfd457804" };
+
+        ChangeDescriber.Values(before, after).Should().Be(("Wall Server (icon 2e80f468)", "Wall Server (icon 743cfd45)"));
+        ChangeDescriber.Values(before, new JsonObject { ["model"] = "Rack", ["icon_id"] = "743cfd457804" })
+            .Should().Be(("Wall Server", "Rack"));
+    }
+
+    [Fact]
     public void Attribute_AnOldBatchDelete_DoesNotClaimALaterDelete()
     {
         var journal = new List<ConfigWriteJournalEntry>

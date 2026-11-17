@@ -855,15 +855,19 @@ public sealed class ChangeControlSiteEngine : BackgroundService
     /// <summary>Stores an object diff: fields with references as names, secrets without values.</summary>
     internal static ConfigChangeObject ToRecord(ObjectDiff o, ConfigIdentityContext beforeNames, ConfigIdentityContext afterNames)
     {
-        var fields = o.Fields.Select(f => new StoredField
+        var fields = o.Fields.Select(f =>
         {
-            Path = f.Path,
-            Label = ChangeDescriber.LabelFor(f.Path, o.After, o.Before),
-            Old = f.Secret ? null : ChangeDescriber.Value(f.Old, beforeNames),
-            New = f.Secret ? null : ChangeDescriber.Value(f.New, afterNames),
-            Secret = f.Secret,
-            OldItems = IsPolicyOrder(o) ? Items(f.Old) : null,
-            NewItems = IsPolicyOrder(o) ? Items(f.New) : null,
+            var (oldText, newText) = ChangeDescriber.Values(f.Old, f.New, beforeNames, afterNames);
+            return new StoredField
+            {
+                Path = f.Path,
+                Label = ChangeDescriber.LabelFor(f.Path, o.After, o.Before),
+                Old = f.Secret ? null : oldText,
+                New = f.Secret ? null : newText,
+                Secret = f.Secret,
+                OldItems = IsPolicyOrder(o) ? Items(f.Old) : null,
+                NewItems = IsPolicyOrder(o) ? Items(f.New) : null,
+            };
         }).ToList();
         if (o.Collection == "wlanconf")
         {

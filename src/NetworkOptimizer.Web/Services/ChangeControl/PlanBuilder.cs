@@ -537,13 +537,17 @@ public static class PlanBuilder
         update.Body = updateBody;
         // A value can point at an object this plan creates (a policy moving into a new zone): name it as a create's rows do.
         var updateCtx = liveCtx.With(RefNames(creates));
-        update.Fields = diff.Fields.Select(f => new StoredField
+        update.Fields = diff.Fields.Select(f =>
         {
-            Path = f.Path,
-            Label = ChangeDescriber.LabelFor(f.Path, remapped, live),
-            Old = f.Secret ? null : ChangeDescriber.Value(f.Old, updateCtx),
-            New = f.Secret ? null : ChangeDescriber.Value(f.New, updateCtx),
-            Secret = f.Secret,
+            var (oldText, newText) = ChangeDescriber.Values(f.Old, f.New, updateCtx, updateCtx);
+            return new StoredField
+            {
+                Path = f.Path,
+                Label = ChangeDescriber.LabelFor(f.Path, remapped, live),
+                Old = f.Secret ? null : oldText,
+                New = f.Secret ? null : newText,
+                Secret = f.Secret,
+            };
         }).ToList();
         if (def.Key == "wlanconf" && ChangeDescriber.Rows(diff).FirstOrDefault(r => r.Label == ChangeDescriber.SecurityProtocol) is { } sec)
         {

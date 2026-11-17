@@ -336,18 +336,24 @@ public static class ChangeAttributor
             var s => s,
         };
 
-    /// <summary>The AUDIT event that names this object: by ID, else by name within the collection's sections.</summary>
+    /// <summary>
+    /// The AUDIT event that names this object: by ID (a client's by MAC), else by name within the collection's
+    /// sections. A rename's event carries the name from before the edit, so the before name matches too.
+    /// </summary>
+    [NetworkOptimizer.Core.VendorSpecific("UniFi", "AUDIT OBJECT.id is the MAC for CLIENT events; OBJECT.name is the pre-edit name")]
     private static AuditLogEvent? FindEvent(ObjectDiff obj, IReadOnlyList<AuditLogEvent> events)
     {
         var def = ConfigCollections.Get(obj.Collection);
         if (obj.OrderedIds is { } ordered)
             return events.LastOrDefault(e => e.SettingField == OrderAuditField && ordered.Any(id => Matches(id, e.ObjectId)));
-        var byId = events.LastOrDefault(e => Matches(e.ObjectId, obj.ObjectId));
+        var mac = obj.Collection == "user" ? (obj.After ?? obj.Before)?["mac"]?.ToString() : null;
+        var byId = events.LastOrDefault(e => Matches(e.ObjectId, obj.ObjectId) || Matches(e.ObjectId, mac));
         if (byId != null) return byId;
         if (def == null) return null;
         bool InCollection(AuditLogEvent e) =>
             def.AuditSections.Contains(e.Section ?? "") || def.AuditCollectionNames.Contains(e.SettingCollection ?? "");
-        var byName = events.LastOrDefault(e => InCollection(e) && string.Equals(e.ObjectName, obj.Name, StringComparison.OrdinalIgnoreCase));
+        var beforeName = obj.Before is { } before ? ConfigState.DisplayName(def, before) : null;
+        var byName = events.LastOrDefault(e => InCollection(e) && (Matches(e.ObjectName, obj.Name) || Matches(e.ObjectName, beforeName)));
         if (byName != null) return byName;
         // A multi-object event in the same collection, when it is the only one: "made 3 changes to Firewall policies".
         var inSection = events.Where(e => InCollection(e) && e.ObjectId == null && e.ObjectName == null).ToList();
