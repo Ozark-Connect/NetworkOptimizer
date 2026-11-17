@@ -1,0 +1,20 @@
+{
+  "id": "2.11.5",
+  "kind": "whats-new",
+  "title": "What's new in v2.11.5",
+  "summary": "Meet the Path Map: every Target you monitor, and the route your traffic takes to get there, on one live map.",
+  "steps": [
+    {
+      "id": "path-map",
+      "level": "major",
+      "url": "/monitoring?tab=performance",
+      "selector": "[data-tour=\"path-map\"]",
+      "title": "Path Map",
+      "listLabel": "See every Target's route on one live map, and where along it trouble starts",
+      "body": "Each Target's route, drawn hop by hop and lit by how that Target is doing against its own baseline. Routes that share a network share a line, so a problem upstream shows up on every Target behind it.\n\n**All**, **Transit**, and **Local** switch between the whole picture, the networks in between, and your ISP and where it hands off. Hover any Target, city, or leg for the Targets there, then open one in the charts or run **Trace Route**. Route changes are listed with the round trip before and after.",
+      "placement": "top",
+      "scroll": "top",
+      "optional": true
+    }
+  ]
+}
