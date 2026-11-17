@@ -130,8 +130,16 @@ public static class LanFlowMapEndpoints
         if (icons.Count == 0)
             return;
         foreach (var node in nodes)
-            if (node.Kind is LanNodeKind.WiredClient or LanNodeKind.WifiClient)
-                node.IconUrl = icons.UrlFor(node.Mac);
+        {
+            if (node.Kind is not (LanNodeKind.WiredClient or LanNodeKind.WifiClient))
+                continue;
+            node.IconUrl = icons.UrlFor(node.Mac);
+            // The 3D map's body for the client: how large, how deep, and whether it hugs a wall.
+            var category = icons.CategoryFor(node.Mac);
+            node.BodySize = (int)ClientBodyClass.SizeOf(category);
+            node.BodyDepth = (int)ClientBodyClass.DepthOf(category);
+            node.WallFlat = ClientBodyClass.IsWallFlat(category);
+        }
 
         foreach (var hub in nodes.Where(n => n.Kind == LanNodeKind.VirtualHub))
             hub.IconUrl = BestIcon(nodes.Where(n => n.ParentId == hub.Id), icons);

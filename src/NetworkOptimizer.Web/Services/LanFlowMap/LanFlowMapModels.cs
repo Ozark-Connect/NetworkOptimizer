@@ -112,6 +112,15 @@ public class LanNode
     /// </summary>
     public int? OrientationDeg { get; set; }
 
+    /// <summary>A client's size class on the 3D map (<see cref="ClientBodySize"/>). Null for every other node, and for a client not classified yet.</summary>
+    public int? BodySize { get; set; }
+
+    /// <summary>A client's depth class on the 3D map (<see cref="ClientBodyDepth"/>). Null as <see cref="BodySize"/>.</summary>
+    public int? BodyDepth { get; set; }
+
+    /// <summary>Whether a client is a big flat panel (a TV) the 3D map turns parallel to the nearest wall.</summary>
+    public bool WallFlat { get; set; }
+
     /// <summary>Whether the device responded to our last poll (for dimming offline nodes).</summary>
     public bool Online { get; set; } = true;
 

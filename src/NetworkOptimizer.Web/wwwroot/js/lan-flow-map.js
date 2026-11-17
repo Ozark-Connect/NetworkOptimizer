@@ -14,7 +14,7 @@ import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { buildBuildings } from './lan-flow-buildings.js?v=3';
-import { DEPTH, deviceIconUrl, estimateRealSizeM, isPanelModel, isRoundBody, isStandMountModel, getBody, loadBody, makeBodyMesh, poseQuaternion } from './lan-flow-device-mesh.js?v=6';
+import { DEPTH, deviceIconUrl, estimateRealSizeM, isPanelModel, isRoundBody, isSlimModel, isStandMountModel, getBody, loadBody, makeBodyMesh, poseQuaternion } from './lan-flow-device-mesh.js?v=7';
 // KEEP IN SYNC: lan-flow-map-2d.js imports the same module. Both must use the same ?v= or they get separate instances.
 import * as flowData from './lan-flow-data.js?v=18';
 import { opaqueBounds, logoFit } from './image-bounds.js?v=1';
@@ -186,6 +186,10 @@ const ICON_BODY_SIZE = 2.6;
 const ICON_BODY_EMISSIVE = 0.1;
 // At closest zoom a network device body is this many times its real size (TJ, 2026-11-17).
 const ICON_BODY_REAL_FACTOR = 2;
+// A client body's longest side in metres at closest zoom, by the server's size class (small,
+// medium, large). Relative, not to scale: a hand-sized network device draws at 0.4 there and a
+// rack switch at 0.88, and clients stay under each (TJ, 2026-11-17).
+const CLIENT_BODY_CLOSEST_M = [0.3, 0.45, 0.7];
 
 const NODE_KIND = {
     Gateway: 0,
@@ -796,6 +800,7 @@ export class LanFlowMap {
         this._anchorScale = scale;
         // Whether the scene has real metres: without a placed device the scale is arbitrary.
         this._anchored = (bounds.anchorCount || 0) > 0;
+        this._buildings = snap.buildings || [];
         const sizeRatio = scale / REF_WORLD_SCALE;
         this._deviceScale = Math.max(DEVICE_SCALE_MIN, Math.min(1.0, sizeRatio));
         this._cloudScale = Math.max(CLOUD_SCALE_MIN, Math.min(CLOUD_SCALE_MAX, sizeRatio));
@@ -1063,12 +1068,15 @@ export class LanFlowMap {
     _bodySpec(node) {
         const isClient = node.kind === NODE_KIND.WiredClient || node.kind === NODE_KIND.WifiClient;
         if (isClient || node.kind === NODE_KIND.VirtualHub) {
-            return node.iconUrl ? { url: node.iconUrl, shape: { depth: DEPTH.client } } : null;
+            // The server's depth class for the client: a panel, a small box, or a deep box.
+            const depth = [DEPTH.client, DEPTH.clientMid, DEPTH.chassis][isClient ? node.bodyDepth ?? 0 : 0] ?? DEPTH.client;
+            return node.iconUrl ? { url: node.iconUrl, shape: { depth } } : null;
         }
         const url = deviceIconUrl(node.model);
         if (!url) return null;
         if (isRoundBody(node.model)) return { url, shape: { round: true } };
         const depth = isPanelModel(node.model) ? DEPTH.panel
+            : isSlimModel(node.model) ? DEPTH.wallPlate
             : node.kind !== NODE_KIND.AccessPoint ? DEPTH.chassis
             : isStandMountModel(node.model) ? DEPTH.wallPlate : DEPTH.accessPoint;
         return { url, shape: { depth } };
@@ -1106,6 +1114,9 @@ export class LanFlowMap {
             holder.quaternion.copy(poseQuaternion(node.mountType, node.orientationDeg,
                 { round: !!spec.shape.round, stand: isStandMountModel(node.model) }));
         }
+        // A big flat panel (a TV) hangs on or stands against a wall: turn it parallel to the nearest one.
+        const wallYaw = !posed && node.wallFlat ? this._wallFacingYaw(group.position) : null;
+        if (wallYaw != null) holder.rotation.y = wallYaw;
         holder.add(core);
         group.add(holder);
 
@@ -1116,7 +1127,7 @@ export class LanFlowMap {
         group.userData.topHalf = box.max.y * size;
         // No saved orientation (clients, switches, gateways, unplaced APs): the body stands
         // upright and the zoom pass turns its face to the camera.
-        group.userData.faceCamera = posed ? null : holder;
+        group.userData.faceCamera = posed || wallYaw != null ? null : holder;
 
         // A network device is at most ICON_BODY_REAL_FACTOR times its real size at closest zoom.
         // Zoomed out it keeps the larger size, so it still reads at property scale.
@@ -1126,8 +1137,17 @@ export class LanFlowMap {
             group.userData.zoomMin = Math.min(DEVICE_ZOOM_MIN, closest / size);
         }
 
+        // A client is drawn by size class up close: relative sizes, not true proportion, so the
+        // small ones stay easy to find. Zoomed out, every client keeps the size it had.
+        const isClient = node.kind === NODE_KIND.WiredClient || node.kind === NODE_KIND.WifiClient;
+        if (isClient && this._anchored && CLIENT_BODY_CLOSEST_M[node.bodySize] != null) {
+            group.userData.zoomMin = Math.min(1, CLIENT_BODY_CLOSEST_M[node.bodySize] * this._anchorScale / size);
+        }
+
         // A client's halo is near-white and sits over the icon, which washes it out. It stays in
-        // the scene unseen: it is the hover target, and the arrival focus still lights it.
+        // the scene unseen: it is the hover target, and the arrival focus still lights it. It keeps
+        // the shared zoom floor, so a small client is no harder to point at.
+        group.userData.haloKeepsSize = !isNetworkDevice;
         if (!isNetworkDevice) {
             const halo = group.userData.halo;
             if (this._focusGlowing?.halo === halo) this._focusGlowing.haloOpacity = 0;
@@ -1135,8 +1155,38 @@ export class LanFlowMap {
         }
     }
 
-    // Camera-distance scale of a node's core and halo. A network device body with a known real
-    // size has its own, lower floor, so it shrinks further as the camera closes in.
+    // The yaw that turns an upright body's face away from the nearest wall on its floor, so the
+    // body sits parallel to that wall. Null when no wall is within reach.
+    _wallFacingYaw(pos) {
+        if (!this._anchored || !this._buildings?.length) return null;
+        const scale = this._anchorScale, wallH = 2.9 * scale * 0.8, reach = 6 * scale;
+        let best = null;
+        for (const building of this._buildings) {
+            for (const floor of building.floors || []) {
+                const floorY = floor.z * scale * 0.8;
+                if (pos.y < floorY - wallH * 0.2 || pos.y > floorY + wallH * 1.2) continue;
+                for (const wall of floor.walls || []) {
+                    const pts = wall.points || [];
+                    for (let i = 0; i < pts.length - 1; i++) {
+                        const ax = -pts[i].x * scale, az = pts[i].y * scale;
+                        const dx = -pts[i + 1].x * scale - ax, dz = pts[i + 1].y * scale - az;
+                        const len2 = dx * dx + dz * dz;
+                        if (len2 < 1e-9) continue;
+                        const t = Math.max(0, Math.min(1, ((pos.x - ax) * dx + (pos.z - az) * dz) / len2));
+                        const nx = pos.x - (ax + t * dx), nz = pos.z - (az + t * dz);
+                        const d = Math.hypot(nx, nz);
+                        if (d < reach && (!best || d < best.d)) best = { d, nx, nz, dx, dz };
+                    }
+                }
+            }
+        }
+        if (!best) return null;
+        // Standing on the wall line itself: either side will do.
+        return best.d > 1e-6 ? Math.atan2(best.nx, best.nz) : Math.atan2(-best.dz, best.dx);
+    }
+
+    // Camera-distance scale of a node's core and halo. A body with a known size class has its own
+    // floor, so it settles at that size as the camera closes in.
     _deviceZoom(group, dist, devMax) {
         return Math.max(group.userData?.zoomMin ?? DEVICE_ZOOM_MIN, Math.min(devMax, dist / DEVICE_ZOOM_REF_DIST));
     }
@@ -2276,7 +2326,10 @@ export class LanFlowMap {
             const dist = camPos.distanceTo(group.position);
             const z = this._deviceZoom(group, dist, devMax);
             core.scale.setScalar(z);
-            if (halo) halo.scale.setScalar(z);
+            if (halo) {
+                halo.scale.setScalar(group.userData.haloKeepsSize
+                    ? Math.max(z, DEVICE_ZOOM_MIN, Math.min(devMax, dist / DEVICE_ZOOM_REF_DIST)) : z);
+            }
             const facing = group.userData.faceCamera;
             if (facing) facing.rotation.y = Math.atan2(camPos.x - group.position.x, camPos.z - group.position.z);
         }

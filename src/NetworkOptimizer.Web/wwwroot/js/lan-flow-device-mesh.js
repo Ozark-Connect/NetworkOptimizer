@@ -9,7 +9,7 @@
 import * as THREE from 'three';
 
 /** Slab thickness as a share of the device's longest side. */
-export const DEPTH = { accessPoint: 0.20, wallPlate: 0.14, chassis: 0.60, panel: 0.24, client: 0.10 };
+export const DEPTH = { accessPoint: 0.20, wallPlate: 0.14, chassis: 0.60, panel: 0.24, client: 0.10, clientMid: 0.30 };
 
 // Width in texels of the solid body-colour strip beside the icon. Sides and back sample it.
 const STRIP = 8;
@@ -32,8 +32,13 @@ export function isPanelModel(model) {
     return /^(u-?lte|u5g)/.test((model || '').toLowerCase().replace(/ /g, '-'));
 }
 
+/** Whether a model is a slim plate (the UDB Device Bridges): the map counts it as a switch, but it is no chassis. */
+export function isSlimModel(model) {
+    return /^udb/.test((model || '').toLowerCase().replace(/ /g, '-'));
+}
+
 // Desktop gateways and switches whose front face is as wide and thin as a rack unit's.
-const COMPACT_MODEL = /^(ucg|uxg-(fiber|lite|max)|usg$|usg-3p|uck|usw-(flex|lite|ultra)|usw-(pro|enterprise|pro-xg)-8|us-8|usw-industrial)/;
+const COMPACT_MODEL = /^(ucg|uxg-(fiber|lite|max)|usg$|usg-3p|uck|udb|usw-(flex|lite|ultra)|usw-(pro|enterprise|pro-xg)-8|us-8|usw-industrial)/;
 
 /**
  * A network device's real longest side in metres, estimated: a face at least four times wider
