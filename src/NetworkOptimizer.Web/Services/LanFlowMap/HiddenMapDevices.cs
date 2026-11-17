@@ -14,8 +14,10 @@ public static partial class HiddenMapDevices
     /// <summary>More than any site hides by hand; bounds what one request can store.</summary>
     public const int MaxDevices = 1000;
 
-    // A client MAC, or a group node's id: hub-dev-{parent MAC}-{port key}, as LanFlowMapService names it.
-    [GeneratedRegex(@"^([0-9a-f]{2}(:[0-9a-f]{2}){5}|hub-dev-[0-9a-f]{2}(:[0-9a-f]{2}){5}-[\w./:-]{1,64})$")]
+    // A client MAC, or a group node's id as LanFlowMapService names it: hub-dev-{parent MAC}-{port
+    // key}, where the port key is {parent MAC}|{interface name}. Keep the "|": without it every
+    // group id is dropped on save.
+    [GeneratedRegex(@"^([0-9a-f]{2}(:[0-9a-f]{2}){5}|hub-dev-[0-9a-f]{2}(:[0-9a-f]{2}){5}-[0-9a-f]{2}(:[0-9a-f]{2}){5}\|[\w ./:-]{1,64})$")]
     private static partial Regex KeyPattern();
 
     /// <summary>The preference key for a site. Site-scoped: the value names that site's clients.</summary>
