@@ -135,10 +135,10 @@ public static class LanFlowMapEndpoints
                 continue;
             node.IconUrl = icons.UrlFor(node.Mac);
             // The 3D map's body for the client: how large, how deep, and whether it hugs a wall.
-            var category = icons.CategoryFor(node.Mac);
-            node.BodySize = (int)ClientBodyClass.SizeOf(category);
-            node.BodyDepth = (int)ClientBodyClass.DepthOf(category);
-            node.WallFlat = ClientBodyClass.IsWallFlat(category);
+            var body = icons.BodyFor(node.Mac);
+            node.BodySizeM = body.SizeM;
+            node.BodyDepth = (int)body.Depth;
+            node.WallFlat = body.WallFlat;
         }
 
         foreach (var hub in nodes.Where(n => n.Kind == LanNodeKind.VirtualHub))
