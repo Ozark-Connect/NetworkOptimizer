@@ -430,7 +430,7 @@ curl -fsSL https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer-Prox
 
 The server binds the tunnel on port 8043 at startup whether or not you run agents, so enabling multi-site never needs a restart. Reach it through the proxy route above rather than exposing 8043 itself; only an enrolled agent's key opens a tunnel, but the port has no other reason to be public.
 
-**Proxmox users:** The [Proxmox LXC installer](../scripts/proxmox/README.md) can set up Traefik automatically during installation.
+**Proxmox users:** The [Proxmox LXC installer](../scripts/proxmox/README.md) can set up Traefik automatically during installation. For an existing container, [`add-https.sh`](../scripts/proxmox/README.md#adding-https-to-an-existing-install) adds the same setup and keeps your data.
 
 **Windows users:** Traefik is available as an optional feature in the MSI installer.
 
