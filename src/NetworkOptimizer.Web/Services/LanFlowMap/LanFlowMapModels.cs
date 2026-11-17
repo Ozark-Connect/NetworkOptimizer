@@ -106,6 +106,12 @@ public class LanNode
     /// <summary>AP mount type ("ceiling", "wall", "desktop") for vertical positioning within a floor.</summary>
     public string? MountType { get; set; }
 
+    /// <summary>
+    /// Compass bearing (0 = north, clockwise) a placed AP's orientation arrow points to, away from
+    /// the face of the AP. Null for an AP not placed on the map and for every other node.
+    /// </summary>
+    public int? OrientationDeg { get; set; }
+
     /// <summary>Whether the device responded to our last poll (for dimming offline nodes).</summary>
     public bool Online { get; set; } = true;
 

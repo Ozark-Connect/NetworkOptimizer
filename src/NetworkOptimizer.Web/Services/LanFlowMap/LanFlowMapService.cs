@@ -267,16 +267,22 @@ public class LanFlowMapService
             .Where(m => !string.IsNullOrEmpty(m.MountType))
             .ToDictionary(m => NormalizeMac(m.Mac), m => m.MountType, StringComparer.OrdinalIgnoreCase);
 
+        // Orientation only for APs placed on the map: an unplaced marker's 0 is a default, not a heading
+        var orientations = markers
+            .Where(m => m.Latitude.HasValue && m.Longitude.HasValue)
+            .GroupBy(m => NormalizeMac(m.Mac), StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(g => g.Key, g => g.First().OrientationDeg, StringComparer.OrdinalIgnoreCase);
+
         BuildInfrastructureGraph(topology, anchors, snapshot, nameMaps);
         await ApplyCellularSignalAsync(snapshot);
 
         foreach (var node in snapshot.Nodes)
         {
-            if (node.Kind == LanNodeKind.AccessPoint && node.Mac != null
-                && mountTypes.TryGetValue(node.Mac, out var mt))
-            {
+            if (node.Kind != LanNodeKind.AccessPoint || node.Mac == null) continue;
+            if (mountTypes.TryGetValue(node.Mac, out var mt))
                 node.MountType = mt;
-            }
+            if (orientations.TryGetValue(node.Mac, out var deg))
+                node.OrientationDeg = deg;
         }
 
         BuildClientLeaves(topology, anchors, snapshot, nameMaps, rawByMac);
