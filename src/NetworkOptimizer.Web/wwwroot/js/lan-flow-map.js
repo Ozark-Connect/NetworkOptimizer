@@ -14,7 +14,7 @@ import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { buildBuildings } from './lan-flow-buildings.js?v=2';
-import { DEPTH, deviceIconUrl, isRoundBody, isStandMountModel, getBody, loadBody, makeBodyMesh, poseQuaternion } from './lan-flow-device-mesh.js?v=1';
+import { DEPTH, deviceIconUrl, isPanelModel, isRoundBody, isStandMountModel, getBody, loadBody, makeBodyMesh, poseQuaternion } from './lan-flow-device-mesh.js?v=2';
 // KEEP IN SYNC: lan-flow-map-2d.js imports the same module. Both must use the same ?v= or they get separate instances.
 import * as flowData from './lan-flow-data.js?v=18';
 import { opaqueBounds, logoFit } from './image-bounds.js?v=1';
@@ -1064,7 +1064,8 @@ export class LanFlowMap {
         const url = deviceIconUrl(node.model);
         if (!url) return null;
         if (isRoundBody(node.model)) return { url, shape: { round: true } };
-        const depth = node.kind !== NODE_KIND.AccessPoint ? DEPTH.chassis
+        const depth = isPanelModel(node.model) ? DEPTH.panel
+            : node.kind !== NODE_KIND.AccessPoint ? DEPTH.chassis
             : isStandMountModel(node.model) ? DEPTH.wallPlate : DEPTH.accessPoint;
         return { url, shape: { depth } };
     }
