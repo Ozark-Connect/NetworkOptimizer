@@ -13,8 +13,8 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
-import { buildBuildings } from './lan-flow-buildings.js?v=2';
-import { DEPTH, deviceIconUrl, isPanelModel, isRoundBody, isStandMountModel, getBody, loadBody, makeBodyMesh, poseQuaternion } from './lan-flow-device-mesh.js?v=2';
+import { buildBuildings } from './lan-flow-buildings.js?v=3';
+import { DEPTH, deviceIconUrl, estimateRealSizeM, isPanelModel, isRoundBody, isStandMountModel, getBody, loadBody, makeBodyMesh, poseQuaternion } from './lan-flow-device-mesh.js?v=3';
 // KEEP IN SYNC: lan-flow-map-2d.js imports the same module. Both must use the same ?v= or they get separate instances.
 import * as flowData from './lan-flow-data.js?v=18';
 import { opaqueBounds, logoFit } from './image-bounds.js?v=1';
@@ -184,6 +184,8 @@ const LINK_KIND = {
 // The emissive sits far below the primitives' 0.45: the icon is mostly white and bloom washes it out.
 const ICON_BODY_SIZE = 2.6;
 const ICON_BODY_EMISSIVE = 0.1;
+// At closest zoom a network device body is this many times its real size (TJ, 2026-11-17).
+const ICON_BODY_REAL_FACTOR = 2;
 
 const NODE_KIND = {
     Gateway: 0,
@@ -792,6 +794,8 @@ export class LanFlowMap {
         // Kept for nodes added after this pass (a client rebuilt mid-playback): its saved
         // placement has to be projected with the same scale or it lands somewhere else.
         this._anchorScale = scale;
+        // Whether the scene has real metres: without a placed device the scale is arbitrary.
+        this._anchored = (bounds.anchorCount || 0) > 0;
         const sizeRatio = scale / REF_WORLD_SCALE;
         this._deviceScale = Math.max(DEVICE_SCALE_MIN, Math.min(1.0, sizeRatio));
         this._cloudScale = Math.max(CLOUD_SCALE_MIN, Math.min(CLOUD_SCALE_MAX, sizeRatio));
@@ -1114,13 +1118,27 @@ export class LanFlowMap {
         // upright and the zoom pass turns its face to the camera.
         group.userData.faceCamera = posed ? null : holder;
 
+        // A network device is at most ICON_BODY_REAL_FACTOR times its real size at closest zoom.
+        // Zoomed out it keeps the larger size, so it still reads at property scale.
+        const isNetworkDevice = node.kind === NODE_KIND.Gateway || node.kind === NODE_KIND.Switch || node.kind === NODE_KIND.AccessPoint;
+        if (isNetworkDevice && this._anchored) {
+            const closest = ICON_BODY_REAL_FACTOR * estimateRealSizeM(entry) * this._anchorScale;
+            group.userData.zoomMin = Math.min(DEVICE_ZOOM_MIN, closest / size);
+        }
+
         // A client's halo is near-white and sits over the icon, which washes it out. It stays in
         // the scene unseen: it is the hover target, and the arrival focus still lights it.
-        if (node.kind !== NODE_KIND.Gateway && node.kind !== NODE_KIND.Switch && node.kind !== NODE_KIND.AccessPoint) {
+        if (!isNetworkDevice) {
             const halo = group.userData.halo;
             if (this._focusGlowing?.halo === halo) this._focusGlowing.haloOpacity = 0;
             else halo.material.opacity = 0;
         }
+    }
+
+    // Camera-distance scale of a node's core and halo. A network device body with a known real
+    // size has its own, lower floor, so it shrinks further as the camera closes in.
+    _deviceZoom(group, dist, devMax) {
+        return Math.max(group.userData?.zoomMin ?? DEVICE_ZOOM_MIN, Math.min(devMax, dist / DEVICE_ZOOM_REF_DIST));
     }
 
     // Half-height of a node's body above its centre, for anchoring labels to its top.
@@ -2256,7 +2274,7 @@ export class LanFlowMap {
             const { core, halo } = group.userData ?? {};
             if (!core) continue;
             const dist = camPos.distanceTo(group.position);
-            const z = Math.max(DEVICE_ZOOM_MIN, Math.min(devMax, dist / DEVICE_ZOOM_REF_DIST));
+            const z = this._deviceZoom(group, dist, devMax);
             core.scale.setScalar(z);
             if (halo) halo.scale.setScalar(z);
             const facing = group.userData.faceCamera;
@@ -2284,7 +2302,7 @@ export class LanFlowMap {
             const dist = camPos.distanceTo(group.position);
             const f = Math.max(LABEL_ZOOM_MIN, Math.min(1.0, dist / labelRef));
             sprite.scale.set(base.x * f, base.y * f, 1);
-            const z = Math.max(DEVICE_ZOOM_MIN, Math.min(devMax, dist / DEVICE_ZOOM_REF_DIST));
+            const z = this._deviceZoom(group, dist, devMax);
             sprite.position.y = this._topHalf(group) * z + 0.35 * this._deviceScale;
             const fade = 1 - Math.min(1, Math.max(0,
                 (dist - LABEL_FADE_START_DIST) / (LABEL_FADE_END_DIST - LABEL_FADE_START_DIST)));
@@ -3766,7 +3784,7 @@ export class LanFlowMap {
             const dist = tmp.distanceTo(camPos);
             // Anchor just above the rendered top of the core mesh (tracks the
             // per-frame zoom scale) instead of a fixed offset above center.
-            const zDev = Math.max(DEVICE_ZOOM_MIN, Math.min(this._devZoomMax ?? 1, dist / DEVICE_ZOOM_REF_DIST));
+            const zDev = this._deviceZoom(group, dist, this._devZoomMax ?? 1);
             tmp.y += this._topHalf(group) * zDev + 0.35 * this._deviceScale;
             tmp.project(this.camera);
             if (tmp.z > 1) { el.classList.remove('is-visible'); continue; }

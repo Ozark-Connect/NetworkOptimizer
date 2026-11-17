@@ -32,6 +32,15 @@ export function isPanelModel(model) {
     return /^(u-?lte|u5g)/.test((model || '').toLowerCase().replace(/ /g, '-'));
 }
 
+/**
+ * A network device's real longest side in metres, estimated from its body: a face at least four
+ * times wider than tall is a rack-width chassis, anything else is a hand-sized device.
+ */
+export function estimateRealSizeM(entry) {
+    const size = entry.bounds.getSize(new THREE.Vector3());
+    return size.x >= size.y * 4 ? 0.44 : 0.2;
+}
+
 /** Whether a model stands upright on a desk (in-wall and wall models on their stand). Mirrors PropagationService.IsStandMountModel. */
 export function isStandMountModel(model) {
     const m = (model || '').toLowerCase().replace(/ /g, '-').replace(/-b$/, '');
@@ -176,11 +185,30 @@ function _setUv(uv, i, s, x, y, plain) {
     }
 }
 
+// A zero-length normal becomes NaN in the lit shader, and the map's bloom pass smears one NaN
+// pixel into a screen-sized dark block. Never leave one: a zero-area triangle still covers a
+// pixel at some camera angles.
+function _fixNormals(geo, fallback) {
+    const n = geo.attributes.normal;
+    for (let i = 0; i < n.count; i++) {
+        const len = Math.hypot(n.getX(i), n.getY(i), n.getZ(i));
+        if (!(len > 0.5)) { const f = fallback(i); n.setXYZ(i, f[0], f[1], f[2]); }
+    }
+}
+
 function _slab(s, depth) {
     const X = x => (x - s.cx) / s.size, Y = y => (s.cy - y) / s.size;
+    const ring = [];
+    s.rows.forEach((r, i) => ring.push([X(r.l), i === 0 ? Y(r.y) : Y(r.y + 0.5)]));
+    for (let i = s.rows.length - 1; i >= 0; i--) ring.push([X(s.rows[i].r), Y(s.rows[i].y + 0.5)]);
+    // Drop points on a straight run. The triangulator turns them into zero-area triangles.
+    const pts = [];
+    for (let i = 0; i < ring.length; i++) {
+        const a = pts.length ? pts[pts.length - 1] : ring[ring.length - 1], b = ring[i], c = ring[(i + 1) % ring.length];
+        if (Math.abs((b[0] - a[0]) * (c[1] - b[1]) - (b[1] - a[1]) * (c[0] - b[0])) > 1e-9) pts.push(b);
+    }
     const shape = new THREE.Shape();
-    s.rows.forEach((r, i) => i === 0 ? shape.moveTo(X(r.l), Y(r.y)) : shape.lineTo(X(r.l), Y(r.y + 0.5)));
-    for (let i = s.rows.length - 1; i >= 0; i--) shape.lineTo(X(s.rows[i].r), Y(s.rows[i].y + 0.5));
+    pts.forEach((p, i) => i === 0 ? shape.moveTo(p[0], p[1]) : shape.lineTo(p[0], p[1]));
 
     const bevel = Math.min(0.02, depth / 4);
     const inner = depth - bevel * 2;
@@ -200,6 +228,7 @@ function _slab(s, depth) {
     geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
     geo.clearGroups();
     geo.computeVertexNormals();
+    _fixNormals(geo, i => [0, 0, pos.getZ(i) < 0 ? -1 : 1]);
     return geo;
 }
 
@@ -217,5 +246,7 @@ function _lathe(s) {
     for (let i = 0; i < pos.count; i++) _setUv(uv, i, s, pos.getX(i) * 0.96, pos.getY(i), false);
     geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
     geo.computeVertexNormals();
+    // The first and last column's pole vertices sit only in zero-area triangles.
+    _fixNormals(geo, i => [0, pos.getY(i) < 0 ? -1 : 1, 0]);
     return geo;
 }

@@ -1022,6 +1022,7 @@ function _buildFloorPlane(floor, scale, floorY, parent) {
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.BufferAttribute(verts, 3));
     geo.computeVertexNormals();
+    _fixNormals(geo);
 
     const mat = new THREE.MeshStandardMaterial({
         color: FLOOR_COLOR,
@@ -1097,6 +1098,7 @@ function _buildRoof(topFloor, building, scale, wallH, parent) {
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.BufferAttribute(verts, 3));
     geo.computeVertexNormals();
+    _fixNormals(geo);
 
     const mat = new THREE.MeshStandardMaterial({
         color: ROOF_COLOR,
@@ -1112,6 +1114,15 @@ function _buildRoof(topFloor, building, scale, wallH, parent) {
 }
 
 // -- footprint ----------------------------------------------------------------
+
+// A zero-length normal becomes NaN in the lit shader, and the map's bloom pass smears one NaN pixel
+// into a screen-sized dark block. A zero-area triangle (collinear outline points) leaves one.
+function _fixNormals(geo) {
+    const n = geo.attributes.normal;
+    for (let i = 0; i < n.count; i++) {
+        if (!(Math.hypot(n.getX(i), n.getY(i), n.getZ(i)) > 0.5)) n.setXYZ(i, 0, 1, 0);
+    }
+}
 
 function _signedArea(loop) {
     let area = 0;
