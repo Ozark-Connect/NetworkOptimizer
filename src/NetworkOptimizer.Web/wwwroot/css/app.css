@@ -2114,6 +2114,90 @@ a.stat-card-link:active {
     border-bottom: none;
 }
 
+/* The Recent Security Findings item format (.alert-item), on desktop and mobile. */
+.dashboard-grid .wifi-issues-list {
+    gap: 1rem;
+}
+
+.dashboard-grid .wifi-issue-item {
+    display: grid;
+    grid-template-columns: 24px 1fr auto;
+    column-gap: 1rem;
+    align-items: start;
+    padding: 1rem;
+    background: var(--bg-primary);
+    border-radius: var(--border-radius);
+    border-bottom: none;
+    border-left: 4px solid var(--border-color);
+    box-shadow: none;
+}
+
+.dashboard-grid .wifi-issue-item.wifi-issue-critical { border-left-color: var(--danger-color); }
+.dashboard-grid .wifi-issue-item.wifi-issue-warning { border-left-color: var(--warning-color); }
+.dashboard-grid .wifi-issue-item.wifi-issue-info { border-left-color: var(--info-color); }
+
+.dashboard-grid .wifi-issue-item .wifi-issue-row {
+    display: contents;
+}
+
+.dashboard-grid .wifi-issue-item .wifi-issue-icon {
+    grid-row: 1 / span 2;
+    padding-top: 0.125rem;
+}
+
+.dashboard-grid .wifi-issue-item .wifi-issue-icon svg {
+    width: 20px;
+    height: 20px;
+}
+
+.dashboard-grid .wifi-issue-item .wifi-issue-title {
+    font-size: 1rem;
+    font-weight: 600;
+    align-self: center;
+}
+
+.dashboard-grid .wifi-issue-item .wifi-issue-entity {
+    font-size: 0.75rem;
+    text-align: right;
+    align-self: center;
+}
+
+.dashboard-grid .wifi-issue-item .wifi-issue-description {
+    grid-column: 2 / -1;
+    font-size: 0.875rem;
+    line-height: 1.5;
+    padding-left: 0;
+    margin-top: 0.5rem;
+}
+
+/* Mobile: icon inline with the title, the rest full width, as .alert-item does. */
+@media (max-width: 768px) {
+    .dashboard-grid .wifi-issue-item {
+        grid-template-columns: auto 1fr;
+        column-gap: 0.5rem;
+        row-gap: 0.25rem;
+    }
+
+    .dashboard-grid .wifi-issue-item .wifi-issue-icon {
+        grid-row: 1;
+        padding-top: 0.15rem;
+    }
+
+    .dashboard-grid .wifi-issue-item .wifi-issue-title {
+        font-size: 0.9rem;
+    }
+
+    .dashboard-grid .wifi-issue-item .wifi-issue-entity {
+        grid-column: 1 / -1;
+        text-align: left;
+    }
+
+    .dashboard-grid .wifi-issue-item .wifi-issue-description {
+        grid-column: 1 / -1;
+        margin-top: 0.25rem;
+    }
+}
+
 .wifi-issue-description {
     font-size: 0.8rem;
     color: var(--text-secondary);
