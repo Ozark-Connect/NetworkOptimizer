@@ -2313,7 +2313,7 @@ class LanFlowMap2D {
             if(rttTxt){
                 ctx.fillStyle=C.textMuted;
                 ctx.font=`${G.rateFont-1}px ${FONT}`;
-                ctx.fillText(rttTxt,cx,cy+r+22);
+                ctx.fillText(rttTxt,cx,cy+r+22+(G.rateFont-1)/2);
             }
         }
     }
