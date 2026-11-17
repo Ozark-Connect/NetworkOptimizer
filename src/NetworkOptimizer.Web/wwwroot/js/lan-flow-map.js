@@ -3983,7 +3983,12 @@ export class LanFlowMap {
         if (band) rows.push(['Band', `${band} GHz`]);
         if (node.ssid) rows.push(['SSID', node.ssid]);
         if (node.network) rows.push(['Network', node.network]);
-        if (signalDbm) rows.push(['Signal', `${signalDbm} dBm`]);
+        // An MLO backhaul reads per link; the single reading is just the link the child measures.
+        if (node.mloLinks?.length && !cs?.signalDbm) {
+            for (const l of node.mloLinks) rows.push([`Signal (${l.band} GHz)`, `${l.signalDbm} dBm`]);
+        } else if (signalDbm) rows.push(['Signal', `${signalDbm} dBm`]);
+        const cellQ = cs?.cellularSignalQuality ?? node.cellularSignalQuality;
+        if (cellQ != null) rows.push(['Signal Quality', `${cellQ}%`]);
         if (node.switchPortName) rows.push(['Switch port', node.switchPortName]);
         // Device health from NodeLiveBadge (infrastructure nodes only)
         const badge = this._currentBadges?.[node.id];

@@ -1242,7 +1242,11 @@ class LanFlowMap2D {
         if(band)rows.push(['Band',`${band} GHz`]);
         if(d.ssid)rows.push(['SSID',m(d.ssid)]);
         if(d.network)rows.push(['Network',m(d.network)]);
-        if(signalDbm)rows.push(['Signal',`${signalDbm} dBm`]);
+        // An MLO backhaul reads per link; the single reading is just the link the child measures.
+        if(d.mloLinks?.length&&!cs?.signalDbm){for(const l of d.mloLinks)rows.push([`Signal (${l.band} GHz)`,`${l.signalDbm} dBm`]);}
+        else if(signalDbm)rows.push(['Signal',`${signalDbm} dBm`]);
+        const cellQ=cs?.cellularSignalQuality??d.cellularSignalQuality;
+        if(cellQ!=null)rows.push(['Signal Quality',`${cellQ}%`]);
         if(d.switchPortName)rows.push(['Switch port',m(d.switchPortName)]);
 
         const badges=flowData.getNodeBadges();
@@ -1907,6 +1911,8 @@ class LanFlowMap2D {
                 tn.d.signalDbm=n.signalDbm;
                 tn.d.signalBars=n.signalBars;
                 tn.d.signalColor=n.signalColor;
+                tn.d.mloLinks=n.mloLinks;
+                tn.d.cellularSignalQuality=n.cellularSignalQuality;
                 // A client first drawn from the live overlay, or before its DHCP lease, has no
                 // address yet; the console's later reading is what makes it openable.
                 if(isClient(n.kind)){
@@ -2766,9 +2772,9 @@ class LanFlowMap2D {
     // The client bars turned upright for a device card: five segments rising bottom to top, each
     // wider than the one below and right-aligned at `right`, in the gap beside the device icon.
     _drawUplinkMeter(ctx,right,y,color,lit){
-        const h=4.4, gap=1.5, top=y-(5*h+4*gap)/2, on=color||C.textMuted;
+        const h=6.3, gap=1.4, top=y-(5*h+4*gap)/2, on=color||C.textMuted;
         for(let i=0;i<5;i++){
-            const w=2+i*0.5, sy=top+(4-i)*(h+gap);
+            const w=2.5+i*0.5, sy=top+(4-i)*(h+gap);
             ctx.fillStyle=i<lit?on:'rgba(255,255,255,0.10)';
             this._roundRect(ctx,right-w,sy,w,h,0.8);
             ctx.fill();

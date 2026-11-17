@@ -77,6 +77,9 @@ public enum LanNodeKind
     VirtualHub = 6,
 }
 
+/// <summary>One link of a multi-link backhaul: its band ("2.4", "5", "6") and signal in dBm.</summary>
+public record LanLinkSignal(string Band, int SignalDbm);
+
 public enum LanPlacementSource
 {
     /// <summary>No placement hint - layout engine decides.</summary>
@@ -127,6 +130,7 @@ public class LanNode
     /// <inheritdoc cref="SignalClass"/>
     public int? SignalBars => CellularSignalQuality is int q
         ? NetworkOptimizer.Monitoring.Models.CellularModemStats.QualityBars(q)
+        : MloAverage() is { } mlo ? mlo.Bars
         : SignalDbm.HasValue && Band != null
             ? NetworkOptimizer.WiFi.Helpers.SignalClassification.GetSignalBars(SignalDbm.Value, Band)
             : null;
@@ -134,6 +138,7 @@ public class LanNode
     /// <summary>The blended color for this reading, so the map bars shade like every other gauge.</summary>
     public string? SignalColor => CellularSignalQuality is int q
         ? NetworkOptimizer.Monitoring.Models.CellularModemStats.QualityColor(q)
+        : MloAverage() is { } mlo ? mlo.Color
         : SignalDbm.HasValue && Band != null
             ? NetworkOptimizer.WiFi.Helpers.SignalClassification.GetSignalColor(SignalDbm.Value, Band)
             : null;
@@ -143,6 +148,18 @@ public class LanNode
     /// device node whose IP the modem's Host names; when set it drives the signal fields above.
     /// </summary>
     public int? CellularSignalQuality { get; set; }
+
+    /// <summary>
+    /// Each link of an MLO mesh backhaul with its signal, for the tooltip. The 5 and 6 GHz links
+    /// together drive the signal fields above, averaged; null on a single-link uplink.
+    /// </summary>
+    public List<LanLinkSignal>? MloLinks { get; set; }
+
+    private (int Bars, string Color)? MloAverage()
+    {
+        var links = MloLinks?.Where(l => l.Band is "5" or "6").Select(l => (l.SignalDbm, (string?)l.Band)).ToList();
+        return links is { Count: > 0 } ? NetworkOptimizer.WiFi.Helpers.SignalClassification.GetAverageSignal(links) : null;
+    }
     public long? PhyTxKbps { get; set; }
     public long? PhyRxKbps { get; set; }
 

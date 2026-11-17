@@ -1588,6 +1588,28 @@ public class LanFlowMapService
         }
     }
 
+    /// <summary>
+    /// Each link of an MLO backhaul with its signal. The child's own uplink.mlo_links where it reports
+    /// them; else the agreeing parent's claim, with the child's reading for the link it measures itself,
+    /// as Path Analysis resolves it. Null unless at least two links carry a signal.
+    /// </summary>
+    private static List<LanLinkSignal>? MloLinkSignals(DiscoveredDevice d, UniFiDiscovery.MeshParentClaim? claim)
+    {
+        var ownBand = NormalizeBand(d.UplinkRadioBand);
+        IEnumerable<(string? Band, int? Dbm)> links = d.UplinkMloLinks.Count > 0
+            ? d.UplinkMloLinks.Select(l => (NormalizeBand(l.Band), l.SignalDbm))
+            : claim is { IsMlo: true } c && !c.Contradicts(d.UplinkMac)
+                ? c.Links.Select(l =>
+                {
+                    var band = NormalizeBand(l.Radio);
+                    return (band, band == ownBand && d.UplinkSignalDbm.HasValue ? d.UplinkSignalDbm : l.Signal);
+                })
+                : [];
+        var list = links.Where(l => l.Band is "2.4" or "5" or "6" && l.Dbm.HasValue)
+            .Select(l => new LanLinkSignal(l.Band!, l.Dbm!.Value)).ToList();
+        return list.Count > 1 ? list : null;
+    }
+
     /// <summary>The site's own cellular monitor, read directly: the snapshot also builds with no user.</summary>
     private ICellularModemService Cellular => _modems.GetFor(_siteContext.Slug).Cellular;
 
@@ -1685,6 +1707,7 @@ public class LanFlowMapService
                     if (mloClaim.RxRateKbps > 0) node.PhyTxKbps = Math.Max(node.PhyTxKbps ?? 0, mloClaim.RxRateKbps);
                     if (mloClaim.TxRateKbps > 0) node.PhyRxKbps = Math.Max(node.PhyRxKbps ?? 0, mloClaim.TxRateKbps);
                 }
+                if (node.IsMloMesh) node.MloLinks = MloLinkSignals(d, meshParentByChild.TryGetValue(mac, out var c) ? c : null);
             }
             snapshot.Nodes.Add(node);
         }
