@@ -212,6 +212,57 @@ public class ClientIconSourceTests
     }
 
     [Fact]
+    public void AsnLogo_FetchesThe101Render_AndKeysOnlyRealAsns()
+    {
+        // 64496: an RFC 5398 documentation ASN.
+        ClientIconSource.AsnKey(64496).Should().Be("as-64496");
+        ClientIconSource.AsnKey(0).Should().BeNull();
+        ClientIconSource.AsnKey(-1).Should().BeNull();
+        ClientIconSource.IsValidKey("as-64496").Should().BeTrue();
+        ClientIconSource.IsValidKey("as-../x").Should().BeFalse();
+        ClientIconSource.CatalogUrl("as-64496").Should().Be("https://static.ui.com/asn/64496_101x101.png");
+    }
+
+    [Fact]
+    public void Apply_KeepsTheLastIcon_WhenARowResolvesNone()
+    {
+        var clients = new Dictionary<string, ClientIconRef>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["aa:bb:cc:dd:ee:ff"] = new("fp-38", "https://static.ui.com/fingerprint/0/38_129x129.png", SiteOwned: false),
+        };
+
+        ClientIconRegistry.Apply(clients, [new UniFiClientResponse { Mac = "aa:bb:cc:dd:ee:ff" }]);
+
+        clients["aa:bb:cc:dd:ee:ff"].Key.Should().Be("fp-38");
+    }
+
+    [Fact]
+    public void Apply_KeepsACustomIcon_WhenItsAssetNameStopsParsing()
+    {
+        var custom = ClientIconSource.Resolve(new UniFiClientResponse { AiIcon = AiIcon(129) })!;
+        var clients = new Dictionary<string, ClientIconRef>(StringComparer.OrdinalIgnoreCase) { ["aa:bb:cc:dd:ee:ff"] = custom };
+        var renamed = new UniFiAiIcon
+        {
+            Assets = [new UniFiAiIconAsset { Url = "https://image.icon-gen.svc.ui.com/image/v3/" + IconId + "/129.png", Width = 129 }],
+        };
+
+        ClientIconRegistry.Apply(clients, [new UniFiClientResponse { Mac = "aa:bb:cc:dd:ee:ff", AiIcon = renamed, DevId = 38 }]);
+
+        clients["aa:bb:cc:dd:ee:ff"].Should().Be(custom);
+    }
+
+    [Fact]
+    public void Apply_TakesTheFingerprint_WhenTheCustomIconIsRemoved()
+    {
+        var custom = ClientIconSource.Resolve(new UniFiClientResponse { AiIcon = AiIcon(129) })!;
+        var clients = new Dictionary<string, ClientIconRef>(StringComparer.OrdinalIgnoreCase) { ["aa:bb:cc:dd:ee:ff"] = custom };
+
+        ClientIconRegistry.Apply(clients, [new UniFiClientResponse { Mac = "aa:bb:cc:dd:ee:ff", DevId = 38 }]);
+
+        clients["aa:bb:cc:dd:ee:ff"].Key.Should().Be("fp-38");
+    }
+
+    [Fact]
     public void Map_MatchesMacInAnyCase_AndCarriesTheSite()
     {
         var map = new ClientIconMap("site-a", new Dictionary<string, string> { ["aa:bb:cc:dd:ee:ff"] = "fp-38" });

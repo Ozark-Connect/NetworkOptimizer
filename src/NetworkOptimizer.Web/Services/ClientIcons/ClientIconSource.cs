@@ -14,7 +14,7 @@ public sealed record ClientIconRef(string Key, string SourceUrl, bool SiteOwned)
 /// Picks the icon UniFi Network shows for a client, in its own order: the user's custom icon, then a
 /// Ubiquiti product's icon, then the fingerprinted device's icon.
 /// </summary>
-[VendorSpecific("UniFi", "ai_icon assets, icon_filename, and dev_id(_override) map to Ubiquiti's icon CDNs")]
+[VendorSpecific("UniFi", "ai_icon assets, icon_filename, dev_id(_override), and ISP ASNs map to Ubiquiti's icon CDNs")]
 public static partial class ClientIconSource
 {
     /// <summary>The rendered size fetched: sharp at 2x for the 20-40 px the app draws, small on disk.</summary>
@@ -22,6 +22,12 @@ public static partial class ClientIconSource
 
     private const string FingerprintBase = "https://static.ui.com/fingerprint/0/";
     private const string UniFiDeviceBase = "https://static.ui.com/fingerprint/ui/icons/";
+    /// <summary>
+    /// ISP logos by ASN, the ones UniFi Network shows (its asnPath). Only the 101 and 51 px renders
+    /// exist; an ASN with no logo answers 404, which the failed-fetch table remembers.
+    /// </summary>
+    private const string AsnBase = "https://static.ui.com/asn/";
+    private const int AsnSize = 101;
 
     /// <summary>The only hosts an icon is fetched from. Custom icon URLs come from console data, so nothing else is trusted.</summary>
     private static readonly HashSet<string> AllowedHosts = new(StringComparer.OrdinalIgnoreCase)
@@ -30,7 +36,7 @@ public static partial class ClientIconSource
         "image.icon-gen.svc.ui.com",
     };
 
-    [GeneratedRegex("^(fp-[0-9]{1,9}|ud-[0-9a-f-]{36}|ai-[A-Za-z0-9_-]{8,200})$")]
+    [GeneratedRegex("^(fp-[0-9]{1,9}|ud-[0-9a-f-]{36}|ai-[A-Za-z0-9_-]{8,200}|as-[0-9]{1,10})$")]
     private static partial Regex KeyPattern();
 
     [GeneratedRegex("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")]
@@ -46,6 +52,13 @@ public static partial class ClientIconSource
         ?? FromUniFiDevice(client.IconFilename ?? client.UnifiDeviceInfoFromUcore?.IconFilename)
         ?? FromFingerprint(client.DevIdOverride ?? client.DevId);
 
+    /// <summary>
+    /// A custom icon is set (an asset on an allowed host) but its file name no longer has the shape
+    /// <see cref="Resolve"/> reads: the scheme changed, so the cached custom icon is still the right one.
+    /// </summary>
+    public static bool HasUnreadableAiIcon(UniFiClientResponse client) =>
+        client.AiIcon?.Assets?.Any(a => IsAllowedSource(a.Url) && a.Width > 0) == true && FromAiIcon(client.AiIcon) == null;
+
     /// <summary>Whether a key has the shape this class produces. Keys arrive on a URL, so nothing else reaches the disk.</summary>
     public static bool IsValidKey(string? key) => key != null && KeyPattern().IsMatch(key);
 
@@ -53,7 +66,11 @@ public static partial class ClientIconSource
     public static string? CatalogUrl(string key) =>
         key.StartsWith("fp-", StringComparison.Ordinal) ? $"{FingerprintBase}{key[3..]}_{Size}x{Size}.png"
         : key.StartsWith("ud-", StringComparison.Ordinal) ? $"{UniFiDeviceBase}{key[3..]}_{Size}x{Size}.png"
+        : key.StartsWith("as-", StringComparison.Ordinal) ? $"{AsnBase}{key[3..]}_{AsnSize}x{AsnSize}.png"
         : null;
+
+    /// <summary>The key of an ISP's logo by its ASN; null for a non-positive number.</summary>
+    public static string? AsnKey(long asn) => asn > 0 && asn <= uint.MaxValue ? "as-" + asn : null;
 
     /// <summary>An https URL on one of Ubiquiti's icon hosts.</summary>
     public static bool IsAllowedSource(string? url) =>
