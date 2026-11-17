@@ -186,7 +186,7 @@
                     <span class="client-info-identity">
                     <ClientIcon Url="@_clientIcons.UrlFor(_selectedClient.Mac)" Size="32" />
                     <ClientNameEditor @key="_selectedClient.Mac" Mac="@_selectedClient.Mac" Name="@_selectedClient.Name"
-                                      OnRenamed="OnClientRenamed">
+                                      ReadOnly="@_selectedClient.IsProtectDevice" OnRenamed="OnClientRenamed">
                         @if (!string.IsNullOrEmpty(_selectedClient.Ip))
                         {
                             <a href="/client-dashboard?ip=@_selectedClient.Ip&range=30d&tab=signal" class="client-name client-name-link"

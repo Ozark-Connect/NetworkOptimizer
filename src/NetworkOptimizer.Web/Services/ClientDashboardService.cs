@@ -1570,6 +1570,7 @@ public class ClientDashboardService
             Ip = ResolveClientIp(client),
             FixedIp = client.UseFixedIp && !string.IsNullOrEmpty(client.FixedIp) ? client.FixedIp : null,
             IsWired = client.IsWired,
+            IsProtectDevice = client.IsProtectDevice,
             SignalDbm = client.Signal,
             NoiseDbm = client.Noise,
             Channel = client.Channel,

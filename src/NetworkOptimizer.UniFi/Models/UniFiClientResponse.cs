@@ -330,6 +330,12 @@ public class UniFiClientResponse
     /// Whether this client is a UniFi device (owned by a UniFi app) rather than an ordinary client.
     /// </summary>
     public bool IsUniFiDevice => UniFiProductLine != null;
+
+    /// <summary>
+    /// A UniFi Protect device (camera, AI Key, SuperLink). UniFi Protect owns its name, so it is never
+    /// renamed through UniFi Network. Some consoles mark it on the client, others only in the ucore block.
+    /// </summary>
+    public bool IsProtectDevice => UniFiProductLine == "protect";
 }
 
 /// <summary>

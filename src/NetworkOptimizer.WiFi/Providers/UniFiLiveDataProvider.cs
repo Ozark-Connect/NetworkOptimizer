@@ -1351,6 +1351,7 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
                  : !string.IsNullOrEmpty(client.Name) ? client.Name
                  : !string.IsNullOrEmpty(client.Hostname) ? client.Hostname
                  : client.Mac,
+            IsProtectDevice = client.IsProtectDevice,
             Ip = client.Ip,
             FixedIp = client.UseFixedIp && !string.IsNullOrEmpty(client.FixedIp) ? client.FixedIp : null,
             ApMac = client.ApMac ?? "",

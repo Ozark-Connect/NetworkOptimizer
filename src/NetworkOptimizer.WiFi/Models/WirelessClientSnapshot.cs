@@ -11,6 +11,9 @@ public class WirelessClientSnapshot
     /// <summary>Client hostname or display name</summary>
     public string Name { get; set; } = string.Empty;
 
+    /// <summary>A UniFi Protect device: UniFi Protect owns its name, so no rename is offered.</summary>
+    public bool IsProtectDevice { get; set; }
+
     /// <summary>Client IP address</summary>
     public string? Ip { get; set; }
 
