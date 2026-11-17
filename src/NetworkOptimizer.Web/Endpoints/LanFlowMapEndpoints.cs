@@ -3,6 +3,7 @@ using NetworkOptimizer.Web.Services;
 using NetworkOptimizer.Web.Services.LanFlowMap;
 using NetworkOptimizer.Web.Services.Authorization;
 using NetworkOptimizer.Web.Services.ClientIcons;
+using NetworkOptimizer.Web.Services.Identity;
 
 namespace NetworkOptimizer.Web.Endpoints;
 
@@ -80,6 +81,20 @@ public static class LanFlowMapEndpoints
                 var toT = until ?? DateTime.UtcNow;
                 var items = await svc.BuildSpeedTestOverlayAsync(fromT, toT, limitPerKind: 10, ct: ct);
                 return Results.Ok(items);
+            });
+
+        // The clients the caller has hidden from the 3D map on this site. A personal view choice,
+        // stored per user, so any role may set its own: it changes nothing anyone else sees.
+        read.MapGet("/api/monitoring/lan-flow-map/hidden-devices",
+            async (IUserPreferences prefs, SiteContextService site) =>
+                Results.Ok(HiddenMapDevices.Parse(await prefs.GetAsync(HiddenMapDevices.Key(site.Slug)))));
+
+        read.MapPut("/api/monitoring/lan-flow-map/hidden-devices",
+            async (string[] macs, IUserPreferences prefs, SiteContextService site) =>
+            {
+                var hidden = HiddenMapDevices.Normalize(macs);
+                await prefs.SetAsync(HiddenMapDevices.Key(site.Slug), JsonSerializer.Serialize(hidden));
+                return Results.Ok(hidden);
             });
 
         // Placing a device is the same act as placing an AP, and IApMapAdminService already says

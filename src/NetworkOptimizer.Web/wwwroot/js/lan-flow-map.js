@@ -259,7 +259,8 @@ export class LanFlowMap {
         this._focusGlowing = null; // the group's original emissive/halo, restored when the glow ends
 
         this._snapshot = null;
-        this._deviceScale = 1;          // property-size factor for device radii (set in _layoutNodes)
+        this._hidden = new Set();       // client MACs this user hid on this site (Hide Device)
+        this._deviceScale = 1;         // property-size factor for device radii (set in _layoutNodes)
         this._cloudScale = 1;           // gentler property-size factor for WAN globes
         this._linkScale = 1;            // gentler property-size factor for pipes + particle dots
         this._nodesByLink = new Map();
@@ -702,7 +703,9 @@ export class LanFlowMap {
 
     async _loadSnapshot() {
         try {
-            const res = await fetch(`${this.apiBase}/snapshot`, { credentials: 'same-origin' });
+            // The hidden list is read once, and before the first draw, so a hidden client never flashes in.
+            this._hiddenLoad ??= this._loadHidden();
+            const [res] = await Promise.all([fetch(`${this.apiBase}/snapshot`, { credentials: 'same-origin' }), this._hiddenLoad]);
             if (!res.ok) throw new Error(`snapshot HTTP ${res.status}`);
             const snap = await res.json();
             this._snapshot = snap;
@@ -2946,6 +2949,14 @@ export class LanFlowMap {
             });
             controlsBody.appendChild(row);
         }
+        // Clients taken out with Hide Device: the count, and the way to bring them back.
+        const hiddenRow = document.createElement('div');
+        hiddenRow.className = 'lan-flow-map-toggle lan-flow-map-hidden-row';
+        hiddenRow.innerHTML = '<span></span><span class="lan-flow-map-hidden-row-action">Show</span>';
+        hiddenRow.addEventListener('click', (e) => { e.stopPropagation(); this._showHiddenMenu(hiddenRow); });
+        controlsBody.appendChild(hiddenRow);
+        this._panels.hiddenRow = hiddenRow;
+        this._updateHiddenRow();
         this._panels.controls = controls;
         this._panels.controlsBody = controlsBody;
 
@@ -3243,7 +3254,71 @@ export class LanFlowMap {
         }
     }
 
+    // ---- Hide Device: clients this user took out of the picture on this site ----
+
+    async _loadHidden() {
+        try {
+            const res = await fetch(`${this.apiBase}/hidden-devices`, { credentials: 'same-origin' });
+            if (res.ok) this._hidden = new Set(await res.json());
+        } catch { /* the map draws every client */ }
+        this._updateHiddenRow();
+    }
+
+    // Hide or show clients by MAC, and save the list for this user. The view changes at once; a
+    // failed save only means the choice does not survive a reload.
+    _setHidden(macs, hide) {
+        for (const mac of macs) hide ? this._hidden.add(mac) : this._hidden.delete(mac);
+        this._clearHover();
+        this._applyFilter();
+        this._updateHiddenRow();
+        fetch(`${this.apiBase}/hidden-devices`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'same-origin',
+            body: JSON.stringify([...this._hidden]),
+        }).catch(err => console.error('[LanFlowMap] Failed to save hidden devices:', err));
+    }
+
+    // The Overlays panel row that counts the hidden clients. Absent while there are none.
+    _updateHiddenRow() {
+        const row = this._panels?.hiddenRow;
+        if (!row) return;
+        row.style.display = this._hidden.size > 0 ? '' : 'none';
+        row.firstElementChild.textContent = `Hidden Devices (${this._hidden.size})`;
+    }
+
+    // The list behind that row: each hidden client by name, and Show All.
+    _showHiddenMenu(row) {
+        const wasOpen = this._contextMenuEl?.classList.contains('lan-flow-map-hidden-menu');
+        this._dismissContextMenu();
+        if (wasOpen) return;
+        const menu = document.createElement('div');
+        menu.className = 'lan-flow-map-context-menu lan-flow-map-hidden-menu';
+        const add = (text, macs, cls = '') => {
+            const item = document.createElement('div');
+            item.className = `lan-flow-map-context-menu-item ${cls}`;
+            item.textContent = text;
+            item.addEventListener('click', (e) => {
+                e.stopPropagation();
+                this._dismissContextMenu();
+                this._setHidden(macs, false);
+            });
+            menu.appendChild(item);
+        };
+        const mask = window.DemoMask?.isEnabled() ? (s => window.DemoMask.maskString?.(s) ?? s) : (s => s);
+        const names = new Map((this._snapshot?.nodes ?? []).filter(n => n.mac).map(n => [n.mac, n.name]));
+        add('Show All', [...this._hidden], 'lan-flow-map-hidden-menu-all');
+        for (const mac of this._hidden) add(mask(names.get(mac) || mac), [mac]);
+
+        const stageRect = this.stage.getBoundingClientRect(), rowRect = row.getBoundingClientRect();
+        menu.style.right = `${stageRect.right - rowRect.right}px`;
+        menu.style.top = `${rowRect.bottom - stageRect.top + 4}px`;
+        this.stage.appendChild(menu);
+        this._contextMenuEl = menu;
+    }
+
     _isClientVisible(node) {
+        if (this._hidden.has(node.mac)) return false;
         // Overlay master toggle wins first.
         if (node.kind === NODE_KIND.WifiClient && !this._overlays.wifiClients) return false;
         if (node.kind === NODE_KIND.WiredClient && !this._overlays.wiredClients) return false;
@@ -4441,6 +4516,19 @@ export class LanFlowMap {
             this._enterReposition(node, group);
         });
         menu.appendChild(item);
+
+        // Clients only: hiding a switch or an access point would orphan everything behind it.
+        if (node.mac && (node.kind === NODE_KIND.WiredClient || node.kind === NODE_KIND.WifiClient)) {
+            const hide = document.createElement('div');
+            hide.className = 'lan-flow-map-context-menu-item';
+            hide.textContent = 'Hide Device';
+            hide.addEventListener('click', (e) => {
+                e.stopPropagation();
+                this._dismissContextMenu();
+                this._setHidden([node.mac], true);
+            });
+            menu.appendChild(hide);
+        }
 
         const stageRect = this.stage.getBoundingClientRect();
         menu.style.left = `${clientX - stageRect.left}px`;
