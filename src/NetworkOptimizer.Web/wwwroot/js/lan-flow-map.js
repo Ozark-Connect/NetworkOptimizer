@@ -1532,7 +1532,9 @@ export class LanFlowMap {
         }
         const tex = new THREE.CanvasTexture(canvas);
         tex.needsUpdate = true;
-        const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false });
+        // The bloom pass lifts near-white text into a glow. At 0.75 the text's brightness above
+        // the bloom threshold (0.45) is about half what full white gives, so the glow halves.
+        const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false, color: new THREE.Color(0.75, 0.75, 0.75) });
         const sprite = new THREE.Sprite(mat);
         const scaleY = 1.2 * (h / (fontSize + pad * 2));
         const scaleX = scaleY * (w / h);
