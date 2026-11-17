@@ -123,6 +123,9 @@ function navigate(url) {
 const ROAM_FADE_MS = 350;
 // How long nodes, links and the fitted camera take to slide to a new layout.
 const LAYOUT_MS = 450;
+// A pan or zoom left alone this long, on a view still showing REFIT_SHARE of the map, re-fits again.
+const REFIT_IDLE_MS = 30_000;
+const REFIT_SHARE = 0.95;
 /** How long the first frame waits for client icons before drawing dots in their place. */
 const ICON_PRELOAD_MS = 1500;
 
@@ -398,6 +401,7 @@ class LanFlowMap2D {
                         this._buildLayout(s);
                         this._loadImages(s).then(()=>{this._fitAll();this._needsStaticRedraw=true;});
                     }else{
+                        this._maybeRearmFit();
                         const prev=this._captureLayout();
                         // Detect infrastructure change (devices, not just client churn)
                         const infraCount=(nodes)=>(nodes||[]).filter(n=>n.kind<=3||n.kind===6).length;
@@ -821,7 +825,7 @@ class LanFlowMap2D {
         const wAfter=this._screenToWorld(sx,sy);
         this._ox+=wBefore.x-wAfter.x;
         this._oy+=wBefore.y-wAfter.y;
-        this._isFitted=false;
+        this._isFitted=false; this._userCamAt=performance.now();
         this._needsStaticRedraw=true;
     }
 
@@ -874,7 +878,7 @@ class LanFlowMap2D {
             this._scale=newScale;
             this._ox=wx-(cx1-this._cw/2)/newScale;
             this._oy=wy-(cy1-this._ch/2)/newScale;
-            this._isFitted=false;
+            this._isFitted=false; this._userCamAt=performance.now();
             this._needsStaticRedraw=true;
             return;
         }
@@ -888,7 +892,7 @@ class LanFlowMap2D {
             const dy=(e.clientY-this._dragStart.y)/this._scale;
             this._ox=this._dragStart.ox-dx;
             this._oy=this._dragStart.oy-dy;
-            this._isFitted=false;
+            this._isFitted=false; this._userCamAt=performance.now();
             this._needsStaticRedraw=true;
         } else {
             this._hitTest(sx,sy);
@@ -971,7 +975,7 @@ class LanFlowMap2D {
         if(isDev){this._ox=(l+r)/2; this._oy=(t+b)/2;}
         else if(this._hz){this._ox=n.x-(this._cw/2-edgeX)/this._scale; this._oy=(t+b)/2;}
         else{this._ox=(l+r)/2; this._oy=n.y-(this._ch/2-edgeY-barPx)/this._scale;}
-        this._isFitted=false;
+        this._isFitted=false; this._userCamAt=performance.now();
         this._needsStaticRedraw=true;
     }
 
@@ -1120,7 +1124,7 @@ class LanFlowMap2D {
 
     _zoomBy(factor){
         this._scale=Math.max(0.05,Math.min(10,this._scale*factor));
-        this._isFitted=false;
+        this._isFitted=false; this._userCamAt=performance.now();
         this._needsStaticRedraw=true;
     }
 
@@ -1425,6 +1429,7 @@ class LanFlowMap2D {
 
     _relayout(animate=true){
         if(!this._root)return;
+        this._maybeRearmFit();
         const prev=animate?this._captureLayout():this._dropTransition();
         this._spreadFactor=this._getSpreadFactor();
         this._contourLayout(this._root);
@@ -1451,6 +1456,18 @@ class LanFlowMap2D {
         if(n.d.kind===NK.VirtualHub)return;
         for(const c of n.infra)this._walkPlaced(c,n,fn);
         for(const c of (n._visClients||[]))fn(c,n);
+    }
+
+    // A pan or zoom stops the re-fit. Once it has been left alone for a while on a view that still
+    // shows nearly the whole map, the fit comes back, so a growing layout does not run off a view
+    // nobody is steering. Run before the layout changes: after it, the overflow fails the share.
+    _maybeRearmFit(){
+        if(this._isFitted||!this._root)return;
+        if(performance.now()-(this._userCamAt??0)<REFIT_IDLE_MS)return;
+        this._calcView();
+        let all=0,shown=0;
+        this._walkPlaced(this._root,null,n=>{all++;if(this._inView(n.x,n.y,0,0))shown++;});
+        if(all>0&&shown>=all*REFIT_SHARE)this._isFitted=true;
     }
 
     _reducedMotion(){
