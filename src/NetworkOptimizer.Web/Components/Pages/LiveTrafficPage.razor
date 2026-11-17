@@ -889,7 +889,7 @@
     private RenderFragment RecentSortHeader(LiveFlowSort col) => __builder =>
     {
         var up = col == LiveFlowSort.RecentUp;
-        <th class="sortable @(_flowSort == col ? "sort-desc" : null)" data-tooltip="@RecentArrow.Tooltip(up)" @onclick="() => SetFlowSort(col)">
+        <th class="sortable @(_flowSort == col ? "sort-desc" : null)" data-tooltip="@RecentArrow.Tooltip(up)" data-tooltip-hover-only @onclick="() => SetFlowSort(col)">
             <span class="lt-recent">Recent <RecentArrow Up="up" /></span>
         </th>
     };
