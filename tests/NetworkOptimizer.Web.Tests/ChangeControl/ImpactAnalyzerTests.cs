@@ -148,6 +148,26 @@ public class ImpactAnalyzerTests
     };
 
     [Fact]
+    public void Compare_WirelessClientIssue_SurvivesItsApBeingRenamed()
+    {
+        static AuditIssue OnAp(string ap, string mac) => new()
+        {
+            Title = "IoT Device on Wrong VLAN (Home)", Severity = AuditSeverity.Recommended, Category = "Wireless",
+            Description = "d", CurrentNetwork = "Home", ClientMac = mac, IsWireless = true,
+            DeviceName = $"Plug on {ap} (5 GHz)",
+        };
+        var before = new AuditResult { Issues = [OnAp("[AP] Old", "aa:bb:cc:dd:ee:01")] };
+        var after = new AuditResult { Issues = [OnAp("[AP] New", "aa:bb:cc:dd:ee:01")] };
+
+        var result = ImpactAnalyzer.Compare(before, after);
+
+        result.Regressions.Should().BeEmpty();
+        result.Fixes.Should().BeEmpty();
+        ImpactAnalyzer.Compare(before, new AuditResult { Issues = [OnAp("[AP] New", "aa:bb:cc:dd:ee:02")] })
+            .Regressions.Should().ContainSingle("another client's issue is still new");
+    }
+
+    [Fact]
     public void Compare_AddedIsRegression_RemovedIsFix_WorstSeverityWins()
     {
         var before = new AuditResult { Issues = [Issue("Old", AuditSeverity.Recommended)] };
