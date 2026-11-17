@@ -273,10 +273,8 @@ public class ClientDashboardService
             .Where(c => !string.IsNullOrEmpty(c.BestIp))
             .Select(c => new SelectableClient(
                 c.BestIp!,
-                displayNames.TryGetValue(c.Mac.ToLowerInvariant(), out var dn) ? dn
-                    : !string.IsNullOrWhiteSpace(c.Name) ? c.Name
-                    : c.UnifiDeviceInfoFromUcore?.Name is { Length: > 0 } ucore ? ucore
-                    : !string.IsNullOrWhiteSpace(c.Hostname) ? c.Hostname : c.BestIp!,
+                ClientNames.Choose(displayNames.GetValueOrDefault(c.Mac.ToLowerInvariant()), c.Name,
+                    c.UnifiDeviceInfoFromUcore?.Name, c.Hostname, c.IsUniFiDevice) ?? c.BestIp!,
                 c.IsWired,
                 c.Mac,
                 IsOnline: !(c.IsWired && linkDown.Contains(c.Mac))))
@@ -1560,12 +1558,11 @@ public class ClientDashboardService
         return new ClientIdentity
         {
             Mac = client.Mac,
-            // Prefer UniFi's system-selected display name (v2 active-clients, e.g. a
-            // fingerprint-derived "Apple TV") over the raw stat/sta name, then the ucore device
-            // name, matching Client Stats/the map so an unnamed device never shows as a MAC.
-            Name = !string.IsNullOrEmpty(displayName) ? displayName
-                 : !string.IsNullOrEmpty(client.Name) ? client.Name
-                 : !string.IsNullOrEmpty(ucoreName) ? ucoreName : null,
+            // UniFi's display name (v2 active-clients, e.g. a fingerprint-derived "Apple TV"), then
+            // the alias, then the ucore device name, matching Client Stats and the map; a UniFi
+            // device's own app name wins unless UniFi OS passed it in hostname form.
+            Name = ClientNames.Choose(displayName, client.Name, ucoreName, client.Hostname, client.IsUniFiDevice,
+                hostnameFallback: false),
             Hostname = !string.IsNullOrEmpty(client.Hostname) ? client.Hostname : null,
             Ip = ResolveClientIp(client),
             FixedIp = client.UseFixedIp && !string.IsNullOrEmpty(client.FixedIp) ? client.FixedIp : null,
