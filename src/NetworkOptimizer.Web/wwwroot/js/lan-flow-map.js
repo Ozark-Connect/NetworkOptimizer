@@ -1112,6 +1112,14 @@ export class LanFlowMap {
         // No saved orientation (clients, switches, gateways, unplaced APs): the body stands
         // upright and the zoom pass turns its face to the camera.
         group.userData.faceCamera = posed ? null : holder;
+
+        // A client's halo is near-white and sits over the icon, which washes it out. It stays in
+        // the scene unseen: it is the hover target, and the arrival focus still lights it.
+        if (node.kind !== NODE_KIND.Gateway && node.kind !== NODE_KIND.Switch && node.kind !== NODE_KIND.AccessPoint) {
+            const halo = group.userData.halo;
+            if (this._focusGlowing?.halo === halo) this._focusGlowing.haloOpacity = 0;
+            else halo.material.opacity = 0;
+        }
     }
 
     // Half-height of a node's body above its centre, for anchoring labels to its top.
