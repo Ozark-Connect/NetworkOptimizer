@@ -102,6 +102,7 @@ Time-series monitoring on your own InfluxDB, fed by SNMP polling (InfluxDB).
 - **3D LAN Flow Map** - live 3D topology with animated download and upload flows for all LAN traffic
   - Overlays: Wi-Fi clients, wired clients, WAN globes, buildings and floor plans from the Signal Map
   - UniFi devices and clients drawn as 3D bodies built from their icons; a placed access point sits as it is mounted (ceiling, wall, or desktop) and faces the way its orientation arrow points on the Signal Map
+  - Clients sized and shaped by what they are (phone, laptop, TV, desktop, appliance), relative to each other rather than to scale; a TV sits parallel to the nearest wall
   - Buildings with wings get a gable roof per wing, joined in valleys, and floors that follow the drawn outline
   - Search by name or MAC, filter by band, WASD and mouse camera, fullscreen
   - **Reposition Device**; run Upstream Discovery from a WAN globe

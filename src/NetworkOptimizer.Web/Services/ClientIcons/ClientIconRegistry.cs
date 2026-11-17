@@ -1,5 +1,7 @@
 using System.Collections.Concurrent;
 using System.Text.Json;
+using NetworkOptimizer.Audit.Services;
+using NetworkOptimizer.Core.Enums;
 using NetworkOptimizer.Storage.Services;
 using NetworkOptimizer.UniFi.Models;
 
@@ -92,6 +94,8 @@ public sealed class ClientIconRegistry : ISiteScopedRegistry
         public Dictionary<string, string> DeviceCatalog = new(StringComparer.OrdinalIgnoreCase);
         /// <summary>UniFi's fingerprint database, which tells a vendor's device from a generic one.</summary>
         public UniFiFingerprintDatabase? Fingerprints;
+        /// <summary>What kind of device each client is, every client ever read; replaced whole, never mutated.</summary>
+        public Dictionary<string, ClientDeviceCategory> Categories = new(StringComparer.OrdinalIgnoreCase);
         public bool Loaded;
         public DateTime OnlineAt, KnownAt;
         public int Refreshing;
@@ -205,12 +209,15 @@ public sealed class ClientIconRegistry : ISiteScopedRegistry
             var readKnown = now - state.KnownAt >= KnownEvery;
 
             // Known clients first so the online read, which also has the fingerprinted id, wins.
+            List<UniFiClientResponse> known = [];
             if (readKnown)
             {
-                Apply(clients, await api.GetAllKnownClientsAsync(ct));
+                known = await api.GetAllKnownClientsAsync(ct);
+                Apply(clients, known);
                 state.KnownAt = now;
             }
-            Apply(clients, await api.GetClientsAsync(ct));
+            var online = await api.GetClientsAsync(ct);
+            Apply(clients, online);
             state.OnlineAt = now;
 
             var changed = !SameIcons(clients, state.Clients);
@@ -226,6 +233,7 @@ public sealed class ClientIconRegistry : ISiteScopedRegistry
             if (changed)
                 Save(slug, state);
             state.Fingerprints = await _fingerprints.GetDatabaseAsync(_connections.GetFor(slug), ct) ?? state.Fingerprints;
+            state.Categories = Categorize(state.Categories, known.Concat(online), state.Fingerprints);
             state.Map = BuildMap(slug, state);
             if (readKnown)
                 PruneCustomIcons(slug, clients.Values);
@@ -405,6 +413,28 @@ public sealed class ClientIconRegistry : ISiteScopedRegistry
         }
     }
 
+    /// <summary>
+    /// Each client's device category, by the Security Audit's detector (fingerprint, name, MAC vendor).
+    /// A client keeps its last category when a read cannot name one: an offline client's row has no
+    /// fingerprint, and would otherwise fall back to Unknown.
+    /// </summary>
+    internal static Dictionary<string, ClientDeviceCategory> Categorize(
+        IReadOnlyDictionary<string, ClientDeviceCategory> previous, IEnumerable<UniFiClientResponse> rows, UniFiFingerprintDatabase? fingerprints)
+    {
+        var result = new Dictionary<string, ClientDeviceCategory>(previous, StringComparer.OrdinalIgnoreCase);
+        var detection = new DeviceTypeDetectionService(fingerprintDb: fingerprints);
+        foreach (var row in rows)
+        {
+            if (string.IsNullOrWhiteSpace(row.Mac))
+                continue;
+            var mac = ClientIconMap.NormalizeMac(row.Mac);
+            var category = detection.DetectDeviceType(row).Category;
+            if (category != ClientDeviceCategory.Unknown || !result.ContainsKey(mac))
+                result[mac] = category;
+        }
+        return result;
+    }
+
     private static bool SameIcons(Dictionary<string, ClientIconRef> a, Dictionary<string, ClientIconRef> b) =>
         a.Count == b.Count && a.All(kv => b.TryGetValue(kv.Key, out var other) && other == kv.Value);
 
@@ -429,7 +459,7 @@ public sealed class ClientIconRegistry : ISiteScopedRegistry
             cached[mac] = icon.Key;
             ranks[mac] = Rank(icon, state.Fingerprints);
         }
-        return new ClientIconMap(slug, cached, state.Devices, state.DeviceCatalog, ranks);
+        return new ClientIconMap(slug, cached, state.Devices, state.DeviceCatalog, ranks, state.Categories);
     }
 
     /// <summary>
