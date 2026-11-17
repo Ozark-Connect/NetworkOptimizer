@@ -101,6 +101,8 @@ Time-series monitoring on your own InfluxDB, fed by SNMP polling (InfluxDB).
 - Live WAN throughput chart
 - **3D LAN Flow Map** - live 3D topology with animated download and upload flows for all LAN traffic
   - Overlays: Wi-Fi clients, wired clients, WAN globes, buildings and floor plans from the Signal Map
+  - UniFi devices and clients drawn as 3D bodies built from their icons; a placed access point sits as it is mounted (ceiling, wall, or desktop) and faces the way its orientation arrow points on the Signal Map
+  - Buildings with wings get a gable roof per wing, joined in valleys, and floors that follow the drawn outline
   - Search by name or MAC, filter by band, WASD and mouse camera, fullscreen
   - **Reposition Device**; run Upstream Discovery from a WAN globe
   - Double-click a client for Client Performance, an access point for its clients in Wi-Fi Optimizer's Client Stats, a UniFi cellular modem monitored in Cellular Stats for its series there, a switch or gateway for Port Statistics, or a WAN globe for its ISP Health

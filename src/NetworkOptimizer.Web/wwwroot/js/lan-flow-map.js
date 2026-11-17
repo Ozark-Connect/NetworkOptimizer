@@ -13,7 +13,8 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
-import { buildBuildings } from './lan-flow-buildings.js?v=1';
+import { buildBuildings } from './lan-flow-buildings.js?v=2';
+import { DEPTH, deviceIconUrl, isRoundBody, isStandMountModel, getBody, loadBody, makeBodyMesh, poseQuaternion } from './lan-flow-device-mesh.js?v=1';
 // KEEP IN SYNC: lan-flow-map-2d.js imports the same module. Both must use the same ?v= or they get separate instances.
 import * as flowData from './lan-flow-data.js?v=18';
 import { opaqueBounds, logoFit } from './image-bounds.js?v=1';
@@ -178,6 +179,11 @@ const LINK_KIND = {
     Transit: 4,
     MeshBackhaul: 5,
 };
+
+// An icon body's longest side, as a multiple of the node radius, and its resting emissive.
+// The emissive sits far below the primitives' 0.45: the icon is mostly white and bloom washes it out.
+const ICON_BODY_SIZE = 2.6;
+const ICON_BODY_EMISSIVE = 0.1;
 
 const NODE_KIND = {
     Gateway: 0,
@@ -1031,6 +1037,7 @@ export class LanFlowMap {
             group.userData = { node, core, halo, baseEmissive };
             this.nodeGroup.add(group);
             this._nodeMeshes.set(node.id, group);
+            this._applyIconBody(group);
 
             // Sprite labels for clients only. Infrastructure devices get DOM
             // labels (with rate badges); their sprite twin used to hide exactly
@@ -1040,11 +1047,76 @@ export class LanFlowMap {
             const isClientNode = node.kind === NODE_KIND.WiredClient || node.kind === NODE_KIND.WifiClient;
             if (node.name && isClientNode) {
                 const sprite = this._makeLabelSprite(node.name);
-                sprite.position.set(0, this._nodeTopHalfHeight(node.kind) + 0.35 * this._deviceScale, 0);
+                sprite.position.set(0, this._topHalf(group) + 0.35 * this._deviceScale, 0);
                 group.add(sprite);
                 this._labelSprites.set(node.id, sprite);
             }
         }
+    }
+
+    // The icon body a node is drawn with: its icon and how the outline becomes a solid.
+    // Null when the node has no icon, and the primitive stays.
+    _bodySpec(node) {
+        const isClient = node.kind === NODE_KIND.WiredClient || node.kind === NODE_KIND.WifiClient;
+        if (isClient || node.kind === NODE_KIND.VirtualHub) {
+            return node.iconUrl ? { url: node.iconUrl, shape: { depth: DEPTH.client } } : null;
+        }
+        const url = deviceIconUrl(node.model);
+        if (!url) return null;
+        if (isRoundBody(node.model)) return { url, shape: { round: true } };
+        const depth = node.kind !== NODE_KIND.AccessPoint ? DEPTH.chassis
+            : isStandMountModel(node.model) ? DEPTH.wallPlate : DEPTH.accessPoint;
+        return { url, shape: { depth } };
+    }
+
+    // Swap a node's primitive core for its icon body: at once when the body is cached, else
+    // when the icon loads. The primitive draws meanwhile, and stays when there is no icon.
+    _applyIconBody(group) {
+        const spec = this._bodySpec(group.userData.node);
+        if (!spec) return;
+        const entry = getBody(spec.url, spec.shape);
+        if (entry) { this._setIconBody(group, entry, spec); return; }
+        loadBody(spec.url, spec.shape).then(loaded => {
+            const current = this._nodeMeshes.get(group.userData.node.id) === group;
+            if (loaded && current && !this._destroyed && !group.userData.iconBody) this._setIconBody(group, loaded, spec);
+        });
+    }
+
+    _setIconBody(group, entry, spec) {
+        const { node, core: old } = group.userData;
+        const core = makeBodyMesh(entry, ICON_BODY_EMISSIVE);
+        core.material.transparent = old.material.transparent;
+        core.material.opacity = old.material.opacity;
+        core.scale.copy(old.scale);
+        group.remove(old);
+        old.geometry.dispose();
+        old.material.dispose();
+
+        // The holder carries size and pose. The zoom pass rescales the core itself every frame.
+        const size = this._nodeRadius(node.kind) * ICON_BODY_SIZE;
+        const holder = new THREE.Group();
+        holder.scale.setScalar(size);
+        const posed = node.kind === NODE_KIND.AccessPoint && !!node.mountType && Number.isFinite(node.orientationDeg);
+        if (posed) {
+            holder.quaternion.copy(poseQuaternion(node.mountType, node.orientationDeg,
+                { round: !!spec.shape.round, stand: isStandMountModel(node.model) }));
+        }
+        holder.add(core);
+        group.add(holder);
+
+        const box = entry.bounds.clone().applyMatrix4(new THREE.Matrix4().makeRotationFromQuaternion(holder.quaternion));
+        group.userData.core = core;
+        group.userData.baseEmissive = ICON_BODY_EMISSIVE;
+        group.userData.iconBody = true;
+        group.userData.topHalf = box.max.y * size;
+        // No saved orientation (clients, switches, gateways, unplaced APs): the body stands
+        // upright and the zoom pass turns its face to the camera.
+        group.userData.faceCamera = posed ? null : holder;
+    }
+
+    // Half-height of a node's body above its centre, for anchoring labels to its top.
+    _topHalf(group) {
+        return group?.userData?.topHalf ?? this._nodeTopHalfHeight(group?.userData?.node?.kind);
     }
 
     _makeDeviceCore(kind, radius, color, baseEmissive) {
@@ -2176,6 +2248,8 @@ export class LanFlowMap {
             const z = Math.max(DEVICE_ZOOM_MIN, Math.min(devMax, dist / DEVICE_ZOOM_REF_DIST));
             core.scale.setScalar(z);
             if (halo) halo.scale.setScalar(z);
+            const facing = group.userData.faceCamera;
+            if (facing) facing.rotation.y = Math.atan2(camPos.x - group.position.x, camPos.z - group.position.z);
         }
         for (const { pipe, down, up } of this._linkMeshes.values()) {
             if (!pipe) continue;
@@ -2199,9 +2273,8 @@ export class LanFlowMap {
             const dist = camPos.distanceTo(group.position);
             const f = Math.max(LABEL_ZOOM_MIN, Math.min(1.0, dist / labelRef));
             sprite.scale.set(base.x * f, base.y * f, 1);
-            const kind = group.userData?.node?.kind;
             const z = Math.max(DEVICE_ZOOM_MIN, Math.min(devMax, dist / DEVICE_ZOOM_REF_DIST));
-            sprite.position.y = this._nodeTopHalfHeight(kind) * z + 0.35 * this._deviceScale;
+            sprite.position.y = this._topHalf(group) * z + 0.35 * this._deviceScale;
             const fade = 1 - Math.min(1, Math.max(0,
                 (dist - LABEL_FADE_START_DIST) / (LABEL_FADE_END_DIST - LABEL_FADE_START_DIST)));
             sprite.material.opacity = fade;
@@ -2480,9 +2553,10 @@ export class LanFlowMap {
         group.userData = { node, core, halo, baseEmissive };
         this.nodeGroup.add(group);
         this._nodeMeshes.set(node.id, group);
+        this._applyIconBody(group);
         if (node.name) {
             const sprite = this._makeLabelSprite(node.name);
-            sprite.position.set(0, this._nodeTopHalfHeight(node.kind) + 0.35 * this._deviceScale, 0);
+            sprite.position.set(0, this._topHalf(group) + 0.35 * this._deviceScale, 0);
             group.add(sprite);
             this._labelSprites.set(node.id, sprite);
         }
@@ -3682,7 +3756,7 @@ export class LanFlowMap {
             // Anchor just above the rendered top of the core mesh (tracks the
             // per-frame zoom scale) instead of a fixed offset above center.
             const zDev = Math.max(DEVICE_ZOOM_MIN, Math.min(this._devZoomMax ?? 1, dist / DEVICE_ZOOM_REF_DIST));
-            tmp.y += this._nodeTopHalfHeight(group.userData?.node?.kind) * zDev + 0.35 * this._deviceScale;
+            tmp.y += this._topHalf(group) * zDev + 0.35 * this._deviceScale;
             tmp.project(this.camera);
             if (tmp.z > 1) { el.classList.remove('is-visible'); continue; }
             const fade = 1 - Math.min(1, Math.max(0,
