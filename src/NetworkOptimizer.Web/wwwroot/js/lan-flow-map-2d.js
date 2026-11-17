@@ -2303,8 +2303,8 @@ class LanFlowMap2D {
             const name=demoMask(cloud.d.name||cloud.d.asnName||'WAN');
             ctx.fillStyle=greyed?C.textMuted:C.textSec;
             ctx.font=`500 ${G.nameFont}px ${FONT}`;
-            ctx.textAlign='center'; ctx.textBaseline='top';
-            ctx.fillText(name,cx,cy+r+8);
+            ctx.textAlign='center'; ctx.textBaseline='middle';
+            ctx.fillText(name,cx,cy+r+8+G.nameFont/2);
 
             // RTT badge
             let rttTxt='';
@@ -2373,8 +2373,8 @@ class LanFlowMap2D {
         const dn=label.length>28?label.slice(0,27)+'…':label;
         ctx.fillStyle=C.textSec;
         ctx.font=`${G.nameFont}px ${FONT}`;
-        ctx.textAlign='center'; ctx.textBaseline='top';
-        ctx.fillText(dn,x,y+labelR+4);
+        ctx.textAlign='center'; ctx.textBaseline='middle';
+        ctx.fillText(dn,x,y+labelR+4+G.nameFont/2);
     }
 
     _drawInfraNode(ctx,n){
@@ -2517,8 +2517,9 @@ class LanFlowMap2D {
             const dn=name.length>32?name.slice(0,31)+'…':name;
             ctx.fillStyle=C.textMuted;
             ctx.font=`${G.clientFont}px ${FONT}`;
-            ctx.textAlign='center'; ctx.textBaseline='top';
-            ctx.fillText(dn,x,y+labelR+3);
+            // 'middle', not 'top': Safari puts a 'top' line a few px lower than Chrome does.
+            ctx.textAlign='center'; ctx.textBaseline='middle';
+            ctx.fillText(dn,x,y+labelR+3+G.clientFont/2);
             const tw=ctx.measureText(dn).width;
             n._nameRect={x:x-tw/2,y:y+labelR+3,w:tw,h:G.clientFont+2};
         }
