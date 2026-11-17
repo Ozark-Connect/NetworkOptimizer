@@ -395,6 +395,26 @@ public class ReaddressingTests
     }
 
     [Fact]
+    public void VpnZonePolicyFilter_NeitherRefusesNorFreezesTheMove()
+    {
+        // A VPN-zone block whose source matches all of private space: a filter, not the far side's range.
+        var site = State(
+            ("networkconf", """{"_id":"lan","name":"Main Home Network","purpose":"corporate","ip_subnet":"192.168.1.1/24"}"""),
+            ("networkconf", """{"_id":"wg","name":"Road Warrior","purpose":"remote-user-vpn","vpn_type":"wireguard-server","ip_subnet":"192.168.4.1/24"}"""),
+            ("firewall_zone", """{"_id":"zv","name":"Vpn","zone_key":"vpn","network_ids":["wg"]}"""),
+            ("firewall_policy", """{"_id":"p1","name":"Block Calix (VPN)","source":{"zone_id":"zv","ips":["192.168.0.0/16","10.0.0.0/8"]},"destination":{"zone_id":"zv"}}"""),
+            ("user", """{"_id":"u1","name":"NAS","mac":"aa:bb:cc:dd:ee:01","use_fixedip":true,"fixed_ip":"192.168.1.50"}"""));
+        var moves = Readdressing.Proposal(site, "10.40.{vlan}.0/24");
+
+        Readdressing.Validate(site, moves).Should().BeEmpty();
+        Readdressing.RemoteRanges(site).Select(r => r.Range.ToString()).Should().NotContain(["192.168.0.0/16", "10.0.0.0/8"]);
+        var d = Readdressing.Apply(site, moves).Desired;
+        d.Get("networkconf")[0]["ip_subnet"]!.ToString().Should().Be("10.40.1.1/24");
+        d.Get("user")[0]["fixed_ip"]!.ToString().Should().Be("10.40.1.50");
+        d.Get("firewall_policy")[0]["source"]!["ips"]!.ToJsonString().Should().Be("""["192.168.0.0/16","10.0.0.0/8"]""");
+    }
+
+    [Fact]
     public void Reverse_PutsEveryAddressBack()
     {
         var site = Site();
