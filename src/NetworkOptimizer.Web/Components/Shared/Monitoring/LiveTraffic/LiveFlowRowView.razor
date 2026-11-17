@@ -27,12 +27,14 @@
             <td class="lt-num">@Rate(f.Ended ? 0 : f.DownBps, "speed-down")</td>
             <td class="lt-num">@Rate(f.Ended ? 0 : f.UpBps, "speed-up")</td>
             <td class="lt-num">@DisplayFormatters.FormatBytes(f.TotalBytes)</td>
+            <td class="lt-num">@DisplayFormatters.FormatBytes(f.RecentDownBytes)</td>
+            <td class="lt-num">@DisplayFormatters.FormatBytes(f.RecentUpBytes)</td>
             <td class="lt-secondary lt-num">@LiveTrafficDisplay.StartedLabel(f)</td>
             <td>@Spark(f.History)</td>
         </tr>
         @if (Open)
         {
-            <tr data-flip="@(f.Key + "|d")" class="lt-detail"><td colspan="@(ShowClient ? 10 : 9)">@Detail(f)</td></tr>
+            <tr data-flip="@(f.Key + "|d")" class="lt-detail"><td colspan="@(ShowClient ? 12 : 11)">@Detail(f)</td></tr>
         }
         break;
 
@@ -65,6 +67,13 @@
                 @StreamsBadge(f)
                 @AppCell(f)
                 @RoutePill(f)
+                @if (f.RecentDownBytes > 0 || f.RecentUpBytes > 0)
+                {
+                    @* The Recent sort chips' values, so a row sorted by them shows why it sits there. *@
+                    <span class="lt-muted lt-small lt-recent">
+                        Recent <RecentArrow /> @DisplayFormatters.FormatBytes(f.RecentDownBytes) <RecentArrow Up="true" /> @DisplayFormatters.FormatBytes(f.RecentUpBytes)
+                    </span>
+                }
                 <span class="lt-muted lt-small">@LiveTrafficDisplay.StartedLabel(f)</span>
             </div>
             @if (Open)

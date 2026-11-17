@@ -1471,6 +1471,87 @@ public class LiveTrafficStoreTests
     }
 
     [Fact]
+    public void RecentSumsTheWindowsAFlowMoved()
+    {
+        var store = SeededStore();
+        store.Ingest(Batch(Flow("a", Laptop, "192.0.2.20", "203.0.113.5", 443, "eth4", 1000, 10)));
+        store.Ingest(Batch(Flow("a", Laptop, "192.0.2.20", "203.0.113.5", 443, "eth4", 3000, 30)));
+
+        var row = store.BuildView(Query(), LiveTrafficState.Live).Flows.Should().ContainSingle().Subject;
+        row.RecentDownBytes.Should().Be(4000);
+        row.RecentUpBytes.Should().Be(40);
+    }
+
+    [Fact]
+    public void AnEndedFlowKeepsItsRecentData()
+    {
+        var store = SeededStore();
+        var flow = Flow("a", Laptop, "192.0.2.20", "203.0.113.5", 443, "eth4", 1000, 10);
+        store.Ingest(Batch(flow));
+        var ending = Batch();
+        ending.Ended.Add(Flow("a", Laptop, "192.0.2.20", "203.0.113.5", 443, "eth4", 0, 0));
+        store.Ingest(ending);
+
+        var row = store.BuildView(Query() with { Ended = true }, LiveTrafficState.Live).Flows.Should().ContainSingle().Subject;
+        row.RecentDownBytes.Should().Be(1000);
+        row.RecentUpBytes.Should().Be(10);
+    }
+
+    [Fact]
+    public void RecentSortsBusiestFirst()
+    {
+        var store = SeededStore();
+        store.Ingest(Batch(
+            Flow("small", Laptop, "192.0.2.20", "203.0.113.5", 443, "eth4", 100, 9000),
+            Flow("big", Laptop, "192.0.2.20", "203.0.113.6", 443, "eth4", 5000, 1)));
+
+        store.BuildView(Query() with { Sort = LiveFlowSort.RecentDown }, LiveTrafficState.Live).Flows
+            .Select(f => f.DestinationIp).Should().Equal("203.0.113.6", "203.0.113.5");
+        store.BuildView(Query() with { Sort = LiveFlowSort.RecentUp }, LiveTrafficState.Live).Flows
+            .Select(f => f.DestinationIp).Should().Equal("203.0.113.5", "203.0.113.6");
+    }
+
+    [Fact]
+    public void BundledStreamsSumTheirRecentData()
+    {
+        var rows = LiveTrafficStore.Bundle(
+        [
+            new LiveFlowRow { Key = "a", ClientIp = "192.0.2.20", DestinationIp = "203.0.113.5", RemotePort = 443, Proto = "TCP", RecentDownBytes = 100, RecentUpBytes = 1 },
+            new LiveFlowRow { Key = "b", ClientIp = "192.0.2.20", DestinationIp = "203.0.113.5", RemotePort = 443, Proto = "TCP", RecentDownBytes = 200, RecentUpBytes = 2 },
+        ]);
+
+        var row = rows.Should().ContainSingle().Subject;
+        (row.RecentDownBytes, row.RecentUpBytes).Should().Be((300L, 3L));
+    }
+
+    [Fact]
+    public void RecentBytesDropsWindowsOlderThanFiveMinutes()
+    {
+        var start = new DateTime(2026, 1, 1, 12, 0, 0, DateTimeKind.Utc);
+        var recent = new RecentBytes();
+        recent.Add(start, 1000, 10);
+        recent.Add(start.AddMinutes(3), 500, 5);
+        recent.Add(start.AddMinutes(4), 0, 0);
+
+        recent.Prune(start.AddMinutes(5));
+        (recent.Down, recent.Up).Should().Be((1500L, 15L));
+
+        recent.Prune(start.AddMinutes(5).AddSeconds(1));
+        (recent.Down, recent.Up).Should().Be((500L, 5L));
+
+        recent.Prune(start.AddMinutes(9));
+        (recent.Down, recent.Up).Should().Be((0L, 0L));
+    }
+
+    [Theory]
+    [InlineData(LiveFlowSort.RecentDown, true)]
+    [InlineData(LiveFlowSort.RecentUp, true)]
+    [InlineData(LiveFlowSort.Download, false)]
+    [InlineData(LiveFlowSort.Total, false)]
+    public void OnlyRecentIsDescendingOnly(LiveFlowSort sort, bool expected) =>
+        LiveFlowSorts.DescendingOnly(sort).Should().Be(expected);
+
+    [Fact]
     public void AFlowEndedTwiceIsOneEndedRow()
     {
         var store = SeededStore();

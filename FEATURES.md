@@ -118,6 +118,7 @@ Time-series monitoring on your own InfluxDB, fed by SNMP polling (InfluxDB).
   - Turn off Live Traffic flow and DNS capture per site in Settings - Monitoring - **Live Traffic**; the card still ranks clients by usage (Site Admin)
   - **By** client, app, destination, or route; open a client to see its flows
   - **Detailed View** - every flow through the gateway ranked by current rate, with no row limit (On-Site Agent on the gateway)
+    - **Recent ↓** and **Recent ↑**: each flow's data in the last 5 minutes (or since Live Traffic started), sortable busiest first, also per group and on a client's Live Traffic in Client Performance
     - Click any client, destination, app, route, protocol, or port to filter to it, and again to let it go; hide a value with the button beside it or Alt-click; filters are in the link
       - Several values of one kind match any of them (this client or that one) and share one chip ("Client Laptop or TV"); different kinds all apply
       - Click a chip to edit it: every value of that kind with how many flows carry it, search or type one that is not on screen, Include or Exclude

@@ -220,14 +220,18 @@ public sealed class ClientLiveFeed : IDisposable
         return RefreshAsync();
     }
 
-    /// <summary>A new column starts biggest or newest first, names A to Z; the same column again flips it.</summary>
+    /// <summary>A new column starts biggest or newest first, names A to Z; the same column again flips it, except Recent.</summary>
     public Task SetSortAsync(LiveFlowSort sort)
     {
-        if (Sort == sort) Descending = !Descending;
+        if (Sort == sort)
+        {
+            if (LiveFlowSorts.DescendingOnly(sort)) return Task.CompletedTask;
+            Descending = !Descending;
+        }
         else
         {
             Sort = sort;
-            Descending = sort is not (LiveFlowSort.Client or LiveFlowSort.Destination or LiveFlowSort.App or LiveFlowSort.Route);
+            Descending = LiveFlowSorts.StartsDescending(sort);
         }
         return RefreshAsync();
     }

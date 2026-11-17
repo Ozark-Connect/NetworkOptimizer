@@ -73,7 +73,18 @@ public sealed record LiveFacetValue(string Value, int Count, bool Idle = false, 
 }
 
 /// <summary>The Flows table's sortable columns.</summary>
-public enum LiveFlowSort { Download, Upload, Total, Started, Client, Destination, App, Route }
+public enum LiveFlowSort { Download, Upload, Total, Started, Client, Destination, App, Route, RecentDown, RecentUp }
+
+/// <summary>How the Flows table's columns sort when picked.</summary>
+public static class LiveFlowSorts
+{
+    /// <summary>Recent data sorts busiest first only: ascending would list the flows that moved nothing.</summary>
+    public static bool DescendingOnly(LiveFlowSort sort) => sort is LiveFlowSort.RecentDown or LiveFlowSort.RecentUp;
+
+    /// <summary>Text columns start A to Z; numbers and times start largest or newest first.</summary>
+    public static bool StartsDescending(LiveFlowSort sort) =>
+        sort is not (LiveFlowSort.Client or LiveFlowSort.Destination or LiveFlowSort.App or LiveFlowSort.Route);
+}
 
 /// <summary>Whether Live Traffic can run on this site, and why not.</summary>
 public enum LiveTrafficState { Live, Starting, NoGatewayAgent, AgentNeedsUpdate, NoConntrack, MonitoringOff, AwaitingAgent, TurnedOff }
@@ -112,6 +123,10 @@ public sealed record LiveFlowRow
     public long TotalUpBytes { get; init; }
     public long TotalDownPackets { get; init; }
     public long TotalUpPackets { get; init; }
+    /// <summary>Bytes toward the client in the last five minutes, or since capture started; for an ended flow, its last five minutes.</summary>
+    public long RecentDownBytes { get; init; }
+    /// <summary>Bytes from the client over the same window as <see cref="RecentDownBytes"/>.</summary>
+    public long RecentUpBytes { get; init; }
     public DateTime? Started { get; init; }
     /// <summary>The flow is at least this old: it predates the agent and the kernel keeps no start time.</summary>
     public bool StartedIsUpperBound { get; init; }
@@ -213,7 +228,9 @@ public sealed record LiveGroupRow(
     int Flows,
     LiveRouteKind? RouteKind,
     string? ClientMac,
-    CustomAppSeed? Unnamed = null);
+    CustomAppSeed? Unnamed = null,
+    long RecentDownBytes = 0,
+    long RecentUpBytes = 0);
 
 /// <summary>One route's live load, for the tiles at the top of the full view.</summary>
 public sealed record LiveRouteStat(

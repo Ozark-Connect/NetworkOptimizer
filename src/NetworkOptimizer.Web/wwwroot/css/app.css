@@ -27059,6 +27059,25 @@ body:has(.top-bar-hidden) .btn-fit {
     cursor: pointer;
 }
 
+/* Recent Down / Recent Up: the word and its direction arrow, in a header, a sort chip, or a phone row. */
+.lt-recent {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.2rem;
+    white-space: nowrap;
+}
+
+.lt-recent-arrow {
+    width: 0.8rem;
+    height: 0.8rem;
+    flex: none;
+}
+
+/* The download blue disappears on the active chip's blue: take the chip's text color. */
+.time-btn.active .lt-recent-arrow {
+    color: inherit;
+}
+
 .lt-flows .lt-rank {
     color: var(--text-muted);
     white-space: nowrap;
