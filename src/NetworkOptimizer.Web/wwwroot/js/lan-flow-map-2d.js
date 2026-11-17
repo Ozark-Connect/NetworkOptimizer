@@ -121,6 +121,8 @@ function navigate(url) {
 // Duration of the fade-in applied to a client that gets re-attached to a different
 // AP during historic playback (roam), so it doesn't pop at its new position.
 const ROAM_FADE_MS = 350;
+// How long nodes, links and the fitted camera take to slide to a new layout.
+const LAYOUT_MS = 450;
 /** How long the first frame waits for client icons before drawing dots in their place. */
 const ICON_PRELOAD_MS = 1500;
 
@@ -163,6 +165,16 @@ function withAlpha(hex, a) {
 
 // Emits to a canvas context with both axes swapped, so strokeOrtho can draw its vertical-frame path
 // into a horizontal layout untouched.
+// A context that scales every alpha by `a`, for a node fading in or out. The draw functions set
+// globalAlpha themselves, so an alpha set once before the call would be overwritten.
+function fadedCtx(ctx,a){
+    ctx.globalAlpha=a;
+    return new Proxy(ctx,{
+        get(t,k){const v=t[k];return typeof v==='function'?v.bind(t):v;},
+        set(t,k,v){t[k]=k==='globalAlpha'?v*a:v;return true;},
+    });
+}
+
 const axisSwap=(ctx)=>({
     beginPath:()=>ctx.beginPath(),
     stroke:()=>ctx.stroke(),
@@ -386,6 +398,7 @@ class LanFlowMap2D {
                         this._buildLayout(s);
                         this._loadImages(s).then(()=>{this._fitAll();this._needsStaticRedraw=true;});
                     }else{
+                        const prev=this._captureLayout();
                         // Detect infrastructure change (devices, not just client churn)
                         const infraCount=(nodes)=>(nodes||[]).filter(n=>n.kind<=3||n.kind===6).length;
                         const prevInfra=infraCount(this._snapshot?.nodes);
@@ -404,6 +417,7 @@ class LanFlowMap2D {
                             this._needsStaticRedraw=true;
                             if(rebuilt)this._refitIfFitted();
                         }
+                        this._beginTransition(prev);
                     }
                     this._refreshTooltip();
                 }
@@ -512,7 +526,6 @@ class LanFlowMap2D {
         filterBody.querySelector('.lan-flow-map-search').addEventListener('input',(e)=>{
             this._filter.text=(e.target.value||'').toLowerCase().trim();
             this._relayout();
-            if(this._isFitted)this._fitAll();
         });
         const bandChips=[...filterBody.querySelectorAll('.lan-flow-map-chip')];
         bandChips.forEach(chip=>{
@@ -524,7 +537,6 @@ class LanFlowMap2D {
                     if(onlyThis){for(const c of bandChips){this._filter.bands[c.dataset.band]=true;c.classList.add('is-on');}}
                     else{this._filter.bands[b]=!this._filter.bands[b];chip.classList.toggle('is-on',this._filter.bands[b]);}}
                 this._relayout();
-                if(this._isFitted)this._fitAll();
             });
         });
         if(!this._hideFilter)this._el.appendChild(filter);
@@ -551,7 +563,6 @@ class LanFlowMap2D {
                 row.classList.toggle('is-on',this._overlays[key]);
                 try{localStorage.setItem(this._storageKey,JSON.stringify(this._overlays));}catch{}
                 this._relayout();
-                if(this._isFitted)this._fitAll();
             });
             ctrlBody.appendChild(row);
         }
@@ -785,7 +796,8 @@ class LanFlowMap2D {
         const hz=this._cw>0&&this._ch>0&&this._cw<this._ch;
         if(hz!==this._hz){
             this._hz=hz;
-            if(this._root){this._relayout();this._fitAll();return;}
+            // No slide here: every node changes axis, and the fit below moves the camera anyway.
+            if(this._root){this._relayout(false);this._fitAll();return;}
         }
         if(this._isFitted)this._fitAll();
     }
@@ -968,6 +980,8 @@ class LanFlowMap2D {
         // The first load fits again once the device images land, which would undo a focus zoom
         // taken a frame earlier; only the Fit button overrides an active focus.
         if(this._focus?.zoomed&&!force)return;
+        // The fit is taken from final positions, so a slide in flight finishes first.
+        if(this._trans){this._stepTransition(Infinity);this._dropTransition();}
         this._calcBounds(true);
         // The fitted box only ever grows. A client leaving shrinks the tree, and re-fitting to it
         // zooms and re-centres the whole map around one node's departure. Fit resets it.
@@ -1409,8 +1423,9 @@ class LanFlowMap2D {
         return 1.3;
     }
 
-    _relayout(){
+    _relayout(animate=true){
         if(!this._root)return;
+        const prev=animate?this._captureLayout():this._dropTransition();
         this._spreadFactor=this._getSpreadFactor();
         this._contourLayout(this._root);
         this._assignAbsoluteXY(this._root,0,0);
@@ -1421,6 +1436,154 @@ class LanFlowMap2D {
         this._updateStreamRates();
         this._needsStaticRedraw=true;
         this._refitIfFitted();
+        this._beginTransition(prev);
+    }
+
+    // ---- Layout transitions ----
+    // A layout change computes the final positions as before, then every node and the fitted
+    // camera slide there from where they were drawn. Links are re-routed from the moving nodes
+    // each frame, so particles ride them. A node that joins slides out of its parent and fades
+    // in; one that leaves slides back into its parent and fades out as a ghost.
+
+    // Calls fn(node, parent) for every node the layout placed, in the order _drawAllNodes draws.
+    _walkPlaced(n,p,fn){
+        fn(n,p);
+        if(n.d.kind===NK.VirtualHub)return;
+        for(const c of n.infra)this._walkPlaced(c,n,fn);
+        for(const c of (n._visClients||[]))fn(c,n);
+    }
+
+    _reducedMotion(){
+        try{return window.matchMedia?.('(prefers-reduced-motion: reduce)').matches===true;}catch{return false;}
+    }
+
+    // Ends any transition where it stands and returns null (the "do not animate" capture).
+    _dropTransition(){
+        const tr=this._trans;
+        if(tr)for(const it of tr.items)it.n._tAlpha=undefined;
+        this._trans=null;
+        return null;
+    }
+
+    // Where everything is drawn right now: the start of the next transition. Taken mid-transition
+    // it is the in-between position, so a new change carries on from there instead of jumping.
+    _captureLayout(){
+        const ghosts=this._trans?this._trans.ghosts:[];
+        this._dropTransition();
+        if(!this._root||this._reducedMotion())return null;
+        const nodes=new Map();
+        this._walkPlaced(this._root,null,(n,p)=>{
+            const e=p?this._edges.find(e=>(e.fn===p&&e.tn===n)||(e.fn===n&&e.tn===p)):null;
+            nodes.set(n.d.id,{x:n.x,y:n.y,tn:n,pid:p?.d.id,edge:e?{lk:e.lk,band:edgeBand(e)}:null});
+        });
+        const clouds=new Map();
+        for(const c of this._clouds)clouds.set(c.d.id,{x:c.x,y:c.y});
+        return{nodes,clouds,ghosts,cam:{s:this._scale,ox:this._ox,oy:this._oy}};
+    }
+
+    _beginTransition(prev){
+        if(!prev||!this._root)return;
+        const items=[], seen=new Set(), start=new Map();
+        this._walkPlaced(this._root,null,(n,p)=>{
+            seen.add(n.d.id);
+            const o=prev.nodes.get(n.d.id);
+            // A newcomer starts where its parent starts, so the two move as one.
+            const from=o||(p&&start.get(p.d.id))||{x:n.x,y:n.y};
+            start.set(n.d.id,from);
+            if(!o||from.x!==n.x||from.y!==n.y)items.push({n,fx:from.x,fy:from.y,tx:n.x,ty:n.y,fade:!o});
+        });
+        const ghosts=[];
+        // Ghosts of the transition this one interrupts keep going from where they are.
+        for(const gh of prev.ghosts)if(!seen.has(gh.g.d.id))ghosts.push({...gh,fx:gh.g.x,fy:gh.g.y,a0:gh.g._tAlpha??1});
+        for(const[id,o]of prev.nodes){
+            if(seen.has(id))continue;
+            const g=Object.assign(Object.create(Object.getPrototypeOf(o.tn)),o.tn,{_roamFadeUntil:null});
+            ghosts.push({g,fx:o.x,fy:o.y,a0:1,pid:o.pid,edge:o.edge});
+        }
+        const clouds=[];
+        for(const c of this._clouds){
+            const o=prev.clouds.get(c.d.id);
+            if(o&&(o.x!==c.x||o.y!==c.y))clouds.push({c,fx:o.x,fy:o.y,tx:c.x,ty:c.y});
+        }
+        const camTo={s:this._scale,ox:this._ox,oy:this._oy}, cf=prev.cam;
+        const camMoves=cf.s!==camTo.s||cf.ox!==camTo.ox||cf.oy!==camTo.oy;
+        if(!items.length&&!ghosts.length&&!clouds.length&&!camMoves)return;
+        this._trans={start:performance.now(),items,ghosts,clouds,
+            cam:camMoves?{from:cf,to:camTo,last:null}:null,seen};
+        this._stepTransition(this._trans.start);
+    }
+
+    _stepTransition(now){
+        const tr=this._trans;
+        const t=Math.min(1,(now-tr.start)/LAYOUT_MS), k=1-Math.pow(1-t,3);
+        for(const it of tr.items){
+            it.n.x=lerp(it.fx,it.tx,k); it.n.y=lerp(it.fy,it.ty,k);
+            it.n._tAlpha=it.fade&&t<1?t:undefined;
+        }
+        for(const it of tr.clouds){it.c.x=lerp(it.fx,it.tx,k); it.c.y=lerp(it.fy,it.ty,k);}
+        // A ghost heads for its parent where the parent is still on the map (a ghost parent
+        // counts, and comes first in the list), else it fades where it was.
+        const ghostById=new Map();
+        for(const gh of tr.ghosts){
+            const par=ghostById.get(gh.pid)||(tr.seen.has(gh.pid)?this._treeMap.get(gh.pid):null);
+            gh.par=par;
+            gh.g.x=par?lerp(gh.fx,par.x,k):gh.fx;
+            gh.g.y=par?lerp(gh.fy,par.y,k):gh.fy;
+            gh.g._tAlpha=gh.a0*(1-t);
+            ghostById.set(gh.g.d.id,gh.g);
+        }
+        const cam=tr.cam;
+        if(cam){
+            // A pan or zoom by the user mid-slide takes the camera back.
+            const l=cam.last;
+            if(l&&(l.s!==this._scale||l.ox!==this._ox||l.oy!==this._oy))tr.cam=null;
+            else{
+                this._scale=lerp(cam.from.s,cam.to.s,k);
+                this._ox=lerp(cam.from.ox,cam.to.ox,k);
+                this._oy=lerp(cam.from.oy,cam.to.oy,k);
+                cam.last={s:this._scale,ox:this._ox,oy:this._oy};
+            }
+        }
+        this._matchEdges();
+        this._needsStaticRedraw=true;
+        if(t>=1)this._trans=null;
+    }
+
+    // Leaving nodes and their links, drawn under the live nodes so they slide in behind the parent.
+    _drawGhosts(ctx){
+        const tr=this._trans;
+        if(!tr)return;
+        const hz=this._hz;
+        for(const gh of tr.ghosts){
+            const g=gh.g, a=g._tAlpha;
+            if(!(a>0))continue;
+            const cl=isClient(g.d.kind);
+            if(gh.par&&gh.edge){
+                const p=gh.par;
+                const x1=hz?p.x+G.boxW/2:p.x, y1=hz?p.y:p.y+G.boxH/2;
+                const inset=cl?G.clientR:G.boxH/2;
+                const x2=hz?g.x-inset:g.x, y2=hz?g.y:g.y-inset;
+                ctx.strokeStyle=pipeClr(0,gh.edge.band);
+                ctx.lineWidth=pipeW(gh.edge.lk.capacityBps);
+                ctx.lineCap='round';
+                ctx.globalAlpha=(cl?0.3:0.5)*a;
+                strokeOrtho(ctx,x1,y1,x2,y2,0,hz);
+            }
+            if(!this._inView(g.x,g.y,CLIENT_CULL_X,CLIENT_CULL_Y))continue;
+            const fc=fadedCtx(ctx,a);
+            if(cl)this._drawClientNode(fc,g);
+            else if(g.d.kind===NK.VirtualHub)this._drawHubNode(fc,g);
+            else this._drawInfraNode(fc,g);
+        }
+        ctx.globalAlpha=1;
+    }
+
+    // Draws a node through a faded context while it is fading in.
+    _drawFading(ctx,n,draw){
+        const a=n._tAlpha;
+        if(a==null||a>=1){draw(ctx);return;}
+        draw(fadedCtx(ctx,a));
+        ctx.globalAlpha=1;
     }
 
     // Re-attach wifi clients to the AP they were on at the scrubbed instant (roam
@@ -2143,6 +2306,7 @@ class LanFlowMap2D {
         this._drawAllLinks(ctx);
         // Clouds (if overlay enabled)
         if(this._isCloudVisible())this._drawAllClouds(ctx);
+        this._drawGhosts(ctx);
         // Infra + client nodes
         this._drawAllNodes(ctx,this._root);
         // After the nodes: label placement reads the rects they record.
@@ -2324,17 +2488,17 @@ class LanFlowMap2D {
     _drawAllNodes(ctx,n){
         // VirtualHub: show as compact label with member count, skip children
         if(n.d.kind===NK.VirtualHub){
-            if(!this._hideVirtualHubs)this._drawHubNode(ctx,n);
+            if(!this._hideVirtualHubs)this._drawFading(ctx,n,c=>this._drawHubNode(c,n));
             return;
         }
-        this._drawInfraNode(ctx,n);
+        this._drawFading(ctx,n,c=>this._drawInfraNode(c,n));
         for(const c of n.infra)this._drawAllNodes(ctx,c);
         const shown=Math.min(n.clients.length,G.maxClients);
         for(let i=0;i<shown;i++){
             const c=n.clients[i];
             if(!this._isNodeVisible(c))continue;
             // Off screen: the margin covers the name label, the widest thing a client draws.
-            if(this._inView(c.x,c.y,CLIENT_CULL_X,CLIENT_CULL_Y))this._drawClientNode(ctx,c);
+            if(this._inView(c.x,c.y,CLIENT_CULL_X,CLIENT_CULL_Y))this._drawFading(ctx,c,x=>this._drawClientNode(x,c));
             else c._nameRect=null;
         }
         if(n.clients.length>G.maxClients){
@@ -2464,6 +2628,8 @@ class LanFlowMap2D {
         const online=badge?badge.online!==false:n.d.online;
         const r=G.clientR; let op=online?0.7:0.2;
         // Fade the client in after a roam re-attach so it doesn't pop at its new spot.
+        // A layout transition slides the client to its new AP instead.
+        if(n._roamFadeUntil&&this._trans)n._roamFadeUntil=null;
         if(n._roamFadeUntil){
             const t=1-Math.max(0,(n._roamFadeUntil-performance.now())/ROAM_FADE_MS);
             if(t>=1)n._roamFadeUntil=null; else op*=t;
@@ -2604,7 +2770,7 @@ class LanFlowMap2D {
         // Node rate labels
         const drawNodeRate=(n)=>{
             n._rateRect=null;
-            if(n._rateY){
+            if(n._rateY&&!(n._tAlpha<1)){
                 let downBps=0,upBps=0,any=false;
                 const b=badges?.[n.d.id];
                 const hasFab=b&&(b.fabricIngressBps!=null||b.fabricEgressBps!=null);
@@ -2673,7 +2839,7 @@ class LanFlowMap2D {
         for(const e of this._edges){
             if(e._x1==null||!e._isCl)continue;
             const child=e.tn||e.fn;
-            if(!child||!this._isNodeVisible(child))continue;
+            if(!child||!this._isNodeVisible(child)||child._tAlpha<1)continue;
             const r=this._liveRates[e.lk.portKey]||this._liveRates[e.lk.id];
             if(!r)continue;
             const dn=r.downstreamBps??0,up=r.upstreamBps??0;
@@ -2766,6 +2932,7 @@ class LanFlowMap2D {
         if(this._liveOnly||!flowData.isPaused()){
             for(const s of this._streams)s.advance(dt);
         }
+        if(this._trans)this._stepTransition(now);
         // Clients live on the cached static layer; force it to redraw while a roam
         // fade is in flight so the fade-in actually animates.
         if(this._roamFadeUntil&&now<this._roamFadeUntil)this._needsStaticRedraw=true;
