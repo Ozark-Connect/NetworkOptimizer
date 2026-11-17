@@ -23,8 +23,8 @@
       "url": "/monitoring?tab=live",
       "selector": "[data-tour=\"lan-flow-map-3d\"]",
       "title": "3D Device Models",
-      "listLabel": "Devices and clients on the 3D map now look like the real thing, and you can hide the ones you don't need",
-      "body": "Every UniFi device and client on the **3D LAN Flow Map** is now drawn from its own icon and sized by what it is, from phones to TVs and washers. An access point you placed on the **Signal Map** sits the way it is mounted and faces the way its arrow points, and a TV hangs along the nearest wall.\n\n**Right-click** a client and choose **Hide Device** to take it out of your view, or **Hide Group** on a port group, such as a server's interfaces. **Hidden Devices** in **Overlays** brings them back. Only your own view changes.\n\nA building with wings now gets a roof over each wing, and floors that follow the outline you drew.",
+      "listLabel": "Your devices and clients on the 3D map now look like themselves",
+      "body": "Every UniFi device and client on the **3D LAN Flow Map** now shows up as itself, sized by what it is: access points mounted the way you placed them on the **Signal Map**, TVs on the wall, and roofs that follow your buildings.\n\nSomething you'd rather not see, like a management interface? **Right-click** it and choose **Hide Device**, and **Hidden Devices** in **Overlays** brings it back.",
       "placement": "top"
     }
   ]
