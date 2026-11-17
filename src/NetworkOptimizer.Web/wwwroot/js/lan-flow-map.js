@@ -1149,6 +1149,8 @@ export class LanFlowMap {
         // No saved orientation (clients, switches, gateways, unplaced APs): the body stands
         // upright and the zoom pass turns its face to the camera.
         group.userData.faceCamera = posed || wallYaw != null ? null : holder;
+        // Where the wall was looked up from. The zoom pass looks again when the node moves.
+        group.userData.wallFlatAt = !posed && node.wallFlat ? group.position.clone() : null;
 
         // A network device is at most ICON_BODY_REAL_FACTOR times its real size at closest zoom.
         // Zoomed out it keeps the larger size, so it still reads at property scale.
@@ -2351,6 +2353,14 @@ export class LanFlowMap {
             if (halo) {
                 halo.scale.setScalar(group.userData.haloKeepsSize
                     ? Math.max(z, DEVICE_ZOOM_MIN, Math.min(devMax, dist / DEVICE_ZOOM_REF_DIST)) : z);
+            }
+            // A wall-flat body that moved (Reposition Device, a roam) turns to its new nearest wall.
+            const wallAt = group.userData.wallFlatAt;
+            if (wallAt && !wallAt.equals(group.position)) {
+                wallAt.copy(group.position);
+                const holder = group.userData.bodyHolder, yaw = this._wallFacingYaw(group.position);
+                if (yaw != null) holder.rotation.y = yaw;
+                group.userData.faceCamera = yaw != null ? null : holder;
             }
             const facing = group.userData.faceCamera;
             if (facing) facing.rotation.y = Math.atan2(camPos.x - group.position.x, camPos.z - group.position.z);
