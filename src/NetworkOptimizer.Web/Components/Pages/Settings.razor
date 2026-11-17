@@ -9647,9 +9647,9 @@
             using var httpClient = HttpClientFactory.CreateClient();
             httpClient.Timeout = TimeSpan.FromMinutes(5);
 
-            var (success, message) = await GeoService.DownloadDatabasesAsync(accountId, licenseKey, dataPath, httpClient);
+            var (success, partial, message) = await GeoService.DownloadDatabasesAsync(accountId, licenseKey, dataPath, httpClient);
             maxmindMessage = message;
-            maxmindMessageClass = success ? "success" : "danger";
+            maxmindMessageClass = !success ? "danger" : partial ? "warning" : "success";
 
             if (success)
             {

@@ -134,6 +134,37 @@ public class AuditFindingDeltaTests
     }
 
     [Fact]
+    public void GetIssueKey_ThreatExposedPortForward_IgnoresThreatCount_ButNotRestrictionOrPort()
+    {
+        AuditIssue Threat(int port, int count, string restriction)
+        {
+            var engineIssue = new NetworkOptimizer.Audit.Models.AuditIssue
+            {
+                Type = NetworkOptimizer.Audit.IssueTypes.ThreatExposedPortForward,
+                Severity = AuditSeverity.Recommended,
+                Message = $"Port forward for port {port} (Media) has been targeted by {count} threat events in the last 30 days.",
+                Metadata = new Dictionary<string, object>
+                {
+                    ["port"] = port, ["threat_count"] = count, ["source_restriction"] = restriction
+                }
+            };
+            return new AuditIssue
+            {
+                Title = "Threat: Actively Targeted Port Forward",
+                DeviceName = "Gateway",
+                Description = engineIssue.Message,
+                DismissalScope = AuditService.GetDismissalScope(engineIssue)
+            };
+        }
+
+        var key = AuditService.GetIssueKey(Threat(32400, 268, "OtherRestriction"));
+
+        AuditService.GetIssueKey(Threat(32400, 301, "OtherRestriction")).Should().Be(key);
+        AuditService.GetIssueKey(Threat(32400, 268, "None")).Should().NotBe(key);
+        AuditService.GetIssueKey(Threat(8443, 268, "OtherRestriction")).Should().NotBe(key);
+    }
+
+    [Fact]
     public void GetIssueKey_PortAndClientFindings_IgnoreMessage()
     {
         var port = Issue("Port Lock Available");
