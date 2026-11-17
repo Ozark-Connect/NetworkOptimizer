@@ -175,6 +175,14 @@ public class UniFiNetworkConfig
     public string? WanType { get; set; } // "dhcp", "static", "pppoe"
 
     /// <summary>
+    /// MAC of the UniFi cellular modem that carries this WAN as a GRE tunnel over the LAN (a U5G Max
+    /// or U-LTE on a switch port, WAN on gre1). Absent on every other WAN.
+    /// </summary>
+    [JsonPropertyName("lan_tunnel_wan_device")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? LanTunnelWanDevice { get; set; }
+
+    /// <summary>
     /// The interface name for this WAN (e.g., "eth4", "eth0")
     /// Used for mapping to TC monitor interfaces
     /// </summary>

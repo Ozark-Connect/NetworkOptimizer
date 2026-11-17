@@ -149,6 +149,12 @@ public class LanNode
     /// </summary>
     public int? CellularSignalQuality { get; set; }
 
+    /// <summary>
+    /// "5G" or "LTE": what the monitored modem is connected on now (NR in its latest reading, NSA or
+    /// SA, is 5G). The badge of the WAN it carries follows it. Null when unmonitored or stale.
+    /// </summary>
+    public string? CellularMode { get; set; }
+
     /// <summary>The Cellular Stats modem this device is, so a double-click opens its series there.</summary>
     public int? CellularModemId { get; set; }
 
@@ -249,6 +255,17 @@ public class LanLink
     /// across links. Drives the "(MLO)" tag on the 3D map's link hover.</summary>
     public bool IsMloMesh { get; set; }
 
+    /// <summary>
+    /// WAN links only: the device node this WAN physically leaves through when it is not the
+    /// gateway's own port (a cellular modem). The maps draw the globe's link from it; FromNodeId and
+    /// ToNodeId stay cloud and gateway, so rates and playback key on the link as before.
+    /// </summary>
+    public string? ViaNodeId { get; set; }
+
+    /// <summary>The <see cref="ViaNodeId"/> device carries the WAN as a tunnel over the LAN (GRE),
+    /// so the link is drawn dashed. False for a modem on a gateway WAN port.</summary>
+    public bool ViaTunnel { get; set; }
+
     /// <summary>Wireless band ("2.4"/"5"/"6") for wifi-client and mesh links.</summary>
     public string? Band { get; set; }
 
@@ -312,6 +329,18 @@ public class LanCloud
 
     /// <summary>True when the WAN sits behind CGNAT (no public IPv4).</summary>
     public bool IsCgnat { get; set; }
+
+    /// <summary>"5G" or "LTE" for a cellular WAN; null otherwise. The globe carries it as a badge. It is
+    /// the carrying modem's live mode when Cellular Stats monitors it, else the WAN's type on the gateway.</summary>
+    public string? CellularKind { get; set; }
+
+    /// <summary>The device node of the monitored modem carrying this WAN (the gateway, for a built-in
+    /// modem). During playback the badge reads that node's mode at the scrub instant.</summary>
+    public string? CellularNodeId { get; set; }
+
+    /// <summary>The ISP's logo by <see cref="Asn"/>, the one UniFi Network shows, served from the icon
+    /// cache; the maps draw it in place of the globe. Null when the ISP has none (or it is not cached yet).</summary>
+    public string? LogoUrl { get; set; }
 
     /// <summary>Discovery pending state - the access cloud frame is real but
     /// upstream Hops haven't been resolved yet (tracer wizard not run / in progress).</summary>
@@ -489,6 +518,9 @@ public class NodeClientStats
 
     /// <summary>A cellular modem's Signal Quality at the scrub instant; see <see cref="LanNode.CellularSignalQuality"/>.</summary>
     public int? CellularSignalQuality { get; set; }
+
+    /// <summary>A cellular modem's mode at the scrub instant; see <see cref="LanNode.CellularMode"/>.</summary>
+    public string? CellularMode { get; set; }
 
     /// <summary>Node id ("dev-{mac}") of the AP the client was associated with at the
     /// scrub instant, so the maps can re-attach the client to its historic AP (roam).

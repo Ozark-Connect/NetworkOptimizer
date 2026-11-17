@@ -282,7 +282,7 @@ public class LanFlowMapService
         BuildClientLeaves(topology, anchors, snapshot, nameMaps, rawByMac);
         await AddPortPresenceLeavesAsync(anchors, snapshot, nameMaps, rawByMac);
         GroupMultiClientPorts(snapshot, await WanBytesByMacAsync(ct));
-        await BuildWanAndClouds(topology, snapshot, ct);
+        await BuildWanAndClouds(topology, snapshot, rawByMac, ct);
 
         // WAN interface names for InfluxDB rate queries, one per WAN (ppp* tunnel
         // for PPPoE, physical port otherwise). Including both names would
@@ -898,6 +898,11 @@ public class LanFlowMapService
             var last = readings.LastOrDefault(r => r.Time <= at);
             if (last.Time != default && at - last.Time <= CellularMaxAge)
                 ClientStatsFor(update, nodeId).CellularSignalQuality = last.Quality;
+        }
+        foreach (var (nodeId, polls) in cached.CellularModeByNode ?? new())
+        {
+            if (CellularModeAt(polls, at) is { } mode)
+                ClientStatsFor(update, nodeId).CellularMode = mode;
         }
 
         AddHistoricOnlyClients(snapshot, update, wifiClientRates, wiredClientRates, ratesByDevice, cached.LinkStateByDevice);
@@ -1614,24 +1619,57 @@ public class LanFlowMapService
     private ICellularModemService Cellular => _modems.GetFor(_siteContext.Slug).Cellular;
 
     /// <summary>
-    /// Enabled cellular modems by id, mapped to the device node whose IP their Host names. Host is the
-    /// address Cellular Stats polls, so an IP match is the modem itself; a hostname matches nothing.
+    /// Enabled cellular modems by id, mapped to their device node. A gateway's built-in modem
+    /// (UDR-5G-Max, the gateway provider) is the gateway itself, whatever address its Gateway SSH host
+    /// names. Any other modem matches the device whose IP its Host names: Host is the address Cellular
+    /// Stats polls, so an IP match is the modem itself; a hostname matches nothing.
     /// </summary>
     private async Task<Dictionary<int, string>> CellularModemNodesAsync(LanFlowMapSnapshot snapshot)
     {
+        var modems = await Cellular.GetModemsAsync();
+        var nodes = snapshot.Nodes.Select(n => (n.Id, n.Kind, n.Ip)).ToList();
+        return MatchModemNodes(modems.Where(m => m.Enabled).Select(m => (m.Id, (string?)m.Provider, (string?)m.Host)), nodes);
+    }
+
+    /// <summary>The matching rule of <see cref="CellularModemNodesAsync"/>, over plain values.</summary>
+    internal static Dictionary<int, string> MatchModemNodes(
+        IEnumerable<(int Id, string? Provider, string? Host)> modems,
+        IReadOnlyList<(string Id, LanNodeKind Kind, string? Ip)> nodes)
+    {
         var result = new Dictionary<int, string>();
         var byIp = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var n in snapshot.Nodes)
+        foreach (var n in nodes)
         {
             if ((n.Kind is LanNodeKind.Gateway or LanNodeKind.Switch or LanNodeKind.AccessPoint) && !string.IsNullOrEmpty(n.Ip))
                 byIp.TryAdd(n.Ip!, n.Id);
         }
-        if (byIp.Count == 0) return result;
-        foreach (var modem in await Cellular.GetModemsAsync())
+        var gateways = nodes.Where(n => n.Kind == LanNodeKind.Gateway).ToList();
+        foreach (var (id, provider, host) in modems)
         {
-            if (modem.Enabled && byIp.TryGetValue(modem.Host.Trim(), out var nodeId)) result[modem.Id] = nodeId;
+            var h = host?.Trim() ?? "";
+            if (CellularModemProviders.ModemProviderKeys.UsesGatewaySsh(provider) && gateways.Count > 0)
+            {
+                // An HA pair has two gateways: the one the host names, else the first.
+                result[id] = gateways.FirstOrDefault(g => string.Equals(g.Ip, h, StringComparison.OrdinalIgnoreCase)).Id
+                    ?? gateways[0].Id;
+                continue;
+            }
+            if (byIp.TryGetValue(h, out var nodeId)) result[id] = nodeId;
         }
         return result;
+    }
+
+    /// <summary>
+    /// A modem's mode at an instant from its polls (oldest first): "5G" when the latest poll at or
+    /// before it read NR, else "LTE"; null when that poll is older than a live reading may be. A poll
+    /// in 5G NSA writes an LTE and an NR point a moment apart, so NR within a minute of it counts.
+    /// </summary>
+    internal static string? CellularModeAt(IReadOnlyList<(DateTime Time, bool Nr)> polls, DateTime at)
+    {
+        var last = polls.LastOrDefault(p => p.Time <= at);
+        if (last.Time == default || at - last.Time > CellularMaxAge)
+            return null;
+        return polls.Any(p => p.Nr && p.Time <= last.Time && last.Time - p.Time <= TimeSpan.FromMinutes(1)) ? "5G" : "LTE";
     }
 
     /// <summary>Puts each monitored modem's latest Signal Quality on its device node, for the map's signal meter.</summary>
@@ -1649,6 +1687,13 @@ public class LanFlowMapService
                 var stats = await Cellular.GetCachedStatsAsync(modemId);
                 if (stats == null || DateTime.UtcNow - stats.Timestamp > CellularMaxAge) continue;
                 node.CellularSignalQuality = stats.SignalQuality;
+                node.CellularMode = stats.NetworkMode switch
+                {
+                    NetworkOptimizer.Monitoring.Models.CellularNetworkMode.Lte => "LTE",
+                    NetworkOptimizer.Monitoring.Models.CellularNetworkMode.Nr5gNsa
+                        or NetworkOptimizer.Monitoring.Models.CellularNetworkMode.Nr5gSa => "5G",
+                    _ => null,
+                };
             }
         }
         catch (Exception ex)
@@ -2356,9 +2401,98 @@ public class LanFlowMapService
         }
     }
 
+    /// <summary>
+    /// Marks a WAN that a cellular modem carries: the link's <see cref="LanLink.ViaNodeId"/> (the maps
+    /// draw the globe off that modem) and the globe's <see cref="LanCloud.CellularKind"/> badge.
+    /// </summary>
+    private void ApplyWanCarrier(
+        WanSummary wan, NetworkInfo? wanNet, LanFlowMapSnapshot snapshot,
+        IReadOnlyDictionary<string, NetworkOptimizer.UniFi.Models.UniFiDeviceResponse> rawByMac,
+        LanCloud cloud, LanLink wanLink)
+    {
+        var carrier = ResolveWanCarrier(wan.WanInterface, wan.GatewayMac!, wanNet?.LanTunnelWanDevice, rawByMac);
+        cloud.CellularKind = carrier.CellularKind;
+        var viaId = carrier.ViaMac != null ? "dev-" + carrier.ViaMac : null;
+        var via = viaId == null ? null : snapshot.Nodes.FirstOrDefault(n => n.Id == viaId && n.Kind != LanNodeKind.Gateway);
+        // The modem whose live mode the badge follows: the carrier, else a gateway's built-in modem.
+        var gatewayId = "dev-" + NormalizeMac(wan.GatewayMac!);
+        var modemNode = via?.CellularModemId != null ? via
+            : carrier.CellularKind != null && via == null
+                ? snapshot.Nodes.FirstOrDefault(n => n.Id == gatewayId && n.CellularModemId != null)
+                : null;
+        if (modemNode != null && (carrier.CellularKind != null || via != null))
+        {
+            cloud.CellularNodeId = modemNode.Id;
+            cloud.CellularKind = modemNode.CellularMode ?? cloud.CellularKind;
+        }
+        if (via != null)
+        {
+            wanLink.ViaNodeId = viaId;
+            wanLink.ViaTunnel = carrier.Tunnel;
+            return;
+        }
+        if (carrier.CellularKind == null) return;
+
+        // A cellular WAN with no modem to draw it from: a gateway's built-in modem (UDR-5G-Max), an
+        // unadopted modem, or a shape we have not seen. The shape, so a report can carry it; once per
+        // site and WAN, since the snapshot rebuilds every few minutes.
+        if (!UnmatchedCellularWansLogged.TryAdd($"{_siteContext.Slug}|{wan.WanInterface}", 0)) return;
+        rawByMac.TryGetValue(NormalizeMac(wan.GatewayMac!), out var gw);
+        var gwWan = gw == null ? null : GatewayWanFor(gw, wan.WanInterface);
+        var modems = rawByMac.Values
+            .Where(d => d.DeviceType == DeviceType.CellularModem)
+            .Select(d => $"{d.Model} {d.Mac} uplink={d.Uplink?.Type}:{d.Uplink?.UplinkMac}#{d.Uplink?.UplinkRemotePort}");
+        _logger.LogDebug(
+            "LAN map [{Site}]: cellular WAN {Wan} ({Type}, ifname {Ifname}, port {Port}, tunnel device {Tunnel}) has no modem node to draw it from; modems: {Modems}",
+            _siteContext.Slug, wan.WanInterface, gwWan?.Type, gwWan?.IfName, gwWan?.PortIdx,
+            wanNet?.LanTunnelWanDevice ?? "none", string.Join("; ", modems.DefaultIfEmpty("none")));
+    }
+
+    // Site|WAN pairs whose unmatched cellular shape has been logged this process.
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, byte> UnmatchedCellularWansLogged = new();
+
+    /// <summary>The gateway's wanN object for a WAN interface ("wan", "wan2"), matched by network group.</summary>
+    private static NetworkOptimizer.UniFi.Models.GatewayWanInterface? GatewayWanFor(
+        NetworkOptimizer.UniFi.Models.UniFiDeviceResponse gateway, string wanInterface) =>
+        gateway.GetWanInterfaces().FirstOrDefault(w =>
+            string.Equals(GatewayWanHelper.WanNetworkGroupFromKey(w.Key), wanInterface, StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>
+    /// Which cellular modem carries a WAN, and whether the gateway reports the WAN as cellular.
+    /// A modem is named only on proof: the WAN's network config names it as its LAN tunnel device
+    /// (Tunnel), or the modem's uplink lands on the gateway port this WAN is on, the port carries a
+    /// WAN network, and the gateway's wanN object sits on that port (direct). Any one of those alone
+    /// could be coincidence; a guess drawn as fact would show a wrong topology no one reports.
+    /// </summary>
+    internal static (string? ViaMac, bool Tunnel, string? CellularKind) ResolveWanCarrier(
+        string wanInterface, string gatewayMac, string? lanTunnelWanDevice,
+        IReadOnlyDictionary<string, NetworkOptimizer.UniFi.Models.UniFiDeviceResponse> rawByMac)
+    {
+        var gwMac = NormalizeMac(gatewayMac);
+        rawByMac.TryGetValue(gwMac, out var gw);
+        var gwWan = gw == null ? null : GatewayWanFor(gw, wanInterface);
+        var kind = gwWan?.IsCellular == true ? (gwWan.Type == "wireless_5g" ? "5G" : "LTE") : null;
+
+        if (!string.IsNullOrEmpty(lanTunnelWanDevice))
+            return (NormalizeMac(lanTunnelWanDevice), true, kind);
+
+        if (gw != null && gwWan?.PortIdx is int wanPort
+            && gw.PortTable?.Any(p => p.PortIdx == wanPort
+                && p.NetworkName?.StartsWith("wan", StringComparison.OrdinalIgnoreCase) == true) == true)
+        {
+            var modem = rawByMac.Values.FirstOrDefault(d =>
+                d.DeviceType == DeviceType.CellularModem
+                && string.Equals(NormalizeMac(d.Uplink?.UplinkMac ?? ""), gwMac, StringComparison.OrdinalIgnoreCase)
+                && d.Uplink?.UplinkRemotePort == wanPort);
+            if (modem != null) return (NormalizeMac(modem.Mac), false, kind);
+        }
+        return (null, false, kind);
+    }
+
     private async Task BuildWanAndClouds(
         NetworkTopology topology,
         LanFlowMapSnapshot snapshot,
+        IReadOnlyDictionary<string, NetworkOptimizer.UniFi.Models.UniFiDeviceResponse> rawByMac,
         CancellationToken ct)
     {
         // Spec 5.7: each WAN renders as a real link off the gateway directly to the
@@ -2481,6 +2615,7 @@ public class LanFlowMapService
             {
                 wanLink.PortKey = PortKey(wan.GatewayMac!, wan.GatewayPortName);
             }
+            ApplyWanCarrier(wan, wanNet, snapshot, rawByMac, accessCloud, wanLink);
             snapshot.Links.Add(wanLink);
 
             // Seed live rates from WanSummary. MonitoringPathView convention:
@@ -3306,6 +3441,7 @@ public class LanFlowMapService
         // Cellular Signal Quality per modem node. Modems are polled minutes apart, so the read
         // reaches back the age a live reading may have. In 5G NSA only the NR point carries it.
         var cellularByNode = new Dictionary<string, IReadOnlyList<(DateTime Time, int Quality)>>(StringComparer.OrdinalIgnoreCase);
+        var cellularModeByNode = new Dictionary<string, IReadOnlyList<(DateTime Time, bool Nr)>>(StringComparer.OrdinalIgnoreCase);
         try
         {
             var modemNodes = await CellularModemNodesAsync(snapshot);
@@ -3313,17 +3449,27 @@ public class LanFlowMapService
             {
                 var series = await _influx.QueryCellularAsync(at - CellularMaxAge, to, aggregateWindow: TimeSpan.FromMinutes(1), ct: ct);
                 var merged = new Dictionary<string, List<(DateTime Time, int Quality)>>(StringComparer.OrdinalIgnoreCase);
+                var modes = new Dictionary<string, List<(DateTime Time, bool Nr)>>(StringComparer.OrdinalIgnoreCase);
                 foreach (var (key, points) in series)
                 {
-                    // Keys are "modemId" or "modemId:networkMode".
-                    if (!int.TryParse(key.Split(':')[0], out var modemId) || !modemNodes.TryGetValue(modemId, out var nodeId)) continue;
+                    // Keys are "modemId" or "modemId:networkMode"; an NR point's mode starts "5G".
+                    var parts = key.Split(':', 2);
+                    if (!int.TryParse(parts[0], out var modemId) || !modemNodes.TryGetValue(modemId, out var nodeId)) continue;
                     if (!merged.TryGetValue(nodeId, out var list)) merged[nodeId] = list = new();
                     list.AddRange(points.Where(p => p.SignalQuality.HasValue).Select(p => (p.Time, p.SignalQuality!.Value)));
+                    var nr = parts.Length > 1 && parts[1].StartsWith("5G", StringComparison.OrdinalIgnoreCase);
+                    if (!modes.TryGetValue(nodeId, out var modeList)) modes[nodeId] = modeList = new();
+                    modeList.AddRange(points.Select(p => (p.Time, nr)));
                 }
                 foreach (var (nodeId, list) in merged)
                 {
                     list.Sort((a, b) => a.Time.CompareTo(b.Time));
                     cellularByNode[nodeId] = list;
+                }
+                foreach (var (nodeId, list) in modes)
+                {
+                    list.Sort((a, b) => a.Time.CompareTo(b.Time));
+                    cellularModeByNode[nodeId] = list;
                 }
             }
         }
@@ -3335,7 +3481,7 @@ public class LanFlowMapService
         ct.ThrowIfCancellationRequested();
         return new HistoricDataCache(
             from, to, ratesByDevice, linkStateByDevice, wifi, wired, healthByDevice, latencyByType, latencyByTarget, meanIspTransit,
-            cellularByNode);
+            cellularByNode, cellularModeByNode);
     }
 
     private async Task<LinkLiveRates?> QueryClientThroughputAsync(
