@@ -186,10 +186,6 @@ const ICON_BODY_SIZE = 2.6;
 const ICON_BODY_EMISSIVE = 0.1;
 // At closest zoom a network device body is this many times its real size (TJ, 2026-11-17).
 const ICON_BODY_REAL_FACTOR = 2;
-// A client body's longest side in metres at closest zoom, by the server's size class (small,
-// medium, large). Relative, not to scale: a hand-sized network device draws at 0.4 there and a
-// rack switch at 0.88, and clients stay under each (TJ, 2026-11-17).
-const CLIENT_BODY_CLOSEST_M = [0.3, 0.45, 0.7];
 
 const NODE_KIND = {
     Gateway: 0,
@@ -1099,7 +1095,7 @@ export class LanFlowMap {
 
     // Everything a node's body is built from. A body is rebuilt when this changes.
     _bodyKey(node) {
-        return [node.iconUrl, node.model, node.bodySize, node.bodyDepth, node.wallFlat, node.mountType, node.orientationDeg].join('|');
+        return [node.iconUrl, node.model, node.bodySizeM, node.bodyDepth, node.wallFlat, node.mountType, node.orientationDeg].join('|');
     }
 
     // A client's icon and class come from a console read that can land after the map has drawn it,
@@ -1110,7 +1106,7 @@ export class LanFlowMap {
             const group = this._nodeMeshes.get(fresh.id);
             const node = group?.userData?.node;
             if (!node) continue;
-            for (const f of ['iconUrl', 'model', 'bodySize', 'bodyDepth', 'wallFlat', 'mountType', 'orientationDeg']) node[f] = fresh[f];
+            for (const f of ['iconUrl', 'model', 'bodySizeM', 'bodyDepth', 'wallFlat', 'mountType', 'orientationDeg']) node[f] = fresh[f];
             if (this._bodyKey(node) !== group.userData.bodyKey) this._applyIconBody(group);
         }
     }
@@ -1162,11 +1158,12 @@ export class LanFlowMap {
             group.userData.zoomMin = Math.min(DEVICE_ZOOM_MIN, closest / size);
         }
 
-        // A client is drawn by size class up close: relative sizes, not true proportion, so the
-        // small ones stay easy to find. Zoomed out, every client keeps the size it had.
+        // A client settles at the server's size for its kind as the camera closes in: small ones
+        // larger than life so they can be found, big ones near real size. No upper clamp: a TV has
+        // to be able to outgrow the size every client shares when zoomed out.
         const isClient = node.kind === NODE_KIND.WiredClient || node.kind === NODE_KIND.WifiClient;
-        if (isClient && this._anchored && CLIENT_BODY_CLOSEST_M[node.bodySize] != null) {
-            group.userData.zoomMin = Math.min(1, CLIENT_BODY_CLOSEST_M[node.bodySize] * this._anchorScale / size);
+        if (isClient && this._anchored && node.bodySizeM > 0) {
+            group.userData.zoomMin = node.bodySizeM * this._anchorScale / size;
         }
 
         // A client's halo is near-white and sits over the icon, which washes it out. It stays in

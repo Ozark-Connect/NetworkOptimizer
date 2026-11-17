@@ -94,8 +94,8 @@ public sealed class ClientIconRegistry : ISiteScopedRegistry
         public Dictionary<string, string> DeviceCatalog = new(StringComparer.OrdinalIgnoreCase);
         /// <summary>UniFi's fingerprint database, which tells a vendor's device from a generic one.</summary>
         public UniFiFingerprintDatabase? Fingerprints;
-        /// <summary>What kind of device each client is, every client ever read; replaced whole, never mutated.</summary>
-        public Dictionary<string, ClientDeviceCategory> Categories = new(StringComparer.OrdinalIgnoreCase);
+        /// <summary>Each client's 3D map body, every client ever read; replaced whole, never mutated.</summary>
+        public Dictionary<string, ClientBody> Bodies = new(StringComparer.OrdinalIgnoreCase);
         public bool Loaded;
         public DateTime OnlineAt, KnownAt;
         public int Refreshing;
@@ -233,7 +233,7 @@ public sealed class ClientIconRegistry : ISiteScopedRegistry
             if (changed)
                 Save(slug, state);
             state.Fingerprints = await _fingerprints.GetDatabaseAsync(_connections.GetFor(slug), ct) ?? state.Fingerprints;
-            state.Categories = Categorize(state.Categories, known.Concat(online), state.Fingerprints);
+            state.Bodies = Classify(state.Bodies, known.Concat(online), state.Fingerprints);
             state.Map = BuildMap(slug, state);
             if (readKnown)
                 PruneCustomIcons(slug, clients.Values);
@@ -414,14 +414,14 @@ public sealed class ClientIconRegistry : ISiteScopedRegistry
     }
 
     /// <summary>
-    /// Each client's device category, by the Security Audit's detector (fingerprint, name, MAC vendor).
-    /// A client keeps its last category when a read cannot name one: an offline client's row has no
-    /// fingerprint, and would otherwise fall back to Unknown.
+    /// Each client's 3D map body, from the Security Audit's detector (fingerprint, name, MAC vendor)
+    /// and UniFi's fingerprint type. A client keeps its last body when a read cannot say what it is:
+    /// an offline client's row has no fingerprint, and would otherwise fall back to the smallest.
     /// </summary>
-    internal static Dictionary<string, ClientDeviceCategory> Categorize(
-        IReadOnlyDictionary<string, ClientDeviceCategory> previous, IEnumerable<UniFiClientResponse> rows, UniFiFingerprintDatabase? fingerprints)
+    internal static Dictionary<string, ClientBody> Classify(
+        IReadOnlyDictionary<string, ClientBody> previous, IEnumerable<UniFiClientResponse> rows, UniFiFingerprintDatabase? fingerprints)
     {
-        var result = new Dictionary<string, ClientDeviceCategory>(previous, StringComparer.OrdinalIgnoreCase);
+        var result = new Dictionary<string, ClientBody>(previous, StringComparer.OrdinalIgnoreCase);
         var detection = new DeviceTypeDetectionService(fingerprintDb: fingerprints);
         foreach (var row in rows)
         {
@@ -430,10 +430,19 @@ public sealed class ClientIconRegistry : ISiteScopedRegistry
             var mac = ClientIconMap.NormalizeMac(row.Mac);
             var category = detection.DetectDeviceType(row).Category;
             if (category != ClientDeviceCategory.Unknown || !result.ContainsKey(mac))
-                result[mac] = category;
+                result[mac] = ClientBodyClass.For(category, DevTypeId(row, fingerprints),
+                    string.IsNullOrEmpty(row.Name) ? row.Hostname : row.Name);
         }
         return result;
     }
+
+    /// <summary>UniFi's device type for a client: the type of the device the user picked for it, else the fingerprinted one.</summary>
+    [NetworkOptimizer.Core.VendorSpecific("UniFi", "client dev_id_override resolves through fingerprint dev_ids[].dev_type_id; dev_cat is a dev_type_id")]
+    private static int? DevTypeId(UniFiClientResponse row, UniFiFingerprintDatabase? fingerprints) =>
+        row.DevIdOverride is { } chosen && fingerprints != null
+            && fingerprints.DevIds.TryGetValue(chosen.ToString(), out var entry)
+            && int.TryParse(entry.DevTypeId, out var type)
+            ? type : row.DevCat;
 
     private static bool SameIcons(Dictionary<string, ClientIconRef> a, Dictionary<string, ClientIconRef> b) =>
         a.Count == b.Count && a.All(kv => b.TryGetValue(kv.Key, out var other) && other == kv.Value);
@@ -459,7 +468,7 @@ public sealed class ClientIconRegistry : ISiteScopedRegistry
             cached[mac] = icon.Key;
             ranks[mac] = Rank(icon, state.Fingerprints);
         }
-        return new ClientIconMap(slug, cached, state.Devices, state.DeviceCatalog, ranks, state.Categories);
+        return new ClientIconMap(slug, cached, state.Devices, state.DeviceCatalog, ranks, state.Bodies);
     }
 
     /// <summary>
