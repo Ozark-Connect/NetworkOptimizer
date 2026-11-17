@@ -241,7 +241,17 @@ pct exec <CT_ID> -- nano /opt/network-optimizer-proxy/.env
 
 **Note:** Certificates may take about a minute to issue on first start. If you see certificate errors immediately after installation, wait a moment and refresh.
 
-If you don't enable Traefik during installation, you can still set up a reverse proxy manually later. See the [Deployment Guide](../../docker/DEPLOYMENT.md#https-with-reverse-proxy) for nginx, Caddy, and Traefik examples.
+### Adding HTTPS to an Existing Install
+
+If you skipped Traefik during installation, add it later without reinstalling (re-running `install.sh` creates a new container). Run this on the **Proxmox VE host** and enter the container ID when prompted:
+
+```bash
+bash -c "$(wget -qLO - https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main/scripts/proxmox/add-https.sh)"
+```
+
+It deploys the same Traefik proxy the installer does and updates the app's `.env` to match. Your data and settings are kept. The requirements above apply.
+
+To use your own reverse proxy instead, see the [Deployment Guide](../../docker/DEPLOYMENT.md#https-with-reverse-proxy) for nginx, Caddy, and Traefik examples.
 
 ## Advanced Configuration
 
