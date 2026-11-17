@@ -1305,21 +1305,7 @@ export class LanFlowMap {
 
             // For WAN/Transit links, shorten the cloud end to the globe surface
             // so the pipe terminates at the wireframe, not the center.
-            let effA = a, effB = b;
-            const isWan = link.kind === LINK_KIND.Wan || link.kind === LINK_KIND.Transit;
-            if (isWan) {
-                const r = this._cloudRadius();
-                const cloudEnd = this._cloudMeshes.has(link.toNodeId) ? 'b'
-                    : this._cloudMeshes.has(link.fromNodeId) ? 'a' : null;
-                if (cloudEnd) {
-                    const from = cloudEnd === 'b' ? a : b;
-                    const to = cloudEnd === 'b' ? b : a;
-                    const dx = to.x - from.x, dy = to.y - from.y, dz = to.z - from.z;
-                    const d = Math.sqrt(dx * dx + dy * dy + dz * dz) || 1;
-                    const surfPt = { x: to.x - (dx / d) * r, y: to.y - (dy / d) * r, z: to.z - (dz / d) * r };
-                    if (cloudEnd === 'b') effB = surfPt; else effA = surfPt;
-                }
-            }
+            const { a: effA, b: effB } = this._pipeEnds(link, a, b);
 
             const pipe = this._makePipeMesh(effA, effB, link);
             this.linkGroup.add(pipe);
@@ -4840,26 +4826,37 @@ export class LanFlowMap {
             }
         }
 
-        for (const [linkId, linkObj] of this._linkMeshes) {
-            if (linkObj.link.fromNodeId !== nodeId && linkObj.link.toNodeId !== nodeId) continue;
-            const otherNodeId = linkObj.link.fromNodeId === nodeId ? linkObj.link.toNodeId : linkObj.link.fromNodeId;
-            const otherGroup = this._nodeMeshes.get(otherNodeId) || this._cloudMeshes.get(otherNodeId);
-            if (!otherGroup) continue;
+        // By the ends a pipe is drawn between, not the ends its link names: a cellular WAN's link
+        // names the gateway but is drawn to the modem (viaNodeId), so matching on the named ends
+        // left the pipe behind when the modem moved, and dragged it to the gateway when that moved.
+        // A moving gateway carries its globes, so every pipe touching a globe moves with it too:
+        // that includes a cellular WAN's pipe, which runs from the globe to the modem.
+        const moving = (id) => id === nodeId
+            || (this._repositionNode.kind === NODE_KIND.Gateway && this._cloudMeshes.has(id));
+        const groupOf = (id) => this._nodeMeshes.get(id) || this._cloudMeshes.get(id);
+        for (const [, linkObj] of this._linkMeshes) {
+            const fromId = linkObj.link.fromNodeId, toId = this._linkDrawnToId(linkObj.link);
+            if (!moving(fromId) && !moving(toId)) continue;
+            const fromGroup = groupOf(fromId), toGroup = groupOf(toId);
+            if (!fromGroup || !toGroup) continue;
 
-            const a = linkObj.link.fromNodeId === nodeId ? pos : otherGroup.position;
-            const b = linkObj.link.toNodeId === nodeId ? pos : otherGroup.position;
-
-            // Update pipe mesh
+            const { a, b } = this._pipeEnds(linkObj.link, fromGroup.position, toGroup.position);
             this._updatePipePosition(linkObj.pipe, a, b);
-            // Update particle stream endpoints
-            if (linkObj.link.fromNodeId === nodeId) {
-                linkObj.down.updateEndpoints(pos, otherGroup.position);
-                linkObj.up.updateEndpoints(otherGroup.position, pos);
-            } else {
-                linkObj.down.updateEndpoints(otherGroup.position, pos);
-                linkObj.up.updateEndpoints(pos, otherGroup.position);
-            }
+            linkObj.down.updateEndpoints(a, b);
+            linkObj.up.updateEndpoints(b, a);
         }
+    }
+
+    // A pipe's drawn ends: a WAN or transit pipe stops at its globe's surface, not its centre.
+    _pipeEnds(link, a, b) {
+        if (link.kind !== LINK_KIND.Wan && link.kind !== LINK_KIND.Transit) return { a, b };
+        const cloudEnd = this._cloudMeshes.has(link.toNodeId) ? 'b' : this._cloudMeshes.has(link.fromNodeId) ? 'a' : null;
+        if (!cloudEnd) return { a, b };
+        const from = cloudEnd === 'b' ? a : b, to = cloudEnd === 'b' ? b : a;
+        const dx = to.x - from.x, dy = to.y - from.y, dz = to.z - from.z;
+        const d = Math.sqrt(dx * dx + dy * dy + dz * dz) || 1, r = this._cloudRadius();
+        const surf = { x: to.x - (dx / d) * r, y: to.y - (dy / d) * r, z: to.z - (dz / d) * r };
+        return cloudEnd === 'b' ? { a, b: surf } : { a: surf, b };
     }
 
     _updatePipePosition(pipe, a, b) {
