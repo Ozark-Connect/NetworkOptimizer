@@ -49,17 +49,36 @@ public static class ChangeAttributor
         "arp_cache_timeout", "arp_cache_base_reachable", "bc_filter", "minrate_", "no2ghz_oui", "network_optimization",
     ];
 
-    /// <summary>True when the AUDIT event is one of NO's own writes (a journal entry on the same object near the same time).</summary>
-    public static bool IsOwnEvent(AuditLogEvent e, IReadOnlyList<ConfigWriteJournalEntry> journal) =>
-        journal.Any(j => Math.Abs((j.At - e.TimeUtc).TotalSeconds) <= JournalSlack.TotalSeconds
+    /// <summary>
+    /// True when the AUDIT event is one of NO's own writes (a journal entry on the same object near the same time).
+    /// <paramref name="idByMac"/> maps the diff's client MACs to their _ids, so an event on a known client MAC is
+    /// NO's only when NO wrote that object; otherwise NO's write to another client claimed an admin's rename beside it.
+    /// </summary>
+    public static bool IsOwnEvent(AuditLogEvent e, IReadOnlyList<ConfigWriteJournalEntry> journal,
+        IReadOnlyDictionary<string, string>? idByMac = null)
+    {
+        var knownId = e.Section == "CLIENT" && e.ObjectId != null && idByMac?.TryGetValue(e.ObjectId, out var id) == true ? id : null;
+        return journal.Any(j => Math.Abs((j.At - e.TimeUtc).TotalSeconds) <= JournalSlack.TotalSeconds
             && (Matches(j.ObjectId, e.ObjectId)
-                // A device's or client's AUDIT entry names it by MAC, our journal by its _id: match those on collection and time.
-                || ((e.ObjectId == null || e.Section is "DEVICE" or "CLIENT") && SameCollection(j.Collection, e))
+                || Matches(j.ObjectId, knownId)
+                // A device's or client's AUDIT entry names it by MAC, our journal by its _id: with no diffed object for the
+                // MAC, match those on collection and time.
+                || (knownId == null && (e.ObjectId == null || e.Section is "DEVICE" or "CLIENT") && SameCollection(j.Collection, e))
                 // Our batch-reorder names no policy; UniFi audits it as an index change on each one it moved.
                 || (IsReorder(j) && e.SettingField == OrderAuditField && SameCollection(j.Collection, e))
                 // Our batch-delete names no policy either; UniFi audits it as a removal of each one. Without this, an
                 // entry that arrived in time claimed the delete as a person named after the API key.
                 || (IsBatchDelete(j) && e.Key == "REMOVED_ENTITY" && SameCollection(j.Collection, e))));
+    }
+
+    /// <summary>The diff's client _ids by MAC, which their CLIENT AUDIT events name them by.</summary>
+    private static Dictionary<string, string> IdsByMac(IReadOnlyList<ObjectDiff> objects)
+    {
+        var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var o in objects.Where(o => o.Collection == "user"))
+            if ((o.After ?? o.Before)?["mac"]?.ToString() is { Length: > 0 } mac) map.TryAdd(mac, o.ObjectId);
+        return map;
+    }
 
     private static bool IsReorder(ConfigWriteJournalEntry j) => j.Path.Contains("batch-reorder", StringComparison.OrdinalIgnoreCase);
 
@@ -123,8 +142,9 @@ public static class ChangeAttributor
         var result = new List<AttributedChange>();
         // A write already in the before state owns only events from before that read: an admin's edit in
         // UniFi a minute after a plan wrote the same object was dropped as ours, and read Unattributed.
+        var idByMac = IdsByMac(objects);
         var humanEvents = events.Where(e => e.IsChange && !IsOwnEvent(e, beforeReadAt is { } read && e.TimeUtc > read
-            ? journal.Where(j => j.At >= read).ToList() : journal)).ToList();
+            ? journal.Where(j => j.At >= read).ToList() : journal, idByMac)).ToList();
         var byActor = new Dictionary<string, AttributedChange>(StringComparer.Ordinal);
         var ownObjects = new List<ObjectDiff>();
         var unattributed = new List<ObjectDiff>();

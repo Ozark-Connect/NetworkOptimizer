@@ -257,6 +257,38 @@ public class ChangeDetectionTests
     }
 
     [Fact]
+    public void Attribute_NosWriteToAnotherClient_DoesNotClaimAnAdminsRenameBesideIt()
+    {
+        // An admin renames one client in UniFi Network; NO renames another 12 s later. Both land in one pass.
+        static ObjectDiff Client(string id, string mac, string from, string to) => new()
+        {
+            Collection = "user", ObjectId = id, Name = to, Action = ConfigChangeAction.Updated,
+            Fields = [new FieldChange("name", from, to)],
+            Before = new JsonObject { ["_id"] = id, ["mac"] = mac, ["name"] = from },
+            After = new JsonObject { ["_id"] = id, ["mac"] = mac, ["name"] = to },
+        };
+        var admins = Client("u1", "aa:bb:cc:dd:ee:01", "Rig NIC", "Rig");
+        var ours = Client("u2", "aa:bb:cc:dd:ee:02", "Other NIC", "Other");
+        var adminEvent = Event("aa:bb:cc:dd:ee:01", admin: "TJ", secondsAgo: 32) with
+        {
+            Section = "CLIENT", SettingCollection = "user", SettingField = "name", ObjectName = "Rig NIC",
+        };
+        var ourEvent = Event("aa:bb:cc:dd:ee:02", admin: "Network Optimizer", secondsAgo: 20) with
+        {
+            Section = "CLIENT", SettingCollection = "user", SettingField = "name", ObjectName = "Other NIC",
+        };
+        var journal = new List<ConfigWriteJournalEntry>
+        {
+            new() { At = Now.AddSeconds(-20), Method = "PUT", Path = "rest/user/u2", Collection = "user", ObjectId = "u2", FieldsJson = "[\"name\"]", Source = "client-settings" },
+        };
+
+        var groups = ChangeAttributor.Attribute([admins, ours], [adminEvent, ourEvent], journal, Now, false);
+
+        groups.Single(g => g.Objects.Contains(admins)).ActorKind.Should().Be(ConfigChangeActorKind.Person);
+        groups.Single(g => g.Objects.Contains(ours)).ActorKind.Should().Be(ConfigChangeActorKind.NetworkOptimizer);
+    }
+
+    [Fact]
     public void Attribute_RenameWithoutAnId_MatchesTheNameFromBeforeTheEdit()
     {
         var renamed = Event(null!) with { Section = "WIFI", SettingField = "name", ObjectName = "Home" };
