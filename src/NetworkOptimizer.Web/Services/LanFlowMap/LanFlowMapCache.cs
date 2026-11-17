@@ -106,4 +106,6 @@ public record HistoricDataCache(
     Dictionary<string, IReadOnlyList<MonitoringInfluxClient.LatencyPoint>> LatencyByTargetId,
     IReadOnlyList<MonitoringInfluxClient.LatencyPoint> MeanIspTransit,
     // A monitored cellular modem's Signal Quality readings, by its device node id, oldest first.
-    Dictionary<string, IReadOnlyList<(DateTime Time, int Quality)>>? CellularQualityByNode = null);
+    Dictionary<string, IReadOnlyList<(DateTime Time, int Quality)>>? CellularQualityByNode = null,
+    // Each poll of a monitored modem, by its device node id, oldest first: whether it read NR (5G).
+    Dictionary<string, IReadOnlyList<(DateTime Time, bool Nr)>>? CellularModeByNode = null);

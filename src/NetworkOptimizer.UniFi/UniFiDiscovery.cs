@@ -841,7 +841,8 @@ public class UniFiDiscovery
                 WanUploadMbps = n.WanProviderCapabilities?.UploadMbps,
                 WanDownloadMbps = n.WanProviderCapabilities?.DownloadMbps,
                 WanNetworkgroup = n.WanNetworkgroup,
-                WanSmartqEnabled = n.WanSmartqEnabled
+                WanSmartqEnabled = n.WanSmartqEnabled,
+                LanTunnelWanDevice = n.LanTunnelWanDevice
             }).ToList() ?? new List<NetworkInfo>(),
             DiscoveredAt = DateTime.UtcNow
         };
@@ -1388,6 +1389,9 @@ public class NetworkInfo
 
     /// <summary>WAN download speed in Mbps (only for WAN networks)</summary>
     public int? WanDownloadMbps { get; set; }
+
+    /// <summary>MAC of the cellular modem carrying this WAN as a tunnel over the LAN; null otherwise.</summary>
+    public string? LanTunnelWanDevice { get; set; }
 
     /// <summary>WAN network group: "WAN" for primary, "WAN2", "WAN3" for secondary</summary>
     public string? WanNetworkgroup { get; set; }
