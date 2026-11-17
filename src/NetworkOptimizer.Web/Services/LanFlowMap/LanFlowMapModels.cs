@@ -149,6 +149,9 @@ public class LanNode
     /// </summary>
     public int? CellularSignalQuality { get; set; }
 
+    /// <summary>The Cellular Stats modem this device is, so a double-click opens its series there.</summary>
+    public int? CellularModemId { get; set; }
+
     /// <summary>
     /// Each link of an MLO mesh backhaul with its signal, for the tooltip. The 5 and 6 GHz links
     /// together drive the signal fields above, averaged; null on a single-link uplink.

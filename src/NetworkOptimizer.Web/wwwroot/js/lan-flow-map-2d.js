@@ -613,6 +613,8 @@ class LanFlowMap2D {
                 <div class="lan-flow-map-help-row"><span>Hover detail</span><span class="kbd">Mouse over</span></div>
                 <div class="lan-flow-map-help-row"><span>Open Client</span><span class="kbd">Double-click</span></div>
                 <div class="lan-flow-map-help-row"><span>Open Port Statistics</span><span class="kbd">Double-click</span></div>
+                <div class="lan-flow-map-help-row"><span>Open an AP's Client Stats</span><span class="kbd">Double-click</span></div>
+                <div class="lan-flow-map-help-row"><span>Open a modem's Cellular Stats</span><span class="kbd">Double-click</span></div>
                 <div class="lan-flow-map-help-row"><span>Open ISP Health</span><span class="kbd">Double-click</span></div>${scrubRows}
                 <div class="lan-flow-map-help-row"><span>Fullscreen</span><span class="kbd">Esc</span> to exit</div>`;
         help.appendChild(helpBody);
@@ -1191,6 +1193,17 @@ class LanFlowMap2D {
         const hit=this._nodeAt(sx,sy);
         if(!hit)return;
         const d=hit.d;
+        // A monitored cellular modem opens its series in Cellular Stats, as the Dashboard card does;
+        // its ports say little. A Gateway with a modem inside keeps Port Statistics.
+        if(d.cellularModemId!=null&&d.kind!==NK.Gateway){
+            navigate(`/monitoring?tab=cellular&modem=${encodeURIComponent(d.cellularModemId)}`);
+            return;
+        }
+        // An Access Point opens Wi-Fi Optimizer's Client Stats, filtered to its clients.
+        if(d.kind===NK.AP&&d.mac){
+            navigate(`/wifi-optimizer?tab=client&ap=${encodeURIComponent(d.mac)}`);
+            return;
+        }
         // Switches and gateways scroll to the port stats table and isolate that device.
         if(d.kind===NK.Switch||d.kind===NK.Gateway){
             if(d.mac&&window.__portStatsTable){
@@ -1367,7 +1380,9 @@ class LanFlowMap2D {
         // What a double-click does here, if anything (mirrors _onDoubleClick).
         const gesture=this._touch?'Double-tap':'Double-click';
         let hint='';
-        if((d.kind===NK.Switch||d.kind===NK.Gateway)&&d.mac)hint=`${gesture} for Port Statistics`;
+        if(d.cellularModemId!=null&&d.kind!==NK.Gateway)hint=`${gesture} for Stats`;
+        else if(d.kind===NK.AP&&d.mac)hint=`${gesture} for Clients`;
+        else if((d.kind===NK.Switch||d.kind===NK.Gateway)&&d.mac)hint=`${gesture} for Port Statistics`;
         else if((d.kind===NK.WifiClient||d.kind===NK.WiredClient)&&d.ip)hint=`${gesture} for client details`;
 
         // An overlay tip (Firmware Rollout) leads: it is why the node is marked at all.

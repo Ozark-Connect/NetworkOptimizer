@@ -1644,9 +1644,11 @@ public class LanFlowMapService
             var nodesById = snapshot.Nodes.GroupBy(n => n.Id).ToDictionary(g => g.Key, g => g.First());
             foreach (var (modemId, nodeId) in modemNodes)
             {
+                if (!nodesById.TryGetValue(nodeId, out var node)) continue;
+                node.CellularModemId = modemId;
                 var stats = await Cellular.GetCachedStatsAsync(modemId);
                 if (stats == null || DateTime.UtcNow - stats.Timestamp > CellularMaxAge) continue;
-                if (nodesById.TryGetValue(nodeId, out var node)) node.CellularSignalQuality = stats.SignalQuality;
+                node.CellularSignalQuality = stats.SignalQuality;
             }
         }
         catch (Exception ex)

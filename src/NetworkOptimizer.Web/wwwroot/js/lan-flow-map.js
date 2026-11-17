@@ -3948,6 +3948,17 @@ export class LanFlowMap {
         while (g && !(g.userData?.node)) g = g.parent;
         if (!g) return;
         const node = g.userData.node;
+        // A monitored cellular modem opens its series in Cellular Stats, as the Dashboard card does;
+        // its ports say little. A Gateway with a modem inside keeps Port Statistics.
+        if (node.cellularModemId != null && node.kind !== NODE_KIND.Gateway) {
+            navigate(`/monitoring?tab=cellular&modem=${encodeURIComponent(node.cellularModemId)}`);
+            return;
+        }
+        // An Access Point opens Wi-Fi Optimizer's Client Stats, filtered to its clients.
+        if (node.kind === NODE_KIND.AccessPoint && node.mac) {
+            navigate(`/wifi-optimizer?tab=client&ap=${encodeURIComponent(node.mac)}`);
+            return;
+        }
         // Switches and gateways scroll to the port stats table and isolate that device.
         if (node.kind === NODE_KIND.Switch || node.kind === NODE_KIND.Gateway) {
             if (node.mac && window.__portStatsTable) {

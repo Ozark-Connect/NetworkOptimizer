@@ -103,7 +103,7 @@ Time-series monitoring on your own InfluxDB, fed by SNMP polling (InfluxDB).
   - Overlays: Wi-Fi clients, wired clients, WAN globes, buildings and floor plans from the Signal Map
   - Search by name or MAC, filter by band, WASD and mouse camera, fullscreen
   - **Reposition Device**; run Upstream Discovery from a WAN globe
-  - Double-click a client for Client Performance, a switch or gateway for Port Statistics, or a WAN globe for its ISP Health
+  - Double-click a client for Client Performance, an access point for its clients in Wi-Fi Optimizer's Client Stats, a UniFi cellular modem monitored in Cellular Stats for its series there, a switch or gateway for Port Statistics, or a WAN globe for its ISP Health
 - **LAN Topology Flow Map** (2D) - the same live data as a pan-and-zoom flow diagram
   - Each client shows its UniFi Network icon, including custom icons
   - Per-client Wi-Fi LAN traffic, including LAN-only transfers ([AP Telemetry](#ap-telemetry))
