@@ -1085,14 +1085,34 @@ export class LanFlowMap {
     // Swap a node's primitive core for its icon body: at once when the body is cached, else
     // when the icon loads. The primitive draws meanwhile, and stays when there is no icon.
     _applyIconBody(group) {
+        const key = this._bodyKey(group.userData.node);
+        group.userData.bodyKey = key;
         const spec = this._bodySpec(group.userData.node);
         if (!spec) return;
         const entry = getBody(spec.url, spec.shape);
         if (entry) { this._setIconBody(group, entry, spec); return; }
         loadBody(spec.url, spec.shape).then(loaded => {
-            const current = this._nodeMeshes.get(group.userData.node.id) === group;
-            if (loaded && current && !this._destroyed && !group.userData.iconBody) this._setIconBody(group, loaded, spec);
+            const current = this._nodeMeshes.get(group.userData.node.id) === group && group.userData.bodyKey === key;
+            if (loaded && current && !this._destroyed) this._setIconBody(group, loaded, spec);
         });
+    }
+
+    // Everything a node's body is built from. A body is rebuilt when this changes.
+    _bodyKey(node) {
+        return [node.iconUrl, node.model, node.bodySize, node.bodyDepth, node.wallFlat, node.mountType, node.orientationDeg].join('|');
+    }
+
+    // A client's icon and class come from a console read that can land after the map has drawn it,
+    // and an AP can be re-posed on the Signal Map. Carry those onto the drawn nodes and rebuild any
+    // body they change. Never skip this: a node otherwise keeps the body of its first snapshot.
+    _refreshBodies(snap) {
+        for (const fresh of snap.nodes ?? []) {
+            const group = this._nodeMeshes.get(fresh.id);
+            const node = group?.userData?.node;
+            if (!node) continue;
+            for (const f of ['iconUrl', 'model', 'bodySize', 'bodyDepth', 'wallFlat', 'mountType', 'orientationDeg']) node[f] = fresh[f];
+            if (this._bodyKey(node) !== group.userData.bodyKey) this._applyIconBody(group);
+        }
     }
 
     _setIconBody(group, entry, spec) {
@@ -1101,9 +1121,13 @@ export class LanFlowMap {
         core.material.transparent = old.material.transparent;
         core.material.opacity = old.material.opacity;
         core.scale.copy(old.scale);
-        group.remove(old);
-        old.geometry.dispose();
+        // The old core is a primitive on the group, or an earlier icon body inside its holder
+        // (whose geometry is the shared cache's, and stays).
+        const oldHolder = group.userData.bodyHolder;
+        group.remove(oldHolder ?? old);
+        if (!oldHolder) old.geometry.dispose();
         old.material.dispose();
+        delete group.userData.zoomMin;
 
         // The holder carries size and pose. The zoom pass rescales the core itself every frame.
         const size = this._nodeRadius(node.kind) * ICON_BODY_SIZE;
@@ -1124,6 +1148,7 @@ export class LanFlowMap {
         group.userData.core = core;
         group.userData.baseEmissive = ICON_BODY_EMISSIVE;
         group.userData.iconBody = true;
+        group.userData.bodyHolder = holder;
         group.userData.topHalf = box.max.y * size;
         // No saved orientation (clients, switches, gateways, unplaced APs): the body stands
         // upright and the zoom pass turns its face to the camera.
@@ -2418,6 +2443,7 @@ export class LanFlowMap {
                     // it - re-attach any persisting client whose parent AP changed.
                     this._applyLiveRoam(prev, snap);
                     this._refreshClientIdentity(snap);
+                    this._refreshBodies(snap);
                     // Don't apply snapshot liveRates - they're stale vs the 1s
                     // live poll and would clobber fresh rates momentarily.
                     this._refreshCloudRttLabels();
