@@ -184,8 +184,6 @@ const LINK_KIND = {
 // The emissive sits far below the primitives' 0.45: the icon is mostly white and bloom washes it out.
 const ICON_BODY_SIZE = 2.6;
 const ICON_BODY_EMISSIVE = 0.1;
-// Closer than this many body lengths, the body is hidden.
-const ICON_BODY_NEAR_HIDE = 3;
 
 const NODE_KIND = {
     Gateway: 0,
@@ -1111,7 +1109,6 @@ export class LanFlowMap {
         group.userData.core = core;
         group.userData.baseEmissive = ICON_BODY_EMISSIVE;
         group.userData.iconBody = true;
-        group.userData.bodyHolder = holder;
         group.userData.topHalf = box.max.y * size;
         // No saved orientation (clients, switches, gateways, unplaced APs): the body stands
         // upright and the zoom pass turns its face to the camera.
@@ -2264,9 +2261,6 @@ export class LanFlowMap {
             if (halo) halo.scale.setScalar(z);
             const facing = group.userData.faceCamera;
             if (facing) facing.rotation.y = Math.atan2(camPos.x - group.position.x, camPos.z - group.position.z);
-            // An icon body the camera passes through would fill the view as a flat box: hide it up close.
-            const holder = group.userData.bodyHolder;
-            if (holder) holder.visible = dist > holder.scale.x * z * ICON_BODY_NEAR_HIDE;
         }
         for (const { pipe, down, up } of this._linkMeshes.values()) {
             if (!pipe) continue;
