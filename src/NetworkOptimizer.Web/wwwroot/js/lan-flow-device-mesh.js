@@ -32,13 +32,18 @@ export function isPanelModel(model) {
     return /^(u-?lte|u5g)/.test((model || '').toLowerCase().replace(/ /g, '-'));
 }
 
+// Desktop gateways and switches whose front face is as wide and thin as a rack unit's.
+const COMPACT_MODEL = /^(ucg|uxg-(fiber|lite|max)|usg$|usg-3p|uck|usw-(flex|lite|ultra)|usw-(pro|enterprise|pro-xg)-8|us-8|usw-industrial)/;
+
 /**
- * A network device's real longest side in metres, estimated from its body: a face at least four
- * times wider than tall is a rack-width chassis, anything else is a hand-sized device.
+ * A network device's real longest side in metres, estimated: a face at least four times wider
+ * than tall is a rack-width chassis, unless the model is a compact desktop one. Anything else is
+ * a hand-sized device.
  */
-export function estimateRealSizeM(entry) {
+export function estimateRealSizeM(entry, model) {
     const size = entry.bounds.getSize(new THREE.Vector3());
-    return size.x >= size.y * 4 ? 0.44 : 0.2;
+    const compact = COMPACT_MODEL.test((model || '').toLowerCase().replace(/ /g, '-'));
+    return size.x >= size.y * 4 && !compact ? 0.44 : 0.2;
 }
 
 /** Whether a model stands upright on a desk (in-wall and wall models on their stand). Mirrors PropagationService.IsStandMountModel. */

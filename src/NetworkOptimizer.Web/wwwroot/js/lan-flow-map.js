@@ -14,7 +14,7 @@ import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { buildBuildings } from './lan-flow-buildings.js?v=3';
-import { DEPTH, deviceIconUrl, estimateRealSizeM, isPanelModel, isRoundBody, isStandMountModel, getBody, loadBody, makeBodyMesh, poseQuaternion } from './lan-flow-device-mesh.js?v=3';
+import { DEPTH, deviceIconUrl, estimateRealSizeM, isPanelModel, isRoundBody, isStandMountModel, getBody, loadBody, makeBodyMesh, poseQuaternion } from './lan-flow-device-mesh.js?v=4';
 // KEEP IN SYNC: lan-flow-map-2d.js imports the same module. Both must use the same ?v= or they get separate instances.
 import * as flowData from './lan-flow-data.js?v=18';
 import { opaqueBounds, logoFit } from './image-bounds.js?v=1';
@@ -1122,7 +1122,7 @@ export class LanFlowMap {
         // Zoomed out it keeps the larger size, so it still reads at property scale.
         const isNetworkDevice = node.kind === NODE_KIND.Gateway || node.kind === NODE_KIND.Switch || node.kind === NODE_KIND.AccessPoint;
         if (isNetworkDevice && this._anchored) {
-            const closest = ICON_BODY_REAL_FACTOR * estimateRealSizeM(entry) * this._anchorScale;
+            const closest = ICON_BODY_REAL_FACTOR * estimateRealSizeM(entry, node.model) * this._anchorScale;
             group.userData.zoomMin = Math.min(DEVICE_ZOOM_MIN, closest / size);
         }
 
