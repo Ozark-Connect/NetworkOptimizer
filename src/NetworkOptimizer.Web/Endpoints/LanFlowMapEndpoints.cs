@@ -25,6 +25,7 @@ public static class LanFlowMapEndpoints
                     var iconTask = icons.GetMapAsync(ct);
                     var snap = await svc.BuildSnapshotAsync(ct);
                     ApplyClientIcons(snap.Nodes, await iconTask);
+                    await ApplyIspLogosAsync(snap.Clouds, icons, logger, ct);
                     return Results.Ok(snap);
                 }
                 catch (Exception ex) when (IsConsoleUnavailable(ex))
@@ -94,6 +95,30 @@ public static class LanFlowMapEndpoints
                 svc.InvalidateCache();
                 return Results.Ok();
             });
+    }
+
+    /// <summary>
+    /// Gives each WAN globe its ISP's logo by ASN, the one UniFi Network shows, so the maps draw it in
+    /// place of the globe. A logo is decoration: one that cannot be had leaves the globe.
+    /// </summary>
+    private static async Task ApplyIspLogosAsync(IEnumerable<LanCloud> clouds, IClientIcons icons, ILogger logger, CancellationToken ct)
+    {
+        var withAsn = clouds.Where(c => c.Asn is > 0).ToList();
+        if (withAsn.Count == 0)
+            return;
+        try
+        {
+            var urls = new Dictionary<int, string?>();
+            foreach (var asn in withAsn.Select(c => c.Asn!.Value).Distinct())
+                urls[asn] = null;
+            await Task.WhenAll(urls.Keys.ToList().Select(async asn => { var url = await icons.GetAsnLogoUrlAsync(asn, ct); lock (urls) urls[asn] = url; }));
+            foreach (var cloud in withAsn)
+                cloud.LogoUrl = urls[cloud.Asn!.Value];
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger.LogDebug(ex, "LAN map: ISP logos unavailable");
+        }
     }
 
     /// <summary>
