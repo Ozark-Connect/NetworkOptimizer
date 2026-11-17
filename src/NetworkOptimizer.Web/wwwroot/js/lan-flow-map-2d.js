@@ -118,6 +118,14 @@ function navigate(url) {
     if(window.__navigate)window.__navigate(u); else window.location.href=u;
 }
 
+// Opens Live View with a device picked in its Port Statistics table, for a page without the
+// table. The key matches port-stats-table.js's HANDOFF_KEY.
+function openPortStatsOnLiveView(mac){
+    try{sessionStorage.setItem('portStatsSelect',mac);}
+    catch(e){console.debug('[lan-flow-map-2d] session storage unavailable; Live View opens unfiltered',e);}
+    navigate('/monitoring?tab=live');
+}
+
 // Duration of the fade-in applied to a client that gets re-attached to a different
 // AP during historic playback (roam), so it doesn't pop at its new position.
 const ROAM_FADE_MS = 350;
@@ -1204,13 +1212,16 @@ class LanFlowMap2D {
             navigate(`/wifi-optimizer?tab=client&ap=${encodeURIComponent(d.mac)}`);
             return;
         }
-        // Switches and gateways scroll to the port stats table and isolate that device.
+        // Switches and gateways scroll to the port stats table and isolate that device. The
+        // Dashboard's card has no table, so it opens Live View with the device picked there.
         if(d.kind===NK.Switch||d.kind===NK.Gateway){
             if(d.mac&&window.__portStatsTable){
                 // The table is under the map, so fullscreen would hide the jump.
                 if(this._isFullscreen)this._toggleFullscreen();
                 window.__portStatsTable.selectDevice(d.mac);
                 document.getElementById('port-stats-card')?.scrollIntoView({behavior:'smooth',block:'start'});
+            }else if(d.mac&&this._liveOnly){
+                openPortStatsOnLiveView(d.mac);
             }
             return;
         }
@@ -1382,7 +1393,7 @@ class LanFlowMap2D {
         let hint='';
         if(d.cellularModemId!=null&&d.kind!==NK.Gateway)hint=`${gesture} for Stats`;
         else if(d.kind===NK.AP&&d.mac)hint=`${gesture} for Clients`;
-        else if((d.kind===NK.Switch||d.kind===NK.Gateway)&&d.mac)hint=`${gesture} for Port Statistics`;
+        else if((d.kind===NK.Switch||d.kind===NK.Gateway)&&d.mac&&(window.__portStatsTable||this._liveOnly))hint=`${gesture} for Port Statistics`;
         else if((d.kind===NK.WifiClient||d.kind===NK.WiredClient)&&d.ip)hint=`${gesture} for client details`;
 
         // An overlay tip (Firmware Rollout) leads: it is why the node is marked at all.

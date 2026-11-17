@@ -65,6 +65,14 @@ function navigate(url) {
     const u = window.noSiteContext ? window.noSiteContext.stampUrl(url) : url;
     if (window.__navigate) window.__navigate(u); else window.location.href = u;
 }
+
+// Opens Live View with a device picked in its Port Statistics table, for a page without the
+// table (the Dashboard's card). The key matches port-stats-table.js's HANDOFF_KEY.
+function openPortStatsOnLiveView(mac) {
+    try { sessionStorage.setItem('portStatsSelect', mac); }
+    catch (e) { console.debug('[lan-flow-map] session storage unavailable; Live View opens unfiltered', e); }
+    navigate('/monitoring?tab=live');
+}
 // How long the arrival focus glow shows once its node exists (mount option focusClient), and
 // how long to wait for the node before giving up.
 const FOCUS_MS = 5000;
@@ -3959,13 +3967,17 @@ export class LanFlowMap {
             navigate(`/wifi-optimizer?tab=client&ap=${encodeURIComponent(node.mac)}`);
             return;
         }
-        // Switches and gateways scroll to the port stats table and isolate that device.
+        // Switches and gateways scroll to the port stats table and isolate that device. The
+        // Dashboard's card (the only other page with this map) has no table, so it opens Live View
+        // with the device picked there.
         if (node.kind === NODE_KIND.Switch || node.kind === NODE_KIND.Gateway) {
             if (node.mac && window.__portStatsTable) {
                 // The table is under the map, so fullscreen would hide the jump.
                 if (this.stage?.classList.contains('lan-flow-map-fullscreen')) this._toggleFullscreen();
                 window.__portStatsTable.selectDevice(node.mac);
                 document.getElementById('port-stats-card')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            } else if (node.mac) {
+                openPortStatsOnLiveView(node.mac);
             }
             return;
         }
