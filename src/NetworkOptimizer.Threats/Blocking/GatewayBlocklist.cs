@@ -2,10 +2,10 @@ using System.Net;
 using System.Net.Sockets;
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
+using NetworkOptimizer.Core;
 using NetworkOptimizer.Threats.Interfaces;
 using NetworkOptimizer.UniFi;
 using NetworkOptimizer.UniFi.Models;
-using NetworkOptimizer.Core;
 
 namespace NetworkOptimizer.Threats.Blocking;
 
@@ -196,10 +196,15 @@ public sealed class GatewayBlocklist : IGatewayBlocklistWriter
         try
         {
             current = ManagedSourceGroupIds(await client.GetFirewallGroupsOrThrowAsync(ct));
+            var stored = new[] { state.GroupV4Id, state.GroupV6Id, state.FeedsV4Id, state.FeedsV6Id }.OfType<string>().ToHashSet();
+            if (current.Any(id => !stored.Contains(id)))
+                _logger.LogInformation("Gateway blocking on {Site}: stored Network List ids are stale; also matching the ones UniFi Network names {Ids}",
+                    site ?? "default", string.Join(", ", current.Where(id => !stored.Contains(id))));
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            _logger.LogDebug(ex, "Gateway blocking: groups not read on {Site}; matching the stored ids only", site ?? "default");
+            _logger.LogWarning("Gateway blocking on {Site}: Network Lists not read ({Error}); matching the stored ids only",
+                site ?? "default", ex.Message);
         }
         var stale = SourcePoliciesToNarrow(await client.GetFirewallPoliciesAsync(ct), state, current);
         foreach (var policy in stale)
