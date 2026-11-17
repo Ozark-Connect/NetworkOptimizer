@@ -2538,13 +2538,35 @@ export class LanFlowMap {
         for (const b of snap.buildings || []) {
             for (const f of b.floors || []) {
                 const segs = [];
+                // The building's outline on this floor: the wall loop enclosing the most area.
+                let outline = null, outlineArea = 0;
                 for (const w of f.walls || []) {
                     const pts = (w.points || []).map(pt => ({ x: -pt.x * scale, z: pt.y * scale }));
                     for (let i = 1; i < pts.length; i++) segs.push([pts[i - 1], pts[i]]);
+                    if (pts.length < 3) continue;
+                    let a = 0;
+                    for (let i = 0; i < pts.length; i++) {
+                        const p = pts[i], q = pts[(i + 1) % pts.length];
+                        a += p.x * q.z - q.x * p.z;
+                    }
+                    if (Math.abs(a) / 2 > outlineArea) { outlineArea = Math.abs(a) / 2; outline = pts; }
                 }
-                if (segs.length) this._wallSegs.push({ z: f.z ?? 0, segs });
+                if (segs.length) this._wallSegs.push({ z: f.z ?? 0, segs, outline });
             }
         }
+    }
+
+    // Whether a point is inside a floor's outline and at least `margin` from its walls.
+    _insideOutline(outline, x, z, margin) {
+        let inside = false, nearest = Infinity;
+        for (let i = 0, j = outline.length - 1; i < outline.length; j = i++) {
+            const a = outline[i], b = outline[j];
+            if ((a.z > z) !== (b.z > z) && x < (b.x - a.x) * (z - a.z) / (b.z - a.z) + a.x) inside = !inside;
+            const dx = b.x - a.x, dz = b.z - a.z, len2 = dx * dx + dz * dz;
+            const t = len2 > 0 ? Math.max(0, Math.min(1, ((x - a.x) * dx + (z - a.z) * dz) / len2)) : 0;
+            nearest = Math.min(nearest, Math.hypot(x - a.x - t * dx, z - a.z - t * dz));
+        }
+        return inside && nearest >= margin;
     }
 
     // Distance from a point to the first wall along a direction, or null if it reaches nothing.
@@ -2577,7 +2599,7 @@ export class LanFlowMap {
         for (const f of this._wallSegs || []) {
             const baseY = (f.z ?? 0) * scale * 0.8;
             if (baseY - slack > parentPos.y) continue;
-            if (floor === null || baseY > floor.baseY) floor = { baseY, segs: f.segs };
+            if (floor === null || baseY > floor.baseY) floor = { baseY, segs: f.segs, outline: f.outline };
         }
         const wallsForFloor = floor ? floor.segs : [];
 
@@ -2625,6 +2647,15 @@ export class LanFlowMap {
         // Best of a handful rather than first acceptable: taking the first spot that merely
         // clears everything leaves the gap between two nearby devices unused, because both push
         // their own clients away from it. Scoring by how empty a spot is fills that space.
+        // Clearance is judged in metres: in scene units a small, full house never offered enough,
+        // and the search widened until it was outside.
+        const roomy2 = (2.0 * scale) ** 2, clear2 = (0.8 * scale) ** 2;
+        // The AP's own position is inside the outline when it is placed in the building; only then
+        // do candidates have to stay in. Never score a spot outside the walls: it is always the
+        // emptiest one, which is how clients of a full house ended up in the yard.
+        const outline = floor?.outline;
+        const wallMargin = 0.3 * scale;
+        const keepInside = !!outline && this._insideOutline(outline, parentPos.x, parentPos.z, 0);
         let last = null;
         let best = null;
         let bestScore = -1;
@@ -2632,7 +2663,16 @@ export class LanFlowMap {
             const ringRadius = baseDist * (1 + ring * 0.12);
             for (let attempt = 0; attempt < 12; attempt++) {
                 const angle = baseAngle + (attempt === 0 && ring === 0 ? 0 : (rnd() - 0.5) * Math.PI);
-                const r = ringRadius * (0.9 + rnd() * 0.2);
+                let r = ringRadius * (0.9 + rnd() * 0.2);
+                if (keepInside) {
+                    // Pull a spot past the outline back toward the AP until it is inside.
+                    let tries = 0;
+                    while (tries < 8 && !this._insideOutline(outline,
+                        parentPos.x + Math.cos(angle) * r, parentPos.z + Math.sin(angle) * r, wallMargin)) {
+                        r *= 0.75; tries += 1;
+                    }
+                    if (tries === 8) continue;
+                }
                 // Staggered through the room's height rather than strung at one level: each
                 // client takes the next of five bands between floor and ceiling with jitter
                 // inside it, so a busy room reads with depth. No floor to measure from means no
@@ -2659,12 +2699,14 @@ export class LanFlowMap {
                 }
                 if (nearest > bestScore) { bestScore = nearest; best = cand; }
                 // Roomy enough that looking further would only be churn.
-                if (nearest > 36) return cand;
+                if (nearest > roomy2) return cand;
             }
             // A ring with a genuinely clear spot ends the search; otherwise widen.
-            if (bestScore > 9) return best;
+            if (bestScore > clear2) return best;
         }
-        return best ?? last;
+        // A full house: the emptiest spot inside it, never one outside. Only with no spot inside
+        // at all (an AP right on the outline) does the last candidate stand.
+        return best ?? last ?? { x: parentPos.x, y: parentPos.y - 1, z: parentPos.z, pinned: false };
     }
 
     // Incremental client add: create mesh near parent, create link pipe + particles.
