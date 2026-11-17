@@ -119,12 +119,13 @@ public sealed class PlanExecutor
                     result.Operations.Add(new OperationResult { Key = $"{def.Key}:verify", Outcome = "Error", Message = $"Could not re-read {def.DisplayName}: {readError}" });
                     return (false, result);
                 }
-                foreach (var (op, r, before) in verified)
+                for (var v = 0; v < verified.Count; v++)
                 {
+                    var (op, r, before) = verified[v];
                     (r.Outcome, r.Message) = before;
                     r.NotApplied.Clear();
                     r.Normalized.Clear();
-                    Verify(def, op, objects, r);
+                    Verify(def, op, objects, r, SupersededFields(op, verified.Skip(v + 1).Select(x => x.Op)));
                 }
                 var unconfirmed = verified.Count(x => x.Sent.Outcome == "Applied" && x.R.Outcome is "Partial" or "Error");
                 if (unconfirmed == 0 || attempt >= _readBackRetries.Count) break;
@@ -363,10 +364,24 @@ public sealed class PlanExecutor
     };
 
     /// <summary>
+    /// Fields a later write in the same run sets on the same object: the re-read shows that write's value, so
+    /// the earlier one is not judged on them (a WLAN created on WPA2, then set to WPA3 right after).
+    /// </summary>
+    private HashSet<string> SupersededFields(PlanOperation op, IEnumerable<PlanOperation> later)
+    {
+        var target = op.Action == PlanAction.Create ? PlanBuilder.RefPrefix + op.Key : op.ObjectId;
+        var id = ResolveId(target);
+        return later.Where(l => l.Action == PlanAction.Update && l.ObjectId != null
+                && (l.ObjectId == target || (id != null && string.Equals(ResolveId(l.ObjectId), id, StringComparison.OrdinalIgnoreCase))))
+            .SelectMany(l => l.WriteFields).ToHashSet(StringComparer.Ordinal);
+    }
+
+    /// <summary>
     /// Compares the re-read object with the fields the write sent. A refused write that the re-read
     /// shows as applied counts as applied (UniFi can answer an error and still write, zone create).
     /// </summary>
-    private void Verify(ConfigCollectionDef def, PlanOperation op, IReadOnlyList<JsonObject> objects, OperationResult r)
+    private void Verify(ConfigCollectionDef def, PlanOperation op, IReadOnlyList<JsonObject> objects, OperationResult r,
+        IReadOnlySet<string>? superseded = null)
     {
         var refusal = r.Outcome == "Error" ? r.Message : null;
         JsonObject? current = op.Action switch
@@ -408,7 +423,7 @@ public sealed class PlanExecutor
         var normalized = NormalizedFields.GetValueOrDefault(def.Key, []);
         foreach (var field in op.WriteFields)
         {
-            if (!body.ContainsKey(field)) continue;
+            if (!body.ContainsKey(field) || superseded?.Contains(field) == true) continue;
             var sentValue = body[field];
             var got = current[field];
             var same = ConfigCollections.IsSecretField(def, field)

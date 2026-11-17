@@ -260,6 +260,27 @@ public class PlanEngineTests
         PlanBuilder.Build(desired, after, new PlanOptions()).Operations.Should().BeEmpty("a second plan finds nothing left to do");
     }
 
+    [Fact]
+    public async Task Executor_Wpa3WlanCreate_IsNotPartial_ForWhatTheFollowUpSets()
+    {
+        // The create goes out on WPA2 without 6 GHz and the update right after sets WPA3; one re-read verifies both.
+        var live = State(("networkconf", Lan));
+        var desired = State(("networkconf", Lan), ("wlanconf",
+            """{"_id":"w1","name":"Test-SSID","networkconf_id":"n1","security":"wpapsk","wpa_mode":"wpa2","wpa3_support":true,"wpa3_transition":true,"pmf_mode":"optional","wlan_bands":["2g","5g","6g"]}"""));
+        var console = new FakeConsole(live);
+        var doc = Plan(desired, console.State.Clone());
+        doc.Operations.Count(o => o.Collection == "wlanconf").Should().Be(2);
+
+        var (ok, result) = await new PlanExecutor(console, NullLogger.Instance).ApplyAsync(doc, hasGateway: true, null, CancellationToken.None);
+
+        ok.Should().BeTrue();
+        result.Operations.Where(o => o.Key.StartsWith("wlanconf:", StringComparison.Ordinal))
+            .Select(o => $"{o.Outcome} {string.Join(",", o.NotApplied)}").Should().AllBe("Applied ");
+        var wlan = console.State.Get("wlanconf").Single();
+        wlan["wpa3_support"]!.GetValue<bool>().Should().BeTrue();
+        wlan["pmf_mode"]!.GetValue<string>().Should().Be("optional");
+    }
+
     [Theory]
     [InlineData("auto", 2)]    // UniFi stores the create as "manual": a second write puts "auto" back
     [InlineData("manual", 1)]  // already what UniFi keeps: one write
