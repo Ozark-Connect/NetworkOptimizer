@@ -30050,6 +30050,15 @@ body:has(.top-bar-hidden) .btn-fit {
     margin-top: 1.5rem;
 }
 
+/* The GeoLite2 banner above the Route Map: the map's own top margin is the gap below it. */
+.trace-map-geolite:not(:empty) {
+    margin-top: 1.5rem;
+}
+
+.trace-map-geolite > .connection-banner {
+    margin-bottom: 0;
+}
+
 .trace-map-header {
     display: flex;
     align-items: center;
