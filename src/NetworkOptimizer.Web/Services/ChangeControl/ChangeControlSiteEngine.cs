@@ -91,6 +91,9 @@ public sealed class ChangeControlSiteEngine : BackgroundService
     /// <summary>Raised after a snapshot or change is recorded, so open pages can refresh.</summary>
     public event Action? Changed;
 
+    /// <summary>Raised with the changed collections (<c>user</c>, <c>device</c>, ...) after changes are recorded.</summary>
+    public event Action<IReadOnlySet<string>>? ChangesRecorded;
+
     /// <summary>Runs once per start, after the first device read, with device names by MAC (the firmware history import).</summary>
     public Func<IReadOnlyDictionary<string, string>, CancellationToken, Task>? ImportHistory { get; set; }
 
@@ -807,7 +810,21 @@ public sealed class ChangeControlSiteEngine : BackgroundService
             change = await _repos.UseAsync((r, c) => r.AddChangeAsync(change, rows, c), ct);
             recorded.Add(change);
         }
+        if (recorded.Count > 0) RaiseChangesRecorded(all.Select(o => o.Collection).ToHashSet(StringComparer.Ordinal));
         return recorded;
+    }
+
+    private void RaiseChangesRecorded(IReadOnlySet<string> collections)
+    {
+        try
+        {
+            ChangesRecorded?.Invoke(collections);
+        }
+        catch (Exception ex)
+        {
+            // A subscriber only refreshes a cache; it must never fail the change it was told about.
+            _logger.LogDebug(ex, "A ChangesRecorded subscriber failed for site {Site}", _slug);
+        }
     }
 
     /// <summary>A policy order change as a pseudo object on the firewall policy collection.</summary>

@@ -215,6 +215,12 @@ public sealed class ChangeControlRegistry : BackgroundService, ISiteScopedRegist
                     || (p.StartedAt != null && p.CompletedAt > DateTime.UtcNow.AddHours(-1))), ct));
         engine.Evaluator = _sp.GetService<IChangeEvaluator>();
         engine.Changed += () => Changed?.Invoke(slug);
+        // A client renamed in UniFi Network reaches Client Performance on this detection, not the name cache's TTL.
+        engine.ChangesRecorded += collections =>
+        {
+            if (collections.Contains("user") && connection.Client is { } client)
+                ClientDisplayNameCache.Invalidate(client);
+        };
         // Online and agent-offline on the Overview follow the connection itself, not the next detection pass.
         connection.OnConnectionChanged += () => Changed?.Invoke(slug);
         var history = new FirmwareHistoryImport(rollout, () => _sp.GetRequiredService<MonitoringInfluxRegistry>().GetFor(slug),
