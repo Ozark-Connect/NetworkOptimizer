@@ -1532,9 +1532,9 @@ export class LanFlowMap {
         }
         const tex = new THREE.CanvasTexture(canvas);
         tex.needsUpdate = true;
-        // The bloom pass lifts near-white text into a glow. At 0.75 the text's brightness above
-        // the bloom threshold (0.45) is about half what full white gives, so the glow halves.
-        const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false, color: new THREE.Color(0.75, 0.75, 0.75) });
+        // The bloom pass lifts near-white text into a glow. The glow barely changes down to 0.6 and
+        // drops off sharply near the bloom threshold: 0.5 keeps a faint one, and the text stays bright.
+        const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false, color: new THREE.Color(0.5, 0.5, 0.5) });
         const sprite = new THREE.Sprite(mat);
         const scaleY = 1.2 * (h / (fontSize + pad * 2));
         const scaleX = scaleY * (w / h);
