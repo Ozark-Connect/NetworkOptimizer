@@ -194,7 +194,7 @@ public class ModuleUpdateRegistry : BackgroundService, ISiteScopedRegistry
         t.SshFingerprint = sshFingerprint;
 
         // Cached devices only: this watcher must not add Console load. Unknown keeps the last value.
-        var gateway = connection.CachedDevices?.FirstOrDefault(d => d.HardwareType == DeviceType.Gateway);
+        var gateway = NetworkOptimizer.UniFi.UniFiDiscovery.SiteGateway(connection.CachedDevices);
         if (gateway != null)
         {
             var gatewayFingerprint = $"{gateway.Mac}|{gateway.Firmware}";

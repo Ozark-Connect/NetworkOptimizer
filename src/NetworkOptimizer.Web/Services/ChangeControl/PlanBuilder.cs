@@ -209,7 +209,7 @@ public static class PlanBuilder
         RefuseWanZoneMoves(doc, live);
         // A device list without a gateway is a switch-only site; an unread one counts as having one.
         var hasGateway = options.TargetHasGateway && (!live.Collections.ContainsKey("device")
-            || live.Get("device").Any(d => d[ConfigCollections.DeviceMetaField]?["type"]?.ToString() is "ugw" or "udm" or "uxg"));
+            || live.Get("device").Any(ConfigCollections.IsGateway));
         foreach (var op in doc.Operations)
             op.ProvisionsGateway = op.NeedsGateway || (op.Collection == "networkconf" && hasGateway);
 

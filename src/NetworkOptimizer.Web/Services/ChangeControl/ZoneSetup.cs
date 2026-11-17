@@ -1130,7 +1130,7 @@ public static class ZoneSetup
         var current = Snapshot(desired, policies);
         var zoneOf = ZonePaths.ZoneOfNetwork(current);
         var defaultLan = live.Get("networkconf").FirstOrDefault(x => ConfigCollections.NetworkKey(x) == "vlan:1");
-        var deviceNetworks = live.Get("device").Where(d => Str(d[ConfigCollections.DeviceMetaField]?["type"]) is not ("ugw" or "udm" or "uxg"))
+        var deviceNetworks = live.Get("device").Where(d => !ConfigCollections.IsGateway(d))
             .Select(d => Str(d["mgmt_network_id"]) is { Length: > 0 } m ? m : defaultLan == null ? null : ConfigState.IdOf(defaultLan))
             .OfType<string>().ToHashSet(StringComparer.OrdinalIgnoreCase);
         var added = new HashSet<string>(StringComparer.OrdinalIgnoreCase);

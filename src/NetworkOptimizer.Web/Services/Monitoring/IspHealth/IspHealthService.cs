@@ -1879,7 +1879,7 @@ public class IspHealthService
     private async Task<(string? Mac, List<string>? IfNames)> ResolveWanCounterAsync(CancellationToken ct)
     {
         var devices = await _connectionService.GetDiscoveredDevicesAsync(ct);
-        var gw = devices?.FirstOrDefault(d => d.Type == DeviceType.Gateway || d.HardwareType == DeviceType.Gateway);
+        var gw = UniFiDiscovery.SiteGateway(devices);
 
         if (_scopedWanKey != null)
         {
@@ -2069,7 +2069,7 @@ public class IspHealthService
         try
         {
             var devices = await _connectionService.GetDiscoveredDevicesAsync(ct);
-            mac = devices?.FirstOrDefault(d => d.Type == DeviceType.Gateway || d.HardwareType == DeviceType.Gateway)?.Mac;
+            mac = UniFiDiscovery.SiteGateway(devices)?.Mac;
             foreach (var wan in await _connectionService.GetAllWanInterfacesAsync(ct))
                 live.Add((wan.NetworkGroup, wan.CounterIfName));
         }
@@ -2498,9 +2498,7 @@ public class IspHealthService
             // Stored WAN rates are keyed on gateway MAC AND interface, so every offline fallback
             // filters on this being present - without it they match no row and silently do nothing.
             // Normalized here so readers cannot disagree about the form.
-            var gatewayMac = (await _connectionService.GetDiscoveredDevicesAsync(ct))
-                .FirstOrDefault(d => d.Type == NetworkOptimizer.Core.Enums.DeviceType.Gateway
-                    || d.HardwareType == NetworkOptimizer.Core.Enums.DeviceType.Gateway)?.Mac;
+            var gatewayMac = UniFiDiscovery.SiteGateway(await _connectionService.GetDiscoveredDevicesAsync(ct))?.Mac;
             if (!string.IsNullOrEmpty(gatewayMac))
                 row.GatewayMac = gatewayMac.Replace("-", ":").ToLowerInvariant();
             row.Name = wan.Name;

@@ -4428,9 +4428,7 @@
                             d => d.Mac!.Replace("-", ":").ToLowerInvariant(),
                             d => d.DisplayIpAddress ?? "",
                             StringComparer.OrdinalIgnoreCase);
-                    var gw = devices.FirstOrDefault(d =>
-                        d.Type == NetworkOptimizer.Core.Enums.DeviceType.Gateway
-                        || d.HardwareType == NetworkOptimizer.Core.Enums.DeviceType.Gateway);
+                    var gw = NetworkOptimizer.UniFi.UniFiDiscovery.SiteGateway(devices);
                     _gatewayMac = gw?.Mac?.Replace("-", ":").ToLowerInvariant();
                     _gatewayWanIfNames = gw?.WanInterfaceNames ?? new();
                 }

@@ -1497,6 +1497,41 @@ public class PortSecurityAnalyzerTests
     }
 
     [Fact]
+    public void ExtractSwitches_ExpressInApModeWithoutUplinkMac_MarkedAsAp()
+    {
+        // An Express adopted as an AP reports its mode and no uplink_mac; the mode alone decides.
+        var deviceData = JsonDocument.Parse(@"[
+            {
+                ""type"": ""udm"",
+                ""name"": ""Main Gateway"",
+                ""mac"": ""11:22:33:44:55:66"",
+                ""port_table"": [
+                    { ""port_idx"": 1, ""name"": ""WAN"", ""up"": true }
+                ]
+            },
+            {
+                ""type"": ""udm"",
+                ""model"": ""UX"",
+                ""name"": ""UX Express (AP)"",
+                ""mac"": ""aa:bb:cc:dd:ee:ff"",
+                ""device_mode_override"": ""mesh"",
+                ""uplink"": { ""tx_bytes"": 1, ""rx_bytes"": 2 },
+                ""port_table"": [
+                    { ""port_idx"": 1, ""name"": ""LAN"", ""up"": true }
+                ]
+            }
+        ]").RootElement;
+
+        var result = _engine.ExtractSwitches(deviceData, new List<NetworkInfo>());
+
+        var express = result.First(s => s.Name == "UX Express (AP)");
+        express.IsAccessPoint.Should().BeTrue();
+        express.IsGateway.Should().BeFalse();
+        var gateway = result.First(s => s.Name == "Main Gateway");
+        gateway.IsGateway.Should().BeTrue();
+    }
+
+    [Fact]
     public void ExtractSwitches_MixedDevices_CorrectlyClassified()
     {
         // Test with mix of gateway, switch, AP with ports, and AP without ports

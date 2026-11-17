@@ -31,8 +31,7 @@ public static class MonitoringChartEndpoints
             try
             {
                 var devices = await connectionService.GetDiscoveredDevicesAsync(ct);
-                var gw = devices?.FirstOrDefault(d =>
-                    d.Type == DeviceType.Gateway || d.HardwareType == DeviceType.Gateway);
+                var gw = NetworkOptimizer.UniFi.UniFiDiscovery.SiteGateway(devices);
                 gatewayMac = gw?.Mac?.Replace("-", ":").ToLowerInvariant();
                 wanIfNames = gw?.WanInterfaceNames;
             }
@@ -121,8 +120,7 @@ public static class MonitoringChartEndpoints
             try
             {
                 var devices = await connectionService.GetDiscoveredDevicesAsync(ct);
-                var gw = devices?.FirstOrDefault(d =>
-                    d.Type == DeviceType.Gateway || d.HardwareType == DeviceType.Gateway);
+                var gw = NetworkOptimizer.UniFi.UniFiDiscovery.SiteGateway(devices);
                 gatewayMac = gw?.Mac;
                 wanIfNames = gw?.WanInterfaceNames;
             }
@@ -475,9 +473,7 @@ public static class MonitoringChartEndpoints
             try
             {
                 var devices = await connectionService.GetDiscoveredDevicesAsync(ct);
-                var gw = devices?.FirstOrDefault(d =>
-                    d.Type == NetworkOptimizer.Core.Enums.DeviceType.Gateway
-                    || d.HardwareType == NetworkOptimizer.Core.Enums.DeviceType.Gateway);
+                var gw = NetworkOptimizer.UniFi.UniFiDiscovery.SiteGateway(devices);
                 gatewayMac = gw?.Mac;
                 wanIfNames = gw?.WanInterfaceNames;
             }

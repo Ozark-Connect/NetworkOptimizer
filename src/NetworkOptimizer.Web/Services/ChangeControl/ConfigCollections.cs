@@ -324,6 +324,24 @@ public static class ConfigCollections
     /// </summary>
     public const string DeviceMetaField = "_no_meta";
 
+    /// <summary>
+    /// Whether a device object acts as the site's gateway: type ugw, udm, or uxg, and not adopted
+    /// as an AP by its mode (an Express in AP mode reports device_mode_override "mesh"). Each
+    /// field is read from the top level or from <see cref="DeviceMetaField"/>. A snapshot taken
+    /// before the mode was kept has no field, so its Express still reads as a gateway.
+    /// </summary>
+    public static bool IsGateway(JsonObject? device) =>
+        device != null
+        && DeviceField(device, "type") is "ugw" or "udm" or "uxg"
+        && !NetworkOptimizer.UniFi.UniFiProductDatabase.IsAccessPointMode(DeviceField(device, "device_mode_override"));
+
+    /// <summary>A device's string field, from the top level or else from <see cref="DeviceMetaField"/>.</summary>
+    public static string? DeviceField(JsonObject device, string field) =>
+        StringOf(device[field]) ?? StringOf(device[DeviceMetaField]?[field]);
+
+    private static string? StringOf(JsonNode? node) =>
+        node is JsonValue v && v.TryGetValue<string>(out var s) && s.Length > 0 ? s : null;
+
     /// <summary>Client config fields kept from rest/user; the rest is telemetry.</summary>
     public static readonly IReadOnlySet<string> ClientConfigFields = Set(
         "_id", "mac", "name", "display_name", "note", "noted", "use_fixedip", "fixed_ip", "network_id",

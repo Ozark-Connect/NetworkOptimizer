@@ -1082,6 +1082,7 @@ public partial class UniFiApiClient : IDisposable
         if (response?.Meta.Rc == "ok")
         {
             _logger.LogTrace("Retrieved {Count} devices", response.Data.Count);
+            UniFiDiscovery.FillWiredParentFromLldp(response.Data);
             _cachedDeviceResponses = response.Data;
             _deviceResponseCacheTime = DateTime.UtcNow;
             return response.Data;

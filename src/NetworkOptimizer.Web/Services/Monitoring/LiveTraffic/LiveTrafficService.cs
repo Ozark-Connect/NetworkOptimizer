@@ -283,7 +283,7 @@ public sealed class LiveTrafficService : ILiveTrafficService
                     wanNames = routes.Values.Append(primary).OfType<LiveRouteInfo>().Select(r => r.Name).ToList();
                 }
                 var devices = await _connection.GetDiscoveredDevicesAsync();
-                var gateway = devices.FirstOrDefault(d => d.Type == DeviceType.Gateway || d.HardwareType == DeviceType.Gateway);
+                var gateway = UniFiDiscovery.SiteGateway(devices);
                 // UniFi devices by MAC and LAN address, named as Live names them.
                 var deviceNames = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
                 var deviceMacs = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
@@ -369,7 +369,7 @@ public sealed class LiveTrafficService : ILiveTrafficService
                     .Where(d => !string.IsNullOrEmpty(d.Mac))
                     .GroupBy(d => d.Mac!.Replace('-', ':').ToLowerInvariant())
                     .ToDictionary(g => g.Key, g => g.First().Name ?? g.Key);
-                var gateway = devices.FirstOrDefault(d => d.Type == DeviceType.Gateway || d.HardwareType == DeviceType.Gateway);
+                var gateway = UniFiDiscovery.SiteGateway(devices);
 
                 var infos = list.Select(c =>
                 {
