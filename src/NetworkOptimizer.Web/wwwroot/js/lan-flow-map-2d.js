@@ -4,6 +4,7 @@
 
 // KEEP IN SYNC: lan-flow-map.js imports the same module. Both must use the same ?v= or they get separate instances.
 import * as flowData from './lan-flow-data.js?v=18';
+import { opaqueBounds, logoFit } from './image-bounds.js?v=1';
 
 function demoMask(text) {
     const dm = window.DemoMask;
@@ -201,64 +202,74 @@ const axisSwap=(ctx)=>({
 function orthoLen(x1,y1,x2,y2,midYOff,hz) {
     if(hz)return orthoLen(y1,x1,y2,x2,midYOff,false);
     if(Math.abs(x1-x2)<0.5)return Math.abs(y2-y1);
-    const my=(y1+y2)/2+(midYOff||0);
-    const top=my-y1, bot=y2-my;
-    const ax=Math.abs(x2-x1),cr=Math.min(G.cornerR,ax/2,Math.min(top,bot));
-    if(cr<1)return top+ax+bot;
-    return (top-cr)+(bot-cr)+Math.PI*cr+(ax-2*cr);
+    const {midY,ax,top,bot,c1,c2,ok}=orthoShape(x1,y1,x2,y2,midYOff);
+    if(!ok)return Math.abs(midY-y1)+ax+Math.abs(y2-midY);
+    return (top-c1)+(bot-c2)+Math.PI/2*(c1+c2)+(ax-c1-c2);
 }
 
 // `out`, when given, receives the point instead of a new object: the particle loop calls this
 // for every dot on every frame.
+// The shape of an ortho link: down (or up) to midY, across, on to the end, with a rounded corner at
+// each turn. Either run may be up the screen, and either end run may be zero, which leaves an L
+// with one rounded corner (a carrier's uplink ends flush on the carrier's side). c1/c2 are 0 where
+// there is no turn; ok is false only when midY falls outside the two ends (drawn square).
+function orthoShape(x1,y1,x2,y2,midYOff){
+    const midY=(y1+y2)/2+(midYOff||0);
+    const dx=x2-x1,s=dx>0?1:-1,ax=Math.abs(dx),vs=y2>=y1?1:-1;
+    const top=(midY-y1)*vs,bot=(y2-midY)*vs,R=G.cornerR;
+    const ok=top>-0.5&&bot>-0.5;
+    let c1=0,c2=0;
+    if(ok){
+        if(top>=1&&bot>=1)c1=c2=Math.min(R,ax/2,top,bot);
+        else if(top>=1)c1=Math.min(R,ax,top);
+        else if(bot>=1)c2=Math.min(R,ax,bot);
+        if(c1<1)c1=0; if(c2<1)c2=0;
+    }
+    return {midY,s,ax,vs,top:Math.max(0,top),bot:Math.max(0,bot),c1,c2,ok};
+}
+
 function orthoAt(x1,y1,x2,y2,t,midYOff,hz,out) {
     if(hz){const p=orthoAt(y1,x1,y2,x2,t,midYOff,false,out);const px=p.x;p.x=p.y;p.y=px;return p;}
     const o=out||{x:0,y:0};
     if(Math.abs(x2-x1)<0.5){o.x=x1;o.y=y1+(y2-y1)*t;return o;}
-    const midY=(y1+y2)/2+(midYOff||0);
-    const dx=x2-x1,s=dx>0?1:-1,ax=Math.abs(dx);
-    const top=midY-y1,bot=y2-midY;
-    const cr=Math.min(G.cornerR,ax/2,Math.min(top,bot));
-    if(cr<1){
-        const tot=top+ax+bot;let d=t*tot;
-        if(d<=top){o.x=x1;o.y=y1+d;return o;}d-=top;
+    const {midY,s,ax,vs,top,bot,c1,c2,ok}=orthoShape(x1,y1,x2,y2,midYOff);
+    if(!ok){
+        const a=Math.abs(midY-y1),b=Math.abs(y2-midY),tot=a+ax+b;let d=t*tot;
+        const v1=midY>=y1?1:-1,v2=y2>=midY?1:-1;
+        if(d<=a){o.x=x1;o.y=y1+v1*d;return o;}d-=a;
         if(d<=ax){o.x=x1+s*d;o.y=midY;return o;}d-=ax;
-        o.x=x2;o.y=midY+d;return o;
+        o.x=x2;o.y=midY+v2*d;return o;
     }
-    const s1=top-cr,s2=Math.PI/2*cr,s3=ax-2*cr,s4=s2;
-    const tot=s1+s2+s3+s4+(bot-cr);let d=t*tot;
-    if(d<=s1){o.x=x1;o.y=y1+d;return o;}d-=s1;
-    if(d<=s2){
-        // Quadratic bezier matching strokeOrtho: P0=(x1,midY-cr) P1=(x1,midY) P2=(x1+s*cr,midY)
-        const bt=d/s2,u=1-bt;
-        o.x=u*u*x1+2*u*bt*x1+bt*bt*(x1+s*cr); o.y=u*u*(midY-cr)+2*u*bt*midY+bt*bt*midY;
+    // Quadratic beziers matching strokeOrtho's corners.
+    const s1=top-c1,a1=Math.PI/2*c1,s3=ax-c1-c2,a2=Math.PI/2*c2,s5=bot-c2;
+    let d=t*(s1+a1+s3+a2+s5);
+    if(d<=s1){o.x=x1;o.y=y1+vs*d;return o;}d-=s1;
+    if(d<=a1&&a1>0){
+        const bt=d/a1,u=1-bt;
+        o.x=u*u*x1+2*u*bt*x1+bt*bt*(x1+s*c1); o.y=u*u*(midY-vs*c1)+2*u*bt*midY+bt*bt*midY;
         return o;
-    }d-=s2;
-    if(d<=s3){o.x=x1+s*(cr+d);o.y=midY;return o;}d-=s3;
-    if(d<=s4){
-        // Quadratic bezier: P0=(x2-s*cr,midY) P1=(x2,midY) P2=(x2,midY+cr)
-        const bt=d/s4,u=1-bt;
-        o.x=u*u*(x2-s*cr)+2*u*bt*x2+bt*bt*x2; o.y=u*u*midY+2*u*bt*midY+bt*bt*(midY+cr);
+    }d-=a1;
+    if(d<=s3){o.x=x1+s*(c1+d);o.y=midY;return o;}d-=s3;
+    if(d<=a2&&a2>0){
+        const bt=d/a2,u=1-bt;
+        o.x=u*u*(x2-s*c2)+2*u*bt*x2+bt*bt*x2; o.y=u*u*midY+2*u*bt*midY+bt*bt*(midY+vs*c2);
         return o;
-    }d-=s4;
-    o.x=x2;o.y=midY+cr+d;return o;
+    }d-=a2;
+    o.x=x2;o.y=midY+vs*(c2+Math.min(d,s5));return o;
 }
 const _dotPt={x:0,y:0};
 
 function strokeOrtho(ctx,x1,y1,x2,y2,midYOff,hz) {
     if(hz)return strokeOrtho(axisSwap(ctx),y1,x1,y2,x2,midYOff,false);
-    const r=G.cornerR;
     ctx.beginPath();
     if(Math.abs(x1-x2)<0.5){ctx.moveTo(x1,y1);ctx.lineTo(x2,y2);ctx.stroke();return;}
-    const midY=(y1+y2)/2+(midYOff||0);
-    const dx=x2-x1,s=dx>0?1:-1,ax=Math.abs(dx);
-    const top=midY-y1,bot=y2-midY;
-    const cr=Math.min(r,ax/2,Math.min(top,bot));
+    const {midY,s,vs,c1,c2,ok}=orthoShape(x1,y1,x2,y2,midYOff);
     ctx.moveTo(x1,y1);
-    if(cr<1){ctx.lineTo(x1,midY);ctx.lineTo(x2,midY);ctx.lineTo(x2,y2);ctx.stroke();return;}
-    ctx.lineTo(x1,midY-cr);
-    ctx.quadraticCurveTo(x1,midY,x1+s*cr,midY);
-    ctx.lineTo(x2-s*cr,midY);
-    ctx.quadraticCurveTo(x2,midY,x2,midY+cr);
+    if(!ok){ctx.lineTo(x1,midY);ctx.lineTo(x2,midY);ctx.lineTo(x2,y2);ctx.stroke();return;}
+    ctx.lineTo(x1,midY-vs*c1);
+    if(c1>0)ctx.quadraticCurveTo(x1,midY,x1+s*c1,midY);
+    ctx.lineTo(x2-s*c2,midY);
+    if(c2>0)ctx.quadraticCurveTo(x2,midY,x2,midY+vs*c2);
     ctx.lineTo(x2,y2);
     ctx.stroke();
 }
@@ -1275,6 +1286,8 @@ class LanFlowMap2D {
         let moved=false;
         for(const[id,t]of prog){
             const target=targets.has(id)?1:0;
+            // Settled: skip, or the shrink branch below steps a full-size icon down every frame.
+            if(t===target)continue;
             const next=target>t?Math.min(1,t+step):Math.max(0,t-step);
             if(next!==t){prog.set(id,next);moved=true;}
             if(next===0&&target===0)prog.delete(id);
@@ -1487,9 +1500,12 @@ class LanFlowMap2D {
 
         if(!root)return;
         this._spreadFactor=this._getSpreadFactor();
+        this._carriers=this._findCarriers();
         this._contourLayout(root);
         this._assignAbsoluteXY(root,0,0);
         this._placeClouds();
+        this._placeCarriers();
+        if(this._carriers?.size)this._placeClouds(true);
         this._matchEdges();
         // Always reinit streams - edges get new endpoint coords on rebuild
         this._initStreams();
@@ -1510,9 +1526,12 @@ class LanFlowMap2D {
         this._maybeRearmFit();
         const prev=animate?this._captureLayout():this._dropTransition();
         this._spreadFactor=this._getSpreadFactor();
+        this._carriers=this._findCarriers();
         this._contourLayout(this._root);
         this._assignAbsoluteXY(this._root,0,0);
         this._placeClouds();
+        this._placeCarriers();
+        if(this._carriers?.size)this._placeClouds(true);
         this._matchEdges();
         this._initStreams();
         this._calcBounds();
@@ -1562,18 +1581,28 @@ class LanFlowMap2D {
 
     // Where everything is drawn right now: the start of the next transition. Taken mid-transition
     // it is the in-between position, so a new change carries on from there instead of jumping.
+    // Everything is then put at its destination: a change that rebuilds nothing would otherwise
+    // leave a slide frozen where it stood (a roamed client stuck by its old AP until the next rebuild).
     _captureLayout(){
-        const ghosts=this._trans?this._trans.ghosts:[];
+        const tr=this._trans, ghosts=tr?tr.ghosts:[];
+        const motion=this._root&&!this._reducedMotion();
+        const nodes=new Map(), clouds=new Map();
+        if(motion){
+            this._walkPlaced(this._root,null,(n,p)=>{
+                const e=p?this._edges.find(e=>(e.fn===p&&e.tn===n)||(e.fn===n&&e.tn===p)):null;
+                nodes.set(n.d.id,{x:n.x,y:n.y,tn:n,pid:p?.d.id,edge:e?{lk:e.lk,band:edgeBand(e)}:null});
+            });
+            for(const c of this._clouds)clouds.set(c.d.id,{x:c.x,y:c.y});
+        }
+        const cam={s:this._scale,ox:this._ox,oy:this._oy};
+        if(tr){
+            for(const it of tr.items){it.n.x=it.tx;it.n.y=it.ty;}
+            for(const it of tr.clouds){it.c.x=it.tx;it.c.y=it.ty;}
+            if(tr.cam){this._scale=tr.cam.to.s;this._ox=tr.cam.to.ox;this._oy=tr.cam.to.oy;}
+            this._matchEdges();
+        }
         this._dropTransition();
-        if(!this._root||this._reducedMotion())return null;
-        const nodes=new Map();
-        this._walkPlaced(this._root,null,(n,p)=>{
-            const e=p?this._edges.find(e=>(e.fn===p&&e.tn===n)||(e.fn===n&&e.tn===p)):null;
-            nodes.set(n.d.id,{x:n.x,y:n.y,tn:n,pid:p?.d.id,edge:e?{lk:e.lk,band:edgeBand(e)}:null});
-        });
-        const clouds=new Map();
-        for(const c of this._clouds)clouds.set(c.d.id,{x:c.x,y:c.y});
-        return{nodes,clouds,ghosts,cam:{s:this._scale,ox:this._ox,oy:this._oy}};
+        return motion?{nodes,clouds,ghosts,cam}:null;
     }
 
     _beginTransition(prev){
@@ -1762,6 +1791,16 @@ class LanFlowMap2D {
     // Compute contour (left/right extent at each depth relative to node x=0)
     // and store relative child offsets on the node.
     _contourLayout(n){
+        this._contourLayoutInner(n);
+        // A WAN carrier (_placeCarriers) leaves the kids and takes a reserved slot on its parent's
+        // free side.
+        if(this._carrierOf(n)){
+            const c0=n._contour[0], slot=this._carrierSlotR();
+            n._contour[0]=this._carrierSide()>0?{l:c0.l,r:Math.max(c0.r,slot)}:{l:Math.min(c0.l,-slot),r:c0.r};
+        }
+    }
+
+    _contourLayoutInner(n){
         const cellCross=this._hz?G.clientCellHz:G.clientCellW;
         const selfW=isClient(n.d.kind)?cellCross:(this._hz?G.boxH:G.boxW)+40;
         n._isGrid=false;
@@ -1778,8 +1817,10 @@ class LanFlowMap2D {
             return;
         }
 
+        const infra=this._carriers?.size?n.infra.filter(c=>!this._carriers.has(c)):n.infra;
+
         // Pure-client nodes (APs with only WiFi clients): compact grid
-        if(n.infra.length===0&&nc>0){
+        if(infra.length===0&&nc>0){
             const gc=this._gridContour(nc,cellCross);
             n._isGrid=true;
             n._gridCols=gc.cols;
@@ -1794,7 +1835,7 @@ class LanFlowMap2D {
         }
 
         // Infra children; clients always use a grid (placeholder in the kids array)
-        const kids=[...n.infra];
+        const kids=[...infra];
         if(nc>0){
             const gc=this._gridContour(nc,cellCross);
             n._isGrid=true;
@@ -2024,6 +2065,11 @@ class LanFlowMap2D {
     // coordinate is the leg and which is the crossbar swaps with the layout, so every label anchor
     // goes through here rather than assuming the top-down frame.
     _elbowLabel(e,atSource,off){
+        // A carrier's uplink L: its labels ride the long run toward the carrier, away from the
+        // parent's own incoming labels, which they would otherwise line up with and read as a pair.
+        if(e._carrierUp)return this._alongRun(e,0.8);
+        // A WAN entering a carrier's side runs the globe's leg most of the way: label it by the globe.
+        if(e._viaSide&&atSource)return e._hz?{x:e._x1+70,y:e._y1}:{x:e._x1,y:e._y1+60};
         const stagger=e._midYOff||0;
         if(e._hz){
             return{x:(e._x1+e._x2)/2+stagger+off, y:atSource?e._y1:e._y2};
@@ -2034,15 +2080,55 @@ class LanFlowMap2D {
     // Throughput sits on the long run, biased toward the child so it reads as belonging to the
     // device it feeds. Once depth runs sideways that run is the crossbar, the one vertical segment
     // on the path; in the top-down frame it stays on the child's leg.
+    // A point a fraction of the way along an L's long run: the crossbar of an edge drawn sideways.
+    _alongRun(e,f){
+        const off=e._midYOff||0;
+        return e._hz?{x:(e._x1+e._x2)/2+off,y:e._y1+(e._y2-e._y1)*f}
+                    :{x:e._x1+(e._x2-e._x1)*f,y:(e._y1+e._y2)/2+off};
+    }
+
     _rateLabel(e){
+        if(e._carrierUp)return this._alongRun(e,0.55);
         if(e._hz){
             return{x:(e._x1+e._x2)/2+(e._midYOff||0), y:e._y1+(e._y2-e._y1)*0.75};
         }
         return this._elbowLabel(e,false,38);
     }
 
-    _placeClouds(){
+    // carriersPlaced: a second pass once _placeCarriers has run, ordering by where the carriers
+    // landed rather than by their parents. It reuses the same slots, so no collision check changes.
+    _placeClouds(carriersPlaced=false){
         if(!this._root||this._clouds.length===0)return;
+        // Globes in the order of where their WANs land across the map: a WAN carried by a modem
+        // lands at the modem, so its globe goes to that side and its line stays short.
+        // Ties keep the server's order.
+        const land=new Map();
+        for(const e of this._edges){
+            if(e.lk.kind!==LK.Wan)continue;
+            const via=e.lk.viaNodeId?this._treeMap.get(e.lk.viaNodeId):null;
+            const anchor=(via&&(carriersPlaced&&via.x!=null?via:(this._parentOf(via)||via)))||this._root;
+            land.set(e.lk.fromNodeId,this._hz?anchor.y:anchor.x);
+        }
+        const rank=new Map(this._clouds.map((c,i)=>[c,i]));
+        const gwCross=this._hz?this._root.y:this._root.x;
+        const key=(c)=>land.get(c.d.id)??gwCross;
+        this._clouds.sort((a,b)=>(key(a)-key(b))||(rank.get(a)-rank.get(b)));
+        // WANs landing on the gateway take the slots nearest it; carried ones the rest, in order of
+        // where they land. A carried WAN's line then never drops down the gateway's own column.
+        const carried=new Set();
+        for(const e of this._edges)if(e.lk.kind===LK.Wan&&e.lk.viaNodeId&&this._treeMap.get(e.lk.viaNodeId))carried.add(e.lk.fromNodeId);
+        if(carried.size&&carried.size<this._clouds.length){
+            const n=this._clouds.length, mid=(n-1)/2;
+            const slots=[...Array(n).keys()];
+            const nearGw=[...slots].sort((a,b)=>Math.abs(a-mid)-Math.abs(b-mid)||a-b);
+            const gwClouds=this._clouds.filter(c=>!carried.has(c.d.id));
+            const gwSlots=new Set(nearGw.slice(0,gwClouds.length));
+            const order=new Array(n);
+            gwClouds.forEach((c,i)=>{order[[...gwSlots].sort((a,b)=>a-b)[i]]=c;});
+            const rest=slots.filter(s=>!gwSlots.has(s));
+            this._clouds.filter(c=>carried.has(c.d.id)).forEach((c,i)=>{order[rest[i]]=c;});
+            this._clouds.splice(0,n,...order);
+        }
         const gx=this._root.x,gy=this._root.y;
         const total=this._clouds.length,sp=G.cloudGap;
         const stagger=45;
@@ -2064,6 +2150,152 @@ class LanFlowMap2D {
         }
     }
 
+    // ---- WAN carriers ----
+    // A device that carries a WAN (a cellular modem: the WAN link's viaNodeId) is drawn between its
+    // uplink and the WAN globe instead of in its uplink's row: beside the uplink, raised toward the
+    // globes above the uplink's incoming bus. Only a leaf moves; one with devices or clients under
+    // it stays in the tree and its WAN link enters its side (_matchEdges).
+
+    _findCarriers(){
+        const set=new Set();
+        for(const e of this._edges){
+            if(e.lk.kind!==LK.Wan||!e.lk.viaNodeId)continue;
+            const c=this._treeMap.get(e.lk.viaNodeId);
+            if(!c||c===this._root||c.infra.length>0||c.clients.length>0)continue;
+            if(this._parentOf(c))set.add(c);
+        }
+        return set;
+    }
+
+    _parentOf(n){
+        for(const p of this._treeMap.values())if(p.infra.includes(n))return p;
+        return null;
+    }
+
+    // The carrier among a node's infra children, if any (one per parent is placed; a second stays put).
+    _carrierOf(n){
+        if(!this._carriers?.size)return null;
+        for(const c of n.infra)if(this._carriers.has(c))return c;
+        return null;
+    }
+
+    // A parent's one free side, where its carrier goes: top-down its right (the incoming link is on
+    // top, the children below, the labels under the box); left to right its top (incoming on the
+    // left, children on the right, labels below). The parent's contour reserves that side, so the L
+    // joining them never runs through a sibling or the parent's own labels. +1 is right/below.
+    _carrierSide(){return this._hz?-1:1;}
+    // Cross-axis offset of a carrier from its parent, and the parent contour edge that reserves it.
+    _carrierOffset(){return (this._hz?G.boxH:G.boxW)+80;}
+    _carrierSlotR(){const s=this._hz?G.boxH:G.boxW;return this._carrierOffset()+s/2+20;}
+
+    _placeCarriers(){
+        if(!this._carriers?.size)return;
+        const hz=this._hz, off=this._carrierOffset();
+        for(const c of this._carriers){
+            const p=this._parentOf(c);
+            if(!p||p.x==null||this._carrierOf(p)!==c){this._carriers.delete(c);continue;}
+            // The parent's incoming bus sits halfway to its own parent's tier (the root has none,
+            // so it is half a tier toward the globes). Raised, the carrier and its labels sit just
+            // above it on the parent's free side, a slot or two out; else level with the parent, in
+            // the slot its contour reserved.
+            const bus=(hz?p.x:p.y)-G.tierGap/2;
+            const raised=bus-(hz?(G.boxW/2+44):(G.boxH/2+44))-8;
+            const side=this._carrierSide();
+            const at=(depth,extra)=>{
+                const cross=(hz?p.y:p.x)+side*(off+extra);
+                return hz?{x:depth,y:cross}:{x:cross,y:depth};
+            };
+            // A spot counts only if its box, the L to it, and the WAN line's drop onto it all clear
+            // every other device: a free box at the end of a line through a switch is no better.
+            const obs=this._carrierObstacles(p,c);
+            let spot=null,leg=null;
+            for(const extra of [0,110,220]){
+                const pt=at(raised,extra);
+                if(!this._carrierSpotFree(pt,c))continue;
+                if(!this._segsClear(this._carrierDrop(pt),obs))continue;
+                leg=this._carrierLegs(p,pt,true).find(l=>this._segsClear(l.segs,obs));
+                if(leg){spot=pt;break;}
+            }
+            c._carrierRaised=!!spot;
+            if(!spot){
+                spot=at(hz?p.x:p.y,0);
+                leg=this._carrierLegs(p,spot,false)[0];
+                // Level, the WAN takes the top if its drop is clear, else the outer side.
+                c._carrierTopEntry=this._segsClear(this._carrierDrop(spot),obs);
+            }else{
+                c._carrierTopEntry=true;
+            }
+            c.x=spot.x; c.y=spot.y;
+            c._carrierSide=side;
+            c._carrierLeg=leg?.leg;
+        }
+    }
+
+    // The L from a parent's free side to its carrier at `pt`, as segments, one per bend it may take:
+    // top-down the climb hugging the parent or hugging the carrier; left to right one shape (up out of
+    // the parent's top, then across into the carrier's near side). Level, a straight line.
+    _carrierLegs(p,pt,raised){
+        const hz=this._hz, hw=G.boxW/2, hh=G.boxH/2;
+        if(hz){
+            if(!raised)return[{leg:null,segs:[[p.x,p.y-hh,p.x,pt.y+hh]]}];
+            return[{leg:null,segs:[[p.x,p.y-hh,p.x,pt.y],[p.x,pt.y,pt.x+hw,pt.y]]}];
+        }
+        const ax=p.x+hw, bx=pt.x-hw;
+        if(!raised)return[{leg:null,segs:[[ax,p.y,bx,p.y]]}];
+        return[ax+12,bx-12].map(lx=>({leg:lx,segs:[[ax,p.y,lx,p.y],[lx,p.y,lx,pt.y],[lx,pt.y,bx,pt.y]]}));
+    }
+
+    // The WAN line's last stretch onto a carrier's top (its left side, left to right), halfway up to
+    // the globe row: the part that would run through whatever sits above the carrier.
+    _carrierDrop(pt){
+        const hz=this._hz, r=this._root;
+        if(hz){
+            const gx=r.x-G.tierGap*1.6+G.cloudR, ex=pt.x-G.boxW/2;
+            return[[ex,pt.y,(ex+gx)/2,pt.y]];
+        }
+        const gy=r.y-G.tierGap*1.6+G.cloudR, ey=pt.y-G.boxH/2;
+        return[[pt.x,ey,pt.x,(ey+gy)/2]];
+    }
+
+    // Boxes and label bands of every placed device except the parent and its carrier.
+    _carrierObstacles(p,c){
+        const out=[];
+        this._walkPlaced(this._root,null,(n)=>{
+            if(n===p||n===c||n.x==null)return;
+            if(isClient(n.d.kind)){out.push({x0:n.x-20,x1:n.x+20,y0:n.y-G.clientR-4,y1:n.y+G.clientR+38});return;}
+            out.push({x0:n.x-G.boxW/2-4,x1:n.x+G.boxW/2+4,y0:n.y-G.boxH/2-4,y1:n.y+G.boxH/2+4});
+            out.push({x0:n.x-70,x1:n.x+70,y0:n.y+G.boxH/2,y1:n.y+G.boxH/2+44});
+        });
+        return out;
+    }
+
+    // Whether axis-aligned segments [x1,y1,x2,y2] stay clear of every obstacle box.
+    _segsClear(segs,obs){
+        for(const[x1,y1,x2,y2]of segs){
+            const s={x0:Math.min(x1,x2)-2,x1:Math.max(x1,x2)+2,y0:Math.min(y1,y2)-2,y1:Math.max(y1,y2)+2};
+            if(obs.some(o=>o.x0<s.x1&&o.x1>s.x0&&o.y0<s.y1&&o.y1>s.y0))return false;
+        }
+        return true;
+    }
+
+    // Whether a carrier's box and labels at this spot clear every other placed node and globe.
+    _carrierSpotFree(pt,self){
+        const box=(x,y,w,up,down)=>({x0:x-w,x1:x+w,y0:y-up,y1:y+down});
+        const me=box(pt.x,pt.y,75,G.boxH/2+4,G.boxH/2+44);
+        const hit=(o)=>o.x0<me.x1&&o.x1>me.x0&&o.y0<me.y1&&o.y1>me.y0;
+        let free=true;
+        this._walkPlaced(this._root,null,(n)=>{
+            if(!free||n===self||n.x==null)return;
+            const r=isClient(n.d.kind)?box(n.x,n.y,G.clientCellW/2,G.clientR+4,G.clientR+38)
+                :box(n.x,n.y,75,G.boxH/2+4,G.boxH/2+44);
+            if(hit(r))free=false;
+        });
+        if(free&&this._isCloudVisible()){
+            for(const cl of this._clouds)if(hit(box(cl.x,cl.y,G.cloudR+50,G.cloudR+4,G.cloudR+34))){free=false;break;}
+        }
+        return free;
+    }
+
     _matchEdges(){
         const gw=this._root;
         if(!gw)return;
@@ -2081,10 +2313,34 @@ class LanFlowMap2D {
             const edge=this._edges.find(e=>
                 (e.lk.kind===LK.Wan||e.lk.kind===LK.Transit)
                 &&(e.lk.fromNodeId===cloud.d.id||e.lk.toNodeId===cloud.d.id));
-            if(edge){edge._x1=from.x;edge._y1=from.y;edge._x2=gwIn.x;edge._y2=gwIn.y;edge._isWan=true;edge._hz=hz;wanEdges.push(edge);}
+            // A WAN a cellular modem carries is drawn from that modem, not the gateway. A carrier
+            // placed beside its uplink (_placeCarriers) takes it on top like any WAN link. One left in
+            // the tree sits deep in it, so the link enters its side facing the globe: the globe's leg
+            // runs to its height and turns once (_viaSide), instead of dropping through the devices above.
+            const via=edge?.lk.viaNodeId?this._treeMap.get(edge.lk.viaNodeId):null;
+            const viaOk=via&&via.x!=null&&via!==gw;
+            const placed=viaOk&&this._carriers?.has(via);
+            // A placed carrier takes it on top when _placeCarriers found that drop clear (always, when
+            // raised), else on its outer side if the globe is on that side; with the globe across its
+            // parent, the outer side would route through the parent, so the top it is. One left in the
+            // tree takes the side facing the globe.
+            const globeSide=hz?(from.y>=via?.y?1:-1):(from.x>=via?.x?1:-1);
+            const viaSide=viaOk&&(!placed||(!via._carrierTopEntry&&globeSide===(via._carrierSide||1)));
+            let to=gwIn;
+            if(viaSide){
+                const s=globeSide;
+                to=hz?{x:via.x,y:via.y+s*G.boxH/2}:{x:via.x+s*G.boxW/2,y:via.y};
+            }else if(viaOk){
+                to=leadIn(via,G.boxH/2);
+            }
+            if(edge){edge._x1=from.x;edge._y1=from.y;edge._x2=to.x;edge._y2=to.y;edge._isWan=true;edge._hz=hz;edge._viaSide=!!viaSide;wanEdges.push(edge);}
         }
         const wanMid=(wanEdges.length-1)/2;
-        for(let i=0;i<wanEdges.length;i++)wanEdges[i]._midYOff=(i-wanMid)*STAGGER;
+        for(let i=0;i<wanEdges.length;i++){
+            const e=wanEdges[i];
+            // The crossbar at the far end makes the last leg zero-length: one turn, into the side.
+            e._midYOff=e._viaSide?(hz?(e._x2-e._x1)/2:(e._y2-e._y1)/2):(i-wanMid)*STAGGER;
+        }
 
         // Tree links - stagger siblings from same parent
         const matchTree=(n)=>{
@@ -2100,7 +2356,26 @@ class LanFlowMap2D {
                 // By TN identity, as for clients below: a mesh AP re-parented in playback keeps its
                 // snapshot link, and only the edge's endpoint follows the tree.
                 const edge=this._edges.find(e=>(e.fn===n&&e.tn===c)||(e.fn===c&&e.tn===n));
-                if(edge){edge._x1=pOut.x;edge._y1=pOut.y;edge._x2=cIn.x;edge._y2=cIn.y;edge._isCl=false;edge._hz=hz;sibEdges.push(edge);}
+                if(edge&&this._carriers?.has(c)){
+                    // A WAN carrier beside its parent: one L out of the parent's free side, outside
+                    // the sibling bundle. Top-down: right, then up into the carrier's near side, the
+                    // climb hugging the parent so a long carrier name hangs clear of it. Left to
+                    // right: up out of the parent's top, then across into the carrier's near side
+                    // (a level carrier sits straight above, so the L is a straight line).
+                    if(hz){
+                        const a={x:n.x,y:n.y-G.boxH/2};
+                        const b=c._carrierRaised?{x:c.x+G.boxW/2,y:c.y}:{x:c.x,y:c.y+G.boxH/2};
+                        edge._x1=a.x;edge._y1=a.y;edge._x2=b.x;edge._y2=b.y;
+                        edge._hz=false;edge._midYOff=c._carrierRaised?(b.y-a.y)/2:0;
+                    }else{
+                        const a={x:n.x+G.boxW/2,y:n.y};
+                        const b={x:c.x-G.boxW/2,y:c.y};
+                        edge._x1=a.x;edge._y1=a.y;edge._x2=b.x;edge._y2=b.y;
+                        // The climb _placeCarriers checked clear (hugging the parent or the carrier).
+                        edge._hz=true;edge._midYOff=(c._carrierLeg??(a.x+12))-(a.x+b.x)/2;
+                    }
+                    edge._isCl=false;edge._carrierUp=true;
+                }else if(edge){edge._x1=pOut.x;edge._y1=pOut.y;edge._x2=cIn.x;edge._y2=cIn.y;edge._isCl=false;edge._hz=hz;edge._carrierUp=false;sibEdges.push(edge);}
                 matchTree(c);
             }
             // The same set the layout just positioned. Reading n.clients here instead would set
@@ -2197,6 +2472,9 @@ class LanFlowMap2D {
         const icons=[];
         for(const n of snap.nodes){
             if((isClient(n.kind)||n.kind===NK.VirtualHub)&&n.iconUrl&&!this._clientIcons.has(n.iconUrl))icons.push(this._loadClientIcon(n.iconUrl).promise);
+        }
+        for(const c of snap.clouds||[]){
+            if(c.logoUrl&&!this._clientIcons.has(c.logoUrl))icons.push(this._loadClientIcon(c.logoUrl).promise);
         }
         if(icons.length>0)promises.push(Promise.race([Promise.all(icons),new Promise(r=>setTimeout(r,ICON_PRELOAD_MS))]));
         if(promises.length>0)await Promise.all(promises);
@@ -2379,8 +2657,94 @@ class LanFlowMap2D {
         ctx.setTransform(this._scale*dpr,0,0,this._scale*dpr,
             (this._cw/2-this._ox*this._scale)*dpr,
             (this._ch/2-this._oy*this._scale)*dpr);
-        this._drawLinkSpeedLabels(ctx);
+        // Labels go down in priority order and each records its box; a link label that would land
+        // on one already placed slides along its own run (_slideAlong) to the nearest clear spot.
+        // Device boxes, names and globes first, then device and client rates, then link rates (the
+        // live figures), then link speeds. One that fits where it is stays there.
+        this._labelTaken=this._labelObstacles();
         this._drawRateLabels(ctx);
+        this._drawLinkSpeedLabels(ctx);
+    }
+
+    // What a link label must not cover: every placed device box and name, client dot, and globe.
+    _labelObstacles(){
+        const out=[];
+        if(!this._root)return out;
+        this._walkPlaced(this._root,null,(n)=>{
+            if(n.x==null)return;
+            if(n._nameRect)out.push(n._nameRect);
+            if(isClient(n.d.kind))out.push({x:n.x-G.clientR-2,y:n.y-G.clientR-2,w:G.clientR*2+4,h:G.clientR*2+4});
+            else if(n.d.kind===NK.VirtualHub)out.push({x:n.x-12,y:n.y-12,w:24,h:24});
+            else out.push({x:n.x-G.boxW/2,y:n.y-G.boxH/2,w:G.boxW,h:G.boxH});
+        });
+        if(this._isCloudVisible())for(const c of this._clouds)out.push({x:c.x-G.cloudR,y:c.y-G.cloudR,w:G.cloudR*2,h:G.cloudR*2});
+        return out;
+    }
+
+    // A label's box covers or crowds one already placed. A link's own labels may sit tight (its speed
+    // over its rate reads as one link's). Another link's label keeps a clear gap beside it, or two
+    // links' labels side by side read as a pair; stacked, as siblings' labels on a crossbar are, they
+    // read fine tight.
+    _labelHits(r,owner){
+        return(this._labelTaken||[]).some(t=>{
+            const gx=owner&&t.owner&&t.owner!==owner?12:2, gy=2;
+            return r.x<t.x+t.w+gx&&r.x+r.w>t.x-gx&&r.y<t.y+t.h+gy&&r.y+r.h>t.y-gy;
+        });
+    }
+
+    // The nearest point to `lp` on the run of edge `e` it sits on where a w-by-h label covers
+    // nothing already placed, stepping out both ways; `lp` itself when it fits or nothing does,
+    // except on a WAN carrier's uplink, whose labels are dropped (null) rather than drawn over a
+    // device: its rates repeat the carrier's own rate label, its speed is in the tooltip.
+    _slideAlong(e,lp,w,h){
+        const p=this._slideAlongInner(e,lp,w,h);
+        if(e?._carrierUp&&p===lp&&this._labelHits({x:lp.x-w/2,y:lp.y-h/2,w,h},e))return null;
+        return p;
+    }
+
+    _slideAlongInner(e,lp,w,h){
+        const rect=(p)=>({x:p.x-w/2,y:p.y-h/2,w,h});
+        if(!e||e._x1==null||!this._labelHits(rect(lp),e))return lp;
+        const off=e._midYOff||0;
+        // The path's corners, as strokeOrtho draws it (a sideways edge swaps the axes).
+        const pts=e._hz
+            ?(()=>{const mx=(e._x1+e._x2)/2+off;return[{x:e._x1,y:e._y1},{x:mx,y:e._y1},{x:mx,y:e._y2},{x:e._x2,y:e._y2}];})()
+            :(()=>{const my=(e._y1+e._y2)/2+off;return[{x:e._x1,y:e._y1},{x:e._x1,y:my},{x:e._x2,y:my},{x:e._x2,y:e._y2}];})();
+        let best=null,bd=Infinity;
+        for(let i=0;i<3;i++){
+            const a=pts[i],b=pts[i+1],len=Math.hypot(b.x-a.x,b.y-a.y);
+            if(len<1)continue;
+            const ux=(b.x-a.x)/len,uy=(b.y-a.y)/len;
+            const t=Math.max(0,Math.min(len,(lp.x-a.x)*ux+(lp.y-a.y)*uy));
+            const d=Math.hypot(a.x+ux*t-lp.x,a.y+uy*t-lp.y);
+            if(d<bd){bd=d;best={a,ux,uy,len,t};}
+        }
+        if(!best)return lp;
+        // Keep the label on its segment, clear of the corners it would otherwise hang past.
+        const vertical=Math.abs(best.uy)>0.5;
+        const m=(vertical?h:w)/2+4;
+        const onRun=(t,perp)=>({
+            x:best.a.x+best.ux*t+(lp.x-(best.a.x+best.ux*best.t))*Math.abs(best.uy)+(vertical?perp:0),
+            y:best.a.y+best.uy*t+(lp.y-(best.a.y+best.uy*best.t))*Math.abs(best.ux)+(vertical?0:perp)});
+        for(let k=1;k<=60;k++){
+            const t=best.t+(k%2?-1:1)*Math.ceil(k/2)*6;
+            if(t<m||t>best.len-m)continue;
+            const p=onRun(t,0);
+            if(!this._labelHits(rect(p),e))return p;
+        }
+        // A run too short for it (a level carrier's L): just off the run, either side, closest
+        // first, rather than on top of a device.
+        const across=(vertical?w:h)/2+6;
+        const mid=Math.max(0,Math.min(best.len,best.t));
+        for(const perp of [across,-across,across+18,-across-18]){
+            for(let k=0;k<=12;k++){
+                const t=mid+(k%2?-1:1)*Math.ceil(k/2)*6;
+                if(t<0||t>best.len)continue;
+                const p=onRun(t,perp);
+                if(!this._labelHits(rect(p),e))return p;
+            }
+        }
+        return lp;
     }
 
     _drawStatic(){
@@ -2444,7 +2808,11 @@ class LanFlowMap2D {
             ctx.lineWidth=pipeW(e.lk.capacityBps);
             ctx.lineCap='round';
             ctx.globalAlpha=e._isCl?0.3+u*0.45:0.5+u*0.5;
+            // A WAN tunneled over the LAN (GRE from a cellular modem) is dashed: it crosses the LAN.
+            const tunnel=e._isWan&&e.lk.viaTunnel&&e.lk.viaNodeId&&this._treeMap.get(e.lk.viaNodeId)?.x!=null;
+            if(tunnel)ctx.setLineDash([6,5]);
             strokeOrtho(ctx,e._x1,e._y1,e._x2,e._y2,e._midYOff,e._hz);
+            if(tunnel)ctx.setLineDash([]);
 
             // Capacity / speed label on infra and WAN links
             if(!e._isCl){
@@ -2492,7 +2860,7 @@ class LanFlowMap2D {
 
                 // Suppress the speed/throughput label for a link to an offline device -
                 // a down port has no meaningful negotiated speed or throughput.
-                if(txt&&!off&&!this._hideRates) this._pendingLinkLabels.push({mx,my,txt,txtColor,txtItalic});
+                if(txt&&!off&&!this._hideRates) this._pendingLinkLabels.push({mx,my,txt,txtColor,txtItalic,e});
             }
         }
         ctx.globalAlpha=1;
@@ -2503,14 +2871,19 @@ class LanFlowMap2D {
         const italicFont=`italic ${G.rateFont}px ${FONT}`;
         ctx.font=normalFont;
         this._linkLabelRects=[];
-        for(const{mx,my,txt,txtColor,txtItalic}of(this._pendingLinkLabels||[])){
+        for(const{mx:mx0,my:my0,txt,txtColor,txtItalic,e}of(this._pendingLinkLabels||[])){
             ctx.font=txtItalic?italicFont:normalFont;
             const tw=ctx.measureText(txt).width+12;
+            const at=this._slideAlong(e,{x:mx0,y:my0},tw,16);
+            if(!at)continue;
+            const{x:mx,y:my}=at;
             ctx.fillStyle=C.labelBg;
             ctx.globalAlpha=1;
             this._roundRect(ctx,mx-tw/2,my-8,tw,16,4);
             ctx.fill();
-            this._linkLabelRects.push({x:mx-tw/2,y:my-8,w:tw,h:16});
+            const r={x:mx-tw/2,y:my-8,w:tw,h:16,owner:e};
+            this._linkLabelRects.push(r);
+            this._labelTaken?.push(r);
             if(txtColor){
                 ctx.fillStyle=txtColor;
                 ctx.textAlign='center'; ctx.textBaseline='middle';
@@ -2536,7 +2909,19 @@ class LanFlowMap2D {
             const greyed=cloud.d.tier===CT.Unresolved;
 
             // The globe is the icon here, so it grows on hover; its labels below do not.
+            const logo=this._clientIcon(cloud.d.logoUrl);
             this._scaledAt(ctx,cx,cy,this._hoverScale(cloud,HOVER_GROW.cloud),()=>{
+            // The ISP's logo replaces the globe: its visible mark as tall as the globe, bottom on the
+            // globe's bottom, so a wide logo's padding never opens a gap above the name. A square
+            // logo's corners overhang the circle on purpose. Greyed like the globe when unresolved.
+            if(logo){
+                const e=this._clientIcons.get(cloud.d.logoUrl);
+                const box=e.box??=opaqueBounds(logo);
+                const {w,h}=logoFit(box,r*2);
+                ctx.globalAlpha=greyed?0.4:1;
+                ctx.drawImage(logo,box.x,box.y,box.w,box.h,cx-w/2,cy+r-h,w,h);
+                return;
+            }
             // Subtle radial fill
             const grad=ctx.createRadialGradient(cx-r*0.3,cy-r*0.3,0,cx,cy,r);
             grad.addColorStop(0,greyed?'rgba(120,130,145,0.06)':'rgba(59,130,246,0.08)');
@@ -2565,6 +2950,23 @@ class LanFlowMap2D {
             });
 
             ctx.globalAlpha=1;
+
+            // A cellular WAN's badge, at the globe's top right: "5G" or "LTE".
+            // The modem's mode at the scrub instant in playback; live, the snapshot's.
+            const cellKind=flowData.getClientStats()?.[cloud.d.cellularNodeId]?.cellularMode??cloud.d.cellularKind;
+            if(cellKind){
+                const txt=String(cellKind);
+                ctx.font=`600 9px ${FONT}`;
+                const bw=ctx.measureText(txt).width+8, bh=13;
+                const bx=cx+r*0.62, by=cy-r*0.62-bh/2;
+                ctx.fillStyle=C.labelBg;
+                this._roundRect(ctx,bx-bw/2,by,bw,bh,6.5); ctx.fill();
+                ctx.strokeStyle=greyed?'#3a4455':C.globeStroke; ctx.lineWidth=1;
+                this._roundRect(ctx,bx-bw/2,by,bw,bh,6.5); ctx.stroke();
+                ctx.fillStyle=greyed?C.textMuted:C.text;
+                ctx.textAlign='center'; ctx.textBaseline='middle';
+                ctx.fillText(txt,bx,by+bh/2+0.5);
+            }
 
             // Name
             const name=demoMask(cloud.d.name||cloud.d.asnName||'WAN');
@@ -2939,25 +3341,16 @@ class LanFlowMap2D {
                     ctx.textAlign='left'; ctx.fillStyle=C.upstream;
                     ctx.fillText(uTxt,n.x+4,n._rateY);
                     n._rateRect={x:n.x-tw/2,y:n._rateY-8,w:tw,h:16};
+                    this._labelTaken?.push(n._rateRect);
                 }
             }
             for(const c of n.infra)drawNodeRate(c);
         };
         if(this._root)drawNodeRate(this._root);
 
-        // Left to right, the link label has to dodge: every label already on the canvas is an
-        // obstacle, and the client labels below are drawn first so they count too.
+        // Device rates and names are in _labelTaken now; client rates join them below, then each
+        // link rate slides clear of all of it (_slideAlong).
         const hz=this._hz;
-        const taken=hz?[...(this._linkLabelRects||[])]:null;
-        if(hz&&this._root){
-            const collect=(n)=>{
-                if(n._nameRect)taken.push(n._nameRect);
-                if(n._rateRect)taken.push(n._rateRect);
-                for(const c of n.infra)collect(c);
-                for(const c of (n._visClients||[]))if(c._nameRect)taken.push(c._nameRect);
-            };
-            collect(this._root);
-        }
 
         // Client rate labels (same style as node/link labels)
         ctx.font=`${G.rateFont}px ${FONT}`;
@@ -2982,15 +3375,14 @@ class LanFlowMap2D {
                 ctx.fillText(dTxt,cx-4,cy);
                 ctx.textAlign='left'; ctx.fillStyle=C.upstream;
                 ctx.fillText(uTxt,cx+4,cy);
-                if(hz)taken.push({x:cx-tw/2,y:cy-8,w:tw,h:16});
+                this._labelTaken?.push({x:cx-tw/2,y:cy-8,w:tw,h:16});
             }
         }
 
         // Link rate labels. Top-down they sit on the child's leg, which is long enough for the
         // pair side by side. Left to right the crossbar is the only run, a tier gap from the
-        // boxes either side and shared with siblings, so the pair stacks and slides along the
-        // bar to the nearest spot clear of everything already drawn.
-        const hits=(a)=>taken.some(t=>a.x<t.x+t.w+2&&a.x+a.w>t.x-2&&a.y<t.y+t.h+2&&a.y+a.h>t.y-2);
+        // boxes either side and shared with siblings, so the pair stacks. Either way it slides
+        // along its run to the nearest spot clear of everything already placed.
         for(const e of this._edges){
             if(e._x1==null||e._isCl||e._isWan)continue;
             const r=this._liveRates[e.lk.portKey]||this._liveRates[e.lk.id];
@@ -2998,12 +3390,14 @@ class LanFlowMap2D {
             const dn=r.downstreamBps??0,up=r.upstreamBps??0;
             if(!(dn>THRESH||up>THRESH))continue;
             const lp=this._rateLabel(e);
-            const mx=lp.x;
             const dTxt='↓'+(dn>0?formatBps(dn):'0 bps');
             const uTxt='↑'+(up>0?formatBps(up):'0 bps');
             if(!hz){
-                const my=lp.y;
                 const tw=ctx.measureText(dTxt+' '+uTxt).width+14;
+                const at=this._slideAlong(e,lp,tw,16);
+                if(!at)continue;
+                const{x:mx,y:my}=at;
+                this._labelTaken?.push({x:mx-tw/2,y:my-8,w:tw,h:16,owner:e});
                 ctx.fillStyle=C.labelBg;
                 this._roundRect(ctx,mx-tw/2,my-8,tw,16,4);
                 ctx.fill();
@@ -3015,12 +3409,10 @@ class LanFlowMap2D {
                 continue;
             }
             const w=Math.max(ctx.measureText(dTxt).width,ctx.measureText(uTxt).width)+12, h=30;
-            let my=lp.y;
-            for(let k=0;k<=20;k++){
-                const dy=(k%2?-1:1)*Math.ceil(k/2)*8;
-                const cand={x:mx-w/2,y:lp.y+dy-h/2,w,h};
-                if(!hits(cand)){my=lp.y+dy;taken.push(cand);break;}
-            }
+            const at=this._slideAlong(e,lp,w,h);
+            if(!at)continue;
+            const{x:mx,y:my}=at;
+            this._labelTaken?.push({x:mx-w/2,y:my-h/2,w,h,owner:e});
             ctx.fillStyle=C.labelBg;
             this._roundRect(ctx,mx-w/2,my-h/2,w,h,4);
             ctx.fill();
