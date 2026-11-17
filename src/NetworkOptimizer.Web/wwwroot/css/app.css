@@ -23738,11 +23738,13 @@ a.shp-issue {
     }
 }
 
+/* The tour sits above every page layer: sticky chart headers (1100) and the site switcher (1150).
+   Only the save prompt (2000), a fullscreen map (9999), and the Blazor error bar sit above it. */
 .tour-modal-backdrop {
     position: fixed;
     inset: 0;
     background: rgba(0, 0, 0, 0.6);
-    z-index: 1060;
+    z-index: 1200;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -23817,7 +23819,7 @@ a.shp-issue {
 .tour-overlay {
     position: fixed;
     inset: 0;
-    z-index: 1060;
+    z-index: 1200; /* see .tour-modal-backdrop */
     pointer-events: none;
 }
 
