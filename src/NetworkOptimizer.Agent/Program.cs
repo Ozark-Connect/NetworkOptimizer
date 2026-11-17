@@ -389,6 +389,8 @@ if (!string.IsNullOrEmpty(config.TunnelUrl))
 // die of the same wedge (async HTTP) and need the same cure - without a
 // buffer the spool callback is a no-op.
 watchdogTask = AsyncIoWatchdog.RunAsync(SaveSpool, cts.Token);
+// Same cure for a GC heap that stops granting allocations: the loops catch and carry on.
+OutOfMemoryRestart.PersistState = SaveSpool;
 configRevertTask = configRevert.RunAsync(cts.Token);
 
 // Prefer the persistent gRPC tunnel; REST heartbeats keep the agent visible as
@@ -481,6 +483,7 @@ while (!cts.IsCancellationRequested)
         catch (Exception ex)
         {
             Console.Error.WriteLine($"Tunnel error: {ex.Message}");
+            OutOfMemoryRestart.Report("the tunnel", ex);
         }
         finally
         {

@@ -978,6 +978,18 @@ loopback connect cannot time out for network reasons, three consecutive
 in-process timeouts prove the async engine is dead. The watchdog saves the
 result spool and exits for systemd to relaunch.
 
+### Out-of-memory restart
+
+The conntrack sampler and the tunnel catch their exceptions and retry, so a GC
+heap that stops granting allocations would otherwise repeat
+`OutOfMemoryException` until the unit is restarted by hand. Five of them within
+two minutes make the agent save the result spool and exit with code 71 for
+systemd to relaunch (the async I/O watchdog exits with 70). The first failure
+of a burst and the one before the exit each log an `Out of memory in ...` block:
+the stack trace, the GC's heap, committed, fragmented, and available sizes per
+generation, its configuration (hard limit, region range and size), the page
+size, and the process's `VmRSS` / `VmSize`. Include that block in a bug report.
+
 ## Local dev / testing
 
 Build for the site box's architecture and copy the single binary over - no build
