@@ -21354,28 +21354,30 @@ a.isp-health-hero-speed:hover {
     border-top: 1px solid var(--border-color);
 }
 
-/* Fixed columns so every target's table lines up with the next. The min-width is the fixed
-   columns plus 16rem, so Address / PTR (the only auto column) never collapses on a narrow screen. */
+/* Fixed columns so every target's table lines up with the next. Loss and Location are sized to
+   their longest text by the component (--path-loss-w, --path-loc-w), the same for every table.
+   The min-width is the columns plus 16rem, so Address / PTR (the only auto column) never
+   collapses on a narrow screen. */
 .path-episode-table .path-episode-hops {
     table-layout: fixed;
-    min-width: calc(37rem + 16rem);
+    min-width: calc(28rem + var(--path-loss-w, 9rem) + 16rem);
 }
 
 .path-episode-table .path-episode-hops.has-return {
-    min-width: calc(44.5rem + 16rem);
+    min-width: calc(35.5rem + var(--path-loss-w, 9rem) + 16rem);
 }
 
 .path-episode-hops .path-col-hop { width: 3rem; }
 .path-episode-hops .path-col-network { width: 13rem; }
-.path-episode-hops .path-col-loss { width: 9rem; }
+.path-episode-hops .path-col-loss { width: var(--path-loss-w, 9rem); }
 .path-episode-hops .path-col-rtt { width: 12rem; }
 .path-episode-hops .path-col-return { width: 7.5rem; }
-.path-episode-hops .path-col-location { width: 11rem; }
+.path-episode-hops .path-col-location { width: var(--path-loc-w, 11rem); }
 
 /* Location is a desktop column. On a phone its col takes no width and its cells stay in the row
    but show nothing: a display:none cell would shift every later cell into the wrong col. */
-.path-episode-table .path-episode-hops.has-location { min-width: calc(37rem + 16rem + 11rem); }
-.path-episode-table .path-episode-hops.has-location.has-return { min-width: calc(44.5rem + 16rem + 11rem); }
+.path-episode-table .path-episode-hops.has-location { min-width: calc(28rem + var(--path-loss-w, 9rem) + 16rem + var(--path-loc-w, 11rem)); }
+.path-episode-table .path-episode-hops.has-location.has-return { min-width: calc(35.5rem + var(--path-loss-w, 9rem) + 16rem + var(--path-loc-w, 11rem)); }
 
 @media (max-width: 768px) {
     .path-episode-hops .path-col-location { width: 0; }
@@ -21386,8 +21388,8 @@ a.isp-health-hero-speed:hover {
         font-size: 0;
         visibility: hidden;
     }
-    .path-episode-table .path-episode-hops.has-location { min-width: calc(37rem + 16rem); }
-    .path-episode-table .path-episode-hops.has-location.has-return { min-width: calc(44.5rem + 16rem); }
+    .path-episode-table .path-episode-hops.has-location { min-width: calc(28rem + var(--path-loss-w, 9rem) + 16rem); }
+    .path-episode-table .path-episode-hops.has-location.has-return { min-width: calc(35.5rem + var(--path-loss-w, 9rem) + 16rem); }
 }
 
 /* An open hop table spans the event row, under the badge and time as well as the text. */
