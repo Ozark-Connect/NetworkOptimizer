@@ -22,9 +22,25 @@ public static class OutOfMemoryRestart
     // 10 s. One stray failure, such as a single oversized allocation, ages out without a restart.
     private static readonly TimeSpan Window = TimeSpan.FromMinutes(2);
 
-    private static readonly object Gate = new();
-    private static readonly Queue<DateTime> Recent = new();
+    private static readonly Burst Recent = new(Window);
     private static int _exiting;
+
+    /// <summary>Counts failures inside a sliding window. Thread-safe.</summary>
+    internal sealed class Burst(TimeSpan window)
+    {
+        private readonly Queue<DateTime> _times = new();
+
+        /// <summary>Records one failure at <paramref name="now"/>; returns how many fall inside the window.</summary>
+        public int Record(DateTime now)
+        {
+            lock (_times)
+            {
+                while (_times.Count > 0 && now - _times.Peek() > window) _times.Dequeue();
+                _times.Enqueue(now);
+                return _times.Count;
+            }
+        }
+    }
 
     /// <summary>Spools the result backlog before the exit. Set once at startup; sync I/O only.</summary>
     public static Action? PersistState { get; set; }
@@ -37,15 +53,7 @@ public static class OutOfMemoryRestart
     {
         if (!IsOutOfMemory(ex)) return;
 
-        int count;
-        var now = DateTime.UtcNow;
-        lock (Gate)
-        {
-            while (Recent.Count > 0 && now - Recent.Peek() > Window) Recent.Dequeue();
-            Recent.Enqueue(now);
-            count = Recent.Count;
-        }
-
+        var count = Recent.Record(DateTime.UtcNow);
         if (count == 1)
             Console.Error.WriteLine(Describe($"Out of memory in {source} (first in {Window.TotalMinutes:0} min)", ex));
         if (count < FailuresBeforeRestart || Interlocked.Exchange(ref _exiting, 1) == 1) return;
