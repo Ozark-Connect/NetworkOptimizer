@@ -19310,6 +19310,27 @@ tr.stats-row-filtered {
 .lan-flow-map-toggle.is-on .lan-flow-map-toggle-pill::after {
     transform: translateX(12px);
 }
+
+/* Hide Device: the Overlays row that counts hidden clients, and the list it opens. */
+.lan-flow-map-hidden-row {
+    margin-top: 0.15rem;
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 0 0 6px 6px;
+    padding-top: 0.45rem;
+}
+.lan-flow-map-hidden-row-action {
+    color: var(--info-color);
+    font-size: 0.78rem;
+}
+.lan-flow-map-hidden-menu {
+    max-height: 260px;
+    overflow-y: auto;
+    min-width: 200px;
+}
+.lan-flow-map-hidden-menu-all {
+    color: var(--info-color);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
 .lan-flow-map-search {
     width: 100%;
     background: rgba(255, 255, 255, 0.05);
@@ -20076,7 +20097,7 @@ tr.stats-row-filtered {
 }
 .lan-flow-map-panel-body {
     overflow: hidden;
-    max-height: 150px;
+    max-height: 190px;
     opacity: 1;
     transition: max-height 0.2s ease-out, opacity 0.2s ease, width 0.2s ease;
 }
