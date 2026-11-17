@@ -707,9 +707,10 @@ export class LanFlowMap {
             this._hiddenLoad ??= this._loadHidden();
             const [res] = await Promise.all([fetch(`${this.apiBase}/snapshot`, { credentials: 'same-origin' }), this._hiddenLoad]);
             if (!res.ok) throw new Error(`snapshot HTTP ${res.status}`);
-            const snap = await res.json();
+            const raw = await res.json();
+            flowData.publishSnapshot(raw);
+            const snap = this._collapseHidden(raw);
             this._snapshot = snap;
-            flowData.publishSnapshot(snap);
             // Seed cloudStats from snapshot clouds so RTT labels show immediately
             const seedCloudStats = {};
             for (const c of (snap.clouds || [])) {
@@ -2436,10 +2437,13 @@ export class LanFlowMap {
             try {
                 const res = await fetch(`${this.apiBase}/snapshot`, { credentials: 'same-origin' });
                 if (!res.ok) return;
-                const snap = await res.json();
+                const raw = await res.json();
+                flowData.publishSnapshot(raw);
+                // Collapsed the same way as the snapshot it is diffed against, or every hidden
+                // switch would read as an infrastructure change and rebuild the scene each pass.
+                const snap = this._collapseHidden(raw);
                 const prev = this._snapshot;
                 this._snapshot = snap;
-                flowData.publishSnapshot(snap);
 
                 // Diff: infrastructure change = full rebuild; client churn = incremental
                 const infraKinds = new Set([NODE_KIND.Gateway, NODE_KIND.Switch, NODE_KIND.AccessPoint, NODE_KIND.VirtualHub]);
@@ -3273,7 +3277,41 @@ export class LanFlowMap {
         this._updateHiddenRow();
     }
 
-    // Whether a node is a client this user hid. Only clients can be hidden.
+    // The snapshot as this user sees it: a hidden switch or access point is taken out, and
+    // everything behind it is drawn from the device upstream of it. The raw snapshot is left as
+    // it is (the 2D map shares it). Hidden clients stay in: they are filtered, not removed.
+    _collapseHidden(raw) {
+        this._namesByMac = new Map((raw.nodes ?? []).filter((n) => n.mac).map((n) => [n.mac, n.name]));
+        const gone = new Set((raw.nodes ?? [])
+            .filter((n) => n.mac && this._hidden.has(n.mac) && (n.kind === NODE_KIND.Switch || n.kind === NODE_KIND.AccessPoint))
+            .map((n) => n.id));
+        if (gone.size === 0) return raw;
+
+        // A device's upstream is the other end of the link that arrives at it.
+        const upstreamOf = new Map();
+        for (const l of raw.links ?? []) if (!upstreamOf.has(l.toNodeId)) upstreamOf.set(l.toNodeId, l.fromNodeId);
+        const visibleUpstream = (id) => {
+            for (let hops = 0; id != null && gone.has(id) && hops < 64; hops += 1) id = upstreamOf.get(id);
+            return id != null && !gone.has(id) ? id : null;
+        };
+
+        const links = [];
+        for (const l of raw.links ?? []) {
+            if (gone.has(l.toNodeId)) continue;                 // the hidden device's own uplink
+            if (!gone.has(l.fromNodeId)) { links.push(l); continue; }
+            const from = visibleUpstream(l.fromNodeId);
+            if (from) links.push({ ...l, fromNodeId: from });
+        }
+        const nodes = [];
+        for (const n of raw.nodes ?? []) {
+            if (gone.has(n.id)) continue;
+            nodes.push(gone.has(n.parentId) ? { ...n, parentId: visibleUpstream(n.parentId) } : n);
+        }
+        return { ...raw, nodes, links };
+    }
+
+    // Whether a node is a client this user hid. A hidden switch or AP is not a node at all here:
+    // _collapseHidden has already taken it out.
     _isHiddenNode(node) {
         return !!node.mac && this._hidden.has(node.mac)
             && (node.kind === NODE_KIND.WiredClient || node.kind === NODE_KIND.WifiClient);
@@ -3323,7 +3361,8 @@ export class LanFlowMap {
             menu.appendChild(item);
         };
         const mask = window.DemoMask?.isEnabled() ? (s => window.DemoMask.maskString?.(s) ?? s) : (s => s);
-        const names = new Map((this._snapshot?.nodes ?? []).filter(n => n.mac).map(n => [n.mac, n.name]));
+        // From the raw snapshot: a hidden switch or AP is not in the collapsed one.
+        const names = this._namesByMac ?? new Map();
         add('Show All', [...this._hidden], 'lan-flow-map-hidden-menu-all');
         for (const mac of this._hidden) add(mask(names.get(mac) || mac), [mac]);
 
@@ -4534,8 +4573,11 @@ export class LanFlowMap {
         });
         menu.appendChild(item);
 
-        // Clients only: hiding a switch or an access point would orphan everything behind it.
-        if (node.mac && (node.kind === NODE_KIND.WiredClient || node.kind === NODE_KIND.WifiClient)) {
+        // A client is filtered out. A switch or an access point is collapsed: everything behind
+        // it is drawn from the device upstream. Never the gateway: the WAN globes hang off it.
+        const hideable = node.kind === NODE_KIND.WiredClient || node.kind === NODE_KIND.WifiClient
+            || node.kind === NODE_KIND.Switch || node.kind === NODE_KIND.AccessPoint;
+        if (node.mac && hideable) {
             const hide = document.createElement('div');
             hide.className = 'lan-flow-map-context-menu-item';
             hide.textContent = 'Hide Device';
