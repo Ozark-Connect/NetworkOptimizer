@@ -16,6 +16,7 @@ import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { buildBuildings } from './lan-flow-buildings.js?v=1';
 // KEEP IN SYNC: lan-flow-map-2d.js imports the same module. Both must use the same ?v= or they get separate instances.
 import * as flowData from './lan-flow-data.js?v=18';
+import { opaqueBounds, logoFit } from './image-bounds.js?v=1';
 
 const COLORS = {
     background: 0x1c2128,
@@ -1085,10 +1086,16 @@ export class LanFlowMap {
         return new THREE.Mesh(geo, material());
     }
 
+    // The node a link is drawn to: a WAN a cellular modem carries is drawn from that modem
+    // (viaNodeId), not the gateway its toNodeId names, when the modem is placed.
+    _linkDrawnToId(link) {
+        return link.viaNodeId && this._positions.has(link.viaNodeId) ? link.viaNodeId : link.toNodeId;
+    }
+
     _buildLinks(snap) {
         for (const link of snap.links || []) {
             const a = this._positions.get(link.fromNodeId);
-            const b = this._positions.get(link.toNodeId);
+            const b = this._positions.get(this._linkDrawnToId(link));
             if (!a || !b) continue;
 
             // For WAN/Transit links, shorten the cloud end to the globe surface
@@ -1121,7 +1128,7 @@ export class LanFlowMap {
             this.particleGroup.add(down.mesh, up.mesh);
 
             this._linkMeshes.set(link.id, { pipe, down, up, link });
-            this._nodesByLink.set(link.id, [link.fromNodeId, link.toNodeId]);
+            this._nodesByLink.set(link.id, [link.fromNodeId, this._linkDrawnToId(link)]);
         }
     }
 
@@ -1253,6 +1260,11 @@ export class LanFlowMap {
                 opacity: baseOpacity * 0.6,
             });
             const tubeRadius = r * 0.02;
+            // The ISP's logo replaces the wireframe at the globe's full width (a square logo's
+            // corners overhang it). It always faces the camera; the glow below stays for picking.
+            if (cloud.logoUrl) {
+                group.add(this._makeLogoSprite(cloud.logoUrl, r * 2, tier === CLOUD_TIER.Unresolved ? 0.4 : 1));
+            } else {
             // Latitude lines
             for (let lat = -75; lat <= 75; lat += 25) {
                 const phi = (90 - lat) * Math.PI / 180;
@@ -1282,6 +1294,7 @@ export class LanFlowMap {
                 }
                 const curve = new THREE.CatmullRomCurve3(pts);
                 group.add(new THREE.Mesh(new THREE.TubeGeometry(curve, pts.length, tubeRadius, 4, false), tubeMat));
+            }
             }
 
             // Subtle outer glow
@@ -1444,6 +1457,34 @@ export class LanFlowMap {
         const scaleX = scaleY * (w / h);
         sprite.scale.set(scaleX, scaleY, 1);
         sprite.userData.baseScale = { x: scaleX, y: scaleY };
+        return sprite;
+    }
+
+    /**
+     * An ISP logo as a camera-facing sprite: its visible mark (padding trimmed) as tall as `size`,
+     * top on the globe's top so the label above sits as close as it does to a globe. Empty until
+     * the image loads; a failed load leaves it empty (the label still names the WAN).
+     */
+    _makeLogoSprite(url, size, opacity) {
+        const img = new Image();
+        const tex = new THREE.Texture();
+        tex.colorSpace = THREE.SRGBColorSpace;
+        const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, opacity, depthWrite: false }));
+        sprite.visible = false;
+        img.onload = () => {
+            const box = opaqueBounds(img);
+            const canvas = document.createElement('canvas');
+            canvas.width = box.w; canvas.height = box.h;
+            canvas.getContext('2d').drawImage(img, box.x, box.y, box.w, box.h, 0, 0, box.w, box.h);
+            tex.image = canvas;
+            tex.needsUpdate = true;
+            const { w, h } = logoFit(box, size);
+            sprite.scale.set(w, h, 1);
+            sprite.position.y = size / 2 - h / 2;
+            sprite.visible = true;
+        };
+        img.onerror = () => console.debug('[lan-flow-map] ISP logo failed to load', url);
+        img.src = url;
         return sprite;
     }
 
@@ -3736,7 +3777,7 @@ export class LanFlowMap {
             // gate on group.visible; link labels need the same check).
             if (!link.pipe.visible) { el.classList.remove('is-visible'); continue; }
             const fromPos = this._positions.get(link.link.fromNodeId);
-            const toPos = this._positions.get(link.link.toNodeId);
+            const toPos = this._positions.get(this._linkDrawnToId(link.link));
             if (!fromPos || !toPos) continue;
             midA.set(fromPos.x, fromPos.y, fromPos.z);
             midB.set(toPos.x, toPos.y, toPos.z);
