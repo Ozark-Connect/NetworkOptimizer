@@ -110,17 +110,9 @@ public sealed class HopLocationOverrideService : IHopLocationOverrideService
     public async Task SetAsync(string address, string city, string? region, string countryCode, double latitude, double longitude,
         CancellationToken ct = default)
     {
-        var canonical = Canonical(address) ?? throw new ArgumentException("Not an IP address.", nameof(address));
-        city = city?.Trim() ?? "";
-        countryCode = countryCode?.Trim().ToUpperInvariant() ?? "";
-        if (city.Length == 0) throw new ArgumentException("A city is required.", nameof(city));
-        if (city.Length > 120) throw new ArgumentException("The city's name is too long.", nameof(city));
-        if (countryCode.Length != 2 || !countryCode.All(char.IsAsciiLetterUpper))
-            throw new ArgumentException("A two-letter country code is required.", nameof(countryCode));
-        if (latitude is < -90 or > 90 || longitude is < -180 or > 180 || double.IsNaN(latitude) || double.IsNaN(longitude))
-            throw new ArgumentException("The coordinates are out of range.");
-        region = string.IsNullOrWhiteSpace(region) ? null : region.Trim();
-        if (region is { Length: > 120 }) region = region[..120];
+        var set = Validate(address, city, region, countryCode, latitude, longitude);
+        var canonical = set.Address;
+        (city, region, countryCode) = (set.City, set.Region, set.CountryCode);
 
         await using var db = await _mainDb.CreateDbContextAsync(ct);
         var row = await db.HopLocationOverrides.FirstOrDefaultAsync(o => o.Address == canonical, ct);
@@ -160,6 +152,28 @@ public sealed class HopLocationOverrideService : IHopLocationOverrideService
         db.HopLocationOverrides.Remove(row);
         await db.SaveChangesAsync(ct);
         _cache.Invalidate();
+    }
+
+    /// <summary>
+    /// The override <see cref="SetAsync"/> stores for these inputs: the address canonical, the names trimmed, the
+    /// country upper case. <see cref="HopLocationSetting.SetBy"/> is null.
+    /// </summary>
+    /// <exception cref="ArgumentException">The address, city, country, or coordinates do not validate.</exception>
+    public static HopLocationSetting Validate(string address, string city, string? region, string countryCode,
+        double latitude, double longitude)
+    {
+        var canonical = Canonical(address) ?? throw new ArgumentException("Not an IP address.", nameof(address));
+        city = city?.Trim() ?? "";
+        countryCode = countryCode?.Trim().ToUpperInvariant() ?? "";
+        if (city.Length == 0) throw new ArgumentException("A city is required.", nameof(city));
+        if (city.Length > 120) throw new ArgumentException("The city's name is too long.", nameof(city));
+        if (countryCode.Length != 2 || !countryCode.All(char.IsAsciiLetterUpper))
+            throw new ArgumentException("A two-letter country code is required.", nameof(countryCode));
+        if (latitude is < -90 or > 90 || longitude is < -180 or > 180 || double.IsNaN(latitude) || double.IsNaN(longitude))
+            throw new ArgumentException("The coordinates are out of range.");
+        region = string.IsNullOrWhiteSpace(region) ? null : region.Trim();
+        if (region is { Length: > 120 }) region = region[..120];
+        return new HopLocationSetting(canonical, city, region, countryCode, latitude, longitude, null);
     }
 
     /// <summary>The address in canonical text form, or null when it is not one.</summary>
