@@ -1169,8 +1169,8 @@ export class LanFlowMap {
         }
 
         // A client's halo is near-white and sits over the icon, which washes it out. It stays in
-        // the scene unseen: it is the hover target, and the arrival focus still lights it. It keeps
-        // the shared zoom floor, so a small client is no harder to point at.
+        // the scene unseen: it is a hover target, and the arrival focus still lights it. It keeps
+        // the shared zoom scale, so a small client is no harder to point at; the body is picked too.
         group.userData.haloKeepsSize = !isNetworkDevice;
         if (!isNetworkDevice) {
             const halo = group.userData.halo;
@@ -2351,8 +2351,10 @@ export class LanFlowMap {
             const z = this._deviceZoom(group, dist, devMax);
             core.scale.setScalar(z);
             if (halo) {
+                // A client's unseen halo is a pick target of one size for every client. Never scale
+                // it with the body: around a TV it grows into a sphere that swallows its neighbours.
                 halo.scale.setScalar(group.userData.haloKeepsSize
-                    ? Math.max(z, DEVICE_ZOOM_MIN, Math.min(devMax, dist / DEVICE_ZOOM_REF_DIST)) : z);
+                    ? Math.max(DEVICE_ZOOM_MIN, Math.min(devMax, dist / DEVICE_ZOOM_REF_DIST)) : z);
             }
             // A wall-flat body that moved (Reposition Device, a roam) turns to its new nearest wall.
             const wallAt = group.userData.wallFlatAt;
@@ -4154,6 +4156,8 @@ export class LanFlowMap {
             for (const child of group.children) {
                 if (child.isMesh) candidates.push(child);
             }
+            // An icon body sits inside its holder, not on the group: pick it by its own shape too.
+            if (group.userData.iconBody) candidates.push(group.userData.core);
         }
         const hits = this._raycaster.intersectObjects(candidates, false);
         if (hits.length === 0) { this._clearHover(); return; }
@@ -4179,6 +4183,8 @@ export class LanFlowMap {
             for (const child of group.children) {
                 if (child.isMesh) candidates.push(child);
             }
+            // An icon body sits inside its holder, not on the group: pick it by its own shape too.
+            if (group.userData.iconBody) candidates.push(group.userData.core);
         }
         const hits = this._raycaster.intersectObjects(candidates, false);
         if (hits.length === 0) return;
@@ -4392,6 +4398,8 @@ export class LanFlowMap {
             for (const child of group.children) {
                 if (child.isMesh) candidates.push(child);
             }
+            // An icon body sits inside its holder, not on the group: pick it by its own shape too.
+            if (group.userData.iconBody) candidates.push(group.userData.core);
         }
         for (const group of this._cloudMeshes.values()) {
             if (!group.visible) continue;

@@ -81,6 +81,19 @@ public class ClientBodyClassTests
         Assert.Equal(ClientBodyDepth.Mid, body.Depth);
     }
 
+    [Theory]
+    [InlineData(ClientDeviceCategory.SmartSpeaker, "Living Room Soundbar")]
+    [InlineData(ClientDeviceCategory.MediaPlayer, "Sound Bar")]
+    [InlineData(ClientDeviceCategory.Unknown, "soundbar")]
+    public void ASoundBar_IsHalfAgainAsWideAsASpeaker_AndHugsTheWall(ClientDeviceCategory category, string name)
+    {
+        var bar = ClientBodyClass.For(category, name: name);
+        var speaker = ClientBodyClass.For(ClientDeviceCategory.SmartSpeaker, name: "Kitchen Speaker");
+
+        Assert.True(bar.WallFlat);
+        Assert.InRange(bar.SizeM / speaker.SizeM, 1.5, 1.6);
+    }
+
     [Fact]
     public void Classify_KeepsTheLastBody_WhenAReadCannotSayWhatTheClientIs()
     {

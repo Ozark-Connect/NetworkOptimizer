@@ -429,9 +429,11 @@ public sealed class ClientIconRegistry : ISiteScopedRegistry
                 continue;
             var mac = ClientIconMap.NormalizeMac(row.Mac);
             var category = detection.DetectDeviceType(row).Category;
-            if (category != ClientDeviceCategory.Unknown || !result.ContainsKey(mac))
-                result[mac] = ClientBodyClass.For(category, DevTypeId(row, fingerprints),
-                    string.IsNullOrEmpty(row.Name) ? row.Hostname : row.Name);
+            var body = ClientBodyClass.For(category, DevTypeId(row, fingerprints),
+                string.IsNullOrEmpty(row.Name) ? row.Hostname : row.Name);
+            var saysNothing = category == ClientDeviceCategory.Unknown && ReferenceEquals(body, ClientBodyClass.Small);
+            if (!saysNothing || !result.ContainsKey(mac))
+                result[mac] = body;
         }
         return result;
     }

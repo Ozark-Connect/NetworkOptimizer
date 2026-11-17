@@ -34,6 +34,8 @@ public static class ClientBodyClass
     private static readonly ClientBody MediumPanel = new(0.45, ClientBodyDepth.Thin);
     private static readonly ClientBody MediumBox = new(0.45, ClientBodyDepth.Mid);
     private static readonly ClientBody Tower = new(0.5, ClientBodyDepth.Deep);
+    // Half again as wide as the speakers it would otherwise be filed with, and along the wall like the TV above it.
+    private static readonly ClientBody SoundBar = new(0.7, ClientBodyDepth.Thin, WallFlat: true);
     private static readonly ClientBody BigAppliance = new(0.85, ClientBodyDepth.Deep);
     private static readonly ClientBody Television = new(1.1, ClientBodyDepth.Thin, WallFlat: true);
 
@@ -56,6 +58,8 @@ public static class ClientBodyClass
     [VendorSpecific("UniFi", "fingerprint dev_type_ids: 38 dashboard, 143 picture frame, 188 digital canvas, 203 smart display, 254 smart clock, 259 collaboration display; 74 machine wash, 118 dryer, 131 washing machine, 137 cooktop, 140 dishwasher, 177 oven")]
     public static ClientBody For(ClientDeviceCategory category, int? devTypeId = null, string? name = null) => category switch
     {
+        // By name, whatever the detector made of it: a sound bar is a speaker or a media player to the audit.
+        _ when NamesASoundBar(name) => SoundBar,
         ClientDeviceCategory.SmartTV =>
             devTypeId is { } type && NotATelevision.Contains(type) ? MediumPanel : Television,
         ClientDeviceCategory.SmartAppliance =>
@@ -71,6 +75,10 @@ public static class ClientBodyClass
             or ClientDeviceCategory.StreamingDevice or ClientDeviceCategory.VoIP => SmallBox,
         _ => Small,
     };
+
+    private static bool NamesASoundBar(string? name) =>
+        !string.IsNullOrEmpty(name)
+        && (name.Contains("soundbar", StringComparison.OrdinalIgnoreCase) || name.Contains("sound bar", StringComparison.OrdinalIgnoreCase));
 
     private static bool NamesAFloorAppliance(string? name) =>
         !string.IsNullOrEmpty(name) && FloorApplianceWords.Any(w => name.Contains(w, StringComparison.OrdinalIgnoreCase));
