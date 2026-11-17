@@ -123,9 +123,10 @@ function navigate(url) {
 const ROAM_FADE_MS = 350;
 // How long nodes, links and the fitted camera take to slide to a new layout.
 const LAYOUT_MS = 450;
-// Hover grow: how long the ease takes each way, and the size reached per object type.
+// Hover grow: how long the ease takes each way, and the size the icon reaches per object type.
+// Only the icon (or dot, or globe) grows; cards, rings, and labels keep their size and place.
 const HOVER_MS = 160;
-const HOVER_GROW = {device: 1.07, hub: 1.15, client: 1.22, cloud: 1.08};
+const HOVER_GROW = {device: 1.08, hub: 1.15, client: 1.15, cloud: 1.08};
 // A pan or zoom left alone this long, on a view still showing REFIT_SHARE of the map, re-fits again.
 const REFIT_IDLE_MS = 30_000;
 const REFIT_SHARE = 0.95;
@@ -1249,25 +1250,23 @@ class LanFlowMap2D {
             const t=o._hs||0;
             const next=target>t?Math.min(1,t+step):Math.max(0,t-step);
             if(next!==t){o._hs=next;moved=true;}
-            if(next===0&&target===0){set.delete(o);o._drawScale=1;}
+            if(next===0&&target===0)set.delete(o);
         }
         // Only while something is still easing: a node held at full size needs no redraw.
         if(moved)this._needsStaticRedraw=true;
     }
 
-    // The scale an object draws at: smoothstep over its hover progress.
+    // The scale an object's icon draws at: smoothstep over its hover progress.
     _hoverScale(o,grow){
         const t=o._hs||0;
         return t>0?1+(grow-1)*t*t*(3-2*t):1;
     }
 
-    // Draws fn around (x,y) at the object's hover scale.
-    _withHover(ctx,o,grow,fn){
-        const s=this._hoverScale(o,grow);
-        o._drawScale=s;
+    // Draws fn scaled by s around (x,y).
+    _scaledAt(ctx,x,y,s,fn){
         if(s===1){fn();return;}
         ctx.save();
-        ctx.translate(o.x,o.y); ctx.scale(s,s); ctx.translate(-o.x,-o.y);
+        ctx.translate(x,y); ctx.scale(s,s); ctx.translate(-x,-y);
         fn();
         ctx.restore();
     }
@@ -2501,12 +2500,14 @@ class LanFlowMap2D {
     // ---- Cloud drawing ----
 
     _drawAllClouds(ctx){
-        for(const cloud of this._clouds)this._withHover(ctx,cloud,HOVER_GROW.cloud,()=>{
+        for(const cloud of this._clouds){
             const cx=cloud.x, cy=cloud.y, r=G.cloudR;
             // Unresolved tier: inactive WAN or discovery pending - render the globe
             // greyed, matching the 3D map.
             const greyed=cloud.d.tier===CT.Unresolved;
 
+            // The globe is the icon here, so it grows on hover; its labels below do not.
+            this._scaledAt(ctx,cx,cy,this._hoverScale(cloud,HOVER_GROW.cloud),()=>{
             // Subtle radial fill
             const grad=ctx.createRadialGradient(cx-r*0.3,cy-r*0.3,0,cx,cy,r);
             grad.addColorStop(0,greyed?'rgba(120,130,145,0.06)':'rgba(59,130,246,0.08)');
@@ -2532,6 +2533,7 @@ class LanFlowMap2D {
             // Equator slightly brighter
             ctx.globalAlpha=0.45; ctx.lineWidth=0.9;
             ctx.beginPath(); ctx.ellipse(cx,cy,r,r*0.08,0,0,Math.PI*2); ctx.stroke();
+            });
 
             ctx.globalAlpha=1;
 
@@ -2551,7 +2553,7 @@ class LanFlowMap2D {
                 ctx.font=`${G.rateFont-1}px ${FONT}`;
                 ctx.fillText(rttTxt,cx,cy+r+22+(G.rateFont-1)/2);
             }
-        });
+        }
     }
 
     // ---- Node drawing ----
@@ -2559,19 +2561,17 @@ class LanFlowMap2D {
     _drawAllNodes(ctx,n){
         // VirtualHub: show as compact label with member count, skip children
         if(n.d.kind===NK.VirtualHub){
-            if(!this._hideVirtualHubs)this._drawFading(ctx,n,c=>this._withHover(c,n,HOVER_GROW.hub,()=>this._drawHubNode(c,n)));
+            if(!this._hideVirtualHubs)this._drawFading(ctx,n,c=>this._drawHubNode(c,n));
             return;
         }
-        this._drawFading(ctx,n,c=>this._withHover(c,n,HOVER_GROW.device,()=>this._drawInfraNode(c,n)));
-        // The rate label sits on the label layer, unscaled: push it below the grown name.
-        if(n._rateY!=null&&n._drawScale>1)n._rateY=n.y+(n._rateY-n.y-9.5)*n._drawScale+9.5;
+        this._drawFading(ctx,n,c=>this._drawInfraNode(c,n));
         for(const c of n.infra)this._drawAllNodes(ctx,c);
         const shown=Math.min(n.clients.length,G.maxClients);
         for(let i=0;i<shown;i++){
             const c=n.clients[i];
             if(!this._isNodeVisible(c))continue;
             // Off screen: the margin covers the name label, the widest thing a client draws.
-            if(this._inView(c.x,c.y,CLIENT_CULL_X,CLIENT_CULL_Y))this._drawFading(ctx,c,x=>this._withHover(x,c,HOVER_GROW.client,()=>this._drawClientNode(x,c)));
+            if(this._inView(c.x,c.y,CLIENT_CULL_X,CLIENT_CULL_Y))this._drawFading(ctx,c,x=>this._drawClientNode(x,c));
             else c._nameRect=null;
         }
         if(n.clients.length>G.maxClients){
@@ -2594,7 +2594,7 @@ class LanFlowMap2D {
         if(icon){
             const {w,h}=this._iconSize(icon,26);
             this._drawIconRing(ctx,x,y,r,color);
-            ctx.drawImage(icon,x-w/2,y-h/2,w,h);
+            this._scaledAt(ctx,x,y,this._hoverScale(n,HOVER_GROW.hub),()=>ctx.drawImage(icon,x-w/2,y-h/2,w,h));
             labelR=Math.max(r,h/2);
         } else {
             ctx.strokeStyle=color; ctx.lineWidth=2; ctx.globalAlpha=0.6;
@@ -2645,18 +2645,20 @@ class LanFlowMap2D {
         const iSz=G.iconSize;
         const modelKey=n.d.model?.toLowerCase().replace(/ /g,'-');
         const img=modelKey?this._images.get(modelKey):null;
-        if(img){
-            ctx.drawImage(img,x-iSz/2,y-iSz/2,iSz,iSz);
-        } else {
-            ctx.fillStyle=withAlpha(color,0.2);
-            const s=iSz/2-6;
-            this._roundRect(ctx,x-s,y-s,s*2,s*2,6);
-            ctx.fill();
-            ctx.fillStyle=color;
-            ctx.font=`600 18px ${FONT}`;
-            ctx.textAlign='center'; ctx.textBaseline='middle';
-            ctx.fillText((n.d.name||'D').charAt(0).toUpperCase(),x,y);
-        }
+        this._scaledAt(ctx,x,y,this._hoverScale(n,HOVER_GROW.device),()=>{
+            if(img){
+                ctx.drawImage(img,x-iSz/2,y-iSz/2,iSz,iSz);
+            } else {
+                ctx.fillStyle=withAlpha(color,0.2);
+                const s=iSz/2-6;
+                this._roundRect(ctx,x-s,y-s,s*2,s*2,6);
+                ctx.fill();
+                ctx.fillStyle=color;
+                ctx.font=`600 18px ${FONT}`;
+                ctx.textAlign='center'; ctx.textBaseline='middle';
+                ctx.fillText((n.d.name||'D').charAt(0).toUpperCase(),x,y);
+            }
+        });
         // A wireless uplink (mesh AP, Device Bridge) or a monitored cellular modem: its signal down the
         // card's right edge. Playback stats first, bars and color from the same source.
         const sig=flowData.getClientStats()?.[n.d.id]?.signalBars!=null?flowData.getClientStats()[n.d.id]:n.d;
@@ -2714,6 +2716,7 @@ class LanFlowMap2D {
 
         ctx.globalAlpha=op;
         const icon=this._clientIcon(n.d.iconUrl);
+        const hs=this._hoverScale(n,HOVER_GROW.client);
         let labelR=r;
         if(icon){
             // The client's UniFi Network icon over a disc ringed in the color the plain dot would be.
@@ -2722,7 +2725,7 @@ class LanFlowMap2D {
             const {w,h}=this._iconSize(icon,26);
             this._drawIconRing(ctx,x,y,R,color);
             ctx.globalAlpha=online?Math.min(1,op+0.3):op;
-            ctx.drawImage(icon,x-w/2,y-h/2,w,h);
+            this._scaledAt(ctx,x,y,hs,()=>ctx.drawImage(icon,x-w/2,y-h/2,w,h));
             ctx.globalAlpha=op;
             labelR=Math.max(R,h/2);
             if(n.d.kind===NK.WifiClient){
@@ -2731,25 +2734,29 @@ class LanFlowMap2D {
                 if(sBars!=null) this._drawSignalBars(ctx,x+Math.max(R,w/2)+2.5,y,sColor,sBars);
             }
         } else if(n.d.kind===NK.WifiClient){
-            ctx.fillStyle=color;
-            ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.fill();
-            ctx.strokeStyle='rgba(255,255,255,0.5)'; ctx.lineWidth=0.8;
-            ctx.beginPath();
-            ctx.moveTo(x-2.5,y-0.5);
-            ctx.quadraticCurveTo(x,y-4,x+2.5,y-0.5);
-            ctx.stroke();
+            this._scaledAt(ctx,x,y,hs,()=>{
+                ctx.fillStyle=color;
+                ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.fill();
+                ctx.strokeStyle='rgba(255,255,255,0.5)'; ctx.lineWidth=0.8;
+                ctx.beginPath();
+                ctx.moveTo(x-2.5,y-0.5);
+                ctx.quadraticCurveTo(x,y-4,x+2.5,y-0.5);
+                ctx.stroke();
+            });
             // Live stats first, as the band lookup already does: the label reads that value, so
             // taking the class off the node colors the bars after a different, older reading.
             const sg=flowData.getClientStats()?.[n.d.id];
             const sBars=sg?.signalBars??n.d.signalBars, sColor=sg?.signalColor??n.d.signalColor;
             if(sBars!=null) this._drawSignalBars(ctx,x+r+2.5,y,sColor,sBars);
         } else {
-            const s=r*0.9;
-            ctx.fillStyle=color;
-            this._roundRect(ctx,x-s,y-s+0.5,s*2,s*1.5,1.5);
-            ctx.fill();
-            ctx.beginPath(); ctx.moveTo(x,y+s*0.5+0.5); ctx.lineTo(x,y+s+1);
-            ctx.strokeStyle=color; ctx.lineWidth=1.2; ctx.stroke();
+            this._scaledAt(ctx,x,y,hs,()=>{
+                const s=r*0.9;
+                ctx.fillStyle=color;
+                this._roundRect(ctx,x-s,y-s+0.5,s*2,s*1.5,1.5);
+                ctx.fill();
+                ctx.beginPath(); ctx.moveTo(x,y+s*0.5+0.5); ctx.lineTo(x,y+s+1);
+                ctx.strokeStyle=color; ctx.lineWidth=1.2; ctx.stroke();
+            });
         }
         ctx.globalAlpha=1;
         n._labelR=labelR;
@@ -2934,9 +2941,8 @@ class LanFlowMap2D {
             const dn=r.downstreamBps??0,up=r.upstreamBps??0;
             if(dn>THRESH||up>THRESH){
                 const cx=child.x;
-                // Below the name, which an icon pushes further down than the plain dot and a hover
-                // grow pushes further still (the name's bottom scales; the gap under it does not).
-                const cy=child.y+((child._labelR??G.clientR)+14)*(child._drawScale||1)+10;
+                // Below the name, which an icon pushes further down than the plain dot.
+                const cy=child.y+(child._labelR??G.clientR)+24;
                 const dTxt='↓'+formatBps(dn), uTxt='↑'+formatBps(up);
                 const tw=ctx.measureText(dTxt+'  '+uTxt).width+12;
                 ctx.fillStyle=C.labelBg;
