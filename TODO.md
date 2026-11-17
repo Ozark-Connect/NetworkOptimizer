@@ -852,6 +852,10 @@ child's own `uplink.radio_band` and carrying `uplink.signal`, which is that one 
 `MeshParentClaim.Links` when the child reports none), is never stored. So during playback an MLO
 child's tooltip shows one Signal row, and its meter grades one link instead of the average.
 
+PHY is not part of this gap: the point's tx/rx rates are the uplink's own, which sum the MLO links,
+raised to the parent's summed claim when that is higher. Playback's Link speed already covers both
+links. Only a per-link split of PHY is missing, and nothing shows one.
+
 To do:
 
 - Record every MLO link's signal, using `LanFlowMapService.MloLinkSignals`'s source order: the
