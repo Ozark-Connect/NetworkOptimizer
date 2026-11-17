@@ -14,13 +14,22 @@ public class ChangeDetectionTests
 
     private static ObjectDiff Diff(string collection, string id, string name, params FieldChange[] fields) => new()
     {
-        Collection = collection, ObjectId = id, Name = name, Action = ConfigChangeAction.Updated, Fields = [.. fields],
+        Collection = collection,
+        ObjectId = id,
+        Name = name,
+        Action = ConfigChangeAction.Updated,
+        Fields = [.. fields],
     };
 
     private static AuditLogEvent Event(string objectId, string admin = "Alex", int secondsAgo = 30) => new()
     {
-        Id = Guid.NewGuid().ToString(), Key = "MADE_CHANGES_ONE_SETTING_OBJECT", AdminId = "a1", AdminName = admin,
-        Ip = "203.0.113.24", ObjectId = objectId, Timestamp = new DateTimeOffset(Now.AddSeconds(-secondsAgo)).ToUnixTimeMilliseconds(),
+        Id = Guid.NewGuid().ToString(),
+        Key = "MADE_CHANGES_ONE_SETTING_OBJECT",
+        AdminId = "a1",
+        AdminName = admin,
+        Ip = "203.0.113.24",
+        ObjectId = objectId,
+        Timestamp = new DateTimeOffset(Now.AddSeconds(-secondsAgo)).ToUnixTimeMilliseconds(),
     };
 
     [Fact]
@@ -71,8 +80,13 @@ public class ChangeDetectionTests
     // before UniFi's audit event for it arrived.
     private static ConfigWriteJournalEntry PpskWrite(int secondsAgo) => new()
     {
-        At = Now.AddSeconds(-secondsAgo), Method = "PUT", Path = "rest/wlanconf/w1", Collection = "wlanconf", ObjectId = "w1",
-        Source = "change-control:plan:66", FieldsJson = """["name","private_preshared_keys"]""",
+        At = Now.AddSeconds(-secondsAgo),
+        Method = "PUT",
+        Path = "rest/wlanconf/w1",
+        Collection = "wlanconf",
+        ObjectId = "w1",
+        Source = "change-control:plan:66",
+        FieldsJson = """["name","private_preshared_keys"]""",
     };
 
     private static ObjectDiff PpskDiff(string path = "private_preshared_keys") =>
@@ -112,12 +126,22 @@ public class ChangeDetectionTests
         };
         var rename = new AuditLogEvent
         {
-            Id = "e1", Timestamp = new DateTimeOffset(Now).ToUnixTimeMilliseconds(), Key = "MADE_CHANGES_ONE_SETTING_OBJECT",
-            AdminName = "TJ", Ip = "192.0.2.5", ObjectId = "w1", ObjectName = "Skynet-IoT", Section = "WIFI", SettingField = "name",
+            Id = "e1",
+            Timestamp = new DateTimeOffset(Now).ToUnixTimeMilliseconds(),
+            Key = "MADE_CHANGES_ONE_SETTING_OBJECT",
+            AdminName = "TJ",
+            Ip = "192.0.2.5",
+            ObjectId = "w1",
+            ObjectName = "Skynet-IoT",
+            Section = "WIFI",
+            SettingField = "name",
         };
         var diff = new ObjectDiff
         {
-            Collection = "wlanconf", ObjectId = "w1", Name = "Skynet-IoT", Action = ConfigChangeAction.Updated,
+            Collection = "wlanconf",
+            ObjectId = "w1",
+            Name = "Skynet-IoT",
+            Action = ConfigChangeAction.Updated,
             Fields = [new FieldChange("name", "SSID-Here-IoT", "Skynet-IoT")],
         };
 
@@ -155,12 +179,21 @@ public class ChangeDetectionTests
         };
         var own = new AuditLogEvent
         {
-            Id = "e2", Timestamp = new DateTimeOffset(Now.AddSeconds(-29)).ToUnixTimeMilliseconds(), Key = "MADE_CHANGES_ONE_SETTING_OBJECT",
-            AdminName = "netopt", ObjectId = "w1", ObjectName = "Home", Section = "WIFI", SettingField = "name",
+            Id = "e2",
+            Timestamp = new DateTimeOffset(Now.AddSeconds(-29)).ToUnixTimeMilliseconds(),
+            Key = "MADE_CHANGES_ONE_SETTING_OBJECT",
+            AdminName = "netopt",
+            ObjectId = "w1",
+            ObjectName = "Home",
+            Section = "WIFI",
+            SettingField = "name",
         };
         var diff = new ObjectDiff
         {
-            Collection = "wlanconf", ObjectId = "w1", Name = "Home", Action = ConfigChangeAction.Updated,
+            Collection = "wlanconf",
+            ObjectId = "w1",
+            Name = "Home",
+            Action = ConfigChangeAction.Updated,
             Fields = [new FieldChange("name", "Old", "Home")],
         };
 
@@ -226,7 +259,10 @@ public class ChangeDetectionTests
         };
         var renamed = Event("aa:bb:cc:dd:ee:ff", admin: "Network Optimizer", secondsAgo: 19) with
         {
-            Section = "CLIENT", SettingCollection = "user", SettingField = "name", ObjectName = "Rig",
+            Section = "CLIENT",
+            SettingCollection = "user",
+            SettingField = "name",
+            ObjectName = "Rig",
         };
         var diff = Diff("user", "u1", "Rig", new FieldChange("name", "Old Rig", "Rig"));
 
@@ -241,11 +277,17 @@ public class ChangeDetectionTests
         // The event names the client by MAC and by its name from before the edit.
         var renamed = Event("aa:bb:cc:dd:ee:ff", admin: "TJ") with
         {
-            Section = "CLIENT", SettingCollection = "user", SettingField = "name", ObjectName = "Old Rig",
+            Section = "CLIENT",
+            SettingCollection = "user",
+            SettingField = "name",
+            ObjectName = "Old Rig",
         };
         var diff = new ObjectDiff
         {
-            Collection = "user", ObjectId = "u1", Name = "Rig", Action = ConfigChangeAction.Updated,
+            Collection = "user",
+            ObjectId = "u1",
+            Name = "Rig",
+            Action = ConfigChangeAction.Updated,
             Fields = [new FieldChange("name", "Old Rig", "Rig")],
             Before = new JsonObject { ["_id"] = "u1", ["mac"] = "aa:bb:cc:dd:ee:ff", ["name"] = "Old Rig" },
             After = new JsonObject { ["_id"] = "u1", ["mac"] = "aa:bb:cc:dd:ee:ff", ["name"] = "Rig" },
@@ -262,7 +304,10 @@ public class ChangeDetectionTests
         // An admin renames one client in UniFi Network; NO renames another 12 s later. Both land in one pass.
         static ObjectDiff Client(string id, string mac, string from, string to) => new()
         {
-            Collection = "user", ObjectId = id, Name = to, Action = ConfigChangeAction.Updated,
+            Collection = "user",
+            ObjectId = id,
+            Name = to,
+            Action = ConfigChangeAction.Updated,
             Fields = [new FieldChange("name", from, to)],
             Before = new JsonObject { ["_id"] = id, ["mac"] = mac, ["name"] = from },
             After = new JsonObject { ["_id"] = id, ["mac"] = mac, ["name"] = to },
@@ -271,11 +316,17 @@ public class ChangeDetectionTests
         var ours = Client("u2", "aa:bb:cc:dd:ee:02", "Other NIC", "Other");
         var adminEvent = Event("aa:bb:cc:dd:ee:01", admin: "TJ", secondsAgo: 32) with
         {
-            Section = "CLIENT", SettingCollection = "user", SettingField = "name", ObjectName = "Rig NIC",
+            Section = "CLIENT",
+            SettingCollection = "user",
+            SettingField = "name",
+            ObjectName = "Rig NIC",
         };
         var ourEvent = Event("aa:bb:cc:dd:ee:02", admin: "Network Optimizer", secondsAgo: 20) with
         {
-            Section = "CLIENT", SettingCollection = "user", SettingField = "name", ObjectName = "Other NIC",
+            Section = "CLIENT",
+            SettingCollection = "user",
+            SettingField = "name",
+            ObjectName = "Other NIC",
         };
         var journal = new List<ConfigWriteJournalEntry>
         {
@@ -294,7 +345,10 @@ public class ChangeDetectionTests
         var renamed = Event(null!) with { Section = "WIFI", SettingField = "name", ObjectName = "Home" };
         var diff = new ObjectDiff
         {
-            Collection = "wlanconf", ObjectId = "w1", Name = "Home 2", Action = ConfigChangeAction.Updated,
+            Collection = "wlanconf",
+            ObjectId = "w1",
+            Name = "Home 2",
+            Action = ConfigChangeAction.Updated,
             Fields = [new FieldChange("name", "Home", "Home 2")],
             Before = new JsonObject { ["_id"] = "w1", ["name"] = "Home" },
             After = new JsonObject { ["_id"] = "w1", ["name"] = "Home 2" },
@@ -347,7 +401,9 @@ public class ChangeDetectionTests
 
     private static AuditLogEvent IndexEvent(string policyId, string admin = "TJ") => Event(policyId, admin) with
     {
-        Section = "FIREWALL_POLICY", SettingCollection = "firewall_policy", SettingField = "index",
+        Section = "FIREWALL_POLICY",
+        SettingCollection = "firewall_policy",
+        SettingField = "index",
     };
 
     [Fact]
@@ -387,7 +443,10 @@ public class ChangeDetectionTests
 
     private static ObjectDiff Renamed(string name) => new()
     {
-        Collection = "firewall_policy", ObjectId = "p4", Name = name, Action = ConfigChangeAction.Updated,
+        Collection = "firewall_policy",
+        ObjectId = "p4",
+        Name = name,
+        Action = ConfigChangeAction.Updated,
         Fields = [new FieldChange("name", JsonValue.Create("Old name"), JsonValue.Create(name))],
     };
 
@@ -432,13 +491,20 @@ public class ChangeDetectionTests
 
     private static ConfigChangeObject Stored(string collection, string name, params StoredField[] fields) => new()
     {
-        Collection = collection, ObjectId = name, ObjectName = name, Action = ConfigChangeAction.Updated,
+        Collection = collection,
+        ObjectId = name,
+        ObjectName = name,
+        Action = ConfigChangeAction.Updated,
         FieldsJson = System.Text.Json.JsonSerializer.Serialize(fields.ToList()),
     };
 
     private static ConfigChangeObject StoredCreated(string collection, string name) => new()
     {
-        Collection = collection, ObjectId = name, ObjectName = name, Action = ConfigChangeAction.Created, FieldsJson = "[]",
+        Collection = collection,
+        ObjectId = name,
+        ObjectName = name,
+        Action = ConfigChangeAction.Created,
+        FieldsJson = "[]",
     };
 
     [Fact]
@@ -568,8 +634,10 @@ public class ChangeDetectionTests
     {
         var suppression = Stored("setting", "ips_suppression", new StoredField
         {
-            Path = "alerts[entry=1].tracking[entry=2].value", Label = "ET SCAN Potential SSH Scan OUTBOUND: Tracked Address 2",
-            Old = "192.0.2.10", New = "198.51.100.10",
+            Path = "alerts[entry=1].tracking[entry=2].value",
+            Label = "ET SCAN Potential SSH Scan OUTBOUND: Tracked Address 2",
+            Old = "192.0.2.10",
+            New = "198.51.100.10",
         });
         var view = ChangeControlService.ObjectView(suppression);
         view.Name.Should().Be("CyberSecure - Suppressed Signatures");
@@ -613,7 +681,10 @@ public class ChangeDetectionTests
     {
         var network = Stored("networkconf", "IoT", new StoredField
         {
-            Path = "lte_lan_enabled_devices", Label = "Lte LAN Enabled Devices", Old = "none", New = "aa:bb:cc:dd:ee:ff",
+            Path = "lte_lan_enabled_devices",
+            Label = "Lte LAN Enabled Devices",
+            Old = "none",
+            New = "aa:bb:cc:dd:ee:ff",
         });
 
         ChangeControlService.ObjectView(network).Fields.Single().Label.Should().Be("LTE LAN Enabled Devices");
@@ -726,8 +797,12 @@ public class ChangeDetectionTests
         };
         AuditLogEvent Event(string section, string? objectId) => new()
         {
-            Key = "MADE_CHANGES_ONE_SETTING_OBJECT", Timestamp = new DateTimeOffset(at.AddSeconds(1)).ToUnixTimeMilliseconds(),
-            AdminName = "Network Optimizer", ObjectId = objectId, Section = section, SettingCollection = "device",
+            Key = "MADE_CHANGES_ONE_SETTING_OBJECT",
+            Timestamp = new DateTimeOffset(at.AddSeconds(1)).ToUnixTimeMilliseconds(),
+            AdminName = "Network Optimizer",
+            ObjectId = objectId,
+            Section = section,
+            SettingCollection = "device",
         };
 
         ChangeAttributor.IsOwnEvent(Event("DEVICE", "aa:bb:cc:dd:ee:ff"), journal).Should().BeTrue();
@@ -807,7 +882,10 @@ public class ChangeDetectionTests
     {
         var group = new ObjectDiff
         {
-            Collection = "apgroups", ObjectId = "g9", Name = "devices_ap_group", Action = ConfigChangeAction.Deleted,
+            Collection = "apgroups",
+            ObjectId = "g9",
+            Name = "devices_ap_group",
+            Action = ConfigChangeAction.Deleted,
             Before = (JsonObject)JsonNode.Parse("""{"_id":"g9","name":"devices_ap_group","for_wlanconf":true}""")!,
         };
         var journal = new List<ConfigWriteJournalEntry>
@@ -848,13 +926,19 @@ public class ChangeDetectionTests
     {
         var gateway = new ObjectDiff
         {
-            Collection = "device", ObjectId = "d1", Name = "Gateway", Action = ConfigChangeAction.Updated,
+            Collection = "device",
+            ObjectId = "d1",
+            Name = "Gateway",
+            Action = ConfigChangeAction.Updated,
             After = JsonNode.Parse("""{"_id":"d1","mac":"AA:BB:CC:DD:EE:01"}""")!.AsObject(),
             Fields = [new FieldChange("mgmt_network_id", null, null)],
         };
         var switchDiff = new ObjectDiff
         {
-            Collection = "device", ObjectId = "d2", Name = "Switch", Action = ConfigChangeAction.Updated,
+            Collection = "device",
+            ObjectId = "d2",
+            Name = "Switch",
+            Action = ConfigChangeAction.Updated,
             After = JsonNode.Parse("""{"_id":"d2","mac":"aa:bb:cc:dd:ee:02"}""")!.AsObject(),
             Fields = [new FieldChange("mgmt_network_id", null, null)],
         };
@@ -911,6 +995,33 @@ public class ChangeDetectionTests
         rows.Should().Contain(r => r.Label == "Security Protocol" && r.Old == "WPA2" && r.New == "WPA2/WPA3");
         rows.Should().Contain(r => r.Label == "PMF" && r.Old == "Disabled" && r.New == "Optional");
         ChangeDescriber.Summary(diff).Should().Be("WLAN Home: security WPA2 to WPA2/WPA3");
+    }
+
+    [Fact]
+    public void Describer_RegeneratedIconOfTheSameModel_ShowsBothIconIds_InRowsAndTheRecord()
+    {
+        // The rest/user ai_icon shape: a regenerated "Wall Server" keeps the model, gets a new icon.
+        var before = Obj("""
+            {"_id":"u1","mac":"aa:bb:cc:dd:ee:01","name":"[Server] VM","ai_icon":{"model":"Wall Server","manufacturer":"Acme",
+              "icon_set_id":"gen_91628D4B59D0FDA4","icon_id":"2e80f468ec8d2585","request_id":"req_1",
+              "assets":[{"url":"https://example.invalid/2e80f468_25x25.png","width":25,"height":25}]}}
+            """);
+        var after = Obj("""
+            {"_id":"u1","mac":"aa:bb:cc:dd:ee:01","name":"[Server] VM","ai_icon":{"model":"Wall Server","manufacturer":"Acme",
+              "icon_set_id":"ciu_7E4583B4EB5DA995","icon_id":"743cfd4578047c8b","request_id":"req_2",
+              "assets":[{"url":"https://example.invalid/743cfd45_25x25.png","width":25,"height":25}]}}
+            """);
+        var diff = ConfigDiffEngine.CompareObjects(ConfigCollections.Get("user")!, before, after)!;
+
+        diff.Fields.Should().ContainSingle(f => f.Path == "ai_icon");
+        ChangeDescriber.Rows(diff).Should().ContainSingle(r => r.Label == "Custom Icon"
+            && r.Old == "Wall Server (icon 2e80f468)" && r.New == "Wall Server (icon 743cfd45)");
+
+        // Recorded, then read back as the Changes detail and list summaries show it.
+        var names = new ConfigIdentityContext(new Dictionary<string, string>());
+        var (shown, _) = ChangeControlService.DisplayFields(ChangeControlSiteEngine.ToRecord(diff, names, names));
+        shown.Should().ContainSingle(f => f.Label == "Custom Icon"
+            && f.Old == "Wall Server (icon 2e80f468)" && f.New == "Wall Server (icon 743cfd45)");
     }
 
     [Fact]
