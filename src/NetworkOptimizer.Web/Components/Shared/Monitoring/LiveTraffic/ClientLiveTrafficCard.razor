@@ -110,7 +110,7 @@
             <div @onmouseenter="Feed.Hold.PointerIn" @onmouseleave="Feed.Hold.PointerOut" @ontouchstart="Feed.Hold.Touched">
                 <div class="table-responsive lt-desktop-only">
                     <table class="results-table lt-flows">
-                        <colgroup><col style="width:3.3rem"><col style="width:20%"><col style="width:11%"><col style="width:11%"><col style="width:10%"><col style="width:9%"><col style="width:8%"><col style="width:9%"><col style="width:9%"><col style="width:9%"><col style="width:100px"></colgroup>
+                        <colgroup><col style="width:3.3rem"><col style="width:20%"><col style="width:11%"><col style="width:11%"><col style="width:10%"><col style="width:9%"><col style="width:9%"><col style="width:9%"><col style="width:8%"><col style="width:9%"><col style="width:100px"></colgroup>
                         <thead>
                             <tr>
                                 <th>#</th>
@@ -119,9 +119,9 @@
                                 @SortHeader(LiveFlowSort.Route, "Route")
                                 @SortHeader(LiveFlowSort.Download, "Download")
                                 @SortHeader(LiveFlowSort.Upload, "Upload")
-                                @SortHeader(LiveFlowSort.Total, "Total")
                                 @RecentSortHeader(LiveFlowSort.RecentDown)
                                 @RecentSortHeader(LiveFlowSort.RecentUp)
+                                @SortHeader(LiveFlowSort.Total, "Total")
                                 @SortHeader(LiveFlowSort.Started, Feed.Ended ? "Ended" : "Started")
                                 <th>Trend</th>
                             </tr>
@@ -208,8 +208,8 @@
     private readonly LiveSlotHold _slots = new();
 
     private static readonly (LiveFlowSort Col, string Label)[] MobileSorts =
-        [(LiveFlowSort.Download, "Down"), (LiveFlowSort.Upload, "Up"), (LiveFlowSort.Total, "Total"),
-         (LiveFlowSort.RecentDown, "Recent"), (LiveFlowSort.RecentUp, "Recent"), (LiveFlowSort.Started, "Started")];
+        [(LiveFlowSort.Download, "Down"), (LiveFlowSort.Upload, "Up"),
+         (LiveFlowSort.RecentDown, "Recent"), (LiveFlowSort.RecentUp, "Recent"), (LiveFlowSort.Total, "Total"), (LiveFlowSort.Started, "Started")];
 
     private LiveTrafficView? View => Feed.View;
 

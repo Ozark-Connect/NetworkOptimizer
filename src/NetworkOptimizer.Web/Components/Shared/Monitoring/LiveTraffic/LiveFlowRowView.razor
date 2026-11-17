@@ -26,9 +26,9 @@
             <td>@RoutePill(f)</td>
             <td class="lt-num">@Rate(f.Ended ? 0 : f.DownBps, "speed-down")</td>
             <td class="lt-num">@Rate(f.Ended ? 0 : f.UpBps, "speed-up")</td>
-            <td class="lt-num">@DisplayFormatters.FormatBytes(f.TotalBytes)</td>
             <td class="lt-num">@DisplayFormatters.FormatBytes(f.RecentDownBytes)</td>
             <td class="lt-num">@DisplayFormatters.FormatBytes(f.RecentUpBytes)</td>
+            <td class="lt-num">@DisplayFormatters.FormatBytes(f.TotalBytes)</td>
             <td class="lt-secondary lt-num">@LiveTrafficDisplay.StartedLabel(f)</td>
             <td>@Spark(f.History)</td>
         </tr>
