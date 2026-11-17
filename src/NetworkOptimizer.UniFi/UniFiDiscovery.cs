@@ -120,7 +120,8 @@ public class UniFiDiscovery
             Mac = d.Mac,
             Name = d.Name,
             Type = effectiveType,
-            HardwareType = d.DeviceType,
+            HardwareType = d.HardwareType,
+            DeviceModeOverride = d.DeviceModeOverride,
             Model = d.Model,
             Shortname = d.Shortname,
             IpAddress = d.Ip,
@@ -194,6 +195,96 @@ public class UniFiDiscovery
     }
 
     private static string NormalizeMac(string mac) => mac.ToLowerInvariant().Replace('-', ':');
+
+    /// <summary>
+    /// The site's gateway: the first device whose role is Gateway, else the first gateway-class
+    /// device whose role the mode field did not set (a Wi-Fi gateway the uplink rule demoted).
+    /// An Express adopted as an AP never shadows the real gateway; a site with only one gets null.
+    /// </summary>
+    public static DiscoveredDevice? SiteGateway(IEnumerable<DiscoveredDevice>? devices)
+    {
+        if (devices == null) return null;
+        var all = devices as IList<DiscoveredDevice> ?? devices.ToList();
+        return all.FirstOrDefault(d => d.Type == DeviceType.Gateway)
+            ?? all.FirstOrDefault(IsHardwareGatewayFallback);
+    }
+
+    /// <summary>
+    /// Every gateway on the site (an HA pair has two), by the same rule as <see cref="SiteGateway"/>:
+    /// all role gateways, else all hardware fallbacks.
+    /// </summary>
+    public static List<DiscoveredDevice> SiteGateways(IEnumerable<DiscoveredDevice> devices)
+    {
+        var all = devices as IList<DiscoveredDevice> ?? devices.ToList();
+        var byRole = all.Where(d => d.Type == DeviceType.Gateway).ToList();
+        return byRole.Count > 0 ? byRole : all.Where(IsHardwareGatewayFallback).ToList();
+    }
+
+    private static bool IsHardwareGatewayFallback(DiscoveredDevice d) =>
+        d.HardwareType == DeviceType.Gateway && d.DeviceModeOverride == null;
+
+    /// <summary>
+    /// Fills the wired uplink of a gateway-class device adopted as an AP by its mode (an Express
+    /// in AP mode), from LLDP on its uplink port. Such a device reports no uplink_mac, so without
+    /// this nothing names its wired parent. Only empty fields are filled, in place.
+    /// </summary>
+    /// <remarks>
+    /// Never applied to a role gateway: its uplink port is the WAN port, and a filled uplink_mac
+    /// there would make the uplink rule in <see cref="DetermineDeviceType"/> demote it.
+    /// </remarks>
+    public static void FillWiredParentFromLldp(IReadOnlyList<UniFiDeviceResponse> devices)
+    {
+        var byMac = new Dictionary<string, UniFiDeviceResponse>(StringComparer.OrdinalIgnoreCase);
+        foreach (var d in devices)
+            if (!string.IsNullOrEmpty(d.Mac)) byMac.TryAdd(NormalizeMac(d.Mac), d);
+
+        // A mesh child the parent lists in its downlink_table: its uplink is wireless even when the
+        // child's own block is empty, and BuildMeshParentByChild supplies the parent.
+        var meshChildren = new HashSet<string>(
+            devices.SelectMany(d => d.DownlinkTable ?? [])
+                .Select(l => l.SerialNo ?? l.MldMac).OfType<string>().Select(NormalizeMac),
+            StringComparer.OrdinalIgnoreCase);
+
+        foreach (var child in devices)
+        {
+            if (child.HardwareType != DeviceType.Gateway || child.DeviceType != DeviceType.AccessPoint) continue;
+            if (!string.IsNullOrEmpty(child.Uplink?.UplinkMac) || string.IsNullOrEmpty(child.Mac)) continue;
+            if (string.Equals(child.Uplink?.Type, "wireless", StringComparison.OrdinalIgnoreCase)) continue;
+            if (meshChildren.Contains(NormalizeMac(child.Mac))) continue;
+
+            var uplinkPort = child.PortTable?.FirstOrDefault(p => p.IsUplink);
+            if (uplinkPort == null) continue;
+
+            var entry = child.LldpTable?.FirstOrDefault(l => l.IsWired && l.LocalPortIdx == uplinkPort.PortIdx);
+            var parentMac = LldpMac(entry);
+            if (parentMac == null || !byMac.TryGetValue(parentMac, out var parent)) continue;
+            var childMac = NormalizeMac(child.Mac);
+            if (parentMac == childMac) continue;
+            // A device wired below a mesh child's port also shows on LLDP; it uplinks to the child.
+            if (parent.Uplink?.UplinkMac is { Length: > 0 } pu && NormalizeMac(pu) == childMac) continue;
+
+            var uplink = child.Uplink ??= new UplinkInfo();
+            uplink.UplinkMac = parent.Mac;
+            if (uplink.UplinkRemotePort == 0)
+            {
+                var back = parent.LldpTable?.FirstOrDefault(l => l.IsWired && LldpMac(l) == childMac);
+                if (back?.LocalPortIdx is int remote) uplink.UplinkRemotePort = remote;
+            }
+            if (string.IsNullOrEmpty(uplink.Type)) uplink.Type = "wire";
+            uplink.PortIdx ??= uplinkPort.PortIdx;
+            // Up and Speed are non-nullable; false / 0 is what an absent field deserializes to.
+            if (!uplink.Up) uplink.Up = uplinkPort.Up;
+            if (uplink.Speed == 0) uplink.Speed = uplinkPort.Speed;
+        }
+    }
+
+    /// <summary>The LLDP neighbor's chassis MAC, normalized, or null when the chassis ID is not a MAC.</summary>
+    private static string? LldpMac(UniFiLldpEntry? entry)
+    {
+        if (entry == null || string.IsNullOrEmpty(entry.ChassisId)) return null;
+        if (entry.ChassisIdSubtype is not ("mac" or "local")) return null;
+        return NormalizeMac(entry.ChassisId);
+    }
 
     /// <summary>
     /// Mesh parent for each child that does not report one itself, read from the other end.
@@ -837,9 +928,11 @@ public class UniFiDiscovery
     /// </summary>
     /// <remarks>
     /// UX (Express) devices report type "udm" but may be configured as mesh APs
-    /// rather than gateways. Detection uses uplink analysis: if a UDM-type device
-    /// has an uplink to another UniFi device, it's acting as a mesh AP, not the gateway.
-    /// The actual gateway either has no uplink or uplinks to a non-UniFi device (ISP modem).
+    /// rather than gateways. The device's own mode (device_mode_override "mesh") decides
+    /// first, through <see cref="UniFiDeviceResponse.DeviceType"/>. When it does not, detection
+    /// uses uplink analysis: if a UDM-type device has an uplink to another UniFi device, it's
+    /// acting as a mesh AP, not the gateway. The actual gateway either has no uplink or uplinks
+    /// to a non-UniFi device (ISP modem).
     /// </remarks>
     public static DeviceType DetermineDeviceType(
         UniFiDeviceResponse device,
@@ -978,14 +1071,20 @@ public class DiscoveredDevice
     public DeviceType Type { get; set; }
 
     /// <summary>
-    /// The original hardware type from the UniFi API (before uplink-based adjustment).
+    /// The original hardware type from the UniFi API (before mode- and uplink-based adjustment).
     /// Use this to identify gateway-class hardware regardless of its current role.
     /// </summary>
     public DeviceType HardwareType { get; set; }
 
     /// <summary>
+    /// The device's device_mode_override as reported ("mesh" for an Express adopted as an AP),
+    /// or null when absent. A non-null value means the mode field, not topology, set the role.
+    /// </summary>
+    public string? DeviceModeOverride { get; set; }
+
+    /// <summary>
     /// True when this is a gateway-class device (UDR, UX, etc.) with HardwareType = Gateway
-    /// that is acting as a mesh Access Point due to uplink to another UniFi device.
+    /// that is acting as a mesh Access Point, by its device mode or its uplink to another UniFi device.
     /// </summary>
     public bool IsActingAsAccessPoint => HardwareType == DeviceType.Gateway && Type == DeviceType.AccessPoint;
 

@@ -267,11 +267,10 @@ public sealed partial class ChangeControlService
     internal static Dictionary<string, int> DeviceDepths(ConfigState site)
     {
         var devices = site.Get("device").Where(d => d["mac"] != null && d["_id"] != null).ToList();
-        string? Meta(JsonObject d, string key) => (d[ConfigCollections.DeviceMetaField] as JsonObject)?[key] is JsonValue v ? v.ToString() : null;
         var planner = devices.Select(d => new Firmware.PlannerDevice
         {
             Mac = d["mac"]!.ToString().ToLowerInvariant(),
-            Type = Meta(d, "type") is "ugw" or "udm" or "uxg" ? NetworkOptimizer.Core.Enums.DeviceType.Gateway : NetworkOptimizer.Core.Enums.DeviceType.Unknown,
+            Type = ConfigCollections.IsGateway(d) ? NetworkOptimizer.Core.Enums.DeviceType.Gateway : NetworkOptimizer.Core.Enums.DeviceType.Unknown,
             UplinkMac = ((d[ConfigCollections.DeviceMetaField] as JsonObject)?["uplink"] as JsonObject)?["uplink_mac"]?.ToString().ToLowerInvariant(),
         }).ToList();
         var depths = Firmware.RolloutPlanner.ComputeDepths(planner);
@@ -323,9 +322,9 @@ public sealed partial class ChangeControlService
         }
     }
 
-    /// <summary>The site's gateways by ID (ugw, udm, uxg).</summary>
+    /// <summary>The site's gateways by ID (ugw, udm, uxg; not an Express adopted as an AP).</summary>
     internal static HashSet<string> GatewayIds(ConfigState live) =>
-        live.Get("device").Where(d => d[ConfigCollections.DeviceMetaField]?["type"]?.ToString() is "ugw" or "udm" or "uxg")
+        live.Get("device").Where(ConfigCollections.IsGateway)
             .Select(ConfigState.IdOf).ToHashSet(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>One settings move for the plan note; a setting named by its own address is not named twice.</summary>

@@ -26,11 +26,25 @@ public class UniFiDeviceResponse
     public string Type { get; set; } = string.Empty;
 
     /// <summary>
-    /// Normalized device type enum value.
+    /// Normalized device type enum value: the device's role on this site.
     /// Uses product identity to normalize power appliances that the controller reports
-    /// as switches, access points, or dedicated SmartPower devices.
+    /// as switches, access points, or dedicated SmartPower devices, and the device mode to
+    /// make a gateway-class device adopted as an access point (an Express in AP mode) an AP.
     /// </summary>
-    public DeviceType DeviceType => UniFiProductDatabase.ClassifyDeviceType(Type, Model, Shortname);
+    public DeviceType DeviceType => UniFiProductDatabase.ClassifyDeviceType(Type, Model, Shortname, DeviceModeOverride);
+
+    /// <summary>
+    /// What the device is, regardless of the mode it runs in: an Express in AP mode is still
+    /// Gateway here. Use it for hardware facts (SSH credentials, gateway-class templates).
+    /// </summary>
+    public DeviceType HardwareType => UniFiProductDatabase.ClassifyDeviceType(Type, Model, Shortname);
+
+    /// <summary>
+    /// Mode a gateway-class device is adopted in: absent for a gateway, "mesh" for an Express
+    /// adopted as an access point, "managed_shadow_gateway" for a shadow gateway.
+    /// </summary>
+    [JsonPropertyName("device_mode_override")]
+    public string? DeviceModeOverride { get; set; }
 
     [JsonPropertyName("model")]
     public string Model { get; set; } = string.Empty;
@@ -198,6 +212,10 @@ public class UniFiDeviceResponse
     /// </summary>
     [JsonPropertyName("last_uplink")]
     public UplinkInfo? LastUplink { get; set; }
+
+    /// <summary>LLDP neighbors this device sees, one entry per local port.</summary>
+    [JsonPropertyName("lldp_table")]
+    public List<UniFiLldpEntry>? LldpTable { get; set; }
 
     // Stats
     [JsonPropertyName("stat")]
@@ -796,6 +814,37 @@ public class SwitchPort
     /// <summary>SFP module compliance type (e.g., "1000BASE-LX", "PON").</summary>
     [JsonPropertyName("sfp_compliance")]
     public string? SfpCompliance { get; set; }
+}
+
+/// <summary>
+/// One LLDP neighbor from a device's lldp_table.
+/// </summary>
+public class UniFiLldpEntry
+{
+    /// <summary>Neighbor chassis ID; a MAC address when the subtype is "mac" or "local".</summary>
+    [JsonPropertyName("chassis_id")]
+    public string? ChassisId { get; set; }
+
+    /// <summary>Chassis ID subtype: "mac", "local", and others.</summary>
+    [JsonPropertyName("chassis_id_subtype")]
+    public string? ChassisIdSubtype { get; set; }
+
+    /// <summary>Neighbor's port ID.</summary>
+    [JsonPropertyName("port_id")]
+    public string? PortId { get; set; }
+
+    /// <summary>Local port index the neighbor was seen on.</summary>
+    [JsonPropertyName("local_port_idx")]
+    [JsonConverter(typeof(FlexibleIntConverter))]
+    public int? LocalPortIdx { get; set; }
+
+    /// <summary>Local interface name the neighbor was seen on (e.g. "eth1").</summary>
+    [JsonPropertyName("local_port_name")]
+    public string? LocalPortName { get; set; }
+
+    /// <summary>Whether the neighbor is on a wired port.</summary>
+    [JsonPropertyName("is_wired")]
+    public bool IsWired { get; set; }
 }
 
 public class UplinkInfo

@@ -204,7 +204,7 @@ public static class DeviceReplacement
     private static string KindOf(JsonObject device, JsonObject meta)
     {
         var type = Str(device, "type") ?? Str(meta, "type") ?? "";
-        if (type is "ugw" or "udm" or "uxg") return "gateway";
+        if (ConfigCollections.IsGateway(device)) return "gateway";
         if (type == "uap" || meta["radios"] is JsonArray { Count: > 0 } && meta["ports"] is not JsonArray { Count: > 2 }) return "ap";
         return "switch";
     }

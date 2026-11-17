@@ -1866,7 +1866,7 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
     {
         if (string.IsNullOrEmpty(networkGroup) || _client == null) return null;
         var rawDevices = await _client.GetDevicesAsync(ct);
-        var gw = rawDevices.FirstOrDefault(d => d.Type is "ugw" or "udm" or "uxg");
+        var gw = rawDevices.FirstOrDefault(d => d.Type is "ugw" or "udm" or "uxg" && d.DeviceType == DeviceType.Gateway);
         if (gw == null) return null;
 
         var wanInterfaces = gw.GetWanInterfaces();
@@ -1909,7 +1909,7 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
         var results = new List<PrimaryWanInterfaces>();
         if (_client == null) return results;
         var rawDevices = await _client.GetDevicesAsync(ct);
-        var gw = rawDevices.FirstOrDefault(d => d.Type is "ugw" or "udm" or "uxg");
+        var gw = rawDevices.FirstOrDefault(d => d.Type is "ugw" or "udm" or "uxg" && d.DeviceType == DeviceType.Gateway);
         if (gw == null) return results;
 
         var wanInterfaces = gw.GetWanInterfaces();

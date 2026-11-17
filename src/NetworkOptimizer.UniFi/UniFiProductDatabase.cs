@@ -1004,14 +1004,26 @@ public static class UniFiProductDatabase
     /// Older power appliances report as switches or access points, while newer ones use
     /// the dedicated usp type. The product allow-list normalizes all of them without
     /// treating real managed switches with power capabilities as SmartPower devices.
+    /// A gateway-class device whose device_mode_override is "mesh" (an Express adopted as an
+    /// AP) is an AccessPoint; any other mode value leaves the result unchanged.
     /// </summary>
-    public static DeviceType ClassifyDeviceType(string? apiType, string? model, string? shortname)
+    public static DeviceType ClassifyDeviceType(string? apiType, string? model, string? shortname, string? deviceModeOverride = null)
     {
         if (IsPowerDevice(model, shortname))
             return DeviceType.SmartPower;
 
-        return DeviceTypeExtensions.FromUniFiApiType(apiType, model);
+        var type = DeviceTypeExtensions.FromUniFiApiType(apiType, model);
+        // Model-agnostic on purpose: UniFi's web UI keys this on the mode field alone.
+        if (type == DeviceType.Gateway && IsAccessPointMode(deviceModeOverride))
+            return DeviceType.AccessPoint;
+        return type;
     }
+
+    /// <summary>
+    /// Whether a gateway-class device's device_mode_override puts it in access point mode.
+    /// </summary>
+    public static bool IsAccessPointMode(string? deviceModeOverride) =>
+        string.Equals(deviceModeOverride, "mesh", StringComparison.Ordinal);
 
     /// <summary>
     /// Check if a model code represents a cellular/LTE modem

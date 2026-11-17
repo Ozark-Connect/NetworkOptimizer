@@ -6356,7 +6356,7 @@
         try
         {
             var devices = await ConnectionService.GetDiscoveredDevicesAsync();
-            var gateway = devices.FirstOrDefault(d => d.HardwareType == NetworkOptimizer.Core.Enums.DeviceType.Gateway);
+            var gateway = UniFiDiscovery.SiteGateway(devices);
             var model = gateway?.Shortname ?? gateway?.Model ?? "";
 
             // A UXG is adopted like any other device, so UniFi Network's Device SSH Settings reaches

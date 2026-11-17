@@ -618,8 +618,7 @@ else
                 // through it, or every gateway tile blanks for the length of a tunnel reconnect.
                 if (devices is { Count: > 0 })
                 {
-                    var gw = devices.FirstOrDefault(d =>
-                        d.Type == DeviceType.Gateway || d.HardwareType == DeviceType.Gateway);
+                    var gw = NetworkOptimizer.UniFi.UniFiDiscovery.SiteGateway(devices);
                     _gatewayMac = gw?.Mac?.Replace("-", ":").ToLowerInvariant();
                     _gatewayWanIfNames = gw?.WanInterfaceNames ?? new();
                 }
