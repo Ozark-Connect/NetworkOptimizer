@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using NetworkOptimizer.Storage.Models;
+using NetworkOptimizer.Threats.Blocking;
 
 namespace NetworkOptimizer.Web.Services.ChangeControl;
 
@@ -9,7 +10,8 @@ public sealed record SettingRewrite(string Setting, string Name, string Old, str
 /// <summary>
 /// Network Optimizer's own settings that hold LAN addresses: latency targets, device SSH hosts, the
 /// Gateway SSH host, the UniFi Console URL, monitoring interfaces, modems, speed test servers, UPnP
-/// notes, the WAF URL, and the InfluxDB URL. A re-address moves them with the site, and its revert moves them back.
+/// notes, the WAF URL, Automatic Blocking exceptions, and the InfluxDB URL. A re-address moves them with
+/// the site, and its revert moves them back.
 /// </summary>
 public static class ReaddressSettings
 {
@@ -18,6 +20,9 @@ public static class ReaddressSettings
 
     /// <summary>The setting name of the InfluxDB URL, which needs the client reconfigured once moved.</summary>
     public const string InfluxSetting = "InfluxDB connection";
+
+    /// <summary>The setting name of an Automatic Blocking exception, whose console policies are rebuilt once moved.</summary>
+    public const string BlockingExceptionSetting = "Automatic Blocking exception";
 
     /// <summary>
     /// What a move would change (<paramref name="apply"/> false), or changes it and saves. <paramref name="main"/> is
@@ -70,6 +75,26 @@ public static class ReaddressSettings
             var wafKey = NetworkOptimizer.Threats.Waf.WafSettingKeys.ForSite(NetworkOptimizer.Threats.Waf.WafSettingKeys.Url, site);
             Move(await main.SystemSettings.Where(s => s.Key == wafKey).ToListAsync(ct), "Web Application Firewall connection", _ => "URL",
                 s => s.Value, (s, v) => { s.Value = v; s.UpdatedAt = DateTime.UtcNow; }, Url);
+
+            // An exception's Device is a LAN address; its listed Address is public and never in a moved subnet.
+            var exceptionsKey = BlockingSettingKeys.ForSite(BlockingSettingKeys.Exceptions, site);
+            if (await main.SystemSettings.FirstOrDefaultAsync(s => s.Key == exceptionsKey, ct) is { } row
+                && BlockingExceptions.Parse(row.Value) is { Count: > 0 } exceptions)
+            {
+                var changed = false;
+                var moved = exceptions.Select(e =>
+                {
+                    if (e.Device is not { } old || Ip(old) is not { } device) return e;
+                    found.Add(new SettingRewrite(BlockingExceptionSetting, e.Note.Length > 0 ? e.Note : BlockingExceptions.Describe(e), old, device));
+                    changed = true;
+                    return e with { Device = device };
+                }).ToList();
+                if (apply && changed)
+                {
+                    row.Value = BlockingExceptions.Serialize(moved);
+                    row.UpdatedAt = DateTime.UtcNow;
+                }
+            }
         }
 
         if (apply && found.Count > 0)

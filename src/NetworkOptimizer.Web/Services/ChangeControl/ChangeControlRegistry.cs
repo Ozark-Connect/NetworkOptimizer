@@ -115,6 +115,9 @@ public sealed class ChangeControlRegistry : BackgroundService, ISiteScopedRegist
         if (apply && moved.Any(m => m.Setting == ReaddressSettings.InfluxSetting))
             foreach (var site in RunningSites().Append(slug).Distinct(StringComparer.OrdinalIgnoreCase))
                 _ = _sp.GetRequiredService<MonitoringInfluxRegistry>().GetFor(site).ReconfigureAsync();
+        // A moved exception's Allow policies are rebuilt for its new Device address.
+        if (apply && moved.Any(m => m.Setting == ReaddressSettings.BlockingExceptionSetting))
+            scope.ServiceProvider.GetService<ThreatBlockingOperations>()?.SyncZonesSoon(slug);
         return moved;
     }
 
