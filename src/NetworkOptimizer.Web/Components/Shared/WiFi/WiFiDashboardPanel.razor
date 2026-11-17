@@ -27,7 +27,7 @@ else
             {
                 @foreach (var issue in Issues)
                 {
-                    <div class="wifi-issue-item">
+                    <div class="wifi-issue-item wifi-issue-@issue.Severity.ToString().ToLowerInvariant()">
                         <div class="wifi-issue-row">
                             <span class="wifi-issue-icon wifi-severity-@issue.Severity.ToString().ToLowerInvariant()">
                                 @((MarkupString)GetSeverityIcon(issue.Severity))
