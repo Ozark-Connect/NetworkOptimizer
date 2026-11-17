@@ -1471,6 +1471,37 @@ public class LiveTrafficStoreTests
     }
 
     [Fact]
+    public void AFlowEndedTwiceIsOneEndedRow()
+    {
+        var store = SeededStore();
+        var flow = Flow("a", Laptop, "192.0.2.20", "203.0.113.5", 443, "eth4", 1000, 10);
+        for (var i = 0; i < 2; i++)
+        {
+            store.Ingest(Batch(flow));
+            var ending = Batch();
+            ending.Ended.Add(flow);
+            store.Ingest(ending);
+        }
+
+        store.BuildView(Query() with { Ended = true }, LiveTrafficState.Live).Flows.Should().ContainSingle();
+    }
+
+    [Fact]
+    public void AnEndedFlowThatComesBackLeavesTheEndedTab()
+    {
+        var store = SeededStore();
+        var flow = Flow("a", Laptop, "192.0.2.20", "203.0.113.5", 443, "eth4", 1000, 10);
+        store.Ingest(Batch(flow));
+        var ending = Batch();
+        ending.Ended.Add(flow);
+        store.Ingest(ending);
+        store.Ingest(Batch(flow));
+
+        store.BuildView(Query() with { Ended = true }, LiveTrafficState.Live).Flows.Should().BeEmpty();
+        store.BuildView(Query(), LiveTrafficState.Live).Flows.Should().ContainSingle();
+    }
+
+    [Fact]
     public void LanRouteNodeListsItsBusiestHostsFirst()
     {
         var store = SeededStore();

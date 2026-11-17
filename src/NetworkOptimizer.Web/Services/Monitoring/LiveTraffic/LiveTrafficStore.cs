@@ -167,7 +167,11 @@ public sealed class LiveTrafficStore
             foreach (var flow in batch.Flows)
             {
                 if (!_flows.TryGetValue(flow.Key, out var state))
+                {
                     _flows[flow.Key] = state = new FlowState { Last = flow };
+                    // The agent ends a flow its reads missed twice; one that comes back is not ended.
+                    RemoveEnded(flow.Key);
+                }
                 state.Last = flow;
                 state.LastSeen = now;
                 state.DownBps = flow.DownBytes * 8.0 / window;
@@ -187,6 +191,8 @@ public sealed class LiveTrafficStore
             foreach (var flow in batch.Ended)
             {
                 _flows.Remove(flow.Key);
+                // One row per tuple: the Ended table keys its rows by it.
+                RemoveEnded(flow.Key);
                 _ended.AddFirst((now, flow));
                 while (_ended.Count > MaxEnded) _ended.RemoveLast();
             }
@@ -210,6 +216,17 @@ public sealed class LiveTrafficStore
             }
 
             Prune(now);
+        }
+    }
+
+    /// <summary>Drops the ended row for this tuple, if any. Callers hold <c>_gate</c>.</summary>
+    private void RemoveEnded(string key)
+    {
+        for (var node = _ended.First; node != null; node = node.Next)
+        {
+            if (node.Value.Flow.Key != key) continue;
+            _ended.Remove(node);
+            return;
         }
     }
 
