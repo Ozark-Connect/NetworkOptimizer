@@ -229,6 +229,10 @@ message ConntrackConfig {
   // The site's WAN data-path interfaces (from WanProfiles), as classification
   // hints. The agent may also classify by NAT / public-remote on its own.
   repeated string wan_ifnames = 3;
+  // Time connection handshakes all the time (needs "flow-latency"), so a flow opened before anyone
+  // looked still has its round trip. The values stay in the agent; they leave only on Live Traffic
+  // batches, under a lease, like every other per-flow detail.
+  bool flow_latency = 4;
 }
 
 message ConntrackSampleBatch {

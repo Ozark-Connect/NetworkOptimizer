@@ -227,6 +227,27 @@ public class FlowLatencyTests
     }
 
     [Fact]
+    public void A_result_lives_as_long_as_its_flow_and_survives_one_missed_read()
+    {
+        var t = new HandshakeTimer();
+        var key = Parse(Tcp(true, ConntrackTcpState.SynSent)).Key;
+        t.OnEvent(Parse(Tcp(true, ConntrackTcpState.SynSent)), 1.0, false);
+        t.OnEvent(Parse(Tcp(false, ConntrackTcpState.SynRecv)), 1.02, false);
+        var thirty = TimeSpan.FromSeconds(30);
+
+        t.Prune(_ => false, 20, thirty);
+        t.TryGet(key, out _).Should().BeTrue("too new to judge: it may postdate the snapshot");
+
+        t.Prune(_ => true, 3600, thirty);
+        t.TryGet(key, out _).Should().BeTrue("an hour on, the flow is still in the table");
+
+        t.Prune(_ => false, 3630, thirty);
+        t.TryGet(key, out _).Should().BeTrue("one missed read is not the flow ending");
+        t.Prune(_ => false, 3660, thirty);
+        t.TryGet(key, out _).Should().BeFalse("two in a row is");
+    }
+
+    [Fact]
     public void Clear_forgets_everything()
     {
         var t = new HandshakeTimer();

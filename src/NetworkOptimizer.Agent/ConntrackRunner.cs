@@ -100,6 +100,10 @@ public sealed class ConntrackRunner
     /// <summary>The conntrack event socket that times handshakes, on a Gateway agent.</summary>
     public ConntrackEventSocket? FlowLatency { get; set; }
 
+    // Results for flows gone from the table are dropped every this many passes (30 s at the 2 s cadence).
+    private const int HandshakePrunePasses = 15;
+    private int _prunePasses;
+
     public ConntrackRunner(Action<AgentMessage> enqueue)
     {
         _enqueue = enqueue;
@@ -262,7 +266,16 @@ public sealed class ConntrackRunner
             dns.HostView = view;
             dns.SetWanted(lease.Leased && lease.Dns);
         }
-        FlowLatency?.SetWanted(lease.Leased && lease.Latency);
+        // Always on where the server's config asks (so a flow opened before anyone looked has its round
+        // trip); a lease asks too, for a server that predates the config field. Nothing leaves without a lease.
+        FlowLatency?.SetWanted(_config?.FlowLatency == true || (lease.Leased && lease.Latency));
+        if (FlowLatency != null && ++_prunePasses >= HandshakePrunePasses)
+        {
+            _prunePasses = 0;
+            var alive = new HashSet<string>(flows.Count);
+            foreach (var flow in flows) alive.Add(flow.Key);
+            Handshakes.Prune(alive.Contains, (double)Stopwatch.GetTimestamp() / Stopwatch.Frequency, TimeSpan.FromSeconds(30));
+        }
         LiveFlowPass? livePass = null;
         if (lease.Leased) livePass = _liveTracker.Track(flows, view, now, lease.MaxFlows);
         else

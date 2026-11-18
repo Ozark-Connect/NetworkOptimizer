@@ -76,6 +76,7 @@ public sealed class LiveTrafficService : ILiveTrafficService
     private readonly GeoEnrichmentService _geo;
     private readonly LiveTrafficPolicyResolver _policies;
     private readonly ISystemSettingsService _settings;
+    private readonly AgentProbeResultSink _probeSink;
     private readonly ILogger<LiveTrafficService> _logger;
     private readonly IReadOnlySet<string> _serverHosts;
     private readonly Tailscale.TailscaleDirectoryRegistry? _tailscale;
@@ -109,10 +110,12 @@ public sealed class LiveTrafficService : ILiveTrafficService
         LiveTrafficPolicyResolver policies,
         CanonicalBaseUrlProvider canonical,
         ISystemSettingsService settings,
+        AgentProbeResultSink probeSink,
         ILogger<LiveTrafficService> logger,
         Tailscale.TailscaleDirectoryRegistry? tailscale = null)
     {
         _settings = settings;
+        _probeSink = probeSink;
         _tailscale = tailscale;
         _serverHosts = ServerHosts(canonical);
         _registry = registry;
@@ -242,9 +245,13 @@ public sealed class LiveTrafficService : ILiveTrafficService
         var slug = _site.Slug;
         await _settings.SetAsync(slug, LiveTrafficRegistry.EnabledKey, enabled ? "true" : "false");
         _registry.SetTurnedOff(slug, !enabled);
-        if (enabled) return;
         foreach (var agent in _tunnels.GetForSite(slug).Where(c => c.HasCapability(AgentTunnelConnection.LiveTrafficCapability)))
-            agent.TrySend(new ServerMessage { LiveTrafficConfig = new LiveTrafficConfig { LeaseSeconds = 0 } });
+        {
+            // Round trips are timed outside any lease, so the switch reaches the agent through its config.
+            if (agent.HasCapability(AgentTunnelConnection.FlowLatencyCapability))
+                await _probeSink.PushConntrackConfigAsync(agent, CancellationToken.None);
+            if (!enabled) agent.TrySend(new ServerMessage { LiveTrafficConfig = new LiveTrafficConfig { LeaseSeconds = 0 } });
+        }
     }
 
     /// <inheritdoc />
