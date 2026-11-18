@@ -4,6 +4,7 @@
 
 // KEEP IN SYNC: lan-flow-map.js imports the same module. Both must use the same ?v= or they get separate instances.
 import * as flowData from './lan-flow-data.js?v=18';
+import { opaqueBounds, logoFit } from './image-bounds.js?v=1';
 
 function demoMask(text) {
     const dm = window.DemoMask;
@@ -12,7 +13,7 @@ function demoMask(text) {
 
 // ---- Color palette (matches 3D map) ----
 const C = {
-    bg:           '#202023',
+    bg:           '#1c2128',
     gateway:      '#facc15',
     switchNode:   '#9aa6b2',
     ap:           '#3385d6',
@@ -44,6 +45,8 @@ const FOCUS_GIVE_UP_MS = 30000;
 // Signal color arrives per node, blended on the server's per-band ramp. Nothing about the curve
 // is decided here - a palette in the browser is how the map drifted from the gauges before.
 const LK = { Uplink:0, WiredClient:1, WifiClient:2, Wan:3, Transit:4, MeshBackhaul:5 };
+// Every color a Stream is built with (_initStreams): the particle loop fills one path per entry.
+const STREAM_COLORS = [C.downstream, C.upstream];
 const CT = { Solid:0, PathProxy:1, Unresolved:2 }; // LanCloudTier
 
 // ---- Layout geometry ----
@@ -54,6 +57,9 @@ const G = {
     infraGap:    90,
     clientCellW: 145,
     clientCellH: 55,
+    // Left to right, a stacked client sits straight below the one above, not staggered sideways,
+    // so the pitch has to clear an icon client's name and rate label.
+    clientCellHz: 64,
     clientR:     7,
     clientCols:  6,
     maxClients:  80,
@@ -73,7 +79,13 @@ const G = {
 const RATE_THRESH = 500_000;
 const EMIT_MAX = 12;
 const MAX_DOTS = 80;
-const FONT = 'system-ui, -apple-system, sans-serif';
+// A dot under this on-screen radius (device px) is drawn as a square, outside the batched path.
+const DOT_PATH_MIN_PX = 1.5;
+const DOT_TINY_PAD_PX = 0.16;
+// Half-extents of the box a client can draw into (32-character name, rate label below).
+const CLIENT_CULL_X = 150;
+const CLIENT_CULL_Y = 60;
+const FONT = 'Inter, system-ui, -apple-system, sans-serif';
 
 // ---- Helpers ----
 
@@ -100,10 +112,35 @@ function nodeClr(k,b) {
 }
 function isInfra(k) { return k<=NK.AP||k===NK.VirtualHub; }
 function isClient(k) { return k===NK.WiredClient||k===NK.WifiClient; }
+// Opens an app page from the map, stamped with the tab's site, through Blazor's router so the page
+// it opens has Back (setting location.href is a full load that starts history over).
+function navigate(url) {
+    const u=window.noSiteContext?window.noSiteContext.stampUrl(url):url;
+    if(window.__navigate)window.__navigate(u); else window.location.href=u;
+}
+
+// Opens Live View with a device picked in its Port Statistics table, for a page without the
+// table. The key matches port-stats-table.js's HANDOFF_KEY.
+function openPortStatsOnLiveView(mac){
+    try{sessionStorage.setItem('portStatsSelect',mac);}
+    catch(e){console.debug('[lan-flow-map-2d] session storage unavailable; Live View opens unfiltered',e);}
+    navigate('/monitoring?tab=live');
+}
 
 // Duration of the fade-in applied to a client that gets re-attached to a different
 // AP during historic playback (roam), so it doesn't pop at its new position.
 const ROAM_FADE_MS = 350;
+// How long nodes, links and the fitted camera take to slide to a new layout.
+const LAYOUT_MS = 450;
+// Hover grow: how long the ease takes each way, and the size the icon reaches per object type.
+// Only the icon (or dot, or globe) grows; cards, rings, and labels keep their size and place.
+const HOVER_MS = 160;
+const HOVER_GROW = {device: 1.08, hub: 1.15, client: 1.15, cloud: 1.08};
+// A pan or zoom left alone this long, on a view still showing REFIT_SHARE of the map, re-fits again.
+const REFIT_IDLE_MS = 30_000;
+const REFIT_SHARE = 0.95;
+/** How long the first frame waits for client icons before drawing dots in their place. */
+const ICON_PRELOAD_MS = 1500;
 
 function pipeClr(u,band) {
     const cool=bandClr(band)||C.pipeCool;
@@ -144,6 +181,16 @@ function withAlpha(hex, a) {
 
 // Emits to a canvas context with both axes swapped, so strokeOrtho can draw its vertical-frame path
 // into a horizontal layout untouched.
+// A context that scales every alpha by `a`, for a node fading in or out. The draw functions set
+// globalAlpha themselves, so an alpha set once before the call would be overwritten.
+function fadedCtx(ctx,a){
+    ctx.globalAlpha=a;
+    return new Proxy(ctx,{
+        get(t,k){const v=t[k];return typeof v==='function'?v.bind(t):v;},
+        set(t,k,v){t[k]=k==='globalAlpha'?v*a:v;return true;},
+    });
+}
+
 const axisSwap=(ctx)=>({
     beginPath:()=>ctx.beginPath(),
     stroke:()=>ctx.stroke(),
@@ -155,53 +202,74 @@ const axisSwap=(ctx)=>({
 function orthoLen(x1,y1,x2,y2,midYOff,hz) {
     if(hz)return orthoLen(y1,x1,y2,x2,midYOff,false);
     if(Math.abs(x1-x2)<0.5)return Math.abs(y2-y1);
-    const my=(y1+y2)/2+(midYOff||0);
-    const top=my-y1, bot=y2-my;
-    const ax=Math.abs(x2-x1),cr=Math.min(G.cornerR,ax/2,Math.min(top,bot));
-    if(cr<1)return top+ax+bot;
-    return (top-cr)+(bot-cr)+Math.PI*cr+(ax-2*cr);
+    const {midY,ax,top,bot,c1,c2,ok}=orthoShape(x1,y1,x2,y2,midYOff);
+    if(!ok)return Math.abs(midY-y1)+ax+Math.abs(y2-midY);
+    return (top-c1)+(bot-c2)+Math.PI/2*(c1+c2)+(ax-c1-c2);
 }
 
-function orthoAt(x1,y1,x2,y2,t,midYOff,hz) {
-    if(hz){const p=orthoAt(y1,x1,y2,x2,t,midYOff,false);return{x:p.y,y:p.x};}
-    if(Math.abs(x2-x1)<0.5)return{x:x1,y:y1+(y2-y1)*t};
+// `out`, when given, receives the point instead of a new object: the particle loop calls this
+// for every dot on every frame.
+// The shape of an ortho link: down (or up) to midY, across, on to the end, with a rounded corner at
+// each turn. Either run may be up the screen, and either end run may be zero, which leaves an L
+// with one rounded corner (a carrier's uplink ends flush on the carrier's side). c1/c2 are 0 where
+// there is no turn; ok is false only when midY falls outside the two ends (drawn square).
+function orthoShape(x1,y1,x2,y2,midYOff){
     const midY=(y1+y2)/2+(midYOff||0);
-    const dx=x2-x1,s=dx>0?1:-1,ax=Math.abs(dx);
-    const top=midY-y1,bot=y2-midY;
-    const cr=Math.min(G.cornerR,ax/2,Math.min(top,bot));
-    if(cr<1){const tot=top+ax+bot;let d=t*tot;if(d<=top)return{x:x1,y:y1+d};d-=top;if(d<=ax)return{x:x1+s*d,y:midY};d-=ax;return{x:x2,y:midY+d};}
-    const s1=top-cr,s2=Math.PI/2*cr,s3=ax-2*cr,s4=s2,s5=bot-cr;
-    const tot=s1+s2+s3+s4+s5;let d=t*tot;
-    if(d<=s1)return{x:x1,y:y1+d};d-=s1;
-    if(d<=s2){
-        // Quadratic bezier matching strokeOrtho: P0=(x1,midY-cr) P1=(x1,midY) P2=(x1+s*cr,midY)
-        const bt=d/s2,u=1-bt;
-        return{x:u*u*x1+2*u*bt*x1+bt*bt*(x1+s*cr), y:u*u*(midY-cr)+2*u*bt*midY+bt*bt*midY};
-    }d-=s2;
-    if(d<=s3)return{x:x1+s*(cr+d),y:midY};d-=s3;
-    if(d<=s4){
-        // Quadratic bezier: P0=(x2-s*cr,midY) P1=(x2,midY) P2=(x2,midY+cr)
-        const bt=d/s4,u=1-bt;
-        return{x:u*u*(x2-s*cr)+2*u*bt*x2+bt*bt*x2, y:u*u*midY+2*u*bt*midY+bt*bt*(midY+cr)};
-    }d-=s4;
-    return{x:x2,y:midY+cr+d};
+    const dx=x2-x1,s=dx>0?1:-1,ax=Math.abs(dx),vs=y2>=y1?1:-1;
+    const top=(midY-y1)*vs,bot=(y2-midY)*vs,R=G.cornerR;
+    const ok=top>-0.5&&bot>-0.5;
+    let c1=0,c2=0;
+    if(ok){
+        if(top>=1&&bot>=1)c1=c2=Math.min(R,ax/2,top,bot);
+        else if(top>=1)c1=Math.min(R,ax,top);
+        else if(bot>=1)c2=Math.min(R,ax,bot);
+        if(c1<1)c1=0; if(c2<1)c2=0;
+    }
+    return {midY,s,ax,vs,top:Math.max(0,top),bot:Math.max(0,bot),c1,c2,ok};
 }
+
+function orthoAt(x1,y1,x2,y2,t,midYOff,hz,out) {
+    if(hz){const p=orthoAt(y1,x1,y2,x2,t,midYOff,false,out);const px=p.x;p.x=p.y;p.y=px;return p;}
+    const o=out||{x:0,y:0};
+    if(Math.abs(x2-x1)<0.5){o.x=x1;o.y=y1+(y2-y1)*t;return o;}
+    const {midY,s,ax,vs,top,bot,c1,c2,ok}=orthoShape(x1,y1,x2,y2,midYOff);
+    if(!ok){
+        const a=Math.abs(midY-y1),b=Math.abs(y2-midY),tot=a+ax+b;let d=t*tot;
+        const v1=midY>=y1?1:-1,v2=y2>=midY?1:-1;
+        if(d<=a){o.x=x1;o.y=y1+v1*d;return o;}d-=a;
+        if(d<=ax){o.x=x1+s*d;o.y=midY;return o;}d-=ax;
+        o.x=x2;o.y=midY+v2*d;return o;
+    }
+    // Quadratic beziers matching strokeOrtho's corners.
+    const s1=top-c1,a1=Math.PI/2*c1,s3=ax-c1-c2,a2=Math.PI/2*c2,s5=bot-c2;
+    let d=t*(s1+a1+s3+a2+s5);
+    if(d<=s1){o.x=x1;o.y=y1+vs*d;return o;}d-=s1;
+    if(d<=a1&&a1>0){
+        const bt=d/a1,u=1-bt;
+        o.x=u*u*x1+2*u*bt*x1+bt*bt*(x1+s*c1); o.y=u*u*(midY-vs*c1)+2*u*bt*midY+bt*bt*midY;
+        return o;
+    }d-=a1;
+    if(d<=s3){o.x=x1+s*(c1+d);o.y=midY;return o;}d-=s3;
+    if(d<=a2&&a2>0){
+        const bt=d/a2,u=1-bt;
+        o.x=u*u*(x2-s*c2)+2*u*bt*x2+bt*bt*x2; o.y=u*u*midY+2*u*bt*midY+bt*bt*(midY+vs*c2);
+        return o;
+    }d-=a2;
+    o.x=x2;o.y=midY+vs*(c2+Math.min(d,s5));return o;
+}
+const _dotPt={x:0,y:0};
 
 function strokeOrtho(ctx,x1,y1,x2,y2,midYOff,hz) {
     if(hz)return strokeOrtho(axisSwap(ctx),y1,x1,y2,x2,midYOff,false);
-    const r=G.cornerR;
     ctx.beginPath();
     if(Math.abs(x1-x2)<0.5){ctx.moveTo(x1,y1);ctx.lineTo(x2,y2);ctx.stroke();return;}
-    const midY=(y1+y2)/2+(midYOff||0);
-    const dx=x2-x1,s=dx>0?1:-1,ax=Math.abs(dx);
-    const top=midY-y1,bot=y2-midY;
-    const cr=Math.min(r,ax/2,Math.min(top,bot));
+    const {midY,s,vs,c1,c2,ok}=orthoShape(x1,y1,x2,y2,midYOff);
     ctx.moveTo(x1,y1);
-    if(cr<1){ctx.lineTo(x1,midY);ctx.lineTo(x2,midY);ctx.lineTo(x2,y2);ctx.stroke();return;}
-    ctx.lineTo(x1,midY-cr);
-    ctx.quadraticCurveTo(x1,midY,x1+s*cr,midY);
-    ctx.lineTo(x2-s*cr,midY);
-    ctx.quadraticCurveTo(x2,midY,x2,midY+cr);
+    if(!ok){ctx.lineTo(x1,midY);ctx.lineTo(x2,midY);ctx.lineTo(x2,y2);ctx.stroke();return;}
+    ctx.lineTo(x1,midY-vs*c1);
+    if(c1>0)ctx.quadraticCurveTo(x1,midY,x1+s*c1,midY);
+    ctx.lineTo(x2-s*c2,midY);
+    if(c2>0)ctx.quadraticCurveTo(x2,midY,x2,midY+vs*c2);
     ctx.lineTo(x2,y2);
     ctx.stroke();
 }
@@ -221,6 +289,8 @@ class Stream {
         this.pathLen=orthoLen(edge._x1,edge._y1,edge._x2,edge._y2,this.midYOff,edge._hz);
         this.slots=[];
         for(let i=0;i<MAX_DOTS;i++)this.slots.push({t:-1,size:0});
+        // Dots in flight. An idle stream with none is skipped by advance and by the draw.
+        this.live=0;
         this._seeded=false;
     }
     setRate(bps){
@@ -244,20 +314,22 @@ class Stream {
                 if(this.dir<0)this.slots[i].t=1-this.slots[i].t;
                 this.slots[i].size=this.dotSize;
             }
+            this.live=steadyState;
         }
     }
     advance(dt){
+        if(this.density===0&&this.live===0)return;
         // Emission: density²*12 dots/sec, jittered ±20% (3D uses ±40% but
         // shorter 2D links need tighter spacing to avoid visible gaps)
         this.spawnAcc+=this.density*this.density*EMIT_MAX*dt;
         while(this.spawnAcc>=1){
             this.spawnAcc-=(0.8+Math.random()*0.4);
-            for(const sl of this.slots){if(sl.t<0){sl.t=this.dir>0?0:1;sl.size=this.dotSize;break;}}
+            for(const sl of this.slots){if(sl.t<0){sl.t=this.dir>0?0:1;sl.size=this.dotSize;this.live++;break;}}
         }
         for(const sl of this.slots){
             if(sl.t<0)continue;
             sl.t+=this.velNorm*dt*this.dir;
-            if(sl.t>1||sl.t<0){sl.t=-1;continue;}
+            if(sl.t>1||sl.t<0){sl.t=-1;this.live--;}
         }
     }
 }
@@ -279,6 +351,7 @@ class LanFlowMap2D {
         this._liveRates={};
         this._streams=[];
         this._images=new Map();
+        this._clientIcons=new Map();
 
         this._animId=0;
         this._lastFrame=0;
@@ -351,6 +424,8 @@ class LanFlowMap2D {
                         this._buildLayout(s);
                         this._loadImages(s).then(()=>{this._fitAll();this._needsStaticRedraw=true;});
                     }else{
+                        this._maybeRearmFit();
+                        const prev=this._captureLayout();
                         // Detect infrastructure change (devices, not just client churn)
                         const infraCount=(nodes)=>(nodes||[]).filter(n=>n.kind<=3||n.kind===6).length;
                         const prevInfra=infraCount(this._snapshot?.nodes);
@@ -369,6 +444,7 @@ class LanFlowMap2D {
                             this._needsStaticRedraw=true;
                             if(rebuilt)this._refitIfFitted();
                         }
+                        this._beginTransition(prev);
                     }
                     this._refreshTooltip();
                 }
@@ -422,6 +498,9 @@ class LanFlowMap2D {
         this._ctx=canvas.getContext('2d');
 
         this._staticCanvas=document.createElement('canvas');
+        // Rate and link-speed labels: they sit above the particles, so they cannot share the
+        // static layer, and they change only when it does.
+        this._labelCanvas=document.createElement('canvas');
 
         // Tooltip div
         this._tooltip=document.createElement('div');
@@ -441,7 +520,8 @@ class LanFlowMap2D {
         this._fsBtn=fsBtn;
 
         // Esc key exits fullscreen
-        this._onKeyDown=(e)=>{if(e.key==='Escape'&&this._isFullscreen)this._toggleFullscreen();};
+        // A key press: the fullscreen button the click left focused would show its focus ring, so Esc drops the focus.
+        this._onKeyDown=(e)=>{if(e.key==='Escape'&&this._isFullscreen){this._toggleFullscreen();if(document.activeElement?.tagName==='BUTTON')document.activeElement.blur();}};
         document.addEventListener('keydown',this._onKeyDown);
 
         // Filter + overlay state
@@ -473,7 +553,6 @@ class LanFlowMap2D {
         filterBody.querySelector('.lan-flow-map-search').addEventListener('input',(e)=>{
             this._filter.text=(e.target.value||'').toLowerCase().trim();
             this._relayout();
-            if(this._isFitted)this._fitAll();
         });
         const bandChips=[...filterBody.querySelectorAll('.lan-flow-map-chip')];
         bandChips.forEach(chip=>{
@@ -485,7 +564,6 @@ class LanFlowMap2D {
                     if(onlyThis){for(const c of bandChips){this._filter.bands[c.dataset.band]=true;c.classList.add('is-on');}}
                     else{this._filter.bands[b]=!this._filter.bands[b];chip.classList.toggle('is-on',this._filter.bands[b]);}}
                 this._relayout();
-                if(this._isFitted)this._fitAll();
             });
         });
         if(!this._hideFilter)this._el.appendChild(filter);
@@ -512,7 +590,6 @@ class LanFlowMap2D {
                 row.classList.toggle('is-on',this._overlays[key]);
                 try{localStorage.setItem(this._storageKey,JSON.stringify(this._overlays));}catch{}
                 this._relayout();
-                if(this._isFitted)this._fitAll();
             });
             ctrlBody.appendChild(row);
         }
@@ -553,7 +630,11 @@ class LanFlowMap2D {
                 <div class="lan-flow-map-help-row"><span>Pan</span><span class="kbd">Left-drag</span></div>
                 <div class="lan-flow-map-help-row"><span>Zoom</span><span class="kbd">Scroll</span></div>
                 <div class="lan-flow-map-help-row"><span>Hover detail</span><span class="kbd">Mouse over</span></div>
-                <div class="lan-flow-map-help-row"><span>Open client</span><span class="kbd">Double-click</span></div>${scrubRows}
+                <div class="lan-flow-map-help-row"><span>Open Client</span><span class="kbd">Double-click</span></div>
+                <div class="lan-flow-map-help-row"><span>Open Port Statistics</span><span class="kbd">Double-click</span></div>
+                <div class="lan-flow-map-help-row"><span>Open an AP's Client Stats</span><span class="kbd">Double-click</span></div>
+                <div class="lan-flow-map-help-row"><span>Open a modem's Cellular Stats</span><span class="kbd">Double-click</span></div>
+                <div class="lan-flow-map-help-row"><span>Open ISP Health</span><span class="kbd">Double-click</span></div>${scrubRows}
                 <div class="lan-flow-map-help-row"><span>Fullscreen</span><span class="kbd">Esc</span> to exit</div>`;
         help.appendChild(helpBody);
         helpTitle.addEventListener('click',()=>helpBody.classList.toggle('is-collapsed'));
@@ -581,7 +662,7 @@ class LanFlowMap2D {
         scrubber.dataset.tour='live-view-timeline';
         scrubber.innerHTML=`
             <div class="lan-flow-map-scrubber-row">
-                <button class="lan-flow-map-scrubber-playpause" data-role="playpause" type="button" aria-label="Pause">⏸</button>
+                <button class="lan-flow-map-scrubber-playpause" data-role="playpause" type="button" aria-label="Pause"><svg viewBox="0 0 12 12" width="10" height="10" fill="currentColor" aria-hidden="true"><rect x="2" y="1.500" width="2.800" height="9" rx="0.500"/><rect x="7.200" y="1.500" width="2.800" height="9" rx="0.500"/></svg></button>
                 <div class="lan-flow-map-speed-control" data-role="speed">
                     <button class="lan-flow-map-speed-step" data-dir="-1" type="button" aria-label="Slower">-</button>
                     <span class="lan-flow-map-speed-label" data-role="speed-label">1x</span>
@@ -707,6 +788,8 @@ class LanFlowMap2D {
 
         // Events
         canvas.addEventListener('wheel',(e)=>this._onWheel(e),{passive:false});
+        // The wheel zooms after the pointer rests on the map or a click (wheel-gate.js); always in fullscreen.
+        this._wheelGate=window.WheelGate?.attach(this._el,{exempt:()=>(this._fsTarget||this._el).classList.contains('lan-flow-map-fullscreen')});
         canvas.addEventListener('pointerdown',(e)=>this._onDown(e));
         canvas.addEventListener('pointermove',(e)=>this._onMove(e));
         canvas.addEventListener('pointerup',(e)=>this._onUp(e));
@@ -732,6 +815,8 @@ class LanFlowMap2D {
         this._canvas.height=rect.height*this._dpr;
         this._staticCanvas.width=this._canvas.width;
         this._staticCanvas.height=this._canvas.height;
+        this._labelCanvas.width=this._canvas.width;
+        this._labelCanvas.height=this._canvas.height;
         this._needsStaticRedraw=true;
 
         // A tree drawn top-down grows wide and shallow, which is the wrong shape for a portrait
@@ -740,7 +825,8 @@ class LanFlowMap2D {
         const hz=this._cw>0&&this._ch>0&&this._cw<this._ch;
         if(hz!==this._hz){
             this._hz=hz;
-            if(this._root){this._relayout();this._fitAll();return;}
+            // No slide here: every node changes axis, and the fit below moves the camera anyway.
+            if(this._root){this._relayout(false);this._fitAll();return;}
         }
         if(this._isFitted)this._fitAll();
     }
@@ -752,6 +838,8 @@ class LanFlowMap2D {
     }
 
     _onWheel(e){
+        // Before the wheel gate opens, the wheel scrolls the page.
+        if(this._wheelGate&&!this._wheelGate.armed)return;
         e.preventDefault();
         const rect=this._canvas.getBoundingClientRect();
         const sx=e.clientX-rect.left, sy=e.clientY-rect.top;
@@ -762,7 +850,7 @@ class LanFlowMap2D {
         const wAfter=this._screenToWorld(sx,sy);
         this._ox+=wBefore.x-wAfter.x;
         this._oy+=wBefore.y-wAfter.y;
-        this._isFitted=false;
+        this._isFitted=false; this._userCamAt=performance.now();
         this._needsStaticRedraw=true;
     }
 
@@ -815,7 +903,7 @@ class LanFlowMap2D {
             this._scale=newScale;
             this._ox=wx-(cx1-this._cw/2)/newScale;
             this._oy=wy-(cy1-this._ch/2)/newScale;
-            this._isFitted=false;
+            this._isFitted=false; this._userCamAt=performance.now();
             this._needsStaticRedraw=true;
             return;
         }
@@ -829,7 +917,7 @@ class LanFlowMap2D {
             const dy=(e.clientY-this._dragStart.y)/this._scale;
             this._ox=this._dragStart.ox-dx;
             this._oy=this._dragStart.oy-dy;
-            this._isFitted=false;
+            this._isFitted=false; this._userCamAt=performance.now();
             this._needsStaticRedraw=true;
         } else {
             this._hitTest(sx,sy);
@@ -912,7 +1000,7 @@ class LanFlowMap2D {
         if(isDev){this._ox=(l+r)/2; this._oy=(t+b)/2;}
         else if(this._hz){this._ox=n.x-(this._cw/2-edgeX)/this._scale; this._oy=(t+b)/2;}
         else{this._ox=(l+r)/2; this._oy=n.y-(this._ch/2-edgeY-barPx)/this._scale;}
-        this._isFitted=false;
+        this._isFitted=false; this._userCamAt=performance.now();
         this._needsStaticRedraw=true;
     }
 
@@ -921,6 +1009,8 @@ class LanFlowMap2D {
         // The first load fits again once the device images land, which would undo a focus zoom
         // taken a frame earlier; only the Fit button overrides an active focus.
         if(this._focus?.zoomed&&!force)return;
+        // The fit is taken from final positions, so a slide in flight finishes first.
+        if(this._trans){this._stepTransition(Infinity);this._dropTransition();}
         this._calcBounds(true);
         // The fitted box only ever grows. A client leaving shrinks the tree, and re-fitting to it
         // zooms and re-centres the whole map around one node's departure. Fit resets it.
@@ -966,7 +1056,7 @@ class LanFlowMap2D {
         // rates aren't mistaken for live data. Historic keeps its timestamp.
         this._scrubberEls.right.textContent=(mode!=='historic'&&paused)?'Live (Paused)':s.right;
         this._scrubberEls.speedLabel.textContent=`${s.speed}x`;
-        this._scrubberEls.playPause.textContent=paused?'▶':'⏸';
+        this._scrubberEls.playPause.innerHTML=paused?'<svg viewBox="0 0 12 12" width="10" height="10" fill="currentColor" aria-hidden="true"><path d="M3 1.500v9l7.500-4.500z"/></svg>':'<svg viewBox="0 0 12 12" width="10" height="10" fill="currentColor" aria-hidden="true"><rect x="2" y="1.500" width="2.800" height="9" rx="0.500"/><rect x="7.200" y="1.500" width="2.800" height="9" rx="0.500"/></svg>';
         // Mode badge
         if(this._modeBadge){
             this._modeBadge.textContent=mode==='historic'?'Historic':'Live';
@@ -1059,7 +1149,7 @@ class LanFlowMap2D {
 
     _zoomBy(factor){
         this._scale=Math.max(0.05,Math.min(10,this._scale*factor));
-        this._isFitted=false;
+        this._isFitted=false; this._userCamAt=performance.now();
         this._needsStaticRedraw=true;
     }
 
@@ -1115,20 +1205,34 @@ class LanFlowMap2D {
             if(cloud){
                 const wan=cloud.d.wanInterface;
                 const url='/monitoring?tab=isp-health'+(wan?'&wan='+encodeURIComponent(wan):'');
-                window.location.href=window.noSiteContext?window.noSiteContext.stampUrl(url):url;
+                navigate(url);
                 return;
             }
         }
         const hit=this._nodeAt(sx,sy);
         if(!hit)return;
         const d=hit.d;
-        // Switches and gateways scroll to the port stats table and isolate that device.
+        // A monitored cellular modem opens its series in Cellular Stats, as the Dashboard card does;
+        // its ports say little. A Gateway with a modem inside keeps Port Statistics.
+        if(d.cellularModemId!=null&&d.kind!==NK.Gateway){
+            navigate(`/monitoring?tab=cellular&modem=${encodeURIComponent(d.cellularModemId)}`);
+            return;
+        }
+        // An Access Point opens Wi-Fi Optimizer's Client Stats, filtered to its clients.
+        if(d.kind===NK.AP&&d.mac){
+            navigate(`/wifi-optimizer?tab=client&ap=${encodeURIComponent(d.mac)}`);
+            return;
+        }
+        // Switches and gateways scroll to the port stats table and isolate that device. The
+        // Dashboard's card has no table, so it opens Live View with the device picked there.
         if(d.kind===NK.Switch||d.kind===NK.Gateway){
             if(d.mac&&window.__portStatsTable){
                 // The table is under the map, so fullscreen would hide the jump.
                 if(this._isFullscreen)this._toggleFullscreen();
                 window.__portStatsTable.selectDevice(d.mac);
                 document.getElementById('port-stats-card')?.scrollIntoView({behavior:'smooth',block:'start'});
+            }else if(d.mac&&this._liveOnly){
+                openPortStatsOnLiveView(d.mac);
             }
             return;
         }
@@ -1138,7 +1242,7 @@ class LanFlowMap2D {
         // Wi-Fi clients land on the Signal tab; wired clients go to the default tab.
         const tab=d.kind===NK.WifiClient?'&tab=signal':'';
         const url=`/client-dashboard?ip=${encodeURIComponent(d.ip)}${tab}`;
-        window.location.href=window.noSiteContext?window.noSiteContext.stampUrl(url):url;
+        navigate(url);
     }
 
     _hitTest(sx,sy){
@@ -1160,6 +1264,51 @@ class LanFlowMap2D {
         } else if(!hit){
             this._hideTooltip();
         }
+        // WAN globes carry no tooltip, but they grow on hover like the nodes.
+        const w=this._screenToWorld(sx,sy);
+        this._hoverCloud=!hit&&this._isCloudVisible()?this._clouds.find(c=>Math.hypot(w.x-c.x,w.y-c.y)<=G.cloudR)||null:null;
+    }
+
+    // ---- Hover grow ----
+    // Whatever is under the pointer eases up to HOVER_GROW of its size and back down when the
+    // pointer leaves. Each object keeps its own progress (0..1), so a quick pass across a row leaves a
+    // short wake instead of snapping. Keyed by node id, never held on the node: a client joining or
+    // leaving rebuilds the tree with new node objects, and progress on the old one restarted the
+    // grow from nothing, a pulse under a pointer that never moved.
+    _stepHover(dt){
+        const prog=this._hoverProg||(this._hoverProg=new Map());
+        const targets=new Set();
+        if(this._hoverNode)targets.add(this._hoverNode.d.id);
+        if(this._hoverCloud)targets.add(this._hoverCloud.d.id);
+        for(const id of targets)if(!prog.has(id))prog.set(id,0);
+        if(!prog.size)return;
+        const step=this._reducedMotion()?1:dt*1000/HOVER_MS;
+        let moved=false;
+        for(const[id,t]of prog){
+            const target=targets.has(id)?1:0;
+            // Settled: skip, or the shrink branch below steps a full-size icon down every frame.
+            if(t===target)continue;
+            const next=target>t?Math.min(1,t+step):Math.max(0,t-step);
+            if(next!==t){prog.set(id,next);moved=true;}
+            if(next===0&&target===0)prog.delete(id);
+        }
+        // Only while something is still easing: a node held at full size needs no redraw.
+        if(moved)this._needsStaticRedraw=true;
+    }
+
+    // The scale an object's icon draws at: smoothstep over its hover progress.
+    _hoverScale(o,grow){
+        const t=this._hoverProg?.get(o.d.id)||0;
+        return t>0?1+(grow-1)*t*t*(3-2*t):1;
+    }
+
+    // Draws fn scaled by s around (x,y).
+    _scaledAt(ctx,x,y,s,fn){
+        if(s===1){fn();return;}
+        ctx.save();
+        ctx.translate(x,y); ctx.scale(s,s); ctx.translate(-x,-y);
+        fn();
+        ctx.restore();
     }
 
     _showTooltip(node,sx,sy){
@@ -1177,7 +1326,11 @@ class LanFlowMap2D {
         if(band)rows.push(['Band',`${band} GHz`]);
         if(d.ssid)rows.push(['SSID',m(d.ssid)]);
         if(d.network)rows.push(['Network',m(d.network)]);
-        if(signalDbm)rows.push(['Signal',`${signalDbm} dBm`]);
+        // An MLO backhaul reads per link; the single reading is just the link the child measures.
+        if(d.mloLinks?.length&&!cs?.signalDbm){for(const l of d.mloLinks)rows.push([`Signal (${l.band} GHz)`,`${l.signalDbm} dBm`]);}
+        else if(signalDbm)rows.push(['Signal',`${signalDbm} dBm`]);
+        const cellQ=cs?.cellularSignalQuality??d.cellularSignalQuality;
+        if(cellQ!=null)rows.push(['Signal Quality',`${cellQ}%`]);
         if(d.switchPortName)rows.push(['Switch port',m(d.switchPortName)]);
 
         const badges=flowData.getNodeBadges();
@@ -1254,7 +1407,9 @@ class LanFlowMap2D {
         // What a double-click does here, if anything (mirrors _onDoubleClick).
         const gesture=this._touch?'Double-tap':'Double-click';
         let hint='';
-        if((d.kind===NK.Switch||d.kind===NK.Gateway)&&d.mac)hint=`${gesture} for Port Statistics`;
+        if(d.cellularModemId!=null&&d.kind!==NK.Gateway)hint=`${gesture} for Stats`;
+        else if(d.kind===NK.AP&&d.mac)hint=`${gesture} for Clients`;
+        else if((d.kind===NK.Switch||d.kind===NK.Gateway)&&d.mac&&(window.__portStatsTable||this._liveOnly))hint=`${gesture} for Port Statistics`;
         else if((d.kind===NK.WifiClient||d.kind===NK.WiredClient)&&d.ip)hint=`${gesture} for client details`;
 
         // An overlay tip (Firmware Rollout) leads: it is why the node is marked at all.
@@ -1290,6 +1445,7 @@ class LanFlowMap2D {
 
     _hideTooltip(){
         this._hoverNode=null;
+        this._hoverCloud=null;
         if(this._tooltip){this._tooltip.style.opacity='0';this._tooltip.style.visibility='hidden';}
     }
 
@@ -1344,9 +1500,12 @@ class LanFlowMap2D {
 
         if(!root)return;
         this._spreadFactor=this._getSpreadFactor();
+        this._carriers=this._findCarriers();
         this._contourLayout(root);
         this._assignAbsoluteXY(root,0,0);
         this._placeClouds();
+        this._placeCarriers();
+        if(this._carriers?.size)this._placeClouds(true);
         this._matchEdges();
         // Always reinit streams - edges get new endpoint coords on rebuild
         this._initStreams();
@@ -1362,18 +1521,193 @@ class LanFlowMap2D {
         return 1.3;
     }
 
-    _relayout(){
+    _relayout(animate=true){
         if(!this._root)return;
+        this._maybeRearmFit();
+        const prev=animate?this._captureLayout():this._dropTransition();
         this._spreadFactor=this._getSpreadFactor();
+        this._carriers=this._findCarriers();
         this._contourLayout(this._root);
         this._assignAbsoluteXY(this._root,0,0);
         this._placeClouds();
+        this._placeCarriers();
+        if(this._carriers?.size)this._placeClouds(true);
         this._matchEdges();
         this._initStreams();
         this._calcBounds();
         this._updateStreamRates();
         this._needsStaticRedraw=true;
         this._refitIfFitted();
+        this._beginTransition(prev);
+    }
+
+    // ---- Layout transitions ----
+    // A layout change computes the final positions as before, then every node and the fitted
+    // camera slide there from where they were drawn. Links are re-routed from the moving nodes
+    // each frame, so particles ride them. A node that joins slides out of its parent and fades
+    // in; one that leaves slides back into its parent and fades out as a ghost.
+
+    // Calls fn(node, parent) for every node the layout placed, in the order _drawAllNodes draws.
+    _walkPlaced(n,p,fn){
+        fn(n,p);
+        if(n.d.kind===NK.VirtualHub)return;
+        for(const c of n.infra)this._walkPlaced(c,n,fn);
+        for(const c of (n._visClients||[]))fn(c,n);
+    }
+
+    // A pan or zoom stops the re-fit. Once it has been left alone for a while on a view that still
+    // shows nearly the whole map, the fit comes back, so a growing layout does not run off a view
+    // nobody is steering. Run before the layout changes: after it, the overflow fails the share.
+    _maybeRearmFit(){
+        if(this._isFitted||!this._root)return;
+        if(performance.now()-(this._userCamAt??0)<REFIT_IDLE_MS)return;
+        this._calcView();
+        let all=0,shown=0;
+        this._walkPlaced(this._root,null,n=>{all++;if(this._inView(n.x,n.y,0,0))shown++;});
+        if(all>0&&shown>=all*REFIT_SHARE)this._isFitted=true;
+    }
+
+    _reducedMotion(){
+        try{return window.matchMedia?.('(prefers-reduced-motion: reduce)').matches===true;}catch{return false;}
+    }
+
+    // Ends any transition where it stands and returns null (the "do not animate" capture).
+    _dropTransition(){
+        const tr=this._trans;
+        if(tr)for(const it of tr.items)it.n._tAlpha=undefined;
+        this._trans=null;
+        return null;
+    }
+
+    // Where everything is drawn right now: the start of the next transition. Taken mid-transition
+    // it is the in-between position, so a new change carries on from there instead of jumping.
+    // Everything is then put at its destination: a change that rebuilds nothing would otherwise
+    // leave a slide frozen where it stood (a roamed client stuck by its old AP until the next rebuild).
+    _captureLayout(){
+        const tr=this._trans, ghosts=tr?tr.ghosts:[];
+        const motion=this._root&&!this._reducedMotion();
+        const nodes=new Map(), clouds=new Map();
+        if(motion){
+            this._walkPlaced(this._root,null,(n,p)=>{
+                const e=p?this._edges.find(e=>(e.fn===p&&e.tn===n)||(e.fn===n&&e.tn===p)):null;
+                nodes.set(n.d.id,{x:n.x,y:n.y,tn:n,pid:p?.d.id,edge:e?{lk:e.lk,band:edgeBand(e)}:null});
+            });
+            for(const c of this._clouds)clouds.set(c.d.id,{x:c.x,y:c.y});
+        }
+        const cam={s:this._scale,ox:this._ox,oy:this._oy};
+        if(tr){
+            for(const it of tr.items){it.n.x=it.tx;it.n.y=it.ty;}
+            for(const it of tr.clouds){it.c.x=it.tx;it.c.y=it.ty;}
+            if(tr.cam){this._scale=tr.cam.to.s;this._ox=tr.cam.to.ox;this._oy=tr.cam.to.oy;}
+            this._matchEdges();
+        }
+        this._dropTransition();
+        return motion?{nodes,clouds,ghosts,cam}:null;
+    }
+
+    _beginTransition(prev){
+        if(!prev||!this._root)return;
+        const items=[], seen=new Set(), start=new Map();
+        this._walkPlaced(this._root,null,(n,p)=>{
+            seen.add(n.d.id);
+            const o=prev.nodes.get(n.d.id);
+            // A newcomer starts where its parent starts, so the two move as one.
+            const from=o||(p&&start.get(p.d.id))||{x:n.x,y:n.y};
+            start.set(n.d.id,from);
+            if(!o||from.x!==n.x||from.y!==n.y)items.push({n,fx:from.x,fy:from.y,tx:n.x,ty:n.y,fade:!o});
+        });
+        const ghosts=[];
+        // Ghosts of the transition this one interrupts keep going from where they are.
+        for(const gh of prev.ghosts)if(!seen.has(gh.g.d.id))ghosts.push({...gh,fx:gh.g.x,fy:gh.g.y,a0:gh.g._tAlpha??1});
+        for(const[id,o]of prev.nodes){
+            if(seen.has(id))continue;
+            const g=Object.assign(Object.create(Object.getPrototypeOf(o.tn)),o.tn,{_roamFadeUntil:null});
+            ghosts.push({g,fx:o.x,fy:o.y,a0:1,pid:o.pid,edge:o.edge});
+        }
+        const clouds=[];
+        for(const c of this._clouds){
+            const o=prev.clouds.get(c.d.id);
+            if(o&&(o.x!==c.x||o.y!==c.y))clouds.push({c,fx:o.x,fy:o.y,tx:c.x,ty:c.y});
+        }
+        const camTo={s:this._scale,ox:this._ox,oy:this._oy}, cf=prev.cam;
+        const camMoves=cf.s!==camTo.s||cf.ox!==camTo.ox||cf.oy!==camTo.oy;
+        if(!items.length&&!ghosts.length&&!clouds.length&&!camMoves)return;
+        this._trans={start:performance.now(),items,ghosts,clouds,
+            cam:camMoves?{from:cf,to:camTo,last:null}:null,seen};
+        this._stepTransition(this._trans.start);
+    }
+
+    _stepTransition(now){
+        const tr=this._trans;
+        const t=Math.min(1,(now-tr.start)/LAYOUT_MS), k=1-Math.pow(1-t,3);
+        for(const it of tr.items){
+            it.n.x=lerp(it.fx,it.tx,k); it.n.y=lerp(it.fy,it.ty,k);
+            it.n._tAlpha=it.fade&&t<1?t:undefined;
+        }
+        for(const it of tr.clouds){it.c.x=lerp(it.fx,it.tx,k); it.c.y=lerp(it.fy,it.ty,k);}
+        // A ghost heads for its parent where the parent is still on the map (a ghost parent
+        // counts, and comes first in the list), else it fades where it was.
+        const ghostById=new Map();
+        for(const gh of tr.ghosts){
+            const par=ghostById.get(gh.pid)||(tr.seen.has(gh.pid)?this._treeMap.get(gh.pid):null);
+            gh.par=par;
+            gh.g.x=par?lerp(gh.fx,par.x,k):gh.fx;
+            gh.g.y=par?lerp(gh.fy,par.y,k):gh.fy;
+            gh.g._tAlpha=gh.a0*(1-t);
+            ghostById.set(gh.g.d.id,gh.g);
+        }
+        const cam=tr.cam;
+        if(cam){
+            // A pan or zoom by the user mid-slide takes the camera back.
+            const l=cam.last;
+            if(l&&(l.s!==this._scale||l.ox!==this._ox||l.oy!==this._oy))tr.cam=null;
+            else{
+                this._scale=lerp(cam.from.s,cam.to.s,k);
+                this._ox=lerp(cam.from.ox,cam.to.ox,k);
+                this._oy=lerp(cam.from.oy,cam.to.oy,k);
+                cam.last={s:this._scale,ox:this._ox,oy:this._oy};
+            }
+        }
+        this._matchEdges();
+        this._needsStaticRedraw=true;
+        if(t>=1)this._trans=null;
+    }
+
+    // Leaving nodes and their links, drawn under the live nodes so they slide in behind the parent.
+    _drawGhosts(ctx){
+        const tr=this._trans;
+        if(!tr)return;
+        const hz=this._hz;
+        for(const gh of tr.ghosts){
+            const g=gh.g, a=g._tAlpha;
+            if(!(a>0))continue;
+            const cl=isClient(g.d.kind);
+            if(gh.par&&gh.edge){
+                const p=gh.par;
+                const x1=hz?p.x+G.boxW/2:p.x, y1=hz?p.y:p.y+G.boxH/2;
+                const inset=cl?G.clientR:G.boxH/2;
+                const x2=hz?g.x-inset:g.x, y2=hz?g.y:g.y-inset;
+                ctx.strokeStyle=pipeClr(0,gh.edge.band);
+                ctx.lineWidth=pipeW(gh.edge.lk.capacityBps);
+                ctx.lineCap='round';
+                ctx.globalAlpha=(cl?0.3:0.5)*a;
+                strokeOrtho(ctx,x1,y1,x2,y2,0,hz);
+            }
+            if(!this._inView(g.x,g.y,CLIENT_CULL_X,CLIENT_CULL_Y))continue;
+            const fc=fadedCtx(ctx,a);
+            if(cl)this._drawClientNode(fc,g);
+            else if(g.d.kind===NK.VirtualHub)this._drawHubNode(fc,g);
+            else this._drawInfraNode(fc,g);
+        }
+        ctx.globalAlpha=1;
+    }
+
+    // Draws a node through a faded context while it is fading in.
+    _drawFading(ctx,n,draw){
+        const a=n._tAlpha;
+        if(a==null||a>=1){draw(ctx);return;}
+        draw(fadedCtx(ctx,a));
+        ctx.globalAlpha=1;
     }
 
     // Re-attach wifi clients to the AP they were on at the scrubbed instant (roam
@@ -1457,7 +1791,17 @@ class LanFlowMap2D {
     // Compute contour (left/right extent at each depth relative to node x=0)
     // and store relative child offsets on the node.
     _contourLayout(n){
-        const cellCross=this._hz?G.clientCellH:G.clientCellW;
+        this._contourLayoutInner(n);
+        // A WAN carrier (_placeCarriers) leaves the kids and takes a reserved slot on its parent's
+        // free side.
+        if(this._carrierOf(n)){
+            const c0=n._contour[0], slot=this._carrierSlotR();
+            n._contour[0]=this._carrierSide()>0?{l:c0.l,r:Math.max(c0.r,slot)}:{l:Math.min(c0.l,-slot),r:c0.r};
+        }
+    }
+
+    _contourLayoutInner(n){
+        const cellCross=this._hz?G.clientCellHz:G.clientCellW;
         const selfW=isClient(n.d.kind)?cellCross:(this._hz?G.boxH:G.boxW)+40;
         n._isGrid=false;
         const visCl=n.clients.filter(c=>this._isNodeVisible(c));
@@ -1473,8 +1817,10 @@ class LanFlowMap2D {
             return;
         }
 
+        const infra=this._carriers?.size?n.infra.filter(c=>!this._carriers.has(c)):n.infra;
+
         // Pure-client nodes (APs with only WiFi clients): compact grid
-        if(n.infra.length===0&&nc>0){
+        if(infra.length===0&&nc>0){
             const gc=this._gridContour(nc,cellCross);
             n._isGrid=true;
             n._gridCols=gc.cols;
@@ -1489,7 +1835,7 @@ class LanFlowMap2D {
         }
 
         // Infra children; clients always use a grid (placeholder in the kids array)
-        const kids=[...n.infra];
+        const kids=[...infra];
         if(nc>0){
             const gc=this._gridContour(nc,cellCross);
             n._isGrid=true;
@@ -1603,13 +1949,13 @@ class LanFlowMap2D {
         const vc=n._visClients||[];
         const cols=n._gridCols;
         if(this._hz){
-            const span=cols*G.clientCellH;
+            const span=cols*G.clientCellHz;
             const top=centerOff-span/2;
             const startX=nodeX+G.clientTierGap;
-            const stagger=G.clientCellH/2;
+            const stagger=G.clientCellHz/2;
             for(let i=0;i<vc.length;i++){
                 const col=i%cols,row=Math.floor(i/cols);
-                vc[i].y=top+col*G.clientCellH+G.clientCellH/2+(row%2)*stagger;
+                vc[i].y=top+col*G.clientCellHz+G.clientCellHz/2+(row%2)*stagger;
                 vc[i].x=startX+row*G.clientCellW;
             }
             return;
@@ -1678,6 +2024,10 @@ class LanFlowMap2D {
                 tn.d.phyRxKbps=n.phyRxKbps;
                 tn.d.band=n.band;
                 tn.d.signalDbm=n.signalDbm;
+                tn.d.signalBars=n.signalBars;
+                tn.d.signalColor=n.signalColor;
+                tn.d.mloLinks=n.mloLinks;
+                tn.d.cellularSignalQuality=n.cellularSignalQuality;
                 // A client first drawn from the live overlay, or before its DHCP lease, has no
                 // address yet; the console's later reading is what makes it openable.
                 if(isClient(n.kind)){
@@ -1715,6 +2065,11 @@ class LanFlowMap2D {
     // coordinate is the leg and which is the crossbar swaps with the layout, so every label anchor
     // goes through here rather than assuming the top-down frame.
     _elbowLabel(e,atSource,off){
+        // A carrier's uplink L: its labels ride the long run toward the carrier, away from the
+        // parent's own incoming labels, which they would otherwise line up with and read as a pair.
+        if(e._carrierUp)return this._alongRun(e,0.8);
+        // A WAN entering a carrier's side runs the globe's leg most of the way: label it by the globe.
+        if(e._viaSide&&atSource)return e._hz?{x:e._x1+70,y:e._y1}:{x:e._x1,y:e._y1+60};
         const stagger=e._midYOff||0;
         if(e._hz){
             return{x:(e._x1+e._x2)/2+stagger+off, y:atSource?e._y1:e._y2};
@@ -1725,15 +2080,55 @@ class LanFlowMap2D {
     // Throughput sits on the long run, biased toward the child so it reads as belonging to the
     // device it feeds. Once depth runs sideways that run is the crossbar, the one vertical segment
     // on the path; in the top-down frame it stays on the child's leg.
+    // A point a fraction of the way along an L's long run: the crossbar of an edge drawn sideways.
+    _alongRun(e,f){
+        const off=e._midYOff||0;
+        return e._hz?{x:(e._x1+e._x2)/2+off,y:e._y1+(e._y2-e._y1)*f}
+                    :{x:e._x1+(e._x2-e._x1)*f,y:(e._y1+e._y2)/2+off};
+    }
+
     _rateLabel(e){
+        if(e._carrierUp)return this._alongRun(e,0.55);
         if(e._hz){
             return{x:(e._x1+e._x2)/2+(e._midYOff||0), y:e._y1+(e._y2-e._y1)*0.75};
         }
         return this._elbowLabel(e,false,38);
     }
 
-    _placeClouds(){
+    // carriersPlaced: a second pass once _placeCarriers has run, ordering by where the carriers
+    // landed rather than by their parents. It reuses the same slots, so no collision check changes.
+    _placeClouds(carriersPlaced=false){
         if(!this._root||this._clouds.length===0)return;
+        // Globes in the order of where their WANs land across the map: a WAN carried by a modem
+        // lands at the modem, so its globe goes to that side and its line stays short.
+        // Ties keep the server's order.
+        const land=new Map();
+        for(const e of this._edges){
+            if(e.lk.kind!==LK.Wan)continue;
+            const via=e.lk.viaNodeId?this._treeMap.get(e.lk.viaNodeId):null;
+            const anchor=(via&&(carriersPlaced&&via.x!=null?via:(this._parentOf(via)||via)))||this._root;
+            land.set(e.lk.fromNodeId,this._hz?anchor.y:anchor.x);
+        }
+        const rank=new Map(this._clouds.map((c,i)=>[c,i]));
+        const gwCross=this._hz?this._root.y:this._root.x;
+        const key=(c)=>land.get(c.d.id)??gwCross;
+        this._clouds.sort((a,b)=>(key(a)-key(b))||(rank.get(a)-rank.get(b)));
+        // WANs landing on the gateway take the slots nearest it; carried ones the rest, in order of
+        // where they land. A carried WAN's line then never drops down the gateway's own column.
+        const carried=new Set();
+        for(const e of this._edges)if(e.lk.kind===LK.Wan&&e.lk.viaNodeId&&this._treeMap.get(e.lk.viaNodeId))carried.add(e.lk.fromNodeId);
+        if(carried.size&&carried.size<this._clouds.length){
+            const n=this._clouds.length, mid=(n-1)/2;
+            const slots=[...Array(n).keys()];
+            const nearGw=[...slots].sort((a,b)=>Math.abs(a-mid)-Math.abs(b-mid)||a-b);
+            const gwClouds=this._clouds.filter(c=>!carried.has(c.d.id));
+            const gwSlots=new Set(nearGw.slice(0,gwClouds.length));
+            const order=new Array(n);
+            gwClouds.forEach((c,i)=>{order[[...gwSlots].sort((a,b)=>a-b)[i]]=c;});
+            const rest=slots.filter(s=>!gwSlots.has(s));
+            this._clouds.filter(c=>carried.has(c.d.id)).forEach((c,i)=>{order[rest[i]]=c;});
+            this._clouds.splice(0,n,...order);
+        }
         const gx=this._root.x,gy=this._root.y;
         const total=this._clouds.length,sp=G.cloudGap;
         const stagger=45;
@@ -1755,6 +2150,152 @@ class LanFlowMap2D {
         }
     }
 
+    // ---- WAN carriers ----
+    // A device that carries a WAN (a cellular modem: the WAN link's viaNodeId) is drawn between its
+    // uplink and the WAN globe instead of in its uplink's row: beside the uplink, raised toward the
+    // globes above the uplink's incoming bus. Only a leaf moves; one with devices or clients under
+    // it stays in the tree and its WAN link enters its side (_matchEdges).
+
+    _findCarriers(){
+        const set=new Set();
+        for(const e of this._edges){
+            if(e.lk.kind!==LK.Wan||!e.lk.viaNodeId)continue;
+            const c=this._treeMap.get(e.lk.viaNodeId);
+            if(!c||c===this._root||c.infra.length>0||c.clients.length>0)continue;
+            if(this._parentOf(c))set.add(c);
+        }
+        return set;
+    }
+
+    _parentOf(n){
+        for(const p of this._treeMap.values())if(p.infra.includes(n))return p;
+        return null;
+    }
+
+    // The carrier among a node's infra children, if any (one per parent is placed; a second stays put).
+    _carrierOf(n){
+        if(!this._carriers?.size)return null;
+        for(const c of n.infra)if(this._carriers.has(c))return c;
+        return null;
+    }
+
+    // A parent's one free side, where its carrier goes: top-down its right (the incoming link is on
+    // top, the children below, the labels under the box); left to right its top (incoming on the
+    // left, children on the right, labels below). The parent's contour reserves that side, so the L
+    // joining them never runs through a sibling or the parent's own labels. +1 is right/below.
+    _carrierSide(){return this._hz?-1:1;}
+    // Cross-axis offset of a carrier from its parent, and the parent contour edge that reserves it.
+    _carrierOffset(){return (this._hz?G.boxH:G.boxW)+80;}
+    _carrierSlotR(){const s=this._hz?G.boxH:G.boxW;return this._carrierOffset()+s/2+20;}
+
+    _placeCarriers(){
+        if(!this._carriers?.size)return;
+        const hz=this._hz, off=this._carrierOffset();
+        for(const c of this._carriers){
+            const p=this._parentOf(c);
+            if(!p||p.x==null||this._carrierOf(p)!==c){this._carriers.delete(c);continue;}
+            // The parent's incoming bus sits halfway to its own parent's tier (the root has none,
+            // so it is half a tier toward the globes). Raised, the carrier and its labels sit just
+            // above it on the parent's free side, a slot or two out; else level with the parent, in
+            // the slot its contour reserved.
+            const bus=(hz?p.x:p.y)-G.tierGap/2;
+            const raised=bus-(hz?(G.boxW/2+44):(G.boxH/2+44))-8;
+            const side=this._carrierSide();
+            const at=(depth,extra)=>{
+                const cross=(hz?p.y:p.x)+side*(off+extra);
+                return hz?{x:depth,y:cross}:{x:cross,y:depth};
+            };
+            // A spot counts only if its box, the L to it, and the WAN line's drop onto it all clear
+            // every other device: a free box at the end of a line through a switch is no better.
+            const obs=this._carrierObstacles(p,c);
+            let spot=null,leg=null;
+            for(const extra of [0,110,220]){
+                const pt=at(raised,extra);
+                if(!this._carrierSpotFree(pt,c))continue;
+                if(!this._segsClear(this._carrierDrop(pt),obs))continue;
+                leg=this._carrierLegs(p,pt,true).find(l=>this._segsClear(l.segs,obs));
+                if(leg){spot=pt;break;}
+            }
+            c._carrierRaised=!!spot;
+            if(!spot){
+                spot=at(hz?p.x:p.y,0);
+                leg=this._carrierLegs(p,spot,false)[0];
+                // Level, the WAN takes the top if its drop is clear, else the outer side.
+                c._carrierTopEntry=this._segsClear(this._carrierDrop(spot),obs);
+            }else{
+                c._carrierTopEntry=true;
+            }
+            c.x=spot.x; c.y=spot.y;
+            c._carrierSide=side;
+            c._carrierLeg=leg?.leg;
+        }
+    }
+
+    // The L from a parent's free side to its carrier at `pt`, as segments, one per bend it may take:
+    // top-down the climb hugging the parent or hugging the carrier; left to right one shape (up out of
+    // the parent's top, then across into the carrier's near side). Level, a straight line.
+    _carrierLegs(p,pt,raised){
+        const hz=this._hz, hw=G.boxW/2, hh=G.boxH/2;
+        if(hz){
+            if(!raised)return[{leg:null,segs:[[p.x,p.y-hh,p.x,pt.y+hh]]}];
+            return[{leg:null,segs:[[p.x,p.y-hh,p.x,pt.y],[p.x,pt.y,pt.x+hw,pt.y]]}];
+        }
+        const ax=p.x+hw, bx=pt.x-hw;
+        if(!raised)return[{leg:null,segs:[[ax,p.y,bx,p.y]]}];
+        return[ax+12,bx-12].map(lx=>({leg:lx,segs:[[ax,p.y,lx,p.y],[lx,p.y,lx,pt.y],[lx,pt.y,bx,pt.y]]}));
+    }
+
+    // The WAN line's last stretch onto a carrier's top (its left side, left to right), halfway up to
+    // the globe row: the part that would run through whatever sits above the carrier.
+    _carrierDrop(pt){
+        const hz=this._hz, r=this._root;
+        if(hz){
+            const gx=r.x-G.tierGap*1.6+G.cloudR, ex=pt.x-G.boxW/2;
+            return[[ex,pt.y,(ex+gx)/2,pt.y]];
+        }
+        const gy=r.y-G.tierGap*1.6+G.cloudR, ey=pt.y-G.boxH/2;
+        return[[pt.x,ey,pt.x,(ey+gy)/2]];
+    }
+
+    // Boxes and label bands of every placed device except the parent and its carrier.
+    _carrierObstacles(p,c){
+        const out=[];
+        this._walkPlaced(this._root,null,(n)=>{
+            if(n===p||n===c||n.x==null)return;
+            if(isClient(n.d.kind)){out.push({x0:n.x-20,x1:n.x+20,y0:n.y-G.clientR-4,y1:n.y+G.clientR+38});return;}
+            out.push({x0:n.x-G.boxW/2-4,x1:n.x+G.boxW/2+4,y0:n.y-G.boxH/2-4,y1:n.y+G.boxH/2+4});
+            out.push({x0:n.x-70,x1:n.x+70,y0:n.y+G.boxH/2,y1:n.y+G.boxH/2+44});
+        });
+        return out;
+    }
+
+    // Whether axis-aligned segments [x1,y1,x2,y2] stay clear of every obstacle box.
+    _segsClear(segs,obs){
+        for(const[x1,y1,x2,y2]of segs){
+            const s={x0:Math.min(x1,x2)-2,x1:Math.max(x1,x2)+2,y0:Math.min(y1,y2)-2,y1:Math.max(y1,y2)+2};
+            if(obs.some(o=>o.x0<s.x1&&o.x1>s.x0&&o.y0<s.y1&&o.y1>s.y0))return false;
+        }
+        return true;
+    }
+
+    // Whether a carrier's box and labels at this spot clear every other placed node and globe.
+    _carrierSpotFree(pt,self){
+        const box=(x,y,w,up,down)=>({x0:x-w,x1:x+w,y0:y-up,y1:y+down});
+        const me=box(pt.x,pt.y,75,G.boxH/2+4,G.boxH/2+44);
+        const hit=(o)=>o.x0<me.x1&&o.x1>me.x0&&o.y0<me.y1&&o.y1>me.y0;
+        let free=true;
+        this._walkPlaced(this._root,null,(n)=>{
+            if(!free||n===self||n.x==null)return;
+            const r=isClient(n.d.kind)?box(n.x,n.y,G.clientCellW/2,G.clientR+4,G.clientR+38)
+                :box(n.x,n.y,75,G.boxH/2+4,G.boxH/2+44);
+            if(hit(r))free=false;
+        });
+        if(free&&this._isCloudVisible()){
+            for(const cl of this._clouds)if(hit(box(cl.x,cl.y,G.cloudR+50,G.cloudR+4,G.cloudR+34))){free=false;break;}
+        }
+        return free;
+    }
+
     _matchEdges(){
         const gw=this._root;
         if(!gw)return;
@@ -1772,10 +2313,34 @@ class LanFlowMap2D {
             const edge=this._edges.find(e=>
                 (e.lk.kind===LK.Wan||e.lk.kind===LK.Transit)
                 &&(e.lk.fromNodeId===cloud.d.id||e.lk.toNodeId===cloud.d.id));
-            if(edge){edge._x1=from.x;edge._y1=from.y;edge._x2=gwIn.x;edge._y2=gwIn.y;edge._isWan=true;edge._hz=hz;wanEdges.push(edge);}
+            // A WAN a cellular modem carries is drawn from that modem, not the gateway. A carrier
+            // placed beside its uplink (_placeCarriers) takes it on top like any WAN link. One left in
+            // the tree sits deep in it, so the link enters its side facing the globe: the globe's leg
+            // runs to its height and turns once (_viaSide), instead of dropping through the devices above.
+            const via=edge?.lk.viaNodeId?this._treeMap.get(edge.lk.viaNodeId):null;
+            const viaOk=via&&via.x!=null&&via!==gw;
+            const placed=viaOk&&this._carriers?.has(via);
+            // A placed carrier takes it on top when _placeCarriers found that drop clear (always, when
+            // raised), else on its outer side if the globe is on that side; with the globe across its
+            // parent, the outer side would route through the parent, so the top it is. One left in the
+            // tree takes the side facing the globe.
+            const globeSide=hz?(from.y>=via?.y?1:-1):(from.x>=via?.x?1:-1);
+            const viaSide=viaOk&&(!placed||(!via._carrierTopEntry&&globeSide===(via._carrierSide||1)));
+            let to=gwIn;
+            if(viaSide){
+                const s=globeSide;
+                to=hz?{x:via.x,y:via.y+s*G.boxH/2}:{x:via.x+s*G.boxW/2,y:via.y};
+            }else if(viaOk){
+                to=leadIn(via,G.boxH/2);
+            }
+            if(edge){edge._x1=from.x;edge._y1=from.y;edge._x2=to.x;edge._y2=to.y;edge._isWan=true;edge._hz=hz;edge._viaSide=!!viaSide;wanEdges.push(edge);}
         }
         const wanMid=(wanEdges.length-1)/2;
-        for(let i=0;i<wanEdges.length;i++)wanEdges[i]._midYOff=(i-wanMid)*STAGGER;
+        for(let i=0;i<wanEdges.length;i++){
+            const e=wanEdges[i];
+            // The crossbar at the far end makes the last leg zero-length: one turn, into the side.
+            e._midYOff=e._viaSide?(hz?(e._x2-e._x1)/2:(e._y2-e._y1)/2):(i-wanMid)*STAGGER;
+        }
 
         // Tree links - stagger siblings from same parent
         const matchTree=(n)=>{
@@ -1791,7 +2356,26 @@ class LanFlowMap2D {
                 // By TN identity, as for clients below: a mesh AP re-parented in playback keeps its
                 // snapshot link, and only the edge's endpoint follows the tree.
                 const edge=this._edges.find(e=>(e.fn===n&&e.tn===c)||(e.fn===c&&e.tn===n));
-                if(edge){edge._x1=pOut.x;edge._y1=pOut.y;edge._x2=cIn.x;edge._y2=cIn.y;edge._isCl=false;edge._hz=hz;sibEdges.push(edge);}
+                if(edge&&this._carriers?.has(c)){
+                    // A WAN carrier beside its parent: one L out of the parent's free side, outside
+                    // the sibling bundle. Top-down: right, then up into the carrier's near side, the
+                    // climb hugging the parent so a long carrier name hangs clear of it. Left to
+                    // right: up out of the parent's top, then across into the carrier's near side
+                    // (a level carrier sits straight above, so the L is a straight line).
+                    if(hz){
+                        const a={x:n.x,y:n.y-G.boxH/2};
+                        const b=c._carrierRaised?{x:c.x+G.boxW/2,y:c.y}:{x:c.x,y:c.y+G.boxH/2};
+                        edge._x1=a.x;edge._y1=a.y;edge._x2=b.x;edge._y2=b.y;
+                        edge._hz=false;edge._midYOff=c._carrierRaised?(b.y-a.y)/2:0;
+                    }else{
+                        const a={x:n.x+G.boxW/2,y:n.y};
+                        const b={x:c.x-G.boxW/2,y:c.y};
+                        edge._x1=a.x;edge._y1=a.y;edge._x2=b.x;edge._y2=b.y;
+                        // The climb _placeCarriers checked clear (hugging the parent or the carrier).
+                        edge._hz=true;edge._midYOff=(c._carrierLeg??(a.x+12))-(a.x+b.x)/2;
+                    }
+                    edge._isCl=false;edge._carrierUp=true;
+                }else if(edge){edge._x1=pOut.x;edge._y1=pOut.y;edge._x2=cIn.x;edge._y2=cIn.y;edge._isCl=false;edge._hz=hz;edge._carrierUp=false;sibEdges.push(edge);}
                 matchTree(c);
             }
             // The same set the layout just positioned. Reading n.clients here instead would set
@@ -1848,7 +2432,7 @@ class LanFlowMap2D {
             y0=Math.min(y0,y-up); y1=Math.max(y1,y+down);
         };
         const INFRA_UP=G.boxH/2+6, INFRA_DOWN=G.boxH/2+44;   // box top ; box + name + rate label
-        const CLIENT_UP=G.clientR+4, CLIENT_DOWN=G.clientR+24; // dot top ; dot + name label
+        const CLIENT_UP=G.clientR+4, CLIENT_DOWN=G.clientR+38; // dot top ; icon + name + rate label
         const walk=(n)=>{
             exp(n.x,n.y,G.boxW,INFRA_UP,INFRA_DOWN);
             for(const c of n.infra)walk(c);
@@ -1883,6 +2467,16 @@ class LanFlowMap2D {
                 img.src=`/images/devices/${m}.png`;
             }));
         }
+        // Client icons too, so the first frame has them instead of dots that swap in one by one.
+        // Capped: a slow icon draws as a dot and appears when it lands.
+        const icons=[];
+        for(const n of snap.nodes){
+            if((isClient(n.kind)||n.kind===NK.VirtualHub)&&n.iconUrl&&!this._clientIcons.has(n.iconUrl))icons.push(this._loadClientIcon(n.iconUrl).promise);
+        }
+        for(const c of snap.clouds||[]){
+            if(c.logoUrl&&!this._clientIcons.has(c.logoUrl))icons.push(this._loadClientIcon(c.logoUrl).promise);
+        }
+        if(icons.length>0)promises.push(Promise.race([Promise.all(icons),new Promise(r=>setTimeout(r,ICON_PRELOAD_MS))]));
         if(promises.length>0)await Promise.all(promises);
     }
 
@@ -1941,21 +2535,38 @@ class LanFlowMap2D {
             (cw/2-this._ox*this._scale)*dpr,
             (ch/2-this._oy*this._scale)*dpr);
 
+        // One path and one fill per color, not per dot. Dots follow a link's visibility (_vis,
+        // set with the line in _drawAllLinks) and are skipped for a link outside the viewport.
+        // Never batch the sub-pixel dots into the path: a path of thousands of tiny contours
+        // rasterizes them away and the streams go dim at fit-all zoom. Those draw as squares,
+        // which no eye can tell from a circle at that size. DOT_TINY_PAD_PX keeps their
+        // brightness where a lone anti-aliased arc put it: an arc that small covers more than
+        // its area.
+        this._calcView();
         ctx.globalCompositeOperation='lighter';
-        for(const s of this._streams){
-            if(s.edge._isWan&&!this._isCloudVisible())continue;
-            if(s.edge._isCl){const child=s.edge.tn||s.edge.fn;if(child&&!this._isNodeVisible(child))continue;}
-            // Without this the dots keep streaming along a link whose line is hidden.
-            if(!this._isEdgeVisible(s.edge))continue;
-            ctx.fillStyle=s.color;
-            for(const sl of s.slots){
-                if(sl.t<0)continue;
-                const pt=orthoAt(s.edge._x1,s.edge._y1,s.edge._x2,s.edge._y2,sl.t,s.midYOff,s.edge._hz);
-                ctx.globalAlpha=0.85;
-                ctx.beginPath();
-                ctx.arc(pt.x,pt.y,sl.size,0,Math.PI*2);
-                ctx.fill();
+        ctx.globalAlpha=0.85;
+        const TAU=Math.PI*2, pxWorld=1/(this._scale*dpr);
+        const tinyR=DOT_PATH_MIN_PX*pxWorld, tinyPad=DOT_TINY_PAD_PX*pxWorld;
+        for(const color of STREAM_COLORS){
+            ctx.fillStyle=color;
+            ctx.beginPath();
+            for(const s of this._streams){
+                if(s.live===0||s.color!==color)continue;
+                const e=s.edge;
+                if(!e._vis||!this._edgeInView(e))continue;
+                for(const sl of s.slots){
+                    if(sl.t<0)continue;
+                    const pt=orthoAt(e._x1,e._y1,e._x2,e._y2,sl.t,s.midYOff,e._hz,_dotPt);
+                    if(sl.size<tinyR){
+                        const h=(sl.size+tinyPad)*0.8862; // half-side of the square with the circle's area
+                        ctx.fillRect(pt.x-h,pt.y-h,h*2,h*2);
+                        continue;
+                    }
+                    ctx.moveTo(pt.x+sl.size,pt.y);
+                    ctx.arc(pt.x,pt.y,sl.size,0,TAU);
+                }
             }
+            ctx.fill();
         }
         ctx.globalCompositeOperation='source-over';
         ctx.globalAlpha=1;
@@ -2014,9 +2625,126 @@ class LanFlowMap2D {
 
         // Labels on top of everything (including particles)
         if(!this._hideRates){
-            this._drawLinkSpeedLabels(ctx);
-            this._drawRateLabels(ctx);
+            ctx.setTransform(1,0,0,1,0,0);
+            ctx.drawImage(this._labelCanvas,0,0);
         }
+    }
+
+    // The viewport in world coordinates, for culling.
+    _calcView(){
+        const hw=this._cw/2/this._scale, hh=this._ch/2/this._scale;
+        this._vx0=this._ox-hw; this._vx1=this._ox+hw;
+        this._vy0=this._oy-hh; this._vy1=this._oy+hh;
+    }
+
+    _inView(x,y,mx,my){
+        return x+mx>=this._vx0&&x-mx<=this._vx1&&y+my>=this._vy0&&y-my<=this._vy1;
+    }
+
+    // A link's path stays inside its endpoints' box, give or take the elbow offset and line width.
+    _edgeInView(e){
+        const m=Math.abs(e._midYOff||0)+8;
+        return Math.max(e._x1,e._x2)+m>=this._vx0&&Math.min(e._x1,e._x2)-m<=this._vx1
+            &&Math.max(e._y1,e._y2)+m>=this._vy0&&Math.min(e._y1,e._y2)-m<=this._vy1;
+    }
+
+    _drawLabelLayer(){
+        const c=this._labelCanvas, ctx=c.getContext('2d');
+        ctx.setTransform(1,0,0,1,0,0);
+        ctx.clearRect(0,0,c.width,c.height);
+        if(!this._root||this._hideRates)return;
+        const dpr=this._dpr;
+        ctx.setTransform(this._scale*dpr,0,0,this._scale*dpr,
+            (this._cw/2-this._ox*this._scale)*dpr,
+            (this._ch/2-this._oy*this._scale)*dpr);
+        // Labels go down in priority order and each records its box; a link label that would land
+        // on one already placed slides along its own run (_slideAlong) to the nearest clear spot.
+        // Device boxes, names and globes first, then device and client rates, then link rates (the
+        // live figures), then link speeds. One that fits where it is stays there.
+        this._labelTaken=this._labelObstacles();
+        this._drawRateLabels(ctx);
+        this._drawLinkSpeedLabels(ctx);
+    }
+
+    // What a link label must not cover: every placed device box and name, client dot, and globe.
+    _labelObstacles(){
+        const out=[];
+        if(!this._root)return out;
+        this._walkPlaced(this._root,null,(n)=>{
+            if(n.x==null)return;
+            if(n._nameRect)out.push(n._nameRect);
+            if(isClient(n.d.kind))out.push({x:n.x-G.clientR-2,y:n.y-G.clientR-2,w:G.clientR*2+4,h:G.clientR*2+4});
+            else if(n.d.kind===NK.VirtualHub)out.push({x:n.x-12,y:n.y-12,w:24,h:24});
+            else out.push({x:n.x-G.boxW/2,y:n.y-G.boxH/2,w:G.boxW,h:G.boxH});
+        });
+        if(this._isCloudVisible())for(const c of this._clouds)out.push({x:c.x-G.cloudR,y:c.y-G.cloudR,w:G.cloudR*2,h:G.cloudR*2});
+        return out;
+    }
+
+    // A label's box covers or crowds one already placed. A link's own labels may sit tight (its speed
+    // over its rate reads as one link's). Another link's label keeps a clear gap beside it, or two
+    // links' labels side by side read as a pair; stacked, as siblings' labels on a crossbar are, they
+    // read fine tight.
+    _labelHits(r,owner){
+        return(this._labelTaken||[]).some(t=>{
+            const gx=owner&&t.owner&&t.owner!==owner?12:2, gy=2;
+            return r.x<t.x+t.w+gx&&r.x+r.w>t.x-gx&&r.y<t.y+t.h+gy&&r.y+r.h>t.y-gy;
+        });
+    }
+
+    // The nearest point to `lp` on the run of edge `e` it sits on where a w-by-h label covers
+    // nothing already placed, stepping out both ways; `lp` itself when it fits or nothing does,
+    // except on a WAN carrier's uplink, whose labels are dropped (null) rather than drawn over a
+    // device: its rates repeat the carrier's own rate label, its speed is in the tooltip.
+    _slideAlong(e,lp,w,h){
+        const p=this._slideAlongInner(e,lp,w,h);
+        if(e?._carrierUp&&p===lp&&this._labelHits({x:lp.x-w/2,y:lp.y-h/2,w,h},e))return null;
+        return p;
+    }
+
+    _slideAlongInner(e,lp,w,h){
+        const rect=(p)=>({x:p.x-w/2,y:p.y-h/2,w,h});
+        if(!e||e._x1==null||!this._labelHits(rect(lp),e))return lp;
+        const off=e._midYOff||0;
+        // The path's corners, as strokeOrtho draws it (a sideways edge swaps the axes).
+        const pts=e._hz
+            ?(()=>{const mx=(e._x1+e._x2)/2+off;return[{x:e._x1,y:e._y1},{x:mx,y:e._y1},{x:mx,y:e._y2},{x:e._x2,y:e._y2}];})()
+            :(()=>{const my=(e._y1+e._y2)/2+off;return[{x:e._x1,y:e._y1},{x:e._x1,y:my},{x:e._x2,y:my},{x:e._x2,y:e._y2}];})();
+        let best=null,bd=Infinity;
+        for(let i=0;i<3;i++){
+            const a=pts[i],b=pts[i+1],len=Math.hypot(b.x-a.x,b.y-a.y);
+            if(len<1)continue;
+            const ux=(b.x-a.x)/len,uy=(b.y-a.y)/len;
+            const t=Math.max(0,Math.min(len,(lp.x-a.x)*ux+(lp.y-a.y)*uy));
+            const d=Math.hypot(a.x+ux*t-lp.x,a.y+uy*t-lp.y);
+            if(d<bd){bd=d;best={a,ux,uy,len,t};}
+        }
+        if(!best)return lp;
+        // Keep the label on its segment, clear of the corners it would otherwise hang past.
+        const vertical=Math.abs(best.uy)>0.5;
+        const m=(vertical?h:w)/2+4;
+        const onRun=(t,perp)=>({
+            x:best.a.x+best.ux*t+(lp.x-(best.a.x+best.ux*best.t))*Math.abs(best.uy)+(vertical?perp:0),
+            y:best.a.y+best.uy*t+(lp.y-(best.a.y+best.uy*best.t))*Math.abs(best.ux)+(vertical?0:perp)});
+        for(let k=1;k<=60;k++){
+            const t=best.t+(k%2?-1:1)*Math.ceil(k/2)*6;
+            if(t<m||t>best.len-m)continue;
+            const p=onRun(t,0);
+            if(!this._labelHits(rect(p),e))return p;
+        }
+        // A run too short for it (a level carrier's L): just off the run, either side, closest
+        // first, rather than on top of a device.
+        const across=(vertical?w:h)/2+6;
+        const mid=Math.max(0,Math.min(best.len,best.t));
+        for(const perp of [across,-across,across+18,-across-18]){
+            for(let k=0;k<=12;k++){
+                const t=mid+(k%2?-1:1)*Math.ceil(k/2)*6;
+                if(t<0||t>best.len)continue;
+                const p=onRun(t,perp);
+                if(!this._labelHits(rect(p),e))return p;
+            }
+        }
+        return lp;
     }
 
     _drawStatic(){
@@ -2033,21 +2761,28 @@ class LanFlowMap2D {
             (cw/2-this._ox*this._scale)*dpr,
             (ch/2-this._oy*this._scale)*dpr);
 
-        if(!this._root)return;
+        if(!this._root){this._drawLabelLayer();return;}
+        this._calcView();
 
         // Links (pipes only)
         this._pendingLinkLabels=[];
         this._drawAllLinks(ctx);
         // Clouds (if overlay enabled)
         if(this._isCloudVisible())this._drawAllClouds(ctx);
+        this._drawGhosts(ctx);
         // Infra + client nodes
         this._drawAllNodes(ctx,this._root);
+        // After the nodes: label placement reads the rects they record.
+        this._drawLabelLayer();
     }
 
     // ---- Link drawing ----
 
     _drawAllLinks(ctx){
         for(const e of this._edges){
+            // Cached for the particle loop, which runs every frame; everything that changes a
+            // link's visibility also redraws this layer.
+            e._vis=false;
             if(e._x1==null)continue;
             // Hide links to filtered-out nodes
             if(e._isWan&&!this._isCloudVisible())continue;
@@ -2056,6 +2791,9 @@ class LanFlowMap2D {
                 if(child&&!this._isNodeVisible(child))continue;
             }
             if(!this._isEdgeVisible(e))continue;
+            e._vis=true;
+            // A client link carries no label, so off screen it has nothing to draw.
+            if(e._isCl&&!this._edgeInView(e))continue;
             const off=this._isOffline(e.lk.fromNodeId)||this._isOffline(e.lk.toNodeId);
             const r=off?null:(this._liveRates[e.lk.portKey]||this._liveRates[e.lk.id]);
             const dn=r?.downstreamBps??0,up=r?.upstreamBps??0;
@@ -2070,7 +2808,11 @@ class LanFlowMap2D {
             ctx.lineWidth=pipeW(e.lk.capacityBps);
             ctx.lineCap='round';
             ctx.globalAlpha=e._isCl?0.3+u*0.45:0.5+u*0.5;
+            // A WAN tunneled over the LAN (GRE from a cellular modem) is dashed: it crosses the LAN.
+            const tunnel=e._isWan&&e.lk.viaTunnel&&e.lk.viaNodeId&&this._treeMap.get(e.lk.viaNodeId)?.x!=null;
+            if(tunnel)ctx.setLineDash([6,5]);
             strokeOrtho(ctx,e._x1,e._y1,e._x2,e._y2,e._midYOff,e._hz);
+            if(tunnel)ctx.setLineDash([]);
 
             // Capacity / speed label on infra and WAN links
             if(!e._isCl){
@@ -2118,7 +2860,7 @@ class LanFlowMap2D {
 
                 // Suppress the speed/throughput label for a link to an offline device -
                 // a down port has no meaningful negotiated speed or throughput.
-                if(txt&&!off&&!this._hideRates) this._pendingLinkLabels.push({mx,my,txt,txtColor,txtItalic});
+                if(txt&&!off&&!this._hideRates) this._pendingLinkLabels.push({mx,my,txt,txtColor,txtItalic,e});
             }
         }
         ctx.globalAlpha=1;
@@ -2129,14 +2871,19 @@ class LanFlowMap2D {
         const italicFont=`italic ${G.rateFont}px ${FONT}`;
         ctx.font=normalFont;
         this._linkLabelRects=[];
-        for(const{mx,my,txt,txtColor,txtItalic}of(this._pendingLinkLabels||[])){
+        for(const{mx:mx0,my:my0,txt,txtColor,txtItalic,e}of(this._pendingLinkLabels||[])){
             ctx.font=txtItalic?italicFont:normalFont;
             const tw=ctx.measureText(txt).width+12;
+            const at=this._slideAlong(e,{x:mx0,y:my0},tw,16);
+            if(!at)continue;
+            const{x:mx,y:my}=at;
             ctx.fillStyle=C.labelBg;
             ctx.globalAlpha=1;
             this._roundRect(ctx,mx-tw/2,my-8,tw,16,4);
             ctx.fill();
-            this._linkLabelRects.push({x:mx-tw/2,y:my-8,w:tw,h:16});
+            const r={x:mx-tw/2,y:my-8,w:tw,h:16,owner:e};
+            this._linkLabelRects.push(r);
+            this._labelTaken?.push(r);
             if(txtColor){
                 ctx.fillStyle=txtColor;
                 ctx.textAlign='center'; ctx.textBaseline='middle';
@@ -2161,6 +2908,20 @@ class LanFlowMap2D {
             // greyed, matching the 3D map.
             const greyed=cloud.d.tier===CT.Unresolved;
 
+            // The globe is the icon here, so it grows on hover; its labels below do not.
+            const logo=this._clientIcon(cloud.d.logoUrl);
+            this._scaledAt(ctx,cx,cy,this._hoverScale(cloud,HOVER_GROW.cloud),()=>{
+            // The ISP's logo replaces the globe: its visible mark as tall as the globe, bottom on the
+            // globe's bottom, so a wide logo's padding never opens a gap above the name. A square
+            // logo's corners overhang the circle on purpose. Greyed like the globe when unresolved.
+            if(logo){
+                const e=this._clientIcons.get(cloud.d.logoUrl);
+                const box=e.box??=opaqueBounds(logo);
+                const {w,h}=logoFit(box,r*2);
+                ctx.globalAlpha=greyed?0.4:1;
+                ctx.drawImage(logo,box.x,box.y,box.w,box.h,cx-w/2,cy+r-h,w,h);
+                return;
+            }
             // Subtle radial fill
             const grad=ctx.createRadialGradient(cx-r*0.3,cy-r*0.3,0,cx,cy,r);
             grad.addColorStop(0,greyed?'rgba(120,130,145,0.06)':'rgba(59,130,246,0.08)');
@@ -2186,15 +2947,33 @@ class LanFlowMap2D {
             // Equator slightly brighter
             ctx.globalAlpha=0.45; ctx.lineWidth=0.9;
             ctx.beginPath(); ctx.ellipse(cx,cy,r,r*0.08,0,0,Math.PI*2); ctx.stroke();
+            });
 
             ctx.globalAlpha=1;
+
+            // A cellular WAN's badge, at the globe's top right: "5G" or "LTE".
+            // The modem's mode at the scrub instant in playback; live, the snapshot's.
+            const cellKind=flowData.getClientStats()?.[cloud.d.cellularNodeId]?.cellularMode??cloud.d.cellularKind;
+            if(cellKind){
+                const txt=String(cellKind);
+                ctx.font=`600 9px ${FONT}`;
+                const bw=ctx.measureText(txt).width+8, bh=13;
+                const bx=cx+r*0.62, by=cy-r*0.62-bh/2;
+                ctx.fillStyle=C.labelBg;
+                this._roundRect(ctx,bx-bw/2,by,bw,bh,6.5); ctx.fill();
+                ctx.strokeStyle=greyed?'#3a4455':C.globeStroke; ctx.lineWidth=1;
+                this._roundRect(ctx,bx-bw/2,by,bw,bh,6.5); ctx.stroke();
+                ctx.fillStyle=greyed?C.textMuted:C.text;
+                ctx.textAlign='center'; ctx.textBaseline='middle';
+                ctx.fillText(txt,bx,by+bh/2+0.5);
+            }
 
             // Name
             const name=demoMask(cloud.d.name||cloud.d.asnName||'WAN');
             ctx.fillStyle=greyed?C.textMuted:C.textSec;
             ctx.font=`500 ${G.nameFont}px ${FONT}`;
-            ctx.textAlign='center'; ctx.textBaseline='top';
-            ctx.fillText(name,cx,cy+r+8);
+            ctx.textAlign='center'; ctx.textBaseline='middle';
+            ctx.fillText(name,cx,cy+r+8+G.nameFont/2);
 
             // RTT badge
             let rttTxt='';
@@ -2203,7 +2982,7 @@ class LanFlowMap2D {
             if(rttTxt){
                 ctx.fillStyle=C.textMuted;
                 ctx.font=`${G.rateFont-1}px ${FONT}`;
-                ctx.fillText(rttTxt,cx,cy+r+22);
+                ctx.fillText(rttTxt,cx,cy+r+22+(G.rateFont-1)/2);
             }
         }
     }
@@ -2213,12 +2992,19 @@ class LanFlowMap2D {
     _drawAllNodes(ctx,n){
         // VirtualHub: show as compact label with member count, skip children
         if(n.d.kind===NK.VirtualHub){
-            if(!this._hideVirtualHubs)this._drawHubNode(ctx,n);
+            if(!this._hideVirtualHubs)this._drawFading(ctx,n,c=>this._drawHubNode(c,n));
             return;
         }
-        this._drawInfraNode(ctx,n);
+        this._drawFading(ctx,n,c=>this._drawInfraNode(c,n));
         for(const c of n.infra)this._drawAllNodes(ctx,c);
-        for(const c of n.clients.slice(0,G.maxClients)){if(this._isNodeVisible(c))this._drawClientNode(ctx,c);}
+        const shown=Math.min(n.clients.length,G.maxClients);
+        for(let i=0;i<shown;i++){
+            const c=n.clients[i];
+            if(!this._isNodeVisible(c))continue;
+            // Off screen: the margin covers the name label, the widest thing a client draws.
+            if(this._inView(c.x,c.y,CLIENT_CULL_X,CLIENT_CULL_Y))this._drawFading(ctx,c,x=>this._drawClientNode(x,c));
+            else c._nameRect=null;
+        }
         if(n.clients.length>G.maxClients){
             const last=n.clients[G.maxClients-1];
             ctx.fillStyle=C.textMuted;
@@ -2232,13 +3018,22 @@ class LanFlowMap2D {
         const x=n.x,y=n.y,color=C.virtualHub;
         const memberCount=n.infra.length+n.clients.length;
         const r=10;
+        let labelR=r;
 
-        // Small ring
-        ctx.strokeStyle=color; ctx.lineWidth=2; ctx.globalAlpha=0.6;
-        ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.stroke();
-        ctx.fillStyle=withAlpha(color,0.1);
-        ctx.beginPath(); ctx.arc(x,y,r-1,0,Math.PI*2); ctx.fill();
-        ctx.globalAlpha=1;
+        // The most specific icon among its members, chosen by the server; else the plain ring.
+        const icon=this._clientIcon(n.d.iconUrl);
+        if(icon){
+            const {w,h}=this._iconSize(icon,26);
+            this._drawIconRing(ctx,x,y,r,color);
+            this._scaledAt(ctx,x,y,this._hoverScale(n,HOVER_GROW.hub),()=>ctx.drawImage(icon,x-w/2,y-h/2,w,h));
+            labelR=Math.max(r,h/2);
+        } else {
+            ctx.strokeStyle=color; ctx.lineWidth=2; ctx.globalAlpha=0.6;
+            ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.stroke();
+            ctx.fillStyle=withAlpha(color,0.1);
+            ctx.beginPath(); ctx.arc(x,y,r-1,0,Math.PI*2); ctx.fill();
+            ctx.globalAlpha=1;
+        }
 
         // Label - name may already include count from the server
         const name=demoMask(n.d.name||'Hub');
@@ -2247,8 +3042,8 @@ class LanFlowMap2D {
         const dn=label.length>28?label.slice(0,27)+'…':label;
         ctx.fillStyle=C.textSec;
         ctx.font=`${G.nameFont}px ${FONT}`;
-        ctx.textAlign='center'; ctx.textBaseline='top';
-        ctx.fillText(dn,x,y+r+4);
+        ctx.textAlign='center'; ctx.textBaseline='middle';
+        ctx.fillText(dn,x,y+labelR+4+G.nameFont/2);
     }
 
     _drawInfraNode(ctx,n){
@@ -2281,18 +3076,24 @@ class LanFlowMap2D {
         const iSz=G.iconSize;
         const modelKey=n.d.model?.toLowerCase().replace(/ /g,'-');
         const img=modelKey?this._images.get(modelKey):null;
-        if(img){
-            ctx.drawImage(img,x-iSz/2,y-iSz/2,iSz,iSz);
-        } else {
-            ctx.fillStyle=withAlpha(color,0.2);
-            const s=iSz/2-6;
-            this._roundRect(ctx,x-s,y-s,s*2,s*2,6);
-            ctx.fill();
-            ctx.fillStyle=color;
-            ctx.font=`600 18px ${FONT}`;
-            ctx.textAlign='center'; ctx.textBaseline='middle';
-            ctx.fillText((n.d.name||'D').charAt(0).toUpperCase(),x,y);
-        }
+        this._scaledAt(ctx,x,y,this._hoverScale(n,HOVER_GROW.device),()=>{
+            if(img){
+                ctx.drawImage(img,x-iSz/2,y-iSz/2,iSz,iSz);
+            } else {
+                ctx.fillStyle=withAlpha(color,0.2);
+                const s=iSz/2-6;
+                this._roundRect(ctx,x-s,y-s,s*2,s*2,6);
+                ctx.fill();
+                ctx.fillStyle=color;
+                ctx.font=`600 18px ${FONT}`;
+                ctx.textAlign='center'; ctx.textBaseline='middle';
+                ctx.fillText((n.d.name||'D').charAt(0).toUpperCase(),x,y);
+            }
+        });
+        // A wireless uplink (mesh AP, Device Bridge) or a monitored cellular modem: its signal down the
+        // card's right edge. Playback stats first, bars and color from the same source.
+        const sig=flowData.getClientStats()?.[n.d.id]?.signalBars!=null?flowData.getClientStats()[n.d.id]:n.d;
+        if(sig.signalBars!=null)this._drawUplinkMeter(ctx,x+hw-3.5,y,sig.signalColor,sig.signalBars);
         ctx.globalAlpha=1;
 
         // Name label
@@ -2337,34 +3138,59 @@ class LanFlowMap2D {
         const online=badge?badge.online!==false:n.d.online;
         const r=G.clientR; let op=online?0.7:0.2;
         // Fade the client in after a roam re-attach so it doesn't pop at its new spot.
+        // A layout transition slides the client to its new AP instead.
+        if(n._roamFadeUntil&&this._trans)n._roamFadeUntil=null;
         if(n._roamFadeUntil){
             const t=1-Math.max(0,(n._roamFadeUntil-performance.now())/ROAM_FADE_MS);
             if(t>=1)n._roamFadeUntil=null; else op*=t;
         }
 
         ctx.globalAlpha=op;
-        if(n.d.kind===NK.WifiClient){
-            ctx.fillStyle=color;
-            ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.fill();
-            ctx.strokeStyle='rgba(255,255,255,0.5)'; ctx.lineWidth=0.8;
-            ctx.beginPath();
-            ctx.moveTo(x-2.5,y-0.5);
-            ctx.quadraticCurveTo(x,y-4,x+2.5,y-0.5);
-            ctx.stroke();
+        const icon=this._clientIcon(n.d.iconUrl);
+        const hs=this._hoverScale(n,HOVER_GROW.client);
+        let labelR=r;
+        if(icon){
+            // The client's UniFi Network icon over a disc ringed in the color the plain dot would be.
+            // The icon is larger than the ring on purpose, and keeps its own aspect ratio.
+            const R=r+3;
+            const {w,h}=this._iconSize(icon,26);
+            this._drawIconRing(ctx,x,y,R,color);
+            ctx.globalAlpha=online?Math.min(1,op+0.3):op;
+            this._scaledAt(ctx,x,y,hs,()=>ctx.drawImage(icon,x-w/2,y-h/2,w,h));
+            ctx.globalAlpha=op;
+            labelR=Math.max(R,h/2);
+            if(n.d.kind===NK.WifiClient){
+                const sg=flowData.getClientStats()?.[n.d.id];
+                const sBars=sg?.signalBars??n.d.signalBars, sColor=sg?.signalColor??n.d.signalColor;
+                if(sBars!=null) this._drawSignalBars(ctx,x+Math.max(R,w/2)+2.5,y,sColor,sBars);
+            }
+        } else if(n.d.kind===NK.WifiClient){
+            this._scaledAt(ctx,x,y,hs,()=>{
+                ctx.fillStyle=color;
+                ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.fill();
+                ctx.strokeStyle='rgba(255,255,255,0.5)'; ctx.lineWidth=0.8;
+                ctx.beginPath();
+                ctx.moveTo(x-2.5,y-0.5);
+                ctx.quadraticCurveTo(x,y-4,x+2.5,y-0.5);
+                ctx.stroke();
+            });
             // Live stats first, as the band lookup already does: the label reads that value, so
             // taking the class off the node colors the bars after a different, older reading.
             const sg=flowData.getClientStats()?.[n.d.id];
             const sBars=sg?.signalBars??n.d.signalBars, sColor=sg?.signalColor??n.d.signalColor;
             if(sBars!=null) this._drawSignalBars(ctx,x+r+2.5,y,sColor,sBars);
         } else {
-            const s=r*0.9;
-            ctx.fillStyle=color;
-            this._roundRect(ctx,x-s,y-s+0.5,s*2,s*1.5,1.5);
-            ctx.fill();
-            ctx.beginPath(); ctx.moveTo(x,y+s*0.5+0.5); ctx.lineTo(x,y+s+1);
-            ctx.strokeStyle=color; ctx.lineWidth=1.2; ctx.stroke();
+            this._scaledAt(ctx,x,y,hs,()=>{
+                const s=r*0.9;
+                ctx.fillStyle=color;
+                this._roundRect(ctx,x-s,y-s+0.5,s*2,s*1.5,1.5);
+                ctx.fill();
+                ctx.beginPath(); ctx.moveTo(x,y+s*0.5+0.5); ctx.lineTo(x,y+s+1);
+                ctx.strokeStyle=color; ctx.lineWidth=1.2; ctx.stroke();
+            });
         }
         ctx.globalAlpha=1;
+        n._labelR=labelR;
 
         // Name label
         const name=demoMask(n.d.name||n.d.ip||'');
@@ -2373,11 +3199,49 @@ class LanFlowMap2D {
             const dn=name.length>32?name.slice(0,31)+'…':name;
             ctx.fillStyle=C.textMuted;
             ctx.font=`${G.clientFont}px ${FONT}`;
-            ctx.textAlign='center'; ctx.textBaseline='top';
-            ctx.fillText(dn,x,y+r+3);
+            // 'middle', not 'top': Safari puts a 'top' line a few px lower than Chrome does.
+            ctx.textAlign='center'; ctx.textBaseline='middle';
+            ctx.fillText(dn,x,y+labelR+3+G.clientFont/2);
             const tw=ctx.measureText(dn).width;
-            n._nameRect={x:x-tw/2,y:y+r+3,w:tw,h:G.clientFont+2};
+            n._nameRect={x:x-tw/2,y:y+labelR+3,w:tw,h:G.clientFont+2};
         }
+    }
+
+    // The disc behind an icon and its ring: full strength over the top, fading from 10 and 2
+    // o'clock (a quarter of the way down), already well faded at 3 and 9, faint at the bottom.
+    _drawIconRing(ctx,x,y,R,color){
+        ctx.fillStyle=C.bg;
+        ctx.beginPath(); ctx.arc(x,y,R,0,Math.PI*2); ctx.fill();
+        const ring=ctx.createLinearGradient(x,y-R,x,y+R);
+        ring.addColorStop(0,color); ring.addColorStop(0.25,color);
+        ring.addColorStop(0.5,withAlpha(color,0.4)); ring.addColorStop(1,withAlpha(color,0.1));
+        ctx.strokeStyle=ring; ctx.lineWidth=1.4;
+        ctx.beginPath(); ctx.arc(x,y,R,0,Math.PI*2); ctx.stroke();
+    }
+
+    // An icon box scaled to fit, keeping the image's aspect ratio.
+    _iconSize(icon,box){
+        const k=box/Math.max(icon.naturalWidth||1,icon.naturalHeight||1);
+        return {w:(icon.naturalWidth||box)*k,h:(icon.naturalHeight||box)*k};
+    }
+
+    // A client icon once loaded, else null (the plain dot draws meanwhile).
+    _clientIcon(url){
+        if(!url)return null;
+        const e=this._clientIcons.get(url)||this._loadClientIcon(url);
+        return e.ok?e.img:null;
+    }
+
+    // One Image per URL. Clients draw on the static layer, so a late load must ask for a redraw.
+    _loadClientIcon(url){
+        const e={img:new Image(),ok:false};
+        e.promise=new Promise(resolve=>{
+            e.img.onload=()=>{e.ok=true;this._needsStaticRedraw=true;resolve();};
+            e.img.onerror=()=>{console.debug('[lan-flow-map-2d] client icon failed to load',url);resolve();};
+        });
+        e.img.src=url;
+        this._clientIcons.set(url,e);
+        return e;
     }
 
     // Five bars rising left to right, the Client Performance hero at map scale. Lit count and
@@ -2388,6 +3252,18 @@ class LanFlowMap2D {
             const bh=h*(0.2+i*0.2);
             ctx.fillStyle=i<lit?on:'rgba(255,255,255,0.10)';
             ctx.fillRect(x+i*(w+gap), base-bh, w, bh);
+        }
+    }
+
+    // The client bars turned upright for a device card: five segments rising bottom to top, each
+    // wider than the one below and right-aligned at `right`, in the gap beside the device icon.
+    _drawUplinkMeter(ctx,right,y,color,lit){
+        const h=6.3, gap=1.4, top=y-(5*h+4*gap)/2, on=color||C.textMuted;
+        for(let i=0;i<5;i++){
+            const w=2.5+i*0.5, sy=top+(4-i)*(h+gap);
+            ctx.fillStyle=i<lit?on:'rgba(255,255,255,0.10)';
+            this._roundRect(ctx,right-w,sy,w,h,0.8);
+            ctx.fill();
         }
     }
 
@@ -2421,7 +3297,7 @@ class LanFlowMap2D {
         // Node rate labels
         const drawNodeRate=(n)=>{
             n._rateRect=null;
-            if(n._rateY){
+            if(n._rateY&&!(n._tAlpha<1)){
                 let downBps=0,upBps=0,any=false;
                 const b=badges?.[n.d.id];
                 const hasFab=b&&(b.fabricIngressBps!=null||b.fabricEgressBps!=null);
@@ -2465,38 +3341,30 @@ class LanFlowMap2D {
                     ctx.textAlign='left'; ctx.fillStyle=C.upstream;
                     ctx.fillText(uTxt,n.x+4,n._rateY);
                     n._rateRect={x:n.x-tw/2,y:n._rateY-8,w:tw,h:16};
+                    this._labelTaken?.push(n._rateRect);
                 }
             }
             for(const c of n.infra)drawNodeRate(c);
         };
         if(this._root)drawNodeRate(this._root);
 
-        // Left to right, the link label has to dodge: every label already on the canvas is an
-        // obstacle, and the client labels below are drawn first so they count too.
+        // Device rates and names are in _labelTaken now; client rates join them below, then each
+        // link rate slides clear of all of it (_slideAlong).
         const hz=this._hz;
-        const taken=hz?[...(this._linkLabelRects||[])]:null;
-        if(hz&&this._root){
-            const collect=(n)=>{
-                if(n._nameRect)taken.push(n._nameRect);
-                if(n._rateRect)taken.push(n._rateRect);
-                for(const c of n.infra)collect(c);
-                for(const c of (n._visClients||[]))if(c._nameRect)taken.push(c._nameRect);
-            };
-            collect(this._root);
-        }
 
         // Client rate labels (same style as node/link labels)
         ctx.font=`${G.rateFont}px ${FONT}`;
         for(const e of this._edges){
             if(e._x1==null||!e._isCl)continue;
             const child=e.tn||e.fn;
-            if(!child||!this._isNodeVisible(child))continue;
+            if(!child||!this._isNodeVisible(child)||child._tAlpha<1)continue;
             const r=this._liveRates[e.lk.portKey]||this._liveRates[e.lk.id];
             if(!r)continue;
             const dn=r.downstreamBps??0,up=r.upstreamBps??0;
             if(dn>THRESH||up>THRESH){
                 const cx=child.x;
-                const cy=child.y+G.clientR+24;
+                // Below the name, which an icon pushes further down than the plain dot.
+                const cy=child.y+(child._labelR??G.clientR)+24;
                 const dTxt='↓'+formatBps(dn), uTxt='↑'+formatBps(up);
                 const tw=ctx.measureText(dTxt+'  '+uTxt).width+12;
                 ctx.fillStyle=C.labelBg;
@@ -2507,15 +3375,14 @@ class LanFlowMap2D {
                 ctx.fillText(dTxt,cx-4,cy);
                 ctx.textAlign='left'; ctx.fillStyle=C.upstream;
                 ctx.fillText(uTxt,cx+4,cy);
-                if(hz)taken.push({x:cx-tw/2,y:cy-8,w:tw,h:16});
+                this._labelTaken?.push({x:cx-tw/2,y:cy-8,w:tw,h:16});
             }
         }
 
         // Link rate labels. Top-down they sit on the child's leg, which is long enough for the
         // pair side by side. Left to right the crossbar is the only run, a tier gap from the
-        // boxes either side and shared with siblings, so the pair stacks and slides along the
-        // bar to the nearest spot clear of everything already drawn.
-        const hits=(a)=>taken.some(t=>a.x<t.x+t.w+2&&a.x+a.w>t.x-2&&a.y<t.y+t.h+2&&a.y+a.h>t.y-2);
+        // boxes either side and shared with siblings, so the pair stacks. Either way it slides
+        // along its run to the nearest spot clear of everything already placed.
         for(const e of this._edges){
             if(e._x1==null||e._isCl||e._isWan)continue;
             const r=this._liveRates[e.lk.portKey]||this._liveRates[e.lk.id];
@@ -2523,12 +3390,14 @@ class LanFlowMap2D {
             const dn=r.downstreamBps??0,up=r.upstreamBps??0;
             if(!(dn>THRESH||up>THRESH))continue;
             const lp=this._rateLabel(e);
-            const mx=lp.x;
             const dTxt='↓'+(dn>0?formatBps(dn):'0 bps');
             const uTxt='↑'+(up>0?formatBps(up):'0 bps');
             if(!hz){
-                const my=lp.y;
                 const tw=ctx.measureText(dTxt+' '+uTxt).width+14;
+                const at=this._slideAlong(e,lp,tw,16);
+                if(!at)continue;
+                const{x:mx,y:my}=at;
+                this._labelTaken?.push({x:mx-tw/2,y:my-8,w:tw,h:16,owner:e});
                 ctx.fillStyle=C.labelBg;
                 this._roundRect(ctx,mx-tw/2,my-8,tw,16,4);
                 ctx.fill();
@@ -2540,12 +3409,10 @@ class LanFlowMap2D {
                 continue;
             }
             const w=Math.max(ctx.measureText(dTxt).width,ctx.measureText(uTxt).width)+12, h=30;
-            let my=lp.y;
-            for(let k=0;k<=20;k++){
-                const dy=(k%2?-1:1)*Math.ceil(k/2)*8;
-                const cand={x:mx-w/2,y:lp.y+dy-h/2,w,h};
-                if(!hits(cand)){my=lp.y+dy;taken.push(cand);break;}
-            }
+            const at=this._slideAlong(e,lp,w,h);
+            if(!at)continue;
+            const{x:mx,y:my}=at;
+            this._labelTaken?.push({x:mx-w/2,y:my-h/2,w,h,owner:e});
             ctx.fillStyle=C.labelBg;
             this._roundRect(ctx,mx-w/2,my-h/2,w,h,4);
             ctx.fill();
@@ -2582,6 +3449,8 @@ class LanFlowMap2D {
         if(this._liveOnly||!flowData.isPaused()){
             for(const s of this._streams)s.advance(dt);
         }
+        if(this._trans)this._stepTransition(now);
+        this._stepHover(dt);
         // Clients live on the cached static layer; force it to redraw while a roam
         // fade is in flight so the fade-in actually animates.
         if(this._roamFadeUntil&&now<this._roamFadeUntil)this._needsStaticRedraw=true;

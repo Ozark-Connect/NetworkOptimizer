@@ -41,7 +41,7 @@
             <p class="page-description">Measures your internet speed using distributed HTTP servers with multiple concurrent connections.</p>
         </div>
         @{ var ispHealth = IspHealthService.GetCachedScore(); }
-        <div class="monitoring-stat-card clickable-stat-card isp-health-tile wan-header-isp-tile @ispHealth.TileCssClass" data-tooltip="@ispHealth.TileTooltip" data-tooltip-hover-only @onclick="@(() => NavigationManager.NavigateTo($"/monitoring?tab=isp-health&wan={NetworkOptimizer.Web.Services.Monitoring.LiveWanScope.PrimaryWanToken}"))">
+        <div class="monitoring-stat-card clickable-stat-card isp-health-tile wan-header-isp-tile @ispHealth.TileCssClass" data-tooltip="@ispHealth.TileTooltip" data-tooltip-hover-only @onclick="@(() => NavigationManager.NavigateTo(NetworkOptimizer.Web.Services.Monitoring.MonitoringLinks.IspHealth(NetworkOptimizer.Web.Services.Monitoring.LiveWanScope.PrimaryWanToken)))">
             <div class="stat-value isp-tile-score">@ispHealth.TileText</div>
             <div class="stat-label">ISP Health</div>
             @if (ispHealth.Status == IspHealthStatus.Ready && ispHealth.Score.HasValue)
@@ -688,11 +688,11 @@
                 @if (_historyTotalPages > 1)
                 {
                     <div class="pagination" id="wan-history-pagination">
-                        <button class="btn btn-sm btn-secondary" disabled="@(_historyPage <= 1)" @onclick="() => ChangePage(-1)"><span class="pag-arrow">←</span> Prev</button>
+                        <button class="btn btn-sm btn-secondary" disabled="@(_historyPage <= 1)" @onclick="() => ChangePage(-1)"><AppIcon Name="chevron-left" /> Prev</button>
                         <span class="pagination-info">
                             Page @_historyPage of @_historyTotalPages (@_filteredHistory.Count total)
                         </span>
-                        <button class="btn btn-sm btn-secondary" disabled="@(_historyPage >= _historyTotalPages)" @onclick="() => ChangePage(1)">Next <span class="pag-arrow">→</span></button>
+                        <button class="btn btn-sm btn-secondary" disabled="@(_historyPage >= _historyTotalPages)" @onclick="() => ChangePage(1)">Next <AppIcon Name="chevron-right" /></button>
                     </div>
                 }
             }

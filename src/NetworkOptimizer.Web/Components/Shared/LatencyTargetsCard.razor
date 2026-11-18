@@ -13,43 +13,7 @@
         <h2 class="card-title">Latency Targets</h2>
         @if (ShowScopeFilter)
         {
-            <div class="time-range-selector wan-selector @(_wanChoices.Count > 3 ? "wan-selector-many" : "")" @onclick:stopPropagation>
-                <button class="time-btn @(LanScope || ShowingAll ? "active" : "")"
-                        @onclick="PickLanAsync" @onclick:stopPropagation>LAN</button>
-                @foreach (var w in _wanChoices)
-                {
-                    @* All lights every pill: it shows every WAN, and on a single-WAN site the
-                       parent has no option list to fill the selection from. *@
-                    <button class="time-btn @(!LanScope && (ShowingAll || SelectedWanKeys.Contains(w.Key)) ? "active" : "")"
-                            @onclick="() => PickWanAsync(w.Key)" @onclick:stopPropagation>
-                        @{
-                            var wp = NetworkOptimizer.UniFi.GatewayWanHelper.SplitWanLabel(
-                                w.Label, NetworkOptimizer.UniFi.GatewayWanHelper.WanIndexFromKey(w.Key));
-                        }@(wp.Name ?? w.Label)@if (wp.WanToken != null && wp.Name != null)
-                        {<span class="wan-pill-token">@wp.WanToken</span>}
-                    </button>
-                }
-                @if (!ShowingAll)
-                {
-                    <button class="time-btn wan-all-btn"
-                            @onclick="() => PickWanAsync(AllWansKey)" @onclick:stopPropagation>All</button>
-                }
-                @if (ScopeIsNarrowed)
-                {
-                    <WanFilterResetButton OnReset="ResetScopeAsync" />
-                }
-            </div>
-            @* Narrows the rows the scope already chose. Hidden on mobile: the scope row alone
-               already wraps there, and the Type column still says what each row is. *@
-            <div class="time-range-selector lt-type-filter hide-mobile" @onclick:stopPropagation>
-                @foreach (var t in AvailableTypes())
-                {
-                    <button class="time-btn @(_typeFilter == t ? "active" : "")"
-                            @onclick="() => PickTypeAsync(t)" @onclick:stopPropagation>@TypeFilterLabel(t)</button>
-                }
-                <button class="time-btn @(_typeFilter == null ? "active" : "")"
-                        @onclick="() => PickTypeAsync(null)" @onclick:stopPropagation>All</button>
-            </div>
+            @ScopeFilters()
         }
         <div class="card-header-badges">
             <span class="status-badge status-active" @onclick:stopPropagation="true">@VisibleTargets().Count(t => t.Enabled && !t.IsRetired) active</span>
@@ -164,10 +128,14 @@
                                                 </svg>
                                             </button>
                                         </SiteOperatorOnly>
+                                        @if (TwinWanLabel(t) is { } twinWan)
+                                        {
+                                            <span class="status-badge status-neutral" data-tooltip="@($"Discovered on {twinWan}")">@twinWan</span>
+                                        }
                                     </span>
                                 }
                             </td>
-                            <td><code>@t.Address</code></td>
+                            <td><code @attributes="NetworkOptimizer.Web.Services.Monitoring.LiveTraffic.LiveTrafficLinks.DestinationCard(t.Address, t.Name, threatsLink: false)">@t.Address</code></td>
                             @if (WanContexts.Count > 0)
                             {
                                 <td>
@@ -284,11 +252,42 @@
                     <p class="alert alert-danger">@_targetError</p>
                 }
             </div>
-            <p class="page-description page-description-footnote">
-                <strong>Pause</strong> stops probing a target. <strong>Remove</strong> hides it as
-                well, but keeps everything it measured so <strong>Restore</strong> can bring it back.
-            </p>
         }
+
+        @* Filters and footnote first in the markup, so a phone stacks them above the buttons; on
+           desktop the row is reversed and the buttons sit at its left. *@
+        <div class="lt-bottom-bar">
+            @if (Targets.Count > 0)
+            {
+                <div class="lt-bottom-info">
+                    @if (ShowScopeFilter)
+                    {
+                        <div class="lt-filters-bottom">
+                            @ScopeFilters()
+                        </div>
+                    }
+                    <p class="page-description page-description-footnote lt-footnote">
+                        <strong>Pause</strong> stops probing a target. <strong>Remove</strong> hides it as
+                        well, but keeps everything it measured so <strong>Restore</strong> can bring it back.
+                    </p>
+                </div>
+            }
+            @if (CanAddTargets && !_showAddTarget)
+            {
+                @* Adding a target is Operator; REMOVING one stays Admin. The target list is curated and
+                   expensive to rebuild - it accumulates over time and nothing recreates it - so the
+                   asymmetry is deliberate: measuring one more thing is cheap and reversible, losing one
+                   that someone established months ago is not. *@
+                <div class="lt-actions lt-actions-bottom">
+                    <a href="@RunProbeUrl" class="btn btn-sm btn-secondary">Run Probe</a>
+                    <SiteOperatorOnly>
+                        <button class="btn btn-sm btn-primary" @onclick="ShowAddTarget">
+                            + Add Target
+                        </button>
+                    </SiteOperatorOnly>
+                </div>
+            }
+        </div>
 
         @if (!CanAddTargets)
         {
@@ -371,21 +370,6 @@
                 }
             </div>
         }
-        else
-        {
-            @* Adding a target is Operator; REMOVING one stays Admin. The target list is curated and
-               expensive to rebuild - it accumulates over time and nothing recreates it - so the
-               asymmetry is deliberate: measuring one more thing is cheap and reversible, losing one
-               that someone established months ago is not. *@
-            <div class="lt-actions lt-actions-bottom">
-                <a href="@RunProbeUrl" class="btn btn-sm btn-secondary">Run Probe</a>
-                <SiteOperatorOnly>
-                    <button class="btn btn-sm btn-primary" @onclick="ShowAddTarget">
-                        + Add Target
-                    </button>
-                </SiteOperatorOnly>
-            </div>
-        }
     </div>
         </div>
     </div>
@@ -432,6 +416,40 @@
 
     .lt-actions-bottom {
         margin-top: 0.75rem;
+    }
+
+    .lt-filters-bottom {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: flex-end;
+        gap: 0.5rem 0;
+        margin-top: 0.75rem;
+    }
+
+    .lt-filters-bottom .lt-type-filter {
+        margin-right: 0;
+    }
+
+    .lt-bottom-info {
+        min-width: 0;
+    }
+
+    @@media (min-width: 769px) {
+        .lt-bottom-bar {
+            display: flex;
+            flex-direction: row-reverse;
+            justify-content: space-between;
+            align-items: center;
+            gap: 1rem;
+        }
+
+        .lt-bottom-info {
+            flex: 1 1 auto;
+        }
+
+        .lt-footnote {
+            text-align: right;
+        }
     }
 
     .lt-add-form {
@@ -497,6 +515,48 @@
 </style>
 
 @code {
+    /// <summary>The scope and type filters: in the card header and again under the table.</summary>
+    private RenderFragment ScopeFilters() => __builder =>
+    {
+        <div class="time-range-selector wan-selector @(_wanChoices.Count > 3 ? "wan-selector-many" : "")" @onclick:stopPropagation>
+            <button class="time-btn @(LanScope || ShowingAll ? "active" : "")"
+                    @onclick="PickLanAsync" @onclick:stopPropagation>LAN</button>
+            @foreach (var w in _wanChoices)
+            {
+                @* All lights every pill: it shows every WAN, and on a single-WAN site the
+                   parent has no option list to fill the selection from. *@
+                <button class="time-btn @(!LanScope && (ShowingAll || SelectedWanKeys.Contains(w.Key)) ? "active" : "")"
+                        @onclick="() => PickWanAsync(w.Key)" @onclick:stopPropagation>
+                    @{
+                        var wp = NetworkOptimizer.UniFi.GatewayWanHelper.SplitWanLabel(
+                            w.Label, NetworkOptimizer.UniFi.GatewayWanHelper.WanIndexFromKey(w.Key));
+                    }@(wp.Name ?? w.Label)@if (wp.WanToken != null && wp.Name != null)
+                    {<span class="wan-pill-token">@wp.WanToken</span>}
+                </button>
+            }
+            @if (!ShowingAll)
+            {
+                <button class="time-btn wan-all-btn"
+                        @onclick="() => PickWanAsync(AllWansKey)" @onclick:stopPropagation>All</button>
+            }
+            @if (ScopeIsNarrowed)
+            {
+                <WanFilterResetButton OnReset="ResetScopeAsync" />
+            }
+        </div>
+        @* Narrows the rows the scope already chose. Hidden on mobile: the scope row alone
+           already wraps there, and the Type column still says what each row is. *@
+        <div class="time-range-selector lt-type-filter hide-mobile" @onclick:stopPropagation>
+            @foreach (var t in AvailableTypes())
+            {
+                <button class="time-btn @(_typeFilter == t ? "active" : "")"
+                        @onclick="() => PickTypeAsync(t)" @onclick:stopPropagation>@TypeFilterLabel(t)</button>
+            }
+            <button class="time-btn @(_typeFilter == null ? "active" : "")"
+                    @onclick="() => PickTypeAsync(null)" @onclick:stopPropagation>All</button>
+        </div>
+    };
+
     [Parameter, EditorRequired]
     public List<MonitoringTarget> Targets { get; set; } = new();
 
@@ -1143,6 +1203,20 @@
         }
     }
 
+
+    /// <summary>
+    /// The WAN a discovered per-WAN twin was found on, for a twin listed as unpinned: its id still
+    /// names that WAN (WanQualifiedTargetId), so it is marked rather than read as this WAN's own.
+    /// </summary>
+    private static string? TwinWanLabel(MonitoringTarget t)
+    {
+        if (!NetworkOptimizer.Storage.Models.MonitoringTarget.IsUnpinned(t.WanInterface)) return null;
+        var at = t.TargetId.LastIndexOf('@');
+        if (at < 0 || at == t.TargetId.Length - 1) return null;
+        var key = t.TargetId[(at + 1)..];
+        var index = NetworkOptimizer.UniFi.GatewayWanHelper.WanIndexFromKey(key);
+        return index >= 1 ? $"WAN{index}" : key.ToUpperInvariant();
+    }
 
     private static string TargetTypeBadgeClass(MonitoringTargetType type) => type switch
     {

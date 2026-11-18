@@ -251,6 +251,7 @@ public class FirewallRuleParser
         string? destPort = null;
         string? destMatchingTarget = null;
         List<string>? webDomains = null;
+        List<string>? destRegions = null;
         List<string>? destNetworkIds = null;
         List<string>? destIps = null;
         List<int>? appIds = null;
@@ -273,6 +274,14 @@ public class FirewallRuleParser
             if (dest.TryGetProperty("web_domains", out var domains) && domains.ValueKind == JsonValueKind.Array)
             {
                 webDomains = domains.EnumerateArray()
+                    .Where(e => e.ValueKind == JsonValueKind.String)
+                    .Select(e => e.GetString()!)
+                    .ToList();
+            }
+
+            if (dest.TryGetProperty("regions", out var regionList) && regionList.ValueKind == JsonValueKind.Array)
+            {
+                destRegions = regionList.EnumerateArray()
                     .Where(e => e.ValueKind == JsonValueKind.String)
                     .Select(e => e.GetString()!)
                     .ToList();
@@ -399,6 +408,7 @@ public class FirewallRuleParser
             DestinationPort = destPort,
             SourceNetworkIds = sourceNetworkIds,
             WebDomains = webDomains,
+            DestinationRegions = destRegions,
             Predefined = predefined,
             // Extended matching criteria
             SourceMatchingTarget = sourceMatchingTarget,

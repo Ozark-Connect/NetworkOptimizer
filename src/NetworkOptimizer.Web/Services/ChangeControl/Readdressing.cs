@@ -164,8 +164,8 @@ public static partial class Readdressing
 
     /// <summary>
     /// Ranges that belong to something other than this site's LANs: WAN and VPN client networks (their
-    /// own addresses and peers), and the destinations of static routes, traffic routes, and firewall
-    /// policies that leave over a WAN or a VPN. An address inside one is never rewritten, even when it
+    /// own addresses and peers), and the destinations of static routes and traffic routes that leave
+    /// over a WAN or a VPN. An address inside one is never rewritten, even when it
     /// also falls in a moved LAN subnet (a WAN's static /30 inside a LAN range, a VPN far side reusing it).
     /// </summary>
     public static List<(Subnet Range, string Where)> RemoteRanges(ConfigState live)
@@ -189,11 +189,9 @@ public static partial class Readdressing
             if (Remote(r["static-route_interface"]?.ToString()) is { } via) Add(r["static-route_network"], via);
         foreach (var t in live.Get("trafficroute"))
             if (Remote(t["network_id"]?.ToString()) is { } via) { Add(t["ip_addresses"], via); Add(t["ip_ranges"], via); }
-        var remoteZones = RemoteZones(live, networks);
-        foreach (var p in live.Get("firewall_policy"))
-            foreach (var end in new[] { "source", "destination" })
-                if (p[end] is JsonObject e && e["zone_id"]?.ToString() is { } z && remoteZones.TryGetValue(z, out var zoneName))
-                    Add(e["ips"], $"the {zoneName} zone");
+        // Never add firewall policy IPs here: they are match filters, not far-side ranges. A VPN-zone policy
+        // matching 192.168.0.0/16 would refuse every new LAN in it and freeze every address there. Apply
+        // leaves a remote-zone policy end as it is on its own (RemoteZones).
         return ranges;
     }
 

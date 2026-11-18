@@ -118,7 +118,7 @@ public sealed class SiteBssidLookup
         neighbor.Ssid.StartsWith(MeshSsidPrefix, StringComparison.OrdinalIgnoreCase)
         || (neighbor.OwnSsid?.StartsWith(MeshSsidPrefix, StringComparison.OrdinalIgnoreCase) ?? false);
 
-    private static bool TryParseMac(string text, out byte[] mac)
+    internal static bool TryParseMac(string text, out byte[] mac)
     {
         mac = new byte[6];
         var hex = text.Replace(":", "").Replace("-", "").Replace(".", "");

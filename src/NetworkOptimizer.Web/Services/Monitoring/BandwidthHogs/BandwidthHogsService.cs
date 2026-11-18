@@ -183,6 +183,7 @@ public class BandwidthHogsService
         // A shared port is the map's hub node: the port's rate lives on it, and the interfaces
         // behind it are zero-rate leaves. The card lists the hub, not the leaves - the leaves'
         // only rate is the console's per-MAC figure, a different measurement from the port's.
+        // Exception: with measured WAN, the WAN view also gets one row per leaf (see SplitForWan).
         var membersByHub = nodes
             .Where(n => n.Kind == LanNodeKind.WiredClient && !string.IsNullOrEmpty(n.Mac) && n.ParentId != null
                 && nodeById.TryGetValue(n.ParentId, out var parent) && parent.Kind == LanNodeKind.VirtualHub)
@@ -270,6 +271,8 @@ public class BandwidthHogsService
         var loadsUp = new List<WanShareReconciler.Load>(measured.Count);
         var wanDown = new double[measured.Count];
         var wanUp = new double[measured.Count];
+        // Measured WAN per interface behind a shared port (covered sites only), for the WAN view's per-interface rows.
+        var memberWan = new Dictionary<string, (double Down, double Up)>(StringComparer.OrdinalIgnoreCase);
         var wanHistory = liveStats != null && wanHistoryKeys is { Count: > 0 }
             ? WanRateHistory(wanHistoryKeys.Select(liveStats.RowRateHistory).ToList())
             : null;
@@ -321,19 +324,19 @@ public class BandwidthHogsService
                     : new[] { m.Node.Mac! };
                 foreach (var mac in rowMacs)
                 {
+                    double down = 0, up = 0;
                     if (playbackRates != null)
                     {
                         if (playbackRates.TryGetValue(NormalizeMac(mac), out var r))
-                        {
-                            measuredDown += r.Down;
-                            measuredUp += r.Up;
-                        }
+                            (down, up) = (r.Down, r.Up);
                     }
                     else if (liveStats!.GetClientWanRate(mac, liveStats.ConntrackFreshness) is { } r2)
                     {
-                        measuredDown += r2.DownBps;
-                        measuredUp += r2.UpBps;
+                        (down, up) = (r2.DownBps, r2.UpBps);
                     }
+                    measuredDown += down;
+                    measuredUp += up;
+                    if (m.Node.Kind == LanNodeKind.VirtualHub) memberWan[mac] = (down, up);
                 }
                 wanDown[i] = measuredDown;
                 wanUp[i] = measuredUp;
@@ -427,6 +430,9 @@ public class BandwidthHogsService
             var m = measured[i];
             var (viaDevice, viaPort) = Via(m.Node, nodeById);
             var isHub = m.Node.Kind == LanNodeKind.VirtualHub;
+            var members = isHub && membersByHub.TryGetValue(m.Node.Id, out var hubMembers) ? hubMembers : null;
+            // Measured WAN is per MAC, so the WAN view lists each interface; the port row stays for LAN + WAN.
+            var splitForWan = conntrackCovered && members is { Count: > 1 };
             rows.Add(new HogRow
             {
                 ClientMac = isHub ? m.Node.Id : m.Node.Mac!,
@@ -436,12 +442,31 @@ public class BandwidthHogsService
                 Band = m.Node.Band,
                 ViaDevice = viaDevice,
                 ViaPort = isHub ? null : viaPort,
-                PortClientCount = isHub && membersByHub.TryGetValue(m.Node.Id, out var members) ? members.Count : 0,
+                PortClientCount = members?.Count ?? 0,
+                SplitForWan = splitForWan,
                 DownBps = m.Down,
                 UpBps = m.Up,
                 WanDownBps = wanDown[i],
                 WanUpBps = wanUp[i],
             });
+            if (!splitForWan) continue;
+            foreach (var member in members!)
+            {
+                var (memberVia, memberPort) = Via(member, nodeById);
+                var (down, up) = memberWan.GetValueOrDefault(member.Mac!);
+                rows.Add(new HogRow
+                {
+                    ClientMac = member.Mac!,
+                    Name = ResolveName(member.Name, snapshot, member.Mac!),
+                    Ip = member.Ip,
+                    IsWired = true,
+                    ViaDevice = memberVia,
+                    ViaPort = memberPort,
+                    WanOnly = true,
+                    WanDownBps = down,
+                    WanUpBps = up,
+                });
+            }
         }
 
         var (capDownTotal, capUpTotal) = await CapacityAsync(wanKeys, ct);

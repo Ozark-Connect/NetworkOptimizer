@@ -26,9 +26,7 @@ public class OfflineClientInfo
     /// Display name for the client (name, hostname, product, category, or MAC)
     /// </summary>
     public string DisplayName =>
-        !string.IsNullOrWhiteSpace(HistoryClient.DisplayName) ? HistoryClient.DisplayName :
-        !string.IsNullOrWhiteSpace(HistoryClient.Name) ? HistoryClient.Name :
-        !string.IsNullOrWhiteSpace(HistoryClient.Hostname) ? HistoryClient.Hostname :
+        UniFi.ClientNames.For(HistoryClient) is { } name ? name :
         !string.IsNullOrWhiteSpace(Detection.ProductName) ? Detection.ProductName :
         Detection.Category != Core.Enums.ClientDeviceCategory.Unknown ? Detection.CategoryName :
         !string.IsNullOrWhiteSpace(HistoryClient.Mac) ? HistoryClient.Mac : "Unknown";
@@ -65,9 +63,13 @@ public class OfflineClientInfo
     public bool IsRecentlyActive => TimeSinceLastSeen.TotalDays <= 14;
 
     /// <summary>
-    /// Name of the AP or switch the client was last connected to
+    /// Name of the AP or switch the client was last connected to: its name now when its MAC is known,
+    /// else the name the client history kept from that visit.
     /// </summary>
-    public string? LastUplinkName => HistoryClient.LastUplinkName;
+    public string? LastUplinkName => CurrentUplinkName ?? HistoryClient.LastUplinkName;
+
+    /// <summary>The last AP's current name, resolved from its MAC; null when the AP is not found.</summary>
+    public string? CurrentUplinkName { get; init; }
 
     /// <summary>
     /// Model name of the AP or switch the client was last connected to (e.g., "UniFi 6 Pro")

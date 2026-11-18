@@ -457,7 +457,7 @@ else
                             @if (!string.IsNullOrEmpty(issue.InvestigateUrl))
                             {
                                 <div class="issue-investigate">
-                                    <a class="isp-factor-link" href="@(issue.InvestigateUrl + WanLinkQuery())"
+                                    <a class="isp-factor-link" href="@(issue.InvestigateUrl + WanLinkQuery() + "&via=isp-health")"
                                        data-tooltip="Jump to the most recent matching loss event on the Network Performance charts" data-tooltip-hover-only>@(issue.InvestigateText ?? "Investigate on the charts")</a>
                                 </div>
                             }
@@ -963,7 +963,7 @@ else
         <div class="card-body">
             @{
                 var ackedEpisodes = AckedEpisodeIds;
-                var allEvents = EventTimeline(r, _shiftFold.TraceByShift)
+                var allEvents = EventTimeline(r, _shiftFold.TraceByShift, _shiftFold.ClearedByShift)
                     .Concat(_episodeEntries.Select(e => e.EpisodeId is int id && ackedEpisodes.Contains(id)
                         ? e with { Category = EventCategory.Acknowledged } : e))
                     .OrderBy(e => e.Time)
@@ -1017,29 +1017,31 @@ else
                                     @(" ")
                                     <button type="button" class="isp-event-members-toggle" aria-expanded="@episodeOpen"
                                             @onclick="() => ToggleEventMembers(episodeKey)">@(episodeOpen ? "Hide hop table" : "Show hop table")</button>
-                                    @if (episodeOpen)
-                                    {
-                                        <PathEpisodeHopTable @key="episodeId" EpisodeId="episodeId" UpdatedAt="@(_episodes.FirstOrDefault(e => e.Id == episodeId)?.UpdatedAt ?? default)" WanKey="@_selectedWanKey" />
-                                        @if (TraceAckKey(episodeId) is { } traceAck)
-                                        {
-                                            <SiteAdminOnly>
-                                                <div class="isp-trace-actions">
-                                                    @if (_findingAcks.Contains(traceAck))
-                                                    {
-                                                        <button class="btn btn-sm btn-ghost issue-action" disabled="@_findingAckBusy"
-                                                                @onclick="() => SetFindingAcknowledgedAsync(traceAck, false)" data-tooltip="Restore its recurring finding">Restore</button>
-                                                    }
-                                                    else
-                                                    {
-                                                        <button class="btn btn-sm btn-ghost issue-action" disabled="@_findingAckBusy"
-                                                                @onclick="() => SetFindingAcknowledgedAsync(traceAck, true)" data-tooltip="Hide its recurring finding - still scored">Acknowledge</button>
-                                                    }
-                                                </div>
-                                            </SiteAdminOnly>
-                                        }
-                                    }
                                 }
                             </span>
+                            @if (entry.EpisodeId is int openEpisode && _expandedEvents.Contains($"episode:{openEpisode}"))
+                            {
+                                <div class="isp-event-detail">
+                                    <PathEpisodeHopTable @key="openEpisode" EpisodeId="openEpisode" UpdatedAt="@(_episodes.FirstOrDefault(e => e.Id == openEpisode)?.UpdatedAt ?? default)" WanKey="@_selectedWanKey" />
+                                    @if (TraceAckKey(openEpisode) is { } traceAck)
+                                    {
+                                        <SiteAdminOnly>
+                                            <div class="isp-trace-actions">
+                                                @if (_findingAcks.Contains(traceAck))
+                                                {
+                                                    <button class="btn btn-sm btn-ghost issue-action" disabled="@_findingAckBusy"
+                                                            @onclick="() => SetFindingAcknowledgedAsync(traceAck, false)" data-tooltip="Restore its recurring finding">Restore</button>
+                                                }
+                                                else
+                                                {
+                                                    <button class="btn btn-sm btn-ghost issue-action" disabled="@_findingAckBusy"
+                                                            @onclick="() => SetFindingAcknowledgedAsync(traceAck, true)" data-tooltip="Hide its recurring finding - still scored">Acknowledge</button>
+                                                }
+                                            </div>
+                                        </SiteAdminOnly>
+                                    }
+                                </div>
+                            }
                         </div>
                     }
                 </div>
@@ -1691,13 +1693,12 @@ else
                 .TryGetValue("wan", out var v) ? v.ToString() : null;
             if (string.IsNullOrWhiteSpace(value)) return null;
 
-            var key = value.Trim().ToLowerInvariant();
-            // "primary" names the role rather than a WAN group, for links from somewhere that
-            // shows the primary's figures without knowing which WAN holds that role - it is a
-            // role in UniFi Network and any group can hold it, so those links cannot spell a key.
-            return string.Equals(key, Services.Monitoring.LiveWanScope.PrimaryWanToken, StringComparison.Ordinal)
-                ? _wanOptions.FirstOrDefault(w => w.IsPrimary)?.Key
-                : key;
+            // The same matching as the other tabs (MonitoringViewState.ResolveWanKeys): "primary" names the role,
+            // and a key matches by WAN index, so "wan", "wan1" and "WAN" are all WAN1. An exact match missed a
+            // link spelled another way, and the stored WAN won instead.
+            var wans = _wanOptions.Select(w => new Services.Monitoring.SiteWan(w.Key, w.IsPrimary)).ToList();
+            return Services.Monitoring.MonitoringViewState.ResolveWanKeys(value, wans).FirstOrDefault()
+                ?? value.Trim().ToLowerInvariant();
         }
         catch { return null; }
     }
@@ -1769,7 +1770,7 @@ else
                     .ToUniversalTime()).ToUnixTimeMilliseconds();
             NavigationManager.NavigateTo(NetworkOptimizer.Web.Services.Monitoring.MonitoringLinks.Analysis(
                 NetworkOptimizer.Web.Services.Monitoring.MonitoringLinks.TransitCategory,
-                at, view.SpanMs, _selectedWanKey));
+                at, view.SpanMs, _selectedWanKey) + "&via=isp-health");
         }
         catch (Exception ex)
         {
@@ -2469,8 +2470,8 @@ else
     /// </summary>
     private string? FactorInvestigateUrl(string factorName) => factorName switch
     {
-        "Packet Loss" => $"/monitoring?tab=performance&investigate=packet-loss{WanLinkQuery()}",
-        "Loaded Loss" => $"/monitoring?tab=performance&investigate=loaded-loss{WanLinkQuery()}",
+        "Packet Loss" => $"/monitoring?tab=performance&investigate=packet-loss{WanLinkQuery()}&via=isp-health",
+        "Loaded Loss" => $"/monitoring?tab=performance&investigate=loaded-loss{WanLinkQuery()}&via=isp-health",
         _ => null
     };
 

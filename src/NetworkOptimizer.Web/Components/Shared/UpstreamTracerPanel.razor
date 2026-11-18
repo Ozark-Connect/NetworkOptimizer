@@ -219,7 +219,7 @@
                                     @foreach (var trace in _state.Traces)
                                     {
                                         <tr>
-                                            <td>@trace.CdnLabel <span class="text-muted">(@trace.CdnEndpoint)</span></td>
+                                            <td>@trace.CdnLabel <span class="text-muted">(<span @attributes="NetworkOptimizer.Web.Services.Monitoring.LiveTraffic.LiveTrafficLinks.DestinationCard(trace.CdnEndpoint, trace.CdnLabel, threatsLink: false)">@trace.CdnEndpoint</span>)</span></td>
                                             <td>@trace.Mode.ToDisplayName()</td>
                                             <td>@trace.HopsResponding / @trace.HopsRecorded</td>
                                             <td>
@@ -276,9 +276,19 @@
                                                        @bind="hop.Label" @bind:event="oninput"
                                                        disabled="@hopLocked" />
                                             </td>
-                                            <td><code>@hop.Address</code> @(string.IsNullOrEmpty(hop.PtrHostname) ? "" : $"({hop.PtrHostname})")</td>
+                                            <td><code @attributes="NetworkOptimizer.Web.Services.Monitoring.LiveTraffic.LiveTrafficLinks.DestinationCard(hop.Address, hop.PtrHostname, threatsLink: false)">@hop.Address</code> @(string.IsNullOrEmpty(hop.PtrHostname) ? "" : $"({hop.PtrHostname})")</td>
                                             <td>@(hop.Method == DiscoveryMethod.L2Neighbor ? "L2 neighbor" : hop.Method == DiscoveryMethod.ConfiguredFallback ? "Curated" : $"Hop {hop.HopNumber}")</td>
-                                            <td>@hop.Role.ToDisplayName()</td>
+                                            <td>
+                                                @if (hop.CustomerPremises)
+                                                {
+                                                    @("Customer premises")
+                                                    <span class="tooltip-icon tooltip-icon-sm" data-tooltip="@CustomerPremisesNote">?</span>
+                                                }
+                                                else
+                                                {
+                                                    @hop.Role.ToDisplayName()
+                                                }
+                                            </td>
                                             <td>
                                                 @(hop.Unreachable ? "Unreachable" : hop.VerifiedRttMs.HasValue ? $"{hop.VerifiedRttMs:F1} ms" : "-")
                                                 @if (hop.UnansweredWhileBusy)
@@ -325,7 +335,7 @@
                                                        @bind="asn.Label" @bind:event="oninput"
                                                        disabled="@asnLocked" />
                                             </td>
-                                            <td><code>@asn.HopAddress</code></td>
+                                            <td><code @attributes="NetworkOptimizer.Web.Services.Monitoring.LiveTraffic.LiveTrafficLinks.DestinationCard(asn.HopAddress, null, threatsLink: false)">@asn.HopAddress</code></td>
                                             <td><code>AS@(asn.AsnNumber)</code> <span class="text-muted">@asn.AsnName</span></td>
                                             @if (asn.OffPath)
                                             {
@@ -335,6 +345,10 @@
                                             {
                                                 <td>
                                                     @(asn.Unreachable ? "Unreachable" : asn.VerifiedRttMs.HasValue ? $"{asn.VerifiedRttMs:F1} ms" : "-")
+                                                    @if (asn.HighRtt)
+                                                    {
+                                                        <span class="tooltip-icon tooltip-icon-sm" data-tooltip="@HighRttNote">?</span>
+                                                    }
                                                     @if (asn.UnansweredWhileBusy)
                                                     {
                                                         <span class="tooltip-icon tooltip-icon-sm" data-tooltip="@BusyUnansweredNote">?</span>
@@ -438,7 +452,7 @@
                                                 <input type="text" class="form-control form-control-sm"
                                                        @bind="host.Label" @bind:event="oninput" />
                                             </td>
-                                            <td><code>@host.PathProxyTarget</code></td>
+                                            <td><code @attributes="NetworkOptimizer.Web.Services.Monitoring.LiveTraffic.LiveTrafficLinks.DestinationCard(host.PathProxyTarget, null, threatsLink: false)">@host.PathProxyTarget</code></td>
                                             <td><code>AS@(host.AsnNumber)</code> <span class="text-muted">@host.AsnName</span></td>
                                             <td>
                                                 @if (host.ViaAsnNumber is int viaAsn)
@@ -724,6 +738,10 @@
 
     private const string BusyUnansweredNote =
         "It did not answer during a busy run. It is already monitored, so it stays checked; untick it to pause it.";
+    private const string CustomerPremisesNote =
+        "Answers faster than your ISP's side of the connection, so it looks like equipment in your home or building (an ISP gateway or modem). Left unchecked; check it to monitor it anyway.";
+    private const string HighRttNote =
+        "Far slower than the other transit routers on your path, so it is left unchecked. Check it to monitor it anyway.";
     /// <summary>Whether this run has already told the pin to stop following. Once per run.</summary>
     private bool _pinFrozen;
 
@@ -1018,6 +1036,8 @@
         await Discovery.CommitAsync(_wanTracer);
         _state = Svc.State;
         _justSaved = true;
+        // The commit clears the review flag: the WAN pill's dot goes now, not on the minute check.
+        await RefreshReviewFlagAsync();
         await OnSaved.InvokeAsync();
         StateHasChanged();
 

@@ -100,6 +100,13 @@ public class TourStep
     [JsonPropertyName("alsoSelectors")]
     public string[]? AlsoSelectors { get; set; }
 
+    /// <summary>
+    /// How long to wait for <see cref="Selector"/> to appear, in ms, for a step whose target the
+    /// page takes time to produce (a traceroute result). Absent, the step waits its usual 5 or 8 s.
+    /// </summary>
+    [JsonPropertyName("waitMs")]
+    public int? WaitMs { get; set; }
+
     [JsonPropertyName("body")]
     public string Body { get; set; } = "";
 

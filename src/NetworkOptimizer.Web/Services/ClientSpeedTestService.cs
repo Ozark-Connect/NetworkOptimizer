@@ -37,6 +37,8 @@ public class ClientSpeedTestService : IClientSpeedTestService
     private readonly bool _isDefault;
     private readonly string _siteSuffix;
     private readonly IServiceScopeFactory _scopeFactory;
+    private readonly Tailscale.TailscaleDirectoryRegistry? _tailscale;
+    private readonly Tailscale.TailnetFlowObserver? _tailnetObserver;
 
     /// <summary>
     /// Throws when this site is license-restricted. New client speed test
@@ -64,6 +66,8 @@ public class ClientSpeedTestService : IClientSpeedTestService
         Monitoring.SiteVantageDnsResolver? dnsResolver = null,
         SiteSpeedTestHostSelector? hostSelector = null,
         GatewaySshRegistry? gatewaySshRegistry = null,
+        Tailscale.TailscaleDirectoryRegistry? tailscale = null,
+        Tailscale.TailnetFlowObserver? tailnetObserver = null,
         string siteSlug = SiteManagementService.DefaultSiteSlug)
     {
         _licenseState = licenseState;
@@ -85,6 +89,8 @@ public class ClientSpeedTestService : IClientSpeedTestService
         _influxRegistry = influxRegistry;
         _apAgents = apAgents;
         _neighborTable = gatewaySshRegistry?.GetNeighborTableFor(_siteSlug);
+        _tailscale = tailscale;
+        _tailnetObserver = tailnetObserver;
     }
 
     /// <summary>
@@ -725,6 +731,18 @@ public class ClientSpeedTestService : IClientSpeedTestService
                 result.DownloadBytes,
                 result.UploadBytes);
 
+            // How the peer connected: exact from an agent host's Tailscale, else what the gateway's flows show
+            // right after the test. Kept across re-analysis; a retry long after the test reads nothing, since
+            // today's path is not the test's.
+            if (_tailscale != null && analysis.Path.Hops.FirstOrDefault(h => h.Type == HopType.Tailscale) is { } tailscaleHop)
+            {
+                tailscaleHop.TailnetPath = result.PathAnalysis?.Path?.Hops?
+                    .FirstOrDefault(h => h.Type == HopType.Tailscale)?.TailnetPath;
+                if (tailscaleHop.TailnetPath == null && DateTime.UtcNow - result.TestTime < TimeSpan.FromMinutes(2))
+                    tailscaleHop.TailnetPath = await _tailscale.ReadPathAsync(_siteSlug, result.DeviceHost, CancellationToken.None)
+                        ?? (_tailnetObserver != null ? await _tailnetObserver.ObserveAsync(_siteSlug, result.DeviceHost, CancellationToken.None) : null);
+            }
+
             result.PathAnalysis = analysis;
 
             if (analysis.Path.IsValid)
@@ -1063,6 +1081,13 @@ public class ClientSpeedTestService : IClientSpeedTestService
         if (string.IsNullOrEmpty(result.ClientMac) && !string.IsNullOrEmpty(path.DestinationMac))
             result.ClientMac = path.DestinationMac;
 
+        // A UniFi device running the test is never in the client list, so its name comes from the path
+        if (string.IsNullOrEmpty(result.DeviceName) && TargetDeviceName(path) is { } targetDeviceName)
+        {
+            result.DeviceName = targetDeviceName;
+            _logger.LogDebug("Backfilled device name from path analysis for {Ip}: {Name}", result.DeviceHost, targetDeviceName);
+        }
+
         // Backfill DeviceName from the wireless client hop
         var wirelessHop = path.Hops?.FirstOrDefault(h => h.Type == HopType.WirelessClient);
         if (wirelessHop == null)
@@ -1090,6 +1115,19 @@ public class ClientSpeedTestService : IClientSpeedTestService
             _logger.LogDebug("Backfilled from path analysis for {Ip}: MAC={Mac}, Name={Name}, Channel={Channel}, Radio={Radio}",
                 result.DeviceHost, result.ClientMac, result.DeviceName, result.WifiChannel, result.WifiRadio);
         }
+    }
+
+    /// <summary>
+    /// The name of the UniFi device at the start of the path (an AP, switch, or gateway that ran the
+    /// test itself), or null when the path starts at a client or names nothing.
+    /// </summary>
+    internal static string? TargetDeviceName(NetworkPath path)
+    {
+        var first = path.Hops?.FirstOrDefault(h => h.Order == 0);
+        return first is { Type: HopType.AccessPoint or HopType.Switch or HopType.Gateway }
+            && !string.IsNullOrEmpty(first.DeviceName)
+            ? first.DeviceName
+            : null;
     }
 
     /// <summary>

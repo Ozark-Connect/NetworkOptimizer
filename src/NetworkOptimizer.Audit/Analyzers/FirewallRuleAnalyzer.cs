@@ -171,25 +171,34 @@ public class FirewallRuleAnalyzer
                             // will not fix that, so that shape gets its own text. It scores lower: an
                             // attacker has to know the port to send from.
                             var sourcePortOnly = IsSourcePortOnly(earlierRule);
+                            var metadata = new Dictionary<string, object>
+                            {
+                                { "allow_rule", earlierRule.Name ?? earlierRule.Id },
+                                { "allow_index", earlierRule.Index },
+                                { "deny_rule", laterRule.Name ?? laterRule.Id },
+                                { "deny_index", laterRule.Index }
+                            };
+                            string message, recommendation;
+                            int scoreImpact;
+                            if (sourcePortOnly)
+                            {
+                                message = SourcePortOnlySubvertMessage(earlierRule, laterRule);
+                                recommendation = SourcePortOnlySubvertRecommendation(earlierRule);
+                                scoreImpact = 2;
+                            }
+                            else
+                            {
+                                (message, recommendation, scoreImpact) = SubvertText(earlierRule, laterRule, networks, metadata);
+                            }
                             issues.Add(new AuditIssue
                             {
                                 Type = IssueTypes.AllowSubvertsDeny,
                                 Severity = AuditSeverity.Recommended,
-                                Message = sourcePortOnly
-                                    ? SourcePortOnlySubvertMessage(earlierRule, laterRule)
-                                    : $"Allow rule '{earlierRule.Name}' may subvert deny rule '{laterRule.Name}'",
-                                Metadata = new Dictionary<string, object>
-                                {
-                                    { "allow_rule", earlierRule.Name ?? earlierRule.Id },
-                                    { "allow_index", earlierRule.Index },
-                                    { "deny_rule", laterRule.Name ?? laterRule.Id },
-                                    { "deny_index", laterRule.Index }
-                                },
+                                Message = message,
+                                Metadata = metadata,
                                 RuleId = "FW-SUBVERT-001",
-                                ScoreImpact = sourcePortOnly ? 2 : 5,
-                                RecommendedAction = sourcePortOnly
-                                    ? SourcePortOnlySubvertRecommendation(earlierRule)
-                                    : "Review rule order - the deny rule may never match due to the earlier allow rule."
+                                ScoreImpact = scoreImpact,
+                                RecommendedAction = recommendation
                             });
                             // For subverts, only report the first one
                             break;
@@ -2787,6 +2796,36 @@ public class FirewallRuleAnalyzer
     private static string SourcePortOnlySubvertMessage(FirewallRule allow, FirewallRule deny) =>
         $"Allow rule '{allow.Name}' lets traffic from source port {allow.SourcePort} past deny rule '{deny.Name}', " +
         (IsAllProtocols(allow) ? "on any port and protocol" : "on any port");
+
+    /// <summary>
+    /// Message, recommendation, and score for an allow that subverts a deny: total, partial (naming
+    /// the slice of traffic taken), or the generic text when the slice cannot be described. A partial
+    /// slice of a few destination ports reads as a deliberate exception and scores 0.
+    /// </summary>
+    private static (string Message, string Recommendation, int ScoreImpact) SubvertText(
+        FirewallRule allow, FirewallRule deny, List<NetworkInfo>? networks, Dictionary<string, object> metadata)
+    {
+        // The message is the dismissal identity; keep the pre-slice text there so Acknowledge survives rewording.
+        var legacyMessage = $"Allow rule '{allow.Name}' may subvert deny rule '{deny.Name}'";
+        metadata["dismissal_scope"] = legacyMessage;
+
+        var description = FirewallSubversionDescriber.Describe(allow, deny, networks);
+        metadata["subversion"] = description.Extent.ToString().ToLowerInvariant();
+
+        switch (description.Extent)
+        {
+            case SubversionExtent.Total:
+                return ($"Allow rule '{allow.Name}' matches all traffic deny rule '{deny.Name}' blocks, so the deny rule never matches",
+                        "Move the deny rule above the allow rule, or narrow the allow rule to the traffic it is meant for.", 5);
+            case SubversionExtent.Partial:
+                metadata["slice"] = description.Slice!;
+                return ($"Allow rule '{allow.Name}' takes {description.Slice} out of deny rule '{deny.Name}'",
+                        "The deny rule still blocks everything else. If it should block this traffic too, move it above the allow rule.",
+                        description.FewPorts ? 0 : 5);
+            default:
+                return (legacyMessage, "Review rule order - the deny rule may never match due to the earlier allow rule.", 5);
+        }
+    }
 
     private static string SourcePortOnlySubvertRecommendation(FirewallRule allow) =>
         "A source port is chosen by the sender, so any device can use it to reach what the deny blocks. " +

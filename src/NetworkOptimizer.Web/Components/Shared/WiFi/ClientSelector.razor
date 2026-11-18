@@ -17,7 +17,7 @@
                  @onclick="OpenForEdit" @onkeydown="OnDisplayKeyDown">
                 <span class="status-dot @(_selected.IsOnline ? "online" : "offline")"></span>
                 <span class="option-text">@_selected.Name</span>
-                <span class="option-mac">@_selected.Mac</span>
+                <span class="option-mac">@(_selected.Mac ?? _selected.Detail)</span>
             </div>
         }
         else
@@ -56,7 +56,7 @@
                          @onmousedown:preventDefault>
                         <span class="status-dot @(item.IsOnline ? "online" : "offline")"></span>
                         <span class="option-text">@item.Name</span>
-                        <span class="option-mac">@item.Mac</span>
+                        <span class="option-mac">@(item.Mac ?? item.Detail)</span>
                     </div>
                 }
                 @if (shown.Count == 0)
@@ -69,8 +69,11 @@
 </div>
 
 @code {
-    /// <summary>One choice. Key is whatever the host page identifies a client by - MAC or IP.</summary>
-    public sealed record Item(string Key, string Name, string? Mac, bool IsOnline, string? Ip = null, bool IsWired = false);
+    /// <summary>
+    /// One choice. Key is whatever the host page identifies a client by - MAC or IP. Detail is the
+    /// secondary text for a choice with no MAC (a Tailscale device): "Tailscale · 100.64.0.5".
+    /// </summary>
+    public sealed record Item(string Key, string Name, string? Mac, bool IsOnline, string? Ip = null, bool IsWired = false, string? Detail = null);
 
     [Parameter] public IReadOnlyList<Item> Items { get; set; } = Array.Empty<Item>();
     [Parameter] public string? SelectedKey { get; set; }
@@ -404,6 +407,7 @@
                 (words.Length > 1 && words.All(w => i.Name.Contains(w, StringComparison.OrdinalIgnoreCase))) ||
                 (i.Mac?.Contains(filter, StringComparison.OrdinalIgnoreCase) ?? false) ||
                 (i.Ip?.Contains(filter, StringComparison.OrdinalIgnoreCase) ?? false) ||
+            (i.Detail?.Contains(filter, StringComparison.OrdinalIgnoreCase) ?? false) ||
                 i.Key.Contains(filter, StringComparison.OrdinalIgnoreCase) ||
                 (hex.Length > 0 && HexDigits(i.Mac ?? "").Contains(hex, StringComparison.Ordinal)) ||
                 (vendor.Length > 1 && VendorKey(VendorOf(i.Mac ?? i.Key)).Contains(vendor, StringComparison.Ordinal)));

@@ -194,6 +194,8 @@ public static class ScheduleExecutorRegistration
             if (queued)
                 await Task.Delay(WanTestSettle, ct);
 
+            await WaitForSqmClearanceAsync(scope.ServiceProvider, siteKey, taskId, ct);
+
             var (testType, maxMode, wanGroup, wanName, wanContextId, multiInterfaces) =
                 ParseWanTestConfig(targetConfig);
 
@@ -290,6 +292,55 @@ public static class ScheduleExecutorRegistration
 
     /// <summary>How long a scheduled test waits out a run started from the WAN Speed Test page.</summary>
     private static readonly TimeSpan WanTestIdleWait = TimeSpan.FromMinutes(5);
+
+    /// <summary>
+    /// Holds the test while the gateway's Adaptive SQM speed test is running or about to start.
+    /// Every test type waits, server tests included: they load the same WAN. A site with no
+    /// enabled Adaptive SQM WAN, or a gateway that cannot be read, runs at once as before.
+    /// </summary>
+    private static async Task WaitForSqmClearanceAsync(IServiceProvider sp, string siteKey, int taskId, CancellationToken ct)
+    {
+        var sqmWans = (await sp.GetRequiredService<NetworkOptimizer.Storage.Interfaces.ISpeedTestRepository>()
+            .GetAllSqmWanConfigsAsync(ct)).Where(w => w.Enabled).ToList();
+        if (sqmWans.Count == 0)
+            return;
+
+        var ssh = sp.GetRequiredService<Ssh.IGatewaySshService>();
+        var logger = sp.GetRequiredService<ILoggerFactory>().CreateLogger("WanScheduleSqmClearance");
+        var deadline = DateTime.UtcNow + SqmLearning.SqmSpeedTestClearance.MaxWait;
+        string? held = null;
+
+        while (true)
+        {
+            SqmLearning.SqmSpeedTestClearance.Reading? reading;
+            try
+            {
+                var (ok, output) = await ssh.RunCommandAsync(SqmLearning.SqmSpeedTestClearance.Command, TimeSpan.FromSeconds(15), ct);
+                reading = ok ? SqmLearning.SqmSpeedTestClearance.Parse(output) : null;
+            }
+            catch (Exception) when (!ct.IsCancellationRequested)
+            {
+                reading = null; // an SSH timeout or failure runs the test as before
+            }
+
+            var reason = reading == null ? null : SqmLearning.SqmSpeedTestClearance.HoldReason(reading, sqmWans);
+            if (reason == null)
+            {
+                if (held != null)
+                    logger.LogInformation("Scheduled WAN speed test {TaskId} on site {Site} resumed after waiting: {Reason}", taskId, siteKey, held);
+                return;
+            }
+            if (DateTime.UtcNow >= deadline)
+            {
+                logger.LogWarning("Scheduled WAN speed test {TaskId} on site {Site} runs after the longest wait although {Reason}", taskId, siteKey, reason);
+                return;
+            }
+            if (held == null)
+                logger.LogInformation("Scheduled WAN speed test {TaskId} on site {Site} waits: {Reason}", taskId, siteKey, reason);
+            held = reason;
+            await Task.Delay(SqmLearning.SqmSpeedTestClearance.Poll, ct);
+        }
+    }
 
     /// <summary>True once the service is idle, false if it is still running when the wait runs out.</summary>
     internal static async Task<bool> WaitForIdleAsync(

@@ -188,7 +188,7 @@ public sealed class PathEpisodeWatcher
 
     /// <summary>The analysis over the rounds so far, and which hops' own series decided them.</summary>
     private sealed record Analysis(EpisodeVerdict Verdict, Dictionary<string, bool> Anchors, HashSet<string> Pinged, HashSet<string> Monitored,
-        Dictionary<string, double> MonitoredLoss, HashSet<string> AccessHops);
+        Dictionary<string, double> MonitoredLoss, Dictionary<string, double> MonitoredRtt, HashSet<string> AccessHops);
 
     /// <summary>Most hops pinged in one round, across the episode's targets.</summary>
     private const int MaxPingedHopsPerRound = 8;
@@ -214,6 +214,7 @@ public sealed class PathEpisodeWatcher
             target.Address, role.Value, key, target.WanContextId, context?.WanInterface, vantage);
 
         bool evaluate;
+        bool turnedDegraded;
         lock (_lock)
         {
             if (!_started)
@@ -224,12 +225,19 @@ public sealed class PathEpisodeWatcher
             _watched[target.TargetId] = watched;
             if (!_trackers.TryGetValue(target.TargetId, out var tracker))
                 _trackers[target.TargetId] = tracker = new TargetDegradation(target.TargetId, _options);
+            var wasDegraded = tracker.Degraded;
             var closed = tracker.Record(timestamp, rttAvgMs, sent, received,
                 () => _alerts.GetFor(_slug).Targets.IsWanOutageOpen(context?.WanInterface) || InOpenEpisode(target.TargetId, now),
                 jitterMs);
             evaluate = closed != null && role == GateRole.Path && tracker.Degraded && _evaluating.Add(key);
+            turnedDegraded = !wasDegraded && tracker.Degraded;
         }
         if (evaluate) _ = EvaluateContextAsync(key);
+        if (turnedDegraded)
+        {
+            try { TargetDegraded?.Invoke(target.TargetId); }
+            catch (Exception ex) { _logger.LogDebug(ex, "A TargetDegraded handler failed for {Target}", target.TargetId); }
+        }
     }
 
     /// <summary>
@@ -980,7 +988,15 @@ public sealed class PathEpisodeWatcher
             : null;
     }
 
-    private async Task TraceBoundedAsync(EpisodeRun run, RunTarget target, PathEpisodeTraceKind kind, CancellationToken ct)
+    private Task TraceBoundedAsync(EpisodeRun run, RunTarget target, PathEpisodeTraceKind kind, CancellationToken ct) =>
+        InTraceSlotAsync(async () => { await TraceAsync(run, target, kind, ct); return true; }, ct);
+
+    /// <summary>
+    /// Runs one trace in this site's single trace slot, after the gap since the last one. The Path Map's
+    /// traces run here too: two traces at once, or back to back, lose Time Exceeded replies at the
+    /// gateway, and the first hop reads as lossy.
+    /// </summary>
+    public async Task<T> InTraceSlotAsync<T>(Func<Task<T>> trace, CancellationToken ct)
     {
         await _traceSlots.WaitAsync(ct);
         try
@@ -989,13 +1005,57 @@ public sealed class PathEpisodeWatcher
             // bucket from the last one's TTL-1 burst, and the first hop reads as lossy.
             var wait = _lastTraceEnded + TraceGap - DateTime.UtcNow;
             if (wait > TimeSpan.Zero) await Task.Delay(wait, ct);
-            await TraceAsync(run, target, kind, ct);
+            return await trace();
         }
         finally
         {
             _lastTraceEnded = DateTime.UtcNow;
             _traceSlots.Release();
         }
+    }
+
+    // ---- Read-only views for the Path Map ----
+
+    /// <summary>Fires with a target's TargetId when its series turns degraded. Raised outside the lock.</summary>
+    public event Action<string>? TargetDegraded;
+
+    /// <summary>
+    /// The vantage that measures a target: the one its latest result came from, else the one its WAN
+    /// context names (agent and bind), else this server on the default route.
+    /// </summary>
+    public PathVantage VantageFor(MonitoringTarget target, WanContext? context)
+    {
+        lock (_lock)
+        {
+            if (_watched.TryGetValue(target.TargetId, out var live)) return live.Vantage;
+        }
+        return ResumedVantage(null, context);
+    }
+
+    /// <summary>A target's state against its own baseline, as of now; null before its first sample.</summary>
+    public PathTargetState? StateOf(string targetId, DateTime now)
+    {
+        lock (_lock)
+        {
+            return _trackers.TryGetValue(targetId, out var t) ? PathTargetState.From(t, now) : null;
+        }
+    }
+
+    /// <summary>A target's closed evaluation windows overlapping [<paramref name="from"/>, <paramref name="to"/>).</summary>
+    public IReadOnlyList<DegradationWindow> WindowsOf(string targetId, DateTime from, DateTime to)
+    {
+        lock (_lock)
+        {
+            return _trackers.TryGetValue(targetId, out var t) ? t.WindowsIn(from, to) : Array.Empty<DegradationWindow>();
+        }
+    }
+
+    /// <summary>Whether the WAN's traffic costs money: the same rule Path Localization traces a metered WAN by.</summary>
+    /// <param name="wanInterface">The WAN's interface key; null for the primary.</param>
+    public async Task<bool> IsWanMeteredAsync(string? wanInterface, bool primary)
+    {
+        await using var db = _siteDb.CreateForSite(_slug, _isDefault);
+        return await IsMeteredAsync(db, wanInterface, primary);
     }
 
     /// <summary>The gap between one trace and the next: a 5-probe TTL-1 burst refills at one token a second.</summary>
@@ -1090,7 +1150,11 @@ public sealed class PathEpisodeWatcher
         HashSet<string> accessHops;
         lock (_lock)
         {
-            degraded = run.Degraded.Select(ToTraces).ToList();
+            degraded = run.Degraded.Select(d => ToTraces(d) with
+            {
+                Series = _trackers.GetValueOrDefault(d.Target.TargetId) is { } tr
+                    ? new TargetSeries(tr.PeakLossPct, tr.BaselineRttMs, tr.PeakRttMs) : null
+            }).ToList();
             controls = run.Control is { } c && c.Rounds.Count > 0 ? new List<TargetTraces> { ToTraces(c) } : new();
             monitoredByAddress = _watched.Values
                 .Where(w => w.Role != GateRole.Path && w.ContextKey == run.ContextKey)
@@ -1127,6 +1191,23 @@ public sealed class PathEpisodeWatcher
         var anchors = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
         var pinged = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var monitoredLoss = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
+        var monitoredRtt = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
+        // Only while the episode was open: the recovery wait after it would dilute the figures. Caller holds _lock.
+        void KeepSeries(string ip, TargetDegradation t)
+        {
+            if (t.LossSince(openedAt, run.Row.ClosedAt) is { } series) monitoredLoss[ip] = series.LossPct;
+            if (t.RttSince(openedAt, run.Row.ClosedAt) is double rtt) monitoredRtt[ip] = rtt;
+        }
+        lock (_lock)
+        {
+            // A degraded destination's own series: the trace often misses what it saw, so the table shows both.
+            foreach (var d in run.Degraded)
+            {
+                if (!_trackers.TryGetValue(d.Target.TargetId, out var t)) continue;
+                foreach (var ip in d.Rounds.Select(r => r.ResolvedAddress).Append(d.ResolvedAddress).Append(d.Target.Address))
+                    if (!string.IsNullOrEmpty(ip)) KeepSeries(ip, t);
+            }
+        }
         bool? Anchor(string ip)
         {
             bool? monitored = null;
@@ -1135,8 +1216,7 @@ public sealed class PathEpisodeWatcher
                 if (monitoredByAddress.TryGetValue(ip, out var id) && _trackers.TryGetValue(id, out var t))
                 {
                     monitored = t.ElevatedSince(openedAt);
-                    // Only while the episode was open: the recovery wait after it would dilute the figure.
-                    if (monitored != null && t.LossSince(openedAt, run.Row.ClosedAt) is { } series) monitoredLoss[ip] = series.LossPct;
+                    if (monitored != null) KeepSeries(ip, t);
                 }
             }
             if (monitored is bool m) { anchors[ip] = m; return m; }
@@ -1154,7 +1234,7 @@ public sealed class PathEpisodeWatcher
         var verdict = PathTraceAnalyzer.Analyze(degraded, controls, ip => asns.GetValueOrDefault(ip), Anchor, _options, together, accessHops,
             seriesBaselines);
         return new Analysis(verdict, anchors, pinged, new HashSet<string>(monitoredByAddress.Keys, StringComparer.OrdinalIgnoreCase), monitoredLoss,
-            accessHops);
+            monitoredRtt, accessHops);
     }
 
     /// <summary>
@@ -1249,13 +1329,14 @@ public sealed class PathEpisodeWatcher
     /// <summary>Re-runs the analysis over every round so far and writes the verdict onto the episode.</summary>
     private async Task AnalyzeAndSaveAsync(EpisodeRun run, CancellationToken ct)
     {
-        var (verdict, anchors, pinged, _, monitoredLoss, accessHops) = await AnalyzeAsync(run, ct);
+        var (verdict, anchors, pinged, _, monitoredLoss, monitoredRtt, accessHops) = await AnalyzeAsync(run, ct);
 
         var row = run.Row;
         var snapshot = PathGateSnapshot.Read(row.GateSnapshot);
         snapshot.Anchors = anchors;
         snapshot.PingedHops = pinged.ToList();
         snapshot.MonitoredLoss = monitoredLoss;
+        snapshot.MonitoredRtt = monitoredRtt;
         snapshot.AccessHops = accessHops.ToList();
         lock (_lock) snapshot.SeriesBaselines = new Dictionary<string, double>(run.SeriesBaselines, StringComparer.OrdinalIgnoreCase);
         snapshot.HopPings = run.HopPings.ToDictionary(kv => kv.Key,

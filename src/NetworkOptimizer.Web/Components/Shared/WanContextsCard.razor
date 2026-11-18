@@ -108,7 +108,7 @@
                                 @if (IsOrphaned(wc))
                                 {
                                     <span class="wc-orphan-warn"
-                                          data-tooltip="This site is probed by its agent, so assign one to this WAN.">&#9888;</span>
+                                          data-tooltip="This site is probed by its agent, so assign one to this WAN."><AppIcon Name="warning" /></span>
                                 }
                                 @if (ProbeSourceOf(wc) is string source) { <code>@source</code> }
                                 else if (PinMatches(wc))
@@ -119,11 +119,11 @@
                                 {
                                     @if (PinFor(wc) is RoutePin misrouted)
                                     {
-                                        <span class="wc-orphan-warn" data-tooltip="@MisroutedWarning(misrouted)">&#9888;</span>
+                                        <span class="wc-orphan-warn" data-tooltip="@MisroutedWarning(misrouted)"><AppIcon Name="warning" /></span>
                                     }
                                     else if (BindsNothing(wc))
                                     {
-                                        <span class="wc-orphan-warn" data-tooltip="@UnboundWarning(wc)">&#9888;</span>
+                                        <span class="wc-orphan-warn" data-tooltip="@UnboundWarning(wc)"><AppIcon Name="warning" /></span>
                                     }
                                     <span class="text-muted">Default interface</span>
                                 }

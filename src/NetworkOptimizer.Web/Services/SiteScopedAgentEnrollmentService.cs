@@ -33,5 +33,9 @@ public sealed class SiteScopedAgentEnrollmentService(
         inner.SetEnabledAsync(siteSlug, agentId, enabled);
 
     /// <inheritdoc />
+    public Task<bool> RenameAgentAsync(string siteSlug, int agentId, string name) =>
+        inner.RenameAgentAsync(siteSlug, agentId, name);
+
+    /// <inheritdoc />
     public Task<string?> GetOnlineAgentLanIpAsync(string siteSlug) => inner.GetOnlineAgentLanIpAsync(siteSlug);
 }

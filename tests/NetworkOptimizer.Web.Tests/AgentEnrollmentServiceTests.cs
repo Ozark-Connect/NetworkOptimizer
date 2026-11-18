@@ -80,16 +80,31 @@ public class AgentEnrollmentServiceTests
         var (theirAgent, theirToken) = await _service.CreateAgentAsync("their-site", "Theirs");
 
         await _service.SetEnabledAsync("my-site", theirAgent.Id, false);
+        var renamed = await _service.RenameAgentAsync("my-site", theirAgent.Id, "Hijacked");
         await _service.DeleteAgentAsync("my-site", theirAgent.Id);
         var reissued = await _service.ReissueTokenAsync("my-site", theirAgent.Id);
 
         reissued.Should().BeNull("the agent is not on the site the caller was authorized for");
+        renamed.Should().BeFalse();
         var survivors = await _service.GetAgentsForSiteAsync(theirs);
         survivors.Single().Id.Should().Be(theirAgent.Id);
+        survivors.Single().Name.Should().Be("Theirs", "renaming it from another site must not have landed");
         survivors.Single().Enabled.Should().BeTrue("disabling it from another site must not have landed");
         (await _service.EnrollAsync(theirToken, null)).Success.Should()
             .BeTrue("its token must still work - nothing was reissued out from under it");
         (await _service.GetAgentsForSiteAsync(mine)).Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task RenameAgent_TrimsTheNameAndRefusesABlankOne()
+    {
+        var siteId = await SeedSiteAsync("my-site");
+        var (agent, _) = await _service.CreateAgentAsync("my-site", "Agent 1");
+
+        (await _service.RenameAgentAsync("my-site", agent.Id, "   ")).Should().BeFalse();
+        (await _service.RenameAgentAsync("my-site", agent.Id, "  Basement Pi ")).Should().BeTrue();
+
+        (await _service.GetAgentsForSiteAsync(siteId)).Single().Name.Should().Be("Basement Pi");
     }
 
     [Fact]

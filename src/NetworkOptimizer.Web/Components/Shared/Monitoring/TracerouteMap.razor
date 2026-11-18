@@ -1,0 +1,109 @@
+@using Microsoft.JSInterop
+@using NetworkOptimizer.Web.Services.Monitoring
+@implements IAsyncDisposable
+@inject IJSRuntime JS
+@inject Microsoft.AspNetCore.Mvc.ViewFeatures.IFileVersionProvider FileVersionProvider
+@inject ILogger<TracerouteMap> Logger
+
+@if (Path != null)
+{
+    @* Also when nothing could be placed: that is when the map needs GeoLite2 most. *@
+    <div class="trace-map-geolite"><GeoLiteSetupBanner /></div>
+}
+@if (Path is { HasRoute: true })
+{
+    <div class="trace-map-block">
+        <div class="trace-map-header">
+            <h3 class="trace-map-title">Route Map</h3>
+            <div class="trace-map-legend">
+                @if (Path.Nodes.Any(n => n.Source == "start"))
+                {
+                    <span class="trace-legend-item"><span class="trace-legend-dot trace-legend-start"></span>Start</span>
+                }
+                @if (Path.Nodes.Any(n => n.Source == "set"))
+                {
+                    <span class="trace-legend-item"><span class="trace-legend-dot trace-legend-set"></span>Set</span>
+                }
+                <span class="trace-legend-item"><span class="trace-legend-dot trace-legend-hostname"></span>Hostname</span>
+                <span class="trace-legend-item"><span class="trace-legend-dot trace-legend-neighbor"></span>Nearby hop</span>
+                @if (Path.Nodes.Any(n => n.Source == "learned"))
+                {
+                    <span class="trace-legend-item"><span class="trace-legend-dot trace-legend-learned"></span>Learned</span>
+                }
+                <span class="trace-legend-item"><span class="trace-legend-dot trace-legend-geolite2"></span>GeoLite2</span>
+                @if (Path.Legs.Any(l => l.SilentHops > 0))
+                {
+                    <span class="trace-legend-item"><span class="trace-legend-line-silent"></span>Hops did not answer</span>
+                }
+            </div>
+        </div>
+        <div class="trace-map" @ref="_host"></div>
+        @if (Path.UnplacedHops > 0)
+        {
+            <div class="trace-map-note">
+                @Path.UnplacedHops @(Path.UnplacedHops == 1 ? "hop has" : "hops have") no city and @(Path.UnplacedHops == 1 ? "is" : "are") not drawn.
+            </div>
+        }
+    </div>
+}
+
+@code {
+    /// <summary>The traced path to draw. The map is left out when it visits fewer than two places.</summary>
+    [Parameter]
+    public TraceMapPath? Path { get; set; }
+
+    /// <summary>Fires with the hop numbers placed at a point the reader clicks on the map.</summary>
+    [Parameter]
+    public EventCallback<IReadOnlyList<int>> OnPlaceSelected { get; set; }
+
+    private ElementReference _host;
+    private IJSObjectReference? _module;
+    private TraceMapPath? _drawn;
+    private DotNetObjectReference<TracerouteMap>? _self;
+
+    /// <summary>Marks the place a hop sits at and shows its hops; a hop not on the map clears the mark.</summary>
+    public async Task HighlightHopAsync(int hopNumber)
+    {
+        if (_module == null || _drawn == null) return;
+        try { await _module.InvokeVoidAsync("highlight", _host, hopNumber); }
+        catch (JSDisconnectedException) { }
+        catch (Exception ex) { Logger.LogDebug(ex, "Trace map failed to highlight hop {Hop}", hopNumber); }
+    }
+
+    [JSInvokable]
+    public Task OnPlaceClicked(int[] hops) => OnPlaceSelected.InvokeAsync(hops);
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (Path is not { HasRoute: true } || ReferenceEquals(Path, _drawn)) return;
+        try
+        {
+            _module ??= await JS.InvokeAsync<IJSObjectReference>(
+                "import", FileVersionProvider.AddFileVersionToPath("", "/js/trace-map.js"));
+            _self ??= DotNetObjectReference.Create(this);
+            await _module.InvokeVoidAsync("render", _host, Path, _self);
+            _drawn = Path;
+        }
+        catch (JSDisconnectedException) { }
+        catch (Exception ex)
+        {
+            Logger.LogDebug(ex, "Trace map failed to draw");
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        _self?.Dispose();
+        if (_module == null) return;
+        try
+        {
+            await _module.InvokeVoidAsync("dispose", _host);
+            await _module.DisposeAsync();
+        }
+        catch (JSDisconnectedException) { }
+        catch (Exception ex)
+        {
+            Logger.LogDebug(ex, "Trace map failed to dispose");
+        }
+    }
+}

@@ -22,9 +22,11 @@
     double? avg = withData.Count > 0 ? withData.Average(s => s.Health.Average!.Value) : null;
     var prevSites = withData.Where(s => s.Health.PreviousAverage != null).ToList();
     double? prev = prevSites.Count > 0 ? prevSites.Average(s => s.Health.PreviousAverage!.Value) : null;
-    var down = sites.Count(s => !s.Online || SiteHealthSeriesBuilder.Level(Now(s)) == "down");
+    // Down means unreachable. Level()'s "down" is a color for a low score on a reachable site.
+    var down = sites.Count(s => !s.Online);
+    var unhealthy = sites.Count(s => s.Online && SiteHealthSeriesBuilder.Level(Now(s)) == "down");
     var degraded = sites.Count(s => s.Online && SiteHealthSeriesBuilder.Level(Now(s)) == "degraded");
-    var healthy = sites.Count - down - degraded;
+    var healthy = sites.Count - down - unhealthy - degraded;
     var cap = _more ? ExpandedCap : CondensedCap;
     var shown = sites.Take(cap).ToList();
 
@@ -60,7 +62,7 @@
                             <span class="shp-delta @(a2 < p ? "down" : "up")" data-tooltip="@($"{(a2 < p ? "Down" : "Up")} {F(Math.Abs(a2 - p))} from the 24 hours before")">@(a2 < p ? "▼" : "▲") @F(Math.Abs(a2 - p))</span>
                         }
                     </div>
-                    <div class="shp-avg-sub">@healthy healthy, @degraded degraded, @down down</div>
+                    <div class="shp-avg-sub">@healthy healthy, @degraded degraded, @unhealthy unhealthy@(down > 0 ? $", {down} down" : "")</div>
                 </div>
                 <div class="shp-chips">
                     @foreach (var chip in Chips(sites))
@@ -90,7 +92,10 @@
                         </span>
                     </span>
                     <svg class="shp-spark" viewBox="0 0 100 30" preserveAspectRatio="none" role="img" aria-label="@SparkLabel(s)">
-                        <polyline points="@Spark(s)" fill="none" class="shp-spark-line @(s.Online ? SiteHealthSeriesBuilder.Level(now) : "unknown")" stroke-width="1.6" vector-effect="non-scaling-stroke" stroke-linejoin="round" />
+                        @foreach (var seg in SparkSegments(s))
+                        {
+                            <polyline points="@seg.Points" fill="none" class="shp-spark-line @(s.Online ? seg.Level : "unknown")" stroke-width="1.6" vector-effect="non-scaling-stroke" stroke-linejoin="round" />
+                        }
                     </svg>
                     <span class="shp-now num health-@(s.Online ? SiteHealthSeriesBuilder.Level(now) : "unknown")">@(s.Online && now is { } n ? F(n) : "--")</span>
                     @if (s.Online && s.Health.TopIssue != null && s.Health.TopHref is { } issueHref)
@@ -113,6 +118,7 @@
         {
             <div class="shp-count-chips">
                 @if (down > 0) { <span class="shp-chip danger">@down down</span> }
+                @if (unhealthy > 0) { <span class="shp-chip danger">@unhealthy unhealthy</span> }
                 @if (degraded > 0) { <span class="shp-chip warning">@degraded degraded</span> }
                 @if (sites.Sum(s => s.PendingApprovals) is var approvals && approvals > 0) { <span class="shp-chip info">@CcFormat.Plural(approvals, "approval", "approvals")</span> }
             </div>
@@ -121,7 +127,7 @@
                 {
                     var now = Now(s);
                     var level = s.Online ? SiteHealthSeriesBuilder.Level(now) : "down";
-                    <div class="shp-tile @level" data-tooltip="@TileTip(s)">
+                    <div class="shp-tile @level" data-tooltip="@TileTip(s)" data-tooltip-distinct>
                         <a class="shp-row-link" href="@SiteContextService.WithSiteParam("/", s.Slug)" data-site-switch="@s.Slug" aria-label="@s.Name"></a>
                         <span class="shp-tile-name"><span class="status-dot @(s.Online ? "online" : "offline")"></span>@s.Name</span>
                         <span class="shp-tile-health health-@(s.Online ? SiteHealthSeriesBuilder.Level(now) : "unknown")">@(s.Online && now is { } n ? F(n) : "--")</span>
@@ -228,15 +234,35 @@
         ? (s.AgentOffline ? "Agent offline" : "Console unreachable")
         : s.Health.TopShort;
 
-    /// <summary>The 24-hour line on a 60 to 100 axis; hours with no data break it.</summary>
-    private static string Spark(SiteHealthSummary s)
+    /// <summary>
+    /// The 24-hour line on a 60 to 100 axis, split into runs by health level so each run takes its
+    /// own color. A run starts at the last point of the one before, so the line stays joined.
+    /// </summary>
+    private static List<(string Points, string Level)> SparkSegments(SiteHealthSummary s)
     {
         var pts = s.Health.Points;
-        if (pts.Count == 0) return "";
+        var segments = new List<(string, string)>();
+        if (pts.Count == 0) return segments;
         var from = pts[0].Start;
         var span = Math.Max(1, (pts[^1].End - from).TotalSeconds);
-        return string.Join(" ", pts.Where(p => p.Health != null).Select(p =>
-            $"{((p.Start - from).TotalSeconds / span * 100).ToString("0.#", CultureInfo.InvariantCulture)},{(29 - Math.Clamp((p.Health!.Value - 60) / 40, 0, 1) * 27).ToString("0.#", CultureInfo.InvariantCulture)}"));
+        var plotted = pts.Where(p => p.Health != null).Select(p => (
+            Xy: $"{((p.Start - from).TotalSeconds / span * 100).ToString("0.#", CultureInfo.InvariantCulture)},{(29 - Math.Clamp((p.Health!.Value - 60) / 40, 0, 1) * 27).ToString("0.#", CultureInfo.InvariantCulture)}",
+            Level: SiteHealthSeriesBuilder.Level(p.Health))).ToList();
+
+        var run = new List<string>();
+        string? level = null;
+        for (var i = 0; i < plotted.Count; i++)
+        {
+            if (level != null && plotted[i].Level != level)
+            {
+                segments.Add((string.Join(" ", run), level));
+                run = [plotted[i - 1].Xy];
+            }
+            level = plotted[i].Level;
+            run.Add(plotted[i].Xy);
+        }
+        if (level != null) segments.Add((string.Join(" ", run), level));
+        return segments;
     }
 
     private static string SparkLabel(SiteHealthSummary s) =>

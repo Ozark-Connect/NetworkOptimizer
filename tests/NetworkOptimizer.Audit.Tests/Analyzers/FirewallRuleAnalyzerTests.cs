@@ -2408,15 +2408,13 @@ public class FirewallRuleAnalyzerTests
         issues.Should().ContainSingle(i => i.Type == IssueTypes.AllowExceptionPattern);
     }
 
-    [Theory]
-    [InlineData(true)]   // "every source port but 5353" is not a source-port-only allow
-    [InlineData(false)]  // no source port at all
-    public void DetectShadowedRules_OtherBroadAllows_KeepTheRuleOrderText(bool invertedSourcePort)
+    [Fact]
+    public void DetectShadowedRules_AllowWithAnUndescribableNarrowing_KeepsTheRuleOrderText()
     {
-        var source = invertedSourcePort ? InternalSourceFromPort("5353", opposite: true) : AnyInternalSource;
+        // "Every source port but 5353" is not a source-port-only allow, and its slice cannot be named
         var rules = new List<FirewallRule>
         {
-            ParseIpVersionPolicy("allow-broad", "ALLOW", 10000, "BOTH", source, AnyGatewayDest),
+            ParseIpVersionPolicy("allow-broad", "ALLOW", 10000, "BOTH", InternalSourceFromPort("5353", opposite: true), AnyGatewayDest),
             ParseIpVersionPolicy("block-gateway", "BLOCK", 10001, "BOTH", AnyInternalSource, AnyGatewayDest)
         };
 
@@ -2425,6 +2423,101 @@ public class FirewallRuleAnalyzerTests
         issue.ScoreImpact.Should().Be(5);
         issue.Message.Should().Be("Allow rule 'allow-broad' may subvert deny rule 'block-gateway'");
         issue.RecommendedAction.Should().Be("Review rule order - the deny rule may never match due to the earlier allow rule.");
+        issue.Metadata!["subversion"].Should().Be("unknown");
+        issue.Metadata.Should().NotContainKey("slice");
+    }
+
+    [Fact]
+    public void DetectShadowedRules_AllowCoveringTheWholeDeny_SaysTheDenyNeverMatches()
+    {
+        var rules = new List<FirewallRule>
+        {
+            ParseIpVersionPolicy("allow-broad", "ALLOW", 10000, "BOTH", AnyInternalSource, AnyGatewayDest),
+            ParseIpVersionPolicy("block-gateway", "BLOCK", 10001, "BOTH", AnyInternalSource, AnyGatewayDest)
+        };
+
+        var issue = _analyzer.DetectShadowedRules(rules).Should().ContainSingle(i => i.Type == IssueTypes.AllowSubvertsDeny).Subject;
+
+        issue.Severity.Should().Be(AuditSeverity.Recommended);
+        issue.ScoreImpact.Should().Be(5);
+        issue.Message.Should().Be("Allow rule 'allow-broad' matches all traffic deny rule 'block-gateway' blocks, so the deny rule never matches");
+        issue.RecommendedAction.Should().Be("Move the deny rule above the allow rule, or narrow the allow rule to the traffic it is meant for.");
+        issue.Metadata!["subversion"].Should().Be("total");
+    }
+
+    [Fact]
+    public void DetectShadowedRules_DnsPortAllowBeforeAnyDeny_NamesTheSliceTaken()
+    {
+        // TCP/UDP 53 from two clients to any destination, ahead of an all-protocol deny on a network to
+        // specific addresses: destination scoring calls the allow broader, but it takes only port 53.
+        var allow = new FirewallRule
+        {
+            Id = "allow-dns", Name = "[TEMP] DNS Bypass", Enabled = true, Index = 10000, Action = "ALLOW",
+            Protocol = "tcp_udp", DestinationPort = "53",
+            SourceMatchingTarget = "CLIENT", SourceClientMacs = ["aa:bb:cc:dd:ee:01", "aa:bb:cc:dd:ee:02"],
+            DestinationMatchingTarget = "ANY", SourceZoneId = "internal-zone", DestinationZoneId = "external-zone"
+        };
+        var deny = new FirewallRule
+        {
+            Id = "block-trackers", Name = "Block Torrent Trackers", Enabled = true, Index = 10001, Action = "BLOCK",
+            Protocol = "all",
+            SourceMatchingTarget = "CLIENT", SourceClientMacs = ["aa:bb:cc:dd:ee:01", "aa:bb:cc:dd:ee:02", "aa:bb:cc:dd:ee:03"],
+            DestinationMatchingTarget = "IP", DestinationIps = ["203.0.113.10", "203.0.113.11"],
+            SourceZoneId = "internal-zone", DestinationZoneId = "external-zone"
+        };
+
+        var issue = _analyzer.DetectShadowedRules([allow, deny]).Should().ContainSingle(i => i.Type == IssueTypes.AllowSubvertsDeny).Subject;
+
+        // One port is a deliberate exception: still shown for review, but it costs no points
+        issue.Severity.Should().Be(AuditSeverity.Recommended);
+        issue.ScoreImpact.Should().Be(0);
+        issue.Message.Should().Be("Allow rule '[TEMP] DNS Bypass' takes TCP/UDP port 53 traffic from 2 clients out of deny rule 'Block Torrent Trackers'");
+        issue.RecommendedAction.Should().Be("The deny rule still blocks everything else. If it should block this traffic too, move it above the allow rule.");
+        issue.Metadata!["subversion"].Should().Be("partial");
+        issue.Metadata["slice"].Should().Be("TCP/UDP port 53 traffic from 2 clients");
+        // The pre-slice text stays the dismissal identity, so an existing Acknowledge still applies
+        issue.Metadata["dismissal_scope"].Should().Be("Allow rule '[TEMP] DNS Bypass' may subvert deny rule 'Block Torrent Trackers'");
+    }
+
+    [Fact]
+    public void DetectShadowedRules_PartialSliceOnManyPortsOrNoPorts_KeepsItsPoints()
+    {
+        var clients = new List<string> { "aa:bb:cc:dd:ee:01" };
+        FirewallRule Allow(string? protocol, string? port) => new()
+        {
+            Id = "allow", Name = "allow", Enabled = true, Index = 10000, Action = "ALLOW", Protocol = protocol, DestinationPort = port,
+            SourceMatchingTarget = "CLIENT", SourceClientMacs = clients, SourceZoneId = "internal-zone", DestinationZoneId = "external-zone"
+        };
+        var deny = new FirewallRule
+        {
+            Id = "deny", Name = "deny", Enabled = true, Index = 10001, Action = "BLOCK", Protocol = "all",
+            SourceMatchingTarget = "CLIENT", SourceClientMacs = ["aa:bb:cc:dd:ee:01", "aa:bb:cc:dd:ee:02", "aa:bb:cc:dd:ee:03"],
+            DestinationMatchingTarget = "IP", DestinationIps = ["203.0.113.10"],
+            SourceZoneId = "internal-zone", DestinationZoneId = "external-zone"
+        };
+
+        foreach (var (protocol, port) in new (string?, string?)[] { ("all", null), ("tcp", "1-1024") })
+        {
+            var issue = _analyzer.DetectShadowedRules([Allow(protocol, port), deny])
+                .Should().ContainSingle(i => i.Type == IssueTypes.AllowSubvertsDeny).Subject;
+            issue.Metadata!["subversion"].Should().Be("partial");
+            issue.ScoreImpact.Should().Be(5);
+        }
+    }
+
+    [Fact]
+    public void DetectShadowedRules_SourcePortOnlyAllow_CarriesNoDismissalOverride()
+    {
+        // Its message never changed, so the message itself stays the identity
+        var rules = new List<FirewallRule>
+        {
+            ParseIpVersionPolicy("Allow mDNS reply", "ALLOW", 10000, "BOTH", InternalSourceFromPort("5353"), AnyGatewayDest),
+            ParseIpVersionPolicy("Block Other Gateway Access", "BLOCK", 10001, "BOTH", AnyInternalSource, AnyGatewayDest)
+        };
+
+        var issue = _analyzer.DetectShadowedRules(rules).Should().ContainSingle(i => i.Type == IssueTypes.AllowSubvertsDeny).Subject;
+
+        issue.Metadata.Should().NotContainKey("dismissal_scope");
     }
 
     [Fact]

@@ -168,9 +168,36 @@ public static class SignalClassification
     /// </summary>
     public static string GetSignalColor(int dbm, RadioBand band)
     {
+        var (r, g, b) = BlendRgb(dbm, band);
+        return $"rgb({r},{g},{b})";
+    }
+
+    /// <summary>
+    /// Bars and color for several links read together (an MLO backhaul). Each link is graded on its
+    /// own band's curve first, since one dBm means different things on 5 and 6 GHz: the bars are
+    /// the mean of the links' bar counts, rounded, and the color the mean of their blended colors.
+    /// </summary>
+    public static (int Bars, string Color) GetAverageSignal(IReadOnlyCollection<(int Dbm, string? Band)> links)
+    {
+        if (links.Count == 0) throw new ArgumentException("At least one link is required.", nameof(links));
+        double bars = 0, r = 0, g = 0, b = 0;
+        foreach (var (dbm, bandString) in links)
+        {
+            var band = ParseBand(bandString);
+            bars += GetSignalBars(dbm, band);
+            var (lr, lg, lb) = BlendRgb(dbm, band);
+            r += lr; g += lg; b += lb;
+        }
+        var n = links.Count;
+        return ((int)Math.Round(bars / n, MidpointRounding.AwayFromZero),
+            $"rgb({(int)(r / n)},{(int)(g / n)},{(int)(b / n)})");
+    }
+
+    private static (int R, int G, int B) BlendRgb(int dbm, RadioBand band)
+    {
         var stops = GetSignalGradient(band);
-        if (dbm >= stops[0].Dbm) return Rgb(stops[0].Hex);
-        if (dbm <= stops[^1].Dbm) return Rgb(stops[^1].Hex);
+        if (dbm >= stops[0].Dbm) return Rgb3(stops[0].Hex);
+        if (dbm <= stops[^1].Dbm) return Rgb3(stops[^1].Hex);
 
         for (var i = 0; i < stops.Length - 1; i++)
         {
@@ -178,9 +205,9 @@ public static class SignalClassification
             var t = (double)(dbm - stops[i + 1].Dbm) / (stops[i].Dbm - stops[i + 1].Dbm);
             var (ar, ag, ab) = Rgb3(stops[i].Hex);
             var (br, bg, bb) = Rgb3(stops[i + 1].Hex);
-            return $"rgb({(int)(ar * t + br * (1 - t))},{(int)(ag * t + bg * (1 - t))},{(int)(ab * t + bb * (1 - t))})";
+            return ((int)(ar * t + br * (1 - t)), (int)(ag * t + bg * (1 - t)), (int)(ab * t + bb * (1 - t)));
         }
-        return Rgb(stops[^1].Hex);
+        return Rgb3(stops[^1].Hex);
     }
 
     /// <summary>The blended color for a band string, in either form.</summary>
@@ -198,12 +225,6 @@ public static class SignalClassification
         Convert.ToInt32(hex.Substring(1, 2), 16),
         Convert.ToInt32(hex.Substring(3, 2), 16),
         Convert.ToInt32(hex.Substring(5, 2), 16));
-
-    private static string Rgb(string hex)
-    {
-        var (r, g, b) = Rgb3(hex);
-        return $"rgb({r},{g},{b})";
-    }
 
     // Both the UniFi radio codes and the normalized forms other surfaces carry. A band that falls
     // through here is classified on the 5 GHz curve, so a missing case is a silently wrong color.

@@ -4,7 +4,7 @@
 // both tabs draw the same series under the same names off one definition. Chart mounting, sync
 // groups and event marks stay with each tab, which owns its own layout.
 
-import { alignedPoints } from './chart-tooltip.js?v=21';
+import { alignedPoints } from './chart-tooltip.js?v=22';
 import { detailsTableHtml, escapeHtml, fmtUptime } from './detail-table.js?v=1';
 
 // Same encoding PonLinkStateExtensions.ToInfluxValue uses for pon_link_status.
@@ -680,6 +680,15 @@ export function ponDetailsHtml(items, labelHeader, extras = []) {
         {
             header: 'FEC DS / US',
             cell: item => { const l = lastOf(item); return l.dsFec == null && l.usFec == null ? null : `${l.dsFec ? 'on' : 'off'} / ${l.usFec ? 'on' : 'off'}`; },
+        },
+        {
+            header: '<span data-tooltip="Downstream AES encryption, read from the ONT\'s GEM port table">AES DS</span>',
+            cell: item => {
+                const l = [...item.pon].reverse().find(p => p.aes != null);
+                if (!l) return null;
+                if (!l.aes) return 'off';
+                return l.aesPorts == null ? 'on' : `on (${l.aesPorts} GEM port${l.aesPorts === 1 ? '' : 's'})`;
+            },
         },
         { header: 'Response Time', cell: item => lastOf(item).respTime },
         {

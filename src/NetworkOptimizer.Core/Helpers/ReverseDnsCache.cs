@@ -29,6 +29,14 @@ public static class ReverseDnsCache
     private static readonly ConcurrentDictionary<string, (string Ip, string? Hostname, DateTime Expires)> Cache = new();
 
     /// <summary>
+    /// A PTR-only lookup the host can supply (the server sets one built on DnsClient at startup).
+    /// Without it the lookup falls back to <c>Dns.GetHostEntryAsync</c>, which forward-resolves the
+    /// PTR name as well; a name that does not resolve forward is then retried with every search
+    /// domain in resolv.conf appended, which floods the site's resolver with junk queries.
+    /// </summary>
+    public static Func<string, CancellationToken, Task<string?>>? PtrLookup { get; set; }
+
+    /// <summary>
     /// Resolves an address as configured (an IP or a hostname) to the pair worth showing: the literal
     /// address it answers on, and its PTR name when it has one.
     ///
@@ -60,14 +68,22 @@ public static class ReverseDnsCache
 
             if (parsed is not null)
             {
-                // By string, not IPAddress: only the string overload takes a token, and an IP
-                // literal here is still a PTR lookup.
-                var entry = await Dns.GetHostEntryAsync(ip, timeout.Token);
-                // A resolver that echoes the address back has told us nothing worth showing.
-                if (!string.IsNullOrWhiteSpace(entry.HostName)
-                    && !string.Equals(entry.HostName, ip, StringComparison.OrdinalIgnoreCase))
+                string? name;
+                if (PtrLookup is { } ptr)
                 {
-                    hostname = entry.HostName;
+                    name = await ptr(ip, timeout.Token);
+                }
+                else
+                {
+                    // By string, not IPAddress: only the string overload takes a token, and an IP
+                    // literal here is still a PTR lookup.
+                    name = (await Dns.GetHostEntryAsync(ip, timeout.Token)).HostName;
+                }
+                // A resolver that echoes the address back has told us nothing worth showing.
+                if (!string.IsNullOrWhiteSpace(name)
+                    && !string.Equals(name, ip, StringComparison.OrdinalIgnoreCase))
+                {
+                    hostname = name.TrimEnd('.');
                 }
             }
         }

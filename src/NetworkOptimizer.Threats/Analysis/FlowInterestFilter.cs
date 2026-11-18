@@ -81,25 +81,38 @@ public static class FlowInterestFilter
     }
 
     /// <summary>
-    /// True when every policy that blocked the flow is UniFi's predefined Block Invalid Traffic: late
-    /// packets on connections whose conntrack entry is gone, not something anyone sent on purpose.
-    /// The flow's policy ids are not the firewall-policies <c>_id</c>s, so the predefined name is the key.
+    /// True when a blocked flow names no rule but UniFi's predefined Block Invalid Traffic, or the
+    /// conntrack verdict alone: late packets on connections whose conntrack entry is gone, not
+    /// something anyone sent on purpose. The flow's policy ids are not the firewall-policies <c>_id</c>s,
+    /// so the predefined name is the key.
     /// </summary>
+    /// <remarks>
+    /// Every flow the gateway tracks carries a nameless <c>CONNTRACK</c> entry; on a blocked flow with no
+    /// named rule beside it, the drop came from connection state (Network 10.x reports Block Invalid
+    /// Traffic drops this way). It also sits on allowed flows, hence the action check.
+    /// </remarks>
     [NetworkOptimizer.Core.VendorSpecific("UniFi", "traffic-flows policies[] internal_type and predefined policy name")]
     public static bool IsInvalidStateDrop(JsonElement flow)
     {
-        if (!flow.TryGetProperty("policies", out var policies) || policies.ValueKind != JsonValueKind.Array
+        if (!flow.GetPropertyOrDefault("action", "").Equals("blocked", StringComparison.OrdinalIgnoreCase)
+            || !flow.TryGetProperty("policies", out var policies) || policies.ValueKind != JsonValueKind.Array
             || policies.GetArrayLength() == 0)
             return false;
 
         foreach (var policy in policies.EnumerateArray())
         {
-            if (!policy.GetPropertyOrDefault("internal_type", "").Equals("PREDEFINED_FIREWALL_RULE", StringComparison.Ordinal)
+            var internalType = policy.GetPropertyOrDefault("internal_type", "");
+            if (internalType.Equals(ConntrackPolicyType, StringComparison.Ordinal))
+                continue;
+            if (!internalType.Equals("PREDEFINED_FIREWALL_RULE", StringComparison.Ordinal)
                 || !policy.GetPropertyOrDefault("name", "").Equals(InvalidTrafficPolicyName, StringComparison.Ordinal))
                 return false;
         }
         return true;
     }
+
+    /// <summary>The <c>internal_type</c> of the policy entry UniFi attaches for a flow's conntrack verdict.</summary>
+    public const string ConntrackPolicyType = "CONNTRACK";
 
     /// <summary>The name UniFi Network gives its predefined invalid-connection-state Block policies.</summary>
     public const string InvalidTrafficPolicyName = "Block Invalid Traffic";

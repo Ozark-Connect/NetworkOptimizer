@@ -110,8 +110,7 @@ public class WanCounterInterfaces
         string? gatewayMac = null;
         try
         {
-            var gw = (await _connectionService.GetDiscoveredDevicesAsync(ct))?.FirstOrDefault(d =>
-                d.Type == Core.Enums.DeviceType.Gateway || d.HardwareType == Core.Enums.DeviceType.Gateway);
+            var gw = UniFiDiscovery.SiteGateway(await _connectionService.GetDiscoveredDevicesAsync(ct));
             gatewayMac = gw?.Mac;
         }
         catch { }

@@ -82,4 +82,37 @@
             if (now < until) requestAnimationFrame(frame);
         });
     }, true);
+
+    // The same nudge for a dropdown or popover a click opens: the trigger carries
+    // data-reveals="<selector>", and the popup is that selector inside the trigger's parent. Once
+    // Blazor has rendered it, the view scrolls smoothly just enough to show it - down only, and never
+    // past the trigger's own top. A popup pinned to the viewport (a phone sheet) never needs it.
+    var POPUP_WAIT_MS = 800;
+
+    function revealPopup(trigger, popup) {
+        if (getComputedStyle(popup).position === 'fixed') return;
+        var sc = scrollerOf(trigger);
+        var isDoc = sc === document.scrollingElement || sc === document.documentElement;
+        var paneTop = isDoc ? 0 : sc.getBoundingClientRect().top;
+        var paneBottom = isDoc ? window.innerHeight : sc.getBoundingClientRect().bottom;
+        var below = popup.getBoundingClientRect().bottom + 8 - paneBottom;
+        if (below <= 1) return;
+        var by = Math.min(below, Math.max(0, trigger.getBoundingClientRect().top - paneTop));
+        if (by > 0) sc.scrollBy({ top: by, behavior: 'smooth' });
+    }
+
+    document.addEventListener('click', function (e) {
+        var trigger = e.target.closest && e.target.closest('[data-reveals]');
+        if (!trigger || !trigger.parentElement) return;
+        var selector = trigger.getAttribute('data-reveals');
+        var scope = trigger.parentElement;
+        // Open already: this click closes it, so there is nothing to show. Capture phase, before Blazor.
+        if (scope.querySelector(selector)) return;
+        var until = performance.now() + POPUP_WAIT_MS;
+        requestAnimationFrame(function frame(now) {
+            var popup = scope.querySelector(selector);
+            if (popup) { revealPopup(trigger, popup); return; }
+            if (now < until) requestAnimationFrame(frame);
+        });
+    }, true);
 })();

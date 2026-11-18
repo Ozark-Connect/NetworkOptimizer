@@ -72,6 +72,8 @@ public class ConfigAuditEngine
         public List<WirelessClientInfo> WirelessClients { get; set; } = [];
         public List<OfflineClientInfo> OfflineClients { get; set; } = [];
         public Dictionary<string, string?> ApNameToModel { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+        /// <summary>Access points by MAC with their current name and model; names an offline client's last AP after a rename.</summary>
+        public Dictionary<string, (string Name, string? ModelName)> ApsByMac { get; set; } = new(StringComparer.OrdinalIgnoreCase);
         public List<AuditIssue> AllIssues { get; } = [];
         public List<string> HardeningMeasures { get; set; } = [];
         public DnsSecurityResult? DnsSecurityResult { get; set; }
@@ -647,8 +649,11 @@ public class ConfigAuditEngine
             .Where(ap => !string.IsNullOrEmpty(ap.Name))
             .GroupBy(ap => ap.Name, StringComparer.OrdinalIgnoreCase)
             .ToDictionary(g => g.Key, g => g.First().ModelName, StringComparer.OrdinalIgnoreCase);
+        ctx.ApsByMac = apLookup
+            .Where(kv => !string.IsNullOrEmpty(kv.Value.Name))
+            .ToDictionary(kv => kv.Key, kv => (kv.Value.Name, kv.Value.ModelName), StringComparer.OrdinalIgnoreCase);
 
-        ctx.WirelessClients = ctx.SecurityEngine.ExtractWirelessClients(ctx.Clients, ctx.Networks, apLookup);
+        ctx.WirelessClients =ctx.SecurityEngine.ExtractWirelessClients(ctx.Clients, ctx.Networks, apLookup);
         var wirelessIssues = ctx.SecurityEngine.AnalyzeWirelessClients(ctx.WirelessClients, ctx.Networks);
         ctx.AllIssues.AddRange(wirelessIssues);
         _logger.LogInformation("Found {IssueCount} wireless client issues from {ClientCount} detected devices",
@@ -739,8 +744,12 @@ public class ConfigAuditEngine
         NetworkInfo lastNetwork,
         DeviceDetectionResult detection)
     {
+        // The history keeps the AP's name from the client's last visit; the AP's MAC names it as it is now.
+        string? currentUplinkName = null;
         string? lastUplinkModelName = null;
-        if (!string.IsNullOrEmpty(historyClient.LastUplinkName))
+        if (!string.IsNullOrEmpty(historyClient.LastUplinkMac) && ctx.ApsByMac.TryGetValue(historyClient.LastUplinkMac, out var ap))
+            (currentUplinkName, lastUplinkModelName) = ap;
+        else if (!string.IsNullOrEmpty(historyClient.LastUplinkName))
             ctx.ApNameToModel.TryGetValue(historyClient.LastUplinkName, out lastUplinkModelName);
 
         ctx.OfflineClients.Add(new OfflineClientInfo
@@ -748,6 +757,7 @@ public class ConfigAuditEngine
             HistoryClient = historyClient,
             LastNetwork = lastNetwork,
             Detection = detection,
+            CurrentUplinkName = currentUplinkName,
             LastUplinkModelName = lastUplinkModelName
         });
     }
@@ -789,7 +799,7 @@ public class ConfigAuditEngine
             return;
 
         var isRecent = historyClient.LastSeen >= twoWeeksAgo;
-        var displayName = historyClient.DisplayName ?? historyClient.Name ?? historyClient.Hostname ?? historyClient.Mac;
+        var displayName = UniFi.ClientNames.For(historyClient) ?? historyClient.Mac;
 
         // Different messaging for allowed vs not-allowed devices
         string message;
@@ -834,7 +844,7 @@ public class ConfigAuditEngine
             return;
 
         var isRecent = historyClient.LastSeen >= twoWeeksAgo;
-        var displayName = historyClient.DisplayName ?? historyClient.Name ?? historyClient.Hostname ?? historyClient.Mac;
+        var displayName = UniFi.ClientNames.For(historyClient) ?? historyClient.Mac;
 
         var ruleId = isCloudCamera ? "OFFLINE-CLOUD-CAMERA-VLAN" : "OFFLINE-CAMERA-VLAN";
         var message = isCloudCamera
@@ -866,7 +876,7 @@ public class ConfigAuditEngine
             return;
 
         var isRecent = historyClient.LastSeen >= twoWeeksAgo;
-        var displayName = historyClient.DisplayName ?? historyClient.Name ?? historyClient.Hostname ?? historyClient.Mac;
+        var displayName = UniFi.ClientNames.For(historyClient) ?? historyClient.Mac;
 
         // Different messaging for allowed vs not-allowed devices
         string message;

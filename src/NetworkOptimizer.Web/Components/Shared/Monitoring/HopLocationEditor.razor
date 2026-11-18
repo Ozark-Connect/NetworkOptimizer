@@ -1,0 +1,215 @@
+@using NetworkOptimizer.Web.Services.Monitoring
+@inject IHopLocationOverrideService HopLocationSets
+@inject IJSRuntime JS
+@inject Microsoft.AspNetCore.Mvc.ViewFeatures.IFileVersionProvider FileVersionProvider
+@inject ILogger<HopLocationEditor> Logger
+@implements IAsyncDisposable
+
+@* Set location for one traced hop, opened from a HopLocationCell's icon. Rendered by the page outside
+   its trace table, as Live Traffic's filter editor is, so the phone's bottom sheet is never inside the
+   table's scroll box. A popover under the icon on desktop, a bottom sheet on a phone (app.css). *@
+<div class="lt-fpop-backdrop" @onclick="CloseAsync"></div>
+<div @ref="_pop" class="lt-fpop hop-loc-pop" role="dialog" aria-label="Set location" @onkeydown="OnKeyAsync">
+    <div class="lt-fpop-grab" aria-hidden="true"></div>
+    <div class="lt-fpop-head"><span class="lt-fpop-title">Set location</span></div>
+    <div class="hop-loc-for">For <code class="text-code">@Edit.Address</code> on every trace</div>
+    <div class="hop-loc-search">
+        <input @ref="_input" class="form-control lt-fpop-search" placeholder="Search for a city..." aria-label="City"
+               @bind="_query" @bind:event="oninput" @bind:after="QueryChanged" />
+        <button type="button" class="hop-loc-search-go" aria-label="Search" @onclick="SearchAsync">
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7" /><line x1="21" y1="21" x2="16.65" y2="16.65" /></svg>
+        </button>
+    </div>
+    <div class="lt-fpop-list" role="listbox">
+        @if (_searching)
+        {
+            <div class="lt-fpop-empty"><span class="spinner spinner-sm"></span></div>
+        }
+        else if (_searched && _results.Count == 0)
+        {
+            <div class="lt-fpop-empty">No city matches.</div>
+        }
+        @for (var i = 0; i < _results.Count; i++)
+        {
+            var index = i;
+            var hit = _results[i];
+            <div class="lt-fpop-item @(index == _highlight ? "is-active" : null)" role="option" aria-selected="@(index == _highlight ? "true" : "false")"
+                 @onmouseenter="() => _highlight = index" @onclick="() => SaveAsync(hit)">
+                <span class="lt-fpop-name">@hit.City<span class="hop-loc-region">@Where(hit)</span></span>
+            </div>
+        }
+    </div>
+    @if (_error != null)
+    {
+        <div class="alert-danger hop-loc-error">@_error</div>
+    }
+    <div class="lt-fpop-foot">
+        <span class="hop-loc-now">@Now()</span>
+        @if (Edit.Location?.Source == HopLocationSource.Set)
+        {
+            <a href="" @onclick="ResetAsync" @onclick:preventDefault>Reset</a>
+        }
+    </div>
+</div>
+
+@code {
+    /// <summary>The hop being edited and the icon that opened the editor.</summary>
+    [Parameter, EditorRequired] public HopLocationEdit Edit { get; set; } = null!;
+
+    /// <summary>Called when the editor closes, saved or not.</summary>
+    [Parameter] public EventCallback OnClose { get; set; }
+
+    /// <summary>Called after a location is set or reset, so the table places its hops again.</summary>
+    [Parameter] public EventCallback OnChanged { get; set; }
+
+    /// <summary>A geocoder result.</summary>
+    public sealed record CityHit(string City, string? Region, string? Country, string CountryCode, double Latitude, double Longitude);
+
+    private IJSObjectReference? _module;
+    private ElementReference _pop, _input;
+    private HopLocationEdit? _placedFor;
+    private bool _searching, _searched;
+    private string _query = "";
+    private List<CityHit> _results = [];
+    private int _highlight = -1;
+    private string? _error;
+
+    private async Task<IJSObjectReference> ModuleAsync() =>
+        _module ??= await JS.InvokeAsync<IJSObjectReference>(
+            "import", FileVersionProvider.AddFileVersionToPath("", "/js/hop-location-search.js"));
+
+    protected override void OnParametersSet()
+    {
+        if (ReferenceEquals(_placedFor, Edit)) return;
+        _query = "";
+        _results = [];
+        _searched = false;
+        _highlight = -1;
+        _error = null;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (ReferenceEquals(_placedFor, Edit)) return;
+        _placedFor = Edit;
+        try
+        {
+            await (await ModuleAsync()).InvokeVoidAsync("place", _pop, Edit.Anchor);
+            await _input.FocusAsync();
+        }
+        catch (Exception ex) when (ex is JSDisconnectedException or TaskCanceledException or InvalidOperationException)
+        {
+            // The editor closed or the circuit went away before it drew.
+        }
+    }
+
+    private Task CloseAsync() => OnClose.InvokeAsync();
+
+    private void QueryChanged() => _highlight = -1;
+
+    private async Task SearchAsync()
+    {
+        var q = _query.Trim();
+        if (q.Length == 0) return;
+        _searching = true;
+        _error = null;
+        StateHasChanged();
+        try
+        {
+            _results = (await (await ModuleAsync()).InvokeAsync<List<CityHit>>("search", q)).ToList();
+            _highlight = _results.Count > 0 ? 0 : -1;
+        }
+        catch (Exception ex) when (ex is not JSDisconnectedException)
+        {
+            Logger.LogDebug(ex, "City search failed");
+            _results = [];
+            _error = "The city search could not be reached.";
+        }
+        finally
+        {
+            _searching = false;
+            _searched = true;
+        }
+    }
+
+    private async Task OnKeyAsync(KeyboardEventArgs e)
+    {
+        switch (e.Key)
+        {
+            case "ArrowDown" when _results.Count > 0:
+                _highlight = _highlight < 0 ? 0 : Math.Min(_results.Count - 1, _highlight + 1);
+                break;
+            case "ArrowUp" when _results.Count > 0:
+                _highlight = _highlight < 0 ? _results.Count - 1 : Math.Max(0, _highlight - 1);
+                break;
+            case "Enter" when _highlight >= 0 && _highlight < _results.Count:
+                await SaveAsync(_results[_highlight]);
+                break;
+            case "Enter":
+                await SearchAsync();
+                break;
+            case "Escape":
+                await CloseAsync();
+                break;
+        }
+    }
+
+    private async Task SaveAsync(CityHit hit)
+    {
+        _error = null;
+        try
+        {
+            await HopLocationSets.SetAsync(Edit.Address, hit.City, hit.Region, hit.CountryCode, hit.Latitude, hit.Longitude);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Could not set the location of {Address}", Edit.Address);
+            _error = ex is ArgumentException ? ex.Message : "Could not save the location.";
+            return;
+        }
+        await OnChanged.InvokeAsync();
+        await CloseAsync();
+    }
+
+    private async Task ResetAsync()
+    {
+        _error = null;
+        try
+        {
+            await HopLocationSets.ClearAsync(Edit.Address);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Could not reset the location of {Address}", Edit.Address);
+            _error = "Could not reset the location.";
+            return;
+        }
+        await OnChanged.InvokeAsync();
+        await CloseAsync();
+    }
+
+    private static string Where(CityHit hit) =>
+        string.Join(", ", new[] { hit.Region, hit.Country }.Where(s => !string.IsNullOrEmpty(s)));
+
+    // Where the location shown now came from, for the editor's footer.
+    private string Now() => Edit.Location?.Source switch
+    {
+        HopLocationSource.Set or HopLocationSource.Hostname => $"Now: {char.ToLowerInvariant(Edit.Location.Tooltip[0])}{Edit.Location.Tooltip[1..]}",
+        HopLocationSource.Neighbor => "Now: from a hop a few ms away",
+        HopLocationSource.Learned => "Now: learned from an earlier trace",
+        HopLocationSource.GeoLite2 => "Now: from GeoLite2",
+        HopLocationSource.Country => "Now: the country only",
+        _ => "Now: no location",
+    };
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_module == null) return;
+        try
+        {
+            await _module.InvokeVoidAsync("release");
+            await _module.DisposeAsync();
+        }
+        catch (JSDisconnectedException) { }
+    }
+}

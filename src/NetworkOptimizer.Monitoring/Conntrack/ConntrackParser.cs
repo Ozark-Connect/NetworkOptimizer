@@ -5,7 +5,9 @@ namespace NetworkOptimizer.Monitoring.Conntrack;
 /// <summary>
 /// One parsed conntrack entry: the original and reply tuples with their byte counters.
 /// <see cref="Key"/> is the flow's identity across samples - both tuples in full, so a NAT'd
-/// flow and its hairpin twin can never collide.
+/// flow and its hairpin twin can never collide. The trailing fields serve Live Traffic and are
+/// zero or empty where the line does not carry them (ICMP has no ports; <c>delta-time</c> needs
+/// <c>nf_conntrack_timestamp</c>).
 /// </summary>
 public sealed record ConntrackFlow(
     string Key,
@@ -14,7 +16,13 @@ public sealed record ConntrackFlow(
     IPAddress ReplySrc,
     IPAddress ReplyDst,
     long OrigBytes,
-    long ReplyBytes);
+    long ReplyBytes,
+    string Proto = "",
+    int OrigSport = 0,
+    int OrigDport = 0,
+    long OrigPackets = 0,
+    long ReplyPackets = 0,
+    long AgeSeconds = -1);
 
 /// <summary>
 /// Parses <c>/proc/net/nf_conntrack</c>. One file read per sample pass, no exec; lines without
@@ -45,6 +53,8 @@ public static class ConntrackParser
 
         IPAddress? origSrc = null, origDst = null, replySrc = null, replyDst = null;
         long? origBytes = null, replyBytes = null;
+        long origPackets = 0, replyPackets = 0, ageSeconds = -1;
+        int origSport = 0, origDport = 0;
         string origPorts = "", replyPorts = "";
         var inReply = false;
         string proto = "";
@@ -79,13 +89,28 @@ public static class ConntrackParser
                     else replyDst = dst;
                     break;
                 case "sport" or "dport" or "id":
-                    if (!inReply) origPorts += name + value;
+                    if (!inReply)
+                    {
+                        origPorts += name + value;
+                        if (name == "sport") int.TryParse(value, out origSport);
+                        else if (name == "dport") int.TryParse(value, out origDport);
+                    }
                     else replyPorts += name + value;
                     break;
                 case "bytes":
                     if (!long.TryParse(value, out var bytes)) return null;
                     if (!inReply) origBytes = bytes;
                     else replyBytes = bytes;
+                    break;
+                case "packets":
+                    if (long.TryParse(value, out var packets))
+                    {
+                        if (!inReply) origPackets = packets;
+                        else replyPackets = packets;
+                    }
+                    break;
+                case "delta-time":
+                    long.TryParse(value, out ageSeconds);
                     break;
             }
         }
@@ -94,6 +119,7 @@ public static class ConntrackParser
         if (origBytes == null || replyBytes == null) return null;
 
         var key = $"{proto}|{origSrc}|{origDst}|{origPorts}|{replySrc}|{replyDst}|{replyPorts}";
-        return new ConntrackFlow(key, origSrc, origDst, replySrc, replyDst, origBytes.Value, replyBytes.Value);
+        return new ConntrackFlow(key, origSrc, origDst, replySrc, replyDst, origBytes.Value, replyBytes.Value,
+            proto, origSport, origDport, origPackets, replyPackets, ageSeconds);
     }
 }

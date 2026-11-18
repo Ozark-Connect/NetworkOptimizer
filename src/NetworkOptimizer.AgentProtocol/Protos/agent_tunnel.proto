@@ -33,6 +33,7 @@ message AgentMessage {
     WanFloodStatus wan_flood_status = 17;
     WanFloodIncident wan_flood_incident = 18;
     ConfigRevertReport config_revert_report = 19;
+    LiveTrafficBatch live_traffic = 20;
   }
   // Monotonic per-agent sequence for store-and-forward acking. Set on
   // probe_results / snmp_results / aggregated conntrack_samples / wan_flood_incident frames only
@@ -65,7 +66,88 @@ message ServerMessage {
     WanFloodConfig wan_flood_config = 16;
     ConfigRevertArm config_revert_arm = 17;
     ConfigRevertConfirm config_revert_confirm = 18;
+    LiveTrafficConfig live_traffic_config = 19;
   }
+}
+
+// ---- Live Traffic (capabilities "live-traffic" and "live-dns") ----
+// Per-flow and per-query detail leaves the agent only while someone is viewing Live Traffic: the
+// server sends a lease, renews it while a viewer remains, and the agent stops by itself when the
+// lease runs out. Batches ride the live path only, never the store-and-forward buffer, and the
+// server keeps them in memory only. The per-client WAN accounting above is unaffected.
+
+message LiveTrafficConfig {
+  // Seconds from receipt until the agent stops sending; 0 stops at once.
+  int32 lease_seconds = 1;
+  // The most flows one batch carries (busiest first).
+  int32 max_flows = 2;
+  // Whether to capture DNS (needs "live-dns").
+  bool dns = 3;
+}
+
+message LiveTrafficBatch {
+  int64 timestamp_unix_ms = 1;
+  int32 window_seconds = 2;
+  repeated LiveFlow flows = 3;
+  // Flows that left the table since the last batch, with their final counters.
+  repeated LiveFlow ended = 4;
+  repeated LiveDnsEvent dns = 5;
+  // Every entry in the conntrack table this pass, moving or not.
+  int32 total_flows = 6;
+  // Whether DNS capture is running (false when not asked for or the socket would not open).
+  bool dns_active = 7;
+}
+
+message LiveFlow {
+  string key = 1;
+  string proto = 2;
+  string client_ip = 3;
+  // Empty for the gateway's own traffic and for a LAN end the neighbor table cannot name.
+  string client_mac = 4;
+  int32 client_port = 5;
+  string remote_ip = 6;
+  int32 remote_port = 7;
+  // Raw egress interface ("eth4", "ppp0", "wgclt1"); empty on a routed LAN flow.
+  string wan_ifname = 8;
+  bool lan = 9;
+  bool gateway = 10;
+  // This window's bytes, in the client's frame: down is toward the client.
+  int64 down_bytes = 11;
+  int64 up_bytes = 12;
+  int64 total_down_bytes = 13;
+  int64 total_up_bytes = 14;
+  int64 total_down_packets = 15;
+  int64 total_up_packets = 16;
+  int64 age_seconds = 17;
+  // True when the flow predates the agent and the kernel keeps no creation time.
+  bool age_is_lower_bound = 18;
+}
+
+message LiveDnsEvent {
+  int64 at_unix_ms = 1;
+  string client_ip = 2;
+  string client_mac = 3;
+  string server_ip = 4;
+  string name = 5;
+  string qtype = 6;
+  // "NOERROR", "NXDOMAIN", ...; empty when no response was seen.
+  string rcode = 7;
+  // -1 when only the response was seen.
+  int32 latency_ms = 8;
+  bool answered = 9;
+  repeated LiveDnsAnswer answers = 10;
+  // The response time in microseconds, for sub-millisecond answers; 0 from an agent that predates it,
+  // which leaves latency_ms the only measure.
+  int32 latency_us = 11;
+  // The resolver that actually answered when the Gateway redirected (DNAT'd) the lookup away from
+  // server_ip; empty when it went where it was sent.
+  string redirected_to = 12;
+}
+
+message LiveDnsAnswer {
+  string type = 1;
+  string data = 2;
+  int32 ttl = 3;
 }
 
 // ---- Change Control: agent-side revert (capability "config-revert") ----
@@ -122,7 +204,8 @@ message ConfigRevertReport {
 // An on-gateway agent samples the kernel's conntrack table, differences byte
 // counters per flow at the source, and ships per-client WAN window deltas -
 // never per-flow records, destinations, or ports (the privacy line: this is
-// performance data, not client surveillance). The server pushes ConntrackConfig
+// performance data, not client surveillance). Live Traffic is the one exception,
+// and only while someone is looking at it (LiveTrafficConfig). The server pushes ConntrackConfig
 // after the hello exchange and on config refresh; enabled=false is the fleet-wide
 // kill switch and needs no agent update.
 

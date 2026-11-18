@@ -6,6 +6,7 @@
 @inject SiteConnectionRegistry SiteConnections
 @inject SiteRegistryChangeNotifier ChangeNotifier
 @inject NavigationManager NavigationManager
+@inject AddressBarState AddressBar
 @implements IDisposable
 
 @if (_enabled && _sites.Count > 0)
@@ -154,7 +155,9 @@
 
         // Whatever names something on the site being left (?wan= everywhere, Client Performance's
         // ?ip=, device and target IDs, a Review Plan's ID) is dropped by the same rules every other
-        // switch uses; the rest of the query and the #fragment carry.
-        return SiteSwitchService.StripSiteBoundParams(NavigationManager.Uri);
+        // switch uses; the rest of the query and the #fragment carry. The address bar as it stands,
+        // not Blazor's copy: a page that rewrote it behind the router (Live Traffic) would carry a
+        // filter the user already cleared.
+        return SiteSwitchService.StripSiteBoundParams(AddressBar.Current);
     }
 }

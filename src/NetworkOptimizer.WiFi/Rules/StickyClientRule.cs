@@ -61,6 +61,7 @@ public class StickyClientRule : IWiFiOptimizerRule
                 Title = $"Sticky Clients on {ap.Name}",
                 Description = description,
                 AffectedEntity = ap.Name,
+                AffectedLinks = sticky.Select(c => new IssueLink(string.IsNullOrEmpty(c.Name) ? c.Mac : c.Name, IssueLinks.Client(c.Mac))).ToList(),
                 Recommendation = $"These clients need a push. Enable Roaming Assistant on the SSID with a threshold around -72 dBm, and if they still ignore the nudge, set Minimum RSSI on {ap.Name} so it disconnects them at -80 dBm.",
                 ScoreImpact = -4
             };

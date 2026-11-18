@@ -1,0 +1,65 @@
+{
+  "id": "2.11.1",
+  "kind": "whats-new",
+  "title": "What's new in v2.11.1",
+  "summary": "Live Traffic: see what is using your internet right now, by client, app, and destination, with every DNS lookup beside it.",
+  "steps": [
+    {
+      "id": "live-traffic",
+      "level": "major",
+      "url": "/monitoring/live-traffic",
+      "selector": "[data-tour=\"live-traffic-where\"], [data-tour=\"live-traffic-agent\"]",
+      "alsoSelectors": ["[data-tour=\"live-traffic-dns\"]", "[data-tour=\"live-traffic-flows\"]"],
+      "title": "Live Traffic",
+      "listLabel": "See what is using your internet right now, flow by flow, with every DNS lookup",
+      "body": "Every flow through your Gateway, ranked by what is using the link now. **Where It's Going** follows each client to its apps and out its WAN or VPN; click any of them to filter the page to it. **Live DNS** shows lookups as they happen, blocked ones and bypass to outside resolvers included, and **Flows** opens any connection to its two-minute chart and the Firewall Policy that allowed it.\n\nLive Traffic runs on the On-Site Agent on your Gateway.",
+      "placement": "right",
+      "optional": true
+    },
+    {
+      "id": "custom-apps",
+      "level": "minor",
+      "url": "/monitoring/live-traffic",
+      "selector": "[data-tour=\"live-traffic-custom-apps\"]",
+      "title": "Custom Apps",
+      "listLabel": "Name the traffic UniFi Network's DPI only knows by its port",
+      "body": "Traffic that UniFi Network's DPI does not recognize shows as a bare port, like UDP 21324, drawn dotted. Hover it and **Name This App** fills in a Custom App from that flow: protocol, ports, and optionally where it goes or a remote domain or address.\n\nYour name shows everywhere Live Traffic does, History and the Dashboard card included.",
+      "placement": "bottom",
+      "optional": true
+    },
+    {
+      "id": "live-traffic-history",
+      "level": "minor",
+      "url": "/monitoring/live-traffic",
+      "selector": "[data-tour=\"live-traffic-history\"]",
+      "title": "Flow History",
+      "listLabel": "The last hour of flows from UniFi Network's own records, no agent needed",
+      "body": "**History** reads UniFi Network's own flow records, which reach back under an hour, and needs no agent. The **Timeline** stacks allowed and blocked flows per minute: drag across it or click it to pick a window.",
+      "placement": "bottom"
+    },
+    {
+      "id": "live-traffic-card",
+      "level": "minor",
+      "badge": "improved",
+      "url": "/",
+      "selector": "[data-tour=\"live-traffic-full-view\"], [data-tour=\"live-traffic-agent-notice\"]",
+      "title": "Live Traffic on the Dashboard",
+      "listLabel": "Bandwidth Hogs is now Live Traffic: your WAN by client, app, destination, or route",
+      "body": "The Bandwidth Hogs card is now **Live Traffic**. With the On-Site Agent on your Gateway, **By** groups your WAN traffic by Client, App, Destination, or Route, and a client's row opens to its flows. **Detailed View** opens the whole page.",
+      "placement": "bottom",
+      "optional": true
+    },
+    {
+      "id": "client-live-traffic",
+      "level": "minor",
+      "badge": "improved",
+      "url": "/client-dashboard?ip={!client-ip}&tab=data",
+      "selector": "[data-tour=\"client-live-traffic\"]",
+      "title": "Live Traffic per Client",
+      "listLabel": "See one client's flows, apps, and DNS lookups as they happen",
+      "body": "The **Data** tab is now **Data / Apps**. **Live Traffic** ranks the client's own flows by rate, **Applications** opens with the apps it is using right now, and **Live DNS** lists its lookups. On **Speed**, a line under **Live Throughput** says what the client is moving through the Gateway right now, with its busiest apps.\n\nWithout the On-Site Agent on your Gateway, Live Traffic shows the client's History from UniFi Network.",
+      "placement": "bottom",
+      "optional": true
+    }
+  ]
+}

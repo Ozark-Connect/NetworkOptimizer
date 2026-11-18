@@ -1,0 +1,167 @@
+@* A Live Traffic filter chip's editor: every value of one field as a checklist, with how many rows carry
+   it under the other filters. Ticking applies at once; Done, Esc, or a click outside closes it. A
+   bottom sheet on a phone (app.css). *@
+@using NetworkOptimizer.Web.Services.Monitoring.LiveTraffic
+@using NetworkOptimizer.Core.Helpers
+
+<div class="lt-fpop-backdrop" @onclick="CloseAsync"></div>
+<div class="lt-fpop" role="dialog" aria-label="@($"Filter by {Label}")" @onkeydown="OnKeyAsync">
+    <div class="lt-fpop-grab" aria-hidden="true"></div>
+    <div class="lt-fpop-head">
+        <span class="lt-fpop-title">@Label</span>
+        <div class="time-range-selector">
+            <button type="button" class="time-btn @(!Exclude ? "active" : null)" @onclick="() => OnSetExclude.InvokeAsync(false)">Include</button>
+            <button type="button" class="time-btn @(Exclude ? "active" : null)" @onclick="() => OnSetExclude.InvokeAsync(true)">Exclude</button>
+        </div>
+    </div>
+    <input @ref="_input" class="form-control lt-fpop-search" placeholder="@($"Search or type a {Label.ToLowerInvariant()}")"
+           @bind="_search" @bind:event="oninput" @bind:after="SearchChanged" />
+    <div class="lt-fpop-list" role="listbox" aria-multiselectable="true">
+        @{ var items = Items(); var section = 0; }
+        @if (Loading && items.Count == 0)
+        {
+            <div class="lt-fpop-empty"><span class="spinner spinner-sm"></span></div>
+        }
+        else if (items.Count == 0)
+        {
+            <div class="lt-fpop-empty">Nothing matches.</div>
+        }
+        @for (var i = 0; i < items.Count; i++)
+        {
+            var index = i;
+            var item = items[i];
+            if (item.Rank > section)
+            {
+                section = item.Rank;
+                <div class="lt-fpop-sep">@SectionLabel(item.Rank)</div>
+            }
+            var on = Selected.Contains(item.Value);
+            <label @key="item.Value" class="lt-fpop-item @(index == _highlight ? "is-active" : null) @(item.Rank > 0 ? "is-idle" : null)"
+                   role="option" aria-selected="@(on ? "true" : "false")" @onmouseenter="() => _highlight = index">
+                <input type="checkbox" checked="@on" @onchange="() => OnToggle.InvokeAsync(item.Value)" />
+                <span class="lt-fpop-name">@(item.Typed ? $"Add \"{item.Value}\"" : item.Value)@if (!item.Typed && ServiceOf(item.Value) is { } service)
+                    {
+                        <span class="lt-fpop-service">@service</span>
+                    }</span>
+                @if (item.Rank == 0 && !item.Typed)
+                {
+                    <span class="lt-fpop-n">@item.Count.ToString("N0")</span>
+                }
+            </label>
+        }
+    </div>
+    <div class="lt-fpop-foot">
+        <span class="lt-fpop-bulk">
+            <a href="" @onclick="SelectShownAsync" @onclick:preventDefault>Select shown</a>
+            @if (ToClear().Count > 0)
+            {
+                <span class="lt-fpop-bulk-sep">&middot;</span>
+                <a href="" @onclick="ClearAsync" @onclick:preventDefault>@(_search.Trim().Length > 0 ? "Clear shown" : "Clear")</a>
+            }
+        </span>
+        <button type="button" class="btn btn-primary btn-sm" @onclick="CloseAsync">Done</button>
+    </div>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public LiveTrafficField Field { get; set; }
+    [Parameter] public bool Exclude { get; set; }
+    /// <summary>The values this chip holds now.</summary>
+    [Parameter] public IReadOnlySet<string> Selected { get; set; } = new HashSet<string>();
+    [Parameter] public IReadOnlyList<LiveFacetValue> Facets { get; set; } = Array.Empty<LiveFacetValue>();
+    /// <summary>The facets for this field have not come back yet.</summary>
+    [Parameter] public bool Loading { get; set; }
+    [Parameter] public EventCallback<string> OnToggle { get; set; }
+    [Parameter] public EventCallback<bool> OnSetExclude { get; set; }
+    [Parameter] public EventCallback<IReadOnlyList<string>> OnSelectMany { get; set; }
+    [Parameter] public EventCallback<IReadOnlyList<string>> OnClearMany { get; set; }
+    [Parameter] public EventCallback OnClose { get; set; }
+
+    private ElementReference _input;
+    private string _search = "";
+    /// <summary>The keyboard's row: none until typing or an arrow, as the app's other filterable lists.</summary>
+    private int _highlight = -1;
+
+    private string Label => LiveTrafficDisplay.FieldLabel(Field);
+
+    /// <summary>Rank is the section (<see cref="LiveFacetValue.Rank"/>): 0 has a count, the rest are muted under a label.</summary>
+    private sealed record Item(string Value, int Count, int Rank, bool Typed);
+
+    /// <summary>A port's service name ("HTTPS" beside 443), shown and searched with the number; null for any other field.</summary>
+    private string? ServiceOf(string value) =>
+        Field == LiveTrafficField.Port && int.TryParse(value, out var port) ? NetworkUtilities.GetPortServiceName(port) : null;
+
+    /// <summary>The quiet sections mean different things by field: idle and offline clients, recent and custom apps, unused routes.</summary>
+    private string SectionLabel(int rank) => (rank, Field) switch
+    {
+        (1, _) => "Hidden by other filters",
+        (2, LiveTrafficField.App) => "Seen in the last 10 minutes",
+        (3, LiveTrafficField.App) => "Custom Apps",
+        (2, LiveTrafficField.Route) => "Not in use now",
+        (2, LiveTrafficField.Port) => "Well-known ports, no traffic now",
+        (2, _) => "No traffic now",
+        _ => "Offline",
+    };
+
+    /// <summary>Fixed while the editor is open, so a tick or a refresh never moves a row under the pointer.</summary>
+    private readonly FacetRowOrder _order = new();
+
+    /// <summary>The rows in their fixed order; a typed value nothing matches exactly is offered as an Add row on top.</summary>
+    private List<Item> Items()
+    {
+        var q = _search.Trim();
+        var now = Facets.GroupBy(f => f.Value, StringComparer.OrdinalIgnoreCase).ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
+        var items = _order.Arrange(Selected, Facets)
+            .Where(v => q.Length == 0 || v.Contains(q, StringComparison.OrdinalIgnoreCase)
+                || ServiceOf(v)?.Contains(q, StringComparison.OrdinalIgnoreCase) == true)
+            // A row keeps its section while the editor is open, so a refresh never moves it between them.
+            .Select(v => new Item(v, now.TryGetValue(v, out var f) ? f.Count : 0, _order.RankOf(v), false))
+            .ToList();
+        if (q.Length > 0 && !items.Any(i => i.Value.Equals(q, StringComparison.OrdinalIgnoreCase)))
+            items.Insert(0, new Item(q, 0, 0, Typed: true));
+        return items;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+        try { await _input.FocusAsync(); }
+        catch (Exception) { /* the editor closed before it drew */ }
+    }
+
+    private void SearchChanged() => _highlight = _search.Trim().Length > 0 ? 0 : -1;
+
+    private async Task OnKeyAsync(KeyboardEventArgs e)
+    {
+        var items = Items();
+        switch (e.Key)
+        {
+            case "ArrowDown":
+                _highlight = _highlight < 0 ? 0 : Math.Min(items.Count - 1, _highlight + 1);
+                break;
+            case "ArrowUp":
+                _highlight = _highlight < 0 ? items.Count - 1 : Math.Max(0, _highlight - 1);
+                break;
+            case "Enter" when _highlight >= 0 && _highlight < items.Count:
+                var value = items[_highlight].Value;
+                if (items[_highlight].Typed) _search = "";
+                await OnToggle.InvokeAsync(value);
+                break;
+            case "Escape":
+                await CloseAsync();
+                break;
+        }
+    }
+
+    private Task SelectShownAsync() =>
+        OnSelectMany.InvokeAsync(Items().Where(i => !i.Typed && !Selected.Contains(i.Value)).Select(i => i.Value).ToList());
+
+    /// <summary>The ticked values Clear would untick: all of them, or only those the search shows.</summary>
+    private List<string> ToClear() => _search.Trim().Length == 0
+        ? Selected.ToList()
+        : Items().Where(i => !i.Typed && Selected.Contains(i.Value)).Select(i => i.Value).ToList();
+
+    private Task ClearAsync() => OnClearMany.InvokeAsync(ToClear());
+
+    private Task CloseAsync() => OnClose.InvokeAsync();
+}

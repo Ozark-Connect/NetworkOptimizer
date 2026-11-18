@@ -1,0 +1,231 @@
+@* The pieces every Live Traffic row is built from. Rows inherit this; it draws nothing itself. *@
+@code {
+    [Inject] protected SiteContextService SiteContext { get; set; } = default!;
+    [Inject] protected IDisplayTimeZone DisplayTime { get; set; } = default!;
+
+    /// <summary>What a click on a value does. Defaults to nothing.</summary>
+    [Parameter] public LiveTrafficRowContext? Context { get; set; }
+
+    /// <summary>The context in effect; a host page that draws pieces itself supplies its own.</summary>
+    protected virtual LiveTrafficRowContext Ctx => Context ?? LiveTrafficRowContext.Inert;
+
+    /// <summary>
+    /// A value that filters on click: the shared filter pill, with an x while it is the kept value and
+    /// a hide button beside it on hover or focus. Touch has no hover; the detail row's Hide buttons cover it.
+    /// A list without filters draws it as a link to Live Traffic instead.
+    /// No data-tooltip here: a Live table holds about a thousand of these, each one a Tippy instance.
+    /// </summary>
+    protected RenderFragment Pill(LiveTrafficField field, string value, string? label = null, string? cls = null, bool sub = false) => __builder =>
+    {
+        if (string.IsNullOrEmpty(value)) return;
+        var text = label ?? value;
+        if (Ctx.LinkFor is { } linkFor)
+        {
+            <a class="filter-pill @(sub ? "is-sub" : null) @cls" href="@linkFor(field, value)" @onclick:stopPropagation>@text</a>
+            return;
+        }
+        var active = Ctx.IsKept(field, value);
+        <span class="lt-pill">
+            @* Blurred on pointer up so a click leaves nothing focused in a list that redraws under it. *@
+            <button type="button" class="filter-pill @(sub ? "is-sub" : null) @cls @(active ? "active" : null)" aria-pressed="@(active ? "true" : "false")"
+                    onpointerup="this.blur()"
+                    @onclick="e => Ctx.Toggle?.Invoke(e, field, value) ?? Task.CompletedTask" @onclick:stopPropagation>
+                <span class="filter-pill-text">@text</span>
+                @if (active)
+                {
+                    <span class="filter-pill-x" aria-hidden="true">&times;</span>
+                }
+            </button>
+            @if (!active && Ctx.Exclude is { } exclude)
+            {
+                <button type="button" class="lt-pill-hide" aria-label="@($"Hide {LiveTrafficDisplay.FieldLabel(field)} {text}")"
+                        @onclick="() => exclude(new LiveTrafficFilter(field, value, Exclude: true))" @onclick:stopPropagation>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9" /><line x1="5.6" y1="5.6" x2="18.4" y2="18.4" /></svg>
+                </button>
+            }
+        </span>
+    };
+
+    /// <summary>The line under a destination: protocol and port pills, then the service when the App column does not already say it.</summary>
+    protected RenderFragment PortLine(LiveFlowRow f) => __builder =>
+    {
+        var service = f.DestinationSub;
+        var showService = !string.IsNullOrEmpty(service) && service != f.App && !service.StartsWith(f.Proto + " ", StringComparison.Ordinal);
+        <span class="lt-sub lt-port-line">
+            @Pill(LiveTrafficField.Protocol, f.Proto, sub: true)
+            @if (f.RemotePort > 0)
+            {
+                @Pill(LiveTrafficField.Port, f.RemotePort.ToString(), sub: true)
+            }
+            @if (showService)
+            {
+                <span>@service</span>
+            }
+            @StreamsBadge(f)
+        </span>
+    };
+
+    /// <summary>The App with its icon, as one filter value.</summary>
+    protected RenderFragment AppCell(LiveFlowRow f) => __builder =>
+    {
+        var unnamed = f.UnnamedPort;
+        var tailscale = OffersTailscaleSetup(f.App);
+        <span class="lt-app-cell @(unnamed != null ? "lt-app-unnamed" : null)" data-app-unnamed="@(unnamed != null ? f.App : null)"
+              data-app-seed="@unnamed?.Encode()" data-app-link="@NameAppLink(unnamed)"
+              data-app-tailscale="@(tailscale ? f.App : null)" data-tailscale-link="@(tailscale ? TailscaleSetupLink : null)">@AppIcon(f.App, f.AppIconDomain, f.AppIconClass)@Pill(LiveTrafficField.App, f.App, cls: f.DnsBypass ? "lt-bypass" : null)</span>
+    };
+
+    /// <summary>The client's filter pill, after the Tailscale icon when the client is a Tailscale device.</summary>
+    protected RenderFragment ClientPill(LiveFlowRow f) => __builder =>
+    {
+        if (!f.ClientIsTailnet)
+        {
+            @Pill(LiveTrafficField.Client, f.ClientName)
+            return;
+        }
+        <span class="lt-app-cell">@AppIcon("Tailscale")@Pill(LiveTrafficField.Client, f.ClientName)</span>
+    };
+
+    /// <summary>Whether an App is Tailscale on a site that does not read its tailnet: its hover card offers setup.</summary>
+    protected bool OffersTailscaleSetup(string? app) =>
+        string.Equals(app, "Tailscale", StringComparison.OrdinalIgnoreCase) && Ctx.OfferTailscaleSetup();
+
+    /// <summary>The Settings card that connects the tailnet, for a Site Admin; null for anyone else.</summary>
+    protected string? TailscaleSetupLink => Ctx.CanNameApps() ? "/settings?tab=connection#tailscale" : null;
+
+    /// <summary>
+    /// Name This App for an unnamed port, when the viewer may add custom apps; null otherwise. The
+    /// hover card (App.razor) reads it off <c>data-app-link</c> and leaves the link out when it is null.
+    /// </summary>
+    protected string? NameAppLink(CustomAppSeed? seed) =>
+        seed != null && Ctx.CanNameApps() ? LiveTrafficLinks.NameApp(seed) : null;
+
+    protected RenderFragment RoutePill(LiveFlowRow f) => Pill(LiveTrafficField.Route, f.Route, cls: LiveTrafficDisplay.RouteClass(f.RouteKind));
+
+    /// <summary>
+    /// The App's icon as Client Performance draws it, stacked last on top: the initial, the brand glyph,
+    /// then the console's favicon. Falls back to a lookup by name for rows that carry no icons (History).
+    /// </summary>
+    protected RenderFragment AppIcon(string app, string? domain = null, string? cls = null) => __builder =>
+    {
+        if (string.IsNullOrEmpty(app)) return;
+        if (domain == null && cls == null) (domain, cls) = NetworkOptimizer.UniFi.DpiCatalog.IconsForName(app);
+        <span class="lt-app-icon" aria-hidden="true">
+            <span class="lt-app-initial">@app[0]</span>
+            @if (cls != null)
+            {
+                <i class="lt-app-glyph @cls"></i>
+            }
+            @if (domain != null)
+            {
+                @* Hidden, never removed: Blazor owns this node, and a removed one breaks its next diff. *@
+                <img src="@AppIconUrl(domain)" alt="" loading="lazy" onerror="this.style.visibility='hidden'" />
+            }
+        </span>
+    };
+
+    // The image request carries no fetch wrapper to stamp the tab's site, so it is stamped here.
+    private string AppIconUrl(string domain)
+    {
+        var path = $"/api/client-dashboard/apps/{Uri.EscapeDataString(domain)}/icon";
+        return SiteContext.IsDefault ? path : $"{path}?site={Uri.EscapeDataString(SiteContext.Slug)}";
+    }
+
+    /// <summary>
+    /// The phone list's rate pair. Idle reads "0 bps · 0 bps" in grey rather than "- · -", so it has
+    /// the shape and width of a moving pair and the row does not change look as traffic stops.
+    /// </summary>
+    protected static RenderFragment MobileRates(double down, double up) => __builder =>
+    {
+        if (down <= 0 && up <= 0)
+        {
+            <span class="lt-muted">0 bps &middot; 0 bps</span>
+            return;
+        }
+        <span>@Rate(down, "speed-down") &middot; @Rate(up, "speed-up")</span>
+    };
+
+    /// <summary>
+    /// A live rate in its direction's color; an idle direction, or an ended flow, reads a muted "0 bps", never "-".
+    /// </summary>
+    protected static RenderFragment Rate(double bps, string cls) => __builder =>
+    {
+        if (bps <= 0)
+        {
+            <span class="@cls lt-muted">0 bps</span>
+            return;
+        }
+        <span class="@cls">@DisplayFormatters.FormatRate(bps)</span>
+    };
+
+    /// <summary>How many parallel streams a bundled row stands for.</summary>
+    protected static RenderFragment StreamsBadge(LiveFlowRow f) => __builder =>
+    {
+        if (f.Streams < 2) return;
+        <span class="lt-tag lt-streams" data-tooltip="Parallel connections from this client to this address and port, shown as one row">@f.Streams streams</span>
+    };
+
+    /// <summary>
+    /// Under the client: how it connects (port, band, or address), then its source protocol and port.
+    /// No tooltip of its own: the cell's client card says it in full.
+    /// </summary>
+    protected static RenderFragment ClientLine(LiveFlowRow f) => __builder =>
+    {
+        <span class="lt-sub">
+            <span>@(f.ClientVia ?? f.ClientIp)</span>
+            @if (f.ClientPort > 0)
+            {
+                <span class="lt-muted"> &middot; @f.Proto @f.ClientPort</span>
+            }
+        </span>
+    };
+
+    /// <summary>The site whose public address this is, or Trusted for an Extra Trusted Address, beside the destination.</summary>
+    protected static RenderFragment SiteBadge(LiveFlowRow f) => __builder =>
+    {
+        var badge = !string.IsNullOrEmpty(f.RemoteSite) ? f.RemoteSite : f.RemoteTrusted ? "Trusted" : null;
+        if (badge == null) return;
+        <span class="lt-tag lt-site-badge">@badge</span>
+    };
+
+    /// <summary>A CDN cache inside the ISP's network, beside the destination; the tooltip names the cache and the network.</summary>
+    protected static RenderFragment CacheBadge(LiveFlowRow f) => __builder =>
+    {
+        if (string.IsNullOrEmpty(f.IspCache)) return;
+        <span class="lt-tag lt-site-badge" data-tooltip="@f.IspCache" data-tooltip-hover-only>ISP cache</span>
+    };
+
+    /// <summary>
+    /// For traffic to a host on the LAN: its Network beside the destination, and in the tooltip that
+    /// Network and how the host connects (its switch port, its band).
+    /// </summary>
+    protected static RenderFragment PeerBadge(LiveFlowRow f) => __builder =>
+    {
+        if (string.IsNullOrEmpty(f.RemoteClientMac) && (f.RouteKind != LiveRouteKind.Lan || string.IsNullOrEmpty(f.RemoteNetwork))) return;
+        var via = LiveTrafficDisplay.ViaTooltip(f.RemoteClientVia) ?? (f.RemoteClientVia != f.RemoteNetwork ? f.RemoteClientVia : null);
+        var tip = string.IsNullOrEmpty(f.RemoteNetwork) ? "On your LAN" : $"{f.RemoteNetwork} network";
+        <span class="lt-tag lt-peer-badge" data-tooltip="@(via != null ? $"{tip}\n{via}" : tip)" data-tooltip-hover-only>@(f.RemoteNetwork ?? "LAN")</span>
+    };
+
+    /// <summary>
+    /// The Destination cell's hover card: the client card for one of the site's own clients or devices,
+    /// else the destination card (Threats for a public address, Trace).
+    /// </summary>
+    protected static Dictionary<string, object> DestinationCard(LiveFlowRow f)
+    {
+        if (LiveTrafficLinks.LanPeer(f) is { } peer)
+            return new()
+            {
+                ["data-client-name"] = f.Destination,
+                ["data-client-link"] = peer,
+                ["data-client-note"] = LiveTrafficDisplay.PeerCardDetail(f),
+            };
+        var card = new Dictionary<string, object> { ["data-dest-name"] = f.Destination, ["data-dest-ip"] = f.DestinationIp };
+        if (LiveTrafficLinks.ThreatsDrilldown(f) is { } threats) card["data-dest-link"] = threats;
+        return card;
+    }
+
+    protected string LocalTime(DateTime utc) =>
+        TimeZoneInfo.ConvertTimeFromUtc(DateTime.SpecifyKind(utc, DateTimeKind.Utc), DisplayTime.Zone)
+            .ToString(DisplayTime.Format.TimeSeconds, DisplayFormat.Culture);
+}

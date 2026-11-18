@@ -109,9 +109,15 @@ public static class BlockingExceptions
     private static readonly JsonSerializerOptions Json = new() { Converters = { new JsonStringEnumConverter() } };
 
     /// <summary>A site's exceptions, expired ones included (null site = default site).</summary>
-    public static async Task<List<BlockingException>> LoadAsync(IThreatSettingsAccessor settings, string? site, CancellationToken ct)
+    public static async Task<List<BlockingException>> LoadAsync(IThreatSettingsAccessor settings, string? site, CancellationToken ct) =>
+        Parse(await settings.GetSettingAsync(BlockingSettingKeys.ForSite(BlockingSettingKeys.Exceptions, site), ct));
+
+    public static Task SaveAsync(IThreatSettingsAccessor settings, string? site, IEnumerable<BlockingException> list, CancellationToken ct) =>
+        settings.SaveSettingAsync(BlockingSettingKeys.ForSite(BlockingSettingKeys.Exceptions, site), Serialize(list), ct);
+
+    /// <summary>The stored setting value as a list; empty when absent or unreadable.</summary>
+    public static List<BlockingException> Parse(string? raw)
     {
-        var raw = await settings.GetSettingAsync(BlockingSettingKeys.ForSite(BlockingSettingKeys.Exceptions, site), ct);
         if (string.IsNullOrWhiteSpace(raw)) return [];
         try
         {
@@ -123,9 +129,8 @@ public static class BlockingExceptions
         }
     }
 
-    public static Task SaveAsync(IThreatSettingsAccessor settings, string? site, IEnumerable<BlockingException> list, CancellationToken ct) =>
-        settings.SaveSettingAsync(BlockingSettingKeys.ForSite(BlockingSettingKeys.Exceptions, site),
-            JsonSerializer.Serialize(list.ToList(), Json), ct);
+    /// <summary>A list as the stored setting value.</summary>
+    public static string Serialize(IEnumerable<BlockingException> list) => JsonSerializer.Serialize(list.ToList(), Json);
 
     /// <summary>
     /// The exception in canonical form. Throws <see cref="ArgumentException"/> with a message for the

@@ -56,6 +56,7 @@ public class RaisedNoiseFloorRule : IWiFiOptimizerRule
                         $"{delta} dB above the other {bandName} radios on this site ({reference} dBm). " +
                         "Something near it is transmitting on or next to its channel.",
                     AffectedEntity = ap.Name,
+                    AffectedLinks = { new IssueLink($"{ap.Name} ({bandName})", IssueLinks.Metrics(ap.Mac, band)) },
                     Recommendation = $"Look for a transmitter near {ap.Name}: another AP on an adjacent channel at high power, " +
                         "a non-Wi-Fi device (cameras, baby monitors, and microwave ovens on 2.4 GHz), or a neighbor's network in RF Environment. " +
                         "Moving the radio to a different part of the band is the quickest test.",

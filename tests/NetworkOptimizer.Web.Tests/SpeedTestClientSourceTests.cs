@@ -67,4 +67,28 @@ public class SpeedTestClientSourceTests
     {
         SpeedTestClientSource.Detect(clientIp, Networks, clientMac).Should().Be(expected);
     }
+
+    [Fact]
+    public void TailnetIpv6_IsTailscale()
+    {
+        SpeedTestClientSource.Detect("fd7a:115c:a1e0::5", Networks).Should().Be("Tailscale");
+    }
+
+    [Fact]
+    public void DeviceListHit_IsTailscale()
+    {
+        SpeedTestClientSource.Detect("10.200.0.5", Networks, tailnetPeer: ip => ip == "10.200.0.5").Should().Be("Tailscale");
+    }
+
+    [Theory]
+    [InlineData("100.100.1.2", true)]        // Tailscale's default IPv4 range
+    [InlineData("::ffff:100.100.1.2", true)] // Same, captured on a dual-stack socket
+    [InlineData("10.200.0.5", true)]         // Custom pool, in the device list
+    [InlineData("10.200.0.6", false)]
+    [InlineData("203.0.113.5", false)]
+    [InlineData(null, false)]
+    public void IsTailscale_RangeOrDeviceList(string? clientIp, bool expected)
+    {
+        SpeedTestClientSource.IsTailscale(clientIp, ip => ip == "10.200.0.5").Should().Be(expected);
+    }
 }

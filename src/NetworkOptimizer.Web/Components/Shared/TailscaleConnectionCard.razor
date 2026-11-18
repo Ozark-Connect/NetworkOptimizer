@@ -1,0 +1,262 @@
+@inject ITailscaleDirectory Tailscale
+@implements IDisposable
+
+@* The site in context's tailnet connection. Rendered in Settings - Connection, after Managed SSH Key. *@
+
+<div class="card settings-tab-connection" id="tailscale">
+    <div class="card-header">
+        <h2 class="card-title">Tailscale (Optional)</h2>
+        <div class="card-header-badges">
+            @if (!_saved.Enabled)
+            {
+                <span class="status-badge status-disconnected">Not Configured</span>
+            }
+            else if (_status?.Error is { } error)
+            {
+                <span class="status-badge status-error" data-tooltip="@error">Error</span>
+            }
+            else
+            {
+                <span class="status-badge status-connected">Connected</span>
+            }
+        </div>
+    </div>
+    <div class="card-body">
+        <p class="section-description">
+            Resolve Tailscale devices in Client Performance, speed test results, and Live Traffic, and see whether
+            each one connects directly or through a relay. Read-only: Network Optimizer never changes the tailnet.
+        </p>
+
+        @if (_saved.Enabled && _status is { Enabled: true } status)
+        {
+            <div class="form-group">
+                <div class="detail-row">
+                    <span class="detail-label">Devices:</span>
+                    <span class="detail-value">@(status.Error != null ? $"Not read: {status.Error}" : $"{status.Devices} in the tailnet")</span>
+                </div>
+                <div class="detail-row">
+                    <span class="detail-label">On-Site Agent:</span>
+                    <span class="detail-value">
+                        @if (status.AgentName is { } agentName)
+                        {
+                            <text>@agentName (connection paths@(status.AgentRoutes ? " and routed traffic" : ""))</text>
+                        }
+                        else if (status.AgentsConnecting)
+                        {
+                            <text>Waiting for agents to connect</text>
+                        }
+                        else
+                        {
+                            <text>None on a Tailscale host</text>
+                        }
+                    </span>
+                </div>
+            </div>
+        }
+
+        <div class="form-group">
+            <label class="checkbox-label">
+                <input type="checkbox" @bind="_enabled" />
+                <span>Read the tailnet</span>
+            </label>
+        </div>
+
+        @if (_enabled)
+        {
+            <div class="form-group">
+                <label class="form-label">Control Server</label>
+                <select class="form-control" @bind="_controlServer">
+                    <option value="@TailnetControlServer.Tailscale">Tailscale</option>
+                    <option value="@TailnetControlServer.Headscale">Headscale</option>
+                </select>
+            </div>
+
+            @if (_controlServer == TailnetControlServer.Tailscale)
+            {
+                <div class="form-group">
+                    <label class="form-label">OAuth Client ID</label>
+                    <input type="text" class="form-control" @bind="_clientId" @bind:event="oninput" autocomplete="off" data-1p-ignore data-lpignore="true" data-bwignore />
+                    <small class="form-help">
+                        In the Tailscale Admin console, go to Settings - Trust credentials and add an OAuth credential with
+                        the Devices Core scope set to Read (<code>devices:core:read</code>). Nothing else is needed.
+                    </small>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">OAuth Client Secret</label>
+                    <input type="password" class="form-control" @bind="_clientSecret" @bind:event="oninput" autocomplete="new-password" placeholder="@(_saved.HasClientSecret ? "Saved - enter new to update" : "tskey-client-...")" data-1p-ignore data-lpignore="true" data-bwignore />
+                </div>
+            }
+            else
+            {
+                <div class="form-group">
+                    <label class="form-label">Headscale URL</label>
+                    <input type="text" class="form-control" @bind="_headscaleUrl" @bind:event="oninput" placeholder="https://headscale.example.com" autocomplete="off" />
+                </div>
+                <div class="form-group">
+                    <label class="form-label">API Key</label>
+                    <input type="password" class="form-control" @bind="_headscaleKey" @bind:event="oninput" autocomplete="new-password" placeholder="@(_saved.HasHeadscaleKey ? "Saved - enter new to update" : "From headscale apikeys create")" data-1p-ignore data-lpignore="true" data-bwignore />
+                </div>
+            }
+        }
+
+        <div class="action-buttons">
+            <button class="btn btn-primary" @onclick="Save" disabled="@_saving">
+                @if (_saving)
+                {
+                    <span class="spinner"></span>
+                    <span>Saving...</span>
+                }
+                else
+                {
+                    <span>Save</span>
+                }
+            </button>
+            @if (_enabled)
+            {
+                <button class="btn btn-secondary" @onclick="Test" disabled="@_testing">
+                    @if (_testing)
+                    {
+                        <span class="spinner"></span>
+                        <span>Testing...</span>
+                    }
+                    else
+                    {
+                        <span>Test Connection</span>
+                    }
+                </button>
+            }
+        </div>
+
+        @if (!string.IsNullOrEmpty(_message))
+        {
+            <div class="alert alert-@_messageClass">@_message</div>
+        }
+    </div>
+</div>
+
+@code {
+    private TailscaleSettings _saved = new();
+    private TailnetStatus? _status;
+    private bool _enabled;
+    private TailnetControlServer _controlServer = TailnetControlServer.Tailscale;
+    private string _clientId = "";
+    private string _clientSecret = "";
+    private string _headscaleUrl = "";
+    private string _headscaleKey = "";
+    private bool _saving;
+    private bool _testing;
+    private string _message = "";
+    private string _messageClass = "";
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            Load(await Tailscale.GetSettingsAsync());
+            // Waits (briefly) for the first read after a restart, so the status lines have something to show.
+            if (_saved.Enabled)
+                await Tailscale.GetPeersAsync();
+            _status = await Tailscale.GetStatusAsync();
+        }
+        catch (Exception)
+        {
+            // Below Site Admin the read is refused; the card is Settings-only and shows its defaults.
+            return;
+        }
+        // The status lines follow agents that connect, or a device count that changes, while the card is open.
+        _poll = new System.Threading.Timer(async _ =>
+        {
+            try
+            {
+                await InvokeAsync(async () =>
+                {
+                    if (!_saved.Enabled) return;
+                    await Tailscale.GetPeersAsync();
+                    _status = await Tailscale.GetStatusAsync();
+                    StateHasChanged();
+                });
+            }
+            catch { /* prevent timer death */ }
+        }, null, PollEvery, PollEvery);
+    }
+
+    private static readonly TimeSpan PollEvery = TimeSpan.FromSeconds(10);
+    private System.Threading.Timer? _poll;
+
+    public void Dispose() => _poll?.Dispose();
+
+    private void Load(TailscaleSettings s)
+    {
+        _saved = s;
+        (_enabled, _controlServer, _clientId, _headscaleUrl) = (s.Enabled, s.ControlServer, s.ClientId, s.HeadscaleUrl);
+    }
+
+    private TailscaleSettingsUpdate Draft() => new(
+        _saved with
+        {
+            Enabled = _enabled,
+            ControlServer = _controlServer,
+            ClientId = _clientId,
+            HeadscaleUrl = _headscaleUrl,
+        },
+        _clientSecret, _headscaleKey);
+
+    private async Task Save()
+    {
+        _saving = true;
+        _message = "";
+        try
+        {
+            await Tailscale.SaveSettingsAsync(Draft());
+            (_clientSecret, _headscaleKey) = ("", "");
+            Load(await Tailscale.GetSettingsAsync());
+            _status = await Tailscale.GetStatusAsync();
+            if (!_enabled || _status == null)
+                Say("success", "Tailscale settings saved.");
+            else if (_status.Error is { } error)
+                Say("danger", $"Tailscale settings saved, but the device list could not be read: {error}");
+            else
+                Say("success", $"Tailscale settings saved. {Connected(_status.Devices)}");
+        }
+        catch (ArgumentException ex)
+        {
+            Say("warning", ex.Message);
+        }
+        catch (Exception ex)
+        {
+            Say("danger", $"Error saving settings: {ex.Message}");
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+
+    private async Task Test()
+    {
+        _testing = true;
+        _message = "";
+        try
+        {
+            var r = await Tailscale.TestAsync(Draft());
+            if (r.Error is { } error) Say("danger", error);
+            else Say("success", Connected(r.Devices ?? 0));
+        }
+        catch (ArgumentException ex)
+        {
+            Say("warning", ex.Message);
+        }
+        catch (Exception ex)
+        {
+            Say("danger", $"Test failed: {ex.Message}");
+        }
+        finally
+        {
+            _testing = false;
+        }
+    }
+
+    private void Say(string cls, string message) => (_message, _messageClass) = (message, cls);
+
+    private static string Connected(int devices) => $"Connected: {TimeFormatHelper.Pluralize(devices, "device")} in the tailnet.";
+}

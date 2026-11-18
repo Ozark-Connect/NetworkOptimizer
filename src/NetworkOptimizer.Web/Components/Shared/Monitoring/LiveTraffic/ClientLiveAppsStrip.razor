@@ -1,0 +1,59 @@
+@* The client's apps moving right now, above the Applications table's windowed history. *@
+@inherits LiveTrafficPieces
+@implements IDisposable
+
+@if (Feed.View is { State: LiveTrafficState.Live or LiveTrafficState.Starting } view)
+{
+    <div class="lt-now" @onmouseenter="Feed.Hold.PointerIn" @onmouseleave="Feed.Hold.PointerOut" @ontouchstart="Feed.Hold.Touched">
+        <span class="lt-now-label">Right now</span>
+        @* Wraps so no chip is cut off at the card's edge; the cost is a row more or less as apps come and go (MaxApps caps it). *@
+        <div class="lt-now-chips">
+            @if (view.State == LiveTrafficState.Starting)
+            {
+                <span class="lt-now-empty">Measuring rates.</span>
+            }
+            else if (Feed.Apps.Count == 0)
+            {
+                <span class="lt-now-empty">@(Feed.Filters.Count > 0 ? "No apps match the Live Traffic filters." : "Nothing moving right now.")</span>
+            }
+            else foreach (var a in Feed.Apps.Take(MaxApps))
+            {
+                var kept = Feed.Kept(LiveTrafficField.App, a.Name) != null;
+                <button @key="a.Name" type="button" class="filter-pill lt-now-chip @(kept ? "active" : null)" aria-pressed="@(kept ? "true" : "false")"
+                        @onclick="e => Feed.ToggleAsync(e.AltKey, LiveTrafficField.App, a.Name)">
+                    @AppIcon(a.Name)
+                    <span class="lt-now-name">@a.Name</span>
+                    <span class="lt-now-rates">@Rate(a.DownBps, "speed-down") &middot; @Rate(a.UpBps, "speed-up")</span>
+                    <span class="lt-now-flows">@TimeFormatHelper.Pluralize(a.Flows, "flow")</span>
+                    @if (kept)
+                    {
+                        <span class="filter-pill-x" aria-hidden="true">&times;</span>
+                    }
+                </button>
+            }
+        </div>
+    </div>
+}
+
+@code {
+    /// <summary>The client's feed, shared with the Live Traffic card.</summary>
+    [Parameter, EditorRequired] public ClientLiveFeed Feed { get; set; } = default!;
+
+    private const int MaxApps = 8;
+    private ClientLiveFeed? _subscribed;
+
+    protected override void OnParametersSet()
+    {
+        if (ReferenceEquals(_subscribed, Feed)) return;
+        if (_subscribed != null) _subscribed.Changed -= OnFeedChanged;
+        _subscribed = Feed;
+        Feed.Changed += OnFeedChanged;
+    }
+
+    private Task OnFeedChanged() => InvokeAsync(StateHasChanged);
+
+    public void Dispose()
+    {
+        if (_subscribed != null) _subscribed.Changed -= OnFeedChanged;
+    }
+}

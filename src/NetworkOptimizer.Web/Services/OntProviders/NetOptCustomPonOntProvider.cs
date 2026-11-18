@@ -200,6 +200,10 @@ public class NetOptCustomPonOntProvider : ISfpSupplementalOntProvider
         DsFecEnabled = p.GtcStatus?.DsFecEnable,
         UsFecEnabled = p.GtcStatus?.UsFecEnable,
         OnuResponseTime = p.GtcStatus?.OnuResponseTime,
+        GemPorts = p.GtcStatus?.GemPorts,
+        AesActive = p.Encryption?.AesActive,
+        GemPortsEncrypted = p.Encryption?.GemPortsEncrypted,
+        GponmgrEnc = p.Encryption?.GponmgrEnc,
         BipErrors = p.GtcCounters?.Bip,
         FecErrors = p.GtcCounters?.FecWordsUncorr,
         FecCorrectedWords = p.GtcCounters?.FecWordsCorr,
@@ -306,6 +310,9 @@ public class NetOptCustomPonPayload
     [JsonPropertyName("gpe_lan")]
     public GpeBridgePortSection? GpeLan { get; set; }
 
+    [JsonPropertyName("encryption")]
+    public EncryptionSection? Encryption { get; set; }
+
     /// <summary>Seconds since the ONT module booted.</summary>
     [JsonPropertyName("sfp_uptime_s")]
     public long? SfpUptimeS { get; set; }
@@ -411,6 +418,26 @@ public class NetOptCustomPonPayload
 
         [JsonPropertyName("onu_response_time")]
         public long? OnuResponseTime { get; set; }
+
+        /// <summary>GEM Port-IDs provisioned in the GTC Port-ID table, including the OMCI port.</summary>
+        [JsonPropertyName("gem_ports")]
+        public long? GemPorts { get; set; }
+    }
+
+    /// <summary>Downstream AES state. Each field is null when its read failed on that poll.</summary>
+    public class EncryptionSection
+    {
+        /// <summary>True when any GEM port has its downstream AES decrypt bit set. The AES flag.</summary>
+        [JsonPropertyName("aes_active")]
+        public bool? AesActive { get; set; }
+
+        /// <summary>The enc: value of <c>dcli gponmgr show encryption</c>. Observed only on Calix EXOS so far.</summary>
+        [JsonPropertyName("gponmgr_enc")]
+        public long? GponmgrEnc { get; set; }
+
+        /// <summary>GEM ports with the decrypt bit set.</summary>
+        [JsonPropertyName("gem_ports_encrypted")]
+        public long? GemPortsEncrypted { get; set; }
     }
 
     public class GtcCountersSection

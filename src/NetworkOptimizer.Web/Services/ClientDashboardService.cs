@@ -39,6 +39,7 @@ public class ClientDashboardService
     private readonly WiredPortPresence.IWiredPortPresenceService? _portPresence;
     private readonly GatewayNeighborTable _neighborTable;
     private readonly IDisplayTimeZone? _displayTime;
+    private readonly Tailscale.TailscaleDirectoryRegistry? _tailscale;
 
     // For an IPv6 source, the IPv4 address UniFi Network lists the device under. WiFiman is
     // looked up by that address, including on the 1-second poll, which has no identity to read.
@@ -53,6 +54,8 @@ public class ClientDashboardService
 
     // Cache offline identities to avoid hitting the history API every poll
     private readonly ConcurrentDictionary<string, ClientIdentity> _offlineIdentityCache = new();
+    // The ClientDisplayNameCache generation the offline identities were named under; a rename moves it.
+    private long _namesGeneration;
 
     // Cache IP->MAC mapping after first identification so subsequent polls use GetClientAsync(mac)
     private readonly ConcurrentDictionary<string, string> _ipToMacCache = new();
@@ -94,8 +97,10 @@ public class ClientDashboardService
         ApAgentTelemetryRegistry? apAgentTelemetry = null,
         Microsoft.Extensions.Caching.Memory.IMemoryCache? cache = null,
         WiredPortPresence.IWiredPortPresenceService? portPresence = null,
-        IDisplayTimeZone? displayTime = null)
+        IDisplayTimeZone? displayTime = null,
+        Tailscale.TailscaleDirectoryRegistry? tailscale = null)
     {
+        _tailscale = tailscale;
         _logger = logger;
         _displayTime = displayTime;
         _cache = cache;
@@ -148,9 +153,7 @@ public class ClientDashboardService
                     if (string.IsNullOrEmpty(h.BestIp) || !seen.Add(h.BestIp)) continue;
                     online.Add(new SelectableClient(
                         h.BestIp!,
-                        !string.IsNullOrWhiteSpace(h.DisplayName) ? h.DisplayName
-                            : !string.IsNullOrWhiteSpace(h.Name) ? h.Name
-                            : !string.IsNullOrWhiteSpace(h.Hostname) ? h.Hostname : h.BestIp!,
+                        ClientNames.For(h) ?? h.BestIp!,
                         h.IsWired,
                         h.Mac,
                         IsOnline: h.Mac != null && byPort.Contains(h.Mac)));
@@ -268,10 +271,8 @@ public class ClientDashboardService
             .Where(c => !string.IsNullOrEmpty(c.BestIp))
             .Select(c => new SelectableClient(
                 c.BestIp!,
-                displayNames.TryGetValue(c.Mac.ToLowerInvariant(), out var dn) ? dn
-                    : !string.IsNullOrWhiteSpace(c.Name) ? c.Name
-                    : c.UnifiDeviceInfoFromUcore?.Name is { Length: > 0 } ucore ? ucore
-                    : !string.IsNullOrWhiteSpace(c.Hostname) ? c.Hostname : c.BestIp!,
+                ClientNames.Choose(displayNames.GetValueOrDefault(c.Mac.ToLowerInvariant()), c.Name,
+                    c.UnifiDeviceInfoFromUcore?.Name, c.Hostname, c.IsUniFiDevice) ?? c.BestIp!,
                 c.IsWired,
                 c.Mac,
                 IsOnline: !(c.IsWired && linkDown.Contains(c.Mac))))
@@ -296,6 +297,15 @@ public class ClientDashboardService
     /// </summary>
     public async Task<ClientIdentity?> IdentifyClientAsync(string clientIp)
     {
+        var identity = await IdentifyListedClientAsync(clientIp);
+        // A LAN host that is the tailnet's exit node or subnet router says so beside its name.
+        if (identity != null && _tailscale != null)
+            identity.TailnetRouterBadge = _tailscale.Get(_siteContext.Slug).RouterAtLanAddress(identity.Ip)?.RouterBadge;
+        return identity;
+    }
+
+    private async Task<ClientIdentity?> IdentifyListedClientAsync(string clientIp)
+    {
         if (!_connectionService.IsConnected || _connectionService.Client == null)
             return null;
 
@@ -304,6 +314,10 @@ public class ClientDashboardService
         if (!TryParseClientIp(clientIp, out var requestedAddress))
             return null;
         clientIp = requestedAddress!.ToString();
+
+        var namesGeneration = ClientDisplayNameCache.Generation(_connectionService.Client);
+        if (Interlocked.Exchange(ref _namesGeneration, namesGeneration) != namesGeneration)
+            _offlineIdentityCache.Clear();
 
         try
         {
@@ -606,9 +620,11 @@ public class ClientDashboardService
             if (vpnType == null)
                 return null;
 
+            // The tailnet's own name for the device, where its device list or local status is read.
+            var peer = vpnType == HopType.Tailscale && _tailscale != null ? (await _tailscale.GetReadyAsync(_siteContext.Slug)).Peer(clientIp) : null;
             var name = vpnType switch
             {
-                HopType.Tailscale => "Tailscale Client",
+                HopType.Tailscale => peer?.Name ?? "Tailscale Client",
                 HopType.Teleport => "Teleport Client",
                 _ => "VPN Client"
             };
@@ -620,7 +636,8 @@ public class ClientDashboardService
                 Name = name,
                 Ip = clientIp,
                 IsWired = false,
-                VpnType = vpnType
+                VpnType = vpnType,
+                Tailnet = peer
             };
         }
         catch (Exception ex)
@@ -751,6 +768,7 @@ public class ClientDashboardService
             .Skip(skip)
             .Take(take)
             .ToListAsync();
+        var apNames = await CurrentDeviceNamesAsync();
 
         return logs.Select(l => new SignalHistoryEntry
         {
@@ -764,7 +782,7 @@ public class ClientDashboardService
             TxRateKbps = l.TxRateKbps,
             RxRateKbps = l.RxRateKbps,
             ApMac = l.ApMac,
-            ApName = l.ApName,
+            ApName = CurrentName(apNames, l.ApMac) ?? l.ApName,
             HopCount = l.HopCount,
             BottleneckLinkSpeedMbps = l.BottleneckLinkSpeedMbps,
             Latitude = l.Latitude,
@@ -796,6 +814,7 @@ public class ClientDashboardService
             .OrderBy(l => l.ClientMac)
             .ThenBy(l => l.Timestamp)
             .ToListAsync();
+        var apNames = await CurrentDeviceNamesAsync();
 
         // Deduplicate consecutive entries with same AP/band/channel/signal/position
         var result = new List<SignalMapPoint>();
@@ -813,7 +832,7 @@ public class ClientDashboardService
                 Band = l.Band,
                 Channel = l.Channel,
                 ApMac = l.ApMac,
-                ApName = l.ApName,
+                ApName = CurrentName(apNames, l.ApMac) ?? l.ApName,
                 ClientMac = l.ClientMac,
                 ClientIp = l.ClientIp,
                 DeviceName = l.DeviceName
@@ -973,16 +992,7 @@ public class ClientDashboardService
             var localTimestamps = new HashSet<long>(
                 localEntries.Select(e => e.Timestamp.Ticks / TimeSpan.TicksPerMinute));
 
-            // Resolve AP names from device list for UniFi entries
-            Dictionary<string, string>? apNameCache = null;
-            try
-            {
-                var devices = await _connectionService.GetDiscoveredDevicesAsync();
-                apNameCache = devices
-                    .Where(d => !string.IsNullOrEmpty(d.Name))
-                    .ToDictionary(d => d.Mac.ToLowerInvariant(), d => d.Name, StringComparer.OrdinalIgnoreCase);
-            }
-            catch { /* Best-effort AP name resolution */ }
+            var apNameCache = await CurrentDeviceNamesAsync();
 
             // Add UniFi entries that don't overlap with local data
             foreach (var m in unifiMetrics)
@@ -1000,9 +1010,7 @@ public class ClientDashboardService
                         _ => null
                     };
 
-                    string? apName = null;
-                    if (m.ApMac != null && apNameCache != null)
-                        apNameCache.TryGetValue(m.ApMac, out apName);
+                    var apName = CurrentName(apNameCache, m.ApMac);
 
                     localEntries.Add(new SignalHistoryEntry
                     {
@@ -1031,6 +1039,31 @@ public class ClientDashboardService
 
         return localEntries;
     }
+
+    /// <summary>
+    /// Device name by MAC from the current device list, so history shows a renamed access point
+    /// by its name now. Empty when the list cannot be read; callers then keep the stored name.
+    /// </summary>
+    private async Task<IReadOnlyDictionary<string, string>> CurrentDeviceNamesAsync()
+    {
+        if (!_connectionService.IsConnected) return new Dictionary<string, string>();
+        try
+        {
+            var devices = await _connectionService.GetDiscoveredDevicesAsync();
+            return devices
+                .Where(d => !string.IsNullOrEmpty(d.Name) && !string.IsNullOrEmpty(d.Mac))
+                .GroupBy(d => d.Mac, StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(g => g.Key, g => g.First().Name, StringComparer.OrdinalIgnoreCase);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Device names unavailable; history keeps its stored access point names");
+            return new Dictionary<string, string>();
+        }
+    }
+
+    private static string? CurrentName(IReadOnlyDictionary<string, string> names, string? mac) =>
+        mac != null && names.TryGetValue(mac, out var name) ? name : null;
 
     /// <summary>
     /// Get client connection events (connects, disconnects, roams) from UniFi controller.
@@ -1523,16 +1556,16 @@ public class ClientDashboardService
         return new ClientIdentity
         {
             Mac = client.Mac,
-            // Prefer UniFi's system-selected display name (v2 active-clients, e.g. a
-            // fingerprint-derived "Apple TV") over the raw stat/sta name, then the ucore device
-            // name, matching Client Stats/the map so an unnamed device never shows as a MAC.
-            Name = !string.IsNullOrEmpty(displayName) ? displayName
-                 : !string.IsNullOrEmpty(client.Name) ? client.Name
-                 : !string.IsNullOrEmpty(ucoreName) ? ucoreName : null,
+            // UniFi's display name (v2 active-clients, e.g. a fingerprint-derived "Apple TV"), then
+            // the alias, then the ucore device name, matching Client Stats and the map; a UniFi
+            // device's own app name wins unless UniFi OS passed it in hostname form.
+            Name = ClientNames.Choose(displayName, client.Name, ucoreName, client.Hostname, client.IsUniFiDevice,
+                hostnameFallback: false),
             Hostname = !string.IsNullOrEmpty(client.Hostname) ? client.Hostname : null,
             Ip = ResolveClientIp(client),
             FixedIp = client.UseFixedIp && !string.IsNullOrEmpty(client.FixedIp) ? client.FixedIp : null,
             IsWired = client.IsWired,
+            IsProtectDevice = client.IsProtectDevice,
             SignalDbm = client.Signal,
             NoiseDbm = client.Noise,
             Channel = client.Channel,
@@ -2258,6 +2291,15 @@ public class ClientDashboardService
                     null, DpiCatalog.IconClass(u.Category, u.Application),
                     u.BytesReceived, u.BytesTransmitted, u.ActivitySeconds,
                     Note: "UniFi Network knows this application; our catalog has no name for it yet"))
+        // Two ids can share a name ("Apple" and the catalog's "Apple.com"): one row, its bytes summed. The
+        // largest row's category and icon stand; activity takes the longest, since the two overlap in time.
+        .GroupBy(r => r.Name, StringComparer.OrdinalIgnoreCase)
+        .Select(g => g.Count() == 1 ? g.First() : g.OrderByDescending(r => r.TotalBytes).First() with
+        {
+            DownloadBytes = g.Sum(r => r.DownloadBytes),
+            UploadBytes = g.Sum(r => r.UploadBytes),
+            ActivitySeconds = g.Max(r => r.ActivitySeconds),
+        })
         .OrderByDescending(r => r.TotalBytes)
         .ToList();
 

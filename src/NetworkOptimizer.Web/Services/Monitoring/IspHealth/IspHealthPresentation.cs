@@ -53,8 +53,10 @@ public static class IspHealthPresentation
     /// <param name="traceByShift">The Path Localization episode each path shift carries the hop table of,
     /// when the shift explains it. A shift built from a step-only episode is not in the report's list, so
     /// it is drawn from here.</param>
+    /// <param name="clearedByShift">When a traced shift's elevation cleared, so its row says how long it lasted.</param>
     public static IEnumerable<TimelineEntry> EventTimeline(IspHealthReport r,
-        IReadOnlyDictionary<PathShiftEvent, int>? traceByShift = null)
+        IReadOnlyDictionary<PathShiftEvent, int>? traceByShift = null,
+        IReadOnlyDictionary<PathShiftEvent, DateTime>? clearedByShift = null)
     {
         var entries = new List<TimelineEntry>();
         foreach (var group in GroupCongestion(r.CongestionEvents))
@@ -158,19 +160,23 @@ public static class IspHealthPresentation
                 var hops = shift.CorrelatedTargetCount > 1 ? $" ({shift.CorrelatedTargetCount} monitored hops)" : "";
                 var graded = network == null ? "its own network grade" : $"{network}'s own network grade";
                 entries.Add(new TimelineEntry(shift.Time, "Path change", "isp-event-badge-change",
-                    $"{where} went fully unreachable for {span}{hops} - a routing (BGP) change, not access-layer loss. Excluded from the Packet Loss factor; still counted against {graded}.",
+                    $"{UnreachableLabel(shift, r)} went fully unreachable for {span}{hops} - a routing (BGP) change, not access-layer loss. Excluded from the Packet Loss factor; still counted against {graded}.",
                     shift.UnreachableEnd, EventCategory.Change, TargetIds: shift.TargetIds));
                 continue;
             }
             var direction = shift.Direction == PathShiftDirection.Up ? "up" : "down";
             var correlated = shift.CorrelatedTargetCount > 1 ? $", seen on {shift.CorrelatedTargetCount} paths" : "";
+            // A step up whose traced elevation has cleared is over; without a span it reads as ongoing.
+            var lasted = shift.Direction == PathShiftDirection.Up && clearedByShift != null
+                && clearedByShift.TryGetValue(shift, out var cleared) && cleared > shift.Time
+                ? $" for {FormatDuration(cleared - shift.Time)}" : "";
             // The sentence quotes the named path's own levels; the members carry what each of the
             // others did, which is where a second step of a different size becomes visible.
             var shiftMembers = shift.Members.Count > 1
                 ? shift.Members.Select(m => $"{m.Name} - {m.BeforeMedianMs:0.#} to {m.AfterMedianMs:0.#} ms").ToList()
                 : null;
             entries.Add(new TimelineEntry(shift.Time, "Path shift", "isp-event-badge-shift",
-                $"RTT stepped {direction} {Math.Abs(shift.DeltaMs):0.#} ms on {where} ({shift.BeforeMedianMs:0.#} to {shift.AfterMedianMs:0.#} ms){correlated}. BGP or transport fabric change.",
+                $"RTT stepped {direction} {Math.Abs(shift.DeltaMs):0.#} ms on {where}{lasted} ({shift.BeforeMedianMs:0.#} to {shift.AfterMedianMs:0.#} ms){correlated}. BGP or transport fabric change.",
                 Category: EventCategory.Shift, Members: shiftMembers, MemberNoun: "path", TargetIds: shift.TargetIds,
                 EpisodeId: traceByShift != null && traceByShift.TryGetValue(shift, out var traced) ? traced : null));
         }
@@ -257,16 +263,40 @@ public static class IspHealthPresentation
     public static string PathLabel(PathShiftEvent shift, IspHealthReport r)
     {
         if (!string.IsNullOrEmpty(shift.AsnName)) return shift.AsnName;
-        var ids = shift.TargetIds.Count > 0 ? shift.TargetIds
-            : shift.TargetId is { Length: > 0 } id ? new List<string> { id }
-            : new List<string>();
+        return TargetNames(ShiftTargetIds(shift), r) ?? "path";
+    }
+
+    /// <summary>
+    /// What went unreachable: the network when every target it holds went dark, else the targets
+    /// that did. One dark hop among a network's several is that hop, not the network.
+    /// </summary>
+    public static string UnreachableLabel(PathShiftEvent shift, IspHealthReport r)
+    {
+        var label = PathLabel(shift, r);
+        if (string.IsNullOrEmpty(shift.AsnName)) return label;
+        var ids = ShiftTargetIds(shift);
+        var group = r.IspAsns.Concat(r.TransitAsns)
+            .FirstOrDefault(a => string.Equals(a.AsnName, shift.AsnName, StringComparison.OrdinalIgnoreCase));
+        return group != null && !group.TargetIds.All(t => ids.Contains(t, StringComparer.OrdinalIgnoreCase))
+            ? TargetNames(ids, r) ?? label
+            : label;
+    }
+
+    private static List<string> ShiftTargetIds(PathShiftEvent shift) =>
+        shift.TargetIds.Count > 0 ? shift.TargetIds.ToList()
+        : shift.TargetId is { Length: > 0 } id ? new List<string> { id }
+        : new List<string>();
+
+    /// <summary>The targets' names, else their addresses; null when none resolves.</summary>
+    private static string? TargetNames(IEnumerable<string> ids, IspHealthReport r)
+    {
         var names = ids
             .Select(i => r.IspTargets.FirstOrDefault(t => string.Equals(t.TargetId, i, StringComparison.OrdinalIgnoreCase))?.Name
                          ?? (r.TargetAddresses.TryGetValue(i, out var address) ? address : null))
             .Where(n => !string.IsNullOrEmpty(n))
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
-        return names.Count > 0 ? string.Join(", ", names) : "path";
+        return names.Count > 0 ? string.Join(", ", names) : null;
     }
 
     /// <summary>

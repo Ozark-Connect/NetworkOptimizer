@@ -17,6 +17,11 @@
 @inject IAuthorizationService Authz
 @using NetworkOptimizer.Web.Components.Shared.Monitoring
 @using static NetworkOptimizer.Web.Services.Monitoring.MonitoringLinks
+@using MonitoringViewState = NetworkOptimizer.Web.Services.Monitoring.MonitoringViewState
+@using AnalysisScope = NetworkOptimizer.Web.Services.Monitoring.AnalysisScope
+@using AnalysisScopeKind = NetworkOptimizer.Web.Services.Monitoring.AnalysisScopeKind
+@using MonitoringLink = NetworkOptimizer.Web.Services.Monitoring.MonitoringLink
+@using SiteWan = NetworkOptimizer.Web.Services.Monitoring.SiteWan
 @using NetworkOptimizer.Web.Services.Monitoring.IspHealth
 @using NetworkOptimizer.Storage.Models
 @using NetworkOptimizer.Core.Enums
@@ -80,7 +85,7 @@
 {
     <!-- Tab bar -->
     <div class="wifi-view-tabs-wrapper">
-        <button class="wifi-tabs-scroll-btn wifi-tabs-scroll-left" onclick="this.parentElement.querySelector('.wifi-view-tabs').scrollBy({left: -200, behavior: 'smooth'})">&#8249;</button>
+        <button class="wifi-tabs-scroll-btn wifi-tabs-scroll-left" onclick="this.parentElement.querySelector('.wifi-view-tabs').scrollBy({left: -200, behavior: 'smooth'})"><AppIcon Name="chevron-left" /></button>
         <div class="wifi-view-tabs">
             <button class="wifi-view-tab @(_activeTab == "live" ? "active" : "")"
                     @onclick="@(() => SetActiveTab("live"))"
@@ -153,7 +158,7 @@
                 Setup
             </button>
         </div>
-        <button class="wifi-tabs-scroll-btn wifi-tabs-scroll-right" onclick="this.parentElement.querySelector('.wifi-view-tabs').scrollBy({left: 200, behavior: 'smooth'})">&#8250;</button>
+        <button class="wifi-tabs-scroll-btn wifi-tabs-scroll-right" onclick="this.parentElement.querySelector('.wifi-view-tabs').scrollBy({left: 200, behavior: 'smooth'})"><AppIcon Name="chevron-right" /></button>
     </div>
 
     @* ──────────────── Tab: Live View ──────────────── *@
@@ -255,7 +260,7 @@
             </div>
         }
 
-            <div class="live-view-jump-row">
+            <div class="live-view-jump-row @(LinkContextVisible ? "has-link-context" : "")">
             @if (LiveWan.HasChoice)
             {
                 @* Separate scope from the analysis selectors on purpose - watching a WAN here must not move them. *@
@@ -265,19 +270,27 @@
                     @foreach (var w in LiveWan.Options)
                     {
                         <button class="time-btn @(LiveWan.IsSelected(w.Key) ? "active" : "")"
-                                @onclick="e => LiveWan.SelectAsync(w.Key, toggle: e.CtrlKey || e.MetaKey)">@{
+                                @onclick="e => PickLiveWanAsync(() => LiveWan.SelectAsync(w.Key, toggle: e.CtrlKey || e.MetaKey))">@{
                                     var wp = NetworkOptimizer.UniFi.GatewayWanHelper.SplitWanLabel(
                                         w.Label, NetworkOptimizer.UniFi.GatewayWanHelper.WanIndexFromKey(w.Key));
                                 }@(wp.Name ?? w.Label)@if (wp.WanToken != null && wp.Name != null)
                                 {<span class="wan-pill-token">@wp.WanToken</span>}</button>
                     }
                     <button class="time-btn wan-all-btn @(LiveWan.AllSelected ? "active" : "")"
-                            @onclick="() => LiveWan.SelectAllAsync()">All</button>
+                            @onclick="() => PickLiveWanAsync(() => LiveWan.SelectAllAsync())">All</button>
                     @if (LiveWanIsNarrowed)
                     {
-                        <WanFilterResetButton OnReset="ResetLiveWanAsync" />
+                        <WanFilterResetButton OnReset="() => PickLiveWanAsync(ResetLiveWanAsync)" />
                     }
                 </div>
+            }
+            @if (LinkContextVisible)
+            {
+                <LinkContextChip Origin="@LinkContextOrigin" Detail="@LinkContextDetail()"
+                                 OnBack="@(LinkContextHasBack ? EventCallback.Factory.Create(this, LinkContextBackAsync) : default)"
+                                 BackTooltip="Back to Network Performance"
+                                 ClearLabel="Back to live, my filters"
+                                 OnClear="UseOwnFiltersAsync" />
             }
                 <MonitoringJumpButton Icon="MonitoringJumpButton.JumpIcon.Analyze"
                                       Tooltip="Analyze this moment in Latency &amp; Packet Loss"
@@ -305,13 +318,13 @@
                     <div class="isp-tile-bar"><div class="isp-tile-bar-fill" style="width: @(ispHealth.Score)%"></div></div>
                 }
             </div>
-            @{ var ispTarget = ScopedTargetStats(MonitoringTargetType.AccessIsp, meanAcrossTargets: false); var ispIds = ScopedTargetIds(MonitoringTargetType.AccessIsp); }
+            @{ var ispTarget = ScopedTargetStats(MonitoringTargetType.AccessIsp); var ispIds = ScopedTargetIds(MonitoringTargetType.AccessIsp); }
             <div class="monitoring-stat-card clickable-stat-card signal-spark-host" @onclick="@(() => JumpToAnalysis(AccessIspCategory))">
                 <StatTileSparkline Spark="LiveViewSpark.IspRtt" Request="@LiveSparkRequest()" Current="ispTarget.rtt" Live="@(_mapHistoricAt == null && _historicSnapshot == null && !LiveWan.IsComparing)" />
                 @if (LiveWan.IsComparing)
                 {
                     <div class="stat-value stat-value-stacked">
-                        @foreach (var r in PerWanTargetStats(MonitoringTargetType.AccessIsp, meanAcrossTargets: false))
+                        @foreach (var r in PerWanTargetStats(MonitoringTargetType.AccessIsp))
                         {
                             <div class="stat-stack-row"><span class="stat-stack-wan"><span class="desktop-label">@r.Label</span><span class="mobile-label">@NetworkOptimizer.UniFi.GatewayWanHelper.ShortWanToken(r.Label)</span></span><span class="stat-stack-value">@FormatRtt(r.Rtt)</span></div>
                         }
@@ -332,7 +345,7 @@
                 @if (LiveWan.IsComparing)
                 {
                     <div class="stat-value stat-value-stacked">
-                        @foreach (var r in PerWanTargetStats(MonitoringTargetType.AccessIsp, meanAcrossTargets: false))
+                        @foreach (var r in PerWanTargetStats(MonitoringTargetType.AccessIsp))
                         {
                             <div class="stat-stack-row @(r.Loss > 0 ? "stat-danger" : "")"><span class="stat-stack-wan"><span class="desktop-label">@r.Label</span><span class="mobile-label">@NetworkOptimizer.UniFi.GatewayWanHelper.ShortWanToken(r.Label)</span></span><span class="stat-stack-value">@FormatLoss(r.Loss)</span></div>
                         }
@@ -348,13 +361,13 @@
                 }
                 <div class="stat-label">ISP Loss</div>
             </div>
-            @{ var transitTarget = ScopedTargetStats(MonitoringTargetType.Transit, meanAcrossTargets: true); var transitIds = ScopedTargetIds(MonitoringTargetType.Transit); }
+            @{ var transitTarget = ScopedTargetStats(MonitoringTargetType.Transit); var transitIds = ScopedTargetIds(MonitoringTargetType.Transit); }
             <div class="monitoring-stat-card clickable-stat-card stat-card-no-minheight signal-spark-host" @onclick="@(() => JumpToAnalysis(TransitCategory))">
                 <StatTileSparkline Spark="LiveViewSpark.TransitRtt" Request="@LiveSparkRequest()" Current="transitTarget.rtt" Live="@(_mapHistoricAt == null && _historicSnapshot == null && !LiveWan.IsComparing)" />
                 @if (LiveWan.IsComparing)
                 {
                     <div class="stat-value stat-value-stacked">
-                        @foreach (var r in PerWanTargetStats(MonitoringTargetType.Transit, meanAcrossTargets: true))
+                        @foreach (var r in PerWanTargetStats(MonitoringTargetType.Transit))
                         {
                             <div class="stat-stack-row"><span class="stat-stack-wan"><span class="desktop-label">@r.Label</span><span class="mobile-label">@NetworkOptimizer.UniFi.GatewayWanHelper.ShortWanToken(r.Label)</span></span><span class="stat-stack-value">@FormatRtt(r.Rtt)</span></div>
                         }
@@ -375,7 +388,7 @@
                 @if (LiveWan.IsComparing)
                 {
                     <div class="stat-value stat-value-stacked">
-                        @foreach (var r in PerWanTargetStats(MonitoringTargetType.Transit, meanAcrossTargets: true))
+                        @foreach (var r in PerWanTargetStats(MonitoringTargetType.Transit))
                         {
                             <div class="stat-stack-row @(r.Loss > 0 ? "stat-danger" : "")"><span class="stat-stack-wan"><span class="desktop-label">@r.Label</span><span class="mobile-label">@NetworkOptimizer.UniFi.GatewayWanHelper.ShortWanToken(r.Label)</span></span><span class="stat-stack-value">@FormatLoss(r.Loss)</span></div>
                         }
@@ -470,14 +483,8 @@
                 <div class="investigate-actions-row">
                 @if (_lossNavActive)
                 {
-                    <button class="btn btn-sm btn-secondary loss-nav-arrow" @onclick="LossNavBack" disabled="@_investigatingLoss"
-                            data-tooltip="Previous loss event">&#x25C0;</button>
-                    <button class="btn btn-primary investigate-btn" @onclick="LossNavDeactivate"
-                            data-tooltip="Exit @(_lossNavLoadedOnly ? "loaded" : "packet") loss investigation">
-                        @(_lossNavLoadedOnly ? "Loaded Loss Events" : "Packet Loss Events")
-                    </button>
-                    <button class="btn btn-sm btn-secondary loss-nav-arrow" @onclick="LossNavForward" disabled="@_investigatingLoss"
-                            data-tooltip="Next loss event">&#x25B6;</button>
+                    <span class="investigate-stepping">Stepping through @(_lossNavLoadedOnly ? "loaded" : "packet") loss events on the chart</span>
+                    <button class="btn btn-secondary investigate-btn" @onclick="LossNavDeactivate">Exit</button>
                 }
                 else
                 {
@@ -493,7 +500,7 @@
                     </button>
                 }
                 </div>
-                @if (!string.IsNullOrEmpty(_lossInvestigateResult))
+                @if (!_lossNavActive && !string.IsNullOrEmpty(_lossInvestigateResult))
                 {
                     <span class="page-description investigate-result">@_lossInvestigateResult</span>
                 }
@@ -504,9 +511,22 @@
         </div>
 
         <!-- Latency time-series charts -->
-        <div class="card" id="latency-charts-container" style="margin-top: 1.5rem;">
+        <div class="card chart-card-sticky-header" id="latency-charts-container" style="margin-top: 1.5rem;">
             <div class="card-header monitoring-chart-header @(ScopeBarVisible ? "chart-header-stacked" : "")">
-                <h2 class="card-title">Latency &amp; Packet Loss</h2>
+                @if (LinkContextVisible)
+                {
+                    <div class="chart-title-row">
+                        <h2 class="card-title">Latency &amp; Packet Loss</h2>
+                        <LinkContextChip Origin="@LinkContextOrigin" Detail="@LinkContextDetail()"
+                                         OnBack="@(LinkContextHasBack ? EventCallback.Factory.Create(this, LinkContextBackAsync) : default)"
+                                         BackTooltip="@(ViaParam is "isp-health" ? "Back to ISP Health" : ViaParam is "dashboard" ? "Back to the Dashboard" : "Back to Live View")"
+                                         OnClear="UseOwnFiltersAsync" />
+                    </div>
+                }
+                else
+                {
+                    <h2 class="card-title">Latency &amp; Packet Loss</h2>
+                }
                 @if (ScopeBarVisible)
                 {
                     <div class="time-range-selector wan-selector @(_wanOptions.Count > 3 ? "wan-selector-many" : "")"
@@ -533,6 +553,10 @@
                             <WanFilterResetButton OnReset="ResetWanFilterAsync" />
                         }
                     </div>
+                }
+                @if (_lossNavActive)
+                {
+                    <div class="loss-nav-slot">@LossNavPill</div>
                 }
                 <div class="chart-header-controls">
                     @* No active class here: the chart module owns which category is current, and
@@ -583,6 +607,10 @@
                                       Tour="jump-to-live"
                                       OnClick="JumpToLiveAsync" />
             </div>
+            @if (_lossNavActive)
+            {
+                <div class="loss-nav-float">@LossNavPill</div>
+            }
             <div class="card-body">
                 @if (FocusedWanProbesViaDefaultRoute)
                 {
@@ -602,10 +630,26 @@
                         </div>
                     </div>
                 }
-                <div class="latency-filter-badges wan-filter-badges"></div>
+                <NetworkOptimizer.Web.Components.Shared.Monitoring.GeoLiteSetupBanner />
+                @* The Path Map (path-map.js): every routed target's route, following the card's own
+                   WAN pills, category, and window. Its body and header chips are built by the module. *@
+                <div class="chart-card path-map-card @(_pathMapNoRoute ? "path-map-noroute" : "")" @ref="_pathMapCard" data-tour="path-map">
+                    <div class="chart-header card-header-collapsible path-map-header" role="button" tabindex="0"
+                         aria-expanded="@(PathMapOpen ? "true" : "false")" @onclick="TogglePathMapAsync">
+                        <h3 class="chart-title">Path Map</h3>
+                        <div class="path-map-chips"></div>
+                        <span class="issue-type-chevron">@(PathMapOpen ? "▲" : "▼")</span>
+                    </div>
+                    <div class="expand-wrapper @(PathMapOpen ? "expanded" : "")" style="@(!_pathMapStateLoaded ? "display:none" : "")">
+                        <div class="expand-content">
+                            <div class="path-map-body"></div>
+                        </div>
+                    </div>
+                </div>
+                <div class="latency-filter-badges wan-filter-badges" id="latency-chart-chips"></div>
                 @* Anchored on the chart rather than the card: the sync is something the plot does
                    under the pointer, and it only reads as that with a line to hover. *@
-                <div class="chart-card" data-tour="chart-hover-sync">
+                <div class="chart-card" data-tour="chart-hover-sync" id="latency-rtt-card">
                     <div class="chart-header"><h3 class="chart-title">Round-trip time</h3></div>
                     <div class="latency-rtt-chart"></div>
                 </div>
@@ -628,7 +672,7 @@
             <div class="card lan-flaky-hint">
                 <div class="card-body">
                     <p class="section-description">
-                        <span class="lan-flaky-warn">&#9888;</span>
+                        <span class="lan-flaky-warn"><AppIcon Name="warning" /></span>
                         These LAN devices are showing packet loss that's usually a measurement artifact -
                         Wi-Fi roaming or the device deprioritizing pings - rather than a real network problem.
                         If one isn't useful to monitor, pause it in Latency Targets to keep it out of your charts.
@@ -662,7 +706,7 @@
         <!-- Upstream tracer wizard -->
         <div id="upstream-discovery" style="margin-top: 1.5rem;">
             <UpstreamTracerPanel @ref="_upstreamPanel" ForceExpand="_forceExpandUpstream" SelectWanKey="@_discoveryWanKey"
-                                 OnWanSelected="OnDiscoveryWanSelectedAsync" OnSaved="StateHasChanged" />
+                                 OnWanSelected="OnDiscoveryWanSelectedAsync" OnSaved="OnUpstreamSavedAsync" />
         </div>
 
         <div id="flaky-targets" style="margin-top: 1.5rem;">
@@ -1889,11 +1933,11 @@
                                     <span class="page-description" style="margin-left: 0.5rem;">
                                         @if (_influxReachable == true)
                                         {
-                                            <span style="color: var(--success-color);">&#x2713; Connected</span>
+                                            <span style="color: var(--success-color);"><AppIcon Name="check" /> Connected</span>
                                         }
                                         else
                                         {
-                                            <span style="color: var(--danger-color);">&#x2717; @(_influxError ?? "Unreachable")</span>
+                                            <span style="color: var(--danger-color);"><AppIcon Name="close" /> @(_influxError ?? "Unreachable")</span>
                                         }
                                     </span>
                                 }
@@ -2055,6 +2099,10 @@
     [SupplyParameterFromQuery(Name = "device")]
     public string? DeviceParam { get; set; }
 
+    /// <summary>The page a link came from (live, np, isp-health, dashboard), named by the link context chip.</summary>
+    [SupplyParameterFromQuery(Name = "via")]
+    public string? ViaParam { get; set; }
+
     [SupplyParameterFromQuery(Name = "category")]
     public string? CategoryParam { get; set; }
 
@@ -2178,7 +2226,6 @@
     /// WAN the user was on.
     /// </summary>
     private string NpScopeKey => SiteCtx.ScopeStorageKey("npAnalysisScope");
-    private const string LanScopeToken = "lan";
     private const string AllScopeToken = "all";
     private bool _lanScope;
     /// <summary>
@@ -2270,7 +2317,7 @@
                 await JS.InvokeVoidAsync("localStorage.setItem", SharedWanScopeKey, FocusedWanKeyOrNull ?? "");
                 // persist:true is the user's own pick - the link and the restore both pass false - so
                 // this is the moment the link's WAN stops describing what is on screen.
-                ClearLinkedWan();
+                ClearLinkedWan(andCategory: true, endLink: true);
             }
             // Held rather than dropped when the module is not there yet: window.__latencyCharts is
             // assigned inside the mount's own import, so a plain ?. swallowed every push that beat
@@ -2376,10 +2423,6 @@
         }
     }
 
-    /// <summary>Whether every WAN is on screen, which is what the All pill means.</summary>
-    private bool AllWansSelected =>
-        _wanOptions.Count > 1 && _wanOptions.All(w => _selectedWanKeys.Contains(w.Key));
-
     private async Task SelectAllWansAsync()
     {
         _lanScope = false;
@@ -2456,7 +2499,21 @@
     /// Read once at mount - after that the chart owns the category, including the user's own picks.
     /// </summary>
     private string DefaultChartCategory() =>
-        HasTargetsInWanScope(MonitoringTargetType.Fabric) ? "Fabric" : "AccessIsp";
+        MonitoringViewState.LandingCategory(null, ChartScopeKind, HasTargetsInWanScope(MonitoringTargetType.Fabric));
+
+    /// <summary>The scope the chart is in: All on a site without the scope bar, where the chart gets no scope.</summary>
+    private AnalysisScopeKind ChartScopeKind =>
+        !ScopeBarVisible ? AnalysisScopeKind.All
+        : _lanScope ? AnalysisScopeKind.Lan
+        : _allScope ? AnalysisScopeKind.All
+        : AnalysisScopeKind.Wans;
+
+    /// <summary>The query as a link, for <see cref="MonitoringViewState"/>.</summary>
+    private MonitoringLink CurrentLink => new(CategoryParam, TargetParam, AtParam, SpanParam, InvestigateParam, WanParam);
+
+    private IReadOnlyList<SiteWan> SiteWans => _wanOptions.Select(o => new SiteWan(o.Key, o.IsPrimary)).ToList();
+
+    private AnalysisScope CurrentAnalysisScope => new(ChartScopeKind, _selectedWanKeys.ToList());
 
     private string WanScopeJson()
     {
@@ -2617,7 +2674,9 @@
             _lanScope = false;
             _allScope = false;
             _selectedWanKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { focus };
-            if (apply) await ApplyWanSelectionAsync(persist: true);
+            // For the visit only: written, it replaced a saved comparison for good whenever another WAN was
+            // read on ISP Health first. The saved set is what the next visit restores.
+            if (apply) await ApplyWanSelectionAsync(persist: false);
         }
         catch { /* no interop yet - the stored set stands */ }
     }
@@ -2639,11 +2698,11 @@
     }
 
     /// <summary>
-    /// Applies a WAN filter carried in from the Live tab, for this visit only. Runs BEFORE the
-    /// stored selection is read and claims the restore, so the link decides what the analysis is
-    /// scoped to without the saved filter being read over the top of it - or written to. Gated on
-    /// a category riding along, which only the Live tab's jump sends: a discovery link carries a
-    /// WAN too, and narrowing this filter is not what that one is asking for.
+    /// Applies the scope a link lands on (<see cref="MonitoringViewState.LinkScope"/>), for this
+    /// visit only. Claims the restore, so the link decides what the analysis is scoped to without
+    /// the saved filter being read over the top of it - or written to. Gated by
+    /// <see cref="LinkNarrowsWanFilter"/>: a discovery link carries a WAN too, and narrowing this
+    /// filter is not what that one is asking for.
     /// </summary>
     private async Task ApplyLinkWanSelectionAsync()
     {
@@ -2652,7 +2711,7 @@
         // visit, and the stored filter that was read a line earlier stood instead. Whether that
         // happened came down to which finished first, so the same link kept or lost its WAN from
         // one load to the next. The flag lets the load itself finish the job.
-        if (string.IsNullOrWhiteSpace(WanParam) || !LinkNarrowsWanFilter)
+        if (!LinkNarrowsWanFilter)
         {
             _linkWanAwaitingOptions = false;
             return;
@@ -2662,89 +2721,50 @@
             _linkWanAwaitingOptions = false;
             return;
         }
-        // Nothing to resolve against yet. The mount that calls this runs once, so returning
-        // without remembering the link dropped it for the rest of the visit and left the stored
-        // filter - read a line earlier - standing in its place. Whether that happened came down
-        // to which finished first, so the same link kept or lost its WAN from one load to the
-        // next. The flag holds it until the answers arrive.
-        if (!_wanOptionsLoaded)
+        var link = CurrentLink;
+        // Nothing to resolve WANs against yet: held, and applied from the load that brings them.
+        // An EMPTY list waits too (an Agent site's console right after a reconnect): returning
+        // without the hold lost the link's scope for the visit. A LAN landing needs no WANs.
+        if (MonitoringViewState.LinkNeedsWans(link) && (!_wanOptionsLoaded || _wanOptions.Count == 0))
         {
             _linkWanAwaitingOptions = true;
             return;
         }
         _linkWanAwaitingOptions = false;
-        // One WAN still has a scope to set: the bar splits it from the LAN, so a link naming it
-        // (or naming All) decides which of the two the user lands in. Gating this on multi-WAN
-        // left those sites on whatever scope was saved, and the chart dropped the category the
-        // link asked for whenever the two disagreed.
-        if (_wanOptions.Count == 0) return;
 
-        // The LAN scope: the same claim on the restore and the same never-persisted narrowing as a
-        // WAN link below, with the WAN selection left as it was, as the LAN pill leaves it.
-        if (IsLanScopeToken(WanParam))
-        {
-            _appliedLinkWanKey = LinkWanKey;
-            _linkNarrowedWanSelection = true;
-            _wanSelectionRestored = true;
-            _lanScope = true;
-            _allScope = false;
-            await ApplyWanSelectionAsync(persist: false);
-            return;
-        }
-
-        var keys = ResolveLinkWanKeys(WanParam);
-        // Stamped before the resolve is judged: the link has been CONSIDERED either way, and the
-        // options are loaded by here, so a WAN this site does not have will not resolve on a later
-        // pass either. Leaving it unstamped would hold the deep-link gate open forever.
+        var scope = MonitoringViewState.LinkScope(link, SiteWans, CurrentAnalysisScope);
+        // Stamped before the result is judged: the link has been CONSIDERED, and a WAN this site
+        // does not have will not resolve on a later pass either. Unstamped, the deep-link gate
+        // would stay open forever.
         _appliedLinkWanKey = LinkWanKey;
-        Logger.LogDebug("Link WAN: resolved {Wan} to [{Keys}] against [{Options}]",
-            WanParam, string.Join(",", keys), string.Join(",", _wanOptions.Select(o => o.Key)));
-        if (keys.Count == 0) return;
-        // Narrowing for as long as the link does. Never persisted, and released on the way back
-        // in without one, so a saved All is what the tab has again next time.
+        Logger.LogDebug("Link scope: {Category} {Wan} -> {Scope} [{Keys}]", CategoryParam, WanParam,
+            scope?.Kind.ToString() ?? "saved", scope == null ? "" : string.Join(",", scope.WanKeys));
+        if (scope == null) return;
+        // For the visit only: never persisted, released on the way back in without a link, so the
+        // saved filter (a saved All included) is what the tab has next time. Claims the restore, so
+        // the stored selection cannot be read over the top of the link on a first load.
         _linkNarrowedWanSelection = true;
-        // Claims the restore as well, so the stored selection cannot be read over the top of the
-        // link on a first load - and is never written, so the saved filter survives the visit.
         _wanSelectionRestored = true;
-        // A link naming WANs lands on those WANs, not on whatever scope was left over. Covering
-        // every one of them is the whole site, which is what All means.
-        _lanScope = false;
-        _selectedWanKeys = new HashSet<string>(keys, StringComparer.OrdinalIgnoreCase);
-        // The token, not just the keys it resolved to: on a single-WAN site "all" and that one WAN
-        // resolve to the same key, and only All keeps the LAN categories on the chart - which is
-        // what a link from a LAN view came to see.
-        _allScope = IsAllWansToken(WanParam)
-            || (_wanOptions.Count > 1 && _wanOptions.All(w => _selectedWanKeys.Contains(w.Key)));
+        _lanScope = scope.Kind == AnalysisScopeKind.Lan;
+        _allScope = scope.Kind == AnalysisScopeKind.All;
+        // The LAN scope keeps the WAN set as it was, unlit, as the LAN pill leaves it.
+        if (scope.Kind != AnalysisScopeKind.Lan)
+            _selectedWanKeys = new HashSet<string>(scope.WanKeys, StringComparer.OrdinalIgnoreCase);
         await ApplyWanSelectionAsync(persist: false);
+
+        // Landed after the chart mounted (the WANs arrived late): the chart opened on a category
+        // resolved against the scope before this one, so it gets the link's own now.
+        if (_latencyChartsReady && !string.IsNullOrEmpty(CategoryParam))
+        {
+            var category = MonitoringViewState.LandingCategory(
+                CategoryParam, ChartScopeKind, HasTargetsInWanScope(MonitoringTargetType.Fabric));
+            var enc = System.Text.Encodings.Web.JavaScriptEncoder.Default;
+            var solo = string.IsNullOrEmpty(TargetParam) ? "" : $"window.__latencyCharts?.soloAfterLoad('{enc.Encode(TargetParam)}');";
+            try { await JS.InvokeVoidAsync("eval", $"window.__latencyCharts?.setCategory('{enc.Encode(category)}');{solo}"); }
+            catch (Exception ex) when (ex is JSException or JSDisconnectedException) { Logger.LogDebug(ex, "Could not set the link's category"); }
+        }
     }
 
-    /// <summary>
-    /// The WAN keys a link's <c>?wan=</c> names: "all" for a view that spans every WAN, otherwise
-    /// a comma list. Matched on WAN index rather than string for the same reason the live scope
-    /// does it - the primary answers to "wan", "wan1" and "WAN" depending on who wrote the link.
-    /// </summary>
-    private List<string> ResolveLinkWanKeys(string wanParam)
-    {
-        var trimmed = wanParam.Trim();
-        if (IsAllWansToken(trimmed))
-            return _wanOptions.Select(o => o.Key).ToList();
-        if (string.Equals(trimmed, Services.Monitoring.LiveWanScope.PrimaryWanToken, StringComparison.OrdinalIgnoreCase))
-            return _wanOptions.Where(o => o.IsPrimary).Select(o => o.Key).ToList();
-
-        return trimmed
-            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-            .Select(NetworkOptimizer.UniFi.GatewayWanHelper.WanIndexFromKey)
-            .Where(index => index > 0)
-            .Select(index => _wanOptions
-                .FirstOrDefault(o => NetworkOptimizer.UniFi.GatewayWanHelper.WanIndexFromKey(o.Key) == index)?.Key)
-            .OfType<string>()
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToList();
-    }
-
-    /// <summary>Whether a link's <c>?wan=</c> asks for the whole site rather than named WANs.</summary>
-    private static bool IsAllWansToken(string? wanParam) =>
-        string.Equals(wanParam?.Trim(), Services.Monitoring.LiveWanScope.AllWansToken, StringComparison.OrdinalIgnoreCase);
 
     private async Task RestoreWanSelectionAsync()
     {
@@ -2778,7 +2798,14 @@
 
             await AdoptSharedWanFocusAsync(apply: false);
         }
-        catch { }
+        catch (Exception ex) when (ex is InvalidOperationException or JSException or JSDisconnectedException)
+        {
+            // Storage not readable yet (no interop before the first render): the one shot is not spent, so the
+            // chart mount reads the saved scope. Spent here, a first load could skip it. Unless a link claimed
+            // the restore while this read was pending: the saved scope must not land over it.
+            if (!_linkNarrowedWanSelection) _wanSelectionRestored = false;
+            return;
+        }
         await ApplyWanSelectionAsync(persist: false);
     }
 
@@ -2974,17 +3001,16 @@
         || (_wanOptionsLoaded && _wanOptions.Count == 0);
 
     /// <summary>
-    /// Whether the link in the address bar is one whose <c>?wan=</c> should narrow this filter. A
-    /// category jump from Live View and an ISP Health investigate jump both are: each says which
-    /// WAN's trouble you came to look at. So is <c>?wan=lan</c> on its own (the Sites card's LAN
-    /// issue): it names the LAN scope outright. A discovery link carries a WAN too and is NOT - it is
-    /// asking to run discovery on that WAN, not to re-scope the analysis.
+    /// Whether the link in the address bar may set this filter's scope for the visit
+    /// (<see cref="MonitoringViewState.LinkScope"/> decides which). A category link is: its category
+    /// decides the scope, with or without a <c>?wan=</c>. So is an investigate jump with a WAN, and
+    /// <c>?wan=lan</c> on its own (the Sites card's LAN issue). A discovery link carries a WAN too and
+    /// is NOT - it is asking to run discovery on that WAN, not to re-scope the analysis.
     /// </summary>
     private bool LinkNarrowsWanFilter =>
-        !string.IsNullOrWhiteSpace(WanParam)
-        && (!string.IsNullOrEmpty(CategoryParam)
-            || InvestigateParam is "packet-loss" or "loaded-loss"
-            || (IsLanScopeToken(WanParam) && _activeTab == "performance"));
+        !string.IsNullOrEmpty(CategoryParam)
+        || (!string.IsNullOrWhiteSpace(WanParam) && InvestigateParam is "packet-loss" or "loaded-loss")
+        || (IsLanScopeToken(WanParam) && _activeTab == "performance");
 
     /// <summary>Whether a link's <c>?wan=</c> asks for the LAN scope rather than WANs.</summary>
     private static bool IsLanScopeToken(string? wanParam) =>
@@ -2995,9 +3021,24 @@
     /// <summary>Set while a link's WAN is being applied, so the change callback can tell the link's
     /// own selection from the user's and only strip the parameter for theirs.</summary>
     private bool _applyingLinkWan;
+
+    // Set while the reader picks a WAN on Live View's own pills: that pick ends the link. The selection's
+    // change callback also fires when the saved selection restores on arrival, which must not.
+    private bool _liveWanPickedByUser;
+
+    private async Task PickLiveWanAsync(Func<Task> pick)
+    {
+        _liveWanPickedByUser = true;
+        try { await pick(); }
+        finally { _liveWanPickedByUser = false; }
+    }
     private bool _wanLiveChartMounted = false;
     private bool _portStatsMounted = false;
     private bool _latencyChartsMounted;
+    // The chart module is imported and mounted: a link whose scope lands after this sets its category itself.
+    private bool _latencyChartsReady;
+    // The link (category|target|at|span) the pre-select was armed from; null off Network Performance.
+    private string? _armedPreSelectKey;
     private bool _healthChartsMounted;
     private bool _sfpChartsMounted;
     private bool _cellularChartsMounted;
@@ -3011,6 +3052,79 @@
     // target metadata lives. _latencyTargetsCard is the @ref used to expand+scroll the matching
     // Latency Targets row.
     private DotNetObjectReference<Monitoring>? _latencyDotNetRef;
+
+    // ─── Path Map (path-map.js), the first chart in the Latency & Packet Loss card ───
+    private ElementReference _pathMapCard;
+    private IJSObjectReference? _pathMapModule;
+    private bool _pathMapMounted;
+    // Collapsed or open, per user per site (IUserPreferences); read once the tab shows.
+    private bool _pathMapCollapsed;
+    private bool _pathMapStateLoaded;
+    private bool _pathMapStateLoading;
+    // The scope or category has no routes (LAN, Fabric): the map stays closed whatever is saved.
+    private bool _pathMapNoRoute;
+    // A link into the charts (category, target, at, investigate) scrolls them into view once they
+    // have rendered, whatever state the map is in. Armed once per navigation.
+    private bool _scrollToChartsPending;
+    private string? _armedChartsLink;
+
+    /// <summary>
+    /// Whether <paramref name="now"/> is the page's own rewrite of the armed link: every parameter kept or dropped,
+    /// none added or changed (a scope pick dropping ?category= and ?target=).
+    /// </summary>
+    private static bool IsOwnRewrite(string? armed, string now)
+    {
+        if (armed == null) return false;
+        var was = armed.Split('|');
+        var next = now.Split('|');
+        return was.Length == next.Length && next.Select((v, i) => v.Length == 0 || v == was[i]).All(x => x);
+    }
+    private string? _pathMapLinkTarget;
+
+    private bool PathMapOpen => _pathMapStateLoaded && !_pathMapCollapsed && !_pathMapNoRoute;
+
+    private string PathMapCollapseKey => $"pathMap.collapsed:{SiteCtx.Slug}";
+
+    // The map's view (All, Transit, Local), per user on every site; null until one is picked.
+    private const string PathMapPresetKey = "pathMap.preset";
+    private string? _pathMapPreset;
+
+    /// <summary>Called by path-map.js when the reader picks a view: saved for them.</summary>
+    [JSInvokable]
+    public async Task OnPathMapPresetChanged(string preset)
+    {
+        if (preset is not ("all" or "transit" or "local") || preset == _pathMapPreset) return;
+        _pathMapPreset = preset;
+        try { await UserPreferences.SetAsync(PathMapPresetKey, preset); }
+        catch (Exception ex) { Logger.LogDebug(ex, "Could not save the Path Map's view"); }
+    }
+
+    private async Task TogglePathMapAsync()
+    {
+        if (_pathMapNoRoute || !_pathMapStateLoaded) return;
+        _pathMapCollapsed = !_pathMapCollapsed;
+        await PushPathMapOpenAsync();
+        try { await UserPreferences.SetAsync(PathMapCollapseKey, _pathMapCollapsed ? "true" : "false"); }
+        catch (Exception ex) { Logger.LogDebug(ex, "Could not save the Path Map's collapsed state"); }
+    }
+
+    private async Task PushPathMapOpenAsync()
+    {
+        if (_pathMapModule == null) return;
+        try { await _pathMapModule.InvokeVoidAsync("setExpanded", PathMapOpen); }
+        catch (JSDisconnectedException) { }
+        catch (Exception ex) { Logger.LogDebug(ex, "Path Map setExpanded failed"); }
+    }
+
+    /// <summary>Called by path-map.js when the scope or category turns to one with no routes, or back.</summary>
+    [JSInvokable]
+    public async Task OnNoRouteChanged(bool noRoute)
+    {
+        if (_pathMapNoRoute == noRoute) return;
+        _pathMapNoRoute = noRoute;
+        await PushPathMapOpenAsync();
+        await InvokeAsync(StateHasChanged);
+    }
     private LatencyTargetsCard? _latencyTargetsCard;
     private bool _lanFlakyCategoryActive;
     private List<string> _lanFlakyTargetIds = new();
@@ -3251,8 +3365,39 @@
             _pendingAtMs = long.TryParse(AtParam, out var armAtMs) && armAtMs > 0 ? armAtMs : null;
         }
 
-        if (!string.IsNullOrEmpty(CategoryParam) && _activeTab == "performance")
+        // A link into the charts lands on them, whatever state the Path Map above them is in. Armed by the link's own
+        // parameters, not the URL: a scope or filter pick rewrites the URL (dropping ?category= and keeping ?at=) and
+        // must not land and ring the chart again. Leaving the tab disarms, so following the same link again does.
+        var chartsLink = _activeTab != "performance" ? null
+            : !string.IsNullOrEmpty(CategoryParam) || !string.IsNullOrEmpty(TargetParam)
+              || !string.IsNullOrEmpty(AtParam) || InvestigateParam is "packet-loss" or "loaded-loss"
+                ? $"{CategoryParam}|{TargetParam}|{AtParam}|{InvestigateParam}"
+                : null;
+        if (_activeTab != "performance") _armedChartsLink = null;
+        else if (chartsLink != null && chartsLink != _armedChartsLink
+                 && !IsOwnRewrite(_armedChartsLink, chartsLink))
         {
+            _scrollToChartsPending = true;
+            _pathMapLinkTarget = TargetParam;
+        }
+        if (chartsLink != null) _armedChartsLink = chartsLink;
+
+        // Armed once per link, not on every re-supply: the page's own rewrites (a drag-zoom drops ?at= and keeps
+        // ?category=) re-armed it, and the next visit's mount replayed the old link's category.
+        // A link applies once per VISIT: a stamp left by a tab that is no longer showing ends with that visit, so
+        // the same Live View link followed again after leaving applies again (only Network Performance cleared it).
+        if (_appliedLinkWanKey != null && !_appliedLinkWanKey.StartsWith(_activeTab + "|", StringComparison.Ordinal))
+            _appliedLinkWanKey = null;
+
+        // The chip's clear waits for the link's parameters to be gone before the chart mounts again.
+        if (_awaitingOwnFilters && !LinkContextVisible) _awaitingOwnFilters = false;
+
+        var preSelectKey = $"{CategoryParam}|{TargetParam}|{AtParam}|{SpanParam}";
+        if (_activeTab != "performance") _armedPreSelectKey = null;
+        else if (!string.IsNullOrEmpty(CategoryParam) && preSelectKey != _armedPreSelectKey
+                 && !(_latencyChartsMounted && _armedPreSelectKey != null))
+        {
+            _armedPreSelectKey = preSelectKey;
             _preSelectCategory = CategoryParam;
             _soloTargetId = TargetParam;
             // An instant rode in with the category: a jump from the Live tab, which frames the
@@ -3928,7 +4073,7 @@
     /// </summary>
     private RenderFragment NoAgentProbeBanner => @<div class="alert alert-warning" style="margin-bottom: 1rem;">
         <div class="banner-content">
-            <span class="banner-icon">!</span>
+            <span class="banner-icon"><AppIcon Name="agent" /></span>
             <div class="banner-text" style="flex: 1;">
                 <strong>No agent for this site</strong>
                 Probe-based monitoring needs an On-Site Agent. SNMP collection is unaffected.
@@ -3938,6 +4083,25 @@
             </div>
         </div>
     </div>;
+
+    /// <summary>
+    /// The loss event stepper, in the chart header where it stays in view while the chart is read: the sticky
+    /// header on desktop, its own sticky strip on a phone (the header does not stick there).
+    /// </summary>
+    private RenderFragment LossNavPill => @<span class="loss-nav-pill" role="group" aria-label="Loss events">
+        <button class="lnp-arrow" type="button" @onclick="LossNavBack" disabled="@_investigatingLoss"
+                aria-label="Previous loss event" data-tooltip="Previous loss event">&#x25C0;</button>
+        <span class="lnp-text">
+            <span class="lnp-label">@(_lossNavLoadedOnly ? "Loaded Loss Events" : "Packet Loss Events")</span>@if (_investigatingLoss)
+            {<span class="spinner-sm"></span>}
+            else if (!string.IsNullOrEmpty(_lossInvestigateResult))
+            {<span class="lnp-detail">· @_lossInvestigateResult</span>}
+        </span>
+        <button class="lnp-arrow" type="button" @onclick="LossNavForward" disabled="@_investigatingLoss"
+                aria-label="Next loss event" data-tooltip="Next loss event">&#x25B6;</button>
+        <button class="lnp-exit" type="button" @onclick="LossNavDeactivate"
+                aria-label="Exit the loss investigation" data-tooltip="Exit the loss investigation">&times;</button>
+    </span>;
 
     private RenderFragment UpstreamReviewBanner => @<div class="alert alert-info" style="margin-bottom: 1rem;">
         <div class="banner-content">
@@ -3965,6 +4129,13 @@
         _scrollToDiscoveryPending = true;
         SetActiveTab("performance");
         if (_multiWanUiVisible) await OnDiscoveryWanSelectedAsync(_primaryWanKey);
+    }
+
+    /// <summary>A discovery commit cleared the review flag: the banner goes now, not on the next 15 s tick.</summary>
+    private async Task OnUpstreamSavedAsync()
+    {
+        await RefreshUpstreamReviewAsync();
+        StateHasChanged();
     }
 
     private async Task DismissUpstreamReviewAsync()
@@ -4073,17 +4244,27 @@
             ? new DateTimeOffset(parkedAt.ToUniversalTime()).ToUnixTimeMilliseconds().ToString()
             : LiveAtToken;
 
-    private void JumpToAnalysis(string category) =>
-        NavigationManager.NavigateTo(Analysis(category, CurrentAtToken(), LiveWan));
+    private async Task JumpToAnalysis(string category)
+    {
+        // Where the reader is on Live View, for Watch in Live View to bring them back to (noTabScroll). The landing is
+        // quiet: they clicked a card about this chart, so a ring on it says nothing.
+        if (_activeTab == "live")
+        {
+            _quietChartsLanding = true;
+            try { await JS.InvokeVoidAsync("noTabScroll.save", "monitoring-live"); }
+            catch (Exception ex) when (ex is JSException or JSDisconnectedException) { Logger.LogDebug(ex, "Could not keep the Live View scroll"); }
+        }
+        NavigationManager.NavigateTo(Analysis(category, CurrentAtToken(), LiveWan) + "&via=live");
+    }
 
     private sealed record LatencyChartView(string AtIso, string Category);
 
     /// <summary>
     /// Plays back the moment Latency and Packet Loss is framing - the center of the window on
-    /// screen, which is where someone puts the spike they are looking at. A LAN or Custom view
-    /// spans every WAN and asks for all of them; ISP, Transit and Internet carry their WAN filter
-    /// across. The Live tab's own saved filter is left where it was either way: the link applies
-    /// for the visit only.
+    /// screen, which is where someone puts the spike they are looking at - with the WANs on screen
+    /// (<see cref="MonitoringViewState.LiveJumpWan"/>). From the LAN scope it carries no WAN: Live
+    /// View has no LAN view, and sending every WAN showed an All filter nobody picked. The Live
+    /// tab's own saved filter is left where it was either way: the link applies for the visit only.
     /// </summary>
     private async Task JumpToLiveAsync()
     {
@@ -4092,14 +4273,146 @@
             var view = await JS.InvokeAsync<LatencyChartView>("__latencyCharts.currentView");
             var at = DateTime.Parse(view.AtIso, null, System.Globalization.DateTimeStyles.RoundtripKind);
             var atMs = new DateTimeOffset(at.ToUniversalTime()).ToUnixTimeMilliseconds();
-            var spansEveryWan = view.Category == FabricCategory || view.Category == CustomCategory;
-            var wan = spansEveryWan || AllWansSelected
-                ? Services.Monitoring.LiveWanScope.AllWansToken
-                : string.Join(",", _selectedWanKeys);
-            var wanQuery = _multiWanUiVisible && wan.Length > 0 ? $"&wan={Uri.EscapeDataString(wan)}" : "";
-            NavigationManager.NavigateTo($"/monitoring?tab=live&at={atMs}{wanQuery}");
+            var wan = MonitoringViewState.LiveJumpWan(CurrentAnalysisScope, _multiWanUiVisible);
+            var wanQuery = wan != null ? $"&wan={Uri.EscapeDataString(wan)}" : "";
+            _restoreLiveScrollPending = true;
+            _analysisReturnCategory = view.Category;
+            NavigationManager.NavigateTo($"/monitoring?tab=live&at={atMs}{wanQuery}&via=np");
         }
         catch (Exception ex) { Logger.LogDebug(ex, "Live view jump failed; latency charts not ready"); }
+    }
+
+    // Set by Watch in Live View: once the Live tab renders, it returns to where Analyze left it (or the top), not the
+    // depth reached on Latency and Packet Loss, which shares the page's scroll box.
+    private bool _restoreLiveScrollPending;
+
+    // Set by Analyze on Live View: the charts landing scrolls without the ring (noLandOnChart's quiet). A link from
+    // ISP Health (?via=isp-health) lands quiet as well.
+    private bool _quietChartsLanding;
+
+    // The category Latency & Packet Loss was on when Watch in Live View left it, for the Live chip's way back.
+    private string? _analysisReturnCategory;
+
+    // Set by the chip's clear on Network Performance: the chart stays down until the link's parameters are gone.
+    private bool _awaitingOwnFilters;
+
+    // Set by the chip's clear on Live View until the map's return to live has stripped the link.
+    private bool _liveLinkClearing;
+
+    /// <summary>
+    /// Whether the tab is showing what a link asked for rather than the reader's own filters: the
+    /// parameters each tab's link handling reads, which the page drops as the reader takes over.
+    /// </summary>
+    private bool LinkContextVisible => _activeTab switch
+    {
+        // ?via= too: a shift, a drag, or a scrub drops the link's moment but leaves the link.
+        "performance" => !string.IsNullOrWhiteSpace(AtParam) || !string.IsNullOrWhiteSpace(SpanParam)
+            || !string.IsNullOrWhiteSpace(InvestigateParam) || !string.IsNullOrEmpty(CategoryParam)
+            || !string.IsNullOrWhiteSpace(TargetParam) || LinkNarrowsWanFilter || !string.IsNullOrWhiteSpace(ViaParam),
+        "live" => !string.IsNullOrWhiteSpace(AtParam) || !string.IsNullOrWhiteSpace(WanParam)
+            || !string.IsNullOrWhiteSpace(ViaParam),
+        _ => false,
+    };
+
+    private string LinkContextOrigin => ViaParam?.Trim().ToLowerInvariant() switch
+    {
+        "live" => "From Live View",
+        "np" => "From Network Performance",
+        "isp-health" => "From ISP Health",
+        "dashboard" => "From the Dashboard",
+        _ => "From a link",
+    };
+
+    /// <summary>What the link set that the filter pills do not say: the moment, and a single WAN by name.</summary>
+    private string LinkContextDetail()
+    {
+        var bits = new List<string>();
+        if (long.TryParse(AtParam, out var atMs) && atMs > 0)
+            bits.Add(TimeFormatHelper.FormatLocalDateTime(
+                DateTimeOffset.FromUnixTimeMilliseconds(atMs).UtcDateTime, DisplayTime.Zone, DisplayTime.Format));
+        else if (string.Equals(AtParam, LiveAtToken, StringComparison.OrdinalIgnoreCase))
+            bits.Add("Live");
+        var wan = WanParam?.Trim();
+        if (!string.IsNullOrEmpty(wan) && !IsLanScopeToken(wan))
+        {
+            if (string.Equals(wan, NetworkOptimizer.Web.Services.Monitoring.LiveWanScope.AllWansToken, StringComparison.OrdinalIgnoreCase))
+                bits.Add("All WANs");
+            else
+            {
+                var keys = wan.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+                var option = keys.Length == 1
+                    ? LiveWan.Options.FirstOrDefault(o => string.Equals(o.Key, keys[0], StringComparison.OrdinalIgnoreCase))
+                    : null;
+                if (option != null)
+                    bits.Add(NetworkOptimizer.UniFi.GatewayWanHelper.SplitWanLabel(
+                        option.Label, NetworkOptimizer.UniFi.GatewayWanHelper.WanIndexFromKey(option.Key)).Name ?? option.Label);
+                else if (keys.Length > 1)
+                    bits.Add($"{keys.Length} WANs");
+            }
+        }
+        return string.Join(" · ", bits);
+    }
+
+    /// <summary>Whether the chip's origin has a way back: the tab or page the link came from.</summary>
+    private bool LinkContextHasBack => (_activeTab, ViaParam?.Trim().ToLowerInvariant()) switch
+    {
+        ("performance", "live" or "isp-health" or "dashboard") => true,
+        ("live", "np") => true,
+        _ => false,
+    };
+
+    private async Task LinkContextBackAsync()
+    {
+        switch (_activeTab, ViaParam?.Trim().ToLowerInvariant())
+        {
+            case ("performance", "live"): await JumpToLiveAsync(); break;
+            case ("performance", "isp-health"): SetActiveTab("isp-health"); break;
+            case ("performance", "dashboard"): NavigationManager.NavigateTo("/"); break;
+            case ("live", "np"): await JumpToAnalysis(_analysisReturnCategory ?? AccessIspCategory); break;
+        }
+    }
+
+    /// <summary>
+    /// The chip's clear: back to the reader's own filters through the same path as arriving with no
+    /// link. Network Performance drops the link's parameters and mounts the chart again once they are
+    /// gone, so the saved scope, category, and preset are read as on any visit. Live View returns to
+    /// live on its saved WAN selection.
+    /// </summary>
+    private async Task UseOwnFiltersAsync()
+    {
+        if (_activeTab == "performance")
+        {
+            var current = NavigationManager.Uri;
+            var stripped = current;
+            foreach (var name in new[] { "at", "span", "investigate", "wan", "category", "target", "via" })
+                stripped = SiteContextService.RemoveQueryParam(stripped, name);
+            if (stripped == current) return;
+            _awaitingOwnFilters = true;
+            _armedPreSelectKey = null;
+            _linkedInstantMs = null;
+            _pendingAtMs = null;
+            _armedAtUri = stripped;
+            if (_armedInvestigateUri != null) _armedInvestigateUri = stripped;
+            if (_latencyChartsMounted) await UnmountLatencyChartsAsync();
+            NavigationManager.NavigateTo(stripped, forceLoad: false, replace: true);
+            return;
+        }
+        if (_activeTab == "live")
+        {
+            // The return to live below strips ?at= and ?wan=; this has it take ?via= in the same navigation.
+            _liveLinkClearing = true;
+            LiveWan.ForgetVisitClaim();
+            await LiveWan.RestoreAsync();
+            // The map's own return to live reports back through OnMapTimeChanged, which drops ?at= and ?wan=.
+            var returned = false;
+            try
+            {
+                returned = await JS.InvokeAsync<bool>("eval",
+                    "(() => { const i = window.__lanFlowMap?.getInstance?.(); if (i && i._mode === 'historic') { i._returnToLive(); return true; } return false; })()");
+            }
+            catch (Exception ex) when (ex is JSException or JSDisconnectedException) { Logger.LogDebug(ex, "Could not return the map to live"); }
+            if (!returned) await OnMapTimeChanged(null);
+        }
     }
 
     private string LiveWanJsLiteral()
@@ -4152,7 +4465,7 @@
     {
         // Not while the link itself is being applied: that fires this same callback, and stripping
         // there would be the clear-on-arrival that cost a navigation per jump.
-        if (!_applyingLinkWan) ClearLinkedWan();
+        if (!_applyingLinkWan) ClearLinkedWan(endLink: _liveWanPickedByUser && _activeTab == "live");
         await InvokeAsync(StateHasChanged);
         try { await JS.InvokeVoidAsync("eval", $"window.__wanLiveChart?.setWans({LiveWanJsLiteral()});"); }
         catch { /* chart not mounted yet - it takes the scope at mount instead */ }
@@ -4190,9 +4503,7 @@
                             d => d.Mac!.Replace("-", ":").ToLowerInvariant(),
                             d => d.DisplayIpAddress ?? "",
                             StringComparer.OrdinalIgnoreCase);
-                    var gw = devices.FirstOrDefault(d =>
-                        d.Type == NetworkOptimizer.Core.Enums.DeviceType.Gateway
-                        || d.HardwareType == NetworkOptimizer.Core.Enums.DeviceType.Gateway);
+                    var gw = NetworkOptimizer.UniFi.UniFiDiscovery.SiteGateway(devices);
                     _gatewayMac = gw?.Mac?.Replace("-", ":").ToLowerInvariant();
                     _gatewayWanIfNames = gw?.WanInterfaceNames ?? new();
                 }
@@ -4417,23 +4728,8 @@
                 NavigateToUpstreamDiscovery();
         }
         else
-            NavigationManager.NavigateTo($"/monitoring?tab=isp-health{IspHealthWanQuery()}");
+            NavigationManager.NavigateTo(IspHealth(LiveWan.Selected?.Key));
     }
-
-    /// <summary>
-    /// Carries the live tiles' WAN into the ISP Health link, so clicking a WAN's score opens that
-    /// WAN's report. The two selections have their own storage on purpose - watching a WAN should
-    /// not move the analysis focus - but following a link IS the intent to move it, so the
-    /// parameter travels and the panel adopts it.
-    /// <para>
-    /// The PRIMARY is named too. Leaving it out on the grounds that its report is the default
-    /// assumed the destination had no opinion, and it does: it remembers the WAN it was last left
-    /// on. Clicking WAN1's score after reading WAN4's report opened WAN4 again, which is the one
-    /// case where the tile and what it opens disagree outright.
-    /// </para>
-    /// </summary>
-    private string IspHealthWanQuery() =>
-        LiveWan.Selected is { } w ? $"&wan={Uri.EscapeDataString(w.Key)}" : "";
 
     /// <summary>Same land-and-highlight as the discovery link, for the card a WAN needs first.</summary>
     private async Task ScrollToWanContextsAsync()
@@ -4639,8 +4935,10 @@
 
         if (isoTimestamp == null)
         {
-            // Back to live under their own hand, so the linked instant is behind them.
-            ClearLinkedInstant();
+            // Back to live under their own hand, so the linked instant is behind them. From the chip's clear,
+            // the whole link goes.
+            ClearLinkedInstant(endLink: _liveLinkClearing);
+            _liveLinkClearing = false;
             _mapHistoricAt = null;
             _historicSnapshot = null;
             _hogsWanRateAt = null;
@@ -4666,10 +4964,25 @@
 
     /// <summary>
     /// Told by the analysis charts that the user moved their own window - a range button, a shift
-    /// arrow, a custom range, a drag-zoom.
+    /// arrow, a custom range, a drag-zoom. The link's moment goes; the link itself, and its chip, stay.
     /// </summary>
     [JSInvokable]
     public void OnTimelineMovedByUser() => ClearLinkedInstant();
+
+    /// <summary>
+    /// Told by Latency &amp; Packet Loss that the reader picked a time preset. A preset is saved as their own,
+    /// so it ends the link: ?category=, ?target=, and ?via= go with the moment, and the link context chip goes.
+    /// </summary>
+    [JSInvokable]
+    public void OnWindowPresetPickedByUser() => ClearLinkedInstant(endLink: _activeTab == "performance");
+
+    /// <summary>
+    /// Told by the analysis charts that the user picked a category: a link's ?category= and ?target= stop
+    /// describing the view and go, so a reload keeps the pick. The link's moment stays, and with it the
+    /// chip: a category is a different look at the same event, not a saved filter.
+    /// </summary>
+    [JSInvokable]
+    public void OnChartCategoryPickedByUser() => ClearLinkedWan(andCategory: true);
 
     /// <summary>
     /// Drops ?wan= once the user picks their own WAN, and leaves ?at= alone: choosing which WAN is
@@ -4677,16 +4990,53 @@
     /// <see cref="ClearLinkedInstant"/> - the parameter records which WAN a link wanted, and left in
     /// place a reload or the back button re-narrows to it over the choice they just made.
     /// </summary>
-    private void ClearLinkedWan()
+    /// <param name="andCategory">
+    /// True for a scope pick on the Latency &amp; Packet Loss chart: ?category= and ?target= go too,
+    /// in the same navigation. Left in place, a reload replays the link's category over the scope
+    /// just picked, and the LAN scope cannot show an ISP, Transit, or Internet category.
+    /// </param>
+    /// <param name="endLink">
+    /// True for a LAN or WAN scope pick on Network Performance, or a WAN pick on Live View: ?at=, ?span=,
+    /// ?investigate=, ?target=, and ?via= go too, so nothing of the link is left and the link context chip
+    /// goes. What is on screen stays for the visit. A category pick leaves the link's moment.
+    /// </param>
+    private void ClearLinkedWan(bool andCategory = false, bool endLink = false)
     {
-        if (string.IsNullOrWhiteSpace(WanParam)) return;
         // Never before the link has been read. Loading the live scope self-selects a WAN and raises
         // its own change, so on a cold load this threw the parameter away while it was still the
         // only record of where the user asked to go.
         if (LinkNarrowsWanFilter && _appliedLinkWanKey != LinkWanKey) return;
+        // The same for a Live View or ISP Health link, which carries no category: the Live selection's own
+        // restore raised a change before the link was applied and threw its ?wan= away.
+        if (_activeTab is "live" or "isp-health" && !string.IsNullOrWhiteSpace(WanParam)
+            && _appliedLinkWanKey != LinkWanKey) return;
 
-        var stripped = SiteContextService.RemoveQueryParam(NavigationManager.Uri, "wan");
-        if (stripped == NavigationManager.Uri) return;
+        var current = NavigationManager.Uri;
+        var stripped = string.IsNullOrWhiteSpace(WanParam)
+            ? current
+            : SiteContextService.RemoveQueryParam(current, "wan");
+        // Only once the chart mount has read the link's category.
+        if (andCategory && _latencyChartsMounted && !string.IsNullOrEmpty(CategoryParam))
+        {
+            stripped = SiteContextService.RemoveQueryParam(stripped, "category");
+            if (!string.IsNullOrWhiteSpace(TargetParam))
+                stripped = SiteContextService.RemoveQueryParam(stripped, "target");
+            // Re-supplied parameters re-arm these on every navigation, so the next mount would
+            // replay the link's category without this.
+            _preSelectCategory = null;
+            _soloTargetId = null;
+        }
+        var endsInstant = false;
+        if (endLink && (_latencyChartsMounted || _activeTab == "live"))
+        {
+            foreach (var (name, value) in new[] { ("at", AtParam), ("span", SpanParam), ("investigate", InvestigateParam), ("target", TargetParam), ("via", ViaParam) })
+                if (!string.IsNullOrWhiteSpace(value)) stripped = SiteContextService.RemoveQueryParam(stripped, name);
+            endsInstant = !string.IsNullOrWhiteSpace(AtParam);
+            _linkedInstantMs = null;
+            _soloTargetId = null;
+        }
+        if (stripped == current) return;
+        if (endsInstant) _pendingAtMs = null;
         // The URL is about to change, which re-arms the linked instant unless the arm moves with it -
         // a WAN change would then seek them back to the link's moment. _pendingAtMs is deliberately
         // left as it stands: this is not a statement about time. The investigation arm moves too -
@@ -4709,7 +5059,11 @@
     /// True for paging inside an investigation: it moves the window, so ?at= and ?span= go, but it is
     /// still the investigation (and the WAN) the link opened, so ?investigate= and ?wan= stay.
     /// </param>
-    private void ClearLinkedInstant(bool keepInvestigation = false)
+    /// <param name="endLink">
+    /// True when the reader moved the Latency &amp; Packet Loss window: ?category=, ?target=, and ?via= go
+    /// too, so nothing of the link is left. What is on screen stays for the visit; a reload reads the saved filters.
+    /// </param>
+    private void ClearLinkedInstant(bool keepInvestigation = false, bool endLink = false)
     {
         _linkedInstantMs = null;
         var current = NavigationManager.Uri;
@@ -4722,6 +5076,18 @@
             stripped = SiteContextService.RemoveQueryParam(stripped, "investigate");
         if (!keepInvestigation && !string.IsNullOrWhiteSpace(WanParam))
             stripped = SiteContextService.RemoveQueryParam(stripped, "wan");
+        // Only once the chart mount has read the link's category, as in ClearLinkedWan.
+        if (endLink && (_latencyChartsMounted || _activeTab == "live"))
+        {
+            if (!string.IsNullOrEmpty(CategoryParam))
+                stripped = SiteContextService.RemoveQueryParam(stripped, "category");
+            if (!string.IsNullOrWhiteSpace(TargetParam))
+                stripped = SiteContextService.RemoveQueryParam(stripped, "target");
+            if (!string.IsNullOrWhiteSpace(ViaParam))
+                stripped = SiteContextService.RemoveQueryParam(stripped, "via");
+            _preSelectCategory = null;
+            _soloTargetId = null;
+        }
         if (stripped == current) return;
         // Armed against the new URL first, or being re-supplied under it would arm a fresh seek
         // and pull them straight back to where they just left. Set even when only the WAN was
@@ -4731,6 +5097,39 @@
         if (_armedInvestigateUri != null) _armedInvestigateUri = stripped;
         if (!string.IsNullOrWhiteSpace(AtParam)) _pendingAtMs = null;
         NavigationManager.NavigateTo(stripped, forceLoad: false, replace: true);
+    }
+
+    /// <summary>
+    /// Ends a visit to Latency &amp; Packet Loss: what a tab leave does, and what the link context
+    /// chip's clear does before the chart mounts again as on a plain arrival.
+    /// </summary>
+    private async Task UnmountLatencyChartsAsync()
+    {
+        _latencyChartsMounted = false;
+        _latencyChartsReady = false;
+        // A link's category not consumed by this visit's mount must not open the next visit.
+        _preSelectCategory = null;
+        _soloTargetId = null;
+        _preSelectAtMs = null;
+        _preSelectSpanMs = null;
+        _preSelectTrailing = false;
+        // Leaving ends the visit a link governed, so the next arrival gets to be honoured even
+        // when it names the same WAN. The stamp is once-PER-VISIT; left set across the leave it
+        // was once ever, and a second jump on the same WAN silently kept the scope it found.
+        _appliedLinkWanKey = null;
+        try { await JS.InvokeVoidAsync("eval", "window.__latencyCharts?.unmount(); window.__netoptPendingWanScope = undefined;"); }
+        catch { }
+        // The flaky-LAN advisory is tied to the live chart, so clear it when the chart leaves.
+        _lanFlakyCategoryActive = false;
+        _lanFlakyTargetIds = new();
+        // The chart (and its highlight) is torn down on leave, so drop the loss-nav state
+        // too - otherwise returning shows the card "active" with no highlight on the chart.
+        // Deep-linked investigations re-arm via the query param on entry, so this is safe.
+        ResetLossNavState();
+        // Revert any transient deep-link force-open to the user's saved preference, so a
+        // linkable investigation never lingers as an expand the user didn't choose.
+        _investigateCollapsed = _investigateSavedCollapsed;
+        _investigateDeepLinkOpened = false;
     }
 
     private async Task FetchHistoricSnapshotAsync(DateTime at)
@@ -5118,7 +5517,7 @@
 
     private RenderFragment Map3dCard => __builder =>
     {
-        <div class="card lan-flow-map-card" style="margin-top: 0.5rem;">
+        <div class="card lan-flow-map-card" style="margin-top: 0.5rem;" data-tour="lan-flow-map-3d">
             <div class="card-header">
                 <h2 class="card-title">3D LAN Flow Map</h2>
                 <div class="card-header-right">
@@ -5173,7 +5572,7 @@
     {
         var gwStats = GetGatewayStats();
         var gwDeviceUrl = DeviceStats(_gatewayMac, CurrentAtToken());
-        var gwFabricUrl = FabricTarget(GetGatewayFabricTargetId(), CurrentAtToken(), LiveWan);
+        var gwFabricUrl = FabricTarget(GetGatewayFabricTargetId(), CurrentAtToken(), LiveWan) + "&via=live";
         var gwLatency = GetGatewayLatency();
         <div class="monitoring-stat-cards" style="margin-top: 0.5rem;">
             @{ var gwTargetId = GetGatewayFabricTargetId(); }
@@ -5259,29 +5658,12 @@
         return (s?.RttAvgMs, s?.LossPercent ?? 0);
     }
 
-    private (double? rtt, double loss) GetBestTargetStats(MonitoringTargetType type)
-    {
-        if (_historicSnapshot != null)
-        {
-            return type switch
-            {
-                MonitoringTargetType.AccessIsp => (_historicSnapshot.IspRttMs, _historicSnapshot.IspLossPercent),
-                _ => (null, 0)
-            };
-        }
-        var targets = _targets.Where(t => t.TargetType == type && t.Enabled).ToList();
-        if (targets.Count == 0) return (null, 0);
-        // The access floor, as ISP Health reads the access layer; see MonitoringLiveStats.GetIspAccessFloorLive.
-        var (rtt, loss) = LiveStats.GetIspAccessFloorLive(targets.Select(t => t.TargetId));
-        return (rtt, loss ?? 0);
-    }
-
-
     /// <summary>
     /// One WAN's share of a target type. Targets carry the WAN their data describes, and an
     /// unstamped target is a primary-path measurement - the same rule every per-WAN reader uses,
     /// so the tiles cannot disagree with the reports about which WAN a number belongs to.
     /// </summary>
+    // TODO: duplicated in LiveViewPanel.razor (TargetsForWan); move into one shared helper.
     private List<MonitoringTarget> TargetsForWan(MonitoringTargetType type, string wanKey, bool isPrimary) =>
         _targets.Where(t => t.TargetType == type && t.Enabled)
             .Where(t => NetworkOptimizer.Storage.Models.MonitoringTarget.IsUnpinned(t.WanInterface)
@@ -5305,7 +5687,8 @@
     /// latency beside that WAN's throughput - a number that belongs to another connection,
     /// presented as this one's. A WAN with no targets of its own reads as no data.
     /// </summary>
-    private (double? rtt, double loss) ScopedTargetStats(MonitoringTargetType type, bool meanAcrossTargets)
+    // TODO: duplicated in LiveViewPanel.razor (ScopedTargetStats); move the tile figures into one shared component or service.
+    private (double? rtt, double loss) ScopedTargetStats(MonitoringTargetType type)
     {
         // Playback answers from the snapshot, which is already scoped to the WAN in focus
         // (BuildSnapshotWanScope). The per-WAN path below reads live stats only, so during
@@ -5320,9 +5703,10 @@
             };
         }
         var wan = LiveWan.Selected;
-        if (wan == null) return meanAcrossTargets ? GetMeanTargetStats(type) : GetBestTargetStats(type);
+        if (wan == null)
+            return LiveStats.GetTileLatencyLive(type, _targets.Where(t => t.TargetType == type && t.Enabled).Select(t => t.TargetId));
 
-        var rows = PerWanTargetStats(type, meanAcrossTargets);
+        var rows = PerWanTargetStats(type);
         var row = rows.FirstOrDefault(r => string.Equals(
             r.Label,
             NetworkOptimizer.UniFi.GatewayWanHelper.SplitWanLabel(
@@ -5337,10 +5721,12 @@
             wan.Label, NetworkOptimizer.UniFi.GatewayWanHelper.WanIndexFromKey(wan.Key)).WanToken ?? wan.Label;
 
     /// <summary>What every Live View tile's sparkline reads; the same for all of them, so they share one fetch.</summary>
+    // TODO: duplicated in LiveViewPanel.razor (LiveSparkRequest); move into one shared helper.
     private LiveViewSparkRequest LiveSparkRequest() => new(
         _gatewayMac, GetGatewayFabricTargetId(),
         ScopedTargetIds(MonitoringTargetType.AccessIsp), ScopedTargetIds(MonitoringTargetType.Transit));
     /// <summary>The targets an ISP or Transit tile reads right now: the selected WAN's own, or every enabled one.</summary>
+    // TODO: duplicated in LiveViewPanel.razor (ScopedTargetIds); move into one shared helper.
     private IReadOnlyList<string> ScopedTargetIds(MonitoringTargetType type)
     {
         var wan = LiveWan.Selected;
@@ -5349,7 +5735,8 @@
             : TargetsForWan(type, wan.Key, wan.IsPrimary);
         return targets.Select(t => t.TargetId).ToList();
     }
-    private List<(string Label, double? Rtt, double Loss)> PerWanTargetStats(MonitoringTargetType type, bool meanAcrossTargets)
+    // TODO: duplicated in LiveViewPanel.razor (PerWanTargetStats); move the tile figures into one shared component or service.
+    private List<(string Label, double? Rtt, double Loss)> PerWanTargetStats(MonitoringTargetType type)
     {
         var rows = new List<(string, double?, double)>();
         foreach (var wan in LiveWan.SelectedOptions)
@@ -5364,65 +5751,10 @@
                     type == MonitoringTargetType.AccessIsp ? historic.IspLossPercent : historic.TransitLossPercent));
                 continue;
             }
-            var targets = TargetsForWan(type, wan.Key, wan.IsPrimary);
-            double? rtt = null;
-            double loss = 0;
-            if (targets.Count > 0)
-            {
-                var rtts = new List<double>();
-                var losses = new List<double>();
-                var freshAfter = DateTime.UtcNow - Services.MonitoringLiveStats.LiveReadingMaxAge;
-                foreach (var t in targets)
-                {
-                    var st = LiveStats.GetTargetStats(t.TargetId);
-                    // A reading only counts while it is current: a target that stops reporting
-                    // otherwise keeps presenting the reading it carried before it went quiet.
-                    if (st == null || st.LastUpdate < freshAfter) continue;
-                    losses.Add(st.LossPercent);
-                    if (st.RttAvgMs == null) continue;
-                    rtts.Add(st.RttAvgMs.Value);
-                }
-                if (meanAcrossTargets)
-                {
-                    // Transit reads as the mean of its hops.
-                    rtt = rtts.Count > 0 ? rtts.Average() : null;
-                    loss = losses.Count > 0 ? losses.Average() : 0;
-                }
-                else
-                {
-                    // The access ISP reads as its access floor, as ISP Health does.
-                    var floor = LiveStats.GetIspAccessFloorLive(targets.Select(t => t.TargetId));
-                    rtt = floor.RttAvgMs;
-                    loss = floor.LossPercent ?? 0;
-                }
-            }
+            var (rtt, loss) = LiveStats.GetTileLatencyLive(type, TargetsForWan(type, wan.Key, wan.IsPrimary).Select(t => t.TargetId));
             rows.Add((WanRowLabel(wan), rtt, loss));
         }
         return rows;
-    }
-
-    private (double? rtt, double loss) GetMeanTargetStats(MonitoringTargetType type)
-    {
-        if (_historicSnapshot != null)
-        {
-            return type switch
-            {
-                MonitoringTargetType.Transit => (_historicSnapshot.TransitRttMs, _historicSnapshot.TransitLossPercent),
-                _ => (null, 0)
-            };
-        }
-        var targets = _targets.Where(t => t.TargetType == type && t.Enabled).ToList();
-        if (targets.Count == 0) return (null, 0);
-
-        var rtts = new List<double>();
-        var losses = new List<double>();
-        foreach (var t in targets)
-        {
-            var s = LiveStats.GetTargetStats(t.TargetId);
-            if (s?.RttAvgMs != null) rtts.Add(s.RttAvgMs.Value);
-            if (s != null) losses.Add(s.LossPercent);
-        }
-        return (rtts.Count > 0 ? rtts.Average() : null, losses.Count > 0 ? losses.Average() : 0);
     }
 
     private (double ingress, double egress) GetTotalFabricLoad()
@@ -5897,7 +6229,7 @@
             try
             {
                 await JS.InvokeVoidAsync("eval",
-                    $"(async () => {{ const m = await import('{VersionedJs("/js/lan-flow-map-2d.js")}'); window.__lanFlowMap2d = m; await m.mount('lan-flow-map-2d-stage', {{ storagePrefix: '{SiteCtx.ScopeStorageKey("lanFlowMap2d")}', focusClient: '{FocusClientMac}' }}); }})();");
+                    $"(async () => {{ const m = await import('{VersionedJs("/js/lan-flow-map-2d.js")}'); window.__lanFlowMap2d = m; await m.mount('lan-flow-map-2d-stage', {{ storagePrefix: '{System.Text.Encodings.Web.JavaScriptEncoder.Default.Encode(SiteCtx.ScopeStorageKey("lanFlowMap2d"))}', focusClient: '{System.Text.Encodings.Web.JavaScriptEncoder.Default.Encode(FocusClientMac)}' }}); }})();");
             }
             catch (Exception ex) { _map2dMounted = false; Logger.LogDebug(ex, "2D map mount failed; will retry on next render"); }
             // The focus is a one-time arrival cue: once both maps have it, the parameter leaves the
@@ -5988,7 +6320,13 @@
         }
 
         // Latency charts - Performance tab only
-        if (_activeTab == "performance" && _monitoringReady && !_latencyChartsMounted)
+        if (_lossNavActive && _activeTab == "performance")
+        {
+            try { await JS.InvokeVoidAsync("noLossNavFit", "#latency-charts-container .monitoring-chart-header"); }
+            catch (Exception ex) when (ex is JSException or JSDisconnectedException) { Logger.LogDebug(ex, "Could not place the loss event stepper"); }
+        }
+
+        if (_activeTab == "performance" && _monitoringReady && !_latencyChartsMounted && !_awaitingOwnFilters)
         {
             _latencyChartsMounted = true;
             try
@@ -6018,9 +6356,8 @@
                 {
                     // LAN with nothing to draw is a dead end, so it falls through to ISP the same
                     // way the card's own opening choice does - one rule, not a second copy of it.
-                    var resolved = _preSelectCategory == FabricCategory
-                        ? DefaultChartCategory()
-                        : _preSelectCategory;
+                    var resolved = MonitoringViewState.LandingCategory(
+                        _preSelectCategory, ChartScopeKind, HasTargetsInWanScope(MonitoringTargetType.Fabric));
                     var category = System.Text.Encodings.Web.JavaScriptEncoder.Default.Encode(resolved);
                     // A jump from the Live tab carries what it was showing: an instant if it was
                     // parked there, which the window is framed on, or "live" if it was not - and
@@ -6035,7 +6372,8 @@
                             ? $"m.frameTrailing('{category}');"
                             : $"m.setCategory('{category}');";
                     if (!string.IsNullOrEmpty(_soloTargetId))
-                        postMount += $"m.soloTarget('{System.Text.Encodings.Web.JavaScriptEncoder.Default.Encode(_soloTargetId)}');";
+                        // After the load the framing above started: soloTarget searched the opening category's targets.
+                        postMount += $"m.soloAfterLoad('{System.Text.Encodings.Web.JavaScriptEncoder.Default.Encode(_soloTargetId)}');";
                     _preSelectCategory = null;
                     _soloTargetId = null;
                     _preSelectAtMs = null;
@@ -6048,34 +6386,87 @@
                     $"(async () => {{ const m = await import('{chartsUrl}'); window.__latencyCharts = m; await m.mount('latency-charts-container', {WanScopeJson()}, '{DefaultChartCategory()}'); "
                     + "if (window.__netoptPendingWanScope !== undefined) { m.setWanScope(window.__netoptPendingWanScope); window.__netoptPendingWanScope = undefined; } "
                     + $"{postMount} }})();");
+                _latencyChartsReady = true;
                 // The link's WAN is applied above, so a deep-linked investigation held back at the
                 // top of this method can run now. Done here rather than left to the next render:
                 // the apply does not always raise one, and waiting for an unrelated render is the
                 // race all over again.
                 await TryRunPendingInvestigationAsync();
             }
-            catch (Exception ex) { _latencyChartsMounted = false; Logger.LogDebug(ex, "Latency charts mount failed; will retry on next render"); }
+            catch (Exception ex) { _latencyChartsMounted = false; _latencyChartsReady = false; Logger.LogDebug(ex, "Latency charts mount failed; will retry on next render"); }
         }
-        else if (_activeTab != "performance" && _latencyChartsMounted)
+        // The Path Map's saved state, then the map itself, once the charts it follows are mounting.
+        if (_activeTab == "performance" && _monitoringReady && !_pathMapStateLoaded && !_pathMapStateLoading)
         {
-            _latencyChartsMounted = false;
-            // Leaving ends the visit a link governed, so the next arrival gets to be honoured even
-            // when it names the same WAN. The stamp is once-PER-VISIT; left set across the leave it
-            // was once ever, and a second jump on the same WAN silently kept the scope it found.
-            _appliedLinkWanKey = null;
-            try { await JS.InvokeVoidAsync("eval", "window.__latencyCharts?.unmount(); window.__netoptPendingWanScope = undefined;"); }
-            catch { }
-            // The flaky-LAN advisory is tied to the live chart, so clear it when the chart leaves.
-            _lanFlakyCategoryActive = false;
-            _lanFlakyTargetIds = new();
-            // The chart (and its highlight) is torn down on leave, so drop the loss-nav state
-            // too - otherwise returning shows the card "active" with no highlight on the chart.
-            // Deep-linked investigations re-arm via the query param on entry, so this is safe.
-            ResetLossNavState();
-            // Revert any transient deep-link force-open to the user's saved preference, so a
-            // linkable investigation never lingers as an expand the user didn't choose.
-            _investigateCollapsed = _investigateSavedCollapsed;
-            _investigateDeepLinkOpened = false;
+            _pathMapStateLoading = true;
+            string? saved = null;
+            try { saved = await UserPreferences.GetAsync(PathMapCollapseKey); }
+            catch (Exception ex) { Logger.LogDebug(ex, "Could not read the Path Map's collapsed state"); }
+            var collapsed = saved == "true";
+            // With nothing saved, a phone opens it collapsed: the chips do the work until a tap.
+            if (saved is not ("true" or "false"))
+            {
+                try { collapsed = await JS.InvokeAsync<bool>("eval", "window.matchMedia('(max-width: 768px)').matches"); }
+                catch { collapsed = false; }
+            }
+            _pathMapCollapsed = collapsed;
+            try { _pathMapPreset = await UserPreferences.GetAsync(PathMapPresetKey); }
+            catch (Exception ex) { Logger.LogDebug(ex, "Could not read the Path Map's view"); }
+            _pathMapStateLoaded = true;
+            _pathMapStateLoading = false;
+            StateHasChanged();
+        }
+
+        if (_activeTab == "performance" && _latencyChartsMounted && _pathMapStateLoaded && !_pathMapMounted)
+        {
+            _pathMapMounted = true;
+            try
+            {
+                _pathMapModule ??= await JS.InvokeAsync<IJSObjectReference>("import", VersionedJs("/js/path-map.js"));
+                _latencyDotNetRef ??= DotNetObjectReference.Create(this);
+                await _pathMapModule.InvokeVoidAsync("mount", _pathMapCard, _latencyDotNetRef, PathMapOpen, _pathMapPreset);
+                if (!string.IsNullOrEmpty(_pathMapLinkTarget))
+                {
+                    await _pathMapModule.InvokeVoidAsync("markTarget", _pathMapLinkTarget);
+                    _pathMapLinkTarget = null;
+                }
+            }
+            catch (JSDisconnectedException) { }
+            catch (Exception ex) { _pathMapMounted = false; Logger.LogDebug(ex, "Path Map mount failed; will retry on next render"); }
+        }
+
+        if (_restoreLiveScrollPending && _activeTab == "live")
+        {
+            _restoreLiveScrollPending = false;
+            try { await JS.InvokeVoidAsync("noTabScroll.restore", "monitoring-live"); }
+            catch (Exception ex) when (ex is JSException or JSDisconnectedException) { Logger.LogDebug(ex, "Could not return to the Live View scroll"); }
+        }
+
+        if (_scrollToChartsPending && _activeTab == "performance" && _latencyChartsMounted)
+        {
+            _scrollToChartsPending = false;
+            // After the charts have drawn: scroll restoration settles after the navigation, and an
+            // earlier scroll is overridden by it.
+            await Task.Delay(500);
+            // Quiet from ISP Health too: its links name the event they open on, so a ring adds nothing.
+            var quiet = _quietChartsLanding || string.Equals(ViaParam, "isp-health", StringComparison.OrdinalIgnoreCase);
+            _quietChartsLanding = false;
+            try { await JS.InvokeVoidAsync("noLandOnChart", "latency-charts-container", "latency-rtt-card", quiet); }
+            catch (JSDisconnectedException) { }
+            catch (Exception ex) { Logger.LogDebug(ex, "Scroll to the latency charts failed"); }
+        }
+
+        if (_activeTab != "performance" && _pathMapMounted)
+        {
+            _pathMapMounted = false;
+            try { if (_pathMapModule != null) await _pathMapModule.InvokeVoidAsync("unmount"); }
+            catch (JSDisconnectedException) { }
+            catch (Exception ex) { Logger.LogDebug(ex, "Path Map unmount failed"); }
+        }
+
+        if (_activeTab != "performance" && _latencyChartsMounted)
+        {
+            await UnmountLatencyChartsAsync();
         }
 
         if (_scrollToDiscoveryPending && _activeTab == "performance")
@@ -6333,6 +6724,15 @@
         _sfpChartDebounce?.Dispose();
         _mapDotNetRef?.Dispose();
         _latencyDotNetRef?.Dispose();
+        if (_pathMapModule != null)
+        {
+            var module = _pathMapModule;
+            _ = Task.Run(async () =>
+            {
+                try { await module.InvokeVoidAsync("unmount"); await module.DisposeAsync(); }
+                catch { /* circuit gone: the page and its map went with it */ }
+            });
+        }
         if (_latencyChartsMounted)
         {
             try { _ = JS.InvokeVoidAsync("eval", "window.__latencyCharts?.unmount();").AsTask(); }

@@ -59,7 +59,7 @@ The script creates a privileged Debian LXC container (Debian 13 Trixie by defaul
 | Speedtest Port | 3005 | OpenSpeedTest web UI (configurable) |
 | iperf3 Server | Disabled | CLI-based speed testing (port 5201) |
 | Host Redirect | Disabled | Redirect IP access to hostname (requires local DNS) |
-| HTTPS (Traefik) | Disabled | Automatic HTTPS with Let's Encrypt via Cloudflare DNS |
+| HTTPS (Traefik) | Disabled | Automatic HTTPS with Let's Encrypt (DNS-01, Cloudflare at install) |
 | Reverse Proxy | None | Optional hostname for reverse proxy setup (skipped if Traefik enabled) |
 | Geo Location | Disabled | GPS tagging for speed tests and signal levels (auto-enabled with Traefik) |
 | Timezone | America/New_York | Container timezone |
@@ -209,14 +209,14 @@ docker compose pull && docker compose up -d && docker image prune -f
 
 During installation, you can optionally enable HTTPS via a built-in [Traefik](https://github.com/Ozark-Connect/NetworkOptimizer-Proxy) reverse proxy. This provides:
 
-- Automatic Let's Encrypt certificates via Cloudflare DNS-01 challenge
+- Automatic Let's Encrypt certificates via DNS-01 challenge
 - HTTP/1.1 for speed tests (HTTP/2 multiplexing skews results), HTTP/2 for the main app
 - Geo location tagging for speed tests and signal walk tests (browsers require HTTPS for location access)
 
 **Requirements:**
-- A domain managed by Cloudflare (for DNS-01 certificate validation)
+- A domain whose DNS is at Cloudflare (the installer asks for a Cloudflare token; to use another DNS provider, change `DNS_PROVIDER` in `/opt/network-optimizer-proxy/.env` after install, see [NetworkOptimizer-Proxy](https://github.com/Ozark-Connect/NetworkOptimizer-Proxy#automatic-https))
 - A Cloudflare API token with Zone > DNS > Edit permission ([create one here](https://dash.cloudflare.com/profile/api-tokens))
-- Two DNS records pointing to your container's IP (e.g., `optimizer.example.com` and `speedtest.example.com`)
+- Two DNS records pointing to your container's IP (e.g., `optimizer.example.com` and `speedtest.example.com`). These can live on your local DNS (your gateway, Pi-hole); Traefik only creates the temporary records that prove domain ownership.
 
 **What gets deployed:**
 - Traefik container at `/opt/network-optimizer-proxy/`
@@ -241,7 +241,17 @@ pct exec <CT_ID> -- nano /opt/network-optimizer-proxy/.env
 
 **Note:** Certificates may take about a minute to issue on first start. If you see certificate errors immediately after installation, wait a moment and refresh.
 
-If you don't enable Traefik during installation, you can still set up a reverse proxy manually later. See the [Deployment Guide](../../docker/DEPLOYMENT.md#https-with-reverse-proxy) for nginx, Caddy, and Traefik examples.
+### Adding HTTPS to an Existing Install
+
+If you skipped Traefik during installation, add it later without reinstalling (re-running `install.sh` creates a new container). Run this on the **Proxmox VE host** and enter the container ID when prompted:
+
+```bash
+bash -c "$(wget -qLO - https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main/scripts/proxmox/add-https.sh)"
+```
+
+It deploys the same Traefik proxy the installer does and updates the app's `.env` to match. Your data and settings are kept. The requirements above apply.
+
+To use your own reverse proxy instead, see the [Deployment Guide](../../docker/DEPLOYMENT.md#https-with-reverse-proxy) for nginx, Caddy, and Traefik examples.
 
 ## Advanced Configuration
 

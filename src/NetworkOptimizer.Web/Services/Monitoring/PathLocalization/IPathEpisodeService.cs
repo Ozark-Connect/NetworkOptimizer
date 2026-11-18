@@ -49,17 +49,20 @@ public sealed record PathEpisodeView
 /// <param name="Address">The address the rounds traced.</param>
 /// <param name="Vantage">"server" or "agent-N": where they ran from.</param>
 /// <param name="SourceInterface">The bind they used, or null for the default route.</param>
-/// <param name="VantageName">Where they ran from, as the page names it: "this server" or the agent's name.</param>
+/// <param name="VantageName">Where they ran from, as the page names it: "this server" or the agent's name. Null
+/// before the first stored trace: <paramref name="Vantage"/> is then only a default, not where the rounds run.</param>
 /// <param name="TracedAddress">The address a hostname target was pinned to for the episode; null for an IP target.</param>
 public sealed record PathEpisodeHopTable(PathEpisodeTargetView Target, string Address, string Vantage, string? SourceInterface,
-    int Rounds, bool HasRecovery, IReadOnlyList<HopReading> Hops, string VantageName, string? TracedAddress = null);
+    int Rounds, bool HasRecovery, IReadOnlyList<HopReading> Hops, string? VantageName, string? TracedAddress = null);
 
 /// <summary>An episode with its hop tables.</summary>
 /// <param name="PingedHops">Hops decided by pinging them during the episode rather than by a monitored series.</param>
 /// <param name="HopPings">What each pinged hop's echoes returned, by address.</param>
-/// <param name="MonitoredLoss">Each monitored hop's own series loss over the episode, by address.</param>
+/// <param name="MonitoredLoss">Each monitored hop's and degraded destination's own series loss over the episode, by address.</param>
+/// <param name="MonitoredRtt">The same series' median RTT over the episode, by address.</param>
 public sealed record PathEpisodeDetail(PathEpisodeView Episode, IReadOnlyList<PathEpisodeHopTable> Tables, IReadOnlySet<string>? PingedHops = null,
-    IReadOnlyDictionary<string, PathGateSnapshot.HopPingStats>? HopPings = null, IReadOnlyDictionary<string, double>? MonitoredLoss = null);
+    IReadOnlyDictionary<string, PathGateSnapshot.HopPingStats>? HopPings = null, IReadOnlyDictionary<string, double>? MonitoredLoss = null,
+    IReadOnlyDictionary<string, double>? MonitoredRtt = null);
 
 /// <summary>
 /// Path Localization's episodes for the site in context. Reads only: episodes are evidence the app

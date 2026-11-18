@@ -43,11 +43,14 @@ public static class MonitoringLinks
     /// </summary>
     public const string LiveAtToken = "live";
 
+    /// <summary>The <c>?wan=</c> value that opens Latency and Packet Loss on its LAN scope.</summary>
+    public const string LanScopeToken = "lan";
+
     /// <summary>
     /// Latency and Packet Loss for a category, at a moment, scoped to the WANs on screen.
     /// <para>
-    /// LAN and Custom targets are not reached over any one WAN, so those views ask for all of them
-    /// rather than narrowing to whichever WAN the tiles happened to be showing.
+    /// LAN and Custom targets are not reached over any one WAN, so those views do not narrow to
+    /// whichever WAN the tiles happened to be showing: LAN asks for the LAN scope, Custom for every WAN.
     /// </para>
     /// <para>
     /// The WAN fragment is asked of the scope rather than rebuilt here. This method once took the
@@ -62,11 +65,16 @@ public static class MonitoringLinks
     /// <param name="wanScope">The WAN selection on screen, which writes its own query fragment.</param>
     public static string Analysis(string category, string at, LiveWanScope wanScope)
     {
-        var spansEveryWan = category is FabricCategory or CustomCategory
-            ? LiveWanScope.AllWansToken
-            : null;
+        // LAN targets open on the LAN scope by name: on a single-WAN site "all" is that one WAN, a WAN scope, which
+        // hides the LAN category, so the chart fell back to another one.
+        var scope = category switch
+        {
+            FabricCategory => LanScopeToken,
+            CustomCategory => LiveWanScope.AllWansToken,
+            _ => null,
+        };
         return $"/monitoring?tab=performance&category={category}&at={at}"
-            + wanScope.QueryFragment(spansEveryWan);
+            + wanScope.QueryFragment(scope);
     }
 
     /// <summary>
@@ -92,15 +100,15 @@ public static class MonitoringLinks
     /// it the destination framed its saved window, so a tile showing what is happening now could
     /// land on some earlier stretch of the day.
     /// <para>
-    /// Asks for every WAN the way any LAN view does: the LAN categories are only offered in the All
-    /// scope, so a link that named no WAN landed in whatever scope the destination was last left in
-    /// and the chart moved off the category - and the target - the link had asked for.
+    /// Asks for the LAN scope by name: a link that named none landed in whatever scope the destination
+    /// was last left in, and one asking for every WAN is a WAN scope on a single-WAN site; either way
+    /// the chart moved off the category, and the target, the link had asked for.
     /// </para>
     /// </summary>
     public static string FabricTarget(string? targetId, string at, LiveWanScope wanScope) =>
         $"/monitoring?tab=performance&category={FabricCategory}&at={at}"
         + (string.IsNullOrEmpty(targetId) ? "" : $"&target={Uri.EscapeDataString(targetId)}")
-        + wanScope.QueryFragment(LiveWanScope.AllWansToken);
+        + wanScope.QueryFragment(LanScopeToken);
 
     /// <summary>
     /// Device Stats for one device, at a moment. The gateway's CPU, memory and temperature tiles

@@ -3,6 +3,10 @@
 @inject IPathEpisodeService PathEpisodes
 @inject ILogger<PathEpisodeHopTable> Logger
 @inject NavigationManager NavigationManager
+@inject NetworkOptimizer.Threats.Enrichment.GeoEnrichmentService Geo
+@inject NetworkOptimizer.Web.Services.Monitoring.IHopLocationOverrideService HopLocationSets
+@inject NetworkOptimizer.Web.Services.Monitoring.LearnedHopLocations LearnedLocations
+@inject SiteContextService SiteContext
 
 @* The hop table behind one Path Localization episode: every TTL of each degraded target's rounds,
    pooled, with the hop where the degradation first appears and the last clean one marked. Loaded
@@ -42,6 +46,15 @@
             <div class="path-episode-table-head">
                 <span class="path-episode-table-title path-episode-target-name">@table.Target.Name<MonitoringJumpButton Icon="MonitoringJumpButton.JumpIcon.Analyze"
                     Tooltip="@JumpTooltip(table.Target)" OnClick="() => Jump(table.Target)" /></span>
+                @if (table.VantageName == null)
+                {
+                    @if (_detail.Episode.Tracing)
+                    {
+                        <span class="text-muted">Tracing every minute</span>
+                    }
+                }
+                else
+                {
                 <span class="text-muted">
                     @table.Rounds @(table.Rounds == 1 ? "trace" : "traces") from @table.VantageName@(_detail.Episode.Tracing ? ", every minute" : "")@(table.HasRecovery ? ", traced again after it recovered" : _detail.Episode.ClosedAt == null ? "" : ", no trace after recovery yet")
                 </span>
@@ -51,6 +64,7 @@
                 }
                 <a class="path-episode-rerun" href="@PathEpisodePresentation.RerunUrl(table.TracedAddress ?? table.Address, table.Vantage, _detail.Episode.WanContextId)"
                    data-tooltip="Fill Network Tools with this target and vantage" data-tooltip-hover-only>Re-run</a>
+                }
             </div>
             @if (table.Hops.Count == 0)
             {
@@ -58,12 +72,17 @@
             }
             else
             {
+            var locations = LocationsFor(table);
             <div class="table-responsive">
-                <table class="data-table path-episode-hops">
+                <table class="data-table path-episode-hops @(table.Hops.Any(ReturnHopsWorthShowing) ? "has-return" : "") @(locations.Count > 0 ? "has-location" : "")" style="@ColumnWidths()">
                     <colgroup>
                         <col class="path-col-hop" />
                         <col />
                         <col class="path-col-network" />
+                        @if (locations.Count > 0)
+                        {
+                            <col class="path-col-location" />
+                        }
                         <col class="path-col-loss" />
                         <col class="path-col-rtt" />
                         @if (table.Hops.Any(ReturnHopsWorthShowing))
@@ -76,6 +95,10 @@
                             <th>Hop</th>
                             <th>Address / PTR</th>
                             <th>Network</th>
+                            @if (locations.Count > 0)
+                            {
+                                <th class="path-loc-cell" data-tooltip="The city in the router's hostname when it names one, else where GeoLite2 places the address. Hover a location for its source.">Location</th>
+                            }
                             <th>Loss</th>
                             <th data-tooltip="One bar per trace. Taller is slower.">RTT (normal &rarr; during)</th>
                             @if (table.Hops.Any(ReturnHopsWorthShowing))
@@ -88,7 +111,7 @@
                         @foreach (var hop in table.Hops)
                         {
                             var tag = PathEpisodePresentation.HopTagLabel(hop);
-                            <tr class="@RowClass(hop)">
+                            <tr class="@RowClass(hop)" @onclick="() => _selectedHop = hop">
                                 <td>@hop.Ttl</td>
                                 <td>
                                     @if (hop.Has(HopTag.Destination) && hop.Responses == 0)
@@ -101,15 +124,19 @@
                                     }
                                     else if (!string.IsNullOrEmpty(hop.Hostname))
                                     {
-                                        <span>@hop.Hostname (@hop.Address)</span>
+                                        <span @attributes="NetworkOptimizer.Web.Services.Monitoring.LiveTraffic.LiveTrafficLinks.DestinationCard(hop.Address, hop.Hostname, threatsLink: false)">@hop.Hostname (@hop.Address)</span>
                                     }
                                     else
                                     {
-                                        <span>@hop.Address</span>
+                                        <span @attributes="NetworkOptimizer.Web.Services.Monitoring.LiveTraffic.LiveTrafficLinks.DestinationCard(hop.Address, threatsLink: false)">@hop.Address</span>
                                     }
                                     @if (tag != null)
                                     {
                                         <span class="path-hop-tag @TagClass(hop)" data-tooltip="@TagTooltip(hop)">@tag</span>
+                                    }
+                                    @if (hop.Has(HopTag.SeriesOnly))
+                                    {
+                                        <span class="path-hop-tag path-hop-tag-onset" data-tooltip="Its own ping series is degraded over the episode, but the traces didn't catch it, so they can't place where. Loss and RTT here are from that series.">Degraded</span>
                                     }
                                     @if (hop.Has(HopTag.Anchored) && hop.Address != null && _detail.PingedHops?.Contains(hop.Address) == true)
                                     {
@@ -129,6 +156,15 @@
                                     }
                                 </td>
                                 <td><TextWithCode Text="@PathTraceAnalyzer.NetworkCell(hop)" /></td>
+                                @if (locations.Count > 0)
+                                {
+                                    <td class="path-loc-cell">
+                                        <HopLocationCell Address="@(hop.Responses > 0 ? hop.Address : null)"
+                                            Location="@(hop.Responses > 0 && hop.Address != null && locations.TryGetValue(hop.Address, out var location) ? location : null)"
+                                            Selected="@ReferenceEquals(_selectedHop, hop)" Open="@(_locationEdit?.Address == hop.Address)"
+                                            OnEdit="e => _locationEdit = e" />
+                                    </td>
+                                }
                                 <td class="path-hop-nowrap">
                                     @if (LossCell(hop) is { } loss)
                                     {
@@ -155,13 +191,18 @@
                                             }
                                         </span>
                                     }
-                                    @if (RttTooltip(hop, table) is { } rttTip)
+                                    @{ var rtt = PathEpisodePresentation.HopRtt(hop, _detail); }
+                                    @if (RttTooltip(hop, table, rtt) is { } rttTip)
                                     {
-                                        <span class="path-rtt-value" data-tooltip="@rttTip">@RttLabel(hop)</span>
+                                        <span class="path-rtt-value" data-tooltip="@rttTip">@(rtt?.Text ?? "-")</span>
                                     }
                                     else
                                     {
-                                        <span class="path-rtt-value">@RttLabel(hop)</span>
+                                        <span class="path-rtt-value">@(rtt?.Text ?? "-")</span>
+                                    }
+                                    @if (rtt?.TraceMs is double traceMs)
+                                    {
+                                        @(" ")<span class="path-rtt-value text-muted">(trace @($"{traceMs:0.0}"))</span>
                                     }
                                 </td>
                                 @if (table.Hops.Any(ReturnHopsWorthShowing))
@@ -192,6 +233,11 @@
     }
 </div>
 
+@if (_locationEdit != null)
+{
+    <HopLocationEditor Edit="_locationEdit" OnClose="() => _locationEdit = null" OnChanged="LocationSetChangedAsync" />
+}
+
 @code {
     [Parameter, EditorRequired] public int EpisodeId { get; set; }
 
@@ -217,6 +263,7 @@
         try
         {
             _detail = await PathEpisodes.GetEpisodeAsync(EpisodeId);
+            await LoadLocationSetsAsync();
             _failed = _detail == null;
         }
         catch (Exception ex)
@@ -227,6 +274,61 @@
     }
 
     private PathHopLoss? LossCell(HopReading hop) => PathEpisodePresentation.HopLoss(hop, _detail!);
+
+    // Location and Loss sized to their longest text, in ch, across every table in the episode so
+    // the tables still line up. The rem part covers padding, the flag, and the Set location icon.
+    private string ColumnWidths()
+    {
+        int loss = 5, loc = 8;
+        foreach (var table in _detail!.Tables.Where(t => t.Hops.Count > 0))
+        {
+            var locations = LocationsFor(table);
+            foreach (var hop in table.Hops)
+            {
+                loss = Math.Max(loss, PathEpisodePresentation.HopLossText(LossCell(hop)).Length);
+                if (hop.Responses > 0 && hop.Address != null && locations.TryGetValue(hop.Address, out var l))
+                {
+                    loc = Math.Max(loc, l.Text.Length + (l.Source == NetworkOptimizer.Web.Services.Monitoring.HopLocationSource.Set ? 4 : 0));
+                }
+            }
+        }
+        // A ch is a digit's width; Loss is mostly digits, a place name mostly narrower letters.
+        return $"--path-loss-w: calc({loss}ch + 1.25rem); --path-loc-w: calc({Math.Ceiling(loc * 0.85)}ch + 4.25rem);";
+    }
+
+    // Each table's hop locations, worked out once per load: a GeoLite2 read per hop is not free.
+    private readonly Dictionary<NetworkOptimizer.Web.Services.Monitoring.PathLocalization.PathEpisodeHopTable, Dictionary<string, NetworkOptimizer.Web.Services.Monitoring.HopLocationView>> _locations = new();
+
+    private Dictionary<string, NetworkOptimizer.Web.Services.Monitoring.HopLocationView> LocationsFor(NetworkOptimizer.Web.Services.Monitoring.PathLocalization.PathEpisodeHopTable table)
+    {
+        if (!_locations.TryGetValue(table, out var found))
+        {
+            var hops = table.Hops.Where(h => h.Responses > 0).Select(h => (h.Address, h.Hostname, h.MinRttMs)).ToList();
+            found = NetworkOptimizer.Web.Services.Monitoring.HopLocations.Resolve(hops, Geo.Enrich, _locationSets, _learned);
+            _locations[table] = found;
+            // Rendering cannot wait on it, and it never throws.
+            _ = LearnedLocations.LearnAsync(SiteContext.Slug, hops, found, Geo.Enrich, _detail?.Episode.ClosedAt ?? _detail?.Episode.OpenedAt);
+        }
+        return found;
+    }
+
+    private IReadOnlyDictionary<string, NetworkOptimizer.Web.Services.Monitoring.HopLocationSetting>? _locationSets;
+    private IReadOnlyDictionary<string, NetworkOptimizer.Web.Services.Monitoring.LearnedHop>? _learned;
+
+    // Re-reads the locations set by hand and drops the worked-out tables, so the next render places the hops again.
+    private async Task LoadLocationSetsAsync()
+    {
+        try { _locationSets = await HopLocationSets.GetAllAsync(); }
+        catch (Exception ex) { Logger.LogWarning(ex, "Could not read the hop locations set by hand"); }
+        _learned = await LearnedLocations.GetAsync(SiteContext.Slug);
+        _locations.Clear();
+    }
+
+    private Task LocationSetChangedAsync() => LoadLocationSetsAsync();
+
+    // The tapped row, whose Set location icon shows without a hover, and the hop whose editor is open.
+    private HopReading? _selectedHop;
+    private NetworkOptimizer.Web.Services.Monitoring.HopLocationEdit? _locationEdit;
 
     // A reply that came home by as many hops as it went out says nothing, and is most of them.
     private static bool ReturnHopsWorthShowing(HopReading h) =>
@@ -244,16 +346,12 @@
         : "Elevated, but the hops beyond it were not: this router deprioritizes its own ICMP replies. Shown, never blamed.";
 
 
-    private static string RttLabel(HopReading h)
+    private static string? RttTooltip(HopReading h, NetworkOptimizer.Web.Services.Monitoring.PathLocalization.PathEpisodeHopTable table, PathHopRtt? rtt)
     {
-        if (h.EpisodeRttMs is not double during) return "-";
-        return PathEpisodePresentation.DisplayBaseline(h) is double b ? $"{b:0.0} → {during:0.0} ms" : $"{during:0.0} ms";
-    }
-
-    private static string? RttTooltip(HopReading h, NetworkOptimizer.Web.Services.Monitoring.PathLocalization.PathEpisodeHopTable table)
-    {
-        if (!h.EpisodeRttMs.HasValue) return null;
+        if (rtt == null) return null;
         var reading = PathEpisodePresentation.RoundsReading(h, table.Hops, table.Target.Name);
+        if (rtt.FromSeries)
+            return $"{reading}. Both figures are from its own ping series: the typical RTT over the last 24 hours, then the median over the episode.";
         return h.SeriesBaselineRttMs.HasValue
             ? $"{reading}. Normal is from its own monitored series: the typical RTT over the last 24 hours."
             : reading;

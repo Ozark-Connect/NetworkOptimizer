@@ -124,7 +124,7 @@ public static class PortTableCounterRecorder
 
                 // A read the calculator does not trust is not stored: differenced, one bad sample
                 // reads as the whole counter's worth of traffic.
-                var trusted = calc.Outcome is not (InterfaceRateCalculator.Outcome.ResetPending or InterfaceRateCalculator.Outcome.ImplausibleRate);
+                var trusted = !calc.IsUntrusted;
                 if (influx.IsConfigured && trusted)
                 {
                     _ = influx.WriteInterfaceCountersAsync(

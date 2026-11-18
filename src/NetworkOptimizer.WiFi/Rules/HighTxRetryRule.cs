@@ -52,7 +52,9 @@ public class HighTxRetryRule : IWiFiOptimizerRule
         var anyCritical = highRetryRadios.Any(x => x.Radio.TxRetriesPct >= Thresholds(x.Radio.Band).Critical);
 
         var affectedRadios = highRetryRadios
-            .Select(x => $"{x.Ap.Name} ({x.Radio.Band.ToDisplayString()} {x.Radio.TxRetriesPct:F1}%, {x.Radio.ClientCount} clients, threshold {Thresholds(x.Radio.Band).Warning:F0}%)")
+            .Select(x => new IssueLink(
+                $"{x.Ap.Name} ({x.Radio.Band.ToDisplayString()} {x.Radio.TxRetriesPct:F1}%, {x.Radio.ClientCount} clients, threshold {Thresholds(x.Radio.Band).Warning:F0}%)",
+                IssueLinks.Clients(x.Ap.Mac, x.Radio.Band)))
             .ToList();
 
         // Where the agent measured the air, the retries have a cause: other transmitters holding
@@ -80,10 +82,9 @@ public class HighTxRetryRule : IWiFiOptimizerRule
             Description = $"{highRetryRadios.Count} radio(s) have retry rates above their band's threshold " +
                 $"across {totalClients} clients. " +
                 "Retries waste airtime and indicate interference, weak signals, or hidden node problems." + attribution,
-            AffectedEntity = string.Join(", ", affectedRadios),
             Recommendation = "Check for sources of interference, ensure APs are on non-overlapping channels, " +
                 "and verify client signal strength is adequate (-70 dBm or better).",
             ScoreImpact = critical ? -12 : -8
-        };
+        }.WithLinks(affectedRadios);
     }
 }

@@ -37,7 +37,7 @@ public static class LockoutChecker
         foreach (var (mac, device) in devicesByMac)
         {
             var meta = device[ConfigCollections.DeviceMetaField] as JsonObject;
-            if (Str(meta?["type"]) is "ugw" or "udm" or "uxg") continue;
+            if (ConfigCollections.IsGateway(device)) continue;
             var uplinkMac = Str(meta?["uplink"]?["uplink_mac"])?.ToLowerInvariant();
             var uplinkPort = Str(meta?["uplink"]?["uplink_remote_port"]);
             if (uplinkMac == null || uplinkPort == null || !devicesByMac.TryGetValue(uplinkMac, out var uplink)) continue;
@@ -170,7 +170,7 @@ public static class LockoutChecker
         }
 
         // Networks Network Optimizer reaches the site from (the agent host's, or the server's own).
-        var gateways = devicesByMac.Values.Where(d => Str(d[ConfigCollections.DeviceMetaField]?["type"]) is "ugw" or "udm" or "uxg").Select(Name).ToList();
+        var gateways = devicesByMac.Values.Where(ConfigCollections.IsGateway).Select(Name).ToList();
         // IPv4 only: InSubnet answers true for what it cannot compare, which would match every network.
         // The routed source, where Network Optimizer reaches the site from. A plan that moves a subnet (Re-address) can
         // change that route, so it keeps every host address; a host with a leg on many VLANs owns addresses it never manages from.
@@ -366,7 +366,7 @@ public static class LockoutChecker
         }
 
         if (options.InformAddresses.Count == 0) yield break;
-        var byNetwork = devices.Where(d => Str(d[ConfigCollections.DeviceMetaField]?["type"]) is not ("ugw" or "udm" or "uxg"))
+        var byNetwork = devices.Where(d => !ConfigCollections.IsGateway(d))
             .GroupBy(d => mgmtNetwork(d)).Where(g => g.Key != null);
         foreach (var group in byNetwork)
             foreach (var host in options.InformAddresses)

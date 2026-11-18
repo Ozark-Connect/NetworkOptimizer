@@ -115,6 +115,9 @@ public sealed class ChangeControlRegistry : BackgroundService, ISiteScopedRegist
         if (apply && moved.Any(m => m.Setting == ReaddressSettings.InfluxSetting))
             foreach (var site in RunningSites().Append(slug).Distinct(StringComparer.OrdinalIgnoreCase))
                 _ = _sp.GetRequiredService<MonitoringInfluxRegistry>().GetFor(site).ReconfigureAsync();
+        // A moved exception's Allow policies are rebuilt for its new Device address.
+        if (apply && moved.Any(m => m.Setting == ReaddressSettings.BlockingExceptionSetting))
+            scope.ServiceProvider.GetService<ThreatBlockingOperations>()?.SyncZonesSoon(slug);
         return moved;
     }
 
@@ -212,6 +215,13 @@ public sealed class ChangeControlRegistry : BackgroundService, ISiteScopedRegist
                     || (p.StartedAt != null && p.CompletedAt > DateTime.UtcNow.AddHours(-1))), ct));
         engine.Evaluator = _sp.GetService<IChangeEvaluator>();
         engine.Changed += () => Changed?.Invoke(slug);
+        // A client renamed in UniFi Network reaches Client Performance on this detection, not the name cache's TTL.
+        engine.ChangesRecorded += collections =>
+        {
+            if (!collections.Contains("user") || connection.Client is not { } client) return;
+            ClientDisplayNameCache.Invalidate(client);
+            _logger.LogDebug("Client names refreshed for site {Site} after a recorded client change", slug);
+        };
         // Online and agent-offline on the Overview follow the connection itself, not the next detection pass.
         connection.OnConnectionChanged += () => Changed?.Invoke(slug);
         var history = new FirmwareHistoryImport(rollout, () => _sp.GetRequiredService<MonitoringInfluxRegistry>().GetFor(slug),

@@ -32,6 +32,7 @@ public static class ApiEndpoints
         DemoMappingEndpoints.Map(app);
         ConfigTransferEndpoints.Map(app);
         LanFlowMapEndpoints.Map(app);
+        ClientIconEndpoints.Map(app);
         SiteAgentEndpoints.Map(app);
         MonitoringChartEndpoints.Map(app);
         IspHealthEndpoints.Map(app);

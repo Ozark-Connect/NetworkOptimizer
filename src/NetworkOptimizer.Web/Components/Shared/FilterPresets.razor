@@ -1,0 +1,187 @@
+@* Save and load filter presets 1 2 3: a save button, then the slot. Per user and per site. *@
+@using NetworkOptimizer.Web.Services.Identity
+@inject IUserPreferences UserPreferences
+@inject SiteContextService SiteContext
+@inject ILogger<FilterPresets> Logger
+@implements IDisposable
+
+<span class="filter-presets @(_saving ? "is-saving" : null)">
+    <button type="button" class="filter-preset filter-preset-save" aria-pressed="@(_saving ? "true" : "false")"
+            aria-label="Save these filters to a preset" @onclick="ToggleSave"
+            @key="_saving" data-tooltip="@(_saving ? "Pick a slot to save to, or click again to cancel" : "Save these filters to a preset")">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" /><polyline points="17 21 17 13 7 13 7 21" /><polyline points="7 3 7 8 15 8" /></svg>
+    </button>
+    @for (var i = 0; i < Slots; i++)
+    {
+        var slot = i;
+        @* Keyed by content: a new element binds a fresh tooltip when the preset or the mode changes. *@
+        <button type="button" @key="(slot, _presets[slot], _saving)" data-slot="@(slot + 1)" class="filter-preset @(_presets[slot] != null ? "is-set" : null) @(slot == _active ? "is-active" : null)"
+                aria-pressed="@(slot == _active ? "true" : "false")"
+                data-tooltip="@Tooltip(slot)" @onclick="() => ClickAsync(slot)">@(slot + 1)</button>
+    }
+    @if (_note != null)
+    {
+        <span class="filter-preset-note @(_noteIsError ? "is-error" : null)">@_note</span>
+    }
+</span>
+
+@code {
+    /// <summary>The page's name in the preference key ("live_traffic"); the slot and the site are added.</summary>
+    [Parameter, EditorRequired] public string Scope { get; set; } = "";
+
+    /// <summary>The page's current filters as a string to save; empty when nothing is filtered.</summary>
+    [Parameter, EditorRequired] public Func<string> Current { get; set; } = () => "";
+
+    /// <summary>Applies a saved preset to the page.</summary>
+    [Parameter, EditorRequired] public EventCallback<string> OnLoad { get; set; }
+
+    /// <summary>A saved preset in words, for its tooltip ("Client NAS, App HTTPS"); without it the tooltip says only the slot.</summary>
+    [Parameter] public Func<string, string>? Describe { get; set; }
+
+    [Parameter] public int Slots { get; set; } = 3;
+
+    /// <summary>
+    /// Reapply the active preset once loaded. The page passes false when its link already carries
+    /// filters, so a shared or bookmarked view is never replaced.
+    /// </summary>
+    [Parameter] public bool ApplyActiveOnStart { get; set; }
+
+    private string?[] _presets = [];
+    /// <summary>The slot last loaded or saved to, while the page's filters still match it; null once they differ.</summary>
+    private int? _active;
+    /// <summary>
+    /// The page's own <see cref="Current"/> right after the active slot was loaded or saved. Compared
+    /// instead of the saved string, which can come back in another key order and never match.
+    /// </summary>
+    private string? _activeValue;
+    private bool _loaded;
+    private bool _saving;
+    private string? _note;
+    private bool _noteIsError;
+    private int _noteSeq;
+    private bool _disposed;
+
+    private string Key(int slot) => $"{Scope}.preset{slot + 1}:{SiteContext.Slug}";
+    private string ActiveKey => $"{Scope}.preset-active:{SiteContext.Slug}";
+
+    protected override void OnInitialized() => _presets = new string?[Slots];
+
+    // After the first render: the caller (and so the user's own value) is only known in the circuit.
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender)
+        {
+            // The lit slot follows the filters: off when they move away (so a return opens clean), on when
+            // they match a saved preset however they got there (a link, pills added by hand).
+            if (!_loaded || _saving) return;
+            var now = Current();
+            if (_active != null && SameFilters(now, _activeValue)) return;
+            var match = MatchingSlot(now);
+            if (match == _active) return;
+            await SetActiveAsync(match);
+            if (!_disposed) StateHasChanged();
+            return;
+        }
+        for (var i = 0; i < Slots; i++)
+        {
+            try { _presets[i] = await UserPreferences.GetAsync(Key(i)) is { Length: > 0 } saved ? saved : null; }
+            catch (Exception ex) { Logger.LogDebug(ex, "Filter presets: {Scope} slot {Slot} unreadable", Scope, i + 1); }
+        }
+        int? active = null;
+        try { active = int.TryParse(await UserPreferences.GetAsync(ActiveKey), out var n) && n >= 1 && n <= Slots ? n - 1 : null; }
+        catch (Exception ex) { Logger.LogDebug(ex, "Filter presets: {Scope} active slot unreadable", Scope); }
+        if (_disposed) return;
+        // A link's own filters win and leave the slot unlit; it stays remembered for a clean visit.
+        if (active is { } slot && _presets[slot] is { } preset && ApplyActiveOnStart)
+        {
+            await OnLoad.InvokeAsync(preset);
+            _active = slot;
+            _activeValue = Current();
+        }
+        else if (MatchingSlot(Current()) is { } match)
+        {
+            _active = match;
+            _activeValue = Current();
+        }
+        _loaded = true;
+        if (!_disposed) StateHasChanged();
+    }
+
+    /// <summary>Remembers the active slot (null clears it); a failed write only costs the reapply on return.</summary>
+    private async Task SetActiveAsync(int? slot)
+    {
+        _active = slot;
+        _activeValue = slot != null ? Current() : null;
+        try { await UserPreferences.SetAsync(ActiveKey, slot is { } s ? (s + 1).ToString() : ""); }
+        catch (Exception ex) { Logger.LogDebug(ex, "Filter presets: {Scope} active slot not saved", Scope); }
+    }
+
+    /// <summary>The first slot whose saved filters equal these, in any order; none for no filters.</summary>
+    private int? MatchingSlot(string filters)
+    {
+        if (filters.Length == 0) return null;
+        for (var i = 0; i < Slots; i++)
+            if (_presets[i] is { } saved && SameFilters(saved, filters)) return i;
+        return null;
+    }
+
+    /// <summary>Two filter query strings name the same filters, whatever order the parts are in.</summary>
+    private static bool SameFilters(string? a, string? b) => Canonical(a) == Canonical(b);
+
+    private static string Canonical(string? query) =>
+        string.Join('&', (query ?? "").Split('&', StringSplitOptions.RemoveEmptyEntries).Order(StringComparer.Ordinal));
+
+    private void ToggleSave() => _saving = !_saving;
+
+    /// <summary>In save mode, stores the current filters in the slot (nothing filtered clears it); otherwise loads the slot.</summary>
+    private async Task ClickAsync(int slot)
+    {
+        if (_saving)
+        {
+            _saving = false;
+            var value = Current();
+            try
+            {
+                await UserPreferences.SetAsync(Key(slot), value);
+                _presets[slot] = value.Length > 0 ? value : null;
+                if (value.Length > 0) await SetActiveAsync(slot);
+                else if (_active == slot) await SetActiveAsync(null);
+                ShowNote(value.Length > 0 ? $"Saved to {slot + 1}" : $"Cleared {slot + 1}", false);
+            }
+            catch (Exception ex)
+            {
+                Logger.LogWarning(ex, "Filter presets: {Scope} slot {Slot} not saved", Scope, slot + 1);
+                ShowNote($"Could not save to {slot + 1}", true);
+            }
+            return;
+        }
+        if (_presets[slot] is not { } saved) return;
+        // Unlit while loading, so a render mid-load does not read the old slot as left behind.
+        _active = null;
+        await OnLoad.InvokeAsync(saved);
+        await SetActiveAsync(slot);
+    }
+
+    /// <summary>A short note beside the slots, gone after a few seconds unless another replaces it.</summary>
+    private void ShowNote(string note, bool isError)
+    {
+        _note = note;
+        _noteIsError = isError;
+        var seq = ++_noteSeq;
+        _ = Task.Delay(TimeSpan.FromSeconds(isError ? 6 : 3)).ContinueWith(_ => InvokeAsync(() =>
+        {
+            if (_disposed || seq != _noteSeq) return;
+            _note = null;
+            StateHasChanged();
+        }), TaskScheduler.Default);
+    }
+
+    private string Tooltip(int slot)
+    {
+        if (_saving) return $"Save the current filters to {slot + 1}";
+        if (_presets[slot] is not { } saved) return $"{slot + 1} is empty: click Save, then {slot + 1}";
+        return Describe is { } describe ? $"{slot + 1}: {describe(saved)}" : $"Load preset {slot + 1}";
+    }
+
+    public void Dispose() => _disposed = true;
+}

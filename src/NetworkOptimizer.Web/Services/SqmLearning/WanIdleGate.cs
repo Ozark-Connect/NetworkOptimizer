@@ -147,7 +147,7 @@ public class WanIdleGate
         try
         {
             var devices = await _connectionService.GetDiscoveredDevicesAsync(ct);
-            mac = devices?.FirstOrDefault(d => d.Type == DeviceType.Gateway || d.HardwareType == DeviceType.Gateway)?.Mac;
+            mac = NetworkOptimizer.UniFi.UniFiDiscovery.SiteGateway(devices)?.Mac;
             var ifaces = await _connectionService.GetWanInterfacesForGroupAsync(wanNetworkGroup, ct);
             counter = ifaces?.CounterIfName;
         }

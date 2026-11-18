@@ -1,0 +1,28 @@
+@*
+    The 270 degree ring around a score readout: ScoreDial's facets on a ring, filling its parent
+    (.score-circle or .wifi-health-icon), which sets the color through --dial-color.
+*@
+<svg viewBox="0 0 100 100" class="score-ring @(Small ? "score-ring-small" : "")" aria-hidden="true">
+    @foreach (var (from, to) in ScoreDial.Facets(Thresholds, Small ? 2.4 : 1.1))
+    {
+        var reached = Score > from;
+        <path class="ring-facet @(reached ? "lit" : "")" d="@ScoreDial.Facet(50, 50, 225, 270, from, to, InnerRadius, 49)"/>
+        @if (reached)
+        {
+            <path class="ring-fill" d="@ScoreDial.Facet(50, 50, 225, 270, from, Math.Min(to, Score ?? 0), InnerRadius, 49)"/>
+        }
+    }
+</svg>
+
+@code {
+    /// <summary>The score, 0-100. Null draws an unlit ring.</summary>
+    [Parameter] public int? Score { get; set; }
+
+    /// <summary>The scores where a rating starts. Each one is a cut between two facets.</summary>
+    [Parameter] public int[] Thresholds { get; set; } = { 60, 75, 90 };
+
+    /// <summary>A ring drawn at icon size: wider cuts so the facets stay distinct.</summary>
+    [Parameter] public bool Small { get; set; }
+
+    private double InnerRadius => Small ? 39 : 41.5;
+}

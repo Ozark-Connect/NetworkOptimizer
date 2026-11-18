@@ -144,23 +144,24 @@ public class ConsoleAccessAnalyzerTests
     }
 
     [Fact]
-    public void LocalAdmin_UnusedTenDays_Recommended()
+    public void LocalAdmin_UnusedTenDays_RecommendedAndUnscored()
     {
         var issue = _analyzer.Analyze([LocalAdmin("Admin1", lastLoginDaysAgo: 10)], null, Now).Single();
 
         issue.Type.Should().Be(IssueTypes.UnusedLocalAdmins);
         issue.Severity.Should().Be(AuditSeverity.Recommended);
-        issue.ScoreImpact.Should().Be(2);
+        issue.ScoreImpact.Should().Be(0);
         issue.Message.Should().Be("1 Local Admin account unused for 7+ days: Admin1 (10 days).");
     }
 
     [Fact]
-    public void LocalAdmin_UnusedThirtyDays_Critical()
+    public void LocalAdmin_UnusedThirtyDays_CriticalAndUnscored()
     {
         var issue = _analyzer.Analyze([LocalAdmin("Admin1", lastLoginDaysAgo: 30)], null, Now).Single();
 
+        // UniFi records only sign-ins, so a long-lived service session reads as unused: never scored.
         issue.Severity.Should().Be(AuditSeverity.Critical);
-        issue.ScoreImpact.Should().Be(5);
+        issue.ScoreImpact.Should().Be(0);
     }
 
     [Fact]
@@ -258,7 +259,7 @@ public class ConsoleAccessAnalyzerTests
         var issue = _analyzer.Analyze(users, null, Now).Should().ContainSingle().Subject;
 
         issue.Severity.Should().Be(AuditSeverity.Critical);
-        issue.ScoreImpact.Should().Be(5);
+        issue.ScoreImpact.Should().Be(0);
         issue.Message.Should().Be("2 Local Admin accounts unused for 7+ days: B (120 days), A (12 days).");
     }
 

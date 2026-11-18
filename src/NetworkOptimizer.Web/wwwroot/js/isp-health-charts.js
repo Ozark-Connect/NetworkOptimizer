@@ -3,7 +3,7 @@
 // render as shaded x-axis ranges, path shifts as annotation lines.
 
 import ApexCharts from '/_content/Blazor-ApexCharts/js/apexcharts.esm.js';
-import { valueSortedTooltip, tooltipHeld, alignedPoints } from './chart-tooltip.js?v=21';
+import { valueSortedTooltip, tooltipHeld, alignedPoints } from './chart-tooltip.js?v=22';
 import { renderFilterReset, isFiltered } from './chart-filter.js?v=6';
 
 const PALETTE = ['#2ba89a', '#3b82f6', '#a78bfa', '#ef5858', '#f59e0b', '#10b981'];
@@ -60,7 +60,9 @@ function buildOpts() {
                     zoomWindow = min != null ? { min, max } : null;
                     if (restoringZoom) return;
                     setZoomed(min != null);
-                    notifyZoom(noTime.fromChart(min), noTime.fromChart(max));
+                    // A library reset carries no bounds: the panel gets null, not a converted NaN.
+                    if (min == null) notifyZoom(null, null);
+                    else notifyZoom(noTime.fromChart(min), noTime.fromChart(max));
                 },
             },
         },
@@ -476,5 +478,11 @@ export function unmount() {
     win = null;
     hiddenTypes = new Set();
     lastEvents = [];
+    // The chip row and which networks were hidden belong to this mount: kept, a remount into the same card added
+    // a second row, and a network hidden on one WAN stayed hidden on the next WAN's report.
+    if (badgesEl) { badgesEl.remove(); badgesEl = null; }
+    seriesVisibility = {};
+    asnMeta = [];
+    lastSeries = [];
     if (chart) { chart.destroy(); chart = null; }
 }

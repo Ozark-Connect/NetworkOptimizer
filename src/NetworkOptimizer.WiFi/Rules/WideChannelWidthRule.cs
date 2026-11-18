@@ -158,6 +158,7 @@ public class WideChannelWidthRule : IWiFiOptimizerRule
             Description = $"{apName} is using {currentWidth} MHz on {bandName}. " +
                 $"Narrowing to {suggestedWidth} MHz can improve performance on some devices and gives better co-channel separation between APs.",
             AffectedEntity = apName,
+            AffectedLinks = { new IssueLink(apName, IssueLinks.Channel(band)) },
             Recommendation = Recommendation(apName, band, suggestedWidth, meshAps, "consider setting"),
             ScoreImpact = -2
         };
@@ -183,6 +184,7 @@ public class WideChannelWidthRule : IWiFiOptimizerRule
                 $"Wider channels raise the noise floor and reduce effective range. " +
                 $"Narrowing to {suggestedWidth} MHz should improve signal quality and reliability.",
             AffectedEntity = apName,
+            AffectedLinks = { new IssueLink(apName, IssueLinks.Clients(apMac, band)) },
             Recommendation = Recommendation(apName, band, suggestedWidth, meshAps, "set"),
             ScoreImpact = -5
         };
@@ -206,6 +208,7 @@ public class WideChannelWidthRule : IWiFiOptimizerRule
             Description = $"{apName} is using {currentWidth} MHz on {bandName}, and no client that can roam to it has negotiated more than {maxNegotiated} MHz in the last 14 days. " +
                 "The extra width is not carrying traffic, and it makes the radio more susceptible to interference.",
             AffectedEntity = apName,
+            AffectedLinks = { new IssueLink(apName, IssueLinks.Clients(apMac, band)) },
             Recommendation = Recommendation(apName, band, maxNegotiated, meshAps, "set"),
             ScoreImpact = -3
         };

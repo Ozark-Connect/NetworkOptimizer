@@ -2,14 +2,14 @@
 // filter badges, poll interval scaling) into a shared module so latency-charts,
 // device-health-charts, and future chart sets share one implementation.
 import ApexCharts from '/_content/Blazor-ApexCharts/js/apexcharts.esm.js';
-import { computeStats, renderStatsTable as renderTable } from './chart-stats.js?v=9';
-import { valueSortedTooltip, tooltipHeld, alignedPoints } from './chart-tooltip.js?v=21';
+import { computeStats, renderStatsTable as renderTable } from './chart-stats.js?v=10';
+import { valueSortedTooltip, tooltipHeld, alignedPoints } from './chart-tooltip.js?v=22';
 import { renderFilterReset, isFiltered } from './chart-filter.js?v=6';
-import { createMarkLayer } from './chart-event-marks.js?v=13';
+import { createMarkLayer } from './chart-event-marks.js?v=14';
 import { createAxisDateCaption } from './chart-axis-date.js?v=5';
 import { syncIdentity, extentsOf, spanTo } from './chart-sync.js?v=9';
 import { awaitContainer } from './chart-mount.js?v=1';
-import { loadWindowHours, saveWindowHours, markActiveRange } from './chart-window.js?v=2';
+import { loadWindowHours, saveWindowHours, markActiveRange } from './chart-window.js?v=3';
 import { downloadColor, uploadColor } from './chart-colors.js?v=2';
 import { formatBps } from './chart-format.js?v=1';
 

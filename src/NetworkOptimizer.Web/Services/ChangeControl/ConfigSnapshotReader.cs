@@ -158,6 +158,7 @@ public sealed class ConfigSnapshotReader
     {
         "model", "shortname", "type", "version", "state", "supported_afc_regions", "total_max_power", "total_used_power",
         "switch_caps", "gw_caps", "ip", "connection_network_id", "connection_network_name", "is_access_point",
+        "device_mode_override",
     };
 
     private static readonly HashSet<string> MetaPort = new(StringComparer.Ordinal)

@@ -74,6 +74,8 @@ public class SpeedTestRepositoryTests : IDisposable
     [Fact]
     public async Task SaveIperf3ResultAsync_SetsTestTime()
     {
+        // Bracket the timestamp: a cold first save (EF model build) can take longer than any fixed window.
+        var before = DateTime.UtcNow;
         var result = new Iperf3Result
         {
             DeviceHost = "192.168.1.1",
@@ -85,7 +87,7 @@ public class SpeedTestRepositoryTests : IDisposable
 
         var saved = await _context.Iperf3Results.FirstOrDefaultAsync();
         saved.Should().NotBeNull();
-        saved!.TestTime.Should().BeCloseTo(DateTime.UtcNow, TimeSpan.FromSeconds(5));
+        saved!.TestTime.Should().BeOnOrAfter(before).And.BeOnOrBefore(DateTime.UtcNow);
     }
 
     [Fact]

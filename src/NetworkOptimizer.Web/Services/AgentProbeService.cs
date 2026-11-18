@@ -16,14 +16,17 @@ public class AgentProbeService
 {
     private readonly AgentTunnelRegistry _registry;
     private readonly ILogger<AgentProbeService> _logger;
+    // Resolved on use: the sink is a sibling singleton, and the collector is the one fact it owns.
+    private readonly IServiceProvider? _services;
 
     private readonly ConcurrentDictionary<long, PendingProbe> _pending = new();
     private long _nextRequestId;
 
-    public AgentProbeService(AgentTunnelRegistry registry, ILogger<AgentProbeService> logger)
+    public AgentProbeService(AgentTunnelRegistry registry, ILogger<AgentProbeService> logger, IServiceProvider? services = null)
     {
         _registry = registry;
         _logger = logger;
+        _services = services;
     }
 
     /// <summary>Whether an online agent exists for the site to run on-demand probes.</summary>
@@ -38,15 +41,17 @@ public class AgentProbeService
     /// <param name="timeout">How long to wait for the agent's response.</param>
     /// <param name="ct">Cancellation.</param>
     /// <param name="agentId">
-    /// Which of the site's agents should run it. Null keeps the original behavior - the site's
-    /// first connected agent - which is what every caller that has no reason to care wants. A
+    /// Which of the site's agents should run it. Null means the site's collector, the agent the
+    /// site already measures from, which is what every caller that has no reason to care wants. A
     /// caller that does care is asking for one WAN's vantage, and another agent sits behind a
     /// different WAN, so an unavailable one is reported rather than quietly substituted.
     /// </param>
     public async Task<ProbeResponse?> RunAsync(
         string siteSlug, ProbeRequest request, TimeSpan timeout, CancellationToken ct, int? agentId = null)
     {
-        var agent = SelectAgent(_registry.GetForSite(siteSlug), agentId);
+        var connections = _registry.GetForSite(siteSlug);
+        var collectorId = agentId == null && connections.Count > 1 ? await CollectorIdAsync(siteSlug, ct) : null;
+        var agent = SelectAgent(connections, agentId, collectorId);
         if (agent == null)
         {
             // No agent at all is null, which callers word as "no on-site agent". A NAMED agent
@@ -85,16 +90,31 @@ public class AgentProbeService
     }
 
     /// <summary>
-    /// Which connected agent runs a probe: the one asked for, or - when nothing asked - the
-    /// site's first, exactly as before. Never falls back from a named agent to another one:
-    /// the whole point of naming it is that it sits behind a particular WAN.
+    /// Which connected agent runs a probe: the one asked for, or - when nothing asked - the site's
+    /// collector, else the lowest id. The registry enumerates in hash order, so "the first" was
+    /// whichever id hashed lowest: a gateway agent could run a sweep while an idle box collected.
+    /// Never falls back from a named agent to another one: naming it means a particular WAN.
     /// </summary>
     /// <param name="connections">The site's live tunnel connections.</param>
     /// <param name="agentId">Agent the caller wants, or null for "any".</param>
-    internal static AgentTunnelConnection? SelectAgent(IReadOnlyList<AgentTunnelConnection> connections, int? agentId)
+    /// <param name="collectorId">The site's collector, used when nothing was asked for.</param>
+    internal static AgentTunnelConnection? SelectAgent(
+        IReadOnlyList<AgentTunnelConnection> connections, int? agentId, int? collectorId = null)
         => agentId is int wanted
             ? connections.FirstOrDefault(c => c.AgentId == wanted)
-            : connections.FirstOrDefault();
+            : connections.FirstOrDefault(c => c.AgentId == collectorId)
+              ?? connections.MinBy(c => c.AgentId);
+
+    private async Task<int?> CollectorIdAsync(string siteSlug, CancellationToken ct)
+    {
+        if (_services?.GetService(typeof(AgentProbeResultSink)) is not AgentProbeResultSink sink) return null;
+        try { return await sink.GetCollectorAgentIdAsync(siteSlug, ct); }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Could not resolve the collector for site {Slug}; using the lowest-id agent", siteSlug);
+            return null;
+        }
+    }
 
     /// <summary>
     /// Completes the matching pending probe when an agent returns a response. Request ids are global,

@@ -2,6 +2,7 @@ using System.Text.Json;
 using NetworkOptimizer.Web.Services;
 using NetworkOptimizer.Web.Services.LanFlowMap;
 using NetworkOptimizer.Web.Services.Authorization;
+using NetworkOptimizer.Web.Services.ClientIcons;
 
 namespace NetworkOptimizer.Web.Endpoints;
 
@@ -17,11 +18,14 @@ public static class LanFlowMapEndpoints
         var read = app.MapGroup("").RequireAuthorization(Policies.RequireViewer);
 
         read.MapGet("/api/monitoring/lan-flow-map/snapshot",
-            async (LanFlowMapService svc, ILogger<LanFlowMapService> logger, CancellationToken ct) =>
+            async (LanFlowMapService svc, IClientIcons icons, ILogger<LanFlowMapService> logger, CancellationToken ct) =>
             {
                 try
                 {
+                    var iconTask = icons.GetMapAsync(ct);
                     var snap = await svc.BuildSnapshotAsync(ct);
+                    ApplyClientIcons(snap.Nodes, await iconTask);
+                    await ApplyIspLogosAsync(snap.Clouds, icons, logger, ct);
                     return Results.Ok(snap);
                 }
                 catch (Exception ex) when (IsConsoleUnavailable(ex))
@@ -31,11 +35,13 @@ public static class LanFlowMapEndpoints
             });
 
         read.MapGet("/api/monitoring/lan-flow-map/live",
-            async (LanFlowMapService svc, ILogger<LanFlowMapService> logger, CancellationToken ct) =>
+            async (LanFlowMapService svc, IClientIcons icons, ILogger<LanFlowMapService> logger, CancellationToken ct) =>
             {
                 try
                 {
                     var update = await svc.GetLiveUpdateAsync(ct);
+                    if (update.AddedClientNodes.Count > 0)
+                        ApplyClientIcons(update.AddedClientNodes, await icons.GetMapAsync(ct));
                     return Results.Ok(update);
                 }
                 catch (Exception ex) when (IsConsoleUnavailable(ex))
@@ -45,11 +51,13 @@ public static class LanFlowMapEndpoints
             });
 
         read.MapGet("/api/monitoring/lan-flow-map/history",
-            async (LanFlowMapService svc, ILogger<LanFlowMapService> logger, DateTime at, CancellationToken ct) =>
+            async (LanFlowMapService svc, IClientIcons icons, ILogger<LanFlowMapService> logger, DateTime at, CancellationToken ct) =>
             {
                 try
                 {
                     var update = await svc.GetHistoricUpdateAsync(at, ct);
+                    if (update.AddedClientNodes.Count > 0)
+                        ApplyClientIcons(update.AddedClientNodes, await icons.GetMapAsync(ct));
                     return Results.Ok(update);
                 }
                 catch (Exception ex) when (IsConsoleUnavailable(ex))
@@ -74,6 +82,14 @@ public static class LanFlowMapEndpoints
                 return Results.Ok(items);
             });
 
+        // The clients the caller has hidden from the 3D map on this site. ILanMapView is the gate:
+        // Viewer on the site in context, which the group's install-wide policy does not check.
+        read.MapGet("/api/monitoring/lan-flow-map/hidden-devices",
+            async (ILanMapView view) => Results.Ok(await view.GetHiddenDevicesAsync()));
+
+        read.MapPut("/api/monitoring/lan-flow-map/hidden-devices",
+            async (string[] macs, ILanMapView view) => Results.Ok(await view.SetHiddenDevicesAsync(macs)));
+
         // Placing a device is the same act as placing an AP, and IApMapAdminService already says
         // who may: Site Operator on the site in context. Going through the interface rather than
         // the class puts this endpoint on that gate instead of demanding install-wide Admin, which
@@ -88,6 +104,68 @@ public static class LanFlowMapEndpoints
                 return Results.Ok();
             });
     }
+
+    /// <summary>
+    /// Gives each WAN globe its ISP's logo by ASN, the one UniFi Network shows, so the maps draw it in
+    /// place of the globe. A logo is decoration: one that cannot be had leaves the globe.
+    /// </summary>
+    private static async Task ApplyIspLogosAsync(IEnumerable<LanCloud> clouds, IClientIcons icons, ILogger logger, CancellationToken ct)
+    {
+        var withAsn = clouds.Where(c => c.Asn is > 0).ToList();
+        if (withAsn.Count == 0)
+            return;
+        try
+        {
+            var urls = new Dictionary<int, string?>();
+            foreach (var asn in withAsn.Select(c => c.Asn!.Value).Distinct())
+                urls[asn] = null;
+            await Task.WhenAll(urls.Keys.ToList().Select(async asn => { var url = await icons.GetAsnLogoUrlAsync(asn, ct); lock (urls) urls[asn] = url; }));
+            foreach (var cloud in withAsn)
+                cloud.LogoUrl = urls[cloud.Asn!.Value];
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger.LogDebug(ex, "LAN map: ISP logos unavailable");
+        }
+    }
+
+    /// <summary>
+    /// Gives each client node its UniFi Network icon, so the map draws it in place of the dot, and
+    /// each hub the most specific icon among its members (custom, then a vendor's, then generic).
+    /// </summary>
+    private static void ApplyClientIcons(IReadOnlyCollection<LanNode> nodes, ClientIconMap icons)
+    {
+        if (icons.Count == 0)
+            return;
+        foreach (var node in nodes)
+        {
+            if (node.Kind is not (LanNodeKind.WiredClient or LanNodeKind.WifiClient))
+                continue;
+            node.IconUrl = icons.UrlFor(node.Mac);
+            // The 3D map's body for the client: how large, how deep, and whether it hugs a wall.
+            var body = icons.BodyFor(node.Mac);
+            node.BodySizeM = body.SizeM;
+            node.BodyDepth = (int)body.Depth;
+            node.WallFlat = body.WallFlat;
+        }
+
+        foreach (var hub in nodes.Where(n => n.Kind == LanNodeKind.VirtualHub))
+            hub.IconUrl = BestIcon(nodes.Where(n => n.ParentId == hub.Id), icons);
+    }
+
+    /// <summary>
+    /// The most specific icon among clients: highest rank, then the one most of them share, then by
+    /// URL so the pick holds still between snapshots.
+    /// </summary>
+    internal static string? BestIcon(IEnumerable<LanNode> members, ClientIconMap icons) =>
+        members
+            .Where(m => m.IconUrl != null)
+            .GroupBy(m => m.IconUrl!)
+            .OrderByDescending(g => g.Max(m => icons.RankFor(m.Mac)))
+            .ThenByDescending(g => g.Count())
+            .ThenBy(g => g.Key, StringComparer.Ordinal)
+            .Select(g => g.Key)
+            .FirstOrDefault();
 
     /// <summary>
     /// True for failures that mean the UniFi Console couldn't serve the request right now:

@@ -20,6 +20,36 @@ For a public address on a UniFi gateway at the server's site, that is a port
 forward of 443/TCP to the reverse proxy (**UniFi Network > Settings > Policy
 Table > Port Forwarding**). The site itself needs no inbound access.
 
+## Where your data goes
+
+The agent sends data to one place: the Network Optimizer server whose URL you
+install it with. It sends nothing to Ozark Connect. There is no telemetry, no
+analytics, and no usage reporting.
+
+- **Self-hosted Network Optimizer:** that server is yours, so everything the
+  agent collects stays on your infrastructure. Personal use needs no license
+  key, so nothing at all goes to Ozark Connect. A licensed install checks its key
+  with `licensing.ozarkconnect.net`, sending only the key, a random installation
+  ID, the app version, and the site count. A perpetual key checks at activation
+  and once more 30 days later, then never again; a term key checks daily in the
+  30 days before it expires, so a renewal is picked up (see
+  [Licensing and firewalls](../../README.md#multi-site-support)).
+- **Hosted Network Optimizer:** the agent's URL is your organization on the
+  hosted service at `optimizer.ozarkconnect.net`, reached through Cloudflare.
+  Your data is kept there, isolated to your organization, and used only to run,
+  secure, troubleshoot, and support the service. It is never sold or shared, and
+  only Ozark Connect's own team works with it. Every credential you enter is
+  encrypted with a key unique to your organization; close your account and that
+  key is destroyed, so those credentials become unreadable. The
+  [Privacy Policy](https://ozarkconnect.net/privacy) and the
+  [hosted terms](https://ozarkconnect.net/network-optimizer/hosted-terms) set
+  this out in full.
+
+Over that connection the agent carries probe and SNMP results, the console and
+SSH sessions the server opens through it, and Live Traffic. Live Traffic's
+per-flow and DNS detail leaves the gateway only while someone is viewing it, and
+is never stored.
+
 ## When you need an agent
 
 The on-site agent is the recommended way to bring a site online: one outbound
@@ -79,9 +109,14 @@ any gateway with the headroom works. The published
 `install-agent-gateway.sh` installer (below, and generated for you in the setup
 wizard) puts it under `/data` so it persists, with a systemd unit tuned for a
 shared router - workstation GC plus a memory limit (256 MB soft, 512 MB hard) as
-a safety backstop. In practice it uses ~50 MB; the limit only bounds a worst-case
-fault, keeping it well clear of routing and IPS. Even a 2 GB gateway has ample
-headroom.
+a safety backstop. In practice it uses 100-170 MB and 2-3 CPU-seconds a minute,
+under 1.2% of a 4-core gateway's CPU (measured on a UXG-Fiber, two UCG-Fibers,
+and a UDR7, 2026-11). Polling SNMP every 2 seconds instead of the default 5
+raised it to about 7 CPU-seconds a minute (2.8%). On a gateway with less free
+memory, the .NET garbage collector scales its memory use down a bit from these
+figures. The limit only bounds a
+worst-case fault, keeping it well clear of routing and IPS. Even a 2 GB gateway
+has ample headroom.
 
 The LAN speed test is optional here (`--lan-speed-test`). Higher-end gateways
 like the EFG and UDM-Beast can max out 10 Gbps; the UXG/UCG-Fiber class sees
@@ -515,6 +550,45 @@ sudo systemctl enable --now netopt-agent
 journalctl -u netopt-agent -f
 ```
 
+### Run as a service (macOS, launchd)
+
+There is no macOS installer or release asset: build `osx-arm64` from source. Apple Silicon kills an
+unsigned binary on launch, so sign it ad hoc after every copy:
+
+```bash
+sudo mkdir -p /usr/local/netopt-agent
+sudo cp NetworkOptimizer.Agent agent.json /usr/local/netopt-agent/
+sudo codesign --force --sign - /usr/local/netopt-agent/NetworkOptimizer.Agent
+sudo chmod 600 /usr/local/netopt-agent/agent.json
+```
+
+```xml
+<!-- /Library/LaunchDaemons/net.ozarkconnect.netopt-agent.plist -->
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key><string>net.ozarkconnect.netopt-agent</string>
+    <key>ProgramArguments</key><array><string>/usr/local/netopt-agent/NetworkOptimizer.Agent</string></array>
+    <key>WorkingDirectory</key><string>/usr/local/netopt-agent</string>
+    <key>RunAtLoad</key><true/>
+    <key>KeepAlive</key><true/>
+    <key>StandardOutPath</key><string>/usr/local/netopt-agent/agent.log</string>
+    <key>StandardErrorPath</key><string>/usr/local/netopt-agent/agent.log</string>
+</dict>
+</plist>
+```
+
+```bash
+sudo launchctl bootstrap system /Library/LaunchDaemons/net.ozarkconnect.netopt-agent.plist
+sudo launchctl kickstart -k system/net.ozarkconnect.netopt-agent   # restart
+tail -f /usr/local/netopt-agent/agent.log
+```
+
+On macOS the agent reads the host's Tailscale (paths and traffic counters) but not routed traffic,
+which needs Linux conntrack, as Live Traffic capture does. There is no macOS `uwnspeedtest`, so leave
+the WAN speed test to another agent.
+
 ## Reverse proxy
 
 The central server never serves TLS itself - it binds plain HTTP on 8042 by
@@ -668,11 +742,12 @@ connections - which are additionally HTTPS end-to-end inside the tunnel.
 
 ### Behind Cloudflare's proxy
 
-Proxying the central server's hostname through Cloudflare (its DNS record's
-**Proxy status** set to **Proxied**) is a good fit for agents: they reach the server through Cloudflare's
-edge from anywhere, so the server's port forward only has to admit Cloudflare's
-ranges rather than every site's address. The tunnel is gRPC, which Cloudflare
-proxies only when you turn it on:
+Cloudflare's proxy (the hostname's DNS record set to **Proxied**) can sit in
+front of the central server's reverse proxy. It never replaces it: Cloudflare
+must connect to the origin over TLS (Full or Full (strict), below), so the
+server still needs a reverse proxy that terminates TLS (see
+[Reverse proxy](#reverse-proxy)). The tunnel is gRPC, which
+Cloudflare proxies only when you turn it on:
 
 - **Turn on gRPC** - in the Cloudflare dashboard, open the domain, go to
   **Network**, and set **gRPC** to **On**. It is available on every plan,
@@ -682,13 +757,19 @@ proxies only when you turn it on:
 - **The origin** must serve the hostname on port 443 with TLS and HTTP/2
   advertised over ALPN. NetworkOptimizer-Proxy (Traefik) already does.
 - **Use a Proxied DNS record, not a Cloudflare Tunnel** - Cloudflare Tunnel
-  public hostnames do not support gRPC.
+  public hostnames do not support gRPC, so agents cannot connect through one.
 - **Keep Cloudflare Access off the tunnel path** - Access does not support gRPC
   through Cloudflare's proxy.
 
 Source: Cloudflare's
 [gRPC connections](https://developers.cloudflare.com/network/grpc-connections/)
 documentation.
+
+A proxied hostname is open to the whole internet. Protect the server as in
+[Network Access](../../docker/DEPLOYMENT.md#network-access). An IP allow list
+goes in Cloudflare (a WAF custom rule or an IP Access Rule on the hostname),
+not in your reverse proxy: behind Cloudflare, the origin sees Cloudflare's
+addresses, not your sites'.
 
 ### After the proxy is up: the agent's server URL
 
@@ -897,6 +978,18 @@ loopback connect cannot time out for network reasons, three consecutive
 in-process timeouts prove the async engine is dead. The watchdog saves the
 result spool and exits for systemd to relaunch.
 
+### Out-of-memory restart
+
+The conntrack sampler and the tunnel catch their exceptions and retry, so a GC
+heap that stops granting allocations would otherwise repeat
+`OutOfMemoryException` until the unit is restarted by hand. Five of them within
+two minutes make the agent save the result spool and exit with code 71 for
+systemd to relaunch (the async I/O watchdog exits with 70). The first failure
+of a burst and the one before the exit each log an `Out of memory in ...` block:
+the stack trace, the GC's heap, committed, fragmented, and available sizes per
+generation, its configuration (hard limit, region range and size), the page
+size, and the process's `VmRSS` / `VmSize`. Include that block in a bug report.
+
 ## Local dev / testing
 
 Build for the site box's architecture and copy the single binary over - no build
@@ -935,7 +1028,8 @@ a loopback results relay (nginx proxies the result posts to it), which forwards
 them to the central server tagged with the site slug and the client's real IP, so
 they land in the site's own database with no CORS or exposure of the central
 server to browsers. If an `iperf3` binary is on the agent's PATH, an iperf3 server
-(port 5201) runs alongside for wired/CLI throughput tests.
+(port 5201) runs alongside for wired/CLI throughput tests. The Docker image bundles
+iperf3, and `install-native.sh` installs it when the host has none.
 
 If the host's nginx is confined by AppArmor, it may be denied access to the
 install dir and the page won't serve (the agent and monitoring are unaffected).

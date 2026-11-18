@@ -30,13 +30,14 @@ public class LocalProbeExecutor : IProbeExecutor
     private bool _tracerouteBinaryAvailable;
     private TracerouteBinaryTraits _tracerouteTraits = TracerouteBinaryTraits.FullyBindable;
 
-    // Throttle native Process.Start. macOS ARM64 has a .NET 10 runtime bug
+    // Throttle native Process.Start on macOS only. macOS ARM64 has a .NET 10 runtime bug
     // (dotnet/runtime#112167) where concurrent Process.Start with redirected
-    // stdout/stderr causes heap corruption and Abort trap: 6. Limit to 2 on
-    // macOS (faster 0.1s ping interval compensates). Linux is unaffected.
+    // stdout/stderr causes heap corruption and Abort trap: 6. Limit to 2 there
+    // (faster 0.1s ping interval compensates). Linux is unaffected, and a cap there queued a
+    // discovery sweep's traces past the server's per-request wait on an agent, so none applies.
     private readonly SemaphoreSlim _processLaunchLimiter = new(
-        OperatingSystem.IsMacOS() ? 2 : 4,
-        OperatingSystem.IsMacOS() ? 2 : 4);
+        OperatingSystem.IsMacOS() ? 2 : int.MaxValue,
+        OperatingSystem.IsMacOS() ? 2 : int.MaxValue);
 
     public LocalProbeExecutor(ILogger<LocalProbeExecutor> logger)
     {
@@ -223,8 +224,12 @@ public class LocalProbeExecutor : IProbeExecutor
             : null;
     }
 
-    /// <summary>Whether a usage line lists a single-letter option, either bare or inside a bundled flag group.</summary>
-    private static bool MentionsOption(string banner, char option)
+    /// <summary>
+    /// Whether a usage line lists a single-letter option, either bare or inside a bundled flag group
+    /// ("[ -46dFITnreAUDV ]"). Case matters: -I is ICMP, -i an interface. Public so the SSH vantage
+    /// reads a remote traceroute's usage the same way.
+    /// </summary>
+    public static bool MentionsOption(string banner, char option)
     {
         for (var i = 0; i < banner.Length - 1; i++)
         {
@@ -315,9 +320,11 @@ public class LocalProbeExecutor : IProbeExecutor
             var overall = TimeSpan.FromSeconds(interval * safeCount + timeoutSeconds + 5);
             using var killCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
             killCts.CancelAfter(overall);
+            var killedHere = false;
             try { await proc.WaitForExitAsync(killCts.Token); }
             catch (OperationCanceledException)
             {
+                killedHere = true;
                 try { proc.Kill(entireProcessTree: true); } catch { }
             }
             var stdout = await SafeReadAsync(stdoutTask);
@@ -325,14 +332,19 @@ public class LocalProbeExecutor : IProbeExecutor
             if (stdout is null)
                 throw new ProbeOutputTimeoutException(
                     $"ping output read for {target.Address} did not complete within {OutputReadGrace.TotalSeconds:0}s");
+            // ping exits 0, 1 or 2; above 128 is 128 + a signal sent from outside, as when the agent's
+            // service stops and takes its children with it. A burst cut short is not loss.
+            if (!killedHere && proc.HasExited && proc.ExitCode > 128)
+                throw new ProbeInterruptedException($"ping to {target.Address} was ended by signal {proc.ExitCode - 128}");
 
             var parsed = PingOutputParser.Parse(stdout, target, Vantage, safeCount);
             return parsed;
         }
         // Output-timeout means async completion delivery is broken, and the managed
         // Ping path depends on the same machinery - falling back would hang or
-        // fabricate. Let it propagate; callers drop the sample.
-        catch (Exception ex) when (ex is not ProbeOutputTimeoutException)
+        // fabricate. An interrupted ping has no outcome either. Let both propagate;
+        // callers drop the sample.
+        catch (Exception ex) when (ex is not ProbeOutputTimeoutException and not ProbeInterruptedException)
         {
             _logger.LogDebug(ex, "Native ping invocation failed; falling back to managed Ping");
             return await ManagedPingAsync(target, count, timeout, ct);

@@ -5,6 +5,7 @@
 @using NetworkOptimizer.Web.Services
 @using NetworkOptimizer.Web.Services.Ssh
 @using NetworkOptimizer.Web.Services.CellularModemProviders
+@using NetworkOptimizer.Web.Components.Shared.Monitoring.LiveTraffic
 @using NetworkOptimizer.Storage.Models
 @using NetworkOptimizer.Storage.Interfaces
 @using NetworkOptimizer.Core.Interfaces
@@ -40,6 +41,7 @@
 @inject IHttpClientFactory HttpClientFactory
 @inject ISystemSettingsAdmin SettingsAdmin
 @inject ISiteSettingsAdmin SiteSettingsAdmin
+@inject NetworkOptimizer.Web.Services.Monitoring.LiveTraffic.ILiveTrafficService LiveTrafficSettings
 @inject Microsoft.AspNetCore.Authorization.IAuthorizationService Authz
 @inject NetworkOptimizer.Threats.ThreatCollectionService ThreatCollection
 @inject NavigationManager NavigationManager
@@ -88,7 +90,7 @@
 </div>
 
 <div class="wifi-view-tabs-wrapper settings-tabs-wrapper">
-    <button class="wifi-tabs-scroll-btn wifi-tabs-scroll-left" onclick="this.parentElement.querySelector('.wifi-view-tabs').scrollBy({left: -200, behavior: 'smooth'})">&#8249;</button>
+    <button class="wifi-tabs-scroll-btn wifi-tabs-scroll-left" onclick="this.parentElement.querySelector('.wifi-view-tabs').scrollBy({left: -200, behavior: 'smooth'})"><AppIcon Name="chevron-left" /></button>
     <div class="wifi-view-tabs">
         <button class="wifi-view-tab @(_activeTab == "connection" ? "active" : "")"
                 @onclick="@(() => SetActiveTab("connection"))">
@@ -161,7 +163,7 @@
             </NotAuthorized>
         </AuthorizeView>
     </div>
-    <button class="wifi-tabs-scroll-btn wifi-tabs-scroll-right" onclick="this.parentElement.querySelector('.wifi-view-tabs').scrollBy({left: 200, behavior: 'smooth'})">&#8250;</button>
+    <button class="wifi-tabs-scroll-btn wifi-tabs-scroll-right" onclick="this.parentElement.querySelector('.wifi-view-tabs').scrollBy({left: 200, behavior: 'smooth'})"><AppIcon Name="chevron-right" /></button>
     @* Every tab renders at once and is shown by class, so a hit is already on the page - selection
        switches tab and rings the card rather than navigating. *@
     <AppSearchBox Area="Settings" Placeholder="Search settings" OnSelect="GoToSearchHitAsync"
@@ -390,7 +392,7 @@
                 Database password takes priority when enabled.
             </p>
 
-            <div class="info-row" style="margin-bottom: 1rem; padding: 0.75rem; background: var(--bg-secondary); border-radius: 8px;">
+            <div class="info-row" style="margin-bottom: 1rem; padding: 0.75rem; background: var(--bg-secondary); border-radius: var(--border-radius-lg);">
                 <span class="info-label">Current Source:</span>
                 <span class="info-value">
                     @switch (adminPasswordSource)
@@ -557,7 +559,7 @@
 
             @if (iperf3Status != null)
             {
-                <div class="iperf3-status" style="margin-top: 1rem; padding: 1rem; background: var(--bg-secondary); border-radius: 8px;">
+                <div class="iperf3-status" style="margin-top: 1rem; padding: 1rem; background: var(--bg-secondary); border-radius: var(--border-radius-lg);">
                     <h4 style="margin: 0 0 0.5rem 0;">iperf3 Status</h4>
                     <div class="info-row">
                         <span class="info-label">Installed:</span>
@@ -907,6 +909,8 @@
             }
         </div>
     </div>
+
+    <TailscaleConnectionCard />
 
     <!-- Monitoring Configuration -->
     <div class="card settings-tab-monitoring" id="monitoring">
@@ -2366,6 +2370,74 @@
         </div>
     </div>
 
+    <!-- Live Traffic -->
+    <div class="card settings-tab-monitoring" id="live-traffic">
+        <div class="card-header">
+            <div class="card-header-left">
+                <h2 class="card-title">Live Traffic</h2>
+                <a href="/monitoring/live-traffic" class="settings-title-link" data-tooltip="Open Live Traffic">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6"></path><path d="M10 14 21 3"></path><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path></svg>
+                </a>
+            </div>
+        </div>
+        <div class="card-body">
+            <p class="section-description">
+                Live Traffic shows every flow through the Gateway, with its app, protocol, and destination, and the DNS lookups behind them. The On-Site Agent on the Gateway sends that detail over its encrypted tunnel only while someone has Live Traffic open (and up to a minute after, so coming back is instant), and Network Optimizer keeps it in memory, never on disk. We've seen no appreciable CPU impact on the Gateway while it's open.
+            </p>
+
+            <div class="form-group">
+                <label class="checkbox-label">
+                    <input type="checkbox" @bind="_liveTrafficEnabled" />
+                    <span>Enable Live Traffic flow and DNS capture</span>
+                </label>
+                <small class="form-help">Turned off, the Agent sends no flows or DNS lookups. The Live Traffic card in Live View still ranks clients by usage, which is stored per device with no app or protocol, and History still reads UniFi Network's own flow records.</small>
+            </div>
+
+            <div class="action-buttons">
+                <button class="btn btn-primary" @onclick="SaveLiveTrafficSettings" disabled="@_savingLiveTraffic">
+                    @if (_savingLiveTraffic)
+                    {
+                        <span class="spinner"></span>
+                        <span>Saving...</span>
+                    }
+                    else
+                    {
+                        <span>Save</span>
+                    }
+                </button>
+            </div>
+
+            @if (!string.IsNullOrEmpty(_liveTrafficMessage))
+            {
+                <div class="alert alert-@_liveTrafficMessageClass">@_liveTrafficMessage</div>
+            }
+        </div>
+    </div>
+
+    <!-- Live Traffic - Custom Apps -->
+    <div class="card settings-tab-monitoring" id="custom-apps">
+        <div class="card-header">
+            <div class="card-header-left">
+                <h2 class="card-title">Custom Apps</h2>
+                <a href="/monitoring/live-traffic" class="settings-title-link" data-tooltip="Open Live Traffic">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6"></path><path d="M10 14 21 3"></path><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path></svg>
+                </a>
+            </div>
+        </div>
+        <div class="card-body">
+            <p class="section-description">
+                Name traffic that UniFi Network's DPI doesn't recognize, by protocol, port, and remote. Live Traffic shows these names everywhere it shows an app.
+            </p>
+            @* Mounted only on this tab: the list keeps its live counts current on a timer. *@
+            @if (_activeTab == "monitoring")
+            {
+                <SiteAdminOnly>
+                    <CustomAppsManager />
+                </SiteAdminOnly>
+            }
+        </div>
+    </div>
+
     <!-- AP Telemetry -->
     <ApTelemetryPanel Class="settings-tab-aptelemetry" Active="@(_activeTab == "aptelemetry")"
                       OnConfigureDeviceSsh="GoToDeviceSshSettingsAsync" />
@@ -2470,7 +2542,7 @@
                                     <span class="status-badge status-active" style="font-size: 0.7rem;">Default</span>
                                 }
                             </div>
-                            <div style="color: var(--text-secondary); font-family: monospace; font-size: 0.8125rem; margin-top: 0.25rem;">@server.Url</div>
+                            <div style="color: var(--text-secondary); font-family: var(--font-mono); font-size: 0.8125rem; margin-top: 0.25rem;">@server.Url</div>
                         </div>
                         @if (_canEditInstanceSettings)
                         {
@@ -2503,9 +2575,9 @@
                         {
                             <div style="padding: 0 0 0.75rem;">
                                 <p style="color: var(--text-secondary); font-size: 0.8125rem; margin-bottom: 0.5rem;">Install on a new server:</p>
-                                <pre style="background: var(--bg-primary); padding: 0.75rem; border-radius: 6px; font-size: 0.8125rem; overflow-x: auto; white-space: pre-wrap; word-break: break-all;">curl -fsSL https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main/scripts/deploy-external-speedtest.sh | bash -s -- @GetOptimizerUrl() @(server.ServerId)@GetDeployPortParam(server)</pre>
+                                <pre style="background: var(--bg-primary); padding: 0.75rem; border-radius: var(--border-radius-lg); font-size: 0.8125rem; overflow-x: auto; white-space: pre-wrap; word-break: break-all;">curl -fsSL https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main/scripts/deploy-external-speedtest.sh | bash -s -- @GetOptimizerUrl() @(server.ServerId)@GetDeployPortParam(server)</pre>
                                 <p style="color: var(--text-secondary); font-size: 0.8125rem; margin-top: 0.75rem; margin-bottom: 0.5rem;">Update existing:</p>
-                                <pre style="background: var(--bg-primary); padding: 0.75rem; border-radius: 6px; font-size: 0.8125rem; overflow-x: auto;">curl -fsSL https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main/scripts/deploy-external-speedtest.sh | bash -s -- --update</pre>
+                                <pre style="background: var(--bg-primary); padding: 0.75rem; border-radius: var(--border-radius-lg); font-size: 0.8125rem; overflow-x: auto;">curl -fsSL https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main/scripts/deploy-external-speedtest.sh | bash -s -- --update</pre>
                             </div>
                         }
                     </div>
@@ -2520,7 +2592,7 @@
 
             @if (showExtServerForm)
             {
-                <div style="margin-top: 1rem; padding: 1rem; background: var(--bg-primary); border-radius: 6px;">
+                <div style="margin-top: 1rem; padding: 1rem; background: var(--bg-primary); border-radius: var(--border-radius-lg);">
                     <h4 style="color: var(--text-primary); margin-bottom: 1rem;">@(editingExtServerId.HasValue ? "Edit" : "Add") Server</h4>
 
                     @if (extServerFormScheme != "https")
@@ -2539,7 +2611,7 @@
                     {
                         <div class="form-group">
                             <label class="form-label">Server ID</label>
-                            <input type="text" class="form-control" value="@ExternalSpeedTestServer.GenerateServerId(extServerFormName)" readonly style="color: var(--text-secondary); font-family: monospace; font-size: 0.8125rem;" />
+                            <input type="text" class="form-control" value="@ExternalSpeedTestServer.GenerateServerId(extServerFormName)" readonly style="color: var(--text-secondary); font-family: var(--font-mono); font-size: 0.8125rem;" />
                             <small class="form-help">Auto-generated identifier used to link speed test results to this server</small>
                         </div>
                     }
@@ -2566,7 +2638,7 @@
                     {
                         <div class="form-group">
                             <label class="form-label">Speed Test URL (preview)</label>
-                            <input type="text" class="form-control" value="@ComputeExtServerFormUrl()" readonly style="color: var(--text-secondary); font-family: monospace; font-size: 0.8125rem;" />
+                            <input type="text" class="form-control" value="@ComputeExtServerFormUrl()" readonly style="color: var(--text-secondary); font-family: var(--font-mono); font-size: 0.8125rem;" />
                         </div>
                     }
 
@@ -2879,7 +2951,7 @@
 
             @if (showChannelForm)
             {
-                <div style="margin-top: 1rem; padding: 1rem; background: var(--bg-primary); border-radius: 6px;">
+                <div style="margin-top: 1rem; padding: 1rem; background: var(--bg-primary); border-radius: var(--border-radius-lg);">
                     <h4 style="color: var(--text-primary); margin-bottom: 1rem;">@(editingChannelId.HasValue ? "Edit" : "Add") Channel</h4>
 
                     <div class="form-group">
@@ -3223,7 +3295,7 @@
                 MaxMind GeoLite2 databases add country, city, and ASN data to threat sources for geographic analysis. With credentials saved, the databases auto-download and refresh monthly.
             </p>
 
-            <div class="info-row" style="margin-bottom: 1rem; padding: 0.75rem; background: var(--bg-primary); border-radius: 6px;">
+            <div class="info-row" style="margin-bottom: 1rem; padding: 0.75rem; background: var(--bg-primary); border-radius: var(--border-radius-lg);">
                 <span class="info-label">GeoLite2 Database:</span>
                 <span class="info-value" style="color: var(--text-secondary);">@threatGeoStatus</span>
             </div>
@@ -3332,7 +3404,7 @@
                     <small class="form-help">Your plan's daily lookup limit (free tier: 30)</small>
                 </div>
 
-                <div class="info-row" style="margin-top: 1rem; padding: 0.75rem; background: var(--bg-primary); border-radius: 6px;">
+                <div class="info-row" style="margin-top: 1rem; padding: 0.75rem; background: var(--bg-primary); border-radius: var(--border-radius-lg);">
                     <span class="info-label">Usage Today:</span>
                     <span class="info-value" style="color: var(--text-secondary);">@crowdsecUsageDisplay</span>
                 </div>
@@ -3708,8 +3780,8 @@
             @if (_multiSiteLoaded && !_multiSiteEnabled)
             {
                 <p class="section-description">
-                    Multi-WAN monitoring needs this on as well: the agent that probes a second WAN
-                    enrolls through here, including on the main site.
+                    Multi-WAN monitoring needs this on as well: its agent enrolls here, including on
+                    the main site.
                 </p>
                 <AdminOnly>
                     <div class="form-group">
@@ -3726,25 +3798,33 @@
                 <div class="alert alert-info multi-wan-hint">
                     <div class="multi-wan-hint-body">
                     <span class="banner-icon banner-icon-info">i</span>
-                    @* Two leads, one card. Without multi-site there is no Configuration to open and
-                       no agent to enroll, so naming those steps first would send someone looking for
-                       controls that are not on the page yet. *@
+                    @* Three leads, one card. Without multi-site there is no Configuration to open, and
+                       a site whose gateway agent is enrolled needs only the vantage step. One gateway
+                       agent covers every WAN, so the copy never implies one agent per WAN. *@
                     <p>
-                        This site has more than one WAN, but only the primary is being monitored.
-                        @if (_multiSiteEnabled)
+                        This site has more than one WAN, but only the primary is monitored.
+                        @if (!_multiSiteEnabled)
                         {
                             <text>
-                                To monitor another, open @HintSitePhrase <strong>Configuration</strong>
-                                below, use <strong>Add Agent</strong> to enroll an agent for it,
-                                then give that WAN a vantage on <strong>Monitoring - Network Performance</strong>.
+                                One agent on the UniFi gateway covers them all: turn on
+                                <strong>Enable multi-site management</strong> above to add it.
+                            </text>
+                        }
+                        else if (_hintSiteHasGatewayAgent)
+                        {
+                            <text>
+                                Your gateway agent already reaches every WAN: give each additional WAN a
+                                vantage on <a href="/monitoring?tab=performance&contexts=1"><strong>Monitoring - Network Performance</strong></a>.
                             </text>
                         }
                         else
                         {
                             <text>
-                                Start by turning on <strong>Enable multi-site management</strong> above:
-                                the agent that probes another WAN enrolls through it, including on this
-                                site. The steps for adding one appear here once it is on.
+                                One agent on the UniFi gateway covers them all: add it with
+                                <strong>Add Agent</strong> in @HintSitePhrase
+                                <a href="@($"/settings?tab=multisite&configure={SiteContext.Slug}")" @onclick="OpenHintSiteConfigurationAsync" @onclick:preventDefault="true"><strong>Configuration</strong></a>
+                                below, then give each additional WAN a vantage on
+                                <a href="/monitoring?tab=performance&contexts=1"><strong>Monitoring - Network Performance</strong></a>.
                             </text>
                         }
                     </p>
@@ -3887,7 +3967,10 @@
                                                             {
                                                                 <div class="site-agent-row">
                                                                     <span class="status-dot @(agent.Enabled && TunnelRegistry.IsAgentLive(agent) ? "online" : "offline")"></span>
-                                                                    <span>@agent.Name</span>
+                                                                    <InlineEditField Tooltip="Rename agent" Placeholder="Agent name" SiteSlug="@site.Slug"
+                                                                                     Load="() => Task.FromResult(agent.Name)" Save="name => RenameAgentAsync(site, agent, name)">
+                                                                        <span>@agent.Name</span>
+                                                                    </InlineEditField>
                                                                     @* A gateway agent names itself by its detected interface, which on a gateway is the WAN
                                                                        address - so where it lives is said in words rather than shown as an address. *@
                                                                     @if (AgentOnGateway(agent.Id))
@@ -3953,6 +4036,10 @@
                                                                         Remove
                                                                     </button>
                                                                 </div>
+                                                                @if (_agentRenameErrors.TryGetValue(agent.Id, out var renameError))
+                                                                {
+                                                                    <div class="form-error">@renameError</div>
+                                                                }
                                                                 @if (_upgradeCommandAgentId == agent.Id)
                                                                 {
                                                                     <div class="agent-upgrade-cmd">
@@ -4263,12 +4350,15 @@
         ["gateway-ssh"] = "connection",
         ["device-ssh"] = "connection",
         ["ssh-key"] = "connection",
+        ["tailscale"] = "connection",
         ["monitoring"] = "monitoring",
         ["sqm-monitor"] = "monitoring",
         ["cellular-modem"] = "monitoring",
         ["cable-modem"] = "monitoring",
         ["ont-monitoring"] = "monitoring",
         ["starlink"] = "monitoring",
+        ["live-traffic"] = "monitoring",
+        ["custom-apps"] = "monitoring",
         ["ap-telemetry"] = "aptelemetry",
         ["speed-test-settings"] = "speedtests",
         ["external-speedtest-settings"] = "speedtests",
@@ -4370,7 +4460,11 @@
             if (await db.WanContexts.AnyAsync(c => c.AgentId != null)) return;
 
             _showMultiWanHint = await UiHints.ShouldShowAsync(UiHintKeys.MultiWanVantageSetup);
-            if (_showMultiWanHint) StateHasChanged();
+            if (_showMultiWanHint)
+            {
+                await UpdateHintGatewayAgentAsync();
+                StateHasChanged();
+            }
         }
         catch (Exception ex)
         {
@@ -4379,6 +4473,31 @@
             // with one WAN advice about its second.
             Logger.LogDebug(ex, "Could not decide the multi-WAN vantage hint; leaving it hidden");
         }
+    }
+
+    /// <summary>
+    /// Whether the current site already has an agent on its UniFi gateway, which reaches every WAN,
+    /// so the multi-WAN card skips the Add Agent step. Refreshed with the agent poll, so an agent
+    /// installed while the page is open changes the advice.
+    /// </summary>
+    private bool _hintSiteHasGatewayAgent;
+
+    private async Task UpdateHintGatewayAgentAsync()
+    {
+        if (!_showMultiWanHint || !_multiSiteEnabled) return;
+        if (_sites.FirstOrDefault(s => s.Slug == SiteContext.Slug) is not { } site) return;
+        await LoadAgentsOnGatewayAsync(site);
+        _hintSiteHasGatewayAgent = SiteHasGatewayAgent(site.Id);
+    }
+
+    /// <summary>The card's Configuration link: opens the current site's panel in place.</summary>
+    private async Task OpenHintSiteConfigurationAsync()
+    {
+        if (_sites.FirstOrDefault(s => s.Slug == SiteContext.Slug) is not { } site) return;
+        if (_expandedSiteId != site.Id) await ToggleAgents(site.Id);
+        await Task.Delay(300);
+        await JS.InvokeVoidAsync("noHighlightTarget", $"site-config-{site.Id}", "center",
+            "0 0 var(--border-radius-lg) var(--border-radius-lg)");
     }
 
     private async Task DismissMultiWanHintAsync()
@@ -4605,6 +4724,7 @@
                     await InvokeAsync(async () =>
                     {
                         await LoadAgentsAsync();
+                        await UpdateHintGatewayAgentAsync();
                         if (_expandedSiteId is int openId && _sites.FirstOrDefault(s => s.Id == openId) is { } openSite)
                         {
                             await LoadAgentsOnGatewayAsync(openSite);
@@ -5294,6 +5414,47 @@
         }
     }
 
+    // Agent id -> why its last rename did not save; shown under that agent's row.
+    private readonly Dictionary<int, string> _agentRenameErrors = new();
+
+    // Shows the new name at once and saves behind it; a failed save puts the old name back.
+    private Task<string?> RenameAgentAsync(Site site, SiteAgent agent, string name)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+            return Task.FromResult<string?>("Enter a name.");
+        _agentRenameErrors.Remove(agent.Id);
+        if (name == agent.Name)
+            return Task.FromResult<string?>(null);
+
+        var previous = agent.Name;
+        agent.Name = name;
+        _ = SaveAgentNameAsync(site, agent, previous, name);
+        return Task.FromResult<string?>(null);
+    }
+
+    private async Task SaveAgentNameAsync(Site site, SiteAgent agent, string previous, string name)
+    {
+        string? error;
+        try
+        {
+            error = await AgentEnrollment.RenameAgentAsync(site.Slug, agent.Id, name)
+                ? null : "This agent is no longer on this site.";
+        }
+        catch (Exception ex)
+        {
+            error = ex.Message;
+        }
+        if (error == null)
+            return;
+        await InvokeAsync(() =>
+        {
+            if (agent.Name == name)
+                agent.Name = previous;
+            _agentRenameErrors[agent.Id] = $"Rename not saved: {error}";
+            StateHasChanged();
+        });
+    }
+
     private async Task ToggleAgentEnabled(Site site, SiteAgent agent)
     {
         await AgentEnrollment.SetEnabledAsync(site.Slug, agent.Id, !agent.Enabled);
@@ -5788,6 +5949,7 @@
         await LoadAuditSettings();
         await LoadAlertChannels();
         await LoadThreatSettings();
+        await LoadLiveTrafficSettings();
         await LoadMonitoringSettings();
         await LoadMapboxToken();
         SiteChangeNotifier.SitesChanged += OnSiteRegistryChanged;
@@ -6194,7 +6356,7 @@
         try
         {
             var devices = await ConnectionService.GetDiscoveredDevicesAsync();
-            var gateway = devices.FirstOrDefault(d => d.HardwareType == NetworkOptimizer.Core.Enums.DeviceType.Gateway);
+            var gateway = UniFiDiscovery.SiteGateway(devices);
             var model = gateway?.Shortname ?? gateway?.Model ?? "";
 
             // A UXG is adopted like any other device, so UniFi Network's Device SSH Settings reaches
@@ -9275,6 +9437,46 @@
     // for secondary sites. Interval/retention/MaxMind/CrowdSec are one global value.
     private string ThreatsEnabledKey => NetworkOptimizer.Web.Services.SiteSettingsAdmin.ThreatCollectionKey(SiteContext);
 
+    private bool _liveTrafficEnabled = true;
+    private bool _savingLiveTraffic;
+    private string _liveTrafficMessage = "";
+    private string _liveTrafficMessageClass = "";
+
+    private async Task LoadLiveTrafficSettings()
+    {
+        try
+        {
+            _liveTrafficEnabled = await LiveTrafficSettings.IsEnabledAsync();
+        }
+        catch (Exception ex)
+        {
+            _liveTrafficMessage = $"Error loading Live Traffic settings: {ex.Message}";
+            _liveTrafficMessageClass = "danger";
+        }
+    }
+
+    private async Task SaveLiveTrafficSettings()
+    {
+        _savingLiveTraffic = true;
+        _liveTrafficMessage = "";
+        StateHasChanged();
+        try
+        {
+            await LiveTrafficSettings.SetEnabledAsync(_liveTrafficEnabled);
+            _liveTrafficMessage = "Live Traffic settings saved.";
+            _liveTrafficMessageClass = "success";
+        }
+        catch (Exception ex)
+        {
+            _liveTrafficMessage = $"Error saving settings: {ex.Message}";
+            _liveTrafficMessageClass = "danger";
+        }
+        finally
+        {
+            _savingLiveTraffic = false;
+        }
+    }
+
     private async Task LoadThreatSettings()
     {
         try
@@ -9445,9 +9647,9 @@
             using var httpClient = HttpClientFactory.CreateClient();
             httpClient.Timeout = TimeSpan.FromMinutes(5);
 
-            var (success, message) = await GeoService.DownloadDatabasesAsync(accountId, licenseKey, dataPath, httpClient);
+            var (success, partial, message) = await GeoService.DownloadDatabasesAsync(accountId, licenseKey, dataPath, httpClient);
             maxmindMessage = message;
-            maxmindMessageClass = success ? "success" : "danger";
+            maxmindMessageClass = !success ? "danger" : partial ? "warning" : "success";
 
             if (success)
             {

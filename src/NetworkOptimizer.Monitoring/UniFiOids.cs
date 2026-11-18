@@ -18,7 +18,11 @@ public static class UniFiOids
     public const string SysObjectID = "1.3.6.1.2.1.1.2.0";
 
     /// <summary>
-    /// System uptime in hundredths of a second - sysUpTime (.1.3.6.1.2.1.1.3.0)
+    /// SNMP agent uptime in hundredths of a second - sysUpTime (.1.3.6.1.2.1.1.3.0). It counts from
+    /// the SNMP service's start, not the OS's: turning SNMP off and on, or a provision, resets it.
+    /// UniFi gateways answer NoSuchObject for hrSystemUptime (.1.3.6.1.2.1.25.1.1.0) even though
+    /// their snmpd.conf lists it, so this is the only SNMP uptime; DeviceRebootTracker confirms every
+    /// reset against the device's /proc/uptime before calling it a reboot.
     /// </summary>
     public const string SysUpTime = "1.3.6.1.2.1.1.3.0";
 

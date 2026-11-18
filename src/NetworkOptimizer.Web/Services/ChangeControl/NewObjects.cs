@@ -108,8 +108,8 @@ public static partial class NewObjects
         }, _ => [("key", true), ("record_type", true), ("value", true)]),
     };
 
-    // Defaults UniFi rewrites on create (scratch site, 2026-10-29): ap_group_mode follows the AP groups
-    // (All APs reads back "all"); optimize_iot_wifi_connectivity is dropped on a site without the APs for it;
+    // Defaults UniFi rewrites on create (scratch site, 2026-10-29): ap_group_mode follows All APs only (a custom
+    // group gets none, so PlanBuilder.SetApGroupModes sets it); optimize_iot_wifi_connectivity is dropped on a site without the APs for it;
     // the LAN defaults' IPv6 prefix-delegation interface is dropped and the RA lifetime comes back a number.
     // Left out, UniFi sets each itself.
     private static readonly HashSet<string> Omitted = new(StringComparer.Ordinal)

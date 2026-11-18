@@ -780,12 +780,106 @@ performance against firmware is the point of collecting them. Never as tags: a t
 series key, so it would fork every modem's series the day it upgrades. Do the same for the cable
 modem and ONT measurements when their fields land.
 
+### CellMapper integration: Cellular Stats and remote clients
+
+Idea logged 2026-11-11. Tie two places to CellMapper's crowd-sourced tower data.
+
+**Cellular Stats (cellular modem monitoring).** It already knows the serving cell (cell ID, eNB / gNB,
+PCI, band, carrier):
+
+- Name the serving tower and show it on a map beside the modem, with distance and bearing, so aiming an
+  outdoor antenna or picking a window for a desktop modem is one glance.
+- Link the serving cell straight to its CellMapper page.
+- Over time: which towers and bands the modem has used, against its signal and speed history.
+
+**Client Performance while remote.** A phone reaching the site over Tailscale or a VPN on cellular:
+its public address names the carrier (ASN), and a speed test can carry its GPS location. Show the
+carrier's nearby towers and bands from CellMapper beside the result, so a slow remote test reads
+against the coverage where it ran.
+
+Check CellMapper's terms and whether it offers an API before building.
+
+### Live Traffic: flows that end on the Gateway itself (only if a user asks)
+
+Live's Flows leave out traffic to the Gateway: Client DNS to the Gateway's resolver, SSH or the console
+UI on its address, and Network Optimizer polling Adaptive SQM's TC monitor (TCP 8088). History shows
+them, since UniFi Network's records include the Gateway zone.
+
+Why: `LiveFlowTracker.Describe` (Monitoring, runs in the On-Gateway Agent) keeps a flow only when
+`ConntrackClassifier` reads it as WAN (`ClassifyWan`) or routed LAN between two Clients
+(`ClassifyRoutedLan`). A flow whose destination is one of the Gateway's own addresses is neither, so it
+returns null and never leaves the Agent.
+
+To do: a third class in `ConntrackClassifier` for a LAN Client to a Gateway address (and the reverse,
+the Gateway reaching a Client), carried as `Lan` with the Gateway as the remote, so the server's naming
+applies: the Gateway by name, "Adaptive SQM" on 8088 (`LiveTrafficStore.AdaptiveSqmMonitor`, which
+today only ever fires in History), DNS to the Gateway. It is an Agent change: bump `LatestAgentVersion`
+in the release that ships it, optional for the fleet. Check the volume first: every Client's DNS to the
+Gateway is a flow, so these may need their own cap or to sort below routed traffic in a busy site's top
+500 (`LeaseMaxFlows`).
+
+### Live Traffic: name flows by TLS / QUIC SNI (optional)
+
+Live Traffic names a remote from the DNS answers the Gateway sees (`DnsBpfFilter`, UDP 53 only) and
+from the UniFi Console's records. A Client on DoH, DoT, or DoQ (Chrome Secure DNS, iCloud Private
+Relay, an OS resolver set to DoH), or a connection that outlives the DNS answer, has no name in view.
+A read-only probe on a test site found no DNS name for 14% of new QUIC and 40% of new TLS connections.
+
+To do: the On-Gateway Agent reads the `server_name` from the Client's ClientHello and sends it with
+the flow, and the server uses it when no DNS answer names the address. TLS first; QUIC second.
+
+- Capture only while a Live Traffic lease is held, and only for flows that have no name yet: the same
+  privacy boundary as Live DNS.
+- TLS: a BPF on TCP 443 for the first data segments after the handshake, then parse the ClientHello.
+  It can span segments.
+- QUIC: a BPF on UDP 443 for long-header Initial packets. It needs the Initial keys (RFC 9001 for v1,
+  RFC 9369 for v2, different salts and labels), header protection removal, AES-128-GCM decrypt, and
+  CRYPTO reassembly across several Initials: current Chrome's ClientHello (post-quantum key shares)
+  does not fit in one packet.
+- ECH: the visible SNI is the outer public name (often a CDN's). Treat SNI as a hint; a DNS answer wins.
+- Cost: crypto per new QUIC flow on the Gateway CPU. Budget it per pass.
+
+It is an Agent change and a proto change: bump `LatestAgentVersion` in the release that ships it,
+optional for the fleet.
+
+### MLO mesh backhaul: record each link's signal for playback
+
+On an MLO mesh pairing (5 GHz and 6 GHz together), the LAN maps show each link's signal in the
+tooltip and average the two links for the signal meter, but only live. Playback has one reading:
+`MeshBackhaulPhyRecorder.Record` writes one `wifi_client` point per mesh child, tagged with the
+child's own `uplink.radio_band` and carrying `uplink.signal`, which is that one link (in practice the
+5 GHz one). The other link's signal, in the child's `uplink.mlo_links` (or the parent's
+`MeshParentClaim.Links` when the child reports none), is never stored. So during playback an MLO
+child's tooltip shows one Signal row, and its meter grades one link instead of the average.
+
+PHY is not part of this gap: the point's tx/rx rates are the uplink's own, which sum the MLO links,
+raised to the parent's summed claim when that is higher. Playback's Link speed already covers both
+links. Only a per-link split of PHY is missing, and nothing shows one.
+
+To do:
+
+- Record every MLO link's signal, using `LanFlowMapService.MloLinkSignals`'s source order: the
+  child's own reading per link, else the parent's claim, with the child's own reading for its STA link.
+- Keep the schema additive (CLAUDE.md, InfluxDB). Either one more `wifi_client` point per extra
+  link, under that link's `band` tag (it lands in the existing per-band series, and the historic
+  resolver must then stop picking one point per MAC), or per-link fields on the existing point
+  (`signal_dbm_5`, `signal_dbm_6`). Settle which before writing either; a mixed approach splits the series.
+- Playback: return the per-link readings in the historic update's `NodeClientStats`. It needs a
+  per-link list like `LanNode.MloLinks`, so its `SignalBars` and `SignalColor` take the same 5/6 GHz
+  average. Then the 2D tooltip's MLO rows follow the playhead instead of falling back to one row.
+- The agent-relayed path records through the same recorder, so it needs no separate change.
+
 ## VPN Clients Dashboard
 
 A dashboard for clients reaching the site over a VPN: connections through an external Tailscale
 server, and every UniFi VPN variant - Teleport, one-click VPN, the VPN servers, and site-to-site
 tunnels. Speed test path analysis already tells Tailscale, Teleport, and VPN hops apart; nothing
 yet shows who is connected through which tunnel, or how much they move.
+
+Tailscale is done (the Tailscale connection, v2.11.1): tailnet devices are named in Client
+Performance, Live Traffic, and speed tests, with each device's path and, through an On-Site Agent on
+the tailnet's router, the device behind routed traffic. What is left is the UniFi VPN variants, and
+Live View nodes for all of them.
 
 The same data feeds three existing surfaces, so collect it once and share it:
 

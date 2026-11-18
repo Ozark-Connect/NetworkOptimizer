@@ -121,6 +121,11 @@ public class FirewallRule
     public List<string>? WebDomains { get; init; }
 
     /// <summary>
+    /// Destination countries as ISO 3166-1 alpha-2 codes (for REGION rules, e.g. "US").
+    /// </summary>
+    public List<string>? DestinationRegions { get; init; }
+
+    /// <summary>
     /// Application IDs for app-based matching (e.g., 589885 = DNS, 1310917 = DoT, 1310919 = DoH).
     /// Used when DestinationMatchingTarget is "APP".
     /// </summary>
@@ -466,6 +471,88 @@ public class FirewallRule
         }
 
         return false;
+    }
+
+    /// <summary>
+    /// Whether the rule's source includes one host of a live connection: by network, address entry, or client
+    /// MAC. Null when it cannot be told: a client source with no MAC known for the host, or a source kind not
+    /// judged by address. Unlike <see cref="AppliesToSourceAddress"/>, "cannot tell" is not "no".
+    /// </summary>
+    /// <param name="networkId">The network the address is in, or null for none.</param>
+    /// <param name="address">The host's address.</param>
+    /// <param name="mac">The host's MAC, or null when unknown.</param>
+    public bool? MatchesSourceHost(string? networkId, string address, string? mac)
+    {
+        if (string.Equals(SourceMatchingTarget, "CLIENT", StringComparison.OrdinalIgnoreCase))
+        {
+            if (string.IsNullOrEmpty(mac)) return null;
+            var normalized = NormalizeMac(mac);
+            return (SourceClientMacs ?? []).Any(m => NormalizeMac(m) == normalized);
+        }
+        if (string.IsNullOrEmpty(SourceMatchingTarget)
+            || SourceMatchingTarget.Equals("ANY", StringComparison.OrdinalIgnoreCase)
+            || SourceMatchingTarget.Equals("NETWORK", StringComparison.OrdinalIgnoreCase)
+            || SourceMatchingTarget.Equals("IP", StringComparison.OrdinalIgnoreCase))
+            return AppliesToSourceAddress(networkId, address);
+        return null;
+
+        static string NormalizeMac(string m) => m.Replace('-', ':').ToLowerInvariant();
+    }
+
+    /// <summary>
+    /// Whether the rule's destination includes one address of a live connection. Null when it cannot be told:
+    /// web, app, and region destinations are matched by UniFi on what the connection carries, not its address.
+    /// </summary>
+    /// <param name="networkId">The network the address is in, or null for none (an internet address).</param>
+    /// <param name="address">The destination address.</param>
+    public bool? MatchesDestinationHost(string? networkId, string address)
+    {
+        if (string.IsNullOrEmpty(DestinationMatchingTarget)
+            || DestinationMatchingTarget.Equals("ANY", StringComparison.OrdinalIgnoreCase)
+            || DestinationMatchingTarget.Equals("NETWORK", StringComparison.OrdinalIgnoreCase)
+            || DestinationMatchingTarget.Equals("IP", StringComparison.OrdinalIgnoreCase))
+            return AppliesToDestination(networkId, address);
+        return null;
+    }
+
+    /// <summary>
+    /// Whether a web (domain) destination covers one live connection, as UniFi matches it: by the domains'
+    /// resolved addresses. A connection to a listed domain or a subdomain of one matches by its name; one
+    /// whose address a listed domain resolves to matches by address. Null when it cannot be told: a domain
+    /// group that did not resolve, or a connection with no known name while a listed domain has no answer yet.
+    /// </summary>
+    /// <param name="hostname">The name the connection was looked up by, or null when unknown.</param>
+    /// <param name="resolvesToAddress">For a listed domain: whether it resolves to the connection's address,
+    /// or null when that is not known yet.</param>
+    public bool? MatchesDestinationDomain(string? hostname, Func<string, bool?> resolvesToAddress)
+    {
+        if (HasUnresolvedDestinationDomainGroup) return null;
+        var name = hostname?.Trim().TrimEnd('.').ToLowerInvariant();
+        var unanswered = false;
+        foreach (var entry in WebDomains ?? [])
+        {
+            var domain = entry.Trim().TrimEnd('.').ToLowerInvariant();
+            if (domain.StartsWith("*.", StringComparison.Ordinal)) domain = domain[2..];
+            if (domain.Length == 0) continue;
+            if (name != null && (name == domain || name.EndsWith("." + domain, StringComparison.Ordinal))) return true;
+            switch (resolvesToAddress(domain))
+            {
+                case true: return true;
+                case null: unanswered = true; break;
+            }
+        }
+        return name == null && unanswered ? null : false;
+    }
+
+    /// <summary>
+    /// Whether a region (country) destination covers one live connection. Null when it cannot be told: no
+    /// countries parsed, or no country known for the address.
+    /// </summary>
+    /// <param name="countryCode">The address's ISO country code, or null when unknown.</param>
+    public bool? MatchesDestinationRegion(string? countryCode)
+    {
+        if (DestinationRegions is not { Count: > 0 } || string.IsNullOrEmpty(countryCode)) return null;
+        return DestinationRegions.Contains(countryCode, StringComparer.OrdinalIgnoreCase);
     }
 
     /// <summary>

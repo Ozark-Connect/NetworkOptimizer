@@ -1,3 +1,4 @@
+using System.Text.Json;
 using FluentAssertions;
 using Microsoft.Extensions.Logging;
 using Moq;
@@ -24,6 +25,36 @@ public class VlanAnalyzerTests
             Mock.Of<ILogger<FirewallRuleAnalyzer>>(),
             new FirewallRuleParser(Mock.Of<ILogger<FirewallRuleParser>>()));
     }
+
+    #region ExtractNetworks WAN Tests
+
+    [Theory]
+    [InlineData("\"purpose\": \"wan\"")]
+    [InlineData("\"wan_networkgroup\": \"WAN3\"")]
+    [InlineData("\"wan_type\": \"wireless_5g\"")]
+    public void ExtractNetworks_CellularWanInNetworkTable_IsNotANetwork(string wanMarker)
+    {
+        var json = $$"""
+        {
+            "data": [
+                {
+                    "type": "udm",
+                    "name": "Gateway",
+                    "network_table": [
+                        { "_id": "lan-id", "name": "Main", "vlan": 2, "purpose": "corporate", "ip_subnet": "192.0.2.1/24", "networkgroup": "LAN" },
+                        { "_id": "wan-id", "name": "Cellular", {{wanMarker}} }
+                    ]
+                }
+            ]
+        }
+        """;
+
+        var networks = _analyzer.ExtractNetworks(JsonDocument.Parse(json).RootElement);
+
+        networks.Select(n => n.Name).Should().Equal("Main");
+    }
+
+    #endregion
 
     #region AnalyzeNetworkIsolation Tests
 
@@ -3500,6 +3531,29 @@ public class VlanAnalyzerTests
 
         // Assert
         issues.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void AnalyzeInfrastructureVlanPlacement_ExpressInApModeOnHomeVlan_Flagged()
+    {
+        // An Express adopted as an AP is infrastructure like any AP, not an exempt gateway.
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Management", NetworkPurpose.Management, vlanId: 1),
+            CreateNetwork("Home", NetworkPurpose.Home, vlanId: 2)
+        };
+        var deviceJson = System.Text.Json.JsonDocument.Parse("""
+        {
+            "data": [
+                { "type": "udm", "model": "UX", "name": "Express", "ip": "192.168.2.20",
+                  "mac": "aa:bb:cc:dd:ee:01", "device_mode_override": "mesh" }
+            ]
+        }
+        """).RootElement;
+
+        var issues = _analyzer.AnalyzeInfrastructureVlanPlacement(deviceJson, networks);
+
+        issues.Should().NotBeEmpty();
     }
 
     [Fact]

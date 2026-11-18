@@ -122,6 +122,11 @@ public class AccessHopCandidate
     /// <summary>With <see cref="Unreachable"/>: already monitored, and failed only during a run started while the WAN was busy, so it stays checked.</summary>
     public bool UnansweredWhileBusy { get; set; }
     public double? VerifiedRttMs { get; set; }
+    /// <summary>
+    /// Judged customer premises equipment (a carrier gateway or router in front of the access link;
+    /// see UpstreamTracerService.MarkCustomerPremisesAsync). Proposed unchecked; the operator can check it.
+    /// </summary>
+    public bool CustomerPremises { get; set; }
 }
 
 /// <summary>
@@ -174,6 +179,12 @@ public class TransitAsnCandidate
     /// stored choices.
     /// </summary>
     public bool PreservedFromExisting { get; set; }
+
+    /// <summary>
+    /// A new transit router whose ping is far above the other transit routers' (see
+    /// UpstreamTracerService.OutlierTransitRouters). Proposed unchecked; the operator can check it.
+    /// </summary>
+    public bool HighRtt { get; set; }
 }
 
 /// <summary>

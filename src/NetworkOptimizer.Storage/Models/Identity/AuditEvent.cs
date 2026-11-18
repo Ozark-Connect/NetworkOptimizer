@@ -253,10 +253,15 @@ public static class AuditActions
     public const string ChangeControlDeviceForgotten = "change_control.device.forgotten";
     public const string ChangeControlTemplateSaved = "change_control.template.saved";
     public const string ChangeControlTemplateDeleted = "change_control.template.deleted";
+    public const string HopLocationSet = "network_tools.hop_location.set";
+    public const string HopLocationCleared = "network_tools.hop_location.cleared";
     public const string ChangeControlConsoleBackupDownloaded = "change_control.console_backup.downloaded";
     public const string ChangeControlAttentionDismissed = "change_control.attention.dismissed";
     public const string ChangeControlAttentionRestored = "change_control.attention.restored";
     public const string ChangeControlChangeRecomputed = "change_control.change.recomputed";
+    public const string LiveTrafficCustomAppSaved = "live_traffic.custom_app.saved";
+    public const string LiveTrafficCustomAppMoved = "live_traffic.custom_app.moved";
+    public const string LiveTrafficCustomAppDeleted = "live_traffic.custom_app.deleted";
     public const string MigrationPerformed = "audit.migration";
     public const string Pruned = "audit.pruned";
 }

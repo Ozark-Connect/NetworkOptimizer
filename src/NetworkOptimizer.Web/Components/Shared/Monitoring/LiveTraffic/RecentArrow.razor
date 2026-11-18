@@ -1,0 +1,22 @@
+@* The download or upload arrow the Recent columns carry, in the speed test pair's colors. *@
+<svg class="lt-recent-arrow @(Up ? "speed-up" : "speed-down")" viewBox="0 0 24 24" aria-label="@(Up ? "Up" : "Down")" role="img">
+    <g fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        @if (Up)
+        {
+            <line x1="12" y1="20" x2="12" y2="4" /><polyline points="5 11 12 4 19 11" />
+        }
+        else
+        {
+            <line x1="12" y1="4" x2="12" y2="20" /><polyline points="5 13 12 20 19 13" />
+        }
+    </g>
+</svg>
+
+@code {
+    /// <summary>Upload (from the client); otherwise download.</summary>
+    [Parameter] public bool Up { get; set; }
+
+    /// <summary>The Recent column headers' tooltip.</summary>
+    public static string Tooltip(bool up) =>
+        $"Data {(up ? "uploaded" : "downloaded")} in the last 5 minutes, or since Live Traffic started";
+}

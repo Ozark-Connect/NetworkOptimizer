@@ -5,7 +5,7 @@
 # Network Optimizer for UniFi
 
 [![GitHub Release](https://img.shields.io/github/v/release/Ozark-Connect/NetworkOptimizer)](https://github.com/Ozark-Connect/NetworkOptimizer/releases)
-[![Docker Pulls](https://img.shields.io/badge/docker_pulls-803k-blue?logo=docker)](https://github.com/orgs/Ozark-Connect/packages?repo_name=NetworkOptimizer)
+[![Docker Pulls](https://img.shields.io/badge/docker_pulls-832k-blue?logo=docker)](https://github.com/orgs/Ozark-Connect/packages?repo_name=NetworkOptimizer)
 [![Windows Downloads](https://img.shields.io/github/downloads/Ozark-Connect/NetworkOptimizer/total?label=windows%20downloads)](https://github.com/Ozark-Connect/NetworkOptimizer/releases)
 [![GitHub last commit](https://img.shields.io/github/last-commit/Ozark-Connect/NetworkOptimizer)](https://github.com/Ozark-Connect/NetworkOptimizer/commits)
 [![GitHub Stars](https://img.shields.io/github/stars/Ozark-Connect/NetworkOptimizer)](https://github.com/Ozark-Connect/NetworkOptimizer/stargazers)
@@ -18,11 +18,11 @@
 
 Genuinely, thank you so much to everybody for taking the time to use Network Optimizer and have it find a place on your network(s). It really means a lot to receive all of the bug reports, feature requests, feedback, support, and donations from everybody. Totally a whole new experience from writing code in a dayjob, and it greatly motivates me to keep on going!
 
-## Coming Soon: Live Traffic
+## New: Live Traffic
 
-Available on Preview Now: see every flow through your Gateway as it happens, ranked by what's using your internet right now, with the app, where it's going, the DNS lookup behind it, and the Firewall Policy that let it through. Live DNS shows every lookup as it happens, flags blocked ones and clients going around your DNS, and catches the attempts your Gateway DNATs. Client Performance gets the same live view for any single client.
+Available on the latest release: see every flow through your Gateway as it happens, ranked by what's using your internet right now, with the app, its destination (down to the ISP cache or the other site it's hitting), the DNS lookup behind it, and the Firewall Policy that let it through. Where It's Going maps it all from client to app to the WAN it takes, History lets you go back and search earlier flows, and you can name any app UniFi Network doesn't recognize. Live DNS shows every lookup as it happens, flags blocked ones and clients going around your DNS, and catches the attempts your Gateway DNATs. Client Performance gets the same live view for any single client.
 
-Check it out on Preview here: https://github.com/Ozark-Connect/NetworkOptimizer/releases
+Tailscale too: connect your tailnet (Tailscale or Headscale, read-only) and your Tailscale devices show up by name in Live Traffic, Client Performance, and speed test results, along with whether each one connects directly or bounces through a DERP relay (and which one). Put an On-Site Agent on the Linux box that's your subnet router or exit node and it goes further: the exact path and traffic for every device, and the device behind every connection it routes, instead of that one box taking the credit for all of it.
 
 ## New: Change Control
 
@@ -46,7 +46,7 @@ If you haven't already checked out [our Traefik based reverse proxy](https://git
 
 ## It's Here: Hosted Network Optimizer
 
-For people who don't have a home server or don't want to set up the infrastructure, a fully hosted Network Optimizer is available: $15/month for up to 3 sites, with a [14-day free trial](https://ozarkconnect.net/network-optimizer/signup) and enterprise-grade security. The commercial hosted plan is $25/month per site, adding full management and consulting - see [pricing and licensing](https://ozarkconnect.net/network-optimizer/licensing). The [on-site agent](src/NetworkOptimizer.Agent/README.md) runs on your gateway, so the only thing you give up is LAN speed testing. WAN speed testing is included, with some data limits.
+For people who don't have a home server or don't want to set up the infrastructure, a fully hosted Network Optimizer is available: $15/month for up to 3 sites, with a [14-day free trial](https://ozarkconnect.net/network-optimizer/signup) and enterprise-grade security. The commercial hosted plan is $25/month per site, adding full management and consulting - see [pricing and licensing](https://ozarkconnect.net/network-optimizer/licensing). The [on-site agent](src/NetworkOptimizer.Agent/README.md) runs on your gateway, so the only thing you give up is dedicated multi-gig LAN speed testing (the gateway agent still serves LAN speed testing, but it has limitations and performance implications while you do tests). WAN speed testing is included, with some data limits. Your data stays in your own organization on the service, is used only to run and support it, and is never sold or shared: see [where your data goes](src/NetworkOptimizer.Agent/README.md#where-your-data-goes) and the [Privacy Policy](https://ozarkconnect.net/privacy).
 
 ## Multi-Site Support
 
@@ -69,10 +69,6 @@ Channel Recommendation uses it too. Pin a radio and the plan works around it. Wi
 ## New: Firmware Rollout
 
 Firmware day on a site of any size is the same ritual: click Upgrade, wait, check it came back, click the next one, and hope nobody's on a call when their AP reboots. Firmware Rollout does the whole site, and it picks the moment from your own traffic history so the reboots land in the quietest window your network actually has. One device per model goes first; the rest wait until it's back on the new firmware with CPU, memory, and health looking like they did before. You can hold one model on Official, push another to Early Access, or leave a device out entirely. Autopilot runs it every time new firmware lands, with a heads-up before it starts and a way to stop it.
-
-## New: Bandwidth Hogs
-
-Somebody's eating the internet. Who? Bandwidth Hogs puts the answer on Live View, right above the map: who's on the WAN right now, and who used the most of it today, this week, or this month, biggest first, each one a click away from its Client Performance page. Scrub the maps back through history and the list goes with you. With the On-Site Agent on your gateway, the numbers are measured there rather than estimated. Counting bytes per client is all it does: no destinations, no ports, no flow records leave the box. It costs under 1% CPU on a UXG-Fiber or UCG-Fiber.
 
 ## New: Starlink Monitoring
 
@@ -415,6 +411,8 @@ Business Source License 1.1
 For commercial licensing inquiries, contact tj@ozarkconnect.net.
 
 © 2026 Ozark Connect
+
+Country flags use the [Twemoji Country Flags](https://github.com/talkjs/country-flag-emoji-polyfill) font. Its flag art is from [Twemoji](https://github.com/jdecked/twemoji), licensed under [CC-BY 4.0](https://creativecommons.org/licenses/by/4.0/); see `src/NetworkOptimizer.Web/wwwroot/lib/twemoji-country-flags/LICENSE.md`.
 
 ## Support
 

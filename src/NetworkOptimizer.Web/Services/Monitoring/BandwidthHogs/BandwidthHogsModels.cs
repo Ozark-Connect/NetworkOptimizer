@@ -40,6 +40,14 @@ public sealed record HogRow
 
     public bool IsPortGroup => PortClientCount > 1;
 
+    /// <summary>Throughput on a site with measured WAN: this port row's interfaces are listed
+    /// separately in the WAN view, so the WAN view leaves this row out.</summary>
+    public bool SplitForWan { get; init; }
+
+    /// <summary>One interface behind a <see cref="SplitForWan"/> port: WAN view only. Its LAN
+    /// rate is the port's and is not known per interface, so it is left at zero.</summary>
+    public bool WanOnly { get; init; }
+
     public string DisplayName => !string.IsNullOrWhiteSpace(Name) ? Name! : Ip ?? ClientMac;
 }
 

@@ -1,0 +1,560 @@
+@* The site's custom apps: the list (reorder, edit, delete with Undo) and the add / edit form with a
+   live preview. Live Traffic hosts it in a dialog; Settings - Monitoring hosts it inline. *@
+@using NetworkOptimizer.Storage.Models
+@using NetworkOptimizer.Web.Services.Monitoring.LiveTraffic
+@inherits LiveTrafficPieces
+@inject ICustomAppService CustomApps
+@inject ILogger<CustomAppsManager> Logger
+@implements IDisposable
+
+<div class="custom-apps @(InDialog ? "is-dialog" : null)" @onkeydown="OnKeyDown">
+    @if (_mode == Mode.Form)
+    {
+        <div class="custom-apps-header">
+            @if (InDialog)
+            {
+                <h2 class="custom-apps-title" id="@TitleId">@(_draft.Id > 0 ? "Edit Custom App" : "Name This App")</h2>
+            }
+            @if (!_fromSeed)
+            {
+                <button type="button" class="custom-apps-back" @onclick="BackToList">Back to Custom Apps</button>
+            }
+        </div>
+
+        <div class="custom-app-form">
+            <div class="form-group">
+                <label class="form-label" for="custom-app-name">Name</label>
+                <input id="custom-app-name" class="form-control" maxlength="80" placeholder="Home Assistant" autocomplete="off"
+                       @ref="_nameInput" value="@_draft.Name" @oninput="e => { _draft.Name = e.Value?.ToString() ?? string.Empty; }"
+                       @onkeydown="OnTextKeyDown" />
+            </div>
+
+            <div class="form-row">
+                <div class="form-group">
+                    <span class="form-label">Protocol</span>
+                    <div class="radio-group">
+                        @foreach (var (value, label) in Protocols)
+                        {
+                            <label class="radio-label">
+                                <input type="radio" name="custom-app-proto" checked="@(_draft.Protocol == value)" @onchange="() => Set(() => _draft.Protocol = value)" />
+                                <span>@label</span>
+                            </label>
+                        }
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="custom-app-ports">Ports</label>
+                    <input id="custom-app-ports" class="form-control" maxlength="200" placeholder="8123" autocomplete="off" inputmode="numeric"
+                           value="@_draft.Ports" @oninput="e => Set(() => _draft.Ports = e.Value?.ToString() ?? string.Empty)"
+                           @onkeydown="OnTextKeyDown" />
+                    <small class="form-help">One port, a range (5000-5010), or a list (80, 8080)</small>
+                </div>
+            </div>
+
+            <div class="form-row">
+                <div class="form-group">
+                    <span class="form-label">Match port on <span class="tooltip-icon tooltip-icon-sm" data-tooltip="Destination is the service's port, which suits most apps. Use Either end for peer-to-peer traffic, where either side can be the server.">?</span></span>
+                    <div class="radio-group">
+                        @foreach (var (value, label) in PortOns)
+                        {
+                            <label class="radio-label">
+                                <input type="radio" name="custom-app-porton" checked="@(_draft.PortOn == value)" @onchange="() => Set(() => _draft.PortOn = value)" />
+                                <span>@label</span>
+                            </label>
+                        }
+                    </div>
+                </div>
+                <div class="form-group">
+                    <span class="form-label">Where</span>
+                    <div class="radio-group">
+                        @foreach (var (value, label) in Scopes)
+                        {
+                            <label class="radio-label">
+                                <input type="radio" name="custom-app-scope" checked="@(_draft.Scope == value)" @onchange="() => Set(() => _draft.Scope = value)" />
+                                <span>@label</span>
+                            </label>
+                        }
+                    </div>
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label class="form-label" for="custom-app-remote">Remote (optional)</label>
+                <input id="custom-app-remote" class="form-control" maxlength="255" autocomplete="off"
+                       value="@_draft.Remote" @oninput="e => Set(() => _draft.Remote = e.Value?.ToString())"
+                       @onkeydown="OnTextKeyDown" />
+                <small class="form-help">A domain suffix (example.com) or an address / CIDR. Leave it empty to match any address.</small>
+            </div>
+
+            <div class="form-group">
+                <span class="form-label">Icon</span>
+                <div class="custom-app-icons" role="radiogroup" aria-label="Icon">
+                    <button type="button" class="custom-app-icon-btn @(_draft.IconClass == null ? "is-selected" : null)" role="radio"
+                            aria-checked="@(_draft.IconClass == null ? "true" : "false")" data-tooltip="Initial" data-tooltip-hover-only
+                            @onclick="() => _draft.IconClass = null">
+                        <span class="custom-app-initial">@(string.IsNullOrWhiteSpace(_draft.Name) ? "A" : _draft.Name.Trim()[0].ToString().ToUpperInvariant())</span>
+                    </button>
+                    @foreach (var icon in CustomAppMatcher.IconChoices)
+                    {
+                        var selected = _draft.IconClass == icon;
+                        <button type="button" class="custom-app-icon-btn @(selected ? "is-selected" : null)" role="radio"
+                                aria-checked="@(selected ? "true" : "false")" aria-label="@IconLabel(icon)"
+                                @onclick="() => _draft.IconClass = icon">
+                            <i class="@icon" aria-hidden="true"></i>
+                        </button>
+                    }
+                </div>
+            </div>
+
+            <div class="custom-app-preview">
+                <span class="form-label">Preview</span>
+                <div class="custom-app-preview-row">
+                    <span class="lt-app-cell">@AppIcon(PreviewName, null, _draft.IconClass ?? NoGlyph)<span class="filter-pill"><span class="filter-pill-text">@PreviewName</span></span></span>
+                    <span class="custom-app-live">@PreviewCount</span>
+                </div>
+                @if (_preview?.ShadowedBy is { } shadow)
+                {
+                    <div class="form-help custom-app-shadow">
+                        @shadow (above) matches these flows first. Reorder in <button type="button" class="custom-apps-link" @onclick="BackToList">Custom Apps</button>.
+                    </div>
+                }
+            </div>
+
+            <div class="action-buttons form-footer">
+                <button type="button" class="btn btn-primary" disabled="@_saving" @onclick="SaveAsync">Save</button>
+                <button type="button" class="btn btn-secondary" @onclick="Cancel">Cancel</button>
+            </div>
+            @if (_formError != null)
+            {
+                <div class="alert alert-danger custom-apps-error" role="alert">@_formError</div>
+            }
+        </div>
+    }
+    else
+    {
+        var listEmpty = _definitions is { Count: 0 } && _deleted == null;
+        var lead = _definitions == null ? null
+            : listEmpty ? "No custom apps yet. Hover a port like UDP 21324 in Live Traffic to name it, or add one here."
+            : "Checked top to bottom. The first match names the flow.";
+        <div class="custom-apps-header">
+            @if (InDialog)
+            {
+                <h2 class="custom-apps-title" id="@TitleId">Custom Apps</h2>
+            }
+            else
+            {
+                @* Inline, the card header carries the title: the lead line shares the button's row. *@
+                <p class="custom-apps-intro">@lead</p>
+            }
+            <button type="button" class="btn btn-primary btn-sm custom-apps-add" @ref="_addButton" @onclick="() => OpenForm(null, null)">Add Custom App</button>
+        </div>
+
+        @if (_definitions == null)
+        {
+            <div class="loading-container"><div class="spinner spinner-sm"></div></div>
+        }
+        else if (listEmpty)
+        {
+            if (InDialog)
+            {
+                <div class="empty-state custom-apps-empty"><p>@lead</p></div>
+            }
+        }
+        else
+        {
+            if (InDialog)
+            {
+                <p class="custom-apps-intro">@lead</p>
+            }
+            <ol class="custom-apps-list">
+                @for (var i = 0; i <= _definitions.Count; i++)
+                {
+                    if (_deleted is { } gone && gone.Index == i)
+                    {
+                        <li class="custom-apps-item custom-apps-deleted">
+                            <span>@gone.Definition.Name deleted. <button type="button" class="custom-apps-link" @onclick="UndoAsync">Undo</button></span>
+                        </li>
+                    }
+                    if (i == _definitions.Count) break;
+                    var d = _definitions[i];
+                    var index = i;
+                    <li @key="d.Id" class="custom-apps-item @(d.Id == _highlightId ? "is-new" : null)">
+                        <span class="custom-apps-rank">@(i + 1)</span>
+                        <div class="custom-apps-main">
+                            <span class="lt-app-cell">@AppIcon(d.Name, null, d.IconClass ?? NoGlyph)<span class="custom-apps-name">@d.Name</span></span>
+                            <div class="custom-apps-sub">@Summary(d) &middot; @LiveLabel(d.Id)</div>
+                        </div>
+                        <div class="custom-apps-actions">
+                            @if (_definitions.Count > 1)
+                            {
+                                <button type="button" class="btn btn-secondary btn-sm custom-apps-move" aria-label="Move up" disabled="@(index == 0)" @onclick="() => MoveAsync(d, -1)">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 15 12 9 18 15" /></svg>
+                                </button>
+                                <button type="button" class="btn btn-secondary btn-sm custom-apps-move" aria-label="Move down" disabled="@(index == _definitions.Count - 1)" @onclick="() => MoveAsync(d, 1)">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 9 12 15 18 9" /></svg>
+                                </button>
+                            }
+                            <button type="button" class="btn btn-secondary btn-sm" @onclick="() => OpenForm(d, null)">Edit</button>
+                            <button type="button" class="btn btn-secondary btn-sm" @onclick="() => DeleteAsync(d, index)">Delete</button>
+                        </div>
+                        @if (_rowError is { } err && err.Id == d.Id)
+                        {
+                            <div class="alert alert-danger custom-apps-error custom-apps-row-error" role="alert">@err.Message</div>
+                        }
+                    </li>
+                }
+            </ol>
+        }
+        @if (_listError != null)
+        {
+            <div class="alert alert-danger custom-apps-error" role="alert">@_listError</div>
+        }
+    }
+</div>
+
+@code {
+    /// <summary>Hosted in the Live Traffic dialog: draws its own title, and Escape on the list closes it.</summary>
+    [Parameter] public bool InDialog { get; set; }
+
+    /// <summary>The dialog's title element id, for aria-labelledby.</summary>
+    [Parameter] public string TitleId { get; set; } = "custom-apps-title";
+
+    /// <summary>Opens straight on the form, prefilled from a flow (Name This App).</summary>
+    [Parameter] public CustomAppSeed? Seed { get; set; }
+
+    /// <summary>The dialog should close: a seeded save or cancel, or Escape on the list.</summary>
+    [Parameter] public EventCallback OnClose { get; set; }
+
+    /// <summary>The list changed (count for the Live Traffic header button).</summary>
+    [Parameter] public EventCallback<int> OnChanged { get; set; }
+
+    private enum Mode { List, Form }
+
+    private sealed record DeletedRow(CustomAppDefinition Definition, int Index);
+
+    /// <summary>Draws the initial, as Live Traffic does for a custom app with no glyph.</summary>
+    private const string NoGlyph = CustomAppMatcher.InitialOnlyIcon;
+
+    private static readonly (CustomAppProtocol, string)[] Protocols =
+        [(CustomAppProtocol.Udp, "UDP"), (CustomAppProtocol.Tcp, "TCP"), (CustomAppProtocol.Both, "TCP and UDP")];
+    private static readonly (CustomAppPortOn, string)[] PortOns =
+        [(CustomAppPortOn.Destination, "Destination"), (CustomAppPortOn.Source, "Source"), (CustomAppPortOn.Either, "Either end")];
+    private static readonly (CustomAppScope, string)[] Scopes =
+        [(CustomAppScope.Anywhere, "Anywhere"), (CustomAppScope.Lan, "Between my devices"), (CustomAppScope.Internet, "To the internet")];
+
+    private Mode _mode = Mode.List;
+    private bool _fromSeed;
+    private CustomAppSeed? _appliedSeed;
+    private CustomAppDefinition _draft = new();
+    private List<CustomAppDefinition>? _definitions;
+    private IReadOnlyDictionary<int, int> _counts = new Dictionary<int, int>();
+    private CustomAppPreview? _preview;
+    private bool _previewPending;
+    private CancellationTokenSource? _previewCts;
+    private DeletedRow? _deleted;
+    private CancellationTokenSource? _undoCts;
+    private int? _highlightId;
+    private (int Id, string Message)? _rowError;
+    private string? _listError;
+    private string? _formError;
+    private bool _saving;
+    private bool _focusPending = true;
+    private ElementReference _nameInput;
+    private ElementReference _addButton;
+    private System.Threading.Timer? _countTimer;
+    private bool _disposed;
+
+    private string PreviewName => string.IsNullOrWhiteSpace(_draft.Name) ? "Your app" : _draft.Name.Trim();
+
+    private string PreviewCount => _previewPending ? ""
+        : _preview == null ? ""
+        : _preview.LiveMatches == 0 ? "Matches no live flows right now"
+        : $"Matches {TimeFormatHelper.Pluralize(_preview.LiveMatches, "live flow")} now";
+
+    private string LiveLabel(int id) => TimeFormatHelper.Pluralize(_counts.GetValueOrDefault(id), "live flow");
+
+    private static string Summary(CustomAppDefinition d) =>
+        CustomAppMatcher.ToRule(d) is { } rule ? CustomAppMatcher.Describe(rule) : d.Ports;
+
+    private static string IconLabel(string cls) =>
+        System.Globalization.CultureInfo.InvariantCulture.TextInfo.ToTitleCase(cls.Replace("fa-solid fa-", "").Replace('-', ' '));
+
+    // Inline on Settings the list never takes focus on load; the dialog's first control does.
+    protected override void OnInitialized() => _focusPending = InDialog;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (Seed != null && Seed != _appliedSeed)
+        {
+            _appliedSeed = Seed;
+            OpenForm(null, Seed);
+        }
+        if (_definitions == null) await LoadAsync();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            // Live counts move with the traffic; the list keeps them current while it is open.
+            _countTimer = new System.Threading.Timer(_ =>
+            {
+                if (_disposed || _mode != Mode.List) return;
+                try { _ = InvokeAsync(RefreshCountsAsync); }
+                catch { /* circuit going away */ }
+            }, null, TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(5));
+        }
+        if (_focusPending)
+        {
+            _focusPending = false;
+            try
+            {
+                if (_mode == Mode.Form) await _nameInput.FocusAsync();
+                else if (_definitions != null) await _addButton.FocusAsync();
+            }
+            catch (Exception ex)
+            {
+                Logger.LogDebug(ex, "Custom Apps: focus skipped");
+            }
+        }
+    }
+
+    private async Task LoadAsync()
+    {
+        try
+        {
+            _definitions = (await CustomApps.ListAsync()).ToList();
+            _counts = await CustomApps.LiveCountsAsync();
+            _listError = null;
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Custom Apps: list failed");
+            _definitions ??= new List<CustomAppDefinition>();
+            _listError = $"Couldn't load custom apps: {ex.Message}";
+        }
+    }
+
+    private async Task RefreshCountsAsync()
+    {
+        try
+        {
+            _counts = await CustomApps.LiveCountsAsync();
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogDebug(ex, "Custom Apps: live counts failed");
+        }
+    }
+
+    private void OpenForm(CustomAppDefinition? existing, CustomAppSeed? seed)
+    {
+        _fromSeed = seed != null;
+        _formError = null;
+        _rowError = null;
+        _draft = existing != null
+            ? new CustomAppDefinition
+            {
+                Id = existing.Id, Name = existing.Name, Protocol = existing.Protocol, Ports = existing.Ports,
+                PortOn = existing.PortOn, Scope = existing.Scope, Remote = existing.Remote, IconClass = existing.IconClass,
+            }
+            : new CustomAppDefinition
+            {
+                Protocol = seed?.Protocol ?? CustomAppProtocol.Udp,
+                Ports = seed?.Port.ToString() ?? "",
+                PortOn = seed?.PortOn ?? CustomAppPortOn.Destination,
+                Scope = seed?.Scope ?? CustomAppScope.Anywhere,
+            };
+        _mode = Mode.Form;
+        _focusPending = true;
+        SchedulePreview();
+    }
+
+    private void BackToList()
+    {
+        _mode = Mode.List;
+        _formError = null;
+        _focusPending = true;
+        _ = InvokeAsync(RefreshCountsAsync);
+    }
+
+    private async Task Cancel()
+    {
+        if (_fromSeed && InDialog) await OnClose.InvokeAsync();
+        else BackToList();
+    }
+
+    private async Task OnKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key != "Escape") return;
+        if (_mode == Mode.Form) await Cancel();
+        else if (InDialog) await OnClose.InvokeAsync();
+    }
+
+    private async Task OnTextKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter") await SaveAsync();
+    }
+
+    private void Set(Action change)
+    {
+        change();
+        SchedulePreview();
+    }
+
+    /// <summary>Asks for the preview 300 ms after the last change, so typing a port does not query every keystroke.</summary>
+    private void SchedulePreview()
+    {
+        _previewCts?.Cancel();
+        var cts = _previewCts = new CancellationTokenSource();
+        _previewPending = true;
+        var draft = _draft;
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await Task.Delay(300, cts.Token);
+                await InvokeAsync(async () =>
+                {
+                    var preview = await CustomApps.PreviewAsync(draft, cts.Token);
+                    if (cts.IsCancellationRequested) return;
+                    _preview = preview;
+                    _previewPending = false;
+                    StateHasChanged();
+                });
+            }
+            catch (OperationCanceledException) { }
+            catch (Exception ex)
+            {
+                Logger.LogDebug(ex, "Custom Apps: preview failed");
+            }
+        });
+    }
+
+    private async Task SaveAsync()
+    {
+        if (_saving) return;
+        if (CustomAppService.Validate(_draft) is { } problem)
+        {
+            _formError = problem;
+            return;
+        }
+        _saving = true;
+        _formError = null;
+        try
+        {
+            var saved = await CustomApps.SaveAsync(_draft);
+            await LoadAsync();
+            await OnChanged.InvokeAsync(_definitions?.Count ?? 0);
+            if (_fromSeed && InDialog)
+            {
+                // The renamed row on the page behind is the feedback.
+                await OnClose.InvokeAsync();
+                return;
+            }
+            _mode = Mode.List;
+            _focusPending = true;
+            Highlight(saved.Id);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Custom Apps: save failed");
+            _formError = ex is ArgumentException ? ex.Message : $"Couldn't save: {ex.Message}.";
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+
+    private async Task MoveAsync(CustomAppDefinition d, int offset)
+    {
+        _rowError = null;
+        try
+        {
+            await CustomApps.MoveAsync(d.Id, offset);
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Custom Apps: move failed");
+            _rowError = (d.Id, $"Couldn't move it: {ex.Message}");
+        }
+    }
+
+    private async Task DeleteAsync(CustomAppDefinition d, int index)
+    {
+        _rowError = null;
+        try
+        {
+            var at = await CustomApps.DeleteAsync(d.Id);
+            await LoadAsync();
+            await OnChanged.InvokeAsync(_definitions?.Count ?? 0);
+            _deleted = new DeletedRow(d, at ?? index);
+            _undoCts?.Cancel();
+            var cts = _undoCts = new CancellationTokenSource();
+            _ = Task.Delay(TimeSpan.FromSeconds(10), cts.Token).ContinueWith(t =>
+            {
+                if (t.IsCanceled || _disposed) return;
+                _ = InvokeAsync(() =>
+                {
+                    if (_deleted?.Definition.Id == d.Id) _deleted = null;
+                    StateHasChanged();
+                });
+            }, TaskScheduler.Default);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Custom Apps: delete failed");
+            _rowError = (d.Id, $"Couldn't delete it: {ex.Message}");
+        }
+    }
+
+    private async Task UndoAsync()
+    {
+        if (_deleted is not { } gone) return;
+        _undoCts?.Cancel();
+        _deleted = null;
+        try
+        {
+            var d = gone.Definition;
+            var restored = await CustomApps.SaveAsync(new CustomAppDefinition
+            {
+                Name = d.Name, Protocol = d.Protocol, Ports = d.Ports, PortOn = d.PortOn, Scope = d.Scope,
+                Remote = d.Remote, IconClass = d.IconClass,
+            }, gone.Index);
+            await LoadAsync();
+            await OnChanged.InvokeAsync(_definitions?.Count ?? 0);
+            Highlight(restored.Id);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Custom Apps: undo failed");
+            _listError = $"Couldn't restore {gone.Definition.Name}: {ex.Message}";
+        }
+    }
+
+    /// <summary>Marks the saved or restored row for two seconds, so the eye finds it in the list.</summary>
+    private void Highlight(int id)
+    {
+        _highlightId = id;
+        _ = Task.Delay(TimeSpan.FromSeconds(2)).ContinueWith(_ =>
+        {
+            if (_disposed) return;
+            _ = InvokeAsync(() =>
+            {
+                if (_highlightId == id) _highlightId = null;
+                StateHasChanged();
+            });
+        }, TaskScheduler.Default);
+    }
+
+    public void Dispose()
+    {
+        _disposed = true;
+        _countTimer?.Dispose();
+        _previewCts?.Cancel();
+        _undoCts?.Cancel();
+    }
+}

@@ -24,9 +24,15 @@
             </li>
         }
         <li class="nav-item" @onclick="HandleNavClick">
-            <NavLink class="nav-link" href="/monitoring">
+            <NavLink class="nav-link" href="/monitoring" Match="NavLinkMatch.All">
                 <img src="/icons/port-scan.png" alt="" class="nav-icon-img" />
                 <span class="nav-text">Monitoring</span>
+            </NavLink>
+        </li>
+        <li class="nav-item nav-sub-item" @onclick="HandleNavClick">
+            <NavLink class="nav-link" href="/monitoring/live-traffic">
+                <span class="nav-sub-icon">└</span>
+                <span class="nav-text">Live Traffic</span>
             </NavLink>
         </li>
         <li class="nav-item nav-sub-item" @onclick="HandleNavClick">

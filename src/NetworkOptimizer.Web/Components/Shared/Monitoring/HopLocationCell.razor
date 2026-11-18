@@ -1,0 +1,51 @@
+@using NetworkOptimizer.Core.Helpers
+@using NetworkOptimizer.Web.Services.Monitoring
+
+@* A traced hop's location in a trace table, with the Set location icon for an Admin. The icon shows
+   on the row's hover, or on the selected row; it opens the page's HopLocationEditor. *@
+<span class="hop-loc @(Selected ? "is-selected" : null)">
+    @if (Location != null)
+    {
+        <span class="flag-icon" data-tooltip="@CountryDisplay.CountryTooltip(Location.CountryCode)">@CountryDisplay.CountryFlag(Location.CountryCode)</span>
+        <span data-tooltip="@Location.Tooltip">@Location.Text</span>
+        @if (Location.Source == HopLocationSource.Set)
+        {
+            <span class="hop-loc-set">Set</span>
+        }
+    }
+    else
+    {
+        <span>-</span>
+    }
+    @if (Editable)
+    {
+        <AdminOnly>
+            <button type="button" @ref="_button" class="hop-loc-edit @(Open ? "is-open" : null)" aria-label="Set location"
+                    @onclick="() => OnEdit.InvokeAsync(new HopLocationEdit(Address!, Location, _button))" @onclick:stopPropagation>
+                <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17.97 9.304A8 8 0 0 0 2 10c0 4.69 4.887 9.562 7.022 11.468" /><path d="M21.378 16.626a1 1 0 0 0-3.004-3.004l-4.01 4.012a2 2 0 0 0-.506.854l-.837 2.87a.5.5 0 0 0 .62.62l2.87-.837a2 2 0 0 0 .854-.506z" /><circle cx="10" cy="10" r="3" /></svg>
+            </button>
+        </AdminOnly>
+    }
+</span>
+
+@code {
+    /// <summary>The hop's address; null for a hop that did not answer.</summary>
+    [Parameter] public string? Address { get; set; }
+
+    /// <summary>Where the hop is placed now; null when nothing places it.</summary>
+    [Parameter] public HopLocationView? Location { get; set; }
+
+    /// <summary>The row is the table's selected one: its icon shows without a hover.</summary>
+    [Parameter] public bool Selected { get; set; }
+
+    /// <summary>This hop's editor is open.</summary>
+    [Parameter] public bool Open { get; set; }
+
+    /// <summary>Asks the page to open the editor for this hop.</summary>
+    [Parameter] public EventCallback<HopLocationEdit> OnEdit { get; set; }
+
+    private ElementReference _button;
+
+    // A private address means a different router on every site, so only a public one takes an install-wide location.
+    private bool Editable => Address != null && NetworkUtilities.IsPublicIpAddress(Address);
+}

@@ -251,6 +251,57 @@ public class OntAlertEvaluatorTests
         reboot[0].MetricValue.Should().Be(40);
     }
 
+    private static ValueTask Aes(OntAlertEvaluator e, bool? active, long? gemPorts = 3, long? encrypted = null,
+        PonLinkState link = PonLinkState.Operation) =>
+        e.EvaluateAsync(1, "ONT", SafeRx, link, null, aesActive: active, gemPorts: gemPorts, gemPortsEncrypted: encrypted);
+
+    [Fact]
+    public async Task Aes_EnabledIsWarning_DisabledIsError_FirstReadingIsBaseline()
+    {
+        var (evaluator, bus) = Create();
+
+        await Aes(evaluator, false);
+        await Aes(evaluator, false);
+        bus.Events.Should().BeEmpty("the first reading is a baseline and nothing changed after it");
+
+        await Aes(evaluator, true, encrypted: 2);
+        await Aes(evaluator, true, encrypted: 2);
+        await Aes(evaluator, false, encrypted: 0);
+
+        bus.Events.Should().HaveCount(2);
+        bus.Events[0].EventType.Should().Be("ont.encryption_enabled");
+        bus.Events[0].Severity.Should().Be(AlertSeverity.Warning);
+        bus.Events[0].Message.Should().Contain("on 2 GEM ports of 3");
+        bus.Events[1].EventType.Should().Be("ont.encryption_disabled");
+        bus.Events[1].Severity.Should().Be(AlertSeverity.Error);
+    }
+
+    [Fact]
+    public async Task Aes_NullReadingKeepsBaseline()
+    {
+        var (evaluator, bus) = Create();
+
+        await Aes(evaluator, false);
+        await Aes(evaluator, null);
+        await Aes(evaluator, true);
+
+        bus.Events.Should().ContainSingle(e => e.EventType == "ont.encryption_enabled",
+            "a failed read is missing, not a change, so false -> null -> true is one transition");
+    }
+
+    [Fact]
+    public async Task Aes_ReRangingGap_DoesNotReadAsDisabled()
+    {
+        var (evaluator, bus) = Create();
+
+        await Aes(evaluator, true);
+        await Aes(evaluator, false, link: PonLinkState.Ranging);
+        await Aes(evaluator, false, gemPorts: 1);
+        await Aes(evaluator, true);
+
+        bus.Events.Should().NotContain(e => e.EventType.StartsWith("ont.encryption_"));
+    }
+
     [Fact]
     public async Task ManagementUnresponsive_FiresAfterThreeFailedPollsWithLight()
     {

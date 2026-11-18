@@ -13,13 +13,15 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
-import { buildBuildings } from './lan-flow-buildings.js?v=1';
+import { buildBuildings } from './lan-flow-buildings.js?v=3';
+import { DEPTH, deviceIconUrl, estimateRealSizeM, isPanelModel, isRoundBody, isSlimModel, isStandMountModel, getBody, loadBody, makeBodyMesh, poseQuaternion } from './lan-flow-device-mesh.js?v=7';
 // KEEP IN SYNC: lan-flow-map-2d.js imports the same module. Both must use the same ?v= or they get separate instances.
 import * as flowData from './lan-flow-data.js?v=18';
+import { opaqueBounds, logoFit } from './image-bounds.js?v=1';
 
 const COLORS = {
-    background: 0x202023,
-    fog: 0x202023,
+    background: 0x1c2128,
+    fog: 0x1c2128,
     gateway: 0xfacc15,
     switchNode: 0x9aa6b2,
     ap: 0x3385d6,
@@ -58,6 +60,21 @@ function bandBaseColor(band) {
 
 // Fade-in (ms) applied to a client re-attached to a different AP during roam playback.
 const ROAM_FADE_MS = 350;
+
+// Opens an app page from the map, stamped with the tab's site, through Blazor's router so the page
+// it opens has Back (setting location.href is a full load that starts history over).
+function navigate(url) {
+    const u = window.noSiteContext ? window.noSiteContext.stampUrl(url) : url;
+    if (window.__navigate) window.__navigate(u); else window.location.href = u;
+}
+
+// Opens Live View with a device picked in its Port Statistics table, for a page without the
+// table (the Dashboard's card). The key matches port-stats-table.js's HANDOFF_KEY.
+function openPortStatsOnLiveView(mac) {
+    try { sessionStorage.setItem('portStatsSelect', mac); }
+    catch (e) { console.debug('[lan-flow-map] session storage unavailable; Live View opens unfiltered', e); }
+    navigate('/monitoring?tab=live');
+}
 // How long the arrival focus glow shows once its node exists (mount option focusClient), and
 // how long to wait for the node before giving up.
 const FOCUS_MS = 5000;
@@ -139,6 +156,9 @@ const LABEL_ZOOM_REF_DIST = 60;
 const LABEL_ZOOM_MIN = 0.25;
 // Distant device labels fade out entirely - past these camera distances
 // they'd be illegible smudges, so ramp opacity down and hide.
+// Client name labels draw at this share of their old size: the icon bodies now say what a
+// client is, and at full size the labels crowd them out.
+const CLIENT_LABEL_SCALE = 0.75;
 const LABEL_FADE_START_DIST = 82;
 const LABEL_FADE_END_DIST = 128;
 // Network device (DOM) labels fade sooner than the client sprites above -
@@ -162,6 +182,13 @@ const LINK_KIND = {
     Transit: 4,
     MeshBackhaul: 5,
 };
+
+// An icon body's longest side, as a multiple of the node radius, and its resting emissive.
+// The emissive sits far below the primitives' 0.45: the icon is mostly white and bloom washes it out.
+const ICON_BODY_SIZE = 2.6;
+const ICON_BODY_EMISSIVE = 0.1;
+// At closest zoom a network device body is this many times its real size (TJ, 2026-11-17).
+const ICON_BODY_REAL_FACTOR = 2;
 
 const NODE_KIND = {
     Gateway: 0,
@@ -235,7 +262,9 @@ export class LanFlowMap {
         this._focusGlowing = null; // the group's original emissive/halo, restored when the glow ends
 
         this._snapshot = null;
-        this._deviceScale = 1;          // property-size factor for device radii (set in _layoutNodes)
+        this._hidden = new Set();       // client MACs and group node ids this user hid on this site
+        this._labelProbe = new THREE.Vector3();
+        this._deviceScale = 1;         // property-size factor for device radii (set in _layoutNodes)
         this._cloudScale = 1;           // gentler property-size factor for WAN globes
         this._linkScale = 1;            // gentler property-size factor for pipes + particle dots
         this._nodesByLink = new Map();
@@ -362,6 +391,11 @@ export class LanFlowMap {
         this.controls.minDistance = 5;
         this.controls.maxDistance = 220;
         this.controls.target.set(0, 0, 0);
+        // The wheel zooms after the pointer rests on the map or a click (wheel-gate.js); always in fullscreen.
+        this._wheelGate = window.WheelGate?.attach(this.stage, {
+            onChange: (armed) => { this.controls.enableZoom = armed; },
+            exempt: () => this.stage.classList.contains('lan-flow-map-fullscreen'),
+        });
 
         // Restore persisted camera target for fly-in destination.
         try {
@@ -412,9 +446,17 @@ export class LanFlowMap {
         this._resizeObserver = new ResizeObserver(() => this._handleResize());
         this._resizeObserver.observe(this.canvas.parentElement || this.canvas);
         // Off screen (Live View stacks both maps) or in a hidden page, the scene is not drawn.
+        // Scrolled into view, it starts drawing only once it has stayed there 500 ms: its first
+        // frames stall the page, which a reader scrolling past to Live Traffic should not feel.
+        // The first observation applies at once, so a map already in view draws on load.
         this._onScreen = true;
+        let firstSeen = true;
         this._visibilityObserver = new IntersectionObserver((entries) => {
-            for (const e of entries) this._onScreen = e.isIntersecting;
+            const visible = entries[entries.length - 1].isIntersecting;
+            clearTimeout(this._onScreenTimer);
+            if (!visible || firstSeen) this._onScreen = visible;
+            else this._onScreenTimer = setTimeout(() => { this._onScreen = true; }, 500);
+            firstSeen = false;
         });
         this._visibilityObserver.observe(this.canvas);
 
@@ -451,6 +493,8 @@ export class LanFlowMap {
                 }
                 if (this.stage?.classList.contains('lan-flow-map-fullscreen')) {
                     this._toggleFullscreen();
+                    // A key press: the fullscreen button the click left focused would show its focus ring.
+                    if (document.activeElement?.tagName === 'BUTTON') document.activeElement.blur();
                     return;
                 }
             }
@@ -570,7 +614,8 @@ export class LanFlowMap {
         if (needed > this._scrubSpan) {
             const preset = flowData.SCRUBBER_PRESETS.find(p => (p.ms ?? Infinity) >= needed)
                 || flowData.SCRUBBER_PRESETS[flowData.SCRUBBER_PRESETS.length - 1];
-            this._setScrubSpan(preset.key);
+            // For this visit: a link's window never becomes the remembered span.
+            this._setScrubSpan(preset.key, false);
         }
         this.seekTo(ms);
     }
@@ -592,8 +637,10 @@ export class LanFlowMap {
         if (this._windowTickTimer) clearInterval(this._windowTickTimer);
         if (this._resizeObserver) this._resizeObserver.disconnect();
         if (this._visibilityObserver) this._visibilityObserver.disconnect();
+        clearTimeout(this._onScreenTimer);
         if (this._onKeyDown) document.removeEventListener('keydown', this._onKeyDown);
         if (this._onKeyUp) document.removeEventListener('keyup', this._onKeyUp);
+        this._wheelGate?.dispose();
         this.controls?.dispose();
         this.renderer?.dispose();
         this._disposeScene();
@@ -660,11 +707,14 @@ export class LanFlowMap {
 
     async _loadSnapshot() {
         try {
-            const res = await fetch(`${this.apiBase}/snapshot`, { credentials: 'same-origin' });
+            // The hidden list is read once, and before the first draw, so a hidden client never flashes in.
+            this._hiddenLoad ??= this._loadHidden();
+            const [res] = await Promise.all([fetch(`${this.apiBase}/snapshot`, { credentials: 'same-origin' }), this._hiddenLoad]);
             if (!res.ok) throw new Error(`snapshot HTTP ${res.status}`);
-            const snap = await res.json();
+            const raw = await res.json();
+            flowData.publishSnapshot(raw);
+            const snap = this._collapseHidden(raw);
             this._snapshot = snap;
-            flowData.publishSnapshot(snap);
             // Seed cloudStats from snapshot clouds so RTT labels show immediately
             const seedCloudStats = {};
             for (const c of (snap.clouds || [])) {
@@ -752,6 +802,9 @@ export class LanFlowMap {
         // Kept for nodes added after this pass (a client rebuilt mid-playback): its saved
         // placement has to be projected with the same scale or it lands somewhere else.
         this._anchorScale = scale;
+        // Whether the scene has real metres: without a placed device the scale is arbitrary.
+        this._anchored = (bounds.anchorCount || 0) > 0;
+        this._buildings = snap.buildings || [];
         const sizeRatio = scale / REF_WORLD_SCALE;
         this._deviceScale = Math.max(DEVICE_SCALE_MIN, Math.min(1.0, sizeRatio));
         this._cloudScale = Math.max(CLOUD_SCALE_MIN, Math.min(CLOUD_SCALE_MAX, sizeRatio));
@@ -818,8 +871,12 @@ export class LanFlowMap {
         // Force-directed relaxation: spring along every link, Coulomb-style repulsion
         // between all pairs. Anchors stay fixed. Converges in a few hundred iterations
         // since the graph is small (< ~200 nodes for a typical home/prosumer LAN).
-        const links = (snap.links || []).filter((l) => positions.has(l.fromNodeId) && positions.has(l.toNodeId));
-        const ids = Array.from(positions.keys());
+        // A hidden client (Hide Device) takes no part in the layout: it neither pulls its parent
+        // toward it nor pushes anything away, so every node settles among what the viewer sees.
+        const hiddenIds = new Set(snap.nodes.filter((n) => this._isHiddenNode(n)).map((n) => n.id));
+        const links = (snap.links || []).filter((l) => positions.has(l.fromNodeId) && positions.has(l.toNodeId)
+            && !hiddenIds.has(l.fromNodeId) && !hiddenIds.has(l.toNodeId));
+        const ids = Array.from(positions.keys()).filter((id) => !hiddenIds.has(id));
         const repulsion = 28.0;
         const springRest = 6.0;
         const springK = 0.22;
@@ -907,12 +964,17 @@ export class LanFlowMap {
         this._buildRoomWalls(snap, scale);
         const takenByParent = new Map();
         for (const [id, pos] of positions) {
-            if (!pos.pinned) continue;
+            if (!pos.pinned || hiddenIds.has(id)) continue;
             takenByParent.set(id, pos);
         }
         const placedNear = [...takenByParent.values()];
+        // A hidden client still needs a position for its unseen mesh: it rides on its parent.
         for (const node of snap.nodes) {
-            if (node.kind !== NODE_KIND.WifiClient) continue;
+            const p = positions.get(node.id), pp = positions.get(node.parentId);
+            if (hiddenIds.has(node.id) && p && !p.pinned && pp) { p.x = pp.x; p.y = pp.y; p.z = pp.z; }
+        }
+        for (const node of snap.nodes) {
+            if (node.kind !== NODE_KIND.WifiClient || hiddenIds.has(node.id)) continue;
             const p = positions.get(node.id);
             if (!p || p.pinned) continue;
             const parentId = node.parentId;
@@ -938,6 +1000,21 @@ export class LanFlowMap {
             p.x = pp.x + dx * spread;
             p.y = pp.y + dy * spread;
             p.z = pp.z + dz * spread;
+        }
+
+        // A group node sits at the centre of the members the viewer can see. The springs alone
+        // leave it pulled toward its switch, and off-centre once members are placed by hand.
+        for (const hub of snap.nodes) {
+            if (hub.kind !== NODE_KIND.VirtualHub) continue;
+            const hp = positions.get(hub.id);
+            if (!hp || hp.pinned) continue;
+            let n = 0, sx = 0, sy = 0, sz = 0;
+            for (const m of snap.nodes) {
+                const mp = m.parentId === hub.id && !hiddenIds.has(m.id) ? positions.get(m.id) : null;
+                if (mp) { n += 1; sx += mp.x; sy += mp.y; sz += mp.z; }
+            }
+            // With one member left the centre is that member: leave the hub where the springs put it.
+            if (n > 1) { hp.x = sx / n; hp.y = sy / n; hp.z = sz / n; }
         }
 
         // Safety net: should never trigger given the step clamp above, but if any
@@ -997,6 +1074,7 @@ export class LanFlowMap {
             group.userData = { node, core, halo, baseEmissive };
             this.nodeGroup.add(group);
             this._nodeMeshes.set(node.id, group);
+            this._applyIconBody(group);
 
             // Sprite labels for clients only. Infrastructure devices get DOM
             // labels (with rate badges); their sprite twin used to hide exactly
@@ -1006,11 +1084,172 @@ export class LanFlowMap {
             const isClientNode = node.kind === NODE_KIND.WiredClient || node.kind === NODE_KIND.WifiClient;
             if (node.name && isClientNode) {
                 const sprite = this._makeLabelSprite(node.name);
-                sprite.position.set(0, this._nodeTopHalfHeight(node.kind) + 0.35 * this._deviceScale, 0);
+                sprite.position.set(0, this._topHalf(group) + 0.35 * this._deviceScale, 0);
                 group.add(sprite);
                 this._labelSprites.set(node.id, sprite);
             }
         }
+    }
+
+    // The icon body a node is drawn with: its icon and how the outline becomes a solid.
+    // Null when the node has no icon, and the primitive stays.
+    _bodySpec(node) {
+        const isClient = node.kind === NODE_KIND.WiredClient || node.kind === NODE_KIND.WifiClient;
+        if (isClient || node.kind === NODE_KIND.VirtualHub) {
+            // The server's depth class for the client: a panel, a small box, or a deep box.
+            const depth = [DEPTH.client, DEPTH.clientMid, DEPTH.chassis][isClient ? node.bodyDepth ?? 0 : 0] ?? DEPTH.client;
+            return node.iconUrl ? { url: node.iconUrl, shape: { depth } } : null;
+        }
+        const url = deviceIconUrl(node.model);
+        if (!url) return null;
+        if (isRoundBody(node.model)) return { url, shape: { round: true } };
+        const depth = isPanelModel(node.model) ? DEPTH.panel
+            : isSlimModel(node.model) ? DEPTH.wallPlate
+            : node.kind !== NODE_KIND.AccessPoint ? DEPTH.chassis
+            : isStandMountModel(node.model) ? DEPTH.wallPlate : DEPTH.accessPoint;
+        return { url, shape: { depth } };
+    }
+
+    // Swap a node's primitive core for its icon body: at once when the body is cached, else
+    // when the icon loads. The primitive draws meanwhile, and stays when there is no icon.
+    _applyIconBody(group) {
+        const key = this._bodyKey(group.userData.node);
+        group.userData.bodyKey = key;
+        const spec = this._bodySpec(group.userData.node);
+        if (!spec) return;
+        const entry = getBody(spec.url, spec.shape);
+        if (entry) { this._setIconBody(group, entry, spec); return; }
+        loadBody(spec.url, spec.shape).then(loaded => {
+            const current = this._nodeMeshes.get(group.userData.node.id) === group && group.userData.bodyKey === key;
+            if (loaded && current && !this._destroyed) this._setIconBody(group, loaded, spec);
+        });
+    }
+
+    // Everything a node's body is built from. A body is rebuilt when this changes.
+    _bodyKey(node) {
+        return [node.iconUrl, node.model, node.bodySizeM, node.bodyDepth, node.wallFlat, node.mountType, node.orientationDeg].join('|');
+    }
+
+    // A client's icon and class come from a console read that can land after the map has drawn it,
+    // and an AP can be re-posed on the Signal Map. Carry those onto the drawn nodes and rebuild any
+    // body they change. Never skip this: a node otherwise keeps the body of its first snapshot.
+    _refreshBodies(snap) {
+        for (const fresh of snap.nodes ?? []) {
+            const group = this._nodeMeshes.get(fresh.id);
+            const node = group?.userData?.node;
+            if (!node) continue;
+            for (const f of ['iconUrl', 'model', 'bodySizeM', 'bodyDepth', 'wallFlat', 'mountType', 'orientationDeg']) node[f] = fresh[f];
+            if (this._bodyKey(node) !== group.userData.bodyKey) this._applyIconBody(group);
+        }
+    }
+
+    _setIconBody(group, entry, spec) {
+        const { node, core: old } = group.userData;
+        const core = makeBodyMesh(entry, ICON_BODY_EMISSIVE);
+        core.material.transparent = old.material.transparent;
+        core.material.opacity = old.material.opacity;
+        core.scale.copy(old.scale);
+        // The old core is a primitive on the group, or an earlier icon body inside its holder
+        // (whose geometry is the shared cache's, and stays).
+        const oldHolder = group.userData.bodyHolder;
+        group.remove(oldHolder ?? old);
+        if (!oldHolder) old.geometry.dispose();
+        old.material.dispose();
+        delete group.userData.zoomMin;
+
+        // The holder carries size and pose. The zoom pass rescales the core itself every frame.
+        const size = this._nodeRadius(node.kind) * ICON_BODY_SIZE;
+        const holder = new THREE.Group();
+        holder.scale.setScalar(size);
+        const posed = node.kind === NODE_KIND.AccessPoint && !!node.mountType && Number.isFinite(node.orientationDeg);
+        if (posed) {
+            holder.quaternion.copy(poseQuaternion(node.mountType, node.orientationDeg,
+                { round: !!spec.shape.round, stand: isStandMountModel(node.model) }));
+        }
+        // A big flat panel (a TV) hangs on or stands against a wall: turn it parallel to the nearest one.
+        const wallYaw = !posed && node.wallFlat ? this._wallFacingYaw(group.position) : null;
+        if (wallYaw != null) holder.rotation.y = wallYaw;
+        holder.add(core);
+        group.add(holder);
+
+        const box = entry.bounds.clone().applyMatrix4(new THREE.Matrix4().makeRotationFromQuaternion(holder.quaternion));
+        group.userData.core = core;
+        group.userData.baseEmissive = ICON_BODY_EMISSIVE;
+        group.userData.iconBody = true;
+        group.userData.bodyHolder = holder;
+        group.userData.topHalf = box.max.y * size;
+        // No saved orientation (clients, switches, gateways, unplaced APs): the body stands
+        // upright and the zoom pass turns its face to the camera.
+        group.userData.faceCamera = posed || wallYaw != null ? null : holder;
+        // Where the wall was looked up from. The zoom pass looks again when the node moves.
+        group.userData.wallFlatAt = !posed && node.wallFlat ? group.position.clone() : null;
+
+        // A network device is at most ICON_BODY_REAL_FACTOR times its real size at closest zoom.
+        // Zoomed out it keeps the larger size, so it still reads at property scale.
+        const isNetworkDevice = node.kind === NODE_KIND.Gateway || node.kind === NODE_KIND.Switch || node.kind === NODE_KIND.AccessPoint;
+        if (isNetworkDevice && this._anchored) {
+            const closest = ICON_BODY_REAL_FACTOR * estimateRealSizeM(entry, node.model) * this._anchorScale;
+            group.userData.zoomMin = Math.min(DEVICE_ZOOM_MIN, closest / size);
+        }
+
+        // A client settles at the server's size for its kind as the camera closes in: small ones
+        // larger than life so they can be found, big ones near real size. No upper clamp: a TV has
+        // to be able to outgrow the size every client shares when zoomed out.
+        const isClient = node.kind === NODE_KIND.WiredClient || node.kind === NODE_KIND.WifiClient;
+        if (isClient && this._anchored && node.bodySizeM > 0) {
+            group.userData.zoomMin = node.bodySizeM * this._anchorScale / size;
+        }
+
+        // A client's halo is near-white and sits over the icon, which washes it out. It stays in
+        // the scene unseen: it is a hover target, and the arrival focus still lights it. It keeps
+        // the shared zoom scale, so a small client is no harder to point at; the body is picked too.
+        group.userData.haloKeepsSize = !isNetworkDevice;
+        if (!isNetworkDevice) {
+            const halo = group.userData.halo;
+            if (this._focusGlowing?.halo === halo) this._focusGlowing.haloOpacity = 0;
+            else halo.material.opacity = 0;
+        }
+    }
+
+    // The yaw that turns an upright body's face away from the nearest wall on its floor, so the
+    // body sits parallel to that wall. Null when no wall is within reach.
+    _wallFacingYaw(pos) {
+        if (!this._anchored || !this._buildings?.length) return null;
+        const scale = this._anchorScale, wallH = 2.9 * scale * 0.8, reach = 6 * scale;
+        let best = null;
+        for (const building of this._buildings) {
+            for (const floor of building.floors || []) {
+                const floorY = floor.z * scale * 0.8;
+                if (pos.y < floorY - wallH * 0.2 || pos.y > floorY + wallH * 1.2) continue;
+                for (const wall of floor.walls || []) {
+                    const pts = wall.points || [];
+                    for (let i = 0; i < pts.length - 1; i++) {
+                        const ax = -pts[i].x * scale, az = pts[i].y * scale;
+                        const dx = -pts[i + 1].x * scale - ax, dz = pts[i + 1].y * scale - az;
+                        const len2 = dx * dx + dz * dz;
+                        if (len2 < 1e-9) continue;
+                        const t = Math.max(0, Math.min(1, ((pos.x - ax) * dx + (pos.z - az) * dz) / len2));
+                        const nx = pos.x - (ax + t * dx), nz = pos.z - (az + t * dz);
+                        const d = Math.hypot(nx, nz);
+                        if (d < reach && (!best || d < best.d)) best = { d, nx, nz, dx, dz };
+                    }
+                }
+            }
+        }
+        if (!best) return null;
+        // Standing on the wall line itself: either side will do.
+        return best.d > 1e-6 ? Math.atan2(best.nx, best.nz) : Math.atan2(-best.dz, best.dx);
+    }
+
+    // Camera-distance scale of a node's core and halo. A body with a known size class has its own
+    // floor, so it settles at that size as the camera closes in.
+    _deviceZoom(group, dist, devMax) {
+        return Math.max(group.userData?.zoomMin ?? DEVICE_ZOOM_MIN, Math.min(devMax, dist / DEVICE_ZOOM_REF_DIST));
+    }
+
+    // Half-height of a node's body above its centre, for anchoring labels to its top.
+    _topHalf(group) {
+        return group?.userData?.topHalf ?? this._nodeTopHalfHeight(group?.userData?.node?.kind);
     }
 
     _makeDeviceCore(kind, radius, color, baseEmissive) {
@@ -1052,29 +1291,21 @@ export class LanFlowMap {
         return new THREE.Mesh(geo, material());
     }
 
+    // The node a link is drawn to: a WAN a cellular modem carries is drawn from that modem
+    // (viaNodeId), not the gateway its toNodeId names, when the modem is placed.
+    _linkDrawnToId(link) {
+        return link.viaNodeId && this._positions.has(link.viaNodeId) ? link.viaNodeId : link.toNodeId;
+    }
+
     _buildLinks(snap) {
         for (const link of snap.links || []) {
             const a = this._positions.get(link.fromNodeId);
-            const b = this._positions.get(link.toNodeId);
+            const b = this._positions.get(this._linkDrawnToId(link));
             if (!a || !b) continue;
 
             // For WAN/Transit links, shorten the cloud end to the globe surface
             // so the pipe terminates at the wireframe, not the center.
-            let effA = a, effB = b;
-            const isWan = link.kind === LINK_KIND.Wan || link.kind === LINK_KIND.Transit;
-            if (isWan) {
-                const r = this._cloudRadius();
-                const cloudEnd = this._cloudMeshes.has(link.toNodeId) ? 'b'
-                    : this._cloudMeshes.has(link.fromNodeId) ? 'a' : null;
-                if (cloudEnd) {
-                    const from = cloudEnd === 'b' ? a : b;
-                    const to = cloudEnd === 'b' ? b : a;
-                    const dx = to.x - from.x, dy = to.y - from.y, dz = to.z - from.z;
-                    const d = Math.sqrt(dx * dx + dy * dy + dz * dz) || 1;
-                    const surfPt = { x: to.x - (dx / d) * r, y: to.y - (dy / d) * r, z: to.z - (dz / d) * r };
-                    if (cloudEnd === 'b') effB = surfPt; else effA = surfPt;
-                }
-            }
+            const { a: effA, b: effB } = this._pipeEnds(link, a, b);
 
             const pipe = this._makePipeMesh(effA, effB, link);
             this.linkGroup.add(pipe);
@@ -1088,7 +1319,7 @@ export class LanFlowMap {
             this.particleGroup.add(down.mesh, up.mesh);
 
             this._linkMeshes.set(link.id, { pipe, down, up, link });
-            this._nodesByLink.set(link.id, [link.fromNodeId, link.toNodeId]);
+            this._nodesByLink.set(link.id, [link.fromNodeId, this._linkDrawnToId(link)]);
         }
     }
 
@@ -1220,6 +1451,11 @@ export class LanFlowMap {
                 opacity: baseOpacity * 0.6,
             });
             const tubeRadius = r * 0.02;
+            // The ISP's logo replaces the wireframe at the globe's full width (a square logo's
+            // corners overhang it). It always faces the camera; the glow below stays for picking.
+            if (cloud.logoUrl) {
+                group.add(this._makeLogoSprite(cloud.logoUrl, r * 2, tier === CLOUD_TIER.Unresolved ? 0.4 : 1));
+            } else {
             // Latitude lines
             for (let lat = -75; lat <= 75; lat += 25) {
                 const phi = (90 - lat) * Math.PI / 180;
@@ -1249,6 +1485,7 @@ export class LanFlowMap {
                 }
                 const curve = new THREE.CatmullRomCurve3(pts);
                 group.add(new THREE.Mesh(new THREE.TubeGeometry(curve, pts.length, tubeRadius, 4, false), tubeMat));
+            }
             }
 
             // Subtle outer glow
@@ -1381,11 +1618,11 @@ export class LanFlowMap {
         const fontSize = 36;
         const subFontSize = 22;
         const pad = 16;
-        ctx.font = `${fontSize}px ui-sans-serif, system-ui, sans-serif`;
+        ctx.font = `${fontSize}px Inter, ui-sans-serif, system-ui, sans-serif`;
         const titleW = Math.ceil(ctx.measureText(text).width);
         let subW = 0;
         if (subText) {
-            ctx.font = `${subFontSize}px ui-sans-serif, system-ui, sans-serif`;
+            ctx.font = `${subFontSize}px Inter, ui-sans-serif, system-ui, sans-serif`;
             subW = Math.ceil(ctx.measureText(subText).width);
         }
         const w = Math.max(titleW, subW) + pad * 2;
@@ -1396,21 +1633,51 @@ export class LanFlowMap {
         roundRect(ctx, 0, 0, w, h, 12);
         ctx.fillStyle = '#f1f5f9';
         ctx.textBaseline = 'top';
-        ctx.font = `${fontSize}px ui-sans-serif, system-ui, sans-serif`;
+        ctx.font = `${fontSize}px Inter, ui-sans-serif, system-ui, sans-serif`;
         ctx.fillText(text, pad, pad);
         if (subText) {
             ctx.fillStyle = '#94a3b8';
-            ctx.font = `${subFontSize}px ui-sans-serif, system-ui, sans-serif`;
+            ctx.font = `${subFontSize}px Inter, ui-sans-serif, system-ui, sans-serif`;
             ctx.fillText(subText, pad, pad + fontSize + 6);
         }
         const tex = new THREE.CanvasTexture(canvas);
         tex.needsUpdate = true;
-        const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false });
+        // The bloom pass lifts near-white text into a glow. The glow barely changes down to 0.6 and
+        // drops off sharply near the bloom threshold: 0.5 keeps a faint one, and the text stays bright.
+        const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false, color: new THREE.Color(0.5, 0.5, 0.5) });
         const sprite = new THREE.Sprite(mat);
         const scaleY = 1.2 * (h / (fontSize + pad * 2));
         const scaleX = scaleY * (w / h);
         sprite.scale.set(scaleX, scaleY, 1);
         sprite.userData.baseScale = { x: scaleX, y: scaleY };
+        return sprite;
+    }
+
+    /**
+     * An ISP logo as a camera-facing sprite: its visible mark (padding trimmed) as tall as `size`,
+     * top on the globe's top so the label above sits as close as it does to a globe. Empty until
+     * the image loads; a failed load leaves it empty (the label still names the WAN).
+     */
+    _makeLogoSprite(url, size, opacity) {
+        const img = new Image();
+        const tex = new THREE.Texture();
+        tex.colorSpace = THREE.SRGBColorSpace;
+        const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, opacity, depthWrite: false }));
+        sprite.visible = false;
+        img.onload = () => {
+            const box = opaqueBounds(img);
+            const canvas = document.createElement('canvas');
+            canvas.width = box.w; canvas.height = box.h;
+            canvas.getContext('2d').drawImage(img, box.x, box.y, box.w, box.h, 0, 0, box.w, box.h);
+            tex.image = canvas;
+            tex.needsUpdate = true;
+            const { w, h } = logoFit(box, size);
+            sprite.scale.set(w, h, 1);
+            sprite.position.y = size / 2 - h / 2;
+            sprite.visible = true;
+        };
+        img.onerror = () => console.debug('[lan-flow-map] ISP logo failed to load', url);
+        img.src = url;
         return sprite;
     }
 
@@ -2099,9 +2366,24 @@ export class LanFlowMap {
             const { core, halo } = group.userData ?? {};
             if (!core) continue;
             const dist = camPos.distanceTo(group.position);
-            const z = Math.max(DEVICE_ZOOM_MIN, Math.min(devMax, dist / DEVICE_ZOOM_REF_DIST));
+            const z = this._deviceZoom(group, dist, devMax);
             core.scale.setScalar(z);
-            if (halo) halo.scale.setScalar(z);
+            if (halo) {
+                // A client's unseen halo is a pick target of one size for every client. Never scale
+                // it with the body: around a TV it grows into a sphere that swallows its neighbours.
+                halo.scale.setScalar(group.userData.haloKeepsSize
+                    ? Math.max(DEVICE_ZOOM_MIN, Math.min(devMax, dist / DEVICE_ZOOM_REF_DIST)) : z);
+            }
+            // A wall-flat body that moved (Reposition Device, a roam) turns to its new nearest wall.
+            const wallAt = group.userData.wallFlatAt;
+            if (wallAt && !wallAt.equals(group.position)) {
+                wallAt.copy(group.position);
+                const holder = group.userData.bodyHolder, yaw = this._wallFacingYaw(group.position);
+                if (yaw != null) holder.rotation.y = yaw;
+                group.userData.faceCamera = yaw != null ? null : holder;
+            }
+            const facing = group.userData.faceCamera;
+            if (facing) facing.rotation.y = Math.atan2(camPos.x - group.position.x, camPos.z - group.position.z);
         }
         for (const { pipe, down, up } of this._linkMeshes.values()) {
             if (!pipe) continue;
@@ -2118,20 +2400,43 @@ export class LanFlowMap {
         // The Y offset tracks the rendered top of the core mesh each frame.
         const labelRef = LABEL_ZOOM_REF_DIST / this._deviceScale;
         this._devZoomMax = devMax;
+        // Pixels per scene unit at distance 1, to size a label on screen for the crowding pass.
+        const canvasH = this.renderer.domElement.clientHeight || 1, canvasW = this.renderer.domElement.clientWidth || 1;
+        const pxAtUnit = canvasH / 2 / Math.tan(this.camera.fov * Math.PI / 360);
+        const shown = [];
         for (const [nodeId, sprite] of this._labelSprites) {
             const base = sprite.userData?.baseScale;
             const group = this._nodeMeshes.get(nodeId);
             if (!base || !group) continue;
             const dist = camPos.distanceTo(group.position);
-            const f = Math.max(LABEL_ZOOM_MIN, Math.min(1.0, dist / labelRef));
+            const f = Math.max(LABEL_ZOOM_MIN, Math.min(1.0, dist / labelRef)) * CLIENT_LABEL_SCALE;
             sprite.scale.set(base.x * f, base.y * f, 1);
-            const kind = group.userData?.node?.kind;
-            const z = Math.max(DEVICE_ZOOM_MIN, Math.min(devMax, dist / DEVICE_ZOOM_REF_DIST));
-            sprite.position.y = this._nodeTopHalfHeight(kind) * z + 0.35 * this._deviceScale;
+            const z = this._deviceZoom(group, dist, devMax);
+            sprite.position.y = this._topHalf(group) * z + 0.35 * this._deviceScale;
+            // A bigger device keeps its label further out: zoomed out, the TVs and desktops are
+            // named and the plugs and phones are not.
+            const sizeM = group.userData.node?.bodySizeM ?? 0;
+            const reach = sizeM >= 0.7 ? 1 : sizeM >= 0.45 ? 0.7 : 0.45;
             const fade = 1 - Math.min(1, Math.max(0,
-                (dist - LABEL_FADE_START_DIST) / (LABEL_FADE_END_DIST - LABEL_FADE_START_DIST)));
+                (dist - LABEL_FADE_START_DIST * reach) / ((LABEL_FADE_END_DIST - LABEL_FADE_START_DIST) * reach)));
             sprite.material.opacity = fade;
             sprite.visible = fade > 0.01;
+            if (sprite.visible && group.visible) shown.push({ sprite, group, dist, sizeM, w: sprite.scale.x, h: sprite.scale.y });
+        }
+
+        // Crowding: where labels overlap on screen, the bigger device's stays, then the nearer one's.
+        shown.sort((a, b) => b.sizeM - a.sizeM || a.dist - b.dist);
+        const kept = [];
+        for (const s of shown) {
+            const p = this._labelProbe.copy(s.group.position);
+            p.y += s.sprite.position.y;
+            p.project(this.camera);
+            if (p.z > 1) continue;
+            const hw = s.w * pxAtUnit / s.dist / 2, hh = s.h * pxAtUnit / s.dist / 2;
+            const cx = (p.x + 1) / 2 * canvasW, cy = (1 - p.y) / 2 * canvasH;
+            const box = { x0: cx - hw, x1: cx + hw, y0: cy - hh, y1: cy + hh };
+            if (kept.some((k) => box.x0 < k.x1 && box.x1 > k.x0 && box.y0 < k.y1 && box.y1 > k.y0)) s.sprite.visible = false;
+            else kept.push(box);
         }
     }
 
@@ -2161,10 +2466,13 @@ export class LanFlowMap {
             try {
                 const res = await fetch(`${this.apiBase}/snapshot`, { credentials: 'same-origin' });
                 if (!res.ok) return;
-                const snap = await res.json();
+                const raw = await res.json();
+                flowData.publishSnapshot(raw);
+                // Collapsed the same way as the snapshot it is diffed against, or every hidden
+                // switch would read as an infrastructure change and rebuild the scene each pass.
+                const snap = this._collapseHidden(raw);
                 const prev = this._snapshot;
                 this._snapshot = snap;
-                flowData.publishSnapshot(snap);
 
                 // Diff: infrastructure change = full rebuild; client churn = incremental
                 const infraKinds = new Set([NODE_KIND.Gateway, NODE_KIND.Switch, NODE_KIND.AccessPoint, NODE_KIND.VirtualHub]);
@@ -2189,6 +2497,7 @@ export class LanFlowMap {
                     // it - re-attach any persisting client whose parent AP changed.
                     this._applyLiveRoam(prev, snap);
                     this._refreshClientIdentity(snap);
+                    this._refreshBodies(snap);
                     // Don't apply snapshot liveRates - they're stale vs the 1s
                     // live poll and would clobber fresh rates momentarily.
                     this._refreshCloudRttLabels();
@@ -2215,13 +2524,35 @@ export class LanFlowMap {
         for (const b of snap.buildings || []) {
             for (const f of b.floors || []) {
                 const segs = [];
+                // The building's outline on this floor: the wall loop enclosing the most area.
+                let outline = null, outlineArea = 0;
                 for (const w of f.walls || []) {
                     const pts = (w.points || []).map(pt => ({ x: -pt.x * scale, z: pt.y * scale }));
                     for (let i = 1; i < pts.length; i++) segs.push([pts[i - 1], pts[i]]);
+                    if (pts.length < 3) continue;
+                    let a = 0;
+                    for (let i = 0; i < pts.length; i++) {
+                        const p = pts[i], q = pts[(i + 1) % pts.length];
+                        a += p.x * q.z - q.x * p.z;
+                    }
+                    if (Math.abs(a) / 2 > outlineArea) { outlineArea = Math.abs(a) / 2; outline = pts; }
                 }
-                if (segs.length) this._wallSegs.push({ z: f.z ?? 0, segs });
+                if (segs.length) this._wallSegs.push({ z: f.z ?? 0, segs, outline });
             }
         }
+    }
+
+    // Whether a point is inside a floor's outline and at least `margin` from its walls.
+    _insideOutline(outline, x, z, margin) {
+        let inside = false, nearest = Infinity;
+        for (let i = 0, j = outline.length - 1; i < outline.length; j = i++) {
+            const a = outline[i], b = outline[j];
+            if ((a.z > z) !== (b.z > z) && x < (b.x - a.x) * (z - a.z) / (b.z - a.z) + a.x) inside = !inside;
+            const dx = b.x - a.x, dz = b.z - a.z, len2 = dx * dx + dz * dz;
+            const t = len2 > 0 ? Math.max(0, Math.min(1, ((x - a.x) * dx + (z - a.z) * dz) / len2)) : 0;
+            nearest = Math.min(nearest, Math.hypot(x - a.x - t * dx, z - a.z - t * dz));
+        }
+        return inside && nearest >= margin;
     }
 
     // Distance from a point to the first wall along a direction, or null if it reaches nothing.
@@ -2250,11 +2581,18 @@ export class LanFlowMap {
         // read that AP as belonging upstairs. Mount type otherwise does not matter here - wall,
         // desk and ceiling APs on one storey all resolve to the same room.
         const slack = 0.35 * scale * 0.8;
-        let floor = null;
+        // The floor of the building the AP stands in. Every building has a floor 1 at the same
+        // height, so height alone picks whichever building comes first: a tiny home's AP was
+        // measured against the main house's walls and its clients placed outside both.
+        let floor = null, floorHasAp = false;
         for (const f of this._wallSegs || []) {
             const baseY = (f.z ?? 0) * scale * 0.8;
             if (baseY - slack > parentPos.y) continue;
-            if (floor === null || baseY > floor.baseY) floor = { baseY, segs: f.segs };
+            const hasAp = !!f.outline && this._insideOutline(f.outline, parentPos.x, parentPos.z, 0);
+            const better = floor === null
+                || (hasAp && !floorHasAp)
+                || (hasAp === floorHasAp && baseY > floor.baseY);
+            if (better) { floor = { baseY, segs: f.segs, outline: f.outline }; floorHasAp = hasAp; }
         }
         const wallsForFloor = floor ? floor.segs : [];
 
@@ -2302,14 +2640,43 @@ export class LanFlowMap {
         // Best of a handful rather than first acceptable: taking the first spot that merely
         // clears everything leaves the gap between two nearby devices unused, because both push
         // their own clients away from it. Scoring by how empty a spot is fills that space.
-        let last = null;
+        // Clearance is judged in metres: in scene units a small, full house never offered enough,
+        // and the search widened until it was outside.
+        const roomy2 = (2.0 * scale) ** 2, clear2 = (0.8 * scale) ** 2;
+        // Inside the building first, outside only when the building is full. Never score inside
+        // and outside spots together: outside is always the emptiest, which is how clients of a
+        // house with room to spare ended up in the yard. Only an AP inside the outline has an
+        // inside to fill; one placed outside a building searches as before.
+        const outline = floor?.outline;
+        const wallMargin = 0.3 * scale;
+        const overflow2 = (0.5 * scale) ** 2;
+        if (outline && this._insideOutline(outline, parentPos.x, parentPos.z, 0)) {
+            const inside = this._searchRoom(parentPos, taken, floor, scale, rnd, baseAngle, baseDist, roomy2, clear2, outline, wallMargin);
+            if (inside.best && inside.score >= overflow2) return inside.best;
+        }
+        const anywhere = this._searchRoom(parentPos, taken, floor, scale, rnd, baseAngle, baseDist, roomy2, clear2, null, 0);
+        return anywhere.best ?? { x: parentPos.x, y: parentPos.y - 1, z: parentPos.z, pinned: false };
+    }
+
+    // One pass of the spot search behind _placeInRoom: rings widening from baseDist, the emptiest
+    // candidate scored by distance to anything already placed. With an outline, a candidate past
+    // it is pulled back toward the AP until it is inside, and skipped if it cannot be.
+    _searchRoom(parentPos, taken, floor, scale, rnd, baseAngle, baseDist, roomy2, clear2, outline, wallMargin) {
         let best = null;
         let bestScore = -1;
         for (let ring = 0; ring < 6; ring++) {
             const ringRadius = baseDist * (1 + ring * 0.12);
             for (let attempt = 0; attempt < 12; attempt++) {
                 const angle = baseAngle + (attempt === 0 && ring === 0 ? 0 : (rnd() - 0.5) * Math.PI);
-                const r = ringRadius * (0.9 + rnd() * 0.2);
+                let r = ringRadius * (0.9 + rnd() * 0.2);
+                if (outline) {
+                    let tries = 0;
+                    while (tries < 8 && !this._insideOutline(outline,
+                        parentPos.x + Math.cos(angle) * r, parentPos.z + Math.sin(angle) * r, wallMargin)) {
+                        r *= 0.75; tries += 1;
+                    }
+                    if (tries === 8) continue;
+                }
                 // Staggered through the room's height rather than strung at one level: each
                 // client takes the next of five bands between floor and ceiling with jitter
                 // inside it, so a busy room reads with depth. No floor to measure from means no
@@ -2325,7 +2692,6 @@ export class LanFlowMap {
                     z: parentPos.z + Math.sin(angle) * r,
                     pinned: false,
                 };
-                last = cand;
                 // How far this spot sits from the nearest thing already placed, height included
                 // so a different shelf is not treated as the same spot.
                 let nearest = Infinity;
@@ -2336,12 +2702,12 @@ export class LanFlowMap {
                 }
                 if (nearest > bestScore) { bestScore = nearest; best = cand; }
                 // Roomy enough that looking further would only be churn.
-                if (nearest > 36) return cand;
+                if (nearest > roomy2) return { best: cand, score: nearest };
             }
             // A ring with a genuinely clear spot ends the search; otherwise widen.
-            if (bestScore > 9) return best;
+            if (bestScore > clear2) break;
         }
-        return best ?? last;
+        return { best, score: bestScore };
     }
 
     // Incremental client add: create mesh near parent, create link pipe + particles.
@@ -2406,9 +2772,10 @@ export class LanFlowMap {
         group.userData = { node, core, halo, baseEmissive };
         this.nodeGroup.add(group);
         this._nodeMeshes.set(node.id, group);
+        this._applyIconBody(group);
         if (node.name) {
             const sprite = this._makeLabelSprite(node.name);
-            sprite.position.set(0, this._nodeTopHalfHeight(node.kind) + 0.35 * this._deviceScale, 0);
+            sprite.position.set(0, this._topHalf(group) + 0.35 * this._deviceScale, 0);
             group.add(sprite);
             this._labelSprites.set(node.id, sprite);
         }
@@ -2681,6 +3048,14 @@ export class LanFlowMap {
             });
             controlsBody.appendChild(row);
         }
+        // Clients taken out with Hide Device: the count, and the way to bring them back.
+        const hiddenRow = document.createElement('div');
+        hiddenRow.className = 'lan-flow-map-toggle lan-flow-map-hidden-row';
+        hiddenRow.innerHTML = '<span></span><span class="lan-flow-map-hidden-row-action">Show</span>';
+        hiddenRow.addEventListener('click', (e) => { e.stopPropagation(); this._showHiddenMenu(hiddenRow); });
+        controlsBody.appendChild(hiddenRow);
+        this._panels.hiddenRow = hiddenRow;
+        this._updateHiddenRow();
         this._panels.controls = controls;
         this._panels.controlsBody = controlsBody;
 
@@ -2734,7 +3109,7 @@ export class LanFlowMap {
             <div class="lan-flow-map-help-row"><span>Pan</span><span class="kbd">Right-drag</span> or <span class="kbd">A</span> <span class="kbd">D</span></div>
             <div class="lan-flow-map-help-row"><span>Zoom</span><span class="kbd">Scroll</span> or <span class="kbd">W</span> <span class="kbd">S</span></div>
             <div class="lan-flow-map-help-row"><span>Hover detail</span><span class="kbd">Mouse over</span></div>
-            <div class="lan-flow-map-help-row"><span>Open client</span><span class="kbd">Double-click</span></div>
+            <div class="lan-flow-map-help-row"><span>Open Client</span><span class="kbd">Double-click</span></div>
             <div class="lan-flow-map-help-row"><span>Move device</span><span class="kbd">Right-click</span></div>
             <div class="lan-flow-map-help-row"><span>Pause / Play</span><span class="kbd">Space</span></div>
             <div class="lan-flow-map-help-row"><span>Scrub timeline</span><span class="kbd">←</span> <span class="kbd">→</span></div>
@@ -2768,7 +3143,7 @@ export class LanFlowMap {
         scrubber.dataset.tour = 'live-view-timeline';
         scrubber.innerHTML = `
             <div class="lan-flow-map-scrubber-row">
-                <button class="lan-flow-map-scrubber-playpause" data-role="playpause" type="button" aria-label="Pause">⏸</button>
+                <button class="lan-flow-map-scrubber-playpause" data-role="playpause" type="button" aria-label="Pause"><svg viewBox="0 0 12 12" width="10" height="10" fill="currentColor" aria-hidden="true"><rect x="2" y="1.500" width="2.800" height="9" rx="0.500"/><rect x="7.200" y="1.500" width="2.800" height="9" rx="0.500"/></svg></button>
                 <div class="lan-flow-map-speed-control" data-role="speed">
                     <button class="lan-flow-map-speed-step" data-dir="-1" type="button" aria-label="Slower">-</button>
                     <span class="lan-flow-map-speed-label" data-role="speed-label">1x</span>
@@ -2978,7 +3353,115 @@ export class LanFlowMap {
         }
     }
 
+    // ---- Hide Device: clients this user took out of the picture on this site ----
+
+    async _loadHidden() {
+        try {
+            const res = await fetch(`${this.apiBase}/hidden-devices`, { credentials: 'same-origin' });
+            if (res.ok) this._hidden = new Set(await res.json());
+        } catch { /* the map draws every client */ }
+        this._updateHiddenRow();
+    }
+
+    // The snapshot as this user sees it: a hidden group node (the hub a multi-client port draws)
+    // is taken out, and its members are drawn from the device upstream of it. The raw snapshot is
+    // left as it is (the 2D map shares it). Hidden clients stay in: they are filtered, not removed.
+    // A client is hidden by MAC, a group node by its id (it has no MAC).
+    _collapseHidden(raw) {
+        this._hiddenNames = new Map((raw.nodes ?? []).map((n) => [n.kind === NODE_KIND.VirtualHub ? n.id : n.mac, n.name]));
+        const gone = new Set((raw.nodes ?? [])
+            .filter((n) => n.kind === NODE_KIND.VirtualHub && this._hidden.has(n.id))
+            .map((n) => n.id));
+        if (gone.size === 0) return raw;
+
+        // A device's upstream is the other end of the link that arrives at it.
+        const upstreamOf = new Map();
+        for (const l of raw.links ?? []) if (!upstreamOf.has(l.toNodeId)) upstreamOf.set(l.toNodeId, l.fromNodeId);
+        const visibleUpstream = (id) => {
+            for (let hops = 0; id != null && gone.has(id) && hops < 64; hops += 1) id = upstreamOf.get(id);
+            return id != null && !gone.has(id) ? id : null;
+        };
+
+        const links = [];
+        for (const l of raw.links ?? []) {
+            if (gone.has(l.toNodeId)) continue;                 // the hidden group's own uplink
+            if (!gone.has(l.fromNodeId)) { links.push(l); continue; }
+            const from = visibleUpstream(l.fromNodeId);
+            if (from) links.push({ ...l, fromNodeId: from });
+        }
+        const nodes = [];
+        for (const n of raw.nodes ?? []) {
+            if (gone.has(n.id)) continue;
+            nodes.push(gone.has(n.parentId) ? { ...n, parentId: visibleUpstream(n.parentId) } : n);
+        }
+        return { ...raw, nodes, links };
+    }
+
+    // Whether a node is a client this user hid. A hidden group node is not a node at all here:
+    // _collapseHidden has already taken it out.
+    _isHiddenNode(node) {
+        return !!node.mac && this._hidden.has(node.mac)
+            && (node.kind === NODE_KIND.WiredClient || node.kind === NODE_KIND.WifiClient);
+    }
+
+    // Hide or show clients by MAC, and save the list for this user. The view changes at once; a
+    // failed save only means the choice does not survive a reload. The scene is rebuilt, because
+    // the layout leaves hidden clients out and the nodes around them settle differently.
+    _setHidden(macs, hide) {
+        for (const mac of macs) hide ? this._hidden.add(mac) : this._hidden.delete(mac);
+        this._clearHover();
+        this._applyFilter();
+        this._updateHiddenRow();
+        fetch(`${this.apiBase}/hidden-devices`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'same-origin',
+            body: JSON.stringify([...this._hidden]),
+        }).catch(err => console.error('[LanFlowMap] Failed to save hidden devices:', err));
+        this._reloadSnapshot().catch(err => console.error('[LanFlowMap] Failed to rebuild after hiding:', err));
+    }
+
+    // The Overlays panel row that counts the hidden clients. Absent while there are none.
+    _updateHiddenRow() {
+        const row = this._panels?.hiddenRow;
+        if (!row) return;
+        row.style.display = this._hidden.size > 0 ? '' : 'none';
+        row.firstElementChild.textContent = `Hidden Devices (${this._hidden.size})`;
+    }
+
+    // The list behind that row: each hidden client by name, and Show All.
+    _showHiddenMenu(row) {
+        const wasOpen = this._contextMenuEl?.classList.contains('lan-flow-map-hidden-menu');
+        this._dismissContextMenu();
+        if (wasOpen) return;
+        const menu = document.createElement('div');
+        menu.className = 'lan-flow-map-context-menu lan-flow-map-hidden-menu';
+        const add = (text, macs, cls = '') => {
+            const item = document.createElement('div');
+            item.className = `lan-flow-map-context-menu-item ${cls}`;
+            item.textContent = text;
+            item.addEventListener('click', (e) => {
+                e.stopPropagation();
+                this._dismissContextMenu();
+                this._setHidden(macs, false);
+            });
+            menu.appendChild(item);
+        };
+        const mask = window.DemoMask?.isEnabled() ? (s => window.DemoMask.maskString?.(s) ?? s) : (s => s);
+        // From the raw snapshot: a hidden group node is not in the collapsed one.
+        const names = this._hiddenNames ?? new Map();
+        add('Show All', [...this._hidden], 'lan-flow-map-hidden-menu-all');
+        for (const mac of this._hidden) add(mask(names.get(mac) || mac), [mac]);
+
+        const stageRect = this.stage.getBoundingClientRect(), rowRect = row.getBoundingClientRect();
+        menu.style.right = `${stageRect.right - rowRect.right}px`;
+        menu.style.top = `${rowRect.bottom - stageRect.top + 4}px`;
+        this.stage.appendChild(menu);
+        this._contextMenuEl = menu;
+    }
+
     _isClientVisible(node) {
+        if (this._hidden.has(node.mac)) return false;
         // Overlay master toggle wins first.
         if (node.kind === NODE_KIND.WifiClient && !this._overlays.wifiClients) return false;
         if (node.kind === NODE_KIND.WiredClient && !this._overlays.wiredClients) return false;
@@ -3242,7 +3725,7 @@ export class LanFlowMap {
     _syncPlayPauseIcon() {
         const btn = this._panels.scrubberPlayPause;
         if (!btn) return;
-        btn.textContent = this._paused ? '▶' : '⏸';
+        btn.innerHTML = this._paused ? '<svg viewBox="0 0 12 12" width="10" height="10" fill="currentColor" aria-hidden="true"><path d="M3 1.500v9l7.500-4.500z"/></svg>' : '<svg viewBox="0 0 12 12" width="10" height="10" fill="currentColor" aria-hidden="true"><rect x="2" y="1.500" width="2.800" height="9" rx="0.500"/><rect x="7.200" y="1.500" width="2.800" height="9" rx="0.500"/></svg>';
         btn.setAttribute('aria-label', this._paused ? 'Play' : 'Pause');
     }
 
@@ -3300,7 +3783,7 @@ export class LanFlowMap {
     // the instant stays under the thumb when it still falls inside the new window;
     // an instant older than the new window clamps to the left edge (the oldest
     // reachable point) and seeks there.
-    _setScrubSpan(key) {
+    _setScrubSpan(key, persist = true) {
         const preset = flowData.SCRUBBER_PRESETS.find(p => p.key === key);
         if (!preset) return;
         const now = Date.now();
@@ -3308,7 +3791,9 @@ export class LanFlowMap {
         const range = this._panels.scrubberRange;
         const value = Number(range?.value ?? 10000);
         this._scrubSpanKey = key;
-        try { localStorage.setItem(this._storagePrefix + 'ScrubSpan', key); } catch { /* localStorage unavailable */ }
+        if (persist) {
+            try { localStorage.setItem(this._storagePrefix + 'ScrubSpan', key); } catch { /* localStorage unavailable */ }
+        }
         if (this._mode === 'live' || this._isLiveValue(value)) {
             this._scrubSpan = span;
         } else {
@@ -3482,6 +3967,8 @@ export class LanFlowMap {
             // Pills accept pointer events for the tooltip, which would swallow
             // the scroll wheel - forward it to the canvas so zoom keeps working.
             el.addEventListener('wheel', (e) => {
+                // Before the wheel gate opens, the wheel scrolls the page here as it does over the canvas.
+                if (this._wheelGate && !this._wheelGate.armed) return;
                 e.preventDefault();
                 this.canvas.dispatchEvent(new WheelEvent('wheel', e));
             }, { passive: false });
@@ -3603,8 +4090,8 @@ export class LanFlowMap {
             const dist = tmp.distanceTo(camPos);
             // Anchor just above the rendered top of the core mesh (tracks the
             // per-frame zoom scale) instead of a fixed offset above center.
-            const zDev = Math.max(DEVICE_ZOOM_MIN, Math.min(this._devZoomMax ?? 1, dist / DEVICE_ZOOM_REF_DIST));
-            tmp.y += this._nodeTopHalfHeight(group.userData?.node?.kind) * zDev + 0.35 * this._deviceScale;
+            const zDev = this._deviceZoom(group, dist, this._devZoomMax ?? 1);
+            tmp.y += this._topHalf(group) * zDev + 0.35 * this._deviceScale;
             tmp.project(this.camera);
             if (tmp.z > 1) { el.classList.remove('is-visible'); continue; }
             const fade = 1 - Math.min(1, Math.max(0,
@@ -3699,7 +4186,7 @@ export class LanFlowMap {
             // gate on group.visible; link labels need the same check).
             if (!link.pipe.visible) { el.classList.remove('is-visible'); continue; }
             const fromPos = this._positions.get(link.link.fromNodeId);
-            const toPos = this._positions.get(link.link.toNodeId);
+            const toPos = this._positions.get(this._linkDrawnToId(link.link));
             if (!fromPos || !toPos) continue;
             midA.set(fromPos.x, fromPos.y, fromPos.z);
             midB.set(toPos.x, toPos.y, toPos.z);
@@ -3887,6 +4374,8 @@ export class LanFlowMap {
             for (const child of group.children) {
                 if (child.isMesh) candidates.push(child);
             }
+            // An icon body sits inside its holder, not on the group: pick it by its own shape too.
+            if (group.userData.iconBody) candidates.push(group.userData.core);
         }
         const hits = this._raycaster.intersectObjects(candidates, false);
         if (hits.length === 0) { this._clearHover(); return; }
@@ -3912,6 +4401,8 @@ export class LanFlowMap {
             for (const child of group.children) {
                 if (child.isMesh) candidates.push(child);
             }
+            // An icon body sits inside its holder, not on the group: pick it by its own shape too.
+            if (group.userData.iconBody) candidates.push(group.userData.core);
         }
         const hits = this._raycaster.intersectObjects(candidates, false);
         if (hits.length === 0) return;
@@ -3919,13 +4410,28 @@ export class LanFlowMap {
         while (g && !(g.userData?.node)) g = g.parent;
         if (!g) return;
         const node = g.userData.node;
-        // Switches and gateways scroll to the port stats table and isolate that device.
+        // A monitored cellular modem opens its series in Cellular Stats, as the Dashboard card does;
+        // its ports say little. A Gateway with a modem inside keeps Port Statistics.
+        if (node.cellularModemId != null && node.kind !== NODE_KIND.Gateway) {
+            navigate(`/monitoring?tab=cellular&modem=${encodeURIComponent(node.cellularModemId)}`);
+            return;
+        }
+        // An Access Point opens Wi-Fi Optimizer's Client Stats, filtered to its clients.
+        if (node.kind === NODE_KIND.AccessPoint && node.mac) {
+            navigate(`/wifi-optimizer?tab=client&ap=${encodeURIComponent(node.mac)}`);
+            return;
+        }
+        // Switches and gateways scroll to the port stats table and isolate that device. The
+        // Dashboard's card (the only other page with this map) has no table, so it opens Live View
+        // with the device picked there.
         if (node.kind === NODE_KIND.Switch || node.kind === NODE_KIND.Gateway) {
             if (node.mac && window.__portStatsTable) {
                 // The table is under the map, so fullscreen would hide the jump.
                 if (this.stage?.classList.contains('lan-flow-map-fullscreen')) this._toggleFullscreen();
                 window.__portStatsTable.selectDevice(node.mac);
                 document.getElementById('port-stats-card')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            } else if (node.mac) {
+                openPortStatsOnLiveView(node.mac);
             }
             return;
         }
@@ -3937,7 +4443,7 @@ export class LanFlowMap {
         // so they go to the default tab.
         const tab = node.kind === NODE_KIND.WifiClient ? '&tab=signal' : '';
         const url = `/client-dashboard?ip=${encodeURIComponent(ip)}${tab}`;
-        window.location.href = window.noSiteContext ? window.noSiteContext.stampUrl(url) : url;
+        navigate(url);
     }
 
     _showHover(node) {
@@ -3954,7 +4460,12 @@ export class LanFlowMap {
         if (band) rows.push(['Band', `${band} GHz`]);
         if (node.ssid) rows.push(['SSID', node.ssid]);
         if (node.network) rows.push(['Network', node.network]);
-        if (signalDbm) rows.push(['Signal', `${signalDbm} dBm`]);
+        // An MLO backhaul reads per link; the single reading is just the link the child measures.
+        if (node.mloLinks?.length && !cs?.signalDbm) {
+            for (const l of node.mloLinks) rows.push([`Signal (${l.band} GHz)`, `${l.signalDbm} dBm`]);
+        } else if (signalDbm) rows.push(['Signal', `${signalDbm} dBm`]);
+        const cellQ = cs?.cellularSignalQuality ?? node.cellularSignalQuality;
+        if (cellQ != null) rows.push(['Signal Quality', `${cellQ}%`]);
         if (node.switchPortName) rows.push(['Switch port', node.switchPortName]);
         // Device health from NodeLiveBadge (infrastructure nodes only)
         const badge = this._currentBadges?.[node.id];
@@ -4105,6 +4616,8 @@ export class LanFlowMap {
             for (const child of group.children) {
                 if (child.isMesh) candidates.push(child);
             }
+            // An icon body sits inside its holder, not on the group: pick it by its own shape too.
+            if (group.userData.iconBody) candidates.push(group.userData.core);
         }
         for (const group of this._cloudMeshes.values()) {
             if (!group.visible) continue;
@@ -4129,7 +4642,7 @@ export class LanFlowMap {
         }
 
         const node = g.userData.node;
-        if (node.kind === NODE_KIND.Cloud || node.kind === NODE_KIND.VirtualHub) return;
+        if (node.kind === NODE_KIND.Cloud) return;
         this._showContextMenu(e.clientX, e.clientY, node, g);
     }
 
@@ -4137,15 +4650,26 @@ export class LanFlowMap {
         this._dismissContextMenu();
         const menu = document.createElement('div');
         menu.className = 'lan-flow-map-context-menu';
-        const item = document.createElement('div');
-        item.className = 'lan-flow-map-context-menu-item';
-        item.textContent = 'Reposition Device';
-        item.addEventListener('click', (e) => {
-            e.stopPropagation();
-            this._dismissContextMenu();
-            this._enterReposition(node, group);
-        });
-        menu.appendChild(item);
+        const add = (text, run) => {
+            const item = document.createElement('div');
+            item.className = 'lan-flow-map-context-menu-item';
+            item.textContent = text;
+            item.addEventListener('click', (e) => {
+                e.stopPropagation();
+                this._dismissContextMenu();
+                run();
+            });
+            menu.appendChild(item);
+        };
+        const isGroup = node.kind === NODE_KIND.VirtualHub;
+        const isClient = node.kind === NODE_KIND.WiredClient || node.kind === NODE_KIND.WifiClient;
+        // A group node is synthetic: it has no placement of its own to save.
+        if (!isGroup) add('Reposition Device', () => this._enterReposition(node, group));
+        // A client is filtered out of the view. A group node is collapsed: its members are drawn
+        // from the device upstream. Switches, APs and the gateway cannot be hidden.
+        if (isClient && node.mac) add('Hide Device', () => this._setHidden([node.mac], true));
+        if (isGroup) add('Hide Group', () => this._setHidden([node.id], true));
+        if (!menu.firstChild) return;
 
         const stageRect = this.stage.getBoundingClientRect();
         menu.style.left = `${clientX - stageRect.left}px`;
@@ -4302,26 +4826,37 @@ export class LanFlowMap {
             }
         }
 
-        for (const [linkId, linkObj] of this._linkMeshes) {
-            if (linkObj.link.fromNodeId !== nodeId && linkObj.link.toNodeId !== nodeId) continue;
-            const otherNodeId = linkObj.link.fromNodeId === nodeId ? linkObj.link.toNodeId : linkObj.link.fromNodeId;
-            const otherGroup = this._nodeMeshes.get(otherNodeId) || this._cloudMeshes.get(otherNodeId);
-            if (!otherGroup) continue;
+        // By the ends a pipe is drawn between, not the ends its link names: a cellular WAN's link
+        // names the gateway but is drawn to the modem (viaNodeId), so matching on the named ends
+        // left the pipe behind when the modem moved, and dragged it to the gateway when that moved.
+        // A moving gateway carries its globes, so every pipe touching a globe moves with it too:
+        // that includes a cellular WAN's pipe, which runs from the globe to the modem.
+        const moving = (id) => id === nodeId
+            || (this._repositionNode.kind === NODE_KIND.Gateway && this._cloudMeshes.has(id));
+        const groupOf = (id) => this._nodeMeshes.get(id) || this._cloudMeshes.get(id);
+        for (const [, linkObj] of this._linkMeshes) {
+            const fromId = linkObj.link.fromNodeId, toId = this._linkDrawnToId(linkObj.link);
+            if (!moving(fromId) && !moving(toId)) continue;
+            const fromGroup = groupOf(fromId), toGroup = groupOf(toId);
+            if (!fromGroup || !toGroup) continue;
 
-            const a = linkObj.link.fromNodeId === nodeId ? pos : otherGroup.position;
-            const b = linkObj.link.toNodeId === nodeId ? pos : otherGroup.position;
-
-            // Update pipe mesh
+            const { a, b } = this._pipeEnds(linkObj.link, fromGroup.position, toGroup.position);
             this._updatePipePosition(linkObj.pipe, a, b);
-            // Update particle stream endpoints
-            if (linkObj.link.fromNodeId === nodeId) {
-                linkObj.down.updateEndpoints(pos, otherGroup.position);
-                linkObj.up.updateEndpoints(otherGroup.position, pos);
-            } else {
-                linkObj.down.updateEndpoints(otherGroup.position, pos);
-                linkObj.up.updateEndpoints(pos, otherGroup.position);
-            }
+            linkObj.down.updateEndpoints(a, b);
+            linkObj.up.updateEndpoints(b, a);
         }
+    }
+
+    // A pipe's drawn ends: a WAN or transit pipe stops at its globe's surface, not its centre.
+    _pipeEnds(link, a, b) {
+        if (link.kind !== LINK_KIND.Wan && link.kind !== LINK_KIND.Transit) return { a, b };
+        const cloudEnd = this._cloudMeshes.has(link.toNodeId) ? 'b' : this._cloudMeshes.has(link.fromNodeId) ? 'a' : null;
+        if (!cloudEnd) return { a, b };
+        const from = cloudEnd === 'b' ? a : b, to = cloudEnd === 'b' ? b : a;
+        const dx = to.x - from.x, dy = to.y - from.y, dz = to.z - from.z;
+        const d = Math.sqrt(dx * dx + dy * dy + dz * dz) || 1, r = this._cloudRadius();
+        const surf = { x: to.x - (dx / d) * r, y: to.y - (dy / d) * r, z: to.z - (dz / d) * r };
+        return cloudEnd === 'b' ? { a, b: surf } : { a: surf, b };
     }
 
     _updatePipePosition(pipe, a, b) {
@@ -4722,7 +5257,6 @@ function formatAge(ms) {
     return `${d}d ago`;
 }
 
-const _p = (n) => String(n).padStart(2, '0');
 // Compact duration for the trailing Max window's left label, e.g. -12d or -18h.
 function _fmtSpan(ms) {
     const days = ms / 86400000;
@@ -4730,9 +5264,9 @@ function _fmtSpan(ms) {
     return `${Math.round(ms / 3600000)}h`;
 }
 
+// The scrubber's instant in the viewer's time and date format, like the charts' tooltips.
 function _fmtDateTime(d) {
-    const p = noTime.parts(d);
-    return `${_p(p.month)}/${_p(p.day)}/${String(p.year).slice(2)} ${_p(p.hour)}:${_p(p.minute)}:${_p(p.second)}`;
+    return noTime.tooltipLabel(d);
 }
 
 function escapeHtml(s) {

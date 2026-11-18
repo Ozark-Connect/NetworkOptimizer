@@ -1,5 +1,7 @@
 using NetworkOptimizer.Web.Services.ChangeControl;
+using NetworkOptimizer.Web.Services.Monitoring;
 using NetworkOptimizer.Web.Services.Monitoring.IspHealth;
+using NetworkOptimizer.Web.Services.Monitoring.LiveTraffic;
 using ApexCharts;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Mvc.ViewFeatures;
@@ -25,6 +27,7 @@ using NetworkOptimizer.Web.Services.OntProviders;
 using NetworkOptimizer.Web.Services.SqmLearning;
 using NetworkOptimizer.Web.Services.Ssh;
 using NetworkOptimizer.Web.Services.WiredPortPresence;
+using NetworkOptimizer.Web.Services.Monitoring.PathMap;
 using Serilog;
 using Serilog.Events;
 
@@ -270,6 +273,7 @@ builder.Services.AddScoped<SiteManagementService>();
 builder.Services.AddMutatingService<ISiteManagementService>(sp => sp.GetRequiredService<SiteManagementService>());
 builder.Services.AddScoped<SiteContextService>();
 builder.Services.AddScoped<SiteSwitchService>();
+builder.Services.AddScoped<AddressBarState>();
 // Scoped so a host that partitions the instance can answer per caller.
 builder.Services.AddScoped<IScopeBadgeText, InstanceScopeBadgeText>();
 // Registered twice so pages can subscribe to the same instance the circuit calls.
@@ -650,6 +654,25 @@ builder.Services.AddScoped<NetworkOptimizer.Threats.Interfaces.IProbedAddressPro
 builder.Services.AddScoped<NetworkOptimizer.Web.Services.ThreatBlockingOperations>();
 builder.Services.AddMutatingService<NetworkOptimizer.Web.Services.IWafConnectionAdmin>(
     sp => ActivatorUtilities.CreateInstance<NetworkOptimizer.Web.Services.WafConnectionAdminService>(sp));
+// Tailscale: each site's tailnet device names and local status, held in memory per site.
+builder.Services.AddSiteScopedRegistry<NetworkOptimizer.Web.Services.Tailscale.TailscaleDirectoryRegistry>();
+builder.Services.AddSingleton<NetworkOptimizer.Web.Services.Tailscale.TailnetFlowObserver>();
+builder.Services.AddMutatingService<NetworkOptimizer.Web.Services.Tailscale.ITailscaleDirectory>(
+    sp => ActivatorUtilities.CreateInstance<NetworkOptimizer.Web.Services.Tailscale.TailscaleDirectoryService>(sp));
+// The caller's own view of the 3D LAN Flow Map (Hide Device), per user per site.
+builder.Services.AddMutatingService<NetworkOptimizer.Web.Services.LanFlowMap.ILanMapView>(
+    sp => ActivatorUtilities.CreateInstance<NetworkOptimizer.Web.Services.LanFlowMap.LanMapViewService>(sp));
+// Client icons: the icon UniFi Network shows per client, fetched once and kept on disk.
+builder.Services.AddSiteScopedRegistry<NetworkOptimizer.Web.Services.ClientIcons.ClientIconRegistry>();
+builder.Services.AddMutatingService<NetworkOptimizer.Web.Services.ClientIcons.IClientIcons>(
+    sp => ActivatorUtilities.CreateInstance<NetworkOptimizer.Web.Services.ClientIcons.ClientIconService>(sp));
+// The custom icon host answers 403 to a request with no User-Agent, which HttpClient sends by default.
+builder.Services.AddHttpClient(NetworkOptimizer.Web.Services.ClientIcons.ClientIconRegistry.HttpClientName, client =>
+    {
+        client.Timeout = TimeSpan.FromSeconds(10);
+        client.DefaultRequestHeaders.UserAgent.ParseAdd("NetworkOptimizer");
+    })
+    .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
 builder.Services.AddMutatingService<NetworkOptimizer.Web.Services.IThreatBlockingAdmin>(
     sp => ActivatorUtilities.CreateInstance<NetworkOptimizer.Web.Services.ThreatBlockingAdminService>(sp));
 builder.Services.AddMutatingService<NetworkOptimizer.Web.Services.IThreatBlockingSiteAdmin>(
@@ -861,6 +884,20 @@ builder.Services.AddMutatingService<NetworkOptimizer.Web.Services.Firmware.IFirm
 builder.Services.AddChangeControl();
 builder.Services.AddMutatingService<IChangeControlService, ChangeControlService>();
 builder.Services.AddMutatingService<IConfigTemplateService, ConfigTemplateService>();
+// Trace hop locations set by hand: install-wide, read on every trace render.
+builder.Services.AddSingleton<HopLocationOverrideCache>();
+builder.Services.AddSingleton<IHopLocationOverrideSource, InstallHopLocationOverrideSource>();
+// Places each site's own traces gave hop addresses, for traces that later have only GeoLite2.
+builder.Services.AddSingleton<ILearnedHopPeers, InstallLearnedHopPeers>();
+builder.Services.AddSingleton<LearnedHopLocations>();
+builder.Services.AddMutatingService<IHopLocationOverrideService, HopLocationOverrideService>();
+// Path Map: target routes traced from the vantage that measures them, placed with the Route Map's engine.
+builder.Services.AddSingleton<NetworkOptimizer.Web.Services.Monitoring.PathMap.RoutePlacer>();
+builder.Services.AddSingleton<NetworkOptimizer.Web.Services.Monitoring.PathMap.PathRouteRecorder>();
+// One re-trace loop per site, shared by every viewer of the map, plus the slow background pass.
+builder.Services.AddSingleton<NetworkOptimizer.Web.Services.Monitoring.PathMap.PathMapTraceScheduler>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<NetworkOptimizer.Web.Services.Monitoring.PathMap.PathMapTraceScheduler>());
+builder.Services.AddMutatingService<IPathMapService, PathMapService>();
 builder.Services.AddMutatingService<IChangeControlFleetService, ChangeControlFleetService>();
 // Re-runs upstream tracer discovery every 7 days; flips a review flag on diff.
 builder.Services.AddHostedService<NetworkOptimizer.Web.Services.Monitoring.UpstreamRediscoveryService>();
@@ -976,6 +1013,13 @@ builder.Services.AddMutatingService<IUpnpNoteService>(sp => sp.GetRequiredServic
 builder.Services.AddScoped<NetworkOptimizer.Web.Services.Monitoring.BandwidthHogs.ConntrackStatusService>();
 builder.Services.AddMutatingService<NetworkOptimizer.Web.Services.Monitoring.BandwidthHogs.IConntrackStatusService>(
     sp => sp.GetRequiredService<NetworkOptimizer.Web.Services.Monitoring.BandwidthHogs.ConntrackStatusService>());
+// Live Traffic: per-site in-memory flows and DNS from the gateway agent, read under a viewer's lease.
+builder.Services.AddSiteScopedRegistry<NetworkOptimizer.Web.Services.Monitoring.LiveTraffic.LiveTrafficRegistry>();
+builder.Services.AddSiteScopedRegistry<NetworkOptimizer.Web.Services.Monitoring.LiveTraffic.LiveTrafficPolicyResolver>();
+builder.Services.AddScoped<NetworkOptimizer.Web.Services.Monitoring.LiveTraffic.LiveTrafficService>();
+builder.Services.AddMutatingService<NetworkOptimizer.Web.Services.Monitoring.LiveTraffic.ILiveTrafficService>(
+    sp => sp.GetRequiredService<NetworkOptimizer.Web.Services.Monitoring.LiveTraffic.LiveTrafficService>());
+builder.Services.AddMutatingService<ICustomAppService, CustomAppService>();
 builder.Services.AddScoped<CustomOidService>();
 builder.Services.AddMutatingService<ICustomOidService>(sp => sp.GetRequiredService<CustomOidService>());
 // Device health checks: shipped templates (JSON files), one runner per site that executes the
@@ -1452,6 +1496,9 @@ app.Services.GetRequiredService<NetworkOptimizer.Storage.Services.ICredentialPro
 // Initialize GeoLite2 enrichment (looks for .mmdb files in data directory)
 var geoDataPath = Path.GetDirectoryName(dbPath)!;
 app.Services.GetRequiredService<NetworkOptimizer.Threats.Enrichment.GeoEnrichmentService>().Initialize(geoDataPath);
+
+// Reverse lookups ask for the PTR record only, never forward-resolving the answer through search domains.
+NetworkOptimizer.Core.Helpers.ReverseDnsCache.PtrLookup = NetworkOptimizer.Web.Services.Monitoring.DnsClientPtrLookup.LookupAsync;
 
 // Created before any console connects, so it reads each site's time zone as its connection comes up,
 // and loaded with the zones read before the restart, so no schedule starts on the server's clock.

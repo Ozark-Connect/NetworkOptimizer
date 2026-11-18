@@ -6,6 +6,7 @@
 @inject WiFiOptimizerService WiFiService
 @inject UniFiConnectionService ConnectionService
 @inject ILogger<ClientTimeline> Logger
+@inject IClientIcons ClientIcons
 @inject IDisplayTimeZone DisplayTime
 
 <div class="client-timeline-container wifi-sections">
@@ -26,14 +27,14 @@
 
         @if (!string.IsNullOrEmpty(_selectedClientMac))
         {
-            <button class="view-all-btn" @onclick="ViewAllClients">@(HasActiveFilters ? "Back" : "View All Clients")</button>
+            <button class="view-all-btn" @onclick="ShowListAsync">@(HasActiveFilters ? "Back" : "View All Clients")</button>
         }
 
         <!-- Client Selector -->
         <ClientSelector @ref="_selector"
                         Items="SelectorItems()"
                         SelectedKey="@_selectedClientMac"
-                        SelectedKeyChanged="SelectClient" />
+                        SelectedKeyChanged="PickClientAsync" />
 
         <!-- AP & Band Filters (only show on list view) -->
         @if (string.IsNullOrEmpty(_selectedClientMac))
@@ -86,6 +87,10 @@
                     }
                 </div>
             }
+            @if (HasSignalFilter && string.IsNullOrEmpty(_selectedClientMac))
+            {
+                <span class="client-signal-filter">@SignalFilterLabel</span>
+            }
             @if (HasActiveFilters && string.IsNullOrEmpty(_selectedClientMac))
             {
                 <button class="btn btn-outline-primary btn-sm" @onclick="ClearFilters">Clear Filters</button>
@@ -111,11 +116,12 @@
                 <table class="data-table">
                     <thead>
                         <tr>
-                            <th class="sortable @GetSortClass("Status")" @onclick='() => SetSort("Status")'>Status</th>
+                            <th class="sortable col-status @GetSortClass("Status")" @onclick='() => SetSort("Status")'>Status</th>
                             <th class="sortable @GetSortClass("Name")" @onclick='() => SetSort("Name")'>Name</th>
                             <th class="sortable @GetSortClass("Ip")" @onclick='() => SetSort("Ip")'>IP</th>
                             <th class="sortable @GetSortClass("Mac")" @onclick='() => SetSort("Mac")'>MAC</th>
                             <th class="sortable @GetSortClass("ApName")" @onclick='() => SetSort("ApName")'>AP</th>
+                            <th class="sortable hide-mobile @GetSortClass("Ssid")" @onclick='() => SetSort("Ssid")'>SSID</th>
                             <th class="sortable @GetSortClass("Band")" @onclick='() => SetSort("Band")'>Band</th>
                             <th class="sortable @GetSortClass("Signal")" @onclick='() => SetSort("Signal")'>Signal</th>
                         </tr>
@@ -123,12 +129,13 @@
                     <tbody>
                         @foreach (var client in GetPagedClients())
                         {
-                            <tr @onclick="() => SelectClient(client.Mac)" class="@(client.IsOnline ? "" : "client-offline")">
+                            <tr @onclick="() => PickClientAsync(client.Mac)" class="@(client.IsOnline ? "" : "client-offline")">
                                 <td><span class="status-dot @(client.IsOnline ? "online" : "offline")" data-tooltip="@(client.IsOnline ? "Online" : GetOfflineTooltip(client))"></span></td>
-                                <td>@client.Name @if (client.FixedApEnabled) { <span class="lock-icon" data-tooltip="Locked to @(client.FixedApName ?? client.FixedApMac ?? "AP")" data-tooltip-hover-only>&#128274;</span> }</td>
+                                <td><ClientIcon Url="@_clientIcons.UrlFor(client.Mac)" Size="20" Class="client-icon-inline" />@client.Name @if (client.FixedApEnabled) { <span class="lock-icon" data-tooltip="Locked to @(client.FixedApName ?? client.FixedApMac ?? "AP")" data-tooltip-hover-only><ApLockIcon /></span> }</td>
                                 <td>@if (!string.IsNullOrEmpty(client.Ip)) { <code>@client.Ip</code> } else { <text>-</text> }</td>
                                 <td><code>@client.Mac</code></td>
                                 <td>@(client.ApName ?? "-")</td>
+                                <td class="hide-mobile">@(string.IsNullOrEmpty(client.Essid) ? "-" : client.Essid)</td>
                                 <td>@if (client.IsOnline && client.Band != RadioBand.Unknown) { <span class="band-badge @GetBandCssClass(client.Band)">@client.Band.ToDisplayString()</span> } else { <text>-</text> }</td>
                                 <td class="@SignalClassification.GetSignalClass(client.Signal, client.Band)" style="color: @SignalClassification.GetSignalColor(client.Signal, client.Band)">@(client.IsOnline && client.Signal.HasValue ? $"{client.Signal} dBm" : "-")</td>
                             </tr>
@@ -145,17 +152,17 @@
                     </div>
                     <div class="pagination-buttons">
                         <button class="page-btn" @onclick="GoToFirstPage" disabled="@(_currentPage == 1)">
-                            <span>««</span>
+                            <AppIcon Name="chevron-first" />
                         </button>
                         <button class="page-btn" @onclick="GoToPreviousPage" disabled="@(_currentPage == 1)">
-                            <span>‹</span>
+                            <AppIcon Name="chevron-left" />
                         </button>
                         <span class="page-indicator">Page @_currentPage of @TotalPages</span>
                         <button class="page-btn" @onclick="GoToNextPage" disabled="@(_currentPage >= TotalPages)">
-                            <span>›</span>
+                            <AppIcon Name="chevron-right" />
                         </button>
                         <button class="page-btn" @onclick="GoToLastPage" disabled="@(_currentPage >= TotalPages)">
-                            <span>»»</span>
+                            <AppIcon Name="chevron-last" />
                         </button>
                     </div>
                 </div>
@@ -176,8 +183,10 @@
         {
             <div class="client-info-banner">
                 <div class="client-info-main">
+                    <span class="client-info-identity">
+                    <ClientIcon Url="@_clientIcons.UrlFor(_selectedClient.Mac)" Size="32" />
                     <ClientNameEditor @key="_selectedClient.Mac" Mac="@_selectedClient.Mac" Name="@_selectedClient.Name"
-                                      OnRenamed="OnClientRenamed">
+                                      ReadOnly="@_selectedClient.IsProtectDevice" OnRenamed="OnClientRenamed">
                         @if (!string.IsNullOrEmpty(_selectedClient.Ip))
                         {
                             <a href="/client-dashboard?ip=@_selectedClient.Ip&range=30d&tab=signal" class="client-name client-name-link"
@@ -188,6 +197,7 @@
                             <span class="client-name">@_selectedClient.Name</span>
                         }
                     </ClientNameEditor>
+                    </span>
                     @if (!string.IsNullOrEmpty(_selectedClient.Ip))
                     {
                         <ClientFixedIpEditor @key="@($"ip-{_selectedClient.Mac}")"Mac="@_selectedClient.Mac" CurrentIp="@_selectedClient.Ip" OnChanged="OnFixedIpChanged"><span class="client-ip" data-tooltip="@ClientFixedIpEditor.PendingTooltip(_selectedClient.Ip, _selectedClient.FixedIp)">@_selectedClient.Ip</span></ClientFixedIpEditor>
@@ -211,6 +221,13 @@
                         <span class="info-label">@(_selectedClient.IsOnline ? "Connected To:" : "Last Connected To:")</span>
                         <span class="info-value">@(_selectedClient.ApName ?? "Unknown AP")</span>
                     </div>
+                    @if (!string.IsNullOrEmpty(_selectedClient.Essid))
+                    {
+                        <div class="info-item">
+                            <span class="info-label">SSID:</span>
+                            <span class="info-value">@_selectedClient.Essid</span>
+                        </div>
+                    }
                     @if (!_selectedClient.IsOnline)
                     {
                         <div class="info-item">
@@ -253,7 +270,7 @@
                     {
                         <div class="info-item">
                             <span class="info-label">AP Lock:</span>
-                            <span class="info-value" style="color: var(--info-color);">&#128274; Locked to @(_selectedClient.FixedApName ?? _selectedClient.FixedApMac ?? "AP")</span>
+                            <span class="info-value" style="color: var(--info-color);"><ApLockIcon /> Locked to @(_selectedClient.FixedApName ?? _selectedClient.FixedApMac ?? "AP")</span>
                         </div>
                     }
                 </div>
@@ -378,9 +395,26 @@
 </div>
 
 @code {
+    /// <summary>The client whose details show (from the page URL); null or empty shows the list.</summary>
     [Parameter] public string? InitialClientMac { get; set; }
     [Parameter] public string? InitialApMac { get; set; }
     [Parameter] public RadioBand? InitialBand { get; set; }
+
+    /// <summary>List only clients at or above this signal (dBm).</summary>
+    [Parameter] public int? InitialSignalMin { get; set; }
+
+    /// <summary>List only clients at or below this signal (dBm).</summary>
+    [Parameter] public int? InitialSignalMax { get; set; }
+
+    /// <summary>
+    /// A user picked a client (its MAC) or went back to the list (null). The page puts it in the URL, so
+    /// the browser's Back and Forward step between list and details; the details then follow
+    /// <see cref="InitialClientMac"/>. Without a handler the pick applies here directly.
+    /// </summary>
+    [Parameter] public EventCallback<string?> OnClientNavigate { get; set; }
+
+    /// <summary>The <see cref="InitialClientMac"/> last applied, so only a change to it moves the view.</summary>
+    private string? _appliedClientMac;
 
     private bool _loading = false;
     private string _selectedClientMac = "";
@@ -404,6 +438,8 @@
     private string _statusFilter = "all"; // "all", "online", "offline"
     private string _apFilter = "";  // Empty = all APs
     private RadioBand? _bandFilter;  // null = all bands
+    private int? _signalMin;
+    private int? _signalMax;
     private bool _refreshing = false;
 
     private List<WirelessClientSnapshot> _clients = new();
@@ -465,8 +501,12 @@
         { "1M", TimeSpan.FromDays(30) }
     };
 
+    /// <summary>The site's client icons for the table and the details banner. Empty until loaded.</summary>
+    private ClientIconMap _clientIcons = ClientIconMap.Empty;
+
     protected override async Task OnInitializedAsync()
     {
+        _ = ClientIcons.LoadIntoAsync(map => InvokeAsync(() => { _clientIcons = map; StateHasChanged(); }), Logger);
         InitializeChartOptions();
 
         // Apply initial filters from parent navigation
@@ -474,14 +514,58 @@
             _apFilter = InitialApMac;
         if (InitialBand.HasValue)
             _bandFilter = InitialBand.Value;
+        if (InitialSignalMin.HasValue || InitialSignalMax.HasValue)
+        {
+            _signalMin = InitialSignalMin;
+            _signalMax = InitialSignalMax;
+            // A signal range is a reading of connected clients, as the chart that links here counts them.
+            _statusFilter = "online";
+        }
 
         await LoadClientsAsync();
 
         // Auto-select client from deep link parameter
+        _appliedClientMac = InitialClientMac;
         if (!string.IsNullOrEmpty(InitialClientMac) && _clients.Any(c => c.Mac.Equals(InitialClientMac, StringComparison.OrdinalIgnoreCase)))
         {
             SelectClient(InitialClientMac);
         }
+    }
+
+    protected override void OnParametersSet()
+    {
+        // The URL moved after the first load (a pick, Back, Forward, or a link): follow it. The first
+        // load is OnInitializedAsync's, which runs after the client list loads.
+        if (_loading || _clients.Count == 0 || string.Equals(InitialClientMac, _appliedClientMac, StringComparison.OrdinalIgnoreCase))
+            return;
+        _appliedClientMac = InitialClientMac;
+        if (string.IsNullOrEmpty(InitialClientMac))
+            ViewAllClients();
+        else if (_clients.Any(c => c.Mac.Equals(InitialClientMac, StringComparison.OrdinalIgnoreCase)))
+            SelectClient(InitialClientMac);
+    }
+
+    /// <summary>A user picked a client in the table or the selector; an empty pick means the list.</summary>
+    private async Task PickClientAsync(string mac)
+    {
+        if (string.IsNullOrEmpty(mac))
+        {
+            await ShowListAsync();
+            return;
+        }
+        if (OnClientNavigate.HasDelegate)
+            await OnClientNavigate.InvokeAsync(mac);
+        else
+            SelectClient(mac);
+    }
+
+    /// <summary>Back to the client list, through the URL when the page owns it.</summary>
+    private async Task ShowListAsync()
+    {
+        if (OnClientNavigate.HasDelegate)
+            await OnClientNavigate.InvokeAsync(null);
+        else
+            ViewAllClients();
     }
 
     private void InitializeChartOptions()
@@ -881,6 +965,14 @@
             filtered = filtered.Where(c => c.Band == _bandFilter.Value);
         }
 
+        // Apply signal range filter
+        if (_signalMin.HasValue || _signalMax.HasValue)
+        {
+            filtered = filtered.Where(c => c.Signal.HasValue
+                && (!_signalMin.HasValue || c.Signal.Value >= _signalMin.Value)
+                && (!_signalMax.HasValue || c.Signal.Value <= _signalMax.Value));
+        }
+
         // Apply search text filter
         if (!string.IsNullOrWhiteSpace(_clientSearchText))
         {
@@ -905,12 +997,24 @@
         _currentPage = 1;
     }
 
-    private bool HasActiveFilters => !string.IsNullOrEmpty(_apFilter) || _bandFilter.HasValue;
+    private bool HasSignalFilter => _signalMin.HasValue || _signalMax.HasValue;
+
+    private bool HasActiveFilters => !string.IsNullOrEmpty(_apFilter) || _bandFilter.HasValue || HasSignalFilter;
+
+    private string SignalFilterLabel => (_signalMin, _signalMax) switch
+    {
+        ({ } min, { } max) => $"Signal {min} to {max} dBm",
+        ({ } min, null) => $"Signal {min} dBm or better",
+        (null, { } max) => $"Signal {max} dBm or worse",
+        _ => "",
+    };
 
     private void ClearFilters()
     {
         _apFilter = "";
         _bandFilter = null;
+        _signalMin = null;
+        _signalMax = null;
         _currentPage = 1;
     }
 
@@ -942,6 +1046,7 @@
                 : WiFiAnalysisHelpers.SortByIp(clients),
             "Mac" => _sortDescending ? clients.OrderByDescending(c => c.Mac) : clients.OrderBy(c => c.Mac),
             "ApName" => _sortDescending ? clients.OrderByDescending(c => c.ApName ?? "") : clients.OrderBy(c => c.ApName ?? ""),
+            "Ssid" => _sortDescending ? clients.OrderByDescending(c => c.Essid ?? "") : clients.OrderBy(c => c.Essid ?? ""),
             "Band" => _sortDescending ? clients.OrderByDescending(c => c.Band) : clients.OrderBy(c => c.Band),
             "Signal" => _sortDescending ? clients.OrderByDescending(c => c.Signal ?? int.MinValue) : clients.OrderBy(c => c.Signal ?? int.MinValue),
             _ => clients

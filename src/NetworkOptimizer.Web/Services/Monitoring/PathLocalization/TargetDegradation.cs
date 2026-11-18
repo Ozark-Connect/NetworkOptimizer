@@ -140,6 +140,13 @@ public sealed class TargetDegradation
 
     public DegradationWindow? LastWindow => _windows.Last?.Value;
 
+    /// <summary>The evaluation window length.</summary>
+    public TimeSpan WindowLength => _windowLength;
+
+    /// <summary>The closed windows overlapping [<paramref name="from"/>, <paramref name="to"/>), oldest first.</summary>
+    public IReadOnlyList<DegradationWindow> WindowsIn(DateTime from, DateTime to) =>
+        _windows.Where(w => w.Start + _windowLength > from && w.Start < to).ToList();
+
     public DateTime? LastSampleAt { get; private set; }
 
     /// <summary>Whether enough history exists to judge a window at all.</summary>
@@ -173,6 +180,15 @@ public sealed class TargetDegradation
     /// the probes behind it; null when none closed. Open-ended when <paramref name="until"/> is null.
     /// </summary>
     public (double LossPct, int Probes)? LossSince(DateTime from, DateTime? until = null) => LossOver(from, until);
+
+    /// <summary>
+    /// Median of the window RTTs overlapping [<paramref name="from"/>, <paramref name="until"/>): the series'
+    /// RTT during an episode, comparable to <see cref="BaselineRttMs"/>. Null when no window read one.
+    /// </summary>
+    public double? RttSince(DateTime from, DateTime? until = null) => SeriesStats.Median(_windows
+        .Where(w => w.Start + _windowLength > from && (until == null || w.Start < until) && w.MedianRttMs.HasValue)
+        .Select(w => w.MedianRttMs!.Value)
+        .ToList());
 
     /// <summary>
     /// Picks a degradation back up after a restart, for a target whose episode was still open. Seeded

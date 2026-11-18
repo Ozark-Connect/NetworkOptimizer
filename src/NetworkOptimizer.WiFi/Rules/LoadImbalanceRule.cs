@@ -39,6 +39,14 @@ public class LoadImbalanceRule : IWiFiOptimizerRule
     /// </summary>
     private const int MinClientGap = 4;
 
+    /// <summary>"has none" for an empty AP, else "has only N".</summary>
+    private static string MinApCount(AccessPointSnapshot ap) =>
+        ap.EffectiveClientCount == 0 ? "has none" : $"has only {ap.EffectiveClientCount}";
+
+    /// <summary>Both APs, each linking to its clients in Client Stats.</summary>
+    private static List<IssueLink> LinksFor(AccessPointSnapshot maxAp, AccessPointSnapshot minAp) =>
+        new[] { maxAp, minAp }.Select(ap => new IssueLink($"{ap.Name} ({ap.EffectiveClientCount})", IssueLinks.Clients(ap.Mac))).ToList();
+
     public HealthIssue? Evaluate(WiFiOptimizerContext ctx)
     {
         // Only relevant for multi-AP deployments
@@ -148,10 +156,11 @@ public class LoadImbalanceRule : IWiFiOptimizerRule
                         Title = "Significant Load Imbalance",
                         Class = HealthIssueClass.Measured,
                         Key = HealthIssueKeys.For(RuleId, HealthIssueKeys.Macs(new[] { maxAp.Mac, minAp.Mac })),
-                        Description = $"{maxAp.Name} has {maxAp.EffectiveClientCount} clients while {minAp.Name} has only {minAp.EffectiveClientCount}. " +
+                        Description = $"{maxAp.Name} has {maxAp.EffectiveClientCount} clients while {minAp.Name} {MinApCount(minAp)}. " +
                             $"These APs are in separate coverage zones so some imbalance is expected, " +
                             $"but some clients on {maxAp.Name} have weak signal.",
                         AffectedEntity = $"{maxAp.Name} ({maxAp.EffectiveClientCount}), {minAp.Name} ({minAp.EffectiveClientCount})",
+                        AffectedLinks = LinksFor(maxAp, minAp),
                         Recommendation = "Check if weak-signal clients on the busy AP could benefit from additional coverage in that zone.",
                         ScoreImpact = -2
                     };
@@ -172,9 +181,10 @@ public class LoadImbalanceRule : IWiFiOptimizerRule
             Title = "Significant Load Imbalance",
             Class = HealthIssueClass.Measured,
             Key = HealthIssueKeys.For(RuleId, HealthIssueKeys.Macs(new[] { maxAp.Mac, minAp.Mac })),
-            Description = $"{maxAp.Name} has {maxAp.EffectiveClientCount} clients while {minAp.Name} has only {minAp.EffectiveClientCount}. " +
+            Description = $"{maxAp.Name} has {maxAp.EffectiveClientCount} clients while {minAp.Name} {MinApCount(minAp)}. " +
                 $"This imbalance ({imbalance:F0}%) can cause performance issues on overloaded APs.",
             AffectedEntity = $"{maxAp.Name} ({maxAp.EffectiveClientCount}), {minAp.Name} ({minAp.EffectiveClientCount})",
+            AffectedLinks = LinksFor(maxAp, minAp),
             Recommendation = recommendation,
             ScoreImpact = -8
         };

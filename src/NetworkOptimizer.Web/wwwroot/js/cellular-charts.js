@@ -2,13 +2,13 @@
 // Same control pattern as sfp-charts.js and device-health-charts.js.
 
 import ApexCharts from '/_content/Blazor-ApexCharts/js/apexcharts.esm.js';
-import { computeStats, renderStatsTable as renderTable } from './chart-stats.js?v=9';
-import { valueSortedTooltip, tooltipHeld, alignedPoints } from './chart-tooltip.js?v=21';
+import { computeStats, renderStatsTable as renderTable } from './chart-stats.js?v=10';
+import { valueSortedTooltip, tooltipHeld, alignedPoints } from './chart-tooltip.js?v=22';
 import { renderFilterReset, isFiltered } from './chart-filter.js?v=6';
 import { createAxisDateCaption } from './chart-axis-date.js?v=5';
 import { syncIdentity } from './chart-sync.js?v=9';
 import { awaitContainer } from './chart-mount.js?v=1';
-import { loadWindowHours, saveWindowHours, markActiveRange, notifyWindowMoved } from './chart-window.js?v=2';
+import { loadWindowHours, saveWindowHours, markActiveRange, notifyWindowMoved } from './chart-window.js?v=3';
 import { detailsTableHtml } from './detail-table.js?v=1';
 
 // Storage scope for this tab's remembered time window.

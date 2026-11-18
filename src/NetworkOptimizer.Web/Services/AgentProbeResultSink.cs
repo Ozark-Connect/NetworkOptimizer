@@ -39,6 +39,7 @@ public class AgentProbeResultSink
     // Counter delta cache for agent-relayed interface samples. Key =
     // "slug/deviceMac/ifName" - same rate computation as the local fast tier.
     private readonly ConcurrentDictionary<string, InterfaceRateCalculator.State> _counterCache = new();
+    private readonly FanSpeedGuard _fanGuard = new();
 
     // Device display names per site (slug -> normalized MAC -> name), captured from
     // the device list each SNMP config push assembles. Health samples relayed by the
@@ -945,6 +946,26 @@ public class AgentProbeResultSink
         => agentCoversPrimary || contextAgentId == agentId;
 
     /// <summary>
+    /// Clears round-trip figures no probe could have measured (<see cref="Monitoring.LatencySanity"/>)
+    /// from an agent's result, in place, so storage, scoring, and the live caches all read the same
+    /// cleaned result. The agent's parser has no bound of its own. True when anything was cleared.
+    /// </summary>
+    internal static bool ScrubImplausibleRtt(ProbeResult result)
+    {
+        var (min, avg, max, jitter) = Monitoring.LatencySanity.Clean(
+            result.HasRttMinMs ? result.RttMinMs : null,
+            result.HasRttAvgMs ? result.RttAvgMs : null,
+            result.HasRttMaxMs ? result.RttMaxMs : null,
+            result.HasJitterMs ? result.JitterMs : null);
+        var changed = false;
+        if (min == null && result.HasRttMinMs) { result.ClearRttMinMs(); changed = true; }
+        if (avg == null && result.HasRttAvgMs) { result.ClearRttAvgMs(); changed = true; }
+        if (max == null && result.HasRttMaxMs) { result.ClearRttMaxMs(); changed = true; }
+        if (jitter == null && result.HasJitterMs) { result.ClearJitterMs(); changed = true; }
+        return changed;
+    }
+
+    /// <summary>
     /// Whether an agent should be sent the site's SNMP config and speed-test server list.
     ///
     /// A STEERED agent is a probe vantage behind one WAN, not a second collector: polling SNMP
@@ -1549,6 +1570,27 @@ public class AgentProbeResultSink
                 prevState, sample.InOctets, sample.OutOctets, timestamp, sample.HcCounters, sample.SpeedBps);
             _counterCache[key] = calc.NewState;
 
+            switch (calc.Outcome)
+            {
+                case InterfaceRateCalculator.Outcome.ResetConfirmed:
+                    _logger.LogInformation(
+                        "SNMP counter reset confirmed for {Slug} {Mac}/{IfName}; reseeding baseline.",
+                        connection.SiteSlug, sample.DeviceMac, sample.IfName);
+                    break;
+                case InterfaceRateCalculator.Outcome.ImplausibleRate:
+                    _logger.LogWarning(
+                        "Discarding implausible SNMP rate for {Slug} {Mac}/{IfName}: in={RateIn:F0} out={RateOut:F0} bps exceed link speed {LinkBps} bps (x{Margin}). Likely a corrupt counter read.",
+                        connection.SiteSlug, sample.DeviceMac, sample.IfName, calc.RejectedRateInBps ?? 0, calc.RejectedRateOutBps ?? 0,
+                        sample.SpeedBps, InterfaceRateCalculator.LinkSpeedToleranceFactor);
+                    break;
+                case InterfaceRateCalculator.Outcome.CeilingHeld:
+                    _logger.LogDebug(
+                        "Holding SNMP baseline for {Slug} {Mac}/{IfName}: in={RateIn:F0} out={RateOut:F0} bps is marginally over link speed {LinkBps} bps; the next window absorbs it.",
+                        connection.SiteSlug, sample.DeviceMac, sample.IfName, calc.RejectedRateInBps ?? 0, calc.RejectedRateOutBps ?? 0,
+                        sample.SpeedBps);
+                    break;
+            }
+
             // Mirror into the site's live caches the same way the local fast
             // tier does, so the site's Live View port table and map refresh
             // from memory.
@@ -1634,7 +1676,7 @@ public class AgentProbeResultSink
 
             // A read the calculator does not trust is not stored: differenced, one bad sample
             // reads as the whole counter's worth of traffic.
-            if (calc.Outcome is InterfaceRateCalculator.Outcome.ResetPending or InterfaceRateCalculator.Outcome.ImplausibleRate)
+            if (calc.IsUntrusted)
                 continue;
 
             await influx.WriteInterfaceCountersAsync(
@@ -1808,7 +1850,7 @@ public class AgentProbeResultSink
             double? mem = health.HasMemoryUsedPercent ? health.MemoryUsedPercent : null;
             double? temp = health.HasTemperatureC ? health.TemperatureC : null;
             long? uptime = health.HasUptimeSeconds ? health.UptimeSeconds : null;
-            int? fanRpm = health.HasFanSpeedRpm ? health.FanSpeedRpm : null;
+            int? fanRpm = _fanGuard.Accept($"{connection.SiteSlug}/{health.DeviceMac}", health.HasFanSpeedRpm ? health.FanSpeedRpm : null);
 
             // Fill health fields SNMP didn't return from the console's cached UniFi device
             // data, mirroring the directly-monitored medium tier's CollectApiHealthFallbackAsync:
@@ -2305,6 +2347,11 @@ public class AgentProbeResultSink
 
             var timestamp = DateTimeOffset.FromUnixTimeMilliseconds(result.TimestampUnixMs).UtcDateTime;
             var wanContext = context?.InfluxWanTag;
+
+            if (ScrubImplausibleRtt(result))
+                _logger.LogWarning(
+                    "Dropped an impossible round trip from agent {Id} for target {Target}",
+                    connection.AgentId, target.TargetId);
 
             await influx.WriteLatencyAsync(
                 targetId: target.TargetId,

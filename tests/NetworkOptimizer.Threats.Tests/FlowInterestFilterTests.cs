@@ -37,6 +37,34 @@ public class FlowInterestFilterTests
     }
 
     [Fact]
+    public void IsInvalidStateDrop_BlockedWithOnlyConntrack_ReturnsTrue()
+    {
+        var flow = Parse("""{"action": "blocked", "policies": [{"internal_type": "CONNTRACK", "type": "FIREWALL"}]}""");
+        Assert.True(FlowInterestFilter.IsInvalidStateDrop(flow));
+    }
+
+    [Fact]
+    public void IsInvalidStateDrop_ConntrackBesidePredefinedInvalidTraffic_ReturnsTrue()
+    {
+        var flow = Parse("""{"action": "blocked", "policies": [{"internal_type": "CONNTRACK", "type": "FIREWALL"}, {"internal_type": "PREDEFINED_FIREWALL_RULE", "name": "Block Invalid Traffic", "type": "FIREWALL"}]}""");
+        Assert.True(FlowInterestFilter.IsInvalidStateDrop(flow));
+    }
+
+    [Fact]
+    public void IsInvalidStateDrop_ConntrackBesideANamedBlock_ReturnsFalse()
+    {
+        var flow = Parse("""{"action": "blocked", "policies": [{"internal_type": "CONNTRACK", "type": "FIREWALL"}, {"internal_type": "FIREWALL_POLICY", "name": "Block IoT", "type": "FIREWALL"}]}""");
+        Assert.False(FlowInterestFilter.IsInvalidStateDrop(flow));
+    }
+
+    [Fact]
+    public void IsInvalidStateDrop_AllowedWithOnlyConntrack_ReturnsFalse()
+    {
+        var flow = Parse("""{"action": "allowed", "policies": [{"internal_type": "CONNTRACK", "type": "FIREWALL"}]}""");
+        Assert.False(FlowInterestFilter.IsInvalidStateDrop(flow));
+    }
+
+    [Fact]
     public void IsInteresting_BlockedAction_ReturnsTrue()
     {
         var flow = Parse("""{"action": "blocked", "risk": "low", "direction": "incoming", "destination": {"port": 80}}""");

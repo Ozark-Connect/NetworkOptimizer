@@ -348,7 +348,7 @@ public class PortSecurityAnalyzer
                 continue;
 
             var key = (client.LastUplinkMac.ToLowerInvariant(), client.LastUplinkRemotePort.Value);
-            var clientName = client.DisplayName ?? client.Name ?? client.Hostname ?? client.Mac;
+            var clientName = UniFi.ClientNames.For(client) ?? client.Mac;
 
             // Keep the most recently seen client per port
             if (lookup.TryGetValue(key, out var existing))
@@ -542,6 +542,10 @@ public class PortSecurityAnalyzer
         // Non-gateway types are switches (not gateway, not AP)
         if (!baseType.IsGateway())
             return (false, false);
+
+        // The device's own mode decides first: an Express adopted as an AP reports "mesh".
+        if (NetworkOptimizer.UniFi.UniFiProductDatabase.IsAccessPointMode(device.GetStringOrNull("device_mode_override")))
+            return (false, true);
 
         // If we don't have device MAC info, fall back to API type (assume gateway)
         if (allDeviceMacs == null || allDeviceMacs.Count == 0)

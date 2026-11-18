@@ -21,6 +21,8 @@ internal static class ChartEventMarks
         "ont.rebooted",
         "ont.path_loss_high",
         "ont.path_loss_rise",
+        "ont.encryption_enabled",
+        "ont.encryption_disabled",
     };
 
     /// <summary>Severity as the mark layer colours it.</summary>

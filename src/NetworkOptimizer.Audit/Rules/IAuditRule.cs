@@ -205,7 +205,7 @@ public abstract class AuditRuleBase : IAuditRule
     protected static string DescribeUniFiDevice(PortInfo port)
     {
         var client = port.ConnectedClient;
-        var clientName = client?.Name ?? client?.Hostname;
+        var clientName = client is { } connected ? UniFi.ClientNames.For(connected) : null;
         if (!string.IsNullOrEmpty(clientName))
         {
             var app = client!.UniFiProductLine switch

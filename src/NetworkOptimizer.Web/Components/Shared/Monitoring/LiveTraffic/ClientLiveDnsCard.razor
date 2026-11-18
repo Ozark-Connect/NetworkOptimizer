@@ -1,0 +1,84 @@
+@* The client's own DNS lookups as the gateway sees them, last on Data / Apps. *@
+@implements IDisposable
+
+@if (Feed.View is { State: LiveTrafficState.Live or LiveTrafficState.Starting } view)
+{
+    var rows = view.Dns.Take(MaxRows).ToList();
+    var slots = Slots(rows.Count);
+    <div class="card results-card lt-client lt-client-dns" id="client-live-dns">
+        <div class="chart-card-header">
+            <h3>Live DNS <span class="tooltip-icon tooltip-icon-sm" data-tooltip="Lookups that pass through your Gateway. A DNS server on the client's own VLAN is never seen.">?</span></h3>
+            <div class="time-range-selector">
+                <button class="time-btn @(Feed.DnsMode == LiveDnsMode.All ? "active" : "")" @onclick="() => Feed.SetDnsModeAsync(LiveDnsMode.All)">All</button>
+                <button class="time-btn @(Feed.DnsMode == LiveDnsMode.Bypass ? "active" : "")" @onclick="() => Feed.SetDnsModeAsync(LiveDnsMode.Bypass)">Bypass</button>
+                <button class="time-btn @(Feed.DnsMode == LiveDnsMode.Nxdomain ? "active" : "")" @onclick="() => Feed.SetDnsModeAsync(LiveDnsMode.Nxdomain)" data-tooltip="NXDOMAIN, or 0.0.0.0 / :: answers">Blocked</button>
+            </div>
+        </div>
+        <ClientFilterChips Feed="Feed" />
+        @if (rows.Count == 0)
+        {
+            <div class="empty-state lt-client-empty">
+                <p>@(Feed.DnsMode != LiveDnsMode.All || Feed.Filters.Count > 0 ? "No lookups match." : view.DnsActive ? "No lookups from this client in the last few minutes." : "Waiting for DNS lookups.")</p>
+            </div>
+        }
+        else
+        {
+            <div class="lt-mobile-list">
+                @foreach (var d in rows)
+                {
+                    <LiveDnsRowView Lookup="d" Layout="LiveDnsLayout.List" ShowClient="false" Context="Feed.RowContext" />
+                }
+                @for (var i = rows.Count; i < slots; i++)
+                {
+                    <div class="lt-m-row lt-slot-empty lt-dns-slot" aria-hidden="true"></div>
+                }
+            </div>
+            <table class="results-table lt-dns-table lt-desktop-only">
+                <colgroup><col><col style="width:32%"><col style="width:6.5rem"></colgroup>
+                <thead><tr><th>Query</th><th>Resolver</th><th>Answer</th></tr></thead>
+                <tbody>
+                    @foreach (var d in rows)
+                    {
+                        <LiveDnsRowView Lookup="d" Layout="LiveDnsLayout.Table" ShowClient="false" Context="Feed.RowContext" />
+                    }
+                    @for (var i = rows.Count; i < slots; i++)
+                    {
+                        <tr class="lt-slot-empty"><td colspan="3">&nbsp;<span class="lt-dns-sub">&nbsp;</span></td></tr>
+                    }
+                </tbody>
+            </table>
+        }
+    </div>
+}
+
+@code {
+    /// <summary>The client's feed, shared with the Live Traffic card.</summary>
+    [Parameter, EditorRequired] public ClientLiveFeed Feed { get; set; } = default!;
+
+    private const int MaxRows = 10;
+    private ClientLiveFeed? _subscribed;
+    private readonly LiveSlotHold _slots = new();
+
+    /// <summary>
+    /// The most lookups shown since the mode or filters last changed, so the card does not shrink as
+    /// each one ages out; it settles to fewer once they have held for a while (<see cref="LiveSlotHold"/>).
+    /// </summary>
+    private int Slots(int shown) =>
+        _slots.Rows($"{Feed.DnsMode}|{string.Join(",", Feed.Filters)}", shown, DateTime.UtcNow);
+
+    protected override void OnParametersSet()
+    {
+        if (ReferenceEquals(_subscribed, Feed)) return;
+        if (_subscribed != null) _subscribed.Changed -= OnFeedChanged;
+        _subscribed = Feed;
+        Feed.Changed += OnFeedChanged;
+        _slots.Reset();
+    }
+
+    private Task OnFeedChanged() => InvokeAsync(StateHasChanged);
+
+    public void Dispose()
+    {
+        if (_subscribed != null) _subscribed.Changed -= OnFeedChanged;
+    }
+}

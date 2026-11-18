@@ -1,7 +1,6 @@
 using System.Text.RegularExpressions;
 using Microsoft.EntityFrameworkCore;
 using NetworkOptimizer.Core.Enums;
-using NetworkOptimizer.Core.Helpers;
 using NetworkOptimizer.Monitoring.Probes;
 using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.UniFi;
@@ -75,6 +74,17 @@ public class UpstreamTracerService
     // traceroute's first hop is a private/CGNAT address. Collected during
     // DetectPublicIpAsync from the gateway's port_table.
     private readonly HashSet<string> _gatewayIps = new(StringComparer.OrdinalIgnoreCase);
+
+    // Hops a trace crosses before reaching our gateway: a container's bridge (172.17/16 and up on a
+    // Docker install without host networking), a LAN router. Never ISP or transit equipment.
+    private readonly HashSet<string> _localSideIps = new(StringComparer.OrdinalIgnoreCase);
+
+    // RFC1918 hops directly past our gateway on some trace (the only place CPE can sit), each with
+    // the addresses that answered right after it.
+    private Dictionary<string, HashSet<string>> _privateFirstHopNext = new(StringComparer.OrdinalIgnoreCase);
+
+    // Hops the trace-RTT rule judged customer premises; proposed unchecked.
+    private readonly HashSet<string> _customerPremisesByTrace = new(StringComparer.OrdinalIgnoreCase);
 
     // The OS-level interface name backing the WAN port (e.g. "ethN",
     // "ethN.M" for VLAN-tagged, "pppN" for PPPoE), read from the device's
@@ -324,7 +334,8 @@ public class UpstreamTracerService
     /// rate-limited to <see cref="MaxWitnessTracesPerTick"/> per call. Called every re-discovery
     /// tick (hourly), independent of the full re-discovery cadence. Best-effort.
     /// </summary>
-    public async Task BackfillWitnessAncestryAsync(CancellationToken ct = default)
+    /// <param name="routes">Traces each target from the vantage and bind that measure it.</param>
+    public async Task BackfillWitnessAncestryAsync(PathMap.PathRouteRecorder routes, CancellationToken ct = default)
     {
         try
         {
@@ -354,8 +365,7 @@ public class UpstreamTracerService
             {
                 if (ct.IsCancellationRequested || traced >= MaxWitnessTracesPerTick) break;
                 if (freshIds.Contains(t.Id)) continue;
-                await using var wdb = await CreateDbAsync(ct);
-                if (await TargetAncestry.TraceAndPersistAsync(_traceExecutor, wdb, t.Id, t.Address, _logger, ct))
+                if ((await routes.TraceAsync(_siteSlug, t.Id, ct)).Persisted)
                     traced++;
             }
             if (traced > 0)
@@ -1240,6 +1250,18 @@ public class UpstreamTracerService
         // Keep the raw per-trace sequences for same-path hop-order persistence at commit.
         _lastTraces = results.Select(r => r.Result).ToList();
 
+        _customerPremisesByTrace.Clear();
+        _localSideIps.Clear();
+        _localSideIps.UnionWith(HopsBeforeGateway(
+            _lastTraces.Select(t => (IReadOnlyList<(int, string)>)t.Hops
+                .Where(h => h.Responded && !string.IsNullOrEmpty(h.Address))
+                .Select(h => (h.HopNumber, h.Address!))
+                .ToList()),
+            _gatewayIps));
+        if (_localSideIps.Count > 0)
+            _logger.LogInformation("Tracer: dropped {Count} hop(s) on our side of the gateway: {Addresses}",
+                _localSideIps.Count, string.Join(", ", _localSideIps));
+
         // Summarize per CDN for the live progress UI.
         foreach (var (label, result) in results)
         {
@@ -1267,6 +1289,30 @@ public class UpstreamTracerService
         var trustTraceRtts = !SweepUsedManagedTraceroute(results.Select(r => r.Result));
         if (!trustTraceRtts)
             _logger.LogInformation("Tracer: traces ran on the managed traceroute (no traceroute binary on the probe host); trace RTTs ignored for the off-path check");
+        else
+        {
+            var floorMs = IspHealth.IspHealthProfiles.GetProfile(State.AccessTechnology)?.IdleRttNormalLowMs ?? DefaultAccessFloorMs;
+            var customerSide = CustomerPremisesHops(
+                results.Select(r => (IReadOnlyList<(string, double?)>)r.Result.Hops
+                    .Where(h => h.Responded && !string.IsNullOrEmpty(h.Address) && !_localSideIps.Contains(h.Address))
+                    .OrderBy(h => h.HopNumber)
+                    .Select(h => (h.Address!, h.RttMinMs ?? h.RttAvgMs))
+                    .ToList()),
+                _gatewayIps, floorMs);
+            customerSide.ExceptWith(_gatewayIps);
+            _customerPremisesByTrace.UnionWith(customerSide);
+            if (customerSide.Count > 0)
+                _logger.LogInformation("Tracer: {Count} customer-premises hop(s) by trace RTT (first hop past the gateway, under the {Floor} ms access floor capped at 2 ms, next hop 1.5x and 0.5 ms slower), proposed unchecked: {Addresses}",
+                    customerSide.Count, floorMs, string.Join(", ", customerSide));
+        }
+        // The reachability step judges these again by ping floors.
+        _privateFirstHopNext = PrivateFirstHopsPastGateway(
+            results.Select(r => (IReadOnlyList<string>)r.Result.Hops
+                .Where(h => h.Responded && !string.IsNullOrEmpty(h.Address) && !_localSideIps.Contains(h.Address))
+                .OrderBy(h => h.HopNumber)
+                .Select(h => h.Address!)
+                .ToList()),
+            _gatewayIps);
         var byIp = new Dictionary<string, AttributedHop>(StringComparer.OrdinalIgnoreCase);
         foreach (var (_, result) in results)
         {
@@ -1277,7 +1323,7 @@ public class UpstreamTracerService
 
             foreach (var hop in result.Hops)
             {
-                if (!hop.Responded || string.IsNullOrEmpty(hop.Address)) continue;
+                if (!hop.Responded || string.IsNullOrEmpty(hop.Address) || _localSideIps.Contains(hop.Address)) continue;
                 var rtt = hop.RttMinMs ?? hop.RttAvgMs;
                 if (trustTraceRtts
                     && rtt is double seen
@@ -1344,8 +1390,10 @@ public class UpstreamTracerService
         }
         else
         {
-            _accessHopsResolved = candidateHops
-                .TakeWhile(h => h.Asn == null)
+            _accessHopsResolved = LeadingUnattributedAccessHops(
+                candidateHops.Select(h => (h.Address, h.Asn != null)).ToList(),
+                _traceEndpoints.Select(e => e.Address))
+                .Select(a => candidateHops.First(h => h.Address == a))
                 .ToList();
         }
 
@@ -1844,13 +1892,19 @@ public class UpstreamTracerService
         }
         foreach (var hop in State.AccessHops)
         {
-            if (existingByAddress.TryGetValue(hop.Address, out var rows)
-                && rows.FirstOrDefault(t => t.ProbeMode == hop.RespondedTo) is { } existing)
+            var existing = existingByAddress.TryGetValue(hop.Address, out var rows)
+                ? ReviewRowForAccessHop(rows, hop)
+                : null;
+            if (existing != null)
             {
                 hop.Enabled = existing.Enabled;
                 if (!string.IsNullOrEmpty(existing.Name))
                     hop.Label = existing.Name;
             }
+            _logger.LogDebug("Review access hop {Address} (found by {Mode}): {Match}",
+                hop.Address, hop.RespondedTo,
+                existing == null ? "no saved row, proposed checked"
+                    : $"saved row {existing.TargetId} ({existing.ProbeMode}, {(existing.Enabled ? "on" : "off")})");
         }
 
         State.TransitAsns = candidates;
@@ -1974,9 +2028,66 @@ public class UpstreamTracerService
     /// a context run: a hop reachable on the primary WAN but not out this one must read as
     /// unreachable here, which is the whole point of verifying per WAN.
     /// </summary>
-    private Task<PingProbeResult> ProbeReachabilityAsync(string address, ProbeMode mode, CancellationToken ct) =>
+    private Task<PingProbeResult> ProbeReachabilityAsync(string address, ProbeMode mode, CancellationToken ct, int count = ReachabilityPingCount) =>
         _traceExecutor.PingAsync(new ProbeTarget(address, mode, Port: null, SourceInterface: _binding?.Source),
-            count: ReachabilityPingCount, perPingTimeout: TimeSpan.FromSeconds(2), ct: ct);
+            count: count, perPingTimeout: TimeSpan.FromSeconds(2), ct: ct);
+
+    /// <summary>Pings per address when measuring the floors the customer-premises check compares.</summary>
+    private const int FloorPingCount = 10;
+
+    /// <summary>
+    /// Proposes customer-premises hops unchecked, with a note: those the trace-RTT rule flagged, and
+    /// those <see cref="CustomerPremisesByPing"/> flags from floors measured here in one concurrent
+    /// burst. Unchecked rather than removed, so a wrong call costs one click, and a hop worth
+    /// watching anyway (an in-building ISP switch) can still be monitored.
+    /// </summary>
+    private async Task MarkCustomerPremisesAsync(
+        IReadOnlyList<(string Address, PingProbeResult Result)> reachabilityBurst, CancellationToken ct)
+    {
+        var flagged = new HashSet<string>(_customerPremisesByTrace, StringComparer.OrdinalIgnoreCase);
+        if (_privateFirstHopNext.Count > 0)
+        {
+            var addresses = new HashSet<string>(_privateFirstHopNext.Keys, StringComparer.OrdinalIgnoreCase);
+            foreach (var next in _privateFirstHopNext.Values) addresses.UnionWith(next);
+            if (!string.IsNullOrEmpty(State.WanNeighborIp)) addresses.Add(State.WanNeighborIp);
+            var burst = await Task.WhenAll(addresses.Select(async a =>
+                (Address: a, Result: await ProbeReachabilityAsync(a, ProbeMode.Icmp, ct, FloorPingCount))));
+
+            // A floor is the lowest reading of any kind: the floor burst, the reachability burst, a trace reply.
+            var floors = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
+            void Lower(string address, double? rtt)
+            {
+                if (rtt is double v && (!floors.TryGetValue(address, out var f) || v < f)) floors[address] = v;
+            }
+            foreach (var (a, r) in burst) Lower(a, r.Received > 0 ? r.RttMinMs : null);
+            foreach (var (a, r) in reachabilityBurst)
+                if (addresses.Contains(a)) Lower(a, r.Received > 0 ? r.RttMinMs : null);
+            foreach (var a in addresses)
+                if (_minRttByIp.TryGetValue(a, out var traceRtt)) Lower(a, traceRtt);
+
+            var gatewayJitter = burst.FirstOrDefault(b =>
+                string.Equals(b.Address, State.WanNeighborIp, StringComparison.OrdinalIgnoreCase)).Result?.JitterMs;
+            var byPing = CustomerPremisesByPing(_privateFirstHopNext, floors, State.WanNeighborIp);
+            foreach (var a in _privateFirstHopNext.Keys)
+                _logger.LogDebug("Customer-premises check {Address}: floor {Floor}, WAN gateway {Gateway} floor {GatewayFloor} (jitter {Jitter}), next-hop floor {Next} - {Verdict}",
+                    a, FormatRtt(floors.TryGetValue(a, out var f) ? f : null), State.WanNeighborIp,
+                    FormatRtt(State.WanNeighborIp != null && floors.TryGetValue(State.WanNeighborIp, out var g) ? g : null),
+                    FormatRtt(gatewayJitter), FormatRtt(MinFloor(_privateFirstHopNext[a], floors, a)),
+                    byPing.Contains(a) ? "customer premises" : "kept");
+            flagged.UnionWith(byPing);
+        }
+
+        var marked = 0;
+        foreach (var hop in State.AccessHops.Where(h => flagged.Contains(h.Address) && !h.Unreachable))
+        {
+            hop.Enabled = false;
+            hop.CustomerPremises = true;
+            marked++;
+        }
+        if (marked > 0)
+            _logger.LogInformation("Tracer: proposed {Count} customer-premises hop(s) unchecked: {Addresses}",
+                marked, string.Join(", ", State.AccessHops.Where(h => h.CustomerPremises).Select(h => h.Address)));
+    }
 
     private async Task VerifyReachabilityAsync(CancellationToken ct)
     {
@@ -2039,13 +2150,25 @@ public class UpstreamTracerService
             }
         }
 
+        offPath += await VerifyTransitPathsAsync(ct);
+
         State.ReachabilityChecked = allTargets.Count;
         State.ReachabilityFailed = unreachable;
+
+        await MarkCustomerPremisesAsync(results.Select(r => (r.t.Address, r.Result)).ToList(), ct);
 
         // With verified RTTs in hand, refine the provisional per-clump picks: enable
         // the lowest-RTT hop that cleared the gate in each of an ASN's clumps (near
         // ingress + far egress), instead of blindly keeping the lowest hop number.
         ApplyTransitClumpSelection(State.TransitAsns);
+
+        foreach (var outlier in OutlierTransitRouters(State.TransitAsns))
+        {
+            outlier.Enabled = false;
+            outlier.HighRtt = true;
+            _logger.LogDebug("Transit router {Address} at {Rtt:F1} ms is far above the other transit routers; proposed unchecked",
+                outlier.HopAddress, outlier.VerifiedRttMs);
+        }
 
         // Item A: whenever a curated transit ASN (e.g. Level 3 / AS3356) is near-transit, attach its
         // anycast witness (4.2.2.2) as a transit target - alongside any real routers, not only as a
@@ -2064,6 +2187,156 @@ public class UpstreamTracerService
             (0, _) => $"Reachability check complete: {offPath} of {allTargets.Count} target(s) answer by a different route and were excluded.",
             _ => $"Reachability check complete: {unreachable} of {allTargets.Count} target(s) did not respond and {offPath} answer by a different route; all were excluded."
         };
+    }
+
+    /// <summary>
+    /// Traces each transit router that passed the ping check, and marks it off path when the route to
+    /// it crosses a network that no discovery trace crossed before reaching it. An exchange
+    /// peering-LAN address can answer a ping only a few ms slower than its trace reply while sitting
+    /// on another carrier's route entirely, which no RTT margin separates. A trace that never reaches
+    /// the router decides nothing. Returns how many it marked.
+    /// </summary>
+    private async Task<int> VerifyTransitPathsAsync(CancellationToken ct)
+    {
+        var candidates = State.TransitAsns
+            .Where(t => t.Method == DiscoveryMethod.DirectRouter && t.HopAddress != null && !t.Unreachable && !t.OffPath)
+            .ToList();
+        if (candidates.Count == 0) return 0;
+        State.CurrentActivity = $"Tracing {candidates.Count} transit router(s) to confirm each sits on your path...";
+
+        var traced = await Task.WhenAll(candidates.Select(async c =>
+            (Candidate: c, Direct: await TraceToRouterAsync(c.HopAddress!, c.RespondedTo, ct))));
+
+        var asnByIp = BuildAsnByIpMap();
+        var marked = 0;
+        foreach (var (candidate, direct) in traced)
+        {
+            var address = candidate.HopAddress!;
+            var directHops = direct is null ? null : RespondersBefore(direct.Hops, address);
+            var discoveryPrefixes = _lastTraces
+                .Select(t => RespondersBefore(t.Hops, address))
+                .OfType<IReadOnlyList<string>>()
+                .ToList();
+            if (directHops is null || discoveryPrefixes.Count == 0)
+            {
+                _logger.LogDebug("Path check for {Address}: the direct trace did not reach it ({Mode}: {Route}), kept",
+                    address, direct?.ModeUsed.ToString() ?? "failed",
+                    direct is null ? "" : string.Join(" > ", direct.Hops.Where(h => h.Responded).Select(h => h.Address)));
+                continue;
+            }
+
+            foreach (var hop in directHops.Concat(discoveryPrefixes.SelectMany(p => p)))
+                if (!asnByIp.ContainsKey(hop) && await _asnResolution.ResolveAsync(hop, ct) is { } lookup)
+                    asnByIp[hop] = lookup.Asn;
+
+            var foreign = AsnsOffTheTrace(directHops, discoveryPrefixes, asnByIp, candidate.AsnNumber);
+            if (foreign.Count == 0)
+            {
+                _logger.LogDebug("Path check for {Address}: the direct route follows the trace, on path", address);
+                continue;
+            }
+
+            candidate.Enabled = false;
+            candidate.Unreachable = true;
+            candidate.OffPath = true;
+            marked++;
+            _logger.LogDebug("Path check for {Address}: the direct route crosses {Asns}, which the trace it was found on does not ({Route}); marked off path and excluded",
+                address, string.Join(", ", foreign.Select(a => $"AS{a}")), string.Join(" > ", directHops));
+        }
+        return marked;
+    }
+
+    /// <summary>
+    /// A trace that reaches the router, by ICMP first. A router found on a UDP trace answers the TTL
+    /// expiry there, but often not a UDP probe addressed to itself, so a UDP trace to it never ends.
+    /// The mode it was found by is the fallback.
+    /// </summary>
+    private async Task<TracerouteResult?> TraceToRouterAsync(string address, ProbeMode? foundBy, CancellationToken ct)
+    {
+        var icmp = await TraceAddressAsync(address, ProbeMode.Icmp, ct);
+        if (icmp is not null && RespondersBefore(icmp.Hops, address) is not null) return icmp;
+        if (foundBy is not { } mode || mode == ProbeMode.Icmp) return icmp;
+        return await TraceAddressAsync(address, mode, ct) ?? icmp;
+    }
+
+    /// <summary>One traceroute to an address from this run's vantage; null when it fails.</summary>
+    private async Task<TracerouteResult?> TraceAddressAsync(string address, ProbeMode mode, CancellationToken ct)
+    {
+        try
+        {
+            return await _traceExecutor.TracerouteAsync(
+                new ProbeTarget(address, mode, Port: null, SourceInterface: _binding?.Source),
+                maxHops: 30, perHopTimeout: TimeSpan.FromSeconds(1), totalDeadline: TimeSpan.FromSeconds(10), ct: ct);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogDebug(ex, "Path check trace failed for {Address}", address);
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// The responding addresses before <paramref name="address"/> on a trace, in hop order, without
+    /// our own side of the gateway. Null when the trace never reached it.
+    /// </summary>
+    private IReadOnlyList<string>? RespondersBefore(IReadOnlyList<TraceHop> hops, string address)
+    {
+        var at = hops.Where(h => h.Responded && string.Equals(h.Address, address, StringComparison.OrdinalIgnoreCase))
+            .Select(h => (int?)h.HopNumber).Min();
+        if (at is null) return null;
+        return hops
+            .Where(h => h.Responded && h.HopNumber < at && !_localSideIps.Contains(h.Address!) && !_gatewayIps.Contains(h.Address!))
+            .OrderBy(h => h.HopNumber)
+            .Select(h => h.Address!)
+            .ToList();
+    }
+
+    /// <summary>
+    /// The networks a direct route to a transit router crosses that none of the discovery traces
+    /// reaching it crossed first. The router's own network is allowed (a direct trace can show its
+    /// ingress router), and a hop with no resolved ASN (private, CGNAT) is ignored. Any network left
+    /// means the router is reached another way, so it measures a path the traffic does not take.
+    /// </summary>
+    internal static IReadOnlyList<int> AsnsOffTheTrace(
+        IReadOnlyList<string> directHops,
+        IReadOnlyList<IReadOnlyList<string>> discoveryPrefixes,
+        IReadOnlyDictionary<string, int> asnByIp,
+        int candidateAsn)
+    {
+        var seen = new HashSet<string>(discoveryPrefixes.SelectMany(p => p), StringComparer.OrdinalIgnoreCase);
+        var allowed = new HashSet<int>(seen.Where(asnByIp.ContainsKey).Select(a => asnByIp[a])) { candidateAsn };
+        return directHops
+            .Where(a => !seen.Contains(a) && asnByIp.TryGetValue(a, out var asn) && !allowed.Contains(asn))
+            .Select(a => asnByIp[a])
+            .Distinct()
+            .ToList();
+    }
+
+    /// <summary>How many times the transit routers' median RTT a new router must exceed to be an outlier.</summary>
+    internal const double TransitOutlierFactor = 3.0;
+
+    /// <summary>How far (ms) above the transit routers' median RTT a new router must also sit to be an outlier.</summary>
+    internal const double TransitOutlierFloorMs = 100.0;
+
+    /// <summary>
+    /// New, checked transit routers whose verified RTT is far above the rest: over
+    /// <see cref="TransitOutlierFactor"/> times the median of the answering routers and at least
+    /// <see cref="TransitOutlierFloorMs"/> above it. A distant router a trace passed through measures
+    /// that distance, not the transit your traffic uses. Needs three answering routers for a median
+    /// worth judging by; a router already monitored keeps the operator's choice.
+    /// </summary>
+    internal static List<TransitAsnCandidate> OutlierTransitRouters(IReadOnlyList<TransitAsnCandidate> candidates)
+    {
+        var timed = candidates
+            .Where(c => c.Method == DiscoveryMethod.DirectRouter && !c.Unreachable && c.VerifiedRttMs.HasValue)
+            .ToList();
+        if (timed.Count < 3) return [];
+        var median = IspHealth.SeriesStats.Median(timed.Select(c => c.VerifiedRttMs!.Value).ToList())!.Value;
+        return timed
+            .Where(c => c.Enabled && !c.PreservedFromExisting
+                && c.VerifiedRttMs > median * TransitOutlierFactor
+                && c.VerifiedRttMs - median >= TransitOutlierFloorMs)
+            .ToList();
     }
 
     /// <summary>Minimum excess (ms) of a hop's direct-ping RTT over its trace RTT that marks it off path.</summary>
@@ -2744,11 +3017,23 @@ public class UpstreamTracerService
 
         foreach (var hop in State.AccessHops.Where(h => h.Enabled))
         {
-            _logger.LogDebug("Commit access hop: id={TargetId} label='{Label}' addr={Address}", hop.TargetId, hop.Label, hop.Address);
+            _logger.LogDebug("Commit access hop: id={TargetId} label='{Label}' addr={Address} found by {Mode}, checked",
+                hop.TargetId, hop.Label, hop.Address, hop.RespondedTo);
             await UpsertTargetAsync(db, hop, wanInterface, wanContextId, ct, probePlan.PollIntervalSeconds, isUnboundRun);
         }
         foreach (var hop in State.AccessHops.Where(h => !h.Enabled))
-            await PauseUnselectedAccessHopAsync(db, hop, wanInterface, isUnboundRun, automatic, ct);
+            await PauseUnselectedAccessHopAsync(db, hop, wanInterface, isUnboundRun, automatic, ct,
+                wanContextId, probePlan.PollIntervalSeconds);
+        var seenOnTraces = _lastTraces
+            .SelectMany(t => t.Hops)
+            .Where(h => h.Responded && !string.IsNullOrEmpty(h.Address))
+            .Select(h => h.Address!)
+            .ToList();
+        var unproposed = await PauseUnproposedAccessRowsAsync(db, State.AccessHops.Select(h => h.Address).ToList(),
+            seenOnTraces, wanInterface, isUnboundRun, automatic, ct);
+        if (unproposed > 0)
+            _logger.LogInformation("Commit: paused {Count} discovered access target(s) on {Wan} this run saw and filed as something else",
+                unproposed, wanInterface);
         foreach (var transit in State.TransitAsns.Where(t => t.Enabled))
         {
             _logger.LogDebug("Commit transit: id={TargetId} label='{Label}' addr={Address} method={Method}",
@@ -2904,16 +3189,54 @@ public class UpstreamTracerService
 
     /// <summary>Pauses the row this WAN owns for an access hop left unchecked. Does not SaveChanges.</summary>
     internal static async Task PauseUnselectedAccessHopAsync(NetworkOptimizerDbContext db, AccessHopCandidate hop,
-        string wanInterface, bool isUnboundRun, bool automatic, CancellationToken ct)
+        string wanInterface, bool isUnboundRun, bool automatic, CancellationToken ct,
+        int? wanContextId = null, int pollIntervalSeconds = MeteredProbePolicy.DefaultIntervalSeconds)
     {
         // With per-WAN twin rows an address can have several rows; pause only the one this
         // WAN owns (another WAN's row - and its measuring - is that WAN's to manage).
         var existing = (await db.MonitoringTargets.Where(t => t.Address == hop.Address).ToListAsync(ct))
             .FirstOrDefault(t => OwnsTargetRow(t.WanInterface, wanInterface, isUnboundRun));
-        if (existing == null) return;
+        if (existing == null)
+        {
+            // A new hop the operator unchecked is saved paused, as path-end hosts are, so the next
+            // run proposes it unchecked instead of checked again. One that did not answer is not:
+            // those come and go, and a row for each would pile up.
+            if (automatic || hop.Unreachable) return;
+            await UpsertTargetAsync(db, hop, wanInterface, wanContextId, ct, pollIntervalSeconds, isUnboundRun);
+            var added = db.MonitoringTargets.Local.FirstOrDefault(t => t.Address == hop.Address
+                && db.Entry(t).State == EntityState.Added);
+            if (added != null) added.Enabled = false;
+            return;
+        }
         if (PausesExistingRow(hop.Unreachable, offPath: false, automatic)) existing.Enabled = false;
         existing.Name = hop.Label;
         if (!string.IsNullOrEmpty(hop.AsnName)) existing.AsnName = CleanAsnName(hop.AsnName);
+    }
+
+    /// <summary>
+    /// Pauses this WAN's auto-discovered access rows that an operator's run saw on its traces and
+    /// filed as something else, so a re-run and commit corrects targets an earlier run got wrong (a
+    /// container bridge, or a whole path committed as access hops when ASN lookups failed). A row the
+    /// run never saw is left alone: one run missing a hop is route variance, not evidence, and
+    /// retiring a hop that is really gone takes sustained absence, as transit removals do. Only on an
+    /// operator's commit that found access hops. Hand-added rows are never touched. Paused, never
+    /// deleted. Does not SaveChanges.
+    /// </summary>
+    internal static async Task<int> PauseUnproposedAccessRowsAsync(NetworkOptimizerDbContext db,
+        IReadOnlyCollection<string> proposedAddresses, IReadOnlyCollection<string> seenAddresses,
+        string wanInterface, bool isUnboundRun, bool automatic, CancellationToken ct)
+    {
+        if (automatic || proposedAddresses.Count == 0) return 0;
+        var proposed = new HashSet<string>(proposedAddresses, StringComparer.OrdinalIgnoreCase);
+        var seen = new HashSet<string>(seenAddresses, StringComparer.OrdinalIgnoreCase);
+        var stale = (await db.MonitoringTargets
+                .Where(t => t.TargetType == MonitoringTargetType.AccessIsp && t.Enabled && t.AutoDiscovered)
+                .ToListAsync(ct))
+            .Where(t => !proposed.Contains(t.Address) && seen.Contains(t.Address)
+                        && OwnsTargetRow(t.WanInterface, wanInterface, isUnboundRun))
+            .ToList();
+        foreach (var t in stale) t.Enabled = false;
+        return stale.Count;
     }
 
     /// <summary>Pauses the row this WAN owns for a transit router left unchecked. Does not SaveChanges.</summary>
@@ -3178,6 +3501,26 @@ public class UpstreamTracerService
     /// <param name="ct">Cancellation.</param>
     /// <param name="pollIntervalSeconds">Cadence new rows are created at.</param>
     /// <param name="isUnboundRun">Whether this is the unbound (primary) run - see OwnsTargetRow.</param>
+    /// <summary>
+    /// How an access hop is pinged. A UDP traceroute surfaces a hop, but ping has no UDP mode (every
+    /// prober falls back to an ICMP echo), so a hop found by UDP is an ICMP Target.
+    /// </summary>
+    internal static ProbeMode AccessPingMode(ProbeMode respondedTo) =>
+        respondedTo == ProbeMode.Udp ? ProbeMode.Icmp : respondedTo;
+
+    /// <summary>Whether two probe modes ping a host the same way (ICMP and UDP do).</summary>
+    internal static bool SameAccessProbe(ProbeMode a, ProbeMode b) => AccessPingMode(a) == AccessPingMode(b);
+
+    /// <summary>
+    /// The saved row the review shows a proposed access hop as, so its checkbox carries that row's
+    /// state: the one the commit (<see cref="UpsertTargetAsync"/>) writes to, by target id first,
+    /// then by address and probe. Matching by exact probe mode alone showed a hop found by ICMP as
+    /// new and checked, and the commit then turned the operator's paused UDP row back on.
+    /// </summary>
+    internal static MonitoringTarget? ReviewRowForAccessHop(IReadOnlyList<MonitoringTarget> rowsForAddress, AccessHopCandidate hop) =>
+        rowsForAddress.FirstOrDefault(t => string.Equals(t.TargetId, hop.TargetId, StringComparison.OrdinalIgnoreCase))
+        ?? rowsForAddress.FirstOrDefault(t => SameAccessProbe(t.ProbeMode, hop.RespondedTo));
+
     internal static async Task UpsertTargetAsync(NetworkOptimizerDbContext db, AccessHopCandidate hop, string wanInterface, int? wanContextId, CancellationToken ct, int pollIntervalSeconds = MeteredProbePolicy.DefaultIntervalSeconds, bool isUnboundRun = true)
     {
         // UniFi's WAN SLA probe targets (1.1.1.1 / 8.8.8.8) are public DNS resolvers, not
@@ -3202,10 +3545,10 @@ public class UpstreamTracerService
             .ToListAsync(ct);
         var existing = rows.FirstOrDefault(t => t.TargetId == hop.TargetId && OwnsTargetRow(t.WanInterface, wanInterface, isUnboundRun))
             ?? rows.FirstOrDefault(t => t.TargetId == twinId)
-            // Matched on address alone, so the probe has to agree too: a row checking this host a
-            // different way measures a different thing, and merging the two rewrites one probe's
-            // history as the other's.
-            ?? rows.FirstOrDefault(t => t.ProbeMode == hop.RespondedTo
+            // Matched on address alone, so the probe has to agree too: a TCP row checks this host a
+            // different way, and merging the two rewrites one probe's history as the other's. ICMP
+            // and UDP are one probe (see AccessPingMode).
+            ?? rows.FirstOrDefault(t => SameAccessProbe(t.ProbeMode, hop.RespondedTo)
                 && OwnsTargetRow(t.WanInterface, wanInterface, isUnboundRun));
         var claimedByOtherWan = existing == null && rows.Count > 0;
         if (existing == null)
@@ -3215,7 +3558,7 @@ public class UpstreamTracerService
                 TargetId = claimedByOtherWan ? twinId : hop.TargetId,
                 Name = hop.Label,
                 Address = hop.Address,
-                ProbeMode = hop.RespondedTo,
+                ProbeMode = AccessPingMode(hop.RespondedTo),
                 DiscoveredProbeMode = hop.RespondedTo,
                 TargetType = MonitoringTargetType.AccessIsp,
                 AsnNumber = hop.AsnNumber,
@@ -3241,8 +3584,13 @@ public class UpstreamTracerService
             // current run resolves them - rows committed before the GeoLite2 fix
             // landed have nulls and never refreshed without this.
             existing.Enabled = true;
+            // Retyped in place, never re-created: the target_id, and the history filed under it, stay.
+            // A hand-added row keeps the type its owner gave it.
+            if (existing.AutoDiscovered) existing.TargetType = MonitoringTargetType.AccessIsp;
             existing.Address = hop.Address;
-            existing.ProbeMode = hop.RespondedTo;
+            // Never the trace mode that found the hop this run: that flipped rows between ICMP and
+            // UDP and broke the review's match. A TCP row was set that way on purpose and keeps it.
+            if (existing.ProbeMode != ProbeMode.Tcp) existing.ProbeMode = AccessPingMode(hop.RespondedTo);
             existing.WanInterface = wanInterface;
             // Written, never cleared: a target the user assigned to a context by hand keeps
             // that assignment when the primary run re-verifies it.
@@ -3319,6 +3667,9 @@ public class UpstreamTracerService
         else
         {
             existing.Enabled = enabled;
+            // Retyped in place, as UpsertTargetAsync does: an earlier run's access row for this host
+            // becomes the transit or path-end target it is, with its history.
+            if (existing.AutoDiscovered) existing.TargetType = targetType;
             existing.Name = transit.Label ?? transit.AsnName;
             existing.Address = transit.HopAddress ?? transit.PathProxyTarget ?? existing.Address;
             existing.ProbeMode = transit.RespondedTo ?? existing.ProbeMode;
@@ -3378,11 +3729,195 @@ public class UpstreamTracerService
     private List<IReadOnlyList<string>> BuildTraceSequences() =>
         _lastTraces
             .Select(t => (IReadOnlyList<string>)t.Hops
-                .Where(hp => hp.Responded && !string.IsNullOrEmpty(hp.Address))
+                .Where(hp => hp.Responded && !string.IsNullOrEmpty(hp.Address) && !_localSideIps.Contains(hp.Address))
                 .OrderBy(hp => hp.HopNumber)
                 .Select(hp => hp.Address!)
                 .ToList())
             .ToList();
+
+    /// <summary>First-hop floor (ms) when the access technology is unknown.</summary>
+    internal const double DefaultAccessFloorMs = 1.0;
+
+    /// <summary>The next hop must answer this many times slower than a candidate CPE hop.</summary>
+    internal const double CustomerPremisesNextHopFactor = 1.5;
+
+    /// <summary>The next hop must also answer at least this much slower, so sub-ms noise on an
+    /// in-building ISP edge (0.4 to 0.6 ms) never passes the ratio alone.</summary>
+    internal const double CustomerPremisesMinGapMs = 0.5;
+
+    /// <summary>A CPE hop is on the LAN side, so it answers under this whatever the medium's floor.
+    /// Without the cap a private CMTS or DSL first hop (floor 9-10 ms) could be judged CPE.</summary>
+    internal const double CustomerPremisesMaxRttMs = 2.0;
+
+    /// <summary>
+    /// RFC1918 hops that are customer premises equipment: a passthrough gateway or
+    /// router between our gateway and the access link. Only the first hop past our gateway is
+    /// judged, since CPE always sits there; private ISP gear further out is never touched. It is CPE
+    /// when it answers below the access medium's first-hop floor (capped at
+    /// <see cref="CustomerPremisesMaxRttMs"/>) and the next hop on the same trace
+    /// answers at least <see cref="CustomerPremisesNextHopFactor"/> times and
+    /// <see cref="CustomerPremisesMinGapMs"/> slower, across the access link. IPv6, CGNAT, and public
+    /// hops are never judged. Relative, not absolute: a GPON link can add as little as 0.6 ms. Judged on the trace
+    /// where the hop answered fastest, so a busy sweep's load cancels out. A hop with no timed next
+    /// hop is never judged. The WAN neighbor table cannot decide this: an ISP's router answers ARP
+    /// for its other addresses and for other subscribers, so a shared MAC proves nothing.
+    /// </summary>
+    /// <param name="traces">Each trace's responding hops in hop order, with their RTT, our side of the gateway removed.</param>
+    /// <param name="gatewayIps">Our gateway's addresses; the hop after its last appearance is judged.</param>
+    /// <param name="floorMs">The access medium's first-hop floor (IdleRttNormalLowMs).</param>
+    internal static HashSet<string> CustomerPremisesHops(
+        IEnumerable<IReadOnlyList<(string Address, double? RttMs)>> traces,
+        IReadOnlyCollection<string> gatewayIps, double floorMs)
+    {
+        var best = new Dictionary<string, (double Hop, double Next)>(StringComparer.OrdinalIgnoreCase);
+        foreach (var trace in traces)
+        {
+            var lastGateway = -1;
+            for (var j = 0; j < trace.Count; j++)
+                if (gatewayIps.Contains(trace[j].Address)) lastGateway = j;
+            var i = lastGateway + 1;
+            if (i >= trace.Count || trace[i].RttMs is not double hop) continue;
+            if (NetworkUtilities.ClassifyPublicAddress(trace[i].Address) != PublicAddressClass.DoubleNat) continue;
+            var next = trace.Skip(i + 1).Select(h => h.RttMs).FirstOrDefault(r => r.HasValue);
+            if (next is not double nextRtt) continue;
+            if (!best.TryGetValue(trace[i].Address, out var seen) || hop < seen.Hop)
+                best[trace[i].Address] = (hop, nextRtt);
+        }
+        var ceilingMs = Math.Min(floorMs, CustomerPremisesMaxRttMs);
+        return best
+            .Where(kv => kv.Value.Hop < ceilingMs
+                         && kv.Value.Next >= kv.Value.Hop * CustomerPremisesNextHopFactor
+                         && kv.Value.Next - kv.Value.Hop >= CustomerPremisesMinGapMs)
+            .Select(kv => kv.Key)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+    }
+
+    /// <summary>The WAN default gateway's floor must sit at least this much (ms) above a CPE hop's.</summary>
+    internal const double CustomerPremisesMinLeadMs = 0.3;
+
+    /// <summary>
+    /// RFC1918 addresses that answered directly past our gateway on some trace, the only position
+    /// CPE can hold, each with the addresses that answered right after it. Decided by position, so it
+    /// holds where trace RTTs do not: a carrier gateway answers traces from its slow path and
+    /// rate-limits them under a sweep.
+    /// </summary>
+    /// <param name="traces">Each trace's responding hops in hop order, our side of the gateway removed.</param>
+    /// <param name="gatewayIps">Our gateway's addresses; the hop after its last appearance is taken.</param>
+    internal static Dictionary<string, HashSet<string>> PrivateFirstHopsPastGateway(
+        IEnumerable<IReadOnlyList<string>> traces, IReadOnlyCollection<string> gatewayIps)
+    {
+        var result = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
+        foreach (var trace in traces)
+        {
+            var lastGateway = -1;
+            for (var j = 0; j < trace.Count; j++)
+                if (gatewayIps.Contains(trace[j])) lastGateway = j;
+            var i = lastGateway + 1;
+            if (i >= trace.Count || gatewayIps.Contains(trace[i])
+                || NetworkUtilities.ClassifyPublicAddress(trace[i]) != PublicAddressClass.DoubleNat)
+                continue;
+            if (!result.TryGetValue(trace[i], out var next))
+                result[trace[i]] = next = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            if (i + 1 < trace.Count) next.Add(trace[i + 1]);
+        }
+        return result;
+    }
+
+    /// <summary>
+    /// Which private first hops are CPE, by floor (each address's lowest reading). Two cases:
+    /// <list type="bullet">
+    /// <item>The hop is not the WAN default gateway (IP passthrough): it is CPE when the gateway's
+    /// floor is <see cref="CustomerPremisesNextHopFactor"/> times and
+    /// <see cref="CustomerPremisesMinLeadMs"/> above its own. The gateway is past the access link; a
+    /// secondary address on the ISP's own router answers at its floor and is kept. Never gated on
+    /// jitter: a floor already strips it, and a 0.3 ms-jitter gateway hid a 0.6 vs 1.0 ms CPE.</item>
+    /// <item>The hop is the WAN default gateway (an ISP gateway in router mode), or the gateway has no
+    /// floor: it is CPE when the next hop's floor is <see cref="CustomerPremisesNextHopFactor"/> times
+    /// and <see cref="CustomerPremisesMinGapMs"/> above its own. An ISP router handing out a private
+    /// WAN address is across the access link already, so its next hop is close behind.</item>
+    /// </list>
+    /// </summary>
+    internal static HashSet<string> CustomerPremisesByPing(
+        IReadOnlyDictionary<string, HashSet<string>> privateFirstHopNext,
+        IReadOnlyDictionary<string, double> floors,
+        string? wanGateway)
+    {
+        var result = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (hop, next) in privateFirstHopNext)
+        {
+            if (!floors.TryGetValue(hop, out var hopFloor)) continue;
+            if (!string.IsNullOrEmpty(wanGateway)
+                && !string.Equals(hop, wanGateway, StringComparison.OrdinalIgnoreCase)
+                && floors.TryGetValue(wanGateway, out var gatewayFloor))
+            {
+                if (gatewayFloor >= hopFloor * CustomerPremisesNextHopFactor
+                    && gatewayFloor - hopFloor >= CustomerPremisesMinLeadMs)
+                    result.Add(hop);
+                continue;
+            }
+            if (MinFloor(next, floors, hop) is double nextFloor
+                && nextFloor >= hopFloor * CustomerPremisesNextHopFactor
+                && nextFloor - hopFloor >= CustomerPremisesMinGapMs)
+                result.Add(hop);
+        }
+        return result;
+    }
+
+    /// <summary>The lowest floor among <paramref name="addresses"/>, other than <paramref name="except"/>.</summary>
+    internal static double? MinFloor(IEnumerable<string> addresses, IReadOnlyDictionary<string, double> floors, string except)
+    {
+        double? min = null;
+        foreach (var a in addresses)
+            if (!string.Equals(a, except, StringComparison.OrdinalIgnoreCase)
+                && floors.TryGetValue(a, out var f) && (min == null || f < min))
+                min = f;
+        return min;
+    }
+
+    /// <summary>
+    /// The access hops when no access ASN could be determined: the leading run of unattributed hops,
+    /// in hop order, that sit in private or CGNAT space. A public address with no ASN means the lookup
+    /// failed, not that the ISP left it unannounced, so the run stops there. Without that stop, a
+    /// sweep whose ASN lookups all failed made every hop on the path an access hop, destinations
+    /// included. A trace endpoint is never an access hop.
+    /// </summary>
+    internal static List<string> LeadingUnattributedAccessHops(
+        IReadOnlyList<(string Address, bool Attributed)> hopsInOrder,
+        IEnumerable<string> traceEndpoints)
+    {
+        var endpoints = new HashSet<string>(traceEndpoints, StringComparer.OrdinalIgnoreCase);
+        var result = new List<string>();
+        foreach (var (address, attributed) in hopsInOrder)
+        {
+            if (attributed || endpoints.Contains(address)
+                || NetworkUtilities.ClassifyPublicAddress(address) == PublicAddressClass.PublicIPv4)
+                break;
+            result.Add(address);
+        }
+        return result;
+    }
+
+    /// <summary>
+    /// Every hop a trace crossed before our gateway answered on it. A probe that starts inside a
+    /// bridge-networked container or behind another LAN router passes those first; they are on our
+    /// side, never the ISP's first mile. Decided by position, not RTT, so it holds when trace RTTs
+    /// are untrusted. A trace on which the gateway never answered contributes nothing.
+    /// </summary>
+    internal static HashSet<string> HopsBeforeGateway(
+        IEnumerable<IReadOnlyList<(int HopNumber, string Address)>> traces,
+        IReadOnlyCollection<string> gatewayIps)
+    {
+        var local = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var trace in traces)
+        {
+            var gatewayHop = trace.Where(h => gatewayIps.Contains(h.Address)).Select(h => h.HopNumber).DefaultIfEmpty(0).Min();
+            if (gatewayHop <= 1) continue;
+            foreach (var hop in trace)
+                if (hop.HopNumber < gatewayHop && !gatewayIps.Contains(hop.Address))
+                    local.Add(hop.Address);
+        }
+        return local;
+    }
 
     /// <summary>
     /// Resolves the ASN + org name of every non-transit-probe endpoint in the rotation

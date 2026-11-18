@@ -157,6 +157,32 @@ public static class DohProviderRegistry
     }
 
     /// <summary>
+    /// Identify a provider from the name of a resolver host (a DNS answer or PTR for a flow's address),
+    /// for a resolver outside the static IP lists (NextDNS's unicast PoPs sit in hosting ASNs).
+    /// Stricter than <see cref="IdentifyProvider"/>: the name must be a listed hostname, or a subdomain
+    /// of one whose first label starts with "dns" (dns.nextdns.io), so a provider's web dashboard does not match.
+    /// </summary>
+    public static DohProviderInfo? IdentifyProviderFromResolverHost(string? hostname)
+    {
+        if (string.IsNullOrEmpty(hostname))
+            return null;
+
+        var host = hostname.TrimEnd('.').ToLowerInvariant();
+        var dnsLabel = host.StartsWith("dns", StringComparison.Ordinal);
+        foreach (var provider in Providers.Values)
+        {
+            foreach (var h in provider.Hostnames)
+            {
+                var listed = h.ToLowerInvariant();
+                if (host == listed || (dnsLabel && host.EndsWith("." + listed, StringComparison.Ordinal)))
+                    return provider;
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
     /// Identify a provider from a server name (e.g., "NextDNS-fcdba9")
     /// </summary>
     public static DohProviderInfo? IdentifyProviderFromName(string serverName)

@@ -103,39 +103,39 @@
                         <tbody>
                             <tr>
                                 <td>See dashboards, monitoring, and past results</td>
-                                <td class="identity-role-mark">@Yes</td>
-                                <td class="identity-role-mark">@Yes</td>
-                                <td class="identity-role-mark">@Yes</td>
+                                <td class="identity-role-mark"><AppIcon Name="check" /></td>
+                                <td class="identity-role-mark"><AppIcon Name="check" /></td>
+                                <td class="identity-role-mark"><AppIcon Name="check" /></td>
                             </tr>
                             <tr>
                                 <td>Run a security audit</td>
-                                <td class="identity-role-mark">@Yes</td>
-                                <td class="identity-role-mark">@Yes</td>
-                                <td class="identity-role-mark">@Yes</td>
+                                <td class="identity-role-mark"><AppIcon Name="check" /></td>
+                                <td class="identity-role-mark"><AppIcon Name="check" /></td>
+                                <td class="identity-role-mark"><AppIcon Name="check" /></td>
                             </tr>
                             <tr>
                                 <td>Run a speed test</td>
                                 <td class="identity-role-mark">@No</td>
-                                <td class="identity-role-mark">@Yes</td>
-                                <td class="identity-role-mark">@Yes</td>
+                                <td class="identity-role-mark"><AppIcon Name="check" /></td>
+                                <td class="identity-role-mark"><AppIcon Name="check" /></td>
                             </tr>
                             <tr>
                                 <td>Run a Wi-Fi channel scan</td>
                                 <td class="identity-role-mark">@No</td>
-                                <td class="identity-role-mark">@Yes</td>
-                                <td class="identity-role-mark">@Yes</td>
+                                <td class="identity-role-mark"><AppIcon Name="check" /></td>
+                                <td class="identity-role-mark"><AppIcon Name="check" /></td>
                             </tr>
                             <tr>
                                 <td>Acknowledge or resolve an alert</td>
                                 <td class="identity-role-mark">@No</td>
-                                <td class="identity-role-mark">@Yes</td>
-                                <td class="identity-role-mark">@Yes</td>
+                                <td class="identity-role-mark"><AppIcon Name="check" /></td>
+                                <td class="identity-role-mark"><AppIcon Name="check" /></td>
                             </tr>
                             <tr>
                                 <td>Add a monitoring target or tune an alert threshold</td>
                                 <td class="identity-role-mark">@No</td>
-                                <td class="identity-role-mark">@Yes</td>
-                                <td class="identity-role-mark">@Yes</td>
+                                <td class="identity-role-mark"><AppIcon Name="check" /></td>
+                                <td class="identity-role-mark"><AppIcon Name="check" /></td>
                             </tr>
                             @* Stated as its own row because the asymmetry with the row above is the
                                surprising part, and a rule nobody can find reads as a bug. *@
@@ -143,55 +143,55 @@
                                 <td>Remove a monitoring target</td>
                                 <td class="identity-role-mark">@No</td>
                                 <td class="identity-role-mark">@No</td>
-                                <td class="identity-role-mark">@Yes</td>
+                                <td class="identity-role-mark"><AppIcon Name="check" /></td>
                             </tr>
                             <tr>
                                 <td>Place an access point or edit a floor plan</td>
                                 <td class="identity-role-mark">@No</td>
-                                <td class="identity-role-mark">@Yes</td>
-                                <td class="identity-role-mark">@Yes</td>
+                                <td class="identity-role-mark"><AppIcon Name="check" /></td>
+                                <td class="identity-role-mark"><AppIcon Name="check" /></td>
                             </tr>
                             <tr>
                                 <td>Arrange the dashboard, or filter threat noise</td>
                                 <td class="identity-role-mark">@No</td>
                                 <td class="identity-role-mark">@No</td>
-                                <td class="identity-role-mark">@Yes</td>
+                                <td class="identity-role-mark"><AppIcon Name="check" /></td>
                             </tr>
                             <tr>
                                 <td>Change an alert rule or a schedule</td>
                                 <td class="identity-role-mark">@No</td>
                                 <td class="identity-role-mark">@No</td>
-                                <td class="identity-role-mark">@Yes</td>
+                                <td class="identity-role-mark"><AppIcon Name="check" /></td>
                             </tr>
                             <tr>
                                 <td>Steer traffic to a different WAN</td>
                                 <td class="identity-role-mark">@No</td>
                                 <td class="identity-role-mark">@No</td>
-                                <td class="identity-role-mark">@Yes</td>
+                                <td class="identity-role-mark"><AppIcon Name="check" /></td>
                             </tr>
                             <tr>
                                 <td>Acknowledge a Security Audit issue</td>
                                 <td class="identity-role-mark">@No</td>
                                 <td class="identity-role-mark">@No</td>
-                                <td class="identity-role-mark">@Yes</td>
+                                <td class="identity-role-mark"><AppIcon Name="check" /></td>
                             </tr>
                             <tr>
                                 <td>Deploy Adaptive SQM to the gateway</td>
                                 <td class="identity-role-mark">@No</td>
-                                <td class="identity-role-mark">@Yes</td>
-                                <td class="identity-role-mark">@Yes</td>
+                                <td class="identity-role-mark"><AppIcon Name="check" /></td>
+                                <td class="identity-role-mark"><AppIcon Name="check" /></td>
                             </tr>
                             <tr>
                                 <td>Enroll or remove an agent</td>
                                 <td class="identity-role-mark">@No</td>
                                 <td class="identity-role-mark">@No</td>
-                                <td class="identity-role-mark">@Yes</td>
+                                <td class="identity-role-mark"><AppIcon Name="check" /></td>
                             </tr>
                             <tr>
                                 <td>Add an account or change a role</td>
                                 <td class="identity-role-mark">@No</td>
                                 <td class="identity-role-mark">@No</td>
-                                <td class="identity-role-mark">@Yes</td>
+                                <td class="identity-role-mark"><AppIcon Name="check" /></td>
                             </tr>
                         </tbody>
                     </table>
@@ -212,7 +212,6 @@
     /// <summary>Set when the card is shown inside a single site's Identity view.</summary>
     [Parameter] public string? SiteSlug { get; set; }
 
-    private const string Yes = "✓";
     private const string No = "-";
 
     private bool _collapsed = true;

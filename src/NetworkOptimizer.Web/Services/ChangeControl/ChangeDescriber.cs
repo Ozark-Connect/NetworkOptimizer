@@ -29,6 +29,7 @@ public static partial class ChangeDescriber
     private static readonly Dictionary<string, string> Labels = new(StringComparer.Ordinal)
     {
         ["enabled"] = EnabledLabel, ["name"] = "Name", ["action"] = "Action", ["description"] = "Description",
+        ["ai_icon"] = "Custom Icon",
         ["security"] = SecurityLabel, ["wpa_mode"] = SecurityLabel, ["wpa3_support"] = SecurityLabel, ["wpa3_transition"] = SecurityLabel,
         ["wpa_enc"] = SecurityLabel, ["pmf_mode"] = "PMF", ["x_passphrase"] = "Passphrase", ["x_iapp_key"] = "Fast Roaming Key",
         ["native_networkconf_id"] = "Native VLAN / Network", ["tagged_networkconf_ids"] = "Tagged Networks",
@@ -256,6 +257,22 @@ public static partial class ChangeDescriber
         return security is "wpaeap" ? label + " Enterprise" : label;
     }
 
+    /// <summary>
+    /// <see cref="Value"/> for both sides of a changed field. Two custom icons that depict the same thing
+    /// (a regenerated "Wall Server") read the same, so each then also gets the start of its icon ID.
+    /// </summary>
+    public static (string Old, string New) Values(JsonNode? oldNode, JsonNode? newNode,
+        ConfigIdentityContext? oldNames = null, ConfigIdentityContext? newNames = null)
+    {
+        var (o, n) = (Value(oldNode, oldNames), Value(newNode, newNames));
+        if (o == n && IconId(oldNode) is { } oldId && IconId(newNode) is { } newId && oldId != newId)
+            return ($"{o} (icon {oldId[..Math.Min(8, oldId.Length)]})", $"{n} (icon {newId[..Math.Min(8, newId.Length)]})");
+        return (o, n);
+    }
+
+    private static string? IconId(JsonNode? node) =>
+        node is JsonObject icon && icon["icon_id"]?.ToString() is { Length: > 0 } id ? id : null;
+
     /// <summary>Display text of a value, rendering references as the referenced object's name.</summary>
     public static string Value(JsonNode? node, ConfigIdentityContext? names = null)
     {
@@ -272,6 +289,11 @@ public static partial class ChangeDescriber
             case JsonArray arr when arr.All(e => e is JsonValue):
                 return string.Join(", ", arr.Select(e => Value(e, names)));
             case JsonArray arr: return TimeFormatHelper.Pluralize(arr.Count, "item");
+            // A client's custom icon, by what it depicts, else by the start of its ID.
+            case JsonObject icon when icon["icon_id"]?.ToString() is { Length: > 0 } iconId:
+                return icon["model"]?.ToString() is { Length: > 0 } model ? model
+                    : icon["manufacturer"]?.ToString() is { Length: > 0 } maker ? maker
+                    : $"icon {iconId[..Math.Min(8, iconId.Length)]}";
             default:
                 var json = node.ToJsonString();
                 return json.Length > 80 ? json[..77] + "..." : json;
@@ -305,7 +327,8 @@ public static partial class ChangeDescriber
                 rows.Add(new FieldRow(SecurityProtocol, WlanSecurity(diff.Before), WlanSecurity(diff.After), false));
                 continue;
             }
-            rows.Add(new FieldRow(label, Value(f.Old, beforeNames), Value(f.New, afterNames), false));
+            var (oldText, newText) = Values(f.Old, f.New, beforeNames, afterNames);
+            rows.Add(new FieldRow(label, oldText, newText, false));
         }
         return rows;
     }

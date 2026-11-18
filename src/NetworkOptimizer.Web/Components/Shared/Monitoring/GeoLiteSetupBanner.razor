@@ -1,0 +1,37 @@
+@using NetworkOptimizer.Web.Services
+@inject NetworkOptimizer.Threats.Enrichment.GeoEnrichmentService Geo
+@inject NavigationManager Nav
+
+@* Shown beside the Route Map and the Path Map while no GeoLite2 City database is loaded. The
+   MaxMind settings are instance-wide and live on the main site, so the link always goes there. *@
+@if (!Geo.IsCityAvailable)
+{
+    <div class="connection-banner pwa-banner geolite-setup-banner">
+        <div class="banner-content">
+            <span class="banner-icon" style="background: var(--info-color); color: white;">
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><path d="M2 12h20"></path><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg>
+            </span>
+            <div class="banner-text">
+                <strong>Set up MaxMind GeoLite2 to place more of each route</strong>
+                <span>
+                    Without it, a hop is placed only by a city in its hostname, a nearby placed hop, or a location you set.
+                    GeoLite2 is a free MaxMind database that places the rest by address.
+                    <AdminOnly>
+                        <NotAuthorized>An Admin can set it up in Settings - Security &amp; Alerts on the main site.</NotAuthorized>
+                    </AdminOnly>
+                </span>
+            </div>
+            <AdminOnly>
+                <div class="banner-actions">
+                    <button type="button" class="btn-pwa-action" @onclick="OpenSettings">Set Up GeoLite2</button>
+                </div>
+            </AdminOnly>
+        </div>
+    </div>
+}
+
+@code {
+    // A full load, so the ?site= pin takes effect and a secondary site's tab lands on the main site.
+    private void OpenSettings() =>
+        Nav.NavigateTo(SiteContextService.WithSiteParam("/settings#maxmind", SiteManagementService.DefaultSiteSlug), forceLoad: true);
+}

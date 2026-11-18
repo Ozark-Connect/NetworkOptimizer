@@ -16,6 +16,8 @@ public class WellKnownPortsTests
     [InlineData(11211, "Memcached")]
     [InlineData(27017, "MongoDB")]
     [InlineData(1900, "SSDP")]
+    [InlineData(3478, "STUN")]
+    [InlineData(5349, "STUN over TLS")]
     public void NamesAPort(int port, string name) => NetworkUtilities.GetPortServiceName(port).Should().Be(name);
 
     [Fact]

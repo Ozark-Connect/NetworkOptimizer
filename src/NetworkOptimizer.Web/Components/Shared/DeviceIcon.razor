@@ -1,4 +1,7 @@
-@* Device icon component - displays UniFi device product images *@
+@* Device icon component - displays UniFi device product images: the bundled image, else the icon
+   UniFi Network shows for the model. *@
+@inject NetworkOptimizer.Web.Services.ClientIcons.ClientIconRegistry ClientIcons
+@inject SiteContextService SiteContext
 
 @if (!string.IsNullOrEmpty(IconPath))
 {
@@ -37,7 +40,7 @@ else if (!string.IsNullOrEmpty(FallbackEmoji))
         _ => "device-icon-md"
     };
 
-    private string? IconPath => GetIconPath(Model);
+    private string? IconPath => ClientIcons.DeviceImageUrl(Model, SiteContext.Slug) ?? GetIconPath(Model);
 
     /// <summary>
     /// Get the icon path for a device model name.

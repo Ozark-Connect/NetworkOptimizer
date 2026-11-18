@@ -284,7 +284,7 @@ public partial class AuditService : IAuditScanService
     /// The stable part of a portless finding's identity, when its message carries live counts.
     /// Null means the message itself identifies the finding.
     /// </summary>
-    private static string? GetDismissalScope(AuditModels.AuditIssue issue) => issue.Type switch
+    internal static string? GetDismissalScope(AuditModels.AuditIssue issue) => issue.Type switch
     {
         // One per gateway (or per management network); the counts and lists change between audits
         Audit.IssueTypes.UpnpPortsExposed or Audit.IssueTypes.UpnpPrivilegedPort or
@@ -294,8 +294,15 @@ public partial class AuditService : IAuditScanService
         Audit.IssueTypes.UnusedApiKeys or Audit.IssueTypes.UnusedLocalAdmins => "",
         // One per gateway; the interfaces, policies, and sets named change between audits
         _ when IsGatewayFirewallIssue(issue.Type) => "",
+        // Rule Order Issue text names the slice taken, which can change; the analyzer supplies the stable text
+        Audit.IssueTypes.AllowSubvertsDeny when issue.Metadata?.TryGetValue("dismissal_scope", out var scope) == true => scope?.ToString(),
+        // One per forwarded port; the threat count changes every audit. A change of source restriction re-raises it.
+        Audit.IssueTypes.ThreatExposedPortForward => $"{GetMetadata(issue, "port")}|{GetMetadata(issue, "source_restriction")}",
         _ => null
     };
+
+    private static string GetMetadata(AuditModels.AuditIssue issue, string key) =>
+        issue.Metadata?.TryGetValue(key, out var value) == true ? value?.ToString() ?? "" : "";
 
     private static bool IsGatewayFirewallIssue(string type) => type is
         Audit.IssueTypes.GatewayWanNotExternal or Audit.IssueTypes.GatewayNetworkZoneMismatch or
@@ -1837,7 +1844,7 @@ public partial class AuditService : IAuditScanService
             .Where(n => n.Enabled && string.Equals(n.Purpose, "wan", StringComparison.OrdinalIgnoreCase) && !string.IsNullOrEmpty(n.WanNetworkgroup))
             .Select(n => (Network: n, Wan: interfaces.FirstOrDefault(i => string.Equals(i.NetworkGroup, n.WanNetworkgroup, StringComparison.OrdinalIgnoreCase))))
             .Where(p => (p.Wan?.UplinkIfName ?? p.Wan?.PhysicalIfName) is { Length: > 0 })
-            .Select(p => new Audit.Models.GatewayWanPath(p.Network.Id, p.Network.Name, p.Wan!.UplinkIfName ?? p.Wan.PhysicalIfName!))
+            .Select(p => new Audit.Models.GatewayWanPath(p.Network.Id, p.Network.Name, p.Wan!.UplinkIfName ?? p.Wan.PhysicalIfName!, p.Wan.PortDisabled))
             .ToList();
 
     /// <summary>

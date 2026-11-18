@@ -48,6 +48,7 @@ public class AgentTunnelService : AgentTunnel.AgentTunnelBase
     private readonly GatewayAgentBlocklist _gatewayBlocklist;
     private readonly WanFlood.WanFloodService _wanFlood;
     private readonly ChangeControl.ChangeControlRegistry? _changeControl;
+    private readonly Monitoring.LiveTraffic.LiveTrafficRegistry? _liveTraffic;
     private readonly Licensing.LicenseStateService _licenseState;
     private readonly ILogger<AgentTunnelService> _logger;
 
@@ -65,9 +66,11 @@ public class AgentTunnelService : AgentTunnel.AgentTunnelBase
         WanFlood.WanFloodService wanFlood,
         Licensing.LicenseStateService licenseState,
         ILogger<AgentTunnelService> logger,
-        ChangeControl.ChangeControlRegistry? changeControl = null)
+        ChangeControl.ChangeControlRegistry? changeControl = null,
+        Monitoring.LiveTraffic.LiveTrafficRegistry? liveTraffic = null)
     {
         _changeControl = changeControl;
+        _liveTraffic = liveTraffic;
         _gatewayBlocklist = gatewayBlocklist;
         _wanFlood = wanFlood;
         _enrollment = enrollment;
@@ -244,6 +247,10 @@ public class AgentTunnelService : AgentTunnel.AgentTunnelBase
                         }
                         if (message.Sequence > 0)
                             connection.TrySend(new ServerMessage { ResultAck = new ResultAck { Sequence = message.Sequence } });
+                        break;
+                    case AgentMessage.PayloadOneofCase.LiveTraffic:
+                        // Live only (sequence 0, never acked, never persisted): held in memory for viewers.
+                        _liveTraffic?.GetFor(siteSlug).Ingest(message.LiveTraffic);
                         break;
                     case AgentMessage.PayloadOneofCase.UciInformFrame:
                         // Live only (sequence 0, never acked): a lost frame is superseded by the next

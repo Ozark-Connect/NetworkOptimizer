@@ -46,7 +46,7 @@
                                 var covering = Covering(d);
                                 <tr>
                                     <td><a href="@DrilldownUrl(d.DeviceIp)"><code>@d.DeviceIp</code></a>@if (DeviceName?.Invoke(d.DeviceIp) is { } name) {<span class="ip-client-name">@name</span>}</td>
-                                    <td><a href="@DrilldownUrl(d.Address)"><code>@d.Address</code></a><span class="drop-port">@PortText(d)</span></td>
+                                    <td><a href="@DrilldownUrl(d.Address)" @attributes="NetworkOptimizer.Web.Services.Monitoring.LiveTraffic.LiveTrafficLinks.DestinationCard(d.Address, threatsLink: false)"><code>@d.Address</code></a><span class="drop-port">@PortText(d)</span></td>
                                     <td class="hide-mobile"><code>@PortText(d)</code></td>
                                     <td class="hide-mobile">@d.List</td>
                                     <td class="hide-mobile">@d.Drops.ToString("N0")</td>
@@ -85,9 +85,9 @@
                 @if (Pages > 1)
                 {
                     <div class="pagination">
-                        <button class="btn btn-sm btn-secondary" disabled="@(_page <= 1)" @onclick="() => _page--"><span class="pag-arrow">←</span> Prev</button>
+                        <button class="btn btn-sm btn-secondary" disabled="@(_page <= 1)" @onclick="() => _page--"><AppIcon Name="chevron-left" /> Prev</button>
                         <span class="pagination-info">Page @_page of @Pages (@_drops.Count total)</span>
-                        <button class="btn btn-sm btn-secondary" disabled="@(_page >= Pages)" @onclick="() => _page++">Next <span class="pag-arrow">→</span></button>
+                        <button class="btn btn-sm btn-secondary" disabled="@(_page >= Pages)" @onclick="() => _page++">Next <AppIcon Name="chevron-right" /></button>
                     </div>
                 }
             }

@@ -1,0 +1,18 @@
+@* The icon UniFi Network shows for a client. Renders nothing when the client has none cached:
+   pass ClientIconMap.UrlFor(mac) from IClientIcons.GetMapAsync(). *@
+
+@if (!string.IsNullOrEmpty(Url))
+{
+    <img src="@Url" class="client-icon @Class" width="@Size" height="@Size" alt="" loading="lazy" decoding="async" />
+}
+
+@code {
+    /// <summary>The icon's URL, from <see cref="ClientIconMap.UrlFor"/>; null renders nothing.</summary>
+    [Parameter] public string? Url { get; set; }
+
+    /// <summary>Rendered size in px (the image is square).</summary>
+    [Parameter] public int Size { get; set; } = 20;
+
+    /// <summary>Extra CSS class, for placement beside other content.</summary>
+    [Parameter] public string? Class { get; set; }
+}

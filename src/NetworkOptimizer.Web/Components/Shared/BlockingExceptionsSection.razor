@@ -165,7 +165,7 @@
 
     private static RenderFragment EndpointCell(string? ip, string any) => ip == null
         ? @<span class="exc-any">@any</span>
-        : @<code>@ip</code>;
+        : @<code @attributes="NetworkOptimizer.Web.Services.Monitoring.LiveTraffic.LiveTrafficLinks.DestinationCard(ip)">@ip</code>;
 
     // The panel closes on a save; the confirmation shows above the list instead.
     private async Task Saved(BlockingException saved)

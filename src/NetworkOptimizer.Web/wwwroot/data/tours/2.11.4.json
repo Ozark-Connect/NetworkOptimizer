@@ -1,0 +1,22 @@
+{
+  "id": "2.11.4",
+  "kind": "whats-new",
+  "title": "What's new in v2.11.4",
+  "summary": "Traceroutes now show the city each hop is in, and draw the path on a map.",
+  "steps": [
+    {
+      "id": "traceroute-route-map",
+      "level": "minor",
+      "url": "/network-tools?run=trace",
+      "selector": "[data-tour=\"traceroute-result\"]",
+      "title": "Traceroute Route Map",
+      "listLabel": "See the city each traceroute hop is in, and the path drawn on a map",
+      "body": "**Traceroute Result** now places each hop in a city. The **Location** column reads it from the router's hostname, from a hop a few ms away, or from GeoLite2.\n\nThe **Route Map** draws the path city to city. Click a hop to find it on the map, or a point on the map to find its hops. This is an example trace to 1.1.1.1 that auto-ran.",
+      "placement": "top",
+      "scroll": "top",
+      "badge": "improved",
+      "optional": true,
+      "waitMs": 30000
+    }
+  ]
+}

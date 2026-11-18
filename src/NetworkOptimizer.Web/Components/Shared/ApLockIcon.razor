@@ -1,0 +1,19 @@
+@* A client locked to an access point: a round UniFi AP with a lock badge on its lower right.
+   Drawn on a 16-unit grid with the AP centered on a pixel boundary, so both rings anti-alias
+   symmetrically at the default size; a fractional center reads as the LED sitting off-center. *@
+
+<svg viewBox="0 0 16 16" width="@Size" height="@Size" class="ap-lock-icon @Class" aria-hidden="true">
+    <circle cx="7" cy="7" r="5.6" fill="none" stroke="currentColor" stroke-width="1.2" />
+    <circle cx="7" cy="7" r="2" fill="none" class="ap-lock-icon-led" stroke-width="1.2" />
+    <circle cx="12" cy="12" r="4" class="ap-lock-icon-badge" />
+    <path d="M10.6 11.6v-1a1.4 1.4 0 0 1 2.8 0v1" fill="none" class="ap-lock-icon-lock" stroke-width="1.1" />
+    <rect x="9.8" y="11.4" width="4.4" height="3.4" rx="0.8" class="ap-lock-icon-lock-body" />
+</svg>
+
+@code {
+    /// <summary>Rendered size in px (the icon is square).</summary>
+    [Parameter] public int Size { get; set; } = 16;
+
+    /// <summary>Extra CSS class, for placement beside other content.</summary>
+    [Parameter] public string? Class { get; set; }
+}

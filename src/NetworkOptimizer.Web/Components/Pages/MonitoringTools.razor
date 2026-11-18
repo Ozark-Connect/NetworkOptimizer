@@ -34,7 +34,10 @@
 @inject ISiteManagementService SiteManagement
 @inject AsnResolutionService AsnResolver
 @inject ILogger<MonitoringTools> Logger
+@inject NetworkOptimizer.Threats.Enrichment.GeoEnrichmentService Geo
 @inject IDisplayTimeZone DisplayTime
+@inject NetworkOptimizer.Web.Services.Monitoring.IHopLocationOverrideService HopLocationSets
+@inject NetworkOptimizer.Web.Services.Monitoring.LearnedHopLocations LearnedLocations
 
 <PageTitle>Network Tools - Network Optimizer</PageTitle>
 
@@ -58,7 +61,7 @@
     </div>
 }
 
-<div class="card">
+<div class="card" id="run-a-probe">
     <div class="card-header">
         <h2 class="card-title">Run a Probe</h2>
     </div>
@@ -142,7 +145,7 @@
         <div class="form-group">
             <label class="form-label">To (target)</label>
             <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
-                <select class="form-control" style="max-width: 320px;"
+                <select class="form-control" style="max-width: 320px;" value="@_targetPreset"
                         @onchange="OnTargetPresetChange">
                     <option value="">Custom address</option>
                     <optgroup label="External">
@@ -168,7 +171,7 @@
                         </optgroup>
                     }
                 </select>
-                <input type="text" class="form-control" @bind="_targetAddress"
+                <input type="text" class="form-control" @bind="_targetAddress" @bind:after="ClearTargetPreset" @ref="_targetInput"
                        placeholder="hostname or IP" style="flex: 1; min-width: 180px;" />
             </div>
         </div>
@@ -316,7 +319,7 @@
 
 @if (_traceResult != null)
 {
-    <div class="card" style="margin-top: 1.5rem;">
+    <div class="card" id="traceroute-result" style="margin-top: 1.5rem;" data-tour="@(_traceResolved ? "traceroute-result" : null)">
         <div class="card-header">
             <h2 class="card-title">Traceroute Result</h2>
             <span class="status-badge @(_traceResult.Reached ? "status-connected" : "status-error")">
@@ -330,6 +333,7 @@
                 <div class="form-value">@VantageLabel(_traceResult.Vantage.Id)</div>
             </div>
             @{ var showReturn = _traceResult.Hops.Any(h => h.ReturnHops.HasValue); }
+            @{ var showLocation = _traceLocations.Count > 0; }
             <div class="table-responsive">
             <table class="data-table path-episode-hops">
                 <thead>
@@ -337,6 +341,10 @@
                         <th>Hop</th>
                         <th>Address / PTR</th>
                         <th>Network</th>
+                        @if (showLocation)
+                        {
+                            <th data-tooltip="The city in the router's hostname when it names one, else where GeoLite2 places the address. Hover a location for its source.">Location</th>
+                        }
                         <th>Loss</th>
                         <th data-tooltip="Minimum and average RTT across the hop's probes. The minimum tracks the forwarding path; ICMP slow-path handling inflates the average.">RTT (min / avg)</th>
                         @if (showReturn)
@@ -348,15 +356,19 @@
                 <tbody>
                     @foreach (var hop in _traceResult.Hops)
                     {
-                        <tr>
+                        var onMap = _mapHops.Contains(hop.HopNumber);
+                        <tr class="@(onMap ? "trace-hop-on-map" : null) @(_activeHops.Contains(hop.HopNumber) ? "is-active" : null)"
+                            @onclick="() => SelectTraceHop(hop.HopNumber)">
                             <td>@hop.HopNumber</td>
                             <td>
                                 @if (hop.Responded)
                                 {
-                                    @if (!string.IsNullOrEmpty(hop.Hostname) && hop.Hostname != hop.Address)
-                                    { <span>@hop.Hostname (@hop.Address)</span> }
+                                    var hopName = TraceHostname(hop);
+                                    var hopCard = NetworkOptimizer.Web.Services.Monitoring.LiveTraffic.LiveTrafficLinks.DestinationCard(hop.Address, hopName, threatsLink: false);
+                                    @if (!string.IsNullOrEmpty(hopName) && hopName != hop.Address)
+                                    { <span @attributes="hopCard">@hopName (@hop.Address)</span> }
                                     else
-                                    { <span>@hop.Address</span> }
+                                    { <span @attributes="hopCard">@hop.Address</span> }
                                 }
                                 else
                                 {
@@ -364,6 +376,15 @@
                                 }
                             </td>
                             <td><NetworkOptimizer.Web.Components.Shared.Monitoring.TextWithCode Text="@TraceNetworkLabel(hop.Address)" /></td>
+                            @if (showLocation)
+                            {
+                                <td>
+                                    <NetworkOptimizer.Web.Components.Shared.Monitoring.HopLocationCell Address="@hop.Address"
+                                        Location="@(hop.Address != null && _traceLocations.TryGetValue(hop.Address, out var location) ? location : null)"
+                                        Selected="@(_selectedTraceHop == hop.HopNumber)" Open="@(_locationEdit?.Address == hop.Address)"
+                                        OnEdit="e => _locationEdit = e" />
+                                </td>
+                            }
                             <td>@(hop.Responses > 0 && hop.Probes > 0 ? $"{100.0 * (hop.Probes - hop.Responses) / hop.Probes:0.#}%" : "-")</td>
                             <td>@(hop.RttMinMs is double min ? $"{min:0.0} / {hop.RttAvgMs ?? min:0.0} ms" : "-")</td>
                             @if (showReturn)
@@ -375,12 +396,18 @@
                 </tbody>
             </table>
             </div>
+            <NetworkOptimizer.Web.Components.Shared.Monitoring.TracerouteMap @ref="_traceMap" Path="_tracePath" OnPlaceSelected="SelectTracePlace" />
             @if (!string.IsNullOrEmpty(_traceResult.ErrorMessage))
             {
                 <div class="alert alert-warning">@_traceResult.ErrorMessage</div>
             }
         </div>
     </div>
+    @if (_locationEdit != null)
+    {
+        <NetworkOptimizer.Web.Components.Shared.Monitoring.HopLocationEditor Edit="_locationEdit"
+            OnClose="() => _locationEdit = null" OnChanged="TraceLocationChangedAsync" />
+    }
 }
 
 @if (_hasGateway)
@@ -938,6 +965,10 @@ else if (_diagResult != null && !string.IsNullOrEmpty(_diagResult.InterfaceError
 
     protected override async Task OnInitializedAsync()
     {
+        // The link's target first: the loads below can take long (a console behind an Agent that just reconnected).
+        _appliedLink = (TargetParam, FromParam, RunParam);
+        ApplyLinkedTarget();
+
         _canConfigure = AuthState is null
             || (await Authz.AuthorizeAsync((await AuthState).User, SiteContext.Slug, Policies.SiteAdmin)).Succeeded;
 
@@ -953,16 +984,79 @@ else if (_diagResult != null && !string.IsNullOrEmpty(_diagResult.InterfaceError
         if (!_consoleDataLoaded)
             _ = WaitForConnectionThenReloadAsync();
 
-        if (!string.IsNullOrWhiteSpace(TargetParam) && TargetParam.Trim().Length <= 253)
-        {
-            _targetAddress = TargetParam.Trim();
-            _probeMode = ProbeMode.Icmp;
-        }
-
         await LoadProbeVantagesAsync();
         await ApplyInitialVantageAsync();
         await RefreshAgentAvailabilityAsync();
         StartAgentStatusPolling();
+        _runLinkedTrace = string.Equals(RunParam, "trace", StringComparison.OrdinalIgnoreCase);
+        _initialized = true;
+    }
+
+    // The link's target, vantage, and run as last applied. A link to this page from this page (a
+    // Trace link on a map card, back and forward) re-renders it without re-initializing it.
+    private (string? Target, string? From, string? Run)? _appliedLink;
+    private bool _initialized;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (_appliedLink is not { } applied || applied == (TargetParam, FromParam, RunParam)) return;
+        _appliedLink = (TargetParam, FromParam, RunParam);
+        ApplyLinkedTarget();
+        // Still starting: the start-up's own vantage pick and run read the new link when they get to it.
+        if (!_initialized) return;
+        if (!string.IsNullOrEmpty(FromParam)) await ApplyInitialVantageAsync();
+        _runLinkedTrace = string.Equals(RunParam, "trace", StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>A link's ?target= replaces what the input holds.</summary>
+    private void ApplyLinkedTarget()
+    {
+        if (string.IsNullOrWhiteSpace(TargetParam) || TargetParam.Trim().Length > 253) return;
+        _targetAddress = TargetParam.Trim();
+        _targetPreset = string.Empty;
+        _probeMode = ProbeMode.Icmp;
+        _focusTarget = true;
+    }
+
+    /// <summary>
+    /// "trace" runs a traceroute once the page is ready, to <see cref="TargetParam"/> or the default
+    /// target. Sent by the guided tour, whose step shows the result.
+    /// </summary>
+    [SupplyParameterFromQuery(Name = "run")]
+    public string? RunParam { get; set; }
+
+    // Set once the vantages are loaded; the run starts from the first interactive render after that.
+    private bool _runLinkedTrace;
+
+    // The result's networks, locations, and map are in. The card carries its tour anchor only then,
+    // so the tour step waits for the whole result, not the bare hop table.
+    private bool _traceResolved;
+
+    // A traceroute result just rendered: bring Traceroute Result up toward the top of the view, so the hop
+    // table and its map are on screen. Done after the render: the card does not exist before.
+    private bool _scrollToTrace;
+
+    private async Task RunLinkedTraceAsync()
+    {
+        try
+        {
+            if (string.IsNullOrWhiteSpace(_targetAddress))
+            {
+                _targetAddress = "1.1.1.1";
+                _probeMode = ProbeMode.Icmp;
+            }
+            // A site that traces from its On-Site Agent waits for the Agent to connect.
+            for (var i = 0; i < 10 && !CanTraceroute; i++)
+            {
+                await Task.Delay(2000);
+                await RefreshAgentAvailabilityAsync();
+            }
+            if (CanTraceroute && !_running) await RunTraceroute();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogDebug(ex, "Linked traceroute did not run");
+        }
     }
 
     private async Task LoadOtherSitesAsync()
@@ -1018,6 +1112,37 @@ else if (_diagResult != null && !string.IsNullOrEmpty(_diagResult.InterfaceError
     /// </summary>
     [SupplyParameterFromQuery(Name = "target")]
     public string? TargetParam { get; set; }
+
+    private ElementReference _targetInput;
+    // A target= link filled the box: focus it once it is on the page, so the reader sees it was filled for them.
+    private bool _focusTarget;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_runLinkedTrace)
+        {
+            _runLinkedTrace = false;
+            _ = InvokeAsync(RunLinkedTraceAsync);
+        }
+        if (_scrollToTrace)
+        {
+            _scrollToTrace = false;
+            // No further than the Route Map's bottom at the view's bottom: below it is only the next card.
+            try { await JS.InvokeVoidAsync("noScrollToEnd", "traceroute-result", ".trace-map-block"); }
+            catch (Exception ex) when (ex is JSException or InvalidOperationException or JSDisconnectedException)
+            {
+                Logger.LogDebug(ex, "Could not scroll to Traceroute Result");
+            }
+        }
+        if (!_focusTarget || _targetInput.Context == null) return;
+        _focusTarget = false;
+        // The link's #run-a-probe fragment scrolls the card into view (scrollRestoration.js); this only focuses.
+        try { await _targetInput.FocusAsync(preventScroll: true); }
+        catch (Exception ex) when (ex is JSException or InvalidOperationException or JSDisconnectedException)
+        {
+            Logger.LogDebug(ex, "Could not focus the Network Tools target");
+        }
+    }
 
     /// <summary>
     /// Decides the starting vantage once, in OnInitializedAsync after the vantage and device
@@ -1441,9 +1566,15 @@ else if (_diagResult != null && !string.IsNullOrEmpty(_diagResult.InterfaceError
         return _probeVantages.FirstOrDefault(v => v.Key == _fromKey)?.SourceBind;
     }
 
+    // The target list's pick. An address from anywhere else (typed, or a link's ?target=) is a custom address.
+    private string _targetPreset = string.Empty;
+
+    private void ClearTargetPreset() => _targetPreset = string.Empty;
+
     private void OnTargetPresetChange(ChangeEventArgs e)
     {
         var v = e.Value?.ToString() ?? string.Empty;
+        _targetPreset = v;
         if (string.IsNullOrEmpty(v)) return;
         if (v.StartsWith("ext:"))
         {
@@ -1584,14 +1715,24 @@ else if (_diagResult != null && !string.IsNullOrEmpty(_diagResult.InterfaceError
                 return;
             }
             var target = new ProbeTarget(_targetAddress.Trim(), _probeMode, _probeMode == ProbeMode.Tcp ? _port : null, SelectedSourceBind());
+            _tracePtrs = new(StringComparer.OrdinalIgnoreCase);
             _traceResult = await executor.TracerouteAsync(
                 target,
                 maxHops: 30,
                 perHopTimeout: TimeSpan.FromSeconds(2),
                 totalDeadline: TimeSpan.FromSeconds(10));
-            // Shown before the networks resolve; the Network column fills in when they do.
+            // Shown before the networks resolve; the Network column and the map fill in when they do.
+            _tracePath = null;
+            _mapHops = [];
+            _activeHops = [];
+            _scrollToTrace = true;
+            _traceResolved = false;
             StateHasChanged();
-            await ResolveTraceAsnsAsync(_traceResult);
+            try { await ResolveTraceAsnsAsync(_traceResult); }
+            finally { _traceResolved = true; }
+            // Again once the map is in: the page is taller now, so the card can reach the top.
+            // Only a traceroute scrolls; a ping or a DNS lookup leaves the view where it is.
+            _scrollToTrace = true;
         }
         catch (Exception ex)
         {
@@ -1617,7 +1758,101 @@ else if (_diagResult != null && !string.IsNullOrEmpty(_diagResult.InterfaceError
             catch (Exception ex) { Logger.LogDebug(ex, "ASN lookup for {Address} failed", address); }
         }
         _traceAsns = asns;
+
+        // A public hop the vantage named nothing is looked up again from here: the server's resolver
+        // can hold a name the vantage's does not.
+        var ptrs = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var address in trace.Hops
+            .Where(h => h.Responded && string.IsNullOrEmpty(h.Hostname) && NetworkUtilities.IsPublicIpAddress(h.Address!))
+            .Select(h => h.Address!).Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            if ((await ReverseDnsCache.ResolveAsync(address)).Hostname is { } name) ptrs[address] = name;
+        }
+        _tracePtrs = ptrs;
+        await PlaceTraceAsync(trace);
     }
+
+    /// <summary>Places the trace's hops and builds its map: after a run, and again when a hop's location is set or reset.</summary>
+    private async Task PlaceTraceAsync(TracerouteResult trace)
+    {
+        IReadOnlyDictionary<string, NetworkOptimizer.Web.Services.Monitoring.HopLocationSetting>? overrides = null;
+        try { overrides = await HopLocationSets.GetAllAsync(); }
+        catch (Exception ex) { Logger.LogWarning(ex, "Could not read the hop locations set by hand"); }
+        var learned = await LearnedLocations.GetAsync(SiteContext.Slug);
+        var hops = trace.Hops.Where(h => h.Responded).Select(h => (h.Address, TraceHostname(h), h.RttMinMs)).ToList();
+        _traceLocations = NetworkOptimizer.Web.Services.Monitoring.HopLocations.Resolve(hops, Geo.Enrich, overrides, learned);
+        await LearnedLocations.LearnAsync(SiteContext.Slug, hops, _traceLocations, Geo.Enrich);
+        _tracePath = NetworkOptimizer.Web.Services.Monitoring.TraceMapPath.Build(
+            trace.Hops.Where(h => h.Responded).Select(h => (h.HopNumber, h.Address, TraceHostname(h), h.RttMinMs)),
+            _traceLocations, await TraceStartAsync(trace.Target.SourceInterface, overrides));
+        _mapHops = _tracePath.HasRoute
+            ? _tracePath.Nodes.SelectMany(n => n.Hops).Select(h => h.Number).Where(n => n > 0).ToHashSet()
+            : [];
+    }
+
+    private async Task TraceLocationChangedAsync()
+    {
+        if (_traceResult != null) await PlaceTraceAsync(_traceResult);
+    }
+
+    // The hop whose Set location editor is open.
+    private NetworkOptimizer.Web.Services.Monitoring.HopLocationEdit? _locationEdit;
+
+    /// <summary>
+    /// Where the trace left the site, for the map's first point: the city set by hand for the address
+    /// of the WAN the probe was bound to (or of the primary WAN when it was not bound), else GeoLite2's.
+    /// Null when that WAN is unknown, its address is not public IPv4, or neither gives a city.
+    /// </summary>
+    private async Task<(string Label, string City, string? CountryCode, double Latitude, double Longitude)?> TraceStartAsync(
+        string? sourceBind, IReadOnlyDictionary<string, NetworkOptimizer.Web.Services.Monitoring.HopLocationSetting>? overrides)
+    {
+        static bool Same(string? a, string? b) => !string.IsNullOrEmpty(a) && string.Equals(a, b, StringComparison.OrdinalIgnoreCase);
+
+        var wans = await LoadWanSummariesAsync();
+        var wan = string.IsNullOrEmpty(sourceBind)
+            ? wans.FirstOrDefault(w => w.IsPrimary)
+            : wans.FirstOrDefault(w => Same(w.UplinkIfName, sourceBind) || Same(w.PhysicalIfName, sourceBind) || Same(w.IpAddress, sourceBind));
+        if (wan?.IpAddress is not { Length: > 0 } ip || wan.IpClass != PublicAddressClass.PublicIPv4) return null;
+
+        return NetworkOptimizer.Web.Services.Monitoring.HopLocations.Start(ip, Geo.Enrich, overrides) is { } at
+            ? (ip, at.City, at.CountryCode, at.Latitude, at.Longitude)
+            : null;
+    }
+
+    // The traced path as places and legs, for the Route Map under the hop table.
+    private NetworkOptimizer.Web.Services.Monitoring.TraceMapPath? _tracePath;
+    private NetworkOptimizer.Web.Components.Shared.Monitoring.TracerouteMap? _traceMap;
+
+    // Hop numbers drawn on the map, and the ones marked in both the table and the map.
+    private HashSet<int> _mapHops = [];
+    private HashSet<int> _activeHops = [];
+
+    // The row last clicked, whose Set location icon shows without a hover (on or off the map).
+    private int? _selectedTraceHop;
+
+    // A row click marks the hop's place on the map; a second click on the same row clears it.
+    private async Task SelectTraceHop(int hopNumber)
+    {
+        _selectedTraceHop = hopNumber;
+        if (!_mapHops.Contains(hopNumber) || _traceMap == null) return;
+        var clear = _activeHops.Count == 1 && _activeHops.Contains(hopNumber);
+        _activeHops = clear ? [] : [hopNumber];
+        await _traceMap.HighlightHopAsync(clear ? -1 : hopNumber);
+    }
+
+    // A click on a map point marks every hop placed there in the table.
+    private void SelectTracePlace(IReadOnlyList<int> hops) => _activeHops = hops.ToHashSet();
+
+    // PTR names looked up here for hops the vantage returned without one, by address.
+    private Dictionary<string, string> _tracePtrs = new(StringComparer.OrdinalIgnoreCase);
+
+    private string? TraceHostname(TraceHop hop) =>
+        !string.IsNullOrEmpty(hop.Hostname) ? hop.Hostname
+            : hop.Address != null && _tracePtrs.TryGetValue(hop.Address, out var name) ? name
+            : null;
+
+    // Each traced hop's location, by address: its hostname's city, else GeoLite2. The column is left out when none is placed.
+    private Dictionary<string, NetworkOptimizer.Web.Services.Monitoring.HopLocationView> _traceLocations = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>"Cox Communications `AS22773`" (the ASN renders as code), or "-" when the hop's network is unknown or private.</summary>
     private string TraceNetworkLabel(string? address) =>

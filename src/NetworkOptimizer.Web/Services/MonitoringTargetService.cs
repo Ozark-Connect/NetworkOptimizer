@@ -18,7 +18,7 @@ public class MonitoringTargetService : IMonitoringTargetService
     private readonly SiteDbContextFactory _siteDb;
     private readonly SiteContextService _siteContext;
     private readonly AsnResolutionService _asnResolution;
-    private readonly ProbeExecutorFactory _executorFactory;
+    private readonly Monitoring.PathMap.PathRouteRecorder _routes;
     private readonly IAuditContext _audit;
     private readonly ILogger<MonitoringTargetService> _logger;
     private readonly SiteVantageDnsResolver? _dnsResolver;
@@ -27,7 +27,7 @@ public class MonitoringTargetService : IMonitoringTargetService
         SiteDbContextFactory siteDb,
         SiteContextService siteContext,
         AsnResolutionService asnResolution,
-        ProbeExecutorFactory executorFactory,
+        Monitoring.PathMap.PathRouteRecorder routes,
         IAuditContext audit,
         ILogger<MonitoringTargetService> logger,
         SiteVantageDnsResolver? dnsResolver = null)
@@ -35,7 +35,7 @@ public class MonitoringTargetService : IMonitoringTargetService
         _siteDb = siteDb;
         _siteContext = siteContext;
         _asnResolution = asnResolution;
-        _executorFactory = executorFactory;
+        _routes = routes;
         _audit = audit;
         _logger = logger;
         _dnsResolver = dnsResolver;
@@ -128,12 +128,10 @@ public class MonitoringTargetService : IMonitoringTargetService
 
         // Trace-on-save: an Internet/Custom target only absolves the ISP/transit hops it crosses
         // once it has trace ancestry. Kick off an immediate trace so it can act as a witness now,
-        // instead of waiting for the next upstream discovery cycle. Resolve the "server" vantage
-        // executor here (synchronously, current site context) so external agent sites trace over
-        // the on-site agent tunnel and there's no scoped-context race in the fire-and-forget.
+        // instead of waiting for the next upstream discovery cycle. The slug is read here, in the
+        // request's site context, so the fire-and-forget never races a scoped context.
         if (spec.TargetType is MonitoringTargetType.InternetService or MonitoringTargetType.Custom)
-            _ = TraceOnSaveForAncestryAsync(_executorFactory.GetServer(), entity.Id, address,
-                _siteContext.Slug, _siteContext.IsDefault);
+            _ = TraceOnSaveForAncestryAsync(entity.Id, _siteContext.Slug);
 
         return entity;
     }
@@ -315,17 +313,15 @@ public class MonitoringTargetService : IMonitoringTargetService
     }
 
     /// <summary>
-    /// Traces a just-added Internet/Custom target over the site's server/agent vantage and persists
+    /// Traces a just-added Internet/Custom target from the vantage and bind that measure it and persists
     /// its hop ancestry as an UpstreamDiscovery row, so ISP Health can immediately use it as a
     /// routes-through witness. Best-effort; fire-and-forget (reads no request state).
     /// </summary>
-    private async Task TraceOnSaveForAncestryAsync(NetworkOptimizer.Monitoring.Probes.IProbeExecutor executor,
-        int targetId, string address, string slug, bool isDefault)
+    private async Task TraceOnSaveForAncestryAsync(int targetId, string slug)
     {
         try
         {
-            await using var db = _siteDb.CreateForSite(slug, isDefault);
-            await TargetAncestry.TraceAndPersistAsync(executor, db, targetId, address);
+            await _routes.TraceAsync(slug, targetId);
         }
         catch (Exception ex)
         {

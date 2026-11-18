@@ -56,6 +56,7 @@ public class LatencyDespiteSignalRule : IWiFiOptimizerRule
                         $"a median transmit latency of {medianLatency:F0} ms at the AP and {stalls} TCP stalls between them in the last hour. " +
                         "Signal is not the problem; airtime is.",
                     AffectedEntity = ap.Name,
+                    AffectedLinks = { new IssueLink($"{ap.Name} ({bandName})", IssueLinks.Clients(ap.Mac, radio.Band)) },
                     Recommendation = "Look at what shares this radio's air: co-channel APs on Channels, neighbor networks on RF Environment, and heavy clients on Client Performance.",
                     ScoreImpact = -6
                 };

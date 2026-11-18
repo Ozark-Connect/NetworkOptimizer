@@ -3,12 +3,22 @@
 @inject ILogger<ClientNameEditor> Logger
 
 @* Inline rename for a client. The page's own name element is the child content. *@
-<InlineEditField Class="@Class" Tooltip="Rename client in UniFi Network" Placeholder="@(Name ?? Hostname)"
-                 TourId="@TourId" Load="LoadAsync" Save="SaveAsync">
+@if (ReadOnly)
+{
     @ChildContent
-</InlineEditField>
+}
+else
+{
+    <InlineEditField Class="@Class" Tooltip="Rename client in UniFi Network" Placeholder="@(Name ?? Hostname)"
+                     TourId="@TourId" Load="LoadAsync" Save="SaveAsync">
+        @ChildContent
+    </InlineEditField>
+}
 
 @code {
+    /// <summary>Shows the name with no pencil: another UniFi app (UniFi Protect) owns it.</summary>
+    [Parameter] public bool ReadOnly { get; set; }
+
     /// <summary>The client's MAC address.</summary>
     [Parameter, EditorRequired] public string Mac { get; set; } = "";
 

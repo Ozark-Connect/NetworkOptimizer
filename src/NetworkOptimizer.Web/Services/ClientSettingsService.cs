@@ -105,6 +105,7 @@ public class ClientSettingsService : IClientSettingsService
         var client = ConnectedClient();
         var record = await KnownClientAsync(client, mac);
         _auditContext.SetTarget(record.Mac, DisplayName(record.Name, record.Hostname, record.Mac));
+        EnsureRenamable(record);
 
         if (record.Name == newName)
         {
@@ -133,8 +134,20 @@ public class ClientSettingsService : IClientSettingsService
     }
 
     /// <inheritdoc />
-    public async Task<string> GetNameAsync(string mac) =>
-        (await KnownClientAsync(ConnectedClient(), mac)).Name ?? "";
+    public async Task<string> GetNameAsync(string mac)
+    {
+        var record = await KnownClientAsync(ConnectedClient(), mac);
+        EnsureRenamable(record);
+        return record.Name ?? "";
+    }
+
+    /// <summary>Shown when the client is a UniFi Protect device.</summary>
+    public const string ProtectOwnsNameMessage = "UniFi Protect manages this device's name. Rename it in UniFi Protect.";
+
+    private static void EnsureRenamable(UniFi.Models.UniFiClientResponse record)
+    {
+        if (record.IsProtectDevice) throw new InvalidOperationException(ProtectOwnsNameMessage);
+    }
 
     /// <inheritdoc />
     public async Task<string?> GetFixedIpAsync(string mac)

@@ -535,6 +535,25 @@ public static class NetworkUtilities
     }
 
     /// <summary>
+    /// Whether an address is in Tailscale's default tailnet ranges: 100.64.0.0/10 (shared with carrier
+    /// CGNAT) or fd7a:115c:a1e0::/48. A tailnet with a custom IP pool needs its device list to be known.
+    /// </summary>
+    /// <param name="ipAddress">The address; an IPv4-mapped IPv6 form is read as its IPv4 address.</param>
+    public static bool IsTailscaleAddress(string? ipAddress) =>
+        IPAddress.TryParse(ipAddress, out var ip) && IsTailscaleAddress(ip);
+
+    /// <inheritdoc cref="IsTailscaleAddress(string?)"/>
+    public static bool IsTailscaleAddress(IPAddress ip)
+    {
+        if (ip.IsIPv4MappedToIPv6) ip = ip.MapToIPv4();
+        var b = ip.GetAddressBytes();
+        if (ip.AddressFamily == AddressFamily.InterNetwork)
+            return b[0] == 100 && b[1] >= 64 && b[1] <= 127;
+        return ip.AddressFamily == AddressFamily.InterNetworkV6
+            && b[0] == 0xfd && b[1] == 0x7a && b[2] == 0x11 && b[3] == 0x5c && b[4] == 0xa1 && b[5] == 0xe0;
+    }
+
+    /// <summary>
     /// Check if an IP address is a public/routable address.
     /// </summary>
     /// <param name="ipAddress">IP address string to check</param>
@@ -798,9 +817,11 @@ public static class NetworkUtilities
         new(502, "Modbus"),
         new(587, "SMTP Submit"),
         new(636, "LDAPS"),
+        new(853, "DNS over TLS"),
         new(993, "IMAPS"),
         new(995, "POP3S"),
         new(1080, "SOCKS"),
+        new(1194, "OpenVPN"),
         new(1433, "MSSQL"),
         new(1434, "MSSQL Browser"),
         new(1521, "Oracle"),
@@ -814,9 +835,11 @@ public static class NetworkUtilities
         new(3283, "Apple Remote Desktop", Amplification: true),
         new(3306, "MySQL"),
         new(3389, "RDP"),
+        new(3478, "STUN"),
         new(3702, "WS-Discovery", Amplification: true),
         new(4500, "IPSec NAT-T"),
         new(5060, "SIP"),
+        new(5349, "STUN over TLS"),
         new(5353, "mDNS", Amplification: true),
         new(5405, "Corosync"),
         new(5406, "Corosync"),
@@ -837,6 +860,7 @@ public static class NetworkUtilities
         new(22067, "Syncthing Relay"),
         new(27017, "MongoDB"),
         new(37810, "DVR Discovery", Amplification: true),
+        new(51820, "WireGuard"),
     ];
 
     private static readonly Dictionary<int, string> PortNames = WellKnownPorts.ToDictionary(p => p.Port, p => p.Name);

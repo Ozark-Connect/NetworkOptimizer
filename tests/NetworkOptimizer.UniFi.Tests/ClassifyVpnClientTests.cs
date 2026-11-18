@@ -110,4 +110,30 @@ public class ClassifyVpnClientTests
         NetworkPathAnalyzer.ClassifyVpnClient("192.168.77.5", null)
             .Should().BeNull();
     }
-}
+
+    [Theory]
+    [InlineData("fd7a:115c:a1e0::1")]
+    [InlineData("fd7a:115c:a1e0:ab12::c401:222b")]
+    public void TailnetIpv6_ClassifiedAsTailscale(string ip)
+    {
+        NetworkPathAnalyzer.ClassifyVpnClient(ip, TopologyWith(LanNetwork()))
+            .Should().Be(HopType.Tailscale);
+    }
+
+    [Fact]
+    public void TailnetIpv6_IsExternal()
+    {
+        // Unique-local otherwise reads as LAN; the tailnet range arrives over the tunnel.
+        NetworkPathAnalyzer.IsExternalIp("fd7a:115c:a1e0::1", TopologyWith(LanNetwork())).Should().BeTrue();
+        NetworkPathAnalyzer.IsExternalIp("fd00::1", TopologyWith(LanNetwork())).Should().BeFalse();
+    }
+
+    [Fact]
+    public void DeviceListHit_OutsideDefaultRange_ClassifiedAsTailscale()
+    {
+        // A custom IP pool: only the tailnet's own device list knows the address.
+        NetworkPathAnalyzer.ClassifyVpnClient("10.200.0.5", TopologyWith(LanNetwork()), ip => ip == "10.200.0.5")
+            .Should().Be(HopType.Tailscale);
+        NetworkPathAnalyzer.ClassifyVpnClient("10.200.0.6", TopologyWith(LanNetwork()), ip => ip == "10.200.0.5")
+            .Should().BeNull();
+    }}

@@ -62,8 +62,8 @@ public class AgentIperf3Service
                 Reverse = reverse,
             };
 
-            _logger.LogDebug("Requesting agent iperf3 client run {Id} for site {Slug} -> {Host}:{Port} (reverse={Reverse})",
-                id, siteSlug, host, port, reverse);
+            _logger.LogDebug("Requesting iperf3 client run {Id} from agent {AgentId} ({AgentName}) for site {Slug} -> {Host}:{Port} (reverse={Reverse})",
+                id, agent.AgentId, agent.AgentName, siteSlug, host, port, reverse);
 
             var sent = await agent.SendAsync(new ServerMessage { Iperf3Request = request }, ct);
             if (!sent)

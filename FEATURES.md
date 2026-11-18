@@ -53,7 +53,7 @@ an On-Site Agent, AP Telemetry, InfluxDB, or HTTPS.
 - Per agent site: client speed test target override
 - Three sites free for personal use; a lapsed license keeps a site running through a 10-day grace period
 - License checks never downgrade a license on failure; a restricted site pauses until relicensed
-- Agent management - status, version, **Upgrade** commands, **Run It for Me** gateway upgrade, enrollment tokens
+- Agent management - rename in place, status, version, **Upgrade** commands, **Run It for Me** gateway upgrade, enrollment tokens
 - Per site: Automatic Blocking mode, blocked-source count, and [cross-site blocking](#automatic-blocking) with **Turn On Recommended for All Sites**
 - [Trusted Sources](#trusted-sources) - every site's WAN addresses as UniFi Network Lists, so sites admit each other and no one else
 
@@ -63,7 +63,7 @@ an On-Site Agent, AP Telemetry, InfluxDB, or HTTPS.
 - Proxies the site's UniFi Console, SNMP, and device SSH, fenced to the site's own network
 - Latency and loss probes, per-WAN vantage, Upstream Discovery, and Network Tools probes
 - SNMP polling buffered across outages
-- Per-client WAN usage at the gateway for Bandwidth Hogs
+- Per-client WAN usage at the gateway for Live Traffic, plus per-flow and DNS detail while Live Traffic, or a client's Live Traffic in Client Performance, is open (and up to a minute after)
 - UniFi Cable Internet DOCSIS capture (agent on the gateway)
 - [Automatic Blocking](#automatic-blocking) enforcement on the gateway in seconds, inbound and outbound, with Exceptions (agent on the gateway)
 - LAN speed test server (OpenSpeedTest and iperf3) and site-local WAN speed tests
@@ -74,8 +74,8 @@ an On-Site Agent, AP Telemetry, InfluxDB, or HTTPS.
 - `proxyAllowedCidrs` pins which addresses the tunnel may reach; every dial is logged on the agent host
 - Several agents per site, for example one on the gateway and one on a LAN host
 - Runs on Docker, systemd, Proxmox LXC, or the UniFi gateway itself
-- Used by: [ISP Health](#isp-health), [Network Performance](#network-performance), [Bandwidth Hogs](#live-view),
-  [Network Tools](#network-tools), [WAN Speed Test](#wan-speed-test), [LAN Speed Test](#lan-speed-test),
+- Used by: [ISP Health](#isp-health), [Network Performance](#network-performance), [Live Traffic](#live-view),
+  [Client Performance](#client-performance) live flows, [Network Tools](#network-tools), [WAN Speed Test](#wan-speed-test), [LAN Speed Test](#lan-speed-test),
   [Client Speed Test](#client-speed-test), and [UniFi Cable Internet](#supported-hardware) stats
 
 ## Monitoring
@@ -93,22 +93,75 @@ Time-series monitoring on your own InfluxDB, fed by SNMP polling (InfluxDB).
 
 - Live stat tiles: **WAN Download**, **WAN Upload**, **ISP Health**, ISP and transit RTT and loss
   - ISP RTT and loss read the access floor across access hops, as ISP Health does
+  - Transit RTT discounts a router that answers pings slowly; real slowdowns still show
 - Gateway tiles: RTT, loss, CPU, memory, temperature, **Fabric Ingress**, **Fabric Egress**
 - Last-hour sparkline behind the ISP, transit, and gateway tiles; hover to bring it forward (InfluxDB)
 - WAN pill selector - one WAN, several to compare, or all
+- Opened from Network Performance at a moment, a chip beside the WAN pills goes back to the chart, or **×** returns to live on your own WAN selection
 - Live WAN throughput chart
 - **3D LAN Flow Map** - live 3D topology with animated download and upload flows for all LAN traffic
   - Overlays: Wi-Fi clients, wired clients, WAN globes, buildings and floor plans from the Signal Map
+  - UniFi devices and clients drawn as 3D bodies built from their icons; a placed access point sits as it is mounted (ceiling, wall, or desktop) and faces the way its orientation arrow points on the Signal Map
+  - Clients sized and shaped by what they are (phone, laptop, TV, desktop, appliance), relative to each other rather than to scale; a TV sits parallel to the nearest wall
+  - Buildings with wings get a gable roof per wing, joined in valleys, and floors that follow the drawn outline
   - Search by name or MAC, filter by band, WASD and mouse camera, fullscreen
-  - **Reposition Device**; run Upstream Discovery from a WAN globe
-  - Double-click a client for Client Performance, a switch or gateway for Port Statistics, or a WAN globe for its ISP Health
+  - **Reposition Device**; **Hide Device** takes a client out of your own view of the map, and **Hide Group** removes a multi-client port's group node so its members draw from the device upstream, with **Hidden Devices** in Overlays to bring either back; run Upstream Discovery from a WAN globe
+  - Double-click a client for Client Performance, an access point for its clients in Wi-Fi Optimizer's Client Stats, a UniFi cellular modem monitored in Cellular Stats for its series there, a switch or gateway for Port Statistics, or a WAN globe for its ISP Health
 - **LAN Topology Flow Map** (2D) - the same live data as a pan-and-zoom flow diagram
+  - Each client shows its UniFi Network icon, including custom icons
   - Per-client Wi-Fi LAN traffic, including LAN-only transfers ([AP Telemetry](#ap-telemetry))
+  - A signal meter on the card of a mesh AP or UniFi Device Bridge (its uplink signal) and of a UniFi cellular modem monitored in [Cellular Stats](#cellular-stats) (its Signal Quality), following playback
+  - Layout changes slide into place: clients and devices joining, leaving, or roaming, and filter or overlay changes
 - Both maps: device tooltips, full-duplex load coloring, mesh and MLO backhaul, UniFi Device Bridge and Building Bridge links
+- Both maps: a WAN a UniFi cellular modem carries is drawn from the modem to its WAN globe, dashed on the 2D map when it runs as a tunnel over the LAN; a cellular WAN's globe carries a **5G** or **LTE** badge
+- Both maps: a WAN globe shows its ISP's logo (the one UniFi Network shows, by ASN) where one exists, cached on the install like client icons
 - Historic playback on both maps - scrub, play, change speed, ranges from 1 hour to 30 days or everything stored (InfluxDB)
-- **Bandwidth Hogs** - who is using the WAN now, and who used the most from the last hour to 30 days
+- **Live Traffic** (formerly Bandwidth Hogs) - who is using the WAN now, and who used the most from the last hour to 30 days
   - **WAN** or **LAN + WAN** view; follows the playback timeline
-  - Measured at the gateway rather than estimated ([On-Site Agent](#on-site-agent) on the gateway)
+  - Measured at the gateway rather than estimated ([On-Site Agent](#on-site-agent) on the gateway); the **WAN** view then lists each interface behind a shared switch port (a hypervisor, a NAS) on its own row
+  - Apps, protocols, destinations, and DNS stay in memory; only aggregate usage per device is stored, not per app or protocol ([What Live Traffic Stores](docker/DEPLOYMENT.md#what-live-traffic-stores))
+  - Turn off Live Traffic flow and DNS capture per site in Settings - Monitoring - **Live Traffic**; the card still ranks clients by usage (Site Admin)
+  - **By** client, app, destination, or route; open a client to see its flows
+  - **Detailed View** - every flow through the gateway ranked by current rate, with no row limit (On-Site Agent on the gateway)
+    - **Recent ↓** and **Recent ↑**: each flow's data in the last 5 minutes (or since Live Traffic started), sortable busiest first, also per group and on a client's Live Traffic in Client Performance
+    - Click any client, destination, app, route, protocol, or port to filter to it, and again to let it go; hide a value with the button beside it or Alt-click; filters are in the link
+      - Several values of one kind match any of them (this client or that one) and share one chip ("Client Laptop or TV"); different kinds all apply
+      - Click a chip to edit it: every value of that kind with how many flows carry it, search or type one that is not on screen, Include or Exclude
+        - Muted below: values the other filters hide; clients with no traffic now or offline; apps seen in the last 10 minutes and your Custom Apps; routes carrying nothing, LAN included; TCP, UDP, ICMP, and the well-known ports (with their service names) when quiet
+      - **+ Filter** picks a kind to filter by (Client, Destination, App, Route, Protocol, Port, Resolver, or Action in History)
+      - **N clients bypassing** on the Live DNS tile filters to those clients, with Live DNS on **Bypass**
+      - **N firewall blocks** on the Active flows tile: your clients' blocked connections in the last 10 minutes; opens History filtered to Blocked
+      - An app filter for a service keeps the flows named for their app: HTTPS still lists the Apple or Netflix flows on 443, and takes in QUIC
+      - Save the filters, search, and grouping to presets **1** to **5** (**1** to **3** on a phone) and load one with a click, remembered per user and site
+    - Hover a client for its connection, address, and a link to its Client Performance page (Device Stats for the Gateway and UniFi devices); a remote-user VPN or Tailscale client reads as one ("VPN Client (address)")
+    - With [Tailscale](#settings) connected, Tailscale clients and destinations show their tailnet names, including WireGuard flows to a device's endpoint
+      - A device's busiest endpoint flow reads **Direct**, the rest **Path probe**; flows to Tailscale's relays are named by region (Tailscale DERP (Dallas)) and read **DERP relay** or **STUN**
+      - With Tailscale on an [On-Site Agent](#on-site-agent)'s host that routes for the tailnet, traffic it carries for a device shows as that device
+      - Tailscale clients carry the Tailscale icon in **Flows** and **Where It's Going**; the **Tailscale** filter keeps the tunnel and everything Tailscale devices send or receive
+    - Sort by any column, either way; rows and diagram nodes hold still under the pointer, slide when they move, and an expanded flow stays in place on screen while the list changes, again once you scroll back and settle on it
+    - Apps named by the gateway's DPI (UniFi Network's own records), else by the domain the flow went to, the port, or the address's owner (GeoLite2 ASN), with the same app icons as Client Performance
+      - Recognized from their traffic: a phone's Wi-Fi Calling (IPsec to a mobile carrier), iperf3 (TCP and UDP 5201), Tailscale (UDP 41641 on either end), Ookla Speedtest servers (a speed* name on TCP 8080), and between your own devices Google Cast, Midea appliances, LG webOS TV control (to a device whose vendor is LG), HomeKit to an IKEA DIRIGERA hub (TCP 8000, to a device whose vendor is IKEA), AirPlay (TCP 7000, to a device whose vendor is Apple), Samsung TV Control (TCP 1515 and 1516, to a device whose vendor is Samsung), Matter (UDP 5540), and UniFi WebRTC (a UniFi app's live video and data session to a UniFi Console: UDP on a per-session port while the same client holds HTTPS to that console)
+      - Apple and Backblaze traffic named from their own address space even with no domain seen; ICMP is ICMP whoever answers it
+      - A stream with no name of its own takes the app of its named siblings (same client, protocol, and port), never on shared ports like 443
+      - Network Optimizer's own traffic: On-Site Agents and browsers reaching this install (by its host name or address), and its polls of the AP Agent
+      - **Custom Apps** - name your own apps by protocol, port, and optionally a domain or address; checked first, in your order (Site Admin)
+        - Hover an unnamed port like UDP 21324 in the table or Where It's Going and **Name This App**, prefilled from the flow
+        - The form previews how many live flows it matches, and which custom app above it would name them first
+        - Also in Settings - Monitoring; applies to History, the Dashboard card, and Client Performance
+    - **ISP cache** badge on a destination served from a content cache inside your ISP's network (Google Global Cache, Netflix Open Connect, Meta FNA, Akamai): the owner's hostname (or UniFi Network's DPI name for the flow) on an address your ISP announces, named with the ISP and its ASN (GeoLite2 ASN). A cache node the device resolved out of view takes the app its neighbors in the same /24 were named with
+    - Destinations named by DNS, else by reverse DNS (PTR) or the address's owner
+      - Badges: one of your sites carries its site name, an Extra Trusted Address (Trusted Sources) reads **Trusted**, and a client or UniFi device on another VLAN carries its UniFi name and Network (hover for its switch port)
+      - Hover a destination for its address, its Threat Intelligence drill-down, and Trace; your own clients and devices link to Client Performance or Device Stats instead
+      - Every address and domain on a hover card copies with one click; Live DNS queries and outside resolvers get the same card
+    - Parallel streams from one client to one destination shown as one row with a stream count
+    - **Where It's Going** - client to app to route, by rate or by flow count; by rate each band splits into download and upload in its route's color, and each node shows both rates; hovering a route lists its top destinations (on LAN, the hosts); the gateway's own VPN tunnel is left out so tunneled traffic counts once
+    - **Live DNS** - lookups to the gateway, to DNS servers on other VLANs, and to outside resolvers; blocked lookups (NXDOMAIN, or a 0.0.0.0 / :: answer), response time, and DNS bypass (including DoH and DoT, not counting a site resolver's own encrypted upstream)
+      - A lookup the gateway redirects (DNAT) to a site resolver shows the attempt and the resolver that answered, and is not counted as a bypass
+      - **Hide Local** - leave out lookups answered only with addresses on the site's networks, remembered per user and site
+    - Per flow: two-minute rate chart, session start, bytes and packets each way, ports, client and destination Networks, the remote address's ASN, the DNS lookup behind it, and the policy that allowed it - UniFi Network's record once the flow ends (UniFi Network 11), and for a live flow, the site's Firewall Policies evaluated by the Security Audit's engine (client, IP, network, domain, and region policies)
+    - **Active** and **Ended** flows; **Pause**
+    - Per-flow and DNS detail leaves the gateway only while someone is viewing it (and up to a minute after, so a return is live immediately), and is never stored
+    - **History** - the flows UniFi Network still holds (its recent window, under an hour), allowed and blocked: a **Timeline** of flows or data per minute (drag to pick a window), the same filters, sorted by time or data, with each flow's duration and the policy that allowed or blocked it. Reads the console's own records, so it needs no agent (UniFi Network 11)
 - **Port Statistics** - rate, bytes, unicast, multicast, broadcast, errors, and discards per port
 - **Add to Dashboard** - pin Live View to the top of the Dashboard
 - Advisories: **Flaky Monitoring Targets**, unpolled SNMP devices, Upstream Discovery results ready
@@ -132,6 +185,7 @@ Time-series monitoring on your own InfluxDB, fed by SNMP polling (InfluxDB).
   - Hop table per episode: loss, normal to during RTT with one bar per trace behind it, return hops, ICMP-limited hops; **Re-run** in Network Tools; each target opens on Network Performance over the episode
   - A slowdown that comes and goes is read trace by trace: hops that slow in the same traces as the destination show where it first appears, and the verdict says when that could be the return path
   - Hops a trace reads as elevated are pinged during the episode, so a router that limits traceroute replies is not blamed; a hostname target is traced at one address for the whole episode
+  - The hop table shows each hop's location on desktop, read the same way as Network Tools' traceroute
   - A traced route change shows once, as its path shift with the hop table; it is not congestion and does not score
   - A sustained rise on RTT alone, with no loss and no wider jitter, is a route change too: it shows as a path shift with its hop table even when no step was detected
   - On the Per-Network RTT chart, an episode that is a route change is shaded as a path shift, in the path shift's blue, not as congestion
@@ -149,13 +203,31 @@ Time-series monitoring on your own InfluxDB, fed by SNMP polling (InfluxDB).
 - **Latency & Packet Loss** - RTT, loss, and WAN throughput charts with a stats table
   - Categories: Fabric, ISP, Transit, Internet, Custom; LAN or per-WAN scope
   - Ranges from 15 minutes to 30 days, custom ranges, synced hover, jump to Live View
-- **Investigate** - step through **Packet Loss Events** and **Loaded Loss Events**
+  - Hover a host's chip, a Latency Targets address, or an Upstream Path Discovery address for its card: copy, and **Trace**
+  - Opened from Live View, ISP Health, or the Dashboard, a chip beside the title names where from, with the way back and **×** for your own filters; your own WAN or LAN scope or time preset ends it
+- **Path Map** - every ISP, Transit, Internet, and Custom target's route on one map, merged where routes share hops
+  - Each target's live state against its own baseline: normal, elevated, degraded, unreachable
+  - Several WANs on one map, each in its own line style, showing where their routes split
+  - Views: **All** (every route in full), **Transit** (the networks between you and each target), and **Local** (your ISP and where it hands off, with each place's round trip); each fits and names its part of the map and fades the rest, never hiding a target off its baseline. Remembered per user
+  - Re-traced every minute while open; hourly in the background, and at once when a target degrades
+  - Metered WANs trace once per view, skipping routes checked in the last 15 minutes
+  - Route changes: grouped by network across the targets they moved, listed under the map with each target's round trip before and after; select one to draw its old routes
+  - A hop placed better between two traces (a hostname, a set location) is not a route change
+  - A router slow only on its own replies, with clean targets beyond it, is not counted as a problem
+  - Problems list, worst first; a click solos the target in the charts below
+  - Follows the charts' WAN, category, and time window
+  - A card on every target, place, leg, and cluster (a sheet on a phone) lists the targets there; each opens in the charts or runs a traceroute in Network Tools
+- **Investigate** - step through **Packet Loss Events** and **Loaded Loss Events**; the stepper rides in the chart header, so it stays in view as you scroll the charts
 - **Upstream Path Discovery** - ICMP and UDP traceroutes that map OLT/CMTS, ISP edge, transit ASNs, and internet hosts
   - Sets the access technology, saves monitoring targets, and re-runs every 7 days
   - Waits for a quiet WAN (no outage, load, or loss above the access technology's idle level); a manual run on a busy WAN warns first, with **Run Anyway**
   - A target that stops answering is paused only after three automatic runs, and resumes when it answers
   - Detects hops that left the path and asks whether the ISP changed
   - Metered WANs get fewer targets and a slower cadence
+  - Proposes ISP gateways (passthrough or router mode) and far-slower transit routers unchecked
+  - Leaves out a transit router reached by a different route than your traffic takes, checked by ping and a direct traceroute
+  - Keeps your choices: unchecked or paused targets stay that way on re-runs
+  - A re-run and commit corrects earlier mistyped targets, keeping their history
 - **Flaky Monitoring Targets** - targets losing more than their peers, with **Disable** and **Disable all**
 - **Latency Targets** - add, rename, pause, remove, and restore targets
   - ICMP or TCP probes, per-WAN path, interval from 2 seconds to 5 minutes
@@ -233,6 +305,10 @@ Time-series monitoring on your own InfluxDB, fed by SNMP polling (InfluxDB).
 - **Run a Probe** - ping, traceroute, or forward and reverse DNS lookup
   - From the server, an [On-Site Agent](#on-site-agent), a WAN vantage, or any UniFi device (Device SSH)
   - ICMP, TCP, or UDP (traceroute only); choose the gateway's WAN interface
+  - Traceroute hops show their location (flag, city, country): the city a transit router's hostname names, checked against its round trip, else GeoLite2 City
+  - Route Map: the traced path drawn on a map, city to city, with each point marked by what placed it (hostname, nearby hop, learned, or GeoLite2), and a dotted leg where hops in between did not answer
+  - Set location: an Admin can set the city of any public hop from a trace table (Network Tools or ISP Health), install-wide, and the hops around it place against it
+  - Learned locations: a transit or peering router one trace placed by its hostname or a nearby hop keeps that city on later traces that only have GeoLite2 for it, install-wide (an address two sites place in different cities stays with each site); never anycast or the destination's own network
   - DNS lookups use the vantage's own resolver, which shows DNS segregation per network
   - **Other Sites** targets: each of your other sites' latest WAN address, for inter-site traces
 - **Inspect a Gateway Interface** - **Addresses and DHCP Lease**, **SFP Module**, and **Neighbors** (Gateway SSH)
@@ -242,9 +318,13 @@ Time-series monitoring on your own InfluxDB, fed by SNMP polling (InfluxDB).
 ## Client Performance
 
 - Detects your own device, or pick any client from the client selector
+- The client's UniFi Network icon (custom icons included) beside its name
 - Live signal gauge, AP TX and RX rates, and live download and upload
 - Wired clients: switch port, link speed, live throughput, and port errors and drops (SNMP)
 - VPN clients (Tailscale, Teleport, One-Click and remote-user VPN, site-to-site) get a simplified view with speed tests and path traces
+  - A Tailscale client shows its tailnet name, OS, and owner (or tags), and whether it connects directly or through a DERP relay ([Tailscale](#settings))
+  - The client selector lists the site's Tailscale devices; **Open in Live Traffic** shows a device's flows
+  - A LAN client that is the tailnet's exit node or subnet router is labeled as one
 - Jump to the client on the Live View; its own Speed Map and Signal Map are built in
 - Rename a client and set or clear its **Fixed IP** in place
 - MLO links, AP Lock, channel, and width
@@ -254,10 +334,15 @@ Time-series monitoring on your own InfluxDB, fed by SNMP polling (InfluxDB).
 - GPS walk test - signal heatmap from your phone while the page is open (HTTPS)
 - **Speed** - live throughput, **Run Speed Test** / **Quick Test**, speed and latency history, result map
   - **Throughput** history from 1h to 30d: average, peak, WAN share, and speed test marks (InfluxDB)
+  - Under **Live Throughput**: the client's flows through the gateway, their rate, and busiest apps ([On-Site Agent](#on-site-agent))
 - **Signal** - noise, SNR, TX power, radio peers, read-only **Signal Map**, signal history, and log
 - **Connection** - **Network Path** with bottleneck, AP history, connection events, and trace changes
-- **Data** (Data Usage) - WAN vs LAN + WAN totals, usage chart, and per-application breakdown
+- **Data / Apps** - WAN vs LAN + WAN totals, usage chart, and per-application breakdown
   - Rolled up hourly per client and per port, with a 30-day backfill on first run
+  - **Live Traffic** - the client's flows right now, ranked by rate, sortable, filterable, with per-flow detail ([On-Site Agent](#on-site-agent))
+  - Without a gateway agent: the client's flow history from UniFi Network, Allowed or Blocked
+  - **Applications** - **Right now**: the client's live apps and rates, click to filter (On-Site Agent)
+  - **Live DNS** - the client's lookups, blocked answers, and DNS bypass (On-Site Agent)
 
 ## Config Optimizer
 
@@ -315,6 +400,7 @@ Gateway tweaks for UCG-Fiber, UXG-Fiber, UCG-Max, and UXG-Max (Gateway SSH).
 - **Edit** - edit the config as YAML with live checks, then **Review Plan**; upload or download YAML files, for the whole site or a single collection
   - Remove an object with one click; references to it in lists are removed in the same plan
   - Remove a client to forget it in UniFi Network, each one an item to acknowledge; Roll Back and Return to Baseline also forget a client the snapshot lacks, Restore never does
+  - Copy a client's custom icon (AI-generated or uploaded) to another client by copying its `ai_icon` block, which UniFi Network has no way to do; remove the block to clear it
   - **+ Add** a WLAN, network, port profile, firewall policy, zone, group, or Local DNS record from UniFi's own defaults
   - Search field names and values across every collection (common names find UniFi's: VLAN finds networks, SSID finds WLANs), with each collection's match count and Previous / Next through the matches
   - Edit a saved template the same way
@@ -344,7 +430,7 @@ Gateway tweaks for UCG-Fiber, UXG-Fiber, UCG-Max, and UXG-Max (Gateway SSH).
     - Devices find the Console at its new address: the Plan moves a UniFi OS Server's Inform Host override with it, and a Device still offline after the move gets set-inform over SSH (Device SSH)
     - **Lower Lease Times** a lease ahead so clients move within minutes (the move puts them back), and **Reconnect Clients** after it: wireless clients rejoin, PoE-powered wired clients optionally power-cycle
 - Alerts for security regressions, changes no admin made, management-path changes, drift, and UniFi Console admin and update settings
-- **Settings** - retention, change detection, commit-confirmed window, approvals
+- **Settings** - retention, change detection, commit-confirmed window, approvals, **Default schedule time** for applies
 
 ## Firmware Rollout
 
@@ -384,6 +470,8 @@ Gateway tweaks for UCG-Fiber, UXG-Fiber, UCG-Max, and UXG-Max (Gateway SSH).
 - **Client Band Distribution**, **Channel Optimization** summary, and per-AP radio cards
 - Mesh uplink details and **Re-pair Uplink**
 - **Health Issues** with recommendations; **Acknowledge** hides an issue but keeps it in the score
+  - Each affected AP, radio, or client links straight to it
+  - Each affected AP, radio, or client links to where it is shown: its clients on that band, its channel, its metrics, or the client itself
 - Health Issue checks:
   - Signal and coverage: weak signal, weak signal population, coverage gaps, sticky clients ([AP Telemetry](#ap-telemetry))
   - Channels: co-channel interference, high power overlap, non-standard 2.4 GHz channel, wide channel with weak clients or unused width
@@ -418,8 +506,10 @@ Gateway tweaks for UCG-Fiber, UXG-Fiber, UCG-Max, and UXG-Max (Gateway SSH).
 ### Clients and Coverage
 
 - **Client Stats** - searchable client table, signal and TX retry history, connection events
+  - Each client's UniFi Network icon in the table and its details
+  - Each client's SSID, as a sortable column (desktop) and in its details
 - **Roaming** - roaming topology, AP pair success rates, 802.11r usage, roaming clients
-- **Power/Coverage** - signal distribution, EIRP per AP, coverage quality, overlap
+- **Power & Coverage** - signal distribution (click a bar to list its clients in Client Stats), EIRP per AP, coverage quality, overlap
 - **Load Balance** - clients per AP and imbalance
 - **Connectivity** - success rate per connection stage and per AP
 - **Band Steering** - steering opportunities and clients by Wi-Fi generation
@@ -491,6 +581,7 @@ models such as U6-Lite, U6-Mesh, and UAP-AC-Pro, and gateways with built-in Wi-F
 
 - Collects IPS events (IPS v1 and v2), traffic flows, and [Web Application Firewall](#web-application-firewall) events, with history backfill
 - Suricata signature enrichment
+- Hover an external address or host name anywhere in Threat Intelligence or a Web Application Firewall event for its card: copy, and **Trace**
 - **Overview** - totals, threat timeline, kill chain distribution, blocked vs detected
   - **Top Sources**, **Top Targeted Ports**, **Attack Patterns** (scan, brute force, exploit campaign, DDoS)
   - **Protection Setup** - checklist from watching to blocking, with **Turn On Recommended**
@@ -616,7 +707,7 @@ Requires Gateway SSH.
 
 - Browser WAN speed test from any device against your own external OpenSpeedTest server (HTTPS strongly recommended)
 - Shareable URL; results identified by device, with a path trace through the WAN hop
-- History by device and server
+- History by device and server, each device with its UniFi Network icon
 - Deploy command for the external server in Settings
 
 ## LAN Speed Test
@@ -627,8 +718,10 @@ Requires Gateway SSH.
   - Select devices and test them one after another with **Run Selected**, with **Stop**
 - Each device's latest result shows under its row, with failures summarized and raw output collapsed
 - Path analysis - every hop, link speeds (LAG-aware), bottleneck, Wi-Fi signal, efficiency, inter-VLAN routing
+  - Each hop shows its client's UniFi Network icon or its device's product image
 - Runs from the [On-Site Agent](#on-site-agent) at agent sites
 - History with search across any device in the path; firmware versions recorded
+  - Clients carry their UniFi Network icon, UniFi devices their product image, Tailscale devices the Tailscale icon; so does the Dashboard card
 - Parallel streams per device type; one test duration
 
 ## Client Speed Test
@@ -637,7 +730,9 @@ Requires Gateway SSH.
 - Browser speed test from any phone, tablet, or laptop, with no SSH
 - iperf3 to the server from the command line, from any device; each run is captured and stored
 - Results identified by device, with path trace, Wi-Fi channel and MLO links, and personal bests
+  - Each device carries its UniFi Network icon, a Tailscale device the Tailscale icon
   - A personal best follows the device across IP address changes
+- Tailscale results carry the device's tailnet name, and whether it connected directly or through a DERP relay, seen just after the test ([Tailscale](#settings))
 - **Speed / Coverage Map** - results with GPS location, colored by speed (HTTPS)
   - Place APs, filter by LAN or external, GPS accuracy filter, AP popups
 
@@ -657,7 +752,7 @@ Requires Gateway SSH.
   - Security Audit score drops and new findings; threat attack chains and patterns; Web Application Firewall events
   - A device reaching, or trying to reach, an address on a public block list
   - WAN port below its usual link speed or at half duplex, and its recovery
-  - ONT management unresponsive while its SFP still reads light; ONT rebooted
+  - ONT management unresponsive while its SFP still reads light; ONT rebooted; downstream AES encryption enabled or disabled (Network Optimizer Custom PON endpoints)
   - WAN, LAN, and client speed test regressions
   - UniFi Console and On-Site Agent connection loss; an On-Site Agent tunnel that keeps reconnecting
   - Monitoring target offline, sustained loss, full and partial WAN outages
@@ -683,6 +778,8 @@ Requires Gateway SSH.
 - **Gateway SSH** and **Device SSH** credentials; iperf3 status on the gateway
 - **Managed SSH Key** - generate or upload one key and install it on the gateway, surviving reboots
   - GL.iNet and MikroTik cellular modems can sign in with it instead of a password, per modem
+- **Tailscale** - read the tailnet from the Tailscale API (OAuth credential, read-only) or a Headscale server
+  - Tailscale on an [On-Site Agent](#on-site-agent)'s host is found and used automatically: exact paths and traffic counters
 - **Monitoring** - SNMP status, InfluxDB, Adaptive SQM monitor, and cable modem, ONT, cellular, and Starlink devices
 - **AP Telemetry** - turn on and manage the AP agents; see [Wi-Fi Optimizer - AP Telemetry](#ap-telemetry)
 - **Speed Tests** - LAN test defaults and external WAN speed test servers
@@ -765,6 +862,7 @@ Requires Gateway SSH.
 - Alerts, schedules, audit log, and config backup APIs
 - PDF reports for Security Audit, ISP Health, and Firmware Rollout
 - Health check endpoint
+- Tailscale and Headscale device lists, read-only
 
 ## Installation and Platforms
 

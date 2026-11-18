@@ -1831,7 +1831,7 @@ from(bucket: {FluxLiteral.Quote(_longtermBucket)})
         "alloc_lost", "lan_link_status", "lan_mode",
         "lan_rx_fcs_err", "lan_tx_drop_events", "lan_buffer_overflow",
         "olt_vendor_id", "registration_status", "key_exchange_status", "firmware_version",
-        "olt_equipment_id", "olt_version",
+        "olt_equipment_id", "olt_version", "aes_active", "gem_ports_encrypted",
     };
 
     private static readonly string PonFieldFilter =
@@ -1918,6 +1918,8 @@ from(bucket: {FluxLiteral.Quote(_longtermBucket)})
             FirmwareVersion = record.GetValueByKey("firmware_version") as string,
             OltModel = record.GetValueByKey("olt_equipment_id") as string,
             OltVersion = record.GetValueByKey("olt_version") as string,
+            AesActive = record.GetValueByKey("aes_active") as bool?,
+            GemPortsEncrypted = AsLongOrNull(record.GetValueByKey("gem_ports_encrypted")),
         };
     }
 
@@ -1938,6 +1940,10 @@ from(bucket: {FluxLiteral.Quote(_longtermBucket)})
         if (stats.DsFecEnabled.HasValue) point = point.Field("ds_fec_enabled", stats.DsFecEnabled.Value);
         if (stats.UsFecEnabled.HasValue) point = point.Field("us_fec_enabled", stats.UsFecEnabled.Value);
         if (stats.OnuResponseTime.HasValue) point = point.Field("onu_response_time", stats.OnuResponseTime.Value);
+        if (stats.GemPorts.HasValue) point = point.Field("gem_ports", stats.GemPorts.Value);
+        if (stats.AesActive.HasValue) point = point.Field("aes_active", stats.AesActive.Value);
+        if (stats.GemPortsEncrypted.HasValue) point = point.Field("gem_ports_encrypted", stats.GemPortsEncrypted.Value);
+        if (stats.GponmgrEnc.HasValue) point = point.Field("gponmgr_enc", stats.GponmgrEnc.Value);
         if (stats.BipErrors.HasValue) point = point.Field("bip_errors", stats.BipErrors.Value);
         if (stats.FecErrors.HasValue) point = point.Field("fec_errors", stats.FecErrors.Value);
         if (stats.FecCorrectedWords.HasValue) point = point.Field("fec_corrected_words", stats.FecCorrectedWords.Value);
@@ -4141,6 +4147,8 @@ from(bucket: {FluxLiteral.Quote(_longtermBucket)})
         public string? FirmwareVersion { get; set; }
         public string? OltModel { get; set; }
         public string? OltVersion { get; set; }
+        public bool? AesActive { get; set; }
+        public long? GemPortsEncrypted { get; set; }
     }
 
     /// <summary>

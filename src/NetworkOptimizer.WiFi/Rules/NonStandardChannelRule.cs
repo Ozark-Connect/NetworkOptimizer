@@ -41,7 +41,7 @@ public class NonStandardChannelRule : IWiFiOptimizerRule
                 Description = $"APs ({string.Join(", ", apNames)}) are using channel {group.Key}, which overlaps with adjacent channels.",
                 Recommendation = "For best performance, use only channels 1, 6, or 11 on 2.4 GHz to avoid overlap.",
                 ScoreImpact = -2
-            };
+            }.WithLinks(apNames.Select(name => new IssueLink(name, IssueLinks.Channel(RadioBand.Band2_4GHz, group.Key))));
         }
     }
 

@@ -58,6 +58,7 @@ public class CoverageGapRule : IWiFiOptimizerRule
                 Key = HealthIssueKeys.For(RuleId, HealthIssueKeys.Macs(new[] { ap.Mac })),
                 Description = $"{weakPct:F0}% of clients ({weakCount} of {clientCount}) connected to {ap.Name} have weak signal " +
                     "for their band. These clients may be too far from the AP or experiencing obstruction.",
+                AffectedLinks = { new IssueLink(ap.Name, IssueLinks.Clients(ap.Mac)) },
                 AffectedEntity = ap.Name,
                 Recommendation = "Consider: (1) increasing TX power on this AP, (2) adding an AP closer to weak clients, " +
                     "or (3) checking for physical obstructions.",
@@ -75,9 +76,8 @@ public class CoverageGapRule : IWiFiOptimizerRule
             Key = HealthIssueKeys.For(RuleId, HealthIssueKeys.Macs(coverageGapAps.Select(x => x.Ap.Mac))),
             Description = $"{coverageGapAps.Count} access points have >={WeakSignalPctThreshold:F0}% of clients with weak signal for their band. " +
                 "This indicates significant coverage gaps in your deployment.",
-            AffectedEntity = string.Join(", ", coverageGapAps.Select(x => $"{x.Ap.Name} ({x.WeakPct:F0}%)")),
             Recommendation = "Review AP placement and consider increasing TX power or adding APs in areas with weak coverage.",
             ScoreImpact = -8 * coverageGapAps.Count
-        };
+        }.WithLinks(coverageGapAps.Select(x => new IssueLink($"{x.Ap.Name} ({x.WeakPct:F0}%)", IssueLinks.Clients(x.Ap.Mac))));
     }
 }

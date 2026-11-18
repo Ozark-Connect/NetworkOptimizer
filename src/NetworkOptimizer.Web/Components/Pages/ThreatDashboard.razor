@@ -6,6 +6,7 @@
 @using NetworkOptimizer.Web.Services.Authorization
 @inject IAuthorizationService Authz
 @using NetworkOptimizer.Web.Services
+@using static NetworkOptimizer.Web.Services.CountryDisplay
 @using NetworkOptimizer.Threats.Models
 @using NetworkOptimizer.Threats.Interfaces
 @using NetworkOptimizer.Threats.Blocking
@@ -72,7 +73,7 @@
     @if (_activeTab != "drilldown")
     {
         <div class="wifi-view-tabs-wrapper" style="margin-bottom:0;">
-            <button class="wifi-tabs-scroll-btn wifi-tabs-scroll-left" onclick="this.parentElement.querySelector('.wifi-view-tabs').scrollBy({left: -200, behavior: 'smooth'})">&#8249;</button>
+            <button class="wifi-tabs-scroll-btn wifi-tabs-scroll-left" onclick="this.parentElement.querySelector('.wifi-view-tabs').scrollBy({left: -200, behavior: 'smooth'})"><AppIcon Name="chevron-left" /></button>
             <div class="wifi-view-tabs" style="border-bottom:none; padding-bottom:0;">
                 <button class="wifi-view-tab @(_activeTab == "overview" ? "active" : "")"
                         @onclick='() => SetActiveTab("overview")'>Overview</button>
@@ -89,7 +90,7 @@
                 <button class="wifi-view-tab"
                         @onclick='() => NavigationManager.NavigateTo("/settings#threat-intelligence")'>Settings</button>
             </div>
-            <button class="wifi-tabs-scroll-btn wifi-tabs-scroll-right" onclick="this.parentElement.querySelector('.wifi-view-tabs').scrollBy({left: 200, behavior: 'smooth'})">&#8250;</button>
+            <button class="wifi-tabs-scroll-btn wifi-tabs-scroll-right" onclick="this.parentElement.querySelector('.wifi-view-tabs').scrollBy({left: 200, behavior: 'smooth'})"><AppIcon Name="chevron-right" /></button>
         </div>
     }
     else
@@ -123,7 +124,7 @@
                 <button class="btn btn-sm btn-secondary filter-gear-btn"
                         @onclick="() => _showFilterPanel = !_showFilterPanel"
                         data-tooltip="Configure noise filters"
-                        data-tooltip-hover-only>&#9881;</button>
+                        data-tooltip-hover-only><AppIcon Name="settings" /></button>
             </div>
         }
         else
@@ -512,7 +513,7 @@ else
                                 @foreach (var source in _dashboardData.TopSources)
                                 {
                                     <tr>
-                                        <td>@{ var srcName = GetClientName(source.SourceIp); }<a href="javascript:void(0)" class="ip-link" @onclick="() => DrillDownToIp(source.SourceIp)"><code>@source.SourceIp</code></a>@if (srcName != null) { <span class="ip-client-name">@srcName</span> }</td>
+                                        <td>@{ var srcName = GetClientName(source.SourceIp); }<a href="javascript:void(0)" class="ip-link" @attributes="NetworkOptimizer.Web.Services.Monitoring.LiveTraffic.LiveTrafficLinks.DestinationCard(source.SourceIp, threatsLink: false)" @onclick="() => DrillDownToIp(source.SourceIp)"><code>@source.SourceIp</code></a>@if (srcName != null) { <span class="ip-client-name">@srcName</span> }</td>
                                         <td>@if (string.IsNullOrEmpty(source.CountryCode)) { <span>-</span> } else { <span class="flag-icon" data-tooltip="@CountryTooltip(source.CountryCode)">@CountryFlag(source.CountryCode)</span> }</td>
                                         <td class="hide-mobile">@(source.AsnOrg ?? (source.Asn.HasValue ? $"AS{source.Asn}" : "-"))</td>
                                         <td>@FormatNumber(source.EventCount)</td>
@@ -845,7 +846,7 @@ else
                     else
                     {
                         <div class="empty-state">
-                            <div class="empty-icon">&#10003;</div>
+                            <div class="empty-icon"><AppIcon Name="check" /></div>
                             <h3>No Exposed Services</h3>
                             <p>No port forward rules detected, or no threats are targeting forwarded ports.</p>
                         </div>
@@ -934,7 +935,7 @@ else
                                 {
                                     <tr>
                                         <td>@{ var deviceName = GetClientName(contact.DeviceIp); }<a href="javascript:void(0)" class="ip-link" @onclick="() => DrillDownToIp(contact.DeviceIp)"><code>@contact.DeviceIp</code></a>@if (deviceName != null) { <span class="ip-client-name">@deviceName</span> }</td>
-                                        <td><a href="javascript:void(0)" class="ip-link" @onclick="() => DrillDownToIp(contact.Address)"><code>@contact.Address</code></a></td>
+                                        <td><a href="javascript:void(0)" class="ip-link" @attributes="NetworkOptimizer.Web.Services.Monitoring.LiveTraffic.LiveTrafficLinks.DestinationCard(contact.Address, threatsLink: false)" @onclick="() => DrillDownToIp(contact.Address)"><code>@contact.Address</code></a></td>
                                         <td class="hide-mobile">@contact.List</td>
                                         <td>@(contact.Connected ? "Connected" : "Blocked")</td>
                                         <td class="hide-mobile">@FormatNumber(contact.Events)</td>
@@ -970,7 +971,7 @@ else
                                 @foreach (var seq in _attackSequences)
                                 {
                                     <tr>
-                                        <td>@{ var seqName = GetClientName(seq.SourceIp); }<a href="javascript:void(0)" class="ip-link" @onclick="() => DrillDownToIp(seq.SourceIp)"><code>@seq.SourceIp</code></a>@if (seqName != null) { <span class="ip-client-name">@seqName</span> }</td>
+                                        <td>@{ var seqName = GetClientName(seq.SourceIp); }<a href="javascript:void(0)" class="ip-link" @attributes="NetworkOptimizer.Web.Services.Monitoring.LiveTraffic.LiveTrafficLinks.DestinationCard(seq.SourceIp, threatsLink: false)" @onclick="() => DrillDownToIp(seq.SourceIp)"><code>@seq.SourceIp</code></a>@if (seqName != null) { <span class="ip-client-name">@seqName</span> }</td>
                                         <td class="hide-mobile">@if (string.IsNullOrEmpty(seq.CountryCode)) { <span>-</span> } else { <span class="flag-icon" data-tooltip="@CountryTooltip(seq.CountryCode)">@CountryFlag(seq.CountryCode)</span> }</td>
                                         <td class="hide-mobile text-truncate-200">@(seq.AsnOrg ?? "-")</td>
                                         <td>
@@ -995,7 +996,7 @@ else
                 else
                 {
                     <div class="empty-state">
-                        <div class="empty-icon">&#10003;</div>
+                        <div class="empty-icon"><AppIcon Name="check" /></div>
                         <h3>No Multi-Stage Sequences</h3>
                         <p>No source IPs exhibited activity across multiple kill chain stages in this period.</p>
                     </div>
@@ -1064,7 +1065,7 @@ else
                                     @foreach (var entry in _searchResults)
                                     {
                                         <tr>
-                                            <td>@{ var searchName = GetClientName(entry.Ip); }<a href="javascript:void(0)" class="ip-link" @onclick="() => DrillDownToIp(entry.Ip)"><code>@entry.Ip</code></a>@if (searchName != null) { <span class="ip-client-name">@searchName</span> }</td>
+                                            <td>@{ var searchName = GetClientName(entry.Ip); }<a href="javascript:void(0)" class="ip-link" @attributes="NetworkOptimizer.Web.Services.Monitoring.LiveTraffic.LiveTrafficLinks.DestinationCard(entry.Ip, threatsLink: false)" @onclick="() => DrillDownToIp(entry.Ip)"><code>@entry.Ip</code></a>@if (searchName != null) { <span class="ip-client-name">@searchName</span> }</td>
                                             <td>
                                                 <span class="role-badge role-@entry.Role.ToLowerInvariant()">@entry.Role</span>
                                             </td>
@@ -1102,7 +1103,7 @@ else
         @* Header: IP + client name + first/last seen *@
         <div class="drilldown-header">
             <h2 class="drilldown-title" style="margin-top:-4px; line-height:1.2;">
-                <code>@_drilldownData.Ip</code>
+                <code @attributes="NetworkOptimizer.Web.Services.Monitoring.LiveTraffic.LiveTrafficLinks.DestinationCard(_drilldownData.Ip, threatsLink: false)">@_drilldownData.Ip</code>
             </h2>
             @{ var drilldownName = GetClientName(_drilldownData.Ip); }
             @if (drilldownName != null)
@@ -1278,13 +1279,13 @@ else
                                     <tr>
                                         @if (string.IsNullOrEmpty(dest.Ip))
                                         {
-                                            <td><code>@(dest.Domain ?? "-")</code></td>
+                                            <td><code @attributes="NetworkOptimizer.Web.Services.Monitoring.LiveTraffic.LiveTrafficLinks.DestinationCard(dest.Domain, threatsLink: false)">@(dest.Domain ?? "-")</code></td>
                                         }
                                         else
                                         {
-                                            <td>@{ var destName = GetClientName(dest.Ip); }<a href="javascript:void(0)" class="ip-link" @onclick="() => DrillDownToIp(dest.Ip)"><code>@dest.Ip</code></a>@if (destName != null) { <span class="ip-client-name">@destName</span> }@if (dest.PublicList != null) { <span class="reputation-badge reputation-malicious" style="margin-left:0.5rem;" data-tooltip="On @dest.PublicList, one of this site's public block lists. A device on your network reaching it raises a Public Block List alert.">@dest.PublicList</span> }</td>
+                                            <td>@{ var destName = GetClientName(dest.Ip); }<a href="javascript:void(0)" class="ip-link" @attributes="NetworkOptimizer.Web.Services.Monitoring.LiveTraffic.LiveTrafficLinks.DestinationCard(dest.Ip, threatsLink: false)" @onclick="() => DrillDownToIp(dest.Ip)"><code>@dest.Ip</code></a>@if (destName != null) { <span class="ip-client-name">@destName</span> }@if (dest.PublicList != null) { <span class="reputation-badge reputation-malicious" style="margin-left:0.5rem;" data-tooltip="On @dest.PublicList, one of this site's public block lists. A device on your network reaching it raises a Public Block List alert.">@dest.PublicList</span> }</td>
                                         }
-                                        <td class="hide-mobile">@(dest.Domain ?? "-")</td>
+                                        <td class="hide-mobile"><span @attributes="NetworkOptimizer.Web.Services.Monitoring.LiveTraffic.LiveTrafficLinks.DestinationCard(dest.Domain, threatsLink: false)">@(dest.Domain ?? "-")</span></td>
                                         <td><code class="code-sm">@dest.PortRanges</code></td>
                                         <td class="hide-mobile">@FormatServices(dest.Services)</td>
                                         <td>@FormatNumber(dest.EventCount)</td>
@@ -1356,8 +1357,8 @@ else
                                 @foreach (var src in _drilldownData.Sources.Take(_sourcesVisible))
                                 {
                                     <tr>
-                                        <td>@{ var srcPeerName = GetClientName(src.Ip); }<a href="javascript:void(0)" class="ip-link" @onclick="() => DrillDownToIp(src.Ip)"><code>@src.Ip</code></a>@if (srcPeerName != null) { <span class="ip-client-name">@srcPeerName</span> }</td>
-                                        <td class="hide-mobile">@(src.Domain ?? "-")</td>
+                                        <td>@{ var srcPeerName = GetClientName(src.Ip); }<a href="javascript:void(0)" class="ip-link" @attributes="NetworkOptimizer.Web.Services.Monitoring.LiveTraffic.LiveTrafficLinks.DestinationCard(src.Ip, threatsLink: false)" @onclick="() => DrillDownToIp(src.Ip)"><code>@src.Ip</code></a>@if (srcPeerName != null) { <span class="ip-client-name">@srcPeerName</span> }</td>
+                                        <td class="hide-mobile"><span @attributes="NetworkOptimizer.Web.Services.Monitoring.LiveTraffic.LiveTrafficLinks.DestinationCard(src.Domain, threatsLink: false)">@(src.Domain ?? "-")</span></td>
                                         <td><code class="code-sm">@src.PortRanges</code></td>
                                         <td class="hide-mobile">@FormatServices(src.Services)</td>
                                         <td>@FormatNumber(src.EventCount)</td>
@@ -1534,7 +1535,7 @@ else
                                         <td class="hide-mobile text-truncate-200">
                                             @if (!string.IsNullOrEmpty(sig.Domain))
                                             {
-                                                <span>@sig.Domain</span>
+                                                <span @attributes="NetworkOptimizer.Web.Services.Monitoring.LiveTraffic.LiveTrafficLinks.DestinationCard(sig.Domain, threatsLink: false)">@sig.Domain</span>
                                             }
                                             else
                                             {
@@ -1636,7 +1637,7 @@ else
                                 @foreach (var src in _portDrilldownData.TopSources)
                                 {
                                     <tr>
-                                        <td><a href="javascript:void(0)" class="ip-link" @onclick="() => DrillDownToIp(src.Ip)"><code>@src.Ip</code></a></td>
+                                        <td><a href="javascript:void(0)" class="ip-link" @attributes="NetworkOptimizer.Web.Services.Monitoring.LiveTraffic.LiveTrafficLinks.DestinationCard(src.Ip, threatsLink: false)" @onclick="() => DrillDownToIp(src.Ip)"><code>@src.Ip</code></a></td>
                                         <td class="hide-mobile">@if (string.IsNullOrEmpty(src.CountryCode)) { <span>-</span> } else { <span class="flag-icon" data-tooltip="@CountryTooltip(src.CountryCode)">@CountryFlag(src.CountryCode)</span> }</td>
                                         <td class="hide-mobile"><span class="text-truncate-300" style="display:inline-block;">@(src.AsnOrg ?? "-")</span></td>
                                         <td>@src.EventCount</td>
@@ -1672,11 +1673,11 @@ else
                                     <tr>
                                         @if (string.IsNullOrEmpty(dest.Ip))
                                         {
-                                            <td><code>@(dest.Host ?? "-")</code></td>
+                                            <td><code @attributes="NetworkOptimizer.Web.Services.Monitoring.LiveTraffic.LiveTrafficLinks.DestinationCard(dest.Host, threatsLink: false)">@(dest.Host ?? "-")</code></td>
                                         }
                                         else
                                         {
-                                            <td>@{ var destName = GetClientName(dest.Ip); }<a href="javascript:void(0)" class="ip-link" @onclick="() => DrillDownToIp(dest.Ip)"><code>@dest.Ip</code></a>@if (destName != null) { <span class="ip-client-name">@destName</span> }</td>
+                                            <td>@{ var destName = GetClientName(dest.Ip); }<a href="javascript:void(0)" class="ip-link" @attributes="NetworkOptimizer.Web.Services.Monitoring.LiveTraffic.LiveTrafficLinks.DestinationCard(dest.Ip, threatsLink: false)" @onclick="() => DrillDownToIp(dest.Ip)"><code>@dest.Ip</code></a>@if (destName != null) { <span class="ip-client-name">@destName</span> }</td>
                                         }
                                         <td>@dest.EventCount</td>
                                         <td>@dest.BlockedCount</td>
@@ -1801,7 +1802,7 @@ else
                                 @foreach (var src in _protocolDrilldownData.TopSources)
                                 {
                                     <tr>
-                                        <td><a href="javascript:void(0)" class="ip-link" @onclick="() => DrillDownToIp(src.Ip)"><code>@src.Ip</code></a></td>
+                                        <td><a href="javascript:void(0)" class="ip-link" @attributes="NetworkOptimizer.Web.Services.Monitoring.LiveTraffic.LiveTrafficLinks.DestinationCard(src.Ip, threatsLink: false)" @onclick="() => DrillDownToIp(src.Ip)"><code>@src.Ip</code></a></td>
                                         <td class="hide-mobile">@if (string.IsNullOrEmpty(src.CountryCode)) { <span>-</span> } else { <span class="flag-icon" data-tooltip="@CountryTooltip(src.CountryCode)">@CountryFlag(src.CountryCode)</span> }</td>
                                         <td class="hide-mobile"><span class="text-truncate-300" style="display:inline-block;">@(src.AsnOrg ?? "-")</span></td>
                                         <td>@src.EventCount</td>
@@ -1864,8 +1865,8 @@ else
 
     /* Horizontal distribution bars (matches Wi-Fi Optimizer load-bar pattern) */
     .threat-bar-track {
-        background: var(--bg-hover);
-        border-radius: 0 var(--border-radius) var(--border-radius) 0;
+        background: var(--bg-inset);
+        box-shadow: inset 0 0 0 1px var(--border-strong);
         height: 18px;
         overflow: hidden;
     }
@@ -1873,7 +1874,6 @@ else
     .threat-bar-fill {
         height: 100%;
         background: #3b82f6;
-        border-radius: 0 var(--border-radius) var(--border-radius) 0;
         min-width: 4px;
         transition: width 0.3s ease;
     }
@@ -1932,7 +1932,7 @@ else
     .category-badge {
         display: inline-block;
         padding: 0.15rem 0.5rem;
-        border-radius: 4px;
+        border-radius: var(--border-radius);
         font-size: 0.78rem;
         white-space: nowrap;
         margin-right: 0.25rem;
@@ -1955,7 +1955,7 @@ else
         justify-content: center;
         min-width: 16px;
         height: 16px;
-        border-radius: 8px;
+        border-radius: var(--border-radius-lg);
         background: var(--accent-color);
         color: white;
         font-size: 0.65rem;
@@ -1983,7 +1983,7 @@ else
         background: rgba(168, 85, 247, 0.15);
         color: #c4b5fd;
         padding: 0.15rem 0.5rem;
-        border-radius: 4px;
+        border-radius: var(--border-radius);
         margin: 0.2rem 0.25rem 0.2rem 0;
         font-size: 0.8rem;
         cursor: default;
@@ -2271,7 +2271,7 @@ else
     .role-badge {
         display: inline-block;
         padding: 0.15rem 0.5rem;
-        border-radius: 4px;
+        border-radius: var(--border-radius);
         font-size: 0.75rem;
         font-weight: 600;
         letter-spacing: 0.02em;
@@ -2769,9 +2769,7 @@ else
                 var ip = c.BestIp;
                 if (string.IsNullOrEmpty(ip)) continue;
 
-                var name = !string.IsNullOrEmpty(c.Name) ? c.Name
-                    : !string.IsNullOrEmpty(c.Hostname) ? c.Hostname
-                    : null;
+                var name = NetworkOptimizer.UniFi.ClientNames.For(c);
                 if (name != null)
                     names.TryAdd(ip, name);
             }
@@ -3773,6 +3771,7 @@ else
             __builder.OpenElement(seq++, "a");
             __builder.AddAttribute(seq++, "href", "javascript:void(0)");
             __builder.AddAttribute(seq++, "class", "ip-link");
+            __builder.AddMultipleAttributes(seq++, NetworkOptimizer.Web.Services.Monitoring.LiveTraffic.LiveTrafficLinks.DestinationCard(ip, threatsLink: false));
             __builder.AddAttribute(seq++, "onclick", EventCallback.Factory.Create(this, () => DrillDownToIp(ip)));
             __builder.OpenElement(seq++, "code");
             __builder.AddContent(seq++, ip);
@@ -3795,58 +3794,6 @@ else
             >= 1_000 => $"{value:N0}",
             _ => value.ToString()
         };
-    }
-
-    private static string CountryFlag(string? countryCode)
-    {
-        if (string.IsNullOrEmpty(countryCode) || countryCode.Length != 2) return "";
-        var upper = countryCode.ToUpperInvariant();
-        return string.Concat(
-            char.ConvertFromUtf32(0x1F1E6 + (upper[0] - 'A')),
-            char.ConvertFromUtf32(0x1F1E6 + (upper[1] - 'A')));
-    }
-
-    private static readonly Dictionary<string, string> CountryNames = new(StringComparer.OrdinalIgnoreCase)
-    {
-        ["AF"] = "Afghanistan", ["AL"] = "Albania", ["DZ"] = "Algeria", ["AR"] = "Argentina",
-        ["AM"] = "Armenia", ["AU"] = "Australia", ["AT"] = "Austria", ["AZ"] = "Azerbaijan",
-        ["BD"] = "Bangladesh", ["BY"] = "Belarus", ["BE"] = "Belgium", ["BA"] = "Bosnia and Herzegovina",
-        ["BR"] = "Brazil", ["BG"] = "Bulgaria", ["KH"] = "Cambodia", ["CA"] = "Canada",
-        ["CL"] = "Chile", ["CN"] = "China", ["CO"] = "Colombia", ["CR"] = "Costa Rica",
-        ["HR"] = "Croatia", ["CU"] = "Cuba", ["CY"] = "Cyprus", ["CZ"] = "Czechia",
-        ["DK"] = "Denmark", ["EC"] = "Ecuador", ["EG"] = "Egypt", ["EE"] = "Estonia",
-        ["ET"] = "Ethiopia", ["FI"] = "Finland", ["FR"] = "France", ["GE"] = "Georgia",
-        ["DE"] = "Germany", ["GH"] = "Ghana", ["GR"] = "Greece", ["HK"] = "Hong Kong",
-        ["HU"] = "Hungary", ["IS"] = "Iceland", ["IN"] = "India", ["ID"] = "Indonesia",
-        ["IR"] = "Iran", ["IQ"] = "Iraq", ["IE"] = "Ireland", ["IL"] = "Israel",
-        ["IT"] = "Italy", ["JP"] = "Japan", ["JO"] = "Jordan", ["KZ"] = "Kazakhstan",
-        ["KE"] = "Kenya", ["KP"] = "North Korea", ["KR"] = "South Korea", ["KW"] = "Kuwait",
-        ["LV"] = "Latvia", ["LB"] = "Lebanon", ["LT"] = "Lithuania", ["LU"] = "Luxembourg",
-        ["MY"] = "Malaysia", ["MX"] = "Mexico", ["MD"] = "Moldova", ["MN"] = "Mongolia",
-        ["MA"] = "Morocco", ["MM"] = "Myanmar", ["NL"] = "Netherlands", ["NZ"] = "New Zealand",
-        ["NG"] = "Nigeria", ["NO"] = "Norway", ["PK"] = "Pakistan", ["PA"] = "Panama",
-        ["PE"] = "Peru", ["PH"] = "Philippines", ["PL"] = "Poland", ["PT"] = "Portugal",
-        ["QA"] = "Qatar", ["RO"] = "Romania", ["RU"] = "Russia", ["SA"] = "Saudi Arabia",
-        ["RS"] = "Serbia", ["SG"] = "Singapore", ["SK"] = "Slovakia", ["SI"] = "Slovenia",
-        ["ZA"] = "South Africa", ["ES"] = "Spain", ["LK"] = "Sri Lanka", ["SE"] = "Sweden",
-        ["CH"] = "Switzerland", ["TW"] = "Taiwan", ["TH"] = "Thailand", ["TR"] = "Turkey",
-        ["UA"] = "Ukraine", ["AE"] = "UAE", ["GB"] = "United Kingdom", ["US"] = "United States",
-        ["UY"] = "Uruguay", ["UZ"] = "Uzbekistan", ["VE"] = "Venezuela", ["VN"] = "Vietnam",
-    };
-
-    private static string CountryLabel(string? code)
-    {
-        if (string.IsNullOrEmpty(code)) return "-";
-        var flag = CountryFlag(code);
-        var name = CountryNames.TryGetValue(code, out var n) ? n : code.ToUpperInvariant();
-        return flag;
-    }
-
-    private static string CountryTooltip(string? code)
-    {
-        if (string.IsNullOrEmpty(code)) return "";
-        var name = CountryNames.TryGetValue(code, out var n) ? n : code.ToUpperInvariant();
-        return $"{code.ToUpperInvariant()} - {name}";
     }
 
     private record CategoryPart(string Label, string CssClass);

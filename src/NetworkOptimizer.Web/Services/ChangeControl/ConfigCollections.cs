@@ -118,6 +118,9 @@ public sealed class ConfigCollectionDef
     /// <summary>Array fields whose order does not matter.</summary>
     public IReadOnlySet<string> SetArrays { get; init; } = Empty;
 
+    /// <summary>Object fields compared and shown as one value, never field by field (a client's custom icon).</summary>
+    public IReadOnlySet<string> WholeFields { get; init; } = Empty;
+
     /// <summary>Array fields of objects compared element by element on a key field (port_overrides by port_idx).</summary>
     public IReadOnlyDictionary<string, string> KeyedArrays { get; init; } = new Dictionary<string, string>();
 
@@ -321,12 +324,30 @@ public static class ConfigCollections
     /// </summary>
     public const string DeviceMetaField = "_no_meta";
 
+    /// <summary>
+    /// Whether a device object acts as the site's gateway: type ugw, udm, or uxg, and not adopted
+    /// as an AP by its mode (an Express in AP mode reports device_mode_override "mesh"). Each
+    /// field is read from the top level or from <see cref="DeviceMetaField"/>. A snapshot taken
+    /// before the mode was kept has no field, so its Express still reads as a gateway.
+    /// </summary>
+    public static bool IsGateway(JsonObject? device) =>
+        device != null
+        && DeviceField(device, "type") is "ugw" or "udm" or "uxg"
+        && !NetworkOptimizer.UniFi.UniFiProductDatabase.IsAccessPointMode(DeviceField(device, "device_mode_override"));
+
+    /// <summary>A device's string field, from the top level or else from <see cref="DeviceMetaField"/>.</summary>
+    public static string? DeviceField(JsonObject device, string field) =>
+        StringOf(device[field]) ?? StringOf(device[DeviceMetaField]?[field]);
+
+    private static string? StringOf(JsonNode? node) =>
+        node is JsonValue v && v.TryGetValue<string>(out var s) && s.Length > 0 ? s : null;
+
     /// <summary>Client config fields kept from rest/user; the rest is telemetry.</summary>
     public static readonly IReadOnlySet<string> ClientConfigFields = Set(
         "_id", "mac", "name", "display_name", "note", "noted", "use_fixedip", "fixed_ip", "network_id",
         "local_dns_record_enabled", "local_dns_record", "virtual_network_override_enabled",
         "virtual_network_override_id", "network_members_group_ids", "usergroup_id", "fixed_ap_enabled",
-        "fixed_ap_mac", "blocked", "dev_id_override", "fingerprint_override");
+        "fixed_ap_mac", "blocked", "dev_id_override", "fingerprint_override", "ai_icon");
 
     private static bool IsPredefinedOrDerived(JsonObject o) =>
         Bool(o, "predefined") || Bool(o, "is_predefined")
@@ -833,7 +854,7 @@ public static class ConfigCollections
                 Key = "user", DisplayName = "Clients", Noun = "Client", Group = "Clients",
                 FieldGroups = ConfigFieldOrder.ClientFields,
                 Scope = UniFiApiScope.SiteV1, ReadPath = "rest/user", Order = 9, KeepFields = ClientConfigFields,
-                SetArrays = Set("network_members_group_ids"),
+                SetArrays = Set("network_members_group_ids"), WholeFields = Set("ai_icon"),
                 EnforcedKey = (o, _) => Str(o, "mac")?.ToLowerInvariant(), KeyIsUnique = true,
                 Write = new CollectionWrite { CreatePath = "rest/user", UpdatePath = "rest/user/{id}", ForgetPath = "cmd/stamgr", PartialUpdate = true, Proven = true },
                 AuditSections = ["CLIENT"], AuditCollectionNames = ["user"],
