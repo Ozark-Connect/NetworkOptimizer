@@ -161,7 +161,7 @@ The interactive script will:
 1. Create a privileged Debian LXC container
 2. Install Docker and Docker Compose
 3. Deploy Network Optimizer with Docker Compose
-4. Optionally deploy a [Traefik HTTPS proxy](https://github.com/Ozark-Connect/NetworkOptimizer-Proxy) with automatic Let's Encrypt certificates (requires Cloudflare DNS)
+4. Optionally deploy a [Traefik HTTPS proxy](https://github.com/Ozark-Connect/NetworkOptimizer-Proxy) with automatic Let's Encrypt certificates (the installer sets it up for Cloudflare DNS; [other providers](https://github.com/Ozark-Connect/NetworkOptimizer-Proxy#automatic-https) work after install)
 5. Configure auto-start on boot
 
 **Requirements:**

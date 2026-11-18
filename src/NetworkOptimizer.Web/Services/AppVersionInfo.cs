@@ -105,11 +105,19 @@ public static class AppVersionInfo
     /// That is a 0.0.0 build (no tags in reach) or a height build, commits past a tag with a dotted
     /// prerelease ("2.11.0-preview3.12"). Without the height case, a native build from a full clone
     /// installs the stable agent while the banner compares against the preview, so it never clears.
+    /// A height build whose X.Y.Z is past the prerelease's ("2.11.6-alpha.0.2" against
+    /// "2.11.5-preview3") sits past that prerelease's stable tag, so it keeps the default.
     /// </summary>
-    internal static string? SourceBuildTagOf(string? informational, string latestAgentVersion) =>
-        informational?.StartsWith("0.0.0") == true || IsHeightBuild(informational)
-            ? PrereleaseTagOf(latestAgentVersion)
-            : null;
+    internal static string? SourceBuildTagOf(string? informational, string latestAgentVersion)
+    {
+        if (informational?.StartsWith("0.0.0") == true)
+            return PrereleaseTagOf(latestAgentVersion);
+        if (!IsHeightBuild(informational))
+            return null;
+        var build = Version.TryParse(NetworkOptimizer.Core.Helpers.VersionUtilities.CoreVersion(informational), out var b) ? b : null;
+        var latest = Version.TryParse(NetworkOptimizer.Core.Helpers.VersionUtilities.CoreVersion(latestAgentVersion), out var l) ? l : null;
+        return build is not null && latest is not null && latest < build ? null : PrereleaseTagOf(latestAgentVersion);
+    }
 
     private static bool IsHeightBuild(string? informational) =>
         Regex.IsMatch(informational ?? "", @"^\d+\.\d+\.\d+-[0-9A-Za-z]+(\.[0-9A-Za-z]+)+(\+.*)?$");
