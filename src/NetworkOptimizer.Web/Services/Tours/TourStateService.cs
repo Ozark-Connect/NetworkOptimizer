@@ -78,12 +78,12 @@ public class TourStateService
         TourState? row;
         await using (var db = await _dbFactory.CreateDbContextAsync())
             row = await db.TourStates.AsNoTracking().FirstOrDefaultAsync(t => t.Subject == subject);
-        // Claim on the first read too: the lone account's first offer decision must already
-        // see the history it built before per-user state.
-        if (row == null && subject != TourState.DefaultSubject)
+        // Claim on the first read too: the first offer decision must already see the history
+        // the same person built under the other subject.
+        if (row == null)
             row = await ClaimOnReadAsync(subject);
         if (row == null)
-            return new Snapshot();
+            return new Snapshot { ToursDisabled = await InheritedToursDisabledAsync(subject) };
 
         var snapshot = new Snapshot { ToursDisabled = row.ToursDisabled };
         foreach (var id in ParseArray(row.SeenTourSteps))
@@ -128,12 +128,10 @@ public class TourStateService
         MutateAsync(subject, row => row.ToursDisabled = disabled);
 
     /// <summary>
-    /// ?tour=reset: clears the subject's recorded tour state and the LastSeenAppVersion stamp
-    /// so the automatic offer path (upgrade detection, merge, modal) fires again on the next
-    /// Dashboard visit. FirstSeenVersion is deliberately preserved - it cannot be
-    /// reconstructed, and losing it would permanently destroy Highlights eligibility.
-    /// LastSeenAppVersion is install-level, so one user's reset re-arms upgrade detection
-    /// for everyone; each other user's own offer history still decides what they are shown.
+    /// ?tour=reset: clears the subject's recorded tour state, so the automatic offer fires again
+    /// on the next Dashboard visit, and the LastSeenAppVersion stamp. Other users' rows are
+    /// untouched. FirstSeenVersion is deliberately preserved - it cannot be reconstructed, and
+    /// losing it would permanently destroy Highlights eligibility.
     /// </summary>
     public async Task ResetAsync(string? subject)
     {
@@ -180,7 +178,7 @@ public class TourStateService
             if (row == null)
             {
                 // Subject set explicitly: the model default is DefaultSubject.
-                row = new TourState { Subject = subject };
+                row = new TourState { Subject = subject, ToursDisabled = await InheritedToursDisabledAsync(subject) };
                 db.TourStates.Add(row);
             }
             mutate(row);
@@ -221,30 +219,71 @@ public class TourStateService
     }
 
     /// <summary>
-    /// The subject's tracked row, else the legacy <see cref="TourState.DefaultSubject"/> row renamed
-    /// to it when the install holds exactly one account: that row is the lone account's history from
-    /// before per-user state. Caller holds the lock and saves. Lazy on purpose: a startup sweep would
-    /// take the row from an auth-disabled install that happens to hold one account row. Never seed a
-    /// new subject from the legacy row otherwise, or every added user starts with everything seen.
+    /// The subject's tracked row, else the other subject's row renamed to it when the install holds
+    /// exactly one account, since both are then the same person: the only account takes the
+    /// <see cref="TourState.DefaultSubject"/> row (history from before per-user state, or from while
+    /// authentication was off), and <see cref="TourState.DefaultSubject"/> takes the account's row back
+    /// when authentication is turned off. Caller holds the lock and saves. Lazy on purpose: a startup
+    /// sweep would take the row from an auth-disabled install that happens to hold one account row.
+    /// Never seed seen state from another row otherwise, or every added user starts with everything seen.
     /// </summary>
     private async Task<TourState?> FindOrClaimAsync(NetworkOptimizerDbContext db, string subject)
     {
         var row = await db.TourStates.FirstOrDefaultAsync(t => t.Subject == subject);
-        if (row != null || subject == TourState.DefaultSubject)
+        if (row != null)
             return row;
 
-        var legacy = await db.TourStates.FirstOrDefaultAsync(t => t.Subject == TourState.DefaultSubject);
-        if (legacy == null)
-            return null;
-        await using (var auth = await _authDbFactory.CreateDbContextAsync())
+        if (subject == TourState.DefaultSubject)
         {
-            var ids = await auth.Users.AsNoTracking().Select(u => u.Id).Take(2).ToListAsync();
-            if (ids.Count != 1 || ids[0] != subject)
+            if (await OnlyAccountIdAsync() is not { } account)
                 return null;
+            var own = await db.TourStates.FirstOrDefaultAsync(t => t.Subject == account);
+            if (own == null)
+                return null;
+            own.Subject = TourState.DefaultSubject;
+            _logger.LogInformation("Guided tour state handed back to the install with authentication disabled");
+            return own;
         }
+
+        var legacy = await db.TourStates.FirstOrDefaultAsync(t => t.Subject == TourState.DefaultSubject);
+        if (legacy == null || await OnlyAccountIdAsync() != subject)
+            return null;
         legacy.Subject = subject;
         _logger.LogInformation("Guided tour state claimed by the install's only account");
         return legacy;
+    }
+
+    /// <summary>The install's single Identity account, or null when it holds none or several.</summary>
+    private async Task<string?> OnlyAccountIdAsync()
+    {
+        await using var auth = await _authDbFactory.CreateDbContextAsync();
+        var ids = await auth.Users.AsNoTracking().Select(u => u.Id).Take(2).ToListAsync();
+        return ids.Count == 1 ? ids[0] : null;
+    }
+
+    /// <summary>
+    /// The opt-out a user without a row starts with. Before per-user state, "Don't offer tours
+    /// automatically" on the <see cref="TourState.DefaultSubject"/> row covered every account, so an
+    /// account that existed while that row was last written keeps it. An account added later starts
+    /// with tours on: the opt-out was someone else's choice.
+    /// </summary>
+    private async Task<bool> InheritedToursDisabledAsync(string subject)
+    {
+        if (subject == TourState.DefaultSubject)
+            return false;
+        DateTime legacyWritten;
+        await using (var db = await _dbFactory.CreateDbContextAsync())
+        {
+            var legacy = await db.TourStates.AsNoTracking()
+                .Where(t => t.Subject == TourState.DefaultSubject && t.ToursDisabled)
+                .Select(t => (DateTime?)t.UpdatedAt)
+                .FirstOrDefaultAsync();
+            if (legacy == null)
+                return false;
+            legacyWritten = legacy.Value;
+        }
+        await using var auth = await _authDbFactory.CreateDbContextAsync();
+        return await auth.Users.AsNoTracking().AnyAsync(u => u.Id == subject && u.CreatedAt <= legacyWritten);
     }
 
     private static HashSet<string> ParseArray(string json)

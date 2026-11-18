@@ -181,6 +181,68 @@ public sealed class TourStateServiceTests : IDisposable
         (await SubjectsAsync()).Should().BeEquivalentTo([Default]);
     }
 
+    [Fact]
+    public async Task TurningAuthenticationOffHandsTheOnlyAccountsRowBack()
+    {
+        await SeedUsersAsync(Alice);
+        await _state.RecordToursDismissedAsync(Alice, ["tour-x"]);
+
+        (await _state.GetSnapshotAsync(Default)).DismissedTourIds.Should().BeEquivalentTo(["tour-x"],
+            "with one account, the auth-disabled install is the same person");
+        (await SubjectsAsync()).Should().BeEquivalentTo([Default]);
+
+        (await _state.GetSnapshotAsync(Alice)).DismissedTourIds.Should().BeEquivalentTo(["tour-x"],
+            "turning authentication back on claims it again");
+    }
+
+    [Fact]
+    public async Task NoHandBackWithTwoAccounts()
+    {
+        await SeedUsersAsync(Alice, Bob);
+        await _state.RecordToursDismissedAsync(Alice, ["tour-x"]);
+
+        (await _state.GetSnapshotAsync(Default)).DismissedTourIds.Should().BeEmpty();
+        (await SubjectsAsync()).Should().BeEquivalentTo([Alice]);
+    }
+
+    // ---- the legacy opt-out ----
+
+    [Fact]
+    public async Task TheLegacyOptOutCarriesToAccountsThatExisted()
+    {
+        await SeedUsersAsync(Alice, Bob);
+        await _state.SetToursDisabledAsync(Default, true);
+
+        (await _state.GetSnapshotAsync(Bob)).ToursDisabled.Should().BeTrue("the opt-out covered every account");
+        await _state.RecordStepSeenAsync(Bob, "step-a");
+        (await _state.GetSnapshotAsync(Bob)).ToursDisabled.Should().BeTrue("the first write keeps it");
+        (await _state.GetSnapshotAsync(Bob)).SeenStepIds.Should().BeEquivalentTo(["step-a"]);
+    }
+
+    [Fact]
+    public async Task AnAccountAddedAfterTheLegacyOptOutStartsWithToursOn()
+    {
+        await SeedUsersAsync(Alice, Bob);
+        await _state.SetToursDisabledAsync(Default, true);
+        await SeedUsersCreatedAsync(DateTime.UtcNow.AddHours(1), "user-3");
+
+        (await _state.GetSnapshotAsync("user-3")).ToursDisabled.Should().BeFalse();
+        await _state.RecordStepSeenAsync("user-3", "step-a");
+        (await _state.GetSnapshotAsync("user-3")).ToursDisabled.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task AUserCanTurnTheCarriedOptOutBackOff()
+    {
+        await SeedUsersAsync(Alice, Bob);
+        await _state.SetToursDisabledAsync(Default, true);
+
+        await _state.SetToursDisabledAsync(Bob, false);
+
+        (await _state.GetSnapshotAsync(Bob)).ToursDisabled.Should().BeFalse();
+        (await _state.GetSnapshotAsync(Alice)).ToursDisabled.Should().BeTrue();
+    }
+
     // ---- reset ----
 
     [Fact]
@@ -210,7 +272,9 @@ public sealed class TourStateServiceTests : IDisposable
 
     // ---- helpers ----
 
-    private async Task SeedUsersAsync(params string[] ids)
+    private Task SeedUsersAsync(params string[] ids) => SeedUsersCreatedAsync(DateTime.UtcNow.AddHours(-1), ids);
+
+    private async Task SeedUsersCreatedAsync(DateTime createdAt, params string[] ids)
     {
         await using var db = new AuthFactory(_authDbPath).CreateDbContext();
         foreach (var id in ids)
@@ -220,6 +284,7 @@ public sealed class TourStateServiceTests : IDisposable
                 UserName = id,
                 NormalizedUserName = id.ToUpperInvariant(),
                 SecurityStamp = Guid.NewGuid().ToString(),
+                CreatedAt = createdAt,
             });
         await db.SaveChangesAsync();
     }

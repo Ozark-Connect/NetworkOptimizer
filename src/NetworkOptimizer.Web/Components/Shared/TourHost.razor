@@ -6,6 +6,7 @@
 @inject TourService Tours
 @inject SiteContextService SiteContext
 @inject SidebarState Sidebar
+@inject NetworkOptimizer.Web.Services.Identity.ICallerContext Caller
 @inject ILogger<TourHost> Logger
 
 @* Global guided-tour host, rendered once in MainLayout. Owns the offer modal, the
@@ -41,7 +42,8 @@
                 @_offer.Steps.Count steps, about @Math.Max(1, (int)Math.Ceiling(_offer.Steps.Count * 0.5)) minute@(_offer.Steps.Count > 2 ? "s" : "").
                 @if (_offer.DroppedCount > 0)
                 {
-                    <text> Covers the biggest changes - the full list is in Settings - Application.</text>
+                    @* A signed-in user may not reach Settings - Application; every one reaches their account page. *@
+                    <text> Covers the biggest changes - the full list is in @(Caller.Current?.UserId != null ? "Guided Tours on your account's Security page" : "Settings - Application").</text>
                 }
             </p>
             <div class="tour-modal-actions">
