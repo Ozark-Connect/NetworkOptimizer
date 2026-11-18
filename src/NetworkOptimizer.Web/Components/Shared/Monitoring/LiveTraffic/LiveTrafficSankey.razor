@@ -124,9 +124,7 @@ else
     /// <summary>
     /// Places the columns from the labels they carry: client labels sit left of their nodes and app
     /// and route labels right of theirs, so the client column moves right as far as its longest name
-    /// needs and the route column keeps room for its own. The app column leaves bands of equal bare
-    /// length on both sides: its labels fill the gap to the route, so midway made client-to-app bands
-    /// long and app-to-route bands short under the labels.
+    /// needs, the route column keeps room for its own, and the app column sits midway.
     /// </summary>
     private static double[] Columns(LiveSankey sankey)
     {
@@ -137,8 +135,7 @@ else
         // Capped: a long client name is trimmed rather than squeezing the flows into the right half.
         var left = Math.Clamp(Longest(0) + LabelGap + 2, 90, 230);
         var route = Math.Clamp(W - NodeW - LabelGap - Longest(2) - 4, left + 260, W - NodeW - LabelGap - 60);
-        var appLabels = LabelGap + IconW + Longest(1);
-        var app = Math.Min(left + (route - left - appLabels) / 2, route - NodeW - appLabels - 24);
+        var app = Math.Min(left + (route - left) / 2, route - NodeW - LabelGap - IconW - Longest(1) - 24);
         return [left, Math.Max(app, left + 120), route];
     }
 
