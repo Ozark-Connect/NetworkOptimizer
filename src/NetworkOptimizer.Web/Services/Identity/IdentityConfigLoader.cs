@@ -65,9 +65,10 @@ public sealed class IdentityConfigLoader : IIdentityConfigLoader
         if (config?.Providers is null)
             return;
 
+        var applied = 0;
         foreach (var p in config.Providers)
         {
-            if (string.IsNullOrEmpty(p.Scheme))
+            if (p is null || string.IsNullOrEmpty(p.Scheme))
                 continue;
 
             var existing = await _providers.GetBySchemeAsync(p.Scheme);
@@ -95,10 +96,19 @@ public sealed class IdentityConfigLoader : IIdentityConfigLoader
             var envSecret = Environment.GetEnvironmentVariable($"NETOPT_FED_{p.Scheme.ToUpperInvariant().Replace('-', '_')}_SECRET");
             var secret = envSecret ?? p.ClientSecret;
 
-            await _providerAdmin.SaveAsync(provider, secret);
+            try
+            {
+                await _providerAdmin.SaveAsync(provider, secret);
+                applied++;
+            }
+            catch (FederationProviderConfigurationException ex)
+            {
+                // One bad entry must not stop the others, nor the boot.
+                _logger.LogError("Identity config provider {Scheme} was not applied: {Problem}", p.Scheme, ex.Message);
+            }
         }
 
-        _logger.LogInformation("Applied {Count} IaC-managed federation providers from {Path}.", config.Providers.Count, path);
+        _logger.LogInformation("Applied {Count} IaC-managed federation providers from {Path}.", applied, path);
     }
 
     private sealed class IdentityConfigFile
