@@ -65,6 +65,7 @@ public sealed class IdentityConfigLoader : IIdentityConfigLoader
         if (config?.Providers is null)
             return;
 
+        var applied = 0;
         foreach (var p in config.Providers)
         {
             if (p is null || string.IsNullOrEmpty(p.Scheme))
@@ -98,6 +99,7 @@ public sealed class IdentityConfigLoader : IIdentityConfigLoader
             try
             {
                 await _providerAdmin.SaveAsync(provider, secret);
+                applied++;
             }
             catch (FederationProviderConfigurationException ex)
             {
@@ -106,7 +108,7 @@ public sealed class IdentityConfigLoader : IIdentityConfigLoader
             }
         }
 
-        _logger.LogInformation("Applied {Count} IaC-managed federation providers from {Path}.", config.Providers.Count, path);
+        _logger.LogInformation("Applied {Count} IaC-managed federation providers from {Path}.", applied, path);
     }
 
     private sealed class IdentityConfigFile

@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Identity;
+using Microsoft.EntityFrameworkCore;
 using NetworkOptimizer.Storage.Models.Identity;
 using NetworkOptimizer.Web.Services.Auditing;
 
@@ -77,6 +78,7 @@ public sealed class IdentitySignInService : IIdentitySignInService
     private readonly SignInManager<ApplicationUser> _signInManager;
     private readonly UserManager<ApplicationUser> _userManager;
     private readonly IAuthPolicyOptions _policy;
+    private readonly IDbContextFactory<AuthDbContext> _authDb;
     private readonly IMfaService _mfa;
     private readonly IAuditLogger _audit;
     private readonly IHttpContextAccessor _httpContext;
@@ -86,6 +88,7 @@ public sealed class IdentitySignInService : IIdentitySignInService
         SignInManager<ApplicationUser> signInManager,
         UserManager<ApplicationUser> userManager,
         IAuthPolicyOptions policy,
+        IDbContextFactory<AuthDbContext> authDb,
         IMfaService mfa,
         IAuditLogger audit,
         IHttpContextAccessor httpContext,
@@ -94,6 +97,7 @@ public sealed class IdentitySignInService : IIdentitySignInService
         _signInManager = signInManager;
         _userManager = userManager;
         _policy = policy;
+        _authDb = authDb;
         _mfa = mfa;
         _audit = audit;
         _httpContext = httpContext;
@@ -115,7 +119,7 @@ public sealed class IdentitySignInService : IIdentitySignInService
 
         // SSO-only installs disable local password login, except a break-glass admin recovery boot.
         var isAdmin = await _userManager.IsInRoleAsync(user, Roles.Admin);
-        if (await _policy.IsLocalLoginDisabledAsync() && !(BreakGlass.IsRecoveryMode && isAdmin))
+        if (await LocalLoginBlockedAsync() && !(BreakGlass.IsRecoveryMode && isAdmin))
         {
             _logger.LogWarning("Local sign-in blocked for {User}: local login is disabled (SSO-only).", username);
             return SignInOutcome.LocalLoginDisabled;
@@ -274,7 +278,7 @@ public sealed class IdentitySignInService : IIdentitySignInService
         // password - otherwise anyone holding a passkey registered before the install went SSO-only
         // keeps a way in that the setting says does not exist. Break-glass admin recovery is the one
         // exemption, as it is for the password route.
-        if (await _policy.IsLocalLoginDisabledAsync()
+        if (await LocalLoginBlockedAsync()
             && !(BreakGlass.IsRecoveryMode && await _userManager.IsInRoleAsync(user, Roles.Admin)))
         {
             _logger.LogWarning("Passkey sign-in blocked for {User}: local login is disabled (SSO-only).", user.UserName);
@@ -296,6 +300,19 @@ public sealed class IdentitySignInService : IIdentitySignInService
 
     /// <inheritdoc />
     public Task RefreshSignInAsync(ApplicationUser user) => _signInManager.RefreshSignInAsync(user);
+
+    /// <summary>
+    /// SSO-only holds while some identity provider can sign someone in, the same rule the login page
+    /// uses to hide the local form. With none usable, refusing local sign-in would lock everyone out.
+    /// </summary>
+    private async Task<bool> LocalLoginBlockedAsync()
+    {
+        if (!await _policy.IsLocalLoginDisabledAsync())
+            return false;
+        await using var db = await _authDb.CreateDbContextAsync();
+        var enabled = await db.FederationProviders.Where(p => p.Enabled).ToListAsync();
+        return enabled.Any(ConfigureOidcOptions.IsUsable);
+    }
 
     /// <summary>Emits a login-related audit event, attributing the attempt to the supplied username + request metadata.</summary>
     private void EmitLogin(string username, string? userId, string action, string outcome, string method)

@@ -1,5 +1,6 @@
 ﻿using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Identity;
+using NetworkOptimizer.Storage.Models.Identity;
 using NetworkOptimizer.Web.Services.Identity;
 
 namespace NetworkOptimizer.Web.Endpoints;
@@ -20,7 +21,7 @@ public static class FederationEndpoints
             // Only challenge a provider that exists, is on, and can actually run. Challenging anything
             // else threw (an unknown scheme has no handler) or sent the user to a placeholder IdP.
             var provider = await providers.GetBySchemeAsync(scheme);
-            if (provider is null || !provider.Enabled || provider.Type != NetworkOptimizer.Storage.Models.Identity.FederationProviderType.Oidc
+            if (provider is null || !provider.Enabled || provider.Type != FederationProviderType.Oidc
                 || ConfigureOidcOptions.ConfigurationProblem(provider) is not null)
                 return Results.Redirect("/login?error=provider_disabled");
 

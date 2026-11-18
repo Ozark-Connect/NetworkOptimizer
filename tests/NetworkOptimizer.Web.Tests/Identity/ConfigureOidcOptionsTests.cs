@@ -97,7 +97,7 @@ public class ConfigureOidcOptionsTests
     }
 
     [Fact]
-    public void UsableProvider_GetsItsOwnSettings_AndHandlesRemoteFailure()
+    public void UsableProvider_GetsItsOwnSettings()
     {
         var monitor = BuildOptionsPipeline(Oidc("good", " https://idp.example.com/realms/x "));
 

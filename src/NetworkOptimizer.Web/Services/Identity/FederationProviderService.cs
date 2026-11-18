@@ -143,12 +143,8 @@ public sealed class FederationProviderService : IFederationProviderService, IFed
         await using var db = await _dbFactory.CreateDbContextAsync();
         var provider = await db.FederationProviders.FindAsync(id);
         if (provider is null) return;
-        if (enabled)
-            EnsureUsableIfEnabled(new FederationProvider
-            {
-                Type = provider.Type, Enabled = true, Authority = provider.Authority, ClientId = provider.ClientId,
-            });
         provider.Enabled = enabled;
+        EnsureUsableIfEnabled(provider); // throws before SaveChanges, so nothing is written
         provider.UpdatedAt = DateTime.UtcNow;
         await db.SaveChangesAsync();
         _audit.Log(AuditEventBuilder.From(_caller.Current, AuditCategories.Federation,
