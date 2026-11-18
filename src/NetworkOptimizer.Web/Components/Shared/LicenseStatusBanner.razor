@@ -22,7 +22,9 @@
             <span class="banner-icon"><AppIcon Name="warning" /></span>
             <div class="banner-text">
                 <strong>License attention needed</strong>
-                <span>@LicenseBilling.GraceSentence(GraceCount, SoonestGraceDays)</span>
+                <span>@(LicenseBilling.AllGraceIsSubscription(LicenseState.Snapshot)
+                    ? LicenseBilling.GraceSentence(GraceCount, SoonestGraceDays)
+                    : LicenseBilling.CoverageGraceSentence(GraceCount, SoonestGraceDays))</span>
             </div>
             <div class="banner-actions">
                 @if (LicenseBilling.AnySubscriptionInGrace(LicenseState.Snapshot))

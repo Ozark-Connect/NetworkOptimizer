@@ -81,6 +81,43 @@ public class LicenseBillingTests
     }
 
     [Fact]
+    public void AllGraceIsSubscription_OnlyExpiredTermGrace_True()
+    {
+        var snapshot = MakeSnapshot(
+            Status("main", SiteLicenseState.Licensed, LicenseRestrictionReason.None),
+            Status("branch", SiteLicenseState.Grace, LicenseRestrictionReason.KeyExpired));
+
+        LicenseBilling.AllGraceIsSubscription(snapshot).Should().BeTrue();
+    }
+
+    [Fact]
+    public void AllGraceIsSubscription_MixedWithUncoveredGrace_False()
+    {
+        var snapshot = MakeSnapshot(
+            Status("main", SiteLicenseState.Grace, LicenseRestrictionReason.KeyExpired),
+            Status("branch", SiteLicenseState.Grace, LicenseRestrictionReason.Unassigned));
+
+        LicenseBilling.AllGraceIsSubscription(snapshot).Should().BeFalse();
+    }
+
+    [Fact]
+    public void AllGraceIsSubscription_NoGrace_False()
+    {
+        LicenseBilling.AllGraceIsSubscription(MakeSnapshot(Status("main", SiteLicenseState.Licensed, LicenseRestrictionReason.None)))
+            .Should().BeFalse();
+        LicenseBilling.AllGraceIsSubscription(null).Should().BeFalse();
+    }
+
+    [Fact]
+    public void CoverageGraceSentence_KeepsTheShippedWording()
+    {
+        LicenseBilling.CoverageGraceSentence(2, 5).Should().Be(
+            "2 sites lose operations in 5 days - renew or reassign in Settings > Application > Licensing.");
+        LicenseBilling.CoverageGraceSentence(1, 1).Should().Be(
+            "1 site loses operations in 1 day - renew or reassign in Settings > Application > Licensing.");
+    }
+
+    [Fact]
     public void GraceSentence_OneSiteSevenDays_Singular()
     {
         LicenseBilling.GraceSentence(1, 7).Should().Be(
