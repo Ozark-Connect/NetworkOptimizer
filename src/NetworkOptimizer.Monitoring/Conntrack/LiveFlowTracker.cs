@@ -64,6 +64,8 @@ public sealed class LiveFlowTracker
     private readonly Dictionary<string, (long Orig, long Reply, int Pass)> _tombstones = new();
     private int _pass;
     private DateTime _lastPassAt;
+    /// <summary>When this tracker's first pass ran (since the last <see cref="Reset"/>).</summary>
+    private DateTime _startedAt;
 
     /// <summary>Forgets every flow; the next pass seeds again. Called whenever no lease is held.</summary>
     public void Reset()
@@ -79,11 +81,16 @@ public sealed class LiveFlowTracker
     /// Accounts one snapshot. With <paramref name="maxFlows"/> above zero, returns the flows to
     /// send: the busiest by window bytes, plus every flow sent last window that is still alive (so
     /// a flow that goes idle reads as zero instead of vanishing), and the flows that ended since.
+    /// <paramref name="firstSeen"/>, when given, dates a flow new to this tracker from when the agent first saw
+    /// it in the table (kept across leases and missed reads), and says whether that is exact; without it, a
+    /// flow is dated from when this tracker first sees it.
     /// </summary>
-    public LiveFlowPass? Track(IReadOnlyList<ConntrackFlow> flows, ConntrackHostView view, DateTime now, int maxFlows)
+    public LiveFlowPass? Track(IReadOnlyList<ConntrackFlow> flows, ConntrackHostView view, DateTime now, int maxFlows,
+        Func<string, (DateTime FirstSeen, bool Exact)?>? firstSeen = null)
     {
         _pass++;
         var firstPass = _pass == 1;
+        if (firstPass) _startedAt = now;
         var sinceLastPass = firstPass ? 0 : (long)Math.Ceiling((now - _lastPassAt).TotalSeconds);
         _lastPassAt = now;
         var build = maxFlows > 0;
@@ -97,6 +104,14 @@ public sealed class LiveFlowTracker
             if (isNew)
             {
                 state = new State { FirstSeen = now, PredatesTracker = seeding };
+                // Only the start moves earlier. A flow from before this tracker started stays a lower bound, as it
+                // always was: the server never walks the console's records back for one (a day back per page open),
+                // and an exact age here would start it doing so. Byte counting still follows the seeding rules below.
+                if (firstSeen?.Invoke(flow.Key) is { } known && known.FirstSeen <= now)
+                {
+                    state.FirstSeen = known.FirstSeen;
+                    state.PredatesTracker = seeding || !known.Exact || known.FirstSeen < _startedAt;
+                }
                 _flows[flow.Key] = state;
             }
             state!.LastSeenPass = _pass;

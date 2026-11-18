@@ -46,6 +46,10 @@ public sealed class ConntrackAccountant
         // destroy(s) for this key are the old flow's and must bill nothing - billed against the
         // new entry's baselines they would re-bill what the old flow's deltas already carried.
         public int PendingPriorDestroys;
+        // When this flow was first seen, for Live Traffic's start times (the kernel keeps none without
+        // nf_conntrack_timestamp). Exact past the startup grace; a lower bound within it.
+        public DateTime FirstSeen;
+        public bool FirstSeenExact;
     }
 
     private readonly Dictionary<string, Entry> _flows = new();
@@ -60,8 +64,9 @@ public sealed class ConntrackAccountant
     /// gateway also conntracks - is excluded by the both-ends-site-local test, the exact
     /// mistake UniFi's own tallies make.
     /// </summary>
-    public List<ClientWanDelta> Account(IReadOnlyList<ConntrackFlow> flows, ConntrackHostView view)
+    public List<ClientWanDelta> Account(IReadOnlyList<ConntrackFlow> flows, ConntrackHostView view, DateTime? snapshotAt = null)
     {
+        var now = snapshotAt ?? DateTime.UtcNow;
         _pass++;
         var seededBefore = _pass > 1;
         var totals = new Dictionary<(string Ip, string Mac, string IfName), (long Down, long Up, int Flows)>();
@@ -83,6 +88,8 @@ public sealed class ConntrackAccountant
                     entry.SeedReply = flow.ReplyBytes;
                     entry.SeedBillable = true;
                     entry.PendingPriorDestroys++;
+                    entry.FirstSeen = now;
+                    entry.FirstSeenExact = true;
                     continue;
                 }
                 var dOrig = flow.OrigBytes - entry.Orig;
@@ -113,6 +120,9 @@ public sealed class ConntrackAccountant
                     // old flow's seed is its whole history (see GracePasses).
                     SeedBillable = _pass > GracePasses,
                     LastSeenPass = _pass,
+                    // The same grace: within it a first sighting may be an old flow the first reads missed.
+                    FirstSeen = now,
+                    FirstSeenExact = _pass > GracePasses,
                 };
             }
         }
@@ -130,6 +140,22 @@ public sealed class ConntrackAccountant
             .Select(kv => new ClientWanDelta(kv.Key.Ip, kv.Key.Mac, kv.Key.IfName, kv.Value.Down, kv.Value.Up, kv.Value.Flows))
             .Where(d => d.DownBytes > 0 || d.UpBytes > 0)
             .ToList();
+    }
+
+    /// <summary>
+    /// When a flow in the table was first seen, kept for as long as the table holds it (across Live Traffic
+    /// leases and missed reads): <paramref name="exact"/> is false within the startup grace, where it is only
+    /// a lower bound. False when the flow is not tracked.
+    /// </summary>
+    public bool TryGetFirstSeen(string key, out DateTime firstSeen, out bool exact)
+    {
+        if (_flows.TryGetValue(key, out var entry))
+        {
+            (firstSeen, exact) = (entry.FirstSeen, entry.FirstSeenExact);
+            return true;
+        }
+        (firstSeen, exact) = (default, false);
+        return false;
     }
 
     /// <summary>
