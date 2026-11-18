@@ -23746,6 +23746,10 @@ a.shp-issue {
     margin-bottom: 0.5rem;
 }
 
+.license-billing-actions {
+    margin-bottom: 0.5rem;
+}
+
 @keyframes tour-fade-in {
     from {
         opacity: 0;

@@ -22,9 +22,15 @@
             <span class="banner-icon"><AppIcon Name="warning" /></span>
             <div class="banner-text">
                 <strong>License attention needed</strong>
-                <span>@GraceSentence</span>
+                <span>@LicenseBilling.GraceSentence(GraceCount, SoonestGraceDays)</span>
             </div>
-            <a href="/settings?tab=application#licensing" class="btn btn-primary">Open Settings</a>
+            <div class="banner-actions">
+                @if (LicenseBilling.AnySubscriptionInGrace(LicenseState.Snapshot))
+                {
+                    <a href="@LicenseBilling.BillingUrl" target="_blank" rel="noopener" class="btn btn-secondary">Manage billing</a>
+                }
+                <a href="/settings?tab=application#licensing" class="btn btn-primary">Open Settings</a>
+            </div>
         </div>
     </div>
 }
@@ -40,16 +46,6 @@
         RestrictedCount == 1
             ? "1 site is restricted by licensing. Historic data remains available."
             : $"{RestrictedCount} sites are restricted by licensing. Historic data remains available.";
-
-    private string GraceSentence
-    {
-        get
-        {
-            var sites = GraceCount == 1 ? "1 site loses" : $"{GraceCount} sites lose";
-            var days = SoonestGraceDays == 1 ? "1 day" : $"{SoonestGraceDays} days";
-            return $"{sites} operations in {days} - renew or reassign in Settings > Application > Licensing.";
-        }
-    }
 
     private int SoonestGraceDays
     {
