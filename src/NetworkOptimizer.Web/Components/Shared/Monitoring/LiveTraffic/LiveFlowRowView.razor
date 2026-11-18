@@ -187,7 +187,7 @@
 
     /// <summary>The RTT cell's tooltip: what the number is, and the client's own round trip when there is one.</summary>
     private static string? RoundTripTooltip(LiveFlowRow f) => f.RemoteRttMs is null
-        ? f.DestinationRoundTrip is { } d ? $"Not timed: this connection opened before the Gateway was timing connections\n{AssumedFrom(d)}" : null
+        ? f.DestinationRoundTrip is { } d ? $"Not timed: opened before the Gateway was timing\n{AssumedFrom(d)}" : null
         : f.ClientRttMs is { } client ? $"To the destination and back, timed when the connection opened\n{LiveTrafficDisplay.RoundTrip(client)} to the client"
         : "To the destination and back, timed when the connection opened";
 
@@ -310,7 +310,7 @@
             else
             {
                 <text>Not measured@(f.DestinationRoundTrip is { } d ? $" (this destination: {LiveTrafficDisplay.RoundTrip(d.MedianMs)})" : "") </text>
-                <span class="tooltip-icon tooltip-icon-sm" data-tooltip="The Gateway times connections as they open. One that opened before it was timing (before its agent started, or while Live Traffic was turned off) has no round trip of its own.">?</span>
+                <span class="tooltip-icon tooltip-icon-sm" data-tooltip="Opened before the Gateway was timing connections.">?</span>
             }
         </dd>
     };
