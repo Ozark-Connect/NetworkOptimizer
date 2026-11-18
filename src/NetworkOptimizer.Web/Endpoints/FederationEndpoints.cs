@@ -1,5 +1,6 @@
 ﻿using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Identity;
+using NetworkOptimizer.Storage.Models.Identity;
 using NetworkOptimizer.Web.Services.Identity;
 
 namespace NetworkOptimizer.Web.Endpoints;
@@ -15,8 +16,15 @@ public static class FederationEndpoints
     public static void MapFederationEndpoints(this WebApplication app)
     {
         // Start an external login: challenge the provider's OIDC scheme.
-        app.MapGet("/login/external/{scheme}", (string scheme, HttpContext context) =>
+        app.MapGet("/login/external/{scheme}", async (string scheme, HttpContext context, IFederationProviderService providers) =>
         {
+            // Only challenge a provider that exists, is on, and can actually run. Challenging anything
+            // else threw (an unknown scheme has no handler) or sent the user to a placeholder IdP.
+            var provider = await providers.GetBySchemeAsync(scheme);
+            if (provider is null || !provider.Enabled || provider.Type != FederationProviderType.Oidc
+                || ConfigureOidcOptions.ConfigurationProblem(provider) is not null)
+                return Results.Redirect("/login?error=provider_disabled");
+
             var props = new AuthenticationProperties { RedirectUri = "/login/external-callback" };
             // Keep me signed in is chosen before we leave for the IdP and acted on after we return, so
             // it has to survive the round trip: the properties ride along in the external cookie.
