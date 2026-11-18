@@ -394,6 +394,10 @@
 
             _passwordResult = PasswordResult;
 
+            // An administrator-set password comes first, and its card is already at the top. A
+            // password error stays in view: it is what the user came back to read.
+            _scrollToSetup = _setupRequired && !_passwordChangeRequired && PasswordMessage is null;
+
             // One-shot results: drop them so a reload does not repeat a stale message.
             if (Enroll == "failed" || MfaResult is not null || PasswordResult is not null)
                 Navigation.NavigateTo(Navigation.GetUriWithQueryParameters(
@@ -418,14 +422,21 @@
             }
 
             StateHasChanged();
+        }
 
-            // An administrator-set password comes first, and its card is already at the top.
-            if (_setupRequired && !_passwordChangeRequired)
-                await ScrollToMfaSetupAsync();
+        // On whichever render follows the load, not the first one: the first render runs before
+        // OnInitializedAsync has read the account, when every flag still holds its default.
+        if (_scrollToSetup)
+        {
+            _scrollToSetup = false;
+            await ScrollToMfaSetupAsync();
         }
     }
 
     private const string MfaSetupId = "mfa-setup";
+
+    /// <summary>Set once the load has decided the MFA step should be brought into view.</summary>
+    private bool _scrollToSetup;
 
     /// <summary>
     /// Brings the owed MFA step into view on arrival: sign-in, a finished password change and every
@@ -438,7 +449,8 @@
         await Task.Delay(150);
         try
         {
-            await JS.InvokeVoidAsync("noHighlightTarget", MfaSetupId);
+            // The notice is an alert, not a card: the ring takes the alert's corners.
+            await JS.InvokeVoidAsync("noHighlightTarget", MfaSetupId, null, "var(--border-radius)");
         }
         catch (JSDisconnectedException)
         {
