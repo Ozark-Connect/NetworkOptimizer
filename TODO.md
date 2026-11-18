@@ -439,6 +439,19 @@ Current state (as of v1.5.x): Dedup is working - event-level dedup via InnerAler
 - Note the 2x multiplier is the *early-stage* path only; full-chain re-alerting uses 50%+ event growth
 - These are Info severity - users who find them noisy can disable rule 13 in alert settings
 
+## Client Names: Two Paths `ClientNames.Choose` Cannot Fully Serve
+
+Every UI client label uses `ClientNames.Choose` (`src/NetworkOptimizer.UniFi/ClientNames.cs`): UniFi's display
+name, the device rule for UniFi devices, then alias and hostname. Two paths lack the data for all of it:
+
+- **Security Audit offline clients:** `GetClientHistoryAsync` requests v2 `clients/history` without
+  `includeUnifiDevices`, so `unifi_device` never comes back set and an offline UniFi device (a camera, an AI Key)
+  gets the ordinary order instead of the device rule. Check first whether history lists UniFi devices at all with
+  the flag; add it only if it does, since it widens what the offline tables show.
+- **Threat Intelligence:** `AlertSourceDescriber` and the dashboard name clients from `rest/user`, which carries no
+  `display_name`, so an unnamed client shows its DHCP hostname instead of UniFi's name ("iPhone 24:ae"). Pass the
+  site's `ClientDisplayNameCache` names into `ClientNames.For(client, displayName)`.
+
 ## Security Audit / PDF Report
 
 ### Home → IoT Return Traffic Rule Suggestion
