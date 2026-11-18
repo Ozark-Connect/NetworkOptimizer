@@ -5,8 +5,8 @@ using NetworkOptimizer.Monitoring.Conntrack;
 namespace NetworkOptimizer.Agent;
 
 /// <summary>
-/// The handshake timer's feed: a ctnetlink socket on the conntrack NEW and UPDATE groups, open only while a
-/// Live Traffic lease asks for flow latency. A kernel BPF filter (<see cref="ConntrackEventFilter"/>)
+/// The handshake timer's feed: a ctnetlink socket on the conntrack NEW and UPDATE groups, open while the
+/// server's conntrack config (or a Live Traffic lease) asks for flow latency. A kernel BPF filter (<see cref="ConntrackEventFilter"/>)
 /// keeps only the events a handshake needs. Measured on a UXG-Fiber at 300 new connections a second:
 /// 1.3 % of one core, about a fifth of what <c>conntrack -E</c> costs for the same events.
 /// </summary>
@@ -53,7 +53,7 @@ public sealed class ConntrackEventSocket
         }
     }
 
-    /// <summary>Opens or closes the socket; the runner calls this every pass with the lease state.</summary>
+    /// <summary>Opens or closes the socket; the runner calls this every pass with the config and lease state.</summary>
     public void SetWanted(bool wanted) => _wanted = wanted;
 
     /// <summary>Asked to run. The batches report this rather than <see cref="Active"/>, which lags it by up to a second.</summary>
@@ -99,7 +99,7 @@ public sealed class ConntrackEventSocket
                         // Events stop with the socket, so handshakes in progress cannot finish. Finished
                         // round trips stay for the next viewer: the flows they belong to may still be open.
                         _timer.OnLoss();
-                        Console.WriteLine("Flow latency: stopped (lease ended)");
+                        Console.WriteLine("Flow latency: stopped (no longer asked for)");
                     }
                     ct.WaitHandle.WaitOne(TimeSpan.FromSeconds(1));
                     continue;
