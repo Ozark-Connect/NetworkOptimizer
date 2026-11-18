@@ -37,6 +37,9 @@ public class AgentReleasePinTests
     [InlineData("2.10.1-alpha.0.40+abc1234", "2.11.0-preview1", "v2.11.0-preview1")]
     [InlineData("2.10.1-alpha.0.40+abc1234", "2.10.1", null)]
     [InlineData("2.10.2-alpha.0.3+abc1234", "2.10.1", null)]
+    [InlineData("2.11.6-alpha.0.2+d117107", "2.11.5-preview3", null)]
+    [InlineData("2.12.1-alpha.0.5+abc1234", "2.12.0-preview9", null)]
+    [InlineData("2.12.0-alpha.0.5+abc1234", "2.12.0-preview1", "v2.12.0-preview1")]
     [InlineData("2.11.0-preview6", "2.11.0-preview6", null)]
     [InlineData(null, "2.11.0-preview1", null)]
     public void SourceBuildTag_ForBuildsWithNoReleaseOnAPrereleaseLine(string? informational, string latest, string? expected)
