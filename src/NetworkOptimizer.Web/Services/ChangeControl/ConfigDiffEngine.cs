@@ -77,7 +77,8 @@ public static partial class ConfigDiffEngine
         var beforeCtx = new ConfigIdentityContext(before.NamesById());
         var afterCtx = new ConfigIdentityContext(after.NamesById());
         var mgmtNetworks = ManagementNetworkIds(before).Concat(ManagementNetworkIds(after)).ToHashSet(StringComparer.OrdinalIgnoreCase);
-        var (matches, idMap) = ObjectMatcher.MatchAll(before, after, beforeCtx, afterCtx, sameSite, (d, o) => Relevant(d, o));
+        var configured = ConfiguredClients(before, after);
+        var (matches, idMap) = ObjectMatcher.MatchAll(before, after, beforeCtx, afterCtx, sameSite, (d, o) => Relevant(d, o, configured));
         var upgraded = before.NetworkAppVersion != null && after.NetworkAppVersion != null
             && !string.Equals(before.NetworkAppVersion, after.NetworkAppVersion, StringComparison.OrdinalIgnoreCase);
 
@@ -112,9 +113,20 @@ public static partial class ConfigDiffEngine
         return diff;
     }
 
-    /// <summary>Clients with no user config are equivalent to absent, so a new device joining is not a change.</summary>
-    private static List<JsonObject> Relevant(ConfigCollectionDef def, IReadOnlyList<JsonObject> objects) =>
-        def.Key == "user" ? objects.Where(HasClientConfig).ToList() : objects.ToList();
+    /// <summary>
+    /// Clients with no user config are equivalent to absent, so a new device joining is not a change. A client
+    /// configured on either side is kept on both (<paramref name="configured"/>): clearing its last setting is an
+    /// update, not a deletion a rollback would answer by re-creating a client UniFi still has.
+    /// </summary>
+    internal static List<JsonObject> Relevant(ConfigCollectionDef def, IReadOnlyList<JsonObject> objects, IReadOnlySet<string> configured) =>
+        def.Key == "user" ? objects.Where(o => HasClientConfig(o) || (ClientKey(o) is { } k && configured.Contains(k))).ToList() : objects.ToList();
+
+    /// <summary>MACs of the clients either state configures.</summary>
+    internal static HashSet<string> ConfiguredClients(ConfigState a, ConfigState b) =>
+        a.Get("user").Concat(b.Get("user")).Where(HasClientConfig).Select(ClientKey).OfType<string>()
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+    private static string? ClientKey(JsonObject o) => o["mac"]?.ToString() is { Length: > 0 } mac ? mac.ToLowerInvariant() : null;
 
     /// <summary>True when a client record carries anything a user set.</summary>
     public static bool HasClientConfig(JsonObject o)
@@ -361,7 +373,7 @@ public static partial class ConfigDiffEngine
     public static ConfigState InAfterIds(ConfigState before, ConfigState after)
     {
         var (_, idMap) = ObjectMatcher.MatchAll(before, after, new ConfigIdentityContext(before.NamesById()),
-            new ConfigIdentityContext(after.NamesById()), matchById: true, (d, o) => Relevant(d, o));
+            new ConfigIdentityContext(after.NamesById()), matchById: true, (d, o) => Relevant(d, o, ConfiguredClients(before, after)));
         var copy = before.Clone();
         foreach (var key in copy.Collections.Keys.ToList())
             copy.Collections[key] = copy.Collections[key].Select(o => (JsonObject)Remap(o, idMap)!).ToList();

@@ -59,6 +59,22 @@ public class ClientForgetTests
     }
 
     [Fact]
+    public void ClearingAClientsOnlySetting_IsANameUpdate_NotAForget_AndRollingItBackIsNotACreate()
+    {
+        // The record stays in UniFi with an empty name, so it has no config left on one side.
+        var cleared = Site();
+        cleared.Collections["user"].Single(u => u["_id"]!.ToString() == "u1")["name"] = "";
+
+        var clear = PlanBuilder.Build(cleared, Site(), new PlanOptions { Collections = Clients, ForgetClients = true });
+        clear.Operations.Should().ContainSingle().Which.Action.Should().Be(PlanAction.Update);
+
+        var rollBack = PlanBuilder.Build(Site(), cleared, new PlanOptions { Collections = Clients });
+        var op = rollBack.Operations.Should().ContainSingle().Subject;
+        op.Action.Should().Be(PlanAction.Update, "the client is still in UniFi; creating it is refused as a taken MAC");
+        op.ObjectId.Should().Be("u1");
+    }
+
+    [Fact]
     public void Restore_AClientMissing_IsLeftInPlace_AndSaysHowToForgetIt()
     {
         // DeleteMissing alone never forgets a client: Restore, and a revert, which can apply unreviewed.

@@ -107,7 +107,8 @@ public static class PlanBuilder
 
         // Pass 1: match every collection both states have, so references resolve across collections
         // (zones in policies, networks in profiles), including objects this plan never writes.
-        var (matches, idMap) = ObjectMatcher.MatchAll(desired, live, desiredCtx, liveCtx, options.SameSite, (d, o) => Relevant(d, o, options));
+        var configured = ConfigDiffEngine.ConfiguredClients(desired, live);
+        var (matches, idMap) = ObjectMatcher.MatchAll(desired, live, desiredCtx, liveCtx, options.SameSite, (d, o) => Relevant(d, o, options, configured));
         if (!options.SameSite) NoteNameMatchesOnAnotherVlan(matches, doc);
 
         // A snapshot from another Network version predates the columns the upgrade added.
@@ -275,9 +276,10 @@ public static class PlanBuilder
         }
     }
 
-    private static List<JsonObject> Relevant(ConfigCollectionDef def, IReadOnlyList<JsonObject> objects, PlanOptions options)
+    private static List<JsonObject> Relevant(ConfigCollectionDef def, IReadOnlyList<JsonObject> objects, PlanOptions options,
+        IReadOnlySet<string> configured)
     {
-        var list = def.Key == "user" ? objects.Where(ConfigDiffEngine.HasClientConfig).ToList() : objects.ToList();
+        var list = ConfigDiffEngine.Relevant(def, objects, configured);
         if (def.Key == "device" && options.DeviceMap.Count > 0)
         {
             // Replace Device: the desired device carries the old MAC; rename it so it matches the new one.

@@ -1025,6 +1025,28 @@ public class ChangeDetectionTests
     }
 
     [Fact]
+    public void ClientWhoseOnlySettingIsCleared_IsUpdated_NotDeleted_AndTheReverseIsNotCreated()
+    {
+        // UniFi keeps the record when its alias is cleared; only the config is gone.
+        static ConfigState State(string name) => new()
+        {
+            Collections =
+            {
+                ["user"] = [Obj($$"""{"_id":"u1","mac":"aa:bb:cc:dd:ee:01","name":"{{name}}","hostname":"PC-01"}""")],
+                ["networkconf"] = [],
+            },
+        };
+
+        var cleared = ConfigDiffEngine.Compare(State("PC"), State("")).Objects.Should().ContainSingle().Subject;
+        cleared.Action.Should().Be(ConfigChangeAction.Updated);
+        cleared.Fields.Should().ContainSingle(f => f.Path == "name");
+
+        ConfigDiffEngine.Compare(State(""), State("PC")).Objects.Should().ContainSingle()
+            .Which.Action.Should().Be(ConfigChangeAction.Updated);
+        ConfigDiffEngine.Compare(State(""), State("")).Objects.Should().BeEmpty("a client nobody configured is not a change");
+    }
+
+    [Fact]
     public void Describer_DisabledPolicy()
     {
         var diff = ConfigDiffEngine.CompareObjects(ConfigCollections.Get("firewall_policy")!,
