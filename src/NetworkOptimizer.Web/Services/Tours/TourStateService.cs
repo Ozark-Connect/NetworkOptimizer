@@ -71,6 +71,8 @@ public class TourStateService
         /// <summary>Tour id -> app versions in which it was included in an automatic modal offer.</summary>
         public Dictionary<string, List<string>> Offers { get; init; } = new(StringComparer.OrdinalIgnoreCase);
         public bool ToursDisabled { get; init; }
+        /// <summary>True when the subject has no state yet and reads the clean-start baseline.</summary>
+        public bool CleanStart { get; init; }
     }
 
     public async Task<Snapshot> GetSnapshotAsync(string? subject)
@@ -90,6 +92,7 @@ public class TourStateService
             {
                 ToursDisabled = await InheritedToursDisabledAsync(subject),
                 DismissedTourIds = BaselineDismissedTourIds(subject),
+                CleanStart = subject != TourState.DefaultSubject,
             };
 
         var snapshot = new Snapshot { ToursDisabled = row.ToursDisabled };

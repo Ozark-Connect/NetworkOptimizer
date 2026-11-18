@@ -311,6 +311,8 @@ public sealed class TourStateServiceTests : IDisposable
 
         offer.Should().NotBeNull();
         offer!.TourIds.Should().BeEquivalentTo(new[] { CurrentMinorFirst, CurrentMinorLatest }.Distinct());
+        if (CurrentMinorFirst != CurrentMinorLatest)
+            offer.Title.Should().Be($"What's new in v{Current.Major}.{Current.Minor}", "a new account never had a last update");
     }
 
     [Fact]
@@ -360,6 +362,8 @@ public sealed class TourStateServiceTests : IDisposable
         (await _state.GetSnapshotAsync(Default)).DismissedTourIds.Should().BeEmpty();
         var offer = await Tours(null, authDisabled: true).GetDueOfferAsync();
         offer!.TourIds.Should().Contain([OldTour, OlderPatchTour]);
+        offer.Title.Should().Be("What's new since your last update");
+        (await _state.GetSnapshotAsync(Default)).CleanStart.Should().BeFalse();
 
         await _state.RecordStepSeenAsync(Default, "step-a");
         (await StoredDismissedAsync(Default)).Should().BeEmpty();

@@ -126,7 +126,10 @@ public class TourService
         var single = contributing.Count == 1;
         return new TourOffer
         {
-            Title = single ? newest.Title : "What's new since your last update",
+            // A clean start never had a last update: it is offered only this minor's tours.
+            Title = single ? newest.Title
+                : snapshot.CleanStart ? $"What's new in v{current.Major}.{current.Minor}"
+                : "What's new since your last update",
             Summary = single ? newest.Summary : null,
             IsHighlights = false,
             Steps = resolved,
