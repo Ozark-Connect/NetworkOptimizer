@@ -41,6 +41,33 @@ export function unwatchVisibility(id) {
     visHandlers.delete(id);
 }
 
+const widthObservers = new Map();
+
+/**
+ * Reports an element's width to .NET as it changes (8 px steps, and never 0: a hidden element says
+ * nothing). One watcher per id: watching a new element drops the old one.
+ */
+export function watchWidth(id, el, dotnet, method) {
+    unwatchWidth(id);
+    if (!el) return;
+    let last = 0;
+    const report = () => {
+        const w = Math.round(el.getBoundingClientRect().width);
+        if (w === 0 || Math.abs(w - last) < 8) return;
+        last = w;
+        dotnet.invokeMethodAsync(method, w).catch(() => { /* circuit gone */ });
+    };
+    const observer = new ResizeObserver(report);
+    observer.observe(el);
+    widthObservers.set(id, observer);
+    report();
+}
+
+export function unwatchWidth(id) {
+    widthObservers.get(id)?.disconnect();
+    widthObservers.delete(id);
+}
+
 /**
  * Counts the user's scrolling on a scroller. The hold's own scrollBy is recorded in `own` and taken
  * back out, so holding the row never counts as the user scrolling.
