@@ -181,7 +181,7 @@ public sealed class SiteHealthJob
             devices = [];
         }
         var topology = new Topology(devices);
-        var gatewayMacs = devices.Where(d => d.Type == DeviceType.Gateway || d.HardwareType == DeviceType.Gateway)
+        var gatewayMacs = UniFiDiscovery.SiteGateways(devices)
             .Select(d => Mac(d.Mac)).Append(gatewayMac is { } g ? Mac(g) : "").Where(m => m.Length > 0).ToHashSet();
 
         var history = stored.Where(h => h.HourStart < from).ToList();

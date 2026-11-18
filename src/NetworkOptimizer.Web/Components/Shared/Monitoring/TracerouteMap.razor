@@ -5,6 +5,11 @@
 @inject Microsoft.AspNetCore.Mvc.ViewFeatures.IFileVersionProvider FileVersionProvider
 @inject ILogger<TracerouteMap> Logger
 
+@if (Path != null)
+{
+    @* Also when nothing could be placed: that is when the map needs GeoLite2 most. *@
+    <div class="trace-map-geolite"><GeoLiteSetupBanner /></div>
+}
 @if (Path is { HasRoute: true })
 {
     <div class="trace-map-block">

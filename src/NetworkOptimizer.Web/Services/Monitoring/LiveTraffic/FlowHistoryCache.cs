@@ -171,12 +171,30 @@ public sealed class FlowHistoryCache
 
     // ---------------------------------------------------------------- reading
 
+    /// <summary>
+    /// A client's name as Live names it now, by MAC. Applied when a view is built, like custom apps: a
+    /// record keeps the name the console gave it then, which a rename since has made stale.
+    /// </summary>
+    public Func<string?, string?>? ClientNames { get; set; }
+
+    private IReadOnlyCollection<LiveFlowRow> Renamed(IReadOnlyCollection<LiveFlowRow> rows)
+    {
+        if (ClientNames is not { } nameFor) return rows;
+        return rows.Select(r =>
+        {
+            var client = nameFor(r.ClientMac);
+            var remote = r.RemoteClientMac is { } peer ? nameFor(peer) : null;
+            return client == null && remote == null ? r
+                : r with { ClientName = client ?? r.ClientName, Destination = remote ?? r.Destination };
+        }).ToList();
+    }
+
     public LiveHistoryView BuildView(LiveHistoryQuery query, LiveHistoryState state, DateTime now)
     {
         lock (_gate)
         {
-            IReadOnlyCollection<LiveFlowRow> all = _customApps.Count == 0 ? _rows.Values
-                : CustomAppMatcher.Apply(_rows.Values.ToList(), _customApps);
+            IReadOnlyCollection<LiveFlowRow> all = Renamed(_customApps.Count == 0 ? _rows.Values
+                : CustomAppMatcher.Apply(_rows.Values.ToList(), _customApps));
             var oldest = all.Count == 0 ? null : all.Min(r => r.LastSeen);
             var matching = all
                 .Where(r => query.Client is not { } scope || LiveTrafficStore.InScope(r, scope))

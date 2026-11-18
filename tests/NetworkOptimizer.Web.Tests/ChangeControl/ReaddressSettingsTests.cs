@@ -2,6 +2,7 @@ using FluentAssertions;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using NetworkOptimizer.Storage.Models;
+using NetworkOptimizer.Threats.Blocking;
 using NetworkOptimizer.Threats.Waf;
 using NetworkOptimizer.Web.Services.ChangeControl;
 using Xunit;
@@ -68,6 +69,37 @@ public sealed class ReaddressSettingsTests : IDisposable
         (await check.SystemSettings.FindAsync(WafSettingKeys.Url))!.Value.Should().Be("http://192.0.2.7:8044");
         (await check.SystemSettings.FindAsync(WafSettingKeys.ForSite(WafSettingKeys.Url, "branch")))!.Value.Should().Be("http://198.51.100.8:8044");
         (await check.MonitoringTargets.SingleAsync()).Address.Should().Be("192.0.2.5", "the main site's own targets are not this site's");
+    }
+
+    [Fact]
+    public async Task BlockingException_DeviceMoves_ListedAddressAndOtherSitesStay()
+    {
+        var key = BlockingSettingKeys.ForSite(BlockingSettingKeys.Exceptions, null);
+        var branchKey = BlockingSettingKeys.ForSite(BlockingSettingKeys.Exceptions, "branch");
+        await using (var seed = Db(_mainConnection))
+        {
+            seed.SystemSettings.Add(new SystemSetting { Key = key, Value = BlockingExceptions.Serialize(
+            [
+                new BlockingException { Id = "e1", Device = "192.0.2.220", Address = "203.0.113.48", Note = "NAS to mirror" },
+                new BlockingException { Id = "e2", Device = "192.0.2.0/24", Protocol = ExceptionProtocol.Tcp, PortFrom = 443 },
+                new BlockingException { Id = "e3", Address = "203.0.113.9" },
+            ]) });
+            seed.SystemSettings.Add(new SystemSetting { Key = branchKey, Value = BlockingExceptions.Serialize(
+                [new BlockingException { Id = "b1", Device = "192.0.2.10" }]) });
+            seed.SaveChanges();
+        }
+        await using var main = Db(_mainConnection);
+
+        var moved = await ReaddressSettings.RunAsync(main, Moves, [], apply: true, CancellationToken.None, main, site: null);
+
+        moved.Where(m => m.Setting == ReaddressSettings.BlockingExceptionSetting).Select(m => (m.Name, m.Old, m.New)).Should().BeEquivalentTo(
+            [("NAS to mirror", "192.0.2.220", "198.51.100.220"), ("192.0.2.0/24 can reach every listed address on TCP 443.", "192.0.2.0/24", "198.51.100.0/24")]);
+        await using var check = Db(_mainConnection);
+        var after = BlockingExceptions.Parse((await check.SystemSettings.FindAsync(key))!.Value);
+        after.Select(e => (e.Id, e.Device, e.Address)).Should().Equal(
+            ("e1", "198.51.100.220", "203.0.113.48"), ("e2", "198.51.100.0/24", null), ("e3", null, "203.0.113.9"));
+        after[1].PortFrom.Should().Be(443);
+        BlockingExceptions.Parse((await check.SystemSettings.FindAsync(branchKey))!.Value)[0].Device.Should().Be("192.0.2.10");
     }
 
     [Fact]

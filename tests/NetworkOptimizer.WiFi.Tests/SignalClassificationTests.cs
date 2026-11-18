@@ -166,4 +166,30 @@ public class SignalClassificationTests
         SignalClassification.GetSignalClass(-85, RadioBand.Band5GHz).Should().Be("signal-weak");
         SignalClassification.GetSignalClass(-86, RadioBand.Band5GHz).Should().Be("signal-poor");
     }
+
+    // --- GetAverageSignal (MLO backhaul) ---
+
+    [Fact]
+    public void GetAverageSignal_GradesEachLinkOnItsOwnBand()
+    {
+        // -75 dBm is fair on 5 GHz (3 bars) but good on 6 GHz (4 bars): the mean, 3.5, rounds to 4.
+        var (bars, _) = SignalClassification.GetAverageSignal([(-75, "5"), (-75, "6")]);
+        bars.Should().Be(4);
+    }
+
+    [Fact]
+    public void GetAverageSignal_OneLink_MatchesThatLink()
+    {
+        var (bars, color) = SignalClassification.GetAverageSignal([(-64, "na")]);
+        bars.Should().Be(SignalClassification.GetSignalBars(-64, "na"));
+        color.Should().Be(SignalClassification.GetSignalColor(-64, "na"));
+    }
+
+    [Fact]
+    public void GetAverageSignal_ColorIsTheMeanOfTheLinkColors()
+    {
+        // At or past the top stop every band paints #2E79C4, at or past the bottom #991b1b.
+        var (_, color) = SignalClassification.GetAverageSignal([(-20, "5"), (-120, "6")]);
+        color.Should().Be($"rgb({(0x2E + 0x99) / 2},{(0x79 + 0x1b) / 2},{(0xC4 + 0x1b) / 2})");
+    }
 }

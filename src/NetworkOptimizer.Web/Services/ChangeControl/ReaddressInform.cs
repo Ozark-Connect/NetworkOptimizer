@@ -80,6 +80,7 @@ public static class ReaddressInform
             var host = new Uri(url).Host;
             var isName = Readdressing.ParseIp(host) == null;
             var role = DeviceTypeExtensions.FromUniFiApiType(d["type"]?.ToString(), d["model"]?.ToString());
+            if (role == DeviceType.Gateway && NetworkOptimizer.UniFi.UniFiProductDatabase.IsAccessPointMode(ConfigCollections.DeviceField(d, "device_mode_override"))) role = DeviceType.AccessPoint;
             var ip = Address(host);
             var moved = (isName && Served(host)) || (ip is { } a && Readdressing.MapIp(a, map) != null);
             // An unresolved name may be moved: only the Console type or an answer can clear it.

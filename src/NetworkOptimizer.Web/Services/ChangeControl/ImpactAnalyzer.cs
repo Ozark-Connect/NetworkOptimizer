@@ -302,13 +302,17 @@ public static class ImpactAnalyzer
     /// <summary>
     /// Pairs an issue across the two runs: <see cref="IssueKey"/> with the issue's own network named
     /// by its ID, so renaming a network is not read as a fix plus a regression for each of its issues.
+    /// A client's issue with no device MAC (a wireless one) is paired by the client's MAC alone: its
+    /// device name reads "client on AP (band)", which a renamed AP or a roam changes.
     /// </summary>
     private static string MatchKey(AuditIssue issue, IReadOnlyDictionary<string, string> idByName)
     {
+        var device = issue.DeviceMac ?? (string.IsNullOrEmpty(issue.ClientMac) ? issue.DeviceName : null);
         var net = issue.CurrentNetwork;
-        if (string.IsNullOrEmpty(net) || !idByName.TryGetValue(net, out var id)) return IssueKey(issue);
+        if (string.IsNullOrEmpty(net) || !idByName.TryGetValue(net, out var id))
+            return $"{issue.Title}|{device}|{issue.Port}|{net}|{issue.ClientMac}";
         var title = issue.Title.Replace(net, "#" + id, StringComparison.Ordinal);
-        return $"{title}|{issue.DeviceMac ?? issue.DeviceName}|{issue.Port}|#{id}|{issue.ClientMac}";
+        return $"{title}|{device}|{issue.Port}|#{id}|{issue.ClientMac}";
     }
 
     private static Dictionary<string, string> NetworkIds(AuditResult result) =>

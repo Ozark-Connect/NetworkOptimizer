@@ -187,6 +187,7 @@ public sealed class ConntrackRunner
                 catch (Exception ex)
                 {
                     Console.Error.WriteLine($"Conntrack sample pass failed: {ex.Message}");
+                    OutOfMemoryRestart.Report("the conntrack sample pass", ex);
                 }
                 stopwatch.Stop();
 

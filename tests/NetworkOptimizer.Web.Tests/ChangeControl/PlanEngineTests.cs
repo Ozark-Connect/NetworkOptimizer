@@ -260,6 +260,89 @@ public class PlanEngineTests
         PlanBuilder.Build(desired, after, new PlanOptions()).Operations.Should().BeEmpty("a second plan finds nothing left to do");
     }
 
+    [Fact]
+    public async Task Executor_Wpa3WlanCreate_IsNotPartial_ForWhatTheFollowUpSets()
+    {
+        // The create goes out on WPA2 without 6 GHz and the update right after sets WPA3. The console stores its own
+        // WPA3 and PMF values on the create (a real console did, 2026-11-16); the update's verify is what counts.
+        var live = State(("networkconf", Lan));
+        var desired = State(("networkconf", Lan), ("wlanconf",
+            """{"_id":"w1","name":"Test-SSID","networkconf_id":"n1","security":"wpapsk","wpa_mode":"wpa2","wpa3_support":true,"wpa3_transition":true,"pmf_mode":"optional","wlan_bands":["2g","5g","6g"]}"""));
+        var console = new FakeConsole(live);
+        console.StoredOnCreate["wlanconf"] = new JsonObject { ["wpa3_support"] = true, ["wpa3_transition"] = true, ["pmf_mode"] = "required" };
+        var doc = Plan(desired, console.State.Clone());
+        doc.Operations.Count(o => o.Collection == "wlanconf").Should().Be(2);
+
+        var (ok, result) = await new PlanExecutor(console, NullLogger.Instance).ApplyAsync(doc, hasGateway: true, null, CancellationToken.None);
+
+        ok.Should().BeTrue();
+        result.Operations.Where(o => o.Key.StartsWith("wlanconf:", StringComparison.Ordinal))
+            .Select(o => $"{o.Outcome} {string.Join(",", o.NotApplied)}").Should().AllBe("Applied ");
+        var wlan = console.State.Get("wlanconf").Single();
+        wlan["wpa3_support"]!.GetValue<bool>().Should().BeTrue();
+        wlan["pmf_mode"]!.GetValue<string>().Should().Be("optional");
+    }
+
+    private const string AllAps = """{"_id":"g1","name":"All APs","attr_hidden_id":"default","attr_no_delete":true,"device_macs":["aa:bb:cc:00:00:01","aa:bb:cc:00:00:02"]}""";
+    private const string OneAp = """{"_id":"g2","name":"One AP","device_macs":["aa:bb:cc:00:00:01"]}""";
+
+    [Theory]
+    [InlineData("g2", "groups")]
+    [InlineData("g1", "all")]
+    public void WlanCreate_WritesTheApGroupModeItsGroupsMean(string group, string mode)
+    {
+        var live = State(("networkconf", Lan), ("apgroups", AllAps), ("apgroups", OneAp));
+        var desired = State(("networkconf", Lan), ("apgroups", AllAps), ("apgroups", OneAp),
+            ("wlanconf", $$"""{"_id":"w1","name":"Test-SSID","networkconf_id":"n1","ap_group_ids":["{{group}}"]}"""));
+
+        var create = Plan(desired, live).Operations.Single(o => o.Collection == "wlanconf" && o.Action == PlanAction.Create);
+
+        create.Body!["ap_group_mode"]!.GetValue<string>().Should().Be(mode);
+    }
+
+    [Fact]
+    public void Wlan_StoredWithoutApGroupMode_IsGivenIt()
+    {
+        // A WLAN an API write left without a mode: UniFi's UI shows it on no APs until the mode is set.
+        var wlan = """{"_id":"w1","name":"Test-SSID","networkconf_id":"n1","ap_group_ids":["g2"]}""";
+        var live = State(("networkconf", Lan), ("apgroups", AllAps), ("apgroups", OneAp), ("wlanconf", wlan));
+        var desired = State(("networkconf", Lan), ("apgroups", AllAps), ("apgroups", OneAp), ("wlanconf", wlan));
+
+        var update = Plan(desired, live).Operations.Single(o => o.Collection == "wlanconf");
+
+        update.Action.Should().Be(PlanAction.Update);
+        update.Body!["ap_group_mode"]!.GetValue<string>().Should().Be("groups");
+    }
+
+    [Theory]
+    [InlineData("all", "g1")]
+    [InlineData("groups", "g2")]
+    [InlineData("devices", "g1")]   // a mode this does not decide is left as it is
+    public void Wlan_WithAMatchingOrOtherApGroupMode_IsLeftAlone(string mode, string group)
+    {
+        var wlan = $$"""{"_id":"w1","name":"Home","networkconf_id":"n1","ap_group_mode":"{{mode}}","ap_group_ids":["{{group}}"]}""";
+        var live = State(("networkconf", Lan), ("apgroups", AllAps), ("apgroups", OneAp), ("wlanconf", wlan));
+        var desired = State(("networkconf", Lan), ("apgroups", AllAps), ("apgroups", OneAp), ("wlanconf", wlan));
+
+        Plan(desired, live).Operations.Should().BeEmpty();
+    }
+
+    [Theory]
+    [InlineData("g2", "groups")]
+    [InlineData("g1", "all")]
+    public void Wlan_EditingItsApGroups_MovesTheModeWithThem(string group, string mode)
+    {
+        var from = mode == "all" ? """ "ap_group_mode":"groups","ap_group_ids":["g2"] """ : """ "ap_group_mode":"all","ap_group_ids":["g1"] """;
+        var live = State(("networkconf", Lan), ("apgroups", AllAps), ("apgroups", OneAp),
+            ("wlanconf", $$"""{"_id":"w1","name":"Home","networkconf_id":"n1",{{from}}}"""));
+        var desired = State(("networkconf", Lan), ("apgroups", AllAps), ("apgroups", OneAp),
+            ("wlanconf", $$"""{"_id":"w1","name":"Home","networkconf_id":"n1",{{from.Replace(mode == "all" ? "g2" : "g1", group)}}}"""));
+
+        var update = Plan(desired, live).Operations.Single(o => o.Collection == "wlanconf");
+
+        update.Body!["ap_group_mode"]!.GetValue<string>().Should().Be(mode);
+    }
+
     [Theory]
     [InlineData("auto", 2)]    // UniFi stores the create as "manual": a second write puts "auto" back
     [InlineData("manual", 1)]  // already what UniFi keeps: one write

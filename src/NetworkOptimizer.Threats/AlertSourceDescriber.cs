@@ -66,7 +66,7 @@ internal sealed class AlertSourceDescriber
             if (apiClient == null) return _clientNames;
             foreach (var c in await apiClient.GetAllKnownClientsAsync(cancellationToken))
             {
-                var name = !string.IsNullOrEmpty(c.Name) ? c.Name : c.Hostname;
+                var name = NetworkOptimizer.UniFi.ClientNames.For(c);
                 if (string.IsNullOrEmpty(name)) continue;
                 if (!string.IsNullOrEmpty(c.BestIp))
                     _clientNames.TryAdd(c.BestIp, name);

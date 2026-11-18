@@ -21,6 +21,10 @@ public interface IClientIcons
     /// <summary>An icon's cached file, or null when the key is unknown to the site or the icon cannot be fetched.</summary>
     [RequireRole(Roles.Viewer)]
     Task<ClientIconImage?> GetImageAsync(string key, CancellationToken cancellationToken = default);
+
+    /// <summary>The served URL of an ISP's logo by ASN (UniFi Network's), or null when it has none or it is not cached yet.</summary>
+    [RequireRole(Roles.Viewer)]
+    Task<string?> GetAsnLogoUrlAsync(long asn, CancellationToken cancellationToken = default);
 }
 
 /// <summary>Page helpers for <see cref="IClientIcons"/>.</summary>
@@ -58,4 +62,6 @@ public sealed class ClientIconService(ClientIconRegistry registry, SiteContextSe
     public Task<ClientIconMap> GetRefreshedMapAsync(CancellationToken ct = default) => registry.GetRefreshedAsync(site.Slug, ct);
 
     public Task<ClientIconImage?> GetImageAsync(string key, CancellationToken ct = default) => registry.GetImageAsync(site.Slug, key, ct);
+
+    public Task<string?> GetAsnLogoUrlAsync(long asn, CancellationToken ct = default) => registry.AsnLogoUrlAsync(asn, site.Slug, ct);
 }

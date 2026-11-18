@@ -341,6 +341,13 @@ public class DnsSecurityAnalyzer
     }
 
     /// <summary>
+    /// Whether a raw device acts as the gateway: a gateway type, not adopted as an AP by its mode.
+    /// </summary>
+    private static bool IsGatewayRole(JsonElement device, string? deviceType) =>
+        FromUniFiApiType(deviceType).IsGateway()
+        && !NetworkOptimizer.UniFi.UniFiProductDatabase.IsAccessPointMode(device.GetStringOrNull("device_mode_override"));
+
+    /// <summary>
     /// Extract WAN DNS servers from device port_table.
     /// UniFi stores WAN DNS in port_table entries where network_name starts with "wan" (wan, wan2, etc.).
     /// </summary>
@@ -353,7 +360,7 @@ public class DnsSecurityAnalyzer
         {
             // Only check gateways/routers for WAN DNS
             var deviceType = device.GetStringOrNull("type");
-            if (deviceType == null || !FromUniFiApiType(deviceType).IsGateway())
+            if (deviceType == null || !IsGatewayRole(device, deviceType))
                 continue;
 
             // Look in port_table for WAN ports (wan, wan2, etc.)
@@ -2500,7 +2507,7 @@ public class DnsSecurityAnalyzer
             var ip = device.GetStringOrNull("ip");
 
             // Skip gateways - they're not expected to point to themselves
-            if (FromUniFiApiType(deviceType).IsGateway())
+            if (IsGatewayRole(device, deviceType))
                 continue;
 
             // Get DNS configuration from config_network

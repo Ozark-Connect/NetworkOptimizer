@@ -107,7 +107,8 @@ public static class PlanBuilder
 
         // Pass 1: match every collection both states have, so references resolve across collections
         // (zones in policies, networks in profiles), including objects this plan never writes.
-        var (matches, idMap) = ObjectMatcher.MatchAll(desired, live, desiredCtx, liveCtx, options.SameSite, (d, o) => Relevant(d, o, options));
+        var configured = ConfigDiffEngine.ConfiguredClients(desired, live);
+        var (matches, idMap) = ObjectMatcher.MatchAll(desired, live, desiredCtx, liveCtx, options.SameSite, (d, o) => Relevant(d, o, options, configured));
         if (!options.SameSite) NoteNameMatchesOnAnotherVlan(matches, doc);
 
         // A snapshot from another Network version predates the columns the upgrade added.
@@ -127,6 +128,7 @@ public static class PlanBuilder
         }
 
         if (options.SameSite && !options.DeleteMissing) KeepReferencesToKeptObjects(matches);
+        SetApGroupModes(desired, live, idMap);
 
         var mgmtNetworks = ConfigDiffEngine.ManagementNetworkIds(live);
 
@@ -209,7 +211,7 @@ public static class PlanBuilder
         RefuseWanZoneMoves(doc, live);
         // A device list without a gateway is a switch-only site; an unread one counts as having one.
         var hasGateway = options.TargetHasGateway && (!live.Collections.ContainsKey("device")
-            || live.Get("device").Any(d => d[ConfigCollections.DeviceMetaField]?["type"]?.ToString() is "ugw" or "udm" or "uxg"));
+            || live.Get("device").Any(ConfigCollections.IsGateway));
         foreach (var op in doc.Operations)
             op.ProvisionsGateway = op.NeedsGateway || (op.Collection == "networkconf" && hasGateway);
 
@@ -274,9 +276,10 @@ public static class PlanBuilder
         }
     }
 
-    private static List<JsonObject> Relevant(ConfigCollectionDef def, IReadOnlyList<JsonObject> objects, PlanOptions options)
+    private static List<JsonObject> Relevant(ConfigCollectionDef def, IReadOnlyList<JsonObject> objects, PlanOptions options,
+        IReadOnlySet<string> configured)
     {
-        var list = def.Key == "user" ? objects.Where(ConfigDiffEngine.HasClientConfig).ToList() : objects.ToList();
+        var list = ConfigDiffEngine.Relevant(def, objects, configured);
         if (def.Key == "device" && options.DeviceMap.Count > 0)
         {
             // Replace Device: the desired device carries the old MAC; rename it so it matches the new one.
@@ -536,13 +539,17 @@ public static class PlanBuilder
         update.Body = updateBody;
         // A value can point at an object this plan creates (a policy moving into a new zone): name it as a create's rows do.
         var updateCtx = liveCtx.With(RefNames(creates));
-        update.Fields = diff.Fields.Select(f => new StoredField
+        update.Fields = diff.Fields.Select(f =>
         {
-            Path = f.Path,
-            Label = ChangeDescriber.LabelFor(f.Path, remapped, live),
-            Old = f.Secret ? null : ChangeDescriber.Value(f.Old, updateCtx),
-            New = f.Secret ? null : ChangeDescriber.Value(f.New, updateCtx),
-            Secret = f.Secret,
+            var (oldText, newText) = ChangeDescriber.Values(f.Old, f.New, updateCtx, updateCtx);
+            return new StoredField
+            {
+                Path = f.Path,
+                Label = ChangeDescriber.LabelFor(f.Path, remapped, live),
+                Old = f.Secret ? null : oldText,
+                New = f.Secret ? null : newText,
+                Secret = f.Secret,
+            };
         }).ToList();
         if (def.Key == "wlanconf" && ChangeDescriber.Rows(diff).FirstOrDefault(r => r.Label == ChangeDescriber.SecurityProtocol) is { } sec)
         {
@@ -691,6 +698,29 @@ public static class PlanBuilder
     // and PMF disabled whatever the create sends, so 6 GHz, which needs WPA3, is refused
     // (api.err.Wpa3MandatoryFor6GHzBand). An update afterwards sets them.
     private static readonly string[] Wpa3Fields = ["wpa3_support", "wpa3_transition", "wpa3_enhanced_192", "wpa3_fast_roaming", "pmf_mode", "wlan_bands"];
+
+    /// <summary>
+    /// Gives each desired WLAN with AP groups the ap_group_mode they mean: "all" for the built-in All APs
+    /// group, "groups" otherwise. UniFi's UI writes the two together; a WLAN written without the mode is
+    /// stored without one, and that UI then shows it on no APs. Other modes are left as they are.
+    /// </summary>
+    internal static void SetApGroupModes(ConfigState desired, ConfigState live, IReadOnlyDictionary<string, string>? idMap = null)
+    {
+        if (!desired.Collections.ContainsKey("wlanconf")) return;
+        var builtIn = desired.Get("apgroups").Concat(live.Get("apgroups"))
+            .Where(g => g["attr_hidden_id"]?.ToString() == "default")
+            .Select(ConfigState.IdOf).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        // A source site's ID counts by the live ID it maps to (Migrate, templates).
+        bool IsBuiltIn(string id) => builtIn.Contains(id) || (idMap?.TryGetValue(id, out var to) == true && builtIn.Contains(to));
+        foreach (var wlan in desired.Get("wlanconf"))
+        {
+            if (wlan["ap_group_ids"] is not JsonArray { Count: > 0 } ids) continue;
+            var mode = wlan["ap_group_mode"]?.ToString();
+            if (mode is not (null or "all" or "groups")) continue;
+            var meant = ids.All(i => i?.ToString() is { } id && IsBuiltIn(id)) ? "all" : "groups";
+            if (mode != meant) wlan["ap_group_mode"] = meant;
+        }
+    }
 
     /// <summary>
     /// For a WLAN create that wants WPA3 or 6 GHz: creates it on WPA2 without 6 GHz, and returns the
@@ -1013,7 +1043,7 @@ public static class PlanBuilder
         {
             var partial = new JsonObject();
             foreach (var field in changedTop)
-                partial[field] = desired[field]?.DeepClone() ?? EmptiedList(live, field);
+                partial[field] = desired[field]?.DeepClone() ?? (JsonNode?)EmptiedList(live, field) ?? ClearedClientText(def, live, field);
             DropAnyMatchType(def, partial);
             return partial;
         }
@@ -1042,6 +1072,14 @@ public static class PlanBuilder
     /// would keep the live list (a deleted network still in a port profile's excluded networks).
     /// </summary>
     private static JsonArray? EmptiedList(JsonObject live, string field) => live[field] is JsonArray ? new JsonArray() : null;
+
+    /// <summary>
+    /// An empty string for a client's text field the desired side leaves out (a name line removed in Edit): rest/user
+    /// clears with "", and refuses null with api.err.InvalidPayload.
+    /// </summary>
+    [NetworkOptimizer.Core.VendorSpecific("UniFi", "rest/user PUT rejects null text fields; \"\" clears them")]
+    private static JsonValue? ClearedClientText(ConfigCollectionDef def, JsonObject live, string field) =>
+        def.Key == "user" && live[field] is JsonValue v && v.TryGetValue<string>(out _) ? JsonValue.Create("") : null;
 
     /// <summary>The top-level field of a diff path ("port_overrides[port_idx=4].name" is port_overrides).</summary>
     public static string TopField(string path)

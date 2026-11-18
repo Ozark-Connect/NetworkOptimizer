@@ -242,7 +242,7 @@
                         <ClientIcon Url="@clientIconUrl" Size="40" Class="identity-client-icon" />
                         <div class="identity-text">
                         <ClientNameEditor @key="_client.Mac" Mac="@_client.Mac" Name="@_client.Name" Hostname="@_client.Hostname" Class="identity-name-cell" TourId="client-rename"
-                                          OnRenamed="OnClientRenamed">
+                                          ReadOnly="@_client.IsProtectDevice" OnRenamed="OnClientRenamed">
                             <h2 class="identity-name">@_client.DisplayName</h2>
                         </ClientNameEditor>
                         <div class="identity-meta">

@@ -53,5 +53,15 @@ public class UpstreamDiscovery
 
     public DateTime LastTracerouteAt { get; set; } = DateTime.UtcNow;
 
+    /// <summary>
+    /// A traced target's latest route, as JSON: every TTL with its address, hostname, and round trip,
+    /// the vantage and bind it ran from, and the trace before it. The Path Map draws it. Null for a
+    /// discovery hop row, and for a target not traced since the column was added.
+    /// </summary>
+    public string? RouteJson { get; set; }
+
+    /// <summary>The target's recent confirmed path shifts, as JSON, newest last: each one's time and the routes before and after it.</summary>
+    public string? RouteShiftsJson { get; set; }
+
     public bool IsActive { get; set; } = true;
 }

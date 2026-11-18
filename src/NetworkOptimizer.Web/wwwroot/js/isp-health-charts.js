@@ -60,7 +60,9 @@ function buildOpts() {
                     zoomWindow = min != null ? { min, max } : null;
                     if (restoringZoom) return;
                     setZoomed(min != null);
-                    notifyZoom(noTime.fromChart(min), noTime.fromChart(max));
+                    // A library reset carries no bounds: the panel gets null, not a converted NaN.
+                    if (min == null) notifyZoom(null, null);
+                    else notifyZoom(noTime.fromChart(min), noTime.fromChart(max));
                 },
             },
         },
@@ -476,5 +478,11 @@ export function unmount() {
     win = null;
     hiddenTypes = new Set();
     lastEvents = [];
+    // The chip row and which networks were hidden belong to this mount: kept, a remount into the same card added
+    // a second row, and a network hidden on one WAN stayed hidden on the next WAN's report.
+    if (badgesEl) { badgesEl.remove(); badgesEl = null; }
+    seriesVisibility = {};
+    asnMeta = [];
+    lastSeries = [];
     if (chart) { chart.destroy(); chart = null; }
 }

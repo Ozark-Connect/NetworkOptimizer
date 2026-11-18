@@ -2769,9 +2769,7 @@ else
                 var ip = c.BestIp;
                 if (string.IsNullOrEmpty(ip)) continue;
 
-                var name = !string.IsNullOrEmpty(c.Name) ? c.Name
-                    : !string.IsNullOrEmpty(c.Hostname) ? c.Hostname
-                    : null;
+                var name = NetworkOptimizer.UniFi.ClientNames.For(c);
                 if (name != null)
                     names.TryAdd(ip, name);
             }

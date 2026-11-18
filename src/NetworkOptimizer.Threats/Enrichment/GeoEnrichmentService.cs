@@ -216,7 +216,8 @@ public class GeoEnrichmentService : IDisposable
     /// Download GeoLite2 databases from MaxMind using account ID and license key.
     /// Uses the current MaxMind download API with Basic auth.
     /// </summary>
-    public async Task<(bool Success, string Message)> DownloadDatabasesAsync(
+    /// <returns>Success when at least one edition loaded; Partial when another edition failed.</returns>
+    public async Task<(bool Success, bool Partial, string Message)> DownloadDatabasesAsync(
         string accountId, string licenseKey, string dataPath, HttpClient httpClient, CancellationToken cancellationToken = default)
     {
         var editions = new[] { "GeoLite2-City", "GeoLite2-ASN" };
@@ -342,11 +343,23 @@ public class GeoEnrichmentService : IDisposable
         }
 
         if (errors.Count == 0)
-            return (true, "Both databases downloaded and loaded successfully.");
-        else if (errors.Count < editions.Length)
-            return (true, $"Partial success. Errors: {string.Join("; ", errors)}");
+            return (true, false, "Both databases downloaded and loaded successfully.");
 
-        return (false, $"Download failed: {string.Join("; ", errors)}");
+        // MaxMind answers 401 for a license key that is still activating, which a retry clears.
+        var hint = errors.Any(e => e.Contains("HTTP 401", StringComparison.Ordinal))
+            ? " A new MaxMind license key can take a few minutes to activate. Try again shortly."
+            : "";
+
+        // MaxMind's error bodies end in a period of their own.
+        var detail = string.Join("; ", errors).TrimEnd().TrimEnd('.') + ".";
+
+        if (errors.Count < editions.Length)
+        {
+            var loaded = editions.Where(ed => !errors.Any(e => e.StartsWith(ed + ":", StringComparison.Ordinal)));
+            return (true, true, $"Only {string.Join(", ", loaded)} downloaded. {detail}{hint}");
+        }
+
+        return (false, false, $"Download failed: {detail}{hint}");
     }
 
     /// <summary>

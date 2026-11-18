@@ -12,7 +12,7 @@ import { downloadColor, uploadColor } from './chart-colors.js?v=2';
 import { createAxisDateCaption } from './chart-axis-date.js?v=5';
 import { syncIdentity, extentsOf, spanTo } from './chart-sync.js?v=9';
 import { awaitContainer } from './chart-mount.js?v=1';
-import { loadWindowHours, saveWindowHours, markActiveRange } from './chart-window.js?v=2';
+import { loadWindowHours, saveWindowHours, markActiveRange } from './chart-window.js?v=3';
 import { formatBps } from './chart-format.js?v=1';
 
 // Storage scope for this tab's remembered time window.
@@ -74,6 +74,12 @@ let savedState = null;
 // it is what decides whether the control to ask for them is offered at all.
 let showInactive = false;
 let inactiveCount = 0;
+// A target to solo once the category a map click switched to has loaded.
+let pendingSolo = null;
+// Scopes pushed by the page (setWanScope), so a mount keeps one pushed while it waited for its container.
+let scopePushes = 0;
+// The custom-range popover's click-outside listener, for unmount to remove.
+let outsideClickHandler = null;
 // Per-WAN scope, set by Blazor (which owns the WAN pill bar and its visibility gate).
 // null = no scoping at all: single-WAN sites never reach this code path and render
 // exactly as before. Shape: { primaryKey, selected: [wanKey...], tokens: {key: 'WAN1'} };
@@ -353,6 +359,7 @@ function renderBadges(container) {
 
                 if (onlyThis) {
                     visibility = {};
+                    emitFilterCleared(container);
                 } else if (allVis) {
                     targetMeta.forEach(t => visibility[t.id] = inGroup.has(t.id));
                 } else {
@@ -372,6 +379,7 @@ function renderBadges(container) {
     renderInactiveToggle(el, inactiveCount > 0, showInactive, toggleInactive);
     renderFilterReset(el, isFiltered(visibility), () => {
         visibility = {};
+        emitFilterCleared(container);
         updateChartVisibility();
         renderBadges(container);
         if (lastFetchData) renderStatsTable(container, false);
@@ -415,6 +423,7 @@ function badgeGroups() {
 function updateChartVisibility() {
     if (!rttChart || !lossChart) return;
     const shown = (lastFetchData?.targets || []).filter(t => visibility[t.targetId] !== false);
+    shownIds = shown.map(t => t.targetId);
 
     const seriesOf = key => shown.map(t => ({
         name: wanDisplayName(t),
@@ -435,6 +444,84 @@ function updateChartVisibility() {
     // chart would otherwise be handed it - which is how WAN Throughput's upload went dashed.
     rttChart.updateOptions(opts, false, false, false);
     lossChart.updateOptions(opts, false, false, false);
+    applyFocus();
+}
+
+// ─── The Path Map above the charts (path-map.js) ───
+// The map follows this module's category, window, and WAN scope through a 'latency-view' event on
+// the card, and hovering a chip or a stats row tells it which targets to mark ('latency-target-hover').
+
+// The targets drawn, in series order, and the ones the map's hover marks.
+let shownIds = [];
+let focusIds = null;
+let lastViewKey = null;
+
+function emitView(container) {
+    const from = getEffectiveFrom();
+    const to = getEffectiveTo();
+    const detail = {
+        category: currentCategory,
+        live: !isCustomRange && windowOffset === 0,
+        from: from ? from.toISOString() : null,
+        to: to ? to.toISOString() : null,
+        rangeHours: currentRangeHours,
+        wanScope,
+    };
+    const key = JSON.stringify(detail);
+    if (key === lastViewKey) return;
+    lastViewKey = key;
+    container.dispatchEvent(new CustomEvent('latency-view', { detail }));
+}
+
+/** The view the map draws for, as of now (the map asks once on mount; changes arrive as events). */
+export function currentMapView() {
+    lastViewKey = null;
+    const container = document.getElementById(containerId);
+    if (container) emitView(container);
+}
+
+// The reader put every target back on the charts: the Path Map lets go of its pick with them.
+function emitFilterCleared(container) {
+    container?.dispatchEvent(new CustomEvent('latency-filter-cleared'));
+}
+
+function emitTargetHover(ids) {
+    const container = document.getElementById(containerId);
+    if (container) container.dispatchEvent(new CustomEvent('latency-target-hover', { detail: { targetIds: ids } }));
+}
+
+// Fades every other series on both charts, and marks the targets' rows in the stats table.
+function applyFocus() {
+    const container = document.getElementById(containerId);
+    if (!container) return;
+    const focused = focusIds ? new Set(focusIds) : null;
+    container.querySelectorAll('.latency-rtt-chart .apexcharts-series, .latency-loss-chart .apexcharts-series').forEach(el => {
+        const index = parseInt(el.getAttribute('data:realIndex'), 10);
+        const id = Number.isFinite(index) ? shownIds[index] : null;
+        el.classList.toggle('path-map-faded', !!focused && id != null && !focused.has(id));
+    });
+    container.querySelectorAll('.latency-stats-table [data-stat-id]').forEach(td => {
+        td.closest('tr')?.classList.toggle('path-map-linked', !!focused && focused.has(td.dataset.statId));
+    });
+}
+
+/** Marks a target's series and stats row while the map's pointer is on it; null clears. */
+export function focusTargets(targetIds) {
+    focusIds = targetIds && targetIds.length ? targetIds : null;
+    applyFocus();
+}
+
+/**
+ * Solos a target, switching to its category first when it is in another one (a dimmed target on
+ * the map). The category's targets load before the solo can find it.
+ */
+export function soloInCategory(category, targetId) {
+    if (category && category !== currentCategory) {
+        pendingSolo = targetId;
+        setCategory(category);
+        return;
+    }
+    soloTarget(targetId);
 }
 
 // Mean loss (%) over the visible window at or above which a LAN fabric target is treated as
@@ -463,9 +550,21 @@ const SHARED_OUTAGE_MIN_TARGETS = 3;
 // that stops being true, so Blazor is told to drop the parameter - otherwise a reload or the back
 // button drags them back to the linked instant. Called from the user's own handlers only, never
 // from frameMoment/frameTrailing, which ARE the link landing. Best-effort, like the hints below.
+function notifyPresetPicked() {
+    try { window.__netoptLatencyRef?.invokeMethodAsync('OnWindowPresetPickedByUser'); }
+    catch { /* no ref yet, or the circuit is gone - the window still moved */ }
+}
+
 function notifyTimelineMoved() {
     try { window.__netoptLatencyRef?.invokeMethodAsync('OnTimelineMovedByUser'); }
     catch { /* no ref yet, or the circuit is gone - the window still moved */ }
+}
+
+// The reader picked a category: a link's ?category= and ?target= no longer describe the view, so Blazor
+// drops them (a reload replayed the link's category over the pick).
+function notifyCategoryPicked() {
+    try { window.__netoptLatencyRef?.invokeMethodAsync('OnChartCategoryPickedByUser'); }
+    catch { /* no ref yet, or the circuit is gone - the category still changed */ }
 }
 
 function notifyLanFlakyHints(data) {
@@ -473,7 +572,8 @@ function notifyLanFlakyHints(data) {
         const ref = window.__netoptLatencyRef;
         if (!ref) return;
         let ids = [];
-        if (scopeName() === 'lan' && currentCategory === 'Fabric' && data && Array.isArray(data.targets)) {
+        // Wherever the LAN category is shown: the LAN scope, All, and a site without the scope bar.
+        if (scopeName() !== 'wan' && currentCategory === 'Fabric' && data && Array.isArray(data.targets)) {
             // Mask out timestamps whose loss rode an outage rather than one target's own flakiness,
             // so a switch isn't flagged for loss the gateway (or a shared upstream) caused. A
             // timestamp is an outage when EITHER holds:
@@ -518,6 +618,8 @@ function notifyLanFlakyHints(data) {
 }
 
 async function loadAndUpdate() {
+    // The category this load fetches: a load still in flight for the one before must not settle a pending solo.
+    const loadCategory = currentCategory;
     const data = await fetchData();
     if (!data || !data.targets) return;
 
@@ -542,6 +644,15 @@ async function loadAndUpdate() {
     lastFetchData = { ...data, targets: scopedTargets };
     groupExtents = extentsOf(scopedTargets.flatMap(t => [t.rtt || [], t.loss || []]));
 
+    // A map click that switched category solos its target once that category's targets are here.
+    if (loadCategory === currentCategory) {
+        if (pendingSolo && targetMeta.some(t => t.id === pendingSolo)) {
+            const solo = pendingSolo;
+            targetMeta.forEach(t => { visibility[t.id] = t.id === solo; });
+        }
+        pendingSolo = null;
+    }
+
     // Ahead of the redraw below - see apply().
     axisDate.apply();
     updateChartVisibility();
@@ -550,6 +661,8 @@ async function loadAndUpdate() {
     if (container) {
         renderBadges(container);
         renderStatsTable(container);
+        applyFocus();
+        emitView(container);
     }
 
     notifyLanFlakyHints(data);
@@ -825,6 +938,7 @@ export async function mount(elId, initialWanScope, initialCategory) {
     // for. Null leaves this tab's own default standing.
     const restoredHours = loadWindowHours(WINDOW_TAB);
     if (restoredHours !== null) currentRangeHours = restoredHours;
+    const pushesAtCall = scopePushes;
 
     // Awaited, not read once: Blazor can call mount before it has rendered this tab.
     const container = await awaitContainer(elId);
@@ -832,9 +946,14 @@ export async function mount(elId, initialWanScope, initialCategory) {
     // A second mount while this one waited owns the tab now.
     if (containerId !== elId) return;
 
-    if (restoredHours !== null) markActiveRange(container, restoredHours);
+    // The range buttons are page markup and outlive an unmount: a link's custom window left the custom
+    // range button lit, with its clear, on the next mount. Both are set from this mount's state.
+    markActiveRange(container, currentRangeHours);
+    updateCustomLabel(container);
+    syncPopoverInputs(container);
 
-    setWanScope(initialWanScope);
+    // The scope this mount was called with, unless the page pushed a newer one while it waited.
+    if (scopePushes === pushesAtCall) applyWanScope(initialWanScope);
 
     // The opening category comes from the server, which knows whether the WANs on screen have any
     // LAN targets. From here the module owns it: the buttons carry no server-rendered active class,
@@ -870,15 +989,40 @@ export async function mount(elId, initialWanScope, initialCategory) {
             container.querySelectorAll('[data-category]').forEach(b => b.classList.remove('active'));
             btn.classList.add('active');
             visibility = {};
+            // As setCategory: each category answers "show inactive" for itself.
+            showInactive = false;
+            inactiveCount = 0;
+            pendingSolo = null;
+            notifyCategoryPicked();
             loadAndUpdate();
             startPoll();
         });
     });
 
-    // Preset range buttons
+    // A chip or a stats row under the pointer marks its target's route on the Path Map.
+    if (!container._pathMapHover) {
+        container._pathMapHover = true;
+        let hovered = null;
+        const idsAt = (target) => {
+            const chip = target.closest?.('.latency-filter-badges button[data-target]');
+            if (chip) return badgeGroups().find(g => g.key === chip.dataset.target)?.ids ?? null;
+            const row = target.closest?.('.latency-stats-table tr')?.querySelector('[data-stat-id]');
+            return row ? [row.dataset.statId] : null;
+        };
+        container.addEventListener('mouseover', e => {
+            const ids = idsAt(e.target);
+            const key = ids ? ids.join(',') : null;
+            if (key === hovered) return;
+            hovered = key;
+            emitTargetHover(ids);
+        });
+        container.addEventListener('mouseleave', () => { if (hovered) { hovered = null; emitTargetHover(null); } });
+    }
+
+    // Preset range buttons: a preset is saved as the reader's own, so it ends a link (a shift or a drag does not).
     container.querySelectorAll('[data-range]').forEach(btn => {
         btn.addEventListener('click', () => {
-            notifyTimelineMoved();
+            notifyPresetPicked();
             const hours = parseInt(btn.dataset.range);
             // Saved HERE rather than in selectPresetRange: a deep link's framing calls that
             // too, and a window the link chose must not become a remembered preference.
@@ -909,12 +1053,15 @@ export async function mount(elId, initialWanScope, initialCategory) {
         popover?.classList.remove('open');
     });
 
-    document.addEventListener('click', (e) => {
+    // One per mount, removed on unmount: each visit added another that outlived it.
+    if (outsideClickHandler) document.removeEventListener('click', outsideClickHandler);
+    outsideClickHandler = (e) => {
         if (!popover?.classList.contains('open')) return;
         const customBtn = container.querySelector('[data-action="custom-range"]');
         if (popover.contains(e.target) || customBtn?.contains(e.target)) return;
         popover.classList.remove('open');
-    });
+    };
+    document.addEventListener('click', outsideClickHandler);
 
     container.querySelector('[data-action="apply-custom"]')?.addEventListener('click', () => {
         const from = fromInput?.value ? noTime.fromInputValue(fromInput.value) : null;
@@ -960,7 +1107,13 @@ function frameCustomWindow(ts, category, halfWindowMs) {
     customTo = new Date(ts + halfWindowMs);
     isCustomRange = true;
     windowOffset = 0;
-    if (category) currentCategory = category;
+    if (category && category !== currentCategory) {
+        currentCategory = category;
+        // A new category answers "show inactive" for itself, as setCategory.
+        visibility = {};
+        showInactive = false;
+        inactiveCount = 0;
+    }
 
     const container = document.getElementById(containerId);
     if (container) {
@@ -989,13 +1142,6 @@ export function navigateToTime(isoTimestamp, category, label, loaded, eventStart
 }
 
 /**
- * Frames the window on a moment carried in from the Live tab while it was PARKED on that instant:
- * 7.5 minutes either side, the same 15 minutes wide as the live jump below, so the two arrive at
- * the same zoom and an event looks like itself whichever way you came in.
- * Deliberately NOT navigateToTime - that is the Investigate flow, and it carries an event marker
- * and label this has no business drawing. Same window machinery, no marker.
- */
-/**
  * Frames a window of a stated width on a moment, for a link that carries its own span - a jump
  * from a view that is itself a window rather than an instant. Used only when the link says so;
  * without a span, frameMoment's 15 minutes still applies.
@@ -1005,18 +1151,24 @@ export function frameWindow(isoTimestamp, category, spanMs) {
     frameCustomWindow(new Date(isoTimestamp).getTime(), category, Math.max(60000, spanMs) / 2);
 }
 
+/**
+ * Frames the window on a moment carried in from the Live tab while it was PARKED on that instant:
+ * 7.5 minutes either side, 15 minutes wide.
+ * Deliberately NOT navigateToTime - that is the Investigate flow, and it carries an event marker
+ * and label this has no business drawing. Same window machinery, no marker.
+ */
 export function frameMoment(isoTimestamp, category) {
     investigateMarker = null;
     frameCustomWindow(new Date(isoTimestamp).getTime(), category, 7.5 * 60000);
 }
 
 /**
- * Frames a trailing 15-minute window for a jump made while the Live tab was LIVE rather than
+ * Frames the trailing hour for a jump made while the Live tab was LIVE rather than
  * parked. Centering on "now" would leave half the window in the future and freeze the chart at
  * the instant of the click - and a frozen chart and a quiet network look identical, so someone
  * who was watching would end up reading a still frame as the present. Someone who was watching
- * carries on watching. 15m is also the shortest preset that keeps polling: startPoll stands down
- * on custom ranges, so a trailing custom window would be the frozen chart this avoids.
+ * carries on watching. A preset, because a preset keeps polling: startPoll stands down on custom
+ * ranges, so a trailing custom window would be the frozen chart this avoids.
  */
 export function frameTrailing(category) {
     investigateMarker = null;
@@ -1082,13 +1234,21 @@ export function restoreState() {
 // Blazor pushes the WAN pill bar's state here. Passing null clears scoping entirely
 // (the gate is closed - single WAN, no contexts).
 export function setWanScope(scope) {
+    scopePushes++;
+    applyWanScope(scope);
+    // Unmounted, or still mounting (no chart yet): the scope is kept for the mount's own first load. A fetch here
+    // had no container, and its flaky-LAN report re-armed the advisory the page had just cleared.
+    if (!rttChart) return;
+    loadAndUpdate();
+}
+
+function applyWanScope(scope) {
     // The LAN scope carries no WAN keys, so it must survive the empty-selected check that used to
     // mean "no scoping at all".
     wanScope = scope && (scope.lan || (Array.isArray(scope.selected) && scope.selected.length > 0))
         ? scope : null;
     visibility = {};
     applyCategoryAvailability();
-    loadAndUpdate();
 }
 
 export function setCategory(cat) {
@@ -1102,6 +1262,16 @@ export function setCategory(cat) {
     inactiveCount = 0;
     loadAndUpdate();
     startPoll();
+}
+
+
+/**
+ * Solos a link's target once the load a link just started (setCategory, frame*) brings its category's
+ * targets: soloTarget right after it searched the previous category's, and a target in another
+ * category than the chart opened on was never soloed.
+ */
+export function soloAfterLoad(targetId) {
+    pendingSolo = targetId;
 }
 
 export function soloTarget(targetId) {
@@ -1119,6 +1289,7 @@ export function soloTarget(targetId) {
 
 export function unmount() {
     stopPoll();
+    if (outsideClickHandler) { document.removeEventListener('click', outsideClickHandler); outsideClickHandler = null; }
     if (visibilityObserver) { visibilityObserver.disconnect(); visibilityObserver = null; }
     if (fetchController) { fetchController.abort(); fetchController = null; }
     if (rttChart) { rttChart.destroy(); rttChart = null; }
@@ -1137,6 +1308,10 @@ export function unmount() {
     savedState = null;
     showInactive = false;
     inactiveCount = 0;
+    shownIds = [];
+    focusIds = null;
+    lastViewKey = null;
+    pendingSolo = null;
     investigateMarker = null;
     isInViewport = true;
     wanScope = null;

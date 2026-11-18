@@ -11,9 +11,17 @@
 
 const PREFIX = 'netopt.win';
 
+// The tab's site: ?site=, else the site this tab remembers, else the browser's site cookie (site-context.js), so
+// a first load before ?site= is stamped reads the same preset as every load after it. Empty on a single-site
+// install, where none of the three is ever set: its key is unchanged.
 function storageKey(tab) {
     let slug = '';
     try { slug = new URLSearchParams(location.search).get('site') || ''; } catch { /* opaque URL */ }
+    if (!slug) { try { slug = sessionStorage.getItem('no-site-tab') || ''; } catch { /* storage unavailable */ } }
+    if (!slug) {
+        const m = document.cookie.match(/(?:^|; )no-site=([^;]*)/);
+        if (m) slug = decodeURIComponent(m[1]);
+    }
     return `${PREFIX}.${slug}.${tab}`;
 }
 
@@ -23,7 +31,8 @@ function storageKey(tab) {
 function urlSetsWindow() {
     try {
         const q = new URLSearchParams(location.search);
-        return q.has('at') || q.has('span');
+        // An investigation link frames its event's window too.
+        return q.has('at') || q.has('span') || q.has('investigate');
     } catch { return false; }
 }
 

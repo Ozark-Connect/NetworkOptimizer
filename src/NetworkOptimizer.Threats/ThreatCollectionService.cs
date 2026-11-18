@@ -1223,7 +1223,7 @@ public class ThreatCollectionService : BackgroundService
             using var httpClient = _httpClientFactory.CreateClient();
             httpClient.Timeout = TimeSpan.FromMinutes(5);
 
-            var (success, message) = await _geoService.DownloadDatabasesAsync(accountId, licenseKey, dataPath, httpClient, cancellationToken);
+            var (success, _, message) = await _geoService.DownloadDatabasesAsync(accountId, licenseKey, dataPath, httpClient, cancellationToken);
 
             if (success)
             {

@@ -94,7 +94,8 @@ public sealed record TraceMapPath(List<TraceMapNode> Nodes, List<TraceMapLeg> Le
         return new TraceMapPath(nodes, legs, unplaced);
     }
 
-    private static string SourceName(HopLocationSource source) => source switch
+    /// <summary>The marker's source name for what placed a hop, as both route maps' JS reads it.</summary>
+    internal static string SourceName(HopLocationSource source) => source switch
     {
         HopLocationSource.Set => "set",
         HopLocationSource.Hostname => "hostname",
@@ -104,7 +105,7 @@ public sealed record TraceMapPath(List<TraceMapNode> Nodes, List<TraceMapLeg> Le
     };
 
     // The start point keeps its own marker whatever else lands on it.
-    private static int Rank(string source) => source switch
+    internal static int Rank(string source) => source switch
     {
         "start" => 0,
         "set" => 1,

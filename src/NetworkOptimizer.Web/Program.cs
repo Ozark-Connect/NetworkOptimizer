@@ -27,6 +27,7 @@ using NetworkOptimizer.Web.Services.OntProviders;
 using NetworkOptimizer.Web.Services.SqmLearning;
 using NetworkOptimizer.Web.Services.Ssh;
 using NetworkOptimizer.Web.Services.WiredPortPresence;
+using NetworkOptimizer.Web.Services.Monitoring.PathMap;
 using Serilog;
 using Serilog.Events;
 
@@ -658,6 +659,9 @@ builder.Services.AddSiteScopedRegistry<NetworkOptimizer.Web.Services.Tailscale.T
 builder.Services.AddSingleton<NetworkOptimizer.Web.Services.Tailscale.TailnetFlowObserver>();
 builder.Services.AddMutatingService<NetworkOptimizer.Web.Services.Tailscale.ITailscaleDirectory>(
     sp => ActivatorUtilities.CreateInstance<NetworkOptimizer.Web.Services.Tailscale.TailscaleDirectoryService>(sp));
+// The caller's own view of the 3D LAN Flow Map (Hide Device), per user per site.
+builder.Services.AddMutatingService<NetworkOptimizer.Web.Services.LanFlowMap.ILanMapView>(
+    sp => ActivatorUtilities.CreateInstance<NetworkOptimizer.Web.Services.LanFlowMap.LanMapViewService>(sp));
 // Client icons: the icon UniFi Network shows per client, fetched once and kept on disk.
 builder.Services.AddSiteScopedRegistry<NetworkOptimizer.Web.Services.ClientIcons.ClientIconRegistry>();
 builder.Services.AddMutatingService<NetworkOptimizer.Web.Services.ClientIcons.IClientIcons>(
@@ -882,9 +886,18 @@ builder.Services.AddMutatingService<IChangeControlService, ChangeControlService>
 builder.Services.AddMutatingService<IConfigTemplateService, ConfigTemplateService>();
 // Trace hop locations set by hand: install-wide, read on every trace render.
 builder.Services.AddSingleton<HopLocationOverrideCache>();
+builder.Services.AddSingleton<IHopLocationOverrideSource, InstallHopLocationOverrideSource>();
 // Places each site's own traces gave hop addresses, for traces that later have only GeoLite2.
+builder.Services.AddSingleton<ILearnedHopPeers, InstallLearnedHopPeers>();
 builder.Services.AddSingleton<LearnedHopLocations>();
 builder.Services.AddMutatingService<IHopLocationOverrideService, HopLocationOverrideService>();
+// Path Map: target routes traced from the vantage that measures them, placed with the Route Map's engine.
+builder.Services.AddSingleton<NetworkOptimizer.Web.Services.Monitoring.PathMap.RoutePlacer>();
+builder.Services.AddSingleton<NetworkOptimizer.Web.Services.Monitoring.PathMap.PathRouteRecorder>();
+// One re-trace loop per site, shared by every viewer of the map, plus the slow background pass.
+builder.Services.AddSingleton<NetworkOptimizer.Web.Services.Monitoring.PathMap.PathMapTraceScheduler>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<NetworkOptimizer.Web.Services.Monitoring.PathMap.PathMapTraceScheduler>());
+builder.Services.AddMutatingService<IPathMapService, PathMapService>();
 builder.Services.AddMutatingService<IChangeControlFleetService, ChangeControlFleetService>();
 // Re-runs upstream tracer discovery every 7 days; flips a review flag on diff.
 builder.Services.AddHostedService<NetworkOptimizer.Web.Services.Monitoring.UpstreamRediscoveryService>();

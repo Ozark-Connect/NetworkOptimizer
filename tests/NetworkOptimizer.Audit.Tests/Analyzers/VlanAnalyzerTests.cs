@@ -3534,6 +3534,29 @@ public class VlanAnalyzerTests
     }
 
     [Fact]
+    public void AnalyzeInfrastructureVlanPlacement_ExpressInApModeOnHomeVlan_Flagged()
+    {
+        // An Express adopted as an AP is infrastructure like any AP, not an exempt gateway.
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Management", NetworkPurpose.Management, vlanId: 1),
+            CreateNetwork("Home", NetworkPurpose.Home, vlanId: 2)
+        };
+        var deviceJson = System.Text.Json.JsonDocument.Parse("""
+        {
+            "data": [
+                { "type": "udm", "model": "UX", "name": "Express", "ip": "192.168.2.20",
+                  "mac": "aa:bb:cc:dd:ee:01", "device_mode_override": "mesh" }
+            ]
+        }
+        """).RootElement;
+
+        var issues = _analyzer.AnalyzeInfrastructureVlanPlacement(deviceJson, networks);
+
+        issues.Should().NotBeEmpty();
+    }
+
+    [Fact]
     public void AnalyzeInfrastructureVlanPlacement_MultipleDevicesWrongVlan_FlagsAll()
     {
         // Arrange

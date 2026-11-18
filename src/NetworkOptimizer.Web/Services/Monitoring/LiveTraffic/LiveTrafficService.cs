@@ -283,7 +283,7 @@ public sealed class LiveTrafficService : ILiveTrafficService
                     wanNames = routes.Values.Append(primary).OfType<LiveRouteInfo>().Select(r => r.Name).ToList();
                 }
                 var devices = await _connection.GetDiscoveredDevicesAsync();
-                var gateway = devices.FirstOrDefault(d => d.Type == DeviceType.Gateway || d.HardwareType == DeviceType.Gateway);
+                var gateway = UniFiDiscovery.SiteGateway(devices);
                 // UniFi devices by MAC and LAN address, named as Live names them.
                 var deviceNames = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
                 var deviceMacs = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
@@ -364,18 +364,20 @@ public sealed class LiveTrafficService : ILiveTrafficService
             if (clients)
             {
                 var list = await client.GetClientsAsync();
+                var displayNames = await ClientDisplayNameCache.GetAsync(client);
                 var devices = await _connection.GetDiscoveredDevicesAsync();
                 var deviceNames = devices
                     .Where(d => !string.IsNullOrEmpty(d.Mac))
                     .GroupBy(d => d.Mac!.Replace('-', ':').ToLowerInvariant())
                     .ToDictionary(g => g.Key, g => g.First().Name ?? g.Key);
-                var gateway = devices.FirstOrDefault(d => d.Type == DeviceType.Gateway || d.HardwareType == DeviceType.Gateway);
+                var gateway = UniFiDiscovery.SiteGateway(devices);
 
                 var infos = list.Select(c =>
                 {
                     // A connected client can come back with no ip (an LG TV in standby): last_ip still names its flows.
                     var ip = c.BestIp;
-                    var name = !string.IsNullOrWhiteSpace(c.Name) ? c.Name : !string.IsNullOrWhiteSpace(c.Hostname) ? c.Hostname : ip ?? c.Mac;
+                    var name = ClientNames.Choose(displayNames.GetValueOrDefault(c.Mac.ToLowerInvariant()), c.Name,
+                        c.UnifiDeviceInfoFromUcore?.Name, c.Hostname, c.IsUniFiDevice) ?? ip ?? c.Mac;
                     string? via = null;
                     // A port number means nothing without its switch. "#" keeps the cell short; its tooltip says Port.
                     if (c.IsWired && c.SwPort is { } port)

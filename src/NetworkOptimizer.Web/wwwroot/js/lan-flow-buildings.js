@@ -993,13 +993,26 @@ function _buildFloorPlane(floor, scale, floorY, parent) {
     }
     if (pts.length < 3) return;
 
-    const hull = _convexHull(pts);
-    if (hull.length < 3) return;
+    // The floor follows its outline. A plan with no enclosing wall loop keeps the convex hull.
+    const outlines = _outlines([floor], scale);
+    let tris;
+    if (outlines) {
+        tris = [];
+        for (const outline of outlines) {
+            const contour = outline.map(p => new THREE.Vector2(p.x, p.z));
+            for (const t of THREE.ShapeUtils.triangulateShape(contour, [])) tris.push(t.map(i => outline[i]));
+        }
+    } else {
+        const hull = _convexHull(pts);
+        tris = [];
+        for (let i = 0; i < hull.length - 2; i++) tris.push([hull[0], hull[i + 1], hull[i + 2]]);
+    }
+    if (tris.length === 0) return;
 
-    const triCount = hull.length - 2;
+    const triCount = tris.length;
     const verts = new Float32Array(triCount * 9);
     for (let i = 0; i < triCount; i++) {
-        const a = hull[0], b = hull[i + 1], c = hull[i + 2];
+        const [a, b, c] = tris[i];
         const off = i * 9;
         verts[off]     = a.x; verts[off + 1] = floorY; verts[off + 2] = a.z;
         verts[off + 3] = b.x; verts[off + 4] = floorY; verts[off + 5] = b.z;
@@ -1009,6 +1022,7 @@ function _buildFloorPlane(floor, scale, floorY, parent) {
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.BufferAttribute(verts, 3));
     geo.computeVertexNormals();
+    _fixNormals(geo);
 
     const mat = new THREE.MeshStandardMaterial({
         color: FLOOR_COLOR,
@@ -1071,6 +1085,319 @@ function _buildWalls(floor, scale, floorY, wallH, wallD, winding, parent) {
 // -- pitched roof -------------------------------------------------------------
 
 function _buildRoof(topFloor, building, scale, wallH, parent) {
+    const eaveY = topFloor.z * scale * 0.8 + wallH;
+    const maxRidgeScene = MAX_RIDGE_M * scale * 0.8;
+
+    // A right-angle footprint gets a gable per wing. Anything else keeps the single gable
+    // over the bounding rectangle.
+    const outlines = _outlines(building.floors, scale);
+    const verts = (outlines && _crossGableVerts(outlines, eaveY, maxRidgeScene, scale))
+        || _boxGableVerts(building, scale, eaveY, maxRidgeScene);
+    if (!verts) return;
+
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(verts, 3));
+    geo.computeVertexNormals();
+    _fixNormals(geo);
+
+    const mat = new THREE.MeshStandardMaterial({
+        color: ROOF_COLOR,
+        transparent: true,
+        opacity: ROOF_OPACITY,
+        depthWrite: false,
+        side: THREE.DoubleSide,
+        emissive: new THREE.Color(ROOF_COLOR),
+        emissiveIntensity: 0.03,
+    });
+
+    parent.add(new THREE.Mesh(geo, mat));
+}
+
+// -- footprint ----------------------------------------------------------------
+
+// A zero-length normal becomes NaN in the lit shader, and the map's bloom pass smears one NaN pixel
+// into a screen-sized dark block. A zero-area triangle (collinear outline points) leaves one.
+function _fixNormals(geo) {
+    const n = geo.attributes.normal;
+    for (let i = 0; i < n.count; i++) {
+        if (!(Math.hypot(n.getX(i), n.getY(i), n.getZ(i)) > 0.5)) n.setXYZ(i, 0, 1, 0);
+    }
+}
+
+function _signedArea(loop) {
+    let area = 0;
+    for (let i = 0; i < loop.length; i++) {
+        const j = (i + 1) % loop.length;
+        area += loop[i].x * loop[j].z - loop[j].x * loop[i].z;
+    }
+    return area / 2;
+}
+
+function _inPoly(x, z, loop) {
+    let inside = false;
+    for (let i = 0, j = loop.length - 1; i < loop.length; j = i++) {
+        const a = loop[i], b = loop[j];
+        if ((a.z > z) !== (b.z > z) && x < (b.x - a.x) * (z - a.z) / (b.z - a.z) + a.x) inside = !inside;
+    }
+    return inside;
+}
+
+function _distToLoop(p, loop) {
+    let best = Infinity;
+    for (let i = 0; i < loop.length; i++) {
+        const a = loop[i], b = loop[(i + 1) % loop.length];
+        const dx = b.x - a.x, dz = b.z - a.z;
+        const len2 = dx * dx + dz * dz;
+        const t = len2 > 0 ? Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.z - a.z) * dz) / len2)) : 0;
+        best = Math.min(best, Math.hypot(p.x - a.x - t * dx, p.z - a.z - t * dz));
+    }
+    return best;
+}
+
+// The outer outlines of these floors: the wall loop with the largest area, plus every closed loop
+// that reaches outside it (an attached garage or porch drawn as its own loop). Null unless every
+// wall point lies inside or on one of them (open or piecemeal plans).
+function _outlines(floors, scale) {
+    const tol = 0.5 * scale;
+    const all = [], loops = [];
+    for (const floor of floors) {
+        for (const wall of floor.walls) {
+            const pts = (wall.points || []).map(p => toScene(p, scale));
+            all.push(...pts);
+            const loop = [];
+            for (const p of pts) {
+                const last = loop[loop.length - 1];
+                if (!last || Math.hypot(p.x - last.x, p.z - last.z) > tol * 0.1) loop.push(p);
+            }
+            const gap = loop.length > 1
+                ? Math.hypot(loop[0].x - loop[loop.length - 1].x, loop[0].z - loop[loop.length - 1].z) : 0;
+            const closed = pts.length > 3 && gap <= tol * 0.1;
+            if (closed) loop.pop();
+            if (loop.length >= 3) loops.push({ loop, closed, area: Math.abs(_signedArea(loop)) });
+        }
+    }
+    if (loops.length === 0) return null;
+
+    loops.sort((a, b) => b.area - a.area);
+    const main = loops[0].loop;
+    const reachesOut = l => l.some(p => !_inPoly(p.x, p.z, main) && _distToLoop(p, main) > tol);
+    const out = [main];
+    for (const l of loops.slice(1)) if (l.closed && reachesOut(l.loop)) out.push(l.loop);
+
+    for (const p of all) {
+        if (!out.some(l => _inPoly(p.x, p.z, l) || _distToLoop(p, l) <= tol)) return null;
+    }
+    return out;
+}
+
+// Sorted centres of the values, with values closer than tol merged into one.
+function _cluster(values, tol) {
+    const sorted = values.slice().sort((a, b) => a - b);
+    const out = [];
+    let sum = 0, count = 0;
+    for (let i = 0; i < sorted.length; i++) {
+        sum += sorted[i]; count++;
+        if (i === sorted.length - 1 || sorted[i + 1] - sorted[i] > tol) { out.push(sum / count); sum = 0; count = 0; }
+    }
+    return out;
+}
+
+function _nearest(lines, value) {
+    let best = lines[0];
+    for (const l of lines) if (Math.abs(l - value) < Math.abs(best - value)) best = l;
+    return best;
+}
+
+// -- cross-gable roof ---------------------------------------------------------
+
+// A gable roof over a right-angle footprint. The footprint splits into its maximal rectangles;
+// the widest is the main body and each narrower one is a wing whose ridge runs into the wider
+// roof. The surface is the upper envelope of those gables, so wings meet in valleys.
+// Returns triangle vertices, or null when the footprint is not right-angled.
+function _crossGableVerts(loops, eaveY, maxRidge, scale) {
+    const edges = [];
+    for (const loop of loops) {
+        for (let i = 0; i < loop.length; i++) {
+            const a = loop[i], b = loop[(i + 1) % loop.length];
+            const dx = b.x - a.x, dz = b.z - a.z, len = Math.hypot(dx, dz);
+            if (len > 0) edges.push({ dx, dz, len });
+        }
+    }
+
+    // Dominant wall direction, taken mod 90 degrees and weighted by wall length.
+    let c4 = 0, s4 = 0, perim = 0;
+    for (const e of edges) {
+        const ang = Math.atan2(e.dz, e.dx);
+        c4 += e.len * Math.cos(4 * ang); s4 += e.len * Math.sin(4 * ang); perim += e.len;
+    }
+    const th = Math.atan2(s4, c4) / 4;
+    const ct = Math.cos(th), st = Math.sin(th);
+
+    // Walls more than 10 degrees off the axes may make up a small share only (a bay, a chamfer).
+    let off = 0;
+    for (const e of edges) {
+        if (Math.min(Math.abs(e.dx * ct + e.dz * st), Math.abs(-e.dx * st + e.dz * ct)) / e.len > 0.174) off += e.len;
+    }
+    if (off > perim * 0.12) return null;
+
+    // Axis frame (u, v), with corners snapped onto shared lines.
+    const toU = p => p.x * ct + p.z * st, toV = p => -p.x * st + p.z * ct;
+    const us = _cluster(loops.flatMap(l => l.map(toU)), 0.3 * scale);
+    const vs = _cluster(loops.flatMap(l => l.map(toV)), 0.3 * scale);
+    if (us.length < 2 || vs.length < 2) return null;
+    const polys = loops.map(l => l.map(p => ({ x: _nearest(us, toU(p)), z: _nearest(vs, toV(p)) })));
+    const inFootprint = (u, v) => polys.some(poly => _inPoly(u, v, poly));
+
+    const nu = us.length - 1, nv = vs.length - 1;
+    const occ = [], sum = [new Array(nv + 1).fill(0)];
+    for (let i = 0; i < nu; i++) {
+        occ.push([]); sum.push([0]);
+        for (let j = 0; j < nv; j++) {
+            occ[i].push(inFootprint((us[i] + us[i + 1]) / 2, (vs[j] + vs[j + 1]) / 2));
+            sum[i + 1].push((occ[i][j] ? 1 : 0) + sum[i][j + 1] + sum[i + 1][j] - sum[i][j]);
+        }
+    }
+    const full = (i0, i1, j0, j1) =>
+        sum[i1 + 1][j1 + 1] - sum[i0][j1 + 1] - sum[i1 + 1][j0] + sum[i0][j0] === (i1 - i0 + 1) * (j1 - j0 + 1);
+
+    const rects = [];
+    for (let i0 = 0; i0 < nu; i0++) for (let i1 = i0; i1 < nu; i1++) {
+        for (let j0 = 0; j0 < nv; j0++) for (let j1 = j0; j1 < nv; j1++) {
+            if (!full(i0, i1, j0, j1)) continue;
+            if (i0 > 0 && full(i0 - 1, i0 - 1, j0, j1)) continue;
+            if (i1 < nu - 1 && full(i1 + 1, i1 + 1, j0, j1)) continue;
+            if (j0 > 0 && full(i0, i1, j0 - 1, j0 - 1)) continue;
+            if (j1 < nv - 1 && full(i0, i1, j1 + 1, j1 + 1)) continue;
+            rects.push({ i0, i1, j0, j1, du: us[i1 + 1] - us[i0], dv: vs[j1 + 1] - vs[j0] });
+        }
+    }
+    if (rects.length === 0) return null;
+    const span = r => Math.min(r.du, r.dv);
+    rects.sort((a, b) => span(b) - span(a) || b.du * b.dv - a.du * a.dv);
+
+    // One slope for the whole roof, so a narrower wing's ridge always meets a wider roof below
+    // that roof's ridge. The widest span sets it when the ridge cap applies.
+    const maxHalf = span(rects[0]) / 2;
+    const slope = Math.min(2 * ROOF_PITCH, maxRidge / maxHalf);
+    const oh = maxHalf * 0.12;
+
+    // Each rectangle gables the stretch no wider rectangle covers. An end against a wider roof
+    // runs on into it by the wing's half width, where the two surfaces cross.
+    const covered = occ.map(row => row.map(() => false));
+    const pieces = [];
+    for (const r of rects) {
+        const alongU = r.du >= r.dv;
+        const [a0, a1, b0, b1] = alongU ? [r.i0, r.i1, r.j0, r.j1] : [r.j0, r.j1, r.i0, r.i1];
+        const al = alongU ? us : vs, ac = alongU ? vs : us;
+        const hw = (ac[b1 + 1] - ac[b0]) / 2, mid = (ac[b1 + 1] + ac[b0]) / 2;
+        const isCovered = a => {
+            for (let b = b0; b <= b1; b++) if (!(alongU ? covered[a][b] : covered[b][a])) return false;
+            return true;
+        };
+        let start = -1;
+        for (let a = a0; a <= a1 + 1; a++) {
+            const open = a <= a1 && !isCovered(a);
+            if (open && start < 0) start = a;
+            if (!open && start >= 0) {
+                pieces.push({
+                    alongU, mid, hw,
+                    lo: al[start] - (start === a0 ? oh : hw),
+                    hi: al[a] + (a - 1 === a1 ? oh : hw),
+                });
+                start = -1;
+            }
+        }
+        for (let i = r.i0; i <= r.i1; i++) for (let j = r.j0; j <= r.j1; j++) covered[i][j] = true;
+    }
+
+    const height = (u, v) => {
+        let h = -Infinity;
+        for (const p of pieces) {
+            const a = p.alongU ? u : v, b = p.alongU ? v : u;
+            if (a < p.lo - 1e-9 || a > p.hi + 1e-9) continue;
+            const d = Math.abs(b - p.mid);
+            if (d > p.hw + oh + 1e-9) continue;
+            h = Math.max(h, slope * (p.hw - d));
+        }
+        return h;
+    };
+
+    // Grid lines on every wall line, eave, ridge and gable end. A hairline twin beside each
+    // gable end keeps the height step there vertical. Valleys run diagonally, so a roof with wings is subdivided.
+    const cell = pieces.length > 1 ? 0.25 * scale : Infinity;
+    const eps = 0.004 * scale;
+    const gridLines = (base, extra) => {
+        const raw = [...extra];
+        for (const x of base) raw.push(x - oh, x, x + oh);
+        raw.sort((a, b) => a - b);
+        const lines = [];
+        for (const x of raw) if (lines.length === 0 || x - lines[lines.length - 1] > eps * 0.25) lines.push(x);
+        const out = [];
+        for (let i = 0; i < lines.length - 1; i++) {
+            const steps = Math.max(1, Math.ceil((lines[i + 1] - lines[i]) / cell));
+            for (let k = 0; k < steps; k++) out.push(lines[i] + (lines[i + 1] - lines[i]) * k / steps);
+        }
+        out.push(lines[lines.length - 1]);
+        return out;
+    };
+    const ends = p => [p.lo - eps, p.lo, p.hi, p.hi + eps];
+    const gu = gridLines(us, pieces.flatMap(p => p.alongU ? ends(p) : [p.mid]));
+    const gv = gridLines(vs, pieces.flatMap(p => p.alongU ? [p.mid] : ends(p)));
+
+    const hgt = gu.map(u => gv.map(v => height(u, v)));
+    const out = [];
+    const push = (u, v, h) => out.push(u * ct - v * st, eaveY + h, u * st + v * ct);
+    const inFoot = [];
+    for (let i = 0; i < gu.length - 1; i++) {
+        inFoot.push([]);
+        for (let j = 0; j < gv.length - 1; j++) {
+            const cu = (gu[i] + gu[i + 1]) / 2, cv = (gv[j] + gv[j + 1]) / 2;
+            const foot = inFootprint(cu, cv);
+            inFoot[i].push(foot);
+            let roofed = foot;
+            for (let k = 0; k < 8 && !roofed; k++) {
+                const ou = [1, 1, 0, -1, -1, -1, 0, 1][k] * oh, ov = [0, 1, 1, 1, 0, -1, -1, -1][k] * oh;
+                roofed = inFootprint(cu + ou, cv + ov);
+            }
+            const h00 = hgt[i][j], h10 = hgt[i + 1][j], h11 = hgt[i + 1][j + 1], h01 = hgt[i][j + 1];
+            if (!roofed || !Number.isFinite(h00 + h10 + h11 + h01)) continue;
+            // Split along the diagonal that passes closer to the true surface at the cell centre,
+            // so a ridge or valley falls on a triangle edge.
+            const hc = height(cu, cv);
+            if (Math.abs((h00 + h11) / 2 - hc) <= Math.abs((h10 + h01) / 2 - hc)) {
+                push(gu[i], gv[j], h00); push(gu[i + 1], gv[j], h10); push(gu[i + 1], gv[j + 1], h11);
+                push(gu[i], gv[j], h00); push(gu[i + 1], gv[j + 1], h11); push(gu[i], gv[j + 1], h01);
+            } else {
+                push(gu[i], gv[j], h00); push(gu[i + 1], gv[j], h10); push(gu[i], gv[j + 1], h01);
+                push(gu[i + 1], gv[j], h10); push(gu[i + 1], gv[j + 1], h11); push(gu[i], gv[j + 1], h01);
+            }
+        }
+    }
+
+    // Gable walls: the wall line under the roof, wherever the roof stands above the eave.
+    const wallFace = (ia, ja, ib, jb) => {
+        const ha = Math.max(0, hgt[ia][ja]), hb = Math.max(0, hgt[ib][jb]);
+        if (!Number.isFinite(ha + hb) || Math.max(ha, hb) < 0.01 * scale) return;
+        push(gu[ia], gv[ja], 0); push(gu[ib], gv[jb], 0); push(gu[ib], gv[jb], hb);
+        push(gu[ia], gv[ja], 0); push(gu[ib], gv[jb], hb); push(gu[ia], gv[ja], ha);
+    };
+    const foot = (i, j) => i >= 0 && j >= 0 && i < inFoot.length && j < inFoot[i].length && inFoot[i][j];
+    for (let i = 0; i < inFoot.length; i++) {
+        for (let j = 0; j < inFoot[i].length; j++) {
+            if (!inFoot[i][j]) continue;
+            if (!foot(i - 1, j)) wallFace(i, j, i, j + 1);
+            if (!foot(i + 1, j)) wallFace(i + 1, j, i + 1, j + 1);
+            if (!foot(i, j - 1)) wallFace(i, j, i + 1, j);
+            if (!foot(i, j + 1)) wallFace(i, j + 1, i + 1, j + 1);
+        }
+    }
+
+    return out.length > 0 ? new Float32Array(out) : null;
+}
+
+// -- single gable over the bounding rectangle ---------------------------------
+
+function _boxGableVerts(building, scale, eaveY, maxRidgeScene) {
     const allPts = [];
     for (const floor of building.floors) {
         for (const wall of floor.walls) {
@@ -1079,15 +1406,12 @@ function _buildRoof(topFloor, building, scale, wallH, parent) {
             }
         }
     }
-    if (allPts.length < 3) return;
+    if (allPts.length < 3) return null;
 
     const hull = _convexHull(allPts);
-    if (hull.length < 3) return;
+    if (hull.length < 3) return null;
 
     const obb = _orientedBoundingBox(hull);
-    const floorY = topFloor.z * scale * 0.8;
-    const eaveY = floorY + wallH;
-    const maxRidgeScene = MAX_RIDGE_M * scale * 0.8;
     const ridgeHeight = Math.min(obb.shortLen * ROOF_PITCH, maxRidgeScene);
     const ridgeY = eaveY + ridgeHeight;
 
@@ -1111,7 +1435,7 @@ function _buildRoof(topFloor, building, scale, wallH, parent) {
     const orA = _extend(rA, center, overhang);
     const orB = _extend(rB, center, overhang);
 
-    const verts = new Float32Array([
+    return new Float32Array([
         oc0.x, eaveY, oc0.z,   orA.x, ridgeY, orA.z,   oc3.x, eaveY, oc3.z,
         oc3.x, eaveY, oc3.z,   orA.x, ridgeY, orA.z,   orB.x, ridgeY, orB.z,
         oc1.x, eaveY, oc1.z,   oc2.x, eaveY, oc2.z,    orA.x, ridgeY, orA.z,
@@ -1119,22 +1443,6 @@ function _buildRoof(topFloor, building, scale, wallH, parent) {
         oc0.x, eaveY, oc0.z,   oc1.x, eaveY, oc1.z,    orA.x, ridgeY, orA.z,
         oc3.x, eaveY, oc3.z,   orB.x, ridgeY, orB.z,    oc2.x, eaveY, oc2.z,
     ]);
-
-    const geo = new THREE.BufferGeometry();
-    geo.setAttribute('position', new THREE.BufferAttribute(verts, 3));
-    geo.computeVertexNormals();
-
-    const mat = new THREE.MeshStandardMaterial({
-        color: ROOF_COLOR,
-        transparent: true,
-        opacity: ROOF_OPACITY,
-        depthWrite: false,
-        side: THREE.DoubleSide,
-        emissive: new THREE.Color(ROOF_COLOR),
-        emissiveIntensity: 0.03,
-    });
-
-    parent.add(new THREE.Mesh(geo, mat));
 }
 
 function _extend(point, center, amount) {

@@ -58,6 +58,45 @@ public class GatewayBlocklistOrderTests
     }
 
     [Fact]
+    public void SourcePoliciesToNarrow_FindsGroupsByManagedNameWhenTheStoredIdsAreStale()
+    {
+        // Ids from before a Network app upgrade re-keyed the groups.
+        var state = new GatewayBlocklistState { GroupV4Id = "old-own4", GroupV6Id = "old-own6", FeedsV4Id = "old-feed4", FeedsV6Id = "old-feed6" };
+        var groups = new[]
+        {
+            new UniFiFirewallGroup { Id = "new-feed4", Name = GatewayBlocklist.FeedsNameV4, GroupType = "address-group" },
+            new UniFiFirewallGroup { Id = "new-feed6", Name = GatewayBlocklist.FeedsNameV6, GroupType = "ipv6-address-group" },
+            new UniFiFirewallGroup { Id = "new-own4", Name = GatewayBlocklist.GroupNameV4, GroupType = "address-group" },
+            new UniFiFirewallGroup { Id = "wrong-type", Name = GatewayBlocklist.FeedsNameV4, GroupType = "port-group" },
+            new UniFiFirewallGroup { Id = "user", Name = "My Blocklist", GroupType = "address-group" },
+        };
+        UniFiFirewallPolicy Policy(string id, string action, string group) => new()
+        {
+            Id = id,
+            Action = action,
+            ConnectionStateType = "ALL",
+            Source = new UniFiFirewallPolicyEndpoint { ZoneId = "ext", IpGroupId = group },
+            Destination = new UniFiFirewallPolicyEndpoint { ZoneId = "int" },
+        };
+        var policies = new[]
+        {
+            Policy("feed-block", "BLOCK", "new-feed4"),
+            Policy("feed6-block", "BLOCK", "new-feed6"),
+            Policy("own-block", "BLOCK", "new-own4"),
+            Policy("exception", "ALLOW", "new-feed4"),
+            Policy("user-block", "BLOCK", "user"),
+            Policy("port-group-block", "BLOCK", "wrong-type"),
+        };
+
+        var current = GatewayBlocklist.ManagedSourceGroupIds(groups);
+
+        current.Should().BeEquivalentTo(["new-feed4", "new-feed6", "new-own4"]);
+        GatewayBlocklist.SourcePoliciesToNarrow(policies, state).Should().BeEmpty();
+        GatewayBlocklist.SourcePoliciesToNarrow(policies, state, current).Select(p => p.Id)
+            .Should().Equal("feed-block", "feed6-block", "own-block");
+    }
+
+    [Fact]
     public void ExistingBlock_SkipsAnExceptionAllowOnTheSameZonesAndGroup()
     {
         UniFiFirewallPolicy Policy(string id, string action, string src, string dst, string? sourceGroup, string? destinationGroup) => new()

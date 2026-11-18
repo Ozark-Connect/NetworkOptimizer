@@ -60,7 +60,9 @@ public class VlanAnalyzer
             var deviceType = device.GetStringOrNull("type");
             if (deviceType == null)
                 continue;
-            var isGateway = FromUniFiApiType(deviceType).IsGateway();
+            var isGateway = NetworkOptimizer.UniFi.UniFiProductDatabase.ClassifyDeviceType(
+                deviceType, device.GetStringOrNull("model"), device.GetStringOrNull("shortname"),
+                device.GetStringOrNull("device_mode_override")).IsGateway();
 
             var networkTableItems = device.GetArrayOrEmpty("network_table").ToList();
             if (networkTableItems.Count == 0)
@@ -909,8 +911,7 @@ public class VlanAnalyzer
                 continue;
 
             var deviceNames = clientsWithoutFixedIp
-                .Select(c => !string.IsNullOrEmpty(c.Name) ? c.Name :
-                             !string.IsNullOrEmpty(c.Hostname) ? c.Hostname : c.Mac)
+                .Select(c => UniFi.ClientNames.For(c) ?? c.Mac)
                 .ToList();
 
             var deviceList = string.Join(", ", deviceNames.Take(5));
@@ -1328,7 +1329,7 @@ public class VlanAnalyzer
             var model = device.GetStringOrNull("model");
             var shortname = device.GetStringOrNull("shortname");
             var parsedType = NetworkOptimizer.UniFi.UniFiProductDatabase.ClassifyDeviceType(
-                deviceType, model, shortname);
+                deviceType, model, shortname, device.GetStringOrNull("device_mode_override"));
 
             // Skip gateways - they're typically on VLAN 1 by default and that's OK
             if (parsedType.IsGateway())

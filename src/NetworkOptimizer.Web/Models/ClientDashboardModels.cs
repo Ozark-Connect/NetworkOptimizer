@@ -114,6 +114,9 @@ public class ClientIdentity
 
     public bool IsWired { get; set; }
 
+    /// <summary>A UniFi Protect device: UniFi Protect owns its name, so the page offers no rename.</summary>
+    public bool IsProtectDevice { get; set; }
+
     // Wi-Fi signal
     public int? SignalDbm { get; set; }
     public int? NoiseDbm { get; set; }

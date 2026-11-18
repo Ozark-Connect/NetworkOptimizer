@@ -2,10 +2,10 @@ using System.Net;
 using System.Net.Sockets;
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
+using NetworkOptimizer.Core;
 using NetworkOptimizer.Threats.Interfaces;
 using NetworkOptimizer.UniFi;
 using NetworkOptimizer.UniFi.Models;
-using NetworkOptimizer.Core;
 
 namespace NetworkOptimizer.Threats.Blocking;
 
@@ -190,7 +190,23 @@ public sealed class GatewayBlocklist : IGatewayBlocklistWriter
         var state = await LoadStateAsync(site, ct);
         if (state?.GroupV4Id == null || state.GroupV6Id == null) return 0;
         var client = Client(site);
-        var stale = SourcePoliciesToNarrow(await client.GetFirewallPoliciesAsync(ct), state);
+        // The stored ids can predate a Network app upgrade that re-keyed the groups, so the groups found by
+        // their managed names count too. Best effort: without them, the stored ids still apply.
+        IReadOnlyCollection<string> current = [];
+        try
+        {
+            current = ManagedSourceGroupIds(await client.GetFirewallGroupsOrThrowAsync(ct));
+            var stored = new[] { state.GroupV4Id, state.GroupV6Id, state.FeedsV4Id, state.FeedsV6Id }.OfType<string>().ToHashSet();
+            if (current.Any(id => !stored.Contains(id)))
+                _logger.LogInformation("Gateway blocking on {Site}: stored Network List ids are stale; also matching the ones UniFi Network names {Ids}",
+                    site ?? "default", string.Join(", ", current.Where(id => !stored.Contains(id))));
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogWarning("Gateway blocking on {Site}: Network Lists not read ({Error}); matching the stored ids only",
+                site ?? "default", ex.Message);
+        }
+        var stale = SourcePoliciesToNarrow(await client.GetFirewallPoliciesAsync(ct), state, current);
         foreach (var policy in stale)
             await client.SetFirewallPolicyConnectionStatesAsync(policy.Id, UniFiGroupBlockPolicyWrite.NewConnectionsOnly, ct);
         if (stale.Count > 0)
@@ -216,13 +232,21 @@ public sealed class GatewayBlocklist : IGatewayBlocklistWriter
     /// connections. Never the exceptions' Allow policies: they share the public list groups as their
     /// source, and their reply-only ones must keep their states.
     /// </summary>
-    public static List<UniFiFirewallPolicy> SourcePoliciesToNarrow(IEnumerable<UniFiFirewallPolicy> policies, GatewayBlocklistState state)
+    public static List<UniFiFirewallPolicy> SourcePoliciesToNarrow(IEnumerable<UniFiFirewallPolicy> policies, GatewayBlocklistState state,
+        IEnumerable<string>? currentGroupIds = null)
     {
-        var groups = new[] { state.GroupV4Id, state.GroupV6Id, state.FeedsV4Id, state.FeedsV6Id }.OfType<string>().ToHashSet();
+        var groups = new[] { state.GroupV4Id, state.GroupV6Id, state.FeedsV4Id, state.FeedsV6Id }.OfType<string>()
+            .Concat(currentGroupIds ?? []).ToHashSet();
         return policies
             .Where(p => !p.Predefined && !IsAllow(p) && groups.Contains(p.Source.IpGroupId ?? "") && !IsNewConnectionsOnly(p))
             .ToList();
     }
+
+    /// <summary>The ids of the blocklist and public list groups as the console names them, whatever ids are stored.</summary>
+    public static IReadOnlyCollection<string> ManagedSourceGroupIds(IEnumerable<UniFiFirewallGroup> groups) =>
+        groups.Where(g => (g.Name, g.GroupType) is (GroupNameV4, "address-group") or (GroupNameV6, "ipv6-address-group")
+                              or (FeedsNameV4, "address-group") or (FeedsNameV6, "ipv6-address-group"))
+            .Select(g => g.Id).Where(id => !string.IsNullOrEmpty(id)).ToList();
 
     /// <summary>Whether a policy matches exactly <see cref="UniFiGroupBlockPolicyWrite.NewConnectionsOnly"/>.</summary>
     public static bool IsNewConnectionsOnly(UniFiFirewallPolicy policy) =>

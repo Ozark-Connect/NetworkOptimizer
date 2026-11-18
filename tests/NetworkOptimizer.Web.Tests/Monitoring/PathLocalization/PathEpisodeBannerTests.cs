@@ -181,7 +181,7 @@ public class PathEpisodeBannerTests
         var span = (long)TimeSpan.FromHours(2).TotalMilliseconds;
 
         PathEpisodePresentation.TargetUrl(e, transit, "wan2", Now).Should().Be(
-            $"/monitoring?tab=performance&category=Transit&at={start + span / 2}&span={span}&wan=wan2&target=aws-1");
+            $"/monitoring?tab=performance&category=Transit&at={start + span / 2}&span={span}&wan=wan2&via=isp-health&target=aws-1");
 
         // A Custom target opens on the episode's WAN, which its trace went out over; an open episode's window ends now.
         var open = Episode(2, Now.AddMinutes(-10), null, tracing: true);

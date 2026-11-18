@@ -267,11 +267,10 @@ public sealed partial class ChangeControlService
     internal static Dictionary<string, int> DeviceDepths(ConfigState site)
     {
         var devices = site.Get("device").Where(d => d["mac"] != null && d["_id"] != null).ToList();
-        string? Meta(JsonObject d, string key) => (d[ConfigCollections.DeviceMetaField] as JsonObject)?[key] is JsonValue v ? v.ToString() : null;
         var planner = devices.Select(d => new Firmware.PlannerDevice
         {
             Mac = d["mac"]!.ToString().ToLowerInvariant(),
-            Type = Meta(d, "type") is "ugw" or "udm" or "uxg" ? NetworkOptimizer.Core.Enums.DeviceType.Gateway : NetworkOptimizer.Core.Enums.DeviceType.Unknown,
+            Type = ConfigCollections.IsGateway(d) ? NetworkOptimizer.Core.Enums.DeviceType.Gateway : NetworkOptimizer.Core.Enums.DeviceType.Unknown,
             UplinkMac = ((d[ConfigCollections.DeviceMetaField] as JsonObject)?["uplink"] as JsonObject)?["uplink_mac"]?.ToString().ToLowerInvariant(),
         }).ToList();
         var depths = Firmware.RolloutPlanner.ComputeDepths(planner);
@@ -323,9 +322,9 @@ public sealed partial class ChangeControlService
         }
     }
 
-    /// <summary>The site's gateways by ID (ugw, udm, uxg).</summary>
+    /// <summary>The site's gateways by ID (ugw, udm, uxg; not an Express adopted as an AP).</summary>
     internal static HashSet<string> GatewayIds(ConfigState live) =>
-        live.Get("device").Where(d => d[ConfigCollections.DeviceMetaField]?["type"]?.ToString() is "ugw" or "udm" or "uxg")
+        live.Get("device").Where(ConfigCollections.IsGateway)
             .Select(ConfigState.IdOf).ToHashSet(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>One settings move for the plan note; a setting named by its own address is not named twice.</summary>
@@ -557,7 +556,7 @@ public sealed partial class ChangeControlService
             var isStatic = gatewayLeases != null ? !gatewayLeases.Contains(mac)
                 : !reserved && (ipTable != null ? !ipTable.Contains(mac) : network != null && !InDhcpRange(network, ip));
             if (!isStatic) continue;
-            var name = c["name"]?.ToString() is { Length: > 0 } nm ? nm : c["hostname"]?.ToString() is { Length: > 0 } hn ? hn : mac;
+            var name = RawClientName(c, mac);
             result.Add(new StaticClient(name, mac, ipText, Readdressing.Format(moved), network?["name"]?.ToString() ?? "", reserved));
         }
         return result;
@@ -567,6 +566,12 @@ public sealed partial class ChangeControlService
     /// Known clients not connected now that were likely set on the device: last seen in a moved subnet,
     /// with no reservation and no lease, on an address outside their network's DHCP range.
     /// </summary>
+    /// <summary>A client's name from a raw stat/sta or rest/user object, chosen as <see cref="ClientNames"/> does everywhere else.</summary>
+    [NetworkOptimizer.Core.VendorSpecific("UniFi", "name, hostname, product_line, unifi_device_info_from_ucore.name")]
+    private static string RawClientName(JsonNode c, string mac) =>
+        ClientNames.Choose(null, c["name"]?.ToString(), c["unifi_device_info_from_ucore"]?["name"]?.ToString(), c["hostname"]?.ToString(),
+            isUniFiDevice: c["product_line"]?.ToString() is { Length: > 0 } || c["unifi_device_info_from_ucore"] is JsonObject) ?? mac;
+
     [NetworkOptimizer.Core.VendorSpecific("UniFi", "rest/user last_ip, last_seen, fixed_ip")]
     private async Task<List<StaticClient>> OfflineClientsAsync(List<JsonObject> connected, HashSet<string>? leased,
         Dictionary<string, JsonObject> networks, List<(Readdressing.Subnet Old, Readdressing.Subnet New)> map, CancellationToken ct)
@@ -589,7 +594,7 @@ public sealed partial class ChangeControlService
             var reserved = false;
             DateTime? seen = long.TryParse(u["last_seen"]?.ToString(), out var s) && s > 0 ? DateTimeOffset.FromUnixTimeSeconds(s).UtcDateTime : DateTime.MinValue;
             var network = u["last_connection_network_id"]?.ToString() is { } nid && networks.TryGetValue(nid, out var n) ? n["name"]?.ToString() ?? "" : "";
-            var name = u["name"]?.ToString() is { Length: > 0 } nm ? nm : u["hostname"]?.ToString() is { Length: > 0 } hn ? hn : mac;
+            var name = RawClientName(u, mac);
             result.Add(new StaticClient(name, mac, ipText!, Readdressing.Format(moved), network, reserved, seen));
         }
         return result.OrderByDescending(c => c.LastSeen).ToList();

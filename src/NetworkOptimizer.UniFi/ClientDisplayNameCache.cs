@@ -25,15 +25,28 @@ public static class ClientDisplayNameCache
         public IReadOnlyDictionary<string, string> Map =
             new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         public DateTime FetchedUtc = DateTime.MinValue;
+        public long Generation;
     }
 
     private static readonly ConditionalWeakTable<UniFiApiClient, Entry> Cache = new();
 
-    /// <summary>Marks the connection's names stale, so the next read refetches. Call after renaming a client.</summary>
+    /// <summary>
+    /// Marks the connection's names stale, so the next read refetches, and moves its
+    /// <see cref="Generation"/>. Call after a client is renamed, here or in UniFi Network.
+    /// </summary>
     public static void Invalidate(UniFiApiClient client)
     {
-        if (Cache.TryGetValue(client, out var entry)) entry.FetchedUtc = DateTime.MinValue;
+        var entry = Cache.GetOrCreateValue(client);
+        entry.FetchedUtc = DateTime.MinValue;
+        Interlocked.Increment(ref entry.Generation);
     }
+
+    /// <summary>
+    /// Moves on every <see cref="Invalidate"/>. Callers holding their own client names (an offline
+    /// identity) drop them when it differs from the value they last saw.
+    /// </summary>
+    public static long Generation(UniFiApiClient client) =>
+        Interlocked.Read(ref Cache.GetOrCreateValue(client).Generation);
 
     /// <summary>
     /// Returns a lower-cased-MAC -> <c>display_name</c> lookup for the given connection, refreshing

@@ -180,7 +180,8 @@
 function noHighlight(id, block, variant, radius) {
     var el = document.getElementById(id);
     if (!el) return;
-    el.scrollIntoView({ behavior: 'smooth', block: block || 'start' });
+    // false: ring it where it is, the caller has scrolled already.
+    if (block !== false) el.scrollIntoView({ behavior: 'smooth', block: block || 'start' });
     // The caller says what shape it is pointing at; the default suits a card.
     if (radius) el.style.setProperty('--nav-highlight-radius', radius);
     el.classList.add(variant);
@@ -206,6 +207,114 @@ function noHighlight(id, block, variant, radius) {
 // e.g. "var(--border-radius)" for a form or control inside a card.
 window.noHighlightTarget = function (id, block, radius) { noHighlight(id, block, 'nav-highlight', radius); };
 
+// A link landing on a chart in a card whose header is sticky on a desktop (.chart-card-sticky-header): there the
+// header stays in view, so the chart is centered. Narrower, the header does not stick, so the card's top lands at the
+// top (its controls and the way back in reach) and the chart is ringed where it is. quiet: no ring, for a jump the
+// reader made from a card about this very chart (Live View's Analyze), where it says nothing.
+window.noLandOnChart = function (cardId, chartId, quiet) {
+    var narrow = window.matchMedia('(max-width: 1024px)').matches;
+    var target = document.getElementById(narrow ? cardId : chartId);
+    if (quiet) {
+        if (target) target.scrollIntoView({ behavior: 'smooth', block: narrow ? 'start' : 'center' });
+    } else if (narrow) {
+        if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        noHighlight(chartId, false, 'nav-highlight');
+    } else {
+        noHighlight(chartId, 'center', 'nav-highlight');
+    }
+};
+
+// Where the reader was on a tab they jump away from and back to (Live View, Analyze, Watch in Live View). A page's tabs
+// share one scroll box, so without this the jump back lands at the depth reached on the other tab. Saved per tab
+// for the session as the card at the middle of the view and its distance from the top, not a raw offset: the cards
+// above load and grow after the return, and an offset drifted further down on every round trip. Restored by keeping
+// that card there until the layout holds still; with nothing saved, the top. A touch, wheel, or key stops it.
+// The loss event stepper sits centered between a chart header's scope pills and its controls only while all three
+// share a line: once the header wraps (many WANs, a narrow window), it takes its own line instead, and the controls
+// keep their place on the right. CSS cannot tell a wrapped row from a full one, so this measures, on every resize.
+window.noLossNavFit = function (header) {
+    if (typeof header === 'string') header = document.querySelector(header);
+    if (!header) return;
+    function fit() {
+        var slot = header.querySelector('.loss-nav-slot');
+        if (!slot) return;
+        slot.classList.remove('loss-nav-own-line');
+        var before = header.querySelector('.wan-selector') || header.querySelector('.card-title');
+        var after = header.querySelector('.chart-header-controls');
+        var mid = function (el) { var r = el.getBoundingClientRect(); return r.top + r.height / 2; };
+        var m = mid(slot);
+        var shared = (!before || Math.abs(mid(before) - m) < 10) && (!after || Math.abs(mid(after) - m) < 10);
+        if (!shared) slot.classList.add('loss-nav-own-line');
+    }
+    if (!header._noLossNavFit) {
+        header._noLossNavFit = new ResizeObserver(fit);
+        header._noLossNavFit.observe(header);
+    }
+    fit();
+};
+
+window.noTabScroll = {
+    save: function (key) {
+        var c = window.scrollRestoration && window.scrollRestoration.container();
+        if (!c) return;
+        var box = c.getBoundingClientRect();
+        var cards = Array.prototype.slice.call(c.querySelectorAll('.card'));
+        var mid = box.top + Math.min(box.height, window.innerHeight) / 2;
+        var index = cards.findIndex(function (el) { var r = el.getBoundingClientRect(); return r.top <= mid && r.bottom >= mid; });
+        if (index < 0) index = cards.findIndex(function (el) { return el.getBoundingClientRect().bottom > box.top; });
+        var saved = { top: c.scrollTop };
+        if (index >= 0) {
+            var el = cards[index];
+            // By name where the card has one: a card above it that renders late shifts every index after it.
+            saved.sel = el.id ? '#' + CSS.escape(el.id)
+                : el.dataset.tour ? '.card[data-tour="' + CSS.escape(el.dataset.tour) + '"]' : null;
+            saved.card = index;
+            saved.offset = el.getBoundingClientRect().top - box.top;
+        }
+        try { sessionStorage.setItem('no.tabScroll.' + key, JSON.stringify(saved)); } catch (e) { }
+    },
+    restore: function (key) {
+        var saved = null;
+        try {
+            saved = JSON.parse(sessionStorage.getItem('no.tabScroll.' + key) || 'null');
+            sessionStorage.removeItem('no.tabScroll.' + key);
+        } catch (e) { }
+        var started = Date.now(), timer = null, steadySince = 0, lastTop = null;
+        var events = ['touchstart', 'wheel', 'pointerdown', 'keydown'];
+        function stop() {
+            clearInterval(timer);
+            events.forEach(function (e) { window.removeEventListener(e, stop, true); });
+        }
+        function apply() {
+            var c = window.scrollRestoration && window.scrollRestoration.container();
+            var now = Date.now();
+            if (now - started >= 4000) { stop(); return; }
+            if (!c) return;
+            var want = 0;
+            if (saved && saved.card != null) {
+                var el = (saved.sel && c.querySelector(saved.sel)) || c.querySelectorAll('.card')[saved.card];
+                if (!el) return;
+                want = c.scrollTop + (el.getBoundingClientRect().top - c.getBoundingClientRect().top) - saved.offset;
+            } else if (saved) {
+                want = saved.top || 0;
+            }
+            want = Math.max(0, Math.min(want, c.scrollHeight - c.clientHeight));
+            if (Math.abs(c.scrollTop - want) > 1) c.scrollTop = want;
+            // Done once the card has held its place for half a second: the tab has finished growing above it.
+            if (lastTop !== null && Math.abs(want - lastTop) <= 1) {
+                if (!steadySince) steadySince = now;
+                else if (now - steadySince >= 500) stop();
+            } else {
+                steadySince = 0;
+            }
+            lastTop = want;
+        }
+        events.forEach(function (e) { window.addEventListener(e, stop, { capture: true, passive: true }); });
+        timer = setInterval(apply, 100);
+        apply();
+    },
+};
+
 // A table row: tinted, because an offset ring around a row collides with the rows either side.
 window.noHighlightRow = function (id, block) { noHighlight(id, block || 'center', 'nav-highlight-row'); };
 
@@ -219,6 +328,27 @@ window.noScrollTo = function (id, block) {
     var el = document.getElementById(id);
     if (!el) return;
     el.scrollIntoView({ behavior: 'smooth', block: block || 'start' });
+};
+
+// Like noScrollTo with 'start', but never further than puts the end of what matters in it (`endSelector`
+// inside it, else its own bottom) at the bottom of the view: past that the view shows only empty space or
+// the next card. Already in view whole: no scroll.
+window.noScrollToEnd = function (id, endSelector) {
+    var el = document.getElementById(id);
+    if (!el) return;
+    var end = (endSelector && el.querySelector(endSelector)) || el;
+    var box = el.parentElement;
+    while (box && box !== document.body && !(box.scrollHeight > box.clientHeight
+        && /(auto|scroll)/.test(getComputedStyle(box).overflowY))) box = box.parentElement;
+    var scroller = box && box !== document.body ? box : document.scrollingElement;
+    var view = scroller === document.scrollingElement
+        ? { top: 0, bottom: window.innerHeight }
+        : scroller.getBoundingClientRect();
+    var margin = parseFloat(getComputedStyle(el).scrollMarginTop) || 0;
+    var toStart = el.getBoundingClientRect().top - view.top - margin;
+    var toEnd = end.getBoundingClientRect().bottom - view.bottom + 16;
+    var delta = toStart > 0 ? Math.max(0, Math.min(toStart, toEnd)) : toStart;
+    if (delta !== 0) scroller.scrollBy({ top: delta, behavior: 'smooth' });
 };
 
 // Holds an element at the same place on screen while something ABOVE it changes height, for a

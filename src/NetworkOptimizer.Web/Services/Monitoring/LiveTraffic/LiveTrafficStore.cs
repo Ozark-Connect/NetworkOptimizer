@@ -45,7 +45,10 @@ public sealed class LiveTrafficStore
         public DateTime LastSeen;
         public double DownBps, UpBps;
         public readonly Queue<(double Down, double Up)> History = new();
+        public readonly RecentBytes Recent = new();
     }
+
+    private sealed record EndedFlow(DateTime EndedAt, LiveFlow Flow, long RecentDown, long RecentUp);
 
     private sealed record DnsEntry(DateTime At, LiveDnsEvent Event);
 
@@ -60,7 +63,7 @@ public sealed class LiveTrafficStore
 
     private readonly object _gate = new();
     private readonly Dictionary<string, FlowState> _flows = new();
-    private readonly LinkedList<(DateTime EndedAt, LiveFlow Flow)> _ended = new();
+    private readonly LinkedList<EndedFlow> _ended = new();
     private readonly LinkedList<DnsEntry> _dns = new();
     /// <summary>Site addresses other clients send DNS to, by when that was last seen.</summary>
     private readonly Dictionary<string, DateTime> _siteResolvers = new();
@@ -167,17 +170,23 @@ public sealed class LiveTrafficStore
             foreach (var flow in batch.Flows)
             {
                 if (!_flows.TryGetValue(flow.Key, out var state))
+                {
                     _flows[flow.Key] = state = new FlowState { Last = flow };
+                    // The agent ends a flow its reads missed twice; one that comes back is not ended.
+                    RemoveEnded(flow.Key);
+                }
                 state.Last = flow;
                 state.LastSeen = now;
                 state.DownBps = flow.DownBytes * 8.0 / window;
                 state.UpBps = flow.UpBytes * 8.0 / window;
                 state.History.Enqueue((state.DownBps, state.UpBps));
                 while (state.History.Count > HistoryPoints) state.History.Dequeue();
+                state.Recent.Add(now, flow.DownBytes, flow.UpBytes);
             }
             // A flow the batch did not carry moved nothing this window.
             foreach (var state in _flows.Values)
             {
+                state.Recent.Prune(now);
                 if (state.LastSeen == now) continue;
                 state.DownBps = state.UpBps = 0;
                 state.History.Enqueue((0, 0));
@@ -186,8 +195,10 @@ public sealed class LiveTrafficStore
 
             foreach (var flow in batch.Ended)
             {
-                _flows.Remove(flow.Key);
-                _ended.AddFirst((now, flow));
+                _flows.Remove(flow.Key, out var last);
+                // One row per tuple: the Ended table keys its rows by it.
+                RemoveEnded(flow.Key);
+                _ended.AddFirst(new EndedFlow(now, flow, last?.Recent.Down ?? 0, last?.Recent.Up ?? 0));
                 while (_ended.Count > MaxEnded) _ended.RemoveLast();
             }
 
@@ -210,6 +221,17 @@ public sealed class LiveTrafficStore
             }
 
             Prune(now);
+        }
+    }
+
+    /// <summary>Drops the ended row for this tuple, if any. Callers hold <c>_gate</c>.</summary>
+    private void RemoveEnded(string key)
+    {
+        for (var node = _ended.First; node != null; node = node.Next)
+        {
+            if (node.Value.Flow.Key != key) continue;
+            _ended.Remove(node);
+            return;
         }
     }
 
@@ -393,8 +415,7 @@ public sealed class LiveTrafficStore
                 && c.LastSeen > 0 && DateTimeOffset.FromUnixTimeSeconds(c.LastSeen).UtcDateTime >= cutoff)
             .OrderByDescending(c => c.LastSeen)
             .Select(c => new LiveClientInfo(NormalizeMac(c.Mac),
-                !string.IsNullOrWhiteSpace(c.Name) ? c.Name! : !string.IsNullOrWhiteSpace(c.DisplayName) ? c.DisplayName!
-                    : !string.IsNullOrWhiteSpace(c.Hostname) ? c.Hostname! : c.BestIp!,
+                ClientNames.Choose(c.DisplayName, c.Name, null, c.Hostname, c.UnifiDevice) ?? c.BestIp!,
                 c.BestIp!, null, null, Vendor: string.IsNullOrWhiteSpace(c.Oui) ? null : c.Oui))
             .ToList();
     }
@@ -422,6 +443,10 @@ public sealed class LiveTrafficStore
         _clientsByMac = byMac;
         _macByIp = macByIp;
     }
+
+    /// <summary>A client's or UniFi device's name as Live names it now, by MAC; null when it is not listed.</summary>
+    public string? ClientNameFor(string? mac) =>
+        !string.IsNullOrEmpty(mac) && _clientsByMac.TryGetValue(mac, out var c) && !string.IsNullOrWhiteSpace(c.Name) ? c.Name : null;
 
     /// <summary>
     /// Where the next label read starts: just behind the newest record merged, at most two minutes back.
@@ -681,7 +706,8 @@ public sealed class LiveTrafficStore
     /// <summary>The active flows as rows, before the site's custom apps rename any. Callers hold <c>_gate</c>.</summary>
     private List<LiveFlowRow> ActiveRows(DateTime now)
     {
-        var rows = InheritSiblingApps(_flows.Values.Select(s => ToRow(s.Last, s.DownBps, s.UpBps, s.History.ToList(), false, now)).ToList());
+        var rows = InheritSiblingApps(_flows.Values.Select(s => ToRow(s.Last, s.DownBps, s.UpBps, s.History.ToList(), false, now)
+            with { RecentDownBytes = s.Recent.Down, RecentUpBytes = s.Recent.Up }).ToList());
         return MarkTailnetPaths(NameUniFiWebRtc(rows, rows, IsUniFiHost));
     }
 
@@ -806,7 +832,8 @@ public sealed class LiveTrafficStore
             var all = active;
             if (query.Ended)
             {
-                var ended = InheritSiblingApps(_ended.Select(e => ToRow(e.Flow, 0, 0, Array.Empty<(double, double)>(), true, now, e.EndedAt)).ToList());
+                var ended = InheritSiblingApps(_ended.Select(e => ToRow(e.Flow, 0, 0, Array.Empty<(double, double)>(), true, now, e.EndedAt)
+                    with { RecentDownBytes = e.RecentDown, RecentUpBytes = e.RecentUp }).ToList());
                 all = CustomAppMatcher.Apply(NameUniFiWebRtc(ended, active.Concat(ended).ToList(), IsUniFiHost), _customApps);
             }
             if (query.WanOnly) all = all.Where(r => r.RouteKind is LiveRouteKind.Wan or LiveRouteKind.Vpn).ToList();
@@ -1291,7 +1318,8 @@ public sealed class LiveTrafficStore
                     g.Sum(r => r.DownBps), g.Sum(r => r.UpBps), g.Sum(r => r.TotalBytes), g.Count(),
                     field == LiveTrafficField.Route ? first.RouteKind : null,
                     field == LiveTrafficField.Client ? first.ClientMac : null,
-                    field == LiveTrafficField.App ? UnnamedSeed(g) : null);
+                    field == LiveTrafficField.App ? UnnamedSeed(g) : null,
+                    g.Sum(r => r.RecentDownBytes), g.Sum(r => r.RecentUpBytes));
             })
             .OrderByDescending(g => g.DownBps).ThenByDescending(g => g.UpBps).ThenByDescending(g => g.TotalBytes)
             .ToList();
@@ -1645,6 +1673,8 @@ public sealed class LiveTrafficStore
                 TotalUpBytes = streams.Sum(r => r.TotalUpBytes),
                 TotalDownPackets = streams.Sum(r => r.TotalDownPackets),
                 TotalUpPackets = streams.Sum(r => r.TotalUpPackets),
+                RecentDownBytes = streams.Sum(r => r.RecentDownBytes),
+                RecentUpBytes = streams.Sum(r => r.RecentUpBytes),
                 Started = earliest?.Started,
                 StartedIsUpperBound = earliest?.StartedIsUpperBound ?? false,
                 History = history,
@@ -1660,6 +1690,8 @@ public sealed class LiveTrafficStore
         {
             LiveFlowSort.Upload => Order(rows, r => r.UpBps),
             LiveFlowSort.Total => Order(rows, r => r.TotalBytes),
+            LiveFlowSort.RecentDown => Order(rows, r => r.RecentDownBytes),
+            LiveFlowSort.RecentUp => Order(rows, r => r.RecentUpBytes),
             // Descending is newest first; an ended flow sorts by when it ended, as its label reads.
             LiveFlowSort.Started => Order(rows, r => (r.EndedAt ?? r.Started ?? DateTime.MinValue).Ticks),
             LiveFlowSort.Client => OrderText(rows, r => r.ClientName),

@@ -90,6 +90,23 @@ public class FlowHistoryCacheTests
     }
 
     [Fact]
+    public void ClientRenamedSinceTheRecord_ShowsAndSearchesByItsNameNow()
+    {
+        var now = DateTime.UtcNow;
+        // The record says "Laptop"; the client has been renamed since.
+        var cache = new FlowHistoryCache { ClientNames = mac => mac == "aa:bb:cc:dd:ee:02" ? "Work Laptop" : null };
+        cache.Merge([Record("a", now)], now, cache.Generation);
+
+        View(cache, now).Flows.Should().ContainSingle().Which.ClientName.Should().Be("Work Laptop");
+        cache.BuildView(new LiveHistoryQuery { ViewerId = "v", Search = "Work Laptop" }, LiveHistoryState.Ready, now)
+            .MatchingFlows.Should().Be(1);
+
+        var unnamed = new FlowHistoryCache();
+        unnamed.Merge([Record("a", now)], now, unnamed.Generation);
+        View(unnamed, now).Flows.Single().ClientName.Should().Be("Laptop", "with no live name the record's own stands");
+    }
+
+    [Fact]
     public void TotalBlockedCountsEveryBlockedRecordBeforeTheFilters()
     {
         var now = DateTime.UtcNow;

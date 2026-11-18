@@ -97,16 +97,24 @@ Time-series monitoring on your own InfluxDB, fed by SNMP polling (InfluxDB).
 - Gateway tiles: RTT, loss, CPU, memory, temperature, **Fabric Ingress**, **Fabric Egress**
 - Last-hour sparkline behind the ISP, transit, and gateway tiles; hover to bring it forward (InfluxDB)
 - WAN pill selector - one WAN, several to compare, or all
+- Opened from Network Performance at a moment, a chip beside the WAN pills goes back to the chart, or **×** returns to live on your own WAN selection
 - Live WAN throughput chart
 - **3D LAN Flow Map** - live 3D topology with animated download and upload flows for all LAN traffic
   - Overlays: Wi-Fi clients, wired clients, WAN globes, buildings and floor plans from the Signal Map
+  - UniFi devices and clients drawn as 3D bodies built from their icons; a placed access point sits as it is mounted (ceiling, wall, or desktop) and faces the way its orientation arrow points on the Signal Map
+  - Clients sized and shaped by what they are (phone, laptop, TV, desktop, appliance), relative to each other rather than to scale; a TV sits parallel to the nearest wall
+  - Buildings with wings get a gable roof per wing, joined in valleys, and floors that follow the drawn outline
   - Search by name or MAC, filter by band, WASD and mouse camera, fullscreen
-  - **Reposition Device**; run Upstream Discovery from a WAN globe
-  - Double-click a client for Client Performance, a switch or gateway for Port Statistics, or a WAN globe for its ISP Health
+  - **Reposition Device**; **Hide Device** takes a client out of your own view of the map, and **Hide Group** removes a multi-client port's group node so its members draw from the device upstream, with **Hidden Devices** in Overlays to bring either back; run Upstream Discovery from a WAN globe
+  - Double-click a client for Client Performance, an access point for its clients in Wi-Fi Optimizer's Client Stats, a UniFi cellular modem monitored in Cellular Stats for its series there, a switch or gateway for Port Statistics, or a WAN globe for its ISP Health
 - **LAN Topology Flow Map** (2D) - the same live data as a pan-and-zoom flow diagram
   - Each client shows its UniFi Network icon, including custom icons
   - Per-client Wi-Fi LAN traffic, including LAN-only transfers ([AP Telemetry](#ap-telemetry))
+  - A signal meter on the card of a mesh AP or UniFi Device Bridge (its uplink signal) and of a UniFi cellular modem monitored in [Cellular Stats](#cellular-stats) (its Signal Quality), following playback
+  - Layout changes slide into place: clients and devices joining, leaving, or roaming, and filter or overlay changes
 - Both maps: device tooltips, full-duplex load coloring, mesh and MLO backhaul, UniFi Device Bridge and Building Bridge links
+- Both maps: a WAN a UniFi cellular modem carries is drawn from the modem to its WAN globe, dashed on the 2D map when it runs as a tunnel over the LAN; a cellular WAN's globe carries a **5G** or **LTE** badge
+- Both maps: a WAN globe shows its ISP's logo (the one UniFi Network shows, by ASN) where one exists, cached on the install like client icons
 - Historic playback on both maps - scrub, play, change speed, ranges from 1 hour to 30 days or everything stored (InfluxDB)
 - **Live Traffic** (formerly Bandwidth Hogs) - who is using the WAN now, and who used the most from the last hour to 30 days
   - **WAN** or **LAN + WAN** view; follows the playback timeline
@@ -115,6 +123,7 @@ Time-series monitoring on your own InfluxDB, fed by SNMP polling (InfluxDB).
   - Turn off Live Traffic flow and DNS capture per site in Settings - Monitoring - **Live Traffic**; the card still ranks clients by usage (Site Admin)
   - **By** client, app, destination, or route; open a client to see its flows
   - **Detailed View** - every flow through the gateway ranked by current rate, with no row limit (On-Site Agent on the gateway)
+    - **Recent ↓** and **Recent ↑**: each flow's data in the last 5 minutes (or since Live Traffic started), sortable busiest first, also per group and on a client's Live Traffic in Client Performance
     - Click any client, destination, app, route, protocol, or port to filter to it, and again to let it go; hide a value with the button beside it or Alt-click; filters are in the link
       - Several values of one kind match any of them (this client or that one) and share one chip ("Client Laptop or TV"); different kinds all apply
       - Click a chip to edit it: every value of that kind with how many flows carry it, search or type one that is not on screen, Include or Exclude
@@ -195,7 +204,20 @@ Time-series monitoring on your own InfluxDB, fed by SNMP polling (InfluxDB).
   - Categories: Fabric, ISP, Transit, Internet, Custom; LAN or per-WAN scope
   - Ranges from 15 minutes to 30 days, custom ranges, synced hover, jump to Live View
   - Hover a host's chip, a Latency Targets address, or an Upstream Path Discovery address for its card: copy, and **Trace**
-- **Investigate** - step through **Packet Loss Events** and **Loaded Loss Events**
+  - Opened from Live View, ISP Health, or the Dashboard, a chip beside the title names where from, with the way back and **×** for your own filters; your own WAN or LAN scope or time preset ends it
+- **Path Map** - every ISP, Transit, Internet, and Custom target's route on one map, merged where routes share hops
+  - Each target's live state against its own baseline: normal, elevated, degraded, unreachable
+  - Several WANs on one map, each in its own line style, showing where their routes split
+  - Views: **All** (every route in full), **Transit** (the networks between you and each target), and **Local** (your ISP and where it hands off, with each place's round trip); each fits and names its part of the map and fades the rest, never hiding a target off its baseline. Remembered per user
+  - Re-traced every minute while open; hourly in the background, and at once when a target degrades
+  - Metered WANs trace once per view, skipping routes checked in the last 15 minutes
+  - Route changes: grouped by network across the targets they moved, listed under the map with each target's round trip before and after; select one to draw its old routes
+  - A hop placed better between two traces (a hostname, a set location) is not a route change
+  - A router slow only on its own replies, with clean targets beyond it, is not counted as a problem
+  - Problems list, worst first; a click solos the target in the charts below
+  - Follows the charts' WAN, category, and time window
+  - A card on every target, place, leg, and cluster (a sheet on a phone) lists the targets there; each opens in the charts or runs a traceroute in Network Tools
+- **Investigate** - step through **Packet Loss Events** and **Loaded Loss Events**; the stepper rides in the chart header, so it stays in view as you scroll the charts
 - **Upstream Path Discovery** - ICMP and UDP traceroutes that map OLT/CMTS, ISP edge, transit ASNs, and internet hosts
   - Sets the access technology, saves monitoring targets, and re-runs every 7 days
   - Waits for a quiet WAN (no outage, load, or loss above the access technology's idle level); a manual run on a busy WAN warns first, with **Run Anyway**

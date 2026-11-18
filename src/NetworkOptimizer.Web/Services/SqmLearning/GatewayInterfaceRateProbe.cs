@@ -31,6 +31,12 @@ public static class GatewayInterfaceRateProbe
         bool InterfacePresent,
         int Minute = 0);
 
+    /// <summary>
+    /// Shell expression that prints 1 while a deployed Adaptive SQM *-speedtest.sh is executing.
+    /// The pgrep pattern is bracketed so the probe's own command line never matches itself.
+    /// </summary>
+    public const string SqmSpeedtestRunningShell = "$(pgrep -f -- '[-]speedtest\\.sh' >/dev/null 2>&1 && echo 1 || echo 0)";
+
     /// <summary>The shell command for one probe of the given interface.</summary>
     public static string BuildCommand(string interfaceName)
     {
@@ -39,7 +45,6 @@ public static class GatewayInterfaceRateProbe
             throw new ArgumentException(validation.error, nameof(interfaceName));
 
         var stats = $"/sys/class/net/{interfaceName}/statistics";
-        // The pgrep pattern is bracketed so the probe's own command line never matches itself.
         return $"present=$(test -d /sys/class/net/{interfaceName} && echo 1 || echo 0); " +
                $"r1=$(cat {stats}/rx_bytes 2>/dev/null || echo 0); t1=$(cat {stats}/tx_bytes 2>/dev/null || echo 0); " +
                $"sleep {WindowSeconds}; " +
@@ -47,7 +52,7 @@ public static class GatewayInterfaceRateProbe
                "echo \"rx_bytes=$((r2 - r1))\"; echo \"tx_bytes=$((t2 - t1))\"; " +
                "echo \"day=$(( $(date +%u) - 1 ))\"; echo \"hour=$(date +%-H)\"; echo \"minute=$(date +%-M)\"; " +
                "echo \"present=$present\"; " +
-               "echo \"sqm_speedtest=$(pgrep -f -- '[-]speedtest\\.sh' >/dev/null 2>&1 && echo 1 || echo 0)\"";
+               $"echo \"sqm_speedtest={SqmSpeedtestRunningShell}\"";
     }
 
     /// <summary>Parses the probe's key=value output; null when it is not the probe's output.</summary>

@@ -31,8 +31,7 @@ public static class MonitoringChartEndpoints
             try
             {
                 var devices = await connectionService.GetDiscoveredDevicesAsync(ct);
-                var gw = devices?.FirstOrDefault(d =>
-                    d.Type == DeviceType.Gateway || d.HardwareType == DeviceType.Gateway);
+                var gw = NetworkOptimizer.UniFi.UniFiDiscovery.SiteGateway(devices);
                 gatewayMac = gw?.Mac?.Replace("-", ":").ToLowerInvariant();
                 wanIfNames = gw?.WanInterfaceNames;
             }
@@ -121,8 +120,7 @@ public static class MonitoringChartEndpoints
             try
             {
                 var devices = await connectionService.GetDiscoveredDevicesAsync(ct);
-                var gw = devices?.FirstOrDefault(d =>
-                    d.Type == DeviceType.Gateway || d.HardwareType == DeviceType.Gateway);
+                var gw = NetworkOptimizer.UniFi.UniFiDiscovery.SiteGateway(devices);
                 gatewayMac = gw?.Mac;
                 wanIfNames = gw?.WanInterfaceNames;
             }
@@ -430,6 +428,21 @@ public static class MonitoringChartEndpoints
             return Results.Ok(new { targets = result, inactiveCount });
         });
 
+        // The Path Map above the latency charts: every routed target's route for the WAN selection and
+        // window the charts show. trace=1 marks an open map on screen, which keeps its routes re-traced.
+        group.MapGet("/api/monitoring/path-map", async (
+            NetworkOptimizer.Web.Services.Monitoring.PathMap.IPathMapService pathMap,
+            string? wans,
+            bool? all,
+            string? primary,
+            int? rangeHours,
+            DateTime? from,
+            DateTime? to,
+            bool? trace,
+            CancellationToken ct) =>
+            Results.Ok(await pathMap.GetAsync(new NetworkOptimizer.Web.Services.Monitoring.PathMap.PathMapQuery(
+                wans, all == true, primary, from, to, rangeHours, trace == true), ct)));
+
         group.MapGet("/api/monitoring/wan-rate-chart", async (
             MonitoringInfluxClient influx,
             UniFiConnectionService connectionService,
@@ -460,9 +473,7 @@ public static class MonitoringChartEndpoints
             try
             {
                 var devices = await connectionService.GetDiscoveredDevicesAsync(ct);
-                var gw = devices?.FirstOrDefault(d =>
-                    d.Type == NetworkOptimizer.Core.Enums.DeviceType.Gateway
-                    || d.HardwareType == NetworkOptimizer.Core.Enums.DeviceType.Gateway);
+                var gw = NetworkOptimizer.UniFi.UniFiDiscovery.SiteGateway(devices);
                 gatewayMac = gw?.Mac;
                 wanIfNames = gw?.WanInterfaceNames;
             }

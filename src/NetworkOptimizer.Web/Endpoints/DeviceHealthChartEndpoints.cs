@@ -105,8 +105,7 @@ public static class DeviceHealthChartEndpoints
             string? gatewayKey = null;
             try
             {
-                var gw = (await connectionService.GetDiscoveredDevicesAsync(ct))?.FirstOrDefault(d =>
-                    d.Type == DeviceType.Gateway || d.HardwareType == DeviceType.Gateway);
+                var gw = NetworkOptimizer.UniFi.UniFiDiscovery.SiteGateway(await connectionService.GetDiscoveredDevicesAsync(ct));
                 if (!string.IsNullOrEmpty(gw?.Mac)) gatewayKey = NormalizeMac(gw.Mac);
             }
             catch (Exception ex) when (ex is not OperationCanceledException) { }

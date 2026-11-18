@@ -110,7 +110,7 @@
             <div @onmouseenter="Feed.Hold.PointerIn" @onmouseleave="Feed.Hold.PointerOut" @ontouchstart="Feed.Hold.Touched">
                 <div class="table-responsive lt-desktop-only">
                     <table class="results-table lt-flows">
-                        <colgroup><col style="width:3.3rem"><col style="width:27%"><col style="width:14%"><col style="width:13%"><col style="width:11%"><col style="width:10%"><col style="width:9%"><col style="width:11%"><col style="width:100px"></colgroup>
+                        <colgroup><col style="width:3.3rem"><col style="width:20%"><col style="width:11%"><col style="width:11%"><col style="width:10%"><col style="width:9%"><col style="width:9%"><col style="width:9%"><col style="width:8%"><col style="width:9%"><col style="width:100px"></colgroup>
                         <thead>
                             <tr>
                                 <th>#</th>
@@ -119,6 +119,8 @@
                                 @SortHeader(LiveFlowSort.Route, "Route")
                                 @SortHeader(LiveFlowSort.Download, "Download")
                                 @SortHeader(LiveFlowSort.Upload, "Upload")
+                                @RecentSortHeader(LiveFlowSort.RecentDown)
+                                @RecentSortHeader(LiveFlowSort.RecentUp)
                                 @SortHeader(LiveFlowSort.Total, "Total")
                                 @SortHeader(LiveFlowSort.Started, Feed.Ended ? "Ended" : "Started")
                                 <th>Trend</th>
@@ -135,7 +137,7 @@
                             }
                             @for (var i = shown.Count; i < slots; i++)
                             {
-                                <tr class="lt-slot-empty"><td colspan="9">&nbsp;<span class="lt-sub">&nbsp;</span></td></tr>
+                                <tr class="lt-slot-empty"><td colspan="11">&nbsp;<span class="lt-sub">&nbsp;</span></td></tr>
                             }
                         </tbody>
                     </table>
@@ -145,7 +147,16 @@
                         @foreach (var (col, label) in MobileSorts)
                         {
                             var active = Feed.Sort == col;
-                            <button class="time-btn @(active ? "active" : "")" @onclick="() => SetSortAsync(col)">@label@(active ? (Feed.Descending ? " ↓" : " ↑") : "")</button>
+                            @if (LiveFlowSorts.DescendingOnly(col))
+                            {
+                                <button class="time-btn @(active ? "active" : "")" @onclick="() => SetSortAsync(col)">
+                                    <span class="lt-recent">@label <RecentArrow Up="@(col == LiveFlowSort.RecentUp)" /></span>
+                                </button>
+                            }
+                            else
+                            {
+                                <button class="time-btn @(active ? "active" : "")" @onclick="() => SetSortAsync(col)">@label@(active ? (Feed.Descending ? " ↓" : " ↑") : "")</button>
+                            }
                         }
                     </div>
                 </div>
@@ -197,7 +208,8 @@
     private readonly LiveSlotHold _slots = new();
 
     private static readonly (LiveFlowSort Col, string Label)[] MobileSorts =
-        [(LiveFlowSort.Download, "Down"), (LiveFlowSort.Upload, "Up"), (LiveFlowSort.Total, "Total"), (LiveFlowSort.Started, "Started")];
+        [(LiveFlowSort.Download, "Down"), (LiveFlowSort.Upload, "Up"),
+         (LiveFlowSort.RecentDown, "Recent"), (LiveFlowSort.RecentUp, "Recent"), (LiveFlowSort.Total, "Total"), (LiveFlowSort.Started, "Started")];
 
     private LiveTrafficView? View => Feed.View;
 
@@ -262,6 +274,15 @@
     private RenderFragment SortHeader(LiveFlowSort col, string label) => __builder =>
     {
         <th class="sortable @(Feed.Sort == col ? (Feed.Descending ? "sort-desc" : "sort-asc") : null)" @onclick="() => SetSortAsync(col)">@label</th>
+    };
+
+    /// <summary>Recent Down or Recent Up: descending only, so the active one always reads busiest first.</summary>
+    private RenderFragment RecentSortHeader(LiveFlowSort col) => __builder =>
+    {
+        var up = col == LiveFlowSort.RecentUp;
+        <th class="sortable @(Feed.Sort == col ? "sort-desc" : null)" data-tooltip="@RecentArrow.Tooltip(up)" data-tooltip-hover-only @onclick="() => SetSortAsync(col)">
+            <span class="lt-recent">Recent <RecentArrow Up="up" /></span>
+        </th>
     };
 
     private Task SetSortAsync(LiveFlowSort col)

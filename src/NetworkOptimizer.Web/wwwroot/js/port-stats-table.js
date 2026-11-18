@@ -52,6 +52,11 @@ let visibility = {};        // mac -> false hides the device
 let nameOverrides = {};     // mac -> name supplied by the map snapshot
 let lastDevices = [];       // raw devices from the most recent fetch
 let pendingSelect = null;   // mac to isolate once data arrives
+let pendingScroll = false;  // bring the card into view once it has data (a hand-off from another page)
+
+// A map double-click on a page without this table (the Dashboard's Live View card) leaves the
+// device here and opens Live View. Session storage, not the URL: Live View rewrites its URL.
+export const HANDOFF_KEY = 'portStatsSelect';
 
 let currentAt = null;       // ISO timestamp for historic playback, null = live
 let sanitized = false;      // degenerate persisted filter dropped once per mount
@@ -427,6 +432,10 @@ async function loadAndRender() {
         pendingSelect = null;
     }
     updateCardVisibility();
+    if (pendingScroll && lastDevices.length > 0) {
+        pendingScroll = false;
+        requestAnimationFrame(() => container?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+    }
     renderTabs();
     renderBadges();
     renderTableNow();
@@ -533,7 +542,17 @@ export function mount(el, mountOpts = {}) {
     paused = false;
     sanitized = false;
     window.__portStatsTable = api;
-    loadAndRender();
+    let handoff = null;
+    try {
+        handoff = sessionStorage.getItem(HANDOFF_KEY);
+        sessionStorage.removeItem(HANDOFF_KEY);
+    } catch (e) { console.debug('[port-stats-table] session storage unavailable', e); }
+    if (handoff) {
+        pendingScroll = true;
+        api.selectDevice(handoff);   // loads, isolates the device, and scrolls once data is in
+    } else {
+        loadAndRender();
+    }
     startPoll();
 
     // Converge to the 3D map's (the playback authority's) current state - the

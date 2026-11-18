@@ -23,6 +23,9 @@ internal sealed class FakeConsole : IUniFiConfigApi
     /// <summary>Fields the console silently drops on write.</summary>
     public HashSet<string> DropFields { get; } = [];
 
+    /// <summary>Per collection, fields a create stores with the console's own value whatever it sent.</summary>
+    public Dictionary<string, JsonObject> StoredOnCreate { get; } = new(StringComparer.Ordinal);
+
     /// <summary>An empty list written reads back missing, as UniFi stores none (grounding.md 2026-10-29).</summary>
     public bool EmptyListsReadBackMissing { get; set; }
 
@@ -126,6 +129,8 @@ internal sealed class FakeConsole : IUniFiConfigApi
                 obj["_id"] = $"id{_nextId++}";
                 // A network created through the API is stored "manual" whatever it sent; an update keeps "auto" (Network 11).
                 if (def.Key == "networkconf" && obj.ContainsKey("setting_preference")) obj["setting_preference"] = "manual";
+                if (StoredOnCreate.TryGetValue(def.Key, out var own))
+                    foreach (var (k, v) in own) obj[k] = v?.DeepClone();
                 list.Add(obj);
                 return RefuseButWrite.Contains(path) ? Task.FromResult(new UniFiRawResponse(404, """{"code":"Could not find hotspot firewall zone"}""")) : Ok(scope, [obj]);
             }

@@ -165,6 +165,23 @@ public class ClientDashboardIdentificationTests
     }
 
     [Fact]
+    public async Task OfflineIdentityTakesRenameOnceNamesAreInvalidated()
+    {
+        using var fixture = new Fixture();
+        fixture.Api.History.Add(Detail(Previous, null, "Old name", lastIp: Ip));
+        Assert.Equal("Old name", (await fixture.Service.IdentifyClientAsync(Ip))?.Name);
+
+        fixture.Api.History[0].DisplayName = "New name";
+        Assert.Equal("Old name", (await fixture.Service.IdentifyClientAsync(Ip))?.Name);
+
+        ClientDisplayNameCache.Invalidate(fixture.Client);
+        var renamed = await fixture.Service.IdentifyClientAsync(Ip);
+
+        Assert.Equal("New name", renamed?.Name);
+        Assert.True(renamed?.IsOffline);
+    }
+
+    [Fact]
     public async Task UnavailableV2StillUsesLegacyAddressAndOfflineHistory()
     {
         using var fixture = new Fixture();
@@ -213,6 +230,7 @@ public class ClientDashboardIdentificationTests
         public Mock<IGatewaySshService> Ssh { get; } = new(MockBehavior.Strict);
         public Mock<IWiredPortPresenceService> Ports { get; } = new(MockBehavior.Strict);
         public ClientDashboardService Service { get; }
+        public UniFiApiClient Client => _client;
         private readonly UniFiApiClient _client;
 
         public Fixture()

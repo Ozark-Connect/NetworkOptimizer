@@ -319,7 +319,7 @@
                     {
                         <div class="table-responsive lt-desktop-only">
                             <table class="data-table lt-flows">
-                                <colgroup><col style="width:3.9rem"><col style="width:14%"><col style="width:21%"><col style="width:10%"><col style="width:13%"><col style="width:10%"><col style="width:8%"><col style="width:7%"><col style="width:10%"><col style="width:100px"></colgroup>
+                                <colgroup><col style="width:3.9rem"><col style="width:12%"><col style="width:15%"><col style="width:8%"><col style="width:9%"><col style="width:9%"><col style="width:8%"><col style="width:9%"><col style="width:8%"><col style="width:7%"><col style="width:7%"><col style="width:100px"></colgroup>
                                 <thead>
                                     <tr>
                                         <th>#</th>
@@ -329,6 +329,8 @@
                                         @FlowSortHeader(LiveFlowSort.Route, "Route")
                                         @FlowSortHeader(LiveFlowSort.Download, "Download")
                                         @FlowSortHeader(LiveFlowSort.Upload, "Upload")
+                                        @RecentSortHeader(LiveFlowSort.RecentDown)
+                                        @RecentSortHeader(LiveFlowSort.RecentUp)
                                         @FlowSortHeader(LiveFlowSort.Total, "Total")
                                         @FlowSortHeader(LiveFlowSort.Started, _ended ? "Ended" : "Started")
                                         <th>Trend</th>
@@ -350,7 +352,16 @@
                                 @foreach (var (col, label) in MobileFlowSorts)
                                 {
                                     var active = _flowSort == col;
-                                    <button class="time-btn @(active ? "active" : "")" @onclick="() => SetFlowSort(col)">@label@(active ? (_flowDesc ? " ↓" : " ↑") : "")</button>
+                                    @if (LiveFlowSorts.DescendingOnly(col))
+                                    {
+                                        <button class="time-btn @(active ? "active" : "")" @onclick="() => SetFlowSort(col)">
+                                            <span class="lt-recent">@label <RecentArrow Up="@(col == LiveFlowSort.RecentUp)" /></span>
+                                        </button>
+                                    }
+                                    else
+                                    {
+                                        <button class="time-btn @(active ? "active" : "")" @onclick="() => SetFlowSort(col)">@label@(active ? (_flowDesc ? " ↓" : " ↑") : "")</button>
+                                    }
                                 }
                             </div>
                         </div>
@@ -849,16 +860,21 @@
     private bool _flowDesc = true;
 
     private static readonly (LiveFlowSort Col, string Label)[] MobileFlowSorts =
-        [(LiveFlowSort.Download, "Down"), (LiveFlowSort.Upload, "Up"), (LiveFlowSort.Total, "Total"), (LiveFlowSort.Started, "Started")];
+        [(LiveFlowSort.Download, "Down"), (LiveFlowSort.Upload, "Up"),
+         (LiveFlowSort.RecentDown, "Recent"), (LiveFlowSort.RecentUp, "Recent"), (LiveFlowSort.Total, "Total"), (LiveFlowSort.Started, "Started")];
 
-    /// <summary>A new column starts biggest or newest first, names A to Z; the same column again flips it.</summary>
+    /// <summary>A new column starts biggest or newest first, names A to Z; the same column again flips it, except Recent.</summary>
     private async Task SetFlowSort(LiveFlowSort col)
     {
-        if (_flowSort == col) _flowDesc = !_flowDesc;
+        if (_flowSort == col)
+        {
+            if (LiveFlowSorts.DescendingOnly(col)) return;
+            _flowDesc = !_flowDesc;
+        }
         else
         {
             _flowSort = col;
-            _flowDesc = col is not (LiveFlowSort.Client or LiveFlowSort.Destination or LiveFlowSort.App or LiveFlowSort.Route);
+            _flowDesc = LiveFlowSorts.StartsDescending(col);
         }
         WriteUrl();
         await RefreshAsync();
@@ -867,6 +883,15 @@
     private RenderFragment FlowSortHeader(LiveFlowSort col, string label) => __builder =>
     {
         <th class="sortable @(_flowSort == col ? (_flowDesc ? "sort-desc" : "sort-asc") : null)" @onclick="() => SetFlowSort(col)">@label</th>
+    };
+
+    /// <summary>Recent Down or Recent Up: descending only, so the active one always reads busiest first.</summary>
+    private RenderFragment RecentSortHeader(LiveFlowSort col) => __builder =>
+    {
+        var up = col == LiveFlowSort.RecentUp;
+        <th class="sortable @(_flowSort == col ? "sort-desc" : null)" data-tooltip="@RecentArrow.Tooltip(up)" data-tooltip-hover-only @onclick="() => SetFlowSort(col)">
+            <span class="lt-recent">Recent <RecentArrow Up="up" /></span>
+        </th>
     };
 
     private async Task ShowMoreHistory()
@@ -906,6 +931,7 @@
             _filters.RemoveAll(f => f.Field == LiveTrafficField.Action);
             if (query.TryGetValue("sort", out var sort) && Enum.TryParse<LiveFlowSort>(sort.ToString(), true, out var s)) _flowSort = s;
             if (query.TryGetValue("dir", out var dir)) _flowDesc = !string.Equals(dir, "asc", StringComparison.OrdinalIgnoreCase);
+            if (LiveFlowSorts.DescendingOnly(_flowSort)) _flowDesc = true;
         }
     }
 
@@ -1522,8 +1548,10 @@
                 }
                 else
                 {
-                    <colgroup><col style="width:3.2rem"><col style="width:40%"><col style="width:10%"><col style="width:15%"><col style="width:15%"><col style="width:12%"></colgroup>
-                    <thead><tr><th>#</th><th>@_groupBy</th><th>Flows</th><th class="sortable sort-desc">Download</th><th>Upload</th><th>Total</th></tr></thead>
+                    <colgroup><col style="width:3.2rem"><col style="width:32%"><col style="width:9%"><col style="width:12%"><col style="width:12%"><col style="width:11%"><col style="width:11%"><col style="width:11%"></colgroup>
+                    <thead><tr><th>#</th><th>@_groupBy</th><th>Flows</th><th class="sortable sort-desc">Download</th><th>Upload</th>
+                        <th data-tooltip="@RecentArrow.Tooltip(false)"><span class="lt-recent">Recent <RecentArrow /></span></th>
+                        <th data-tooltip="@RecentArrow.Tooltip(true)"><span class="lt-recent">Recent <RecentArrow Up="true" /></span></th><th>Total</th></tr></thead>
                 }
                 <tbody class="lt-flip">
                     @{ var rank = 0; }
@@ -1555,6 +1583,8 @@
                             {
                                 <td class="lt-num">@Rate(g.DownBps, "speed-down")</td>
                                 <td class="lt-num">@Rate(g.UpBps, "speed-up")</td>
+                                <td class="lt-num">@DisplayFormatters.FormatBytes(g.RecentDownBytes)</td>
+                                <td class="lt-num">@DisplayFormatters.FormatBytes(g.RecentUpBytes)</td>
                                 <td class="lt-num">@DisplayFormatters.FormatBytes(g.TotalBytes)</td>
                             }
                         </tr>

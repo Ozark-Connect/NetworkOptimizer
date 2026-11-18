@@ -15,12 +15,19 @@ public class SiteSwitchUrlTests
     // Monitoring: devices, clients, modules, and target IDs go; the time window and category stay.
     [InlineData("/monitoring?tab=performance&category=Transit&at=1700000000000&span=3600000&target=custom-abc&wan=wan1",
         "/monitoring?tab=performance&category=Transit&at=1700000000000&span=3600000")]
-    [InlineData("/monitoring?tab=performance&investigate=packet-loss&wan=wan1", "/monitoring?tab=performance&investigate=packet-loss")]
+    // An investigation is the old site's search: it does not re-run on the new one.
+    [InlineData("/monitoring?tab=performance&investigate=packet-loss&wan=wan1", "/monitoring?tab=performance")]
+    // The LAN and All scopes are every site's: a LAN link keeps landing on LAN.
+    [InlineData("/monitoring?tab=performance&category=Fabric&at=1700000000000&wan=lan",
+        "/monitoring?tab=performance&category=Fabric&at=1700000000000&wan=lan")]
+    [InlineData("/monitoring?tab=performance&category=Custom&wan=all", "/monitoring?tab=performance&category=Custom&wan=all")]
+    [InlineData("/monitoring?tab=live&wan=wan,wan2", "/monitoring?tab=live")]
     [InlineData("/monitoring?tab=devices&device=aa:bb:cc:dd:ee:ff&at=1700000000000", "/monitoring?tab=devices&at=1700000000000")]
     [InlineData("/monitoring?tab=sfp&sfp=m1", "/monitoring?tab=sfp")]
     [InlineData("/monitoring?tab=setup&mifip=192.0.2.1&mitype=cm", "/monitoring?tab=setup&mitype=cm")]
     // Network Tools: the probe host is the same everywhere, the vantage is not.
     [InlineData("/network-tools?target=198.51.100.7&from=wan2", "/network-tools?target=198.51.100.7")]
+    [InlineData("/network-tools?from=server&target=198.51.100.7&run=trace#run-a-probe", "/network-tools?target=198.51.100.7#run-a-probe")]
     // Wi-Fi Optimizer: APs, clients, and roaming edges go; band and channel filters stay.
     [InlineData("/wifi-optimizer?tab=roaming&edge=ap1-ap2", "/wifi-optimizer?tab=roaming")]
     [InlineData("/wifi-optimizer?tab=channels&ap=aa:bb:cc:dd:ee:ff&band=5&channel=36", "/wifi-optimizer?tab=channels&band=5&channel=36")]

@@ -273,6 +273,11 @@ body .leaflet-container {
     background: var(--bg-secondary);
 }
 
+/* Leaflet focuses the map for arrow-key panning after a drag, and the browser's ring then outlined the whole map. */
+body .leaflet-container:focus {
+    outline: none;
+}
+
 .leaflet-container a.map-popup-link {
     color: var(--primary-hover);
 }
@@ -765,6 +770,25 @@ h1:focus {
     gap: 0.75rem;
 }
 
+/* A Monitoring chart card whose header (scope, categories, window, the Live View jump) stays in view while its charts
+   scroll. Desktop only: at 1024px and below the app's top bar is the sticky one, and a wrapped header would take half
+   a phone screen. clip, not hidden: it keeps the rounded corners without making the card the sticky's scroll box.
+   Above the Path Map's panes and buttons (Leaflet's 400 to 1001), below a fullscreen map (9999) and tooltips. */
+@media (min-width: 1025px) {
+    .card.chart-card-sticky-header {
+        overflow: clip;
+    }
+
+    /* Flush with the view's top: a sticky edge stops at the scroll box's padding (.page-content's 24px), and the
+       content scrolling under would show through that band. */
+    .card.chart-card-sticky-header > .card-header {
+        position: sticky;
+        top: -24px;
+        z-index: 1100;
+        background: var(--bg-card);
+    }
+}
+
 .monitoring-chart-header .chart-header-controls {
     display: flex;
     align-items: center;
@@ -780,6 +804,241 @@ h1:focus {
 
 .monitoring-chart-header.chart-header-stacked .card-title {
     flex-basis: 100%;
+}
+
+/* The link context chip: a tab showing what a link asked for, beside the card title (Network
+   Performance) or the WAN pills (Live View). */
+.chart-title-row {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.5rem 0.75rem;
+    min-width: 0;
+}
+
+.monitoring-chart-header.chart-header-stacked .chart-title-row {
+    flex-basis: 100%;
+}
+
+.monitoring-chart-header.chart-header-stacked .chart-title-row .card-title {
+    flex-basis: auto;
+}
+
+.link-context-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    min-width: 0;
+    max-width: 100%;
+    height: 30px;
+    padding: 0 0.25rem 0 0.65rem;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--info-color) 13%, transparent);
+    border: 1px solid color-mix(in srgb, var(--info-color) 40%, transparent);
+    color: var(--text-primary);
+    font-size: 0.8rem;
+}
+
+.link-context-chip .lcc-back {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    min-width: 0;
+    background: none;
+    border: 0;
+    padding: 0;
+    color: inherit;
+    font: inherit;
+}
+
+.link-context-chip button.lcc-back {
+    cursor: pointer;
+}
+
+.link-context-chip .lcc-back svg {
+    flex: none;
+    width: 14px;
+    height: 14px;
+    fill: none;
+    stroke: var(--info-color);
+    stroke-width: 2.2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+.link-context-chip .lcc-from {
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.link-context-chip .lcc-detail {
+    color: var(--text-secondary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    min-width: 0;
+}
+
+.link-context-chip button.lcc-back:hover .lcc-from {
+    text-decoration: underline;
+}
+
+.link-context-chip .lcc-clear {
+    flex: none;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    border: 0;
+    background: transparent;
+    color: var(--text-secondary);
+    cursor: pointer;
+    display: grid;
+    place-items: center;
+    font-size: 15px;
+    line-height: 1;
+}
+
+.link-context-chip .lcc-clear:hover {
+    background: color-mix(in srgb, var(--info-color) 25%, transparent);
+    color: var(--text-primary);
+}
+
+.live-view-jump-row .link-context-chip {
+    align-self: center;
+}
+
+/* The loss event stepper: the link context chip's shape, with arrows. */
+.loss-nav-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    min-width: 0;
+    max-width: 100%;
+    height: 30px;
+    padding: 0 0.25rem;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--primary-color) 22%, transparent);
+    border: 1px solid color-mix(in srgb, var(--primary-hover) 55%, transparent);
+    color: var(--text-primary);
+    font-size: 0.8rem;
+}
+
+.loss-nav-pill .lnp-text {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    min-width: 0;
+    padding: 0 0.25rem;
+}
+
+.loss-nav-pill .lnp-label {
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.loss-nav-pill .lnp-detail {
+    color: var(--text-secondary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    min-width: 0;
+}
+
+.loss-nav-pill .lnp-arrow,
+.loss-nav-pill .lnp-exit {
+    flex: none;
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    border: 0;
+    background: transparent;
+    color: var(--text-secondary);
+    cursor: pointer;
+    display: grid;
+    place-items: center;
+    font-size: 11px;
+    line-height: 1;
+}
+
+.loss-nav-pill .lnp-exit {
+    font-size: 15px;
+}
+
+.loss-nav-pill .lnp-arrow:hover:not(:disabled),
+.loss-nav-pill .lnp-exit:hover {
+    background: color-mix(in srgb, var(--primary-hover) 35%, transparent);
+    color: var(--text-primary);
+}
+
+.loss-nav-pill .lnp-arrow:disabled {
+    opacity: 0.4;
+    cursor: default;
+}
+
+.investigate-stepping {
+    color: var(--text-secondary);
+    font-size: 0.875rem;
+}
+
+/* Desktop: centered in the header's row between the scope pills and the category pills, which give up
+   their own auto margin so the free space splits evenly either side of it. */
+.loss-nav-slot {
+    display: flex;
+    min-width: 0;
+    margin: 0 auto;
+}
+
+.monitoring-chart-header .loss-nav-slot + .chart-header-controls {
+    margin-left: 0;
+}
+
+/* The header wrapped (noLossNavFit): the stepper takes the last line, centered, and the controls go back right. */
+.loss-nav-slot.loss-nav-own-line {
+    order: 10;
+    flex-basis: 100%;
+    justify-content: center;
+}
+
+.monitoring-chart-header .loss-nav-slot.loss-nav-own-line + .chart-header-controls {
+    margin-left: auto;
+}
+
+/* A phone's stepper: the header does not stick there, so the stepper sticks on its own, under the app's
+   top bar (which hides as the page scrolls down). */
+.loss-nav-float {
+    display: none;
+}
+
+@media (max-width: 1024px) {
+    .loss-nav-slot {
+        display: none;
+    }
+
+    .monitoring-chart-header .loss-nav-slot + .chart-header-controls {
+        margin-left: auto;
+    }
+
+    .loss-nav-float {
+        display: flex;
+        justify-content: center;
+        position: sticky;
+        top: 0;
+        z-index: 50;
+        padding: 0.5rem 0.75rem;
+        background: var(--bg-card);
+        border-bottom: 1px solid var(--border-color);
+    }
+}
+
+@media (max-width: 768px) {
+    /* Its own line under the pills and the Analyze button, which keep their row. */
+    .live-view-jump-row .link-context-chip {
+        order: 10;
+    }
+
+    .monitoring-chart-header .chart-title-row {
+        flex-basis: 100%;
+    }
 }
 
 @media (max-width: 768px) {
@@ -1853,6 +2112,90 @@ a.stat-card-link:active {
 .dashboard-grid .wifi-issue-item .wifi-issue-row {
     padding: 0;
     border-bottom: none;
+}
+
+/* The Recent Security Findings item format (.alert-item), on desktop and mobile. */
+.dashboard-grid .wifi-issues-list {
+    gap: 1rem;
+}
+
+.dashboard-grid .wifi-issue-item {
+    display: grid;
+    grid-template-columns: 24px 1fr auto;
+    column-gap: 1rem;
+    align-items: start;
+    padding: 1rem;
+    background: var(--bg-primary);
+    border-radius: var(--border-radius);
+    border-bottom: none;
+    border-left: 4px solid var(--border-color);
+    box-shadow: none;
+}
+
+.dashboard-grid .wifi-issue-item.wifi-issue-critical { border-left-color: var(--danger-color); }
+.dashboard-grid .wifi-issue-item.wifi-issue-warning { border-left-color: var(--warning-color); }
+.dashboard-grid .wifi-issue-item.wifi-issue-info { border-left-color: var(--info-color); }
+
+.dashboard-grid .wifi-issue-item .wifi-issue-row {
+    display: contents;
+}
+
+.dashboard-grid .wifi-issue-item .wifi-issue-icon {
+    grid-row: 1 / span 2;
+    padding-top: 0.125rem;
+}
+
+.dashboard-grid .wifi-issue-item .wifi-issue-icon svg {
+    width: 20px;
+    height: 20px;
+}
+
+.dashboard-grid .wifi-issue-item .wifi-issue-title {
+    font-size: 1rem;
+    font-weight: 600;
+    align-self: center;
+}
+
+.dashboard-grid .wifi-issue-item .wifi-issue-entity {
+    font-size: 0.75rem;
+    text-align: right;
+    align-self: center;
+}
+
+.dashboard-grid .wifi-issue-item .wifi-issue-description {
+    grid-column: 2 / -1;
+    font-size: 0.875rem;
+    line-height: 1.5;
+    padding-left: 0;
+    margin-top: 0.5rem;
+}
+
+/* Mobile: icon inline with the title, the rest full width, as .alert-item does. */
+@media (max-width: 768px) {
+    .dashboard-grid .wifi-issue-item {
+        grid-template-columns: auto 1fr;
+        column-gap: 0.5rem;
+        row-gap: 0.25rem;
+    }
+
+    .dashboard-grid .wifi-issue-item .wifi-issue-icon {
+        grid-row: 1;
+        padding-top: 0.15rem;
+    }
+
+    .dashboard-grid .wifi-issue-item .wifi-issue-title {
+        font-size: 0.9rem;
+    }
+
+    .dashboard-grid .wifi-issue-item .wifi-issue-entity {
+        grid-column: 1 / -1;
+        text-align: left;
+    }
+
+    .dashboard-grid .wifi-issue-item .wifi-issue-description {
+        grid-column: 1 / -1;
+        margin-top: 0.25rem;
+    }
 }
 
 .wifi-issue-description {
@@ -18424,7 +18767,8 @@ a.affected-client:hover {
     margin-right: -0.2rem;
 }
 
-#latency-charts-container .monitoring-chart-header {
+/* :where: weightless, so .chart-card-sticky-header's sticky (also a positioned box for the jump button) wins. */
+:where(#latency-charts-container) .monitoring-chart-header {
     position: relative;
 }
 
@@ -18447,6 +18791,10 @@ a.affected-client:hover {
     align-items: flex-start;
     gap: 0.5rem;
     margin-bottom: 0.75rem;
+}
+
+.live-view-jump-row.has-link-context {
+    flex-wrap: wrap;
 }
 
 .live-view-jump-row .monitoring-jump-btn {
@@ -18961,6 +19309,27 @@ tr.stats-row-filtered {
 }
 .lan-flow-map-toggle.is-on .lan-flow-map-toggle-pill::after {
     transform: translateX(12px);
+}
+
+/* Hide Device: the Overlays row that counts hidden clients, and the list it opens. */
+.lan-flow-map-hidden-row {
+    margin-top: 0.15rem;
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 0 0 6px 6px;
+    padding-top: 0.45rem;
+}
+.lan-flow-map-hidden-row-action {
+    color: var(--info-color);
+    font-size: 0.78rem;
+}
+.lan-flow-map-hidden-menu {
+    max-height: 260px;
+    overflow-y: auto;
+    min-width: 200px;
+}
+.lan-flow-map-hidden-menu-all {
+    color: var(--info-color);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
 }
 .lan-flow-map-search {
     width: 100%;
@@ -19728,7 +20097,7 @@ tr.stats-row-filtered {
 }
 .lan-flow-map-panel-body {
     overflow: hidden;
-    max-height: 150px;
+    max-height: 190px;
     opacity: 1;
     transition: max-height 0.2s ease-out, opacity 0.2s ease, width 0.2s ease;
 }
@@ -21090,28 +21459,30 @@ a.isp-health-hero-speed:hover {
     border-top: 1px solid var(--border-color);
 }
 
-/* Fixed columns so every target's table lines up with the next. The min-width is the fixed
-   columns plus 16rem, so Address / PTR (the only auto column) never collapses on a narrow screen. */
+/* Fixed columns so every target's table lines up with the next. Loss and Location are sized to
+   their longest text by the component (--path-loss-w, --path-loc-w), the same for every table.
+   The min-width is the columns plus 16rem, so Address / PTR (the only auto column) never
+   collapses on a narrow screen. */
 .path-episode-table .path-episode-hops {
     table-layout: fixed;
-    min-width: calc(37rem + 16rem);
+    min-width: calc(28rem + var(--path-loss-w, 9rem) + 16rem);
 }
 
 .path-episode-table .path-episode-hops.has-return {
-    min-width: calc(44.5rem + 16rem);
+    min-width: calc(35.5rem + var(--path-loss-w, 9rem) + 16rem);
 }
 
 .path-episode-hops .path-col-hop { width: 3rem; }
 .path-episode-hops .path-col-network { width: 13rem; }
-.path-episode-hops .path-col-loss { width: 9rem; }
+.path-episode-hops .path-col-loss { width: var(--path-loss-w, 9rem); }
 .path-episode-hops .path-col-rtt { width: 12rem; }
 .path-episode-hops .path-col-return { width: 7.5rem; }
-.path-episode-hops .path-col-location { width: 11rem; }
+.path-episode-hops .path-col-location { width: var(--path-loc-w, 11rem); }
 
 /* Location is a desktop column. On a phone its col takes no width and its cells stay in the row
    but show nothing: a display:none cell would shift every later cell into the wrong col. */
-.path-episode-table .path-episode-hops.has-location { min-width: calc(37rem + 16rem + 11rem); }
-.path-episode-table .path-episode-hops.has-location.has-return { min-width: calc(44.5rem + 16rem + 11rem); }
+.path-episode-table .path-episode-hops.has-location { min-width: calc(28rem + var(--path-loss-w, 9rem) + 16rem + var(--path-loc-w, 11rem)); }
+.path-episode-table .path-episode-hops.has-location.has-return { min-width: calc(35.5rem + var(--path-loss-w, 9rem) + 16rem + var(--path-loc-w, 11rem)); }
 
 @media (max-width: 768px) {
     .path-episode-hops .path-col-location { width: 0; }
@@ -21122,8 +21493,8 @@ a.isp-health-hero-speed:hover {
         font-size: 0;
         visibility: hidden;
     }
-    .path-episode-table .path-episode-hops.has-location { min-width: calc(37rem + 16rem); }
-    .path-episode-table .path-episode-hops.has-location.has-return { min-width: calc(44.5rem + 16rem); }
+    .path-episode-table .path-episode-hops.has-location { min-width: calc(28rem + var(--path-loss-w, 9rem) + 16rem); }
+    .path-episode-table .path-episode-hops.has-location.has-return { min-width: calc(35.5rem + var(--path-loss-w, 9rem) + 16rem); }
 }
 
 /* An open hop table spans the event row, under the badge and time as well as the text. */
@@ -21998,7 +22369,8 @@ body.kiosk-mode .status-indicators {
 .site-switcher-backdrop {
     position: fixed;
     inset: 0;
-    z-index: 999;
+    /* Above the sticky Monitoring chart header (1100). */
+    z-index: 1150;
 }
 
 .site-switcher-menu {
@@ -22012,7 +22384,7 @@ body.kiosk-mode .status-indicators {
     border: 1px solid var(--bg-tertiary);
     border-radius: 10px;
     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
-    z-index: 1000;
+    z-index: 1151;
     padding: 0.35rem;
 }
 
@@ -23387,11 +23759,13 @@ a.shp-issue {
     }
 }
 
+/* The tour sits above every page layer: sticky chart headers (1100) and the site switcher (1150).
+   Only the save prompt (2000), a fullscreen map (9999), and the Blazor error bar sit above it. */
 .tour-modal-backdrop {
     position: fixed;
     inset: 0;
     background: rgba(0, 0, 0, 0.6);
-    z-index: 1060;
+    z-index: 1200;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -23466,7 +23840,7 @@ a.shp-issue {
 .tour-overlay {
     position: fixed;
     inset: 0;
-    z-index: 1060;
+    z-index: 1200; /* see .tour-modal-backdrop */
     pointer-events: none;
 }
 
@@ -26708,6 +27082,25 @@ body:has(.top-bar-hidden) .btn-fit {
     cursor: pointer;
 }
 
+/* Recent Down / Recent Up: the word and its direction arrow, in a header, a sort chip, or a phone row. */
+.lt-recent {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.2rem;
+    white-space: nowrap;
+}
+
+.lt-recent-arrow {
+    width: 0.8rem;
+    height: 0.8rem;
+    flex: none;
+}
+
+/* The download blue disappears on the active chip's blue: take the chip's text color. */
+.time-btn.active .lt-recent-arrow {
+    color: inherit;
+}
+
 .lt-flows .lt-rank {
     color: var(--text-muted);
     white-space: nowrap;
@@ -29678,6 +30071,15 @@ body:has(.top-bar-hidden) .btn-fit {
     margin-top: 1.5rem;
 }
 
+/* The GeoLite2 banner above the Route Map: the map's own top margin is the gap below it. */
+.trace-map-geolite:not(:empty) {
+    margin-top: 1.5rem;
+}
+
+.trace-map-geolite > .connection-banner {
+    margin-bottom: 0;
+}
+
 .trace-map-header {
     display: flex;
     align-items: center;
@@ -30083,5 +30485,897 @@ tr:hover .hop-loc-edit,
 @media (prefers-reduced-motion: reduce) {
     .trace-node-active .trace-node-dot {
         animation: none;
+    }
+}
+
+/* Monitoring - Network Performance - Path Map (path-map.js). The map canvas is a .trace-map: the
+   Route Map's frame, fullscreen fix, tiles, and dashed GeoLite2 legs carry over. Everything here is
+   scoped to the card, the map, or the targets' state classes (.pm-*). */
+
+/* Network Performance takes up to 1920px on a desktop, as Live Traffic does: the width goes to the
+   map and its problems list. The other Monitoring tabs keep the standard 1400px. */
+.content:has(#latency-charts-container) {
+    max-width: 1920px;
+}
+
+.path-map-card {
+    margin-bottom: 1rem;
+    border: 1px solid var(--border-color);
+    border-radius: var(--border-radius);
+}
+
+.path-map-card > .path-map-header {
+    gap: 0.75rem;
+    min-height: 32px;
+    padding: 0.35rem 0.75rem;
+    border-bottom: none;
+    border-radius: var(--border-radius);
+}
+
+.path-map-card > .path-map-header .chart-title {
+    margin: 0;
+    white-space: nowrap;
+}
+
+.path-map-chips {
+    display: flex;
+    flex: 1 1 auto;
+    min-width: 0;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    justify-content: flex-end;
+}
+
+.path-map-chips .status-badge {
+    padding: 0.15rem 0.6rem;
+}
+
+.path-map-card > .path-map-header .issue-type-chevron {
+    margin-left: 0;
+}
+
+.path-map-card.path-map-noroute > .path-map-header {
+    cursor: default;
+}
+
+.path-map-card.path-map-noroute > .path-map-header:hover {
+    background: none;
+}
+
+.path-map-card.path-map-noroute > .path-map-header .issue-type-chevron {
+    visibility: hidden;
+}
+
+.path-map-body {
+    padding: 0 0.75rem 0.75rem;
+}
+
+.path-map-canvas {
+    height: 460px;
+}
+
+.path-map-canvas.path-map-empty {
+    display: none;
+}
+
+/* Targets waiting for their first trace: a progress pill over the map, centered while nothing is drawn yet. */
+.path-map-wait {
+    position: absolute;
+    top: 10px;
+    left: 50%;
+    z-index: 1000;
+    transform: translateX(-50%);
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.3rem 0.75rem;
+    border-radius: var(--border-radius-lg);
+    border: 1px solid var(--bg-tertiary);
+    background: rgba(22, 22, 24, 0.92);
+    color: var(--text-secondary);
+    font-size: 0.8rem;
+    white-space: nowrap;
+}
+
+.path-map-wait.is-empty {
+    top: 50%;
+    transform: translate(-50%, -50%);
+}
+
+.path-map-legend {
+    margin-top: 0.75rem;
+    row-gap: 0.4rem;
+}
+
+.path-map-card .trace-map-note:empty {
+    display: none;
+}
+
+/* Places on a route: small points, hollow when only GeoLite2 placed them. */
+.path-map .pm-place {
+    position: relative;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: var(--bg-card);
+    border: 2px solid #2ba89a;
+}
+
+.path-map .pm-place.pm-unsure {
+    background: transparent;
+    border-color: #9ca3af;
+}
+
+.path-map .pm-place.pm-onset {
+    border-color: var(--danger-color);
+    box-shadow: 0 0 0 4px color-mix(in srgb, var(--danger-color) 35%, transparent);
+}
+
+.path-map .pm-place .trace-node-label {
+    left: 18px;
+}
+
+/* Targets: healthy ones stay quiet; size and ring repeat the state, so color is never alone. */
+.path-map .pm-target {
+    position: relative;
+    width: 22px;
+    height: 22px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+}
+
+.path-map .pm-target .trace-node-label {
+    left: 26px;
+}
+
+.pm-mark,
+.pm-dot {
+    display: inline-block;
+    flex-shrink: 0;
+    border-radius: 50%;
+    box-sizing: border-box;
+}
+
+.pm-dot {
+    width: 10px;
+    height: 10px;
+}
+
+.path-map .pm-mark {
+    width: 10px;
+    height: 10px;
+    transition: transform 0.15s ease;
+}
+
+.path-map .pm-target:hover .pm-mark,
+.path-map .pm-lit .pm-mark {
+    transform: scale(1.3);
+}
+
+.pm-normal .pm-mark,
+.pm-dot.pm-normal {
+    background: #2ba89a;
+}
+
+.path-map .pm-elevated .pm-mark {
+    width: 14px;
+    height: 14px;
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--warning-color) 30%, transparent);
+}
+
+.pm-elevated .pm-mark,
+.pm-dot.pm-elevated {
+    background: var(--warning-color);
+}
+
+.path-map .pm-degraded .pm-mark {
+    width: 16px;
+    height: 16px;
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--danger-color) 35%, transparent);
+}
+
+.pm-degraded .pm-mark,
+.pm-dot.pm-degraded {
+    background: var(--danger-color);
+}
+
+.path-map .pm-unreachable .pm-mark {
+    width: 16px;
+    height: 16px;
+}
+
+.pm-unreachable .pm-mark,
+.pm-dot.pm-unreachable {
+    background: transparent;
+    border: 3px solid var(--danger-color);
+}
+
+.pm-unknown .pm-mark,
+.pm-dot.pm-unknown {
+    background: transparent;
+    border: 2px solid var(--text-muted);
+}
+
+/* ISP and Transit targets are routers on the trunk: diamonds. */
+.pm-router .pm-mark,
+.pm-dot.pm-router {
+    border-radius: 2px;
+    transform: rotate(45deg);
+}
+
+.path-map .pm-router:hover .pm-mark,
+.path-map .pm-router.pm-lit .pm-mark {
+    transform: rotate(45deg) scale(1.3);
+}
+
+/* A target that went bad or recovered in the last 10 minutes: a ring that fades. */
+.path-map .pm-changed .pm-mark {
+    outline: 2px solid color-mix(in srgb, var(--text-primary) calc(var(--pm-ring, 0) * 70%), transparent);
+    outline-offset: 3px;
+}
+
+.path-map .pm-dim {
+    opacity: 0.4;
+}
+
+.path-map .pm-off {
+    opacity: 0.2;
+}
+
+.path-map .pm-cluster {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    background: var(--bg-card);
+    border: 2px solid #2ba89a;
+    color: var(--text-primary);
+    font-size: 0.72rem;
+    font-weight: 600;
+    cursor: pointer;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.5);
+}
+
+.path-map .pm-cluster.pm-elevated { border-color: var(--warning-color); }
+.path-map .pm-cluster.pm-degraded,
+.path-map .pm-cluster.pm-unreachable { border-color: var(--danger-color); }
+.path-map .pm-cluster.pm-unknown { border-color: var(--text-muted); }
+
+/* Legs: stroke set here wins over Leaflet's presentation attribute. */
+.path-map .pm-leg {
+    stroke-linecap: round;
+    transition: stroke-opacity 0.15s ease;
+}
+
+.path-map .pm-leg.pm-faint {
+    stroke-opacity: 0.35;
+}
+
+/* Outside the Transit or Local view: thin and faint, never gone. A lit route takes its full width back. */
+.path-map .pm-leg.pm-outside {
+    stroke-opacity: 0.22;
+}
+
+.path-map .pm-leg.pm-outside:not(.pm-casing):not(.pm-lit) {
+    stroke-width: 1.5px;
+}
+
+.path-map .pm-place.pm-outside {
+    opacity: 0.45;
+}
+
+.path-map .pm-leg.pm-off,
+.path-map .pm-leg.pm-casing.pm-off {
+    stroke-opacity: 0.12;
+}
+
+.path-map .pm-leg.pm-lit {
+    stroke-opacity: 1;
+    stroke: #ededef;
+}
+
+/* The second and third WANs' tubes: the core is the map's own dark, inside the cased line. */
+.path-map .pm-leg.pm-wan-1:not(.pm-casing),
+.path-map .pm-leg.pm-wan-2:not(.pm-casing) {
+    stroke: var(--bg-primary);
+}
+
+.path-map .pm-leg.pm-located:not(.pm-casing) {
+    stroke: var(--danger-color);
+    stroke-opacity: 1;
+}
+
+.path-map .pm-halo {
+    stroke: var(--warning-color);
+    stroke-opacity: 0.22;
+}
+
+.path-map .pm-shift-old {
+    stroke: #a0a0a8;
+}
+
+/* Leaflet's panes stack at 400 and up: the map's own buttons sit over the markers. */
+.trace-map > .lan-flow-map-fullscreen-btn,
+.trace-map > .lfm2d-toolbar {
+    z-index: 1001;
+}
+
+/* The view switch (All, Transit, Local): a frosted pill over the map's bottom, its highlight sliding
+   between views. Clear of the attribution below it. */
+.pm-presets {
+    position: absolute;
+    bottom: 26px;
+    left: 50%;
+    z-index: 1001;
+    transform: translateX(-50%);
+    display: flex;
+    gap: 2px;
+    padding: 3px;
+    border-radius: 999px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(22, 24, 30, 0.72);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+}
+
+.pm-preset-thumb {
+    position: absolute;
+    top: 3px;
+    bottom: 3px;
+    left: 3px;
+    width: 0;
+    border-radius: 999px;
+    background: linear-gradient(180deg, var(--primary-hover), var(--primary-color));
+    box-shadow: 0 4px 14px rgba(5, 80, 181, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.18);
+    transition: transform 0.25s cubic-bezier(0.2, 0.8, 0.2, 1), width 0.25s cubic-bezier(0.2, 0.8, 0.2, 1);
+    pointer-events: none;
+}
+
+.pm-preset-thumb.is-instant {
+    transition: none;
+}
+
+.pm-preset {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    height: 32px;
+    padding: 0 0.9rem;
+    border: 0;
+    border-radius: 999px;
+    background: transparent;
+    color: var(--text-secondary);
+    font-size: 0.82rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: color 0.2s ease;
+}
+
+.pm-preset svg {
+    width: 16px;
+    height: 16px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.8;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+.pm-preset:hover {
+    color: var(--text-primary);
+}
+
+.pm-preset.active {
+    color: white;
+}
+
+.pm-preset:focus-visible {
+    outline: 2px solid var(--info-color);
+    outline-offset: 1px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .pm-preset-thumb {
+        transition: none;
+    }
+}
+
+/* Fullscreen: centered on the open part of the map, right of the side panel. */
+.path-map.lan-flow-map-fullscreen .pm-presets {
+    left: calc(50% + 150px);
+}
+
+@media (max-width: 768px) {
+    .pm-preset {
+        height: 30px;
+        padding: 0 0.7rem;
+        font-size: 0.78rem;
+    }
+
+    /* Phone fullscreen: above the list, which takes the bottom there. */
+    .path-map.lan-flow-map-fullscreen .pm-presets {
+        left: 50%;
+        bottom: calc(40vh + 10px);
+    }
+}
+
+/* A route change's mark, where the old and new routes part. */
+.pm-change-mark {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 18px;
+    height: 18px;
+    padding: 0 0.25rem;
+    border-radius: 9px;
+    background: var(--bg-card);
+    border: 1px solid var(--info-color);
+    color: var(--info-color);
+    font-size: 0.7rem;
+    font-weight: 700;
+    line-height: 1;
+    white-space: nowrap;
+    cursor: pointer;
+}
+
+.is-active > .pm-change-mark,
+.pm-change-mark:hover {
+    background: var(--info-color);
+    color: white;
+}
+
+.pm-change-pill {
+    cursor: pointer;
+}
+
+.pm-changes-title {
+    margin-top: 0.35rem;
+}
+
+.pm-problems-title:first-child {
+    margin-top: 0;
+}
+
+.pm-change {
+    border-radius: 4px;
+}
+
+.pm-change.is-active {
+    background: var(--bg-tertiary);
+}
+
+.pm-change-head,
+.pm-change-target {
+    display: flex;
+    align-items: baseline;
+    gap: 0.5rem;
+    width: 100%;
+    padding: 0.3rem 0.35rem;
+    border: 0;
+    border-radius: 4px;
+    background: transparent;
+    color: var(--text-primary);
+    font-size: 0.8rem;
+    text-align: left;
+    cursor: pointer;
+}
+
+.pm-change-head:hover,
+.pm-change-target:hover {
+    background: var(--bg-hover);
+}
+
+.pm-change-glyph {
+    color: var(--info-color);
+    font-weight: 700;
+}
+
+.pm-change-text {
+    min-width: 0;
+    flex: 1;
+}
+
+.pm-change-target {
+    padding: 0.15rem 0.35rem 0.15rem 1.4rem;
+    color: var(--text-secondary);
+    font-size: 0.75rem;
+}
+
+/* The problems list: a corner of the map, the side panel in fullscreen, under the map on a phone. */
+.path-map-problems {
+    position: absolute;
+    top: 10px;
+    left: 10px;
+    z-index: 1000;
+    width: 250px;
+    max-height: calc(100% - 20px);
+    overflow-y: auto;
+    padding: 0.4rem;
+    border-radius: 6px;
+    border: 1px solid var(--bg-tertiary);
+    background: rgba(22, 22, 24, 0.92);
+}
+
+.path-map-problems.is-empty {
+    display: none;
+}
+
+.pm-problems-title {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.15rem 0.35rem 0.3rem;
+    font-size: 0.68rem;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+}
+
+.pm-problems-clear {
+    border: 0;
+    background: none;
+    padding: 0;
+    color: var(--info-color);
+    font: inherit;
+    letter-spacing: inherit;
+    cursor: pointer;
+}
+
+.pm-problems-clear:hover {
+    text-decoration: underline;
+}
+
+.pm-problem.is-selected {
+    background: color-mix(in srgb, var(--primary-color) 30%, transparent);
+    box-shadow: inset 3px 0 0 var(--primary-hover);
+}
+
+.pm-group-title {
+    display: flex;
+    align-items: baseline;
+    gap: 0.4rem;
+    margin-top: 0.6rem;
+    padding: 0.15rem 0.35rem 0.25rem;
+    font-size: 0.68rem;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: var(--text-secondary);
+}
+
+.pm-group-title.is-current {
+    color: var(--info-color);
+}
+
+.pm-group-note {
+    font-weight: 400;
+    letter-spacing: normal;
+    text-transform: none;
+    color: var(--text-muted);
+}
+
+.pm-problem {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    width: 100%;
+    padding: 0.3rem 0.35rem;
+    border: 0;
+    border-radius: 4px;
+    background: transparent;
+    color: var(--text-primary);
+    font-size: 0.8rem;
+    text-align: left;
+    cursor: pointer;
+}
+
+.pm-problem:hover,
+.pm-problem.is-active {
+    background: var(--bg-tertiary);
+}
+
+.pm-problem.pm-dim {
+    color: var(--text-secondary);
+}
+
+.pm-problem-name {
+    min-width: 0;
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.pm-problem-state {
+    color: var(--text-secondary);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.path-map.lan-flow-map-fullscreen .path-map-problems.is-full {
+    top: 0;
+    left: 0;
+    bottom: 0;
+    width: 300px;
+    max-height: none;
+    border-radius: 0;
+    border-width: 0 1px 0 0;
+    padding-top: 0.75rem;
+}
+
+/* A far target off the fitted map, on the edge toward it; a tap fits everything. */
+.pm-edge-chip {
+    position: absolute;
+    z-index: 1000;
+    transform: translate(-50%, -50%);
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.2rem 0.55rem;
+    border-radius: var(--border-radius-lg);
+    border: 1px solid var(--bg-tertiary);
+    background: rgba(22, 22, 24, 0.92);
+    color: var(--text-primary);
+    font-size: 0.75rem;
+    white-space: nowrap;
+    cursor: pointer;
+}
+
+/* Legend line samples. */
+.pm-key {
+    display: inline-block;
+    width: 18px;
+    height: 0;
+    border-top: 2px solid #2ba89a;
+}
+
+.pm-key.pm-key-unsure { border-top: 2px dashed #9ca3af; }
+.pm-key.pm-key-silent { border-top: 3px dotted var(--text-secondary); }
+.path-map .pm-leg.pm-leg-silent { stroke-dasharray: 1 7; stroke-linecap: round; }
+.pm-key.pm-key-shift { border-top: 1.5px solid #a0a0a8; opacity: 0.6; }
+.pm-key.pm-key-halo { border-top: 6px solid color-mix(in srgb, var(--warning-color) 35%, transparent); }
+.pm-key.pm-key-located { border-top-color: var(--danger-color); }
+.pm-key.pm-key-wan-1 { height: 4px; border: 1.5px solid #2ba89a; border-radius: 2px; }
+.pm-key.pm-key-wan-2 { height: 6px; border: 2.5px solid #2ba89a; border-radius: 3px; }
+
+/* The hover card, and the phone sheet's body. */
+.pm-card {
+    width: 400px;
+    max-width: 100%;
+    font-size: 0.8rem;
+}
+
+.pm-card-head {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-weight: 600;
+}
+
+.pm-card-name {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.pm-card-meta,
+.pm-card-line {
+    margin-top: 0.2rem;
+    color: var(--text-secondary);
+}
+
+.pm-card-state {
+    margin-top: 0.4rem;
+    font-weight: 500;
+}
+
+.pm-card-shift {
+    color: var(--info-color);
+}
+
+.pm-spark {
+    display: block;
+    width: 100%;
+    height: 32px;
+    margin-top: 0.4rem;
+}
+
+.pm-spark polyline {
+    fill: none;
+    stroke: #2ba89a;
+    stroke-width: 1.5;
+    vector-effect: non-scaling-stroke;
+}
+
+.pm-card-places {
+    margin-top: 0.5rem;
+    padding-top: 0.4rem;
+    border-top: 1px solid var(--bg-tertiary);
+}
+
+/* A card's section title: the targets on a place, leg, cluster, or route change. */
+.pm-card-section {
+    margin-top: 0.6rem;
+    padding-top: 0.45rem;
+    border-top: 1px solid var(--bg-tertiary);
+    color: var(--text-secondary);
+    font-size: 0.75rem;
+}
+
+/* The targets: a row opens one in the charts, Trace runs its traceroute. Long lists scroll in the card. */
+.pm-card-targets {
+    max-height: 220px;
+    margin-top: 0.25rem;
+    overflow-y: auto;
+}
+
+.pm-card-target {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+}
+
+.pm-card-target-open {
+    display: flex;
+    align-items: center;
+    flex: 1;
+    min-width: 0;
+    gap: 0.5rem;
+    padding: 0.3rem 0.35rem;
+    border: 0;
+    border-radius: 4px;
+    background: transparent;
+    color: var(--text-primary);
+    font-size: 0.8rem;
+    text-align: left;
+    cursor: pointer;
+}
+
+.pm-card-target-open:hover {
+    background: var(--bg-hover);
+}
+
+.pm-card-target-name {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.pm-card-target-state {
+    color: var(--text-secondary);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.pm-card-trace {
+    padding: 0.2rem 0.5rem;
+    border-radius: 4px;
+    color: var(--info-color);
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-decoration: none;
+    white-space: nowrap;
+}
+
+.pm-card-trace:hover {
+    background: color-mix(in srgb, var(--info-color) 15%, transparent);
+}
+
+/* A place: city and round trip, then network and what placed it, under it. */
+.pm-card-place {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    column-gap: 0.75rem;
+    padding: 0.3rem 0;
+}
+
+.pm-card-place + .pm-card-place {
+    border-top: 1px solid color-mix(in srgb, var(--bg-tertiary) 60%, transparent);
+}
+
+.pm-card-city {
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.pm-card-rtt {
+    color: var(--text-primary);
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+}
+
+.pm-card-net {
+    min-width: 0;
+    overflow-wrap: anywhere;
+    color: var(--text-secondary);
+    font-size: 0.75rem;
+}
+
+.pm-card-source {
+    color: var(--text-muted);
+    font-size: 0.72rem;
+    text-align: right;
+    white-space: nowrap;
+}
+
+.pm-card-actions {
+    display: flex;
+    gap: 0.5rem;
+    margin-top: 0.6rem;
+}
+
+.pm-tip-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.1rem 0;
+}
+
+.pm-tip-placed {
+    margin: -0.05rem 0 0.2rem 2rem;
+    color: var(--text-muted);
+    font-size: 0.72rem;
+    white-space: normal;
+    max-width: 22rem;
+}
+
+.pm-tip-note {
+    margin-top: 0.35rem;
+    max-width: 22rem;
+    color: var(--text-secondary);
+    white-space: normal;
+}
+
+/* The chart series and stats row the map's pointer is on. */
+#latency-charts-container .apexcharts-series.path-map-faded {
+    opacity: 0.15;
+}
+
+#latency-charts-container .latency-stats-table tr.path-map-linked td {
+    background: color-mix(in srgb, var(--primary-color) 18%, transparent);
+}
+
+@media (max-width: 768px) {
+    .path-map-canvas {
+        height: 320px;
+    }
+
+    /* The phone rule pins a chevron to its row's right edge except in a .card-header; this header
+       is a .chart-header, so it takes the same exception. */
+    .path-map-card > .path-map-header .issue-type-chevron {
+        position: static;
+        transform: none;
+    }
+
+    .path-map-problems {
+        position: static;
+        width: auto;
+        max-height: none;
+        margin-top: 0.5rem;
+        background: var(--bg-secondary);
+    }
+
+    .path-map.lan-flow-map-fullscreen .path-map-problems.is-full {
+        position: absolute;
+        top: auto;
+        right: 0;
+        width: auto;
+        max-height: 40vh;
+        border-width: 1px 0 0;
+        border-radius: var(--border-radius-lg) var(--border-radius-lg) 0 0;
+    }
+
+    .path-map-sheet .pm-card {
+        width: auto;
     }
 }

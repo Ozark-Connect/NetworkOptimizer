@@ -113,6 +113,13 @@ public static class SystemSettingKeys
     // key is this prefix + WanInterface; the value is a JSON map of ASN identity -> miss count.
     public const string UpstreamAbsentAsnCountsPrefix = "upstream.absent_asn_counts.";
 
+    // An early re-discovery a Path Map path shift asked for. The full key is this prefix + the WAN's
+    // interface key, or "primary"; the value is when it was asked for (round-trip "o" format).
+    public const string UpstreamShiftRediscoveryRequestedPrefix = "upstream.shift_rediscovery_requested.";
+
+    // When a path shift last started an early re-discovery, same key shape: at most one a day.
+    public const string UpstreamShiftRediscoveryRanPrefix = "upstream.shift_rediscovery_ran.";
+
     // Per-WAN "seen but declined" access-ISP change memory. The full key is this prefix +
     // WanInterface; the value is the new access ASN the user said was NOT a provider switch,
     // so the same detected change doesn't re-prompt on every discovery run. Cleared when a

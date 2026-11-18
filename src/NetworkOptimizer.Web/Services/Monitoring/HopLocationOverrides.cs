@@ -46,6 +46,34 @@ public interface IHopLocationOverrideService
     Task ClearAsync(string address, CancellationToken ct = default);
 }
 
+/// <summary>
+/// The cities set by hand that a site's traces use, for the app's own background work (the Path Map's
+/// traces), which has no caller to pass the gate. Here every site uses the install's; the SaaS fork
+/// replaces this to key them as it keys <see cref="IHopLocationOverrideService"/>.
+/// </summary>
+public interface IHopLocationOverrideSource
+{
+    /// <summary>The overrides a trace from <paramref name="siteSlug"/> uses, by address.</summary>
+    Task<IReadOnlyDictionary<string, HopLocationSetting>> ForSiteAsync(string siteSlug, CancellationToken ct = default);
+}
+
+/// <summary>Every site uses the install's overrides, through the cache.</summary>
+public sealed class InstallHopLocationOverrideSource : IHopLocationOverrideSource
+{
+    private readonly IDbContextFactory<NetworkOptimizerDbContext> _mainDb;
+    private readonly HopLocationOverrideCache _cache;
+
+    public InstallHopLocationOverrideSource(IDbContextFactory<NetworkOptimizerDbContext> mainDb, HopLocationOverrideCache cache)
+    {
+        _mainDb = mainDb;
+        _cache = cache;
+    }
+
+    /// <inheritdoc />
+    public Task<IReadOnlyDictionary<string, HopLocationSetting>> ForSiteAsync(string siteSlug, CancellationToken ct = default) =>
+        HopLocationOverrideService.LoadAsync(_mainDb, _cache, ct);
+}
+
 /// <inheritdoc cref="IHopLocationOverrideService" />
 public sealed class HopLocationOverrideService : IHopLocationOverrideService
 {
@@ -64,30 +92,27 @@ public sealed class HopLocationOverrideService : IHopLocationOverrideService
     }
 
     /// <inheritdoc />
-    public async Task<IReadOnlyDictionary<string, HopLocationSetting>> GetAllAsync(CancellationToken ct = default)
+    public Task<IReadOnlyDictionary<string, HopLocationSetting>> GetAllAsync(CancellationToken ct = default) =>
+        LoadAsync(_mainDb, _cache, ct);
+
+    /// <summary>The overrides, through the cache (<see cref="InstallHopLocationOverrideSource"/>).</summary>
+    internal static async Task<IReadOnlyDictionary<string, HopLocationSetting>> LoadAsync(
+        IDbContextFactory<NetworkOptimizerDbContext> mainDb, HopLocationOverrideCache cache, CancellationToken ct = default)
     {
-        if (_cache.Current is { } cached) return cached;
-        var version = _cache.Version;
-        await using var db = await _mainDb.CreateDbContextAsync(ct);
+        if (cache.Current is { } cached) return cached;
+        var version = cache.Version;
+        await using var db = await mainDb.CreateDbContextAsync(ct);
         var rows = await db.HopLocationOverrides.AsNoTracking().ToListAsync(ct);
-        return _cache.Set(rows.Select(ToSetting), version);
+        return cache.Set(rows.Select(ToSetting), version);
     }
 
     /// <inheritdoc />
     public async Task SetAsync(string address, string city, string? region, string countryCode, double latitude, double longitude,
         CancellationToken ct = default)
     {
-        var canonical = Canonical(address) ?? throw new ArgumentException("Not an IP address.", nameof(address));
-        city = city?.Trim() ?? "";
-        countryCode = countryCode?.Trim().ToUpperInvariant() ?? "";
-        if (city.Length == 0) throw new ArgumentException("A city is required.", nameof(city));
-        if (city.Length > 120) throw new ArgumentException("The city's name is too long.", nameof(city));
-        if (countryCode.Length != 2 || !countryCode.All(char.IsAsciiLetterUpper))
-            throw new ArgumentException("A two-letter country code is required.", nameof(countryCode));
-        if (latitude is < -90 or > 90 || longitude is < -180 or > 180 || double.IsNaN(latitude) || double.IsNaN(longitude))
-            throw new ArgumentException("The coordinates are out of range.");
-        region = string.IsNullOrWhiteSpace(region) ? null : region.Trim();
-        if (region is { Length: > 120 }) region = region[..120];
+        var set = Validate(address, city, region, countryCode, latitude, longitude);
+        var canonical = set.Address;
+        (city, region, countryCode) = (set.City, set.Region, set.CountryCode);
 
         await using var db = await _mainDb.CreateDbContextAsync(ct);
         var row = await db.HopLocationOverrides.FirstOrDefaultAsync(o => o.Address == canonical, ct);
@@ -127,6 +152,28 @@ public sealed class HopLocationOverrideService : IHopLocationOverrideService
         db.HopLocationOverrides.Remove(row);
         await db.SaveChangesAsync(ct);
         _cache.Invalidate();
+    }
+
+    /// <summary>
+    /// The override <see cref="SetAsync"/> stores for these inputs: the address canonical, the names trimmed, the
+    /// country upper case. <see cref="HopLocationSetting.SetBy"/> is null.
+    /// </summary>
+    /// <exception cref="ArgumentException">The address, city, country, or coordinates do not validate.</exception>
+    public static HopLocationSetting Validate(string address, string city, string? region, string countryCode,
+        double latitude, double longitude)
+    {
+        var canonical = Canonical(address) ?? throw new ArgumentException("Not an IP address.", nameof(address));
+        city = city?.Trim() ?? "";
+        countryCode = countryCode?.Trim().ToUpperInvariant() ?? "";
+        if (city.Length == 0) throw new ArgumentException("A city is required.", nameof(city));
+        if (city.Length > 120) throw new ArgumentException("The city's name is too long.", nameof(city));
+        if (countryCode.Length != 2 || !countryCode.All(char.IsAsciiLetterUpper))
+            throw new ArgumentException("A two-letter country code is required.", nameof(countryCode));
+        if (latitude is < -90 or > 90 || longitude is < -180 or > 180 || double.IsNaN(latitude) || double.IsNaN(longitude))
+            throw new ArgumentException("The coordinates are out of range.");
+        region = string.IsNullOrWhiteSpace(region) ? null : region.Trim();
+        if (region is { Length: > 120 }) region = region[..120];
+        return new HopLocationSetting(canonical, city, region, countryCode, latitude, longitude, null);
     }
 
     /// <summary>The address in canonical text form, or null when it is not one.</summary>

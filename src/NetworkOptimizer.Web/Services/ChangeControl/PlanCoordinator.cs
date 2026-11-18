@@ -556,7 +556,7 @@ public sealed class PlanCoordinator
         var r = await _engine.Api.SendAsync(UniFiApiScope.SiteV1, HttpMethod.Get, "stat/device", null, ct);
         if (!r.IsSuccess) return (null, false);
         var gateways = (ConfigSnapshotReader.ExtractList(r.Body) ?? [])
-            .Where(d => d["type"]?.ToString() is "ugw" or "udm" or "uxg" && d["adopted"]?.GetValueKind() != System.Text.Json.JsonValueKind.False)
+            .Where(d => ConfigCollections.IsGateway(d) && d["adopted"]?.GetValueKind() != System.Text.Json.JsonValueKind.False)
             .ToList();
         var settled = gateways.All(d => d["state"]?.ToString() == "1");
         _gatewayState = (DateTime.UtcNow, settled, gateways.Count > 0);
@@ -568,7 +568,7 @@ public sealed class PlanCoordinator
     /// traffic routes, QoS) are refused, so they wait instead of failing the plan (grounding: blank console).
     /// </summary>
     internal static bool HasGateway(ConfigState live) =>
-        live.Get("device").Any(d => d["type"]?.ToString() is "ugw" or "udm" or "uxg"
+        live.Get("device").Any(d => ConfigCollections.IsGateway(d)
                                     && d["adopted"]?.GetValueKind() != System.Text.Json.JsonValueKind.False);
 
     /// <summary>Differences left between the plan's intent and the console after it applied (class F).</summary>
@@ -1031,7 +1031,7 @@ public sealed class PlanCoordinator
             foreach (var d in state.Get("device"))
             {
                 var type = d[ConfigCollections.DeviceMetaField]?["type"]?.ToString() ?? "";
-                var isGateway = type is "ugw" or "udm" or "uxg";
+                var isGateway = ConfigCollections.IsGateway(d);
                 if (!touchedDevices.Contains(ConfigState.IdOf(d)) && !isGateway) continue;
                 macs.Add((d["mac"]?.ToString() ?? "", ConfigState.DisplayName(ConfigCollections.Get("device"), d), d["model"]?.ToString() ?? "", type));
             }

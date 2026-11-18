@@ -91,6 +91,9 @@ public sealed class ChangeControlSiteEngine : BackgroundService
     /// <summary>Raised after a snapshot or change is recorded, so open pages can refresh.</summary>
     public event Action? Changed;
 
+    /// <summary>Raised with the changed collections (<c>user</c>, <c>device</c>, ...) after changes are recorded.</summary>
+    public event Action<IReadOnlySet<string>>? ChangesRecorded;
+
     /// <summary>Runs once per start, after the first device read, with device names by MAC (the firmware history import).</summary>
     public Func<IReadOnlyDictionary<string, string>, CancellationToken, Task>? ImportHistory { get; set; }
 
@@ -807,7 +810,21 @@ public sealed class ChangeControlSiteEngine : BackgroundService
             change = await _repos.UseAsync((r, c) => r.AddChangeAsync(change, rows, c), ct);
             recorded.Add(change);
         }
+        if (recorded.Count > 0) RaiseChangesRecorded(all.Select(o => o.Collection).ToHashSet(StringComparer.Ordinal));
         return recorded;
+    }
+
+    private void RaiseChangesRecorded(IReadOnlySet<string> collections)
+    {
+        try
+        {
+            ChangesRecorded?.Invoke(collections);
+        }
+        catch (Exception ex)
+        {
+            // A subscriber only refreshes a cache; it must never fail the change it was told about.
+            _logger.LogDebug(ex, "A ChangesRecorded subscriber failed for site {Site}", _slug);
+        }
     }
 
     /// <summary>A policy order change as a pseudo object on the firewall policy collection.</summary>
@@ -838,15 +855,19 @@ public sealed class ChangeControlSiteEngine : BackgroundService
     /// <summary>Stores an object diff: fields with references as names, secrets without values.</summary>
     internal static ConfigChangeObject ToRecord(ObjectDiff o, ConfigIdentityContext beforeNames, ConfigIdentityContext afterNames)
     {
-        var fields = o.Fields.Select(f => new StoredField
+        var fields = o.Fields.Select(f =>
         {
-            Path = f.Path,
-            Label = ChangeDescriber.LabelFor(f.Path, o.After, o.Before),
-            Old = f.Secret ? null : ChangeDescriber.Value(f.Old, beforeNames),
-            New = f.Secret ? null : ChangeDescriber.Value(f.New, afterNames),
-            Secret = f.Secret,
-            OldItems = IsPolicyOrder(o) ? Items(f.Old) : null,
-            NewItems = IsPolicyOrder(o) ? Items(f.New) : null,
+            var (oldText, newText) = ChangeDescriber.Values(f.Old, f.New, beforeNames, afterNames);
+            return new StoredField
+            {
+                Path = f.Path,
+                Label = ChangeDescriber.LabelFor(f.Path, o.After, o.Before),
+                Old = f.Secret ? null : oldText,
+                New = f.Secret ? null : newText,
+                Secret = f.Secret,
+                OldItems = IsPolicyOrder(o) ? Items(f.Old) : null,
+                NewItems = IsPolicyOrder(o) ? Items(f.New) : null,
+            };
         }).ToList();
         if (o.Collection == "wlanconf")
         {

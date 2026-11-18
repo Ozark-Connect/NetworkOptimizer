@@ -1,5 +1,7 @@
 using System.Collections.Concurrent;
 using System.Text.Json;
+using NetworkOptimizer.Audit.Services;
+using NetworkOptimizer.Core.Enums;
 using NetworkOptimizer.Storage.Services;
 using NetworkOptimizer.UniFi.Models;
 
@@ -25,8 +27,14 @@ public sealed class ClientIconRegistry : ISiteScopedRegistry
     private static readonly TimeSpan OnlineEvery = TimeSpan.FromMinutes(1);
     /// <summary>Every known client (<c>rest/user</c>), for offline clients' custom and chosen icons.</summary>
     private static readonly TimeSpan KnownEvery = TimeSpan.FromMinutes(10);
-    /// <summary>A failed image fetch is tried again after this long.</summary>
+    /// <summary>A failed image fetch (network, server error) is tried again after this long.</summary>
     private static readonly TimeSpan FailedRetry = TimeSpan.FromHours(6);
+    /// <summary>
+    /// An image the CDN says does not exist (404, or the web page an unknown fingerprint redirects
+    /// to) is asked for again after this long: twice a day picks up a newly added logo the same day
+    /// without polling an ISP that has none all day.
+    /// </summary>
+    private static readonly TimeSpan MissingRetry = TimeSpan.FromHours(12);
     private static readonly TimeSpan FirstReadWait = TimeSpan.FromSeconds(3);
     private const int MaxImageBytes = 2 * 1024 * 1024;
     private const int ParallelFetches = 4;
@@ -44,7 +52,8 @@ public sealed class ClientIconRegistry : ISiteScopedRegistry
     private readonly ConcurrentDictionary<string, SiteState> _sites = new(StringComparer.OrdinalIgnoreCase);
     /// <summary>One fetch per file at a time, across sites.</summary>
     private readonly ConcurrentDictionary<string, Lazy<Task<bool>>> _fetches = new(StringComparer.Ordinal);
-    private readonly ConcurrentDictionary<string, DateTime> _failedAt = new(StringComparer.Ordinal);
+    /// <summary>When each failed image may be fetched again.</summary>
+    private readonly ConcurrentDictionary<string, DateTime> _retryAt = new(StringComparer.Ordinal);
     private readonly SemaphoreSlim _fetchSlots = new(ParallelFetches, ParallelFetches);
     private readonly string _webRoot;
     private readonly SemaphoreSlim _catalogLock = new(1, 1);
@@ -85,6 +94,8 @@ public sealed class ClientIconRegistry : ISiteScopedRegistry
         public Dictionary<string, string> DeviceCatalog = new(StringComparer.OrdinalIgnoreCase);
         /// <summary>UniFi's fingerprint database, which tells a vendor's device from a generic one.</summary>
         public UniFiFingerprintDatabase? Fingerprints;
+        /// <summary>Each client's 3D map body, every client ever read; replaced whole, never mutated.</summary>
+        public Dictionary<string, ClientBody> Bodies = new(StringComparer.OrdinalIgnoreCase);
         public bool Loaded;
         public DateTime OnlineAt, KnownAt;
         public int Refreshing;
@@ -198,12 +209,15 @@ public sealed class ClientIconRegistry : ISiteScopedRegistry
             var readKnown = now - state.KnownAt >= KnownEvery;
 
             // Known clients first so the online read, which also has the fingerprinted id, wins.
+            List<UniFiClientResponse> known = [];
             if (readKnown)
             {
-                Apply(clients, await api.GetAllKnownClientsAsync(ct), offline: true);
+                known = await api.GetAllKnownClientsAsync(ct);
+                Apply(clients, known);
                 state.KnownAt = now;
             }
-            Apply(clients, await api.GetClientsAsync(ct), offline: false);
+            var online = await api.GetClientsAsync(ct);
+            Apply(clients, online);
             state.OnlineAt = now;
 
             var changed = !SameIcons(clients, state.Clients);
@@ -219,6 +233,7 @@ public sealed class ClientIconRegistry : ISiteScopedRegistry
             if (changed)
                 Save(slug, state);
             state.Fingerprints = await _fingerprints.GetDatabaseAsync(_connections.GetFor(slug), ct) ?? state.Fingerprints;
+            state.Bodies = Classify(state.Bodies, known.Concat(online), state.Fingerprints);
             state.Map = BuildMap(slug, state);
             if (readKnown)
                 PruneCustomIcons(slug, clients.Values);
@@ -282,6 +297,26 @@ public sealed class ClientIconRegistry : ISiteScopedRegistry
     }
 
     private int _catalogLoading;
+
+    /// <summary>
+    /// The served URL of an ISP's logo by its ASN, the one UniFi Network shows, fetched into the shared
+    /// icons on first ask. Waits briefly for that first fetch, so a page's first load usually has it;
+    /// null when it is not cached yet, or the ASN has no logo (a 404, retried after the failure window).
+    /// </summary>
+    public async Task<string?> AsnLogoUrlAsync(long asn, string slug, CancellationToken ct = default)
+    {
+        if (ClientIconSource.AsnKey(asn) is not { } key)
+            return null;
+        var path = SharedPath(key);
+        if (!File.Exists(path))
+        {
+            var fetch = FetchAsync(ClientIconSource.CatalogUrl(key)!, path, CancellationToken.None);
+            await Task.WhenAny(fetch, Task.Delay(FirstReadWait, ct));
+            if (!fetch.IsCompletedSuccessfully || !fetch.Result)
+                return null;
+        }
+        return ClientIconMap.Url(slug, key);
+    }
 
     /// <summary>Whether the app ships an image for a model, cached: the files change only with a new build.</summary>
     private readonly ConcurrentDictionary<string, string?> _bundled = new(StringComparer.OrdinalIgnoreCase);
@@ -356,10 +391,12 @@ public sealed class ClientIconRegistry : ISiteScopedRegistry
     }
 
     /// <summary>
-    /// Resolves each client's icon into the map. A known-client row has no fingerprinted id, so it
-    /// never replaces an icon an online read resolved with no custom or chosen icon to go on.
+    /// Resolves each client's icon into the map. A client's last icon is kept whenever a read cannot
+    /// name a new one: no icon at all, or a custom icon whose asset no longer parses. Never drop it
+    /// there: a changed console field or asset scheme would otherwise strip every client to the
+    /// default and prune the custom icons from disk, with no way back until we ship a fix.
     /// </summary>
-    private static void Apply(Dictionary<string, ClientIconRef> clients, IEnumerable<UniFiClientResponse> rows, bool offline)
+    internal static void Apply(Dictionary<string, ClientIconRef> clients, IEnumerable<UniFiClientResponse> rows)
     {
         foreach (var row in rows)
         {
@@ -367,12 +404,47 @@ public sealed class ClientIconRegistry : ISiteScopedRegistry
                 continue;
             var mac = ClientIconMap.NormalizeMac(row.Mac);
             var icon = ClientIconSource.Resolve(row);
-            if (icon != null)
-                clients[mac] = icon;
-            else if (!offline)
-                clients.Remove(mac);
+            if (icon == null)
+                continue;
+            if (!icon.SiteOwned && ClientIconSource.HasUnreadableAiIcon(row)
+                && clients.TryGetValue(mac, out var previous) && previous.SiteOwned)
+                continue;
+            clients[mac] = icon;
         }
     }
+
+    /// <summary>
+    /// Each client's 3D map body, from the Security Audit's detector (fingerprint, name, MAC vendor)
+    /// and UniFi's fingerprint type. A client keeps its last body when a read cannot say what it is:
+    /// an offline client's row has no fingerprint, and would otherwise fall back to the smallest.
+    /// </summary>
+    internal static Dictionary<string, ClientBody> Classify(
+        IReadOnlyDictionary<string, ClientBody> previous, IEnumerable<UniFiClientResponse> rows, UniFiFingerprintDatabase? fingerprints)
+    {
+        var result = new Dictionary<string, ClientBody>(previous, StringComparer.OrdinalIgnoreCase);
+        var detection = new DeviceTypeDetectionService(fingerprintDb: fingerprints);
+        foreach (var row in rows)
+        {
+            if (string.IsNullOrWhiteSpace(row.Mac))
+                continue;
+            var mac = ClientIconMap.NormalizeMac(row.Mac);
+            var category = detection.DetectDeviceType(row).Category;
+            var body = ClientBodyClass.For(category, DevTypeId(row, fingerprints),
+                string.IsNullOrEmpty(row.Name) ? row.Hostname : row.Name);
+            var saysNothing = category == ClientDeviceCategory.Unknown && ReferenceEquals(body, ClientBodyClass.Small);
+            if (!saysNothing || !result.ContainsKey(mac))
+                result[mac] = body;
+        }
+        return result;
+    }
+
+    /// <summary>UniFi's device type for a client: the type of the device the user picked for it, else the fingerprinted one.</summary>
+    [NetworkOptimizer.Core.VendorSpecific("UniFi", "client dev_id_override resolves through fingerprint dev_ids[].dev_type_id; dev_cat is a dev_type_id")]
+    private static int? DevTypeId(UniFiClientResponse row, UniFiFingerprintDatabase? fingerprints) =>
+        row.DevIdOverride is { } chosen && fingerprints != null
+            && fingerprints.DevIds.TryGetValue(chosen.ToString(), out var entry)
+            && int.TryParse(entry.DevTypeId, out var type)
+            ? type : row.DevCat;
 
     private static bool SameIcons(Dictionary<string, ClientIconRef> a, Dictionary<string, ClientIconRef> b) =>
         a.Count == b.Count && a.All(kv => b.TryGetValue(kv.Key, out var other) && other == kv.Value);
@@ -398,7 +470,7 @@ public sealed class ClientIconRegistry : ISiteScopedRegistry
             cached[mac] = icon.Key;
             ranks[mac] = Rank(icon, state.Fingerprints);
         }
-        return new ClientIconMap(slug, cached, state.Devices, state.DeviceCatalog, ranks);
+        return new ClientIconMap(slug, cached, state.Devices, state.DeviceCatalog, ranks, state.Bodies);
     }
 
     /// <summary>
@@ -428,7 +500,7 @@ public sealed class ClientIconRegistry : ISiteScopedRegistry
     /// <summary>Downloads an icon to its file. False when it could not be fetched or is not a PNG.</summary>
     private async Task<bool> FetchAsync(string url, string path, CancellationToken ct)
     {
-        if (_failedAt.TryGetValue(path, out var failedAt) && DateTime.UtcNow - failedAt < FailedRetry)
+        if (_retryAt.TryGetValue(path, out var retryAt) && DateTime.UtcNow < retryAt)
             return false;
 
         var fetch = _fetches.GetOrAdd(path, _ => new Lazy<Task<bool>>(() => DownloadAsync(url, path)));
@@ -455,7 +527,10 @@ public sealed class ClientIconRegistry : ISiteScopedRegistry
             using var response = await http.GetAsync(url, HttpCompletionOption.ResponseHeadersRead);
             // An unknown fingerprint id answers with a redirect to a web page, not a 404.
             if (!response.IsSuccessStatusCode || response.Content.Headers.ContentType?.MediaType != "image/png")
-                return Fail(path, $"{(int)response.StatusCode} {response.Content.Headers.ContentType?.MediaType}", url);
+            {
+                var missing = response.StatusCode == System.Net.HttpStatusCode.NotFound || response.IsSuccessStatusCode;
+                return Fail(path, $"{(int)response.StatusCode} {response.Content.Headers.ContentType?.MediaType}", url, missing);
+            }
             if (response.Content.Headers.ContentLength > MaxImageBytes)
                 return Fail(path, "too large", url);
 
@@ -467,7 +542,7 @@ public sealed class ClientIconRegistry : ISiteScopedRegistry
             var temp = path + ".tmp";
             await File.WriteAllBytesAsync(temp, bytes);
             File.Move(temp, path, overwrite: true);
-            _failedAt.TryRemove(path, out _);
+            _retryAt.TryRemove(path, out _);
             return true;
         }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or IOException)
@@ -480,12 +555,12 @@ public sealed class ClientIconRegistry : ISiteScopedRegistry
         }
     }
 
-    private bool Fail(string path, string reason, string url)
+    private bool Fail(string path, string reason, string url, bool missing = false)
     {
         // Any Viewer can ask for any well-formed key, so the table must not grow without limit.
-        if (_failedAt.Count >= MaxFailedEntries)
-            _failedAt.Clear();
-        _failedAt[path] = DateTime.UtcNow;
+        if (_retryAt.Count >= MaxFailedEntries)
+            _retryAt.Clear();
+        _retryAt[path] = DateTime.UtcNow + (missing ? MissingRetry : FailedRetry);
         _logger.LogDebug("Client icons: could not fetch {Url}: {Reason}", url, reason);
         return false;
     }

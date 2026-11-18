@@ -51,7 +51,7 @@ else if (!_ready)
 else
 {
     // Always live: these tiles have no parked instant to carry, unlike the Monitoring tab's own.
-    var gwFabricUrl = FabricTarget(GetGatewayFabricTargetId(), LiveAtToken, LiveWan);
+    var gwFabricUrl = FabricTarget(GetGatewayFabricTargetId(), LiveAtToken, LiveWan) + "&via=dashboard";
     var gwDeviceUrl = DeviceStats(_gatewayMac, LiveAtToken);
     <div class="lv-panel">
         @if (ShowConsoleDownBanner)
@@ -494,7 +494,7 @@ else
             return LiveWan.Selected is { IsPrimary: false, HasContext: false }
                 ? "/monitoring?tab=performance&contexts=1"
                 : $"/monitoring?tab=performance&discover=1{IspHealthWanQuery()}";
-        return $"/monitoring?tab=isp-health{IspHealthWanQuery()}";
+        return IspHealth(LiveWan.Selected?.Key);
     }
 
     /// <summary>
@@ -618,8 +618,7 @@ else
                 // through it, or every gateway tile blanks for the length of a tunnel reconnect.
                 if (devices is { Count: > 0 })
                 {
-                    var gw = devices.FirstOrDefault(d =>
-                        d.Type == DeviceType.Gateway || d.HardwareType == DeviceType.Gateway);
+                    var gw = NetworkOptimizer.UniFi.UniFiDiscovery.SiteGateway(devices);
                     _gatewayMac = gw?.Mac?.Replace("-", ":").ToLowerInvariant();
                     _gatewayWanIfNames = gw?.WanInterfaceNames ?? new();
                 }
@@ -712,7 +711,7 @@ else
         // which pass the moment they are frozen at. Without the token the destination fell back to
         // its saved window, so a click on a tile showing what is happening right now could land on
         // some earlier stretch of the day.
-        NavigationManager.NavigateTo(Analysis(category, LiveAtToken, LiveWan));
+        NavigationManager.NavigateTo(Analysis(category, LiveAtToken, LiveWan) + "&via=dashboard");
     }
 
     /// <summary>

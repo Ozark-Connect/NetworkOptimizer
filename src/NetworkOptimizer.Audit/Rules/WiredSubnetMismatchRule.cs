@@ -123,9 +123,7 @@ public class WiredSubnetMismatchRule : AuditRuleBase
     private string GetDeviceName(PortInfo port, UniFi.Models.UniFiClientResponse client)
     {
         // Try client name/hostname first
-        var clientName = !string.IsNullOrEmpty(client.Name) ? client.Name
-            : !string.IsNullOrEmpty(client.Hostname) ? client.Hostname
-            : null;
+        var clientName = UniFi.ClientNames.For(client);
 
         if (!string.IsNullOrEmpty(clientName))
             return $"{clientName} on {port.Switch.Name}";

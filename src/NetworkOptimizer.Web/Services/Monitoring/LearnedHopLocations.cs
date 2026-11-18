@@ -11,6 +11,25 @@ public sealed record LearnedHop(string Address, string City, string CountryCode,
     HopLocationSource Source, string Detail, DateTime SeenAt);
 
 /// <summary>
+/// Which sites' learned places a site's traces use. Here every site's; the SaaS fork replaces this to keep
+/// one organization's traces from placing another's hops.
+/// </summary>
+public interface ILearnedHopPeers
+{
+    /// <summary>Whether a trace from <paramref name="siteSlug"/> may use places learned by a site, by slug.</summary>
+    Task<Func<string, bool>> PeersOfAsync(string siteSlug, CancellationToken ct = default);
+}
+
+/// <summary>Every site's traces use every site's learned places.</summary>
+public sealed class InstallLearnedHopPeers : ILearnedHopPeers
+{
+    private static readonly Func<string, bool> Every = _ => true;
+
+    /// <inheritdoc />
+    public Task<Func<string, bool>> PeersOfAsync(string siteSlug, CancellationToken ct = default) => Task.FromResult(Every);
+}
+
+/// <summary>
 /// The strongest place traces gave each transit or peering router (<see cref="HopLocations.Learnable"/>). One trace
 /// may name a router by its hostname or a hop beside it while the next, missing the PTR or the neighbor, has only
 /// GeoLite2, which for transit routers is often where the network is registered. Install-wide, kept per site that
@@ -26,22 +45,37 @@ public sealed class LearnedHopLocations
     private static readonly TimeSpan RefreshEvery = TimeSpan.FromHours(6);
 
     private readonly IDbContextFactory<NetworkOptimizerDbContext> _mainDb;
+    private readonly ILearnedHopPeers _peers;
     private readonly ILogger<LearnedHopLocations> _logger;
     private readonly SemaphoreSlim _write = new(1, 1);
     private volatile IReadOnlyList<(string Site, LearnedHop Hop)>? _rows;
 
-    public LearnedHopLocations(IDbContextFactory<NetworkOptimizerDbContext> mainDb, ILogger<LearnedHopLocations> logger)
+    public LearnedHopLocations(IDbContextFactory<NetworkOptimizerDbContext> mainDb, ILearnedHopPeers peers,
+        ILogger<LearnedHopLocations> logger)
     {
         _mainDb = mainDb;
+        _peers = peers;
         _logger = logger;
     }
 
     /// <summary>
-    /// The places a trace from <paramref name="siteSlug"/> uses, by address: every site's, except where sites
-    /// disagree on the city, which only that site's own place settles. Empty when none can be read.
+    /// The places a trace from <paramref name="siteSlug"/> uses, by address: every peer site's
+    /// (<see cref="ILearnedHopPeers"/>), except where sites disagree on the city, which only that site's own place
+    /// settles. Empty when none can be read.
     /// </summary>
-    public async Task<IReadOnlyDictionary<string, LearnedHop>> GetAsync(string siteSlug, CancellationToken ct = default) =>
-        ForSite(await RowsAsync(ct), siteSlug, DateTime.UtcNow);
+    public async Task<IReadOnlyDictionary<string, LearnedHop>> GetAsync(string siteSlug, CancellationToken ct = default)
+    {
+        var rows = await RowsAsync(ct);
+        Func<string, bool> peer;
+        try { peer = await _peers.PeersOfAsync(siteSlug, ct); }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // Unknown peers: this site's own places only, never a wider set.
+            _logger.LogWarning(ex, "Could not read which sites share learned hop locations with site {Site}", siteSlug);
+            peer = s => string.Equals(s, siteSlug, StringComparison.OrdinalIgnoreCase);
+        }
+        return ForSite(rows.Where(r => peer(r.Site)), siteSlug, DateTime.UtcNow);
+    }
 
     /// <summary>The merge <see cref="GetAsync"/> does, over rows already read.</summary>
     internal static Dictionary<string, LearnedHop> ForSite(IEnumerable<(string Site, LearnedHop Hop)> rows, string siteSlug, DateTime now)

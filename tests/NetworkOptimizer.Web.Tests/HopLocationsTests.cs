@@ -54,6 +54,74 @@ public class HopLocationsTests
     }
 
     [Fact]
+    public void Resolve_ACitySetOnADelayedHop_LendsItToNoNeighbor()
+    {
+        // An MPLS hop answers at its tunnel's far end (30 ms) between hops at 2 and 25 ms: set by hand to Atlanta, it is
+        // Atlanta itself, but its round trip says nothing about the routers after it.
+        var found = HopLocations.Resolve(
+        [
+            ("198.51.100.1", null, 1.0),
+            ("203.0.113.70", null, 2.0),
+            ("203.0.113.71", null, 30.0),
+            ("203.0.113.72", null, 25.0),
+            ("203.0.113.73", null, 25.2),
+        ], Geo, SetTo("203.0.113.71", "Atlanta", 33.75, -84.39));
+
+        found["203.0.113.71"].City.Should().Be("Atlanta");
+        found.GetValueOrDefault("203.0.113.72")?.City.Should().NotBe("Atlanta");
+        found.GetValueOrDefault("203.0.113.73")?.City.Should().NotBe("Atlanta");
+    }
+
+    [Fact]
+    public void Resolve_ACitySetFarOverAnAnchorInItsOwnMetro_LendsItToNoNeighbor()
+    {
+        // Set to Kansas City, it answers 24 ms past a Kansas City router, and only 0.5 ms over the hops after it: the
+        // 24 ms is not distance, so the routers at 26 ms are not beside it.
+        var found = HopLocations.Resolve(
+        [
+            ("198.51.100.32", null, 0.5),
+            ("203.0.113.5", KansasCityRouter, 2.0),
+            ("203.0.113.81", null, 26.5),
+            ("203.0.113.82", null, 26.0),
+            ("203.0.113.83", null, 26.2),
+        ], Geo, SetTo("203.0.113.81", "Kansas City", 39.10, -94.58));
+
+        found["203.0.113.81"].City.Should().Be("Kansas City");
+        found.GetValueOrDefault("203.0.113.82")?.City.Should().NotBe("Kansas City");
+        found.GetValueOrDefault("203.0.113.83")?.City.Should().NotBe("Kansas City");
+    }
+
+    [Fact]
+    public void Resolve_ACitySetOnASlowHopWithANarrowRange_StillLendsIt()
+    {
+        // Slow to answer (9 ms), but the hops either side hold its round trip to 2.0 to 2.2 ms: it still anchors.
+        var found = HopLocations.Resolve(
+        [
+            ("198.51.100.1", null, 1.0),
+            ("203.0.113.70", null, 2.0),
+            ("203.0.113.71", null, 9.0),
+            ("203.0.113.72", null, 2.2),
+        ], Geo, SetTo("203.0.113.71", "Atlanta", 33.75, -84.39));
+
+        found["203.0.113.72"].City.Should().Be("Atlanta");
+        found["203.0.113.72"].Source.Should().Be(HopLocationSource.Neighbor);
+    }
+
+    [Fact]
+    public void Resolve_AnchorWithNoPtr_IsNamedByItsWholeAddress()
+    {
+        // The vantage reports a hop with no PTR record by its address as its hostname.
+        var found = HopLocations.Resolve(
+        [
+            ("198.51.100.1", null, 1.0),
+            ("203.0.113.61", null, 4.5),
+            ("203.0.113.60", "203.0.113.60", 4.0),
+        ], Geo, SetTo("203.0.113.60", "Little Rock", 34.75, -92.29));
+
+        found["203.0.113.61"].Tooltip.Should().StartWith("0.5 ms from 203.0.113.60, a Little Rock router");
+    }
+
+    [Fact]
     public void Resolve_ACitySetByHand_RulesOutAFarHostnameRightBesideIt_NotOneFurtherAway()
     {
         // A handoff port named for Kansas City answers 0.5 ms from a router set to Salt Lake City, at the trace's end.

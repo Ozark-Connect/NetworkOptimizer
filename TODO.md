@@ -842,6 +842,33 @@ the flow, and the server uses it when no DNS answer names the address. TLS first
 It is an Agent change and a proto change: bump `LatestAgentVersion` in the release that ships it,
 optional for the fleet.
 
+### MLO mesh backhaul: record each link's signal for playback
+
+On an MLO mesh pairing (5 GHz and 6 GHz together), the LAN maps show each link's signal in the
+tooltip and average the two links for the signal meter, but only live. Playback has one reading:
+`MeshBackhaulPhyRecorder.Record` writes one `wifi_client` point per mesh child, tagged with the
+child's own `uplink.radio_band` and carrying `uplink.signal`, which is that one link (in practice the
+5 GHz one). The other link's signal, in the child's `uplink.mlo_links` (or the parent's
+`MeshParentClaim.Links` when the child reports none), is never stored. So during playback an MLO
+child's tooltip shows one Signal row, and its meter grades one link instead of the average.
+
+PHY is not part of this gap: the point's tx/rx rates are the uplink's own, which sum the MLO links,
+raised to the parent's summed claim when that is higher. Playback's Link speed already covers both
+links. Only a per-link split of PHY is missing, and nothing shows one.
+
+To do:
+
+- Record every MLO link's signal, using `LanFlowMapService.MloLinkSignals`'s source order: the
+  child's own reading per link, else the parent's claim, with the child's own reading for its STA link.
+- Keep the schema additive (CLAUDE.md, InfluxDB). Either one more `wifi_client` point per extra
+  link, under that link's `band` tag (it lands in the existing per-band series, and the historic
+  resolver must then stop picking one point per MAC), or per-link fields on the existing point
+  (`signal_dbm_5`, `signal_dbm_6`). Settle which before writing either; a mixed approach splits the series.
+- Playback: return the per-link readings in the historic update's `NodeClientStats`. It needs a
+  per-link list like `LanNode.MloLinks`, so its `SignalBars` and `SignalColor` take the same 5/6 GHz
+  average. Then the 2D tooltip's MLO rows follow the playhead instead of falling back to one row.
+- The agent-relayed path records through the same recorder, so it needs no separate change.
+
 ## VPN Clients Dashboard
 
 A dashboard for clients reaching the site over a VPN: connections through an external Tailscale

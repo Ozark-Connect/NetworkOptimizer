@@ -39,7 +39,9 @@ public sealed class RestoreSnapshotView
 
 public sealed partial class ChangeControlService
 {
-    private static bool IsGatewayType(string? type) => type is "ugw" or "udm" or "uxg";
+    /// <summary>An access point: type uap, or a gateway-class device adopted as an AP by its mode.</summary>
+    private static bool IsApKind(JsonObject device) =>
+        ConfigCollections.DeviceField(device, "type") is "uap" or "ugw" or "udm" or "uxg" && !ConfigCollections.IsGateway(device);
 
     private static string? MetaStr(JsonObject device, string key) =>
         (device[ConfigCollections.DeviceMetaField] as JsonObject)?[key] is JsonValue v ? v.ToString() : null;
@@ -94,8 +96,7 @@ public sealed partial class ChangeControlService
             ?? throw new InvalidOperationException("The old device is not in the latest snapshot.");
         var @new = live.Get("device").FirstOrDefault(d => d["mac"]?.ToString().ToLowerInvariant() == newMac)
             ?? throw new InvalidOperationException("The new device is not adopted on this site.");
-        if (IsGatewayType(old["type"]?.ToString()) != IsGatewayType(@new["type"]?.ToString())
-            || (old["type"]?.ToString() == "uap") != (@new["type"]?.ToString() == "uap"))
+        if (ConfigCollections.IsGateway(old) != ConfigCollections.IsGateway(@new) || IsApKind(old) != IsApKind(@new))
             throw new InvalidOperationException("Replace a device with one of the same kind: switch for switch, access point for access point, gateway for gateway.");
         var proposal = DeviceReplacement.Propose(old, @new, live, choices, acks?.ToHashSet());
         return (proposal, old, @new, live);
@@ -258,7 +259,7 @@ public sealed partial class ChangeControlService
         var (state, snap) = source;
         var live = await Engine.ReadLiveCheckedAsync(cancellationToken);
         var sameSite = string.Equals(sourceSiteSlug, _site.Slug, StringComparison.OrdinalIgnoreCase);
-        var hasGateway = live.Get("device").Any(d => IsGatewayType(d["type"]?.ToString()) && d["adopted"]?.GetValueKind() != JsonValueKind.False);
+        var hasGateway = live.Get("device").Any(d => ConfigCollections.IsGateway(d) && d["adopted"]?.GetValueKind() != JsonValueKind.False);
         // Phase 2 of a blank-console restore: only device config, for devices adopted since phase 1.
         var options = new PlanOptions
         {

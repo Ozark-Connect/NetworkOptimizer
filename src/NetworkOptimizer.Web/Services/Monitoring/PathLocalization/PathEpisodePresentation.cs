@@ -498,7 +498,7 @@ public static class PathEpisodePresentation
         var wan = t.Category is MonitoringLinks.FabricCategory || string.IsNullOrEmpty(wanKey) && t.Category is MonitoringLinks.CustomCategory
             ? LiveWanScope.AllWansToken
             : wanKey;
-        var url = MonitoringLinks.Analysis(t.Category, startMs + spanMs / 2, spanMs, wan);
+        var url = MonitoringLinks.Analysis(t.Category, startMs + spanMs / 2, spanMs, wan) + "&via=isp-health";
         return string.IsNullOrEmpty(t.TargetId) ? url : $"{url}&target={Uri.EscapeDataString(t.TargetId)}";
     }
 

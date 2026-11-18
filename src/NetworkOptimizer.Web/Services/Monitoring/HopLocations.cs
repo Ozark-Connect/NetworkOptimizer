@@ -104,7 +104,8 @@ public static class HopLocations
             named[i] = RouterHostnameLocator.Locate(list[i].Hostname, list[i].MinRttMs, from);
         }
         var bounded = BoundedByLaterHops(list);
-        var anchors = Anchors(bounded, named, pinned, geoByAddress, nearest.Address);
+        var delayed = Delayed(list, bounded);
+        var anchors = Anchors(bounded, named, pinned, geoByAddress, nearest.Address, delayed);
 
         for (var i = 0; i < list.Count; i++)
         {
@@ -128,7 +129,7 @@ public static class HopLocations
             }
             // A private or CGNAT address can sit anywhere behind its network, so it never borrows a city.
             else if (anchors[i] == null && NetworkUtilities.IsPublicIpAddress(h.Address!)
-                     && Neighbor(bounded, anchors, i, g) is { } near)
+                     && Neighbor(bounded, delayed, anchors, i, g) is { } near)
             {
                 // The measured gap, as the table shows it; the bounded one only decides.
                 var shown = Math.Abs((h.MinRttMs ?? 0) - (list[near.Index].MinRttMs ?? 0));
@@ -148,7 +149,7 @@ public static class HopLocations
             }
             // GeoLite2's location, city or country alone, cannot fit the round trip from an anchor:
             // the country stays when it is the anchor's, and otherwise the hop has no location.
-            else if (g is { CountryCode.Length: > 0 } && OutOfReach(bounded, anchors, i, g) is { } far)
+            else if (g is { CountryCode.Length: > 0 } && OutOfReach(bounded, delayed, anchors, i, g) is { } far)
             {
                 var shown = Math.Abs((h.MinRttMs ?? 0) - (list[far.Index].MinRttMs ?? 0));
                 var says = string.IsNullOrEmpty(g.City) ? CountryName(g.CountryCode!) : g.City;
@@ -286,14 +287,16 @@ public static class HopLocations
     /// </summary>
     private static Anchor?[] Anchors(
         List<(string? Address, string? Hostname, double? MinRttMs)> list, RouterHostnameLocation?[] named,
-        HopLocationSetting?[] pinned, Dictionary<string, GeoInfo> geo, string? vantageAddress)
+        HopLocationSetting?[] pinned, Dictionary<string, GeoInfo> geo, string? vantageAddress, bool[] delayed)
     {
         var anchors = new Anchor?[list.Count];
         for (var i = 0; i < list.Count; i++)
         {
             if (pinned[i] is { } p)
             {
-                var label = string.IsNullOrEmpty(list[i].Hostname) ? list[i].Address! : list[i].Hostname!.Split('.')[0];
+                // A vantage reports a hop with no PTR record by its address as the hostname: its first label is "32".
+                var host = list[i].Hostname;
+                var label = string.IsNullOrEmpty(host) || System.Net.IPAddress.TryParse(host, out _) ? list[i].Address! : host.Split('.')[0];
                 anchors[i] = new Anchor(p.City, p.CountryCode, p.Latitude, p.Longitude, label, FromHostname: true, SetByHand: true);
             }
             // An exchange's name places its own hop but anchors nothing: it names the exchange fabric,
@@ -305,6 +308,19 @@ public static class HopLocations
             }
         }
 
+        // A city set by hand whose round trip sits more than NeighborGapMs over an earlier anchor's in the same metro: the
+        // extra is not distance (an MPLS hop set to Atlanta answering 25 ms past a Tucker router), so it lends nothing.
+        for (var k = 0; k < list.Count; k++)
+        {
+            if (anchors[k] is not { SetByHand: true } set || delayed[k] || list[k].MinRttMs is not double rk) continue;
+            for (var e = 0; e < k && !delayed[k]; e++)
+            {
+                if (anchors[e] is { } a && !delayed[e] && list[e].MinRttMs is double re && rk - re > NeighborGapMs
+                    && GeoDistance.Kilometers(set.Latitude, set.Longitude, a.Latitude, a.Longitude) <= CitySlackKm)
+                    delayed[k] = true;
+            }
+        }
+
         // A city set by hand rules out the hostname city of a hop right beside it (two hops, NeighborGapMs) that it cannot
         // reach in the gap, wherever it sits on the trace: a handoff port named for the far end of its link answers
         // beside the router it hands off to. Only beside it: a slow-answering router's bounded round trip says too little
@@ -312,7 +328,7 @@ public static class HopLocations
         var ruledOut = new List<int>();
         for (var k = 0; k < list.Count; k++)
         {
-            if (anchors[k] is not { SetByHand: true } set || list[k].MinRttMs is not double setRtt) continue;
+            if (anchors[k] is not { SetByHand: true } set || Unmeasured(set, delayed[k]) || list[k].MinRttMs is not double setRtt) continue;
             for (var j = Math.Max(0, k - 2); j <= Math.Min(list.Count - 1, k + 2); j++)
             {
                 if (j == k || anchors[j] is not { FromHostname: true, SetByHand: false } a || list[j].MinRttMs is not double rtt
@@ -451,15 +467,42 @@ public static class HopLocations
             ? new Anchor(g.City!, g.CountryCode!, lat, lon, hop.Address!, FromHostname: false, g.AccuracyRadiusKm ?? 0)
             : null;
 
+    /// <summary>
+    /// Hops whose round trip is not known to within <see cref="NeighborGapMs"/>: the own reply came back more than that
+    /// after a later hop's (an MPLS tunnel returning it from its far end, or a router slow to answer), and the last hop
+    /// measured before it leaves more than that below the ceiling the later hops set. A gap from such a hop can be off
+    /// by the whole range (<see cref="Unmeasured"/>).
+    /// </summary>
+    private static bool[] Delayed(List<(string? Address, string? Hostname, double? MinRttMs)> list,
+        List<(string? Address, string? Hostname, double? MinRttMs)> bounded)
+    {
+        var delayed = new bool[list.Count];
+        double floor = 0;
+        for (var i = 0; i < list.Count; i++)
+        {
+            if (bounded[i].MinRttMs is not double ceiling) continue;
+            delayed[i] = list[i].MinRttMs is double own && own - ceiling > NeighborGapMs && ceiling - floor > NeighborGapMs;
+            // Only a hop measured to within the gap sets the floor: a delayed one's round trip is as unknown as this one's.
+            if (!delayed[i]) floor = ceiling;
+        }
+        return delayed;
+    }
+
+    // A city set by hand on a hop whose round trip is not its distance (Delayed, or far over an anchor in its own metro,
+    // see Anchors) places that hop only: lent to its neighbors, it pulled the hops after it to the set city (an MPLS hop
+    // set to Atlanta took three Little Rock routers along).
+    // Hostname and GeoLite2 anchors keep lending: replayed congestion traces lost right cities when they stopped.
+    private static bool Unmeasured(Anchor anchor, bool delayed) => delayed && anchor.SetByHand;
+
     private static (Anchor Anchor, double GapMs, int Index)? Neighbor(
-        List<(string? Address, string? Hostname, double? MinRttMs)> list, Anchor?[] anchors, int i, GeoInfo geo)
+        List<(string? Address, string? Hostname, double? MinRttMs)> list, bool[] delayed, Anchor?[] anchors, int i, GeoInfo geo)
     {
         if (list[i].MinRttMs is not double rtt) return null;
         (Anchor Anchor, double GapMs, int Index)? best = null;
         var inGap = new List<string>();
         foreach (var j in new[] { Nearest(anchors, i, -1), Nearest(anchors, i, +1) })
         {
-            if (j < 0 || list[j].MinRttMs is not double other) continue;
+            if (j < 0 || Unmeasured(anchors[j]!, delayed[j]) || list[j].MinRttMs is not double other) continue;
             var gap = Math.Abs(rtt - other);
             if (gap > NeighborGapMs) continue;
             inGap.Add(anchors[j]!.City);
@@ -484,13 +527,13 @@ public static class HopLocations
 
     // The nearest anchor on either side that GeoLite2's city is too far from for the round-trip gap.
     private static (Anchor Anchor, int Index)? OutOfReach(
-        List<(string? Address, string? Hostname, double? MinRttMs)> list, Anchor?[] anchors, int i, GeoInfo geo)
+        List<(string? Address, string? Hostname, double? MinRttMs)> list, bool[] delayed, Anchor?[] anchors, int i, GeoInfo geo)
     {
         if (anchors[i] != null || list[i].MinRttMs is not double rtt || geo is not { Latitude: double lat, Longitude: double lon })
             return null;
         foreach (var j in new[] { Nearest(anchors, i, -1), Nearest(anchors, i, +1) })
         {
-            if (j < 0 || list[j].MinRttMs is not double other) continue;
+            if (j < 0 || Unmeasured(anchors[j]!, delayed[j]) || list[j].MinRttMs is not double other) continue;
             if (!InReach(anchors[j]!, lat, lon, Math.Abs(rtt - other), geo.AccuracyRadiusKm ?? 0)) return (anchors[j]!, j);
         }
         return null;

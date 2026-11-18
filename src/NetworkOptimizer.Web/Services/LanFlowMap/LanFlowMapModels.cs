@@ -77,6 +77,9 @@ public enum LanNodeKind
     VirtualHub = 6,
 }
 
+/// <summary>One link of a multi-link backhaul: its band ("2.4", "5", "6") and signal in dBm.</summary>
+public record LanLinkSignal(string Band, int SignalDbm);
+
 public enum LanPlacementSource
 {
     /// <summary>No placement hint - layout engine decides.</summary>
@@ -103,6 +106,21 @@ public class LanNode
     /// <summary>AP mount type ("ceiling", "wall", "desktop") for vertical positioning within a floor.</summary>
     public string? MountType { get; set; }
 
+    /// <summary>
+    /// Compass bearing (0 = north, clockwise) a placed AP's orientation arrow points to, away from
+    /// the face of the AP. Null for an AP not placed on the map and for every other node.
+    /// </summary>
+    public int? OrientationDeg { get; set; }
+
+    /// <summary>A client body's longest side on the 3D map at closest zoom, in metres (<see cref="ClientIcons.ClientBody"/>). Null for every other node.</summary>
+    public double? BodySizeM { get; set; }
+
+    /// <summary>A client's depth class on the 3D map (<see cref="ClientIcons.ClientBodyDepth"/>). Null as <see cref="BodySizeM"/>.</summary>
+    public int? BodyDepth { get; set; }
+
+    /// <summary>Whether a client is a big flat panel (a TV) the 3D map turns parallel to the nearest wall.</summary>
+    public bool WallFlat { get; set; }
+
     /// <summary>Whether the device responded to our last poll (for dimming offline nodes).</summary>
     public bool Online { get; set; } = true;
 
@@ -118,19 +136,54 @@ public class LanNode
     /// curves. Computed here so the map cannot drift from every other surface that shows signal -
     /// the thresholds never reach the browser.
     /// </summary>
-    public string? SignalClass => SignalDbm.HasValue && Band != null
-        ? NetworkOptimizer.WiFi.Helpers.SignalClassification.GetSignalClass(SignalDbm.Value, Band)
-        : null;
+    public string? SignalClass => CellularSignalQuality is int q
+        ? NetworkOptimizer.Monitoring.Models.CellularModemStats.QualityClass(q)
+        : SignalDbm.HasValue && Band != null
+            ? NetworkOptimizer.WiFi.Helpers.SignalClassification.GetSignalClass(SignalDbm.Value, Band)
+            : null;
 
     /// <inheritdoc cref="SignalClass"/>
-    public int? SignalBars => SignalDbm.HasValue && Band != null
-        ? NetworkOptimizer.WiFi.Helpers.SignalClassification.GetSignalBars(SignalDbm.Value, Band)
-        : null;
+    public int? SignalBars => CellularSignalQuality is int q
+        ? NetworkOptimizer.Monitoring.Models.CellularModemStats.QualityBars(q)
+        : MloAverage() is { } mlo ? mlo.Bars
+        : SignalDbm.HasValue && Band != null
+            ? NetworkOptimizer.WiFi.Helpers.SignalClassification.GetSignalBars(SignalDbm.Value, Band)
+            : null;
 
     /// <summary>The blended color for this reading, so the map bars shade like every other gauge.</summary>
-    public string? SignalColor => SignalDbm.HasValue && Band != null
-        ? NetworkOptimizer.WiFi.Helpers.SignalClassification.GetSignalColor(SignalDbm.Value, Band)
-        : null;
+    public string? SignalColor => CellularSignalQuality is int q
+        ? NetworkOptimizer.Monitoring.Models.CellularModemStats.QualityColor(q)
+        : MloAverage() is { } mlo ? mlo.Color
+        : SignalDbm.HasValue && Band != null
+            ? NetworkOptimizer.WiFi.Helpers.SignalClassification.GetSignalColor(SignalDbm.Value, Band)
+            : null;
+
+    /// <summary>
+    /// A monitored cellular modem's Signal Quality (0-100), as Cellular Stats shows it. Set on the
+    /// device node whose IP the modem's Host names; when set it drives the signal fields above.
+    /// </summary>
+    public int? CellularSignalQuality { get; set; }
+
+    /// <summary>
+    /// "5G" or "LTE": what the monitored modem is connected on now (NR in its latest reading, NSA or
+    /// SA, is 5G). The badge of the WAN it carries follows it. Null when unmonitored or stale.
+    /// </summary>
+    public string? CellularMode { get; set; }
+
+    /// <summary>The Cellular Stats modem this device is, so a double-click opens its series there.</summary>
+    public int? CellularModemId { get; set; }
+
+    /// <summary>
+    /// Each link of an MLO mesh backhaul with its signal, for the tooltip. The 5 and 6 GHz links
+    /// together drive the signal fields above, averaged; null on a single-link uplink.
+    /// </summary>
+    public List<LanLinkSignal>? MloLinks { get; set; }
+
+    private (int Bars, string Color)? MloAverage()
+    {
+        var links = MloLinks?.Where(l => l.Band is "5" or "6").Select(l => (l.SignalDbm, (string?)l.Band)).ToList();
+        return links is { Count: > 0 } ? NetworkOptimizer.WiFi.Helpers.SignalClassification.GetAverageSignal(links) : null;
+    }
     public long? PhyTxKbps { get; set; }
     public long? PhyRxKbps { get; set; }
 
@@ -217,6 +270,17 @@ public class LanLink
     /// across links. Drives the "(MLO)" tag on the 3D map's link hover.</summary>
     public bool IsMloMesh { get; set; }
 
+    /// <summary>
+    /// WAN links only: the device node this WAN physically leaves through when it is not the
+    /// gateway's own port (a cellular modem). The maps draw the globe's link from it; FromNodeId and
+    /// ToNodeId stay cloud and gateway, so rates and playback key on the link as before.
+    /// </summary>
+    public string? ViaNodeId { get; set; }
+
+    /// <summary>The <see cref="ViaNodeId"/> device carries the WAN as a tunnel over the LAN (GRE),
+    /// so the link is drawn dashed. False for a modem on a gateway WAN port.</summary>
+    public bool ViaTunnel { get; set; }
+
     /// <summary>Wireless band ("2.4"/"5"/"6") for wifi-client and mesh links.</summary>
     public string? Band { get; set; }
 
@@ -280,6 +344,18 @@ public class LanCloud
 
     /// <summary>True when the WAN sits behind CGNAT (no public IPv4).</summary>
     public bool IsCgnat { get; set; }
+
+    /// <summary>"5G" or "LTE" for a cellular WAN; null otherwise. The globe carries it as a badge. It is
+    /// the carrying modem's live mode when Cellular Stats monitors it, else the WAN's type on the gateway.</summary>
+    public string? CellularKind { get; set; }
+
+    /// <summary>The device node of the monitored modem carrying this WAN (the gateway, for a built-in
+    /// modem). During playback the badge reads that node's mode at the scrub instant.</summary>
+    public string? CellularNodeId { get; set; }
+
+    /// <summary>The ISP's logo by <see cref="Asn"/>, the one UniFi Network shows, served from the icon
+    /// cache; the maps draw it in place of the globe. Null when the ISP has none (or it is not cached yet).</summary>
+    public string? LogoUrl { get; set; }
 
     /// <summary>Discovery pending state - the access cloud frame is real but
     /// upstream Hops haven't been resolved yet (tracer wizard not run / in progress).</summary>
@@ -435,19 +511,32 @@ public class NodeClientStats
     /// arrives on the live tick before the snapshot rebuild catches up, and reading the class off
     /// the node then colors the bars after a different, staler reading than the label shows.
     /// </summary>
-    public string? SignalClass => SignalDbm.HasValue && Band != null
-        ? NetworkOptimizer.WiFi.Helpers.SignalClassification.GetSignalClass(SignalDbm.Value, Band)
-        : null;
+    public string? SignalClass => CellularSignalQuality is int q
+        ? NetworkOptimizer.Monitoring.Models.CellularModemStats.QualityClass(q)
+        : SignalDbm.HasValue && Band != null
+            ? NetworkOptimizer.WiFi.Helpers.SignalClassification.GetSignalClass(SignalDbm.Value, Band)
+            : null;
 
     /// <inheritdoc cref="SignalClass"/>
-    public int? SignalBars => SignalDbm.HasValue && Band != null
-        ? NetworkOptimizer.WiFi.Helpers.SignalClassification.GetSignalBars(SignalDbm.Value, Band)
-        : null;
+    public int? SignalBars => CellularSignalQuality is int q
+        ? NetworkOptimizer.Monitoring.Models.CellularModemStats.QualityBars(q)
+        : SignalDbm.HasValue && Band != null
+            ? NetworkOptimizer.WiFi.Helpers.SignalClassification.GetSignalBars(SignalDbm.Value, Band)
+            : null;
 
     /// <summary>The blended color for this reading, so the map bars shade like every other gauge.</summary>
-    public string? SignalColor => SignalDbm.HasValue && Band != null
-        ? NetworkOptimizer.WiFi.Helpers.SignalClassification.GetSignalColor(SignalDbm.Value, Band)
-        : null;
+    public string? SignalColor => CellularSignalQuality is int q
+        ? NetworkOptimizer.Monitoring.Models.CellularModemStats.QualityColor(q)
+        : SignalDbm.HasValue && Band != null
+            ? NetworkOptimizer.WiFi.Helpers.SignalClassification.GetSignalColor(SignalDbm.Value, Band)
+            : null;
+
+    /// <summary>A cellular modem's Signal Quality at the scrub instant; see <see cref="LanNode.CellularSignalQuality"/>.</summary>
+    public int? CellularSignalQuality { get; set; }
+
+    /// <summary>A cellular modem's mode at the scrub instant; see <see cref="LanNode.CellularMode"/>.</summary>
+    public string? CellularMode { get; set; }
+
     /// <summary>Node id ("dev-{mac}") of the AP the client was associated with at the
     /// scrub instant, so the maps can re-attach the client to its historic AP (roam).
     /// Null when unknown.</summary>

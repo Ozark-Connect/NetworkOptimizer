@@ -615,9 +615,7 @@ else
             await SelfWan.LoadAsync();
             await SelfWan.SelectAllAsync(persist: false);
             var devices = await ConnectionService.GetDiscoveredDevicesAsync();
-            var gw = devices?.FirstOrDefault(d =>
-                d.Type == NetworkOptimizer.Core.Enums.DeviceType.Gateway
-                || d.HardwareType == NetworkOptimizer.Core.Enums.DeviceType.Gateway);
+            var gw = NetworkOptimizer.UniFi.UniFiDiscovery.SiteGateway(devices);
             _selfGatewayMac = gw?.Mac?.Replace("-", ":").ToLowerInvariant();
             _selfGatewayWanIfNames = gw?.WanInterfaceNames ?? new();
         }

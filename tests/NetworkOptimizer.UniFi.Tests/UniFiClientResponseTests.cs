@@ -310,4 +310,23 @@ public class UniFiClientResponseTests
     }
 
     #endregion
+
+    #region IsProtectDevice Tests
+
+    [Theory]
+    // Marked on the client record (a camera, an AI Key).
+    [InlineData("""{"mac":"aa:bb:cc:dd:ee:01","product_line":"unifi-protect"}""", true)]
+    // Marked only in the ucore block (a bridged camera with no client-level product_line).
+    [InlineData("""{"mac":"aa:bb:cc:dd:ee:02","unifi_device_info_from_ucore":{"product_line":"PROTECT","name":"[Camera] Driveway"}}""", true)]
+    // A UniFi device another app owns, and an ordinary client.
+    [InlineData("""{"mac":"aa:bb:cc:dd:ee:03","product_line":"unifi-network","unifi_device_info_from_ucore":{"product_line":"NETWORK"}}""", false)]
+    [InlineData("""{"mac":"aa:bb:cc:dd:ee:04","name":"Laptop"}""", false)]
+    public void IsProtectDevice_ReadsEitherMarker(string json, bool expected)
+    {
+        var client = System.Text.Json.JsonSerializer.Deserialize<UniFiClientResponse>(json)!;
+
+        client.IsProtectDevice.Should().Be(expected);
+    }
+
+    #endregion
 }

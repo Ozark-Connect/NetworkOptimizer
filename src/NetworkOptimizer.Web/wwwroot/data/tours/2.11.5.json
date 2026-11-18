@@ -1,0 +1,31 @@
+{
+  "id": "2.11.5",
+  "kind": "whats-new",
+  "title": "What's new in v2.11.5",
+  "summary": "Meet the Path Map: every Target you monitor, and the route your traffic takes to get there, on one live map.",
+  "steps": [
+    {
+      "id": "path-map",
+      "level": "major",
+      "url": "/monitoring?tab=performance",
+      "selector": "[data-tour=\"path-map\"]",
+      "title": "Path Map",
+      "listLabel": "See every Target's route on one live map, and where along it trouble starts",
+      "body": "Each Target's route, drawn hop by hop and lit by how that Target is doing against its own baseline. Routes that share a network share a line, so a problem upstream shows up on every Target behind it.\n\n**All**, **Transit**, and **Local** switch between the whole picture, the networks in between, and your ISP and where it hands off. Hover any Target, city, or leg for the Targets there, then open one in the charts or run **Trace Route**. Route changes are listed with the round trip before and after.",
+      "placement": "top",
+      "scroll": "top",
+      "optional": true
+    },
+    {
+      "id": "3d-device-models",
+      "level": "minor",
+      "badge": "improved",
+      "url": "/monitoring?tab=live",
+      "selector": "[data-tour=\"lan-flow-map-3d\"]",
+      "title": "3D Device Models",
+      "listLabel": "Your devices and clients on the 3D map now look like themselves",
+      "body": "Every UniFi device and client on the **3D LAN Flow Map** now shows up as itself, sized by what it is: access points mounted the way you placed them on the **Signal Map**, TVs on the wall, and roofs that follow your buildings.\n\nSomething you'd rather not see, like a management interface? **Right-click** it and choose **Hide Device**, and **Hidden Devices** in **Overlays** brings it back.",
+      "placement": "top"
+    }
+  ]
+}
