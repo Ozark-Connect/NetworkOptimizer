@@ -107,8 +107,37 @@ else
     /// <summary>Each node's vertical center at the last render, by column and name.</summary>
     private Dictionary<(int, string), double> _centers = new();
 
-    private const int W = 790;
+    /// <summary>The card's width in CSS pixels, as the page measured it; 0 until measured.</summary>
+    [Parameter] public double CardWidth { get; set; }
+
+    /// <summary>The canvas width on a wide card, where the diagram reads at its designed size.</summary>
+    private const int WideW = 790;
+    /// <summary>How much larger than its canvas units a narrow card should draw the diagram.</summary>
+    private const double NarrowScale = 1.3;
+    /// <summary>The canvas width this render; narrower than <see cref="WideW"/> on a narrow card.</summary>
+    private int W = WideW;
     private const int H = 360;
+
+    /// <summary>
+    /// The canvas width for a card: <see cref="WideW"/> where the card is wide enough, else narrower so the
+    /// card scales the diagram up (shorter bands, larger everything else), but never narrower than the
+    /// labels need. A fixed canvas scaled to a narrow (portrait) card drew it small.
+    /// </summary>
+    internal static int CanvasWidth(double cardPx, double contentMin) =>
+        cardPx <= 0 ? WideW : (int)Math.Round(Math.Clamp(cardPx / NarrowScale, Math.Min(contentMin, WideW), WideW));
+
+    /// <summary>
+    /// The narrowest canvas this diagram's labels fit: the client names, a short band, an app's icon, name,
+    /// and rate line, then the route's. App names past 180 units are trimmed, so they count at most that.
+    /// </summary>
+    private static double ContentWidth(LiveSankey sankey)
+    {
+        var sub = sankey.ValueIsFlows ? 0 : SubW;
+        double Longest(int col) => Math.Max(sub, sankey.Nodes.Where(n => n.Column == col)
+            .Select(n => n.Name.Length * CharW).DefaultIfEmpty(0).Max());
+        var left = Math.Clamp(Longest(0) + LabelGap + 2, 90, 230);
+        return left + 120 + NodeW + LabelGap + IconW + Math.Min(Longest(1), 180) + 20 + NodeW + LabelGap + Longest(2) + 4;
+    }
     private const double Top = 30;
     private const double Bottom = 22;
     private const int NodeW = 10;
@@ -126,7 +155,7 @@ else
     /// and route labels right of theirs, so the client column moves right as far as its longest name
     /// needs, the route column keeps room for its own, and the app column sits midway.
     /// </summary>
-    private static double[] Columns(LiveSankey sankey)
+    private static double[] Columns(LiveSankey sankey, int W)
     {
         // A rate subtitle ("↓ 12.3 Mbps ↑ 1.1 Mbps", in the smaller sub font) needs its room as much as a name.
         var sub = sankey.ValueIsFlows ? 0 : SubW;
@@ -205,7 +234,8 @@ else
 
     private Placed Layout(LiveSankey sankey)
     {
-        ColX = Columns(sankey);
+        W = CanvasWidth(CardWidth, ContentWidth(sankey));
+        ColX = Columns(sankey, W);
         var placed = new Dictionary<(int, string), PlacedNode>();
         var outOffset = new Dictionary<(int, string), double>();
         var inOffset = new Dictionary<(int, string), double>();

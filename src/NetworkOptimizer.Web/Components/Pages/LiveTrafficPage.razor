@@ -228,14 +228,14 @@
                         </div>
                     </div>
                     <div class="card-body" @onmouseenter="PointerIn" @onmouseleave="PointerOut" @ontouchstart="Touched">
-                        <div class="lt-sankey-stage">
+                        <div class="lt-sankey-stage" @ref="_sankeyStage">
                             @if (_view.State == LiveTrafficState.Starting)
                             {
                                 <div class="loading-container lt-sankey-empty"><div class="spinner"></div><p>Measuring rates.</p></div>
                             }
                             else
                             {
-                                <LiveTrafficSankey Context="Ctx" Sankey="_view.Sankey" Hold="Held" OnHover="HoverSankey" Pinned="@ActiveSankeyHold?.Node" Filters="_filters" Searching="@(!string.IsNullOrWhiteSpace(_search))" OnFilter="ToggleFilter" />
+                                <LiveTrafficSankey Context="Ctx" Sankey="_view.Sankey" CardWidth="_sankeyWidth" Hold="Held" OnHover="HoverSankey" Pinned="@ActiveSankeyHold?.Node" Filters="_filters" Searching="@(!string.IsNullOrWhiteSpace(_search))" OnFilter="ToggleFilter" />
                             }
                         </div>
                         <div class="lt-legend-note">Click any client, app, or route to filter the page to it, and again to remove the filter. Width of bands is @(_sankeyByFlows ? "flow count" : "rate") on a log scale, so small flows stay visible.@(_sankeyByFlows ? "" : " Each band splits into download (strong) and upload (light), in its route's color.")</div>
@@ -435,6 +435,7 @@
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
+        await WatchSankeyWidthAsync();
         if (!firstRender) return;
         await StartRowMotionAsync();
         await LoadDnsPreferenceAsync();
@@ -543,6 +544,31 @@
     private string QueryKey => $"{_groupBy}|{_ended}|{_flowSort}|{_flowDesc}|{_search}|{string.Join(",", _filters)}";
 
     private LiveTrafficView ApplyHold(LiveTrafficView view) => _hold.Apply(view, QueryKey);
+
+    // Where It's Going's stage and its width in CSS pixels: a narrow (portrait) card draws the diagram on a
+    // narrower canvas, so it scales up instead of shrinking. Re-watched whenever the stage is re-created.
+    private ElementReference _sankeyStage;
+    private string? _watchedStageId;
+    private double _sankeyWidth;
+
+    private async Task WatchSankeyWidthAsync()
+    {
+        if (_motion == null || _selfRef == null || _sankeyStage.Id is not { } id || id == _watchedStageId) return;
+        _watchedStageId = id;
+        try { await _motion.InvokeVoidAsync("watchWidth", "sankey", _sankeyStage, _selfRef, nameof(SetSankeyWidth)); }
+        catch (JSDisconnectedException) { }
+        catch (Exception ex) { Logger.LogDebug(ex, "Where It's Going width watch failed"); }
+    }
+
+    /// <summary>Called by live-traffic-motion.js when Where It's Going's stage changes width.</summary>
+    [JSInvokable]
+    public Task SetSankeyWidth(double width)
+    {
+        if (Math.Abs(width - _sankeyWidth) < 1) return Task.CompletedTask;
+        _sankeyWidth = width;
+        StateHasChanged();
+        return Task.CompletedTask;
+    }
 
     /// <summary>
     /// Starts the browser-side watcher that slides moved rows into place and holds the expanded row
@@ -1669,6 +1695,8 @@
         try { _ = LiveTrafficService.ReleaseAsync(_viewerId); }
         catch { /* circuit going away */ }
         try { _ = _motion?.InvokeVoidAsync("unwatchVisibility", "live-traffic").AsTask(); }
+        catch { /* circuit going away */ }
+        try { _ = _motion?.InvokeVoidAsync("unwatchWidth", "sankey").AsTask(); }
         catch { /* circuit going away */ }
         if (_canNameApps && _selfRef != null)
         {
