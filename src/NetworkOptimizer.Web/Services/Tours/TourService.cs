@@ -178,7 +178,9 @@ public class TourService
         {
             var eligible = EligibleSteps(tour, ctx).ToList();
             var seen = eligible.Count(s => snapshot.SeenStepIds.Contains(s.Id));
-            var status = snapshot.DismissedTourIds.Contains(tour.Id) ? TourStatus.Skipped
+            // A real skip happens mid-tour, after a step was shown. A dismissal with nothing seen is
+            // the clean-start baseline, which the user never touched.
+            var status = snapshot.DismissedTourIds.Contains(tour.Id) && seen > 0 ? TourStatus.Skipped
                 : eligible.Count > 0 && seen == eligible.Count ? TourStatus.Completed
                 : snapshot.Offers.ContainsKey(tour.Id) || seen > 0 ? TourStatus.Deferred
                 : TourStatus.NotSeen;

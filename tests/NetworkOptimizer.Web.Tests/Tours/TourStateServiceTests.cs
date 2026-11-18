@@ -325,6 +325,34 @@ public sealed class TourStateServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task TheLauncherShowsBaselineToursAsNotSeen()
+    {
+        await SeedUsersAsync(Alice, Bob);
+
+        var statuses = await Tours(Bob).GetTourStatusesAsync();
+
+        statuses.Single(s => s.Tour.Id == OldTour).Status.Should().Be(TourStatus.NotSeen,
+            "the account never touched a baseline tour");
+        statuses.Single(s => s.Tour.Id == CurrentMinorLatest).Status.Should().Be(TourStatus.NotSeen);
+    }
+
+    [Fact]
+    public async Task TheLauncherStillShowsARealSkip()
+    {
+        await SeedUsersAsync(Alice, Bob);
+        await _state.RecordStepSeenAsync(Bob, "step-" + OldTour);
+        await _state.RecordToursDismissedAsync(Bob, [OldTour]);
+        await _state.RecordStepSeenAsync(Bob, "step-" + CurrentMinorLatest);
+        await _state.RecordToursDismissedAsync(Bob, [CurrentMinorLatest]);
+
+        var statuses = await Tours(Bob).GetTourStatusesAsync();
+
+        statuses.Single(s => s.Tour.Id == OldTour).Status.Should().Be(TourStatus.Skipped);
+        statuses.Single(s => s.Tour.Id == CurrentMinorLatest).Status.Should().Be(TourStatus.Skipped);
+        statuses.Single(s => s.Tour.Id == OlderPatchTour).Status.Should().Be(TourStatus.NotSeen);
+    }
+
+    [Fact]
     public async Task TheDefaultSubjectKeepsTheFullBacklog()
     {
         await SetFirstSeenAsync(null);
