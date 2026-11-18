@@ -125,6 +125,14 @@
                                     </div>
                                 </td>
                             </tr>
+                            @if (_rowMessageId == provider.Id && _rowMessage is not null)
+                            {
+                                <tr>
+                                    <td colspan="5">
+                                        <div class="alert alert-@_rowMessageClass">@_rowMessage</div>
+                                    </td>
+                                </tr>
+                            }
                         }
                     </tbody>
                 </table>
@@ -284,6 +292,7 @@
                     }
                     <button type="button" class="btn btn-contrast btn-sm" @onclick="() => _editing = null">Close</button>
                 </div>
+                @ProviderMessage()
             </div>
         }
         else
@@ -293,6 +302,8 @@
                 <button type="button" class="btn btn-secondary btn-sm" @onclick="AddSaml">Add SAML provider</button>
                 <button type="button" class="btn btn-primary btn-sm" @onclick="AddOidc">Add OpenID Connect provider</button>
             </div>
+            @* A save closes the form, so its result lands here, where the form's buttons were. *@
+            @ProviderMessage()
         }
 
         <h3 class="identity-section-title">Local sign-in</h3>
@@ -329,6 +340,21 @@
 
     private string? _message;
     private string _messageClass = "info";
+
+    // Feedback sits next to the control that caused it: the provider form's buttons, or the row.
+    private string? _providerMessage;
+    private string _providerMessageClass = "info";
+    private int? _rowMessageId;
+    private string? _rowMessage;
+    private string _rowMessageClass = "info";
+
+    private RenderFragment ProviderMessage() => __builder =>
+    {
+        if (_providerMessage is not null)
+        {
+            <div class="alert alert-@_providerMessageClass">@_providerMessage</div>
+        }
+    };
 
     private bool _hasEnabledProvider => _providers?.Any(p => p.Enabled && ConfigureOidcOptions.IsUsable(p)) == true;
 
@@ -380,7 +406,7 @@
             _editing.RoleMappingMode = RoleMappingMode.Manual;
 
         _newSecret = "";
-        _message = null;
+        ClearMessages();
     }
 
     /// <summary>
@@ -405,7 +431,7 @@
 
         if (string.IsNullOrWhiteSpace(_editing.Scheme) || string.IsNullOrWhiteSpace(_editing.DisplayName))
         {
-            Show("A provider needs a display name and a scheme.", "warning");
+            ShowProvider("A provider needs a display name and a scheme.", "warning");
             return;
         }
 
@@ -420,13 +446,13 @@
             _newSecret = "";
             await ReloadAsync();
             _editing = null;
-            Show(needsEnabling
+            ShowProvider(needsEnabling
                 ? "Provider saved. Enable it to put its button on the login page."
                 : "Provider saved.", "success");
         }
         catch (Exception ex)
         {
-            Show(ex.Message, "warning");
+            ShowProvider(ex.Message, "warning");
         }
         finally
         {
@@ -442,7 +468,7 @@
         }
         catch (FederationProviderConfigurationException ex)
         {
-            Show(ex.Message, "warning");
+            ShowRow(provider, ex.Message, "warning");
             return;
         }
         await ReloadAsync();
@@ -452,11 +478,11 @@
         {
             _localLoginDisabled = false;
             await AuthPolicyAdmin.SetLocalLoginDisabledAsync(false);
-            Show("Local sign-in was re-enabled: no identity provider is left to sign in with.", "info");
+            ShowRow(provider, "Local sign-in was re-enabled: no identity provider is left to sign in with.", "info");
             return;
         }
 
-        Show($"{provider.DisplayName} is now {(provider.Enabled ? "disabled" : "enabled")}.", "success");
+        ShowRow(provider, $"{provider.DisplayName} is now {(provider.Enabled ? "disabled" : "enabled")}.", "success");
     }
 
     private async Task DeleteAsync(FederationProvider provider)
@@ -473,7 +499,8 @@
         if (_editing?.Id == provider.Id)
             _editing = null;
 
-        Show($"Removed {provider.DisplayName}.", "success");
+        // The row is gone, so the result goes under the provider buttons.
+        ShowProvider($"Removed {provider.DisplayName}.", "success");
     }
 
     private async Task SaveLocalLoginAsync()
@@ -518,7 +545,32 @@
 
     private void Show(string message, string cssClass)
     {
+        ClearMessages();
         _message = message;
         _messageClass = cssClass;
+    }
+
+    private void ShowProvider(string message, string cssClass)
+    {
+        ClearMessages();
+        _providerMessage = message;
+        _providerMessageClass = cssClass;
+    }
+
+    private void ShowRow(FederationProvider provider, string message, string cssClass)
+    {
+        ClearMessages();
+        _rowMessageId = provider.Id;
+        _rowMessage = message;
+        _rowMessageClass = cssClass;
+    }
+
+    /// <summary>One message at a time, so an old result never sits beside a new one elsewhere on the card.</summary>
+    private void ClearMessages()
+    {
+        _message = null;
+        _providerMessage = null;
+        _rowMessage = null;
+        _rowMessageId = null;
     }
 }
