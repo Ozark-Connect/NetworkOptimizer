@@ -83,7 +83,7 @@ public sealed class ConntrackEventSocket
                         close(fd);
                         fd = -1;
                         Active = false;
-                        _timer.Clear();
+                        _timer.OnLoss();
                         Console.WriteLine($"Flow latency: paused for {FloodPause.TotalSeconds:0} s ({rate} conntrack events in one second)");
                         ct.WaitHandle.WaitOne(FloodPause);
                         continue;
@@ -96,7 +96,9 @@ public sealed class ConntrackEventSocket
                         close(fd);
                         fd = -1;
                         Active = false;
-                        _timer.Clear();
+                        // Events stop with the socket, so handshakes in progress cannot finish. Finished
+                        // round trips stay for the next viewer: the flows they belong to may still be open.
+                        _timer.OnLoss();
                         Console.WriteLine("Flow latency: stopped (lease ended)");
                     }
                     ct.WaitHandle.WaitOne(TimeSpan.FromSeconds(1));
@@ -127,7 +129,7 @@ public sealed class ConntrackEventSocket
                         close(fd);
                         fd = -1;
                         Active = false;
-                        _timer.Clear();
+                        _timer.OnLoss();
                         ct.WaitHandle.WaitOne(TimeSpan.FromSeconds(5));
                     }
                     continue;

@@ -26,7 +26,7 @@
             <td>@RoutePill(f)</td>
             @if (ShowRoundTrip)
             {
-                <td class="lt-num" data-tooltip="@RoundTripTooltip(f)" data-tooltip-hover-only>@(f.RemoteRttMs is { } rtt ? LiveTrafficDisplay.RoundTrip(rtt) : "-")</td>
+                <td class="lt-num @(f.RttAssumed ? "lt-muted" : null)" data-tooltip="@RoundTripTooltip(f)" data-tooltip-hover-only>@(f.RttShownMs is { } rtt ? LiveTrafficDisplay.RoundTrip(rtt) : "-")</td>
             }
             <td class="lt-num">@Rate(f.Ended ? 0 : f.DownBps, "speed-down")</td>
             <td class="lt-num">@Rate(f.Ended ? 0 : f.UpBps, "speed-up")</td>
@@ -186,9 +186,14 @@
     [Parameter] public bool ShowRoundTrip { get; set; }
 
     /// <summary>The RTT cell's tooltip: what the number is, and the client's own round trip when there is one.</summary>
-    private static string? RoundTripTooltip(LiveFlowRow f) => f.RemoteRttMs is null ? null
+    private static string? RoundTripTooltip(LiveFlowRow f) => f.RemoteRttMs is null
+        ? f.DestinationRoundTrip is { } d ? $"Not timed: this connection opened before Live Traffic was open\n{AssumedFrom(d)}" : null
         : f.ClientRttMs is { } client ? $"To the destination and back, timed when the connection opened\n{LiveTrafficDisplay.RoundTrip(client)} to the client"
         : "To the destination and back, timed when the connection opened";
+
+    private static string AssumedFrom(RoundTripSummary d) => d.Connections == 1
+        ? "Shown: the one timed connection to this destination"
+        : $"Shown: the median of {d.Connections} timed connections to this destination";
 
     private string LastSeenLabel(LiveFlowRow f) => f.LastSeen is { } seen ? LocalTime(seen) : "";
 
@@ -304,8 +309,8 @@
             }
             else
             {
-                <text>Not measured </text>
-                <span class="tooltip-icon tooltip-icon-sm" data-tooltip="Connections are timed as they open, so only those opened while Live Traffic is open have a round trip.">?</span>
+                <text>Not measured@(f.DestinationRoundTrip is { } d ? $" (this destination: {LiveTrafficDisplay.RoundTrip(d.MedianMs)})" : "") </text>
+                <span class="tooltip-icon tooltip-icon-sm" data-tooltip="Connections are timed as they open, so only those opened while Live Traffic is open have a round trip of their own.">?</span>
             }
         </dd>
     };

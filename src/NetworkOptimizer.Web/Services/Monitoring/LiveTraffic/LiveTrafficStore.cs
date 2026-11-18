@@ -147,6 +147,7 @@ public sealed class LiveTrafficStore
             _ended.Clear();
             _dns.Clear();
             _names.Clear();
+            _roundTrips.Clear();
         }
     }
 
@@ -178,12 +179,7 @@ public sealed class LiveTrafficStore
                     // The agent ends a flow its reads missed twice; one that comes back is not ended.
                     RemoveEnded(flow.Key);
                 }
-                else if (flow.RemoteRttUs == 0 && flow.ClientRttUs == 0 && flow.AgeSeconds >= state.Last.AgeSeconds)
-                {
-                    // Timed once, at the handshake: the agent forgets it long before a long flow ends. A
-                    // younger age is a new flow on the same tuple, which keeps nothing.
-                    (flow.RemoteRttUs, flow.ClientRttUs, flow.RttQueued) = (state.Last.RemoteRttUs, state.Last.ClientRttUs, state.Last.RttQueued);
-                }
+                KeepRoundTrip(flow, now);
                 state.Last = flow;
                 state.LastSeen = now;
                 state.DownBps = flow.DownBytes * 8.0 / window;
@@ -205,8 +201,7 @@ public sealed class LiveTrafficStore
             foreach (var flow in batch.Ended)
             {
                 _flows.Remove(flow.Key, out var last);
-                if (last != null && flow.RemoteRttUs == 0 && flow.ClientRttUs == 0)
-                    (flow.RemoteRttUs, flow.ClientRttUs, flow.RttQueued) = (last.Last.RemoteRttUs, last.Last.ClientRttUs, last.Last.RttQueued);
+                KeepRoundTrip(flow, now);
                 // One row per tuple: the Ended table keys its rows by it.
                 RemoveEnded(flow.Key);
                 _ended.AddFirst(new EndedFlow(now, flow, last?.Recent.Down ?? 0, last?.Recent.Up ?? 0));
@@ -1610,6 +1605,44 @@ public sealed class LiveTrafficStore
         }
     }
 
+    // Round trips by flow key, kept past the batches that carried them: the agent times a flow once, at its
+    // handshake, and forgets it after a while, and a new stream (a viewer back after a gap) starts with no rows.
+    private readonly Dictionary<string, (int Remote, int Client, bool Queued, long Age, DateTime At)> _roundTrips = new();
+    private const int MaxRoundTrips = 20_000;
+    private static readonly TimeSpan RoundTripLife = TimeSpan.FromMinutes(30);
+
+    /// <summary>
+    /// Remembers a flow's round trip when the batch carries one, and fills it back in when it does not. A
+    /// flow younger than the remembered one would be by now is a new flow on the same tuple, and gets nothing.
+    /// Callers hold <c>_gate</c>.
+    /// </summary>
+    private void KeepRoundTrip(LiveFlow flow, DateTime now)
+    {
+        if (flow.RemoteRttUs > 0 || flow.ClientRttUs > 0)
+        {
+            if (!_roundTrips.ContainsKey(flow.Key) && _roundTrips.Count >= MaxRoundTrips) PruneRoundTrips(now);
+            _roundTrips[flow.Key] = (flow.RemoteRttUs, flow.ClientRttUs, flow.RttQueued, flow.AgeSeconds, now);
+            return;
+        }
+        if (!_roundTrips.TryGetValue(flow.Key, out var kept)) return;
+        // A few seconds of slack: ages are whole seconds and batches arrive every two.
+        if (flow.AgeSeconds + 5 < kept.Age + (now - kept.At).TotalSeconds)
+        {
+            _roundTrips.Remove(flow.Key);
+            return;
+        }
+        (flow.RemoteRttUs, flow.ClientRttUs, flow.RttQueued) = (kept.Remote, kept.Client, kept.Queued);
+    }
+
+    private void PruneRoundTrips(DateTime now)
+    {
+        foreach (var key in _roundTrips.Where(kv => now - kv.Value.At > RoundTripLife).Select(kv => kv.Key).ToList())
+            _roundTrips.Remove(key);
+        if (_roundTrips.Count < MaxRoundTrips) return;
+        foreach (var key in _roundTrips.OrderBy(kv => kv.Value.At).Take(MaxRoundTrips / 10).Select(kv => kv.Key).ToList())
+            _roundTrips.Remove(key);
+    }
+
     /// <summary>Whether the site's Gateway agent can time round trips (it announces "flow-latency").</summary>
     public void SetFlowLatencyCapable(bool capable)
     {
@@ -1788,9 +1821,9 @@ public sealed class LiveTrafficStore
             LiveFlowSort.Destination => OrderText(rows, r => r.Destination),
             LiveFlowSort.App => OrderText(rows, r => r.App),
             LiveFlowSort.Route => OrderText(rows, r => r.Route),
-            // A flow with no round trip sorts last either way: it was not measured, not fast.
-            LiveFlowSort.RoundTrip => rows.OrderBy(r => r.RemoteRttMs == null)
-                .ThenBy(r => descending ? -(r.RemoteRttMs ?? 0) : r.RemoteRttMs ?? 0),
+            // By the value the column shows. A row with none sorts last either way: it was not measured, not fast.
+            LiveFlowSort.RoundTrip => rows.OrderBy(r => r.RttShownMs == null)
+                .ThenBy(r => descending ? -(r.RttShownMs ?? 0) : r.RttShownMs ?? 0),
             _ => Order(rows, r => r.DownBps),
         };
         return ordered.ThenByDescending(r => r.DownBps).ThenByDescending(r => r.TotalBytes).ToList();

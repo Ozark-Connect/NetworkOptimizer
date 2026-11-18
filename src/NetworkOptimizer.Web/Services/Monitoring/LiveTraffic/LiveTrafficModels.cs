@@ -212,6 +212,10 @@ public sealed record LiveFlowRow
     public RoundTripSummary? ClientRoundTrip { get; init; }
     /// <summary>Whether the Gateway agent times round trips at all; Hidden for history rows and older agents.</summary>
     public FlowLatencyAvailability Latency { get; init; }
+    /// <summary>The RTT column's value: this flow's own round trip, else its destination's median.</summary>
+    public double? RttShownMs => RemoteRttMs ?? DestinationRoundTrip?.MedianMs;
+    /// <summary>The RTT column shows the destination's median: this flow opened before it could be timed.</summary>
+    public bool RttAssumed => RemoteRttMs == null && DestinationRoundTrip != null;
     /// <summary>Oldest first, one point per agent window, at most two minutes.</summary>
     public IReadOnlyList<(double Down, double Up)> History { get; init; } = Array.Empty<(double, double)>();
     public bool Ended { get; init; }
