@@ -260,6 +260,65 @@ public class FlowLatencyTests
         t.PendingCount.Should().Be(0);
     }
 
+    // ---------------------------------------------------------------- first-seen times between viewers
+
+    private static ConntrackFlow Line(int sport, long bytes = 1000) => ConntrackParser.ParseLine(
+        $"ipv4     2 tcp      6 100 ESTABLISHED src=192.168.1.100 dst=203.0.113.34 sport={sport} dport=443 packets=1 bytes={bytes} " +
+        $"src=203.0.113.34 dst=198.51.100.7 sport=443 dport={sport} packets=1 bytes={bytes} [ASSURED] mark=0")!;
+
+    private static ConntrackHostView View()
+    {
+        var view = new ConntrackHostView();
+        view.AddHostAddress(IPAddress.Parse("192.168.1.1"), "br0");
+        view.AddConnectedSubnet(IPAddress.Parse("192.168.1.0"), 24);
+        view.AddHostAddress(IPAddress.Parse("198.51.100.7"), "eth4");
+        view.AddNeighbor(IPAddress.Parse("192.168.1.100"), "aa:bb:cc:dd:ee:01");
+        return view;
+    }
+
+    [Fact]
+    public void Accountant_first_seen_is_a_lower_bound_in_the_startup_grace_and_exact_after()
+    {
+        var a = new ConntrackAccountant();
+        var t0 = new DateTime(2026, 11, 18, 1, 0, 0, DateTimeKind.Utc);
+        var old = Line(50001);
+        for (var i = 0; i < 6; i++) a.Account([old, .. i == 5 ? new[] { Line(50002) } : []], View(), t0.AddSeconds(2 * i));
+
+        a.TryGetFirstSeen(old.Key, out var oldAt, out var oldExact).Should().BeTrue();
+        (oldAt, oldExact).Should().Be((t0, false), "it was in the first snapshot: older than the agent's view");
+        a.TryGetFirstSeen(Line(50002).Key, out var newAt, out var newExact).Should().BeTrue();
+        (newAt, newExact).Should().Be((t0.AddSeconds(10), true), "first seen past the grace: born then");
+
+        a.Account([Line(50001, bytes: 10)], View(), t0.AddSeconds(12));
+        a.TryGetFirstSeen(old.Key, out var reusedAt, out var reusedExact);
+        (reusedAt, reusedExact).Should().Be((t0.AddSeconds(12), true), "counters went backward: a new connection");
+        a.TryGetFirstSeen(Line(50099).Key, out _, out _).Should().BeFalse();
+    }
+
+    [Fact]
+    public void Tracker_dates_flows_from_first_sight_but_keeps_pre_session_flows_a_lower_bound()
+    {
+        var tracker = new LiveFlowTracker();
+        var view = View();
+        var t0 = new DateTime(2026, 11, 18, 1, 0, 0, DateTimeKind.Utc);
+        var old = Line(50001);
+        (DateTime, bool)? Known(string key) =>
+            key == old.Key ? (t0.AddHours(-20), true) : key == Line(50002).Key ? (t0.AddSeconds(7), true) : null;
+
+        // A viewer arrives: a connection the agent saw open 20 hours ago.
+        tracker.Track([old], view, t0, 100, Known);
+        var first = tracker.Track([Line(50001, 5000)], view, t0.AddSeconds(2), 100, Known)!.Flows.Single();
+        first.AgeSeconds.Should().Be((long)TimeSpan.FromHours(20).TotalSeconds + 2);
+        first.AgeIsLowerBound.Should().BeTrue("it predates this viewer, as before: the console backfill skips it");
+
+        // One that opens while the viewer watches, past the ageless seeding passes, is exact.
+        for (var i = 2; i <= 3; i++) tracker.Track([Line(50001, 5000 + i)], view, t0.AddSeconds(2 * i), 100, Known);
+        var born = tracker.Track([Line(50001, 6000), Line(50002, 3000)], view, t0.AddSeconds(8), 100, Known)!
+            .Flows.Single(f => f.ClientPort == 50002);
+        born.AgeSeconds.Should().Be(1);
+        born.AgeIsLowerBound.Should().BeFalse();
+    }
+
     // ---------------------------------------------------------------- client frame
 
     [Fact]

@@ -248,7 +248,7 @@ public sealed class ConntrackRunner
             flows = ConntrackParser.Parse(reader);
 
         var wasSeeded = _accountant.Seeded;
-        var deltas = _accountant.Account(flows, view);
+        var deltas = _accountant.Account(flows, view, snapshotAt);
         var now = DateTime.UtcNow;
         // The window is the ACTUAL gap since the previous pass, not the nominal interval: a
         // stretched cadence or a slow pass otherwise labels a long window short, and every rate
@@ -277,7 +277,9 @@ public sealed class ConntrackRunner
             Handshakes.Prune(alive.Contains, (double)Stopwatch.GetTimestamp() / Stopwatch.Frequency, TimeSpan.FromSeconds(30));
         }
         LiveFlowPass? livePass = null;
-        if (lease.Leased) livePass = _liveTracker.Track(flows, view, now, lease.MaxFlows);
+        // Start times come from the accountant, which tracks every flow between leases, so a connection
+        // opened while nobody watched keeps its start when a viewer arrives.
+        if (lease.Leased) livePass = _liveTracker.Track(flows, view, now, lease.MaxFlows, FirstSeenOf);
         else
         {
             _liveTracker.Reset();
@@ -321,6 +323,9 @@ public sealed class ConntrackRunner
         if (now - _pendingSince >= AggregateEvery)
             FlushAggregate(now);
     }
+
+    private (DateTime FirstSeen, bool Exact)? FirstSeenOf(string key) =>
+        _accountant.TryGetFirstSeen(key, out var at, out var exact) ? (at, exact) : null;
 
     /// <summary>DNS lookups sent after the last conntrack snapshot, matched against the next one.</summary>
     private List<LiveDnsRecord> _dnsHeld = new();
