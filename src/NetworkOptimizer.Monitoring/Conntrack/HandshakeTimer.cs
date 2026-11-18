@@ -24,11 +24,36 @@ public sealed class HandshakeTimer
     public static readonly TimeSpan RetriedLeg = TimeSpan.FromSeconds(1);
 
     private static readonly TimeSpan PendingLife = TimeSpan.FromSeconds(3);
-    // The server keeps a flow's round trip once it has it, so a result only has to outlive the batches
-    // that carry it. Bounded for small Gateways: about 350 bytes an entry.
-    private static readonly TimeSpan ResultLife = TimeSpan.FromMinutes(10);
+    // A result lives as long as its flow (see Prune); this only bounds one whose flow is never pruned.
+    private static readonly TimeSpan ResultLife = TimeSpan.FromHours(24);
+    // Bounded for small Gateways: about 350 bytes an entry. The oldest go first.
     private const int MaxPending = 20_000;
     private const int MaxResults = 20_000;
+
+    // Flows the last prune did not find in the table. A seq-file read can miss a live flow once, so a
+    // result goes only when two prunes in a row miss it.
+    private HashSet<string> _missedOnce = new();
+
+    /// <summary>
+    /// Drops the results of flows that left the conntrack table. Only results older than
+    /// <paramref name="minAge"/> are judged, since a flow timed after the snapshot was read is not in it.
+    /// </summary>
+    public void Prune(Func<string, bool> alive, double nowSeconds, TimeSpan minAge)
+    {
+        lock (_gate)
+        {
+            var missed = new HashSet<string>();
+            List<string>? gone = null;
+            foreach (var (key, r) in _results)
+            {
+                if (nowSeconds - r.At <= minAge.TotalSeconds || alive(key)) continue;
+                if (_missedOnce.Contains(key)) (gone ??= new()).Add(key);
+                else missed.Add(key);
+            }
+            if (gone != null) foreach (var key in gone) _results.Remove(key);
+            _missedOnce = missed;
+        }
+    }
 
     private sealed class Pending
     {

@@ -131,8 +131,12 @@ public class AgentProbeResultSink
         IDbContextFactory<NetworkOptimizerDbContext> mainDbFactory,
         Auditing.IAuditLogger audit,
         Monitoring.PathLocalization.PathEpisodeRegistry pathEpisodeRegistry,
+        Monitoring.LiveTraffic.LiveTrafficRegistry liveTraffic,
+        ISystemSettingsService settings,
         ILogger<AgentProbeResultSink> logger)
     {
+        _liveTraffic = liveTraffic;
+        _settings = settings;
         _pathEpisodeRegistry = pathEpisodeRegistry;
         _mainDbFactory = mainDbFactory;
         _audit = audit;
@@ -163,6 +167,8 @@ public class AgentProbeResultSink
     private readonly CableModemProviders.Uci.UciInformService _uciInforms;
     private readonly IDbContextFactory<NetworkOptimizerDbContext> _mainDbFactory;
     private readonly Auditing.IAuditLogger _audit;
+    private readonly Monitoring.LiveTraffic.LiveTrafficRegistry _liveTraffic;
+    private readonly ISystemSettingsService _settings;
 
     /// <summary>
     /// Called once per connection after the hello exchange, and again by the periodic refresh.
@@ -2137,10 +2143,13 @@ public class AgentProbeResultSink
                     .Select(p => p.DataPathInterface!)
                     .ToListAsync(ct);
                 config.WanIfnames.AddRange(wanIfnames.Distinct(StringComparer.OrdinalIgnoreCase));
+                // Round trips are Live Traffic detail: off with it for a site that turned it off.
+                config.FlowLatency = connection.HasCapability(AgentTunnelConnection.FlowLatencyCapability)
+                    && !await _liveTraffic.IsTurnedOffAsync(_settings, connection.SiteSlug);
             }
             connection.TrySend(new ServerMessage { ConntrackConfig = config });
-            _logger.LogDebug("Pushed conntrack config (enabled={Enabled}) to agent {Id} (site {Slug})",
-                config.Enabled, connection.AgentId, connection.SiteSlug);
+            _logger.LogDebug("Pushed conntrack config (enabled={Enabled}, flowLatency={FlowLatency}) to agent {Id} (site {Slug})",
+                config.Enabled, config.FlowLatency, connection.AgentId, connection.SiteSlug);
         }
         catch (Exception ex)
         {
