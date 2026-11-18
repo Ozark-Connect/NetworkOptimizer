@@ -140,6 +140,7 @@ public sealed class LiveTrafficService : ILiveTrafficService
         if (await _registry.IsTurnedOffAsync(_settings, slug)) return store.BuildView(query, LiveTrafficState.TurnedOff);
 
         var agents = _tunnels.GetForSite(slug).Where(c => c.HasCapability(AgentTunnelConnection.LiveTrafficCapability)).ToList();
+        store.SetFlowLatencyCapable(agents.Any(a => a.HasCapability(AgentTunnelConnection.FlowLatencyCapability)));
         LiveTrafficState state;
         if (agents.Count == 0)
         {
@@ -169,6 +170,7 @@ public sealed class LiveTrafficService : ILiveTrafficService
                             LeaseSeconds = (int)LiveTrafficStore.LeaseLength.TotalSeconds,
                             MaxFlows = LeaseMaxFlows,
                             Dns = agent.HasCapability(AgentTunnelConnection.LiveDnsCapability),
+                            FlowLatency = agent.HasCapability(AgentTunnelConnection.FlowLatencyCapability),
                         },
                     });
                 }

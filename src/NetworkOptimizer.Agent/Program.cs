@@ -243,6 +243,7 @@ Task? probeTask = null;
 Task? snmpTask = null;
 Task? conntrackTask = null;
 Task? liveDnsTask = null;
+Task? flowLatencyTask = null;
 Task? watchdogTask = null;
 
 // Capabilities for the hello. conntrack-accounting only when the installer said this is a
@@ -257,8 +258,11 @@ var blocklistCapable = config.OnGateway == true && GatewayBlocklistEnforcer.Avai
 var floodCapable = config.OnGateway == true && WanFloodGuard.Available();
 // Live DNS opens the same kind of packet socket as the UCI capture.
 var liveDnsCapable = conntrackCapable && DnsCapture.Available();
+// Announced with Live Traffic even where the kernel has no conntrack events: the batches then say it is
+// not running, which is how the server tells "this Gateway cannot" from "this agent predates it".
+var flowLatencySupported = conntrackCapable && ConntrackEventSocket.Supported();
 var capabilityList = new List<string>();
-if (conntrackCapable) capabilityList.AddRange(["conntrack-accounting", ConntrackRunner.LiveTrafficCapability]);
+if (conntrackCapable) capabilityList.AddRange(["conntrack-accounting", ConntrackRunner.LiveTrafficCapability, ConntrackEventSocket.Capability]);
 if (liveDnsCapable) capabilityList.Add(DnsCapture.Capability);
 if (uciCaptureCapable) capabilityList.Add(UciInformCapture.Capability);
 if (blocklistCapable) capabilityList.AddRange([GatewayBlocklistEnforcer.Capability, GatewayBlocklistEnforcer.ExceptionsCapability]);
@@ -276,6 +280,10 @@ if (config.OnGateway == true)
     Console.WriteLine(conntrackCapable
         ? "Conntrack accounting available (on-gateway, byte counters readable)"
         : "On-gateway install, but conntrack byte counters are not readable - conntrack accounting unavailable");
+    if (conntrackCapable)
+        Console.WriteLine(flowLatencySupported
+            ? "Flow latency available (conntrack events)"
+            : "Flow latency unavailable: this kernel has no conntrack events");
     Console.WriteLine(uciCaptureCapable
         ? "UCI inform capture available (packet socket opens)"
         : "On-gateway install, but a packet socket cannot be opened - UCI inform capture unavailable");
@@ -345,6 +353,11 @@ if (!string.IsNullOrEmpty(config.TunnelUrl))
         {
             conntrackRunner.Dns = new DnsCapture();
             liveDnsTask = conntrackRunner.Dns.RunAsync(cts.Token);
+        }
+        if (flowLatencySupported)
+        {
+            conntrackRunner.FlowLatency = new ConntrackEventSocket(conntrackRunner.Handshakes);
+            flowLatencyTask = conntrackRunner.FlowLatency.RunAsync(cts.Token);
         }
         conntrackTask = conntrackRunner.RunAsync(cts.Token);
     }
@@ -567,6 +580,10 @@ if (conntrackTask != null)
 if (liveDnsTask != null)
 {
     try { await liveDnsTask; } catch (OperationCanceledException) { }
+}
+if (flowLatencyTask != null)
+{
+    try { await flowLatencyTask; } catch (OperationCanceledException) { }
 }
 if (uciCaptureTask != null)
 {

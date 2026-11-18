@@ -119,6 +119,8 @@ public sealed class LiveTrafficStore
     private int _windowSeconds = 2;
     private int _totalFlows;
     private bool _dnsActive;
+    private bool _flowLatencyActive;
+    private bool _flowLatencyCapable;
     private DateTime _lastPushAt = DateTime.MinValue;
     private DateTime _lastEnrichAt = DateTime.MinValue;
     private DateTime _lastClientsAt = DateTime.MinValue;
@@ -166,6 +168,7 @@ public sealed class LiveTrafficStore
             _windowSeconds = window;
             _totalFlows = batch.TotalFlows;
             _dnsActive = batch.DnsActive;
+            _flowLatencyActive = batch.FlowLatencyActive;
 
             foreach (var flow in batch.Flows)
             {
@@ -174,6 +177,12 @@ public sealed class LiveTrafficStore
                     _flows[flow.Key] = state = new FlowState { Last = flow };
                     // The agent ends a flow its reads missed twice; one that comes back is not ended.
                     RemoveEnded(flow.Key);
+                }
+                else if (flow.RemoteRttUs == 0 && flow.ClientRttUs == 0 && flow.AgeSeconds >= state.Last.AgeSeconds)
+                {
+                    // Timed once, at the handshake: the agent forgets it long before a long flow ends. A
+                    // younger age is a new flow on the same tuple, which keeps nothing.
+                    (flow.RemoteRttUs, flow.ClientRttUs, flow.RttQueued) = (state.Last.RemoteRttUs, state.Last.ClientRttUs, state.Last.RttQueued);
                 }
                 state.Last = flow;
                 state.LastSeen = now;
@@ -196,6 +205,8 @@ public sealed class LiveTrafficStore
             foreach (var flow in batch.Ended)
             {
                 _flows.Remove(flow.Key, out var last);
+                if (last != null && flow.RemoteRttUs == 0 && flow.ClientRttUs == 0)
+                    (flow.RemoteRttUs, flow.ClientRttUs, flow.RttQueued) = (last.Last.RemoteRttUs, last.Last.ClientRttUs, last.Last.RttQueued);
                 // One row per tuple: the Ended table keys its rows by it.
                 RemoveEnded(flow.Key);
                 _ended.AddFirst(new EndedFlow(now, flow, last?.Recent.Down ?? 0, last?.Recent.Up ?? 0));
@@ -836,6 +847,8 @@ public sealed class LiveTrafficStore
                     with { RecentDownBytes = e.RecentDown, RecentUpBytes = e.RecentUp }).ToList());
                 all = CustomAppMatcher.Apply(NameUniFiWebRtc(ended, active.Concat(ended).ToList(), IsUniFiHost), _customApps);
             }
+            // Medians over every flow held, before any filter: a hover card says the same thing in every view.
+            all = WithRoundTrips(all, query.Ended ? active.Concat(all) : active, LatencyAvailability());
             if (query.WanOnly) all = all.Where(r => r.RouteKind is LiveRouteKind.Wan or LiveRouteKind.Vpn).ToList();
             if (query.Client is { } scope) all = all.Where(r => InScope(r, scope)).ToList();
 
@@ -878,6 +891,7 @@ public sealed class LiveTrafficStore
                 BlockedRecently = _blocked.Count(kv => now - kv.Value <= BlockedWindow),
                 BypassingClientNames = bypassers,
                 DnsActive = _dnsActive,
+                FlowLatency = LatencyAvailability(),
                 Sankey = query.IncludeSankey && !query.Ended ? BuildSankey(matching, query.SankeyByFlows, query.SankeyHold) : null,
                 TailnetConnected = _tailnetConnected,
                 Facets = query.FacetField is { } facet ? Facets(facet, all, query, active, now) : Array.Empty<LiveFacetValue>(),
@@ -1170,6 +1184,9 @@ public sealed class LiveTrafficStore
             RemoteOrg = f.Lan ? null : org,
             RemoteAsn = f.Lan ? null : remoteAsn,
             DnsBypass = encryptedDns && !resolverUpstream,
+            RemoteRttMs = f.RemoteRttUs > 0 ? f.RemoteRttUs / 1000.0 : null,
+            ClientRttMs = f.ClientRttUs > 0 ? f.ClientRttUs / 1000.0 : null,
+            RttQueued = f.RttQueued,
             History = history,
             Ended = ended,
             EndedAt = endedAt,
@@ -1593,6 +1610,75 @@ public sealed class LiveTrafficStore
         }
     }
 
+    /// <summary>Whether the site's Gateway agent can time round trips (it announces "flow-latency").</summary>
+    public void SetFlowLatencyCapable(bool capable)
+    {
+        lock (_gate) _flowLatencyCapable = capable;
+    }
+
+    /// <summary>
+    /// An agent that times round trips says whether it runs for this lease: false is a kernel without
+    /// conntrack events. An agent that predates round trips says nothing, and nothing is shown.
+    /// </summary>
+    private FlowLatencyAvailability LatencyAvailability() =>
+        !_flowLatencyCapable ? FlowLatencyAvailability.Hidden
+        : _flowLatencyActive ? FlowLatencyAvailability.Measuring
+        : _lastBatchAt == DateTime.MinValue ? FlowLatencyAvailability.Hidden
+        : FlowLatencyAvailability.Unavailable;
+
+    /// <summary>Fresh samples (not read from a backlog) a median prefers once it has this many.</summary>
+    internal const int MinFreshRoundTrips = 3;
+
+    /// <summary>
+    /// Sets each row's destination and client medians, taken over <paramref name="samples"/>: per destination
+    /// address for the remote round trip, per client for the client round trip. Backlog reads can run high
+    /// under load, so a median uses only fresh samples once there are enough of them.
+    /// </summary>
+    internal static List<LiveFlowRow> WithRoundTrips(List<LiveFlowRow> rows, IEnumerable<LiveFlowRow> samples, FlowLatencyAvailability availability)
+    {
+        if (availability == FlowLatencyAvailability.Hidden) return rows;
+        var byDestination = new Dictionary<string, List<(double Ms, bool Queued)>>(StringComparer.OrdinalIgnoreCase);
+        var byClient = new Dictionary<string, List<(double Ms, bool Queued)>>(StringComparer.OrdinalIgnoreCase);
+        var seen = new HashSet<string>();
+        foreach (var s in samples)
+        {
+            // Ended rows repeat active ones only by accident of timing; each flow counts once.
+            if (!seen.Add(s.Key)) continue;
+            if (s.RemoteRttMs is { } remote && s.DestinationIp.Length > 0)
+                Add(byDestination, s.DestinationIp, remote, s.RttQueued);
+            if (s.ClientRttMs is { } client && !s.IsGateway)
+                Add(byClient, ClientKey(s), client, s.RttQueued);
+        }
+        var destinations = byDestination.ToDictionary(kv => kv.Key, kv => Median(kv.Value), StringComparer.OrdinalIgnoreCase);
+        var clients = byClient.ToDictionary(kv => kv.Key, kv => Median(kv.Value), StringComparer.OrdinalIgnoreCase);
+        return rows.Select(r => r with
+        {
+            Latency = availability,
+            DestinationRoundTrip = destinations.GetValueOrDefault(r.DestinationIp),
+            ClientRoundTrip = r.IsGateway ? null : clients.GetValueOrDefault(ClientKey(r)),
+        }).ToList();
+
+        static string ClientKey(LiveFlowRow r) => r.ClientMac.Length > 0 ? r.ClientMac : r.ClientIp;
+
+        static void Add(Dictionary<string, List<(double, bool)>> into, string key, double ms, bool queued)
+        {
+            if (!into.TryGetValue(key, out var list)) into[key] = list = new();
+            list.Add((ms, queued));
+        }
+    }
+
+    /// <summary>The median of the fresh samples when there are enough of them, else of all; null for none.</summary>
+    internal static RoundTripSummary? Median(IReadOnlyList<(double Ms, bool Queued)> samples)
+    {
+        if (samples.Count == 0) return null;
+        var fresh = samples.Where(s => !s.Queued).Select(s => s.Ms).ToList();
+        var use = fresh.Count >= MinFreshRoundTrips ? fresh : samples.Select(s => s.Ms).ToList();
+        use.Sort();
+        var mid = use.Count / 2;
+        var median = use.Count % 2 == 1 ? use[mid] : (use[mid - 1] + use[mid]) / 2;
+        return new RoundTripSummary(median, use.Count);
+    }
+
     private string ResolverName(string ip)
     {
         if (_gatewayIps.Contains(ip)) return "Gateway";
@@ -1678,6 +1764,10 @@ public sealed class LiveTrafficStore
                 Started = earliest?.Started,
                 StartedIsUpperBound = earliest?.StartedIsUpperBound ?? false,
                 History = history,
+                // The streams' own round trips, not the lead's: one stream opened later or on a backlog.
+                RemoteRttMs = Median(streams.Where(r => r.RemoteRttMs != null).Select(r => (r.RemoteRttMs!.Value, r.RttQueued)).ToList())?.MedianMs,
+                ClientRttMs = Median(streams.Where(r => r.ClientRttMs != null).Select(r => (r.ClientRttMs!.Value, r.RttQueued)).ToList())?.MedianMs,
+                RttQueued = streams.Any(r => r.RttQueued),
             });
         }
         return bundled;
@@ -1698,6 +1788,9 @@ public sealed class LiveTrafficStore
             LiveFlowSort.Destination => OrderText(rows, r => r.Destination),
             LiveFlowSort.App => OrderText(rows, r => r.App),
             LiveFlowSort.Route => OrderText(rows, r => r.Route),
+            // A flow with no round trip sorts last either way: it was not measured, not fast.
+            LiveFlowSort.RoundTrip => rows.OrderBy(r => r.RemoteRttMs == null)
+                .ThenBy(r => descending ? -(r.RemoteRttMs ?? 0) : r.RemoteRttMs ?? 0),
             _ => Order(rows, r => r.DownBps),
         };
         return ordered.ThenByDescending(r => r.DownBps).ThenByDescending(r => r.TotalBytes).ToList();

@@ -352,6 +352,9 @@ public sealed class AgentTunnelConnection
     /// <summary>Live DNS capture on the gateway (agent: DnsCapture.Capability).</summary>
     public const string LiveDnsCapability = "live-dns";
 
+    /// <summary>Times connection handshakes for Live Traffic's round trips (agent: ConntrackEventSocket.Capability).</summary>
+    public const string FlowLatencyCapability = "flow-latency";
+
     /// <summary>The UCI inform capture capability string, shared by agent and server.</summary>
     public const string UciInformCapability = "uci-inform";
 

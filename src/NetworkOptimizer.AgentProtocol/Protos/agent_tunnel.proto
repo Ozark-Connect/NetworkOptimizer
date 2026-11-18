@@ -83,6 +83,8 @@ message LiveTrafficConfig {
   int32 max_flows = 2;
   // Whether to capture DNS (needs "live-dns").
   bool dns = 3;
+  // Whether to time connection handshakes (needs "flow-latency").
+  bool flow_latency = 4;
 }
 
 message LiveTrafficBatch {
@@ -96,6 +98,8 @@ message LiveTrafficBatch {
   int32 total_flows = 6;
   // Whether DNS capture is running (false when not asked for or the socket would not open).
   bool dns_active = 7;
+  // Whether handshake timing runs for this lease (false when not asked for, or the kernel has no conntrack events).
+  bool flow_latency_active = 8;
 }
 
 message LiveFlow {
@@ -121,6 +125,13 @@ message LiveFlow {
   int64 age_seconds = 17;
   // True when the flow predates the agent and the kernel keeps no creation time.
   bool age_is_lower_bound = 18;
+  // Round trips timed at the Gateway when the flow opened, in microseconds; 0 when not measured. Remote:
+  // to the far end and back (TCP SYN to SYN-ACK, UDP first packet to first reply). Client: to the client
+  // and back (TCP SYN-ACK to its ACK).
+  int32 remote_rtt_us = 19;
+  int32 client_rtt_us = 20;
+  // An event behind a round trip was read from a backlog, so the value may read high.
+  bool rtt_queued = 21;
 }
 
 message LiveDnsEvent {

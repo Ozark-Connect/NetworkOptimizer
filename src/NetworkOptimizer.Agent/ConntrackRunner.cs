@@ -88,10 +88,17 @@ public sealed class ConntrackRunner
     private DateTime _leaseUntil = DateTime.MinValue;
     private int _liveMaxFlows = DefaultLiveMaxFlows;
     private bool _liveDns;
+    private bool _liveLatency;
     private bool _leaseAnnounced;
 
     /// <summary>The Live DNS tap, when this host can open a packet socket.</summary>
     public DnsCapture? Dns { get; set; }
+
+    /// <summary>Handshake round trips by flow key, fed by <see cref="FlowLatency"/>.</summary>
+    public HandshakeTimer Handshakes { get; } = new();
+
+    /// <summary>The conntrack event socket that times handshakes, on a Gateway agent.</summary>
+    public ConntrackEventSocket? FlowLatency { get; set; }
 
     public ConntrackRunner(Action<AgentMessage> enqueue)
     {
@@ -110,10 +117,11 @@ public sealed class ConntrackRunner
             _leaseUntil = seconds == 0 ? DateTime.MinValue : DateTime.UtcNow.AddSeconds(seconds);
             _liveMaxFlows = config.MaxFlows > 0 ? Math.Min(config.MaxFlows, LiveMaxFlowsCeiling) : DefaultLiveMaxFlows;
             _liveDns = config.Dns;
+            _liveLatency = config.FlowLatency;
         }
     }
 
-    private (bool Leased, int MaxFlows, bool Dns) LiveLease()
+    private (bool Leased, int MaxFlows, bool Dns, bool Latency) LiveLease()
     {
         lock (_leaseGate)
         {
@@ -123,7 +131,7 @@ public sealed class ConntrackRunner
                 _leaseAnnounced = leased;
                 Console.WriteLine(leased ? "Live Traffic: a viewer is watching, sending per-flow detail" : "Live Traffic: lease ended");
             }
-            return (leased, _liveMaxFlows, _liveDns);
+            return (leased, _liveMaxFlows, _liveDns, _liveLatency);
         }
     }
 
@@ -201,8 +209,9 @@ public sealed class ConntrackRunner
             }
             else
             {
-                // Sampling off means no Live Traffic either; close the DNS tap with it.
+                // Sampling off means no Live Traffic either; close the DNS tap and the event socket with it.
                 Dns?.SetWanted(false);
+                FlowLatency?.SetWanted(false);
             }
             var delay = _stretchedInterval > interval ? _stretchedInterval : interval;
             await Task.Delay(TimeSpan.FromSeconds(delay), ct);
@@ -253,6 +262,7 @@ public sealed class ConntrackRunner
             dns.HostView = view;
             dns.SetWanted(lease.Leased && lease.Dns);
         }
+        FlowLatency?.SetWanted(lease.Leased && lease.Latency);
         LiveFlowPass? livePass = null;
         if (lease.Leased) livePass = _liveTracker.Track(flows, view, now, lease.MaxFlows);
         else
@@ -310,6 +320,7 @@ public sealed class ConntrackRunner
             WindowSeconds = windowSeconds,
             TotalFlows = pass.TotalFlows,
             DnsActive = Dns?.Active == true,
+            FlowLatencyActive = FlowLatency?.Wanted == true,
         };
         foreach (var f in pass.Flows) batch.Flows.Add(ToWire(f));
         foreach (var f in pass.Ended) batch.Ended.Add(ToWire(f));
@@ -343,7 +354,20 @@ public sealed class ConntrackRunner
         LiveSend?.Invoke(new AgentMessage { LiveTraffic = batch });
     }
 
-    private static LiveFlow ToWire(LiveFlowSample f) => new()
+    private LiveFlow ToWire(LiveFlowSample f)
+    {
+        var wire = ToWireCounters(f);
+        if (Handshakes.TryGet(f.Key, out var h))
+        {
+            var (remote, client) = FlowRoundTrips.Orient(h, f.ClientIp, f.Gateway);
+            wire.RemoteRttUs = FlowRoundTrips.ToMicroseconds(remote);
+            wire.ClientRttUs = FlowRoundTrips.ToMicroseconds(client);
+            wire.RttQueued = h.Queued;
+        }
+        return wire;
+    }
+
+    private static LiveFlow ToWireCounters(LiveFlowSample f) => new()
     {
         Key = f.Key,
         Proto = f.Proto,

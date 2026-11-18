@@ -1,3 +1,4 @@
+using NetworkOptimizer.Core.Helpers;
 using NetworkOptimizer.Web.Services;
 using NetworkOptimizer.Web.Services.Monitoring.LiveTraffic;
 
@@ -44,7 +45,7 @@ public static class LiveTrafficDisplay
     {
         var via = ViaTooltip(f.ClientVia) ?? (f.ClientVia != f.ClientIp ? f.ClientVia : null);
         var address = f.ClientPort > 0 ? $"{f.ClientIp} · {f.Proto} {f.ClientPort}" : f.ClientIp;
-        return string.IsNullOrEmpty(via) ? address : via + "\n" + address;
+        return Lines(via, address, RoundTripLine(f.ClientRoundTrip));
     }
 
     /// <summary>The client card's lines for a site client or device at the far end: how it connects, then its address and port.</summary>
@@ -52,7 +53,33 @@ public static class LiveTrafficDisplay
     {
         var via = ViaTooltip(f.RemoteClientVia) ?? f.RemoteClientVia;
         var address = f.RemotePort > 0 ? $"{f.DestinationIp} · {f.Proto} {f.RemotePort}" : f.DestinationIp;
-        return string.IsNullOrEmpty(via) ? address : via + "\n" + address;
+        return Lines(via, address, RoundTripLine(f.DestinationRoundTrip));
+    }
+
+    private static string Lines(params string?[] lines) => string.Join("\n", lines.Where(l => !string.IsNullOrEmpty(l)));
+
+    /// <summary>
+    /// A round trip: "16 ms", "4.2 ms". Under 1 ms reads "&lt;1 ms": the Gateway times events as it reads
+    /// them, about a quarter of a millisecond late, so finer digits would be noise.
+    /// </summary>
+    public static string RoundTrip(double ms) => ms < 1 ? "<1 ms" : DisplayFormatters.FormatResponseMs(ms);
+
+    /// <summary>A hover card's round trip line: "Round trip 16 ms (median of 8 connections)"; null for none.</summary>
+    public static string? RoundTripLine(RoundTripSummary? summary) => summary switch
+    {
+        null => null,
+        { Connections: 1 } => $"Round trip {RoundTrip(summary.MedianMs)}",
+        _ => $"Round trip {RoundTrip(summary.MedianMs)} (median of {summary.Connections} connections)",
+    };
+
+    /// <summary>The flow detail's round trip value: to the destination, then to the client when there is one.</summary>
+    public static string? FlowRoundTrip(LiveFlowRow f)
+    {
+        if (f.RemoteRttMs is null && f.ClientRttMs is null) return null;
+        var parts = new List<string>(2);
+        if (f.RemoteRttMs is { } remote) parts.Add($"{RoundTrip(remote)} to the destination");
+        if (f.ClientRttMs is { } client) parts.Add($"{RoundTrip(client)} to the client");
+        return string.Join(", ", parts);
     }
 
     public static string Pct(double v) => v.ToString("0.#", System.Globalization.CultureInfo.InvariantCulture);

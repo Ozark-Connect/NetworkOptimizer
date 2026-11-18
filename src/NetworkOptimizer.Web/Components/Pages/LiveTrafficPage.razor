@@ -319,7 +319,15 @@
                     {
                         <div class="table-responsive lt-desktop-only">
                             <table class="data-table lt-flows">
-                                <colgroup><col style="width:3.9rem"><col style="width:12%"><col style="width:15%"><col style="width:8%"><col style="width:9%"><col style="width:9%"><col style="width:8%"><col style="width:9%"><col style="width:8%"><col style="width:7%"><col style="width:7%"><col style="width:100px"></colgroup>
+                                @if (ShowRoundTrip)
+                                {
+                                    @* RTT's 5% comes out of Client, Destination, and Route. *@
+                                    <colgroup><col style="width:3.9rem"><col style="width:11%"><col style="width:13%"><col style="width:8%"><col style="width:8%"><col style="width:5%"><col style="width:9%"><col style="width:8%"><col style="width:9%"><col style="width:8%"><col style="width:7%"><col style="width:7%"><col style="width:100px"></colgroup>
+                                }
+                                else
+                                {
+                                    <colgroup><col style="width:3.9rem"><col style="width:12%"><col style="width:15%"><col style="width:8%"><col style="width:9%"><col style="width:9%"><col style="width:8%"><col style="width:9%"><col style="width:8%"><col style="width:7%"><col style="width:7%"><col style="width:100px"></colgroup>
+                                }
                                 <thead>
                                     <tr>
                                         <th>#</th>
@@ -327,6 +335,10 @@
                                         @FlowSortHeader(LiveFlowSort.Destination, "Destination")
                                         @FlowSortHeader(LiveFlowSort.App, "App")
                                         @FlowSortHeader(LiveFlowSort.Route, "Route")
+                                        @if (ShowRoundTrip)
+                                        {
+                                            @FlowSortHeader(LiveFlowSort.RoundTrip, "RTT")
+                                        }
                                         @FlowSortHeader(LiveFlowSort.Download, "Download")
                                         @FlowSortHeader(LiveFlowSort.Upload, "Upload")
                                         @RecentSortHeader(LiveFlowSort.RecentDown)
@@ -342,7 +354,7 @@
                                     {
                                         rank++;
                                         var key = f.Key;
-                                        <LiveFlowRowView @key="key" Flow="f" Layout="LiveFlowLayout.Table" Rank="rank" Open="_openKey == key" OnToggle="() => ToggleRow(key)" Context="Ctx" />
+                                        <LiveFlowRowView @key="key" Flow="f" Layout="LiveFlowLayout.Table" Rank="rank" ShowRoundTrip="ShowRoundTrip" Open="_openKey == key" OnToggle="() => ToggleRow(key)" Context="Ctx" />
                                     }
                                 </tbody>
                             </table>
@@ -408,6 +420,9 @@
     private const int DnsRows = 10;
 
     private string DnsEmptyText => _view?.DnsActive == true ? "No lookups match." : "Waiting for DNS lookups.";
+
+    /// <summary>The RTT column: only while the Gateway agent times round trips, never as a column of dashes.</summary>
+    private bool ShowRoundTrip => _view?.FlowLatency == FlowLatencyAvailability.Measuring;
 
     /// <summary>The link arrived with filters of its own: the active preset is not reapplied over it.</summary>
     private bool _linkHadFilters;

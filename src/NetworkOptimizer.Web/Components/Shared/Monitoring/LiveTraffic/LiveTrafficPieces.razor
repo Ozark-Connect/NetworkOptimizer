@@ -222,6 +222,7 @@
             };
         var card = new Dictionary<string, object> { ["data-dest-name"] = f.Destination, ["data-dest-ip"] = f.DestinationIp };
         if (LiveTrafficLinks.ThreatsDrilldown(f) is { } threats) card["data-dest-link"] = threats;
+        if (LiveTrafficDisplay.RoundTripLine(f.DestinationRoundTrip) is { } roundTrip) card["data-dest-note"] = roundTrip;
         return card;
     }
 

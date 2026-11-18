@@ -73,7 +73,7 @@ public sealed record LiveFacetValue(string Value, int Count, bool Idle = false, 
 }
 
 /// <summary>The Flows table's sortable columns.</summary>
-public enum LiveFlowSort { Download, Upload, Total, Started, Client, Destination, App, Route, RecentDown, RecentUp }
+public enum LiveFlowSort { Download, Upload, Total, Started, Client, Destination, App, Route, RecentDown, RecentUp, RoundTrip }
 
 /// <summary>How the Flows table's columns sort when picked.</summary>
 public static class LiveFlowSorts
@@ -199,6 +199,19 @@ public sealed record LiveFlowRow
     public bool EncryptedDns { get; init; }
     /// <summary>Encrypted DNS that is not a site resolver's own upstream.</summary>
     public bool DnsBypass { get; init; }
+
+    /// <summary>The Gateway to the destination and back, timed when the flow opened; null when not measured.</summary>
+    public double? RemoteRttMs { get; init; }
+    /// <summary>The Gateway to the client and back (TCP only); null when not measured or for the Gateway's own flows.</summary>
+    public double? ClientRttMs { get; init; }
+    /// <summary>An event behind the round trips was read from a backlog, so they may read high.</summary>
+    public bool RttQueued { get; init; }
+    /// <summary>The destination's median round trip over the connections Live Traffic holds to it.</summary>
+    public RoundTripSummary? DestinationRoundTrip { get; init; }
+    /// <summary>The client's median round trip over its connections Live Traffic holds.</summary>
+    public RoundTripSummary? ClientRoundTrip { get; init; }
+    /// <summary>Whether the Gateway agent times round trips at all; Hidden for history rows and older agents.</summary>
+    public FlowLatencyAvailability Latency { get; init; }
     /// <summary>Oldest first, one point per agent window, at most two minutes.</summary>
     public IReadOnlyList<(double Down, double Up)> History { get; init; } = Array.Empty<(double, double)>();
     public bool Ended { get; init; }
@@ -216,6 +229,20 @@ public sealed record LiveFlowRow
 
     public long TotalBytes => CombinedBytes ?? TotalDownBytes + TotalUpBytes;
 }
+
+/// <summary>Whether a Live Traffic row's round trips can be shown.</summary>
+public enum FlowLatencyAvailability
+{
+    /// <summary>Nothing to say: a history row, or a Gateway agent that predates round trips.</summary>
+    Hidden,
+    /// <summary>The agent times connections as they open.</summary>
+    Measuring,
+    /// <summary>The Gateway's kernel reports no connection events, so nothing can be timed.</summary>
+    Unavailable,
+}
+
+/// <summary>A median round trip and how many connections it was taken over.</summary>
+public sealed record RoundTripSummary(double MedianMs, int Connections);
 
 /// <summary>A roll-up row when the table groups by client, app, destination, or route.</summary>
 public sealed record LiveGroupRow(
@@ -386,6 +413,8 @@ public sealed record LiveTrafficView
     /// <summary>The bypassing clients by their Client chip name.</summary>
     public IReadOnlyList<string> BypassingClientNames { get; init; } = Array.Empty<string>();
     public bool DnsActive { get; init; }
+    /// <summary>Whether the Gateway agent times round trips; the RTT column shows only while it is Measuring.</summary>
+    public FlowLatencyAvailability FlowLatency { get; init; }
     public LiveSankey? Sankey { get; init; }
     /// <summary>The open chip editor's values, most rows first; empty when none is open.</summary>
     public IReadOnlyList<LiveFacetValue> Facets { get; init; } = Array.Empty<LiveFacetValue>();
