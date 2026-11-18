@@ -94,7 +94,7 @@ public class MonitoringPathView
             .OrderBy(t => t.Id)
             .ToListAsync(ct);
         var accessHops = accessTargets.Where(t => t.Enabled).ToList();
-        var accessIdentity = accessHops.FirstOrDefault();
+        var accessIdentity = accessHops.FirstOrDefault(t => t.AsnNumber > 0);
         // A paused hop still names the ISP: pausing stops the probe, not the identity.
         var pausedIdentity = accessTargets.FirstOrDefault(t => !t.Enabled && t.AsnNumber > 0);
 
@@ -492,7 +492,7 @@ public record AccessIspCloud
 {
     public string? AccessTechnology { get; init; }       // "Gpon" / "Docsis" / ...
     public string? L2NeighborOui { get; init; }          // vendor name (Calix / Arris / ...)
-    /// <summary>The ISP's ASN from the first enabled access hop; null when it carries none.</summary>
+    /// <summary>The ISP's ASN from the first enabled access hop that has one; null when none does.</summary>
     public int? AsnNumber { get; init; }
     public string? AsnName { get; init; }
 

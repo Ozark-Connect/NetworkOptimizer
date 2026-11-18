@@ -9,7 +9,7 @@ namespace NetworkOptimizer.Web.Tests.Services.LanFlowMap;
 
 /// <summary>
 /// Which ASN a WAN globe carries, and so which ISP logo the maps draw: the first enabled access
-/// hop, then the gateway's geo-IP lookup, then a paused access hop.
+/// hop with an ASN, then the gateway's geo-IP lookup, then a paused access hop.
 /// </summary>
 public class IspIdentityTests
 {
