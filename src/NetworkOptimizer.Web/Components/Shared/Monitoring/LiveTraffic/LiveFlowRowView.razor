@@ -300,12 +300,12 @@
             @if (f.Latency == FlowLatencyAvailability.Unavailable)
             {
                 <text>Not available on this Gateway </text>
-                <span class="tooltip-icon tooltip-icon-sm" data-tooltip="This Gateway's firmware does not report connection events, so its connections cannot be timed.">?</span>
+                <span class="tooltip-icon tooltip-icon-sm" data-tooltip="This Gateway's firmware does not report connection events.">?</span>
             }
             else if (LiveTrafficDisplay.FlowRoundTrip(f) is { } value)
             {
                 <text>@value </text>
-                <span class="tooltip-icon tooltip-icon-sm" data-tooltip="Timed by the Gateway when the connection opened: how long the destination took to answer, and how long the client took to answer back.">?</span>
+                <span class="tooltip-icon tooltip-icon-sm" data-tooltip="Timed by the Gateway when the connection opened.">?</span>
             }
             else
             {
