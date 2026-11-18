@@ -61,7 +61,8 @@
     <div class="card @(_passwordChangeRequired ? "card-highlight" : null)">
         <div class="card-header"><span class="card-title">Password</span></div>
         <div class="card-body">
-            @if (_passwordChanged)
+            @* With a factor still owed, the MFA notice carries this instead: it is where the next step is. *@
+            @if (_passwordChanged && !_setupRequired)
             {
                 <div class="alert alert-success">Your password has been changed. Your other sessions have been signed out.</div>
             }
@@ -93,8 +94,15 @@
 
 @if (_setupRequired)
 {
-    <div class="alert alert-warning">
-        Multi-factor authentication is required for your role. Set up either option below.
+    <div class="alert alert-warning" id="@MfaSetupId">
+        @if (_passwordChanged)
+        {
+            @:Your password has been changed. Your role also requires multi-factor authentication: set up either option below.
+        }
+        else
+        {
+            @:Multi-factor authentication is required for your role. Set up either option below.
+        }
     </div>
 }
 
@@ -386,6 +394,10 @@
 
             _passwordResult = PasswordResult;
 
+            // An administrator-set password comes first, and its card is already at the top. A
+            // password error stays in view: it is what the user came back to read.
+            _scrollToSetup = _setupRequired && !_passwordChangeRequired && PasswordMessage is null;
+
             // One-shot results: drop them so a reload does not repeat a stale message.
             if (Enroll == "failed" || MfaResult is not null || PasswordResult is not null)
                 Navigation.NavigateTo(Navigation.GetUriWithQueryParameters(
@@ -410,6 +422,38 @@
             }
 
             StateHasChanged();
+        }
+
+        // On whichever render follows the load, not the first one: the first render runs before
+        // OnInitializedAsync has read the account, when every flag still holds its default.
+        if (_scrollToSetup)
+        {
+            _scrollToSetup = false;
+            await ScrollToMfaSetupAsync();
+        }
+    }
+
+    private const string MfaSetupId = "mfa-setup";
+
+    /// <summary>Set once the load has decided the MFA step should be brought into view.</summary>
+    private bool _scrollToSetup;
+
+    /// <summary>
+    /// Brings the owed MFA step into view on arrival: sign-in, a finished password change and every
+    /// refused page all land here, and the step sits below Date &amp; Time and Password.
+    /// </summary>
+    private async Task ScrollToMfaSetupAsync()
+    {
+        // After ScrollRestoration's own scroll-to-top, which runs 50 ms after a redirect from another
+        // page; scrolling first would be undone.
+        await Task.Delay(150);
+        try
+        {
+            // The notice is an alert, not a card: the ring takes the alert's corners.
+            await JS.InvokeVoidAsync("noHighlightTarget", MfaSetupId, null, "var(--border-radius)");
+        }
+        catch (JSDisconnectedException)
+        {
         }
     }
 
