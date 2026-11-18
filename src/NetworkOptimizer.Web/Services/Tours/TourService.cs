@@ -19,6 +19,7 @@ public class TourService
     private readonly TourPredicateResolver _predicates;
     private readonly SiteContextService _siteContext;
     private readonly TourUrlTokenResolver _tokens;
+    private readonly Identity.ICallerContext _caller;
     private readonly ILogger<TourService> _logger;
 
     public TourService(
@@ -27,6 +28,7 @@ public class TourService
         TourPredicateResolver predicates,
         SiteContextService siteContext,
         TourUrlTokenResolver tokens,
+        Identity.ICallerContext caller,
         ILogger<TourService> logger)
     {
         _definitions = definitions;
@@ -34,8 +36,12 @@ public class TourService
         _predicates = predicates;
         _siteContext = siteContext;
         _tokens = tokens;
+        _caller = caller;
         _logger = logger;
     }
+
+    /// <summary>Whose tour state this circuit reads and writes; read per call, never cached.</summary>
+    private string? Subject => TourStateService.SubjectFor(_caller.Current);
 
     /// <summary>
     /// The automatic path: what the Dashboard offer modal should propose, or null when
@@ -51,7 +57,7 @@ public class TourService
             return null;
         }
 
-        var snapshot = await _state.GetSnapshotAsync();
+        var snapshot = await _state.GetSnapshotAsync(Subject);
         if (snapshot.ToursDisabled)
         {
             _logger.LogDebug("No tour due: tours disabled for this subject");
@@ -163,7 +169,7 @@ public class TourService
     /// <summary>Per-tour state lines for the Settings - Application launcher.</summary>
     public async Task<List<TourStatusInfo>> GetTourStatusesAsync()
     {
-        var snapshot = await _state.GetSnapshotAsync();
+        var snapshot = await _state.GetSnapshotAsync(Subject);
         var tours = _definitions.GetTours();
         var ctx = await _predicates.ResolveAsync(RequiresOf(tours.SelectMany(CandidateSteps)));
 
@@ -192,19 +198,19 @@ public class TourService
         if (!offer.Automatic)
             return;
         var version = _definitions.CurrentEffectiveVersion().ToString();
-        await _state.RecordOfferAsync(offer.TourIds, version);
+        await _state.RecordOfferAsync(Subject, offer.TourIds, version);
     }
 
-    public Task RecordStepSeenAsync(string stepId) => _state.RecordStepSeenAsync(stepId);
+    public Task RecordStepSeenAsync(string stepId) => _state.RecordStepSeenAsync(Subject, stepId);
 
     /// <summary>Skip mid-tour: this tour is done and never offered again. Others still are.</summary>
-    public Task RecordSkippedAsync(TourOffer offer) => _state.RecordToursDismissedAsync(offer.TourIds);
+    public Task RecordSkippedAsync(TourOffer offer) => _state.RecordToursDismissedAsync(Subject, offer.TourIds);
 
-    public Task SetToursDisabledAsync(bool disabled) => _state.SetToursDisabledAsync(disabled);
+    public Task SetToursDisabledAsync(bool disabled) => _state.SetToursDisabledAsync(Subject, disabled);
 
-    public async Task<bool> GetToursDisabledAsync() => (await _state.GetSnapshotAsync()).ToursDisabled;
+    public async Task<bool> GetToursDisabledAsync() => (await _state.GetSnapshotAsync(Subject)).ToursDisabled;
 
-    public Task ResetAsync() => _state.ResetAsync();
+    public Task ResetAsync() => _state.ResetAsync(Subject);
 
     /// <summary>The Highlights tour to offer automatically, or null when none is due.</summary>
     private static TourDefinition? PickHighlightsTour(

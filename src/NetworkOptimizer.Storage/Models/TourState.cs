@@ -5,20 +5,23 @@ namespace NetworkOptimizer.Storage.Models;
 /// <summary>
 /// Per-subject guided tour state. Lives only in the main (default site) database:
 /// a tour is about the product, not a site.
-/// Keyed by Subject rather than stored on AdminSettings so that when identity /
-/// roles ship, "has this user seen feature X" becomes per-user by changing only
-/// the key value - the schema stays put. Today every row uses a single implicit
-/// owner constant.
+/// Keyed by Subject rather than stored on AdminSettings so that "has this user seen
+/// feature X" is per-user by key value alone - the schema stays put. One row per
+/// signed-in user; an install with authentication disabled keeps the single
+/// <see cref="DefaultSubject"/> row.
 /// </summary>
 public class TourState
 {
-    /// <summary>Subject value used until per-user identity exists.</summary>
+    /// <summary>
+    /// Subject for an install with authentication disabled, and the key every row used before
+    /// per-user state. An install's only account claims the legacy row on first use.
+    /// </summary>
     public const string DefaultSubject = "default";
 
     [Key]
     public int Id { get; set; }
 
-    /// <summary>Who this row is for. A single owner constant today; a user id once identity ships.</summary>
+    /// <summary>Who this row is for: the local user id, or <see cref="DefaultSubject"/> when authentication is disabled.</summary>
     [MaxLength(100)]
     public string Subject { get; set; } = DefaultSubject;
 
