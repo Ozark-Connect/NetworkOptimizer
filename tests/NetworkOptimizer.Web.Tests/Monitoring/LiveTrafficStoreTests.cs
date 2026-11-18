@@ -1910,6 +1910,24 @@ public class LiveTrafficStoreTests
         LiveTrafficStore.Median([]).Should().BeNull();
     }
 
+    [Fact]
+    public void An_untimed_flow_shows_its_destinations_median_marked_as_assumed()
+    {
+        var store = SeededStore();
+        store.SetFlowLatencyCapable(true);
+        store.Ingest(Batch(latencyActive: true,
+            Timed("timed", Laptop, "192.0.2.20", "203.0.113.5", 16),
+            Flow("old", Nas, "192.0.2.10", "203.0.113.5", 443, "eth4", 1000, 1000),
+            Flow("alone", Nas, "192.0.2.10", "203.0.113.9", 443, "eth4", 1000, 1000)));
+
+        var rows = store.BuildView(Query(), LiveTrafficState.Live).Flows.ToDictionary(f => f.DestinationIp + "|" + f.ClientIp);
+
+        rows["203.0.113.5|192.0.2.10"].RttShownMs.Should().Be(16);
+        rows["203.0.113.5|192.0.2.10"].RttAssumed.Should().BeTrue();
+        rows["203.0.113.5|192.0.2.20"].RttAssumed.Should().BeFalse();
+        rows["203.0.113.9|192.0.2.10"].RttShownMs.Should().BeNull("no connection to it was timed");
+    }
+
     [Theory]
     [InlineData(true, new[] { "slow", "fast", "none" })]
     [InlineData(false, new[] { "fast", "slow", "none" })]
