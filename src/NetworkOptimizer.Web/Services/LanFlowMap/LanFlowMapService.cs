@@ -2496,7 +2496,7 @@ public class LanFlowMapService
     }
 
     /// <summary>
-    /// The access ISP's ASN and name for a WAN globe: the first enabled access hop, else the
+    /// The access ISP's ASN and name for a WAN globe: the first enabled access hop with an ASN, else the
     /// gateway's own geo-IP lookup (the ASN UniFi Network draws its logo from), else a paused
     /// access hop. The gateway fallback covers a WAN with no trace or no WAN vantage.
     /// </summary>
