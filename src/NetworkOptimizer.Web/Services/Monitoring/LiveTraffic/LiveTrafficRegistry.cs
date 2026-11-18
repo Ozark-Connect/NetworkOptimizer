@@ -54,7 +54,7 @@ public sealed class LiveTrafficRegistry : ISiteScopedRegistry
 
     public FlowHistoryCache HistoryFor(string slug) => _history.GetOrAdd(slug, s =>
     {
-        var cache = new FlowHistoryCache();
+        var cache = new FlowHistoryCache { ClientNames = mac => GetFor(s).ClientNameFor(mac) };
         if (_customApps.TryGetValue(s, out var rules)) cache.SetCustomApps(rules);
         return cache;
     });
@@ -117,7 +117,7 @@ public sealed class LiveTrafficRegistry : ISiteScopedRegistry
             if (idle.Idle(now)) _clientHistory.TryRemove(key, out _);
         var cache = _clientHistory.GetOrAdd((slug, mac), _ =>
         {
-            var created = new FlowHistoryCache();
+            var created = new FlowHistoryCache { ClientNames = mac => GetFor(slug).ClientNameFor(mac) };
             if (_customApps.TryGetValue(slug, out var rules)) created.SetCustomApps(rules);
             return created;
         });

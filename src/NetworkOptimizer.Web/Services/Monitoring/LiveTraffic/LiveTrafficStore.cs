@@ -444,6 +444,10 @@ public sealed class LiveTrafficStore
         _macByIp = macByIp;
     }
 
+    /// <summary>A client's or UniFi device's name as Live names it now, by MAC; null when it is not listed.</summary>
+    public string? ClientNameFor(string? mac) =>
+        !string.IsNullOrEmpty(mac) && _clientsByMac.TryGetValue(mac, out var c) && !string.IsNullOrWhiteSpace(c.Name) ? c.Name : null;
+
     /// <summary>
     /// Where the next label read starts: just behind the newest record merged, at most two minutes back.
     /// The first read goes back <see cref="UniFiBackfill"/>: a flow already running when the page opens
