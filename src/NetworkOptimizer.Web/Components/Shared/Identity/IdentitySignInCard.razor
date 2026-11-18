@@ -330,7 +330,7 @@
     private string? _message;
     private string _messageClass = "info";
 
-    private bool _hasEnabledProvider => _providers?.Any(p => p.Enabled) == true;
+    private bool _hasEnabledProvider => _providers?.Any(p => p.Enabled && ConfigureOidcOptions.IsUsable(p)) == true;
 
     protected override async Task OnInitializedAsync()
     {
@@ -436,7 +436,15 @@
 
     private async Task ToggleEnabledAsync(FederationProvider provider)
     {
-        await FederationAdmin.SetEnabledAsync(provider.Id, !provider.Enabled);
+        try
+        {
+            await FederationAdmin.SetEnabledAsync(provider.Id, !provider.Enabled);
+        }
+        catch (FederationProviderConfigurationException ex)
+        {
+            Show(ex.Message, "warning");
+            return;
+        }
         await ReloadAsync();
 
         // Turning off the last provider would strand an SSO-only install, so restore local sign-in.
