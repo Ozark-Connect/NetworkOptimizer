@@ -232,7 +232,7 @@ public class OntAlertEvaluator
                         Severity = over ? AlertSeverity.Error : AlertSeverity.Warning,
                         Title = $"{ontName} path loss {(over ? "over" : "near")} the class limit{_siteSuffix}",
                         Message = over
-                            ? $"ONT {ontName} path loss {loss:0.0} dB is over the {max:0} dB limit of ODN class {className}: the link runs outside its budget."
+                            ? $"ONT {ontName} path loss {loss:0.0} dB is over the {max:0} dB limit of ODN class {className}: the link runs outside its loss budget."
                             : $"ONT {ontName} path loss {loss:0.0} dB leaves {max - loss:0.0} dB to the {max:0} dB limit of ODN class {className}.",
                         DeviceName = ontName,
                         MetricValue = loss,
@@ -263,9 +263,9 @@ public class OntAlertEvaluator
                         EventType = "ont.path_loss_rise",
                         Source = "ont",
                         Severity = AlertSeverity.Warning,
-                        Title = $"{ontName} path loss rose{_siteSuffix}",
+                        Title = $"{ontName} path loss increased{_siteSuffix}",
                         Message = $"ONT {ontName} path loss {loss:0.0} dB is {loss - baseline:0.0} dB above its usual {baseline:0.0} dB. " +
-                            "Check connectors, the patch cable and bends first; a loss that rose with the launch power unchanged is on the fibre path.",
+                            "With the OLT launch power unchanged, the change is on the fiber path: check connectors, the patch cable, and bends first.",
                         DeviceName = ontName,
                         MetricValue = loss,
                         ThresholdValue = Math.Round(baseline + PathLossRiseDb, 1),

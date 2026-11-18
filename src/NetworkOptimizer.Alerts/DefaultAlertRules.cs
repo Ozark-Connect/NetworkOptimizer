@@ -734,7 +734,7 @@ public static class DefaultAlertRules
         new AlertRule
         {
             // Path loss well above the level this ONT usually runs at. Opt-in, same reason.
-            Name = "ONT: Path Loss Rose",
+            Name = "ONT: Path Loss Increase",
             IsEnabled = false,
             EventTypePattern = "ont.path_loss_rise",
             Source = "ont",

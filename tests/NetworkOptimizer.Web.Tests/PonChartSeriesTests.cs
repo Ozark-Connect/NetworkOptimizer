@@ -787,7 +787,7 @@ public class PonChartSeriesTests
             (T0.AddMinutes(15).ToString("o"), "key_renewed"),
             (T0.AddMinutes(20).ToString("o"), "reranged"),
             (T0.AddMinutes(25).ToString("o"), "rate_changed"));
-        s.Events[^1].Should().Match<PonChartSeries.PonIdChange>(e => e.From == "1342.2 Mbit/s" && e.To == "500 Mbit/s");
+        s.Events[^1].Should().Match<PonChartSeries.PonIdChange>(e => e.From == "1342.2 Mbps" && e.To == "500 Mbps");
     }
 
     [Fact]

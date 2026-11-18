@@ -7,7 +7,7 @@ import { valueSortedTooltip, tooltipHeld, alignedPoints } from './chart-tooltip.
 import { renderFilterReset, isFiltered } from './chart-filter.js?v=6';
 import { createMarkLayer } from './chart-event-marks.js?v=14';
 import { createAxisDateCaption } from './chart-axis-date.js?v=5';
-import { ponSeriesFor, ponDetailsHtml, ponErrorTotalsHtml, updatePonCard, ponPayloadMbps, fmtPonLoad, ponLoadSummaryHtml, ponPathSummaryHtml, ponLaunchSeries, ponAvailSummaryHtml, ponGrantSummaryHtml, createPonLoadMap, ponCheckHtml, ponFecSummaryHtml, ponLaserSummaryHtml, ponProviderHtml, initPonCardCollapse } from './pon-section.js?v=18';
+import { ponSeriesFor, ponDetailsHtml, ponErrorTotalsHtml, updatePonCard, ponPayloadMbps, fmtPonLoad, ponLaunchSeries, createPonLoadMap, renderPonExtras, initPonViewTabs } from './pon-section.js?v=19';
 import { syncIdentity } from './chart-sync.js?v=9';
 import { awaitContainer } from './chart-mount.js?v=1';
 import { loadWindowHours, saveWindowHours, markActiveRange, notifyWindowMoved } from './chart-window.js?v=3';
@@ -286,7 +286,7 @@ async function ensureErrorsChartMounted() {
     const utilEl = container.querySelector('.ont-pon-util-chart');
     if (utilEl) {
         // Rate on the axis; the tooltip adds the share of the PON's downstream payload.
-        const utilOpts = baseOpts(180, 'Mbit/s', v => v == null ? '' : v >= 10 ? v.toFixed(0) : v.toFixed(1), { yaxis: { min: 0 } });
+        const utilOpts = baseOpts(180, 'Mbps', v => v == null ? '' : v >= 10 ? v.toFixed(0) : v.toFixed(1), { yaxis: { min: 0 } });
         utilOpts.tooltip = { ...utilOpts.tooltip, custom: ctx => valueSortedTooltip(ctx, { format: v => fmtPonLoad(v, ponPayload) }) };
         ponUtilChart = new ApexCharts(utilEl, { ...utilOpts, series: [], colors: PALETTE });
     }
@@ -298,7 +298,7 @@ async function ensureErrorsChartMounted() {
     if (biasEl) ponBiasChart = new ApexCharts(biasEl, { ...baseOpts(160, 'mA', v => v == null ? '' : v.toFixed(1) + ' mA', {
         yaxis: { min: v => Math.floor(v - 1), max: v => Math.ceil(v + 1) } }), series: [], colors: PALETTE });
     const cpuEl = container.querySelector('.ont-pon-cpu-chart');
-    if (cpuEl) ponCpuChart = new ApexCharts(cpuEl, { ...baseOpts(160, '%', v => v == null ? '' : v.toFixed(1) + ' %', { yaxis: { min: 0, max: 100 } }), series: [], colors: PALETTE });
+    if (cpuEl) ponCpuChart = new ApexCharts(cpuEl, { ...baseOpts(160, '%', v => v == null ? '' : v.toFixed(1) + '%', { yaxis: { min: 0, max: 100 } }), series: [], colors: PALETTE });
     const lossEl = container.querySelector('.ont-pon-loss-chart');
     if (lossEl) ponLossChart = new ApexCharts(lossEl, { ...baseOpts(160, 'dB', v => v == null ? '' : v.toFixed(1) + ' dB', {
         yaxis: { min: v => Math.floor(v - 1), max: v => Math.ceil(v + 1) } }), series: [], colors: PALETTE });
@@ -355,24 +355,10 @@ async function updateErrorsChart() {
     updatePonCard(container, '.ont-pon-grant-card', ponGrantChart, grantSeries);
     updatePonCard(container, '.ont-pon-bias-card', ponBiasChart, biasSeries);
     updatePonCard(container, '.ont-pon-cpu-card', ponCpuChart, cpuSeries);
-    for (const [selector, html] of [
-        ['.ont-pon-check', ponCheckHtml(withErrors)], ['.ont-pon-fec-summary', ponFecSummaryHtml(withErrors)],
-        ['.ont-pon-bias-summary', ponLaserSummaryHtml(withErrors)], ['.ont-pon-provider', ponProviderHtml(withErrors)],
-    ]) {
-        const target = container.querySelector(selector);
-        if (target) target.innerHTML = html;
-    }
-    const availEl = container.querySelector('.ont-pon-avail-summary');
-    if (availEl) availEl.innerHTML = ponAvailSummaryHtml(withErrors);
-    const grantEl = container.querySelector('.ont-pon-grant-summary');
-    if (grantEl) grantEl.innerHTML = ponGrantSummaryHtml(withErrors);
-    // Fire-and-forget: its own request, and a failure there must not hold up the rest.
-    ponLoadMap.refresh(container, withErrors).catch(() => {});
-    const pathEl = container.querySelector('.ont-pon-loss-summary');
-    if (pathEl) pathEl.innerHTML = ponPathSummaryHtml(withErrors);
-    const summaryEl = container.querySelector('.ont-pon-util-summary');
-    if (summaryEl) summaryEl.innerHTML = ponLoadSummaryHtml(withErrors, PALETTE,
-        d => Math.max(0, reporting.findIndex(x => x.id === d.id)));
+    renderPonExtras(container, 'ont', withErrors, {
+        palette: PALETTE, loadMap: ponLoadMap,
+        slotOf: d => Math.max(0, reporting.findIndex(x => x.id === d.id)),
+    });
 
     const el = container.querySelector('.ont-pon-details');
     if (el) {
@@ -606,7 +592,7 @@ export async function mount(elId) {
     if (containerId !== elId) return;
 
     if (restoredHours !== null) markActiveRange(container, restoredHours);
-    initPonCardCollapse(container.querySelector('.ont-errors-section'));
+    initPonViewTabs(container.querySelector('.ont-errors-section'));
 
     const powerEl = container.querySelector('.ont-power-chart');
     const tempEl = container.querySelector('.ont-temp-chart');

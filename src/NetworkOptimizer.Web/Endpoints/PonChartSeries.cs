@@ -767,7 +767,7 @@ public static class PonChartSeries
         var ordered = points.OrderBy(p => p.Time).ToList();
         var inv = CultureInfo.InvariantCulture;
         static double Mbps(long bytesPerSecond) => Math.Round(bytesPerSecond * 8 / 1e6, 1);
-        string Rate(long? v) => v is long b ? string.Create(inv, $"{Mbps(b):0.#} Mbit/s") : "none";
+        string Rate(long? v) => v is long b ? string.Create(inv, $"{Mbps(b):0.#} Mbps") : "none";
 
         var events = new List<PonIdChange>();
         for (var i = 1; i < ordered.Count; i++)

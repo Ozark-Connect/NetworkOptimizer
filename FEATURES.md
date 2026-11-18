@@ -248,6 +248,7 @@ Time-series monitoring on your own InfluxDB, fed by SNMP polling (InfluxDB).
 - Every SFP module: RX/TX power, temperature, voltage, and bias current
 - Mark a module as PON, Active Ethernet, or regular SFP; monitor or unmonitor it
 - **SFP Diagnostics** charts, including PON errors, host link errors, and GEM frames
+- PON views (**All**, **Optical**, **Link**, **Traffic**, **Provider**) for odi-oss sticks: **Connection Check**, **Path Loss** against the ODN class the OLT announces, **Laser Bias Current**, **Link Downtime**, **ONT CPU Load**, **PON Downstream Load** for the whole PON and this ONT, **PON Load by Hour**, **Upstream Grants**, and **Provider Activity**
 - The host device's reboots, health check actions, and alerts marked on the charts while one device's modules are shown
 - PON details: PLOAM state, ONU ID, FEC, ONT uptime; GPON vs XGS-PON detection
 - **SFP Anomalies** investigation and **SFP Alert Thresholds**
@@ -265,6 +266,7 @@ Time-series monitoring on your own InfluxDB, fed by SNMP polling (InfluxDB).
 ### ONT Stats
 
 - **ONT Signal History** - RX/TX power, temperature, PON errors, host link errors, GEM frames
+- The same PON views as SFP Stats for a standalone odi-oss ONT
 - PON status and type; **ONT Alert Thresholds**
 - **PON Status** table: **Registered**, **OLT** (vendor decoded, with model where reported), **OLT Version**, **Firmware**, and ONT uptime
 
@@ -752,7 +754,7 @@ Requires Gateway SSH.
   - Security Audit score drops and new findings; threat attack chains and patterns; Web Application Firewall events
   - A device reaching, or trying to reach, an address on a public block list
   - WAN port below its usual link speed or at half duplex, and its recovery
-  - ONT management unresponsive while its SFP still reads light; ONT rebooted; downstream AES encryption enabled or disabled (Network Optimizer Custom PON endpoints)
+  - ONT management unresponsive while its SFP still reads light; ONT rebooted; downstream AES encryption enabled or disabled (Network Optimizer Custom PON endpoints); path loss near the ODN class limit, or above its usual level (odi-oss)
   - WAN, LAN, and client speed test regressions
   - UniFi Console and On-Site Agent connection loss; an On-Site Agent tunnel that keeps reconnecting
   - Monitoring target offline, sustained loss, full and partial WAN outages
