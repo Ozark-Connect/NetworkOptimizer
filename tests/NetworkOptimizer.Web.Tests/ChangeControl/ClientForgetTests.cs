@@ -101,6 +101,12 @@ public class ClientForgetTests
         op.Action.Should().Be(PlanAction.Update);
         op.Body!["name"]!.GetValue<string>().Should().BeEmpty();
 
+        // "name:" with no value parses to null: the same clear.
+        var bare = Site();
+        bare.Collections["user"].Single(u => u["_id"]!.ToString() == "u1")["name"] = null;
+        PlanBuilder.Build(bare, Site(), new PlanOptions { Collections = Clients, ForgetClients = true })
+            .Operations.Should().ContainSingle().Which.Body!["name"]!.GetValue<string>().Should().BeEmpty();
+
         // Verified after the write, the cleared name reads back "" against the file's missing line: no difference.
         var def = ConfigCollections.Get("user")!;
         ConfigDiffEngine.CompareObjects(def, new JsonObject { ["_id"] = "u1", ["mac"] = "aa:bb:cc:dd:ee:01" },
