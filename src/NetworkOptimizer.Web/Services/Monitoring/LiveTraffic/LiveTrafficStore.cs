@@ -176,8 +176,9 @@ public sealed class LiveTrafficStore
                 if (!_flows.TryGetValue(flow.Key, out var state))
                 {
                     _flows[flow.Key] = state = new FlowState { Last = flow };
-                    // The agent ends a flow its reads missed twice; one that comes back is not ended.
-                    RemoveEnded(flow.Key);
+                    // The agent ends a flow its reads missed twice; one that comes back is not ended, and
+                    // keeps the start it had.
+                    if (RemoveEnded(flow.Key) is { } ended) Resume(flow, ended.Flow, ended.EndedAt, now);
                 }
                 KeepRoundTrip(flow, now);
                 state.Last = flow;
@@ -230,15 +231,36 @@ public sealed class LiveTrafficStore
         }
     }
 
-    /// <summary>Drops the ended row for this tuple, if any. Callers hold <c>_gate</c>.</summary>
-    private void RemoveEnded(string key)
+    /// <summary>Drops the ended row for this tuple, if any, and returns it. Callers hold <c>_gate</c>.</summary>
+    private EndedFlow? RemoveEnded(string key)
     {
         for (var node = _ended.First; node != null; node = node.Next)
         {
             if (node.Value.Flow.Key != key) continue;
             _ended.Remove(node);
-            return;
+            return node.Value;
         }
+        return null;
+    }
+
+    /// <summary>How long after the agent ended a flow its return still counts as the same connection: the
+    /// agent keeps a gone flow's counters for 60 s to resume it.</summary>
+    internal static readonly TimeSpan ResumeWindow = TimeSpan.FromMinutes(2);
+
+    /// <summary>
+    /// A flow the agent ended because two table reads in a row missed it, back with counters that only grew,
+    /// is the same connection: it keeps the age it had (the agent dates it from its return, which made an hours-old
+    /// connection read "Just now" when the kernel keeps no start time). Counters that went backward are a new
+    /// connection on the same tuple, and keep their own age.
+    /// </summary>
+    internal static void Resume(LiveFlow flow, LiveFlow ended, DateTime endedAt, DateTime now)
+    {
+        if (now - endedAt > ResumeWindow) return;
+        if (flow.TotalDownBytes < ended.TotalDownBytes || flow.TotalUpBytes < ended.TotalUpBytes) return;
+        var age = ended.AgeSeconds + (long)(now - endedAt).TotalSeconds;
+        if (age <= flow.AgeSeconds) return;
+        flow.AgeSeconds = age;
+        flow.AgeIsLowerBound = ended.AgeIsLowerBound;
     }
 
     private void Prune(DateTime now)

@@ -1928,6 +1928,52 @@ public class LiveTrafficStoreTests
         rows["203.0.113.9|192.0.2.10"].RttShownMs.Should().BeNull("no connection to it was timed");
     }
 
+    [Fact]
+    public void A_flow_the_agent_ended_after_missed_reads_comes_back_with_its_old_start()
+    {
+        var store = SeededStore();
+        var old = Flow("a", Laptop, "192.0.2.20", "203.0.113.5", 443, "eth4", 1000, 1000, totalDown: 400_000);
+        old.AgeSeconds = 900;
+        store.Ingest(Batch(old));
+        var gone = Batch();
+        var endedCopy = old.Clone();
+        gone.Ended.Add(endedCopy);
+        store.Ingest(gone);
+
+        // Back a moment later: the agent dates it from its return, with counters that only grew.
+        var back = Flow("a", Laptop, "192.0.2.20", "203.0.113.5", 443, "eth4", 500, 500, totalDown: 401_000);
+        back.TotalUpBytes = 2000;
+        back.AgeSeconds = 2;
+        store.Ingest(Batch(back));
+
+        var row = store.BuildView(Query(), LiveTrafficState.Live).Flows.Single();
+        row.Started.Should().BeBefore(DateTime.UtcNow.AddSeconds(-890), "it is the same 15-minute-old connection");
+        store.BuildView(Query() with { Ended = true }, LiveTrafficState.Live).Flows.Should().BeEmpty("it never ended");
+    }
+
+    [Fact]
+    public void A_new_connection_on_the_tuple_or_a_late_return_keeps_its_own_start()
+    {
+        var now = DateTime.UtcNow;
+        var ended = Flow("a", Laptop, "192.0.2.20", "203.0.113.5", 443, "eth4", 0, 0, totalDown: 400_000);
+        ended.AgeSeconds = 900;
+
+        var reused = Flow("a", Laptop, "192.0.2.20", "203.0.113.5", 443, "eth4", 500, 500, totalDown: 600);
+        reused.AgeSeconds = 2;
+        LiveTrafficStore.Resume(reused, ended, now.AddSeconds(-5), now);
+        reused.AgeSeconds.Should().Be(2, "its counters went backward: a new connection");
+
+        var late = Flow("a", Laptop, "192.0.2.20", "203.0.113.5", 443, "eth4", 500, 500, totalDown: 401_000);
+        late.AgeSeconds = 2;
+        LiveTrafficStore.Resume(late, ended, now - LiveTrafficStore.ResumeWindow - TimeSpan.FromSeconds(1), now);
+        late.AgeSeconds.Should().Be(2, "past the window the agent no longer resumes it either");
+
+        var resumed = Flow("a", Laptop, "192.0.2.20", "203.0.113.5", 443, "eth4", 500, 500, totalDown: 401_000);
+        resumed.AgeSeconds = 2;
+        LiveTrafficStore.Resume(resumed, ended, now.AddSeconds(-6), now);
+        resumed.AgeSeconds.Should().Be(906);
+    }
+
     [Theory]
     [InlineData(true, new[] { "slow", "fast", "none" })]
     [InlineData(false, new[] { "fast", "slow", "none" })]
