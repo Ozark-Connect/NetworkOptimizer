@@ -59,7 +59,7 @@ The script creates a privileged Debian LXC container (Debian 13 Trixie by defaul
 | Speedtest Port | 3005 | OpenSpeedTest web UI (configurable) |
 | iperf3 Server | Disabled | CLI-based speed testing (port 5201) |
 | Host Redirect | Disabled | Redirect IP access to hostname (requires local DNS) |
-| HTTPS (Traefik) | Disabled | Automatic HTTPS with Let's Encrypt via Cloudflare DNS |
+| HTTPS (Traefik) | Disabled | Automatic HTTPS with Let's Encrypt (DNS-01, Cloudflare at install) |
 | Reverse Proxy | None | Optional hostname for reverse proxy setup (skipped if Traefik enabled) |
 | Geo Location | Disabled | GPS tagging for speed tests and signal levels (auto-enabled with Traefik) |
 | Timezone | America/New_York | Container timezone |
@@ -209,14 +209,14 @@ docker compose pull && docker compose up -d && docker image prune -f
 
 During installation, you can optionally enable HTTPS via a built-in [Traefik](https://github.com/Ozark-Connect/NetworkOptimizer-Proxy) reverse proxy. This provides:
 
-- Automatic Let's Encrypt certificates via Cloudflare DNS-01 challenge
+- Automatic Let's Encrypt certificates via DNS-01 challenge
 - HTTP/1.1 for speed tests (HTTP/2 multiplexing skews results), HTTP/2 for the main app
 - Geo location tagging for speed tests and signal walk tests (browsers require HTTPS for location access)
 
 **Requirements:**
-- A domain managed by Cloudflare (for DNS-01 certificate validation)
+- A domain whose DNS is at Cloudflare (the installer asks for a Cloudflare token; to use another DNS provider, change `DNS_PROVIDER` in `/opt/network-optimizer-proxy/.env` after install, see [NetworkOptimizer-Proxy](https://github.com/Ozark-Connect/NetworkOptimizer-Proxy#automatic-https))
 - A Cloudflare API token with Zone > DNS > Edit permission ([create one here](https://dash.cloudflare.com/profile/api-tokens))
-- Two DNS records pointing to your container's IP (e.g., `optimizer.example.com` and `speedtest.example.com`)
+- Two DNS records pointing to your container's IP (e.g., `optimizer.example.com` and `speedtest.example.com`). These can live on your local DNS (your gateway, Pi-hole); Traefik only creates the temporary records that prove domain ownership.
 
 **What gets deployed:**
 - Traefik container at `/opt/network-optimizer-proxy/`
