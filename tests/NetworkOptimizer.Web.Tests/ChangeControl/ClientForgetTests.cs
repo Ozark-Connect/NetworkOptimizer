@@ -75,6 +75,21 @@ public class ClientForgetTests
     }
 
     [Fact]
+    public void Edit_AnEntryAddedForAClientUniFiKnows_RenamesThatRecord_NotCreatesOne()
+    {
+        // The client is in UniFi with no config, so it is not in the Clients file; the edit adds it by MAC alone.
+        var live = Site();
+        live.Collections["user"].Add(new JsonObject { ["_id"] = "u9", ["mac"] = "aa:bb:cc:dd:ee:09", ["name"] = "", ["hostname"] = "PC-09" });
+        var desired = Site();
+        desired.Collections["user"].Add(new JsonObject { ["mac"] = "aa:bb:cc:dd:ee:09", ["name"] = "PC" });
+
+        var op = PlanBuilder.Build(desired, live, new PlanOptions { Collections = Clients, ForgetClients = true })
+            .Operations.Should().ContainSingle().Subject;
+        op.Action.Should().Be(PlanAction.Update);
+        op.ObjectId.Should().Be("u9");
+    }
+
+    [Fact]
     public void Restore_AClientMissing_IsLeftInPlace_AndSaysHowToForgetIt()
     {
         // DeleteMissing alone never forgets a client: Restore, and a revert, which can apply unreviewed.
@@ -110,13 +125,21 @@ public class ClientForgetTests
 
     private static ObjectDiff ForgottenPrinter() => new()
     {
-        Collection = "user", ObjectId = "u1", Name = "Printer", Action = ConfigChangeAction.Deleted,
+        Collection = "user",
+        ObjectId = "u1",
+        Name = "Printer",
+        Action = ConfigChangeAction.Deleted,
     };
 
     private static ConfigWriteJournalEntry ForgetWrite() => new()
     {
-        At = Now.AddSeconds(-20), Method = "POST", Path = "cmd/stamgr", Collection = "user", ObjectId = "u1",
-        FieldsJson = """["cmd","macs"]""", Source = "change-control:plan:160",
+        At = Now.AddSeconds(-20),
+        Method = "POST",
+        Path = "cmd/stamgr",
+        Collection = "user",
+        ObjectId = "u1",
+        FieldsJson = """["cmd","macs"]""",
+        Source = "change-control:plan:160",
     };
 
     [Fact]
@@ -125,8 +148,13 @@ public class ClientForgetTests
         // UniFi audits a forget as REMOVED_ENTITY in CLIENT, naming the client by MAC only (main console, 2026-11-01).
         var removed = new AuditLogEvent
         {
-            Id = "e1", Key = "REMOVED_ENTITY", AdminName = "Network Optimizer", ObjectId = "aa:bb:cc:dd:ee:01",
-            ObjectName = "aa:bb:cc:dd:ee:01", Section = "CLIENT", Timestamp = new DateTimeOffset(Now.AddSeconds(-19)).ToUnixTimeMilliseconds(),
+            Id = "e1",
+            Key = "REMOVED_ENTITY",
+            AdminName = "Network Optimizer",
+            ObjectId = "aa:bb:cc:dd:ee:01",
+            ObjectName = "aa:bb:cc:dd:ee:01",
+            Section = "CLIENT",
+            Timestamp = new DateTimeOffset(Now.AddSeconds(-19)).ToUnixTimeMilliseconds(),
         };
 
         var g = ChangeAttributor.Attribute([ForgottenPrinter()], [removed], [ForgetWrite()], Now, false, beforeReadAt: Now.AddSeconds(-30)).Single();
