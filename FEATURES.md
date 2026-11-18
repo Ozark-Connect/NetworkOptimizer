@@ -154,6 +154,10 @@ Time-series monitoring on your own InfluxDB, fed by SNMP polling (InfluxDB).
       - Hover a destination for its address, its Threat Intelligence drill-down, and Trace; your own clients and devices link to Client Performance or Device Stats instead
       - Every address and domain on a hover card copies with one click; Live DNS queries and outside resolvers get the same card
     - Parallel streams from one client to one destination shown as one row with a stream count
+    - **Round trip** in a flow's detail: timed by the Gateway as each connection opens, to the destination and to the client
+      - **RTT** column, sortable, on desktop; hover a value for the client's round trip
+      - Hover a destination or client for its median round trip over the connections shown
+      - Not on Gateways whose firmware reports no connection events, such as the UDR7
     - **Where It's Going** - client to app to route, by rate or by flow count; by rate each band splits into download and upload in its route's color, and each node shows both rates; hovering a route lists its top destinations (on LAN, the hosts); the gateway's own VPN tunnel is left out so tunneled traffic counts once
     - **Live DNS** - lookups to the gateway, to DNS servers on other VLANs, and to outside resolvers; blocked lookups (NXDOMAIN, or a 0.0.0.0 / :: answer), response time, and DNS bypass (including DoH and DoT, not counting a site resolver's own encrypted upstream)
       - A lookup the gateway redirects (DNAT) to a site resolver shows the attempt and the resolver that answered, and is not counted as a bypass

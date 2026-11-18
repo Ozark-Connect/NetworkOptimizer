@@ -24,6 +24,10 @@
             </td>
             <td>@AppCell(f)</td>
             <td>@RoutePill(f)</td>
+            @if (ShowRoundTrip)
+            {
+                <td class="lt-num" data-tooltip="@RoundTripTooltip(f)" data-tooltip-hover-only>@(f.RemoteRttMs is { } rtt ? LiveTrafficDisplay.RoundTrip(rtt) : "-")</td>
+            }
             <td class="lt-num">@Rate(f.Ended ? 0 : f.DownBps, "speed-down")</td>
             <td class="lt-num">@Rate(f.Ended ? 0 : f.UpBps, "speed-up")</td>
             <td class="lt-num">@DisplayFormatters.FormatBytes(f.RecentDownBytes)</td>
@@ -34,7 +38,7 @@
         </tr>
         @if (Open)
         {
-            <tr data-flip="@(f.Key + "|d")" class="lt-detail"><td colspan="@(ShowClient ? 12 : 11)">@Detail(f)</td></tr>
+            <tr data-flip="@(f.Key + "|d")" class="lt-detail"><td colspan="@((ShowClient ? 12 : 11) + (ShowRoundTrip ? 1 : 0))">@Detail(f)</td></tr>
         }
         break;
 
@@ -178,6 +182,13 @@
     [Parameter] public EventCallback OnToggle { get; set; }
     /// <summary>The client's name and line; off in a list that is one client's own (Client Performance).</summary>
     [Parameter] public bool ShowClient { get; set; } = true;
+    /// <summary>The RTT column, in the Table layout; on while the Gateway agent times round trips.</summary>
+    [Parameter] public bool ShowRoundTrip { get; set; }
+
+    /// <summary>The RTT cell's tooltip: what the number is, and the client's own round trip when there is one.</summary>
+    private static string? RoundTripTooltip(LiveFlowRow f) => f.RemoteRttMs is null ? null
+        : f.ClientRttMs is { } client ? $"To the destination and back, timed when the connection opened\n{LiveTrafficDisplay.RoundTrip(client)} to the client"
+        : "To the destination and back, timed when the connection opened";
 
     private string LastSeenLabel(LiveFlowRow f) => f.LastSeen is { } seen ? LocalTime(seen) : "";
 
@@ -226,6 +237,7 @@
                     }
                     <dt>Sent</dt><dd>@DisplayFormatters.FormatBytes(f.TotalUpBytes), @f.TotalUpPackets.ToString("N0") packets</dd>
                     <dt>Received</dt><dd>@DisplayFormatters.FormatBytes(f.TotalDownBytes), @f.TotalDownPackets.ToString("N0") packets</dd>
+                    @RoundTripRow(f)
                     @PortsAndOwner(f)
                     @if (!string.IsNullOrEmpty(f.DnsDetail))
                     {
@@ -269,6 +281,33 @@
             @* No guess: an exception rule (a DNS-blocking allow, say) looks just like the default. *@
             <text>Not reported yet by UniFi Network</text>
         }
+    };
+
+    /// <summary>
+    /// The round trips the Gateway timed when the connection opened. Nothing at all where the agent
+    /// predates them; said plainly where the Gateway cannot time them, or this connection was not timed.
+    /// </summary>
+    private static RenderFragment RoundTripRow(LiveFlowRow f) => __builder =>
+    {
+        if (f.Latency == FlowLatencyAvailability.Hidden) return;
+        <dt>Round trip</dt>
+        <dd>
+            @if (f.Latency == FlowLatencyAvailability.Unavailable)
+            {
+                <text>Not available on this Gateway </text>
+                <span class="tooltip-icon tooltip-icon-sm" data-tooltip="This Gateway's firmware does not report connection events, so its connections cannot be timed.">?</span>
+            }
+            else if (LiveTrafficDisplay.FlowRoundTrip(f) is { } value)
+            {
+                <text>@value </text>
+                <span class="tooltip-icon tooltip-icon-sm" data-tooltip="Timed by the Gateway when the connection opened: how long the destination took to answer, and how long the client took to answer back.">?</span>
+            }
+            else
+            {
+                <text>Not measured </text>
+                <span class="tooltip-icon tooltip-icon-sm" data-tooltip="Connections are timed as they open, so only those opened while Live Traffic is open have a round trip.">?</span>
+            }
+        </dd>
     };
 
     /// <summary>A rate in a sentence: idle reads "0 bps", not the table's "-".</summary>

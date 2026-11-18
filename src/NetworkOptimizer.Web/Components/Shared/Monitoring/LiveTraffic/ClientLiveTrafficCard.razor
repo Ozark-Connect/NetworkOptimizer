@@ -110,13 +110,25 @@
             <div @onmouseenter="Feed.Hold.PointerIn" @onmouseleave="Feed.Hold.PointerOut" @ontouchstart="Feed.Hold.Touched">
                 <div class="table-responsive lt-desktop-only">
                     <table class="results-table lt-flows">
-                        <colgroup><col style="width:3.3rem"><col style="width:20%"><col style="width:11%"><col style="width:11%"><col style="width:10%"><col style="width:9%"><col style="width:9%"><col style="width:9%"><col style="width:8%"><col style="width:9%"><col style="width:100px"></colgroup>
+                        @if (ShowRoundTrip)
+                        {
+                            @* RTT's 5% comes out of Destination and App. *@
+                            <colgroup><col style="width:3.3rem"><col style="width:16%"><col style="width:10%"><col style="width:11%"><col style="width:5%"><col style="width:10%"><col style="width:9%"><col style="width:9%"><col style="width:9%"><col style="width:8%"><col style="width:9%"><col style="width:100px"></colgroup>
+                        }
+                        else
+                        {
+                            <colgroup><col style="width:3.3rem"><col style="width:20%"><col style="width:11%"><col style="width:11%"><col style="width:10%"><col style="width:9%"><col style="width:9%"><col style="width:9%"><col style="width:8%"><col style="width:9%"><col style="width:100px"></colgroup>
+                        }
                         <thead>
                             <tr>
                                 <th>#</th>
                                 @SortHeader(LiveFlowSort.Destination, "Destination")
                                 @SortHeader(LiveFlowSort.App, "App")
                                 @SortHeader(LiveFlowSort.Route, "Route")
+                                @if (ShowRoundTrip)
+                                {
+                                    @SortHeader(LiveFlowSort.RoundTrip, "RTT")
+                                }
                                 @SortHeader(LiveFlowSort.Download, "Download")
                                 @SortHeader(LiveFlowSort.Upload, "Upload")
                                 @RecentSortHeader(LiveFlowSort.RecentDown)
@@ -132,12 +144,12 @@
                             {
                                 rank++;
                                 var key = f.Key;
-                                <LiveFlowRowView @key="key" Flow="f" Layout="LiveFlowLayout.Table" ShowClient="false" Rank="rank"
+                                <LiveFlowRowView @key="key" Flow="f" Layout="LiveFlowLayout.Table" ShowClient="false" Rank="rank" ShowRoundTrip="ShowRoundTrip"
                                                  Open="_openKey == key" OnToggle="() => ToggleRow(key)" Context="Feed.RowContext" />
                             }
                             @for (var i = shown.Count; i < slots; i++)
                             {
-                                <tr class="lt-slot-empty"><td colspan="11">&nbsp;<span class="lt-sub">&nbsp;</span></td></tr>
+                                <tr class="lt-slot-empty"><td colspan="@(ShowRoundTrip ? 12 : 11)">&nbsp;<span class="lt-sub">&nbsp;</span></td></tr>
                             }
                         </tbody>
                     </table>
@@ -212,6 +224,9 @@
          (LiveFlowSort.RecentDown, "Recent"), (LiveFlowSort.RecentUp, "Recent"), (LiveFlowSort.Total, "Total"), (LiveFlowSort.Started, "Started")];
 
     private LiveTrafficView? View => Feed.View;
+
+    /// <summary>The RTT column: only while the Gateway agent times round trips, never as a column of dashes.</summary>
+    private bool ShowRoundTrip => View?.FlowLatency == FlowLatencyAvailability.Measuring;
 
     private bool IsLive => View?.State is LiveTrafficState.Live or LiveTrafficState.Starting;
 
