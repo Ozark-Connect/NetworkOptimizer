@@ -85,14 +85,18 @@ public class MonitoringPathView
         // Access cloud: WAN-scoped MonitoringTargets where TargetType = AccessIsp.
         // Fallback for legacy rows that pre-date WanInterface stamping: include null
         // WanInterface only when the requested WAN is the primary (single-WAN heritage).
-        var accessHops = await db.MonitoringTargets.AsNoTracking()
+        var accessTargets = await db.MonitoringTargets.AsNoTracking()
             .Where(t => t.TargetType == MonitoringTargetType.AccessIsp
-                        && t.Enabled
+                        && t.RetiredAt == null
                         && (t.WanInterface == resolvedWanInterface
                             || (isPrimary && (t.WanInterface == null
                                 || t.WanInterface == MonitoringTarget.UnpinnedWan))))
             .OrderBy(t => t.Id)
             .ToListAsync(ct);
+        var accessHops = accessTargets.Where(t => t.Enabled).ToList();
+        var accessIdentity = accessHops.FirstOrDefault(t => t.AsnNumber > 0);
+        // A paused hop still names the ISP: pausing stops the probe, not the identity.
+        var pausedIdentity = accessTargets.FirstOrDefault(t => !t.Enabled && t.AsnNumber > 0);
 
         // TODO: once multi-WAN upstream tracing is implemented, each WAN will
         // have its own WanDiscoveryContext with L2 neighbor and access tech.
@@ -110,8 +114,10 @@ public class MonitoringPathView
         {
             AccessTechnology = FormatAccessTechnology(accessTech),
             L2NeighborOui = l2NeighborOui,
-            AsnNumber = accessHops.FirstOrDefault()?.AsnNumber,
-            AsnName = accessHops.FirstOrDefault()?.AsnName,
+            AsnNumber = accessIdentity?.AsnNumber,
+            AsnName = accessIdentity?.AsnName,
+            PausedAsnNumber = pausedIdentity?.AsnNumber,
+            PausedAsnName = pausedIdentity?.AsnName,
             IsCgnat = isCgnat || (wan?.IpClass == PublicAddressClass.Cgnat),
             Hops = accessHops.Select(t => new AccessHop
             {
@@ -486,8 +492,17 @@ public record AccessIspCloud
 {
     public string? AccessTechnology { get; init; }       // "Gpon" / "Docsis" / ...
     public string? L2NeighborOui { get; init; }          // vendor name (Calix / Arris / ...)
+    /// <summary>The ISP's ASN from the first enabled access hop that has one; null when none does.</summary>
     public int? AsnNumber { get; init; }
     public string? AsnName { get; init; }
+
+    /// <summary>
+    /// The ASN of a paused (not retired) access hop: still the ISP, but a last resort, behind
+    /// enabled hops and the gateway's own geo-IP lookup.
+    /// </summary>
+    public int? PausedAsnNumber { get; init; }
+    public string? PausedAsnName { get; init; }
+
     public IReadOnlyList<AccessHop> Hops { get; init; } = Array.Empty<AccessHop>();
     public bool IsCgnat { get; init; }
 }

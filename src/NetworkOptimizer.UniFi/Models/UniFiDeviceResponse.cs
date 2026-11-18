@@ -377,6 +377,14 @@ public class UniFiDeviceResponse
     public Dictionary<string, WanGeoInfo>? LastGeoInfo { get; set; }
 
     /// <summary>
+    /// The gateway's current per-WAN geo-IP lookup, keyed like <see cref="LastGeoInfo"/>. Unlike
+    /// it, each entry carries the ASN: the one UniFi Network draws the ISP logo from.
+    /// </summary>
+    [VendorSpecific("UniFi", "stat/device geo_info: per-WAN geo-IP with asn, isp_name, isp_organization")]
+    [JsonPropertyName("geo_info")]
+    public Dictionary<string, WanGeoInfo>? GeoInfo { get; set; }
+
+    /// <summary>
     /// Mobile-broadband (cellular) state, present on gateways/modems with an
     /// integrated or attached cellular radio. The SIM's networkoperator/spn is the
     /// preferred carrier source for a cellular WAN.
@@ -547,6 +555,11 @@ public class WanGeoInfo
 
     [JsonPropertyName("isp")]
     public string? Isp { get; set; }
+
+    /// <summary>The WAN address's ASN; only the device-level geo_info carries it, and 0 means unknown.</summary>
+    [JsonPropertyName("asn")]
+    [JsonConverter(typeof(FlexibleIntConverter))]
+    public int? Asn { get; set; }
 
     /// <summary>Either field, whichever the source populated.</summary>
     public string? AnyName => string.IsNullOrWhiteSpace(IspName) ? Isp : IspName;
