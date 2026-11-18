@@ -18,6 +18,7 @@ public class TourStateService
 {
     private readonly IDbContextFactory<NetworkOptimizerDbContext> _dbFactory;
     private readonly IDbContextFactory<AuthDbContext> _authDbFactory;
+    private readonly TourDefinitionService _definitions;
     private readonly ILogger<TourStateService> _logger;
     // One lock for every subject: it serializes each row's read-modify-write, prevents a
     // double insert on the unique Subject index, and covers the race on claiming the
@@ -27,10 +28,12 @@ public class TourStateService
     public TourStateService(
         IDbContextFactory<NetworkOptimizerDbContext> dbFactory,
         IDbContextFactory<AuthDbContext> authDbFactory,
+        TourDefinitionService definitions,
         ILogger<TourStateService> logger)
     {
         _dbFactory = dbFactory;
         _authDbFactory = authDbFactory;
+        _definitions = definitions;
         _logger = logger;
     }
 
@@ -83,7 +86,11 @@ public class TourStateService
         if (row == null)
             row = await ClaimOnReadAsync(subject);
         if (row == null)
-            return new Snapshot { ToursDisabled = await InheritedToursDisabledAsync(subject) };
+            return new Snapshot
+            {
+                ToursDisabled = await InheritedToursDisabledAsync(subject),
+                DismissedTourIds = BaselineDismissedTourIds(subject),
+            };
 
         var snapshot = new Snapshot { ToursDisabled = row.ToursDisabled };
         foreach (var id in ParseArray(row.SeenTourSteps))
@@ -129,8 +136,8 @@ public class TourStateService
 
     /// <summary>
     /// ?tour=reset: clears the subject's recorded tour state, so the automatic offer fires again
-    /// on the next Dashboard visit, and the LastSeenAppVersion stamp. Other users' rows are
-    /// untouched. FirstSeenVersion is deliberately preserved - it cannot be reconstructed, and
+    /// on the next Dashboard visit with every tour since FirstSeenVersion, and the
+    /// LastSeenAppVersion stamp. Other users' rows are untouched. FirstSeenVersion is deliberately preserved - it cannot be reconstructed, and
     /// losing it would permanently destroy Highlights eligibility.
     /// </summary>
     public async Task ResetAsync(string? subject)
@@ -142,8 +149,22 @@ public class TourStateService
         {
             await using var db = await _dbFactory.CreateDbContextAsync();
             var row = await FindOrClaimAsync(db, subject);
-            if (row != null)
-                db.TourStates.Remove(row);
+            if (subject == TourState.DefaultSubject)
+            {
+                if (row != null)
+                    db.TourStates.Remove(row);
+            }
+            else
+            {
+                // An empty row, not none: a missing row reads as the clean-start baseline, and a
+                // reset must re-arm every tour since FirstSeenVersion, not just this minor's.
+                row ??= db.TourStates.Add(new TourState { Subject = subject }).Entity;
+                row.SeenTourSteps = "[]";
+                row.DismissedTours = "[]";
+                row.TourOffers = "{}";
+                row.ToursDisabled = false;
+                row.UpdatedAt = DateTime.UtcNow;
+            }
             var admin = await db.AdminSettings.FirstOrDefaultAsync();
             if (admin != null)
             {
@@ -177,8 +198,14 @@ public class TourStateService
             var row = await FindOrClaimAsync(db, subject);
             if (row == null)
             {
-                // Subject set explicitly: the model default is DefaultSubject.
-                row = new TourState { Subject = subject, ToursDisabled = await InheritedToursDisabledAsync(subject) };
+                // Subject set explicitly: the model default is DefaultSubject. The seed is the
+                // baseline the read path already applied, so the row agrees with the first offer.
+                row = new TourState
+                {
+                    Subject = subject,
+                    ToursDisabled = await InheritedToursDisabledAsync(subject),
+                    DismissedTours = JsonSerializer.Serialize(BaselineDismissedTourIds(subject).Select(Ns)),
+                };
                 db.TourStates.Add(row);
             }
             mutate(row);
@@ -259,6 +286,25 @@ public class TourStateService
         await using var auth = await _authDbFactory.CreateDbContextAsync();
         var ids = await auth.Users.AsNoTracking().Select(u => u.Id).Take(2).ToListAsync();
         return ids.Count == 1 ? ids[0] : null;
+    }
+
+    /// <summary>
+    /// What a subject that starts clean (no row, nothing claimed) reads as dismissed: every
+    /// what's-new tour from before the current minor line. A new account is offered this minor's
+    /// tour, not every release since the install. The default subject keeps the full backlog, and
+    /// Highlights tours are never in it, so the new-install welcome is unchanged.
+    /// </summary>
+    private HashSet<string> BaselineDismissedTourIds(string subject)
+    {
+        var ids = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (subject == TourState.DefaultSubject)
+            return ids;
+        var current = _definitions.CurrentEffectiveVersion();
+        foreach (var tour in _definitions.GetTours())
+            if (!tour.IsHighlights && tour.ParsedVersion is { } v
+                && (v.Major < current.Major || (v.Major == current.Major && v.Minor < current.Minor)))
+                ids.Add(tour.Id);
+        return ids;
     }
 
     /// <summary>

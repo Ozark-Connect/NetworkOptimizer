@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.Storage.Models.Identity;
+using NetworkOptimizer.Web.Services;
 using NetworkOptimizer.Web.Services.Identity;
 using NetworkOptimizer.Web.Services.Tours;
 using Xunit;
@@ -19,15 +20,29 @@ public sealed class TourStateServiceTests : IDisposable
     private readonly string _mainDbPath = Path.Combine(Path.GetTempPath(), $"netopt-tours-main-{Guid.NewGuid():N}.db");
     private readonly string _authDbPath = Path.Combine(Path.GetTempPath(), $"netopt-tours-auth-{Guid.NewGuid():N}.db");
     private readonly TourStateService _state;
+    private readonly TourDefinitionService _definitions;
 
     private const string Alice = "user-1";
     private const string Bob = "user-2";
     private const string Default = TourState.DefaultSubject;
 
+    // The minor line the service judges against: the build's release, or the newest test tour on a
+    // source build. Two tours in it and two from long before it, all newer than no FirstSeenVersion.
+    private static readonly Version Current = TourVersions.IsSourceBuild
+        ? new Version(2, 11, 4)
+        : TourVersions.Parse(AppVersionInfo.ReleaseVersion)!;
+    private static readonly string CurrentMinorFirst = $"{Current.Major}.{Current.Minor}.0";
+    private static readonly string CurrentMinorLatest = $"{Current.Major}.{Current.Minor}.{Math.Max(Current.Build, 0)}";
+    private const string OldTour = "1.8.0";
+    private const string OlderPatchTour = "1.9.2";
+
     public TourStateServiceTests()
     {
         var main = new MainFactory(_mainDbPath);
         var auth = new AuthFactory(_authDbPath);
+        _definitions = new TourDefinitionService(
+            new[] { OldTour, OlderPatchTour, CurrentMinorFirst, CurrentMinorLatest }.Distinct().Select(Tour),
+            NullLogger<TourDefinitionService>.Instance);
         using (var db = main.CreateDbContext())
         {
             db.Database.EnsureCreated();
@@ -36,7 +51,7 @@ public sealed class TourStateServiceTests : IDisposable
         }
         using (var db = auth.CreateDbContext())
             db.Database.EnsureCreated();
-        _state = new TourStateService(main, auth, NullLogger<TourStateService>.Instance);
+        _state = new TourStateService(main, auth, _definitions, NullLogger<TourStateService>.Instance);
     }
 
     // ---- subject resolution ----
@@ -72,13 +87,13 @@ public sealed class TourStateServiceTests : IDisposable
 
         var bob = await _state.GetSnapshotAsync(Bob);
         bob.SeenStepIds.Should().BeEmpty();
-        bob.DismissedTourIds.Should().BeEmpty();
+        bob.DismissedTourIds.Should().BeEquivalentTo([OldTour, OlderPatchTour], "only the clean-start baseline");
         bob.Offers.Should().BeEmpty("one user's Later must not defer the tour for another");
         bob.ToursDisabled.Should().BeFalse();
 
         var alice = await _state.GetSnapshotAsync(Alice);
         alice.SeenStepIds.Should().BeEquivalentTo(["step-a"]);
-        alice.DismissedTourIds.Should().BeEquivalentTo(["tour-x"]);
+        alice.DismissedTourIds.Should().BeEquivalentTo([OldTour, OlderPatchTour, "tour-x"]);
         alice.Offers.Should().ContainKey("tour-y");
         alice.ToursDisabled.Should().BeTrue();
     }
@@ -165,7 +180,7 @@ public sealed class TourStateServiceTests : IDisposable
         await _state.RecordToursDismissedAsync(Default, ["tour-x"]);
         await SeedUsersAsync(Alice, Bob);
 
-        (await _state.GetSnapshotAsync(Alice)).DismissedTourIds.Should().BeEmpty();
+        (await _state.GetSnapshotAsync(Alice)).DismissedTourIds.Should().NotContain("tour-x");
         await _state.RecordStepSeenAsync(Alice, "step-a");
 
         (await SubjectsAsync()).Should().BeEquivalentTo([Default, Alice], "the legacy row is left orphaned");
@@ -177,7 +192,7 @@ public sealed class TourStateServiceTests : IDisposable
         await _state.RecordToursDismissedAsync(Default, ["tour-x"]);
         await SeedUsersAsync(Alice);
 
-        (await _state.GetSnapshotAsync(Bob)).DismissedTourIds.Should().BeEmpty();
+        (await _state.GetSnapshotAsync(Bob)).DismissedTourIds.Should().NotContain("tour-x");
         (await SubjectsAsync()).Should().BeEquivalentTo([Default]);
     }
 
@@ -187,11 +202,11 @@ public sealed class TourStateServiceTests : IDisposable
         await SeedUsersAsync(Alice);
         await _state.RecordToursDismissedAsync(Alice, ["tour-x"]);
 
-        (await _state.GetSnapshotAsync(Default)).DismissedTourIds.Should().BeEquivalentTo(["tour-x"],
+        (await _state.GetSnapshotAsync(Default)).DismissedTourIds.Should().Contain("tour-x",
             "with one account, the auth-disabled install is the same person");
         (await SubjectsAsync()).Should().BeEquivalentTo([Default]);
 
-        (await _state.GetSnapshotAsync(Alice)).DismissedTourIds.Should().BeEquivalentTo(["tour-x"],
+        (await _state.GetSnapshotAsync(Alice)).DismissedTourIds.Should().Contain("tour-x",
             "turning authentication back on claims it again");
     }
 
@@ -254,23 +269,136 @@ public sealed class TourStateServiceTests : IDisposable
 
         await _state.ResetAsync(Alice);
 
-        (await SubjectsAsync()).Should().BeEquivalentTo([Bob]);
+        var alice = await _state.GetSnapshotAsync(Alice);
+        alice.SeenStepIds.Should().BeEmpty();
+        alice.DismissedTourIds.Should().BeEmpty("a reset re-arms every tour, not just the clean-start baseline");
+        (await _state.GetSnapshotAsync(Bob)).SeenStepIds.Should().BeEquivalentTo(["step-b"]);
         (await LastSeenAsync()).Should().BeNull("reset must keep re-arming the automatic offer");
         (await _state.GetFirstSeenVersionAsync()).Should().Be("2.4.0", "FirstSeenVersion cannot be reconstructed");
     }
 
     [Fact]
-    public async Task ResetByTheOnlyAccountAlsoRemovesAnUnclaimedDefaultRow()
+    public async Task ResetByTheOnlyAccountTakesTheUnclaimedDefaultRow()
     {
         await _state.RecordToursDismissedAsync(Default, ["tour-x"]);
         await SeedUsersAsync(Alice);
 
         await _state.ResetAsync(Alice);
 
-        (await SubjectsAsync()).Should().BeEmpty("otherwise the next read would claim the history back");
+        (await SubjectsAsync()).Should().BeEquivalentTo([Alice], "otherwise the next read would claim the history back");
+        (await _state.GetSnapshotAsync(Alice)).DismissedTourIds.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task ResetByTheDefaultSubjectRemovesItsRow()
+    {
+        await _state.RecordToursDismissedAsync(Default, ["tour-x"]);
+
+        await _state.ResetAsync(Default);
+
+        (await SubjectsAsync()).Should().BeEmpty();
+    }
+
+    // ---- the clean-start baseline ----
+
+    [Fact]
+    public async Task ANewSubjectsFirstOfferHasOnlyCurrentMinorTours()
+    {
+        await SeedUsersAsync(Alice, Bob);
+        await SetFirstSeenAsync(null); // an install older than tours: no floor at all
+
+        var offer = await Tours(Bob).GetDueOfferAsync();
+
+        offer.Should().NotBeNull();
+        offer!.TourIds.Should().BeEquivalentTo(new[] { CurrentMinorFirst, CurrentMinorLatest }.Distinct());
+    }
+
+    [Fact]
+    public async Task ANewSubjectsFirstWritePersistsTheBaseline()
+    {
+        await SeedUsersAsync(Alice, Bob);
+
+        await _state.RecordOfferAsync(Bob, [CurrentMinorLatest], Current.ToString());
+
+        (await StoredDismissedAsync(Bob)).Should().BeEquivalentTo([OldTour, OlderPatchTour]);
+        (await _state.GetSnapshotAsync(Bob)).DismissedTourIds.Should().BeEquivalentTo([OldTour, OlderPatchTour]);
+    }
+
+    [Fact]
+    public async Task TheDefaultSubjectKeepsTheFullBacklog()
+    {
+        await SetFirstSeenAsync(null);
+
+        (await _state.GetSnapshotAsync(Default)).DismissedTourIds.Should().BeEmpty();
+        var offer = await Tours(null, authDisabled: true).GetDueOfferAsync();
+        offer!.TourIds.Should().Contain([OldTour, OlderPatchTour]);
+
+        await _state.RecordStepSeenAsync(Default, "step-a");
+        (await StoredDismissedAsync(Default)).Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task AClaimedRowGetsNoBaseline()
+    {
+        await _state.RecordStepSeenAsync(Default, "step-a");
+        await SeedUsersAsync(Alice);
+
+        (await _state.GetSnapshotAsync(Alice)).DismissedTourIds.Should().BeEmpty();
+        await _state.RecordStepSeenAsync(Alice, "step-b");
+        (await StoredDismissedAsync(Alice)).Should().BeEmpty();
     }
 
     // ---- helpers ----
+
+    private static TourDefinition Tour(string id) => new()
+    {
+        Id = id,
+        Title = id,
+        Steps = [new TourStep { Id = "step-" + id, Url = "/", Selector = "[data-tour=\"x\"]" }],
+    };
+
+    /// <summary>A real TourService for <paramref name="userId"/>; predicates and URL tokens stand idle.</summary>
+    private TourService Tours(string? userId, bool authDisabled = false)
+    {
+        var caller = new CallerContext();
+        caller.SetUser(authDisabled
+            ? CallerInfo.LocalNoAuth(null, null, null)
+            : CallerInfo.ForUser(Principal(userId!), null, null, null));
+        var site = new NetworkOptimizer.Web.Services.SiteContextService(null!, null!);
+        site.UseSite(null);
+        return new TourService(_definitions, _state, new IdlePredicates(), site,
+            new TourUrlTokenResolver(null!, site, null!, null!, null!, NullLoggerFactory.Instance),
+            caller, NullLogger<TourService>.Instance);
+    }
+
+    private async Task SetFirstSeenAsync(string? version)
+    {
+        await using var db = new MainFactory(_mainDbPath).CreateDbContext();
+        (await db.AdminSettings.SingleAsync()).FirstSeenVersion = version;
+        await db.SaveChangesAsync();
+    }
+
+    private async Task<List<string>> StoredDismissedAsync(string subject)
+    {
+        await using var db = new MainFactory(_mainDbPath).CreateDbContext();
+        var json = (await db.TourStates.SingleAsync(t => t.Subject == subject)).DismissedTours;
+        return System.Text.Json.JsonSerializer.Deserialize<List<string>>(json)!
+            .Select(id => id.StartsWith("dev:", StringComparison.Ordinal) ? id[4..] : id).ToList();
+    }
+
+    /// <summary>No step in the test tours requires a predicate, so nothing needs resolving.</summary>
+    private sealed class IdlePredicates() : TourPredicateResolver(null!, null!, null!, null!, null!, null!,
+        NullLogger<TourPredicateResolver>.Instance)
+    {
+        public override Task<PredicateContext> ResolveAsync(IReadOnlySet<string> needed) =>
+            Task.FromResult(new PredicateContext
+            {
+                MultiSiteEnabled = false,
+                Sites = [],
+                QualifyingSites = new(StringComparer.OrdinalIgnoreCase),
+                Evaluated = needed,
+            });
+    }
 
     private Task SeedUsersAsync(params string[] ids) => SeedUsersCreatedAsync(DateTime.UtcNow.AddHours(-1), ids);
 
