@@ -90,6 +90,24 @@ public class ClientForgetTests
     }
 
     [Fact]
+    public void Edit_ANameLineRemoved_ClearsTheNameWithAnEmptyString()
+    {
+        // rest/user refuses "name": null (api.err.InvalidPayload); "" clears it.
+        var desired = Site();
+        desired.Collections["user"].Single(u => u["_id"]!.ToString() == "u1").Remove("name");
+
+        var op = PlanBuilder.Build(desired, Site(), new PlanOptions { Collections = Clients, ForgetClients = true })
+            .Operations.Should().ContainSingle().Subject;
+        op.Action.Should().Be(PlanAction.Update);
+        op.Body!["name"]!.GetValue<string>().Should().BeEmpty();
+
+        // Verified after the write, the cleared name reads back "" against the file's missing line: no difference.
+        var def = ConfigCollections.Get("user")!;
+        ConfigDiffEngine.CompareObjects(def, new JsonObject { ["_id"] = "u1", ["mac"] = "aa:bb:cc:dd:ee:01" },
+            new JsonObject { ["_id"] = "u1", ["mac"] = "aa:bb:cc:dd:ee:01", ["name"] = "" }).Should().BeNull();
+    }
+
+    [Fact]
     public void Restore_AClientMissing_IsLeftInPlace_AndSaysHowToForgetIt()
     {
         // DeleteMissing alone never forgets a client: Restore, and a revert, which can apply unreviewed.

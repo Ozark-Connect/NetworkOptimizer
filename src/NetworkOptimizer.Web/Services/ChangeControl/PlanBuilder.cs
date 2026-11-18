@@ -1043,7 +1043,7 @@ public static class PlanBuilder
         {
             var partial = new JsonObject();
             foreach (var field in changedTop)
-                partial[field] = desired[field]?.DeepClone() ?? EmptiedList(live, field);
+                partial[field] = desired[field]?.DeepClone() ?? (JsonNode?)EmptiedList(live, field) ?? ClearedClientText(def, live, field);
             DropAnyMatchType(def, partial);
             return partial;
         }
@@ -1072,6 +1072,14 @@ public static class PlanBuilder
     /// would keep the live list (a deleted network still in a port profile's excluded networks).
     /// </summary>
     private static JsonArray? EmptiedList(JsonObject live, string field) => live[field] is JsonArray ? new JsonArray() : null;
+
+    /// <summary>
+    /// An empty string for a client's text field the desired side leaves out (a name line removed in Edit): rest/user
+    /// clears with "", and refuses null with api.err.InvalidPayload.
+    /// </summary>
+    [NetworkOptimizer.Core.VendorSpecific("UniFi", "rest/user PUT rejects null text fields; \"\" clears them")]
+    private static JsonValue? ClearedClientText(ConfigCollectionDef def, JsonObject live, string field) =>
+        def.Key == "user" && live[field] is JsonValue v && v.TryGetValue<string>(out _) ? JsonValue.Create("") : null;
 
     /// <summary>The top-level field of a diff path ("port_overrides[port_idx=4].name" is port_overrides).</summary>
     public static string TopField(string path)
