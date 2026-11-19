@@ -740,6 +740,10 @@ h1:focus {
 .wan-chart-mode-cluster .lan-flow-map-mode {
     cursor: pointer;
 }
+.wan-chart-mode-cluster .lan-flow-map-mode.is-paused {
+    background: var(--bg-tertiary);
+    color: var(--text-secondary);
+}
 .dashboard-grid .lv-panel > .wan-live-chart-card {
     margin: -0.5rem;
 }
