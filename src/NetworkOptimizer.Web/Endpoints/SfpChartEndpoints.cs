@@ -167,7 +167,7 @@ public static class SfpChartEndpoints
                     pon = PonChartSeries.Build(ponData.TryGetValue(key, out var ponPts) ? ponPts : null),
                     ponPath = PonChartSeries.SummarizePathLoss(ponPts),
                     ponAvail = PonChartSeries.SummarizeAvailability(ponPts),
-                    ponMore = PonChartSeries.Insights(ponPts)
+                    ponMore = PonChartSeries.Insights(ponPts, pts.LastOrDefault()?.RxPowerDbm)
                 };
             }).ToList();
 

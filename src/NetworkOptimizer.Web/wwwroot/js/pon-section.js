@@ -479,7 +479,7 @@ const CHECK_WORDS = { ok: 'OK', fail: 'Failed', unknown: 'Not reported' };
 
 const sentence = text => text ? `${text.charAt(0).toUpperCase()}${text.slice(1)}` : '';
 
-/// The five-step connection check as a row of status chips, from the fiber up to traffic. Each
+/// The connection check as a row of status chips, from the fiber up to traffic. Each
 /// chip's tooltip says what it was read from; a failed step also gets a note below the row.
 export function ponCheckHtml(items) {
     const withCheck = (items || []).filter(item => item.ponMore?.check);

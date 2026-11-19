@@ -567,9 +567,12 @@ public static class PonChartSeries
     /// light (the path loss inside the window of the announced ODN class), registered (O5 and
     /// being granted upstream), management channel (the OMCI daemon answers), service (the OLT
     /// has provisioned at least one) and traffic (bytes moved on the ONT's GEM ports). A step
-    /// whose source is missing is "unknown", never "ok". Null when the ONT reports no state.
+    /// the reported data cannot decide is left out, never shown as "ok". Without an announced
+    /// launch power, light is judged from O5: an ONU reaches it only with downstream light and
+    /// frame sync. <paramref name="rxDbm"/> is the ONT's latest RX power, for that step's detail.
+    /// Null when no step can be decided.
     /// </summary>
-    public static List<CheckStep>? ConnectionCheck(List<MonitoringInfluxClient.PonSeriesPoint>? points)
+    public static List<CheckStep>? ConnectionCheck(List<MonitoringInfluxClient.PonSeriesPoint>? points, double? rxDbm = null)
     {
         if (points is not { Count: > 0 }) return null;
         var ordered = points.OrderBy(p => p.Time).ToList();
@@ -578,19 +581,24 @@ public static class PonChartSeries
         if (cur.PonLinkStatus is null && cur.OmciUp is null) return null;
         var inv = CultureInfo.InvariantCulture;
 
-        CheckStep Light()
+        CheckStep? Light()
         {
             if (cur.PathLossDb is not double loss || cur.OdnClass is not (>= 0 and <= 4))
-                return new("light", "unknown", "the OLT announces no launch power or class");
+            {
+                if (cur.PonLinkStatus != "operation") return null;
+                return new("light", "ok", rxDbm is double rx
+                    ? string.Create(inv, $"receiving at {rx:0.0} dBm, in O5. The OLT announces no launch power, so the path loss is not checked")
+                    : "in O5. The OLT announces no launch power, so the path loss is not checked");
+            }
             var (name, min, max) = OdnClasses[cur.OdnClass.Value];
             var ok = loss >= min && loss <= max;
             return new("light", ok ? "ok" : "fail",
                 string.Create(inv, $"path loss {loss:0.0} dB, class {name} allows {min:0} to {max:0} dB"));
         }
 
-        CheckStep Registered()
+        CheckStep? Registered()
         {
-            if (cur.PonLinkStatus is null) return new("registered", "unknown", "no ONU state reported");
+            if (cur.PonLinkStatus is null) return null;
             if (cur.PonLinkStatus != "operation") return new("registered", "fail", $"ONU state is {cur.PonLinkStatus}, not O5");
             var grants = prev is null ? null : PerSecond(cur.AllocTotal, prev.AllocTotal, cur, prev);
             return grants switch
@@ -601,31 +609,33 @@ public static class PonChartSeries
             };
         }
 
-        CheckStep Management() => cur.OmciUp switch
+        CheckStep? Management() => cur.OmciUp switch
         {
             1 => new("management", "ok", "the OMCI daemon answers"),
             0 => new("management", "fail", "the OMCI daemon did not answer"),
-            _ => new("management", "unknown", "not reported"),
+            _ => null,
         };
 
-        CheckStep Service() => cur.OmciServices switch
+        CheckStep? Service() => cur.OmciServices switch
         {
-            null => new("service", "unknown", "not reported"),
+            null => null,
             0 => new("service", "fail", "the OLT has provisioned no service"),
             var n => new("service", "ok", string.Create(inv, $"{n} provisioned")),
         };
 
-        CheckStep Traffic()
+        CheckStep? Traffic()
         {
             var down = prev is null ? null : Delta(cur.GemRxBytes, prev.GemRxBytes);
             var up = prev is null ? null : Delta(cur.GemTxBytes, prev.GemTxBytes);
-            if (down is null && up is null) return new("traffic", "unknown", "no byte counters for this interval");
+            if (down is null && up is null) return null;
             return (down ?? 0) > 0 || (up ?? 0) > 0
                 ? new("traffic", "ok", "bytes moved in the last interval")
                 : new("traffic", "fail", "no bytes moved in the last interval");
         }
 
-        return [Light(), Registered(), Management(), Service(), Traffic()];
+        var steps = new[] { Light(), Registered(), Management(), Service(), Traffic() }
+            .OfType<CheckStep>().ToList();
+        return steps.Count > 0 ? steps : null;
     }
 
     /// <summary>How much the forward error correction had to do over the window, and whether anything got past it.</summary>
@@ -900,9 +910,9 @@ public static class PonChartSeries
     }
 
     /// <summary>The read-outs beyond the charts, bundled so both chart endpoints attach them with one call.</summary>
-    public static object? Insights(List<MonitoringInfluxClient.PonSeriesPoint>? points)
+    public static object? Insights(List<MonitoringInfluxClient.PonSeriesPoint>? points, double? rxDbm = null)
     {
-        var check = ConnectionCheck(points);
+        var check = ConnectionCheck(points, rxDbm);
         var fec = SummarizeFec(points);
         var laser = SummarizeLaser(points);
         var provider = SummarizeProvider(points);

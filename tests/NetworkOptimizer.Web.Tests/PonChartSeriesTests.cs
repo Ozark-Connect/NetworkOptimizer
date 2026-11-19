@@ -652,14 +652,26 @@ public class PonChartSeriesTests
     }
 
     [Fact]
-    public void ConnectionCheck_MissingSources_AreUnknownNotOk()
+    public void ConnectionCheck_MissingSources_AreLeftOut()
     {
-        // An OLT without PON-ID and a source without OMCI state or byte counters.
+        // An OLT without PON-ID and a source without OMCI state or byte counters: light is
+        // judged from O5, and the steps nothing reports are left out.
         var points = Link(3);
         foreach (var p in points) p.GemTxBytes = null;
 
-        Statuses(points).Should().Equal("light:unknown", "registered:ok", "management:unknown", "service:unknown", "traffic:unknown");
+        Statuses(points).Should().Equal("light:ok", "registered:ok");
+        PonChartSeries.ConnectionCheck(points, -18.2)![0].Detail.Should().StartWith("receiving at -18.2 dBm, in O5");
         PonChartSeries.ConnectionCheck([Point(0, 1000)]).Should().BeNull("an ONT that reports no state gets no check");
+    }
+
+    [Fact]
+    public void ConnectionCheck_NoLaunchPower_OutsideO5_LeavesLightOut()
+    {
+        var points = Healthy();
+        foreach (var p in points) { p.PathLossDb = null; p.OltLaunchPowerDbm = null; }
+        points[^1].PonLinkStatus = "ranging";
+
+        Statuses(points).Should().Equal("registered:fail", "management:ok", "service:ok", "traffic:ok");
     }
 
     [Fact]
