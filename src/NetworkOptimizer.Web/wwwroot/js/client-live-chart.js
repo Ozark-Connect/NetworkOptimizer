@@ -17,10 +17,14 @@ import { downloadColor, uploadColor } from './chart-colors.js?v=2';
 import { createMarkLayer } from './chart-event-marks.js?v=14';
 import { createAxisDateCaption } from './chart-axis-date.js?v=5';
 import { formatBps, formatBpsAxis } from './chart-format.js?v=2';
+import { createTimeSlide, LEAD_MS } from './chart-slide.js?v=6';
 
 const HISTORY_MINUTES = 5;
-// Window-scroll redraw cadence: each step moves well under a pixel, so the chart slides.
-const SCROLL_MS = 250;
+// Live mode renders when a reading lands; chart-slide.js moves the plot between renders. This
+// timer is a backstop for a feed that has gone quiet.
+const BACKSTOP_MS = 1000;
+const BACKSTOP_AFTER_MS = 5000;
+let lastDrawAt = 0;
 // How long the WAN edge may stand in at the live edge; past it coverage has lapsed and the
 // dashed lines end rather than flat-lining a stale measurement.
 const WAN_EDGE_MAX_MS = 10000;
@@ -52,12 +56,20 @@ let wanEdge = null;
 let lastMouse = null;
 let mouseMoveHandler = null;
 let mouseLeaveHandler = null;
+let mouseEnterHandler = null;
 let mode = 'live';
 // 'lan' draws the totals with their WAN share inside; 'wan' the WAN pair alone (Data's switch).
 let view = 'lan';
 let markLayer = null;
 let currentHistory = null;
 let historyCaption = null;
+const slide = createTimeSlide({
+    chart: () => chart,
+    el: () => (elId ? document.getElementById(elId) : null),
+    isHeld: () => tooltipShowing(),
+    canMove: () => !document.hidden,
+    onStale: () => updateChart(),
+});
 
 // True only while the value tooltip is on screen. ApexCharts marks the mount on any mousemove and
 // misses fast exits, so with a mouse the class is cross-checked against the pointer being over the
@@ -107,8 +119,8 @@ function buildOpts() {
             type: 'datetime',
             min: Date.now() - HISTORY_MINUTES * 60000,
             max: Date.now(),
-            // Built-in labels re-pick their ticks as the window slides; time labels are drawn as
-            // annotations on a fixed grid instead (buildTimeTicks). datetimeUTC false marks the x values
+            // Built-in labels re-pick their ticks as the window slides; chart-slide.js draws the time
+            // labels on a fixed grid instead. datetimeUTC false marks the x values
             // as real instants for the shared tooltip and marks (noTime.onWallClock); ApexCharts defaults it to true.
             labels: { show: false, datetimeUTC: false },
             axisBorder: { show: false },
@@ -136,7 +148,8 @@ function buildOpts() {
         responsive: [{
             breakpoint: 1024,
             options: {
-                grid: { padding: { left: -8, right: -5, top: -8, bottom: 12 } },
+                // Right never negative: the plot then runs past the SVG, which clips the newest seconds.
+                grid: { padding: { left: -8, right: 0, top: -8, bottom: 12 } },
             },
         }],
         legend: { show: false },
@@ -149,37 +162,6 @@ function buildOpts() {
         },
         noData: { text: 'Waiting for a reading...', style: { color: '#64748b', fontSize: '13px' } },
     };
-}
-
-// Time labels pinned to a fixed grid, as annotations so they scroll with the data, in the viewer's
-// format. The grid interval comes from the rendered width, so a narrow panel steps out to a sparser
-// grid; a 12-hour label ("10:32:20 PM") is wider and gets a wider slot.
-function buildTimeTicks(minMs, maxMs) {
-    const width = document.getElementById(elId)?.clientWidth || 800;
-    const slots = Math.max(2, Math.floor(width / (noTime.format().h24 ? 64 : 80)));
-    const spanMs = maxMs - minMs;
-    const GRIDS = [20000, 30000, 60000, 120000];
-    let gridMs = GRIDS[GRIDS.length - 1];
-    for (const g of GRIDS) {
-        if (spanMs / g <= slots) { gridMs = g; break; }
-    }
-    const ticks = [];
-    for (let t = Math.ceil(minMs / gridMs) * gridMs; t <= maxMs; t += gridMs) {
-        const text = noTime.timeLabel(t);
-        ticks.push({
-            x: t,
-            borderColor: 'transparent',
-            label: {
-                text,
-                position: 'bottom',
-                orientation: 'horizontal',
-                offsetY: 19,
-                borderColor: 'transparent',
-                style: { background: 'transparent', fontSize: '10px', cssClass: 'wan-chart-tick-label' },
-            },
-        });
-    }
-    return ticks;
 }
 
 function toPoint(p) {
@@ -258,29 +240,35 @@ function updateChart() {
     if (!chart || (buffer.length === 0 && wanBuffer.length === 0)) return;
     if (tooltipShowing()) return;
     const now = Date.now();
+    lastDrawAt = now;
+    // Drawn LEAD_MS past the right edge: the plot slides left until the next render.
+    const ahead = now + LEAD_MS;
     const pts = [...buffer];
     const last = pts[pts.length - 1];
     // Carry the newest reading out to the live edge, so the line reaches the right of the plot
     // and its end is what the device is doing now, not the last fold.
     const edge = liveEdge && (!last || liveEdge.time > last.time) ? liveEdge : last;
-    if (edge && (!last || now - last.time > 1000)) pts.push({ time: now, down: edge.down, up: edge.up });
+    if (edge && (!last || now - last.time > 1000)) pts.push({ time: ahead, down: edge.down, up: edge.up });
     const wanPts = [...wanBuffer];
     const wanLast = wanPts[wanPts.length - 1];
     // The WAN edge only stands in while fresh: coverage lapsing ends the dashed lines instead
-    // of flat-lining a stale measurement.
+    // of flat-lining a stale measurement, so its carry stops where it goes stale.
     const wEdge = wanEdge && (!wanLast || wanEdge.time > wanLast.time) ? wanEdge : wanLast;
     if (wEdge && now - wEdge.time <= WAN_EDGE_MAX_MS && (!wanLast || now - wanLast.time > 1000))
-        wanPts.push({ time: now, wanDown: wEdge.wanDown, wanUp: wEdge.wanUp });
+        wanPts.push({ time: Math.min(ahead, wEdge.time + WAN_EDGE_MAX_MS), wanDown: wEdge.wanDown, wanUp: wEdge.wanUp });
+    const min = now - HISTORY_MINUTES * 60000;
+    // One updateOptions carries the series: a separate updateSeries is a second full render.
+    // Types stated, as at mount, so the merge cannot change them.
     chart.updateOptions({
-        xaxis: { min: now - HISTORY_MINUTES * 60000, max: now },
-        annotations: { xaxis: buildTimeTicks(now - HISTORY_MINUTES * 60000, now) },
+        xaxis: { min, max: now },
+        series: [
+            { name: 'Download',     type: 'area', data: totalsShown() ? pts.map(p => ({ x: p.time, y: p.down })) : [] },
+            { name: 'Upload',       type: 'area', data: totalsShown() ? pts.map(p => ({ x: p.time, y: p.up })) : [] },
+            { name: 'WAN Download', type: 'area', data: reshapeWanSeries(wanPts, pts, 'wanDown', 'down') },
+            { name: 'WAN Upload',   type: 'area', data: reshapeWanSeries(wanPts, pts, 'wanUp', 'up') },
+        ],
     }, false, false, false);
-    chart.updateSeries([
-        { name: 'Download',     data: totalsShown() ? pts.map(p => ({ x: p.time, y: p.down })) : [] },
-        { name: 'Upload',       data: totalsShown() ? pts.map(p => ({ x: p.time, y: p.up })) : [] },
-        { name: 'WAN Download', data: reshapeWanSeries(wanPts, pts, 'wanDown', 'down') },
-        { name: 'WAN Upload',   data: reshapeWanSeries(wanPts, pts, 'wanUp', 'up') },
-    ], false);
+    slide.rendered(min, now, 1);
 }
 
 function trim() {
@@ -395,7 +383,7 @@ async function mountHistory(el, gen, history, dotNet) {
 }
 
 // The WAN view draws the totals and their peaks as empty series rather than hiding them: the live
-// chart calls updateSeries four times a second, and empty data holds where a hide may not. The WAN
+// chart re-renders on every reading, and empty data holds where a hide may not. The WAN
 // pair is still shaped against the totals, so it draws the same in both views.
 const totalsShown = () => view !== 'wan';
 
@@ -437,8 +425,12 @@ export async function mount(containerId, opts) {
     // Both modes hold off redrawing under an open tooltip, which needs the pointer tracked.
     mouseMoveHandler = (e) => { lastMouse = { x: e.clientX, y: e.clientY }; };
     mouseLeaveHandler = () => { lastMouse = null; };
+    // Render at "now" as the pointer arrives, before a tooltip can open: the hold then has no
+    // slide to snap back from, which read as the chart jumping back in time.
+    mouseEnterHandler = () => { if (mode === 'live' && slide.isShifted()) updateChart(); };
     el.addEventListener('mousemove', mouseMoveHandler);
     el.addEventListener('mouseleave', mouseLeaveHandler);
+    el.addEventListener('mouseenter', mouseEnterHandler);
     if (opts?.history) {
         mode = 'history';
         return await mountHistory(el, gen, opts.history, opts.dotNet);
@@ -455,7 +447,7 @@ export async function mount(containerId, opts) {
     await chart.render();
     if (gen !== mountGen) return true;
     updateChart();
-    scrollTimer = setInterval(updateChart, SCROLL_MS);
+    scrollTimer = setInterval(() => { if (Date.now() - lastDrawAt >= BACKSTOP_AFTER_MS) updateChart(); }, BACKSTOP_MS);
     return true;
 }
 
@@ -502,11 +494,14 @@ export function setHistory(points, wanPoints) {
 
 export function dispose() {
     if (scrollTimer) { clearInterval(scrollTimer); scrollTimer = null; }
+    slide.dispose();
     const el = elId ? document.getElementById(elId) : null;
     if (el && mouseMoveHandler) el.removeEventListener('mousemove', mouseMoveHandler);
     if (el && mouseLeaveHandler) el.removeEventListener('mouseleave', mouseLeaveHandler);
+    if (el && mouseEnterHandler) el.removeEventListener('mouseenter', mouseEnterHandler);
     mouseMoveHandler = null;
     mouseLeaveHandler = null;
+    mouseEnterHandler = null;
     lastMouse = null;
     if (chart) { chart.destroy(); chart = null; }
     buffer = [];

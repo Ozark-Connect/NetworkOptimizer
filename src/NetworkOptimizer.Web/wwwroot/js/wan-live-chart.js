@@ -7,6 +7,7 @@ import * as flowData from './lan-flow-data.js?v=18';
 import { valueSortedTooltip } from './chart-tooltip.js?v=22';
 import { downloadColor, uploadColor } from './chart-colors.js?v=2';
 import { formatBps, formatBpsAxis } from './chart-format.js?v=2';
+import { createTimeSlide, LEAD_MS, leadMs } from './chart-slide.js?v=6';
 
 const HISTORY_MINUTES = 5;
 // Poll at twice the site's SNMP sample rate so no sample is missed when the two
@@ -16,9 +17,24 @@ const HISTORY_MINUTES = 5;
 const POLL_MS = 2500;
 const POLL_MS_MIN = 1000;
 const POLL_MS_MAX = 5000;
-// Window-scroll redraw cadence. At 250ms each step moves well under a pixel
-// on typical widths, so the chart slides instead of visibly ticking.
+// A render rebuilds the whole SVG on the main thread (~30 ms on a phone), so the chart renders only
+// when a sample lands (live) or a seek does (playback); chart-slide.js moves the plot between renders.
 const SCROLL_MS = 250;
+let lastDrawAt = 0;
+// Backstop only: the slide asks for a render as its lead runs out, but it idles off-screen.
+const scrollTick = () => {
+    if (canBeSeen() && Date.now() - lastDrawAt >= 5000) updateChart();
+};
+// Live and not paused: the plot slides between renders and each render draws LEAD_MS ahead.
+let livePaused = false;
+const liveSliding = () => histAt === 0 && !livePaused;
+const slide = createTimeSlide({
+    chart: () => chart,
+    el: () => (elId ? document.getElementById(elId) : null),
+    isHeld: () => tooltipShowing(),
+    canMove: () => canBeSeen(),
+    onStale: () => redraw(),
+});
 // Occasionally re-pull the whole history window and merge it back in, so gaps
 // that filled AFTER the live buffer scrolled past them appear without a manual
 // refresh: a monitoring outage whose buffered samples replayed into Influx on
@@ -132,6 +148,7 @@ const CLICK_RENDER_MS = 2000;
 let lastMouse = null;
 let mouseMoveHandler = null;
 let mouseLeaveHandler = null;
+let mouseEnterHandler = null;
 
 // The plot (grid) rect: exactly the X-Y area, excluding the axis gutters and
 // the label strip. .apexcharts-grid rather than .apexcharts-inner - the inner
@@ -160,7 +177,8 @@ function clickToTime(event, ctx) {
     if (event.clientY < rect.top || event.clientY > rect.bottom) return null;
     const frac = (event.clientX - rect.left) / rect.width;
     if (frac < 0 || frac > 1) return null;
-    return g.minX + frac * (g.maxX - g.minX);
+    // The plot may have slid left since its last render: the pointer sits over a later instant.
+    return g.minX + frac * (g.maxX - g.minX) + slide.shiftMs();
 }
 
 // True only while the value tooltip is actually on screen. ApexCharts marks
@@ -185,8 +203,10 @@ function removeMouseTracking() {
     const el = elId ? document.getElementById(elId) : null;
     if (el && mouseMoveHandler) el.removeEventListener('mousemove', mouseMoveHandler);
     if (el && mouseLeaveHandler) el.removeEventListener('mouseleave', mouseLeaveHandler);
+    if (el && mouseEnterHandler) el.removeEventListener('mouseenter', mouseEnterHandler);
     mouseMoveHandler = null;
     mouseLeaveHandler = null;
+    mouseEnterHandler = null;
     lastMouse = null;
 }
 
@@ -237,7 +257,7 @@ function buildOpts() {
                 { name: 'Download', type: 'area', data: [] },
                 { name: 'Upload',   type: 'area', data: [] },
                 { name: 'Loss',     type: 'area', data: [] },
-                { name: 'RTT',      type: 'line', data: [] },
+                { name: 'RTT',      type: 'area', data: [] },
             ],
         // Comparing: the COLOUR still says which direction a line is, because that is what the eye
         // is sorting for, and the dash pattern says which WAN. Loss and RTT drop out of the chart
@@ -277,9 +297,8 @@ function buildOpts() {
             max: Date.now(),
             // Built-in labels are hidden: ApexCharts re-picks "nice" ticks as
             // the window slides, so the labels kept swapping between
-            // :00 | :20 | :40 and :10 | :30 | :50 alignments. Time labels are
-            // drawn as annotations pinned to a fixed 20s grid instead (see
-            // buildTimeTicks). datetimeUTC false marks the x values as real instants, not wall clock,
+            // :00 | :20 | :40 and :10 | :30 | :50 alignments. chart-slide.js draws the time labels
+            // on a fixed grid instead. datetimeUTC false marks the x values as real instants, not wall clock,
             // for the shared tooltip and marks (noTime.onWallClock); ApexCharts defaults it to true.
             labels: { show: false, datetimeUTC: false },
             axisBorder: { show: false },
@@ -361,7 +380,8 @@ function buildOpts() {
                         { seriesName: 'Loss', opposite: true, show: false, min: 0, max: v => Math.max(v * 1.2, 10) },
                         { seriesName: 'RTT', opposite: true, show: false, min: 0 },
                     ],
-                grid: { padding: { left: -5, right: -5, top: -8, bottom: 12 } },
+                // Never negative: the plot then runs past the SVG, which clips the newest seconds.
+                grid: { padding: { left: 0, right: 0, top: -8, bottom: 12 } },
             },
         }],
         legend: { show: false },
@@ -413,13 +433,6 @@ function buildOpts() {
     };
 }
 
-// Time labels pinned to a fixed grid, rendered as x-axis annotations so
-// they scroll with the data. Full time to the second, in the viewer's format, on every tick, placed
-// below the axis in the space freed by the hidden built-in labels. The grid
-// interval is chosen from the chart's own rendered width (clientWidth), not
-// the viewport, so half-view panels and mobile - which constrain the chart
-// below full width while the viewport stays wide - step out to a sparser
-// grid instead of colliding. Full width keeps the dense 20s grid.
 // Comparison series on ONE time grid, the union of every WAN's timestamps, with a null wherever a
 // WAN has no reading for an instant.
 //
@@ -463,58 +476,54 @@ function compareSeries() {
     });
 }
 
-function buildTimeTicks(minMs, maxMs) {
-    const width = document.getElementById(elId)?.clientWidth || 800;
-    // An HH:mm:ss label is ~46px at 10px and "10:32:20 PM" ~62px; budget 18px over that per slot
-    // for breathing room, then pick the densest grid whose tick count fits that budget.
-    const slots = Math.max(2, Math.floor(width / (noTime.format().h24 ? 64 : 80)));
-    const spanMs = maxMs - minMs;
-    const GRIDS = [20000, 30000, 60000, 120000];
-    let GRID_MS = GRIDS[GRIDS.length - 1];
-    for (const g of GRIDS) {
-        if (spanMs / g <= slots) { GRID_MS = g; break; }
-    }
-    const ticks = [];
-    for (let t = Math.ceil(minMs / GRID_MS) * GRID_MS; t <= maxMs; t += GRID_MS) {
-        const text = noTime.timeLabel(t);
-        ticks.push({
-            x: t,
-            borderColor: 'transparent',
-            label: {
-                text,
-                position: 'bottom',
-                orientation: 'horizontal',
-                offsetY: 19,
-                borderColor: 'transparent',
-                // The wan-chart-tick-label class opts these out of the
-                // app.css rule that forces annotation labels to text-primary,
-                // so they fall through to the muted .apexcharts-text fill.
-                style: { background: 'transparent', fontSize: '10px', cssClass: 'wan-chart-tick-label' },
-            },
-        });
-    }
-    return ticks;
+// The RTT axis ceiling: the typical RTT (the median of the 5 minutes in memory, no query) sits
+// near half height, and the ceiling holds still. A ceiling that moves with every peak drags the
+// whole line up and down, which reads as the RTT changing when it has not. So a brief spike runs
+// off the top (its value is in the tooltip); only a sustained rise, the recent median past 90% of
+// the ceiling, rescales, and the axis comes back down once the window's median falls below 37%.
+// Steps on a 1-2-2.5-3-4-5-6-8 grid so the axis reads cleanly.
+const RTT_STEPS = [1, 2, 2.5, 3, 4, 5, 6, 8];
+// About 30 s at the 2 s sample tier: long enough that one spike is not a rise.
+const RTT_RECENT_SAMPLES = 15;
+let rttAxisMax = 0;
+
+function niceCeil(v) {
+    const scale = 10 ** Math.floor(Math.log10(v));
+    for (const s of RTT_STEPS) if (s * scale >= v - 1e-9) return s * scale;
+    return 10 * scale;
 }
 
-// The RTT axis ceiling. Headroom over the p95 keeps an ordinary chart from filling its pane
-// edge to edge, but the p95 alone CLIPPED the thing most worth seeing: a spike is by definition
-// above the 95th percentile, so the scale was set from the calm band and the peak was drawn off
-// the top of the axis. Taking whichever is greater keeps the roomy scale when nothing is
-// happening and lets the axis grow when something is.
+function medianOf(values) {
+    const sorted = [...values].sort((a, b) => a - b);
+    return sorted[Math.floor(sorted.length / 2)];
+}
+
 function rttYMax() {
-    const rtts = buffer.map(p => p.rtt).filter(v => v != null && v > 0).sort((a, b) => a - b);
-    if (rtts.length === 0) return 10;
-    const p95 = rtts[Math.min(rtts.length - 1, Math.floor(rtts.length * 0.95))];
-    const peak = rtts[rtts.length - 1];
-    return Math.ceil(Math.max(p95 * 1.5, peak * 1.1) / 10) * 10;
+    const rtts = buffer.map(p => p.rtt).filter(v => v != null && v > 0);
+    if (rtts.length === 0) return rttAxisMax || 10;
+    const typical = medianOf(rtts);
+    const recent = medianOf(rtts.slice(-RTT_RECENT_SAMPLES));
+    if (rttAxisMax === 0) {
+        rttAxisMax = niceCeil(Math.max(typical, recent) * 2);
+    } else if (recent > rttAxisMax * 0.9) {
+        rttAxisMax = niceCeil(recent * 2);
+    } else if (typical < rttAxisMax * 0.37 && recent < rttAxisMax * 0.37) {
+        // Down only once the recent RTT is low too: on the window's median alone, a rise still
+        // early in the 5 minutes pulled the ceiling back under a line that was climbing.
+        const target = niceCeil(Math.max(typical, recent) * 2);
+        if (target < rttAxisMax) rttAxisMax = target;
+    }
+    return rttAxisMax;
 }
 
-function buildSeriesData() {
-    const now = Date.now();
+// The newest reading is carried to the live edge; while sliding, LEAD_MS past it, so the line
+// keeps reaching the right edge as the plot moves left.
+function buildSeriesData(now) {
     const last = buffer[buffer.length - 1];
     const pts = [...buffer];
     if (last && now - last.time > 1000) {
-        pts.push({ time: now, download: last.download, upload: last.upload, loss: last.loss, rtt: last.rtt });
+        const edge = now + (liveSliding() ? LEAD_MS : 0);
+        pts.push({ time: edge, download: last.download, upload: last.upload, loss: last.loss, rtt: last.rtt });
     }
     return pts;
 }
@@ -524,31 +533,39 @@ function updateChart() {
     if (!comparing() && buffer.length === 0) return;
     if (Date.now() > clickRenderUntil && tooltipShowing()) return;
     const now = Date.now();
-    const pts = buildSeriesData();
+    lastDrawAt = now;
+    const pts = buildSeriesData(now);
+    const min = now - HISTORY_MINUTES * 60000;
     // Rescaling the RTT axis is a single-WAN concern: there IS no fourth axis while comparing,
     // and rebuilding the array to a fixed length of four truncated the axes for three or more
     // WANs and stamped an RTT-sized ceiling (~10) onto a throughput axis for two - which is what
     // clipped the taller WAN's line. Comparison axes are set at mount and left alone.
+    // Series ride in the same updateOptions: a separate updateSeries is a second full redraw.
+    // The time labels are the slide's; the empty annotations clear a historic playhead.
     chart.updateOptions(comparing()
         ? {
-            xaxis: { min: now - HISTORY_MINUTES * 60000, max: now },
-            annotations: { xaxis: buildTimeTicks(now - HISTORY_MINUTES * 60000, now) },
+            xaxis: { min, max: now },
+            annotations: { xaxis: [] },
+            series: compareSeries(),
         }
         : {
-            xaxis: { min: now - HISTORY_MINUTES * 60000, max: now },
+            xaxis: { min, max: now },
             yaxis: [chart.opts.yaxis[0], chart.opts.yaxis[1], chart.opts.yaxis[2], { ...chart.opts.yaxis[3], max: rttYMax() }],
-            annotations: { xaxis: buildTimeTicks(now - HISTORY_MINUTES * 60000, now) },
+            annotations: { xaxis: [] },
+            series: singleSeries(pts),
         }, false, false, false);
-    if (comparing()) {
-        chart.updateSeries(compareSeries(), false);
-        return;
-    }
-    chart.updateSeries([
-        { name: 'Download', data: pts.map(p => ({ x: p.time, y: p.download })) },
-        { name: 'Upload',   data: pts.map(p => ({ x: p.time, y: p.upload })) },
-        { name: 'Loss',     data: pts.map(p => ({ x: p.time, y: p.loss })) },
-        { name: 'RTT',      data: pts.map(p => ({ x: p.time, y: p.rtt })) },
-    ], false);
+    slide.rendered(min, now, liveSliding() ? 1 : 0);
+}
+
+// RTT is an area with no fill, which draws as its dashed stroke. Never type it 'line': a line
+// series takes its stroke opacity from fill.opacity, which is 0 for RTT, and the line vanishes.
+function singleSeries(pts) {
+    return [
+        { name: 'Download', type: 'area', data: pts.map(p => ({ x: p.time, y: p.download })) },
+        { name: 'Upload',   type: 'area', data: pts.map(p => ({ x: p.time, y: p.upload })) },
+        { name: 'Loss',     type: 'area', data: pts.map(p => ({ x: p.time, y: p.loss })) },
+        { name: 'RTT',      type: 'area', data: pts.map(p => ({ x: p.time, y: p.rtt })) },
+    ];
 }
 
 // Which WAN's counters this chart is showing. Null is the primary, which is what every caller
@@ -596,7 +613,8 @@ async function loadHistory() {
  */
 async function loadCompareHistory(atMs = null) {
     const end = atMs ? Math.min(atMs + HISTORY_MINUTES * 60000 / 2, Date.now()) : Date.now();
-    const to = new Date(end);
+    // A seek fetches the lead past the window, for the playback slide to move into.
+    const to = new Date(atMs ? Math.min(end + leadMs(mapPlaybackRate()), Date.now()) : end);
     const from = new Date(end - HISTORY_MINUTES * 60000);
     for (const w of compareWans) {
         try {
@@ -647,7 +665,8 @@ async function pollLiveCompare() {
         b.push({ time: tick, download: r.d.downloadBps, upload: r.d.uploadBps });
         compareBuffers.set(r.key, b.filter(p => p.time >= cutoff));
     }
-    updateChart();
+    // Off-screen, the buffer fills and scrollTick draws it once the chart is back in view.
+    if (canBeSeen()) updateChart();
 }
 
 async function pollLive() {
@@ -696,7 +715,7 @@ async function pollLive() {
             rtt: d.rttMs,
         });
         buffer = buffer.filter(p => p.time >= cutoff);
-        updateChart();
+        if (canBeSeen()) updateChart();
     } catch { }
 }
 
@@ -889,6 +908,8 @@ async function doMount(containerId, opts) {
     lastSampleTime = 0;
     seenLiveSample = false;
     lastLiveAt = 0;
+    livePaused = false;
+    rttAxisMax = 0;
     chartMountedAt = Date.now();
     dbg('mount', { backfillEverySec: BACKFILL_MS / 1000 });
     const gen = ++mountGen;
@@ -904,8 +925,12 @@ async function doMount(containerId, opts) {
         if (seekOnClick && !IS_TOUCH) el.classList.toggle('wan-chart-seek-hot', insideGrid(lastMouse));
     };
     mouseLeaveHandler = () => { lastMouse = null; el.classList.remove('wan-chart-seek-hot'); };
+    // Render at "now" as the pointer arrives, before a tooltip can open: the hold then has no
+    // slide to snap back from, which read as the chart jumping back in time.
+    mouseEnterHandler = () => { if (slide.isShifted()) redraw(); };
     el.addEventListener('mousemove', mouseMoveHandler);
     el.addEventListener('mouseleave', mouseLeaveHandler);
+    el.addEventListener('mouseenter', mouseEnterHandler);
     seekOnClick = !!opts?.seekOnClick;
     // Crosshair only where tap-to-seek is actually live (desktop).
     el.classList.toggle('wan-chart-seekable', seekOnClick && !IS_TOUCH);
@@ -927,7 +952,7 @@ async function doMount(containerId, opts) {
     const interval = pollMsOverride || pollMs;
 
     pollTimer = setInterval(pollLive, interval);
-    scrollTimer = setInterval(() => { if (canBeSeen()) updateChart(); }, SCROLL_MS);
+    scrollTimer = setInterval(scrollTick, SCROLL_MS);
     startBackfillCatchUp();
 
     if (visObserver) visObserver.disconnect();
@@ -1059,11 +1084,13 @@ export async function setWan(wanKey) {
     const next = wanKey || null;
     if (next === wanScope) return;
     wanScope = next;
+    rttAxisMax = 0;
     await loadHistory();
     updateChart();
 }
 
 export function pause() {
+    livePaused = true;
     stopHistInterpolation();
     if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
     if (scrollTimer) { clearInterval(scrollTimer); scrollTimer = null; }
@@ -1088,6 +1115,7 @@ async function enterLive() {
     // can arrive before the time sync (seekTime(null)), and entering here would clobber the
     // parked window with the live one. seekTime(null) clears histAt first, then comes back in.
     if (histAt > 0) return;
+    livePaused = false;
     liveEntryInFlight = true;
     try {
         const gen = mountGen;
@@ -1104,7 +1132,7 @@ async function enterLive() {
         if (gen !== mountGen || histAt > 0 || pollTimer) return;
         updateChart();
         pollTimer = setInterval(pollLive, pollMsOverride || pollMs);
-        scrollTimer = setInterval(() => { if (canBeSeen()) updateChart(); }, SCROLL_MS);
+        scrollTimer = setInterval(scrollTick, SCROLL_MS);
         startBackfillCatchUp();
     } finally {
         liveEntryInFlight = false;
@@ -1154,27 +1182,43 @@ function renderHistoric(at, force = false) {
     // no RTT axis to rescale while comparing.
     const histWindow = {
         xaxis: { min: maxTime - HISTORY_MINUTES * 60000, max: maxTime },
-        annotations: { xaxis: [...buildTimeTicks(maxTime - HISTORY_MINUTES * 60000, maxTime), playhead] },
+        annotations: { xaxis: [playhead] },
     };
+    lastDrawAt = Date.now();
+    // Scrubbing while comparing draws every WAN at the parked instant - the point of comparing is
+    // to read them against each other, and freezing the time only makes that easier.
+    // One updateOptions carries the series too, as in updateChart: one redraw, not two.
     chart.updateOptions(comparing()
-        ? histWindow
+        ? { ...histWindow, series: compareSeries() }
         : {
             ...histWindow,
             yaxis: [chart.opts.yaxis[0], chart.opts.yaxis[1], chart.opts.yaxis[2], { ...chart.opts.yaxis[3], max: rttYMax() }],
+            series: singleSeries(buffer),
         }, false, false, false);
+    // Playing, with the playhead centred, the plot slides at the playback speed until the next
+    // seek; pinned to now (the playhead walks the window) or parked, it holds still.
+    slide.rendered(maxTime - HISTORY_MINUTES * 60000, maxTime, historicSlideRate(at));
+}
 
-    // Scrubbing while comparing draws every WAN at the parked instant - the point of comparing is
-    // to read them against each other, and freezing the time only makes that easier.
-    if (comparing()) {
-        chart.updateSeries(compareSeries(), false);
-        return;
-    }
-    chart.updateSeries([
-        { name: 'Download', data: buffer.map(p => ({ x: p.time, y: p.download })) },
-        { name: 'Upload',   data: buffer.map(p => ({ x: p.time, y: p.upload })) },
-        { name: 'Loss',     data: buffer.map(p => ({ x: p.time, y: p.loss })) },
-        { name: 'RTT',      data: buffer.map(p => ({ x: p.time, y: p.rtt })) },
-    ], false);
+// How fast the window moves while playing: at the playback speed when it follows a centred
+// playhead, at real time while it is pinned to now (its right edge is now whatever the speed);
+// 0 when not playing. Pinned once rendered per pixel of playhead motion, which at 0.5x stepped
+// 2 px about every 0.9 s.
+function historicSlideRate(at) {
+    const rate = mapPlaybackRate();
+    if (!(rate > 0)) return 0;
+    return at + HISTORY_MINUTES * 60000 / 2 < Date.now() ? rate : 1;
+}
+
+// The playhead between seeks: the last seek's instant, carried forward at the playback speed.
+function historicNow() {
+    return histAt + (histRate > 0 && histWall ? (Date.now() - histWall) * histRate : 0);
+}
+
+// A redraw at the current instant, in whichever mode the chart is in.
+function redraw() {
+    if (histAt > 0) renderHistoric(historicNow());
+    else updateChart();
 }
 
 // Historic playback only seeks once per second (the map's playback tick), so
@@ -1230,7 +1274,8 @@ export async function seekTime(isoTimestamp) {
     // to live.
     const maxTime = Math.min(at + halfWindow, Date.now());
     const from = new Date(maxTime - HISTORY_MINUTES * 60000);
-    const to = new Date(maxTime);
+    // The lead past the window, for the playback slide to move into; it grows with the speed.
+    const to = new Date(Math.min(maxTime + leadMs(mapPlaybackRate()), Date.now()));
     // Comparison mode draws only from the per-WAN buffers, so the single-WAN fetch is
     // skipped there - its failure returns were aborting the one draw a paused seek gets.
     if (comparing()) {
@@ -1275,9 +1320,7 @@ export async function seekTime(isoTimestamp) {
             // back when the first real playback seek arrived.
             if (histRate === 0) histWall = Date.now();
             histRate = rate;
-            const elapsed = Date.now() - histWall;
-            if (elapsed > 2500) return; // seeks stalled (hidden tab etc) - hold
-            renderHistoric(histAt + elapsed * rate);
+            // Playing, the slide moves the plot (centred or pinned to now) and the seeks render it.
         }, SCROLL_MS);
     }
 }
@@ -1287,6 +1330,7 @@ export function unmount() {
     compareBuffers.clear();
     mountGen++;
     stopHistInterpolation();
+    slide.dispose();
     if (unsubFlow) { unsubFlow(); unsubFlow = null; }
     if (modeCluster) { modeCluster.remove(); modeCluster = null; histBadge = null; playBtn = null; }
     if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
