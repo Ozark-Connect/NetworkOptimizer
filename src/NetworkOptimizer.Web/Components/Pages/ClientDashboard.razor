@@ -1057,21 +1057,30 @@
                     }
 
                     @* Connection History Graph *@
-                    @if (_connectionEvents.Count > 1)
+                    @if (_connectionChartData.Count > 0)
                     {
                         <div class="card chart-card">
-                            <h3>Connection History</h3>
+                            <div class="conn-history-header">
+                                <h3>Connection History</h3>
+                                <span class="section-subtitle">@ConnectionSummary()</span>
+                            </div>
+                            <div class="conn-history-legend">
+                                @foreach (var band in _connectionTimeline!.Segments.Select(s => s.Band).Distinct().OrderBy(b => b))
+                                {
+                                    <span class="conn-legend-item"><span class="conn-legend-swatch" style="background: @BandColor(band)"></span>@(BandLabel(band) is { Length: > 0 } l ? l : (_client?.IsWired == true ? "Wired" : "Unknown band"))</span>
+                                }
+                            </div>
                             <div class="chart-container">
-                                <ApexChart @ref="_connectionChart" TItem="ConnectionChartPoint"
+                                <ApexChart @ref="_connectionChart" TItem="ConnectionBar"
                                            Options="_connectionChartOptions"
-                                           Height="@("200px")">
-                                    <ApexPointSeries TItem="ConnectionChartPoint"
+                                           Height="@($"{_connectionChartHeight}px")">
+                                    <ApexRangeSeries TItem="ConnectionBar"
                                                      Items="_connectionChartData"
-                                                     Name="AP"
-                                                     SeriesType="SeriesType.Scatter"
-                                                     XValue="e => DisplayTime.ToChart(e.Timestamp)"
-                                                     YValue="e => e.ApIndex"
-                                                     OrderBy="e => e.X" />
+                                                     Name="Connected"
+                                                     XValue="b => b.Lane"
+                                                     YMinValue="b => b.Start"
+                                                     YMaxValue="b => b.End"
+                                                     PointColor="b => b.Color" />
                                 </ApexChart>
                             </div>
                         </div>
@@ -1622,9 +1631,9 @@
     private int _connectionPage = 1;
     private const int ConnectionPageSize = 20;
     private DateTime? _expandedTraceTimestamp;
-    private List<ConnectionChartPoint> _connectionChartData = new();
-    private ApexChart<ConnectionChartPoint>? _connectionChart;
-    private ApexChartOptions<ConnectionChartPoint> _connectionChartOptions = new();
+    private List<ConnectionBar> _connectionChartData = new();
+    private ApexChart<ConnectionBar>? _connectionChart;
+    private ApexChartOptions<ConnectionBar> _connectionChartOptions = new();
 
     // Polling
     private System.Threading.Timer? _pollTimer;
@@ -4567,86 +4576,107 @@
 
     // --- Connection Chart ---
 
-    private class ConnectionChartPoint
+    /// <summary>One bar on Connection History: a stretch on one AP, in chart milliseconds.</summary>
+    private sealed record ConnectionBar(string Lane, decimal Start, decimal End, string Color);
+
+    // Band colors from the palette; wired or unknown takes the primary graph teal.
+    private static string BandColor(string? band) => band switch
     {
-        public DateTime Timestamp { get; set; }
-        public decimal ApIndex { get; set; }
-        public string ApName { get; set; } = "";
-        public long X => new DateTimeOffset(Timestamp, TimeSpan.Zero).ToUnixTimeMilliseconds();
+        "ng" => "#fbbf24",
+        "na" => "#3b82f6",
+        "6e" => "#a855f7",
+        _ => "#2ba89a",
+    };
 
-        public ConnectionChartPoint(DateTime ts, decimal apIndex, string apName)
-        {
-            Timestamp = DateTime.SpecifyKind(ts, DateTimeKind.Utc);
-            ApIndex = apIndex;
-            ApName = apName;
-        }
-    }
+    private static string BandLabel(string? band) => band switch
+    {
+        "ng" => "2.4 GHz",
+        "na" => "5 GHz",
+        "6e" => "6 GHz",
+        _ => "",
+    };
 
+    private ClientConnectionTimeline.Result? _connectionTimeline;
+
+    /// <summary>
+    /// Connection History as a presence timeline: a lane per AP, a bar per stretch on it colored by
+    /// band, and gaps where the client was offline. Built from the same events as the table.
+    /// </summary>
     private void BuildConnectionChartData()
     {
         _connectionChartData.Clear();
+        var (from, to) = GetTimeRange();
+        // "All" has no start of its own: the earliest event stands in.
+        if (from == DateTime.MinValue && _connectionEvents.Count > 0)
+            from = _connectionEvents.Min(e => e.Timestamp.UtcDateTime);
+        _connectionTimeline = ClientConnectionTimeline.Build(_connectionEvents, from, to, connectedNow: _client?.IsOffline != true);
+        var segments = _connectionTimeline.Segments;
+        if (segments.Count == 0) return;
 
-        // Build AP name → index mapping from all AP names in events
-        var apNames = _connectionEvents
-            .SelectMany(e => new[] { e.ApName, e.ToApName, e.FromApName })
-            .Where(n => !string.IsNullOrEmpty(n))
-            .Distinct()
-            .OrderBy(n => n)
-            .ToList();
-
-        if (apNames.Count == 0) return;
-
-        var apIndex = new Dictionary<string, int>();
-        for (int i = 0; i < apNames.Count; i++)
-            apIndex[apNames[i]!] = i;
-
-        foreach (var evt in _connectionEvents.OrderBy(e => e.Timestamp))
+        long Ms(DateTime utc) => new DateTimeOffset(DateTime.SpecifyKind(DisplayTime.ToChart(utc), DateTimeKind.Utc)).ToUnixTimeMilliseconds();
+        var tips = new List<string>();
+        foreach (var seg in segments)
         {
-            // Show where the client is after the event
-            var ap = evt.Type == ClientConnectionEventType.Roamed
-                ? (evt.ToApName ?? evt.ApName ?? "Unknown")
-                : (evt.ApName ?? "Unknown");
-            if (apIndex.TryGetValue(ap, out var idx))
-            {
-                _connectionChartData.Add(new ConnectionChartPoint(
-                    evt.Timestamp.UtcDateTime, idx, ap));
-            }
+            _connectionChartData.Add(new ConnectionBar(seg.Ap, Ms(seg.Start), Ms(seg.End), BandColor(seg.Band)));
+            tips.Add(ConnectionTip(seg));
         }
+        var lanes = segments.Select(s => s.Ap).Distinct().Count();
+        _connectionChartHeight = 50 + lanes * 34;
 
-        // Configure chart with AP names as Y categories
-        _connectionChartOptions = new ApexChartOptions<ConnectionChartPoint>
+        _connectionChartOptions = new ApexChartOptions<ConnectionBar>
         {
-            Chart = new Chart { Background = "transparent", Toolbar = new Toolbar { Show = false }, Zoom = new Zoom { Enabled = false } },
+            Chart = new Chart
+            {
+                Background = "transparent", Toolbar = new Toolbar { Show = false }, Zoom = new Zoom { Enabled = false },
+                Animations = new Animations { Enabled = false },
+            },
             Theme = new Theme { Mode = Mode.Dark },
-            Xaxis = new XAxis
-            {
-                Type = XAxisType.Datetime,
-                Labels = new XAxisLabels()
-            },
-            Yaxis = new List<YAxis>
-            {
-                new YAxis
-                {
-                    Min = -0.5m,
-                    Max = apNames.Count - 0.5m,
-                    TickAmount = apNames.Count > 1 ? apNames.Count - 1 : 1,
-                    Labels = new YAxisLabels
-                    {
-                        Formatter = @"function(val) {
-                            var names = [" + string.Join(",", apNames.Select(n => "'" + n!.Replace("'", "\\'") + "'")) + @"];
-                            var idx = Math.round(val);
-                            return idx >= 0 && idx < names.length ? names[idx] : '';
-                        }"
-                    }
-                }
-            },
-            Colors = new List<string> { "#3b82f6" },
-            Markers = new Markers { Size = 8 },
+            PlotOptions = new PlotOptions { Bar = new PlotOptionsBar { Horizontal = true, BarHeight = "55%", RangeBarGroupRows = true } },
+            Xaxis = new XAxis { Type = XAxisType.Datetime, Min = Ms(from), Max = Ms(to), Labels = new XAxisLabels() },
+            Yaxis = new List<YAxis> { new YAxis { Labels = new YAxisLabels { MaxWidth = 160 } } },
             Grid = new Grid { BorderColor = "rgba(255,255,255,0.08)" },
-            Tooltip = new Tooltip { Theme = Mode.Dark, X = new TooltipX { Format = "MMM dd, HH:mm", Formatter = ChartTimeFormat.TooltipMinutes } },
-            Legend = new Legend { Show = false }
+            Tooltip = new Tooltip
+            {
+                Theme = Mode.Dark,
+                Custom = "function(o) { var d = " + System.Text.Json.JsonSerializer.Serialize(tips)
+                    + "; return '<div class=\"conn-tip\">' + (d[o.dataPointIndex] || '') + '</div>'; }",
+            },
+            Legend = new Legend { Show = false },
         };
         ChartTimeFormat.ApplyTimeAxis(_connectionChartOptions.Xaxis.Labels, DisplayTime);
+    }
+
+    private int _connectionChartHeight = 120;
+
+    // A bar's tooltip, as HTML: the AP and band, when and how long, and the signal either end.
+    private string ConnectionTip(ClientConnectionTimeline.Segment seg)
+    {
+        string Enc(string v) => System.Net.WebUtility.HtmlEncode(v);
+        string When(DateTime utc) => utc.ToLocalTime(DisplayTime).ToString(DisplayTime.Format.DateTime, DisplayFormat.Culture);
+        var band = BandLabel(seg.Band);
+        var head = $"<strong>{Enc(seg.Ap)}</strong>{(band.Length > 0 ? $" &middot; {band}" : "")}";
+        var span = $"{When(seg.Start)} - {(seg.EndedBy == null ? "now" : When(seg.End))} ({TimeFormatHelper.FormatDuration(seg.End - seg.Start)})";
+        var end = seg.EndedBy switch
+        {
+            ClientConnectionEventType.Roamed => $"Roamed away{(seg.EndSignal is int r ? $" at {r} dBm" : "")}",
+            ClientConnectionEventType.Disconnected => "Disconnected",
+            _ => "Connected now",
+        };
+        var start = seg.Signal is int s ? $"{s} dBm at connect &middot; " : "";
+        return $"{head}<br><span class=\"conn-tip-sub\">{span}</span><br><span class=\"conn-tip-sub\">{start}{end}</span>";
+    }
+
+    /// <summary>The line under Connection History's title: disconnects, roams, and the longest gap.</summary>
+    private string ConnectionSummary()
+    {
+        if (_connectionTimeline is not { } t) return "";
+        var parts = new List<string>
+        {
+            TimeFormatHelper.Pluralize(t.Disconnects, "disconnect"),
+            TimeFormatHelper.Pluralize(t.Roams, "roam"),
+        };
+        if (t.LongestOffline is { } gap) parts.Add($"longest offline {TimeFormatHelper.FormatDuration(gap)}");
+        return string.Join(" · ", parts);
     }
 
     // The device list comes from the console; on an agent site it connects after the page has
@@ -5523,6 +5553,43 @@
     .result-details .test-details {
         padding-left: 1rem;
         padding-right: 1rem;
+    }
+
+    /* Connection History: title and summary on one line, the band legend under them. */
+    .conn-history-header {
+        display: flex;
+        align-items: baseline;
+        flex-wrap: wrap;
+        gap: 0.25rem 0.75rem;
+    }
+    .conn-history-header h3 {
+        margin-bottom: 0;
+    }
+    .conn-history-legend {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.35rem 1rem;
+        margin: 0.5rem 0 0.25rem;
+        font-size: 0.75rem;
+        color: var(--text-secondary);
+    }
+    .conn-legend-item {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.35rem;
+    }
+    .conn-legend-swatch {
+        width: 10px;
+        height: 10px;
+        border-radius: 2px;
+    }
+    .conn-tip {
+        padding: 0.5rem 0.65rem;
+        font-size: 0.75rem;
+        line-height: 1.5;
+    }
+    .conn-tip-sub {
+        color: var(--text-secondary);
     }
 
     /* Signal Bars (used in identity bar) */
