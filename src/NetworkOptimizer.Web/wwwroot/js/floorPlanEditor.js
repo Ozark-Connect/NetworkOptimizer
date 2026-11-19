@@ -17,6 +17,9 @@ window.fpEditor = {
     _wallHighlightLayer: null,
     _allWalls: [],
     _wallSelection: { wallIdx: null, segIdx: null },
+    _multiSel: null,          // [{ wi, si }] segments picked by Shift+drag or Shift+click
+    _wallsEditable: false,
+    _suppressClickUntil: 0,   // swallows the click the browser fires after a marquee drag
     _materialLabels: {},
     _materialColors: {},
     _placementHandler: null,
@@ -147,7 +150,13 @@ window.fpEditor = {
         var self = this;
         if (this._escHandler) return;
         this._escHandler = function (e) {
-            // Delete/Backspace: delete selected wall or segment
+            // Delete/Backspace: delete the multi-selection, or the selected wall or segment
+            var inField = e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT' || e.target.tagName === 'TEXTAREA');
+            if ((e.key === 'Delete' || e.key === 'Backspace') && !inField && self._multiSel && self._multiSel.length > 0) {
+                e.preventDefault();
+                self.deleteMultiSel();
+                return;
+            }
             if ((e.key === 'Delete' || e.key === 'Backspace') && self._wallSelection && self._wallSelection.wallIdx !== null) {
                 e.preventDefault();
                 if (self._wallSelection.segIdx !== null) {
@@ -195,7 +204,11 @@ window.fpEditor = {
                 return;
             }
 
-            // Priority 5: Deselect wall segment/shape
+            // Priority 5: Deselect wall segment/shape or the multi-selection
+            if (self._multiSel && self._multiSel.length > 0) {
+                self._clearMultiSel();
+                return;
+            }
             if (self._wallSelection && (self._wallSelection.wallIdx !== null || self._wallSelection.segIdx !== null)) {
                 self._wallSelection = { wallIdx: null, segIdx: null };
                 if (self._wallHighlightLayer) self._wallHighlightLayer.clearLayers();
@@ -1614,7 +1627,7 @@ window.fpEditor = {
 
     // ── Wall Rendering ───────────────────────────────────────────────
 
-    updateWalls: function (wallsJson, colorsJson, labelsJson) {
+    updateWalls: function (wallsJson, colorsJson, labelsJson, editable) {
         var m = this._map;
         if (!m) return;
         var self = this;
@@ -1634,6 +1647,9 @@ window.fpEditor = {
         this._materialLabels = labels;
         this._materialColors = colors;
         this._wallSelection = { wallIdx: null, segIdx: null };
+        this._multiSel = null;
+        this._wallsEditable = editable !== false;
+        this._initWallMarquee();
 
         // Per-segment rendering
         walls.forEach(function (wall, wi) {
@@ -1649,6 +1665,12 @@ window.fpEditor = {
                 seg.on('click', function (e) {
                     if (self._isDrawing) return; // Don't intercept clicks during wall drawing
                     L.DomEvent.stopPropagation(e);
+                    if (Date.now() < self._suppressClickUntil) return;
+                    if (e.originalEvent && e.originalEvent.shiftKey && self._wallsEditable) {
+                        self._toggleMultiSel(this._fpWallIdx, this._fpSegIdx, e.latlng);
+                        return;
+                    }
+                    self._clearMultiSel();
                     self._wallSegClick(e, this._fpWallIdx, this._fpSegIdx);
                 });
 
@@ -1679,8 +1701,10 @@ window.fpEditor = {
         if (!this._wallMapClickBound) {
             this._wallMapClickBound = true;
             m.on('click', function () {
+                if (Date.now() < self._suppressClickUntil) return;
                 self._wallHighlightLayer.clearLayers();
                 self._wallSelection = { wallIdx: null, segIdx: null };
+                self._multiSel = null;
             });
         }
     },
@@ -1740,6 +1764,8 @@ window.fpEditor = {
         var hintHtml = (wall.points.length > 2)
             ? '<div style="font-size:11px;color:#94a3b8;margin-bottom:4px">Click again to select whole shape</div>'
             : '';
+        if (this._wallsEditable)
+            hintHtml += '<div style="font-size:11px;color:#94a3b8;margin-bottom:4px">Shift+click or Shift+drag to select several</div>';
 
         // Popup with material dropdown, split, and delete buttons
         var html = '<div style="text-align:center;min-width:180px">' +
@@ -1836,6 +1862,209 @@ window.fpEditor = {
         }
         this._map.closePopup();
         this._wallSelection = { wallIdx: null, segIdx: null };
+        this._dotNetRef.invokeMethodAsync('SaveWallsFromJs', JSON.stringify(this._allWalls));
+    },
+
+    // ── Multi-segment selection (Shift+drag marquee, Shift+click) ────
+
+    // Shift+drag on the map selects every wall segment the box touches. Runs in the capture phase
+    // and stops propagation so Leaflet's pan and box zoom never see the gesture.
+    _initWallMarquee: function () {
+        var m = this._map;
+        if (!m || this._marqueeBound) return;
+        this._marqueeBound = true;
+        var self = this;
+        var container = m.getContainer();
+        m.boxZoom.disable();
+
+        container.addEventListener('mousedown', function (e) {
+            if (!e.shiftKey || e.button !== 0) return;
+            if (!self._wallsEditable || self._isDrawing || self._placementActive || self._activeMoveHandlers || self._moveMarker) return;
+            if (!self._allWalls || self._allWalls.length === 0 || !self._wallLayer || self._wallLayer.getLayers().length === 0) return;
+            if (e.target.closest && e.target.closest('.leaflet-popup, .leaflet-control')) return;
+            e.stopPropagation();
+            e.preventDefault();
+
+            var start = m.mouseEventToContainerPoint(e);
+            var rect = null;
+            var onMove = function (ev) {
+                var cur = m.mouseEventToContainerPoint(ev);
+                var bounds = L.latLngBounds(m.containerPointToLatLng(start), m.containerPointToLatLng(cur));
+                if (!rect) {
+                    rect = L.rectangle(bounds, { color: '#60a5fa', weight: 1, dashArray: '4,3', fillOpacity: 0.1, interactive: false }).addTo(m);
+                } else {
+                    rect.setBounds(bounds);
+                }
+            };
+            var onUp = function (ev) {
+                document.removeEventListener('mousemove', onMove);
+                document.removeEventListener('mouseup', onUp);
+                if (!rect) return; // no drag: let the Shift+click reach the segment
+                m.removeLayer(rect);
+                self._suppressClickUntil = Date.now() + 300;
+                var end = m.mouseEventToContainerPoint(ev);
+                var box = {
+                    minX: Math.min(start.x, end.x), maxX: Math.max(start.x, end.x),
+                    minY: Math.min(start.y, end.y), maxY: Math.max(start.y, end.y)
+                };
+                var hits = [];
+                self._allWalls.forEach(function (wall, wi) {
+                    for (var si = 0; si < wall.points.length - 1; si++) {
+                        var a = m.latLngToContainerPoint(L.latLng(wall.points[si].lat, wall.points[si].lng));
+                        var b = m.latLngToContainerPoint(L.latLng(wall.points[si + 1].lat, wall.points[si + 1].lng));
+                        if (self._segHitsBox(a, b, box)) hits.push({ wi: wi, si: si });
+                    }
+                });
+                // Shift+drag adds to an existing multi-selection
+                var merged = (self._multiSel || []).slice();
+                hits.forEach(function (h) {
+                    if (!merged.some(function (s) { return s.wi === h.wi && s.si === h.si; })) merged.push(h);
+                });
+                self._showMultiSel(merged, m.containerPointToLatLng(L.point((box.minX + box.maxX) / 2, (box.minY + box.maxY) / 2)));
+            };
+            document.addEventListener('mousemove', onMove);
+            document.addEventListener('mouseup', onUp);
+        }, true);
+    },
+
+    // Liang-Barsky clip: true when segment a-b touches the box (container pixels).
+    _segHitsBox: function (a, b, box) {
+        var t0 = 0, t1 = 1, dx = b.x - a.x, dy = b.y - a.y;
+        var p = [-dx, dx, -dy, dy];
+        var q = [a.x - box.minX, box.maxX - a.x, a.y - box.minY, box.maxY - a.y];
+        for (var i = 0; i < 4; i++) {
+            if (p[i] === 0) { if (q[i] < 0) return false; continue; }
+            var r = q[i] / p[i];
+            if (p[i] < 0) { if (r > t1) return false; if (r > t0) t0 = r; }
+            else { if (r < t0) return false; if (r < t1) t1 = r; }
+        }
+        return true;
+    },
+
+    _toggleMultiSel: function (wi, si, latlng) {
+        var sel = (this._multiSel || []).slice();
+        // A single selection from a plain click becomes the first entry of the multi-selection
+        var single = this._wallSelection;
+        if (sel.length === 0 && single && single.wallIdx !== null) {
+            if (single.segIdx !== null) {
+                sel.push({ wi: single.wallIdx, si: single.segIdx });
+            } else {
+                for (var k = 0; k < this._allWalls[single.wallIdx].points.length - 1; k++) sel.push({ wi: single.wallIdx, si: k });
+            }
+        }
+        var idx = -1;
+        for (var i = 0; i < sel.length; i++) if (sel[i].wi === wi && sel[i].si === si) { idx = i; break; }
+        if (idx >= 0) sel.splice(idx, 1); else sel.push({ wi: wi, si: si });
+        this._showMultiSel(sel, latlng);
+    },
+
+    _clearMultiSel: function () {
+        if (!this._multiSel) return;
+        this._multiSel = null;
+        if (this._wallHighlightLayer) this._wallHighlightLayer.clearLayers();
+        if (this._map) this._map.closePopup();
+    },
+
+    _segMaterial: function (wall, si) {
+        return (wall.materials && si < wall.materials.length && wall.materials[si]) ? wall.materials[si] : wall.material;
+    },
+
+    _showMultiSel: function (sel, latlng) {
+        var m = this._map;
+        var self = this;
+        this._wallHighlightLayer.clearLayers();
+        m.closePopup();
+        this._wallSelection = { wallIdx: null, segIdx: null };
+        if (!sel || sel.length === 0) { this._multiSel = null; return; }
+        this._multiSel = sel;
+
+        var mats = {};
+        sel.forEach(function (s) {
+            var wall = self._allWalls[s.wi];
+            L.polyline(
+                [[wall.points[s.si].lat, wall.points[s.si].lng], [wall.points[s.si + 1].lat, wall.points[s.si + 1].lng]],
+                { color: '#facc15', weight: 8, opacity: 0.9, interactive: false }
+            ).addTo(self._wallHighlightLayer);
+            mats[self._segMaterial(wall, s.si)] = true;
+        });
+        var matKeys = Object.keys(mats);
+        var common = matKeys.length === 1 ? matKeys[0] : null;
+
+        var labels = this._materialLabels;
+        var opts = common ? '' : '<option value="" selected disabled>Mixed materials</option>';
+        for (var k in labels) {
+            opts += '<option value="' + k + '"' + (k === common ? ' selected' : '') + '>' + labels[k] + '</option>';
+        }
+        var html = '<div style="text-align:center;min-width:180px">' +
+            '<select style="width:100%;padding:3px;margin-bottom:6px;background:#1e293b;color:#e0e0e0;border:1px solid #475569;border-radius:3px" ' +
+            'onchange="fpEditor.changeMultiMat(this.value)">' + opts + '</select><br/>' +
+            '<span style="font-size:11px;color:#94a3b8">' + sel.length + ' segment' + (sel.length !== 1 ? 's' : '') + '</span><br/>' +
+            '<button onclick="fpEditor.deleteMultiSel()" style="margin-top:4px;padding:2px 10px;background:#dc2626;color:#fff;border:none;border-radius:3px;cursor:pointer">Delete</button></div>';
+        L.popup({ closeButton: true }).setLatLng(latlng).setContent(html).openOn(m);
+    },
+
+    changeMultiMat: function (mat) {
+        var self = this;
+        var sel = this._multiSel;
+        if (!sel || !mat) return;
+        sel.forEach(function (s) {
+            var wall = self._allWalls[s.wi];
+            if (!wall) return;
+            if (!wall.materials) {
+                wall.materials = [];
+                for (var k = 0; k < wall.points.length - 1; k++) wall.materials.push(wall.material);
+            }
+            wall.materials[s.si] = mat;
+        });
+        this._allWalls.forEach(function (w) { self._collapseMaterials(w); });
+        this._clearMultiSel();
+        this._dotNetRef.invokeMethodAsync('SaveWallsFromJs', JSON.stringify(this._allWalls));
+    },
+
+    // Drops the per-segment list when every segment shares one material.
+    _collapseMaterials: function (wall) {
+        if (!wall.materials || wall.materials.length === 0) return;
+        var first = wall.materials[0];
+        for (var i = 1; i < wall.materials.length; i++) if (wall.materials[i] !== first) return;
+        wall.material = first;
+        delete wall.materials;
+    },
+
+    // Removes the selected segments. Each wall splits into its runs of kept segments; on a closed
+    // shape the run that wraps past the start joins the first run.
+    deleteMultiSel: function () {
+        var self = this;
+        var sel = this._multiSel;
+        if (!sel || sel.length === 0) return;
+        var drop = {};
+        sel.forEach(function (s) { drop[s.wi + ':' + s.si] = true; });
+
+        var result = [];
+        this._allWalls.forEach(function (wall, wi) {
+            var n = wall.points.length - 1;
+            var runs = [], run = null;
+            for (var si = 0; si < n; si++) {
+                if (drop[wi + ':' + si]) { run = null; continue; }
+                if (!run) { run = { points: [wall.points[si]], mats: [] }; runs.push(run); }
+                run.points.push(wall.points[si + 1]);
+                run.mats.push(self._segMaterial(wall, si));
+            }
+            if (runs.length === 0) return;
+            var first = wall.points[0], last = wall.points[n];
+            var closed = n >= 3 && first.lat === last.lat && first.lng === last.lng;
+            if (runs.length === 1 && runs[0].mats.length === n) { result.push(wall); return; }
+            if (closed && runs.length > 1 && !drop[wi + ':0'] && !drop[wi + ':' + (n - 1)]) {
+                var head = runs.shift(), tail = runs.pop();
+                runs.push({ points: tail.points.concat(head.points.slice(1)), mats: tail.mats.concat(head.mats) });
+            }
+            runs.forEach(function (r) {
+                var w = { points: r.points, material: r.mats[0], materials: r.mats };
+                self._collapseMaterials(w);
+                result.push(w);
+            });
+        });
+        this._allWalls = result;
+        this._clearMultiSel();
         this._dotNetRef.invokeMethodAsync('SaveWallsFromJs', JSON.stringify(this._allWalls));
     },
 

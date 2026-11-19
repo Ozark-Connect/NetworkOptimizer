@@ -530,6 +530,7 @@ Gateway tweaks for UCG-Fiber, UXG-Fiber, UCG-Max, and UXG-Max (Gateway SSH).
   - Buildings and floors; floor plan underlays from PNG, JPEG, HEIC, or PDF
   - Heatmap adjusted by real client signal measurements
   - Walls and doors from a material list (drywall to metal), drawn with snapping
+    - Shift+drag or Shift+click selects several wall segments to change their material or delete them together
   - Place real APs with mount and facing; add planned APs from the model catalog
   - Simulate TX power, antenna mode, or a disabled AP before changing anything
   - Walk-test signal markers over the heatmap
