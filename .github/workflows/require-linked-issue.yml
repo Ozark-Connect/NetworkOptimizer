@@ -5,11 +5,14 @@
 # pull_request_target runs this file from the PR's BASE branch, so it must exist on
 # main, dev, and the active release/X.Y. It never checks out the PR's code, and the PR
 # body reaches the script only through an env var, never through an expression.
+#
+# It runs on `opened` only. Never add `reopened`: a maintainer who reopens a closed PR has
+# overruled the check, and re-running it closes the PR again.
 name: Require a linked issue
 
 on:
   pull_request_target:
-    types: [opened, reopened]
+    types: [opened]
 
 permissions:
   issues: read
