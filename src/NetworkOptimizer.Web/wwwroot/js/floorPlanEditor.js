@@ -1550,6 +1550,7 @@ window.fpEditor = {
         }
 
         this._placementActive = enabled;
+        this._updateWallToolbox();
 
         if (enabled) {
             this._placementHandler = function (e) {
@@ -1696,6 +1697,8 @@ window.fpEditor = {
                 }).addTo(self._wallLayer);
             });
         });
+
+        this._updateWallToolbox();
 
         // Click on map (not on wall) clears selection
         if (!this._wallMapClickBound) {
@@ -1878,13 +1881,14 @@ window.fpEditor = {
         m.boxZoom.disable();
 
         container.addEventListener('mousedown', function (e) {
-            if (!e.shiftKey || e.button !== 0) return;
+            if (e.button !== 0 || !(e.shiftKey || self._wallTool === 'select')) return;
             if (!self._wallsEditable || self._isDrawing || self._placementActive || self._activeMoveHandlers || self._moveMarker) return;
             if (!self._allWalls || self._allWalls.length === 0 || !self._wallLayer || self._wallLayer.getLayers().length === 0) return;
-            if (e.target.closest && e.target.closest('.leaflet-popup, .leaflet-control')) return;
+            if (e.target.closest && e.target.closest('.leaflet-popup, .leaflet-control, .leaflet-marker-icon')) return;
             e.stopPropagation();
             e.preventDefault();
 
+            var additive = e.shiftKey;
             var start = m.mouseEventToContainerPoint(e);
             var rect = null;
             var onMove = function (ev) {
@@ -1915,8 +1919,8 @@ window.fpEditor = {
                         if (self._segHitsBox(a, b, box)) hits.push({ wi: wi, si: si });
                     }
                 });
-                // Shift+drag adds to an existing multi-selection
-                var merged = (self._multiSel || []).slice();
+                // Shift+drag adds to an existing multi-selection; a plain drag (Select tool) replaces it
+                var merged = additive ? (self._multiSel || []).slice() : [];
                 hits.forEach(function (h) {
                     if (!merged.some(function (s) { return s.wi === h.wi && s.si === h.si; })) merged.push(h);
                 });
@@ -1925,6 +1929,62 @@ window.fpEditor = {
             document.addEventListener('mousemove', onMove);
             document.addEventListener('mouseup', onUp);
         }, true);
+    },
+
+    // Pan / Select toolbox under the zoom control. Select makes a plain drag draw the selection box;
+    // the marquee's capture-phase handler stops the drag before Leaflet can pan, so dragging stays on.
+    _initWallToolbox: function () {
+        var m = this._map;
+        if (!m || this._wallToolbox) return;
+        var self = this;
+        var Toolbox = L.Control.extend({
+            options: { position: 'topleft' },
+            onAdd: function () {
+                var div = L.DomUtil.create('div', 'leaflet-bar fp-tool-control');
+                var panSvg = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 11V6a2 2 0 0 0-4 0v5"/><path d="M14 10V4a2 2 0 0 0-4 0v6"/><path d="M10 10.5V6a2 2 0 0 0-4 0v8"/><path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15"/></svg>';
+                var selSvg = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3a2 2 0 0 0-2 2"/><path d="M19 3a2 2 0 0 1 2 2"/><path d="M5 21a2 2 0 0 1-2-2"/><path d="M9 3h1"/><path d="M9 21h2"/><path d="M14 3h1"/><path d="M3 9v1"/><path d="M21 9v2"/><path d="M3 14v1"/><path d="m12 12 4 10 1.7-4.3L22 16Z"/></svg>';
+                div.innerHTML =
+                    '<a href="#" role="button" data-tool="pan" aria-label="Pan" data-tooltip="Pan: drag to move the map" data-tooltip-hover-only>' + panSvg + '</a>' +
+                    '<a href="#" role="button" data-tool="select" aria-label="Select" data-tooltip="Select: drag a box to select walls (Shift adds)" data-tooltip-hover-only>' + selSvg + '</a>';
+                L.DomEvent.disableClickPropagation(div);
+                L.DomEvent.on(div, 'click', function (e) {
+                    L.DomEvent.preventDefault(e);
+                    var a = e.target.closest('a[data-tool]');
+                    if (a) self._setWallTool(a.getAttribute('data-tool'));
+                });
+                return div;
+            }
+        });
+        this._wallToolbox = new Toolbox();
+        this._wallTool = 'pan';
+    },
+
+    _setWallTool: function (tool) {
+        this._wallTool = tool === 'select' ? 'select' : 'pan';
+        var m = this._map;
+        if (!m) return;
+        var el = this._wallToolbox && this._wallToolbox.getContainer();
+        if (el) {
+            el.querySelectorAll('a[data-tool]').forEach(function (a) {
+                a.classList.toggle('active', a.getAttribute('data-tool') === tool);
+            });
+        }
+        m.getContainer().classList.toggle('fp-tool-select', this._wallTool === 'select');
+    },
+
+    // Shows the toolbox while the selected floor's walls can be edited outside Draw Layout and AP
+    // placement. Hiding it for any other reason falls back to Pan, so no invisible tool stays active.
+    _updateWallToolbox: function () {
+        var m = this._map;
+        if (!m) return;
+        this._initWallToolbox();
+        var hasWalls = this._wallLayer && this._wallLayer.getLayers().length > 0;
+        var show = this._wallsEditable && hasWalls && !this._isDrawing && !this._placementActive;
+        var added = !!this._wallToolbox._map;
+        if (show && !added) { this._wallToolbox.addTo(m); this._setWallTool(this._wallTool); }
+        if (!show && added) this._wallToolbox.remove();
+        if (!show && !this._isDrawing) this._setWallTool('pan');
+        else if (!show) m.getContainer().classList.remove('fp-tool-select');
     },
 
     // Liang-Barsky clip: true when segment a-b touches the box (container pixels).
@@ -2473,6 +2533,8 @@ window.fpEditor = {
         var self = this;
 
         this._isDrawing = true;
+        this._clearMultiSel();
+        this._updateWallToolbox();
         this._allWalls = JSON.parse(wallsJson);
         this._distanceWarnShown = false;
         m.dragging.disable();
@@ -2835,6 +2897,7 @@ window.fpEditor = {
         if (this._wallDblClickHandler) { m.off('dblclick', this._wallDblClickHandler); this._wallDblClickHandler = null; }
         if (this._wallMoveHandler) { m.off('mousemove', this._wallMoveHandler); this._wallMoveHandler = null; }
         m.doubleClickZoom.enable();
+        this._updateWallToolbox();
     },
 
     addWallPoint: function (lat, lng, material, color) {
@@ -3694,6 +3757,8 @@ window.fpEditor = {
         if (this._signalClusterGroup) this._signalClusterGroup.clearLayers();
         if (this._bgWallLayer) this._bgWallLayer.clearLayers();
         if (this._wallLayer) this._wallLayer.clearLayers();
+        this._multiSel = null;
+        this._updateWallToolbox();
     },
 
     destroy: function () {

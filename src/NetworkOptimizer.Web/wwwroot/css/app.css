@@ -19817,6 +19817,38 @@ tr.stats-row-filtered {
     margin-bottom: 4px;
 }
 
+/* Signal Map Pan / Select toolbox, under the zoom control and styled to match it */
+.fp-map-container .fp-tool-control {
+    border: none !important;
+    background: none;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+.fp-map-container .fp-tool-control a {
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(26, 29, 35, 0.9);
+    color: var(--text-secondary);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 6px !important;
+}
+.fp-map-container .fp-tool-control a:hover {
+    background: rgba(51, 56, 68, 0.9);
+    color: var(--text-primary);
+}
+.fp-map-container .fp-tool-control a.active {
+    background: var(--primary-color);
+    border-color: var(--primary-hover);
+    color: #fff;
+}
+.leaflet-container.fp-tool-select {
+    cursor: crosshair;
+}
+
 .lan-flow-map-chips {
     display: flex;
     flex-wrap: wrap;
