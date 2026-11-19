@@ -59,6 +59,107 @@ note() { printf '  %s%s%s\n' "$_dim" "$*" "$_rst"; }
 warn() { printf '  %s\xe2\x9a\xa0%s  %s\n' "$_ylw" "$_rst" "$*"; }
 err()  { printf '%sError:%s %s\n' "${_red}${_b}" "$_rst" "$*" >&2; exit 1; }
 
+# --- Server pre-flight --------------------------------------------------------
+# Probes the tunnel route the agent uses (the agent README's "Verify the connection" call). It stops
+# an install in one case only: the certificate is untrusted while -k reaches a working tunnel, so the
+# agent could never connect. Anything else warns or skips, so a curl that cannot run the probe never
+# blocks an install. Each curl runs on the left of && / ||, where set -e does not apply.
+PREFLIGHT_DOC="https://github.com/Ozark-Connect/NetworkOptimizer/blob/main/src/NetworkOptimizer.Agent/README.md#verify-the-connection"
+# The stop's exit status. Run It for Me and the Proxmox installer read it to offer --insecure.
+PREFLIGHT_UNTRUSTED_EXIT=3
+# $1: the base URL. The rest are extra curl arguments.
+tunnel_probe() {
+    local base="$1"; shift
+    curl "$@" -sS -D - -o /dev/null --http2 --max-time 10 -X POST -H 'content-type: application/grpc' \
+        "${base%/}/networkoptimizer.agent.v1.AgentTunnel/Connect" 2>&1
+}
+tunnel_verdict() {
+    # Here-strings, not pipes: under pipefail an early-exiting grep -q can fail the pipe on a match.
+    # No -i: GNU grep 3.0 aborts on -iF. HTTP/2 headers are lowercase, HTTP/1.1 ones capitalized.
+    if grep -qE '[Gg]rpc-[Mm]essage: First message must be a hello' <<<"$1"; then echo hello
+    elif grep -qE '[Gg]rpc-[Mm]essage: Service is unimplemented' <<<"$1"; then echo unimplemented
+    # The app's own answer when a proxy forwards the tunnel path to it over HTTP/1.1.
+    elif grep -qE "Request protocol 'HTTP/1\.1' is not supported" <<<"$1"; then echo unimplemented
+    elif grep -qE '^HTTP/[0-9.]+ 404' <<<"$1" && ! grep -qE '^[Gg]rpc-[Mm]essage:' <<<"$1"; then echo notfound
+    else echo other
+    fi
+}
+# What a failed probe says about the route, or nothing when it says nothing. $1 output, $2 curl exit, $3 base URL.
+route_problem() {
+    local code
+    case "$2" in
+        6|7|28) echo "Could not reach ${3%/} (curl exit $2). The install continues and the agent keeps retrying."; return 0 ;;
+        35) echo "The TLS handshake with ${3%/} failed (curl exit 35). Check that the URL points at the proxy's HTTPS port."; return 0 ;;
+        52|56) echo "The connection to ${3%/} closed without an answer (curl exit $2)."; return 0 ;;
+        60|51) return 0 ;;
+    esac
+    case "$(tunnel_verdict "$1")" in
+        unimplemented) echo "The proxy sends the tunnel path to the app, not the tunnel port: add the gRPC route." ;;
+        notfound) echo "The proxy has no route for the tunnel path at ${3%/} (HTTP 404)." ;;
+        *)
+            code=$(sed -n 's#^HTTP/[0-9.]* \([0-9][0-9]*\).*#\1#p' <<<"$1") || code=""
+            code=${code##*$'\n'}
+            if [ -n "$code" ]; then echo "The tunnel route did not answer at ${3%/} (HTTP ${code})."; fi
+            ;;
+    esac
+    return 0
+}
+# $1: the agent.json path. $2: "stop" when this installer may stop on an untrusted certificate.
+preflight_server() {
+    local config="$1" may_stop="$2" enrolled=false tls="" base="$SERVER" out rc verdict version saved msg
+    step "Checking the server"
+    version=$(curl --version 2>/dev/null) || version=""
+    if ! grep -q 'HTTP2' <<<"$version"; then
+        note "Skipped: this host's curl has no HTTP/2 support, so it cannot test the tunnel route."
+        return 0
+    fi
+    if ${SUDO:-} grep -q '"agentKey"' "$config" 2>/dev/null; then
+        enrolled=true
+        # An enrolled agent keeps its agent.json, so probe the URL it actually dials.
+        saved=$(${SUDO:-} sed -n 's/^[[:space:]]*"tunnelUrl":[[:space:]]*"\([^"]*\)".*/\1/p' "$config" 2>/dev/null) || saved=""
+        saved=${saved%%$'\n'*}
+        case "$saved" in https://*) base="$saved" ;; esac
+    fi
+    if [ "$INSECURE" = true ] || ${SUDO:-} grep -q '"ignoreSslErrors":[[:space:]]*true' "$config" 2>/dev/null; then
+        tls="-k"
+    fi
+    out=$(tunnel_probe "$base" $tls) && rc=0 || rc=$?
+    verdict=$(tunnel_verdict "$out")
+    if [ "$verdict" = hello ]; then
+        ok "The tunnel route answers at ${base%/}"
+        return 0
+    fi
+    case "$rc" in
+        60|51)
+            if [ -z "$tls" ]; then
+                out=$(tunnel_probe "$base" -k) && rc=0 || rc=$?
+                if [ "$(tunnel_verdict "$out")" = hello ]; then
+                    if [ "$enrolled" = true ]; then
+                        warn "This host does not trust the server's certificate. If you issued it yourself, set \"ignoreSslErrors\": true in ${config} and restart the agent. Otherwise fix the certificate on the reverse proxy."
+                        return 0
+                    fi
+                    # The stop needs this host's trust store to work, or a broken store would read as a bad certificate.
+                    if [ "$may_stop" = stop ] && curl -sS -o /dev/null --max-time 10 https://github.com >/dev/null 2>&1; then
+                        printf '%sError:%s %s\n' "${_red}${_b}" "$_rst" "This host does not trust the server's certificate, so the agent cannot connect to ${base%/}. If you issued the certificate yourself, re-run this command with --insecure. Otherwise fix the certificate on the reverse proxy. See ${PREFLIGHT_DOC}" >&2
+                        exit "$PREFLIGHT_UNTRUSTED_EXIT"
+                    fi
+                    warn "This host does not trust the server's certificate. If you issued it yourself, re-run this command with --insecure. Otherwise fix the certificate on the reverse proxy."
+                    return 0
+                fi
+            fi
+            # The route problem behind the certificate one, from the -k probe when it ran.
+            warn "This host does not trust the server's certificate."
+            ;;
+    esac
+    msg=$(route_problem "$out" "$rc" "$base")
+    if [ -n "$msg" ]; then
+        warn "$msg See ${PREFLIGHT_DOC}"
+    else
+        note "Inconclusive (curl exit ${rc}); continuing."
+    fi
+    return 0
+}
+
 # --uninstall needs neither --server nor a token; skip the install-only checks.
 if [ "$UNINSTALL" != true ]; then
     [ -n "$SERVER" ] || err "--server is required (the central server's HTTPS address)"
@@ -116,6 +217,8 @@ fi
 
 printf '\n%sNetwork Optimizer on-site agent (Docker)%s\n' "$_b" "$_rst"
 note "Installing to ${INSTALL_DIR}"
+# Warn only: the agent checks the certificate inside its image, whose trust store is not this host's.
+preflight_server "${INSTALL_DIR}/data/agent.json" warn
 $SUDO mkdir -p "${INSTALL_DIR}/data"
 
 step "Fetching the compose template"
@@ -254,7 +357,10 @@ ok "container up"
 step "Done"
 ok "Agent started"
 note "It enrolls, then holds a tunnel to ${SERVER%/} - watch it come Online in the web UI."
-note "Logs:   ${SUDO} docker logs -f network-optimizer-agent"
+# $SUDO is empty when the script itself runs under sudo, but the user still needs it for docker.
+LOG_SUDO="${SUDO:+$SUDO }"
+if [ -z "$LOG_SUDO" ] && [ -n "${SUDO_USER:-}" ] && [ "${SUDO_USER}" != root ]; then LOG_SUDO="sudo "; fi
+note "Logs:   ${LOG_SUDO}docker logs -f network-optimizer-agent"
 DIR_ARG=""
 [ "$INSTALL_DIR" != "/opt/network-optimizer-agent" ] && DIR_ARG=" --dir \"${INSTALL_DIR}\""
 note "Remove: curl -fsSL https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main/scripts/agent/install-docker.sh | ${SUDO} bash -s -- --uninstall${DIR_ARG}"
