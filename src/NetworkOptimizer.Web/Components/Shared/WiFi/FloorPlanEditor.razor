@@ -3333,9 +3333,8 @@
         if (_mode == "walls")
         {
             var initWalls = _selectedFloor?.WallsJson ?? "[]";
-            _wallMaterial = HasExteriorOutline(_selectedFloor?.WallsJson)
-                ? LastInteriorMaterial
-                : GetBuildingExteriorMaterial();
+            _wallMaterial = FloorPlanWallMaterials.DrawStartMaterial(
+                _selectedFloor?.WallsJson, GetBuildingExteriorMaterial(), LastInteriorMaterial);
             _heatmapWasOn = _showHeatmap;
             if (_showHeatmap)
             {
@@ -3362,12 +3361,9 @@
         await JS.InvokeVoidAsync("fpEditor.addWallPoint", lat, lng, _wallMaterial, color);
     }
 
-    private static bool IsExteriorMaterial(string? material) =>
-        material != null && material.StartsWith("exterior", StringComparison.OrdinalIgnoreCase);
-
     private void OnWallMaterialPicked()
     {
-        if (IsExteriorMaterial(_wallMaterial))
+        if (FloorPlanWallMaterials.IsExterior(_wallMaterial))
         {
             if (_selectedBuilding != null) _exteriorMaterialByBuilding[_selectedBuilding.Id] = _wallMaterial;
         }
@@ -3377,58 +3373,14 @@
         }
     }
 
-    private string LastInteriorMaterial =>
-        _selectedBuilding != null && _interiorMaterialByBuilding.TryGetValue(_selectedBuilding.Id, out var m) ? m : "drywall";
+    private string? LastInteriorMaterial =>
+        _selectedBuilding != null && _interiorMaterialByBuilding.TryGetValue(_selectedBuilding.Id, out var m) ? m : null;
 
-    private static readonly System.Text.Json.JsonSerializerOptions WallJsonOpts = new()
-    {
-        PropertyNameCaseInsensitive = true,
-        PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase
-    };
-
-    private static List<WallShape> ParseWalls(string? wallsJson)
-    {
-        if (string.IsNullOrEmpty(wallsJson) || wallsJson == "[]") return new();
-        try { return System.Text.Json.JsonSerializer.Deserialize<List<WallShape>>(wallsJson, WallJsonOpts) ?? new(); }
-        catch (System.Text.Json.JsonException) { return new(); }
-    }
-
-    private static IEnumerable<string> SegmentMaterials(WallShape w)
-    {
-        for (var i = 0; i < w.Points.Count - 1; i++)
-            yield return w.Materials != null && i < w.Materials.Count && !string.IsNullOrEmpty(w.Materials[i])
-                ? w.Materials[i]
-                : w.Material;
-    }
-
-    /// <summary>
-    /// True when the floor has a closed shape with at least one exterior segment. Until then, drawing
-    /// defaults to the building's exterior type so an outline drawn in pieces keeps its material.
-    /// </summary>
-    private static bool HasExteriorOutline(string? wallsJson) =>
-        ParseWalls(wallsJson).Any(w =>
-            w.Points.Count >= 4
-            && Math.Abs(w.Points[0].Lat - w.Points[^1].Lat) < 1e-9
-            && Math.Abs(w.Points[0].Lng - w.Points[^1].Lng) < 1e-9
-            && SegmentMaterials(w).Any(IsExteriorMaterial));
-
-    /// <summary>
-    /// The exterior type for the selected building: the one picked this session, else the most common
-    /// exterior type on the building's saved floors, else residential.
-    /// </summary>
     private string GetBuildingExteriorMaterial()
     {
-        if (_selectedBuilding == null) return "exterior_residential";
-        if (_exteriorMaterialByBuilding.TryGetValue(_selectedBuilding.Id, out var picked)) return picked;
-        var counts = _selectedBuilding.Floors
-            .SelectMany(f => ParseWalls(f.WallsJson))
-            .SelectMany(SegmentMaterials)
-            .Where(m => m is "exterior_residential" or "exterior_commercial")
-            .GroupBy(m => m)
-            .OrderByDescending(g => g.Count())
-            .Select(g => g.Key)
-            .FirstOrDefault();
-        return counts ?? "exterior_residential";
+        if (_selectedBuilding == null) return FloorPlanWallMaterials.DefaultExterior;
+        _exteriorMaterialByBuilding.TryGetValue(_selectedBuilding.Id, out var picked);
+        return FloorPlanWallMaterials.BuildingExterior(picked, _selectedBuilding.Floors.Select(f => f.WallsJson));
     }
 
     [JSInvokable]
@@ -3456,9 +3408,8 @@
         if (_selectedFloor == null) return;
         _isDrawingShape = false;
         // The outline just closed: switch to interior drawing with the last interior material.
-        if (_mode == "walls" && IsExteriorMaterial(_wallMaterial)
-            && !HasExteriorOutline(_selectedFloor.WallsJson) && HasExteriorOutline(wallsJson))
-            _wallMaterial = LastInteriorMaterial;
+        if (_mode == "walls" && FloorPlanWallMaterials.OutlineJustClosed(_wallMaterial, _selectedFloor.WallsJson, wallsJson))
+            _wallMaterial = LastInteriorMaterial ?? FloorPlanWallMaterials.DefaultInterior;
         StateHasChanged();
         _selectedFloor.WallsJson = wallsJson;
         await FloorPlanAdmin.UpdateFloorAsync(_selectedFloor.Id, wallsJson: wallsJson);

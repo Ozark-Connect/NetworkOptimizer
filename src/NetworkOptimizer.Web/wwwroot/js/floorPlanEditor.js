@@ -1100,11 +1100,14 @@ window.fpEditor = {
         var el = mk.getElement();
         if (el) el.style.pointerEvents = 'none'; // the click that lands it must reach the map
         m.getContainer().style.cursor = 'move';
+        // While it moves, nothing else on the map takes hover or clicks (building hit areas, walls, APs)
+        m.getContainer().classList.add('fp-ap-moving');
         var done = function () {
             m.off('mousemove', moveHandler);
             m.off('click', finishHandler);
             if (el) el.style.pointerEvents = '';
             m.getContainer().style.cursor = '';
+            m.getContainer().classList.remove('fp-ap-moving');
             self._activeMoveHandlers = null;
         };
         var moveHandler = function (e) { mk.setLatLng(e.latlng); gm.setLatLng(e.latlng); };
@@ -1120,7 +1123,11 @@ window.fpEditor = {
             m.on('click', finishHandler);
             self._activeMoveHandlers = {
                 moveHandler: moveHandler, finishHandler: finishHandler,
-                cancel: function () { mk.setLatLng(orig); gm.setLatLng(orig); if (el) el.style.pointerEvents = ''; }
+                cancel: function () {
+                    mk.setLatLng(orig); gm.setLatLng(orig);
+                    if (el) el.style.pointerEvents = '';
+                    m.getContainer().classList.remove('fp-ap-moving');
+                }
             };
         }, 0);
     },

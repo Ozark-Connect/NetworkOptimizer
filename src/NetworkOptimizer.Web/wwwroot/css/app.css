@@ -19882,6 +19882,10 @@ tr.stats-row-filtered {
 .fp-map-container .fp-tool-group + .fp-tool-group {
     margin-top: 6px;
 }
+/* Signal Map AP Move: the landing click must reach the map, so no layer takes the pointer */
+.leaflet-container.fp-ap-moving .leaflet-interactive {
+    pointer-events: none !important;
+}
 .leaflet-container.fp-tool-select,
 .leaflet-container.fp-shift-select {
     cursor: crosshair;
