@@ -13409,13 +13409,19 @@ h3 > .tooltip-icon-sm {
    stat strip and notes under a card's title. */
 .pon-view-tabs {
     border-bottom: 1px solid var(--border-color);
-    margin: 1.25rem 0 0.5rem;
+    margin: 0.75rem 0 0.5rem;
     overflow-x: auto;
     scrollbar-width: none;
 }
 
 .pon-view-tabs::-webkit-scrollbar {
     display: none;
+}
+
+@media (max-width: 768px) {
+    .pon-view-tabs {
+        margin-top: 0.5rem;
+    }
 }
 
 .pon-view-tabs .tab {
