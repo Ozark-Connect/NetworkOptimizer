@@ -1130,6 +1130,15 @@ public class ClientSpeedTestService : IClientSpeedTestService
             : null;
     }
 
+    /// <summary>How long background enrichment waits for Wi-Fi link rates to settle after a test.</summary>
+    internal static readonly TimeSpan EnrichmentSettleDelay = TimeSpan.FromSeconds(2);
+
+    /// <summary>
+    /// Test-only: replaces <see cref="EnrichmentSettleDelay"/> when set, so tests skip 2 s of real
+    /// time per recorded result. Never set in production.
+    /// </summary>
+    internal static TimeSpan? EnrichmentSettleDelayOverride { get; set; }
+
     /// <summary>
     /// Background task to enrich and analyze a speed test result after WiFi rates stabilize.
     /// Loads the result from DB, enriches with UniFi data, analyzes path, and saves.
@@ -1139,7 +1148,7 @@ public class ClientSpeedTestService : IClientSpeedTestService
         try
         {
             // Let WiFi link rates stabilize after the speed test
-            await Task.Delay(TimeSpan.FromSeconds(2));
+            await Task.Delay(EnrichmentSettleDelayOverride ?? EnrichmentSettleDelay);
 
             await using var db = await CreateSiteDbAsync();
             var result = await db.Iperf3Results.FindAsync(resultId);

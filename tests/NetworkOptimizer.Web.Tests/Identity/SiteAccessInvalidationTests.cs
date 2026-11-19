@@ -132,7 +132,7 @@ public sealed class SiteAccessInvalidationTests : IDisposable
     {
         await using (var main = new MainDbContextFactory(_mainDbPath).CreateDbContext())
         {
-            await main.Database.MigrateAsync();
+            await main.Database.MigrateFromTemplateAsync();
             main.Sites.AddRange(
                 new Site { Slug = "main", Name = "Main", IsDefault = true, Enabled = true },
                 new Site { Slug = "branch", Name = "Branch", Enabled = true },
@@ -141,7 +141,7 @@ public sealed class SiteAccessInvalidationTests : IDisposable
         }
 
         await using var auth = new AuthDbContextFactory(_authDbPath).CreateDbContext();
-        await auth.Database.MigrateAsync();
+        await auth.Database.MigrateFromTemplateAsync();
         // The membership hangs off a real account row.
         auth.Users.Add(new ApplicationUser
         {

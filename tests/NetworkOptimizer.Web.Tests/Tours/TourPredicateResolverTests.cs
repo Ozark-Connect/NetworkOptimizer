@@ -293,7 +293,7 @@ public class TourPredicateResolverTests : IDisposable
         {
             Directory.CreateDirectory(Path.GetDirectoryName(_paths.GetSiteDbPath(slug, isDefault))!);
             await using var siteDb = _siteDbFactory.CreateForSite(slug, isDefault);
-            await siteDb.Database.MigrateAsync();
+            await siteDb.Database.MigrateFromTemplateAsync();
         }
     }
 

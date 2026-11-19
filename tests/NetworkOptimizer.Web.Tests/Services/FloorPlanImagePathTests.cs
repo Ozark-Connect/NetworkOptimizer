@@ -35,7 +35,7 @@ public class FloorPlanImagePathTests : IDisposable
         _factory = new SiteDbContextFactory(paths);
         _siteContext = new SiteContextService(new HttpContextAccessor(), paths);
         using var db = _factory.CreateForSite(_siteContext.Slug, _siteContext.IsDefault);
-        db.Database.Migrate();
+        db.Database.MigrateFromTemplate();
     }
 
     public void Dispose()

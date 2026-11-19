@@ -36,7 +36,7 @@ public class WanContextTargetStampingTests : IDisposable
         _siteContext = new SiteContextService(new HttpContextAccessor(), paths);
 
         using var db = Db();
-        db.Database.Migrate();
+        db.Database.MigrateFromTemplate();
     }
 
     public void Dispose()

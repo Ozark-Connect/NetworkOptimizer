@@ -52,7 +52,7 @@ public sealed class SsoOnlySignInTests : IDisposable
             .UseSqlite($"Data Source={_dbPath}")
             .Options;
         await using (var db = new NetworkOptimizerDbContext(options))
-            await db.Database.MigrateAsync();
+            await db.Database.MigrateFromTemplateAsync();
 
         var provider = BuildProvider();
         using var scope = provider.CreateScope();

@@ -52,7 +52,7 @@ public sealed class AdminPasswordChangeTests : IDisposable
             .UseSqlite($"Data Source={_dbPath}")
             .Options;
         await using var db = new NetworkOptimizerDbContext(options);
-        await db.Database.MigrateAsync();
+        await db.Database.MigrateFromTemplateAsync();
         db.AdminSettings.Add(new AdminSettings
         {
             Password = new PasswordHasher().HashPassword(password),
@@ -110,7 +110,7 @@ public sealed class AdminPasswordChangeTests : IDisposable
             .Options;
         await using (var db = new NetworkOptimizerDbContext(options))
         {
-            await db.Database.MigrateAsync();
+            await db.Database.MigrateFromTemplateAsync();
             // Enabled=false is the auto-generated first-run password, which stays flagged temporary.
             db.AdminSettings.Add(new AdminSettings
             {
@@ -157,7 +157,7 @@ public sealed class AdminPasswordChangeTests : IDisposable
             .UseSqlite($"Data Source={_dbPath}")
             .Options;
         await using (var db = new NetworkOptimizerDbContext(options))
-            await db.Database.MigrateAsync();
+            await db.Database.MigrateFromTemplateAsync();
 
         await using var provider = BuildProvider();
         using (var scope = provider.CreateScope())
