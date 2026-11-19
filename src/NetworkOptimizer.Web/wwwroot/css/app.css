@@ -13540,6 +13540,13 @@ h3 > .tooltip-icon-sm {
     margin-bottom: 1.5rem;
 }
 
+/* Wi-Fi Optimizer - Overview: the Speed Map / Signal Map switch above the map. */
+.wifi-overview-map-switch {
+    width: max-content;
+    max-width: 100%;
+    margin-bottom: 0.75rem;
+}
+
 .wifi-view-tabs {
     display: flex;
     gap: 0.4rem;

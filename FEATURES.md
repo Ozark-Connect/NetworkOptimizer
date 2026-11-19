@@ -474,6 +474,7 @@ Gateway tweaks for UCG-Fiber, UXG-Fiber, UCG-Max, and UXG-Max (Gateway SSH).
   - Channel health scores each radio against the quietest channel it could use, so a band busy on every channel costs nothing
 - **Client Band Distribution**, **Channel Optimization** summary, and per-AP radio cards
 - Mesh uplink details and **Re-pair Uplink**
+- **Speed Map** or **Signal Map** below the cards, switched in place
 - **Health Issues** with recommendations; **Acknowledge** hides an issue but keeps it in the score
   - Each affected AP, radio, or client links straight to it
   - Each affected AP, radio, or client links to where it is shown: its clients on that band, its channel, its metrics, or the client itself
