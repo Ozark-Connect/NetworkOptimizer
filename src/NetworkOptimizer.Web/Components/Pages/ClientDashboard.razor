@@ -4657,7 +4657,7 @@
                 new YAxis { Labels = new YAxisLabels { MaxWidth = _isMobile ? 96 : 160, Style = new AxisLabelStyle { FontSize = _isMobile ? "10px" : "11px" } } },
             },
             // The default padding left a band above the first lane and below the axis.
-            Grid = new Grid { BorderColor = "rgba(255,255,255,0.08)", Padding = new Padding { Top = -18, Right = 6, Bottom = -6, Left = 8 } },
+            Grid = new Grid { BorderColor = "rgba(255,255,255,0.08)", Padding = new Padding { Top = -18, Right = 24, Bottom = -6, Left = 8 } },
             Tooltip = new Tooltip
             {
                 Theme = Mode.Dark,
@@ -4667,6 +4667,9 @@
             Legend = new Legend { Show = false },
         };
         ChartTimeFormat.ApplyTimeAxis(_connectionChartOptions.Xaxis.Labels, DisplayTime);
+        // ApexCharts shortens a label that overruns its slot ("Nov 19" read "Nov 1" at the plot's
+        // end); the grid's right padding is the room it needs whole.
+        _connectionChartOptions.Xaxis.Labels.Trim = false;
     }
 
     private int _connectionChartHeight = 120;
@@ -5607,13 +5610,14 @@
         height: 10px;
         border-radius: 2px;
     }
-    /* The plot runs into the card's right padding; the AP labels keep the left padding. */
+    /* The chart runs into the card's right padding, and its own 24 px right padding is room for the
+       last axis label, centred on the plot's end; the AP labels keep the left padding. */
     .conn-history-chart {
-        margin-right: -0.75rem;
+        margin-right: -1rem;
     }
     @@media (max-width: 768px) {
         .conn-history-chart {
-            margin-right: -0.5rem;
+            margin-right: -0.75rem;
         }
     }
     .conn-tip {
