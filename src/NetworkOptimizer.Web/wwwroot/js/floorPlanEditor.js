@@ -171,6 +171,18 @@ window.fpEditor = {
         this._escHandler = function (e) {
             // Delete/Backspace: delete the multi-selection, or the selected wall or segment
             var inField = e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT' || e.target.tagName === 'TEXTAREA');
+            // Delete/Backspace on an open AP popup: a planned AP is deleted, a placed AP (in
+            // Place/Edit APs) leaves the map. C# re-checks read-only and the mode.
+            var apTarget = self._apPopupTarget;
+            var apDeletable = apTarget && (apTarget.planned || self._toolboxState.mode === 'aps');
+            if ((e.key === 'Delete' || e.key === 'Backspace') && !inField && apDeletable && self._dotNetRef && self._toolboxState.editable) {
+                e.preventDefault();
+                self._apPopupTarget = null;
+                if (self._map) self._map.closePopup();
+                if (apTarget.planned) self._dotNetRef.invokeMethodAsync('OnPlannedApDeleteFromJs', apTarget.plannedId);
+                else if (self._toolboxState.mode === 'aps') self._dotNetRef.invokeMethodAsync('OnApDeleteKeyFromJs', apTarget.mac);
+                return;
+            }
             if ((e.key === 'Delete' || e.key === 'Backspace') && !inField && self._multiSel && self._multiSel.length > 0) {
                 e.preventDefault();
                 self.deleteMultiSel();
@@ -1341,6 +1353,12 @@ window.fpEditor = {
                 );
             }
 
+            // The AP whose popup is open is the Delete key's target
+            (function (target) {
+                marker.on('popupopen', function () { self._apPopupTarget = target; });
+                marker.on('popupclose', function () { if (self._apPopupTarget === target) self._apPopupTarget = null; });
+            })({ planned: !!isPlanned, plannedId: ap.plannedId, mac: ap.mac });
+
             // Sync slider with current override each time popup opens (real APs only)
             if (!isPlanned) {
                 (function (macAddr) {
@@ -1623,9 +1641,11 @@ window.fpEditor = {
         var effectiveClickable = clickable && !this._placementActive;
         if (effectiveClickable) {
             var allPts = {};
+            var names = {};
             walls.forEach(function (wall) {
                 var id = wall._buildingId;
                 if (!id) return;
+                if (wall._buildingName) names[id] = wall._buildingName;
                 if (!allPts[id]) allPts[id] = [];
                 wall.points.forEach(function (p) { allPts[id].push(p); });
             });
@@ -1639,6 +1659,10 @@ window.fpEditor = {
                 poly.on('click', function () {
                     if (self._dotNetRef) self._dotNetRef.invokeMethodAsync('OnBgBuildingClicked', bldgId);
                 });
+                // "Tap" on touch-first devices, "Click" with a mouse
+                var verb = (window.matchMedia && window.matchMedia('(pointer: coarse)').matches) ? 'Tap' : 'Click';
+                poly.bindTooltip('<div class="trace-tip">' + verb + ' to edit ' + esc(names[id] || 'this building') + '</div>',
+                    { sticky: true, className: 'trace-map-tooltip', opacity: 1 });
                 poly.on('mouseover', function () { poly.setStyle({ fillOpacity: 0.15 }); });
                 poly.on('mouseout', function () { poly.setStyle({ fillOpacity: 0 }); });
             });
@@ -1680,41 +1704,7 @@ window.fpEditor = {
                     [[wall.points[i].lat, wall.points[i].lng], [wall.points[i + 1].lat, wall.points[i + 1].lng]],
                     { color: color, weight: 4, opacity: 0.9, pane: 'wallPane', interactive: true }
                 ).addTo(self._wallLayer);
-                seg._fpWallIdx = wi;
-                seg._fpSegIdx = i;
-                seg.on('click', function (e) {
-                    if (self._isDrawing) return; // Don't intercept clicks during wall drawing
-                    L.DomEvent.stopPropagation(e);
-                    if (Date.now() < self._suppressClickUntil) return;
-                    if (e.originalEvent && e.originalEvent.shiftKey && self._wallsEditable) {
-                        self._toggleMultiSel(this._fpWallIdx, this._fpSegIdx, e.latlng);
-                        return;
-                    }
-                    // First click on a selected segment opens the group popup; a click while it is
-                    // open, or on any other segment, drops the group for a normal single selection.
-                    // Leaflet closes the popup on preclick, before this runs, hence the closedAt window.
-                    var popupWasOpen = self._multiSelPopup || (Date.now() - (self._multiSelPopupClosedAt || 0) < 300);
-                    if (self._inMultiSel(this._fpWallIdx, this._fpSegIdx) && !popupWasOpen) {
-                        self._openMultiSelPopup(e.latlng);
-                        return;
-                    }
-                    self._clearMultiSel();
-                    self._wallSegClick(e, this._fpWallIdx, this._fpSegIdx);
-                });
-                // Right-click: group popup on a selected segment, else that segment's own popup
-                seg.on('contextmenu', function (e) {
-                    if (self._isDrawing) return;
-                    L.DomEvent.stopPropagation(e);
-                    if (e.originalEvent) e.originalEvent.preventDefault();
-                    if (self._inMultiSel(this._fpWallIdx, this._fpSegIdx)) {
-                        self._map.closePopup();
-                        self._openMultiSelPopup(e.latlng);
-                        return;
-                    }
-                    self._clearMultiSel();
-                    self._wallSelection = { wallIdx: null, segIdx: null };
-                    self._wallSegClick(e, this._fpWallIdx, this._fpSegIdx);
-                });
+                self._bindSegEvents(seg, wi, i);
 
                 // Length labels
                 var p1 = wall.points[i];
@@ -1753,6 +1743,80 @@ window.fpEditor = {
         }
     },
 
+    // Wall popups never auto-pan: moving the map under the pointer put the popup's close button
+    // where the wall was, so "click again to select whole shape" closed the popup instead.
+    _wallPopupOpts: { closeButton: true, autoPan: false },
+
+    // Click and right-click for a wall segment; also bound to the wider hit lines over selected
+    // segments, so both behave the same.
+    _bindSegEvents: function (layer, wi, si) {
+        var self = this;
+        layer.on('click', function (e) {
+            if (self._isDrawing) return; // Don't intercept clicks during wall drawing
+            L.DomEvent.stopPropagation(e);
+            if (Date.now() < self._suppressClickUntil) return;
+            self._handleSegClick(e, wi, si);
+        });
+        // Right-click: group popup on a selected segment, else that segment's own popup
+        layer.on('contextmenu', function (e) {
+            if (self._isDrawing) return;
+            L.DomEvent.stopPropagation(e);
+            if (e.originalEvent) e.originalEvent.preventDefault();
+            if (self._inMultiSel(wi, si)) {
+                self._map.closePopup();
+                self._openMultiSelPopup(e.latlng);
+                return;
+            }
+            self._clearMultiSel();
+            self._wallSelection = { wallIdx: null, segIdx: null };
+            self._wallSegClick(e, wi, si);
+        });
+    },
+
+    // A click on segment si of wall wi. e needs latlng and originalEvent (shiftKey).
+    _handleSegClick: function (e, wi, si) {
+        if (e.originalEvent && e.originalEvent.shiftKey && this._wallsEditable) {
+            this._toggleMultiSel(wi, si, e.latlng);
+            return;
+        }
+        // First click on a selected segment opens the group popup; a click while it is
+        // open, or on any other segment, drops the group for a normal single selection.
+        // Leaflet closes the popup on preclick, before a native click runs, hence the closedAt window.
+        var popupWasOpen = this._multiSelPopup || (Date.now() - (this._multiSelPopupClosedAt || 0) < 300);
+        if (this._inMultiSel(wi, si) && !popupWasOpen) {
+            this._openMultiSelPopup(e.latlng);
+            return;
+        }
+        this._clearMultiSel();
+        this._wallSegClick(e, wi, si);
+    },
+
+    // Nearest wall segment within tolPx of a container point, or null.
+    _segAtPoint: function (pt, tolPx) {
+        var m = this._map;
+        var best = null, bestD = tolPx;
+        (this._allWalls || []).forEach(function (wall, wi) {
+            for (var si = 0; si < wall.points.length - 1; si++) {
+                var a = m.latLngToContainerPoint(L.latLng(wall.points[si].lat, wall.points[si].lng));
+                var b = m.latLngToContainerPoint(L.latLng(wall.points[si + 1].lat, wall.points[si + 1].lng));
+                var d = L.LineUtil.pointToSegmentDistance(pt, a, b);
+                if (d <= bestD) { bestD = d; best = { wi: wi, si: si }; }
+            }
+        });
+        return best;
+    },
+
+    // Highlight for a selected segment plus an invisible 18px hit line over it, so a selected wall
+    // is easy to click or right-click. The hit line sits in wallPane, above the 4px segment.
+    _addSelHighlight: function (wi, si, style) {
+        var wall = this._allWalls[wi];
+        var pts = [[wall.points[si].lat, wall.points[si].lng], [wall.points[si + 1].lat, wall.points[si + 1].lng]];
+        L.polyline(pts, L.extend({ interactive: false }, style)).addTo(this._wallHighlightLayer);
+        var hit = L.polyline(pts, { weight: 18, opacity: 0, pane: 'wallPane', interactive: true })
+            .addTo(this._wallHighlightLayer);
+        this._bindSegEvents(hit, wi, si);
+    },
+
     // Two-level wall click handler: 1st click = segment, 2nd click (same wall) = whole shape
     _wallSegClick: function (e, wi, si) {
         var m = this._map;
@@ -1767,10 +1831,7 @@ window.fpEditor = {
         if (sel.wallIdx === wi && sel.segIdx !== null) {
             // Select entire wall shape - highlight all segments with dashed blue
             for (var j = 0; j < wall.points.length - 1; j++) {
-                L.polyline(
-                    [[wall.points[j].lat, wall.points[j].lng], [wall.points[j + 1].lat, wall.points[j + 1].lng]],
-                    { color: '#60a5fa', weight: 6, dashArray: '8,4', opacity: 0.9, interactive: false }
-                ).addTo(this._wallHighlightLayer);
+                this._addSelHighlight(wi, j, { color: '#facc15', weight: 8, opacity: 0.9 });
             }
             this._wallSelection = { wallIdx: wi, segIdx: null };
 
@@ -1779,22 +1840,19 @@ window.fpEditor = {
             for (var wk in labels) {
                 wallOpts += '<option value="' + wk + '"' + (wk === wall.material ? ' selected' : '') + '>' + labels[wk] + '</option>';
             }
-            var wallHtml = '<div style="text-align:center;min-width:180px">' +
+            var wallHtml = '<div style="text-align:center;min-width:180px;padding-top:14px">' +
                 '<select style="width:100%;padding:3px;margin-bottom:6px;background:#1e293b;color:#e0e0e0;border:1px solid #475569;border-radius:3px" ' +
                 'onchange="fpEditor.changeWallMat(' + wi + ',this.value)">' +
                 wallOpts + '</select><br/>' +
                 '<span style="font-size:11px;color:#94a3b8">' + (wall.points.length - 1) + ' segment' + (wall.points.length > 2 ? 's' : '') + '</span><br/>' +
                 '<button onclick="fpEditor.moveWall(' + wi + ')" style="margin-top:4px;padding:2px 10px;background:#4f46e5;color:#fff;border:none;border-radius:3px;cursor:pointer;margin-right:4px">Move</button>' +
                 '<button onclick="fpEditor.deleteWall(' + wi + ')" style="padding:2px 10px;background:#dc2626;color:#fff;border:none;border-radius:3px;cursor:pointer">Delete</button></div>';
-            L.popup({ closeButton: true }).setLatLng(e.latlng).setContent(wallHtml).openOn(m);
+            L.popup(this._wallPopupOpts).setLatLng(e.latlng).setContent(wallHtml).openOn(m);
             return;
         }
 
         // Level 1: first click on any wall -> select individual segment
-        L.polyline(
-            [[wall.points[si].lat, wall.points[si].lng], [wall.points[si + 1].lat, wall.points[si + 1].lng]],
-            { color: '#facc15', weight: 8, opacity: 0.9, interactive: false }
-        ).addTo(this._wallHighlightLayer);
+        this._addSelHighlight(wi, si, { color: '#facc15', weight: 8, opacity: 0.9 });
         this._wallSelection = { wallIdx: wi, segIdx: si };
 
         // Build material dropdown options
@@ -1809,17 +1867,19 @@ window.fpEditor = {
             ? '<div style="font-size:11px;color:#94a3b8;margin-bottom:4px">Click again to select whole shape</div>'
             : '';
         if (this._wallsEditable)
-            hintHtml += '<div style="font-size:11px;color:#94a3b8;margin-bottom:4px">Shift+click or Shift+drag to select several</div>';
+            hintHtml += '<div style="font-size:11px;color:#94a3b8;margin-bottom:4px">' +
+                (this._wallTool === 'select' ? 'Drag a box or Shift+click to select several' : 'Shift+click or Shift+drag to select several') +
+                '</div>';
 
         // Popup with material dropdown, split, and delete buttons
-        var html = '<div style="text-align:center;min-width:180px">' +
+        var html = '<div style="text-align:center;min-width:180px;padding-top:14px">' +
             hintHtml +
             '<select style="width:100%;padding:3px;margin-bottom:6px;background:#1e293b;color:#e0e0e0;border:1px solid #475569;border-radius:3px" ' +
             'onchange="fpEditor.changeSegMat(' + wi + ',' + si + ',this.value)">' +
             opts + '</select><br/>' +
             '<button onclick="fpEditor.splitSeg(' + wi + ',' + si + ')" style="padding:2px 10px;background:#4f46e5;color:#fff;border:none;border-radius:3px;cursor:pointer;margin-right:4px">Split</button>' +
             '<button onclick="fpEditor.deleteSeg(' + wi + ',' + si + ')" style="padding:2px 10px;background:#dc2626;color:#fff;border:none;border-radius:3px;cursor:pointer">Delete Seg</button></div>';
-        L.popup({ closeButton: true }).setLatLng(e.latlng).setContent(html).openOn(m);
+        L.popup(this._wallPopupOpts).setLatLng(e.latlng).setContent(html).openOn(m);
     },
 
     // ── Wall Operations (called from popup onclick) ──────────────────
@@ -1939,6 +1999,14 @@ window.fpEditor = {
         container.addEventListener('mousedown', function (e) {
             if (self._marqueeActive) e.stopPropagation();
         }, true);
+        // After a gesture the marquee handled itself, the browser's click must not reach Leaflet:
+        // its preclick would close the popup the gesture just opened.
+        container.addEventListener('click', function (e) {
+            if (Date.now() < self._swallowClickUntil) {
+                self._swallowClickUntil = 0;
+                e.stopPropagation();
+            }
+        }, true);
 
         container.addEventListener(DOWN, function (e) {
             if (usePointer && e.pointerType === 'touch') return;
@@ -1955,6 +2023,7 @@ window.fpEditor = {
             self._marqueeActive = true;
             var onMove = function (ev) {
                 var cur = m.mouseEventToContainerPoint(ev);
+                if (!rect && cur.distanceTo(start) < 4) return; // a click's jitter is not a drag
                 var bounds = L.latLngBounds(m.containerPointToLatLng(start), m.containerPointToLatLng(cur));
                 if (!rect) {
                     rect = L.rectangle(bounds, { color: '#60a5fa', weight: 1, dashArray: '4,3', fillOpacity: 0.1, interactive: false }).addTo(m);
@@ -1966,10 +2035,24 @@ window.fpEditor = {
                 document.removeEventListener(MOVE, onMove);
                 document.removeEventListener(UP, onUp);
                 self._marqueeActive = false;
-                if (!rect) return; // no drag: let the click reach the segment
+                var end = m.mouseEventToContainerPoint(ev);
+                self._swallowClickUntil = Date.now() + 400;
+                if (!rect) {
+                    // No drag: this press is the click. Pick the segment with a 9px tolerance; an
+                    // empty spot clears the selection, as a map click does.
+                    var hit = self._segAtPoint(end, 9);
+                    if (hit) {
+                        self._handleSegClick({ latlng: m.containerPointToLatLng(end), originalEvent: ev }, hit.wi, hit.si);
+                    } else {
+                        self._map.closePopup();
+                        self._wallHighlightLayer.clearLayers();
+                        self._wallSelection = { wallIdx: null, segIdx: null };
+                        self._multiSel = null;
+                    }
+                    return;
+                }
                 m.removeLayer(rect);
                 self._suppressClickUntil = Date.now() + 300;
-                var end = m.mouseEventToContainerPoint(ev);
                 var box = {
                     minX: Math.min(start.x, end.x), maxX: Math.max(start.x, end.x),
                     minY: Math.min(start.y, end.y), maxY: Math.max(start.y, end.y)
@@ -1983,7 +2066,7 @@ window.fpEditor = {
                     }
                 });
                 // Shift+drag adds to an existing multi-selection; a plain drag (Select tool) replaces it
-                var merged = additive ? (self._multiSel || []).slice() : [];
+                var merged = additive ? self._currentSelList() : [];
                 hits.forEach(function (h) {
                     if (!merged.some(function (s) { return s.wi === h.wi && s.si === h.si; })) merged.push(h);
                 });
@@ -2170,17 +2253,23 @@ window.fpEditor = {
         return true;
     },
 
-    _toggleMultiSel: function (wi, si, latlng) {
+    // The current selection as a segment list: the multi-selection, else the single segment or
+    // whole shape picked by a plain click, so Shift+click and Shift+drag add to it.
+    _currentSelList: function () {
         var sel = (this._multiSel || []).slice();
-        // A single selection from a plain click becomes the first entry of the multi-selection
         var single = this._wallSelection;
-        if (sel.length === 0 && single && single.wallIdx !== null) {
+        if (sel.length === 0 && single && single.wallIdx !== null && this._allWalls[single.wallIdx]) {
             if (single.segIdx !== null) {
                 sel.push({ wi: single.wallIdx, si: single.segIdx });
             } else {
                 for (var k = 0; k < this._allWalls[single.wallIdx].points.length - 1; k++) sel.push({ wi: single.wallIdx, si: k });
             }
         }
+        return sel;
+    },
+
+    _toggleMultiSel: function (wi, si, latlng) {
+        var sel = this._currentSelList();
         var idx = -1;
         for (var i = 0; i < sel.length; i++) if (sel[i].wi === wi && sel[i].si === si) { idx = i; break; }
         if (idx >= 0) sel.splice(idx, 1); else sel.push({ wi: wi, si: si });
@@ -2209,11 +2298,7 @@ window.fpEditor = {
         if (!sel || sel.length === 0) { this._multiSel = null; return; }
         this._multiSel = sel;
         sel.forEach(function (s) {
-            var wall = self._allWalls[s.wi];
-            L.polyline(
-                [[wall.points[s.si].lat, wall.points[s.si].lng], [wall.points[s.si + 1].lat, wall.points[s.si + 1].lng]],
-                { color: '#facc15', weight: 8, opacity: 0.9, interactive: false }
-            ).addTo(self._wallHighlightLayer);
+            self._addSelHighlight(s.wi, s.si, { color: '#facc15', weight: 8, opacity: 0.9 });
         });
     },
 
@@ -2240,12 +2325,12 @@ window.fpEditor = {
         for (var k in labels) {
             opts += '<option value="' + k + '"' + (k === common ? ' selected' : '') + '>' + labels[k] + '</option>';
         }
-        var html = '<div style="text-align:center;min-width:180px">' +
+        var html = '<div style="text-align:center;min-width:180px;padding-top:14px">' +
             '<select style="width:100%;padding:3px;margin-bottom:6px;background:#1e293b;color:#e0e0e0;border:1px solid #475569;border-radius:3px" ' +
             'onchange="fpEditor.changeMultiMat(this.value)">' + opts + '</select><br/>' +
             '<span style="font-size:11px;color:#94a3b8">' + sel.length + ' segment' + (sel.length !== 1 ? 's' : '') + '</span><br/>' +
             '<button onclick="fpEditor.deleteMultiSel()" style="margin-top:4px;padding:2px 10px;background:#dc2626;color:#fff;border:none;border-radius:3px;cursor:pointer">Delete</button></div>';
-        var popup = L.popup({ closeButton: true }).setLatLng(latlng).setContent(html);
+        var popup = L.popup(this._wallPopupOpts).setLatLng(latlng).setContent(html);
         popup.on('remove', function () {
             if (self._multiSelPopup !== popup) return;
             self._multiSelPopup = null;

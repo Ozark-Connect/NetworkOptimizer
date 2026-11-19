@@ -18,6 +18,7 @@
 @inject FloorPlanService FloorPlanSvc
 @inject IFloorPlanAdminService FloorPlanAdmin
 @inject ApMapService ApMapSvc
+@inject IApMapAdminService ApMapAdmin
 @inject PlannedApService PlannedApSvc
 @inject IPlannedApAdminService PlannedApAdmin
 @inject HeatmapDataCache HeatmapCache
@@ -281,7 +282,7 @@
                 @if (_isDrawingShape)
                 {
                     <br/>
-                    <span>Double-click or</span>
+                    <span>Double-click, Esc, or</span>
                     <button class="fp-hint-btn" @onclick="FinishCurrentWall">Finish Shape</button>
                     <span>to complete</span>
                 }
@@ -2784,6 +2785,22 @@
         await JS.InvokeVoidAsync("fpEditor.updateApMarkers", markersJson, _mode == "aps" || _mode == "plan-aps", _heatmapBand);
     }
 
+    /// <summary>Delete key on a placed AP's open popup in Place/Edit APs: removes it from the map.</summary>
+    [JSInvokable]
+    public async Task OnApDeleteKeyFromJs(string mac)
+    {
+        if (IsReadOnly || _mode != "aps") return;
+        await ApMapAdmin.DeleteApLocationAsync(mac);
+        HeatmapCache.Invalidate();
+        await LoadApMarkers();
+        await InvokeAsync(async () =>
+        {
+            StateHasChanged();
+            await UpdateApMarkers();
+            if (_showHeatmap) await ComputeHeatmap();
+        });
+    }
+
     [JSInvokable]
     public async Task OnApDragEndFromJs(string mac, double lat, double lng)
     {
@@ -3033,6 +3050,7 @@
     [JSInvokable]
     public async Task OnPlannedApDeleteFromJs(int plannedId)
     {
+        if (IsReadOnly) return;
         await PlannedApAdmin.DeleteAsync(plannedId);
         HeatmapCache.Invalidate();
         await LoadPlannedAps();
@@ -3236,6 +3254,7 @@
                             if (dict != null)
                             {
                                 dict["_buildingId"] = b.Id;
+                                dict["_buildingName"] = b.Name;
                                 var isSelectedBldg = _selectedBuilding != null && b.Id == _selectedBuilding.Id;
                                 // Selected building adjacent: 0.4, other bldg same floor: 0.25, other bldg adjacent: 0.15, no selection same floor: 0.5, no selection adjacent: 0.25
                                 if (_selectedBuilding != null)
