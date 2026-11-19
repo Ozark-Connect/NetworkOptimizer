@@ -317,9 +317,9 @@ public class OntAlertEvaluator
     /// </summary>
     internal static string RiseCause(double riseDb, double? launchChangeDb)
     {
-        const string fiber = "check connectors, the patch cable, and bends first.";
+        const string fiber = "check connectors, the jumper, and bends first.";
         if (launchChangeDb is not double launch)
-            return "Check the fiber path first: connectors, the patch cable, and bends.";
+            return "Check the fiber path first: connectors, the jumper, and bends.";
         if (Math.Abs(launch) < PonThresholds.OltLaunchChangeDb)
             return $"With the OLT launch power unchanged, the change is on the fiber path: {fiber}";
         var moved = $"OLT launch power {launch:+0.0;-0.0} dB from its usual level (RX {launch - riseDb:+0.0;-0.0;0.0} dB)";

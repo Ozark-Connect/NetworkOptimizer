@@ -239,7 +239,7 @@ export function ponPathSummaryHtml(items) {
         if (hints.includes('loss_rise')) {
             const launch = Math.abs(s.launchChangeDb) < 0.05 ? 'OLT launch power unchanged' : `OLT launch power ${fmtSignedDb(s.launchChangeDb)}`;
             warn(`Up ${fmtDb(s.lossChangeDb)} from the usual ${fmtDb(s.baselineLossDb)} (RX ${fmtSignedDb(s.rxChangeDb)}, ${launch}). `
-                + 'The change is on the fiber path: check connectors, the patch cable, splices, and bends.');
+                + 'The change is on the fiber path: check connectors, the jumper, splices, and bends.');
         }
         if (hints.includes('unsteady')) warn(`Jumped ${s.jumps} times in this window${s.spreadDb != null ? ` across ${fmtDb(s.spreadDb)}` : ''}. A steady fiber does not do this: check for a loose or dirty connector.`);
         if (hints.includes('launch_drop')) warn(`OLT launch power ${fmtSignedDb(s.launchChangeDb)} from its usual level (RX ${fmtSignedDb(s.rxChangeDb)}). The change is on the OLT side.`);

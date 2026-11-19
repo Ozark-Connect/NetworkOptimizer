@@ -513,8 +513,8 @@ public class OntAlertEvaluatorTests
         OntAlertEvaluator.RiseCause(2.5, 0.2).Should().StartWith("With the OLT launch power unchanged, the change is on the fiber path");
         OntAlertEvaluator.RiseCause(2.5, 2.5).Should().EndWith("The change is on the OLT side.");
         OntAlertEvaluator.RiseCause(4.0, 1.5).Should().Be(
-            "OLT launch power +1.5 dB from its usual level (RX -2.5 dB): the rest of the change is on the fiber path. Check connectors, the patch cable, and bends first.");
-        OntAlertEvaluator.RiseCause(2.5, null).Should().Be("Check the fiber path first: connectors, the patch cable, and bends.");
+            "OLT launch power +1.5 dB from its usual level (RX -2.5 dB): the rest of the change is on the fiber path. Check connectors, the jumper, and bends first.");
+        OntAlertEvaluator.RiseCause(2.5, null).Should().Be("Check the fiber path first: connectors, the jumper, and bends.");
     }
 
     [Fact]
