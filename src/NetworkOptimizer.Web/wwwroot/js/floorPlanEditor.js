@@ -180,7 +180,7 @@ window.fpEditor = {
                 self._apPopupTarget = null;
                 if (self._map) self._map.closePopup();
                 if (apTarget.planned) self._dotNetRef.invokeMethodAsync('OnPlannedApDeleteFromJs', apTarget.plannedId);
-                else if (self._toolboxState.mode === 'aps') self._dotNetRef.invokeMethodAsync('OnApDeleteKeyFromJs', apTarget.mac);
+                else if (self._toolboxState.mode === 'aps') self._dotNetRef.invokeMethodAsync('OnApRemoveFromJs', apTarget.mac);
                 return;
             }
             if ((e.key === 'Delete' || e.key === 'Backspace') && !inField && self._multiSel && self._multiSel.length > 0) {
@@ -206,6 +206,7 @@ window.fpEditor = {
             if (self._activeMoveHandlers) {
                 m.off('mousemove', self._activeMoveHandlers.moveHandler);
                 m.off('click', self._activeMoveHandlers.finishHandler);
+                if (self._activeMoveHandlers.cancel) self._activeMoveHandlers.cancel();
                 self._stopEdgePan();
                 m.dragging.enable();
                 m.getContainer().style.cursor = '';
@@ -1075,6 +1076,64 @@ window.fpEditor = {
 
     // ── AP Markers ───────────────────────────────────────────────────
 
+    _apMarkers: {},
+
+    _apKey: function (ap) { return ap.isPlanned ? 'p' + ap.plannedId : 'm' + String(ap.mac).toLowerCase(); },
+
+    // Move above Remove, for the AP popup and the right-click menu. Move needs the AP's own floor.
+    _apActionButtons: function (ap) {
+        var key = this._apKey(ap).replace(/[^a-z0-9:p]/gi, '');
+        var move = '<button class="fp-ap-popup-move" onclick="fpEditor.moveAp(\'' + key + '\')"' +
+            (ap.sameFloor ? '' : ' disabled data-tooltip="Switch to this AP\'s floor to move it"') + '>Move</button>';
+        var remove = '<button class="fp-ap-popup-delete" onclick="fpEditor.removeAp(\'' + key + '\')">' +
+            (ap.isPlanned ? 'Remove Planned AP' : 'Remove from Map') + '</button>';
+        return move + remove;
+    },
+
+    // Move: the AP follows the pointer and lands on the next click. Esc puts it back.
+    moveAp: function (key) {
+        var self = this, m = this._map, entry = this._apMarkers[key];
+        if (!m || !entry || !entry.ap.sameFloor) return;
+        m.closePopup();
+        var mk = entry.marker, gm = entry.glow, ap = entry.ap;
+        var orig = mk.getLatLng();
+        var el = mk.getElement();
+        if (el) el.style.pointerEvents = 'none'; // the click that lands it must reach the map
+        m.getContainer().style.cursor = 'move';
+        var done = function () {
+            m.off('mousemove', moveHandler);
+            m.off('click', finishHandler);
+            if (el) el.style.pointerEvents = '';
+            m.getContainer().style.cursor = '';
+            self._activeMoveHandlers = null;
+        };
+        var moveHandler = function (e) { mk.setLatLng(e.latlng); gm.setLatLng(e.latlng); };
+        var finishHandler = function (e) {
+            done();
+            mk.setLatLng(e.latlng); gm.setLatLng(e.latlng);
+            if (ap.isPlanned) self._dotNetRef.invokeMethodAsync('OnPlannedApDragEndFromJs', ap.plannedId, e.latlng.lat, e.latlng.lng);
+            else self._dotNetRef.invokeMethodAsync('OnApDragEndFromJs', ap.mac, e.latlng.lat, e.latlng.lng);
+        };
+        // Deferred so the click on the Move button does not land the AP where it already is
+        setTimeout(function () {
+            m.on('mousemove', moveHandler);
+            m.on('click', finishHandler);
+            self._activeMoveHandlers = {
+                moveHandler: moveHandler, finishHandler: finishHandler,
+                cancel: function () { mk.setLatLng(orig); gm.setLatLng(orig); if (el) el.style.pointerEvents = ''; }
+            };
+        }, 0);
+    },
+
+    removeAp: function (key) {
+        var entry = this._apMarkers[key];
+        if (!entry || !this._dotNetRef) return;
+        this._map.closePopup();
+        this._apPopupTarget = null;
+        if (entry.ap.isPlanned) this._dotNetRef.invokeMethodAsync('OnPlannedApDeleteFromJs', entry.ap.plannedId);
+        else this._dotNetRef.invokeMethodAsync('OnApRemoveFromJs', entry.ap.mac);
+    },
+
     updateApMarkers: function (markersJson, draggable, band) {
         var m = this._map;
         if (!m) return;
@@ -1093,6 +1152,7 @@ window.fpEditor = {
         });
 
         this._apLayer.clearLayers();
+        this._apMarkers = {};
         this._apGlowLayer.clearLayers();
 
         var aps = JSON.parse(markersJson);
@@ -1297,8 +1357,7 @@ window.fpEditor = {
                 var plannedTag = '<span class="fp-ap-popup-planned-tag">Planned</span>';
                 var nameInput = '<input type="text" class="fp-ap-popup-name-input" value="' + esc(ap.name || ap.model) + '" ' +
                     'oninput="fpEditor._debouncedNameSave(' + ap.plannedId + ',this.value)" />';
-                var deleteBtn = '<div class="fp-ap-popup-divider"></div>' +
-                    '<button class="fp-ap-popup-delete" onclick="fpEditor._dotNetRef.invokeMethodAsync(\'OnPlannedApDeleteFromJs\',' + ap.plannedId + ')">Remove Planned AP</button>';
+                var deleteBtn = '<div class="fp-ap-popup-divider"></div>' + self._apActionButtons(ap);
 
                 marker.bindPopup(
                     '<div class="fp-ap-popup">' +
@@ -1349,6 +1408,7 @@ window.fpEditor = {
                     txPowerHtml +
                     antennaModeHtml +
                     disableApHtml +
+                    (self._toolboxState.editable ? '<div class="fp-ap-popup-divider"></div>' + self._apActionButtons(ap) : '') +
                     '</div></div>'
                 );
             }
@@ -1358,6 +1418,21 @@ window.fpEditor = {
                 marker.on('popupopen', function () { self._apPopupTarget = target; });
                 marker.on('popupclose', function () { if (self._apPopupTarget === target) self._apPopupTarget = null; });
             })({ planned: !!isPlanned, plannedId: ap.plannedId, mac: ap.mac });
+
+            // Move / Remove from the popup buttons and the right-click menu
+            self._apMarkers[self._apKey(ap)] = { marker: marker, glow: glowMarker, ap: ap };
+            (function (apData) {
+                marker.on('contextmenu', function (e) {
+                    L.DomEvent.stopPropagation(e);
+                    if (e.originalEvent) e.originalEvent.preventDefault();
+                    if (!self._toolboxState.editable || self._isDrawing) return;
+                    m.closePopup();
+                    L.popup({ closeButton: false, autoPan: false, offset: [0, -14] })
+                        .setLatLng(e.target.getLatLng())
+                        .setContent('<div class="fp-ap-popup fp-ap-menu">' + self._apActionButtons(apData) + '</div>')
+                        .openOn(m);
+                });
+            })(ap);
 
             // Sync slider with current override each time popup opens (real APs only)
             if (!isPlanned) {

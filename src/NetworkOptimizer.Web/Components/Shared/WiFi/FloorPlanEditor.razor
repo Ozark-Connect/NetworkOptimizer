@@ -1134,6 +1134,33 @@
         background: rgba(239, 68, 68, 0.25);
     }
 
+    /* Move sits above Remove in the AP popup and the AP right-click menu */
+    .fp-ap-popup-move {
+        width: 100%;
+        padding: 6px;
+        margin-bottom: 6px;
+        background: rgba(71, 151, 255, 0.15);
+        color: var(--info-color);
+        border: 1px solid rgba(71, 151, 255, 0.3);
+        border-radius: var(--border-radius);
+        cursor: pointer;
+        font-size: 12px;
+        font-weight: 500;
+    }
+
+    .fp-ap-popup-move:hover {
+        background: rgba(71, 151, 255, 0.25);
+    }
+
+    .fp-ap-popup-move:disabled {
+        opacity: 0.45;
+        cursor: default;
+    }
+
+    .fp-ap-menu {
+        min-width: 150px;
+    }
+
     /* AP direction indicator */
     .fp-ap-direction {
         position: absolute;
@@ -2785,11 +2812,11 @@
         await JS.InvokeVoidAsync("fpEditor.updateApMarkers", markersJson, _mode == "aps" || _mode == "plan-aps", _heatmapBand);
     }
 
-    /// <summary>Delete key on a placed AP's open popup in Place/Edit APs: removes it from the map.</summary>
+    /// <summary>Removes a placed AP from the map: its popup or right-click Remove, or the Delete key in Place/Edit APs.</summary>
     [JSInvokable]
-    public async Task OnApDeleteKeyFromJs(string mac)
+    public async Task OnApRemoveFromJs(string mac)
     {
-        if (IsReadOnly || _mode != "aps") return;
+        if (IsReadOnly) return;
         await ApMapAdmin.DeleteApLocationAsync(mac);
         HeatmapCache.Invalidate();
         await LoadApMarkers();
