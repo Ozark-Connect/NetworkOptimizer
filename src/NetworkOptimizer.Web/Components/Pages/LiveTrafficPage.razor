@@ -341,7 +341,7 @@
                                     @foreach (var f in _view.Flows)
                                     {
                                         rank++;
-                                        var key = f.Key;
+                                        var key = f.RowKey;
                                         <LiveFlowRowView @key="key" Flow="f" Layout="LiveFlowLayout.Table" Rank="rank" Open="_openKey == key" OnToggle="() => ToggleRow(key)" Context="Ctx" />
                                     }
                                 </tbody>
@@ -368,7 +368,7 @@
                         <div class="lt-mobile-list lt-flip">
                             @foreach (var f in _view.Flows.Take(40))
                             {
-                                var key = f.Key;
+                                var key = f.RowKey;
                                 <LiveFlowRowView @key="key" Flow="f" Layout="LiveFlowLayout.List" Open="_openKey == key" OnToggle="() => ToggleRow(key)" Context="Ctx" />
                             }
                         </div>
@@ -1475,7 +1475,7 @@
                             <tbody class="lt-flip">
                                 @foreach (var f in h.Flows)
                                 {
-                                    var key = f.Key;
+                                    var key = f.RowKey;
                                     <LiveFlowRowView @key="key" Flow="f" Layout="LiveFlowLayout.HistoryTable" Open="_openKey == key" OnToggle="() => ToggleRow(key)" Context="Ctx" />
                                 }
                             </tbody>
@@ -1484,7 +1484,7 @@
                     <div class="lt-mobile-list lt-flip">
                         @foreach (var f in h.Flows)
                         {
-                            var key = f.Key;
+                            var key = f.RowKey;
                             <LiveFlowRowView @key="key" Flow="f" Layout="LiveFlowLayout.HistoryList" Open="_openKey == key" OnToggle="() => ToggleRow(key)" Context="Ctx" />
                         }
                     </div>

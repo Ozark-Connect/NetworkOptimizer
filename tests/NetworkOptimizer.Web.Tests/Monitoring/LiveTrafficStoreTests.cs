@@ -1512,6 +1512,26 @@ public class LiveTrafficStoreTests
     }
 
     [Fact]
+    public void RowKeyHoldsAsStreamsComeAndGo()
+    {
+        static LiveFlowRow Ping(string key) =>
+            new() { Key = key, ClientIp = "192.0.2.20", DestinationIp = "203.0.113.5", RemotePort = 0, Proto = "ICMP" };
+
+        var alone = LiveTrafficStore.Bundle([Ping("icmp-id1")]).Should().ContainSingle().Subject;
+        var two = LiveTrafficStore.Bundle([Ping("icmp-id1"), Ping("icmp-id2")]).Should().ContainSingle().Subject;
+        var next = LiveTrafficStore.Bundle([Ping("icmp-id2")]).Should().ContainSingle().Subject;
+
+        alone.Key.Should().Be("icmp-id1", "a lone flow keeps its own key");
+        two.RowKey.Should().Be(alone.RowKey).And.Be(next.RowKey, "a new ping run is the same row on screen");
+    }
+
+    [Fact]
+    public void RowKeyIsTheKeyOffTheActiveList()
+    {
+        new LiveFlowRow { Key = "a" }.RowKey.Should().Be("a");
+    }
+
+    [Fact]
     public void BundledStreamsSumTheirRecentData()
     {
         var rows = LiveTrafficStore.Bundle(

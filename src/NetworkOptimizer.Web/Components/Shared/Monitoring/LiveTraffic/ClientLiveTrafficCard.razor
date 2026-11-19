@@ -131,7 +131,7 @@
                             @foreach (var f in shown)
                             {
                                 rank++;
-                                var key = f.Key;
+                                var key = f.RowKey;
                                 <LiveFlowRowView @key="key" Flow="f" Layout="LiveFlowLayout.Table" ShowClient="false" Rank="rank"
                                                  Open="_openKey == key" OnToggle="() => ToggleRow(key)" Context="Feed.RowContext" />
                             }
@@ -163,7 +163,7 @@
                 <div class="lt-mobile-list lt-flip">
                     @foreach (var f in shown)
                     {
-                        var key = f.Key;
+                        var key = f.RowKey;
                         <LiveFlowRowView @key="key" Flow="f" Layout="LiveFlowLayout.List" ShowClient="false"
                                          Open="_openKey == key" OnToggle="() => ToggleRow(key)" Context="Feed.RowContext" />
                     }
@@ -344,7 +344,7 @@
                         <tbody class="lt-flip">
                             @foreach (var f in shown)
                             {
-                                var key = f.Key;
+                                var key = f.RowKey;
                                 <LiveFlowRowView @key="key" Flow="f" Layout="LiveFlowLayout.HistoryTable" ShowClient="false"
                                                  Open="_openKey == key" OnToggle="() => ToggleRow(key)" Context="Feed.RowContext" />
                             }
@@ -354,7 +354,7 @@
                 <div class="lt-mobile-list lt-flip">
                     @foreach (var f in shown)
                     {
-                        var key = f.Key;
+                        var key = f.RowKey;
                         <LiveFlowRowView @key="key" Flow="f" Layout="LiveFlowLayout.HistoryList" ShowClient="false"
                                          Open="_openKey == key" OnToggle="() => ToggleRow(key)" Context="Feed.RowContext" />
                     }

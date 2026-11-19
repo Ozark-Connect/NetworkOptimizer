@@ -47,11 +47,11 @@ public sealed class LiveOrderHold
         {
             view = view with
             {
-                Flows = Reorder(view.Flows, f => f.Key, _flows),
+                Flows = Reorder(view.Flows, f => f.RowKey, _flows),
                 Groups = Reorder(view.Groups, g => g.Name, _groups),
             };
         }
-        _flows = view.Flows.Select(f => f.Key).ToList();
+        _flows = view.Flows.Select(f => f.RowKey).ToList();
         _groups = view.Groups.Select(g => g.Name).ToList();
         return view;
     }
