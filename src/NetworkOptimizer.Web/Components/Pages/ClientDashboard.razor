@@ -1070,7 +1070,7 @@
                                     <span class="conn-legend-item"><span class="conn-legend-swatch" style="background: @BandColor(band)"></span>@(BandLabel(band) is { Length: > 0 } l ? l : (_client?.IsWired == true ? "Wired" : "Unknown band"))</span>
                                 }
                             </div>
-                            <div class="chart-container">
+                            <div class="chart-container" @key="_connectionChartKey">
                                 <ApexChart @ref="_connectionChart" TItem="ConnectionBar"
                                            Options="_connectionChartOptions"
                                            Height="@($"{_connectionChartHeight}px")">
@@ -4604,14 +4604,27 @@
     /// </summary>
     private void BuildConnectionChartData()
     {
-        _connectionChartData.Clear();
         var (from, to) = GetTimeRange();
         // "All" has no start of its own: the earliest event stands in.
         if (from == DateTime.MinValue && _connectionEvents.Count > 0)
             from = _connectionEvents.Min(e => e.Timestamp.UtcDateTime);
         _connectionTimeline = ClientConnectionTimeline.Build(_connectionEvents, from, to, connectedNow: _client?.IsOffline != true);
         var segments = _connectionTimeline.Segments;
-        if (segments.Count == 0) return;
+        if (segments.Count == 0)
+        {
+            _connectionChartData = new List<ConnectionBar>();
+            _connectionChartKey = null;
+            return;
+        }
+
+        // The chart is keyed on its range and the stretches it draws (an open stretch's moving end
+        // left out). A change remounts it with fresh options and height; ApexChart applies neither on
+        // a series update, which left a 7-day range on the 24-hour axis. A poll tick changes nothing.
+        var key = $"{_selectedTimeFilter}|" + string.Join(";", segments.Select(s =>
+            $"{s.Ap}/{s.Band}/{s.Start.Ticks}/{(s.EndedBy == null ? 0 : s.End.Ticks)}"));
+        if (key == _connectionChartKey) return;
+        _connectionChartKey = key;
+        _connectionChartData = new List<ConnectionBar>();
 
         long Ms(DateTime utc) => new DateTimeOffset(DateTime.SpecifyKind(DisplayTime.ToChart(utc), DateTimeKind.Utc)).ToUnixTimeMilliseconds();
         var tips = new List<string>();
@@ -4647,6 +4660,7 @@
     }
 
     private int _connectionChartHeight = 120;
+    private string? _connectionChartKey;
 
     // A bar's tooltip, as HTML: the AP and band, when and how long, and the signal either end.
     private string ConnectionTip(ClientConnectionTimeline.Segment seg)
