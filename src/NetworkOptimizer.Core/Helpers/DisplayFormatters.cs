@@ -6,6 +6,12 @@ namespace NetworkOptimizer.Core.Helpers;
 /// </summary>
 public static class DisplayFormatters
 {
+    /// <summary>A negotiated link rate as the app shows it: "1000 Mbps" below 1 Gbps steps, "2.5 Gbps" above.</summary>
+    public static string FormatLinkSpeed(int mbps) =>
+        mbps >= 1000
+            ? (mbps / 1000.0).ToString("0.#", System.Globalization.CultureInfo.InvariantCulture) + " Gbps"
+            : mbps.ToString(System.Globalization.CultureInfo.InvariantCulture) + " Mbps";
+
     #region Device Name Formatting
 
     // Known network device type keywords for prefix/suffix stripping

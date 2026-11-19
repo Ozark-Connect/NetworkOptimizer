@@ -2859,6 +2859,13 @@ public class MonitoringCollectionAgent : BackgroundService
                                 gemPorts: stats.GemPorts,
                                 gemPortsEncrypted: stats.GemPortsEncrypted,
                                 ct: ct);
+                            await _ontAlertEvaluator.EvaluatePathLossAsync(
+                                config.Id, config.Name,
+                                PonSupplementalStats.PathLossDb(stats.OltLaunchPowerDbm, stats.RxPowerDbm), stats.OdnClass,
+                                sourceUrl: sfpUrl, ct: ct,
+                                priorLevel: OntAlertEvaluator.PriorPathLossFrom(
+                                    _influx, "sfp", ("device_mac", sfp.DeviceMac), ("port_name", sfp.PortName)),
+                                launchDbm: stats.OltLaunchPowerDbm);
                         }
                         catch (Exception ex)
                         {
