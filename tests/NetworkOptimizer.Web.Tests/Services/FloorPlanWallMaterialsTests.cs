@@ -6,94 +6,102 @@ namespace NetworkOptimizer.Web.Tests.Services;
 
 public class FloorPlanWallMaterialsTests
 {
-    // A closed rectangle: five points, last equals first.
-    private static string Closed(string material) =>
-        "[{\"points\":[{\"lat\":1,\"lng\":1},{\"lat\":1,\"lng\":2},{\"lat\":2,\"lng\":2},{\"lat\":2,\"lng\":1},{\"lat\":1,\"lng\":1}],\"material\":\"" + material + "\"}]";
+    // A closed square of the given side, starting at (0,0): five points, last equals first.
+    private static string Square(string material, double side = 1, string? materials = null) =>
+        "{\"points\":[{\"lat\":0,\"lng\":0},{\"lat\":0,\"lng\":" + side + "},{\"lat\":" + side + ",\"lng\":" + side + "}," +
+        "{\"lat\":" + side + ",\"lng\":0},{\"lat\":0,\"lng\":0}],\"material\":\"" + material + "\"" +
+        (materials == null ? "" : ",\"materials\":" + materials) + "}";
 
-    // Three sides of the same rectangle: not closed.
+    // Three sides of the same square: not closed.
     private static string Open(string material) =>
-        "[{\"points\":[{\"lat\":1,\"lng\":1},{\"lat\":1,\"lng\":2},{\"lat\":2,\"lng\":2},{\"lat\":2,\"lng\":1}],\"material\":\"" + material + "\"}]";
+        "{\"points\":[{\"lat\":0,\"lng\":0},{\"lat\":0,\"lng\":1},{\"lat\":1,\"lng\":1},{\"lat\":1,\"lng\":0}],\"material\":\"" + material + "\"}";
+
+    private static string Floor(params string[] walls) => "[" + string.Join(",", walls) + "]";
 
     [Theory]
-    [InlineData(null, false)]
-    [InlineData("", false)]
-    [InlineData("[]", false)]
-    [InlineData("not json", false)]
-    public void Empty_or_unreadable_walls_have_no_outline(string? json, bool expected) =>
-        FloorPlanWallMaterials.HasExteriorOutline(json).Should().Be(expected);
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("[]")]
+    [InlineData("not json")]
+    public void Empty_or_unreadable_walls_have_no_outline(string? json) =>
+        FloorPlanWallMaterials.HasOutline(json).Should().BeFalse();
 
     [Fact]
     public void A_closed_exterior_shape_is_an_outline() =>
-        FloorPlanWallMaterials.HasExteriorOutline(Closed("exterior_commercial")).Should().BeTrue();
+        FloorPlanWallMaterials.HasOutline(Floor(Square("exterior_commercial"))).Should().BeTrue();
+
+    [Fact]
+    public void A_shed_outline_of_any_material_is_an_outline() =>
+        FloorPlanWallMaterials.HasOutline(Floor(Square("metal"))).Should().BeTrue();
 
     [Fact]
     public void An_outline_drawn_in_pieces_is_not_an_outline_until_closed() =>
-        FloorPlanWallMaterials.HasExteriorOutline(Open("exterior_residential")).Should().BeFalse();
+        FloorPlanWallMaterials.HasOutline(Floor(Open("exterior_residential"))).Should().BeFalse();
 
     [Fact]
-    public void A_closed_interior_shape_is_not_an_outline() =>
-        FloorPlanWallMaterials.HasExteriorOutline(Closed("drywall")).Should().BeFalse();
+    public void A_picked_outline_material_wins_over_saved_floors() =>
+        FloorPlanWallMaterials.BuildingOutlineMaterial("metal", new[] { Floor(Square("exterior_residential")) })
+            .Should().Be("metal");
 
     [Fact]
-    public void A_closed_shape_with_one_exterior_segment_is_an_outline()
+    public void A_new_floor_takes_the_outline_material_saved_on_the_building()
     {
-        var json = "[{\"points\":[{\"lat\":1,\"lng\":1},{\"lat\":1,\"lng\":2},{\"lat\":2,\"lng\":2},{\"lat\":1,\"lng\":1}]," +
-                   "\"material\":\"drywall\",\"materials\":[\"drywall\",\"exterior_residential\",\"window\"]}]";
-        FloorPlanWallMaterials.HasExteriorOutline(json).Should().BeTrue();
+        FloorPlanWallMaterials.BuildingOutlineMaterial(null, new[] { Floor(Square("exterior_commercial")), null, "[]" })
+            .Should().Be("exterior_commercial");
+        FloorPlanWallMaterials.BuildingOutlineMaterial(null, new[] { Floor(Square("metal")) })
+            .Should().Be("metal");
     }
 
     [Fact]
-    public void The_legacy_exterior_key_counts_as_exterior() =>
-        FloorPlanWallMaterials.HasExteriorOutline(Closed("exterior")).Should().BeTrue();
-
-    [Fact]
-    public void A_picked_exterior_wins_over_saved_floors() =>
-        FloorPlanWallMaterials.BuildingExterior("exterior_commercial", new[] { Closed("exterior_residential") })
-            .Should().Be("exterior_commercial");
-
-    [Fact]
-    public void A_new_floor_takes_the_exterior_type_saved_on_the_building() =>
-        FloorPlanWallMaterials.BuildingExterior(null, new[] { Closed("exterior_commercial"), null, "[]" })
-            .Should().Be("exterior_commercial");
-
-    [Fact]
-    public void The_most_common_saved_exterior_type_wins()
+    public void The_outline_is_the_largest_closed_shape_not_an_interior_room()
     {
-        var mixed = "[{\"points\":[{\"lat\":1,\"lng\":1},{\"lat\":1,\"lng\":2},{\"lat\":2,\"lng\":2},{\"lat\":1,\"lng\":1}]," +
-                    "\"material\":\"exterior_residential\",\"materials\":[\"exterior_commercial\",\"exterior_commercial\",\"exterior_residential\"]}]";
-        FloorPlanWallMaterials.BuildingExterior(null, new[] { mixed }).Should().Be("exterior_commercial");
+        // Three small drywall rooms inside a large metal outline: the outline material is metal.
+        var floor = Floor(Square("metal", 10), Square("drywall", 1), Square("drywall", 2), Square("drywall", 3));
+        FloorPlanWallMaterials.BuildingOutlineMaterial(null, new[] { floor }).Should().Be("metal");
     }
 
     [Fact]
-    public void A_building_with_no_exterior_walls_defaults_to_residential() =>
-        FloorPlanWallMaterials.BuildingExterior(null, new[] { Closed("drywall"), null }).Should().Be("exterior_residential");
+    public void A_door_or_window_cut_into_the_outline_does_not_change_its_material()
+    {
+        var floor = Floor(Square("exterior_residential", 1, "[\"exterior_residential\",\"window\",\"exterior_residential\",\"door_wood\"]"));
+        FloorPlanWallMaterials.BuildingOutlineMaterial(null, new[] { floor }).Should().Be("exterior_residential");
+    }
 
     [Fact]
-    public void Draw_Layout_starts_on_the_exterior_type_until_the_outline_exists()
+    public void The_most_common_outline_material_across_floors_wins() =>
+        FloorPlanWallMaterials.BuildingOutlineMaterial(null, new[]
+        {
+            Floor(Square("exterior_commercial")), Floor(Square("exterior_commercial")), Floor(Square("exterior_residential"))
+        }).Should().Be("exterior_commercial");
+
+    [Fact]
+    public void A_building_with_no_outline_defaults_to_residential_exterior() =>
+        FloorPlanWallMaterials.BuildingOutlineMaterial(null, new[] { Floor(Open("metal")), null })
+            .Should().Be("exterior_residential");
+
+    [Fact]
+    public void Draw_Layout_starts_on_the_outline_material_until_the_outline_exists()
     {
-        FloorPlanWallMaterials.DrawStartMaterial(null, "exterior_commercial", "window").Should().Be("exterior_commercial");
-        FloorPlanWallMaterials.DrawStartMaterial(Open("exterior_commercial"), "exterior_commercial", "window").Should().Be("exterior_commercial");
+        FloorPlanWallMaterials.DrawStartMaterial(null, "metal", "window").Should().Be("metal");
+        FloorPlanWallMaterials.DrawStartMaterial(Floor(Open("metal")), "metal", "window").Should().Be("metal");
     }
 
     [Fact]
     public void Draw_Layout_starts_on_the_last_interior_material_once_the_outline_exists()
     {
-        FloorPlanWallMaterials.DrawStartMaterial(Closed("exterior_residential"), "exterior_residential", "door_wood").Should().Be("door_wood");
-        FloorPlanWallMaterials.DrawStartMaterial(Closed("exterior_residential"), "exterior_residential", null).Should().Be("drywall");
+        FloorPlanWallMaterials.DrawStartMaterial(Floor(Square("metal")), "metal", "door_wood").Should().Be("door_wood");
+        FloorPlanWallMaterials.DrawStartMaterial(Floor(Square("exterior_residential")), "exterior_residential", null).Should().Be("drywall");
     }
 
     [Fact]
-    public void Closing_the_outline_with_an_exterior_selected_switches_to_interior() =>
-        FloorPlanWallMaterials.OutlineJustClosed("exterior_residential", Open("exterior_residential"), Closed("exterior_residential"))
-            .Should().BeTrue();
+    public void Closing_the_outline_switches_to_interior_whatever_its_material()
+    {
+        FloorPlanWallMaterials.OutlineJustClosed(Floor(Open("metal")), Floor(Square("metal"))).Should().BeTrue();
+        FloorPlanWallMaterials.OutlineJustClosed("[]", Floor(Square("exterior_residential"))).Should().BeTrue();
+    }
 
     [Fact]
     public void A_save_after_the_outline_exists_does_not_switch_again() =>
-        FloorPlanWallMaterials.OutlineJustClosed("exterior_residential", Closed("exterior_residential"), Closed("exterior_residential"))
-            .Should().BeFalse();
-
-    [Fact]
-    public void Closing_the_outline_with_an_interior_selected_keeps_it() =>
-        FloorPlanWallMaterials.OutlineJustClosed("window", Open("exterior_residential"), Closed("exterior_residential"))
+        FloorPlanWallMaterials.OutlineJustClosed(Floor(Square("metal")), Floor(Square("metal"), Square("drywall", 0.5)))
             .Should().BeFalse();
 }

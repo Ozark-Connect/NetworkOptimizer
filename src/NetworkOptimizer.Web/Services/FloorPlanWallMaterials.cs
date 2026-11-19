@@ -3,12 +3,12 @@ using System.Text.Json;
 namespace NetworkOptimizer.Web.Services;
 
 /// <summary>
-/// Default wall materials for the Signal Map floor plan editor's Draw Layout: exterior until a floor
-/// has its outline, then the building's last interior material.
+/// Default wall materials for the Signal Map floor plan editor's Draw Layout: the building's outline
+/// material until a floor has its outline, then the building's last interior material.
 /// </summary>
 public static class FloorPlanWallMaterials
 {
-    /// <summary>Default exterior type when a building has none picked or saved.</summary>
+    /// <summary>Default outline material when a building has none picked or saved.</summary>
     public const string DefaultExterior = "exterior_residential";
 
     /// <summary>Default interior material when a building has none picked.</summary>
@@ -33,32 +33,23 @@ public static class FloorPlanWallMaterials
         public double Lng { get; set; }
     }
 
-    /// <summary>True for any exterior wall type, including the legacy <c>exterior</c> key.</summary>
-    public static bool IsExterior(string? material) =>
-        material != null && material.StartsWith("exterior", StringComparison.OrdinalIgnoreCase);
+    /// <summary>
+    /// True when the floor has its outline: any closed shape, whatever its material, so a metal shed
+    /// or a wood outbuilding counts. Until then, drawing stays on the building's outline material so an
+    /// outline drawn in pieces keeps it.
+    /// </summary>
+    public static bool HasOutline(string? wallsJson) => Parse(wallsJson).Any(IsClosed);
 
     /// <summary>
-    /// True when the floor has a closed shape with at least one exterior segment. Until then, drawing
-    /// defaults to the building's exterior type so an outline drawn in pieces keeps its material.
+    /// The building's outline material: the one picked this session, else the most common outline
+    /// material across its saved floors, else residential exterior.
     /// </summary>
-    public static bool HasExteriorOutline(string? wallsJson) =>
-        Parse(wallsJson).Any(w =>
-            w.Points.Count >= 4
-            && Math.Abs(w.Points[0].Lat - w.Points[^1].Lat) < 1e-9
-            && Math.Abs(w.Points[0].Lng - w.Points[^1].Lng) < 1e-9
-            && SegmentMaterials(w).Any(IsExterior));
-
-    /// <summary>
-    /// The building's exterior type: the one picked this session, else the most common exterior type
-    /// on its saved floors, else residential.
-    /// </summary>
-    public static string BuildingExterior(string? picked, IEnumerable<string?> floorWallsJson)
+    public static string BuildingOutlineMaterial(string? picked, IEnumerable<string?> floorWallsJson)
     {
         if (!string.IsNullOrEmpty(picked)) return picked;
         return floorWallsJson
-            .SelectMany(Parse)
-            .SelectMany(SegmentMaterials)
-            .Where(m => m is "exterior_residential" or "exterior_commercial")
+            .Select(OutlineMaterial)
+            .OfType<string>()
             .GroupBy(m => m)
             .OrderByDescending(g => g.Count())
             .Select(g => g.Key)
@@ -66,15 +57,37 @@ public static class FloorPlanWallMaterials
     }
 
     /// <summary>The material Draw Layout starts on for a floor.</summary>
-    public static string DrawStartMaterial(string? floorWallsJson, string buildingExterior, string? lastInterior) =>
-        HasExteriorOutline(floorWallsJson) ? (lastInterior ?? DefaultInterior) : buildingExterior;
+    public static string DrawStartMaterial(string? floorWallsJson, string buildingOutline, string? lastInterior) =>
+        HasOutline(floorWallsJson) ? (lastInterior ?? DefaultInterior) : buildingOutline;
 
     /// <summary>
-    /// True when a save closes the floor's outline while an exterior material is selected: drawing then
-    /// switches to the building's last interior material.
+    /// True when a save closes the floor's first outline: drawing then switches to the building's
+    /// last interior material.
     /// </summary>
-    public static bool OutlineJustClosed(string? currentMaterial, string? wallsJsonBefore, string? wallsJsonAfter) =>
-        IsExterior(currentMaterial) && !HasExteriorOutline(wallsJsonBefore) && HasExteriorOutline(wallsJsonAfter);
+    public static bool OutlineJustClosed(string? wallsJsonBefore, string? wallsJsonAfter) =>
+        !HasOutline(wallsJsonBefore) && HasOutline(wallsJsonAfter);
+
+    // A floor's outline is its largest closed shape (interior rooms can be closed too); its material
+    // is the shape's most common segment material, so a door or window cut into it does not count.
+    private static string? OutlineMaterial(string? wallsJson) =>
+        Parse(wallsJson)
+            .Where(IsClosed)
+            .OrderByDescending(Area)
+            .Select(w => SegmentMaterials(w).GroupBy(m => m).OrderByDescending(g => g.Count()).First().Key)
+            .FirstOrDefault();
+
+    private static bool IsClosed(Wall w) =>
+        w.Points.Count >= 4
+        && Math.Abs(w.Points[0].Lat - w.Points[^1].Lat) < 1e-9
+        && Math.Abs(w.Points[0].Lng - w.Points[^1].Lng) < 1e-9;
+
+    private static double Area(Wall w)
+    {
+        double a = 0;
+        for (var i = 0; i < w.Points.Count - 1; i++)
+            a += w.Points[i].Lng * w.Points[i + 1].Lat - w.Points[i + 1].Lng * w.Points[i].Lat;
+        return Math.Abs(a) / 2;
+    }
 
     private static List<Wall> Parse(string? wallsJson)
     {

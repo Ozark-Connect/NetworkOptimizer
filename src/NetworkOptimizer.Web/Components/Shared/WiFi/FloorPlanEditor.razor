@@ -1707,8 +1707,8 @@
     // Last interior material (wall, door, window) picked per building; the default once a floor has its outline.
     // Another building starts again at drywall.
     private readonly Dictionary<int, string> _interiorMaterialByBuilding = new();
-    // Exterior type picked per building this session; wins over the type inferred from saved walls.
-    private readonly Dictionary<int, string> _exteriorMaterialByBuilding = new();
+    // Outline material picked per building this session; wins over the one inferred from saved walls.
+    private readonly Dictionary<int, string> _outlineMaterialByBuilding = new();
     private bool _isDrawingShape;
     private double _floorOpacity = 0.7;
     private List<FloorImageDto> _floorImages = new();
@@ -3334,7 +3334,7 @@
         {
             var initWalls = _selectedFloor?.WallsJson ?? "[]";
             _wallMaterial = FloorPlanWallMaterials.DrawStartMaterial(
-                _selectedFloor?.WallsJson, GetBuildingExteriorMaterial(), LastInteriorMaterial);
+                _selectedFloor?.WallsJson, GetBuildingOutlineMaterial(), LastInteriorMaterial);
             _heatmapWasOn = _showHeatmap;
             if (_showHeatmap)
             {
@@ -3361,26 +3361,26 @@
         await JS.InvokeVoidAsync("fpEditor.addWallPoint", lat, lng, _wallMaterial, color);
     }
 
+    // A pick before the floor has its outline is the building's outline material, whatever it is (a
+    // shed's metal counts). After that, a pick is the interior material, except an exterior type, which
+    // is an addition to the outline rather than the next door or window.
     private void OnWallMaterialPicked()
     {
-        if (FloorPlanWallMaterials.IsExterior(_wallMaterial))
-        {
-            if (_selectedBuilding != null) _exteriorMaterialByBuilding[_selectedBuilding.Id] = _wallMaterial;
-        }
-        else if (_selectedBuilding != null)
-        {
+        if (_selectedBuilding == null) return;
+        if (!FloorPlanWallMaterials.HasOutline(_selectedFloor?.WallsJson))
+            _outlineMaterialByBuilding[_selectedBuilding.Id] = _wallMaterial;
+        else if (!_wallMaterial.StartsWith("exterior", StringComparison.OrdinalIgnoreCase))
             _interiorMaterialByBuilding[_selectedBuilding.Id] = _wallMaterial;
-        }
     }
 
     private string? LastInteriorMaterial =>
         _selectedBuilding != null && _interiorMaterialByBuilding.TryGetValue(_selectedBuilding.Id, out var m) ? m : null;
 
-    private string GetBuildingExteriorMaterial()
+    private string GetBuildingOutlineMaterial()
     {
         if (_selectedBuilding == null) return FloorPlanWallMaterials.DefaultExterior;
-        _exteriorMaterialByBuilding.TryGetValue(_selectedBuilding.Id, out var picked);
-        return FloorPlanWallMaterials.BuildingExterior(picked, _selectedBuilding.Floors.Select(f => f.WallsJson));
+        _outlineMaterialByBuilding.TryGetValue(_selectedBuilding.Id, out var picked);
+        return FloorPlanWallMaterials.BuildingOutlineMaterial(picked, _selectedBuilding.Floors.Select(f => f.WallsJson));
     }
 
     [JSInvokable]
@@ -3408,7 +3408,7 @@
         if (_selectedFloor == null) return;
         _isDrawingShape = false;
         // The outline just closed: switch to interior drawing with the last interior material.
-        if (_mode == "walls" && FloorPlanWallMaterials.OutlineJustClosed(_wallMaterial, _selectedFloor.WallsJson, wallsJson))
+        if (_mode == "walls" && FloorPlanWallMaterials.OutlineJustClosed(_selectedFloor.WallsJson, wallsJson))
             _wallMaterial = LastInteriorMaterial ?? FloorPlanWallMaterials.DefaultInterior;
         StateHasChanged();
         _selectedFloor.WallsJson = wallsJson;
