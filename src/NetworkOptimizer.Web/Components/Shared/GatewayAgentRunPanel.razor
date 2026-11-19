@@ -68,7 +68,7 @@ else if (_available && ShowRunButton)
         {
             <label class="checkbox-label">
                 <input type="checkbox" @bind="_insecure" />
-                <span>Accept a self-signed certificate (--insecure)</span>
+                <span>Accept a self-signed certificate <span class="gw-run-flag">(--insecure)</span></span>
             </label>
         }
         else
@@ -94,6 +94,11 @@ else if (_available && ShowRunButton)
     /* Holds the button row's height (btn-sm) so the button does not shift the page in. */
     .gw-run-checking {
         min-height: 28px;
+    }
+
+    /* A narrow row wraps before the flag, never inside its double hyphen. */
+    .gw-run-flag {
+        white-space: nowrap;
     }
 
     .gw-run-hint {
