@@ -60,6 +60,31 @@ public class GatewayAgentCommandsTests
     }
 
     [Fact]
+    public void Install_WithInsecure_AddsTheFlagAfterTheSpeedTestAndBeforeTheRelease()
+    {
+        var command = GatewayAgentCommands.Install("https://optimizer.example.com", "noa_abc123", "v2.10.0-preview1", lanSpeedTest: true, insecure: true);
+
+        command.Should().Contain("--lan-speed-test \\\n  --insecure \\\n  --release \"v2.10.0-preview1\"");
+    }
+
+    [Fact]
+    public void UntrustedCertificateExitCode_MatchesTheInstallerScript()
+    {
+        // The panel offers --insecure only on this exit status, so the script and the app must agree.
+        var script = File.ReadAllText(Path.Combine(RepoRoot(), "scripts", "agent", "install-agent-gateway.sh"));
+
+        script.Should().Contain($"PREFLIGHT_UNTRUSTED_EXIT={GatewayAgentCommands.UntrustedCertificateExitCode}");
+    }
+
+    private static string RepoRoot()
+    {
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir != null && !File.Exists(Path.Combine(dir.FullName, "scripts", "agent", "install-agent-gateway.sh")))
+            dir = dir.Parent;
+        return dir?.FullName ?? throw new DirectoryNotFoundException("Repository root not found above the test output.");
+    }
+
+    [Fact]
     public void Upgrade_HasServerButNoToken()
     {
         var command = GatewayAgentCommands.Upgrade("https://optimizer.example.com");

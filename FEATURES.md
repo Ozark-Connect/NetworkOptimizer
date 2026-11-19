@@ -71,6 +71,7 @@ an On-Site Agent, AP Telemetry, InfluxDB, or HTTPS.
 - LAN speed test hosted on the UniFi gateway itself (agent on the gateway, `--lan-speed-test`)
 - Buffers up to 12 hours of results to disk through outages; watchdog restarts a stuck agent
 - Falls back to HTTPS heartbeats when the tunnel cannot connect; refuses plain HTTP
+- Installers check the tunnel route before installing and name the fix: an untrusted certificate, a proxy missing the gRPC route; **Run It for Me** then offers **Accept a self-signed certificate (--insecure)**
 - **Reconnecting often** - flags an agent whose tunnel keeps dropping, linked to the agent README's reverse proxy notes
 - `proxyAllowedCidrs` pins which addresses the tunnel may reach; every dial is logged on the agent host
 - Several agents per site, for example one on the gateway and one on a LAN host

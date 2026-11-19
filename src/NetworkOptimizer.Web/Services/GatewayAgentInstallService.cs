@@ -99,12 +99,12 @@ public class GatewayAgentInstallService : IGatewayAgentInstallService
         Task.FromResult(_state.GetRun(siteSlug));
 
     /// <inheritdoc />
-    public Task RunInstallAsync(string siteSlug, string enrollmentToken, bool lanSpeedTest = false, Action<GatewayAgentInstallRun>? onStarted = null) =>
-        RunAsync(siteSlug, GatewayAgentCommands.Install(_serverUrl.Url, enrollmentToken, lanSpeedTest), isUpgrade: false, onStarted);
+    public Task RunInstallAsync(string siteSlug, string enrollmentToken, bool lanSpeedTest = false, bool insecure = false, Action<GatewayAgentInstallRun>? onStarted = null) =>
+        RunAsync(siteSlug, GatewayAgentCommands.Install(_serverUrl.Url, enrollmentToken, lanSpeedTest, insecure), isUpgrade: false, insecure, onStarted);
 
     /// <inheritdoc />
     public Task RunUpgradeAsync(string siteSlug, Action<GatewayAgentInstallRun>? onStarted = null) =>
-        RunAsync(siteSlug, GatewayAgentCommands.Upgrade(_serverUrl.Url), isUpgrade: true, onStarted);
+        RunAsync(siteSlug, GatewayAgentCommands.Upgrade(_serverUrl.Url), isUpgrade: true, insecure: false, onStarted);
 
     /// <inheritdoc />
     public Task CancelRunAsync(string siteSlug)
@@ -198,7 +198,7 @@ public class GatewayAgentInstallService : IGatewayAgentInstallService
         }
     }
 
-    private async Task RunAsync(string siteSlug, string command, bool isUpgrade, Action<GatewayAgentInstallRun>? onStarted)
+    private async Task RunAsync(string siteSlug, string command, bool isUpgrade, bool insecure, Action<GatewayAgentInstallRun>? onStarted)
     {
         var mode = isUpgrade ? "upgrade" : "install";
         var run = _state.StartRun(siteSlug, isUpgrade, AlreadyRunningMessage);
@@ -227,7 +227,7 @@ public class GatewayAgentInstallService : IGatewayAgentInstallService
         }
         finally
         {
-            _auditContext.SetDetails(new { mode, status = run.Status.ToString(), exitCode = run.ExitCode });
+            _auditContext.SetDetails(new { mode, status = run.Status.ToString(), exitCode = run.ExitCode, insecure });
             _logger.LogInformation(
                 "Gateway agent {Mode} on site {Slug}: {Status} (exit code {ExitCode}). Transcript:\n{Transcript}",
                 mode, siteSlug, run.Status, run.ExitCode?.ToString() ?? "n/a", run.Transcript);
