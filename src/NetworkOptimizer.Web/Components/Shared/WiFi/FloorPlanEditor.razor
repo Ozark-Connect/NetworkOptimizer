@@ -1809,6 +1809,7 @@
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
+        if (!firstRender && _mapInitialized) await SyncToolbox();
         if (firstRender)
         {
             _dotNetRef = DotNetObjectReference.Create(this);
@@ -1888,6 +1889,7 @@
         await JS.InvokeVoidAsync("fpEditor.initMap", _mapId, centerLat, centerLng, zoom, mapboxToken);
         await JS.InvokeVoidAsync("fpEditor.setDotNetRef", _dotNetRef);
         _mapInitialized = true;
+        await SyncToolbox();
 
         // Fit to all content (APs + buildings combined)
         {
@@ -3042,6 +3044,47 @@
             await UpdateApMarkers();
             if (_showHeatmap) await ComputeHeatmap();
         });
+    }
+
+    private string? _toolboxState;
+
+    // Pushes the map toolbox's state after a render; skipped when nothing it shows has changed.
+    private async Task SyncToolbox()
+    {
+        var state = new
+        {
+            editable = !IsReadOnly,
+            floor = _selectedFloor != null,
+            mode = _mode,
+            apLabel = _apMarkers.Any(a => a.Latitude.HasValue) ? "Edit APs" : "Place APs",
+            planLabel = _plannedAps.Count > 0 ? "Edit Planned APs" : "Add Planned APs"
+        };
+        var json = System.Text.Json.JsonSerializer.Serialize(state);
+        if (json == _toolboxState) return;
+        _toolboxState = json;
+        await JS.InvokeVoidAsync("fpEditor.setToolboxState", json);
+    }
+
+    /// <summary>A map toolbox button: the same toggles as the toolbar's Draw Layout, Place/Edit APs, and Planned APs buttons.</summary>
+    [JSInvokable]
+    public async Task OnToolboxAction(string action)
+    {
+        if (IsReadOnly) return;
+        switch (action)
+        {
+            case "draw" when _selectedFloor != null:
+                await ToggleWallDrawMode();
+                break;
+            case "undo" when _selectedFloor != null && _mode != "walls":
+                await DeleteLastWall();
+                break;
+            case "aps":
+            case "plan-aps":
+                if (_mode == "walls") await ToggleWallDrawMode();
+                if (action == "aps") await ToggleApEditMode(); else await TogglePlanApMode();
+                break;
+        }
+        StateHasChanged();
     }
 
     private async Task ToggleApEditMode()

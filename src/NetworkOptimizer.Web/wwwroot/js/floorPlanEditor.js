@@ -1649,7 +1649,7 @@ window.fpEditor = {
         this._materialColors = colors;
         this._wallSelection = { wallIdx: null, segIdx: null };
         this._multiSel = null;
-        this._wallsEditable = editable !== false;
+        this._wallsEditable = editable === true; // the deselect path passes no flag: not editable
         this._initWallMarquee();
 
         // Per-segment rendering
@@ -1671,7 +1671,29 @@ window.fpEditor = {
                         self._toggleMultiSel(this._fpWallIdx, this._fpSegIdx, e.latlng);
                         return;
                     }
+                    // First click on a selected segment opens the group popup; a click while it is
+                    // open, or on any other segment, drops the group for a normal single selection.
+                    // Leaflet closes the popup on preclick, before this runs, hence the closedAt window.
+                    var popupWasOpen = self._multiSelPopup || (Date.now() - (self._multiSelPopupClosedAt || 0) < 300);
+                    if (self._inMultiSel(this._fpWallIdx, this._fpSegIdx) && !popupWasOpen) {
+                        self._openMultiSelPopup(e.latlng);
+                        return;
+                    }
                     self._clearMultiSel();
+                    self._wallSegClick(e, this._fpWallIdx, this._fpSegIdx);
+                });
+                // Right-click: group popup on a selected segment, else that segment's own popup
+                seg.on('contextmenu', function (e) {
+                    if (self._isDrawing) return;
+                    L.DomEvent.stopPropagation(e);
+                    if (e.originalEvent) e.originalEvent.preventDefault();
+                    if (self._inMultiSel(this._fpWallIdx, this._fpSegIdx)) {
+                        self._map.closePopup();
+                        self._openMultiSelPopup(e.latlng);
+                        return;
+                    }
+                    self._clearMultiSel();
+                    self._wallSelection = { wallIdx: null, segIdx: null };
                     self._wallSegClick(e, this._fpWallIdx, this._fpSegIdx);
                 });
 
@@ -1870,8 +1892,10 @@ window.fpEditor = {
 
     // ── Multi-segment selection (Shift+drag marquee, Shift+click) ────
 
-    // Shift+drag on the map selects every wall segment the box touches. Runs in the capture phase
-    // and stops propagation so Leaflet's pan and box zoom never see the gesture.
+    // Shift+drag (or a drag with the Select tool) selects every wall segment the box touches. Runs in
+    // the capture phase and stops propagation so Leaflet's pan and box zoom never see the gesture.
+    // Leaflet 1.9 starts its drag on pointerdown wherever pointer events exist, so blocking mousedown
+    // alone lets the map pan: the gesture starts on pointerdown, and mousedown is the fallback.
     _initWallMarquee: function () {
         var m = this._map;
         if (!m || this._marqueeBound) return;
@@ -1879,8 +1903,18 @@ window.fpEditor = {
         var self = this;
         var container = m.getContainer();
         m.boxZoom.disable();
+        var usePointer = !!window.PointerEvent;
+        var DOWN = usePointer ? 'pointerdown' : 'mousedown';
+        var MOVE = usePointer ? 'pointermove' : 'mousemove';
+        var UP = usePointer ? 'pointerup' : 'mouseup';
 
+        // The compatibility mousedown after a handled pointerdown must not reach Leaflet either
         container.addEventListener('mousedown', function (e) {
+            if (self._marqueeActive) e.stopPropagation();
+        }, true);
+
+        container.addEventListener(DOWN, function (e) {
+            if (usePointer && e.pointerType === 'touch') return;
             if (e.button !== 0 || !(e.shiftKey || self._wallTool === 'select')) return;
             if (!self._wallsEditable || self._isDrawing || self._placementActive || self._activeMoveHandlers || self._moveMarker) return;
             if (!self._allWalls || self._allWalls.length === 0 || !self._wallLayer || self._wallLayer.getLayers().length === 0) return;
@@ -1891,6 +1925,7 @@ window.fpEditor = {
             var additive = e.shiftKey;
             var start = m.mouseEventToContainerPoint(e);
             var rect = null;
+            self._marqueeActive = true;
             var onMove = function (ev) {
                 var cur = m.mouseEventToContainerPoint(ev);
                 var bounds = L.latLngBounds(m.containerPointToLatLng(start), m.containerPointToLatLng(cur));
@@ -1901,9 +1936,10 @@ window.fpEditor = {
                 }
             };
             var onUp = function (ev) {
-                document.removeEventListener('mousemove', onMove);
-                document.removeEventListener('mouseup', onUp);
-                if (!rect) return; // no drag: let the Shift+click reach the segment
+                document.removeEventListener(MOVE, onMove);
+                document.removeEventListener(UP, onUp);
+                self._marqueeActive = false;
+                if (!rect) return; // no drag: let the click reach the segment
                 m.removeLayer(rect);
                 self._suppressClickUntil = Date.now() + 300;
                 var end = m.mouseEventToContainerPoint(ev);
@@ -1924,15 +1960,31 @@ window.fpEditor = {
                 hits.forEach(function (h) {
                     if (!merged.some(function (s) { return s.wi === h.wi && s.si === h.si; })) merged.push(h);
                 });
-                self._showMultiSel(merged, m.containerPointToLatLng(L.point((box.minX + box.maxX) / 2, (box.minY + box.maxY) / 2)));
+                self._showMultiSel(merged);
             };
-            document.addEventListener('mousemove', onMove);
-            document.addEventListener('mouseup', onUp);
+            document.addEventListener(MOVE, onMove);
+            document.addEventListener(UP, onUp);
         }, true);
     },
 
-    // Pan / Select toolbox under the zoom control. Select makes a plain drag draw the selection box;
-    // the marquee's capture-phase handler stops the drag before Leaflet can pan, so dragging stays on.
+    // Map toolbox under the zoom control: Pan / Select, Draw Layout / Undo, APs / Planned APs.
+    // C# pushes its state (setToolboxState); the mode buttons call the toolbar's own toggles.
+    // Select makes a plain drag draw the selection box: the marquee's capture-phase handler stops
+    // the drag before Leaflet can pan, so map dragging itself stays on.
+    _toolboxState: { editable: false, floor: false, mode: 'view', apLabel: 'Place APs', planLabel: 'Add Planned APs' },
+
+    _toolIcons: {
+        pan: '<path d="M18 11V6a2 2 0 0 0-4 0v5"/><path d="M14 10V4a2 2 0 0 0-4 0v6"/><path d="M10 10.5V6a2 2 0 0 0-4 0v8"/><path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15"/>',
+        select: '<path d="M5 3a2 2 0 0 0-2 2"/><path d="M19 3a2 2 0 0 1 2 2"/><path d="M5 21a2 2 0 0 1-2-2"/><path d="M9 3h1"/><path d="M9 21h2"/><path d="M14 3h1"/><path d="M3 9v1"/><path d="M21 9v2"/><path d="M3 14v1"/><path d="m12 12 4 10 1.7-4.3L22 16Z"/>',
+        // A wall corner with a pen nib on its open end
+        draw: '<path d="M3 21V9h8"/><circle cx="3" cy="9" r="0.6" fill="currentColor"/><path d="M14.5 6.5 18 3l3 3-3.5 3.5"/><path d="M14.5 6.5 9 12l-1 4 4-1 5.5-5.5"/>',
+        undo: '<path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/>',
+        // Ceiling AP: a puck with its status ring, signal arcs above
+        aps: '<ellipse cx="12" cy="17" rx="8" ry="3.2"/><path d="M7.5 17.2h9"/><path d="M8.5 9.5a5 5 0 0 1 7 0"/><path d="M6 7a8.5 8.5 0 0 1 12 0"/><circle cx="12" cy="12" r="0.8" fill="currentColor"/>',
+        // Planned AP: the same puck, dashed, with a plus
+        plan: '<ellipse cx="12" cy="17" rx="8" ry="3.2" stroke-dasharray="2.2 2"/><path d="M12 4v8"/><path d="M8 8h8"/>'
+    },
+
     _initWallToolbox: function () {
         var m = this._map;
         if (!m || this._wallToolbox) return;
@@ -1941,16 +1993,21 @@ window.fpEditor = {
             options: { position: 'topleft' },
             onAdd: function () {
                 var div = L.DomUtil.create('div', 'leaflet-bar fp-tool-control');
-                var panSvg = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 11V6a2 2 0 0 0-4 0v5"/><path d="M14 10V4a2 2 0 0 0-4 0v6"/><path d="M10 10.5V6a2 2 0 0 0-4 0v8"/><path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15"/></svg>';
-                var selSvg = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3a2 2 0 0 0-2 2"/><path d="M19 3a2 2 0 0 1 2 2"/><path d="M5 21a2 2 0 0 1-2-2"/><path d="M9 3h1"/><path d="M9 21h2"/><path d="M14 3h1"/><path d="M3 9v1"/><path d="M21 9v2"/><path d="M3 14v1"/><path d="m12 12 4 10 1.7-4.3L22 16Z"/></svg>';
+                var btn = function (key, icon) {
+                    return '<a href="#" role="button" data-tool="' + key + '" data-tooltip-hover-only>' +
+                        '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
+                        self._toolIcons[icon] + '</svg></a>';
+                };
                 div.innerHTML =
-                    '<a href="#" role="button" data-tool="pan" aria-label="Pan" data-tooltip="Pan: drag to move the map" data-tooltip-hover-only>' + panSvg + '</a>' +
-                    '<a href="#" role="button" data-tool="select" aria-label="Select" data-tooltip="Select: drag a box to select walls (Shift adds)" data-tooltip-hover-only>' + selSvg + '</a>';
+                    '<div class="fp-tool-group" data-group="walls">' + btn('pan', 'pan') + btn('select', 'select') + '</div>' +
+                    '<div class="fp-tool-group" data-group="draw">' + btn('draw', 'draw') + btn('undo', 'undo') + '</div>' +
+                    '<div class="fp-tool-group" data-group="aps">' + btn('aps', 'aps') + btn('plan-aps', 'plan') + '</div>';
                 L.DomEvent.disableClickPropagation(div);
                 L.DomEvent.on(div, 'click', function (e) {
                     L.DomEvent.preventDefault(e);
                     var a = e.target.closest('a[data-tool]');
-                    if (a) self._setWallTool(a.getAttribute('data-tool'));
+                    if (!a || a.classList.contains('disabled')) return;
+                    self._onToolboxClick(a.getAttribute('data-tool'));
                 });
                 return div;
             }
@@ -1959,32 +2016,95 @@ window.fpEditor = {
         this._wallTool = 'pan';
     },
 
-    _setWallTool: function (tool) {
-        this._wallTool = tool === 'select' ? 'select' : 'pan';
-        var m = this._map;
-        if (!m) return;
-        var el = this._wallToolbox && this._wallToolbox.getContainer();
-        if (el) {
-            el.querySelectorAll('a[data-tool]').forEach(function (a) {
-                a.classList.toggle('active', a.getAttribute('data-tool') === tool);
-            });
-        }
-        m.getContainer().classList.toggle('fp-tool-select', this._wallTool === 'select');
+    setToolboxState: function (json) {
+        this._toolboxState = JSON.parse(json);
+        this._updateWallToolbox();
     },
 
-    // Shows the toolbox while the selected floor's walls can be edited outside Draw Layout and AP
-    // placement. Hiding it for any other reason falls back to Pan, so no invisible tool stays active.
+    _onToolboxClick: function (tool) {
+        if (tool === 'pan' || tool === 'select') { this._setWallTool(tool); return; }
+        if (tool === 'undo' && this._isDrawing) { this._undoLastPoint(); return; }
+        if (this._dotNetRef) this._dotNetRef.invokeMethodAsync('OnToolboxAction', tool);
+    },
+
+    // Undo while drawing: drops the last point of the shape in progress, or the last saved wall
+    // when no shape is in progress.
+    _undoLastPoint: function () {
+        var cw = this._currentWall;
+        if (!cw || cw.points.length === 0) { this.deleteLastWall(); return; }
+        cw.points.pop();
+        if (cw.materials && cw.materials.length > cw.points.length - 1) cw.materials.pop();
+        var dropLast = function (group) {
+            if (!group) return;
+            var layers = group.getLayers();
+            if (layers.length > 0) group.removeLayer(layers[layers.length - 1]);
+        };
+        dropLast(this._currentWallVertices);
+        if (cw.points.length >= 1) { dropLast(this._currentWallSegLines); dropLast(this._currentWallLabels); }
+        if (this._previewLine) { this._map.removeLayer(this._previewLine); this._previewLine = null; }
+        if (this._previewLengthLabel) { this._map.removeLayer(this._previewLengthLabel); this._previewLengthLabel = null; }
+        if (cw.points.length < 2) this._refAngle = null;
+    },
+
+    _setWallTool: function (tool) {
+        this._wallTool = tool === 'select' ? 'select' : 'pan';
+        this._renderToolbox();
+    },
+
+    // Shows the toolbox whenever the map can be edited. Pan / Select work only on a selected floor's
+    // walls outside Draw Layout and AP placement; leaving that state falls back to Pan, so no unseen
+    // Select stays active.
     _updateWallToolbox: function () {
         var m = this._map;
         if (!m) return;
         this._initWallToolbox();
-        var hasWalls = this._wallLayer && this._wallLayer.getLayers().length > 0;
-        var show = this._wallsEditable && hasWalls && !this._isDrawing && !this._placementActive;
+        var st = this._toolboxState;
         var added = !!this._wallToolbox._map;
-        if (show && !added) { this._wallToolbox.addTo(m); this._setWallTool(this._wallTool); }
-        if (!show && added) this._wallToolbox.remove();
-        if (!show && !this._isDrawing) this._setWallTool('pan');
-        else if (!show) m.getContainer().classList.remove('fp-tool-select');
+        if (st.editable && !added) this._wallToolbox.addTo(m);
+        if (!st.editable && added) this._wallToolbox.remove();
+        var hasWalls = this._wallLayer && this._wallLayer.getLayers().length > 0;
+        this._selectUsable = st.editable && st.floor && this._wallsEditable && hasWalls && !this._isDrawing && !this._placementActive;
+        if (!this._selectUsable && !this._isDrawing) this._wallTool = 'pan';
+        this._renderToolbox();
+    },
+
+    _renderToolbox: function () {
+        var m = this._map;
+        if (!m) return;
+        var st = this._toolboxState;
+        var self = this;
+        var drawing = st.mode === 'walls';
+        var labels = {
+            pan: 'Pan',
+            select: 'Select walls: drag a box (Shift adds), then click or right-click one to change material',
+            draw: drawing ? 'Done Drawing' : 'Draw Layout',
+            undo: drawing ? 'Undo Point' : 'Undo Wall',
+            aps: st.mode === 'aps' ? 'Done' : st.apLabel,
+            'plan-aps': st.mode === 'plan-aps' ? 'Done' : st.planLabel
+        };
+        var active = {
+            pan: this._wallTool === 'pan' && !drawing && st.mode !== 'aps' && st.mode !== 'plan-aps',
+            select: this._wallTool === 'select' && this._selectUsable,
+            draw: drawing, undo: false, aps: st.mode === 'aps', 'plan-aps': st.mode === 'plan-aps'
+        };
+        var disabled = {
+            pan: false, select: !this._selectUsable,
+            draw: !st.floor, undo: !st.floor, aps: false, 'plan-aps': false
+        };
+        var el = this._wallToolbox && this._wallToolbox.getContainer();
+        if (el) {
+            el.querySelectorAll('a[data-tool]').forEach(function (a) {
+                var t = a.getAttribute('data-tool');
+                a.classList.toggle('active', !!active[t]);
+                a.classList.toggle('disabled', !!disabled[t]);
+                a.setAttribute('aria-label', labels[t]);
+                a.setAttribute('data-tooltip', labels[t]);
+                if (a._tippy) a._tippy.setContent(labels[t]);
+            });
+            el.querySelector('[data-group="draw"]').style.display = st.floor ? '' : 'none';
+            el.querySelector('[data-group="walls"] [data-tool="select"]').style.display = st.floor ? '' : 'none';
+        }
+        m.getContainer().classList.toggle('fp-tool-select', this._wallTool === 'select' && self._selectUsable);
     },
 
     // Liang-Barsky clip: true when segment a-b touches the box (container pixels).
@@ -2015,7 +2135,7 @@ window.fpEditor = {
         var idx = -1;
         for (var i = 0; i < sel.length; i++) if (sel[i].wi === wi && sel[i].si === si) { idx = i; break; }
         if (idx >= 0) sel.splice(idx, 1); else sel.push({ wi: wi, si: si });
-        this._showMultiSel(sel, latlng);
+        this._showMultiSel(sel);
     },
 
     _clearMultiSel: function () {
@@ -2029,7 +2149,9 @@ window.fpEditor = {
         return (wall.materials && si < wall.materials.length && wall.materials[si]) ? wall.materials[si] : wall.material;
     },
 
-    _showMultiSel: function (sel, latlng) {
+    // Highlights the selection only. The popup opens on a click or right-click on a selected segment:
+    // opening it at the end of a drag lost a race with Leaflet's close-popup-on-map-click.
+    _showMultiSel: function (sel) {
         var m = this._map;
         var self = this;
         this._wallHighlightLayer.clearLayers();
@@ -2037,16 +2159,30 @@ window.fpEditor = {
         this._wallSelection = { wallIdx: null, segIdx: null };
         if (!sel || sel.length === 0) { this._multiSel = null; return; }
         this._multiSel = sel;
-
-        var mats = {};
         sel.forEach(function (s) {
             var wall = self._allWalls[s.wi];
             L.polyline(
                 [[wall.points[s.si].lat, wall.points[s.si].lng], [wall.points[s.si + 1].lat, wall.points[s.si + 1].lng]],
                 { color: '#facc15', weight: 8, opacity: 0.9, interactive: false }
             ).addTo(self._wallHighlightLayer);
-            mats[self._segMaterial(wall, s.si)] = true;
         });
+    },
+
+    _inMultiSel: function (wi, si) {
+        if (!this._multiSel) return false;
+        for (var i = 0; i < this._multiSel.length; i++) {
+            if (this._multiSel[i].wi === wi && this._multiSel[i].si === si) return true;
+        }
+        return false;
+    },
+
+    _openMultiSelPopup: function (latlng) {
+        var m = this._map;
+        var self = this;
+        var sel = this._multiSel;
+        if (!sel || sel.length === 0) return;
+        var mats = {};
+        sel.forEach(function (s) { mats[self._segMaterial(self._allWalls[s.wi], s.si)] = true; });
         var matKeys = Object.keys(mats);
         var common = matKeys.length === 1 ? matKeys[0] : null;
 
@@ -2060,7 +2196,14 @@ window.fpEditor = {
             'onchange="fpEditor.changeMultiMat(this.value)">' + opts + '</select><br/>' +
             '<span style="font-size:11px;color:#94a3b8">' + sel.length + ' segment' + (sel.length !== 1 ? 's' : '') + '</span><br/>' +
             '<button onclick="fpEditor.deleteMultiSel()" style="margin-top:4px;padding:2px 10px;background:#dc2626;color:#fff;border:none;border-radius:3px;cursor:pointer">Delete</button></div>';
-        L.popup({ closeButton: true }).setLatLng(latlng).setContent(html).openOn(m);
+        var popup = L.popup({ closeButton: true }).setLatLng(latlng).setContent(html);
+        popup.on('remove', function () {
+            if (self._multiSelPopup !== popup) return;
+            self._multiSelPopup = null;
+            self._multiSelPopupClosedAt = Date.now();
+        });
+        this._multiSelPopup = popup;
+        popup.openOn(m);
     },
 
     changeMultiMat: function (mat) {

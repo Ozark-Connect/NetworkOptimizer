@@ -19845,6 +19845,20 @@ tr.stats-row-filtered {
     border-color: var(--primary-hover);
     color: #fff;
 }
+.fp-map-container .fp-tool-control a.disabled,
+.fp-map-container .fp-tool-control a.disabled:hover {
+    background: rgba(26, 29, 35, 0.6);
+    color: var(--text-muted);
+    cursor: default;
+}
+.fp-map-container .fp-tool-group {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+.fp-map-container .fp-tool-group + .fp-tool-group {
+    margin-top: 6px;
+}
 .leaflet-container.fp-tool-select {
     cursor: crosshair;
 }
