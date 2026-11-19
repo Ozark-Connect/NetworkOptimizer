@@ -1676,8 +1676,9 @@
     private int _globalActiveFloor = 1;
     private string _heatmapBand = "5";
     private string _wallMaterial = "drywall";
-    // Last material picked for interior drawing (walls, doors, windows); the default once a floor has its outline.
-    private string _lastInteriorMaterial = "drywall";
+    // Last interior material (wall, door, window) picked per building; the default once a floor has its outline.
+    // Another building starts again at drywall.
+    private readonly Dictionary<int, string> _interiorMaterialByBuilding = new();
     // Exterior type picked per building this session; wins over the type inferred from saved walls.
     private readonly Dictionary<int, string> _exteriorMaterialByBuilding = new();
     private bool _isDrawingShape;
@@ -3244,7 +3245,7 @@
         {
             var initWalls = _selectedFloor?.WallsJson ?? "[]";
             _wallMaterial = HasExteriorOutline(_selectedFloor?.WallsJson)
-                ? _lastInteriorMaterial
+                ? LastInteriorMaterial
                 : GetBuildingExteriorMaterial();
             _heatmapWasOn = _showHeatmap;
             if (_showHeatmap)
@@ -3281,11 +3282,14 @@
         {
             if (_selectedBuilding != null) _exteriorMaterialByBuilding[_selectedBuilding.Id] = _wallMaterial;
         }
-        else
+        else if (_selectedBuilding != null)
         {
-            _lastInteriorMaterial = _wallMaterial;
+            _interiorMaterialByBuilding[_selectedBuilding.Id] = _wallMaterial;
         }
     }
+
+    private string LastInteriorMaterial =>
+        _selectedBuilding != null && _interiorMaterialByBuilding.TryGetValue(_selectedBuilding.Id, out var m) ? m : "drywall";
 
     private static readonly System.Text.Json.JsonSerializerOptions WallJsonOpts = new()
     {
@@ -3365,7 +3369,7 @@
         // The outline just closed: switch to interior drawing with the last interior material.
         if (_mode == "walls" && IsExteriorMaterial(_wallMaterial)
             && !HasExteriorOutline(_selectedFloor.WallsJson) && HasExteriorOutline(wallsJson))
-            _wallMaterial = _lastInteriorMaterial;
+            _wallMaterial = LastInteriorMaterial;
         StateHasChanged();
         _selectedFloor.WallsJson = wallsJson;
         await FloorPlanAdmin.UpdateFloorAsync(_selectedFloor.Id, wallsJson: wallsJson);
