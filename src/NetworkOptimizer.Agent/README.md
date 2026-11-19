@@ -195,21 +195,57 @@ the speed test setting are kept, so only `--server` is needed:
 pct exec <CT_ID> -- bash -c "curl -fsSL https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main/scripts/agent/install-native.sh | bash -s -- --server 'https://optimizer.example.com'"
 ```
 
-The Docker and bare-metal scripts accept:
+The Proxmox script also takes container flags (`--ip`, `--vlan`, `--unattended`, ...);
+see its header. The [On a UniFi gateway](#on-a-unifi-gateway-on-box-1) command is below.
 
-- `--lan-speed-test` - host the LAN speed test page (port 24443) and iperf3 (5201). The only feature that uses nginx.
-- `--speed-test-port N` (bare metal) - serve that page on `N` instead of 24443, for a host where 24443 is taken
+### Installer flags
+
+All four installers share these flags, except where the table says otherwise
+(Docker = `install-docker.sh`, Bare metal = `install-native.sh`, Gateway =
+`install-agent-gateway.sh`, Proxmox = `proxmox/install-agent.sh`):
+
+| Flag | Docker | Bare metal | Gateway | Proxmox |
+|---|---|---|---|---|
+| `--server URL`, `--token TOKEN` | yes | yes | yes | yes |
+| `--insecure` | yes | yes | yes | yes |
+| `--release vX.Y.Z` | yes | yes | yes | yes |
+| `--lan-speed-test` | yes | yes | yes | yes |
+| `--speed-test-port N` | env var | yes | yes | yes |
+| `--speed-test-http-port N` | env var | yes | yes | no |
+| `--no-lan-speed-test` | no | no | yes | no |
+| `--dir PATH` | yes | yes | no | no |
+| `--configure-apparmor` | no | yes | no | no |
+| `--uninstall` | yes | yes | yes | no |
+
+- `--insecure` - accept a self-signed certificate on the server's reverse proxy. It writes
+  `"ignoreSslErrors": true` to `agent.json`, and upgrades keep that file, so later upgrade
+  commands do not need the flag. Adding it later works only before the agent enrolls: until
+  `agent.json` holds an `agentKey`, re-running the install command rewrites the file, flag
+  included. Once enrolled, the installer keeps `agent.json` as it is, so set
+  `"ignoreSslErrors": true` in it by hand and restart the agent. Use it only for a certificate you
+  issued yourself; see [Enroll and run](#enroll-and-run) for what it turns off.
+- `--release vX.Y.Z` - install that release instead of the latest. The app adds it
+  when the server runs a preview, so the agent matches the server.
+- `--lan-speed-test` - host the LAN speed test page (port 24443) and iperf3 (5201). The only
+  feature that uses nginx. On the gateway it stays on across re-runs; `--no-lan-speed-test`
+  removes it and keeps the agent running.
+- `--speed-test-port N` - serve that page on `N` instead of 24443, for a host where 24443 is taken
   or where you would rather use something else (443, if nothing else on the box wants it). Moves
   nginx's listener and records the port in `agent.json`; the agent announces it to the server, so
   in-app speed test links follow with no override needed. Docker equivalent: `AGENT_SPEEDTEST_PORT=N`
   in the container environment.
-- `--speed-test-http-port N` (bare metal and gateway) - the plain HTTP port the test continues on
-  after the HTTPS page takes the location (default 24080; `0` keeps the whole test on HTTPS). Docker
-  equivalent: `AGENT_SPEEDTEST_HTTP_PORT=N`.
+- `--speed-test-http-port N` - the plain HTTP port the test continues on after the HTTPS page
+  takes the location (default 24080; `0` keeps the whole test on HTTPS). Docker equivalent:
+  `AGENT_SPEEDTEST_HTTP_PORT=N`.
+- `--dir PATH` - override the install directory. The gateway installs to `/data/netopt-agent`
+  only (see [On a UniFi gateway](#on-a-unifi-gateway-on-box-1)).
+- `--configure-apparmor` - with `--lan-speed-test`, add a persistent AppArmor exception if the
+  host's nginx profile blocks the speed test (off by default).
+- `--uninstall` - clean teardown; see [Uninstall](#uninstall).
 
-Both nginx and the agent resolve the port the same way, so the listener and the announcement can
-never disagree: the environment variable if set, otherwise `"lanSpeedTestPort"` from `agent.json`,
-otherwise 24443. Two consequences worth knowing:
+Both nginx and the agent resolve the speed test port the same way, so the listener and the
+announcement can never disagree: the environment variable if set, otherwise `"lanSpeedTestPort"`
+from `agent.json`, otherwise 24443. Two consequences worth knowing:
 
 - **An existing install keeps the port it is already serving.** The agent records its whole config
   on enrollment, so agents set up before the page port was configurable have `3000` written there
@@ -217,15 +253,6 @@ otherwise 24443. Two consequences worth knowing:
   about. Re-running the installer without `--speed-test-port` preserves it too.
 - **To adopt the current default, delete the `"lanSpeedTestPort"` line** from `agent.json` and
   restart the agent. That is also the way out if an agent ever ends up on a port that does not work.
-- `--insecure` - accept a self-signed cert on the server's reverse proxy
-- `--dir PATH` - override the install directory
-- `--release vX.Y.Z` - install that release instead of the latest. The app adds it
-  when the server runs a preview, so the agent matches the server. The gateway
-  installer accepts it too.
-
-The bare-metal installer additionally accepts `--configure-apparmor` - with
-`--lan-speed-test`, add a persistent AppArmor exception if the host's nginx profile
-blocks the speed test (off by default).
 
 ### Check that it connected
 
@@ -253,8 +280,10 @@ journalctl -u netopt-agent --no-pager | grep -E "Enroll|Tunnel|Heartbeat" | tail
 # Docker: docker logs network-optimizer-agent 2>&1 | grep -E "Enroll|Tunnel|Heartbeat" | tail -20
 ```
 
-`Enrollment failed:`, `Tunnel error:`, `Heartbeat failed:`, and `Heartbeat error:`
-are each followed by the reason. A `Tunnel error:` and `Heartbeat failed:
+`Enrollment failed:`, `Enrollment error:`, `Tunnel error:`, `Heartbeat failed:`, and
+`Heartbeat error:` are each followed by the reason. `The SSL connection could not be
+established` as the reason means the agent does not trust the server's certificate: see
+`curl: (60)` in the table under [Verify the connection](#verify-the-connection). A `Tunnel error:` and `Heartbeat failed:
 BadGateway`, then `Tunnel open` about 30 seconds later, is the server
 restarting, not a fault. A `Reconnecting in` line follows every tunnel end with the
 wait before the next attempt. When the reason is a connection problem, check the
@@ -275,9 +304,11 @@ curl -sSf https://optimizer.example.com/api/health
 ```
 
 That has to succeed over HTTPS on the hostname you configured. If it does not,
-fix the proxy first; the agent has no fallback to plain HTTP by design.
+fix the proxy first; the agent has no fallback to plain HTTP by design. If it fails
+with `curl: (60)`, see the table below.
 
-Then check the agent tunnel route:
+Then check the agent tunnel route. This command passes `-k`, so it skips the
+certificate check the first one makes:
 
 ```bash
 curl -k -sS -D - -o /dev/null --http2 --max-time 10 -X POST -H "content-type: application/grpc" \
@@ -293,6 +324,7 @@ curl -k -sS -D - -o /dev/null --http2 --max-time 10 -X POST -H "content-type: ap
 | `curl: (28) Resolving timed out` | DNS. The site's DNS server did not answer: check the host's resolver and that it can reach it. |
 | `curl: (7) Failed to connect ... port 443` | Something refused the connection: the proxy is not listening, or a firewall rejects it. |
 | `curl: (28) Connection timed out` | Something drops the traffic silently: a firewall, or the wrong IP. |
+| `curl: (60) SSL certificate problem` (from the `/api/health` check) | The site does not trust the server's certificate: it is self-signed, from a private CA, or for a different hostname. The agent log shows `The SSL connection could not be established`. For a certificate you issued yourself: after `Enrollment error:` the agent never enrolled, so re-run the install command with `--insecure` (the token must still be valid; **New token** issues another). After `Tunnel error:` or `Heartbeat error:` it is enrolled, so set `"ignoreSslErrors": true` in `agent.json` and restart the agent. Otherwise fix the certificate on the proxy. |
 
 ### Upgrading
 
@@ -417,9 +449,7 @@ curl -fsSL https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main
   --token  "noa_..."
 ```
 
-It accepts `--insecure`, `--uninstall` (clean teardown), `--lan-speed-test`,
-`--speed-test-http-port N`, and `--no-lan-speed-test` (removes the speed test and
-keeps the agent running). The install directory
+Its flags are in [Installer flags](#installer-flags). The install directory
 is fixed at `/data/netopt-agent` (there is no `--dir`): only `/data` survives a
 UniFi OS firmware upgrade, so the gateway agent is deliberately not relocatable. See
 "Where to run it > On a UniFi gateway" for the footprint, firmware-upgrade
