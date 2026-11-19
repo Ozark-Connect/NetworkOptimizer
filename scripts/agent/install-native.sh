@@ -155,15 +155,18 @@ tunnel_probe() {
 }
 tunnel_verdict() {
     # Here-strings, not pipes: under pipefail an early-exiting grep -q can fail the pipe on a match.
-    if grep -qiF 'grpc-message: First message must be a hello' <<<"$1"; then echo hello
-    elif grep -qiF 'grpc-message: Service is unimplemented' <<<"$1"; then echo unimplemented
-    elif grep -qE '^HTTP/[0-9.]+ 404' <<<"$1" && ! grep -qi '^grpc-message:' <<<"$1"; then echo notfound
+    # No -i: GNU grep 3.0 aborts on -iF. HTTP/2 headers are lowercase, HTTP/1.1 ones capitalized.
+    if grep -qE '[Gg]rpc-[Mm]essage: First message must be a hello' <<<"$1"; then echo hello
+    elif grep -qE '[Gg]rpc-[Mm]essage: Service is unimplemented' <<<"$1"; then echo unimplemented
+    # The app's own answer when a proxy forwards the tunnel path to it over HTTP/1.1.
+    elif grep -qE "Request protocol 'HTTP/1\.1' is not supported" <<<"$1"; then echo unimplemented
+    elif grep -qE '^HTTP/[0-9.]+ 404' <<<"$1" && ! grep -qE '^[Gg]rpc-[Mm]essage:' <<<"$1"; then echo notfound
     else echo other
     fi
 }
 # $1: the agent.json path. $2: "stop" when this installer may stop on an untrusted certificate.
 preflight_server() {
-    local config="$1" may_stop="$2" enrolled=false tls="" out rc verdict version
+    local config="$1" may_stop="$2" enrolled=false tls="" out rc verdict version code
     step "Checking the server"
     version=$(curl --version 2>/dev/null) || version=""
     if ! grep -q 'HTTP2' <<<"$version"; then
@@ -206,7 +209,15 @@ preflight_server() {
             case "$verdict" in
                 unimplemented) warn "The proxy sends the tunnel path to the app, not the tunnel port: add the gRPC route. See ${PREFLIGHT_DOC}" ;;
                 notfound) warn "The proxy has no route for the tunnel path at ${SERVER%/} (HTTP 404). See ${PREFLIGHT_DOC}" ;;
-                *) note "Inconclusive (curl exit ${rc}); continuing." ;;
+                *)
+                    code=$(sed -n 's#^HTTP/[0-9.]* \([0-9][0-9]*\).*#\1#p' <<<"$out") || code=""
+                    code=${code##*$'\n'}
+                    if [ -n "$code" ]; then
+                        warn "The tunnel route did not answer at ${SERVER%/} (HTTP ${code}). See ${PREFLIGHT_DOC}"
+                    else
+                        note "Inconclusive (curl exit ${rc}); continuing."
+                    fi
+                    ;;
             esac
             ;;
     esac
@@ -967,7 +978,10 @@ fi
 step "Done"
 ok "Agent installed and running"
 note "It enrolls, then holds a tunnel to ${SERVER%/} - watch it come Online in the web UI."
-note "Logs:   journalctl -u ${SERVICE_NAME} -f"
+# Run through sudo by a regular user, who needs sudo again to read the system journal.
+LOG_SUDO=""
+if [ -n "${SUDO_USER:-}" ] && [ "${SUDO_USER}" != root ]; then LOG_SUDO="sudo "; fi
+note "Logs:   ${LOG_SUDO}journalctl -u ${SERVICE_NAME} -f"
 DIR_ARG=""
 [ "$INSTALL_DIR" != "/opt/netopt-agent" ] && DIR_ARG=" --dir \"${INSTALL_DIR}\""
 note "Remove: curl -fsSL https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main/scripts/agent/install-native.sh | sudo bash -s -- --uninstall${DIR_ARG}"
