@@ -129,6 +129,8 @@ const IS_TOUCH = typeof window !== 'undefined'
 // Click-to-seek (Live View, desktop mount only): clicking the chart scrubs the
 // map timeline to the clicked instant.
 let seekOnClick = false;
+// The Dashboard card has no map: a click there opens Live View at the instant (href + epoch ms).
+let seekHref = null;
 // Historic mode cluster (upper-left): play/pause button + Historic badge
 // (click returns to live). Unlike the map badges it hides in live mode
 // entirely - the chart is live by default and only needs the flag while
@@ -231,9 +233,14 @@ function buildOpts() {
                 // instant. Live View only - the mount opts in.
                 click: (event, ctx) => {
                     // Touch: leave the tap for the native tooltip, don't seek.
-                    if (!seekOnClick || IS_TOUCH || !event?.clientX) return;
+                    if ((!seekOnClick && !seekHref) || IS_TOUCH || !event?.clientX) return;
                     const t = clickToTime(event, ctx);
                     if (t == null) return;
+                    if (seekHref) {
+                        const url = seekHref + Math.round(t);
+                        if (window.__navigate) window.__navigate(url); else location.href = url;
+                        return;
+                    }
                     const inst = window.__lanFlowMap?.getInstance?.();
                     if (!inst?.seekTo) return;
                     // Instant feedback: freeze live drawing and draw the playhead
@@ -922,7 +929,7 @@ async function doMount(containerId, opts) {
     // matching where a click actually seeks (clickToTime's grid bound).
     mouseMoveHandler = (e) => {
         lastMouse = { x: e.clientX, y: e.clientY };
-        if (seekOnClick && !IS_TOUCH) el.classList.toggle('wan-chart-seek-hot', insideGrid(lastMouse));
+        if ((seekOnClick || seekHref) && !IS_TOUCH) el.classList.toggle('wan-chart-seek-hot', insideGrid(lastMouse));
     };
     mouseLeaveHandler = () => { lastMouse = null; el.classList.remove('wan-chart-seek-hot'); };
     // Render at "now" as the pointer arrives, before a tooltip can open: the hold then has no
@@ -932,8 +939,9 @@ async function doMount(containerId, opts) {
     el.addEventListener('mouseleave', mouseLeaveHandler);
     el.addEventListener('mouseenter', mouseEnterHandler);
     seekOnClick = !!opts?.seekOnClick;
-    // Crosshair only where tap-to-seek is actually live (desktop).
-    el.classList.toggle('wan-chart-seekable', seekOnClick && !IS_TOUCH);
+    seekHref = opts?.seekHref || null;
+    // Crosshair only where a click actually goes somewhere (desktop).
+    el.classList.toggle('wan-chart-seekable', (seekOnClick || !!seekHref) && !IS_TOUCH);
 
     chart = new ApexCharts(el, buildOpts());
     await chart.render();
