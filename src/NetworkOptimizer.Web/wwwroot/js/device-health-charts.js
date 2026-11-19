@@ -11,7 +11,7 @@ import { syncIdentity, extentsOf, spanTo } from './chart-sync.js?v=9';
 import { awaitContainer } from './chart-mount.js?v=1';
 import { loadWindowHours, saveWindowHours, markActiveRange } from './chart-window.js?v=3';
 import { downloadColor, uploadColor } from './chart-colors.js?v=2';
-import { formatBps } from './chart-format.js?v=1';
+import { formatBps, formatBpsAxis } from './chart-format.js?v=2';
 
 // Storage scope for this tab's remembered time window.
 const WINDOW_TAB = 'device-health';
@@ -176,7 +176,12 @@ async function syncWanChart() {
 
     wanChartRendering = (async () => {
         const chart = new ApexCharts(el, {
-            ...baseOpts(200, 'Throughput', v => v != null ? formatBps(v) : ''),
+            ...baseOpts(200, 'Throughput', v => v != null ? formatBpsAxis(v) : '', {
+                tooltip: {
+                    theme: 'dark', shared: true, x: { formatter: noTime.chartTooltipFormatter() },
+                    custom: ctx => valueSortedTooltip(ctx, { format: formatBps }),
+                },
+            }),
             series: wanSeries(), colors: [downloadColor(), uploadColor()],
         });
         await chart.render();

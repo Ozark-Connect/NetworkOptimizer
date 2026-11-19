@@ -394,13 +394,19 @@
                 Labels = new YAxisLabels
                 {
                     Style = new AxisLabelStyle { Colors = "#9ca3af" },
-                    Formatter = @"function(v) { if (v == null) return ''; if (v >= 1e9) return (v/1e9).toFixed(2)+' Gbps'; if (v >= 1e6) return (v/1e6).toFixed(2)+' Mbps'; if (v >= 1e3) return (v/1e3).toFixed(0)+' Kbps'; return v.toFixed(0)+' bps'; }"
+                    // chart-format.js formatBpsAxis, inline: a Razor-built chart cannot import the module.
+                    Formatter = @"function(v) { if (v == null || v < 1) return '0'; var s = v >= 1e9 ? [1e9,'G'] : v >= 1e6 ? [1e6,'M'] : v >= 1e3 ? [1e3,'K'] : [1,'']; var n = v / s[0]; var t = n >= 100 ? n.toFixed(0) : String(+n.toFixed(1)); return matchMedia('(max-width: 768px)').matches ? t + s[1] : t + ' ' + s[1] + 'bps'; }"
                 }
             }
         },
         Grid = new Grid { BorderColor = "#374151", StrokeDashArray = 3 },
         Legend = new Legend { Show = true, Labels = new LegendLabels { Colors = new Color("#cbd5e1") } },
-        Tooltip = new Tooltip { Theme = Mode.Dark, Shared = true, X = new TooltipX { Format = "MMM dd, HH:mm:ss", Formatter = ChartTimeFormat.TooltipSeconds } }
+        Tooltip = new Tooltip
+        {
+            Theme = Mode.Dark, Shared = true, X = new TooltipX { Format = "MMM dd, HH:mm:ss", Formatter = ChartTimeFormat.TooltipSeconds },
+            // The full value: without its own formatter the tooltip reuses the axis's short one.
+            Y = new TooltipY { Formatter = @"function(v) { if (v == null) return ''; if (v >= 1e9) return (v/1e9).toFixed(2)+' Gbps'; if (v >= 1e6) return (v/1e6).toFixed(2)+' Mbps'; if (v >= 1e3) return (v/1e3).toFixed(0)+' Kbps'; return v.toFixed(0)+' bps'; }" }
+        }
     };
 
     private static ApexChartOptions<LatencyPlotPoint> BuildLatencyOptions() => new()

@@ -6,7 +6,7 @@ import ApexCharts from '/_content/Blazor-ApexCharts/js/apexcharts.esm.js';
 import * as flowData from './lan-flow-data.js?v=18';
 import { valueSortedTooltip } from './chart-tooltip.js?v=22';
 import { downloadColor, uploadColor } from './chart-colors.js?v=2';
-import { formatBps } from './chart-format.js?v=1';
+import { formatBps, formatBpsAxis } from './chart-format.js?v=2';
 
 const HISTORY_MINUTES = 5;
 // Poll at twice the site's SNMP sample rate so no sample is missed when the two
@@ -295,7 +295,7 @@ function buildOpts() {
                 max: v => v * 1.1,
                 labels: {
                     style: { colors: '#9ca3af', fontSize: '10px' },
-                    formatter: v => formatBps(v),
+                    formatter: v => formatBpsAxis(v),
                     offsetX: -10,
                 },
                 axisBorder: { show: false },
@@ -307,7 +307,7 @@ function buildOpts() {
                 min: 0,
                 labels: {
                     style: { colors: '#9ca3af', fontSize: '10px' },
-                    formatter: v => formatBps(v),
+                    formatter: v => formatBpsAxis(v),
                     offsetX: -10,
                 },
                 axisBorder: { show: false },
