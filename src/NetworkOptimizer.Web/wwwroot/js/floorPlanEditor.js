@@ -2197,6 +2197,7 @@ window.fpEditor = {
             options: { position: 'topleft' },
             onAdd: function () {
                 var div = L.DomUtil.create('div', 'leaflet-bar fp-tool-control');
+                div.dataset.tour = 'signal-map-toolbox';
                 var btn = function (key, icon) {
                     var sz = (icon === 'aps' || icon === 'plan') ? 20 : 16; // the flat puck needs the extra size
                     return '<a href="#" role="button" data-tool="' + key + '" data-tooltip-hover-only>' +
