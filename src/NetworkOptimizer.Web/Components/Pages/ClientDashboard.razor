@@ -1070,7 +1070,8 @@
                                     <span class="conn-legend-item"><span class="conn-legend-swatch" style="background: @BandColor(band)"></span>@(BandLabel(band) is { Length: > 0 } l ? l : (_client?.IsWired == true ? "Wired" : "Unknown band"))</span>
                                 }
                             </div>
-                            <div class="chart-container" @key="_connectionChartKey">
+                            @* The height is held, so a remount never collapses the card while the new chart draws. *@
+                            <div class="chart-container conn-history-chart" @key="_connectionChartKey" style="min-height: @(_connectionChartHeight)px">
                                 <ApexChart @ref="_connectionChart" TItem="ConnectionBar"
                                            Options="_connectionChartOptions"
                                            Height="@($"{_connectionChartHeight}px")">
@@ -4620,8 +4621,10 @@
         // The chart is keyed on its range and the stretches it draws (an open stretch's moving end
         // left out). A change remounts it with fresh options and height; ApexChart applies neither on
         // a series update, which left a 7-day range on the 24-hour axis. A poll tick changes nothing.
+        // Both moving edges are left out: a stretch clipped at the range start begins at now - range,
+        // which moves every poll as surely as an open stretch's end does.
         var key = $"{_selectedTimeFilter}|" + string.Join(";", segments.Select(s =>
-            $"{s.Ap}/{s.Band}/{s.Start.Ticks}/{(s.EndedBy == null ? 0 : s.End.Ticks)}"));
+            $"{s.Ap}/{s.Band}/{(s.Start <= from ? 0 : s.Start.Ticks)}/{(s.EndedBy == null ? 0 : s.End.Ticks)}"));
         if (key == _connectionChartKey) return;
         _connectionChartKey = key;
         _connectionChartData = new List<ConnectionBar>();
@@ -4634,7 +4637,8 @@
             tips.Add(ConnectionTip(seg));
         }
         var lanes = segments.Select(s => s.Ap).Distinct().Count();
-        _connectionChartHeight = 50 + lanes * 34;
+        // The axis strip plus a lane per AP; a phone's lanes are shorter, to keep the card small.
+        _connectionChartHeight = _isMobile ? 34 + lanes * 26 : 40 + lanes * 34;
 
         _connectionChartOptions = new ApexChartOptions<ConnectionBar>
         {
@@ -4642,12 +4646,18 @@
             {
                 Background = "transparent", Toolbar = new Toolbar { Show = false }, Zoom = new Zoom { Enabled = false },
                 Animations = new Animations { Enabled = false },
+                // No strip under the axis: ApexCharts reserves 15 px there by default.
+                ParentHeightOffset = 0,
             },
             Theme = new Theme { Mode = Mode.Dark },
             PlotOptions = new PlotOptions { Bar = new PlotOptionsBar { Horizontal = true, BarHeight = "55%", RangeBarGroupRows = true } },
             Xaxis = new XAxis { Type = XAxisType.Datetime, Min = Ms(from), Max = Ms(to), Labels = new XAxisLabels() },
-            Yaxis = new List<YAxis> { new YAxis { Labels = new YAxisLabels { MaxWidth = 160 } } },
-            Grid = new Grid { BorderColor = "rgba(255,255,255,0.08)" },
+            Yaxis = new List<YAxis>
+            {
+                new YAxis { Labels = new YAxisLabels { MaxWidth = _isMobile ? 96 : 160, Style = new AxisLabelStyle { FontSize = _isMobile ? "10px" : "11px" } } },
+            },
+            // The default padding left a band above the first lane and below the axis.
+            Grid = new Grid { BorderColor = "rgba(255,255,255,0.08)", Padding = new Padding { Top = -18, Right = 6, Bottom = -6, Left = 0 } },
             Tooltip = new Tooltip
             {
                 Theme = Mode.Dark,
@@ -5596,6 +5606,16 @@
         width: 10px;
         height: 10px;
         border-radius: 2px;
+    }
+    /* The plot runs into the card's right padding; on a phone it takes both sides' spare room. */
+    .conn-history-chart {
+        margin-right: -0.75rem;
+    }
+    @@media (max-width: 768px) {
+        .conn-history-chart {
+            margin-right: -0.5rem;
+            margin-left: -0.25rem;
+        }
     }
     .conn-tip {
         padding: 0.5rem 0.65rem;
