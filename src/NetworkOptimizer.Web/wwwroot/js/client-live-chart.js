@@ -16,7 +16,7 @@ import { valueSortedTooltip } from './chart-tooltip.js?v=22';
 import { downloadColor, uploadColor } from './chart-colors.js?v=2';
 import { createMarkLayer } from './chart-event-marks.js?v=14';
 import { createAxisDateCaption } from './chart-axis-date.js?v=5';
-import { formatBps } from './chart-format.js?v=1';
+import { formatBps, formatBpsAxis } from './chart-format.js?v=2';
 
 const HISTORY_MINUTES = 5;
 // Window-scroll redraw cadence: each step moves well under a pixel, so the chart slides.
@@ -119,7 +119,7 @@ function buildOpts() {
             max: v => Math.max(v * 1.1, 1000),
             labels: {
                 style: { colors: '#9ca3af', fontSize: '10px' },
-                formatter: v => formatBps(v),
+                formatter: v => formatBpsAxis(v),
                 offsetX: -10,
             },
             axisBorder: { show: false },
