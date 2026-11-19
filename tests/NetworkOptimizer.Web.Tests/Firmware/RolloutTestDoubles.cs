@@ -155,10 +155,15 @@ internal sealed class FakeFirmwareCommandClient : IFirmwareCommandClient
         return Task.FromResult(SshResult);
     }
 
+    /// <summary>When set, answers Check for Updates by call number (1-based), e.g. to restage on the Nth read.</summary>
+    public Func<int, IReadOnlyList<UniFiFirmwareCatalogEntry>>? CatalogOnCall { get; set; }
+
     public Task<IReadOnlyList<UniFiFirmwareCatalogEntry>> CheckForUpdatesAsync(CancellationToken cancellationToken = default)
     {
         CheckForUpdatesCalls++;
         Calls.Add("list-available");
+        if (CatalogOnCall != null)
+            return Task.FromResult(CatalogOnCall(CheckForUpdatesCalls));
         return Task.FromResult<IReadOnlyList<UniFiFirmwareCatalogEntry>>(
             CatalogByChannel.TryGetValue(DeviceChannel, out var staged) ? staged : Catalog);
     }

@@ -22,7 +22,7 @@ public sealed class EndedSessionStoreTests : IDisposable
     private async Task<EndedSessionStore> NewStoreAsync()
     {
         await using (var db = new AuthDbContext(Options()))
-            await db.Database.MigrateAsync();
+            await db.Database.MigrateFromTemplateAsync();
         return new EndedSessionStore(new AuthDbContextFactory(Options()), NullLogger<EndedSessionStore>.Instance);
     }
 

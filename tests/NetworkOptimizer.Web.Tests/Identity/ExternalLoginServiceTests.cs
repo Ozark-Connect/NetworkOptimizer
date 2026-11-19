@@ -28,7 +28,7 @@ public sealed class ExternalLoginServiceTests : IDisposable
     {
         var options = new DbContextOptionsBuilder<NetworkOptimizerDbContext>().UseSqlite($"Data Source={_dbPath}").Options;
         await using (var db = new NetworkOptimizerDbContext(options))
-            await db.Database.MigrateAsync();
+            await db.Database.MigrateFromTemplateAsync();
 
         var services = new ServiceCollection();
         services.AddLogging();

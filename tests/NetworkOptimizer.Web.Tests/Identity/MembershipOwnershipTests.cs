@@ -110,7 +110,7 @@ public sealed class MembershipOwnershipTests : IDisposable
         var provider = BuildProvider();
         using (var seed = provider.CreateScope())
         {
-            await seed.ServiceProvider.GetRequiredService<AuthDbContext>().Database.MigrateAsync();
+            await seed.ServiceProvider.GetRequiredService<AuthDbContext>().Database.MigrateFromTemplateAsync();
 
             var roles = seed.ServiceProvider.GetRequiredService<RoleManager<ApplicationRole>>();
             foreach (var role in Roles.All)

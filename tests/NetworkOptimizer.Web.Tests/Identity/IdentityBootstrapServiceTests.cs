@@ -48,7 +48,7 @@ public sealed class IdentityBootstrapServiceTests : IDisposable
             .UseSqlite($"Data Source={_dbPath}")
             .Options;
         await using var db = new NetworkOptimizerDbContext(options);
-        await db.Database.MigrateAsync();
+        await db.Database.MigrateFromTemplateAsync();
         db.AdminSettings.Add(new AdminSettings { Password = legacyHash, Enabled = enabled });
         await db.SaveChangesAsync();
     }
@@ -120,7 +120,7 @@ public sealed class IdentityBootstrapServiceTests : IDisposable
         var options = new DbContextOptionsBuilder<NetworkOptimizerDbContext>()
             .UseSqlite($"Data Source={_dbPath}").Options;
         await using (var db = new NetworkOptimizerDbContext(options))
-            await db.Database.MigrateAsync();
+            await db.Database.MigrateFromTemplateAsync();
 
         await using var provider = BuildProvider();
         await RunBootstrapAsync(provider);
