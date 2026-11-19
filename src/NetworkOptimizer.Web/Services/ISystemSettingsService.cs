@@ -127,4 +127,9 @@ public interface ISystemSettingsService
     /// </summary>
     /// <returns>The cached status, or null if cache expired or not set.</returns>
     Task<LocalIperf3Status?> GetCachedLocalIperf3StatusAsync();
+
+    /// <summary>
+    /// Gets the external WAN speed test servers (instance-wide), default first.
+    /// </summary>
+    Task<List<NetworkOptimizer.Storage.Models.ExternalSpeedTestServer>> GetExternalSpeedTestServersAsync();
 }
