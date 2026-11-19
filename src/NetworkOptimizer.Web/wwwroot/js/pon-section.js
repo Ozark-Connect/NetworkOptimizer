@@ -380,7 +380,7 @@ export function createPonLoadMap({ ApexCharts, url, cardSelector, chartSelector,
     // `epoch` moves on destroy, so a refresh still waiting on its request or its first render
     // when the tab is left does not mount a chart on an element that is gone and leave it there
     // for the next visit to update.
-    let chart = null, data = null, fetchedAt = 0, pending = null, epoch = 0;
+    let chart = null, data = null, fetchedAt = 0, pending = null, epoch = 0, drawn = null;
 
     async function load() {
         if (data && Date.now() - fetchedAt < LOAD_MAP_REFRESH_MS) return data;
@@ -393,14 +393,21 @@ export function createPonLoadMap({ ApexCharts, url, cardSelector, chartSelector,
     async function refresh(container, visibleItems) {
         const card = container?.querySelector(cardSelector);
         if (!card) return;
+        // Only a device that reports PON load has hours to show: without one, no four-week query.
+        const withLoad = (visibleItems || []).filter(item => (item.pon || []).some(p => p.dsUsedMbps != null));
+        if (!withLoad.length) { card.style.display = 'none'; return; }
         const started = epoch;
         const loaded = await load();
         if (started !== epoch) return;
-        const ids = new Set((visibleItems || []).map(i => String(i.id)));
+        const ids = new Set(withLoad.map(i => String(i.id)));
         const entry = (loaded?.items || []).find(i => ids.has(String(i.id)) && i.hours?.length);
         if (!entry) { card.style.display = 'none'; return; }
         // Shown before the chart mounts: a chart first rendered in a hidden container stays zero-size.
         card.style.display = '';
+        // The hours change at most once a fetch: redraw only when another fetch or device is shown.
+        const key = `${fetchedAt}:${entry.id}:${ids.size}`;
+        if (chart && drawn === key) return;
+        drawn = key;
 
         const { sum, count } = loadMapCells(entry.hours);
         // Apex draws the first series at the bottom, so Sunday goes in first to put Monday on top.
@@ -468,6 +475,7 @@ export function createPonLoadMap({ ApexCharts, url, cardSelector, chartSelector,
 
     function destroy() {
         epoch++;
+        drawn = null;
         if (chart) { chart.destroy(); chart = null; }
     }
 

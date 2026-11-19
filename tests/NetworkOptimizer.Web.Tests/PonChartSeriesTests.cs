@@ -667,7 +667,7 @@ public class PonChartSeriesTests
         Step(silent, "traffic")!.Status.Should().Be("fail");
 
         var lossy = Healthy();
-        lossy[^1].FecErrors = lossy[^2].FecErrors + PonThresholds.PonFecErrorSpikePerPoll + 1;
+        lossy[^1].FecErrors = lossy[^2].FecErrors + 1;
         Step(lossy, "line_errors")!.Status.Should().Be("fail");
 
         var hot = Healthy();
@@ -774,9 +774,26 @@ public class PonChartSeriesTests
 
         Step(points, "service")!.Should().Be(new PonChartSeries.CheckStep("service", "fail", "only the OMCI GEM port is provisioned"));
         Step(points, "traffic")!.Should().Be(new PonChartSeries.CheckStep("traffic", "fail", "no frames moved in the last interval"));
-        Step(points, "line_errors")!.Detail.Should().Be("15 uncorrectable HEC errors in the last interval, over the 10 alert threshold");
+        Step(points, "line_errors")!.Detail.Should().Be("15 uncorrectable HEC errors in the last interval");
         Step(points, "host_link", new(HostLinkMbps: 2500))!.Should().Be(
             new PonChartSeries.CheckStep("host_link", "fail", "the ONT reports no host link"), "the ONT's own report outranks the gateway port");
+    }
+
+    [Fact]
+    public void Insights_ConnectionCheck_ReadsTheLatestPolls_NotTheChartPoints()
+    {
+        // The chart's last two points span many polls and carry errors; the newest two polls do not.
+        var chart = Healthy();
+        chart[^1].FecErrors = chart[^2].FecErrors + 1440;
+        var polls = Healthy();
+
+        Check(PonChartSeries.Insights(chart, latestPolls: polls)).Single(s => s.Key == "line_errors").Status.Should().Be("ok");
+        Check(PonChartSeries.Insights(chart)).Single(s => s.Key == "line_errors").Status.Should().Be("fail");
+        Check(PonChartSeries.Insights(chart, latestPolls: [polls[^1]])).Single(s => s.Key == "line_errors").Status
+            .Should().Be("fail", "one poll has no interval, so the chart's points stand in");
+
+        static List<PonChartSeries.CheckStep> Check(object? insights) =>
+            (List<PonChartSeries.CheckStep>)insights!.GetType().GetProperty("check")!.GetValue(insights)!;
     }
 
     [Fact]

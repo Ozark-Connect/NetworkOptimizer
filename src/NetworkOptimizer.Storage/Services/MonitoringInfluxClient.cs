@@ -4180,12 +4180,16 @@ from(bucket: {FluxLiteral.Quote(_longtermBucket)})
     {
         if (!IsConfigured) await ReconfigureAsync(ct);
         if (!IsConfigured || modules.Count == 0) return new Dictionary<string, List<PonSeriesPoint>>();
-        var window = aggregateWindow ?? PickAggregateWindow(to - from);
+        // TimeSpan.Zero requests RAW points, one per poll, as QueryOntAsync does.
+        var raw = aggregateWindow == TimeSpan.Zero;
+        var window = (aggregateWindow is null or { Ticks: 0 }) ? PickAggregateWindow(to - from) : aggregateWindow.Value;
 
         var macFilter = string.Join(" or ", modules.Select(m =>
             $@"(r.device_mac == {FluxLiteral.Quote(NormalizeMac(m.DeviceMac))} and r.port_name == {FluxLiteral.Quote(m.PortName)})"));
 
         var fieldFilter = loadFieldsOnly ? PonLoadFieldFilter : PonFieldFilter;
+        var aggregateLine = raw ? "" : $@"  |> aggregateWindow(every: {ToFluxDuration(window)}, fn: last, createEmpty: false)
+";
 
         var flux = $@"
 from(bucket: {FluxLiteral.Quote(_longtermBucket)})
@@ -4193,8 +4197,7 @@ from(bucket: {FluxLiteral.Quote(_longtermBucket)})
   |> filter(fn: (r) => r._measurement == ""sfp"")
   |> filter(fn: (r) => {macFilter})
   |> filter(fn: (r) => {fieldFilter})
-  |> aggregateWindow(every: {ToFluxDuration(window)}, fn: last, createEmpty: false)
-  |> pivot(rowKey:[""_time""], columnKey: [""_field""], valueColumn: ""_value"")
+{aggregateLine}  |> pivot(rowKey:[""_time""], columnKey: [""_field""], valueColumn: ""_value"")
 ";
         var results = new Dictionary<string, List<PonSeriesPoint>>();
         await foreach (var record in QueryFluxAsync(flux, ct))

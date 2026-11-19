@@ -45,6 +45,9 @@ public static class OntChartEndpoints
             }
 
             var data = await influx.QueryOntAsync(queryFrom, queryTo, ontId, includePon: true, ct: ct);
+            // The newest raw polls, for the Connection Check: it reads the latest poll on every range.
+            var now = DateTime.UtcNow;
+            var latest = await influx.QueryOntAsync(now - PonChartSeries.LatestPollsSpan, now, ontId, TimeSpan.Zero, includePon: true, ct: ct);
 
             // Standalone configs only: an attached config writes to the sfp
             // measurement, not ont, and must never appear as a standalone ONT series.
@@ -90,6 +93,9 @@ public static class OntChartEndpoints
                 // Identity and link uptime are per-ONT rather than per-point: take the last
                 // reading that carried them, since a poll that skipped one still knows it.
                 var lastWith = pts.AsEnumerable().Reverse();
+                var latestPts = latest.TryGetValue(kvp.Key, out var l) ? l.OrderBy(p => p.Time).ToList() : [];
+                var latestPon = latestPts.Select(p => p.Pon).OfType<MonitoringInfluxClient.PonSeriesPoint>().ToList();
+                var readFrom = latestPon.Count > 1 ? latestPts : pts;
                 var olt = NetworkOptimizer.Core.Helpers.DisplayFormatters.FormatOltVendor(
                     lastWith.FirstOrDefault(p => p.OltVendor != null)?.OltVendor,
                     lastWith.FirstOrDefault(p => p.OltModel != null)?.OltModel);
@@ -103,9 +109,9 @@ public static class OntChartEndpoints
                     ponPath = PonChartSeries.SummarizePathLoss(ponPoints),
                     ponAvail = PonChartSeries.SummarizeAvailability(ponPoints),
                     ponMore = PonChartSeries.Insights(ponPoints, new PonChartSeries.LinkReadings(
-                        RxDbm: pts.LastOrDefault()?.RxPowerDbm,
-                        TxDbm: pts.LastOrDefault()?.TxPowerDbm,
-                        PonVariant: lastWith.FirstOrDefault(p => p.PonType != null)?.PonType)),
+                        RxDbm: readFrom.LastOrDefault()?.RxPowerDbm,
+                        TxDbm: readFrom.LastOrDefault()?.TxPowerDbm,
+                        PonVariant: lastWith.FirstOrDefault(p => p.PonType != null)?.PonType), latestPon),
                     linkUptime = lastWith.FirstOrDefault(p => p.LinkUptimeSeconds != null)?.LinkUptimeSeconds,
                     ponType = lastWith.FirstOrDefault(p => p.PonType != null)?.PonType,
                     olt,

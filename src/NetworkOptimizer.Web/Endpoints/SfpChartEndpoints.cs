@@ -106,6 +106,9 @@ public static class SfpChartEndpoints
             var data = await influx.QuerySfpByModulesAsync(modules, queryFrom, queryTo, ct: ct);
             // Supplemental PON-layer series (attached ONT configs); empty for modules without one.
             var ponData = await influx.QuerySfpPonByModulesAsync(modules, queryFrom, queryTo, ct: ct);
+            // The newest raw polls, for the Connection Check: it reads the latest poll on every range.
+            var now = DateTime.UtcNow;
+            var latestPon = await influx.QuerySfpPonByModulesAsync(modules, now - PonChartSeries.LatestPollsSpan, now, TimeSpan.Zero, ct);
 
             var targets = await db.MonitoringTargets.AsNoTracking()
                 .Where(t => t.TargetType == MonitoringTargetType.Fabric && t.RetiredAt == null)
@@ -171,7 +174,8 @@ public static class SfpChartEndpoints
                         RxDbm: pts.LastOrDefault()?.RxPowerDbm,
                         TxDbm: pts.LastOrDefault()?.TxPowerDbm,
                         PonVariant: NetworkOptimizer.Core.Helpers.NetworkFormatHelpers.PonVariantLabel(s.SfpPart, s.SfpVendor),
-                        HostLinkMbps: s.LinkSpeedMbps))
+                        HostLinkMbps: s.LinkSpeedMbps),
+                        latestPon.TryGetValue(key, out var latestPts) ? latestPts : null)
                 };
             }).ToList();
 

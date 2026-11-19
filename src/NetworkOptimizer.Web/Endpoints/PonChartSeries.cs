@@ -271,6 +271,9 @@ public static class PonChartSeries
 
     private const int MaxOutages = 10;
 
+    /// <summary>How far back the chart endpoints read raw polls for the Connection Check. With fewer than two polls in it, the check falls back to the chart's points.</summary>
+    public static readonly TimeSpan LatestPollsSpan = TimeSpan.FromHours(1);
+
     /// <summary>How far back the hour-by-weekday load map reads, as an offset in days: four of each weekday.</summary>
     public const int LoadMapDays = -28;
 
@@ -569,9 +572,10 @@ public static class PonChartSeries
     /// The link from the fibre up to traffic, each step read from the latest interval and from
     /// the best source the device reports: light (path loss against the ODN class, else RX in the
     /// receiver window, else O5), transmit (TX power in the ONU range, laser bias under its warn
-    /// limit), registered (O5 and upstream grants), line errors (uncorrectable codewords against
-    /// the alert threshold), management (OMCI), service (OMCI services, else a data GEM port),
-    /// host link, and traffic (GEM bytes, else GEM frames). A step the data cannot decide is left
+    /// limit), registered (O5 and upstream grants), line errors (any uncorrectable codeword
+    /// fails), management (OMCI), service (OMCI services, else a data GEM port),
+    /// host link, and traffic (GEM bytes, else GEM frames). Pass raw polls: a step reads the last two
+    /// points, and an aggregated pair spans many polls. A step the data cannot decide is left
     /// out, never shown as "ok". Null when no step can be decided.
     /// </summary>
     public static List<CheckStep>? ConnectionCheck(List<MonitoringInfluxClient.PonSeriesPoint>? points, LinkReadings? link = null)
@@ -637,12 +641,10 @@ public static class PonChartSeries
             var lost = fecOff ? Delta(cur.HecUncorrected, prev.HecUncorrected) : Delta(cur.FecErrors, prev.FecErrors);
             if (lost is not long n) return null;
             var what = fecOff ? "uncorrectable HEC errors" : "uncorrectable FEC codewords";
-            var threshold = fecOff ? PonThresholds.PonHecErrorSpikePerPoll : PonThresholds.PonFecErrorSpikePerPoll;
-            return n > threshold
-                ? new("line_errors", "fail", string.Create(inv, $"{n:N0} {what} in the last interval, over the {threshold:N0} alert threshold"))
-                : new("line_errors", "ok", n == 0
-                    ? $"no {what} in the last interval"
-                    : string.Create(inv, $"{n:N0} {what} in the last interval, under the {threshold:N0} alert threshold"));
+            // Any uncorrectable error is lost data, as the PON Errors card says: no allowance here.
+            return n > 0
+                ? new("line_errors", "fail", string.Create(inv, $"{n:N0} {what} in the last interval"))
+                : new("line_errors", "ok", $"no {what} in the last interval");
         }
 
         CheckStep? Registered()
@@ -983,10 +985,16 @@ public static class PonChartSeries
         return Math.Round(dBusy / dTotal * 100, 1);
     }
 
-    /// <summary>The read-outs beyond the charts, bundled so both chart endpoints attach them with one call.</summary>
-    public static object? Insights(List<MonitoringInfluxClient.PonSeriesPoint>? points, LinkReadings? link = null)
+    /// <summary>
+    /// The read-outs beyond the charts, bundled so both chart endpoints attach them with one call.
+    /// <paramref name="latestPolls"/> are the newest raw polls: the Connection Check reads them, so
+    /// it does not change with the chart's range. The chart's own points stand in with fewer than two.
+    /// </summary>
+    public static object? Insights(
+        List<MonitoringInfluxClient.PonSeriesPoint>? points, LinkReadings? link = null,
+        List<MonitoringInfluxClient.PonSeriesPoint>? latestPolls = null)
     {
-        var check = ConnectionCheck(points, link);
+        var check = ConnectionCheck(latestPolls is { Count: > 1 } ? latestPolls : points, link);
         var fec = SummarizeFec(points);
         var laser = SummarizeLaser(points);
         var provider = SummarizeProvider(points);
