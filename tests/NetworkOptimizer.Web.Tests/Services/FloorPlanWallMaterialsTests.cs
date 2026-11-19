@@ -100,6 +100,35 @@ public class FloorPlanWallMaterialsTests
         FloorPlanWallMaterials.OutlineJustClosed("[]", Floor(Square("exterior_residential"))).Should().BeTrue();
     }
 
+    // An existing outbuilding saved before this change: one closed wood-paneling outline with two metal
+    // doors cut in, the shape found on a real garage. It was not recognized as having an outline, so
+    // Draw Layout started on an exterior type instead of the interior material.
+    private const string ExistingGarage =
+        "[{\"points\":[{\"lat\":0,\"lng\":0},{\"lat\":0,\"lng\":1},{\"lat\":0,\"lng\":1.4},{\"lat\":0,\"lng\":3}," +
+        "{\"lat\":2,\"lng\":3},{\"lat\":2,\"lng\":1.5},{\"lat\":2,\"lng\":1.2},{\"lat\":2,\"lng\":0},{\"lat\":0,\"lng\":0}]," +
+        "\"material\":\"wood_paneling\",\"materials\":[\"wood_paneling\",\"door_metal\",\"wood_paneling\",\"wood_paneling\"," +
+        "\"wood_paneling\",\"door_metal\",\"wood_paneling\",\"wood_paneling\"]}]";
+
+    [Fact]
+    public void An_existing_wood_paneling_garage_has_its_outline() =>
+        FloorPlanWallMaterials.HasOutline(ExistingGarage).Should().BeTrue();
+
+    [Fact]
+    public void Draw_Layout_on_an_existing_garage_starts_on_the_interior_material()
+    {
+        var outline = FloorPlanWallMaterials.BuildingOutlineMaterial(null, new[] { ExistingGarage });
+        FloorPlanWallMaterials.DrawStartMaterial(ExistingGarage, outline, null).Should().Be("drywall");
+        FloorPlanWallMaterials.DrawStartMaterial(ExistingGarage, outline, "door_metal").Should().Be("door_metal");
+    }
+
+    [Fact]
+    public void A_new_floor_on_an_existing_garage_starts_on_wood_paneling()
+    {
+        var outline = FloorPlanWallMaterials.BuildingOutlineMaterial(null, new[] { ExistingGarage });
+        outline.Should().Be("wood_paneling");
+        FloorPlanWallMaterials.DrawStartMaterial("[]", outline, "door_metal").Should().Be("wood_paneling");
+    }
+
     [Fact]
     public void A_save_after_the_outline_exists_does_not_switch_again() =>
         FloorPlanWallMaterials.OutlineJustClosed(Floor(Square("metal")), Floor(Square("metal"), Square("drywall", 0.5)))
