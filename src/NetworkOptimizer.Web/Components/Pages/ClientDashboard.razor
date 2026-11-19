@@ -4654,12 +4654,13 @@
             Xaxis = new XAxis { Type = XAxisType.Datetime, Min = Ms(from), Max = Ms(to), Labels = new XAxisLabels() },
             Yaxis = new List<YAxis>
             {
-                // On a phone the AP names move toward the axis and the left padding takes back the
-                // slack ApexCharts reserves left of them: the longest name meets the card's content edge.
+                // On a phone the AP names move toward the axis and the left padding takes back most of
+                // the slack ApexCharts reserves left of them: the longest name sits 2 px in from the
+                // card's content edge.
                 new YAxis { Labels = new YAxisLabels { MaxWidth = _isMobile ? 120 : 160, OffsetX = _isMobile ? 8 : 0, Style = new AxisLabelStyle { FontSize = _isMobile ? "10px" : "11px" } } },
             },
             // The default padding left a band above the first lane and below the axis.
-            Grid = new Grid { BorderColor = "rgba(255,255,255,0.08)", Padding = new Padding { Top = -18, Right = 24, Bottom = -6, Left = _isMobile ? -9 : 8 } },
+            Grid = new Grid { BorderColor = "rgba(255,255,255,0.08)", Padding = new Padding { Top = -18, Right = 24, Bottom = -6, Left = _isMobile ? -7 : 8 } },
             Tooltip = new Tooltip
             {
                 Theme = Mode.Dark,
