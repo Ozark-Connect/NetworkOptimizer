@@ -226,6 +226,7 @@ function baseChartOpts(type, yTitle, yFormatter, extraOpts, group = SYNC_GROUP) 
             min: 0,
             title: { text: yTitle, style: { color: '#9ca3af' } },
             labels: {
+                minWidth: 20,
                 style: { colors: '#9ca3af' },
                 formatter: yFormatter,
             },
@@ -257,6 +258,7 @@ function buildLossOpts() {
                 min: 0, max: v => Math.max(v * 1.1, 5),
                 title: { text: '% loss', style: { color: '#9ca3af' } },
                 labels: {
+                    minWidth: 20,
                     style: { colors: '#9ca3af' },
                     formatter: v => v != null ? v.toFixed(1) + '%' : '',
                 },
