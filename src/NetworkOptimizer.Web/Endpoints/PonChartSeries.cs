@@ -564,7 +564,7 @@ public static class PonChartSeries
     /// the reported data cannot decide is left out, never shown as "ok". Without an announced
     /// launch power, light is judged from O5: an ONU reaches it only with downstream light and
     /// frame sync. <paramref name="rxDbm"/> is the ONT's latest RX power, for that step's detail.
-    /// Null when no step can be decided, or when the source reports nothing beyond the ONU state.
+    /// Null when no step can be decided.
     /// </summary>
     public static List<CheckStep>? ConnectionCheck(List<MonitoringInfluxClient.PonSeriesPoint>? points, double? rxDbm = null)
     {
@@ -573,9 +573,6 @@ public static class PonChartSeries
         var cur = ordered[^1];
         var prev = ordered.Count > 1 ? ordered[^2] : null;
         if (cur.PonLinkStatus is null && cur.OmciUp is null) return null;
-        // A source that reports only the ONU state would get a card restating the link status.
-        if (cur.PathLossDb is null && cur.OdnClass is null && cur.OmciUp is null && cur.OmciServices is null
-            && cur.GemRxBytes is null && cur.GemTxBytes is null) return null;
         var inv = CultureInfo.InvariantCulture;
 
         CheckStep? Light()

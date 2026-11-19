@@ -665,13 +665,13 @@ public class PonChartSeriesTests
     }
 
     [Fact]
-    public void ConnectionCheck_OnlyTheOnuState_GetsNoCard()
+    public void ConnectionCheck_OnlyTheOnuStateAndGrants_ShowsLightAndRegistered()
     {
-        // What a source that reports only the ONU state sends: the card would restate the link status.
+        // A source without OMCI, byte counters or a PON-ID still decides the two steps it can.
         var points = Link(3);
         foreach (var p in points) p.GemTxBytes = null;
 
-        PonChartSeries.ConnectionCheck(points).Should().BeNull();
+        Statuses(points).Should().Equal("light:ok", "registered:ok");
     }
 
     [Fact]
