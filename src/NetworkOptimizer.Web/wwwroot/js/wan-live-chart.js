@@ -849,7 +849,10 @@ function ensureModeUi(el) {
         histBadge.addEventListener('click', (e) => {
             e.stopPropagation();
             clickRenderUntil = Date.now() + CLICK_RENDER_MS;
-            window.__lanFlowMap?.getInstance?.()?._returnToLive?.();
+            const inst = window.__lanFlowMap?.getInstance?.();
+            // Historic returns to live; Paused (on live) resumes.
+            if (flowData.getMode() === 'historic') inst?._returnToLive?.();
+            else inst?._togglePlayPause?.();
         });
         modeCluster.appendChild(histBadge);
     }
@@ -876,12 +879,25 @@ function ensureModeUi(el) {
 function syncModeUi() {
     if (!modeCluster) return;
     const historic = flowData.getMode() === 'historic';
-    modeCluster.style.display = historic ? '' : 'none';
+    const paused = flowData.isPaused();
+    // Shown off the live edge, and on live while paused (the chart has stopped moving).
+    modeCluster.style.display = historic || paused ? '' : 'none';
     // Comparison mode clears the corner the single-WAN chart keeps occupied, so the cluster sits
     // further right. Follows comparing() rather than a second notion of multi-WAN.
     modeCluster.classList.toggle('is-comparing', comparing());
+    if (histBadge) {
+        histBadge.textContent = historic ? 'Historic' : 'Paused';
+        histBadge.classList.toggle('is-historic', historic);
+        histBadge.classList.toggle('is-paused', !historic);
+        if (historic) {
+            histBadge.setAttribute('data-tooltip', 'Click to return to live');
+            histBadge.setAttribute('data-tooltip-hover-only', '');
+        } else {
+            histBadge.removeAttribute('data-tooltip');
+            histBadge._tippy?.destroy?.();
+        }
+    }
     if (!playBtn) return;
-    const paused = flowData.isPaused();
     playBtn.innerHTML = paused ? '<svg viewBox="0 0 12 12" width="10" height="10" fill="currentColor" aria-hidden="true"><path d="M3 1.500v9l7.500-4.500z"/></svg>' : '<svg viewBox="0 0 12 12" width="10" height="10" fill="currentColor" aria-hidden="true"><rect x="2" y="1.500" width="2.800" height="9" rx="0.500"/><rect x="7.200" y="1.500" width="2.800" height="9" rx="0.500"/></svg>';
     playBtn.setAttribute('aria-label', paused ? 'Play' : 'Pause');
 }
@@ -1103,6 +1119,12 @@ export function pause() {
     if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
     if (scrollTimer) { clearInterval(scrollTimer); scrollTimer = null; }
     if (backfillTimer) { clearInterval(backfillTimer); backfillTimer = null; }
+    // The slide runs at 1x from the last render until told otherwise: render once at the instant
+    // on screen now, with no slide, so the chart stops where it is (it ran on ~15 s before).
+    if (histAt === 0) {
+        clickRenderUntil = Date.now() + CLICK_RENDER_MS;
+        updateChart();
+    }
 }
 
 // Entering live mode is one indivisible job - reload the 5-minute window, THEN start the
