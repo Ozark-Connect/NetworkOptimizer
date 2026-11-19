@@ -225,6 +225,45 @@ public class GatewayAgentInstallGateTests
     }
 
     [Fact]
+    public void ParsePollOutput_PreflightStop_ReturnsExitThree()
+    {
+        var reply = "__NETOPT_LOG__\n==> Checking the server\nError: This host does not trust the server's certificate\n\n__NETOPT_EXIT__:3\n";
+
+        GatewayAgentInstallService.ParsePollOutput(reply)!.Value.ExitCode
+            .Should().Be(GatewayAgentCommands.UntrustedCertificateExitCode);
+    }
+
+    [Fact]
+    public void StoppedOnUntrustedCertificate_InstallExitThree_OffersInsecure()
+    {
+        var run = new GatewayAgentInstallRun("site-a", isUpgrade: false);
+        run.Complete(GatewayAgentInstallStatus.Failed, GatewayAgentCommands.UntrustedCertificateExitCode, null);
+
+        run.StoppedOnUntrustedCertificate.Should().BeTrue();
+    }
+
+    [Theory]
+    [InlineData(false, GatewayAgentInstallStatus.Succeeded, 0, null)]   // the happy path: install succeeded
+    [InlineData(true, GatewayAgentInstallStatus.Succeeded, 0, null)]    // the happy path: upgrade succeeded
+    [InlineData(true, GatewayAgentInstallStatus.Failed, 3, null)]       // an upgrade never stops on the certificate
+    [InlineData(false, GatewayAgentInstallStatus.Failed, 1, null)]      // any other installer failure
+    [InlineData(false, GatewayAgentInstallStatus.Failed, 3, "SSH dropped")] // a run that lost contact
+    [InlineData(false, GatewayAgentInstallStatus.Canceled, 3, null)]
+    public void StoppedOnUntrustedCertificate_EveryOtherOutcome_OffersNothing(bool isUpgrade, GatewayAgentInstallStatus status, int exitCode, string? error)
+    {
+        var run = new GatewayAgentInstallRun("site-a", isUpgrade);
+        run.Complete(status, exitCode, error);
+
+        run.StoppedOnUntrustedCertificate.Should().BeFalse();
+    }
+
+    [Fact]
+    public void StoppedOnUntrustedCertificate_WhileRunning_OffersNothing()
+    {
+        new GatewayAgentInstallRun("site-a", isUpgrade: false).StoppedOnUntrustedCertificate.Should().BeFalse();
+    }
+
+    [Fact]
     public void StartRun_SecondStartWhileRunning_IsRefused()
     {
         var state = new GatewayAgentInstallState();

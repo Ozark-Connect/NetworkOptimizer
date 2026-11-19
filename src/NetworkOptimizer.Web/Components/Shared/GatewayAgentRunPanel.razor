@@ -172,10 +172,7 @@ else if (_available && ShowRunButton)
     private string? _message;
     private bool _insecure;
 
-    // The installer's pre-flight stop on a first install (see GatewayAgentCommands.UntrustedCertificateExitCode).
-    private bool UntrustedCertificate =>
-        _run is { IsUpgrade: false, Status: GatewayAgentInstallStatus.Failed, Error: null }
-        && _run.ExitCode == GatewayAgentCommands.UntrustedCertificateExitCode;
+    private bool UntrustedCertificate => _run?.StoppedOnUntrustedCertificate == true;
     private int _renderPending;
     private bool _disposed;
 
