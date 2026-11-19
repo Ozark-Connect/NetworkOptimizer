@@ -252,6 +252,7 @@
     private List<HealthIssue> _wifiHealthIssues = new();
     private int _sqmPanelKey = 0;
     private int _alertsListKey = 0;
+    private AlertsList? _alertsList;
     private int _activeAlertsKey = 0;
     private AdminPasswordSource _passwordSource = AdminPasswordSource.None;
     private ApexChartOptions<ThreatTrendPoint> _threatSparklineOptions = CreateThreatSparklineOptions();
@@ -791,7 +792,7 @@
                 <a href="/audit" class="card-action" @onclick:stopPropagation>View All →</a>
             </div>
             <div class="card-body">
-                <AlertsList @key="_alertsListKey" MaxItems="5" OnAlertDismissed="OnAlertDismissed" />
+                <AlertsList @key="_alertsListKey" @ref="_alertsList" MaxItems="5" OnAlertDismissed="OnAlertDismissed" />
             </div>
         </div>
     };
@@ -1243,8 +1244,8 @@
     private System.Threading.Timer? _deviceRefreshTimer;
 
     /// <summary>
-    /// Keeps Device Status current while the user sits on the page. Refreshes without the loading
-    /// flag so the card updates in place instead of flashing its spinner every cycle.
+    /// Keeps Device Status, Security Posture, and Recent Security Findings current while the user sits on the page.
+    /// Refreshes without the loading flag so the cards update in place instead of flashing their spinners every cycle.
     /// </summary>
     private void StartDeviceRefreshTimer()
     {
@@ -1255,6 +1256,7 @@
                 await InvokeAsync(async () =>
                 {
                     await LoadDashboardData(showLoading: false);
+                    if (_alertsList != null) await _alertsList.RefreshIfNewAuditAsync();
                     StateHasChanged();
                 });
             }
