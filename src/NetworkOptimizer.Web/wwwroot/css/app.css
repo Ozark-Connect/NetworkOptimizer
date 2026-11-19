@@ -25769,6 +25769,19 @@ body:has(.top-bar-hidden) .btn-fit {
     height: 100%;
 }
 
+/* A masked mark (no-icon) in Where It's Going is SVG shapes, not HTML: see SankeyIcon in LiveTrafficSankey. */
+.lt-sankey-glyph-tile {
+    fill: var(--bg-tertiary);
+    pointer-events: none;
+}
+
+.lt-sankey-glyph {
+    fill: var(--text-primary);
+    pointer-events: none;
+    -webkit-mask: var(--no-icon) no-repeat center / contain;
+    mask: var(--no-icon) no-repeat center / contain;
+}
+
 .lt-app-icon img,
 .lt-app-initial,
 .lt-app-glyph {
