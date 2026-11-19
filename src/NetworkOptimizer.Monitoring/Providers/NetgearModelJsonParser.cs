@@ -12,11 +12,12 @@ namespace NetworkOptimizer.Monitoring.Providers;
 /// <c>NetgearNighthawkHotspotProvider</c> so it can be unit-tested without an HTTP transport.
 /// </summary>
 /// <remarks>
-/// Schema notes (verified live against MR5200 sdxprairie and M6 Pro sdxlemur):
+/// Schema notes (verified live against MR5200 sdxprairie, M6 Pro sdxlemur, and LM1200):
 /// <list type="bullet">
 ///   <item><c>wwan.diagInfo</c> is an array; the first entry holds the per-RAT signal split</item>
-///   <item><c>wwan.signalStrength</c> is the simple-LTE fallback when diagInfo is absent</item>
+///   <item><c>wwan.signalStrength</c> is the simple-LTE fallback when diagInfo is absent (e.g. LM1200)</item>
 ///   <item><c>wwan.lteBandInfo[]</c> / <c>wwan.nr5gBandInfo[]</c> carry per-CC band data; the entry with <c>isPcc:true</c> is the primary</item>
+///   <item><c>wwanadv</c> carries band (<c>curBand</c>) and serving cell data (<c>cellId</c>, <c>chanId</c>, <c>LAC</c>, <c>MCC</c>/<c>MNC</c>) on models like the LM1200 where <c>lteBandInfo</c> is absent</item>
 ///   <item>Numeric values come back as strings with unit suffixes (e.g. <c>"-98 dBm"</c>, <c>"-17 dB"</c>)</item>
 /// </list>
 /// </remarks>
@@ -75,8 +76,8 @@ public static class NetgearModelJsonParser
         }
 
         bool hasNr5g = stats.Nr5g?.Rsrp.HasValue == true;
-        stats.ActiveBand = BuildBandInfo(wwan, hasNr5g);
-        stats.ServingCell = BuildCellInfo(wwan, stats.PrimarySignal, hasNr5g);
+        stats.ActiveBand = BuildBandInfo(root, wwan, hasNr5g);
+        stats.ServingCell = BuildCellInfo(root, wwan, stats.PrimarySignal, hasNr5g);
 
         return stats;
     }
@@ -102,7 +103,7 @@ public static class NetgearModelJsonParser
         };
     }
 
-    private static BandInfo? BuildBandInfo(JsonElement wwan, bool hasNr5g)
+    private static BandInfo? BuildBandInfo(JsonElement root, JsonElement wwan, bool hasNr5g)
     {
         var arrayKey = hasNr5g ? "nr5gBandInfo" : "lteBandInfo";
         var rat = hasNr5g ? "nr5g" : "lte";
@@ -110,7 +111,9 @@ public static class NetgearModelJsonParser
         var pcc = FindPccEntry(wwan, arrayKey);
         if (pcc == null)
         {
-            var curBand = TryGetString(wwan, "curBand");
+            if (hasNr5g) return null;
+            var curBand = TryGetString(wwan, "curBand")
+                       ?? TryGetString(root, "wwanadv", "curBand");
             return string.IsNullOrEmpty(curBand) ? null : ParseCurBand(curBand);
         }
 
@@ -139,22 +142,89 @@ public static class NetgearModelJsonParser
         return info;
     }
 
-    private static CellInfo? BuildCellInfo(JsonElement wwan, SignalInfo? signal, bool hasNr5g)
+    private static CellInfo? BuildCellInfo(JsonElement root, JsonElement wwan, SignalInfo? signal, bool hasNr5g)
     {
         var arrayKey = hasNr5g ? "nr5gBandInfo" : "lteBandInfo";
         var pcc = FindPccEntry(wwan, arrayKey);
-        if (pcc == null) return null;
-
-        var cell = new CellInfo
+        if (pcc != null)
         {
-            IsServing = true,
-            Signal = signal,
-        };
+            var cell = new CellInfo
+            {
+                IsServing = true,
+                Signal = signal,
+            };
 
-        if (TryGetInt(pcc.Value, out var pci, "phyCid")) cell.PhysicalCellId = pci;
-        if (TryGetInt(pcc.Value, out var ch, "channel")) cell.Earfcn = ch;
+            if (TryGetInt(pcc.Value, out var pci, "phyCid")) cell.PhysicalCellId = pci;
+            if (TryGetInt(pcc.Value, out var ch, "channel")) cell.Earfcn = ch;
 
-        return cell;
+            return cell;
+        }
+
+        // Do not use wwanadv fallback for 5G NR serving cell
+        if (hasNr5g) return null;
+
+        // Fallback for Netgear LM1200 / Sierra Wireless: cell details are reported under wwanadv
+        if (root.TryGetProperty("wwanadv", out var wwanadv) && wwanadv.ValueKind == JsonValueKind.Object)
+        {
+            var cell = new CellInfo
+            {
+                IsServing = true,
+                Signal = signal,
+            };
+
+            // GlobalCellId: check decimal or hex string, or integer
+            if (TryGetInt(wwanadv, out var cellIdInt, "cellId") && cellIdInt > 0)
+            {
+                cell.GlobalCellId = cellIdInt.ToString(CultureInfo.InvariantCulture);
+            }
+            else if (wwanadv.TryGetProperty("cellId", out var cellIdProp) && cellIdProp.ValueKind == JsonValueKind.String)
+            {
+                var s = cellIdProp.GetString();
+                if (!string.IsNullOrWhiteSpace(s))
+                {
+                    if (s.StartsWith("0x", StringComparison.OrdinalIgnoreCase) &&
+                        int.TryParse(s[2..], NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var hexVal) && hexVal > 0)
+                    {
+                        cell.GlobalCellId = hexVal.ToString(CultureInfo.InvariantCulture);
+                    }
+                    else if (int.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture, out var decVal) && decVal > 0)
+                    {
+                        cell.GlobalCellId = decVal.ToString(CultureInfo.InvariantCulture);
+                    }
+                }
+            }
+
+            if (TryGetInt(wwanadv, out var ch, "chanId") && ch > 0)
+            {
+                cell.Earfcn = ch;
+            }
+
+            // Prefer TAC, fallback to LAC
+            if (TryGetInt(wwanadv, out var tac, "TAC") && tac > 0)
+            {
+                cell.Tac = tac.ToString(CultureInfo.InvariantCulture);
+            }
+            else if (TryGetInt(wwanadv, out var lac, "LAC") && lac > 0)
+            {
+                cell.Tac = lac.ToString(CultureInfo.InvariantCulture);
+            }
+
+            // PLMN: keep digits exactly as sent by the modem (strings) to preserve leading zeros
+            var mcc = TryGetString(wwanadv, "MCC");
+            var mnc = TryGetString(wwanadv, "MNC");
+            if (!string.IsNullOrEmpty(mcc) && !string.IsNullOrEmpty(mnc))
+            {
+                cell.Plmn = $"{mcc}{mnc}";
+            }
+
+            // Return fallback cell only if at least one field actually populated
+            if (cell.GlobalCellId != null || cell.Earfcn.HasValue || cell.Tac != null || cell.Plmn != null)
+            {
+                return cell;
+            }
+        }
+
+        return null;
     }
 
     private static JsonElement? FindPccEntry(JsonElement wwan, string arrayKey)

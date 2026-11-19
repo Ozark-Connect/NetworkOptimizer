@@ -324,7 +324,7 @@ public class SignalInfo
 public class CellInfo
 {
     /// <summary>Physical Cell ID</summary>
-    public int PhysicalCellId { get; set; }
+    public int? PhysicalCellId { get; set; }
 
     /// <summary>Global Cell ID</summary>
     public string? GlobalCellId { get; set; }

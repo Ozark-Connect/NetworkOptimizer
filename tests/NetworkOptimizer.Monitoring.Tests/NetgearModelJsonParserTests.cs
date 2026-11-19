@@ -395,6 +395,138 @@ public class NetgearModelJsonParserTests
         stats.Nr5g.Should().BeNull();
     }
 
+    [Fact]
+    public void Parse_Lm1200Fixture_PopulatesSignalBandAndCellFromWwanadv()
+    {
+        // Exercises the LM1200 / Sierra Wireless shape where simple signal is in wwan.signalStrength
+        // and band / cell details are in wwanadv rather than wwan.lteBandInfo.
+        // Tests leading-zero MNC preservation (MCC "310", MNC "026" -> "310026").
+        var json = """
+        {
+          "general": { "deviceName": "LM1200", "manufacturer": "Netgear" },
+          "wwan": {
+            "connection": "Connected",
+            "connectionText": "4G",
+            "registerNetworkDisplay": "TestCarrier",
+            "roaming": false,
+            "signalStrength": {
+              "rsrp": -100,
+              "rsrq": -10,
+              "sinr": 5,
+              "bars": 4
+            }
+          },
+          "wwanadv": {
+            "curBand": "LTE B2",
+            "cellId": 801567,
+            "chanId": 1100,
+            "LAC": 24300,
+            "MCC": "310",
+            "MNC": "026"
+          }
+        }
+        """;
+
+        var stats = ParseFromJson(json);
+
+        stats.Should().NotBeNull();
+        stats.Carrier.Should().Be("TestCarrier");
+        stats.RegistrationState.Should().Be("4G");
+        stats.Lte.Should().NotBeNull();
+        stats.Lte!.Rsrp.Should().Be(-100);
+        stats.Lte.Rsrq.Should().Be(-10);
+        stats.Lte.Snr.Should().Be(5);
+        stats.ActiveBand.Should().NotBeNull();
+        stats.ActiveBand!.RadioInterface.Should().Be("lte");
+        stats.ActiveBand.BandClass.Should().Be("eutran-2");
+        stats.ServingCell.Should().NotBeNull();
+        stats.ServingCell!.PhysicalCellId.Should().BeNull();
+        stats.ServingCell.GlobalCellId.Should().Be("801567");
+        stats.ServingCell.Earfcn.Should().Be(1100);
+        stats.ServingCell.Tac.Should().Be("24300");
+        stats.ServingCell.Plmn.Should().Be("310026");
+    }
+
+    [Fact]
+    public void Parse_Lm1200_HexCellId_ParsesToDecimal()
+    {
+        var json = """
+        {
+          "wwan": {
+            "connection": "Connected"
+          },
+          "wwanadv": {
+            "cellId": "0x0C3B1F",
+            "chanId": 1100
+          }
+        }
+        """;
+
+        var stats = ParseFromJson(json);
+
+        stats.ServingCell.Should().NotBeNull();
+        stats.ServingCell!.GlobalCellId.Should().Be("801567");
+        stats.ServingCell.Earfcn.Should().Be(1100);
+    }
+
+    [Fact]
+    public void Parse_WwanadvPresent_NothingParsed_ReturnsNullServingCell()
+    {
+        // When wwanadv is present but carries no valid cell fields (or all 0),
+        // ServingCell should remain null instead of returning a blank cell block.
+        var json = """
+        {
+          "wwan": {
+            "connection": "Connected",
+            "signalStrength": { "rsrp": -95 }
+          },
+          "wwanadv": {
+            "cellId": 0,
+            "chanId": 0,
+            "LAC": 0,
+            "end": ""
+          }
+        }
+        """;
+
+        var stats = ParseFromJson(json);
+
+        stats.ServingCell.Should().BeNull();
+        stats.ActiveBand.Should().BeNull();
+    }
+
+    [Fact]
+    public void Parse_WwanadvPresent_WhenNr5gPresent_SkipsWwanadvFallback()
+    {
+        // An NSA 5G session should not map LTE chanId/curBand as the 5G serving band/cell.
+        var json = """
+        {
+          "wwan": {
+            "connection": "Connected",
+            "diagInfo": [
+              {
+                "nr5gAttached": true,
+                "nr5gsigRsrp": "-85 dBm",
+                "nr5gsigRsrq": "-10 dB",
+                "nr5gsigSnr": "12 dB"
+              }
+            ]
+          },
+          "wwanadv": {
+            "curBand": "LTE B2",
+            "cellId": 801567,
+            "chanId": 1100
+          }
+        }
+        """;
+
+        var stats = ParseFromJson(json);
+
+        stats.Nr5g.Should().NotBeNull();
+        stats.ActiveBand.Should().BeNull();
+        stats.ServingCell.Should().BeNull();
+    }
+
     private static CellularModemStats ParseFromJson(string json)
     {
         using var doc = JsonDocument.Parse(json);

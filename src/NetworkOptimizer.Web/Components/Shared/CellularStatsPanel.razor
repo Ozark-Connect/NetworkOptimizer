@@ -270,10 +270,13 @@
                 }
                 @if (modemStats.ServingCell != null)
                 {
-                    <div class="info-item">
-                        <span class="info-label">Cell:</span>
-                        <span class="info-value">PCI @modemStats.ServingCell.PhysicalCellId, EARFCN @modemStats.ServingCell.Earfcn</span>
-                    </div>
+                    @if (modemStats.ServingCell.PhysicalCellId.HasValue || modemStats.ServingCell.Earfcn.HasValue)
+                    {
+                        <div class="info-item">
+                            <span class="info-label">Cell:</span>
+                            <span class="info-value">@(modemStats.ServingCell.PhysicalCellId.HasValue && modemStats.ServingCell.Earfcn.HasValue ? $"PCI {modemStats.ServingCell.PhysicalCellId}, EARFCN {modemStats.ServingCell.Earfcn}" : modemStats.ServingCell.PhysicalCellId.HasValue ? $"PCI {modemStats.ServingCell.PhysicalCellId}" : $"EARFCN {modemStats.ServingCell.Earfcn}")</span>
+                        </div>
+                    }
                     @if (!string.IsNullOrEmpty(modemStats.ServingCell.BandDescription))
                     {
                         <div class="info-item">
