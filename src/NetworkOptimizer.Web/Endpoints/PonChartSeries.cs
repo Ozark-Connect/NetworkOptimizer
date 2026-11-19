@@ -580,9 +580,9 @@ public static class PonChartSeries
     /// The link from the fibre up to traffic, each step read from the latest interval and from
     /// the best source the device reports: light (path loss against the ODN class, else RX in the
     /// receiver window, else O5), transmit (TX power in the ONU range, laser bias under its warn
-    /// limit), registered (O5 and upstream grants), line errors (any uncorrectable codeword
-    /// fails), management (OMCI), service (OMCI services, else a data GEM port),
-    /// host link, and traffic (GEM bytes, else GEM frames). Pass raw polls: a step reads the last two
+    /// limit), registered (O5 and upstream grants), management (OMCI), service (OMCI services, else
+    /// a data GEM port), line errors (any uncorrectable codeword fails), host link, and traffic (GEM
+    /// bytes, else GEM frames). Pass raw polls: a step reads the last two
     /// points, and an aggregated pair spans many polls. A step the data cannot decide is left
     /// out, never shown as "ok". Null when no step can be decided.
     /// </summary>
@@ -717,7 +717,9 @@ public static class PonChartSeries
                 : new("traffic", "fail", "no frames moved in the last interval");
         }
 
-        var steps = new[] { Light(), Transmit(), Registered(), LineErrors(), Management(), Service(), HostLink(), Traffic() }
+        // The ONT's bring-up first (light, laser, O5, OMCI, the service it provisions), then whether
+        // the set-up link works now.
+        var steps = new[] { Light(), Transmit(), Registered(), Management(), Service(), LineErrors(), HostLink(), Traffic() }
             .OfType<CheckStep>().ToList();
         return steps.Count > 0 ? steps : null;
     }

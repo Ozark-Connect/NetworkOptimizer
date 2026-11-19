@@ -634,7 +634,7 @@ public class PonChartSeriesTests
     [Fact]
     public void ConnectionCheck_HealthyLine_IsAllOk()
     {
-        Statuses(Healthy()).Should().Equal("light:ok", "registered:ok", "line_errors:ok", "management:ok", "service:ok", "traffic:ok");
+        Statuses(Healthy()).Should().Equal("light:ok", "registered:ok", "management:ok", "service:ok", "line_errors:ok", "traffic:ok");
     }
 
     [Fact]
@@ -755,7 +755,7 @@ public class PonChartSeriesTests
         var link = new PonChartSeries.LinkReadings(RxDbm: -21.8, TxDbm: 3.0, PonVariant: "GPON", HostLinkMbps: 2500);
 
         Statuses(points, link).Should().Equal(
-            "light:ok", "transmit:ok", "registered:ok", "line_errors:ok", "service:ok", "host_link:ok", "traffic:ok");
+            "light:ok", "transmit:ok", "registered:ok", "service:ok", "line_errors:ok", "host_link:ok", "traffic:ok");
         Step(points, "line_errors", link)!.Detail.Should().Be("no uncorrectable HEC errors in the last interval");
         Step(points, "service", link)!.Detail.Should().Be("3 GEM ports provisioned");
         Step(points, "host_link", link)!.Detail.Should().Be("the gateway port is up at 2.5 Gbps");
@@ -822,7 +822,7 @@ public class PonChartSeriesTests
         foreach (var p in points) { p.PathLossDb = null; p.OltLaunchPowerDbm = null; }
         points[^1].PonLinkStatus = "ranging";
 
-        Statuses(points).Should().Equal("registered:fail", "line_errors:ok", "management:ok", "service:ok", "traffic:ok");
+        Statuses(points).Should().Equal("registered:fail", "management:ok", "service:ok", "line_errors:ok", "traffic:ok");
     }
 
     [Fact]
