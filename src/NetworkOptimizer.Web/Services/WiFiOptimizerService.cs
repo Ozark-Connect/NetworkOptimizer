@@ -196,7 +196,7 @@ public class WiFiOptimizerService : IWiFiScanService
             // Build into a local score and only publish it to the shared field once fully
             // assembled - never mutate _cachedHealthScore in place, or a caller could observe
             // (or a racing refresh could double up) a half-populated Issues list.
-            var score = _healthScorer.Calculate(_cachedAps, _cachedClients, _cachedRoamingData);
+            var score = _healthScorer.Calculate(_cachedAps, _cachedClients, _cachedRoamingData, _cachedWlanConfigs);
 
             // Only consider online APs for additional issue checks
             var onlineAps = _cachedAps.Where(ap => ap.IsOnline).ToList();
