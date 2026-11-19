@@ -13547,6 +13547,21 @@ h3 > .tooltip-icon-sm {
     margin-bottom: 0.75rem;
 }
 
+.wifi-overview-map-switch .time-btn {
+    white-space: nowrap;
+}
+
+@media (max-width: 768px) {
+    /* The grid's 16px bottom margin plus the switch's own padding left a wide band above it on a phone. */
+    .wifi-content-grid:has(+ .wifi-overview-map-switch) {
+        margin-bottom: 4px;
+    }
+
+    .wifi-overview-map-switch {
+        margin-bottom: 0.25rem;
+    }
+}
+
 .wifi-view-tabs {
     display: flex;
     gap: 0.4rem;
