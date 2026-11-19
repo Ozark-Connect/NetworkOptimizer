@@ -1,6 +1,8 @@
 @using NetworkOptimizer.Core.Helpers
 @using NetworkOptimizer.Web.Services.Monitoring.LiveTraffic
 @inherits LiveTrafficPieces
+@inject IJSRuntime JS
+@inject Microsoft.AspNetCore.Mvc.ViewFeatures.IFileVersionProvider FileVersionProvider
 
 @if (Sankey == null || Sankey.Nodes.Count == 0)
 {
@@ -9,7 +11,18 @@
 else
 {
     var layout = Layout(Sankey);
-    <svg class="lt-sankey-svg" viewBox="0 0 @W @H" role="img" aria-label="Where traffic goes: clients to apps to routes">
+    var marks = MarkTokens(layout);
+    _hasMarks = marks.Count > 0;
+    <svg @ref="_svg" class="lt-sankey-svg" viewBox="0 0 @W @H" role="img" aria-label="Where traffic goes: clients to apps to routes">
+        @if (marks.Count > 0)
+        {
+            <defs>
+                @foreach (var token in marks)
+                {
+                    <mask @key="token" id="lt-mark-@token" mask-type="alpha" maskUnits="userSpaceOnUse" x="0" y="0" width="12" height="12"><image class="lt-sankey-mark-src @token" x="0" y="0" width="12" height="12" /></mask>
+                }
+            </defs>
+        }
         <text class="lt-col-label" text-anchor="end" x="@(ColX[0] + NodeW)" y="14">Client</text>
         <text class="lt-col-label" x="@ColX[1]" y="14">App</text>
         <text class="lt-col-label" x="@ColX[2]" y="14">Route</text>
@@ -69,25 +82,58 @@ else
 }
 
 @code {
+    private ElementReference _svg;
+    private bool _hasMarks;
+    private IJSObjectReference? _marks;
+
     /// <summary>
     /// A node's 18px icon at <paramref name="x"/>. A favicon or Font Awesome glyph uses the tables' own markup in a
-    /// foreignObject, since SVG cannot draw either. One of our masked marks (no-icon) is drawn as SVG shapes instead:
-    /// WebKit draws a masked element inside a foreignObject at the SVG's origin, ignoring the node's transform, so
-    /// those marks piled up in the corner on iOS. Such a mark wins over a favicon here.
+    /// foreignObject, since SVG cannot draw either. One of our masked marks (no-icon) is a tile and a rect masked by an
+    /// SVG mask (lt-mark-*) instead. WebKit draws a CSS-masked element in a foreignObject at the SVG's origin, and does
+    /// not apply a CSS image mask to an SVG shape at all, so on iOS those marks piled up in the corner, then showed as
+    /// white boxes. Such a mark wins over a favicon here.
     /// </summary>
     private RenderFragment SankeyIcon(string name, string? domain, string? cls, int x) => __builder =>
     {
-        if (domain == null && cls == null) (domain, cls) = NetworkOptimizer.UniFi.DpiCatalog.IconsForName(name);
-        if (cls != null && cls.Split(' ').Contains("no-icon"))
+        (domain, cls) = ResolveIcon(name, domain, cls);
+        if (MarkToken(cls) is { } token)
         {
             <rect class="lt-sankey-glyph-tile" x="@x" y="-9" width="18" height="18" rx="4" />
-            <rect class="lt-sankey-glyph @cls" x="@(x + 3)" y="-6" width="12" height="12" />
+            <g transform="translate(@(x + 3), -6)"><rect class="lt-sankey-glyph" width="12" height="12" mask="url(#lt-mark-@token)" /></g>
         }
         else
         {
             <foreignObject class="lt-sankey-icon" x="@x" y="-9" width="18" height="18">@AppIcon(name, domain, cls)</foreignObject>
         }
     };
+
+    private static (string? Domain, string? Cls) ResolveIcon(string name, string? domain, string? cls) =>
+        domain == null && cls == null ? NetworkOptimizer.UniFi.DpiCatalog.IconsForName(name) : (domain, cls);
+
+    /// <summary>The mark's own class (no-icon-wireguard) when <paramref name="cls"/> is one of our masked marks.</summary>
+    private static string? MarkToken(string? cls) =>
+        cls?.Split(' ').Contains("no-icon") == true ? cls.Split(' ').FirstOrDefault(c => c.StartsWith("no-icon-", StringComparison.Ordinal)) : null;
+
+    /// <summary>Every masked mark the diagram draws, once each: one SVG mask serves every node that shows it.</summary>
+    private List<string> MarkTokens(Placed layout) =>
+        layout.Nodes.Select(n => n.Node)
+            .Select(node => node.Column == 1 && !node.IsOther ? MarkToken(ResolveIcon(node.Name, node.IconDomain, node.IconClass).Cls)
+                : node.Column == 0 && node.Tailnet ? MarkToken(ResolveIcon("Tailscale", null, null).Cls)
+                : null)
+            .OfType<string>()
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!_hasMarks) return;
+        try
+        {
+            _marks ??= await JS.InvokeAsync<IJSObjectReference>("import", FileVersionProvider.AddFileVersionToPath("", "/js/lt-sankey-marks.js"));
+            await _marks.InvokeVoidAsync("fill", _svg);
+        }
+        catch (Exception ex) when (ex is JSDisconnectedException or JSException or TaskCanceledException or ObjectDisposedException) { }
+    }
 
     /// <summary>The diagram to draw; null or empty draws the idle state.</summary>
     [Parameter] public LiveSankey? Sankey { get; set; }
