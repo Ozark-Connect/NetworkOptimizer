@@ -195,6 +195,8 @@ public class MonitoringTargetService : IMonitoringTargetService
 
         return UpdateAsync(id, ct, row =>
         {
+            if (MonitoringTargetNaming.IsConsoleNamed(row))
+                throw new MonitoringTargetValidationException("This target takes its name from the UniFi Console. Rename the device there.");
             if (row.Name == trimmed) return null;
             var before = row.Name;
             row.Name = trimmed;

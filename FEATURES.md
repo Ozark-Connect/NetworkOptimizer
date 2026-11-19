@@ -230,7 +230,7 @@ Time-series monitoring on your own InfluxDB, fed by SNMP polling (InfluxDB).
   - Keeps your choices: unchecked or paused targets stay that way on re-runs
   - A re-run and commit corrects earlier mistyped targets, keeping their history
 - **Flaky Monitoring Targets** - targets losing more than their peers, with **Disable** and **Disable all**
-- **Latency Targets** - add, rename, pause, remove, and restore targets
+- **Latency Targets** - add, rename, pause, remove, and restore targets; a UniFi device's target takes the device's UniFi Console name and follows a rename there
   - ICMP or TCP probes, per-WAN path, interval from 2 seconds to 5 minutes
 - **Multi-WAN Monitoring - Vantages** - give each WAN an [On-Site Agent](#on-site-agent) or a policy-routed source address
   - Edit, verify, and assign targets per vantage
