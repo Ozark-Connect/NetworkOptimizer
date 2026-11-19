@@ -311,16 +311,17 @@
             button.setAttribute('aria-label', show ? 'Hide password' : 'Show password');
         }
 
-        // Copy a command block's text. Same tick-swap feedback as the input copiers; the text comes
-        // from the sibling <pre>, whose textContent is exactly what was rendered.
+        // Copy a command block's text. Same tick-swap feedback as the input copiers, plus a short
+        // "Copied" label beside the button (a role=status span, so it is announced too). The text
+        // comes from the sibling <pre>, whose textContent is exactly what was rendered - the block
+        // wraps visually, but wrapping adds no characters.
         function copyFromCodeBlock(button) {
-            const block = button.parentElement.querySelector('pre');
+            const wrapper = button.parentElement;
+            const block = wrapper.querySelector('pre');
             if (!block) return;
             const text = block.textContent;
 
-            if (navigator.clipboard && window.isSecureContext) {
-                navigator.clipboard.writeText(text);
-            } else {
+            function legacyCopy() {
                 const scratch = document.createElement('textarea');
                 scratch.value = text;
                 scratch.setAttribute('readonly', '');
@@ -328,19 +329,47 @@
                 scratch.style.left = '-9999px';
                 document.body.appendChild(scratch);
                 scratch.select();
-                document.execCommand('copy');
+                let ok = false;
+                try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
                 document.body.removeChild(scratch);
+                return ok;
             }
 
-            const icon = button.querySelector('.copy-icon');
-            const check = button.querySelector('.copy-check');
-            if (icon && check) {
-                icon.style.display = 'none';
-                check.style.display = 'inline-flex';
-                setTimeout(function () {
-                    icon.style.display = 'inline-flex';
-                    check.style.display = 'none';
-                }, 1500);
+            function showFeedback(ok) {
+                const icon = button.querySelector('.copy-icon');
+                const check = button.querySelector('.copy-check');
+                const label = wrapper.querySelector('.code-copy-feedback');
+                clearTimeout(button._copyResetTimer);
+                if (ok && icon && check) {
+                    icon.style.display = 'none';
+                    check.style.display = 'inline-flex';
+                }
+                button.classList.toggle('is-copied', ok);
+                button.classList.toggle('is-copy-failed', !ok);
+                if (label) {
+                    label.textContent = ok ? 'Copied' : 'Copy failed - select the text instead';
+                    label.classList.toggle('is-failed', !ok);
+                    label.classList.add('is-visible');
+                }
+                button._copyResetTimer = setTimeout(function () {
+                    if (icon && check) {
+                        icon.style.display = 'inline-flex';
+                        check.style.display = 'none';
+                    }
+                    button.classList.remove('is-copied', 'is-copy-failed');
+                    if (label) {
+                        label.classList.remove('is-visible');
+                        label.textContent = '';
+                    }
+                }, ok ? 1500 : 3000);
+            }
+
+            if (navigator.clipboard && window.isSecureContext) {
+                navigator.clipboard.writeText(text).then(
+                    function () { showFeedback(true); },
+                    function () { showFeedback(legacyCopy()); });
+            } else {
+                showFeedback(legacyCopy());
             }
         }
 

@@ -2575,9 +2575,11 @@
                         {
                             <div style="padding: 0 0 0.75rem;">
                                 <p style="color: var(--text-secondary); font-size: 0.8125rem; margin-bottom: 0.5rem;">Install on a new server:</p>
-                                <pre style="background: var(--bg-primary); padding: 0.75rem; border-radius: var(--border-radius-lg); font-size: 0.8125rem; overflow-x: auto; white-space: pre-wrap; word-break: break-all;">curl -fsSL https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main/scripts/deploy-external-speedtest.sh | bash -s -- @GetOptimizerUrl() @(server.ServerId)@GetDeployPortParam(server)</pre>
+                                <CopyableCommand Text="@ExternalSpeedTestInstallCommand(server)"
+                                                 Tooltip="Copy the speed test server install command" />
                                 <p style="color: var(--text-secondary); font-size: 0.8125rem; margin-top: 0.75rem; margin-bottom: 0.5rem;">Update existing:</p>
-                                <pre style="background: var(--bg-primary); padding: 0.75rem; border-radius: var(--border-radius-lg); font-size: 0.8125rem; overflow-x: auto;">curl -fsSL https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main/scripts/deploy-external-speedtest.sh | bash -s -- --update</pre>
+                                <CopyableCommand Text="@ExternalSpeedTestUpdateCommand"
+                                                 Tooltip="Copy the speed test server update command" />
                             </div>
                         }
                     </div>
@@ -6163,6 +6165,15 @@
             ? $"{extServerFormScheme}://{extServerFormHost}"
             : $"{extServerFormScheme}://{extServerFormHost}:{extServerFormPort}";
     }
+
+    private const string ExternalSpeedTestScriptUrl =
+        "https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main/scripts/deploy-external-speedtest.sh";
+
+    private const string ExternalSpeedTestUpdateCommand =
+        $"curl -fsSL {ExternalSpeedTestScriptUrl} | bash -s -- --update";
+
+    private string ExternalSpeedTestInstallCommand(ExternalSpeedTestServer server) =>
+        $"curl -fsSL {ExternalSpeedTestScriptUrl} | bash -s -- {GetOptimizerUrl()} {server.ServerId}{GetDeployPortParam(server)}";
 
     private string GetOptimizerUrl()
     {

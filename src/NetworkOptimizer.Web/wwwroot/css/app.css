@@ -4595,11 +4595,28 @@ input.form-control::-webkit-date-and-time-value {
 .code-copy-block pre {
     background: var(--bg-primary);
     padding: 0.75rem;
+    /* Room for the copy button, so wrapped lines never run underneath it. */
     padding-right: 3rem;
     border-radius: var(--border-radius-lg);
     overflow-x: auto;
     max-width: 100%;
     font-size: 0.8125rem;
+    line-height: 1.5;
+    /* Wrap rather than scroll: these are long one-liners (curl ... | bash -s -- --server ...) that
+       were only readable by dragging a scrollbar. pre-wrap breaks at the spaces between arguments
+       and keeps any real newlines; overflow-wrap: anywhere lets an over-long URL break mid-token
+       instead of forcing the scrollbar back. Copying is unaffected - the text has no added breaks. */
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
+/* The command's <code> is plain text inside the block - not the inline-code pill some containers
+   (.setup-guide-content) give a bare <code>. */
+.code-copy-block pre code {
+    background: none;
+    padding: 0;
+    border-radius: 0;
+    font-size: inherit;
 }
 
 .code-copy-btn {
@@ -4634,6 +4651,66 @@ input.form-control::-webkit-date-and-time-value {
 .code-copy-btn svg {
     width: 0.95rem;
     height: 0.95rem;
+}
+
+.code-copy-btn:focus-visible {
+    outline: 2px solid var(--primary-color);
+    outline-offset: 1px;
+}
+
+.code-copy-btn.is-copied {
+    color: var(--success-color);
+    border-color: var(--success-color);
+}
+
+.code-copy-btn.is-copy-failed {
+    color: var(--danger-color);
+    border-color: var(--danger-color);
+}
+
+/* "Copied" chip to the left of the button. Empty and invisible until a copy, so it never covers the
+   command at rest; same compositing promotion as the button for the iOS reason noted above. */
+.code-copy-feedback {
+    position: absolute;
+    top: 0.5rem;
+    right: 2.85rem;
+    z-index: 1;
+    will-change: transform, opacity;
+    transform: translateZ(0) translateX(0.25rem);
+    display: inline-flex;
+    align-items: center;
+    height: 2rem;
+    padding: 0 0.6rem;
+    background: var(--bg-elevated);
+    color: var(--success-color);
+    border: 1px solid var(--border-color);
+    border-radius: var(--border-radius);
+    font-size: 0.75rem;
+    font-weight: 500;
+    white-space: nowrap;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.15s ease, transform 0.15s ease;
+}
+
+.code-copy-feedback:empty {
+    padding: 0;
+    border: 0;
+}
+
+.code-copy-feedback.is-visible {
+    opacity: 1;
+    transform: translateZ(0) translateX(0);
+}
+
+.code-copy-feedback.is-failed {
+    color: var(--danger-color);
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .code-copy-feedback {
+        transition: none;
+    }
 }
 
 .account-copy-btn {

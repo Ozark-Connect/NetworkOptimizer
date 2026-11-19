@@ -1,6 +1,8 @@
 @* A command block with a copy button in its upper right. The commands we print are meant to be run
    somewhere else - on a gateway, on an agent host - so selecting one by hand out of a wrapped <pre>
-   is the fiddliest step of the whole flow. Feedback is the same tick swap the account key uses. *@
+   is the fiddliest step of the whole flow. The command wraps (pre-wrap) so a long one-liner reads in
+   full without a scrollbar; wrapping is presentation only, the clipboard still gets the exact text.
+   Feedback is the tick swap the account key uses, plus a "Copied" label that screen readers announce. *@
 
 <div class="code-copy-block">
     <pre><code>@Text</code></pre>
@@ -17,6 +19,7 @@
             </svg>
         </span>
     </button>
+    <span class="code-copy-feedback" role="status" aria-live="polite"></span>
 </div>
 
 @code {
