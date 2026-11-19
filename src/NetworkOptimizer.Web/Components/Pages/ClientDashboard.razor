@@ -818,19 +818,21 @@
                                                 <td class="hide-mobile">@(wan ? "WAN" : r.Direction == SpeedTestDirection.BrowserToServer ? "Browser" : "iperf3")</td>
                                                 <td class="expand-chevron"><span>@(_expandedResultId == r.Id ? "▲" : "▼")</span></td>
                                             </tr>
-                                            @if (_expandedResultId == r.Id)
-                                            {
-                                                <tr class="result-details-row">
-                                                    <td colspan="@(HidesApRates ? 6 : 8)">
-                                                        <div class="result-details">
-                                                            <SpeedTestDetails Result="r" HideDeviceName="true" HideClientDashboardLink="true"
-                                                                              Perspective="@(wan ? SpeedPerspective.Wan : SpeedPerspective.Device)"
-                                                                              ShowLiveViewLink="_liveViewLinkEnabled"
-                                                                              OnDelete="HandleDeleteResult" OnNotesChanged="HandleNotesChanged" />
+                                            @* Always rendered, so the standard expand-wrapper can animate it open and shut. *@
+                                            <tr class="result-details-row">
+                                                <td colspan="@(HidesApRates ? 6 : 8)">
+                                                    <div class="expand-wrapper @(_expandedResultId == r.Id ? "expanded" : "")">
+                                                        <div class="expand-content">
+                                                            <div class="result-details">
+                                                                <SpeedTestDetails Result="r" HideDeviceName="true" HideClientDashboardLink="true"
+                                                                                  Perspective="@(wan ? SpeedPerspective.Wan : SpeedPerspective.Device)"
+                                                                                  ShowLiveViewLink="_liveViewLinkEnabled"
+                                                                                  OnDelete="HandleDeleteResult" OnNotesChanged="HandleNotesChanged" />
+                                                            </div>
                                                         </div>
-                                                    </td>
-                                                </tr>
-                                            }
+                                                    </div>
+                                                </td>
+                                            </tr>
                                         }
                                     </tbody>
                                 </table>
@@ -5503,6 +5505,8 @@
     }
     .result-details-row td {
         padding: 0;
+        /* The row stays in the DOM when collapsed; .result-details draws the line when open. */
+        border-bottom: 0;
     }
     .expand-chevron {
         width: 2rem;
