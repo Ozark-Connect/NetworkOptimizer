@@ -19840,13 +19840,36 @@ tr.stats-row-filtered {
     background: rgba(51, 56, 68, 0.9);
     color: var(--text-primary);
 }
-.fp-map-container .fp-tool-control a.active {
+/* Leaflet's .leaflet-bar a:focus paints a clicked button #f4f4f4 until focus moves; keep each
+   state's own colors on focus and show a ring for keyboard focus only */
+.fp-map-container .fp-tool-control a:focus,
+.fp-map-container .leaflet-control-zoom a:focus,
+.map-container .leaflet-control-zoom a:focus {
+    background: rgba(26, 29, 35, 0.9);
+    color: var(--text-secondary);
+    outline: none;
+}
+.fp-map-container .fp-tool-control a:focus-visible,
+.fp-map-container .leaflet-control-zoom a:focus-visible,
+.map-container .leaflet-control-zoom a:focus-visible {
+    outline: 2px solid var(--primary-hover);
+    outline-offset: 1px;
+}
+.fp-map-container .fp-tool-control a:focus:hover,
+.fp-map-container .leaflet-control-zoom a:focus:hover,
+.map-container .leaflet-control-zoom a:focus:hover {
+    background: rgba(51, 56, 68, 0.9);
+    color: var(--text-primary);
+}
+.fp-map-container .fp-tool-control a.active,
+.fp-map-container .fp-tool-control a.active:focus {
     background: var(--primary-color);
     border-color: var(--primary-hover);
     color: #fff;
 }
 .fp-map-container .fp-tool-control a.disabled,
-.fp-map-container .fp-tool-control a.disabled:hover {
+.fp-map-container .fp-tool-control a.disabled:hover,
+.fp-map-container .fp-tool-control a.disabled:focus {
     background: rgba(26, 29, 35, 0.6);
     color: var(--text-muted);
     cursor: default;
@@ -19859,7 +19882,8 @@ tr.stats-row-filtered {
 .fp-map-container .fp-tool-group + .fp-tool-group {
     margin-top: 6px;
 }
-.leaflet-container.fp-tool-select {
+.leaflet-container.fp-tool-select,
+.leaflet-container.fp-shift-select {
     cursor: crosshair;
 }
 

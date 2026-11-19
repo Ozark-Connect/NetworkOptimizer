@@ -80,7 +80,8 @@ window.fpEditor = {
         // Edge zones are still calculated relative to the map container.
         this._edgePanHandler = function (e) {
             // Pause panning when hovering over any form input (select, button, etc.)
-            if (e.target && e.target.closest && (e.target.closest('select') || e.target.closest('input') || e.target.closest('button'))) {
+            if ((e.target && e.target.closest && (e.target.closest('select') || e.target.closest('input') || e.target.closest('button')))
+                || self._inToolboxArea(e.clientX, e.clientY)) {
                 self._edgePanDx = 0;
                 self._edgePanDy = 0;
                 self._stopEdgePanTimer();
@@ -122,6 +123,24 @@ window.fpEditor = {
         // Attach to the editor wrapper (parent of both toolbar and map)
         this._edgePanTarget = m.getContainer().closest('.floor-plan-editor') || m.getContainer();
         this._edgePanTarget.addEventListener('mousemove', this._edgePanHandler);
+    },
+
+    // The top-left control column (zoom + toolbox) as one box, gaps included, plus a margin, so
+    // moving between its buttons never edge-pans the map.
+    _inToolboxArea: function (clientX, clientY) {
+        var m = this._map;
+        if (!m) return false;
+        var corner = m.getContainer().querySelector('.leaflet-top.leaflet-left');
+        if (!corner) return false;
+        var l = Infinity, t = Infinity, r = -Infinity, b = -Infinity;
+        corner.querySelectorAll('.leaflet-control').forEach(function (c) {
+            var rc = c.getBoundingClientRect();
+            if (rc.width === 0 && rc.height === 0) return;
+            l = Math.min(l, rc.left); t = Math.min(t, rc.top); r = Math.max(r, rc.right); b = Math.max(b, rc.bottom);
+        });
+        if (l === Infinity) return false;
+        var pad = 12;
+        return clientX >= l - pad && clientX <= r + pad && clientY >= t - pad && clientY <= b + pad;
     },
 
     _stopEdgePanTimer: function () {
@@ -1908,6 +1927,14 @@ window.fpEditor = {
         var MOVE = usePointer ? 'pointermove' : 'mousemove';
         var UP = usePointer ? 'pointerup' : 'mouseup';
 
+        // Holding Shift shows the Select tool's crosshair, so the box-select gesture is visible
+        var setShiftCursor = function (on) {
+            container.classList.toggle('fp-shift-select', on && !!self._selectUsable);
+        };
+        document.addEventListener('keydown', function (e) { if (e.key === 'Shift') setShiftCursor(true); });
+        document.addEventListener('keyup', function (e) { if (e.key === 'Shift') setShiftCursor(false); });
+        window.addEventListener('blur', function () { setShiftCursor(false); });
+
         // The compatibility mousedown after a handled pointerdown must not reach Leaflet either
         container.addEventListener('mousedown', function (e) {
             if (self._marqueeActive) e.stopPropagation();
@@ -1979,10 +2006,18 @@ window.fpEditor = {
         // A wall corner with a pen nib on its open end
         draw: '<path d="M3 21V9h8"/><circle cx="3" cy="9" r="0.6" fill="currentColor"/><path d="M14.5 6.5 18 3l3 3-3.5 3.5"/><path d="M14.5 6.5 9 12l-1 4 4-1 5.5-5.5"/>',
         undo: '<path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/>',
-        // Ceiling AP: a puck with its status ring, signal arcs above
-        aps: '<ellipse cx="12" cy="17" rx="8" ry="3.2"/><path d="M7.5 17.2h9"/><path d="M8.5 9.5a5 5 0 0 1 7 0"/><path d="M6 7a8.5 8.5 0 0 1 12 0"/><circle cx="12" cy="12" r="0.8" fill="currentColor"/>',
-        // Planned AP: the same puck, dashed, with a plus
-        plan: '<ellipse cx="12" cy="17" rx="8" ry="3.2" stroke-dasharray="2.2 2"/><path d="M12 4v8"/><path d="M8 8h8"/>'
+        // AppIcon.razor's "access-point" puck (same paths and 1.6 stroke), so the toolbox AP matches
+        // the device cards and path-trace hops
+        aps: '<g stroke-width="1.6"><path d="M2.5 11v2.5c0 2.2 4.25 4 9.5 4s9.5-1.8 9.5-4V11" fill="currentColor" fill-opacity="0.18"/>' +
+            '<ellipse cx="12" cy="11" rx="9.5" ry="4" fill="currentColor" fill-opacity="0.35"/>' +
+            '<ellipse cx="12" cy="11" rx="2.4" ry="1"/></g>',
+        // Planned AP: the same puck, lighter, with the planned marker's orange (#f97316) plus badge,
+        // badged the way ApLockIcon.razor badges its AP (dashes turn to noise at 20px)
+        plan: '<g stroke-width="1.6" stroke-opacity="0.75"><path d="M2.5 11v2.5c0 2.2 4.25 4 9.5 4s9.5-1.8 9.5-4V11" fill="currentColor" fill-opacity="0.1"/>' +
+            '<ellipse cx="12" cy="11" rx="9.5" ry="4" fill="currentColor" fill-opacity="0.2"/>' +
+            '<ellipse cx="12" cy="11" rx="2.4" ry="1"/></g>' +
+            '<circle cx="19" cy="5" r="4.4" fill="#f97316" stroke="none"/>' +
+            '<path d="M19 3v4M17 5h4" stroke="#fff" stroke-width="1.6"/>'
     },
 
     _initWallToolbox: function () {
@@ -1994,8 +2029,9 @@ window.fpEditor = {
             onAdd: function () {
                 var div = L.DomUtil.create('div', 'leaflet-bar fp-tool-control');
                 var btn = function (key, icon) {
+                    var sz = (icon === 'aps' || icon === 'plan') ? 20 : 16; // the flat puck needs the extra size
                     return '<a href="#" role="button" data-tool="' + key + '" data-tooltip-hover-only>' +
-                        '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
+                        '<svg viewBox="0 0 24 24" width="' + sz + '" height="' + sz + '" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
                         self._toolIcons[icon] + '</svg></a>';
                 };
                 div.innerHTML =
@@ -2022,6 +2058,7 @@ window.fpEditor = {
     },
 
     _onToolboxClick: function (tool) {
+        if (tool === 'pan' && this._isDrawing) { this._setDrawPan(!this._drawPan); return; }
         if (tool === 'pan' || tool === 'select') { this._setWallTool(tool); return; }
         if (tool === 'undo' && this._isDrawing) { this._undoLastPoint(); return; }
         if (this._dotNetRef) this._dotNetRef.invokeMethodAsync('OnToolboxAction', tool);
@@ -2044,6 +2081,18 @@ window.fpEditor = {
         if (this._previewLine) { this._map.removeLayer(this._previewLine); this._previewLine = null; }
         if (this._previewLengthLabel) { this._map.removeLayer(this._previewLengthLabel); this._previewLengthLabel = null; }
         if (cw.points.length < 2) this._refAngle = null;
+    },
+
+    // Pan during Draw Layout: drag moves the map, a click still adds a point. Leaflet drops the
+    // click that ends a drag, so panning never places a point.
+    _setDrawPan: function (on) {
+        var m = this._map;
+        this._drawPan = !!on;
+        if (m && this._isDrawing) {
+            if (this._drawPan) m.dragging.enable(); else m.dragging.disable();
+            m.getContainer().style.cursor = this._drawPan ? '' : 'crosshair';
+        }
+        this._renderToolbox();
     },
 
     _setWallTool: function (tool) {
@@ -2075,7 +2124,7 @@ window.fpEditor = {
         var self = this;
         var drawing = st.mode === 'walls';
         var labels = {
-            pan: 'Pan',
+            pan: drawing ? 'Pan: drag to move the map while drawing' : 'Pan',
             select: 'Select walls: drag a box (Shift adds), then click or right-click one to change material',
             draw: drawing ? 'Done Drawing' : 'Draw Layout',
             undo: drawing ? 'Undo Point' : 'Undo Wall',
@@ -2083,7 +2132,7 @@ window.fpEditor = {
             'plan-aps': st.mode === 'plan-aps' ? 'Done' : st.planLabel
         };
         var active = {
-            pan: this._wallTool === 'pan' && !drawing && st.mode !== 'aps' && st.mode !== 'plan-aps',
+            pan: drawing ? !!this._drawPan : (this._wallTool === 'pan' && st.mode !== 'aps' && st.mode !== 'plan-aps'),
             select: this._wallTool === 'select' && this._selectUsable,
             draw: drawing, undo: false, aps: st.mode === 'aps', 'plan-aps': st.mode === 'plan-aps'
         };
@@ -2681,6 +2730,7 @@ window.fpEditor = {
         this._allWalls = JSON.parse(wallsJson);
         this._distanceWarnShown = false;
         m.dragging.disable();
+        this._drawPan = false;
         this._startEdgePan();
         m.getContainer().style.cursor = 'crosshair';
 
@@ -3035,6 +3085,7 @@ window.fpEditor = {
         // Tear down draw mode
         this._stopEdgePan();
         m.dragging.enable();
+        this._drawPan = false;
         m.getContainer().style.cursor = '';
         if (this._wallClickHandler) { m.off('click', this._wallClickHandler); this._wallClickHandler = null; }
         if (this._wallDblClickHandler) { m.off('dblclick', this._wallDblClickHandler); this._wallDblClickHandler = null; }
