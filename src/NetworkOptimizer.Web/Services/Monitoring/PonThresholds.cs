@@ -31,6 +31,12 @@ public static class PonThresholds
     /// <summary>The OLT announces its power in 0.1 dB steps; a full step this size is a change of level.</summary>
     public const double OltLaunchChangeDb = 1.0;
 
+    // --- ONU transmit power spec ranges (G.984.2 Class B+, G.9807.1 N1), for the Connection Check ---
+    public const double GponOnuTxMinDbm = 0.5;
+    public const double GponOnuTxMaxDbm = 5.0;
+    public const double XgsPonOnuTxMinDbm = 4.0;
+    public const double XgsPonOnuTxMaxDbm = 9.0;
+
     // --- PON receiver operating envelope (physics; consumed by ISP Health optical scoring) ---
     /// <summary>ONU receiver sensitivity floor (GPON/XGS-PON Class B+); at/below this the link risks dropping.</summary>
     public const double PonRxFloorDbm = -28.0;

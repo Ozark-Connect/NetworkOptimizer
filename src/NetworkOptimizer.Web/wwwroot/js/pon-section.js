@@ -474,7 +474,10 @@ export function createPonLoadMap({ ApexCharts, url, cardSelector, chartSelector,
     return { refresh, destroy };
 }
 
-const CHECK_LABELS = { light: 'Light', registered: 'Registered', management: 'Management', service: 'Service', traffic: 'Traffic' };
+const CHECK_LABELS = {
+    light: 'Light', transmit: 'Transmit', registered: 'Registered', line_errors: 'Line Errors',
+    management: 'Management', service: 'Service', host_link: 'Host Link', traffic: 'Traffic',
+};
 const CHECK_WORDS = { ok: 'OK', fail: 'Failed', unknown: 'Not reported' };
 
 const sentence = text => text ? `${text.charAt(0).toUpperCase()}${text.slice(1)}` : '';

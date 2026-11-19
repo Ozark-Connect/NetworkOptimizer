@@ -559,38 +559,90 @@ public static class PonChartSeries
     public sealed record CheckStep(string Key, string Status, string Detail);
 
     /// <summary>
-    /// The link from the fibre up to traffic in five steps, each read from the latest interval:
-    /// light (the path loss inside the window of the announced ODN class), registered (O5 and
-    /// being granted upstream), management channel (the OMCI daemon answers), service (the OLT
-    /// has provisioned at least one) and traffic (bytes moved on the ONT's GEM ports). A step
-    /// the reported data cannot decide is left out, never shown as "ok". Without an announced
-    /// launch power, light is judged from O5: an ONU reaches it only with downstream light and
-    /// frame sync. <paramref name="rxDbm"/> is the ONT's latest RX power, for that step's detail.
-    /// Null when no step can be decided.
+    /// What a chart endpoint knows about the link beyond the PON points: the module's or ONT's
+    /// latest DDM readings, the PON variant (from the part number or the provider), and the
+    /// negotiated speed of the gateway port the module sits in.
     /// </summary>
-    public static List<CheckStep>? ConnectionCheck(List<MonitoringInfluxClient.PonSeriesPoint>? points, double? rxDbm = null)
+    public sealed record LinkReadings(double? RxDbm = null, double? TxDbm = null, string? PonVariant = null, int? HostLinkMbps = null);
+
+    /// <summary>
+    /// The link from the fibre up to traffic, each step read from the latest interval and from
+    /// the best source the device reports: light (path loss against the ODN class, else RX in the
+    /// receiver window, else O5), transmit (TX power in the ONU range, laser bias under its warn
+    /// limit), registered (O5 and upstream grants), line errors (uncorrectable codewords against
+    /// the alert threshold), management (OMCI), service (OMCI services, else a data GEM port),
+    /// host link, and traffic (GEM bytes, else GEM frames). A step the data cannot decide is left
+    /// out, never shown as "ok". Null when no step can be decided.
+    /// </summary>
+    public static List<CheckStep>? ConnectionCheck(List<MonitoringInfluxClient.PonSeriesPoint>? points, LinkReadings? link = null)
     {
         if (points is not { Count: > 0 }) return null;
         var ordered = points.OrderBy(p => p.Time).ToList();
         var cur = ordered[^1];
         var prev = ordered.Count > 1 ? ordered[^2] : null;
         if (cur.PonLinkStatus is null && cur.OmciUp is null) return null;
+        link ??= new LinkReadings();
         var inv = CultureInfo.InvariantCulture;
+        const string noLaunch = ". The OLT announces no launch power, so the path loss is not checked";
 
         CheckStep? Light()
         {
-            if (cur.PathLossDb is not double loss || cur.OdnClass is not (>= 0 and <= 4))
+            if (cur.PathLossDb is double loss && cur.OdnClass is >= 0 and <= 4)
             {
-                if (cur.PonLinkStatus != "operation") return null;
-                return new("light", "ok", rxDbm is double rx
-                    ? string.Create(inv, $"receiving at {rx:0.0} dBm, in O5. The OLT announces no launch power, so the path loss is not checked")
-                    : "in O5. The OLT announces no launch power, so the path loss is not checked");
+                var (name, min, max) = OdnClasses[cur.OdnClass.Value];
+                // Under the class minimum is a short fiber, not a fault: the Path Loss card notes it.
+                return new("light", loss <= max ? "ok" : "fail",
+                    string.Create(inv, $"path loss {loss:0.0} dB, class {name} allows {min:0} to {max:0} dB"));
             }
-            var (name, min, max) = OdnClasses[cur.OdnClass.Value];
-            // Under the class minimum is a short fiber, not a fault: the Path Loss card notes it.
-            var ok = loss <= max;
-            return new("light", ok ? "ok" : "fail",
-                string.Create(inv, $"path loss {loss:0.0} dB, class {name} allows {min:0} to {max:0} dB"));
+            if (link.RxDbm is double rx)
+            {
+                const double floor = PonThresholds.PonRxFloorDbm, overload = PonThresholds.PonRxOverloadDbm;
+                return rx < floor
+                    ? new("light", "fail", string.Create(inv, $"RX {rx:0.0} dBm, below the receiver's {floor:0} dBm floor{noLaunch}"))
+                    : rx > overload
+                        ? new("light", "fail", string.Create(inv, $"RX {rx:0.0} dBm, above the receiver's {overload:0} dBm overload point{noLaunch}"))
+                        : new("light", "ok", string.Create(inv, $"RX {rx:0.0} dBm, inside the receiver's {floor:0} to {overload:0} dBm window{noLaunch}"));
+            }
+            return cur.PonLinkStatus == "operation" ? new("light", "ok", $"in O5{noLaunch}") : null;
+        }
+
+        CheckStep? Transmit()
+        {
+            // The laser's own warning limit, where the ONT reports one, outranks the TX power range.
+            if (cur.BiasMa is double bias && cur.BiasWarnHighMa is double warn and > 0 && bias >= warn)
+                return new("transmit", "fail", string.Create(inv, $"laser bias {bias:0.0} mA, at or above its {warn:0.0} mA warning limit"));
+            var tx = link.TxDbm ?? cur.OntTxPowerDbm;
+            // Providers spell the variant their own way ("XGS-PON", "xgspon", "GPON"); anything else has no range here.
+            var spelled = link.PonVariant?.Replace("-", "").ToUpperInvariant();
+            var variant = spelled is null ? null : spelled.Contains("XGS") ? "XGS-PON" : spelled == "GPON" ? "GPON" : null;
+            (double Min, double Max)? range = variant switch
+            {
+                "GPON" => (PonThresholds.GponOnuTxMinDbm, PonThresholds.GponOnuTxMaxDbm),
+                "XGS-PON" => (PonThresholds.XgsPonOnuTxMinDbm, PonThresholds.XgsPonOnuTxMaxDbm),
+                _ => null,
+            };
+            if (tx is not double t || range is not var (lo, hi)) return null;
+            return t < lo
+                ? new("transmit", "fail", string.Create(inv, $"TX {t:0.0} dBm, below the {variant} ONU minimum of {lo:0.0} dBm"))
+                : t > hi
+                    ? new("transmit", "fail", string.Create(inv, $"TX {t:0.0} dBm, above the {variant} ONU maximum of {hi:0.0} dBm"))
+                    : new("transmit", "ok", string.Create(inv, $"TX {t:0.0} dBm, inside the {variant} ONU range of {lo:0.0} to {hi:0.0} dBm"));
+        }
+
+        CheckStep? LineErrors()
+        {
+            if (prev is null) return null;
+            // Uncorrectable codewords: FEC's when payload FEC runs, HEC header errors when it is off.
+            var fecOff = cur.DsFecEnabled == 0;
+            var lost = fecOff ? Delta(cur.HecUncorrected, prev.HecUncorrected) : Delta(cur.FecErrors, prev.FecErrors);
+            if (lost is not long n) return null;
+            var what = fecOff ? "uncorrectable HEC errors" : "uncorrectable FEC codewords";
+            var threshold = fecOff ? PonThresholds.PonHecErrorSpikePerPoll : PonThresholds.PonFecErrorSpikePerPoll;
+            return n > threshold
+                ? new("line_errors", "fail", string.Create(inv, $"{n:N0} {what} in the last interval, over the {threshold:N0} alert threshold"))
+                : new("line_errors", "ok", n == 0
+                    ? $"no {what} in the last interval"
+                    : string.Create(inv, $"{n:N0} {what} in the last interval, under the {threshold:N0} alert threshold"));
         }
 
         CheckStep? Registered()
@@ -615,22 +667,47 @@ public static class PonChartSeries
 
         CheckStep? Service() => cur.OmciServices switch
         {
-            null => null,
             0 => new("service", "fail", "the OLT has provisioned no service"),
-            var n => new("service", "ok", string.Create(inv, $"{n} provisioned")),
+            long n => new("service", "ok", string.Create(inv, $"{n} provisioned")),
+            // One GEM port is OMCI's own, so a second one is a data flow the OLT provisioned.
+            null => cur.GemPorts switch
+            {
+                null => null,
+                <= 1 => new("service", "fail", "only the OMCI GEM port is provisioned"),
+                var g => new("service", "ok", string.Create(inv, $"{g} GEM ports provisioned")),
+            },
         };
+
+        CheckStep? HostLink()
+        {
+            if (cur.HostLinkUp is long up)
+                return up == 1 ? new("host_link", "ok", "the ONT's host link is up") : new("host_link", "fail", "the ONT reports no host link");
+            return link.HostLinkMbps is int mbps and > 0
+                ? new("host_link", "ok", $"the gateway port is up at {DisplayFormatters.FormatLinkSpeed(mbps)}")
+                : null;
+        }
 
         CheckStep? Traffic()
         {
-            var down = prev is null ? null : Delta(cur.GemRxBytes, prev.GemRxBytes);
-            var up = prev is null ? null : Delta(cur.GemTxBytes, prev.GemTxBytes);
-            if (down is null && up is null) return null;
-            return (down ?? 0) > 0 || (up ?? 0) > 0
-                ? new("traffic", "ok", "bytes moved in the last interval")
-                : new("traffic", "fail", "no bytes moved in the last interval");
+            if (prev is null) return null;
+            var down = Delta(cur.GemRxBytes, prev.GemRxBytes);
+            var up = Delta(cur.GemTxBytes, prev.GemTxBytes);
+            if (down is not null || up is not null)
+                return (down ?? 0) > 0 || (up ?? 0) > 0
+                    ? new("traffic", "ok", "bytes moved in the last interval")
+                    : new("traffic", "fail", "no bytes moved in the last interval");
+            // Without byte counters, data frames: GEM frames less the idle ones that fill the gaps.
+            var framesDown = Delta(cur.GemRxFrames, prev.GemRxFrames) is long rxf
+                ? rxf - (Delta(cur.GemRxIdleFrames, prev.GemRxIdleFrames) ?? 0) : (long?)null;
+            var framesUp = Delta(cur.GemTxFrames, prev.GemTxFrames) is long txf
+                ? txf - (Delta(cur.GemTxIdleFrames, prev.GemTxIdleFrames) ?? 0) : (long?)null;
+            if (framesDown is null && framesUp is null) return null;
+            return (framesDown ?? 0) > 0 || (framesUp ?? 0) > 0
+                ? new("traffic", "ok", "frames moved in the last interval")
+                : new("traffic", "fail", "no frames moved in the last interval");
         }
 
-        var steps = new[] { Light(), Registered(), Management(), Service(), Traffic() }
+        var steps = new[] { Light(), Transmit(), Registered(), LineErrors(), Management(), Service(), HostLink(), Traffic() }
             .OfType<CheckStep>().ToList();
         return steps.Count > 0 ? steps : null;
     }
@@ -907,9 +984,9 @@ public static class PonChartSeries
     }
 
     /// <summary>The read-outs beyond the charts, bundled so both chart endpoints attach them with one call.</summary>
-    public static object? Insights(List<MonitoringInfluxClient.PonSeriesPoint>? points, double? rxDbm = null)
+    public static object? Insights(List<MonitoringInfluxClient.PonSeriesPoint>? points, LinkReadings? link = null)
     {
-        var check = ConnectionCheck(points, rxDbm);
+        var check = ConnectionCheck(points, link);
         var fec = SummarizeFec(points);
         var laser = SummarizeLaser(points);
         var provider = SummarizeProvider(points);

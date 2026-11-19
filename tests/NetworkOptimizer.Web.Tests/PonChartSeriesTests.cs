@@ -1,6 +1,7 @@
 using FluentAssertions;
 using NetworkOptimizer.Storage.Services;
 using NetworkOptimizer.Web.Endpoints;
+using NetworkOptimizer.Web.Services.Monitoring;
 using Xunit;
 
 namespace NetworkOptimizer.Web.Tests;
@@ -624,13 +625,16 @@ public class PonChartSeriesTests
         return points;
     }
 
-    private static string[] Statuses(List<MonitoringInfluxClient.PonSeriesPoint> points) =>
-        PonChartSeries.ConnectionCheck(points)!.Select(s => $"{s.Key}:{s.Status}").ToArray();
+    private static string[] Statuses(List<MonitoringInfluxClient.PonSeriesPoint> points, PonChartSeries.LinkReadings? link = null) =>
+        PonChartSeries.ConnectionCheck(points, link)!.Select(s => $"{s.Key}:{s.Status}").ToArray();
+
+    private static PonChartSeries.CheckStep? Step(List<MonitoringInfluxClient.PonSeriesPoint> points, string key, PonChartSeries.LinkReadings? link = null) =>
+        PonChartSeries.ConnectionCheck(points, link)?.SingleOrDefault(s => s.Key == key);
 
     [Fact]
     public void ConnectionCheck_HealthyLine_IsAllOk()
     {
-        Statuses(Healthy()).Should().Equal("light:ok", "registered:ok", "management:ok", "service:ok", "traffic:ok");
+        Statuses(Healthy()).Should().Equal("light:ok", "registered:ok", "line_errors:ok", "management:ok", "service:ok", "traffic:ok");
     }
 
     [Fact]
@@ -638,29 +642,37 @@ public class PonChartSeriesTests
     {
         var dark = Healthy();
         dark[^1].PathLossDb = 29.5;
-        Statuses(dark)[0].Should().Be("light:fail");
+        Step(dark, "light")!.Status.Should().Be("fail");
 
         var starved = Healthy();
         starved[^1].AllocTotal = starved[^2].AllocTotal;
-        PonChartSeries.ConnectionCheck(starved)![1].Should().Be(
+        Step(starved, "registered").Should().Be(
             new PonChartSeries.CheckStep("registered", "fail", "in O5, but the OLT grants this ONT nothing"));
 
         var ranging = Healthy();
         ranging[^1].PonLinkStatus = "ranging";
-        Statuses(ranging)[1].Should().Be("registered:fail");
+        Step(ranging, "registered")!.Status.Should().Be("fail");
 
         var noOmci = Healthy();
         noOmci[^1].OmciUp = 0;
-        Statuses(noOmci)[2].Should().Be("management:fail");
+        Step(noOmci, "management")!.Status.Should().Be("fail");
 
         var noService = Healthy();
         noService[^1].OmciServices = 0;
-        Statuses(noService)[3].Should().Be("service:fail");
+        Step(noService, "service")!.Status.Should().Be("fail");
 
         var silent = Healthy();
         silent[^1].GemRxBytes = silent[^2].GemRxBytes;
         silent[^1].GemTxBytes = silent[^2].GemTxBytes;
-        Statuses(silent)[4].Should().Be("traffic:fail");
+        Step(silent, "traffic")!.Status.Should().Be("fail");
+
+        var lossy = Healthy();
+        lossy[^1].FecErrors = lossy[^2].FecErrors + PonThresholds.PonFecErrorSpikePerPoll + 1;
+        Step(lossy, "line_errors")!.Status.Should().Be("fail");
+
+        var hot = Healthy();
+        hot[^1].BiasMa = 95;
+        Step(hot, "transmit")!.Detail.Should().Be("laser bias 95.0 mA, at or above its 90.0 mA warning limit");
     }
 
     [Fact]
@@ -672,7 +684,6 @@ public class PonChartSeriesTests
         foreach (var p in points) { p.GemTxBytes = null; p.OmciUp = 1; }
 
         Statuses(points).Should().Equal("light:ok", "registered:ok", "management:ok");
-        PonChartSeries.ConnectionCheck(points, -18.2)![0].Detail.Should().StartWith("receiving at -18.2 dBm, in O5");
         PonChartSeries.ConnectionCheck([Point(0, 1000)]).Should().BeNull("an ONT that reports no state gets no check");
     }
 
@@ -692,7 +703,80 @@ public class PonChartSeriesTests
         var shortFiber = Healthy();
         shortFiber[^1].PathLossDb = 11.5;
 
-        Statuses(shortFiber)[0].Should().Be("light:ok");
+        Step(shortFiber, "light")!.Status.Should().Be("ok");
+    }
+
+    [Fact]
+    public void ConnectionCheck_WithoutPathLoss_LightIsTheRxWindow()
+    {
+        var points = Link(3);
+        foreach (var p in points) p.GemTxBytes = null;
+        const string noLaunch = ". The OLT announces no launch power, so the path loss is not checked";
+
+        Step(points, "light", new(RxDbm: -21.8))!.Should().Be(new PonChartSeries.CheckStep("light", "ok",
+            "RX -21.8 dBm, inside the receiver's -28 to -8 dBm window" + noLaunch));
+        Step(points, "light", new(RxDbm: -29.1))!.Should().Be(new PonChartSeries.CheckStep("light", "fail",
+            "RX -29.1 dBm, below the receiver's -28 dBm floor" + noLaunch));
+        Step(points, "light", new(RxDbm: -6.5))!.Should().Be(new PonChartSeries.CheckStep("light", "fail",
+            "RX -6.5 dBm, above the receiver's -8 dBm overload point" + noLaunch));
+        Step(points, "light")!.Detail.Should().Be("in O5" + noLaunch);
+    }
+
+    [Fact]
+    public void ConnectionCheck_Transmit_JudgesTxAgainstTheVariantsRange_AndHidesWithoutOne()
+    {
+        var points = Link(3);
+
+        Step(points, "transmit", new(TxDbm: 3.0, PonVariant: "GPON"))!.Should().Be(new PonChartSeries.CheckStep("transmit", "ok",
+            "TX 3.0 dBm, inside the GPON ONU range of 0.5 to 5.0 dBm"));
+        Step(points, "transmit", new(TxDbm: 3.0, PonVariant: "xgspon"))!.Should().Be(new PonChartSeries.CheckStep("transmit", "fail",
+            "TX 3.0 dBm, below the XGS-PON ONU minimum of 4.0 dBm"));
+        Step(points, "transmit", new(TxDbm: 5.6, PonVariant: "GPON"))!.Status.Should().Be("fail");
+        Step(points, "transmit", new(TxDbm: 3.0, PonVariant: "PON")).Should().BeNull("an unknown variant has no range");
+        Step(points, "transmit", new(PonVariant: "GPON")).Should().BeNull("no TX reading");
+    }
+
+    [Fact]
+    public void ConnectionCheck_CalixStickShape_DecidesSevenSteps()
+    {
+        // What a NetOptCustom stick on a FEC-off GPON reports: no OMCI, no GEM bytes, no PON-ID.
+        var points = Link(3);
+        for (var i = 0; i < points.Count; i++)
+        {
+            var p = points[i];
+            p.GemTxBytes = null;
+            p.DsFecEnabled = 0;
+            p.HecUncorrected = 1;
+            p.GemPorts = 3;
+            p.GemRxFrames = 1_000_000L * i;
+            p.GemTxFrames = 2_000_000L * i;
+            p.GemTxIdleFrames = 1_500_000L * i;
+        }
+        var link = new PonChartSeries.LinkReadings(RxDbm: -21.8, TxDbm: 3.0, PonVariant: "GPON", HostLinkMbps: 2500);
+
+        Statuses(points, link).Should().Equal(
+            "light:ok", "transmit:ok", "registered:ok", "line_errors:ok", "service:ok", "host_link:ok", "traffic:ok");
+        Step(points, "line_errors", link)!.Detail.Should().Be("no uncorrectable HEC errors in the last interval");
+        Step(points, "service", link)!.Detail.Should().Be("3 GEM ports provisioned");
+        Step(points, "host_link", link)!.Detail.Should().Be("the gateway port is up at 2.5 Gbps");
+        Step(points, "traffic", link)!.Detail.Should().Be("frames moved in the last interval");
+    }
+
+    [Fact]
+    public void ConnectionCheck_FallbackSteps_FailOnTheirOwnEvidence()
+    {
+        var points = Link(3);
+        foreach (var p in points) { p.GemTxBytes = null; p.GemPorts = 1; p.GemRxFrames = 500; p.GemTxFrames = 900; p.GemTxIdleFrames = 900; }
+        points[^1].DsFecEnabled = 0;
+        points[^2].HecUncorrected = 0;
+        points[^1].HecUncorrected = PonThresholds.PonHecErrorSpikePerPoll + 5;
+        points[^1].HostLinkUp = 0;
+
+        Step(points, "service")!.Should().Be(new PonChartSeries.CheckStep("service", "fail", "only the OMCI GEM port is provisioned"));
+        Step(points, "traffic")!.Should().Be(new PonChartSeries.CheckStep("traffic", "fail", "no frames moved in the last interval"));
+        Step(points, "line_errors")!.Detail.Should().Be("15 uncorrectable HEC errors in the last interval, over the 10 alert threshold");
+        Step(points, "host_link", new(HostLinkMbps: 2500))!.Should().Be(
+            new PonChartSeries.CheckStep("host_link", "fail", "the ONT reports no host link"), "the ONT's own report outranks the gateway port");
     }
 
     [Fact]
@@ -702,7 +786,7 @@ public class PonChartSeriesTests
         foreach (var p in points) { p.PathLossDb = null; p.OltLaunchPowerDbm = null; }
         points[^1].PonLinkStatus = "ranging";
 
-        Statuses(points).Should().Equal("registered:fail", "management:ok", "service:ok", "traffic:ok");
+        Statuses(points).Should().Equal("registered:fail", "line_errors:ok", "management:ok", "service:ok", "traffic:ok");
     }
 
     [Fact]

@@ -1831,7 +1831,7 @@ from(bucket: {FluxLiteral.Quote(_longtermBucket)})
         "alloc_lost", "lan_link_status", "lan_mode",
         "lan_rx_fcs_err", "lan_tx_drop_events", "lan_buffer_overflow",
         "olt_vendor_id", "registration_status", "key_exchange_status", "firmware_version",
-        "olt_equipment_id", "olt_version", "aes_active", "gem_ports_encrypted",
+        "olt_equipment_id", "olt_version", "aes_active", "gem_ports_encrypted", "gem_ports",
     };
 
     private static readonly string PonFieldFilter =
@@ -1930,6 +1930,7 @@ from(bucket: {FluxLiteral.Quote(_longtermBucket)})
             OltVersion = record.GetValueByKey("olt_version") as string,
             AesActive = record.GetValueByKey("aes_active") as bool?,
             GemPortsEncrypted = AsLongOrNull(record.GetValueByKey("gem_ports_encrypted")),
+            GemPorts = AsLongOrNull(record.GetValueByKey("gem_ports")),
         };
     }
 
@@ -4159,6 +4160,8 @@ from(bucket: {FluxLiteral.Quote(_longtermBucket)})
         public string? OltVersion { get; set; }
         public bool? AesActive { get; set; }
         public long? GemPortsEncrypted { get; set; }
+        /// <summary>GEM ports provisioned, the OMCI port included.</summary>
+        public long? GemPorts { get; set; }
     }
 
     /// <summary>

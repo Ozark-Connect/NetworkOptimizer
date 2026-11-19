@@ -255,7 +255,8 @@ Time-series monitoring on your own InfluxDB, fed by SNMP polling (InfluxDB).
 - Every SFP module: RX/TX power, temperature, voltage, and bias current
 - Mark a module as PON, Active Ethernet, or regular SFP; monitor or unmonitor it
 - **SFP Diagnostics** charts, including PON errors, host link errors, and GEM frames
-- PON views (**All**, **Optical**, **Link**, **Traffic**, **Provider**) for odi-oss sticks: **Connection Check**, **Path Loss** against the ODN class the OLT announces, **Laser Bias Current**, **Link Downtime**, **ONT CPU Load**, **PON Downstream Load** for the whole PON and this ONT, **PON Load by Hour**, **Upstream Grants**, and **Provider Activity**
+- **Connection Check** for every PON module and ONT, from the fiber up: Light, Transmit, Registered, Line Errors, Management, Service, Host Link, and Traffic, each read from the best data the device reports
+- PON views (**All**, **Optical**, **Link**, **Traffic**, **Provider**) for odi-oss sticks: **Path Loss** against the ODN class the OLT announces, **Laser Bias Current**, **Link Downtime**, **ONT CPU Load**, **PON Downstream Load** for the whole PON and this ONT, **PON Load by Hour**, **Upstream Grants**, and **Provider Activity**
 - The host device's reboots, health check actions, and alerts marked on the charts while one device's modules are shown
 - PON details: PLOAM state, ONU ID, FEC, ONT uptime; GPON vs XGS-PON detection
 - **SFP Anomalies** investigation and **SFP Alert Thresholds**
@@ -273,6 +274,7 @@ Time-series monitoring on your own InfluxDB, fed by SNMP polling (InfluxDB).
 ### ONT Stats
 
 - **ONT Signal History** - RX/TX power, temperature, PON errors, host link errors, GEM frames
+- **Connection Check** as on SFP Stats, for every ONT that reports a PON state
 - The same PON views as SFP Stats for a standalone odi-oss ONT
 - PON status and type; **ONT Alert Thresholds**
 - **PON Status** table: **Registered**, **OLT** (vendor decoded, with model where reported), **OLT Version**, **Firmware**, and ONT uptime

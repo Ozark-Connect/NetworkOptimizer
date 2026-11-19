@@ -167,7 +167,11 @@ public static class SfpChartEndpoints
                     pon = PonChartSeries.Build(ponData.TryGetValue(key, out var ponPts) ? ponPts : null),
                     ponPath = PonChartSeries.SummarizePathLoss(ponPts),
                     ponAvail = PonChartSeries.SummarizeAvailability(ponPts),
-                    ponMore = PonChartSeries.Insights(ponPts, pts.LastOrDefault()?.RxPowerDbm)
+                    ponMore = PonChartSeries.Insights(ponPts, new PonChartSeries.LinkReadings(
+                        RxDbm: pts.LastOrDefault()?.RxPowerDbm,
+                        TxDbm: pts.LastOrDefault()?.TxPowerDbm,
+                        PonVariant: NetworkOptimizer.Core.Helpers.NetworkFormatHelpers.PonVariantLabel(s.SfpPart, s.SfpVendor),
+                        HostLinkMbps: s.LinkSpeedMbps))
                 };
             }).ToList();
 

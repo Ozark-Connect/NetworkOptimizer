@@ -102,7 +102,10 @@ public static class OntChartEndpoints
                     pon,
                     ponPath = PonChartSeries.SummarizePathLoss(ponPoints),
                     ponAvail = PonChartSeries.SummarizeAvailability(ponPoints),
-                    ponMore = PonChartSeries.Insights(ponPoints, pts.LastOrDefault()?.RxPowerDbm),
+                    ponMore = PonChartSeries.Insights(ponPoints, new PonChartSeries.LinkReadings(
+                        RxDbm: pts.LastOrDefault()?.RxPowerDbm,
+                        TxDbm: pts.LastOrDefault()?.TxPowerDbm,
+                        PonVariant: lastWith.FirstOrDefault(p => p.PonType != null)?.PonType)),
                     linkUptime = lastWith.FirstOrDefault(p => p.LinkUptimeSeconds != null)?.LinkUptimeSeconds,
                     ponType = lastWith.FirstOrDefault(p => p.PonType != null)?.PonType,
                     olt,
