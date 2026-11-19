@@ -107,7 +107,7 @@
         {
             var shown = View.Flows.Take(_showAll ? View.Flows.Count : CollapsedRows).ToList();
             var slots = Slots(shown.Count);
-            <div @onmouseenter="Feed.Hold.PointerIn" @onmouseleave="Feed.Hold.PointerOut" @ontouchstart="Feed.Hold.Touched">
+            <div @onpointerenter="Feed.Hold.PointerIn" @onpointerleave="Feed.Hold.PointerOut" @ontouchstart="Feed.Hold.Touched">
                 <div class="table-responsive lt-desktop-only">
                     <table class="results-table lt-flows">
                         <colgroup><col style="width:3.3rem"><col style="width:20%"><col style="width:11%"><col style="width:11%"><col style="width:10%"><col style="width:9%"><col style="width:9%"><col style="width:9%"><col style="width:8%"><col style="width:9%"><col style="width:100px"></colgroup>
