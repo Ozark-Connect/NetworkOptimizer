@@ -93,6 +93,15 @@ public enum LiveTrafficState { Live, Starting, NoGatewayAgent, AgentNeedsUpdate,
 public sealed record LiveFlowRow
 {
     public required string Key { get; init; }
+
+    /// <summary>
+    /// The row's identity on screen (Blazor key, open row, held order). On the Active list it is the
+    /// bundle (client, destination, port, protocol), so a row keeps its place and stays open as streams
+    /// come and go: each ping run is a new ICMP flow, and <see cref="Key"/> would change with it.
+    /// </summary>
+    public string RowKey { get => _rowKey ?? Key; init => _rowKey = value; }
+    private readonly string? _rowKey;
+
     public string ClientMac { get; init; } = "";
     public string ClientName { get; init; } = "";
     public string ClientIp { get; init; } = "";

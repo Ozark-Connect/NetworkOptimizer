@@ -1790,9 +1790,11 @@ public sealed class LiveTrafficStore
         foreach (var g in rows.GroupBy(r => (r.ClientIp, r.DestinationIp, r.RemotePort, r.Proto)))
         {
             var streams = g.ToList();
+            var bundleKey = $"streams|{g.Key.ClientIp}|{g.Key.DestinationIp}|{g.Key.RemotePort}|{g.Key.Proto}";
+            // One row identity whether it holds one stream or several: see LiveFlowRow.RowKey.
             if (streams.Count == 1)
             {
-                bundled.Add(streams[0]);
+                bundled.Add(streams[0] with { RowKey = bundleKey });
                 continue;
             }
             var lead = streams.OrderByDescending(r => r.DownBps + r.UpBps).First();
@@ -1805,7 +1807,8 @@ public sealed class LiveTrafficStore
             var earliest = starts.OrderBy(r => r.Started).FirstOrDefault();
             bundled.Add(lead with
             {
-                Key = $"streams|{g.Key.ClientIp}|{g.Key.DestinationIp}|{g.Key.RemotePort}|{g.Key.Proto}",
+                Key = bundleKey,
+                RowKey = bundleKey,
                 Streams = streams.Count,
                 ClientPort = 0,
                 DownBps = streams.Sum(r => r.DownBps),
