@@ -46,6 +46,17 @@ public class GatewayAgentInstallRun
     /// <summary>Failure summary when the run ended without a clean exit (SSH drop, timeout).</summary>
     public string? Error { get; private set; }
 
+    /// <summary>
+    /// A first install that the installer's pre-flight stopped: the gateway does not trust the
+    /// server's certificate while the tunnel answers with verification off. The only state in
+    /// which the panel offers --insecure.
+    /// </summary>
+    public bool StoppedOnUntrustedCertificate =>
+        !IsUpgrade
+        && Status == GatewayAgentInstallStatus.Failed
+        && Error == null
+        && ExitCode == GatewayAgentCommands.UntrustedCertificateExitCode;
+
     /// <summary>Raised on every transcript append and once on completion. May fire on any thread.</summary>
     public event Action? Updated;
 
