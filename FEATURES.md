@@ -256,7 +256,7 @@ Time-series monitoring on your own InfluxDB, fed by SNMP polling (InfluxDB).
 - Mark a module as PON, Active Ethernet, or regular SFP; monitor or unmonitor it
 - **SFP Diagnostics** charts, including PON errors, host link errors, and GEM frames
 - **Connection Check** for every monitored ONT, from the fiber up: Light, Transmit, Registered, Management, Service, Line Errors, Host Link, and Traffic, each read from the best data the device reports
-- PON views (**All**, **Optical**, **Link**, **Traffic**, **Provider**) for odi-oss sticks: **Path Loss** against the ODN class the OLT announces, **Laser Bias Current**, **Link Downtime**, **ONT CPU Load**, **PON Downstream Load** for the whole PON and this ONT, **PON Load by Hour**, **Upstream Grants**, and **Provider Activity**
+- PON views (**All**, **Optical**, **Link**, **Traffic**, **Provider**) for odi-oss sticks, and for a Network Optimizer Custom PON endpoint that serves the fields: **Path Loss** against the ODN class the OLT announces, **Laser Bias Current**, **Link Downtime**, **ONT CPU Load**, **PON Downstream Load** for the whole PON and this ONT, **PON Load by Hour**, **Upstream Grants**, and **Provider Activity**
 - The host device's reboots, health check actions, and alerts marked on the charts while one device's modules are shown
 - PON details: PLOAM state, ONU ID, FEC, ONT uptime; GPON vs XGS-PON detection
 - **SFP Anomalies** investigation and **SFP Alert Thresholds**
