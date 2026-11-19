@@ -1911,7 +1911,7 @@ window.fpEditor = {
 
         // Level 2: clicking same wall again (already have a segment selected) -> select whole shape
         if (sel.wallIdx === wi && sel.segIdx !== null) {
-            // Select entire wall shape - highlight all segments with dashed blue
+            // Select entire wall shape - highlight all segments as a selection
             for (var j = 0; j < wall.points.length - 1; j++) {
                 this._addSelHighlight(wi, j, { color: '#facc15', weight: 8, opacity: 0.9 });
             }
@@ -2069,13 +2069,17 @@ window.fpEditor = {
         var MOVE = usePointer ? 'pointermove' : 'mousemove';
         var UP = usePointer ? 'pointerup' : 'mouseup';
 
-        // Holding Shift shows the Select tool's crosshair, so the box-select gesture is visible
-        var setShiftCursor = function (on) {
-            container.classList.toggle('fp-shift-select', on && !!self._selectUsable);
-        };
-        document.addEventListener('keydown', function (e) { if (e.key === 'Shift') setShiftCursor(true); });
-        document.addEventListener('keyup', function (e) { if (e.key === 'Shift') setShiftCursor(false); });
-        window.addEventListener('blur', function () { setShiftCursor(false); });
+        // Holding Shift shows the Select tool's crosshair, so the box-select gesture is visible. The
+        // document listeners outlive a map, so they bind once and read the current map.
+        if (!this._shiftCursorBound) {
+            this._shiftCursorBound = true;
+            var setShiftCursor = function (on) {
+                if (self._map) self._map.getContainer().classList.toggle('fp-shift-select', on && !!self._selectUsable);
+            };
+            document.addEventListener('keydown', function (e) { if (e.key === 'Shift') setShiftCursor(true); });
+            document.addEventListener('keyup', function (e) { if (e.key === 'Shift') setShiftCursor(false); });
+            window.addEventListener('blur', function () { setShiftCursor(false); });
+        }
 
         // The compatibility mousedown after a handled pointerdown must not reach Leaflet either
         container.addEventListener('mousedown', function (e) {
@@ -4146,5 +4150,13 @@ window.fpEditor = {
         this._heatmapOverlay = null;
         this._contourLayer = null;
         this._signalClusterGroup = null;
+        // Bound to the removed map: the next initMap binds them again
+        this._marqueeBound = false;
+        this._wallMapClickBound = false;
+        this._wallToolbox = null;
+        this._multiSel = null;
+        this._apMarkers = {};
+        this._apPopupTarget = null;
+        this._activeMoveHandlers = null;
     }
 };
