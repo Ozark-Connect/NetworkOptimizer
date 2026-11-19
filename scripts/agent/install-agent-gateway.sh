@@ -40,6 +40,9 @@
 #   --no-lan-speed-test    Remove the LAN speed test and keep the agent running
 #   --uninstall    Stop + remove the service and install dir, then exit
 #
+# Exit status 3: a first install stopped because this host does not trust the server's
+# certificate while the tunnel works with it unchecked (Run It for Me reads it to offer --insecure).
+#
 # The install directory is fixed at /data/netopt-agent and is intentionally NOT
 # configurable: on UniFi OS only /data survives a firmware upgrade (it is the
 # writable upper layer of the root overlay), so relocating the agent elsewhere
@@ -164,9 +167,13 @@ err()  { printf '%sError:%s %s\n' "${_red}${_b}" "$_rst" "$*" >&2; exit 1; }
 # agent could never connect. Anything else warns or skips, so a curl that cannot run the probe never
 # blocks an install. Each curl runs on the left of && / ||, where set -e does not apply.
 PREFLIGHT_DOC="https://github.com/Ozark-Connect/NetworkOptimizer/blob/main/src/NetworkOptimizer.Agent/README.md#verify-the-connection"
+# The stop's exit status. Run It for Me and the Proxmox installer read it to offer --insecure.
+PREFLIGHT_UNTRUSTED_EXIT=3
+# $1: the base URL. The rest are extra curl arguments.
 tunnel_probe() {
+    local base="$1"; shift
     curl "$@" -sS -D - -o /dev/null --http2 --max-time 10 -X POST -H 'content-type: application/grpc' \
-        "${SERVER%/}/networkoptimizer.agent.v1.AgentTunnel/Connect" 2>&1
+        "${base%/}/networkoptimizer.agent.v1.AgentTunnel/Connect" 2>&1
 }
 tunnel_verdict() {
     # Here-strings, not pipes: under pipefail an early-exiting grep -q can fail the pipe on a match.
@@ -181,27 +188,33 @@ tunnel_verdict() {
 }
 # $1: the agent.json path. $2: "stop" when this installer may stop on an untrusted certificate.
 preflight_server() {
-    local config="$1" may_stop="$2" enrolled=false tls="" out rc verdict version code
+    local config="$1" may_stop="$2" enrolled=false tls="" base="$SERVER" out rc verdict version code saved
     step "Checking the server"
     version=$(curl --version 2>/dev/null) || version=""
     if ! grep -q 'HTTP2' <<<"$version"; then
         note "Skipped: this host's curl has no HTTP/2 support, so it cannot test the tunnel route."
         return 0
     fi
-    ${SUDO:-} grep -q '"agentKey"' "$config" 2>/dev/null && enrolled=true
+    if ${SUDO:-} grep -q '"agentKey"' "$config" 2>/dev/null; then
+        enrolled=true
+        # An enrolled agent keeps its agent.json, so probe the URL it actually dials.
+        saved=$(${SUDO:-} sed -n 's/^[[:space:]]*"tunnelUrl":[[:space:]]*"\([^"]*\)".*/\1/p' "$config" 2>/dev/null) || saved=""
+        saved=${saved%%$'\n'*}
+        case "$saved" in https://*) base="$saved" ;; esac
+    fi
     if [ "$INSECURE" = true ] || ${SUDO:-} grep -q '"ignoreSslErrors":[[:space:]]*true' "$config" 2>/dev/null; then
         tls="-k"
     fi
-    out=$(tunnel_probe $tls) && rc=0 || rc=$?
+    out=$(tunnel_probe "$base" $tls) && rc=0 || rc=$?
     verdict=$(tunnel_verdict "$out")
     if [ "$verdict" = hello ]; then
-        ok "The tunnel route answers at ${SERVER%/}"
+        ok "The tunnel route answers at ${base%/}"
         return 0
     fi
     case "$rc" in
         60|51)
             if [ -z "$tls" ]; then
-                out=$(tunnel_probe -k) && rc=0 || rc=$?
+                out=$(tunnel_probe "$base" -k) && rc=0 || rc=$?
                 if [ "$(tunnel_verdict "$out")" = hello ]; then
                     if [ "$enrolled" = true ]; then
                         warn "This host does not trust the server's certificate. If you issued it yourself, set \"ignoreSslErrors\": true in ${config} and restart the agent. Otherwise fix the certificate on the reverse proxy."
@@ -209,7 +222,8 @@ preflight_server() {
                     fi
                     # The stop needs this host's trust store to work, or a broken store would read as a bad certificate.
                     if [ "$may_stop" = stop ] && curl -sS -o /dev/null --max-time 10 https://github.com >/dev/null 2>&1; then
-                        err "This host does not trust the server's certificate, so the agent cannot connect to ${SERVER%/}. If you issued the certificate yourself, re-run this command with --insecure. Otherwise fix the certificate on the reverse proxy. See ${PREFLIGHT_DOC}"
+                        printf '%sError:%s %s\n' "${_red}${_b}" "$_rst" "This host does not trust the server's certificate, so the agent cannot connect to ${base%/}. If you issued the certificate yourself, re-run this command with --insecure. Otherwise fix the certificate on the reverse proxy. See ${PREFLIGHT_DOC}" >&2
+                        exit "$PREFLIGHT_UNTRUSTED_EXIT"
                     fi
                     warn "This host does not trust the server's certificate. If you issued it yourself, re-run this command with --insecure. Otherwise fix the certificate on the reverse proxy."
                     return 0
@@ -218,17 +232,23 @@ preflight_server() {
             warn "This host does not trust the server's certificate, and the tunnel route did not answer. See ${PREFLIGHT_DOC}"
             ;;
         6|7|28)
-            warn "Could not reach ${SERVER%/} (curl exit ${rc}). The install continues and the agent keeps retrying. See ${PREFLIGHT_DOC}"
+            warn "Could not reach ${base%/} (curl exit ${rc}). The install continues and the agent keeps retrying. See ${PREFLIGHT_DOC}"
+            ;;
+        35)
+            warn "The TLS handshake with ${base%/} failed (curl exit 35). Check that the URL points at the proxy's HTTPS port. See ${PREFLIGHT_DOC}"
+            ;;
+        52|56)
+            warn "The connection to ${base%/} closed without an answer (curl exit ${rc}). See ${PREFLIGHT_DOC}"
             ;;
         *)
             case "$verdict" in
                 unimplemented) warn "The proxy sends the tunnel path to the app, not the tunnel port: add the gRPC route. See ${PREFLIGHT_DOC}" ;;
-                notfound) warn "The proxy has no route for the tunnel path at ${SERVER%/} (HTTP 404). See ${PREFLIGHT_DOC}" ;;
+                notfound) warn "The proxy has no route for the tunnel path at ${base%/} (HTTP 404). See ${PREFLIGHT_DOC}" ;;
                 *)
                     code=$(sed -n 's#^HTTP/[0-9.]* \([0-9][0-9]*\).*#\1#p' <<<"$out") || code=""
                     code=${code##*$'\n'}
                     if [ -n "$code" ]; then
-                        warn "The tunnel route did not answer at ${SERVER%/} (HTTP ${code}). See ${PREFLIGHT_DOC}"
+                        warn "The tunnel route did not answer at ${base%/} (HTTP ${code}). See ${PREFLIGHT_DOC}"
                     else
                         note "Inconclusive (curl exit ${rc}); continuing."
                     fi

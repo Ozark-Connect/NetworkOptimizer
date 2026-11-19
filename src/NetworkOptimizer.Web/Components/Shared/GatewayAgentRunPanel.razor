@@ -30,6 +30,11 @@
             {
                 <span>Canceled. Safe to run again - the installer picks up cleanly and keeps the agent's enrollment.</span>
             }
+            else if (UntrustedCertificate)
+            {
+                <span class="gw-run-fail"><AppIcon Name="close" /></span>
+                <span>The gateway does not trust the server's certificate. If you issued it yourself, select Accept a self-signed certificate and run it again.</span>
+            }
             else
             {
                 <span class="gw-run-fail"><AppIcon Name="close" /></span>
@@ -57,7 +62,19 @@ else if (_available && ShowRunButton)
         <button type="button" class="btn btn-primary btn-sm" @onclick="Start">
             @(_run == null ? "Run It for Me" : "Run It Again")
         </button>
-        <span class="gw-run-hint">Runs this @(IsUpgrade ? "upgrade" : "install") command on the gateway over SSH and shows the output here.</span>
+        @* Offered only after the installer itself found the certificate untrusted, never up front:
+           --insecure turns off certificate checks for the agent's whole connection. *@
+        @if (UntrustedCertificate || _insecure)
+        {
+            <label class="checkbox-label">
+                <input type="checkbox" @bind="_insecure" />
+                <span>Accept a self-signed certificate (--insecure)</span>
+            </label>
+        }
+        else
+        {
+            <span class="gw-run-hint">Runs this @(IsUpgrade ? "upgrade" : "install") command on the gateway over SSH and shows the output here.</span>
+        }
     </div>
 }
 
@@ -148,6 +165,12 @@ else if (_available && ShowRunButton)
             && !(_run.Status == GatewayAgentInstallStatus.Succeeded && _startedHere));
     private GatewayAgentInstallRun? _subscribed;
     private string? _message;
+    private bool _insecure;
+
+    // The installer's pre-flight stop on a first install (see GatewayAgentCommands.UntrustedCertificateExitCode).
+    private bool UntrustedCertificate =>
+        _run is { IsUpgrade: false, Status: GatewayAgentInstallStatus.Failed, Error: null }
+        && _run.ExitCode == GatewayAgentCommands.UntrustedCertificateExitCode;
     private int _renderPending;
     private bool _disposed;
 
@@ -181,7 +204,7 @@ else if (_available && ShowRunButton)
         var prior = _run;
         var task = IsUpgrade
             ? GatewayInstall.RunUpgradeAsync(SiteSlug, OnRunStarted)
-            : GatewayInstall.RunInstallAsync(SiteSlug, EnrollmentToken ?? "", LanSpeedTest, OnRunStarted);
+            : GatewayInstall.RunInstallAsync(SiteSlug, EnrollmentToken ?? "", LanSpeedTest, _insecure, OnRunStarted);
         _ = ObserveAsync(task, prior);
     }
 

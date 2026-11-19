@@ -223,7 +223,8 @@ All four installers share these flags, except where the table says otherwise
   `agent.json` holds an `agentKey`, re-running the install command rewrites the file, flag
   included. Once enrolled, the installer keeps `agent.json` as it is, so set
   `"ignoreSslErrors": true` in it by hand and restart the agent. Use it only for a certificate you
-  issued yourself; see [Enroll and run](#enroll-and-run) for what it turns off.
+  issued yourself; see [Enroll and run](#enroll-and-run) for what it turns off. A first install
+  that needs it stops and says so: see [Verify the connection](#verify-the-connection).
 - `--release vX.Y.Z` - install that release instead of the latest. The app adds it
   when the server runs a preview, so the agent matches the server.
 - `--lan-speed-test` - host the LAN speed test page (port 24443) and iperf3 (5201). The only
@@ -266,8 +267,9 @@ If it does not reach **Online (tunnel)**, read the agent log:
 
 | Install | Log command |
 |---|---|
-| UniFi gateway, bare metal | `journalctl -u netopt-agent -f` |
-| Docker | `docker logs -f network-optimizer-agent` |
+| UniFi gateway (you are root) | `journalctl -u netopt-agent -f` |
+| Bare metal | `sudo journalctl -u netopt-agent -f` |
+| Docker | `sudo docker logs -f network-optimizer-agent` (no `sudo` in the `docker` group) |
 | Proxmox LXC (from the host) | `pct exec <CT_ID> -- journalctl -u netopt-agent -f` |
 
 A healthy first start logs `Enrolled for site '<slug>'`, then
@@ -276,8 +278,9 @@ minute means config is arriving over the tunnel. Those minute lines bury the
 connection history, so search for it:
 
 ```bash
-journalctl -u netopt-agent --no-pager | grep -E "Enroll|Tunnel|Heartbeat" | tail -20
-# Docker: docker logs network-optimizer-agent 2>&1 | grep -E "Enroll|Tunnel|Heartbeat" | tail -20
+sudo journalctl -u netopt-agent --no-pager | grep -E "Enroll|Tunnel|Heartbeat" | tail -20
+# On a UniFi gateway, drop the sudo.
+# Docker: sudo docker logs network-optimizer-agent 2>&1 | grep -E "Enroll|Tunnel|Heartbeat" | tail -20
 ```
 
 `Enrollment failed:`, `Enrollment error:`, `Tunnel error:`, `Heartbeat failed:`, and
@@ -319,12 +322,24 @@ curl -k -sS -D - -o /dev/null --http2 --max-time 10 -X POST -H "content-type: ap
 |---------|---------|
 | `grpc-message: First message must be a hello` | Working. The tunnel answered. |
 | `grpc-message: Service is unimplemented.` | The proxy sends the tunnel path to the app, not the tunnel port. Add the gRPC route. |
+| `HTTP/1.1 426` with `Request protocol 'HTTP/1.1' is not supported` | The proxy sends the tunnel path to the app's main port over HTTP/1.1. Add the gRPC route to the tunnel port. |
 | `HTTP/2 404` with no `grpc-message` | The proxy has no route for this hostname or path. |
 | `curl: (6) Could not resolve host` | DNS. The site's DNS has no record for the server's hostname. |
 | `curl: (28) Resolving timed out` | DNS. The site's DNS server did not answer: check the host's resolver and that it can reach it. |
 | `curl: (7) Failed to connect ... port 443` | Something refused the connection: the proxy is not listening, or a firewall rejects it. |
 | `curl: (28) Connection timed out` | Something drops the traffic silently: a firewall, or the wrong IP. |
 | `curl: (60) SSL certificate problem` (from the `/api/health` check) | The site does not trust the server's certificate: it is self-signed, from a private CA, or for a different hostname. The agent log shows `The SSL connection could not be established`. For a certificate you issued yourself: after `Enrollment error:` the agent never enrolled, so re-run the install command with `--insecure` (the token must still be valid; **New token** issues another). After `Tunnel error:` or `Heartbeat error:` it is enrolled, so set `"ignoreSslErrors": true` in `agent.json` and restart the agent. Otherwise fix the certificate on the proxy. |
+
+A `First message must be a hello` answer proves the route reaches the tunnel. It does not prove
+every proxy hop carries HTTP/2 streams end to end: a hop that buffers or downgrades them can still
+end the tunnel after `Tunnel open`, which shows as `Tunnel error:` lines repeating every few minutes.
+
+Every installer makes this same tunnel check before it installs anything, and prints the result
+under **Checking the server**. It stops a first install in one case only: the certificate is not
+trusted, while the check with `-k` reaches a working tunnel. That install exits with status 3 and
+names `--insecure`. **Run It for Me** then offers **Accept a self-signed certificate (--insecure)**
+beside its button, and the Proxmox installer removes the container it made. Every other result is a
+warning, and the install continues.
 
 ### Upgrading
 
