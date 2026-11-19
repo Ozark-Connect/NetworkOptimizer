@@ -1732,6 +1732,22 @@
                 SetActiveTab(newTab);
         }
         _lastTabParam = TabParam;
+
+        // A client switch is a full load (FullLoadAsync), and so must its Back. Chromium keeps the
+        // earlier entries on the reloaded document, so Back arrives here as a same-page ?ip= change.
+        if (_ipParamSeen && !string.Equals(IpParam, _lastIpParam, StringComparison.Ordinal))
+            _ = ReloadForClientChangeAsync();
+        _lastIpParam = IpParam;
+        _ipParamSeen = true;
+    }
+
+    private string? _lastIpParam;
+    private bool _ipParamSeen;
+
+    private async Task ReloadForClientChangeAsync()
+    {
+        try { await JS.InvokeVoidAsync("location.reload"); }
+        catch (JSDisconnectedException) { }
     }
 
     protected override async Task OnInitializedAsync()
