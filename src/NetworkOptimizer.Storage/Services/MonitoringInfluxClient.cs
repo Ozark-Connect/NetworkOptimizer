@@ -1837,6 +1837,16 @@ from(bucket: {FluxLiteral.Quote(_longtermBucket)})
     private static readonly string PonFieldFilter =
         string.Join(" or ", PonFieldNames.Select(f => $@"r._field == {FluxLiteral.Quote(f)}"));
 
+    /// <summary>
+    /// The PON fields the PON load map reads: the idle frames against the superframe counter, the
+    /// FEC state that sets the payload, the uptime that marks a reboot, and the ONT's own bytes.
+    /// A month of points at this width instead of the whole PON set.
+    /// </summary>
+    private static readonly string PonLoadFieldFilter = string.Join(" or ", new[]
+    {
+        "gem_rx_idle_frames", "ds_superframe", "ds_superframe_sampled", "ds_fec_enabled", "sfp_uptime_s", "gem_rx_bytes",
+    }.Select(f => $@"r._field == {FluxLiteral.Quote(f)}"));
+
     /// <summary>Null when the row carries no PON field at all, which is every DDM-only module.</summary>
     private static PonSeriesPoint? ReadPonPoint(InfluxDB.Client.Core.Flux.Domain.FluxRecord record, DateTime time)
     {
@@ -4155,13 +4165,15 @@ from(bucket: {FluxLiteral.Quote(_longtermBucket)})
     /// Supplemental PON-layer time-series for a set of (device_mac, port_name) pairs.
     /// Only modules with an attached ONT config have these fields; others return no rows.
     /// Aggregates with fn: last (counters are cumulative - mean would distort deltas).
+    /// <paramref name="loadFieldsOnly"/> reads only what the PON load map needs.
     /// </summary>
     public async Task<Dictionary<string, List<PonSeriesPoint>>> QuerySfpPonByModulesAsync(
         IReadOnlyList<(string DeviceMac, string PortName)> modules,
         DateTime from,
         DateTime to,
         TimeSpan? aggregateWindow = null,
-        CancellationToken ct = default)
+        CancellationToken ct = default,
+        bool loadFieldsOnly = false)
     {
         if (!IsConfigured) await ReconfigureAsync(ct);
         if (!IsConfigured || modules.Count == 0) return new Dictionary<string, List<PonSeriesPoint>>();
@@ -4170,7 +4182,7 @@ from(bucket: {FluxLiteral.Quote(_longtermBucket)})
         var macFilter = string.Join(" or ", modules.Select(m =>
             $@"(r.device_mac == {FluxLiteral.Quote(NormalizeMac(m.DeviceMac))} and r.port_name == {FluxLiteral.Quote(m.PortName)})"));
 
-        var fieldFilter = PonFieldFilter;
+        var fieldFilter = loadFieldsOnly ? PonLoadFieldFilter : PonFieldFilter;
 
         var flux = $@"
 from(bucket: {FluxLiteral.Quote(_longtermBucket)})
@@ -4553,7 +4565,8 @@ union(tables: [gauges, peaks, deltas])
 
     /// <summary>
     /// Query external ONT metrics over a time range.
-    /// Returns dict keyed by ont_id.
+    /// Returns dict keyed by ont_id. <paramref name="ponLoadOnly"/> reads only the PON fields the
+    /// PON load map needs, and no DDM fields.
     /// </summary>
     public async Task<Dictionary<string, List<OntPoint>>> QueryOntAsync(
         DateTime from,
@@ -4561,8 +4574,10 @@ union(tables: [gauges, peaks, deltas])
         string? ontId = null,
         TimeSpan? aggregateWindow = null,
         bool includePon = false,
-        CancellationToken ct = default)
+        CancellationToken ct = default,
+        bool ponLoadOnly = false)
     {
+        if (ponLoadOnly) includePon = true;
         if (!IsConfigured) await ReconfigureAsync(ct);
         if (!IsConfigured) return new Dictionary<string, List<OntPoint>>();
         // TimeSpan.Zero requests RAW points so ISP Health gets per-poll FEC/BIP deltas comparable to
@@ -4583,6 +4598,7 @@ union(tables: [gauges, peaks, deltas])
             "rx_power_dbm", "tx_power_dbm", "temperature_c", "voltage_v", "bias_ma",
             "fec_errors", "bip_errors", "pon_link_status", "link_uptime_seconds",
         }.Select(f => $@"r._field == {FluxLiteral.Quote(f)}")) + (includePon ? $" or {PonFieldFilter}" : "");
+        if (ponLoadOnly) ontFieldFilter = PonLoadFieldFilter;
         var flux = $@"
 from(bucket: {FluxLiteral.Quote(_longtermBucket)})
   |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})

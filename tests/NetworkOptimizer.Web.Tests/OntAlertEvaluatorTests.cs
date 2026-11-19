@@ -476,6 +476,48 @@ public class OntAlertEvaluatorTests
     }
 
     [Fact]
+    public async Task PathLoss_AfterALongRaisedFault_TheLevelHolds_SoTheSameFaultRaisesAgain()
+    {
+        var (evaluator, bus) = Create();
+
+        await Feed(evaluator, 0, Enumerable.Repeat(18.0, 12).ToArray());
+        // Three days at the fault level (5-minute polls), then fixed, then the fault returns.
+        await Feed(evaluator, 12, Enumerable.Repeat(20.3, 3 * 288).ToArray());
+        await Feed(evaluator, 12 + 3 * 288, Enumerable.Repeat(18.2, 6).ToArray());
+        await Feed(evaluator, 18 + 3 * 288, 20.3, 20.3, 20.3);
+
+        bus.Events.Count(e => e.EventType == "ont.path_loss_rise").Should().Be(2,
+            "the first reading after the clear weighs one poll, not the three raised days");
+    }
+
+    [Fact]
+    public async Task PathLoss_Rise_SaysWhichSideMoved()
+    {
+        async Task<string> RiseMessage(double launchAfter)
+        {
+            var (evaluator, bus) = Create();
+            for (var i = 0; i < 12; i++)
+                await evaluator.EvaluatePathLossAsync(1, "ONT", 20.0, 2, now: PathT0.AddMinutes(5 * i), launchDbm: 2.0);
+            for (var i = 12; i < 16; i++)
+                await evaluator.EvaluatePathLossAsync(1, "ONT", 22.5, 2, now: PathT0.AddMinutes(5 * i), launchDbm: launchAfter);
+            return bus.Events.Single(e => e.EventType == "ont.path_loss_rise").Message!;
+        }
+
+        (await RiseMessage(2.0)).Should().Contain("With the OLT launch power unchanged");
+        (await RiseMessage(4.5)).Should().Contain("OLT launch power +2.5 dB from its usual level (RX 0.0 dB). The change is on the OLT side.");
+    }
+
+    [Fact]
+    public void RiseCause_SplitsTheRiseBetweenLaunchAndFiber()
+    {
+        OntAlertEvaluator.RiseCause(2.5, 0.2).Should().StartWith("With the OLT launch power unchanged, the change is on the fiber path");
+        OntAlertEvaluator.RiseCause(2.5, 2.5).Should().EndWith("The change is on the OLT side.");
+        OntAlertEvaluator.RiseCause(4.0, 1.5).Should().Be(
+            "OLT launch power +1.5 dB from its usual level (RX -2.5 dB): the rest of the change is on the fiber path. Check connectors, the patch cable, and bends first.");
+        OntAlertEvaluator.RiseCause(2.5, null).Should().Be("Check the fiber path first: connectors, the patch cable, and bends.");
+    }
+
+    [Fact]
     public async Task PathLoss_SlowDrift_IsFollowedRatherThanRaised()
     {
         var (evaluator, bus) = Create();

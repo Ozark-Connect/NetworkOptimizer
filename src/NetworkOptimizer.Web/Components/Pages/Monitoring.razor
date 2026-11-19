@@ -3130,6 +3130,33 @@
         catch (Exception ex) { Logger.LogDebug(ex, "Could not save the Path Map's view"); }
     }
 
+    // The PON section's view tab on SFP Stats and ONT Stats, per user on every site; null until read.
+    private const string PonViewKey = "monitoring.ponView";
+    private static readonly string[] PonViews = ["all", "optical", "link", "traffic", "provider"];
+    private string? _ponView;
+
+    /// <summary>Called by pon-section.js when the reader picks a PON view: saved for them.</summary>
+    [JSInvokable]
+    public async Task OnPonViewChanged(string view)
+    {
+        if (!PonViews.Contains(view) || view == _ponView) return;
+        _ponView = view;
+        try { await UserPreferences.SetAsync(PonViewKey, view); }
+        catch (Exception ex) { Logger.LogDebug(ex, "Could not save the PON view"); }
+    }
+
+    /// <summary>The saved PON view as a line of JS that seeds pon-section.js before a chart tab mounts.</summary>
+    private async Task<string> PonViewSeedJsAsync()
+    {
+        if (_ponView is null)
+        {
+            try { _ponView = await UserPreferences.GetAsync(PonViewKey); }
+            catch (Exception ex) { Logger.LogDebug(ex, "Could not read the PON view"); }
+            if (!PonViews.Contains(_ponView)) _ponView = "all";
+        }
+        return $"window.__netoptPonView = '{_ponView}';";
+    }
+
     private async Task TogglePathMapAsync()
     {
         if (_pathMapNoRoute || !_pathMapStateLoaded) return;
@@ -6581,7 +6608,7 @@
                 }
                 catch { }
                 await JS.InvokeVoidAsync("eval",
-                    $"(async () => {{ const m = await import('{sfpUrl}'); window.__sfpCharts = m; await m.mount('sfp-charts-container'); {HardwareFrameJs()}{soloJs} }})();");
+                    $"(async () => {{ {await PonViewSeedJsAsync()} const m = await import('{sfpUrl}'); window.__sfpCharts = m; await m.mount('sfp-charts-container'); {HardwareFrameJs()}{soloJs} }})();");
             }
             catch (Exception ex) { _sfpChartsMounted = false; Logger.LogDebug(ex, "SFP charts mount failed; will retry on next render"); }
         }
@@ -6733,7 +6760,7 @@
                 }
                 catch { }
                 await JS.InvokeVoidAsync("eval",
-                    $"(async () => {{ const m = await import('{ontUrl}'); window.__ontCharts = m; await m.mount('ont-charts-container'); {HardwareFrameJs()}{soloJs} }})();");
+                    $"(async () => {{ {await PonViewSeedJsAsync()} const m = await import('{ontUrl}'); window.__ontCharts = m; await m.mount('ont-charts-container'); {HardwareFrameJs()}{soloJs} }})();");
                 _soloOntId = null;
             }
             catch (Exception ex) { _ontChartsMounted = false; Logger.LogDebug(ex, "ONT charts mount failed; will retry on next render"); }

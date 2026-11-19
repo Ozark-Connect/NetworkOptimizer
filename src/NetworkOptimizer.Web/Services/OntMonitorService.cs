@@ -282,6 +282,27 @@ public class OntMonitorService : IOntMonitorService, IDisposable
         }
     }
 
+    /// <summary>
+    /// The path loss alerts for one standalone ONT poll, off the poll's path: the first call reads
+    /// the stored history. A failure is logged here, since nothing awaits the task.
+    /// </summary>
+    private async Task EvaluatePathLossLoggedAsync(OntConfiguration config, NetworkOptimizer.Core.Models.PonSupplementalStats pon)
+    {
+        try
+        {
+            await _alertEvaluator.EvaluatePathLossAsync(
+                config.Id, config.Name,
+                NetworkOptimizer.Core.Models.PonSupplementalStats.PathLossDb(pon.OltLaunchPowerDbm, pon.RxPowerDbm), pon.OdnClass,
+                priorLevel: NetworkOptimizer.Web.Services.Monitoring.OntAlertEvaluator.PriorPathLossFrom(
+                    _influx, "ont", ("ont_id", config.Id.ToString())),
+                launchDbm: pon.OltLaunchPowerDbm);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Path loss evaluation failed for ONT {Name}", config.Name);
+        }
+    }
+
     private async Task<OntStats?> PollSingleAsync(
         OntConfiguration config, IOntRepository repository, SfpDdmThresholds thresholds)
     {
@@ -333,13 +354,7 @@ public class OntMonitorService : IOntMonitorService, IDisposable
                     gemPorts: stats.Pon?.GemPorts,
                     gemPortsEncrypted: stats.Pon?.GemPortsEncrypted);
                 if (stats.Pon is { } pon)
-                {
-                    _ = _alertEvaluator.EvaluatePathLossAsync(
-                        config.Id, config.Name,
-                        NetworkOptimizer.Core.Models.PonSupplementalStats.PathLossDb(pon.OltLaunchPowerDbm, pon.RxPowerDbm), pon.OdnClass,
-                        priorLevel: NetworkOptimizer.Web.Services.Monitoring.OntAlertEvaluator.PriorPathLossFrom(
-                            _influx, "ont", ("ont_id", config.Id.ToString())));
-                }
+                    _ = EvaluatePathLossLoggedAsync(config, pon);
 
                 _logger.LogDebug("ONT {Name} polled successfully: Rx={Rx} dBm", config.Name, stats.RxPowerDbm);
                 return stats;

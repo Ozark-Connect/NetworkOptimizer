@@ -217,7 +217,7 @@ public static class SfpChartEndpoints
             var to = DateTime.UtcNow;
             var data = await influx.QuerySfpPonByModulesAsync(
                 sfps.Select(s => (s.DeviceMac, s.PortName)).ToList(),
-                to.AddDays(PonChartSeries.LoadMapDays), to, TimeSpan.FromHours(1), ct);
+                to.AddDays(PonChartSeries.LoadMapDays), to, TimeSpan.FromHours(1), ct, loadFieldsOnly: true);
             var items = sfps
                 .Select(s => $"{s.DeviceMac.Replace("-", ":").ToLowerInvariant()}:{s.PortName}")
                 .Distinct()

@@ -131,7 +131,7 @@ public static class OntChartEndpoints
         {
             var to = DateTime.UtcNow;
             var data = await influx.QueryOntAsync(
-                to.AddDays(PonChartSeries.LoadMapDays), to, null, TimeSpan.FromHours(1), includePon: true, ct: ct);
+                to.AddDays(PonChartSeries.LoadMapDays), to, null, TimeSpan.FromHours(1), ct: ct, ponLoadOnly: true);
             var configs = await ontService.GetStandaloneConfigsAsync();
             var known = configs.Select(c => c.Id.ToString()).ToHashSet();
             var items = data

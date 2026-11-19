@@ -116,9 +116,9 @@ public class OntAlertEvaluator
     }
 
     /// <summary>A path loss this far above the learned level raises the rise alert.</summary>
-    internal const double PathLossRiseDb = 2.0;
+    internal const double PathLossRiseDb = PonThresholds.PathLossRiseDb;
     /// <summary>Less than this much left to the class limit raises the budget alert as a warning.</summary>
-    internal const double PathLossReserveDb = 3.0;
+    internal const double PathLossReserveDb = PonThresholds.PathLossReserveDb;
     /// <summary>Both alerts clear this far back inside their threshold, so a reading at the edge does not flap.</summary>
     internal const double PathLossHysteresisDb = 0.5;
     /// <summary>Readings that make up "now": one outlier poll does not raise or clear anything.</summary>
@@ -128,7 +128,6 @@ public class OntAlertEvaluator
     /// <summary>How slowly the learned level follows the loss: the seasons move it, a fault does not.</summary>
     private static readonly TimeSpan PathLossBaselineTime = TimeSpan.FromDays(1);
 
-    /// <summary>The upper loss limit of each ODN class the PON-ID message can name (G.984.2), in dB.</summary>
     /// <summary>How far back the stored history is read for the usual path loss after a restart.</summary>
     internal static readonly TimeSpan PathLossPriorSpan = TimeSpan.FromDays(7);
     /// <summary>Hourly means the history must hold before its median counts as the usual level.</summary>
@@ -138,13 +137,8 @@ public class OntAlertEvaluator
     /// The usual path loss from stored hourly means: their median, so a fault of the last days
     /// does not pull it up and still stands out against it. Null when the history is too short.
     /// </summary>
-    internal static double? PriorPathLoss(IReadOnlyList<double> hourlyMeans)
-    {
-        if (hourlyMeans.Count < PathLossPriorHours) return null;
-        var sorted = hourlyMeans.OrderBy(v => v).ToList();
-        var mid = sorted.Count / 2;
-        return sorted.Count % 2 == 1 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
-    }
+    internal static double? PriorPathLoss(IReadOnlyList<double> hourlyMeans) =>
+        hourlyMeans.Count < PathLossPriorHours ? null : IspHealth.SeriesStats.Median(hourlyMeans);
 
     /// <summary>The <c>priorLevel</c> source for <see cref="EvaluatePathLossAsync"/>: one query of the longterm history.</summary>
     public static Func<CancellationToken, Task<double?>> PriorPathLossFrom(
@@ -158,11 +152,6 @@ public class OntAlertEvaluator
             return PriorPathLoss(series.Select(p => p.Value).ToList());
         };
 
-    private static readonly (string Name, double MaxDb)[] OdnClassLimits =
-    {
-        ("A", 20), ("B", 25), ("B+", 28), ("C", 30), ("C+", 32),
-    };
-
     /// <summary>
     /// Path loss (the OLT's announced launch power less the ONT's RX reading) against two things:
     /// the budget of the ODN class the OLT names, and the level this ONT usually runs at. The
@@ -172,17 +161,19 @@ public class OntAlertEvaluator
     /// the rise alert is raised, so a fault cannot become the new normal. It is kept in memory,
     /// so after a restart of the application <paramref name="priorLevel"/> is asked once for the
     /// level the stored history shows; without it a fault that is already there is learned as the level.
-    /// Only ONTs whose OLT announces its launch power reach here.
+    /// Only ONTs whose OLT announces its launch power reach here. <paramref name="launchDbm"/> is that
+    /// announced power: its usual level is learned the same way, so a rise alert can say which side moved.
     /// </summary>
     public async ValueTask EvaluatePathLossAsync(
         int ontId, string ontName, double? pathLossDb, long? odnClass,
         string? sourceUrl = null, DateTime? now = null, CancellationToken ct = default,
-        Func<CancellationToken, Task<double?>>? priorLevel = null)
+        Func<CancellationToken, Task<double?>>? priorLevel = null, double? launchDbm = null)
     {
         if (pathLossDb is not double loss || !double.IsFinite(loss)) return;
         var state = _states.GetOrAdd(ontId, _ => new OntAlertState());
         if (!string.IsNullOrEmpty(sourceUrl)) state.SourceUrl = sourceUrl;
         var at = now ?? DateTime.UtcNow;
+        var launch = launchDbm is double l && double.IsFinite(l) ? l : (double?)null;
 
         // One reading at a time per ONT: the timer and a manual refresh can both arrive here, and
         // the recent readings and the level are not safe to move from two sides at once.
@@ -207,6 +198,8 @@ public class OntAlertEvaluator
                 }
             }
 
+            if (launch is double first && state.LaunchLevel is null) state.LaunchLevel = first;
+
             state.RecentPathLoss.Enqueue(loss);
             double? leaving = null;
             while (state.RecentPathLoss.Count > PathLossRecentReadings) leaving = state.RecentPathLoss.Dequeue();
@@ -218,7 +211,7 @@ public class OntAlertEvaluator
 
             if (odnClass is >= 0 and <= 4 && settled)
             {
-                var (className, max) = OdnClassLimits[odnClass.Value];
+                var (className, _, max) = PonThresholds.OdnClasses[odnClass.Value];
                 var level = low > max ? 2 : low > max - PathLossReserveDb ? 1 : 0;
                 var holds = high > max - PathLossHysteresisDb ? 2 : high > max - PathLossReserveDb - PathLossHysteresisDb ? 1 : 0;
                 if (level > state.PathLossBudgetLevel)
@@ -265,7 +258,7 @@ public class OntAlertEvaluator
                         Severity = AlertSeverity.Warning,
                         Title = $"{ontName} path loss increased{_siteSuffix}",
                         Message = $"ONT {ontName} path loss {loss:0.0} dB is {loss - baseline:0.0} dB above its usual {baseline:0.0} dB. " +
-                            "With the OLT launch power unchanged, the change is on the fiber path: check connectors, the patch cable, and bends first.",
+                            RiseCause(loss - baseline, launch is double ln && state.LaunchLevel is double ll ? ln - ll : null),
                         DeviceName = ontName,
                         MetricValue = loss,
                         ThresholdValue = Math.Round(baseline + PathLossRiseDb, 1),
@@ -289,6 +282,8 @@ public class OntAlertEvaluator
             // pulls it up while it is still being confirmed and never raises.
             if (!state.PathLossRisen && leaving is double learned)
             {
+                var elapsed = at - state.PathLossBaselineAt;
+                var weight = elapsed > TimeSpan.Zero ? 1 - Math.Exp(-elapsed / PathLossBaselineTime) : 0;
                 if (state.PathLossBaseline is not double level || state.PathLossBaselineCount < PathLossBaselineReadings)
                 {
                     var n = state.PathLossBaselineCount;
@@ -297,10 +292,16 @@ public class OntAlertEvaluator
                 }
                 else
                 {
-                    var elapsed = at - state.PathLossBaselineAt;
-                    var weight = elapsed > TimeSpan.Zero ? 1 - Math.Exp(-elapsed / PathLossBaselineTime) : 0;
                     state.PathLossBaseline = level + (learned - level) * weight;
                 }
+                if (launch is double ln && state.LaunchLevel is double ll)
+                    state.LaunchLevel = ll + (ln - ll) * weight;
+                state.PathLossBaselineAt = at;
+            }
+            // The level stands still while the alert is raised, and so does its clock: the first
+            // reading after the clear must weigh one poll, not the whole raised time.
+            else if (state.PathLossRisen)
+            {
                 state.PathLossBaselineAt = at;
             }
         }
@@ -308,6 +309,23 @@ public class OntAlertEvaluator
         {
             state.PathLossGate.Release();
         }
+    }
+
+    /// <summary>
+    /// Which side of the fiber a path loss rise is on. Loss is launch less RX, so a launch power
+    /// change accounts for that much of the rise and the RX change for the rest.
+    /// </summary>
+    internal static string RiseCause(double riseDb, double? launchChangeDb)
+    {
+        const string fiber = "check connectors, the patch cable, and bends first.";
+        if (launchChangeDb is not double launch)
+            return "Check the fiber path first: connectors, the patch cable, and bends.";
+        if (Math.Abs(launch) < PonThresholds.OltLaunchChangeDb)
+            return $"With the OLT launch power unchanged, the change is on the fiber path: {fiber}";
+        var moved = $"OLT launch power {launch:+0.0;-0.0} dB from its usual level (RX {launch - riseDb:+0.0;-0.0;0.0} dB)";
+        return riseDb - launch < PathLossRiseDb
+            ? $"{moved}. The change is on the OLT side."
+            : $"{moved}: the rest of the change is on the fiber path. {char.ToUpperInvariant(fiber[0])}{fiber[1..]}";
     }
 
     /// <summary>
@@ -645,5 +663,7 @@ public class OntAlertEvaluator
         public double? PathLossBaseline;
         public int PathLossBaselineCount;
         public DateTime PathLossBaselineAt;
+        /// <summary>The OLT's usual announced launch power, learned beside the path loss level.</summary>
+        public double? LaunchLevel;
     }
 }

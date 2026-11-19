@@ -18,6 +18,19 @@ public static class PonThresholds
     public const double XgsPonTxPowerHighDbm = 8.0;
     public const double PonTempHighC = 75.0;
 
+    // --- Path loss (the OLT's announced launch power less the ONT's RX), for the PON cards and alerts ---
+    /// <summary>The loss budget of each ODN class the PON-ID message can name (G.984.2), in dB, indexed by the class code.</summary>
+    public static readonly (string Name, double MinDb, double MaxDb)[] OdnClasses =
+    {
+        ("A", 5, 20), ("B", 10, 25), ("B+", 13, 28), ("C", 15, 30), ("C+", 17, 32),
+    };
+    /// <summary>A path loss this far above its usual level is a rise.</summary>
+    public const double PathLossRiseDb = 2.0;
+    /// <summary>Less than this much budget left to the class limit is near the limit.</summary>
+    public const double PathLossReserveDb = 3.0;
+    /// <summary>The OLT announces its power in 0.1 dB steps; a full step this size is a change of level.</summary>
+    public const double OltLaunchChangeDb = 1.0;
+
     // --- PON receiver operating envelope (physics; consumed by ISP Health optical scoring) ---
     /// <summary>ONU receiver sensitivity floor (GPON/XGS-PON Class B+); at/below this the link risks dropping.</summary>
     public const double PonRxFloorDbm = -28.0;

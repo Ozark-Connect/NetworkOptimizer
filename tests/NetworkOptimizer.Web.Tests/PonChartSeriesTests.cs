@@ -657,11 +657,30 @@ public class PonChartSeriesTests
         // An OLT without PON-ID and a source without OMCI state or byte counters: light is
         // judged from O5, and the steps nothing reports are left out.
         var points = Link(3);
-        foreach (var p in points) p.GemTxBytes = null;
+        foreach (var p in points) { p.GemTxBytes = null; p.OmciUp = 1; }
 
-        Statuses(points).Should().Equal("light:ok", "registered:ok");
+        Statuses(points).Should().Equal("light:ok", "registered:ok", "management:ok");
         PonChartSeries.ConnectionCheck(points, -18.2)![0].Detail.Should().StartWith("receiving at -18.2 dBm, in O5");
         PonChartSeries.ConnectionCheck([Point(0, 1000)]).Should().BeNull("an ONT that reports no state gets no check");
+    }
+
+    [Fact]
+    public void ConnectionCheck_OnlyTheOnuState_GetsNoCard()
+    {
+        // What a source that reports only the ONU state sends: the card would restate the link status.
+        var points = Link(3);
+        foreach (var p in points) p.GemTxBytes = null;
+
+        PonChartSeries.ConnectionCheck(points).Should().BeNull();
+    }
+
+    [Fact]
+    public void ConnectionCheck_LossUnderTheClassMinimum_IsAShortFiber_NotAFailure()
+    {
+        var shortFiber = Healthy();
+        shortFiber[^1].PathLossDb = 11.5;
+
+        Statuses(shortFiber)[0].Should().Be("light:ok");
     }
 
     [Fact]

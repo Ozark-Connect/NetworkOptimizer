@@ -1,6 +1,8 @@
 using System.Globalization;
 using NetworkOptimizer.Core.Helpers;
 using NetworkOptimizer.Storage.Services;
+using NetworkOptimizer.Web.Services.Monitoring;
+using NetworkOptimizer.Web.Services.Monitoring.IspHealth;
 
 namespace NetworkOptimizer.Web.Endpoints;
 
@@ -362,18 +364,14 @@ public static class PonChartSeries
         return items;
     }
 
-    /// <summary>The loss budget of each ODN class the PON-ID message can name (G.984.2), in dB.</summary>
-    private static readonly (string Name, double MinDb, double MaxDb)[] OdnClasses =
-    {
-        ("A", 5, 20), ("B", 10, 25), ("B+", 13, 28), ("C", 15, 30), ("C+", 17, 32),
-    };
+    private static readonly (string Name, double MinDb, double MaxDb)[] OdnClasses = PonThresholds.OdnClasses;
 
     /// <summary>A path loss this far above the window's usual level is worth a line.</summary>
-    internal const double PathLossRiseHintDb = 2.0;
+    internal const double PathLossRiseHintDb = PonThresholds.PathLossRiseDb;
     /// <summary>Less than this much budget left to the class limit is worth a line.</summary>
-    internal const double PathLossNearLimitDb = 3.0;
-    /// <summary>The OLT announces its power in 0.1 dB steps; a full step down is a change of level.</summary>
-    internal const double LaunchDropHintDb = 1.0;
+    internal const double PathLossNearLimitDb = PonThresholds.PathLossReserveDb;
+    /// <summary>A launch power this far below its usual level is a change of level.</summary>
+    internal const double LaunchDropHintDb = PonThresholds.OltLaunchChangeDb;
     /// <summary>A change this large from one point to the next is a jump, far outside the RX reading's noise.</summary>
     internal const double PathLossJumpDb = 0.7;
     /// <summary>This many jumps in one window is the loss going out and back at least twice.</summary>
@@ -550,12 +548,8 @@ public static class PonChartSeries
         return changes.Count > MaxChanges ? changes.GetRange(changes.Count - MaxChanges, MaxChanges) : changes;
     }
 
-    private static double Median(IEnumerable<double> values)
-    {
-        var sorted = values.OrderBy(v => v).ToList();
-        var mid = sorted.Count / 2;
-        return sorted.Count % 2 == 1 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
-    }
+    private static double Median(IEnumerable<double> values) =>
+        SeriesStats.Median(values.ToList()) ?? double.NaN;
 
     // ---------------------------------------------------------------- further read-outs
 
@@ -570,7 +564,7 @@ public static class PonChartSeries
     /// the reported data cannot decide is left out, never shown as "ok". Without an announced
     /// launch power, light is judged from O5: an ONU reaches it only with downstream light and
     /// frame sync. <paramref name="rxDbm"/> is the ONT's latest RX power, for that step's detail.
-    /// Null when no step can be decided.
+    /// Null when no step can be decided, or when the source reports nothing beyond the ONU state.
     /// </summary>
     public static List<CheckStep>? ConnectionCheck(List<MonitoringInfluxClient.PonSeriesPoint>? points, double? rxDbm = null)
     {
@@ -579,6 +573,9 @@ public static class PonChartSeries
         var cur = ordered[^1];
         var prev = ordered.Count > 1 ? ordered[^2] : null;
         if (cur.PonLinkStatus is null && cur.OmciUp is null) return null;
+        // A source that reports only the ONU state would get a card restating the link status.
+        if (cur.PathLossDb is null && cur.OdnClass is null && cur.OmciUp is null && cur.OmciServices is null
+            && cur.GemRxBytes is null && cur.GemTxBytes is null) return null;
         var inv = CultureInfo.InvariantCulture;
 
         CheckStep? Light()
@@ -591,7 +588,8 @@ public static class PonChartSeries
                     : "in O5. The OLT announces no launch power, so the path loss is not checked");
             }
             var (name, min, max) = OdnClasses[cur.OdnClass.Value];
-            var ok = loss >= min && loss <= max;
+            // Under the class minimum is a short fiber, not a fault: the Path Loss card notes it.
+            var ok = loss <= max;
             return new("light", ok ? "ok" : "fail",
                 string.Create(inv, $"path loss {loss:0.0} dB, class {name} allows {min:0} to {max:0} dB"));
         }

@@ -2864,7 +2864,8 @@ public class MonitoringCollectionAgent : BackgroundService
                                 PonSupplementalStats.PathLossDb(stats.OltLaunchPowerDbm, stats.RxPowerDbm), stats.OdnClass,
                                 sourceUrl: sfpUrl, ct: ct,
                                 priorLevel: OntAlertEvaluator.PriorPathLossFrom(
-                                    _influx, "sfp", ("device_mac", sfp.DeviceMac), ("port_name", sfp.PortName)));
+                                    _influx, "sfp", ("device_mac", sfp.DeviceMac), ("port_name", sfp.PortName)),
+                                launchDbm: stats.OltLaunchPowerDbm);
                         }
                         catch (Exception ex)
                         {

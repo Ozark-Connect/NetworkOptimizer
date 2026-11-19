@@ -642,22 +642,19 @@ export function updatePonCard(container, cardSelector, chart, series, prepare = 
 }
 
 // The PON section's views. Each card names its group with data-pon-group; a card without one
-// (Connection Check) shows in every view. The choice is one per browser for both tabs.
-const VIEW_STORE = 'no-pon-view';
+// (Connection Check) shows in every view. The choice is one per user for both tabs: the page
+// seeds it from the user's preferences before mounting, and a pick is saved back through the page.
 const PON_VIEWS = ['all', 'optical', 'link', 'traffic', 'provider'];
 
 function loadView() {
-    try {
-        const v = localStorage.getItem(VIEW_STORE);
-        return PON_VIEWS.includes(v) ? v : 'all';
-    } catch { return 'all'; }
+    const v = window.__netoptPonView;
+    return PON_VIEWS.includes(v) ? v : 'all';
 }
 
 function saveView(view) {
-    try {
-        if (view === 'all') localStorage.removeItem(VIEW_STORE);
-        else localStorage.setItem(VIEW_STORE, view);
-    } catch { /* localStorage unavailable: the view holds for this page only */ }
+    if (!PON_VIEWS.includes(view)) return;
+    window.__netoptPonView = view;
+    window.__netoptLatencyRef?.invokeMethodAsync('OnPonViewChanged', view).catch(() => { /* the view holds for this page only */ });
 }
 
 // A group has content when one of its cards is not hidden by updatePonCard (style.display).
