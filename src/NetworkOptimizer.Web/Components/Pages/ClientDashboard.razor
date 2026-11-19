@@ -611,7 +611,7 @@
                     <div class="section-header speed-tests-header">
                         <div class="speed-tests-title">
                             <h4>Speed Tests</h4>
-                            <span class="section-subtitle">@TimeFormatHelper.Pluralize(_speedResults.Count, "test")</span>
+                            <span class="section-subtitle">@TimeFormatHelper.Pluralize(_resultRows.Count, "test")</span>
                         </div>
                         @if (_isOwnDevice && (!string.IsNullOrEmpty(_openSpeedTestUrl) || _wanTestUrl != null))
                         {
@@ -770,7 +770,7 @@
                     }
 
                     @* Speed Results Table *@
-                    @if (_speedResults.Count > 0)
+                    @if (_resultRows.Count > 0)
                     {
                         <div class="card results-card">
                             <h3>Test Results</h3>
@@ -797,12 +797,17 @@
                                     <tbody>
                                         @foreach (var r in GetPagedSpeedResults())
                                         {
+                                            // A LAN result is stored from the server's side, so the device's download is
+                                            // UploadMbps; a WAN result is already the site's (and the client's) download.
+                                            var wan = IsWanResult(r);
+                                            var down = wan ? r.DownloadMbps : r.UploadMbps;
+                                            var up = wan ? r.UploadMbps : r.DownloadMbps;
                                             <tr id="result-@r.Id" class="result-row @(_expandedResultId == r.Id ? "expanded" : "")"
                                                 @onclick="() => ToggleResultExpand(r.Id)">
                                                 <td>@FormatTimeShort(r.TestTime)</td>
-                                                <td class="hide-mobile"><span class="speed-down">@FormatSpeed(r.UploadMbps, "F1")</span> Mbps</td>
-                                                <td class="hide-mobile"><span class="speed-up">@FormatSpeed(r.DownloadMbps, "F1")</span> Mbps</td>
-                                                <td class="show-mobile"><span class="speed-down">@FormatSpeed(r.UploadMbps, "F0")</span> / <span class="speed-up">@FormatSpeed(r.DownloadMbps, "F0")</span></td>
+                                                <td class="hide-mobile"><span class="speed-down">@FormatSpeed(down, "F1")</span> Mbps</td>
+                                                <td class="hide-mobile"><span class="speed-up">@FormatSpeed(up, "F1")</span> Mbps</td>
+                                                <td class="show-mobile"><span class="speed-down">@FormatSpeed(down, "F0")</span> / <span class="speed-up">@FormatSpeed(up, "F0")</span></td>
                                                 @if (!HidesApRates)
                                                 {
                                                     <td class="hide-mobile">@RenderRate(r.WifiTxRateKbps, "speed-down")</td>
@@ -810,7 +815,7 @@
                                                     <td class="show-mobile">@RenderRateShort(r.WifiTxRateKbps, "speed-down") / @RenderRateShort(r.WifiRxRateKbps, "speed-up")</td>
                                                 }
                                                 <td class="hide-mobile">@(r.PingMs.HasValue ? $"{r.PingMs.Value:F1} ms" : "-")</td>
-                                                <td class="hide-mobile">@(r.Direction == SpeedTestDirection.BrowserToServer ? "Browser" : "iperf3")</td>
+                                                <td class="hide-mobile">@(wan ? "WAN" : r.Direction == SpeedTestDirection.BrowserToServer ? "Browser" : "iperf3")</td>
                                                 <td class="expand-chevron"><span>@(_expandedResultId == r.Id ? "▲" : "▼")</span></td>
                                             </tr>
                                             @if (_expandedResultId == r.Id)
@@ -819,7 +824,7 @@
                                                     <td colspan="@(HidesApRates ? 6 : 8)">
                                                         <div class="result-details">
                                                             <SpeedTestDetails Result="r" HideDeviceName="true" HideClientDashboardLink="true"
-                                                                              Perspective="SpeedPerspective.Device"
+                                                                              Perspective="@(wan ? SpeedPerspective.Wan : SpeedPerspective.Device)"
                                                                               ShowLiveViewLink="_liveViewLinkEnabled"
                                                                               OnDelete="HandleDeleteResult" OnNotesChanged="HandleNotesChanged" />
                                                         </div>
@@ -834,7 +839,7 @@
                             {
                                 <div class="pagination">
                                     <button class="btn btn-sm btn-secondary" disabled="@(_speedPage <= 1)" @onclick="() => ChangeSpeedPage(-1)"><AppIcon Name="chevron-left" /> Prev</button>
-                                    <span class="pagination-info">Page @_speedPage of @SpeedTotalPages (@_speedResults.Count results)</span>
+                                    <span class="pagination-info">Page @_speedPage of @SpeedTotalPages (@_resultRows.Count results)</span>
                                     <button class="btn btn-sm btn-secondary" disabled="@(_speedPage >= SpeedTotalPages)" @onclick="() => ChangeSpeedPage(1)">Next <AppIcon Name="chevron-right" /></button>
                                 </div>
                             }
@@ -1485,6 +1490,15 @@
 
     // Speed tab
     private List<Iperf3Result> _speedResults = new();
+    // The Test Results table: _speedResults (LAN, which the charts and map draw) plus the client's
+    // WAN tests, newest first. WAN tests measure the internet, so only the table lists them.
+    private List<Iperf3Result> _resultRows = new();
+    private List<Iperf3Result> _wanSpeedResults = new();
+
+    private void RebuildResultRows() =>
+        _resultRows = _speedResults.Concat(_wanSpeedResults).OrderByDescending(r => r.TestTime).ToList();
+
+    private static bool IsWanResult(Iperf3Result r) => r.Direction == SpeedTestDirection.OpenSpeedTestWan;
     private List<ApMapMarker> _apMapMarkers = new();
     private Iperf3Result? _latestSpeedResult;
     private List<SpeedChartPoint> _speedDownloadData = new();
@@ -3242,6 +3256,11 @@
         _speedResults = _client!.IsVpn
             ? await DashboardService.GetSpeedResultsByHostAsync(_client.Ip ?? "", from, to)
             : await DashboardService.GetSpeedResultsAsync(_client.Mac, from, to);
+        // WAN results are keyed by MAC; a VPN client has none.
+        _wanSpeedResults = _client.IsVpn
+            ? new()
+            : await DashboardService.GetWanSpeedResultsAsync(_client.Mac, from, to);
+        RebuildResultRows();
         _latestSpeedResult = _speedResults.FirstOrDefault();
 
         // Build chart data (UTC timestamps - JS formatter converts to browser local time)
@@ -3347,6 +3366,7 @@
         await Task.WhenAll(signalTask, speedTask);
         _signalMapPoints = await signalTask;
         _speedResults = await speedTask;
+        RebuildResultRows();
 
         // Build chart annotations for band/AP changes
         BuildSignalAnnotations();
@@ -3633,7 +3653,7 @@
     /// <summary>Takes the map's View link to its row, paging to it and opening it on the way.</summary>
     private async Task ScrollToResult(int resultId)
     {
-        var index = _speedResults.FindIndex(r => r.Id == resultId);
+        var index = _resultRows.FindIndex(r => r.Id == resultId);
         if (index >= 0) _speedPage = (index / SpeedPageSize) + 1;
 
         _expandedResultId = resultId;
@@ -3846,7 +3866,7 @@
     }
 
     // Speed results pagination
-    private int SpeedTotalPages => Math.Max(1, (int)Math.Ceiling(_speedResults.Count / (double)SpeedPageSize));
+    private int SpeedTotalPages => Math.Max(1, (int)Math.Ceiling(_resultRows.Count / (double)SpeedPageSize));
 
     // AP RX/TX rate columns only apply to Wi-Fi clients - hide for wired and VPN clients.
     private bool HidesApRates => _client?.IsWired == true || _client?.IsVpn == true;
@@ -3888,7 +3908,7 @@
 
     private IEnumerable<Iperf3Result> GetPagedSpeedResults()
     {
-        return _speedResults.Skip((_speedPage - 1) * SpeedPageSize).Take(SpeedPageSize);
+        return _resultRows.Skip((_speedPage - 1) * SpeedPageSize).Take(SpeedPageSize);
     }
 
     private void ChangeSpeedPage(int delta)
