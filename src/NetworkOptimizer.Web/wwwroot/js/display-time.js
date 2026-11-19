@@ -235,18 +235,22 @@
     const STEPS = [
         ['m', 1], ['m', 5], ['m', 10], ['m', 15], ['m', 30],
         ['h', 1], ['h', 2], ['h', 3], ['h', 4], ['h', 6], ['h', 12],
-        ['d', 1], ['d', 2], ['d', 3], ['d', 5], ['d', 7], ['d', 14],
+        ['d', 1], ['d', 2], ['d', 3], ['d', 5], ['d', 7], ['d', 10], ['d', 14],
         ['M', 1], ['M', 3], ['M', 6], ['y', 1],
     ];
     const STEP_MS = { m: MINUTE, h: HOUR, d: DAY, M: 30 * DAY, y: 365 * DAY };
 
-    function pickStep(spanMs, maxLabels) {
+    function pickStep(wallMin, wallMax, maxLabels) {
+        const spanMs = wallMax - wallMin;
         for (const [unit, n] of STEPS) {
             // A window of several days reads by the day; one of several hours by the hour or half hour.
             if (unit === 'm' && spanMs > (n === 30 ? 12 : 3) * HOUR) continue;
             // Midday marks (12h) reach a week: they place a spike in the morning or the afternoon.
             if (unit === 'h' && spanMs > (n === 12 ? 8 : 3) * DAY) continue;
-            if (spanMs / (STEP_MS[unit] * n) <= maxLabels) return [unit, n];
+            // Cheap bound first, then the ticks the step really places: span / step overcounts by up to
+            // one, which on a narrow chart skipped weekly labels (3 fit) for two-weekly ones (2 placed).
+            if (spanMs / (STEP_MS[unit] * n) > maxLabels + 1) continue;
+            if (axisTicks(wallMin, wallMax, unit, n).length <= maxLabels) return [unit, n];
         }
         return ['y', 1];
     }
@@ -336,7 +340,7 @@
         const toWall = x => (wallChart ? x : shift(x));
         const toX = wall => (wallChart ? wall : unshift(wall));
         const wallMin = toWall(g.minX), wallMax = toWall(g.maxX);
-        const [unit, n] = pickStep(wallMax - wallMin, Math.max(2, Math.round(g.gridWidth / LABEL_PX)));
+        const [unit, n] = pickStep(wallMin, wallMax, Math.max(2, Math.round(g.gridWidth / LABEL_PX)));
 
         // Font and placement from ApexCharts' own (hidden) labels, so ours sit where its would.
         const ref = el.querySelector('.apexcharts-xaxis-texts-g text');
