@@ -59,6 +59,76 @@ note() { printf '  %s%s%s\n' "$_dim" "$*" "$_rst"; }
 warn() { printf '  %s\xe2\x9a\xa0%s  %s\n' "$_ylw" "$_rst" "$*"; }
 err()  { printf '%sError:%s %s\n' "${_red}${_b}" "$_rst" "$*" >&2; exit 1; }
 
+# --- Server pre-flight --------------------------------------------------------
+# Probes the tunnel route the agent uses (the agent README's "Verify the connection" call). It stops
+# an install in one case only: the certificate is untrusted while -k reaches a working tunnel, so the
+# agent could never connect. Anything else warns or skips, so a curl that cannot run the probe never
+# blocks an install. Each curl runs on the left of && / ||, where set -e does not apply.
+PREFLIGHT_DOC="https://github.com/Ozark-Connect/NetworkOptimizer/blob/main/src/NetworkOptimizer.Agent/README.md#verify-the-connection"
+tunnel_probe() {
+    curl "$@" -sS -D - -o /dev/null --http2 --max-time 10 -X POST -H 'content-type: application/grpc' \
+        "${SERVER%/}/networkoptimizer.agent.v1.AgentTunnel/Connect" 2>&1
+}
+tunnel_verdict() {
+    # Here-strings, not pipes: under pipefail an early-exiting grep -q can fail the pipe on a match.
+    if grep -qiF 'grpc-message: First message must be a hello' <<<"$1"; then echo hello
+    elif grep -qiF 'grpc-message: Service is unimplemented' <<<"$1"; then echo unimplemented
+    elif grep -qE '^HTTP/[0-9.]+ 404' <<<"$1" && ! grep -qi '^grpc-message:' <<<"$1"; then echo notfound
+    else echo other
+    fi
+}
+# $1: the agent.json path. $2: "stop" when this installer may stop on an untrusted certificate.
+preflight_server() {
+    local config="$1" may_stop="$2" enrolled=false tls="" out rc verdict version
+    step "Checking the server"
+    version=$(curl --version 2>/dev/null) || version=""
+    if ! grep -q 'HTTP2' <<<"$version"; then
+        note "Skipped: this host's curl has no HTTP/2 support, so it cannot test the tunnel route."
+        return 0
+    fi
+    ${SUDO:-} grep -q '"agentKey"' "$config" 2>/dev/null && enrolled=true
+    if [ "$INSECURE" = true ] || ${SUDO:-} grep -q '"ignoreSslErrors":[[:space:]]*true' "$config" 2>/dev/null; then
+        tls="-k"
+    fi
+    out=$(tunnel_probe $tls) && rc=0 || rc=$?
+    verdict=$(tunnel_verdict "$out")
+    if [ "$verdict" = hello ]; then
+        ok "The tunnel route answers at ${SERVER%/}"
+        return 0
+    fi
+    case "$rc" in
+        60|51)
+            if [ -z "$tls" ]; then
+                out=$(tunnel_probe -k) && rc=0 || rc=$?
+                if [ "$(tunnel_verdict "$out")" = hello ]; then
+                    if [ "$enrolled" = true ]; then
+                        warn "This host does not trust the server's certificate. If you issued it yourself, set \"ignoreSslErrors\": true in ${config} and restart the agent. Otherwise fix the certificate on the reverse proxy."
+                        return 0
+                    fi
+                    # The stop needs this host's trust store to work, or a broken store would read as a bad certificate.
+                    if [ "$may_stop" = stop ] && curl -sS -o /dev/null --max-time 10 https://github.com >/dev/null 2>&1; then
+                        err "This host does not trust the server's certificate, so the agent cannot connect to ${SERVER%/}. If you issued the certificate yourself, re-run this command with --insecure. Otherwise fix the certificate on the reverse proxy. See ${PREFLIGHT_DOC}"
+                    fi
+                    warn "This host does not trust the server's certificate. If you issued it yourself, re-run this command with --insecure. Otherwise fix the certificate on the reverse proxy."
+                    return 0
+                fi
+            fi
+            warn "This host does not trust the server's certificate, and the tunnel route did not answer. See ${PREFLIGHT_DOC}"
+            ;;
+        6|7|28)
+            warn "Could not reach ${SERVER%/} (curl exit ${rc}). The install continues and the agent keeps retrying. See ${PREFLIGHT_DOC}"
+            ;;
+        *)
+            case "$verdict" in
+                unimplemented) warn "The proxy sends the tunnel path to the app, not the tunnel port: add the gRPC route. See ${PREFLIGHT_DOC}" ;;
+                notfound) warn "The proxy has no route for the tunnel path at ${SERVER%/} (HTTP 404). See ${PREFLIGHT_DOC}" ;;
+                *) note "Inconclusive (curl exit ${rc}); continuing." ;;
+            esac
+            ;;
+    esac
+    return 0
+}
+
 # --uninstall needs neither --server nor a token; skip the install-only checks.
 if [ "$UNINSTALL" != true ]; then
     [ -n "$SERVER" ] || err "--server is required (the central server's HTTPS address)"
@@ -116,6 +186,8 @@ fi
 
 printf '\n%sNetwork Optimizer on-site agent (Docker)%s\n' "$_b" "$_rst"
 note "Installing to ${INSTALL_DIR}"
+# Warn only: the agent checks the certificate inside its image, whose trust store is not this host's.
+preflight_server "${INSTALL_DIR}/data/agent.json" warn
 $SUDO mkdir -p "${INSTALL_DIR}/data"
 
 step "Fetching the compose template"
