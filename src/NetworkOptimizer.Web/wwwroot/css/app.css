@@ -25750,10 +25750,23 @@ body:has(.top-bar-hidden) .btn-fit {
 }
 
 .lt-sankey-icon .lt-app-icon {
-    display: block;
+    display: grid;
     width: 18px;
     height: 18px;
     font-size: 11px;
+}
+
+/* Never positioned here: WebKit draws positioned HTML in a foreignObject at the SVG's origin, ignoring the node's
+   transform, so every app's icon piled up in the corner on iOS. The layers share one grid cell instead. */
+.lt-sankey-icon .lt-app-icon,
+.lt-sankey-icon .lt-app-icon > * {
+    position: static;
+}
+
+.lt-sankey-icon .lt-app-icon > * {
+    grid-area: 1 / 1;
+    width: 100%;
+    height: 100%;
 }
 
 .lt-app-icon img,
