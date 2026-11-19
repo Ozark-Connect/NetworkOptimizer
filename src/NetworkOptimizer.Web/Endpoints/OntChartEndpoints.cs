@@ -47,7 +47,10 @@ public static class OntChartEndpoints
             var data = await influx.QueryOntAsync(queryFrom, queryTo, ontId, includePon: true, ct: ct);
             // The newest raw polls, for the Connection Check: it reads the latest poll on every range.
             var now = DateTime.UtcNow;
-            var latest = await influx.QueryOntAsync(now - PonChartSeries.LatestPollsSpan, now, ontId, TimeSpan.Zero, includePon: true, ct: ct);
+            var live = PonChartSeries.WindowIncludesNow(queryTo, now);
+            var latest = live
+                ? await influx.QueryOntAsync(now - PonChartSeries.LatestPollsSpan, now, ontId, TimeSpan.Zero, includePon: true, ct: ct)
+                : new Dictionary<string, List<MonitoringInfluxClient.OntPoint>>();
 
             // Standalone configs only: an attached config writes to the sfp
             // measurement, not ont, and must never appear as a standalone ONT series.
@@ -111,7 +114,7 @@ public static class OntChartEndpoints
                     ponMore = PonChartSeries.Insights(ponPoints, new PonChartSeries.LinkReadings(
                         RxDbm: readFrom.LastOrDefault()?.RxPowerDbm,
                         TxDbm: readFrom.LastOrDefault()?.TxPowerDbm,
-                        PonVariant: lastWith.FirstOrDefault(p => p.PonType != null)?.PonType), latestPon),
+                        PonVariant: lastWith.FirstOrDefault(p => p.PonType != null)?.PonType), latestPon, live),
                     linkUptime = lastWith.FirstOrDefault(p => p.LinkUptimeSeconds != null)?.LinkUptimeSeconds,
                     ponType = lastWith.FirstOrDefault(p => p.PonType != null)?.PonType,
                     olt,

@@ -797,6 +797,25 @@ public class PonChartSeriesTests
     }
 
     [Fact]
+    public void Insights_WindowInThePast_LeavesTheConnectionCheckOut()
+    {
+        var insights = PonChartSeries.Insights(Healthy(), latestPolls: Healthy(), windowIncludesNow: false);
+        insights.Should().NotBeNull("the other read-outs still describe the window");
+        insights!.GetType().GetProperty("check")!.GetValue(insights).Should().BeNull();
+    }
+
+    [Theory]
+    [InlineData(0, true)]
+    [InlineData(-9, true)]
+    [InlineData(-11, false)]
+    [InlineData(-600, false)]
+    public void WindowIncludesNow_AllowsAZoomDrawnToTheRightEdge(int endMinutes, bool expected)
+    {
+        var now = new DateTime(2026, 11, 19, 12, 0, 0, DateTimeKind.Utc);
+        PonChartSeries.WindowIncludesNow(now.AddMinutes(endMinutes), now).Should().Be(expected);
+    }
+
+    [Fact]
     public void ConnectionCheck_NoLaunchPower_OutsideO5_LeavesLightOut()
     {
         var points = Healthy();

@@ -274,6 +274,14 @@ public static class PonChartSeries
     /// <summary>How far back the chart endpoints read raw polls for the Connection Check. With fewer than two polls in it, the check falls back to the chart's points.</summary>
     public static readonly TimeSpan LatestPollsSpan = TimeSpan.FromHours(1);
 
+    /// <summary>
+    /// True when a chart window ending at <paramref name="windowEnd"/> reaches now. The slack covers a
+    /// zoom drawn to the right edge, which ends a little before now.
+    /// </summary>
+    public static bool WindowIncludesNow(DateTime windowEnd, DateTime now) => windowEnd >= now - NowSlack;
+
+    private static readonly TimeSpan NowSlack = TimeSpan.FromMinutes(10);
+
     /// <summary>How far back the hour-by-weekday load map reads, as an offset in days: four of each weekday.</summary>
     public const int LoadMapDays = -28;
 
@@ -989,12 +997,16 @@ public static class PonChartSeries
     /// The read-outs beyond the charts, bundled so both chart endpoints attach them with one call.
     /// <paramref name="latestPolls"/> are the newest raw polls: the Connection Check reads them, so
     /// it does not change with the chart's range. The chart's own points stand in with fewer than two.
+    /// <paramref name="windowIncludesNow"/> false leaves the check out: it describes now, and a chart
+    /// window in the past would show it beside history it does not belong to.
     /// </summary>
     public static object? Insights(
         List<MonitoringInfluxClient.PonSeriesPoint>? points, LinkReadings? link = null,
-        List<MonitoringInfluxClient.PonSeriesPoint>? latestPolls = null)
+        List<MonitoringInfluxClient.PonSeriesPoint>? latestPolls = null, bool windowIncludesNow = true)
     {
-        var check = ConnectionCheck(latestPolls is { Count: > 1 } ? latestPolls : points, link);
+        var check = windowIncludesNow
+            ? ConnectionCheck(latestPolls is { Count: > 1 } ? latestPolls : points, link)
+            : null;
         var fec = SummarizeFec(points);
         var laser = SummarizeLaser(points);
         var provider = SummarizeProvider(points);
