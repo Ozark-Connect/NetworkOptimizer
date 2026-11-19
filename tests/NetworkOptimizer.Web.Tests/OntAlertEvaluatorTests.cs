@@ -490,31 +490,39 @@ public class OntAlertEvaluatorTests
             "the first reading after the clear weighs one poll, not the three raised days");
     }
 
-    [Fact]
-    public async Task PathLoss_Rise_SaysWhichSideMoved()
+    private static async Task FeedWithLaunch(OntAlertEvaluator evaluator, int start, int count, double loss, double launch)
     {
-        async Task<string> RiseMessage(double launchAfter)
-        {
-            var (evaluator, bus) = Create();
-            for (var i = 0; i < 12; i++)
-                await evaluator.EvaluatePathLossAsync(1, "ONT", 20.0, 2, now: PathT0.AddMinutes(5 * i), launchDbm: 2.0);
-            for (var i = 12; i < 16; i++)
-                await evaluator.EvaluatePathLossAsync(1, "ONT", 22.5, 2, now: PathT0.AddMinutes(5 * i), launchDbm: launchAfter);
-            return bus.Events.Single(e => e.EventType == "ont.path_loss_rise").Message!;
-        }
-
-        (await RiseMessage(2.0)).Should().Contain("With the OLT launch power unchanged");
-        (await RiseMessage(4.5)).Should().Contain("OLT launch power +2.5 dB from its usual level (RX 0.0 dB). The change is on the OLT side.");
+        for (var i = start; i < start + count; i++)
+            await evaluator.EvaluatePathLossAsync(1, "ONT", loss, 2, now: PathT0.AddMinutes(5 * i), launchDbm: launch);
     }
 
     [Fact]
-    public void RiseCause_SplitsTheRiseBetweenLaunchAndFiber()
+    public async Task PathLoss_LaunchPowerStep_MovesTheLevel_AndRaisesNothing()
     {
-        OntAlertEvaluator.RiseCause(2.5, 0.2).Should().StartWith("With the OLT launch power unchanged, the change is on the fiber path");
-        OntAlertEvaluator.RiseCause(2.5, 2.5).Should().EndWith("The change is on the OLT side.");
-        OntAlertEvaluator.RiseCause(4.0, 1.5).Should().Be(
-            "OLT launch power +1.5 dB from its usual level (RX -2.5 dB): the rest of the change is on the fiber path. Check connectors, the jumper, and bends first.");
-        OntAlertEvaluator.RiseCause(2.5, null).Should().Be("Check the fiber path first: connectors, the jumper, and bends.");
+        var (evaluator, bus) = Create();
+
+        // A new OLT optic announces 2.5 dB more; RX is unchanged, so the loss figure moves with it.
+        await FeedWithLaunch(evaluator, 0, 12, 20.0, 2.0);
+        await FeedWithLaunch(evaluator, 12, 100, 22.5, 4.5);
+        bus.Events.Should().BeEmpty("a step in the OLT's announced power is not a fiber fault");
+
+        // RX then drops 2.3 dB at the new launch power: that is a rise against the moved level.
+        await FeedWithLaunch(evaluator, 112, 4, 24.8, 4.5);
+        bus.Events.Should().ContainSingle(e => e.EventType == "ont.path_loss_rise")
+            .Which.Message.Should().Contain("With the OLT launch power unchanged, the change is on the fiber path");
+    }
+
+    [Fact]
+    public async Task PathLoss_LaunchPowerWanderingByTenths_DoesNotMoveTheLevel()
+    {
+        var (evaluator, bus) = Create();
+
+        await FeedWithLaunch(evaluator, 0, 12, 20.0, 2.0);
+        await FeedWithLaunch(evaluator, 12, 12, 20.3, 2.3);
+        await FeedWithLaunch(evaluator, 24, 4, 22.3, 2.3);
+
+        bus.Events.Should().ContainSingle(e => e.EventType == "ont.path_loss_rise",
+            "a 0.3 dB wander is not a provider step, so the RX drop still raises");
     }
 
     [Fact]

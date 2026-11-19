@@ -478,7 +478,9 @@ public static class PonChartSeries
         if (margin < 0) hints.Add("over_limit");
         else if (margin < PathLossNearLimitDb) hints.Add("near_limit");
         if (belowMin.HasValue) hints.Add("below_min");
-        if (lossChange >= PathLossRiseHintDb) hints.Add("loss_rise");
+        // A rise that is only the launch power stepping is a provider event, named by launch_drop
+        // and the PON-ID changes; the fiber rose only when RX fell with it, as in the rise alert.
+        if (lossChange >= PathLossRiseHintDb && rxChange <= -PathLossRiseHintDb) hints.Add("loss_rise");
         if (launchChange <= -LaunchDropHintDb) hints.Add("launch_drop");
         // One jump is a step to a new level, named above if it is large; this is back and forth.
         if (jumps >= PathLossUnsteadyJumps) hints.Add("unsteady");

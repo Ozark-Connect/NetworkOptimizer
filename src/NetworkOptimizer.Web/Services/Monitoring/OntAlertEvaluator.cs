@@ -162,7 +162,7 @@ public class OntAlertEvaluator
     /// so after a restart of the application <paramref name="priorLevel"/> is asked once for the
     /// level the stored history shows; without it a fault that is already there is learned as the level.
     /// Only ONTs whose OLT announces its launch power reach here. <paramref name="launchDbm"/> is that
-    /// announced power: its usual level is learned the same way, so a rise alert can say which side moved.
+    /// announced power: a step in it moves the learned level with it, so only an RX drop raises a rise.
     /// </summary>
     public async ValueTask EvaluatePathLossAsync(
         int ontId, string ontName, double? pathLossDb, long? odnClass,
@@ -199,6 +199,19 @@ public class OntAlertEvaluator
             }
 
             if (launch is double first && state.LaunchLevel is null) state.LaunchLevel = first;
+            // The OLT's launch power is static within its optic's class, so a full step is a provider
+            // event (an optic swap, a new OLT). The loss moved with its reference, not the fiber:
+            // move the level and the recent readings with it, and raise nothing for the step.
+            if (launch is double launchNow && state.LaunchLevel is double launchWas
+                && Math.Abs(launchNow - launchWas) >= PonThresholds.OltLaunchChangeDb)
+            {
+                var step = launchNow - launchWas;
+                if (state.PathLossBaseline is double before) state.PathLossBaseline = before + step;
+                var shifted = state.RecentPathLoss.Select(reading => reading + step).ToList();
+                state.RecentPathLoss.Clear();
+                foreach (var reading in shifted) state.RecentPathLoss.Enqueue(reading);
+                state.LaunchLevel = launchNow;
+            }
 
             state.RecentPathLoss.Enqueue(loss);
             double? leaving = null;
@@ -258,7 +271,7 @@ public class OntAlertEvaluator
                         Severity = AlertSeverity.Warning,
                         Title = $"{ontName} path loss increased{_siteSuffix}",
                         Message = $"ONT {ontName} path loss {loss:0.0} dB is {loss - baseline:0.0} dB above its usual {baseline:0.0} dB. " +
-                            RiseCause(loss - baseline, launch is double ln && state.LaunchLevel is double ll ? ln - ll : null),
+                            "With the OLT launch power unchanged, the change is on the fiber path: check connectors, the jumper, and bends first.",
                         DeviceName = ontName,
                         MetricValue = loss,
                         ThresholdValue = Math.Round(baseline + PathLossRiseDb, 1),
@@ -309,23 +322,6 @@ public class OntAlertEvaluator
         {
             state.PathLossGate.Release();
         }
-    }
-
-    /// <summary>
-    /// Which side of the fiber a path loss rise is on. Loss is launch less RX, so a launch power
-    /// change accounts for that much of the rise and the RX change for the rest.
-    /// </summary>
-    internal static string RiseCause(double riseDb, double? launchChangeDb)
-    {
-        const string fiber = "check connectors, the jumper, and bends first.";
-        if (launchChangeDb is not double launch)
-            return "Check the fiber path first: connectors, the jumper, and bends.";
-        if (Math.Abs(launch) < PonThresholds.OltLaunchChangeDb)
-            return $"With the OLT launch power unchanged, the change is on the fiber path: {fiber}";
-        var moved = $"OLT launch power {launch:+0.0;-0.0} dB from its usual level (RX {launch - riseDb:+0.0;-0.0;0.0} dB)";
-        return riseDb - launch < PathLossRiseDb
-            ? $"{moved}. The change is on the OLT side."
-            : $"{moved}: the rest of the change is on the fiber path. {char.ToUpperInvariant(fiber[0])}{fiber[1..]}";
     }
 
     /// <summary>

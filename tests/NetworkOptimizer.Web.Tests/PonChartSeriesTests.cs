@@ -319,6 +319,18 @@ public class PonChartSeriesTests
     }
 
     [Fact]
+    public void SummarizePathLoss_LaunchStepsUpWithRxSteady_IsNoLossRise()
+    {
+        // A new OLT optic announces 2.5 dB more: the loss figure rises, the fiber did not change.
+        var s = PonChartSeries.SummarizePathLoss(Path(Steady(12).Concat(Steady(3, launch: 5.9))))!;
+
+        s.LossChangeDb.Should().BeApproximately(2.5, 1e-9);
+        s.RxChangeDb.Should().Be(0);
+        s.Hints.Should().NotContain("loss_rise");
+        s.Changes.Should().ContainSingle().Which.What.Should().Be("launch_power");
+    }
+
+    [Fact]
     public void SummarizePathLoss_SmallRiseOrShortHistory_GivesNoHint()
     {
         PonChartSeries.SummarizePathLoss(Path(Steady(12).Concat(Steady(3, rx: -18.0))))!
