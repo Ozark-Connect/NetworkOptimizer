@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Components.Web;
 using NetworkOptimizer.Web.Services.Monitoring.LiveTraffic;
 
 namespace NetworkOptimizer.Web.Components.Shared.Monitoring.LiveTraffic;
@@ -21,10 +22,16 @@ public sealed class LiveOrderHold
 
     public bool Held => _pointerIn || DateTime.UtcNow < _holdUntil;
 
-    public void PointerIn() => _pointerIn = true;
-
-    public void PointerOut()
+    // A touch is not a hover: a tap's enter has no leave until the next tap elsewhere, which would
+    // hold the order indefinitely. Touch holds through Touched instead.
+    public void PointerIn(PointerEventArgs e)
     {
+        if (e.PointerType != "touch") _pointerIn = true;
+    }
+
+    public void PointerOut(PointerEventArgs e)
+    {
+        if (e.PointerType == "touch") return;
         _pointerIn = false;
         _holdUntil = DateTime.UtcNow + HoldAfterLeave;
     }

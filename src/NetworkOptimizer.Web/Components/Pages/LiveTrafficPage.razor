@@ -227,7 +227,7 @@
                             </div>
                         </div>
                     </div>
-                    <div class="card-body" @onmouseenter="PointerIn" @onmouseleave="PointerOut" @ontouchstart="Touched">
+                    <div class="card-body" @onpointerenter="PointerIn" @onpointerleave="PointerOut" @ontouchstart="Touched">
                         <div class="lt-sankey-stage" @ref="_sankeyStage">
                             @if (_view.State == LiveTrafficState.Starting)
                             {
@@ -306,7 +306,7 @@
                         </div>
                     </div>
                 </div>
-                <div class="card-body" @onmouseenter="PointerIn" @onmouseleave="PointerOut" @ontouchstart="Touched">
+                <div class="card-body" @onpointerenter="PointerIn" @onpointerleave="PointerOut" @ontouchstart="Touched">
                     @if (_groupBy != LiveTrafficGroupBy.Flows)
                     {
                         @GroupTable(_view.Groups, history: false)
@@ -491,9 +491,9 @@
     /// <summary>Rows and Where It's Going nodes hold their order under the pointer: <see cref="LiveOrderHold"/>.</summary>
     private bool Held => _hold.Held;
 
-    private void PointerIn() => _hold.PointerIn();
+    private void PointerIn(PointerEventArgs e) => _hold.PointerIn(e);
 
-    private void PointerOut() => _hold.PointerOut();
+    private void PointerOut(PointerEventArgs e) => _hold.PointerOut(e);
 
     private void Touched() => _hold.Touched();
 
