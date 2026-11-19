@@ -1,0 +1,20 @@
+{
+  "id": "2.11.6",
+  "kind": "whats-new",
+  "title": "What's new in v2.11.6",
+  "summary": "Edit your floor plan faster: change many walls at once, and move APs with a right-click.",
+  "steps": [
+    {
+      "id": "signal-map-toolbox",
+      "level": "minor",
+      "badge": "improved",
+      "url": "/wifi-optimizer?tab=floorplan",
+      "selector": "[data-tour=\"signal-map-toolbox\"]",
+      "title": "Signal Map Toolbox",
+      "listLabel": "Edit your floor plan faster: change many walls at once, and move APs with a right-click",
+      "body": "The **Signal Map** now has a toolbox under the zoom buttons: **Pan**, **Select**, **Draw Layout**, **Undo**, and AP placement.\n\nWith **Select**, drag a box over walls, then click one to change all their materials at once. **Right-click** an AP to **Move** or **Remove** it.",
+      "placement": "right",
+      "optional": true
+    }
+  ]
+}

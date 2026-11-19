@@ -18,6 +18,7 @@
 @inject FloorPlanService FloorPlanSvc
 @inject IFloorPlanAdminService FloorPlanAdmin
 @inject ApMapService ApMapSvc
+@inject IApMapAdminService ApMapAdmin
 @inject PlannedApService PlannedApSvc
 @inject IPlannedApAdminService PlannedApAdmin
 @inject HeatmapDataCache HeatmapCache
@@ -281,7 +282,7 @@
                 @if (_isDrawingShape)
                 {
                     <br/>
-                    <span>Double-click or</span>
+                    <span>Double-click, Esc, or</span>
                     <button class="fp-hint-btn" @onclick="FinishCurrentWall">Finish Shape</button>
                     <span>to complete</span>
                 }
@@ -1133,6 +1134,33 @@
         background: rgba(239, 68, 68, 0.25);
     }
 
+    /* Move sits above Remove in the AP popup and the AP right-click menu */
+    .fp-ap-popup-move {
+        width: 100%;
+        padding: 6px;
+        margin-bottom: 6px;
+        background: rgba(71, 151, 255, 0.15);
+        color: var(--info-color);
+        border: 1px solid rgba(71, 151, 255, 0.3);
+        border-radius: var(--border-radius);
+        cursor: pointer;
+        font-size: 12px;
+        font-weight: 500;
+    }
+
+    .fp-ap-popup-move:hover {
+        background: rgba(71, 151, 255, 0.25);
+    }
+
+    .fp-ap-popup-move:disabled {
+        opacity: 0.45;
+        cursor: default;
+    }
+
+    .fp-ap-menu {
+        min-width: 150px;
+    }
+
     /* AP direction indicator */
     .fp-ap-direction {
         position: absolute;
@@ -1679,8 +1707,8 @@
     // Last interior material (wall, door, window) picked per building; the default once a floor has its outline.
     // Another building starts again at drywall.
     private readonly Dictionary<int, string> _interiorMaterialByBuilding = new();
-    // Exterior type picked per building this session; wins over the type inferred from saved walls.
-    private readonly Dictionary<int, string> _exteriorMaterialByBuilding = new();
+    // Outline material picked per building this session; wins over the one inferred from saved walls.
+    private readonly Dictionary<int, string> _outlineMaterialByBuilding = new();
     private bool _isDrawingShape;
     private double _floorOpacity = 0.7;
     private List<FloorImageDto> _floorImages = new();
@@ -1809,6 +1837,7 @@
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
+        if (!firstRender && _mapInitialized) await SyncToolbox();
         if (firstRender)
         {
             _dotNetRef = DotNetObjectReference.Create(this);
@@ -1888,6 +1917,7 @@
         await JS.InvokeVoidAsync("fpEditor.initMap", _mapId, centerLat, centerLng, zoom, mapboxToken);
         await JS.InvokeVoidAsync("fpEditor.setDotNetRef", _dotNetRef);
         _mapInitialized = true;
+        await SyncToolbox();
 
         // Fit to all content (APs + buildings combined)
         {
@@ -2782,6 +2812,22 @@
         await JS.InvokeVoidAsync("fpEditor.updateApMarkers", markersJson, _mode == "aps" || _mode == "plan-aps", _heatmapBand);
     }
 
+    /// <summary>Removes a placed AP from the map: its popup or right-click Remove, or the Delete key in Place/Edit APs.</summary>
+    [JSInvokable]
+    public async Task OnApRemoveFromJs(string mac)
+    {
+        if (IsReadOnly) return;
+        await ApMapAdmin.DeleteApLocationAsync(mac);
+        HeatmapCache.Invalidate();
+        await LoadApMarkers();
+        await InvokeAsync(async () =>
+        {
+            StateHasChanged();
+            await UpdateApMarkers();
+            if (_showHeatmap) await ComputeHeatmap();
+        });
+    }
+
     [JSInvokable]
     public async Task OnApDragEndFromJs(string mac, double lat, double lng)
     {
@@ -3031,6 +3077,7 @@
     [JSInvokable]
     public async Task OnPlannedApDeleteFromJs(int plannedId)
     {
+        if (IsReadOnly) return;
         await PlannedApAdmin.DeleteAsync(plannedId);
         HeatmapCache.Invalidate();
         await LoadPlannedAps();
@@ -3042,6 +3089,47 @@
             await UpdateApMarkers();
             if (_showHeatmap) await ComputeHeatmap();
         });
+    }
+
+    private string? _toolboxState;
+
+    // Pushes the map toolbox's state after a render; skipped when nothing it shows has changed.
+    private async Task SyncToolbox()
+    {
+        var state = new
+        {
+            editable = !IsReadOnly,
+            floor = _selectedFloor != null,
+            mode = _mode,
+            apLabel = _apMarkers.Any(a => a.Latitude.HasValue) ? "Edit APs" : "Place APs",
+            planLabel = _plannedAps.Count > 0 ? "Edit Planned APs" : "Add Planned APs"
+        };
+        var json = System.Text.Json.JsonSerializer.Serialize(state);
+        if (json == _toolboxState) return;
+        _toolboxState = json;
+        await JS.InvokeVoidAsync("fpEditor.setToolboxState", json);
+    }
+
+    /// <summary>A map toolbox button: the same toggles as the toolbar's Draw Layout, Place/Edit APs, and Planned APs buttons.</summary>
+    [JSInvokable]
+    public async Task OnToolboxAction(string action)
+    {
+        if (IsReadOnly) return;
+        switch (action)
+        {
+            case "draw" when _selectedFloor != null:
+                await ToggleWallDrawMode();
+                break;
+            case "undo" when _selectedFloor != null && _mode != "walls":
+                await DeleteLastWall();
+                break;
+            case "aps":
+            case "plan-aps":
+                if (_mode == "walls") await ToggleWallDrawMode();
+                if (action == "aps") await ToggleApEditMode(); else await TogglePlanApMode();
+                break;
+        }
+        StateHasChanged();
     }
 
     private async Task ToggleApEditMode()
@@ -3193,6 +3281,7 @@
                             if (dict != null)
                             {
                                 dict["_buildingId"] = b.Id;
+                                dict["_buildingName"] = b.Name;
                                 var isSelectedBldg = _selectedBuilding != null && b.Id == _selectedBuilding.Id;
                                 // Selected building adjacent: 0.4, other bldg same floor: 0.25, other bldg adjacent: 0.15, no selection same floor: 0.5, no selection adjacent: 0.25
                                 if (_selectedBuilding != null)
@@ -3244,9 +3333,8 @@
         if (_mode == "walls")
         {
             var initWalls = _selectedFloor?.WallsJson ?? "[]";
-            _wallMaterial = HasExteriorOutline(_selectedFloor?.WallsJson)
-                ? LastInteriorMaterial
-                : GetBuildingExteriorMaterial();
+            _wallMaterial = FloorPlanWallMaterials.DrawStartMaterial(
+                _selectedFloor?.WallsJson, GetBuildingOutlineMaterial(), LastInteriorMaterial);
             _heatmapWasOn = _showHeatmap;
             if (_showHeatmap)
             {
@@ -3273,73 +3361,26 @@
         await JS.InvokeVoidAsync("fpEditor.addWallPoint", lat, lng, _wallMaterial, color);
     }
 
-    private static bool IsExteriorMaterial(string? material) =>
-        material != null && material.StartsWith("exterior", StringComparison.OrdinalIgnoreCase);
-
+    // A pick before the floor has its outline is the building's outline material, whatever it is (a
+    // shed's metal counts). After that, a pick is the interior material, except an exterior type, which
+    // is an addition to the outline rather than the next door or window.
     private void OnWallMaterialPicked()
     {
-        if (IsExteriorMaterial(_wallMaterial))
-        {
-            if (_selectedBuilding != null) _exteriorMaterialByBuilding[_selectedBuilding.Id] = _wallMaterial;
-        }
-        else if (_selectedBuilding != null)
-        {
+        if (_selectedBuilding == null) return;
+        if (!FloorPlanWallMaterials.HasOutline(_selectedFloor?.WallsJson))
+            _outlineMaterialByBuilding[_selectedBuilding.Id] = _wallMaterial;
+        else if (!_wallMaterial.StartsWith("exterior", StringComparison.OrdinalIgnoreCase))
             _interiorMaterialByBuilding[_selectedBuilding.Id] = _wallMaterial;
-        }
     }
 
-    private string LastInteriorMaterial =>
-        _selectedBuilding != null && _interiorMaterialByBuilding.TryGetValue(_selectedBuilding.Id, out var m) ? m : "drywall";
+    private string? LastInteriorMaterial =>
+        _selectedBuilding != null && _interiorMaterialByBuilding.TryGetValue(_selectedBuilding.Id, out var m) ? m : null;
 
-    private static readonly System.Text.Json.JsonSerializerOptions WallJsonOpts = new()
+    private string GetBuildingOutlineMaterial()
     {
-        PropertyNameCaseInsensitive = true,
-        PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase
-    };
-
-    private static List<WallShape> ParseWalls(string? wallsJson)
-    {
-        if (string.IsNullOrEmpty(wallsJson) || wallsJson == "[]") return new();
-        try { return System.Text.Json.JsonSerializer.Deserialize<List<WallShape>>(wallsJson, WallJsonOpts) ?? new(); }
-        catch (System.Text.Json.JsonException) { return new(); }
-    }
-
-    private static IEnumerable<string> SegmentMaterials(WallShape w)
-    {
-        for (var i = 0; i < w.Points.Count - 1; i++)
-            yield return w.Materials != null && i < w.Materials.Count && !string.IsNullOrEmpty(w.Materials[i])
-                ? w.Materials[i]
-                : w.Material;
-    }
-
-    /// <summary>
-    /// True when the floor has a closed shape with at least one exterior segment. Until then, drawing
-    /// defaults to the building's exterior type so an outline drawn in pieces keeps its material.
-    /// </summary>
-    private static bool HasExteriorOutline(string? wallsJson) =>
-        ParseWalls(wallsJson).Any(w =>
-            w.Points.Count >= 4
-            && Math.Abs(w.Points[0].Lat - w.Points[^1].Lat) < 1e-9
-            && Math.Abs(w.Points[0].Lng - w.Points[^1].Lng) < 1e-9
-            && SegmentMaterials(w).Any(IsExteriorMaterial));
-
-    /// <summary>
-    /// The exterior type for the selected building: the one picked this session, else the most common
-    /// exterior type on the building's saved floors, else residential.
-    /// </summary>
-    private string GetBuildingExteriorMaterial()
-    {
-        if (_selectedBuilding == null) return "exterior_residential";
-        if (_exteriorMaterialByBuilding.TryGetValue(_selectedBuilding.Id, out var picked)) return picked;
-        var counts = _selectedBuilding.Floors
-            .SelectMany(f => ParseWalls(f.WallsJson))
-            .SelectMany(SegmentMaterials)
-            .Where(m => m is "exterior_residential" or "exterior_commercial")
-            .GroupBy(m => m)
-            .OrderByDescending(g => g.Count())
-            .Select(g => g.Key)
-            .FirstOrDefault();
-        return counts ?? "exterior_residential";
+        if (_selectedBuilding == null) return FloorPlanWallMaterials.DefaultExterior;
+        _outlineMaterialByBuilding.TryGetValue(_selectedBuilding.Id, out var picked);
+        return FloorPlanWallMaterials.BuildingOutlineMaterial(picked, _selectedBuilding.Floors.Select(f => f.WallsJson));
     }
 
     [JSInvokable]
@@ -3367,9 +3408,8 @@
         if (_selectedFloor == null) return;
         _isDrawingShape = false;
         // The outline just closed: switch to interior drawing with the last interior material.
-        if (_mode == "walls" && IsExteriorMaterial(_wallMaterial)
-            && !HasExteriorOutline(_selectedFloor.WallsJson) && HasExteriorOutline(wallsJson))
-            _wallMaterial = LastInteriorMaterial;
+        if (_mode == "walls" && FloorPlanWallMaterials.OutlineJustClosed(_selectedFloor.WallsJson, wallsJson))
+            _wallMaterial = LastInteriorMaterial ?? FloorPlanWallMaterials.DefaultInterior;
         StateHasChanged();
         _selectedFloor.WallsJson = wallsJson;
         await FloorPlanAdmin.UpdateFloorAsync(_selectedFloor.Id, wallsJson: wallsJson);
