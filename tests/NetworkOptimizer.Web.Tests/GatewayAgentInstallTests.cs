@@ -60,6 +60,31 @@ public class GatewayAgentCommandsTests
     }
 
     [Fact]
+    public void Install_WithInsecure_AddsTheFlagAfterTheSpeedTestAndBeforeTheRelease()
+    {
+        var command = GatewayAgentCommands.Install("https://optimizer.example.com", "noa_abc123", "v2.10.0-preview1", lanSpeedTest: true, insecure: true);
+
+        command.Should().Contain("--lan-speed-test \\\n  --insecure \\\n  --release \"v2.10.0-preview1\"");
+    }
+
+    [Fact]
+    public void UntrustedCertificateExitCode_MatchesTheInstallerScript()
+    {
+        // The panel offers --insecure only on this exit status, so the script and the app must agree.
+        var script = File.ReadAllText(Path.Combine(RepoRoot(), "scripts", "agent", "install-agent-gateway.sh"));
+
+        script.Should().Contain($"PREFLIGHT_UNTRUSTED_EXIT={GatewayAgentCommands.UntrustedCertificateExitCode}");
+    }
+
+    private static string RepoRoot()
+    {
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir != null && !File.Exists(Path.Combine(dir.FullName, "scripts", "agent", "install-agent-gateway.sh")))
+            dir = dir.Parent;
+        return dir?.FullName ?? throw new DirectoryNotFoundException("Repository root not found above the test output.");
+    }
+
+    [Fact]
     public void Upgrade_HasServerButNoToken()
     {
         var command = GatewayAgentCommands.Upgrade("https://optimizer.example.com");
@@ -197,6 +222,45 @@ public class GatewayAgentInstallGateTests
         parsed.Should().NotBeNull();
         parsed!.Value.Log.Should().Be("");
         parsed.Value.ExitCode.Should().BeNull();
+    }
+
+    [Fact]
+    public void ParsePollOutput_PreflightStop_ReturnsExitThree()
+    {
+        var reply = "__NETOPT_LOG__\n==> Checking the server\nError: This host does not trust the server's certificate\n\n__NETOPT_EXIT__:3\n";
+
+        GatewayAgentInstallService.ParsePollOutput(reply)!.Value.ExitCode
+            .Should().Be(GatewayAgentCommands.UntrustedCertificateExitCode);
+    }
+
+    [Fact]
+    public void StoppedOnUntrustedCertificate_InstallExitThree_OffersInsecure()
+    {
+        var run = new GatewayAgentInstallRun("site-a", isUpgrade: false);
+        run.Complete(GatewayAgentInstallStatus.Failed, GatewayAgentCommands.UntrustedCertificateExitCode, null);
+
+        run.StoppedOnUntrustedCertificate.Should().BeTrue();
+    }
+
+    [Theory]
+    [InlineData(false, GatewayAgentInstallStatus.Succeeded, 0, null)]   // the happy path: install succeeded
+    [InlineData(true, GatewayAgentInstallStatus.Succeeded, 0, null)]    // the happy path: upgrade succeeded
+    [InlineData(true, GatewayAgentInstallStatus.Failed, 3, null)]       // an upgrade never stops on the certificate
+    [InlineData(false, GatewayAgentInstallStatus.Failed, 1, null)]      // any other installer failure
+    [InlineData(false, GatewayAgentInstallStatus.Failed, 3, "SSH dropped")] // a run that lost contact
+    [InlineData(false, GatewayAgentInstallStatus.Canceled, 3, null)]
+    public void StoppedOnUntrustedCertificate_EveryOtherOutcome_OffersNothing(bool isUpgrade, GatewayAgentInstallStatus status, int exitCode, string? error)
+    {
+        var run = new GatewayAgentInstallRun("site-a", isUpgrade);
+        run.Complete(status, exitCode, error);
+
+        run.StoppedOnUntrustedCertificate.Should().BeFalse();
+    }
+
+    [Fact]
+    public void StoppedOnUntrustedCertificate_WhileRunning_OffersNothing()
+    {
+        new GatewayAgentInstallRun("site-a", isUpgrade: false).StoppedOnUntrustedCertificate.Should().BeFalse();
     }
 
     [Fact]

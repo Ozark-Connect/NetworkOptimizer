@@ -101,6 +101,9 @@ public class AlertCorrelationService
     /// </summary>
     public string? GetCorrelationKey(AlertEvent alertEvent)
     {
+        if (!string.IsNullOrEmpty(alertEvent.CorrelationKey))
+            return alertEvent.CorrelationKey;
+
         // Device-level correlation: group by device IP
         if (!string.IsNullOrEmpty(alertEvent.DeviceIp))
             return $"device:{alertEvent.DeviceIp}";
@@ -116,11 +119,36 @@ public class AlertCorrelationService
         return null;
     }
 
+    /// <summary>An alert's incident, whether it joined one already open, and that incident's severity before it joined.</summary>
+    public sealed record CorrelationOutcome(AlertIncident Incident, bool Joined, AlertSeverity SeverityBefore);
+
+    /// <summary>
+    /// Whether a correlated alert is delivered. Only an explicitly keyed incident holds back an alert, and only one
+    /// that joins it at no higher severity without <see cref="AlertEvent.AlwaysDeliver"/>; device and source
+    /// incidents deliver every alert, as before.
+    /// </summary>
+    public static bool ShouldDeliver(AlertEvent alertEvent, CorrelationOutcome? outcome) =>
+        outcome is not { Joined: true }
+        || string.IsNullOrEmpty(alertEvent.CorrelationKey)
+        || alertEvent.AlwaysDeliver
+        || alertEvent.Severity > outcome.SeverityBefore;
+
     /// <summary>
     /// Find or create an incident for the given alert event.
     /// Returns the incident if correlated, null if no correlation applies.
     /// </summary>
     public async Task<AlertIncident?> CorrelateAsync(
+        AlertEvent alertEvent,
+        AlertHistoryEntry historyEntry,
+        IAlertRepository repository,
+        CancellationToken cancellationToken = default) =>
+        (await CorrelateWithOutcomeAsync(alertEvent, historyEntry, repository, cancellationToken))?.Incident;
+
+    /// <summary>
+    /// <see cref="CorrelateAsync"/>, also saying whether the alert joined an open incident and that incident's severity
+    /// before it did. Null when no correlation applies.
+    /// </summary>
+    public async Task<CorrelationOutcome?> CorrelateWithOutcomeAsync(
         AlertEvent alertEvent,
         AlertHistoryEntry historyEntry,
         IAlertRepository repository,
@@ -139,6 +167,7 @@ public class AlertCorrelationService
                 (DateTime.UtcNow - existingIncident.LastTriggeredAt) < CorrelationWindow)
             {
                 // Add to existing incident
+                var severityBefore = existingIncident.Severity;
                 existingIncident.AlertCount++;
                 existingIncident.LastTriggeredAt = DateTime.UtcNow;
                 if (alertEvent.Severity > existingIncident.Severity)
@@ -148,7 +177,7 @@ public class AlertCorrelationService
 
                 historyEntry.IncidentId = existingIncident.Id;
                 _logger.LogDebug("Correlated alert to incident {IncidentId} ({Key})", existingIncident.Id, correlationKey);
-                return existingIncident;
+                return new CorrelationOutcome(existingIncident, Joined: true, severityBefore);
             }
 
             // Create new incident
@@ -166,7 +195,7 @@ public class AlertCorrelationService
 
             historyEntry.IncidentId = incident.Id;
             _logger.LogDebug("Created new incident {IncidentId} ({Key})", incident.Id, correlationKey);
-            return incident;
+            return new CorrelationOutcome(incident, Joined: false, incident.Severity);
         }
         catch (Exception ex)
         {

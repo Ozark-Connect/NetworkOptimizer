@@ -41,6 +41,33 @@ export function unwatchVisibility(id) {
     visHandlers.delete(id);
 }
 
+const widthObservers = new Map();
+
+/**
+ * Reports an element's width to .NET as it changes (8 px steps, and never 0: a hidden element says
+ * nothing). One watcher per id: watching a new element drops the old one.
+ */
+export function watchWidth(id, el, dotnet, method) {
+    unwatchWidth(id);
+    if (!el) return;
+    let last = 0;
+    const report = () => {
+        const w = Math.round(el.getBoundingClientRect().width);
+        if (w === 0 || Math.abs(w - last) < 8) return;
+        last = w;
+        dotnet.invokeMethodAsync(method, w).catch(() => { /* circuit gone */ });
+    };
+    const observer = new ResizeObserver(report);
+    observer.observe(el);
+    widthObservers.set(id, observer);
+    report();
+}
+
+export function unwatchWidth(id) {
+    widthObservers.get(id)?.disconnect();
+    widthObservers.delete(id);
+}
+
 /**
  * Counts the user's scrolling on a scroller. The hold's own scrollBy is recorded in `own` and taken
  * back out, so holding the row never counts as the user scrolling.
@@ -100,13 +127,16 @@ function viewOf(scroller) {
 
 /**
  * The element that actually scrolls the page: the app scrolls inside its layout, not the window.
- * The layout's .page-content first: a .table-responsive (overflow-x auto, so overflow-y computes auto)
- * overflowing by a pixel passed the search below on some passes only, and measuring the row against
- * two scrollers by turns read the user's own scroll as the list moving and scrolled the page back.
+ * The layout's .page-content on desktop, .main-content on a phone (app.css), picked by style alone:
+ * a .table-responsive (overflow-x auto, so overflow-y computes auto) overflowing by a pixel passed the
+ * search below on some passes only, and measuring the row against two scrollers by turns read the
+ * user's own scroll as the list moving and scrolled the page back.
  */
 function scrollerOf(el) {
-    const page = el.closest('.page-content');
-    if (page) return page;
+    for (const layout of [el.closest('.page-content'), el.closest('.main-content')]) {
+        const y = layout && getComputedStyle(layout).overflowY;
+        if (y === 'auto' || y === 'scroll') return layout;
+    }
     for (let p = el.parentElement; p; p = p.parentElement) {
         if (p.classList.contains('table-responsive')) continue;
         const y = getComputedStyle(p).overflowY;

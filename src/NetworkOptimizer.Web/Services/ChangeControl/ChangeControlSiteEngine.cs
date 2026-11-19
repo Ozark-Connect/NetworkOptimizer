@@ -38,8 +38,12 @@ public interface IChangeEvaluator
     /// <summary>The Security Audit's network purposes for a config (detected, or the user's overrides).</summary>
     Task<List<NetworkOptimizer.Audit.Models.NetworkInfo>?> GetNetworksAsync(string siteSlug, ConfigState state, CancellationToken ct);
 
-    /// <summary>A full Security Audit run, stored like Run Audit (after an applied plan the audit reads).</summary>
-    Task RunSecurityAuditAsync(string siteSlug);
+    /// <summary>
+    /// A full Security Audit run, stored like Run Audit (after an applied plan the audit reads).
+    /// <paramref name="alertedFindingKeys"/> are findings a change alert already reported; the run does not alert on them again.
+    /// <paramref name="incidentKey"/> is the change's incident, which the run's alerts join.
+    /// </summary>
+    Task RunSecurityAuditAsync(string siteSlug, IReadOnlySet<string>? alertedFindingKeys = null, string? incidentKey = null);
 }
 
 /// <summary>

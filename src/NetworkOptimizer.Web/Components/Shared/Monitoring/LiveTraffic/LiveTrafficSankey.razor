@@ -1,6 +1,8 @@
 @using NetworkOptimizer.Core.Helpers
 @using NetworkOptimizer.Web.Services.Monitoring.LiveTraffic
 @inherits LiveTrafficPieces
+@inject IJSRuntime JS
+@inject Microsoft.AspNetCore.Mvc.ViewFeatures.IFileVersionProvider FileVersionProvider
 
 @if (Sankey == null || Sankey.Nodes.Count == 0)
 {
@@ -9,7 +11,18 @@
 else
 {
     var layout = Layout(Sankey);
-    <svg class="lt-sankey-svg" viewBox="0 0 @W @H" role="img" aria-label="Where traffic goes: clients to apps to routes">
+    var marks = MarkTokens(layout);
+    _hasMarks = marks.Count > 0;
+    <svg @ref="_svg" class="lt-sankey-svg" viewBox="0 0 @W @H" role="img" aria-label="Where traffic goes: clients to apps to routes">
+        @if (marks.Count > 0)
+        {
+            <defs>
+                @foreach (var token in marks)
+                {
+                    <mask @key="token" id="lt-mark-@token" mask-type="alpha" maskUnits="userSpaceOnUse" x="0" y="0" width="12" height="12"><image class="lt-sankey-mark-src @token" x="0" y="0" width="12" height="12" /></mask>
+                }
+            </defs>
+        }
         <text class="lt-col-label" text-anchor="end" x="@(ColX[0] + NodeW)" y="14">Client</text>
         <text class="lt-col-label" x="@ColX[1]" y="14">App</text>
         <text class="lt-col-label" x="@ColX[2]" y="14">Route</text>
@@ -47,12 +60,11 @@ else
                 <g class="lt-node-text" style="transform: translateY(@(F(n.Height / 2))px)">
                     @if (appIcon)
                     {
-                        @* The tables' own icon markup: SVG cannot draw a favicon or a Font Awesome glyph itself. *@
-                        <foreignObject class="lt-sankey-icon" x="@(NodeW + 6)" y="-9" width="18" height="18">@(node.IconDomain != null || node.IconClass != null ? AppIcon(node.Name, node.IconDomain, node.IconClass) : AppIcon(node.Name))</foreignObject>
+                        @SankeyIcon(node.Name, node.IconDomain, node.IconClass, NodeW + 6)
                     }
                     else if (tailnetIcon)
                     {
-                        <foreignObject class="lt-sankey-icon" x="-24" y="-9" width="18" height="18">@AppIcon("Tailscale")</foreignObject>
+                        @SankeyIcon("Tailscale", null, null, -24)
                     }
                     <text class="lt-node-label" text-anchor="@anchor" x="@tx" y="-1" data-tooltip="@(clientLink != null || unnamed != null || routeDests != null || Fit(node.Name, node.Column) == node.Name ? null : node.Name)" data-tooltip-hover-only>@Fit(node.Name, node.Column)</text>
                     <text class="lt-node-sub" text-anchor="@anchor" x="@tx" y="12">@if (Sankey.ValueIsFlows)
@@ -70,6 +82,59 @@ else
 }
 
 @code {
+    private ElementReference _svg;
+    private bool _hasMarks;
+    private IJSObjectReference? _marks;
+
+    /// <summary>
+    /// A node's 18px icon at <paramref name="x"/>. A favicon or Font Awesome glyph uses the tables' own markup in a
+    /// foreignObject, since SVG cannot draw either. One of our masked marks (no-icon) is a tile and a rect masked by an
+    /// SVG mask (lt-mark-*) instead. WebKit draws a CSS-masked element in a foreignObject at the SVG's origin, and does
+    /// not apply a CSS image mask to an SVG shape at all, so on iOS those marks piled up in the corner, then showed as
+    /// white boxes. Such a mark wins over a favicon here.
+    /// </summary>
+    private RenderFragment SankeyIcon(string name, string? domain, string? cls, int x) => __builder =>
+    {
+        (domain, cls) = ResolveIcon(name, domain, cls);
+        if (MarkToken(cls) is { } token)
+        {
+            <rect class="lt-sankey-glyph-tile" x="@x" y="-9" width="18" height="18" rx="4" />
+            <g transform="translate(@(x + 3), -6)"><rect class="lt-sankey-glyph" width="12" height="12" mask="url(#lt-mark-@token)" /></g>
+        }
+        else
+        {
+            <foreignObject class="lt-sankey-icon" x="@x" y="-9" width="18" height="18">@AppIcon(name, domain, cls)</foreignObject>
+        }
+    };
+
+    private static (string? Domain, string? Cls) ResolveIcon(string name, string? domain, string? cls) =>
+        domain == null && cls == null ? NetworkOptimizer.UniFi.DpiCatalog.IconsForName(name) : (domain, cls);
+
+    /// <summary>The mark's own class (no-icon-wireguard) when <paramref name="cls"/> is one of our masked marks.</summary>
+    private static string? MarkToken(string? cls) =>
+        cls?.Split(' ').Contains("no-icon") == true ? cls.Split(' ').FirstOrDefault(c => c.StartsWith("no-icon-", StringComparison.Ordinal)) : null;
+
+    /// <summary>Every masked mark the diagram draws, once each: one SVG mask serves every node that shows it.</summary>
+    private List<string> MarkTokens(Placed layout) =>
+        layout.Nodes.Select(n => n.Node)
+            .Select(node => node.Column == 1 && !node.IsOther ? MarkToken(ResolveIcon(node.Name, node.IconDomain, node.IconClass).Cls)
+                : node.Column == 0 && node.Tailnet ? MarkToken(ResolveIcon("Tailscale", null, null).Cls)
+                : null)
+            .OfType<string>()
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!_hasMarks) return;
+        try
+        {
+            _marks ??= await JS.InvokeAsync<IJSObjectReference>("import", FileVersionProvider.AddFileVersionToPath("", "/js/lt-sankey-marks.js"));
+            await _marks.InvokeVoidAsync("fill", _svg);
+        }
+        catch (Exception ex) when (ex is JSDisconnectedException or JSException or TaskCanceledException or ObjectDisposedException) { }
+    }
+
     /// <summary>The diagram to draw; null or empty draws the idle state.</summary>
     [Parameter] public LiveSankey? Sankey { get; set; }
 
@@ -107,8 +172,37 @@ else
     /// <summary>Each node's vertical center at the last render, by column and name.</summary>
     private Dictionary<(int, string), double> _centers = new();
 
-    private const int W = 790;
+    /// <summary>The card's width in CSS pixels, as the page measured it; 0 until measured.</summary>
+    [Parameter] public double CardWidth { get; set; }
+
+    /// <summary>The canvas width on a wide card, where the diagram reads at its designed size.</summary>
+    private const int WideW = 790;
+    /// <summary>How much larger than its canvas units a narrow card should draw the diagram.</summary>
+    private const double NarrowScale = 1.3;
+    /// <summary>The canvas width this render; narrower than <see cref="WideW"/> on a narrow card.</summary>
+    private int W = WideW;
     private const int H = 360;
+
+    /// <summary>
+    /// The canvas width for a card: <see cref="WideW"/> where the card is wide enough, else narrower so the
+    /// card scales the diagram up (shorter bands, larger everything else), but never narrower than the
+    /// labels need. A fixed canvas scaled to a narrow (portrait) card drew it small.
+    /// </summary>
+    internal static int CanvasWidth(double cardPx, double contentMin) =>
+        cardPx <= 0 ? WideW : (int)Math.Round(Math.Clamp(cardPx / NarrowScale, Math.Min(contentMin, WideW), WideW));
+
+    /// <summary>
+    /// The narrowest canvas this diagram's labels fit: the client names, a short band, an app's icon, name,
+    /// and rate line, then the route's. App names past 180 units are trimmed, so they count at most that.
+    /// </summary>
+    private static double ContentWidth(LiveSankey sankey)
+    {
+        var sub = sankey.ValueIsFlows ? 0 : SubW;
+        double Longest(int col) => Math.Max(sub, sankey.Nodes.Where(n => n.Column == col)
+            .Select(n => n.Name.Length * CharW).DefaultIfEmpty(0).Max());
+        var left = Math.Clamp(Longest(0) + LabelGap + 2, 90, 230);
+        return left + 120 + NodeW + LabelGap + IconW + Math.Min(Longest(1), 180) + 20 + NodeW + LabelGap + Longest(2) + 4;
+    }
     private const double Top = 30;
     private const double Bottom = 22;
     private const int NodeW = 10;
@@ -126,7 +220,7 @@ else
     /// and route labels right of theirs, so the client column moves right as far as its longest name
     /// needs, the route column keeps room for its own, and the app column sits midway.
     /// </summary>
-    private static double[] Columns(LiveSankey sankey)
+    private static double[] Columns(LiveSankey sankey, int W)
     {
         // A rate subtitle ("↓ 12.3 Mbps ↑ 1.1 Mbps", in the smaller sub font) needs its room as much as a name.
         var sub = sankey.ValueIsFlows ? 0 : SubW;
@@ -205,7 +299,8 @@ else
 
     private Placed Layout(LiveSankey sankey)
     {
-        ColX = Columns(sankey);
+        W = CanvasWidth(CardWidth, ContentWidth(sankey));
+        ColX = Columns(sankey, W);
         var placed = new Dictionary<(int, string), PlacedNode>();
         var outOffset = new Dictionary<(int, string), double>();
         var inOffset = new Dictionary<(int, string), double>();

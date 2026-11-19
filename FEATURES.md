@@ -53,6 +53,7 @@ an On-Site Agent, AP Telemetry, InfluxDB, or HTTPS.
 - Per agent site: client speed test target override
 - Three sites free for personal use; a lapsed license keeps a site running through a 10-day grace period
 - License checks never downgrade a license on failure; a restricted site pauses until relicensed
+- Buy a license from the free-tier notices; a subscription key gets **Manage billing** in Licensing and on its grace banner
 - Agent management - rename in place, status, version, **Upgrade** commands, **Run It for Me** gateway upgrade, enrollment tokens
 - Per site: Automatic Blocking mode, blocked-source count, and [cross-site blocking](#automatic-blocking) with **Turn On Recommended for All Sites**
 - [Trusted Sources](#trusted-sources) - every site's WAN addresses as UniFi Network Lists, so sites admit each other and no one else
@@ -70,6 +71,7 @@ an On-Site Agent, AP Telemetry, InfluxDB, or HTTPS.
 - LAN speed test hosted on the UniFi gateway itself (agent on the gateway, `--lan-speed-test`)
 - Buffers up to 12 hours of results to disk through outages; watchdog restarts a stuck agent
 - Falls back to HTTPS heartbeats when the tunnel cannot connect; refuses plain HTTP
+- Installers check the tunnel route before installing and name the fix: an untrusted certificate, a proxy missing the gRPC route; **Run It for Me** then offers **Accept a self-signed certificate (--insecure)**
 - **Reconnecting often** - flags an agent whose tunnel keeps dropping, linked to the agent README's reverse proxy notes
 - `proxyAllowedCidrs` pins which addresses the tunnel may reach; every dial is logged on the agent host
 - Several agents per site, for example one on the gateway and one on a LAN host
@@ -96,6 +98,7 @@ Time-series monitoring on your own InfluxDB, fed by SNMP polling (InfluxDB).
   - Transit RTT discounts a router that answers pings slowly; real slowdowns still show
 - Gateway tiles: RTT, loss, CPU, memory, temperature, **Fabric Ingress**, **Fabric Egress**
 - Last-hour sparkline behind the ISP, transit, and gateway tiles; hover to bring it forward (InfluxDB)
+- Last-hour sparkline on the **WAN Download** and **WAN Upload** tiles: trace the line for the rate at any minute, click to move Live View to that moment
 - WAN pill selector - one WAN, several to compare, or all
 - Opened from Network Performance at a moment, a chip beside the WAN pills goes back to the chart, or **×** returns to live on your own WAN selection
 - Live WAN throughput chart
@@ -154,6 +157,10 @@ Time-series monitoring on your own InfluxDB, fed by SNMP polling (InfluxDB).
       - Hover a destination for its address, its Threat Intelligence drill-down, and Trace; your own clients and devices link to Client Performance or Device Stats instead
       - Every address and domain on a hover card copies with one click; Live DNS queries and outside resolvers get the same card
     - Parallel streams from one client to one destination shown as one row with a stream count
+    - **Round trip** in a flow's detail: timed by the Gateway as each connection opens, to the destination and to the client
+      - **RTT** column, sortable, on desktop; hover a value for the client's round trip
+      - Hover a destination or client for its median round trip over the connections shown
+      - Not on Gateways whose firmware reports no connection events, such as the UDR7
     - **Where It's Going** - client to app to route, by rate or by flow count; by rate each band splits into download and upload in its route's color, and each node shows both rates; hovering a route lists its top destinations (on LAN, the hosts); the gateway's own VPN tunnel is left out so tunneled traffic counts once
     - **Live DNS** - lookups to the gateway, to DNS servers on other VLANs, and to outside resolvers; blocked lookups (NXDOMAIN, or a 0.0.0.0 / :: answer), response time, and DNS bypass (including DoH and DoT, not counting a site resolver's own encrypted upstream)
       - A lookup the gateway redirects (DNAT) to a site resolver shows the attempt and the resolver that answered, and is not counted as a bypass
@@ -229,7 +236,7 @@ Time-series monitoring on your own InfluxDB, fed by SNMP polling (InfluxDB).
   - Keeps your choices: unchecked or paused targets stay that way on re-runs
   - A re-run and commit corrects earlier mistyped targets, keeping their history
 - **Flaky Monitoring Targets** - targets losing more than their peers, with **Disable** and **Disable all**
-- **Latency Targets** - add, rename, pause, remove, and restore targets
+- **Latency Targets** - add, rename, pause, remove, and restore targets; a UniFi device's target takes the device's UniFi Console name and follows a rename there
   - ICMP or TCP probes, per-WAN path, interval from 2 seconds to 5 minutes
 - **Multi-WAN Monitoring - Vantages** - give each WAN an [On-Site Agent](#on-site-agent) or a policy-routed source address
   - Edit, verify, and assign targets per vantage
@@ -334,11 +341,11 @@ Time-series monitoring on your own InfluxDB, fed by SNMP polling (InfluxDB).
   - On a gateway with built-in Wi-Fi: **Change AP** only, for 5 GHz non-MLO clients
 - **Start Logging** - log a remote client's signal at poll rate without GPS
 - GPS walk test - signal heatmap from your phone while the page is open (HTTPS)
-- **Speed** - live throughput, **Run Speed Test** / **Quick Test**, speed and latency history, result map
+- **Speed** - live throughput, **Run Speed Test** / **Quick Test**, **WAN Test** when a WAN speed test server is configured, speed and latency history, result map, and **Test Results** with the client's LAN and WAN tests
   - **Throughput** history from 1h to 30d: average, peak, WAN share, and speed test marks (InfluxDB)
   - Under **Live Throughput**: the client's flows through the gateway, their rate, and busiest apps ([On-Site Agent](#on-site-agent))
 - **Signal** - noise, SNR, TX power, radio peers, read-only **Signal Map**, signal history, and log
-- **Connection** - **Network Path** with bottleneck, AP history, connection events, and trace changes
+- **Connection** - **Network Path** with bottleneck, **Connection History** timeline (a lane per AP, stretches colored by band, offline gaps, disconnect and roam counts), connection events, and trace changes
 - **Data / Apps** - WAN vs LAN + WAN totals, usage chart, and per-application breakdown
   - Rolled up hourly per client and per port, with a 30-day backfill on first run
   - **Live Traffic** - the client's flows right now, ranked by rate, sortable, filterable, with per-flow detail ([On-Site Agent](#on-site-agent))
@@ -471,6 +478,7 @@ Gateway tweaks for UCG-Fiber, UXG-Fiber, UCG-Max, and UXG-Max (Gateway SSH).
   - Channel health scores each radio against the quietest channel it could use, so a band busy on every channel costs nothing
 - **Client Band Distribution**, **Channel Optimization** summary, and per-AP radio cards
 - Mesh uplink details and **Re-pair Uplink**
+- **Speed Map** or **Signal Map** below the cards, switched in place
 - **Health Issues** with recommendations; **Acknowledge** hides an issue but keeps it in the score
   - Each affected AP, radio, or client links straight to it
   - Each affected AP, radio, or client links to where it is shown: its clients on that band, its channel, its metrics, or the client itself
@@ -552,6 +560,7 @@ models such as U6-Lite, U6-Mesh, and UAP-AC-Pro, and gateways with built-in Wi-F
 - **Firewall Rules** - any-any, overly broad, orphaned, shadowed, and out-of-order rules
   - Missing or bypassed VLAN isolation and internet blocks; missing management access (cloud, firmware, AFC, NTP, 5G/LTE)
   - Networks that can reach the gateway's SSH and web UI; strict once a Management Access network is set
+  - Gateway management open to the internet: Direct Remote Connection, or an allow from the External zone
 - **VLAN Security** - IoT, printers, cameras, NVRs, and security systems on the wrong VLAN
   - Uses UniFi fingerprints, MAC OUI, port names, and UniFi Protect; checks wired, wireless, and offline clients
   - Covers zone-based firewalls, L3 switch-routed VLANs, and IPv4 and IPv6 separately
@@ -566,6 +575,7 @@ models such as U6-Lite, U6-Mesh, and UAP-AC-Pro, and gateways with built-in Wi-F
 - **Console Access** - API Keys and Local Admin accounts unused for 7+ days (when the UniFi Console Connection can read them)
 - **Gateway Firewall** - checks the gateway enforces your configuration: WANs and networks in their zones, every enabled policy present, disabled ones gone (Gateway SSH)
   - Automatic Blocking on the gateway's [On-Site Agent](#on-site-agent): rules hooked in once, unchanged, and holding the blocklist
+  - Management ports the gateway accepts from the WAN that no firewall policy accounts for
 - Threat-aware check for actively targeted port forwards
 - **Acknowledge** false positives; override a network's **Purpose**, including marking your Management Access network
 - **Network Reference**, **DNS Security** table, **Hardening Measures in Place**, **Switch & Port Details**, wireless clients by AP
@@ -749,6 +759,7 @@ Requires Gateway SSH.
 - **History** - every alert by source and severity
 - **Rules** - event pattern, threshold, severity, cooldown, escalation, digest-only, target devices
 - **Incidents** - related alerts grouped automatically, each listed in its incident with a link to it
+  - A Change Control change and the Security Audit it triggers share one incident, delivered once unless a later alert is more severe or new
   - Config changes in the 2 hours before each incident, with **Roll Back** ([Change Control](#change-control))
 - Alerts cover:
   - Security Audit score drops and new findings; threat attack chains and patterns; Web Application Firewall events

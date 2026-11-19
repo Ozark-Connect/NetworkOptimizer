@@ -1,5 +1,4 @@
 using Microsoft.EntityFrameworkCore;
-using NetworkOptimizer.Core.Enums;
 using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.Storage.Services;
 using NetworkOptimizer.Web.Services;
@@ -397,7 +396,11 @@ public static class MonitoringChartEndpoints
 
             var data = await influx.QueryLatencyByTargetTypeAsync(targetType, queryFrom, queryTo, ct: ct);
 
-            var result = targets.Select(t =>
+            // An earlier address of a device still probed is kept only for the stretch it covers. With
+            // no points in this window it is a second, empty row under the same name as the live one.
+            var result = targets.Where(t => t.Enabled || !StillMonitored(t.DeviceMac)
+                    || (data.TryGetValue(t.TargetId, out var p) && p.Count > 0))
+                .Select(t =>
             {
                 data.TryGetValue(t.TargetId, out var points);
                 var pts = points ?? new List<MonitoringInfluxClient.LatencyPoint>();

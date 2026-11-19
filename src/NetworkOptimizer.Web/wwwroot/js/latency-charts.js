@@ -13,7 +13,7 @@ import { createAxisDateCaption } from './chart-axis-date.js?v=5';
 import { syncIdentity, extentsOf, spanTo } from './chart-sync.js?v=9';
 import { awaitContainer } from './chart-mount.js?v=1';
 import { loadWindowHours, saveWindowHours, markActiveRange } from './chart-window.js?v=3';
-import { formatBps } from './chart-format.js?v=1';
+import { formatBps, formatBpsAxis } from './chart-format.js?v=2';
 
 // Storage scope for this tab's remembered time window.
 const WINDOW_TAB = 'latency';
@@ -270,9 +270,15 @@ function buildLossOpts() {
 
 function buildWanRateOpts() {
     return baseChartOpts('area', 'Throughput',
-        v => v != null ? formatBps(v) : '',
+        v => v != null ? formatBpsAxis(v) : '',
         {
             colors: [downloadColor(), uploadColor()],
+            tooltip: {
+                theme: 'dark',
+                shared: true,
+                x: { formatter: noTime.chartTooltipFormatter() },
+                custom: ctx => valueSortedTooltip(ctx, { format: formatBps }),
+            },
             fill: {
                 type: 'gradient',
                 gradient: { shadeIntensity: 0.3, opacityFrom: 0.3, opacityTo: 0.05 },

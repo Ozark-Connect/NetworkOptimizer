@@ -31,11 +31,16 @@ public class SiteHealthScorer
     /// <summary>
     /// Calculate site health score from current Wi-Fi data
     /// </summary>
+    /// <param name="wlans">The site's WLANs; fast roaming is suggested only for enabled ones that have it off. Null suggests it nowhere.</param>
+    /// <param name="iotSsidIds">WLAN IDs bound to an IoT network (directly or by PPSK), where it stays off on purpose.</param>
     public SiteHealthScore Calculate(
         List<AccessPointSnapshot> aps,
         List<WirelessClientSnapshot> clients,
-        RoamingTopology? roamingData = null)
+        RoamingTopology? roamingData = null,
+        IReadOnlyList<WlanConfiguration>? wlans = null,
+        IReadOnlySet<string>? iotSsidIds = null)
     {
+        var fastRoamingOff = FastRoamingOffSsids(wlans, iotSsidIds);
         // Exclude offline APs from health scoring and issue generation
         var onlineAps = aps.Where(a => a.IsOnline).ToList();
 
@@ -54,13 +59,13 @@ public class SiteHealthScorer
         // Calculate each dimension (using only online APs)
         score.SignalQuality = CalculateSignalQuality(clients);
         score.ChannelHealth = CalculateChannelHealth(onlineAps);
-        score.RoamingPerformance = CalculateRoamingPerformance(roamingData);
+        score.RoamingPerformance = CalculateRoamingPerformance(roamingData, fastRoamingOff);
         score.AirtimeEfficiency = CalculateAirtimeEfficiency(onlineAps, clients);
         score.ClientSatisfaction = CalculateClientSatisfaction(onlineAps, clients);
         score.CapacityHeadroom = CalculateCapacityHeadroom(onlineAps);
 
         // Collect issues from all dimensions (using only online APs)
-        CollectIssues(score, onlineAps, clients, roamingData);
+        CollectIssues(score, onlineAps, clients, roamingData, fastRoamingOff);
 
         // Calculate weighted overall score
         score.OverallScore = (int)Math.Round(
@@ -261,7 +266,27 @@ public class SiteHealthScorer
         return Math.Max(0, utilization - floor);
     }
 
-    private ScoreDimension CalculateRoamingPerformance(RoamingTopology? roamingData)
+    /// <summary>
+    /// Enabled SSIDs with fast roaming (802.11r) off, by name, IoT SSIDs aside: those keep it off on purpose. Empty when
+    /// the rest have it on, or the WLANs are unknown; then low fast-roam use means the clients lack 802.11r.
+    /// </summary>
+    internal static List<string> FastRoamingOffSsids(IReadOnlyList<WlanConfiguration>? wlans, IReadOnlySet<string>? iotSsidIds = null) =>
+        wlans?.Where(w => w.Enabled && !w.FastRoamingEnabled && !string.IsNullOrWhiteSpace(w.Name)
+                          && iotSsidIds?.Contains(w.Id) != true)
+            .Select(w => w.Name)
+            .Distinct(StringComparer.Ordinal)
+            .ToList() ?? [];
+
+    /// <summary>
+    /// The Roaming failures recommendation. Fast roaming is suggested only where it is off, with the exception for
+    /// IoT and older devices, which can fail to join an SSID that advertises it.
+    /// </summary>
+    internal static string RoamFailureRecommendation(IReadOnlyList<string> fastRoamingOff) =>
+        fastRoamingOff.Count == 0
+            ? "Check for coverage gaps between these APs."
+            : $"Check for coverage gaps between these APs. Fast roaming is off on {string.Join(", ", fastRoamingOff)}; turning it on can help, except where IoT or older devices need it off.";
+
+    private ScoreDimension CalculateRoamingPerformance(RoamingTopology? roamingData, IReadOnlyList<string> fastRoamingOff)
     {
         var dimension = new ScoreDimension
         {
@@ -306,7 +331,7 @@ public class SiteHealthScorer
             Name = "Fast roaming (802.11r) usage",
             Value = $"{fastRoamingPct:F1}%",
             Impact = fastRoamingPct > 50 ? 5 : 0,
-            Description = fastRoamingPct < 20 ? "Consider enabling fast roaming" : null
+            Description = fastRoamingPct < 20 && fastRoamingOff.Count > 0 ? "Consider enabling fast roaming" : null
         });
 
         dimension.Factors.Add(new ScoreFactor
@@ -505,7 +530,8 @@ public class SiteHealthScorer
         SiteHealthScore score,
         List<AccessPointSnapshot> aps,
         List<WirelessClientSnapshot> clients,
-        RoamingTopology? roamingData)
+        RoamingTopology? roamingData,
+        IReadOnlyList<string> fastRoamingOff)
     {
         // Signal issues (band-aware thresholds)
         var weakSignalClients = clients
@@ -568,7 +594,7 @@ public class SiteHealthScorer
                     Description = $"{100 - edge.SuccessRate:F0}% roam failure rate ({failures} of {edge.TotalRoamAttempts} roams) between these APs",
                     AffectedEntity = $"{ap1Name} ↔ {ap2Name}",
                     LinkUrl = $"./wifi-optimizer?tab=roaming&edge={Uri.EscapeDataString(edge.Endpoint1Mac)}_{Uri.EscapeDataString(edge.Endpoint2Mac)}#roaming-edge-details",
-                    Recommendation = "Check for coverage gaps or enable fast roaming.",
+                    Recommendation = RoamFailureRecommendation(fastRoamingOff),
                     ScoreImpact = edge.SuccessRate < RoamSevereRatePct ? -10 : -5
                 });
             }

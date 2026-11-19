@@ -740,6 +740,10 @@ h1:focus {
 .wan-chart-mode-cluster .lan-flow-map-mode {
     cursor: pointer;
 }
+.wan-chart-mode-cluster .lan-flow-map-mode.is-paused {
+    background: var(--bg-tertiary);
+    color: var(--text-secondary);
+}
 .dashboard-grid .lv-panel > .wan-live-chart-card {
     margin: -0.5rem;
 }
@@ -2850,6 +2854,45 @@ a.stat-card-link:active {
 
 /* Live View's gateway tiles (StatTileSparkline): the chart takes the lower strip of the tile. On
    hover the label steps aside and the value lifts clear of the line. */
+/* A tile whose line you trace and click (spark-trace.js): no text selection or text cursor, so
+   moving and clicking across it never selects the value. */
+.signal-spark-host.spark-traceable {
+    cursor: pointer;
+    user-select: none;
+    -webkit-user-select: none;
+}
+
+/* The tracer is the line's end dot moved to the pointer: the same look, and the end dot hides. */
+.spark-trace-dot {
+    display: none;
+    position: fixed;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: currentColor;
+    box-shadow: 0 0 0 2px var(--bg-tertiary), 0 0 12px currentColor;
+    transform: translate(-50%, -50%);
+    pointer-events: none;
+    z-index: 1000;
+}
+
+.signal-spark-host.spark-tracing .signal-spark-dot {
+    opacity: 0 !important;
+}
+
+.spark-trace-label {
+    display: none;
+    position: fixed;
+    padding: 0.15rem 0.4rem;
+    border-radius: 4px;
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+    font-size: 0.7rem;
+    white-space: nowrap;
+    pointer-events: none;
+    z-index: 1000;
+}
+
 .signal-spark-host > .stat-spark-area {
     position: absolute;
     left: 0.1rem;
@@ -13666,6 +13709,28 @@ h3 > .tooltip-icon-sm {
     margin-bottom: 1.5rem;
 }
 
+/* Wi-Fi Optimizer - Overview: the Speed Map / Signal Map switch above the map. */
+.wifi-overview-map-switch {
+    width: max-content;
+    max-width: 100%;
+    margin-bottom: 0.75rem;
+}
+
+.wifi-overview-map-switch .time-btn {
+    white-space: nowrap;
+}
+
+@media (max-width: 768px) {
+    /* The grid's 16px bottom margin plus the switch's own padding left a wide band above it on a phone. */
+    .wifi-content-grid:has(+ .wifi-overview-map-switch) {
+        margin-bottom: 4px;
+    }
+
+    .wifi-overview-map-switch {
+        margin-bottom: 0.25rem;
+    }
+}
+
 .wifi-view-tabs {
     display: flex;
     gap: 0.4rem;
@@ -23872,6 +23937,10 @@ a.shp-issue {
     margin-bottom: 0.5rem;
 }
 
+.license-billing-actions {
+    margin-bottom: 0.5rem;
+}
+
 @keyframes tour-fade-in {
     from {
         opacity: 0;
@@ -25872,10 +25941,35 @@ body:has(.top-bar-hidden) .btn-fit {
 }
 
 .lt-sankey-icon .lt-app-icon {
-    display: block;
+    display: grid;
     width: 18px;
     height: 18px;
     font-size: 11px;
+}
+
+/* Never positioned here: WebKit draws positioned HTML in a foreignObject at the SVG's origin, ignoring the node's
+   transform, so every app's icon piled up in the corner on iOS. The layers share one grid cell instead. */
+.lt-sankey-icon .lt-app-icon,
+.lt-sankey-icon .lt-app-icon > * {
+    position: static;
+}
+
+.lt-sankey-icon .lt-app-icon > * {
+    grid-area: 1 / 1;
+    width: 100%;
+    height: 100%;
+}
+
+/* A masked mark (no-icon) in Where It's Going is SVG shapes masked by an SVG mask, never a CSS mask (WebKit applies
+   none to an SVG shape): see SankeyIcon in LiveTrafficSankey. */
+.lt-sankey-glyph-tile {
+    fill: var(--bg-tertiary);
+    pointer-events: none;
+}
+
+.lt-sankey-glyph {
+    fill: var(--text-primary);
+    pointer-events: none;
 }
 
 .lt-app-icon img,

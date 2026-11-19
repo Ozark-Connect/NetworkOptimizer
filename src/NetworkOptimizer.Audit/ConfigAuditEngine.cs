@@ -1014,7 +1014,12 @@ public class ConfigAuditEngine
         // 2. Firewall rule blocking network -> other internal networks
         var networkIsolationIssues = _vlanAnalyzer.AnalyzeNetworkIsolation(ctx.Networks, gatewayName, firewallRules, ctx.ZoneLookup);
 
+        var wanExposureIssues = WanGatewayExposureAnalyzer.Analyze(firewallRules, ctx.ExternalZoneId,
+            ctx.ZoneLookup?.GetZoneByKey(FirewallZoneKeys.Gateway)?.Id,
+            WanGatewayExposureAnalyzer.ReadDirectRemoteConnection(ctx.SettingsData));
+
         ctx.AllIssues.AddRange(firewallIssues);
+        ctx.AllIssues.AddRange(wanExposureIssues);
         ctx.AllIssues.AddRange(mgmtFirewallIssues);
         ctx.AllIssues.AddRange(internetAccessIssues);
         ctx.AllIssues.AddRange(networkIsolationIssues);
@@ -1183,6 +1188,22 @@ public class ConfigAuditEngine
         var gatewayName = ctx.Switches.FirstOrDefault(s => s.IsGateway)?.Name ?? "Gateway";
         ctx.AllIssues.AddRange(_gatewayFirewallAnalyzer.Analyze(ctx.GatewayFirewall, ctx.FirewallRules, ctx.FirewallZones,
             ctx.NetworkConfigs, ctx.GatewayWanInterfaces, ctx.GatewayBlocklist, gatewayName));
+
+        // Phase 5 already reported the ports a policy opens; the gateway's own accepts confirm those and raise the rest.
+        // Zone-based only: Phase 5 does not read legacy WAN_LOCAL rules, so their accepts would all read as unexplained.
+        if (ctx.FirewallZones is not { Count: > 0 })
+            return;
+        var configExposures = ctx.AllIssues.Where(i => i.Type == IssueTypes.GatewayWanManagementExposed).ToList();
+        var explained = configExposures.SelectMany(PortsOf).ToHashSet(StringComparer.Ordinal);
+        var (wanIssues, accepted) = _gatewayFirewallAnalyzer.AnalyzeWanManagementAccess(ctx.GatewayFirewall, explained);
+        foreach (var issue in configExposures.Where(i => PortsOf(i).Any(accepted.Contains)))
+            issue.Metadata![WanGatewayExposureAnalyzer.EnforcedKey] = true;
+        ctx.AllIssues.AddRange(wanIssues);
+
+        static IEnumerable<string> PortsOf(AuditIssue issue) =>
+            issue.Metadata?.GetValueOrDefault(WanGatewayExposureAnalyzer.PortsKey) is string ports
+                ? ports.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
+                : [];
     }
 
     /// <summary>

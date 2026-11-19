@@ -196,10 +196,16 @@ public class WiFiOptimizerService : IWiFiScanService
             // Build into a local score and only publish it to the shared field once fully
             // assembled - never mutate _cachedHealthScore in place, or a caller could observe
             // (or a racing refresh could double up) a half-populated Issues list.
-            var score = _healthScorer.Calculate(_cachedAps, _cachedClients, _cachedRoamingData);
-
             // Only consider online APs for additional issue checks
             var onlineAps = _cachedAps.Where(ap => ap.IsOnline).ToList();
+
+            // SSIDs on a network the Security Audit classes as IoT (directly or by PPSK) keep fast roaming off on
+            // purpose, so the scorer never suggests turning it on there.
+            var iotSsidIds = _cachedWlanConfigs != null && _cachedNetworks != null
+                ? WiFiOptimizerContext.IoTSsidsOf(_cachedWlanConfigs, _cachedNetworks).Select(w => w.Id).ToHashSet()
+                : null;
+
+            var score = _healthScorer.Calculate(_cachedAps, _cachedClients, _cachedRoamingData, _cachedWlanConfigs, iotSsidIds);
 
             // Add MLO issue if enabled on Wi-Fi 7 capable APs (affects airtime efficiency)
             var hasWifi7Aps = onlineAps.Any(ap => ap.Radios.Any(r => r.Is11Be));

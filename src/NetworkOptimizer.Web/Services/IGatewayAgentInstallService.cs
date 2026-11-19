@@ -37,11 +37,12 @@ public interface IGatewayAgentInstallService
     /// <paramref name="onStarted"/> fires with the live run as streaming begins, letting the
     /// caller render the transcript while awaiting. Throws <see cref="InvalidOperationException"/>
     /// while another run is active for the site (refused, not queued). <paramref name="lanSpeedTest"/>
-    /// adds --lan-speed-test, so the gateway also hosts the LAN speed test.
+    /// adds --lan-speed-test, so the gateway also hosts the LAN speed test. <paramref name="insecure"/>
+    /// adds --insecure (certificate verification off), recorded in the audit details.
     /// </summary>
     [RequireSiteRole(SiteRole.SiteAdmin)]
     [AuditAction(AuditActions.AgentGatewayInstallRun, TargetType = "gateway")]
-    Task RunInstallAsync([SiteSlug] string siteSlug, string enrollmentToken, bool lanSpeedTest = false, Action<GatewayAgentInstallRun>? onStarted = null);
+    Task RunInstallAsync([SiteSlug] string siteSlug, string enrollmentToken, bool lanSpeedTest = false, bool insecure = false, Action<GatewayAgentInstallRun>? onStarted = null);
 
     /// <summary>
     /// Runs the gateway upgrade one-liner (no token - an enrolled agent.json is kept).

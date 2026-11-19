@@ -301,11 +301,16 @@
         <div class="monitoring-stat-cards">
             @{ var wanRates = GetWanRates(); }
             @{ var wanDown = FormatRateParts(wanRates.download); var wanUp = FormatRateParts(wanRates.upload); }
-            <div class="monitoring-stat-card monitoring-stat-rate">
+            @* The rate tiles sum the selected WANs, and so does their line, so it stays while comparing. *@
+            <div class="monitoring-stat-card monitoring-stat-rate signal-spark-host">
+                <StatTileSparkline Spark="LiveViewSpark.WanDownload" Request="@LiveSparkRequest()" Current="wanRates.download"
+                                   Live="@(_mapHistoricAt == null || _historicSnapshot != null)" Traceable="true" />
                 <div class="stat-value" style="color: var(--speed-download-color);">@wanDown.Value@if (wanDown.Unit != null) {<span class="stat-unit">@wanDown.Unit</span>}</div>
                 <div class="stat-label">WAN <span class="desktop-label">Download@(WanRateCount())</span><span class="mobile-label">&#8595;@WanRateCountShort()</span></div>
             </div>
-            <div class="monitoring-stat-card monitoring-stat-rate">
+            <div class="monitoring-stat-card monitoring-stat-rate signal-spark-host">
+                <StatTileSparkline Spark="LiveViewSpark.WanUpload" Request="@LiveSparkRequest()" Current="wanRates.upload"
+                                   Live="@(_mapHistoricAt == null || _historicSnapshot != null)" Traceable="true" />
                 <div class="stat-value" style="color: var(--speed-upload-color);">@wanUp.Value@if (wanUp.Unit != null) {<span class="stat-unit">@wanUp.Unit</span>}</div>
                 <div class="stat-label">WAN <span class="desktop-label">Upload@(WanRateCount())</span><span class="mobile-label">&#8593;@WanRateCountShort()</span></div>
             </div>
@@ -320,7 +325,7 @@
             </div>
             @{ var ispTarget = ScopedTargetStats(MonitoringTargetType.AccessIsp); var ispIds = ScopedTargetIds(MonitoringTargetType.AccessIsp); }
             <div class="monitoring-stat-card clickable-stat-card signal-spark-host" @onclick="@(() => JumpToAnalysis(AccessIspCategory))">
-                <StatTileSparkline Spark="LiveViewSpark.IspRtt" Request="@LiveSparkRequest()" Current="ispTarget.rtt" Live="@(_mapHistoricAt == null && _historicSnapshot == null && !LiveWan.IsComparing)" />
+                <StatTileSparkline Spark="LiveViewSpark.IspRtt" Request="@LiveSparkRequest()" Current="ispTarget.rtt" Live="@((_mapHistoricAt == null || _historicSnapshot != null) && !LiveWan.IsComparing)" />
                 @if (LiveWan.IsComparing)
                 {
                     <div class="stat-value stat-value-stacked">
@@ -341,7 +346,7 @@
                 <div class="stat-label">ISP RTT</div>
             </div>
             <div class="monitoring-stat-card clickable-stat-card signal-spark-host" @onclick="@(() => JumpToAnalysis(AccessIspCategory))">
-                <StatTileSparkline Spark="LiveViewSpark.IspLoss" Request="@LiveSparkRequest()" Current="@(ispIds.Count > 0 ? ispTarget.loss : null)" Live="@(_mapHistoricAt == null && _historicSnapshot == null && !LiveWan.IsComparing)" />
+                <StatTileSparkline Spark="LiveViewSpark.IspLoss" Request="@LiveSparkRequest()" Current="@(ispIds.Count > 0 ? ispTarget.loss : null)" Live="@((_mapHistoricAt == null || _historicSnapshot != null) && !LiveWan.IsComparing)" />
                 @if (LiveWan.IsComparing)
                 {
                     <div class="stat-value stat-value-stacked">
@@ -363,7 +368,7 @@
             </div>
             @{ var transitTarget = ScopedTargetStats(MonitoringTargetType.Transit); var transitIds = ScopedTargetIds(MonitoringTargetType.Transit); }
             <div class="monitoring-stat-card clickable-stat-card stat-card-no-minheight signal-spark-host" @onclick="@(() => JumpToAnalysis(TransitCategory))">
-                <StatTileSparkline Spark="LiveViewSpark.TransitRtt" Request="@LiveSparkRequest()" Current="transitTarget.rtt" Live="@(_mapHistoricAt == null && _historicSnapshot == null && !LiveWan.IsComparing)" />
+                <StatTileSparkline Spark="LiveViewSpark.TransitRtt" Request="@LiveSparkRequest()" Current="transitTarget.rtt" Live="@((_mapHistoricAt == null || _historicSnapshot != null) && !LiveWan.IsComparing)" />
                 @if (LiveWan.IsComparing)
                 {
                     <div class="stat-value stat-value-stacked">
@@ -384,7 +389,7 @@
                 <div class="stat-label">Transit RTT</div>
             </div>
             <div class="monitoring-stat-card clickable-stat-card stat-card-no-minheight signal-spark-host" @onclick="@(() => JumpToAnalysis(TransitCategory))">
-                <StatTileSparkline Spark="LiveViewSpark.TransitLoss" Request="@LiveSparkRequest()" Current="@(transitIds.Count > 0 ? transitTarget.loss : null)" Live="@(_mapHistoricAt == null && _historicSnapshot == null && !LiveWan.IsComparing)" />
+                <StatTileSparkline Spark="LiveViewSpark.TransitLoss" Request="@LiveSparkRequest()" Current="@(transitIds.Count > 0 ? transitTarget.loss : null)" Live="@((_mapHistoricAt == null || _historicSnapshot != null) && !LiveWan.IsComparing)" />
                 @if (LiveWan.IsComparing)
                 {
                     <div class="stat-value stat-value-stacked">
@@ -5603,27 +5608,27 @@
         <div class="monitoring-stat-cards" style="margin-top: 0.5rem;">
             @{ var gwTargetId = GetGatewayFabricTargetId(); }
             <div class="monitoring-stat-card clickable-stat-card signal-spark-host" @onclick="@(() => NavigationManager.NavigateTo(gwFabricUrl))">
-                <StatTileSparkline Spark="LiveViewSpark.GatewayRtt" Request="@LiveSparkRequest()" Current="gwLatency.rtt" Live="_mapHistoricAt == null" />
+                <StatTileSparkline Spark="LiveViewSpark.GatewayRtt" Request="@LiveSparkRequest()" Current="gwLatency.rtt" Live="@(_mapHistoricAt == null || _historicSnapshot != null)" />
                 <div class="stat-value">@FormatRtt(gwLatency.rtt)</div>
                 <div class="stat-label">Gateway RTT</div>
             </div>
             <div class="monitoring-stat-card clickable-stat-card signal-spark-host" @onclick="@(() => NavigationManager.NavigateTo(gwFabricUrl))">
-                <StatTileSparkline Spark="LiveViewSpark.GatewayLoss" Request="@LiveSparkRequest()" Current="@(gwTargetId != null ? gwLatency.loss : null)" Live="_mapHistoricAt == null" />
+                <StatTileSparkline Spark="LiveViewSpark.GatewayLoss" Request="@LiveSparkRequest()" Current="@(gwTargetId != null ? gwLatency.loss : null)" Live="@(_mapHistoricAt == null || _historicSnapshot != null)" />
                 <div class="stat-value @(gwLatency.loss > 0 ? "stat-danger" : "")">@FormatLoss(gwLatency.loss)</div>
                 <div class="stat-label">Gateway Loss</div>
             </div>
             <div class="monitoring-stat-card clickable-stat-card signal-spark-host" @onclick="@(() => NavigationManager.NavigateTo(gwDeviceUrl))">
-                <StatTileSparkline Spark="LiveViewSpark.GatewayCpu" Request="@LiveSparkRequest()" Current="gwStats?.CpuPercent" Live="_mapHistoricAt == null" />
+                <StatTileSparkline Spark="LiveViewSpark.GatewayCpu" Request="@LiveSparkRequest()" Current="gwStats?.CpuPercent" Live="@(_mapHistoricAt == null || _historicSnapshot != null)" />
                 <div class="stat-value">@FormatPercent(gwStats?.CpuPercent)</div>
                 <div class="stat-label">Gateway CPU</div>
             </div>
             <div class="monitoring-stat-card clickable-stat-card signal-spark-host" @onclick="@(() => NavigationManager.NavigateTo(gwDeviceUrl))">
-                <StatTileSparkline Spark="LiveViewSpark.GatewayMemory" Request="@LiveSparkRequest()" Current="gwStats?.MemoryUsedPercent" Live="_mapHistoricAt == null" />
+                <StatTileSparkline Spark="LiveViewSpark.GatewayMemory" Request="@LiveSparkRequest()" Current="gwStats?.MemoryUsedPercent" Live="@(_mapHistoricAt == null || _historicSnapshot != null)" />
                 <div class="stat-value">@FormatPercent(gwStats?.MemoryUsedPercent)</div>
                 <div class="stat-label">Gateway Memory</div>
             </div>
             <div class="monitoring-stat-card clickable-stat-card signal-spark-host" @onclick="@(() => NavigationManager.NavigateTo(gwDeviceUrl))">
-                <StatTileSparkline Spark="LiveViewSpark.GatewayTemperature" Request="@LiveSparkRequest()" Current="gwStats?.TemperatureC" Live="_mapHistoricAt == null" />
+                <StatTileSparkline Spark="LiveViewSpark.GatewayTemperature" Request="@LiveSparkRequest()" Current="gwStats?.TemperatureC" Live="@(_mapHistoricAt == null || _historicSnapshot != null)" />
                 <div class="stat-value">@FormatTemp(gwStats?.TemperatureC)</div>
                 <div class="stat-label">Gateway Temp</div>
             </div>
@@ -5750,7 +5755,10 @@
     // TODO: duplicated in LiveViewPanel.razor (LiveSparkRequest); move into one shared helper.
     private LiveViewSparkRequest LiveSparkRequest() => new(
         _gatewayMac, GetGatewayFabricTargetId(),
-        ScopedTargetIds(MonitoringTargetType.AccessIsp), ScopedTargetIds(MonitoringTargetType.Transit));
+        ScopedTargetIds(MonitoringTargetType.AccessIsp), ScopedTargetIds(MonitoringTargetType.Transit),
+        LiveWan.RateCounterInterfaces(_gatewayWanIfNames),
+        // During playback the tiles' hour ends at the playhead, where their snapshot values are.
+        _mapHistoricAt);
     /// <summary>The targets an ISP or Transit tile reads right now: the selected WAN's own, or every enabled one.</summary>
     // TODO: duplicated in LiveViewPanel.razor (ScopedTargetIds); move into one shared helper.
     private IReadOnlyList<string> ScopedTargetIds(MonitoringTargetType type)

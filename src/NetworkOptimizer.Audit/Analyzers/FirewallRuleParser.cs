@@ -410,6 +410,7 @@ public class FirewallRuleParser
             WebDomains = webDomains,
             DestinationRegions = destRegions,
             Predefined = predefined,
+            OriginType = policy.GetStringOrNull("origin_type"),
             // Extended matching criteria
             SourceMatchingTarget = sourceMatchingTarget,
             SourceIps = sourceIps,

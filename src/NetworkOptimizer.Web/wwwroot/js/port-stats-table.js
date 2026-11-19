@@ -271,7 +271,8 @@ function buildRows() {
 
 function rebuildMeta(devices) {
     deviceMeta = devices.map(d => {
-        const name = (d.name && d.name !== d.mac) ? d.name : (nameOverrides[d.mac] || d.name || d.mac);
+        // The map snapshot's name is the console's current one, so it wins over the stored target name.
+        const name = nameOverrides[d.mac] || ((d.name && d.name !== d.mac) ? d.name : null) || d.mac;
         // Colour by device name (same determinant as the Device Stats / Network
         // Performance tabs) so a device keeps one colour across the app.
         return { mac: d.mac, name, color: hashColor(d.name || d.mac) };

@@ -27,7 +27,8 @@
         else
         {
             <p class="section-description">
-                Free tier: up to @SiteManagementService.FreeSiteLimit sites for personal use. Enter a license key to unlock more.
+                Free tier: up to @SiteManagementService.FreeSiteLimit Sites for personal use. To unlock more,
+                <a href="@LicenseBilling.LicensingUrl" target="_blank" rel="noopener">buy a license</a>, then enter its key below.
             </p>
         }
 
@@ -169,6 +170,14 @@
                 {
                     <span class="form-help">Last checked: @TimeFormatHelper.FormatRelativeTime(lastCheck, DisplayTime.Zone, DisplayTime.Format)</span>
                 }
+            </div>
+        }
+
+        @if (LicenseBilling.HasSubscriptionKey(_keys))
+        {
+            <div class="action-buttons license-billing-actions">
+                <a href="@LicenseBilling.BillingUrl" target="_blank" rel="noopener" class="btn btn-secondary">Manage billing</a>
+                <span class="form-help">Update your card, see invoices, or cancel your subscription.</span>
             </div>
         }
 

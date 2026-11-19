@@ -456,8 +456,16 @@ install_agent() {
     [[ -n "$AGENT_RELEASE" ]] && args="$args --release '${AGENT_RELEASE}'"
 
     msg_info "Running the agent installer inside the container..."
-    if ! pct exec "$CT_ID" -- bash -c \
-        "curl -fsSL https://raw.githubusercontent.com/${GITHUB_REPO}/${GITHUB_BRANCH}/scripts/agent/install-native.sh | bash -s -- ${args}"; then
+    local rc=0
+    pct exec "$CT_ID" -- bash -c \
+        "curl -fsSL https://raw.githubusercontent.com/${GITHUB_REPO}/${GITHUB_BRANCH}/scripts/agent/install-native.sh | bash -s -- ${args}" || rc=$?
+    if [[ $rc -eq 3 ]]; then
+        # The installer's pre-flight stop: the container holds nothing to inspect, and a re-run with
+        # --insecure creates a new one, so cleanup removes this one (CT_CREATED stays true).
+        msg_error "The container does not trust the server's certificate, so the agent cannot connect."
+        echo -e "${DIM}If you issued the certificate yourself, re-run this script with --insecure.${CL}"
+        exit 1
+    elif [[ $rc -ne 0 ]]; then
         msg_error "The agent installer failed inside the container."
         echo -e "${DIM}The container is left in place so you can look: pct enter ${CT_ID}${CL}"
         CT_CREATED=false

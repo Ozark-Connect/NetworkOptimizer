@@ -25,9 +25,11 @@
     var list = null, row = null, cards = [], signature = '', pending = 0, scroller = null;
     // The cards behind each link: one, or several where the row folds neighbors into one link.
     var linkCards = [];
-    // The row's cards so far for one set of cards. It only grows: a card moving back onto the
-    // first screen as data loads would otherwise drop out, and the row's height would jitter.
-    var listed = { key: '', names: {} };
+    // The row's cards so far for one set of cards. Once the reader scrolls it only grows: a card
+    // moving back onto the first screen as data loads would otherwise drop out, and the row's
+    // height would jitter under them. Before that it follows the layout, so a page that first lays
+    // out taller (a deep link loading its moment) does not keep a card that settles in view.
+    var listed = { key: '', names: {}, since: 0 };
     // The card a click jumped to stays highlighted until the reader scrolls: one near the end
     // cannot reach the top, and the page's bottom would otherwise mark the last card.
     var pinned = -1;
@@ -83,7 +85,8 @@
     // The cards the row lists: those that start below the first screen, plus any it listed before.
     function belowFirstScreen(found, sc) {
         var key = found.map(nameOf).join('|');
-        if (listed.key !== key) listed = { key: key, names: {} };
+        if (listed.key !== key) listed = { key: key, names: {}, since: Date.now() };
+        else if (lastInput <= listed.since) listed.names = {};
         var paneTop = paneRect(sc).top;
         return found.filter(function (c) {
             var name = nameOf(c);
@@ -477,7 +480,7 @@
             place(-1);
         });
         // A resize can change the form (list or row), so rebuild even with the same cards.
-        window.addEventListener('resize', function () { signature = null; listed = { key: '', names: {} }; schedule(); });
+        window.addEventListener('resize', function () { signature = null; listed = { key: '', names: {}, since: 0 }; schedule(); });
         schedule();
     }
 

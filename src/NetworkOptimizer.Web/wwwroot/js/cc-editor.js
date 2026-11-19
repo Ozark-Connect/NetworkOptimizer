@@ -1317,16 +1317,27 @@ export function create(host, dotnet, text, label, key, canReveal, scope) {
  * Ctrl+F (Cmd+F) opens the editor's search once the reader has scrolled it, without a click into it first.
  * Scrolling arms it (wheel, touch, or a drag on the scrollbar); working anywhere else on the page disarms it.
  * The editor is not focused on scroll: that would move the reader to the cursor and take focus from other fields.
+ * Anywhere else on the page, Ctrl+F opens the Collections search (OpenCollectionsFind) instead of the browser's.
+ * Inside the editor it is CodeMirror's own search, which this leaves alone.
  */
 function armSearchOnScroll(view, state) {
     const arm = () => { state.searchArmed = true; };
     const onScrollbar = e => { if (e.target === view.scrollDOM) arm(); };
     const disarm = e => { if (!view.dom.contains(e.target)) state.searchArmed = false; };
     const onKey = e => {
-        if (!state.searchArmed || view.hasFocus || e.altKey || e.shiftKey || !(e.ctrlKey || e.metaKey)
+        // view.dom, not view.hasFocus: the editor's own search panel is inside it but outside its content.
+        if (view.dom.contains(document.activeElement) || e.altKey || e.shiftKey || !(e.ctrlKey || e.metaKey)
             || e.key.toLowerCase() !== 'f' || !view.dom.isConnected) return;
+        if (state.searchArmed) {
+            e.preventDefault();
+            openSearchPanel(view);
+            return;
+        }
+        // The Collections card is hidden on phones, where the browser's find stays.
+        const card = document.querySelector('[data-tour="cc-editor"]');
+        if (!card || card.offsetParent === null) return;
         e.preventDefault();
-        openSearchPanel(view);
+        state.dotnet.invokeMethodAsync('OpenCollectionsFind').catch(() => { });
     };
     view.scrollDOM.addEventListener('wheel', arm, { passive: true });
     view.scrollDOM.addEventListener('touchmove', arm, { passive: true });

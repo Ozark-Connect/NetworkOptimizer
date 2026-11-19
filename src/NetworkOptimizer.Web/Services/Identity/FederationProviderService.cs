@@ -90,7 +90,10 @@ public sealed class FederationProviderService : IFederationProviderService, IFed
     public async Task<IReadOnlyList<FederationProvider>> GetEnabledAsync()
     {
         await using var db = await _dbFactory.CreateDbContextAsync();
-        return await Include(db.FederationProviders).Where(p => p.Enabled).OrderBy(p => p.SortOrder).ToListAsync();
+        var enabled = await Include(db.FederationProviders).Where(p => p.Enabled).OrderBy(p => p.SortOrder).ToListAsync();
+        // An enabled row that cannot run (one saved before validation existed, or restored from a
+        // backup) is not a way to sign in: no button for it, and it does not count towards SSO-only.
+        return enabled.Where(ConfigureOidcOptions.IsUsable).ToList();
     }
 
     public async Task<FederationProvider?> GetBySchemeAsync(string scheme)
@@ -101,6 +104,8 @@ public sealed class FederationProviderService : IFederationProviderService, IFed
 
     public async Task<int> SaveAsync(FederationProvider provider, string? newClientSecret)
     {
+        EnsureUsableIfEnabled(provider);
+
         await using var db = await _dbFactory.CreateDbContextAsync();
         var isNew = provider.Id == 0;
 
@@ -139,6 +144,7 @@ public sealed class FederationProviderService : IFederationProviderService, IFed
         var provider = await db.FederationProviders.FindAsync(id);
         if (provider is null) return;
         provider.Enabled = enabled;
+        EnsureUsableIfEnabled(provider); // throws before SaveChanges, so nothing is written
         provider.UpdatedAt = DateTime.UtcNow;
         await db.SaveChangesAsync();
         _audit.Log(AuditEventBuilder.From(_caller.Current, AuditCategories.Federation,
@@ -182,6 +188,17 @@ public sealed class FederationProviderService : IFederationProviderService, IFed
         }
     }
 
+    /// <summary>
+    /// Refuses to switch on an OIDC provider whose settings the handler cannot run with. A disabled one
+    /// may be saved half-filled, so an admin can work on it in steps.
+    /// </summary>
+    private static void EnsureUsableIfEnabled(FederationProvider provider)
+    {
+        if (provider.Enabled && provider.Type == FederationProviderType.Oidc
+            && ConfigureOidcOptions.ConfigurationProblem(provider) is { } problem)
+            throw new FederationProviderConfigurationException(problem);
+    }
+
     private static IQueryable<FederationProvider> Include(IQueryable<FederationProvider> q)
         => q.Include(p => p.RoleMappings).Include(p => p.SiteMappings);
 
@@ -195,3 +212,6 @@ public sealed class FederationProviderService : IFederationProviderService, IFed
             db.FederationSiteMappings.Add(new FederationSiteMapping { ProviderId = existing.Id, GroupOrClaimValue = m.GroupOrClaimValue, TargetType = m.TargetType, TargetValue = m.TargetValue, SiteRole = m.SiteRole });
     }
 }
+
+/// <summary>A provider's settings cannot sign anyone in, so it may not be saved enabled or switched on.</summary>
+public sealed class FederationProviderConfigurationException(string message) : InvalidOperationException(message);

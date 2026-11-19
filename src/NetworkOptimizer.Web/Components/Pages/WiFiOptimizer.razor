@@ -23,6 +23,7 @@
 @inject IApMapAdminService ApMapAdmin
 @inject IAuthorizationService Authz
 @inject IWiFiIssueAcknowledgmentService IssueAcknowledgments
+@inject NetworkOptimizer.Web.Services.Identity.IUserPreferences UserPreferences
 @implements IDisposable
 @rendermode InteractiveServer
 @inject IDisplayTimeZone DisplayTime
@@ -860,7 +861,17 @@
         </div>
     </div>
 
-        @if (_speedTestResults.Any(r => r.Latitude.HasValue && r.Longitude.HasValue) || _apMapMarkers.Any())
+        var hasSpeedMap = _speedTestResults.Any(r => r.Latitude.HasValue && r.Longitude.HasValue) || _apMapMarkers.Any();
+        @if (hasSpeedMap)
+        {
+            <div class="time-range-selector wifi-overview-map-switch" role="tablist" aria-label="Map">
+                <button class="time-btn @(_overviewMap == OverviewSpeedMap ? "active" : "")" role="tab" aria-selected="@(_overviewMap == OverviewSpeedMap)"
+                        @onclick="() => SetOverviewMapAsync(OverviewSpeedMap)">Speed Map</button>
+                <button class="time-btn @(_overviewMap == OverviewSignalMap ? "active" : "")" role="tab" aria-selected="@(_overviewMap == OverviewSignalMap)"
+                        @onclick="() => SetOverviewMapAsync(OverviewSignalMap)">Signal Map</button>
+            </div>
+        }
+        @if (hasSpeedMap && _overviewMap == OverviewSpeedMap)
         {
             <SpeedTestMap Results="_speedTestResults"
                           ApMarkers="_apMapMarkers"
@@ -871,6 +882,10 @@
                           TimeFilterHours="_speedTestTimeRangeHours"
                           ClientDetailMode="true"
                           ShowDashboardLinks="true" />
+        }
+        else if (hasSpeedMap)
+        {
+            <NetworkOptimizer.Web.Components.Shared.WiFi.FloorPlanEditor SpeedTestResults="_speedTestResults" SignalLogMarkers="_signalMapPoints" OnClientClick="HandleMapClientClick" OnSignalTimeRangeChanged="HandleSignalTimeRangeChanged" SignalTimeFilterHours="_signalTimeRangeHours" />
         }
     } @* End of overview tab *@
 }
@@ -915,6 +930,35 @@
     private bool _loading = true;
     private bool _refreshing = false;
     private string _activeTab = "overview";
+
+    // Which map Overview shows; each user's last choice (IUserPreferences).
+    private const string OverviewSpeedMap = "speed";
+    private const string OverviewSignalMap = "signal";
+    private const string OverviewMapPreference = "wifi.overviewMap";
+    private string _overviewMap = OverviewSpeedMap;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        // The caller is known only in the circuit, so the saved choice is read after the first render.
+        if (!firstRender) return;
+        try
+        {
+            if (await UserPreferences.GetAsync(OverviewMapPreference) is OverviewSignalMap)
+            {
+                _overviewMap = OverviewSignalMap;
+                StateHasChanged();
+            }
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException) { }
+    }
+
+    private async Task SetOverviewMapAsync(string map)
+    {
+        if (_overviewMap == map) return;
+        _overviewMap = map;
+        try { await UserPreferences.SetAsync(OverviewMapPreference, map); }
+        catch (Exception ex) when (ex is not OperationCanceledException) { }
+    }
     private string? _initialClientMac;
     private string? _initialApMac;
     private RadioBand? _initialBand;

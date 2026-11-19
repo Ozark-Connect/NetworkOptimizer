@@ -132,8 +132,11 @@
         (_inkId, _fadeId, _maskId, _pastId, _pastMaskId) = ($"{id}-ink", $"{id}-fade", $"{id}-mask", $"{id}-past", $"{id}-pastmask");
     }
 
+    /// <summary>Where the window ends (UTC); now when null. Live View's playback ends it at the playhead.</summary>
+    [Parameter] public DateTime? End { get; set; }
+
     protected override void OnParametersSet() =>
-        _path = SparklinePath.Build(Points, Current, DateTime.UtcNow, Window,
+        _path = SparklinePath.Build(Points, Current, End ?? DateTime.UtcNow, Window,
             DomainLow, DomainHigh, maxGap: Window / 32,
             landing: Landing);
 
