@@ -84,9 +84,29 @@ tunnel_verdict() {
     else echo other
     fi
 }
+# What a failed probe says about the route, or nothing when it says nothing. $1 output, $2 curl exit, $3 base URL.
+route_problem() {
+    local code
+    case "$2" in
+        6|7|28) echo "Could not reach ${3%/} (curl exit $2). The install continues and the agent keeps retrying."; return 0 ;;
+        35) echo "The TLS handshake with ${3%/} failed (curl exit 35). Check that the URL points at the proxy's HTTPS port."; return 0 ;;
+        52|56) echo "The connection to ${3%/} closed without an answer (curl exit $2)."; return 0 ;;
+        60|51) return 0 ;;
+    esac
+    case "$(tunnel_verdict "$1")" in
+        unimplemented) echo "The proxy sends the tunnel path to the app, not the tunnel port: add the gRPC route." ;;
+        notfound) echo "The proxy has no route for the tunnel path at ${3%/} (HTTP 404)." ;;
+        *)
+            code=$(sed -n 's#^HTTP/[0-9.]* \([0-9][0-9]*\).*#\1#p' <<<"$1") || code=""
+            code=${code##*$'\n'}
+            if [ -n "$code" ]; then echo "The tunnel route did not answer at ${3%/} (HTTP ${code})."; fi
+            ;;
+    esac
+    return 0
+}
 # $1: the agent.json path. $2: "stop" when this installer may stop on an untrusted certificate.
 preflight_server() {
-    local config="$1" may_stop="$2" enrolled=false tls="" base="$SERVER" out rc verdict version code saved
+    local config="$1" may_stop="$2" enrolled=false tls="" base="$SERVER" out rc verdict version saved msg
     step "Checking the server"
     version=$(curl --version 2>/dev/null) || version=""
     if ! grep -q 'HTTP2' <<<"$version"; then
@@ -127,33 +147,16 @@ preflight_server() {
                     return 0
                 fi
             fi
-            warn "This host does not trust the server's certificate, and the tunnel route did not answer. See ${PREFLIGHT_DOC}"
-            ;;
-        6|7|28)
-            warn "Could not reach ${base%/} (curl exit ${rc}). The install continues and the agent keeps retrying. See ${PREFLIGHT_DOC}"
-            ;;
-        35)
-            warn "The TLS handshake with ${base%/} failed (curl exit 35). Check that the URL points at the proxy's HTTPS port. See ${PREFLIGHT_DOC}"
-            ;;
-        52|56)
-            warn "The connection to ${base%/} closed without an answer (curl exit ${rc}). See ${PREFLIGHT_DOC}"
-            ;;
-        *)
-            case "$verdict" in
-                unimplemented) warn "The proxy sends the tunnel path to the app, not the tunnel port: add the gRPC route. See ${PREFLIGHT_DOC}" ;;
-                notfound) warn "The proxy has no route for the tunnel path at ${base%/} (HTTP 404). See ${PREFLIGHT_DOC}" ;;
-                *)
-                    code=$(sed -n 's#^HTTP/[0-9.]* \([0-9][0-9]*\).*#\1#p' <<<"$out") || code=""
-                    code=${code##*$'\n'}
-                    if [ -n "$code" ]; then
-                        warn "The tunnel route did not answer at ${base%/} (HTTP ${code}). See ${PREFLIGHT_DOC}"
-                    else
-                        note "Inconclusive (curl exit ${rc}); continuing."
-                    fi
-                    ;;
-            esac
+            # The route problem behind the certificate one, from the -k probe when it ran.
+            warn "This host does not trust the server's certificate."
             ;;
     esac
+    msg=$(route_problem "$out" "$rc" "$base")
+    if [ -n "$msg" ]; then
+        warn "$msg See ${PREFLIGHT_DOC}"
+    else
+        note "Inconclusive (curl exit ${rc}); continuing."
+    fi
     return 0
 }
 
