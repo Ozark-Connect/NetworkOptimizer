@@ -942,21 +942,21 @@
                         <button type="button" class="tab" role="tab" data-pon-view="provider">Provider</button>
                     </div>
                     <div class="chart-card sfp-pon-check-card" style="display: none;">
-                        <div class="chart-header"><h3 class="chart-title">Connection Check<span class="tooltip-icon tooltip-icon-sm" data-tooltip="Five checks from the fiber up, each from the latest poll. Hover a check to see what it was read from.">?</span></h3></div>
+                        <div class="chart-header"><h3 class="chart-title">Connection Check <span class="tooltip-icon tooltip-icon-sm" data-tooltip="Five checks from the fiber up, each from the latest poll. Hover a check to see what it was read from.">?</span></h3></div>
                         <div class="sfp-pon-check pon-card-body"></div>
                     </div>
                     <div class="chart-card sfp-pon-loss-card" data-pon-group="optical">
-                        <div class="chart-header"><h3 class="chart-title">Path Loss<span class="tooltip-icon tooltip-icon-sm" data-tooltip="The launch power the OLT announces, minus the RX power this ONT measures: the optical loss of the fiber path. A rise while the launch power stays steady points at the fiber path: a connector, a bend, or a splitter. The OLT can announce a configured value, and ONT RX readings can be off by up to about 3 dB, so trust a change more than the level. With a reach extender in the path, the loss is measured from the extender.">?</span></h3></div>
+                        <div class="chart-header"><h3 class="chart-title">Path Loss <span class="tooltip-icon tooltip-icon-sm" data-tooltip="The launch power the OLT announces, minus the RX power this ONT measures: the optical loss of the fiber path. A rise while the launch power stays steady points at the fiber path: a connector, a bend, or a splitter. The OLT can announce a configured value, and ONT RX readings can be off by up to about 3 dB, so trust a change more than the level. With a reach extender in the path, the loss is measured from the extender.">?</span></h3></div>
                         <div class="sfp-pon-loss-summary"></div>
                         <div class="sfp-pon-loss-chart"></div>
                     </div>
                     <div class="chart-card sfp-pon-bias-card" data-pon-group="optical">
-                        <div class="chart-header"><h3 class="chart-title">Laser Bias Current<span class="tooltip-icon tooltip-icon-sm" data-tooltip="Bias current of the ONT&#x27;s transmit laser. An aging laser needs more current for the same light, so watch for a slow rise while TX power and temperature stay the same. Aging shows over months: use the 30d window.">?</span></h3></div>
+                        <div class="chart-header"><h3 class="chart-title">Laser Bias Current <span class="tooltip-icon tooltip-icon-sm" data-tooltip="Bias current of the ONT&#x27;s transmit laser. An aging laser needs more current for the same light, so watch for a slow rise while TX power and temperature stay the same. Aging shows over months: use the 30d window.">?</span></h3></div>
                         <div class="sfp-pon-bias-summary"></div>
                         <div class="sfp-pon-bias-chart"></div>
                     </div>
                     <div class="chart-card sfp-pon-avail-card" data-pon-group="link">
-                        <div class="chart-header"><h3 class="chart-title">Link Downtime (per interval)<span class="tooltip-icon tooltip-icon-sm" data-tooltip="Seconds of each interval the ONT was out of O5, timed by the ONT itself, so a drop between two polls still counts. Loss of signal and loss of frame show how long each alarm stood. An ONT restart is not line downtime and leaves a gap.">?</span></h3></div>
+                        <div class="chart-header"><h3 class="chart-title">Link Downtime (per interval) <span class="tooltip-icon tooltip-icon-sm" data-tooltip="Seconds of each interval the ONT was out of O5, timed by the ONT itself, so a drop between two polls still counts. Loss of signal and loss of frame show how long each alarm stood. An ONT restart is not line downtime and leaves a gap.">?</span></h3></div>
                         <div class="sfp-pon-avail-summary"></div>
                         <div class="sfp-pon-avail-chart"></div>
                     </div>
@@ -970,16 +970,16 @@
                         <div class="sfp-pon-host-chart"></div>
                     </div>
                     <div class="chart-card sfp-pon-cpu-card" data-pon-group="link">
-                        <div class="chart-header"><h3 class="chart-title">ONT CPU Load<span class="tooltip-icon tooltip-icon-sm" data-tooltip="How busy the ONT&#x27;s own processor was in each interval. A stick that stays busy can answer late and drop management traffic.">?</span></h3></div>
+                        <div class="chart-header"><h3 class="chart-title">ONT CPU Load <span class="tooltip-icon tooltip-icon-sm" data-tooltip="How busy the ONT&#x27;s own processor was in each interval. A stick that stays busy can answer late and drop management traffic.">?</span></h3></div>
                         <div class="sfp-pon-cpu-chart"></div>
                     </div>
                     <div class="chart-card sfp-pon-util-card" data-pon-group="traffic">
-                        <div class="chart-header"><h3 class="chart-title">PON Downstream Load (whole PON)<span class="tooltip-icon tooltip-icon-sm" data-tooltip="The OLT fills unused downstream capacity with idle frames that every ONT receives, so Whole PON is the load on this OLT port: every ONT on the same splitter tree. It is not the provider&#x27;s whole network, and not only this connection. This ONT is your own downstream on the same scale. Percentages are shares of the PON&#x27;s downstream capacity. Each point is a mean over its interval, so short peaks do not show.">?</span></h3></div>
+                        <div class="chart-header"><h3 class="chart-title">PON Downstream Load (whole PON) <span class="tooltip-icon tooltip-icon-sm" data-tooltip="The OLT fills unused downstream capacity with idle frames that every ONT receives, so Whole PON is the load on this OLT port: every ONT on the same splitter tree. It is not the provider&#x27;s whole network, and not only this connection. This ONT is your own downstream on the same scale. Percentages are shares of the PON&#x27;s downstream capacity. Each point is a mean over its interval, so short peaks do not show.">?</span></h3></div>
                         <div class="sfp-pon-util-summary"></div>
                         <div class="sfp-pon-util-chart"></div>
                     </div>
                     <div class="chart-card sfp-pon-loadmap-card" data-pon-group="traffic" style="display: none;">
-                        <div class="chart-header"><h3 class="chart-title">PON Load by Hour (whole PON)<span class="tooltip-icon tooltip-icon-sm" data-tooltip="Mean downstream load on this OLT port (every ONT on the same splitter tree) for each hour of the week, over up to four weeks. Brighter cells are busier hours.">?</span></h3></div>
+                        <div class="chart-header"><h3 class="chart-title">PON Load by Hour (whole PON) <span class="tooltip-icon tooltip-icon-sm" data-tooltip="Mean downstream load on this OLT port (every ONT on the same splitter tree) for each hour of the week, over up to four weeks. Brighter cells are busier hours.">?</span></h3></div>
                         <div class="sfp-pon-loadmap-summary"></div>
                         <div class="sfp-pon-loadmap-chart"></div>
                     </div>
@@ -988,12 +988,12 @@
                         <div class="sfp-pon-gem-chart"></div>
                     </div>
                     <div class="chart-card sfp-pon-grant-card" data-pon-group="traffic">
-                        <div class="chart-header"><h3 class="chart-title">Upstream Grants (per second)<span class="tooltip-icon tooltip-icon-sm" data-tooltip="Upstream scheduling as this ONT sees it: the bandwidth map allocations the OLT gives it, the bursts it sends in them, and its DBRu queue reports. Only this ONT&#x27;s grants. The usual rate depends on the OLT, so watch for a change, not a fixed value.">?</span></h3></div>
+                        <div class="chart-header"><h3 class="chart-title">Upstream Grants (per second) <span class="tooltip-icon tooltip-icon-sm" data-tooltip="Upstream scheduling as this ONT sees it: the bandwidth map allocations the OLT gives it, the bursts it sends in them, and its DBRu queue reports. Only this ONT&#x27;s grants. The usual rate depends on the OLT, so watch for a change, not a fixed value.">?</span></h3></div>
                         <div class="sfp-pon-grant-summary"></div>
                         <div class="sfp-pon-grant-chart"></div>
                     </div>
                     <div class="chart-card sfp-pon-provider-card" data-pon-group="provider" style="display: none;">
-                        <div class="chart-header"><h3 class="chart-title">Provider Activity<span class="tooltip-icon tooltip-icon-sm" data-tooltip="What the OLT did to this ONT, from the ONT&#x27;s management counters. The provisioned rate is the traffic descriptor the OLT created over OMCI. A configuration write is the MIB data sync counter moving. Key renewals and ranging adjustments are PLOAM messages received while the link stayed up. The equalization delay is set against a reference only the OLT knows, so it is not a fiber length; a step in it is a change in length.">?</span></h3></div>
+                        <div class="chart-header"><h3 class="chart-title">Provider Activity <span class="tooltip-icon tooltip-icon-sm" data-tooltip="What the OLT did to this ONT, from the ONT&#x27;s management counters. The provisioned rate is the traffic descriptor the OLT created over OMCI. A configuration write is the MIB data sync counter moving. Key renewals and ranging adjustments are PLOAM messages received while the link stayed up. The equalization delay is set against a reference only the OLT knows, so it is not a fiber length; a step in it is a change in length.">?</span></h3></div>
                         <div class="sfp-pon-provider pon-card-body"></div>
                     </div>
                     <div class="sfp-pon-details"></div>
@@ -1388,21 +1388,21 @@
                         <button type="button" class="tab" role="tab" data-pon-view="provider">Provider</button>
                     </div>
                     <div class="chart-card ont-pon-check-card" style="display: none;">
-                        <div class="chart-header"><h3 class="chart-title">Connection Check<span class="tooltip-icon tooltip-icon-sm" data-tooltip="Five checks from the fiber up, each from the latest poll. Hover a check to see what it was read from.">?</span></h3></div>
+                        <div class="chart-header"><h3 class="chart-title">Connection Check <span class="tooltip-icon tooltip-icon-sm" data-tooltip="Five checks from the fiber up, each from the latest poll. Hover a check to see what it was read from.">?</span></h3></div>
                         <div class="ont-pon-check pon-card-body"></div>
                     </div>
                     <div class="chart-card ont-pon-loss-card" data-pon-group="optical">
-                        <div class="chart-header"><h3 class="chart-title">Path Loss<span class="tooltip-icon tooltip-icon-sm" data-tooltip="The launch power the OLT announces, minus the RX power this ONT measures: the optical loss of the fiber path. A rise while the launch power stays steady points at the fiber path: a connector, a bend, or a splitter. The OLT can announce a configured value, and ONT RX readings can be off by up to about 3 dB, so trust a change more than the level. With a reach extender in the path, the loss is measured from the extender.">?</span></h3></div>
+                        <div class="chart-header"><h3 class="chart-title">Path Loss <span class="tooltip-icon tooltip-icon-sm" data-tooltip="The launch power the OLT announces, minus the RX power this ONT measures: the optical loss of the fiber path. A rise while the launch power stays steady points at the fiber path: a connector, a bend, or a splitter. The OLT can announce a configured value, and ONT RX readings can be off by up to about 3 dB, so trust a change more than the level. With a reach extender in the path, the loss is measured from the extender.">?</span></h3></div>
                         <div class="ont-pon-loss-summary"></div>
                         <div class="ont-pon-loss-chart"></div>
                     </div>
                     <div class="chart-card ont-pon-bias-card" data-pon-group="optical">
-                        <div class="chart-header"><h3 class="chart-title">Laser Bias Current<span class="tooltip-icon tooltip-icon-sm" data-tooltip="Bias current of the ONT&#x27;s transmit laser. An aging laser needs more current for the same light, so watch for a slow rise while TX power and temperature stay the same. Aging shows over months: use the 30d window.">?</span></h3></div>
+                        <div class="chart-header"><h3 class="chart-title">Laser Bias Current <span class="tooltip-icon tooltip-icon-sm" data-tooltip="Bias current of the ONT&#x27;s transmit laser. An aging laser needs more current for the same light, so watch for a slow rise while TX power and temperature stay the same. Aging shows over months: use the 30d window.">?</span></h3></div>
                         <div class="ont-pon-bias-summary"></div>
                         <div class="ont-pon-bias-chart"></div>
                     </div>
                     <div class="chart-card ont-pon-avail-card" data-pon-group="link">
-                        <div class="chart-header"><h3 class="chart-title">Link Downtime (per interval)<span class="tooltip-icon tooltip-icon-sm" data-tooltip="Seconds of each interval the ONT was out of O5, timed by the ONT itself, so a drop between two polls still counts. Loss of signal and loss of frame show how long each alarm stood. An ONT restart is not line downtime and leaves a gap.">?</span></h3></div>
+                        <div class="chart-header"><h3 class="chart-title">Link Downtime (per interval) <span class="tooltip-icon tooltip-icon-sm" data-tooltip="Seconds of each interval the ONT was out of O5, timed by the ONT itself, so a drop between two polls still counts. Loss of signal and loss of frame show how long each alarm stood. An ONT restart is not line downtime and leaves a gap.">?</span></h3></div>
                         <div class="ont-pon-avail-summary"></div>
                         <div class="ont-pon-avail-chart"></div>
                     </div>
@@ -1416,16 +1416,16 @@
                         <div class="ont-pon-host-chart"></div>
                     </div>
                     <div class="chart-card ont-pon-cpu-card" data-pon-group="link">
-                        <div class="chart-header"><h3 class="chart-title">ONT CPU Load<span class="tooltip-icon tooltip-icon-sm" data-tooltip="How busy the ONT&#x27;s own processor was in each interval. A stick that stays busy can answer late and drop management traffic.">?</span></h3></div>
+                        <div class="chart-header"><h3 class="chart-title">ONT CPU Load <span class="tooltip-icon tooltip-icon-sm" data-tooltip="How busy the ONT&#x27;s own processor was in each interval. A stick that stays busy can answer late and drop management traffic.">?</span></h3></div>
                         <div class="ont-pon-cpu-chart"></div>
                     </div>
                     <div class="chart-card ont-pon-util-card" data-pon-group="traffic">
-                        <div class="chart-header"><h3 class="chart-title">PON Downstream Load (whole PON)<span class="tooltip-icon tooltip-icon-sm" data-tooltip="The OLT fills unused downstream capacity with idle frames that every ONT receives, so Whole PON is the load on this OLT port: every ONT on the same splitter tree. It is not the provider&#x27;s whole network, and not only this connection. This ONT is your own downstream on the same scale. Percentages are shares of the PON&#x27;s downstream capacity. Each point is a mean over its interval, so short peaks do not show.">?</span></h3></div>
+                        <div class="chart-header"><h3 class="chart-title">PON Downstream Load (whole PON) <span class="tooltip-icon tooltip-icon-sm" data-tooltip="The OLT fills unused downstream capacity with idle frames that every ONT receives, so Whole PON is the load on this OLT port: every ONT on the same splitter tree. It is not the provider&#x27;s whole network, and not only this connection. This ONT is your own downstream on the same scale. Percentages are shares of the PON&#x27;s downstream capacity. Each point is a mean over its interval, so short peaks do not show.">?</span></h3></div>
                         <div class="ont-pon-util-summary"></div>
                         <div class="ont-pon-util-chart"></div>
                     </div>
                     <div class="chart-card ont-pon-loadmap-card" data-pon-group="traffic" style="display: none;">
-                        <div class="chart-header"><h3 class="chart-title">PON Load by Hour (whole PON)<span class="tooltip-icon tooltip-icon-sm" data-tooltip="Mean downstream load on this OLT port (every ONT on the same splitter tree) for each hour of the week, over up to four weeks. Brighter cells are busier hours.">?</span></h3></div>
+                        <div class="chart-header"><h3 class="chart-title">PON Load by Hour (whole PON) <span class="tooltip-icon tooltip-icon-sm" data-tooltip="Mean downstream load on this OLT port (every ONT on the same splitter tree) for each hour of the week, over up to four weeks. Brighter cells are busier hours.">?</span></h3></div>
                         <div class="ont-pon-loadmap-summary"></div>
                         <div class="ont-pon-loadmap-chart"></div>
                     </div>
@@ -1434,12 +1434,12 @@
                         <div class="ont-pon-gem-chart"></div>
                     </div>
                     <div class="chart-card ont-pon-grant-card" data-pon-group="traffic">
-                        <div class="chart-header"><h3 class="chart-title">Upstream Grants (per second)<span class="tooltip-icon tooltip-icon-sm" data-tooltip="Upstream scheduling as this ONT sees it: the bandwidth map allocations the OLT gives it, the bursts it sends in them, and its DBRu queue reports. Only this ONT&#x27;s grants. The usual rate depends on the OLT, so watch for a change, not a fixed value.">?</span></h3></div>
+                        <div class="chart-header"><h3 class="chart-title">Upstream Grants (per second) <span class="tooltip-icon tooltip-icon-sm" data-tooltip="Upstream scheduling as this ONT sees it: the bandwidth map allocations the OLT gives it, the bursts it sends in them, and its DBRu queue reports. Only this ONT&#x27;s grants. The usual rate depends on the OLT, so watch for a change, not a fixed value.">?</span></h3></div>
                         <div class="ont-pon-grant-summary"></div>
                         <div class="ont-pon-grant-chart"></div>
                     </div>
                     <div class="chart-card ont-pon-provider-card" data-pon-group="provider" style="display: none;">
-                        <div class="chart-header"><h3 class="chart-title">Provider Activity<span class="tooltip-icon tooltip-icon-sm" data-tooltip="What the OLT did to this ONT, from the ONT&#x27;s management counters. The provisioned rate is the traffic descriptor the OLT created over OMCI. A configuration write is the MIB data sync counter moving. Key renewals and ranging adjustments are PLOAM messages received while the link stayed up. The equalization delay is set against a reference only the OLT knows, so it is not a fiber length; a step in it is a change in length.">?</span></h3></div>
+                        <div class="chart-header"><h3 class="chart-title">Provider Activity <span class="tooltip-icon tooltip-icon-sm" data-tooltip="What the OLT did to this ONT, from the ONT&#x27;s management counters. The provisioned rate is the traffic descriptor the OLT created over OMCI. A configuration write is the MIB data sync counter moving. Key renewals and ranging adjustments are PLOAM messages received while the link stayed up. The equalization delay is set against a reference only the OLT knows, so it is not a fiber length; a step in it is a change in length.">?</span></h3></div>
                         <div class="ont-pon-provider pon-card-body"></div>
                     </div>
                     <div class="ont-pon-details"></div>
