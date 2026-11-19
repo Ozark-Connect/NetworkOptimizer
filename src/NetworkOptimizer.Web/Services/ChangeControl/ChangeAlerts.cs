@@ -24,4 +24,10 @@ public static class ChangeAlerts
 
     /// <summary>Link to a plan's Review Plan page.</summary>
     public static string PlanUrl(int planId) => $"/change-control/plans/{planId}";
+
+    /// <summary>
+    /// The incident a change's alerts share. Per change, not per detection: two changes found in one poll can come
+    /// from different actors, and each one's first alert is delivered.
+    /// </summary>
+    public static string IncidentKey(Storage.Models.ConfigChange change) => $"change:{change.Id}";
 }

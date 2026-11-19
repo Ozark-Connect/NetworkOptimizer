@@ -396,7 +396,7 @@ public class AlertProcessingService : BackgroundService
         await repository.SaveAlertAsync(historyEntry, cancellationToken);
 
         // Correlate into incidents
-        await _correlationService.CorrelateAsync(alertEvent, historyEntry, repository, cancellationToken);
+        var correlation = await _correlationService.CorrelateWithOutcomeAsync(alertEvent, historyEntry, repository, cancellationToken);
 
         // Persist incident correlation even for digest-only rules
         if (historyEntry.IncidentId.HasValue)
@@ -408,6 +408,13 @@ public class AlertProcessingService : BackgroundService
         if (rule.DigestOnly)
         {
             _logger.LogDebug("Rule {RuleId} is digest-only, skipping immediate delivery", rule.Id);
+            return;
+        }
+
+        if (!AlertCorrelationService.ShouldDeliver(alertEvent, correlation))
+        {
+            _logger.LogDebug("{EventType} joined incident {IncidentId} at no higher severity; recorded, not delivered",
+                alertEvent.EventType, historyEntry.IncidentId);
             return;
         }
 

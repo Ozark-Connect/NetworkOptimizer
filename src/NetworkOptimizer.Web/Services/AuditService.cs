@@ -662,7 +662,11 @@ public partial class AuditService : IAuditScanService
         }
     }
 
-    private async Task PublishAuditAlertsAsync(AuditResult result, bool isScheduled = false, IReadOnlySet<string>? alertedKeys = null)
+    /// <param name="alertedKeys">Findings a Change Control alert already reported; left out of these alerts.</param>
+    /// <param name="incidentKey">The change's incident, which these alerts join. What they add beyond the change alert is
+    /// delivered (<see cref="AlertEvent.AlwaysDeliver"/>); the completed event is recorded there without a delivery of its own.</param>
+    private async Task PublishAuditAlertsAsync(AuditResult result, bool isScheduled = false, IReadOnlySet<string>? alertedKeys = null,
+        string? incidentKey = null)
     {
         if (_alertEventBus == null) return;
 
@@ -671,7 +675,7 @@ public partial class AuditService : IAuditScanService
             // Filter out dismissed issues so we only alert on active findings
             await EnsureDismissedIssuesLoadedAsync();
             var activeIssues = result.Issues.Where(i => !IsIssueDismissed(i)).ToList();
-            bool AlreadyAlerted(AuditIssue i) => alertedKeys?.Contains(ChangeControl.ImpactAnalyzer.IssueKey(i)) == true;
+            var addsToChange = incidentKey != null;
             // Exclude system-level issues (e.g., fingerprint DB unavailable) from severity counts
             // so they don't inflate audit.completed severity or trigger critical_findings alerts
             var activeCritical = activeIssues.Count(i => i.Severity == Audit.Models.AuditSeverity.Critical && i.Category != "System");
@@ -692,7 +696,8 @@ public partial class AuditService : IAuditScanService
                 {
                     ["criticalCount"] = activeCritical.ToString(),
                     ["warningCount"] = activeWarning.ToString()
-                }
+                },
+                CorrelationKey = incidentKey
             });
 
             // Check for score drop vs previous audit
@@ -715,7 +720,7 @@ public partial class AuditService : IAuditScanService
 
                 var previousScore = history.Count > 1 ? (int)history[1].ComplianceScore : (int?)null;
                 if (previousScore.HasValue && result.Score < previousScore.Value
-                    && !(alertedKeys is { Count: > 0 } && OnlyAlertedAreNew(activeIssues, history[1], AlreadyAlerted)))
+                    && !OnlyAlertedAreNew(activeIssues, history[1].FindingsJson, alertedKeys))
                 {
                     var drop = previousScore.Value - result.Score;
                     var dropPercent = previousScore.Value > 0
@@ -738,7 +743,9 @@ public partial class AuditService : IAuditScanService
                             ["currentScore"] = result.Score.ToString(),
                             ["drop"] = drop.ToString(),
                             ["drop_percent"] = dropPercent.ToString("F0")
-                        }
+                        },
+                        CorrelationKey = incidentKey,
+                        AlwaysDeliver = addsToChange
                     });
                 }
             }
@@ -748,9 +755,7 @@ public partial class AuditService : IAuditScanService
             }
 
             // Publish if active (non-dismissed) critical findings exist that a change alert has not already reported
-            var alertableCritical = activeIssues
-                .Where(i => i.Severity == Audit.Models.AuditSeverity.Critical && i.Category != "System" && !AlreadyAlerted(i))
-                .ToList();
+            var alertableCritical = AlertableCriticals(activeIssues, alertedKeys);
             if (alertableCritical.Count > 0)
             {
                 await _alertEventBus.PublishAsync(new AlertEvent
@@ -766,7 +771,9 @@ public partial class AuditService : IAuditScanService
                     Context = new Dictionary<string, string>
                     {
                         ["score"] = result.Score.ToString()
-                    }
+                    },
+                    CorrelationKey = incidentKey,
+                    AlwaysDeliver = addsToChange
                 });
             }
         }
@@ -776,19 +783,27 @@ public partial class AuditService : IAuditScanService
         }
     }
 
+    /// <summary>Active critical findings, System ones aside, that no change alert in <paramref name="alertedKeys"/> reported.</summary>
+    internal static List<AuditIssue> AlertableCriticals(IEnumerable<AuditIssue> activeIssues, IReadOnlySet<string>? alertedKeys) =>
+        activeIssues
+            .Where(i => i.Severity == Audit.Models.AuditSeverity.Critical && i.Category != "System"
+                        && alertedKeys?.Contains(ChangeControl.ImpactAnalyzer.IssueKey(i)) != true)
+            .ToList();
+
     /// <summary>
-    /// True when every active finding the previous audit lacked was already alerted, so a score drop says nothing new.
-    /// Without the previous findings it is false, and the drop alerts as usual.
+    /// True when a change alert already reported every active finding the previous audit lacked, so a score drop says
+    /// nothing new. False with no alerted findings or no previous findings: the drop then alerts as usual.
     /// </summary>
-    private static bool OnlyAlertedAreNew(List<AuditIssue> activeIssues, StorageAuditResult previousAudit, Func<AuditIssue, bool> alreadyAlerted)
+    internal static bool OnlyAlertedAreNew(List<AuditIssue> activeIssues, string? previousFindingsJson, IReadOnlySet<string>? alertedKeys)
     {
-        if (string.IsNullOrEmpty(previousAudit.FindingsJson))
+        if (alertedKeys is not { Count: > 0 } || string.IsNullOrEmpty(previousFindingsJson))
             return false;
         var previousKeys = (JsonSerializer.Deserialize<List<AuditIssue>>(
-                previousAudit.FindingsJson, new JsonSerializerOptions { PropertyNameCaseInsensitive = true }) ?? [])
+                previousFindingsJson, new JsonSerializerOptions { PropertyNameCaseInsensitive = true }) ?? [])
             .Select(ChangeControl.ImpactAnalyzer.IssueKey)
             .ToHashSet(StringComparer.Ordinal);
-        return activeIssues.All(i => previousKeys.Contains(ChangeControl.ImpactAnalyzer.IssueKey(i)) || alreadyAlerted(i));
+        return activeIssues.Select(ChangeControl.ImpactAnalyzer.IssueKey)
+            .All(k => previousKeys.Contains(k) || alertedKeys.Contains(k));
     }
 
     /// <summary>
@@ -1810,7 +1825,7 @@ public partial class AuditService : IAuditScanService
                 webResult.Score, webResult.CriticalCount, webResult.WarningCount);
 
             // Publish alert events for audit results
-            await PublishAuditAlertsAsync(webResult, options.IsScheduled, options.AlertedFindingKeys);
+            await PublishAuditAlertsAsync(webResult, options.IsScheduled, options.AlertedFindingKeys, options.IncidentKey);
 
             return webResult;
         }
@@ -2511,6 +2526,9 @@ public class AuditOptions
     /// reported. This run's critical-findings and score-drop alerts leave them out.
     /// </summary>
     public IReadOnlySet<string>? AlertedFindingKeys { get; set; }
+
+    /// <summary>The Change Control incident this run's alerts join (<see cref="ChangeControl.ChangeAlerts.IncidentKey"/>).</summary>
+    public string? IncidentKey { get; set; }
 
     public List<int>? DnatExcludedVlanIds { get; set; }
     public int? PiholeManagementPort { get; set; }
