@@ -32,13 +32,15 @@ public class SiteHealthScorer
     /// Calculate site health score from current Wi-Fi data
     /// </summary>
     /// <param name="wlans">The site's WLANs; fast roaming is suggested only for enabled ones that have it off. Null suggests it nowhere.</param>
+    /// <param name="iotSsidIds">WLAN IDs bound to an IoT network (directly or by PPSK), where it stays off on purpose.</param>
     public SiteHealthScore Calculate(
         List<AccessPointSnapshot> aps,
         List<WirelessClientSnapshot> clients,
         RoamingTopology? roamingData = null,
-        IReadOnlyList<WlanConfiguration>? wlans = null)
+        IReadOnlyList<WlanConfiguration>? wlans = null,
+        IReadOnlySet<string>? iotSsidIds = null)
     {
-        var fastRoamingOff = FastRoamingOffSsids(wlans);
+        var fastRoamingOff = FastRoamingOffSsids(wlans, iotSsidIds);
         // Exclude offline APs from health scoring and issue generation
         var onlineAps = aps.Where(a => a.IsOnline).ToList();
 
@@ -265,11 +267,12 @@ public class SiteHealthScorer
     }
 
     /// <summary>
-    /// Enabled SSIDs with fast roaming (802.11r) off, by name. Empty when every enabled SSID has it on, or when the
-    /// WLANs are unknown: then low fast-roam use means the clients lack 802.11r, and there is nothing to turn on.
+    /// Enabled SSIDs with fast roaming (802.11r) off, by name, IoT SSIDs aside: those keep it off on purpose. Empty when
+    /// the rest have it on, or the WLANs are unknown; then low fast-roam use means the clients lack 802.11r.
     /// </summary>
-    internal static List<string> FastRoamingOffSsids(IReadOnlyList<WlanConfiguration>? wlans) =>
-        wlans?.Where(w => w.Enabled && !w.FastRoamingEnabled && !string.IsNullOrWhiteSpace(w.Name))
+    internal static List<string> FastRoamingOffSsids(IReadOnlyList<WlanConfiguration>? wlans, IReadOnlySet<string>? iotSsidIds = null) =>
+        wlans?.Where(w => w.Enabled && !w.FastRoamingEnabled && !string.IsNullOrWhiteSpace(w.Name)
+                          && iotSsidIds?.Contains(w.Id) != true)
             .Select(w => w.Name)
             .Distinct(StringComparer.Ordinal)
             .ToList() ?? [];

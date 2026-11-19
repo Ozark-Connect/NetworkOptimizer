@@ -36,6 +36,49 @@ public class SiteHealthScorerFastRoamingTests
         SiteHealthScorer.FastRoamingOffSsids(null).Should().BeEmpty();
     }
 
+    [Fact]
+    public void OffSsids_LeavesOutIotSsids()
+    {
+        // An IoT SSID keeps fast roaming off on purpose
+        var off = SiteHealthScorer.FastRoamingOffSsids(
+            [Wlan("Home", fastRoaming: false), Wlan("IoT", fastRoaming: false)], new HashSet<string> { "wlan-IoT" });
+
+        off.Should().Equal("Home");
+    }
+
+    [Fact]
+    public void Calculate_RoamFailures_OnlyIotSsidOff_NoFastRoamingAdvice()
+    {
+        var issue = new SiteHealthScorer().Calculate([], [], FailingEdge(),
+                [Wlan("Home", fastRoaming: true), Wlan("IoT", fastRoaming: false)], new HashSet<string> { "wlan-IoT" })
+            .Issues.Should().ContainSingle(i => i.RuleId == "WIFI-ROAM-FAILURES-001").Subject;
+
+        issue.Recommendation.Should().Be(CoverageOnly);
+    }
+
+    [Fact]
+    public void IoTSsidsOf_DirectAndPpskBindings()
+    {
+        var iot = new NetworkOptimizer.Audit.Models.NetworkInfo
+        {
+            Id = "net-iot", Name = "IoT", VlanId = 30, Enabled = true, Purpose = NetworkOptimizer.Audit.Models.NetworkPurpose.IoT
+        };
+        var home = new NetworkOptimizer.Audit.Models.NetworkInfo
+        {
+            Id = "net-home", Name = "Home", VlanId = 10, Enabled = true, Purpose = NetworkOptimizer.Audit.Models.NetworkPurpose.Home
+        };
+        var direct = Wlan("Things", fastRoaming: false);
+        direct.NetworkId = "net-iot";
+        var ppsk = Wlan("Shared", fastRoaming: false);
+        ppsk.NetworkId = "net-home";
+        ppsk.PpskNetworkIds = ["net-iot"];
+        var main = Wlan("Main", fastRoaming: true);
+        main.NetworkId = "net-home";
+
+        NetworkOptimizer.WiFi.Rules.WiFiOptimizerContext.IoTSsidsOf([direct, ppsk, main], [iot, home])
+            .Select(w => w.Name).Should().BeEquivalentTo(["Things", "Shared"]);
+    }
+
     #endregion
 
     #region Roaming failures recommendation
