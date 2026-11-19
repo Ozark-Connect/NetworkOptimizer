@@ -541,6 +541,14 @@
         _focusFind = true;
     }
 
+    /// <summary>Ctrl+F outside the editor (cc-editor.js): opens the Collections search, or focuses it when open.</summary>
+    [JSInvokable]
+    public void OpenCollectionsFind()
+    {
+        OpenFind();
+        StateHasChanged();
+    }
+
     private async Task CloseFindAsync()
     {
         _findOpen = false;
