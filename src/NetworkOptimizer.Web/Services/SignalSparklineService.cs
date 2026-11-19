@@ -97,9 +97,16 @@ public class SignalSparklineService : ISignalSparklineService
             var healthTask = string.IsNullOrEmpty(request.GatewayMac)
                 ? Task.FromResult(new Dictionary<string, List<(DateTime, double)>>())
                 : Influx.QueryDeviceHealthFieldSeriesAsync(request.GatewayMac, [CpuField, MemoryField, TemperatureField], from, now, TileBucket);
-            await Task.WhenAll(latencyTask, healthTask);
+            // The WAN tiles sum the selected WANs' counter interfaces; the series sums the same ones.
+            var wanIfNames = request.WanCounterIfNames ?? [];
+            var wanTask = string.IsNullOrEmpty(request.GatewayMac) || wanIfNames.Count == 0
+                ? Task.FromResult<IReadOnlyList<MonitoringInfluxClient.WanRatePoint>>([])
+                : Influx.QueryGatewayWanRatesAsync(request.GatewayMac, wanIfNames, from, now,
+                    aggregateWindow: TileBucket, sumAcrossInterfaces: true);
+            await Task.WhenAll(latencyTask, healthTask, wanTask);
             var latency = latencyTask.Result;
             var health = healthTask.Result;
+            var wan = wanTask.Result;
             // The Transit tile's live figure needs each hop's hour, which a restart empties.
             foreach (var id in request.TransitTargetIds)
                 if (latency.TryGetValue((id, RttField), out var stored))
@@ -125,6 +132,8 @@ public class SignalSparklineService : ISignalSparklineService
             Put(LiveViewSpark.GatewayCpu, health.GetValueOrDefault(CpuField));
             Put(LiveViewSpark.GatewayMemory, health.GetValueOrDefault(MemoryField));
             Put(LiveViewSpark.GatewayTemperature, health.GetValueOrDefault(TemperatureField));
+            Put(LiveViewSpark.WanDownload, wan.Where(p => p.DownloadBps.HasValue).Select(p => (p.Time, p.DownloadBps!.Value)));
+            Put(LiveViewSpark.WanUpload, wan.Where(p => p.UploadBps.HasValue).Select(p => (p.Time, p.UploadBps!.Value)));
             return new LiveViewSparklines(series);
         }
         catch (Exception ex)

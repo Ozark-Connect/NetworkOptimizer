@@ -1,17 +1,33 @@
+@using System.Globalization
 @using NetworkOptimizer.Web.Services.Monitoring
 @inject ISignalSparklineService SparkService
+@inject IJSRuntime JS
+@inject Microsoft.AspNetCore.Mvc.ViewFeatures.IFileVersionProvider FileVersionProvider
+@implements IAsyncDisposable
 
 @*
     The last hour behind a Live View tile (ISP and Transit RTT and Loss; Gateway RTT, Loss, CPU, Mem,
-    Temp). The tile takes .signal-spark-host; this renders the chart and the strip it fills, both as its
-    children. Every tile on the page passes the same Request, so they share one fetch.
+    Temp; WAN Download and Upload). The tile takes .signal-spark-host; this renders the chart and the
+    strip it fills, both as its children. Every tile on the page passes the same Request, so they share
+    one fetch. A Traceable tile also carries the series on the strip, for spark-trace.js: a dot follows
+    the pointer along the line, and a click moves Live View to that moment.
 *@
 @if (Live && _points != null && _end.HasValue)
 {
-    var (lo, hi) = SparklinePath.AutoDomain(_points, _end, MinSpan, floorZero: IsLoss);
+    var (lo, hi) = SparklinePath.AutoDomain(_points, _end, MinSpan, floorZero: IsLoss || IsRate);
     <SignalSparkline Points="_points" Current="_end" DomainLow="lo" DomainHigh="hi"
                      Stops="_stops" Tint="@Tint" Window="SignalSparklineService.TileWindow" />
-    <div class="stat-spark-area" data-spark-area></div>
+    @if (Traceable)
+    {
+        <div class="stat-spark-area" data-spark-area @ref="_area"
+             data-trace-points="@TraceJson()" data-trace-lo="@F(lo)" data-trace-hi="@F(hi)"
+             data-trace-window="@F(SignalSparklineService.TileWindow.TotalMilliseconds)"
+             data-trace-kind="@(IsRate ? "bps" : "")"></div>
+    }
+    else
+    {
+        <div class="stat-spark-area" data-spark-area></div>
+    }
 }
 
 @code {
@@ -30,19 +46,28 @@
     /// </summary>
     [Parameter] public bool Live { get; set; } = true;
 
+    /// <summary>A dot follows the pointer along the line, and a click moves Live View to that moment.</summary>
+    [Parameter] public bool Traceable { get; set; }
+
     private IReadOnlyList<SparkPoint>? _points;
     private double? _end;
     private DateTime _seenAt;
     private IReadOnlyList<GaugeStop> _stops = [];
+    private ElementReference _area;
+    private IJSObjectReference? _module;
 
     private bool IsLoss => Spark is LiveViewSpark.GatewayLoss or LiveViewSpark.IspLoss or LiveViewSpark.TransitLoss;
     private bool IsRtt => Spark is LiveViewSpark.GatewayRtt or LiveViewSpark.IspRtt or LiveViewSpark.TransitRtt;
+    private bool IsRate => Spark is LiveViewSpark.WanDownload or LiveViewSpark.WanUpload;
 
-    // RTT and loss take the live WAN chart's colors (wan-live-chart.js); the rest, the graph palette.
+    // RTT and loss take the live WAN chart's colors (wan-live-chart.js); the WAN rates the speed test
+    // pair, as every download and upload does; the rest, the graph palette.
     private string Tint => Spark switch
     {
         _ when IsRtt => "#d946ef",
         _ when IsLoss => "#ef4444",
+        LiveViewSpark.WanDownload => "var(--speed-download-color)",
+        LiveViewSpark.WanUpload => "var(--speed-upload-color)",
         LiveViewSpark.GatewayCpu => "#3b82f6",
         LiveViewSpark.GatewayMemory => "#a78bfa",
         _ => "#f59e0b",
@@ -52,6 +77,7 @@
     private double MinSpan => Spark switch
     {
         _ when IsRtt || IsLoss => 2,
+        _ when IsRate => 1_000_000,
         LiveViewSpark.GatewayTemperature => 5,
         _ => 10,
     };
@@ -89,4 +115,33 @@
             _end = Current ?? _end;
         }
     }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!Traceable || _points == null || !_end.HasValue) return;
+        try
+        {
+            _module ??= await JS.InvokeAsync<IJSObjectReference>("import", FileVersionProvider.AddFileVersionToPath("", "/js/spark-trace.js"));
+            await _module.InvokeVoidAsync("bind", _area);
+        }
+        catch (JSDisconnectedException) { }
+        catch (TaskCanceledException) { }
+        catch (InvalidOperationException) { }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        try { if (_module != null) await _module.DisposeAsync(); }
+        catch (JSDisconnectedException) { }
+    }
+
+    // [[epoch ms, value], ...] oldest first, ending on the live reading at now: the line the chart draws.
+    private string TraceJson()
+    {
+        var rows = (_points ?? []).Select(p => new[] { (double)new DateTimeOffset(DateTime.SpecifyKind(p.Time, DateTimeKind.Utc)).ToUnixTimeMilliseconds(), p.Value }).ToList();
+        if (_end is double end) rows.Add([DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(), end]);
+        return System.Text.Json.JsonSerializer.Serialize(rows);
+    }
+
+    private static string F(double v) => v.ToString("0.###", CultureInfo.InvariantCulture);
 }

@@ -97,6 +97,7 @@ Time-series monitoring on your own InfluxDB, fed by SNMP polling (InfluxDB).
   - Transit RTT discounts a router that answers pings slowly; real slowdowns still show
 - Gateway tiles: RTT, loss, CPU, memory, temperature, **Fabric Ingress**, **Fabric Egress**
 - Last-hour sparkline behind the ISP, transit, and gateway tiles; hover to bring it forward (InfluxDB)
+- Last-hour sparkline on the **WAN Download** and **WAN Upload** tiles: trace the line for the rate at any minute, click to move Live View to that moment
 - WAN pill selector - one WAN, several to compare, or all
 - Opened from Network Performance at a moment, a chip beside the WAN pills goes back to the chart, or **×** returns to live on your own WAN selection
 - Live WAN throughput chart

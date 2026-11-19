@@ -118,6 +118,10 @@ public sealed class LiveWanScope
         return (down, up);
     }
 
+    /// <summary>The counter interfaces <see cref="LiveRates"/> sums, for a history of the same figure.</summary>
+    public IReadOnlyList<string> RateCounterInterfaces(IReadOnlyList<string> gatewayWanIfNames) =>
+        CounterInterfaces(gatewayWanIfNames).ToList();
+
     /// <summary>The live-cache history keys behind <see cref="LiveRates"/>' interfaces, resolved the same way.</summary>
     public List<string> LiveRateHistoryKeys(string? gatewayMac, IReadOnlyList<string> gatewayWanIfNames) =>
         gatewayMac == null

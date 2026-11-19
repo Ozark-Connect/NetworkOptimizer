@@ -301,11 +301,16 @@
         <div class="monitoring-stat-cards">
             @{ var wanRates = GetWanRates(); }
             @{ var wanDown = FormatRateParts(wanRates.download); var wanUp = FormatRateParts(wanRates.upload); }
-            <div class="monitoring-stat-card monitoring-stat-rate">
+            @* The rate tiles sum the selected WANs, and so does their line, so it stays while comparing. *@
+            <div class="monitoring-stat-card monitoring-stat-rate signal-spark-host">
+                <StatTileSparkline Spark="LiveViewSpark.WanDownload" Request="@LiveSparkRequest()" Current="wanRates.download"
+                                   Live="@(_mapHistoricAt == null && _historicSnapshot == null)" Traceable="true" />
                 <div class="stat-value" style="color: var(--speed-download-color);">@wanDown.Value@if (wanDown.Unit != null) {<span class="stat-unit">@wanDown.Unit</span>}</div>
                 <div class="stat-label">WAN <span class="desktop-label">Download@(WanRateCount())</span><span class="mobile-label">&#8595;@WanRateCountShort()</span></div>
             </div>
-            <div class="monitoring-stat-card monitoring-stat-rate">
+            <div class="monitoring-stat-card monitoring-stat-rate signal-spark-host">
+                <StatTileSparkline Spark="LiveViewSpark.WanUpload" Request="@LiveSparkRequest()" Current="wanRates.upload"
+                                   Live="@(_mapHistoricAt == null && _historicSnapshot == null)" Traceable="true" />
                 <div class="stat-value" style="color: var(--speed-upload-color);">@wanUp.Value@if (wanUp.Unit != null) {<span class="stat-unit">@wanUp.Unit</span>}</div>
                 <div class="stat-label">WAN <span class="desktop-label">Upload@(WanRateCount())</span><span class="mobile-label">&#8593;@WanRateCountShort()</span></div>
             </div>
@@ -5650,7 +5655,8 @@
     // TODO: duplicated in LiveViewPanel.razor (LiveSparkRequest); move into one shared helper.
     private LiveViewSparkRequest LiveSparkRequest() => new(
         _gatewayMac, GetGatewayFabricTargetId(),
-        ScopedTargetIds(MonitoringTargetType.AccessIsp), ScopedTargetIds(MonitoringTargetType.Transit));
+        ScopedTargetIds(MonitoringTargetType.AccessIsp), ScopedTargetIds(MonitoringTargetType.Transit),
+        LiveWan.RateCounterInterfaces(_gatewayWanIfNames));
     /// <summary>The targets an ISP or Transit tile reads right now: the selected WAN's own, or every enabled one.</summary>
     // TODO: duplicated in LiveViewPanel.razor (ScopedTargetIds); move into one shared helper.
     private IReadOnlyList<string> ScopedTargetIds(MonitoringTargetType type)

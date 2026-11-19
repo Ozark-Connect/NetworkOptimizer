@@ -2850,6 +2850,39 @@ a.stat-card-link:active {
 
 /* Live View's gateway tiles (StatTileSparkline): the chart takes the lower strip of the tile. On
    hover the label steps aside and the value lifts clear of the line. */
+/* A tile whose line you trace and click (spark-trace.js): no text selection or text cursor, so
+   moving and clicking across it never selects the value. */
+.signal-spark-host.spark-traceable {
+    cursor: pointer;
+    user-select: none;
+    -webkit-user-select: none;
+}
+
+.spark-trace-dot {
+    display: none;
+    position: fixed;
+    width: 8px;
+    height: 8px;
+    margin: -4px 0 0 -4px;
+    border-radius: 50%;
+    box-shadow: 0 0 0 2px var(--bg-primary);
+    pointer-events: none;
+    z-index: 1000;
+}
+
+.spark-trace-label {
+    display: none;
+    position: fixed;
+    padding: 0.15rem 0.4rem;
+    border-radius: 4px;
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+    font-size: 0.7rem;
+    white-space: nowrap;
+    pointer-events: none;
+    z-index: 1000;
+}
+
 .signal-spark-host > .stat-spark-area {
     position: absolute;
     left: 0.1rem;
