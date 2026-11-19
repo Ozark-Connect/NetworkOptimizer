@@ -149,6 +149,25 @@ Every shape dials out to the central server over HTTPS only, with no inbound
 access to the site. The commands below are the same ones, for reference and for
 the flags each accepts. After installing, see [Check that it connected](#check-that-it-connected).
 
+### UniFi gateway
+
+To run the agent on the gateway itself (any current UniFi OS gateway)
+rather than a separate box, use the gateway installer. It installs to `/data`
+(persistent on UniFi OS) with a memory-fenced systemd unit, monitoring by default;
+add `--lan-speed-test` to host the LAN speed test. UniFi gateways SSH in as root,
+so no `sudo`:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main/scripts/agent/install-agent-gateway.sh | bash -s -- \
+  --server "https://optimizer.example.com" \
+  --token  "noa_..."
+```
+
+The install directory is fixed at `/data/netopt-agent` (there is no `--dir`): only `/data`
+survives a UniFi OS firmware upgrade, so the gateway agent is deliberately not relocatable. See
+[On a UniFi gateway (on-box)](#on-a-unifi-gateway-on-box) for the footprint, firmware-upgrade
+persistence, and the isolation trade-off.
+
 ### Docker
 
 ```bash
@@ -195,9 +214,6 @@ the speed test setting are kept, so only `--server` is needed:
 pct exec <CT_ID> -- bash -c "curl -fsSL https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main/scripts/agent/install-native.sh | bash -s -- --server 'https://optimizer.example.com'"
 ```
 
-The Proxmox script also takes container flags (`--ip`, `--vlan`, `--unattended`, ...);
-see its header. The [On a UniFi gateway](#on-a-unifi-gateway-on-box-1) command is below.
-
 ### Installer flags
 
 All four installers share these flags, except where the table says otherwise
@@ -239,7 +255,7 @@ All four installers share these flags, except where the table says otherwise
   takes the location (default 24080; `0` keeps the whole test on HTTPS). Docker equivalent:
   `AGENT_SPEEDTEST_HTTP_PORT=N`.
 - `--dir PATH` - override the install directory. The gateway installs to `/data/netopt-agent`
-  only (see [On a UniFi gateway](#on-a-unifi-gateway-on-box-1)).
+  only (see [UniFi gateway](#unifi-gateway)).
 - `--configure-apparmor` - with `--lan-speed-test`, add a persistent AppArmor exception if the
   host's nginx profile blocks the speed test (off by default).
 - `--uninstall` - clean teardown; see [Uninstall](#uninstall).
@@ -356,7 +372,8 @@ and only re-enrolls if the server no longer accepts it (see Re-enrolling below).
 ```bash
 # Docker
 curl -fsSL https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main/scripts/agent/install-docker.sh | bash -s -- --server "https://optimizer.example.com"
-# or, from the install directory: docker compose pull && docker compose up -d
+# or, from the install directory: sudo docker compose pull && sudo docker compose up -d
+# (the installer elevates itself; raw docker commands need sudo unless you are in the docker group)
 
 # Bare metal (systemd)
 curl -fsSL https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main/scripts/agent/install-native.sh | sudo bash -s -- --server "https://optimizer.example.com"
@@ -370,11 +387,11 @@ pct exec <CT_ID> -- bash -c "curl -fsSL https://raw.githubusercontent.com/Ozark-
 
 Docker and bare metal: if you installed with `--dir`, pass the same `--dir`. Most
 releases do not change the agent at all. A UniFi OS firmware upgrade never requires re-running the gateway
-installer (see "Where to run it > On a UniFi gateway").
+installer (see [On a UniFi gateway (on-box)](#on-a-unifi-gateway-on-box)).
 
 #### Uninstall
 
-All three installers accept `--uninstall` for a clean, verified teardown. It stops
+The Docker, bare-metal, and gateway installers accept `--uninstall` for a clean, verified teardown. It stops
 and reaps the agent process (and its `iperf3 -s` child) even when a prior partial
 removal left the systemd unit in a `not-found` state, then removes the
 service/container, the install dir, and - on bare metal - any AppArmor override the
@@ -397,6 +414,16 @@ curl -fsSL https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main
 # /opt/network-optimizer-agent, bare metal /opt/netopt-agent. The gateway
 # installer has no --dir; it is always /data/netopt-agent.
 ```
+
+The Proxmox installer has no `--uninstall`: the agent is the whole container, so remove the
+container from the Proxmox host. That deletes the agent and everything else in it:
+
+```bash
+pct stop <CT_ID> && pct destroy <CT_ID>
+```
+
+As after any uninstall, then remove the agent from the site with **Settings > Multi-Site > (site) >
+Configuration > Remove**: an uninstall does not tell the server.
 
 ### Re-enrolling an existing agent
 
@@ -436,8 +463,8 @@ The config file location depends on the install type:
 # Edit the config: delete the agentKey and siteSlug lines, set enrollmentToken
 nano <path-to-agent.json>
 
-# Restart - Docker
-docker restart network-optimizer-agent
+# Restart - Docker (no sudo in the docker group)
+sudo docker restart network-optimizer-agent
 
 # Restart - bare metal
 sudo systemctl restart netopt-agent
@@ -448,26 +475,6 @@ systemctl restart netopt-agent
 
 On next start the agent exchanges the new token for a fresh key and resumes
 normal operation.
-
-### On a UniFi gateway (on-box)
-
-To run the agent on the gateway itself (any current UniFi OS gateway)
-rather than a separate box, use the gateway installer. It installs to `/data`
-(persistent on UniFi OS) with a memory-fenced systemd unit, monitoring by default;
-add `--lan-speed-test` to host the LAN speed test. UniFi gateways SSH in as root,
-so no `sudo`:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main/scripts/agent/install-agent-gateway.sh | bash -s -- \
-  --server "https://optimizer.example.com" \
-  --token  "noa_..."
-```
-
-Its flags are in [Installer flags](#installer-flags). The install directory
-is fixed at `/data/netopt-agent` (there is no `--dir`): only `/data` survives a
-UniFi OS firmware upgrade, so the gateway agent is deliberately not relocatable. See
-"Where to run it > On a UniFi gateway" for the footprint, firmware-upgrade
-persistence, and the isolation trade-off.
 
 ### Speed test listener: TLS, plain HTTP, and reverse proxies
 
@@ -893,7 +900,7 @@ complement to `proxyAllowedCidrs` below: that pins what the server can reach
 *through* the agent; this caps what the agent box can reach *on your network* if
 it is ever compromised.
 
-Running the agent *on* the gateway (see "Where to run it > On a UniFi gateway")
+Running the agent *on* the gateway (see [On a UniFi gateway (on-box)](#on-a-unifi-gateway-on-box))
 trades this segmentation away by design - the agent then lives on the router
 itself rather than a box you can fence off. That is a deliberate
 convenience-vs-isolation choice, so weigh it against the hardening above.
