@@ -98,6 +98,9 @@
             <td @attributes="DestinationCard(f)">
                 <a class="lt-pivot" href="@Ctx.LinkFor?.Invoke(LiveTrafficField.Destination, f.Destination)">@f.Destination</a>
                 <span class="lt-muted">@f.DestinationSub</span>
+                @SiteBadge(f)
+                @CacheBadge(f)
+                @PeerBadge(f)
                 @StreamsBadge(f)
             </td>
             @if (!phone)
