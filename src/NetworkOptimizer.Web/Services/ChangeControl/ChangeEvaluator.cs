@@ -23,6 +23,8 @@ public sealed class ChangeEvaluator : IChangeEvaluator
     private readonly IAlertEventBus? _bus;
     private readonly ILogger<ChangeEvaluator> _logger;
     private readonly System.Collections.Concurrent.ConcurrentDictionary<string, CancellationTokenSource> _pendingAudits = new();
+    // Findings already alerted by the changes a pending audit covers, per site.
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, HashSet<string>> _pendingAlerted = new();
 
     public ChangeEvaluator(IServiceScopeFactory scopes, ILogger<ChangeEvaluator> logger, IAlertEventBus? bus = null)
     {
@@ -72,12 +74,19 @@ public sealed class ChangeEvaluator : IChangeEvaluator
             await CheckDriftRegressionAsync(scope.ServiceProvider, repo, siteSlug, after, cancellationToken);
             if ((impact.Regressions.Count > 0 || impact.Fixes.Count > 0)
                 && changes.Any(c => c.ActorKind != ConfigChangeActorKind.NetworkOptimizer))
-                ScheduleExternalChangeAudit(siteSlug);
+                // Only a config change publishes the security regression alert, so only its regressions count as alerted.
+                ScheduleExternalChangeAudit(siteSlug, _bus != null && changes.Any(c => c.Kind == ConfigChangeKind.Config)
+                    ? impact.Regressions.Select(r => r.Key) : []);
         }
     }
 
-    private void ScheduleExternalChangeAudit(string siteSlug)
+    /// <param name="alertedKeys">This change's regressions, already in its security regression alert.</param>
+    private void ScheduleExternalChangeAudit(string siteSlug, IEnumerable<string> alertedKeys)
     {
+        // A rescheduled audit covers the changes before it too, so it carries their alerted findings as well.
+        var alerted = _pendingAlerted.AddOrUpdate(siteSlug,
+            _ => alertedKeys.ToHashSet(StringComparer.Ordinal),
+            (_, held) => held.Union(alertedKeys).ToHashSet(StringComparer.Ordinal));
         var next = new CancellationTokenSource();
         while (true)
         {
@@ -93,7 +102,10 @@ public sealed class ChangeEvaluator : IChangeEvaluator
             {
                 await Task.Delay(ExternalChangeAuditDelay, next.Token);
                 if (_pendingAudits.TryRemove(new KeyValuePair<string, CancellationTokenSource>(siteSlug, next)))
-                    await RunSecurityAuditAsync(siteSlug);
+                {
+                    _pendingAlerted.TryRemove(siteSlug, out var held);
+                    await RunSecurityAuditAsync(siteSlug, held ?? alerted);
+                }
             }
             catch (OperationCanceledException) when (next.IsCancellationRequested) { }
             finally
@@ -225,7 +237,7 @@ public sealed class ChangeEvaluator : IChangeEvaluator
     }
 
     /// <inheritdoc />
-    public async Task RunSecurityAuditAsync(string siteSlug)
+    public async Task RunSecurityAuditAsync(string siteSlug, IReadOnlySet<string>? alertedFindingKeys = null)
     {
         try
         {
@@ -234,7 +246,7 @@ public sealed class ChangeEvaluator : IChangeEvaluator
             scope.ServiceProvider.GetRequiredService<SiteContextService>().OverrideSite(siteSlug);
             if (scope.ServiceProvider.GetRequiredService<AuditService>().IsRunning) return;
             using var system = Identity.SystemScope.Enter(scope.ServiceProvider, ChangeControlRepositoryAccessor.SystemActor);
-            await scope.ServiceProvider.GetRequiredService<IAuditScanService>().RunAuditAsync(new AuditOptions());
+            await scope.ServiceProvider.GetRequiredService<IAuditScanService>().RunAuditAsync(new AuditOptions { AlertedFindingKeys = alertedFindingKeys });
         }
         catch (Exception ex)
         {

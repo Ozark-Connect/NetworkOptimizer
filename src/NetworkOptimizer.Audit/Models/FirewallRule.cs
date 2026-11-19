@@ -142,6 +142,11 @@ public class FirewallRule
     /// </summary>
     public bool Predefined { get; init; }
 
+    /// <summary>
+    /// What generated a predefined policy (UniFi's origin_type, e.g. "console_setting_direct_connection"); null for user rules.
+    /// </summary>
+    public string? OriginType { get; init; }
+
     // === Extended Matching Criteria for Overlap Detection ===
 
     /// <summary>

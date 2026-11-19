@@ -555,6 +555,7 @@ models such as U6-Lite, U6-Mesh, and UAP-AC-Pro, and gateways with built-in Wi-F
 - **Firewall Rules** - any-any, overly broad, orphaned, shadowed, and out-of-order rules
   - Missing or bypassed VLAN isolation and internet blocks; missing management access (cloud, firmware, AFC, NTP, 5G/LTE)
   - Networks that can reach the gateway's SSH and web UI; strict once a Management Access network is set
+  - Gateway management open to the internet: Direct Remote Connection, or an allow from the External zone
 - **VLAN Security** - IoT, printers, cameras, NVRs, and security systems on the wrong VLAN
   - Uses UniFi fingerprints, MAC OUI, port names, and UniFi Protect; checks wired, wireless, and offline clients
   - Covers zone-based firewalls, L3 switch-routed VLANs, and IPv4 and IPv6 separately
@@ -569,6 +570,7 @@ models such as U6-Lite, U6-Mesh, and UAP-AC-Pro, and gateways with built-in Wi-F
 - **Console Access** - API Keys and Local Admin accounts unused for 7+ days (when the UniFi Console Connection can read them)
 - **Gateway Firewall** - checks the gateway enforces your configuration: WANs and networks in their zones, every enabled policy present, disabled ones gone (Gateway SSH)
   - Automatic Blocking on the gateway's [On-Site Agent](#on-site-agent): rules hooked in once, unchanged, and holding the blocklist
+  - Management ports the gateway accepts from the WAN that no firewall policy accounts for
 - Threat-aware check for actively targeted port forwards
 - **Acknowledge** false positives; override a network's **Purpose**, including marking your Management Access network
 - **Network Reference**, **DNS Security** table, **Hardening Measures in Place**, **Switch & Port Details**, wireless clients by AP
