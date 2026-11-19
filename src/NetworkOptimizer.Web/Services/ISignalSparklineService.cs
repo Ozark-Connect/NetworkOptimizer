@@ -51,11 +51,20 @@ public sealed record LiveViewSparkRequest(
     string? GatewayTargetId,
     IReadOnlyList<string> IspTargetIds,
     IReadOnlyList<string> TransitTargetIds,
-    IReadOnlyList<string>? WanCounterIfNames = null)
+    IReadOnlyList<string>? WanCounterIfNames = null,
+    DateTime? At = null)
 {
-    /// <summary>Identity for caching: the same tiles in the same scope ask for the same thing.</summary>
+    /// <summary>
+    /// Where the hour ends: the playhead (UTC) while Live View plays back history, rounded up to the
+    /// minute so the seeks within one minute share a fetch; null is now.
+    /// </summary>
+    public DateTime? EndMinute => At is { } at
+        ? new DateTime((at.ToUniversalTime().Ticks + TimeSpan.TicksPerMinute - 1) / TimeSpan.TicksPerMinute * TimeSpan.TicksPerMinute, DateTimeKind.Utc)
+        : null;
+
+    /// <summary>Identity for caching: the same tiles in the same scope at the same minute ask for the same thing.</summary>
     public string Key =>
-        $"{GatewayMac}|{GatewayTargetId}|{string.Join(",", IspTargetIds.Order(StringComparer.Ordinal))}|{string.Join(",", TransitTargetIds.Order(StringComparer.Ordinal))}|{string.Join(",", (WanCounterIfNames ?? []).Order(StringComparer.Ordinal))}";
+        $"{GatewayMac}|{GatewayTargetId}|{string.Join(",", IspTargetIds.Order(StringComparer.Ordinal))}|{string.Join(",", TransitTargetIds.Order(StringComparer.Ordinal))}|{string.Join(",", (WanCounterIfNames ?? []).Order(StringComparer.Ordinal))}|{EndMinute?.Ticks}";
 }
 
 /// <summary>The Live View tiles that carry a sparkline.</summary>

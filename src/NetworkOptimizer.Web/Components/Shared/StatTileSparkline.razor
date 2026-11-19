@@ -16,13 +16,13 @@
 {
     var (lo, hi) = SparklinePath.AutoDomain(_points, _end, MinSpan, floorZero: IsLoss || IsRate);
     <SignalSparkline Points="_points" Current="_end" DomainLow="lo" DomainHigh="hi"
-                     Stops="_stops" Tint="@Tint" Window="SignalSparklineService.TileWindow" />
+                     Stops="_stops" Tint="@Tint" Window="SignalSparklineService.TileWindow" End="@Request.At?.ToUniversalTime()" />
     @if (Traceable)
     {
         <div class="stat-spark-area" data-spark-area @ref="_area"
              data-trace-points="@TraceJson()" data-trace-lo="@F(lo)" data-trace-hi="@F(hi)"
              data-trace-window="@F(SignalSparklineService.TileWindow.TotalMilliseconds)"
-             data-trace-kind="@(IsRate ? "bps" : "")"></div>
+             data-trace-kind="@(IsRate ? "bps" : "")" data-trace-href="@TraceHref"></div>
     }
     else
     {
@@ -41,13 +41,20 @@
     [Parameter] public double? Current { get; set; }
 
     /// <summary>
-    /// False while Live View shows a past moment or compares WANs: a single line ending now would not
-    /// match the tile.
+    /// False while the tile has nothing a single line can end on: a past moment with no snapshot yet,
+    /// or (ISP and Transit) a comparison of WANs, which stacks per-WAN figures. During playback the
+    /// line is the hour before the playhead (<see cref="LiveViewSparkRequest.At"/>).
     /// </summary>
     [Parameter] public bool Live { get; set; } = true;
 
     /// <summary>A dot follows the pointer along the line, and a click moves Live View to that moment.</summary>
     [Parameter] public bool Traceable { get; set; }
+
+    /// <summary>
+    /// Where a click goes, with the moment's epoch milliseconds appended: a page with no Live View map
+    /// of its own (the Dashboard card) opens Live View there. Null seeks the map on this page.
+    /// </summary>
+    [Parameter] public string? TraceHref { get; set; }
 
     private IReadOnlyList<SparkPoint>? _points;
     private double? _end;
@@ -135,11 +142,14 @@
         catch (JSDisconnectedException) { }
     }
 
-    // [[epoch ms, value], ...] oldest first, ending on the live reading at now: the line the chart draws.
+    // [[epoch ms, value], ...] oldest first, ending on the tile's reading at the window's end (now, or
+    // the playhead): the line the chart draws.
     private string TraceJson()
     {
-        var rows = (_points ?? []).Select(p => new[] { (double)new DateTimeOffset(DateTime.SpecifyKind(p.Time, DateTimeKind.Utc)).ToUnixTimeMilliseconds(), p.Value }).ToList();
-        if (_end is double end) rows.Add([DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(), end]);
+        var endAt = Request.At?.ToUniversalTime() ?? DateTime.UtcNow;
+        static double Ms(DateTime utc) => new DateTimeOffset(DateTime.SpecifyKind(utc, DateTimeKind.Utc)).ToUnixTimeMilliseconds();
+        var rows = (_points ?? []).Where(p => p.Time < endAt).Select(p => new[] { Ms(p.Time), p.Value }).ToList();
+        if (_end is double end) rows.Add([Ms(endAt), end]);
         return System.Text.Json.JsonSerializer.Serialize(rows);
     }
 

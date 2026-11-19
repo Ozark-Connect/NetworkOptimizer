@@ -19,9 +19,13 @@ function ensureMarks() {
     document.body.append(dot, label);
 }
 
+let tracingHost = null;
+
 function hide() {
     if (dot) dot.style.display = 'none';
     if (label) label.style.display = 'none';
+    tracingHost?.classList.remove('spark-tracing');
+    tracingHost = null;
 }
 
 const parsed = new WeakMap();
@@ -64,15 +68,20 @@ function readAt(host, clientX) {
     if (v == null) return null;
     const lo = +area.dataset.traceLo, hi = +area.dataset.traceHi;
     const frac = hi > lo ? Math.min(1, Math.max(0, (v - lo) / (hi - lo))) : 0;
-    return { t, v, x: clientX, y: box.top + (1 - frac) * box.height, kind: area.dataset.traceKind, color: getComputedStyle(chart).color };
+    return {
+        t, v, x: clientX, y: box.top + (1 - frac) * box.height,
+        kind: area.dataset.traceKind, href: area.dataset.traceHref, color: getComputedStyle(chart).color,
+    };
 }
 
-function show(r) {
+function show(host, r) {
     ensureMarks();
+    // The line's live end dot steps aside: the tracer is that dot, moved to the pointer.
+    if (tracingHost !== host) { tracingHost?.classList.remove('spark-tracing'); tracingHost = host; host.classList.add('spark-tracing'); }
     dot.style.display = label.style.display = 'block';
     dot.style.left = `${r.x}px`;
     dot.style.top = `${r.y}px`;
-    dot.style.background = r.color;
+    dot.style.color = r.color;
     const time = window.noTime ? window.noTime.timeLabel(r.t, false) : new Date(r.t).toLocaleTimeString();
     label.textContent = `${time} · ${r.kind === 'bps' ? formatBps(r.v) : r.v.toFixed(1)}`;
     // Above the dot, kept on screen.
@@ -89,15 +98,20 @@ export function bind(area) {
     host.classList.add('spark-traceable');
     host.addEventListener('pointermove', (e) => {
         const r = readAt(host, e.clientX);
-        if (r) show(r); else hide();
+        if (r) show(host, r); else hide();
     });
     host.addEventListener('pointerleave', hide);
     host.addEventListener('click', (e) => {
         const r = readAt(host, e.clientX);
         if (!r) return;
-        const map = window.__lanFlowMap?.getInstance?.();
-        if (!map?.seekTo) return;
         hide();
-        map.seekTo(r.t);
+        const at = Math.round(r.t);
+        // A page without a Live View map of its own opens Live View at the moment instead.
+        if (r.href) {
+            const url = r.href + at;
+            if (window.__navigate) window.__navigate(url); else location.href = url;
+            return;
+        }
+        window.__lanFlowMap?.getInstance?.()?.seekTo?.(at);
     });
 }

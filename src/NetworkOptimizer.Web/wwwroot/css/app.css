@@ -2858,16 +2858,22 @@ a.stat-card-link:active {
     -webkit-user-select: none;
 }
 
+/* The tracer is the line's end dot moved to the pointer: the same look, and the end dot hides. */
 .spark-trace-dot {
     display: none;
     position: fixed;
-    width: 8px;
-    height: 8px;
-    margin: -4px 0 0 -4px;
+    width: 7px;
+    height: 7px;
     border-radius: 50%;
-    box-shadow: 0 0 0 2px var(--bg-primary);
+    background: currentColor;
+    box-shadow: 0 0 0 2px var(--bg-tertiary), 0 0 12px currentColor;
+    transform: translate(-50%, -50%);
     pointer-events: none;
     z-index: 1000;
+}
+
+.signal-spark-host.spark-tracing .signal-spark-dot {
+    opacity: 0 !important;
 }
 
 .spark-trace-label {

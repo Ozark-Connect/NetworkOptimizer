@@ -93,12 +93,12 @@ else
             @{ var wanDown = FormatRateParts(wanRates.download); var wanUp = FormatRateParts(wanRates.upload); }
             @* The rate tiles sum the selected WANs, and so does their line, so it stays while comparing. *@
             <div class="monitoring-stat-card monitoring-stat-rate signal-spark-host">
-                <StatTileSparkline Spark="LiveViewSpark.WanDownload" Request="@LiveSparkRequest()" Current="wanRates.download" Traceable="true" />
+                <StatTileSparkline Spark="LiveViewSpark.WanDownload" Request="@LiveSparkRequest()" Current="wanRates.download" Traceable="true" TraceHref="/monitoring?tab=live&at=" />
                 <div class="stat-value" style="color: var(--speed-download-color);">@wanDown.Value@if (wanDown.Unit != null) {<span class="stat-unit">@wanDown.Unit</span>}</div>
                 <div class="stat-label">WAN <span class="desktop-label">Download@(WanRateCount())</span><span class="mobile-label">&#8595;@WanRateCountShort()</span></div>
             </div>
             <div class="monitoring-stat-card monitoring-stat-rate signal-spark-host">
-                <StatTileSparkline Spark="LiveViewSpark.WanUpload" Request="@LiveSparkRequest()" Current="wanRates.upload" Traceable="true" />
+                <StatTileSparkline Spark="LiveViewSpark.WanUpload" Request="@LiveSparkRequest()" Current="wanRates.upload" Traceable="true" TraceHref="/monitoring?tab=live&at=" />
                 <div class="stat-value" style="color: var(--speed-upload-color);">@wanUp.Value@if (wanUp.Unit != null) {<span class="stat-unit">@wanUp.Unit</span>}</div>
                 <div class="stat-label">WAN <span class="desktop-label">Upload@(WanRateCount())</span><span class="mobile-label">&#8593;@WanRateCountShort()</span></div>
             </div>
