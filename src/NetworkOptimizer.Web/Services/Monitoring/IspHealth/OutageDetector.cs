@@ -459,6 +459,22 @@ public static class OutageDetector
         return total > 0 && dark * 2 >= total;
     }
 
+    /// <summary>How far past an outage's onset <see cref="IsGatewayDarkAtOnset"/> reads the gateway.</summary>
+    internal static readonly TimeSpan GatewayOnsetSpan = TimeSpan.FromMinutes(2);
+
+    /// <summary>
+    /// The Local (LAN / Gateway outage) test for an outage from an alert, for a caller that holds the
+    /// gateway's own series: true when the gateway was dark for most of the outage's first
+    /// <see cref="GatewayOnsetSpan"/>. Reads the onset, not the whole span: after a gateway restart the
+    /// WAN takes a while longer to come back, and that tail is the restart's too, but it would dilute a
+    /// whole-span test below half.
+    /// </summary>
+    public static bool IsGatewayDarkAtOnset(
+        IReadOnlyList<LatencySample> gatewaySeries, DateTime onset, DateTime end,
+        double sampleSeconds, IspHealthOptions options) =>
+        end > onset && MostlyDark(gatewaySeries, onset.AddSeconds(-sampleSeconds),
+            end < onset + GatewayOnsetSpan ? end : onset + GatewayOnsetSpan, options.OutageDarkLossPct);
+
     /// <summary>
     /// Whether the gateway's dark time within [from, to) covers at least half of
     /// <paramref name="duration"/>. Not a duty test on purpose: the stop-stamp reach-back
