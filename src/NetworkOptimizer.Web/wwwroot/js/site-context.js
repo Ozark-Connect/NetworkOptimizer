@@ -318,6 +318,16 @@ window.noTabScroll = {
 // A table row: tinted, because an offset ring around a row collides with the rows either side.
 window.noHighlightRow = function (id, block) { noHighlight(id, block || 'center', 'nav-highlight-row'); };
 
+// A link from another page landing on a row (a speed test ?result=): the charts, map, and cards above it are still
+// growing when it renders, so one scroll lands short. Centered at once, then held there while they settle, then tinted.
+window.noLandOnRow = function (id) {
+    var el = document.getElementById(id);
+    if (!el) return;
+    el.scrollIntoView({ behavior: 'instant', block: 'center' });
+    window.noHoldScroll(id, 3000);
+    noHighlight(id, false, 'nav-highlight-row');
+};
+
 // Scroll with no ring, for something that appeared where the reader clicked - a form opening
 // under its own button. They know what arrived, so flagging it says nothing.
 //

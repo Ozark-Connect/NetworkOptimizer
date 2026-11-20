@@ -36,7 +36,6 @@ public static class WanSpeedAlertPublisher
             var downloadMbps = result.DownloadMbps;
             var uploadMbps = result.UploadMbps;
             var wanName = result.WanName ?? "Unknown";
-            var wanFilter = WanFilter(result);
 
             await alertEventBus.PublishAsync(new AlertEvent
             {
@@ -45,7 +44,7 @@ public static class WanSpeedAlertPublisher
                 Source = "wan",
                 Title = $"WAN Speed Test: {downloadMbps:F1} / {uploadMbps:F1} Mbps",
                 Message = $"Download: {downloadMbps:F1} Mbps, Upload: {uploadMbps:F1} Mbps ({result.Direction})",
-                SourceUrl = $"/wan-speedtest{wanFilter}result={result.Id}",
+                SourceUrl = SpeedTestLinks.WanResult(result),
                 Context = new Dictionary<string, string>
                 {
                     ["download_mbps"] = downloadMbps.ToString("F1"),
@@ -92,7 +91,6 @@ public static class WanSpeedAlertPublisher
         if (alertEventBus == null || result.BackgroundLoadInvalid) return;
 
         var wanName = result.WanName ?? "Unknown";
-        var wanFilter = WanFilter(result);
         try
         {
             await using var db = await openSiteDb();
@@ -115,7 +113,7 @@ public static class WanSpeedAlertPublisher
                     Message = $"{wanName}: {drop.Direction} is {drop.DropPercent:F0}% below the recent average of {drop.AverageMbps:F0} Mbps",
                     MetricValue = drop.CurrentMbps,
                     ThresholdValue = drop.AverageMbps,
-                    SourceUrl = $"/wan-speedtest{wanFilter}result={result.Id}",
+                    SourceUrl = SpeedTestLinks.WanResult(result),
                     Context = new Dictionary<string, string>
                     {
                         ["wan_name"] = wanName,
@@ -133,17 +131,4 @@ public static class WanSpeedAlertPublisher
             logger.LogDebug(degradeEx, "Failed to check WAN speed degradation");
         }
     }
-
-    // The page filters on the WAN key, which is what WanNetworkGroup already holds ("WAN",
-    // "WAN2"). Without it a multi-WAN site opens on whichever WAN it was left on, which is
-    // not the one the alert is about. Same filter the ISP Health hero link passes.
-    //
-    // A bonded test records "WAN+WAN2", which becomes the comma list the analysis charts
-    // already read. WAN Speed Test understands a single key today and ignores a list, but
-    // these URLs are frozen into history when the alert is raised: a row written without
-    // the filter never gains one, while a row carrying it starts working the day that page
-    // learns to read it.
-    private static string WanFilter(Iperf3Result result) => string.IsNullOrWhiteSpace(result.WanNetworkGroup)
-        ? "?"
-        : $"?wan={Uri.EscapeDataString(string.Join(",", result.WanNetworkGroup.ToLowerInvariant().Split('+', StringSplitOptions.RemoveEmptyEntries)))}&";
 }

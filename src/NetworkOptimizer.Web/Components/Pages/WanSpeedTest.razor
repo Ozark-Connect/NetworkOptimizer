@@ -2051,9 +2051,10 @@
         if (_scrollToLinkedResultId is { } linkedId)
         {
             _scrollToLinkedResultId = null;
-            // Tinted rather than ringed: an offset ring around a table row collides with the rows
-            // either side. Ringed at all because a link brought the reader here.
-            try { await JS.InvokeVoidAsync("noHighlightRow", $"result-{linkedId}"); }
+            // The row sits inside the history card, so the card's own scroll below would pull the page back up to it.
+            _scrollToHistoryPending = false;
+            // The chart above the table renders after this, so noLandOnRow holds the row in place while it does.
+            try { await JS.InvokeVoidAsync("noLandOnRow", $"result-{linkedId}"); }
             catch { /* helper not loaded - the row is still open, which is the point */ }
         }
 
@@ -2062,6 +2063,8 @@
         // The chart renders asynchronously behind this and the card grows as it does, so a scroll
         // fired the instant the element exists lands on a position that then moves under it.
         await Task.Delay(350);
+        // A linked result opened meanwhile: its row is the landing, and it sits inside this card.
+        if (_linkedResultOpened) return;
         try { await JS.InvokeVoidAsync("noHighlightTarget", "speed-history-card"); }
         catch { /* helper not loaded - the filter still applied, which is the point */ }
     }

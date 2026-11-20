@@ -950,7 +950,7 @@
         if (_scrollToOverviewCard is { } cardId && _activeTab == "overview")
         {
             _scrollToOverviewCard = null;
-            try { await JS.InvokeVoidAsync("noScrollTo", cardId, "start"); }
+            try { await JS.InvokeVoidAsync("noHighlightTarget", cardId); }
             catch (Exception ex) when (ex is not OperationCanceledException) { }
         }
 
@@ -1084,7 +1084,7 @@
             NavigateToTab("overview");
             return;
         }
-        try { await JS.InvokeVoidAsync("noScrollTo", cardId, "start"); }
+        try { await JS.InvokeVoidAsync("noHighlightTarget", cardId); }
         catch (Exception ex) when (ex is not OperationCanceledException) { }
     }
 
