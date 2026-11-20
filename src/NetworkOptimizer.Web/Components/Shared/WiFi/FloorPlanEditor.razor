@@ -28,6 +28,8 @@
 @implements IAsyncDisposable
 @inject IDisplayTimeZone DisplayTime
 
+<NavigationLock OnBeforeInternalNavigation="ConfirmLeaveWhileDrawing" />
+
 <div class="floor-plan-editor @(_isFullscreen ? "fp-fullscreen" : "")" @onkeydown="OnEditorKeyDown" tabindex="-1">
     <!-- Toolbar -->
     <div class="fp-toolbar">
@@ -3101,6 +3103,8 @@
             editable = !IsReadOnly,
             floor = _selectedFloor != null,
             mode = _mode,
+            shape = _isDrawingShape,
+            building = _selectedBuilding != null,
             apLabel = _apMarkers.Any(a => a.Latitude.HasValue) ? "Edit APs" : "Place APs",
             planLabel = _plannedAps.Count > 0 ? "Edit Planned APs" : "Add Planned APs"
         };
@@ -3122,6 +3126,20 @@
                 break;
             case "undo" when _selectedFloor != null && _mode != "walls":
                 await DeleteLastWall();
+                break;
+            // The toolbox's Done: leaves the mode in progress, else the building's editing, like the
+            // toolbar's Done Editing (a shape in progress is finished in JS).
+            case "done" when _mode == "walls":
+                await ToggleWallDrawMode();
+                break;
+            case "done" when _mode == "aps":
+                await ToggleApEditMode();
+                break;
+            case "done" when _mode == "plan-aps":
+                await TogglePlanApMode();
+                break;
+            case "done" when _selectedBuilding != null:
+                await DeselectBuilding();
                 break;
             case "aps":
             case "plan-aps":
@@ -3892,6 +3910,22 @@
         if (_selectedFloor != null) await UpdateWalls();
         if (_heatmapWasOn)
             _showHeatmap = true;
+    }
+
+    /// <summary>
+    /// Every wall edit saves as it is made; only a wall still being drawn is lost by leaving. The
+    /// browser's own close or reload is covered by a beforeunload in fpEditor's draw mode.
+    /// </summary>
+    private async Task ConfirmLeaveWhileDrawing(LocationChangingContext context)
+    {
+        if (_mode != "walls" || !_mapInitialized) return;
+        bool pending;
+        try { pending = await JS.InvokeAsync<bool>("fpEditor.hasPendingWall"); }
+        catch (JSException) { return; }
+        if (!pending) return;
+        if (!await JS.InvokeAsync<bool>("confirm",
+                "A wall is still being drawn. If you leave now, it will be lost.\n\nAre you sure you want to leave?"))
+            context.PreventNavigation();
     }
 
     private void ShowAddBuildingDialog()

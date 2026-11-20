@@ -1979,6 +1979,8 @@ window.fpEditor = {
     changeWallMat: function (wi, mat) {
         var wall = this._allWalls[wi];
         if (!wall) return;
+        // _keepSpanIfSameKind drops wall.spans once every band is gone, so re-check it each pass.
+        for (var s = 0; wall.spans && s < wall.spans.length; s++) this._keepSpanIfSameKind(wall, s, this._segMaterial(wall, s), mat);
         wall.material = mat;
         if (wall.materials) {
             for (var k = 0; k < wall.materials.length; k++) wall.materials[k] = mat;
@@ -1996,6 +1998,7 @@ window.fpEditor = {
             wall.materials = [];
             for (var k = 0; k < wall.points.length - 1; k++) wall.materials.push(wall.material);
         }
+        this._keepSpanIfSameKind(wall, si, wall.materials[si], mat);
         wall.materials[si] = mat;
         var allSame = true;
         for (var k2 = 0; k2 < wall.materials.length; k2++) {
@@ -2016,6 +2019,7 @@ window.fpEditor = {
         if (wall.materials) {
             wall.materials.splice(si, 0, wall.materials[si]);
         }
+        if (wall.spans) wall.spans.splice(si, 0, wall.spans[si] || null);
         this._map.closePopup();
         this._wallSelection = { wallIdx: null, segIdx: null };
         this._dotNetRef.invokeMethodAsync('SaveWallsFromJs', JSON.stringify(this._allWalls));
@@ -2026,15 +2030,31 @@ window.fpEditor = {
         if (!wall) return;
         // If only 1 segment (2 points), delete the entire wall
         if (wall.points.length <= 2) { this.deleteWall(wi); return; }
+        var n = wall.points.length - 1;
+        var f0 = wall.points[0], fN = wall.points[n];
+        // A closed outline missing one segment is one open path: start it after the gap, so
+        // redrawing the gap can rejoin it (see _joinAtEnds) instead of leaving two walls.
+        if (n >= 3 && f0.lat === fN.lat && f0.lng === fN.lng) {
+            var ring = wall.points.slice(0, n);
+            var mats = [], spans = [];
+            for (var k = 0; k < n; k++) { mats.push(this._segMaterial(wall, k)); spans.push((wall.spans && wall.spans[k]) || null); }
+            wall.points = ring.slice(si + 1).concat(ring.slice(0, si + 1));
+            wall.materials = mats.slice(si + 1).concat(mats.slice(0, si));
+            wall.spans = spans.slice(si + 1).concat(spans.slice(0, si));
+            wall.material = wall.materials[0];
+            this._collapseMaterials(wall);
+        }
         // First segment: remove first point
-        if (si === 0) {
+        else if (si === 0) {
             wall.points.splice(0, 1);
             if (wall.materials) wall.materials.splice(0, 1);
+            if (wall.spans) wall.spans.splice(0, 1);
         }
         // Last segment: remove last point
         else if (si === wall.points.length - 2) {
             wall.points.splice(wall.points.length - 1, 1);
             if (wall.materials) wall.materials.splice(si, 1);
+            if (wall.spans) wall.spans.splice(si, 1);
         }
         // Middle segment: split into two separate walls
         else {
@@ -2043,6 +2063,10 @@ window.fpEditor = {
             if (wall.materials) {
                 wall1.materials = wall.materials.slice(0, si);
                 wall2.materials = wall.materials.slice(si + 1);
+            }
+            if (wall.spans) {
+                wall1.spans = wall.spans.slice(0, si);
+                wall2.spans = wall.spans.slice(si + 1);
             }
             this._allWalls.splice(wi, 1, wall1, wall2);
         }
@@ -2175,6 +2199,8 @@ window.fpEditor = {
         // A wall corner with a pen nib on its open end
         draw: '<path d="M3 21V9h8"/><circle cx="3" cy="9" r="0.6" fill="currentColor"/><path d="M14.5 6.5 18 3l3 3-3.5 3.5"/><path d="M14.5 6.5 9 12l-1 4 4-1 5.5-5.5"/>',
         undo: '<path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/>',
+        // AppIcon.razor's "check"
+        done: '<path d="M5 12.5l4.5 4.5L19 7.5"/>',
         // AppIcon.razor's "access-point" puck (same paths and 1.6 stroke), so the toolbox AP matches
         // the device cards and path-trace hops
         aps: '<g stroke-width="1.6"><path d="M2.5 11v2.5c0 2.2 4.25 4 9.5 4s9.5-1.8 9.5-4V11" fill="currentColor" fill-opacity="0.18"/>' +
@@ -2207,7 +2233,8 @@ window.fpEditor = {
                 div.innerHTML =
                     '<div class="fp-tool-group" data-group="walls">' + btn('pan', 'pan') + btn('select', 'select') + '</div>' +
                     '<div class="fp-tool-group" data-group="draw">' + btn('draw', 'draw') + btn('undo', 'undo') + '</div>' +
-                    '<div class="fp-tool-group" data-group="aps">' + btn('aps', 'aps') + btn('plan-aps', 'plan') + '</div>';
+                    '<div class="fp-tool-group" data-group="aps">' + btn('aps', 'aps') + btn('plan-aps', 'plan') + '</div>' +
+                    '<div class="fp-tool-group" data-group="done">' + btn('done', 'done') + '</div>';
                 L.DomEvent.disableClickPropagation(div);
                 L.DomEvent.on(div, 'click', function (e) {
                     L.DomEvent.preventDefault(e);
@@ -2231,6 +2258,11 @@ window.fpEditor = {
         if (tool === 'pan' && this._isDrawing) { this._setDrawPan(!this._drawPan); return; }
         if (tool === 'pan' || tool === 'select') { this._setWallTool(tool); return; }
         if (tool === 'undo' && this._isDrawing) { this._undoLastPoint(); return; }
+        // Done ends the innermost thing in progress: the shape, then the mode, then the building's editing.
+        if (tool === 'done' && this._isDrawing && this._currentWall && this._currentWall.points.length > 0) {
+            this.commitCurrentWall();
+            return;
+        }
         if (this._dotNetRef) this._dotNetRef.invokeMethodAsync('OnToolboxAction', tool);
     },
 
@@ -2299,7 +2331,9 @@ window.fpEditor = {
             draw: drawing ? 'Done Drawing' : 'Draw Layout',
             undo: drawing ? 'Undo Point' : 'Undo Wall',
             aps: st.mode === 'aps' ? 'Done' : st.apLabel,
-            'plan-aps': st.mode === 'plan-aps' ? 'Done' : st.planLabel
+            'plan-aps': st.mode === 'plan-aps' ? 'Done' : st.planLabel,
+            done: drawing ? (st.shape ? 'Finish Shape' : 'Done Drawing')
+                : (st.mode === 'aps' || st.mode === 'plan-aps') ? 'Done' : 'Done Editing'
         };
         var active = {
             pan: drawing ? !!this._drawPan : (this._wallTool === 'pan' && st.mode !== 'aps' && st.mode !== 'plan-aps'),
@@ -2321,6 +2355,8 @@ window.fpEditor = {
                 if (a._tippy) a._tippy.setContent(labels[t]);
             });
             el.querySelector('[data-group="draw"]').style.display = st.floor ? '' : 'none';
+            var editing = drawing || st.mode === 'aps' || st.mode === 'plan-aps' || !!st.building;
+            el.querySelector('[data-group="done"]').style.display = editing ? '' : 'none';
             el.querySelector('[data-group="walls"] [data-tool="select"]').style.display = st.floor ? '' : 'none';
         }
         m.getContainer().classList.toggle('fp-tool-select', this._wallTool === 'select' && self._selectUsable);
@@ -2416,6 +2452,7 @@ window.fpEditor = {
             '<select style="width:100%;padding:3px;margin-bottom:6px;background:#1e293b;color:#e0e0e0;border:1px solid #475569;border-radius:3px" ' +
             'onchange="fpEditor.changeMultiMat(this.value)">' + opts + '</select><br/>' +
             '<span style="font-size:11px;color:#94a3b8">' + sel.length + ' segment' + (sel.length !== 1 ? 's' : '') + '</span><br/>' +
+            (this._straightRun(sel) ? '<button onclick="fpEditor.mergeMultiSel()" style="margin-top:4px;padding:2px 10px;background:#4f46e5;color:#fff;border:none;border-radius:3px;cursor:pointer;margin-right:4px">Merge</button>' : '') +
             '<button onclick="fpEditor.deleteMultiSel()" style="margin-top:4px;padding:2px 10px;background:#dc2626;color:#fff;border:none;border-radius:3px;cursor:pointer">Delete</button></div>';
         var popup = L.popup(this._wallPopupOpts).setLatLng(latlng).setContent(html);
         popup.on('remove', function () {
@@ -2438,6 +2475,7 @@ window.fpEditor = {
                 wall.materials = [];
                 for (var k = 0; k < wall.points.length - 1; k++) wall.materials.push(wall.material);
             }
+            self._keepSpanIfSameKind(wall, s.si, wall.materials[s.si], mat);
             wall.materials[s.si] = mat;
         });
         this._allWalls.forEach(function (w) { self._collapseMaterials(w); });
@@ -2445,8 +2483,11 @@ window.fpEditor = {
         this._dotNetRef.invokeMethodAsync('SaveWallsFromJs', JSON.stringify(this._allWalls));
     },
 
-    // Drops the per-segment list when every segment shares one material.
+    // Drops the per-segment list when every segment shares one material. Spans (an imported
+    // window's sill and head) are per segment too, so the list stays while any span is set.
     _collapseMaterials: function (wall) {
+        if (wall.spans && !wall.spans.some(function (s) { return s; })) delete wall.spans;
+        if (wall.spans) return;
         if (!wall.materials || wall.materials.length === 0) return;
         var first = wall.materials[0];
         for (var i = 1; i < wall.materials.length; i++) if (wall.materials[i] !== first) return;
@@ -2454,12 +2495,100 @@ window.fpEditor = {
         delete wall.materials;
     },
 
+    // A wall as a run of points with one material and span per segment, optionally reversed.
+    _asRun: function (wall, reverse) {
+        var pts = wall.points.slice(), mats = [], spans = [];
+        for (var k = 0; k < pts.length - 1; k++) {
+            mats.push(this._segMaterial(wall, k));
+            spans.push((wall.spans && wall.spans[k]) || null);
+        }
+        if (reverse) { pts.reverse(); mats.reverse(); spans.reverse(); }
+        return { points: pts, mats: mats, spans: spans };
+    },
+
+    // A drawn wall whose end lands on the open end of another wall joins it, so an outline opened
+    // by deleting a segment closes again when the gap is redrawn. The longer wall keeps its
+    // direction and the joined one turns to run with it: a wall's exterior face follows its
+    // direction, so a piece drawn the other way round would show inside out in 3D.
+    _joinAtEnds: function (wall) {
+        var self = this;
+        var near = function (a, b) {
+            return self._map.distance(L.latLng(a.lat, a.lng), L.latLng(b.lat, b.lng)) <= 0.05;
+        };
+        var closed = function (w) {
+            var p = w.points;
+            return p.length >= 4 && near(p[0], p[p.length - 1]);
+        };
+        var cur = wall;
+        for (var guard = 0; guard < 16 && !closed(cur); guard++) {
+            var joined = null;
+            for (var i = 0; i < this._allWalls.length && !joined; i++) {
+                var o = this._allWalls[i];
+                if (o === cur || o.points.length < 2 || closed(o)) continue;
+                var cs = cur.points[0], ce = cur.points[cur.points.length - 1];
+                var os = o.points[0], oe = o.points[o.points.length - 1];
+                var curLonger = cur.points.length >= o.points.length;
+                var a = null, b = null;
+                if (near(ce, os)) { a = this._asRun(cur, false); b = this._asRun(o, false); }
+                else if (near(cs, oe)) { a = this._asRun(o, false); b = this._asRun(cur, false); }
+                else if (near(ce, oe)) {
+                    if (curLonger) { a = this._asRun(cur, false); b = this._asRun(o, true); }
+                    else { a = this._asRun(o, false); b = this._asRun(cur, true); }
+                }
+                else if (near(cs, os)) {
+                    if (curLonger) { a = this._asRun(o, true); b = this._asRun(cur, false); }
+                    else { a = this._asRun(cur, true); b = this._asRun(o, false); }
+                }
+                if (!a) continue;
+                joined = {
+                    points: a.points.concat(b.points.slice(1)),
+                    material: a.mats[0],
+                    materials: a.mats.concat(b.mats),
+                    spans: a.spans.concat(b.spans)
+                };
+                this._allWalls = this._allWalls.filter(function (w) { return w !== cur && w !== o; });
+                this._allWalls.push(joined);
+                cur = joined;
+            }
+            if (!joined) break;
+        }
+        if (closed(cur)) {
+            var p0 = cur.points[0];
+            cur.points[cur.points.length - 1] = { lat: p0.lat, lng: p0.lng };
+        }
+        this._collapseMaterials(cur);
+        if (!cur.spans || !cur.spans.some(function (s) { return s; })) delete cur.spans;
+    },
+
+    // 'door', 'window', or null for a full-height wall material.
+    _openingKind: function (mat) {
+        if (typeof mat !== 'string') return null;
+        if (mat.indexOf('door_') === 0) return 'door';
+        if (mat.indexOf('window_') === 0) return 'window';
+        return null;
+    },
+
+    // A segment keeps its height band only while it stays the same kind of opening: a window
+    // re-paned keeps its measured sill and head, but a window turned door or wall loses it.
+    _keepSpanIfSameKind: function (wall, si, oldMat, newMat) {
+        if (!wall.spans) return;
+        var kind = this._openingKind(oldMat);
+        if (kind === null || kind !== this._openingKind(newMat)) wall.spans[si] = null;
+        if (!wall.spans.some(function (s) { return s; })) delete wall.spans;
+    },
+
     // Removes the selected segments. Each wall splits into its runs of kept segments; on a closed
     // shape the run that wraps past the start joins the first run.
     deleteMultiSel: function () {
-        var self = this;
         var sel = this._multiSel;
         if (!sel || sel.length === 0) return;
+        this._removeSegments(sel);
+        this._clearMultiSel();
+        this._dotNetRef.invokeMethodAsync('SaveWallsFromJs', JSON.stringify(this._allWalls));
+    },
+
+    _removeSegments: function (sel) {
+        var self = this;
         var drop = {};
         sel.forEach(function (s) { drop[s.wi + ':' + s.si] = true; });
 
@@ -2469,9 +2598,10 @@ window.fpEditor = {
             var runs = [], run = null;
             for (var si = 0; si < n; si++) {
                 if (drop[wi + ':' + si]) { run = null; continue; }
-                if (!run) { run = { points: [wall.points[si]], mats: [] }; runs.push(run); }
+                if (!run) { run = { points: [wall.points[si]], mats: [], spans: [] }; runs.push(run); }
                 run.points.push(wall.points[si + 1]);
                 run.mats.push(self._segMaterial(wall, si));
+                run.spans.push((wall.spans && wall.spans[si]) || null);
             }
             if (runs.length === 0) return;
             var first = wall.points[0], last = wall.points[n];
@@ -2479,16 +2609,75 @@ window.fpEditor = {
             if (runs.length === 1 && runs[0].mats.length === n) { result.push(wall); return; }
             if (closed && runs.length > 1 && !drop[wi + ':0'] && !drop[wi + ':' + (n - 1)]) {
                 var head = runs.shift(), tail = runs.pop();
-                runs.push({ points: tail.points.concat(head.points.slice(1)), mats: tail.mats.concat(head.mats) });
+                runs.push({ points: tail.points.concat(head.points.slice(1)), mats: tail.mats.concat(head.mats), spans: tail.spans.concat(head.spans) });
             }
             runs.forEach(function (r) {
-                var w = { points: r.points, material: r.mats[0], materials: r.mats };
+                var w = { points: r.points, material: r.mats[0], materials: r.mats, spans: r.spans };
                 self._collapseMaterials(w);
                 result.push(w);
             });
         });
         this._allWalls = result;
+    },
+
+    // Selected segments of one material that lie on one straight line with no gap: the line's two
+    // ends, the material, and the shared height band (null unless every segment has the same one).
+    _straightRun: function (sel) {
+        var self = this, m = this._map;
+        if (!sel || sel.length < 2) return null;
+        var segs = sel.map(function (s) {
+            var w = self._allWalls[s.wi];
+            return { a: w.points[s.si], b: w.points[s.si + 1], mat: self._segMaterial(w, s.si), span: (w.spans && w.spans[s.si]) || null };
+        });
+        var mat = segs[0].mat, span = JSON.stringify(segs[0].span);
+        if (segs.some(function (g) { return g.mat !== mat; })) return null;
+        var sameSpan = segs.every(function (g) { return JSON.stringify(g.span) === span; });
+        // Local meters about the first point.
+        var o = segs[0].a, ky = m.distance(L.latLng(o.lat, o.lng), L.latLng(o.lat + 1e-4, o.lng)) / 1e-4;
+        var kx = m.distance(L.latLng(o.lat, o.lng), L.latLng(o.lat, o.lng + 1e-4)) / 1e-4;
+        var xy = function (p) { return { x: (p.lng - o.lng) * kx, y: (p.lat - o.lat) * ky, p: p }; };
+        var pts = [];
+        segs.forEach(function (g) { pts.push(xy(g.a), xy(g.b)); });
+        var P = null, Q = null, best = -1;
+        for (var i = 0; i < pts.length; i++) for (var j = i + 1; j < pts.length; j++) {
+            var d = Math.hypot(pts[i].x - pts[j].x, pts[i].y - pts[j].y);
+            if (d > best) { best = d; P = pts[i]; Q = pts[j]; }
+        }
+        if (best < 0.1) return null;
+        var ux = (Q.x - P.x) / best, uy = (Q.y - P.y) / best;
+        var spans = [];
+        for (var k = 0; k < pts.length; k++) {
+            var dx = pts[k].x - P.x, dy = pts[k].y - P.y;
+            if (Math.abs(dx * uy - dy * ux) > 0.15) return null;
+        }
+        segs.forEach(function (g) {
+            var ta = (xy(g.a).x - P.x) * ux + (xy(g.a).y - P.y) * uy;
+            var tb = (xy(g.b).x - P.x) * ux + (xy(g.b).y - P.y) * uy;
+            spans.push([Math.min(ta, tb), Math.max(ta, tb)]);
+        });
+        spans.sort(function (a, b) { return a[0] - b[0]; });
+        var reach = spans[0][0];
+        if (reach > 0.05) return null;
+        for (var n = 0; n < spans.length; n++) {
+            if (spans[n][0] > reach + 0.05) return null;
+            reach = Math.max(reach, spans[n][1]);
+        }
+        if (reach < best - 0.05) return null;
+        return { p: { lat: P.p.lat, lng: P.p.lng }, q: { lat: Q.p.lat, lng: Q.p.lng }, mat: mat, span: sameSpan ? segs[0].span : null };
+    },
+
+    // Merges a straight run of selected segments into one segment, rejoining the walls on either side.
+    mergeMultiSel: function () {
+        var sel = this._multiSel;
+        var run = this._straightRun(sel);
+        if (!run) return;
+        this._removeSegments(sel);
+        var w = { points: [run.p, run.q], material: run.mat };
+        if (run.span) { w.materials = [run.mat]; w.spans = [run.span]; }
+        this._allWalls.push(w);
+        this._joinAtEnds(w);
         this._clearMultiSel();
+        if (this._map) this._map.closePopup();
         this._dotNetRef.invokeMethodAsync('SaveWallsFromJs', JSON.stringify(this._allWalls));
     },
 
@@ -2891,12 +3080,23 @@ window.fpEditor = {
 
     // ── Wall Drawing Mode ────────────────────────────────────────────
 
+    // A wall being drawn exists only here until it is committed; leaving the page drops it.
+    hasPendingWall: function () {
+        return !!(this._currentWall && this._currentWall.points && this._currentWall.points.length > 0);
+    },
+
     enterDrawMode: function (wallsJson) {
         var m = this._map;
         if (!m) return;
         var self = this;
 
         this._isDrawing = true;
+        if (!this._beforeUnload) {
+            this._beforeUnload = function (e) {
+                if (self.hasPendingWall()) { e.preventDefault(); e.returnValue = ''; }
+            };
+            window.addEventListener('beforeunload', this._beforeUnload);
+        }
         this._clearMultiSel();
         this._updateWallToolbox();
         this._allWalls = JSON.parse(wallsJson);
@@ -3250,6 +3450,10 @@ window.fpEditor = {
         var m = this._map;
         if (!m) return;
         this._isDrawing = false;
+        if (this._beforeUnload) {
+            window.removeEventListener('beforeunload', this._beforeUnload);
+            this._beforeUnload = null;
+        }
 
         // Commit any in-progress wall (reuses same logic as Finish Shape)
         this.commitCurrentWall();
@@ -3396,12 +3600,18 @@ window.fpEditor = {
                         targetWall.materials.splice(targetSi, 0, origMat, origMat);
                     }
                     targetWall.materials[targetSi + 1] = cw.material;
+                    if (targetWall.spans) {
+                        var origSpan = targetWall.spans[targetSi] || null;
+                        targetWall.spans.splice(targetSi, 0, origSpan, origSpan);
+                        targetWall.spans[targetSi + 1] = null;
+                    }
                     didSplit = true;
                 }
             }
 
             if (!didSplit) {
                 this._allWalls.push(cw);
+                this._joinAtEnds(cw);
             }
         }
 
@@ -4128,6 +4338,10 @@ window.fpEditor = {
     },
 
     destroy: function () {
+        if (this._beforeUnload) {
+            window.removeEventListener('beforeunload', this._beforeUnload);
+            this._beforeUnload = null;
+        }
         this._removeEscapeHandler();
         this._stopEdgePan();
         this.exitPositionMode();

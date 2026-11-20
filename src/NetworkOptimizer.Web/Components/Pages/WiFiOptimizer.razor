@@ -985,6 +985,14 @@
 
     private async Task SetActiveTab(string tab)
     {
+        // Switching tabs only navigates; OnParametersSet switches once the URL changes. A tab's
+        // NavigationLock (a wall half drawn, an import under way) can then cancel the switch.
+        if (tab != _activeTab)
+        {
+            NavigationManager.NavigateTo("/wifi-optimizer?tab=" + tab, forceLoad: false, replace: false);
+            return;
+        }
+
         _activeTab = tab;
         // Clear all drill-down filters when manually switching tabs
         _initialClientMac = null;
@@ -1332,11 +1340,22 @@
                 _autoRunRecommendation = RecommendQueryParam == true;
                 _initialEdge = EdgeQueryParam;
                 _initialRange = RangeQueryParam;
+                // The Speed Map reloads AP markers on entry: they may have moved on the Signal Map.
+                if (newTab == "coverage") _apMarkersStale = true;
 
                 StateHasChanged();
             }
         }
         _lastTabParam = TabParam;
+    }
+
+    private bool _apMarkersStale;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (!_apMarkersStale) return;
+        _apMarkersStale = false;
+        await LoadApMarkers();
     }
 
     private async void OnConnectionChanged()

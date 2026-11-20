@@ -19882,6 +19882,12 @@ tr.stats-row-filtered {
 .fp-map-container .fp-tool-group + .fp-tool-group {
     margin-top: 6px;
 }
+/* Done / Finish Shape: the toolbox's commit, last in the stack */
+.fp-map-container .fp-tool-control a[data-tool="done"],
+.fp-map-container .fp-tool-control a[data-tool="done"]:focus,
+.fp-map-container .fp-tool-control a[data-tool="done"]:hover {
+    color: var(--success-color);
+}
 /* Signal Map AP Move: the landing click must reach the map, so no layer takes the pointer */
 .leaflet-container.fp-ap-moving .leaflet-interactive {
     pointer-events: none !important;
