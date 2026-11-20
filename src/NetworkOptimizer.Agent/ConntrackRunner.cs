@@ -226,9 +226,7 @@ public sealed class ConntrackRunner
 
     // Kept for the life of the runner: a new 1 MB buffer per pass is a Large Object Heap allocation every
     // 2 s, and each one forces a gen2 collection.
-    private byte[] _readBuffer = new byte[ReadBufferBytes];
-
-    private MemoryStream ReadProcFile() => ConntrackParser.ReadFile(ProcPath, ref _readBuffer);
+    private readonly byte[] _readBuffer = new byte[ReadBufferBytes];
 
     private void SamplePass()
     {
@@ -249,7 +247,7 @@ public sealed class ConntrackRunner
 
         List<ConntrackFlow> flows;
         var snapshotAt = DateTime.UtcNow;
-        using (var reader = new StreamReader(ReadProcFile(), System.Text.Encoding.UTF8))
+        using (var reader = new StreamReader(ConntrackParser.OpenBuffered(ProcPath, _readBuffer), System.Text.Encoding.UTF8))
             flows = ConntrackParser.Parse(reader);
 
         var wasSeeded = _accountant.Seeded;

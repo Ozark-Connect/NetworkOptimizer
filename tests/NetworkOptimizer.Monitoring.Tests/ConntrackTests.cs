@@ -15,14 +15,13 @@ public class ConntrackParserTests
     private static string Line(int i) =>
         $"ipv4     2 tcp      6 431976 ESTABLISHED src=192.0.2.{i % 250 + 1} dst=203.0.113.34 sport={1024 + i % 60000} dport=443 packets=124 bytes={i} src=203.0.113.34 dst=198.51.100.7 sport=443 dport={1024 + i % 60000} packets=110 bytes={i * 2} [ASSURED] mark=0 zone=0 use=2\n";
 
-    // Sizes against a 4 KB buffer: several times over (grows more than once), exactly full (grows once at
-    // the end), under, and empty.
+    // Sizes against a 4 KB buffer: several refills, exactly one buffer, under one, and empty.
     [Theory]
     [InlineData(5_000)]
     [InlineData(4_096)]
     [InlineData(1_000)]
     [InlineData(0)]
-    public void ReadFile_ReadsTheWholeFile_WhateverItsSizeAgainstTheBuffer(int bytes)
+    public void OpenBuffered_ReadsTheWholeFile_WhateverItsSizeAgainstTheBuffer(int bytes)
     {
         var text = new System.Text.StringBuilder();
         for (var i = 0; text.Length < bytes; i++) text.Append(Line(i));
@@ -32,10 +31,11 @@ public class ConntrackParserTests
         {
             File.WriteAllBytes(path, content);
             var buffer = new byte[4096];
+            var copy = new MemoryStream();
 
-            using var stream = ConntrackParser.ReadFile(path, ref buffer);
+            using (var stream = ConntrackParser.OpenBuffered(path, buffer)) stream.CopyTo(copy);
 
-            stream.ToArray().Should().Equal(content);
+            copy.ToArray().Should().Equal(content);
         }
         finally
         {
@@ -44,7 +44,7 @@ public class ConntrackParserTests
     }
 
     [Fact]
-    public void ReadFile_TableLargerThanTheAgentsBuffer_IsReadWhole()
+    public void OpenBuffered_TableLargerThanTheAgentsBuffer_IsReadWhole()
     {
         // The agent's 1 MB buffer against a ~1.4 MB table (about 6,600 flows, as on a busy UDM-Beast).
         var text = string.Concat(Enumerable.Range(0, 6_600).Select(Line));
@@ -55,13 +55,12 @@ public class ConntrackParserTests
             var buffer = new byte[1 << 20];
 
             List<ConntrackFlow> flows;
-            using (var reader = new StreamReader(ConntrackParser.ReadFile(path, ref buffer)))
+            using (var reader = new StreamReader(ConntrackParser.OpenBuffered(path, buffer)))
                 flows = ConntrackParser.Parse(reader);
 
             text.Length.Should().BeGreaterThan(1 << 20);
-            buffer.Length.Should().Be(2 << 20);
+            flows.Should().Equal(ConntrackParser.Parse(new StringReader(text)));
             flows.Should().HaveCount(6_600);
-            flows[^1].OrigBytes.Should().Be(6_599);
         }
         finally
         {
@@ -70,18 +69,18 @@ public class ConntrackParserTests
     }
 
     [Fact]
-    public void ReadFile_ReusedBuffer_ParsesTheSameFlowsAsAFreshRead()
+    public void OpenBuffered_ReusedBuffer_ParsesTheSameFlowsAsAFreshRead()
     {
-        var text = string.Concat(Enumerable.Range(0, 3_000).Select(Line)); // ~600 KB: grows a 64 KB buffer 4 times
+        var text = string.Concat(Enumerable.Range(0, 3_000).Select(Line)); // ~600 KB: ten refills of a 64 KB buffer
         var path = Path.GetTempFileName();
         try
         {
             File.WriteAllText(path, text);
             var buffer = new byte[64 * 1024];
             List<ConntrackFlow> first, second;
-            using (var reader = new StreamReader(ConntrackParser.ReadFile(path, ref buffer)))
+            using (var reader = new StreamReader(ConntrackParser.OpenBuffered(path, buffer)))
                 first = ConntrackParser.Parse(reader);
-            using (var reader = new StreamReader(ConntrackParser.ReadFile(path, ref buffer)))
+            using (var reader = new StreamReader(ConntrackParser.OpenBuffered(path, buffer)))
                 second = ConntrackParser.Parse(reader);
 
             var expected = ConntrackParser.Parse(new StringReader(text));
