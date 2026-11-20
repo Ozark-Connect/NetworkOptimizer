@@ -4,10 +4,13 @@
 (function() {
     const scrollPositions = new Map();
     let isPopState = false;
+    // A page's own deep-link landing (a ?result= row, a chart link) ran since the last Back or Forward.
+    let landedSincePopState = false;
 
     // Detect back/forward navigation
     window.addEventListener('popstate', function() {
         isPopState = true;
+        landedSincePopState = false;
     });
 
     function getScrollContainer() {
@@ -114,9 +117,17 @@
 
         // Called from C# after a query-only navigation (a tab switch). Only Back or Forward moves the
         // page: it returns to where that tab was left. Any other query change leaves the scroll alone.
+        // Called by the landing helpers (noHighlight, noLandOnRow, noLandOnChart, noTabScroll) as they scroll: a
+        // URL that names something to land on wins over the remembered position, on Back as on a click.
+        yieldToLanding: function() {
+            landedSincePopState = true;
+            if (stopReapply) stopReapply();
+        },
+
         restoreIfPopState: function(url) {
             if (!isPopState) return;
             isPopState = false;
+            if (landedSincePopState) return;
             var container = getScrollContainer();
             var saved = scrollPositions.get(url);
             if (!container || saved === undefined) return;
@@ -131,6 +142,8 @@
             var hasFragment = !!window.location.hash;
 
             if (isPopState) {
+                isPopState = false;
+                if (landedSincePopState) return;
                 var saved = scrollPositions.get(path);
                 container.scrollTop = saved !== undefined ? saved : 0;
                 // The page coming back loads its data again, so it is often too short to hold the position yet.

@@ -177,9 +177,15 @@
 // Scroll to a card and ring it briefly, the one behavior every in-page jump in Monitoring shares
 // (findings, advisories, an event count). Kept here because this file already loads app-wide and
 // the callers are spread across pages and components.
+// A landing scrolls to what the URL names, so a Back restore of the remembered position stands down.
+function noYieldRestore() {
+    if (window.scrollRestoration && window.scrollRestoration.yieldToLanding) window.scrollRestoration.yieldToLanding();
+}
+
 function noHighlight(id, block, variant, radius) {
     var el = document.getElementById(id);
     if (!el) return;
+    noYieldRestore();
     // false: ring it where it is, the caller has scrolled already.
     if (block !== false) el.scrollIntoView({ behavior: 'smooth', block: block || 'start' });
     // The caller says what shape it is pointing at; the default suits a card.
@@ -214,6 +220,7 @@ window.noHighlightTarget = function (id, block, radius) { noHighlight(id, block,
 window.noLandOnChart = function (cardId, chartId, quiet) {
     var narrow = window.matchMedia('(max-width: 1024px)').matches;
     var target = document.getElementById(narrow ? cardId : chartId);
+    if (target) noYieldRestore();
     if (quiet) {
         if (target) target.scrollIntoView({ behavior: 'smooth', block: narrow ? 'start' : 'center' });
     } else if (narrow) {
@@ -279,6 +286,7 @@ window.noTabScroll = {
             saved = JSON.parse(sessionStorage.getItem('no.tabScroll.' + key) || 'null');
             sessionStorage.removeItem('no.tabScroll.' + key);
         } catch (e) { }
+        noYieldRestore();
         var started = Date.now(), timer = null, steadySince = 0, lastTop = null;
         var events = ['touchstart', 'wheel', 'pointerdown', 'keydown'];
         function stop() {
@@ -323,6 +331,7 @@ window.noHighlightRow = function (id, block) { noHighlight(id, block || 'center'
 window.noLandOnRow = function (id) {
     var el = document.getElementById(id);
     if (!el) return;
+    noYieldRestore();
     el.scrollIntoView({ behavior: 'instant', block: 'center' });
     window.noHoldScroll(id, 3000);
     noHighlight(id, false, 'nav-highlight-row');
