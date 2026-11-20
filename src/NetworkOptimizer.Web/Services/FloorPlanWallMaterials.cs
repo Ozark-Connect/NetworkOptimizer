@@ -56,6 +56,48 @@ public static class FloorPlanWallMaterials
             .FirstOrDefault() ?? DefaultExterior;
     }
 
+    /// <summary>
+    /// The exterior material for a new building on a site: whichever of residential and commercial
+    /// exterior is more common on the site's existing outlines, residential on a tie or with neither.
+    /// </summary>
+    public static string SiteExteriorMaterial(IEnumerable<string?> siteFloorWallsJson)
+    {
+        int residential = 0, commercial = 0;
+        foreach (var json in siteFloorWallsJson)
+        {
+            var outline = Parse(json).Where(IsClosed).OrderByDescending(Area).FirstOrDefault();
+            if (outline == null) continue;
+            foreach (var m in SegmentMaterials(outline))
+            {
+                if (m.Equals("exterior_commercial", StringComparison.OrdinalIgnoreCase)) commercial++;
+                else if (m.Equals("exterior_residential", StringComparison.OrdinalIgnoreCase)) residential++;
+            }
+        }
+        return commercial > residential ? "exterior_commercial" : DefaultExterior;
+    }
+
+    /// <summary>A floor's outline (its largest closed shape) as lat/lng points, or null when it has none.</summary>
+    public static List<(double Lat, double Lng)>? OutlinePoints(string? wallsJson) =>
+        Parse(wallsJson).Where(IsClosed).OrderByDescending(Area)
+            .Select(w => w.Points.Take(w.Points.Count - 1).Select(p => (p.Lat, p.Lng)).ToList())
+            .FirstOrDefault();
+
+    /// <summary>
+    /// A floor's shape to fit an import onto: its outline, or when editing has opened it (deleting
+    /// one outline wall splits the loop), the convex hull of all its wall points. Null with fewer
+    /// than three points.
+    /// </summary>
+    public static List<(double Lat, double Lng)>? OutlineOrHull(string? wallsJson)
+    {
+        var outline = OutlinePoints(wallsJson);
+        if (outline is { Count: >= 3 }) return outline;
+        var pts = Parse(wallsJson).SelectMany(w => w.Points)
+            .Select(p => new NetworkOptimizer.Web.Services.InnerSpace.Vec2(p.Lng, p.Lat));
+        // A hull is unchanged by the lat/lng scaling, so it can be taken in degrees.
+        var hull = NetworkOptimizer.Web.Services.InnerSpace.PlanGeometry.ConvexHull(pts);
+        return hull.Count >= 3 ? hull.Select(v => (v.Y, v.X)).ToList() : null;
+    }
+
     /// <summary>The material Draw Layout starts on for a floor.</summary>
     public static string DrawStartMaterial(string? floorWallsJson, string buildingOutline, string? lastInterior) =>
         HasOutline(floorWallsJson) ? (lastInterior ?? DefaultInterior) : buildingOutline;

@@ -390,6 +390,32 @@ site health score, power/coverage). One gap hides inside the "signal strength / 
 per-client *signal* classification is everywhere, but `WirelessClientSnapshot.Snr` has no UI consumer at
 all - it is collected and never shown. Either surface it or drop the field.
 
+### Floor Plan Heatmap - InnerSpace import follow-ups
+The InnerSpace import (floors, walls, materials, window and door heights, APs) skips two things
+InnerSpace models that the Signal Map does not yet. Each is its own change after the import ships.
+
+- **Attenuation objects (obstacles).** InnerSpace stores polygons with a preset or custom type and a
+  height band: car, cubicles, elevator, foliage (heavy / light), human crowd, machinery, server rack,
+  shelves (small / medium / warehouse), truck, appliance, cabinet, furniture, hanging sign, bulkhead,
+  HVAC duct. Its loss is dB per meter of path inside the polygon, not a flat dB per crossing like a
+  wall.
+  - Storage: an `ObstaclesJson` column on `FloorPlan` (additive), shaped like `WallsJson`:
+    polygon points, material key, optional bottom / top height.
+  - Materials: `obstacle_*` keys in `MaterialAttenuation`, per band, dB per meter; names match
+    InnerSpace's presets so the import maps them by name.
+  - Propagation: add dB/m x length inside each polygon along the ray. Store the height band; count
+    the full length until the model is 3D.
+  - Editor: a polygon tool beside Draw Layout with an obstacle material picker.
+  - Check heatmap time with ~150 walls plus 50 obstacles before shipping.
+- **AP tilt.** InnerSpace keeps a mount quaternion and an antenna (point-of-view) quaternion per AP;
+  the difference is the tilt. `ApLocation` and `PlannedAp` have azimuth and mount, no tilt.
+  - Storage: nullable `TiltDeg` on both (null = the mount's native direction, today's behavior).
+  - Propagation: offset the elevation angle by `TiltDeg` before the antenna pattern lookup.
+  - Editor: a tilt field beside orientation for wall-mounted and directional (narrow / wide / panel)
+    modes.
+  - Import: derive tilt from the two quaternions; under 2 degrees imports as null.
+  - Test: null tilt gives a bit-identical heatmap to today.
+
 ## LAN Speed Test
 
 ### Path Analysis Enhancements
