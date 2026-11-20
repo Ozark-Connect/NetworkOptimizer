@@ -58,8 +58,10 @@
     // short of the target clamps one assignment. Any touch, wheel or key hands it back, and so does
     // the next navigation (savePosition). Not a change of the address bar: multi-site re-stamps
     // ?site= into it right after every navigation, which would stop this before the page loads.
+    // follow: Back's restore. The page tracks down as content arrives instead of waiting at the top for
+    // the target to exist, which on a tab that reloads its data (ISP Health) jumped seconds later.
     let stopReapply = null;
-    function reapplyScrollTop(target) {
+    function reapplyScrollTop(target, follow) {
         if (stopReapply) stopReapply();
         const started = Date.now();
         const events = ['touchstart', 'wheel', 'pointerdown', 'keydown'];
@@ -77,7 +79,7 @@
             if (container) {
                 const max = container.scrollHeight - container.clientHeight;
                 // Short of the target, wait for content; at the deadline take the closest point.
-                if ((max >= target || done) && Math.abs(container.scrollTop - Math.min(target, max)) > 2) {
+                if ((max >= target || done || follow) && Math.abs(container.scrollTop - Math.min(target, max)) > 2) {
                     container.scrollTop = Math.min(target, max);
                 }
             }
@@ -119,7 +121,7 @@
             var saved = scrollPositions.get(url);
             if (!container || saved === undefined) return;
             container.scrollTop = saved;
-            if (saved > 0) reapplyScrollTop(saved);
+            if (saved > 0) reapplyScrollTop(saved, true);
         },
 
         // Called from C# after navigation
@@ -132,7 +134,7 @@
                 var saved = scrollPositions.get(path);
                 container.scrollTop = saved !== undefined ? saved : 0;
                 // The page coming back loads its data again, so it is often too short to hold the position yet.
-                if (saved > 0) reapplyScrollTop(saved);
+                if (saved > 0) reapplyScrollTop(saved, true);
                 isPopState = false;
                 return;
             }
