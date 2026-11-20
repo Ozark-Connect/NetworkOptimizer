@@ -292,6 +292,17 @@ else
         background: var(--bg-primary);
         outline: none;
     }
+    /* On a phone the map spans the Live View card's full width, past the tiles' 1rem inset. */
+    @@media (max-width: 768px) {
+        .lv-map-card {
+            margin-left: -1rem;
+            margin-right: -1rem;
+            border-radius: 0;
+        }
+        #dashboard-lan-flow-map-stage {
+            border-radius: 0;
+        }
+    }
 </style>
 
 @code {
