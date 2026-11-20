@@ -98,6 +98,20 @@ public class PropagationWall
     /// Points[i] and Points[i+1]. If null, all segments use <see cref="Material"/>.
     /// </summary>
     public List<string>? Materials { get; set; }
+
+    /// <summary>
+    /// Per-segment height bands, parallel to <see cref="Materials"/>: a window's sill and head, a
+    /// door's top. Null (list or entry) = full height. Stored for a later 3D model; the 2D model
+    /// today does not read it.
+    /// </summary>
+    public List<WallSpanValue?>? Spans { get; set; }
+}
+
+/// <summary>Vertical extent of a wall segment in metres above the floor; null = the floor or the ceiling.</summary>
+public class WallSpanValue
+{
+    public double? Bottom { get; set; }
+    public double? Top { get; set; }
 }
 
 /// <summary>

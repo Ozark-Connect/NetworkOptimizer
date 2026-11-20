@@ -534,9 +534,12 @@ Gateway tweaks for UCG-Fiber, UXG-Fiber, UCG-Max, and UXG-Max (Gateway SSH).
   - Buildings and floors; floor plan underlays from PNG, JPEG, HEIC, or PDF
   - Heatmap adjusted by real client signal measurements
   - Walls and doors from a material list (drywall to metal), drawn with snapping
-    - Map toolbox: Pan, Select, Draw Layout, Undo, and AP and planned AP placement
+    - Map toolbox: Pan, Select, Draw Layout, Undo, and AP and planned AP placement, with a Done button at the bottom that finishes one step at a time (Finish Shape, Done Drawing, Done, Done Editing)
     - Draw Layout starts on the building's outline material (any material, so a metal shed counts) until the floor's outline is closed, then on the last interior material used in that building; new floors take the building's outline material
     - The Select tool (or Shift+drag) draws a box to select several wall segments, and Shift+click adds one; click or right-click a selected segment to change their material or delete them together
+    - Leaving the page while a wall is half drawn asks first
+    - Deleting a segment from a closed outline keeps it one wall; redrawing the gap joins it back up and closes the outline, with the new piece facing the right way
+    - Selecting segments that run in one straight line in one material offers **Merge**, which makes them one segment
   - Place real APs with mount and facing; add planned APs from the model catalog
     - Right-click an AP, or use its popup, to move it or remove it; Delete removes the AP whose popup is open
   - Simulate TX power, antenna mode, or a disabled AP before changing anything
