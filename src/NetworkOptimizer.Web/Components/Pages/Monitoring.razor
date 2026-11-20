@@ -5299,15 +5299,17 @@
             ispLoss = losses.Count > 0 ? losses.Average() : 0;
         }));
 
-        // Transit latency (mean across enabled Transit targets)
+        // Transit latency (mean across enabled Transit targets, far ones left out like the live tile)
+        var farTransit = FarTransitIds();
         tasks.Add(Task.Run(async () =>
         {
             var data = await InfluxClient.QueryLatencyByTargetTypeAsync(
                 MonitoringTargetType.Transit, from, to, wanScope: snapshotWanScope);
             var rtts = new List<double>();
             var losses = new List<double>();
-            foreach (var (_, pts) in data)
+            foreach (var (targetId, pts) in data)
             {
+                if (farTransit.Contains(targetId)) continue;
                 var closest = pts
                     .OrderBy(p => Math.Abs((p.Time - at).TotalMilliseconds))
                     .FirstOrDefault();
@@ -5464,11 +5466,13 @@
         MonitoringTargetType type, DateTime from, DateTime to, DateTime at,
         MonitoringInfluxClient.LatencyWanScope? scope)
     {
+        var farTransit = FarTransitIds();
         var data = await InfluxClient.QueryLatencyByTargetTypeAsync(type, from, to, wanScope: scope);
         var rtts = new List<double>();
         var losses = new List<double>();
-        foreach (var (_, pts) in data)
+        foreach (var (targetId, pts) in data)
         {
+            if (farTransit.Contains(targetId)) continue;
             var closest = pts.OrderBy(p => Math.Abs((p.Time - at).TotalMilliseconds)).FirstOrDefault();
             if (closest == null) continue;
             if (closest.RttAvgMs.HasValue) rtts.Add(closest.RttAvgMs.Value);
@@ -5762,7 +5766,7 @@
         }
         var wan = LiveWan.Selected;
         if (wan == null)
-            return LiveStats.GetTileLatencyLive(type, _targets.Where(t => t.TargetType == type && t.Enabled).Select(t => t.TargetId));
+            return LiveStats.GetTileLatencyLive(type, TileTargets(_targets.Where(t => t.TargetType == type && t.Enabled)).Select(t => t.TargetId));
 
         var rows = PerWanTargetStats(type);
         var row = rows.FirstOrDefault(r => string.Equals(
@@ -5794,8 +5798,15 @@
         var targets = wan == null
             ? _targets.Where(t => t.TargetType == type && t.Enabled).ToList()
             : TargetsForWan(type, wan.Key, wan.IsPrimary);
-        return targets.Select(t => t.TargetId).ToList();
+        return TileTargets(targets).Select(t => t.TargetId).ToList();
     }
+    /// <summary>The targets a tile figure counts: a far transit hop would lift it by its distance alone.</summary>
+    // TODO: duplicated in LiveViewPanel.razor (TileTargets); move with the tile helpers above.
+    private static IEnumerable<MonitoringTarget> TileTargets(IEnumerable<MonitoringTarget> targets) =>
+        targets.Where(t => !t.IsFarTransit);
+    /// <summary>The far transit target ids, which playback leaves out of its tile figures as the live tiles do.</summary>
+    private HashSet<string> FarTransitIds() =>
+        _targets.Where(t => t.IsFarTransit).Select(t => t.TargetId).ToHashSet(StringComparer.OrdinalIgnoreCase);
     // TODO: duplicated in LiveViewPanel.razor (PerWanTargetStats); move the tile figures into one shared component or service.
     private List<(string Label, double? Rtt, double Loss)> PerWanTargetStats(MonitoringTargetType type)
     {
@@ -5812,7 +5823,7 @@
                     type == MonitoringTargetType.AccessIsp ? historic.IspLossPercent : historic.TransitLossPercent));
                 continue;
             }
-            var (rtt, loss) = LiveStats.GetTileLatencyLive(type, TargetsForWan(type, wan.Key, wan.IsPrimary).Select(t => t.TargetId));
+            var (rtt, loss) = LiveStats.GetTileLatencyLive(type, TileTargets(TargetsForWan(type, wan.Key, wan.IsPrimary)).Select(t => t.TargetId));
             rows.Add((WanRowLabel(wan), rtt, loss));
         }
         return rows;

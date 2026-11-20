@@ -96,7 +96,7 @@ public class MonitoringAlertEvaluator
         var open = await _openAtStart.OpenAsync();
         // A target still offline before a restart starts offline, so its recovery is published.
         var state = _states.GetOrAdd(target.TargetId, id => new TargetAlertState { IsOffline = open.Take(OfflineEventType, id) != null });
-        var publishPerTarget = !WanOutageEvaluator.CoversTargetType(target.TargetType);
+        var publishPerTarget = !WanOutageEvaluator.Covers(target);
 
         await EvaluatePerTargetAsync(target, result, state, publishPerTarget, ct);
 
@@ -213,7 +213,8 @@ public class MonitoringAlertEvaluator
     {
         EventType = OfflineEventType,
         Source = "monitoring",
-        Severity = TargetSeverity(target.TargetType, isOffline: true),
+        // A far transit hop going dark is a path event past the near transit, not something to act on.
+        Severity = target.IsFarTransit ? AlertSeverity.Info : TargetSeverity(target.TargetType, isOffline: true),
         Title = $"{target.Name} is offline{_siteSuffix}",
         Message = $"Monitoring target {target.Name} ({target.Address}) failed {FailuresToDeclareOffline} consecutive {target.ProbeMode.ToString().ToUpperInvariant()} probes.",
         DeviceId = target.DeviceMac,

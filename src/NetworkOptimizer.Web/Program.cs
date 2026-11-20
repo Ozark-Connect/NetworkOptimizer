@@ -901,6 +901,7 @@ builder.Services.AddMutatingService<IPathMapService, PathMapService>();
 builder.Services.AddMutatingService<IChangeControlFleetService, ChangeControlFleetService>();
 // Re-runs upstream tracer discovery every 7 days; flips a review flag on diff.
 builder.Services.AddHostedService<NetworkOptimizer.Web.Services.Monitoring.UpstreamRediscoveryService>();
+builder.Services.AddHostedService<NetworkOptimizer.Web.Services.Monitoring.FarTransitSweepService>();
 // 3D LAN flow map (spec 5.7) - composes topology + live + historic feeds for the JS layer.
 // Per-site map cache: the registry owns one LanFlowMapCache per site and scoped
 // forwarding hands each request the current site's instance, so a secondary

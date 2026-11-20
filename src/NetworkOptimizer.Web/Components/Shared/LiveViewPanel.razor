@@ -762,7 +762,7 @@ else
     {
         var wan = LiveWan.Selected;
         if (wan == null)
-            return LiveStats.GetTileLatencyLive(type, _targets.Where(t => t.TargetType == type && t.Enabled).Select(t => t.TargetId));
+            return LiveStats.GetTileLatencyLive(type, TileTargets(_targets.Where(t => t.TargetType == type && t.Enabled)).Select(t => t.TargetId));
 
         var rows = PerWanTargetStats(type);
         var row = rows.FirstOrDefault(r => string.Equals(
@@ -787,15 +787,19 @@ else
         var targets = wan == null
             ? _targets.Where(t => t.TargetType == type && t.Enabled).ToList()
             : TargetsForWan(type, wan.Key, wan.IsPrimary);
-        return targets.Select(t => t.TargetId).ToList();
+        return TileTargets(targets).Select(t => t.TargetId).ToList();
     }
+    /// <summary>The targets a tile figure counts: a far transit hop would lift it by its distance alone.</summary>
+    // TODO: duplicated in Monitoring.razor (TileTargets); move with the tile helpers above.
+    private static IEnumerable<MonitoringTarget> TileTargets(IEnumerable<MonitoringTarget> targets) =>
+        targets.Where(t => !t.IsFarTransit);
     // TODO: duplicated in Monitoring.razor (PerWanTargetStats); move the tile figures into one shared component or service.
     private List<(string Label, double? Rtt, double Loss)> PerWanTargetStats(MonitoringTargetType type)
     {
         var rows = new List<(string, double?, double)>();
         foreach (var wan in LiveWan.SelectedOptions)
         {
-            var (rtt, loss) = LiveStats.GetTileLatencyLive(type, TargetsForWan(type, wan.Key, wan.IsPrimary).Select(t => t.TargetId));
+            var (rtt, loss) = LiveStats.GetTileLatencyLive(type, TileTargets(TargetsForWan(type, wan.Key, wan.IsPrimary)).Select(t => t.TargetId));
             var label = NetworkOptimizer.UniFi.GatewayWanHelper.SplitWanLabel(
                 wan.Label, NetworkOptimizer.UniFi.GatewayWanHelper.WanIndexFromKey(wan.Key)).WanToken ?? wan.Label;
             rows.Add((label, rtt, loss));

@@ -233,6 +233,7 @@ Time-series monitoring on your own InfluxDB, fed by SNMP polling (InfluxDB).
   - Metered WANs get fewer targets and a slower cadence
   - Proposes ISP gateways (passthrough or router mode) and far-slower transit routers unchecked
   - Leaves out a transit router reached by a different route than your traffic takes, checked by ping and a direct traceroute
+  - Marks a transit target **Far** when its round trip sits well above your other transit hops: the Transit RTT tiles, the WAN chart, ISP Health, and WAN outage alerts leave it out, and it keeps its own chart line and route
   - Keeps your choices: unchecked or paused targets stay that way on re-runs
   - A re-run and commit corrects earlier mistyped targets, keeping their history
 - **Flaky Monitoring Targets** - targets losing more than their peers, with **Disable** and **Disable all**

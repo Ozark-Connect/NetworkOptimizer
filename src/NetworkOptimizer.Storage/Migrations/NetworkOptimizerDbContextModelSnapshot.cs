@@ -3472,6 +3472,9 @@ namespace NetworkOptimizer.Storage.Migrations
                     b.Property<bool?>("EnabledBeforeRetire")
                         .HasColumnType("INTEGER");
 
+                    b.Property<DateTime?>("FarTransitAt")
+                        .HasColumnType("TEXT");
+
                     b.Property<DateTime?>("HiddenAt")
                         .HasColumnType("TEXT");
 

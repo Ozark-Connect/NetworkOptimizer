@@ -136,6 +136,10 @@
                                         {
                                             <span class="status-badge status-neutral" data-tooltip="@($"Discovered on {twinWan}")">@twinWan</span>
                                         }
+                                        @if (t.IsFarTransit)
+                                        {
+                                            <span class="status-badge status-neutral" data-tooltip="Far from your other transit hops, so the Transit RTT figures and ISP Health leave it out">Far</span>
+                                        }
                                     </span>
                                 }
                             </td>

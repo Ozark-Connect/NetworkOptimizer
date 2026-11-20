@@ -719,8 +719,10 @@ public class IspHealthService
         var ispTargets = targets.Where(t => t.TargetType == MonitoringTargetType.AccessIsp).ToList();
         // WoodyNet / PCH (AS42, AS715) and similar IXP/anycast-DNS infrastructure are not
         // transit; drop them so they never enter scoring, the per-ASN cards, or the chart clusters.
+        // Far transit goes too: a distant POP grades the long haul to it, not the near transit.
         var transitTargets = targets.Where(t => t.TargetType == MonitoringTargetType.Transit
-            && !(t.AsnNumber is int a && WellKnownAsns.NonTransitInfrastructure.Contains(a))).ToList();
+            && !(t.AsnNumber is int a && WellKnownAsns.NonTransitInfrastructure.Contains(a))
+            && !t.IsFarTransit).ToList();
         if (ispTargets.Count == 0 && transitTargets.Count == 0)
             return new ComputeOutcome(IspHealthStatus.NeedsDiscovery, null, new List<AsnSeries>());
 
@@ -2205,7 +2207,8 @@ public class IspHealthService
         return targets
             .Where(t => t.TargetType == MonitoringTargetType.AccessIsp
                 || (t.TargetType == MonitoringTargetType.Transit
-                    && !(t.AsnNumber is int a && WellKnownAsns.NonTransitInfrastructure.Contains(a)))
+                    && !(t.AsnNumber is int a && WellKnownAsns.NonTransitInfrastructure.Contains(a))
+                    && !t.IsFarTransit)
                 || (t.TargetType == MonitoringTargetType.InternetService && AnycastDnsIps.Contains(t.Address)))
             .Select(t => t.TargetId)
             .Where(id => !excluded.Contains(id))
