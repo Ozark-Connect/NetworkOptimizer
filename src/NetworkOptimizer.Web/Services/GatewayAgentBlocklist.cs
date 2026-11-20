@@ -175,7 +175,11 @@ public sealed class GatewayAgentBlocklist : IGatewayAgentBlocklist
         if (!status.Ok)
             _logger.LogWarning("Gateway blocklist on agent {Agent} ({Site}) failed: {Error}", connection.AgentName, connection.SiteSlug, status.Error);
         else if (!status.HookPresent)
-            _logger.LogWarning("Gateway blocklist on agent {Agent} ({Site}): its rules are not in place", connection.AgentName, connection.SiteSlug);
+        {
+            // An agent sent "off" tears its rules down and reports no hooks: that is the wanted state.
+            if (!(_desired.TryGetValue(connection.SiteSlug, out var desired) && !desired.Enabled))
+                _logger.LogWarning("Gateway blocklist on agent {Agent} ({Site}): its rules are not in place", connection.AgentName, connection.SiteSlug);
+        }
         else if (previous?.Fingerprint != status.Fingerprint)
             _logger.LogInformation("Gateway blocklist on agent {Agent} ({Site}): {V4} IPv4 and {V6} IPv6 entries applied",
                 connection.AgentName, connection.SiteSlug, status.V4Entries, status.V6Entries);
