@@ -1036,6 +1036,9 @@ builder.Services.AddMutatingService<NetworkOptimizer.Web.Services.Monitoring.Hea
 builder.Services.AddScoped<FloorPlanService>();
 builder.Services.AddMutatingService<IFloorPlanAdminService>(sp => sp.GetRequiredService<FloorPlanService>());
 builder.Services.AddScoped<HeatmapDataCache>();
+builder.Services.AddScoped<NetworkOptimizer.Web.Services.InnerSpace.InnerSpaceImportService>();
+builder.Services.AddMutatingService<NetworkOptimizer.Web.Services.InnerSpace.IInnerSpaceImportService>(
+    sp => sp.GetRequiredService<NetworkOptimizer.Web.Services.InnerSpace.InnerSpaceImportService>());
 builder.Services.AddScoped<PlannedApService>();
 builder.Services.AddMutatingService<IPlannedApAdminService>(sp => sp.GetRequiredService<PlannedApService>());
 builder.Services.AddSingleton<ConfigTransferService>();
