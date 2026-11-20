@@ -286,6 +286,22 @@ public class SiteHealthScorer
             ? "Check for coverage gaps between these APs."
             : $"Check for coverage gaps between these APs. Fast roaming is off on {string.Join(", ", fastRoamingOff)}; turning it on can help, except where IoT or older devices need it off.";
 
+    /// <summary>The Roaming failures recommendation when one device made every failure on the AP pair.</summary>
+    internal const string SingleDeviceRoamFailureRecommendation =
+        "The APs look fine for other clients. Check this client's Wi-Fi driver or roaming settings.";
+
+    /// <summary>
+    /// The MAC of the one client that made every failed roam on the edge, or null when failures come from two or
+    /// more clients. Failures the per-client list does not account for count as another client.
+    /// </summary>
+    internal static string? SingleFailingRoamClient(RoamingEdge edge)
+    {
+        var failing = edge.TopRoamingClients.Where(c => c.SuccessfulRoams < c.RoamAttempts).ToList();
+        if (failing.Count != 1) return null;
+        var failures = edge.TotalRoamAttempts - edge.TotalSuccessfulRoams;
+        return failing[0].RoamAttempts - failing[0].SuccessfulRoams >= failures ? failing[0].Mac : null;
+    }
+
     private ScoreDimension CalculateRoamingPerformance(RoamingTopology? roamingData, IReadOnlyList<string> fastRoamingOff)
     {
         var dimension = new ScoreDimension
@@ -570,9 +586,13 @@ public class SiteHealthScorer
         if (roamingData != null)
         {
             const int minRoamAttempts = 5;
+            // One failed roam is noise at any rate: on a pair with under 20 roams it alone crosses 95%.
+            const int minRoamFailures = 2;
 
             var failedRoamEdges = roamingData.Edges
-                .Where(e => e.TotalRoamAttempts >= minRoamAttempts && e.SuccessRate < RoamHealthyRatePct)
+                .Where(e => e.TotalRoamAttempts >= minRoamAttempts
+                            && e.TotalRoamAttempts - e.TotalSuccessfulRoams >= minRoamFailures
+                            && e.SuccessRate < RoamHealthyRatePct)
                 .OrderBy(e => e.SuccessRate)
                 .ToList();
 
@@ -581,21 +601,30 @@ public class SiteHealthScorer
                 var ap1Name = roamingData.Vertices.FirstOrDefault(v => v.Mac == edge.Endpoint1Mac)?.Name ?? edge.Endpoint1Mac;
                 var ap2Name = roamingData.Vertices.FirstOrDefault(v => v.Mac == edge.Endpoint2Mac)?.Name ?? edge.Endpoint2Mac;
                 var failures = edge.TotalRoamAttempts - edge.TotalSuccessfulRoams;
+                var oneDevice = SingleFailingRoamClient(edge);
+                var severe = oneDevice == null && edge.SuccessRate < RoamSevereRatePct;
+                var deviceName = oneDevice == null ? null
+                    : roamingData.Clients.FirstOrDefault(c => string.Equals(c.Mac, oneDevice, StringComparison.OrdinalIgnoreCase))?.Name is { Length: > 0 } n ? n : oneDevice;
 
                 score.Issues.Add(new HealthIssue
                 {
-                    // Below 90% success is a serious roaming problem (mirrors the dimension's -20 tier)
-                    Severity = edge.SuccessRate < RoamSevereRatePct ? HealthIssueSeverity.Critical : HealthIssueSeverity.Warning,
+                    // Below 90% success is a serious roaming problem (mirrors the dimension's -20 tier), unless one
+                    // device made every failure: then it is that device, not the coverage between the APs.
+                    Severity = severe ? HealthIssueSeverity.Critical : HealthIssueSeverity.Warning,
                     Dimensions = { HealthDimension.RoamingPerformance },
                     RuleId = "WIFI-ROAM-FAILURES-001",
                     Class = HealthIssueClass.Measured,
                     Key = HealthIssueKeys.For("WIFI-ROAM-FAILURES-001", HealthIssueKeys.Macs(new[] { edge.Endpoint1Mac, edge.Endpoint2Mac })),
                     Title = "Roaming failures",
-                    Description = $"{100 - edge.SuccessRate:F0}% roam failure rate ({failures} of {edge.TotalRoamAttempts} roams) between these APs",
+                    Description = deviceName == null
+                        ? $"{100 - edge.SuccessRate:F0}% roam failure rate ({failures} of {edge.TotalRoamAttempts} roams) between these APs"
+                        : $"{failures} of {edge.TotalRoamAttempts} roams failed between these APs, all from one client: {deviceName}",
                     AffectedEntity = $"{ap1Name} ↔ {ap2Name}",
                     LinkUrl = $"./wifi-optimizer?tab=roaming&edge={Uri.EscapeDataString(edge.Endpoint1Mac)}_{Uri.EscapeDataString(edge.Endpoint2Mac)}#roaming-edge-details",
-                    Recommendation = RoamFailureRecommendation(fastRoamingOff),
-                    ScoreImpact = edge.SuccessRate < RoamSevereRatePct ? -10 : -5
+                    Recommendation = deviceName == null
+                        ? RoamFailureRecommendation(fastRoamingOff)
+                        : SingleDeviceRoamFailureRecommendation,
+                    ScoreImpact = severe ? -10 : -5
                 });
             }
         }

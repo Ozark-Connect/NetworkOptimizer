@@ -105,7 +105,7 @@
             </div>
         </div>
 
-        <div class="stat-card">
+        <a class="stat-card stat-card-link" href="/wifi-optimizer?tab=overview" @onclick="ShowAccessPointsAsync" @onclick:preventDefault>
             <svg class="stat-icon-svg" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg" width="32" height="32">
                 <path d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" opacity="0.7"></path>
                 <path fill-rule="evenodd" clip-rule="evenodd" d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10Zm4-10a4 4 0 1 1-8 0 4 4 0 0 1 8 0Z" opacity="0.6"></path>
@@ -125,9 +125,9 @@
                 </div>
                 <div class="stat-label">Access Points</div>
             </div>
-        </div>
+        </a>
 
-        <div class="stat-card">
+        <a class="stat-card stat-card-link" href="/wifi-optimizer?tab=client" @onclick="@(() => ShowClientStats(weakSignalOnly: false))" @onclick:preventDefault>
             <AppIcon Name="clients" Class="stat-icon-svg stat-icon-sm" />
             <div class="stat-content">
                 <div class="stat-value">
@@ -142,9 +142,9 @@
                 </div>
                 <div class="stat-label">Wireless Clients</div>
             </div>
-        </div>
+        </a>
 
-        <div class="stat-card @(_summary?.WeakSignalClients > 0 ? "stat-warning" : "")">
+        <a class="stat-card stat-card-link @(_summary?.WeakSignalClients > 0 ? "stat-warning" : "")" href="/wifi-optimizer?tab=client&signal=weak" @onclick="@(() => ShowClientStats(weakSignalOnly: true))" @onclick:preventDefault>
             <AppIcon Name="wifi-weak" Class="stat-icon-svg stat-icon-sm" />
             <div class="stat-content">
                 <div class="stat-value">
@@ -159,7 +159,7 @@
                 </div>
                 <div class="stat-label">Weak Signal</div>
             </div>
-        </div>
+        </a>
     </div>
 
     <!-- View Tabs -->
@@ -244,8 +244,10 @@
         <!-- Client Stats Timeline -->
         <div class="card card-full-width">
             <div class="card-body">
-                <NetworkOptimizer.Web.Components.Shared.WiFi.ClientTimeline InitialClientMac="@_initialClientMac" InitialApMac="@_initialApMac" InitialBand="@_initialBand"
+                <NetworkOptimizer.Web.Components.Shared.WiFi.ClientTimeline @key="_clientTimelineKey"
+                                                                            InitialClientMac="@_initialClientMac" InitialApMac="@_initialApMac" InitialBand="@_initialBand"
                                                                             InitialSignalMin="@_initialSignalMin" InitialSignalMax="@_initialSignalMax"
+                                                                            InitialWeakSignal="@_initialWeakSignal"
                                                                             OnClientNavigate="HandleClientNavigate" />
             </div>
         </div>
@@ -598,7 +600,7 @@
         </div>
 
         <!-- Access Points Card -->
-        <div class="card card-span-2">
+        <div class="card card-span-2" id="wifi-access-points">
             <div class="card-header">
                 <h2 class="card-title">Access Points</h2>
                 <button class="btn btn-sm btn-secondary" @onclick="RefreshData" disabled="@_refreshing">
@@ -915,6 +917,12 @@
     [SupplyParameterFromQuery(Name = "sigmax")]
     public int? SignalMaxQueryParam { get; set; }
 
+    /// <summary>"weak": Client Stats lists only weak-signal clients, by the per-band rule the Weak Signal card counts.</summary>
+    [SupplyParameterFromQuery(Name = "signal")]
+    public string? SignalClassQueryParam { get; set; }
+
+    private bool WeakSignalQuery => string.Equals(SignalClassQueryParam, "weak", StringComparison.OrdinalIgnoreCase);
+
     [SupplyParameterFromQuery(Name = "recommend")]
     public bool? RecommendQueryParam { get; set; }
 
@@ -939,6 +947,13 @@
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
+        if (_scrollToAccessPoints && _activeTab == "overview")
+        {
+            _scrollToAccessPoints = false;
+            try { await JS.InvokeVoidAsync("noScrollTo", "wifi-access-points", "start"); }
+            catch (Exception ex) when (ex is not OperationCanceledException) { }
+        }
+
         // The caller is known only in the circuit, so the saved choice is read after the first render.
         if (!firstRender) return;
         try
@@ -965,6 +980,10 @@
     private int? _initialChannel;
     private int? _initialSignalMin;
     private int? _initialSignalMax;
+    private bool _initialWeakSignal;
+    // Bumped by the stat cards so Client Stats re-applies their filter even when it is already open.
+    private int _clientTimelineKey;
+    private bool _scrollToAccessPoints;
     private bool _autoRunRecommendation;
     private string? _initialEdge;
     private string? _initialRange;
@@ -1001,6 +1020,7 @@
         _initialChannel = null;
         _initialSignalMin = null;
         _initialSignalMax = null;
+        _initialWeakSignal = false;
         _initialEdge = null;
         _initialRange = null;
         _autoRunRecommendation = false;
@@ -1016,7 +1036,7 @@
     }
 
     private void NavigateToTab(string tab, string? apMac = null, RadioBand? band = null, int? channel = null,
-        int? signalMin = null, int? signalMax = null)
+        int? signalMin = null, int? signalMax = null, bool weakSignal = false)
     {
         _activeTab = tab;
         _initialApMac = apMac;
@@ -1024,6 +1044,7 @@
         _initialChannel = channel;
         _initialSignalMin = signalMin;
         _initialSignalMax = signalMax;
+        _initialWeakSignal = weakSignal;
         _initialClientMac = null;
         _initialRange = null;
         _autoRunRecommendation = false;
@@ -1036,15 +1057,36 @@
             uri += "&band=" + BandToQueryString(band.Value);
         if (channel.HasValue)
             uri += "&channel=" + channel.Value;
-        uri += SignalQuery(signalMin, signalMax);
+        uri += SignalQuery(signalMin, signalMax, weakSignal);
 
         NavigationManager.NavigateTo(uri, forceLoad: false, replace: false);
         _lastTabParam = tab;
     }
 
-    private static string SignalQuery(int? min, int? max) =>
+    private static string SignalQuery(int? min, int? max, bool weak = false) =>
         (min.HasValue ? "&sigmin=" + min.Value.ToString(System.Globalization.CultureInfo.InvariantCulture) : "")
-        + (max.HasValue ? "&sigmax=" + max.Value.ToString(System.Globalization.CultureInfo.InvariantCulture) : "");
+        + (max.HasValue ? "&sigmax=" + max.Value.ToString(System.Globalization.CultureInfo.InvariantCulture) : "")
+        + (weak ? "&signal=weak" : "");
+
+    /// <summary>The Wireless Clients and Weak Signal cards: Client Stats, all clients or the weak-signal ones.</summary>
+    private void ShowClientStats(bool weakSignalOnly)
+    {
+        NavigateToTab("client", weakSignal: weakSignalOnly);
+        _clientTimelineKey++;
+    }
+
+    /// <summary>The Access Points card: the Overview's Access Points card, scrolled to once it renders.</summary>
+    private async Task ShowAccessPointsAsync()
+    {
+        if (_activeTab != "overview")
+        {
+            _scrollToAccessPoints = true;
+            NavigateToTab("overview");
+            return;
+        }
+        try { await JS.InvokeVoidAsync("noScrollTo", "wifi-access-points", "start"); }
+        catch (Exception ex) when (ex is not OperationCanceledException) { }
+    }
 
     private void HandleSignalRangeNavigate((int? Min, int? Max) range) =>
         NavigateToTab("client", signalMin: range.Min, signalMax: range.Max);
@@ -1238,6 +1280,7 @@
             _initialBand = BandFromQueryString(BandQueryParam);
             _initialSignalMin = SignalMinQueryParam;
             _initialSignalMax = SignalMaxQueryParam;
+            _initialWeakSignal = WeakSignalQuery;
         }
         else if (!string.IsNullOrEmpty(TabParam))
         {
@@ -1249,6 +1292,7 @@
             _initialBand = BandFromQueryString(BandQueryParam);
             _initialSignalMin = SignalMinQueryParam;
             _initialSignalMax = SignalMaxQueryParam;
+            _initialWeakSignal = WeakSignalQuery;
             _initialChannel = ChannelQueryParam;
             _autoRunRecommendation = RecommendQueryParam == true;
             _initialEdge = EdgeQueryParam;
@@ -1336,6 +1380,7 @@
                 _initialBand = BandFromQueryString(BandQueryParam);
                 _initialSignalMin = SignalMinQueryParam;
                 _initialSignalMax = SignalMaxQueryParam;
+                _initialWeakSignal = WeakSignalQuery;
                 _initialChannel = ChannelQueryParam;
                 _autoRunRecommendation = RecommendQueryParam == true;
                 _initialEdge = EdgeQueryParam;
@@ -1591,7 +1636,7 @@
             uri += "&ap=" + Uri.EscapeDataString(ApQueryParam);
         if (!string.IsNullOrEmpty(BandQueryParam))
             uri += "&band=" + Uri.EscapeDataString(BandQueryParam);
-        uri += SignalQuery(SignalMinQueryParam, SignalMaxQueryParam);
+        uri += SignalQuery(SignalMinQueryParam, SignalMaxQueryParam, WeakSignalQuery);
         if (!string.IsNullOrEmpty(mac))
             uri += "&client=" + Uri.EscapeDataString(mac);
 

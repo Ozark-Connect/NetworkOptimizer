@@ -479,6 +479,7 @@ Gateway tweaks for UCG-Fiber, UXG-Fiber, UCG-Max, and UXG-Max (Gateway SSH).
 
 - **Wi-Fi Health Score** from signal, channel health, satisfaction, airtime, roaming, and capacity
   - Channel health scores each radio against the quietest channel it could use, so a band busy on every channel costs nothing
+- **Access Points**, **Wireless Clients**, and **Weak Signal** cards open the Access Points card, Client Stats, or its weak-signal clients
 - **Client Band Distribution**, **Channel Optimization** summary, and per-AP radio cards
 - Mesh uplink details and **Re-pair Uplink**
 - **Speed Map** or **Signal Map** below the cards, switched in place
@@ -492,7 +493,7 @@ Gateway tweaks for UCG-Fiber, UXG-Fiber, UCG-Max, and UXG-Max (Gateway SSH).
   - Load: high AP load, load imbalance, high 2.4 GHz concentration
   - Clients: legacy client airtime, IoT SSID separation, DHCP issues, high latency despite good signal ([AP Telemetry](#ap-telemetry))
   - Settings: band steering, Roaming Assistant, minimum RSSI, minimum data rates, TX power levels, MLO, 6 GHz disabled
-  - Roaming failures
+  - Roaming failures between an AP pair, naming the client when one client made them all
 - Deliberately set channels and TX power are noted instead of flagged
 
 ### Metrics, RF Environment, and Environment
