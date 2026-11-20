@@ -39,6 +39,10 @@ public class PlannedAp
     [MaxLength(20)]
     public string? AntennaMode { get; set; }
 
+    /// <summary>Import source of this planned AP (e.g. "innerspace:{planId}"); a re-import replaces these. Null = placed here.</summary>
+    [MaxLength(100)]
+    public string? SourceRef { get; set; }
+
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;

@@ -2274,6 +2274,9 @@ namespace NetworkOptimizer.Storage.Migrations
                     b.Property<int>("FloorNumber")
                         .HasColumnType("INTEGER");
 
+                    b.Property<double?>("HeightM")
+                        .HasColumnType("REAL");
+
                     b.Property<string>("ImagePath")
                         .HasMaxLength(500)
                         .HasColumnType("TEXT");
@@ -2291,6 +2294,16 @@ namespace NetworkOptimizer.Storage.Migrations
 
                     b.Property<double>("Opacity")
                         .HasColumnType("REAL");
+
+                    b.Property<DateTime?>("SourceImportedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("SourcePlacementJson")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("SourceRef")
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT");
 
                     b.Property<double>("SwLatitude")
                         .HasColumnType("REAL");
@@ -2601,57 +2614,6 @@ namespace NetworkOptimizer.Storage.Migrations
                     b.ToTable("HopLocationOverrides", (string)null);
                 });
 
-            modelBuilder.Entity("NetworkOptimizer.Storage.Models.LearnedHopLocation", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("INTEGER");
-
-                    b.Property<string>("Address")
-                        .IsRequired()
-                        .HasMaxLength(45)
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("City")
-                        .IsRequired()
-                        .HasMaxLength(120)
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("CountryCode")
-                        .IsRequired()
-                        .HasMaxLength(2)
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("Detail")
-                        .IsRequired()
-                        .HasMaxLength(300)
-                        .HasColumnType("TEXT");
-
-                    b.Property<double>("Latitude")
-                        .HasColumnType("REAL");
-
-                    b.Property<double>("Longitude")
-                        .HasColumnType("REAL");
-
-                    b.Property<DateTime>("SeenAt")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("SiteSlug")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("TEXT");
-
-                    b.Property<int>("Source")
-                        .HasColumnType("INTEGER");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("SiteSlug", "Address")
-                        .IsUnique();
-
-                    b.ToTable("LearnedHopLocations", (string)null);
-                });
-
             modelBuilder.Entity("NetworkOptimizer.Storage.Models.InterfaceNameMap", b =>
                 {
                     b.Property<int>("Id")
@@ -2907,6 +2869,57 @@ namespace NetworkOptimizer.Storage.Migrations
                     b.HasIndex("DeviceHost", "TestTime");
 
                     b.ToTable("Iperf3Results", (string)null);
+                });
+
+            modelBuilder.Entity("NetworkOptimizer.Storage.Models.LearnedHopLocation", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Address")
+                        .IsRequired()
+                        .HasMaxLength(45)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("City")
+                        .IsRequired()
+                        .HasMaxLength(120)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("CountryCode")
+                        .IsRequired()
+                        .HasMaxLength(2)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Detail")
+                        .IsRequired()
+                        .HasMaxLength(300)
+                        .HasColumnType("TEXT");
+
+                    b.Property<double>("Latitude")
+                        .HasColumnType("REAL");
+
+                    b.Property<double>("Longitude")
+                        .HasColumnType("REAL");
+
+                    b.Property<DateTime>("SeenAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("SiteSlug")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("Source")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("SiteSlug", "Address")
+                        .IsUnique();
+
+                    b.ToTable("LearnedHopLocations", (string)null);
                 });
 
             modelBuilder.Entity("NetworkOptimizer.Storage.Models.LicenseInfo", b =>
@@ -3872,6 +3885,10 @@ namespace NetworkOptimizer.Storage.Migrations
 
                     b.Property<int>("OrientationDeg")
                         .HasColumnType("INTEGER");
+
+                    b.Property<string>("SourceRef")
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT");
 
                     b.Property<int?>("TxPower24Dbm")
                         .HasColumnType("INTEGER");

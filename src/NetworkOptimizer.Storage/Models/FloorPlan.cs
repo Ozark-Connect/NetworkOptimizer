@@ -46,6 +46,19 @@ public class FloorPlan
     [MaxLength(50)]
     public string FloorMaterial { get; set; } = "floor_wood";
 
+    /// <summary>Floor-to-ceiling height in metres, when known (an import sets it). Null = not recorded.</summary>
+    public double? HeightM { get; set; }
+
+    /// <summary>Where this floor was imported from (e.g. "innerspace:{planId}"), for re-import. Null = drawn here.</summary>
+    [MaxLength(100)]
+    public string? SourceRef { get; set; }
+
+    /// <summary>JSON placement of the import ({lat, lng, rotationDeg}), so a re-import lands in the same spot.</summary>
+    public string? SourcePlacementJson { get; set; }
+
+    /// <summary>When the floor was last imported; an UpdatedAt after it means it was edited since.</summary>
+    public DateTime? SourceImportedAt { get; set; }
+
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
