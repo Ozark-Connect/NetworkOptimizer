@@ -810,6 +810,13 @@ h1:focus {
     flex-basis: 100%;
 }
 
+/* A chart whose points open their result. The shared tooltip shows only while the pointer is in the
+   plot with a point captured, which is exactly when a click opens one; ApexCharts draws no element
+   that covers just the plot. */
+.chart-opens-results .apexcharts-canvas:has(.apexcharts-tooltip.apexcharts-active) {
+    cursor: pointer;
+}
+
 /* The link context chip: a tab showing what a link asked for, beside the card title (Network
    Performance) or the WAN pills (Live View). */
 .chart-title-row {

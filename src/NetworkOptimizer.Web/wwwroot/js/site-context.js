@@ -401,7 +401,9 @@ window.noHoldScroll = function (id, windowMs) {
     window.addEventListener('touchmove', release, { passive: true });
     window.addEventListener('keydown', release);
     function tick(now) {
-        if (released || now >= hold.until) {
+        // Gone from the page (the reader navigated away): a detached element measures at 0, so holding
+        // it would scroll whatever page came next.
+        if (released || now >= hold.until || !el.isConnected) {
             delete noActiveHolds[id];
             window.removeEventListener('wheel', release);
             window.removeEventListener('touchmove', release);

@@ -50,19 +50,29 @@
             sessionStorage.removeItem(RELOAD_KEY);
         } catch { return; }
         if (!saved || saved.url !== currentUrl() || !(saved.top > 0)) return;
+        reapplyScrollTop(saved.top);
+    }
 
-        // Keep re-applying: data loads in after first paint, and the interactive render replaces
-        // the prerendered scroller, which resets it to 0. Any touch, wheel or key hands it back.
-        const target = saved.top;
+    // Keep re-applying a scroll position: data loads in after first paint (and on a reload the
+    // interactive render replaces the prerendered scroller, which resets it to 0), so a page still
+    // short of the target clamps one assignment. Any touch, wheel or key hands it back, and so does
+    // leaving the page.
+    let stopReapply = null;
+    function reapplyScrollTop(target) {
+        if (stopReapply) stopReapply();
         const started = Date.now();
+        const url = currentUrl();
         const events = ['touchstart', 'wheel', 'pointerdown', 'keydown'];
         let timer = null;
         function stop() {
             clearInterval(timer);
             events.forEach(function(e) { window.removeEventListener(e, stop, true); });
+            if (stopReapply === stop) stopReapply = null;
         }
+        stopReapply = stop;
         events.forEach(function(e) { window.addEventListener(e, stop, { capture: true, passive: true }); });
         timer = setInterval(function() {
+            if (currentUrl() !== url) { stop(); return; }
             const container = getScrollContainer();
             const done = Date.now() - started >= RESTORE_WINDOW_MS;
             if (container) {
@@ -100,6 +110,18 @@
             }
         },
 
+        // Called from C# after a query-only navigation (a tab switch). Only Back or Forward moves the
+        // page: it returns to where that tab was left. Any other query change leaves the scroll alone.
+        restoreIfPopState: function(url) {
+            if (!isPopState) return;
+            isPopState = false;
+            var container = getScrollContainer();
+            var saved = scrollPositions.get(url);
+            if (!container || saved === undefined) return;
+            container.scrollTop = saved;
+            if (saved > 0) reapplyScrollTop(saved);
+        },
+
         // Called from C# after navigation
         restoreOrScrollToTop: function(path) {
             var container = getScrollContainer();
@@ -109,6 +131,8 @@
             if (isPopState) {
                 var saved = scrollPositions.get(path);
                 container.scrollTop = saved !== undefined ? saved : 0;
+                // The page coming back loads its data again, so it is often too short to hold the position yet.
+                if (saved > 0) reapplyScrollTop(saved);
                 isPopState = false;
                 return;
             }
