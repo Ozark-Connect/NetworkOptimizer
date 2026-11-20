@@ -1739,6 +1739,8 @@ window.fpEditor = {
                 }).addTo(self._bgHitAreaLayer);
                 var bldgId = parseInt(id);
                 poly.on('click', function () {
+                    // An InnerSpace import being placed owns the map until it is imported or cancelled.
+                    if (window.innerspaceImport && window.innerspaceImport._placement) return;
                     if (self._dotNetRef) self._dotNetRef.invokeMethodAsync('OnBgBuildingClicked', bldgId);
                 });
                 // "Tap" on touch-first devices, "Click" with a mouse
