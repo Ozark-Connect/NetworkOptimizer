@@ -61,6 +61,9 @@ public sealed class LiveFlowTracker
     }
 
     private readonly Dictionary<string, State> _flows = new();
+    // Reused by every pass so their arrays are allocated once, not regrown each pass.
+    private readonly List<(LiveFlowSample Sample, long Window, int Order, State State)> _moving = [];
+    private readonly List<(LiveFlowSample Sample, State State)> _keepIdle = [];
     private readonly Dictionary<string, (long Orig, long Reply, int Pass)> _tombstones = new();
     private int _pass;
     private DateTime _lastPassAt;
@@ -94,8 +97,10 @@ public sealed class LiveFlowTracker
         var sinceLastPass = firstPass ? 0 : (long)Math.Ceiling((now - _lastPassAt).TotalSeconds);
         _lastPassAt = now;
         var build = maxFlows > 0;
-        var moving = build ? new List<(LiveFlowSample Sample, long Window, State State)>() : null;
-        var keepIdle = build ? new List<(LiveFlowSample Sample, State State)>() : null;
+        var moving = _moving;
+        var keepIdle = _keepIdle;
+        moving.Clear();
+        keepIdle.Clear();
 
         foreach (var flow in flows)
         {
@@ -148,8 +153,8 @@ public sealed class LiveFlowTracker
             if (Describe(flow, view, state, now, dOrig, dReply) is not { } sample) continue;
             state.LastSample = sample;
             var window = sample.DownBytes + sample.UpBytes;
-            if (window > 0) moving!.Add((sample, window, state));
-            else if (state.SentLastWindow) keepIdle!.Add((sample, state));
+            if (window > 0) moving.Add((sample, window, moving.Count, state));
+            else if (state.SentLastWindow) keepIdle.Add((sample, state));
         }
 
         var ended = new List<LiveFlowSample>();
@@ -179,17 +184,23 @@ public sealed class LiveFlowTracker
 
         foreach (var state in _flows.Values) state.SentLastWindow = false;
         var sent = new List<LiveFlowSample>();
-        foreach (var (sample, _, state) in moving!.OrderByDescending(m => m.Window).Take(maxFlows))
+        // Sorted in place, the index breaking ties, so the order matches a stable sort by window, largest first.
+        moving.Sort(static (a, b) => a.Window != b.Window ? b.Window.CompareTo(a.Window) : a.Order.CompareTo(b.Order));
+        for (var i = 0; i < moving.Count && i < maxFlows; i++)
         {
+            var (sample, _, _, state) = moving[i];
             sent.Add(sample);
             state.SentLastWindow = state.EverSent = true;
         }
         // Carried once at zero, not re-armed: how long an idle flow stays listed is the server's call.
-        foreach (var (sample, _) in keepIdle!)
+        foreach (var (sample, _) in keepIdle)
         {
             if (sent.Count >= maxFlows + maxFlows / 4) break;
             sent.Add(sample);
         }
+        // Emptied so the samples are not held until the next lease's pass.
+        moving.Clear();
+        keepIdle.Clear();
         return new LiveFlowPass(sent, ended, flows.Count);
     }
 

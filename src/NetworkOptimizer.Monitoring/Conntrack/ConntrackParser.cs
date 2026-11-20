@@ -59,8 +59,16 @@ public static class ConntrackParser
         var inReply = false;
         string proto = "";
 
-        foreach (var token in line.Split(' ', StringSplitOptions.RemoveEmptyEntries))
+        // Tokenized on spans, not Split: this runs for every flow on every pass, and a string per token was
+        // most of the agent's allocation.
+        var rest = line.AsSpan();
+        while (!rest.IsEmpty)
         {
+            var space = rest.IndexOf(' ');
+            var token = space < 0 ? rest : rest[..space];
+            rest = space < 0 ? default : rest[(space + 1)..];
+            if (token.IsEmpty) continue;
+
             var eq = token.IndexOf('=');
             if (eq < 0)
             {
@@ -69,9 +77,9 @@ public static class ConntrackParser
                 // protocol name is the first lowercase bare token that is not the l3 name - keyed
                 // this way so a /proc snapshot and an event line produce the SAME flow key.
                 if (proto.Length == 0 && token[0] != '['
-                    && token != "ipv4" && token != "ipv6" && !char.IsAsciiDigit(token[0])
+                    && !token.SequenceEqual("ipv4") && !token.SequenceEqual("ipv6") && !char.IsAsciiDigit(token[0])
                     && char.IsAsciiLetterLower(token[0]))
-                    proto = token;
+                    proto = token.ToString();
                 continue;
             }
             var name = token[..eq];
@@ -91,11 +99,11 @@ public static class ConntrackParser
                 case "sport" or "dport" or "id":
                     if (!inReply)
                     {
-                        origPorts += name + value;
-                        if (name == "sport") int.TryParse(value, out origSport);
-                        else if (name == "dport") int.TryParse(value, out origDport);
+                        origPorts = string.Concat(origPorts, name, value);
+                        if (name.SequenceEqual("sport")) int.TryParse(value, out origSport);
+                        else if (name.SequenceEqual("dport")) int.TryParse(value, out origDport);
                     }
-                    else replyPorts += name + value;
+                    else replyPorts = string.Concat(replyPorts, name, value);
                     break;
                 case "bytes":
                     if (!long.TryParse(value, out var bytes)) return null;

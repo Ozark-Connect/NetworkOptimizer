@@ -49,17 +49,22 @@ public static class OutOfMemoryRestart
     /// Records <paramref name="ex"/> if it is an out-of-memory failure; anything else is ignored.
     /// The caller keeps its own one-line log either way.
     /// </summary>
-    public static void Report(string source, Exception ex)
+    /// <param name="restartNow">
+    /// Restart on this failure, without waiting for a burst: for a path that runs minutes apart and has no
+    /// retry, such as the gateway blocklist apply, where a burst never comes and a failure leaves the sets to drain.
+    /// </param>
+    public static void Report(string source, Exception ex, bool restartNow = false)
     {
         if (!IsOutOfMemory(ex)) return;
 
         var count = Recent.Record(DateTime.UtcNow);
-        if (count == 1)
+        if (count == 1 && !restartNow)
             Console.Error.WriteLine(Describe($"Out of memory in {source} (first in {Window.TotalMinutes:0} min)", ex));
-        if (count < FailuresBeforeRestart || Interlocked.Exchange(ref _exiting, 1) == 1) return;
+        if ((!restartNow && count < FailuresBeforeRestart) || Interlocked.Exchange(ref _exiting, 1) == 1) return;
 
-        Console.Error.WriteLine(Describe(
-            $"Out of memory in {source} ({count} in {Window.TotalMinutes:0} min); exiting so systemd relaunches the agent", ex));
+        Console.Error.WriteLine(Describe(restartNow
+            ? $"Out of memory in {source}; exiting so systemd relaunches the agent"
+            : $"Out of memory in {source} ({count} in {Window.TotalMinutes:0} min); exiting so systemd relaunches the agent", ex));
         try
         {
             PersistState?.Invoke();

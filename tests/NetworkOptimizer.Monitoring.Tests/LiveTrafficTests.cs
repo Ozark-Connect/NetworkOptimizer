@@ -172,6 +172,23 @@ public class LiveTrafficTests
     }
 
     [Fact]
+    public void EqualWindows_KeepTheirTableOrder_AcrossPasses()
+    {
+        var tracker = new LiveFlowTracker();
+        var view = GatewayView();
+        var t0 = DateTime.UtcNow;
+        tracker.Track([Wan(0, 0, 1000), Wan(0, 0, 1001), Wan(0, 0, 1002), Wan(0, 0, 1003)], view, t0, 3);
+
+        var pass = tracker.Track([Wan(0, 500, 1000), Wan(0, 500, 1001), Wan(0, 900, 1002), Wan(0, 500, 1003)], view, t0.AddSeconds(2), 3);
+        pass!.Flows.Select(f => f.ClientPort).Should().Equal(1002, 1000, 1001);
+
+        // The reused lists start empty: the next pass ranks only its own windows (1003 moved 300, 1000 moved 100),
+        // then carries one idle flow sent last pass up to the cap.
+        var next = tracker.Track([Wan(0, 600, 1000), Wan(0, 500, 1001), Wan(0, 900, 1002), Wan(0, 800, 1003)], view, t0.AddSeconds(4), 3);
+        next!.Flows.Select(f => f.ClientPort).Should().Equal(1003, 1000, 1001);
+    }
+
+    [Fact]
     public void FlowGoneTwoPassesIsReportedEnded()
     {
         var tracker = new LiveFlowTracker();

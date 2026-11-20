@@ -1042,6 +1042,11 @@ the stack trace, the GC's heap, committed, fragmented, and available sizes per
 generation, its configuration (hard limit, region range and size), the page
 size, and the process's `VmRSS` / `VmSize`. Include that block in a bug report.
 
+A gateway blocklist apply that runs out of memory restarts the agent on the
+first failure. Applies come minutes apart, so a burst never forms, and a failed
+apply leaves the public block list sets to drain as their entries time out. The
+fresh process re-applies them.
+
 ## Local dev / testing
 
 Build for the site box's architecture and copy the single binary over - no build
