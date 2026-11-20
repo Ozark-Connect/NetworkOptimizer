@@ -319,16 +319,17 @@
         // go nowhere. History does not expose an earlier entry's URL, so each call records this entry's, per
         // tab, keyed by that index; ?site= is left out since multi-site stamps it in after a navigation.
         window.__canGoBack = function() {
+            // No _index yet on the entry the app loaded on (Blazor writes it later): that entry is 0.
             var s = history.state;
-            if (!s || typeof s._index !== 'number') return false;
+            var index = s && typeof s._index === 'number' ? s._index : 0;
             var u = new URL(location.href);
             u.searchParams.delete('site');
             var here = u.pathname + u.search;
             var seen = {};
             try { seen = JSON.parse(sessionStorage.getItem('no.historyUrls') || '{}'); } catch (e) { }
-            seen[s._index] = here;
+            seen[index] = here;
             try { sessionStorage.setItem('no.historyUrls', JSON.stringify(seen)); } catch (e) { }
-            return s._index > 0 && seen[s._index - 1] !== here;
+            return index > 0 && seen[index - 1] !== here;
         };
         // A full page load that keeps this tab's place in that numbering: Blazor reads _index back on
         // start, and a reload keeps history.state. NavigateTo(forceLoad) starts a fresh entry at 0,
