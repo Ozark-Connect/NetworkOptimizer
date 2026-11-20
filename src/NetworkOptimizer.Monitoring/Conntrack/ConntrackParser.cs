@@ -31,6 +31,23 @@ public sealed record ConntrackFlow(
 /// </summary>
 public static class ConntrackParser
 {
+    /// <summary>
+    /// The whole file in <paramref name="buffer"/>, which the caller keeps between passes, read with as few
+    /// syscalls as the buffer allows. The buffer doubles when the file fills it.
+    /// </summary>
+    public static MemoryStream ReadFile(string path, ref byte[] buffer)
+    {
+        using var file = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, bufferSize: 0);
+        var filled = 0;
+        int read;
+        while ((read = file.Read(buffer, filled, buffer.Length - filled)) > 0)
+        {
+            filled += read;
+            if (filled == buffer.Length) Array.Resize(ref buffer, buffer.Length * 2);
+        }
+        return new MemoryStream(buffer, 0, filled, writable: false);
+    }
+
     public static List<ConntrackFlow> Parse(TextReader reader)
     {
         var flows = new List<ConntrackFlow>();

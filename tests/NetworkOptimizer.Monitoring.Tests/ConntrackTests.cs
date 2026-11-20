@@ -12,6 +12,63 @@ namespace NetworkOptimizer.Monitoring.Tests;
 /// </summary>
 public class ConntrackParserTests
 {
+    private static string Line(int i) =>
+        $"ipv4     2 tcp      6 431976 ESTABLISHED src=192.0.2.{i % 250 + 1} dst=203.0.113.34 sport={1024 + i % 60000} dport=443 packets=124 bytes={i} src=203.0.113.34 dst=198.51.100.7 sport=443 dport={1024 + i % 60000} packets=110 bytes={i * 2} [ASSURED] mark=0 zone=0 use=2\n";
+
+    // Sizes against a 4 KB buffer: several times over (grows more than once), exactly full (grows once at
+    // the end), under, and empty.
+    [Theory]
+    [InlineData(5_000)]
+    [InlineData(4_096)]
+    [InlineData(1_000)]
+    [InlineData(0)]
+    public void ReadFile_ReadsTheWholeFile_WhateverItsSizeAgainstTheBuffer(int bytes)
+    {
+        var text = new System.Text.StringBuilder();
+        for (var i = 0; text.Length < bytes; i++) text.Append(Line(i));
+        var content = System.Text.Encoding.UTF8.GetBytes(text.ToString())[..bytes];
+        var path = Path.GetTempFileName();
+        try
+        {
+            File.WriteAllBytes(path, content);
+            var buffer = new byte[4096];
+
+            using var stream = ConntrackParser.ReadFile(path, ref buffer);
+
+            stream.ToArray().Should().Equal(content);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void ReadFile_ReusedBuffer_ParsesTheSameFlowsAsAFreshRead()
+    {
+        var text = string.Concat(Enumerable.Range(0, 3_000).Select(Line)); // ~600 KB: grows a 64 KB buffer 4 times
+        var path = Path.GetTempFileName();
+        try
+        {
+            File.WriteAllText(path, text);
+            var buffer = new byte[64 * 1024];
+            List<ConntrackFlow> first, second;
+            using (var reader = new StreamReader(ConntrackParser.ReadFile(path, ref buffer)))
+                first = ConntrackParser.Parse(reader);
+            using (var reader = new StreamReader(ConntrackParser.ReadFile(path, ref buffer)))
+                second = ConntrackParser.Parse(reader);
+
+            var expected = ConntrackParser.Parse(new StringReader(text));
+            expected.Should().HaveCount(3_000);
+            first.Should().Equal(expected);
+            second.Should().Equal(expected);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
     [Fact]
     public void ParsesNattedIpv4TcpFlow()
     {

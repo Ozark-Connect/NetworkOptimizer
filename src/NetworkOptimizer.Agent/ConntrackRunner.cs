@@ -228,19 +228,7 @@ public sealed class ConntrackRunner
     // 2 s, and each one forces a gen2 collection.
     private byte[] _readBuffer = new byte[ReadBufferBytes];
 
-    /// <summary>The whole proc file in the reused buffer, read with as few syscalls as it allows.</summary>
-    private MemoryStream ReadProcFile()
-    {
-        using var file = new FileStream(ProcPath, FileMode.Open, FileAccess.Read, FileShare.Read, bufferSize: 0);
-        var filled = 0;
-        int read;
-        while ((read = file.Read(_readBuffer, filled, _readBuffer.Length - filled)) > 0)
-        {
-            filled += read;
-            if (filled == _readBuffer.Length) Array.Resize(ref _readBuffer, _readBuffer.Length * 2);
-        }
-        return new MemoryStream(_readBuffer, 0, filled, writable: false);
-    }
+    private MemoryStream ReadProcFile() => ConntrackParser.ReadFile(ProcPath, ref _readBuffer);
 
     private void SamplePass()
     {
