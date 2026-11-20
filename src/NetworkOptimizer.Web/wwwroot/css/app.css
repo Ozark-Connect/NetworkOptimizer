@@ -20277,6 +20277,11 @@ tr.stats-row-filtered {
     .lan-flow-map-2d-stage.lan-flow-map-fullscreen .lfm2d-canvas {
         height: 100%;
     }
+    /* A mobile .card pads itself by 1rem; the maps run to its edges, as on desktop. */
+    .lan-flow-map-card > .lan-flow-map-body,
+    .lan-flow-map-2d-card > .lan-flow-map-2d-body {
+        margin: 0 -1rem -1rem;
+    }
 }
 
 .lan-flow-map-context-menu {
