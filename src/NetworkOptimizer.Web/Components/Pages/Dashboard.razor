@@ -690,14 +690,14 @@
                         <div class="speed-test-list">
                             @foreach (var test in _recentWanTests)
                             {
-                                <div class="speed-test-row">
+                                <a class="speed-test-row speed-test-row-link" href="/wan-speedtest?result=@test.Id" @onclick:stopPropagation>
                                     <span class="speed-test-device">@(test.WanName ?? test.WanNetworkGroup ?? "WAN")</span>
                                     <span class="speed-test-speeds">
                                         <span class="speed-down">↓@test.DownloadMbps.ToString("F0")</span>
                                         <span class="speed-up">↑@test.UploadMbps.ToString("F0")</span>
                                     </span>
                                     <span class="speed-test-time">@test.TestTime.ToLocalTime(DisplayTime).ToString(DisplayTime.Format.DayTime, DisplayFormat.Culture)</span>
-                                </div>
+                                </a>
                             }
                         </div>
                     }
@@ -727,7 +727,7 @@
                         <div class="speed-test-list">
                             @foreach (var test in _recentSpeedTests)
                             {
-                                <div class="speed-test-row">
+                                <a class="speed-test-row speed-test-row-link" href="/speedtest?result=@test.Id" @onclick:stopPropagation>
                                     @if ((!string.IsNullOrEmpty(test.DeviceName) ? test.DeviceName : _tailnet.NameFor(test.DeviceHost)) is { } deviceName)
                                     {
                                         <span class="speed-test-device"><ResultClientIcon Host="@test.DeviceHost" Mac="@test.ClientMac" Tailnet="_tailnet" Icons="_clientIcons" />@deviceName</span>
@@ -759,7 +759,7 @@
                                         }
                                     </span>
                                     <span class="speed-test-time">@test.TestTime.ToLocalTime(DisplayTime).ToString(DisplayTime.Format.DayTime, DisplayFormat.Culture)</span>
-                                </div>
+                                </a>
                             }
                         </div>
                     }

@@ -24,6 +24,7 @@ an On-Site Agent, AP Telemetry, InfluxDB, or HTTPS.
 - **Active Alerts** - top three open alerts, with Acknowledge and Resolve in place; click one to open it on Alerts & Schedule
 - **Security Posture**, **Adaptive SQM**, **Threat Trends**, and **Recent Security Findings** cards
 - **WAN Speed Test**, **LAN Speed Test**, and **Wi-Fi Optimizer** summary cards
+  - Each recent speed test opens its result, expanded, on its page
 - **Device Status** - every device's IP, model, firmware, uptime, clients, and ping
   - Restart reason on hover: firmware, commanded, power loss, hang, panic, or watchdog (Device SSH)
 - **Live View** - the 2D or 3D map embedded on the Dashboard

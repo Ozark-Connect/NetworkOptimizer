@@ -1361,6 +1361,24 @@ h1:focus {
     border-bottom: none;
 }
 
+/* A Dashboard row that opens its result: padded out to the card edge so the hover reads as a row. */
+a.speed-test-row-link {
+    color: inherit;
+    text-decoration: none;
+    margin: 0 -0.5rem;
+    padding: 0.75rem 0.5rem;
+    border-radius: 6px;
+    transition: background 0.15s ease;
+}
+
+a.speed-test-row-link:first-child {
+    padding-top: 0.5rem;
+}
+
+a.speed-test-row-link:hover {
+    background: var(--bg-hover);
+}
+
 /* The Tailscale mark before a client name in speed test lists */
 .client-tailscale-icon {
     margin-right: calc(0.3rem + 2px);
