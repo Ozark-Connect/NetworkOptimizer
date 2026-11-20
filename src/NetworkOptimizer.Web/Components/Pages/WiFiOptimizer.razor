@@ -78,7 +78,7 @@
 {
     <!-- Quick Stats Row -->
     <div class="stats-row wifi-stats-row">
-        <div class="stat-card">
+        <a class="stat-card stat-card-link" href="/wifi-optimizer?tab=overview" @onclick="@(() => ShowOverviewCardAsync("wifi-health-score"))" @onclick:preventDefault>
             <div class="stat-icon wifi-health-icon @GetScoreClass(_summary?.HealthScore)">
                 <ScoreRing Score="@_summary?.HealthScore" Small="true" />
                 @if (_loading)
@@ -103,9 +103,9 @@
                 </div>
                 <div class="stat-label">Wi-Fi Health</div>
             </div>
-        </div>
+        </a>
 
-        <a class="stat-card stat-card-link" href="/wifi-optimizer?tab=overview" @onclick="ShowAccessPointsAsync" @onclick:preventDefault>
+        <a class="stat-card stat-card-link" href="/wifi-optimizer?tab=overview" @onclick="@(() => ShowOverviewCardAsync("wifi-access-points"))" @onclick:preventDefault>
             <svg class="stat-icon-svg" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg" width="32" height="32">
                 <path d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" opacity="0.7"></path>
                 <path fill-rule="evenodd" clip-rule="evenodd" d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10Zm4-10a4 4 0 1 1-8 0 4 4 0 0 1 8 0Z" opacity="0.6"></path>
@@ -358,7 +358,7 @@
     {
     <div class="content-grid wifi-content-grid">
         <!-- Health Score Card -->
-        <div class="card">
+        <div class="card" id="wifi-health-score">
             <div class="card-header">
                 <h2 class="card-title">Wi-Fi Health Score</h2>
                 <button class="btn btn-sm btn-secondary" @onclick="RefreshData" disabled="@_refreshing">
@@ -947,10 +947,10 @@
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (_scrollToAccessPoints && _activeTab == "overview")
+        if (_scrollToOverviewCard is { } cardId && _activeTab == "overview")
         {
-            _scrollToAccessPoints = false;
-            try { await JS.InvokeVoidAsync("noScrollTo", "wifi-access-points", "start"); }
+            _scrollToOverviewCard = null;
+            try { await JS.InvokeVoidAsync("noScrollTo", cardId, "start"); }
             catch (Exception ex) when (ex is not OperationCanceledException) { }
         }
 
@@ -983,7 +983,7 @@
     private bool _initialWeakSignal;
     // Bumped by the stat cards so Client Stats re-applies their filter even when it is already open.
     private int _clientTimelineKey;
-    private bool _scrollToAccessPoints;
+    private string? _scrollToOverviewCard;
     private bool _autoRunRecommendation;
     private string? _initialEdge;
     private string? _initialRange;
@@ -1075,16 +1075,16 @@
         _clientTimelineKey++;
     }
 
-    /// <summary>The Access Points card: the Overview's Access Points card, scrolled to once it renders.</summary>
-    private async Task ShowAccessPointsAsync()
+    /// <summary>The Wi-Fi Health and Access Points cards: the Overview card with that id, scrolled to once it renders.</summary>
+    private async Task ShowOverviewCardAsync(string cardId)
     {
         if (_activeTab != "overview")
         {
-            _scrollToAccessPoints = true;
+            _scrollToOverviewCard = cardId;
             NavigateToTab("overview");
             return;
         }
-        try { await JS.InvokeVoidAsync("noScrollTo", "wifi-access-points", "start"); }
+        try { await JS.InvokeVoidAsync("noScrollTo", cardId, "start"); }
         catch (Exception ex) when (ex is not OperationCanceledException) { }
     }
 

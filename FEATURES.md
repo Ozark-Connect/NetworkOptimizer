@@ -479,7 +479,7 @@ Gateway tweaks for UCG-Fiber, UXG-Fiber, UCG-Max, and UXG-Max (Gateway SSH).
 
 - **Wi-Fi Health Score** from signal, channel health, satisfaction, airtime, roaming, and capacity
   - Channel health scores each radio against the quietest channel it could use, so a band busy on every channel costs nothing
-- **Access Points**, **Wireless Clients**, and **Weak Signal** cards open the Access Points card, Client Stats, or its weak-signal clients
+- **Wi-Fi Health**, **Access Points**, **Wireless Clients**, and **Weak Signal** cards open their Overview card, Client Stats, or its weak-signal clients
 - **Client Band Distribution**, **Channel Optimization** summary, and per-AP radio cards
 - Mesh uplink details and **Re-pair Uplink**
 - **Speed Map** or **Signal Map** below the cards, switched in place
