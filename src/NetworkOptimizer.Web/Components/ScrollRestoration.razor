@@ -60,9 +60,19 @@
         return new Uri(uri).AbsolutePath;
     }
 
+    /// <summary>
+    /// The key a position is saved under: the path and query, without ?site= and in a fixed order. Multi-site
+    /// stamps ?site= into the address bar behind the router (site-context.js), so the same page reads with it on
+    /// Back and without it when it was left.
+    /// </summary>
     private static string GetPathAndQuery(string uri)
     {
-        return new Uri(uri).PathAndQuery;
+        var parsed = new Uri(uri);
+        var query = Microsoft.AspNetCore.WebUtilities.QueryHelpers.ParseQuery(parsed.Query)
+            .Where(kv => !string.Equals(kv.Key, "site", StringComparison.OrdinalIgnoreCase))
+            .OrderBy(kv => kv.Key, StringComparer.Ordinal)
+            .Select(kv => kv.Key + "=" + kv.Value.ToString());
+        return parsed.AbsolutePath + "?" + string.Join("&", query);
     }
 
     public void Dispose()

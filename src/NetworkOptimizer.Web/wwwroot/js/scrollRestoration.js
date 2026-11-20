@@ -56,12 +56,12 @@
     // Keep re-applying a scroll position: data loads in after first paint (and on a reload the
     // interactive render replaces the prerendered scroller, which resets it to 0), so a page still
     // short of the target clamps one assignment. Any touch, wheel or key hands it back, and so does
-    // leaving the page.
+    // the next navigation (savePosition). Not a change of the address bar: multi-site re-stamps
+    // ?site= into it right after every navigation, which would stop this before the page loads.
     let stopReapply = null;
     function reapplyScrollTop(target) {
         if (stopReapply) stopReapply();
         const started = Date.now();
-        const url = currentUrl();
         const events = ['touchstart', 'wheel', 'pointerdown', 'keydown'];
         let timer = null;
         function stop() {
@@ -72,7 +72,6 @@
         stopReapply = stop;
         events.forEach(function(e) { window.addEventListener(e, stop, { capture: true, passive: true }); });
         timer = setInterval(function() {
-            if (currentUrl() !== url) { stop(); return; }
             const container = getScrollContainer();
             const done = Date.now() - started >= RESTORE_WINDOW_MS;
             if (container) {
@@ -104,6 +103,7 @@
         },
 
         savePosition: function(path) {
+            if (stopReapply) stopReapply();
             const container = getScrollContainer();
             if (container) {
                 scrollPositions.set(path, container.scrollTop);
