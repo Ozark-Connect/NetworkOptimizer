@@ -540,6 +540,13 @@ Gateway tweaks for UCG-Fiber, UXG-Fiber, UCG-Max, and UXG-Max (Gateway SSH).
     - Leaving the page while a wall is half drawn asks first
     - Deleting a segment from a closed outline keeps it one wall; redrawing the gap joins it back up and closes the outline, with the new piece facing the right way
     - Selecting segments that run in one straight line in one material offers **Merge**, which makes them one segment
+  - Import buildings from UniFi InnerSpace: LiDAR scans, plans drawn in InnerSpace, and Design Center projects brought into InnerSpace
+    - Walls with their materials, doors and windows (including the windows a scan measures, with sill and head heights), floor images, floor heights, and APs (adopted APs by MAC, the rest as planned APs)
+    - Laid down as a template: drag and rotate on the map, or snap onto an existing building's outline as a new or replaced floor
+    - Floors aligned in InnerSpace import as one building; each floor can be added as a new floor, mapped over an existing floor, or left out, and APs can be left out
+    - Separate outlines on one floor import as separate buildings, or together with Import as one building
+    - Re-import updates the same floors in place, and says first when a floor was edited since
+    - Needs the username and password UniFi Console Connection, with Full Admin access to InnerSpace
   - Place real APs with mount and facing; add planned APs from the model catalog
     - Right-click an AP, or use its popup, to move it or remove it; Delete removes the AP whose popup is open
   - Simulate TX power, antenna mode, or a disabled AP before changing anything

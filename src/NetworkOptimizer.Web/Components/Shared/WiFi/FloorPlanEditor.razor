@@ -1,4 +1,5 @@
 @using NetworkOptimizer.Web.Services
+@using Microsoft.AspNetCore.Components.Sections
 @using Microsoft.AspNetCore.Authorization
 @using Microsoft.AspNetCore.Components.Authorization
 @using NetworkOptimizer.Web.Services.Authorization
@@ -51,6 +52,8 @@
                 else
                 {
                     <button class="fp-btn" @onclick="ShowAddBuildingDialog" data-tooltip="Add new building" data-tooltip-hover-only>+ Building</button>
+                    <button class="fp-btn fp-btn-primary" @onclick="OpenInnerSpaceImport" data-tour="innerspace-import"
+                            data-tooltip="Import a building from UniFi InnerSpace" data-tooltip-hover-only>Import</button>
                 }
             }
 
@@ -199,6 +202,7 @@
     <!-- Map -->
     <div class="fp-map-container" style="position: relative;">
         <div id="@_mapId" class="fp-map" style="height: @(_isFullscreen ? "100%" : MapHeight);"></div>
+        <SectionOutlet SectionName="@ImportPlaceSection" />
 
         @if (_mode == "aps")
         {
@@ -420,6 +424,11 @@
         </div>
     }
 </div>
+
+@if (_showInnerSpaceImport && !IsReadOnly)
+{
+    <InnerSpaceImport MapCenter="_lastMapCenter" PlaceSection="@ImportPlaceSection" OnImported="OnInnerSpaceImported" OnClosed="() => _showInnerSpaceImport = false" />
+}
 
 <!-- Add Building Dialog -->
 @if (_showAddBuilding)
@@ -1687,6 +1696,7 @@
     [Parameter] public string? InitialBand { get; set; }
 
     private string _mapId = "fp-map-" + Guid.NewGuid().ToString("N");
+    private string ImportPlaceSection => "innerspace-place-" + _mapId;
     private DotNetObjectReference<FloorPlanEditor>? _dotNetRef;
     private bool _mapInitialized;
 
@@ -1719,6 +1729,8 @@
     private bool _showCropControls;
     private int _cropTop, _cropRight, _cropBottom, _cropLeft;
     private bool _showAddBuilding;
+    private bool _showInnerSpaceImport;
+    private (double Lat, double Lng)? _lastMapCenter;
     private bool _showAddFloor;
     private string _newBuildingName = "";
     private int _newFloorNumber;
@@ -3926,6 +3938,28 @@
         if (!await JS.InvokeAsync<bool>("confirm",
                 "A wall is still being drawn. If you leave now, it will be lost.\n\nAre you sure you want to leave?"))
             context.PreventNavigation();
+    }
+
+    private async Task OpenInnerSpaceImport()
+    {
+        _lastMapCenter = await GetMapCenterAsync();
+        _showInnerSpaceImport = true;
+    }
+
+    /// <summary>
+    /// After an InnerSpace import: reload buildings, APs and planned APs, then open the building.
+    /// Runs again once the browser has uploaded rasterized scan images.
+    /// </summary>
+    private async Task OnInnerSpaceImported(int buildingId)
+    {
+        HeatmapCache.Invalidate();
+        await LoadApMarkers();
+        await LoadPlannedAps();
+        if (_selectedBuildingId != 0 && _selectedBuildingId != buildingId)
+            await OnBuildingChanged(new ChangeEventArgs { Value = "0" });
+        await OnBuildingChanged(new ChangeEventArgs { Value = buildingId.ToString() });
+        await UpdateApMarkers();
+        StateHasChanged();
     }
 
     private void ShowAddBuildingDialog()
