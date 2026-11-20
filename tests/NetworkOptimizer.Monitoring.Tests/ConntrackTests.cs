@@ -44,6 +44,32 @@ public class ConntrackParserTests
     }
 
     [Fact]
+    public void ReadFile_TableLargerThanTheAgentsBuffer_IsReadWhole()
+    {
+        // The agent's 1 MB buffer against a ~1.4 MB table (about 6,600 flows, as on a busy UDM-Beast).
+        var text = string.Concat(Enumerable.Range(0, 6_600).Select(Line));
+        var path = Path.GetTempFileName();
+        try
+        {
+            File.WriteAllText(path, text);
+            var buffer = new byte[1 << 20];
+
+            List<ConntrackFlow> flows;
+            using (var reader = new StreamReader(ConntrackParser.ReadFile(path, ref buffer)))
+                flows = ConntrackParser.Parse(reader);
+
+            text.Length.Should().BeGreaterThan(1 << 20);
+            buffer.Length.Should().Be(2 << 20);
+            flows.Should().HaveCount(6_600);
+            flows[^1].OrigBytes.Should().Be(6_599);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
     public void ReadFile_ReusedBuffer_ParsesTheSameFlowsAsAFreshRead()
     {
         var text = string.Concat(Enumerable.Range(0, 3_000).Select(Line)); // ~600 KB: grows a 64 KB buffer 4 times
