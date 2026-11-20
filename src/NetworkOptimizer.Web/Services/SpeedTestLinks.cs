@@ -3,8 +3,8 @@ using NetworkOptimizer.Storage.Models;
 namespace NetworkOptimizer.Web.Services;
 
 /// <summary>
-/// The links that open one speed test result, expanded, on its page. Shared by the speed test alerts and the
-/// Dashboard's speed test cards, so a result opens the same way from both.
+/// The links that open one speed test result, expanded, on its page. Shared by the WAN, LAN, and Client speed
+/// test alerts and the Dashboard's speed test cards, so a result opens the same way from each.
 /// </summary>
 public static class SpeedTestLinks
 {
@@ -13,6 +13,9 @@ public static class SpeedTestLinks
 
     /// <summary>LAN Speed Test with the result open.</summary>
     public static string LanResult(int resultId) => $"/speedtest?result={resultId}";
+
+    /// <summary>Client Speed Test with the result open.</summary>
+    public static string ClientResult(int resultId) => $"/client-speedtest?result={resultId}";
 
     // The page filters on the WAN key, which is what WanNetworkGroup already holds ("WAN",
     // "WAN2"). Without it a multi-WAN site opens on whichever WAN it was left on, which is

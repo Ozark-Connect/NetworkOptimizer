@@ -35,4 +35,10 @@ public class SpeedTestLinksTests
     {
         SpeedTestLinks.LanResult(9).Should().Be("/speedtest?result=9");
     }
+
+    [Fact]
+    public void ClientResult()
+    {
+        SpeedTestLinks.ClientResult(11).Should().Be("/client-speedtest?result=11");
+    }
 }
