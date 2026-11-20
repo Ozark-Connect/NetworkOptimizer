@@ -3932,6 +3932,8 @@
             _selectedFloor = firstFloor;
             _globalActiveFloor = firstFloor.FloorNumber;
             _floorOpacity = firstFloor.Opacity;
+            // The image list still holds the deleted floor's images; reload it for this floor.
+            await LoadFloorImages();
             await UpdateFloorOverlay();
             await UpdateWalls();
         }
@@ -3939,6 +3941,9 @@
         {
             _selectedFloorId = 0;
             _selectedFloor = null;
+            _floorImages.Clear();
+            _selectedImageId = null;
+            _selectedImage = null;
             await JS.InvokeVoidAsync("fpEditor.clearFloorLayers");
         }
 
