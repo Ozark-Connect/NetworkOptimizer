@@ -28,6 +28,8 @@
 <NavigationLock OnBeforeInternalNavigation="OnBeforeInternalNavigation" ConfirmExternalNavigation="_editMode" />
 
 <div class="page-header">
+    @* Shows only when this tab has an earlier in-app page: a cold start (a PWA launch, a new tab) has none. *@
+    <PageBackButton />
     @* Site name next to the header (muted) when multi-site is enabled, including the
        main site, so each per-site tab is identifiable at a glance. *@
     <h1>
