@@ -721,7 +721,8 @@
                             <div class="chart-container">
                                 <ApexChart @ref="_speedChart" TItem="SpeedChartPoint"
                                            Options="_speedChartOptions"
-                                           Height="@("220px")">
+                                           Height="@("220px")"
+                                           OnClick="OnSpeedChartClicked">
                                     <ApexPointSeries TItem="SpeedChartPoint"
                                                      Items="_speedDownloadData"
                                                      Name="Download"
@@ -747,7 +748,8 @@
                             <div class="chart-container">
                                 <ApexChart @ref="_latencyChart" TItem="SpeedChartPoint"
                                            Options="_latencyChartOptions"
-                                           Height="@("220px")">
+                                           Height="@("220px")"
+                                           OnClick="OnSpeedChartClicked">
                                     <ApexPointSeries TItem="SpeedChartPoint"
                                                      Items="_latencyPingData"
                                                      Name="Ping"
@@ -3286,14 +3288,14 @@
             // A one-direction result stores 0 for the leg it never measured; that leg gets no
             // point rather than a real-looking zero sawing the line to the floor.
             if (r.UploadMbps > 0)
-                rawDownload.Add(new SpeedChartPoint(r.TestTime, (decimal)r.UploadMbps, "download"));
+                rawDownload.Add(new SpeedChartPoint(r.TestTime, (decimal)r.UploadMbps, "download", r.Id));
             if (r.DownloadMbps > 0)
-                rawUpload.Add(new SpeedChartPoint(r.TestTime, (decimal)r.DownloadMbps, "upload"));
+                rawUpload.Add(new SpeedChartPoint(r.TestTime, (decimal)r.DownloadMbps, "upload", r.Id));
 
             if (r.PingMs.HasValue)
-                rawPing.Add(new SpeedChartPoint(r.TestTime, (decimal)r.PingMs.Value, "ping"));
+                rawPing.Add(new SpeedChartPoint(r.TestTime, (decimal)r.PingMs.Value, "ping", r.Id));
             if (r.JitterMs.HasValue)
-                rawJitter.Add(new SpeedChartPoint(r.TestTime, (decimal)r.JitterMs.Value, "jitter"));
+                rawJitter.Add(new SpeedChartPoint(r.TestTime, (decimal)r.JitterMs.Value, "jitter", r.Id));
         }
 
         // LTTB downsample speed charts, sync upload to same timestamps as download
@@ -3675,6 +3677,13 @@
         await Task.Delay(100); // the row has to be on the page before it can be scrolled to
         try { await JS.InvokeVoidAsync("noHighlightRow", $"result-{resultId}"); }
         catch (Exception ex) { Logger.LogDebug(ex, "Could not scroll to speed test result {Id}", resultId); }
+    }
+
+    /// <summary>A point on Speed History or Latency History was clicked: opens its row in Test Results.</summary>
+    private async Task OnSpeedChartClicked(SelectedData<SpeedChartPoint> data)
+    {
+        if (data?.DataPoint?.Items?.FirstOrDefault() is { ResultId: > 0 } point)
+            await ScrollToResult(point.ResultId);
     }
 
     /// <summary>
@@ -4536,13 +4545,16 @@
         public DateTime Timestamp { get; set; }
         public decimal Value { get; set; }
         public string Series { get; set; } = "";
+        /// <summary>The speed test behind the point, for a click on it; 0 when the point is not one test.</summary>
+        public int ResultId { get; }
         public long X => new DateTimeOffset(Timestamp, TimeSpan.Zero).ToUnixTimeMilliseconds();
 
-        public SpeedChartPoint(DateTime timestamp, decimal value, string series)
+        public SpeedChartPoint(DateTime timestamp, decimal value, string series, int resultId = 0)
         {
             Timestamp = DateTime.SpecifyKind(timestamp, DateTimeKind.Utc);
             Value = value;
             Series = series;
+            ResultId = resultId;
         }
     }
 

@@ -2145,11 +2145,28 @@
 
     private async Task OnChartClicked(SelectedData<WanChartDataPoint> data)
     {
-        if (data?.DataPoint?.Items?.FirstOrDefault() is WanChartDataPoint { IsGap: false } point)
+        if (data?.DataPoint?.Items?.FirstOrDefault() is { } point && ResultAt(point) is { } resultId)
         {
-            await ScrollToResult(point.ResultId);
+            await ScrollToResult(resultId);
         }
     }
+
+    /// <summary>
+    /// The result behind a clicked point. A shared tooltip reports the series nearest the pointer in two
+    /// dimensions, so at the span's edge it can name another series' padding gap at the same x: the result
+    /// is then the real point at that x.
+    /// </summary>
+    private int? ResultAt(WanChartDataPoint point) => !point.IsGap
+        ? point.ResultId
+        : _wanSeries.Where(IsWanVisible)
+            .SelectMany(w => new[]
+            {
+                w.DownloadData, w.UploadData, w.LatencyData,
+                w.LoadedLatencyBaseData, w.LoadedLatencyDownData, w.LoadedLatencyUpData, w.JitterData,
+                w.IdleLossData, w.DownloadLossData, w.UploadLossData
+            })
+            .SelectMany(list => list)
+            .FirstOrDefault(p => !p.IsGap && p.X == point.X)?.ResultId;
 
     private async Task ScrollToResult(int resultId)
     {

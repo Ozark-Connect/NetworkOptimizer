@@ -345,7 +345,7 @@ Time-series monitoring on your own InfluxDB, fed by SNMP polling (InfluxDB).
   - On a gateway with built-in Wi-Fi: **Change AP** only, for 5 GHz non-MLO clients
 - **Start Logging** - log a remote client's signal at poll rate without GPS
 - GPS walk test - signal heatmap from your phone while the page is open (HTTPS)
-- **Speed** - live throughput, **Run Speed Test** / **Quick Test**, **WAN Test** when a WAN speed test server is configured, speed and latency history, result map, and **Test Results** with the client's LAN and WAN tests
+- **Speed** - live throughput, **Run Speed Test** / **Quick Test**, **WAN Test** when a WAN speed test server is configured, speed and latency history (a point opens its result), result map, and **Test Results** with the client's LAN and WAN tests
   - **Throughput** history from 1h to 30d: average, peak, WAN share, and speed test marks (InfluxDB)
   - Under **Live Throughput**: the client's flows through the gateway, their rate, and busiest apps ([On-Site Agent](#on-site-agent))
 - **Signal** - noise, SNR, TX power, radio peers, read-only **Signal Map**, signal history, and log

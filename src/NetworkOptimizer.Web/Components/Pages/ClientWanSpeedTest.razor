@@ -1295,9 +1295,21 @@
 
     private async Task OnChartClicked(SelectedData<ChartPoint> data)
     {
-        if (data?.DataPoint?.Items?.FirstOrDefault() is ChartPoint { IsGap: false } point)
-            await ScrollToResult(point.ResultId);
+        if (data?.DataPoint?.Items?.FirstOrDefault() is { } point && ResultAt(point) is { } resultId)
+            await ScrollToResult(resultId);
     }
+
+    /// <summary>
+    /// The result behind a clicked point. A shared tooltip reports the series nearest the pointer in two
+    /// dimensions, so at the span's edge it can name another series' padding gap at the same x: the result
+    /// is then the real point at that x.
+    /// </summary>
+    private int? ResultAt(ChartPoint point) => !point.IsGap
+        ? point.ResultId
+        : _chartSeries.Where(IsSeriesVisible)
+            .SelectMany(s => new[] { s.DownloadData, s.UploadData, s.LatencyData, s.JitterData })
+            .SelectMany(list => list)
+            .FirstOrDefault(p => !p.IsGap && p.X == point.X)?.ResultId;
 
     private async Task ScrollToResult(int resultId)
     {
