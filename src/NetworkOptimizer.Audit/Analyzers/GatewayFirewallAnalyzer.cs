@@ -365,7 +365,7 @@ public partial class GatewayFirewallAnalyzer
         }
 
         var empty = expected.SentEntries
-            .Where(kv => kv.Value > 0 && sets.EntriesOf(kv.Key) is null or 0)
+            .Where(kv => kv.Value > 0 && sets.IsEmpty(kv.Key))
             .Select(kv => kv.Key)
             .OrderBy(n => n, StringComparer.Ordinal)
             .Select(SetDisplayName)
@@ -665,8 +665,16 @@ public partial class GatewayFirewallAnalyzer
     internal sealed class IpsetHeaders
     {
         private readonly Dictionary<string, int> _entries = new(StringComparer.Ordinal);
+        private readonly HashSet<string> _names = new(StringComparer.Ordinal);
 
         public int? EntriesOf(string set) => _entries.TryGetValue(set, out var n) ? n : null;
+
+        /// <summary>
+        /// True only when the listing shows the set empty, or lists other sets but not this one. A listing with no
+        /// sets is a failed read, and a set without a count line is unknown: neither reads as empty.
+        /// </summary>
+        public bool IsEmpty(string set) =>
+            _entries.TryGetValue(set, out var n) ? n == 0 : _names.Count > 0 && !_names.Contains(set);
 
         public static IpsetHeaders Parse(string? text)
         {
@@ -675,7 +683,11 @@ public partial class GatewayFirewallAnalyzer
             foreach (var raw in (text ?? "").Split('\n'))
             {
                 var line = raw.Trim();
-                if (line.StartsWith("Name:", StringComparison.Ordinal)) current = line[5..].Trim();
+                if (line.StartsWith("Name:", StringComparison.Ordinal))
+                {
+                    current = line[5..].Trim();
+                    headers._names.Add(current);
+                }
                 else if (current != null && line.StartsWith("Number of entries:", StringComparison.Ordinal)
                          && int.TryParse(line[18..].Trim(), out var n))
                     headers._entries[current] = n;
