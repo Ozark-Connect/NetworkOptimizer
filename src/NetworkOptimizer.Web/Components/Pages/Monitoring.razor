@@ -3120,6 +3120,18 @@
     private const string PathMapPresetKey = "pathMap.preset";
     private string? _pathMapPreset;
 
+    /// <summary>
+    /// Called by device-health-charts.js when the reader picks Device Stats' window (a range, the arrows, a custom
+    /// range): a link's ?at= has been used, so it leaves the URL. Kept until then, so a reload or Back still frames
+    /// the link's moment, and dropped after, so a site switch does not reopen on it.
+    /// </summary>
+    [JSInvokable]
+    public void DeviceWindowChosen()
+    {
+        if (_activeTab != "devices" || string.IsNullOrWhiteSpace(AtParam)) return;
+        NavigationManager.NavigateTo(SiteContextService.RemoveQueryParam(NavigationManager.Uri, "at"), forceLoad: false, replace: true);
+    }
+
     /// <summary>Called by path-map.js when the reader picks a view: saved for them.</summary>
     [JSInvokable]
     public async Task OnPathMapPresetChanged(string preset)
@@ -6568,27 +6580,27 @@
             _healthChartsMounted = true;
             try
             {
-                var healthUrl = VersionedJs("/js/device-health-charts.js");
-                var postMount = "";
+                var m = await JS.InvokeAsync<IJSObjectReference>("import", VersionedJs("/js/device-health-charts.js"));
+                _latencyDotNetRef ??= DotNetObjectReference.Create(this);
+                await m.InvokeVoidAsync("mount", "device-health-charts-container", _latencyDotNetRef);
                 // Framed before the solo, so the device is picked out of the window the link asked
                 // for rather than the one it is about to leave.
                 if (_deviceAtMs is { } deviceAtMs)
                 {
-                    postMount = $"m.frameMoment('{DateTimeOffset.FromUnixTimeMilliseconds(deviceAtMs).UtcDateTime:O}');";
                     _deviceAtMs = null;
+                    await m.InvokeVoidAsync("frameMoment", DateTimeOffset.FromUnixTimeMilliseconds(deviceAtMs).UtcDateTime.ToString("O"));
                 }
                 else if (_deviceAtTrailing)
                 {
-                    postMount = "m.frameTrailing();";
                     _deviceAtTrailing = false;
+                    await m.InvokeVoidAsync("frameTrailing");
                 }
                 if (!string.IsNullOrEmpty(_soloDeviceMac))
                 {
-                    postMount += $"m.soloDevice('{System.Text.Encodings.Web.JavaScriptEncoder.Default.Encode(_soloDeviceMac)}');";
+                    var mac = _soloDeviceMac;
                     _soloDeviceMac = null;
+                    await m.InvokeVoidAsync("soloDevice", mac);
                 }
-                await JS.InvokeVoidAsync("eval",
-                    $"(async () => {{ const m = await import('{healthUrl}'); window.__healthCharts = m; await m.mount('device-health-charts-container'); {postMount} }})();");
             }
             catch (Exception ex) { _healthChartsMounted = false; Logger.LogDebug(ex, "Device health charts mount failed; will retry on next render"); }
         }

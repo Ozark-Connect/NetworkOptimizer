@@ -687,8 +687,17 @@ function shiftWindow(container, direction) {
     startPoll();
 }
 
-export async function mount(elId) {
+// The page, told when the reader picks a window themselves, so it can drop the link's ?at= from the URL: a link's
+// framing must not outlive the reader's own choice (a site switch carries the URL along).
+let pageRef = null;
+function readerChoseWindow() {
+    pageRef?.invokeMethodAsync('DeviceWindowChosen').catch(() => { });
+}
+
+export async function mount(elId, dotNetRef) {
     containerId = elId;
+    pageRef = dotNetRef || null;
+    window.__healthCharts = { unmount };
     // Read before the await, so the decision is made against the URL this mount was called
     // for. Null leaves this tab's own default standing.
     const restoredHours = loadWindowHours(WINDOW_TAB);
@@ -750,12 +759,13 @@ export async function mount(elId) {
             // too, and a window the link chose must not become a remembered preference.
             saveWindowHours(WINDOW_TAB, hours);
             selectPresetRange(container, hours);
+            readerChoseWindow();
         });
     });
 
     // Shift arrows
     container.querySelectorAll('[data-shift]').forEach(btn => {
-        btn.addEventListener('click', () => shiftWindow(container, btn.dataset.shift));
+        btn.addEventListener('click', () => { shiftWindow(container, btn.dataset.shift); readerChoseWindow(); });
     });
 
     // Custom range popover
@@ -783,6 +793,7 @@ export async function mount(elId) {
         customTo = to;
         isCustomRange = true;
         windowOffset = 0;
+        readerChoseWindow();
         container.querySelectorAll('[data-range]').forEach(b => b.classList.remove('active'));
         popover?.classList.remove('open');
         updateCustomLabel(container);
@@ -866,6 +877,7 @@ export function soloDevice(mac) {
 }
 
 export function unmount() {
+    pageRef = null;
     stopPoll();
     window.removeEventListener('resize', onMarkResize);
     clearTimeout(markResizeTimer);
