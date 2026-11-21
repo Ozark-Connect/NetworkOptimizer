@@ -1494,7 +1494,7 @@ Later defers it for the whole install, and a new user added later never sees any
   `default-site` are the ones the current candidate steps want) and resolve them from `ICallerContext`
   the way the existing predicates resolve from site state. Until then, mark any Admin-only or
   default-site-only step `"optional": true` so a missing target skips rather than breaks.
-- [ ] Move the offer/defer state per user, keeping the install-level version stamps where they are -
+- [x] Move the offer/defer state per user, keeping the install-level version stamps where they are -
   `FirstSeenVersion` is a fact about the install, but "has this person been offered 2.5.0" is a fact
   about the person.
 

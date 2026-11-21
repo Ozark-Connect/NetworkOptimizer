@@ -21,7 +21,7 @@
 <div class="page-header">
     <PageBackButton />
     <h1>Security</h1>
-    <p class="page-description">Date and time, password, two-factor authentication, and passkeys for your account.</p>
+    <p class="page-description">Date and time, password, two-factor authentication, passkeys, and guided tours for your account.</p>
 </div>
 
 @* Only when the passkey really is the sole way in: the role demands a second factor, a passkey
@@ -239,6 +239,13 @@
         }
     </div>
 </div>
+
+@* Tour state is per user, and Settings - Application is a Global Admin's alone. Hidden while the
+   session is confined to replacing an administrator-set password. *@
+@if (!_passwordChangeRequired)
+{
+    <GuidedToursCard />
+}
 
 <div class="card danger-zone">
     <div class="card-header"><span class="card-title">Sign out everywhere</span></div>
