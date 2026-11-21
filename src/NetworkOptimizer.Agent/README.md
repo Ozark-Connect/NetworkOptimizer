@@ -1050,7 +1050,7 @@ fresh process re-applies them.
 ### 64K memory pages (EFG, EF-Core, UDM-Beast, UXG-Enterprise)
 
 These gateways run a 64K-page kernel: the EFG, the EF-Core, the UDM-Beast, and
-the UXG-Enterprise (every Marvell Octeon UniFi gateway; the other gateways and
+the UXG-Enterprise (every Marvell OCTEON UniFi gateway; the other gateways and
 most Linux hosts use 4K pages). Some arm64 Linux servers run 64K-page kernels
 too. On a 64K-page kernel, .NET's default regions GC refuses large allocations
 while memory is free. The installers check `getconf PAGESIZE` on arm64, and on a
