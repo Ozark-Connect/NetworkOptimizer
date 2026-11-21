@@ -30,6 +30,7 @@ public abstract class WanSpeedTestServiceBase
     private readonly IAlertEventBus? _alertEventBus;
     private readonly MonitoringInfluxRegistry? _influxRegistry;
     private readonly NetworkOptimizer.Storage.Services.SiteDbContextFactory? _siteDbFactory;
+    private readonly SpeedTestResultNotifier? _resultNotifier;
 
     /// <summary>Site this instance serves; results are stored in and read from its database.</summary>
     protected string SiteSlug { get; }
@@ -132,8 +133,10 @@ public abstract class WanSpeedTestServiceBase
         NetworkOptimizer.Storage.Services.SiteDbContextFactory? siteDbFactory = null,
         string siteSlug = SiteManagementService.DefaultSiteSlug,
         Licensing.LicenseStateService? licenseState = null,
-        MonitoringInfluxRegistry? influxRegistry = null)
+        MonitoringInfluxRegistry? influxRegistry = null,
+        SpeedTestResultNotifier? resultNotifier = null)
     {
+        _resultNotifier = resultNotifier;
         DbFactory = dbFactory;
         PathAnalyzer = pathAnalyzer;
         Logger = logger;
@@ -244,6 +247,7 @@ public abstract class WanSpeedTestServiceBase
             _ = Task.Run(async () => await AnalyzePathInBackgroundAsync(resultId, wanIp, resolvedWanGroup), CancellationToken.None);
 
             OnResultSaved(result);
+            _resultNotifier?.NotifyResultSaved(SiteSlug, SpeedTestResultKind.Wan);
 
             return result;
         }

@@ -268,6 +268,7 @@ builder.Services.AddScoped<NetworkOptimizer.Storage.Interfaces.ISqmLearningRepos
 builder.Services.AddScoped<NetworkOptimizer.Alerts.Interfaces.IAlertRepository, NetworkOptimizer.Storage.Repositories.AlertRepository>();
 builder.Services.AddScoped<NetworkOptimizer.Storage.Interfaces.ISiteRepository, NetworkOptimizer.Storage.Repositories.SiteRepository>();
 builder.Services.AddSingleton<SiteRegistryChangeNotifier>();
+builder.Services.AddSingleton<SpeedTestResultNotifier>();
 builder.Services.AddScoped<SiteLeftoverCleanup>();
 builder.Services.AddScoped<SiteManagementService>();
 builder.Services.AddMutatingService<ISiteManagementService>(sp => sp.GetRequiredService<SiteManagementService>());
