@@ -542,7 +542,7 @@ public sealed class ThreatBlockingService : BackgroundService, IPublicListLookup
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             _policiesChecked[Key(site)] = (now, false);
-            _logger.LogWarning(ex, "Automatic Blocking: could not narrow the gateway blocklist policies on {Site}", site ?? SiteSlugs.Default);
+            _logger.LogWarning("Automatic Blocking: could not narrow the gateway blocklist policies on {Site} ({Error})", site ?? SiteSlugs.Default, ex.Message);
         }
     }
 
