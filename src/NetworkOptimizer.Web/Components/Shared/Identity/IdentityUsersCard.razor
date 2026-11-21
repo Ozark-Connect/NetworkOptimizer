@@ -194,13 +194,30 @@
                                                 @(user.IsEnabled ? "Disable" : "Enable")
                                             </button>
                                         </span>
-                                        <span class="identity-lock" data-tooltip="@UndeletableReason(user)">
-                                            <button type="button" class="btn btn-danger btn-sm"
-                                                    @onclick="() => DeleteAsync(user)"
-                                                    disabled="@(_busyUserId == user.Id || UndeletableReason(user) is not null)">
-                                                Delete
-                                            </button>
-                                        </span>
+                                        @if (_confirmDeleteUserId == user.Id)
+                                        {
+                                            <span class="confirm-inline">
+                                                <span class="confirm-text">Delete?</span>
+                                                <button type="button" class="btn btn-danger btn-sm"
+                                                        @onclick="() => DeleteAsync(user)" disabled="@(_busyUserId == user.Id)">
+                                                    Yes, delete
+                                                </button>
+                                                <button type="button" class="btn btn-secondary btn-sm"
+                                                        @onclick="() => _confirmDeleteUserId = null" disabled="@(_busyUserId == user.Id)">
+                                                    Cancel
+                                                </button>
+                                            </span>
+                                        }
+                                        else
+                                        {
+                                            <span class="identity-lock" data-tooltip="@UndeletableReason(user)">
+                                                <button type="button" class="btn btn-danger btn-sm"
+                                                        @onclick="() => _confirmDeleteUserId = user.Id"
+                                                        disabled="@(_busyUserId == user.Id || UndeletableReason(user) is not null)">
+                                                    Delete
+                                                </button>
+                                            </span>
+                                        }
                                     </div>
                                 </td>
                                 }
@@ -401,6 +418,7 @@
     private string? _message;
     private string _messageClass = "info";
     private string? _busyUserId;
+    private string? _confirmDeleteUserId;
 
     private bool _addingUser;
     private bool _creating;
@@ -597,6 +615,7 @@
         finally
         {
             _busyUserId = null;
+            _confirmDeleteUserId = null;
             await ReloadAsync();
             // Deleting an account takes its grants with it.
             await OnAccessChanged.InvokeAsync();
