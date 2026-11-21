@@ -1763,6 +1763,7 @@
                                 <option value="arris-surfboard">ARRIS Surfboard (HTTP)</option>
                                 <option value="arris-surfboard-hnap">ARRIS Surfboard S33/S34 (HNAP)</option>
                                 <option value="fritzbox-cable">FRITZ!Box Cable (HTTP)</option>
+                                <option value="hitron-coda">Hitron CODA (HTTP)</option>
                                 <option value="motorola-hnap">Motorola MB8611, MB8600 (HNAP)</option>
                                 <option value="netgear">Netgear / Nighthawk CM (HTTP)</option>
                                 <option value="sagemcom-f3896lg">Sagemcom F3896LG: Virgin Media Hub 5, Ziggo SmartWifi (HTTP)</option>
@@ -1834,7 +1835,7 @@
                         <div class="form-group" style="flex: 1;">
                             <label class="form-label">Username</label>
                             <input type="text" class="form-control" @bind="_editingCm.Username" @bind:event="oninput"
-                                   placeholder="@(CmProviderFor(_editingCm.Provider)?.BlankUsernameMeansAdmin == true ? "admin" : "")"
+                                   placeholder="@(CmProviderFor(_editingCm.Provider)?.BlankUsername ?? "")"
                                    autocomplete="off" data-1p-ignore data-lpignore="true" data-bwignore />
                             @if (_editingCm.Provider == "fritzbox-cable")
                             {
@@ -8064,6 +8065,7 @@
         "vodafone-station" => "Vodafone Station (ARRIS TG3442DE)",
         "sagemcom-f3896lg" => "Sagemcom F3896LG: Virgin Media Hub 5, Ziggo SmartWifi (HTTP)",
         "fritzbox-cable" => "FRITZ!Box Cable (HTTP)",
+        "hitron-coda" => "Hitron CODA (HTTP)",
         "unifi-uci" => "UniFi Cable Internet (UCI)",
         _ => provider,
     };
@@ -8078,6 +8080,7 @@
         "vodafone-station" => "/php/status_docsis_data.php",
         "sagemcom-f3896lg" => "/rest/v1/cablemodem",
         "fritzbox-cable" => "/data.lua",
+        "hitron-coda" => "/1/Device/CM",
         _ => "/DocsisStatus.htm",
     };
 
