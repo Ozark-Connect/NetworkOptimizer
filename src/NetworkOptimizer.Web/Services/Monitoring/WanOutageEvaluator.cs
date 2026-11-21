@@ -131,6 +131,13 @@ public class WanOutageEvaluator
         MonitoringTargetType.InternetService;
 
     /// <summary>
+    /// Whether this target is alerted per WAN here. A far transit hop is not: its near transit hops
+    /// carry the same outage evidence, and a distant POP going dark on its own is no WAN outage.
+    /// </summary>
+    public static bool Covers(MonitoringTarget target) =>
+        CoversTargetType(target.TargetType) && !target.IsFarTransit;
+
+    /// <summary>
     /// Records a WAN-scoped target's current per-target state machine verdict. Called by
     /// <see cref="MonitoringAlertEvaluator"/> on every probe result for a covered target,
     /// from both the local collection loop and the agent result sink.
@@ -142,7 +149,7 @@ public class WanOutageEvaluator
     /// <param name="consecutiveFailures">Failed probes in a row.</param>
     internal void RecordTargetState(MonitoringTarget target, string vantageId, bool isOffline, bool isLossy, int consecutiveFailures)
     {
-        if (!CoversTargetType(target.TargetType)) return;
+        if (!Covers(target)) return;
         var state = _targets.GetOrAdd(target.TargetId, _ => new TargetLiveState());
         state.Target = target;
         state.Vantage = vantageId;

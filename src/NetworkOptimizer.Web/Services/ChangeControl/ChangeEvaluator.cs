@@ -23,6 +23,8 @@ public sealed class ChangeEvaluator : IChangeEvaluator
     private readonly IAlertEventBus? _bus;
     private readonly ILogger<ChangeEvaluator> _logger;
     private readonly System.Collections.Concurrent.ConcurrentDictionary<string, CancellationTokenSource> _pendingAudits = new();
+    // What a pending follow-up audit carries, per site.
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, PendingAudit> _pendingAlerted = new();
 
     public ChangeEvaluator(IServiceScopeFactory scopes, ILogger<ChangeEvaluator> logger, IAlertEventBus? bus = null)
     {
@@ -69,15 +71,37 @@ public sealed class ChangeEvaluator : IChangeEvaluator
 
         if (impact != null)
         {
-            await CheckDriftRegressionAsync(scope.ServiceProvider, repo, siteSlug, after, cancellationToken);
+            // Drift and the follow-up audit cover the whole detection; they join its first change's incident.
+            var incidentKey = changes.Count > 0 ? ChangeAlerts.IncidentKey(changes[0]) : null;
+            await CheckDriftRegressionAsync(scope.ServiceProvider, repo, siteSlug, after, incidentKey, cancellationToken);
             if ((impact.Regressions.Count > 0 || impact.Fixes.Count > 0)
                 && changes.Any(c => c.ActorKind != ConfigChangeActorKind.NetworkOptimizer))
-                ScheduleExternalChangeAudit(siteSlug);
+                // Only a config change publishes the security regression alert, so only its regressions count as alerted.
+                ScheduleExternalChangeAudit(siteSlug, _bus != null && changes.Any(c => c.Kind == ConfigChangeKind.Config)
+                    ? impact.Regressions.Select(r => r.Key) : [], incidentKey);
         }
     }
 
-    private void ScheduleExternalChangeAudit(string siteSlug)
+    /// <summary>What a pending follow-up audit carries: findings already alerted, and the incident its alerts join.</summary>
+    internal sealed record PendingAudit(IReadOnlySet<string> AlertedKeys, string? IncidentKey)
     {
+        /// <summary>
+        /// A rescheduled audit covers the changes before it too: it carries their alerted findings as well, and stays
+        /// in the first change's incident, where those findings were alerted.
+        /// </summary>
+        public static PendingAudit Merge(PendingAudit? held, IEnumerable<string> alertedKeys, string? incidentKey) =>
+            held == null
+                ? new PendingAudit(alertedKeys.ToHashSet(StringComparer.Ordinal), incidentKey)
+                : new PendingAudit(held.AlertedKeys.Union(alertedKeys).ToHashSet(StringComparer.Ordinal), held.IncidentKey ?? incidentKey);
+    }
+
+    /// <param name="alertedKeys">This change's regressions, already in its security regression alert.</param>
+    /// <param name="incidentKey">The change's incident; the audit's alerts join it.</param>
+    private void ScheduleExternalChangeAudit(string siteSlug, IEnumerable<string> alertedKeys, string? incidentKey)
+    {
+        var alerted = _pendingAlerted.AddOrUpdate(siteSlug,
+            _ => PendingAudit.Merge(null, alertedKeys, incidentKey),
+            (_, held) => PendingAudit.Merge(held, alertedKeys, incidentKey));
         var next = new CancellationTokenSource();
         while (true)
         {
@@ -93,7 +117,11 @@ public sealed class ChangeEvaluator : IChangeEvaluator
             {
                 await Task.Delay(ExternalChangeAuditDelay, next.Token);
                 if (_pendingAudits.TryRemove(new KeyValuePair<string, CancellationTokenSource>(siteSlug, next)))
-                    await RunSecurityAuditAsync(siteSlug);
+                {
+                    _pendingAlerted.TryRemove(siteSlug, out var held);
+                    var pending = held ?? alerted;
+                    await RunSecurityAuditAsync(siteSlug, pending.AlertedKeys, pending.IncidentKey);
+                }
             }
             catch (OperationCanceledException) when (next.IsCancellationRequested) { }
             finally
@@ -142,7 +170,7 @@ public sealed class ChangeEvaluator : IChangeEvaluator
     /// Baseline is laid over the current config, so collections it does not carry are not "drift".
     /// </summary>
     private async Task CheckDriftRegressionAsync(IServiceProvider sp, Storage.Interfaces.IChangeControlRepository repo, string slug,
-        ConfigState current, CancellationToken ct)
+        ConfigState current, string? incidentKey, CancellationToken ct)
     {
         try
         {
@@ -178,6 +206,7 @@ public sealed class ChangeEvaluator : IChangeEvaluator
                 Message = $"Compared with {label}, the Security Audit now finds: {string.Join("; ", drift.Regressions.Take(5).Select(r => r.Title))}. Return to Baseline from Change Control - Snapshots.",
                 SourceUrl = "/change-control/snapshots",
                 SiteSlug = slug,
+                CorrelationKey = incidentKey,
             }, ct);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
@@ -225,7 +254,7 @@ public sealed class ChangeEvaluator : IChangeEvaluator
     }
 
     /// <inheritdoc />
-    public async Task RunSecurityAuditAsync(string siteSlug)
+    public async Task RunSecurityAuditAsync(string siteSlug, IReadOnlySet<string>? alertedFindingKeys = null, string? incidentKey = null)
     {
         try
         {
@@ -234,7 +263,11 @@ public sealed class ChangeEvaluator : IChangeEvaluator
             scope.ServiceProvider.GetRequiredService<SiteContextService>().OverrideSite(siteSlug);
             if (scope.ServiceProvider.GetRequiredService<AuditService>().IsRunning) return;
             using var system = Identity.SystemScope.Enter(scope.ServiceProvider, ChangeControlRepositoryAccessor.SystemActor);
-            await scope.ServiceProvider.GetRequiredService<IAuditScanService>().RunAuditAsync(new AuditOptions());
+            await scope.ServiceProvider.GetRequiredService<IAuditScanService>().RunAuditAsync(new AuditOptions
+            {
+                AlertedFindingKeys = alertedFindingKeys,
+                IncidentKey = incidentKey,
+            });
         }
         catch (Exception ex)
         {
@@ -297,6 +330,7 @@ public sealed class ChangeEvaluator : IChangeEvaluator
             ["who"] = who,
             ["objects"] = change.ObjectCount.ToString(),
         };
+        var incidentKey = ChangeAlerts.IncidentKey(change);
 
         if (impact is { Regressions.Count: > 0 })
         {
@@ -311,6 +345,7 @@ public sealed class ChangeEvaluator : IChangeEvaluator
                 Context = context,
                 SourceUrl = ChangeAlerts.ChangeUrl(change.Id),
                 SiteSlug = slug,
+                CorrelationKey = incidentKey,
             }, ct);
         }
 
@@ -345,6 +380,7 @@ public sealed class ChangeEvaluator : IChangeEvaluator
                     Context = context,
                     SourceUrl = ChangeAlerts.ChangeUrl(change.Id),
                     SiteSlug = slug,
+                    CorrelationKey = incidentKey,
                 }, ct);
         }
 
@@ -359,6 +395,7 @@ public sealed class ChangeEvaluator : IChangeEvaluator
                 Context = context,
                 SourceUrl = ChangeAlerts.ChangeUrl(change.Id),
                 SiteSlug = slug,
+                CorrelationKey = incidentKey,
             }, ct);
     }
 
@@ -431,6 +468,9 @@ public sealed class ChangeEvaluator : IChangeEvaluator
                 Context = new Dictionary<string, string> { ["change_id"] = change.Id.ToString(), ["devices"] = string.Join(", ", offline) },
                 SourceUrl = ChangeAlerts.ChangeUrl(change.Id),
                 SiteSlug = engine.SiteSlug,
+                // Devices going dark is news the change's earlier alerts could not carry.
+                CorrelationKey = ChangeAlerts.IncidentKey(change),
+                AlwaysDeliver = true,
             }, ct);
         }
     }

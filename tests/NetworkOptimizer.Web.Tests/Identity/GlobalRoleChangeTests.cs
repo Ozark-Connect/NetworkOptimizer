@@ -58,7 +58,7 @@ public sealed class GlobalRoleChangeTests : IDisposable
             .Options;
         await using (var db = new NetworkOptimizerDbContext(options))
         {
-            await db.Database.MigrateAsync();
+            await db.Database.MigrateFromTemplateAsync();
             db.AdminSettings.Add(new AdminSettings
             {
                 Password = new PasswordHasher().HashPassword("Seed-Password-1"),

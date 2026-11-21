@@ -20,6 +20,7 @@
 @inject SiteContextService SiteContext
 @inject SiteSwitchService SiteSwitch
 @inject SiteSpeedTestTargetResolver SiteTarget
+@inject ISystemSettingsService Settings
 @inject NavigationManager NavigationManager
 @inject IJSRuntime JS
 @inject Microsoft.AspNetCore.Mvc.ViewFeatures.IFileVersionProvider FileVersionProvider
@@ -610,18 +611,28 @@
                     <div class="section-header speed-tests-header">
                         <div class="speed-tests-title">
                             <h4>Speed Tests</h4>
-                            <span class="section-subtitle">@TimeFormatHelper.Pluralize(_speedResults.Count, "test")</span>
+                            <span class="section-subtitle">@TimeFormatHelper.Pluralize(_resultRows.Count, "test")</span>
                         </div>
-                        @if (_isOwnDevice && !string.IsNullOrEmpty(_openSpeedTestUrl))
+                        @if (_isOwnDevice && (!string.IsNullOrEmpty(_openSpeedTestUrl) || _wanTestUrl != null))
                         {
                             <div class="speed-actions">
-                                <a href="@(_openSpeedTestUrl)?Run" target="_blank" rel="opener" class="btn btn-primary btn-lg">
-                                    Run Speed Test
-                                </a>
-                                <a href="@(_openSpeedTestUrl)?S=5&Run" target="_blank" rel="opener" class="btn btn-secondary btn-lg"
-                                   data-tooltip="5-second quick test (~15s total)" data-tooltip-hover-only>
-                                    Quick Test
-                                </a>
+                                @if (!string.IsNullOrEmpty(_openSpeedTestUrl))
+                                {
+                                    <a href="@(_openSpeedTestUrl)?Run" target="_blank" rel="opener" class="btn btn-primary btn-lg">
+                                        Run Speed Test
+                                    </a>
+                                    <a href="@(_openSpeedTestUrl)?S=5&Run" target="_blank" rel="opener" class="btn btn-secondary btn-lg"
+                                       data-tooltip="5-second quick test (~15s total)" data-tooltip-hover-only>
+                                        Quick Test
+                                    </a>
+                                }
+                                @if (_wanTestUrl != null)
+                                {
+                                    @* Results land in Client WAN Test's history: this list is the client's LAN throughput. *@
+                                    <a href="@_wanTestUrl" target="_blank" rel="opener" class="btn btn-secondary btn-lg">
+                                        WAN Test
+                                    </a>
+                                }
                             </div>
                         }
                         @* A phone keeps this filter in its bottom bar, so the heading carries none there. *@
@@ -707,10 +718,11 @@
                     {
                         <div class="card chart-card">
                             <h3>Speed History</h3>
-                            <div class="chart-container">
+                            <div class="chart-container chart-opens-results">
                                 <ApexChart @ref="_speedChart" TItem="SpeedChartPoint"
                                            Options="_speedChartOptions"
-                                           Height="@("220px")">
+                                           Height="@("220px")"
+                                           OnClick="OnSpeedChartClicked">
                                     <ApexPointSeries TItem="SpeedChartPoint"
                                                      Items="_speedDownloadData"
                                                      Name="Download"
@@ -733,10 +745,11 @@
                     {
                         <div class="card chart-card">
                             <h3>Latency History</h3>
-                            <div class="chart-container">
+                            <div class="chart-container chart-opens-results">
                                 <ApexChart @ref="_latencyChart" TItem="SpeedChartPoint"
                                            Options="_latencyChartOptions"
-                                           Height="@("220px")">
+                                           Height="@("220px")"
+                                           OnClick="OnSpeedChartClicked">
                                     <ApexPointSeries TItem="SpeedChartPoint"
                                                      Items="_latencyPingData"
                                                      Name="Ping"
@@ -759,7 +772,7 @@
                     }
 
                     @* Speed Results Table *@
-                    @if (_speedResults.Count > 0)
+                    @if (_resultRows.Count > 0)
                     {
                         <div class="card results-card">
                             <h3>Test Results</h3>
@@ -786,12 +799,17 @@
                                     <tbody>
                                         @foreach (var r in GetPagedSpeedResults())
                                         {
+                                            // A LAN result is stored from the server's side, so the device's download is
+                                            // UploadMbps; a WAN result is already the site's (and the client's) download.
+                                            var wan = IsWanResult(r);
+                                            var down = wan ? r.DownloadMbps : r.UploadMbps;
+                                            var up = wan ? r.UploadMbps : r.DownloadMbps;
                                             <tr id="result-@r.Id" class="result-row @(_expandedResultId == r.Id ? "expanded" : "")"
                                                 @onclick="() => ToggleResultExpand(r.Id)">
                                                 <td>@FormatTimeShort(r.TestTime)</td>
-                                                <td class="hide-mobile"><span class="speed-down">@FormatSpeed(r.UploadMbps, "F1")</span> Mbps</td>
-                                                <td class="hide-mobile"><span class="speed-up">@FormatSpeed(r.DownloadMbps, "F1")</span> Mbps</td>
-                                                <td class="show-mobile"><span class="speed-down">@FormatSpeed(r.UploadMbps, "F0")</span> / <span class="speed-up">@FormatSpeed(r.DownloadMbps, "F0")</span></td>
+                                                <td class="hide-mobile"><span class="speed-down">@FormatSpeed(down, "F1")</span> Mbps</td>
+                                                <td class="hide-mobile"><span class="speed-up">@FormatSpeed(up, "F1")</span> Mbps</td>
+                                                <td class="show-mobile"><span class="speed-down">@FormatSpeed(down, "F0")</span> / <span class="speed-up">@FormatSpeed(up, "F0")</span></td>
                                                 @if (!HidesApRates)
                                                 {
                                                     <td class="hide-mobile">@RenderRate(r.WifiTxRateKbps, "speed-down")</td>
@@ -799,22 +817,24 @@
                                                     <td class="show-mobile">@RenderRateShort(r.WifiTxRateKbps, "speed-down") / @RenderRateShort(r.WifiRxRateKbps, "speed-up")</td>
                                                 }
                                                 <td class="hide-mobile">@(r.PingMs.HasValue ? $"{r.PingMs.Value:F1} ms" : "-")</td>
-                                                <td class="hide-mobile">@(r.Direction == SpeedTestDirection.BrowserToServer ? "Browser" : "iperf3")</td>
+                                                <td class="hide-mobile">@(wan ? "WAN" : r.Direction == SpeedTestDirection.BrowserToServer ? "Browser" : "iperf3")</td>
                                                 <td class="expand-chevron"><span>@(_expandedResultId == r.Id ? "▲" : "▼")</span></td>
                                             </tr>
-                                            @if (_expandedResultId == r.Id)
-                                            {
-                                                <tr class="result-details-row">
-                                                    <td colspan="@(HidesApRates ? 6 : 8)">
-                                                        <div class="result-details">
-                                                            <SpeedTestDetails Result="r" HideDeviceName="true" HideClientDashboardLink="true"
-                                                                              Perspective="SpeedPerspective.Device"
-                                                                              ShowLiveViewLink="_liveViewLinkEnabled"
-                                                                              OnDelete="HandleDeleteResult" OnNotesChanged="HandleNotesChanged" />
+                                            @* Always rendered, so the standard expand-wrapper can animate it open and shut. *@
+                                            <tr class="result-details-row">
+                                                <td colspan="@(HidesApRates ? 6 : 8)">
+                                                    <div class="expand-wrapper @(_expandedResultId == r.Id ? "expanded" : "")">
+                                                        <div class="expand-content">
+                                                            <div class="result-details">
+                                                                <SpeedTestDetails Result="r" HideDeviceName="true" HideClientDashboardLink="true"
+                                                                                  Perspective="@(wan ? SpeedPerspective.Wan : SpeedPerspective.Device)"
+                                                                                  ShowLiveViewLink="_liveViewLinkEnabled"
+                                                                                  OnDelete="HandleDeleteResult" OnNotesChanged="HandleNotesChanged" />
+                                                            </div>
                                                         </div>
-                                                    </td>
-                                                </tr>
-                                            }
+                                                    </div>
+                                                </td>
+                                            </tr>
                                         }
                                     </tbody>
                                 </table>
@@ -823,7 +843,7 @@
                             {
                                 <div class="pagination">
                                     <button class="btn btn-sm btn-secondary" disabled="@(_speedPage <= 1)" @onclick="() => ChangeSpeedPage(-1)"><AppIcon Name="chevron-left" /> Prev</button>
-                                    <span class="pagination-info">Page @_speedPage of @SpeedTotalPages (@_speedResults.Count results)</span>
+                                    <span class="pagination-info">Page @_speedPage of @SpeedTotalPages (@_resultRows.Count results)</span>
                                     <button class="btn btn-sm btn-secondary" disabled="@(_speedPage >= SpeedTotalPages)" @onclick="() => ChangeSpeedPage(1)">Next <AppIcon Name="chevron-right" /></button>
                                 </div>
                             }
@@ -1039,21 +1059,31 @@
                     }
 
                     @* Connection History Graph *@
-                    @if (_connectionEvents.Count > 1)
+                    @if (_connectionChartData.Count > 0)
                     {
                         <div class="card chart-card">
-                            <h3>Connection History</h3>
-                            <div class="chart-container">
-                                <ApexChart @ref="_connectionChart" TItem="ConnectionChartPoint"
+                            <div class="conn-history-header">
+                                <h3>Connection History</h3>
+                                <span class="section-subtitle">@ConnectionSummary()</span>
+                            </div>
+                            <div class="conn-history-legend">
+                                @foreach (var band in _connectionTimeline!.Segments.Select(s => s.Band).Distinct().OrderBy(b => b))
+                                {
+                                    <span class="conn-legend-item"><span class="conn-legend-swatch" style="background: @BandColor(band)"></span>@(BandLabel(band) is { Length: > 0 } l ? l : (_client?.IsWired == true ? "Wired" : "Unknown band"))</span>
+                                }
+                            </div>
+                            @* The height is held, so a remount never collapses the card while the new chart draws. *@
+                            <div class="chart-container conn-history-chart" @key="_connectionChartKey" style="min-height: @(_connectionChartHeight)px">
+                                <ApexChart @ref="_connectionChart" TItem="ConnectionBar"
                                            Options="_connectionChartOptions"
-                                           Height="@("200px")">
-                                    <ApexPointSeries TItem="ConnectionChartPoint"
+                                           Height="@($"{_connectionChartHeight}px")">
+                                    <ApexRangeSeries TItem="ConnectionBar"
                                                      Items="_connectionChartData"
-                                                     Name="AP"
-                                                     SeriesType="SeriesType.Scatter"
-                                                     XValue="e => DisplayTime.ToChart(e.Timestamp)"
-                                                     YValue="e => e.ApIndex"
-                                                     OrderBy="e => e.X" />
+                                                     Name="Connected"
+                                                     XValue="b => b.Lane"
+                                                     YMinValue="b => b.Start"
+                                                     YMaxValue="b => b.End"
+                                                     PointColor="b => b.Color" />
                                 </ApexChart>
                             </div>
                         </div>
@@ -1474,6 +1504,15 @@
 
     // Speed tab
     private List<Iperf3Result> _speedResults = new();
+    // The Test Results table: _speedResults (LAN, which the charts and map draw) plus the client's
+    // WAN tests, newest first. WAN tests measure the internet, so only the table lists them.
+    private List<Iperf3Result> _resultRows = new();
+    private List<Iperf3Result> _wanSpeedResults = new();
+
+    private void RebuildResultRows() =>
+        _resultRows = _speedResults.Concat(_wanSpeedResults).OrderByDescending(r => r.TestTime).ToList();
+
+    private static bool IsWanResult(Iperf3Result r) => r.Direction == SpeedTestDirection.OpenSpeedTestWan;
     private List<ApMapMarker> _apMapMarkers = new();
     private Iperf3Result? _latestSpeedResult;
     private List<SpeedChartPoint> _speedDownloadData = new();
@@ -1564,6 +1603,9 @@
     private string? _openSpeedTestUrl;
     // The site's agent runs on the UniFi gateway (no speed-test listener at the site).
     private bool _agentOnGateway;
+    // The Client WAN Test page's run link for the default WAN server; null when the site has no
+    // server or could not attribute a result (ClientWanTestLink.CanRun).
+    private string? _wanTestUrl;
 
     // Signal tab
     private List<SignalHistoryEntry> _signalHistory = new();
@@ -1592,9 +1634,9 @@
     private int _connectionPage = 1;
     private const int ConnectionPageSize = 20;
     private DateTime? _expandedTraceTimestamp;
-    private List<ConnectionChartPoint> _connectionChartData = new();
-    private ApexChart<ConnectionChartPoint>? _connectionChart;
-    private ApexChartOptions<ConnectionChartPoint> _connectionChartOptions = new();
+    private List<ConnectionBar> _connectionChartData = new();
+    private ApexChart<ConnectionBar>? _connectionChart;
+    private ApexChartOptions<ConnectionBar> _connectionChartOptions = new();
 
     // Polling
     private System.Threading.Timer? _pollTimer;
@@ -1732,6 +1774,22 @@
                 SetActiveTab(newTab);
         }
         _lastTabParam = TabParam;
+
+        // A client switch is a full load (FullLoadAsync), and so must its Back. Chromium keeps the
+        // earlier entries on the reloaded document, so Back arrives here as a same-page ?ip= change.
+        if (_ipParamSeen && !string.Equals(IpParam, _lastIpParam, StringComparison.Ordinal))
+            _ = ReloadForClientChangeAsync();
+        _lastIpParam = IpParam;
+        _ipParamSeen = true;
+    }
+
+    private string? _lastIpParam;
+    private bool _ipParamSeen;
+
+    private async Task ReloadForClientChangeAsync()
+    {
+        try { await JS.InvokeVoidAsync("location.reload"); }
+        catch (JSDisconnectedException) { }
     }
 
     protected override async Task OnInitializedAsync()
@@ -3212,6 +3270,11 @@
         _speedResults = _client!.IsVpn
             ? await DashboardService.GetSpeedResultsByHostAsync(_client.Ip ?? "", from, to)
             : await DashboardService.GetSpeedResultsAsync(_client.Mac, from, to);
+        // WAN results are keyed by MAC; a VPN client has none.
+        _wanSpeedResults = _client.IsVpn
+            ? new()
+            : await DashboardService.GetWanSpeedResultsAsync(_client.Mac, from, to);
+        RebuildResultRows();
         _latestSpeedResult = _speedResults.FirstOrDefault();
 
         // Build chart data (UTC timestamps - JS formatter converts to browser local time)
@@ -3225,14 +3288,14 @@
             // A one-direction result stores 0 for the leg it never measured; that leg gets no
             // point rather than a real-looking zero sawing the line to the floor.
             if (r.UploadMbps > 0)
-                rawDownload.Add(new SpeedChartPoint(r.TestTime, (decimal)r.UploadMbps, "download"));
+                rawDownload.Add(new SpeedChartPoint(r.TestTime, (decimal)r.UploadMbps, "download", r.Id));
             if (r.DownloadMbps > 0)
-                rawUpload.Add(new SpeedChartPoint(r.TestTime, (decimal)r.DownloadMbps, "upload"));
+                rawUpload.Add(new SpeedChartPoint(r.TestTime, (decimal)r.DownloadMbps, "upload", r.Id));
 
             if (r.PingMs.HasValue)
-                rawPing.Add(new SpeedChartPoint(r.TestTime, (decimal)r.PingMs.Value, "ping"));
+                rawPing.Add(new SpeedChartPoint(r.TestTime, (decimal)r.PingMs.Value, "ping", r.Id));
             if (r.JitterMs.HasValue)
-                rawJitter.Add(new SpeedChartPoint(r.TestTime, (decimal)r.JitterMs.Value, "jitter"));
+                rawJitter.Add(new SpeedChartPoint(r.TestTime, (decimal)r.JitterMs.Value, "jitter", r.Id));
         }
 
         // LTTB downsample speed charts, sync upload to same timestamps as download
@@ -3317,6 +3380,7 @@
         await Task.WhenAll(signalTask, speedTask);
         _signalMapPoints = await signalTask;
         _speedResults = await speedTask;
+        RebuildResultRows();
 
         // Build chart annotations for band/AP changes
         BuildSignalAnnotations();
@@ -3603,7 +3667,7 @@
     /// <summary>Takes the map's View link to its row, paging to it and opening it on the way.</summary>
     private async Task ScrollToResult(int resultId)
     {
-        var index = _speedResults.FindIndex(r => r.Id == resultId);
+        var index = _resultRows.FindIndex(r => r.Id == resultId);
         if (index >= 0) _speedPage = (index / SpeedPageSize) + 1;
 
         _expandedResultId = resultId;
@@ -3613,6 +3677,13 @@
         await Task.Delay(100); // the row has to be on the page before it can be scrolled to
         try { await JS.InvokeVoidAsync("noHighlightRow", $"result-{resultId}"); }
         catch (Exception ex) { Logger.LogDebug(ex, "Could not scroll to speed test result {Id}", resultId); }
+    }
+
+    /// <summary>A point on Speed History or Latency History was clicked: opens its row in Test Results.</summary>
+    private async Task OnSpeedChartClicked(SelectedData<SpeedChartPoint> data)
+    {
+        if (data?.DataPoint?.Items?.FirstOrDefault() is { ResultId: > 0 } point)
+            await ScrollToResult(point.ResultId);
     }
 
     /// <summary>
@@ -3816,7 +3887,7 @@
     }
 
     // Speed results pagination
-    private int SpeedTotalPages => Math.Max(1, (int)Math.Ceiling(_speedResults.Count / (double)SpeedPageSize));
+    private int SpeedTotalPages => Math.Max(1, (int)Math.Ceiling(_resultRows.Count / (double)SpeedPageSize));
 
     // AP RX/TX rate columns only apply to Wi-Fi clients - hide for wired and VPN clients.
     private bool HidesApRates => _client?.IsWired == true || _client?.IsVpn == true;
@@ -3858,7 +3929,7 @@
 
     private IEnumerable<Iperf3Result> GetPagedSpeedResults()
     {
-        return _speedResults.Skip((_speedPage - 1) * SpeedPageSize).Take(SpeedPageSize);
+        return _resultRows.Skip((_speedPage - 1) * SpeedPageSize).Take(SpeedPageSize);
     }
 
     private void ChangeSpeedPage(int delta)
@@ -4101,6 +4172,12 @@
         // when no agent is online.
         var siteTarget = await SiteTarget.ResolveAsync();
         _agentOnGateway = siteTarget.AgentOnGateway;
+
+        var wanServer = ClientWanTestLink.DefaultServer(await Settings.GetExternalSpeedTestServersAsync());
+        _wanTestUrl = ClientWanTestLink.CanRun(SiteContext.IsDefault, siteTarget, wanServer)
+            ? ClientWanTestLink.RunUrl(siteTarget, wanServer)
+            : null;
+
         if (siteTarget.UsesAgent)
         {
             _openSpeedTestUrl = siteTarget.BaseUrl;
@@ -4468,13 +4545,16 @@
         public DateTime Timestamp { get; set; }
         public decimal Value { get; set; }
         public string Series { get; set; } = "";
+        /// <summary>The speed test behind the point, for a click on it; 0 when the point is not one test.</summary>
+        public int ResultId { get; }
         public long X => new DateTimeOffset(Timestamp, TimeSpan.Zero).ToUnixTimeMilliseconds();
 
-        public SpeedChartPoint(DateTime timestamp, decimal value, string series)
+        public SpeedChartPoint(DateTime timestamp, decimal value, string series, int resultId = 0)
         {
             Timestamp = DateTime.SpecifyKind(timestamp, DateTimeKind.Utc);
             Value = value;
             Series = series;
+            ResultId = resultId;
         }
     }
 
@@ -4509,86 +4589,136 @@
 
     // --- Connection Chart ---
 
-    private class ConnectionChartPoint
+    /// <summary>One bar on Connection History: a stretch on one AP, in chart milliseconds.</summary>
+    private sealed record ConnectionBar(string Lane, decimal Start, decimal End, string Color);
+
+    // Band colors from the palette; wired or unknown takes the primary graph teal.
+    private static string BandColor(string? band) => band switch
     {
-        public DateTime Timestamp { get; set; }
-        public decimal ApIndex { get; set; }
-        public string ApName { get; set; } = "";
-        public long X => new DateTimeOffset(Timestamp, TimeSpan.Zero).ToUnixTimeMilliseconds();
+        "ng" => "#fbbf24",
+        "na" => "#3b82f6",
+        "6e" => "#a855f7",
+        _ => "#2ba89a",
+    };
 
-        public ConnectionChartPoint(DateTime ts, decimal apIndex, string apName)
-        {
-            Timestamp = DateTime.SpecifyKind(ts, DateTimeKind.Utc);
-            ApIndex = apIndex;
-            ApName = apName;
-        }
-    }
+    private static string BandLabel(string? band) => band switch
+    {
+        "ng" => "2.4 GHz",
+        "na" => "5 GHz",
+        "6e" => "6 GHz",
+        _ => "",
+    };
 
+    private ClientConnectionTimeline.Result? _connectionTimeline;
+
+    /// <summary>
+    /// Connection History as a presence timeline: a lane per AP, a bar per stretch on it colored by
+    /// band, and gaps where the client was offline. Built from the same events as the table.
+    /// </summary>
     private void BuildConnectionChartData()
     {
-        _connectionChartData.Clear();
-
-        // Build AP name → index mapping from all AP names in events
-        var apNames = _connectionEvents
-            .SelectMany(e => new[] { e.ApName, e.ToApName, e.FromApName })
-            .Where(n => !string.IsNullOrEmpty(n))
-            .Distinct()
-            .OrderBy(n => n)
-            .ToList();
-
-        if (apNames.Count == 0) return;
-
-        var apIndex = new Dictionary<string, int>();
-        for (int i = 0; i < apNames.Count; i++)
-            apIndex[apNames[i]!] = i;
-
-        foreach (var evt in _connectionEvents.OrderBy(e => e.Timestamp))
+        var (from, to) = GetTimeRange();
+        // "All" has no start of its own: the earliest event stands in.
+        if (from == DateTime.MinValue && _connectionEvents.Count > 0)
+            from = _connectionEvents.Min(e => e.Timestamp.UtcDateTime);
+        _connectionTimeline = ClientConnectionTimeline.Build(_connectionEvents, from, to, connectedNow: _client?.IsOffline != true);
+        var segments = _connectionTimeline.Segments;
+        if (segments.Count == 0)
         {
-            // Show where the client is after the event
-            var ap = evt.Type == ClientConnectionEventType.Roamed
-                ? (evt.ToApName ?? evt.ApName ?? "Unknown")
-                : (evt.ApName ?? "Unknown");
-            if (apIndex.TryGetValue(ap, out var idx))
-            {
-                _connectionChartData.Add(new ConnectionChartPoint(
-                    evt.Timestamp.UtcDateTime, idx, ap));
-            }
+            _connectionChartData = new List<ConnectionBar>();
+            _connectionChartKey = null;
+            return;
         }
 
-        // Configure chart with AP names as Y categories
-        _connectionChartOptions = new ApexChartOptions<ConnectionChartPoint>
+        // The chart is keyed on its range and the stretches it draws (an open stretch's moving end
+        // left out). A change remounts it with fresh options and height; ApexChart applies neither on
+        // a series update, which left a 7-day range on the 24-hour axis. A poll tick changes nothing.
+        // Both moving edges are left out: a stretch clipped at the range start begins at now - range,
+        // which moves every poll as surely as an open stretch's end does.
+        var key = $"{_selectedTimeFilter}|" + string.Join(";", segments.Select(s =>
+            $"{s.Ap}/{s.Band}/{(s.Start <= from ? 0 : s.Start.Ticks)}/{(s.EndedBy == null ? 0 : s.End.Ticks)}"));
+        if (key == _connectionChartKey) return;
+        _connectionChartKey = key;
+        _connectionChartData = new List<ConnectionBar>();
+
+        long Ms(DateTime utc) => new DateTimeOffset(DateTime.SpecifyKind(DisplayTime.ToChart(utc), DateTimeKind.Utc)).ToUnixTimeMilliseconds();
+        var tips = new List<string>();
+        foreach (var seg in segments)
         {
-            Chart = new Chart { Background = "transparent", Toolbar = new Toolbar { Show = false }, Zoom = new Zoom { Enabled = false } },
-            Theme = new Theme { Mode = Mode.Dark },
-            Xaxis = new XAxis
+            _connectionChartData.Add(new ConnectionBar(seg.Ap, Ms(seg.Start), Ms(seg.End), BandColor(seg.Band)));
+            tips.Add(ConnectionTip(seg));
+        }
+        var lanes = segments.Select(s => s.Ap).Distinct().Count();
+        // The axis strip plus a lane per AP; a phone's lanes are shorter, to keep the card small.
+        _connectionChartHeight = _isMobile ? 34 + lanes * 26 : 40 + lanes * 34;
+
+        _connectionChartOptions = new ApexChartOptions<ConnectionBar>
+        {
+            Chart = new Chart
             {
-                Type = XAxisType.Datetime,
-                Labels = new XAxisLabels()
+                Background = "transparent", Toolbar = new Toolbar { Show = false }, Zoom = new Zoom { Enabled = false },
+                Animations = new Animations { Enabled = false },
+                // No strip under the axis: ApexCharts reserves 15 px there by default.
+                ParentHeightOffset = 0,
             },
+            Theme = new Theme { Mode = Mode.Dark },
+            PlotOptions = new PlotOptions { Bar = new PlotOptionsBar { Horizontal = true, BarHeight = "55%", RangeBarGroupRows = true } },
+            Xaxis = new XAxis { Type = XAxisType.Datetime, Min = Ms(from), Max = Ms(to), Labels = new XAxisLabels() },
             Yaxis = new List<YAxis>
             {
-                new YAxis
-                {
-                    Min = -0.5m,
-                    Max = apNames.Count - 0.5m,
-                    TickAmount = apNames.Count > 1 ? apNames.Count - 1 : 1,
-                    Labels = new YAxisLabels
-                    {
-                        Formatter = @"function(val) {
-                            var names = [" + string.Join(",", apNames.Select(n => "'" + n!.Replace("'", "\\'") + "'")) + @"];
-                            var idx = Math.round(val);
-                            return idx >= 0 && idx < names.length ? names[idx] : '';
-                        }"
-                    }
-                }
+                // On a phone the AP names move toward the axis and the left padding takes back most of
+                // the slack ApexCharts reserves left of them: the longest name sits 2 px in from the
+                // card's content edge.
+                new YAxis { Labels = new YAxisLabels { MaxWidth = _isMobile ? 120 : 160, OffsetX = _isMobile ? 8 : 0, Style = new AxisLabelStyle { FontSize = _isMobile ? "10px" : "11px" } } },
             },
-            Colors = new List<string> { "#3b82f6" },
-            Markers = new Markers { Size = 8 },
-            Grid = new Grid { BorderColor = "rgba(255,255,255,0.08)" },
-            Tooltip = new Tooltip { Theme = Mode.Dark, X = new TooltipX { Format = "MMM dd, HH:mm", Formatter = ChartTimeFormat.TooltipMinutes } },
-            Legend = new Legend { Show = false }
+            // The default padding left a band above the first lane and below the axis.
+            Grid = new Grid { BorderColor = "rgba(255,255,255,0.08)", Padding = new Padding { Top = -18, Right = 24, Bottom = -6, Left = _isMobile ? -7 : 8 } },
+            Tooltip = new Tooltip
+            {
+                Theme = Mode.Dark,
+                Custom = "function(o) { var d = " + System.Text.Json.JsonSerializer.Serialize(tips)
+                    + "; return '<div class=\"conn-tip\">' + (d[o.dataPointIndex] || '') + '</div>'; }",
+            },
+            Legend = new Legend { Show = false },
         };
         ChartTimeFormat.ApplyTimeAxis(_connectionChartOptions.Xaxis.Labels, DisplayTime);
+        // ApexCharts shortens a label that overruns its slot ("Nov 19" read "Nov 1" at the plot's
+        // end); the grid's right padding is the room it needs whole.
+        _connectionChartOptions.Xaxis.Labels.Trim = false;
+    }
+
+    private int _connectionChartHeight = 120;
+    private string? _connectionChartKey;
+
+    // A bar's tooltip, as HTML: the AP and band, when and how long, and the signal either end.
+    private string ConnectionTip(ClientConnectionTimeline.Segment seg)
+    {
+        string Enc(string v) => System.Net.WebUtility.HtmlEncode(v);
+        string When(DateTime utc) => utc.ToLocalTime(DisplayTime).ToString(DisplayTime.Format.DateTime, DisplayFormat.Culture);
+        var band = BandLabel(seg.Band);
+        var head = $"<strong>{Enc(seg.Ap)}</strong>{(band.Length > 0 ? $" &middot; {band}" : "")}";
+        var span = $"{When(seg.Start)} - {(seg.EndedBy == null ? "now" : When(seg.End))} ({TimeFormatHelper.FormatDuration(seg.End - seg.Start)})";
+        var end = seg.EndedBy switch
+        {
+            ClientConnectionEventType.Roamed => $"Roamed away{(seg.EndSignal is int r ? $" at {r} dBm" : "")}",
+            ClientConnectionEventType.Disconnected => "Disconnected",
+            _ => "Connected now",
+        };
+        var start = seg.Signal is int s ? $"{s} dBm at connect &middot; " : "";
+        return $"{head}<br><span class=\"conn-tip-sub\">{span}</span><br><span class=\"conn-tip-sub\">{start}{end}</span>";
+    }
+
+    /// <summary>The line under Connection History's title: disconnects, roams, and the longest gap.</summary>
+    private string ConnectionSummary()
+    {
+        if (_connectionTimeline is not { } t) return "";
+        var parts = new List<string>
+        {
+            TimeFormatHelper.Pluralize(t.Disconnects, "disconnect"),
+            TimeFormatHelper.Pluralize(t.Roams, "roam"),
+        };
+        if (t.LongestOffline is { } gap) parts.Add($"longest offline {TimeFormatHelper.FormatDuration(gap)}");
+        return string.Join(" · ", parts);
     }
 
     // The device list comes from the console; on an agent site it connects after the page has
@@ -5447,6 +5577,8 @@
     }
     .result-details-row td {
         padding: 0;
+        /* The row stays in the DOM when collapsed; .result-details draws the line when open. */
+        border-bottom: 0;
     }
     .expand-chevron {
         width: 2rem;
@@ -5463,6 +5595,53 @@
     .result-details .test-details {
         padding-left: 1rem;
         padding-right: 1rem;
+    }
+
+    /* Connection History: title and summary on one line, the band legend under them. */
+    .conn-history-header {
+        display: flex;
+        align-items: baseline;
+        flex-wrap: wrap;
+        gap: 0.25rem 0.75rem;
+    }
+    .conn-history-header h3 {
+        margin-bottom: 0;
+    }
+    .conn-history-legend {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.35rem 1rem;
+        margin: 0.5rem 0 0.25rem;
+        font-size: 0.75rem;
+        color: var(--text-secondary);
+    }
+    .conn-legend-item {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.35rem;
+    }
+    .conn-legend-swatch {
+        width: 10px;
+        height: 10px;
+        border-radius: 2px;
+    }
+    /* The chart runs into the card's right padding, and its own 24 px right padding is room for the
+       last axis label, centred on the plot's end; the AP labels keep the left padding. */
+    .conn-history-chart {
+        margin-right: -1rem;
+    }
+    @@media (max-width: 768px) {
+        .conn-history-chart {
+            margin-right: -0.75rem;
+        }
+    }
+    .conn-tip {
+        padding: 0.5rem 0.65rem;
+        font-size: 0.75rem;
+        line-height: 1.5;
+    }
+    .conn-tip-sub {
+        color: var(--text-secondary);
     }
 
     /* Signal Bars (used in identity bar) */

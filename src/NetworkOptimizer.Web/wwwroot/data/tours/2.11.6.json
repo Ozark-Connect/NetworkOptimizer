@@ -1,0 +1,31 @@
+{
+  "id": "2.11.6",
+  "kind": "whats-new",
+  "title": "What's new in v2.11.6",
+  "summary": "Bring your UniFi InnerSpace floor plans onto the Signal Map, and edit your floor plan faster: change many walls at once, and move APs with a right-click.",
+  "steps": [
+    {
+      "id": "innerspace-import",
+      "level": "major",
+      "url": "/wifi-optimizer?tab=floorplan",
+      "selector": "[data-tour=\"innerspace-import\"]",
+      "title": "Import from InnerSpace",
+      "listLabel": "Bring your UniFi InnerSpace scans and floor plans onto the Signal Map",
+      "body": "**Import** brings a building in from UniFi InnerSpace: a LiDAR scan, a floor plan drawn there, or a Design Center project imported into it, with its walls, windows, doors, floors, and APs.\n\nAdd it as a new building, or as new or replaced floors of one you already have, then drag, rotate, or **Snap to Building** to lay it down.",
+      "placement": "bottom",
+      "optional": true
+    },
+    {
+      "id": "signal-map-toolbox",
+      "level": "minor",
+      "badge": "improved",
+      "url": "/wifi-optimizer?tab=floorplan",
+      "selector": "[data-tour=\"signal-map-toolbox\"]",
+      "title": "Signal Map Toolbox",
+      "listLabel": "Edit your floor plan faster: change many walls at once, and move APs with a right-click",
+      "body": "The **Signal Map** now has a toolbox under the zoom buttons: **Pan**, **Select**, **Draw Layout**, **Undo**, and AP placement.\n\nWith **Select**, drag a box over walls, then click one to change all their materials at once. **Right-click** an AP to **Move** or **Remove** it.",
+      "placement": "right",
+      "optional": true
+    }
+  ]
+}

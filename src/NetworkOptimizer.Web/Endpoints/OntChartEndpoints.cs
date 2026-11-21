@@ -45,6 +45,12 @@ public static class OntChartEndpoints
             }
 
             var data = await influx.QueryOntAsync(queryFrom, queryTo, ontId, includePon: true, ct: ct);
+            // The newest raw polls, for the Connection Check: it reads the latest poll on every range.
+            var now = DateTime.UtcNow;
+            var live = PonChartSeries.WindowIncludesNow(queryTo, now);
+            var latest = live
+                ? await influx.QueryOntAsync(now - PonChartSeries.LatestPollsSpan, now, ontId, TimeSpan.Zero, includePon: true, ct: ct)
+                : new Dictionary<string, List<MonitoringInfluxClient.OntPoint>>();
 
             // Standalone configs only: an attached config writes to the sfp
             // measurement, not ont, and must never appear as a standalone ONT series.
@@ -84,11 +90,15 @@ public static class OntChartEndpoints
 
                 // The same PON payload the SFP tab charts, for a provider serving it standalone.
                 // Null for every other provider, which is what keeps the section off their tab.
-                var pon = PonChartSeries.Build(pts.Select(p => p.Pon).OfType<MonitoringInfluxClient.PonSeriesPoint>().ToList());
+                var ponPoints = pts.Select(p => p.Pon).OfType<MonitoringInfluxClient.PonSeriesPoint>().ToList();
+                var pon = PonChartSeries.Build(ponPoints);
 
                 // Identity and link uptime are per-ONT rather than per-point: take the last
                 // reading that carried them, since a poll that skipped one still knows it.
                 var lastWith = pts.AsEnumerable().Reverse();
+                var latestPts = latest.TryGetValue(kvp.Key, out var l) ? l.OrderBy(p => p.Time).ToList() : [];
+                var latestPon = latestPts.Select(p => p.Pon).OfType<MonitoringInfluxClient.PonSeriesPoint>().ToList();
+                var readFrom = latestPon.Count > 1 ? latestPts : pts;
                 var olt = NetworkOptimizer.Core.Helpers.DisplayFormatters.FormatOltVendor(
                     lastWith.FirstOrDefault(p => p.OltVendor != null)?.OltVendor,
                     lastWith.FirstOrDefault(p => p.OltModel != null)?.OltModel);
@@ -99,6 +109,12 @@ public static class OntChartEndpoints
                     label = name,
                     data = items,
                     pon,
+                    ponPath = PonChartSeries.SummarizePathLoss(ponPoints),
+                    ponAvail = PonChartSeries.SummarizeAvailability(ponPoints),
+                    ponMore = PonChartSeries.Insights(ponPoints, new PonChartSeries.LinkReadings(
+                        RxDbm: readFrom.LastOrDefault()?.RxPowerDbm,
+                        TxDbm: readFrom.LastOrDefault()?.TxPowerDbm,
+                        PonVariant: lastWith.FirstOrDefault(p => p.PonType != null)?.PonType), latestPon, live),
                     linkUptime = lastWith.FirstOrDefault(p => p.LinkUptimeSeconds != null)?.LinkUptimeSeconds,
                     ponType = lastWith.FirstOrDefault(p => p.PonType != null)?.PonType,
                     olt,
@@ -115,6 +131,31 @@ public static class OntChartEndpoints
             var events = await BuildOntEventsAsync(siteDbFactory, siteContext, chartedOnts, queryFrom, queryTo, ct);
 
             return Results.Ok(new { devices = result, events });
+        });
+
+        // The PON's downstream load hour by hour over four weeks, for the hour-by-weekday map.
+        // Its own request rather than part of ont-chart: that one is polled every few seconds
+        // and follows the window on screen, and this is a fixed month that changes once an hour.
+        group.MapGet("/api/monitoring/ont-pon-load-hours", async (
+            MonitoringInfluxClient influx,
+            IOntMonitorService ontService,
+            CancellationToken ct) =>
+        {
+            var to = DateTime.UtcNow;
+            var data = await influx.QueryOntAsync(
+                to.AddDays(PonChartSeries.LoadMapDays), to, null, TimeSpan.FromHours(1), ct: ct, ponLoadOnly: true);
+            var configs = await ontService.GetStandaloneConfigsAsync();
+            var known = configs.Select(c => c.Id.ToString()).ToHashSet();
+            var items = data
+                .Where(kvp => known.Contains(kvp.Key))
+                .Select(kvp => new
+                {
+                    id = kvp.Key,
+                    hours = PonChartSeries.HourlyLoad(kvp.Value.Select(p => p.Pon).OfType<MonitoringInfluxClient.PonSeriesPoint>().ToList()),
+                })
+                .Where(x => x.hours.Count > 0)
+                .ToList();
+            return Results.Ok(new { days = -PonChartSeries.LoadMapDays, items });
         });
     }
 

@@ -229,6 +229,18 @@ public static class FloorPlanEndpoints
             });
         });
 
+        // An InnerSpace floor image, for the import's SVG rasterizing. IInnerSpaceImportService gates
+        // it (Site Operator). Scans are SVG: sandboxed so the file can never run as a page here.
+        admin.MapGet("/api/floor-plan/innerspace/plans/{planId}/image", async (string planId, HttpContext context,
+            NetworkOptimizer.Web.Services.InnerSpace.IInnerSpaceImportService importSvc) =>
+        {
+            var image = await importSvc.GetImageAsync(planId, context.RequestAborted);
+            if (image == null) return Results.NotFound();
+            context.Response.Headers["Content-Security-Policy"] = "default-src 'none'; style-src 'unsafe-inline'; sandbox";
+            context.Response.Headers["X-Content-Type-Options"] = "nosniff";
+            return Results.File(image.Bytes, image.ContentType);
+        });
+
         read.MapGet("/api/floor-plan/images/{imageId:int}/file", async (int imageId, FloorPlanService svc) =>
         {
             var image = await svc.GetFloorImageAsync(imageId);

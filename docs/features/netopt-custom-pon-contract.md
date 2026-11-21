@@ -61,12 +61,16 @@ numeric strings; 64-bit counters are expected.
     "rx_power_dbm": -18.4,  // receive optical power, dBm
     "tx_power_dbm": 2.1,    // transmit optical power, dBm
     "temperature_c": 47.3,  // transceiver temperature, degrees C
-    "voltage_v": 3.28       // supply voltage, volts
+    "voltage_v": 3.28,      // supply voltage, volts
+    "bias_ma": 15.15,       // laser bias current, mA (the ONT's own reading)
+    "bias_warn_high_ma": 90,          // the module's own bias high-warning limit, mA
+    "alarms": []                     // raised SFF-8472 flags as "kind:condition", e.g. "warning:rx_power_low"; [] when none
   },
   "lan": {
     "mode": 15,             // host-side PHY mode (raw device enum; recorded - see below)
     "link_status": 5,       // host (module-to-gateway) link state, raw enum
-    "phy_duplex": 1         // raw enum, informational
+    "phy_duplex": 1,        // raw enum, informational
+    "link_up": 1            // 1 while the host port has a link, 0 when not (for the Connection Check)
   },
   "lan_counters": {         // host-link MAC counters (module <-> gateway)
     "tx_frames": 671630919,
@@ -80,13 +84,27 @@ numeric strings; 64-bit counters are expected.
     "previous_state": 4,    // state before the last transition
     "elapsed_msec": 12345   // ms in the current state (uint32 on many devices; wraps ~49.7 days)
   },
+  "ploam_counters": {       // downstream PLOAM messages received since boot
+    "deactivations": 0,     // Deactivate_ONU-ID plus Disable_Serial_Number
+    "request_key": 1,       // Request_Key
+    "key_switch": 3,        // Key_Switching_Time
+    "ranging_time": 3       // Ranging_Time
+  },
+  "link_history": {         // the ONT's own clock since boot, so a drop between two polls counts
+    "o5_seconds": 1460.224, // seconds in O5
+    "not_o5_seconds": 2.048, // seconds in any other state
+    "o5_exits": 0,          // times the ONT left O5
+    "los_events": 0, "los_seconds": 0,   // loss-of-signal alarms raised, and how long they stood
+    "lof_events": 1, "lof_seconds": 0.3  // loss-of-frame alarms, likewise
+  },
   "gtc_status": {
     "ds_state": 3,          // downstream GTC sync state (raw enum; 3 = sync)
     "onu_id": 49,           // ONU ID assigned by the OLT; changes on re-ranging
     "ds_fec_enable": 0,     // OLT profile: downstream FEC on/off (0/1)
     "us_fec_enable": 0,     // OLT profile: upstream FEC on/off (0/1)
     "onu_response_time": 34992, // raw ranging response time / equalization delay
-    "gem_ports": 3          // GEM Port-IDs provisioned in the GTC Port-ID table, including the OMCI port
+    "gem_ports": 3,         // GEM Port-IDs provisioned in the GTC Port-ID table, including the OMCI port
+    "eqd_bits": 283549      // equalization delay from the last Ranging_Time, upstream bit times
   },
   "gtc_counters": {
     "bip": 0,                     // BIP parity errors (0 on a healthy link)
@@ -109,7 +127,11 @@ numeric strings; 64-bit counters are expected.
     "drop": 1,
     "rx_oversized_frames": 0,
     "allocations_total": 1629046208,        // upstream grants received from the OLT
-    "allocations_lost": 20                  // missed grants - scheduling/resync indicator
+    "allocations_lost": 20,                 // missed grants - scheduling/resync indicator
+    "rx_gem_idle_frames_total": 7782349680, // idle GEM frames received downstream (the whole PON's unused capacity)
+    "ds_superframe": 1223280,             // downstream superframe counter (one per 125 us frame, 30 bits on GPON), read with these counters
+    "us_bursts_total": 11685832,          // upstream bursts sent in the OLT's grants
+    "us_dbru_total": 11631693             // upstream DBRu queue reports sent
   },
   "gpe_pon": {              // PON-side bridge port counters (packet engine)
     "ibp_good": 670798566,  "ibp_discard": 0,   // ingress good/discarded
@@ -126,13 +148,31 @@ numeric strings; 64-bit counters are expected.
     "gponmgr_enc": 0,           // enc: value of `dcli gponmgr show encryption` (observed on Calix EXOS; null where absent)
     "gem_ports_encrypted": 0    // GEM ports with the decrypt bit set
   },
+  "omci": {                 // the OLT's management of the ONT
+    "up": 1,                // 1 when the ONT's OMCI stack answered
+    "services": 3,          // services (bridge connections) the OLT provisioned
+    "rx_frames": 663,       // downstream OMCI messages received
+    "mib_data_sync": 160,   // OMCI MIB data sync counter (one byte, wraps)
+    "pir_bytes_per_second": 167772125, // highest PIR among the OLT's traffic descriptors
+    "cir_bytes_per_second": 167772125  // highest CIR among them
+  },
   "sfp_uptime_s": 358825,   // seconds since the ONT module booted (counter-reset anchor)
-  "olt_vendor_id": "CALX",  // OLT vendor ID (4 letters, as the ONT reports it); shown decoded, e.g. "Calix (CALX)"
   "sfp_fw_version": "V1.0-220923", // the ONT module's firmware version, shown as-is
+  "boot_count": 6,          // boots since the last power cycle, this one included
+  "last_reset_reason": "reboot", // why the previous boot ended, in the device's own word
+  "cpu": { "busy_s": 978.27, "total_s": 40509.22 }, // the ONT's CPU time since boot: non-idle, and all modes
+  "olt_vendor_id": "CALX",  // OLT vendor ID (4 letters, as the ONT reports it); shown decoded, e.g. "Calix (CALX)"
   "olt_model": "E7",        // OLT model (OMCI OLT-G equipment ID); shown with the vendor, e.g. "Calix E7 (CALX)"
-  "olt_version": "1.2.3"    // OLT software version (OMCI OLT-G version), shown as-is
+  "olt_version": "1.2.3",   // OLT software version (OMCI OLT-G version), shown as-is
+  "pon_id": {               // the OLT's PON-ID PLOAM message (G.984.3 Annex C)
+    "launch_power_dbm": 3.4, // mean launch power the OLT (or a reach extender) announces, dBm
+    "odn_class": 2,         // 0 A, 1 B, 2 B+, 3 C, 4 C+
+    "reach_extender": 0     // 1 when the announced power is a reach extender's; also "age_s", seconds since the last PON-ID message
+  }
 }
 ```
+
+The PON insight fields in this example (`optics.bias_ma`, `bias_warn_high_ma`, `alarms`; `lan.link_up`; `ploam_counters`; `link_history`; `gtc_status.eqd_bits`; the idle, superframe, burst, and DBRu counters in `gtc_counters`; `omci`; `boot_count`; `last_reset_reason`; `cpu`; `pon_id`) show values from an odi-oss GPON stick's exporter, taken from the test data of #1383: live scrapes, except `eqd_bits` and `cpu`, which are from that PR's test fixture. They are a different device and moment from the other fields.
 
 ## What Network Optimizer records
 
@@ -171,10 +211,45 @@ onto Network Optimizer's existing schema:
 | `olt_model` | `olt_equipment_id` | string. Standalone, also the `ont` measurement's `olt_model` tag (the reason for the field's different name) |
 | `olt_version` | `olt_version` | string, recorded as-is |
 
+| `gtc_counters.fec_error_corr` | `fec_corrected_bits` | with the frame count, the pre-FEC bit error ratio |
+| `gtc_counters.rx_gem_idle_frames_total` / `ds_superframe` | `gem_rx_idle_frames` / `ds_superframe` | the whole-PON downstream load (see below) |
+| `gtc_counters.us_bursts_total` / `us_dbru_total` | `us_bursts` / `us_dbru` | |
+| `gtc_status.eqd_bits` | `eqd_bits` | the delay from the last Ranging_Time message, in upstream bit times; `onu_response_time` stays the device's raw value, so serve both when you have both |
+| `optics.bias_ma` / `bias_warn_high_ma` | `ont_bias_ma` / `bias_warn_high_ma` | the ONT's own reading, kept apart from the gateway's DDM |
+| `optics.alarms` | `transceiver_alarms`, `transceiver_alarm_count` | |
+| `lan.link_up` | `host_link_up` | |
+| `pon_id.*` | `olt_launch_power_dbm`, `odn_class`, `reach_extender`, `pon_id_age_s` | with `optics.rx_power_dbm`, also `path_loss_db` |
+| `link_history.*` | `o5_seconds`, `not_o5_seconds`, `o5_exits`, `los_events`, `los_seconds`, `lof_events`, `lof_seconds` | |
+| `ploam_counters.*` | `olt_deactivations`, `ploam_request_key`, `ploam_key_switch`, `ploam_ranging_time` | |
+| `omci.*` | `omci_up`, `omci_services`, `omci_rx_frames`, `mib_data_sync`, `td_pir_bytes_s`, `td_cir_bytes_s` | |
+| `cpu.busy_s` / `total_s` | `cpu_busy_s` / `cpu_total_s` | |
+| `boot_count` / `last_reset_reason` | `boot_count` / `last_reset_reason` | |
+
 Not recorded: `lan.phy_duplex` (static config), GEM byte counters
 (32-bit wrap), `drop` / `omci_drop` / `rx_oversized_frames`,
-`fec_error_corr` / `fec_words_total` / `fec_seconds`, and the `gpe_*` good-frame
+`fec_words_total` / `fec_seconds`, and the `gpe_*` good-frame
 counters (redundant with `lan_counters` and GEM frame counters).
+
+### What each card needs
+
+Every field stays optional. A card shows once its fields arrive, and stays hidden otherwise.
+
+| Card or check | Fields |
+|---|---|
+| **PON Downstream Load**, **PON Load by Hour** | `gtc_counters.rx_gem_idle_frames_total` and `ds_superframe`, from the same sample; `gtc_status.ds_fec_enable` sets the payload |
+| **Path Loss**, and the two path loss alerts | `pon_id.launch_power_dbm`, `optics.rx_power_dbm`; `pon_id.odn_class` for the class limit |
+| **Link Downtime** | `link_history.*`; `ploam_counters.deactivations` names an OLT-side cause |
+| **Laser Bias Current** | `optics.bias_ma` (`bias_warn_high_ma`, `alarms` add the limit and the module's flags) |
+| **Upstream Grants** | `gtc_counters.allocations_total`, `us_bursts_total`, `us_dbru_total` |
+| **ONT CPU Load** | `cpu.busy_s`, `cpu.total_s` |
+| **Provider Activity** | `omci.*`, `ploam_counters.*`, `gtc_status.eqd_bits` |
+| **Connection Check** | `ploam.curr_state` at least; each further check reads the fields above it can find |
+
+The whole-PON load works because the OLT fills unused downstream capacity with idle GEM frames
+that every ONT on the PON receives. It is read against the superframe counter rather than the
+clock, so the counter must come from the same read as the idle count. The PON's load is the whole
+splitter tree's, so the "This ONT" line beside it needs per-port 64-bit byte counters, which this
+contract does not carry.
 
 ### Host link fields
 
@@ -227,6 +302,10 @@ gateway slot reports no RX power, and likewise for TX power, temperature, and
 voltage. So supplying `optics` never overrides what the gateway can already see;
 it just fills the gaps. In **standalone** mode there is no gateway DDM to defer
 to, so the `optics` values flow straight to the ONT Stats tab.
+
+`optics.bias_ma`, `bias_warn_high_ma`, and `alarms` are not fallbacks: they are the ONT's own
+readings, stored apart from the gateway's DDM bias (`ont_bias_ma`, not `bias_ma`) and written
+whenever served.
 
 DDM alerts continue to run off the gateway's SFP DDM readings only; the
 contract-supplied fallback is charted and displayed but is not yet wired into DDM

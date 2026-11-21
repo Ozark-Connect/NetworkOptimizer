@@ -663,6 +663,12 @@ public class ChangeDetectionTests
     }
 
     [Fact]
+    public void Labels_DirectConnect_IsTheConsoleSettingName()
+    {
+        ChangeDescriber.LabelFor("direct_connect_enabled").Should().Be("Direct Remote Connection");
+    }
+
+    [Fact]
     public void Labels_CellularAndIPv6Acronyms_AreUpperCase()
     {
         ChangeDescriber.LabelFor("lte_lan_enabled_devices").Should().Be("LTE LAN Enabled Devices");

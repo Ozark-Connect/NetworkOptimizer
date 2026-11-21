@@ -85,4 +85,17 @@ public record AlertEvent
     /// to that site's channels plus the global (main-site) channels.
     /// </summary>
     public string? SiteSlug { get; init; }
+
+    /// <summary>
+    /// The incident this alert belongs to, set by a publisher whose alerts share one cause (a Change Control change and
+    /// the Security Audit it triggers). Overrides the device and source keys. An alert joining such an incident is
+    /// delivered only when it raises the incident's severity or sets <see cref="AlwaysDeliver"/>.
+    /// </summary>
+    public string? CorrelationKey { get; init; }
+
+    /// <summary>
+    /// Delivered even when it joins an explicitly keyed incident at no higher severity: it reports something the
+    /// incident's earlier alerts did not.
+    /// </summary>
+    public bool AlwaysDeliver { get; init; }
 }

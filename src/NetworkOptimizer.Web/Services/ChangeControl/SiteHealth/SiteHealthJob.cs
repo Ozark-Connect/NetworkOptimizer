@@ -184,6 +184,15 @@ public sealed class SiteHealthJob
         var gatewayMacs = UniFiDiscovery.SiteGateways(devices)
             .Select(d => Mac(d.Mac)).Append(gatewayMac is { } g ? Mac(g) : "").Where(m => m.Length > 0).ToHashSet();
 
+        // The gateway's own Fabric series at ISP Health's outage bucket, so a short outage's darkness
+        // survives the mean. Read only when the batch has a WAN outage to judge.
+        var gatewayBucket = TimeSpan.FromSeconds(isp.Options.OutageBucketSeconds);
+        var gatewayTargetId = fabricDevices.FirstOrDefault(kv => gatewayMacs.Contains(Mac(kv.Value))).Key;
+        var gatewaySeries = gatewayTargetId != null && alerts.Any(a => a.EventType is "monitoring.wan_outage" or "monitoring.wan_outage_partial")
+            ? (await influx.QueryLatencyDetailByTargetIdAsync(gatewayTargetId, from.AddHours(-1), to.AddHours(1), gatewayBucket, ct))
+                .Select(p => new LatencySample(p.Time, p.RttAvgMs, p.RttMaxMs, p.JitterMs, p.LossPercent)).ToList()
+            : [];
+
         var history = stored.Where(h => h.HourStart < from).ToList();
         var result = new List<SiteHealthHour>();
         for (var hour = from; hour < to; hour = hour.AddHours(1))
@@ -191,7 +200,7 @@ public sealed class SiteHealthJob
             var end = hour.AddHours(1);
             var inputs = BuildInputs(hour, end, lossPool, firstHopFine, load, windowLoad, satisfactionTask.Result, wirelessTask.Result,
                 wiredTask.Result, fabricTask.Result, portsTask.Result, cpu, alerts, rollout, fabricDevices, topology, gatewayMacs, primaryKey,
-                Baseline(history.Concat(result), hour));
+                Baseline(history.Concat(result), hour), gatewaySeries, gatewayBucket, isp.Options);
             result.Add(SiteHealthScorer.Score(inputs, profile, DateTime.UtcNow));
         }
         return result;
@@ -209,7 +218,8 @@ public sealed class SiteHealthJob
         IReadOnlyList<(DateTime Hour, string DeviceMac, string IfName, double Errors, double Packets)> ports,
         IReadOnlyList<(DateTime Time, double Value)> cpu,
         List<AlertHistoryEntry> alerts, List<FirmwareRolloutStep> rollout, Dictionary<string, string> fabricDevices,
-        Topology topology, HashSet<string> gatewayMacs, string primaryKey, double? baseline)
+        Topology topology, HashSet<string> gatewayMacs, string primaryKey, double? baseline,
+        IReadOnlyList<LatencySample> gatewaySeries, TimeSpan gatewayBucket, IspHealthOptions options)
     {
         bool In(DateTime t) => t >= hour && t < end;
 
@@ -233,12 +243,24 @@ public sealed class SiteHealthJob
         var anyTotal = false;
         double partialMinutes = 0;
         string? partialShare = null;
+        // An outage that began with the gateway itself dark is a LAN / Gateway outage, as ISP Health
+        // scopes it. Judged on the gateway's series: a commanded restart's alert is Info and not kept,
+        // and the Fabric target's alert suppresses device.offline.
+        double gatewayDarkMinutes = 0;
+        var anyWan = false;
         foreach (var a in alerts.Where(a => a.EventType is "monitoring.wan_outage" or "monitoring.wan_outage_partial"))
         {
             if (!string.Equals(NetworkOptimizer.UniFi.GatewayWanHelper.WanInterfaceKeyFromKey(Context(a, "wan") ?? a.DeviceId ?? ""), primaryKey,
                     StringComparison.OrdinalIgnoreCase)) continue;
             var lasted = Overlap(a, alerts, hour, end).TotalMinutes;
             if (lasted <= 0) continue;
+            var onset = DateTime.TryParse(Context(a, "since"), System.Globalization.CultureInfo.InvariantCulture,
+                System.Globalization.DateTimeStyles.AdjustToUniversal | System.Globalization.DateTimeStyles.AssumeUniversal, out var s)
+                ? s : a.TriggeredAt;
+            if (gatewaySeries.Count > 0 && OutageDetector.IsGatewayDarkAtOnset(gatewaySeries, onset,
+                    ChangeIncidents.ConditionEnd(a, alerts) ?? DateTime.UtcNow, gatewayBucket.TotalSeconds, options))
+                gatewayDarkMinutes += lasted;
+            else anyWan = true;
             var minutes = lasted * scale;
             if (a.EventType == "monitoring.wan_outage_partial")
             {
@@ -254,14 +276,17 @@ public sealed class SiteHealthJob
             outageMinutes += minutes;
         }
         // The weighted minutes read as a whole-WAN outage; a partial-only hour says what it was.
-        var outageText = !anyTotal && partialMinutes > 0
-            ? $"partial WAN outage{(partialShare is { } share ? $", {share}" : "")}, {partialMinutes:0} min"
-            : null;
+        var gatewayOutage = gatewayDarkMinutes > 0 && !anyWan;
+        var outageText = gatewayOutage
+            ? $"LAN / Gateway outage, {gatewayDarkMinutes:0} min"
+            : !anyTotal && partialMinutes > 0
+                ? $"partial WAN outage{(partialShare is { } share ? $", {share}" : "")}, {partialMinutes:0} min"
+                : null;
 
         string? localCause = null;
         if (alerts.Any(a => a.EventType == "device.rebooted" && gatewayMacs.Contains(Mac(a.DeviceId)) && In(a.TriggeredAt)))
             localCause = "gateway rebooted";
-        else if (alerts.Any(a => a.EventType == "device.offline" && gatewayMacs.Contains(Mac(a.DeviceId)) && Overlap(a, alerts, hour, end) > TimeSpan.Zero))
+        else if (gatewayOutage || alerts.Any(a => a.EventType == "device.offline" && gatewayMacs.Contains(Mac(a.DeviceId)) && Overlap(a, alerts, hour, end) > TimeSpan.Zero))
             localCause = "gateway offline";
         else if (cpu.Where(c => In(c.Time)).Select(c => c.Value).DefaultIfEmpty(0).Average() >= SiteHealthScorer.GatewayBusyCpuPct)
             localCause = $"gateway CPU above {SiteHealthScorer.GatewayBusyCpuPct:0}%";

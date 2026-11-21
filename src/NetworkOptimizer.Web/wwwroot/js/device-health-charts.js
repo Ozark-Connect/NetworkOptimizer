@@ -11,7 +11,7 @@ import { syncIdentity, extentsOf, spanTo } from './chart-sync.js?v=9';
 import { awaitContainer } from './chart-mount.js?v=1';
 import { loadWindowHours, saveWindowHours, markActiveRange } from './chart-window.js?v=3';
 import { downloadColor, uploadColor } from './chart-colors.js?v=2';
-import { formatBps } from './chart-format.js?v=1';
+import { formatBps, formatBpsAxis } from './chart-format.js?v=2';
 
 // Storage scope for this tab's remembered time window.
 const WINDOW_TAB = 'device-health';
@@ -111,7 +111,7 @@ function baseOpts(height, yTitle, yFormatter, extra, group = SYNC_GROUP) {
         yaxis: {
             min: 0,
             title: { text: yTitle, style: { color: '#9ca3af' } },
-            labels: { style: { colors: '#9ca3af' }, formatter: yFormatter },
+            labels: { minWidth: 20, style: { colors: '#9ca3af' }, formatter: yFormatter },
         },
         grid: { borderColor: '#374151', strokeDashArray: 3 },
         legend: { show: false },
@@ -176,7 +176,12 @@ async function syncWanChart() {
 
     wanChartRendering = (async () => {
         const chart = new ApexCharts(el, {
-            ...baseOpts(200, 'Throughput', v => v != null ? formatBps(v) : ''),
+            ...baseOpts(200, 'Throughput', v => v != null ? formatBpsAxis(v) : '', {
+                tooltip: {
+                    theme: 'dark', shared: true, x: { formatter: noTime.chartTooltipFormatter() },
+                    custom: ctx => valueSortedTooltip(ctx, { format: formatBps }),
+                },
+            }),
             series: wanSeries(), colors: [downloadColor(), uploadColor()],
         });
         await chart.render();
@@ -682,8 +687,17 @@ function shiftWindow(container, direction) {
     startPoll();
 }
 
-export async function mount(elId) {
+// The page, told when the reader picks a window themselves, so it can drop the link's ?at= from the URL: a link's
+// framing must not outlive the reader's own choice (a site switch carries the URL along).
+let pageRef = null;
+function readerChoseWindow() {
+    pageRef?.invokeMethodAsync('DeviceWindowChosen').catch(() => { });
+}
+
+export async function mount(elId, dotNetRef) {
     containerId = elId;
+    pageRef = dotNetRef || null;
+    window.__healthCharts = { unmount };
     // Read before the await, so the decision is made against the URL this mount was called
     // for. Null leaves this tab's own default standing.
     const restoredHours = loadWindowHours(WINDOW_TAB);
@@ -714,12 +728,12 @@ export async function mount(elId) {
     tempChart = new ApexCharts(tempEl, { ...baseOpts(200, '°C', v => v != null ? v.toFixed(0) + ' °C' : ''), series: [], colors: PALETTE });
     cpuChart = new ApexCharts(cpuEl, {
         ...baseOpts(200, 'CPU %', v => v != null ? v.toFixed(0) + '%' : ''),
-        yaxis: { min: 0, max: v => Math.max(v * 1.1, 30), title: { text: 'CPU %', style: { color: '#9ca3af' } }, labels: { style: { colors: '#9ca3af' }, formatter: v => v != null ? v.toFixed(0) + '%' : '' } },
+        yaxis: { min: 0, max: v => Math.max(v * 1.1, 30), title: { text: 'CPU %', style: { color: '#9ca3af' } }, labels: { minWidth: 20, style: { colors: '#9ca3af' }, formatter: v => v != null ? v.toFixed(0) + '%' : '' } },
         series: [], colors: PALETTE,
     });
     memChart = new ApexCharts(memEl, {
         ...baseOpts(200, 'Memory %', v => v != null ? v.toFixed(0) + '%' : ''),
-        yaxis: { min: 0, max: v => Math.max(v * 1.1, 50), title: { text: 'Memory %', style: { color: '#9ca3af' } }, labels: { style: { colors: '#9ca3af' }, formatter: v => v != null ? v.toFixed(0) + '%' : '' } },
+        yaxis: { min: 0, max: v => Math.max(v * 1.1, 50), title: { text: 'Memory %', style: { color: '#9ca3af' } }, labels: { minWidth: 20, style: { colors: '#9ca3af' }, formatter: v => v != null ? v.toFixed(0) + '%' : '' } },
         series: [], colors: PALETTE,
     });
 
@@ -727,7 +741,7 @@ export async function mount(elId) {
         chartEls.fan = fanEl;
         fanChart = new ApexCharts(fanEl, {
             ...baseOpts(200, 'RPM', v => v != null ? Math.round(v).toLocaleString() + ' RPM' : ''),
-            yaxis: { min: 0, title: { text: 'RPM', style: { color: '#9ca3af' } }, labels: { style: { colors: '#9ca3af' }, formatter: v => v != null ? Math.round(v).toLocaleString() : '' } },
+            yaxis: { min: 0, title: { text: 'RPM', style: { color: '#9ca3af' } }, labels: { minWidth: 20, style: { colors: '#9ca3af' }, formatter: v => v != null ? Math.round(v).toLocaleString() : '' } },
             series: [], colors: PALETTE,
         });
         await fanChart.render();
@@ -745,12 +759,13 @@ export async function mount(elId) {
             // too, and a window the link chose must not become a remembered preference.
             saveWindowHours(WINDOW_TAB, hours);
             selectPresetRange(container, hours);
+            readerChoseWindow();
         });
     });
 
     // Shift arrows
     container.querySelectorAll('[data-shift]').forEach(btn => {
-        btn.addEventListener('click', () => shiftWindow(container, btn.dataset.shift));
+        btn.addEventListener('click', () => { shiftWindow(container, btn.dataset.shift); readerChoseWindow(); });
     });
 
     // Custom range popover
@@ -778,6 +793,7 @@ export async function mount(elId) {
         customTo = to;
         isCustomRange = true;
         windowOffset = 0;
+        readerChoseWindow();
         container.querySelectorAll('[data-range]').forEach(b => b.classList.remove('active'));
         popover?.classList.remove('open');
         updateCustomLabel(container);
@@ -861,6 +877,7 @@ export function soloDevice(mac) {
 }
 
 export function unmount() {
+    pageRef = null;
     stopPoll();
     window.removeEventListener('resize', onMarkResize);
     clearTimeout(markResizeTimer);

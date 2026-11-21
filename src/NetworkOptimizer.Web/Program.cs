@@ -414,6 +414,7 @@ builder.Services.AddSingleton<ICableModemProvider, TechnicolorCgaProvider>();
 builder.Services.AddSingleton<ICableModemProvider, VodafoneStationProvider>();
 builder.Services.AddSingleton<ICableModemProvider, SagemcomF3896Provider>();
 builder.Services.AddSingleton<ICableModemProvider, FritzBoxCableProvider>();
+builder.Services.AddSingleton<ICableModemProvider, HitronCodaProvider>();
 // The UCI has no status page: on-gateway agents relay its inform frames, which the inform service
 // decrypts and the provider reads on the normal poll.
 builder.Services.AddSingleton<NetworkOptimizer.Web.Services.CableModemProviders.Uci.UciInformService>();
@@ -901,6 +902,7 @@ builder.Services.AddMutatingService<IPathMapService, PathMapService>();
 builder.Services.AddMutatingService<IChangeControlFleetService, ChangeControlFleetService>();
 // Re-runs upstream tracer discovery every 7 days; flips a review flag on diff.
 builder.Services.AddHostedService<NetworkOptimizer.Web.Services.Monitoring.UpstreamRediscoveryService>();
+builder.Services.AddHostedService<NetworkOptimizer.Web.Services.Monitoring.FarTransitSweepService>();
 // 3D LAN flow map (spec 5.7) - composes topology + live + historic feeds for the JS layer.
 // Per-site map cache: the registry owns one LanFlowMapCache per site and scoped
 // forwarding hands each request the current site's instance, so a secondary
@@ -1036,6 +1038,9 @@ builder.Services.AddMutatingService<NetworkOptimizer.Web.Services.Monitoring.Hea
 builder.Services.AddScoped<FloorPlanService>();
 builder.Services.AddMutatingService<IFloorPlanAdminService>(sp => sp.GetRequiredService<FloorPlanService>());
 builder.Services.AddScoped<HeatmapDataCache>();
+builder.Services.AddScoped<NetworkOptimizer.Web.Services.InnerSpace.InnerSpaceImportService>();
+builder.Services.AddMutatingService<NetworkOptimizer.Web.Services.InnerSpace.IInnerSpaceImportService>(
+    sp => sp.GetRequiredService<NetworkOptimizer.Web.Services.InnerSpace.InnerSpaceImportService>());
 builder.Services.AddScoped<PlannedApService>();
 builder.Services.AddMutatingService<IPlannedApAdminService>(sp => sp.GetRequiredService<PlannedApService>());
 builder.Services.AddSingleton<ConfigTransferService>();

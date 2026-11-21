@@ -15,7 +15,7 @@ namespace NetworkOptimizer.Web.Services.CableModemProviders.Uci;
 public static partial class UciStatsMapper
 {
     /// <summary>Anything logged before this is a pre-clock-sync stamp, not a real time.</summary>
-    private static readonly DateTime EarliestPlausible = new(2015, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+    internal static readonly DateTime EarliestPlausible = new(2015, 1, 1, 0, 0, 0, DateTimeKind.Utc);
 
     public static CableModemStats Map(UciInformPayload payload, string name, string mac, DateTime capturedAt)
     {

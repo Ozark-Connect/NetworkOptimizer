@@ -328,7 +328,7 @@
                 @* Speed Chart *@
                 @if (_activeHistoryTab == "speed")
                 {
-                    <div class="wan-chart-container">
+                    <div class="wan-chart-container chart-opens-results">
                         <ApexChart @ref="_chart" TItem="WanChartDataPoint"
                                    Options="_chartOptions"
                                    Height="@("250px")"
@@ -2051,9 +2051,10 @@
         if (_scrollToLinkedResultId is { } linkedId)
         {
             _scrollToLinkedResultId = null;
-            // Tinted rather than ringed: an offset ring around a table row collides with the rows
-            // either side. Ringed at all because a link brought the reader here.
-            try { await JS.InvokeVoidAsync("noHighlightRow", $"result-{linkedId}"); }
+            // The row sits inside the history card, so the card's own scroll below would pull the page back up to it.
+            _scrollToHistoryPending = false;
+            // The chart above the table renders after this, so noLandOnRow holds the row in place while it does.
+            try { await JS.InvokeVoidAsync("noLandOnRow", $"result-{linkedId}"); }
             catch { /* helper not loaded - the row is still open, which is the point */ }
         }
 
@@ -2062,6 +2063,8 @@
         // The chart renders asynchronously behind this and the card grows as it does, so a scroll
         // fired the instant the element exists lands on a position that then moves under it.
         await Task.Delay(350);
+        // A linked result opened meanwhile: its row is the landing, and it sits inside this card.
+        if (_linkedResultOpened) return;
         try { await JS.InvokeVoidAsync("noHighlightTarget", "speed-history-card"); }
         catch { /* helper not loaded - the filter still applied, which is the point */ }
     }
@@ -2142,11 +2145,28 @@
 
     private async Task OnChartClicked(SelectedData<WanChartDataPoint> data)
     {
-        if (data?.DataPoint?.Items?.FirstOrDefault() is WanChartDataPoint { IsGap: false } point)
+        if (data?.DataPoint?.Items?.FirstOrDefault() is { } point && ResultAt(point) is { } resultId)
         {
-            await ScrollToResult(point.ResultId);
+            await ScrollToResult(resultId);
         }
     }
+
+    /// <summary>
+    /// The result behind a clicked point. A shared tooltip reports the series nearest the pointer in two
+    /// dimensions, so at the span's edge it can name another series' padding gap at the same x: the result
+    /// is then the real point at that x.
+    /// </summary>
+    private int? ResultAt(WanChartDataPoint point) => !point.IsGap
+        ? point.ResultId
+        : _wanSeries.Where(IsWanVisible)
+            .SelectMany(w => new[]
+            {
+                w.DownloadData, w.UploadData, w.LatencyData,
+                w.LoadedLatencyBaseData, w.LoadedLatencyDownData, w.LoadedLatencyUpData, w.JitterData,
+                w.IdleLossData, w.DownloadLossData, w.UploadLossData
+            })
+            .SelectMany(list => list)
+            .FirstOrDefault(p => !p.IsGap && p.X == point.X)?.ResultId;
 
     private async Task ScrollToResult(int resultId)
     {

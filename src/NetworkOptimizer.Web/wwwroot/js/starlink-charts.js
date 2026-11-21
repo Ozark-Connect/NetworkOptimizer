@@ -74,7 +74,7 @@ function baseOpts(height, yTitle, yFormatter, extra, group = SYNC_GROUP) {
         },
         yaxis: {
             title: { text: yTitle, style: { color: '#9ca3af' } },
-            labels: { style: { colors: '#9ca3af' }, formatter: yFormatter },
+            labels: { minWidth: 20, style: { colors: '#9ca3af' }, formatter: yFormatter },
         },
         grid: { borderColor: '#374151', strokeDashArray: 3 },
         legend: { show: false },

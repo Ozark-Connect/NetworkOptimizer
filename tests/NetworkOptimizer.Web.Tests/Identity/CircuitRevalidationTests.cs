@@ -41,7 +41,7 @@ public sealed class CircuitRevalidationTests : IAsyncLifetime
         _provider = services.BuildServiceProvider();
 
         using var scope = _provider.CreateScope();
-        await scope.ServiceProvider.GetRequiredService<AuthDbContext>().Database.MigrateAsync();
+        await scope.ServiceProvider.GetRequiredService<AuthDbContext>().Database.MigrateFromTemplateAsync();
         var users = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
         var user = new ApplicationUser { UserName = "User1", IsEnabled = true };
         (await users.CreateAsync(user)).Succeeded.Should().BeTrue();

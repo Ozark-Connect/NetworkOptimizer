@@ -662,7 +662,8 @@ else
     </div>
 }
 
-@if (!_loading && _history.Count > 0)
+@* Shown while loading too. Its buttons wait: the page's queries share one DbContext. *@
+@if (_history.Count > 0)
 {
     <div class="card">
         <div class="card-header"><h2 class="card-title">History</h2></div>
@@ -681,7 +682,7 @@ else
                                 <td>
                                     @if (row.HasReport)
                                     {
-                                        <button class="btn btn-sm btn-secondary" @onclick="() => OpenReportAsync(row.Id)">Report</button>
+                                        <button class="btn btn-sm btn-secondary" disabled="@_loading" @onclick="() => OpenReportAsync(row.Id)">Report</button>
                                     }
                                 </td>
                             </tr>
@@ -692,9 +693,9 @@ else
             @if (HistoryPages > 1)
             {
                 <div class="pagination history-pagination">
-                    <button class="btn btn-sm btn-secondary" disabled="@(_historyPage <= 1)" @onclick="() => ChangeHistoryPageAsync(-1)"><AppIcon Name="chevron-left" /> Prev</button>
+                    <button class="btn btn-sm btn-secondary" disabled="@(_loading || _historyPage <= 1)" @onclick="() => ChangeHistoryPageAsync(-1)"><AppIcon Name="chevron-left" /> Prev</button>
                     <span class="pagination-info">Page @_historyPage of @HistoryPages (@_historyTotal total)</span>
-                    <button class="btn btn-sm btn-secondary" disabled="@(_historyPage >= HistoryPages)" @onclick="() => ChangeHistoryPageAsync(1)">Next <AppIcon Name="chevron-right" /></button>
+                    <button class="btn btn-sm btn-secondary" disabled="@(_loading || _historyPage >= HistoryPages)" @onclick="() => ChangeHistoryPageAsync(1)">Next <AppIcon Name="chevron-right" /></button>
                 </div>
             }
         </div>
@@ -1023,6 +1024,16 @@ else
     {
         _connection = ConnectionRegistry.GetFor(SiteContext.Slug);
         _connection.OnConnectionChanged += OnConnectionChanged;
+        // History needs none of the rollout state, so it shows while the slower reads (Autopilot preview) run.
+        try
+        {
+            await LoadHistoryAsync();
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to load firmware rollout history");
+        }
         await ReloadAsync();
         _loading = false;
         await OpenAlignAsync();

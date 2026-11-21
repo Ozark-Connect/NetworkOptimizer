@@ -24,6 +24,7 @@ an On-Site Agent, AP Telemetry, InfluxDB, or HTTPS.
 - **Active Alerts** - top three open alerts, with Acknowledge and Resolve in place; click one to open it on Alerts & Schedule
 - **Security Posture**, **Adaptive SQM**, **Threat Trends**, and **Recent Security Findings** cards
 - **WAN Speed Test**, **LAN Speed Test**, and **Wi-Fi Optimizer** summary cards
+  - Each recent speed test opens its result, expanded, on its page
 - **Device Status** - every device's IP, model, firmware, uptime, clients, and ping
   - Restart reason on hover: firmware, commanded, power loss, hang, panic, or watchdog (Device SSH)
 - **Live View** - the 2D or 3D map embedded on the Dashboard
@@ -53,6 +54,7 @@ an On-Site Agent, AP Telemetry, InfluxDB, or HTTPS.
 - Per agent site: client speed test target override
 - Three sites free for personal use; a lapsed license keeps a site running through a 10-day grace period
 - License checks never downgrade a license on failure; a restricted site pauses until relicensed
+- Buy a license from the free-tier notices; a subscription key gets **Manage billing** in Licensing and on its grace banner
 - Agent management - rename in place, status, version, **Upgrade** commands, **Run It for Me** gateway upgrade, enrollment tokens
 - Per site: Automatic Blocking mode, blocked-source count, and [cross-site blocking](#automatic-blocking) with **Turn On Recommended for All Sites**
 - [Trusted Sources](#trusted-sources) - every site's WAN addresses as UniFi Network Lists, so sites admit each other and no one else
@@ -70,6 +72,7 @@ an On-Site Agent, AP Telemetry, InfluxDB, or HTTPS.
 - LAN speed test hosted on the UniFi gateway itself (agent on the gateway, `--lan-speed-test`)
 - Buffers up to 12 hours of results to disk through outages; watchdog restarts a stuck agent
 - Falls back to HTTPS heartbeats when the tunnel cannot connect; refuses plain HTTP
+- Installers check the tunnel route before installing and name the fix: an untrusted certificate, a proxy missing the gRPC route; **Run It for Me** then offers **Accept a self-signed certificate (--insecure)**
 - **Reconnecting often** - flags an agent whose tunnel keeps dropping, linked to the agent README's reverse proxy notes
 - `proxyAllowedCidrs` pins which addresses the tunnel may reach; every dial is logged on the agent host
 - Several agents per site, for example one on the gateway and one on a LAN host
@@ -96,6 +99,7 @@ Time-series monitoring on your own InfluxDB, fed by SNMP polling (InfluxDB).
   - Transit RTT discounts a router that answers pings slowly; real slowdowns still show
 - Gateway tiles: RTT, loss, CPU, memory, temperature, **Fabric Ingress**, **Fabric Egress**
 - Last-hour sparkline behind the ISP, transit, and gateway tiles; hover to bring it forward (InfluxDB)
+- Last-hour sparkline on the **WAN Download** and **WAN Upload** tiles: trace the line for the rate at any minute, click to move Live View to that moment
 - WAN pill selector - one WAN, several to compare, or all
 - Opened from Network Performance at a moment, a chip beside the WAN pills goes back to the chart, or **×** returns to live on your own WAN selection
 - Live WAN throughput chart
@@ -154,6 +158,10 @@ Time-series monitoring on your own InfluxDB, fed by SNMP polling (InfluxDB).
       - Hover a destination for its address, its Threat Intelligence drill-down, and Trace; your own clients and devices link to Client Performance or Device Stats instead
       - Every address and domain on a hover card copies with one click; Live DNS queries and outside resolvers get the same card
     - Parallel streams from one client to one destination shown as one row with a stream count
+    - **Round trip** in a flow's detail: timed by the Gateway as each connection opens, to the destination and to the client
+      - **RTT** column, sortable, on desktop; hover a value for the client's round trip
+      - Hover a destination or client for its median round trip over the connections shown
+      - Not on Gateways whose firmware reports no connection events, such as the UDR7
     - **Where It's Going** - client to app to route, by rate or by flow count; by rate each band splits into download and upload in its route's color, and each node shows both rates; hovering a route lists its top destinations (on LAN, the hosts); the gateway's own VPN tunnel is left out so tunneled traffic counts once
     - **Live DNS** - lookups to the gateway, to DNS servers on other VLANs, and to outside resolvers; blocked lookups (NXDOMAIN, or a 0.0.0.0 / :: answer), response time, and DNS bypass (including DoH and DoT, not counting a site resolver's own encrypted upstream)
       - A lookup the gateway redirects (DNAT) to a site resolver shows the attempt and the resolver that answered, and is not counted as a bypass
@@ -226,10 +234,11 @@ Time-series monitoring on your own InfluxDB, fed by SNMP polling (InfluxDB).
   - Metered WANs get fewer targets and a slower cadence
   - Proposes ISP gateways (passthrough or router mode) and far-slower transit routers unchecked
   - Leaves out a transit router reached by a different route than your traffic takes, checked by ping and a direct traceroute
+  - Marks a transit target **Far** when its round trip sits well above your other transit hops: the Transit RTT tiles, the WAN chart, ISP Health, and WAN outage alerts leave it out, and it keeps its own chart line and route
   - Keeps your choices: unchecked or paused targets stay that way on re-runs
   - A re-run and commit corrects earlier mistyped targets, keeping their history
 - **Flaky Monitoring Targets** - targets losing more than their peers, with **Disable** and **Disable all**
-- **Latency Targets** - add, rename, pause, remove, and restore targets
+- **Latency Targets** - add, rename, pause, remove, and restore targets; a UniFi device's target takes the device's UniFi Console name and follows a rename there
   - ICMP or TCP probes, per-WAN path, interval from 2 seconds to 5 minutes
 - **Multi-WAN Monitoring - Vantages** - give each WAN an [On-Site Agent](#on-site-agent) or a policy-routed source address
   - Edit, verify, and assign targets per vantage
@@ -248,6 +257,8 @@ Time-series monitoring on your own InfluxDB, fed by SNMP polling (InfluxDB).
 - Every SFP module: RX/TX power, temperature, voltage, and bias current
 - Mark a module as PON, Active Ethernet, or regular SFP; monitor or unmonitor it
 - **SFP Diagnostics** charts, including PON errors, host link errors, and GEM frames
+- **Connection Check** for every monitored ONT, from the fiber up: Light, Transmit, Registered, Management, Service, Line Errors, Host Link, and Traffic, each read from the best data the device reports
+- PON views (**All**, **Optical**, **Link**, **Traffic**, **Provider**) for odi-oss sticks, and for a Network Optimizer Custom PON endpoint that serves the fields: **Path Loss** against the ODN class the OLT announces, **Laser Bias Current**, **Link Downtime**, **ONT CPU Load**, **PON Downstream Load** for the whole PON and this ONT, **PON Load by Hour**, **Upstream Grants**, and **Provider Activity**
 - The host device's reboots, health check actions, and alerts marked on the charts while one device's modules are shown
 - PON details: PLOAM state, ONU ID, FEC, ONT uptime; GPON vs XGS-PON detection
 - **SFP Anomalies** investigation and **SFP Alert Thresholds**
@@ -265,6 +276,8 @@ Time-series monitoring on your own InfluxDB, fed by SNMP polling (InfluxDB).
 ### ONT Stats
 
 - **ONT Signal History** - RX/TX power, temperature, PON errors, host link errors, GEM frames
+- **Connection Check** as on SFP Stats, for every ONT that reports a PON state
+- The same PON views as SFP Stats for a standalone odi-oss ONT
 - PON status and type; **ONT Alert Thresholds**
 - **PON Status** table: **Registered**, **OLT** (vendor decoded, with model where reported), **OLT Version**, **Firmware**, and ONT uptime
 
@@ -332,11 +345,11 @@ Time-series monitoring on your own InfluxDB, fed by SNMP polling (InfluxDB).
   - On a gateway with built-in Wi-Fi: **Change AP** only, for 5 GHz non-MLO clients
 - **Start Logging** - log a remote client's signal at poll rate without GPS
 - GPS walk test - signal heatmap from your phone while the page is open (HTTPS)
-- **Speed** - live throughput, **Run Speed Test** / **Quick Test**, speed and latency history, result map
+- **Speed** - live throughput, **Run Speed Test** / **Quick Test**, **WAN Test** when a WAN speed test server is configured, speed and latency history (a point opens its result), result map, and **Test Results** with the client's LAN and WAN tests
   - **Throughput** history from 1h to 30d: average, peak, WAN share, and speed test marks (InfluxDB)
   - Under **Live Throughput**: the client's flows through the gateway, their rate, and busiest apps ([On-Site Agent](#on-site-agent))
 - **Signal** - noise, SNR, TX power, radio peers, read-only **Signal Map**, signal history, and log
-- **Connection** - **Network Path** with bottleneck, AP history, connection events, and trace changes
+- **Connection** - **Network Path** with bottleneck, **Connection History** timeline (a lane per AP, stretches colored by band, offline gaps, disconnect and roam counts), connection events, and trace changes
 - **Data / Apps** - WAN vs LAN + WAN totals, usage chart, and per-application breakdown
   - Rolled up hourly per client and per port, with a 30-day backfill on first run
   - **Live Traffic** - the client's flows right now, ranked by rate, sortable, filterable, with per-flow detail ([On-Site Agent](#on-site-agent))
@@ -467,8 +480,10 @@ Gateway tweaks for UCG-Fiber, UXG-Fiber, UCG-Max, and UXG-Max (Gateway SSH).
 
 - **Wi-Fi Health Score** from signal, channel health, satisfaction, airtime, roaming, and capacity
   - Channel health scores each radio against the quietest channel it could use, so a band busy on every channel costs nothing
+- **Wi-Fi Health**, **Access Points**, **Wireless Clients**, and **Weak Signal** cards open their Overview card, Client Stats, or its weak-signal clients
 - **Client Band Distribution**, **Channel Optimization** summary, and per-AP radio cards
 - Mesh uplink details and **Re-pair Uplink**
+- **Speed Map** or **Signal Map** below the cards, switched in place
 - **Health Issues** with recommendations; **Acknowledge** hides an issue but keeps it in the score
   - Each affected AP, radio, or client links straight to it
   - Each affected AP, radio, or client links to where it is shown: its clients on that band, its channel, its metrics, or the client itself
@@ -479,7 +494,7 @@ Gateway tweaks for UCG-Fiber, UXG-Fiber, UCG-Max, and UXG-Max (Gateway SSH).
   - Load: high AP load, load imbalance, high 2.4 GHz concentration
   - Clients: legacy client airtime, IoT SSID separation, DHCP issues, high latency despite good signal ([AP Telemetry](#ap-telemetry))
   - Settings: band steering, Roaming Assistant, minimum RSSI, minimum data rates, TX power levels, MLO, 6 GHz disabled
-  - Roaming failures
+  - Roaming failures between an AP pair, naming the client when one client made them all
 - Deliberately set channels and TX power are noted instead of flagged
 
 ### Metrics, RF Environment, and Environment
@@ -522,7 +537,21 @@ Gateway tweaks for UCG-Fiber, UXG-Fiber, UCG-Max, and UXG-Max (Gateway SSH).
   - Buildings and floors; floor plan underlays from PNG, JPEG, HEIC, or PDF
   - Heatmap adjusted by real client signal measurements
   - Walls and doors from a material list (drywall to metal), drawn with snapping
+    - Map toolbox: Pan, Select, Draw Layout, Undo, and AP and planned AP placement, with a Done button at the bottom that finishes one step at a time (Finish Shape, Done Drawing, Done, Done Editing)
+    - Draw Layout starts on the building's outline material (any material, so a metal shed counts) until the floor's outline is closed, then on the last interior material used in that building; new floors take the building's outline material
+    - The Select tool (or Shift+drag) draws a box to select several wall segments, and Shift+click adds one; click or right-click a selected segment to change their material or delete them together
+    - Leaving the page while a wall is half drawn asks first
+    - Deleting a segment from a closed outline keeps it one wall; redrawing the gap joins it back up and closes the outline, with the new piece facing the right way
+    - Selecting segments that run in one straight line in one material offers **Merge**, which makes them one segment
+  - Import buildings from UniFi InnerSpace: LiDAR scans, plans drawn in InnerSpace, and Design Center projects brought into InnerSpace
+    - Walls with their materials, doors and windows (including the windows a scan measures, with sill and head heights), floor images, floor heights, and APs (adopted APs by MAC, the rest as planned APs)
+    - Laid down as a template: drag and rotate on the map, or snap onto an existing building's outline as a new or replaced floor
+    - Floors aligned in InnerSpace import as one building; each floor can be added as a new floor, mapped over an existing floor, or left out, and APs can be left out
+    - Separate outlines on one floor import as separate buildings, or together with Import as one building
+    - Re-import updates the same floors in place, and says first when a floor was edited since
+    - Needs the username and password UniFi Console Connection, with Full Admin access to InnerSpace
   - Place real APs with mount and facing; add planned APs from the model catalog
+    - Right-click an AP, or use its popup, to move it or remove it; Delete removes the AP whose popup is open
   - Simulate TX power, antenna mode, or a disabled AP before changing anything
   - Walk-test signal markers over the heatmap
 
@@ -550,6 +579,7 @@ models such as U6-Lite, U6-Mesh, and UAP-AC-Pro, and gateways with built-in Wi-F
 - **Firewall Rules** - any-any, overly broad, orphaned, shadowed, and out-of-order rules
   - Missing or bypassed VLAN isolation and internet blocks; missing management access (cloud, firmware, AFC, NTP, 5G/LTE)
   - Networks that can reach the gateway's SSH and web UI; strict once a Management Access network is set
+  - Gateway management open to the internet: Direct Remote Connection, or an allow from the External zone
 - **VLAN Security** - IoT, printers, cameras, NVRs, and security systems on the wrong VLAN
   - Uses UniFi fingerprints, MAC OUI, port names, and UniFi Protect; checks wired, wireless, and offline clients
   - Covers zone-based firewalls, L3 switch-routed VLANs, and IPv4 and IPv6 separately
@@ -564,6 +594,7 @@ models such as U6-Lite, U6-Mesh, and UAP-AC-Pro, and gateways with built-in Wi-F
 - **Console Access** - API Keys and Local Admin accounts unused for 7+ days (when the UniFi Console Connection can read them)
 - **Gateway Firewall** - checks the gateway enforces your configuration: WANs and networks in their zones, every enabled policy present, disabled ones gone (Gateway SSH)
   - Automatic Blocking on the gateway's [On-Site Agent](#on-site-agent): rules hooked in once, unchanged, and holding the blocklist
+  - Management ports the gateway accepts from the WAN that no firewall policy accounts for
 - Threat-aware check for actively targeted port forwards
 - **Acknowledge** false positives; override a network's **Purpose**, including marking your Management Access network
 - **Network Reference**, **DNS Security** table, **Hardening Measures in Place**, **Switch & Port Details**, wireless clients by AP
@@ -747,12 +778,13 @@ Requires Gateway SSH.
 - **History** - every alert by source and severity
 - **Rules** - event pattern, threshold, severity, cooldown, escalation, digest-only, target devices
 - **Incidents** - related alerts grouped automatically, each listed in its incident with a link to it
+  - A Change Control change and the Security Audit it triggers share one incident, delivered once unless a later alert is more severe or new
   - Config changes in the 2 hours before each incident, with **Roll Back** ([Change Control](#change-control))
 - Alerts cover:
   - Security Audit score drops and new findings; threat attack chains and patterns; Web Application Firewall events
   - A device reaching, or trying to reach, an address on a public block list
   - WAN port below its usual link speed or at half duplex, and its recovery
-  - ONT management unresponsive while its SFP still reads light; ONT rebooted; downstream AES encryption enabled or disabled (Network Optimizer Custom PON endpoints)
+  - ONT management unresponsive while its SFP still reads light; ONT rebooted; downstream AES encryption enabled or disabled (Network Optimizer Custom PON endpoints); path loss near the ODN class limit, or above its usual level (odi-oss)
   - WAN, LAN, and client speed test regressions
   - UniFi Console and On-Site Agent connection loss; an On-Site Agent tunnel that keeps reconnecting
   - Monitoring target offline, sustained loss, full and partial WAN outages
@@ -803,6 +835,7 @@ Requires Gateway SSH.
 - **Cable modems**
   - ARRIS Surfboard - S33, S34, SB8200, SB6183, SB6141, T25
   - FRITZ!Box Cable - 6690 Cable (FRITZ!OS 8.40)
+  - Hitron - CODA-5719 (Mediacom), with OFDM/OFDMA and the DOCSIS event log
   - Motorola - MB8611, MB8600, MB7621
   - Netgear - CM600, CM700, CM1000, CM1200, CM2050V (with OFDM/OFDMA)
   - Sagemcom - F3896LG (Virgin Media Hub 5, Ziggo SmartWifi)

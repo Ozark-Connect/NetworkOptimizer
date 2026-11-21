@@ -1512,6 +1512,26 @@ public class LiveTrafficStoreTests
     }
 
     [Fact]
+    public void RowKeyHoldsAsStreamsComeAndGo()
+    {
+        static LiveFlowRow Ping(string key) =>
+            new() { Key = key, ClientIp = "192.0.2.20", DestinationIp = "203.0.113.5", RemotePort = 0, Proto = "ICMP" };
+
+        var alone = LiveTrafficStore.Bundle([Ping("icmp-id1")]).Should().ContainSingle().Subject;
+        var two = LiveTrafficStore.Bundle([Ping("icmp-id1"), Ping("icmp-id2")]).Should().ContainSingle().Subject;
+        var next = LiveTrafficStore.Bundle([Ping("icmp-id2")]).Should().ContainSingle().Subject;
+
+        alone.Key.Should().Be("icmp-id1", "a lone flow keeps its own key");
+        two.RowKey.Should().Be(alone.RowKey).And.Be(next.RowKey, "a new ping run is the same row on screen");
+    }
+
+    [Fact]
+    public void RowKeyIsTheKeyOffTheActiveList()
+    {
+        new LiveFlowRow { Key = "a" }.RowKey.Should().Be("a");
+    }
+
+    [Fact]
     public void BundledStreamsSumTheirRecentData()
     {
         var rows = LiveTrafficStore.Bundle(
@@ -1806,4 +1826,213 @@ public class LiveTrafficStoreTests
         store.Ingest(Batch(Flow("stun", Laptop, "192.0.2.20", "203.0.113.70", 3478, "eth4", 100, 100, proto: "udp")));
 
         store.BuildView(Query(), LiveTrafficState.Live).Flows.Single().App.Should().Be("STUN");
-    }}
+    }
+
+    // ---------------------------------------------------------------- round trips
+
+    private static LiveFlow Timed(string key, string mac, string clientIp, string remote, double remoteMs, double? clientMs = null,
+        bool queued = false, int clientPort = 50000)
+    {
+        var f = Flow(key, mac, clientIp, remote, 443, "eth4", 1000, 1000);
+        f.ClientPort = clientPort;
+        f.RemoteRttUs = (int)(remoteMs * 1000);
+        f.ClientRttUs = clientMs is { } c ? (int)(c * 1000) : 0;
+        f.RttQueued = queued;
+        return f;
+    }
+
+    private static LiveTrafficBatch Batch(bool latencyActive, params LiveFlow[] flows)
+    {
+        var batch = Batch(flows);
+        batch.FlowLatencyActive = latencyActive;
+        return batch;
+    }
+
+    [Fact]
+    public void Rows_carry_their_round_trips_and_the_medians_for_their_destination_and_client()
+    {
+        var store = SeededStore();
+        store.SetFlowLatencyCapable(true);
+        store.Ingest(Batch(latencyActive: true,
+            Timed("a", Laptop, "192.0.2.20", "203.0.113.5", 16, 4.2),
+            Timed("b", Laptop, "192.0.2.20", "203.0.113.5", 18, 3.8, clientPort: 50001),
+            Timed("c", Nas, "192.0.2.10", "203.0.113.5", 30, 0.2)));
+
+        var rows = store.BuildView(Query() with { GroupBy = LiveTrafficGroupBy.Flows }, LiveTrafficState.Live).Flows.ToDictionary(f => f.Key);
+        var a = rows.Values.First(r => r.ClientIp == "192.0.2.20");
+
+        a.Latency.Should().Be(FlowLatencyAvailability.Measuring);
+        a.DestinationRoundTrip.Should().Be(new RoundTripSummary(18, 3), "three connections to 203.0.113.5 from any client");
+        a.ClientRoundTrip.Should().Be(new RoundTripSummary(4.0, 2), "the Laptop's two connections");
+        rows.Values.Single(r => r.ClientIp == "192.0.2.10").ClientRttMs.Should().Be(0.2);
+    }
+
+    [Fact]
+    public void A_flow_keeps_its_round_trip_after_the_agent_forgets_it_but_a_reused_tuple_does_not()
+    {
+        var store = SeededStore();
+        store.SetFlowLatencyCapable(true);
+        store.Ingest(Batch(latencyActive: true, Timed("a", Laptop, "192.0.2.20", "203.0.113.5", 16, 4)));
+
+        var later = Flow("a", Laptop, "192.0.2.20", "203.0.113.5", 443, "eth4", 1000, 1000);
+        later.AgeSeconds = 900;
+        store.Ingest(Batch(latencyActive: true, later));
+        store.BuildView(Query(), LiveTrafficState.Live).Flows.Single().RemoteRttMs.Should().Be(16);
+
+        var reused = Flow("a", Laptop, "192.0.2.20", "203.0.113.5", 443, "eth4", 1000, 1000);
+        reused.AgeSeconds = 2;
+        store.Ingest(Batch(latencyActive: true, reused));
+        store.BuildView(Query(), LiveTrafficState.Live).Flows.Single().RemoteRttMs.Should().BeNull();
+    }
+
+    [Fact]
+    public void An_ended_flow_keeps_the_round_trip_it_had()
+    {
+        var store = SeededStore();
+        store.SetFlowLatencyCapable(true);
+        store.Ingest(Batch(latencyActive: true, Timed("a", Laptop, "192.0.2.20", "203.0.113.5", 16, 4)));
+        var end = Batch(latencyActive: true);
+        end.Ended.Add(Flow("a", Laptop, "192.0.2.20", "203.0.113.5", 443, "eth4", 0, 0));
+        store.Ingest(end);
+
+        store.BuildView(Query() with { Ended = true }, LiveTrafficState.Live).Flows.Single().ClientRttMs.Should().Be(4);
+    }
+
+    [Fact]
+    public void Round_trips_stay_hidden_for_an_agent_that_predates_them()
+    {
+        var store = SeededStore();
+        store.Ingest(Batch(Flow("a", Laptop, "192.0.2.20", "203.0.113.5", 443, "eth4", 1000, 1000)));
+
+        var row = store.BuildView(Query(), LiveTrafficState.Live).Flows.Single();
+
+        row.Latency.Should().Be(FlowLatencyAvailability.Hidden);
+        row.DestinationRoundTrip.Should().BeNull();
+    }
+
+    [Fact]
+    public void A_gateway_whose_kernel_has_no_events_reads_unavailable()
+    {
+        var store = SeededStore();
+        store.SetFlowLatencyCapable(true);
+        store.Ingest(Batch(latencyActive: false, Flow("a", Laptop, "192.0.2.20", "203.0.113.5", 443, "eth4", 1000, 1000)));
+
+        store.BuildView(Query(), LiveTrafficState.Live).Flows.Single().Latency.Should().Be(FlowLatencyAvailability.Unavailable);
+    }
+
+    [Fact]
+    public void A_median_leaves_out_backlog_reads_once_it_has_enough_fresh_ones()
+    {
+        LiveTrafficStore.Median([(16, false), (17, false), (15, false), (60, true), (55, true)])
+            .Should().Be(new RoundTripSummary(16, 3));
+        LiveTrafficStore.Median([(16, false), (60, true), (55, true)])
+            .Should().Be(new RoundTripSummary(55, 3), "too few fresh samples: all of them count");
+        LiveTrafficStore.Median([]).Should().BeNull();
+    }
+
+    [Fact]
+    public void An_untimed_flow_shows_its_destinations_median_marked_as_assumed()
+    {
+        var store = SeededStore();
+        store.SetFlowLatencyCapable(true);
+        store.Ingest(Batch(latencyActive: true,
+            Timed("timed", Laptop, "192.0.2.20", "203.0.113.5", 16),
+            Flow("old", Nas, "192.0.2.10", "203.0.113.5", 443, "eth4", 1000, 1000),
+            Flow("alone", Nas, "192.0.2.10", "203.0.113.9", 443, "eth4", 1000, 1000)));
+
+        var rows = store.BuildView(Query(), LiveTrafficState.Live).Flows.ToDictionary(f => f.DestinationIp + "|" + f.ClientIp);
+
+        rows["203.0.113.5|192.0.2.10"].RttShownMs.Should().Be(16);
+        rows["203.0.113.5|192.0.2.10"].RttAssumed.Should().BeTrue();
+        rows["203.0.113.5|192.0.2.20"].RttAssumed.Should().BeFalse();
+        rows["203.0.113.9|192.0.2.10"].RttShownMs.Should().BeNull("no connection to it was timed");
+    }
+
+    [Fact]
+    public void A_flow_the_agent_ended_after_missed_reads_comes_back_with_its_old_start()
+    {
+        var store = SeededStore();
+        var old = Flow("a", Laptop, "192.0.2.20", "203.0.113.5", 443, "eth4", 1000, 1000, totalDown: 400_000);
+        old.AgeSeconds = 900;
+        store.Ingest(Batch(old));
+        var gone = Batch();
+        var endedCopy = old.Clone();
+        gone.Ended.Add(endedCopy);
+        store.Ingest(gone);
+
+        // Back a moment later: the agent dates it from its return, with counters that only grew.
+        var back = Flow("a", Laptop, "192.0.2.20", "203.0.113.5", 443, "eth4", 500, 500, totalDown: 401_000);
+        back.TotalUpBytes = 2000;
+        back.AgeSeconds = 2;
+        store.Ingest(Batch(back));
+
+        var row = store.BuildView(Query(), LiveTrafficState.Live).Flows.Single();
+        row.Started.Should().BeBefore(DateTime.UtcNow.AddSeconds(-890), "it is the same 15-minute-old connection");
+        store.BuildView(Query() with { Ended = true }, LiveTrafficState.Live).Flows.Should().BeEmpty("it never ended");
+    }
+
+    [Fact]
+    public void A_new_connection_on_the_tuple_or_a_late_return_keeps_its_own_start()
+    {
+        var now = DateTime.UtcNow;
+        var ended = Flow("a", Laptop, "192.0.2.20", "203.0.113.5", 443, "eth4", 0, 0, totalDown: 400_000);
+        ended.AgeSeconds = 900;
+
+        var reused = Flow("a", Laptop, "192.0.2.20", "203.0.113.5", 443, "eth4", 500, 500, totalDown: 600);
+        reused.AgeSeconds = 2;
+        LiveTrafficStore.Resume(reused, ended, now.AddSeconds(-5), now);
+        reused.AgeSeconds.Should().Be(2, "its counters went backward: a new connection");
+
+        var late = Flow("a", Laptop, "192.0.2.20", "203.0.113.5", 443, "eth4", 500, 500, totalDown: 401_000);
+        late.AgeSeconds = 2;
+        LiveTrafficStore.Resume(late, ended, now - LiveTrafficStore.ResumeWindow - TimeSpan.FromSeconds(1), now);
+        late.AgeSeconds.Should().Be(2, "past the window the agent no longer resumes it either");
+
+        var resumed = Flow("a", Laptop, "192.0.2.20", "203.0.113.5", 443, "eth4", 500, 500, totalDown: 401_000);
+        resumed.AgeSeconds = 2;
+        LiveTrafficStore.Resume(resumed, ended, now.AddSeconds(-6), now);
+        resumed.AgeSeconds.Should().Be(906);
+    }
+
+    [Theory]
+    [InlineData(true, new[] { "slow", "fast", "none" })]
+    [InlineData(false, new[] { "fast", "slow", "none" })]
+    public void Sorting_by_round_trip_keeps_unmeasured_flows_last_either_way(bool descending, string[] expected)
+    {
+        LiveFlowRow[] rows =
+        [
+            new() { Key = "none" },
+            new() { Key = "fast", RemoteRttMs = 4 },
+            new() { Key = "slow", RemoteRttMs = 40 },
+        ];
+
+        LiveTrafficStore.SortFlows(rows.ToList(), LiveFlowSort.RoundTrip, descending).Select(r => r.Key).Should().Equal(expected);
+    }
+
+    [Fact]
+    public void The_view_says_whether_round_trips_are_being_measured()
+    {
+        var store = SeededStore();
+        store.SetFlowLatencyCapable(true);
+        store.Ingest(Batch(latencyActive: true, Timed("a", Laptop, "192.0.2.20", "203.0.113.5", 16)));
+
+        store.BuildView(Query(), LiveTrafficState.Live).FlowLatency.Should().Be(FlowLatencyAvailability.Measuring);
+    }
+
+    [Fact]
+    public void Parallel_streams_take_their_streams_median_round_trip()
+    {
+        var store = SeededStore();
+        store.SetFlowLatencyCapable(true);
+        store.Ingest(Batch(latencyActive: true,
+            Timed("s1", Laptop, "192.0.2.20", "203.0.113.5", 16, 4, clientPort: 50001),
+            Timed("s2", Laptop, "192.0.2.20", "203.0.113.5", 20, 5, clientPort: 50002),
+            Timed("s3", Laptop, "192.0.2.20", "203.0.113.5", 18, 6, clientPort: 50003)));
+
+        var row = store.BuildView(Query(), LiveTrafficState.Live).Flows.Single();
+
+        row.Streams.Should().Be(3);
+        row.RemoteRttMs.Should().Be(18);
+        row.ClientRttMs.Should().Be(5);
+    }
+}

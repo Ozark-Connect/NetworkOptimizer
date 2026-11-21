@@ -390,6 +390,32 @@ site health score, power/coverage). One gap hides inside the "signal strength / 
 per-client *signal* classification is everywhere, but `WirelessClientSnapshot.Snr` has no UI consumer at
 all - it is collected and never shown. Either surface it or drop the field.
 
+### Floor Plan Heatmap - InnerSpace import follow-ups
+The InnerSpace import (floors, walls, materials, window and door heights, APs) skips two things
+InnerSpace models that the Signal Map does not yet. Each is its own change after the import ships.
+
+- **Attenuation objects (obstacles).** InnerSpace stores polygons with a preset or custom type and a
+  height band: car, cubicles, elevator, foliage (heavy / light), human crowd, machinery, server rack,
+  shelves (small / medium / warehouse), truck, appliance, cabinet, furniture, hanging sign, bulkhead,
+  HVAC duct. Its loss is dB per meter of path inside the polygon, not a flat dB per crossing like a
+  wall.
+  - Storage: an `ObstaclesJson` column on `FloorPlan` (additive), shaped like `WallsJson`:
+    polygon points, material key, optional bottom / top height.
+  - Materials: `obstacle_*` keys in `MaterialAttenuation`, per band, dB per meter; names match
+    InnerSpace's presets so the import maps them by name.
+  - Propagation: add dB/m x length inside each polygon along the ray. Store the height band; count
+    the full length until the model is 3D.
+  - Editor: a polygon tool beside Draw Layout with an obstacle material picker.
+  - Check heatmap time with ~150 walls plus 50 obstacles before shipping.
+- **AP tilt.** InnerSpace keeps a mount quaternion and an antenna (point-of-view) quaternion per AP;
+  the difference is the tilt. `ApLocation` and `PlannedAp` have azimuth and mount, no tilt.
+  - Storage: nullable `TiltDeg` on both (null = the mount's native direction, today's behavior).
+  - Propagation: offset the elevation angle by `TiltDeg` before the antenna pattern lookup.
+  - Editor: a tilt field beside orientation for wall-mounted and directional (narrow / wide / panel)
+    modes.
+  - Import: derive tilt from the two quaternions; under 2 degrees imports as null.
+  - Test: null tilt gives a bit-identical heatmap to today.
+
 ## LAN Speed Test
 
 ### Path Analysis Enhancements
@@ -438,6 +464,19 @@ Current state (as of v1.5.x): Dedup is working - event-level dedup via InnerAler
 - If too quiet: Reduce the 2x event multiplier to 1.5x
 - Note the 2x multiplier is the *early-stage* path only; full-chain re-alerting uses 50%+ event growth
 - These are Info severity - users who find them noisy can disable rule 13 in alert settings
+
+## Client Names: Two Paths `ClientNames.Choose` Cannot Fully Serve
+
+Every UI client label uses `ClientNames.Choose` (`src/NetworkOptimizer.UniFi/ClientNames.cs`): UniFi's display
+name, the device rule for UniFi devices, then alias and hostname. Two paths lack the data for all of it:
+
+- **Security Audit offline clients:** `GetClientHistoryAsync` requests v2 `clients/history` without
+  `includeUnifiDevices`, so `unifi_device` never comes back set and an offline UniFi device (a camera, an AI Key)
+  gets the ordinary order instead of the device rule. Check first whether history lists UniFi devices at all with
+  the flag; add it only if it does, since it widens what the offline tables show.
+- **Threat Intelligence:** `AlertSourceDescriber` and the dashboard name clients from `rest/user`, which carries no
+  `display_name`, so an unnamed client shows its DHCP hostname instead of UniFi's name ("iPhone 24:ae"). Pass the
+  site's `ClientDisplayNameCache` names into `ClientNames.For(client, displayName)`.
 
 ## Security Audit / PDF Report
 

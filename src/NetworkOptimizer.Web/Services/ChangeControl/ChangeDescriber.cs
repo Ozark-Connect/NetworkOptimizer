@@ -59,6 +59,7 @@ public static partial class ChangeDescriber
         ["sd_wan_underlay_port"] = "SD-WAN Underlay Port", ["multicast_router_mode"] = "Multicast Router Port",
         ["egress_rate_limit_kbps_enabled"] = "Egress Rate Limit", ["precision_time_protocol_enabled"] = "Precision Time Protocol (PTP)",
         ["stp_edge_state"] = "Port Mode",
+        ["direct_connect_enabled"] = "Direct Remote Connection",
     };
 
     // A field's values as UniFi Network's options name them, keyed by field then stored value.

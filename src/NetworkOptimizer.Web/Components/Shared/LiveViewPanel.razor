@@ -91,11 +91,14 @@ else
         <div class="monitoring-stat-cards">
             @{ var wanRates = GetWanRates(); }
             @{ var wanDown = FormatRateParts(wanRates.download); var wanUp = FormatRateParts(wanRates.upload); }
-            <div class="monitoring-stat-card monitoring-stat-rate">
+            @* The rate tiles sum the selected WANs, and so does their line, so it stays while comparing. *@
+            <div class="monitoring-stat-card monitoring-stat-rate signal-spark-host">
+                <StatTileSparkline Spark="LiveViewSpark.WanDownload" Request="@LiveSparkRequest()" Current="wanRates.download" Traceable="true" TraceHref="/monitoring?tab=live&at=" />
                 <div class="stat-value" style="color: var(--speed-download-color);">@wanDown.Value@if (wanDown.Unit != null) {<span class="stat-unit">@wanDown.Unit</span>}</div>
                 <div class="stat-label">WAN <span class="desktop-label">Download@(WanRateCount())</span><span class="mobile-label">&#8595;@WanRateCountShort()</span></div>
             </div>
-            <div class="monitoring-stat-card monitoring-stat-rate">
+            <div class="monitoring-stat-card monitoring-stat-rate signal-spark-host">
+                <StatTileSparkline Spark="LiveViewSpark.WanUpload" Request="@LiveSparkRequest()" Current="wanRates.upload" Traceable="true" TraceHref="/monitoring?tab=live&at=" />
                 <div class="stat-value" style="color: var(--speed-upload-color);">@wanUp.Value@if (wanUp.Unit != null) {<span class="stat-unit">@wanUp.Unit</span>}</div>
                 <div class="stat-label">WAN <span class="desktop-label">Upload@(WanRateCount())</span><span class="mobile-label">&#8593;@WanRateCountShort()</span></div>
             </div>
@@ -292,6 +295,17 @@ else
         background: var(--bg-primary);
         outline: none;
     }
+    /* On a phone the map spans the Live View card's full width, past the tiles' 1rem inset. */
+    @@media (max-width: 768px) {
+        .lv-map-card {
+            margin-left: -1rem;
+            margin-right: -1rem;
+            border-radius: 0;
+        }
+        #dashboard-lan-flow-map-stage {
+            border-radius: 0;
+        }
+    }
 </style>
 
 @code {
@@ -423,7 +437,7 @@ else
                 await JS.InvokeVoidAsync("eval",
                     $"(async () => {{ const m = await import('{VersionedJs("/js/wan-live-chart.js")}'); " +
                     "window.__dashWanLiveChart = m; await m.mount('dashboard-wan-live-chart', " +
-                    $"{{ wans: {LiveWanJsLiteral()} }}); }})();");
+                    $"{{ wans: {LiveWanJsLiteral()}, seekHref: '/monitoring?tab=live&at=' }}); }})();");
             }
             catch { _chartMounted = false; }
         }
@@ -748,7 +762,7 @@ else
     {
         var wan = LiveWan.Selected;
         if (wan == null)
-            return LiveStats.GetTileLatencyLive(type, _targets.Where(t => t.TargetType == type && t.Enabled).Select(t => t.TargetId));
+            return LiveStats.GetTileLatencyLive(type, TileTargets(_targets.Where(t => t.TargetType == type && t.Enabled)).Select(t => t.TargetId));
 
         var rows = PerWanTargetStats(type);
         var row = rows.FirstOrDefault(r => string.Equals(
@@ -763,7 +777,8 @@ else
     // TODO: duplicated in Monitoring.razor (LiveSparkRequest); move into one shared helper.
     private LiveViewSparkRequest LiveSparkRequest() => new(
         _gatewayMac, GetGatewayFabricTargetId(),
-        ScopedTargetIds(MonitoringTargetType.AccessIsp), ScopedTargetIds(MonitoringTargetType.Transit));
+        ScopedTargetIds(MonitoringTargetType.AccessIsp), ScopedTargetIds(MonitoringTargetType.Transit),
+        LiveWan.RateCounterInterfaces(_gatewayWanIfNames));
     /// <summary>The targets an ISP or Transit tile reads right now: the selected WAN's own, or every enabled one.</summary>
     // TODO: duplicated in Monitoring.razor (ScopedTargetIds); move into one shared helper.
     private IReadOnlyList<string> ScopedTargetIds(MonitoringTargetType type)
@@ -772,15 +787,19 @@ else
         var targets = wan == null
             ? _targets.Where(t => t.TargetType == type && t.Enabled).ToList()
             : TargetsForWan(type, wan.Key, wan.IsPrimary);
-        return targets.Select(t => t.TargetId).ToList();
+        return TileTargets(targets).Select(t => t.TargetId).ToList();
     }
+    /// <summary>The targets a tile figure counts: a far transit hop would lift it by its distance alone.</summary>
+    // TODO: duplicated in Monitoring.razor (TileTargets); move with the tile helpers above.
+    private static IEnumerable<MonitoringTarget> TileTargets(IEnumerable<MonitoringTarget> targets) =>
+        targets.Where(t => !t.IsFarTransit);
     // TODO: duplicated in Monitoring.razor (PerWanTargetStats); move the tile figures into one shared component or service.
     private List<(string Label, double? Rtt, double Loss)> PerWanTargetStats(MonitoringTargetType type)
     {
         var rows = new List<(string, double?, double)>();
         foreach (var wan in LiveWan.SelectedOptions)
         {
-            var (rtt, loss) = LiveStats.GetTileLatencyLive(type, TargetsForWan(type, wan.Key, wan.IsPrimary).Select(t => t.TargetId));
+            var (rtt, loss) = LiveStats.GetTileLatencyLive(type, TileTargets(TargetsForWan(type, wan.Key, wan.IsPrimary)).Select(t => t.TargetId));
             var label = NetworkOptimizer.UniFi.GatewayWanHelper.SplitWanLabel(
                 wan.Label, NetworkOptimizer.UniFi.GatewayWanHelper.WanIndexFromKey(wan.Key)).WanToken ?? wan.Label;
             rows.Add((label, rtt, loss));

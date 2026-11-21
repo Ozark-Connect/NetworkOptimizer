@@ -1,4 +1,5 @@
 @using NetworkOptimizer.Web.Services
+@using Microsoft.AspNetCore.Components.Sections
 @using Microsoft.AspNetCore.Authorization
 @using Microsoft.AspNetCore.Components.Authorization
 @using NetworkOptimizer.Web.Services.Authorization
@@ -18,6 +19,7 @@
 @inject FloorPlanService FloorPlanSvc
 @inject IFloorPlanAdminService FloorPlanAdmin
 @inject ApMapService ApMapSvc
+@inject IApMapAdminService ApMapAdmin
 @inject PlannedApService PlannedApSvc
 @inject IPlannedApAdminService PlannedApAdmin
 @inject HeatmapDataCache HeatmapCache
@@ -26,6 +28,8 @@
 @inject IJSRuntime JS
 @implements IAsyncDisposable
 @inject IDisplayTimeZone DisplayTime
+
+<NavigationLock OnBeforeInternalNavigation="ConfirmLeaveWhileDrawing" />
 
 <div class="floor-plan-editor @(_isFullscreen ? "fp-fullscreen" : "")" @onkeydown="OnEditorKeyDown" tabindex="-1">
     <!-- Toolbar -->
@@ -48,6 +52,8 @@
                 else
                 {
                     <button class="fp-btn" @onclick="ShowAddBuildingDialog" data-tooltip="Add new building" data-tooltip-hover-only>+ Building</button>
+                    <button class="fp-btn fp-btn-primary" @onclick="OpenInnerSpaceImport" data-tour="innerspace-import"
+                            data-tooltip="Import a building from UniFi InnerSpace" data-tooltip-hover-only>Import</button>
                 }
             }
 
@@ -96,7 +102,7 @@
                         </button>
                         @if (_mode == "walls")
                         {
-                            <select class="fp-select fp-select-sm fp-wall-select" @bind="_wallMaterial">
+                            <select class="fp-select fp-select-sm fp-wall-select" @bind="_wallMaterial" @bind:after="OnWallMaterialPicked">
                                 @foreach (var mat in MaterialAttenuation.MaterialLabels
                                     .Where(m => !m.Key.StartsWith("floor_") && m.Key != "exterior"))
                                 {
@@ -196,6 +202,7 @@
     <!-- Map -->
     <div class="fp-map-container" style="position: relative;">
         <div id="@_mapId" class="fp-map" style="height: @(_isFullscreen ? "100%" : MapHeight);"></div>
+        <SectionOutlet SectionName="@ImportPlaceSection" />
 
         @if (_mode == "aps")
         {
@@ -281,7 +288,7 @@
                 @if (_isDrawingShape)
                 {
                     <br/>
-                    <span>Double-click or</span>
+                    <span>Double-click, Esc, or</span>
                     <button class="fp-hint-btn" @onclick="FinishCurrentWall">Finish Shape</button>
                     <span>to complete</span>
                 }
@@ -417,6 +424,11 @@
         </div>
     }
 </div>
+
+@if (_showInnerSpaceImport && !IsReadOnly)
+{
+    <InnerSpaceImport MapCenter="_lastMapCenter" PlaceSection="@ImportPlaceSection" OnImported="OnInnerSpaceImported" OnClosed="() => _showInnerSpaceImport = false" />
+}
 
 <!-- Add Building Dialog -->
 @if (_showAddBuilding)
@@ -1133,6 +1145,33 @@
         background: rgba(239, 68, 68, 0.25);
     }
 
+    /* Move sits above Remove in the AP popup and the AP right-click menu */
+    .fp-ap-popup-move {
+        width: 100%;
+        padding: 6px;
+        margin-bottom: 6px;
+        background: rgba(71, 151, 255, 0.15);
+        color: var(--info-color);
+        border: 1px solid rgba(71, 151, 255, 0.3);
+        border-radius: var(--border-radius);
+        cursor: pointer;
+        font-size: 12px;
+        font-weight: 500;
+    }
+
+    .fp-ap-popup-move:hover {
+        background: rgba(71, 151, 255, 0.25);
+    }
+
+    .fp-ap-popup-move:disabled {
+        opacity: 0.45;
+        cursor: default;
+    }
+
+    .fp-ap-menu {
+        min-width: 150px;
+    }
+
     /* AP direction indicator */
     .fp-ap-direction {
         position: absolute;
@@ -1657,6 +1696,7 @@
     [Parameter] public string? InitialBand { get; set; }
 
     private string _mapId = "fp-map-" + Guid.NewGuid().ToString("N");
+    private string ImportPlaceSection => "innerspace-place-" + _mapId;
     private DotNetObjectReference<FloorPlanEditor>? _dotNetRef;
     private bool _mapInitialized;
 
@@ -1676,6 +1716,11 @@
     private int _globalActiveFloor = 1;
     private string _heatmapBand = "5";
     private string _wallMaterial = "drywall";
+    // Last interior material (wall, door, window) picked per building; the default once a floor has its outline.
+    // Another building starts again at drywall.
+    private readonly Dictionary<int, string> _interiorMaterialByBuilding = new();
+    // Outline material picked per building this session; wins over the one inferred from saved walls.
+    private readonly Dictionary<int, string> _outlineMaterialByBuilding = new();
     private bool _isDrawingShape;
     private double _floorOpacity = 0.7;
     private List<FloorImageDto> _floorImages = new();
@@ -1684,6 +1729,8 @@
     private bool _showCropControls;
     private int _cropTop, _cropRight, _cropBottom, _cropLeft;
     private bool _showAddBuilding;
+    private bool _showInnerSpaceImport;
+    private (double Lat, double Lng)? _lastMapCenter;
     private bool _showAddFloor;
     private string _newBuildingName = "";
     private int _newFloorNumber;
@@ -1804,6 +1851,7 @@
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
+        if (!firstRender && _mapInitialized) await SyncToolbox();
         if (firstRender)
         {
             _dotNetRef = DotNetObjectReference.Create(this);
@@ -1883,6 +1931,7 @@
         await JS.InvokeVoidAsync("fpEditor.initMap", _mapId, centerLat, centerLng, zoom, mapboxToken);
         await JS.InvokeVoidAsync("fpEditor.setDotNetRef", _dotNetRef);
         _mapInitialized = true;
+        await SyncToolbox();
 
         // Fit to all content (APs + buildings combined)
         {
@@ -2777,6 +2826,22 @@
         await JS.InvokeVoidAsync("fpEditor.updateApMarkers", markersJson, _mode == "aps" || _mode == "plan-aps", _heatmapBand);
     }
 
+    /// <summary>Removes a placed AP from the map: its popup or right-click Remove, or the Delete key in Place/Edit APs.</summary>
+    [JSInvokable]
+    public async Task OnApRemoveFromJs(string mac)
+    {
+        if (IsReadOnly) return;
+        await ApMapAdmin.DeleteApLocationAsync(mac);
+        HeatmapCache.Invalidate();
+        await LoadApMarkers();
+        await InvokeAsync(async () =>
+        {
+            StateHasChanged();
+            await UpdateApMarkers();
+            if (_showHeatmap) await ComputeHeatmap();
+        });
+    }
+
     [JSInvokable]
     public async Task OnApDragEndFromJs(string mac, double lat, double lng)
     {
@@ -3026,6 +3091,7 @@
     [JSInvokable]
     public async Task OnPlannedApDeleteFromJs(int plannedId)
     {
+        if (IsReadOnly) return;
         await PlannedApAdmin.DeleteAsync(plannedId);
         HeatmapCache.Invalidate();
         await LoadPlannedAps();
@@ -3037,6 +3103,63 @@
             await UpdateApMarkers();
             if (_showHeatmap) await ComputeHeatmap();
         });
+    }
+
+    private string? _toolboxState;
+
+    // Pushes the map toolbox's state after a render; skipped when nothing it shows has changed.
+    private async Task SyncToolbox()
+    {
+        var state = new
+        {
+            editable = !IsReadOnly,
+            floor = _selectedFloor != null,
+            mode = _mode,
+            shape = _isDrawingShape,
+            building = _selectedBuilding != null,
+            apLabel = _apMarkers.Any(a => a.Latitude.HasValue) ? "Edit APs" : "Place APs",
+            planLabel = _plannedAps.Count > 0 ? "Edit Planned APs" : "Add Planned APs"
+        };
+        var json = System.Text.Json.JsonSerializer.Serialize(state);
+        if (json == _toolboxState) return;
+        _toolboxState = json;
+        await JS.InvokeVoidAsync("fpEditor.setToolboxState", json);
+    }
+
+    /// <summary>A map toolbox button: the same toggles as the toolbar's Draw Layout, Place/Edit APs, and Planned APs buttons.</summary>
+    [JSInvokable]
+    public async Task OnToolboxAction(string action)
+    {
+        if (IsReadOnly) return;
+        switch (action)
+        {
+            case "draw" when _selectedFloor != null:
+                await ToggleWallDrawMode();
+                break;
+            case "undo" when _selectedFloor != null && _mode != "walls":
+                await DeleteLastWall();
+                break;
+            // The toolbox's Done: leaves the mode in progress, else the building's editing, like the
+            // toolbar's Done Editing (a shape in progress is finished in JS).
+            case "done" when _mode == "walls":
+                await ToggleWallDrawMode();
+                break;
+            case "done" when _mode == "aps":
+                await ToggleApEditMode();
+                break;
+            case "done" when _mode == "plan-aps":
+                await TogglePlanApMode();
+                break;
+            case "done" when _selectedBuilding != null:
+                await DeselectBuilding();
+                break;
+            case "aps":
+            case "plan-aps":
+                if (_mode == "walls") await ToggleWallDrawMode();
+                if (action == "aps") await ToggleApEditMode(); else await TogglePlanApMode();
+                break;
+        }
+        StateHasChanged();
     }
 
     private async Task ToggleApEditMode()
@@ -3155,7 +3278,7 @@
             MaterialAttenuation.MaterialLabels
                 .Where(m => !m.Key.StartsWith("floor_") && m.Key != "exterior")
                 .ToDictionary(m => m.Key, m => m.Value));
-        await JS.InvokeVoidAsync("fpEditor.updateWalls", wallsJson, colorsJson, labelsJson);
+        await JS.InvokeVoidAsync("fpEditor.updateWalls", wallsJson, colorsJson, labelsJson, !IsReadOnly);
     }
 
     private async Task UpdateBackgroundWalls()
@@ -3188,6 +3311,7 @@
                             if (dict != null)
                             {
                                 dict["_buildingId"] = b.Id;
+                                dict["_buildingName"] = b.Name;
                                 var isSelectedBldg = _selectedBuilding != null && b.Id == _selectedBuilding.Id;
                                 // Selected building adjacent: 0.4, other bldg same floor: 0.25, other bldg adjacent: 0.15, no selection same floor: 0.5, no selection adjacent: 0.25
                                 if (_selectedBuilding != null)
@@ -3239,9 +3363,8 @@
         if (_mode == "walls")
         {
             var initWalls = _selectedFloor?.WallsJson ?? "[]";
-            _wallMaterial = (initWalls == "[]" || string.IsNullOrEmpty(_selectedFloor?.WallsJson))
-                ? "exterior_residential"
-                : "drywall";
+            _wallMaterial = FloorPlanWallMaterials.DrawStartMaterial(
+                _selectedFloor?.WallsJson, GetBuildingOutlineMaterial(), LastInteriorMaterial);
             _heatmapWasOn = _showHeatmap;
             if (_showHeatmap)
             {
@@ -3268,6 +3391,28 @@
         await JS.InvokeVoidAsync("fpEditor.addWallPoint", lat, lng, _wallMaterial, color);
     }
 
+    // A pick before the floor has its outline is the building's outline material, whatever it is (a
+    // shed's metal counts). After that, a pick is the interior material, except an exterior type, which
+    // is an addition to the outline rather than the next door or window.
+    private void OnWallMaterialPicked()
+    {
+        if (_selectedBuilding == null) return;
+        if (!FloorPlanWallMaterials.HasOutline(_selectedFloor?.WallsJson))
+            _outlineMaterialByBuilding[_selectedBuilding.Id] = _wallMaterial;
+        else if (!_wallMaterial.StartsWith("exterior", StringComparison.OrdinalIgnoreCase))
+            _interiorMaterialByBuilding[_selectedBuilding.Id] = _wallMaterial;
+    }
+
+    private string? LastInteriorMaterial =>
+        _selectedBuilding != null && _interiorMaterialByBuilding.TryGetValue(_selectedBuilding.Id, out var m) ? m : null;
+
+    private string GetBuildingOutlineMaterial()
+    {
+        if (_selectedBuilding == null) return FloorPlanWallMaterials.DefaultExterior;
+        _outlineMaterialByBuilding.TryGetValue(_selectedBuilding.Id, out var picked);
+        return FloorPlanWallMaterials.BuildingOutlineMaterial(picked, _selectedBuilding.Floors.Select(f => f.WallsJson));
+    }
+
     [JSInvokable]
     public object GetCurrentWallMaterial()
     {
@@ -3292,6 +3437,9 @@
     {
         if (_selectedFloor == null) return;
         _isDrawingShape = false;
+        // The outline just closed: switch to interior drawing with the last interior material.
+        if (_mode == "walls" && FloorPlanWallMaterials.OutlineJustClosed(_selectedFloor.WallsJson, wallsJson))
+            _wallMaterial = LastInteriorMaterial ?? FloorPlanWallMaterials.DefaultInterior;
         StateHasChanged();
         _selectedFloor.WallsJson = wallsJson;
         await FloorPlanAdmin.UpdateFloorAsync(_selectedFloor.Id, wallsJson: wallsJson);
@@ -3776,6 +3924,44 @@
             _showHeatmap = true;
     }
 
+    /// <summary>
+    /// Every wall edit saves as it is made; only a wall still being drawn is lost by leaving. The
+    /// browser's own close or reload is covered by a beforeunload in fpEditor's draw mode.
+    /// </summary>
+    private async Task ConfirmLeaveWhileDrawing(LocationChangingContext context)
+    {
+        if (_mode != "walls" || !_mapInitialized) return;
+        bool pending;
+        try { pending = await JS.InvokeAsync<bool>("fpEditor.hasPendingWall"); }
+        catch (JSException) { return; }
+        if (!pending) return;
+        if (!await JS.InvokeAsync<bool>("confirm",
+                "A wall is still being drawn. If you leave now, it will be lost.\n\nAre you sure you want to leave?"))
+            context.PreventNavigation();
+    }
+
+    private async Task OpenInnerSpaceImport()
+    {
+        _lastMapCenter = await GetMapCenterAsync();
+        _showInnerSpaceImport = true;
+    }
+
+    /// <summary>
+    /// After an InnerSpace import: reload buildings, APs and planned APs, then open the building.
+    /// Runs again once the browser has uploaded rasterized scan images.
+    /// </summary>
+    private async Task OnInnerSpaceImported(int buildingId)
+    {
+        HeatmapCache.Invalidate();
+        await LoadApMarkers();
+        await LoadPlannedAps();
+        if (_selectedBuildingId != 0 && _selectedBuildingId != buildingId)
+            await OnBuildingChanged(new ChangeEventArgs { Value = "0" });
+        await OnBuildingChanged(new ChangeEventArgs { Value = buildingId.ToString() });
+        await UpdateApMarkers();
+        StateHasChanged();
+    }
+
     private void ShowAddBuildingDialog()
     {
         _newBuildingName = "";
@@ -3932,6 +4118,8 @@
             _selectedFloor = firstFloor;
             _globalActiveFloor = firstFloor.FloorNumber;
             _floorOpacity = firstFloor.Opacity;
+            // The image list still holds the deleted floor's images; reload it for this floor.
+            await LoadFloorImages();
             await UpdateFloorOverlay();
             await UpdateWalls();
         }
@@ -3939,6 +4127,9 @@
         {
             _selectedFloorId = 0;
             _selectedFloor = null;
+            _floorImages.Clear();
+            _selectedImageId = null;
+            _selectedImage = null;
             await JS.InvokeVoidAsync("fpEditor.clearFloorLayers");
         }
 

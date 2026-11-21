@@ -20,4 +20,10 @@ public interface IDashboardService
     /// </remarks>
     /// <returns>A <see cref="DashboardData"/> object containing all dashboard metrics.</returns>
     Task<DashboardData> GetDashboardDataAsync();
+
+    /// <summary>
+    /// The site's Wi-Fi health score and its top issues. Separate from <see cref="GetDashboardDataAsync"/>
+    /// because a cold score reads several console reports, so the other stats cards never wait on it.
+    /// </summary>
+    Task<DashboardWiFiHealth> GetWiFiHealthAsync();
 }

@@ -79,31 +79,43 @@ public class SignalSparklineService : ISignalSparklineService
             // The task itself is cached, so tiles rendering together await one fetch, not nine.
             if (_liveView.TryGetValue(key, out var hit) && now - hit.At < TileCacheFor)
                 return hit.Task;
-            var task = LoadLiveViewAsync(request, now);
+            // Playback makes a key per minute of playhead; expired ones go, so the cache stays small.
+            foreach (var stale in _liveView.Where(e => now - e.Value.At >= TileCacheFor).Select(e => e.Key).ToList())
+                _liveView.Remove(stale);
+            var task = LoadLiveViewAsync(request, request.EndMinute ?? now);
             _liveView[key] = (now, task);
             return task;
         }
     }
 
-    private async Task<LiveViewSparklines> LoadLiveViewAsync(LiveViewSparkRequest request, DateTime now)
+    private async Task<LiveViewSparklines> LoadLiveViewAsync(LiveViewSparkRequest request, DateTime end)
     {
         try
         {
-            var from = now - TileWindow;
+            var from = end - TileWindow;
             var targets = request.IspTargetIds.Concat(request.TransitTargetIds)
                 .Concat(string.IsNullOrEmpty(request.GatewayTargetId) ? [] : [request.GatewayTargetId])
                 .Distinct(StringComparer.Ordinal).ToList();
-            var latencyTask = Influx.QueryTargetFieldSeriesAsync(targets, [RttField, LossField], from, now, TileBucket);
+            var latencyTask = Influx.QueryTargetFieldSeriesAsync(targets, [RttField, LossField], from, end, TileBucket);
             var healthTask = string.IsNullOrEmpty(request.GatewayMac)
                 ? Task.FromResult(new Dictionary<string, List<(DateTime, double)>>())
-                : Influx.QueryDeviceHealthFieldSeriesAsync(request.GatewayMac, [CpuField, MemoryField, TemperatureField], from, now, TileBucket);
-            await Task.WhenAll(latencyTask, healthTask);
+                : Influx.QueryDeviceHealthFieldSeriesAsync(request.GatewayMac, [CpuField, MemoryField, TemperatureField], from, end, TileBucket);
+            // The WAN tiles sum the selected WANs' counter interfaces; the series sums the same ones.
+            var wanIfNames = request.WanCounterIfNames ?? [];
+            var wanTask = string.IsNullOrEmpty(request.GatewayMac) || wanIfNames.Count == 0
+                ? Task.FromResult<IReadOnlyList<MonitoringInfluxClient.WanRatePoint>>([])
+                : Influx.QueryGatewayWanRatesAsync(request.GatewayMac, wanIfNames, from, end,
+                    aggregateWindow: TileBucket, sumAcrossInterfaces: true);
+            await Task.WhenAll(latencyTask, healthTask, wanTask);
             var latency = latencyTask.Result;
             var health = healthTask.Result;
-            // The Transit tile's live figure needs each hop's hour, which a restart empties.
-            foreach (var id in request.TransitTargetIds)
-                if (latency.TryGetValue((id, RttField), out var stored))
-                    _liveStats.SeedRttHistory(id, stored);
+            var wan = wanTask.Result;
+            // The Transit tile's live figure needs each hop's hour, which a restart empties. A past
+            // hour (playback) is not the live one.
+            if (request.At == null)
+                foreach (var id in request.TransitTargetIds)
+                    if (latency.TryGetValue((id, RttField), out var stored))
+                        _liveStats.SeedRttHistory(id, stored);
 
             var series = new Dictionary<LiveViewSpark, IReadOnlyList<SparkPoint>>();
             void Put(LiveViewSpark tile, IEnumerable<(DateTime Time, double Value)>? rows)
@@ -125,6 +137,8 @@ public class SignalSparklineService : ISignalSparklineService
             Put(LiveViewSpark.GatewayCpu, health.GetValueOrDefault(CpuField));
             Put(LiveViewSpark.GatewayMemory, health.GetValueOrDefault(MemoryField));
             Put(LiveViewSpark.GatewayTemperature, health.GetValueOrDefault(TemperatureField));
+            Put(LiveViewSpark.WanDownload, wan.Where(p => p.DownloadBps.HasValue).Select(p => (p.Time, p.DownloadBps!.Value)));
+            Put(LiveViewSpark.WanUpload, wan.Where(p => p.UploadBps.HasValue).Select(p => (p.Time, p.UploadBps!.Value)));
             return new LiveViewSparklines(series);
         }
         catch (Exception ex)

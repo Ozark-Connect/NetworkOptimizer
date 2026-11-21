@@ -6,7 +6,7 @@
 @switch (Layout)
 {
     case LiveFlowLayout.Table:
-        <tr data-flip="@f.Key" data-flip-open="@(Open ? "" : null)" class="lt-flow-row @(Open ? "lt-selected" : null)" @onclick="OnToggle">
+        <tr data-flip="@f.RowKey" data-flip-open="@(Open ? "" : null)" class="lt-flow-row @(Open ? "lt-selected" : null)" @onclick="OnToggle">
             <td class="lt-rank"><span class="expand-chevron lt-chev">@(Open ? "▲" : "▼")</span> @Rank</td>
             @if (ShowClient)
             {
@@ -24,6 +24,10 @@
             </td>
             <td>@AppCell(f)</td>
             <td>@RoutePill(f)</td>
+            @if (ShowRoundTrip)
+            {
+                <td class="lt-num @(f.RttAssumed ? "lt-muted" : null)" data-tooltip="@RoundTripTooltip(f)" data-tooltip-hover-only>@(f.RttShownMs is { } rtt ? LiveTrafficDisplay.RoundTrip(rtt) : "-")</td>
+            }
             <td class="lt-num">@Rate(f.Ended ? 0 : f.DownBps, "speed-down")</td>
             <td class="lt-num">@Rate(f.Ended ? 0 : f.UpBps, "speed-up")</td>
             <td class="lt-num">@DisplayFormatters.FormatBytes(f.RecentDownBytes)</td>
@@ -34,12 +38,12 @@
         </tr>
         @if (Open)
         {
-            <tr data-flip="@(f.Key + "|d")" class="lt-detail"><td colspan="@(ShowClient ? 12 : 11)">@Detail(f)</td></tr>
+            <tr data-flip="@(f.RowKey + "|d")" class="lt-detail"><td colspan="@((ShowClient ? 12 : 11) + (ShowRoundTrip ? 1 : 0))">@Detail(f)</td></tr>
         }
         break;
 
     case LiveFlowLayout.List:
-        <div data-flip="@f.Key" data-flip-open="@(Open ? "" : null)" class="lt-m-row" @onclick="OnToggle">
+        <div data-flip="@f.RowKey" data-flip-open="@(Open ? "" : null)" class="lt-m-row" @onclick="OnToggle">
             <div class="lt-m-top">
                 @if (ShowClient)
                 {
@@ -94,6 +98,9 @@
             <td @attributes="DestinationCard(f)">
                 <a class="lt-pivot" href="@Ctx.LinkFor?.Invoke(LiveTrafficField.Destination, f.Destination)">@f.Destination</a>
                 <span class="lt-muted">@f.DestinationSub</span>
+                @SiteBadge(f)
+                @CacheBadge(f)
+                @PeerBadge(f)
                 @StreamsBadge(f)
             </td>
             @if (!phone)
@@ -113,7 +120,7 @@
         break;
 
     case LiveFlowLayout.HistoryTable:
-        <tr data-flip="@f.Key" data-flip-open="@(Open ? "" : null)" class="lt-flow-row @(Open ? "lt-selected" : null) @(f.Action == "Blocked" ? "is-blocked" : null)" @onclick="OnToggle">
+        <tr data-flip="@f.RowKey" data-flip-open="@(Open ? "" : null)" class="lt-flow-row @(Open ? "lt-selected" : null) @(f.Action == "Blocked" ? "is-blocked" : null)" @onclick="OnToggle">
             <td class="lt-rank"><span class="expand-chevron lt-chev">@(Open ? "▲" : "▼")</span></td>
             <td class="lt-secondary lt-num">@LastSeenLabel(f)</td>
             @if (ShowClient)
@@ -135,12 +142,12 @@
         </tr>
         @if (Open)
         {
-            <tr data-flip="@(f.Key + "|d")" class="lt-detail"><td colspan="@(ShowClient ? 9 : 8)">@HistoryDetail(f)</td></tr>
+            <tr data-flip="@(f.RowKey + "|d")" class="lt-detail"><td colspan="@(ShowClient ? 9 : 8)">@HistoryDetail(f)</td></tr>
         }
         break;
 
     case LiveFlowLayout.HistoryList:
-        <div data-flip="@f.Key" data-flip-open="@(Open ? "" : null)" class="lt-m-row" @onclick="OnToggle">
+        <div data-flip="@f.RowKey" data-flip-open="@(Open ? "" : null)" class="lt-m-row" @onclick="OnToggle">
             <div class="lt-m-top">
                 <span class="lt-m-name">@Pill(ShowClient ? LiveTrafficField.Client : LiveTrafficField.Destination, ShowClient ? f.ClientName : f.Destination)</span>
                 <span class="lt-m-rates">@DisplayFormatters.FormatBytes(f.TotalBytes)</span>
@@ -178,6 +185,18 @@
     [Parameter] public EventCallback OnToggle { get; set; }
     /// <summary>The client's name and line; off in a list that is one client's own (Client Performance).</summary>
     [Parameter] public bool ShowClient { get; set; } = true;
+    /// <summary>The RTT column, in the Table layout; on while the Gateway agent times round trips.</summary>
+    [Parameter] public bool ShowRoundTrip { get; set; }
+
+    /// <summary>The RTT cell's tooltip: what the number is, and the client's own round trip when there is one.</summary>
+    private static string? RoundTripTooltip(LiveFlowRow f) => f.RemoteRttMs is null
+        ? f.DestinationRoundTrip is { } d ? $"Not timed: opened before the Gateway was timing\n{AssumedFrom(d)}" : null
+        : f.ClientRttMs is { } client ? $"To the destination and back, timed when the connection opened\n{LiveTrafficDisplay.RoundTrip(client)} to the client"
+        : "To the destination and back, timed when the connection opened";
+
+    private static string AssumedFrom(RoundTripSummary d) => d.Connections == 1
+        ? "Shown: the one timed connection to this destination"
+        : $"Shown: the median of {d.Connections} timed connections to this destination";
 
     private string LastSeenLabel(LiveFlowRow f) => f.LastSeen is { } seen ? LocalTime(seen) : "";
 
@@ -226,6 +245,7 @@
                     }
                     <dt>Sent</dt><dd>@DisplayFormatters.FormatBytes(f.TotalUpBytes), @f.TotalUpPackets.ToString("N0") packets</dd>
                     <dt>Received</dt><dd>@DisplayFormatters.FormatBytes(f.TotalDownBytes), @f.TotalDownPackets.ToString("N0") packets</dd>
+                    @RoundTripRow(f)
                     @PortsAndOwner(f)
                     @if (!string.IsNullOrEmpty(f.DnsDetail))
                     {
@@ -269,6 +289,33 @@
             @* No guess: an exception rule (a DNS-blocking allow, say) looks just like the default. *@
             <text>Not reported yet by UniFi Network</text>
         }
+    };
+
+    /// <summary>
+    /// The round trips the Gateway timed when the connection opened. Nothing at all where the agent
+    /// predates them; said plainly where the Gateway cannot time them, or this connection was not timed.
+    /// </summary>
+    private static RenderFragment RoundTripRow(LiveFlowRow f) => __builder =>
+    {
+        if (f.Latency == FlowLatencyAvailability.Hidden) return;
+        <dt>Round trip</dt>
+        <dd>
+            @if (f.Latency == FlowLatencyAvailability.Unavailable)
+            {
+                <text>Not available on this Gateway </text>
+                <span class="tooltip-icon tooltip-icon-sm" data-tooltip="This Gateway's firmware does not report connection events.">?</span>
+            }
+            else if (LiveTrafficDisplay.FlowRoundTrip(f) is { } value)
+            {
+                <text>@value </text>
+                <span class="tooltip-icon tooltip-icon-sm" data-tooltip="Timed by the Gateway when the connection opened.">?</span>
+            }
+            else
+            {
+                <text>Not measured@(f.DestinationRoundTrip is { } d ? $" (this destination: {LiveTrafficDisplay.RoundTrip(d.MedianMs)})" : "") </text>
+                <span class="tooltip-icon tooltip-icon-sm" data-tooltip="Opened before the Gateway was timing connections.">?</span>
+            }
+        </dd>
     };
 
     /// <summary>A rate in a sentence: idle reads "0 bps", not the table's "-".</summary>

@@ -223,8 +223,22 @@ public class ThreatBlockingServiceTests
         public int StalePolicies { get; set; }
         public bool FailPolicyCheck { get; set; }
 
+        public List<string> Calls { get; } = [];
+        public bool FailRepair { get; set; }
+        public bool RepairOnce { get; set; }
+
+        public Task<bool> RepairAsync(string? site, CancellationToken ct)
+        {
+            Calls.Add("repair");
+            if (FailRepair) throw new InvalidOperationException("console unreachable");
+            var repaired = RepairOnce;
+            RepairOnce = false;
+            return Task.FromResult(repaired);
+        }
+
         public Task<int> EnsureSourcePoliciesNewOnlyAsync(string? site, CancellationToken ct)
         {
+            Calls.Add("narrow");
             PolicyChecks++;
             if (FailPolicyCheck) throw new InvalidOperationException("console unreachable");
             var changed = StalePolicies;
@@ -372,6 +386,72 @@ public class ThreatBlockingServiceTests
         h.Gateway.PolicyChecks.Should().Be(2);
         h.Audit.Verify(a => a.GatewayPoliciesNarrowed(null, 10), Times.Once);
         h.Audit.Verify(a => a.GatewayPoliciesNarrowed(null, 1), Times.Once);
+    }
+
+    [Fact]
+    public async Task SourcePolicies_AreRepairedBeforeTheyAreNarrowed_OnlyWithTheGatewayTarget()
+    {
+        var h = new Harness();
+        h.Set(BlockingSettingKeys.Mode, "Enforce");
+        h.Set(BlockingSettingKeys.TargetGateway, "true");
+
+        await h.Service.RunCycleAsync(Now, CancellationToken.None);
+        h.Gateway.Calls.Should().Equal("repair", "narrow");
+
+        h.Set(BlockingSettingKeys.TargetGateway, "false");
+        await h.Service.RunCycleAsync(Now.AddMinutes(61), CancellationToken.None);
+        h.Gateway.Calls.Should().Equal("repair", "narrow", "narrow");
+    }
+
+    [Fact]
+    public async Task SourcePolicies_ARepair_SendsTheGatewayListAgainOnTheNextCycle()
+    {
+        // A repair can write a retyped group back empty; an unchanged block list must not leave it so.
+        var h = new Harness();
+        h.Set(BlockingSettingKeys.Mode, "Enforce");
+        h.Set(BlockingSettingKeys.TargetGateway, "true");
+        h.WafCounts["203.0.113.7"] = 6;
+        h.Gateway.RepairOnce = true;
+
+        await h.Service.RunCycleAsync(Now, CancellationToken.None);
+        await h.Service.RunCycleAsync(Now.AddMinutes(1), CancellationToken.None);
+
+        h.Gateway.Syncs.Should().HaveCount(2).And.OnlyContain(s => s.SequenceEqual(new[] { "203.0.113.7" }));
+        await h.Service.RunCycleAsync(Now.AddMinutes(2), CancellationToken.None);
+        h.Gateway.Syncs.Should().HaveCount(2);
+    }
+
+    [Fact]
+    public async Task ResyncGateway_SendsTheGatewayListAgain()
+    {
+        var h = new Harness();
+        h.Set(BlockingSettingKeys.Mode, "Enforce");
+        h.Set(BlockingSettingKeys.TargetGateway, "true");
+        h.WafCounts["203.0.113.7"] = 6;
+
+        await h.Service.RunCycleAsync(Now, CancellationToken.None);
+        await h.Service.RunCycleAsync(Now.AddMinutes(1), CancellationToken.None);
+        h.Gateway.Syncs.Should().HaveCount(1);
+
+        h.Service.ResyncGateway(null);
+        await h.Service.RunCycleAsync(Now.AddMinutes(2), CancellationToken.None);
+
+        h.Gateway.Syncs.Should().HaveCount(2);
+    }
+
+    [Fact]
+    public async Task SourcePolicies_AFailedRepair_StillNarrows()
+    {
+        var h = new Harness();
+        h.Set(BlockingSettingKeys.Mode, "Enforce");
+        h.Set(BlockingSettingKeys.TargetGateway, "true");
+        h.Gateway.FailRepair = true;
+        h.Gateway.StalePolicies = 2;
+
+        await h.Service.RunCycleAsync(Now, CancellationToken.None);
+
+        h.Gateway.Calls.Should().Equal("repair", "narrow");
+        h.Audit.Verify(a => a.GatewayPoliciesNarrowed(null, 2), Times.Once);
     }
 
     [Fact]

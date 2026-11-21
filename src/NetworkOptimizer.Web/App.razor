@@ -160,6 +160,7 @@
     <script src="@FileVersionProvider.AddFileVersionToPath("/", "js/map-satellite.js")"></script>
     <script src="@FileVersionProvider.AddFileVersionToPath("/", "lib/heic2any.min.js")"></script>
     <script src="@FileVersionProvider.AddFileVersionToPath("/", "js/floorPlanEditor.js")"></script>
+    <script src="@FileVersionProvider.AddFileVersionToPath("/", "js/innerspace-import.js")"></script>
     @if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("DEMO_MODE_MAPPINGS")))
     {
         <script src="@FileVersionProvider.AddFileVersionToPath("/", "js/demo-mask.js")"></script>
@@ -669,12 +670,14 @@
             var name = cell.getAttribute('data-dest-name') || '';
             var ip = cell.getAttribute('data-dest-ip') || '';
             var link = cell.getAttribute('data-dest-link');
+            var note = cell.getAttribute('data-dest-note');
             if (!ip) return null;
             // Network Tools fills its target from ?target= and runs nothing until asked; the fragment
             // puts Run a Probe at the top of the view (scrollRestoration.js).
             var trace = '/network-tools?target=' + encodeURIComponent(ip) + '#run-a-probe';
             return (name && name !== ip ? '<div>' + escapeHtml(name) + (isDomain(name) ? tipCopy(name) : '') + '</div>' : '')
                 + '<div>' + escapeHtml(ip) + tipCopy(ip) + '</div>'
+                + (note ? '<div>' + escapeHtml(note) + '</div>' : '')
                 + '<div class="tip-links">' + (link ? tipLink(link, 'Threats') : '') + tipLink(trace, 'Trace') + '</div>';
         }
         // A client: the name as its Client Performance (or a network device's Device Stats) link, then the cell's detail, one line each.
@@ -1167,14 +1170,47 @@
         observer.observe(document.body, { childList: true, subtree: true });
 
         // Scrollable tab bar overflow detection
+        function applyTabScrollState(wrapper, tabs) {
+            var hasOverflow = tabs.scrollWidth > tabs.clientWidth + 1;
+            wrapper.classList.toggle('has-overflow', hasOverflow);
+            wrapper.classList.toggle('at-start', tabs.scrollLeft <= 20);
+            wrapper.classList.toggle('at-end', tabs.scrollLeft + tabs.clientWidth >= tabs.scrollWidth - 20);
+        }
         function updateTabScrollState() {
             document.querySelectorAll('.wifi-view-tabs-wrapper').forEach(function(wrapper) {
                 var tabs = wrapper.querySelector('.wifi-view-tabs');
                 if (!tabs) return;
-                var hasOverflow = tabs.scrollWidth > tabs.clientWidth + 1;
-                wrapper.classList.toggle('has-overflow', hasOverflow);
-                wrapper.classList.toggle('at-start', tabs.scrollLeft <= 20);
-                wrapper.classList.toggle('at-end', tabs.scrollLeft + tabs.clientWidth >= tabs.scrollWidth - 20);
+                applyTabScrollState(wrapper, tabs);
+                revealActiveTab(tabs);
+            });
+        }
+
+        // The periodic pass must not read layout: scrollWidth on a timer forced a synchronous layout
+        // of the whole page every second, which froze the Live View map's animation on a phone.
+        // A ResizeObserver on the strip and its tabs measures after layout instead.
+        var tabStripObserver = typeof ResizeObserver === 'function'
+            ? new ResizeObserver(function(entries) {
+                entries.forEach(function(e) {
+                    var tabs = e.target.closest('.wifi-view-tabs');
+                    var wrapper = tabs && tabs.closest('.wifi-view-tabs-wrapper');
+                    if (wrapper) applyTabScrollState(wrapper, tabs);
+                });
+            })
+            : null;
+        var tabStripObserved = new Set();
+        function scanTabStrips() {
+            if (!tabStripObserver) { updateTabScrollState(); return; }
+            // An observed element stays alive until unobserved, so drop the ones a navigation removed.
+            tabStripObserved.forEach(function(el) {
+                if (!el.isConnected) { tabStripObserver.unobserve(el); tabStripObserved.delete(el); }
+            });
+            document.querySelectorAll('.wifi-view-tabs-wrapper .wifi-view-tabs').forEach(function(tabs) {
+                [tabs].concat(Array.prototype.slice.call(tabs.querySelectorAll('.wifi-view-tab'))).forEach(function(el) {
+                    if (tabStripObserved.has(el)) return;
+                    tabStripObserved.add(el);
+                    tabStripObserver.observe(el);
+                });
+                // Reads layout only when the active tab's name changes.
                 revealActiveTab(tabs);
             });
         }
@@ -1224,7 +1260,7 @@
         }, true);
         // Update on resize and periodically for Blazor dynamic content
         window.addEventListener('resize', updateTabScrollState);
-        setInterval(updateTabScrollState, 1000);
+        setInterval(scanTabStrips, 1000);
 
         // Auto-reload when Blazor reconnects after a real disconnection
         // After server restart, client state is stale and causes loading issues

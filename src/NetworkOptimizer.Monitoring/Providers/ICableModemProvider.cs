@@ -30,9 +30,15 @@ public interface ICableModemProvider
     /// <summary>
     /// True when this provider logs in as "admin" if the username is blank (whitespace included).
     /// Settings shows the "admin" placeholder only then; elsewhere a blank username is sent, or
-    /// skipped, exactly as saved.
+    /// skipped, exactly as saved, unless <see cref="BlankUsername"/> names another default.
     /// </summary>
     bool BlankUsernameMeansAdmin { get; }
+
+    /// <summary>
+    /// The account a blank username signs in as, shown as the Settings placeholder; null when a blank
+    /// username is sent, or skipped, as saved. Override only for a default other than "admin".
+    /// </summary>
+    string? BlankUsername => BlankUsernameMeansAdmin ? "admin" : null;
 
     /// <summary>
     /// Poll the cable modem and return its current stats.

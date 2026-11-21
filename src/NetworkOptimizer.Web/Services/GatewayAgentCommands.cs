@@ -18,15 +18,24 @@ public static class GatewayAgentCommands
         string.IsNullOrWhiteSpace(serverUrl) ? PlaceholderServerUrl : serverUrl.TrimEnd('/');
 
     /// <summary>
-    /// First-time install one-liner. --lan-speed-test only when asked for (it loads the gateway
-    /// during a test), and no sudo (UniFi gateways SSH in as root).
+    /// Exit status of the installer's pre-flight stop: the gateway does not trust the server's
+    /// certificate while the tunnel answers with verification off. Run It for Me offers
+    /// --insecure only after this.
     /// </summary>
-    public static string Install(string? serverUrl, string token, bool lanSpeedTest = false) =>
-        Install(serverUrl, token, AppVersionInfo.AgentReleaseTag, lanSpeedTest);
+    public const int UntrustedCertificateExitCode = 3;
 
-    internal static string Install(string? serverUrl, string token, string? releaseTag, bool lanSpeedTest = false) =>
+    /// <summary>
+    /// First-time install one-liner. --lan-speed-test only when asked for (it loads the gateway
+    /// during a test), and no sudo (UniFi gateways SSH in as root). --insecure only when the
+    /// operator ticks it after an <see cref="UntrustedCertificateExitCode"/> failure.
+    /// </summary>
+    public static string Install(string? serverUrl, string token, bool lanSpeedTest = false, bool insecure = false) =>
+        Install(serverUrl, token, AppVersionInfo.AgentReleaseTag, lanSpeedTest, insecure);
+
+    internal static string Install(string? serverUrl, string token, string? releaseTag, bool lanSpeedTest = false, bool insecure = false) =>
         $"curl -fsSL {ScriptUrl} | bash -s -- \\\n  --server \"{ServerValue(serverUrl)}\" \\\n  --token \"{token}\""
         + (lanSpeedTest ? " \\\n  --lan-speed-test" : "")
+        + (insecure ? " \\\n  --insecure" : "")
         + (releaseTag == null ? "" : $" \\\n  --release \"{releaseTag}\"");
 
     /// <summary>Upgrade one-liner: same script, no token - an enrolled agent.json is kept.</summary>

@@ -740,6 +740,10 @@ h1:focus {
 .wan-chart-mode-cluster .lan-flow-map-mode {
     cursor: pointer;
 }
+.wan-chart-mode-cluster .lan-flow-map-mode.is-paused {
+    background: var(--bg-tertiary);
+    color: var(--text-secondary);
+}
 .dashboard-grid .lv-panel > .wan-live-chart-card {
     margin: -0.5rem;
 }
@@ -804,6 +808,13 @@ h1:focus {
 
 .monitoring-chart-header.chart-header-stacked .card-title {
     flex-basis: 100%;
+}
+
+/* A chart whose points open their result. The shared tooltip shows only while the pointer is in the
+   plot with a point captured, which is exactly when a click opens one; ApexCharts draws no element
+   that covers just the plot. */
+.chart-opens-results .apexcharts-canvas:has(.apexcharts-tooltip.apexcharts-active) {
+    cursor: pointer;
 }
 
 /* The link context chip: a tab showing what a link asked for, beside the card title (Network
@@ -1355,6 +1366,24 @@ h1:focus {
 
 .speed-test-row:last-child {
     border-bottom: none;
+}
+
+/* A Dashboard row that opens its result: padded out to the card edge so the hover reads as a row. */
+a.speed-test-row-link {
+    color: inherit;
+    text-decoration: none;
+    margin: 0 -0.5rem;
+    padding: 0.75rem 0.5rem;
+    border-radius: 6px;
+    transition: background 0.15s ease;
+}
+
+a.speed-test-row-link:first-child {
+    padding-top: 0.5rem;
+}
+
+a.speed-test-row-link:hover {
+    background: var(--bg-hover);
 }
 
 /* The Tailscale mark before a client name in speed test lists */
@@ -2850,6 +2879,45 @@ a.stat-card-link:active {
 
 /* Live View's gateway tiles (StatTileSparkline): the chart takes the lower strip of the tile. On
    hover the label steps aside and the value lifts clear of the line. */
+/* A tile whose line you trace and click (spark-trace.js): no text selection or text cursor, so
+   moving and clicking across it never selects the value. */
+.signal-spark-host.spark-traceable {
+    cursor: pointer;
+    user-select: none;
+    -webkit-user-select: none;
+}
+
+/* The tracer is the line's end dot moved to the pointer: the same look, and the end dot hides. */
+.spark-trace-dot {
+    display: none;
+    position: fixed;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: currentColor;
+    box-shadow: 0 0 0 2px var(--bg-tertiary), 0 0 12px currentColor;
+    transform: translate(-50%, -50%);
+    pointer-events: none;
+    z-index: 1000;
+}
+
+.signal-spark-host.spark-tracing .signal-spark-dot {
+    opacity: 0 !important;
+}
+
+.spark-trace-label {
+    display: none;
+    position: fixed;
+    padding: 0.15rem 0.4rem;
+    border-radius: 4px;
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+    font-size: 0.7rem;
+    white-space: nowrap;
+    pointer-events: none;
+    z-index: 1000;
+}
+
 .signal-spark-host > .stat-spark-area {
     position: absolute;
     left: 0.1rem;
@@ -13362,6 +13430,138 @@ h3 > .tooltip-icon-sm {
     font-size: 0.9rem;
 }
 
+/* PON section on SFP Stats and ONT Stats (pon-section.js): view tabs, Connection Check, and the
+   stat strip and notes under a card's title. */
+.pon-view-tabs {
+    border-bottom: 1px solid var(--border-color);
+    margin: 0.75rem 0 0.5rem;
+    overflow-x: auto;
+    scrollbar-width: none;
+}
+
+.pon-view-tabs::-webkit-scrollbar {
+    display: none;
+}
+
+@media (max-width: 768px) {
+    .pon-view-tabs {
+        margin-top: 0.5rem;
+    }
+}
+
+.pon-view-tabs .tab {
+    margin-bottom: -1px;
+    white-space: nowrap;
+}
+
+/* A card outside the selected view. A class, not style.display: updatePonCard owns that. */
+.pon-view-hidden {
+    display: none !important;
+}
+
+.pon-check {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    padding: 0.75rem 1rem 0;
+}
+
+.pon-check-step {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.25rem 0.65rem;
+    border-radius: 999px;
+    background: var(--bg-tertiary);
+    color: var(--text-secondary);
+    font-size: 0.8rem;
+    white-space: nowrap;
+}
+
+.pon-check-step::before {
+    content: '';
+    width: 0.5rem;
+    height: 0.5rem;
+    border-radius: 50%;
+    background: var(--text-muted);
+}
+
+.pon-check-step.ok::before {
+    background: var(--success-color);
+}
+
+.pon-check-step.fail {
+    color: var(--danger-color);
+}
+
+.pon-check-step.fail::before {
+    background: var(--danger-color);
+}
+
+.pon-stats {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem 1.5rem;
+    padding: 0.6rem 1rem 0;
+    font-size: 0.8rem;
+}
+
+.pon-stat {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 0.4rem;
+    white-space: nowrap;
+}
+
+.pon-stat-label {
+    color: var(--text-muted);
+}
+
+.pon-stat-value {
+    color: var(--text-primary);
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
+}
+
+.pon-stat-name {
+    color: var(--text-secondary);
+    font-weight: 600;
+}
+
+.pon-stat-dot {
+    align-self: center;
+    width: 0.55rem;
+    height: 0.55rem;
+    border-radius: 50%;
+}
+
+.pon-notes {
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+    padding: 0.5rem 1rem 0;
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+}
+
+.pon-note.warning {
+    color: var(--warning-color);
+}
+
+.pon-note-time {
+    color: var(--text-muted);
+    font-variant-numeric: tabular-nums;
+    margin-right: 0.4rem;
+}
+
+.pon-note.warning .pon-note-time {
+    color: inherit;
+}
+
+.pon-card-body {
+    padding-bottom: 0.75rem;
+}
+
 .chart-filters {
     display: flex;
     gap: 1rem;
@@ -13538,6 +13738,28 @@ h3 > .tooltip-icon-sm {
     display: flex;
     align-items: stretch;
     margin-bottom: 1.5rem;
+}
+
+/* Wi-Fi Optimizer - Overview: the Speed Map / Signal Map switch above the map. */
+.wifi-overview-map-switch {
+    width: max-content;
+    max-width: 100%;
+    margin-bottom: 0.75rem;
+}
+
+.wifi-overview-map-switch .time-btn {
+    white-space: nowrap;
+}
+
+@media (max-width: 768px) {
+    /* The grid's 16px bottom margin plus the switch's own padding left a wide band above it on a phone. */
+    .wifi-content-grid:has(+ .wifi-overview-map-switch) {
+        margin-bottom: 4px;
+    }
+
+    .wifi-overview-map-switch {
+        margin-bottom: 0.25rem;
+    }
 }
 
 .wifi-view-tabs {
@@ -19620,6 +19842,86 @@ tr.stats-row-filtered {
     margin-bottom: 4px;
 }
 
+/* Signal Map Pan / Select toolbox, under the zoom control and styled to match it */
+.fp-map-container .fp-tool-control {
+    border: none !important;
+    background: none;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+.fp-map-container .fp-tool-control a {
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(26, 29, 35, 0.9);
+    color: var(--text-secondary);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 6px !important;
+}
+.fp-map-container .fp-tool-control a:hover {
+    background: rgba(51, 56, 68, 0.9);
+    color: var(--text-primary);
+}
+/* Leaflet's .leaflet-bar a:focus paints a clicked button #f4f4f4 until focus moves; keep each
+   state's own colors on focus and show a ring for keyboard focus only */
+.fp-map-container .fp-tool-control a:focus,
+.fp-map-container .leaflet-control-zoom a:focus,
+.map-container .leaflet-control-zoom a:focus {
+    background: rgba(26, 29, 35, 0.9);
+    color: var(--text-secondary);
+    outline: none;
+}
+.fp-map-container .fp-tool-control a:focus-visible,
+.fp-map-container .leaflet-control-zoom a:focus-visible,
+.map-container .leaflet-control-zoom a:focus-visible {
+    outline: 2px solid var(--primary-hover);
+    outline-offset: 1px;
+}
+.fp-map-container .fp-tool-control a:focus:hover,
+.fp-map-container .leaflet-control-zoom a:focus:hover,
+.map-container .leaflet-control-zoom a:focus:hover {
+    background: rgba(51, 56, 68, 0.9);
+    color: var(--text-primary);
+}
+.fp-map-container .fp-tool-control a.active,
+.fp-map-container .fp-tool-control a.active:focus {
+    background: var(--primary-color);
+    border-color: var(--primary-hover);
+    color: #fff;
+}
+.fp-map-container .fp-tool-control a.disabled,
+.fp-map-container .fp-tool-control a.disabled:hover,
+.fp-map-container .fp-tool-control a.disabled:focus {
+    background: rgba(26, 29, 35, 0.6);
+    color: var(--text-muted);
+    cursor: default;
+}
+.fp-map-container .fp-tool-group {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+.fp-map-container .fp-tool-group + .fp-tool-group {
+    margin-top: 6px;
+}
+/* Done / Finish Shape: the toolbox's commit, last in the stack */
+.fp-map-container .fp-tool-control a[data-tool="done"],
+.fp-map-container .fp-tool-control a[data-tool="done"]:focus,
+.fp-map-container .fp-tool-control a[data-tool="done"]:hover {
+    color: var(--success-color);
+}
+/* Signal Map AP Move: the landing click must reach the map, so no layer takes the pointer */
+.leaflet-container.fp-ap-moving .leaflet-interactive {
+    pointer-events: none !important;
+}
+.leaflet-container.fp-tool-select,
+.leaflet-container.fp-shift-select {
+    cursor: crosshair;
+}
+
 .lan-flow-map-chips {
     display: flex;
     flex-wrap: wrap;
@@ -20276,6 +20578,11 @@ tr.stats-row-filtered {
     }
     .lan-flow-map-2d-stage.lan-flow-map-fullscreen .lfm2d-canvas {
         height: 100%;
+    }
+    /* A mobile .card pads itself by 1rem; the maps run to its edges, as on desktop. */
+    .lan-flow-map-card > .lan-flow-map-body,
+    .lan-flow-map-2d-card > .lan-flow-map-2d-body {
+        margin: 0 -1rem -1rem;
     }
 }
 
@@ -23746,6 +24053,10 @@ a.shp-issue {
     margin-bottom: 0.5rem;
 }
 
+.license-billing-actions {
+    margin-bottom: 0.5rem;
+}
+
 @keyframes tour-fade-in {
     from {
         opacity: 0;
@@ -25746,10 +26057,35 @@ body:has(.top-bar-hidden) .btn-fit {
 }
 
 .lt-sankey-icon .lt-app-icon {
-    display: block;
+    display: grid;
     width: 18px;
     height: 18px;
     font-size: 11px;
+}
+
+/* Never positioned here: WebKit draws positioned HTML in a foreignObject at the SVG's origin, ignoring the node's
+   transform, so every app's icon piled up in the corner on iOS. The layers share one grid cell instead. */
+.lt-sankey-icon .lt-app-icon,
+.lt-sankey-icon .lt-app-icon > * {
+    position: static;
+}
+
+.lt-sankey-icon .lt-app-icon > * {
+    grid-area: 1 / 1;
+    width: 100%;
+    height: 100%;
+}
+
+/* A masked mark (no-icon) in Where It's Going is SVG shapes masked by an SVG mask, never a CSS mask (WebKit applies
+   none to an SVG shape): see SankeyIcon in LiveTrafficSankey. */
+.lt-sankey-glyph-tile {
+    fill: var(--bg-tertiary);
+    pointer-events: none;
+}
+
+.lt-sankey-glyph {
+    fill: var(--text-primary);
+    pointer-events: none;
 }
 
 .lt-app-icon img,

@@ -134,6 +134,9 @@ public sealed class GatewayBlocklistEnforcer
             catch (Exception ex)
             {
                 Console.Error.WriteLine($"Gateway blocklist: {ex.Message}");
+                // An apply that runs out of memory reports nothing to the server, and the public list
+                // entries' timeouts then drain the sets; a fresh process re-applies them.
+                OutOfMemoryRestart.Report("the gateway blocklist", ex, restartNow: true);
             }
         }
     }

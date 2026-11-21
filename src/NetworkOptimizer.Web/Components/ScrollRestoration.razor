@@ -4,10 +4,13 @@
 
 @code {
     private string? _previousPath;
+    // Positions are saved per path AND query: a tab (?tab=) is its own place to come back to.
+    private string? _previousUrl;
 
     protected override void OnInitialized()
     {
         _previousPath = GetPath(NavigationManager.Uri);
+        _previousUrl = GetPathAndQuery(NavigationManager.Uri);
         NavigationManager.RegisterLocationChangingHandler(OnLocationChanging);
         NavigationManager.LocationChanged += OnLocationChanged;
     }
@@ -15,9 +18,9 @@
     private ValueTask OnLocationChanging(LocationChangingContext context)
     {
         // Save scroll position BEFORE navigation happens
-        if (_previousPath != null)
+        if (_previousUrl != null)
         {
-            _ = JSRuntime.InvokeVoidAsync("scrollRestoration.savePosition", _previousPath);
+            _ = JSRuntime.InvokeVoidAsync("scrollRestoration.savePosition", _previousUrl);
         }
         return ValueTask.CompletedTask;
     }
@@ -25,10 +28,15 @@
     private async void OnLocationChanged(object? sender, LocationChangedEventArgs e)
     {
         var newPath = GetPath(e.Location);
+        var newUrl = GetPathAndQuery(e.Location);
+        _previousUrl = newUrl;
 
         if (newPath == _previousPath)
         {
-            // Query-only change (e.g. tab switch) - preserve scroll and nav state
+            // Query-only change (e.g. tab switch): preserve scroll and nav state, unless it was Back or
+            // Forward, which returns to where that tab was left.
+            try { await JSRuntime.InvokeVoidAsync("scrollRestoration.restoreIfPopState", newUrl); }
+            catch (JSDisconnectedException) { }
             return;
         }
 
@@ -37,7 +45,7 @@
 
         try
         {
-            await JSRuntime.InvokeVoidAsync("scrollRestoration.restoreOrScrollToTop", newPath);
+            await JSRuntime.InvokeVoidAsync("scrollRestoration.restoreOrScrollToTop", newUrl);
         }
         catch (JSDisconnectedException)
         {
@@ -50,6 +58,21 @@
     private static string GetPath(string uri)
     {
         return new Uri(uri).AbsolutePath;
+    }
+
+    /// <summary>
+    /// The key a position is saved under: the path and query, without ?site= and in a fixed order. Multi-site
+    /// stamps ?site= into the address bar behind the router (site-context.js), so the same page reads with it on
+    /// Back and without it when it was left.
+    /// </summary>
+    private static string GetPathAndQuery(string uri)
+    {
+        var parsed = new Uri(uri);
+        var query = Microsoft.AspNetCore.WebUtilities.QueryHelpers.ParseQuery(parsed.Query)
+            .Where(kv => !string.Equals(kv.Key, "site", StringComparison.OrdinalIgnoreCase))
+            .OrderBy(kv => kv.Key, StringComparer.Ordinal)
+            .Select(kv => kv.Key + "=" + kv.Value.ToString());
+        return parsed.AbsolutePath + "?" + string.Join("&", query);
     }
 
     public void Dispose()

@@ -716,6 +716,37 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
         string clientIp,
         CancellationToken cancellationToken = default)
     {
+        var path = await CalculatePathToGatewayOnceAsync(clientIp, cancellationToken);
+        if (path.IsValid || !IsStaleClientMiss(path) || !TryClaimClientMissRefetch())
+            return path;
+        // A snapshot taken while the client was away misses it for the cache's whole minute after it
+        // returns; one fresh topology finds it.
+        InvalidateTopologyCache();
+        return await CalculatePathToGatewayOnceAsync(clientIp, cancellationToken);
+    }
+
+    // One refetch per window across every caller: a client that is really missing must not turn each
+    // Client Performance poll into a console round trip.
+    private static readonly TimeSpan ClientMissRefetchMinInterval = TimeSpan.FromSeconds(10);
+    private long _lastClientMissRefetchTicks;
+
+    private bool TryClaimClientMissRefetch()
+    {
+        var now = DateTime.UtcNow.Ticks;
+        var last = Interlocked.Read(ref _lastClientMissRefetchTicks);
+        return now - last >= ClientMissRefetchMinInterval.Ticks
+            && Interlocked.CompareExchange(ref _lastClientMissRefetchTicks, now, last) == last;
+    }
+
+    private static bool IsStaleClientMiss(NetworkPath path) =>
+        path.ErrorMessage is { } e
+        && (e.Contains("not found in network topology", StringComparison.Ordinal)
+            || e.Contains("not yet available", StringComparison.OrdinalIgnoreCase));
+
+    private async Task<NetworkPath> CalculatePathToGatewayOnceAsync(
+        string clientIp,
+        CancellationToken cancellationToken)
+    {
         var path = new NetworkPath
         {
             DestinationHost = clientIp

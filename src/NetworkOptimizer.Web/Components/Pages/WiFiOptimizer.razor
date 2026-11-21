@@ -23,6 +23,7 @@
 @inject IApMapAdminService ApMapAdmin
 @inject IAuthorizationService Authz
 @inject IWiFiIssueAcknowledgmentService IssueAcknowledgments
+@inject NetworkOptimizer.Web.Services.Identity.IUserPreferences UserPreferences
 @implements IDisposable
 @rendermode InteractiveServer
 @inject IDisplayTimeZone DisplayTime
@@ -77,7 +78,7 @@
 {
     <!-- Quick Stats Row -->
     <div class="stats-row wifi-stats-row">
-        <div class="stat-card">
+        <a class="stat-card stat-card-link" href="/wifi-optimizer?tab=overview" @onclick="@(() => ShowOverviewCardAsync("wifi-health-score"))" @onclick:preventDefault>
             <div class="stat-icon wifi-health-icon @GetScoreClass(_summary?.HealthScore)">
                 <ScoreRing Score="@_summary?.HealthScore" Small="true" />
                 @if (_loading)
@@ -102,9 +103,9 @@
                 </div>
                 <div class="stat-label">Wi-Fi Health</div>
             </div>
-        </div>
+        </a>
 
-        <div class="stat-card">
+        <a class="stat-card stat-card-link" href="/wifi-optimizer?tab=overview" @onclick="@(() => ShowOverviewCardAsync("wifi-access-points"))" @onclick:preventDefault>
             <svg class="stat-icon-svg" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg" width="32" height="32">
                 <path d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" opacity="0.7"></path>
                 <path fill-rule="evenodd" clip-rule="evenodd" d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10Zm4-10a4 4 0 1 1-8 0 4 4 0 0 1 8 0Z" opacity="0.6"></path>
@@ -124,9 +125,9 @@
                 </div>
                 <div class="stat-label">Access Points</div>
             </div>
-        </div>
+        </a>
 
-        <div class="stat-card">
+        <a class="stat-card stat-card-link" href="/wifi-optimizer?tab=client" @onclick="@(() => ShowClientStats(weakSignalOnly: false))" @onclick:preventDefault>
             <AppIcon Name="clients" Class="stat-icon-svg stat-icon-sm" />
             <div class="stat-content">
                 <div class="stat-value">
@@ -141,9 +142,9 @@
                 </div>
                 <div class="stat-label">Wireless Clients</div>
             </div>
-        </div>
+        </a>
 
-        <div class="stat-card @(_summary?.WeakSignalClients > 0 ? "stat-warning" : "")">
+        <a class="stat-card stat-card-link @(_summary?.WeakSignalClients > 0 ? "stat-warning" : "")" href="/wifi-optimizer?tab=client&signal=weak" @onclick="@(() => ShowClientStats(weakSignalOnly: true))" @onclick:preventDefault>
             <AppIcon Name="wifi-weak" Class="stat-icon-svg stat-icon-sm" />
             <div class="stat-content">
                 <div class="stat-value">
@@ -158,7 +159,7 @@
                 </div>
                 <div class="stat-label">Weak Signal</div>
             </div>
-        </div>
+        </a>
     </div>
 
     <!-- View Tabs -->
@@ -243,8 +244,10 @@
         <!-- Client Stats Timeline -->
         <div class="card card-full-width">
             <div class="card-body">
-                <NetworkOptimizer.Web.Components.Shared.WiFi.ClientTimeline InitialClientMac="@_initialClientMac" InitialApMac="@_initialApMac" InitialBand="@_initialBand"
+                <NetworkOptimizer.Web.Components.Shared.WiFi.ClientTimeline @key="_clientTimelineKey"
+                                                                            InitialClientMac="@_initialClientMac" InitialApMac="@_initialApMac" InitialBand="@_initialBand"
                                                                             InitialSignalMin="@_initialSignalMin" InitialSignalMax="@_initialSignalMax"
+                                                                            InitialWeakSignal="@_initialWeakSignal"
                                                                             OnClientNavigate="HandleClientNavigate" />
             </div>
         </div>
@@ -355,7 +358,7 @@
     {
     <div class="content-grid wifi-content-grid">
         <!-- Health Score Card -->
-        <div class="card">
+        <div class="card" id="wifi-health-score">
             <div class="card-header">
                 <h2 class="card-title">Wi-Fi Health Score</h2>
                 <button class="btn btn-sm btn-secondary" @onclick="RefreshData" disabled="@_refreshing">
@@ -597,7 +600,7 @@
         </div>
 
         <!-- Access Points Card -->
-        <div class="card card-span-2">
+        <div class="card card-span-2" id="wifi-access-points">
             <div class="card-header">
                 <h2 class="card-title">Access Points</h2>
                 <button class="btn btn-sm btn-secondary" @onclick="RefreshData" disabled="@_refreshing">
@@ -860,7 +863,17 @@
         </div>
     </div>
 
-        @if (_speedTestResults.Any(r => r.Latitude.HasValue && r.Longitude.HasValue) || _apMapMarkers.Any())
+        var hasSpeedMap = _speedTestResults.Any(r => r.Latitude.HasValue && r.Longitude.HasValue) || _apMapMarkers.Any();
+        @if (hasSpeedMap)
+        {
+            <div class="time-range-selector wifi-overview-map-switch" role="tablist" aria-label="Map">
+                <button class="time-btn @(_overviewMap == OverviewSpeedMap ? "active" : "")" role="tab" aria-selected="@(_overviewMap == OverviewSpeedMap)"
+                        @onclick="() => SetOverviewMapAsync(OverviewSpeedMap)">Speed Map</button>
+                <button class="time-btn @(_overviewMap == OverviewSignalMap ? "active" : "")" role="tab" aria-selected="@(_overviewMap == OverviewSignalMap)"
+                        @onclick="() => SetOverviewMapAsync(OverviewSignalMap)">Signal Map</button>
+            </div>
+        }
+        @if (hasSpeedMap && _overviewMap == OverviewSpeedMap)
         {
             <SpeedTestMap Results="_speedTestResults"
                           ApMarkers="_apMapMarkers"
@@ -871,6 +884,10 @@
                           TimeFilterHours="_speedTestTimeRangeHours"
                           ClientDetailMode="true"
                           ShowDashboardLinks="true" />
+        }
+        else if (hasSpeedMap)
+        {
+            <NetworkOptimizer.Web.Components.Shared.WiFi.FloorPlanEditor SpeedTestResults="_speedTestResults" SignalLogMarkers="_signalMapPoints" OnClientClick="HandleMapClientClick" OnSignalTimeRangeChanged="HandleSignalTimeRangeChanged" SignalTimeFilterHours="_signalTimeRangeHours" />
         }
     } @* End of overview tab *@
 }
@@ -900,6 +917,12 @@
     [SupplyParameterFromQuery(Name = "sigmax")]
     public int? SignalMaxQueryParam { get; set; }
 
+    /// <summary>"weak": Client Stats lists only weak-signal clients, by the per-band rule the Weak Signal card counts.</summary>
+    [SupplyParameterFromQuery(Name = "signal")]
+    public string? SignalClassQueryParam { get; set; }
+
+    private bool WeakSignalQuery => string.Equals(SignalClassQueryParam, "weak", StringComparison.OrdinalIgnoreCase);
+
     [SupplyParameterFromQuery(Name = "recommend")]
     public bool? RecommendQueryParam { get; set; }
 
@@ -915,12 +938,52 @@
     private bool _loading = true;
     private bool _refreshing = false;
     private string _activeTab = "overview";
+
+    // Which map Overview shows; each user's last choice (IUserPreferences).
+    private const string OverviewSpeedMap = "speed";
+    private const string OverviewSignalMap = "signal";
+    private const string OverviewMapPreference = "wifi.overviewMap";
+    private string _overviewMap = OverviewSpeedMap;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_scrollToOverviewCard is { } cardId && _activeTab == "overview")
+        {
+            _scrollToOverviewCard = null;
+            try { await JS.InvokeVoidAsync("noHighlightTarget", cardId); }
+            catch (Exception ex) when (ex is not OperationCanceledException) { }
+        }
+
+        // The caller is known only in the circuit, so the saved choice is read after the first render.
+        if (!firstRender) return;
+        try
+        {
+            if (await UserPreferences.GetAsync(OverviewMapPreference) is OverviewSignalMap)
+            {
+                _overviewMap = OverviewSignalMap;
+                StateHasChanged();
+            }
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException) { }
+    }
+
+    private async Task SetOverviewMapAsync(string map)
+    {
+        if (_overviewMap == map) return;
+        _overviewMap = map;
+        try { await UserPreferences.SetAsync(OverviewMapPreference, map); }
+        catch (Exception ex) when (ex is not OperationCanceledException) { }
+    }
     private string? _initialClientMac;
     private string? _initialApMac;
     private RadioBand? _initialBand;
     private int? _initialChannel;
     private int? _initialSignalMin;
     private int? _initialSignalMax;
+    private bool _initialWeakSignal;
+    // Bumped by the stat cards so Client Stats re-applies their filter even when it is already open.
+    private int _clientTimelineKey;
+    private string? _scrollToOverviewCard;
     private bool _autoRunRecommendation;
     private string? _initialEdge;
     private string? _initialRange;
@@ -941,6 +1004,14 @@
 
     private async Task SetActiveTab(string tab)
     {
+        // Switching tabs only navigates; OnParametersSet switches once the URL changes. A tab's
+        // NavigationLock (a wall half drawn, an import under way) can then cancel the switch.
+        if (tab != _activeTab)
+        {
+            NavigationManager.NavigateTo("/wifi-optimizer?tab=" + tab, forceLoad: false, replace: false);
+            return;
+        }
+
         _activeTab = tab;
         // Clear all drill-down filters when manually switching tabs
         _initialClientMac = null;
@@ -949,6 +1020,7 @@
         _initialChannel = null;
         _initialSignalMin = null;
         _initialSignalMax = null;
+        _initialWeakSignal = false;
         _initialEdge = null;
         _initialRange = null;
         _autoRunRecommendation = false;
@@ -964,7 +1036,7 @@
     }
 
     private void NavigateToTab(string tab, string? apMac = null, RadioBand? band = null, int? channel = null,
-        int? signalMin = null, int? signalMax = null)
+        int? signalMin = null, int? signalMax = null, bool weakSignal = false)
     {
         _activeTab = tab;
         _initialApMac = apMac;
@@ -972,6 +1044,7 @@
         _initialChannel = channel;
         _initialSignalMin = signalMin;
         _initialSignalMax = signalMax;
+        _initialWeakSignal = weakSignal;
         _initialClientMac = null;
         _initialRange = null;
         _autoRunRecommendation = false;
@@ -984,15 +1057,36 @@
             uri += "&band=" + BandToQueryString(band.Value);
         if (channel.HasValue)
             uri += "&channel=" + channel.Value;
-        uri += SignalQuery(signalMin, signalMax);
+        uri += SignalQuery(signalMin, signalMax, weakSignal);
 
         NavigationManager.NavigateTo(uri, forceLoad: false, replace: false);
         _lastTabParam = tab;
     }
 
-    private static string SignalQuery(int? min, int? max) =>
+    private static string SignalQuery(int? min, int? max, bool weak = false) =>
         (min.HasValue ? "&sigmin=" + min.Value.ToString(System.Globalization.CultureInfo.InvariantCulture) : "")
-        + (max.HasValue ? "&sigmax=" + max.Value.ToString(System.Globalization.CultureInfo.InvariantCulture) : "");
+        + (max.HasValue ? "&sigmax=" + max.Value.ToString(System.Globalization.CultureInfo.InvariantCulture) : "")
+        + (weak ? "&signal=weak" : "");
+
+    /// <summary>The Wireless Clients and Weak Signal cards: Client Stats, all clients or the weak-signal ones.</summary>
+    private void ShowClientStats(bool weakSignalOnly)
+    {
+        NavigateToTab("client", weakSignal: weakSignalOnly);
+        _clientTimelineKey++;
+    }
+
+    /// <summary>The Wi-Fi Health and Access Points cards: the Overview card with that id, scrolled to once it renders.</summary>
+    private async Task ShowOverviewCardAsync(string cardId)
+    {
+        if (_activeTab != "overview")
+        {
+            _scrollToOverviewCard = cardId;
+            NavigateToTab("overview");
+            return;
+        }
+        try { await JS.InvokeVoidAsync("noHighlightTarget", cardId); }
+        catch (Exception ex) when (ex is not OperationCanceledException) { }
+    }
 
     private void HandleSignalRangeNavigate((int? Min, int? Max) range) =>
         NavigateToTab("client", signalMin: range.Min, signalMax: range.Max);
@@ -1186,6 +1280,7 @@
             _initialBand = BandFromQueryString(BandQueryParam);
             _initialSignalMin = SignalMinQueryParam;
             _initialSignalMax = SignalMaxQueryParam;
+            _initialWeakSignal = WeakSignalQuery;
         }
         else if (!string.IsNullOrEmpty(TabParam))
         {
@@ -1197,6 +1292,7 @@
             _initialBand = BandFromQueryString(BandQueryParam);
             _initialSignalMin = SignalMinQueryParam;
             _initialSignalMax = SignalMaxQueryParam;
+            _initialWeakSignal = WeakSignalQuery;
             _initialChannel = ChannelQueryParam;
             _autoRunRecommendation = RecommendQueryParam == true;
             _initialEdge = EdgeQueryParam;
@@ -1284,15 +1380,27 @@
                 _initialBand = BandFromQueryString(BandQueryParam);
                 _initialSignalMin = SignalMinQueryParam;
                 _initialSignalMax = SignalMaxQueryParam;
+                _initialWeakSignal = WeakSignalQuery;
                 _initialChannel = ChannelQueryParam;
                 _autoRunRecommendation = RecommendQueryParam == true;
                 _initialEdge = EdgeQueryParam;
                 _initialRange = RangeQueryParam;
+                // The Speed Map reloads AP markers on entry: they may have moved on the Signal Map.
+                if (newTab == "coverage") _apMarkersStale = true;
 
                 StateHasChanged();
             }
         }
         _lastTabParam = TabParam;
+    }
+
+    private bool _apMarkersStale;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (!_apMarkersStale) return;
+        _apMarkersStale = false;
+        await LoadApMarkers();
     }
 
     private async void OnConnectionChanged()
@@ -1528,7 +1636,7 @@
             uri += "&ap=" + Uri.EscapeDataString(ApQueryParam);
         if (!string.IsNullOrEmpty(BandQueryParam))
             uri += "&band=" + Uri.EscapeDataString(BandQueryParam);
-        uri += SignalQuery(SignalMinQueryParam, SignalMaxQueryParam);
+        uri += SignalQuery(SignalMinQueryParam, SignalMaxQueryParam, WeakSignalQuery);
         if (!string.IsNullOrEmpty(mac))
             uri += "&client=" + Uri.EscapeDataString(mac);
 

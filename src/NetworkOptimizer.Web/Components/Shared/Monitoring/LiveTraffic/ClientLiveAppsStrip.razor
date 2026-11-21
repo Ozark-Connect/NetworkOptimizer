@@ -4,7 +4,7 @@
 
 @if (Feed.View is { State: LiveTrafficState.Live or LiveTrafficState.Starting } view)
 {
-    <div class="lt-now" @onmouseenter="Feed.Hold.PointerIn" @onmouseleave="Feed.Hold.PointerOut" @ontouchstart="Feed.Hold.Touched">
+    <div class="lt-now" @onpointerenter="Feed.Hold.PointerIn" @onpointerleave="Feed.Hold.PointerOut" @ontouchstart="Feed.Hold.Touched">
         <span class="lt-now-label">Right now</span>
         @* Wraps so no chip is cut off at the card's edge; the cost is a row more or less as apps come and go (MaxApps caps it). *@
         <div class="lt-now-chips">

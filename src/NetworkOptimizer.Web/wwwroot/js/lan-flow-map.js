@@ -603,20 +603,11 @@ export class LanFlowMap {
     }
 
     // Honor a deep-linked timestamp (options.initialAt) by dropping straight into
-    // historic playback, paused, at that instant. Widens the timeline window first
-    // if the target predates the current span so the instant is reachable rather
-    // than clamping to the left edge (an instant older than retention still clamps).
+    // historic playback, paused, at that instant (seekTo widens the window to reach it).
     _applyInitialSeek() {
         const ms = this._initialAtMs;
         if (!Number.isFinite(ms)) return;
         this._initialAtMs = null; // one-shot
-        const needed = Date.now() - ms;
-        if (needed > this._scrubSpan) {
-            const preset = flowData.SCRUBBER_PRESETS.find(p => (p.ms ?? Infinity) >= needed)
-                || flowData.SCRUBBER_PRESETS[flowData.SCRUBBER_PRESETS.length - 1];
-            // For this visit: a link's window never becomes the remembered span.
-            this._setScrubSpan(preset.key, false);
-        }
         this.seekTo(ms);
     }
 
@@ -3627,6 +3618,15 @@ export class LanFlowMap {
         const range = this._panels.scrubberRange;
         if (!range || !Number.isFinite(ms)) return;
         this._stopHistoricPlayback();
+        // An instant older than the window widens it to the narrowest preset that reaches it,
+        // so a link or a click lands there instead of on the left edge (past retention still
+        // clamps). For this visit only: a seek's window never becomes the remembered span.
+        const needed = Date.now() - ms;
+        if (needed > this._scrubSpan) {
+            const preset = flowData.SCRUBBER_PRESETS.find(p => (p.ms ?? Infinity) >= needed)
+                || flowData.SCRUBBER_PRESETS[flowData.SCRUBBER_PRESETS.length - 1];
+            this._setScrubSpan(preset.key, false);
+        }
         const { start, end } = this._scrubWindowBounds();
         const t = Math.max(start, Math.min(end, ms));
         const at = new Date(t);

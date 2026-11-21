@@ -301,11 +301,16 @@
         <div class="monitoring-stat-cards">
             @{ var wanRates = GetWanRates(); }
             @{ var wanDown = FormatRateParts(wanRates.download); var wanUp = FormatRateParts(wanRates.upload); }
-            <div class="monitoring-stat-card monitoring-stat-rate">
+            @* The rate tiles sum the selected WANs, and so does their line, so it stays while comparing. *@
+            <div class="monitoring-stat-card monitoring-stat-rate signal-spark-host">
+                <StatTileSparkline Spark="LiveViewSpark.WanDownload" Request="@LiveSparkRequest()" Current="wanRates.download"
+                                   Live="@(_mapHistoricAt == null || _historicSnapshot != null)" Traceable="true" />
                 <div class="stat-value" style="color: var(--speed-download-color);">@wanDown.Value@if (wanDown.Unit != null) {<span class="stat-unit">@wanDown.Unit</span>}</div>
                 <div class="stat-label">WAN <span class="desktop-label">Download@(WanRateCount())</span><span class="mobile-label">&#8595;@WanRateCountShort()</span></div>
             </div>
-            <div class="monitoring-stat-card monitoring-stat-rate">
+            <div class="monitoring-stat-card monitoring-stat-rate signal-spark-host">
+                <StatTileSparkline Spark="LiveViewSpark.WanUpload" Request="@LiveSparkRequest()" Current="wanRates.upload"
+                                   Live="@(_mapHistoricAt == null || _historicSnapshot != null)" Traceable="true" />
                 <div class="stat-value" style="color: var(--speed-upload-color);">@wanUp.Value@if (wanUp.Unit != null) {<span class="stat-unit">@wanUp.Unit</span>}</div>
                 <div class="stat-label">WAN <span class="desktop-label">Upload@(WanRateCount())</span><span class="mobile-label">&#8593;@WanRateCountShort()</span></div>
             </div>
@@ -320,7 +325,7 @@
             </div>
             @{ var ispTarget = ScopedTargetStats(MonitoringTargetType.AccessIsp); var ispIds = ScopedTargetIds(MonitoringTargetType.AccessIsp); }
             <div class="monitoring-stat-card clickable-stat-card signal-spark-host" @onclick="@(() => JumpToAnalysis(AccessIspCategory))">
-                <StatTileSparkline Spark="LiveViewSpark.IspRtt" Request="@LiveSparkRequest()" Current="ispTarget.rtt" Live="@(_mapHistoricAt == null && _historicSnapshot == null && !LiveWan.IsComparing)" />
+                <StatTileSparkline Spark="LiveViewSpark.IspRtt" Request="@LiveSparkRequest()" Current="ispTarget.rtt" Live="@((_mapHistoricAt == null || _historicSnapshot != null) && !LiveWan.IsComparing)" />
                 @if (LiveWan.IsComparing)
                 {
                     <div class="stat-value stat-value-stacked">
@@ -341,7 +346,7 @@
                 <div class="stat-label">ISP RTT</div>
             </div>
             <div class="monitoring-stat-card clickable-stat-card signal-spark-host" @onclick="@(() => JumpToAnalysis(AccessIspCategory))">
-                <StatTileSparkline Spark="LiveViewSpark.IspLoss" Request="@LiveSparkRequest()" Current="@(ispIds.Count > 0 ? ispTarget.loss : null)" Live="@(_mapHistoricAt == null && _historicSnapshot == null && !LiveWan.IsComparing)" />
+                <StatTileSparkline Spark="LiveViewSpark.IspLoss" Request="@LiveSparkRequest()" Current="@(ispIds.Count > 0 ? ispTarget.loss : null)" Live="@((_mapHistoricAt == null || _historicSnapshot != null) && !LiveWan.IsComparing)" />
                 @if (LiveWan.IsComparing)
                 {
                     <div class="stat-value stat-value-stacked">
@@ -363,7 +368,7 @@
             </div>
             @{ var transitTarget = ScopedTargetStats(MonitoringTargetType.Transit); var transitIds = ScopedTargetIds(MonitoringTargetType.Transit); }
             <div class="monitoring-stat-card clickable-stat-card stat-card-no-minheight signal-spark-host" @onclick="@(() => JumpToAnalysis(TransitCategory))">
-                <StatTileSparkline Spark="LiveViewSpark.TransitRtt" Request="@LiveSparkRequest()" Current="transitTarget.rtt" Live="@(_mapHistoricAt == null && _historicSnapshot == null && !LiveWan.IsComparing)" />
+                <StatTileSparkline Spark="LiveViewSpark.TransitRtt" Request="@LiveSparkRequest()" Current="transitTarget.rtt" Live="@((_mapHistoricAt == null || _historicSnapshot != null) && !LiveWan.IsComparing)" />
                 @if (LiveWan.IsComparing)
                 {
                     <div class="stat-value stat-value-stacked">
@@ -384,7 +389,7 @@
                 <div class="stat-label">Transit RTT</div>
             </div>
             <div class="monitoring-stat-card clickable-stat-card stat-card-no-minheight signal-spark-host" @onclick="@(() => JumpToAnalysis(TransitCategory))">
-                <StatTileSparkline Spark="LiveViewSpark.TransitLoss" Request="@LiveSparkRequest()" Current="@(transitIds.Count > 0 ? transitTarget.loss : null)" Live="@(_mapHistoricAt == null && _historicSnapshot == null && !LiveWan.IsComparing)" />
+                <StatTileSparkline Spark="LiveViewSpark.TransitLoss" Request="@LiveSparkRequest()" Current="@(transitIds.Count > 0 ? transitTarget.loss : null)" Live="@((_mapHistoricAt == null || _historicSnapshot != null) && !LiveWan.IsComparing)" />
                 @if (LiveWan.IsComparing)
                 {
                     <div class="stat-value stat-value-stacked">
@@ -929,17 +934,67 @@
                 <!-- Supplemental PON-layer charts: shown only when a module has an attached
                      Network Optimizer Custom ONT config feeding PON stats. -->
                 <div class="sfp-pon-section" style="display: none;">
-                    <div class="chart-card sfp-pon-errors-card">
+                    <div class="filter-tabs pon-view-tabs" role="tablist" style="display: none;">
+                        <button type="button" class="tab active" role="tab" data-pon-view="all">All</button>
+                        <button type="button" class="tab" role="tab" data-pon-view="optical">Optical</button>
+                        <button type="button" class="tab" role="tab" data-pon-view="link">Link</button>
+                        <button type="button" class="tab" role="tab" data-pon-view="traffic">Traffic</button>
+                        <button type="button" class="tab" role="tab" data-pon-view="provider">Provider</button>
+                    </div>
+                    <div class="chart-card sfp-pon-check-card" style="display: none;">
+                        <div class="chart-header"><h3 class="chart-title">Connection Check <span class="tooltip-icon tooltip-icon-sm" data-tooltip="Checks from the fiber up, each from the latest poll. Hover a check to see what it was read from.">?</span></h3></div>
+                        <div class="sfp-pon-check pon-card-body"></div>
+                    </div>
+                    <div class="chart-card sfp-pon-loss-card" data-pon-group="optical">
+                        <div class="chart-header"><h3 class="chart-title">Path Loss <span class="tooltip-icon tooltip-icon-sm" data-tooltip="The launch power the OLT announces, minus the RX power this ONT measures: the optical loss of the fiber path. A rise while the launch power stays steady points at the fiber path: a connector, a bend, or a splitter. The OLT can announce a configured value, and ONT RX readings can be off by up to about 3 dB, so trust a change more than the level. With a reach extender in the path, the loss is measured from the extender.">?</span></h3></div>
+                        <div class="sfp-pon-loss-summary"></div>
+                        <div class="sfp-pon-loss-chart"></div>
+                    </div>
+                    <div class="chart-card sfp-pon-bias-card" data-pon-group="optical">
+                        <div class="chart-header"><h3 class="chart-title">Laser Bias Current <span class="tooltip-icon tooltip-icon-sm" data-tooltip="Bias current of the ONT&#x27;s transmit laser. An aging laser needs more current for the same light, so watch for a slow rise while TX power and temperature stay the same. Aging shows over months: use the 30d window.">?</span></h3></div>
+                        <div class="sfp-pon-bias-summary"></div>
+                        <div class="sfp-pon-bias-chart"></div>
+                    </div>
+                    <div class="chart-card sfp-pon-avail-card" data-pon-group="link">
+                        <div class="chart-header"><h3 class="chart-title">Link Downtime (per interval) <span class="tooltip-icon tooltip-icon-sm" data-tooltip="Seconds of each interval the ONT was out of O5, timed by the ONT itself, so a drop between two polls still counts. Loss of signal and loss of frame show how long each alarm stood. An ONT restart is not line downtime and leaves a gap.">?</span></h3></div>
+                        <div class="sfp-pon-avail-summary"></div>
+                        <div class="sfp-pon-avail-chart"></div>
+                    </div>
+                    <div class="chart-card sfp-pon-errors-card" data-pon-group="link">
                         <div class="chart-header"><h3 class="chart-title">PON Errors (per interval)</h3></div>
+                        <div class="sfp-pon-fec-summary"></div>
                         <div class="sfp-pon-errors-chart"></div>
                     </div>
-                    <div class="chart-card sfp-pon-host-card">
+                    <div class="chart-card sfp-pon-host-card" data-pon-group="link">
                         <div class="chart-header"><h3 class="chart-title">Host Link Errors (per interval)</h3></div>
                         <div class="sfp-pon-host-chart"></div>
                     </div>
-                    <div class="chart-card sfp-pon-gem-card">
+                    <div class="chart-card sfp-pon-cpu-card" data-pon-group="link">
+                        <div class="chart-header"><h3 class="chart-title">ONT CPU Load <span class="tooltip-icon tooltip-icon-sm" data-tooltip="How busy the ONT&#x27;s own processor was in each interval. A stick that stays busy can answer late and drop management traffic.">?</span></h3></div>
+                        <div class="sfp-pon-cpu-chart"></div>
+                    </div>
+                    <div class="chart-card sfp-pon-util-card" data-pon-group="traffic">
+                        <div class="chart-header"><h3 class="chart-title">PON Downstream Load (whole PON) <span class="tooltip-icon tooltip-icon-sm" data-tooltip="The OLT fills unused downstream capacity with idle frames that every ONT receives, so Whole PON is the load on this OLT port: every ONT on the same splitter tree. It is not the provider&#x27;s whole network, and not only this connection. This ONT is your own downstream on the same scale. Percentages are shares of the PON&#x27;s downstream capacity. Each point is a mean over its interval, so short peaks do not show.">?</span></h3></div>
+                        <div class="sfp-pon-util-summary"></div>
+                        <div class="sfp-pon-util-chart"></div>
+                    </div>
+                    <div class="chart-card sfp-pon-loadmap-card" data-pon-group="traffic" style="display: none;">
+                        <div class="chart-header"><h3 class="chart-title">PON Load by Hour (whole PON) <span class="tooltip-icon tooltip-icon-sm" data-tooltip="Mean downstream load on this OLT port (every ONT on the same splitter tree) for each hour of the week, over up to four weeks. Brighter cells are busier hours.">?</span></h3></div>
+                        <div class="sfp-pon-loadmap-summary"></div>
+                        <div class="sfp-pon-loadmap-chart"></div>
+                    </div>
+                    <div class="chart-card sfp-pon-gem-card" data-pon-group="traffic">
                         <div class="chart-header"><h3 class="chart-title">GEM Frames (per interval)</h3></div>
                         <div class="sfp-pon-gem-chart"></div>
+                    </div>
+                    <div class="chart-card sfp-pon-grant-card" data-pon-group="traffic">
+                        <div class="chart-header"><h3 class="chart-title">Upstream Grants (per second) <span class="tooltip-icon tooltip-icon-sm" data-tooltip="Upstream scheduling as this ONT sees it: the bandwidth map allocations the OLT gives it, the bursts it sends in them, and its DBRu queue reports. Only this ONT&#x27;s grants. The usual rate depends on the OLT, so watch for a change, not a fixed value.">?</span></h3></div>
+                        <div class="sfp-pon-grant-summary"></div>
+                        <div class="sfp-pon-grant-chart"></div>
+                    </div>
+                    <div class="chart-card sfp-pon-provider-card" data-pon-group="provider" style="display: none;">
+                        <div class="chart-header"><h3 class="chart-title">Provider Activity <span class="tooltip-icon tooltip-icon-sm" data-tooltip="What the OLT did to this ONT, from the ONT&#x27;s management counters. The provisioned rate is the traffic descriptor the OLT created over OMCI. A configuration write is the MIB data sync counter moving. Key renewals and ranging adjustments are PLOAM messages received while the link stayed up. The equalization delay is set against a reference only the OLT knows, so it is not a fiber length; a step in it is a change in length.">?</span></h3></div>
+                        <div class="sfp-pon-provider pon-card-body"></div>
                     </div>
                     <div class="sfp-pon-details"></div>
                     <div class="sfp-pon-error-totals"></div>
@@ -1325,17 +1380,67 @@
                      link state and nothing else. Every card hides itself when nothing fills it, so
                      an ONT reporting no error counters gets the details table alone. -->
                 <div class="ont-errors-section" style="display: none;">
-                    <div class="chart-card ont-pon-errors-card">
+                    <div class="filter-tabs pon-view-tabs" role="tablist" style="display: none;">
+                        <button type="button" class="tab active" role="tab" data-pon-view="all">All</button>
+                        <button type="button" class="tab" role="tab" data-pon-view="optical">Optical</button>
+                        <button type="button" class="tab" role="tab" data-pon-view="link">Link</button>
+                        <button type="button" class="tab" role="tab" data-pon-view="traffic">Traffic</button>
+                        <button type="button" class="tab" role="tab" data-pon-view="provider">Provider</button>
+                    </div>
+                    <div class="chart-card ont-pon-check-card" style="display: none;">
+                        <div class="chart-header"><h3 class="chart-title">Connection Check <span class="tooltip-icon tooltip-icon-sm" data-tooltip="Checks from the fiber up, each from the latest poll. Hover a check to see what it was read from.">?</span></h3></div>
+                        <div class="ont-pon-check pon-card-body"></div>
+                    </div>
+                    <div class="chart-card ont-pon-loss-card" data-pon-group="optical">
+                        <div class="chart-header"><h3 class="chart-title">Path Loss <span class="tooltip-icon tooltip-icon-sm" data-tooltip="The launch power the OLT announces, minus the RX power this ONT measures: the optical loss of the fiber path. A rise while the launch power stays steady points at the fiber path: a connector, a bend, or a splitter. The OLT can announce a configured value, and ONT RX readings can be off by up to about 3 dB, so trust a change more than the level. With a reach extender in the path, the loss is measured from the extender.">?</span></h3></div>
+                        <div class="ont-pon-loss-summary"></div>
+                        <div class="ont-pon-loss-chart"></div>
+                    </div>
+                    <div class="chart-card ont-pon-bias-card" data-pon-group="optical">
+                        <div class="chart-header"><h3 class="chart-title">Laser Bias Current <span class="tooltip-icon tooltip-icon-sm" data-tooltip="Bias current of the ONT&#x27;s transmit laser. An aging laser needs more current for the same light, so watch for a slow rise while TX power and temperature stay the same. Aging shows over months: use the 30d window.">?</span></h3></div>
+                        <div class="ont-pon-bias-summary"></div>
+                        <div class="ont-pon-bias-chart"></div>
+                    </div>
+                    <div class="chart-card ont-pon-avail-card" data-pon-group="link">
+                        <div class="chart-header"><h3 class="chart-title">Link Downtime (per interval) <span class="tooltip-icon tooltip-icon-sm" data-tooltip="Seconds of each interval the ONT was out of O5, timed by the ONT itself, so a drop between two polls still counts. Loss of signal and loss of frame show how long each alarm stood. An ONT restart is not line downtime and leaves a gap.">?</span></h3></div>
+                        <div class="ont-pon-avail-summary"></div>
+                        <div class="ont-pon-avail-chart"></div>
+                    </div>
+                    <div class="chart-card ont-pon-errors-card" data-pon-group="link">
                         <div class="chart-header"><h3 class="chart-title">PON Errors (per interval)</h3></div>
+                        <div class="ont-pon-fec-summary"></div>
                         <div class="ont-errors-chart"></div>
                     </div>
-                    <div class="chart-card ont-pon-host-card">
+                    <div class="chart-card ont-pon-host-card" data-pon-group="link">
                         <div class="chart-header"><h3 class="chart-title">Host Link Errors (per interval)</h3></div>
                         <div class="ont-pon-host-chart"></div>
                     </div>
-                    <div class="chart-card ont-pon-gem-card">
+                    <div class="chart-card ont-pon-cpu-card" data-pon-group="link">
+                        <div class="chart-header"><h3 class="chart-title">ONT CPU Load <span class="tooltip-icon tooltip-icon-sm" data-tooltip="How busy the ONT&#x27;s own processor was in each interval. A stick that stays busy can answer late and drop management traffic.">?</span></h3></div>
+                        <div class="ont-pon-cpu-chart"></div>
+                    </div>
+                    <div class="chart-card ont-pon-util-card" data-pon-group="traffic">
+                        <div class="chart-header"><h3 class="chart-title">PON Downstream Load (whole PON) <span class="tooltip-icon tooltip-icon-sm" data-tooltip="The OLT fills unused downstream capacity with idle frames that every ONT receives, so Whole PON is the load on this OLT port: every ONT on the same splitter tree. It is not the provider&#x27;s whole network, and not only this connection. This ONT is your own downstream on the same scale. Percentages are shares of the PON&#x27;s downstream capacity. Each point is a mean over its interval, so short peaks do not show.">?</span></h3></div>
+                        <div class="ont-pon-util-summary"></div>
+                        <div class="ont-pon-util-chart"></div>
+                    </div>
+                    <div class="chart-card ont-pon-loadmap-card" data-pon-group="traffic" style="display: none;">
+                        <div class="chart-header"><h3 class="chart-title">PON Load by Hour (whole PON) <span class="tooltip-icon tooltip-icon-sm" data-tooltip="Mean downstream load on this OLT port (every ONT on the same splitter tree) for each hour of the week, over up to four weeks. Brighter cells are busier hours.">?</span></h3></div>
+                        <div class="ont-pon-loadmap-summary"></div>
+                        <div class="ont-pon-loadmap-chart"></div>
+                    </div>
+                    <div class="chart-card ont-pon-gem-card" data-pon-group="traffic">
                         <div class="chart-header"><h3 class="chart-title">GEM Frames (per interval)</h3></div>
                         <div class="ont-pon-gem-chart"></div>
+                    </div>
+                    <div class="chart-card ont-pon-grant-card" data-pon-group="traffic">
+                        <div class="chart-header"><h3 class="chart-title">Upstream Grants (per second) <span class="tooltip-icon tooltip-icon-sm" data-tooltip="Upstream scheduling as this ONT sees it: the bandwidth map allocations the OLT gives it, the bursts it sends in them, and its DBRu queue reports. Only this ONT&#x27;s grants. The usual rate depends on the OLT, so watch for a change, not a fixed value.">?</span></h3></div>
+                        <div class="ont-pon-grant-summary"></div>
+                        <div class="ont-pon-grant-chart"></div>
+                    </div>
+                    <div class="chart-card ont-pon-provider-card" data-pon-group="provider" style="display: none;">
+                        <div class="chart-header"><h3 class="chart-title">Provider Activity <span class="tooltip-icon tooltip-icon-sm" data-tooltip="What the OLT did to this ONT, from the ONT&#x27;s management counters. The provisioned rate is the traffic descriptor the OLT created over OMCI. A configuration write is the MIB data sync counter moving. Key renewals and ranging adjustments are PLOAM messages received while the link stayed up. The equalization delay is set against a reference only the OLT knows, so it is not a fiber length; a step in it is a change in length.">?</span></h3></div>
+                        <div class="ont-pon-provider pon-card-body"></div>
                     </div>
                     <div class="ont-pon-details"></div>
                     <div class="ont-pon-error-totals"></div>
@@ -3015,6 +3120,18 @@
     private const string PathMapPresetKey = "pathMap.preset";
     private string? _pathMapPreset;
 
+    /// <summary>
+    /// Called by device-health-charts.js when the reader picks Device Stats' window (a range, the arrows, a custom
+    /// range): a link's ?at= has been used, so it leaves the URL. Kept until then, so a reload or Back still frames
+    /// the link's moment, and dropped after, so a site switch does not reopen on it.
+    /// </summary>
+    [JSInvokable]
+    public void DeviceWindowChosen()
+    {
+        if (_activeTab != "devices" || string.IsNullOrWhiteSpace(AtParam)) return;
+        NavigationManager.NavigateTo(SiteContextService.RemoveQueryParam(NavigationManager.Uri, "at"), forceLoad: false, replace: true);
+    }
+
     /// <summary>Called by path-map.js when the reader picks a view: saved for them.</summary>
     [JSInvokable]
     public async Task OnPathMapPresetChanged(string preset)
@@ -3023,6 +3140,33 @@
         _pathMapPreset = preset;
         try { await UserPreferences.SetAsync(PathMapPresetKey, preset); }
         catch (Exception ex) { Logger.LogDebug(ex, "Could not save the Path Map's view"); }
+    }
+
+    // The PON section's view tab on SFP Stats and ONT Stats, per user on every site; null until read.
+    private const string PonViewKey = "monitoring.ponView";
+    private static readonly string[] PonViews = ["all", "optical", "link", "traffic", "provider"];
+    private string? _ponView;
+
+    /// <summary>Called by pon-section.js when the reader picks a PON view: saved for them.</summary>
+    [JSInvokable]
+    public async Task OnPonViewChanged(string view)
+    {
+        if (!PonViews.Contains(view) || view == _ponView) return;
+        _ponView = view;
+        try { await UserPreferences.SetAsync(PonViewKey, view); }
+        catch (Exception ex) { Logger.LogDebug(ex, "Could not save the PON view"); }
+    }
+
+    /// <summary>The saved PON view as a line of JS that seeds pon-section.js before a chart tab mounts.</summary>
+    private async Task<string> PonViewSeedJsAsync()
+    {
+        if (_ponView is null)
+        {
+            try { _ponView = await UserPreferences.GetAsync(PonViewKey); }
+            catch (Exception ex) { Logger.LogDebug(ex, "Could not read the PON view"); }
+            if (!PonViews.Contains(_ponView)) _ponView = "all";
+        }
+        return $"window.__netoptPonView = '{_ponView}';";
     }
 
     private async Task TogglePathMapAsync()
@@ -5167,15 +5311,17 @@
             ispLoss = losses.Count > 0 ? losses.Average() : 0;
         }));
 
-        // Transit latency (mean across enabled Transit targets)
+        // Transit latency (mean across enabled Transit targets, far ones left out like the live tile)
+        var farTransit = FarTransitIds();
         tasks.Add(Task.Run(async () =>
         {
             var data = await InfluxClient.QueryLatencyByTargetTypeAsync(
                 MonitoringTargetType.Transit, from, to, wanScope: snapshotWanScope);
             var rtts = new List<double>();
             var losses = new List<double>();
-            foreach (var (_, pts) in data)
+            foreach (var (targetId, pts) in data)
             {
+                if (farTransit.Contains(targetId)) continue;
                 var closest = pts
                     .OrderBy(p => Math.Abs((p.Time - at).TotalMilliseconds))
                     .FirstOrDefault();
@@ -5332,11 +5478,13 @@
         MonitoringTargetType type, DateTime from, DateTime to, DateTime at,
         MonitoringInfluxClient.LatencyWanScope? scope)
     {
+        var farTransit = FarTransitIds();
         var data = await InfluxClient.QueryLatencyByTargetTypeAsync(type, from, to, wanScope: scope);
         var rtts = new List<double>();
         var losses = new List<double>();
-        foreach (var (_, pts) in data)
+        foreach (var (targetId, pts) in data)
         {
+            if (farTransit.Contains(targetId)) continue;
             var closest = pts.OrderBy(p => Math.Abs((p.Time - at).TotalMilliseconds)).FirstOrDefault();
             if (closest == null) continue;
             if (closest.RttAvgMs.HasValue) rtts.Add(closest.RttAvgMs.Value);
@@ -5503,27 +5651,27 @@
         <div class="monitoring-stat-cards" style="margin-top: 0.5rem;">
             @{ var gwTargetId = GetGatewayFabricTargetId(); }
             <div class="monitoring-stat-card clickable-stat-card signal-spark-host" @onclick="@(() => NavigationManager.NavigateTo(gwFabricUrl))">
-                <StatTileSparkline Spark="LiveViewSpark.GatewayRtt" Request="@LiveSparkRequest()" Current="gwLatency.rtt" Live="_mapHistoricAt == null" />
+                <StatTileSparkline Spark="LiveViewSpark.GatewayRtt" Request="@LiveSparkRequest()" Current="gwLatency.rtt" Live="@(_mapHistoricAt == null || _historicSnapshot != null)" />
                 <div class="stat-value">@FormatRtt(gwLatency.rtt)</div>
                 <div class="stat-label">Gateway RTT</div>
             </div>
             <div class="monitoring-stat-card clickable-stat-card signal-spark-host" @onclick="@(() => NavigationManager.NavigateTo(gwFabricUrl))">
-                <StatTileSparkline Spark="LiveViewSpark.GatewayLoss" Request="@LiveSparkRequest()" Current="@(gwTargetId != null ? gwLatency.loss : null)" Live="_mapHistoricAt == null" />
+                <StatTileSparkline Spark="LiveViewSpark.GatewayLoss" Request="@LiveSparkRequest()" Current="@(gwTargetId != null ? gwLatency.loss : null)" Live="@(_mapHistoricAt == null || _historicSnapshot != null)" />
                 <div class="stat-value @(gwLatency.loss > 0 ? "stat-danger" : "")">@FormatLoss(gwLatency.loss)</div>
                 <div class="stat-label">Gateway Loss</div>
             </div>
             <div class="monitoring-stat-card clickable-stat-card signal-spark-host" @onclick="@(() => NavigationManager.NavigateTo(gwDeviceUrl))">
-                <StatTileSparkline Spark="LiveViewSpark.GatewayCpu" Request="@LiveSparkRequest()" Current="gwStats?.CpuPercent" Live="_mapHistoricAt == null" />
+                <StatTileSparkline Spark="LiveViewSpark.GatewayCpu" Request="@LiveSparkRequest()" Current="gwStats?.CpuPercent" Live="@(_mapHistoricAt == null || _historicSnapshot != null)" />
                 <div class="stat-value">@FormatPercent(gwStats?.CpuPercent)</div>
                 <div class="stat-label">Gateway CPU</div>
             </div>
             <div class="monitoring-stat-card clickable-stat-card signal-spark-host" @onclick="@(() => NavigationManager.NavigateTo(gwDeviceUrl))">
-                <StatTileSparkline Spark="LiveViewSpark.GatewayMemory" Request="@LiveSparkRequest()" Current="gwStats?.MemoryUsedPercent" Live="_mapHistoricAt == null" />
+                <StatTileSparkline Spark="LiveViewSpark.GatewayMemory" Request="@LiveSparkRequest()" Current="gwStats?.MemoryUsedPercent" Live="@(_mapHistoricAt == null || _historicSnapshot != null)" />
                 <div class="stat-value">@FormatPercent(gwStats?.MemoryUsedPercent)</div>
                 <div class="stat-label">Gateway Memory</div>
             </div>
             <div class="monitoring-stat-card clickable-stat-card signal-spark-host" @onclick="@(() => NavigationManager.NavigateTo(gwDeviceUrl))">
-                <StatTileSparkline Spark="LiveViewSpark.GatewayTemperature" Request="@LiveSparkRequest()" Current="gwStats?.TemperatureC" Live="_mapHistoricAt == null" />
+                <StatTileSparkline Spark="LiveViewSpark.GatewayTemperature" Request="@LiveSparkRequest()" Current="gwStats?.TemperatureC" Live="@(_mapHistoricAt == null || _historicSnapshot != null)" />
                 <div class="stat-value">@FormatTemp(gwStats?.TemperatureC)</div>
                 <div class="stat-label">Gateway Temp</div>
             </div>
@@ -5630,7 +5778,7 @@
         }
         var wan = LiveWan.Selected;
         if (wan == null)
-            return LiveStats.GetTileLatencyLive(type, _targets.Where(t => t.TargetType == type && t.Enabled).Select(t => t.TargetId));
+            return LiveStats.GetTileLatencyLive(type, TileTargets(_targets.Where(t => t.TargetType == type && t.Enabled)).Select(t => t.TargetId));
 
         var rows = PerWanTargetStats(type);
         var row = rows.FirstOrDefault(r => string.Equals(
@@ -5650,7 +5798,10 @@
     // TODO: duplicated in LiveViewPanel.razor (LiveSparkRequest); move into one shared helper.
     private LiveViewSparkRequest LiveSparkRequest() => new(
         _gatewayMac, GetGatewayFabricTargetId(),
-        ScopedTargetIds(MonitoringTargetType.AccessIsp), ScopedTargetIds(MonitoringTargetType.Transit));
+        ScopedTargetIds(MonitoringTargetType.AccessIsp), ScopedTargetIds(MonitoringTargetType.Transit),
+        LiveWan.RateCounterInterfaces(_gatewayWanIfNames),
+        // During playback the tiles' hour ends at the playhead, where their snapshot values are.
+        _mapHistoricAt);
     /// <summary>The targets an ISP or Transit tile reads right now: the selected WAN's own, or every enabled one.</summary>
     // TODO: duplicated in LiveViewPanel.razor (ScopedTargetIds); move into one shared helper.
     private IReadOnlyList<string> ScopedTargetIds(MonitoringTargetType type)
@@ -5659,8 +5810,15 @@
         var targets = wan == null
             ? _targets.Where(t => t.TargetType == type && t.Enabled).ToList()
             : TargetsForWan(type, wan.Key, wan.IsPrimary);
-        return targets.Select(t => t.TargetId).ToList();
+        return TileTargets(targets).Select(t => t.TargetId).ToList();
     }
+    /// <summary>The targets a tile figure counts: a far transit hop would lift it by its distance alone.</summary>
+    // TODO: duplicated in LiveViewPanel.razor (TileTargets); move with the tile helpers above.
+    private static IEnumerable<MonitoringTarget> TileTargets(IEnumerable<MonitoringTarget> targets) =>
+        targets.Where(t => !t.IsFarTransit);
+    /// <summary>The far transit target ids, which playback leaves out of its tile figures as the live tiles do.</summary>
+    private HashSet<string> FarTransitIds() =>
+        _targets.Where(t => t.IsFarTransit).Select(t => t.TargetId).ToHashSet(StringComparer.OrdinalIgnoreCase);
     // TODO: duplicated in LiveViewPanel.razor (PerWanTargetStats); move the tile figures into one shared component or service.
     private List<(string Label, double? Rtt, double Loss)> PerWanTargetStats(MonitoringTargetType type)
     {
@@ -5677,7 +5835,7 @@
                     type == MonitoringTargetType.AccessIsp ? historic.IspLossPercent : historic.TransitLossPercent));
                 continue;
             }
-            var (rtt, loss) = LiveStats.GetTileLatencyLive(type, TargetsForWan(type, wan.Key, wan.IsPrimary).Select(t => t.TargetId));
+            var (rtt, loss) = LiveStats.GetTileLatencyLive(type, TileTargets(TargetsForWan(type, wan.Key, wan.IsPrimary)).Select(t => t.TargetId));
             rows.Add((WanRowLabel(wan), rtt, loss));
         }
         return rows;
@@ -6422,27 +6580,27 @@
             _healthChartsMounted = true;
             try
             {
-                var healthUrl = VersionedJs("/js/device-health-charts.js");
-                var postMount = "";
+                var m = await JS.InvokeAsync<IJSObjectReference>("import", VersionedJs("/js/device-health-charts.js"));
+                _latencyDotNetRef ??= DotNetObjectReference.Create(this);
+                await m.InvokeVoidAsync("mount", "device-health-charts-container", _latencyDotNetRef);
                 // Framed before the solo, so the device is picked out of the window the link asked
                 // for rather than the one it is about to leave.
                 if (_deviceAtMs is { } deviceAtMs)
                 {
-                    postMount = $"m.frameMoment('{DateTimeOffset.FromUnixTimeMilliseconds(deviceAtMs).UtcDateTime:O}');";
                     _deviceAtMs = null;
+                    await m.InvokeVoidAsync("frameMoment", DateTimeOffset.FromUnixTimeMilliseconds(deviceAtMs).UtcDateTime.ToString("O"));
                 }
                 else if (_deviceAtTrailing)
                 {
-                    postMount = "m.frameTrailing();";
                     _deviceAtTrailing = false;
+                    await m.InvokeVoidAsync("frameTrailing");
                 }
                 if (!string.IsNullOrEmpty(_soloDeviceMac))
                 {
-                    postMount += $"m.soloDevice('{System.Text.Encodings.Web.JavaScriptEncoder.Default.Encode(_soloDeviceMac)}');";
+                    var mac = _soloDeviceMac;
                     _soloDeviceMac = null;
+                    await m.InvokeVoidAsync("soloDevice", mac);
                 }
-                await JS.InvokeVoidAsync("eval",
-                    $"(async () => {{ const m = await import('{healthUrl}'); window.__healthCharts = m; await m.mount('device-health-charts-container'); {postMount} }})();");
             }
             catch (Exception ex) { _healthChartsMounted = false; Logger.LogDebug(ex, "Device health charts mount failed; will retry on next render"); }
         }
@@ -6473,7 +6631,7 @@
                 }
                 catch { }
                 await JS.InvokeVoidAsync("eval",
-                    $"(async () => {{ const m = await import('{sfpUrl}'); window.__sfpCharts = m; await m.mount('sfp-charts-container'); {HardwareFrameJs()}{soloJs} }})();");
+                    $"(async () => {{ {await PonViewSeedJsAsync()} const m = await import('{sfpUrl}'); window.__sfpCharts = m; await m.mount('sfp-charts-container'); {HardwareFrameJs()}{soloJs} }})();");
             }
             catch (Exception ex) { _sfpChartsMounted = false; Logger.LogDebug(ex, "SFP charts mount failed; will retry on next render"); }
         }
@@ -6625,7 +6783,7 @@
                 }
                 catch { }
                 await JS.InvokeVoidAsync("eval",
-                    $"(async () => {{ const m = await import('{ontUrl}'); window.__ontCharts = m; await m.mount('ont-charts-container'); {HardwareFrameJs()}{soloJs} }})();");
+                    $"(async () => {{ {await PonViewSeedJsAsync()} const m = await import('{ontUrl}'); window.__ontCharts = m; await m.mount('ont-charts-container'); {HardwareFrameJs()}{soloJs} }})();");
                 _soloOntId = null;
             }
             catch (Exception ex) { _ontChartsMounted = false; Logger.LogDebug(ex, "ONT charts mount failed; will retry on next render"); }

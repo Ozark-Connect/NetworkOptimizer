@@ -31,6 +31,51 @@ public sealed record ConntrackFlow(
 /// </summary>
 public static class ConntrackParser
 {
+    /// <summary>
+    /// Opens <paramref name="path"/> for reading through <paramref name="buffer"/>, which the caller keeps between
+    /// passes: one read syscall per buffer's worth, as a FileStream with that buffer size makes, without allocating
+    /// one. The file streams through the buffer, so memory stays fixed however large the table.
+    /// </summary>
+    public static Stream OpenBuffered(string path, byte[] buffer) => new ReusedBufferStream(
+        new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, bufferSize: 0), buffer);
+
+    private sealed class ReusedBufferStream(FileStream file, byte[] buffer) : Stream
+    {
+        private int _start, _end;
+
+        public override int Read(byte[] destination, int offset, int count) => Read(destination.AsSpan(offset, count));
+
+        public override int Read(Span<byte> destination)
+        {
+            if (_start == _end)
+            {
+                _start = 0;
+                _end = file.Read(buffer, 0, buffer.Length);
+                if (_end == 0) return 0;
+            }
+            var n = Math.Min(destination.Length, _end - _start);
+            buffer.AsSpan(_start, n).CopyTo(destination);
+            _start += n;
+            return n;
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing) file.Dispose();
+            base.Dispose(disposing);
+        }
+
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => throw new NotSupportedException();
+        public override long Position { get => throw new NotSupportedException(); set => throw new NotSupportedException(); }
+        public override void Flush() { }
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+        public override void SetLength(long value) => throw new NotSupportedException();
+        public override void Write(byte[] source, int offset, int count) => throw new NotSupportedException();
+    }
+
     public static List<ConntrackFlow> Parse(TextReader reader)
     {
         var flows = new List<ConntrackFlow>();
@@ -59,8 +104,16 @@ public static class ConntrackParser
         var inReply = false;
         string proto = "";
 
-        foreach (var token in line.Split(' ', StringSplitOptions.RemoveEmptyEntries))
+        // Tokenized on spans, not Split: this runs for every flow on every pass, and a string per token was
+        // most of the agent's allocation.
+        var rest = line.AsSpan();
+        while (!rest.IsEmpty)
         {
+            var space = rest.IndexOf(' ');
+            var token = space < 0 ? rest : rest[..space];
+            rest = space < 0 ? default : rest[(space + 1)..];
+            if (token.IsEmpty) continue;
+
             var eq = token.IndexOf('=');
             if (eq < 0)
             {
@@ -69,9 +122,9 @@ public static class ConntrackParser
                 // protocol name is the first lowercase bare token that is not the l3 name - keyed
                 // this way so a /proc snapshot and an event line produce the SAME flow key.
                 if (proto.Length == 0 && token[0] != '['
-                    && token != "ipv4" && token != "ipv6" && !char.IsAsciiDigit(token[0])
+                    && !token.SequenceEqual("ipv4") && !token.SequenceEqual("ipv6") && !char.IsAsciiDigit(token[0])
                     && char.IsAsciiLetterLower(token[0]))
-                    proto = token;
+                    proto = token.ToString();
                 continue;
             }
             var name = token[..eq];
@@ -91,11 +144,11 @@ public static class ConntrackParser
                 case "sport" or "dport" or "id":
                     if (!inReply)
                     {
-                        origPorts += name + value;
-                        if (name == "sport") int.TryParse(value, out origSport);
-                        else if (name == "dport") int.TryParse(value, out origDport);
+                        origPorts = string.Concat(origPorts, name, value);
+                        if (name.SequenceEqual("sport")) int.TryParse(value, out origSport);
+                        else if (name.SequenceEqual("dport")) int.TryParse(value, out origDport);
                     }
-                    else replyPorts += name + value;
+                    else replyPorts = string.Concat(replyPorts, name, value);
                     break;
                 case "bytes":
                     if (!long.TryParse(value, out var bytes)) return null;

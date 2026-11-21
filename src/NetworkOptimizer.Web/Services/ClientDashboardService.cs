@@ -927,6 +927,23 @@ public class ClientDashboardService
     }
 
     /// <summary>
+    /// Get a client's browser WAN speed tests (Client WAN Test, or Client Performance's WAN Test) by
+    /// MAC, within a time range. Kept apart from <see cref="GetSpeedResultsAsync"/>: they measure the
+    /// internet, so they join the Speed tab's results table but not its charts or map.
+    /// </summary>
+    public async Task<List<Iperf3Result>> GetWanSpeedResultsAsync(string mac, DateTime from, DateTime to)
+    {
+        await using var db = CreateSiteDb();
+        return await db.Iperf3Results
+            .Where(r => r.Direction == SpeedTestDirection.OpenSpeedTestWan
+                      && r.ClientMac == mac
+                      && r.TestTime >= from
+                      && r.TestTime <= to)
+            .OrderByDescending(r => r.TestTime)
+            .ToListAsync();
+    }
+
+    /// <summary>
     /// Get speed test results for a client by its source host/IP, within a time range.
     /// Used for VPN clients (Tailscale/Teleport/remote-user VPN), which have no UniFi MAC:
     /// their browser/iperf3 results store <c>DeviceHost</c> = the VPN IP and a null MAC,

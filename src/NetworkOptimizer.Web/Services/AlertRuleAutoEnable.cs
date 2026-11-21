@@ -17,7 +17,7 @@ public static class AlertRuleAutoEnable
     /// SFP module) or stays off until a user turns it on, so configuring any ONT must not enable it.
     /// </summary>
     public static readonly IReadOnlySet<string> OptInOnlyPatterns =
-        new HashSet<string> { "ont.management_unresponsive", "ont.rebooted" };
+        new HashSet<string> { "ont.management_unresponsive", "ont.rebooted", "ont.path_loss_high", "ont.path_loss_rise" };
 
     public static async Task EnableBySourceAsync(IServiceScope scope, string source, ILogger logger)
     {

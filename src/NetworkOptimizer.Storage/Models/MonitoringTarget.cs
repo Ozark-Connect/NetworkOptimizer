@@ -190,6 +190,20 @@ public class MonitoringTarget
     /// <summary>Whether the user has taken this target off the list.</summary>
     public bool IsHidden => HiddenAt != null;
 
+    /// <summary>
+    /// When this Transit target was judged far: its RTT floor sits well above the site's other
+    /// transit hops (a distant POP), so it would skew figures meant to read near transit.
+    /// <para>
+    /// A far target stays a probed Transit target with its own chart line and route. Aggregates
+    /// and grades leave it out: the Transit RTT tiles, the WAN chart, ISP Health, and WAN outage
+    /// evidence. Set and cleared by the far-transit sweep, every 10 minutes. Null means near.
+    /// </para>
+    /// </summary>
+    public DateTime? FarTransitAt { get; set; }
+
+    /// <summary>Whether this target is a far Transit hop (see <see cref="FarTransitAt"/>).</summary>
+    public bool IsFarTransit => FarTransitAt != null && TargetType == MonitoringTargetType.Transit;
+
     public DateTime? LastVerified { get; set; }
 
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;

@@ -132,13 +132,28 @@
         }
     }
 
-    private async Task LoadAlerts()
+    // The audit this list shows; a newer one makes RefreshIfNewAuditAsync reload.
+    private DateTime? _loadedFor;
+
+    /// <summary>
+    /// Reloads in place, with no spinner, when an audit has run since this list loaded: one from Change Control or the
+    /// schedule as well as Run Audit. The Dashboard calls it on its refresh tick.
+    /// </summary>
+    public async Task RefreshIfNewAuditAsync()
     {
-        isLoading = true;
+        if (isLoading || AuditService.LastAuditTime == _loadedFor) return;
+        await LoadAlerts(showLoading: false);
+        StateHasChanged();
+    }
+
+    private async Task LoadAlerts(bool showLoading = true)
+    {
+        if (showLoading) isLoading = true;
+        _loadedFor = AuditService.LastAuditTime;
+        // Built aside and swapped in, so a quiet reload never shows an empty list.
+        var alerts = new List<AlertInfo>();
         try
         {
-            alerts.Clear();
-
             if (!ConnectionService.IsConnected)
             {
                 return;
@@ -178,6 +193,7 @@
         }
         finally
         {
+            this.alerts = alerts;
             isLoading = false;
         }
     }

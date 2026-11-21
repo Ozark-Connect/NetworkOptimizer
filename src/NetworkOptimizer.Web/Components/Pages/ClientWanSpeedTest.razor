@@ -171,7 +171,7 @@
                     @* Speed Chart *@
                     @if (_activeTab == "speed")
                     {
-                        <div class="wan-chart-container">
+                        <div class="wan-chart-container chart-opens-results">
                             <ApexChart @ref="_speedChart" TItem="ChartPoint"
                                        Options="_speedChartOptions"
                                        Height="@("250px")"
@@ -688,41 +688,15 @@
 
     private List<ExternalSpeedTestServer> _servers = new();
 
-    // On an agent-backed site the test starts at the on-site agent's /wan/ router,
-    // whose interstitial forwards to the external server: the agent becomes the
-    // page's referrer, so results post back through it with the real client LAN IP
-    // and the site slug stamped on the trusted agent->server hop - no ?site= in
-    // any user-facing URL. Direct/default sites link the external server directly.
+    // Routing and attribution rules: ClientWanTestLink, shared with Client Performance's WAN Test.
     private SiteSpeedTestTargetResolver.Result? _siteTarget;
 
-    // Site attribution for WAN results comes ONLY from the agent relay, so a
-    // non-default site with no live agent target must not offer a test link at
-    // all - the bare external URL would silently record against the default site.
-    // A not-yet-resolved target (null) counts as offline for the same reason.
-    private bool AgentRequiredButOffline =>
-        !SiteContext.IsDefault && _siteTarget is null or { UsesAgent: false };
+    private bool AgentRequiredButOffline => ClientWanTestLink.AgentRequiredButOffline(SiteContext.IsDefault, _siteTarget);
 
-    // The agent runs on the gateway itself (monitoring-only): no speed-test
-    // listener exists at the site, so there is no relay page to link at all.
-    private bool AgentOnGateway => _siteTarget is { AgentOnGateway: true };
+    private bool AgentOnGateway => ClientWanTestLink.AgentOnGateway(_siteTarget);
 
-    private string ExternalBaseUrl
-    {
-        get
-        {
-            if (_siteTarget is { UsesAgent: true, BaseUrl: not null } target)
-            {
-                var isDefaultServer = _selectedServer == null || _selectedServer.IsDefault;
-                return isDefaultServer
-                    ? $"{target.BaseUrl}/wan/"
-                    : $"{target.BaseUrl}/wan/{_selectedServer!.ServerId}/";
-            }
-            return _selectedServer?.Url ?? "";
-        }
-    }
-
-    private string ExternalRunUrl => $"{ExternalBaseUrl}?Run";
-    private string ExternalShareUrl => ExternalBaseUrl;
+    private string ExternalRunUrl => ClientWanTestLink.RunUrl(_siteTarget, _selectedServer);
+    private string ExternalShareUrl => ClientWanTestLink.BaseUrl(_siteTarget, _selectedServer);
 
     private ExternalSpeedTestServer? _selectedServer;
     private int _selectedServerId;
@@ -854,7 +828,7 @@
         InitializeChartOptions();
 
         _servers = await SettingsService.GetExternalSpeedTestServersAsync();
-        _selectedServer = _servers.FirstOrDefault(s => s.IsDefault) ?? _servers.FirstOrDefault();
+        _selectedServer = ClientWanTestLink.DefaultServer(_servers);
         _selectedServerId = _selectedServer?.Id ?? 0;
         _siteTarget = await SiteTarget.ResolveAsync();
 
@@ -1321,9 +1295,21 @@
 
     private async Task OnChartClicked(SelectedData<ChartPoint> data)
     {
-        if (data?.DataPoint?.Items?.FirstOrDefault() is ChartPoint { IsGap: false } point)
-            await ScrollToResult(point.ResultId);
+        if (data?.DataPoint?.Items?.FirstOrDefault() is { } point && ResultAt(point) is { } resultId)
+            await ScrollToResult(resultId);
     }
+
+    /// <summary>
+    /// The result behind a clicked point. A shared tooltip reports the series nearest the pointer in two
+    /// dimensions, so at the span's edge it can name another series' padding gap at the same x: the result
+    /// is then the real point at that x.
+    /// </summary>
+    private int? ResultAt(ChartPoint point) => !point.IsGap
+        ? point.ResultId
+        : _chartSeries.Where(IsSeriesVisible)
+            .SelectMany(s => new[] { s.DownloadData, s.UploadData, s.LatencyData, s.JitterData })
+            .SelectMany(list => list)
+            .FirstOrDefault(p => !p.IsGap && p.X == point.X)?.ResultId;
 
     private async Task ScrollToResult(int resultId)
     {

@@ -83,6 +83,117 @@ public class AlertCorrelationServiceTests
         key.Should().Be("device:192.0.2.1");
     }
 
+    [Fact]
+    public void GetCorrelationKey_ExplicitKey_WinsOverDeviceAndSource()
+    {
+        var evt = new AlertEvent
+        {
+            EventType = "audit.critical_findings",
+            Source = "audit",
+            Title = "Test",
+            DeviceIp = "192.0.2.1",
+            CorrelationKey = "change:1"
+        };
+
+        _service.GetCorrelationKey(evt).Should().Be("change:1");
+    }
+
+    #endregion
+
+    #region ShouldDeliver
+
+    private static AlertEvent Keyed(AlertSeverity severity, bool alwaysDeliver = false) => new()
+    {
+        EventType = "change.drift_regression",
+        Source = "change_control",
+        Title = "Test",
+        Severity = severity,
+        CorrelationKey = "change:1",
+        AlwaysDeliver = alwaysDeliver
+    };
+
+    private static AlertCorrelationService.CorrelationOutcome Joined(AlertSeverity before) =>
+        new(new AlertIncident { Id = 1, Severity = before }, Joined: true, before);
+
+    [Fact]
+    public void ShouldDeliver_NoCorrelation_Delivers()
+    {
+        AlertCorrelationService.ShouldDeliver(Keyed(AlertSeverity.Info), null).Should().BeTrue();
+    }
+
+    [Fact]
+    public void ShouldDeliver_FirstAlertOfIncident_Delivers()
+    {
+        var created = new AlertCorrelationService.CorrelationOutcome(new AlertIncident { Id = 1 }, Joined: false, AlertSeverity.Info);
+
+        AlertCorrelationService.ShouldDeliver(Keyed(AlertSeverity.Info), created).Should().BeTrue();
+    }
+
+    [Theory]
+    [InlineData(AlertSeverity.Warning)]
+    [InlineData(AlertSeverity.Critical)]
+    public void ShouldDeliver_JoinsKeyedIncidentAtNoHigherSeverity_HeldBack(AlertSeverity severity)
+    {
+        AlertCorrelationService.ShouldDeliver(Keyed(severity), Joined(AlertSeverity.Critical)).Should().BeFalse();
+    }
+
+    [Fact]
+    public void ShouldDeliver_JoinsKeyedIncidentAtHigherSeverity_Delivers()
+    {
+        AlertCorrelationService.ShouldDeliver(Keyed(AlertSeverity.Critical), Joined(AlertSeverity.Warning)).Should().BeTrue();
+    }
+
+    [Fact]
+    public void ShouldDeliver_AlwaysDeliver_DeliversAtSameSeverity()
+    {
+        AlertCorrelationService.ShouldDeliver(Keyed(AlertSeverity.Critical, alwaysDeliver: true), Joined(AlertSeverity.Critical))
+            .Should().BeTrue();
+    }
+
+    [Fact]
+    public void ShouldDeliver_DeviceIncident_DeliversEveryAlert()
+    {
+        // Device and source incidents keep delivering each alert (a device back online after offline)
+        AlertCorrelationService.ShouldDeliver(CreateTestEvent(severity: AlertSeverity.Info), Joined(AlertSeverity.Critical))
+            .Should().BeTrue();
+    }
+
+    #endregion
+
+    #region CorrelateWithOutcomeAsync
+
+    [Fact]
+    public async Task CorrelateWithOutcomeAsync_NewIncident_NotJoined()
+    {
+        _repositoryMock
+            .Setup(r => r.GetActiveIncidentByKeyAsync("device:192.0.2.1", It.IsAny<CancellationToken>()))
+            .ReturnsAsync((AlertIncident?)null);
+
+        var outcome = await _service.CorrelateWithOutcomeAsync(CreateTestEvent(), new AlertHistoryEntry { Id = 1 }, _repositoryMock.Object);
+
+        outcome!.Joined.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task CorrelateWithOutcomeAsync_ExistingIncident_JoinedWithSeverityBeforeEscalation()
+    {
+        var existing = new AlertIncident
+        {
+            Id = 10, CorrelationKey = "device:192.0.2.1", AlertCount = 1, Severity = AlertSeverity.Warning,
+            LastTriggeredAt = DateTime.UtcNow.AddMinutes(-1)
+        };
+        _repositoryMock
+            .Setup(r => r.GetActiveIncidentByKeyAsync("device:192.0.2.1", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(existing);
+
+        var outcome = await _service.CorrelateWithOutcomeAsync(CreateTestEvent(severity: AlertSeverity.Critical),
+            new AlertHistoryEntry { Id = 2 }, _repositoryMock.Object);
+
+        outcome!.Joined.Should().BeTrue();
+        outcome.SeverityBefore.Should().Be(AlertSeverity.Warning);
+        outcome.Incident.Severity.Should().Be(AlertSeverity.Critical);
+    }
+
     #endregion
 
     #region CorrelateAsync - Create New Incident

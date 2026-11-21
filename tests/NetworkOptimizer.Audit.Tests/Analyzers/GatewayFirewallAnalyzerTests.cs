@@ -393,6 +393,36 @@ public class GatewayFirewallAnalyzerTests
     }
 
     [Fact]
+    public void BlocklistSetMissingFromTheListing_IsFlagged()
+    {
+        var ipsets = """
+            Name: netopt_out_v4
+            Type: hash:net
+            Number of entries: 0
+            """;
+        Run(ipsets: ipsets, blocklist: Blocklist)
+            .Should().ContainSingle(i => i.Type == IssueTypes.GatewayBlocklistSetEmpty);
+    }
+
+    [Fact]
+    public void IpsetListingEmpty_IsAFailedRead_NotAnEmptySet()
+    {
+        Run(ipsets: "", blocklist: Blocklist).Should().NotContain(i => i.Type == IssueTypes.GatewayBlocklistSetEmpty);
+    }
+
+    [Fact]
+    public void BlocklistSetWithoutACountLine_IsUnknown_NotEmpty()
+    {
+        var ipsets = """
+            Name: netopt_block_v4
+            Type: hash:net
+            Name: netopt_out_v4
+            Type: hash:net
+            """;
+        Run(ipsets: ipsets, blocklist: Blocklist).Should().NotContain(i => i.Type == IssueTypes.GatewayBlocklistSetEmpty);
+    }
+
+    [Fact]
     public void NoBlocklistExpectation_SkipsBlocklistChecks()
     {
         Run(Iptables(inputHooks: 0), ipsets: Ipsets(blockV4: 0)).Should().BeEmpty();

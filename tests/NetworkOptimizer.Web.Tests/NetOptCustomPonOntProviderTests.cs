@@ -113,6 +113,99 @@ public class NetOptCustomPonOntProviderTests
         stats.VoltageV.Should().Be(3.28);
     }
 
+    // Values from the odi-oss stick scrapes in OdiOssOntProviderTests (#1383): live, except eqd_bits and
+    // cpu, which are that file's fixture. pon_id.age_s has no captured value, so it is a round number.
+    [Fact]
+    public void MapToSupplemental_PonInsightFields()
+    {
+        var p = NetOptCustomPonOntProvider.ParsePayload("""
+        {
+          "optics": { "rx_power_dbm": -16.34512, "bias_ma": 15.15, "bias_warn_high_ma": 90, "alarms": ["warning:rx_power_low"] },
+          "lan": { "link_up": 1 },
+          "ploam": { "curr_state": 5 },
+          "gtc_status": { "eqd_bits": 283549 },
+          "gtc_counters": {
+            "fec_error_corr": 12, "rx_gem_idle_frames_total": "7782349680", "ds_superframe": 1223280,
+            "us_bursts_total": 11685832, "us_dbru_total": 11631693
+          },
+          "pon_id": { "launch_power_dbm": 3.4, "odn_class": 2, "reach_extender": 0, "age_s": 5 },
+          "link_history": { "o5_seconds": 1460.224, "not_o5_seconds": 2.048, "o5_exits": 0, "los_events": 0, "los_seconds": 0, "lof_events": 1, "lof_seconds": 0.3 },
+          "ploam_counters": { "deactivations": 0, "request_key": 1, "key_switch": 3, "ranging_time": 3 },
+          "omci": { "up": 1, "services": 3, "rx_frames": 663, "mib_data_sync": 160, "pir_bytes_per_second": 167772125, "cir_bytes_per_second": 167772125 },
+          "cpu": { "busy_s": 978.27, "total_s": 40509.22 },
+          "boot_count": 6,
+          "last_reset_reason": " reboot "
+        }
+        """)!;
+
+        var s = NetOptCustomPonOntProvider.MapToSupplemental(p);
+
+        s.FecCorrectedBits.Should().Be(12);
+        s.GemRxIdleFrames.Should().Be(7782349680, "64-bit counters may arrive as numeric strings");
+        s.DsSuperframe.Should().Be(1223280);
+        s.UsBursts.Should().Be(11685832);
+        s.UsDbru.Should().Be(11631693);
+        s.EqdBits.Should().Be(283549);
+        s.BiasMa.Should().Be(15.15);
+        s.BiasWarnHighMa.Should().Be(90);
+        s.TransceiverAlarmCount.Should().Be(1);
+        s.TransceiverAlarms.Should().Be("warning:rx_power_low", "a raised flag, the name the exporter's family uses");
+        s.HostLinkUp.Should().Be(1);
+        s.OltLaunchPowerDbm.Should().Be(3.4);
+        s.OdnClass.Should().Be(2);
+        s.ReachExtender.Should().Be(0);
+        s.PonIdAgeSeconds.Should().Be(5);
+        s.O5Seconds.Should().Be(1460.224);
+        s.NotO5Seconds.Should().Be(2.048);
+        s.O5Exits.Should().Be(0);
+        s.LosEvents.Should().Be(0);
+        s.LosSeconds.Should().Be(0);
+        s.LofEvents.Should().Be(1);
+        s.LofSeconds.Should().Be(0.3);
+        s.OltDeactivations.Should().Be(0);
+        s.PloamRequestKey.Should().Be(1);
+        s.PloamKeySwitch.Should().Be(3);
+        s.PloamRangingTime.Should().Be(3);
+        s.OmciUp.Should().Be(1);
+        s.OmciServices.Should().Be(3);
+        s.OmciRxFrames.Should().Be(663);
+        s.MibDataSync.Should().Be(160);
+        s.TrafficPirBytesPerSecond.Should().Be(167772125);
+        s.TrafficCirBytesPerSecond.Should().Be(167772125);
+        s.CpuBusySeconds.Should().Be(978.27);
+        s.CpuTotalSeconds.Should().Be(40509.22);
+        s.BootCount.Should().Be(6);
+        s.LastResetReason.Should().Be("reboot");
+        NetworkOptimizer.Core.Models.PonSupplementalStats.PathLossDb(s.OltLaunchPowerDbm, s.RxPowerDbm).Should().Be(19.75);
+        NetOptCustomPonOntProvider.MapToOntStats(p).Pon!.GemRxIdleFrames.Should().Be(7782349680, "standalone carries the same detail");
+    }
+
+    [Fact]
+    public void MapToSupplemental_OutOfRangeInsightValues_AreDropped()
+    {
+        var p = NetOptCustomPonOntProvider.ParsePayload("""
+        {
+          "lan": { "link_up": 7 },
+          "gtc_status": { "eqd_bits": -1 },
+          "pon_id": { "launch_power_dbm": 99, "odn_class": 9, "reach_extender": 2, "age_s": -5 },
+          "omci": { "up": 3 },
+          "optics": { "alarms": [] }
+        }
+        """)!;
+
+        var s = NetOptCustomPonOntProvider.MapToSupplemental(p);
+
+        s.HostLinkUp.Should().BeNull();
+        s.EqdBits.Should().BeNull();
+        s.OltLaunchPowerDbm.Should().BeNull();
+        s.OdnClass.Should().BeNull();
+        s.ReachExtender.Should().BeNull();
+        s.PonIdAgeSeconds.Should().BeNull();
+        s.OmciUp.Should().BeNull();
+        s.TransceiverAlarmCount.Should().Be(0, "an empty list says every flag is clear");
+        s.TransceiverAlarms.Should().BeNull();
+    }
+
     [Fact]
     public void Encryption_MapsToBothModes()
     {

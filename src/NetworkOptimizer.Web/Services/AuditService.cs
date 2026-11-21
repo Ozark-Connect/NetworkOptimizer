@@ -662,7 +662,11 @@ public partial class AuditService : IAuditScanService
         }
     }
 
-    private async Task PublishAuditAlertsAsync(AuditResult result, bool isScheduled = false)
+    /// <param name="alertedKeys">Findings a Change Control alert already reported; left out of these alerts.</param>
+    /// <param name="incidentKey">The change's incident, which these alerts join. What they add beyond the change alert is
+    /// delivered (<see cref="AlertEvent.AlwaysDeliver"/>); the completed event is recorded there without a delivery of its own.</param>
+    private async Task PublishAuditAlertsAsync(AuditResult result, bool isScheduled = false, IReadOnlySet<string>? alertedKeys = null,
+        string? incidentKey = null)
     {
         if (_alertEventBus == null) return;
 
@@ -671,6 +675,7 @@ public partial class AuditService : IAuditScanService
             // Filter out dismissed issues so we only alert on active findings
             await EnsureDismissedIssuesLoadedAsync();
             var activeIssues = result.Issues.Where(i => !IsIssueDismissed(i)).ToList();
+            var addsToChange = incidentKey != null;
             // Exclude system-level issues (e.g., fingerprint DB unavailable) from severity counts
             // so they don't inflate audit.completed severity or trigger critical_findings alerts
             var activeCritical = activeIssues.Count(i => i.Severity == Audit.Models.AuditSeverity.Critical && i.Category != "System");
@@ -691,7 +696,8 @@ public partial class AuditService : IAuditScanService
                 {
                     ["criticalCount"] = activeCritical.ToString(),
                     ["warningCount"] = activeWarning.ToString()
-                }
+                },
+                CorrelationKey = incidentKey
             });
 
             // Check for score drop vs previous audit
@@ -713,7 +719,8 @@ public partial class AuditService : IAuditScanService
                 }
 
                 var previousScore = history.Count > 1 ? (int)history[1].ComplianceScore : (int?)null;
-                if (previousScore.HasValue && result.Score < previousScore.Value)
+                if (previousScore.HasValue && result.Score < previousScore.Value
+                    && !OnlyAlertedAreNew(activeIssues, history[1].FindingsJson, alertedKeys))
                 {
                     var drop = previousScore.Value - result.Score;
                     var dropPercent = previousScore.Value > 0
@@ -736,7 +743,9 @@ public partial class AuditService : IAuditScanService
                             ["currentScore"] = result.Score.ToString(),
                             ["drop"] = drop.ToString(),
                             ["drop_percent"] = dropPercent.ToString("F0")
-                        }
+                        },
+                        CorrelationKey = incidentKey,
+                        AlwaysDeliver = addsToChange
                     });
                 }
             }
@@ -745,8 +754,9 @@ public partial class AuditService : IAuditScanService
                 _logger.LogDebug(scoreEx, "Failed to check audit score drop");
             }
 
-            // Publish if active (non-dismissed) critical findings exist
-            if (activeCritical > 0)
+            // Publish if active (non-dismissed) critical findings exist that a change alert has not already reported
+            var alertableCritical = AlertableCriticals(activeIssues, alertedKeys);
+            if (alertableCritical.Count > 0)
             {
                 await _alertEventBus.PublishAsync(new AlertEvent
                 {
@@ -754,17 +764,16 @@ public partial class AuditService : IAuditScanService
                     SiteSlug = _siteContext.IsDefault ? null : _siteContext.Slug,
                     Severity = AlertSeverity.Critical,
                     Source = "audit",
-                    Title = $"{activeCritical} critical security findings detected",
-                    Message = string.Join("; ", activeIssues
-                        .Where(i => i.Severity == Audit.Models.AuditSeverity.Critical && i.Category != "System")
-                        .Take(5)
-                        .Select(i => i.Title)),
-                    MetricValue = activeCritical,
+                    Title = $"{alertableCritical.Count} critical security findings detected",
+                    Message = string.Join("; ", alertableCritical.Take(5).Select(i => i.Title)),
+                    MetricValue = alertableCritical.Count,
                     SourceUrl = "/audit",
                     Context = new Dictionary<string, string>
                     {
                         ["score"] = result.Score.ToString()
-                    }
+                    },
+                    CorrelationKey = incidentKey,
+                    AlwaysDeliver = addsToChange
                 });
             }
         }
@@ -772,6 +781,29 @@ public partial class AuditService : IAuditScanService
         {
             _logger.LogDebug(ex, "Failed to publish audit alert events");
         }
+    }
+
+    /// <summary>Active critical findings, System ones aside, that no change alert in <paramref name="alertedKeys"/> reported.</summary>
+    internal static List<AuditIssue> AlertableCriticals(IEnumerable<AuditIssue> activeIssues, IReadOnlySet<string>? alertedKeys) =>
+        activeIssues
+            .Where(i => i.Severity == Audit.Models.AuditSeverity.Critical && i.Category != "System"
+                        && alertedKeys?.Contains(ChangeControl.ImpactAnalyzer.IssueKey(i)) != true)
+            .ToList();
+
+    /// <summary>
+    /// True when a change alert already reported every active finding the previous audit lacked, so a score drop says
+    /// nothing new. False with no alerted findings or no previous findings: the drop then alerts as usual.
+    /// </summary>
+    internal static bool OnlyAlertedAreNew(List<AuditIssue> activeIssues, string? previousFindingsJson, IReadOnlySet<string>? alertedKeys)
+    {
+        if (alertedKeys is not { Count: > 0 } || string.IsNullOrEmpty(previousFindingsJson))
+            return false;
+        var previousKeys = (JsonSerializer.Deserialize<List<AuditIssue>>(
+                previousFindingsJson, new JsonSerializerOptions { PropertyNameCaseInsensitive = true }) ?? [])
+            .Select(ChangeControl.ImpactAnalyzer.IssueKey)
+            .ToHashSet(StringComparer.Ordinal);
+        return activeIssues.Select(ChangeControl.ImpactAnalyzer.IssueKey)
+            .All(k => previousKeys.Contains(k) || alertedKeys.Contains(k));
     }
 
     /// <summary>
@@ -1793,7 +1825,7 @@ public partial class AuditService : IAuditScanService
                 webResult.Score, webResult.CriticalCount, webResult.WarningCount);
 
             // Publish alert events for audit results
-            await PublishAuditAlertsAsync(webResult, options.IsScheduled);
+            await PublishAuditAlertsAsync(webResult, options.IsScheduled, options.AlertedFindingKeys, options.IncidentKey);
 
             return webResult;
         }
@@ -2151,7 +2183,7 @@ public partial class AuditService : IAuditScanService
         Audit.IssueTypes.AllowSubvertsDeny or Audit.IssueTypes.AllowExceptionPattern or Audit.IssueTypes.DenyShadowsAllow or
         Audit.IssueTypes.PermissiveRule or Audit.IssueTypes.BroadRule or Audit.IssueTypes.OrphanedRule or
         Audit.IssueTypes.MissingIsolation or Audit.IssueTypes.IsolationBypassed or
-        Audit.IssueTypes.GatewayManagementExposed => "Firewall Rules",
+        Audit.IssueTypes.GatewayManagementExposed or Audit.IssueTypes.GatewayWanManagementExposed => "Firewall Rules",
         var t when t.StartsWith("FW-") => "Firewall Rules",
 
         // VLAN security issues (includes device placement - putting devices on correct VLAN)
@@ -2215,6 +2247,7 @@ public partial class AuditService : IAuditScanService
             Audit.IssueTypes.NetworkIsolationException => $"Firewall: VLAN Isolation Exception{(!string.IsNullOrEmpty(description) ? $" ({description})" : "")}",
             Audit.IssueTypes.InternetBlockBypassed => "Firewall: Internet Block Bypassed",
             Audit.IssueTypes.GatewayManagementExposed => "Firewall: Gateway Management Exposed",
+            Audit.IssueTypes.GatewayWanManagementExposed => "Firewall: Gateway Management Open to Internet",
             "VLAN_VIOLATION" => "VLAN Policy Violation",
             "INTER_VLAN" => "Inter-VLAN Access Issue",
 
@@ -2439,6 +2472,7 @@ public partial class AuditService : IAuditScanService
         Audit.IssueTypes.InternetBlockBypassed => "Remove the allow rule, or narrow internet access to specific IPs, MACs, or devices that need it to operate.",
         Audit.IssueTypes.IsolationBypassed => "Delete this rule or restrict to specific ports/protocols if necessary.",
         Audit.IssueTypes.GatewayManagementExposed => "Block TCP 22, 80, and 443 from this network to the Gateway zone.",
+        Audit.IssueTypes.GatewayWanManagementExposed => "Block TCP management ports from the External zone to the Gateway zone, and turn off Direct Remote Connection.",
         Audit.IssueTypes.OrphanedRule => "Remove rules that reference non-existent objects.",
         Audit.IssueTypes.MacRestriction => "Consider enabling MAC-based port security on access ports where device churn is low.",
         Audit.IssueTypes.PortLock => "Enable Lock Port to UniFi Device on ports that carry a UniFi device.",
@@ -2486,6 +2520,16 @@ public class AuditOptions
     public bool AllowMediaPlayersOnMainNetwork { get; set; } = false;
     public bool AllowPrintersOnMainNetwork { get; set; } = true;
     public bool IsScheduled { get; set; }
+
+    /// <summary>
+    /// Findings (<see cref="ChangeControl.ImpactAnalyzer.IssueKey"/>) a Change Control security regression alert already
+    /// reported. This run's critical-findings and score-drop alerts leave them out.
+    /// </summary>
+    public IReadOnlySet<string>? AlertedFindingKeys { get; set; }
+
+    /// <summary>The Change Control incident this run's alerts join (<see cref="ChangeControl.ChangeAlerts.IncidentKey"/>).</summary>
+    public string? IncidentKey { get; set; }
+
     public List<int>? DnatExcludedVlanIds { get; set; }
     public int? PiholeManagementPort { get; set; }
     public string? PiholeManagementUrl { get; set; }

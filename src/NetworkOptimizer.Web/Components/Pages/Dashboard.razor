@@ -28,6 +28,8 @@
 <NavigationLock OnBeforeInternalNavigation="OnBeforeInternalNavigation" ConfirmExternalNavigation="_editMode" />
 
 <div class="page-header">
+    @* Shows only when this tab has an earlier in-app page: a cold start (a PWA launch, a new tab) has none. *@
+    <PageBackButton />
     @* Site name next to the header (muted) when multi-site is enabled, including the
        main site, so each per-site tab is identifiable at a glance. *@
     <h1>
@@ -221,6 +223,7 @@
 @code {
     private string _siteName = "";
     private bool _loading = true;
+    private bool _wifiLoading = true;
     private bool _speedTestLoading = true;
     private bool _wanTestLoading = true;
     private bool _threatLoading = true;
@@ -251,6 +254,7 @@
     private List<HealthIssue> _wifiHealthIssues = new();
     private int _sqmPanelKey = 0;
     private int _alertsListKey = 0;
+    private AlertsList? _alertsList;
     private int _activeAlertsKey = 0;
     private AdminPasswordSource _passwordSource = AdminPasswordSource.None;
     private ApexChartOptions<ThreatTrendPoint> _threatSparklineOptions = CreateThreatSparklineOptions();
@@ -485,7 +489,7 @@
             <img src="/icons/wifi-optimizer.png" alt="" class="stat-icon-img" />
             <div class="stat-content">
                 <div class="stat-value">
-                    @if (_loading)
+                    @if (_wifiLoading)
                     {
                         <span class="spinner-sm"></span>
                     }
@@ -688,14 +692,14 @@
                         <div class="speed-test-list">
                             @foreach (var test in _recentWanTests)
                             {
-                                <div class="speed-test-row">
+                                <a class="speed-test-row speed-test-row-link" href="@SpeedTestLinks.WanResult(test)" @onclick:stopPropagation>
                                     <span class="speed-test-device">@(test.WanName ?? test.WanNetworkGroup ?? "WAN")</span>
                                     <span class="speed-test-speeds">
                                         <span class="speed-down">↓@test.DownloadMbps.ToString("F0")</span>
                                         <span class="speed-up">↑@test.UploadMbps.ToString("F0")</span>
                                     </span>
                                     <span class="speed-test-time">@test.TestTime.ToLocalTime(DisplayTime).ToString(DisplayTime.Format.DayTime, DisplayFormat.Culture)</span>
-                                </div>
+                                </a>
                             }
                         </div>
                     }
@@ -725,7 +729,7 @@
                         <div class="speed-test-list">
                             @foreach (var test in _recentSpeedTests)
                             {
-                                <div class="speed-test-row">
+                                <a class="speed-test-row speed-test-row-link" href="@SpeedTestLinks.LanResult(test.Id)" @onclick:stopPropagation>
                                     @if ((!string.IsNullOrEmpty(test.DeviceName) ? test.DeviceName : _tailnet.NameFor(test.DeviceHost)) is { } deviceName)
                                     {
                                         <span class="speed-test-device"><ResultClientIcon Host="@test.DeviceHost" Mac="@test.ClientMac" Tailnet="_tailnet" Icons="_clientIcons" />@deviceName</span>
@@ -757,7 +761,7 @@
                                         }
                                     </span>
                                     <span class="speed-test-time">@test.TestTime.ToLocalTime(DisplayTime).ToString(DisplayTime.Format.DayTime, DisplayFormat.Culture)</span>
-                                </div>
+                                </a>
                             }
                         </div>
                     }
@@ -775,7 +779,7 @@
             </div>
             <div class="card-body">
                 <NetworkOptimizer.Web.Components.Shared.WiFi.WiFiDashboardPanel
-                    Loading="_loading"
+                    Loading="_wifiLoading"
                     Score="_wifiHealthScore"
                     Issues="_wifiHealthIssues" />
             </div>
@@ -790,7 +794,7 @@
                 <a href="/audit" class="card-action" @onclick:stopPropagation>View All →</a>
             </div>
             <div class="card-body">
-                <AlertsList @key="_alertsListKey" MaxItems="5" OnAlertDismissed="OnAlertDismissed" />
+                <AlertsList @key="_alertsListKey" @ref="_alertsList" MaxItems="5" OnAlertDismissed="OnAlertDismissed" />
             </div>
         </div>
     };
@@ -1242,8 +1246,8 @@
     private System.Threading.Timer? _deviceRefreshTimer;
 
     /// <summary>
-    /// Keeps Device Status current while the user sits on the page. Refreshes without the loading
-    /// flag so the card updates in place instead of flashing its spinner every cycle.
+    /// Keeps Device Status, Security Posture, and Recent Security Findings current while the user sits on the page.
+    /// Refreshes without the loading flag so the cards update in place instead of flashing their spinners every cycle.
     /// </summary>
     private void StartDeviceRefreshTimer()
     {
@@ -1254,6 +1258,7 @@
                 await InvokeAsync(async () =>
                 {
                     await LoadDashboardData(showLoading: false);
+                    if (_alertsList != null) await _alertsList.RefreshIfNewAuditAsync();
                     StateHasChanged();
                 });
             }
@@ -1263,7 +1268,11 @@
 
     private async Task LoadDashboardData(bool showLoading = true)
     {
-        if (showLoading) _loading = true;
+        if (showLoading)
+        {
+            _loading = true;
+            _wifiLoading = true;
+        }
         try
         {
             var data = await DashboardService.GetDashboardDataAsync();
@@ -1275,11 +1284,27 @@
             warningIssues = data.WarningIssues;
             lastAuditTime = data.LastAuditTime;
             devices = data.Devices;
-            _wifiHealthScore = data.WiFiHealthScore;
-            _wifiHealthGrade = data.WiFiHealthGrade;
-            _wifiHealthIssues = data.WiFiHealthIssues;
         }
-        finally { if (showLoading) _loading = false; }
+        finally
+        {
+            if (showLoading) _loading = false;
+            // A cold Wi-Fi score reads several console reports: render the other cards first.
+            // The reads keep their order; only the render moves ahead of the Wi-Fi score.
+            await InvokeAsync(StateHasChanged);
+            await LoadWiFiHealth(showLoading);
+        }
+    }
+
+    private async Task LoadWiFiHealth(bool showLoading)
+    {
+        try
+        {
+            var wifi = await DashboardService.GetWiFiHealthAsync();
+            _wifiHealthScore = wifi.Score;
+            _wifiHealthGrade = wifi.Grade;
+            _wifiHealthIssues = wifi.Issues;
+        }
+        finally { if (showLoading) _wifiLoading = false; }
     }
 
     private async Task OnAlertDismissed()

@@ -315,7 +315,22 @@
         // Blazor numbers its own history entries in history.state._index (0 = the entry the app
         // loaded on), so above 0 there is an in-app page to go back to. history.length counts
         // pages from before the app too.
-        window.__canGoBack = function() { var s = history.state; return !!(s && s._index > 0); };
+        // Also no Back when the entry before is this same page (the logo clicked on the Dashboard): it would
+        // go nowhere. History does not expose an earlier entry's URL, so each call records this entry's, per
+        // tab, keyed by that index; ?site= is left out since multi-site stamps it in after a navigation.
+        window.__canGoBack = function() {
+            // No _index yet on the entry the app loaded on (Blazor writes it later): that entry is 0.
+            var s = history.state;
+            var index = s && typeof s._index === 'number' ? s._index : 0;
+            var u = new URL(location.href);
+            u.searchParams.delete('site');
+            var here = u.pathname + u.search;
+            var seen = {};
+            try { seen = JSON.parse(sessionStorage.getItem('no.historyUrls') || '{}'); } catch (e) { }
+            seen[index] = here;
+            try { sessionStorage.setItem('no.historyUrls', JSON.stringify(seen)); } catch (e) { }
+            return index > 0 && seen[index - 1] !== here;
+        };
         // A full page load that keeps this tab's place in that numbering: Blazor reads _index back on
         // start, and a reload keeps history.state. NavigateTo(forceLoad) starts a fresh entry at 0,
         // which hid Back. replace swaps the current entry instead of adding one.

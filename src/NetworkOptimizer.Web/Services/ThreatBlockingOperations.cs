@@ -340,6 +340,7 @@ public sealed class ThreatBlockingOperations
             await _gateway.SetUpAsync(Site(slug), ct);
             if (current.FeedsOutbound)
                 await _gateway.SetFeedsOutboundAsync(Site(slug), true, ct);
+            _blocking.ResyncGateway(Site(slug));
         }
         catch (Exception ex) when (ex is InvalidOperationException or HttpRequestException
                                    or NetworkOptimizer.UniFi.UniFiApiErrorException or NetworkOptimizer.UniFi.UniFiPermissionException)
@@ -490,7 +491,8 @@ public sealed class ThreatBlockingOperations
         var result = await _gateway.SetUpAsync(Site(slug), ct);
         if ((await GetSettingsAsync(slug, ct)).FeedsOutbound)
             await _gateway.SetFeedsOutboundAsync(Site(slug), true, ct);
-        _blocking.ResyncExceptions(Site(slug));
+        // Set Up can write a retyped group back empty; its members are sent again (unchanged groups are not rewritten).
+        _blocking.ResyncGateway(Site(slug));
         return result;
     }
 

@@ -2495,6 +2495,27 @@ public class LanFlowMapService
         return (null, false, kind);
     }
 
+    /// <summary>
+    /// The access ISP's ASN and name for a WAN globe: the first enabled access hop with an ASN, else the
+    /// gateway's own geo-IP lookup (the ASN UniFi Network draws its logo from), else a paused
+    /// access hop. The gateway fallback covers a WAN with no trace or no WAN vantage.
+    /// </summary>
+    internal static (int? Asn, string? Name) ResolveIspIdentity(
+        Monitoring.AccessIspCloud access, NetworkOptimizer.UniFi.Models.UniFiDeviceResponse? gateway, string wanInterface)
+    {
+        if (access.AsnNumber is > 0)
+            return (access.AsnNumber, access.AsnName);
+
+        NetworkOptimizer.UniFi.Models.WanGeoInfo? geo = null;
+        gateway?.GeoInfo?.TryGetValue(GatewayWanHelper.WanNetworkGroupFromKey(wanInterface), out geo);
+        var name = access.AsnName ?? geo?.AnyName ?? access.PausedAsnName;
+        if (geo?.Asn is > 0)
+            return (geo.Asn, name);
+        if (access.PausedAsnNumber is > 0)
+            return (access.PausedAsnNumber, access.AsnName ?? access.PausedAsnName ?? geo?.AnyName);
+        return (null, name);
+    }
+
     private async Task BuildWanAndClouds(
         NetworkTopology topology,
         LanFlowMapSnapshot snapshot,
@@ -2544,13 +2565,15 @@ public class LanFlowMapService
                 && upstream.Access.Hops.Count == 0
                 && upstream.Transits.Count == 0;
 
+            rawByMac.TryGetValue(NormalizeMac(wan.GatewayMac!), out var gatewayRaw);
+            var (ispAsn, ispName) = ResolveIspIdentity(upstream.Access, gatewayRaw, wan.WanInterface);
             var accessCloud = new LanCloud
             {
                 Id = $"cloud-access-{wan.WanInterface}",
                 Kind = LanCloudKind.AccessIsp,
-                Name = FormatWanGlobeName(upstream.Access.AsnName, wan.FriendlyName, wan.WanInterface, shownWanCount > 1),
-                Asn = upstream.Access.AsnNumber,
-                AsnName = upstream.Access.AsnName,
+                Name = FormatWanGlobeName(ispName, wan.FriendlyName, wan.WanInterface, shownWanCount > 1),
+                Asn = ispAsn,
+                AsnName = ispName,
                 Order = 0,
                 WanInterface = wan.WanInterface,
                 AccessTechnology = upstream.Access.AccessTechnology,

@@ -71,7 +71,7 @@ function baseOpts(height, yTitle, yFormatter, extra, group = SYNC_GROUP) {
         },
         yaxis: {
             title: { text: yTitle, style: { color: '#9ca3af' } },
-            labels: { style: { colors: '#9ca3af' }, formatter: yFormatter },
+            labels: { minWidth: 20, style: { colors: '#9ca3af' }, formatter: yFormatter },
         },
         grid: { borderColor: '#374151', strokeDashArray: 3 },
         legend: { show: false },
@@ -472,7 +472,7 @@ export async function mount(elId) {
     qualityChart = new ApexCharts(qualityEl, {
         ...baseOpts(160, '%', v => v != null ? v.toFixed(0) + '%' : '', { yaxis: {
             title: { text: '%', style: { color: '#9ca3af' } },
-            labels: { style: { colors: '#9ca3af' }, formatter: v => v != null ? v.toFixed(0) + '%' : '' },
+            labels: { minWidth: 20, style: { colors: '#9ca3af' }, formatter: v => v != null ? v.toFixed(0) + '%' : '' },
             min: 0, max: 100,
         }}),
         series: [], colors: PALETTE,

@@ -826,7 +826,8 @@ class LanFlowMap2D {
         if(hz!==this._hz){
             this._hz=hz;
             // No slide here: every node changes axis, and the fit below moves the camera anyway.
-            if(this._root){this._relayout(false);this._fitAll();return;}
+            // The grow-only fit box still holds the other axis's extent, so it starts over.
+            if(this._root){this._fitBox=null;this._relayout(false);this._fitAll();return;}
         }
         if(this._isFitted)this._fitAll();
     }

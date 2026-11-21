@@ -1,0 +1,793 @@
+@using NetworkOptimizer.Web.Services.InnerSpace
+@using NetworkOptimizer.WiFi.Data
+@using Microsoft.AspNetCore.Components.Sections
+@implements IAsyncDisposable
+@inject IInnerSpaceImportService ImportSvc
+@inject IJSRuntime JS
+
+@* Import from InnerSpace: pick a building, say where it goes, lay it down on the map. *@
+
+<NavigationLock OnBeforeInternalNavigation="OnBeforeInternalNavigation" ConfirmExternalNavigation="@InFlight" />
+
+@if (_step != Step.Place)
+{
+    <div class="fp-dialog-backdrop" @onclick="Close">
+        <div class="fp-dialog is-import-dialog" @onclick:stopPropagation @onkeydown="OnDialogKeyDown" tabindex="-1" @ref="_dialogRef">
+            <h3>Import from InnerSpace</h3>
+
+            @if (_step == Step.List)
+            {
+                @if (_loading)
+                {
+                    <div class="loading-container"><div class="spinner"></div><span>Reading InnerSpace on the console</span></div>
+                }
+                else if (_listing is { Status: not InnerSpaceStatus.Ok })
+                {
+                    <div class="connection-banner pwa-banner">
+                        <div class="banner-content">
+                            <div class="banner-icon" style="background: var(--info-color); color: white;">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10" /><path d="M12 16v-4M12 8h.01" /></svg>
+                            </div>
+                            <div class="banner-text">
+                                <strong>@StatusTitle(_listing.Status)</strong>
+                                <span>@StatusDetail(_listing)</span>
+                            </div>
+                            @if (_listing.Status is InnerSpaceStatus.ApiKeyOnly or InnerSpaceStatus.NotConnected or InnerSpaceStatus.NoSession)
+                            {
+                                <div class="banner-actions">
+                                    <a class="btn-pwa-action" href="/settings?tab=connection#console-connection">Check Settings</a>
+                                </div>
+                            }
+                        </div>
+                    </div>
+                }
+                else if (_listing != null && _listing.Templates.Count == 0)
+                {
+                    <div class="empty-state">
+                        <p>No floor plans in InnerSpace on this console yet.</p>
+                    </div>
+                }
+                else if (_listing != null)
+                {
+                    <div class="is-import-list">
+                        @foreach (var entry in Entries)
+                        {
+                            if (entry.Whole == null)
+                            {
+                                @ItemButton(entry.Parts[0])
+                            }
+                            else
+                            {
+                                var groupId = entry.Whole.Template.GroupId!;
+                                var merged = _mergedGroups.Contains(groupId);
+                                <div class="is-import-group">
+                                    <label class="checkbox-label">
+                                        <input type="checkbox" checked="@merged" @onchange="() => ToggleMerge(groupId)" />
+                                        <span>Import as one building</span>
+                                    </label>
+                                    @if (merged)
+                                    {
+                                        @ItemButton(entry.Whole)
+                                    }
+                                    else
+                                    {
+                                        @foreach (var part in entry.Parts)
+                                        {
+                                            @ItemButton(part)
+                                        }
+                                    }
+                                </div>
+                            }
+                        }
+                    </div>
+                }
+
+                <small class="form-help is-import-hint">
+                    Design Center projects: open your console's InnerSpace from unifi.ui.com, then <strong>Upload Floor Plan</strong>
+                    or <strong>Manage Floor Plans</strong> &rarr; <strong>Import from Design Center</strong>. Then import the plan here.
+                </small>
+                <div class="action-buttons form-footer">
+                    <button class="btn btn-contrast" @onclick="Close">Cancel</button>
+                </div>
+            }
+            else if (_step == Step.Where && _chosen != null)
+            {
+                var t = _chosen.Template;
+                <p class="is-import-chosen">@t.Name <span class="is-import-item-meta">@Summary(t)</span></p>
+
+                <div class="form-group">
+                    <div class="radio-group">
+                        <label class="radio-label">
+                            <input type="radio" name="is-target" checked="@(_existingBuildingId == 0)" @onchange="() => SetBuilding(0)" />
+                            <span>New building</span>
+                        </label>
+                        @if (_buildings.Count > 0)
+                        {
+                            <label class="radio-label">
+                                <input type="radio" name="is-target" checked="@(_existingBuildingId != 0)"
+                                       @onchange="() => SetBuilding(_buildings[0].Id)" />
+                                <span>Add to an existing building</span>
+                            </label>
+                        }
+                    </div>
+                </div>
+
+                @if (_existingBuildingId == 0)
+                {
+                    <div class="form-group">
+                        <label class="form-label">Name</label>
+                        <input class="form-control" maxlength="100" @bind="_newBuildingName" />
+                    </div>
+                }
+                else
+                {
+                    <div class="form-group">
+                        <label class="form-label">Building</label>
+                        <select class="form-control" value="@_existingBuildingId" @onchange="e => SetBuilding(int.Parse(e.Value!.ToString()!))">
+                            @foreach (var b in _buildings)
+                            {
+                                <option value="@b.Id">@b.Name</option>
+                            }
+                        </select>
+                    </div>
+                }
+
+                @foreach (var target in _targets)
+                {
+                    var floor = t.Floors.First(f => f.SourcePlanId == target.SourcePlanId);
+                    <div class="form-group">
+                        <label class="form-label">@floor.Label</label>
+                        <div class="is-import-floor-row">
+                            <select class="form-control" value="@(target.Skip ? "skip" : target.ReplaceFloorId?.ToString() ?? "new")" @onchange="e => SetReplace(target, e.Value?.ToString())">
+                                <option value="new">New floor</option>
+                                @foreach (var f in ExistingFloors.OrderBy(f => f.FloorNumber))
+                                {
+                                    <option value="@f.Id">Replace @f.Label</option>
+                                }
+                                <option value="skip">Don't import</option>
+                            </select>
+                            @if (!target.Skip && target.ReplaceFloorId == null)
+                            {
+                                <div class="is-import-floor-number">
+                                    <span class="form-label">Floor Number</span>
+                                    <div class="fp-stepper">
+                                        <button class="fp-stepper-btn" type="button" @onclick="() => target.FloorNumber--">-</button>
+                                        <input type="number" class="fp-stepper-input" @bind="target.FloorNumber" />
+                                        <button class="fp-stepper-btn" type="button" @onclick="() => target.FloorNumber++">+</button>
+                                    </div>
+                                </div>
+                            }
+                        </div>
+                        @if (ReplaceNote(target) is { } note)
+                        {
+                            <small class="form-help is-import-replace-note">@note</small>
+                        }
+                    </div>
+                }
+
+                @if (IncludedFloors.Any(f => f.Aps.Count > 0))
+                {
+                    <div class="form-group">
+                        <label class="checkbox-label">
+                            <input type="checkbox" @bind="_includeAps" />
+                            <span>Place APs from InnerSpace</span>
+                        </label>
+                    </div>
+                }
+
+                @if (_whereError != null)
+                {
+                    <div class="alert alert-danger">@_whereError</div>
+                }
+                <div class="action-buttons form-footer">
+                    <button class="btn btn-primary" @onclick="StartPlacing">Place on Map</button>
+                    <button class="btn btn-contrast" @onclick="() => _step = Step.List">Back</button>
+                </div>
+            }
+            else if (_step == Step.Done && _result != null)
+            {
+                @if (_result.Success)
+                {
+                    <p>Imported @_result.FloorIds.Count @(_result.FloorIds.Count == 1 ? "floor" : "floors"), @_result.WallSegments wall segments, @(_result.PlannedAps + _result.PlacedAps) APs.</p>
+                    @if (_imagesPending > 0)
+                    {
+                        <div class="alert alert-info">Uploading floor images</div>
+                    }
+                }
+                else
+                {
+                    <div class="alert alert-danger">@_result.Error</div>
+                }
+                <div class="action-buttons form-footer">
+                    <button class="btn btn-primary" @onclick="Close">Done</button>
+                </div>
+            }
+        </div>
+    </div>
+}
+else
+{
+    <SectionContent SectionName="@PlaceSection">
+    <div class="is-import-place">
+    @if (_fitCandidates is { Count: > 0 })
+    {
+        <div class="fp-edit-hint">Facing the wrong way? Press Snap to Building again.</div>
+    }
+    <div class="fp-bottom-bar">
+        <span class="is-import-place-hint">Drag the outline into place</span>
+        <label class="is-import-rotate">
+            <span>Rotation</span>
+            <input type="range" min="0" max="359" step="1" value="@((int)Math.Round(_placement.RotationDeg))" @oninput="OnRotateInput" class="fp-opacity-slider" />
+            <span>@((int)Math.Round(_placement.RotationDeg))&deg;</span>
+        </label>
+        <button class="fp-btn" @onclick="() => Rotate(-90)">-90&deg;</button>
+        <button class="fp-btn" @onclick="() => Rotate(90)">+90&deg;</button>
+        @if (_fitCandidates is { Count: > 0 })
+        {
+            <button class="fp-btn" @onclick="SnapToBuilding">Snap to Building</button>
+        }
+        <button class="fp-btn" @onclick="CancelPlacing">Cancel</button>
+        <button class="fp-btn fp-btn-primary" disabled="@_importing" @onclick="Import">@(_importing ? "Importing" : "Import")</button>
+        @if (_placeError != null)
+        {
+            <span class="is-import-place-error">@_placeError</span>
+        }
+    </div>
+    </div>
+    </SectionContent>
+}
+
+<style>
+    .is-import-dialog { width: min(560px, 94vw); max-height: 86vh; overflow-y: auto; box-sizing: border-box; min-width: 0; }
+    .is-import-dialog:focus { outline: none; }
+    .is-import-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
+    .is-import-item {
+        text-align: left; width: 100%; padding: 10px 12px; cursor: pointer;
+        background: var(--bg-tertiary); border: 1px solid var(--border-color, #232326);
+        border-radius: var(--border-radius, 6px); color: var(--text-primary);
+    }
+    .is-import-item:hover { border-color: var(--primary-color); background: var(--bg-hover); }
+    .is-import-earlier { opacity: 0.7; }
+    .is-import-group {
+        display: flex; flex-direction: column; gap: 8px; padding: 10px;
+        border: 1px dashed var(--border-color, #232326); border-radius: var(--border-radius, 6px);
+    }
+    .is-import-item-title { display: flex; align-items: center; gap: 8px; font-weight: 600; flex-wrap: wrap; }
+    .is-import-item-meta { color: var(--text-secondary); font-size: 12px; margin-top: 4px; }
+    .is-import-item-warn { color: var(--warning-color); font-size: 12px; margin-top: 4px; }
+    .is-import-hint { display: block; margin: 4px 0 12px; }
+    .is-import-chosen { margin: 0 0 12px; font-weight: 600; color: var(--text-primary); }
+    .is-import-floor-row { display: flex; gap: 8px; align-items: flex-end; flex-wrap: wrap; }
+    .is-import-floor-number .form-label { display: block; }
+    .is-import-floor-row .form-control { flex: 1 1 180px; min-width: 0; }
+    .is-import-replace-note { color: var(--warning-color); }
+    /* One fixed group: the editor's info bar (fp-edit-hint) directly above the editor's bottom bar.
+       Both classes position themselves inside the editor; inside this group they flow instead. */
+    /* Rendered into the editor's map container (SectionOutlet), so it sits at the map's bottom. */
+    .is-import-place {
+        position: absolute; left: 50%; bottom: 16px; transform: translateX(-50%); z-index: 10001;
+        display: flex; flex-direction: column; align-items: center; gap: 8px; max-width: 96vw;
+    }
+    .is-import-place .fp-bottom-bar {
+        position: static; border: 1px solid var(--border-color, #232326); border-radius: var(--border-radius-lg, 8px);
+        box-shadow: 0 6px 24px rgba(0, 0, 0, 0.5); width: max-content; max-width: 96vw; box-sizing: border-box;
+    }
+    .is-import-place .fp-edit-hint { position: static; transform: none; white-space: normal; text-align: center; }
+    .is-import-place-hint { color: var(--text-secondary); font-size: 13px; }
+    .is-import-rotate { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text-secondary); }
+    .is-import-place-error { color: var(--danger-color); font-size: 13px; }
+    @@media (max-width: 768px) {
+        .is-import-place { bottom: 8px; width: 96%; }
+        .is-import-place .fp-bottom-bar { width: 100%; }
+        .is-import-place .fp-edit-hint { width: auto; }
+    }
+</style>
+
+@code {
+    private enum Step { List, Where, Place, Done }
+
+    /// <summary>Raised after a successful import with the building's id.</summary>
+    [Parameter] public EventCallback<int> OnImported { get; set; }
+
+    /// <summary>Raised when the import is closed without importing, or after Done.</summary>
+    [Parameter] public EventCallback OnClosed { get; set; }
+
+    /// <summary>The SectionOutlet inside the editor's map that shows the placement bar, so it sits on the map.</summary>
+    [Parameter] public string PlaceSection { get; set; } = "innerspace-place";
+
+    /// <summary>The editor's map center, for a new building with no location of its own.</summary>
+    [Parameter] public (double Lat, double Lng)? MapCenter { get; set; }
+
+    private sealed class TargetRow
+    {
+        public string SourcePlanId { get; init; } = "";
+        public int FloorNumber { get; set; }
+        public int? ReplaceFloorId { get; set; }
+
+        /// <summary>Don't import this floor.</summary>
+        public bool Skip { get; set; }
+    }
+
+    private ElementReference _dialogRef;
+    private Step? _focusedStep;
+
+    // Focus the dialog when a step opens, so Escape reaches it without a click first.
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_step != Step.Place && _focusedStep != _step)
+        {
+            _focusedStep = _step;
+            try { await _dialogRef.FocusAsync(); }
+            catch (Exception ex) when (ex is JSException or InvalidOperationException) { }
+        }
+        else if (_step == Step.Place) _focusedStep = null;
+    }
+
+    /// <summary>Escape = Cancel on the list and Done, Back on the where step.</summary>
+    private async Task OnDialogKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key != "Escape") return;
+        if (_step == Step.Where) _step = Step.List;
+        else await Close();
+    }
+
+    /// <summary>Escape while placing on the map: the same as Cancel, which leaves the import.</summary>
+    [JSInvokable]
+    public async Task OnPlacementEscape()
+    {
+        if (_step != Step.Place || _importing) return;
+        await CancelPlacing();
+        StateHasChanged();
+    }
+
+    /// <summary>Choices made but not imported, an import running, or floor images still uploading.</summary>
+    private bool InFlight => _step is Step.Where or Step.Place || _importing || _imagesPending > 0;
+
+    private async Task OnBeforeInternalNavigation(LocationChangingContext context)
+    {
+        if (!InFlight) return;
+        var message = _imagesPending > 0
+            ? "Floor images are still uploading. If you leave now, the floors will have no image.\n\nAre you sure you want to leave?"
+            : "The import is not finished. If you leave now, nothing is imported.\n\nAre you sure you want to leave?";
+        if (!await JS.InvokeAsync<bool>("confirm", message)) context.PreventNavigation();
+    }
+
+    private IEnumerable<TargetRow> Included => _targets.Where(t => !t.Skip);
+
+    private IEnumerable<ImportFloor> IncludedFloors =>
+        _chosen == null ? Enumerable.Empty<ImportFloor>()
+            : _chosen.Template.Floors.Where(f => Included.Any(t => t.SourcePlanId == f.SourcePlanId));
+
+    /// <summary>A list entry: one building, or a split plan's parts with its whole behind Import as one building.</summary>
+    private sealed record Entry(List<InnerSpaceTemplateInfo> Parts, InnerSpaceTemplateInfo? Whole, bool Earlier, string Name);
+
+    private readonly HashSet<string> _mergedGroups = new();
+    private bool _includeAps = true;
+
+    private IEnumerable<Entry> Entries
+    {
+        get
+        {
+            if (_listing == null) return Enumerable.Empty<Entry>();
+            var singles = _listing.Templates.Where(i => i.Template.GroupId == null)
+                .Select(i => new Entry(new() { i }, null, i.Template.IsEarlierImport, i.Template.Name));
+            var groups = _listing.Templates.Where(i => i.Template.GroupId != null).GroupBy(i => i.Template.GroupId!)
+                .Select(g =>
+                {
+                    var whole = g.FirstOrDefault(i => i.Template.IsWhole);
+                    var parts = g.Where(i => !i.Template.IsWhole).ToList();
+                    return whole == null
+                        ? new Entry(parts, null, parts[0].Template.IsEarlierImport, parts[0].Template.Name)
+                        : new Entry(parts, whole, whole.Template.IsEarlierImport, whole.Template.Name);
+                });
+            return singles.Concat(groups).OrderBy(e => e.Earlier).ThenBy(e => e.Name);
+        }
+    }
+
+    private void ToggleMerge(string groupId)
+    {
+        if (!_mergedGroups.Remove(groupId)) _mergedGroups.Add(groupId);
+    }
+
+    private RenderFragment ItemButton(InnerSpaceTemplateInfo info) => __builder =>
+    {
+        var t = info.Template;
+        <button type="button" class="is-import-item @(t.IsEarlierImport ? "is-import-earlier" : "")" @onclick="() => Choose(info)">
+            <div class="is-import-item-title">
+                <span>@t.Name</span>
+                <span class="status-badge status-info">@SourceLabel(t.Source)</span>
+                @if (t.IsEarlierImport)
+                {
+                    <span class="status-badge badge-muted">Earlier import</span>
+                }
+            </div>
+            <div class="is-import-item-meta">@Summary(t)</div>
+            @foreach (var existing in info.ExistingBySourcePlan.Values.DistinctBy(e => e.FloorId))
+            {
+                <div class="is-import-item-meta">Imported to @existing.BuildingName - @existing.FloorLabel@(existing.EditedSinceImport ? " (edited since)" : "")</div>
+            }
+            @foreach (var w in t.Warnings)
+            {
+                <div class="is-import-item-warn">@w</div>
+            }
+        </button>
+    };
+
+    private Step _step = Step.List;
+    private bool _loading = true;
+    private InnerSpaceListing? _listing;
+    private InnerSpaceTemplateInfo? _chosen;
+    private List<SiteBuilding> _buildings = new();
+    private int _existingBuildingId;
+    private string _newBuildingName = "";
+    private List<TargetRow> _targets = new();
+    private string? _whereError;
+    private Placement _placement = new(0, 0, 0);
+    private List<Placement>? _fitCandidates;
+    private int _fitIndex;
+    private bool _importing;
+    private string? _placeError;
+    private InnerSpaceImportResult? _result;
+    private int _imagesPending;
+    private DotNetObjectReference<InnerSpaceImport>? _selfRef;
+
+    private IEnumerable<SiteFloor> ExistingFloors =>
+        _buildings.FirstOrDefault(b => b.Id == _existingBuildingId)?.Floors ?? Enumerable.Empty<SiteFloor>();
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _listing = await ImportSvc.ListAsync();
+            _buildings = _listing.Buildings;
+        }
+        catch (Exception ex)
+        {
+            _listing = new InnerSpaceListing(InnerSpaceStatus.Error, ex.Message, new(), new());
+        }
+        _loading = false;
+    }
+
+    private static string SourceLabel(ImportSource s) => s switch
+    {
+        ImportSource.Scan => "LiDAR Scan",
+        ImportSource.DesignCenter => "Design Center",
+        _ => "Drawn",
+    };
+
+    private static string Summary(ImportTemplate t)
+    {
+        var parts = new List<string>
+        {
+            $"{t.Floors.Count} {(t.Floors.Count == 1 ? "floor" : "floors")}",
+            $"{t.WallSegmentCount} wall {(t.WallSegmentCount == 1 ? "segment" : "segments")}",
+        };
+        if (t.ApCount > 0) parts.Add($"{t.ApCount} {(t.ApCount == 1 ? "AP" : "APs")}");
+        return string.Join(" · ", parts);
+    }
+
+    private static string StatusTitle(InnerSpaceStatus s) => s switch
+    {
+        InnerSpaceStatus.ApiKeyOnly => "InnerSpace needs a username and password",
+        InnerSpaceStatus.NotInnerSpaceAdmin => "The console account cannot read InnerSpace",
+        InnerSpaceStatus.NotInstalled => "InnerSpace is not on this console",
+        InnerSpaceStatus.NotConnected => "Not connected to a UniFi Console",
+        InnerSpaceStatus.NoSession => "InnerSpace refused the console sign-in",
+        _ => "Could not read InnerSpace",
+    };
+
+    private static string StatusDetail(InnerSpaceListing l) => l.Status switch
+    {
+        InnerSpaceStatus.ApiKeyOnly => "InnerSpace does not accept API keys. Connect with a local admin username and password that has Full Admin access to InnerSpace.",
+        InnerSpaceStatus.NotInnerSpaceAdmin => "Give the account Network Optimizer signs in with Full Admin access to InnerSpace on the console.",
+        InnerSpaceStatus.NotInstalled => "Install InnerSpace on the console, then scan or draw a floor plan.",
+        InnerSpaceStatus.NotConnected => "Set up the UniFi Console Connection first.",
+        InnerSpaceStatus.NoSession => "Check the username and password in the UniFi Console Connection.",
+        _ => l.Detail ?? "",
+    };
+
+    private void Choose(InnerSpaceTemplateInfo info)
+    {
+        _chosen = info;
+        _whereError = null;
+        _includeAps = true;
+        _newBuildingName = info.Template.Name.Length > 100 ? info.Template.Name[..100] : info.Template.Name;
+
+        // A re-import goes back where it went: the building and floors it made before.
+        var existing = info.ExistingBySourcePlan.Values.FirstOrDefault();
+        _existingBuildingId = existing != null && _buildings.Any(b => b.Id == existing.BuildingId) ? existing.BuildingId : 0;
+        _targets = info.Template.Floors.Select(f => new TargetRow
+        {
+            SourcePlanId = f.SourcePlanId,
+            FloorNumber = f.FloorNumber,
+            ReplaceFloorId = info.ExistingBySourcePlan.TryGetValue(f.SourcePlanId, out var e) && e.BuildingId == _existingBuildingId ? e.FloorId : null,
+        }).ToList();
+        SetBuilding(_existingBuildingId); // numbers any new floors above the building's own
+        _step = Step.Where;
+    }
+
+    private void SetBuilding(int buildingId)
+    {
+        _existingBuildingId = buildingId;
+        foreach (var t in Included)
+            t.ReplaceFloorId = _chosen != null && _chosen.ExistingBySourcePlan.TryGetValue(t.SourcePlanId, out var e) && e.BuildingId == buildingId
+                ? e.FloorId : null;
+        Renumber();
+    }
+
+    private void SetReplace(TargetRow target, string? value)
+    {
+        target.Skip = value == "skip";
+        target.ReplaceFloorId = !target.Skip && int.TryParse(value, out var id) ? id : null;
+        Renumber();
+    }
+
+    private int TemplateNumber(TargetRow t) => _chosen!.Template.Floors.First(f => f.SourcePlanId == t.SourcePlanId).FloorNumber;
+
+    /// <summary>
+    /// Numbers the new floors, skipping dropped ones. A new building keeps the template's order from
+    /// the first floor (1). In an existing building, new floors keep their place relative to a floor
+    /// the template replaces; with none replaced, the template stacks on the building's top floor.
+    /// </summary>
+    private void Renumber()
+    {
+        if (_chosen == null) return;
+        var fresh = Included.Where(t => t.ReplaceFloorId == null).ToList();
+        if (fresh.Count == 0) return;
+        if (_existingBuildingId == 0)
+        {
+            var lowest = fresh.Min(TemplateNumber);
+            foreach (var t in fresh) t.FloorNumber = TemplateNumber(t) - lowest + 1;
+            return;
+        }
+        var anchor = Included.Select(t => (t, floor: ExistingFloors.FirstOrDefault(f => f.Id == t.ReplaceFloorId)))
+            .FirstOrDefault(x => x.floor != null);
+        var offset = anchor.floor != null
+            ? anchor.floor.FloorNumber - TemplateNumber(anchor.t)
+            : ExistingFloors.Select(f => f.FloorNumber).DefaultIfEmpty(0).Max() + 1 - fresh.Min(TemplateNumber);
+        foreach (var t in fresh) t.FloorNumber = TemplateNumber(t) + offset;
+    }
+
+    private string? ReplaceNote(TargetRow target)
+    {
+        if (target.ReplaceFloorId is not { } fid) return null;
+        var floor = ExistingFloors.FirstOrDefault(f => f.Id == fid);
+        if (floor == null || _chosen == null) return null;
+        var incoming = _chosen.Template.Floors.First(f => f.SourcePlanId == target.SourcePlanId).Walls.Sum(w => w.Materials.Count);
+        var edited = _chosen.ExistingBySourcePlan.Values.FirstOrDefault(e => e.FloorId == fid) is { EditedSinceImport: true };
+        var lead = edited ? $"{floor.Label} was edited after its last import. " : "";
+        var rest = _includeAps ? ", its imported floor image and its imported planned APs." : " and its imported floor image.";
+        return $"{lead}Importing replaces its walls ({CountSegments(floor.WallsJson)} segments now, {incoming} from InnerSpace){rest}";
+    }
+
+    private static int CountSegments(string? wallsJson)
+    {
+        if (string.IsNullOrEmpty(wallsJson)) return 0;
+        try
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(wallsJson);
+            return doc.RootElement.EnumerateArray().Sum(w => w.TryGetProperty("points", out var p) ? Math.Max(0, p.GetArrayLength() - 1) : 0);
+        }
+        catch (System.Text.Json.JsonException) { return 0; }
+    }
+
+    private async Task StartPlacing()
+    {
+        _whereError = null;
+        if (_chosen == null) return;
+        if (!Included.Any())
+        {
+            _whereError = "Choose at least one floor to import.";
+            return;
+        }
+        var numbers = Included.Where(t => t.ReplaceFloorId == null).Select(t => t.FloorNumber).ToList();
+        if (numbers.Count != numbers.Distinct().Count())
+        {
+            _whereError = "Two floors have the same floor number.";
+            return;
+        }
+        if (_existingBuildingId != 0 && numbers.Any(n => ExistingFloors.Any(f => f.FloorNumber == n)))
+        {
+            _whereError = "That floor number is taken in this building. Pick another, or replace that floor.";
+            return;
+        }
+        var replaced = Included.Where(t => t.ReplaceFloorId != null).Select(t => t.ReplaceFloorId).ToList();
+        if (replaced.Count != replaced.Distinct().Count())
+        {
+            _whereError = "Two floors replace the same floor.";
+            return;
+        }
+
+        _fitCandidates = FitToExistingBuilding();
+        _fitIndex = 0;
+        _placement = SavedPlacement() ?? _fitCandidates?.FirstOrDefault() ?? InitialPlacement();
+        _step = Step.Place;
+        StateHasChanged();
+        _selfRef ??= DotNetObjectReference.Create(this);
+        var preview = BuildPreview(IncludedFloors.ToList());
+        var shown = await JS.InvokeAsync<bool>("innerspaceImport.show", _selfRef, preview,
+            new { lat = _placement.Lat, lng = _placement.Lng, rotationDeg = _placement.RotationDeg });
+        if (!shown) _placeError = "The map is not ready yet.";
+    }
+
+    /// <summary>The placement of the last import, when every floor goes back over the floors it made.</summary>
+    private Placement? SavedPlacement()
+    {
+        if (_chosen == null) return null;
+        var saved = Included.Select(t => t.ReplaceFloorId)
+            .Select(id => _chosen.ExistingBySourcePlan.Values.FirstOrDefault(e => e.FloorId == id)?.Placement)
+            .ToList();
+        return saved.Count > 0 && saved.All(p => p != null) ? saved[0] : null;
+    }
+
+    /// <summary>
+    /// Fits one floor onto one floor: the template floor that replaces an existing floor onto that
+    /// floor, else the lowest imported floor onto the building's lowest floor with an outline. Never
+    /// the largest outline of all: an upper floor bigger than the one it sits on would be fitted in
+    /// the lower floor's place.
+    /// </summary>
+    private List<Placement>? FitToExistingBuilding()
+    {
+        if (_chosen == null || _existingBuildingId == 0) return null;
+        var pair = Included.Where(t => t.ReplaceFloorId != null)
+            .Select(t => (src: IncludedFloors.First(f => f.SourcePlanId == t.SourcePlanId),
+                          dst: ExistingFloors.FirstOrDefault(f => f.Id == t.ReplaceFloorId)))
+            .FirstOrDefault(p => p.dst != null && FloorPlanWallMaterials.OutlineOrHull(p.dst.WallsJson) is { Count: >= 3 } && p.src.Footprints.Count > 0);
+        if (pair.src == null)
+        {
+            var dst = ExistingFloors.OrderBy(f => f.FloorNumber)
+                .FirstOrDefault(f => FloorPlanWallMaterials.OutlineOrHull(f.WallsJson) is { Count: >= 3 });
+            var src = IncludedFloors.Where(f => f.Footprints.Count > 0).OrderBy(f => f.FloorNumber).FirstOrDefault();
+            if (dst == null || src == null) return null;
+            pair = (src, dst);
+        }
+        var outline = FloorPlanWallMaterials.OutlineOrHull(pair.dst!.WallsJson);
+        var footprint = pair.src.Footprints.OrderByDescending(f => PlanGeometry.Area(f)).First();
+        if (outline == null || footprint.Count < 4) return null;
+        try { return TemplatePlacer.FitCandidates(footprint.Take(footprint.Count - 1).ToList(), outline); }
+        catch (ArgumentException) { return null; }
+    }
+
+    private Placement InitialPlacement()
+    {
+        var b = _buildings.FirstOrDefault(x => x.Id == _existingBuildingId);
+        if (b != null) return new Placement(b.CenterLat, b.CenterLng, 0);
+        if (_chosen?.Template.Location is { } loc) return new Placement(loc.Lat, loc.Lng, 0);
+        if (MapCenter is { } c) return new Placement(c.Lat, c.Lng, 0);
+        return new Placement(38.0, -92.0, 0);
+    }
+
+    private static object BuildPreview(List<ImportFloor> floors)
+    {
+        var lowest = floors.OrderBy(f => f.FloorNumber).First();
+        return new
+        {
+            walls = lowest.Walls.Select(w => new
+            {
+                points = w.Points.Select(p => new[] { p.X, p.Y }).ToList(),
+                materials = w.Materials,
+            }).ToList(),
+            footprints = floors.SelectMany(f => f.Footprints)
+                .Select(fp => fp.Select(p => new[] { p.X, p.Y }).ToList()).ToList(),
+        };
+    }
+
+    [JSInvokable]
+    public Task OnPlacementChanged(PlacementDto p)
+    {
+        _placement = new Placement(p.Lat, p.Lng, p.RotationDeg);
+        StateHasChanged();
+        return Task.CompletedTask;
+    }
+
+    public sealed class PlacementDto
+    {
+        public double Lat { get; set; }
+        public double Lng { get; set; }
+        public double RotationDeg { get; set; }
+    }
+
+    private async Task OnRotateInput(ChangeEventArgs e)
+    {
+        if (!double.TryParse(e.Value?.ToString(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var deg)) return;
+        _placement = _placement with { RotationDeg = deg };
+        await JS.InvokeVoidAsync("innerspaceImport.setRotation", deg);
+    }
+
+    private async Task Rotate(double delta)
+    {
+        var deg = ((_placement.RotationDeg + delta) % 360 + 360) % 360;
+        _placement = _placement with { RotationDeg = deg };
+        await JS.InvokeVoidAsync("innerspaceImport.setRotation", deg);
+    }
+
+    /// <summary>
+    /// Snaps to the best fit; pressed again on an unmoved snap, steps to the next-best orientation
+    /// (a near-rectangular building can fit either way round).
+    /// </summary>
+    private async Task SnapToBuilding()
+    {
+        if (_fitCandidates is not { Count: > 0 }) return;
+        _fitIndex = _fitIndex < _fitCandidates.Count && SamePlacement(_placement, _fitCandidates[_fitIndex])
+            ? (_fitIndex + 1) % _fitCandidates.Count
+            : 0;
+        _placement = _fitCandidates[_fitIndex];
+        await JS.InvokeVoidAsync("innerspaceImport.setPlacement",
+            new { lat = _placement.Lat, lng = _placement.Lng, rotationDeg = _placement.RotationDeg });
+    }
+
+    private static bool SamePlacement(Placement a, Placement b) =>
+        Math.Abs(a.Lat - b.Lat) < 1e-9 && Math.Abs(a.Lng - b.Lng) < 1e-9
+        && Math.Abs(((a.RotationDeg - b.RotationDeg) % 360 + 540) % 360 - 180) < 0.01;
+
+    /// <summary>Cancel on the map (and Escape there) leaves the import entirely, not back a step.</summary>
+    private async Task CancelPlacing()
+    {
+        await JS.InvokeVoidAsync("innerspaceImport.hide");
+        _step = Step.List;
+        await OnClosed.InvokeAsync();
+    }
+
+    private async Task Import()
+    {
+        if (_chosen == null || _importing) return;
+        _importing = true;
+        _placeError = null;
+        try
+        {
+            var live = await JS.InvokeAsync<PlacementDto?>("innerspaceImport.getPlacement");
+            if (live != null) _placement = new Placement(live.Lat, live.Lng, live.RotationDeg);
+            var request = new InnerSpaceImportRequest(_chosen.Template.Id, _placement,
+                _existingBuildingId == 0 ? null : _existingBuildingId,
+                _existingBuildingId == 0 ? _newBuildingName : null,
+                Included.Select(t => new FloorTarget(t.SourcePlanId, t.FloorNumber, t.ReplaceFloorId)).ToList(),
+                _includeAps);
+            _result = await ImportSvc.ImportAsync(request);
+        }
+        catch (Exception ex)
+        {
+            _placeError = ex.Message;
+            _importing = false;
+            return;
+        }
+        _importing = false;
+        if (!_result.Success)
+        {
+            _placeError = _result.Error;
+            return;
+        }
+
+        await JS.InvokeVoidAsync("innerspaceImport.hide");
+        _step = Step.Done;
+        _imagesPending = _result.PendingImages.Count;
+        await OnImported.InvokeAsync(_result.BuildingId);
+        if (_imagesPending > 0)
+        {
+            StateHasChanged();
+            await JS.InvokeAsync<int>("innerspaceImport.uploadPendingImages", _result.PendingImages.Select(p => new
+            {
+                floorId = p.FloorId, sourcePlanId = p.SourcePlanId,
+                swLat = p.SwLat, swLng = p.SwLng, neLat = p.NeLat, neLng = p.NeLng, rotationDeg = p.RotationDeg,
+            }).ToList());
+            _imagesPending = 0;
+            await OnImported.InvokeAsync(_result.BuildingId);
+        }
+    }
+
+    private async Task Close()
+    {
+        if (_step == Step.Place)
+        {
+            try { await JS.InvokeVoidAsync("innerspaceImport.hide"); } catch (JSDisconnectedException) { }
+        }
+        await OnClosed.InvokeAsync();
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        try { await JS.InvokeVoidAsync("innerspaceImport.hide"); }
+        catch (JSDisconnectedException) { }
+        catch (InvalidOperationException) { }
+        _selfRef?.Dispose();
+    }
+}

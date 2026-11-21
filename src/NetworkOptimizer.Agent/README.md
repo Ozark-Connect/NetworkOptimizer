@@ -353,7 +353,8 @@ end the tunnel after `Tunnel open`, which shows as `Tunnel error:` lines repeati
 Every installer makes this same tunnel check before it installs anything, and prints the result
 under **Checking the server**. It stops a first install in one case only: the certificate is not
 trusted, while the check with `-k` reaches a working tunnel. That install exits with status 3 and
-names `--insecure`, and the Proxmox installer removes the container it made. Every other result is a
+names `--insecure`. **Run It for Me** then offers **Accept a self-signed certificate (--insecure)**
+beside its button, and the Proxmox installer removes the container it made. Every other result is a
 warning, and the install continues.
 
 ### Upgrading
@@ -1040,6 +1041,24 @@ of a burst and the one before the exit each log an `Out of memory in ...` block:
 the stack trace, the GC's heap, committed, fragmented, and available sizes per
 generation, its configuration (hard limit, region range and size), the page
 size, and the process's `VmRSS` / `VmSize`. Include that block in a bug report.
+
+A gateway blocklist apply that runs out of memory restarts the agent on the
+first failure. Applies come minutes apart, so a burst never forms, and a failed
+apply leaves the public block list sets to drain as their entries time out. The
+fresh process re-applies them.
+
+### 64K memory pages (EFG, EF-Core, UDM-Beast, UXG-Enterprise)
+
+These gateways run a 64K-page kernel: the EFG, the EF-Core, the UDM-Beast, and
+the UXG-Enterprise (every Marvell OCTEON UniFi gateway; the other gateways and
+most Linux hosts use 4K pages). Some arm64 Linux servers run 64K-page kernels
+too. On a 64K-page kernel, .NET's default regions GC refuses large allocations
+while memory is free. The installers check `getconf PAGESIZE` on arm64, and on a
+64K-page host they download the segments GC module (`libclrgc-linux-arm64.so`,
+from the same release as the binary) and set `DOTNET_GCName=libclrgc.so` in
+the unit. The module must match the agent's .NET runtime, so the installer
+compares both files' runtime stamps first; a missing or mismatched module keeps
+the default GC. A 4K-page host never gets the setting.
 
 ## Local dev / testing
 

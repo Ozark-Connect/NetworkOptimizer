@@ -413,11 +413,13 @@ public sealed class ThreatBlockingService : BackgroundService, IPublicListLookup
             ? BlockingExceptions.Active(await BlockingExceptions.LoadAsync(accessor, site, ct), now)
             : [];
         PushToGatewayAgent(site, settings, desired, feeds, feedsOut, exceptions, now);
+        if (_gatewayResyncRequested.TryRemove(Key(site), out _))
+            ForgetGatewayWrites(site);
         await ReconcileTargetsAsync(site, services, accessor, settings, desired, feeds, now, ct);
         await EnsureZonePoliciesAsync(site, services, settings, now, ct);
         await ReconcileGatewayFeedsAsync(site, services, settings, consoleFeeds, consoleFeedsOut, now, ct);
         await ReconcileGatewayExceptionsAsync(site, services, settings, exceptions, now, ct);
-        await EnsureSourcePoliciesNewOnlyAsync(site, services, now, ct);
+        await EnsureSourcePoliciesNewOnlyAsync(site, services, settings, now, ct);
     }
 
     // The gateway target's fast path: the site's gateway agent holds the same blocks and public list
@@ -527,11 +529,25 @@ public sealed class ThreatBlockingService : BackgroundService, IPublicListLookup
 
     // Consoles set up before new-connections-only matching, or policies edited back in UniFi Network,
     // drop replies too. Checked hourly per site (one policy read); a failed check retries after 30 minutes.
-    private async Task EnsureSourcePoliciesNewOnlyAsync(string? site, IServiceProvider services, DateTime now, CancellationToken ct)
+    // Policies on a missing or retyped Network List refuse every write, so they are replaced first.
+    private async Task EnsureSourcePoliciesNewOnlyAsync(string? site, IServiceProvider services, BlockingSettings settings, DateTime now,
+        CancellationToken ct)
     {
         if (_policiesChecked.TryGetValue(Key(site), out var last)
             && now - last.At < (last.Ok ? TimeSpan.FromHours(1) : TimeSpan.FromMinutes(30))) return;
         if (services.GetService<IGatewayBlocklistWriter>() is not { } writer) return;
+        if (settings.TargetGateway)
+        {
+            try
+            {
+                if (await writer.RepairAsync(site, ct))
+                    ForgetGatewayWrites(site);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                _logger.LogWarning("Automatic Blocking: could not repair the gateway policies on {Site} ({Error})", site ?? SiteSlugs.Default, ex.Message);
+            }
+        }
         try
         {
             var changed = await writer.EnsureSourcePoliciesNewOnlyAsync(site, ct);
@@ -542,7 +558,7 @@ public sealed class ThreatBlockingService : BackgroundService, IPublicListLookup
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             _policiesChecked[Key(site)] = (now, false);
-            _logger.LogWarning(ex, "Automatic Blocking: could not narrow the gateway blocklist policies on {Site}", site ?? SiteSlugs.Default);
+            _logger.LogWarning("Automatic Blocking: could not narrow the gateway blocklist policies on {Site} ({Error})", site ?? SiteSlugs.Default, ex.Message);
         }
     }
 
@@ -746,7 +762,7 @@ public sealed class ThreatBlockingService : BackgroundService, IPublicListLookup
         try
         {
             if (await writer.EnsureZonePoliciesAsync(site, ct))
-                _exceptionsWritten.TryRemove(key, out _);
+                ForgetGatewayWrites(site);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -765,6 +781,29 @@ public sealed class ThreatBlockingService : BackgroundService, IPublicListLookup
     {
         _exceptionsWritten.TryRemove(Key(site), out _);
         TriggerConsoleSyncFor(site);
+    }
+
+    /// <summary>
+    /// As <see cref="ResyncExceptions"/>, and the site's Network Lists are written again too: a repair writes a retyped
+    /// group back empty, and an unchanged fingerprint would otherwise leave it so (null site = default site).
+    /// </summary>
+    public void ResyncGateway(string? site)
+    {
+        // The cycle alone touches the sent records, so it forgets them when it next runs for the site.
+        _gatewayResyncRequested[Key(site)] = true;
+        TriggerConsoleSyncFor(site);
+    }
+
+    private readonly ConcurrentDictionary<string, bool> _gatewayResyncRequested = new();
+
+    // A repair or a zone rewrite replaced policies or emptied a group: the next cycle writes the gateway's Network Lists
+    // and exceptions whatever their fingerprints say. Cycle thread only.
+    private void ForgetGatewayWrites(string? site)
+    {
+        var key = Key(site);
+        _sent.Remove((key, BlockTargetKind.Gateway));
+        _feedsSent.Remove(key);
+        _exceptionsWritten.TryRemove(key, out _);
     }
 
     /// <summary>The last write of a site's exception policies to its console, or null (null site = default site).</summary>

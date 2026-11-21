@@ -66,6 +66,7 @@ public class MonitoringCollectionAgent : BackgroundService
     private readonly ApAgent.ApAgentTelemetryCollector _apAgentTelemetry;
     private readonly ILoggerFactory _loggerFactory;
     private readonly ILogger<MonitoringCollectionAgent> _logger;
+    private readonly Auditing.IAuditLogger _audit;
     private readonly Licensing.LicenseStateService _licenseState;
     private readonly Monitoring.PathLocalization.PathEpisodeWatcher _pathEpisodes;
     private readonly string _siteSlug;
@@ -172,10 +173,12 @@ public class MonitoringCollectionAgent : BackgroundService
         SiteTunnelRouting tunnelRouting,
         ApAgent.ApAgentTelemetryRegistry apAgentTelemetryRegistry,
         Monitoring.PathLocalization.PathEpisodeRegistry pathEpisodeRegistry,
+        Auditing.IAuditLogger audit,
         ILoggerFactory loggerFactory,
         ILogger<MonitoringCollectionAgent> logger,
         string siteSlug = SiteManagementService.DefaultSiteSlug)
     {
+        _audit = audit;
         _dbFactory = dbFactory;
         _siteDbFactory = siteDbFactory;
         _tunnelRegistry = tunnelRegistry;
@@ -1970,6 +1973,22 @@ public class MonitoringCollectionAgent : BackgroundService
                         "Disabled latency probing for Flex 2.5G target {Name} ({Mac})",
                         current.Name, current.DeviceMac);
                 }
+                var before = current.Name;
+                if (ApplyConsoleName(current, d.Name))
+                {
+                    changed = true;
+                    _logger.LogInformation(
+                        "Fabric target {Mac} renamed from '{From}' to '{To}' to match the UniFi Console",
+                        current.DeviceMac, before, current.Name);
+                    _audit.Log(Auditing.AuditEventBuilder.FromSystem(
+                        NetworkOptimizer.Storage.Models.Identity.AuditCategories.Settings,
+                        NetworkOptimizer.Storage.Models.Identity.AuditActions.MonitoringSetupChanged,
+                        targetType: "monitoring_target",
+                        targetId: current.Id.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                        targetName: current.Name,
+                        siteSlug: _siteSlug,
+                        details: new { field = "Name", from = before, to = current.Name, reason = "Renamed in the UniFi Console" }));
+                }
                 continue;
             }
 
@@ -2114,6 +2133,20 @@ public class MonitoringCollectionAgent : BackgroundService
         if (isFlex25G) return false;
         if (predecessor == null) return true;
         return predecessor.EnabledBeforeRetire ?? predecessor.Enabled;
+    }
+
+    /// <summary>
+    /// Keeps a device's target named as the UniFi Console names the device. These names are not
+    /// editable in Network Optimizer (<see cref="Monitoring.MonitoringTargetNaming.IsConsoleNamed"/>),
+    /// so the console is their only source. A console with no name for the device leaves the name as
+    /// is. True when the name changed.
+    /// </summary>
+    internal static bool ApplyConsoleName(MonitoringTarget target, string? consoleName)
+    {
+        if (!Monitoring.MonitoringTargetNaming.IsConsoleNamed(target) || string.IsNullOrWhiteSpace(consoleName)) return false;
+        if (target.Name == consoleName) return false;
+        target.Name = consoleName;
+        return true;
     }
 
     /// <summary>
@@ -2826,6 +2859,13 @@ public class MonitoringCollectionAgent : BackgroundService
                                 gemPorts: stats.GemPorts,
                                 gemPortsEncrypted: stats.GemPortsEncrypted,
                                 ct: ct);
+                            await _ontAlertEvaluator.EvaluatePathLossAsync(
+                                config.Id, config.Name,
+                                PonSupplementalStats.PathLossDb(stats.OltLaunchPowerDbm, stats.RxPowerDbm), stats.OdnClass,
+                                sourceUrl: sfpUrl, ct: ct,
+                                priorLevel: OntAlertEvaluator.PriorPathLossFrom(
+                                    _influx, "sfp", ("device_mac", sfp.DeviceMac), ("port_name", sfp.PortName)),
+                                launchDbm: stats.OltLaunchPowerDbm);
                         }
                         catch (Exception ex)
                         {

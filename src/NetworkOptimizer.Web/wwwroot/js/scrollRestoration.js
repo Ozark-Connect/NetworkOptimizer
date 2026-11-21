@@ -4,10 +4,13 @@
 (function() {
     const scrollPositions = new Map();
     let isPopState = false;
+    // A page's own deep-link landing (a ?result= row, a chart link) ran since the last Back or Forward.
+    let landedSincePopState = false;
 
     // Detect back/forward navigation
     window.addEventListener('popstate', function() {
         isPopState = true;
+        landedSincePopState = false;
     });
 
     function getScrollContainer() {
@@ -50,17 +53,28 @@
             sessionStorage.removeItem(RELOAD_KEY);
         } catch { return; }
         if (!saved || saved.url !== currentUrl() || !(saved.top > 0)) return;
+        reapplyScrollTop(saved.top);
+    }
 
-        // Keep re-applying: data loads in after first paint, and the interactive render replaces
-        // the prerendered scroller, which resets it to 0. Any touch, wheel or key hands it back.
-        const target = saved.top;
+    // Keep re-applying a scroll position: data loads in after first paint (and on a reload the
+    // interactive render replaces the prerendered scroller, which resets it to 0), so a page still
+    // short of the target clamps one assignment. Any touch, wheel or key hands it back, and so does
+    // the next navigation (savePosition). Not a change of the address bar: multi-site re-stamps
+    // ?site= into it right after every navigation, which would stop this before the page loads.
+    // follow: Back's restore. The page tracks down as content arrives instead of waiting at the top for
+    // the target to exist, which on a tab that reloads its data (ISP Health) jumped seconds later.
+    let stopReapply = null;
+    function reapplyScrollTop(target, follow) {
+        if (stopReapply) stopReapply();
         const started = Date.now();
         const events = ['touchstart', 'wheel', 'pointerdown', 'keydown'];
         let timer = null;
         function stop() {
             clearInterval(timer);
             events.forEach(function(e) { window.removeEventListener(e, stop, true); });
+            if (stopReapply === stop) stopReapply = null;
         }
+        stopReapply = stop;
         events.forEach(function(e) { window.addEventListener(e, stop, { capture: true, passive: true }); });
         timer = setInterval(function() {
             const container = getScrollContainer();
@@ -68,7 +82,7 @@
             if (container) {
                 const max = container.scrollHeight - container.clientHeight;
                 // Short of the target, wait for content; at the deadline take the closest point.
-                if ((max >= target || done) && Math.abs(container.scrollTop - Math.min(target, max)) > 2) {
+                if ((max >= target || done || follow) && Math.abs(container.scrollTop - Math.min(target, max)) > 2) {
                     container.scrollTop = Math.min(target, max);
                 }
             }
@@ -94,10 +108,31 @@
         },
 
         savePosition: function(path) {
+            if (stopReapply) stopReapply();
             const container = getScrollContainer();
             if (container) {
                 scrollPositions.set(path, container.scrollTop);
             }
+        },
+
+        // Called from C# after a query-only navigation (a tab switch). Only Back or Forward moves the
+        // page: it returns to where that tab was left. Any other query change leaves the scroll alone.
+        // Called by the landing helpers (noHighlight, noLandOnRow, noLandOnChart, noTabScroll) as they scroll: a
+        // URL that names something to land on wins over the remembered position, on Back as on a click.
+        yieldToLanding: function() {
+            landedSincePopState = true;
+            if (stopReapply) stopReapply();
+        },
+
+        restoreIfPopState: function(url) {
+            if (!isPopState) return;
+            isPopState = false;
+            if (landedSincePopState) return;
+            var container = getScrollContainer();
+            var saved = scrollPositions.get(url);
+            if (!container || saved === undefined) return;
+            container.scrollTop = saved;
+            if (saved > 0) reapplyScrollTop(saved, true);
         },
 
         // Called from C# after navigation
@@ -107,8 +142,12 @@
             var hasFragment = !!window.location.hash;
 
             if (isPopState) {
+                isPopState = false;
+                if (landedSincePopState) return;
                 var saved = scrollPositions.get(path);
                 container.scrollTop = saved !== undefined ? saved : 0;
+                // The page coming back loads its data again, so it is often too short to hold the position yet.
+                if (saved > 0) reapplyScrollTop(saved, true);
                 isPopState = false;
                 return;
             }

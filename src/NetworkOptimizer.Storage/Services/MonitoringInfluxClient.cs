@@ -1822,15 +1822,30 @@ from(bucket: {FluxLiteral.Quote(_longtermBucket)})
         "pon_link_status", "pon_link_status_prev", "onu_id", "ds_fec_enabled", "us_fec_enabled",
         "onu_response_time", "sfp_uptime_s", "ploam_elapsed_ms", "bip_errors", "fec_errors", "fec_corrected_words",
         "hec_corrected", "hec_uncorrected", "bwmap_corrected", "bwmap_uncorrected",
-        "gem_tx_frames", "gem_tx_idle_frames", "gem_rx_frames", "gem_rx_dropped",
+        "gem_tx_frames", "gem_tx_idle_frames", "gem_rx_frames", "gem_rx_idle_frames", "ds_superframe", "gem_rx_dropped",
+        "alloc_total", "gem_tx_bytes", "us_bursts", "us_dbru", "o5_seconds", "not_o5_seconds", "o5_exits",
+        "los_events", "los_seconds", "lof_events", "lof_seconds", "olt_deactivations", "boot_count", "last_reset_reason",
+        "ont_bias_ma", "bias_warn_high_ma", "transceiver_alarm_count", "transceiver_alarms", "fec_corrected_bits", "omci_rx_frames", "mib_data_sync", "omci_up", "omci_services", "ploam_request_key", "ploam_key_switch", "ploam_ranging_time", "td_pir_bytes_s", "td_cir_bytes_s", "host_link_up", "eqd_bits", "pon_id_age_s", "cpu_busy_s", "cpu_total_s",
+        "ont_tx_power_dbm", "ont_temperature_c",
+        "ds_superframe_sampled", "gem_rx_bytes", "olt_launch_power_dbm", "odn_class", "reach_extender", "path_loss_db",
         "alloc_lost", "lan_link_status", "lan_mode",
         "lan_rx_fcs_err", "lan_tx_drop_events", "lan_buffer_overflow",
         "olt_vendor_id", "registration_status", "key_exchange_status", "firmware_version",
-        "olt_equipment_id", "olt_version", "aes_active", "gem_ports_encrypted",
+        "olt_equipment_id", "olt_version", "aes_active", "gem_ports_encrypted", "gem_ports",
     };
 
     private static readonly string PonFieldFilter =
         string.Join(" or ", PonFieldNames.Select(f => $@"r._field == {FluxLiteral.Quote(f)}"));
+
+    /// <summary>
+    /// The PON fields the PON load map reads: the idle frames against the superframe counter, the
+    /// FEC state that sets the payload, the uptime that marks a reboot, and the ONT's own bytes.
+    /// A month of points at this width instead of the whole PON set.
+    /// </summary>
+    private static readonly string PonLoadFieldFilter = string.Join(" or ", new[]
+    {
+        "gem_rx_idle_frames", "ds_superframe", "ds_superframe_sampled", "ds_fec_enabled", "sfp_uptime_s", "gem_rx_bytes",
+    }.Select(f => $@"r._field == {FluxLiteral.Quote(f)}"));
 
     /// <summary>Null when the row carries no PON field at all, which is every DDM-only module.</summary>
     private static PonSeriesPoint? ReadPonPoint(InfluxDB.Client.Core.Flux.Domain.FluxRecord record, DateTime time)
@@ -1857,6 +1872,49 @@ from(bucket: {FluxLiteral.Quote(_longtermBucket)})
             GemTxFrames = AsLongOrNull(record.GetValueByKey("gem_tx_frames")),
             GemTxIdleFrames = AsLongOrNull(record.GetValueByKey("gem_tx_idle_frames")),
             GemRxFrames = AsLongOrNull(record.GetValueByKey("gem_rx_frames")),
+            GemRxIdleFrames = AsLongOrNull(record.GetValueByKey("gem_rx_idle_frames")),
+            DsSuperframe = AsLongOrNull(record.GetValueByKey("ds_superframe")),
+            DsSuperframeSampled = AsLongOrNull(record.GetValueByKey("ds_superframe_sampled")),
+            GemRxBytes = AsLongOrNull(record.GetValueByKey("gem_rx_bytes")),
+            OltLaunchPowerDbm = AsDoubleOrNull(record.GetValueByKey("olt_launch_power_dbm")),
+            OdnClass = AsLongOrNull(record.GetValueByKey("odn_class")),
+            ReachExtender = AsLongOrNull(record.GetValueByKey("reach_extender")),
+            PathLossDb = AsDoubleOrNull(record.GetValueByKey("path_loss_db")),
+            AllocTotal = AsLongOrNull(record.GetValueByKey("alloc_total")),
+            BiasMa = AsDoubleOrNull(record.GetValueByKey("ont_bias_ma")),
+            BiasWarnHighMa = AsDoubleOrNull(record.GetValueByKey("bias_warn_high_ma")),
+            TransceiverAlarmCount = AsLongOrNull(record.GetValueByKey("transceiver_alarm_count")),
+            TransceiverAlarms = record.GetValueByKey("transceiver_alarms") as string,
+            FecCorrectedBits = AsLongOrNull(record.GetValueByKey("fec_corrected_bits")),
+            OmciRxFrames = AsLongOrNull(record.GetValueByKey("omci_rx_frames")),
+            MibDataSync = AsLongOrNull(record.GetValueByKey("mib_data_sync")),
+            OmciUp = AsLongOrNull(record.GetValueByKey("omci_up")),
+            OmciServices = AsLongOrNull(record.GetValueByKey("omci_services")),
+            PloamRequestKey = AsLongOrNull(record.GetValueByKey("ploam_request_key")),
+            PloamKeySwitch = AsLongOrNull(record.GetValueByKey("ploam_key_switch")),
+            PloamRangingTime = AsLongOrNull(record.GetValueByKey("ploam_ranging_time")),
+            TrafficPirBytesPerSecond = AsLongOrNull(record.GetValueByKey("td_pir_bytes_s")),
+            TrafficCirBytesPerSecond = AsLongOrNull(record.GetValueByKey("td_cir_bytes_s")),
+            HostLinkUp = AsLongOrNull(record.GetValueByKey("host_link_up")),
+            EqdBits = AsLongOrNull(record.GetValueByKey("eqd_bits")),
+            PonIdAgeSeconds = AsDoubleOrNull(record.GetValueByKey("pon_id_age_s")),
+            CpuBusySeconds = AsDoubleOrNull(record.GetValueByKey("cpu_busy_s")),
+            CpuTotalSeconds = AsDoubleOrNull(record.GetValueByKey("cpu_total_s")),
+            OntTxPowerDbm = AsDoubleOrNull(record.GetValueByKey("ont_tx_power_dbm")),
+            OntTemperatureC = AsDoubleOrNull(record.GetValueByKey("ont_temperature_c")),
+            GemTxBytes = AsLongOrNull(record.GetValueByKey("gem_tx_bytes")),
+            UsBursts = AsLongOrNull(record.GetValueByKey("us_bursts")),
+            UsDbru = AsLongOrNull(record.GetValueByKey("us_dbru")),
+            O5Seconds = AsDoubleOrNull(record.GetValueByKey("o5_seconds")),
+            NotO5Seconds = AsDoubleOrNull(record.GetValueByKey("not_o5_seconds")),
+            O5Exits = AsLongOrNull(record.GetValueByKey("o5_exits")),
+            LosEvents = AsLongOrNull(record.GetValueByKey("los_events")),
+            LosSeconds = AsDoubleOrNull(record.GetValueByKey("los_seconds")),
+            LofEvents = AsLongOrNull(record.GetValueByKey("lof_events")),
+            LofSeconds = AsDoubleOrNull(record.GetValueByKey("lof_seconds")),
+            OltDeactivations = AsLongOrNull(record.GetValueByKey("olt_deactivations")),
+            BootCount = AsLongOrNull(record.GetValueByKey("boot_count")),
+            LastResetReason = record.GetValueByKey("last_reset_reason") as string,
             GemRxDropped = AsLongOrNull(record.GetValueByKey("gem_rx_dropped")),
             AllocLost = AsLongOrNull(record.GetValueByKey("alloc_lost")),
             LanLinkStatus = AsLongOrNull(record.GetValueByKey("lan_link_status")),
@@ -1872,6 +1930,7 @@ from(bucket: {FluxLiteral.Quote(_longtermBucket)})
             OltVersion = record.GetValueByKey("olt_version") as string,
             AesActive = record.GetValueByKey("aes_active") as bool?,
             GemPortsEncrypted = AsLongOrNull(record.GetValueByKey("gem_ports_encrypted")),
+            GemPorts = AsLongOrNull(record.GetValueByKey("gem_ports")),
         };
     }
 
@@ -1906,6 +1965,56 @@ from(bucket: {FluxLiteral.Quote(_longtermBucket)})
         if (stats.GemTxFrames.HasValue) point = point.Field("gem_tx_frames", stats.GemTxFrames.Value);
         if (stats.GemTxIdleFrames.HasValue) point = point.Field("gem_tx_idle_frames", stats.GemTxIdleFrames.Value);
         if (stats.GemRxFrames.HasValue) point = point.Field("gem_rx_frames", stats.GemRxFrames.Value);
+        if (stats.GemRxIdleFrames.HasValue) point = point.Field("gem_rx_idle_frames", stats.GemRxIdleFrames.Value);
+        if (stats.DsSuperframe.HasValue) point = point.Field("ds_superframe", stats.DsSuperframe.Value);
+        if (stats.DsSuperframeSampled.HasValue) point = point.Field("ds_superframe_sampled", stats.DsSuperframeSampled.Value);
+        if (stats.GemRxBytes.HasValue) point = point.Field("gem_rx_bytes", stats.GemRxBytes.Value);
+        if (stats.OltLaunchPowerDbm.HasValue) point = point.Field("olt_launch_power_dbm", stats.OltLaunchPowerDbm.Value);
+        if (stats.OdnClass.HasValue) point = point.Field("odn_class", stats.OdnClass.Value);
+        if (stats.ReachExtender.HasValue) point = point.Field("reach_extender", stats.ReachExtender.Value);
+        // Launch power less the ONT's own RX reading from the same poll. Stored rather than derived
+        // at query time: the chart aggregates with fn: last, and the sfp series' rx_power_dbm can be
+        // the host device's DDM read of the module instead of the ONT's own.
+        if (PonSupplementalStats.PathLossDb(stats.OltLaunchPowerDbm, stats.RxPowerDbm) is double pathLoss)
+            point = point.Field("path_loss_db", pathLoss);
+        if (stats.BiasMa.HasValue) point = point.Field("ont_bias_ma", stats.BiasMa.Value);
+        if (stats.BiasWarnHighMa.HasValue) point = point.Field("bias_warn_high_ma", stats.BiasWarnHighMa.Value);
+        if (stats.TransceiverAlarmCount.HasValue) point = point.Field("transceiver_alarm_count", stats.TransceiverAlarmCount.Value);
+        if (!string.IsNullOrEmpty(stats.TransceiverAlarms)) point = point.Field("transceiver_alarms", stats.TransceiverAlarms);
+        if (stats.FecCorrectedBits.HasValue) point = point.Field("fec_corrected_bits", stats.FecCorrectedBits.Value);
+        if (stats.OmciRxFrames.HasValue) point = point.Field("omci_rx_frames", stats.OmciRxFrames.Value);
+        if (stats.MibDataSync.HasValue) point = point.Field("mib_data_sync", stats.MibDataSync.Value);
+        if (stats.OmciUp.HasValue) point = point.Field("omci_up", stats.OmciUp.Value);
+        if (stats.OmciServices.HasValue) point = point.Field("omci_services", stats.OmciServices.Value);
+        if (stats.PloamRequestKey.HasValue) point = point.Field("ploam_request_key", stats.PloamRequestKey.Value);
+        if (stats.PloamKeySwitch.HasValue) point = point.Field("ploam_key_switch", stats.PloamKeySwitch.Value);
+        if (stats.PloamRangingTime.HasValue) point = point.Field("ploam_ranging_time", stats.PloamRangingTime.Value);
+        if (stats.TrafficPirBytesPerSecond.HasValue) point = point.Field("td_pir_bytes_s", stats.TrafficPirBytesPerSecond.Value);
+        if (stats.TrafficCirBytesPerSecond.HasValue) point = point.Field("td_cir_bytes_s", stats.TrafficCirBytesPerSecond.Value);
+        if (stats.HostLinkUp.HasValue) point = point.Field("host_link_up", stats.HostLinkUp.Value);
+        if (stats.EqdBits.HasValue) point = point.Field("eqd_bits", stats.EqdBits.Value);
+        if (stats.PonIdAgeSeconds.HasValue) point = point.Field("pon_id_age_s", stats.PonIdAgeSeconds.Value);
+        if (stats.CpuBusySeconds.HasValue) point = point.Field("cpu_busy_s", stats.CpuBusySeconds.Value);
+        if (stats.CpuTotalSeconds.HasValue) point = point.Field("cpu_total_s", stats.CpuTotalSeconds.Value);
+        // The ONT's own TX power and temperature beside its bias current, so the three a laser's
+        // ageing is read from come from one poll. Only where the source reports a bias current.
+        if (stats.BiasMa.HasValue && stats.TxPowerDbm.HasValue) point = point.Field("ont_tx_power_dbm", stats.TxPowerDbm.Value);
+        // The ONT's own sensor, kept apart from the host device's DDM temperature_c on the sfp series:
+        // the two can sit well over 10 C apart on one stick.
+        if (stats.TemperatureC.HasValue) point = point.Field("ont_temperature_c", stats.TemperatureC.Value);
+        if (stats.GemTxBytes.HasValue) point = point.Field("gem_tx_bytes", stats.GemTxBytes.Value);
+        if (stats.UsBursts.HasValue) point = point.Field("us_bursts", stats.UsBursts.Value);
+        if (stats.UsDbru.HasValue) point = point.Field("us_dbru", stats.UsDbru.Value);
+        if (stats.O5Seconds.HasValue) point = point.Field("o5_seconds", stats.O5Seconds.Value);
+        if (stats.NotO5Seconds.HasValue) point = point.Field("not_o5_seconds", stats.NotO5Seconds.Value);
+        if (stats.O5Exits.HasValue) point = point.Field("o5_exits", stats.O5Exits.Value);
+        if (stats.LosEvents.HasValue) point = point.Field("los_events", stats.LosEvents.Value);
+        if (stats.LosSeconds.HasValue) point = point.Field("los_seconds", stats.LosSeconds.Value);
+        if (stats.LofEvents.HasValue) point = point.Field("lof_events", stats.LofEvents.Value);
+        if (stats.LofSeconds.HasValue) point = point.Field("lof_seconds", stats.LofSeconds.Value);
+        if (stats.OltDeactivations.HasValue) point = point.Field("olt_deactivations", stats.OltDeactivations.Value);
+        if (stats.BootCount.HasValue) point = point.Field("boot_count", stats.BootCount.Value);
+        if (!string.IsNullOrEmpty(stats.LastResetReason)) point = point.Field("last_reset_reason", stats.LastResetReason);
         if (stats.GemRxDropped.HasValue) point = point.Field("gem_rx_dropped", stats.GemRxDropped.Value);
         if (stats.AllocTotal.HasValue) point = point.Field("alloc_total", stats.AllocTotal.Value);
         if (stats.AllocLost.HasValue) point = point.Field("alloc_lost", stats.AllocLost.Value);
@@ -1948,9 +2057,6 @@ from(bucket: {FluxLiteral.Quote(_longtermBucket)})
 
 
         point = WritePonFields(point, stats);
-        // The ONT's own sensor, kept apart from the host device's DDM temperature_c on the same series:
-        // the two can sit well over 10 C apart on one stick.
-        if (stats.TemperatureC.HasValue) point = point.Field("ont_temperature_c", stats.TemperatureC.Value);
 
         Enqueue(point, longterm: true);
         return Task.CompletedTask;
@@ -3993,6 +4099,49 @@ from(bucket: {FluxLiteral.Quote(_longtermBucket)})
         public long? GemTxFrames { get; set; }
         public long? GemTxIdleFrames { get; set; }
         public long? GemRxFrames { get; set; }
+        public long? GemRxIdleFrames { get; set; }
+        public long? DsSuperframe { get; set; }
+        public long? DsSuperframeSampled { get; set; }
+        public long? GemRxBytes { get; set; }
+        public double? OltLaunchPowerDbm { get; set; }
+        public long? OdnClass { get; set; }
+        public long? ReachExtender { get; set; }
+        public double? PathLossDb { get; set; }
+        public long? AllocTotal { get; set; }
+        public double? BiasMa { get; set; }
+        public double? BiasWarnHighMa { get; set; }
+        public long? TransceiverAlarmCount { get; set; }
+        public string? TransceiverAlarms { get; set; }
+        public long? FecCorrectedBits { get; set; }
+        public long? OmciRxFrames { get; set; }
+        public long? MibDataSync { get; set; }
+        public long? OmciUp { get; set; }
+        public long? OmciServices { get; set; }
+        public long? PloamRequestKey { get; set; }
+        public long? PloamKeySwitch { get; set; }
+        public long? PloamRangingTime { get; set; }
+        public long? TrafficPirBytesPerSecond { get; set; }
+        public long? TrafficCirBytesPerSecond { get; set; }
+        public long? HostLinkUp { get; set; }
+        public long? EqdBits { get; set; }
+        public double? PonIdAgeSeconds { get; set; }
+        public double? CpuBusySeconds { get; set; }
+        public double? CpuTotalSeconds { get; set; }
+        public double? OntTxPowerDbm { get; set; }
+        public double? OntTemperatureC { get; set; }
+        public long? GemTxBytes { get; set; }
+        public long? UsBursts { get; set; }
+        public long? UsDbru { get; set; }
+        public double? O5Seconds { get; set; }
+        public double? NotO5Seconds { get; set; }
+        public long? O5Exits { get; set; }
+        public long? LosEvents { get; set; }
+        public double? LosSeconds { get; set; }
+        public long? LofEvents { get; set; }
+        public double? LofSeconds { get; set; }
+        public long? OltDeactivations { get; set; }
+        public long? BootCount { get; set; }
+        public string? LastResetReason { get; set; }
         public long? GemRxDropped { get; set; }
         public long? AllocLost { get; set; }
         public long? HecCorrected { get; set; }
@@ -4011,28 +4160,36 @@ from(bucket: {FluxLiteral.Quote(_longtermBucket)})
         public string? OltVersion { get; set; }
         public bool? AesActive { get; set; }
         public long? GemPortsEncrypted { get; set; }
+        /// <summary>GEM ports provisioned, the OMCI port included.</summary>
+        public long? GemPorts { get; set; }
     }
 
     /// <summary>
     /// Supplemental PON-layer time-series for a set of (device_mac, port_name) pairs.
     /// Only modules with an attached ONT config have these fields; others return no rows.
     /// Aggregates with fn: last (counters are cumulative - mean would distort deltas).
+    /// <paramref name="loadFieldsOnly"/> reads only what the PON load map needs.
     /// </summary>
     public async Task<Dictionary<string, List<PonSeriesPoint>>> QuerySfpPonByModulesAsync(
         IReadOnlyList<(string DeviceMac, string PortName)> modules,
         DateTime from,
         DateTime to,
         TimeSpan? aggregateWindow = null,
-        CancellationToken ct = default)
+        CancellationToken ct = default,
+        bool loadFieldsOnly = false)
     {
         if (!IsConfigured) await ReconfigureAsync(ct);
         if (!IsConfigured || modules.Count == 0) return new Dictionary<string, List<PonSeriesPoint>>();
-        var window = aggregateWindow ?? PickAggregateWindow(to - from);
+        // TimeSpan.Zero requests RAW points, one per poll, as QueryOntAsync does.
+        var raw = aggregateWindow == TimeSpan.Zero;
+        var window = (aggregateWindow is null or { Ticks: 0 }) ? PickAggregateWindow(to - from) : aggregateWindow.Value;
 
         var macFilter = string.Join(" or ", modules.Select(m =>
             $@"(r.device_mac == {FluxLiteral.Quote(NormalizeMac(m.DeviceMac))} and r.port_name == {FluxLiteral.Quote(m.PortName)})"));
 
-        var fieldFilter = PonFieldFilter;
+        var fieldFilter = loadFieldsOnly ? PonLoadFieldFilter : PonFieldFilter;
+        var aggregateLine = raw ? "" : $@"  |> aggregateWindow(every: {ToFluxDuration(window)}, fn: last, createEmpty: false)
+";
 
         var flux = $@"
 from(bucket: {FluxLiteral.Quote(_longtermBucket)})
@@ -4040,8 +4197,7 @@ from(bucket: {FluxLiteral.Quote(_longtermBucket)})
   |> filter(fn: (r) => r._measurement == ""sfp"")
   |> filter(fn: (r) => {macFilter})
   |> filter(fn: (r) => {fieldFilter})
-  |> aggregateWindow(every: {ToFluxDuration(window)}, fn: last, createEmpty: false)
-  |> pivot(rowKey:[""_time""], columnKey: [""_field""], valueColumn: ""_value"")
+{aggregateLine}  |> pivot(rowKey:[""_time""], columnKey: [""_field""], valueColumn: ""_value"")
 ";
         var results = new Dictionary<string, List<PonSeriesPoint>>();
         await foreach (var record in QueryFluxAsync(flux, ct))
@@ -4415,7 +4571,8 @@ union(tables: [gauges, peaks, deltas])
 
     /// <summary>
     /// Query external ONT metrics over a time range.
-    /// Returns dict keyed by ont_id.
+    /// Returns dict keyed by ont_id. <paramref name="ponLoadOnly"/> reads only the PON fields the
+    /// PON load map needs, and no DDM fields.
     /// </summary>
     public async Task<Dictionary<string, List<OntPoint>>> QueryOntAsync(
         DateTime from,
@@ -4423,8 +4580,10 @@ union(tables: [gauges, peaks, deltas])
         string? ontId = null,
         TimeSpan? aggregateWindow = null,
         bool includePon = false,
-        CancellationToken ct = default)
+        CancellationToken ct = default,
+        bool ponLoadOnly = false)
     {
+        if (ponLoadOnly) includePon = true;
         if (!IsConfigured) await ReconfigureAsync(ct);
         if (!IsConfigured) return new Dictionary<string, List<OntPoint>>();
         // TimeSpan.Zero requests RAW points so ISP Health gets per-poll FEC/BIP deltas comparable to
@@ -4445,6 +4604,7 @@ union(tables: [gauges, peaks, deltas])
             "rx_power_dbm", "tx_power_dbm", "temperature_c", "voltage_v", "bias_ma",
             "fec_errors", "bip_errors", "pon_link_status", "link_uptime_seconds",
         }.Select(f => $@"r._field == {FluxLiteral.Quote(f)}")) + (includePon ? $" or {PonFieldFilter}" : "");
+        if (ponLoadOnly) ontFieldFilter = PonLoadFieldFilter;
         var flux = $@"
 from(bucket: {FluxLiteral.Quote(_longtermBucket)})
   |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})

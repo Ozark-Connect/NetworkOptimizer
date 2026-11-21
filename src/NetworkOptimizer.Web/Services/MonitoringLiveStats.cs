@@ -617,7 +617,7 @@ public class MonitoringLiveStats
         lock (history) return history.Select(h => h.Rtt).ToList();
     }
 
-    /// <summary>Cached list of enabled ISP+Transit monitoring targets. Refreshed every 30s.</summary>
+    /// <summary>Cached list of enabled ISP+Transit monitoring targets, far transit left out. Refreshed every 30s.</summary>
     public async Task<List<(string TargetId, MonitoringTargetType TargetType, string? WanInterface)>> GetIspTransitTargetsAsync(
         CancellationToken ct = default)
     {
@@ -632,7 +632,9 @@ public class MonitoringLiveStats
             .Where(t => t.Enabled
                 && (t.TargetType == MonitoringTargetType.AccessIsp
                     || t.TargetType == MonitoringTargetType.Transit)
-                && (t.AsnNumber == null || !WellKnownAsns.NonTransitInfrastructure.Contains(t.AsnNumber.Value)))
+                && (t.AsnNumber == null || !WellKnownAsns.NonTransitInfrastructure.Contains(t.AsnNumber.Value))
+                // A far transit hop would lift the chart's mean by its distance alone.
+                && (t.TargetType != MonitoringTargetType.Transit || t.FarTransitAt == null))
             .Select(t => new { t.TargetId, t.TargetType, t.WanInterface })
             .ToListAsync(ct);
 

@@ -34,27 +34,37 @@ public interface ISignalSparklineService
     Task<IReadOnlyList<SparkPoint>?> GetCellularQualityAsync(int modemId);
 
     /// <summary>
-    /// The last hour of every Live View tile at once, from two queries: one for all the latency tiles
-    /// (Gateway, ISP, Transit; RTT and loss) and one for the gateway's health. Every tile passes the
-    /// same request, and callers asking at the same time share one fetch.
+    /// The last hour of every Live View tile at once, from three queries: one for all the latency
+    /// tiles (Gateway, ISP, Transit; RTT and loss), one for the gateway's health, and one for the WAN
+    /// rates. Every tile passes the same request, and callers asking at the same time share one fetch.
     /// </summary>
     [RequireRole(Roles.Viewer)]
     Task<LiveViewSparklines> GetLiveViewAsync(LiveViewSparkRequest request);
 }
 
 /// <summary>
-/// What Live View's tiles read: the gateway, its fabric target, and the ISP and Transit targets in the
-/// current WAN scope.
+/// What Live View's tiles read: the gateway, its fabric target, the ISP and Transit targets in the
+/// current WAN scope, and the gateway counter interfaces the WAN rate tiles sum.
 /// </summary>
 public sealed record LiveViewSparkRequest(
     string? GatewayMac,
     string? GatewayTargetId,
     IReadOnlyList<string> IspTargetIds,
-    IReadOnlyList<string> TransitTargetIds)
+    IReadOnlyList<string> TransitTargetIds,
+    IReadOnlyList<string>? WanCounterIfNames = null,
+    DateTime? At = null)
 {
-    /// <summary>Identity for caching: the same tiles in the same scope ask for the same thing.</summary>
+    /// <summary>
+    /// Where the hour ends: the playhead (UTC) while Live View plays back history, rounded up to the
+    /// minute so the seeks within one minute share a fetch; null is now.
+    /// </summary>
+    public DateTime? EndMinute => At is { } at
+        ? new DateTime((at.ToUniversalTime().Ticks + TimeSpan.TicksPerMinute - 1) / TimeSpan.TicksPerMinute * TimeSpan.TicksPerMinute, DateTimeKind.Utc)
+        : null;
+
+    /// <summary>Identity for caching: the same tiles in the same scope at the same minute ask for the same thing.</summary>
     public string Key =>
-        $"{GatewayMac}|{GatewayTargetId}|{string.Join(",", IspTargetIds.Order(StringComparer.Ordinal))}|{string.Join(",", TransitTargetIds.Order(StringComparer.Ordinal))}";
+        $"{GatewayMac}|{GatewayTargetId}|{string.Join(",", IspTargetIds.Order(StringComparer.Ordinal))}|{string.Join(",", TransitTargetIds.Order(StringComparer.Ordinal))}|{string.Join(",", (WanCounterIfNames ?? []).Order(StringComparer.Ordinal))}|{EndMinute?.Ticks}";
 }
 
 /// <summary>The Live View tiles that carry a sparkline.</summary>
@@ -62,6 +72,8 @@ public enum LiveViewSpark
 {
     GatewayRtt, GatewayLoss, GatewayCpu, GatewayMemory, GatewayTemperature,
     IspRtt, IspLoss, TransitRtt, TransitLoss,
+    /// <summary>The WAN rate tiles, in bits per second, summed over the selected WANs.</summary>
+    WanDownload, WanUpload,
 }
 
 /// <summary>Each Live View tile's last hour; a tile with no history has no entry.</summary>

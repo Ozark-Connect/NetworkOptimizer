@@ -17,6 +17,9 @@ window.fpEditor = {
     _wallHighlightLayer: null,
     _allWalls: [],
     _wallSelection: { wallIdx: null, segIdx: null },
+    _multiSel: null,          // [{ wi, si }] segments picked by Shift+drag or Shift+click
+    _wallsEditable: false,
+    _suppressClickUntil: 0,   // swallows the click the browser fires after a marquee drag
     _materialLabels: {},
     _materialColors: {},
     _placementHandler: null,
@@ -77,7 +80,8 @@ window.fpEditor = {
         // Edge zones are still calculated relative to the map container.
         this._edgePanHandler = function (e) {
             // Pause panning when hovering over any form input (select, button, etc.)
-            if (e.target && e.target.closest && (e.target.closest('select') || e.target.closest('input') || e.target.closest('button'))) {
+            if ((e.target && e.target.closest && (e.target.closest('select') || e.target.closest('input') || e.target.closest('button')))
+                || self._inToolboxArea(e.clientX, e.clientY)) {
                 self._edgePanDx = 0;
                 self._edgePanDy = 0;
                 self._stopEdgePanTimer();
@@ -121,6 +125,24 @@ window.fpEditor = {
         this._edgePanTarget.addEventListener('mousemove', this._edgePanHandler);
     },
 
+    // The top-left control column (zoom + toolbox) as one box, gaps included, plus a margin, so
+    // moving between its buttons never edge-pans the map.
+    _inToolboxArea: function (clientX, clientY) {
+        var m = this._map;
+        if (!m) return false;
+        var corner = m.getContainer().querySelector('.leaflet-top.leaflet-left');
+        if (!corner) return false;
+        var l = Infinity, t = Infinity, r = -Infinity, b = -Infinity;
+        corner.querySelectorAll('.leaflet-control').forEach(function (c) {
+            var rc = c.getBoundingClientRect();
+            if (rc.width === 0 && rc.height === 0) return;
+            l = Math.min(l, rc.left); t = Math.min(t, rc.top); r = Math.max(r, rc.right); b = Math.max(b, rc.bottom);
+        });
+        if (l === Infinity) return false;
+        var pad = 12;
+        return clientX >= l - pad && clientX <= r + pad && clientY >= t - pad && clientY <= b + pad;
+    },
+
     _stopEdgePanTimer: function () {
         if (this._edgePanDelayTimer) {
             clearTimeout(this._edgePanDelayTimer);
@@ -147,7 +169,25 @@ window.fpEditor = {
         var self = this;
         if (this._escHandler) return;
         this._escHandler = function (e) {
-            // Delete/Backspace: delete selected wall or segment
+            // Delete/Backspace: delete the multi-selection, or the selected wall or segment
+            var inField = e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT' || e.target.tagName === 'TEXTAREA');
+            // Delete/Backspace on an open AP popup: a planned AP is deleted, a placed AP (in
+            // Place/Edit APs) leaves the map. C# re-checks read-only and the mode.
+            var apTarget = self._apPopupTarget;
+            var apDeletable = apTarget && (apTarget.planned || self._toolboxState.mode === 'aps');
+            if ((e.key === 'Delete' || e.key === 'Backspace') && !inField && apDeletable && self._dotNetRef && self._toolboxState.editable) {
+                e.preventDefault();
+                self._apPopupTarget = null;
+                if (self._map) self._map.closePopup();
+                if (apTarget.planned) self._dotNetRef.invokeMethodAsync('OnPlannedApDeleteFromJs', apTarget.plannedId);
+                else if (self._toolboxState.mode === 'aps') self._dotNetRef.invokeMethodAsync('OnApRemoveFromJs', apTarget.mac);
+                return;
+            }
+            if ((e.key === 'Delete' || e.key === 'Backspace') && !inField && self._multiSel && self._multiSel.length > 0) {
+                e.preventDefault();
+                self.deleteMultiSel();
+                return;
+            }
             if ((e.key === 'Delete' || e.key === 'Backspace') && self._wallSelection && self._wallSelection.wallIdx !== null) {
                 e.preventDefault();
                 if (self._wallSelection.segIdx !== null) {
@@ -166,6 +206,7 @@ window.fpEditor = {
             if (self._activeMoveHandlers) {
                 m.off('mousemove', self._activeMoveHandlers.moveHandler);
                 m.off('click', self._activeMoveHandlers.finishHandler);
+                if (self._activeMoveHandlers.cancel) self._activeMoveHandlers.cancel();
                 self._stopEdgePan();
                 m.dragging.enable();
                 m.getContainer().style.cursor = '';
@@ -195,7 +236,11 @@ window.fpEditor = {
                 return;
             }
 
-            // Priority 5: Deselect wall segment/shape
+            // Priority 5: Deselect wall segment/shape or the multi-selection
+            if (self._multiSel && self._multiSel.length > 0) {
+                self._clearMultiSel();
+                return;
+            }
             if (self._wallSelection && (self._wallSelection.wallIdx !== null || self._wallSelection.segIdx !== null)) {
                 self._wallSelection = { wallIdx: null, segIdx: null };
                 if (self._wallHighlightLayer) self._wallHighlightLayer.clearLayers();
@@ -1031,6 +1076,71 @@ window.fpEditor = {
 
     // ── AP Markers ───────────────────────────────────────────────────
 
+    _apMarkers: {},
+
+    _apKey: function (ap) { return ap.isPlanned ? 'p' + ap.plannedId : 'm' + String(ap.mac).toLowerCase(); },
+
+    // Move above Remove, for the AP popup and the right-click menu. Move needs the AP's own floor.
+    _apActionButtons: function (ap) {
+        var key = this._apKey(ap).replace(/[^a-z0-9:p]/gi, '');
+        var move = '<button class="fp-ap-popup-move" onclick="fpEditor.moveAp(\'' + key + '\')"' +
+            (ap.sameFloor ? '' : ' disabled data-tooltip="Switch to this AP\'s floor to move it"') + '>Move</button>';
+        var remove = '<button class="fp-ap-popup-delete" onclick="fpEditor.removeAp(\'' + key + '\')">' +
+            (ap.isPlanned ? 'Remove Planned AP' : 'Remove from Map') + '</button>';
+        return move + remove;
+    },
+
+    // Move: the AP follows the pointer and lands on the next click. Esc puts it back.
+    moveAp: function (key) {
+        var self = this, m = this._map, entry = this._apMarkers[key];
+        if (!m || !entry || !entry.ap.sameFloor) return;
+        m.closePopup();
+        var mk = entry.marker, gm = entry.glow, ap = entry.ap;
+        var orig = mk.getLatLng();
+        var el = mk.getElement();
+        if (el) el.style.pointerEvents = 'none'; // the click that lands it must reach the map
+        m.getContainer().style.cursor = 'move';
+        // While it moves, nothing else on the map takes hover or clicks (building hit areas, walls, APs)
+        m.getContainer().classList.add('fp-ap-moving');
+        var done = function () {
+            m.off('mousemove', moveHandler);
+            m.off('click', finishHandler);
+            if (el) el.style.pointerEvents = '';
+            m.getContainer().style.cursor = '';
+            m.getContainer().classList.remove('fp-ap-moving');
+            self._activeMoveHandlers = null;
+        };
+        var moveHandler = function (e) { mk.setLatLng(e.latlng); gm.setLatLng(e.latlng); };
+        var finishHandler = function (e) {
+            done();
+            mk.setLatLng(e.latlng); gm.setLatLng(e.latlng);
+            if (ap.isPlanned) self._dotNetRef.invokeMethodAsync('OnPlannedApDragEndFromJs', ap.plannedId, e.latlng.lat, e.latlng.lng);
+            else self._dotNetRef.invokeMethodAsync('OnApDragEndFromJs', ap.mac, e.latlng.lat, e.latlng.lng);
+        };
+        // Deferred so the click on the Move button does not land the AP where it already is
+        setTimeout(function () {
+            m.on('mousemove', moveHandler);
+            m.on('click', finishHandler);
+            self._activeMoveHandlers = {
+                moveHandler: moveHandler, finishHandler: finishHandler,
+                cancel: function () {
+                    mk.setLatLng(orig); gm.setLatLng(orig);
+                    if (el) el.style.pointerEvents = '';
+                    m.getContainer().classList.remove('fp-ap-moving');
+                }
+            };
+        }, 0);
+    },
+
+    removeAp: function (key) {
+        var entry = this._apMarkers[key];
+        if (!entry || !this._dotNetRef) return;
+        this._map.closePopup();
+        this._apPopupTarget = null;
+        if (entry.ap.isPlanned) this._dotNetRef.invokeMethodAsync('OnPlannedApDeleteFromJs', entry.ap.plannedId);
+        else this._dotNetRef.invokeMethodAsync('OnApRemoveFromJs', entry.ap.mac);
+    },
+
     updateApMarkers: function (markersJson, draggable, band) {
         var m = this._map;
         if (!m) return;
@@ -1049,6 +1159,7 @@ window.fpEditor = {
         });
 
         this._apLayer.clearLayers();
+        this._apMarkers = {};
         this._apGlowLayer.clearLayers();
 
         var aps = JSON.parse(markersJson);
@@ -1253,8 +1364,7 @@ window.fpEditor = {
                 var plannedTag = '<span class="fp-ap-popup-planned-tag">Planned</span>';
                 var nameInput = '<input type="text" class="fp-ap-popup-name-input" value="' + esc(ap.name || ap.model) + '" ' +
                     'oninput="fpEditor._debouncedNameSave(' + ap.plannedId + ',this.value)" />';
-                var deleteBtn = '<div class="fp-ap-popup-divider"></div>' +
-                    '<button class="fp-ap-popup-delete" onclick="fpEditor._dotNetRef.invokeMethodAsync(\'OnPlannedApDeleteFromJs\',' + ap.plannedId + ')">Remove Planned AP</button>';
+                var deleteBtn = '<div class="fp-ap-popup-divider"></div>' + self._apActionButtons(ap);
 
                 marker.bindPopup(
                     '<div class="fp-ap-popup">' +
@@ -1305,9 +1415,31 @@ window.fpEditor = {
                     txPowerHtml +
                     antennaModeHtml +
                     disableApHtml +
+                    (self._toolboxState.editable ? '<div class="fp-ap-popup-divider"></div>' + self._apActionButtons(ap) : '') +
                     '</div></div>'
                 );
             }
+
+            // The AP whose popup is open is the Delete key's target
+            (function (target) {
+                marker.on('popupopen', function () { self._apPopupTarget = target; });
+                marker.on('popupclose', function () { if (self._apPopupTarget === target) self._apPopupTarget = null; });
+            })({ planned: !!isPlanned, plannedId: ap.plannedId, mac: ap.mac });
+
+            // Move / Remove from the popup buttons and the right-click menu
+            self._apMarkers[self._apKey(ap)] = { marker: marker, glow: glowMarker, ap: ap };
+            (function (apData) {
+                marker.on('contextmenu', function (e) {
+                    L.DomEvent.stopPropagation(e);
+                    if (e.originalEvent) e.originalEvent.preventDefault();
+                    if (!self._toolboxState.editable || self._isDrawing) return;
+                    m.closePopup();
+                    L.popup({ closeButton: false, autoPan: false, offset: [0, -14] })
+                        .setLatLng(e.target.getLatLng())
+                        .setContent('<div class="fp-ap-popup fp-ap-menu">' + self._apActionButtons(apData) + '</div>')
+                        .openOn(m);
+                });
+            })(ap);
 
             // Sync slider with current override each time popup opens (real APs only)
             if (!isPlanned) {
@@ -1537,6 +1669,7 @@ window.fpEditor = {
         }
 
         this._placementActive = enabled;
+        this._updateWallToolbox();
 
         if (enabled) {
             this._placementHandler = function (e) {
@@ -1590,9 +1723,11 @@ window.fpEditor = {
         var effectiveClickable = clickable && !this._placementActive;
         if (effectiveClickable) {
             var allPts = {};
+            var names = {};
             walls.forEach(function (wall) {
                 var id = wall._buildingId;
                 if (!id) return;
+                if (wall._buildingName) names[id] = wall._buildingName;
                 if (!allPts[id]) allPts[id] = [];
                 wall.points.forEach(function (p) { allPts[id].push(p); });
             });
@@ -1604,8 +1739,14 @@ window.fpEditor = {
                 }).addTo(self._bgHitAreaLayer);
                 var bldgId = parseInt(id);
                 poly.on('click', function () {
+                    // An InnerSpace import being placed owns the map until it is imported or cancelled.
+                    if (window.innerspaceImport && window.innerspaceImport._placement) return;
                     if (self._dotNetRef) self._dotNetRef.invokeMethodAsync('OnBgBuildingClicked', bldgId);
                 });
+                // "Tap" on touch-first devices, "Click" with a mouse
+                var verb = (window.matchMedia && window.matchMedia('(pointer: coarse)').matches) ? 'Tap' : 'Click';
+                poly.bindTooltip('<div class="trace-tip">' + verb + ' to edit ' + esc(names[id] || 'this building') + '</div>',
+                    { sticky: true, className: 'trace-map-tooltip', opacity: 1 });
                 poly.on('mouseover', function () { poly.setStyle({ fillOpacity: 0.15 }); });
                 poly.on('mouseout', function () { poly.setStyle({ fillOpacity: 0 }); });
             });
@@ -1614,7 +1755,7 @@ window.fpEditor = {
 
     // ── Wall Rendering ───────────────────────────────────────────────
 
-    updateWalls: function (wallsJson, colorsJson, labelsJson) {
+    updateWalls: function (wallsJson, colorsJson, labelsJson, editable) {
         var m = this._map;
         if (!m) return;
         var self = this;
@@ -1634,6 +1775,9 @@ window.fpEditor = {
         this._materialLabels = labels;
         this._materialColors = colors;
         this._wallSelection = { wallIdx: null, segIdx: null };
+        this._multiSel = null;
+        this._wallsEditable = editable === true; // the deselect path passes no flag: not editable
+        this._initWallMarquee();
 
         // Per-segment rendering
         walls.forEach(function (wall, wi) {
@@ -1644,13 +1788,7 @@ window.fpEditor = {
                     [[wall.points[i].lat, wall.points[i].lng], [wall.points[i + 1].lat, wall.points[i + 1].lng]],
                     { color: color, weight: 4, opacity: 0.9, pane: 'wallPane', interactive: true }
                 ).addTo(self._wallLayer);
-                seg._fpWallIdx = wi;
-                seg._fpSegIdx = i;
-                seg.on('click', function (e) {
-                    if (self._isDrawing) return; // Don't intercept clicks during wall drawing
-                    L.DomEvent.stopPropagation(e);
-                    self._wallSegClick(e, this._fpWallIdx, this._fpSegIdx);
-                });
+                self._bindSegEvents(seg, wi, i);
 
                 // Length labels
                 var p1 = wall.points[i];
@@ -1675,14 +1813,92 @@ window.fpEditor = {
             });
         });
 
+        this._updateWallToolbox();
+
         // Click on map (not on wall) clears selection
         if (!this._wallMapClickBound) {
             this._wallMapClickBound = true;
             m.on('click', function () {
+                if (Date.now() < self._suppressClickUntil) return;
                 self._wallHighlightLayer.clearLayers();
                 self._wallSelection = { wallIdx: null, segIdx: null };
+                self._multiSel = null;
             });
         }
+    },
+
+    // Wall popups never auto-pan: moving the map under the pointer put the popup's close button
+    // where the wall was, so "click again to select whole shape" closed the popup instead.
+    _wallPopupOpts: { closeButton: true, autoPan: false },
+
+    // Click and right-click for a wall segment; also bound to the wider hit lines over selected
+    // segments, so both behave the same.
+    _bindSegEvents: function (layer, wi, si) {
+        var self = this;
+        layer.on('click', function (e) {
+            if (self._isDrawing) return; // Don't intercept clicks during wall drawing
+            L.DomEvent.stopPropagation(e);
+            if (Date.now() < self._suppressClickUntil) return;
+            self._handleSegClick(e, wi, si);
+        });
+        // Right-click: group popup on a selected segment, else that segment's own popup
+        layer.on('contextmenu', function (e) {
+            if (self._isDrawing) return;
+            L.DomEvent.stopPropagation(e);
+            if (e.originalEvent) e.originalEvent.preventDefault();
+            if (self._inMultiSel(wi, si)) {
+                self._map.closePopup();
+                self._openMultiSelPopup(e.latlng);
+                return;
+            }
+            self._clearMultiSel();
+            self._wallSelection = { wallIdx: null, segIdx: null };
+            self._wallSegClick(e, wi, si);
+        });
+    },
+
+    // A click on segment si of wall wi. e needs latlng and originalEvent (shiftKey).
+    _handleSegClick: function (e, wi, si) {
+        if (e.originalEvent && e.originalEvent.shiftKey && this._wallsEditable) {
+            this._toggleMultiSel(wi, si, e.latlng);
+            return;
+        }
+        // First click on a selected segment opens the group popup; a click while it is
+        // open, or on any other segment, drops the group for a normal single selection.
+        // Leaflet closes the popup on preclick, before a native click runs, hence the closedAt window.
+        var popupWasOpen = this._multiSelPopup || (Date.now() - (this._multiSelPopupClosedAt || 0) < 300);
+        if (this._inMultiSel(wi, si) && !popupWasOpen) {
+            this._openMultiSelPopup(e.latlng);
+            return;
+        }
+        this._clearMultiSel();
+        this._wallSegClick(e, wi, si);
+    },
+
+    // Nearest wall segment within tolPx of a container point, or null.
+    _segAtPoint: function (pt, tolPx) {
+        var m = this._map;
+        var best = null, bestD = tolPx;
+        (this._allWalls || []).forEach(function (wall, wi) {
+            for (var si = 0; si < wall.points.length - 1; si++) {
+                var a = m.latLngToContainerPoint(L.latLng(wall.points[si].lat, wall.points[si].lng));
+                var b = m.latLngToContainerPoint(L.latLng(wall.points[si + 1].lat, wall.points[si + 1].lng));
+                var d = L.LineUtil.pointToSegmentDistance(pt, a, b);
+                if (d <= bestD) { bestD = d; best = { wi: wi, si: si }; }
+            }
+        });
+        return best;
+    },
+
+    // Highlight for a selected segment plus an invisible 18px hit line over it, so a selected wall
+    // is easy to click or right-click. The hit line sits in wallPane, above the 4px segment.
+    _addSelHighlight: function (wi, si, style) {
+        var wall = this._allWalls[wi];
+        var pts = [[wall.points[si].lat, wall.points[si].lng], [wall.points[si + 1].lat, wall.points[si + 1].lng]];
+        L.polyline(pts, L.extend({ interactive: false }, style)).addTo(this._wallHighlightLayer);
+        var hit = L.polyline(pts, { weight: 18, opacity: 0, pane: 'wallPane', interactive: true })
+            .addTo(this._wallHighlightLayer);
+        this._bindSegEvents(hit, wi, si);
     },
 
     // Two-level wall click handler: 1st click = segment, 2nd click (same wall) = whole shape
@@ -1697,12 +1913,9 @@ window.fpEditor = {
 
         // Level 2: clicking same wall again (already have a segment selected) -> select whole shape
         if (sel.wallIdx === wi && sel.segIdx !== null) {
-            // Select entire wall shape - highlight all segments with dashed blue
+            // Select entire wall shape - highlight all segments as a selection
             for (var j = 0; j < wall.points.length - 1; j++) {
-                L.polyline(
-                    [[wall.points[j].lat, wall.points[j].lng], [wall.points[j + 1].lat, wall.points[j + 1].lng]],
-                    { color: '#60a5fa', weight: 6, dashArray: '8,4', opacity: 0.9, interactive: false }
-                ).addTo(this._wallHighlightLayer);
+                this._addSelHighlight(wi, j, { color: '#facc15', weight: 8, opacity: 0.9 });
             }
             this._wallSelection = { wallIdx: wi, segIdx: null };
 
@@ -1711,22 +1924,19 @@ window.fpEditor = {
             for (var wk in labels) {
                 wallOpts += '<option value="' + wk + '"' + (wk === wall.material ? ' selected' : '') + '>' + labels[wk] + '</option>';
             }
-            var wallHtml = '<div style="text-align:center;min-width:180px">' +
+            var wallHtml = '<div style="text-align:center;min-width:180px;padding-top:14px">' +
                 '<select style="width:100%;padding:3px;margin-bottom:6px;background:#1e293b;color:#e0e0e0;border:1px solid #475569;border-radius:3px" ' +
                 'onchange="fpEditor.changeWallMat(' + wi + ',this.value)">' +
                 wallOpts + '</select><br/>' +
                 '<span style="font-size:11px;color:#94a3b8">' + (wall.points.length - 1) + ' segment' + (wall.points.length > 2 ? 's' : '') + '</span><br/>' +
                 '<button onclick="fpEditor.moveWall(' + wi + ')" style="margin-top:4px;padding:2px 10px;background:#4f46e5;color:#fff;border:none;border-radius:3px;cursor:pointer;margin-right:4px">Move</button>' +
                 '<button onclick="fpEditor.deleteWall(' + wi + ')" style="padding:2px 10px;background:#dc2626;color:#fff;border:none;border-radius:3px;cursor:pointer">Delete</button></div>';
-            L.popup({ closeButton: true }).setLatLng(e.latlng).setContent(wallHtml).openOn(m);
+            L.popup(this._wallPopupOpts).setLatLng(e.latlng).setContent(wallHtml).openOn(m);
             return;
         }
 
         // Level 1: first click on any wall -> select individual segment
-        L.polyline(
-            [[wall.points[si].lat, wall.points[si].lng], [wall.points[si + 1].lat, wall.points[si + 1].lng]],
-            { color: '#facc15', weight: 8, opacity: 0.9, interactive: false }
-        ).addTo(this._wallHighlightLayer);
+        this._addSelHighlight(wi, si, { color: '#facc15', weight: 8, opacity: 0.9 });
         this._wallSelection = { wallIdx: wi, segIdx: si };
 
         // Build material dropdown options
@@ -1740,16 +1950,20 @@ window.fpEditor = {
         var hintHtml = (wall.points.length > 2)
             ? '<div style="font-size:11px;color:#94a3b8;margin-bottom:4px">Click again to select whole shape</div>'
             : '';
+        if (this._wallsEditable)
+            hintHtml += '<div style="font-size:11px;color:#94a3b8;margin-bottom:4px">' +
+                (this._wallTool === 'select' ? 'Drag a box or Shift+click to select several' : 'Shift+click or Shift+drag to select several') +
+                '</div>';
 
         // Popup with material dropdown, split, and delete buttons
-        var html = '<div style="text-align:center;min-width:180px">' +
+        var html = '<div style="text-align:center;min-width:180px;padding-top:14px">' +
             hintHtml +
             '<select style="width:100%;padding:3px;margin-bottom:6px;background:#1e293b;color:#e0e0e0;border:1px solid #475569;border-radius:3px" ' +
             'onchange="fpEditor.changeSegMat(' + wi + ',' + si + ',this.value)">' +
             opts + '</select><br/>' +
             '<button onclick="fpEditor.splitSeg(' + wi + ',' + si + ')" style="padding:2px 10px;background:#4f46e5;color:#fff;border:none;border-radius:3px;cursor:pointer;margin-right:4px">Split</button>' +
             '<button onclick="fpEditor.deleteSeg(' + wi + ',' + si + ')" style="padding:2px 10px;background:#dc2626;color:#fff;border:none;border-radius:3px;cursor:pointer">Delete Seg</button></div>';
-        L.popup({ closeButton: true }).setLatLng(e.latlng).setContent(html).openOn(m);
+        L.popup(this._wallPopupOpts).setLatLng(e.latlng).setContent(html).openOn(m);
     },
 
     // ── Wall Operations (called from popup onclick) ──────────────────
@@ -1767,6 +1981,8 @@ window.fpEditor = {
     changeWallMat: function (wi, mat) {
         var wall = this._allWalls[wi];
         if (!wall) return;
+        // _keepSpanIfSameKind drops wall.spans once every band is gone, so re-check it each pass.
+        for (var s = 0; wall.spans && s < wall.spans.length; s++) this._keepSpanIfSameKind(wall, s, this._segMaterial(wall, s), mat);
         wall.material = mat;
         if (wall.materials) {
             for (var k = 0; k < wall.materials.length; k++) wall.materials[k] = mat;
@@ -1784,6 +2000,7 @@ window.fpEditor = {
             wall.materials = [];
             for (var k = 0; k < wall.points.length - 1; k++) wall.materials.push(wall.material);
         }
+        this._keepSpanIfSameKind(wall, si, wall.materials[si], mat);
         wall.materials[si] = mat;
         var allSame = true;
         for (var k2 = 0; k2 < wall.materials.length; k2++) {
@@ -1804,6 +2021,7 @@ window.fpEditor = {
         if (wall.materials) {
             wall.materials.splice(si, 0, wall.materials[si]);
         }
+        if (wall.spans) wall.spans.splice(si, 0, wall.spans[si] || null);
         this._map.closePopup();
         this._wallSelection = { wallIdx: null, segIdx: null };
         this._dotNetRef.invokeMethodAsync('SaveWallsFromJs', JSON.stringify(this._allWalls));
@@ -1814,15 +2032,31 @@ window.fpEditor = {
         if (!wall) return;
         // If only 1 segment (2 points), delete the entire wall
         if (wall.points.length <= 2) { this.deleteWall(wi); return; }
+        var n = wall.points.length - 1;
+        var f0 = wall.points[0], fN = wall.points[n];
+        // A closed outline missing one segment is one open path: start it after the gap, so
+        // redrawing the gap can rejoin it (see _joinAtEnds) instead of leaving two walls.
+        if (n >= 3 && f0.lat === fN.lat && f0.lng === fN.lng) {
+            var ring = wall.points.slice(0, n);
+            var mats = [], spans = [];
+            for (var k = 0; k < n; k++) { mats.push(this._segMaterial(wall, k)); spans.push((wall.spans && wall.spans[k]) || null); }
+            wall.points = ring.slice(si + 1).concat(ring.slice(0, si + 1));
+            wall.materials = mats.slice(si + 1).concat(mats.slice(0, si));
+            wall.spans = spans.slice(si + 1).concat(spans.slice(0, si));
+            wall.material = wall.materials[0];
+            this._collapseMaterials(wall);
+        }
         // First segment: remove first point
-        if (si === 0) {
+        else if (si === 0) {
             wall.points.splice(0, 1);
             if (wall.materials) wall.materials.splice(0, 1);
+            if (wall.spans) wall.spans.splice(0, 1);
         }
         // Last segment: remove last point
         else if (si === wall.points.length - 2) {
             wall.points.splice(wall.points.length - 1, 1);
             if (wall.materials) wall.materials.splice(si, 1);
+            if (wall.spans) wall.spans.splice(si, 1);
         }
         // Middle segment: split into two separate walls
         else {
@@ -1832,10 +2066,620 @@ window.fpEditor = {
                 wall1.materials = wall.materials.slice(0, si);
                 wall2.materials = wall.materials.slice(si + 1);
             }
+            if (wall.spans) {
+                wall1.spans = wall.spans.slice(0, si);
+                wall2.spans = wall.spans.slice(si + 1);
+            }
             this._allWalls.splice(wi, 1, wall1, wall2);
         }
         this._map.closePopup();
         this._wallSelection = { wallIdx: null, segIdx: null };
+        this._dotNetRef.invokeMethodAsync('SaveWallsFromJs', JSON.stringify(this._allWalls));
+    },
+
+    // ── Multi-segment selection (Shift+drag marquee, Shift+click) ────
+
+    // Shift+drag (or a drag with the Select tool) selects every wall segment the box touches. Runs in
+    // the capture phase and stops propagation so Leaflet's pan and box zoom never see the gesture.
+    // Leaflet 1.9 starts its drag on pointerdown wherever pointer events exist, so blocking mousedown
+    // alone lets the map pan: the gesture starts on pointerdown, and mousedown is the fallback.
+    _initWallMarquee: function () {
+        var m = this._map;
+        if (!m || this._marqueeBound) return;
+        this._marqueeBound = true;
+        var self = this;
+        var container = m.getContainer();
+        m.boxZoom.disable();
+        var usePointer = !!window.PointerEvent;
+        var DOWN = usePointer ? 'pointerdown' : 'mousedown';
+        var MOVE = usePointer ? 'pointermove' : 'mousemove';
+        var UP = usePointer ? 'pointerup' : 'mouseup';
+
+        // Holding Shift shows the Select tool's crosshair, so the box-select gesture is visible. The
+        // document listeners outlive a map, so they bind once and read the current map.
+        if (!this._shiftCursorBound) {
+            this._shiftCursorBound = true;
+            var setShiftCursor = function (on) {
+                if (self._map) self._map.getContainer().classList.toggle('fp-shift-select', on && !!self._selectUsable);
+            };
+            document.addEventListener('keydown', function (e) { if (e.key === 'Shift') setShiftCursor(true); });
+            document.addEventListener('keyup', function (e) { if (e.key === 'Shift') setShiftCursor(false); });
+            window.addEventListener('blur', function () { setShiftCursor(false); });
+        }
+
+        // The compatibility mousedown after a handled pointerdown must not reach Leaflet either
+        container.addEventListener('mousedown', function (e) {
+            if (self._marqueeActive) e.stopPropagation();
+        }, true);
+        // After a gesture the marquee handled itself, the browser's click must not reach Leaflet:
+        // its preclick would close the popup the gesture just opened.
+        container.addEventListener('click', function (e) {
+            if (Date.now() < self._swallowClickUntil) {
+                self._swallowClickUntil = 0;
+                e.stopPropagation();
+            }
+        }, true);
+
+        container.addEventListener(DOWN, function (e) {
+            if (usePointer && e.pointerType === 'touch') return;
+            if (e.button !== 0 || !(e.shiftKey || self._wallTool === 'select')) return;
+            if (!self._wallsEditable || self._isDrawing || self._placementActive || self._activeMoveHandlers || self._moveMarker) return;
+            if (!self._allWalls || self._allWalls.length === 0 || !self._wallLayer || self._wallLayer.getLayers().length === 0) return;
+            if (e.target.closest && e.target.closest('.leaflet-popup, .leaflet-control, .leaflet-marker-icon')) return;
+            e.stopPropagation();
+            e.preventDefault();
+
+            var additive = e.shiftKey;
+            var start = m.mouseEventToContainerPoint(e);
+            var rect = null;
+            self._marqueeActive = true;
+            var onMove = function (ev) {
+                var cur = m.mouseEventToContainerPoint(ev);
+                if (!rect && cur.distanceTo(start) < 4) return; // a click's jitter is not a drag
+                var bounds = L.latLngBounds(m.containerPointToLatLng(start), m.containerPointToLatLng(cur));
+                if (!rect) {
+                    rect = L.rectangle(bounds, { color: '#60a5fa', weight: 1, dashArray: '4,3', fillOpacity: 0.1, interactive: false }).addTo(m);
+                } else {
+                    rect.setBounds(bounds);
+                }
+            };
+            var onUp = function (ev) {
+                document.removeEventListener(MOVE, onMove);
+                document.removeEventListener(UP, onUp);
+                self._marqueeActive = false;
+                var end = m.mouseEventToContainerPoint(ev);
+                self._swallowClickUntil = Date.now() + 400;
+                if (!rect) {
+                    // No drag: this press is the click. Pick the segment with a 9px tolerance; an
+                    // empty spot clears the selection, as a map click does.
+                    var hit = self._segAtPoint(end, 9);
+                    if (hit) {
+                        self._handleSegClick({ latlng: m.containerPointToLatLng(end), originalEvent: ev }, hit.wi, hit.si);
+                    } else {
+                        self._map.closePopup();
+                        self._wallHighlightLayer.clearLayers();
+                        self._wallSelection = { wallIdx: null, segIdx: null };
+                        self._multiSel = null;
+                    }
+                    return;
+                }
+                m.removeLayer(rect);
+                self._suppressClickUntil = Date.now() + 300;
+                var box = {
+                    minX: Math.min(start.x, end.x), maxX: Math.max(start.x, end.x),
+                    minY: Math.min(start.y, end.y), maxY: Math.max(start.y, end.y)
+                };
+                var hits = [];
+                self._allWalls.forEach(function (wall, wi) {
+                    for (var si = 0; si < wall.points.length - 1; si++) {
+                        var a = m.latLngToContainerPoint(L.latLng(wall.points[si].lat, wall.points[si].lng));
+                        var b = m.latLngToContainerPoint(L.latLng(wall.points[si + 1].lat, wall.points[si + 1].lng));
+                        if (self._segHitsBox(a, b, box)) hits.push({ wi: wi, si: si });
+                    }
+                });
+                // Shift+drag adds to an existing multi-selection; a plain drag (Select tool) replaces it
+                var merged = additive ? self._currentSelList() : [];
+                hits.forEach(function (h) {
+                    if (!merged.some(function (s) { return s.wi === h.wi && s.si === h.si; })) merged.push(h);
+                });
+                self._showMultiSel(merged);
+            };
+            document.addEventListener(MOVE, onMove);
+            document.addEventListener(UP, onUp);
+        }, true);
+    },
+
+    // Map toolbox under the zoom control: Pan / Select, Draw Layout / Undo, APs / Planned APs.
+    // C# pushes its state (setToolboxState); the mode buttons call the toolbar's own toggles.
+    // Select makes a plain drag draw the selection box: the marquee's capture-phase handler stops
+    // the drag before Leaflet can pan, so map dragging itself stays on.
+    _toolboxState: { editable: false, floor: false, mode: 'view', apLabel: 'Place APs', planLabel: 'Add Planned APs' },
+
+    _toolIcons: {
+        pan: '<path d="M18 11V6a2 2 0 0 0-4 0v5"/><path d="M14 10V4a2 2 0 0 0-4 0v6"/><path d="M10 10.5V6a2 2 0 0 0-4 0v8"/><path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15"/>',
+        select: '<path d="M5 3a2 2 0 0 0-2 2"/><path d="M19 3a2 2 0 0 1 2 2"/><path d="M5 21a2 2 0 0 1-2-2"/><path d="M9 3h1"/><path d="M9 21h2"/><path d="M14 3h1"/><path d="M3 9v1"/><path d="M21 9v2"/><path d="M3 14v1"/><path d="m12 12 4 10 1.7-4.3L22 16Z"/>',
+        // A wall corner with a pen nib on its open end
+        draw: '<path d="M3 21V9h8"/><circle cx="3" cy="9" r="0.6" fill="currentColor"/><path d="M14.5 6.5 18 3l3 3-3.5 3.5"/><path d="M14.5 6.5 9 12l-1 4 4-1 5.5-5.5"/>',
+        undo: '<path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/>',
+        // AppIcon.razor's "check"
+        done: '<path d="M5 12.5l4.5 4.5L19 7.5"/>',
+        // AppIcon.razor's "access-point" puck (same paths and 1.6 stroke), so the toolbox AP matches
+        // the device cards and path-trace hops
+        aps: '<g stroke-width="1.6"><path d="M2.5 11v2.5c0 2.2 4.25 4 9.5 4s9.5-1.8 9.5-4V11" fill="currentColor" fill-opacity="0.18"/>' +
+            '<ellipse cx="12" cy="11" rx="9.5" ry="4" fill="currentColor" fill-opacity="0.35"/>' +
+            '<ellipse cx="12" cy="11" rx="2.4" ry="1"/></g>',
+        // Planned AP: the same puck, lighter, with the planned marker's orange (#f97316) plus badge,
+        // badged the way ApLockIcon.razor badges its AP (dashes turn to noise at 20px)
+        plan: '<g stroke-width="1.6" stroke-opacity="0.75"><path d="M2.5 11v2.5c0 2.2 4.25 4 9.5 4s9.5-1.8 9.5-4V11" fill="currentColor" fill-opacity="0.1"/>' +
+            '<ellipse cx="12" cy="11" rx="9.5" ry="4" fill="currentColor" fill-opacity="0.2"/>' +
+            '<ellipse cx="12" cy="11" rx="2.4" ry="1"/></g>' +
+            '<circle cx="19" cy="5" r="4.4" fill="#f97316" stroke="none"/>' +
+            '<path d="M19 3v4M17 5h4" stroke="#fff" stroke-width="1.6"/>'
+    },
+
+    _initWallToolbox: function () {
+        var m = this._map;
+        if (!m || this._wallToolbox) return;
+        var self = this;
+        var Toolbox = L.Control.extend({
+            options: { position: 'topleft' },
+            onAdd: function () {
+                var div = L.DomUtil.create('div', 'leaflet-bar fp-tool-control');
+                div.dataset.tour = 'signal-map-toolbox';
+                var btn = function (key, icon) {
+                    var sz = (icon === 'aps' || icon === 'plan') ? 20 : 16; // the flat puck needs the extra size
+                    return '<a href="#" role="button" data-tool="' + key + '" data-tooltip-hover-only>' +
+                        '<svg viewBox="0 0 24 24" width="' + sz + '" height="' + sz + '" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
+                        self._toolIcons[icon] + '</svg></a>';
+                };
+                div.innerHTML =
+                    '<div class="fp-tool-group" data-group="walls">' + btn('pan', 'pan') + btn('select', 'select') + '</div>' +
+                    '<div class="fp-tool-group" data-group="draw">' + btn('draw', 'draw') + btn('undo', 'undo') + '</div>' +
+                    '<div class="fp-tool-group" data-group="aps">' + btn('aps', 'aps') + btn('plan-aps', 'plan') + '</div>' +
+                    '<div class="fp-tool-group" data-group="done">' + btn('done', 'done') + '</div>';
+                L.DomEvent.disableClickPropagation(div);
+                L.DomEvent.on(div, 'click', function (e) {
+                    L.DomEvent.preventDefault(e);
+                    var a = e.target.closest('a[data-tool]');
+                    if (!a || a.classList.contains('disabled')) return;
+                    self._onToolboxClick(a.getAttribute('data-tool'));
+                });
+                return div;
+            }
+        });
+        this._wallToolbox = new Toolbox();
+        this._wallTool = 'pan';
+    },
+
+    setToolboxState: function (json) {
+        this._toolboxState = JSON.parse(json);
+        this._updateWallToolbox();
+    },
+
+    _onToolboxClick: function (tool) {
+        if (tool === 'pan' && this._isDrawing) { this._setDrawPan(!this._drawPan); return; }
+        if (tool === 'pan' || tool === 'select') { this._setWallTool(tool); return; }
+        if (tool === 'undo' && this._isDrawing) { this._undoLastPoint(); return; }
+        // Done ends the innermost thing in progress: the shape, then the mode, then the building's editing.
+        if (tool === 'done' && this._isDrawing && this._currentWall && this._currentWall.points.length > 0) {
+            this.commitCurrentWall();
+            return;
+        }
+        if (this._dotNetRef) this._dotNetRef.invokeMethodAsync('OnToolboxAction', tool);
+    },
+
+    // Undo while drawing: drops the last point of the shape in progress, or the last saved wall
+    // when no shape is in progress.
+    _undoLastPoint: function () {
+        var cw = this._currentWall;
+        if (!cw || cw.points.length === 0) { this.deleteLastWall(); return; }
+        cw.points.pop();
+        if (cw.materials && cw.materials.length > cw.points.length - 1) cw.materials.pop();
+        var dropLast = function (group) {
+            if (!group) return;
+            var layers = group.getLayers();
+            if (layers.length > 0) group.removeLayer(layers[layers.length - 1]);
+        };
+        dropLast(this._currentWallVertices);
+        if (cw.points.length >= 1) { dropLast(this._currentWallSegLines); dropLast(this._currentWallLabels); }
+        if (this._previewLine) { this._map.removeLayer(this._previewLine); this._previewLine = null; }
+        if (this._previewLengthLabel) { this._map.removeLayer(this._previewLengthLabel); this._previewLengthLabel = null; }
+        if (cw.points.length < 2) this._refAngle = null;
+    },
+
+    // Pan during Draw Layout: drag moves the map, a click still adds a point. Leaflet drops the
+    // click that ends a drag, so panning never places a point.
+    _setDrawPan: function (on) {
+        var m = this._map;
+        this._drawPan = !!on;
+        if (m && this._isDrawing) {
+            if (this._drawPan) m.dragging.enable(); else m.dragging.disable();
+            m.getContainer().style.cursor = this._drawPan ? '' : 'crosshair';
+        }
+        this._renderToolbox();
+    },
+
+    _setWallTool: function (tool) {
+        this._wallTool = tool === 'select' ? 'select' : 'pan';
+        this._renderToolbox();
+    },
+
+    // Shows the toolbox whenever the map can be edited. Pan / Select work only on a selected floor's
+    // walls outside Draw Layout and AP placement; leaving that state falls back to Pan, so no unseen
+    // Select stays active.
+    _updateWallToolbox: function () {
+        var m = this._map;
+        if (!m) return;
+        this._initWallToolbox();
+        var st = this._toolboxState;
+        var added = !!this._wallToolbox._map;
+        if (st.editable && !added) this._wallToolbox.addTo(m);
+        if (!st.editable && added) this._wallToolbox.remove();
+        var hasWalls = this._wallLayer && this._wallLayer.getLayers().length > 0;
+        this._selectUsable = st.editable && st.floor && this._wallsEditable && hasWalls && !this._isDrawing && !this._placementActive;
+        if (!this._selectUsable && !this._isDrawing) this._wallTool = 'pan';
+        this._renderToolbox();
+    },
+
+    _renderToolbox: function () {
+        var m = this._map;
+        if (!m) return;
+        var st = this._toolboxState;
+        var self = this;
+        var drawing = st.mode === 'walls';
+        var labels = {
+            pan: drawing ? 'Pan: drag to move the map while drawing' : 'Pan',
+            select: 'Select walls: drag a box (Shift adds), then click or right-click one to change material',
+            draw: drawing ? 'Done Drawing' : 'Draw Layout',
+            undo: drawing ? 'Undo Point' : 'Undo Wall',
+            aps: st.mode === 'aps' ? 'Done' : st.apLabel,
+            'plan-aps': st.mode === 'plan-aps' ? 'Done' : st.planLabel,
+            done: drawing ? (st.shape ? 'Finish Shape' : 'Done Drawing')
+                : (st.mode === 'aps' || st.mode === 'plan-aps') ? 'Done' : 'Done Editing'
+        };
+        var active = {
+            pan: drawing ? !!this._drawPan : (this._wallTool === 'pan' && st.mode !== 'aps' && st.mode !== 'plan-aps'),
+            select: this._wallTool === 'select' && this._selectUsable,
+            draw: drawing, undo: false, aps: st.mode === 'aps', 'plan-aps': st.mode === 'plan-aps'
+        };
+        var disabled = {
+            pan: false, select: !this._selectUsable,
+            draw: !st.floor, undo: !st.floor, aps: false, 'plan-aps': false
+        };
+        var el = this._wallToolbox && this._wallToolbox.getContainer();
+        if (el) {
+            el.querySelectorAll('a[data-tool]').forEach(function (a) {
+                var t = a.getAttribute('data-tool');
+                a.classList.toggle('active', !!active[t]);
+                a.classList.toggle('disabled', !!disabled[t]);
+                a.setAttribute('aria-label', labels[t]);
+                a.setAttribute('data-tooltip', labels[t]);
+                if (a._tippy) a._tippy.setContent(labels[t]);
+            });
+            el.querySelector('[data-group="draw"]').style.display = st.floor ? '' : 'none';
+            var editing = drawing || st.mode === 'aps' || st.mode === 'plan-aps' || !!st.building;
+            el.querySelector('[data-group="done"]').style.display = editing ? '' : 'none';
+            el.querySelector('[data-group="walls"] [data-tool="select"]').style.display = st.floor ? '' : 'none';
+        }
+        m.getContainer().classList.toggle('fp-tool-select', this._wallTool === 'select' && self._selectUsable);
+    },
+
+    // Liang-Barsky clip: true when segment a-b touches the box (container pixels).
+    _segHitsBox: function (a, b, box) {
+        var t0 = 0, t1 = 1, dx = b.x - a.x, dy = b.y - a.y;
+        var p = [-dx, dx, -dy, dy];
+        var q = [a.x - box.minX, box.maxX - a.x, a.y - box.minY, box.maxY - a.y];
+        for (var i = 0; i < 4; i++) {
+            if (p[i] === 0) { if (q[i] < 0) return false; continue; }
+            var r = q[i] / p[i];
+            if (p[i] < 0) { if (r > t1) return false; if (r > t0) t0 = r; }
+            else { if (r < t0) return false; if (r < t1) t1 = r; }
+        }
+        return true;
+    },
+
+    // The current selection as a segment list: the multi-selection, else the single segment or
+    // whole shape picked by a plain click, so Shift+click and Shift+drag add to it.
+    _currentSelList: function () {
+        var sel = (this._multiSel || []).slice();
+        var single = this._wallSelection;
+        if (sel.length === 0 && single && single.wallIdx !== null && this._allWalls[single.wallIdx]) {
+            if (single.segIdx !== null) {
+                sel.push({ wi: single.wallIdx, si: single.segIdx });
+            } else {
+                for (var k = 0; k < this._allWalls[single.wallIdx].points.length - 1; k++) sel.push({ wi: single.wallIdx, si: k });
+            }
+        }
+        return sel;
+    },
+
+    _toggleMultiSel: function (wi, si, latlng) {
+        var sel = this._currentSelList();
+        var idx = -1;
+        for (var i = 0; i < sel.length; i++) if (sel[i].wi === wi && sel[i].si === si) { idx = i; break; }
+        if (idx >= 0) sel.splice(idx, 1); else sel.push({ wi: wi, si: si });
+        this._showMultiSel(sel);
+    },
+
+    _clearMultiSel: function () {
+        if (!this._multiSel) return;
+        this._multiSel = null;
+        if (this._wallHighlightLayer) this._wallHighlightLayer.clearLayers();
+        if (this._map) this._map.closePopup();
+    },
+
+    _segMaterial: function (wall, si) {
+        return (wall.materials && si < wall.materials.length && wall.materials[si]) ? wall.materials[si] : wall.material;
+    },
+
+    // Highlights the selection only. The popup opens on a click or right-click on a selected segment:
+    // opening it at the end of a drag lost a race with Leaflet's close-popup-on-map-click.
+    _showMultiSel: function (sel) {
+        var m = this._map;
+        var self = this;
+        this._wallHighlightLayer.clearLayers();
+        m.closePopup();
+        this._wallSelection = { wallIdx: null, segIdx: null };
+        if (!sel || sel.length === 0) { this._multiSel = null; return; }
+        this._multiSel = sel;
+        sel.forEach(function (s) {
+            self._addSelHighlight(s.wi, s.si, { color: '#facc15', weight: 8, opacity: 0.9 });
+        });
+    },
+
+    _inMultiSel: function (wi, si) {
+        if (!this._multiSel) return false;
+        for (var i = 0; i < this._multiSel.length; i++) {
+            if (this._multiSel[i].wi === wi && this._multiSel[i].si === si) return true;
+        }
+        return false;
+    },
+
+    _openMultiSelPopup: function (latlng) {
+        var m = this._map;
+        var self = this;
+        var sel = this._multiSel;
+        if (!sel || sel.length === 0) return;
+        var mats = {};
+        sel.forEach(function (s) { mats[self._segMaterial(self._allWalls[s.wi], s.si)] = true; });
+        var matKeys = Object.keys(mats);
+        var common = matKeys.length === 1 ? matKeys[0] : null;
+
+        var labels = this._materialLabels;
+        var opts = common ? '' : '<option value="" selected disabled>Mixed materials</option>';
+        for (var k in labels) {
+            opts += '<option value="' + k + '"' + (k === common ? ' selected' : '') + '>' + labels[k] + '</option>';
+        }
+        var html = '<div style="text-align:center;min-width:180px;padding-top:14px">' +
+            '<select style="width:100%;padding:3px;margin-bottom:6px;background:#1e293b;color:#e0e0e0;border:1px solid #475569;border-radius:3px" ' +
+            'onchange="fpEditor.changeMultiMat(this.value)">' + opts + '</select><br/>' +
+            '<span style="font-size:11px;color:#94a3b8">' + sel.length + ' segment' + (sel.length !== 1 ? 's' : '') + '</span><br/>' +
+            (this._straightRun(sel) ? '<button onclick="fpEditor.mergeMultiSel()" style="margin-top:4px;padding:2px 10px;background:#4f46e5;color:#fff;border:none;border-radius:3px;cursor:pointer;margin-right:4px">Merge</button>' : '') +
+            '<button onclick="fpEditor.deleteMultiSel()" style="margin-top:4px;padding:2px 10px;background:#dc2626;color:#fff;border:none;border-radius:3px;cursor:pointer">Delete</button></div>';
+        var popup = L.popup(this._wallPopupOpts).setLatLng(latlng).setContent(html);
+        popup.on('remove', function () {
+            if (self._multiSelPopup !== popup) return;
+            self._multiSelPopup = null;
+            self._multiSelPopupClosedAt = Date.now();
+        });
+        this._multiSelPopup = popup;
+        popup.openOn(m);
+    },
+
+    changeMultiMat: function (mat) {
+        var self = this;
+        var sel = this._multiSel;
+        if (!sel || !mat) return;
+        sel.forEach(function (s) {
+            var wall = self._allWalls[s.wi];
+            if (!wall) return;
+            if (!wall.materials) {
+                wall.materials = [];
+                for (var k = 0; k < wall.points.length - 1; k++) wall.materials.push(wall.material);
+            }
+            self._keepSpanIfSameKind(wall, s.si, wall.materials[s.si], mat);
+            wall.materials[s.si] = mat;
+        });
+        this._allWalls.forEach(function (w) { self._collapseMaterials(w); });
+        this._clearMultiSel();
+        this._dotNetRef.invokeMethodAsync('SaveWallsFromJs', JSON.stringify(this._allWalls));
+    },
+
+    // Drops the per-segment list when every segment shares one material. Spans (an imported
+    // window's sill and head) are per segment too, so the list stays while any span is set.
+    _collapseMaterials: function (wall) {
+        if (wall.spans && !wall.spans.some(function (s) { return s; })) delete wall.spans;
+        if (wall.spans) return;
+        if (!wall.materials || wall.materials.length === 0) return;
+        var first = wall.materials[0];
+        for (var i = 1; i < wall.materials.length; i++) if (wall.materials[i] !== first) return;
+        wall.material = first;
+        delete wall.materials;
+    },
+
+    // A wall as a run of points with one material and span per segment, optionally reversed.
+    _asRun: function (wall, reverse) {
+        var pts = wall.points.slice(), mats = [], spans = [];
+        for (var k = 0; k < pts.length - 1; k++) {
+            mats.push(this._segMaterial(wall, k));
+            spans.push((wall.spans && wall.spans[k]) || null);
+        }
+        if (reverse) { pts.reverse(); mats.reverse(); spans.reverse(); }
+        return { points: pts, mats: mats, spans: spans };
+    },
+
+    // A drawn wall whose end lands on the open end of another wall joins it, so an outline opened
+    // by deleting a segment closes again when the gap is redrawn. The longer wall keeps its
+    // direction and the joined one turns to run with it: a wall's exterior face follows its
+    // direction, so a piece drawn the other way round would show inside out in 3D.
+    _joinAtEnds: function (wall) {
+        var self = this;
+        var near = function (a, b) {
+            return self._map.distance(L.latLng(a.lat, a.lng), L.latLng(b.lat, b.lng)) <= 0.05;
+        };
+        var closed = function (w) {
+            var p = w.points;
+            return p.length >= 4 && near(p[0], p[p.length - 1]);
+        };
+        var cur = wall;
+        for (var guard = 0; guard < 16 && !closed(cur); guard++) {
+            var joined = null;
+            for (var i = 0; i < this._allWalls.length && !joined; i++) {
+                var o = this._allWalls[i];
+                if (o === cur || o.points.length < 2 || closed(o)) continue;
+                var cs = cur.points[0], ce = cur.points[cur.points.length - 1];
+                var os = o.points[0], oe = o.points[o.points.length - 1];
+                var curLonger = cur.points.length >= o.points.length;
+                var a = null, b = null;
+                if (near(ce, os)) { a = this._asRun(cur, false); b = this._asRun(o, false); }
+                else if (near(cs, oe)) { a = this._asRun(o, false); b = this._asRun(cur, false); }
+                else if (near(ce, oe)) {
+                    if (curLonger) { a = this._asRun(cur, false); b = this._asRun(o, true); }
+                    else { a = this._asRun(o, false); b = this._asRun(cur, true); }
+                }
+                else if (near(cs, os)) {
+                    if (curLonger) { a = this._asRun(o, true); b = this._asRun(cur, false); }
+                    else { a = this._asRun(cur, true); b = this._asRun(o, false); }
+                }
+                if (!a) continue;
+                joined = {
+                    points: a.points.concat(b.points.slice(1)),
+                    material: a.mats[0],
+                    materials: a.mats.concat(b.mats),
+                    spans: a.spans.concat(b.spans)
+                };
+                this._allWalls = this._allWalls.filter(function (w) { return w !== cur && w !== o; });
+                this._allWalls.push(joined);
+                cur = joined;
+            }
+            if (!joined) break;
+        }
+        if (closed(cur)) {
+            var p0 = cur.points[0];
+            cur.points[cur.points.length - 1] = { lat: p0.lat, lng: p0.lng };
+        }
+        this._collapseMaterials(cur);
+        if (!cur.spans || !cur.spans.some(function (s) { return s; })) delete cur.spans;
+    },
+
+    // 'door', 'window', or null for a full-height wall material.
+    _openingKind: function (mat) {
+        if (typeof mat !== 'string') return null;
+        if (mat.indexOf('door_') === 0) return 'door';
+        if (mat.indexOf('window_') === 0) return 'window';
+        return null;
+    },
+
+    // A segment keeps its height band only while it stays the same kind of opening: a window
+    // re-paned keeps its measured sill and head, but a window turned door or wall loses it.
+    _keepSpanIfSameKind: function (wall, si, oldMat, newMat) {
+        if (!wall.spans) return;
+        var kind = this._openingKind(oldMat);
+        if (kind === null || kind !== this._openingKind(newMat)) wall.spans[si] = null;
+        if (!wall.spans.some(function (s) { return s; })) delete wall.spans;
+    },
+
+    // Removes the selected segments. Each wall splits into its runs of kept segments; on a closed
+    // shape the run that wraps past the start joins the first run.
+    deleteMultiSel: function () {
+        var sel = this._multiSel;
+        if (!sel || sel.length === 0) return;
+        this._removeSegments(sel);
+        this._clearMultiSel();
+        this._dotNetRef.invokeMethodAsync('SaveWallsFromJs', JSON.stringify(this._allWalls));
+    },
+
+    _removeSegments: function (sel) {
+        var self = this;
+        var drop = {};
+        sel.forEach(function (s) { drop[s.wi + ':' + s.si] = true; });
+
+        var result = [];
+        this._allWalls.forEach(function (wall, wi) {
+            var n = wall.points.length - 1;
+            var runs = [], run = null;
+            for (var si = 0; si < n; si++) {
+                if (drop[wi + ':' + si]) { run = null; continue; }
+                if (!run) { run = { points: [wall.points[si]], mats: [], spans: [] }; runs.push(run); }
+                run.points.push(wall.points[si + 1]);
+                run.mats.push(self._segMaterial(wall, si));
+                run.spans.push((wall.spans && wall.spans[si]) || null);
+            }
+            if (runs.length === 0) return;
+            var first = wall.points[0], last = wall.points[n];
+            var closed = n >= 3 && first.lat === last.lat && first.lng === last.lng;
+            if (runs.length === 1 && runs[0].mats.length === n) { result.push(wall); return; }
+            if (closed && runs.length > 1 && !drop[wi + ':0'] && !drop[wi + ':' + (n - 1)]) {
+                var head = runs.shift(), tail = runs.pop();
+                runs.push({ points: tail.points.concat(head.points.slice(1)), mats: tail.mats.concat(head.mats), spans: tail.spans.concat(head.spans) });
+            }
+            runs.forEach(function (r) {
+                var w = { points: r.points, material: r.mats[0], materials: r.mats, spans: r.spans };
+                self._collapseMaterials(w);
+                result.push(w);
+            });
+        });
+        this._allWalls = result;
+    },
+
+    // Selected segments of one material that lie on one straight line with no gap: the line's two
+    // ends, the material, and the shared height band (null unless every segment has the same one).
+    _straightRun: function (sel) {
+        var self = this, m = this._map;
+        if (!sel || sel.length < 2) return null;
+        var segs = sel.map(function (s) {
+            var w = self._allWalls[s.wi];
+            return { a: w.points[s.si], b: w.points[s.si + 1], mat: self._segMaterial(w, s.si), span: (w.spans && w.spans[s.si]) || null };
+        });
+        var mat = segs[0].mat, span = JSON.stringify(segs[0].span);
+        if (segs.some(function (g) { return g.mat !== mat; })) return null;
+        var sameSpan = segs.every(function (g) { return JSON.stringify(g.span) === span; });
+        // Local meters about the first point.
+        var o = segs[0].a, ky = m.distance(L.latLng(o.lat, o.lng), L.latLng(o.lat + 1e-4, o.lng)) / 1e-4;
+        var kx = m.distance(L.latLng(o.lat, o.lng), L.latLng(o.lat, o.lng + 1e-4)) / 1e-4;
+        var xy = function (p) { return { x: (p.lng - o.lng) * kx, y: (p.lat - o.lat) * ky, p: p }; };
+        var pts = [];
+        segs.forEach(function (g) { pts.push(xy(g.a), xy(g.b)); });
+        var P = null, Q = null, best = -1;
+        for (var i = 0; i < pts.length; i++) for (var j = i + 1; j < pts.length; j++) {
+            var d = Math.hypot(pts[i].x - pts[j].x, pts[i].y - pts[j].y);
+            if (d > best) { best = d; P = pts[i]; Q = pts[j]; }
+        }
+        if (best < 0.1) return null;
+        var ux = (Q.x - P.x) / best, uy = (Q.y - P.y) / best;
+        var spans = [];
+        for (var k = 0; k < pts.length; k++) {
+            var dx = pts[k].x - P.x, dy = pts[k].y - P.y;
+            if (Math.abs(dx * uy - dy * ux) > 0.15) return null;
+        }
+        segs.forEach(function (g) {
+            var ta = (xy(g.a).x - P.x) * ux + (xy(g.a).y - P.y) * uy;
+            var tb = (xy(g.b).x - P.x) * ux + (xy(g.b).y - P.y) * uy;
+            spans.push([Math.min(ta, tb), Math.max(ta, tb)]);
+        });
+        spans.sort(function (a, b) { return a[0] - b[0]; });
+        var reach = spans[0][0];
+        if (reach > 0.05) return null;
+        for (var n = 0; n < spans.length; n++) {
+            if (spans[n][0] > reach + 0.05) return null;
+            reach = Math.max(reach, spans[n][1]);
+        }
+        if (reach < best - 0.05) return null;
+        return { p: { lat: P.p.lat, lng: P.p.lng }, q: { lat: Q.p.lat, lng: Q.p.lng }, mat: mat, span: sameSpan ? segs[0].span : null };
+    },
+
+    // Merges a straight run of selected segments into one segment, rejoining the walls on either side.
+    mergeMultiSel: function () {
+        var sel = this._multiSel;
+        var run = this._straightRun(sel);
+        if (!run) return;
+        this._removeSegments(sel);
+        var w = { points: [run.p, run.q], material: run.mat };
+        if (run.span) { w.materials = [run.mat]; w.spans = [run.span]; }
+        this._allWalls.push(w);
+        this._joinAtEnds(w);
+        this._clearMultiSel();
+        if (this._map) this._map.closePopup();
         this._dotNetRef.invokeMethodAsync('SaveWallsFromJs', JSON.stringify(this._allWalls));
     },
 
@@ -2238,15 +3082,29 @@ window.fpEditor = {
 
     // ── Wall Drawing Mode ────────────────────────────────────────────
 
+    // A wall being drawn exists only here until it is committed; leaving the page drops it.
+    hasPendingWall: function () {
+        return !!(this._currentWall && this._currentWall.points && this._currentWall.points.length > 0);
+    },
+
     enterDrawMode: function (wallsJson) {
         var m = this._map;
         if (!m) return;
         var self = this;
 
         this._isDrawing = true;
+        if (!this._beforeUnload) {
+            this._beforeUnload = function (e) {
+                if (self.hasPendingWall()) { e.preventDefault(); e.returnValue = ''; }
+            };
+            window.addEventListener('beforeunload', this._beforeUnload);
+        }
+        this._clearMultiSel();
+        this._updateWallToolbox();
         this._allWalls = JSON.parse(wallsJson);
         this._distanceWarnShown = false;
         m.dragging.disable();
+        this._drawPan = false;
         this._startEdgePan();
         m.getContainer().style.cursor = 'crosshair';
 
@@ -2594,6 +3452,10 @@ window.fpEditor = {
         var m = this._map;
         if (!m) return;
         this._isDrawing = false;
+        if (this._beforeUnload) {
+            window.removeEventListener('beforeunload', this._beforeUnload);
+            this._beforeUnload = null;
+        }
 
         // Commit any in-progress wall (reuses same logic as Finish Shape)
         this.commitCurrentWall();
@@ -2601,11 +3463,13 @@ window.fpEditor = {
         // Tear down draw mode
         this._stopEdgePan();
         m.dragging.enable();
+        this._drawPan = false;
         m.getContainer().style.cursor = '';
         if (this._wallClickHandler) { m.off('click', this._wallClickHandler); this._wallClickHandler = null; }
         if (this._wallDblClickHandler) { m.off('dblclick', this._wallDblClickHandler); this._wallDblClickHandler = null; }
         if (this._wallMoveHandler) { m.off('mousemove', this._wallMoveHandler); this._wallMoveHandler = null; }
         m.doubleClickZoom.enable();
+        this._updateWallToolbox();
     },
 
     addWallPoint: function (lat, lng, material, color) {
@@ -2738,12 +3602,18 @@ window.fpEditor = {
                         targetWall.materials.splice(targetSi, 0, origMat, origMat);
                     }
                     targetWall.materials[targetSi + 1] = cw.material;
+                    if (targetWall.spans) {
+                        var origSpan = targetWall.spans[targetSi] || null;
+                        targetWall.spans.splice(targetSi, 0, origSpan, origSpan);
+                        targetWall.spans[targetSi + 1] = null;
+                    }
                     didSplit = true;
                 }
             }
 
             if (!didSplit) {
                 this._allWalls.push(cw);
+                this._joinAtEnds(cw);
             }
         }
 
@@ -3465,9 +4335,15 @@ window.fpEditor = {
         if (this._signalClusterGroup) this._signalClusterGroup.clearLayers();
         if (this._bgWallLayer) this._bgWallLayer.clearLayers();
         if (this._wallLayer) this._wallLayer.clearLayers();
+        this._multiSel = null;
+        this._updateWallToolbox();
     },
 
     destroy: function () {
+        if (this._beforeUnload) {
+            window.removeEventListener('beforeunload', this._beforeUnload);
+            this._beforeUnload = null;
+        }
         this._removeEscapeHandler();
         this._stopEdgePan();
         this.exitPositionMode();
@@ -3491,5 +4367,13 @@ window.fpEditor = {
         this._heatmapOverlay = null;
         this._contourLayer = null;
         this._signalClusterGroup = null;
+        // Bound to the removed map: the next initMap binds them again
+        this._marqueeBound = false;
+        this._wallMapClickBound = false;
+        this._wallToolbox = null;
+        this._multiSel = null;
+        this._apMarkers = {};
+        this._apPopupTarget = null;
+        this._activeMoveHandlers = null;
     }
 };

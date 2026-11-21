@@ -440,7 +440,26 @@ public static class RolloutPlanComposer
             && NetworkOptimizer.Core.Helpers.FirmwareVersionFormat.SameBuild(i.Version, version));
 
     /// <summary>How long a channel change is given to appear in the catalog.</summary>
-    private static readonly TimeSpan CatalogReflectWait = TimeSpan.FromSeconds(12);
+    internal static readonly TimeSpan CatalogReflectWait = TimeSpan.FromSeconds(12);
+
+    /// <summary>How often the catalog is re-read while waiting for a restage.</summary>
+    internal static readonly TimeSpan CatalogPollInterval = TimeSpan.FromSeconds(2);
+
+    /// <summary>
+    /// Test-only: replaces <see cref="CatalogReflectWait"/> when set, so tests that do not cover
+    /// the wait skip 12 s of real time per staged channel. Never set in production.
+    /// </summary>
+    internal static TimeSpan? CatalogReflectWaitOverride { get; set; }
+
+    private static Task<IReadOnlyList<NetworkOptimizer.UniFi.Models.UniFiFirmwareCatalogEntry>> WaitForCatalogAsync(
+        IFirmwareCommandClient commands,
+        IReadOnlyList<NetworkOptimizer.UniFi.Models.UniFiFirmwareCatalogEntry> before,
+        string channel,
+        ILogger? logger,
+        CancellationToken cancellationToken) =>
+        WaitForCatalogAsync(
+            commands, before, channel, CatalogReflectWaitOverride ?? CatalogReflectWait, CatalogPollInterval,
+            TimeProvider.System, logger, cancellationToken);
 
     /// <summary>
     /// Re-runs Check for Updates until the console has actually restaged for the channel just set.
@@ -454,10 +473,13 @@ public static class RolloutPlanComposer
     ///
     /// An empty catalog is never a restage: it is this app's own "could not read it" answer.
     /// </summary>
-    private static async Task<IReadOnlyList<NetworkOptimizer.UniFi.Models.UniFiFirmwareCatalogEntry>> WaitForCatalogAsync(
+    internal static async Task<IReadOnlyList<NetworkOptimizer.UniFi.Models.UniFiFirmwareCatalogEntry>> WaitForCatalogAsync(
         IFirmwareCommandClient commands,
         IReadOnlyList<NetworkOptimizer.UniFi.Models.UniFiFirmwareCatalogEntry> before,
         string channel,
+        TimeSpan wait,
+        TimeSpan pollInterval,
+        TimeProvider time,
         ILogger? logger,
         CancellationToken cancellationToken)
     {
@@ -468,12 +490,12 @@ public static class RolloutPlanComposer
         bool Restaged(IReadOnlyList<NetworkOptimizer.UniFi.Models.UniFiFirmwareCatalogEntry> c) =>
             c.Count > 0 && Fingerprint(c) != was;
 
-        var deadline = DateTime.UtcNow + CatalogReflectWait;
+        var deadline = time.GetUtcNow() + wait;
         var catalog = await commands.CheckForUpdatesAsync(cancellationToken);
 
-        while (!Restaged(catalog) && DateTime.UtcNow < deadline)
+        while (!Restaged(catalog) && time.GetUtcNow() < deadline)
         {
-            await Task.Delay(TimeSpan.FromSeconds(2), cancellationToken);
+            await Task.Delay(pollInterval, time, cancellationToken);
             catalog = await commands.CheckForUpdatesAsync(cancellationToken);
         }
 
@@ -482,7 +504,7 @@ public static class RolloutPlanComposer
             logger?.LogWarning(
                 "The console did not restage after moving devices to {Channel} within {Seconds}s; "
                 + "versions may still describe the previous channel",
-                channel, CatalogReflectWait.TotalSeconds);
+                channel, wait.TotalSeconds);
         }
 
         return catalog;
