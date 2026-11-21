@@ -130,7 +130,7 @@ SFP-based ONT monitoring (modules plugged into your gateway that expose DDM opti
 **Cellular Modems** - RSRP, RSRQ, SNR, and Signal Quality charted over time with per-band, per-device series and filter badges.
 
 - **Ubiquiti** - U-LTE, U5G-Max, U5G-Backup, and the UDR-5G-Max's built-in modem (over Gateway SSH)
-- **Netgear Nighthawk** - modems and hotspots (MR5200, M6)
+- **Netgear Nighthawk / LM series** - modems and hotspots (MR5200, M6, LM1200)
 - **GL-iNet / Quectel** - modems and routers (GL-X3000, GL-XE3000, GL-X2000, GL-E750V2, GL-E5800 Mudi 7)
 - **Inseego** - FX4100 5G gateway
 - **MikroTik** - RouterOS 7 LTE/5G routers over SSH
