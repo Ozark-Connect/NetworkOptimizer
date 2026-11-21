@@ -51,7 +51,8 @@ public class PerfTweaksDeploymentService : IPerfTweaksDeploymentService
         ["postgresql-backup"] = "09-postgresql-ssd-backup.sh",
         ["journald-volatile"] = "10-journald-volatile.sh",
         ["sfp-sgmiiplus-port6"] = "19-sfp-sgmiiplus-eth5.sh",
-        ["sfp-sgmiiplus"] = "20-sfp-sgmiiplus.sh"
+        ["sfp-sgmiiplus"] = "20-sfp-sgmiiplus.sh",
+        ["lan-ntp-server"] = "35-lan-ntp-server.sh"
     };
 
     // Additional boot scripts a tweak deploys beyond its primary, for out-of-date
@@ -222,7 +223,7 @@ public class PerfTweaksDeploymentService : IPerfTweaksDeploymentService
                 "echo '---GATEWAY_MODEL---'; ubnt-device-info model_short 2>/dev/null || (grep -i '^shortname=' /proc/ubnthal/system.info 2>/dev/null | cut -d= -f2-) || echo 'unknown'; echo; " +
                 "echo '---FIRMWARE_VERSION---'; ubnt-device-info firmware 2>/dev/null || (grep -i '^version=' /etc/os-release 2>/dev/null | cut -d= -f2- | tr -d '\"') || echo 'unknown'; echo; " +
                 // Boot script hashes (for version checking)
-                $"echo '---SCRIPT_HASHES---'; for s in 15-fan-control-tuning.sh 06-mongodb-ssd-offload.sh 07-mongodb-ssd-backup.sh 08-postgresql-ssd-offload.sh 09-postgresql-ssd-backup.sh 10-journald-volatile.sh 19-sfp-sgmiiplus-eth5.sh 20-sfp-sgmiiplus.sh; do [ -f {OnBootDir}/$s ] && echo \"$s:$(md5sum {OnBootDir}/$s | cut -d' ' -f1)\"; done; " +
+                $"echo '---SCRIPT_HASHES---'; for s in 15-fan-control-tuning.sh 06-mongodb-ssd-offload.sh 07-mongodb-ssd-backup.sh 08-postgresql-ssd-offload.sh 09-postgresql-ssd-backup.sh 10-journald-volatile.sh 19-sfp-sgmiiplus-eth5.sh 20-sfp-sgmiiplus.sh 35-lan-ntp-server.sh; do [ -f {OnBootDir}/$s ] && echo \"$s:$(md5sum {OnBootDir}/$s | cut -d' ' -f1)\"; done; " +
                 // Fan control
                 $"echo '---FAN_BOOT_SCRIPT---'; test -f {OnBootDir}/15-fan-control-tuning.sh && echo 'exists' || echo 'missing'; " +
                 "echo '---FAN_PWM---'; cat /sys/class/hwmon/hwmon0/pwm1 2>/dev/null || echo 'N/A'; " +
@@ -290,7 +291,19 @@ public class PerfTweaksDeploymentService : IPerfTweaksDeploymentService
                 "echo '---SFP_CLOCK_RATE---'; cat /sys/kernel/debug/clk/uniphy1_gcc_tx_clk/clk_rate 2>/dev/null || echo 'N/A'; " +
                 $"echo '---SFP_SERDES_REG---'; if [ -f {OnBootDir}/20-sfp-sgmiiplus.sh ] || lsmod | grep -q force_uniphy1_sgmiiplus; then busybox devmem 0x07A10218 32 2>/dev/null || echo 'N/A'; else echo 'N/A'; fi; " +
                 "echo '---SFP_ETH6_SPEED---'; ethtool eth6 2>/dev/null | grep Speed | awk '{print $2}' || echo 'N/A'; " +
-                "echo '---SFP_LOG---'; tail -3 /var/log/sfp-sgmiiplus.log 2>/dev/null || echo 'no log'";
+                "echo '---SFP_LOG---'; tail -3 /var/log/sfp-sgmiiplus.log 2>/dev/null || echo 'no log'; " +
+                // LAN NTP server: chronyd answers chronyc on its Unix socket; the journal only when it is not running
+                $"echo '---NTP_SRV_BOOT_SCRIPT---'; test -f {OnBootDir}/35-lan-ntp-server.sh && echo 'exists' || echo 'missing'; " +
+                // Gateways without the tweak skip the rest
+                $"if [ -f {OnBootDir}/35-lan-ntp-server.sh ] || [ -f /etc/systemd/system/lan-ntp-server.service ]; then " +
+                "echo '---NTP_SRV_SERVICE---'; systemctl show -p SubState --value lan-ntp-server 2>/dev/null || echo 'dead'; " +
+                $"echo '---NTP_SRV_TRACKING---'; timeout 5 {LanNtpChronyc} tracking 2>&1 || echo 'failed'; " +
+                $"echo '---NTP_SRV_STATS---'; timeout 5 {LanNtpChronyc} serverstats 2>&1 || echo 'failed'; " +
+                "echo '---NTP_SRV_SOCKETS---'; /data/lan-ntp-server/helper.sh check-sockets 2>&1; " +
+                "echo '---NTP_SRV_TIMER---'; systemctl is-active lan-ntp-server-refresh.timer 2>/dev/null || true; " +
+                "echo '---NTP_SRV_LOG---'; systemctl is-active --quiet lan-ntp-server || journalctl -u lan-ntp-server -n 2 -o cat --no-pager 2>/dev/null; " +
+                "echo '---NTP_SRV_NOW---'; date +%s; " +
+                "fi";
 
             var result = await RunCommandAsync(combinedCommand, TimeSpan.FromSeconds(25));
             if (!result.success)
@@ -500,6 +513,8 @@ public class PerfTweaksDeploymentService : IPerfTweaksDeploymentService
         }
         status.Tweaks["journald-volatile"] = journaldStatus;
 
+        status.Tweaks["lan-ntp-server"] = ParseLanNtpServerStatus(sections);
+
         // qca-ssdk is shared between both SFP ports
         var sfpQcaSsdkLoaded = GetSection(sections, "SFP_QCA_SSDK").Trim() == "loaded";
         status.SfpQcaSsdkMissing = !sfpQcaSsdkLoaded;
@@ -634,6 +649,104 @@ public class PerfTweaksDeploymentService : IPerfTweaksDeploymentService
         }
     }
 
+    // chronyc in machine-readable form against the service's own socket (cmdport 0: no UDP port)
+    private const string LanNtpChronyc = "/data/lan-ntp-server/bin/chronyc -n -c -h /run/lan-ntp-server/chronyd.sock";
+
+    // chronyd's sources poll every 17 min at most; an hour without an update means it lost them
+    private const int LanNtpServerStaleSeconds = 3600;
+
+    // Stops the service and its refresh timer before deleting them, or Restart=always brings
+    // chronyd back, and reports "removed" only once nothing of it is left. DHCP option 42 in
+    // UniFi Network is the user's to undo.
+    private const string LanNtpServerRemoveCommand =
+        $"rm -f {OnBootDir}/35-lan-ntp-server.sh; " +
+        // The refresh first: a run already under way could otherwise restart chronyd mid-removal
+        "systemctl disable --now lan-ntp-server-refresh.timer 2>/dev/null; " +
+        "systemctl stop lan-ntp-server-refresh.service 2>/dev/null; " +
+        "systemctl disable --now lan-ntp-server 2>/dev/null; " +
+        "rm -f /etc/systemd/system/lan-ntp-server.service /etc/systemd/system/lan-ntp-server-refresh.service " +
+        "/etc/systemd/system/lan-ntp-server-refresh.timer; " +
+        "systemctl daemon-reload; " +
+        "rm -rf /data/lan-ntp-server /run/lan-ntp-server; " +
+        $"if [ ! -e {OnBootDir}/35-lan-ntp-server.sh ] && [ ! -e /etc/systemd/system/lan-ntp-server.service ] " +
+        "&& [ ! -e /etc/systemd/system/lan-ntp-server-refresh.timer ] && [ ! -e /data/lan-ntp-server ] " +
+        "&& case \"$(systemctl is-active lan-ntp-server 2>/dev/null)\" in active|activating|deactivating|reloading) false ;; esac; " +
+        "then echo 'removed'; fi";
+
+    private static TweakDeploymentStatus ParseLanNtpServerStatus(Dictionary<string, string> sections)
+    {
+        var tweak = new TweakDeploymentStatus { Id = "lan-ntp-server" };
+        tweak.BootScriptDeployed = GetSection(sections, "NTP_SRV_BOOT_SCRIPT").Contains("exists");
+        var subState = GetSection(sections, "NTP_SRV_SERVICE").Trim();
+        // start-pre: waiting for timesyncd's first sync before chronyd starts
+        var running = subState == "running";
+        var waiting = subState == "start-pre";
+        tweak.RuntimeDetected = running || waiting;
+        if (!tweak.BootScriptDeployed && !tweak.RuntimeDetected)
+            return tweak;
+
+        if (waiting)
+        {
+            // Normal for up to two minutes after a boot, not an issue
+            tweak.HealthChecks.Add(new("Service", "Waiting for the gateway's first time sync", HealthCheckStatus.Warning));
+            tweak.IsActive = tweak.BootScriptDeployed;
+            return tweak;
+        }
+        if (!running)
+        {
+            tweak.HealthChecks.Add(new("Service", "Not running", HealthCheckStatus.Error));
+            var log = GetSection(sections, "NTP_SRV_LOG").Trim();
+            if (log.Length > 0)
+                tweak.IssueDescription = log;
+            return tweak;
+        }
+        tweak.HealthChecks.Add(new("Service", "Running", HealthCheckStatus.Ok));
+        // chronyd keeps running when UDP 123 is taken for one address family and serves the other alone
+        var sockets = GetSection(sections, "NTP_SRV_SOCKETS").Trim();
+        var socketsOk = sockets == "ok";
+        if (!socketsOk)
+        {
+            tweak.HealthChecks.Add(new("Port 123", "Not listening", HealthCheckStatus.Error));
+            tweak.IssueDescription = sockets.Length > 0 ? sockets : "No socket check reported";
+        }
+        // Without the timer new networks, a new IPv6 prefix or changed NTP servers are not picked up
+        if (GetSection(sections, "NTP_SRV_TIMER").Trim() != "active")
+            tweak.HealthChecks.Add(new("Refresh Timer", "Not running", HealthCheckStatus.Warning));
+
+        var tracking = LanNtpTracking.Parse(GetSection(sections, "NTP_SRV_TRACKING"));
+        if (tracking == null)
+        {
+            tweak.HealthChecks.Add(new("Status", "chronyd not answering", HealthCheckStatus.Error));
+            tweak.IssueDescription = GetSection(sections, "NTP_SRV_TRACKING").Trim();
+            return tweak;
+        }
+
+        if (!tracking.Synchronized)
+        {
+            // Clients get "unsynchronized" replies and fall back to their other servers
+            tweak.HealthChecks.Add(new("Clock", "Not synchronized yet", HealthCheckStatus.Warning));
+        }
+        else
+        {
+            var stale = long.TryParse(GetSection(sections, "NTP_SRV_NOW").Trim(), out var gatewayNow)
+                && gatewayNow - tracking.RefTime > LanNtpServerStaleSeconds;
+            tweak.HealthChecks.Add(stale
+                ? new("Clock", $"Stratum {tracking.Stratum}, no source update for over an hour", HealthCheckStatus.Warning)
+                : new("Clock", $"Serving stratum {tracking.Stratum} from {tracking.Source}", HealthCheckStatus.Ok));
+        }
+
+        var stats = GetSection(sections, "NTP_SRV_STATS").Trim().Split(',');
+        if (stats.Length >= 2 && long.TryParse(stats[0], out var received) && long.TryParse(stats[1], out var dropped))
+        {
+            tweak.HealthChecks.Add(new("Requests", $"{received} received", HealthCheckStatus.Ok));
+            if (dropped > 0)
+                tweak.HealthChecks.Add(new("Rate Limited", $"{dropped} dropped", HealthCheckStatus.Ok));
+        }
+
+        tweak.IsActive = tweak.BootScriptDeployed && socketsOk;
+        return tweak;
+    }
+
     /// <summary>Applies the site's stored PerfTweakSettings (manual deploys, decommission record).</summary>
     private async Task ApplyStoredSettingsAsync(PerfTweaksStatus status)
     {
@@ -711,6 +824,10 @@ public class PerfTweaksDeploymentService : IPerfTweaksDeploymentService
             if (scriptContent == null)
                 return (false, $"Embedded resource not found: {scriptName}", steps);
 
+            // An update that fails must not take down a server that was already answering clients
+            var lanNtpWasInstalled = tweakId == "lan-ntp-server" &&
+                (await RunCommandAsync($"test -f {OnBootDir}/{scriptName} && echo 'installed'")).output.Contains("installed");
+
             Report($"Deploying {scriptName}...");
             var b64 = GatewayFile.ToBase64(scriptContent);
             var deployCmd = $"echo '{b64}' | base64 -d > {OnBootDir}/{scriptName} && chmod +x {OnBootDir}/{scriptName} && echo 'deployed'";
@@ -735,6 +852,16 @@ public class PerfTweaksDeploymentService : IPerfTweaksDeploymentService
             using var networkRestart = tweakId == "mongodb-ssd" ? NetworkRestartWindow() : null;
             Report($"Running {scriptName}...");
             var runResult = await RunCommandAsync($"{OnBootDir}/{scriptName} 2>&1", TimeSpan.FromMinutes(5));
+            // The boot script exits non-zero when its service did not start (for example UDP 123
+            // already taken); take the tweak off again rather than leave a failing boot hook.
+            if (!runResult.success && tweakId == "lan-ntp-server" && lanNtpWasInstalled)
+                return (false, $"Update did not finish, the tweak stays installed; retry or remove it from this page: {Tail(runResult.output)}", steps);
+            if (!runResult.success && tweakId == "lan-ntp-server")
+            {
+                var cleanup = await RunCommandAsync(LanNtpServerRemoveCommand);
+                var cleanedUp = cleanup.success && cleanup.output.Contains("removed");
+                return (false, $"Service did not start, {(cleanedUp ? "tweak removed again" : "and removing it failed; remove it from this page")}: {Tail(runResult.output)}", steps);
+            }
             if (!runResult.success)
             {
                 Report($"Warning: Script returned non-zero exit. Output: {runResult.output}");
@@ -1062,6 +1189,10 @@ public class PerfTweaksDeploymentService : IPerfTweaksDeploymentService
                     "rm -f /var/log/sfp-sgmiiplus.log; " +
                     "echo 'removed'";
             }
+            else if (tweakId == "lan-ntp-server")
+            {
+                removeCmd = LanNtpServerRemoveCommand;
+            }
             else
             {
                 removeCmd = $"rm -f {OnBootDir}/{scriptName} && echo 'removed'";
@@ -1376,5 +1507,22 @@ public class TweakDeploymentStatus
 }
 
 public record HealthCheckResult(string Label, string Value, HealthCheckStatus Status);
+
+/// <summary>One line of <c>chronyc -c tracking</c>.</summary>
+internal sealed record LanNtpTracking(string Source, int Stratum, double RefTime, bool Synchronized)
+{
+    // Fields: ref ID, source, stratum, ref time, system time, last offset, RMS offset, frequency,
+    // residual frequency, skew, root delay, root dispersion, update interval, leap status
+    public static LanNtpTracking? Parse(string output)
+    {
+        var fields = output.Trim().Split(',');
+        if (fields.Length != 14
+            || !int.TryParse(fields[2], out var stratum)
+            || !double.TryParse(fields[3], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var refTime))
+            return null;
+        var synchronized = fields[13] != "Not synchronised" && stratum is >= 2 and <= 15;
+        return new LanNtpTracking(fields[1], stratum, refTime, synchronized);
+    }
+}
 
 public enum HealthCheckStatus { Ok, Warning, Error }
