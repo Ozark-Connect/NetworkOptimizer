@@ -417,7 +417,7 @@ public sealed class ThreatBlockingService : BackgroundService, IPublicListLookup
         await EnsureZonePoliciesAsync(site, services, settings, now, ct);
         await ReconcileGatewayFeedsAsync(site, services, settings, consoleFeeds, consoleFeedsOut, now, ct);
         await ReconcileGatewayExceptionsAsync(site, services, settings, exceptions, now, ct);
-        await EnsureSourcePoliciesNewOnlyAsync(site, services, now, ct);
+        await EnsureSourcePoliciesNewOnlyAsync(site, services, settings, now, ct);
     }
 
     // The gateway target's fast path: the site's gateway agent holds the same blocks and public list
@@ -527,11 +527,26 @@ public sealed class ThreatBlockingService : BackgroundService, IPublicListLookup
 
     // Consoles set up before new-connections-only matching, or policies edited back in UniFi Network,
     // drop replies too. Checked hourly per site (one policy read); a failed check retries after 30 minutes.
-    private async Task EnsureSourcePoliciesNewOnlyAsync(string? site, IServiceProvider services, DateTime now, CancellationToken ct)
+    // Policies on a missing or retyped Network List refuse every write, so they are replaced first.
+    private async Task EnsureSourcePoliciesNewOnlyAsync(string? site, IServiceProvider services, BlockingSettings settings, DateTime now,
+        CancellationToken ct)
     {
         if (_policiesChecked.TryGetValue(Key(site), out var last)
             && now - last.At < (last.Ok ? TimeSpan.FromHours(1) : TimeSpan.FromMinutes(30))) return;
         if (services.GetService<IGatewayBlocklistWriter>() is not { } writer) return;
+        if (settings.TargetGateway)
+        {
+            try
+            {
+                // Replacing an exception's Allow policy leaves it to the next exception write.
+                if (await writer.RepairAsync(site, ct))
+                    _exceptionsWritten.TryRemove(Key(site), out _);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                _logger.LogWarning("Automatic Blocking: could not repair the gateway policies on {Site} ({Error})", site ?? SiteSlugs.Default, ex.Message);
+            }
+        }
         try
         {
             var changed = await writer.EnsureSourcePoliciesNewOnlyAsync(site, ct);
