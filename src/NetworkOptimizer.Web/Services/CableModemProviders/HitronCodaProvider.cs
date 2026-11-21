@@ -33,8 +33,18 @@ public sealed partial class HitronCodaProvider : ICableModemProvider
     /// <inheritdoc/>
     public bool BlankUsernameMeansAdmin => false;
 
+    /// <inheritdoc/>
+    public string? BlankUsername => DefaultUsername;
+
     /// <summary>The ISP account the CODA firmware ships with; a blank username signs in as it.</summary>
     internal const string DefaultUsername = "cusadmin";
+
+    /// <summary>
+    /// How long scheduled polls wait after a rejected sign-in before trying the same credentials again.
+    /// Modem firmware commonly locks an account after repeated failures, which also locks the owner
+    /// out of the web UI. Saving new credentials, or the Test button, tries again at once.
+    /// </summary>
+    internal static readonly TimeSpan RejectedSignInHold = TimeSpan.FromMinutes(10);
 
     internal const string DefaultBasePath = "/1/Device/CM";
     private const string LoginPagePath = "/webpages/login.html";
@@ -52,6 +62,8 @@ public sealed partial class HitronCodaProvider : ICableModemProvider
         public SemaphoreSlim Gate { get; } = new(1, 1);
         public SessionIdentity? Identity { get; set; }
         public CookieContainer? Cookies { get; set; }
+        public DateTime RejectedUntil { get; set; }
+        public string? RejectedMessage { get; set; }
     }
 
     private sealed record SessionIdentity(Uri Origin, string Username, string PasswordHash);
@@ -59,19 +71,26 @@ public sealed partial class HitronCodaProvider : ICableModemProvider
     /// <summary>The modem answered with its sign-in redirect instead of data.</summary>
     private sealed class SessionExpiredException : Exception;
 
+    /// <summary>The modem refused the username and password.</summary>
+    private sealed class SignInRejectedException(string message) : InvalidOperationException(message);
+
     public HitronCodaProvider(ILogger<HitronCodaProvider> logger)
     {
         _logger = logger;
     }
 
     /// <inheritdoc/>
-    public async Task<PollResult<CableModemStats>> PollAsync(
+    public Task<PollResult<CableModemStats>> PollAsync(
         CmPollContext context,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default) =>
+        PollAsync(context, honorRejectedHold: true, cancellationToken);
+
+    private async Task<PollResult<CableModemStats>> PollAsync(
+        CmPollContext context, bool honorRejectedHold, CancellationToken cancellationToken)
     {
         try
         {
-            var stats = await FetchStatsAsync(context, cancellationToken);
+            var stats = await FetchStatsAsync(context, honorRejectedHold, cancellationToken);
 
             _logger.LogDebug(
                 "Hitron CODA {Name} polled: {Model}, {DsCount} DS channels, {UsCount} US channels, {Events} log entries",
@@ -97,14 +116,14 @@ public sealed partial class HitronCodaProvider : ICableModemProvider
         CmPollContext context,
         CancellationToken cancellationToken = default)
     {
-        var result = await PollAsync(context, cancellationToken);
+        var result = await PollAsync(context, honorRejectedHold: false, cancellationToken);
         return result.Stats is { } stats
             ? (true, $"Connected to {stats.DeviceModel} - {stats.DownstreamChannels.Count} downstream, " +
                      $"{stats.UpstreamChannels.Count} upstream channels detected")
             : (false, result.FailureReason!);
     }
 
-    private async Task<CableModemStats> FetchStatsAsync(CmPollContext context, CancellationToken ct)
+    private async Task<CableModemStats> FetchStatsAsync(CmPollContext context, bool honorRejectedHold, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(context.Host))
             throw new InvalidOperationException("No address is configured for this device.");
@@ -128,6 +147,8 @@ public sealed partial class HitronCodaProvider : ICableModemProvider
             if (session.Identity != identity)
             {
                 session.Cookies = null;
+                session.RejectedUntil = default;
+                session.RejectedMessage = null;
                 session.Identity = identity;
             }
 
@@ -141,8 +162,21 @@ public sealed partial class HitronCodaProvider : ICableModemProvider
             // No session yet, or the modem dropped it (10 minute idle timeout, or a browser
             // sign-in replaced it): sign in once and read again.
             session.Cookies = null;
+            if (honorRejectedHold && session.RejectedMessage != null && DateTime.UtcNow < session.RejectedUntil)
+                throw new InvalidOperationException(session.RejectedMessage);
+
             var cookies = new CookieContainer();
-            await LoginAsync(cookies, baseUri, username, context.Password, context.Dialer, ct);
+            try
+            {
+                await LoginAsync(cookies, baseUri, username, context.Password, context.Dialer, ct);
+                session.RejectedMessage = null;
+            }
+            catch (SignInRejectedException ex)
+            {
+                session.RejectedMessage = ex.Message;
+                session.RejectedUntil = DateTime.UtcNow + RejectedSignInHold;
+                throw;
+            }
             var stats = await TryReadAsync(cookies, baseUri, basePath, context, ct)
                 ?? throw new InvalidOperationException(
                     "The Hitron modem signed in but did not return DOCSIS data. Check the account's access level.");
@@ -165,9 +199,9 @@ public sealed partial class HitronCodaProvider : ICableModemProvider
         {
             using var page = await client.GetAsync(LoginPagePath, ct);
         }
-        catch (HttpRequestException ex)
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException && !ct.IsCancellationRequested)
         {
-            _logger.LogDebug(ex, "Hitron CODA: login page request failed; signing in without it");
+            _logger.LogDebug("Hitron CODA: login page unavailable ({FailureType}); signing in without it", ex.GetType().Name);
         }
 
         var model = JsonSerializer.Serialize(new Dictionary<string, string>
@@ -187,7 +221,7 @@ public sealed partial class HitronCodaProvider : ICableModemProvider
             return;
 
         var reason = Text(root, "errMsg").Trim();
-        throw new InvalidOperationException(reason.Length > 0
+        throw new SignInRejectedException(reason.Length > 0
             ? $"The Hitron modem rejected the sign-in ({reason}). Check the username and password."
             : "The Hitron modem rejected the sign-in. Check the username and password.");
     }

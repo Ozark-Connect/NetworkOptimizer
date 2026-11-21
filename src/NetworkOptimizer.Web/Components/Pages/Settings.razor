@@ -1835,7 +1835,7 @@
                         <div class="form-group" style="flex: 1;">
                             <label class="form-label">Username</label>
                             <input type="text" class="form-control" @bind="_editingCm.Username" @bind:event="oninput"
-                                   placeholder="@(_editingCm.Provider == "hitron-coda" ? "cusadmin" : CmProviderFor(_editingCm.Provider)?.BlankUsernameMeansAdmin == true ? "admin" : "")"
+                                   placeholder="@(CmProviderFor(_editingCm.Provider)?.BlankUsername ?? "")"
                                    autocomplete="off" data-1p-ignore data-lpignore="true" data-bwignore />
                             @if (_editingCm.Provider == "fritzbox-cable")
                             {

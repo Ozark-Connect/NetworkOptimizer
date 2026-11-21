@@ -335,6 +335,8 @@ public class UniFiCableInternetTests
         var provider = (ICableModemProvider)System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(providerType);
         provider.Credentials.Should().Be(requirement);
         provider.BlankUsernameMeansAdmin.Should().Be(blankMeansAdmin);
+        if (providerType != typeof(HitronCodaProvider))
+            provider.BlankUsername.Should().Be(blankMeansAdmin ? "admin" : null);
     }
 
     // ---- Alerts ----

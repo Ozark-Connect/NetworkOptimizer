@@ -225,28 +225,63 @@ public class HitronCodaProviderTests
 
         (await provider.PollAsync(Context(device))).Success.Should().BeTrue();
         device.ExpireSessions();
-        var result = await provider.PollAsync(Context(device) with { Username = "admin2" });
-        var third = await provider.PollAsync(Context(device) with { Username = "admin2" });
+        var result = await provider.PollAsync(Context(device));
 
         result.Success.Should().BeTrue(result.FailureReason);
-        third.Success.Should().BeTrue(third.FailureReason);
-        // The username change alone starts a new session; the expiry is what a reused cookie meets.
+        result.Stats!.DownstreamChannels.Should().HaveCount(18);
         device.Requests.Count(r => r.Path == "/1/Device/Users/Login").Should().Be(2);
-
-        device.ExpireSessions();
-        (await provider.PollAsync(Context(device) with { Username = "admin2" })).Success.Should().BeTrue();
-        device.Requests.Count(r => r.Path == "/1/Device/Users/Login").Should().Be(3);
     }
 
     [Fact]
-    public async Task Poll_ReportsARejectedSignIn()
+    public async Task Poll_NewCredentialsStartANewSession()
+    {
+        await using var device = new TestDevice();
+        var provider = Provider();
+
+        (await provider.PollAsync(Context(device))).Success.Should().BeTrue();
+        (await provider.PollAsync(Context(device) with { Username = "other-user" })).Success.Should().BeTrue();
+
+        var logins = device.Requests.Where(r => r.Path == "/1/Device/Users/Login")
+            .Select(r => JsonDocument.Parse(r.Form["model"]).RootElement.GetProperty("username").GetString());
+        logins.Should().Equal("cusadmin", "other-user");
+    }
+
+    [Fact]
+    public async Task Poll_ReportsARejectedSignIn_AndHoldsScheduledRetries()
     {
         await using var device = new TestDevice { Password = "other" };
+        var provider = Provider();
+        const string rejected = "The Hitron modem rejected the sign-in (Incorrect password). Check the username and password.";
 
-        var result = await Provider().PollAsync(Context(device));
+        var first = await provider.PollAsync(Context(device));
+        var second = await provider.PollAsync(Context(device));
 
-        result.Success.Should().BeFalse();
-        result.FailureReason.Should().Be("The Hitron modem rejected the sign-in (Incorrect password). Check the username and password.");
+        first.FailureReason.Should().Be(rejected);
+        second.FailureReason.Should().Be(rejected);
+        // The second poll does not try the refused credentials again.
+        device.Requests.Count(r => r.Path == "/1/Device/Users/Login").Should().Be(1);
+    }
+
+    [Fact]
+    public async Task RejectedSignInHold_IsLiftedByTheTestButtonAndByNewCredentials()
+    {
+        await using var device = new TestDevice { Password = "right-password" };
+        var provider = Provider();
+
+        (await provider.PollAsync(Context(device))).Success.Should().BeFalse();
+        var (tested, _) = await provider.TestConnectionAsync(Context(device));
+        tested.Should().BeFalse();
+        device.Requests.Count(r => r.Path == "/1/Device/Users/Login").Should().Be(2);
+
+        var fixedPassword = await provider.PollAsync(Context(device) with { Password = "right-password" });
+        fixedPassword.Success.Should().BeTrue(fixedPassword.FailureReason);
+    }
+
+    [Fact]
+    public void BlankUsername_IsTheIspAccount()
+    {
+        ICableModemProvider provider = Provider();
+        provider.BlankUsername.Should().Be("cusadmin");
     }
 
     [Fact]
