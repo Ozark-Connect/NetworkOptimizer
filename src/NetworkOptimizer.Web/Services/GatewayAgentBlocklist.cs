@@ -87,10 +87,14 @@ public sealed class GatewayAgentBlocklist : IGatewayAgentBlocklist
         if (!_desired.TryGetValue(slug, out var desired) || !desired.Enabled || Capable(slug).Count == 0) return null;
         var now = DateTime.UtcNow;
         var split = EnforcesExceptions(slug);
+        // Counted as the agent applies them: it refuses what is not a public range and files mapped IPv4 as IPv4.
         (int V4, int V6) Count(IEnumerable<GatewayAgentEntry> entries)
         {
-            var live = entries.Where(e => e.ExpiresAt > now).ToList();
-            var v6 = live.Count(e => e.Address.Contains(':'));
+            var live = entries.Where(e => e.ExpiresAt > now)
+                .Select(e => NetworkOptimizer.Core.Helpers.BlocklistEntry.Canonical(e.Address))
+                .OfType<(string Text, bool IsV6)>()
+                .ToList();
+            var v6 = live.Count(e => e.IsV6);
             return (live.Count - v6, v6);
         }
         var block = Count(split ? desired.Entries : desired.Entries.Concat(desired.Feeds));

@@ -117,18 +117,18 @@ public sealed class GatewayBlocklist : IGatewayBlocklistWriter
         var groupsCreated = 0;
         async Task<string> EnsureGroup(string? id, string name, string type)
         {
-            var existing = groups.FirstOrDefault(g => g.Id == id) ?? groups.FirstOrDefault(g => g.Name == name && g.GroupType == type);
-            if (existing != null) return existing.Id;
-            groupsCreated++;
-            var created = await client.SaveFirewallGroupAsync(new UniFiFirewallGroupWrite(null, name, type, [], Description), ct);
-            return created.Id;
+            var (groupId, isNew) = await EnsureGroupAsync(client, groups, id, name, type, Description, ct);
+            if (isNew) groupsCreated++;
+            return groupId;
         }
         state.GroupV4Id = await EnsureGroup(state.GroupV4Id, GroupNameV4, "address-group");
         state.GroupV6Id = await EnsureGroup(state.GroupV6Id, GroupNameV6, "ipv6-address-group");
         state.FeedsV4Id = await EnsureGroup(state.FeedsV4Id, FeedsNameV4, "address-group");
         state.FeedsV6Id = await EnsureGroup(state.FeedsV6Id, FeedsNameV6, "ipv6-address-group");
 
-        var policies = await client.GetFirewallPoliciesAsync(ct);
+        // Only the inbound side: the outbound policies are rewritten by WriteFeedsOutboundAsync.
+        var policies = await DeleteBrokenAsync(client, site, state, await client.GetFirewallPoliciesAsync(ct),
+            p => p.Source.ZoneId == external.Id, ct);
         var created = 0;
         var adopted = 0;
         var refs = new List<GatewayBlockPolicyRef>();
@@ -193,9 +193,12 @@ public sealed class GatewayBlocklist : IGatewayBlocklistWriter
         // The stored ids can predate a Network app upgrade that re-keyed the groups, so the groups found by
         // their managed names count too. Best effort: without them, the stored ids still apply.
         IReadOnlyCollection<string> current = [];
+        IReadOnlyDictionary<string, UniFiFirewallGroup>? byId = null;
         try
         {
-            current = ManagedSourceGroupIds(await client.GetFirewallGroupsOrThrowAsync(ct));
+            var groups = await client.GetFirewallGroupsOrThrowAsync(ct);
+            byId = GroupsById(groups);
+            current = ManagedSourceGroupIds(groups);
             var stored = new[] { state.GroupV4Id, state.GroupV6Id, state.FeedsV4Id, state.FeedsV6Id }.OfType<string>().ToHashSet();
             if (current.Any(id => !stored.Contains(id)))
                 _logger.LogInformation("Gateway blocking on {Site}: stored Network List ids are stale; also matching the ones UniFi Network names {Ids}",
@@ -206,12 +209,100 @@ public sealed class GatewayBlocklist : IGatewayBlocklistWriter
             _logger.LogWarning("Gateway blocking on {Site}: Network Lists not read ({Error}); matching the stored ids only",
                 site ?? "default", ex.Message);
         }
-        var stale = SourcePoliciesToNarrow(await client.GetFirewallPoliciesAsync(ct), state, current);
-        foreach (var policy in stale)
-            await client.SetFirewallPolicyConnectionStatesAsync(policy.Id, UniFiGroupBlockPolicyWrite.NewConnectionsOnly, ct);
-        if (stale.Count > 0)
-            _logger.LogInformation("Gateway blocking: {Count} blocklist policies now match new connections only", stale.Count);
-        return stale.Count;
+        var narrowed = 0;
+        foreach (var policy in SourcePoliciesToNarrow(await client.GetFirewallPoliciesAsync(ct), state, current))
+        {
+            // UniFi refuses every write to a policy whose group is gone or of the other family; Set Up replaces it.
+            if (byId != null && HasBrokenGroup(policy, byId))
+            {
+                _logger.LogWarning("Gateway blocking on {Site}: policy {Id} names a Network List UniFi Network lacks for {Version}; Set Up replaces it",
+                    site ?? SiteSlugs.Default, policy.Id, policy.IpVersion);
+                continue;
+            }
+            try
+            {
+                await client.SetFirewallPolicyConnectionStatesAsync(policy.Id, UniFiGroupBlockPolicyWrite.NewConnectionsOnly, ct);
+                narrowed++;
+            }
+            catch (UniFiApiErrorException ex)
+            {
+                _logger.LogWarning("Gateway blocking on {Site}: policy {Id} not narrowed ({Error})", site ?? SiteSlugs.Default, policy.Id, ex.Code);
+            }
+        }
+        if (narrowed > 0)
+            _logger.LogInformation("Gateway blocking: {Count} blocklist policies now match new connections only", narrowed);
+        return narrowed;
+    }
+
+    /// <summary>
+    /// The site's Network List by id; when it is missing creates it, and when UniFi Network shows it with another
+    /// type (it lets a referenced group be retyped) puts the type back, empty: the next sync refills it.
+    /// </summary>
+    private static async Task<(string Id, bool Created)> EnsureGroupAsync(UniFiApiClient client, IReadOnlyList<UniFiFirewallGroup> groups,
+        string? id, string name, string type, string description, CancellationToken ct)
+    {
+        var existing = groups.FirstOrDefault(g => g.Id == id) ?? groups.FirstOrDefault(g => g.Name == name && g.GroupType == type);
+        if (existing == null)
+            return ((await client.SaveFirewallGroupAsync(new UniFiFirewallGroupWrite(null, name, type, [], description), ct)).Id, true);
+        if (existing.GroupType != type)
+            await client.SaveFirewallGroupAsync(new UniFiFirewallGroupWrite(existing.Id, name, type, [], description), ct);
+        return (existing.Id, false);
+    }
+
+    /// <summary>Deletes the <see cref="OwnBrokenPolicies"/> that <paramref name="only"/> picks; returns <paramref name="policies"/> without them.</summary>
+    private async Task<List<UniFiFirewallPolicy>> DeleteBrokenAsync(UniFiApiClient client, string? site, GatewayBlocklistState state,
+        List<UniFiFirewallPolicy> policies, Func<UniFiFirewallPolicy, bool> only, CancellationToken ct)
+    {
+        var broken = OwnBrokenPolicies(policies, state, GroupsById(await client.GetFirewallGroupsOrThrowAsync(ct))).Where(only).ToList();
+        if (broken.Count == 0) return policies;
+        foreach (var policy in broken)
+            await client.DeleteFirewallPolicyAsync(policy.Id, ct);
+        _logger.LogInformation("Gateway blocking on {Site}: {Count} policies named a Network List UniFi Network lacks; replacing them",
+            site ?? SiteSlugs.Default, broken.Count);
+        return policies.Except(broken).ToList();
+    }
+
+    private static readonly HashSet<string> ManagedPolicyNames =
+        [PolicyName, FeedsPolicyName, FeedsOutboundPolicyName, GatewayExceptionPolicies.PolicyName];
+
+    private static readonly HashSet<string> ManagedGroupNames =
+        [GroupNameV4, GroupNameV6, FeedsNameV4, FeedsNameV6, FeedsOutNameV4, FeedsOutNameV6];
+
+    /// <summary>
+    /// Network Optimizer's policies (recorded, or by a reserved name) that name a Network List UniFi Network lacks for
+    /// their IP version. They block nothing, and UniFi refuses every write to them.
+    /// </summary>
+    internal static List<UniFiFirewallPolicy> OwnBrokenPolicies(IEnumerable<UniFiFirewallPolicy> policies, GatewayBlocklistState state,
+        IReadOnlyDictionary<string, UniFiFirewallGroup> groups)
+    {
+        var ids = state.Policies.Concat(state.OutboundPolicies).Select(r => r.Id).Concat(state.ExceptionPolicies.Select(r => r.Id))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        return policies.Where(p => !p.Predefined && (ids.Contains(p.Id) || ManagedPolicyNames.Contains(p.Name)) && HasBrokenGroup(p, groups))
+            .ToList();
+    }
+
+    /// <summary>
+    /// Whether a policy names a Network List that is gone, or of the other family: UniFi Network answers any write to
+    /// it with api.err.FirewallIpGroupDoesNotExist.
+    /// </summary>
+    internal static bool HasBrokenGroup(UniFiFirewallPolicy policy, IReadOnlyDictionary<string, UniFiFirewallGroup> groups)
+    {
+        var type = policy.IpVersion.ToUpperInvariant() switch { "IPV4" => "address-group", "IPV6" => "ipv6-address-group", _ => null };
+        foreach (var id in new[] { policy.Source.IpGroupId, policy.Destination.IpGroupId })
+        {
+            if (string.IsNullOrEmpty(id)) continue;
+            if (!groups.TryGetValue(id, out var group) || (type != null && group.GroupType != type)) return true;
+        }
+        return false;
+    }
+
+    /// <summary>Groups by id, keeping the first of any id the console lists twice.</summary>
+    internal static IReadOnlyDictionary<string, UniFiFirewallGroup> GroupsById(IEnumerable<UniFiFirewallGroup> groups)
+    {
+        var byId = new Dictionary<string, UniFiFirewallGroup>(StringComparer.OrdinalIgnoreCase);
+        foreach (var g in groups)
+            if (!string.IsNullOrEmpty(g.Id)) byId.TryAdd(g.Id, g);
+        return byId;
     }
 
     /// <summary>
@@ -298,16 +389,12 @@ public sealed class GatewayBlocklist : IGatewayBlocklistWriter
             ?? throw new InvalidOperationException("Could not read the firewall zones from the UniFi Console.");
 
         var groups = await client.GetFirewallGroupsOrThrowAsync(ct);
-        async Task<string> EnsureOutGroup(string? id, string name, string type)
-        {
-            var existing = groups.FirstOrDefault(g => g.Id == id) ?? groups.FirstOrDefault(g => g.Name == name && g.GroupType == type);
-            return existing?.Id ?? (await client.SaveFirewallGroupAsync(new UniFiFirewallGroupWrite(null, name, type, [], FeedsOutDescription), ct)).Id;
-        }
-        state.FeedsOutV4Id = await EnsureOutGroup(state.FeedsOutV4Id, FeedsOutNameV4, "address-group");
-        state.FeedsOutV6Id = await EnsureOutGroup(state.FeedsOutV6Id, FeedsOutNameV6, "ipv6-address-group");
+        state.FeedsOutV4Id = (await EnsureGroupAsync(client, groups, state.FeedsOutV4Id, FeedsOutNameV4, "address-group", FeedsOutDescription, ct)).Id;
+        state.FeedsOutV6Id = (await EnsureGroupAsync(client, groups, state.FeedsOutV6Id, FeedsOutNameV6, "ipv6-address-group", FeedsOutDescription, ct)).Id;
         foreach (var stale in policies.Where(p => !p.Predefined && p.Destination.ZoneId == external.Id
                      && inboundGroups.Contains(p.Destination.IpGroupId ?? "")).ToList())
             await client.DeleteFirewallPolicyAsync(stale.Id, ct);
+        policies = await DeleteBrokenAsync(client, site, state, policies, p => p.Destination.ZoneId == external.Id, ct);
 
         var refs = new List<GatewayBlockPolicyRef>();
         var created = 0;
@@ -362,8 +449,8 @@ public sealed class GatewayBlocklist : IGatewayBlocklistWriter
     }
 
     /// <summary>
-    /// Removes Network Optimizer's policies, then its groups. Policies go first: UniFi lets a
-    /// referenced group be deleted and leaves the policy pointing at nothing.
+    /// Removes Network Optimizer's policies, then its groups. Policies go first: Network 11 refuses to delete a
+    /// referenced group (api.err.ObjectReferredBy), and 10.x deleted it and left the policy pointing at nothing.
     /// </summary>
     public async Task RemoveAsync(string? site, CancellationToken ct)
     {
@@ -371,12 +458,14 @@ public sealed class GatewayBlocklist : IGatewayBlocklistWriter
         if (state == null) return;
         var client = Client(site);
         var policies = await client.GetFirewallPoliciesAsync(ct);
+        // The stored ids can predate a Network app upgrade that re-keyed everything, so ours by name count too.
         var groupIds = new[] { state.GroupV4Id, state.GroupV6Id, state.FeedsV4Id, state.FeedsV6Id, state.FeedsOutV4Id, state.FeedsOutV6Id }
+            .Concat((await client.GetFirewallGroupsOrThrowAsync(ct)).Where(g => ManagedGroupNames.Contains(g.Name)).Select(g => g.Id))
             .Where(id => !string.IsNullOrEmpty(id)).ToHashSet();
         var policyIds = state.Policies.Concat(state.OutboundPolicies).Select(p => p.Id)
             .Concat(state.ExceptionPolicies.Select(p => p.Id))
-            .Concat(policies.Where(p => !p.Predefined
-                && (groupIds.Contains(p.Source.IpGroupId ?? "") || groupIds.Contains(p.Destination.IpGroupId ?? ""))).Select(p => p.Id))
+            .Concat(policies.Where(p => !p.Predefined && (ManagedPolicyNames.Contains(p.Name)
+                || groupIds.Contains(p.Source.IpGroupId ?? "") || groupIds.Contains(p.Destination.IpGroupId ?? ""))).Select(p => p.Id))
             .Distinct();
         foreach (var id in policyIds)
             await client.DeleteFirewallPolicyAsync(id, ct);
@@ -398,7 +487,7 @@ public sealed class GatewayBlocklist : IGatewayBlocklistWriter
             && groups.FirstOrDefault(g => g.Name == group.Name && g.GroupType == group.GroupType) is { } renamed)
             group = group with { Id = renamed.Id };
         if (group.Id != null && groups.FirstOrDefault(g => g.Id == group.Id) is { } current
-            && current.Name == group.Name && current.Description == group.Description
+            && current.Name == group.Name && current.Description == group.Description && current.GroupType == group.GroupType
             && SameMembers(current.GroupMembers, group.GroupMembers))
             return current.Id;
         return (await client.SaveFirewallGroupAsync(group, ct)).Id;
@@ -720,11 +809,27 @@ public sealed class GatewayBlocklist : IGatewayBlocklistWriter
     {
         var state = await LoadStateAsync(site, ct);
         if (state == null) return null;
-        return Verify(state, await Client(site).GetFirewallPoliciesAsync(ct));
+        var client = Client(site);
+        var policies = await client.GetFirewallPoliciesAsync(ct);
+        // Best effort: without the groups, the policies are still checked.
+        List<UniFiFirewallGroup>? groups = null;
+        try
+        {
+            groups = await client.GetFirewallGroupsOrThrowAsync(ct);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogDebug("Gateway blocking on {Site}: Network Lists not read for the check ({Error})", site ?? SiteSlugs.Default, ex.Message);
+        }
+        return Verify(state, policies, groups);
     }
 
-    /// <summary>What <see cref="VerifyAsync"/> reports for <paramref name="state"/> against the console's policies.</summary>
-    internal static string? Verify(GatewayBlocklistState state, IEnumerable<UniFiFirewallPolicy> policies)
+    /// <summary>
+    /// What <see cref="VerifyAsync"/> reports for <paramref name="state"/> against the console's policies, and its
+    /// groups when given.
+    /// </summary>
+    internal static string? Verify(GatewayBlocklistState state, IEnumerable<UniFiFirewallPolicy> policies,
+        IEnumerable<UniFiFirewallGroup>? groups = null)
     {
         // The console's list is not always unique by id: one has been seen listing an id twice (issue #1333).
         // Ours are ids the console gave our own policies, so keep the first of any repeat.
@@ -735,6 +840,9 @@ public sealed class GatewayBlocklist : IGatewayBlocklistWriter
         var missing = all.Count(r => !byId.ContainsKey(r.Id));
         var disabled = all.Count(r => byId.TryGetValue(r.Id, out var p) && !p.Enabled);
         if (missing > 0) return $"{missing} of Network Optimizer's Block policies were removed in UniFi Network. Run Set Up again.";
+        var groupsById = groups == null ? null : GroupsById(groups);
+        var broken = groupsById == null ? 0 : all.Count(r => byId.TryGetValue(r.Id, out var p) && HasBrokenGroup(p, groupsById));
+        if (broken > 0) return $"{broken} of Network Optimizer's Block policies name a Network List UniFi Network no longer has. Run Set Up again.";
         if (state.FeedsV4Id == null) return "Run Set Up again to add the public block lists to the gateway.";
         if (disabled > 0) return $"{disabled} of Network Optimizer's Block policies are disabled in UniFi Network.";
         return null;
