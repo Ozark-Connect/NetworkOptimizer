@@ -413,6 +413,8 @@ public sealed class ThreatBlockingService : BackgroundService, IPublicListLookup
             ? BlockingExceptions.Active(await BlockingExceptions.LoadAsync(accessor, site, ct), now)
             : [];
         PushToGatewayAgent(site, settings, desired, feeds, feedsOut, exceptions, now);
+        if (_gatewayResyncRequested.TryRemove(Key(site), out _))
+            ForgetGatewayWrites(site);
         await ReconcileTargetsAsync(site, services, accessor, settings, desired, feeds, now, ct);
         await EnsureZonePoliciesAsync(site, services, settings, now, ct);
         await ReconcileGatewayFeedsAsync(site, services, settings, consoleFeeds, consoleFeedsOut, now, ct);
@@ -538,9 +540,8 @@ public sealed class ThreatBlockingService : BackgroundService, IPublicListLookup
         {
             try
             {
-                // Replacing an exception's Allow policy leaves it to the next exception write.
                 if (await writer.RepairAsync(site, ct))
-                    _exceptionsWritten.TryRemove(Key(site), out _);
+                    ForgetGatewayWrites(site);
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
@@ -761,7 +762,7 @@ public sealed class ThreatBlockingService : BackgroundService, IPublicListLookup
         try
         {
             if (await writer.EnsureZonePoliciesAsync(site, ct))
-                _exceptionsWritten.TryRemove(key, out _);
+                ForgetGatewayWrites(site);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -780,6 +781,29 @@ public sealed class ThreatBlockingService : BackgroundService, IPublicListLookup
     {
         _exceptionsWritten.TryRemove(Key(site), out _);
         TriggerConsoleSyncFor(site);
+    }
+
+    /// <summary>
+    /// As <see cref="ResyncExceptions"/>, and the site's Network Lists are written again too: a repair writes a retyped
+    /// group back empty, and an unchanged fingerprint would otherwise leave it so (null site = default site).
+    /// </summary>
+    public void ResyncGateway(string? site)
+    {
+        // The cycle alone touches the sent records, so it forgets them when it next runs for the site.
+        _gatewayResyncRequested[Key(site)] = true;
+        TriggerConsoleSyncFor(site);
+    }
+
+    private readonly ConcurrentDictionary<string, bool> _gatewayResyncRequested = new();
+
+    // A repair or a zone rewrite replaced policies or emptied a group: the next cycle writes the gateway's Network Lists
+    // and exceptions whatever their fingerprints say. Cycle thread only.
+    private void ForgetGatewayWrites(string? site)
+    {
+        var key = Key(site);
+        _sent.Remove((key, BlockTargetKind.Gateway));
+        _feedsSent.Remove(key);
+        _exceptionsWritten.TryRemove(key, out _);
     }
 
     /// <summary>The last write of a site's exception policies to its console, or null (null site = default site).</summary>

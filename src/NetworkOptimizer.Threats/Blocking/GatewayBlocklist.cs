@@ -41,8 +41,11 @@ public sealed record GatewayExceptionPolicyRef(string Id, string Key, string? Ha
 /// <summary>One Block policy: External to <see cref="ZoneId"/> for one IP version (outbound: <see cref="ZoneId"/> to External).</summary>
 public sealed record GatewayBlockPolicyRef(string Id, string ZoneId, string IpVersion);
 
-/// <summary>What Set Up found or created.</summary>
-public sealed record GatewaySetUpResult(int PoliciesCreated, int PoliciesAdopted, int GroupsCreated);
+/// <summary>
+/// What Set Up found or created. <see cref="Repaired"/> counts the policies replaced and the groups retyped: a retyped
+/// group is written back empty, so its members have to be sent again.
+/// </summary>
+public sealed record GatewaySetUpResult(int PoliciesCreated, int PoliciesAdopted, int GroupsCreated, int Repaired = 0);
 
 /// <summary>
 /// Gateway blocking through a site's UniFi console: an IPv4 and an IPv6 address group, each
@@ -185,7 +188,7 @@ public sealed class GatewayBlocklist : IGatewayBlocklistWriter
         _logger.LogInformation("Gateway blocking set up: {Created} policies created, {Adopted} adopted, {Groups} groups created",
             created, adopted, groupsCreated);
         if (automatic) AuditRepair(site, replaced, retyped);
-        return new GatewaySetUpResult(created, adopted, groupsCreated);
+        return new GatewaySetUpResult(created, adopted, groupsCreated, replaced + retyped);
     }
 
     /// <inheritdoc />
@@ -414,12 +417,13 @@ public sealed class GatewayBlocklist : IGatewayBlocklistWriter
     /// As <see cref="SetFeedsOutboundAsync"/>, also returning how many policies it created. <paramref name="automatic"/>
     /// as for <see cref="SetUpCoreAsync"/>.
     /// </summary>
-    private async Task<(int Total, int Created)> WriteFeedsOutboundAsync(string? site, bool enabled, bool automatic, CancellationToken ct)
+    private async Task<(int Total, int Created, int Repaired)> WriteFeedsOutboundAsync(string? site, bool enabled, bool automatic,
+        CancellationToken ct)
     {
         var state = await LoadStateAsync(site, ct);
         if (state?.FeedsV4Id == null || state.FeedsV6Id == null)
         {
-            if (!enabled) return (0, 0);
+            if (!enabled) return (0, 0, 0);
             throw new InvalidOperationException("Set up gateway blocking first.");
         }
         var client = Client(site);
@@ -437,7 +441,7 @@ public sealed class GatewayBlocklist : IGatewayBlocklistWriter
                 await client.DeleteFirewallPolicyAsync(id, ct);
             state.OutboundPolicies = [];
             await SaveStateAsync(site, state, ct);
-            return (0, 0);
+            return (0, 0, 0);
         }
 
         var zones = await client.GetFirewallZonesAsync(ct);
@@ -485,8 +489,9 @@ public sealed class GatewayBlocklist : IGatewayBlocklistWriter
                 await client.ReorderFirewallPoliciesAsync(pair.Key, external.Id, order.Before, order.After, ct);
         }
         _logger.LogInformation("Public lists outbound blocking set up: {Count} policies ({Created} created)", refs.Count, created);
-        if (automatic) AuditRepair(site, replaced, (out4.Retyped ? 1 : 0) + (out6.Retyped ? 1 : 0));
-        return (refs.Count, created);
+        var retypedOut = (out4.Retyped ? 1 : 0) + (out6.Retyped ? 1 : 0);
+        if (automatic) AuditRepair(site, replaced, retypedOut);
+        return (refs.Count, created, replaced + retypedOut);
     }
 
     /// <summary>
@@ -613,9 +618,11 @@ public sealed class GatewayBlocklist : IGatewayBlocklistWriter
         var (inbound, outbound) = Uncovered(state, zones, external.Id);
         if (!inbound && !outbound) return false;
         var (added, gone) = ZoneChanges(state, zones, external.Id);
-        var created = 0;
-        if (inbound) created += (await SetUpCoreAsync(site, automatic: true, ct)).PoliciesCreated;
-        if (outbound) created += (await WriteFeedsOutboundAsync(site, true, automatic: true, ct)).Created;
+        var (created, repaired) = (0, 0);
+        if (inbound && await SetUpCoreAsync(site, automatic: true, ct) is var setUp)
+            (created, repaired) = (created + setUp.PoliciesCreated, repaired + setUp.Repaired);
+        if (outbound && await WriteFeedsOutboundAsync(site, true, automatic: true, ct) is var written)
+            (created, repaired) = (created + written.Created, repaired + written.Repaired);
         var where = site ?? "default";
         // A zone deleted leaves only gone ones. Nothing created with a zone "added" is the record drifting (a zone re-keyed,
         // its policies already there), not a change on the site.
@@ -627,7 +634,7 @@ public sealed class GatewayBlocklist : IGatewayBlocklistWriter
             _logger.LogInformation("Gateway blocking on {Site}: {Count} zone(s) gone; their policies left the record with them", where, gone.Count);
         else
             _logger.LogDebug("Gateway blocking on {Site}: per-zone policy record refreshed; nothing created", where);
-        return created > 0 || removed;
+        return created > 0 || removed || repaired > 0;
     }
 
     /// <summary>
