@@ -272,6 +272,15 @@ jobs:
             cp "out/$rid/NetworkOptimizer.Agent" "NetworkOptimizer.Agent-$rid"
           done
 
+      # The segments GC module the installers add on 64K-page arm64 hosts (EFG, UDM-Beast class). A
+      # non-single-file publish copies it out of this build's own runtime pack, so it matches the binary.
+      - name: Extract the arm64 segments GC module
+        run: |
+          dotnet publish src/NetworkOptimizer.Agent/NetworkOptimizer.Agent.csproj \
+            -c Release -r linux-arm64 --self-contained true -p:PublishSingleFile=false \
+            -o out/gc-linux-arm64
+          cp out/gc-linux-arm64/libclrgc.so libclrgc-linux-arm64.so
+
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
@@ -296,6 +305,7 @@ jobs:
           path: |
             NetworkOptimizer.Agent-linux-*
             uwnspeedtest-linux-*
+            libclrgc-linux-arm64.so
           if-no-files-found: error
           retention-days: 1
 
@@ -322,6 +332,7 @@ jobs:
             /tmp/agent-binaries/NetworkOptimizer.Agent-linux-arm64 \
             /tmp/agent-binaries/uwnspeedtest-linux-x64 \
             /tmp/agent-binaries/uwnspeedtest-linux-arm64 \
+            /tmp/agent-binaries/libclrgc-linux-arm64.so \
             --clobber --repo ${{ github.repository }} || echo "Release not found yet - agent binaries not attached"
           # Find draft release matching this tag and publish it
           gh release edit ${{ github.ref_name }} --draft=false --repo ${{ github.repository }} || echo "No draft release found for ${{ github.ref_name }}"

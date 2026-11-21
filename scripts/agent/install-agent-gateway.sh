@@ -536,6 +536,30 @@ chmod +x "${INSTALL_DIR}/NetworkOptimizer.Agent.new"
 mv -f "${INSTALL_DIR}/NetworkOptimizer.Agent.new" "${INSTALL_DIR}/NetworkOptimizer.Agent"
 ok "agent (${RID})"
 
+# On a 64K-page kernel (EFG, UDM-Beast class) .NET's default regions GC refuses large allocations with
+# memory free; the segments GC (libclrgc.so) does not. A module from another runtime than the binary's
+# stops the agent from starting, and "latest" can move between the two downloads, so both runtime
+# stamps must match. Any miss keeps the default GC.
+GC_ENV=""
+if [ "$RID" = "linux-arm64" ] && [ "$(getconf PAGESIZE 2>/dev/null)" = "65536" ]; then
+    GC_NEW="${INSTALL_DIR}/libclrgc.so.new"
+    if curl -fsL "${RELEASE_BASE}/libclrgc-${RID}.so" -o "$GC_NEW" 2>/dev/null; then
+        BIN_RT=$(grep -ao '@(#)Version [0-9.]*' "${INSTALL_DIR}/NetworkOptimizer.Agent" 2>/dev/null | head -n1 || true)
+        GC_RT=$(grep -ao '@(#)Version [0-9.]*' "$GC_NEW" 2>/dev/null | head -n1 || true)
+        if [ -n "$BIN_RT" ] && [ "$BIN_RT" = "$GC_RT" ]; then
+            mv -f "$GC_NEW" "${INSTALL_DIR}/libclrgc.so"
+            GC_ENV="Environment=DOTNET_GCName=libclrgc.so"
+            ok "segments GC (this gateway uses 64K memory pages)"
+        else
+            rm -f "$GC_NEW"
+            warn "this gateway uses 64K memory pages, but the GC module does not match this agent build: keeping the default GC"
+        fi
+    else
+        rm -f "$GC_NEW"
+        warn "this gateway uses 64K memory pages, but this release has no GC module for them: keeping the default GC"
+    fi
+fi
+
 CONFIG="${INSTALL_DIR}/agent.json"
 
 step "Configuring the agent"
@@ -796,6 +820,7 @@ ExecStart=${INSTALL_DIR}/NetworkOptimizer.Agent
 # well above its ~50 MB steady state so a fault stays well clear of routing/IPS,
 # and systemd restarts it if it trips.
 Environment=DOTNET_gcServer=0
+${GC_ENV}
 MemoryHigh=256M
 MemoryMax=512M
 Restart=always
@@ -804,6 +829,9 @@ RestartSec=5
 [Install]
 WantedBy=multi-user.target
 UNIT
+# The manual 64K-page test drop-in (2026-11): the unit above now carries the setting, matched to this binary.
+rm -f "/etc/systemd/system/${SERVICE_NAME}.service.d/gc.conf"
+rmdir "/etc/systemd/system/${SERVICE_NAME}.service.d" 2>/dev/null || true
 
 systemctl daemon-reload
 systemctl enable --quiet "${SERVICE_NAME}.service"

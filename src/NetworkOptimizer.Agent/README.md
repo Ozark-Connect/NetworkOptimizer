@@ -1047,6 +1047,16 @@ first failure. Applies come minutes apart, so a burst never forms, and a failed
 apply leaves the public block list sets to drain as their entries time out. The
 fresh process re-applies them.
 
+### 64K memory pages (EFG, UDM-Beast class)
+
+On a 64K-page kernel, .NET's default regions GC refuses large allocations while
+memory is free. The installers check `getconf PAGESIZE` on arm64, and on a
+64K-page host they download the segments GC module (`libclrgc-linux-arm64.so`,
+from the same release as the binary) and set `DOTNET_GCName=libclrgc.so` in
+the unit. The module must match the agent's .NET runtime, so the installer
+compares both files' runtime stamps first; a missing or mismatched module keeps
+the default GC. A 4K-page host never gets the setting.
+
 ## Local dev / testing
 
 Build for the site box's architecture and copy the single binary over - no build
