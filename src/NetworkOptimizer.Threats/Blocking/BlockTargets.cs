@@ -102,6 +102,12 @@ public interface IGatewayBlocklistWriter
     Task<bool> EnsureZonePoliciesAsync(string? site, CancellationToken cancellationToken) => Task.FromResult(false);
 
     /// <summary>
+    /// Replaces the site's policies that name a Network List UniFi Network lacks for their IP version (gone, or retyped),
+    /// and puts back the type of a retyped group. True when it rewrote anything (null site = default).
+    /// </summary>
+    Task<bool> RepairAsync(string? site, CancellationToken cancellationToken) => Task.FromResult(false);
+
+    /// <summary>
     /// Replaces the site's public block list groups with <paramref name="entries"/> (IPs and CIDR ranges,
     /// blocked inbound) and, where outbound blocking is set up, its outbound groups with <paramref name="outbound"/>.
     /// </summary>

@@ -39,6 +39,15 @@ public class GatewayBlocklistBrokenGroupTests
     }
 
     [Fact]
+    public void LeftoverId_OnASideThatDoesNotMatchByList_IsIgnored()
+    {
+        var policy = P("p", "IPV4", sourceGroup: "gone");
+        policy.Source.MatchingTargetType = "SPECIFIC";
+
+        GatewayBlocklist.HasBrokenGroup(policy, Groups).Should().BeFalse();
+    }
+
+    [Fact]
     public void NoGroup_IsNotBroken()
     {
         GatewayBlocklist.HasBrokenGroup(P("p", "IPV4", sourceGroup: ""), Groups).Should().BeFalse();
