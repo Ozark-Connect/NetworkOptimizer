@@ -1047,10 +1047,13 @@ first failure. Applies come minutes apart, so a burst never forms, and a failed
 apply leaves the public block list sets to drain as their entries time out. The
 fresh process re-applies them.
 
-### 64K memory pages (EFG, UDM-Beast class)
+### 64K memory pages (EFG, EF-Core, UDM-Beast, UXG-Enterprise)
 
-On a 64K-page kernel, .NET's default regions GC refuses large allocations while
-memory is free. The installers check `getconf PAGESIZE` on arm64, and on a
+These gateways run a 64K-page kernel: the EFG, the EF-Core, the UDM-Beast, and
+the UXG-Enterprise (every Marvell-based UniFi gateway; the other gateways and
+most Linux hosts use 4K pages). Some arm64 Linux servers run 64K-page kernels
+too. On a 64K-page kernel, .NET's default regions GC refuses large allocations
+while memory is free. The installers check `getconf PAGESIZE` on arm64, and on a
 64K-page host they download the segments GC module (`libclrgc-linux-arm64.so`,
 from the same release as the binary) and set `DOTNET_GCName=libclrgc.so` in
 the unit. The module must match the agent's .NET runtime, so the installer
