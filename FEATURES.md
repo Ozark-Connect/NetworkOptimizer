@@ -835,6 +835,7 @@ Requires Gateway SSH.
 - **Cable modems**
   - ARRIS Surfboard - S33, S34, SB8200, SB6183, SB6141, T25
   - FRITZ!Box Cable - 6690 Cable (FRITZ!OS 8.40)
+  - Hitron - CODA-5719 (Mediacom), with OFDM/OFDMA and the DOCSIS event log
   - Motorola - MB8611, MB8600, MB7621
   - Netgear - CM600, CM700, CM1000, CM1200, CM2050V (with OFDM/OFDMA)
   - Sagemcom - F3896LG (Virgin Media Hub 5, Ziggo SmartWifi)

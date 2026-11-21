@@ -324,6 +324,7 @@ public class UniFiCableInternetTests
     [InlineData(typeof(ArrisSurfboardHttpProvider), CmCredentialRequirement.Optional, false)]
     [InlineData(typeof(SagemcomF3896Provider), CmCredentialRequirement.None, false)]
     [InlineData(typeof(FritzBoxCableProvider), CmCredentialRequirement.Required, false)]
+    [InlineData(typeof(HitronCodaProvider), CmCredentialRequirement.Required, false)]
     [InlineData(typeof(TechnicolorCgaProvider), CmCredentialRequirement.Required, true)]
     [InlineData(typeof(NetgearCmProvider), CmCredentialRequirement.Optional, false)]
     [InlineData(typeof(VodafoneStationProvider), CmCredentialRequirement.Required, true)]
