@@ -199,17 +199,17 @@
         linkCards = [];
     }
 
-    // Before the first card, unless it sits in a grid or a side-by-side flex row: then before the
-    // ancestor that does not, so the row never takes a grid cell or squeezes a column.
+    // Before the first card, unless it sits in a grid or a side-by-side flex row at any depth: then
+    // before the outermost one. Never stop at a plain column wrapper (grid > div > card): a row inside
+    // one column pushes that column down, another card becomes "first", and the row jumps columns forever.
     function rowAnchor(card, root) {
-        var at = card;
-        while (at.parentElement && at.parentElement !== root) {
+        var anchor = card;
+        for (var at = card; at.parentElement && at.parentElement !== root; at = at.parentElement) {
             var s = getComputedStyle(at.parentElement);
             var sideBySide = s.display.indexOf('grid') >= 0 || (s.display.indexOf('flex') >= 0 && s.flexDirection.indexOf('row') === 0);
-            if (!sideBySide) break;
-            at = at.parentElement;
+            if (sideBySide) anchor = at.parentElement;
         }
-        return at;
+        return anchor;
     }
 
     function build() {
