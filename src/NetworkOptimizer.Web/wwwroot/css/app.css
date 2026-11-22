@@ -21825,6 +21825,16 @@ a.isp-health-hero-speed:hover {
     white-space: nowrap;
 }
 
+/* break-word, not anywhere: anywhere shrinks the cell's min-content, so an auto-layout table on a
+   phone squeezes the network name and AS number into pieces mid-word. */
+.path-episode-hops td.path-net-cell {
+    overflow-wrap: break-word;
+}
+
+.path-episode-hops td.path-net-cell code.text-code {
+    white-space: nowrap;
+}
+
 .path-episode-hops tbody tr:nth-child(even) td {
     background: rgba(255, 255, 255, 0.025);
 }
