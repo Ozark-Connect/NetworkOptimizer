@@ -49,8 +49,7 @@
     // A private address means a different router on every site, so only a public one takes an install-wide location.
     private bool Editable => Address != null && NetworkUtilities.IsPublicIpAddress(Address);
 
-    // The mobile text: the country as its code, after the city when there is one.
-    private static string ShortText(HopLocationView l) => l.CountryCode is not { Length: > 0 } cc
-        ? l.Text
-        : l.City is { Length: > 0 } city ? $"{city}, {cc.ToUpperInvariant()}" : cc.ToUpperInvariant();
+    // The mobile text: after a city the country is its code; a country alone keeps its full name.
+    private static string ShortText(HopLocationView l) =>
+        l is { CountryCode.Length: > 0, City.Length: > 0 } ? $"{l.City}, {l.CountryCode.ToUpperInvariant()}" : l.Text;
 }

@@ -30467,7 +30467,7 @@ body:has(.top-bar-hidden) .btn-fit {
     white-space: nowrap;
 }
 
-/* On mobile the country shows as its code ("Dallas, US"); the tooltip keeps the full name. */
+/* On mobile a country after a city shows as its code ("Dallas, US"); the tooltip keeps the full name. */
 .hop-loc-short {
     display: none;
 }
