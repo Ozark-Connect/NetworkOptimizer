@@ -7,7 +7,7 @@
     @if (Location != null)
     {
         <span class="flag-icon" data-tooltip="@CountryDisplay.CountryTooltip(Location.CountryCode)">@CountryDisplay.CountryFlag(Location.CountryCode)</span>
-        <span data-tooltip="@Location.Tooltip">@Location.Text</span>
+        <span data-tooltip="@Location.Tooltip"><span class="hop-loc-full">@Location.Text</span><span class="hop-loc-short">@ShortText(Location)</span></span>
         @if (Location.Source == HopLocationSource.Set)
         {
             <span class="hop-loc-set">Set</span>
@@ -48,4 +48,9 @@
 
     // A private address means a different router on every site, so only a public one takes an install-wide location.
     private bool Editable => Address != null && NetworkUtilities.IsPublicIpAddress(Address);
+
+    // The mobile text: the country as its code, after the city when there is one.
+    private static string ShortText(HopLocationView l) => l.CountryCode is not { Length: > 0 } cc
+        ? l.Text
+        : l.City is { Length: > 0 } city ? $"{city}, {cc.ToUpperInvariant()}" : cc.ToUpperInvariant();
 }

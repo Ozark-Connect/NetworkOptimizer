@@ -30467,6 +30467,21 @@ body:has(.top-bar-hidden) .btn-fit {
     white-space: nowrap;
 }
 
+/* On mobile the country shows as its code ("Dallas, US"); the tooltip keeps the full name. */
+.hop-loc-short {
+    display: none;
+}
+
+@media (max-width: 768px) {
+    .hop-loc-full {
+        display: none;
+    }
+
+    .hop-loc-short {
+        display: inline;
+    }
+}
+
 .hop-loc-set {
     margin-left: 0.35rem;
     font-size: 0.7rem;
