@@ -11,7 +11,10 @@
     <div class="cc-toolbar">
         <span class="cc-toolbar-label">Site</span>
         <CcSitePicker Sites="_sites" />
-        <span class="cc-toolbar-label">Settings apply to this site. Site Admin only.</span>
+        @if (_s != null && !_isAdmin)
+        {
+            <span class="cc-toolbar-label">Read-only: only a Site Admin can edit these.</span>
+        }
     </div>
 </div>
 
