@@ -418,7 +418,7 @@ public class ClientDashboardService
                 var offlineIdentity = new ClientIdentity
                 {
                     Mac = histClient.Mac,
-                    Name = histClient.DisplayName ?? histClient.Name,
+                    Name = ClientNames.For(histClient, hostnameFallback: false),
                     Hostname = histClient.Hostname,
                     Ip = clientIp,
                     FixedIp = histClient.UseFixedIp && !string.IsNullOrEmpty(histClient.FixedIp) ? histClient.FixedIp : null,
@@ -1643,7 +1643,7 @@ public class ClientDashboardService
         return new ClientIdentity
         {
             Mac = client.Mac,
-            Name = !string.IsNullOrEmpty(client.DisplayName) ? client.DisplayName : client.Name,
+            Name = ClientNames.For(client, hostnameFallback: false),
             Hostname = client.Hostname,
             Ip = requestedIp,
             FixedIp = client.UseFixedIp && !string.IsNullOrEmpty(client.FixedIp) ? client.FixedIp : null,

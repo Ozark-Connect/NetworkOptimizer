@@ -730,7 +730,7 @@ public class ConfigAuditEngine
         // Try name-based detection if MAC detection didn't work
         if (detection.Category == ClientDeviceCategory.Unknown)
         {
-            var displayName = client.DisplayName ?? client.Name ?? client.Hostname;
+            var displayName = UniFi.ClientNames.For(client);
             if (!string.IsNullOrEmpty(displayName))
                 detection = detectionService.DetectFromPortName(displayName);
         }
