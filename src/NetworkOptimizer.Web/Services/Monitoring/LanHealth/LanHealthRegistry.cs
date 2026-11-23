@@ -34,6 +34,7 @@ public sealed class LanHealthRegistry : ISiteScopedRegistry
             () => _sp.GetRequiredService<MonitoringInfluxRegistry>().GetFor(slug),
             () => _sp.GetRequiredService<SiteConnectionRegistry>().GetFor(slug),
             loggers.CreateLogger($"LanHealth[{slug}]"));
+        engine.NotificationClock = _sp.GetService<NetworkOptimizer.Alerts.Interfaces.INotificationTimeZoneResolver>();
         var alerts = new LanHealthAlertEvaluator(_sp.GetService<NetworkOptimizer.Alerts.Events.IAlertEventBus>(),
             loggers.CreateLogger($"LanHealthAlerts[{slug}]"), slug, _sp.GetService<IServiceScopeFactory>());
         var suppression = _sp.GetService<Firmware.RolloutSuppressionRegistry>();

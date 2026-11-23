@@ -61,6 +61,7 @@ public static class LanSiteDetectors
         f.AddRange(DuplicateIps(s));
         f.AddRange(CapacityTrend(s));
         f.AddRange(GatewayForwarding(s));
+        f.AddRange(ProfileChurn(s));
         foreach (var x in f) if (!Detectors.Scores(x.Detector)) x.Points = 0;
         return f;
     }
@@ -402,6 +403,22 @@ public static class LanSiteDetectors
         yield return Site(Detectors.GatewayForwarding, "Gateway Forwarding", gateway?.Name ?? "Gateway",
             $"{g.Tests} LAN speed tests through the gateway reached {g.RatioToNorm * 100:0}% of their usual. A gateway short of memory or /tmp space forwards LAN traffic slowly; a restart clears it.",
             FindingSeverity.Warning, link?.Link.Id ?? "", 20, chips: "Gateway");
+    }
+
+    // ---- Exclusions: suggest one where most access ports on a profile churn the same way ----
+    internal static IEnumerable<LinkFinding> ProfileChurn(SiteEvidence s)
+    {
+        foreach (var g in s.Links.Where(l => l.Link.Kind == LinkKind.Access && !string.IsNullOrEmpty(l.Link.UpstreamPort.PortProfileId) && l.Exclusion == null)
+                     .GroupBy(l => l.Link.UpstreamPort.PortProfileId!))
+        {
+            var ports = g.ToList();
+            var churning = ports.Count(l => l.Drops + l.DropsExplained >= LanHealthDetectors.FlappingDropsAccess);
+            if (ports.Count < 3 || churning * 10 < ports.Count * 6) continue;
+            var name = s.PortProfiles.FirstOrDefault(p => p.Id == g.Key)?.Name ?? g.Key;
+            yield return Site(Detectors.StpConfig, "Churn by Design", name,
+                $"{churning} of {ports.Count} access ports on the {name} profile relink many times a day. If that is by design (guest rooms, a lab), exclude the profile on any of its ports' pages: Mute alerts, or Exclude from score.",
+                chips: "Exclusions");
+        }
     }
 
     private static bool Same(string a, string b) => string.Equals(LanLinkBuilder.Mac(a), LanLinkBuilder.Mac(b), StringComparison.Ordinal);

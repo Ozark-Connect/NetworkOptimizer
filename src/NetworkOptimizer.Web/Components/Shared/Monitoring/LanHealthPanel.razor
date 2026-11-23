@@ -483,6 +483,7 @@ else
                             <option value="port">This port</option>
                             @if (!string.IsNullOrEmpty(link.UpstreamPort.PortProfileId)) { <option value="profile">Its port profile</option> }
                             <option value="device">The device</option>
+                            @if (!link.IsFabric) { <option value="access-all">All access ports</option> }
                         </select>
                     </div>
                     <div class="action-buttons form-footer">

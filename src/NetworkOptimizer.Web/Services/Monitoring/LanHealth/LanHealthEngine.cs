@@ -60,6 +60,9 @@ public sealed class LanHealthEngine
 
     public string Slug => _slug;
 
+    /// <summary>The notification clock and format, for text with no viewer (alerts).</summary>
+    public NetworkOptimizer.Alerts.Interfaces.INotificationTimeZoneResolver? NotificationClock { get; set; }
+
     /// <summary>The site's devices, clients and links as of the last console read.</summary>
     public sealed class Topology
     {
@@ -118,7 +121,10 @@ public sealed class LanHealthEngine
                 CutoverAt = await cutDb.LanHealthSiteHours.AsNoTracking().OrderBy(h => h.HourStart).Select(h => (DateTime?)h.HourStart).FirstOrDefaultAsync(ct) is DateTime c
                     ? DateTime.SpecifyKind(c, DateTimeKind.Utc) : null;
             lock (_reports) _reports.Clear();
-            var report = await GetReportAsync(48, TimeZoneInfo.Utc, DisplayFormat.Fallback, ct);
+            // Alert text has no viewer: it reads on the notification clock and format, as every alert does.
+            var zone = NotificationClock != null ? await NotificationClock.ResolveAsync(_slug, ct) : TimeZoneInfo.Utc;
+            var format = NotificationClock != null ? await NotificationClock.ResolveFormatAsync(_slug, ct) : DisplayFormat.Fallback;
+            var report = await GetReportAsync(48, zone, format, ct);
             Refreshed?.Invoke(report);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)

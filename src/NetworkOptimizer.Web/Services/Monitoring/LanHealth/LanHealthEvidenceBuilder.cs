@@ -180,7 +180,17 @@ public static class LanHealthEvidenceBuilder
         var apAgentHere = link.Downstream.IsAccessPoint && (down.Has(InfluxFieldNames.UplinkCarrierChanges)
             || x.Events.Any(e => e.DeviceMac.Equals(link.Downstream.DeviceMac, StringComparison.OrdinalIgnoreCase) && e.EventType.StartsWith("ap_", StringComparison.Ordinal)));
         if (apAgentHere && link.Kind == LinkKind.FabricWired) observers.Add(new(LinkSource.ApKernelLog, hour, CountsDrops: true, CountsErrors: false));
-        var chipHere = up.Rows.Any(r => r.PortId.StartsWith("swchip:", StringComparison.Ordinal));
+        // swconfig port N is ethN only where verified; a port whose chip speed disagrees with the port
+        // table's is not this port, and its readings are dropped.
+        var chipSpeed = up.Rows.Where(r => r.PortId.StartsWith("swchip:", StringComparison.Ordinal) && r.Field == InfluxFieldNames.LinkSpeedMbps)
+            .Select(r => r.Max).OfType<double>().DefaultIfEmpty(0).Max();
+        var chipHere = up.Rows.Any(r => r.PortId.StartsWith("swchip:", StringComparison.Ordinal))
+            && (chipSpeed <= 0 || link.SpeedMbps is not int ls || (int)chipSpeed == ls);
+        if (!chipHere)
+        {
+            up.Rows.RemoveAll(r => r.PortId.StartsWith("swchip:", StringComparison.Ordinal));
+            events.RemoveAll(e => e.Source == LinkSource.GatewaySwitchChip);
+        }
         if (chipHere) observers.Add(new(LinkSource.GatewaySwitchChip, hour, true, true));
 
         // Probe loss bursts: an AP's loss belongs to the deepest link above it that all lossy APs share.
