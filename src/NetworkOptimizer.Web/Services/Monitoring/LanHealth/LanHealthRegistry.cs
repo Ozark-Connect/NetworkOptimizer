@@ -42,7 +42,10 @@ public sealed class LanHealthRegistry : ISiteScopedRegistry
             engine.ConsoleLocator = ActivatorUtilities.CreateInstance<Firmware.RolloutObserverLocator>(_sp, slug, commands);
         }
         catch (Exception) { /* without it, only devices below a step are explained */ }
-        var alerts = new LanHealthAlertEvaluator(_sp.GetService<NetworkOptimizer.Alerts.Events.IAlertEventBus>(),
+        // The site bus stamps the slug, as every per-site monitor's does: without it a site's alerts land on
+        // the main site, and the gate's open-alert seed (read from this site) never sees them after a restart.
+        var bus = _sp.GetService<NetworkOptimizer.Alerts.Events.IAlertEventBus>();
+        var alerts = new LanHealthAlertEvaluator(bus == null ? null : new SiteAlertEventBus(bus, slug),
             loggers.CreateLogger($"LanHealthAlerts[{slug}]"), slug, _sp.GetService<IServiceScopeFactory>());
         var suppression = _sp.GetService<Firmware.RolloutSuppressionRegistry>();
         engine.Refreshed += report =>
