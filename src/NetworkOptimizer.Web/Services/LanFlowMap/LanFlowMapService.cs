@@ -223,10 +223,7 @@ public class LanFlowMapService
             var fromHistory = 0;
             foreach (var c in history)
             {
-                var label = !string.IsNullOrWhiteSpace(c.DisplayName) ? c.DisplayName
-                    : !string.IsNullOrWhiteSpace(c.Name) ? c.Name
-                    : !string.IsNullOrWhiteSpace(c.Hostname) ? c.Hostname
-                    : null;
+                var label = NetworkOptimizer.UniFi.ClientNames.For(c);
                 if (!string.IsNullOrEmpty(c.Mac) && label != null)
                 {
                     names[NormalizeMac(c.Mac)] = label;
@@ -3159,22 +3156,9 @@ public class LanFlowMapService
     private static string NormalizeMac(string? mac) =>
         string.IsNullOrEmpty(mac) ? string.Empty : mac.ToLowerInvariant().Replace("-", ":");
 
-    /// <summary>
-    /// Client label fallback chain matching Wi-Fi Optimizer - Client Stats: UniFi's
-    /// system-selected DisplayName (v2 active-clients) > user-set Name > device-reported
-    /// Hostname > MAC. The DisplayName step keeps name-less clients from rendering as a
-    /// raw MAC on the 2D/3D maps when the console has a friendly/fingerprint name for them.
-    /// </summary>
-    private static string ResolveClientLabel(NetworkOptimizer.UniFi.DiscoveredClient c)
-    {
-        if (!string.IsNullOrWhiteSpace(c.DisplayName)) return c.DisplayName;
-        if (!string.IsNullOrWhiteSpace(c.Name)) return c.Name;
-        // Bridged UniFi ecosystem devices (Protect cameras, UNAS) carry no user Name/DisplayName
-        // but expose a friendly ucore name; prefer it over the auto-generated hostname.
-        if (!string.IsNullOrWhiteSpace(c.UcoreName)) return c.UcoreName;
-        if (!string.IsNullOrWhiteSpace(c.Hostname)) return c.Hostname;
-        return string.IsNullOrEmpty(c.Mac) ? "unknown" : c.Mac;
-    }
+    /// <summary>A client's map label: its <see cref="NetworkOptimizer.UniFi.ClientNames"/> name, then hostname, then MAC.</summary>
+    private static string ResolveClientLabel(NetworkOptimizer.UniFi.DiscoveredClient c) =>
+        string.IsNullOrEmpty(c.Label) ? "unknown" : c.Label;
 
     private static string PortKey(string deviceMac, string ifName) =>
         deviceMac.ToLowerInvariant() + "|" + ifName;
