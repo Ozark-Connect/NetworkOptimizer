@@ -39,7 +39,9 @@ public sealed class LanPortSnapshotRecorder
     public int Record(IEnumerable<UniFiDeviceResponse> devices, MonitoringInfluxClient influx, DateTime now)
     {
         var written = 0;
-        var peers = MeshPeers(devices);
+        var all = devices as IReadOnlyCollection<UniFiDeviceResponse> ?? devices.ToList();
+        devices = all;
+        var peers = MeshPeers(all);
         foreach (var device in devices)
         {
             if (!device.Adopted || string.IsNullOrEmpty(device.Mac)) continue;
@@ -111,20 +113,22 @@ public sealed class LanPortSnapshotRecorder
     }
 
     /// <summary>
-    /// Each mesh child's entries in its parent's downlink_table, by child MAC: the parent's transmit side of the
-    /// backhaul. serialno names the child; wired downlinks carry none, and an inactive Building Bridge link is skipped.
+    /// Each wireless-uplink child's entries in the downlink_table of the parent its own uplink_mac names, by child
+    /// MAC: the parent's end of the backhaul (<see cref="MeshDownlinks"/>, as the Wi-Fi Optimizer reads it). An
+    /// inactive link (a Building Bridge's idle 5 GHz fallback) is left out.
     /// </summary>
-    internal static Dictionary<string, List<DownlinkTableEntry>> MeshPeers(IEnumerable<UniFiDeviceResponse> devices)
+    internal static Dictionary<string, List<DownlinkTableEntry>> MeshPeers(IReadOnlyCollection<UniFiDeviceResponse> devices)
     {
+        var byMac = devices.Where(d => !string.IsNullOrEmpty(d.Mac)).GroupBy(d => d.Mac.Trim().ToLowerInvariant()).ToDictionary(g => g.Key, g => g.First());
         var peers = new Dictionary<string, List<DownlinkTableEntry>>();
-        foreach (var parent in devices)
-            foreach (var e in parent.DownlinkTable ?? [])
-            {
-                if (string.IsNullOrWhiteSpace(e.SerialNo) || e.Active == false) continue;
-                var child = e.SerialNo.Trim().ToLowerInvariant();
-                if (!peers.TryGetValue(child, out var list)) peers[child] = list = [];
-                list.Add(e);
-            }
+        foreach (var child in byMac.Values)
+        {
+            if (child.Uplink is not { } up || !string.Equals(up.Type, "wireless", StringComparison.OrdinalIgnoreCase)) continue;
+            if (string.IsNullOrWhiteSpace(up.UplinkMac) || !byMac.TryGetValue(up.UplinkMac.Trim().ToLowerInvariant(), out var parent)) continue;
+            var mac = child.Mac.Trim().ToLowerInvariant();
+            var entries = MeshDownlinks.For(parent.DownlinkTable, mac).Entries.Where(e => e.Active != false).ToList();
+            if (entries.Count > 0) peers[mac] = entries;
+        }
         return peers;
     }
 
@@ -168,6 +172,8 @@ public sealed class LanPortSnapshotRecorder
                     Add(InfluxFieldNames.UplinkTxRetries, Sum(e => e.TxRetries));
                     Add(InfluxFieldNames.UplinkTxAttempts, Sum(e => e.WifiTxAttempts));
                     Add(InfluxFieldNames.UplinkTxDropped, Sum(e => e.WifiTxDropped));
+                    foreach (var e in parentSide.Where(e => e.Signal != null && e.Radio is "ng" or "na" or "6e"))
+                        Add(InfluxFieldNames.UplinkParentSignalField(e.Radio!), (long)e.Signal!.Value);
                     if (parentSide.Any(e => e.RxBytesRate != null)) Add(InfluxFieldNames.UplinkRxBps, parentSide.Sum(e => e.RxBytesRate ?? 0) * 8);
                     if (parentSide.Any(e => e.TxBytesRate != null)) Add(InfluxFieldNames.UplinkTxBps, parentSide.Sum(e => e.TxBytesRate ?? 0) * 8);
                     if (parentSide.Where(e => e.Uptime != null).Select(e => e.Uptime!.Value).DefaultIfEmpty(-1).Min() is long up and >= 0)

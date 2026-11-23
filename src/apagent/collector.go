@@ -121,6 +121,9 @@ type Collector struct {
 	vaps   []string
 	radios []string
 
+	// meshAt is when the mesh uplink counters last went on the ring. Only runBytes touches it.
+	meshAt time.Time
+
 	// fastPass counts fast tier passes and paces the sweep of empty VAPs. Only runFast touches it.
 	fastPass uint64
 
@@ -335,6 +338,12 @@ func (c *Collector) runBytes(ctx context.Context) {
 	// Straight onto the ring: ApplyEvent ignores an event with no client, which this has none.
 	for _, e := range channelChanges(previous, c.table.Radios(), now) {
 		c.ring.Add(e)
+	}
+	if now.Sub(c.meshAt) >= meshUplinkEvery {
+		if counters, ok := meshUplinkCounters(snap.Stations); ok {
+			c.meshAt = now
+			c.ring.Add(Event{Type: EventUplinkCounters, Iface: "vwiresta", Counters: &counters, CollectedAt: now})
+		}
 	}
 	c.bytes.succeeded(now)
 	c.slow.succeeded(now)

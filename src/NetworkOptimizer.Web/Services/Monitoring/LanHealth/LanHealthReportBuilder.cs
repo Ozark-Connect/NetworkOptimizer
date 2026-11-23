@@ -44,6 +44,12 @@ public static class LanHealthReportBuilder
         var parentLoss = parentRows?.Where(r => r.ProbeLossPct != null).Select(r => r.ProbeLossPct!.Value).ToList();
         var (retryPct, attempts) = RetryPct(rows);
         var (retryBase, baseAttempts) = RetryPct(baseline);
+        var (childRetry, _) = RetryPct(rows, child: true);
+        var (childBase, childBaseAttempts) = RetryPct(baseline, child: true);
+        // The median hour by distance from weak, so one bad hour does not stand for the window.
+        var worst = rows.Where(r => r.MeshWorstSignalDbm != null && r.MeshWorstSignalRadio != null)
+            .OrderBy(r => r.MeshWorstSignalDbm!.Value - NetworkOptimizer.WiFi.Helpers.SignalClassification.WeakBelowDbm(LanHealthDetectors.SignalBand(r.MeshWorstSignalRadio!)))
+            .ToList() is { Count: > 0 } ws ? ws[ws.Count / 2] : null;
         double? Sum(Func<LanHealthLinkHour, double?> f) => rows.Any(r => f(r) != null) ? rows.Sum(r => f(r) ?? 0) : null;
         var upBlind = rows.Count > 0 && rows.All(r => r.UpErrorsBlind);
         var speeds = rows.Where(r => r.SpeedMinMbps is > 0)
@@ -94,6 +100,12 @@ public static class LanHealthReportBuilder
             MeshTxAttempts = attempts,
             MeshRetryPctBaseline = baseAttempts >= MeshRetryMinAttempts * 4 ? retryBase : null,
             MeshTxDropped = rows.Sum(r => r.MeshTxDropped ?? 0),
+            MeshChildRetryPct = childRetry,
+            MeshChildRetryPctBaseline = childBaseAttempts >= MeshRetryMinAttempts * 4 ? childBase : null,
+            MeshChildTxDropped = rows.Sum(r => r.MeshChildTxDropped ?? 0),
+            MeshWorstSignalDbm = worst?.MeshWorstSignalDbm,
+            MeshWorstSignalRadio = worst?.MeshWorstSignalRadio,
+            MeshWorstSignalAtParent = worst?.MeshWorstSignalAtParent == true,
             HistoryDays = historyDays,
         };
     }
@@ -101,12 +113,13 @@ public static class LanHealthReportBuilder
     /// <summary>Transmit attempts below which a retry rate is noise.</summary>
     internal const double MeshRetryMinAttempts = 100_000;
 
-    /// <summary>Retries over attempts across the hours, percent, with the attempts behind it.</summary>
-    internal static (double? Pct, double Attempts) RetryPct(IReadOnlyList<LanHealthLinkHour> rows)
+    /// <summary>Retries over attempts across the hours, percent, with the attempts behind it: the parent's side, or the child's.</summary>
+    internal static (double? Pct, double Attempts) RetryPct(IReadOnlyList<LanHealthLinkHour> rows, bool child = false)
     {
-        var hours = rows.Where(r => r.MeshTxAttempts is > 0 && r.MeshTxRetries != null).ToList();
-        var attempts = hours.Sum(r => r.MeshTxAttempts!.Value);
-        return (attempts >= MeshRetryMinAttempts ? 100 * hours.Sum(r => r.MeshTxRetries!.Value) / attempts : null, attempts);
+        var hours = rows.Select(r => child ? (Retries: r.MeshChildTxRetries, Attempts: r.MeshChildTxAttempts) : (Retries: r.MeshTxRetries, Attempts: r.MeshTxAttempts))
+            .Where(h => h.Attempts is > 0 && h.Retries != null).ToList();
+        var attempts = hours.Sum(h => h.Attempts!.Value);
+        return (attempts >= MeshRetryMinAttempts ? 100 * hours.Sum(h => h.Retries!.Value) / attempts : null, attempts);
     }
 
     /// <summary>

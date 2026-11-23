@@ -452,14 +452,20 @@ public static class LanHealthDetectors
     internal static IEnumerable<LinkFinding> MeshQuality(LinkEvidence ev, double? nowSignal)
     {
         var parent = ev.ParentName ?? "its parent";
-        if (nowSignal is double sig && ev.Link.MeshRadio is { Length: > 0 } radio)
+        // Each end on its own band: the stored worst end when there is one, else the child's own reading.
+        var (signalDbm, signalRadio, atParent) = ev.MeshWorstSignalDbm is int w && ev.MeshWorstSignalRadio is { Length: > 0 } wr
+            ? (w, wr, ev.MeshWorstSignalAtParent)
+            : nowSignal is double sig && ev.Link.MeshRadio is { Length: > 0 } radio ? ((int)Math.Round(sig), radio, false) : (0, "", false);
+        if (signalRadio.Length > 0)
         {
-            var band = SignalBand(radio);
-            var dbm = (int)Math.Round(sig);
-            if (NetworkOptimizer.WiFi.Helpers.SignalClassification.IsWeakSignal(dbm, band))
+            var band = SignalBand(signalRadio);
+            if (NetworkOptimizer.WiFi.Helpers.SignalClassification.IsWeakSignal(signalDbm, band))
+            {
+                var poor = NetworkOptimizer.WiFi.Helpers.SignalClassification.IsCriticalSignal(signalDbm, band);
+                var who = atParent ? $"{parent} hears this device" : $"This device hears {parent}";
                 yield return MeshFinding(ev, "Weak Mesh Signal",
-                    $"Backhaul signal is {dbm} dBm, {(NetworkOptimizer.WiFi.Helpers.SignalClassification.IsCriticalSignal(dbm, band) ? "poor" : "weak")} for {BandLabel(band)}.",
-                    NetworkOptimizer.WiFi.Helpers.SignalClassification.IsCriticalSignal(dbm, band) ? 20 : 10);
+                    $"{who} at {signalDbm} dBm on {BandLabel(band)}, {(poor ? "poor" : "weak")} for the band.", poor ? 20 : 10);
+            }
         }
 
         if (ev.ProbeLossPct is double loss && loss - (ev.ParentProbeLossPct ?? 0) >= MeshLossExcessPct)
@@ -485,10 +491,21 @@ public static class LanHealthDetectors
             }
         }
 
-        if (ev.MeshRetryPct is double retry && retry >= MeshRetryPct && (ev.MeshRetryPctBaseline is not double rb || retry >= 2 * rb))
+        // Both directions; the worse one past its threshold is the finding.
+        static bool Over(double? pct, double? normal) => pct is double p && p >= MeshRetryPct && (normal is not double n || p >= 2 * n);
+        var down = Over(ev.MeshRetryPct, ev.MeshRetryPctBaseline);
+        var up = Over(ev.MeshChildRetryPct, ev.MeshChildRetryPctBaseline);
+        if (down || up)
+        {
+            var childSide = up && (!down || ev.MeshChildRetryPct > ev.MeshRetryPct);
+            var (pct, retryNormal, dropped) = childSide
+                ? (ev.MeshChildRetryPct!.Value, ev.MeshChildRetryPctBaseline, ev.MeshChildTxDropped)
+                : (ev.MeshRetryPct!.Value, ev.MeshRetryPctBaseline, ev.MeshTxDropped);
             yield return MeshFinding(ev, "Mesh Retries",
-                $"{parent} retries {retry:0}% of its transmissions to this device{(ev.MeshRetryPctBaseline is double b ? $", against its normal {b:0}%" : "")}."
-                + (ev.MeshTxDropped > 0 ? $" {ev.MeshTxDropped:N0} frames were dropped after retries." : ""), 10);
+                (childSide ? $"This device retries {pct:0}% of its transmissions to {parent}" : $"{parent} retries {pct:0}% of its transmissions to this device")
+                + (retryNormal is double b ? $", against its normal {b:0}%." : ".")
+                + (dropped > 0 ? $" {dropped:N0} frames were dropped after retries." : ""), 10);
+        }
     }
 
     /// <summary>Channel moves that dropped a backhaul in the window before it is worth a finding.</summary>
@@ -518,7 +535,7 @@ public static class LanHealthDetectors
             + (dfs > 0 ? $" {dfs} of them left a DFS channel; a non-DFS channel for the backhaul avoids those." : ""), 0);
     }
 
-    private static NetworkOptimizer.WiFi.Models.RadioBand SignalBand(string radio) => radio switch
+    internal static NetworkOptimizer.WiFi.Models.RadioBand SignalBand(string radio) => radio switch
     {
         "ng" => NetworkOptimizer.WiFi.Models.RadioBand.Band2_4GHz,
         "6e" => NetworkOptimizer.WiFi.Models.RadioBand.Band6GHz,

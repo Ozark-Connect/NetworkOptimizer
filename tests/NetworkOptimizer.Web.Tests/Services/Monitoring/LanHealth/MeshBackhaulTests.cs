@@ -39,23 +39,68 @@ public class MeshBackhaulTests
         SpeedMbps = 2500,
     };
 
+    private static UniFiDeviceResponse Child(string mac = ChildMac) => new()
+    {
+        Mac = mac,
+        Uplink = new UplinkInfo { Type = "wireless", UplinkMac = ParentMac },
+    };
+
     [Fact]
-    public void MeshPeers_BindByTheChildsSerialAndSkipWiredAndInactiveEntries()
+    public void MeshPeers_FollowTheChildsUplinkToItsParentsEntries()
     {
         var parent = new UniFiDeviceResponse
         {
             Mac = ParentMac,
             DownlinkTable =
             [
-                new DownlinkTableEntry { Mac = "96:41:b2:16:50:13", SerialNo = "AA:BB:CC:00:00:20", Name = "vwireap14", IsMlo = true, TxRetries = 464_922, WifiTxAttempts = 6_818_682, Uptime = 43_826 },
-                new DownlinkTableEntry { Mac = "9a:41:b2:16:50:12", SerialNo = "aa:bb:cc:00:00:20", Name = "vwireap10", IsMlo = true, TxRetries = 755_401, WifiTxAttempts = 9_966_444, Uptime = 43_826 },
+                new DownlinkTableEntry { Mac = "96:41:b2:16:50:13", SerialNo = "AA:BB:CC:00:00:20", Name = "vwireap14", IsMlo = true, Radio = "6e", Signal = -58 },
+                new DownlinkTableEntry { Mac = "9a:41:b2:16:50:12", SerialNo = "aa:bb:cc:00:00:20", Name = "vwireap10", IsMlo = true, Radio = "na", Signal = -45 },
                 new DownlinkTableEntry { Mac = "aa:bb:cc:00:00:99" },
+                new DownlinkTableEntry { Mac = "y", MldMac = "aa:bb:cc:00:00:31", Radio = "na" },
+                new DownlinkTableEntry { Mac = "z", MldMac = "aa:bb:cc:00:00:31", Radio = "na" },
                 new DownlinkTableEntry { Mac = "x", SerialNo = "aa:bb:cc:00:00:30", Active = false },
             ],
         };
-        var peers = LanPortSnapshotRecorder.MeshPeers([parent]);
-        peers.Keys.Should().Equal(ChildMac);
+        var peers = LanPortSnapshotRecorder.MeshPeers([parent, Child(), Child("aa:bb:cc:00:00:31"), Child("aa:bb:cc:00:00:30")]);
+        peers.Keys.Should().BeEquivalentTo([ChildMac, "aa:bb:cc:00:00:31"], "an inactive link (a Building Bridge's idle fallback) is no peer");
         peers[ChildMac].Should().HaveCount(2, "an MLO backhaul is one entry per link");
+        peers["aa:bb:cc:00:00:31"].Should().ContainSingle("a non-MLO child keeps its first entry, matched by mld_mac when serialno is absent");
+    }
+
+    [Fact]
+    public void WeakBelowDbm_AgreesWithIsWeakSignal()
+    {
+        foreach (var band in new[] { NetworkOptimizer.WiFi.Models.RadioBand.Band2_4GHz, NetworkOptimizer.WiFi.Models.RadioBand.Band5GHz, NetworkOptimizer.WiFi.Models.RadioBand.Band6GHz })
+        {
+            var below = NetworkOptimizer.WiFi.Helpers.SignalClassification.WeakBelowDbm(band);
+            NetworkOptimizer.WiFi.Helpers.SignalClassification.IsWeakSignal(below, band).Should().BeFalse();
+            NetworkOptimizer.WiFi.Helpers.SignalClassification.IsWeakSignal(below - 1, band).Should().BeTrue();
+        }
+    }
+
+    [Fact]
+    public void WorstSignal_GradesEachEndOnItsOwnBand()
+    {
+        // 6 GHz at -80 is 7 dB clear of weak; 5 GHz at -70 is 8 dB clear: the 6 GHz reading is closer to weak.
+        var w = LanHealthEvidenceBuilder.WorstSignal([new(-70, "na", false), new(-80, "6e", true)])!;
+        w.Radio.Should().Be("6e");
+        w.AtParent.Should().BeTrue();
+    }
+
+    [Fact]
+    public void WeakMeshSignal_NamesTheWeakEnd_AndAsymmetryAloneIsNotAFault()
+    {
+        // The child hears its parent at -40 / -33; the parent hears it at -58 / -45: all good for their bands.
+        Classes(new LinkEvidence { Link = Mesh("6e"), ParentName = "AP Parent", MeshWorstSignalDbm = -58, MeshWorstSignalRadio = "6e", MeshWorstSignalAtParent = true }).Should().BeEmpty();
+        var f = LanHealthDetectors.MeshQuality(new LinkEvidence { Link = Mesh(), ParentName = "AP Parent", MeshWorstSignalDbm = -80, MeshWorstSignalRadio = "na", MeshWorstSignalAtParent = true }, -55).Single();
+        f.Body.Should().Be("AP Parent hears this device at -80 dBm on 5 GHz, weak for the band.");
+    }
+
+    [Fact]
+    public void MeshRetries_ReportTheWorseDirection()
+    {
+        var f = LanHealthDetectors.MeshQuality(new LinkEvidence { Link = Mesh(), ParentName = "AP Parent", MeshRetryPct = 6, MeshChildRetryPct = 22, MeshChildRetryPctBaseline = 7 }, null).Single();
+        f.Body.Should().StartWith("This device retries 22% of its transmissions to AP Parent, against its normal 7%.");
     }
 
     [Fact]

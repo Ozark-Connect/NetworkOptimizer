@@ -211,6 +211,21 @@ public sealed class ApAgentUplinkCounters
     [JsonPropertyName("rx_crc_errors")]
     [JsonConverter(typeof(NetworkOptimizer.UniFi.Models.FlexibleNullableLongConverter))]
     public long? RxCrcErrors { get; set; }
+
+    /// <summary>A mesh child's own transmit retries toward its parent, summed over its vwiresta links.</summary>
+    [JsonPropertyName("mesh_tx_retries")]
+    [JsonConverter(typeof(NetworkOptimizer.UniFi.Models.FlexibleNullableLongConverter))]
+    public long? MeshTxRetries { get; set; }
+
+    /// <summary>A mesh child's own transmit attempts toward its parent.</summary>
+    [JsonPropertyName("mesh_tx_attempts")]
+    [JsonConverter(typeof(NetworkOptimizer.UniFi.Models.FlexibleNullableLongConverter))]
+    public long? MeshTxAttempts { get; set; }
+
+    /// <summary>Frames the mesh child dropped toward its parent after retries.</summary>
+    [JsonPropertyName("mesh_tx_dropped")]
+    [JsonConverter(typeof(NetworkOptimizer.UniFi.Models.FlexibleNullableLongConverter))]
+    public long? MeshTxDropped { get; set; }
 }
 
 /// <summary>A radio move as the agent saw it, within one mca-dump pass of the radio moving.</summary>

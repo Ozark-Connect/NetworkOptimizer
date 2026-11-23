@@ -153,6 +153,14 @@ public static class InfluxFieldNames
     /// <summary>Seconds the mesh child has been associated to its parent (the shortest MLO link).</summary>
     public const string UplinkAssocSeconds = "uplink_assoc_seconds";
 
+    /// <summary>The mesh child's own transmit side toward its parent (the AP Agent's vwiresta read).</summary>
+    public const string UplinkChildTxRetries = "uplink_child_tx_retries";
+    public const string UplinkChildTxAttempts = "uplink_child_tx_attempts";
+    public const string UplinkChildTxDropped = "uplink_child_tx_dropped";
+
+    /// <summary>The parent's signal for this mesh child on one band (ng, na, 6e): the parent's end of that link.</summary>
+    public static string UplinkParentSignalField(string radio) => $"uplink_parent_{radio}_signal_dbm";
+
     /// <summary>MLO links the backhaul runs on.</summary>
     public const string UplinkMloLinkCount = "uplink_mlo_links";
 

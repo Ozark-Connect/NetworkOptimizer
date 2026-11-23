@@ -81,6 +81,14 @@ public sealed class LinkEvidence
     public double? MeshRetryPctBaseline { get; init; }
     /// <summary>Frames the parent dropped to the mesh child after retries in the window.</summary>
     public double MeshTxDropped { get; init; }
+    /// <summary>The child's own side toward its parent (AP Agent), when it reports one.</summary>
+    public double? MeshChildRetryPct { get; init; }
+    public double? MeshChildRetryPctBaseline { get; init; }
+    public double MeshChildTxDropped { get; init; }
+    /// <summary>The window's median hour of the reading closest to weak, over both ends and every MLO link.</summary>
+    public int? MeshWorstSignalDbm { get; init; }
+    public string? MeshWorstSignalRadio { get; init; }
+    public bool MeshWorstSignalAtParent { get; init; }
     /// <summary>On an access port: the client was idle (sleep, WoL standby) in these spans.</summary>
     public List<(DateTime Start, DateTime End)> ClientIdle { get; init; } = [];
     /// <summary>SFP receive power now and its 7-day best, dBm; module temperature now.</summary>

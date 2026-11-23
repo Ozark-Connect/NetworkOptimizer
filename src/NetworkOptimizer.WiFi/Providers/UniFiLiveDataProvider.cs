@@ -95,14 +95,10 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
                 if (devicesByMac.TryGetValue(snapshot.MeshParentMac, out var parentDevice) &&
                     parentDevice.DownlinkTable != null)
                 {
-                    var matches = parentDevice.DownlinkTable
-                        .Where(d => string.Equals(d.SerialNo ?? d.MldMac, snapshot.Mac, StringComparison.OrdinalIgnoreCase))
-                        .ToList();
                     // Aggregate ONLY is_mlo-flagged entries; a non-MLO child keeps the original
                     // single-entry read so nothing about existing mesh pairs changes.
-                    var mloEntries = matches.Where(e => e.IsMlo == true).ToList();
-                    isMlo = mloEntries.Count > 0;
-                    var entries = isMlo ? mloEntries : matches.Take(1).ToList();
+                    (var entries, isMlo) = MeshDownlinks.For(parentDevice.DownlinkTable, snapshot.Mac);
+                    var mloEntries = isMlo ? entries : [];
                     if (isMlo)
                     {
                         parentLinks = mloEntries.Select(e => new MeshLinkInfo

@@ -52,6 +52,11 @@ public static class LanHealthEvidenceBuilder
         InfluxFieldNames.UplinkSignalDbm, InfluxFieldNames.UplinkTxRateKbps, InfluxFieldNames.UplinkMloLinkCount,
         InfluxFieldNames.UplinkParentMac, InfluxFieldNames.UplinkTxRetries, InfluxFieldNames.UplinkTxAttempts,
         InfluxFieldNames.UplinkTxDropped, InfluxFieldNames.UplinkAssocSeconds, InfluxFieldNames.UplinkRxBps, InfluxFieldNames.UplinkTxBps,
+        InfluxFieldNames.UplinkChildTxRetries, InfluxFieldNames.UplinkChildTxAttempts, InfluxFieldNames.UplinkChildTxDropped,
+        InfluxFieldNames.UplinkParentSignalField("ng"), InfluxFieldNames.UplinkParentSignalField("na"), InfluxFieldNames.UplinkParentSignalField("6e"),
+        InfluxFieldNames.UplinkMloField(0, "signal_dbm"), InfluxFieldNames.UplinkMloField(0, "radio"),
+        InfluxFieldNames.UplinkMloField(1, "signal_dbm"), InfluxFieldNames.UplinkMloField(1, "radio"),
+        InfluxFieldNames.UplinkMloField(2, "signal_dbm"), InfluxFieldNames.UplinkMloField(2, "radio"),
     ];
 
     /// <summary>events the roll-up reads.</summary>
@@ -334,6 +339,7 @@ public static class LanHealthEvidenceBuilder
         var rtts = probed.Where(x.Probes.ContainsKey).Select(t => x.Probes[t].RttMs).OfType<double>().ToList();
         double? rttMs = rtts.Count > 0 ? rtts.Average() : null;
         var mesh = MeshFor(link, x);
+        var worstSignal = link.IsMesh ? WorstSignal(MeshSignals(link, x)) : null;
 
         var row = new LanHealthLinkHour
         {
@@ -386,6 +392,12 @@ public static class LanHealthEvidenceBuilder
             MeshTxAttempts = meshTx.Attempts,
             MeshTxDropped = meshTx.Dropped,
             MeshReassociations = meshTx.ReassociatedAt != null ? 1 : 0,
+            MeshChildTxRetries = meshTx.ChildRetries,
+            MeshChildTxAttempts = meshTx.ChildAttempts,
+            MeshChildTxDropped = meshTx.ChildDropped,
+            MeshWorstSignalDbm = worstSignal?.Dbm,
+            MeshWorstSignalRadio = worstSignal?.Radio,
+            MeshWorstSignalAtParent = worstSignal?.AtParent,
             PoeWattsMin = up.Min(InfluxFieldNames.PoePower),
             PoeWattsMax = up.Max(InfluxFieldNames.PoePower),
             Reboots = x.RebootsFor(link.Downstream.DeviceMac).Count,
@@ -479,10 +491,43 @@ public static class LanHealthEvidenceBuilder
     private static double? MeshMean(LinkRecord link, HourInputs x, string field) => !link.IsMesh ? null
         : x.Devices.FirstOrDefault(d => d.Field == field && string.Equals(d.DeviceMac, link.Downstream.DeviceMac, StringComparison.OrdinalIgnoreCase)).Mean;
 
-    private static (double? Retries, double? Attempts, double? Dropped, DateTime? ReassociatedAt, bool Observed) MeshTxFor(
-        LinkRecord link, HourInputs x, DateTime from, DateTime to)
+    /// <summary>One end's reading of one mesh link: which band, and whether the parent took it.</summary>
+    internal sealed record MeshSignal(int Dbm, string Radio, bool AtParent);
+
+    /// <summary>
+    /// The reading closest to weak for its own band (<see cref="NetworkOptimizer.WiFi.Helpers.SignalClassification.WeakBelowDbm"/>):
+    /// each end is graded on its own, so an AP that hears its peer better than the peer hears it is not a fault.
+    /// </summary>
+    internal static MeshSignal? WorstSignal(IEnumerable<MeshSignal> signals) =>
+        signals.OrderBy(s => s.Dbm - NetworkOptimizer.WiFi.Helpers.SignalClassification.WeakBelowDbm(LanHealthDetectors.SignalBand(s.Radio))).FirstOrDefault();
+
+    /// <summary>
+    /// The hour's mean signal at both ends of a mesh link, per band: the child's own (every MLO link, else its one
+    /// uplink on <see cref="LinkRecord.MeshRadio"/>) and the parent's downlink_table reading of the child.
+    /// </summary>
+    private static IEnumerable<MeshSignal> MeshSignals(LinkRecord link, HourInputs x)
     {
-        if (!link.IsMesh) return (null, null, null, null, false);
+        var rows = x.Devices.Where(d => string.Equals(d.DeviceMac, link.Downstream.DeviceMac, StringComparison.OrdinalIgnoreCase)).ToList();
+        double? Mean(string f) => rows.FirstOrDefault(r => r.Field == f).Mean;
+        string? Text(string f) => rows.FirstOrDefault(r => r.Field == f).Last as string;
+        var members = 0;
+        for (var i = 0; i < 3; i++)
+            if (Mean(InfluxFieldNames.UplinkMloField(i, "signal_dbm")) is double s && Text(InfluxFieldNames.UplinkMloField(i, "radio")) is { Length: > 0 } r)
+            {
+                members++;
+                yield return new MeshSignal((int)Math.Round(s), r, false);
+            }
+        if (members == 0 && Mean(InfluxFieldNames.UplinkSignalDbm) is double own && link.MeshRadio is { Length: > 0 } radio)
+            yield return new MeshSignal((int)Math.Round(own), radio, false);
+        foreach (var r in new[] { "ng", "na", "6e" })
+            if (Mean(InfluxFieldNames.UplinkParentSignalField(r)) is double p)
+                yield return new MeshSignal((int)Math.Round(p), r, true);
+    }
+
+    private static (double? Retries, double? Attempts, double? Dropped, DateTime? ReassociatedAt, bool Observed,
+        double? ChildRetries, double? ChildAttempts, double? ChildDropped) MeshTxFor(LinkRecord link, HourInputs x, DateTime from, DateTime to)
+    {
+        if (!link.IsMesh) return (null, null, null, null, false, null, null, null);
         var rows = x.Devices.Where(d => string.Equals(d.DeviceMac, link.Downstream.DeviceMac, StringComparison.OrdinalIgnoreCase)).ToList();
         (double? First, double? Last) Of(string field) => rows.FirstOrDefault(r => r.Field == field) is var r && r.Field != null
             ? (r.First, r.Last switch { long l => l, double d => d, _ => (double?)null }) : (null, null);
@@ -490,8 +535,12 @@ public static class LanHealthEvidenceBuilder
         var attempts = Of(InfluxFieldNames.UplinkTxAttempts);
         var dropped = Of(InfluxFieldNames.UplinkTxDropped);
         var assoc = Of(InfluxFieldNames.UplinkAssocSeconds);
+        var childRetries = Of(InfluxFieldNames.UplinkChildTxRetries);
+        var childAttempts = Of(InfluxFieldNames.UplinkChildTxAttempts);
+        var childDropped = Of(InfluxFieldNames.UplinkChildTxDropped);
         return (CounterRise(retries.First, retries.Last), CounterRise(attempts.First, attempts.Last), CounterRise(dropped.First, dropped.Last),
-            Reassociation(from, to, assoc.First, assoc.Last), assoc.Last != null);
+            Reassociation(from, to, assoc.First, assoc.Last), assoc.Last != null,
+            CounterRise(childRetries.First, childRetries.Last), CounterRise(childAttempts.First, childAttempts.Last), CounterRise(childDropped.First, childDropped.Last));
     }
 
     private static (int? Signal, long? Rate, int? Members, string? Parent) MeshFor(LinkRecord link, HourInputs x)

@@ -70,3 +70,20 @@ func TestUplinkCountersOnlyOnChange(t *testing.T) {
 		t.Fatalf("bad reading %+v", events[1].Counters)
 	}
 }
+
+func TestMeshUplinkCounters_SumTheChildSideLinks(t *testing.T) {
+	// Values from a U7 Outdoor mesh child on an MLO backhaul (6 GHz vwiresta4, 5 GHz vwiresta7).
+	stations := []StaSlow{
+		{Vap: "vwiresta4", TxRetries: 23838233, WifiTxAttempts: 495144212, WifiTxDropped: 0},
+		{Vap: "vwiresta7", TxRetries: 44664827, WifiTxAttempts: 603784006, WifiTxDropped: 2},
+		{Vap: "wifi1ap3", TxRetries: 99, WifiTxAttempts: 999},
+		{Vap: "vwireap10", TxRetries: 5, WifiTxAttempts: 50},
+	}
+	c, ok := meshUplinkCounters(stations)
+	if !ok || *c.MeshTxRetries != 68503060 || *c.MeshTxAttempts != 1098928218 || *c.MeshTxDropped != 2 {
+		t.Fatalf("got %+v %v", c, ok)
+	}
+	if _, ok := meshUplinkCounters([]StaSlow{{Vap: "wifi0ap1"}, {Vap: "vwireap10"}}); ok {
+		t.Fatal("a wired AP (or a mesh parent) has no mesh uplink")
+	}
+}

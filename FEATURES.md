@@ -215,7 +215,7 @@ Time-series monitoring on your own InfluxDB, fed by SNMP polling (InfluxDB).
 - Sources: UniFi port tables, SNMP, fabric probes, the AP Agent's kernel link log ([AP Telemetry](#ap-telemetry)), the gateway's switch chip ([On-Site Agent](#on-site-agent))
 - **Findings**: Link Flapping, Link Speed Degraded, Link Errors (which end receives them), Broadcast Storm, Network Loop, Discards Under Load, Below Capability, Optics, PoE Power Cycling
 - Mesh backhauls and Device Bridges: signal and PHY rate against their own normal, parent changes, MLO links lost or out of balance
-- Mesh backhaul quality UniFi Network does not show: the parent's transmit retries and drops, re-associations, probe loss and latency beyond the parent AP's, weak signal for the band, and traffic against what the backhaul can carry
+- Mesh backhaul quality UniFi Network does not show: transmit retries and drops in both directions (the child's side through [AP Telemetry](#ap-telemetry)), re-associations, probe loss and latency beyond the parent AP's, signal at both ends and on every MLO link graded for its band, and traffic against what the backhaul can carry
 - Backhaul channel changes (DFS or auto channel) explain the drops they cause, and repeated ones are reported
 - Configuration checks: STP root, versions, Edge ports, BPDU guard, blocked ports; native VLAN, trunk VLAN, Jumbo Frames, Flow Control; LACP; multicast
 - Reboots, device upgrades and provisioning, Firmware Rollout waves, Change Control changes, and sleeping clients explain a relink instead of scoring it

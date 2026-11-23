@@ -86,6 +86,16 @@ public class LanHealthLinkHour
     public double? MeshTxDropped { get; set; }
     /// <summary>Times the mesh child re-associated to its parent in the hour (association uptime reset).</summary>
     public int MeshReassociations { get; set; }
+    // The mesh child's own transmit side toward its parent (AP Agent): rises over the hour.
+    public double? MeshChildTxRetries { get; set; }
+    public double? MeshChildTxAttempts { get; set; }
+    public double? MeshChildTxDropped { get; set; }
+    /// <summary>The hour's mesh signal closest to weak for its band, over both ends and every MLO link.</summary>
+    public int? MeshWorstSignalDbm { get; set; }
+    [MaxLength(4)]
+    public string? MeshWorstSignalRadio { get; set; }
+    /// <summary>Whether <see cref="MeshWorstSignalDbm"/> is the parent's reading of the child (else the child's of the parent).</summary>
+    public bool? MeshWorstSignalAtParent { get; set; }
     public double? PoeWattsMin { get; set; }
     public double? PoeWattsMax { get; set; }
     public int Reboots { get; set; }

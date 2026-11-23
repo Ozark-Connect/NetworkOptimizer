@@ -3029,8 +3029,27 @@ namespace NetworkOptimizer.Storage.Migrations
                     b.Property<double?>("PoeWattsMin")
                         .HasColumnType("REAL");
 
+                    b.Property<double?>("MeshChildTxAttempts")
+                        .HasColumnType("REAL");
+
+                    b.Property<double?>("MeshChildTxDropped")
+                        .HasColumnType("REAL");
+
+                    b.Property<double?>("MeshChildTxRetries")
+                        .HasColumnType("REAL");
+
                     b.Property<int>("MeshReassociations")
                         .HasColumnType("INTEGER");
+
+                    b.Property<bool?>("MeshWorstSignalAtParent")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int?>("MeshWorstSignalDbm")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("MeshWorstSignalRadio")
+                        .HasMaxLength(4)
+                        .HasColumnType("TEXT");
 
                     b.Property<double?>("MeshTxAttempts")
                         .HasColumnType("REAL");

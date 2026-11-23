@@ -63,6 +63,13 @@ public sealed class ApAgentLinkEventSink
             case ApAgentEventTypes.InformFailed:
                 _ = influx.WriteEventAsync(mac, EventTypes.InformFailed, "warning", apName, null, null, null, at);
                 break;
+            case ApAgentEventTypes.UplinkCounters when e.Counters is { MeshTxAttempts: not null } mesh:
+                // A mesh child's own side of its backhaul, beside the parent-side fields the console gives.
+                var meshFields = new List<KeyValuePair<string, object>> { new(InfluxFieldNames.UplinkChildTxAttempts, mesh.MeshTxAttempts!.Value) };
+                if (mesh.MeshTxRetries is long mr) meshFields.Add(new(InfluxFieldNames.UplinkChildTxRetries, mr));
+                if (mesh.MeshTxDropped is long md) meshFields.Add(new(InfluxFieldNames.UplinkChildTxDropped, md));
+                _ = influx.WriteDeviceFieldsAsync(mac, MonitoringCollectionAgent.DescribeDeviceType(NetworkOptimizer.Core.Enums.DeviceType.AccessPoint), meshFields, at);
+                break;
             case ApAgentEventTypes.UplinkCounters when e.Counters != null && !string.IsNullOrEmpty(e.Iface):
                 var fields = new List<KeyValuePair<string, object>>();
                 if (e.Counters.CarrierChanges is long cc) fields.Add(new(InfluxFieldNames.UplinkCarrierChanges, cc));

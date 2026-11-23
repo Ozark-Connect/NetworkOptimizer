@@ -30,10 +30,38 @@ const (
 	uplinkCountersEvery = 60 * time.Second
 )
 
-// UplinkCounters is one reading of a wired interface's link counters.
+// UplinkCounters is one reading of a wired interface's link counters, or of a mesh child's own transmit
+// side of its backhaul (the Mesh fields, summed over every vwiresta link of an MLO backhaul).
 type UplinkCounters struct {
 	CarrierChanges *int64 `json:"carrier_changes,omitempty"`
 	RxCrcErrors    *int64 `json:"rx_crc_errors,omitempty"`
+	MeshTxRetries  *int64 `json:"mesh_tx_retries,omitempty"`
+	MeshTxAttempts *int64 `json:"mesh_tx_attempts,omitempty"`
+	MeshTxDropped  *int64 `json:"mesh_tx_dropped,omitempty"`
+}
+
+// meshUplinkEvery paces the mesh child's backhaul counters: the server takes their hourly rise.
+const meshUplinkEvery = 5 * time.Minute
+
+// meshUplinkCounters sums this AP's transmit counters toward its mesh parent: the parent's station
+// entry on each child-side uplink VAP (vwiresta*), which the console never reports. Already in the
+// mca-dump pass, so no extra command. False when this AP has no mesh uplink.
+func meshUplinkCounters(stations []StaSlow) (UplinkCounters, bool) {
+	var retries, attempts, dropped int64
+	found := false
+	for _, s := range stations {
+		if !strings.HasPrefix(strings.ToLower(s.Vap), "vwiresta") {
+			continue
+		}
+		found = true
+		retries += s.TxRetries
+		attempts += s.WifiTxAttempts
+		dropped += s.WifiTxDropped
+	}
+	if !found {
+		return UplinkCounters{}, false
+	}
+	return UplinkCounters{MeshTxRetries: &retries, MeshTxAttempts: &attempts, MeshTxDropped: &dropped}, true
 }
 
 // Matches "eth0: PHY Link is down", "eth0: PHY Link up speed: 2500", "eth0: Link is Up - 1Gbps/Full".
