@@ -20808,6 +20808,7 @@ tr.stats-row-filtered {
 @media (max-width: 768px) {
     .lan-health .lan-health-cards { display: flex; }
     .lan-health .lan-health-view { margin-left: 0; min-height: 44px; }
+    .lan-health .lan-health-chips { grid-column: 1 / -1; }
     .lan-health .lan-health-link-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
 .isp-health-card {
