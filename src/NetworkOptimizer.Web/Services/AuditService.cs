@@ -2183,7 +2183,8 @@ public partial class AuditService : IAuditScanService
         Audit.IssueTypes.AllowSubvertsDeny or Audit.IssueTypes.AllowExceptionPattern or Audit.IssueTypes.DenyShadowsAllow or
         Audit.IssueTypes.PermissiveRule or Audit.IssueTypes.BroadRule or Audit.IssueTypes.OrphanedRule or
         Audit.IssueTypes.MissingIsolation or Audit.IssueTypes.IsolationBypassed or
-        Audit.IssueTypes.GatewayManagementExposed or Audit.IssueTypes.GatewayWanManagementExposed => "Firewall Rules",
+        Audit.IssueTypes.GatewayManagementExposed or Audit.IssueTypes.GatewayWanManagementExposed or
+        Audit.IssueTypes.WanPassthroughVlan => "Firewall Rules",
         var t when t.StartsWith("FW-") => "Firewall Rules",
 
         // VLAN security issues (includes device placement - putting devices on correct VLAN)
@@ -2332,6 +2333,7 @@ public partial class AuditService : IAuditScanService
             Audit.IssueTypes.UpnpPortsExposed => "UPnP: Ports Exposed",
             Audit.IssueTypes.StaticPortForward => "Port Forwards: Static Rules",
             Audit.IssueTypes.StaticPrivilegedPort => "Port Forwards: Privileged Ports",
+            Audit.IssueTypes.WanPassthroughVlan => "WAN: Passthrough VLANs Bypass the Firewall",
 
             // Threat Intelligence
             Audit.IssueTypes.ThreatExposedPortForward => "Threat: Actively Targeted Port Forward",
@@ -2503,6 +2505,7 @@ public partial class AuditService : IAuditScanService
         Audit.IssueTypes.UpnpPortsExposed => "Review UPnP mappings periodically in the UPnP Inspector.",
         Audit.IssueTypes.StaticPortForward => "Review static port forwards periodically to ensure they are still needed.",
         Audit.IssueTypes.StaticPrivilegedPort => "Ensure these privileged ports are intentionally exposed and properly secured.",
+        Audit.IssueTypes.WanPassthroughVlan => "Keep each passthrough VLAN to the ISP service it carries, tagged only on that equipment's ports.",
         _ => "Review the configuration and apply security best practices."
     };
 }

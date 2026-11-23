@@ -61,6 +61,9 @@ public static class IssueTypes
     public const string StaticPortForward = "STATIC_PORT_FORWARD";
     public const string StaticPrivilegedPort = "STATIC_PRIVILEGED_PORT";
 
+    // WAN (Network 11.1+)
+    public const string WanPassthroughVlan = "WAN_PASSTHROUGH_VLAN";
+
     // DNS Security
     public const string DnsNoDoh = "DNS_NO_DOH";
     public const string DnsDohAuto = "DNS_DOH_AUTO";

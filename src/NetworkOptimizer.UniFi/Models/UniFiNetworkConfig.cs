@@ -171,6 +171,15 @@ public class UniFiNetworkConfig
     [JsonPropertyName("wan_networkgroup")]
     public string? WanNetworkgroup { get; set; }
 
+    /// <summary>
+    /// On a WAN (Network 11.1+): the VLAN Only Networks the ISP's VLANs pass through to, UniFi's Passthrough VLANs.
+    /// Absent before 11.1 and when none are set.
+    /// </summary>
+    [JsonPropertyName("tagged_networkconf_ids")]
+    [JsonConverter(typeof(FlexibleStringListConverter))]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<string>? TaggedNetworkconfIds { get; set; }
+
     [JsonPropertyName("wan_type")]
     public string? WanType { get; set; } // "dhcp", "static", "pppoe"
 

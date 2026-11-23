@@ -331,6 +331,7 @@ public class ConfigAuditEngine
         ExecutePhase5_AnalyzeFirewallRules(ctx);
         await ExecutePhase5b_AnalyzeDnsSecurityAsync(ctx);
         ExecutePhase5c_AnalyzeUpnpSecurity(ctx);
+        ExecutePhase5c2_AnalyzeWanPassthrough(ctx);
         ExecutePhase5d_AnalyzeThreatExposure(ctx);
         ExecutePhase5e_AnalyzeConsoleAccess(ctx);
         ExecutePhase5f_AnalyzeGatewayFirewall(ctx);
@@ -1072,6 +1073,15 @@ public class ConfigAuditEngine
 
         _logger.LogInformation("Found {IssueCount} UPnP security issues, {HardeningCount} hardening notes",
             result.Issues.Count, result.HardeningNotes.Count);
+    }
+
+    /// <summary>Phase 5c2: WANs with Passthrough VLANs (Network 11.1+), which bypass the firewall.</summary>
+    private void ExecutePhase5c2_AnalyzeWanPassthrough(AuditContext ctx)
+    {
+        var gatewayName = ctx.Switches.FirstOrDefault(s => s.IsGateway)?.Name ?? "Gateway";
+        var issues = WanPassthroughAnalyzer.Analyze(ctx.NetworkConfigs, gatewayName);
+        ctx.AllIssues.AddRange(issues);
+        if (issues.Count > 0) _logger.LogInformation("Found {IssueCount} WAN passthrough issues", issues.Count);
     }
 
     /// <summary>
