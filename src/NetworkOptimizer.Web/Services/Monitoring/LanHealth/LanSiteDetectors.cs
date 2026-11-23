@@ -300,16 +300,19 @@ public static class LanSiteDetectors
     }
 
     // ---- 23 Multicast hygiene ----
-    [VendorSpecific("UniFi", "networkconf igmp_snooping")]
+    [VendorSpecific("UniFi", "setting igmp_snooping (enabled, network_ids, querier_mode); networkconf igmp_snooping on older releases")]
     internal static IEnumerable<LinkFinding> MulticastHygiene(SiteEvidence s)
     {
         var heavy = s.Evidence.Values.Where(e => e.Hours.Any(h => h.MulticastPps is > 500 && h.PacketsPps is > 0 && h.MulticastPps / h.PacketsPps > 0.3)).ToList();
-        var snoopingOff = s.Networks.Where(n => n.Purpose is "corporate" or "guest" && !n.IgmpSnooping).ToList();
+        var igmp = IgmpSnooping(s.Settings);
+        bool Snooping(UniFiNetworkConfig n) => n.IgmpSnooping || (igmp.Enabled && igmp.NetworkIds.Contains(n.Id));
+        var snoopingOff = s.Networks.Where(n => n.Purpose is "corporate" or "guest" && !Snooping(n)).ToList();
         if (heavy.Count > 0 && snoopingOff.Count > 0)
             yield return Site(Detectors.MulticastHygiene, "Multicast Flooding", string.Join(", ", snoopingOff.Select(n => n.Name)),
                 $"Heavy multicast on {heavy.Count} {(heavy.Count == 1 ? "link" : "links")} with IGMP snooping off, so every port receives every stream.", chips: "Multicast");
-        var snoopingOn = s.Networks.Where(n => n.IgmpSnooping).ToList();
-        if (snoopingOn.Count > 0 && s.Devices.All(d => d.DeviceType != DeviceType.Gateway))
+        // UniFi sets the querier to PRIMARY_AND_FAILOVER when snooping is turned on; OFF leaves the networks with none.
+        var snoopingOn = s.Networks.Where(Snooping).ToList();
+        if (snoopingOn.Count > 0 && string.Equals(igmp.QuerierMode, "OFF", StringComparison.OrdinalIgnoreCase))
             yield return Site(Detectors.MulticastHygiene, "No IGMP Querier", string.Join(", ", snoopingOn.Select(n => n.Name)),
                 "IGMP snooping is on, but there's no IGMP querier, so group memberships time out and multicast streams stop.", chips: "Multicast");
     }
@@ -459,6 +462,28 @@ public static class LanSiteDetectors
                 $"{churning} of {ports.Count} access ports on the {name} profile relink many times a day. If that's expected (guest rooms, a lab), exclude the profile from any of its ports' pages with Mute alerts or Exclude from score.",
                 chips: "Exclusions");
         }
+    }
+
+    /// <summary>The site's IGMP snooping setting: on or off, the networks it covers, and the querier mode. Settings arrive as an array or under "data".</summary>
+    [VendorSpecific("UniFi", "rest/setting key igmp_snooping")]
+    internal static (bool Enabled, HashSet<string> NetworkIds, string? QuerierMode) IgmpSnooping(JsonDocument? settings)
+    {
+        var none = (false, new HashSet<string>(), (string?)null);
+        if (settings == null) return none;
+        var root = settings.RootElement;
+        var items = root.ValueKind == JsonValueKind.Array ? root
+            : root.ValueKind == JsonValueKind.Object && root.TryGetProperty("data", out var d) && d.ValueKind == JsonValueKind.Array ? d : default;
+        if (items.ValueKind != JsonValueKind.Array) return none;
+        foreach (var x in items.EnumerateArray())
+        {
+            if (x.ValueKind != JsonValueKind.Object || !x.TryGetProperty("key", out var k) || k.GetString() != "igmp_snooping") continue;
+            var enabled = x.TryGetProperty("enabled", out var e) && e.ValueKind == JsonValueKind.True;
+            var ids = x.TryGetProperty("network_ids", out var n) && n.ValueKind == JsonValueKind.Array
+                ? n.EnumerateArray().Where(v => v.ValueKind == JsonValueKind.String).Select(v => v.GetString()!).ToHashSet() : [];
+            var mode = x.TryGetProperty("querier_mode", out var q) && q.ValueKind == JsonValueKind.String ? q.GetString() : null;
+            return (enabled, ids, mode);
+        }
+        return none;
     }
 
     private static bool Same(string a, string b) => string.Equals(LanLinkBuilder.Mac(a), LanLinkBuilder.Mac(b), StringComparison.Ordinal);

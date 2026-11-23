@@ -155,23 +155,32 @@ public class SiteDetectorTests
 
     // ---- Multicast ----
 
+    private static JsonDocument Igmp(bool enabled, string querier, params string[] networks) =>
+        JsonDocument.Parse(JsonSerializer.Serialize(new { data = new object[] { new { key = "igmp_snooping", enabled, network_ids = networks, querier_mode = querier } } }));
+
     [Fact]
-    public void Multicast_FloodingWithSnoopingOff_AndNoQuerier()
+    public void Multicast_FloodingWithSnoopingOff()
     {
         var heavy = new LinkEvidence { Link = Link("m", CoreMac, "Core", 1, DeviceType.Switch).Link, Hours = [new(T0, null, null, null, null, null, 900, 1000, null, null)] };
-        var flood = LanSiteDetectors.MulticastHygiene(new SiteEvidence
+        SiteEvidence S(JsonDocument settings) => new()
         {
             Evidence = new Dictionary<string, LinkEvidence> { ["m"] = heavy },
-            Networks = [new UniFiNetworkConfig { Name = "Default", Purpose = "corporate", IgmpSnooping = false }],
-            Devices = [Gateway()],
-        }).Single();
-        flood.Body.Should().Be("Heavy multicast on 1 link with IGMP snooping off, so every port receives every stream.");
-        LanSiteDetectors.MulticastHygiene(new SiteEvidence { Networks = [new UniFiNetworkConfig { Name = "Default", Purpose = "corporate", IgmpSnooping = true }], Devices = [Switch(CoreMac, "Core")] })
-            .Single().Class.Should().Be("No IGMP Querier");
-        LanSiteDetectors.MulticastHygiene(new SiteEvidence { Networks = [new UniFiNetworkConfig { Name = "Default", Purpose = "corporate", IgmpSnooping = true }], Devices = [Gateway()] })
-            .Should().BeEmpty("the gateway is the querier");
+            Networks = [new UniFiNetworkConfig { Id = "n1", Name = "Default", Purpose = "corporate" }],
+            Settings = settings,
+        };
+        LanSiteDetectors.MulticastHygiene(S(Igmp(false, "OFF"))).Single().Body
+            .Should().Be("Heavy multicast on 1 link with IGMP snooping off, so every port receives every stream.");
+        LanSiteDetectors.MulticastHygiene(S(Igmp(true, "PRIMARY_AND_FAILOVER", "n1"))).Should().BeEmpty("snooping is on for the network");
     }
 
+    [Fact]
+    public void NoIgmpQuerier_SnoopingOnWithTheQuerierOff()
+    {
+        var networks = new List<UniFiNetworkConfig> { new() { Id = "n1", Name = "Default", Purpose = "corporate" } };
+        LanSiteDetectors.MulticastHygiene(new SiteEvidence { Networks = networks, Settings = Igmp(true, "OFF", "n1") }).Single().Class.Should().Be("No IGMP Querier");
+        LanSiteDetectors.MulticastHygiene(new SiteEvidence { Networks = networks, Settings = Igmp(true, "PRIMARY_AND_FAILOVER", "n1") }).Should().BeEmpty();
+        LanSiteDetectors.MulticastHygiene(new SiteEvidence { Networks = networks, Settings = Igmp(false, "OFF") }).Should().BeEmpty("no snooping, no querier needed");
+    }
     // ---- Hairpin, management plane, device health ----
 
     [Fact]
