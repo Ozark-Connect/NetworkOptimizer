@@ -955,7 +955,10 @@ public class SnmpPoller : ISnmpPoller
             if (oid.StartsWith(prefix))
             {
                 var idx = oid.Substring(prefix.Length);
-                dict[idx] = v.Data.ToString();
+                // TimeTicks (ifLastChange) print as a formatted duration; the raw hundredths parse.
+                dict[idx] = v.Data is TimeTicks ticks
+                    ? ticks.ToUInt32().ToString(System.Globalization.CultureInfo.InvariantCulture)
+                    : v.Data.ToString();
             }
         }
 

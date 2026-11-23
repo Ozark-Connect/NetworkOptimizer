@@ -96,7 +96,7 @@ public class LanHealthTests
             Downstream = new EndCounters { RxErrors = 15 },
         };
         var f = LanHealthDetectors.LinkDrops(ev, incidents, FindingText.Utc)!;
-        f.Title.Should().Be("Link Flapping: Port 3 to AP 1");
+        f.Title.Should().Be("Link Flapping: Gateway A Port 3 to AP 1");
         f.Body.Should().StartWith("10 drops in 48h, about 3 seconds each; the link comes back at 2.5 Gbps every time.");
         f.Body.Should().Contain("with none in the 14 days before.");
         f.Body.Should().EndWith("Errors only on the AP 1 side.");

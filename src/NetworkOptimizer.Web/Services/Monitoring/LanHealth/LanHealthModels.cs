@@ -173,8 +173,8 @@ public sealed class LinkEnd
     public int? PortIdx { get; init; }
     public string? IfName { get; init; }
     public string? PortName { get; init; }
-    /// <summary>The port's own UniFi name ("Port 3" when unnamed).</summary>
-    public string Label => !string.IsNullOrWhiteSpace(PortName) ? PortName! : PortIdx is int p ? $"Port {p}" : DeviceName;
+    /// <summary>"Port 3": by number, since a port renamed after its device would repeat the device's name.</summary>
+    public string Label => PortIdx is int p ? $"Port {p}" : DeviceName;
     /// <summary>False for an end device: it reports nothing.</summary>
     public bool IsUniFi { get; init; } = true;
     public bool IsGateway => DeviceType == DeviceType.Gateway;
@@ -245,8 +245,10 @@ public sealed class LinkRecord
     public bool IsFabric => Kind != LinkKind.Access;
     public bool IsMesh => Kind is LinkKind.FabricMesh or LinkKind.FabricMeshMlo;
 
-    /// <summary>"Port 3 to Mud Room AP": the upstream port, then the device on the far side.</summary>
-    public string Name => IsMesh ? $"{Upstream.DeviceName} to {Downstream.DeviceName}" : $"{Upstream.Label} to {Downstream.DeviceName}";
+    /// <summary>"Gateway A Port 3 to AP 1": the upstream device and port number, then the device on the far side.</summary>
+    public string Name => IsMesh || Upstream.PortIdx == null
+        ? $"{Upstream.DeviceName} to {Downstream.DeviceName}"
+        : $"{Upstream.DeviceName} {Upstream.Label} to {Downstream.DeviceName}";
 
     /// <summary>The end-device side or downstream UniFi device's MAC, used to tie probes and agent events to the link.</summary>
     public string DownstreamMac => Downstream.DeviceMac;
