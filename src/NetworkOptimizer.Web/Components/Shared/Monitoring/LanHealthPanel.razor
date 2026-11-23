@@ -586,7 +586,7 @@ else
 
     /// <summary>lanh-34: "{caught} of {total}", "0 seen", or not reported for a source this port does not keep.</summary>
     private static string CoverageValue(SourceCoverage c) =>
-        !c.Observing ? "not reported" : c.Total > 0 ? $"{c.Caught} of {c.Total}" : "0 seen";
+        !c.Observing ? "not reported" : c.Total > 0 ? $"Saw {c.Caught} of {c.Total}" : "0 seen";
 
     /// <summary>lanh-36.</summary>
     private static string EventLabel(LinkIncident i) => i.Kind switch
