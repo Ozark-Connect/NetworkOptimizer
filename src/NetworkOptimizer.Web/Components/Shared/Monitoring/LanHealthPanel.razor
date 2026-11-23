@@ -711,13 +711,13 @@ else
     private static string Reason(ExplainReason r, string? detail) => r switch
     {
         ExplainReason.PortProfileChanged => ChangeDetail.Describe(detail),
-        ExplainReason.ManualLinkReset => "manual link reset",
-        ExplainReason.DeviceUpgrading => "device upgrading",
-        ExplainReason.DeviceRebooted => "device rebooted",
+        ExplainReason.ManualLinkReset => "Manual link reset",
+        ExplainReason.DeviceUpgrading => "Device upgrading",
+        ExplainReason.DeviceRebooted => "Device rebooted",
         ExplainReason.FirmwareRolloutWave => "Firmware Rollout wave",
-        ExplainReason.DeviceAsleep => "device asleep",
+        ExplainReason.DeviceAsleep => "Device asleep",
         ExplainReason.NetworkAppUpgrade => "UniFi Network upgrading",
-        _ => "device provisioning",
+        _ => "Device provisioning",
     };
 
     private static double ChangeControlMedian(List<double> v) => NetworkOptimizer.Web.Services.ChangeControl.SiteHealth.SiteHealthJob.Median(v);
