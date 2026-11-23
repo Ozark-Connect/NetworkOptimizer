@@ -108,7 +108,7 @@ public static class LanHealthDetectors
             parts.Add($"Errors only on the {asym.End} side.");
 
         var chips = new List<string>();
-        if (sameSpeed && seconds is <= 15) chips.Add("Drop and retrain");
+        if (sameSpeed && seconds is <= 15) chips.Add("Short link drops");
         chips.Add(ImpactChip(ev.Link));
 
         var steps = new List<string>();
@@ -161,7 +161,7 @@ public static class LanHealthDetectors
                 + (since is DateTime t ? $" since {text.Time(t)}" : "")
                 + (alternates ? ", and the speed has changed more than once." : ".")
                 + " A bad pair in the cable or an auto-negotiation problem causes this. Forcing the port's speed is one fix to try.",
-            Chips = [alternates ? "Alternating speed" : "Downshift", ImpactChip(ev.Link)],
+            Chips = [alternates ? "Alternating speed" : "Speed downshift", ImpactChip(ev.Link)],
             Points = 25,
             Onset = since,
             Status = LinkStatus.SpeedDegraded,
@@ -216,7 +216,7 @@ public static class LanHealthDetectors
             Class = "Link Errors",
             Title = Title("Link Errors", ev.Link),
             Body = body,
-            Chips = ["Marginal channel", ImpactChip(ev.Link)],
+            Chips = ["CRC errors", ImpactChip(ev.Link)],
             Points = ScoreCurve.Interpolate(perDay, (ErrorsPerDayFloor, 0), (50, 20), (500, 45), (5000, 70)),
             Onset = bursts.Count > 0 ? bursts.Min(i => i.Start) : null,
             Status = LinkStatus.Errors,
@@ -292,7 +292,7 @@ public static class LanHealthDetectors
             Class = "Discards Under Load",
             Title = Title("Discards Under Load", ev.Link),
             Body = $"{total:0} transmit discards on the {end} port, during {cause}." + (dropped ? "" : " Load, not a link fault: the link never dropped."),
-            Chips = [flow ? "Flow Control" : "Egress queue", ImpactChip(ev.Link)],
+            Chips = [flow ? "Flow Control" : "Transmit discards", ImpactChip(ev.Link)],
             Points = 0,
             Status = busy ? LinkStatus.Busy : null,
         };
@@ -474,7 +474,7 @@ public static class LanHealthDetectors
             Class = "Below Capability",
             Title = Title("Below Capability", ev.Link),
             Body = $"Both ends support {DisplayFormatters.FormatLinkSpeed(cap)}, but the link negotiated {DisplayFormatters.FormatLinkSpeed(now)}. Check the cable, keystones, and patch panel: one of them may not be rated for {DisplayFormatters.FormatLinkSpeed(cap)}.",
-            Chips = ["Capability", ImpactChip(ev.Link)],
+            Chips = ["Below port capability", ImpactChip(ev.Link)],
             Points = 10,
             Status = LinkStatus.SpeedDegraded,
         };
@@ -563,7 +563,7 @@ public static class LanHealthDetectors
             Class = "Speed-Specific Flapping",
             Title = Title("Speed-Specific Flapping", ev.Link),
             Body = $"The link only drops at {DisplayFormatters.FormatLinkSpeed(now)}. Set the port to {DisplayFormatters.FormatLinkSpeed(lower)} and see if the drops stop.",
-            Chips = ["Speed-specific"],
+            Chips = [$"Drops at {DisplayFormatters.FormatLinkSpeedShort(now)} only"],
         };
     }
 

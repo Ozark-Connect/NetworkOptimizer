@@ -100,7 +100,7 @@ public class LanHealthTests
         f.Body.Should().StartWith("10 drops in 48h, about 3 seconds each; the link comes back at 2.5 Gbps every time.");
         f.Body.Should().Contain("with none in the 14 days before.");
         f.Body.Should().EndWith("Errors only on the AP 1 side.");
-        f.Chips.Should().Contain("Drop and retrain").And.Contain("Fabric · 5 clients behind it");
+        f.Chips.Should().Contain("Short link drops").And.Contain("Fabric · 5 clients behind it");
         f.Points.Should().BeGreaterThan(0);
     }
 
