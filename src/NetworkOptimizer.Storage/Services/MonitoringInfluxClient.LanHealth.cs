@@ -114,36 +114,45 @@ from(bucket: {FluxLiteral.Quote(_bucket)})
         return results.OrderBy(r => r.Time).ToList();
     }
 
-    /// <summary>Fabric probe sample counts and mean loss per target over a window, for coverage and the Links table's Probe Loss.</summary>
-    public async Task<IReadOnlyDictionary<string, (int Samples, double MeanLoss)>> QueryFabricProbeSummaryAsync(
+    /// <summary>
+    /// Fabric probe sample counts, mean loss, and median RTT per target over a window, for coverage, the Links
+    /// table's Probe Loss, and mesh RTT. Counts add across vantages; loss and RTT average across them.
+    /// </summary>
+    public async Task<IReadOnlyDictionary<string, (int Samples, double MeanLoss, double? RttMs)>> QueryFabricProbeSummaryAsync(
         DateTime from, DateTime to, CancellationToken ct = default)
     {
-        if (!IsConfigured) return new Dictionary<string, (int, double)>();
-        async Task<Dictionary<string, double>> Agg(string fn)
+        if (!IsConfigured) return new Dictionary<string, (int, double, double?)>();
+        async Task<Dictionary<string, List<double>>> Agg(string field, string fn)
         {
             var flux = $@"
 from(bucket: {FluxLiteral.Quote(_bucket)})
   |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
-  |> filter(fn: (r) => r._measurement == ""latency"" and r.target_type == ""fabric"" and r._field == ""loss_percent"")
-  |> {fn}()
+  |> filter(fn: (r) => r._measurement == ""latency"" and r.target_type == ""fabric"" and r._field == {FluxLiteral.Quote(field)})
+  |> {fn}
 ";
-            var map = new Dictionary<string, double>();
+            var map = new Dictionary<string, List<double>>();
             await foreach (var record in QueryFluxAsync(flux, ct))
                 if (record.GetValueByKey("target_id") is string id && AsDoubleOrNull(record.GetValue()) is double v)
-                    map[id] = map.GetValueOrDefault(id) + v;
+                {
+                    if (!map.TryGetValue(id, out var list)) map[id] = list = [];
+                    list.Add(v);
+                }
             return map;
         }
-        var count = Agg("count");
-        var mean = Agg("mean");
-        await Task.WhenAll(count, mean);
-        return count.Result.ToDictionary(kv => kv.Key, kv => ((int)kv.Value, mean.Result.GetValueOrDefault(kv.Key)));
+        var count = Agg("loss_percent", "count()");
+        var mean = Agg("loss_percent", "mean()");
+        var rtt = Agg("rtt_avg_ms", "median()");
+        await Task.WhenAll(count, mean, rtt);
+        return count.Result.ToDictionary(kv => kv.Key, kv => ((int)kv.Value.Sum(),
+            mean.Result.TryGetValue(kv.Key, out var m) ? m.Average() : 0,
+            rtt.Result.TryGetValue(kv.Key, out var r) ? r.Average() : (double?)null));
     }
 
     /// <summary>Device-level LAN Health fields from <c>device_health</c> (mesh uplink, PoE totals) per window: mean and last.</summary>
-    public async Task<IReadOnlyList<(DateTime WindowStart, string DeviceMac, string Field, double? Mean, object? Last)>> QueryLanDeviceFieldsAsync(
+    public async Task<IReadOnlyList<(DateTime WindowStart, string DeviceMac, string Field, double? Mean, object? Last, double? First)>> QueryLanDeviceFieldsAsync(
         DateTime from, DateTime to, TimeSpan window, IReadOnlyList<string> fields, CancellationToken ct = default)
     {
-        if (!IsConfigured || fields.Count == 0) return Array.Empty<(DateTime, string, string, double?, object?)>();
+        if (!IsConfigured || fields.Count == 0) return Array.Empty<(DateTime, string, string, double?, object?, double?)>();
         var fieldFilter = string.Join(" or ", fields.Select(f => $"r._field == {FluxLiteral.Quote(f)}"));
         async Task<Dictionary<(DateTime, string, string), object?>> Agg(string fn, bool numericOnly)
         {
@@ -165,9 +174,11 @@ from(bucket: {FluxLiteral.Quote(_bucket)})
         }
         var mean = Agg("mean", true);
         var last = Agg("last", false);
-        await Task.WhenAll(mean, last);
+        var first = Agg("first", true);
+        await Task.WhenAll(mean, last, first);
         return last.Result.Select(kv => (kv.Key.Item1, kv.Key.Item2, kv.Key.Item3,
-                mean.Result.TryGetValue(kv.Key, out var m) ? AsDoubleOrNull(m) : null, kv.Value))
+                mean.Result.TryGetValue(kv.Key, out var m) ? AsDoubleOrNull(m) : null, kv.Value,
+                first.Result.TryGetValue(kv.Key, out var f) ? AsDoubleOrNull(f) : null))
             .ToList();
     }
 

@@ -50,7 +50,8 @@ public static class LanHealthEvidenceBuilder
     public static readonly string[] DeviceFields =
     [
         InfluxFieldNames.UplinkSignalDbm, InfluxFieldNames.UplinkTxRateKbps, InfluxFieldNames.UplinkMloLinkCount,
-        InfluxFieldNames.UplinkParentMac,
+        InfluxFieldNames.UplinkParentMac, InfluxFieldNames.UplinkTxRetries, InfluxFieldNames.UplinkTxAttempts,
+        InfluxFieldNames.UplinkTxDropped, InfluxFieldNames.UplinkAssocSeconds, InfluxFieldNames.UplinkRxBps, InfluxFieldNames.UplinkTxBps,
     ];
 
     /// <summary>events the roll-up reads.</summary>
@@ -70,8 +71,8 @@ public static class LanHealthEvidenceBuilder
         public IReadOnlyList<PortFieldStats> Ports { get; init; } = [];
         public IReadOnlyList<LanEventPoint> Events { get; init; } = [];
         public IReadOnlyList<ProbeLossPoint> Loss { get; init; } = [];
-        public IReadOnlyDictionary<string, (int Samples, double MeanLoss)> Probes { get; init; } = new Dictionary<string, (int, double)>();
-        public IReadOnlyList<(DateTime WindowStart, string DeviceMac, string Field, double? Mean, object? Last)> Devices { get; init; } = [];
+        public IReadOnlyDictionary<string, (int Samples, double MeanLoss, double? RttMs)> Probes { get; init; } = new Dictionary<string, (int, double, double?)>();
+        public IReadOnlyList<(DateTime WindowStart, string DeviceMac, string Field, double? Mean, object? Last, double? First)> Devices { get; init; } = [];
         /// <summary>Fabric target id to device MAC.</summary>
         public IReadOnlyDictionary<string, string> TargetDevices { get; init; } = new Dictionary<string, string>();
         /// <summary>(device MAC, SNMP if_name) to port number, from InterfaceNameMaps.</summary>
@@ -226,6 +227,16 @@ public static class LanHealthEvidenceBuilder
             observers.Add(new(LinkSource.FabricProbe, hour, CountsDrops: true, CountsErrors: false));
         }
 
+        // Mesh re-association: the parent's association uptime for the child reset in the hour.
+        var meshTx = MeshTxFor(link, x, from, to);
+        if (meshTx.ReassociatedAt is DateTime reassoc)
+        {
+            // Uptime is read once a poll, so the time is good to about a minute either way.
+            events.Add(new LinkEvent(reassoc.AddSeconds(-60), reassoc.AddSeconds(60), LinkEventType.LinkDown, LinkSource.MeshAssociation, LinkSide.Downstream));
+            events.Add(new LinkEvent(reassoc.AddSeconds(MeshReassociationSeconds - 60), reassoc.AddSeconds(MeshReassociationSeconds + 60), LinkEventType.LinkUp, LinkSource.MeshAssociation, LinkSide.Downstream));
+        }
+        if (meshTx.Observed) observers.Add(new(LinkSource.MeshAssociation, hour, CountsDrops: true, CountsErrors: false));
+
         // Imprecise: counters over the hour.
         // A missing counter is "source unavailable" (link_down_count is per switch model), never 0 drops:
         // it joins coverage as not reported, and the drop evidence comes from the other sources.
@@ -287,8 +298,9 @@ public static class LanHealthEvidenceBuilder
         // Explanations: everything that touches either end, plus sleep on an access port with no traffic.
         var explain = x.Explain.ToList();
         var macs = new HashSet<string> { link.Upstream.DeviceMac, link.Downstream.DeviceMac };
-        var meanIn = up.Mean("rate_in_bps") ?? down.Mean("rate_out_bps");
-        var meanOut = up.Mean("rate_out_bps") ?? down.Mean("rate_in_bps");
+        // A mesh backhaul has no port: the parent's live rates for the child stand in (in = child to parent).
+        var meanIn = up.Mean("rate_in_bps") ?? down.Mean("rate_out_bps") ?? MeshMean(link, x, InfluxFieldNames.UplinkRxBps);
+        var meanOut = up.Mean("rate_out_bps") ?? down.Mean("rate_in_bps") ?? MeshMean(link, x, InfluxFieldNames.UplinkTxBps);
         if (link.Kind == LinkKind.Access && (meanIn ?? 0) < 2_000 && (meanOut ?? 0) < 20_000)
             explain.Add(new ExplainWindow(from, to, link.Upstream.DeviceMac, ExplainReason.DeviceAsleep));
         // Down for minutes is a client asleep or powered off; a flap is down for seconds. ifOperStatus is
@@ -319,6 +331,8 @@ public static class LanHealthEvidenceBuilder
         double? lossPct = probed.Count > 0 && probed.Any(x.Probes.ContainsKey)
             ? probed.Where(x.Probes.ContainsKey).Average(t => x.Probes[t].MeanLoss)
             : null;
+        var rtts = probed.Where(x.Probes.ContainsKey).Select(t => x.Probes[t].RttMs).OfType<double>().ToList();
+        double? rttMs = rtts.Count > 0 ? rtts.Average() : null;
         var mesh = MeshFor(link, x);
 
         var row = new LanHealthLinkHour
@@ -367,6 +381,11 @@ public static class LanHealthEvidenceBuilder
             MloMembers = mesh.Members,
             ParentMac = mesh.Parent,
             ProbeLossPct = lossPct,
+            ProbeRttMs = rttMs is double rv ? Math.Round(rv, 3) : null,
+            MeshTxRetries = meshTx.Retries,
+            MeshTxAttempts = meshTx.Attempts,
+            MeshTxDropped = meshTx.Dropped,
+            MeshReassociations = meshTx.ReassociatedAt != null ? 1 : 0,
             PoeWattsMin = up.Min(InfluxFieldNames.PoePower),
             PoeWattsMax = up.Max(InfluxFieldNames.PoePower),
             Reboots = x.RebootsFor(link.Downstream.DeviceMac).Count,
@@ -434,6 +453,45 @@ public static class LanHealthEvidenceBuilder
             if (aps.Count < bestSize) { best = link; bestSize = aps.Count; }
         }
         return best?.Id;
+    }
+
+    /// <summary>A mesh re-association's outage, for the timeline: the child rescans and rejoins in a few seconds.</summary>
+    internal const double MeshReassociationSeconds = 5;
+
+    /// <summary>A since-association counter's rise over the hour: last minus first, or the last alone when it reset.</summary>
+    internal static double? CounterRise(double? first, double? last) =>
+        first is double f && last is double l ? (l >= f ? l - f : l) : null;
+
+    /// <summary>
+    /// When the mesh child re-associated in [from, to), from the parent's association uptime at the hour's first
+    /// and last reading. A reset (last below first) or an association that began inside the hour is one
+    /// re-association; two in one hour count once, and the other sources still see each drop.
+    /// </summary>
+    internal static DateTime? Reassociation(DateTime from, DateTime to, double? firstUptime, double? lastUptime)
+    {
+        if (lastUptime is not double last) return null;
+        var began = to.AddSeconds(-last);
+        if (firstUptime is double first && last < first) return began < from ? from : began;
+        if (began >= from && began < to && (firstUptime is not double f0 || f0 <= last)) return began;
+        return null;
+    }
+
+    private static double? MeshMean(LinkRecord link, HourInputs x, string field) => !link.IsMesh ? null
+        : x.Devices.FirstOrDefault(d => d.Field == field && string.Equals(d.DeviceMac, link.Downstream.DeviceMac, StringComparison.OrdinalIgnoreCase)).Mean;
+
+    private static (double? Retries, double? Attempts, double? Dropped, DateTime? ReassociatedAt, bool Observed) MeshTxFor(
+        LinkRecord link, HourInputs x, DateTime from, DateTime to)
+    {
+        if (!link.IsMesh) return (null, null, null, null, false);
+        var rows = x.Devices.Where(d => string.Equals(d.DeviceMac, link.Downstream.DeviceMac, StringComparison.OrdinalIgnoreCase)).ToList();
+        (double? First, double? Last) Of(string field) => rows.FirstOrDefault(r => r.Field == field) is var r && r.Field != null
+            ? (r.First, r.Last switch { long l => l, double d => d, _ => (double?)null }) : (null, null);
+        var retries = Of(InfluxFieldNames.UplinkTxRetries);
+        var attempts = Of(InfluxFieldNames.UplinkTxAttempts);
+        var dropped = Of(InfluxFieldNames.UplinkTxDropped);
+        var assoc = Of(InfluxFieldNames.UplinkAssocSeconds);
+        return (CounterRise(retries.First, retries.Last), CounterRise(attempts.First, attempts.Last), CounterRise(dropped.First, dropped.Last),
+            Reassociation(from, to, assoc.First, assoc.Last), assoc.Last != null);
     }
 
     private static (int? Signal, long? Rate, int? Members, string? Parent) MeshFor(LinkRecord link, HourInputs x)

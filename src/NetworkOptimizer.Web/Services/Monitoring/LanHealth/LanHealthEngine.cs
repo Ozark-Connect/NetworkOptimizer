@@ -17,7 +17,7 @@ namespace NetworkOptimizer.Web.Services.Monitoring.LanHealth;
 public sealed class LanHealthEngine
 {
     /// <summary>Bump when the roll-up changes; older rows are recomputed on the next backfill pass.</summary>
-    public const int Version = 10;
+    public const int Version = 11;
 
     internal static readonly TimeSpan RunEvery = TimeSpan.FromMinutes(15);
     internal static readonly TimeSpan Settle = TimeSpan.FromMinutes(5);
@@ -357,6 +357,18 @@ public sealed class LanHealthEngine
 
         try
         {
+            await using var chDb = await _db(ct);
+            var moves = await chDb.ApChannelChanges.AsNoTracking()
+                .Where(c => c.ChangedAtUtc >= from.AddMinutes(-5) && c.ChangedAtUtc < to.AddMinutes(5)).ToListAsync(ct);
+            windows.AddRange(BackhaulChannelWindows(moves, topology.Links));
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogDebug(ex, "LAN Health: channel changes unavailable for {Site}", _slug);
+        }
+
+        try
+        {
             await using var db = await _db(ct);
             var changes = await db.ConfigChanges.AsNoTracking().Where(c => c.OccurredAt >= from.AddMinutes(-5) && c.OccurredAt < to.AddMinutes(30)).ToListAsync(ct);
             if (changes.Count > 0)
@@ -463,6 +475,21 @@ public sealed class LanHealthEngine
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             _logger.LogDebug(ex, "LAN Health: Port Insights read failed for {Site}", _slug);
+        }
+    }
+
+    /// <summary>
+    /// A parent AP's channel move explains its mesh children's drops around it: the child rescans and rejoins. The
+    /// window covers the children only, so the parent's own wired link is not explained by it.
+    /// </summary>
+    internal static IEnumerable<ExplainWindow> BackhaulChannelWindows(IEnumerable<NetworkOptimizer.Storage.Models.ApChannelChange> moves, IReadOnlyList<LinkRecord> links)
+    {
+        foreach (var m in moves)
+        {
+            var parent = LanLinkBuilder.Mac(m.ApMac);
+            var detail = $"{m.PreviousChannel?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "?"}>{m.NewChannel.ToString(System.Globalization.CultureInfo.InvariantCulture)}";
+            foreach (var l in links.Where(l => l.IsMesh && l.Upstream.DeviceMac == parent))
+                yield return new ExplainWindow(m.ChangedAtUtc.AddMinutes(-1), m.ChangedAtUtc.AddMinutes(2), l.Downstream.DeviceMac, ExplainReason.BackhaulChannelChange, detail);
         }
     }
 

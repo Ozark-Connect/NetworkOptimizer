@@ -718,6 +718,7 @@ else
     {
         LinkSource.ApKernelLog => "AP kernel log",
         LinkSource.FabricProbe => "Fabric probe",
+        LinkSource.MeshAssociation => "Mesh association",
         LinkSource.ApCrcCounter => "AP CRC counter",
         LinkSource.ApCarrierCounter => "AP carrier counter",
         LinkSource.SnmpOperStatus => "SNMP link state",
@@ -767,6 +768,7 @@ else
         ExplainReason.FirmwareRolloutWave => "Firmware Rollout",
         ExplainReason.DeviceAsleep => "asleep",
         ExplainReason.NetworkAppUpgrade => "UniFi Network upgrade",
+        ExplainReason.BackhaulChannelChange => "channel change",
         _ => "provisioning",
     };
 
@@ -779,6 +781,7 @@ else
         ExplainReason.FirmwareRolloutWave => "Firmware Rollout wave",
         ExplainReason.DeviceAsleep => "Device asleep",
         ExplainReason.NetworkAppUpgrade => "UniFi Network upgrading",
+        ExplainReason.BackhaulChannelChange => LanHealthDetectors.ChannelMoveText(detail),
         _ => "Device provisioning",
     };
 

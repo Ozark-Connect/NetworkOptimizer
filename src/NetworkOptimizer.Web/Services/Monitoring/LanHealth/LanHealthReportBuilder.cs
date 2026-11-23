@@ -38,8 +38,12 @@ public static class LanHealthReportBuilder
 
     /// <summary>One link's evidence over a window, from its stored hours.</summary>
     public static LinkEvidence EvidenceFromRows(LinkRecord link, IReadOnlyList<LanHealthLinkHour> rows, IReadOnlyList<LanHealthLinkHour> baseline,
-        DateTime from, DateTime to, int? historyDays)
+        DateTime from, DateTime to, int? historyDays, LinkRecord? parent = null,
+        IReadOnlyList<LanHealthLinkHour>? parentRows = null, IReadOnlyList<LanHealthLinkHour>? parentBaseline = null)
     {
+        var parentLoss = parentRows?.Where(r => r.ProbeLossPct != null).Select(r => r.ProbeLossPct!.Value).ToList();
+        var (retryPct, attempts) = RetryPct(rows);
+        var (retryBase, baseAttempts) = RetryPct(baseline);
         double? Sum(Func<LanHealthLinkHour, double?> f) => rows.Any(r => f(r) != null) ? rows.Sum(r => f(r) ?? 0) : null;
         var upBlind = rows.Count > 0 && rows.All(r => r.UpErrorsBlind);
         var speeds = rows.Where(r => r.SpeedMinMbps is > 0)
@@ -82,8 +86,40 @@ public static class LanHealthReportBuilder
             DownstreamReboots = rows.Where(r => r.Reboots > 0).Select(r => r.HourStart.AddMinutes(30)).ToList(),
             PoeDraw = rows.Where(r => r.PoeWattsMin != null).SelectMany(r => new[] { (r.HourStart, r.PoeWattsMin!.Value), (r.HourStart.AddMinutes(30), r.PoeWattsMax ?? r.PoeWattsMin!.Value) }).ToList(),
             ProbeLossPct = rows.Any(r => r.ProbeLossPct != null) ? rows.Where(r => r.ProbeLossPct != null).Average(r => r.ProbeLossPct!.Value) : null,
+            ParentProbeLossPct = parentLoss is { Count: > 0 } ? parentLoss.Average() : null,
+            ParentName = parent?.Downstream.DeviceName,
+            RttGapMs = MedianGap(rows, parentRows, 1),
+            RttGapBaselineMs = MedianGap(baseline, parentBaseline, 24),
+            MeshRetryPct = retryPct,
+            MeshTxAttempts = attempts,
+            MeshRetryPctBaseline = baseAttempts >= MeshRetryMinAttempts * 4 ? retryBase : null,
+            MeshTxDropped = rows.Sum(r => r.MeshTxDropped ?? 0),
             HistoryDays = historyDays,
         };
+    }
+
+    /// <summary>Transmit attempts below which a retry rate is noise.</summary>
+    internal const double MeshRetryMinAttempts = 100_000;
+
+    /// <summary>Retries over attempts across the hours, percent, with the attempts behind it.</summary>
+    internal static (double? Pct, double Attempts) RetryPct(IReadOnlyList<LanHealthLinkHour> rows)
+    {
+        var hours = rows.Where(r => r.MeshTxAttempts is > 0 && r.MeshTxRetries != null).ToList();
+        var attempts = hours.Sum(r => r.MeshTxAttempts!.Value);
+        return (attempts >= MeshRetryMinAttempts ? 100 * hours.Sum(r => r.MeshTxRetries!.Value) / attempts : null, attempts);
+    }
+
+    /// <summary>
+    /// Median of each hour's probe RTT minus the parent's in the same hour, over hours that have both (or the link's own
+    /// RTT when there is no parent probe). Null below <paramref name="minHours"/> such hours.
+    /// </summary>
+    internal static double? MedianGap(IReadOnlyList<LanHealthLinkHour> rows, IReadOnlyList<LanHealthLinkHour>? parentRows, int minHours)
+    {
+        var parentByHour = (parentRows ?? []).Where(r => r.ProbeRttMs != null).GroupBy(r => r.HourStart).ToDictionary(g => g.Key, g => g.First().ProbeRttMs!.Value);
+        var gaps = rows.Where(r => r.ProbeRttMs != null)
+            .Select(r => parentRows == null ? r.ProbeRttMs : parentByHour.TryGetValue(r.HourStart, out var p) ? r.ProbeRttMs - p : null)
+            .OfType<double>().OrderBy(v => v).ToList();
+        return gaps.Count >= minHours ? gaps[gaps.Count / 2] : null;
     }
 
     private static LinkHourSample Sample(LanHealthLinkHour r) => new(r.HourStart, r.MaxInBps, r.MaxOutBps, r.MeanInBps, r.MeanOutBps,
@@ -166,7 +202,10 @@ public static class LanHealthReportBuilder
             var linkRows = rows.GetValueOrDefault(link.Id) ?? [];
             var linkBase = baseline.GetValueOrDefault(link.Id) ?? [];
             var incidents = linkRows.SelectMany(r => LanHealthIncidentJson.Deserialize(r.IncidentsJson)).OrderBy(i => i.Start).ToList();
-            var ev = EvidenceFromRows(link, linkRows, linkBase, from, to, CleanDaysBefore(linkRows, linkBase));
+            // The fabric link into this link's upstream device: its probes separate this hop's loss and RTT from upstream.
+            var parent = link.IsMesh ? links.FirstOrDefault(l => l.IsFabric && string.Equals(l.Downstream.DeviceMac, link.Upstream.DeviceMac, StringComparison.OrdinalIgnoreCase)) : null;
+            var ev = EvidenceFromRows(link, linkRows, linkBase, from, to, CleanDaysBefore(linkRows, linkBase), parent,
+                parent == null ? null : rows.GetValueOrDefault(parent.Id) ?? [], parent == null ? null : baseline.GetValueOrDefault(parent.Id) ?? []);
             ev.TroubleSince = TroubleSince(linkRows, linkBase);
             // A test that ran during an incident on the link is kept on the link but out of the norm comparison.
             if (speedTests != null && speedTests.TryGetValue(link.Id, out var tests))

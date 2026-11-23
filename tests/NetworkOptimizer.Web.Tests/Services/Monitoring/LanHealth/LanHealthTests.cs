@@ -40,7 +40,7 @@ public class LanHealthTests
             new LanEventPoint(t.AddSeconds(3), ApMac, ApAgentLinkEventSink.EventTypes.LinkUp, "eth0", null, "2500", null),
         }).ToList(),
         Loss = probeCaught.Select(t => new ProbeLossPoint(t.AddSeconds(4), Target, 100)).ToList(),
-        Probes = new Dictionary<string, (int, double)> { [Target] = (720, 0.04) },
+        Probes = new Dictionary<string, (int, double, double?)> { [Target] = (720, 0.04, 0.4) },
         TargetDevices = new Dictionary<string, string> { [Target] = ApMac },
         Ports = (ports ?? [new PortFieldStats(hour, ApMac, "eth0", "eth0", "oper_status", 1, 1, 1, 1, null)]).ToList(),
     };

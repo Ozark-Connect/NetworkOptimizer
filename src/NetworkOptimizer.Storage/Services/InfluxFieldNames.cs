@@ -137,6 +137,22 @@ public static class InfluxFieldNames
     /// <summary>Mesh hop count from the wired network.</summary>
     public const string UplinkDepth = "uplink_depth";
 
+    /// <summary>The parent's transmit retries to this mesh child (its downlink_table entries, summed over MLO links).</summary>
+    public const string UplinkTxRetries = "uplink_tx_retries";
+
+    /// <summary>The parent's transmit attempts to this mesh child, summed over MLO links.</summary>
+    public const string UplinkTxAttempts = "uplink_tx_attempts";
+
+    /// <summary>Frames the parent dropped to this mesh child after retries, summed over MLO links.</summary>
+    public const string UplinkTxDropped = "uplink_tx_dropped";
+
+    /// <summary>Bits per second through the mesh backhaul, child to parent and parent to child (the parent's live rates).</summary>
+    public const string UplinkRxBps = "uplink_rx_bps";
+    public const string UplinkTxBps = "uplink_tx_bps";
+
+    /// <summary>Seconds the mesh child has been associated to its parent (the shortest MLO link).</summary>
+    public const string UplinkAssocSeconds = "uplink_assoc_seconds";
+
     /// <summary>MLO links the backhaul runs on.</summary>
     public const string UplinkMloLinkCount = "uplink_mlo_links";
 

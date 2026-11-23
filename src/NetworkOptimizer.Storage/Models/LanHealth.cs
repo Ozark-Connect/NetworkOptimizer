@@ -78,6 +78,14 @@ public class LanHealthLinkHour
     [MaxLength(20)]
     public string? ParentMac { get; set; }
     public double? ProbeLossPct { get; set; }
+    /// <summary>Median fabric probe RTT to the devices below the link, ms.</summary>
+    public double? ProbeRttMs { get; set; }
+    // Mesh backhaul transmit side, from the parent's downlink_table: rises over the hour.
+    public double? MeshTxRetries { get; set; }
+    public double? MeshTxAttempts { get; set; }
+    public double? MeshTxDropped { get; set; }
+    /// <summary>Times the mesh child re-associated to its parent in the hour (association uptime reset).</summary>
+    public int MeshReassociations { get; set; }
     public double? PoeWattsMin { get; set; }
     public double? PoeWattsMax { get; set; }
     public int Reboots { get; set; }

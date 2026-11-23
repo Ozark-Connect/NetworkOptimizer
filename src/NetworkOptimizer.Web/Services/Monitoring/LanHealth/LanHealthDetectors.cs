@@ -34,6 +34,17 @@ public static class LanHealthDetectors
     public const double MeshSignalDropDb = 8;
     /// <summary>A mesh PHY rate below this share of its baseline has dropped.</summary>
     public const double MeshRateShare = 0.5;
+    // Mesh backhaul quality, calibrated on 90 days of an MLO backhaul and two Device Bridge links: a healthy backhaul
+    // probes at 0 loss and about 1.9 ms over its wired parent, and its parent retries 5 to 8% of transmissions.
+    /// <summary>Probe loss through the backhaul, over the parent's own, that is not normal.</summary>
+    public const double MeshLossExcessPct = 0.5;
+    /// <summary>RTT over the parent rising this many ms (or the normal gap again, if larger) past its normal.</summary>
+    public const double MeshRttRiseMs = 2;
+    /// <summary>A retry rate at or above this, and twice its own normal, is not normal.</summary>
+    public const double MeshRetryPct = 15;
+    /// <summary>Share of the backhaul's usable rate an hour's mean traffic must pass, in this many hours, to call it saturated.</summary>
+    public const double MeshDemandShare = 0.5;
+    public const int MeshDemandHours = 3;
 
     /// <summary>Runs every per-link detector.</summary>
     public static List<LinkFinding> Run(LinkEvidence ev, IReadOnlyList<LinkIncident> incidents, FindingText text)
@@ -60,6 +71,7 @@ public static class LanHealthDetectors
         Add(LossWithoutEvidence(ev, incidents, text));
         Add(Storm(ev, text));
         foreach (var f in Mesh(ev)) Add(f);
+        Add(BackhaulChannelMoves(ev, incidents, text));
         Add(AccessDegraded(ev));
         Add(HiddenSwitch(ev));
         Add(SpeedTestBelowNorm(ev));
@@ -407,6 +419,7 @@ public static class LanHealthDetectors
         if (!ev.Link.IsMesh) yield break;
         var baseSignal = Median(ev.MeshBaseline.Select(m => m.SignalDbm).OfType<int>().Select(v => (double)v));
         var nowSignal = Median(ev.Mesh.Select(m => m.SignalDbm).OfType<int>().Select(v => (double)v));
+        foreach (var f in MeshQuality(ev, nowSignal)) yield return f;
         if (baseSignal is double b && nowSignal is double n && b - n >= MeshSignalDropDb)
             yield return MeshFinding(ev, "Mesh Signal Drop", $"Backhaul signal is {n:0} dBm, {b - n:0} dB weaker than its normal {b:0} dBm.", 15);
 
@@ -434,6 +447,90 @@ public static class LanHealthDetectors
         if (ev.Link.UplinkDepth is > 1)
             yield return MeshFinding(ev, "Mesh Depth", $"This AP is {ev.Link.UplinkDepth} mesh hops from the wired network. Each hop shares airtime, so throughput drops with every hop.", 0, Detectors.MeshDepth);
     }
+
+    /// <summary>The backhaul's own quality: weak signal for its band, probe loss and RTT beyond its parent's, and retries.</summary>
+    internal static IEnumerable<LinkFinding> MeshQuality(LinkEvidence ev, double? nowSignal)
+    {
+        var parent = ev.ParentName ?? "its parent";
+        if (nowSignal is double sig && ev.Link.MeshRadio is { Length: > 0 } radio)
+        {
+            var band = SignalBand(radio);
+            var dbm = (int)Math.Round(sig);
+            if (NetworkOptimizer.WiFi.Helpers.SignalClassification.IsWeakSignal(dbm, band))
+                yield return MeshFinding(ev, "Weak Mesh Signal",
+                    $"Backhaul signal is {dbm} dBm, {(NetworkOptimizer.WiFi.Helpers.SignalClassification.IsCriticalSignal(dbm, band) ? "poor" : "weak")} for {BandLabel(band)}.",
+                    NetworkOptimizer.WiFi.Helpers.SignalClassification.IsCriticalSignal(dbm, band) ? 20 : 10);
+        }
+
+        if (ev.ProbeLossPct is double loss && loss - (ev.ParentProbeLossPct ?? 0) >= MeshLossExcessPct)
+            yield return MeshFinding(ev, "Mesh Backhaul Loss", ev.ParentProbeLossPct is double pl
+                ? $"Fabric probes through the backhaul lose {loss:0.##}%, against {pl:0.##}% to {parent}."
+                : $"Fabric probes through the backhaul lose {loss:0.##}%.", loss >= 2 ? 25 : 15);
+
+        if (ev.RttGapMs is double gap && ev.RttGapBaselineMs is double normal && gap >= normal + Math.Max(MeshRttRiseMs, normal))
+            yield return MeshFinding(ev, "Mesh Backhaul Latency", ev.ParentName != null
+                ? $"Probes through the backhaul take {gap:0.0} ms longer than to {parent}, against its normal {normal:0.0} ms."
+                : $"Probes through the backhaul take {gap:0.0} ms, against its normal {normal:0.0} ms.", 10);
+
+        // Demand: hours whose mean traffic (both ways, airtime is shared) passes half of what the backhaul can carry.
+        if (ev.Link.MeshTxRateKbps is long phyKbps && phyKbps > 0)
+        {
+            var usable = phyKbps * 1000 * NetworkOptimizer.UniFi.Models.PathAnalysisResult.MeshBackhaulOverheadFactor;
+            var busy = ev.Hours.Where(h => (h.MeanInBps ?? 0) + (h.MeanOutBps ?? 0) >= usable * MeshDemandShare).ToList();
+            if (busy.Count >= MeshDemandHours)
+            {
+                var peak = busy.Max(h => (h.MeanInBps ?? 0) + (h.MeanOutBps ?? 0));
+                yield return MeshFinding(ev, "Mesh Backhaul Saturated",
+                    $"Traffic through the backhaul averaged {DisplayFormatters.FormatRate(peak)} in its busiest hour, {peak / usable * 100:0}% of the about {DisplayFormatters.FormatRate(usable)} it can carry at {DisplayFormatters.FormatLinkSpeed((int)(phyKbps / 1000))} PHY. {busy.Count} hours passed half.", 10);
+            }
+        }
+
+        if (ev.MeshRetryPct is double retry && retry >= MeshRetryPct && (ev.MeshRetryPctBaseline is not double rb || retry >= 2 * rb))
+            yield return MeshFinding(ev, "Mesh Retries",
+                $"{parent} retries {retry:0}% of its transmissions to this device{(ev.MeshRetryPctBaseline is double b ? $", against its normal {b:0}%" : "")}."
+                + (ev.MeshTxDropped > 0 ? $" {ev.MeshTxDropped:N0} frames were dropped after retries." : ""), 10);
+    }
+
+    /// <summary>Channel moves that dropped a backhaul in the window before it is worth a finding.</summary>
+    public const int BackhaulMovesToReport = 3;
+
+    /// <summary>5 GHz channels 52 to 144 are DFS: radar there forces the AP off the channel.</summary>
+    internal static bool IsDfsChannel(int channel) => channel is >= 52 and <= 144;
+
+    /// <summary>"Channel change (116 to 36, off DFS)" from a "116>36" detail.</summary>
+    public static string ChannelMoveText(string? detail)
+    {
+        var parts = (detail ?? "").Split('>');
+        if (parts.Length != 2) return "Channel change";
+        var dfs = int.TryParse(parts[0], out var from) && IsDfsChannel(from);
+        return $"Channel change ({parts[0]} to {parts[1]}{(dfs ? ", off DFS" : "")})";
+    }
+
+    /// <summary>A parent moving the backhaul's channel again and again, each move dropping the link (spec: backhaul channel events).</summary>
+    internal static LinkFinding? BackhaulChannelMoves(LinkEvidence ev, IReadOnlyList<LinkIncident> incidents, FindingText text)
+    {
+        if (!ev.Link.IsMesh) return null;
+        var moves = incidents.Where(i => i.Explained == ExplainReason.BackhaulChannelChange).ToList();
+        if (moves.Count < BackhaulMovesToReport) return null;
+        var dfs = moves.Count(i => (i.ExplainedDetail ?? "").Split('>') is [var f, _] && int.TryParse(f, out var c) && IsDfsChannel(c));
+        return MeshFinding(ev, "Backhaul Channel Changes",
+            $"{ev.ParentName ?? "Its parent"} moved channel {moves.Count} times in {text.Range}, and the backhaul rejoined each time."
+            + (dfs > 0 ? $" {dfs} of them left a DFS channel; a non-DFS channel for the backhaul avoids those." : ""), 0);
+    }
+
+    private static NetworkOptimizer.WiFi.Models.RadioBand SignalBand(string radio) => radio switch
+    {
+        "ng" => NetworkOptimizer.WiFi.Models.RadioBand.Band2_4GHz,
+        "6e" => NetworkOptimizer.WiFi.Models.RadioBand.Band6GHz,
+        _ => NetworkOptimizer.WiFi.Models.RadioBand.Band5GHz,
+    };
+
+    private static string BandLabel(NetworkOptimizer.WiFi.Models.RadioBand band) => band switch
+    {
+        NetworkOptimizer.WiFi.Models.RadioBand.Band2_4GHz => "2.4 GHz",
+        NetworkOptimizer.WiFi.Models.RadioBand.Band6GHz => "6 GHz",
+        _ => "5 GHz",
+    };
 
     private static LinkFinding MeshFinding(LinkEvidence ev, string cls, string body, double points, int detector = Detectors.MeshUplink) => new()
     {

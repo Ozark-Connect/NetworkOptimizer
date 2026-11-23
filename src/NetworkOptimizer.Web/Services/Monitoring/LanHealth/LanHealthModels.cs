@@ -47,6 +47,8 @@ public enum LinkSource
     PortTableState,
     /// <summary>Fabric probes (ICMP every 5 s) to a device below the link.</summary>
     FabricProbe,
+    /// <summary>The parent's association uptime for a mesh child (UniFi downlink_table): a reset is a re-association.</summary>
+    MeshAssociation,
     /// <summary>UniFi Port Insights.</summary>
     PortInsights,
     /// <summary>The gateway's kernel log.</summary>
@@ -106,6 +108,8 @@ public enum ExplainReason
     NetworkAppUpgrade,
     /// <summary>A rollout step cut the device off from the console without touching its own links: explains inform failures only.</summary>
     ConsoleCutOff,
+    /// <summary>The mesh parent moved a radio's channel (DFS or auto channel): its mesh children rejoin. Detail "116>36".</summary>
+    BackhaulChannelChange,
 }
 
 /// <summary>A span that explains link events on the devices it covers.</summary>
@@ -277,6 +281,8 @@ public sealed class LinkRecord
     public List<MloMember> Mlo { get; init; } = [];
     public int? MeshSignalDbm { get; init; }
     public long? MeshTxRateKbps { get; init; }
+    /// <summary>The mesh uplink's radio (ng, na, 6e), for the band's signal levels.</summary>
+    public string? MeshRadio { get; init; }
     public int? UplinkDepth { get; init; }
     /// <summary>The device on the neighbouring port the swap step names, when that port is in use.</summary>
     public string? SwapNeighbor { get; set; }

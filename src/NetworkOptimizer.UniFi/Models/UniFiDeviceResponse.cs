@@ -2174,4 +2174,39 @@ public class DownlinkTableEntry
     [JsonPropertyName("channel")]
     [JsonConverter(typeof(FlexibleIntConverter))]
     public int? Channel { get; set; }
+
+    /// <summary>The parent's uplink VAP for this peer (vwireapN).</summary>
+    [JsonPropertyName("name")]
+    [JsonConverter(typeof(FlexibleScalarStringConverter))]
+    public string? Name { get; set; }
+
+    /// <summary>Seconds this peer link has been associated; a drop is a re-association.</summary>
+    [JsonPropertyName("uptime")]
+    [JsonConverter(typeof(FlexibleNullableLongConverter))]
+    public long? Uptime { get; set; }
+
+    /// <summary>The parent's transmit retries to this peer, since association.</summary>
+    [JsonPropertyName("tx_retries")]
+    [JsonConverter(typeof(FlexibleNullableLongConverter))]
+    public long? TxRetries { get; set; }
+
+    /// <summary>The parent's transmit attempts to this peer, since association.</summary>
+    [JsonPropertyName("wifi_tx_attempts")]
+    [JsonConverter(typeof(FlexibleNullableLongConverter))]
+    public long? WifiTxAttempts { get; set; }
+
+    /// <summary>Bytes per second the parent sends to this peer now.</summary>
+    [JsonPropertyName("tx_bytes-r")]
+    [JsonConverter(typeof(FlexibleDoubleConverter))]
+    public double? TxBytesRate { get; set; }
+
+    /// <summary>Bytes per second the parent receives from this peer now.</summary>
+    [JsonPropertyName("rx_bytes-r")]
+    [JsonConverter(typeof(FlexibleDoubleConverter))]
+    public double? RxBytesRate { get; set; }
+
+    /// <summary>Frames the parent dropped to this peer after its retries, since association.</summary>
+    [JsonPropertyName("wifi_tx_dropped")]
+    [JsonConverter(typeof(FlexibleNullableLongConverter))]
+    public long? WifiTxDropped { get; set; }
 }

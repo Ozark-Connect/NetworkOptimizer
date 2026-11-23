@@ -39,6 +39,7 @@ public sealed class LanPortSnapshotRecorder
     public int Record(IEnumerable<UniFiDeviceResponse> devices, MonitoringInfluxClient influx, DateTime now)
     {
         var written = 0;
+        var peers = MeshPeers(devices);
         foreach (var device in devices)
         {
             if (!device.Adopted || string.IsNullOrEmpty(device.Mac)) continue;
@@ -61,7 +62,7 @@ public sealed class LanPortSnapshotRecorder
                 written++;
             }
 
-            var deviceFields = DeviceFields(device);
+            var deviceFields = DeviceFields(device, peers.GetValueOrDefault(mac));
             if (deviceFields.Count > 0)
                 _ = influx.WriteDeviceFieldsAsync(mac, MonitoringCollectionAgent.DescribeDeviceType(device.DeviceType), deviceFields, now);
         }
@@ -109,8 +110,26 @@ public sealed class LanPortSnapshotRecorder
         return f;
     }
 
+    /// <summary>
+    /// Each mesh child's entries in its parent's downlink_table, by child MAC: the parent's transmit side of the
+    /// backhaul. serialno names the child; wired downlinks carry none, and an inactive Building Bridge link is skipped.
+    /// </summary>
+    internal static Dictionary<string, List<DownlinkTableEntry>> MeshPeers(IEnumerable<UniFiDeviceResponse> devices)
+    {
+        var peers = new Dictionary<string, List<DownlinkTableEntry>>();
+        foreach (var parent in devices)
+            foreach (var e in parent.DownlinkTable ?? [])
+            {
+                if (string.IsNullOrWhiteSpace(e.SerialNo) || e.Active == false) continue;
+                var child = e.SerialNo.Trim().ToLowerInvariant();
+                if (!peers.TryGetValue(child, out var list)) peers[child] = list = [];
+                list.Add(e);
+            }
+        return peers;
+    }
+
     /// <summary>Device PoE totals and the device's own uplink as it reports it (mesh signal and rates, every MLO member).</summary>
-    internal static List<KeyValuePair<string, object>> DeviceFields(UniFiDeviceResponse device)
+    internal static List<KeyValuePair<string, object>> DeviceFields(UniFiDeviceResponse device, IReadOnlyList<DownlinkTableEntry>? parentSide = null)
     {
         var f = new List<KeyValuePair<string, object>>();
         void Add(string name, object? value) { if (value != null) f.Add(new(name, value)); }
@@ -142,6 +161,17 @@ public sealed class LanPortSnapshotRecorder
                     if (m.RxRate > 0) Add(InfluxFieldNames.UplinkMloField(i, "rx_rate_kbps"), m.RxRate);
                     if (m.Channel is int ch) Add(InfluxFieldNames.UplinkMloField(i, "channel"), (long)ch);
                     if (!string.IsNullOrEmpty(m.Radio)) Add(InfluxFieldNames.UplinkMloField(i, "radio"), m.Radio);
+                }
+                if (parentSide is { Count: > 0 })
+                {
+                    long? Sum(Func<DownlinkTableEntry, long?> v) => parentSide.Any(e => v(e) != null) ? parentSide.Sum(e => v(e) ?? 0) : null;
+                    Add(InfluxFieldNames.UplinkTxRetries, Sum(e => e.TxRetries));
+                    Add(InfluxFieldNames.UplinkTxAttempts, Sum(e => e.WifiTxAttempts));
+                    Add(InfluxFieldNames.UplinkTxDropped, Sum(e => e.WifiTxDropped));
+                    if (parentSide.Any(e => e.RxBytesRate != null)) Add(InfluxFieldNames.UplinkRxBps, parentSide.Sum(e => e.RxBytesRate ?? 0) * 8);
+                    if (parentSide.Any(e => e.TxBytesRate != null)) Add(InfluxFieldNames.UplinkTxBps, parentSide.Sum(e => e.TxBytesRate ?? 0) * 8);
+                    if (parentSide.Where(e => e.Uptime != null).Select(e => e.Uptime!.Value).DefaultIfEmpty(-1).Min() is long up and >= 0)
+                        Add(InfluxFieldNames.UplinkAssocSeconds, up);
                 }
             }
         }

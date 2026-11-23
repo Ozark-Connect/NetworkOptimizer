@@ -86,6 +86,7 @@ public static class LanLinkBuilder
                     DevicesBehind = subtree.Count,
                     Mlo = mlo,
                     MeshSignalDbm = up.Signal,
+                    MeshRadio = up.RadioBand,
                     MeshTxRateKbps = up.TxRate > 0 ? up.TxRate : null,
                     UplinkDepth = d.UplinkDepth,
                 });

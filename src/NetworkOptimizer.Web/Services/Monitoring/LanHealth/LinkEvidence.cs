@@ -69,6 +69,18 @@ public sealed class LinkEvidence
     public double? ProbeLossPct { get; init; }
     /// <summary>Loss to the shared parent's own probe target, so subtree loss can be told from upstream loss.</summary>
     public double? ParentProbeLossPct { get; init; }
+    /// <summary>The parent device's name, for "against N% to {parent}".</summary>
+    public string? ParentName { get; init; }
+    /// <summary>Median of the hourly probe RTT gap over the parent's, ms (the parent's RTT is 0 when it has no probe).</summary>
+    public double? RttGapMs { get; init; }
+    /// <summary>The same gap over the baseline hours, when at least a day of them has both RTTs.</summary>
+    public double? RttGapBaselineMs { get; init; }
+    /// <summary>Mesh backhaul: the parent's transmit retries over attempts in the window, percent, and the attempts.</summary>
+    public double? MeshRetryPct { get; init; }
+    public double MeshTxAttempts { get; init; }
+    public double? MeshRetryPctBaseline { get; init; }
+    /// <summary>Frames the parent dropped to the mesh child after retries in the window.</summary>
+    public double MeshTxDropped { get; init; }
     /// <summary>On an access port: the client was idle (sleep, WoL standby) in these spans.</summary>
     public List<(DateTime Start, DateTime End)> ClientIdle { get; init; } = [];
     /// <summary>SFP receive power now and its 7-day best, dBm; module temperature now.</summary>
