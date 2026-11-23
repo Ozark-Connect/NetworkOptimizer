@@ -1604,9 +1604,12 @@ public partial class AuditService : IAuditScanService
             // Clients this console's UniFi apps own. stat/sta also gives a separate console (a CloudKey) a
             // product_line, but UniFi Network refuses to lock a port to one; only v2's unifi_device tells them apart.
             List<string>? unifiDeviceClientMacs = null;
+            var consoleDisplayNames = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             try
             {
                 var activeWithDevices = await _connectionService.Client.GetActiveClientsAsync(includeUnifiDevices: true);
+                foreach (var c in activeWithDevices.Where(c => !string.IsNullOrEmpty(c.Mac) && !string.IsNullOrWhiteSpace(c.DisplayName)))
+                    consoleDisplayNames[c.Mac] = c.DisplayName!;
                 if (activeWithDevices.Count > 0)
                 {
                     unifiDeviceClientMacs = activeWithDevices.Where(c => c.UnifiDevice).Select(c => c.Mac).ToList();
@@ -1796,6 +1799,9 @@ public partial class AuditService : IAuditScanService
                 GatewayWanInterfaces = gatewayWans,
                 GatewayBlocklist = gatewayFirewall == null ? null : Ssh.GatewayFirewallReader.Expectation(_gatewayBlocklist, _siteContext.Slug),
             });
+            // stat/sta carries no display name; the engine's wireless clients take UniFi's from v2 active clients.
+            foreach (var wc in auditResult.WirelessClients)
+                wc.ConsoleDisplayName = wc.Mac is { } wm && consoleDisplayNames.TryGetValue(wm, out var dn) ? dn : null;
 
             // Convert audit result to web models
             var webResult = ConvertAuditResult(auditResult, options);
