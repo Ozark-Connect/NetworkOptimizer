@@ -95,6 +95,34 @@ public class FabricObjectTests
         doc.Notes.Should().NotContain(n => n.Contains("Site Manager"));
     }
 
+    // Every Canvas type and Device Templates put cloud_template on the object itself (11.1.58 web UI: WiFi,
+    // RADIUS, Content Filter, global switch settings, and the device port panel all read e.cloud_template).
+    [Theory]
+    [InlineData("wlanconf", """{"_id":"w1","name":"Guest","enabled":true}""", "enabled", false)]
+    [InlineData("radiusprofile", """{"_id":"r1","name":"Corp","vlan_enabled":true}""", "vlan_enabled", false)]
+    [InlineData("setting", """{"_id":"s1","key":"global_switch","flowctrl_enabled":true}""", "flowctrl_enabled", false)]
+    [InlineData("device", """{"_id":"d1","mac":"aa:bb:cc:dd:ee:01","name":"Switch","stp_priority":"32768"}""", "stp_priority", "4096")]
+    public void EveryCollection_LockedFabricEdit_IsNotWritten_ButWithoutAFabricItIs(string collection, string json, string field, object value)
+    {
+        ConfigState Live(string? template)
+        {
+            var o = JsonNode.Parse(json)!.AsObject();
+            if (template != null) o["cloud_template"] = JsonNode.Parse(template);
+            return State((collection, o.ToJsonString()));
+        }
+        ConfigState Desired(string? template)
+        {
+            var s = Live(template);
+            s.Get(collection)[0][field] = JsonValue.Create(value);
+            return s;
+        }
+
+        PlanBuilder.Build(Desired(Locked), Live(Locked), new PlanOptions()).Operations.Should().BeEmpty();
+        foreach (var template in new[] { null, "null", Overridable, Detached })
+            PlanBuilder.Build(Desired(template), Live(template), new PlanOptions()).Operations
+                .Should().ContainSingle(o => o.Action == PlanAction.Update, $"cloud_template {template ?? "absent"} on {collection} is editable");
+    }
+
     [Fact]
     public void ResyncedFabricNetwork_UnderANewIdAndName_IsTheSameNetwork()
     {
