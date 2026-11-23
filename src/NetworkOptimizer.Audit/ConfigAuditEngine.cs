@@ -332,7 +332,7 @@ public class ConfigAuditEngine
         ExecutePhase5_AnalyzeFirewallRules(ctx);
         await ExecutePhase5b_AnalyzeDnsSecurityAsync(ctx);
         ExecutePhase5c_AnalyzeUpnpSecurity(ctx);
-        ExecutePhase5c2_AnalyzeWanPassthrough(ctx);
+        ExecutePhase5c2_AnalyzeNetwork11Features(ctx);
         ExecutePhase5d_AnalyzeThreatExposure(ctx);
         ExecutePhase5e_AnalyzeConsoleAccess(ctx);
         ExecutePhase5f_AnalyzeGatewayFirewall(ctx);
@@ -1081,7 +1081,7 @@ public class ConfigAuditEngine
     /// Phase 5c2: Network 11.1 features: WANs with Passthrough VLANs, which bypass the firewall, and Port Automations
     /// that put a device on a trusted network by its vendor or MAC OUI.
     /// </summary>
-    private void ExecutePhase5c2_AnalyzeWanPassthrough(AuditContext ctx)
+    private void ExecutePhase5c2_AnalyzeNetwork11Features(AuditContext ctx)
     {
         var gatewayName = ctx.Switches.FirstOrDefault(s => s.IsGateway)?.Name ?? "Gateway";
         var issues = WanPassthroughAnalyzer.Analyze(ctx.NetworkConfigs, gatewayName);

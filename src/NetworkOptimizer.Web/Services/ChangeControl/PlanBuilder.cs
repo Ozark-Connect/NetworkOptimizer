@@ -99,8 +99,9 @@ public static class PlanBuilder
         // lacks, so work on a copy.
         var otherVersion = desired.NetworkAppVersion != null && live.NetworkAppVersion != null
             && !string.Equals(desired.NetworkAppVersion, live.NetworkAppVersion, StringComparison.OrdinalIgnoreCase);
-        // On its own site a Fabric object stays, and the desired side gains the references to it (KeepReferencesToFabricObjects).
-        var keepsFabric = options.SameSite && options.DeleteMissing
+        // A Fabric object on the target stays (a local delete is undone at the next sync), and the desired side gains the
+        // references to it (KeepReferencesToFabricObjects). Only a target with Fabric objects takes this path.
+        var keepsFabric = options.DeleteMissing
             && live.Collections.Values.Any(list => list.Any(o => ConfigCollections.FabricTemplate(o) != null));
         if (!options.SameSite || otherVersion || !options.DeleteMissing || keepsFabric) desired = desired.Clone();
         var desiredCtx = new ConfigIdentityContext(desired.NamesById());
@@ -118,7 +119,7 @@ public static class PlanBuilder
         if (!options.SameSite || otherVersion)
         {
             // Live objects the source lacks, which this plan deletes: a filled value cannot vouch for a link to them.
-            // A Fabric object on its own site is not deleted (Site Manager owns it).
+            // A Fabric object on the target is not deleted (Site Manager owns it).
             var deleted = options.DeleteMissing
                 ? matches.Values.SelectMany(m => m.Pairs).Where(p => p.Left == null && p.Right != null)
                     .Where(p => !keepsFabric || ConfigCollections.FabricTemplate(p.Right!) == null)
@@ -351,10 +352,12 @@ public static class PlanBuilder
         if (desired == null)
         {
             if (!options.DeleteMissing) return null;
-            // UniFi's own warning: a local delete of a Site Manager object is undone at the next sync, under a new ID.
-            if (options.SameSite && ConfigCollections.FabricTemplate(live!) != null)
+            // UniFi's own warning, per lock state: a locked Site Manager object deleted here reappears at the next sync.
+            if (ConfigCollections.FabricTemplate(live!) != null)
             {
-                AddNoteOnce(doc, $"{def.Noun} {name}: created through Site Manager. Remove it from Site Manager, or it reappears after the next sync. Not deleted.");
+                AddNoteOnce(doc, ConfigCollections.FabricLocked(live!)
+                    ? $"{def.Noun} {name}: created through Site Manager. Remove it from Site Manager, or it reappears after the next sync. Not deleted."
+                    : $"{def.Noun} {name}: created through Site Manager. To permanently delete it, remove it from Site Manager. Not deleted.");
                 return null;
             }
             // A WLAN's own AP group (Specific APs on that WLAN) is removed by UniFi with the WLAN; deleting it

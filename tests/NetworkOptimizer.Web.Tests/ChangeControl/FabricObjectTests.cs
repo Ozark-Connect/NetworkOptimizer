@@ -47,6 +47,36 @@ public class FabricObjectTests
         doc.Notes.Should().Contain("Network Test Network: created through Site Manager. Remove it from Site Manager, or it reappears after the next sync. Not deleted.");
     }
 
+    [Fact]
+    public void RestoreBeforeThePush_OverridableNetwork_IsKept_WithUniFisOverridableWording()
+    {
+        var doc = PlanBuilder.Build(Before(), AfterPush(Overridable), new PlanOptions());
+
+        doc.Operations.Should().BeEmpty();
+        doc.Notes.Should().Contain("Network Test Network: created through Site Manager. To permanently delete it, remove it from Site Manager. Not deleted.");
+    }
+
+    [Fact]
+    public void RestoreFromAnotherSite_OntoAFabricSite_KeepsTheFabricNetworkAndItsReferences()
+    {
+        var doc = PlanBuilder.Build(Before(), AfterPush(Locked), new PlanOptions { SameSite = false });
+
+        doc.Errors.Should().BeEmpty();
+        doc.Operations.Should().NotContain(o => o.ObjectName == "Test Network");
+        doc.Operations.Should().NotContain(o => o.Collection == "portconf" || o.Collection == "firewall_zone");
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("null")]
+    public void RestoreFromAnotherSite_WithoutAFabric_PlansAsBefore(string? cloudTemplate)
+    {
+        var doc = PlanBuilder.Build(Before(), AfterPush(cloudTemplate), new PlanOptions { SameSite = false });
+
+        doc.Notes.Should().NotContain(n => n.Contains("Site Manager"));
+        doc.Operations.Should().Contain(o => o.Action == PlanAction.Delete && o.ObjectName == "Test Network");
+    }
+
     [Theory]
     [InlineData(null)]
     [InlineData("null")]

@@ -255,7 +255,7 @@ public sealed class FlexibleObjectConverter<T> : JsonConverter<T?> where T : cla
         {
             return doc.RootElement.Deserialize<T>(options);
         }
-        catch (JsonException)
+        catch (Exception ex) when (ex is JsonException or NotSupportedException)
         {
             return null;
         }

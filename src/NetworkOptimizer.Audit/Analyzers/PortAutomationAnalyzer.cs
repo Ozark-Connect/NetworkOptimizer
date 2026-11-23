@@ -41,7 +41,7 @@ public static class PortAutomationAnalyzer
             {
                 Type = IssueTypes.PortAutomationTrustedNetwork,
                 Severity = AuditSeverity.Recommended,
-                Message = $"Port Automation {automation.Name} puts any device that matches its {how} on {network.Name} "
+                Message = $"Port Automation {automation.Name ?? automation.Id} puts any device that matches its {how} on {network.Name} "
                     + $"(Port Profile {profile.Name}). A device can claim a {how} it does not have.",
                 DeviceName = gatewayName,
                 Metadata = new Dictionary<string, object>
