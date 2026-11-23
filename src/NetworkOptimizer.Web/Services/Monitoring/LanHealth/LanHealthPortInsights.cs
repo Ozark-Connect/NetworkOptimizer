@@ -43,6 +43,40 @@ public static class LanHealthPortInsights
         return list;
     }
 
+    /// <summary>
+    /// A note on each link whose port UniFi flags now, at either end. A disabled port is left out: it carries no
+    /// traffic, so a flag there is lab work on an unused port, not the link's health. A link LAN Health already
+    /// finds a fault on gets no note.
+    /// </summary>
+    public static List<LinkFinding> Notes(IReadOnlyList<LinkHealth> links, IReadOnlyList<Anomaly> anomalies,
+        IReadOnlyList<NetworkOptimizer.UniFi.Models.UniFiDeviceResponse> devices)
+    {
+        var enabled = devices.Where(d => !string.IsNullOrEmpty(d.Mac))
+            .SelectMany(d => (d.PortTable ?? []).Select(p => (Key: (LanLinkBuilder.Mac(d.Mac), p.PortIdx), p.Enable)))
+            .GroupBy(x => x.Key).ToDictionary(g => g.Key, g => g.First().Enable);
+        var notes = new List<LinkFinding>();
+        foreach (var l in links)
+        {
+            var hits = anomalies.Where(a => At(a, l.Link.Upstream) || At(a, l.Link.Downstream)).ToList();
+            // Our own fault finding on the link wins: UniFi's flag is then the same problem, seen by one more source.
+            if (hits.Count == 0 || l.Findings.Any(f => Detectors.Scores(f.Detector))) continue;
+            var text = string.Join(", ", hits.Select(a => $"{a.Kind.Replace('_', ' ').ToLowerInvariant()}{(a.Score is int s ? $" (score {s})" : "")}"));
+            notes.Add(new LinkFinding
+            {
+                Detector = Detectors.PortInsights,
+                LinkId = l.Link.Id,
+                Severity = FindingSeverity.Info,
+                Class = "Port Insights",
+                Title = $"Port Insights: {l.Link.Name}",
+                Body = $"UniFi Network flags this port: {text}.",
+            });
+        }
+        return notes;
+
+        bool At(Anomaly a, LinkEnd end) => end.PortIdx == a.PortIdx && end.DeviceMac == a.DeviceMac
+            && enabled.GetValueOrDefault((a.DeviceMac, a.PortIdx), true);
+    }
+
     private static string? Str(JsonElement e, string name) =>
         e.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
 

@@ -176,4 +176,16 @@ public class LanHealthInputsTests
         port.LastConnection?.Mac.Should().Be(mac);
         if (mac == null) port.LastConnection.Should().BeNull();
     }
+
+    [Fact]
+    public void PortInsightsNotes_OnAFlaggedEnabledPort_UnlessOurOwnFindingCoversIt()
+    {
+        var link = new LinkHealth { Link = Wired("gw-sw", Gw, Sw) };
+        var devices = new List<UniFiDeviceResponse> { new() { Mac = Gw, PortTable = [new SwitchPort { PortIdx = 1, Enable = true }, new SwitchPort { PortIdx = 9, Enable = false }] } };
+        var flag = new LanHealthPortInsights.Anomaly(Gw, 1, "CABLE_POWER", 70);
+        LanHealthPortInsights.Notes([link], [flag], devices).Single().Body.Should().Be("UniFi Network flags this port: cable power (score 70).");
+        LanHealthPortInsights.Notes([link], [flag with { PortIdx = 9 }], devices).Should().BeEmpty("a disabled port is lab work, not the link");
+        link.Findings.Add(new LinkFinding { Detector = Detectors.LinkDrops, Points = 20 });
+        LanHealthPortInsights.Notes([link], [flag], devices).Should().BeEmpty("our own finding wins");
+    }
 }

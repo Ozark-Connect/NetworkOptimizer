@@ -320,7 +320,7 @@ public static class Detectors
         HiddenSwitch = 17, MacMoves = 18, StpChurn = 19, LacpHealth = 20, NativeVlanMismatch = 21, MtuMismatch = 22,
         MulticastHygiene = 23, HairpinLoad = 24, Microbursts = 25, PoeHealth = 26, ManagementPlane = 27, MeshDepth = 28,
         FabricDeviceHealth = 29, DuplicateIp = 30, CapacityTrend = 31, GatewayForwarding = 32, SlowSpeedTests = 33,
-        UntestedLink = 34, CrossVlanTest = 35, FlowControl = 36, StpConfig = 40, ChurnByDesign = 41;
+        UntestedLink = 34, CrossVlanTest = 35, FlowControl = 36, PortInsights = 37, StpConfig = 40, ChurnByDesign = 41;
 
     /// <summary>Detectors whose findings cost points: faults on the link. Everything else is load, config, or capacity, at 0 pts.</summary>
     public static bool Scores(int detector) => detector is LinkDrops or SpeedDownshift or DuplexMismatch or StableLinkErrors

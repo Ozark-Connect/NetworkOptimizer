@@ -468,6 +468,9 @@ public sealed class LanHealthEngine
 
     private readonly HashSet<(string, int, string)> _anomaliesSeen = [];
 
+    /// <summary>The anomalies Port Insights scored at the last poll.</summary>
+    internal IReadOnlyList<LanHealthPortInsights.Anomaly> PortAnomalies { get; private set; } = [];
+
     /// <summary>Whether Port Insights answered at the last poll (it then counts as an observer, even with nothing to say).</summary>
     public bool PortInsightsAvailable { get; private set; }
 
@@ -484,6 +487,7 @@ public sealed class LanHealthEngine
             var now = DateTime.UtcNow;
             // Scores are current state: an anomaly is written when it appears, and again if it clears and returns.
             var current = LanHealthPortInsights.Parse(doc.RootElement).ToList();
+            PortAnomalies = current;
             var keys = current.Select(a => (a.DeviceMac, a.PortIdx, a.Kind)).ToHashSet();
             foreach (var a in current.Where(a => !_anomaliesSeen.Contains((a.DeviceMac, a.PortIdx, a.Kind))))
                 _ = influx.WriteEventAsync(a.DeviceMac, LanHealthPortInsights.EventType, "info", a.Kind,
@@ -616,6 +620,11 @@ public sealed class LanHealthEngine
             // Optics reads the modules now: the live report only, since a stored past hour has no reading of its own.
             await SfpAsync(topology, ct));
         AddTestSuggestions(report, topology, tests);
+        foreach (var note in LanHealthPortInsights.Notes(report.Links, PortAnomalies, topology.Devices))
+        {
+            report.Links.First(l => l.Link.Id == note.LinkId).Findings.Add(note);
+            report.Findings.Add(note);
+        }
         foreach (var l in report.Links)
             l.ProbeTargetId = topology.TargetDevices.FirstOrDefault(kv => string.Equals(kv.Value, l.Link.Downstream.DeviceMac, StringComparison.OrdinalIgnoreCase)).Key;
         var history = await db.LanHealthSiteHours.AsNoTracking().Where(h => h.HourStart >= from && h.HourStart < to && h.Score != null)
