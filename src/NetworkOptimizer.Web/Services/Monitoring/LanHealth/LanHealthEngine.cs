@@ -17,7 +17,7 @@ namespace NetworkOptimizer.Web.Services.Monitoring.LanHealth;
 public sealed class LanHealthEngine
 {
     /// <summary>Bump when the roll-up changes; older rows are recomputed on the next backfill pass.</summary>
-    public const int Version = 5;
+    public const int Version = 6;
 
     internal static readonly TimeSpan RunEvery = TimeSpan.FromMinutes(15);
     internal static readonly TimeSpan Settle = TimeSpan.FromMinutes(5);
@@ -336,9 +336,13 @@ public sealed class LanHealthEngine
         try
         {
             await using var db = await _db(ct);
-            var changes = await db.ConfigChanges.AsNoTracking().Where(c => c.OccurredAt >= from.AddMinutes(-5) && c.OccurredAt < to).ToListAsync(ct);
+            var changes = await db.ConfigChanges.AsNoTracking().Where(c => c.OccurredAt >= from.AddMinutes(-5) && c.OccurredAt < to.AddMinutes(30)).ToListAsync(ct);
             if (changes.Count > 0)
             {
+                // A Network app upgrade restarts the app: every AP's inform fails for a few minutes. Change
+                // Control records it when it notices, so the window reaches back before that.
+                foreach (var up in changes.Where(c => c.Kind == ConfigChangeKind.NetworkAppUpgrade))
+                    windows.Add(new ExplainWindow(up.OccurredAt.AddMinutes(-30), up.OccurredAt.AddMinutes(10), "", ExplainReason.NetworkAppUpgrade));
                 var ids = changes.Select(c => c.Id).ToList();
                 var objects = await db.ConfigChangeObjects.AsNoTracking().Where(o => ids.Contains(o.ChangeId)).ToListAsync(ct);
                 var deviceById = topology.Devices.Where(d => !string.IsNullOrEmpty(d.Id)).GroupBy(d => d.Id).ToDictionary(g => g.Key, g => LanLinkBuilder.Mac(g.First().Mac));

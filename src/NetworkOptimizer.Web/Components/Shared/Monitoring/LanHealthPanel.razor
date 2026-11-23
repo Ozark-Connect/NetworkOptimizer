@@ -510,7 +510,14 @@ else
                         @if (change != null)
                         {
                             var after = (int)l.Incidents.Where(i => i.Kind is IncidentKind.Drop or IncidentKind.Relink && !i.IsExplained && i.Start > change.Start).Sum(i => i.Count);
-                            <li><strong>@ChangeDetail.Describe(change.ExplainedDetail), @TimeFormatHelper.FormatLocalDateTime(change.Start, DisplayTime.Zone, DisplayTime.Format).</strong> @Pluralize(after, "drop") since.</li>
+                            @if (after == 0)
+                            {
+                                <li><strong>Possibly fixed:</strong> @ChangeDetail.Describe(change.ExplainedDetail), @TimeFormatHelper.FormatLocalDateTime(change.Start, DisplayTime.Zone, DisplayTime.Format). 0 drops since.</li>
+                            }
+                            else
+                            {
+                                <li><strong>@ChangeDetail.Describe(change.ExplainedDetail), @TimeFormatHelper.FormatLocalDateTime(change.Start, DisplayTime.Zone, DisplayTime.Format).</strong> @Pluralize(after, "drop") since.</li>
+                            }
                         }
                     </ul>
                 </div>
@@ -624,6 +631,7 @@ else
         ExplainReason.DeviceRebooted => "reboot",
         ExplainReason.FirmwareRolloutWave => "Firmware Rollout",
         ExplainReason.DeviceAsleep => "asleep",
+        ExplainReason.NetworkAppUpgrade => "UniFi Network upgrade",
         _ => "provisioning",
     };
 
@@ -635,6 +643,7 @@ else
         ExplainReason.DeviceRebooted => "device rebooted",
         ExplainReason.FirmwareRolloutWave => "Firmware Rollout wave",
         ExplainReason.DeviceAsleep => "device asleep",
+        ExplainReason.NetworkAppUpgrade => "UniFi Network upgrading",
         _ => "device provisioning",
     };
 

@@ -102,6 +102,8 @@ public enum ExplainReason
     DeviceAsleep,
     /// <summary>The device was provisioning or adopting (a state window).</summary>
     DeviceProvisioning,
+    /// <summary>The UniFi Network app was upgrading (Change Control's upgrade row): informs answer "Server Busy".</summary>
+    NetworkAppUpgrade,
 }
 
 /// <summary>A span that explains link events on the devices it covers.</summary>
