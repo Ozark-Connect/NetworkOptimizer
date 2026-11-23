@@ -27,7 +27,7 @@ namespace NetworkOptimizer.Storage.Services;
 /// buffered and flushed on a 5 s timer or when the buffer hits the size cap, matching the
 /// STM batching pattern.
 /// </summary>
-public class MonitoringInfluxClient : IAsyncDisposable
+public partial class MonitoringInfluxClient : IAsyncDisposable
 {
     private readonly IDbContextFactory<NetworkOptimizerDbContext> _dbFactory;
     private readonly ICredentialProtectionService _credentialProtection;

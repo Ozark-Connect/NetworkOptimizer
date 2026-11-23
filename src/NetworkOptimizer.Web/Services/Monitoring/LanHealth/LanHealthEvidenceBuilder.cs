@@ -1,0 +1,439 @@
+using System.Text.Json;
+using NetworkOptimizer.Storage.Models;
+using NetworkOptimizer.Storage.Services;
+using NetworkOptimizer.Web.Services.ApAgent;
+using static NetworkOptimizer.Storage.Services.MonitoringInfluxClient;
+
+namespace NetworkOptimizer.Web.Services.Monitoring.LanHealth;
+
+/// <summary>
+/// Turns one hour of raw readings into each link's events, explain windows and observers, then
+/// aligns them. Pure over its inputs, so the reference-case replay and the unit tests drive it
+/// without Influx.
+/// </summary>
+public static class LanHealthEvidenceBuilder
+{
+    /// <summary>interface_counters fields the hourly roll-up reads. Numeric only: min/max reject booleans.</summary>
+    public static readonly string[] PortFields =
+    [
+        "errors_in", "errors_out", "discards_in", "discards_out", "ucast_pkts_in", "ucast_pkts_out",
+        "bcast_pkts_in", "mcast_pkts_in", "rate_in_bps", "rate_out_bps", "oper_status",
+        InfluxFieldNames.LastChange, InfluxFieldNames.LinkSpeedMbps, InfluxFieldNames.LinkDownCount,
+        InfluxFieldNames.StpStateChangeCount, InfluxFieldNames.PortRxErrors, InfluxFieldNames.PortTxErrors,
+        InfluxFieldNames.PortRxDropped, InfluxFieldNames.PortTxDropped, InfluxFieldNames.PortRxPackets,
+        InfluxFieldNames.PortTxPackets, InfluxFieldNames.PortRxBroadcast, InfluxFieldNames.PortRxMulticast,
+        InfluxFieldNames.PoePower, InfluxFieldNames.ChipRxCrcErrors, InfluxFieldNames.ChipTxCrcErrors,
+        InfluxFieldNames.ChipLateCollisions, InfluxFieldNames.UplinkCarrierChanges, InfluxFieldNames.UplinkRxCrcErrors,
+        InfluxFieldNames.MacTableCount,
+    ];
+
+    /// <summary>device_health fields the roll-up reads for mesh links.</summary>
+    public static readonly string[] DeviceFields =
+    [
+        InfluxFieldNames.UplinkSignalDbm, InfluxFieldNames.UplinkTxRateKbps, InfluxFieldNames.UplinkMloLinkCount,
+        InfluxFieldNames.UplinkParentMac,
+    ];
+
+    /// <summary>events the roll-up reads.</summary>
+    public static readonly string[] EventTypes =
+    [
+        ApAgentLinkEventSink.EventTypes.LinkDown, ApAgentLinkEventSink.EventTypes.LinkUp,
+        ApAgentLinkEventSink.EventTypes.UplinkReconfigure, ApAgentLinkEventSink.EventTypes.UplinkLost,
+        ApAgentLinkEventSink.EventTypes.InformFailed,
+        SwitchPortLinkSink.LinkDownEvent, SwitchPortLinkSink.LinkUpEvent, LanPortSnapshotRecorder.StateEventType,
+    ];
+
+    /// <summary>Everything one hour brings, already fetched.</summary>
+    public sealed class HourInputs
+    {
+        public DateTime Hour { get; init; }
+        public IReadOnlyList<PortFieldStats> Ports { get; init; } = [];
+        public IReadOnlyList<LanEventPoint> Events { get; init; } = [];
+        public IReadOnlyList<ProbeLossPoint> Loss { get; init; } = [];
+        public IReadOnlyDictionary<string, (int Samples, double MeanLoss)> Probes { get; init; } = new Dictionary<string, (int, double)>();
+        public IReadOnlyList<(DateTime WindowStart, string DeviceMac, string Field, double? Mean, object? Last)> Devices { get; init; } = [];
+        /// <summary>Fabric target id to device MAC.</summary>
+        public IReadOnlyDictionary<string, string> TargetDevices { get; init; } = new Dictionary<string, string>();
+        /// <summary>(device MAC, SNMP if_name) to port number, from InterfaceNameMaps.</summary>
+        public IReadOnlyDictionary<(string Mac, string IfName), int> NameMap { get; init; } = new Dictionary<(string, string), int>();
+        public IReadOnlyList<ExplainWindow> Explain { get; init; } = [];
+        public IReadOnlyDictionary<string, List<DateTime>> Reboots { get; init; } = new Dictionary<string, List<DateTime>>();
+        public IReadOnlyList<DateTime> RebootsFor(string mac) => Reboots.TryGetValue(mac, out var r) ? r : [];
+    }
+
+    /// <summary>One end's series and the fields read from them.</summary>
+    internal sealed class EndSeries
+    {
+        public List<PortFieldStats> Rows { get; } = [];
+
+        public double? Rise(params string[] fields)
+        {
+            double? best = null;
+            foreach (var f in fields)
+                foreach (var r in Rows.Where(r => r.Field == f))
+                    if (CounterRise(r) is double v && (best == null || v > best)) best = v;
+            return best;
+        }
+
+        public bool Has(string field) => Rows.Any(r => r.Field == field);
+
+        public double? Max(string field) => Pick(field, r => r.Max, Math.Max);
+
+        public double? Min(string field) => Pick(field, r => r.Min, Math.Min);
+
+        public double? Mean(string field) => Pick(field, r => r.Mean, Math.Max);
+
+        public bool Changed(string field) => Rows.Any(r => r.Field == field && r.First != null && r.Last != null && r.First != r.Last);
+
+        private double? Pick(string field, Func<PortFieldStats, double?> get, Func<double, double, double> combine)
+        {
+            double? acc = null;
+            foreach (var r in Rows.Where(r => r.Field == field))
+                if (get(r) is double v) acc = acc is double a ? combine(a, v) : v;
+            return acc;
+        }
+    }
+
+    /// <summary>A cumulative counter's growth over the window: last minus first, or last alone after a reset.</summary>
+    internal static double? CounterRise(PortFieldStats r)
+    {
+        if (r.First is not double first || r.Last is not double last) return null;
+        return last >= first ? last - first : last;
+    }
+
+    /// <summary>The rows that belong to one end of a link.</summary>
+    internal static EndSeries SeriesFor(LinkEnd end, IReadOnlyList<PortFieldStats> ports, IReadOnlyDictionary<(string, string), int> nameMap, string? extraIfName = null)
+    {
+        var s = new EndSeries();
+        if (!end.IsUniFi || end.DeviceMac.Length == 0) return s;
+        var ifNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (!string.IsNullOrEmpty(end.IfName)) ifNames.Add(end.IfName);
+        if (!string.IsNullOrEmpty(extraIfName)) ifNames.Add(extraIfName);
+        foreach (var r in ports)
+        {
+            if (!string.Equals(r.DeviceMac, end.DeviceMac, StringComparison.OrdinalIgnoreCase)) continue;
+            if (Belongs(r, end, ifNames, nameMap)) s.Rows.Add(r);
+        }
+        return s;
+    }
+
+    private static bool Belongs(PortFieldStats r, LinkEnd end, HashSet<string> ifNames, IReadOnlyDictionary<(string, string), int> nameMap)
+    {
+        if (r.PortId.StartsWith("pt:", StringComparison.Ordinal))
+            return end.PortIdx is int p && r.PortId == $"pt:{p}";
+        if (r.PortId.StartsWith("apagent:", StringComparison.Ordinal) || r.PortId.StartsWith("swchip:", StringComparison.Ordinal))
+            return ifNames.Contains(r.PortId[(r.PortId.IndexOf(':') + 1)..]);
+        if (NetworkOptimizer.UniFi.LanHealthPorts.IsVlanSubInterface(r.IfName)) return false;
+        if (ifNames.Contains(r.IfName) || ifNames.Contains(r.PortId)) return true;
+        if (end.PortIdx is int idx)
+        {
+            if (nameMap.TryGetValue((r.DeviceMac.ToLowerInvariant(), r.IfName), out var mapped)) return mapped == idx;
+            if (string.Equals(r.IfName, $"Port {idx}", StringComparison.OrdinalIgnoreCase)) return true;
+            if (!string.IsNullOrEmpty(end.PortName) && string.Equals(r.IfName, end.PortName, StringComparison.OrdinalIgnoreCase)) return true;
+        }
+        return false;
+    }
+
+    /// <summary>The result of one hour on one link.</summary>
+    public sealed record LinkHour(LinkEvidence Evidence, List<LinkIncident> Incidents, LanHealthLinkHour Row);
+
+    /// <summary>Builds and aligns one link's hour.</summary>
+    public static LinkHour BuildHour(LinkRecord link, HourInputs x, IReadOnlyDictionary<string, LinkRecord> downstreamToLink,
+        IReadOnlyDictionary<string, HashSet<string>> subtreeApsByDevice, int version)
+    {
+        var from = x.Hour;
+        var to = x.Hour.AddHours(1);
+        var up = SeriesFor(link.Upstream, x.Ports, x.NameMap);
+        var downIf = link.Downstream.IsAccessPoint && link.Kind == LinkKind.FabricWired && string.IsNullOrEmpty(link.Downstream.IfName) ? "eth0" : null;
+        var down = link.Kind == LinkKind.FabricWired ? SeriesFor(link.Downstream, x.Ports, x.NameMap, downIf) : new EndSeries();
+
+        var events = new List<LinkEvent>();
+        var observers = new List<LinkEventAligner.Observer>();
+        var hour = new[] { (from, to) };
+
+        // Precise: kernel PHY lines from the AP Agent (downstream AP), and the gateway switch chip (upstream gateway port).
+        foreach (var e in x.Events)
+        {
+            var mac = e.DeviceMac.ToLowerInvariant();
+            if (link.Kind == LinkKind.FabricWired && mac == link.Downstream.DeviceMac && link.Downstream.IsAccessPoint
+                && (e.IfName == null || e.IfName.Equals(downIf ?? link.Downstream.IfName ?? "eth0", StringComparison.OrdinalIgnoreCase)))
+            {
+                if (e.EventType == ApAgentLinkEventSink.EventTypes.LinkDown)
+                    events.Add(new LinkEvent(e.Time.AddSeconds(-1), e.Time.AddSeconds(1), LinkEventType.LinkDown, LinkSource.ApKernelLog, LinkSide.Downstream));
+                else if (e.EventType == ApAgentLinkEventSink.EventTypes.LinkUp)
+                    events.Add(new LinkEvent(e.Time.AddSeconds(-1), e.Time.AddSeconds(1), LinkEventType.LinkUp, LinkSource.ApKernelLog, LinkSide.Downstream,
+                        SpeedMbps: ApAgentLinkEventSink.SpeedOf(e.NewValue)));
+            }
+            if (link.Upstream.IsGateway && mac == link.Upstream.DeviceMac && !string.IsNullOrEmpty(link.Upstream.IfName)
+                && string.Equals(e.IfName, link.Upstream.IfName, StringComparison.OrdinalIgnoreCase))
+            {
+                if (e.EventType == SwitchPortLinkSink.LinkDownEvent)
+                    events.Add(new LinkEvent(e.Time.AddSeconds(-3), e.Time, LinkEventType.LinkDown, LinkSource.GatewaySwitchChip, LinkSide.Upstream));
+                else if (e.EventType == SwitchPortLinkSink.LinkUpEvent)
+                    events.Add(new LinkEvent(e.Time.AddSeconds(-3), e.Time, LinkEventType.LinkUp, LinkSource.GatewaySwitchChip, LinkSide.Upstream,
+                        SpeedMbps: ApAgentLinkEventSink.SpeedOf(e.NewValue)));
+            }
+        }
+        var apAgentHere = link.Downstream.IsAccessPoint && (down.Has(InfluxFieldNames.UplinkCarrierChanges)
+            || x.Events.Any(e => e.DeviceMac.Equals(link.Downstream.DeviceMac, StringComparison.OrdinalIgnoreCase) && e.EventType.StartsWith("ap_", StringComparison.Ordinal)));
+        if (apAgentHere && link.Kind == LinkKind.FabricWired) observers.Add(new(LinkSource.ApKernelLog, hour, CountsDrops: true, CountsErrors: false));
+        var chipHere = up.Rows.Any(r => r.PortId.StartsWith("swchip:", StringComparison.Ordinal));
+        if (chipHere) observers.Add(new(LinkSource.GatewaySwitchChip, hour, true, true));
+
+        // Probe loss bursts: an AP's loss belongs to the deepest link above it that all lossy APs share.
+        var probed = ProbeTargetsFor(link, x, subtreeApsByDevice);
+        if (probed.Count > 0)
+        {
+            foreach (var (time, lossy) in LossBuckets(x))
+                if (OwnerLink(lossy, downstreamToLink, subtreeApsByDevice) == link.Id)
+                    events.Add(new LinkEvent(time.AddSeconds(-6), time, LinkEventType.LossBurst, LinkSource.FabricProbe, LinkSide.Downstream));
+            observers.Add(new(LinkSource.FabricProbe, hour, CountsDrops: true, CountsErrors: false));
+        }
+
+        // Imprecise: counters over the hour.
+        void Relink(EndSeries s, string field, LinkSource src, LinkSide side, double perDrop = 1)
+        {
+            if (!s.Has(field)) return;
+            observers.Add(new(src, hour, true, false));
+            if (s.Rise(field) is double rise && rise >= perDrop)
+                events.Add(new LinkEvent(from, to, LinkEventType.Relink, src, side, Count: Math.Floor(rise / perDrop)));
+        }
+        Relink(up, InfluxFieldNames.LinkDownCount, LinkSource.SwitchLinkDownCount, LinkSide.Upstream);
+        Relink(down, InfluxFieldNames.LinkDownCount, LinkSource.SwitchLinkDownCount, LinkSide.Downstream);
+        Relink(down, InfluxFieldNames.UplinkCarrierChanges, LinkSource.ApCarrierCounter, LinkSide.Downstream, perDrop: 2);
+        if (up.Has(InfluxFieldNames.LastChange) || down.Has(InfluxFieldNames.LastChange))
+        {
+            observers.Add(new(LinkSource.SnmpLastChange, hour, true, false));
+            if (up.Changed(InfluxFieldNames.LastChange) || down.Changed(InfluxFieldNames.LastChange))
+                events.Add(new LinkEvent(from, to, LinkEventType.Relink, LinkSource.SnmpLastChange, LinkSide.Upstream));
+        }
+        if (up.Has("oper_status") || down.Has("oper_status"))
+        {
+            observers.Add(new(LinkSource.SnmpOperStatus, hour, true, false));
+            if ((up.Max("oper_status") ?? 1) >= 2 || (down.Max("oper_status") ?? 1) >= 2)
+                events.Add(new LinkEvent(from, to, LinkEventType.Relink, LinkSource.SnmpOperStatus, LinkSide.Upstream));
+        }
+
+        // Errors: the best counter per end. A gateway LAN port reads 0 regardless; the far end is the evidence.
+        var upErrorsBlind = link.Upstream.IsGateway && !chipHere;
+        var (upRx, upSrc) = BestRx(up, link.Upstream, chipHere);
+        var (downRx, downSrc) = BestRx(down, link.Downstream, false);
+        if (upRx is > 0 && !upErrorsBlind)
+            events.Add(new LinkEvent(from, to, LinkEventType.ErrorBurst, upSrc, LinkSide.Upstream, Count: upRx.Value));
+        if (downRx is > 0)
+            events.Add(new LinkEvent(from, to, LinkEventType.ErrorBurst, downSrc, LinkSide.Downstream, Count: downRx.Value));
+        if (up.Rows.Count > 0 && !upErrorsBlind) observers.Add(new(upSrc, hour, false, true));
+        if (down.Rows.Count > 0) observers.Add(new(downSrc, hour, false, true));
+
+        var upTxDiscards = up.Rise("discards_out", InfluxFieldNames.PortTxDropped);
+        var downTxDiscards = down.Rise("discards_out", InfluxFieldNames.PortTxDropped);
+        if ((upTxDiscards ?? 0) + (downTxDiscards ?? 0) > 0)
+            events.Add(new LinkEvent(from, to, LinkEventType.DiscardBurst, LinkSource.SnmpCounters, LinkSide.Upstream, Count: (upTxDiscards ?? 0) + (downTxDiscards ?? 0)));
+
+        // Speed: a change within the hour.
+        var speedMin = up.Min(InfluxFieldNames.LinkSpeedMbps) ?? down.Min(InfluxFieldNames.LinkSpeedMbps);
+        var speedMax = up.Max(InfluxFieldNames.LinkSpeedMbps) ?? down.Max(InfluxFieldNames.LinkSpeedMbps);
+        if (speedMin is double smin && speedMax is double smax && smin > 0 && smin != smax)
+            events.Add(new LinkEvent(from, to, LinkEventType.SpeedChange, LinkSource.PortTableState, LinkSide.Upstream, SpeedMbps: (int)smin));
+
+        // Explanations: everything that touches either end, plus sleep on an access port with no traffic.
+        var explain = x.Explain.ToList();
+        var macs = new HashSet<string> { link.Upstream.DeviceMac, link.Downstream.DeviceMac };
+        var meanIn = up.Mean("rate_in_bps") ?? down.Mean("rate_out_bps");
+        var meanOut = up.Mean("rate_out_bps") ?? down.Mean("rate_in_bps");
+        if (link.Kind == LinkKind.Access && (meanIn ?? 0) < 2_000 && (meanOut ?? 0) < 20_000)
+            explain.Add(new ExplainWindow(from, to, link.Upstream.DeviceMac, ExplainReason.DeviceAsleep));
+        // A 10/100 relink on an access port is the sleep signature too.
+        if (link.Kind == LinkKind.Access && speedMin is <= 100 && speedMax is > 100)
+            explain.Add(new ExplainWindow(from, to, link.Upstream.DeviceMac, ExplainReason.DeviceAsleep));
+
+        var distinctObservers = observers.DistinctBy(o => o.Source).ToList();
+        var incidents = LinkEventAligner.Align(events, explain, distinctObservers, macs);
+
+        double? lossPct = probed.Count > 0 && probed.Any(x.Probes.ContainsKey)
+            ? probed.Where(x.Probes.ContainsKey).Average(t => x.Probes[t].MeanLoss)
+            : null;
+        var mesh = MeshFor(link, x);
+
+        var row = new LanHealthLinkHour
+        {
+            HourStart = from,
+            LinkId = link.Id,
+            Kind = (int)link.Kind,
+            Name = Trim(link.Name, 200),
+            ClientsBehind = link.ClientsBehind,
+            Drops = incidents.Where(i => !i.IsExplained && i.Kind == IncidentKind.Drop).Sum(i => i.Count),
+            DropsExplained = incidents.Where(i => i.IsExplained && i.Kind is IncidentKind.Drop or IncidentKind.Relink).Sum(i => i.Count),
+            Relinks = incidents.Where(i => !i.IsExplained && i.Kind == IncidentKind.Relink).Sum(i => i.Count),
+            LossBursts = incidents.Count(i => !i.IsExplained && i.Kind == IncidentKind.LossBurst),
+            ErrorBursts = incidents.Where(i => !i.IsExplained && i.Kind == IncidentKind.ErrorBurst).Sum(i => i.Count),
+            SpeedChanges = incidents.Count(i => i.Kind == IncidentKind.SpeedChange),
+            DownSeconds = incidents.Where(i => !i.IsExplained && i.Kind is IncidentKind.Drop or IncidentKind.Relink)
+                .Sum(i => (i.DownSeconds ?? 5) * i.Count),
+            UpRxErrors = upErrorsBlind ? null : upRx,
+            DownRxErrors = downRx,
+            UpTxErrors = up.Rise("errors_out", InfluxFieldNames.PortTxErrors, InfluxFieldNames.ChipTxCrcErrors),
+            DownTxErrors = down.Rise("errors_out", InfluxFieldNames.PortTxErrors),
+            UpTxDiscards = upTxDiscards,
+            DownTxDiscards = downTxDiscards,
+            UpRxPackets = up.Rise("ucast_pkts_in", InfluxFieldNames.PortRxPackets),
+            DownRxPackets = down.Rise("ucast_pkts_in", InfluxFieldNames.PortRxPackets),
+            UpTxPackets = up.Rise("ucast_pkts_out", InfluxFieldNames.PortTxPackets),
+            DownTxPackets = down.Rise("ucast_pkts_out", InfluxFieldNames.PortTxPackets),
+            LateCollisions = up.Rise(InfluxFieldNames.ChipLateCollisions),
+            StpChanges = up.Rise(InfluxFieldNames.StpStateChangeCount),
+            UpErrorsBlind = upErrorsBlind,
+            MaxInBps = up.Max("rate_in_bps") ?? down.Max("rate_out_bps"),
+            MaxOutBps = up.Max("rate_out_bps") ?? down.Max("rate_in_bps"),
+            MeanInBps = meanIn,
+            MeanOutBps = meanOut,
+            BroadcastPps = PerSecond(up.Rise("bcast_pkts_in", InfluxFieldNames.PortRxBroadcast)),
+            MulticastPps = PerSecond(up.Rise("mcast_pkts_in", InfluxFieldNames.PortRxMulticast)),
+            PacketsPps = PerSecond(up.Rise("ucast_pkts_in", InfluxFieldNames.PortRxPackets)),
+            SpeedMinMbps = speedMin is double a && a > 0 ? (int)a : link.SpeedMbps,
+            SpeedMaxMbps = speedMax is double b && b > 0 ? (int)b : link.SpeedMbps,
+            HalfDuplex = link.FullDuplex == false ? true : null,
+            MeshSignalDbm = mesh.Signal,
+            MeshTxRateKbps = mesh.Rate,
+            MloMembers = mesh.Members,
+            ParentMac = mesh.Parent,
+            ProbeLossPct = lossPct,
+            PoeWattsMin = up.Min(InfluxFieldNames.PoePower),
+            PoeWattsMax = up.Max(InfluxFieldNames.PoePower),
+            Reboots = x.RebootsFor(link.Downstream.DeviceMac).Count,
+            IncidentsJson = Trim(LanHealthIncidentJson.Serialize(incidents), 16000),
+            CoverageJson = Trim(JsonSerializer.Serialize(LinkEventAligner.Coverage(incidents, distinctObservers)
+                .Select(c => new LanHealthIncidentJson.CoverageDto((int)c.Source, c.Caught, c.Total, c.Observing))), 2000),
+            Version = version,
+            ComputedAt = DateTime.UtcNow,
+        };
+        var ev = new LinkEvidence { Link = link, From = from, To = to, Events = events, Observers = distinctObservers };
+        return new LinkHour(ev, incidents, row);
+    }
+
+    private static (double? Rx, LinkSource Source) BestRx(EndSeries s, LinkEnd end, bool chip)
+    {
+        if (chip && s.Rise(InfluxFieldNames.ChipRxCrcErrors) is double c) return (c, LinkSource.GatewaySwitchChip);
+        if (end.IsAccessPoint && s.Rise(InfluxFieldNames.UplinkRxCrcErrors) is double crc) return (crc, LinkSource.ApCrcCounter);
+        if (s.Rise("errors_in") is double snmp) return (snmp, LinkSource.SnmpCounters);
+        if (s.Rise(InfluxFieldNames.PortRxErrors) is double pt) return (pt, LinkSource.PortTableCounters);
+        return (null, LinkSource.SnmpCounters);
+    }
+
+    private static double? PerSecond(double? countPerHour) => countPerHour is double c ? c / 3600 : null;
+
+    /// <summary>Fabric targets that probe through this link: its own AP, or the APs below a switch (switches are poor targets).</summary>
+    internal static List<string> ProbeTargetsFor(LinkRecord link, HourInputs x, IReadOnlyDictionary<string, HashSet<string>> subtreeAps)
+    {
+        if (link.Kind == LinkKind.Access) return [];
+        var aps = subtreeAps.TryGetValue(link.Downstream.DeviceMac, out var set) ? set : [];
+        return x.TargetDevices.Where(kv => aps.Contains(kv.Value.ToLowerInvariant())).Select(kv => kv.Key).ToList();
+    }
+
+    /// <summary>Loss samples bucketed to the 5 s probe cadence: each bucket lists the AP MACs that lost packets then.</summary>
+    internal static List<(DateTime Time, HashSet<string> Macs)> LossBuckets(HourInputs x)
+    {
+        var buckets = new List<(DateTime Time, HashSet<string> Macs)>();
+        foreach (var p in x.Loss.OrderBy(p => p.Time))
+        {
+            if (!x.TargetDevices.TryGetValue(p.TargetId, out var mac)) continue;
+            if (buckets.Count > 0 && (p.Time - buckets[^1].Time).TotalSeconds <= 6) buckets[^1].Macs.Add(mac.ToLowerInvariant());
+            else buckets.Add((p.Time, new HashSet<string> { mac.ToLowerInvariant() }));
+        }
+        return buckets;
+    }
+
+    /// <summary>
+    /// The deepest link above every AP that lost packets in a bucket: the link whose probed subtree
+    /// holds all of them. One lossy AP is its own uplink's; every AP below a switch is the switch's uplink's.
+    /// </summary>
+    internal static string? OwnerLink(HashSet<string> lossy, IReadOnlyDictionary<string, LinkRecord> downstreamToLink,
+        IReadOnlyDictionary<string, HashSet<string>> subtreeAps)
+    {
+        LinkRecord? best = null;
+        var bestSize = int.MaxValue;
+        foreach (var (device, aps) in subtreeAps)
+        {
+            if (aps.Count == 0 || !lossy.All(aps.Contains)) continue;
+            if (!downstreamToLink.TryGetValue(device, out var link)) continue;
+            if (aps.Count < bestSize) { best = link; bestSize = aps.Count; }
+        }
+        return best?.Id;
+    }
+
+    private static (int? Signal, long? Rate, int? Members, string? Parent) MeshFor(LinkRecord link, HourInputs x)
+    {
+        if (!link.IsMesh) return (null, null, null, null);
+        var rows = x.Devices.Where(d => string.Equals(d.DeviceMac, link.Downstream.DeviceMac, StringComparison.OrdinalIgnoreCase)).ToList();
+        var signalRow = rows.FirstOrDefault(r => r.Field == InfluxFieldNames.UplinkSignalDbm);
+        var rateRow = rows.FirstOrDefault(r => r.Field == InfluxFieldNames.UplinkTxRateKbps);
+        var membersRow = rows.FirstOrDefault(r => r.Field == InfluxFieldNames.UplinkMloLinkCount);
+        var parentRow = rows.FirstOrDefault(r => r.Field == InfluxFieldNames.UplinkParentMac);
+        int? signal = signalRow.Mean is double s ? (int)Math.Round(s) : link.MeshSignalDbm;
+        long? rate = rateRow.Mean is double t ? (long)t : link.MeshTxRateKbps;
+        int? members = membersRow.Last switch
+        {
+            long l => (int)l,
+            double d => (int)d,
+            _ => link.Mlo.Count > 0 ? link.Mlo.Count : null,
+        };
+        var parent = parentRow.Last as string ?? link.Upstream.DeviceMac;
+        return (signal, rate, members, parent);
+    }
+
+    private static string? Trim(string? s, int max) => s == null ? null : s.Length <= max ? s : s[..max];
+}
+
+/// <summary>The compact JSON a link hour stores its incidents and coverage in.</summary>
+public static class LanHealthIncidentJson
+{
+    public sealed record IncidentDto(DateTime S, DateTime E, int K, double? D, double C, int[] By, int[] Miss, int? X, string? Xd, int? Sp, double Err);
+
+    public sealed record CoverageDto(int Source, int Caught, int Total, bool Observing);
+
+    public static string Serialize(IReadOnlyList<LinkIncident> incidents) =>
+        JsonSerializer.Serialize(incidents.Take(200).Select(i => new IncidentDto(i.Start, i.End, (int)i.Kind, i.DownSeconds, i.Count,
+            i.SeenBy.Select(s => (int)s).ToArray(), i.MissedBy.Select(s => (int)s).ToArray(),
+            i.Explained is { } x ? (int)x : null, i.ExplainedDetail, i.SpeedAfterMbps, i.AttachedErrors)));
+
+    public static List<LinkIncident> Deserialize(string? json)
+    {
+        if (string.IsNullOrEmpty(json)) return [];
+        try
+        {
+            var dtos = JsonSerializer.Deserialize<List<IncidentDto>>(json) ?? [];
+            return dtos.Select(d =>
+            {
+                var i = new LinkIncident
+                {
+                    Start = DateTime.SpecifyKind(d.S, DateTimeKind.Utc),
+                    End = DateTime.SpecifyKind(d.E, DateTimeKind.Utc),
+                    Kind = (IncidentKind)d.K,
+                    Count = d.C,
+                    Explained = d.X is int x ? (ExplainReason)x : null,
+                    ExplainedDetail = d.Xd,
+                    SpeedAfterMbps = d.Sp,
+                    AttachedErrors = d.Err,
+                };
+                foreach (var s in d.By) i.SeenBy.Add((LinkSource)s);
+                foreach (var s in d.Miss) i.MissedBy.Add((LinkSource)s);
+                // The stored duration stands in for the precise edges the detectors read.
+                if (d.D is double secs)
+                {
+                    var src = i.SeenBy.FirstOrDefault();
+                    i.Events.Add(new LinkEvent(i.Start, i.Start, LinkEventType.LinkDown, src, LinkSide.Downstream));
+                    i.Events.Add(new LinkEvent(i.Start.AddSeconds(secs), i.Start.AddSeconds(secs), LinkEventType.LinkUp, src, LinkSide.Downstream, SpeedMbps: d.Sp));
+                }
+                return i;
+            }).ToList();
+        }
+        catch (JsonException) { return []; }
+    }
+
+    public static List<CoverageDto> DeserializeCoverage(string? json)
+    {
+        if (string.IsNullOrEmpty(json)) return [];
+        try { return JsonSerializer.Deserialize<List<CoverageDto>>(json) ?? []; }
+        catch (JsonException) { return []; }
+    }
+}

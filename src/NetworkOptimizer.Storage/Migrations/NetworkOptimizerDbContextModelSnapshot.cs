@@ -2871,6 +2871,252 @@ namespace NetworkOptimizer.Storage.Migrations
                     b.ToTable("Iperf3Results", (string)null);
                 });
 
+            modelBuilder.Entity("NetworkOptimizer.Storage.Models.LanHealthExclusion", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("CreatedBy")
+                        .HasMaxLength(200)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Key")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Label")
+                        .HasMaxLength(200)
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("Level")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Scope")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Scope", "Key")
+                        .IsUnique();
+
+                    b.ToTable("LanHealthExclusions", (string)null);
+                });
+
+            modelBuilder.Entity("NetworkOptimizer.Storage.Models.LanHealthLinkHour", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<double?>("BroadcastPps")
+                        .HasColumnType("REAL");
+
+                    b.Property<int>("ClientsBehind")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("ComputedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("CoverageJson")
+                        .HasMaxLength(2000)
+                        .HasColumnType("TEXT");
+
+                    b.Property<double?>("DownRxErrors")
+                        .HasColumnType("REAL");
+
+                    b.Property<double?>("DownRxPackets")
+                        .HasColumnType("REAL");
+
+                    b.Property<double>("DownSeconds")
+                        .HasColumnType("REAL");
+
+                    b.Property<double?>("DownTxDiscards")
+                        .HasColumnType("REAL");
+
+                    b.Property<double?>("DownTxErrors")
+                        .HasColumnType("REAL");
+
+                    b.Property<double?>("DownTxPackets")
+                        .HasColumnType("REAL");
+
+                    b.Property<double>("Drops")
+                        .HasColumnType("REAL");
+
+                    b.Property<double>("DropsExplained")
+                        .HasColumnType("REAL");
+
+                    b.Property<double>("ErrorBursts")
+                        .HasColumnType("REAL");
+
+                    b.Property<bool?>("HalfDuplex")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("HourStart")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("IncidentsJson")
+                        .HasMaxLength(16000)
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("Kind")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<double?>("LateCollisions")
+                        .HasColumnType("REAL");
+
+                    b.Property<string>("LinkId")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("TEXT");
+
+                    b.Property<double>("LossBursts")
+                        .HasColumnType("REAL");
+
+                    b.Property<double?>("MaxInBps")
+                        .HasColumnType("REAL");
+
+                    b.Property<double?>("MaxOutBps")
+                        .HasColumnType("REAL");
+
+                    b.Property<double?>("MeanInBps")
+                        .HasColumnType("REAL");
+
+                    b.Property<double?>("MeanOutBps")
+                        .HasColumnType("REAL");
+
+                    b.Property<int?>("MeshSignalDbm")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<long?>("MeshTxRateKbps")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int?>("MloMembers")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<double?>("MulticastPps")
+                        .HasColumnType("REAL");
+
+                    b.Property<string>("Name")
+                        .HasMaxLength(200)
+                        .HasColumnType("TEXT");
+
+                    b.Property<double?>("PacketsPps")
+                        .HasColumnType("REAL");
+
+                    b.Property<string>("ParentMac")
+                        .HasMaxLength(20)
+                        .HasColumnType("TEXT");
+
+                    b.Property<double?>("PoeWattsMax")
+                        .HasColumnType("REAL");
+
+                    b.Property<double?>("PoeWattsMin")
+                        .HasColumnType("REAL");
+
+                    b.Property<double?>("ProbeLossPct")
+                        .HasColumnType("REAL");
+
+                    b.Property<int>("Reboots")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<double>("Relinks")
+                        .HasColumnType("REAL");
+
+                    b.Property<double>("SpeedChanges")
+                        .HasColumnType("REAL");
+
+                    b.Property<int?>("SpeedMaxMbps")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int?>("SpeedMinMbps")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<double?>("StpChanges")
+                        .HasColumnType("REAL");
+
+                    b.Property<bool>("UpErrorsBlind")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<double?>("UpRxErrors")
+                        .HasColumnType("REAL");
+
+                    b.Property<double?>("UpRxPackets")
+                        .HasColumnType("REAL");
+
+                    b.Property<double?>("UpTxDiscards")
+                        .HasColumnType("REAL");
+
+                    b.Property<double?>("UpTxErrors")
+                        .HasColumnType("REAL");
+
+                    b.Property<double?>("UpTxPackets")
+                        .HasColumnType("REAL");
+
+                    b.Property<int>("Version")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("LinkId");
+
+                    b.HasIndex("HourStart", "LinkId")
+                        .IsUnique();
+
+                    b.ToTable("LanHealthLinkHours", (string)null);
+                });
+
+            modelBuilder.Entity("NetworkOptimizer.Storage.Models.LanHealthSiteHour", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("AccessPorts")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("ComputedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("Explained")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("FabricLinks")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<double?>("HourImpairment")
+                        .HasColumnType("REAL");
+
+                    b.Property<DateTime>("HourStart")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("Incidents")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<double?>("Score")
+                        .HasColumnType("REAL");
+
+                    b.Property<int>("Version")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Worst")
+                        .HasMaxLength(200)
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("HourStart")
+                        .IsUnique();
+
+                    b.ToTable("LanHealthSiteHours", (string)null);
+                });
+
             modelBuilder.Entity("NetworkOptimizer.Storage.Models.LearnedHopLocation", b =>
                 {
                     b.Property<int>("Id")

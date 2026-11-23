@@ -69,6 +69,23 @@ public class PerformanceAnalyzer
     }
 
     /// <summary>
+    /// The link configuration checks alone (Jumbo Frames and Flow Control consistency), for LAN
+    /// Health, which shows them on the links they concern. The same checks the full run makes.
+    /// </summary>
+    public List<PerformanceIssue> AnalyzeLinkConfig(
+        List<UniFiDeviceResponse> devices,
+        List<UniFiNetworkConfig> networks,
+        List<UniFiClientResponse> clients,
+        JsonDocument? settingsData,
+        List<UniFiPortProfile>? portProfiles = null)
+    {
+        var issues = new List<PerformanceIssue>();
+        issues.AddRange(CheckJumboFrames(devices, settingsData));
+        issues.AddRange(CheckFlowControl(devices, networks, clients, settingsData, portProfiles));
+        return issues;
+    }
+
+    /// <summary>
     /// Check if Hardware Acceleration (packet offload) is enabled on the gateway.
     /// Suppressed when NetFlow is enabled, since NetFlow requires CPU-based packet inspection.
     /// </summary>

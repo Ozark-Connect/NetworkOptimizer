@@ -436,6 +436,7 @@ public class UniFiDeviceResponse
     [JsonPropertyName("stp_version")]
     public string? StpVersion { get; set; }
 
+
     /// <summary>A gateway's LAN networks, each with the IPv6 prefixes it hands out.</summary>
     [JsonPropertyName("network_table")]
     public List<GatewayNetworkTableEntry>? NetworkTable { get; set; }
@@ -446,6 +447,22 @@ public class UniFiDeviceResponse
     /// </summary>
     [JsonExtensionData]
     public Dictionary<string, JsonElement>? AdditionalData { get; set; }
+
+    /// <summary>
+    /// The STP part of port_overrides (as configured) and port_system_overrides (what the switch
+    /// auto-detected), read from the extension data so the full override objects round-trip untouched.
+    /// </summary>
+    [VendorSpecific("UniFi", "port_overrides / port_system_overrides STP fields")]
+    public (List<PortStpOverride> Configured, List<PortStpOverride> Detected) GetPortStpOverrides()
+    {
+        List<PortStpOverride> Read(string key)
+        {
+            if (AdditionalData == null || !AdditionalData.TryGetValue(key, out var el) || el.ValueKind != JsonValueKind.Array) return [];
+            try { return JsonSerializer.Deserialize<List<PortStpOverride>>(el) ?? []; }
+            catch (JsonException) { return []; }
+        }
+        return (Read("port_overrides"), Read("port_system_overrides"));
+    }
 
     private static readonly Regex WanKeyPattern = new(@"^wan\d*$", RegexOptions.Compiled);
 
@@ -925,6 +942,15 @@ public class SwitchPort
     [JsonPropertyName("stp_state")]
     public string? StpState { get; set; }
 
+    /// <summary>STP port role: "root", "designated", "alternate", "backup", "disabled".</summary>
+    [JsonPropertyName("stp_role")]
+    public string? StpRole { get; set; }
+
+    /// <summary>Whether STP treats the port as an Edge port now (auto-detected or forced).</summary>
+    [JsonPropertyName("stp_edge_port")]
+    [JsonConverter(typeof(FlexibleNullableBoolConverter))]
+    public bool? StpEdgePort { get; set; }
+
     /// <summary>STP state changes per MST instance.</summary>
     [JsonPropertyName("stp_state_change_count")]
     public List<StpStateChangeCount>? StpStateChangeCount { get; set; }
@@ -1014,6 +1040,30 @@ public class SwitchPort
     /// <summary>LACP member state on an aggregated port.</summary>
     [JsonPropertyName("lacp_state")]
     public List<JsonElement>? LacpState { get; set; }
+}
+
+/// <summary>The STP part of a port override: configured or auto-detected Edge state, and BPDU guard.</summary>
+public class PortStpOverride
+{
+    [JsonPropertyName("port_idx")]
+    [JsonConverter(typeof(FlexibleNonNullableIntConverter))]
+    public int PortIdx { get; set; }
+
+    /// <summary>"enabled" (Edge), "disabled" (Infrastructure), "auto".</summary>
+    [JsonPropertyName("stp_edge_state")]
+    public string? StpEdgeState { get; set; }
+
+    /// <summary>What the switch detected for an auto port: "enabled" or "disabled".</summary>
+    [JsonPropertyName("stp_edge_state_auto_detected")]
+    public string? StpEdgeStateAutoDetected { get; set; }
+
+    [JsonPropertyName("stp_bpdu_guard_enabled")]
+    [JsonConverter(typeof(FlexibleNullableBoolConverter))]
+    public bool? StpBpduGuardEnabled { get; set; }
+
+    [JsonPropertyName("stp_port_mode")]
+    [JsonConverter(typeof(FlexibleNullableBoolConverter))]
+    public bool? StpPortMode { get; set; }
 }
 
 /// <summary>STP state changes on one MST instance.</summary>

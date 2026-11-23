@@ -1,0 +1,196 @@
+namespace NetworkOptimizer.Storage.Services;
+
+/// <summary>LAN Health reads. Each is bounded to one window the caller sizes (the roll-up asks for one hour).</summary>
+public partial class MonitoringInfluxClient
+{
+    /// <summary>One port series' field over a window: first, last, min, max, mean.</summary>
+    public sealed record PortFieldStats(
+        DateTime WindowStart, string DeviceMac, string IfName, string PortId, string Field,
+        double? First, double? Last, double? Min, double? Max, double? Mean);
+
+    /// <summary>A LAN Health event from <c>events</c>.</summary>
+    public sealed record LanEventPoint(
+        DateTime Time, string DeviceMac, string EventType, string? IfName, string? OldValue, string? NewValue, string? Detail);
+
+    /// <summary>One fabric probe sample with loss.</summary>
+    public sealed record ProbeLossPoint(DateTime Time, string TargetId, double LossPercent);
+
+    /// <summary>
+    /// Every interface_counters field LAN Health reads, per series, aggregated over
+    /// <paramref name="window"/> (stamped at the window's start). Four selector pushdowns (first, last,
+    /// min, max) plus a mean over the rate fields. Callers keep the range to an hour or two.
+    /// </summary>
+    public async Task<IReadOnlyList<PortFieldStats>> QueryLanPortStatsAsync(
+        DateTime from, DateTime to, TimeSpan window, IReadOnlyList<string> fields, CancellationToken ct = default)
+    {
+        if (!IsConfigured || fields.Count == 0) return Array.Empty<PortFieldStats>();
+        var fieldFilter = string.Join(" or ", fields.Select(f => $"r._field == {FluxLiteral.Quote(f)}"));
+        async Task<Dictionary<(DateTime, string, string, string, string), double>> Agg(string fn, string? onlyFields = null)
+        {
+            var flux = $@"
+from(bucket: {FluxLiteral.Quote(_bucket)})
+  |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
+  |> filter(fn: (r) => r._measurement == ""interface_counters"")
+  |> filter(fn: (r) => {onlyFields ?? fieldFilter})
+  |> aggregateWindow(every: {ToFluxDuration(window)}, fn: {fn}, createEmpty: false, timeSrc: ""_start"")
+";
+            var values = new Dictionary<(DateTime, string, string, string, string), double>();
+            await foreach (var record in QueryFluxAsync(flux, ct))
+            {
+                var key = (ToUtc(record.GetTimeInDateTime() ?? DateTime.UtcNow),
+                    record.GetValueByKey("device_mac") as string ?? "",
+                    record.GetValueByKey("if_name") as string ?? "",
+                    record.GetValueByKey("port_id") as string ?? "",
+                    record.GetField() ?? "");
+                var v = record.GetValue() switch { bool b => b ? 1.0 : 0.0, var o => AsDoubleOrNull(o) };
+                if (v is double d) values[key] = d;
+            }
+            return values;
+        }
+        var rateFields = fields.Where(f => f is "rate_in_bps" or "rate_out_bps").ToList();
+        var first = Agg("first");
+        var last = Agg("last");
+        var min = Agg("min");
+        var max = Agg("max");
+        var mean = rateFields.Count > 0
+            ? Agg("mean", string.Join(" or ", rateFields.Select(f => $"r._field == {FluxLiteral.Quote(f)}")))
+            : Task.FromResult(new Dictionary<(DateTime, string, string, string, string), double>());
+        await Task.WhenAll(first, last, min, max, mean);
+        return last.Result.Keys.Union(first.Result.Keys)
+            .Select(k => new PortFieldStats(k.Item1, k.Item2, k.Item3, k.Item4, k.Item5,
+                first.Result.TryGetValue(k, out var f) ? f : null,
+                last.Result.TryGetValue(k, out var l) ? l : null,
+                min.Result.TryGetValue(k, out var mn) ? mn : null,
+                max.Result.TryGetValue(k, out var mx) ? mx : null,
+                mean.Result.TryGetValue(k, out var me) ? me : null))
+            .ToList();
+    }
+
+    /// <summary>LAN Health events (link changes, uplink context, device states) in a window. Raw; <c>events</c> is sparse.</summary>
+    public async Task<IReadOnlyList<LanEventPoint>> QueryLanEventsAsync(
+        DateTime from, DateTime to, IReadOnlyList<string> eventTypes, CancellationToken ct = default)
+    {
+        if (!IsConfigured || string.IsNullOrEmpty(_longtermBucket) || eventTypes.Count == 0) return Array.Empty<LanEventPoint>();
+        var types = string.Join(" or ", eventTypes.Select(t => $"r.event_type == {FluxLiteral.Quote(t)}"));
+        var flux = $@"
+from(bucket: {FluxLiteral.Quote(_longtermBucket)})
+  |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
+  |> filter(fn: (r) => r._measurement == ""events"")
+  |> filter(fn: (r) => {types})
+  |> pivot(rowKey:[""_time""], columnKey: [""_field""], valueColumn: ""_value"")
+";
+        var results = new List<LanEventPoint>();
+        await foreach (var record in QueryFluxAsync(flux, ct))
+        {
+            results.Add(new LanEventPoint(
+                ToUtc(record.GetTimeInDateTime() ?? DateTime.UtcNow),
+                record.GetValueByKey("device_mac") as string ?? "",
+                record.GetValueByKey("event_type") as string ?? "",
+                record.GetValueByKey("if_name") as string,
+                record.GetValueByKey("old_value") as string,
+                record.GetValueByKey("new_value") as string,
+                record.GetValueByKey("detail") as string));
+        }
+        return results.OrderBy(r => r.Time).ToList();
+    }
+
+    /// <summary>Fabric probe samples that lost packets, raw. Loss is rare on a healthy LAN, so this stays small.</summary>
+    public async Task<IReadOnlyList<ProbeLossPoint>> QueryFabricLossSamplesAsync(DateTime from, DateTime to, CancellationToken ct = default)
+    {
+        if (!IsConfigured) return Array.Empty<ProbeLossPoint>();
+        var flux = $@"
+from(bucket: {FluxLiteral.Quote(_bucket)})
+  |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
+  |> filter(fn: (r) => r._measurement == ""latency"" and r.target_type == ""fabric"" and r._field == ""loss_percent"")
+  |> filter(fn: (r) => r._value > 0.0)
+";
+        var results = new List<ProbeLossPoint>();
+        await foreach (var record in QueryFluxAsync(flux, ct))
+        {
+            if (record.GetValueByKey("target_id") is not string id) continue;
+            if (AsDoubleOrNull(record.GetValue()) is not double loss) continue;
+            results.Add(new ProbeLossPoint(ToUtc(record.GetTimeInDateTime() ?? DateTime.UtcNow), id, loss));
+        }
+        return results.OrderBy(r => r.Time).ToList();
+    }
+
+    /// <summary>Fabric probe sample counts and mean loss per target over a window, for coverage and the Links table's Probe Loss.</summary>
+    public async Task<IReadOnlyDictionary<string, (int Samples, double MeanLoss)>> QueryFabricProbeSummaryAsync(
+        DateTime from, DateTime to, CancellationToken ct = default)
+    {
+        if (!IsConfigured) return new Dictionary<string, (int, double)>();
+        async Task<Dictionary<string, double>> Agg(string fn)
+        {
+            var flux = $@"
+from(bucket: {FluxLiteral.Quote(_bucket)})
+  |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
+  |> filter(fn: (r) => r._measurement == ""latency"" and r.target_type == ""fabric"" and r._field == ""loss_percent"")
+  |> {fn}()
+";
+            var map = new Dictionary<string, double>();
+            await foreach (var record in QueryFluxAsync(flux, ct))
+                if (record.GetValueByKey("target_id") is string id && AsDoubleOrNull(record.GetValue()) is double v)
+                    map[id] = map.GetValueOrDefault(id) + v;
+            return map;
+        }
+        var count = Agg("count");
+        var mean = Agg("mean");
+        await Task.WhenAll(count, mean);
+        return count.Result.ToDictionary(kv => kv.Key, kv => ((int)kv.Value, mean.Result.GetValueOrDefault(kv.Key)));
+    }
+
+    /// <summary>Device-level LAN Health fields from <c>device_health</c> (mesh uplink, PoE totals) per window: mean and last.</summary>
+    public async Task<IReadOnlyList<(DateTime WindowStart, string DeviceMac, string Field, double? Mean, object? Last)>> QueryLanDeviceFieldsAsync(
+        DateTime from, DateTime to, TimeSpan window, IReadOnlyList<string> fields, CancellationToken ct = default)
+    {
+        if (!IsConfigured || fields.Count == 0) return Array.Empty<(DateTime, string, string, double?, object?)>();
+        var fieldFilter = string.Join(" or ", fields.Select(f => $"r._field == {FluxLiteral.Quote(f)}"));
+        async Task<Dictionary<(DateTime, string, string), object?>> Agg(string fn, bool numericOnly)
+        {
+            var flux = $@"
+from(bucket: {FluxLiteral.Quote(_bucket)})
+  |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
+  |> filter(fn: (r) => r._measurement == ""device_health"")
+  |> filter(fn: (r) => {fieldFilter})
+  {(numericOnly ? "|> filter(fn: (r) => r._field != \"uplink_parent_mac\" and r._field != \"poe_near_limit\" and r._field !~ /_radio$/)" : "")}
+  |> aggregateWindow(every: {ToFluxDuration(window)}, fn: {fn}, createEmpty: false, timeSrc: ""_start"")
+";
+            var map = new Dictionary<(DateTime, string, string), object?>();
+            await foreach (var record in QueryFluxAsync(flux, ct))
+            {
+                var key = (ToUtc(record.GetTimeInDateTime() ?? DateTime.UtcNow), record.GetValueByKey("device_mac") as string ?? "", record.GetField() ?? "");
+                map[key] = record.GetValue();
+            }
+            return map;
+        }
+        var mean = Agg("mean", true);
+        var last = Agg("last", false);
+        await Task.WhenAll(mean, last);
+        return last.Result.Select(kv => (kv.Key.Item1, kv.Key.Item2, kv.Key.Item3,
+                mean.Result.TryGetValue(kv.Key, out var m) ? AsDoubleOrNull(m) : null, kv.Value))
+            .ToList();
+    }
+
+    /// <summary>Raw readings of a few fields on one device's ports, for a link's timeline. Bounded by the caller to one link and a few days.</summary>
+    public async Task<IReadOnlyList<(DateTime Time, string IfName, string PortId, string Field, double Value)>> QueryLanPortRawAsync(
+        string deviceMac, DateTime from, DateTime to, IReadOnlyList<string> fields, CancellationToken ct = default)
+    {
+        if (!IsConfigured || fields.Count == 0) return Array.Empty<(DateTime, string, string, string, double)>();
+        var fieldFilter = string.Join(" or ", fields.Select(f => $"r._field == {FluxLiteral.Quote(f)}"));
+        var flux = $@"
+from(bucket: {FluxLiteral.Quote(_bucket)})
+  |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
+  |> filter(fn: (r) => r._measurement == ""interface_counters"" and r.device_mac == {FluxLiteral.Quote(NormalizeMac(deviceMac))})
+  |> filter(fn: (r) => {fieldFilter})
+";
+        var results = new List<(DateTime, string, string, string, double)>();
+        await foreach (var record in QueryFluxAsync(flux, ct))
+        {
+            var v = record.GetValue() switch { bool b => b ? 1.0 : 0.0, var o => AsDoubleOrNull(o) };
+            if (v is not double d) continue;
+            results.Add((ToUtc(record.GetTimeInDateTime() ?? DateTime.UtcNow), record.GetValueByKey("if_name") as string ?? "",
+                record.GetValueByKey("port_id") as string ?? "", record.GetField() ?? "", d));
+        }
+        return results.OrderBy(r => r.Item1).ToList();
+    }
+}
