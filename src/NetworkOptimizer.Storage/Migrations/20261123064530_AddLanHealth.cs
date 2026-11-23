@@ -81,6 +81,7 @@ namespace NetworkOptimizer.Storage.Migrations
                     PoeWattsMin = table.Column<double>(type: "REAL", nullable: true),
                     PoeWattsMax = table.Column<double>(type: "REAL", nullable: true),
                     Reboots = table.Column<int>(type: "INTEGER", nullable: false),
+                    InformFailures = table.Column<int>(type: "INTEGER", nullable: false),
                     IncidentsJson = table.Column<string>(type: "TEXT", maxLength: 16000, nullable: true),
                     CoverageJson = table.Column<string>(type: "TEXT", maxLength: 2000, nullable: true),
                     Version = table.Column<int>(type: "INTEGER", nullable: false),

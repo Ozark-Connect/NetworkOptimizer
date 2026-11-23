@@ -458,8 +458,14 @@ public sealed class LanHealthEngine
         var tests = await SpeedTestsAsync(db, ct);
         var attributed = LanHealthSpeedTests.Attribute(tests, topology.Links, from, to);
         var forwarding = LanHealthSpeedTests.GatewayForwarding(tests, from, to);
+        var informFailures = rows.Values.SelectMany(r => r).Where(r => r.InformFailures > 0)
+            .GroupBy(r => topology.Links.FirstOrDefault(l => l.Id == r.LinkId)?.Downstream.DeviceMac ?? "")
+            .Where(g => g.Key.Length > 0).ToDictionary(g => g.Key, g => g.Sum(r => r.InformFailures));
+        var stpBaseline = baseline.Values.SelectMany(r => r).Where(r => r.StpChanges != null)
+            .GroupBy(r => topology.Links.FirstOrDefault(l => l.Id == r.LinkId)?.Upstream.DeviceMac ?? "")
+            .ToDictionary(g => g.Key, g => g.Sum(r => r.StpChanges ?? 0) / Math.Max(1, LanHealthReportBuilder.BaselineDays * 24));
         var report = LanHealthReportBuilder.Build(topology.Links, rows, baseline, topology.Exclusions, topology.ScoreFabricOnly,
-            (links, evidence) => SiteEvidenceFor(topology, links, evidence, text, hours, forwarding), text, from, to, attributed);
+            (links, evidence) => SiteEvidenceFor(topology, links, evidence, text, hours, forwarding, informFailures, stpBaseline), text, from, to, attributed);
         AddTestSuggestions(report, topology, tests);
         var history = await db.LanHealthSiteHours.AsNoTracking().Where(h => h.HourStart >= from && h.HourStart < to && h.Score != null)
             .OrderBy(h => h.HourStart).Select(h => new { h.HourStart, h.Score }).ToListAsync(ct);
@@ -526,9 +532,13 @@ public sealed class LanHealthEngine
     }
 
     private static SiteEvidence SiteEvidenceFor(Topology t, IReadOnlyList<LinkHealth> links, IReadOnlyDictionary<string, LinkEvidence> evidence,
-        FindingText text, int hours, (int Tests, double RatioToNorm)? forwarding) => new()
+        FindingText text, int hours, (int Tests, double RatioToNorm)? forwarding,
+        IReadOnlyDictionary<string, int> informFailures, IReadOnlyDictionary<string, double> stpBaseline) => new()
     {
         GatewayForwarding = forwarding,
+        InformFailures = informFailures,
+        DeviceHealth = t.Devices.Where(d => !string.IsNullOrEmpty(d.Mac)).GroupBy(d => LanLinkBuilder.Mac(d.Mac))
+            .ToDictionary(g => g.Key, g => (Percent(g.First().SystemStats?.Cpu), Percent(g.First().SystemStats?.Mem), g.First().GeneralTemperature)),
         Devices = t.Devices,
         Networks = t.Networks,
         PortProfiles = t.PortProfiles,
@@ -539,7 +549,7 @@ public sealed class LanHealthEngine
             .ToDictionary(g => g.Key, g =>
             {
                 var window = g.Sum(l => evidence.TryGetValue(l.Link.Id, out var e) ? e.Upstream.StpChanges ?? 0 : 0);
-                return (window, 0.0);
+                return (window, stpBaseline.GetValueOrDefault(g.Key));
             }),
         DuplicateIps = t.Clients.Where(c => !string.IsNullOrEmpty(c.Ip)).GroupBy(c => c.Ip)
             .Where(g => g.Select(c => c.Mac.ToLowerInvariant()).Distinct().Count() > 1)
@@ -560,6 +570,9 @@ public sealed class LanHealthEngine
         classes.Add("Wi-Fi radios");
         return classes;
     }
+
+    private static double? Percent(string? s) =>
+        double.TryParse(s, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var v) ? v : null;
 
     internal static string RangeLabel(int hours) => hours <= 48 ? $"{hours}h" : $"{hours / 24}d";
 

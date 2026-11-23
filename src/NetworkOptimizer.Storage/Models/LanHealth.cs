@@ -82,6 +82,9 @@ public class LanHealthLinkHour
     public double? PoeWattsMax { get; set; }
     public int Reboots { get; set; }
 
+    /// <summary>The downstream AP's inform failures to the UniFi Console in the hour (AP Agent).</summary>
+    public int InformFailures { get; set; }
+
     /// <summary>The hour's incidents (start, kind, seconds, sources, explanation), for the timeline.</summary>
     [MaxLength(16000)]
     public string? IncidentsJson { get; set; }

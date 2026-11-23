@@ -11,7 +11,7 @@ using NetworkOptimizer.Storage.Models;
 namespace NetworkOptimizer.Storage.Migrations
 {
     [DbContext(typeof(NetworkOptimizerDbContext))]
-    [Migration("20261123062417_AddLanHealth")]
+    [Migration("20261123064530_AddLanHealth")]
     partial class AddLanHealth
     {
         /// <inheritdoc />
@@ -2973,6 +2973,9 @@ namespace NetworkOptimizer.Storage.Migrations
                     b.Property<string>("IncidentsJson")
                         .HasMaxLength(16000)
                         .HasColumnType("TEXT");
+
+                    b.Property<int>("InformFailures")
+                        .HasColumnType("INTEGER");
 
                     b.Property<int>("Kind")
                         .HasColumnType("INTEGER");

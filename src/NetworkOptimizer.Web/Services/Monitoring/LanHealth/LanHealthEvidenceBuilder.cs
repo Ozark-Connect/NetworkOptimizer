@@ -326,6 +326,8 @@ public static class LanHealthEvidenceBuilder
             PoeWattsMin = up.Min(InfluxFieldNames.PoePower),
             PoeWattsMax = up.Max(InfluxFieldNames.PoePower),
             Reboots = x.RebootsFor(link.Downstream.DeviceMac).Count,
+            InformFailures = x.Events.Count(e => e.EventType == ApAgentLinkEventSink.EventTypes.InformFailed
+                && string.Equals(e.DeviceMac, link.Downstream.DeviceMac, StringComparison.OrdinalIgnoreCase)),
             IncidentsJson = Trim(LanHealthIncidentJson.Serialize(incidents), 16000),
             CoverageJson = Trim(JsonSerializer.Serialize(LinkEventAligner.Coverage(incidents, distinctObservers)
                 .Select(c => new LanHealthIncidentJson.CoverageDto((int)c.Source, c.Caught, c.Total, c.Observing))), 2000),

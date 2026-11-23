@@ -64,6 +64,7 @@
 @inject NetworkOptimizer.Web.Services.UiHintService UiHints
 @inject IDisplayTimeZone DisplayTime
 @inject AgentOnGatewayDetector OnGatewayDetector
+@inject NetworkOptimizer.Web.Services.Monitoring.LanHealth.ILanHealthService LanHealthService
 
 <NavigationLock OnBeforeInternalNavigation="OnBeforeInternalNavigation"
                 ConfirmExternalNavigation="_upstreamDiscoveryPendingSave" />
@@ -514,6 +515,10 @@
                             data-tooltip="Find the most recent loss event that happened while the WAN was under load - the SQM/bufferbloat signal">
                         @if (_investigatingLoss && _lossNavLoadedOnly) { <span class="spinner-sm"></span> }
                         else { <span>Loaded Loss Events</span> }
+                    </button>
+                    <button class="btn btn-secondary investigate-btn" @onclick="InvestigateLanLinks"
+                            data-tooltip="Open the LAN link with the most recent drop, error burst, or loss burst on Monitoring - LAN Health">
+                        <span>LAN Link Events</span>
                     </button>
                 }
                 </div>
@@ -3497,6 +3502,28 @@
     }
 
     private bool _gatewayAgentOnly;
+
+    /// <summary>Opens the link with the most recent unexplained LAN incident; says so when there is none.</summary>
+    private async Task InvestigateLanLinks()
+    {
+        try
+        {
+            var report = await LanHealthService.GetReportAsync(48, DisplayTime.Zone, DisplayTime.Format);
+            var latest = report.Links
+                .SelectMany(l => l.Incidents.Where(i => !i.IsExplained && i.Kind != NetworkOptimizer.Web.Services.Monitoring.LanHealth.IncidentKind.DiscardBurst)
+                    .Select(i => (l.Link.Id, i.Start)))
+                .OrderByDescending(x => x.Start).FirstOrDefault();
+            if (latest.Id != null)
+                NavigationManager.NavigateTo(NetworkOptimizer.Web.Services.Monitoring.LanHealth.LanHealthLinks.Link(latest.Id));
+            else
+                _lossInvestigateResult = "No LAN link events in the last 48 hours.";
+        }
+        catch (Exception ex)
+        {
+            Logger.LogDebug(ex, "LAN link investigation failed");
+            _lossInvestigateResult = "LAN Health is not available yet.";
+        }
+    }
 
     protected override async Task OnInitializedAsync()
     {

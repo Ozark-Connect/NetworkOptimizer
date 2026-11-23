@@ -2971,6 +2971,9 @@ namespace NetworkOptimizer.Storage.Migrations
                         .HasMaxLength(16000)
                         .HasColumnType("TEXT");
 
+                    b.Property<int>("InformFailures")
+                        .HasColumnType("INTEGER");
+
                     b.Property<int>("Kind")
                         .HasColumnType("INTEGER");
 
