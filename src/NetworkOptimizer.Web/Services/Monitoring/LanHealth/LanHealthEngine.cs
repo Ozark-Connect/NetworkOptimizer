@@ -17,7 +17,7 @@ namespace NetworkOptimizer.Web.Services.Monitoring.LanHealth;
 public sealed class LanHealthEngine
 {
     /// <summary>Bump when the roll-up changes; older rows are recomputed on the next backfill pass.</summary>
-    public const int Version = 3;
+    public const int Version = 4;
 
     internal static readonly TimeSpan RunEvery = TimeSpan.FromMinutes(15);
     internal static readonly TimeSpan Settle = TimeSpan.FromMinutes(5);
@@ -315,7 +315,7 @@ public sealed class LanHealthEngine
                 foreach (var o in objects)
                 {
                     var change = changes.First(c => c.Id == o.ChangeId);
-                    var detail = $"{change.Summary}{(string.IsNullOrEmpty(change.ActorName) ? "" : $" ({change.ActorName})")}";
+                    var detail = ChangeDetail.Format(change.ActorName, change.Summary);
                     if (o.Collection == "device" && deviceById.TryGetValue(o.ObjectId, out var mac))
                         windows.Add(new ExplainWindow(change.OccurredAt, change.OccurredAt, mac, ExplainReason.PortProfileChanged, detail));
                     else if (o.Collection == "portconf")

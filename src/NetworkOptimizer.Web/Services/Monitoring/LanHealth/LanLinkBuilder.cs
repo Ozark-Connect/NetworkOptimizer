@@ -157,6 +157,13 @@ public static class LanLinkBuilder
                 });
             }
         }
+        // The swap step's neighbouring port, and who is on it.
+        foreach (var l in links.Where(l => l.Kind == LinkKind.FabricWired && l.Upstream.PortIdx is int))
+        {
+            var p = l.Upstream.PortIdx!.Value;
+            var other = p > 1 ? p - 1 : p + 1;
+            l.SwapNeighbor = links.FirstOrDefault(n => n.Upstream.DeviceMac == l.Upstream.DeviceMac && n.Upstream.PortIdx == other)?.Downstream.DeviceName;
+        }
         return links;
     }
 

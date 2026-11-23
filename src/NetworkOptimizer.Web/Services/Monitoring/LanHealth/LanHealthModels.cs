@@ -218,6 +218,26 @@ public sealed class PortConfig
 /// (upstream mac, upstream port) - (downstream mac, downstream port), or the upstream port alone for
 /// an access port.
 /// </summary>
+/// <summary>A Change Control change as an explain detail: who made it and Change Control's own summary.</summary>
+public static class ChangeDetail
+{
+    /// <summary>Packs the actor and the summary into one stored detail string.</summary>
+    public static string Format(string? actor, string summary) => $"{actor ?? ""}\t{summary}";
+
+    /// <summary>"Change by TJ: Port Profile X (Link Speed, and 5 more)", from a packed detail.</summary>
+    public static string Describe(string? detail)
+    {
+        if (string.IsNullOrEmpty(detail)) return "a configuration change";
+        var tab = detail.IndexOf('\t');
+        var actor = tab >= 0 ? detail[..tab] : "";
+        var summary = tab >= 0 ? detail[(tab + 1)..] : detail;
+        // Change Control summaries read "<object>: <fields>"; the fields go in parentheses.
+        var colon = summary.IndexOf(": ", StringComparison.Ordinal);
+        var what = colon > 0 ? $"{summary[..colon]} ({summary[(colon + 2)..]})" : summary;
+        return string.IsNullOrEmpty(actor) ? $"Change: {what}" : $"Change by {actor}: {what}";
+    }
+}
+
 public sealed class LinkRecord
 {
     public string Id { get; init; } = "";
@@ -241,6 +261,8 @@ public sealed class LinkRecord
     public int? MeshSignalDbm { get; init; }
     public long? MeshTxRateKbps { get; init; }
     public int? UplinkDepth { get; init; }
+    /// <summary>The device on the neighbouring port the swap step names, when that port is in use.</summary>
+    public string? SwapNeighbor { get; set; }
     /// <summary>The end-device client MAC on an access port, when known.</summary>
     public string? ClientMac { get; init; }
 

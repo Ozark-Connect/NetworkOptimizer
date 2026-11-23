@@ -138,8 +138,8 @@ public static class LanHealthDetectors
     internal static string PortSwapStep(LinkRecord link, int port)
     {
         var other = port > 1 ? port - 1 : port + 1;
-        var kind = link.Downstream.IsAccessPoint ? "AP" : link.Downstream.IsSwitch ? "switch" : "device";
-        return $"Swap Port {port} with Port {other} ({link.Upstream.DeviceName}). If the drops stay on Port {port}, it is the {link.Upstream.DeviceName} port; if they follow the {kind}, it is the {link.Downstream.DeviceName}.";
+        var moves = link.SwapNeighbor is { Length: > 0 } n ? $" ({n} moves to Port {port})" : "";
+        return $"Swap the cables in Port {port} and Port {other} on {link.Upstream.DeviceName}{moves}. If the drops stay on Port {port}, it's the {(link.Upstream.IsGateway ? "gateway" : "switch")} port. If they follow {link.Downstream.DeviceName}, it's the {(link.Downstream.IsAccessPoint ? "AP" : link.Downstream.IsSwitch ? "switch" : "device")} or its cable.";
     }
 
     // ---- 2 Speed downshift ----

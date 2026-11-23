@@ -310,6 +310,26 @@ public class LanHealthTests
     }
 
     [Fact]
+    public void ChangeDetail_DescribesActorObjectAndFields()
+    {
+        ChangeDetail.Describe(ChangeDetail.Format("Admin", "Port Profile AP Uplink: Link Speed, Flow Control, and 5 more"))
+            .Should().Be("Change by Admin: Port Profile AP Uplink (Link Speed, Flow Control, and 5 more)");
+        ChangeDetail.Describe(ChangeDetail.Format(null, "Device Switch A")).Should().Be("Change: Device Switch A");
+    }
+
+    [Fact]
+    public void PortSwapStep_NamesTheDeviceThatMoves()
+    {
+        var link = new LinkRecord
+        {
+            Id = "l", Kind = LinkKind.FabricWired, SwapNeighbor = "AP 2",
+            Upstream = new LinkEnd { DeviceMac = SwitchMac, DeviceName = "Gateway A", DeviceType = DeviceType.Gateway, PortIdx = 3 },
+            Downstream = new LinkEnd { DeviceMac = ApMac, DeviceName = "AP 1", DeviceType = DeviceType.AccessPoint, PortIdx = 1 },
+        };
+        LanHealthDetectors.PortSwapStep(link, 3).Should().Be(
+            "Swap the cables in Port 3 and Port 2 on Gateway A (AP 2 moves to Port 3). If the drops stay on Port 3, it's the gateway port. If they follow AP 1, it's the AP or its cable.");
+    }
+    [Fact]
     public void Scorer_CombinesFindingsAndWeighsFabricByClients()
     {
         LanHealthScorer.LinkScore([new LinkFinding { Points = 20 }, new LinkFinding { Points = 20 }, new LinkFinding { Points = 0 }]).Should().Be(64);
