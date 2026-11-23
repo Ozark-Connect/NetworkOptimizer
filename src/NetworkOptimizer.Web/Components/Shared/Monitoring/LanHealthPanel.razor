@@ -270,11 +270,13 @@ else
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        // Opening a link starts at its top, wherever the list was scrolled.
+        // Opening a link starts at its top. A query-only navigation keeps the scroll on purpose
+        // (scrollRestoration.js), and the scroller is .main-content on a phone, .page-content on desktop.
         if (_scrollTop)
         {
             _scrollTop = false;
-            try { await JS.InvokeVoidAsync("scrollTo", 0, 0); } catch (JSDisconnectedException) { }
+            try { await JS.InvokeVoidAsync("eval", "['.main-content', '.page-content'].forEach(s => document.querySelector(s)?.scrollTo(0, 0))"); }
+            catch (JSDisconnectedException) { }
         }
         if (!_historyDirty || _report == null || !string.IsNullOrEmpty(LinkId)) return;
         _historyDirty = false;
