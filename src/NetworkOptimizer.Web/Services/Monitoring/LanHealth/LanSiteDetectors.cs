@@ -1,7 +1,6 @@
 using System.Text.Json;
 using NetworkOptimizer.Core;
 using NetworkOptimizer.Core.Enums;
-using NetworkOptimizer.Core.Helpers;
 using NetworkOptimizer.Diagnostics.Analyzers;
 using NetworkOptimizer.UniFi.Models;
 
@@ -67,17 +66,17 @@ public static class LanSiteDetectors
 
     private static LinkFinding Site(int detector, string cls, string subject, string body, FindingSeverity severity = FindingSeverity.Info,
         string linkId = "", double points = 0, LinkStatus? status = null, params string[] chips) => new()
-    {
-        Detector = detector,
-        LinkId = linkId,
-        Severity = severity,
-        Class = cls,
-        Title = $"{cls}: {subject}",
-        Body = body,
-        Chips = chips.ToList(),
-        Points = points,
-        Status = status,
-    };
+        {
+            Detector = detector,
+            LinkId = linkId,
+            Severity = severity,
+            Class = cls,
+            Title = $"{cls}: {subject}",
+            Body = body,
+            Chips = chips.ToList(),
+            Points = points,
+            Status = status,
+        };
 
     // ---- 9 Loop: a storm on several ports at once, with STP changes ----
     internal static IEnumerable<LinkFinding> Loop(SiteEvidence s)
@@ -151,8 +150,17 @@ public static class LanSiteDetectors
                 var link = s.Links.FirstOrDefault(l => l.Link.Upstream.DeviceMac == LanLinkBuilder.Mac(d.Mac) && l.Link.Upstream.PortIdx == port.PortIdx);
                 var conf = configured.FirstOrDefault(o => o.PortIdx == port.PortIdx);
                 if (link == null) continue;
-                // Edge on a fabric port: a loop waiting to happen.
-                if (link.Link.IsFabric && (port.StpEdgePort == true || string.Equals(conf?.StpEdgeState, "enabled", StringComparison.OrdinalIgnoreCase)))
+                // The port's configured mode decides; the switch's live stp_edge flag only where nothing is
+                // configured, since it can lag a change (it still read Edge after Change Control saw it set off).
+                var edge = !string.IsNullOrEmpty(conf?.StpEdgeState)
+                    ? string.Equals(conf.StpEdgeState, "enabled", StringComparison.OrdinalIgnoreCase)
+                    : port.StpEdgePort == true;
+                // Edge on a fabric port: a loop waiting to happen, but only toward a device that forwards
+                // frames between ports (a switch, an AP, a bridge). A 5G Backup or other leaf device is an
+                // edge device: its GRE tunnel rides the LAN, or it is a WAN port on the gateway.
+                if (link.Link.IsFabric && link.Link.Downstream.DeviceType is DeviceType.Switch or DeviceType.AccessPoint
+                        or DeviceType.BuildingBridge or DeviceType.DeviceBridge
+                    && edge)
                     yield return Site(Detectors.StpConfig, "Edge Port on a Fabric Link", link.Link.Name,
                         "This port's STP mode is Edge, but a UniFi device is plugged into it. Set it to Infrastructure.", FindingSeverity.Warning, link.Link.Id, chips: "STP");
                 // Infrastructure forced on an access port: every client link-up waits 30 s or more.
@@ -160,7 +168,7 @@ public static class LanSiteDetectors
                     yield return Site(Detectors.StpConfig, "Infrastructure Mode on an Access Port", link.Link.Name,
                         "This port's STP mode is Infrastructure, but a client is plugged into it, so every time the client links up it waits 30 seconds or more before passing traffic. Set it to Edge or Auto.", linkId: link.Link.Id, chips: "STP");
                 // BPDU guard off on a client-facing port where a user can plug in a switch.
-                if (!link.Link.IsFabric && conf != null && conf.StpBpduGuardEnabled == false && port.StpEdgePort == true)
+                if (!link.Link.IsFabric && conf != null && conf.StpBpduGuardEnabled == false && edge)
                     yield return Site(Detectors.StpConfig, "BPDU Guard Off", link.Link.Name,
                         "BPDU guard is off on this client port. If someone plugs a switch in here, it can take part in STP.", linkId: link.Link.Id, chips: "STP");
                 // A blocked port that was not meant as redundancy.
