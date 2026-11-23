@@ -612,6 +612,18 @@ public static class ConfigCollections
             },
             new()
             {
+                // Settings - Port Automations (Network 11.1): apply a port profile by vendor or MAC OUI. Recorded, diffed, and
+                // listed; not written: the order is a separate list (port-automations/order) that is not grounded. UniFi
+                // applies an automation into the device's port_system_overrides, never port_overrides.
+                Key = "port_automation", DisplayName = "Port Automations", Noun = "Port Automation", Group = "Port Profiles",
+                Scope = UniFiApiScope.SiteV2, ReadPath = "port-automations", Order = 4,
+                ReadOnlyFields = Set([.. CommonReadOnly, "automation_index"]),
+                SetArrays = Set("vendor_ids", "mac_ouis", "switch_macs", "device_tag_ids"),
+                // UniFi keeps names unique per site, ignoring case.
+                EnforcedKey = (o, _) => Str(o, "name")?.ToLowerInvariant(), KeyIsUnique = true,
+            },
+            new()
+            {
                 Key = "apgroups", DisplayName = "AP groups", Noun = "AP Group", Group = "WLANs",
                 FieldGroups = ConfigFieldOrder.ApGroupFields,
                 Scope = UniFiApiScope.SiteV2, ReadPath = "apgroups", Order = 4, ReadOnlyFields = CommonReadOnly,
