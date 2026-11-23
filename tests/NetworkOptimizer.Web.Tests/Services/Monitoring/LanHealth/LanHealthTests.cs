@@ -420,6 +420,26 @@ public class LanHealthTests
         LanHealthDetectors.LinkDrops(Ev(null), withChange, FindingText.Utc)!.Body.Should().Contain("Still dropping after the");
     }
     [Fact]
+    public void Bottleneck_ComparesUsableCapacityWithTheSpeedTestOverheads()
+    {
+        LinkHealth Wired(string up, string down, int mbps) => new() { Link = new LinkRecord
+        {
+            Id = $"{up}-{down}", Kind = LinkKind.FabricWired, SpeedMbps = mbps,
+            Upstream = new LinkEnd { DeviceMac = up, DeviceName = up, DeviceType = DeviceType.Gateway, PortIdx = 3 },
+            Downstream = new LinkEnd { DeviceMac = down, DeviceName = down, DeviceType = DeviceType.AccessPoint },
+        } };
+        LinkHealth Mesh(string up, string down, int mbps) => new() { Link = new LinkRecord
+        {
+            Id = $"{up}-{down}", Kind = LinkKind.FabricMeshMlo, SpeedMbps = mbps,
+            Upstream = new LinkEnd { DeviceMac = up, DeviceName = up, DeviceType = DeviceType.AccessPoint },
+            Downstream = new LinkEnd { DeviceMac = down, DeviceName = down, DeviceType = DeviceType.AccessPoint },
+        } };
+        // 6.1 Gbps PHY is about 3.4 Gbps usable over mesh: more than a 2.5G uplink's 2.35.
+        LanSiteDetectors.Bottleneck(new SiteEvidence { Links = [Wired("gw", "ap1", 2500), Mesh("ap1", "ap2", 6100)] }).Should().ContainSingle();
+        // 4 Gbps PHY is about 2.2 Gbps usable: not a bottleneck behind 2.5G.
+        LanSiteDetectors.Bottleneck(new SiteEvidence { Links = [Wired("gw", "ap1", 2500), Mesh("ap1", "ap2", 4000)] }).Should().BeEmpty();
+    }
+    [Fact]
     public void Scorer_CombinesFindingsAndWeighsFabricByClients()
     {
         LanHealthScorer.LinkScore([new LinkFinding { Points = 20 }, new LinkFinding { Points = 20 }, new LinkFinding { Points = 0 }]).Should().Be(64);

@@ -310,12 +310,19 @@ public static class LanSiteDetectors
     {
         foreach (var l in s.Links.Where(l => l.Link.Kind == LinkKind.FabricWired && l.Link.SpeedMbps is > 0))
         {
-            var below = s.Links.Where(c => c.Link.IsFabric && c.Link.Upstream.DeviceMac == l.Link.Downstream.DeviceMac && c.Link.SpeedMbps is > 0).ToList();
-            var fastest = below.Select(c => c.Link.SpeedMbps!.Value).DefaultIfEmpty(0).Max();
-            if (fastest <= l.Link.SpeedMbps) continue;
+            // Compared as usable capacity with the speed test path's overhead factors: a mesh backhaul
+            // carries about 55% of its PHY rate, a wired link about 94%.
+            static double Usable(LinkRecord r) => r.SpeedMbps!.Value
+                * (r.IsMesh ? NetworkOptimizer.UniFi.Models.PathAnalysisResult.MeshBackhaulOverheadFactor
+                            : NetworkOptimizer.UniFi.Models.PathAnalysisResult.WiredOverheadFactor);
+            var below = s.Links.Where(c => c.Link.IsFabric && c.Link.Upstream.DeviceMac == l.Link.Downstream.DeviceMac && c.Link.SpeedMbps is > 0)
+                .OrderByDescending(c => Usable(c.Link)).FirstOrDefault();
+            if (below == null || Usable(below.Link) <= Usable(l.Link)) continue;
+            var fastest = below.Link.SpeedMbps!.Value;
+            var usableNote = below.Link.IsMesh ? $" (about {DisplayFormatters.FormatLinkSpeed((int)Math.Round(Usable(below.Link)))} usable)" : "";
             var peak = s.Evidence.TryGetValue(l.Link.Id, out var ev) ? ev.Hours.Select(h => LanHealthDetectors.Utilization(l.Link, h)).DefaultIfEmpty(0).Max() : 0;
             yield return Site(Detectors.BottleneckUplink, "Bottleneck Uplink", l.Link.Name,
-                $"{l.Link.Downstream.DeviceName} uplinks at {DisplayFormatters.FormatLinkSpeed(l.Link.SpeedMbps!.Value)} while a link below it runs at {DisplayFormatters.FormatLinkSpeed(fastest)}"
+                $"{l.Link.Downstream.DeviceName} uplinks at {DisplayFormatters.FormatLinkSpeed(l.Link.SpeedMbps!.Value)} while a link downstream of it runs at {DisplayFormatters.FormatLinkSpeed(fastest)}{usableNote}"
                 + (peak > 0 ? $". Its busiest hour reached {peak * 100:0}% of the uplink." : "."),
                 linkId: l.Link.Id, chips: "Capacity");
         }
