@@ -1272,8 +1272,9 @@ public class DiscoveredDevice
 
 public class DiscoveredClient
 {
-    /// <summary>The name to show: <see cref="DisplayName"/> (already <see cref="ClientNames"/>), else the hostname, else the MAC.</summary>
+    /// <summary>The name to show: <see cref="DisplayName"/> (already <see cref="ClientNames"/>), else the alias, hostname, or MAC.</summary>
     public string Label => !string.IsNullOrWhiteSpace(DisplayName) ? DisplayName
+        : !string.IsNullOrWhiteSpace(Name) ? Name
         : !string.IsNullOrWhiteSpace(Hostname) ? Hostname
         : Mac;
 

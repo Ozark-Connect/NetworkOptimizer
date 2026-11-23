@@ -236,13 +236,11 @@ public class LanFlowMapService
             var fromUserRecords = 0;
             foreach (var c in await _connection.Client!.GetAllKnownClientsAsync(ct))
             {
-                // Only a real alias overrides the console's own label - not the DHCP hostname,
-                // which is how "iPhone" would beat "Apple, Inc. a1:b2".
-                if (!string.IsNullOrEmpty(c.Mac) && !string.IsNullOrWhiteSpace(c.Name))
-                {
-                    names[NormalizeMac(c.Mac)] = c.Name;
+                // Fills clients history does not reach, through ClientNames like every other name. No
+                // hostname: the DHCP name is how "iPhone" would beat "Apple, Inc. a1:b2".
+                if (!string.IsNullOrEmpty(c.Mac) && NetworkOptimizer.UniFi.ClientNames.For(c, hostnameFallback: false) is { } known
+                    && names.TryAdd(NormalizeMac(c.Mac), known))
                     fromUserRecords++;
-                }
                 // Fills gaps only: the history entry is the more recent sighting of the two.
                 if (!string.IsNullOrEmpty(c.Mac) && !string.IsNullOrEmpty(c.BestIp) && SeenSince(c.LastSeen, ipCutoff))
                     ips.TryAdd(NormalizeMac(c.Mac), c.BestIp!);
