@@ -189,4 +189,18 @@ public class AgentResultSenderTests
         service.OnResult(current, new ProbeResponse { RequestId = request.RequestId, Success = true });
         (await probe)!.Success.Should().BeTrue();
     }
+
+    [Fact]
+    public async Task GatewayTiles_HideOnlyWhenEveryAgentSitsOnTheGateway()
+    {
+        var registry = new AgentTunnelRegistry(new AgentTunnelOptions(Enabled: true, Port: 0));
+        registry.Register(1, "gw-only", "Gateway").OnGateway = true;
+        registry.Register(2, "mixed", "Gateway").OnGateway = true;
+        registry.Register(3, "mixed", "Server").OnGateway = false;
+        registry.Register(4, "off", "Server").OnGateway = false;
+        var detector = new AgentOnGatewayDetector(null!, null!, null!, null!, registry, NullLogger<AgentOnGatewayDetector>.Instance);
+        (await detector.GatewayProbedOnlyFromItselfAsync("gw-only")).Should().BeTrue();
+        (await detector.GatewayProbedOnlyFromItselfAsync("mixed")).Should().BeFalse("an off-gateway agent probes the gateway");
+        (await detector.GatewayProbedOnlyFromItselfAsync("off")).Should().BeFalse();
+    }
 }

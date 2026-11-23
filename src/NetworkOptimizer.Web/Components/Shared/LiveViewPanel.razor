@@ -351,7 +351,7 @@ else
 
     protected override async Task OnInitializedAsync()
     {
-        try { _gatewayAgentOnly = await OnGatewayDetector.IsAgentOnGatewayAsync(SiteCtx.Slug); }
+        try { _gatewayAgentOnly = await OnGatewayDetector.GatewayProbedOnlyFromItselfAsync(SiteCtx.Slug); }
         catch (Exception) { _gatewayAgentOnly = false; }
         LiveWan.OnChanged = OnLiveWanChangedAsync;
         await LoadDataAsync();
