@@ -25,6 +25,37 @@ public static class LanHealthReportBuilder
         return level;
     }
 
+    /// <summary>An SFP module on a link now: receive power, its best this week, and temperature.</summary>
+    public sealed record SfpReading(double? RxDbm, double? RxBestDbm, double? TempC);
+
+    /// <summary>
+    /// The SFP reading for each link with a module at either end, from the live port tables and each module's best
+    /// receive power this week (<paramref name="best"/>, keyed by device MAC and port index). Where both ends have
+    /// one, the end receiving less light.
+    /// </summary>
+    public static Dictionary<string, SfpReading> SfpReadings(IReadOnlyList<LinkRecord> links, IReadOnlyList<NetworkOptimizer.UniFi.Models.UniFiDeviceResponse> devices,
+        IReadOnlyDictionary<(string DeviceMac, string Port), double> best)
+    {
+        var ports = devices.Where(d => !string.IsNullOrEmpty(d.Mac))
+            .SelectMany(d => (d.PortTable ?? []).Where(p => p.SfpFound == true).Select(p => (Mac: LanLinkBuilder.Mac(d.Mac), Port: p)))
+            .GroupBy(x => (x.Mac, x.Port.PortIdx)).ToDictionary(g => g.Key, g => g.First().Port);
+        var result = new Dictionary<string, SfpReading>();
+        foreach (var l in links.Where(l => l.Kind == LinkKind.FabricWired))
+        {
+            SfpReading? End(LinkEnd e)
+            {
+                if (e.PortIdx is not int idx || !ports.TryGetValue((e.DeviceMac, idx), out var p)) return null;
+                var key = (e.DeviceMac, idx.ToString(System.Globalization.CultureInfo.InvariantCulture));
+                return new SfpReading(p.SfpRxPower, best.TryGetValue(key, out var b) ? b : null, p.SfpTemperature);
+            }
+            var up = End(l.Upstream);
+            var down = End(l.Downstream);
+            var pick = up == null ? down : down == null ? up : (down.RxDbm ?? 0) < (up.RxDbm ?? 0) ? down : up;
+            if (pick != null) result[l.Id] = pick;
+        }
+        return result;
+    }
+
     /// <summary>Whether an exclusion covers the link: its port, its port profile, either device, or every access port.</summary>
     public static bool Applies(LinkRecord link, LanHealthExclusion x) => x.Scope switch
     {
@@ -39,7 +70,7 @@ public static class LanHealthReportBuilder
     /// <summary>One link's evidence over a window, from its stored hours.</summary>
     public static LinkEvidence EvidenceFromRows(LinkRecord link, IReadOnlyList<LanHealthLinkHour> rows, IReadOnlyList<LanHealthLinkHour> baseline,
         DateTime from, DateTime to, int? historyDays, LinkRecord? parent = null,
-        IReadOnlyList<LanHealthLinkHour>? parentRows = null, IReadOnlyList<LanHealthLinkHour>? parentBaseline = null)
+        IReadOnlyList<LanHealthLinkHour>? parentRows = null, IReadOnlyList<LanHealthLinkHour>? parentBaseline = null, SfpReading? sfp = null)
     {
         var parentLoss = parentRows?.Where(r => r.ProbeLossPct != null).Select(r => r.ProbeLossPct!.Value).ToList();
         var (retryPct, attempts) = RetryPct(rows);
@@ -99,6 +130,9 @@ public static class LanHealthReportBuilder
             MeshTxAttempts = attempts,
             MeshRetryPctBaseline = baseAttempts >= MeshRetryMinAttempts * 4 ? retryBase : null,
             MeshTxDropped = rows.Sum(r => r.MeshTxDropped ?? 0),
+            SfpRxPowerDbm = sfp?.RxDbm,
+            SfpRxPowerBestDbm = sfp?.RxBestDbm,
+            SfpTemperatureC = sfp?.TempC,
             MeshChildRetryPct = childRetry,
             MeshChildRetryPctBaseline = childBaseAttempts >= MeshRetryMinAttempts * 4 ? childBase : null,
             MeshChildTxDropped = rows.Sum(r => r.MeshChildTxDropped ?? 0),
@@ -205,7 +239,8 @@ public static class LanHealthReportBuilder
         Func<IReadOnlyList<LinkHealth>, IReadOnlyDictionary<string, LinkEvidence>, SiteEvidence>? site,
         FindingText text,
         DateTime from, DateTime to,
-        IReadOnlyDictionary<string, List<LinkSpeedTest>>? speedTests = null)
+        IReadOnlyDictionary<string, List<LinkSpeedTest>>? speedTests = null,
+        IReadOnlyDictionary<string, SfpReading>? sfp = null)
     {
         var report = new LanHealthReport { From = from, To = to, Ready = rows.Count > 0 };
         var evidence = new Dictionary<string, LinkEvidence>();
@@ -217,7 +252,8 @@ public static class LanHealthReportBuilder
             // The fabric link into this link's upstream device: its probes separate this hop's loss and RTT from upstream.
             var parent = link.IsMesh ? links.FirstOrDefault(l => l.IsFabric && string.Equals(l.Downstream.DeviceMac, link.Upstream.DeviceMac, StringComparison.OrdinalIgnoreCase)) : null;
             var ev = EvidenceFromRows(link, linkRows, linkBase, from, to, CleanDaysBefore(linkRows, linkBase), parent,
-                parent == null ? null : rows.GetValueOrDefault(parent.Id) ?? [], parent == null ? null : baseline.GetValueOrDefault(parent.Id) ?? []);
+                parent == null ? null : rows.GetValueOrDefault(parent.Id) ?? [], parent == null ? null : baseline.GetValueOrDefault(parent.Id) ?? [],
+                sfp?.GetValueOrDefault(link.Id));
             ev.TroubleSince = TroubleSince(linkRows, linkBase);
             // A test that ran during an incident on the link is kept on the link but out of the norm comparison.
             if (speedTests != null && speedTests.TryGetValue(link.Id, out var tests))

@@ -148,6 +148,23 @@ from(bucket: {FluxLiteral.Quote(_bucket)})
             rtt.Result.TryGetValue(kv.Key, out var r) ? r.Average() : (double?)null));
     }
 
+    /// <summary>Each SFP module's best (highest) receive power since <paramref name="from"/>, by device MAC and port, from the longterm <c>sfp</c> series.</summary>
+    public async Task<IReadOnlyDictionary<(string DeviceMac, string Port), double>> QuerySfpRxBestAsync(DateTime from, CancellationToken ct = default)
+    {
+        var result = new Dictionary<(string, string), double>();
+        if (!IsConfigured || string.IsNullOrEmpty(_longtermBucket)) return result;
+        var flux = $@"
+from(bucket: {FluxLiteral.Quote(_longtermBucket)})
+  |> range(start: {ToFluxInstant(from)})
+  |> filter(fn: (r) => r._measurement == ""sfp"" and r._field == ""rx_power_dbm"")
+  |> max()
+";
+        await foreach (var record in QueryFluxAsync(flux, ct))
+            if (record.GetValueByKey("device_mac") is string mac && record.GetValueByKey("port_name") is string port && AsDoubleOrNull(record.GetValue()) is double v)
+                result[(NormalizeMac(mac), port)] = v;
+        return result;
+    }
+
     /// <summary>Device-level LAN Health fields from <c>device_health</c> (mesh uplink, PoE totals) per window: mean and last.</summary>
     public async Task<IReadOnlyList<(DateTime WindowStart, string DeviceMac, string Field, double? Mean, object? Last, double? First)>> QueryLanDeviceFieldsAsync(
         DateTime from, DateTime to, TimeSpan window, IReadOnlyList<string> fields, CancellationToken ct = default)

@@ -601,7 +601,9 @@ public sealed class LanHealthEngine
             .GroupBy(r => topology.Links.FirstOrDefault(l => l.Id == r.LinkId)?.Upstream.DeviceMac ?? "")
             .ToDictionary(g => g.Key, g => g.Sum(r => r.StpChanges ?? 0) / Math.Max(1, LanHealthReportBuilder.BaselineDays * 24));
         var report = LanHealthReportBuilder.Build(topology.Links, rows, baseline, topology.Exclusions, topology.ScoreFabricOnly,
-            (links, evidence) => SiteEvidenceFor(topology, links, evidence, text, hours, forwarding, informFailures, stpBaseline), text, from, to, attributed);
+            (links, evidence) => SiteEvidenceFor(topology, links, evidence, text, hours, forwarding, informFailures, stpBaseline), text, from, to, attributed,
+            // Optics reads the modules now: the live report only, since a stored past hour has no reading of its own.
+            await SfpAsync(topology, ct));
         AddTestSuggestions(report, topology, tests);
         foreach (var l in report.Links)
             l.ProbeTargetId = topology.TargetDevices.FirstOrDefault(kv => string.Equals(kv.Value, l.Link.Downstream.DeviceMac, StringComparison.OrdinalIgnoreCase)).Key;
@@ -619,6 +621,23 @@ public sealed class LanHealthEngine
     /// <summary>The hours a report computes live: the current one, and the last closed one until the tick stores it.</summary>
     internal static List<DateTime> LiveHoursFor(DateTime now, bool previousStored) =>
         previousStored ? [FloorHour(now)] : [FloorHour(now).AddHours(-1), FloorHour(now)];
+
+    private (DateTime At, IReadOnlyDictionary<(string DeviceMac, string Port), double> Best)? _sfpBest;
+
+    /// <summary>Each link's SFP reading now, with the module's best this week (that half refreshed hourly).</summary>
+    private async Task<Dictionary<string, LanHealthReportBuilder.SfpReading>> SfpAsync(Topology topology, CancellationToken ct)
+    {
+        if (_sfpBest is not { } cached || DateTime.UtcNow - cached.At > TimeSpan.FromHours(1))
+        {
+            try { _sfpBest = (DateTime.UtcNow, await _influx().QuerySfpRxBestAsync(DateTime.UtcNow.AddDays(-7), ct)); }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                _logger.LogDebug(ex, "LAN Health: SFP history unavailable for {Site}", _slug);
+                _sfpBest ??= (DateTime.UtcNow, new Dictionary<(string, string), double>());
+            }
+        }
+        return LanHealthReportBuilder.SfpReadings(topology.Links, topology.Devices, _sfpBest!.Value.Best);
+    }
 
     /// <summary>Rows for hours not yet stored, each computed live and cached for LiveCache.</summary>
     private async Task<List<LanHealthLinkHour>> LiveHoursAsync(Topology topology, IReadOnlyList<DateTime> hours, CancellationToken ct)

@@ -133,4 +133,20 @@ public class LanLinkBuilderTests
         LanHealthReportBuilder.Applies(access, X("port", "other")).Should().BeFalse();
         LanHealthReportBuilder.Applies(access, X("profile", "p1")).Should().BeFalse("the port has no profile");
     }
+
+    [Fact]
+    public void SfpReadings_TakeTheEndReceivingLessLight_WithItsWeekBest()
+    {
+        var devices = Site();
+        devices[0].PortTable!.Add(new SwitchPort { PortIdx = 9, SfpFound = true, SfpRxPower = -7.5, SfpTemperature = 61 });
+        devices[1].PortTable!.Add(new SwitchPort { PortIdx = 25, SfpFound = true, SfpRxPower = -11.2, SfpTemperature = 48 });
+        var fiber = new LinkRecord
+        {
+            Id = "fiber", Kind = LinkKind.FabricWired,
+            Upstream = new LinkEnd { DeviceMac = Gw, PortIdx = 9 }, Downstream = new LinkEnd { DeviceMac = Sw, PortIdx = 25 },
+        };
+        var best = new Dictionary<(string, string), double> { [(Sw, "25")] = -6.9 };
+        var r = LanHealthReportBuilder.SfpReadings([fiber, Build()[0]], devices, best);
+        r.Should().ContainSingle().Which.Value.Should().Be(new LanHealthReportBuilder.SfpReading(-11.2, -6.9, 48));
+    }
 }
