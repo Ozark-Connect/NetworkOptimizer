@@ -67,7 +67,7 @@ else
                                 {
                                     <span class="lan-health-chip">@chip</span>
                                 }
-                                <span class="lan-health-pts">@(f.Points > 0 ? $"-{Math.Round(f.Points):0} pts" : "0 pts")</span>
+                                <span class="lan-health-pts">@(f.ScoreImpact >= 0.05 ? $"-{(f.ScoreImpact < 1 ? f.ScoreImpact.ToString("0.#") : Math.Round(f.ScoreImpact).ToString("0"))} pts" : "0 pts")</span>
                                 @if (!string.IsNullOrEmpty(f.LinkId))
                                 {
                                     <button class="btn btn-secondary btn-sm lan-health-view" @onclick="() => OpenLink(f.LinkId)">View Link</button>

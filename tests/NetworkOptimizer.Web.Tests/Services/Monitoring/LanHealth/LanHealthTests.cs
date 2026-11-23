@@ -347,6 +347,31 @@ public class LanHealthTests
         LanHealthReportBuilder.CleanDaysBefore(window, baseline).Should().Be(5);
     }
     [Fact]
+    public void Detectors_SkipWiredChecksOnMeshLinks()
+    {
+        var link = new LinkRecord
+        {
+            Id = "m", Kind = LinkKind.FabricMeshMlo, SpeedMbps = 6200,
+            Upstream = new LinkEnd { DeviceMac = SwitchMac, DeviceName = "AP 2", DeviceType = DeviceType.AccessPoint },
+            Downstream = new LinkEnd { DeviceMac = ApMac, DeviceName = "AP 1", DeviceType = DeviceType.AccessPoint },
+        };
+        var ev = new LinkEvidence { Link = link, UsualSpeedMbps = 6700, From = DateTime.UtcNow.AddHours(-48), To = DateTime.UtcNow };
+        LanHealthDetectors.Run(ev, [], FindingText.Utc).Should().NotContain(f => f.Detector == Detectors.SpeedDownshift);
+    }
+
+    [Fact]
+    public void HiddenSwitch_SkipsAServerPort()
+    {
+        var link = new LinkRecord
+        {
+            Id = "a", Kind = LinkKind.Access, ServerOnPort = true,
+            Upstream = new LinkEnd { DeviceMac = SwitchMac, DeviceName = "Switch A", DeviceType = DeviceType.Switch, PortIdx = 10 },
+            Downstream = new LinkEnd { DeviceName = "Hypervisor", IsUniFi = false },
+            UpstreamPort = new PortConfig { MacTableCount = 7 },
+        };
+        LanHealthDetectors.HiddenSwitch(new LinkEvidence { Link = link }).Should().BeNull();
+    }
+    [Fact]
     public void Scorer_CombinesFindingsAndWeighsFabricByClients()
     {
         LanHealthScorer.LinkScore([new LinkFinding { Points = 20 }, new LinkFinding { Points = 20 }, new LinkFinding { Points = 0 }]).Should().Be(64);

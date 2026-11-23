@@ -263,6 +263,8 @@ public sealed class LinkRecord
     public int? UplinkDepth { get; init; }
     /// <summary>The device on the neighbouring port the swap step names, when that port is in use.</summary>
     public string? SwapNeighbor { get; set; }
+    /// <summary>An access port whose client the audit's classification calls a server or NAS (VMs share its port).</summary>
+    public bool ServerOnPort { get; set; }
     /// <summary>The end-device client MAC on an access port, when known.</summary>
     public string? ClientMac { get; init; }
 
@@ -318,6 +320,8 @@ public sealed class LinkFinding
     public List<string> Chips { get; init; } = [];
     /// <summary>Points off the link score; 0 for load, config and capacity findings.</summary>
     public double Points { get; set; }
+    /// <summary>What this finding takes off the LAN Health Score: the score's rise if it were gone.</summary>
+    public double ScoreImpact { get; set; }
     public DateTime? Onset { get; init; }
     /// <summary>The status pill this finding sets on the link (lanh-21), when it sets one.</summary>
     public LinkStatus? Status { get; init; }

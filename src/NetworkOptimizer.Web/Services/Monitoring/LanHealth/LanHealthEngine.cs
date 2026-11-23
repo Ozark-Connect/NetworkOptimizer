@@ -17,7 +17,7 @@ namespace NetworkOptimizer.Web.Services.Monitoring.LanHealth;
 public sealed class LanHealthEngine
 {
     /// <summary>Bump when the roll-up changes; older rows are recomputed on the next backfill pass.</summary>
-    public const int Version = 4;
+    public const int Version = 5;
 
     internal static readonly TimeSpan RunEvery = TimeSpan.FromMinutes(15);
     internal static readonly TimeSpan Settle = TimeSpan.FromMinutes(5);
@@ -175,10 +175,40 @@ public sealed class LanHealthEngine
         foreach (var d in connection.CachedDevices ?? [])
             if (!string.IsNullOrEmpty(d.Mac)) roles[LanLinkBuilder.Mac(d.Mac)] = d.Type;
 
+        // Names through the app's one naming path (ClientNames), with UniFi's display names and, for a
+        // client that is offline now (a sleeping PC), its name from the console's client history.
+        IReadOnlyDictionary<string, string> displayNames = new Dictionary<string, string>();
+        List<UniFiClientDetailResponse> history = [];
+        try
+        {
+            displayNames = await NetworkOptimizer.UniFi.ClientDisplayNameCache.GetAsync(client);
+            history = await client.GetClientHistoryAsync((int)Backfill.TotalHours, ct);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogDebug(ex, "LAN Health: client names read failed for {Site}", _slug);
+        }
         var portClients = clients.Select(c => new LanLinkBuilder.PortClient(LanLinkBuilder.Mac(c.Mac),
-            !string.IsNullOrWhiteSpace(c.Name) ? c.Name : !string.IsNullOrWhiteSpace(c.Hostname) ? c.Hostname : LanLinkBuilder.Mac(c.Mac),
+            NetworkOptimizer.UniFi.ClientNames.Choose(displayNames.GetValueOrDefault(c.Mac.ToLowerInvariant()), c.Name, c.UnifiDeviceInfoFromUcore?.Name,
+                c.Hostname, c.IsUniFiDevice) ?? LanLinkBuilder.Mac(c.Mac),
             c.SwMac, c.SwPort, c.ApMac, c.IsWired)).ToList();
-        var links = LanLinkBuilder.Build(devices, portClients, roles);
+        var offlineNames = history.Where(h => !string.IsNullOrEmpty(h.Mac))
+            .GroupBy(h => LanLinkBuilder.Mac(h.Mac))
+            .Select(g => (g.Key, Name: NetworkOptimizer.UniFi.ClientNames.For(g.First())))
+            .Where(x => x.Name != null).ToDictionary(x => x.Key, x => x.Name!);
+        var links = LanLinkBuilder.Build(devices, portClients, roles, offlineNames);
+
+        // A server or NAS (a hypervisor's VMs) puts many MACs on one port by design: the audit's own
+        // device classification marks those ports, so the unmanaged-switch check leaves them alone.
+        var detection = new NetworkOptimizer.Audit.Services.DeviceTypeDetectionService();
+        var historyByMac = history.Where(h => !string.IsNullOrEmpty(h.Mac)).GroupBy(h => LanLinkBuilder.Mac(h.Mac)).ToDictionary(g => g.Key, g => g.First());
+        bool IsServer(NetworkOptimizer.Core.Enums.ClientDeviceCategory c) => c is NetworkOptimizer.Core.Enums.ClientDeviceCategory.Server or NetworkOptimizer.Core.Enums.ClientDeviceCategory.NAS;
+        foreach (var l in links.Where(l => l.Kind == LinkKind.Access))
+        {
+            var onPort = clients.Where(c => c.IsWired && c.SwPort == l.Upstream.PortIdx && LanLinkBuilder.Mac(c.SwMac) == l.Upstream.DeviceMac);
+            l.ServerOnPort = onPort.Any(c => IsServer(detection.DetectDeviceType(c).Category))
+                || (l.ClientMac is { } cm && historyByMac.TryGetValue(cm, out var h) && IsServer(detection.DetectDeviceType(h).Category));
+        }
 
         await using var db = await _db(ct);
         var nameMap = (await db.InterfaceNameMaps.AsNoTracking().Where(m => m.PortNumber != null)

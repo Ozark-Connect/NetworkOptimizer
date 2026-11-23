@@ -106,6 +106,25 @@ public static class LanHealthReportBuilder
         return days >= 1 ? days : null;
     }
 
+    /// <summary>
+    /// Each scored finding's cost to the LAN Health Score: the score with that one finding removed,
+    /// less the score now. Findings combine multiplicatively, so the costs do not sum to the total.
+    /// </summary>
+    internal static void ScoreImpacts(LanHealthReport report)
+    {
+        if (report.Score is not double now) return;
+        foreach (var l in report.Links)
+        {
+            var saved = l.Score;
+            foreach (var f in l.Findings.Where(f => f.Points > 0))
+            {
+                l.Score = l.Exclusion == ExclusionLevel.ExcludeFromScore ? 100 : LanHealthScorer.LinkScore(l.Findings.Where(o => !ReferenceEquals(o, f)));
+                f.ScoreImpact = Math.Max(0, (LanHealthScorer.SiteScore(report.Links) ?? now) - now);
+            }
+            l.Score = saved;
+        }
+    }
+
     /// <summary>A gap this long without a drop or loss burst ends a run of trouble.</summary>
     internal static readonly TimeSpan RunGap = TimeSpan.FromDays(3);
 
@@ -201,6 +220,10 @@ public static class LanHealthReportBuilder
         report.Findings.InsertRange(0, report.Links.Where(l => l.Exclusion != ExclusionLevel.ExcludeFromScore).SelectMany(l => l.Findings));
         report.Findings.Sort((a, b) => b.Points != a.Points ? b.Points.CompareTo(a.Points) : b.Severity.CompareTo(a.Severity));
         report.Score = LanHealthScorer.SiteScore(report.Links);
+        ScoreImpacts(report);
+        // Biggest cost to the LAN Health Score first: the order matches the numbers shown.
+        report.Findings.Sort((a, b) => b.ScoreImpact != a.ScoreImpact ? b.ScoreImpact.CompareTo(a.ScoreImpact)
+            : b.Points != a.Points ? b.Points.CompareTo(a.Points) : b.Severity.CompareTo(a.Severity));
         report.FabricLinks = report.Links.Count(l => l.Link.IsFabric);
         report.AccessPorts = report.Links.Count(l => !l.Link.IsFabric);
         report.Incidents = (int)report.Links.Sum(l => l.Incidents.Where(i => !i.IsExplained && i.Kind != IncidentKind.DiscardBurst).Sum(i => i.Count));

@@ -41,21 +41,27 @@ public static class LanHealthDetectors
         var findings = new List<LinkFinding>();
         void Add(LinkFinding? f) { if (f != null) findings.Add(f); }
         Add(LinkDrops(ev, incidents, text));
-        Add(SpeedDownshift(ev, text));
-        Add(DuplexMismatch(ev));
-        Add(StableLinkErrors(ev, incidents, text));
+        // A mesh backhaul's rate is a radio's PHY rate that moves all the time, with no cable, duplex,
+        // port counters or PoE: the wired checks would read normal radio behavior as faults. Mesh() covers it.
+        var wired = !ev.Link.IsMesh;
+        if (wired)
+        {
+            Add(SpeedDownshift(ev, text));
+            Add(DuplexMismatch(ev));
+            Add(StableLinkErrors(ev, incidents, text));
+            Add(Discards(ev, incidents));
+            Add(Microbursts(ev));
+            Add(Optics(ev));
+            Add(BelowCapability(ev));
+            Add(PoeCycling(ev, incidents));
+            Add(SpeedSpecificFlapping(ev, incidents));
+            Add(UnusualUtilization(ev, text));
+        }
         Add(LossWithoutEvidence(ev, incidents, text));
-        Add(Discards(ev, incidents));
-        Add(Microbursts(ev));
         Add(Storm(ev, text));
-        Add(Optics(ev));
         foreach (var f in Mesh(ev)) Add(f);
-        Add(UnusualUtilization(ev, text));
-        Add(BelowCapability(ev));
         Add(AccessDegraded(ev));
         Add(HiddenSwitch(ev));
-        Add(PoeCycling(ev, incidents));
-        Add(SpeedSpecificFlapping(ev, incidents));
         Add(SpeedTestBelowNorm(ev));
         foreach (var f in findings) if (!Detectors.Scores(f.Detector)) f.Points = 0;
         return findings;
@@ -504,7 +510,7 @@ public static class LanHealthDetectors
     // ---- 17 Hidden unmanaged switch or hub ----
     internal static LinkFinding? HiddenSwitch(LinkEvidence ev)
     {
-        if (ev.Link.Kind != LinkKind.Access) return null;
+        if (ev.Link.Kind != LinkKind.Access || ev.Link.ServerOnPort) return null;
         var macs = ev.Link.UpstreamPort.MacTableCount ?? 0;
         var half = ev.Link.FullDuplex == false;
         if (macs < 4 && !(half && macs >= 2)) return null;

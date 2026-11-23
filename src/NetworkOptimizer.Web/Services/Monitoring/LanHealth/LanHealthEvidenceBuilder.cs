@@ -13,6 +13,9 @@ namespace NetworkOptimizer.Web.Services.Monitoring.LanHealth;
 /// </summary>
 public static class LanHealthEvidenceBuilder
 {
+    /// <summary>An access port down at least this long in an hour is a client asleep or off, not a flap.</summary>
+    internal static readonly TimeSpan AsleepAfter = TimeSpan.FromMinutes(2);
+
     /// <summary>interface_counters fields the hourly roll-up reads. Numeric only: min/max reject booleans.</summary>
     public static readonly string[] PortFields =
     [
@@ -85,6 +88,10 @@ public static class LanHealthEvidenceBuilder
         public double? Min(string field) => Pick(field, r => r.Min, Math.Min);
 
         public double? Mean(string field) => Pick(field, r => r.Mean, Math.Max);
+
+        public double? First(string field) => Pick(field, r => r.First, Math.Max);
+
+        public double? Last(string field) => Pick(field, r => r.Last, Math.Max);
 
         public bool Changed(string field) => Rows.Any(r => r.Field == field && r.First != null && r.Last != null && r.First != r.Last);
 
@@ -230,7 +237,9 @@ public static class LanHealthEvidenceBuilder
         if (up.Has("oper_status") || down.Has("oper_status"))
         {
             observers.Add(new(LinkSource.SnmpOperStatus, hour, true, false));
-            if ((up.Max("oper_status") ?? 1) >= 2 || (down.Max("oper_status") ?? 1) >= 2)
+            // A relink needs both states in the hour: a port down the whole hour is off, not flapping.
+            static bool Flipped(EndSeries s) => (s.Min("oper_status") ?? 1) < 2 && (s.Max("oper_status") ?? 1) >= 2;
+            if (Flipped(up) || Flipped(down))
                 events.Add(new LinkEvent(from, to, LinkEventType.Relink, LinkSource.SnmpOperStatus, LinkSide.Upstream));
         }
 
@@ -266,6 +275,12 @@ public static class LanHealthEvidenceBuilder
         var meanIn = up.Mean("rate_in_bps") ?? down.Mean("rate_out_bps");
         var meanOut = up.Mean("rate_out_bps") ?? down.Mean("rate_in_bps");
         if (link.Kind == LinkKind.Access && (meanIn ?? 0) < 2_000 && (meanOut ?? 0) < 20_000)
+            explain.Add(new ExplainWindow(from, to, link.Upstream.DeviceMac, ExplainReason.DeviceAsleep));
+        // Down for minutes is a client asleep or powered off; a flap is down for seconds. ifOperStatus is
+        // 1 up / 2 down, so the hour's mean less 1 is the share of it spent down.
+        if (link.Kind == LinkKind.Access && up.Has("oper_status")
+            && ((up.Mean("oper_status") ?? 1) - 1 >= AsleepAfter.TotalSeconds / 3600
+                || (up.First("oper_status") ?? 1) >= 2 || (up.Last("oper_status") ?? 1) >= 2))
             explain.Add(new ExplainWindow(from, to, link.Upstream.DeviceMac, ExplainReason.DeviceAsleep));
         // A 10/100 relink on an access port is the sleep signature too.
         if (link.Kind == LinkKind.Access && speedMin is <= 100 && speedMax is > 100)

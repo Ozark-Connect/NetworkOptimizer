@@ -21,7 +21,8 @@ public static class LanLinkBuilder
     public static List<LinkRecord> Build(
         IReadOnlyList<UniFiDeviceResponse> devices,
         IReadOnlyList<PortClient> clients,
-        IReadOnlyDictionary<string, DeviceType>? roles = null)
+        IReadOnlyDictionary<string, DeviceType>? roles = null,
+        IReadOnlyDictionary<string, string>? offlineNames = null)
     {
         var byMac = devices.Where(d => d.Adopted && !string.IsNullOrEmpty(d.Mac))
             .GroupBy(d => Mac(d.Mac)).ToDictionary(g => g.Key, g => g.First());
@@ -143,7 +144,10 @@ public static class LanLinkBuilder
                     Downstream = new LinkEnd
                     {
                         DeviceMac = clientMac,
-                        DeviceName = client?.Name is { Length: > 0 } n ? n : occupants.Count > 1 ? $"{occupants.Count} clients" : clientMac.Length > 0 ? clientMac : PortLabel(port),
+                        DeviceName = client?.Name is { Length: > 0 } n ? n
+                            : occupants.Count > 1 ? $"{occupants.Count} clients"
+                            : clientMac.Length > 0 ? offlineNames?.GetValueOrDefault(clientMac) ?? clientMac
+                            : PortLabel(port),
                         DeviceType = DeviceType.Unknown,
                         IsUniFi = false,
                     },
