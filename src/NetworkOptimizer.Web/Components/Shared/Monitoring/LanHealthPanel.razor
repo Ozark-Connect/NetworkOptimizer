@@ -157,7 +157,7 @@ else
                                 <tr class="lan-health-row @(l.Exclusion == ExclusionLevel.ExcludeFromScore ? "lan-health-excluded" : "")" @onclick="() => OpenLink(l.Link.Id)">
                                     <td><div>@l.Link.Upstream.DeviceName @l.Link.Upstream.Label</div><div class="lan-health-sub">to @l.Link.Downstream.DeviceName</div></td>
                                     <td>@KindLabel(l.Link.Kind)</td>
-                                    <td><div>@SpeedLabel(l.Link)</div>@if (l.Link.Forced) {<div class="lan-health-sub">forced</div>}</td>
+                                    <td><div>@SpeedLabel(l.Link)</div>@if (l.Link.Forced) {<div class="lan-health-sub">Forced</div>}</td>
                                     <td class="@ScoreClass(l.Score)">@FormatScore(l.Score)</td>
                                     <td><div>@l.Drops</div>@if (l.DropsExplained > 0) {<div class="lan-health-sub">+@l.DropsExplained explained</div>}</td>
                                     <td>@ErrorsCell(l)</td>
@@ -468,7 +468,7 @@ else
                 <div class="monitoring-stat-card">
                     <div class="stat-value lan-health-tile-text">@TimeFormatHelper.FormatLocalDateTime(on, DisplayTime.Zone, DisplayTime.Format)</div>
                     <div class="stat-label">Unhealthy Since</div>
-                    @if (l.CleanDaysBefore is int days) {<div class="lan-health-sub">none in the @days days before</div>}
+                    @if (l.CleanDaysBefore is int days) {<div class="lan-health-sub">None in the @days days before</div>}
                 </div>
             }
             else if (lastIssue is DateTime le)
@@ -672,7 +672,7 @@ else
 
     /// <summary>lanh-34: "{caught} of {total}", "0 seen", or not reported for a source this port does not keep.</summary>
     private static string CoverageValue(SourceCoverage c) =>
-        !c.Observing ? "not reported" : c.Total > 0 ? $"Saw {c.Caught} of {c.Total}" : "0 seen";
+        !c.Observing ? "Not reported" : c.Total > 0 ? $"Saw {c.Caught} of {c.Total}" : "0 seen";
 
     /// <summary>lanh-36.</summary>
     private static string EventLabel(LinkIncident i) => i.Kind switch
