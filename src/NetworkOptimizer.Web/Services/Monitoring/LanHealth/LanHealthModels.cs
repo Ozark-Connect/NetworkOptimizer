@@ -104,6 +104,8 @@ public enum ExplainReason
     DeviceProvisioning,
     /// <summary>The UniFi Network app was upgrading (Change Control's upgrade row): informs answer "Server Busy".</summary>
     NetworkAppUpgrade,
+    /// <summary>A rollout step cut the device off from the console without touching its own links: explains inform failures only.</summary>
+    ConsoleCutOff,
 }
 
 /// <summary>A span that explains link events on the devices it covers.</summary>

@@ -17,7 +17,7 @@ namespace NetworkOptimizer.Web.Services.Monitoring.LanHealth;
 public sealed class LanHealthEngine
 {
     /// <summary>Bump when the roll-up changes; older rows are recomputed on the next backfill pass.</summary>
-    public const int Version = 7;
+    public const int Version = 8;
 
     internal static readonly TimeSpan RunEvery = TimeSpan.FromMinutes(15);
     internal static readonly TimeSpan Settle = TimeSpan.FromMinutes(5);
@@ -60,6 +60,9 @@ public sealed class LanHealthEngine
 
     /// <summary>The notification clock and format, for text with no viewer (alerts).</summary>
     public NetworkOptimizer.Alerts.Interfaces.INotificationTimeZoneResolver? NotificationClock { get; set; }
+
+    /// <summary>Firmware Rollout's console locator, so a step on the console's side of the path explains inform failures.</summary>
+    public Firmware.IRolloutObserverLocator? ConsoleLocator { get; set; }
 
     /// <summary>The site's devices, clients and links as of the last console read.</summary>
     public sealed class Topology
@@ -370,12 +373,37 @@ public sealed class LanHealthEngine
             var steps = await db.FirmwareRolloutSteps.AsNoTracking()
                 .Where(s => s.WentDownAt != null && s.WentDownAt < to && (s.BackAt == null || s.BackAt >= from.AddMinutes(-10)))
                 .ToListAsync(ct);
+            // Firmware Rollout's own dark set: a step on the path between a device and the console (a
+            // self-hosted console behind its own switch) cuts the device off without dropping its links.
+            List<Firmware.RolloutDeviceObservation>? observed = null;
+            Firmware.RolloutObserverPositions? positions = null;
+            if (steps.Count > 0 && ConsoleLocator != null)
+            {
+                observed = topology.Devices.Where(d => !string.IsNullOrEmpty(d.Mac)).Select(d => new Firmware.RolloutDeviceObservation
+                {
+                    Mac = LanLinkBuilder.Mac(d.Mac),
+                    UplinkMac = d.Uplink?.UplinkMac is { Length: > 0 } u ? LanLinkBuilder.Mac(u) : null,
+                    LastUplinkMac = d.LastUplink?.UplinkMac is { Length: > 0 } lu ? LanLinkBuilder.Mac(lu) : null,
+                    WirelessUplink = string.Equals(d.Uplink?.Type, "wireless", StringComparison.OrdinalIgnoreCase),
+                    IsGateway = d.DeviceType == DeviceType.Gateway,
+                }).ToList();
+                try { positions = await ConsoleLocator.LocateAsync(observed, ct); }
+                catch (Exception ex) when (ex is not OperationCanceledException) { _logger.LogDebug(ex, "LAN Health: console locate failed for {Site}", _slug); }
+            }
             foreach (var s in steps)
             {
                 var start = s.WentDownAt!.Value.AddMinutes(-2);
                 var end = (s.BackAt ?? to).AddMinutes(5);
-                foreach (var mac in Below(LanLinkBuilder.Mac(s.DeviceMac), topology))
+                var stepMac = LanLinkBuilder.Mac(s.DeviceMac);
+                var below = Below(stepMac, topology).ToHashSet();
+                foreach (var mac in below)
                     windows.Add(new ExplainWindow(start, end, mac, ExplainReason.FirmwareRolloutWave, s.ToVersion));
+                if (observed != null && positions != null)
+                {
+                    var isAp = topology.Devices.Any(d => LanLinkBuilder.Mac(d.Mac) == stepMac && d.DeviceType == DeviceType.AccessPoint);
+                    foreach (var mac in Firmware.RolloutDarkSet.DevicesDarkenedBy(stepMac, !isAp, observed, positions).Where(m => !below.Contains(m)))
+                        windows.Add(new ExplainWindow(start, end, mac, ExplainReason.ConsoleCutOff, s.ToVersion));
+                }
             }
         }
         catch (Exception ex) when (ex is not OperationCanceledException)

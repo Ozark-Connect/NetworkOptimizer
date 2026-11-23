@@ -76,7 +76,7 @@ public class SiteSwitchService
     private static readonly Dictionary<string, string[]> SiteBoundByPath = new(StringComparer.OrdinalIgnoreCase)
     {
         // ?investigate= is an action: carried over, it re-ran the old site's search on the new one.
-        ["/monitoring"] = ["target", "device", "client", "sfp", "modem", "cm", "ont", "starlink", "mifip", "investigate"],
+        ["/monitoring"] = ["target", "device", "client", "sfp", "modem", "cm", "ont", "starlink", "mifip", "investigate", "link"],
         // ?run= is an action, not a view: a switch must not run the linked traceroute again on the new site.
         ["/network-tools"] = ["from", "run"],
         ["/wifi-optimizer"] = ["client", "ap", "edge"],

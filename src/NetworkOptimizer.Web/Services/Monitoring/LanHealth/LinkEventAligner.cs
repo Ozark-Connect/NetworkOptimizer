@@ -152,7 +152,7 @@ public static class LinkEventAligner
         {
             foreach (var w in explain)
             {
-                if (!linkDeviceMacs.Contains(w.DeviceMac)) continue;
+                if (w.Reason == ExplainReason.ConsoleCutOff || !linkDeviceMacs.Contains(w.DeviceMac)) continue;
                 var covers = w.Reason is ExplainReason.PortProfileChanged or ExplainReason.ManualLinkReset
                     ? i.Start >= w.Start && i.Start <= w.End + AdminChangeWindow
                     : w.Covers(i.Start, i.End);

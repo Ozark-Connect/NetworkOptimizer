@@ -35,6 +35,13 @@ public sealed class LanHealthRegistry : ISiteScopedRegistry
             () => _sp.GetRequiredService<SiteConnectionRegistry>().GetFor(slug),
             loggers.CreateLogger($"LanHealth[{slug}]"));
         engine.NotificationClock = _sp.GetService<NetworkOptimizer.Alerts.Interfaces.INotificationTimeZoneResolver>();
+        try
+        {
+            // Built as Firmware Rollout's registry builds it for the site.
+            var commands = ActivatorUtilities.CreateInstance<Firmware.FirmwareCommandClient>(_sp, slug);
+            engine.ConsoleLocator = ActivatorUtilities.CreateInstance<Firmware.RolloutObserverLocator>(_sp, slug, commands);
+        }
+        catch (Exception) { /* without it, only devices below a step are explained */ }
         var alerts = new LanHealthAlertEvaluator(_sp.GetService<NetworkOptimizer.Alerts.Events.IAlertEventBus>(),
             loggers.CreateLogger($"LanHealthAlerts[{slug}]"), slug, _sp.GetService<IServiceScopeFactory>());
         var suppression = _sp.GetService<Firmware.RolloutSuppressionRegistry>();
