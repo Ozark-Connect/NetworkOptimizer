@@ -90,7 +90,7 @@ else
             </div>
         </div>
         <div class="card-body">
-            @{ var links = FilteredLinks(r).ToList(); }
+            @{ var links = FilteredLinks(r).ToList(); var shown = _showAllLinks ? links : links.Take(LinksPreview).ToList(); }
             @if (links.Count == 0)
             {
                 <div class="empty-state"><p>@(r.Ready ? "No links." : "LAN Health is collecting its first hour of data.")</p></div>
@@ -103,7 +103,7 @@ else
                             <tr><th>Link</th><th>Kind</th><th>Speed</th><th>Score</th><th>Drops (@RangeLabel)</th><th>Errors</th><th>Probe Loss</th><th>Status</th></tr>
                         </thead>
                         <tbody>
-                            @foreach (var l in links)
+                            @foreach (var l in shown)
                             {
                                 <tr class="lan-health-row @(l.Exclusion == ExclusionLevel.ExcludeFromScore ? "lan-health-excluded" : "")" @onclick="() => OpenLink(l.Link.Id)">
                                     <td><div>@l.Link.Upstream.DeviceName @l.Link.Upstream.Label</div><div class="lan-health-sub">to @l.Link.Downstream.DeviceName</div></td>
@@ -120,7 +120,7 @@ else
                     </table>
                 </div>
                 <div class="lan-health-cards">
-                    @foreach (var l in links)
+                    @foreach (var l in shown)
                     {
                         <div class="lan-health-link-card" @onclick="() => OpenLink(l.Link.Id)">
                             <div class="lan-health-link-card-head">
@@ -136,6 +136,14 @@ else
                         </div>
                     }
                 </div>
+                @if (links.Count > LinksPreview)
+                {
+                    <div class="lan-health-more">
+                        <button class="btn btn-secondary btn-sm" @onclick="() => _showAllLinks = !_showAllLinks">
+                            @(_showAllLinks ? "Show fewer" : $"Show all {links.Count} links")
+                        </button>
+                    </div>
+                }
             }
         </div>
     </div>
@@ -153,6 +161,9 @@ else
     private LinkHealth? _link;
     private int _hours = 48;
     private string _filter = "all";
+    // Worst first: the first ten are the ones worth a look; the rest sit behind Show all.
+    private const int LinksPreview = 10;
+    private bool _showAllLinks;
     private System.Threading.Timer? _timer;
     private IJSObjectReference? _charts;
     private bool _historyDirty = true;
