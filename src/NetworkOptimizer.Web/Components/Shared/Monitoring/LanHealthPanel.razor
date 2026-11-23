@@ -90,7 +90,7 @@ else
             </div>
         </div>
         <div class="card-body">
-            @{ var links = FilteredLinks(r).ToList(); var shown = _showAllLinks ? links : links.Take(LinksPreview).ToList(); }
+            @{ var links = FilteredLinks(r).ToList(); var shown = links.Take(_linksShown).ToList(); }
             @if (links.Count == 0)
             {
                 <div class="empty-state"><p>@(r.Ready ? "No links." : "LAN Health is collecting its first hour of data.")</p></div>
@@ -136,12 +136,10 @@ else
                         </div>
                     }
                 </div>
-                @if (links.Count > LinksPreview)
+                @if (links.Count > shown.Count)
                 {
                     <div class="lan-health-more">
-                        <button class="btn btn-secondary btn-sm" @onclick="() => _showAllLinks = !_showAllLinks">
-                            @(_showAllLinks ? "Show fewer" : $"Show all {links.Count} links")
-                        </button>
+                        <button class="btn btn-secondary btn-sm" @onclick="() => _linksShown += LinksPage">Show more</button>
                     </div>
                 }
             }
@@ -161,9 +159,9 @@ else
     private LinkHealth? _link;
     private int _hours = 48;
     private string _filter = "all";
-    // Worst first: the first ten are the ones worth a look; the rest sit behind Show all.
-    private const int LinksPreview = 10;
-    private bool _showAllLinks;
+    // Worst first: ten at a time, Show more adds the next ten.
+    private const int LinksPage = 10;
+    private int _linksShown = LinksPage;
     private System.Threading.Timer? _timer;
     private IJSObjectReference? _charts;
     private bool _historyDirty = true;
