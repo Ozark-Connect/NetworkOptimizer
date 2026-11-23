@@ -141,6 +141,22 @@ public sealed class LanHealthEngine
         }
     }
 
+    private async Task<bool> ConfigChangedSinceTopologyAsync(CancellationToken ct)
+    {
+        if (_topology == null) return false;
+        try
+        {
+            await using var db = await _db(ct);
+            var latest = await db.ConfigChanges.AsNoTracking().OrderByDescending(c => c.OccurredAt).Select(c => (DateTime?)c.OccurredAt).FirstOrDefaultAsync(ct);
+            return latest is DateTime l && DateTime.SpecifyKind(l, DateTimeKind.Utc) > _topologyAt;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogDebug(ex, "LAN Health: change check failed for {Site}", _slug);
+            return false;
+        }
+    }
+
     /// <summary>Reads the console and the site database for the current topology, cached briefly.</summary>
     public async Task<Topology?> GetTopologyAsync(CancellationToken ct, bool force = false)
     {
@@ -513,10 +529,14 @@ public sealed class LanHealthEngine
     public async Task<LanHealthReport> GetReportAsync(int hours, TimeZoneInfo zone, DisplayFormat format, CancellationToken ct)
     {
         var key = $"{hours}|{zone.Id}|{format}";
+        // A Change Control change since the topology was read drops both caches, so a fixed setting
+        // clears its finding on the next reload instead of after the 2-minute console cache.
+        var changed = await ConfigChangedSinceTopologyAsync(ct);
+        if (changed) lock (_reports) _reports.Clear();
         lock (_reports)
             if (_reports.TryGetValue(key, out var cached) && DateTime.UtcNow - cached.At < LiveCache) return cached.Report;
 
-        var topology = await GetTopologyAsync(ct);
+        var topology = await GetTopologyAsync(ct, force: changed);
         var now = DateTime.UtcNow;
         var from = FloorHour(now).AddHours(-hours + 1);
         var to = FloorHour(now).AddHours(1);
