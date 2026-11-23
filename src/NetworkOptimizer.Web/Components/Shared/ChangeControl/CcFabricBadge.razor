@@ -1,0 +1,16 @@
+@using NetworkOptimizer.Web.Services.ChangeControl
+
+@* An object a Site Manager Fabric's Orchestration Engine manages (cloud_template). Tooltips are UniFi's own wording. *@
+@if (State != null)
+{
+    <span class="status-badge status-info" data-tooltip="@Tooltip">Fabrics</span>
+}
+
+@code {
+    /// <summary>"locked", "overridable", or null (no badge).</summary>
+    [Parameter] public string? State { get; set; }
+
+    private string Tooltip => State == ConfigCollections.FabricOverridableState
+        ? "Managed by the Orchestration Engine, but can be overridden locally."
+        : "Managed by the Orchestration Engine and cannot be changed locally.";
+}

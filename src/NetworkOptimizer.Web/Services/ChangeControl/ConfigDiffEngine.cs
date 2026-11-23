@@ -23,6 +23,9 @@ public sealed class ObjectDiff
     /// <summary>The NO feature that owns the object, or null.</summary>
     public string? OwnedBy { get; set; }
 
+    /// <summary>A Site Manager Fabric manages the object: "locked" or "overridable" (<see cref="ConfigCollections.FabricState"/>).</summary>
+    public string? Fabric { get; set; }
+
     /// <summary>UniFi generated it (predefined or derived); never written.</summary>
     public bool Generated { get; set; }
 
@@ -216,6 +219,7 @@ public static partial class ConfigDiffEngine
             Before = before,
             After = after,
             OwnedBy = owned,
+            Fabric = ConfigCollections.FabricState(after ?? before),
             Generated = generated,
             Churn = def.Churn,
         };

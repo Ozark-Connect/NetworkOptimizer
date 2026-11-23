@@ -43,6 +43,9 @@ public sealed class PlanOperation
     public string? ObjectId { get; set; }
     public string ObjectName { get; set; } = "";
 
+    /// <summary>A Site Manager Fabric manages the object it writes: "overridable" (a locked one is never written); null otherwise.</summary>
+    public string? Fabric { get; set; }
+
     /// <summary>Request body, with references already mapped to live IDs or <c>@ref:key</c> tokens for objects this plan creates. Can hold secrets.</summary>
     public JsonNode? Body { get; set; }
 

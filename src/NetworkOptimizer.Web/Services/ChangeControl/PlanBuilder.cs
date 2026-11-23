@@ -403,6 +403,7 @@ public static class PlanBuilder
                 Action = PlanAction.Delete,
                 ObjectId = ConfigState.IdOf(live!),
                 ObjectName = name,
+                Fabric = ConfigCollections.FabricState(live),
                 Order = def.Order,
                 ChangeText = DescribeObject(def, live!, liveCtx),
                 Tier = PlanTiers.Acknowledge,
@@ -540,8 +541,8 @@ public static class PlanBuilder
         if (diff == null) return null;
         diff = DropKeptSecrets(diff);
         if (diff.Fields.Count == 0) return null;
-        // The console refuses a local edit to a locked Fabric object; Site Manager is where it changes.
-        if (options.SameSite && ConfigCollections.FabricLocked(live))
+        // The console refuses a local edit to a locked Fabric object, whatever the source; Site Manager is where it changes.
+        if (ConfigCollections.FabricLocked(live))
         {
             AddNoteOnce(doc, $"{def.Noun} {name}: centrally managed by the Fabric and cannot be edited locally. Change it in Site Manager.");
             return null;
@@ -554,6 +555,7 @@ public static class PlanBuilder
             Action = PlanAction.Update,
             ObjectId = ConfigState.IdOf(live),
             ObjectName = name,
+            Fabric = ConfigCollections.FabricState(live),
             Order = def.Order,
             NeedsGateway = write.NeedsGateway,
             DevicePhase = def.Key == "device",
@@ -851,6 +853,7 @@ public static class PlanBuilder
             Before = diff.Before,
             After = diff.After,
             OwnedBy = diff.OwnedBy,
+            Fabric = diff.Fabric,
             Generated = diff.Generated,
             ManagementPath = diff.ManagementPath,
             WanPath = diff.WanPath,

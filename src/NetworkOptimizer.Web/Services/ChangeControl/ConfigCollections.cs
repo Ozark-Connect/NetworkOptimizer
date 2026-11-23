@@ -382,6 +382,16 @@ public static class ConfigCollections
     public static bool FabricLocked(JsonObject obj) =>
         FabricTemplate(obj) is { } t && !(t["allow_overrides"] is JsonValue v && v.TryGetValue<bool>(out var allowed) && allowed);
 
+    /// <summary>Stored Fabric state of a locked object (<see cref="FabricState"/>).</summary>
+    public const string FabricLockedState = "locked";
+
+    /// <summary>Stored Fabric state of an object whose template allows local overrides.</summary>
+    public const string FabricOverridableState = "overridable";
+
+    /// <summary>"locked", "overridable", or null for an object no Fabric manages: what the Fabrics badge shows.</summary>
+    public static string? FabricState(JsonObject? obj) =>
+        obj == null || FabricTemplate(obj) == null ? null : FabricLocked(obj) ? FabricLockedState : FabricOverridableState;
+
     /// <summary>The owning NO feature of an object, or null when the user owns it.</summary>
     public static string? OwnedBy(ConfigCollectionDef def, JsonObject obj)
     {

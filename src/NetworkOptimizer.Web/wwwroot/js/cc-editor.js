@@ -420,10 +420,14 @@ class ManagedWidget extends WidgetType {
     toDOM() {
         const label = document.createElement('span');
         label.className = 'cc-managed-label';
-        label.textContent = 'Read-only';
-        label.dataset.tooltip = this.who === 'UniFi'
-            ? 'Managed by UniFi; Change Control does not edit it.'
-            : `Managed by ${this.who}; change it there.`;
+        // A locked Site Manager (Fabric) object: the Fabrics badge, in UniFi's wording.
+        const fabric = this.who === 'Site Manager';
+        label.textContent = fabric ? 'Fabrics' : 'Read-only';
+        label.dataset.tooltip = fabric
+            ? 'Managed by the Orchestration Engine and cannot be changed locally.'
+            : this.who === 'UniFi'
+                ? 'Managed by UniFi; Change Control does not edit it.'
+                : `Managed by ${this.who}; change it there.`;
         const tail = document.createElement('span');
         tail.className = 'cc-line-tail';
         tail.appendChild(label);

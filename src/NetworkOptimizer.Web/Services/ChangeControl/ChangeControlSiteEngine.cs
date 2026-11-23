@@ -889,6 +889,7 @@ public sealed class ChangeControlSiteEngine : BackgroundService
             FieldsJson = JsonSerializer.Serialize(fields),
             ServiceTagsJson = o.Tags.Count == 0 ? null : JsonSerializer.Serialize(o.Tags.OrderBy(t => t)),
             OwnedBy = o.OwnedBy,
+            Fabric = o.Fabric,
         };
     }
 

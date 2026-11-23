@@ -12,7 +12,7 @@
             var key = $"{o.Collection}:{o.ObjectId}";
             var open = _open.Contains(key);
             <div class="cc-plan-card @(open ? "history-row-expanded" : "")" @onclick="() => Toggle(key)">
-                <div><span class="cc-action-text @CcFormat.ActionClass(o.Action)">@CcFormat.ActionText(o.Action, PastTense)</span> @Label(o)</div>
+                <div><span class="cc-action-text @CcFormat.ActionClass(o.Action)">@CcFormat.ActionText(o.Action, PastTense)</span> @Label(o) <CcFabricBadge State="@o.Fabric" /></div>
                 @if (!string.IsNullOrEmpty(item.WhenWho)) { <div class="cc-item-detail">@item.WhenWho</div> }
                 <div class="expand-wrapper @(open ? "expanded" : "")">
                     <div class="expand-content">
@@ -61,7 +61,7 @@
                     <tr class="history-row-clickable @(open ? "history-row-expanded" : "")" @onclick="() => Toggle(key)">
                         <td class="expand-chevron">@(open ? "▲" : "▼")</td>
                         <td><span class="cc-action-text @CcFormat.ActionClass(o.Action)">@CcFormat.ActionText(o.Action, PastTense)</span></td>
-                        <td>@Label(o)</td>
+                        <td>@Label(o) <CcFabricBadge State="@o.Fabric" /></td>
                         <td class="hide-mobile">@o.ChangeText</td>
                         @if (ShowWhenWho)
                         {

@@ -171,6 +171,13 @@ public class ConfigChangeObject
     /// <summary>The object is owned by a Network Optimizer feature (never rolled back).</summary>
     [MaxLength(60)]
     public string? OwnedBy { get; set; }
+
+    /// <summary>
+    /// A Site Manager Fabric's Orchestration Engine manages the object (Network 11.1+ cloud_template):
+    /// "locked" or "overridable". Null for every other object, and for changes recorded before this was kept.
+    /// </summary>
+    [MaxLength(16)]
+    public string? Fabric { get; set; }
 }
 
 /// <summary>

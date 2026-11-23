@@ -161,6 +161,44 @@ public class FabricObjectTests
     }
 
     [Fact]
+    public void FabricsBadge_State_ReachesTheDiff_TheChangeRecord_AndThePlanRow()
+    {
+        var live = AfterPush(Overridable);
+        var diff = ConfigDiffEngine.Compare(Before(), live);
+        var net = diff.Objects.Single(o => o.Collection == "networkconf" && o.Name == "Test Network");
+        net.Fabric.Should().Be(ConfigCollections.FabricOverridableState);
+        var names = new ConfigIdentityContext(live.NamesById());
+        ChangeControlSiteEngine.ToRecord(net, names, names).Fabric
+            .Should().Be(ConfigCollections.FabricOverridableState);
+
+        var lockedDiff = ConfigDiffEngine.Compare(Before(), AfterPush(Locked));
+        lockedDiff.Objects.Single(o => o.Name == "Test Network").Fabric.Should().Be(ConfigCollections.FabricLockedState);
+
+        PlanBuilder.Build(Edited(AfterPush(Overridable), "vlan", 251), AfterPush(Overridable), new PlanOptions()).Operations
+            .Single().Fabric.Should().Be(ConfigCollections.FabricOverridableState);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("null")]
+    public void FabricsBadge_IsAbsent_WithoutAFabric(string? cloudTemplate)
+    {
+        ConfigDiffEngine.Compare(Before(), AfterPush(cloudTemplate)).Objects.Should().OnlyContain(o => o.Fabric == null);
+        PlanBuilder.Build(Edited(AfterPush(cloudTemplate), "vlan", 251), AfterPush(cloudTemplate), new PlanOptions()).Operations
+            .Should().OnlyContain(o => o.Fabric == null);
+    }
+
+    [Fact]
+    public void TemplateFromAnotherSite_DoesNotEditALockedFabricObjectHere()
+    {
+        // The target's object is locked on its console whatever the plan's source.
+        var doc = PlanBuilder.Build(Edited(AfterPush(null), "vlan", 251), AfterPush(Locked), new PlanOptions { SameSite = false });
+
+        doc.Operations.Should().NotContain(o => o.ObjectName == "Test Network");
+        doc.Notes.Should().Contain(n => n.Contains("centrally managed by the Fabric"));
+    }
+
+    [Fact]
     public void AnotherSite_GetsTheFabricNetworkAsItsOwn()
     {
         // A template from a Fabric site onto a site outside it: a plain network there.
