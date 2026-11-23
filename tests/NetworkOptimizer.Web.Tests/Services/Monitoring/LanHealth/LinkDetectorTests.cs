@@ -311,4 +311,17 @@ public class LinkDetectorTests
 
     [Fact]
     public void Mesh_NothingOnAWiredLink() => MeshClasses(Ev(Fabric())).Should().BeEmpty();
+
+    [Fact]
+    public void LinkDrops_CostLessWhenTheLinkIsNormallyIdle()
+    {
+        // Busy 09:00 to 17:00 UTC, idle otherwise, over two days of baseline.
+        LinkHourSample H(int i) { var at = T0.AddHours(i); return new(at, null, null, at.Hour is >= 9 and < 17 ? 500e6 : 0, 0, null, null, null, null, null); }
+        var utc = TimeZoneInfo.Utc;
+        var profile = LanHealthScorer.UsageProfile(Enumerable.Range(-48, 48).Select(H), utc);
+        LanHealthScorer.UsageWeight(profile, T0.AddHours(12), utc).Should().Be(1.0);
+        LanHealthScorer.UsageWeight(profile, T0.AddHours(3), utc).Should().Be(LanHealthScorer.UsageWeightFloor);
+        LanHealthScorer.UsageProfile(Enumerable.Range(0, 10).Select(H), utc).Should().BeNull("under a day of hours");
+        LanHealthScorer.UsageWeight(null, T0.AddHours(3), utc).Should().Be(1.0);
+    }
 }

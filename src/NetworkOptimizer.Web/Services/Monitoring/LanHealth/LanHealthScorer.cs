@@ -11,8 +11,26 @@ public static class LanHealthScorer
     /// <summary>Score at or above this reads as healthy (the map shows nothing for it).</summary>
     public const double HealthyScore = 90;
 
-    /// <summary>Night hours count half: a drop at 3 am hurts fewer people than one at 3 pm.</summary>
-    internal static double TimeOfDayWeight(DateTime local) => local.Hour is >= 7 and < 23 ? 1.0 : 0.5;
+    /// <summary>The weight of a drop in the link's quietest hour, as ISP Health's usage weighting floor.</summary>
+    public const double UsageWeightFloor = 0.5;
+
+    /// <summary>
+    /// The link's hour-of-day traffic profile (mean of both directions per local hour) over its baseline and window,
+    /// for <see cref="IspHealth.UsageWeighting"/>; null under a day of hours, which leaves every drop at full weight.
+    /// </summary>
+    internal static double[]? UsageProfile(IEnumerable<LinkHourSample> hours, TimeZoneInfo zone)
+    {
+        var list = hours.Where(h => h.MeanInBps != null || h.MeanOutBps != null).ToList();
+        if (list.Count < 24) return null;
+        var profile = new double[24];
+        foreach (var g in list.GroupBy(h => TimeZoneInfo.ConvertTimeFromUtc(DateTime.SpecifyKind(h.Hour, DateTimeKind.Utc), zone).Hour))
+            profile[g.Key] = g.Average(h => (h.MeanInBps ?? 0) + (h.MeanOutBps ?? 0));
+        return profile;
+    }
+
+    /// <summary>A drop's weight by the link's own usage at that local hour: 1 in its busiest hour, down to the floor when idle.</summary>
+    internal static double UsageWeight(double[]? profile, DateTime utc, TimeZoneInfo zone) =>
+        IspHealth.UsageWeighting.Weight(profile, [TimeZoneInfo.ConvertTimeFromUtc(DateTime.SpecifyKind(utc, DateTimeKind.Utc), zone).Hour], UsageWeightFloor);
 
     /// <summary>The link's score from its findings.</summary>
     public static double LinkScore(IEnumerable<LinkFinding> findings)

@@ -138,7 +138,10 @@ public static class LanHealthDetectors
             steps.Add(PortSwapStep(ev.Link, p));
 
         var perDay = count / Math.Max(1.0 / 24, (ev.To - ev.From).TotalDays);
-        var pts = ScoreCurve.Interpolate(count, (0, 0), (3, 15), (10, 35), (30, 60), (100, 85))
+        // Time of day as ISP Health weighs it: a drop when the link is normally idle costs less (down to half).
+        var profile = LanHealthScorer.UsageProfile(ev.BaselineHours.Concat(ev.Hours), TimeZoneInfo.Local);
+        var weighted = drops.Sum(i => i.Count * LanHealthScorer.UsageWeight(profile, i.Start, TimeZoneInfo.Local));
+        var pts = ScoreCurve.Interpolate(weighted, (0, 0), (3, 15), (10, 35), (30, 60), (100, 85))
                   * ScoreCurve.Interpolate(seconds ?? 5, (1, 70), (5, 100), (60, 130)) / 100;
         // A fault that has run for days weighs more than a burst: up to 1.5x at two weeks, then capped,
         // so an old fault never pins the score to the floor.
