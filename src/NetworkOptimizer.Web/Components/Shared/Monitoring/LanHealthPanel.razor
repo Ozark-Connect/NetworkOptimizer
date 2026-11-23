@@ -39,7 +39,16 @@ else
                     <div class="lan-health-score-row"><span class="detail-label">Fabric links</span><span class="detail-value @ScoreClass(FabricScore(r))">@FormatScore(FabricScore(r))</span></div>
                     <div class="lan-health-score-row"><span class="detail-label">Access ports</span><span class="detail-value @ScoreClass(AccessScore(r))">@FormatScore(AccessScore(r))</span></div>
                     <div class="lan-health-score-row"><span class="detail-label">Incidents (@RangeLabel)</span><span class="detail-value">@r.Incidents</span></div>
-                    <div class="lan-health-score-row"><span class="detail-label">Explained</span><span class="detail-value">@r.Explained</span></div>
+                    <div class="lan-health-score-row"><span class="detail-label">Explained</span>
+                        @if (r.Explained > 0)
+                        {
+                            <button class="detail-value lan-health-explained-toggle" @onclick="() => _showExplained = !_showExplained">@r.Explained</button>
+                        }
+                        else
+                        {
+                            <span class="detail-value">0</span>
+                        }
+                    </div>
                 </div>
             </div>
         </div>
@@ -48,6 +57,40 @@ else
             <div class="card-body"><div id="lan-health-history"></div></div>
         </div>
     </div>
+
+    @if (_showExplained && r.Explained > 0)
+    {
+        var explained = r.Links.SelectMany(l => l.Incidents.Where(i => i.IsExplained).Select(i => (Link: l.Link, Incident: i)))
+            .OrderByDescending(x => x.Incident.Start).ToList();
+        var shownExplained = explained.Take(_explainedShown).ToList();
+        <div class="card lan-health-explained">
+            <div class="card-header"><h2 class="card-title">Explained (@RangeLabel)</h2></div>
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="data-table">
+                        <thead><tr><th>Time</th><th>Link</th><th>Event</th><th>Why</th></tr></thead>
+                        <tbody>
+                            @foreach (var x in shownExplained)
+                            {
+                                <tr class="lan-health-row-link" @onclick="() => OpenLink(x.Link.Id)">
+                                    <td class="col-time">@TimeFormatHelper.FormatLocalDateTime(x.Incident.Start, DisplayTime.Zone, DisplayTime.Format)</td>
+                                    <td>@x.Link.Name</td>
+                                    <td>@EventLabel(x.Incident)</td>
+                                    <td>@(x.Incident.Explained is ExplainReason er ? Reason(er, x.Incident.ExplainedDetail) : "")</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+                @if (explained.Count > shownExplained.Count)
+                {
+                    <div class="lan-health-more">
+                        <button class="btn btn-secondary btn-sm" @onclick="() => _explainedShown += LinksPage">Show more</button>
+                    </div>
+                }
+            </div>
+        </div>
+    }
 
     var findings = r.Findings.Take(30).ToList();
     @if (findings.Count > 0)
@@ -162,6 +205,8 @@ else
     // Worst first: ten at a time, Show more adds the next ten.
     private const int LinksPage = 10;
     private int _linksShown = LinksPage;
+    private bool _showExplained;
+    private int _explainedShown = LinksPage;
     private System.Threading.Timer? _timer;
     private IJSObjectReference? _charts;
     private bool _historyDirty = true;
