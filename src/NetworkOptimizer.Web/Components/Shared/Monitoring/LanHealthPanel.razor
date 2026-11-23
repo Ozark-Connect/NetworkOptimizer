@@ -386,11 +386,23 @@ else
                 <div class="stat-value">@l.Drops</div><div class="stat-label">Drops (@RangeLabel)</div>
                 @if (l.DropsExplained > 0) {<div class="lan-health-sub">+@l.DropsExplained explained</div>}
             </div>
-            <div class="monitoring-stat-card">
-                <div class="stat-value lan-health-tile-text">@(l.Onset is DateTime on ? TimeFormatHelper.FormatLocalDateTime(on, DisplayTime.Zone, DisplayTime.Format) : "--")</div>
-                <div class="stat-label">Started</div>
-                @if (l.CleanDaysBefore is int days) {<div class="lan-health-sub">none in the @days days before</div>}
-            </div>
+            @* Only with a real time to show: a clean link gets no tile rather than a "since" it never had. *@
+            @{ var lastIssue = l.Incidents.Where(i => !i.IsExplained && i.Kind != IncidentKind.DiscardBurst).Select(i => (DateTime?)i.End).Max(); }
+            @if (l.Onset is DateTime on)
+            {
+                <div class="monitoring-stat-card">
+                    <div class="stat-value lan-health-tile-text">@TimeFormatHelper.FormatLocalDateTime(on, DisplayTime.Zone, DisplayTime.Format)</div>
+                    <div class="stat-label">Unhealthy Since</div>
+                    @if (l.CleanDaysBefore is int days) {<div class="lan-health-sub">none in the @days days before</div>}
+                </div>
+            }
+            else if (lastIssue is DateTime le)
+            {
+                <div class="monitoring-stat-card">
+                    <div class="stat-value lan-health-tile-text">@TimeFormatHelper.FormatLocalDateTime(le, DisplayTime.Zone, DisplayTime.Format)</div>
+                    <div class="stat-label">Last Issue</div>
+                </div>
+            }
             <div class="monitoring-stat-card">
                 <div class="stat-value lan-health-tile-text">@(signature ?? "--")</div>
                 <div class="stat-label">Signature</div>
