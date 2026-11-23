@@ -155,6 +155,9 @@ public sealed class LanHealthEngine
             _logger.LogDebug(ex, "LAN Health: console read failed for {Site}", _slug);
             return _topology;
         }
+        // A disconnected console answers with an empty device list. Never cache that: keep the last real
+        // topology (or none) and read again on the next call, so data returns as soon as the console does.
+        if (devices.Count == 0) return _topology;
         List<UniFiNetworkConfig> networks = [];
         List<UniFiPortProfile> profiles = [];
         System.Text.Json.JsonDocument? settings = null;
@@ -483,7 +486,7 @@ public sealed class LanHealthEngine
         report.CutoverAt = await db.LanHealthSiteHours.AsNoTracking().OrderBy(h => h.HourStart).Select(h => (DateTime?)h.HourStart).FirstOrDefaultAsync(ct);
         report.NotScored.AddRange(NotScored(topology));
         report.Ready = history.Count > 0 || live.Count > 0;
-        lock (_reports) _reports[key] = (DateTime.UtcNow, report);
+        if (topology.Links.Count > 0) lock (_reports) _reports[key] = (DateTime.UtcNow, report);
         return report;
     }
 
