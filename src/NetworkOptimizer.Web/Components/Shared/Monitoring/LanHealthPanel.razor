@@ -318,13 +318,13 @@ else
         }
         else if (down > 0 && up <= 0)
         {
-            <div>@($"{down:0} in ({EndWord(l.Link.Downstream)} side)")</div>
-            <div class="lan-health-sub">@($"0 at {EndWord(l.Link.Upstream)}")</div>
+            <div>@($"{down:0} at {l.Link.Downstream.DeviceName}")</div>
+            <div class="lan-health-sub">@($"0 at {l.Link.Upstream.DeviceName}")</div>
         }
         else if (up > 0 && down <= 0)
         {
-            <div>@($"{up:0} in ({EndWord(l.Link.Upstream)} side)")</div>
-            <div class="lan-health-sub">@($"0 at {EndWord(l.Link.Downstream)}")</div>
+            <div>@($"{up:0} at {l.Link.Upstream.DeviceName}")</div>
+            <div class="lan-health-sub">@($"0 at {l.Link.Downstream.DeviceName}")</div>
         }
         else
         {
