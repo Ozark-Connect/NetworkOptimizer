@@ -171,7 +171,7 @@ public static class LanHealthDetectors
             Severity = ev.Link.IsFabric ? FindingSeverity.Warning : FindingSeverity.Info,
             Class = "Link Speed Degraded",
             Title = Title("Link Speed Degraded", ev.Link),
-            Body = $"Linked at {DisplayFormatters.FormatLinkSpeed(now)}, below the {DisplayFormatters.FormatLinkSpeed(usual)} it normally reaches"
+            Body = $"Linked at {DisplayFormatters.FormatLinkSpeed(now)}, below the {DisplayFormatters.FormatLinkSpeed(usual)} it normally hits"
                 + (since is DateTime t ? $" since {text.Time(t)}" : "")
                 + (alternates ? ", and the speed has changed more than once." : ".")
                 + " A bad pair in the cable or an auto-negotiation problem causes this. Forcing the port's speed is one fix to try.",
@@ -367,7 +367,7 @@ public static class LanHealthDetectors
             Severity = FindingSeverity.Warning,
             Class = "Broadcast Storm",
             Title = Title("Broadcast Storm", ev.Link),
-            Body = $"Broadcast reached {peak:0} packets per second, against a normal of {baseline:0.#}, starting {text.Time(stormHours[0].Hour)}."
+            Body = $"Broadcast hit {peak:0} packets per second, against a normal of {baseline:0.#}, starting {text.Time(stormHours[0].Hour)}."
                 + (storm ? " Storm control is on for this port." : " Storm control is off for this port."),
             Chips = ["Broadcast", ImpactChip(ev.Link)],
             Points = 40,
@@ -467,7 +467,7 @@ public static class LanHealthDetectors
                     Severity = FindingSeverity.Info,
                     Class = "Unusual Link Utilization",
                     Title = Title("Unusual Link Utilization", ev.Link),
-                    Body = $"Above {u * 100:0}% of {DisplayFormatters.FormatLinkSpeed(ev.Link.SpeedMbps!.Value)} since {text.Time(start!.Value)}, where its busiest hours normally saturate {p95 * 100:0}%.",
+                    Body = $"Above {u * 100:0}% of {DisplayFormatters.FormatLinkSpeed(ev.Link.SpeedMbps!.Value)} since {text.Time(start!.Value)}, where its busiest hours normally utilize {p95 * 100:0}% of it.",
                     Chips = ["Load", ImpactChip(ev.Link)],
                     Onset = start,
                     Status = LinkStatus.Busy,

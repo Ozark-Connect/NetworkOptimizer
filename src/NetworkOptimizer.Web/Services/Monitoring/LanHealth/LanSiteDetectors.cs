@@ -379,8 +379,8 @@ public static class LanSiteDetectors
                 yield return Site(Detectors.FabricDeviceHealth, "Switch Health", d.Name,
                     string.Join(" ", new[]
                     {
-                        h.Cpu is >= 90 ? $"CPU reached {h.Cpu:0}%." : null,
-                        h.Memory is >= 95 ? $"Memory reached {h.Memory:0}%." : null,
+                        h.Cpu is >= 90 ? $"CPU is at {h.Cpu:0}%." : null,
+                        h.Memory is >= 95 ? $"Memory is at {h.Memory:0}%." : null,
                         h.TempC is >= 80 ? $"Temperature is {h.TempC:0} °C." : null,
                     }.Where(x => x != null)), chips: "Device");
         }
@@ -427,7 +427,7 @@ public static class LanSiteDetectors
             var weeksLeft = (target - now) / slope;
             if (weeksLeft > 26) continue;
             yield return Site(Detectors.CapacityTrend, "Capacity Trend", ev.Link.Name,
-                $"Busy-hour load on this link is growing about {slope * 100:0.#} points a week. At that rate it saturates {target * 100:0}% of the link in about {Math.Ceiling(weeksLeft):0} weeks.",
+                $"Busy-hour load on this link is growing about {slope * 100:0.#} points a week. If that continues, it will pass {target * 100:0}% of the link in about {Math.Ceiling(weeksLeft):0} weeks.",
                 linkId: id, chips: "Capacity");
         }
     }
