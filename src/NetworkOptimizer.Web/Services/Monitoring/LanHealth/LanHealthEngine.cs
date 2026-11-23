@@ -1,8 +1,6 @@
 using System.Diagnostics;
-using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using NetworkOptimizer.Core.Enums;
-using NetworkOptimizer.Core.Helpers;
 using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.Storage.Services;
 using NetworkOptimizer.UniFi.Models;
@@ -75,6 +73,8 @@ public sealed class LanHealthEngine
         public bool ScoreFabricOnly { get; init; }
         public List<UniFiNetworkConfig> Networks { get; init; } = [];
         public List<UniFiPortProfile> PortProfiles { get; init; } = [];
+        /// <summary>The console settings (Global Switch Settings), as Config Optimizer reads them.</summary>
+        public System.Text.Json.JsonDocument? Settings { get; init; }
         public Dictionary<string, LinkRecord> DownstreamToLink { get; init; } = [];
         public Dictionary<string, HashSet<string>> SubtreeAps { get; init; } = [];
     }
@@ -157,10 +157,12 @@ public sealed class LanHealthEngine
         }
         List<UniFiNetworkConfig> networks = [];
         List<UniFiPortProfile> profiles = [];
+        System.Text.Json.JsonDocument? settings = null;
         try
         {
             networks = await client.GetNetworkConfigsAsync(ct) ?? [];
             profiles = await client.GetPortProfilesAsync(ct) ?? [];
+            settings = await client.GetSettingsRawAsync(ct);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -219,6 +221,7 @@ public sealed class LanHealthEngine
             ScoreFabricOnly = exclusions.Any(e => e.Scope == "access-all" && e.Level == (int)ExclusionLevel.ExcludeFromScore),
             Networks = networks,
             PortProfiles = profiles,
+            Settings = settings,
             DownstreamToLink = downstreamToLink,
             SubtreeAps = subtreeAps,
         };
@@ -540,29 +543,30 @@ public sealed class LanHealthEngine
     private static SiteEvidence SiteEvidenceFor(Topology t, IReadOnlyList<LinkHealth> links, IReadOnlyDictionary<string, LinkEvidence> evidence,
         FindingText text, int hours, (int Tests, double RatioToNorm)? forwarding,
         IReadOnlyDictionary<string, int> informFailures, IReadOnlyDictionary<string, double> stpBaseline) => new()
-    {
-        GatewayForwarding = forwarding,
-        InformFailures = informFailures,
-        DeviceHealth = t.Devices.Where(d => !string.IsNullOrEmpty(d.Mac)).GroupBy(d => LanLinkBuilder.Mac(d.Mac))
+        {
+            GatewayForwarding = forwarding,
+            InformFailures = informFailures,
+            DeviceHealth = t.Devices.Where(d => !string.IsNullOrEmpty(d.Mac)).GroupBy(d => LanLinkBuilder.Mac(d.Mac))
             .ToDictionary(g => g.Key, g => (Percent(g.First().SystemStats?.Cpu), Percent(g.First().SystemStats?.Mem), g.First().GeneralTemperature)),
-        Devices = t.Devices,
-        Networks = t.Networks,
-        PortProfiles = t.PortProfiles,
-        Clients = t.Clients,
-        Links = links,
-        Evidence = evidence,
-        StpChanges = links.Where(l => l.Link.IsFabric).GroupBy(l => l.Link.Upstream.DeviceMac)
+            Devices = t.Devices,
+            Networks = t.Networks,
+            PortProfiles = t.PortProfiles,
+            Settings = t.Settings,
+            Clients = t.Clients,
+            Links = links,
+            Evidence = evidence,
+            StpChanges = links.Where(l => l.Link.IsFabric).GroupBy(l => l.Link.Upstream.DeviceMac)
             .ToDictionary(g => g.Key, g =>
             {
                 var window = g.Sum(l => evidence.TryGetValue(l.Link.Id, out var e) ? e.Upstream.StpChanges ?? 0 : 0);
                 return (window, stpBaseline.GetValueOrDefault(g.Key));
             }),
-        DuplicateIps = t.Clients.Where(c => !string.IsNullOrEmpty(c.Ip)).GroupBy(c => c.Ip)
+            DuplicateIps = t.Clients.Where(c => !string.IsNullOrEmpty(c.Ip)).GroupBy(c => c.Ip)
             .Where(g => g.Select(c => c.Mac.ToLowerInvariant()).Distinct().Count() > 1)
             .Select(g => (g.Key, (IReadOnlyList<string>)g.Select(c => c.Mac.ToLowerInvariant()).Distinct().ToList())).ToList(),
-        Text = text,
-        WindowHours = hours,
-    };
+            Text = text,
+            WindowHours = hours,
+        };
 
     private static IEnumerable<string> NotScored(Topology t)
     {
