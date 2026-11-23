@@ -20775,6 +20775,13 @@ tr.stats-row-filtered {
 .lan-health .lan-health-sub { color: var(--text-muted); font-size: 0.75rem; }
 .lan-health .lan-health-footer { color: var(--text-secondary); font-size: 0.8125rem; margin: 0.75rem 0 0; }
 .lan-health .lan-health-cards { display: none; flex-direction: column; gap: 0.75rem; }
+.lan-health .lan-health-coverage { min-width: 0; }
+.lan-health .lan-health-coverage td:last-child { text-align: right; }
+.wifi-view-tab .tab-label-short { display: none; }
+@media (max-width: 768px) {
+    .wifi-view-tab .tab-label-long { display: none; }
+    .wifi-view-tab .tab-label-short { display: inline; }
+}
 .lan-health .lan-health-link-card {
     padding: 0.75rem;
     border-radius: var(--border-radius);

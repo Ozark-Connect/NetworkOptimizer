@@ -93,7 +93,7 @@
                     @onclick="@(() => SetActiveTab("live"))"
                     disabled="@(!_monitoringReady)"
                     data-tooltip="@(ConnectionService.IsConnected ? null : "Live values need a console; the timeline still plays back")">
-                Live View
+                <span class="tab-label-long">Live View</span><span class="tab-label-short">Live</span>
             </button>
             <button class="wifi-view-tab @(_activeTab == "isp-health" ? "active" : "")"
                     @onclick="@(() => SetActiveTab("isp-health"))"

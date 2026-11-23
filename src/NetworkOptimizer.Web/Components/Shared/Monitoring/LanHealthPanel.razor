@@ -413,11 +413,11 @@ else
                     {
                         <p class="lan-health-sub">Since @TimeFormatHelper.FormatLocalDate(since, DisplayTime.Zone, DisplayTime.Format): @total drops</p>
                     }
-                    <table class="data-table">
+                    <table class="data-table lan-health-coverage">
                         <tbody>
                             @foreach (var c in l.Coverage.OrderByDescending(c => c.Observing).ThenByDescending(c => c.Caught))
                             {
-                                <tr><td>@SourceName(c.Source, link)</td><td>@CoverageValue(c)</td></tr>
+                                <tr><td>@SourceName(c.Source, link)</td><td>@CoverageValue(c)@(c.Observing && c.Since is DateTime cs && cs > since.AddHours(1) ? $" since {TimeFormatHelper.FormatLocalDateTime(cs, DisplayTime.Zone, DisplayTime.Format)}" : "")</td></tr>
                             }
                         </tbody>
                     </table>
