@@ -216,14 +216,21 @@ else
     private System.Threading.Timer? _timer;
     private IJSObjectReference? _charts;
     private bool _historyDirty = true;
-    private bool _scrollTop;
+    private bool _scrollToLink;
+    private bool _restoreTab;
     private string? _loadedLink;
 
     private string RangeLabel => LanHealthEngine.RangeLabel(_hours);
 
     protected override async Task OnParametersSetAsync()
     {
-        if (_loadedLink != LinkId && !string.IsNullOrEmpty(LinkId)) _scrollTop = true;
+        if (_report != null && string.IsNullOrEmpty(_loadedLink) && !string.IsNullOrEmpty(LinkId))
+        {
+            // Still showing the tab: remember where it was before the link page replaces it.
+            try { await JS.InvokeVoidAsync("noTabScroll.save", "lan-health"); } catch (JSDisconnectedException) { }
+            _scrollToLink = true;
+        }
+        else if (!string.IsNullOrEmpty(_loadedLink) && string.IsNullOrEmpty(LinkId)) _restoreTab = true;
         if (_report == null || _loadedLink != LinkId) await LoadAsync();
     }
 
@@ -270,13 +277,18 @@ else
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        // Opening a link starts at its top. A query-only navigation keeps the scroll on purpose
-        // (scrollRestoration.js), and the scroller is .main-content on a phone, .page-content on desktop.
-        if (_scrollTop)
+        // A link opens at its title; the way back returns the tab to where it was, as Back does.
+        // A query-only navigation keeps the scroll on purpose (scrollRestoration.js), so both are done here.
+        if (_scrollToLink)
         {
-            _scrollTop = false;
-            try { await JS.InvokeVoidAsync("eval", "['.main-content', '.page-content'].forEach(s => document.querySelector(s)?.scrollTo(0, 0))"); }
+            _scrollToLink = false;
+            try { await JS.InvokeVoidAsync("eval", "document.getElementById('lan-health-link-top')?.scrollIntoView({ behavior: 'instant', block: 'start' })"); }
             catch (JSDisconnectedException) { }
+        }
+        if (_restoreTab)
+        {
+            _restoreTab = false;
+            try { await JS.InvokeVoidAsync("noTabScroll.restore", "lan-health"); } catch (JSDisconnectedException) { }
         }
         if (!_historyDirty || _report == null || !string.IsNullOrEmpty(LinkId)) return;
         _historyDirty = false;
@@ -431,7 +443,7 @@ else
     private RenderFragment LinkPage => __builder =>
     {
         var l = _link;
-        <a class="back-link" href="@LanHealthLinks.Tab()">&larr; LAN Health</a>
+        <a id="lan-health-link-top" class="back-link" href="@LanHealthLinks.Tab()">&larr; LAN Health</a>
         @if (l == null)
         {
             @* With the console disconnected the link is unknown, not gone: Monitoring's ConsoleConnectionBanner says why. *@
