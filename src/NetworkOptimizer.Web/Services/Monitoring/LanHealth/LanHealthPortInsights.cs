@@ -4,7 +4,7 @@ using NetworkOptimizer.Core;
 namespace NetworkOptimizer.Web.Services.Monitoring.LanHealth;
 
 /// <summary>
-/// Port Insights as one more source: UniFi's current anomaly scores per port, stored as <c>port_anomaly</c> events
+/// Port Anomalies as one more source: UniFi's current anomaly scores per port, stored as <c>port_anomaly</c> events
 /// when an anomaly appears so LAN Health can count what UniFi itself noticed.
 /// </summary>
 public static class LanHealthPortInsights
@@ -66,8 +66,8 @@ public static class LanHealthPortInsights
                 Detector = Detectors.PortInsights,
                 LinkId = l.Link.Id,
                 Severity = FindingSeverity.Info,
-                Class = "Port Insights",
-                Title = $"Port Insights: {l.Link.Name}",
+                Class = "Port Anomalies",
+                Title = $"Port Anomalies: {l.Link.Name}",
                 Body = $"UniFi Network flags this port: {text}.",
             });
         }

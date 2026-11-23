@@ -964,12 +964,12 @@ public class SwitchPort
     [JsonConverter(typeof(FlexibleIntConverter))]
     public int? StpPathCost { get; set; }
 
-    /// <summary>The port's anomaly count as Port Insights reports it; -1 when not evaluated.</summary>
+    /// <summary>The port's anomaly count as Port Anomalies reports it; -1 when not evaluated.</summary>
     [JsonPropertyName("anomalies")]
     [JsonConverter(typeof(FlexibleIntConverter))]
     public int? Anomalies { get; set; }
 
-    /// <summary>Port Insights custom anomaly count.</summary>
+    /// <summary>Port Anomalies custom anomaly count.</summary>
     [JsonPropertyName("custom_anomalies")]
     [JsonConverter(typeof(FlexibleIntConverter))]
     public int? CustomAnomalies { get; set; }

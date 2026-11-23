@@ -468,13 +468,13 @@ public sealed class LanHealthEngine
 
     private readonly HashSet<(string, int, string)> _anomaliesSeen = [];
 
-    /// <summary>The anomalies Port Insights scored at the last poll.</summary>
+    /// <summary>The anomalies Port Anomalies scored at the last poll.</summary>
     internal IReadOnlyList<LanHealthPortInsights.Anomaly> PortAnomalies { get; private set; } = [];
 
-    /// <summary>Whether Port Insights answered at the last poll (it then counts as an observer, even with nothing to say).</summary>
+    /// <summary>Whether Port Anomalies answered at the last poll (it then counts as an observer, even with nothing to say).</summary>
     public bool PortInsightsAvailable { get; private set; }
 
-    /// <summary>Reads Port Insights' anomaly history once a run and stores anomalies not yet stored.</summary>
+    /// <summary>Reads the port anomaly scores once a run and stores anomalies not yet stored.</summary>
     private async Task PollPortInsightsAsync(CancellationToken ct)
     {
         if (_connection().Client is not { } client) return;
@@ -498,7 +498,7 @@ public sealed class LanHealthEngine
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            _logger.LogDebug(ex, "LAN Health: Port Insights read failed for {Site}", _slug);
+            _logger.LogDebug(ex, "LAN Health: Port Anomalies read failed for {Site}", _slug);
         }
     }
 

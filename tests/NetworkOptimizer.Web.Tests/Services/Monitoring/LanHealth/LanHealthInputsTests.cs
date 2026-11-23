@@ -10,7 +10,7 @@ using Xunit;
 namespace NetworkOptimizer.Web.Tests.Services.Monitoring.LanHealth;
 
 /// <summary>
-/// LAN Health's inputs and storage: speed test attribution and norms, Port Insights, the stored incident JSON,
+/// LAN Health's inputs and storage: speed test attribution and norms, Port Anomalies, the stored incident JSON,
 /// and the tolerant converters on the new UniFi fields.
 /// </summary>
 public class LanHealthInputsTests
@@ -99,7 +99,7 @@ public class LanHealthInputsTests
         LanHealthSpeedTests.CrossVlanCandidate([Test(Now.AddDays(-1), 900, routed: true)], Links, clients, "Default", Now).Should().BeNull("a routed test already ran");
     }
 
-    // ---- Port Insights ----
+    // ---- Port Anomalies ----
 
     [Fact]
     public void PortInsights_ReadUniFisCurrentScoresPerPort()

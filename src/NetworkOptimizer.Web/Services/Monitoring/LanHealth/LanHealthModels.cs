@@ -49,7 +49,7 @@ public enum LinkSource
     FabricProbe,
     /// <summary>The parent's association uptime for a mesh child (UniFi downlink_table): a reset is a re-association.</summary>
     MeshAssociation,
-    /// <summary>UniFi Port Insights.</summary>
+    /// <summary>UniFi Port Anomalies.</summary>
     PortInsights,
     /// <summary>The gateway's kernel log.</summary>
     GatewayKernelLog,

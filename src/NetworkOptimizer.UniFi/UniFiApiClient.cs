@@ -2317,10 +2317,10 @@ public partial class UniFiApiClient : IDisposable
     /// GET stat/health - Get site health information
     /// </summary>
     /// <summary>
-    /// GET v2/api/site/{site}/ports/port-anomalies - Port Insights' anomaly history, raw. Null when the
-    /// console does not answer or has no Port Insights.
+    /// GET v2/api/site/{site}/ports/port-anomalies - the port anomaly scores, raw. Null when the
+    /// console does not answer or has no Port Anomalies.
     /// </summary>
-    [VendorSpecific("UniFi", "Port Insights anomaly history (v2)")]
+    [VendorSpecific("UniFi", "port anomaly scores (v2), shown on UniFi Network's Ports page")]
     public async Task<JsonDocument?> GetPortAnomaliesRawAsync(CancellationToken cancellationToken = default)
     {
         if (!await EnsureAuthenticatedAsync(cancellationToken)) return null;

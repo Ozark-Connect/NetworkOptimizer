@@ -85,7 +85,7 @@ public static class LanHealthEvidenceBuilder
         public IReadOnlyList<ExplainWindow> Explain { get; init; } = [];
         public IReadOnlyDictionary<string, List<DateTime>> Reboots { get; init; } = new Dictionary<string, List<DateTime>>();
         public IReadOnlyList<DateTime> RebootsFor(string mac) => Reboots.TryGetValue(mac, out var r) ? r : [];
-        /// <summary>Port Insights answered this run, so it is an observer of every UniFi switch and gateway port.</summary>
+        /// <summary>Port Anomalies answered this run, so it is an observer of every UniFi switch and gateway port.</summary>
         public bool PortInsightsAvailable { get; init; }
     }
 
@@ -318,7 +318,7 @@ public static class LanHealthEvidenceBuilder
         if (link.Kind == LinkKind.Access && speedMin is <= 100 && speedMax is > 100)
             explain.Add(new ExplainWindow(from, to, link.Upstream.DeviceMac, ExplainReason.DeviceAsleep));
 
-        // Port Insights: an anomaly on the upstream port in the hour counts as having seen that hour's drops.
+        // Port Anomalies: an anomaly on the upstream port in the hour counts as having seen that hour's drops.
         var anomalies = x.Events.Where(e => e.EventType == LanHealthPortInsights.EventType
             && string.Equals(e.DeviceMac, link.Upstream.DeviceMac, StringComparison.OrdinalIgnoreCase)
             && e.IfName == link.Upstream.PortIdx?.ToString(System.Globalization.CultureInfo.InvariantCulture)).ToList();
