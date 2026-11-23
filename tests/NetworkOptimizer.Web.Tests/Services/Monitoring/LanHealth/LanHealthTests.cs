@@ -250,6 +250,25 @@ public class LanHealthTests
     }
 
     [Fact]
+    public void JumboMismatch_OnlyWhereBothDevicesHaveTheSetting()
+    {
+        LinkHealth Health(bool downHasSetting) => new()
+        {
+            Link = new LinkRecord
+            {
+                Id = "l", Kind = LinkKind.FabricWired,
+                Upstream = new LinkEnd { DeviceMac = SwitchMac, DeviceName = "Switch A", DeviceType = DeviceType.Switch, PortIdx = 5, HasJumboSetting = true },
+                Downstream = new LinkEnd { DeviceMac = ApMac, DeviceName = "Device B", DeviceType = DeviceType.AccessPoint, PortIdx = 1, HasJumboSetting = downHasSetting },
+                UpstreamPort = new PortConfig { Jumbo = true },
+                DownstreamPort = new PortConfig { Jumbo = false },
+            },
+        };
+        // Today's APs report no jumboframe_enabled; one that gains the setting is compared like a switch.
+        LanSiteDetectors.MtuOnPath(new SiteEvidence { Links = [Health(false)] }).Should().BeEmpty();
+        LanSiteDetectors.MtuOnPath(new SiteEvidence { Links = [Health(true)] }).Should().ContainSingle();
+    }
+
+    [Fact]
     public void Scorer_CombinesFindingsAndWeighsFabricByClients()
     {
         LanHealthScorer.LinkScore([new LinkFinding { Points = 20 }, new LinkFinding { Points = 20 }, new LinkFinding { Points = 0 }]).Should().Be(64);

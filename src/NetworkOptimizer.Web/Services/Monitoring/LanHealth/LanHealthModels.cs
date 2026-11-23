@@ -177,6 +177,8 @@ public sealed class LinkEnd
     public string Label => PortIdx is int p ? $"Port {p}" : DeviceName;
     /// <summary>False for an end device: it reports nothing.</summary>
     public bool IsUniFi { get; init; } = true;
+    /// <summary>The device reports a jumbo frame setting (jumboframe_enabled); APs do not today.</summary>
+    public bool HasJumboSetting { get; init; }
     public bool IsGateway => DeviceType == DeviceType.Gateway;
     public bool IsSwitch => DeviceType == DeviceType.Switch;
     public bool IsAccessPoint => DeviceType == DeviceType.AccessPoint;

@@ -255,7 +255,10 @@ public static class LanSiteDetectors
     // ---- 22 MTU / jumbo on a path: jumbo on some hops only ----
     internal static IEnumerable<LinkFinding> MtuOnPath(SiteEvidence s)
     {
-        foreach (var l in s.Links.Where(l => l.Link.Kind == LinkKind.FabricWired))
+        // Compared only where both devices report a jumbo frame setting: an AP's port reads jumbo off
+        // with no setting to change, so a mismatch there would suggest something nobody can enable.
+        foreach (var l in s.Links.Where(l => l.Link.Kind == LinkKind.FabricWired
+                     && l.Link.Upstream.HasJumboSetting && l.Link.Downstream.HasJumboSetting))
         {
             var up = l.Link.UpstreamPort.Jumbo;
             var down = l.Link.DownstreamPort?.Jumbo;

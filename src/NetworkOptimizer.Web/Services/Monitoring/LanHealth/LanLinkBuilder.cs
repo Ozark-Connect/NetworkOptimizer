@@ -174,6 +174,7 @@ public static class LanLinkBuilder
         DeviceType = role,
         Model = d.FriendlyModelName,
         PortIdx = port?.PortIdx ?? portIdx,
+        HasJumboSetting = d.JumboFrameEnabled.HasValue,
         IfName = port?.IfName,
         PortName = port != null ? PortLabel(port) : null,
     };
