@@ -419,7 +419,8 @@ Gateway tweaks for UCG-Fiber, UXG-Fiber, UCG-Max, and UXG-Max (Gateway SSH).
   - Edit a saved template the same way
 - **Review Plan** - every write before it runs, with Security Audit impact, lockout checks, and acknowledgements
   - Flags a firewall change that cuts a network off its DNS server or the internet, or devices off the UniFi Console
-  - Flags a WAN change that can take the site offline (VLAN, connection type, PPPoE, zone), and refuses a WAN outside the External zone
+  - Flags a WAN change that can take the site offline (VLAN, connection type, PPPoE, zone, Passthrough VLANs), and refuses a WAN outside the External zone
+  - Leaves objects a Site Manager Fabric manages to Site Manager: locked ones are never edited, and none is deleted only to reappear at the next sync
   - Approvals, scheduled applies, commit-confirmed watch with automatic revert, and a before/after report
   - On agent sites the [On-Site Agent](#on-site-agent) holds the revert if the tunnel drops (On-Site Agent)
 - **Migrate**
@@ -442,6 +443,8 @@ Gateway tweaks for UCG-Fiber, UXG-Fiber, UCG-Max, and UXG-Max (Gateway SSH).
     - Warns when Network Optimizer's host, a management network, or the console moves
     - Devices find the Console at its new address: the Plan moves a UniFi OS Server's Inform Host override with it, and a Device still offline after the move gets set-inform over SSH (Device SSH)
     - **Lower Lease Times** a lease ahead so clients move within minutes (the move puts them back), and **Reconnect Clients** after it: wireless clients rejoin, PoE-powered wired clients optionally power-cycle
+- **Fabrics** badge on objects a Site Manager Fabric's Orchestration Engine manages, in Changes, Drift, Review Plan, and Edit
+- Records Port Automations (Network 11.1) in snapshots and Changes; listed, not written
 - Alerts for security regressions, changes no admin made, management-path changes, drift, and UniFi Console admin and update settings
 - **Settings** - retention, change detection, commit-confirmed window, approvals, **Default schedule time** for applies
 
@@ -580,12 +583,14 @@ models such as U6-Lite, U6-Mesh, and UAP-AC-Pro, and gateways with built-in Wi-F
   - Missing or bypassed VLAN isolation and internet blocks; missing management access (cloud, firmware, AFC, NTP, 5G/LTE)
   - Networks that can reach the gateway's SSH and web UI; strict once a Management Access network is set
   - Gateway management open to the internet: Direct Remote Connection, or an allow from the External zone
+  - WANs with Passthrough VLANs, which UniFi does not filter with the firewall
 - **VLAN Security** - IoT, printers, cameras, NVRs, and security systems on the wrong VLAN
   - Uses UniFi fingerprints, MAC OUI, port names, and UniFi Protect; checks wired, wireless, and offline clients
   - Covers zone-based firewalls, L3 switch-routed VLANs, and IPv4 and IPv6 separately
   - Networks that should be isolated or have no internet; management devices without fixed IPs
   - **Fix with zones** on isolation findings opens Set Up Zones in [Change Control](#change-control)
 - **Port Security** - MAC restriction, port lock, unused ports, port isolation, excessive tagged VLANs, subnet mismatches
+  - Port Automations that put a device on a trusted network by its vendor or MAC OUI
 - **DNS Security** - DoH setup, DNS leak prevention, DoT, DoQ, and DoH bypass, WAN DNS order, DNAT coverage
   - Third-party DNS detection (Pi-hole, AdGuard Home, Technitium, NextDNS, ControlD), IPv6 DNS bypass
   - Port 53, DoT, DoQ, and DoH blocking checked per network, Guest and Hotspot networks included
