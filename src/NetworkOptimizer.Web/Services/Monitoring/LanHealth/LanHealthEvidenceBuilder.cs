@@ -355,10 +355,12 @@ public static class LanHealthEvidenceBuilder
             PoeWattsMin = up.Min(InfluxFieldNames.PoePower),
             PoeWattsMax = up.Max(InfluxFieldNames.PoePower),
             Reboots = x.RebootsFor(link.Downstream.DeviceMac).Count,
-            // An inform during a Network app upgrade fails because the app is restarting, not the path.
+            // An inform that fails inside an explained window (a Network app upgrade, a rollout step at or
+            // above the AP, its own reboot or provisioning) is that event, not the AP's path to the console.
             InformFailures = x.Events.Count(e => e.EventType == ApAgentLinkEventSink.EventTypes.InformFailed
                 && string.Equals(e.DeviceMac, link.Downstream.DeviceMac, StringComparison.OrdinalIgnoreCase)
-                && !x.Explain.Any(w => w.Reason == ExplainReason.NetworkAppUpgrade && e.Time >= w.Start && e.Time <= w.End)),
+                && !x.Explain.Any(w => e.Time >= w.Start && e.Time <= w.End
+                    && (w.DeviceMac.Length == 0 || string.Equals(w.DeviceMac, link.Downstream.DeviceMac, StringComparison.OrdinalIgnoreCase)))),
             IncidentsJson = Trim(LanHealthIncidentJson.Serialize(incidents), 16000),
             CoverageJson = Trim(JsonSerializer.Serialize(LinkEventAligner.Coverage(incidents, distinctObservers)
                 .Select(c => new LanHealthIncidentJson.CoverageDto((int)c.Source, c.Caught, c.Total, c.Observing))), 2000),
