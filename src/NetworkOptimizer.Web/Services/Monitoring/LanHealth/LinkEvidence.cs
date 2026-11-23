@@ -78,4 +78,6 @@ public sealed class LinkEvidence
     public List<LinkSpeedTest> SpeedTests { get; init; } = [];
     /// <summary>Clean days of history before the first unexplained drop, when known.</summary>
     public int? HistoryDays { get; init; }
+    /// <summary>When the link's current run of drops or loss bursts began, reaching back through stored history.</summary>
+    public DateTime? TroubleSince { get; set; }
 }

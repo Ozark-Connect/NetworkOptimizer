@@ -96,14 +96,36 @@ public static class LanHealthReportBuilder
     /// </summary>
     public static int? CleanDaysBefore(IReadOnlyList<LanHealthLinkHour> rows, IReadOnlyList<LanHealthLinkHour> baseline)
     {
-        var first = rows.Where(r => r.Drops + r.Relinks + r.LossBursts > 0).OrderBy(r => r.HourStart).FirstOrDefault();
-        if (first == null || baseline.Count == 0) return null;
-        var before = baseline.Where(r => r.HourStart < first.HourStart).OrderByDescending(r => r.HourStart).ToList();
+        if (TroubleSince(rows, baseline) is not DateTime since || baseline.Count == 0) return null;
+        var first = new DateTime(since.Year, since.Month, since.Day, since.Hour, 0, 0, DateTimeKind.Utc);
+        var before = baseline.Where(r => r.HourStart < first).OrderByDescending(r => r.HourStart).ToList();
         if (before.Count == 0) return null;
         var dirty = before.FirstOrDefault(r => r.Drops + r.Relinks + r.LossBursts > 0);
         var cleanFrom = dirty?.HourStart ?? before[^1].HourStart;
-        var days = (int)Math.Floor((first.HourStart - cleanFrom).TotalDays);
+        var days = (int)Math.Floor((first - cleanFrom).TotalDays);
         return days >= 1 ? days : null;
+    }
+
+    /// <summary>A gap this long without a drop or loss burst ends a run of trouble.</summary>
+    internal static readonly TimeSpan RunGap = TimeSpan.FromDays(3);
+
+    private static bool Trouble(LanHealthLinkHour r) => r.Drops + r.Relinks + r.LossBursts > 0;
+
+    /// <summary>
+    /// When the link's current run of trouble began: from the first unexplained drop or loss burst in
+    /// the window, back through the stored history (14 days) until a gap of RunGap with none.
+    /// </summary>
+    public static DateTime? TroubleSince(IReadOnlyList<LanHealthLinkHour> rows, IReadOnlyList<LanHealthLinkHour> baseline)
+    {
+        var start = rows.Where(Trouble).OrderBy(r => r.HourStart).FirstOrDefault();
+        if (start == null) return null;
+        foreach (var r in baseline.Where(r => Trouble(r) && r.HourStart < start.HourStart).OrderByDescending(r => r.HourStart))
+        {
+            if (start.HourStart - r.HourStart > RunGap) break;
+            start = r;
+        }
+        return LanHealthIncidentJson.Deserialize(start.IncidentsJson).Where(i => !i.IsExplained).Select(i => (DateTime?)i.Start).Min()
+            ?? start.HourStart;
     }
 
     /// <summary>The report over [from, to).</summary>
@@ -126,6 +148,7 @@ public static class LanHealthReportBuilder
             var linkBase = baseline.GetValueOrDefault(link.Id) ?? [];
             var incidents = linkRows.SelectMany(r => LanHealthIncidentJson.Deserialize(r.IncidentsJson)).OrderBy(i => i.Start).ToList();
             var ev = EvidenceFromRows(link, linkRows, linkBase, from, to, CleanDaysBefore(linkRows, linkBase));
+            ev.TroubleSince = TroubleSince(linkRows, linkBase);
             // A test that ran during an incident on the link is kept on the link but out of the norm comparison.
             if (speedTests != null && speedTests.TryGetValue(link.Id, out var tests))
                 ev.SpeedTests.AddRange(tests.Select(t => t with
@@ -146,7 +169,9 @@ public static class LanHealthReportBuilder
                 DiscardsDownstreamTx = ev.Downstream.TxDiscards ?? 0,
                 ProbeLossPct = ev.ProbeLossPct,
                 Exclusion = ExclusionFor(link, exclusions, scoreFabricOnly),
-                Onset = findings.Where(f => f.Points > 0).Select(f => f.Onset).OfType<DateTime>().DefaultIfEmpty().Min() is var o && o != default ? o : null,
+                // Reaches back past the window to where the run of trouble began.
+                Onset = findings.Where(f => f.Points > 0).Select(f => f.Onset).OfType<DateTime>().DefaultIfEmpty().Min() is var o && o != default
+                    ? (ev.TroubleSince is DateTime ts && ts < o ? ts : o) : null,
                 CleanDaysBefore = ev.HistoryDays,
                 UpLinkDownCount = linkRows.LastOrDefault(r => r.UpLinkDownCount != null)?.UpLinkDownCount,
                 DownLinkDownCount = linkRows.LastOrDefault(r => r.DownLinkDownCount != null)?.DownLinkDownCount,

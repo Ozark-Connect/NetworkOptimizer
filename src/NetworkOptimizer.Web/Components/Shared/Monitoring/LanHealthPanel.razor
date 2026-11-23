@@ -501,11 +501,16 @@ else
                 <div class="card-header"><h2 class="card-title">Next Steps</h2></div>
                 <div class="card-body">
                     <ul class="lan-health-steps">
-                        @foreach (var s in steps) { <li>@s</li> }
+                        @* The first sentence is the step; the rest is how to read the result. *@
+                        @foreach (var s in steps)
+                        {
+                            var cut = s.IndexOf(". ", StringComparison.Ordinal);
+                            <li>@if (cut > 0) {<strong>@s[..(cut + 1)]</strong>@s[(cut + 1)..]} else {<strong>@s</strong>}</li>
+                        }
                         @if (change != null)
                         {
                             var after = (int)l.Incidents.Where(i => i.Kind is IncidentKind.Drop or IncidentKind.Relink && !i.IsExplained && i.Start > change.Start).Sum(i => i.Count);
-                            <li>@ChangeDetail.Describe(change.ExplainedDetail), @TimeFormatHelper.FormatLocalDateTime(change.Start, DisplayTime.Zone, DisplayTime.Format). @Pluralize(after, "drop") since.</li>
+                            <li><strong>@ChangeDetail.Describe(change.ExplainedDetail), @TimeFormatHelper.FormatLocalDateTime(change.Start, DisplayTime.Zone, DisplayTime.Format).</strong> @Pluralize(after, "drop") since.</li>
                         }
                     </ul>
                 </div>

@@ -93,7 +93,7 @@ public static class LanHealthDetectors
         double? seconds = durations.Count > 0 ? Math.Max(1, Math.Round(Median(durations)!.Value)) : null;
         var speeds = drops.Select(i => i.SpeedAfterMbps).OfType<int>().Distinct().ToList();
         var sameSpeed = speeds.Count == 1 && (ev.UsualSpeedMbps == null || speeds[0] >= ev.UsualSpeedMbps);
-        var onset = drops.Min(i => i.Start);
+        var onset = ev.TroubleSince is DateTime ts && ts < drops.Min(i => i.Start) ? ts : drops.Min(i => i.Start);
 
         // lanh-08, rendered from the parts the evidence supports.
         var parts = new List<string>();

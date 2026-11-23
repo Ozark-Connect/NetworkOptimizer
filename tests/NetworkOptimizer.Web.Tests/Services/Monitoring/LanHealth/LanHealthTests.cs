@@ -330,6 +330,23 @@ public class LanHealthTests
             "Swap the cables in Port 3 and Port 2 on Gateway A (AP 2 moves to Port 3). If the drops stay on Port 3, it's the gateway port. If they follow AP 1, it's the AP or its cable.");
     }
     [Fact]
+    public void TroubleSince_ReachesBackUntilAThreeDayGap()
+    {
+        NetworkOptimizer.Storage.Models.LanHealthLinkHour Hour(DateTime h, int drops) => new() { LinkId = "l", HourStart = h, Drops = drops };
+        var now = new DateTime(2026, 1, 20, 0, 0, 0, DateTimeKind.Utc);
+        var window = new[] { Hour(now.AddHours(-10), 2) };
+        var baseline = new[]
+        {
+            Hour(now.AddDays(-12), 1),            // more than 3 days before the next: a separate run
+            Hour(now.AddDays(-7), 1),
+            Hour(now.AddDays(-5), 1),
+            Hour(now.AddDays(-3), 0),
+            Hour(now.AddDays(-2), 1),
+        };
+        LanHealthReportBuilder.TroubleSince(window, baseline).Should().Be(now.AddDays(-7));
+        LanHealthReportBuilder.CleanDaysBefore(window, baseline).Should().Be(5);
+    }
+    [Fact]
     public void Scorer_CombinesFindingsAndWeighsFabricByClients()
     {
         LanHealthScorer.LinkScore([new LinkFinding { Points = 20 }, new LinkFinding { Points = 20 }, new LinkFinding { Points = 0 }]).Should().Be(64);
