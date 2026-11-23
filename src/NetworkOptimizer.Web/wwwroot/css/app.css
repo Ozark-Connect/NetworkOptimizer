@@ -20704,6 +20704,34 @@ tr.stats-row-filtered {
 
 /* The ISP Health and LAN Health tiles share these: .health-tile carries the gradient and the grade accent. */
 
+/* LAN Health badges on the LAN maps: beside a link's rate pill (3D) or over the canvas (2D). */
+.lan-health-map-layer {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    overflow: hidden;
+}
+.lan-health-map-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    margin-left: 4px;
+    padding: 1px 5px;
+    border-radius: var(--border-radius);
+    background: var(--bg-tertiary);
+    font-size: 11px;
+    font-weight: 600;
+    line-height: 1.4;
+    cursor: pointer;
+    pointer-events: auto;
+}
+.lan-health-map-layer .lan-health-map-badge {
+    position: absolute;
+    margin-left: 0;
+    transform: translateY(-50%);
+}
+.lan-flow-map-link-label .lan-health-map-badge.is-healthy { display: none; }
+.lan-flow-map-link-label:hover .lan-health-map-badge.is-healthy { display: inline-flex; }
 /* ---- Monitoring - LAN Health (scoped to .lan-health) ---- */
 .lan-health .lan-health-toolbar {
     display: flex;
@@ -28542,6 +28570,14 @@ body:has(.top-bar-hidden) .btn-fit {
 }
 
 /* Hover target for a band's tooltip only; the row layer (.cc-row-band) draws it across the full row. */
+.change-control .cc-cutover {
+    position: absolute;
+    top: 0;
+    bottom: 4%;
+    width: 0;
+    border-left: 1px dashed var(--text-muted);
+}
+
 .change-control .cc-band {
     position: absolute;
     top: 0;

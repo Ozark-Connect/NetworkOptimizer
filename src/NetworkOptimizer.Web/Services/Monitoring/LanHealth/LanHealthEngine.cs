@@ -113,6 +113,9 @@ public sealed class LanHealthEngine
             if (sw.Elapsed > SlowRun)
                 _logger.LogInformation("LAN Health for {Site} rolled up {Hours} hour(s) in {Seconds:0.0} s", _slug, missing.Count, sw.Elapsed.TotalSeconds);
             await PruneAsync(ct);
+            await using (var cutDb = await _db(ct))
+                CutoverAt = await cutDb.LanHealthSiteHours.AsNoTracking().OrderBy(h => h.HourStart).Select(h => (DateTime?)h.HourStart).FirstOrDefaultAsync(ct) is DateTime c
+                    ? DateTime.SpecifyKind(c, DateTimeKind.Utc) : null;
             lock (_reports) _reports.Clear();
             var report = await GetReportAsync(48, TimeZoneInfo.Utc, DisplayFormat.Fallback, ct);
             Refreshed?.Invoke(report);
@@ -504,6 +507,9 @@ public sealed class LanHealthEngine
         var report = await GetReportAsync(hours, zone, format, ct);
         return report.Links.FirstOrDefault(l => l.Link.Id == linkId);
     }
+
+    /// <summary>The first hour LAN Health rolled up (the Site Health cutover), once known; read without waiting.</summary>
+    public DateTime? CutoverAt { get; private set; }
 
     /// <summary>The stored site hours in [from, to): each hour's own impairment and worst link, for Site Health.</summary>
     public async Task<IReadOnlyDictionary<DateTime, (double Impairment, string? Worst)>> GetSiteHoursAsync(DateTime from, DateTime to, CancellationToken ct)

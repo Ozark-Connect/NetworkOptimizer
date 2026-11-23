@@ -34,6 +34,24 @@ public static class LanFlowMapEndpoints
                 }
             });
 
+        // LAN Health per fabric link, keyed by the map's own link id ("uplink-{child mac}"), for the
+        // health badge beside each link's throughput label on both maps.
+        read.MapGet("/api/monitoring/lan-flow-map/link-health",
+            async (NetworkOptimizer.Web.Services.Monitoring.LanHealth.ILanHealthService lanHealth, CancellationToken ct) =>
+            {
+                var report = await lanHealth.GetReportAsync(48, TimeZoneInfo.Utc, NetworkOptimizer.Core.Helpers.DisplayFormat.Fallback, ct);
+                return Results.Ok(report.Links.Where(l => l.Link.IsFabric && l.Link.Downstream.DeviceMac.Length > 0)
+                    .Select(l => new
+                    {
+                        mapLinkId = $"uplink-{l.Link.Downstream.DeviceMac}",
+                        linkId = l.Link.Id,
+                        score = Math.Round(l.Score),
+                        status = NetworkOptimizer.Web.Components.Shared.Monitoring.LanHealthPanel.StatusLabel(l.Status),
+                        healthy = l.Score >= NetworkOptimizer.Web.Services.Monitoring.LanHealth.LanHealthScorer.HealthyScore,
+                        href = NetworkOptimizer.Web.Services.Monitoring.LanHealth.LanHealthLinks.Link(l.Link.Id),
+                    }));
+            });
+
         read.MapGet("/api/monitoring/lan-flow-map/live",
             async (LanFlowMapService svc, IClientIcons icons, ILogger<LanFlowMapService> logger, CancellationToken ct) =>
             {

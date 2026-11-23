@@ -206,6 +206,23 @@ Time-series monitoring on your own InfluxDB, fed by SNMP polling (InfluxDB).
 - Per-WAN scores on multi-WAN sites (WAN Vantage)
 - **Export PDF** report for any window
 
+### LAN Health
+
+- Finds the LAN faults UniFi Network does not report: links that drop for a few seconds, errors on one end, storms, soft mesh backhauls
+- **LAN Health Score** for the site, weighted by the clients behind each link; **Score History** hourly
+- Scores every fabric link (wired uplinks and mesh backhauls) and every wired access port
+- One incident per event, merged across every source that saw it, with **What Each Source Saw**
+- Sources: UniFi port tables, SNMP, fabric probes, the AP Agent's kernel link log ([AP Telemetry](#ap-telemetry)), the gateway's switch chip ([On-Site Agent](#on-site-agent))
+- **Findings**: Link Flapping, Link Speed Degraded, Link Errors (which end receives them), Broadcast Storm, Network Loop, Discards Under Load, Below Capability, Optics, PoE Power Cycling
+- Mesh backhauls: signal and PHY rate against their own normal, parent changes, MLO links lost or out of balance
+- Configuration checks: STP root, versions, Edge ports, BPDU guard, blocked ports; native VLAN, trunk VLAN, Jumbo Frames, Flow Control; LACP; multicast
+- Reboots, device upgrades and provisioning, Firmware Rollout waves, Change Control changes, and sleeping clients explain a relink instead of scoring it
+- Link page: **Both Ends**, **Timeline**, and **Next Steps** for every link
+- Exclusions (Site Admin): **Mute alerts** or **Exclude from score** for a port, its port profile, or a device
+- Alerts: **Link Flapping**, **Link Speed Degraded**, **Link Errors**, **Broadcast Storm**, **Unusual Link Utilization**
+- Feeds Site Health's LAN factor and the Firmware Rollout health gate
+- **LAN Health** tile on Live View
+
 ### Network Performance
 
 - **Latency & Packet Loss** - RTT, loss, and WAN throughput charts with a stats table

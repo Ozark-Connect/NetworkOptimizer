@@ -59,6 +59,11 @@
             <polyline points="@line" fill="none" style="stroke:@ColorB" stroke-width="1.5" vector-effect="non-scaling-stroke" stroke-linejoin="round" />
         }
     </svg>
+    @if (Cutover is DateTime cut && cut > From && cut < To)
+    {
+        @* The hour LAN Health replaced Site Health's LAN inputs; earlier hours keep the old model. *@
+        <div class="cc-cutover" style="left:@F(CcFormat.Pct(cut, From, To))%" data-tooltip="LAN Health"></div>
+    }
     @if (ShowMarkers)
     {
         @foreach (var m in Markers)
@@ -81,6 +86,9 @@
     [Parameter] public IReadOnlyList<LaneLine> Lines { get; set; } = [];
     /// <summary>Site Health buckets: drawn on a fixed 60 to 100 axis, colored by level, with hover per bucket.</summary>
     [Parameter] public IReadOnlyList<NetworkOptimizer.Web.Services.ChangeControl.SiteHealth.HealthPoint>? Health { get; set; }
+
+    /// <summary>The first hour LAN Health fed the health line, marked on it; null draws no mark.</summary>
+    [Parameter] public DateTime? Cutover { get; set; }
 
     // 60 to 100: below 60 is already red and flat-lines at the floor, and the band that matters stays readable.
     private const double HealthFloor = 60;
