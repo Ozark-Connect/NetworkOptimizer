@@ -720,7 +720,7 @@ public static class LanHealthDetectors
         if (ratio >= 0.6) return null;
         return new LinkFinding
         {
-            Detector = Detectors.CapacityTrend,
+            Detector = Detectors.SlowSpeedTests,
             LinkId = ev.Link.Id,
             Severity = FindingSeverity.Info,
             Class = "Slow Speed Tests",

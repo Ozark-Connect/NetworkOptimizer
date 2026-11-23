@@ -80,9 +80,26 @@ public class LanHealthAlertTests
     {
         var bus = new CapturingBus();
         var e = Evaluator(bus);
-        await e.EvaluateAsync(Report(Link("a", fabric: false, classes: "Link Speed Degraded")), None, T0);
-        await e.EvaluateAsync(Report(Link("a", fabric: false, classes: "Link Speed Degraded")), None, T0.AddMinutes(6));
+        await e.EvaluateAsync(Report(Link("a", fabric: false, classes: "Link Errors")), None, T0);
+        await e.EvaluateAsync(Report(Link("a", fabric: false, classes: "Link Errors")), None, T0.AddMinutes(6));
         bus.Published.Single().Severity.Should().Be(AlertSeverity.Info);
+    }
+
+    [Fact]
+    public async Task SpeedDegraded_AlertsOnAFabricSpeedOrDuplexFault_NotAnAccessClientsSlowerLink()
+    {
+        LinkHealth WithDetector(string id, bool fabric, int detector)
+        {
+            var l = Link(id, fabric);
+            l.Findings.Add(new LinkFinding { LinkId = id, Class = "Link Speed Degraded", Title = "Link Speed Degraded: x", Body = "b", Detector = detector });
+            return l;
+        }
+        var bus = new CapturingBus();
+        var e = Evaluator(bus);
+        var report = Report(WithDetector("f", true, Detectors.SpeedDownshift), WithDetector("a", false, Detectors.AccessDegraded));
+        await e.EvaluateAsync(report, None, T0);
+        await e.EvaluateAsync(report, None, T0.AddMinutes(6));
+        bus.Published.Should().ContainSingle().Which.Context["link_id"].Should().Be("f");
     }
 
     [Fact]

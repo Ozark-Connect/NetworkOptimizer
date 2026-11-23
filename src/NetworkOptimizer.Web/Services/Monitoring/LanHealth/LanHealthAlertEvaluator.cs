@@ -82,7 +82,9 @@ public sealed class LanHealthAlertEvaluator
             var quiet = link.Exclusion != null || suppressed.Contains(link.Link.Id);
             foreach (var (type, classes) in Classes)
             {
-                var finding = link.Findings.FirstOrDefault(f => classes.Contains(f.Class));
+                // Link Speed Degraded alerts on a fabric speed or duplex fault only, not an access client's slower link.
+                var finding = link.Findings.FirstOrDefault(f => classes.Contains(f.Class)
+                    && (type != SpeedDegraded || f.Detector is Detectors.SpeedDownshift or Detectors.DuplexMismatch));
                 // One alert for a loop, not one per port: the per-port storms fold into it, and the loop's own
                 // port raises the loop, not its storm.
                 if (type == Storm && loop != null)

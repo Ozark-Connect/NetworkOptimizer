@@ -1,4 +1,4 @@
-namespace NetworkOptimizer.Storage.Models.Identity;
+﻿namespace NetworkOptimizer.Storage.Models.Identity;
 
 /// <summary>
 /// A single append-only audit record. Stored in the main DB (not per-site DBs) with

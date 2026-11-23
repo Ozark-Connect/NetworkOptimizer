@@ -258,7 +258,8 @@ public static class LanSiteDetectors
         var folded = links.SelectMany(f => disabled.Keys.Where(d => f.Body.Contains(d, StringComparison.Ordinal))).ToHashSet();
         var result = config
             .Where(i => !(i.DeviceName != null && folded.Contains(i.DeviceName) && disabled.ContainsKey(i.DeviceName)))
-            .Select(i => Site(Detectors.MtuMismatch, i.Title.Contains("Jumbo", StringComparison.OrdinalIgnoreCase) ? "Jumbo Frames" : "Flow Control",
+            .Select(i => Site(i.Title.Contains("Jumbo", StringComparison.OrdinalIgnoreCase) ? Detectors.MtuMismatch : Detectors.FlowControl,
+                i.Title.Contains("Jumbo", StringComparison.OrdinalIgnoreCase) ? "Jumbo Frames" : "Flow Control",
                 i.DeviceName ?? "site", $"{i.Description} {i.Recommendation}".Trim(), chips: "Config"))
             .ToList();
         result.AddRange(links);
@@ -454,7 +455,7 @@ public static class LanSiteDetectors
             var churning = ports.Count(l => l.Drops + l.DropsExplained >= LanHealthDetectors.FlappingDropsAccess);
             if (ports.Count < 3 || churning * 10 < ports.Count * 6) continue;
             var name = s.PortProfiles.FirstOrDefault(p => p.Id == g.Key)?.Name ?? g.Key;
-            yield return Site(Detectors.StpConfig, "Churn by Design", name,
+            yield return Site(Detectors.ChurnByDesign, "Churn by Design", name,
                 $"{churning} of {ports.Count} access ports on the {name} profile relink many times a day. If that's expected (guest rooms, a lab), exclude the profile from any of its ports' pages with Mute alerts or Exclude from score.",
                 chips: "Exclusions");
         }

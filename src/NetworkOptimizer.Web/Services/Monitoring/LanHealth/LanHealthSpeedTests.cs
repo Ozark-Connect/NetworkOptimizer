@@ -93,7 +93,7 @@ public static class LanHealthSpeedTests
                 : $"No speed test has run across this link in 30 days. Run a Client Speed Test from a wired client connected below {l.Downstream.DeviceName} to measure it.";
             yield return new LinkFinding
             {
-                Detector = Detectors.CapacityTrend,
+                Detector = Detectors.UntestedLink,
                 LinkId = l.Id,
                 Severity = FindingSeverity.Info,
                 Class = "Untested Link",
@@ -120,7 +120,7 @@ public static class LanHealthSpeedTests
         if (candidate.Mac == null) return null;
         return new LinkFinding
         {
-            Detector = Detectors.HairpinLoad,
+            Detector = Detectors.CrossVlanTest,
             Severity = FindingSeverity.Info,
             Class = "Cross-VLAN Test",
             Title = $"Cross-VLAN Test: {candidate.Name}",
