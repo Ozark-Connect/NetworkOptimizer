@@ -43,10 +43,16 @@ public class WirelessClientInfo
     public string? AccessPointModelName { get; init; }
 
     /// <summary>
+    /// UniFi's own display name for the client (v2 active clients), such as the auto name "iPhone fa:b1".
+    /// stat/sta does not carry it, so the caller sets it.
+    /// </summary>
+    public string? ConsoleDisplayName { get; set; }
+
+    /// <summary>
     /// Display name for the client (name, hostname, product, category, or MAC)
     /// </summary>
     public string DisplayName =>
-        UniFi.ClientNames.For(Client) is { } name ? name :
+        UniFi.ClientNames.For(Client, ConsoleDisplayName) is { } name ? name :
         !string.IsNullOrWhiteSpace(Detection.ProductName) ? Detection.ProductName :
         Detection.Category != Core.Enums.ClientDeviceCategory.Unknown ? Detection.CategoryName :
         !string.IsNullOrWhiteSpace(Client.Mac) ? Client.Mac : "Unknown";
