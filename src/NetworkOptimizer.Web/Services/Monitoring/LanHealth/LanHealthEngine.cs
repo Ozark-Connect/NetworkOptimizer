@@ -41,6 +41,9 @@ public sealed class LanHealthEngine
     private Topology? _topology;
     private DateTime _topologyAt = DateTime.MinValue;
     private readonly Dictionary<DateTime, (DateTime At, List<LanHealthLinkHour> Rows)> _liveHours = [];
+
+    /// <summary>Wired clients changing switch port between topology reads, for MAC Flapping.</summary>
+    internal MacMoveTracker MacMoves { get; } = new();
     private readonly Dictionary<string, (DateTime At, LanHealthReport Report)> _reports = new();
 
     /// <summary>Raised after a roll-up or a live refresh, so open pages and the alert evaluator can act.</summary>
@@ -281,6 +284,10 @@ public sealed class LanHealthEngine
             SubtreeAps = subtreeAps,
         };
         _topologyAt = DateTime.UtcNow;
+        // Wired clients by the port they sit on, named as the links name it ("Switch A Port 3").
+        var portName = devices.Where(d => !string.IsNullOrEmpty(d.Mac)).GroupBy(d => LanLinkBuilder.Mac(d.Mac)).ToDictionary(g => g.Key, g => g.First().Name ?? g.Key);
+        MacMoves.Observe(_topologyAt, clients.Where(c => c.IsWired && c.SwPort is > 0 && !string.IsNullOrEmpty(c.SwMac))
+            .Select(c => (c.Mac, NetworkOptimizer.UniFi.ClientNames.For(c), $"{portName.GetValueOrDefault(LanLinkBuilder.Mac(c.SwMac)) ?? c.SwMac} Port {c.SwPort}")));
         return _topology;
     }
 
@@ -601,7 +608,7 @@ public sealed class LanHealthEngine
             .GroupBy(r => topology.Links.FirstOrDefault(l => l.Id == r.LinkId)?.Upstream.DeviceMac ?? "")
             .ToDictionary(g => g.Key, g => g.Sum(r => r.StpChanges ?? 0) / Math.Max(1, LanHealthReportBuilder.BaselineDays * 24));
         var report = LanHealthReportBuilder.Build(topology.Links, rows, baseline, topology.Exclusions, topology.ScoreFabricOnly,
-            (links, evidence) => SiteEvidenceFor(topology, links, evidence, text, hours, forwarding, informFailures, stpBaseline), text, from, to, attributed,
+            (links, evidence) => SiteEvidenceFor(topology, links, evidence, text, hours, forwarding, informFailures, stpBaseline, MacMoves.Since(from)), text, from, to, attributed,
             // Optics reads the modules now: the live report only, since a stored past hour has no reading of its own.
             await SfpAsync(topology, ct));
         AddTestSuggestions(report, topology, tests);
@@ -704,8 +711,10 @@ public sealed class LanHealthEngine
 
     private static SiteEvidence SiteEvidenceFor(Topology t, IReadOnlyList<LinkHealth> links, IReadOnlyDictionary<string, LinkEvidence> evidence,
         FindingText text, int hours, (int Tests, double RatioToNorm)? forwarding,
-        IReadOnlyDictionary<string, int> informFailures, IReadOnlyDictionary<string, double> stpBaseline) => new()
+        IReadOnlyDictionary<string, int> informFailures, IReadOnlyDictionary<string, double> stpBaseline,
+        IReadOnlyList<(string Mac, string Name, int Moves, IReadOnlyList<string> Ports)>? macMoves = null) => new()
         {
+            MacMoves = macMoves ?? [],
             GatewayForwarding = forwarding,
             InformFailures = informFailures,
             DeviceHealth = t.Devices.Where(d => !string.IsNullOrEmpty(d.Mac)).GroupBy(d => LanLinkBuilder.Mac(d.Mac))
