@@ -7,7 +7,7 @@ using NetworkOptimizer.Web.Services.Gates;
 namespace NetworkOptimizer.Web.Services.Monitoring.LanHealth;
 
 /// <summary>A score and grade for the LAN Health tile, as the ISP Health tile shows its own.</summary>
-public sealed record LanHealthTile(double? Score, bool Ready, int Findings);
+public sealed record LanHealthTileScore(double? Score, bool Ready, int Findings);
 
 /// <summary>
 /// Monitoring - LAN Health for the site in context. Reads are open to any role; exclusions are
@@ -26,7 +26,7 @@ public interface ILanHealthService
 
     /// <summary>The tile's score: the latest roll-up, refreshed live while someone watches.</summary>
     [RequireRole(Roles.Viewer)]
-    Task<LanHealthTile> GetTileAsync(CancellationToken ct = default);
+    Task<LanHealthTileScore> GetTileAsync(CancellationToken ct = default);
 
     /// <summary>The site's exclusions.</summary>
     [RequireRole(Roles.Viewer)]
@@ -70,10 +70,10 @@ public sealed class LanHealthService : ILanHealthService
         Engine.GetLinkAsync(linkId, Math.Clamp(hours, 1, 24 * 30), zone, format, ct);
 
     /// <inheritdoc />
-    public async Task<LanHealthTile> GetTileAsync(CancellationToken ct = default)
+    public async Task<LanHealthTileScore> GetTileAsync(CancellationToken ct = default)
     {
         var report = await Engine.GetReportAsync(48, TimeZoneInfo.Utc, DisplayFormat.Fallback, ct);
-        return new LanHealthTile(report.Score, report.Ready, report.Findings.Count(f => f.Points > 0));
+        return new LanHealthTileScore(report.Score, report.Ready, report.Findings.Count(f => f.Points > 0));
     }
 
     /// <inheritdoc />

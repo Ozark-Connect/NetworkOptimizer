@@ -19,6 +19,7 @@
 @inject NetworkOptimizer.Web.Services.UiHintService UiHints
 @inject NavigationManager NavigationManager
 @inject Microsoft.AspNetCore.Mvc.ViewFeatures.IFileVersionProvider FileVersionProvider
+@inject AgentOnGatewayDetector OnGatewayDetector
 
 @* Beats the tiles: a live snapshot with no live source is worth less than saying so. *@
 @if (!_notConfigured && ShowConsoleDownBanner)
@@ -103,12 +104,12 @@ else
                 <div class="stat-label">WAN <span class="desktop-label">Upload@(WanRateCount())</span><span class="mobile-label">&#8593;@WanRateCountShort()</span></div>
             </div>
             @{ var ispHealth = CurrentIspHealth(); }
-            <div class="monitoring-stat-card clickable-stat-card isp-health-tile @ispHealth.TileCssClass" data-tooltip="@ispHealth.TileTooltip" data-tooltip-hover-only @onclick="@(() => NavigationManager.NavigateTo(IspHealthTileHref(ispHealth.Status)))">
-                <div class="stat-value isp-tile-score">@ispHealth.TileText</div>
+            <div class="monitoring-stat-card clickable-stat-card health-tile @ispHealth.TileCssClass" data-tooltip="@ispHealth.TileTooltip" data-tooltip-hover-only @onclick="@(() => NavigationManager.NavigateTo(IspHealthTileHref(ispHealth.Status)))">
+                <div class="stat-value health-tile-score">@ispHealth.TileText</div>
                 <div class="stat-label">@IspHealthTileLabel()</div>
                 @if (ispHealth.Status == IspHealthStatus.Ready && ispHealth.Score.HasValue)
                 {
-                    <div class="isp-tile-bar"><div class="isp-tile-bar-fill" style="width: @(ispHealth.Score)%"></div></div>
+                    <div class="health-tile-bar"><div class="health-tile-bar-fill" style="width: @(ispHealth.Score)%"></div></div>
                 }
             </div>
             @{ var ispTarget = ScopedTargetStats(MonitoringTargetType.AccessIsp); var ispIds = ScopedTargetIds(MonitoringTargetType.AccessIsp); }
@@ -214,16 +215,20 @@ else
                 var gwLatency = GetGatewayLatency();
             }
             @{ var gwTargetId = GetGatewayFabricTargetId(); }
-            <div class="monitoring-stat-card clickable-stat-card signal-spark-host" @onclick="@(() => NavigationManager.NavigateTo(gwFabricUrl))">
-                <StatTileSparkline Spark="LiveViewSpark.GatewayRtt" Request="@LiveSparkRequest()" Current="gwLatency.rtt" Live="true" />
-                <div class="stat-value">@FormatRtt(gwLatency.rtt)</div>
-                <div class="stat-label">Gateway RTT</div>
-            </div>
-            <div class="monitoring-stat-card clickable-stat-card signal-spark-host" @onclick="@(() => NavigationManager.NavigateTo(gwFabricUrl))">
-                <StatTileSparkline Spark="LiveViewSpark.GatewayLoss" Request="@LiveSparkRequest()" Current="@(gwTargetId != null ? gwLatency.loss : null)" Live="true" />
-                <div class="stat-value @(gwLatency.loss > 0 ? "stat-danger" : "")">@FormatLoss(gwLatency.loss)</div>
-                <div class="stat-label">Gateway Loss</div>
-            </div>
+            @* With the gateway's own agent as the only probe, every gateway probe runs on the gateway: RTT and loss say nothing. *@
+            @if (!_gatewayAgentOnly)
+            {
+                <div class="monitoring-stat-card clickable-stat-card signal-spark-host" @onclick="@(() => NavigationManager.NavigateTo(gwFabricUrl))">
+                    <StatTileSparkline Spark="LiveViewSpark.GatewayRtt" Request="@LiveSparkRequest()" Current="gwLatency.rtt" Live="true" />
+                    <div class="stat-value">@FormatRtt(gwLatency.rtt)</div>
+                    <div class="stat-label">Gateway RTT</div>
+                </div>
+                <div class="monitoring-stat-card clickable-stat-card signal-spark-host" @onclick="@(() => NavigationManager.NavigateTo(gwFabricUrl))">
+                    <StatTileSparkline Spark="LiveViewSpark.GatewayLoss" Request="@LiveSparkRequest()" Current="@(gwTargetId != null ? gwLatency.loss : null)" Live="true" />
+                    <div class="stat-value @(gwLatency.loss > 0 ? "stat-danger" : "")">@FormatLoss(gwLatency.loss)</div>
+                    <div class="stat-label">Gateway Loss</div>
+                </div>
+            }
             <div class="monitoring-stat-card clickable-stat-card signal-spark-host" @onclick="@(() => NavigationManager.NavigateTo(gwDeviceUrl))">
                 <StatTileSparkline Spark="LiveViewSpark.GatewayCpu" Request="@LiveSparkRequest()" Current="gwStats?.CpuPercent" Live="true" />
                 <div class="stat-value">@FormatPercent(gwStats?.CpuPercent)</div>
@@ -250,6 +255,7 @@ else
                     <div class="stat-label">Fabric Egress</div>
                 </div>
             </div>
+            <NetworkOptimizer.Web.Components.Shared.Monitoring.LanHealthTile />
         </div>
     </div>
 }
@@ -341,8 +347,12 @@ else
     private string? _mountedMode;
     private bool _chartMounted;
 
+    private bool _gatewayAgentOnly;
+
     protected override async Task OnInitializedAsync()
     {
+        try { _gatewayAgentOnly = await OnGatewayDetector.IsAgentOnGatewayAsync(SiteCtx.Slug); }
+        catch (Exception) { _gatewayAgentOnly = false; }
         LiveWan.OnChanged = OnLiveWanChangedAsync;
         await LoadDataAsync();
         _refreshTimer = new System.Threading.Timer(async _ =>

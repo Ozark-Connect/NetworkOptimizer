@@ -140,6 +140,10 @@ public static class LanHealthReportBuilder
                 Exclusion = ExclusionFor(link, exclusions, scoreFabricOnly),
                 Onset = findings.Where(f => f.Points > 0).Select(f => f.Onset).OfType<DateTime>().DefaultIfEmpty().Min() is var o && o != default ? o : null,
                 CleanDaysBefore = ev.HistoryDays,
+                UpLinkDownCount = linkRows.LastOrDefault(r => r.UpLinkDownCount != null)?.UpLinkDownCount,
+                DownLinkDownCount = linkRows.LastOrDefault(r => r.DownLinkDownCount != null)?.DownLinkDownCount,
+                DownCarrierChanges = linkRows.LastOrDefault(r => r.DownCarrierChanges != null)?.DownCarrierChanges,
+                PoeWatts = linkRows.LastOrDefault(r => r.PoeWattsMax != null)?.PoeWattsMax ?? link.UpstreamPort.PoePowerW,
             };
             health.Score = health.Exclusion == ExclusionLevel.ExcludeFromScore ? 100 : LanHealthScorer.LinkScore(findings);
             report.Links.Add(health);

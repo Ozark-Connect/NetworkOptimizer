@@ -344,6 +344,12 @@ public sealed class LinkHealth
     public DateTime? Onset { get; set; }
     /// <summary>Days of clean history before the onset, when the history reaches that far.</summary>
     public int? CleanDaysBefore { get; set; }
+
+    // The latest since-boot counters each end keeps (null: it keeps none), for the Both Ends card.
+    public double? UpLinkDownCount { get; set; }
+    public double? DownLinkDownCount { get; set; }
+    public double? DownCarrierChanges { get; set; }
+    public double? PoeWatts { get; set; }
 }
 
 /// <summary>The site's LAN Health over a window: the score card, the findings, and every link.</summary>

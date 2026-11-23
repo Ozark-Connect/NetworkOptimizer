@@ -20653,7 +20653,7 @@ tr.stats-row-filtered {
 .monitoring-stat-card .stat-value.isp-score-poor { color: var(--danger-color); }
 .monitoring-stat-card .stat-value.isp-score-none { color: var(--text-muted); }
 
-.isp-health-tile {
+.health-tile {
     position: relative;
     overflow: hidden;
     --tile-accent: var(--text-muted);
@@ -20662,13 +20662,13 @@ tr.stats-row-filtered {
         linear-gradient(160deg, rgba(43, 168, 154, 0.07), transparent 55%);
 }
 
-.isp-health-tile.isp-score-excellent { --tile-accent: var(--success-color); }
-.isp-health-tile.isp-score-good { --tile-accent: var(--good-color); }
-.isp-health-tile.isp-score-fair { --tile-accent: var(--warning-color); }
-.isp-health-tile.isp-score-poor { --tile-accent: var(--danger-color); }
-.isp-health-tile.isp-score-none { --tile-accent: var(--text-muted); }
+.health-tile.isp-score-excellent { --tile-accent: var(--success-color); }
+.health-tile.isp-score-good { --tile-accent: var(--good-color); }
+.health-tile.isp-score-fair { --tile-accent: var(--warning-color); }
+.health-tile.isp-score-poor { --tile-accent: var(--danger-color); }
+.health-tile.isp-score-none { --tile-accent: var(--text-muted); }
 
-.isp-health-tile .stat-value.isp-tile-score {
+.health-tile .stat-value.health-tile-score {
     font-weight: 700;
     letter-spacing: -0.5px;
     -webkit-background-clip: text;
@@ -20677,17 +20677,17 @@ tr.stats-row-filtered {
     color: transparent;
 }
 
-.isp-health-tile.isp-score-excellent .stat-value.isp-tile-score { background-image: linear-gradient(120deg, #34d399, #24bc70); }
-.isp-health-tile.isp-score-good .stat-value.isp-tile-score { background-image: linear-gradient(120deg, #60a5fa, #3b82f6); }
-.isp-health-tile.isp-score-fair .stat-value.isp-tile-score { background-image: linear-gradient(120deg, #fbbf24, #f59e0b); }
-.isp-health-tile.isp-score-poor .stat-value.isp-tile-score { background-image: linear-gradient(120deg, #f87171, #ef4444); }
+.health-tile.isp-score-excellent .stat-value.health-tile-score { background-image: linear-gradient(120deg, #34d399, #24bc70); }
+.health-tile.isp-score-good .stat-value.health-tile-score { background-image: linear-gradient(120deg, #60a5fa, #3b82f6); }
+.health-tile.isp-score-fair .stat-value.health-tile-score { background-image: linear-gradient(120deg, #fbbf24, #f59e0b); }
+.health-tile.isp-score-poor .stat-value.health-tile-score { background-image: linear-gradient(120deg, #f87171, #ef4444); }
 
-.isp-health-tile.isp-score-none .stat-value.isp-tile-score {
+.health-tile.isp-score-none .stat-value.health-tile-score {
     -webkit-text-fill-color: var(--text-muted);
     color: var(--text-muted);
 }
 
-.isp-tile-bar {
+.health-tile-bar {
     position: absolute;
     left: 0;
     right: 0;
@@ -20696,12 +20696,92 @@ tr.stats-row-filtered {
     background: var(--bg-tertiary);
 }
 
-.isp-tile-bar-fill {
+.health-tile-bar-fill {
     height: 100%;
     background: var(--tile-accent);
     transition: width 0.4s ease;
 }
 
+/* The ISP Health and LAN Health tiles share these: .health-tile carries the gradient and the grade accent. */
+
+/* ---- Monitoring - LAN Health (scoped to .lan-health) ---- */
+.lan-health .lan-health-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+    margin-bottom: 1rem;
+}
+.lan-health .lan-health-site-line { color: var(--text-secondary); font-size: 0.875rem; }
+.lan-health .lan-health-top {
+    display: grid;
+    grid-template-columns: minmax(280px, 1fr) 2fr;
+    gap: 1rem;
+    margin-bottom: 1rem;
+}
+.lan-health .lan-health-top > .card { margin-bottom: 0; }
+.lan-health .lan-health-score-body {
+    display: flex;
+    align-items: center;
+    gap: 1.5rem;
+    flex-wrap: wrap;
+}
+.lan-health .lan-health-score-rows { flex: 1 1 160px; display: flex; flex-direction: column; gap: 0.5rem; }
+.lan-health .lan-health-score-row { display: flex; justify-content: space-between; gap: 1rem; }
+.lan-health .lan-health-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; margin-top: 0.5rem; }
+.lan-health .lan-health-chip {
+    padding: 0.125rem 0.5rem;
+    border-radius: var(--border-radius);
+    background: var(--bg-tertiary);
+    color: var(--text-secondary);
+    font-size: 0.75rem;
+}
+.lan-health .lan-health-pts { color: var(--text-muted); font-size: 0.75rem; font-weight: 600; }
+.lan-health .lan-health-view { margin-left: auto; }
+.lan-health .lan-health-links .card-header { flex-wrap: wrap; gap: 0.5rem; }
+.lan-health .lan-health-row { cursor: pointer; }
+.lan-health .lan-health-row:hover { background: var(--bg-hover); }
+.lan-health .lan-health-excluded { opacity: 0.55; }
+.lan-health .lan-health-explained { color: var(--text-muted); }
+.lan-health .lan-health-sub { color: var(--text-muted); font-size: 0.75rem; }
+.lan-health .lan-health-footer { color: var(--text-secondary); font-size: 0.8125rem; margin: 0.75rem 0 0; }
+.lan-health .lan-health-cards { display: none; flex-direction: column; gap: 0.75rem; }
+.lan-health .lan-health-link-card {
+    padding: 0.75rem;
+    border-radius: var(--border-radius);
+    background: var(--bg-tertiary);
+    min-height: 44px;
+    cursor: pointer;
+}
+.lan-health .lan-health-link-card-head { display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; }
+.lan-health .lan-health-link-name { font-weight: 600; }
+.lan-health .lan-health-link-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.5rem; margin-top: 0.5rem; }
+.lan-health .lan-health-link-grid > div { display: flex; flex-direction: column; }
+.lan-health .lan-health-link-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 1rem;
+    flex-wrap: wrap;
+    margin: 0.5rem 0 1rem;
+}
+.lan-health .lan-health-link-head-right { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; }
+.lan-health .lan-health-link-title { margin: 0 0 0.25rem; font-size: 1.25rem; }
+.lan-health .lan-health-tiles { margin-bottom: 1rem; }
+.lan-health .lan-health-tile-text { font-size: 1rem; }
+.lan-health .lan-health-steps { margin: 0; padding-left: 1.25rem; display: flex; flex-direction: column; gap: 0.5rem; }
+.lan-health .lan-health-ends td:first-child { color: var(--text-secondary); }
+
+@media (max-width: 900px) {
+    .lan-health .lan-health-top { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 768px) {
+    .lan-health .lan-health-cards { display: flex; }
+    .lan-health .lan-health-view { margin-left: 0; min-height: 44px; }
+    .lan-health .lan-health-link-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
 .isp-health-card {
     margin-bottom: 1rem;
 }
