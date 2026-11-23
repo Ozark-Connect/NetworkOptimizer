@@ -161,7 +161,14 @@ else
                                     <td class="@ScoreClass(l.Score)">@FormatScore(l.Score)</td>
                                     <td><div>@l.Drops</div>@if (l.DropsExplained > 0) {<div class="lan-health-sub">+@l.DropsExplained explained</div>}</td>
                                     <td>@ErrorsCell(l)</td>
-                                    <td>@(l.ProbeLossPct is double p ? $"{p:0.##}%" : "·")</td>
+                                    <td>@if (l.ProbeLossPct is double p && ProbeHref(l, _report!.To, _report.To - _report.From) is { } ph)
+                                        {
+                                            <a href="@ph" @onclick:stopPropagation="true" data-tooltip="Open this probe on Monitoring - Network Performance">@($"{p:0.##}%")</a>
+                                        }
+                                        else
+                                        {
+                                            @(l.ProbeLossPct is double p2 ? $"{p2:0.##}%" : "·")
+                                        }</td>
                                     <td><span class="status-badge @StatusClass(l.Status)">@StatusLabel(l.Status)</span></td>
                                 </tr>
                             }
@@ -581,7 +588,14 @@ else
                         <tbody>
                             @foreach (var c in l.Coverage.OrderByDescending(c => c.Observing).ThenByDescending(c => c.Caught))
                             {
-                                <tr><td>@SourceName(c.Source, link)</td><td>@CoverageValue(c)@(c.Observing && c.Since is DateTime cs && cs > since.AddHours(1) ? $" since {TimeFormatHelper.FormatLocalDateTime(cs, DisplayTime.Zone, DisplayTime.Format)}" : "")</td></tr>
+                                <tr><td>@if (c.Source == LinkSource.FabricProbe && ProbeHref(l, _report!.To, _report.To - _report.From) is { } sh)
+                                    {
+                                        <a href="@sh" data-tooltip="Open this probe on Monitoring - Network Performance">@SourceName(c.Source, link)</a>
+                                    }
+                                    else
+                                    {
+                                        @SourceName(c.Source, link)
+                                    }</td><td>@CoverageValue(c)@(c.Observing && c.Since is DateTime cs && cs > since.AddHours(1) ? $" since {TimeFormatHelper.FormatLocalDateTime(cs, DisplayTime.Zone, DisplayTime.Format)}" : "")</td></tr>
                             }
                         </tbody>
                     </table>
@@ -607,7 +621,14 @@ else
                                 @foreach (var i in timeline)
                                 {
                                     <tr class="@(i.IsExplained ? "lan-health-explained" : "")">
-                                        <td>@TimeFormatHelper.FormatLocalDateTime(i.At, DisplayTime.Zone, DisplayTime.Format)</td>
+                                        <td>@if (i.SeenBy.Contains(LinkSource.FabricProbe) && _link is { } pl && ProbeHref(pl, i.At.AddMinutes(7.5), TimeSpan.FromMinutes(15)) is { } th)
+                                            {
+                                                <a href="@th" data-tooltip="Open the probe at this time on Monitoring - Network Performance">@TimeFormatHelper.FormatLocalDateTime(i.At, DisplayTime.Zone, DisplayTime.Format)</a>
+                                            }
+                                            else
+                                            {
+                                                @TimeFormatHelper.FormatLocalDateTime(i.At, DisplayTime.Zone, DisplayTime.Format)
+                                            }</td>
                                         <td>@EventLabel(i)@(i.Explained is ExplainReason er ? $" ({ShortReason(er)})" : "")</td>
                                         <td>@string.Join(" · ", i.SeenBy.Select(s => SourceName(s, link)))</td>
                                         <td class="hide-mobile">@Note(i)</td>
@@ -757,6 +778,12 @@ else
         if (i.MissedBy.Contains(LinkSource.FabricProbe)) return "Between probe bursts";
         return "";
     }
+
+    /// <summary>Network Performance on the link's fabric probe over a window ending at <paramref name="end"/>; null when nothing probes it.</summary>
+    private static string? ProbeHref(LinkHealth l, DateTime end, TimeSpan span) =>
+        string.IsNullOrEmpty(l.ProbeTargetId) ? null
+        : NetworkOptimizer.Web.Services.Monitoring.MonitoringLinks.FabricTargetWindow(l.ProbeTargetId, new DateTimeOffset(DateTime.SpecifyKind(end, DateTimeKind.Utc)).ToUnixTimeMilliseconds(),
+            (long)span.TotalMilliseconds, "lan-health");
 
     /// <summary>Why a greyed row is explained, short enough for the Event cell (the Note column hides on phones).</summary>
     private static string ShortReason(ExplainReason r) => r switch

@@ -385,6 +385,8 @@ public sealed class LinkHealth
     public List<LinkIncident> Incidents { get; init; } = [];
     public List<LinkFinding> Findings { get; init; } = [];
     public List<SourceCoverage> Coverage { get; init; } = [];
+    /// <summary>The fabric probe target for the link's downstream device, for the jump to Network Performance.</summary>
+    public string? ProbeTargetId { get; set; }
     public int Drops => (int)Incidents.Where(i => !i.IsExplained && i.Kind is IncidentKind.Drop or IncidentKind.Relink).Sum(i => i.Count);
     public int DropsExplained => (int)Incidents.Where(i => i.IsExplained && i.Kind is IncidentKind.Drop or IncidentKind.Relink).Sum(i => i.Count);
     public double ErrorsUpstreamRx { get; set; }

@@ -69,7 +69,7 @@ public sealed class SiteHealthJob
     /// LAN Health's own impairment per hour, which replaces the Fabric loss and port error inputs for
     /// every hour LAN Health has rolled up. Hours before LAN Health keep the inputs they were scored with.
     /// </summary>
-    public Func<DateTime, DateTime, CancellationToken, Task<IReadOnlyDictionary<DateTime, (double Impairment, string? Worst)>>>? LanHours { get; set; }
+    public Func<DateTime, DateTime, CancellationToken, Task<IReadOnlyDictionary<DateTime, (double Impairment, string? Worst, string? WorstLinkId)>>>? LanHours { get; set; }
 
     /// <summary>When each LAN Health hour was stored: a Site Health hour scored before its LAN hour landed (or before a LAN recompute) is redone.</summary>
     public Func<DateTime, DateTime, CancellationToken, Task<IReadOnlyDictionary<DateTime, DateTime>>>? LanHourTimes { get; set; }
@@ -174,7 +174,7 @@ public sealed class SiteHealthJob
             ? influx.QueryDeviceCpuAsync(gatewayMac, from, to, fine, ct)
             : Task.FromResult<IReadOnlyList<(DateTime Time, double Value)>>([]);
         await Task.WhenAll(lossTask, satisfactionTask, wirelessTask, wiredTask, fabricTask, portsTask, ratesTask, cpuTask);
-        IReadOnlyDictionary<DateTime, (double Impairment, string? Worst)> lanHours = new Dictionary<DateTime, (double, string?)>();
+        IReadOnlyDictionary<DateTime, (double Impairment, string? Worst, string? WorstLinkId)> lanHours = new Dictionary<DateTime, (double, string?, string?)>();
         if (LanHours != null)
         {
             try { lanHours = await LanHours(from, to, ct); }
@@ -229,7 +229,7 @@ public sealed class SiteHealthJob
                 wiredTask.Result, fabricTask.Result, portsTask.Result, cpu, alerts, rollout, fabricDevices, topology, gatewayMacs, primaryKey,
                 Baseline(history.Concat(result), hour), gatewaySeries, gatewayBucket, isp.Options);
             if (lanHours.TryGetValue(hour, out var lan))
-                inputs = inputs.WithLanHealth(lan.Impairment, lan.Worst);
+                inputs = inputs.WithLanHealth(lan.Impairment, lan.Worst, lan.WorstLinkId is { } id ? Monitoring.LanHealth.LanHealthLinks.Link(id) : null);
             result.Add(SiteHealthScorer.Score(inputs, profile, DateTime.UtcNow));
         }
         return result;

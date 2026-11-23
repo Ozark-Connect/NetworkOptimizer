@@ -594,6 +594,8 @@ public sealed class LanHealthEngine
         var report = LanHealthReportBuilder.Build(topology.Links, rows, baseline, topology.Exclusions, topology.ScoreFabricOnly,
             (links, evidence) => SiteEvidenceFor(topology, links, evidence, text, hours, forwarding, informFailures, stpBaseline), text, from, to, attributed);
         AddTestSuggestions(report, topology, tests);
+        foreach (var l in report.Links)
+            l.ProbeTargetId = topology.TargetDevices.FirstOrDefault(kv => string.Equals(kv.Value, l.Link.Downstream.DeviceMac, StringComparison.OrdinalIgnoreCase)).Key;
         var history = await db.LanHealthSiteHours.AsNoTracking().Where(h => h.HourStart >= from && h.HourStart < to && h.Score != null)
             .OrderBy(h => h.HourStart).Select(h => new { h.HourStart, h.Score }).ToListAsync(ct);
         report.History.AddRange(history.Select(h => (DateTime.SpecifyKind(h.HourStart, DateTimeKind.Utc), h.Score!.Value)));
@@ -738,13 +740,20 @@ public sealed class LanHealthEngine
     public DateTime? CutoverAt { get; private set; }
 
     /// <summary>The stored site hours in [from, to): each hour's own impairment and worst link, for Site Health.</summary>
-    public async Task<IReadOnlyDictionary<DateTime, (double Impairment, string? Worst)>> GetSiteHoursAsync(DateTime from, DateTime to, CancellationToken ct)
+    /// <summary>Each stored hour's LAN impairment, its worst link's name, and that link's id (from the same hour's link rows).</summary>
+    public async Task<IReadOnlyDictionary<DateTime, (double Impairment, string? Worst, string? WorstLinkId)>> GetSiteHoursAsync(DateTime from, DateTime to, CancellationToken ct)
     {
         await using var db = await _db(ct);
-        return (await db.LanHealthSiteHours.AsNoTracking()
-                .Where(h => h.HourStart >= from && h.HourStart < to && h.HourImpairment != null)
-                .Select(h => new { h.HourStart, h.HourImpairment, h.Worst }).ToListAsync(ct))
-            .ToDictionary(h => DateTime.SpecifyKind(h.HourStart, DateTimeKind.Utc), h => (h.HourImpairment!.Value, h.Worst));
+        var hours = await db.LanHealthSiteHours.AsNoTracking()
+            .Where(h => h.HourStart >= from && h.HourStart < to && h.HourImpairment != null)
+            .Select(h => new { h.HourStart, h.HourImpairment, h.Worst }).ToListAsync(ct);
+        var names = hours.Where(h => h.Worst != null).Select(h => h.Worst!).Distinct().ToList();
+        var ids = names.Count == 0 ? [] : await db.LanHealthLinkHours.AsNoTracking()
+            .Where(r => r.HourStart >= from && r.HourStart < to && r.Name != null && names.Contains(r.Name))
+            .Select(r => new { r.HourStart, r.Name, r.LinkId }).ToListAsync(ct);
+        var idOf = ids.GroupBy(r => (r.HourStart, r.Name)).ToDictionary(g => g.Key, g => g.First().LinkId);
+        return hours.ToDictionary(h => DateTime.SpecifyKind(h.HourStart, DateTimeKind.Utc),
+            h => (h.HourImpairment!.Value, h.Worst, h.Worst != null ? idOf.GetValueOrDefault((h.HourStart, (string?)h.Worst)) : null));
     }
 
     /// <summary>When each stored LAN Health hour in [from, to) was last computed, so Site Health can redo hours scored before it.</summary>
@@ -782,7 +791,7 @@ public sealed class LanHealthEngine
 /// <summary>Site Health's read of LAN Health's hours.</summary>
 public static class LanHealthSiteHours
 {
-    public static Task<IReadOnlyDictionary<DateTime, (double Impairment, string? Worst)>> ReadAsync(LanHealthEngine engine, DateTime from, DateTime to, CancellationToken ct) =>
+    public static Task<IReadOnlyDictionary<DateTime, (double Impairment, string? Worst, string? WorstLinkId)>> ReadAsync(LanHealthEngine engine, DateTime from, DateTime to, CancellationToken ct) =>
         engine.GetSiteHoursAsync(from, to, ct);
 
     public static Task<IReadOnlyDictionary<DateTime, DateTime>> ReadTimesAsync(LanHealthEngine engine, DateTime from, DateTime to, CancellationToken ct) =>
