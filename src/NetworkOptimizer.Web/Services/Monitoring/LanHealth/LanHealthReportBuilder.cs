@@ -87,7 +87,7 @@ public static class LanHealthReportBuilder
             .SelectMany(r => new[] { new SpeedReading(r.HourStart, r.SpeedMinMbps!.Value, null, LinkSource.PortTableState),
                 new SpeedReading(r.HourStart.AddMinutes(59), r.SpeedMaxMbps ?? r.SpeedMinMbps!.Value, null, LinkSource.PortTableState) })
             .ToList();
-        var usual = baseline.Concat(rows).Select(r => r.SpeedMaxMbps).OfType<int>().DefaultIfEmpty().Max();
+        var usual = UsualSpeed(link, baseline.Concat(rows));
         return new LinkEvidence
         {
             Link = link,
@@ -142,6 +142,15 @@ public static class LanHealthReportBuilder
             HistoryDays = historyDays,
         };
     }
+
+    /// <summary>
+    /// The fastest speed the link reached over its hours: its usual speed. A wired fabric link's id names both devices,
+    /// so a new device is a new link; an access port keeps its id, so only the hours with today's client count
+    /// (the link's name names the client), and a new client starts fresh.
+    /// </summary>
+    internal static int UsualSpeed(LinkRecord link, IEnumerable<LanHealthLinkHour> hours) =>
+        hours.Where(r => link.Kind != LinkKind.Access || r.Name == null || r.Name == link.Name)
+            .Select(r => r.SpeedMaxMbps).OfType<int>().DefaultIfEmpty().Max();
 
     /// <summary>Transmit attempts below which a retry rate is noise.</summary>
     internal const double MeshRetryMinAttempts = 100_000;

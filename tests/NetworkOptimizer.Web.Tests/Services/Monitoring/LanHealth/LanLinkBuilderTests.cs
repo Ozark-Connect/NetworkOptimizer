@@ -149,4 +149,15 @@ public class LanLinkBuilderTests
         var r = LanHealthReportBuilder.SfpReadings([fiber, Build()[0]], devices, best);
         r.Should().ContainSingle().Which.Value.Should().Be(new LanHealthReportBuilder.SfpReading(-11.2, -6.9, 48));
     }
+
+    [Fact]
+    public void UsualSpeed_OnAnAccessPort_StartsOverForANewClient()
+    {
+        var port = Build().First(l => l.Id == LanLinkBuilder.AccessId(Gw, 3));
+        var old = new NetworkOptimizer.Storage.Models.LanHealthLinkHour { Name = "Gateway A Port 3 to Old PC", SpeedMaxMbps = 2500 };
+        var now = new NetworkOptimizer.Storage.Models.LanHealthLinkHour { Name = port.Name, SpeedMaxMbps = 1000 };
+        LanHealthReportBuilder.UsualSpeed(port, [old, now]).Should().Be(1000, "the 2.5G belonged to the previous client");
+        var fabric = Build().First(l => l.Kind == LinkKind.FabricWired);
+        LanHealthReportBuilder.UsualSpeed(fabric, [old, now]).Should().Be(2500, "a fabric link's id already changes with its device");
+    }
 }
