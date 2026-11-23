@@ -87,6 +87,12 @@ public static class InfluxFieldNames
     /// <summary>Gateway switch chip transmit CRC errors (On-Site Agent, swconfig).</summary>
     public const string ChipTxCrcErrors = "chip_tx_crc_errors";
 
+    /// <summary>Gateway switch chip transmit discards on the port itself (On-Site Agent, swconfig).</summary>
+    public const string ChipOutDiscards = "chip_out_discards";
+
+    /// <summary>Gateway switch chip pause frames received (On-Site Agent, swconfig).</summary>
+    public const string ChipRxPauseFrames = "chip_rx_pause_frames";
+
     /// <summary>Gateway switch chip late collisions (On-Site Agent, swconfig).</summary>
     public const string ChipLateCollisions = "chip_late_collisions";
 

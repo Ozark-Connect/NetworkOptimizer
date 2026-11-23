@@ -87,7 +87,8 @@ public static class LanHealthReportBuilder
     }
 
     private static LinkHourSample Sample(LanHealthLinkHour r) => new(r.HourStart, r.MaxInBps, r.MaxOutBps, r.MeanInBps, r.MeanOutBps,
-        r.BroadcastPps, r.MulticastPps, r.PacketsPps, (r.UpTxDiscards ?? 0) + (r.DownTxDiscards ?? 0), (r.UpRxErrors ?? 0) + (r.DownRxErrors ?? 0));
+        r.BroadcastPps, r.MulticastPps, r.PacketsPps, (r.UpTxDiscards ?? 0) + (r.DownTxDiscards ?? 0), (r.UpRxErrors ?? 0) + (r.DownRxErrors ?? 0),
+        (r.UpTxPackets ?? 0) + (r.DownTxPackets ?? 0));
 
     /// <summary>
     /// Clean days of history before the first unexplained drop or loss burst in the window: how far

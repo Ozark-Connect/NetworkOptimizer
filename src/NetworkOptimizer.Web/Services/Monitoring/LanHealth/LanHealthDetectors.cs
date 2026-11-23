@@ -246,14 +246,38 @@ public static class LanHealthDetectors
         };
     }
 
+    /// <summary>
+    /// Transmit discards per million packets that are normal for a link's class, from the 2026-11-22
+    /// calibration: gateway ports egressing to APs ran up to ~515 on healthy links, other gateway ports
+    /// up to ~27 (p90), and switch ports 0.
+    /// </summary>
+    internal static double NormalDiscardsPerMillion(LinkRecord link) =>
+        link.Upstream.IsGateway ? (link.Downstream.IsAccessPoint ? 600 : 100) : 10;
+
+    /// <summary>
+    /// Discards worth reporting: above the class's calibrated normal and well above the link's own
+    /// baseline. Returns the rate per million when they are, else null.
+    /// </summary>
+    internal static double? UnusualDiscards(LinkEvidence ev)
+    {
+        var total = (ev.Upstream.TxDiscards ?? 0) + (ev.Downstream.TxDiscards ?? 0);
+        var packets = (ev.Upstream.TxPackets ?? 0) + (ev.Downstream.TxPackets ?? 0);
+        if (total < 100 || packets <= 0) return null;
+        var rate = total / packets * 1e6;
+        if (rate <= NormalDiscardsPerMillion(ev.Link)) return null;
+        var baseDiscards = ev.BaselineHours.Sum(h => h.Discards ?? 0);
+        var basePackets = ev.BaselineHours.Sum(h => h.TxPackets ?? 0);
+        if (basePackets > 0 && rate <= baseDiscards / basePackets * 1e6 * 3) return null;
+        return rate;
+    }
+
     // ---- 7 Discards / saturation (load, not a link fault) ----
     internal static LinkFinding? Discards(LinkEvidence ev, IReadOnlyList<LinkIncident> incidents)
     {
         var up = ev.Upstream.TxDiscards ?? 0;
         var down = ev.Downstream.TxDiscards ?? 0;
         var total = up + down;
-        var packets = (ev.Upstream.TxPackets ?? 0) + (ev.Downstream.TxPackets ?? 0);
-        if (total < 100 || (packets > 0 && total / packets < 1e-5)) return null;
+        if (UnusualDiscards(ev) == null) return null;
         var end = up >= down ? ev.Link.Upstream.DeviceName : ev.Link.Downstream.DeviceName;
         var flow = FlowControlOn(ev.Link);
         var busy = ev.Hours.Any(h => Utilization(ev.Link, h) >= UtilizationShare);
@@ -282,7 +306,7 @@ public static class LanHealthDetectors
     internal static LinkFinding? Microbursts(LinkEvidence ev)
     {
         var discards = (ev.Upstream.TxDiscards ?? 0) + (ev.Downstream.TxDiscards ?? 0);
-        if (discards < 100 || ev.Hours.Count == 0) return null;
+        if (UnusualDiscards(ev) == null || ev.Hours.Count == 0) return null;
         var peak = ev.Hours.Select(h => Utilization(ev.Link, h)).DefaultIfEmpty(0).Max();
         if (peak >= 0.2) return null;
         return new LinkFinding
@@ -298,12 +322,18 @@ public static class LanHealthDetectors
         };
     }
 
-    /// <summary>Peak hourly utilization as a share of the resolved link speed (never raw SNMP speed).</summary>
+    /// <summary>
+    /// The hour's mean utilization, the busier direction, as a share of the resolved link speed. The
+    /// mean, not the peak: one sample is not sustained load. An hour whose rate exceeds the link's
+    /// speed is a counter anomaly (a relink or reset; gateway SNMP rates ride the 10G conduit, so the
+    /// collector's own speed check lets them through) and counts as 0.
+    /// </summary>
     internal static double Utilization(LinkRecord link, LinkHourSample h)
     {
         if (link.SpeedMbps is not int mbps || mbps <= 0) return 0;
-        var peak = Math.Max(h.MaxInBps ?? 0, h.MaxOutBps ?? 0);
-        return peak / (mbps * 1e6);
+        var capacity = mbps * 1e6;
+        if (Math.Max(h.MaxInBps ?? 0, h.MaxOutBps ?? 0) > capacity * 1.05) return 0;
+        return Math.Max(h.MeanInBps ?? 0, h.MeanOutBps ?? 0) / capacity;
     }
 
     // ---- 9 L2 instability: storms (loops are the site detector) ----

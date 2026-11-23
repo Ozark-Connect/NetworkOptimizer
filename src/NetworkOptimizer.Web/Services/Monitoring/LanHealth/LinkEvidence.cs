@@ -30,7 +30,8 @@ public sealed record LinkHourSample(
     double? MulticastPps,
     double? PacketsPps,
     double? Discards,
-    double? Errors);
+    double? Errors,
+    double? TxPackets = null);
 
 /// <summary>A speed or duplex reading at a time (console or kernel).</summary>
 public sealed record SpeedReading(DateTime At, int SpeedMbps, bool? FullDuplex, LinkSource Source);

@@ -269,6 +269,37 @@ public class LanHealthTests
     }
 
     [Fact]
+    public void UnusualUtilization_IgnoresCounterSpikes_NeedsSustainedMean()
+    {
+        var link = ApLink();
+        var start = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        var baseline = Enumerable.Range(0, 48).Select(i => new LinkHourSample(start.AddHours(i), 1e8, 1e8, 5e7, 5e7, null, null, null, null, null)).ToList();
+        LinkEvidence Ev(LinkHourSample hour) => new() { Link = link, From = start.AddDays(3), To = start.AddDays(3).AddHours(1), Hours = [hour], BaselineHours = baseline };
+        var t = start.AddDays(3);
+        // A counter jump: one sample above the link's speed in an otherwise quiet hour.
+        LanHealthDetectors.UnusualUtilization(Ev(new LinkHourSample(t, 2.9e9, 1e8, 6e7, 5e7, null, null, null, null, null)), FindingText.Utc).Should().BeNull();
+        // A busy peak with a quiet mean is not sustained load.
+        LanHealthDetectors.UnusualUtilization(Ev(new LinkHourSample(t, 2.4e9, 1e8, 3e8, 5e7, null, null, null, null, null)), FindingText.Utc).Should().BeNull();
+        // Sustained: the hour's mean is over half the link and far above its normal.
+        LanHealthDetectors.UnusualUtilization(Ev(new LinkHourSample(t, 2.4e9, 1e8, 1.6e9, 5e7, null, null, null, null, null)), FindingText.Utc).Should().NotBeNull();
+    }
+
+    [Fact]
+    public void Discards_ReportedOnlyAboveTheCalibratedNormalAndTheLinksBaseline()
+    {
+        var link = ApLink(); // gateway port egressing to an AP: up to ~515 per million is normal
+        LinkEvidence Ev(double discards, double baselineRate) => new()
+        {
+            Link = link,
+            Upstream = new EndCounters { TxDiscards = discards, TxPackets = 100_000_000 },
+            BaselineHours = [new LinkHourSample(DateTime.UtcNow.AddDays(-2), null, null, null, null, null, null, null, baselineRate * 100, null, 100_000_000)],
+        };
+        LanHealthDetectors.Discards(Ev(51_500, 400), []).Should().BeNull("515 per million is normal into an AP");
+        LanHealthDetectors.Discards(Ev(200_000, 1_500), []).Should().BeNull("2000 per million is not well above this link's own 1500");
+        LanHealthDetectors.Discards(Ev(200_000, 300), []).Should().NotBeNull();
+    }
+
+    [Fact]
     public void Scorer_CombinesFindingsAndWeighsFabricByClients()
     {
         LanHealthScorer.LinkScore([new LinkFinding { Points = 20 }, new LinkFinding { Points = 20 }, new LinkFinding { Points = 0 }]).Should().Be(64);

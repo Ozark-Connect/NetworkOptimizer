@@ -61,6 +61,8 @@ public sealed class SwitchPortLinkSink
                 new(InfluxFieldNames.ChipRxCrcErrors, c.RxCrcErrors),
                 new(InfluxFieldNames.ChipTxCrcErrors, c.TxCrcErrors),
                 new(InfluxFieldNames.ChipLateCollisions, c.LateCollisions),
+                new(InfluxFieldNames.ChipOutDiscards, c.OutDiscards),
+                new(InfluxFieldNames.ChipRxPauseFrames, c.RxPauseFrames),
                 new(InfluxFieldNames.LinkUp, c.Up),
             };
             if (c.SpeedMbps > 0) fields.Add(new(InfluxFieldNames.LinkSpeedMbps, (long)c.SpeedMbps));

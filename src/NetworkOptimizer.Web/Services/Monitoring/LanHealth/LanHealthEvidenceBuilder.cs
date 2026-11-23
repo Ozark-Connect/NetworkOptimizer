@@ -23,7 +23,7 @@ public static class LanHealthEvidenceBuilder
         InfluxFieldNames.PortRxDropped, InfluxFieldNames.PortTxDropped, InfluxFieldNames.PortRxPackets,
         InfluxFieldNames.PortTxPackets, InfluxFieldNames.PortRxBroadcast, InfluxFieldNames.PortRxMulticast,
         InfluxFieldNames.PoePower, InfluxFieldNames.ChipRxCrcErrors, InfluxFieldNames.ChipTxCrcErrors,
-        InfluxFieldNames.ChipLateCollisions, InfluxFieldNames.UplinkCarrierChanges, InfluxFieldNames.UplinkRxCrcErrors,
+        InfluxFieldNames.ChipLateCollisions, InfluxFieldNames.ChipOutDiscards, InfluxFieldNames.UplinkCarrierChanges, InfluxFieldNames.UplinkRxCrcErrors,
         InfluxFieldNames.MacTableCount,
     ];
 
@@ -245,7 +245,11 @@ public static class LanHealthEvidenceBuilder
         if (up.Rows.Count > 0 && !upErrorsBlind) observers.Add(new(upSrc, hour, false, true));
         if (down.Rows.Count > 0) observers.Add(new(downSrc, hour, false, true));
 
-        var upTxDiscards = up.Rise("discards_out", InfluxFieldNames.PortTxDropped);
+        // A gateway LAN port's SNMP and port-table discards count the kernel queue on the 10G conduit,
+        // not the port: only the switch chip's own count is the port's.
+        var upTxDiscards = link.Upstream.IsGateway
+            ? (chipHere ? up.Rise(InfluxFieldNames.ChipOutDiscards) : null)
+            : up.Rise("discards_out", InfluxFieldNames.PortTxDropped);
         var downTxDiscards = down.Rise("discards_out", InfluxFieldNames.PortTxDropped);
         if ((upTxDiscards ?? 0) + (downTxDiscards ?? 0) > 0)
             events.Add(new LinkEvent(from, to, LinkEventType.DiscardBurst, LinkSource.SnmpCounters, LinkSide.Upstream, Count: (upTxDiscards ?? 0) + (downTxDiscards ?? 0)));
