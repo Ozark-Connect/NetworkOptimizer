@@ -1,7 +1,6 @@
 using System.Collections.Concurrent;
 using Microsoft.EntityFrameworkCore;
 using NetworkOptimizer.Alerts.Events;
-using NetworkOptimizer.Alerts.Models;
 using NetworkOptimizer.Core.Enums;
 using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.Storage.Models.Identity;
@@ -446,9 +445,10 @@ public sealed class DeviceRestartExecutor : BackgroundService, ISiteScopedRegist
                 $"Power-cycled by Network Optimizer{forWhom} (PoE port {poe.PortIdx} on {poe.SwitchName})", now, until)
             : new PlannedRestart(RebootCategory.CommandedReboot, $"Restarted by Network Optimizer{forWhom}", now, until));
 
+        var did = poe != null ? "power-cycled" : "restarted";
         foreach (var below in topology.Subtree(request.DeviceMac))
             tracker.ExpectPlannedRestart(below.Mac, new PlannedRestart(RebootCategory.PowerCycle,
-                $"Lost power when Network Optimizer restarted {node.Name}{forWhom}", now, until, LostPowerOnly: true));
+                $"Lost power when Network Optimizer {did} {node.Name}{forWhom}", now, until, LostPowerOnly: true));
     }
 
     /// <summary>After a command: done once the device booted after it and is Online; retried once its budget runs out.</summary>
