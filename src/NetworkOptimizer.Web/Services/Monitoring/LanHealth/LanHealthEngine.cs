@@ -25,6 +25,7 @@ public sealed class LanHealthEngine
     internal static readonly TimeSpan Retention = TimeSpan.FromDays(90);
     private static readonly TimeSpan LiveCache = TimeSpan.FromSeconds(60);
     private static readonly TimeSpan TopologyCache = TimeSpan.FromMinutes(2);
+    private const int OfflineNameLookbackHours = 2160;
     private static readonly TimeSpan SlowRun = TimeSpan.FromSeconds(10);
     private const int HoursPerTick = 24;
 
@@ -182,23 +183,29 @@ public sealed class LanHealthEngine
         // client that is offline now (a sleeping PC), its name from the console's client history.
         IReadOnlyDictionary<string, string> displayNames = new Dictionary<string, string>();
         List<UniFiClientDetailResponse> history = [];
+        List<UniFiClientResponse> known = [];
         try
         {
             displayNames = await NetworkOptimizer.UniFi.ClientDisplayNameCache.GetAsync(client);
-            history = await client.GetClientHistoryAsync((int)Backfill.TotalHours, ct);
+            // The LAN map's lookback and order: 90 days of history for the console's own names, then a
+            // user-set alias from rest/user wins.
+            history = await client.GetClientHistoryAsync(OfflineNameLookbackHours, ct);
+            known = await client.GetAllKnownClientsAsync(ct);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             _logger.LogDebug(ex, "LAN Health: client names read failed for {Site}", _slug);
         }
-        var portClients = clients.Select(c => new LanLinkBuilder.PortClient(LanLinkBuilder.Mac(c.Mac),
-            NetworkOptimizer.UniFi.ClientNames.Choose(displayNames.GetValueOrDefault(c.Mac.ToLowerInvariant()), c.Name, c.UnifiDeviceInfoFromUcore?.Name,
-                c.Hostname, c.IsUniFiDevice) ?? LanLinkBuilder.Mac(c.Mac),
-            c.SwMac, c.SwPort, c.ApMac, c.IsWired)).ToList();
         var offlineNames = history.Where(h => !string.IsNullOrEmpty(h.Mac))
             .GroupBy(h => LanLinkBuilder.Mac(h.Mac))
             .Select(g => (g.Key, Name: NetworkOptimizer.UniFi.ClientNames.For(g.First())))
             .Where(x => x.Name != null).ToDictionary(x => x.Key, x => x.Name!);
+        foreach (var k in known.Where(k => !string.IsNullOrEmpty(k.Mac) && !string.IsNullOrWhiteSpace(k.Name)))
+            offlineNames[LanLinkBuilder.Mac(k.Mac)] = k.Name!.Trim();
+        var portClients = clients.Select(c => new LanLinkBuilder.PortClient(LanLinkBuilder.Mac(c.Mac),
+            NetworkOptimizer.UniFi.ClientNames.Choose(displayNames.GetValueOrDefault(c.Mac.ToLowerInvariant()), c.Name, c.UnifiDeviceInfoFromUcore?.Name,
+                c.Hostname, c.IsUniFiDevice) ?? offlineNames.GetValueOrDefault(LanLinkBuilder.Mac(c.Mac)) ?? LanLinkBuilder.Mac(c.Mac),
+            c.SwMac, c.SwPort, c.ApMac, c.IsWired)).ToList();
         var links = LanLinkBuilder.Build(devices, portClients, roles, offlineNames);
 
         // A server or NAS (a hypervisor's VMs) puts many MACs on one port by design: the audit's own
