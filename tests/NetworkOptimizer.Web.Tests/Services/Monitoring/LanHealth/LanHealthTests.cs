@@ -462,4 +462,43 @@ public class LanHealthTests
         LanHealthReportBuilder.ExclusionFor(ApLink(), [new NetworkOptimizer.Storage.Models.LanHealthExclusion { Scope = "device", Key = ApMac, Level = 1 }], false)
             .Should().Be(ExclusionLevel.MuteAlerts, "a fabric link can be muted, never excluded");
     }
+
+    // AP uplink with 5 of 20 clients: share 0.25.
+    private static List<LinkRecord> QuarterSite() =>
+        [ApLink(), new LinkRecord { Id = "access-1", Kind = LinkKind.Access, ClientsBehind = 15, Upstream = new LinkEnd { DeviceType = DeviceType.Switch } }];
+
+    [Fact]
+    public void HourImpairment_ADropCostsItsClientsReconnectTime()
+    {
+        var link = ApLink();
+        var rows = new List<NetworkOptimizer.Storage.Models.LanHealthLinkHour> { new() { LinkId = link.Id, Drops = 1, DownSeconds = 3 } };
+        LanHealthReportBuilder.HourImpairment(rows, QuarterSite(), [], false).Impairment
+            .Should().BeApproximately(0.25 * 60 / 3600, 1e-9, "an AP's clients reassociate, so a 3 s drop costs a minute");
+    }
+
+    [Fact]
+    public void HourImpairment_AnOpenFlappingFindingCostsEveryHour()
+    {
+        var link = ApLink();
+        var open = new List<LinkFinding> { new() { Detector = Detectors.LinkDrops, LinkId = link.Id, Severity = FindingSeverity.Warning } };
+        var (impairment, worst) = LanHealthReportBuilder.HourImpairment([], QuarterSite(), [], false, open);
+        impairment.Should().BeApproximately(0.25 * 0.15, 1e-9, "the link is unstable between drops too");
+        worst.Should().Be(link.Name);
+    }
+
+    [Fact]
+    public void HourImpairment_OnlyUnstableFindingsCarryACondition()
+    {
+        var link = ApLink();
+        var open = new List<LinkFinding> { new() { Detector = Detectors.SpeedDownshift, LinkId = link.Id, Severity = FindingSeverity.Warning } };
+        LanHealthReportBuilder.HourImpairment([], QuarterSite(), [], false, open).Impairment.Should().Be(0);
+    }
+
+    [Fact]
+    public void LiveHours_IncludeTheLastClosedHourUntilItIsStored()
+    {
+        var now = new DateTime(2026, 11, 23, 19, 9, 0, DateTimeKind.Utc);
+        LanHealthEngine.LiveHoursFor(now, previousStored: false).Should().Equal(now.Date.AddHours(18), now.Date.AddHours(19));
+        LanHealthEngine.LiveHoursFor(now, previousStored: true).Should().Equal(now.Date.AddHours(19));
+    }
 }

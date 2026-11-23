@@ -246,28 +246,52 @@ public static class LanHealthReportBuilder
         return bySource.Select(kv => new SourceCoverage(kv.Key, kv.Value.Caught, kv.Value.Total, kv.Value.Observing, kv.Value.Since)).ToList();
     }
 
+    /// <summary>Seconds a drop costs the clients behind it: an AP's clients reassociate and renew; a wired client relinks.</summary>
+    internal const double ApDropDisruptionSeconds = 60, WiredDropDisruptionSeconds = 10;
+
+    /// <summary>
+    /// The hourly cost of an unstable link while its Link Flapping or link error finding is open, by severity, before
+    /// the client share. It is a condition, like Wi-Fi satisfaction: the link is unreliable between drops too.
+    /// </summary>
+    internal static double ConditionCost(FindingSeverity severity) => severity switch
+    {
+        FindingSeverity.Critical => 0.3,
+        FindingSeverity.Warning => 0.15,
+        _ => 0.05,
+    };
+
+    /// <summary>Findings that make a link unstable for every hour they are open.</summary>
+    internal static bool IsUnstable(LinkFinding f) => f.Detector is Detectors.LinkDrops or Detectors.StableLinkErrors or Detectors.ErrorAsymmetry;
+
     /// <summary>
     /// The hour's own LAN impairment for Site Health: the share of user-time the LAN cost. Each link
-    /// weighs by its clients' share of the site; a drop costs its seconds down, a probe loss burst
-    /// five seconds, and a steady error rate ramps as Site Health's port error factor did.
+    /// weighs by its clients' share of the site. A drop costs its seconds down or its clients' reconnect
+    /// time, whichever is longer; a probe loss burst five seconds; a steady error rate ramps as Site
+    /// Health's port error factor did. A link with an open unstable finding (<paramref name="open"/>,
+    /// the trailing window's at this hour) also costs its <see cref="ConditionCost"/>.
     /// </summary>
     public static (double Impairment, string? Worst) HourImpairment(IReadOnlyList<LanHealthLinkHour> hour, IReadOnlyList<LinkRecord> links,
-        IReadOnlyList<LanHealthExclusion> exclusions, bool scoreFabricOnly)
+        IReadOnlyList<LanHealthExclusion> exclusions, bool scoreFabricOnly, IReadOnlyList<LinkFinding>? open = null)
     {
+        var rowsById = hour.GroupBy(r => r.LinkId).ToDictionary(g => g.Key, g => g.First());
+        var condition = (open ?? []).Where(IsUnstable).GroupBy(f => f.LinkId)
+            .ToDictionary(g => g.Key, g => g.Max(f => ConditionCost(f.Severity)));
         var byId = links.ToDictionary(l => l.Id);
         var total = Math.Max(1, links.Where(l => !l.IsFabric).Sum(l => l.ClientsBehind) + links.Where(l => l.IsFabric && l.Upstream.IsGateway).Sum(l => l.ClientsBehind));
         double sum = 0;
         (string Name, double Part)? worst = null;
-        foreach (var r in hour)
+        foreach (var id in rowsById.Keys.Union(condition.Keys))
         {
-            if (!byId.TryGetValue(r.LinkId, out var link)) continue;
+            if (!byId.TryGetValue(id, out var link)) continue;
             if (ExclusionFor(link, exclusions, scoreFabricOnly) == ExclusionLevel.ExcludeFromScore) continue;
             var share = link.IsFabric ? Math.Max(1.0 / Math.Max(4, links.Count(l => l.IsFabric) + 1), (double)link.ClientsBehind / total) : 1.0 / total;
-            var down = Math.Min(1, (r.DownSeconds + r.LossBursts * 5) / 3600);
-            var packets = (r.UpRxPackets ?? 0) + (r.DownRxPackets ?? 0);
-            var errors = r.ErrorBursts;
+            var r = rowsById.GetValueOrDefault(id);
+            var disruption = (r?.Drops ?? 0) * (link.Downstream.IsAccessPoint ? ApDropDisruptionSeconds : WiredDropDisruptionSeconds);
+            var down = r == null ? 0 : Math.Min(1, (Math.Max(r.DownSeconds, disruption) + r.LossBursts * 5) / 3600);
+            var packets = (r?.UpRxPackets ?? 0) + (r?.DownRxPackets ?? 0);
+            var errors = r?.ErrorBursts ?? 0;
             var errorPart = packets >= 10_000 ? ChangeControl.SiteHealth.SiteHealthScorer.Ramp(errors / packets, 0.0001, 0.01) : 0;
-            var part = Math.Min(1, share) * Math.Clamp(down + errorPart, 0, 1);
+            var part = Math.Min(1, share) * Math.Clamp(down + errorPart + condition.GetValueOrDefault(id), 0, 1);
             if (part <= 0) continue;
             sum += part;
             if (worst == null || part > worst.Value.Part) worst = (link.Name, part);

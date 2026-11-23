@@ -17,7 +17,7 @@ namespace NetworkOptimizer.Web.Services.Monitoring.LanHealth;
 public sealed class LanHealthEngine
 {
     /// <summary>Bump when the roll-up changes; older rows are recomputed on the next backfill pass.</summary>
-    public const int Version = 9;
+    public const int Version = 10;
 
     internal static readonly TimeSpan RunEvery = TimeSpan.FromMinutes(15);
     internal static readonly TimeSpan Settle = TimeSpan.FromMinutes(5);
@@ -40,7 +40,7 @@ public sealed class LanHealthEngine
 
     private Topology? _topology;
     private DateTime _topologyAt = DateTime.MinValue;
-    private (DateTime At, DateTime Hour, List<LanHealthLinkHour> Rows)? _liveHour;
+    private readonly Dictionary<DateTime, (DateTime At, List<LanHealthLinkHour> Rows)> _liveHours = [];
     private readonly Dictionary<string, (DateTime At, LanHealthReport Report)> _reports = new();
 
     /// <summary>Raised after a roll-up or a live refresh, so open pages and the alert evaluator can act.</summary>
@@ -486,13 +486,13 @@ public sealed class LanHealthEngine
         var old = await db.LanHealthLinkHours.Where(r => r.HourStart == hour).ToListAsync(ct);
         db.LanHealthLinkHours.RemoveRange(old);
         db.LanHealthLinkHours.AddRange(rows);
-        var (impairment, worst) = LanHealthReportBuilder.HourImpairment(rows, topology.Links, topology.Exclusions, topology.ScoreFabricOnly);
         await db.SaveChangesAsync(ct);
 
         // The trailing 48 hours' score at this hour, from the rows just stored and the ones before them.
         var window = await LoadRowsAsync(db, hour.AddHours(-47), hour.AddHours(1), ct);
         var report = LanHealthReportBuilder.Build(topology.Links, window, new Dictionary<string, List<LanHealthLinkHour>>(),
             topology.Exclusions, topology.ScoreFabricOnly, null, FindingText.Utc, hour.AddHours(-47), hour.AddHours(1));
+        var (impairment, worst) = LanHealthReportBuilder.HourImpairment(rows, topology.Links, topology.Exclusions, topology.ScoreFabricOnly, report.Findings);
         var site = await db.LanHealthSiteHours.FirstOrDefaultAsync(h => h.HourStart == hour, ct);
         if (site == null) { site = new LanHealthSiteHour { HourStart = hour }; db.LanHealthSiteHours.Add(site); }
         site.Score = report.Score;
@@ -544,7 +544,10 @@ public sealed class LanHealthEngine
 
         await using var db = await _db(ct);
         var rows = await LoadRowsAsync(db, from, to, ct);
-        var live = await LiveHourAsync(topology, ct);
+        // The last closed hour is computed live too until the tick stores it, up to RunEvery + Settle after it ends.
+        var previous = FloorHour(now).AddHours(-1);
+        var previousStored = await db.LanHealthSiteHours.AsNoTracking().AnyAsync(h => h.HourStart == previous && h.Version == Version, ct);
+        var live = await LiveHoursAsync(topology, LiveHoursFor(now, previousStored), ct);
         foreach (var r in live)
         {
             if (!rows.TryGetValue(r.LinkId, out var list)) rows[r.LinkId] = list = [];
@@ -575,21 +578,35 @@ public sealed class LanHealthEngine
         return report;
     }
 
-    private async Task<List<LanHealthLinkHour>> LiveHourAsync(Topology topology, CancellationToken ct)
+    /// <summary>The hours a report computes live: the current one, and the last closed one until the tick stores it.</summary>
+    internal static List<DateTime> LiveHoursFor(DateTime now, bool previousStored) =>
+        previousStored ? [FloorHour(now)] : [FloorHour(now).AddHours(-1), FloorHour(now)];
+
+    /// <summary>Rows for hours not yet stored, each computed live and cached for LiveCache.</summary>
+    private async Task<List<LanHealthLinkHour>> LiveHoursAsync(Topology topology, IReadOnlyList<DateTime> hours, CancellationToken ct)
     {
-        var hour = FloorHour(DateTime.UtcNow);
-        if (_liveHour is { } cached && cached.Hour == hour && DateTime.UtcNow - cached.At < LiveCache) return cached.Rows;
-        try
+        var all = new List<LanHealthLinkHour>();
+        lock (_liveHours)
+            foreach (var stale in _liveHours.Keys.Where(k => !hours.Contains(k)).ToList()) _liveHours.Remove(stale);
+        foreach (var hour in hours)
         {
-            var rows = await RollupHourAsync(hour, topology, ct);
-            _liveHour = (DateTime.UtcNow, hour, rows);
-            return rows;
+            (DateTime At, List<LanHealthLinkHour> Rows) cached;
+            bool hit;
+            lock (_liveHours) hit = _liveHours.TryGetValue(hour, out cached);
+            if (hit && DateTime.UtcNow - cached.At < LiveCache) { all.AddRange(cached.Rows); continue; }
+            try
+            {
+                var rows = await RollupHourAsync(hour, topology, ct);
+                lock (_liveHours) _liveHours[hour] = (DateTime.UtcNow, rows);
+                all.AddRange(rows);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                _logger.LogDebug(ex, "LAN Health: live hour failed for {Site}", _slug);
+                if (hit) all.AddRange(cached.Rows);
+            }
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
-        {
-            _logger.LogDebug(ex, "LAN Health: live hour failed for {Site}", _slug);
-            return _liveHour?.Rows ?? [];
-        }
+        return all;
     }
 
     private List<LanHealthSpeedTests.Test>? _tests;
