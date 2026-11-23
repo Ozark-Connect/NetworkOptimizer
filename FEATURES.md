@@ -208,7 +208,7 @@ Time-series monitoring on your own InfluxDB, fed by SNMP polling (InfluxDB).
 
 ### LAN Health
 
-- Finds the LAN faults UniFi Network does not report: links that drop for a few seconds, errors on one end, storms, soft mesh backhauls
+- Finds the LAN faults UniFi Network does not report, from sources it does not read: the AP's own kernel log and the Gateway's switch chip. An AP uplink that drops for three seconds a few times a day shows as up in UniFi Network; LAN Health counts every drop, says when the run started, and which end it's on
 - **LAN Health Score** for the site, weighted by the clients behind each link; **Score History** hourly
 - Scores every fabric link (wired uplinks and mesh backhauls) and every wired access port
 - One incident per event, merged across every source that saw it, with **What Each Source Saw**
