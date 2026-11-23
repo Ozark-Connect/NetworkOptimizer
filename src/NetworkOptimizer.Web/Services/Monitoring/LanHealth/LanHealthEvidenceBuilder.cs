@@ -15,15 +15,12 @@ public static class LanHealthEvidenceBuilder
 {
     private static bool IsChip(PortFieldStats r) => r.PortId.StartsWith("swchip:", StringComparison.Ordinal);
 
-    /// <summary>
-    /// The hour's slowest and fastest console link speed, from the upstream end or else the downstream one.
-    /// Chip rows never count: a chip speed under an ethN name can be another port's.
-    /// </summary>
+    /// <summary>The hour's slowest and fastest console link speed, from the upstream end or else the downstream one.</summary>
     internal static (double? Min, double? Max) ConsoleSpeedRange(EndSeries up, EndSeries down)
     {
         static (double? Min, double? Max) Of(EndSeries s)
         {
-            var rows = s.Rows.Where(r => r.Field == InfluxFieldNames.LinkSpeedMbps && !IsChip(r)).ToList();
+            var rows = s.Rows.Where(r => r.Field == InfluxFieldNames.LinkSpeedMbps).ToList();
             return (rows.Select(r => r.Min).OfType<double>().DefaultIfEmpty().Min() is var mn && rows.Any(r => r.Min != null) ? mn : null,
                     rows.Select(r => r.Max).OfType<double>().DefaultIfEmpty().Max() is var mx && rows.Any(r => r.Max != null) ? mx : null);
         }
@@ -208,8 +205,7 @@ public static class LanHealthEvidenceBuilder
         if (apAgentHere && link.Kind == LinkKind.FabricWired) observers.Add(new(LinkSource.ApKernelLog, hour, CountsDrops: true, CountsErrors: false));
         // swconfig port N is ethN only where verified; a port whose chip speed disagrees with the port
         // table's is not this port, and its readings are dropped.
-        // chip_link_speed_mbps; link_speed_mbps on a swchip series is what the agent wrote before the chip had its own fields.
-        var chipSpeed = up.Rows.Where(r => IsChip(r) && (r.Field == InfluxFieldNames.ChipLinkSpeedMbps || r.Field == InfluxFieldNames.LinkSpeedMbps))
+        var chipSpeed = up.Rows.Where(r => IsChip(r) && r.Field == InfluxFieldNames.ChipLinkSpeedMbps)
             .Select(r => r.Max).OfType<double>().DefaultIfEmpty(0).Max();
         var chipHere = up.Rows.Any(r => r.PortId.StartsWith("swchip:", StringComparison.Ordinal))
             && (chipSpeed <= 0 || link.SpeedMbps is not int ls || (int)chipSpeed == ls);

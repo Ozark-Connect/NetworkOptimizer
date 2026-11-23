@@ -449,16 +449,6 @@ public class LanHealthTests
     }
 
     [Fact]
-    public void ConsoleSpeedRange_IgnoresChipRows()
-    {
-        var t = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
-        var up = new LanHealthEvidenceBuilder.EndSeries();
-        up.Rows.Add(new(t, "aa", "eth0", "eth0", NetworkOptimizer.Storage.Services.InfluxFieldNames.LinkSpeedMbps, 1000, 1000, 1000, 1000, 1000));
-        // A chip port under the same name at 10G (the conduit on some gateways), as stored before chip fields.
-        up.Rows.Add(new(t, "aa", "eth0", "swchip:eth0", NetworkOptimizer.Storage.Services.InfluxFieldNames.LinkSpeedMbps, 10000, 10000, 10000, 10000, 10000));
-        LanHealthEvidenceBuilder.ConsoleSpeedRange(up, new LanHealthEvidenceBuilder.EndSeries()).Should().Be(((double?)1000, (double?)1000));
-    }
-    [Fact]
     public void Scorer_CombinesFindingsAndWeighsFabricByClients()
     {
         LanHealthScorer.LinkScore([new LinkFinding { Points = 20 }, new LinkFinding { Points = 20 }, new LinkFinding { Points = 0 }]).Should().Be(64);

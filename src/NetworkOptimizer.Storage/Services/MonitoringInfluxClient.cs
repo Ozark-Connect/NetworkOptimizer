@@ -2923,15 +2923,8 @@ from(bucket: {FluxLiteral.Quote(_bucket)})
   |> filter(fn: (r) => r.device_mac == {FluxLiteral.Quote(NormalizeMac(deviceMac))})
   |> filter(fn: (r) => r.if_name == {FluxLiteral.Quote(ifName)})
   |> filter(fn: (r) => r._field == {FluxLiteral.Quote(InfluxFieldNames.LinkSpeedMbps)})
-{NotChipSeries}
   |> max()
 ";
-
-    /// <summary>
-    /// Flux that drops the gateway switch chip's series (port_id swchip:*). Before the chip had its own fields
-    /// the agent wrote its speed as link_speed_mbps under an ethN name that is another port on some gateways.
-    /// </summary>
-    internal const string NotChipSeries = "  |> filter(fn: (r) => not exists r.port_id or r.port_id !~ /^swchip:/)";
 
     public async Task<int?> QueryMaxLinkSpeedAsync(
         string deviceMac,
@@ -2958,7 +2951,6 @@ from(bucket: {FluxLiteral.Quote(_bucket)})
   |> filter(fn: (r) => r.device_mac == {FluxLiteral.Quote(NormalizeMac(deviceMac))})
   |> filter(fn: (r) => r.if_name == {FluxLiteral.Quote(ifName)})
   |> filter(fn: (r) => r._field == {FluxLiteral.Quote(InfluxFieldNames.LinkSpeedMbps)})
-{NotChipSeries}
   |> aggregateWindow(every: {ToFluxDuration(window)}, fn: min, createEmpty: false)
 ";
 
@@ -2994,7 +2986,6 @@ from(bucket: {FluxLiteral.Quote(_bucket)})
   |> filter(fn: (r) => r._measurement == ""interface_counters"")
   |> filter(fn: (r) => r.device_mac == {FluxLiteral.Quote(mac)})
   |> filter(fn: (r) => r._field == ""rate_in_bps"" or r._field == ""rate_out_bps"" or r._field == ""speed_bps"" or r._field == {FluxLiteral.Quote(InfluxFieldNames.LinkSpeedMbps)})
-{NotChipSeries}
 ";
 
     /// <summary>
