@@ -839,7 +839,7 @@ public class PerformanceAnalyzer
     /// pattern of auto-negotiation failing with the ISP's equipment (or a marginal cable), and
     /// forcing the port's speed is the usual fix. A single drop is left to the link speed alert.
     /// </summary>
-    internal const int WanLinkSpeedEpisodesToRecommend = 2;
+    public const int WanLinkSpeedEpisodesToRecommend = 2;
 
     [VendorSpecific("UniFi", "Reads gateway port_table autoneg and name for the WAN port")]
     internal List<PerformanceIssue> CheckWanLinkSpeedHistory(

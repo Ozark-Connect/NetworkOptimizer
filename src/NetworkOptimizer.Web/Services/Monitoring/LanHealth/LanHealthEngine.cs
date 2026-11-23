@@ -618,7 +618,7 @@ public sealed class LanHealthEngine
         var report = LanHealthReportBuilder.Build(topology.Links, rows, baseline, topology.Exclusions, topology.ScoreFabricOnly,
             (links, evidence) => SiteEvidenceFor(topology, links, evidence, text, hours, forwarding, informFailures, stpBaseline, MacMoves.Since(from)), text, from, to, attributed,
             // Optics reads the modules now: the live report only, since a stored past hour has no reading of its own.
-            await SfpAsync(topology, ct));
+            await SfpAsync(topology, ct), await SpeedHistoryAsync(db, topology, ct));
         AddTestSuggestions(report, topology, tests);
         foreach (var note in LanHealthPortInsights.Notes(report.Links, PortAnomalies, topology.Devices))
         {
@@ -641,6 +641,23 @@ public sealed class LanHealthEngine
     /// <summary>The hours a report computes live: the current one, and the last closed one until the tick stores it.</summary>
     internal static List<DateTime> LiveHoursFor(DateTime now, bool previousStored) =>
         previousStored ? [FloorHour(now)] : [FloorHour(now).AddHours(-1), FloorHour(now)];
+
+    private (DateTime At, Dictionary<string, NetworkOptimizer.Diagnostics.Models.WanLinkSpeedHistory> ByLink)? _speedHistory;
+
+    /// <summary>Each wired fabric link's 30-day speed history from its stored hours, refreshed hourly.</summary>
+    private async Task<Dictionary<string, NetworkOptimizer.Diagnostics.Models.WanLinkSpeedHistory>> SpeedHistoryAsync(
+        NetworkOptimizerDbContext db, Topology topology, CancellationToken ct)
+    {
+        if (_speedHistory is { } c && DateTime.UtcNow - c.At < TimeSpan.FromHours(1)) return c.ByLink;
+        var since = DateTime.UtcNow - LanHealthReportBuilder.SpeedHistoryLookback;
+        var rows = await db.LanHealthLinkHours.AsNoTracking()
+            .Where(r => r.HourStart >= since && r.Kind == (int)LinkKind.FabricWired && r.SpeedMinMbps != null)
+            .Select(r => new { r.LinkId, r.HourStart, r.SpeedMinMbps }).ToListAsync(ct);
+        var byLink = LanHealthReportBuilder.SpeedHistories(topology.Links,
+            rows.Select(r => (r.LinkId, DateTime.SpecifyKind(r.HourStart, DateTimeKind.Utc), r.SpeedMinMbps!.Value)));
+        _speedHistory = (DateTime.UtcNow, byLink);
+        return byLink;
+    }
 
     private (DateTime At, IReadOnlyDictionary<(string DeviceMac, string Port), double> Best)? _sfpBest;
 

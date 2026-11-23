@@ -25,6 +25,25 @@ public static class LanHealthReportBuilder
         return level;
     }
 
+    /// <summary>How far back a wired link's speed history goes, as Config Optimizer's WAN check.</summary>
+    public static readonly TimeSpan SpeedHistoryLookback = TimeSpan.FromDays(30);
+
+    /// <summary>
+    /// Each wired fabric link's speed history from its stored hours (the hour's slowest speed), run through
+    /// Config Optimizer's WAN check: a drop is two or more hours below the usual speed in a row.
+    /// </summary>
+    public static Dictionary<string, NetworkOptimizer.Diagnostics.Models.WanLinkSpeedHistory> SpeedHistories(
+        IReadOnlyList<LinkRecord> links, IEnumerable<(string LinkId, DateTime Hour, int MinMbps)> hours)
+    {
+        var byLink = hours.GroupBy(h => h.LinkId).ToDictionary(g => g.Key, g => g.OrderBy(h => h.Hour).Select(h => (h.Hour, h.MinMbps)).ToList());
+        var result = new Dictionary<string, NetworkOptimizer.Diagnostics.Models.WanLinkSpeedHistory>();
+        foreach (var l in links.Where(l => l.Kind == LinkKind.FabricWired))
+            if (byLink.TryGetValue(l.Id, out var w) && WanLinkSpeedHistoryReader.Summarize(l.Upstream.DeviceMac, l.Upstream.IfName ?? "",
+                    w, TimeSpan.FromHours(1), SpeedHistoryLookback, minWindowsPerEpisode: 2) is { } h)
+                result[l.Id] = h;
+        return result;
+    }
+
     /// <summary>An SFP module on a link now: receive power, its best this week, and temperature.</summary>
     public sealed record SfpReading(double? RxDbm, double? RxBestDbm, double? TempC);
 
@@ -70,7 +89,8 @@ public static class LanHealthReportBuilder
     /// <summary>One link's evidence over a window, from its stored hours.</summary>
     public static LinkEvidence EvidenceFromRows(LinkRecord link, IReadOnlyList<LanHealthLinkHour> rows, IReadOnlyList<LanHealthLinkHour> baseline,
         DateTime from, DateTime to, int? historyDays, LinkRecord? parent = null,
-        IReadOnlyList<LanHealthLinkHour>? parentRows = null, IReadOnlyList<LanHealthLinkHour>? parentBaseline = null, SfpReading? sfp = null)
+        IReadOnlyList<LanHealthLinkHour>? parentRows = null, IReadOnlyList<LanHealthLinkHour>? parentBaseline = null, SfpReading? sfp = null,
+        NetworkOptimizer.Diagnostics.Models.WanLinkSpeedHistory? speedHistory = null)
     {
         var parentLoss = parentRows?.Where(r => r.ProbeLossPct != null).Select(r => r.ProbeLossPct!.Value).ToList();
         var (retryPct, attempts) = RetryPct(rows);
@@ -130,6 +150,7 @@ public static class LanHealthReportBuilder
             MeshTxAttempts = attempts,
             MeshRetryPctBaseline = baseAttempts >= MeshRetryMinAttempts * 4 ? retryBase : null,
             MeshTxDropped = rows.Sum(r => r.MeshTxDropped ?? 0),
+            SpeedHistory = speedHistory,
             SfpRxPowerDbm = sfp?.RxDbm,
             SfpRxPowerBestDbm = sfp?.RxBestDbm,
             SfpTemperatureC = sfp?.TempC,
@@ -249,7 +270,8 @@ public static class LanHealthReportBuilder
         FindingText text,
         DateTime from, DateTime to,
         IReadOnlyDictionary<string, List<LinkSpeedTest>>? speedTests = null,
-        IReadOnlyDictionary<string, SfpReading>? sfp = null)
+        IReadOnlyDictionary<string, SfpReading>? sfp = null,
+        IReadOnlyDictionary<string, NetworkOptimizer.Diagnostics.Models.WanLinkSpeedHistory>? speedHistory = null)
     {
         var report = new LanHealthReport { From = from, To = to, Ready = rows.Count > 0 };
         var evidence = new Dictionary<string, LinkEvidence>();
@@ -262,7 +284,7 @@ public static class LanHealthReportBuilder
             var parent = link.IsMesh ? links.FirstOrDefault(l => l.IsFabric && string.Equals(l.Downstream.DeviceMac, link.Upstream.DeviceMac, StringComparison.OrdinalIgnoreCase)) : null;
             var ev = EvidenceFromRows(link, linkRows, linkBase, from, to, CleanDaysBefore(linkRows, linkBase), parent,
                 parent == null ? null : rows.GetValueOrDefault(parent.Id) ?? [], parent == null ? null : baseline.GetValueOrDefault(parent.Id) ?? [],
-                sfp?.GetValueOrDefault(link.Id));
+                sfp?.GetValueOrDefault(link.Id), speedHistory?.GetValueOrDefault(link.Id));
             ev.TroubleSince = TroubleSince(linkRows, linkBase);
             // A test that ran during an incident on the link is kept on the link but out of the norm comparison.
             if (speedTests != null && speedTests.TryGetValue(link.Id, out var tests))

@@ -89,6 +89,8 @@ public sealed class LinkEvidence
     public bool MeshWorstSignalAtParent { get; init; }
     /// <summary>On an access port: the client was idle (sleep, WoL standby) in these spans.</summary>
     public List<(DateTime Start, DateTime End)> ClientIdle { get; init; } = [];
+    /// <summary>The link's speed over 30 days, condensed by Config Optimizer's WAN check: how often it dropped below its usual speed.</summary>
+    public NetworkOptimizer.Diagnostics.Models.WanLinkSpeedHistory? SpeedHistory { get; init; }
     /// <summary>SFP receive power now and its 7-day best, dBm; module temperature now.</summary>
     public double? SfpRxPowerDbm { get; init; }
     public double? SfpRxPowerBestDbm { get; init; }

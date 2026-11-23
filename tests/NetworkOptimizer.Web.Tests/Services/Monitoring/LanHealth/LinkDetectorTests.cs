@@ -345,4 +345,20 @@ public class LinkDetectorTests
         quiet.Body.Should().NotContain("Link Debounce");
         quiet.EeeTest.Should().BeFalse();
     }
+
+    [Fact]
+    public void SpeedKeepsDropping_UsesConfigOptimizersWanCheckOnTheLinksHourlySpeeds()
+    {
+        var link = Fabric(2500);
+        // Two drops to 1G, each held three hours, over a week of hourly minimums; a one-hour blip does not count.
+        var hours = Enumerable.Range(0, 168).Select(i => (link.Id, T0.AddHours(i), i is >= 10 and < 13 or >= 50 and < 53 ? 1000 : i == 90 ? 100 : 2500)).ToList();
+        var history = LanHealthReportBuilder.SpeedHistories([link], hours)[link.Id];
+        history.DegradedEpisodes.Should().Be(2);
+        var ev = new LinkEvidence { Link = link, SpeedHistory = history };
+        LanHealthDetectors.SpeedKeepsDropping(ev, null)!.Body.Should().Be(
+            "Dropped below its usual 2.5 Gbps 2 times in the last 7 days, as low as 1 Gbps, for about 6 hours in total. Set the port's speed to 2.5 Gbps instead of auto-negotiation. If it still drops, replace the cable.");
+        LanHealthDetectors.SpeedKeepsDropping(new LinkEvidence { Link = Fabric(2500, forced: true), SpeedHistory = history }, null)!.Body
+            .Should().EndWith("The port's speed is already set manually: check or replace the cable.");
+        LanHealthDetectors.SpeedKeepsDropping(ev, new LinkFinding()).Should().BeNull("a link below its usual speed now is the downshift finding's");
+    }
 }

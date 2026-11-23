@@ -57,7 +57,9 @@ public static class LanHealthDetectors
         var wired = !ev.Link.IsMesh;
         if (wired)
         {
-            Add(SpeedDownshift(ev, text));
+            var downshift = SpeedDownshift(ev, text);
+            Add(downshift);
+            Add(SpeedKeepsDropping(ev, downshift));
             Add(DuplexMismatch(ev));
             Add(StableLinkErrors(ev, incidents, text));
             Add(Discards(ev, incidents));
@@ -727,6 +729,31 @@ public static class LanHealthDetectors
             Title = Title("Speed-Specific Flapping", ev.Link),
             Body = $"The link only drops at {DisplayFormatters.FormatLinkSpeed(now)}. Set the port to {DisplayFormatters.FormatLinkSpeed(lower)} and see if the drops stop.",
             Chips = [$"Drops at {DisplayFormatters.FormatLinkSpeedShort(now)} only"],
+        };
+    }
+
+    // ---- Speed keeps dropping: Config Optimizer's WAN check, on a wired fabric link ----
+    internal static LinkFinding? SpeedKeepsDropping(LinkEvidence ev, LinkFinding? downshiftNow)
+    {
+        // A link below its usual speed now is the speed downshift finding's; this one is the history of it.
+        if (downshiftNow != null || ev.Link.Kind != LinkKind.FabricWired) return null;
+        if (ev.SpeedHistory is not { } h || h.DegradedEpisodes < NetworkOptimizer.Diagnostics.Analyzers.PerformanceAnalyzer.WanLinkSpeedEpisodesToRecommend) return null;
+        var days = Math.Max(1, (int)Math.Round(h.Lookback.TotalDays));
+        var hours = Math.Max(1, (int)Math.Round(h.DegradedTime.TotalHours));
+        var body = $"Dropped below its usual {DisplayFormatters.FormatLinkSpeed(h.UsualMbps)} {h.DegradedEpisodes} times in the last {(days == 1 ? "day" : $"{days} days")}, "
+            + $"as low as {DisplayFormatters.FormatLinkSpeed(h.LowestMbps)}, for about {hours} {(hours == 1 ? "hour" : "hours")} in total. "
+            + (ev.Link.Forced
+                ? "The port's speed is already set manually: check or replace the cable."
+                : $"Set the port's speed to {DisplayFormatters.FormatLinkSpeed(h.UsualMbps)} instead of auto-negotiation. If it still drops, replace the cable.");
+        return new LinkFinding
+        {
+            Detector = Detectors.SpeedKeepsDropping,
+            LinkId = ev.Link.Id,
+            Severity = FindingSeverity.Info,
+            Class = "Link Speed Keeps Dropping",
+            Title = Title("Link Speed Keeps Dropping", ev.Link),
+            Body = body,
+            Chips = ["Speed history", ImpactChip(ev.Link)],
         };
     }
 
