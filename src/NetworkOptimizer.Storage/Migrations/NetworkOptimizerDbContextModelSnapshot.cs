@@ -2928,6 +2928,12 @@ namespace NetworkOptimizer.Storage.Migrations
                         .HasMaxLength(2000)
                         .HasColumnType("TEXT");
 
+                    b.Property<double?>("DownCarrierChanges")
+                        .HasColumnType("REAL");
+
+                    b.Property<double?>("DownLinkDownCount")
+                        .HasColumnType("REAL");
+
                     b.Property<double?>("DownRxErrors")
                         .HasColumnType("REAL");
 
@@ -3043,6 +3049,9 @@ namespace NetworkOptimizer.Storage.Migrations
 
                     b.Property<bool>("UpErrorsBlind")
                         .HasColumnType("INTEGER");
+
+                    b.Property<double?>("UpLinkDownCount")
+                        .HasColumnType("REAL");
 
                     b.Property<double?>("UpRxErrors")
                         .HasColumnType("REAL");

@@ -1,3 +1,4 @@
+using NetworkOptimizer.Web.Services.Monitoring.LanHealth;
 using NetworkOptimizer.Web.Services.ChangeControl;
 using NetworkOptimizer.Web.Services.Monitoring;
 using NetworkOptimizer.Web.Services.Monitoring.IspHealth;
@@ -789,7 +790,7 @@ builder.Services.AddScoped(sp => sp.GetRequiredService<NetworkOptimizer.Web.Serv
 builder.Services.AddSiteScopedRegistry<NetworkOptimizer.Web.Services.Monitoring.IspHealth.IspHealthRegistry>();
 // LAN Health: one engine per site, ticked from the site's Change Control engine loop.
 builder.Services.AddSiteScopedRegistry<NetworkOptimizer.Web.Services.Monitoring.LanHealth.LanHealthRegistry>();
-builder.Services.AddMutatingService<NetworkOptimizer.Web.Services.Monitoring.LanHealth.ILanHealthService, NetworkOptimizer.Web.Services.Monitoring.LanHealth.LanHealthService>();
+builder.Services.AddMutatingService<ILanHealthService, LanHealthService>();
 builder.Services.AddSingleton<NetworkOptimizer.Web.Services.Monitoring.LanHealth.SwitchPortLinkSink>();
 builder.Services.AddScoped(sp => sp.GetRequiredService<NetworkOptimizer.Web.Services.Monitoring.IspHealth.IspHealthRegistry>()
     .GetFor(sp.GetRequiredService<SiteContextService>().Slug));

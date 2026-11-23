@@ -53,6 +53,12 @@ public class LanHealthLinkHour
     /// <summary>The upstream end is a gateway LAN port whose error counters read 0 regardless.</summary>
     public bool UpErrorsBlind { get; set; }
 
+    // Since-boot drop counters as of the hour's last reading (null: the end keeps none).
+    public double? UpLinkDownCount { get; set; }
+    public double? DownLinkDownCount { get; set; }
+    /// <summary>The AP Agent's carrier_changes on the AP's uplink: two per drop, plus one for the boot link-up.</summary>
+    public double? DownCarrierChanges { get; set; }
+
     // Load.
     public double? MaxInBps { get; set; }
     public double? MaxOutBps { get; set; }

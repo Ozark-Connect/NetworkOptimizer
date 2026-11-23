@@ -191,9 +191,16 @@ public static class LanHealthEvidenceBuilder
         }
 
         // Imprecise: counters over the hour.
+        // A missing counter is "source unavailable" (link_down_count is per switch model), never 0 drops:
+        // it joins coverage as not reported, and the drop evidence comes from the other sources.
         void Relink(EndSeries s, string field, LinkSource src, LinkSide side, double perDrop = 1)
         {
-            if (!s.Has(field)) return;
+            if (!s.Has(field))
+            {
+                if (src == LinkSource.SwitchLinkDownCount && side == LinkSide.Upstream && link.Upstream.IsSwitch && s.Rows.Count > 0)
+                    observers.Add(new(src, [], true, false));
+                return;
+            }
             observers.Add(new(src, hour, true, false));
             if (s.Rise(field) is double rise && rise >= perDrop)
                 events.Add(new LinkEvent(from, to, LinkEventType.Relink, src, side, Count: Math.Floor(rise / perDrop)));
@@ -247,7 +254,7 @@ public static class LanHealthEvidenceBuilder
         if (link.Kind == LinkKind.Access && speedMin is <= 100 && speedMax is > 100)
             explain.Add(new ExplainWindow(from, to, link.Upstream.DeviceMac, ExplainReason.DeviceAsleep));
 
-        var distinctObservers = observers.DistinctBy(o => o.Source).ToList();
+        var distinctObservers = observers.OrderByDescending(o => o.Observing.Count).DistinctBy(o => o.Source).ToList();
         var incidents = LinkEventAligner.Align(events, explain, distinctObservers, macs);
 
         double? lossPct = probed.Count > 0 && probed.Any(x.Probes.ContainsKey)
@@ -283,6 +290,9 @@ public static class LanHealthEvidenceBuilder
             LateCollisions = up.Rise(InfluxFieldNames.ChipLateCollisions),
             StpChanges = up.Rise(InfluxFieldNames.StpStateChangeCount),
             UpErrorsBlind = upErrorsBlind,
+            UpLinkDownCount = up.Max(InfluxFieldNames.LinkDownCount),
+            DownLinkDownCount = down.Max(InfluxFieldNames.LinkDownCount),
+            DownCarrierChanges = down.Max(InfluxFieldNames.UplinkCarrierChanges),
             MaxInBps = up.Max("rate_in_bps") ?? down.Max("rate_out_bps"),
             MaxOutBps = up.Max("rate_out_bps") ?? down.Max("rate_in_bps"),
             MeanInBps = meanIn,
