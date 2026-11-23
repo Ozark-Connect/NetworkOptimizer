@@ -400,6 +400,26 @@ public class LanHealthTests
         LanHealthDetectors.AccessDegraded(degraded).Should().NotBeNull();
     }
     [Fact]
+    public void LinkDrops_WeighsALongRunMore_AndSaysWhenDropsOutliveAChange()
+    {
+        var link = ApLink();
+        var now = new DateTime(2026, 1, 22, 0, 0, 0, DateTimeKind.Utc);
+        List<LinkIncident> Drops() => Enumerable.Range(0, 10).Select(i =>
+        {
+            var t = now.AddHours(-40 + i * 4);
+            return new LinkIncident { Start = t, End = t.AddSeconds(3), Kind = IncidentKind.Drop, SpeedAfterMbps = 2500 };
+        }).ToList();
+        LinkEvidence Ev(DateTime? since) => new() { Link = link, From = now.AddHours(-48), To = now, TroubleSince = since };
+
+        var burst = LanHealthDetectors.LinkDrops(Ev(now.AddHours(-40)), Drops(), FindingText.Utc)!;
+        var chronic = LanHealthDetectors.LinkDrops(Ev(now.AddDays(-14)), Drops(), FindingText.Utc)!;
+        chronic.Points.Should().BeApproximately(Math.Min(90, burst.Points * 1.5), 0.01);
+
+        var withChange = Drops();
+        withChange.Add(new LinkIncident { Start = now.AddHours(-30), End = now.AddHours(-30), Kind = IncidentKind.Relink, Explained = ExplainReason.PortProfileChanged });
+        LanHealthDetectors.LinkDrops(Ev(null), withChange, FindingText.Utc)!.Body.Should().Contain("Still dropping after the");
+    }
+    [Fact]
     public void Scorer_CombinesFindingsAndWeighsFabricByClients()
     {
         LanHealthScorer.LinkScore([new LinkFinding { Points = 20 }, new LinkFinding { Points = 20 }, new LinkFinding { Points = 0 }]).Should().Be(64);

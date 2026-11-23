@@ -228,6 +228,19 @@ public static class ChangeDetail
     /// <summary>Packs the actor and the summary into one stored detail string.</summary>
     public static string Format(string? actor, string summary) => $"{actor ?? ""}\t{summary}";
 
+    /// <summary>The actor, the changed object, and its changed fields, from a packed detail.</summary>
+    public static (string? Actor, string What, string? Fields) Parts(string? detail)
+    {
+        if (string.IsNullOrEmpty(detail)) return (null, "A configuration change", null);
+        var tab = detail.IndexOf('\t');
+        var actor = tab >= 0 ? detail[..tab] : null;
+        var summary = tab >= 0 ? detail[(tab + 1)..] : detail;
+        var colon = summary.IndexOf(": ", StringComparison.Ordinal);
+        return (string.IsNullOrEmpty(actor) ? null : actor,
+            colon > 0 ? summary[..colon] : summary,
+            colon > 0 ? summary[(colon + 2)..] : null);
+    }
+
     /// <summary>"Change by TJ: Port Profile X (Link Speed, and 5 more)", from a packed detail.</summary>
     public static string Describe(string? detail)
     {

@@ -20809,7 +20809,10 @@ tr.stats-row-filtered {
 .lan-health .lan-health-link-title { margin: 0 0 0.25rem; font-size: 1.25rem; }
 .lan-health .lan-health-tiles { margin-bottom: 1rem; }
 .lan-health .lan-health-tile-text { font-size: 1rem; }
-.lan-health .lan-health-steps { margin: 0; padding-left: 1.25rem; display: flex; flex-direction: column; gap: 0.5rem; }
+.lan-health .lan-health-steps { display: flex; flex-direction: column; gap: 1rem; font-size: 0.875rem; }
+.lan-health .lan-health-step { display: flex; flex-direction: column; gap: 0.25rem; }
+.lan-health .lan-health-step-action { color: var(--text-primary); font-weight: 600; }
+.lan-health .lan-health-step ul { margin: 0.25rem 0 0; padding-left: 1.25rem; color: var(--text-secondary); }
 .lan-health .lan-health-ends td:first-child { color: var(--text-secondary); }
 
 @media (max-width: 900px) {

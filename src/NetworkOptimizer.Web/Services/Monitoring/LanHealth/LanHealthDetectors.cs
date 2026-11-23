@@ -112,6 +112,10 @@ public static class LanHealthDetectors
             parts.Add($"Started {text.Time(onset)}, with none in the {days} days before.");
         if (ErrorAsymmetry(ev) is { } asym)
             parts.Add($"Errors only on the {asym.End} side.");
+        // A change made to fix it that the drops outlived.
+        var lastChange = incidents.Where(i => i.Explained == ExplainReason.PortProfileChanged).OrderByDescending(i => i.Start).FirstOrDefault();
+        if (lastChange != null && drops.Any(d => d.Start > lastChange.Start))
+            parts.Add($"Still dropping after the {text.Time(lastChange.Start)} change.");
 
         var chips = new List<string>();
         if (sameSpeed && seconds is <= 15) chips.Add("Short link drops");
@@ -124,6 +128,10 @@ public static class LanHealthDetectors
         var perDay = count / Math.Max(1.0 / 24, (ev.To - ev.From).TotalDays);
         var pts = ScoreCurve.Interpolate(count, (0, 0), (3, 15), (10, 35), (30, 60), (100, 85))
                   * ScoreCurve.Interpolate(seconds ?? 5, (1, 70), (5, 100), (60, 130)) / 100;
+        // A fault that has run for days weighs more than a burst: up to 1.5x at two weeks, then capped,
+        // so an old fault never pins the score to the floor.
+        if (ev.TroubleSince is DateTime since)
+            pts *= ScoreCurve.Interpolate((ev.To - since).TotalDays, (2, 1.0), (7, 1.25), (14, 1.5));
         return new LinkFinding
         {
             Detector = Detectors.LinkDrops,
