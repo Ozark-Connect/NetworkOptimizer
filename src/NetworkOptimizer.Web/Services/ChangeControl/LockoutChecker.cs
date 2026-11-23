@@ -414,13 +414,14 @@ public static class LockoutChecker
     internal static readonly string[] WanRoutingFields =
         ["enabled", "wan_networkgroup", "wan_failover_priority", "wan_load_balance_type", "wan_load_balance_weight"];
 
-    // How a WAN reaches the ISP: the IPv4 fields of the YAML's "WAN connection" group, plus enabled, the zone, and the MAC override.
+    // How a WAN reaches the ISP: the IPv4 fields of the YAML's "WAN connection" group, plus enabled, the zone, the MAC override,
+    // and the Passthrough VLANs (tagged_networkconf_ids, Network 11.1+), which reprovision the WAN port's VLAN interfaces.
     internal static readonly string[] WanUplinkFields =
     [
         "enabled", "firewall_zone_id", "wan_networkgroup", "ifname", "wan_type", "wan_ip", "wan_netmask", "wan_gateway",
         "wan_username", "x_wan_password", "wan_pppoe_username_enabled", "wan_pppoe_password_enabled", "wan_pppoe_rfc4638_enabled",
         "wan_ipip_username", "x_wan_ipip_password", "wan_vlan_enabled", "wan_vlan", "wan_egress_qos", "wan_dhcp_options", "wan_dhcp_cos",
-        "mac_override_enabled", "mac_override",
+        "mac_override_enabled", "mac_override", "tagged_networkconf_ids",
     ];
 
     /// <summary>
@@ -441,7 +442,7 @@ public static class LockoutChecker
                 : (carried ? WanUplinkFields : WanRoutingFields).Where(f => !CanonicalJson.DeepEquals(liveNet[f], plannedNet[f])).ToList();
             if (plannedNet != null && changed.Count == 0) continue;
 
-            var fields = ChangeDescriber.JoinAnd(changed.Select(f => ChangeDescriber.LabelFor(f)).Distinct().ToList());
+            var fields = ChangeDescriber.JoinAnd(changed.Select(f => ChangeDescriber.LabelFor(f, liveNet)).Distinct().ToList());
             yield return new LockoutFinding
             {
                 Kind = "possible",

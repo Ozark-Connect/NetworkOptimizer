@@ -114,13 +114,18 @@ public static class PlanBuilder
         // A snapshot from another Network version predates the columns the upgrade added.
         if (!options.SameSite || otherVersion)
         {
+            // Live objects the source lacks, which this plan deletes: a filled value cannot vouch for a link to them.
+            var deleted = options.DeleteMissing
+                ? matches.Values.SelectMany(m => m.Pairs).Where(p => p.Left == null && p.Right != null)
+                    .Select(p => ConfigState.IdOf(p.Right!)).ToHashSet(StringComparer.OrdinalIgnoreCase)
+                : [];
             foreach (var def in ConfigCollections.All.Where(d => matches.ContainsKey(d.Key)))
                 foreach (var p in matches[def.Key].Pairs.Where(p => p.Left != null && p.Right != null))
                 {
                     // A field the source never carried (an older Network version, a setting never saved there)
                     // is unspecified, not unset: the target keeps its own.
                     foreach (var (k, v) in p.Right!)
-                        if (!p.Left!.ContainsKey(k)) p.Left[k] = v?.DeepClone();
+                        if (!p.Left!.ContainsKey(k)) p.Left[k] = WithoutIds(v, deleted);
                     if (!options.SameSite && def.KeepTargetValues?.Invoke(p.Left!, p.Right!) is { } what)
                         doc.KeptValues.Add(what);
                     if (options.MergeLists) MergeListsInto(def, p.Left!, p.Right!);
@@ -1275,6 +1280,15 @@ public static class PlanBuilder
         JsonArray a => new JsonArray(a.Select(WithoutExclusions).ToArray()),
         _ => node?.DeepClone(),
     };
+
+    /// <summary>
+    /// A copy of a list with the given IDs taken out (a WAN's Passthrough VLANs naming a network the plan deletes).
+    /// Any other value is copied as is.
+    /// </summary>
+    private static JsonNode? WithoutIds(JsonNode? value, IReadOnlySet<string> ids) =>
+        value is JsonArray arr && ids.Count > 0
+            ? new JsonArray(arr.Where(e => !(e is JsonValue v && v.TryGetValue<string>(out var s) && ids.Contains(s))).Select(e => e?.DeepClone()).ToArray())
+            : value?.DeepClone();
 
     private static JsonObject MergeForCheck(JsonObject live, JsonObject body)
     {

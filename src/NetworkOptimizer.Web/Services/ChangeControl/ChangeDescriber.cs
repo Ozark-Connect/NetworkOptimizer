@@ -147,6 +147,8 @@ public static partial class ChangeDescriber
         }
         var leaf = path.Split('.')[^1];
         var head = path.Split('.')[0];
+        // On a WAN (Network 11.1+), tagged_networkconf_ids lists the VLAN Only Networks the ISP's VLANs pass through to.
+        if (path == "tagged_networkconf_ids" && (after ?? before)?["purpose"]?.ToString() == "wan") return "Passthrough VLANs";
         if (Labels.TryGetValue(leaf, out var label)) return label;
         if (head != leaf && Labels.TryGetValue(head, out var headLabel)) return $"{headLabel} {Humanize(leaf)}";
         return Humanize(leaf);

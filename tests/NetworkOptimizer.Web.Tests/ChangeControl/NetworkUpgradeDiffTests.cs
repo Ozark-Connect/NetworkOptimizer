@@ -343,6 +343,42 @@ public class NetworkUpgradeDiffTests
     }
 
     [Fact]
+    public void RestoreOfPreUpgradeSnapshot_DropsTheReferenceToANetworkItDeletes()
+    {
+        // 11.0 omits an empty tagged_networkconf_ids on a WAN; on 11.1 it holds the Passthrough VLANs, here a
+        // VLAN Only Network added after the snapshot. The plan deletes that network, so the WAN must let go of it.
+        var before = Versioned("11.0.104",
+            ("networkconf", """{"_id":"wan2","name":"Starlink","purpose":"wan","wan_networkgroup":"WAN2"}"""));
+        var after = Versioned("11.1.58",
+            ("networkconf", """{"_id":"wan2","name":"Starlink","purpose":"wan","wan_networkgroup":"WAN2","tagged_networkconf_ids":["vo1"]}"""),
+            ("networkconf", """{"_id":"vo1","name":"Passthrough VLAN","purpose":"vlan-only","vlan":690,"vlan_enabled":true}"""));
+
+        var doc = PlanBuilder.Build(before, after, new PlanOptions());
+
+        doc.Errors.Should().BeEmpty();
+        doc.Operations.Should().ContainSingle(o => o.Action == PlanAction.Delete && o.ObjectName == "Passthrough VLAN");
+        doc.Operations.Single(o => o.Action == PlanAction.Update && o.ObjectName == "Starlink")
+            .Body!["tagged_networkconf_ids"]!.AsArray().Should().BeEmpty();
+    }
+
+    [Fact]
+    public void RestoreOfPreUpgradeSnapshot_KeepsAFilledReferenceToAKeptObject()
+    {
+        // The fill still keeps what the source never carried, when the plan keeps its target.
+        var before = Versioned("11.0.104",
+            ("networkconf", """{"_id":"wan2","name":"Starlink","purpose":"wan","wan_networkgroup":"WAN2"}"""),
+            ("networkconf", """{"_id":"vo1","name":"Passthrough VLAN","purpose":"vlan-only","vlan":690,"vlan_enabled":true}"""));
+        var after = Versioned("11.1.58",
+            ("networkconf", """{"_id":"wan2","name":"Starlink","purpose":"wan","wan_networkgroup":"WAN2","tagged_networkconf_ids":["vo1"]}"""),
+            ("networkconf", """{"_id":"vo1","name":"Passthrough VLAN","purpose":"vlan-only","vlan":690,"vlan_enabled":true}"""));
+
+        var doc = PlanBuilder.Build(before, after, new PlanOptions());
+
+        doc.Errors.Should().BeEmpty();
+        doc.Operations.Should().BeEmpty();
+    }
+
+    [Fact]
     public void RestoreOfPreUpgradeSnapshot_RecreatesOnlyTheDeletedRoute()
     {
         var doc = PlanBuilder.Build(Before(), After(), new PlanOptions());

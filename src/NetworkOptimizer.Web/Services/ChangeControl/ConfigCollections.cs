@@ -492,7 +492,7 @@ public static class ConfigCollections
                 ReadOnlyFields = CommonReadOnly,
                 // Not x_-prefixed, but carry keys: the WireGuard config file holds the PrivateKey line.
                 ExtraSecretFields = Set("wireguard_client_preshared_key", "wireguard_client_configuration_file", "openvpn_configuration"),
-                SetArrays = Set("dhcpd_dns", "nat_outbound_ip_addresses", "lte_lan_enabled_devices"),
+                SetArrays = Set("dhcpd_dns", "nat_outbound_ip_addresses", "lte_lan_enabled_devices", "tagged_networkconf_ids"),
                 EnforcedKey = (o, _) => NetworkKey(o), KeyIsUnique = true,
                 // Sites numbered by different people share names ("IoT") more reliably than VLAN IDs (TJ, 2026-10-29).
                 NameFirstAcrossSites = true,
