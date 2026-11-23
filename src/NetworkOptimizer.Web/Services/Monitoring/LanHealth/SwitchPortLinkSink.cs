@@ -35,10 +35,13 @@ public sealed class SwitchPortLinkSink
     {
         var influx = _influx.GetFor(siteSlug);
         if (!influx.IsConfigured) return true;
-        var gateway = _connections.GetFor(siteSlug).CachedDevices?
+        var connection = _connections.GetFor(siteSlug);
+        var gateway = connection.CachedDevices?
             .FirstOrDefault(d => d.Type == DeviceType.Gateway && !string.IsNullOrEmpty(d.Mac));
         if (gateway == null)
         {
+            // Nothing has read the device list yet: start a read so the next minute's batch lands.
+            if (connection.CachedDevices == null && connection.IsConnected) _ = connection.GetDiscoveredDevicesAsync();
             _logger.LogDebug("Switch port batch for {Site} dropped: the gateway is not in the device list yet", siteSlug);
             return false;
         }

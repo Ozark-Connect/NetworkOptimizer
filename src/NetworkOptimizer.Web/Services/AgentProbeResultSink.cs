@@ -100,6 +100,8 @@ public class AgentProbeResultSink
     // the same LanFabricAggregator the directly-monitored fast tier uses. Keyed by slug
     // because this sink is a singleton serving every agent site.
     private readonly ConcurrentDictionary<string, LanFabricAggregator> _fabricBySite = new();
+    // LAN Health's console port snapshots for agent sites, as the direct path records them.
+    private readonly ConcurrentDictionary<string, Monitoring.LanHealth.LanPortSnapshotRecorder> _lanSnapshotsBySite = new();
 
     // Agent-site SNMP self-heal. The server doesn't poll SNMP for agent sites (the agent
     // does and only relays results), so there's no per-device failure signal to react to
@@ -1548,6 +1550,17 @@ public class AgentProbeResultSink
         {
             // Cancellation still unwinds: the tunnel shutting down is not an alerting failure.
             _logger.LogDebug(ex, "Device state alert evaluation failed for site {Slug}", connection.SiteSlug);
+        }
+
+        // LAN Health: the console port table and device fields, once per fresh device snapshot.
+        try
+        {
+            if (deviceByMac.Count > 0)
+                _lanSnapshotsBySite.GetOrAdd(connection.SiteSlug, _ => new()).Record(deviceByMac.Values, influx, stateObservedAt);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogDebug(ex, "LAN port snapshot pass failed for site {Slug}", connection.SiteSlug);
         }
 
         // Topology-boundary aggregates (fabric sums, AP backhaul, gateway WAN), shared
