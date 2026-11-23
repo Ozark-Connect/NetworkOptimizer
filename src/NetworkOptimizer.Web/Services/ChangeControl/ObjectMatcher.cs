@@ -64,6 +64,15 @@ public static class ObjectMatcher
             foreach (var l in leftOpen.ToList())
                 if (rightByLegacy.TryGetValue(ConfigState.IdOf(l), out var r) && rightOpen.Contains(r))
                     Pair(l, r, "id");
+
+            // A Fabric object deleted locally comes back at the next sync under a new ID; its template's config_id stays.
+            var rightByFabric = new Dictionary<string, JsonObject>(StringComparer.OrdinalIgnoreCase);
+            foreach (var r in rightOpen)
+                if (FabricConfigId(r) is { } c) rightByFabric.TryAdd(c, r);
+            if (rightByFabric.Count > 0)
+                foreach (var l in leftOpen.ToList())
+                    if (FabricConfigId(l) is { } c && rightByFabric.TryGetValue(c, out var r) && rightOpen.Contains(r))
+                        Pair(l, r, "id");
         }
 
         // Across sites, a collection can prefer the name (networks: the same name is the same network,
@@ -107,6 +116,9 @@ public static class ObjectMatcher
         foreach (var r in rightOpen) result.Pairs.Add(new ObjectPair(null, r, "none"));
         return result;
     }
+
+    private static string? FabricConfigId(JsonObject o) =>
+        ConfigCollections.FabricTemplate(o)?["config_id"]?.ToString() is { Length: > 0 } c ? c : null;
 
     /// <summary>Network 11's copy of the 10.x ObjectId an object had before the UUID migration.</summary>
     public const string LegacyIdField = "legacy_id";

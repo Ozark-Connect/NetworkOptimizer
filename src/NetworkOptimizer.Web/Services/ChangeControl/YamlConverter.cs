@@ -799,9 +799,12 @@ public static partial class YamlConverter
                 continue;
             }
             var name = $"{def.Noun} {ConfigState.DisplayName(def, before)}";
-            result.Problems.Add(new YamlProblem("Error", fileName, Line(node), who == "UniFi"
-                ? $"{name} is managed by UniFi and cannot be edited here."
-                : $"{name} belongs to {who} and cannot be edited here."));
+            result.Problems.Add(new YamlProblem("Error", fileName, Line(node), who switch
+            {
+                "UniFi" => $"{name} is managed by UniFi and cannot be edited here.",
+                ConfigCollections.SiteManager => $"{name} is centrally managed by the Fabric and cannot be edited locally. Change it in Site Manager.",
+                _ => $"{name} belongs to {who} and cannot be edited here.",
+            }));
         }
 
         // An object removed from the file is deleted. Say what that does: nothing in a collection

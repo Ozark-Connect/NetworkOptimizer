@@ -277,7 +277,7 @@ public static class ConfigCollections
 
     private static HashSet<string> Set(params string[] items) => new(items, StringComparer.Ordinal);
 
-    private static readonly HashSet<string> CommonReadOnly = Set("site_id", "attr_hidden_id", "attr_no_delete", "attr_no_edit", "external_id");
+    private static readonly HashSet<string> CommonReadOnly = Set("site_id", "attr_hidden_id", "attr_no_delete", "attr_no_edit", "external_id", "cloud_template");
 
     private static string? Str(JsonObject o, string field) =>
         o[field] is JsonValue v && v.TryGetValue<string>(out var s) ? s : o[field]?.ToString();
@@ -367,6 +367,21 @@ public static class ConfigCollections
         field.StartsWith("x_", StringComparison.Ordinal)
         || (def != null && def.ExtraSecretFields.Contains(field));
 
+    /// <summary>Who pushes Fabric objects, as UniFi names it ("created through Site Manager").</summary>
+    public const string SiteManager = "Site Manager";
+
+    /// <summary>
+    /// The Site Manager template behind an object a Fabric pushed (Network 11.1+), or null. A detached copy is
+    /// the site's own again. Objects outside a Fabric carry no cloud_template, or a null one (firewall zones).
+    /// </summary>
+    [VendorSpecific("UniFi", "cloud_template {orchestration_id, config_id, template_id, revision_id, detached, allow_overrides}")]
+    public static JsonObject? FabricTemplate(JsonObject obj) =>
+        obj["cloud_template"] is JsonObject t && !(t["detached"] is JsonValue d && d.TryGetValue<bool>(out var detached) && detached) ? t : null;
+
+    /// <summary>A Fabric object the console refuses to edit locally: its template does not allow overrides.</summary>
+    public static bool FabricLocked(JsonObject obj) =>
+        FabricTemplate(obj) is { } t && !(t["allow_overrides"] is JsonValue v && v.TryGetValue<bool>(out var allowed) && allowed);
+
     /// <summary>The owning NO feature of an object, or null when the user owns it.</summary>
     public static string? OwnedBy(ConfigCollectionDef def, JsonObject obj)
     {
@@ -378,12 +393,14 @@ public static class ConfigCollections
 
     /// <summary>
     /// Who manages an object the editor never changes: "UniFi" for its predefined and generated
-    /// objects, a Network Optimizer feature for its own; null when the user owns it. Narrower than
+    /// objects, a Network Optimizer feature for its own, "Site Manager" for a locked Fabric object;
+    /// null when the user owns it. Narrower than
     /// <see cref="DeleteCascade.CannotDelete"/>: the Default network and built-in zones cannot be
     /// deleted but are the user's to edit.
     /// </summary>
     public static string? ManagedBy(ConfigCollectionDef def, JsonObject obj) =>
         OwnedBy(def, obj)
+        ?? (FabricLocked(obj) ? SiteManager : null)
         ?? (def.IsGenerated?.Invoke(obj) == true
             || new[] { "predefined", "is_predefined" }.Any(f => obj[f] is JsonValue v && v.TryGetValue<bool>(out var b) && b)
             ? "UniFi" : null);
