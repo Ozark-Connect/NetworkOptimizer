@@ -443,7 +443,7 @@ public static class LanHealthDetectors
         Class = cls,
         Title = Title(cls, ev.Link),
         Body = body,
-        Chips = [ev.Link.Kind == LinkKind.FabricMeshMlo ? "Fabric · mesh MLO" : "Fabric · mesh", ImpactChip(ev.Link)],
+        Chips = [ev.Link.Kind == LinkKind.FabricMeshMlo ? "Fabric · Mesh MLO" : "Fabric · Mesh", ImpactChip(ev.Link)],
         Points = points,
     };
 
