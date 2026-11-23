@@ -89,7 +89,7 @@ public static class LanSiteDetectors
         if (!churn) yield break;
         // One alert for the loop, not one per port: the per-port storms fold into it.
         yield return Site(Detectors.L2Instability, "Network Loop", $"{storms.Count} ports",
-            $"Broadcast storms on {storms.Count} ports at once, with STP changing state: a loop. Look for a cable between two ports, or an unmanaged switch plugged back into the network.",
+            $"Broadcast storms on {storms.Count} ports at the same time, along with STP changes, point to a loop. Look for a cable connecting two ports, or a switch or AP connected to the network twice.",
             FindingSeverity.Critical, storms[0].LinkId, 60, LinkStatus.Storm, "Loop");
     }
 
@@ -102,7 +102,7 @@ public static class LanSiteDetectors
             if (v.Window < 10 || v.Window < expected * 3) continue;
             var name = DeviceName(s, mac);
             yield return Site(Detectors.StpChurn, "STP Churn", name,
-                $"{v.Window:0} STP state changes in {s.Text.Range}, against a normal of {expected:0}. Each topology change flushes MAC tables and floods traffic.",
+                $"{v.Window:0} STP state changes in {s.Text.Range}, compared to {expected:0} normally. Every topology change flushes MAC tables, and the switches flood traffic until they relearn them.",
                 chips: "STP");
         }
     }
@@ -118,7 +118,7 @@ public static class LanSiteDetectors
         var priorities = switches.Select(d => d.StpPriority ?? 32768).ToList();
         if (switches.Count >= 2 && priorities.All(p => p == 32768))
             yield return Site(Detectors.StpConfig, "STP Root Left to Chance", "all switches",
-                "Every switch has the default STP priority, so the lowest MAC address becomes the root. Set a lower priority on the core switch, and the next lower on a backup root.",
+                "Every switch has the default STP priority, so the switch with the lowest MAC address becomes the root. Give your core switch a lower priority, and a backup switch the next lowest.",
                 chips: "STP");
 
         // Root placement: the root should be the gateway-adjacent switch, never one behind a mesh link or a Flex Mini.
@@ -128,14 +128,14 @@ public static class LanSiteDetectors
         var depth = root.UplinkDepth ?? 1;
         if (switches.Count >= 2 && (behindMesh || flexMini || depth > 2))
             yield return Site(Detectors.StpConfig, "STP Root Placement", root.Name,
-                $"{root.Name} is the STP root{(behindMesh ? ", behind a mesh link" : flexMini ? ", and it is a Flex Mini" : $", {depth} hops from the gateway")}. The root belongs on the core switch next to the gateway.",
+                $"{root.Name} is the STP root{(behindMesh ? ", behind a mesh link" : flexMini ? ", and it's a Flex Mini" : $", {depth} hops from the gateway")}. The root should be the core switch next to the gateway.",
                 chips: "STP");
 
         // Mixed STP versions in one L2 domain.
         var versions = switches.Select(d => (d.StpVersion ?? "rstp").ToLowerInvariant()).Distinct().ToList();
         if (versions.Count > 1)
             yield return Site(Detectors.StpConfig, "Mixed STP Versions", string.Join(", ", versions.Select(v => v.ToUpperInvariant())),
-                "Switches run different STP versions in one network. Pick one for all of them.", chips: "STP");
+                "Your switches run different STP versions. Set them all to the same one.", chips: "STP");
 
         foreach (var d in switches)
         {
@@ -145,7 +145,7 @@ public static class LanSiteDetectors
             // STP disabled with redundancy: more than one switch-facing link to the rest of the network.
             if (string.Equals(d.StpVersion, "disabled", StringComparison.OrdinalIgnoreCase) && lldp >= 2)
                 yield return Site(Detectors.StpConfig, "STP Disabled with Redundancy", d.Name,
-                    $"STP is off on {d.Name} and LLDP sees {lldp} neighbors: a second path makes a loop.", FindingSeverity.Warning, chips: "STP");
+                    $"STP is off on {d.Name}, and LLDP shows {lldp} neighbors. A second path between switches will loop.", FindingSeverity.Warning, chips: "STP");
 
             foreach (var port in d.PortTable ?? [])
             {
@@ -155,23 +155,23 @@ public static class LanSiteDetectors
                 // Edge on a fabric port: a loop waiting to happen.
                 if (link.Link.IsFabric && (port.StpEdgePort == true || string.Equals(conf?.StpEdgeState, "enabled", StringComparison.OrdinalIgnoreCase)))
                     yield return Site(Detectors.StpConfig, "Edge Port on a Fabric Link", link.Link.Name,
-                        "The port's STP mode is Edge, but a UniFi device is on it. Set it to Infrastructure.", FindingSeverity.Warning, link.Link.Id, chips: "STP");
+                        "This port's STP mode is Edge, but a UniFi device is plugged into it. Set it to Infrastructure.", FindingSeverity.Warning, link.Link.Id, chips: "STP");
                 // Infrastructure forced on an access port: every client link-up waits 30 s or more.
                 if (!link.Link.IsFabric && string.Equals(conf?.StpEdgeState, "disabled", StringComparison.OrdinalIgnoreCase))
                     yield return Site(Detectors.StpConfig, "Infrastructure Mode on an Access Port", link.Link.Name,
-                        "The port's STP mode is Infrastructure with a client on it: each time it links, traffic waits 30 seconds or more for STP. Set it to Edge or Auto.", linkId: link.Link.Id, chips: "STP");
+                        "This port's STP mode is Infrastructure, but a client is plugged into it, so every time the client links up it waits 30 seconds or more before passing traffic. Set it to Edge or Auto.", linkId: link.Link.Id, chips: "STP");
                 // BPDU guard off on a client-facing port where a user can plug in a switch.
                 if (!link.Link.IsFabric && conf != null && conf.StpBpduGuardEnabled == false && port.StpEdgePort == true)
                     yield return Site(Detectors.StpConfig, "BPDU Guard Off", link.Link.Name,
-                        "BPDU guard is off on a client-facing Edge port: a switch plugged in here can take part in STP.", linkId: link.Link.Id, chips: "STP");
+                        "BPDU guard is off on this client port. If someone plugs a switch in here, it can take part in STP.", linkId: link.Link.Id, chips: "STP");
                 // A blocked port that was not meant as redundancy.
                 if (port.Up && (string.Equals(port.StpState, "blocking", StringComparison.OrdinalIgnoreCase) || string.Equals(port.StpRole, "alternate", StringComparison.OrdinalIgnoreCase)))
                     yield return Site(Detectors.StpConfig, "Blocked Port", link.Link.Name,
-                        "STP is blocking this port: there is a second path between the same switches. Remove the extra cable unless the redundancy is meant.", linkId: link.Link.Id, chips: "STP");
+                        "STP is blocking this port because there's a second path between the same switches. If you didn't set that up for redundancy, remove the extra cable.", linkId: link.Link.Id, chips: "STP");
                 // Path cost overrides that send traffic down the slower path.
                 if (port.StpPathCost is int cost && cost > 0 && link.Link.SpeedMbps is int mbps && mbps >= 10000 && cost > 20000)
                     yield return Site(Detectors.StpConfig, "STP Path Cost", link.Link.Name,
-                        $"The port's STP path cost is {cost}, high for a {DisplayFormatters.FormatLinkSpeed(mbps)} link: STP may prefer a slower path.", linkId: link.Link.Id, chips: "STP");
+                        $"This port's STP path cost is {cost}, which is high for a {DisplayFormatters.FormatLinkSpeed(mbps)} link, so STP may send traffic over a slower path.", linkId: link.Link.Id, chips: "STP");
                 _ = detected;
             }
         }
@@ -196,11 +196,11 @@ public static class LanSiteDetectors
                 var speeds = members.Where(m => m.Up).Select(m => m.Speed).Distinct().ToList();
                 if (speeds.Count > 1)
                     yield return Site(Detectors.LacpHealth, "LACP Speed Mismatch", subject,
-                        $"Aggregate members run at different speeds ({string.Join(", ", speeds.Select(DisplayFormatters.FormatLinkSpeed))}).", chips: "LACP");
+                        $"The aggregate's members are running at different speeds ({string.Join(", ", speeds.Select(DisplayFormatters.FormatLinkSpeed))}).", chips: "LACP");
                 var bytes = members.Where(m => m.Up).Select(m => (double)(m.TxBytes + m.RxBytes)).ToList();
                 if (bytes.Count > 1 && bytes.Sum() > 1e11 && bytes.Max() > bytes.Sum() * 0.85)
                     yield return Site(Detectors.LacpHealth, "LACP Imbalance", subject,
-                        "One aggregate member carries most of the traffic while the others sit idle: the hash puts every flow on one link.", chips: "LACP");
+                        "One aggregate member is carrying most of the traffic while the others sit nearly idle. The hashing is putting most flows on one link.", chips: "LACP");
             }
         }
     }
@@ -216,7 +216,7 @@ public static class LanSiteDetectors
             var upName = s.Networks.FirstOrDefault(n => n.Id == up)?.Name ?? up;
             var downName = s.Networks.FirstOrDefault(n => n.Id == down)?.Name ?? down;
             yield return Site(Detectors.NativeVlanMismatch, "Native VLAN Mismatch", l.Link.Name,
-                $"The two ends disagree on the native network: {upName} on {l.Link.Upstream.DeviceName}, {downName} on {l.Link.Downstream.DeviceName}.",
+                $"The two ends use different native networks: {upName} on {l.Link.Upstream.DeviceName}, {downName} on {l.Link.Downstream.DeviceName}.",
                 FindingSeverity.Warning, l.Link.Id, chips: "VLAN");
         }
 
@@ -231,7 +231,7 @@ public static class LanSiteDetectors
                     || Same(l.Link.Upstream.DeviceMac, issue.Link.DeviceBMac) && Same(l.Link.Downstream.DeviceMac, issue.Link.DeviceAMac)));
             var subject = link?.Link.Name ?? $"{issue.Link.DeviceAName} to {issue.Link.DeviceBName}";
             yield return Site(Detectors.NativeVlanMismatch, "Trunk VLAN Mismatch", subject,
-                $"{string.Join(", ", issue.Mismatches.Select(m => m.NetworkName))} allowed on one end of the trunk and blocked on the other. {issue.Recommendation}",
+                $"{string.Join(", ", issue.Mismatches.Select(m => m.NetworkName))} is allowed on one end of this trunk and blocked on the other. {issue.Recommendation}",
                 FindingSeverity.Info, link?.Link.Id ?? "", chips: "VLAN");
         }
     }
@@ -261,7 +261,7 @@ public static class LanSiteDetectors
             var down = l.Link.DownstreamPort?.Jumbo;
             if (up == null || down == null || up == down) continue;
             yield return Site(Detectors.MtuMismatch, "Jumbo Frames Mismatch", l.Link.Name,
-                $"Jumbo frames are {(up == true ? "on" : "off")} on {l.Link.Upstream.DeviceName} and {(down == true ? "on" : "off")} on {l.Link.Downstream.DeviceName}: large frames on this path are dropped.",
+                $"Jumbo frames are {(up == true ? "on" : "off")} on {l.Link.Upstream.DeviceName} and {(down == true ? "on" : "off")} on {l.Link.Downstream.DeviceName}, so large frames get dropped on this link.",
                 FindingSeverity.Warning, l.Link.Id, chips: "MTU");
         }
     }
@@ -274,11 +274,11 @@ public static class LanSiteDetectors
         var snoopingOff = s.Networks.Where(n => n.Purpose is "corporate" or "guest" && !n.IgmpSnooping).ToList();
         if (heavy.Count > 0 && snoopingOff.Count > 0)
             yield return Site(Detectors.MulticastHygiene, "Multicast Flooding", string.Join(", ", snoopingOff.Select(n => n.Name)),
-                $"Heavy multicast on {heavy.Count} {(heavy.Count == 1 ? "link" : "links")} with IGMP snooping off: every port gets every stream.", chips: "Multicast");
+                $"Heavy multicast on {heavy.Count} {(heavy.Count == 1 ? "link" : "links")} with IGMP snooping off, so every port receives every stream.", chips: "Multicast");
         var snoopingOn = s.Networks.Where(n => n.IgmpSnooping).ToList();
         if (snoopingOn.Count > 0 && s.Devices.All(d => d.DeviceType != DeviceType.Gateway))
             yield return Site(Detectors.MulticastHygiene, "No IGMP Querier", string.Join(", ", snoopingOn.Select(n => n.Name)),
-                "IGMP snooping is on with no querier: multicast groups time out and streams stop.", chips: "Multicast");
+                "IGMP snooping is on, but there's no IGMP querier, so group memberships time out and multicast streams stop.", chips: "Multicast");
     }
 
     // ---- 15 Bottleneck uplink / oversubscription ----
@@ -292,7 +292,7 @@ public static class LanSiteDetectors
             var peak = s.Evidence.TryGetValue(l.Link.Id, out var ev) ? ev.Hours.Select(h => LanHealthDetectors.Utilization(l.Link, h)).DefaultIfEmpty(0).Max() : 0;
             yield return Site(Detectors.BottleneckUplink, "Bottleneck Uplink", l.Link.Name,
                 $"{l.Link.Downstream.DeviceName} uplinks at {DisplayFormatters.FormatLinkSpeed(l.Link.SpeedMbps!.Value)} while a link below it runs at {DisplayFormatters.FormatLinkSpeed(fastest)}"
-                + (peak > 0 ? $"; its busiest hour reached {peak * 100:0}% of the uplink." : "."),
+                + (peak > 0 ? $". Its busiest hour reached {peak * 100:0}% of the uplink." : "."),
                 linkId: l.Link.Id, chips: "Capacity");
         }
     }
@@ -312,7 +312,7 @@ public static class LanSiteDetectors
             && LanHealthDetectors.Utilization(trunk.Link, x) > 0.4).ToList();
         if (both.Count < 2 || cpu is not >= 70) yield break;
         yield return Site(Detectors.HairpinLoad, "Inter-VLAN Hairpin", trunk.Link.Name,
-            $"The gateway trunk carries near-equal traffic both ways for {both.Count} hours with the gateway CPU at {cpu:0}%: traffic between VLANs crosses it twice.",
+            $"For {both.Count} hours, the gateway trunk carried nearly the same traffic in both directions while the gateway CPU hit {cpu:0}%. Traffic between VLANs crosses this trunk twice.",
             linkId: trunk.Link.Id, chips: "Capacity");
     }
 
@@ -325,7 +325,7 @@ public static class LanSiteDetectors
             var link = s.Links.FirstOrDefault(l => l.Link.IsFabric && l.Link.Downstream.DeviceMac == mac);
             if (link != null && link.Drops > 0) continue;
             yield return Site(Detectors.ManagementPlane, "Console Reachability", DeviceName(s, mac),
-                $"{count} inform failures in {s.Text.Range} while the device stayed up on the LAN: it cannot reach the UniFi Console reliably.",
+                $"{count} inform failures in {s.Text.Range} while the device stayed up on the LAN. It's having trouble reaching the UniFi Console.",
                 linkId: link?.Link.Id ?? "", chips: "Management");
         }
     }
@@ -350,7 +350,7 @@ public static class LanSiteDetectors
             var versions = g.Select(d => d.DisplayableVersion ?? d.Version).Where(v => !string.IsNullOrEmpty(v)).Distinct().ToList();
             if (versions.Count > 1)
                 yield return Site(Detectors.FabricDeviceHealth, "Firmware Drift", g.First().FriendlyModelName,
-                    $"{g.Count()} devices of one model run {versions.Count} firmware versions ({string.Join(", ", versions)}).", chips: "Firmware");
+                    $"{g.Count()} devices of the same model are running {versions.Count} different firmware versions ({string.Join(", ", versions)}).", chips: "Firmware");
         }
     }
 
@@ -359,7 +359,7 @@ public static class LanSiteDetectors
     {
         foreach (var m in s.MacMoves.Where(m => m.Moves >= 3))
             yield return Site(Detectors.MacMoves, "MAC Flapping", m.Name,
-                $"{m.Name} moved between {string.Join(" and ", m.Ports)} {m.Moves} times in {s.Text.Range}: a loop, a duplicate MAC, a bridged VM, or a misconfigured bond.",
+                $"{m.Name} moved between {string.Join(" and ", m.Ports)} {m.Moves} times in {s.Text.Range}. That points to a loop, a duplicate MAC, a bridged VM, or a misconfigured bond.",
                 FindingSeverity.Warning, chips: "L2");
     }
 
@@ -368,7 +368,7 @@ public static class LanSiteDetectors
     {
         foreach (var d in s.DuplicateIps)
             yield return Site(Detectors.DuplicateIp, "Duplicate IP", d.Ip,
-                $"{d.Macs.Count} devices answer for {d.Ip} ({string.Join(", ", d.Macs)}).", FindingSeverity.Warning, chips: "IP");
+                $"{d.Macs.Count} devices are answering for {d.Ip} ({string.Join(", ", d.Macs)}).", FindingSeverity.Warning, chips: "IP");
     }
 
     // ---- 31 Capacity trend: p95 growth toward 50% / 80% ----
@@ -388,7 +388,7 @@ public static class LanSiteDetectors
             var weeksLeft = (target - now) / slope;
             if (weeksLeft > 26) continue;
             yield return Site(Detectors.CapacityTrend, "Capacity Trend", ev.Link.Name,
-                $"Busy-hour load grows about {slope * 100:0.#} points a week; at this rate it crosses {target * 100:0}% of the link in about {Math.Ceiling(weeksLeft):0} weeks.",
+                $"Busy-hour load on this link is growing about {slope * 100:0.#} points a week. At that rate it reaches {target * 100:0}% of the link in about {Math.Ceiling(weeksLeft):0} weeks.",
                 linkId: id, chips: "Capacity");
         }
     }
@@ -401,7 +401,7 @@ public static class LanSiteDetectors
         var link = s.Links.Where(l => gateway != null && l.Link.Upstream.DeviceMac == LanLinkBuilder.Mac(gateway.Mac) && l.Link.IsFabric)
             .OrderByDescending(l => l.Link.ClientsBehind).FirstOrDefault();
         yield return Site(Detectors.GatewayForwarding, "Gateway Forwarding", gateway?.Name ?? "Gateway",
-            $"{g.Tests} LAN speed tests through the gateway reached {g.RatioToNorm * 100:0}% of their usual. A gateway short of memory or /tmp space forwards LAN traffic slowly; a restart clears it.",
+            $"{g.Tests} LAN speed tests through the gateway averaged {g.RatioToNorm * 100:0}% of their normal speed. A gateway low on memory or /tmp space can slow down LAN forwarding until it restarts.",
             FindingSeverity.Warning, link?.Link.Id ?? "", 20, chips: "Gateway");
     }
 
@@ -416,7 +416,7 @@ public static class LanSiteDetectors
             if (ports.Count < 3 || churning * 10 < ports.Count * 6) continue;
             var name = s.PortProfiles.FirstOrDefault(p => p.Id == g.Key)?.Name ?? g.Key;
             yield return Site(Detectors.StpConfig, "Churn by Design", name,
-                $"{churning} of {ports.Count} access ports on the {name} profile relink many times a day. If that is by design (guest rooms, a lab), exclude the profile on any of its ports' pages: Mute alerts, or Exclude from score.",
+                $"{churning} of {ports.Count} access ports on the {name} profile relink many times a day. If that's expected (guest rooms, a lab), exclude the profile from any of its ports' pages with Mute alerts or Exclude from score.",
                 chips: "Exclusions");
         }
     }

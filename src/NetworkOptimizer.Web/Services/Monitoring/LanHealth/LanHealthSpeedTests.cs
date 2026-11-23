@@ -89,8 +89,8 @@ public static class LanHealthSpeedTests
         foreach (var l in links.Where(l => l.Kind == LinkKind.FabricWired && !tested.Contains(l.Id)))
         {
             var body = canRunIperf3(l.Downstream.DeviceMac)
-                ? $"No speed test has crossed this link in 30 days. A LAN Speed Test to {l.Downstream.DeviceName} measures it."
-                : $"No speed test has crossed this link in 30 days. A Client Speed Test from a wired client below {l.Downstream.DeviceName} measures it.";
+                ? $"No speed test has run across this link in 30 days. Run a LAN Speed Test to {l.Downstream.DeviceName} to measure it."
+                : $"No speed test has run across this link in 30 days. Run a Client Speed Test from a wired client connected below {l.Downstream.DeviceName} to measure it.";
             yield return new LinkFinding
             {
                 Detector = Detectors.CapacityTrend,
@@ -124,7 +124,7 @@ public static class LanHealthSpeedTests
             Severity = FindingSeverity.Info,
             Class = "Cross-VLAN Test",
             Title = $"Cross-VLAN Test: {candidate.Name}",
-            Body = $"A Client Speed Test from {candidate.Name} on {candidate.Network} crosses the trunks to the gateway and back at {DisplayFormatters.FormatLinkSpeed(candidate.SpeedMbps!.Value)}: one run measures the gateway's routing between VLANs and every trunk on the way.",
+            Body = $"{candidate.Name} is on {candidate.Network} and links at {DisplayFormatters.FormatLinkSpeed(candidate.SpeedMbps!.Value)}, so a Client Speed Test from it goes through the gateway and every trunk in between. That one test measures inter-VLAN routing on the gateway and the trunks along the way.",
             Chips = ["Speed tests"],
         };
     }

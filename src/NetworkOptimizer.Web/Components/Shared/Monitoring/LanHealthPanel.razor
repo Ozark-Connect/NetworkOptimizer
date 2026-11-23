@@ -89,7 +89,7 @@ else
             @{ var links = FilteredLinks(r).ToList(); }
             @if (links.Count == 0)
             {
-                <div class="empty-state"><p>@(r.Ready ? "No links." : "LAN Health is gathering its first hour of data.")</p></div>
+                <div class="empty-state"><p>@(r.Ready ? "No links." : "LAN Health is collecting its first hour of data.")</p></div>
             }
             else
             {
@@ -341,7 +341,7 @@ else
         <a class="back-link" href="@LanHealthLinks.Tab()">&larr; LAN Health</a>
         @if (l == null)
         {
-            <div class="empty-state"><p>This link is not on the site any more.</p></div>
+            <div class="empty-state"><p>This link is no longer on the site.</p></div>
             return;
         }
         var link = l.Link;
@@ -431,7 +431,7 @@ else
                 @{ var timeline = l.Incidents.Where(i => i.Kind != IncidentKind.DiscardBurst).OrderByDescending(i => i.Start).Take(200).ToList(); }
                 @if (timeline.Count == 0)
                 {
-                    <div class="empty-state"><p>Nothing happened on this link in the window.</p></div>
+                    <div class="empty-state"><p>Nothing happened on this link in this window.</p></div>
                 }
                 else
                 {

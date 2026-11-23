@@ -95,8 +95,8 @@ public class RolloutHealthGate : IRolloutHealthGate
         if (unhealthy.Count == 0) return RolloutHealthVerdict.Ok();
         var worst = unhealthy.OrderBy(l => l.Score).First();
         return RolloutHealthVerdict.Blocked(unhealthy.Count == 1
-            ? $"LAN Health shows {worst.Name} at {worst.Score:0}, well below its usual"
-            : $"LAN Health shows {unhealthy.Count} fabric links well below their usual (including {worst.Name} at {worst.Score:0})");
+            ? $"LAN Health shows {worst.Name} at {worst.Score:0}, well below its normal score"
+            : $"LAN Health shows {unhealthy.Count} fabric links well below their normal scores (including {worst.Name} at {worst.Score:0})");
     }
 
     /// <summary>

@@ -157,10 +157,10 @@ public static class LanHealthDetectors
             Severity = ev.Link.IsFabric ? FindingSeverity.Warning : FindingSeverity.Info,
             Class = "Link Speed Degraded",
             Title = Title("Link Speed Degraded", ev.Link),
-            Body = $"Linked at {DisplayFormatters.FormatLinkSpeed(now)}, below its usual {DisplayFormatters.FormatLinkSpeed(usual)}"
+            Body = $"Linked at {DisplayFormatters.FormatLinkSpeed(now)}, below the {DisplayFormatters.FormatLinkSpeed(usual)} it normally reaches"
                 + (since is DateTime t ? $" since {text.Time(t)}" : "")
                 + (alternates ? ", and the speed has changed more than once." : ".")
-                + " A pair fault or auto-negotiation trouble does this; forcing the speed is the usual fix.",
+                + " A bad pair in the cable or an auto-negotiation problem causes this. Forcing the port's speed is one fix to try.",
             Chips = [alternates ? "Alternating speed" : "Downshift", ImpactChip(ev.Link)],
             Points = 25,
             Onset = since,
@@ -239,7 +239,7 @@ public static class LanHealthDetectors
             Severity = FindingSeverity.Info,
             Class = "Packet Loss",
             Title = Title("Packet Loss", ev.Link),
-            Body = $"{bursts.Count} short bursts of total probe loss in {text.Range} with no drop or error recorded on the link. A drop between counter polls looks like this; so does the device itself pausing.",
+            Body = $"{bursts.Count} short bursts of total probe loss in {text.Range}, with no drop or error recorded on the link at those times. A drop of a few seconds can fall between counter polls and leave no trace there.",
             Chips = ["Loss bursts", ImpactChip(ev.Link)],
             Points = ScoreCurve.Interpolate(bursts.Count, (3, 5), (10, 15), (30, 30)),
             Onset = bursts.Min(i => i.Start),
@@ -292,7 +292,7 @@ public static class LanHealthDetectors
             Severity = FindingSeverity.Info,
             Class = "Microbursts",
             Title = Title("Microbursts", ev.Link),
-            Body = $"{discards:0} discards while the link never averaged above {peak * 100:0}% of its speed: buffers, not bandwidth."
+            Body = $"{discards:0} packets were discarded while the link averaged under {peak * 100:0}% of its speed. Short bursts of traffic are filling the port's buffer faster than it can send them."
                 + (FlowControlOn(ev.Link) ? " Flow Control is on for this port." : ""),
             Chips = ["Microbursts"],
         };
@@ -364,31 +364,31 @@ public static class LanHealthDetectors
         var baseSignal = Median(ev.MeshBaseline.Select(m => m.SignalDbm).OfType<int>().Select(v => (double)v));
         var nowSignal = Median(ev.Mesh.Select(m => m.SignalDbm).OfType<int>().Select(v => (double)v));
         if (baseSignal is double b && nowSignal is double n && b - n >= MeshSignalDropDb)
-            yield return MeshFinding(ev, "Mesh Signal Drop", $"Backhaul signal is {n:0} dBm, {b - n:0} dB below its usual {b:0} dBm.", 15);
+            yield return MeshFinding(ev, "Mesh Signal Drop", $"Backhaul signal is {n:0} dBm, {b - n:0} dB weaker than its normal {b:0} dBm.", 15);
 
         var baseRate = Median(ev.MeshBaseline.Select(m => m.TxRateKbps).OfType<long>().Select(v => (double)v));
         var nowRate = Median(ev.Mesh.Select(m => m.TxRateKbps).OfType<long>().Select(v => (double)v));
         if (baseRate is double br && nowRate is double nr && br > 0 && nr < br * MeshRateShare)
-            yield return MeshFinding(ev, "Mesh Rate Drop", $"Backhaul PHY rate is {nr / 1000:0} Mbps, under half its usual {br / 1000:0} Mbps. The rate falls before loss shows.", 15);
+            yield return MeshFinding(ev, "Mesh Rate Drop", $"Backhaul PHY rate is {nr / 1000:0} Mbps, less than half of its normal {br / 1000:0} Mbps.", 15);
 
         var parents = ev.Mesh.Select(m => m.ParentMac).Where(p => !string.IsNullOrEmpty(p)).ToList();
         var changes = parents.Zip(parents.Skip(1)).Count(p => p.First != p.Second);
         if (changes > 0)
-            yield return MeshFinding(ev, "Mesh Parent Change", $"The backhaul moved parent {changes} {(changes == 1 ? "time" : "times")} in the window.", 10);
+            yield return MeshFinding(ev, "Mesh Parent Change", $"The mesh backhaul switched parent APs {changes} {(changes == 1 ? "time" : "times")} in this window.", 10);
 
         var usualMembers = ev.MeshBaseline.Select(m => m.MloMembers).OfType<int>().DefaultIfEmpty(0).Max();
         var nowMembers = ev.Mesh.Select(m => m.MloMembers).OfType<int>().LastOrDefault();
         if (usualMembers > 1 && nowMembers > 0 && nowMembers < usualMembers)
-            yield return MeshFinding(ev, "MLO Member Lost", $"The MLO backhaul runs on {nowMembers} of its usual {usualMembers} links.", 15);
+            yield return MeshFinding(ev, "MLO Member Lost", $"The MLO backhaul is running on {nowMembers} of its normal {usualMembers} links.", 15);
 
         if (ev.Link.Mlo.Count > 1)
         {
             var signals = ev.Link.Mlo.Select(m => m.SignalDbm).OfType<int>().ToList();
             if (signals.Count > 1 && signals.Max() - signals.Min() >= 15)
-                yield return MeshFinding(ev, "MLO Imbalance", $"One MLO member's signal is {signals.Max() - signals.Min()} dB below the other's.", 0);
+                yield return MeshFinding(ev, "MLO Imbalance", $"One MLO link's signal is {signals.Max() - signals.Min()} dB weaker than the other's.", 0);
         }
         if (ev.Link.UplinkDepth is > 1)
-            yield return MeshFinding(ev, "Mesh Depth", $"This backhaul is {ev.Link.UplinkDepth} hops from the wired network: every hop shares the airtime.", 0, Detectors.MeshDepth);
+            yield return MeshFinding(ev, "Mesh Depth", $"This AP is {ev.Link.UplinkDepth} mesh hops from the wired network. Each hop shares airtime, so throughput drops with every hop.", 0, Detectors.MeshDepth);
     }
 
     private static LinkFinding MeshFinding(LinkEvidence ev, string cls, string body, double points, int detector = Detectors.MeshUplink) => new()
@@ -398,7 +398,7 @@ public static class LanHealthDetectors
         Severity = points > 0 ? FindingSeverity.Warning : FindingSeverity.Info,
         Class = cls,
         Title = Title(cls, ev.Link),
-        Body = body + (points > 0 ? " Re-pair Uplink in Wi-Fi Optimizer can move it to a better parent." : ""),
+        Body = body,
         Chips = [ev.Link.Kind == LinkKind.FabricMeshMlo ? "Fabric · mesh MLO" : "Fabric · mesh", ImpactChip(ev.Link)],
         Points = points,
     };
@@ -443,7 +443,7 @@ public static class LanHealthDetectors
             Severity = FindingSeverity.Info,
             Class = "Below Capability",
             Title = Title("Below Capability", ev.Link),
-            Body = $"Both ends support {DisplayFormatters.FormatLinkSpeed(cap)}, and the link negotiated {DisplayFormatters.FormatLinkSpeed(now)}. A cable, a keystone, or a patch panel rated lower is the usual limit.",
+            Body = $"Both ends support {DisplayFormatters.FormatLinkSpeed(cap)}, but the link negotiated {DisplayFormatters.FormatLinkSpeed(now)}. Check the cable, keystones, and patch panel: one of them may not be rated for {DisplayFormatters.FormatLinkSpeed(cap)}.",
             Chips = ["Capability", ImpactChip(ev.Link)],
             Points = 10,
             Status = LinkStatus.SpeedDegraded,
@@ -464,7 +464,7 @@ public static class LanHealthDetectors
             Severity = FindingSeverity.Info,
             Class = "Link Speed Degraded",
             Title = Title("Link Speed Degraded", ev.Link),
-            Body = $"The client links at {DisplayFormatters.FormatLinkSpeed(now)} while it carries traffic, where it used to link at {DisplayFormatters.FormatLinkSpeed(usual)}.",
+            Body = $"The client now links at {DisplayFormatters.FormatLinkSpeed(now)}. It linked at {DisplayFormatters.FormatLinkSpeed(usual)} before. Check the cable and the client's network adapter.",
             Chips = ["Access"],
             Points = 15,
             Status = LinkStatus.SpeedDegraded,
@@ -486,8 +486,8 @@ public static class LanHealthDetectors
             Class = "Unmanaged Switch",
             Title = Title("Unmanaged Switch", ev.Link),
             Body = half
-                ? $"Half duplex and {macs} MAC addresses on an access port: a hub or an old unmanaged switch is on it."
-                : $"{macs} MAC addresses on one access port: an unmanaged switch sits behind it.",
+                ? $"This access port runs at half duplex with {macs} MAC addresses on it, which points to a hub or an old unmanaged switch."
+                : $"{macs} MAC addresses on one access port, so there's an unmanaged switch behind it.",
             Chips = ["Access"],
         };
     }
@@ -506,8 +506,8 @@ public static class LanHealthDetectors
             Severity = FindingSeverity.Warning,
             Class = "PoE Power Cycling",
             Title = Title("PoE Power Cycling", ev.Link),
-            Body = $"{ev.Link.Downstream.DeviceName} rebooted {cycles} {(cycles == 1 ? "time" : "times")} together with a link drop"
-                + (zeroDraw ? ", and its PoE draw fell to 0 W." : ".") + " Check the PoE budget, the injector, and the cable.",
+            Body = $"{ev.Link.Downstream.DeviceName} rebooted {cycles} {(cycles == 1 ? "time" : "times")}, each time along with a link drop"
+                + (zeroDraw ? ", and its PoE draw dropped to 0 W." : ".") + " Check the switch's PoE budget, the injector if there is one, and the cable.",
             Chips = ["PoE", ImpactChip(ev.Link)],
             Points = 25,
         };
@@ -532,7 +532,7 @@ public static class LanHealthDetectors
             Severity = FindingSeverity.Info,
             Class = "Speed-Specific Flapping",
             Title = Title("Speed-Specific Flapping", ev.Link),
-            Body = $"The drops happen only at {DisplayFormatters.FormatLinkSpeed(now)} and stop when the link runs slower. Force the port to {DisplayFormatters.FormatLinkSpeed(lower)} as a test.",
+            Body = $"The link only drops at {DisplayFormatters.FormatLinkSpeed(now)}. Set the port to {DisplayFormatters.FormatLinkSpeed(lower)} and see if the drops stop.",
             Chips = ["Speed-specific"],
         };
     }
@@ -551,7 +551,7 @@ public static class LanHealthDetectors
             Severity = FindingSeverity.Info,
             Class = "Slow Speed Tests",
             Title = Title("Slow Speed Tests", ev.Link),
-            Body = $"{tests.Count} speed tests across this link reached {ratio * 100:0}% of what tests on paths like it normally reach.",
+            Body = $"{tests.Count} speed tests across this link averaged {ratio * 100:0}% of what similar paths normally get.",
             Chips = ["Speed tests"],
         };
     }
