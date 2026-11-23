@@ -71,6 +71,15 @@ public sealed class SiteHealthJob
     /// </summary>
     public Func<DateTime, DateTime, CancellationToken, Task<IReadOnlyDictionary<DateTime, (double Impairment, string? Worst)>>>? LanHours { get; set; }
 
+    /// <summary>When each LAN Health hour was stored: a Site Health hour scored before its LAN hour landed (or before a LAN recompute) is redone.</summary>
+    public Func<DateTime, DateTime, CancellationToken, Task<IReadOnlyDictionary<DateTime, DateTime>>>? LanHourTimes { get; set; }
+
+    /// <summary>The stored hours still current: this scorer version, and scored after their LAN Health hour.</summary>
+    internal static HashSet<DateTime> CurrentHours(IEnumerable<SiteHealthHour> stored, IReadOnlyDictionary<DateTime, DateTime> lanTimes) =>
+        stored.Where(h => h.Version == SiteHealthScorer.Version
+                && !(lanTimes.TryGetValue(DateTime.SpecifyKind(h.HourStart, DateTimeKind.Utc), out var lanAt) && lanAt > DateTime.SpecifyKind(h.ComputedAt, DateTimeKind.Utc)))
+            .Select(h => h.HourStart).ToHashSet();
+
     /// <summary>Stored hours plus any provisional hour not stored yet, ordered by hour.</summary>
     public static List<SiteHealthHour> WithProvisional(IEnumerable<SiteHealthHour> stored, IReadOnlyList<SiteHealthHour> provisional)
     {
@@ -95,7 +104,13 @@ public sealed class SiteHealthJob
             var latest = FloorHour(now - Settle).AddHours(-1);
             var oldest = FloorHour(now - Retention);
             var stored = await _repos.UseAsync((r, c) => r.GetHealthHoursAsync(oldest.AddDays(-14), latest.AddHours(1), c), ct);
-            var current = stored.Where(h => h.Version == SiteHealthScorer.Version).Select(h => h.HourStart).ToHashSet();
+            IReadOnlyDictionary<DateTime, DateTime> lanTimes = new Dictionary<DateTime, DateTime>();
+            if (LanHourTimes != null)
+            {
+                try { lanTimes = await LanHourTimes(oldest, latest.AddHours(1), ct); }
+                catch (Exception ex) when (ex is not OperationCanceledException) { _logger.LogDebug(ex, "Site Health: LAN Health hour times unavailable for {Site}", _slug); }
+            }
+            var current = CurrentHours(stored, lanTimes);
 
             DateTime? missing = null;
             for (var h = latest; h >= oldest; h = h.AddHours(-1))

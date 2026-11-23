@@ -747,6 +747,16 @@ public sealed class LanHealthEngine
             .ToDictionary(h => DateTime.SpecifyKind(h.HourStart, DateTimeKind.Utc), h => (h.HourImpairment!.Value, h.Worst));
     }
 
+    /// <summary>When each stored LAN Health hour in [from, to) was last computed, so Site Health can redo hours scored before it.</summary>
+    public async Task<IReadOnlyDictionary<DateTime, DateTime>> GetSiteHourTimesAsync(DateTime from, DateTime to, CancellationToken ct)
+    {
+        await using var db = await _db(ct);
+        return (await db.LanHealthSiteHours.AsNoTracking()
+                .Where(h => h.HourStart >= from && h.HourStart < to && h.HourImpairment != null)
+                .Select(h => new { h.HourStart, h.ComputedAt }).ToListAsync(ct))
+            .ToDictionary(h => DateTime.SpecifyKind(h.HourStart, DateTimeKind.Utc), h => DateTime.SpecifyKind(h.ComputedAt, DateTimeKind.Utc));
+    }
+
     /// <summary>
     /// Fabric links that are unhealthy now and out of character: well below the score the same link
     /// had over the same 48 hours a week ago. A link that always looks like this never holds a rollout.
@@ -774,4 +784,7 @@ public static class LanHealthSiteHours
 {
     public static Task<IReadOnlyDictionary<DateTime, (double Impairment, string? Worst)>> ReadAsync(LanHealthEngine engine, DateTime from, DateTime to, CancellationToken ct) =>
         engine.GetSiteHoursAsync(from, to, ct);
+
+    public static Task<IReadOnlyDictionary<DateTime, DateTime>> ReadTimesAsync(LanHealthEngine engine, DateTime from, DateTime to, CancellationToken ct) =>
+        engine.GetSiteHourTimesAsync(from, to, ct);
 }

@@ -286,7 +286,10 @@ public sealed class ChangeControlRegistry : BackgroundService, ISiteScopedRegist
         health.Scored += () => HealthScored?.Invoke(slug);
         var lanHealth = _sp.GetService<Monitoring.LanHealth.LanHealthRegistry>()?.GetFor(slug);
         if (lanHealth != null)
+        {
             health.LanHours = (from, to, ct) => Monitoring.LanHealth.LanHealthSiteHours.ReadAsync(lanHealth, from, to, ct);
+            health.LanHourTimes = (from, to, ct) => Monitoring.LanHealth.LanHealthSiteHours.ReadTimesAsync(lanHealth, from, to, ct);
+        }
         engine.OnTick = async ct =>
         {
             await coordinator.TickAsync(ct);

@@ -380,4 +380,19 @@ public class SiteHealthTests
     {
         SiteHealthJob.AccessFloorRows([Row(0, "t", "transit", 0.5)]).Should().BeEmpty();
     }
+
+    [Fact]
+    public void CurrentHours_RedoAnHourScoredBeforeItsLanHealthHour()
+    {
+        var h = new DateTime(2026, 11, 23, 18, 0, 0, DateTimeKind.Utc);
+        var stored = new[]
+        {
+            new NetworkOptimizer.Storage.Models.SiteHealthHour { HourStart = h, Version = SiteHealthScorer.Version, ComputedAt = h.AddMinutes(66) },
+            new NetworkOptimizer.Storage.Models.SiteHealthHour { HourStart = h.AddHours(-1), Version = SiteHealthScorer.Version, ComputedAt = h.AddMinutes(66) },
+            new NetworkOptimizer.Storage.Models.SiteHealthHour { HourStart = h.AddHours(-2), Version = SiteHealthScorer.Version - 1, ComputedAt = h },
+        };
+        // LAN Health stored 18:00 at 19:13, after Site Health scored it at 19:06; 17:00 was stored first.
+        var lan = new Dictionary<DateTime, DateTime> { [h] = h.AddMinutes(73), [h.AddHours(-1)] = h.AddMinutes(-50) };
+        SiteHealthJob.CurrentHours(stored, lan).Should().BeEquivalentTo([h.AddHours(-1)]);
+    }
 }
