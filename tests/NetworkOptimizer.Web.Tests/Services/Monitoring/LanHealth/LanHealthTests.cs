@@ -231,6 +231,25 @@ public class LanHealthTests
         LanHealthPorts.IsScored(new SwitchPort { PortIdx = 5, IfName = "eth4", IsUplink = true }, "eth4", isGateway: true).Should().BeFalse();
 
     [Fact]
+    public void PortTableFields_TolerateOddTypes()
+    {
+        const string json = """
+            {"port_idx": 3, "link_down_count": "15", "rx_errors": "", "stp_state": 4, "stp_role": true,
+             "poe_class": 4, "poe_current": 61.0, "speed_caps": "1048623", "stp_state_change_count": {"change_count": 1},
+             "lacp_state": "none", "last_connection": {"mac": 123, "connected_at": "1766591870"}}
+            """;
+        var port = System.Text.Json.JsonSerializer.Deserialize<SwitchPort>(json)!;
+        port.LinkDownCount.Should().Be(15);
+        port.RxErrors.Should().BeNull("an empty string is not reported, never 0");
+        port.StpState.Should().Be("4");
+        port.PoeClass.Should().Be("4");
+        port.StpStateChangeCount.Should().BeNull();
+        port.LacpState.Should().BeNull();
+        port.LastConnection!.ConnectedAt.Should().Be(1766591870);
+        PortSpeedCaps.MaxMbps(port.SpeedCaps).Should().Be(1000);
+    }
+
+    [Fact]
     public void Scorer_CombinesFindingsAndWeighsFabricByClients()
     {
         LanHealthScorer.LinkScore([new LinkFinding { Points = 20 }, new LinkFinding { Points = 20 }, new LinkFinding { Points = 0 }]).Should().Be(64);

@@ -183,6 +183,7 @@ public sealed class ApAgentEvent
 
     /// <summary>The wired interface a LAN Health event is about; null on client events.</summary>
     [JsonPropertyName("iface")]
+    [JsonConverter(typeof(NetworkOptimizer.UniFi.Models.FlexibleScalarStringConverter))]
     public string? Iface { get; set; }
 
     /// <summary>The uplink counters on an uplink_counters event; null otherwise.</summary>
@@ -203,10 +204,12 @@ public sealed class ApAgentUplinkCounters
 {
     /// <summary>/sys/class/net carrier_changes: two per drop, plus one for the boot link-up.</summary>
     [JsonPropertyName("carrier_changes")]
+    [JsonConverter(typeof(NetworkOptimizer.UniFi.Models.FlexibleNullableLongConverter))]
     public long? CarrierChanges { get; set; }
 
     /// <summary>The NIC's receive CRC count from ethtool -S.</summary>
     [JsonPropertyName("rx_crc_errors")]
+    [JsonConverter(typeof(NetworkOptimizer.UniFi.Models.FlexibleNullableLongConverter))]
     public long? RxCrcErrors { get; set; }
 }
 

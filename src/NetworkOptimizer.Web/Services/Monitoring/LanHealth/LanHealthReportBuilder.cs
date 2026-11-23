@@ -114,7 +114,8 @@ public static class LanHealthReportBuilder
         bool scoreFabricOnly,
         Func<IReadOnlyList<LinkHealth>, IReadOnlyDictionary<string, LinkEvidence>, SiteEvidence>? site,
         FindingText text,
-        DateTime from, DateTime to)
+        DateTime from, DateTime to,
+        IReadOnlyDictionary<string, List<LinkSpeedTest>>? speedTests = null)
     {
         var report = new LanHealthReport { From = from, To = to, Ready = rows.Count > 0 };
         var evidence = new Dictionary<string, LinkEvidence>();
@@ -124,6 +125,12 @@ public static class LanHealthReportBuilder
             var linkBase = baseline.GetValueOrDefault(link.Id) ?? [];
             var incidents = linkRows.SelectMany(r => LanHealthIncidentJson.Deserialize(r.IncidentsJson)).OrderBy(i => i.Start).ToList();
             var ev = EvidenceFromRows(link, linkRows, linkBase, from, to, CleanDaysBefore(linkRows, linkBase));
+            // A test that ran during an incident on the link is kept on the link but out of the norm comparison.
+            if (speedTests != null && speedTests.TryGetValue(link.Id, out var tests))
+                ev.SpeedTests.AddRange(tests.Select(t => t with
+                {
+                    DuringIncident = incidents.Any(i => !i.IsExplained && t.At >= i.Start.AddMinutes(-1) && t.At <= i.End.AddMinutes(1)),
+                }));
             evidence[link.Id] = ev;
             var findings = LanHealthDetectors.Run(ev, incidents, text);
             var health = new LinkHealth

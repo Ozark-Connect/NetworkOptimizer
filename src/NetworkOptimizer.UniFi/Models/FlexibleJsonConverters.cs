@@ -312,3 +312,36 @@ public class FlexibleDateTimeOffsetConverter : JsonConverter<DateTimeOffset?>
             writer.WriteNullValue();
     }
 }
+
+/// <summary>
+/// Tolerant list of objects: an array reads item by item, an item that fails is skipped, and any
+/// other token reads as null instead of failing the whole object it sits in.
+/// </summary>
+public sealed class FlexibleObjectListConverter<T> : JsonConverter<List<T>?>
+{
+    public override List<T>? Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        if (reader.TokenType != JsonTokenType.StartArray)
+        {
+            reader.Skip();
+            return null;
+        }
+        using var doc = JsonDocument.ParseValue(ref reader);
+        var list = new List<T>();
+        foreach (var item in doc.RootElement.EnumerateArray())
+        {
+            try
+            {
+                if (item.Deserialize<T>(options) is { } value) list.Add(value);
+            }
+            catch (JsonException) { }
+        }
+        return list;
+    }
+
+    public override void Write(Utf8JsonWriter writer, List<T>? value, JsonSerializerOptions options)
+    {
+        if (value == null) writer.WriteNullValue();
+        else JsonSerializer.Serialize(writer, value, options);
+    }
+}

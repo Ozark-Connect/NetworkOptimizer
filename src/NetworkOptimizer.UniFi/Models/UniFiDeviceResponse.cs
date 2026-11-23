@@ -434,6 +434,7 @@ public class UniFiDeviceResponse
 
     /// <summary>The device's STP version: "rstp", "stp", "mstp", "disabled".</summary>
     [JsonPropertyName("stp_version")]
+    [JsonConverter(typeof(FlexibleScalarStringConverter))]
     public string? StpVersion { get; set; }
 
 
@@ -940,10 +941,12 @@ public class SwitchPort
 
     /// <summary>STP port state: "forwarding", "blocking", "learning", "disabled".</summary>
     [JsonPropertyName("stp_state")]
+    [JsonConverter(typeof(FlexibleScalarStringConverter))]
     public string? StpState { get; set; }
 
     /// <summary>STP port role: "root", "designated", "alternate", "backup", "disabled".</summary>
     [JsonPropertyName("stp_role")]
+    [JsonConverter(typeof(FlexibleScalarStringConverter))]
     public string? StpRole { get; set; }
 
     /// <summary>Whether STP treats the port as an Edge port now (auto-detected or forced).</summary>
@@ -953,6 +956,7 @@ public class SwitchPort
 
     /// <summary>STP state changes per MST instance.</summary>
     [JsonPropertyName("stp_state_change_count")]
+    [JsonConverter(typeof(FlexibleObjectListConverter<StpStateChangeCount>))]
     public List<StpStateChangeCount>? StpStateChangeCount { get; set; }
 
     /// <summary>STP path cost of the port.</summary>
@@ -978,10 +982,12 @@ public class SwitchPort
 
     /// <summary>Draw in milliamps; arrives as a string.</summary>
     [JsonPropertyName("poe_current")]
+    [JsonConverter(typeof(FlexibleScalarStringConverter))]
     public string? PoeCurrent { get; set; }
 
     /// <summary>The powered device's class, e.g. "Class 4".</summary>
     [JsonPropertyName("poe_class")]
+    [JsonConverter(typeof(FlexibleScalarStringConverter))]
     public string? PoeClass { get; set; }
 
     /// <summary>Whether the PoE detection and power-up succeeded.</summary>
@@ -1035,10 +1041,12 @@ public class SwitchPort
 
     /// <summary>Port operating mode: "switch", "mirror", "aggregate".</summary>
     [JsonPropertyName("op_mode")]
+    [JsonConverter(typeof(FlexibleScalarStringConverter))]
     public string? OpMode { get; set; }
 
     /// <summary>LACP member state on an aggregated port.</summary>
     [JsonPropertyName("lacp_state")]
+    [JsonConverter(typeof(FlexibleObjectListConverter<JsonElement>))]
     public List<JsonElement>? LacpState { get; set; }
 }
 
@@ -1051,10 +1059,12 @@ public class PortStpOverride
 
     /// <summary>"enabled" (Edge), "disabled" (Infrastructure), "auto".</summary>
     [JsonPropertyName("stp_edge_state")]
+    [JsonConverter(typeof(FlexibleScalarStringConverter))]
     public string? StpEdgeState { get; set; }
 
     /// <summary>What the switch detected for an auto port: "enabled" or "disabled".</summary>
     [JsonPropertyName("stp_edge_state_auto_detected")]
+    [JsonConverter(typeof(FlexibleScalarStringConverter))]
     public string? StpEdgeStateAutoDetected { get; set; }
 
     [JsonPropertyName("stp_bpdu_guard_enabled")]
@@ -1082,6 +1092,7 @@ public class StpStateChangeCount
 public class PortLastConnection
 {
     [JsonPropertyName("mac")]
+    [JsonConverter(typeof(FlexibleScalarStringConverter))]
     public string? Mac { get; set; }
 
     /// <summary>Epoch seconds the port last linked to this device.</summary>

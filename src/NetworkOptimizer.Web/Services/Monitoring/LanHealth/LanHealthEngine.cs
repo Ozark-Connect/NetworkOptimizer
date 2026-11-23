@@ -92,6 +92,7 @@ public sealed class LanHealthEngine
         {
             var topology = await GetTopologyAsync(ct, force: true);
             if (topology == null || topology.Links.Count == 0) return;
+            await PollPortInsightsAsync(ct);
             var latest = FloorHour(now - Settle).AddHours(-1);
             var oldest = FloorHour(now - Backfill);
             await using var db = await _db(ct);
@@ -251,6 +252,7 @@ public sealed class LanHealthEngine
             NameMap = topology.NameMap,
             Explain = explain,
             Reboots = reboots,
+            PortInsightsAvailable = PortInsightsAvailable,
         };
         return topology.Links
             .Select(l => LanHealthEvidenceBuilder.BuildHour(l, inputs, topology.DownstreamToLink, topology.SubtreeAps, Version).Row)
@@ -343,6 +345,34 @@ public sealed class LanHealthEngine
         };
     }
 
+    private readonly HashSet<(string, int, DateTime)> _anomaliesSeen = [];
+
+    /// <summary>Whether Port Insights answered at the last poll (it then counts as an observer, even with nothing to say).</summary>
+    public bool PortInsightsAvailable { get; private set; }
+
+    /// <summary>Reads Port Insights' anomaly history once a run and stores anomalies not yet stored.</summary>
+    private async Task PollPortInsightsAsync(CancellationToken ct)
+    {
+        if (_connection().Client is not { } client) return;
+        try
+        {
+            using var doc = await client.GetPortAnomaliesRawAsync(ct);
+            PortInsightsAvailable = doc != null;
+            if (doc == null) return;
+            var influx = _influx();
+            foreach (var a in LanHealthPortInsights.Parse(doc.RootElement))
+            {
+                if (!_anomaliesSeen.Add((a.DeviceMac, a.PortIdx, a.At))) continue;
+                _ = influx.WriteEventAsync(a.DeviceMac, LanHealthPortInsights.EventType, "info", a.Kind,
+                    a.PortIdx.ToString(System.Globalization.CultureInfo.InvariantCulture), null, null, a.At);
+            }
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogDebug(ex, "LAN Health: Port Insights read failed for {Site}", _slug);
+        }
+    }
+
     /// <summary>A device and every UniFi device below it in the uplink tree.</summary>
     internal static IEnumerable<string> Below(string mac, Topology topology)
     {
@@ -425,8 +455,12 @@ public sealed class LanHealthEngine
         }
         var baseline = await LoadRowsAsync(db, from.AddDays(-LanHealthReportBuilder.BaselineDays), from, ct);
         var text = new FindingText(t => TimeFormatHelper.FormatLocalDateTime(t, zone, format), RangeLabel(hours));
+        var tests = await SpeedTestsAsync(db, ct);
+        var attributed = LanHealthSpeedTests.Attribute(tests, topology.Links, from, to);
+        var forwarding = LanHealthSpeedTests.GatewayForwarding(tests, from, to);
         var report = LanHealthReportBuilder.Build(topology.Links, rows, baseline, topology.Exclusions, topology.ScoreFabricOnly,
-            (links, evidence) => SiteEvidenceFor(topology, links, evidence, text, hours), text, from, to);
+            (links, evidence) => SiteEvidenceFor(topology, links, evidence, text, hours, forwarding), text, from, to, attributed);
+        AddTestSuggestions(report, topology, tests);
         var history = await db.LanHealthSiteHours.AsNoTracking().Where(h => h.HourStart >= from && h.HourStart < to && h.Score != null)
             .OrderBy(h => h.HourStart).Select(h => new { h.HourStart, h.Score }).ToListAsync(ct);
         report.History.AddRange(history.Select(h => (DateTime.SpecifyKind(h.HourStart, DateTimeKind.Utc), h.Score!.Value)));
@@ -455,9 +489,46 @@ public sealed class LanHealthEngine
         }
     }
 
-    private static SiteEvidence SiteEvidenceFor(Topology t, IReadOnlyList<LinkHealth> links, IReadOnlyDictionary<string, LinkEvidence> evidence,
-        FindingText text, int hours) => new()
+    private List<LanHealthSpeedTests.Test>? _tests;
+    private DateTime _testsAt = DateTime.MinValue;
+
+    /// <summary>LAN speed tests over 90 days (the norms need history), cached a quarter hour.</summary>
+    private async Task<List<LanHealthSpeedTests.Test>> SpeedTestsAsync(NetworkOptimizerDbContext db, CancellationToken ct)
     {
+        if (_tests != null && DateTime.UtcNow - _testsAt < RunEvery) return _tests;
+        var since = DateTime.UtcNow.AddDays(-90);
+        var lan = new[] { SpeedTestDirection.ServerToDevice, SpeedTestDirection.ClientToServer, SpeedTestDirection.BrowserToServer };
+        var rows = await db.Iperf3Results.AsNoTracking()
+            .Where(r => r.Success && r.TestTime >= since && r.PathAnalysisJson != null && lan.Contains(r.Direction))
+            .OrderByDescending(r => r.TestTime).Take(5000).ToListAsync(ct);
+        _tests = LanHealthSpeedTests.FromResults(rows);
+        _testsAt = DateTime.UtcNow;
+        return _tests;
+    }
+
+    /// <summary>Untested-link and cross-VLAN suggestions: findings at 0 pts that never run a test.</summary>
+    private static void AddTestSuggestions(LanHealthReport report, Topology t, IReadOnlyList<LanHealthSpeedTests.Test> tests)
+    {
+        var models = t.Devices.Where(d => !string.IsNullOrEmpty(d.Mac)).GroupBy(d => LanLinkBuilder.Mac(d.Mac)).ToDictionary(g => g.Key, g => g.First());
+        foreach (var f in LanHealthSpeedTests.Suggestions(tests, t.Links, DateTime.UtcNow, mac => models.TryGetValue(mac, out var d) && d.CanRunIperf3))
+        {
+            var owner = report.Links.FirstOrDefault(l => l.Link.Id == f.LinkId);
+            owner?.Findings.Add(f);
+            report.Findings.Add(f);
+        }
+        var serverNetwork = t.Networks.FirstOrDefault(n => n.Purpose == "corporate" && n.Vlan is null or 1)?.Name;
+        var wired = t.Links.Where(l => l.Kind == LinkKind.Access && l.ClientMac != null)
+            .Select(l => (Mac: l.ClientMac!, Name: l.Downstream.DeviceName,
+                Network: t.Clients.FirstOrDefault(c => LanLinkBuilder.Mac(c.Mac) == l.ClientMac)?.Network, l.SpeedMbps, SwitchMac: (string?)l.Upstream.DeviceMac))
+            .ToList();
+        if (LanHealthSpeedTests.CrossVlanCandidate(tests, t.Links, wired, serverNetwork, DateTime.UtcNow) is { } cross)
+            report.Findings.Add(cross);
+    }
+
+    private static SiteEvidence SiteEvidenceFor(Topology t, IReadOnlyList<LinkHealth> links, IReadOnlyDictionary<string, LinkEvidence> evidence,
+        FindingText text, int hours, (int Tests, double RatioToNorm)? forwarding) => new()
+    {
+        GatewayForwarding = forwarding,
         Devices = t.Devices,
         Networks = t.Networks,
         PortProfiles = t.PortProfiles,

@@ -41,6 +41,7 @@ public static class LanHealthEvidenceBuilder
         ApAgentLinkEventSink.EventTypes.UplinkReconfigure, ApAgentLinkEventSink.EventTypes.UplinkLost,
         ApAgentLinkEventSink.EventTypes.InformFailed,
         SwitchPortLinkSink.LinkDownEvent, SwitchPortLinkSink.LinkUpEvent, LanPortSnapshotRecorder.StateEventType,
+        LanHealthPortInsights.EventType,
     ];
 
     /// <summary>Everything one hour brings, already fetched.</summary>
@@ -59,6 +60,8 @@ public static class LanHealthEvidenceBuilder
         public IReadOnlyList<ExplainWindow> Explain { get; init; } = [];
         public IReadOnlyDictionary<string, List<DateTime>> Reboots { get; init; } = new Dictionary<string, List<DateTime>>();
         public IReadOnlyList<DateTime> RebootsFor(string mac) => Reboots.TryGetValue(mac, out var r) ? r : [];
+        /// <summary>Port Insights answered this run, so it is an observer of every UniFi switch and gateway port.</summary>
+        public bool PortInsightsAvailable { get; init; }
     }
 
     /// <summary>One end's series and the fields read from them.</summary>
@@ -254,8 +257,20 @@ public static class LanHealthEvidenceBuilder
         if (link.Kind == LinkKind.Access && speedMin is <= 100 && speedMax is > 100)
             explain.Add(new ExplainWindow(from, to, link.Upstream.DeviceMac, ExplainReason.DeviceAsleep));
 
+        // Port Insights: an anomaly on the upstream port in the hour counts as having seen that hour's drops.
+        var anomalies = x.Events.Where(e => e.EventType == LanHealthPortInsights.EventType
+            && string.Equals(e.DeviceMac, link.Upstream.DeviceMac, StringComparison.OrdinalIgnoreCase)
+            && e.IfName == link.Upstream.PortIdx?.ToString(System.Globalization.CultureInfo.InvariantCulture)).ToList();
+        if (x.PortInsightsAvailable && link.Upstream.PortIdx != null && (link.Upstream.IsSwitch || link.Upstream.IsGateway))
+            observers.Add(new(LinkSource.PortInsights, hour, true, false));
         var distinctObservers = observers.OrderByDescending(o => o.Observing.Count).DistinctBy(o => o.Source).ToList();
         var incidents = LinkEventAligner.Align(events, explain, distinctObservers, macs);
+        if (anomalies.Count > 0)
+            foreach (var i in incidents.Where(i => i.Kind is IncidentKind.Drop or IncidentKind.Relink))
+            {
+                i.SeenBy.Add(LinkSource.PortInsights);
+                i.MissedBy.Remove(LinkSource.PortInsights);
+            }
 
         double? lossPct = probed.Count > 0 && probed.Any(x.Probes.ContainsKey)
             ? probed.Where(x.Probes.ContainsKey).Average(t => x.Probes[t].MeanLoss)
