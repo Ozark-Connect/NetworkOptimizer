@@ -677,11 +677,11 @@ public static class LanHealthDetectors
             Severity = FindingSeverity.Warning,
             Class = "PoE Power Cycling",
             Title = Title("PoE Power Cycling", ev.Link),
-            Body = $"{ev.Link.Downstream.DeviceName} lost power {cycles} {(cycles == 1 ? "time" : "times")}, each time with a link drop"
+            Body = $"{ev.Link.Downstream.DeviceName} lost power {cycles} {(cycles == 1 ? "time" : "times")}"
                 + (portPowers && zeroDraw ? ", and its PoE draw dropped to 0 W." : ".")
                 + (portPowers
-                    ? $" {ev.Link.Upstream.DeviceName} powers it from this port: check its PoE budget and the cable."
-                    : " This port doesn't power it: check its injector or power supply, and the cable."),
+                    ? $" Check {ev.Link.Upstream.DeviceName}'s PoE budget and the cable."
+                    : " Check its injector or power supply, and the cable."),
             Chips = ["PoE", ImpactChip(ev.Link)],
             Points = 25,
         };
