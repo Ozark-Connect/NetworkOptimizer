@@ -2939,6 +2939,10 @@ class LanFlowMap2D {
             }
             el.style.left=`${sx}px`;
             el.style.top=`${sy}px`;
+            // Scales with the map like the canvas labels it sits beside, so zooming out never grows
+            // it over a device and zooming in never leaves it small.
+            el.style.transformOrigin='left center';
+            el.style.transform=`translateY(-50%) scale(${this._scale})`;
             el.style.display='';
             placed.add(id);
         }
