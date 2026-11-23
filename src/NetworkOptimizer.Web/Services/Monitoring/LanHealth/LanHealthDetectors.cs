@@ -490,8 +490,16 @@ public static class LanHealthDetectors
     internal static LinkFinding? AccessDegraded(LinkEvidence ev)
     {
         if (ev.Link.Kind != LinkKind.Access || ev.UsualSpeedMbps is not int usual || ev.Link.SpeedMbps is not int now || now >= usual) return null;
-        // A drop to 10/100 with idle traffic is a sleep cycle: only real traffic at the lower speed counts.
-        var busyAtLowSpeed = ev.Hours.Count(h => (h.MeanInBps ?? 0) > 1_000_000 || (h.MeanOutBps ?? 0) > 1_000_000) >= 2;
+        // A drop to 10/100 with idle traffic is a sleep cycle: only hours spent at the lower speed, and
+        // busy there, count. A busy hour at full speed is the client awake, not degraded.
+        var speeds = ev.Speeds.OrderBy(s => s.At).ToList();
+        int? SpeedIn(DateTime hour)
+        {
+            var inHour = speeds.Where(s => s.At >= hour && s.At < hour.AddHours(1)).Select(s => s.SpeedMbps).ToList();
+            return inHour.Count > 0 ? inHour.Max() : speeds.LastOrDefault(s => s.At < hour)?.SpeedMbps;
+        }
+        var busyAtLowSpeed = ev.Hours.Count(h => SpeedIn(h.Hour) is int s && s < usual
+            && ((h.MeanInBps ?? 0) > 1_000_000 || (h.MeanOutBps ?? 0) > 1_000_000)) >= 2;
         if (!busyAtLowSpeed) return null;
         return new LinkFinding
         {

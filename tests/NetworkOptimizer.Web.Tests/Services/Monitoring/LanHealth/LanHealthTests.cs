@@ -372,6 +372,34 @@ public class LanHealthTests
         LanHealthDetectors.HiddenSwitch(new LinkEvidence { Link = link }).Should().BeNull();
     }
     [Fact]
+    public void AccessDegraded_IgnoresBusyHoursAtFullSpeed()
+    {
+        var link = new LinkRecord
+        {
+            Id = "a", Kind = LinkKind.Access, SpeedMbps = 10,
+            Upstream = new LinkEnd { DeviceMac = SwitchMac, DeviceName = "Gateway A", DeviceType = DeviceType.Gateway, PortIdx = 2 },
+            Downstream = new LinkEnd { DeviceName = "PC", IsUniFi = false },
+        };
+        var t0 = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        LinkHourSample Hour(int h, double bps) => new(t0.AddHours(h), bps, bps, bps, bps, null, null, null, null, null);
+        // Busy while awake at 2.5G, idle once it dropped to 10M (asleep): no finding.
+        var sleeping = new LinkEvidence
+        {
+            Link = link, UsualSpeedMbps = 2500,
+            Hours = [Hour(0, 5e7), Hour(1, 5e7), Hour(2, 1e3), Hour(3, 1e3)],
+            Speeds = [new SpeedReading(t0, 2500, true, LinkSource.PortTableState), new SpeedReading(t0.AddHours(2), 10, true, LinkSource.PortTableState)],
+        };
+        LanHealthDetectors.AccessDegraded(sleeping).Should().BeNull();
+        // Busy at 10M for two hours: degraded.
+        var degraded = new LinkEvidence
+        {
+            Link = link, UsualSpeedMbps = 2500,
+            Hours = [Hour(0, 5e7), Hour(2, 5e6), Hour(3, 5e6)],
+            Speeds = [new SpeedReading(t0, 2500, true, LinkSource.PortTableState), new SpeedReading(t0.AddHours(2), 10, true, LinkSource.PortTableState)],
+        };
+        LanHealthDetectors.AccessDegraded(degraded).Should().NotBeNull();
+    }
+    [Fact]
     public void Scorer_CombinesFindingsAndWeighsFabricByClients()
     {
         LanHealthScorer.LinkScore([new LinkFinding { Points = 20 }, new LinkFinding { Points = 20 }, new LinkFinding { Points = 0 }]).Should().Be(64);
