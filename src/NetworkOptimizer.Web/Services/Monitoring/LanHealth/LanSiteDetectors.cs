@@ -1,6 +1,7 @@
 using System.Text.Json;
 using NetworkOptimizer.Core;
 using NetworkOptimizer.Core.Enums;
+using NetworkOptimizer.Core.Helpers;
 using NetworkOptimizer.Diagnostics.Analyzers;
 using NetworkOptimizer.UniFi.Models;
 
@@ -49,6 +50,7 @@ public static class LanSiteDetectors
         f.AddRange(StpConfig(s));
         f.AddRange(Lacp(s));
         f.AddRange(NativeVlanMismatch(s));
+        f.AddRange(LinkConfigConsistency(s));
         f.AddRange(MtuOnPath(s));
         f.AddRange(MulticastHygiene(s));
         f.AddRange(Bottleneck(s));
@@ -66,17 +68,17 @@ public static class LanSiteDetectors
 
     private static LinkFinding Site(int detector, string cls, string subject, string body, FindingSeverity severity = FindingSeverity.Info,
         string linkId = "", double points = 0, LinkStatus? status = null, params string[] chips) => new()
-        {
-            Detector = detector,
-            LinkId = linkId,
-            Severity = severity,
-            Class = cls,
-            Title = $"{cls}: {subject}",
-            Body = body,
-            Chips = chips.ToList(),
-            Points = points,
-            Status = status,
-        };
+    {
+        Detector = detector,
+        LinkId = linkId,
+        Severity = severity,
+        Class = cls,
+        Title = $"{cls}: {subject}",
+        Body = body,
+        Chips = chips.ToList(),
+        Points = points,
+        Status = status,
+    };
 
     // ---- 9 Loop: a storm on several ports at once, with STP changes ----
     internal static IEnumerable<LinkFinding> Loop(SiteEvidence s)
@@ -232,6 +234,22 @@ public static class LanSiteDetectors
                 $"{string.Join(", ", issue.Mismatches.Select(m => m.NetworkName))} is allowed on one end of this trunk and blocked on the other. {issue.Recommendation}",
                 FindingSeverity.Info, link?.Link.Id ?? "", chips: "VLAN");
         }
+    }
+
+    // ---- Flow Control / Jumbo Frames consistency (Config Optimizer's checks, called) ----
+    internal static IEnumerable<LinkFinding> LinkConfigConsistency(SiteEvidence s)
+    {
+        if (s.Devices.Count == 0) yield break;
+        List<Diagnostics.Models.PerformanceIssue> issues;
+        try
+        {
+            var analyzer = new PerformanceAnalyzer(new NetworkOptimizer.Audit.Services.DeviceTypeDetectionService());
+            issues = analyzer.AnalyzeLinkConfig(s.Devices.ToList(), s.Networks.ToList(), s.Clients.ToList(), s.Settings, s.PortProfiles.ToList());
+        }
+        catch (Exception) { yield break; }
+        foreach (var i in issues)
+            yield return Site(Detectors.MtuMismatch, i.Title.Contains("Jumbo", StringComparison.OrdinalIgnoreCase) ? "Jumbo Frames" : "Flow Control",
+                i.DeviceName ?? "site", $"{i.Description} {i.Recommendation}".Trim(), chips: "Config");
     }
 
     // ---- 22 MTU / jumbo on a path: jumbo on some hops only ----
