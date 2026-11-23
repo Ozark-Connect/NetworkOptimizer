@@ -331,7 +331,7 @@ public static class LanSiteDetectors
             var peak = s.Evidence.TryGetValue(l.Link.Id, out var ev) ? ev.Hours.Select(h => LanHealthDetectors.Utilization(l.Link, h)).DefaultIfEmpty(0).Max() : 0;
             yield return Site(Detectors.BottleneckUplink, "Bottleneck Uplink", l.Link.Name,
                 $"{l.Link.Downstream.DeviceName} uplinks at {DisplayFormatters.FormatLinkSpeed(l.Link.SpeedMbps!.Value)} while a link downstream of it runs at {DisplayFormatters.FormatLinkSpeed(fastest)}{usableNote}"
-                + (peak > 0 ? $". Its busiest hour reached {peak * 100:0}% of the uplink." : "."),
+                + (peak > 0 ? $". Its busiest hour saturated {peak * 100:0}% of the uplink." : "."),
                 linkId: l.Link.Id, chips: "Capacity");
         }
     }
@@ -427,7 +427,7 @@ public static class LanSiteDetectors
             var weeksLeft = (target - now) / slope;
             if (weeksLeft > 26) continue;
             yield return Site(Detectors.CapacityTrend, "Capacity Trend", ev.Link.Name,
-                $"Busy-hour load on this link is growing about {slope * 100:0.#} points a week. At that rate it reaches {target * 100:0}% of the link in about {Math.Ceiling(weeksLeft):0} weeks.",
+                $"Busy-hour load on this link is growing about {slope * 100:0.#} points a week. At that rate it saturates {target * 100:0}% of the link in about {Math.Ceiling(weeksLeft):0} weeks.",
                 linkId: id, chips: "Capacity");
         }
     }

@@ -467,7 +467,7 @@ public static class LanHealthDetectors
                     Severity = FindingSeverity.Info,
                     Class = "Unusual Link Utilization",
                     Title = Title("Unusual Link Utilization", ev.Link),
-                    Body = $"Above {u * 100:0}% of {DisplayFormatters.FormatLinkSpeed(ev.Link.SpeedMbps!.Value)} since {text.Time(start!.Value)}, where its busiest hours normally reach {p95 * 100:0}%.",
+                    Body = $"Above {u * 100:0}% of {DisplayFormatters.FormatLinkSpeed(ev.Link.SpeedMbps!.Value)} since {text.Time(start!.Value)}, where its busiest hours normally saturate {p95 * 100:0}%.",
                     Chips = ["Load", ImpactChip(ev.Link)],
                     Onset = start,
                     Status = LinkStatus.Busy,
