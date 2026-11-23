@@ -168,4 +168,16 @@ public class LanHealthInputsTests
         JsonSerializer.Deserialize<Counters>("""{"items":[{"id":1},{"id":"x"},{"id":3}]}""")!.Items!.Select(i => i.Id).Should().Equal(1, 3);
         JsonSerializer.Deserialize<Counters>("""{"items":{"id":1},"n":5}""")!.Should().Match<Counters>(c => c.Items == null && c.N == 5);
     }
+
+    [Theory]
+    [InlineData("""{"port_idx":3,"last_connection":{"mac":"aa:bb:cc:00:00:01","last_seen":1763900000}}""", "aa:bb:cc:00:00:01")]
+    [InlineData("""{"port_idx":3,"last_connection":"none"}""", null)]
+    [InlineData("""{"port_idx":3,"last_connection":[]}""", null)]
+    public void LastConnection_AnOddShapeNeverFailsThePort(string json, string? mac)
+    {
+        var port = JsonSerializer.Deserialize<SwitchPort>(json)!;
+        port.PortIdx.Should().Be(3);
+        port.LastConnection?.Mac.Should().Be(mac);
+        if (mac == null) port.LastConnection.Should().BeNull();
+    }
 }

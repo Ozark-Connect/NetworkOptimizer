@@ -1037,6 +1037,7 @@ public class SwitchPort
 
     /// <summary>The device last seen on the port, with when the port last linked to it.</summary>
     [JsonPropertyName("last_connection")]
+    [JsonConverter(typeof(FlexibleObjectConverter<PortLastConnection>))]
     public PortLastConnection? LastConnection { get; set; }
 
     /// <summary>Port operating mode: "switch", "mirror", "aggregate".</summary>

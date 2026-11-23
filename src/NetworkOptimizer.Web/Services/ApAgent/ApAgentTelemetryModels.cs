@@ -188,6 +188,7 @@ public sealed class ApAgentEvent
 
     /// <summary>The uplink counters on an uplink_counters event; null otherwise.</summary>
     [JsonPropertyName("counters")]
+    [JsonConverter(typeof(NetworkOptimizer.UniFi.Models.FlexibleObjectConverter<ApAgentUplinkCounters>))]
     public ApAgentUplinkCounters? Counters { get; set; }
 
     /// <summary>When the agent recorded it.</summary>

@@ -905,10 +905,10 @@ public partial class MonitoringInfluxClient : IAsyncDisposable
         double? rateOutBps,
         long? speedBps,
         int operStatus,
-        long errorsIn,
-        long errorsOut,
-        long discardsIn,
-        long discardsOut,
+        long? errorsIn,
+        long? errorsOut,
+        long? discardsIn,
+        long? discardsOut,
         bool hcCounters,
         long? ucastPktsIn,
         long? ucastPktsOut,
@@ -928,16 +928,17 @@ public partial class MonitoringInfluxClient : IAsyncDisposable
             .Field("bytes_in", bytesIn)
             .Field("bytes_out", bytesOut)
             .Field("oper_status", operStatus)
-            .Field("errors_in", errorsIn)
-            .Field("errors_out", errorsOut)
-            .Field("discards_in", discardsIn)
-            .Field("discards_out", discardsOut)
             .Field("hc_counters", hcCounters)
             .Timestamp(timestamp.ToUniversalTime(), WritePrecision.Ns);
 
         if (rateInBps.HasValue) point = point.Field("rate_in_bps", rateInBps.Value);
         if (rateOutBps.HasValue) point = point.Field("rate_out_bps", rateOutBps.Value);
         if (speedBps.HasValue) point = point.Field("speed_bps", speedBps.Value);
+        // A counter the device does not keep stays absent, so LAN Health reads "not reported", never 0 errors.
+        if (errorsIn.HasValue) point = point.Field("errors_in", errorsIn.Value);
+        if (errorsOut.HasValue) point = point.Field("errors_out", errorsOut.Value);
+        if (discardsIn.HasValue) point = point.Field("discards_in", discardsIn.Value);
+        if (discardsOut.HasValue) point = point.Field("discards_out", discardsOut.Value);
         if (ucastPktsIn is > 0) point = point.Field("ucast_pkts_in", ucastPktsIn.Value);
         if (ucastPktsOut is > 0) point = point.Field("ucast_pkts_out", ucastPktsOut.Value);
         if (mcastPktsIn is > 0) point = point.Field("mcast_pkts_in", mcastPktsIn.Value);

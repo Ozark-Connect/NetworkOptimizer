@@ -15,7 +15,7 @@ public class LanLinkBuilderTests
 
     private static SwitchPort Port(int idx, bool up = true, int speed = 1000, string? lastMac = null, long? lastSeen = null, bool isUplink = false, string? name = null) => new()
     {
-        PortIdx = idx, IfName = $"eth{idx - 1}", Up = up, Enable = true, Speed = speed, FullDuplex = true, Autoneg = true, IsUplink = isUplink, Name = name,
+        PortIdx = idx, IfName = $"eth{idx - 1}", Up = up, Enable = true, Speed = speed, FullDuplex = true, Autoneg = true, IsUplink = isUplink, Name = name ?? "",
         LastConnection = lastMac == null ? null : new PortLastConnection { Mac = lastMac, LastSeen = lastSeen },
     };
 
