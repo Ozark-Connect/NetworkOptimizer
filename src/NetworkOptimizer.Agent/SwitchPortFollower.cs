@@ -9,9 +9,10 @@ namespace NetworkOptimizer.Agent;
 /// Reads a UniFi gateway's built-in switch chip through swconfig: each port's link state every few
 /// seconds, reported as a change with its time, and the chip's own error counters once a minute.
 /// The gateway's port netdevs are VLAN views of one 10G conduit, so this is the only place a drop on
-/// a gateway LAN port is visible. swconfig port N is the kernel's ethN (verified by negotiated speed on
-/// the UCG-Fiber and UXG-Fiber, both realtek rtl8372); the server only trusts a port whose speed
-/// agrees with UniFi's port table for that ifname.
+/// a gateway LAN port is visible. Which ethN a chip port is comes from the board's own UniFi OS board
+/// file (switches[].edge-ports), never from the port number: the order differs by board (reversed on
+/// the UCG-Fiber, UXG-Fiber, and UDR7; in order on the UDR5G and UDM Pro). A board with no file, or
+/// whose file disagrees with swconfig on the CPU port, reports nothing.
 /// </summary>
 public sealed class SwitchPortFollower
 {
@@ -27,8 +28,15 @@ public sealed class SwitchPortFollower
     private readonly Action<AgentMessage> _enqueue;
     private readonly Func<string, TimeSpan, string?> _run;
     private readonly Dictionary<int, (bool Up, int Speed, bool Full)> _last = new();
-    private List<int> _ports = new();
+    private Dictionary<int, string> _ifNames = new();
     private string _model = "";
+
+    private const string BoardInfoPath = "/etc/board.info";
+    private const string BoardConfigDir = "/usr/share/ubios-udapi-server/config-board";
+
+    /// <summary>Tests: a follower with a known chip port map.</summary>
+    internal SwitchPortFollower(Action<AgentMessage> enqueue, Func<string, TimeSpan, string?> run, Dictionary<int, string> ifNames)
+        : this(enqueue, run) => _ifNames = ifNames;
 
     /// <summary>Creates the follower; <paramref name="run"/> runs swconfig with the given arguments (tests substitute it).</summary>
     public SwitchPortFollower(Action<AgentMessage> enqueue, Func<string, TimeSpan, string?>? run = null)
@@ -37,11 +45,21 @@ public sealed class SwitchPortFollower
         _run = run ?? RunSwconfig;
     }
 
-    /// <summary>True when swconfig answers for switch0 with a port count.</summary>
+    /// <summary>True when swconfig answers for switch0 and the board's own file maps its ports.</summary>
     public static bool Available()
     {
-        try { return File.Exists("/usr/sbin/swconfig") && Describe(RunSwconfig("dev switch0 help", TimeSpan.FromSeconds(5))).Ports.Count > 0; }
+        try { return File.Exists("/usr/sbin/swconfig") && LoadPortMap(RunSwconfig) is { Count: > 0 }; }
         catch (Exception) { return false; }
+    }
+
+    /// <summary>Chip port to ethN for this box, or null when the board file is missing or disagrees with swconfig.</summary>
+    private static Dictionary<int, string>? LoadPortMap(Func<string, TimeSpan, string?> run)
+    {
+        var description = Describe(run("dev switch0 help", TimeSpan.FromSeconds(5)));
+        if (description.Ports.Count == 0 || !File.Exists(BoardInfoPath) || !Directory.Exists(BoardConfigDir)) return null;
+        var file = SwitchChipBoard.BoardFile(File.ReadAllText(BoardInfoPath), Directory.GetFiles(BoardConfigDir, "*.json"));
+        if (file == null) return null;
+        return SwitchChipBoard.PortMap(File.ReadAllText(file), description.Cpu, description.Ports);
     }
 
     public Task RunAsync(CancellationToken ct) =>
@@ -49,10 +67,13 @@ public sealed class SwitchPortFollower
 
     private void Loop(CancellationToken ct)
     {
-        var description = Describe(_run("dev switch0 help", TimeSpan.FromSeconds(5)));
-        _ports = description.Ports;
-        _model = description.Model;
-        if (_ports.Count == 0) return;
+        _model = Describe(_run("dev switch0 help", TimeSpan.FromSeconds(5))).Model;
+        if (LoadPortMap(_run) is not { } map)
+        {
+            Console.Error.WriteLine("Switch ports: no board file maps this switch chip, so no chip data is sent");
+            return;
+        }
+        _ifNames = map;
         var nextCounters = DateTime.MinValue;
         while (!ct.IsCancellationRequested)
         {
@@ -79,7 +100,7 @@ public sealed class SwitchPortFollower
     /// <summary>One link pass: an event for every port whose state changed since the last pass.</summary>
     internal void PollLinks(SwitchPortLinkBatch batch, DateTime now)
     {
-        foreach (var port in _ports)
+        foreach (var (port, ifName) in _ifNames)
         {
             var output = _run($"dev switch0 port {port} get link", TimeSpan.FromSeconds(3));
             if (ParseLink(output) is not { } state) continue;
@@ -89,7 +110,7 @@ public sealed class SwitchPortFollower
             if (first || prev == state) continue;
             batch.Events.Add(new SwitchPortLinkEvent
             {
-                IfName = $"eth{port}",
+                IfName = ifName,
                 Up = state.Up,
                 SpeedMbps = state.Speed,
                 FullDuplex = state.Full,
@@ -101,14 +122,14 @@ public sealed class SwitchPortFollower
     /// <summary>One counter pass over every port's MIB.</summary>
     internal void PollCounters(SwitchPortLinkBatch batch, DateTime now)
     {
-        foreach (var port in _ports)
+        foreach (var (port, ifName) in _ifNames)
         {
             var mib = ParseMib(_run($"dev switch0 port {port} get mib", TimeSpan.FromSeconds(5)));
             if (mib.Count == 0) continue;
             var link = _last.TryGetValue(port, out var l) ? l : default;
             batch.Counters.Add(new SwitchPortCounters
             {
-                IfName = $"eth{port}",
+                IfName = ifName,
                 RxCrcErrors = mib.GetValueOrDefault("rx_etherStatsCRCAlignErrors"),
                 TxCrcErrors = mib.GetValueOrDefault("tx_etherStatsCRCAlignErrors"),
                 InDiscards = mib.GetValueOrDefault("dot1dTpPortInDiscards"),
@@ -125,16 +146,16 @@ public sealed class SwitchPortFollower
     }
 
     /// <summary>The front-panel ports (every port but the CPU port) and the chip's description.</summary>
-    internal static (List<int> Ports, string Model) Describe(string? help)
+    internal static (List<int> Ports, int Cpu, string Model) Describe(string? help)
     {
-        if (string.IsNullOrEmpty(help)) return (new(), "");
+        if (string.IsNullOrEmpty(help)) return (new(), -1, "");
         var first = help.Split('\n').FirstOrDefault() ?? "";
         var m = PortsRe.Match(first);
-        if (!m.Success) return (new(), "");
+        if (!m.Success) return (new(), -1, "");
         var count = int.Parse(m.Groups[1].Value, CultureInfo.InvariantCulture);
         var cpu = int.Parse(m.Groups[2].Value, CultureInfo.InvariantCulture);
         var model = ModelRe.Match(first) is { Success: true } mm ? mm.Groups[1].Value : "";
-        return (Enumerable.Range(0, count).Where(p => p != cpu).ToList(), model);
+        return (Enumerable.Range(0, count).Where(p => p != cpu).ToList(), cpu, model);
     }
 
     /// <summary>"port:2 link:up speed:2500baseT full-duplex ..." to its state; null when unreadable.</summary>
