@@ -239,6 +239,8 @@ WanFloodGuard? floodGuard = null;
 Task? floodGuardTask = null;
 WanFloodDetector? floodDetector = null;
 Task? floodDetectorTask = null;
+SwitchPortFollower? switchPorts = null;
+Task? switchPortsTask = null;
 Task? probeTask = null;
 Task? snmpTask = null;
 Task? conntrackTask = null;
@@ -261,11 +263,14 @@ var liveDnsCapable = conntrackCapable && DnsCapture.Available();
 // Announced with Live Traffic even where the kernel has no conntrack events: the batches then say it is
 // not running, which is how the server tells "this Gateway cannot" from "this agent predates it".
 var flowLatencySupported = conntrackCapable && ConntrackEventSocket.Supported();
+// LAN Health: a gateway's built-in switch ports are only visible on the switch chip.
+var switchPortsCapable = config.OnGateway == true && SwitchPortFollower.Available();
 var capabilityList = new List<string>();
 if (conntrackCapable) capabilityList.AddRange(["conntrack-accounting", ConntrackRunner.LiveTrafficCapability, ConntrackEventSocket.Capability]);
 if (liveDnsCapable) capabilityList.Add(DnsCapture.Capability);
 if (uciCaptureCapable) capabilityList.Add(UciInformCapture.Capability);
 if (blocklistCapable) capabilityList.AddRange([GatewayBlocklistEnforcer.Capability, GatewayBlocklistEnforcer.ExceptionsCapability]);
+if (switchPortsCapable) capabilityList.Add(SwitchPortFollower.Capability);
 if (floodCapable) capabilityList.Add(WanFloodRules.Capability);
 else if (config.OnGateway == true) capabilityList.Add(WanFloodRules.UnavailableCapability);
 // Change Control's revert needs only HTTPS to the console, which every agent host reaches.
@@ -391,6 +396,11 @@ if (!string.IsNullOrEmpty(config.TunnelUrl))
         kernelLog ??= new KernelLogFollower();
         floodDetector = new WanFloodDetector(floodGuard, resultBuffer.Enqueue, kernelLog);
         floodDetectorTask = floodDetector.RunAsync(cts.Token);
+    }
+    if (switchPortsCapable)
+    {
+        switchPorts = new SwitchPortFollower(resultBuffer.Enqueue);
+        switchPortsTask = switchPorts.RunAsync(cts.Token);
     }
     // One kernel log reader for every subscriber, started once they have all subscribed.
     kernelLogTask = kernelLog?.RunAsync(cts.Token);

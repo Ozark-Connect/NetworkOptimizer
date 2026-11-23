@@ -119,6 +119,24 @@ public static class ApAgentEventTypes
 
     /// <summary>A serving radio moved channel, width, or block; about a radio, not a client.</summary>
     public const string ChannelChange = "channel_change";
+
+    /// <summary>The access point's wired link went down (kernel PHY line); about an interface, not a client.</summary>
+    public const string LinkDown = "link_down";
+
+    /// <summary>The access point's wired link came back; the detail carries the speed in Mbps.</summary>
+    public const string LinkUp = "link_up";
+
+    /// <summary>The wired uplink's carrier_changes and receive CRC count moved.</summary>
+    public const string UplinkCounters = "uplink_counters";
+
+    /// <summary>A provision re-up of the uplink, which explains a relink beside it.</summary>
+    public const string UplinkReconfigure = "uplink_reconfigure";
+
+    /// <summary>uplink-monitor could not find the uplink.</summary>
+    public const string UplinkLost = "uplink_lost";
+
+    /// <summary>The access point failed to inform the UniFi Console.</summary>
+    public const string InformFailed = "inform_failed";
 }
 
 /// <summary>One membership fact from an access point's hostapd control socket.</summary>
@@ -163,6 +181,14 @@ public sealed class ApAgentEvent
     [JsonPropertyName("channel")]
     public ApAgentChannelChange? Channel { get; set; }
 
+    /// <summary>The wired interface a LAN Health event is about; null on client events.</summary>
+    [JsonPropertyName("iface")]
+    public string? Iface { get; set; }
+
+    /// <summary>The uplink counters on an uplink_counters event; null otherwise.</summary>
+    [JsonPropertyName("counters")]
+    public ApAgentUplinkCounters? Counters { get; set; }
+
     /// <summary>When the agent recorded it.</summary>
     [JsonPropertyName("collected_at")]
     public DateTime CollectedAt { get; set; }
@@ -170,6 +196,18 @@ public sealed class ApAgentEvent
     /// <summary>The access-point-side instant, preferring the source's own clock where it has one.</summary>
     [JsonIgnore]
     public DateTime At => (EventTime ?? CollectedAt).ToUniversalTime();
+}
+
+/// <summary>A wired interface's link counters as the agent read them.</summary>
+public sealed class ApAgentUplinkCounters
+{
+    /// <summary>/sys/class/net carrier_changes: two per drop, plus one for the boot link-up.</summary>
+    [JsonPropertyName("carrier_changes")]
+    public long? CarrierChanges { get; set; }
+
+    /// <summary>The NIC's receive CRC count from ethtool -S.</summary>
+    [JsonPropertyName("rx_crc_errors")]
+    public long? RxCrcErrors { get; set; }
 }
 
 /// <summary>A radio move as the agent saw it, within one mca-dump pass of the radio moving.</summary>

@@ -308,6 +308,14 @@ func (s *SyslogSource) consume(line string) {
 	}
 	if ev, ok := parseUbntRoamLine(line, now); ok {
 		s.emit(ev)
+		return
+	}
+	if ev, ok := parseLinkLine(line, now); ok {
+		s.emit(ev)
+		return
+	}
+	if ev, ok := parseUplinkContextLine(line, now); ok {
+		s.emit(ev)
 	}
 }
 

@@ -916,7 +916,8 @@ public class MonitoringInfluxClient : IAsyncDisposable
         long? mcastPktsOut,
         long? bcastPktsIn,
         long? bcastPktsOut,
-        DateTime timestamp)
+        DateTime timestamp,
+        long? lastChange = null)
     {
         if (!IsConfigured) return Task.CompletedTask;
         var point = PointData.Measurement("interface_counters")
@@ -943,6 +944,8 @@ public class MonitoringInfluxClient : IAsyncDisposable
         if (mcastPktsOut is > 0) point = point.Field("mcast_pkts_out", mcastPktsOut.Value);
         if (bcastPktsIn is > 0) point = point.Field("bcast_pkts_in", bcastPktsIn.Value);
         if (bcastPktsOut is > 0) point = point.Field("bcast_pkts_out", bcastPktsOut.Value);
+        // ifLastChange (hundredths since boot): a change between two polls is a relink in that window.
+        if (lastChange is > 0) point = point.Field(InfluxFieldNames.LastChange, lastChange.Value);
 
         Enqueue(point, longterm: false);
         return Task.CompletedTask;
@@ -977,6 +980,62 @@ public class MonitoringInfluxClient : IAsyncDisposable
 
         Enqueue(point, longterm: false);
         return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Writes a console port_table snapshot for one port as additive fields on
+    /// <c>interface_counters</c>. The series is the port's console series (<paramref name="portId"/>
+    /// distinct from the SNMP one), so no field here ever shares a series with an SNMP counter.
+    /// </summary>
+    public Task WritePortSnapshotAsync(
+        string deviceMac, string ifName, string portId,
+        IReadOnlyList<KeyValuePair<string, object>> fields, DateTime timestamp)
+    {
+        if (!IsConfigured || fields.Count == 0) return Task.CompletedTask;
+        var point = PointData.Measurement("interface_counters")
+            .Tag("device_mac", NormalizeMac(deviceMac))
+            .Tag("if_name", ifName)
+            .Tag("port_id", portId)
+            .Tag("direction", "unknown")
+            .Timestamp(timestamp.ToUniversalTime(), WritePrecision.Ns);
+        point = AddFields(point, fields);
+        Enqueue(point, longterm: false);
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Writes additive device-level fields on <c>device_health</c>. <paramref name="deviceType"/> must be
+    /// the same spelling the health writer uses, or the fields land on a second series.
+    /// </summary>
+    public Task WriteDeviceFieldsAsync(
+        string deviceMac, string deviceType,
+        IReadOnlyList<KeyValuePair<string, object>> fields, DateTime timestamp)
+    {
+        if (!IsConfigured || fields.Count == 0) return Task.CompletedTask;
+        var point = PointData.Measurement("device_health")
+            .Tag("device_mac", NormalizeMac(deviceMac))
+            .Tag("device_type", deviceType.ToLowerInvariant())
+            .Timestamp(timestamp.ToUniversalTime(), WritePrecision.Ns);
+        point = AddFields(point, fields);
+        Enqueue(point, longterm: false);
+        return Task.CompletedTask;
+    }
+
+    private static PointData AddFields(PointData point, IReadOnlyList<KeyValuePair<string, object>> fields)
+    {
+        foreach (var (name, value) in fields)
+        {
+            point = value switch
+            {
+                long l => point.Field(name, l),
+                int i => point.Field(name, (long)i),
+                double d when double.IsFinite(d) => point.Field(name, d),
+                bool b => point.Field(name, b),
+                string s => point.Field(name, s),
+                _ => point,
+            };
+        }
+        return point;
     }
 
     public Task WriteDeviceHealthAsync(

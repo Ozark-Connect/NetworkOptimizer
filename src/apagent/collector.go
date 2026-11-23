@@ -191,6 +191,12 @@ func (c *Collector) Start(ctx context.Context) {
 		defer c.wg.Done()
 		c.syslog.Run(ctx)
 	}()
+
+	c.wg.Add(1)
+	go func() {
+		defer c.wg.Done()
+		NewUplinkCounterSource(c.ring).Run(ctx)
+	}()
 }
 
 // Wait blocks until the poll tiers and every control-socket listener have stopped.

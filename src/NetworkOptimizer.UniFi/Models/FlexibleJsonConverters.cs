@@ -130,6 +130,32 @@ public class FlexibleLongConverter : JsonConverter<long>
 }
 
 /// <summary>
+/// <see cref="FlexibleLongConverter"/> for a counter the console may omit: null when absent or
+/// unreadable, so "not reported" stays apart from a real 0.
+/// </summary>
+public class FlexibleNullableLongConverter : JsonConverter<long?>
+{
+    public override long? Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        return reader.TokenType switch
+        {
+            JsonTokenType.Number when reader.TryGetInt64(out var l) => l,
+            JsonTokenType.Number => (long)reader.GetDouble(),
+            JsonTokenType.String when long.TryParse(reader.GetString(), out var value) => value,
+            _ => null,
+        };
+    }
+
+    public override void Write(Utf8JsonWriter writer, long? value, JsonSerializerOptions options)
+    {
+        if (value.HasValue)
+            writer.WriteNumberValue(value.Value);
+        else
+            writer.WriteNullValue();
+    }
+}
+
+/// <summary>
 /// Tolerant nullable-double parser for UniFi API fields that may arrive as a number, a
 /// stringified number, or an empty string. Mirrors FlexibleIntConverter but for floating
 /// point. SFP DDM values (rxpower, current, temperature, voltage) are the primary case;

@@ -392,6 +392,50 @@ public class UniFiDeviceResponse
     [JsonPropertyName("mbb")]
     public MbbInfo? Mbb { get; set; }
 
+    /// <summary>Total PoE draw in watts across the device's ports.</summary>
+    [JsonPropertyName("total_used_power")]
+    [JsonConverter(typeof(FlexibleDoubleConverter))]
+    public double? TotalUsedPower { get; set; }
+
+    /// <summary>The device's PoE budget in watts.</summary>
+    [JsonPropertyName("total_max_power")]
+    [JsonConverter(typeof(FlexibleDoubleConverter))]
+    public double? TotalMaxPower { get; set; }
+
+    /// <summary>The PoE budget the device can deliver now, after its power supply's limit.</summary>
+    [JsonPropertyName("total_max_effective_power")]
+    [JsonConverter(typeof(FlexibleDoubleConverter))]
+    public double? TotalMaxEffectivePower { get; set; }
+
+    /// <summary>The console's flag for a device close to its PoE budget.</summary>
+    [JsonPropertyName("device_near_power_limit")]
+    [JsonConverter(typeof(FlexibleNullableBoolConverter))]
+    public bool? DeviceNearPowerLimit { get; set; }
+
+    /// <summary>The console's flag for a device close to its effective PoE budget.</summary>
+    [JsonPropertyName("device_near_effective_power_limit")]
+    [JsonConverter(typeof(FlexibleNullableBoolConverter))]
+    public bool? DeviceNearEffectivePowerLimit { get; set; }
+
+    /// <summary>The console's flag for a device whose uplink port is near its PoE class limit.</summary>
+    [JsonPropertyName("uplink_near_power_limit")]
+    [JsonConverter(typeof(FlexibleNullableBoolConverter))]
+    public bool? UplinkNearPowerLimit { get; set; }
+
+    /// <summary>Hops from the wired network: 1 for a device wired to the gateway's LAN, more behind mesh or switches.</summary>
+    [JsonPropertyName("uplink_depth")]
+    [JsonConverter(typeof(FlexibleIntConverter))]
+    public int? UplinkDepth { get; set; }
+
+    /// <summary>The device's STP priority as configured.</summary>
+    [JsonPropertyName("stp_priority")]
+    [JsonConverter(typeof(FlexibleIntConverter))]
+    public int? StpPriority { get; set; }
+
+    /// <summary>The device's STP version: "rstp", "stp", "mstp", "disabled".</summary>
+    [JsonPropertyName("stp_version")]
+    public string? StpVersion { get; set; }
+
     /// <summary>A gateway's LAN networks, each with the IPv6 prefixes it hands out.</summary>
     [JsonPropertyName("network_table")]
     public List<GatewayNetworkTableEntry>? NetworkTable { get; set; }
@@ -827,6 +871,192 @@ public class SwitchPort
     /// <summary>SFP module compliance type (e.g., "1000BASE-LX", "PON").</summary>
     [JsonPropertyName("sfp_compliance")]
     public string? SfpCompliance { get; set; }
+
+    // Link health counters and state (LAN Health). Switches carry all of them; gateways and the
+    // USW-Flex-Mini omit link_down_count and the STP fields.
+
+    /// <summary>Receive errors (CRC/FCS) since the port's counters last reset.</summary>
+    [JsonPropertyName("rx_errors")]
+    [JsonConverter(typeof(FlexibleNullableLongConverter))]
+    public long? RxErrors { get; set; }
+
+    /// <summary>Transmit errors since the port's counters last reset.</summary>
+    [JsonPropertyName("tx_errors")]
+    [JsonConverter(typeof(FlexibleNullableLongConverter))]
+    public long? TxErrors { get; set; }
+
+    /// <summary>Received frames the port dropped.</summary>
+    [JsonPropertyName("rx_dropped")]
+    [JsonConverter(typeof(FlexibleNullableLongConverter))]
+    public long? RxDropped { get; set; }
+
+    /// <summary>Frames the port dropped on transmit (egress queue full).</summary>
+    [JsonPropertyName("tx_dropped")]
+    [JsonConverter(typeof(FlexibleNullableLongConverter))]
+    public long? TxDropped { get; set; }
+
+    /// <summary>Broadcast frames received.</summary>
+    [JsonPropertyName("rx_broadcast")]
+    [JsonConverter(typeof(FlexibleNullableLongConverter))]
+    public long? RxBroadcast { get; set; }
+
+    /// <summary>Multicast frames received.</summary>
+    [JsonPropertyName("rx_multicast")]
+    [JsonConverter(typeof(FlexibleNullableLongConverter))]
+    public long? RxMulticast { get; set; }
+
+    /// <summary>Broadcast frames sent.</summary>
+    [JsonPropertyName("tx_broadcast")]
+    [JsonConverter(typeof(FlexibleNullableLongConverter))]
+    public long? TxBroadcast { get; set; }
+
+    /// <summary>Multicast frames sent.</summary>
+    [JsonPropertyName("tx_multicast")]
+    [JsonConverter(typeof(FlexibleNullableLongConverter))]
+    public long? TxMulticast { get; set; }
+
+    /// <summary>Times the link went down since the switch booted. Switches only.</summary>
+    [JsonPropertyName("link_down_count")]
+    [JsonConverter(typeof(FlexibleNullableLongConverter))]
+    [VendorSpecific("UniFi", "Switch port_table only; absent on gateways and the USW-Flex-Mini")]
+    public long? LinkDownCount { get; set; }
+
+    /// <summary>STP port state: "forwarding", "blocking", "learning", "disabled".</summary>
+    [JsonPropertyName("stp_state")]
+    public string? StpState { get; set; }
+
+    /// <summary>STP state changes per MST instance.</summary>
+    [JsonPropertyName("stp_state_change_count")]
+    public List<StpStateChangeCount>? StpStateChangeCount { get; set; }
+
+    /// <summary>STP path cost of the port.</summary>
+    [JsonPropertyName("stp_pathcost")]
+    [JsonConverter(typeof(FlexibleIntConverter))]
+    public int? StpPathCost { get; set; }
+
+    /// <summary>The port's anomaly count as Port Insights reports it; -1 when not evaluated.</summary>
+    [JsonPropertyName("anomalies")]
+    [JsonConverter(typeof(FlexibleIntConverter))]
+    public int? Anomalies { get; set; }
+
+    /// <summary>Port Insights custom anomaly count.</summary>
+    [JsonPropertyName("custom_anomalies")]
+    [JsonConverter(typeof(FlexibleIntConverter))]
+    public int? CustomAnomalies { get; set; }
+
+    /// <summary>Supported speeds as a bitmask; decode with <see cref="PortSpeedCaps"/>.</summary>
+    [JsonPropertyName("speed_caps")]
+    [JsonConverter(typeof(FlexibleNullableLongConverter))]
+    [VendorSpecific("UniFi", "Bitmask: 0/1 10 H/F, 2/3 100 H/F, 4/5 1000 H/F, 6 2500, 7 5000, 8 10000, 13 25000, 20 autoneg")]
+    public long? SpeedCaps { get; set; }
+
+    /// <summary>Draw in milliamps; arrives as a string.</summary>
+    [JsonPropertyName("poe_current")]
+    public string? PoeCurrent { get; set; }
+
+    /// <summary>The powered device's class, e.g. "Class 4".</summary>
+    [JsonPropertyName("poe_class")]
+    public string? PoeClass { get; set; }
+
+    /// <summary>Whether the PoE detection and power-up succeeded.</summary>
+    [JsonPropertyName("poe_good")]
+    [JsonConverter(typeof(FlexibleNullableBoolConverter))]
+    public bool? PoeGood { get; set; }
+
+    /// <summary>MAC addresses learned on the port.</summary>
+    [JsonPropertyName("mac_table_count")]
+    [JsonConverter(typeof(FlexibleIntConverter))]
+    public int? MacTableCount { get; set; }
+
+    /// <summary>Receive flow control (pause frames honored) as negotiated.</summary>
+    [JsonPropertyName("flowctrl_rx")]
+    [JsonConverter(typeof(FlexibleNullableBoolConverter))]
+    public bool? FlowControlRx { get; set; }
+
+    /// <summary>Transmit flow control (pause frames sent) as negotiated.</summary>
+    [JsonPropertyName("flowctrl_tx")]
+    [JsonConverter(typeof(FlexibleNullableBoolConverter))]
+    public bool? FlowControlTx { get; set; }
+
+    /// <summary>Whether jumbo frames are on for the port.</summary>
+    [JsonPropertyName("jumbo")]
+    [JsonConverter(typeof(FlexibleNullableBoolConverter))]
+    public bool? Jumbo { get; set; }
+
+    /// <summary>Broadcast storm control on.</summary>
+    [JsonPropertyName("stormctrl_bcast_enabled")]
+    [JsonConverter(typeof(FlexibleNullableBoolConverter))]
+    public bool? StormControlBroadcast { get; set; }
+
+    /// <summary>Multicast storm control on.</summary>
+    [JsonPropertyName("stormctrl_mcast_enabled")]
+    [JsonConverter(typeof(FlexibleNullableBoolConverter))]
+    public bool? StormControlMulticast { get; set; }
+
+    /// <summary>Unknown unicast storm control on.</summary>
+    [JsonPropertyName("stormctrl_ucast_enabled")]
+    [JsonConverter(typeof(FlexibleNullableBoolConverter))]
+    public bool? StormControlUnicast { get; set; }
+
+    /// <summary>Whether STP runs on the port.</summary>
+    [JsonPropertyName("stp_port_mode")]
+    [JsonConverter(typeof(FlexibleNullableBoolConverter))]
+    public bool? StpPortMode { get; set; }
+
+    /// <summary>The device last seen on the port, with when the port last linked to it.</summary>
+    [JsonPropertyName("last_connection")]
+    public PortLastConnection? LastConnection { get; set; }
+
+    /// <summary>Port operating mode: "switch", "mirror", "aggregate".</summary>
+    [JsonPropertyName("op_mode")]
+    public string? OpMode { get; set; }
+
+    /// <summary>LACP member state on an aggregated port.</summary>
+    [JsonPropertyName("lacp_state")]
+    public List<JsonElement>? LacpState { get; set; }
+}
+
+/// <summary>STP state changes on one MST instance.</summary>
+public class StpStateChangeCount
+{
+    [JsonPropertyName("change_count")]
+    [JsonConverter(typeof(FlexibleLongConverter))]
+    public long ChangeCount { get; set; }
+
+    [JsonPropertyName("mst")]
+    [JsonConverter(typeof(FlexibleIntConverter))]
+    public int? Mst { get; set; }
+}
+
+/// <summary>The device last seen on a port.</summary>
+public class PortLastConnection
+{
+    [JsonPropertyName("mac")]
+    public string? Mac { get; set; }
+
+    /// <summary>Epoch seconds the port last linked to this device.</summary>
+    [JsonPropertyName("connected_at")]
+    [JsonConverter(typeof(FlexibleNullableLongConverter))]
+    public long? ConnectedAt { get; set; }
+
+    [JsonPropertyName("last_seen")]
+    [JsonConverter(typeof(FlexibleNullableLongConverter))]
+    public long? LastSeen { get; set; }
+}
+
+/// <summary>Decodes a port's <c>speed_caps</c> bitmask (bit layout from the UniFi Network 11.1 port tables).</summary>
+[VendorSpecific("UniFi", "speed_caps bit layout")]
+public static class PortSpeedCaps
+{
+    private static readonly (int Bit, int Mbps)[] FullDuplexBits =
+        [(1, 10), (3, 100), (5, 1000), (6, 2500), (7, 5000), (8, 10000), (13, 25000)];
+
+    /// <summary>Every full-duplex speed the port supports, ascending.</summary>
+    public static IReadOnlyList<int> Speeds(long? caps) =>
+        caps is not long c ? [] : FullDuplexBits.Where(b => (c & (1L << b.Bit)) != 0).Select(b => b.Mbps).ToList();
+
+    /// <summary>The fastest speed the port supports, or null when the console reports no caps.</summary>
+    public static int? MaxMbps(long? caps) => Speeds(caps) is { Count: > 0 } s ? s[^1] : null;
 }
 
 /// <summary>

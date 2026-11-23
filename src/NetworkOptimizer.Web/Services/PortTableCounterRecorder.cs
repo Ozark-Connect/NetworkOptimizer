@@ -138,17 +138,17 @@ public static class PortTableCounterRecorder
                         rateOutBps: calc.RateOutBps,
                         speedBps: speedBps > 0 ? speedBps : null,
                         operStatus: operStatus,
-                        errorsIn: 0,
-                        errorsOut: 0,
-                        discardsIn: 0,
-                        discardsOut: 0,
+                        errorsIn: port.RxErrors ?? 0,
+                        errorsOut: port.TxErrors ?? 0,
+                        discardsIn: port.RxDropped ?? 0,
+                        discardsOut: port.TxDropped ?? 0,
                         hcCounters: true,
-                        ucastPktsIn: null,
-                        ucastPktsOut: null,
-                        mcastPktsIn: null,
-                        mcastPktsOut: null,
-                        bcastPktsIn: null,
-                        bcastPktsOut: null,
+                        ucastPktsIn: UnicastOf(port.RxPackets, port.RxMulticast, port.RxBroadcast),
+                        ucastPktsOut: UnicastOf(port.TxPackets, port.TxMulticast, port.TxBroadcast),
+                        mcastPktsIn: port.RxMulticast,
+                        mcastPktsOut: port.TxMulticast,
+                        bcastPktsIn: port.RxBroadcast,
+                        bcastPktsOut: port.TxBroadcast,
                         timestamp: now);
                 }
                 written++;
@@ -187,6 +187,10 @@ public static class PortTableCounterRecorder
             row.LastUpdated = DateTime.UtcNow;
         }
     }
+
+    // The port table counts every frame in rx/tx_packets; the SNMP series it stands in for carries unicast.
+    internal static long? UnicastOf(long packets, long? multicast, long? broadcast) =>
+        packets > 0 ? Math.Max(0, packets - (multicast ?? 0) - (broadcast ?? 0)) : null;
 
     private static string NormalizeMac(string mac) => mac.ToLowerInvariant().Replace("-", ":");
 }

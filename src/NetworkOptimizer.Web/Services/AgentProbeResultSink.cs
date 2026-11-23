@@ -1707,7 +1707,8 @@ public class AgentProbeResultSink
                 mcastPktsOut: sample.McastPktsOut > 0 ? sample.McastPktsOut : null,
                 bcastPktsIn: sample.BcastPktsIn > 0 ? sample.BcastPktsIn : null,
                 bcastPktsOut: sample.BcastPktsOut > 0 ? sample.BcastPktsOut : null,
-                timestamp: timestamp);
+                timestamp: timestamp,
+                lastChange: sample.LastChange > 0 ? sample.LastChange : null);
         }
 
         // Publish fabric sums + mesh-AP backhaul, then the topology-boundary aggregates -

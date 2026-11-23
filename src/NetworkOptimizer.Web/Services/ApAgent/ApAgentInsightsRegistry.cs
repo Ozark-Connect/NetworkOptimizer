@@ -38,7 +38,8 @@ public sealed class ApAgentInsightsRegistry : ISiteScopedRegistry
             // handed the move collector to route them to.
             var moves = ActivatorUtilities.CreateInstance<ApAgentChannelMoveCollector>(_serviceProvider, s);
             return new SiteApAgentInsights(
-                ActivatorUtilities.CreateInstance<ApAgentRoamCollector>(_serviceProvider, s, moves),
+                ActivatorUtilities.CreateInstance<ApAgentRoamCollector>(_serviceProvider, s, moves,
+                    ActivatorUtilities.CreateInstance<ApAgentLinkEventSink>(_serviceProvider, s)),
                 ActivatorUtilities.CreateInstance<ApAgentRadioHealthCollector>(_serviceProvider, s),
                 moves);
         });
