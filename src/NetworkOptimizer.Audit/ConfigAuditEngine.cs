@@ -59,6 +59,7 @@ public class ConfigAuditEngine
         public bool? UpnpEnabled { get; init; }
         public List<UniFiPortForwardRule>? PortForwardRules { get; init; }
         public List<UniFiNetworkConfig>? NetworkConfigs { get; init; }
+        public List<UniFiPortAutomation>? PortAutomations { get; init; }
         public List<UniFiOsUser>? ConsoleUsers { get; init; }
         public List<UniFiOsApiKey>? ConsoleApiKeys { get; init; }
         public string? ConnectedUsername { get; init; }
@@ -455,6 +456,7 @@ public class ConfigAuditEngine
             UpnpEnabled = request.UpnpEnabled,
             PortForwardRules = request.PortForwardRules,
             NetworkConfigs = request.NetworkConfigs,
+            PortAutomations = request.PortAutomations,
             ConsoleUsers = request.ConsoleUsers,
             ConsoleApiKeys = request.ConsoleApiKeys,
             ConnectedUsername = request.ConnectedUsername,
@@ -1075,13 +1077,21 @@ public class ConfigAuditEngine
             result.Issues.Count, result.HardeningNotes.Count);
     }
 
-    /// <summary>Phase 5c2: WANs with Passthrough VLANs (Network 11.1+), which bypass the firewall.</summary>
+    /// <summary>
+    /// Phase 5c2: Network 11.1 features: WANs with Passthrough VLANs, which bypass the firewall, and Port Automations
+    /// that put a device on a trusted network by its vendor or MAC OUI.
+    /// </summary>
     private void ExecutePhase5c2_AnalyzeWanPassthrough(AuditContext ctx)
     {
         var gatewayName = ctx.Switches.FirstOrDefault(s => s.IsGateway)?.Name ?? "Gateway";
         var issues = WanPassthroughAnalyzer.Analyze(ctx.NetworkConfigs, gatewayName);
         ctx.AllIssues.AddRange(issues);
         if (issues.Count > 0) _logger.LogInformation("Found {IssueCount} WAN passthrough issues", issues.Count);
+
+        // Port Automations (Network 11.1+) by vendor or MAC OUI that hand out a privileged network.
+        var automationIssues = PortAutomationAnalyzer.Analyze(ctx.PortAutomations, ctx.PortProfiles, ctx.Networks, gatewayName);
+        ctx.AllIssues.AddRange(automationIssues);
+        if (automationIssues.Count > 0) _logger.LogInformation("Found {IssueCount} Port Automation issues", automationIssues.Count);
     }
 
     /// <summary>

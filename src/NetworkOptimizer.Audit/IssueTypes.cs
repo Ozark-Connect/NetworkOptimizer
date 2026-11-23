@@ -64,6 +64,9 @@ public static class IssueTypes
     // WAN (Network 11.1+)
     public const string WanPassthroughVlan = "WAN_PASSTHROUGH_VLAN";
 
+    // Port Automations (Network 11.1+)
+    public const string PortAutomationTrustedNetwork = "PORT_AUTOMATION_TRUSTED_NETWORK";
+
     // DNS Security
     public const string DnsNoDoh = "DNS_NO_DOH";
     public const string DnsDohAuto = "DNS_DOH_AUTO";

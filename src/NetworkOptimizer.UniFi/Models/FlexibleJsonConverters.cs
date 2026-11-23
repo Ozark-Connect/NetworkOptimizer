@@ -202,6 +202,73 @@ public class FlexibleStringListConverter : JsonConverter<List<string>?>
 }
 
 /// <summary>
+/// Tolerant list of IDs that may be strings or numbers (Port Automation vendor IDs are numbers): each string or
+/// number reads as its text, other entries are skipped, and anything but an array reads as null.
+/// </summary>
+public sealed class FlexibleScalarStringListConverter : JsonConverter<List<string>?>
+{
+    public override List<string>? Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        if (reader.TokenType != JsonTokenType.StartArray)
+        {
+            reader.Skip();
+            return null;
+        }
+        var list = new List<string>();
+        while (reader.Read() && reader.TokenType != JsonTokenType.EndArray)
+        {
+            if (reader.TokenType == JsonTokenType.String) list.Add(reader.GetString()!);
+            else if (reader.TokenType == JsonTokenType.Number) list.Add(System.Text.Encoding.UTF8.GetString(reader.ValueSpan));
+            else reader.Skip();
+        }
+        return list;
+    }
+
+    public override void Write(Utf8JsonWriter writer, List<string>? value, JsonSerializerOptions options)
+    {
+        if (value == null)
+        {
+            writer.WriteNullValue();
+            return;
+        }
+        writer.WriteStartArray();
+        foreach (var s in value) writer.WriteStringValue(s);
+        writer.WriteEndArray();
+    }
+}
+
+/// <summary>
+/// Tolerant nested object: an object reads as <typeparamref name="T"/>, anything else (or an object that fails)
+/// as null, instead of failing the object it sits in.
+/// </summary>
+public sealed class FlexibleObjectConverter<T> : JsonConverter<T?> where T : class
+{
+    public override T? Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        if (reader.TokenType != JsonTokenType.StartObject)
+        {
+            reader.Skip();
+            return null;
+        }
+        using var doc = JsonDocument.ParseValue(ref reader);
+        try
+        {
+            return doc.RootElement.Deserialize<T>(options);
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
+    public override void Write(Utf8JsonWriter writer, T? value, JsonSerializerOptions options)
+    {
+        if (value == null) writer.WriteNullValue();
+        else JsonSerializer.Serialize(writer, value, options);
+    }
+}
+
+/// <summary>
 /// Reads a string or an integer as a string. Any other token throws, failing the whole object.
 /// </summary>
 public class FlexibleStringOrNumberConverter : JsonConverter<string?>
