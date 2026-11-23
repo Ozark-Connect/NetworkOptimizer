@@ -944,7 +944,7 @@ public class SnmpPoller : ISnmpPoller
         return tc >= 0x80;
     }
 
-    private static Dictionary<string, string> IndexByIfIndex(List<Variable> variables, string baseOid)
+    internal static Dictionary<string, string> IndexByIfIndex(List<Variable> variables, string baseOid)
     {
         var dict = new Dictionary<string, string>();
         var prefix = baseOid + ".";

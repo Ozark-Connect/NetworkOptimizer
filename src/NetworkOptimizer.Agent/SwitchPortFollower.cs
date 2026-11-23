@@ -21,9 +21,6 @@ public sealed class SwitchPortFollower
 
     private static readonly TimeSpan LinkEvery = TimeSpan.FromSeconds(3);
     private static readonly TimeSpan CountersEvery = TimeSpan.FromSeconds(60);
-    private static readonly Regex PortsRe = new(@"ports:\s*(\d+)\s*\(cpu @ (\d+)\)", RegexOptions.Compiled);
-    private static readonly Regex ModelRe = new(@"^\S+:\s*\S+\(([^)]+)\)", RegexOptions.Compiled);
-    private static readonly Regex LinkRe = new(@"link:(up|down|force-down)(?:\s+speed:(\d+)\S*)?(?:\s+(full|half)-duplex)?", RegexOptions.Compiled);
 
     private readonly Action<AgentMessage> _enqueue;
     private readonly Func<string, TimeSpan, string?> _run;
@@ -55,7 +52,7 @@ public sealed class SwitchPortFollower
     /// <summary>Chip port to ethN for this box, or null when the board file is missing or disagrees with swconfig.</summary>
     private static Dictionary<int, string>? LoadPortMap(Func<string, TimeSpan, string?> run)
     {
-        var description = Describe(run("dev switch0 help", TimeSpan.FromSeconds(5)));
+        var description = SwitchChipOutput.Describe(run("dev switch0 help", TimeSpan.FromSeconds(5)));
         if (description.Ports.Count == 0 || !File.Exists(BoardInfoPath) || !Directory.Exists(BoardConfigDir)) return null;
         var file = SwitchChipBoard.BoardFile(File.ReadAllText(BoardInfoPath), Directory.GetFiles(BoardConfigDir, "*.json"));
         if (file == null) return null;
@@ -67,7 +64,7 @@ public sealed class SwitchPortFollower
 
     private void Loop(CancellationToken ct)
     {
-        _model = Describe(_run("dev switch0 help", TimeSpan.FromSeconds(5))).Model;
+        _model = SwitchChipOutput.Describe(_run("dev switch0 help", TimeSpan.FromSeconds(5))).Model;
         if (LoadPortMap(_run) is not { } map)
         {
             Console.Error.WriteLine("Switch ports: no board file maps this switch chip, so no chip data is sent");
@@ -103,7 +100,7 @@ public sealed class SwitchPortFollower
         foreach (var (port, ifName) in _ifNames)
         {
             var output = _run($"dev switch0 port {port} get link", TimeSpan.FromSeconds(3));
-            if (ParseLink(output) is not { } state) continue;
+            if (SwitchChipOutput.ParseLink(output) is not { } state) continue;
             var first = !_last.TryGetValue(port, out var prev);
             _last[port] = state;
             // The first pass is a baseline, not a change: a restart must not read as every port relinking.
@@ -124,7 +121,7 @@ public sealed class SwitchPortFollower
     {
         foreach (var (port, ifName) in _ifNames)
         {
-            var mib = ParseMib(_run($"dev switch0 port {port} get mib", TimeSpan.FromSeconds(5)));
+            var mib = SwitchChipOutput.ParseMib(_run($"dev switch0 port {port} get mib", TimeSpan.FromSeconds(5)));
             if (mib.Count == 0) continue;
             var link = _last.TryGetValue(port, out var l) ? l : default;
             batch.Counters.Add(new SwitchPortCounters
@@ -143,45 +140,6 @@ public sealed class SwitchPortFollower
                 TimestampUnixMs = new DateTimeOffset(now).ToUnixTimeMilliseconds(),
             });
         }
-    }
-
-    /// <summary>The front-panel ports (every port but the CPU port) and the chip's description.</summary>
-    internal static (List<int> Ports, int Cpu, string Model) Describe(string? help)
-    {
-        if (string.IsNullOrEmpty(help)) return (new(), -1, "");
-        var first = help.Split('\n').FirstOrDefault() ?? "";
-        var m = PortsRe.Match(first);
-        if (!m.Success) return (new(), -1, "");
-        var count = int.Parse(m.Groups[1].Value, CultureInfo.InvariantCulture);
-        var cpu = int.Parse(m.Groups[2].Value, CultureInfo.InvariantCulture);
-        var model = ModelRe.Match(first) is { Success: true } mm ? mm.Groups[1].Value : "";
-        return (Enumerable.Range(0, count).Where(p => p != cpu).ToList(), cpu, model);
-    }
-
-    /// <summary>"port:2 link:up speed:2500baseT full-duplex ..." to its state; null when unreadable.</summary>
-    internal static (bool Up, int Speed, bool Full)? ParseLink(string? output)
-    {
-        if (string.IsNullOrEmpty(output)) return null;
-        var m = LinkRe.Match(output);
-        if (!m.Success) return null;
-        var up = m.Groups[1].Value == "up";
-        var speed = up && m.Groups[2].Success ? int.Parse(m.Groups[2].Value, CultureInfo.InvariantCulture) : 0;
-        return (up, speed, up && m.Groups[3].Value == "full");
-    }
-
-    /// <summary>"name : value" lines to a counter map.</summary>
-    internal static Dictionary<string, long> ParseMib(string? output)
-    {
-        var result = new Dictionary<string, long>(StringComparer.Ordinal);
-        if (string.IsNullOrEmpty(output)) return result;
-        foreach (var line in output.Split('\n'))
-        {
-            var i = line.IndexOf(':');
-            if (i <= 0) continue;
-            if (long.TryParse(line[(i + 1)..].Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var v))
-                result[line[..i].Trim()] = v;
-        }
-        return result;
     }
 
     private static string? RunSwconfig(string args, TimeSpan timeout)
