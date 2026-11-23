@@ -83,8 +83,10 @@ public sealed class LanHealthAlertEvaluator
             foreach (var (type, classes) in Classes)
             {
                 var finding = link.Findings.FirstOrDefault(f => classes.Contains(f.Class));
-                // One alert for a loop, not one per port: the per-port storms fold into it.
-                if (type == Storm && loop != null && finding?.Class == "Broadcast Storm" && loop.LinkId != link.Link.Id) finding = null;
+                // One alert for a loop, not one per port: the per-port storms fold into it, and the loop's own
+                // port raises the loop, not its storm.
+                if (type == Storm && loop != null)
+                    finding = loop.LinkId == link.Link.Id ? loop : finding?.Class == "Broadcast Storm" ? null : finding;
                 var raise = finding != null && !quiet;
                 var clear = finding == null;
                 var gate = Gate(type, link.Link.Id);
