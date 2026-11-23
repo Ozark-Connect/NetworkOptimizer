@@ -89,7 +89,6 @@ public static class LanHealthReportBuilder
                 .Select(r => new MeshReading(r.HourStart, r.MeshSignalDbm, r.MeshTxRateKbps, r.MloMembers, r.ParentMac)).ToList(),
             MeshBaseline = baseline.Where(r => r.MeshSignalDbm != null || r.MeshTxRateKbps != null)
                 .Select(r => new MeshReading(r.HourStart, r.MeshSignalDbm, r.MeshTxRateKbps, r.MloMembers, r.ParentMac)).ToList(),
-            DownstreamReboots = rows.Where(r => r.Reboots > 0).Select(r => r.HourStart.AddMinutes(30)).ToList(),
             PoeDraw = rows.Where(r => r.PoeWattsMin != null).SelectMany(r => new[] { (r.HourStart, r.PoeWattsMin!.Value), (r.HourStart.AddMinutes(30), r.PoeWattsMax ?? r.PoeWattsMin!.Value) }).ToList(),
             ProbeLossPct = rows.Any(r => r.ProbeLossPct != null) ? rows.Where(r => r.ProbeLossPct != null).Average(r => r.ProbeLossPct!.Value) : null,
             ParentProbeLossPct = parentLoss is { Count: > 0 } ? parentLoss.Average() : null,

@@ -661,10 +661,15 @@ public static class LanHealthDetectors
     // ---- 8 / 26 PoE: powered device power cycling (link drop + reboot together) ----
     internal static LinkFinding? PoeCycling(LinkEvidence ev, IReadOnlyList<LinkIncident> incidents)
     {
-        if (ev.DownstreamReboots.Count == 0) return null;
-        var cycles = ev.DownstreamReboots.Count(r => incidents.Any(i => Math.Abs((i.Start - r).TotalMinutes) <= 5));
+        // Only reboots the device classified as a power loss: every reboot drops the link, so a crash or a
+        // commanded restart would otherwise read as a power fault.
+        var cycles = (int)incidents.Where(i => i.Kind is IncidentKind.Drop or IncidentKind.Relink
+            && i.Explained == ExplainReason.DeviceRebooted && i.ExplainedDetail == nameof(Monitoring.RebootReason.RebootCategory.PowerLoss)).Sum(i => i.Count);
         var zeroDraw = ev.PoeDraw.Any(p => p.Watts <= 0.1) && ev.PoeDraw.Any(p => p.Watts > 1);
         if (cycles < 2 && !(cycles >= 1 && zeroDraw)) return null;
+        // The port supplies PoE when it is not off and has drawn power: then the switch is the power source.
+        var portPowers = !string.Equals(ev.Link.UpstreamPort.PoeMode ?? "off", "off", StringComparison.OrdinalIgnoreCase)
+            && (ev.Link.UpstreamPort.PoePowerW > 0 || ev.PoeDraw.Any(p => p.Watts > 1));
         return new LinkFinding
         {
             Detector = Detectors.PoeHealth,
@@ -672,8 +677,11 @@ public static class LanHealthDetectors
             Severity = FindingSeverity.Warning,
             Class = "PoE Power Cycling",
             Title = Title("PoE Power Cycling", ev.Link),
-            Body = $"{ev.Link.Downstream.DeviceName} rebooted {cycles} {(cycles == 1 ? "time" : "times")}, each time along with a link drop"
-                + (zeroDraw ? ", and its PoE draw dropped to 0 W." : ".") + " Check the switch's PoE budget, the injector if there is one, and the cable.",
+            Body = $"{ev.Link.Downstream.DeviceName} lost power {cycles} {(cycles == 1 ? "time" : "times")}, each time with a link drop"
+                + (portPowers && zeroDraw ? ", and its PoE draw dropped to 0 W." : ".")
+                + (portPowers
+                    ? $" {ev.Link.Upstream.DeviceName} powers it from this port: check its PoE budget and the cable."
+                    : " This port doesn't power it: check its injector or power supply, and the cable."),
             Chips = ["PoE", ImpactChip(ev.Link)],
             Points = 25,
         };

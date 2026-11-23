@@ -61,8 +61,6 @@ public sealed class LinkEvidence
     public int? UsualSpeedMbps { get; init; }
     public List<MeshReading> Mesh { get; init; } = [];
     public List<MeshReading> MeshBaseline { get; init; } = [];
-    /// <summary>Reboots of the downstream device in the window.</summary>
-    public List<DateTime> DownstreamReboots { get; init; } = [];
     /// <summary>PoE draw readings on the upstream port.</summary>
     public List<(DateTime At, double Watts)> PoeDraw { get; init; } = [];
     /// <summary>Probe loss over the window to devices below the link (APs only; switches are poor targets).</summary>

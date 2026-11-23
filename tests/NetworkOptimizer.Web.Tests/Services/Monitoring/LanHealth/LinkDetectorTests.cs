@@ -49,7 +49,7 @@ public class LinkDetectorTests
         {
             Link = link, From = T0, To = T1,
             Upstream = s.Up, Downstream = s.Down, Hours = s.Hours, BaselineHours = s.Baseline, Speeds = s.Speeds,
-            UsualSpeedMbps = s.Usual, Mesh = s.Mesh, MeshBaseline = s.MeshBaseline, DownstreamReboots = s.Reboots,
+            UsualSpeedMbps = s.Usual, Mesh = s.Mesh, MeshBaseline = s.MeshBaseline,
             PoeDraw = s.Poe, ProbeLossPct = s.Loss, ParentProbeLossPct = s.ParentLoss,
             SfpRxPowerDbm = s.Rx, SfpRxPowerBestDbm = s.RxBest, SfpTemperatureC = s.Temp, SpeedTests = s.Tests,
         };
@@ -218,16 +218,31 @@ public class LinkDetectorTests
     // ---- PoE ----
 
     [Fact]
-    public void PoeCycling_RebootsWithDrops()
+    public void PoeCycling_CountsOnlyPowerLossReboots()
     {
-        var drops = new[] { Incident(IncidentKind.Drop, T0.AddHours(1)), Incident(IncidentKind.Drop, T0.AddHours(9)) };
-        LanHealthDetectors.PoeCycling(Ev(Fabric(), s => s.Reboots.AddRange([T0.AddHours(1).AddMinutes(1), T0.AddHours(9)])), drops)!
-            .Body.Should().StartWith("AP 1 rebooted 2 times, each time along with a link drop.");
-        LanHealthDetectors.PoeCycling(Ev(Fabric(), s => { s.Reboots.Add(T0.AddHours(1)); s.Poe.AddRange([(T0, 9.0), (T0.AddHours(1), 0.0)]); }), drops)!
-            .Body.Should().Contain("and its PoE draw dropped to 0 W.");
-        LanHealthDetectors.PoeCycling(Ev(Fabric(), s => s.Reboots.Add(T0.AddHours(1))), drops).Should().BeNull("one reboot with a drop is a reboot");
+        LinkIncident Reboot(int h, string cause) => new() { Start = T0.AddHours(h), End = T0.AddHours(h).AddSeconds(40), Kind = IncidentKind.Drop, Explained = ExplainReason.DeviceRebooted, ExplainedDetail = cause };
+        var powered = new PortConfig { PoeMode = "auto", PoePowerW = 9 };
+        var f = LanHealthDetectors.PoeCycling(Ev(Fabric(port: powered)), [Reboot(1, "PowerLoss"), Reboot(9, "PowerLoss")])!;
+        f.Body.Should().Be("AP 1 lost power 2 times, each time with a link drop. Switch A powers it from this port: check its PoE budget and the cable.");
+        LanHealthDetectors.PoeCycling(Ev(Fabric(port: powered)), [Reboot(1, "Watchdog"), Reboot(9, "CommandedReboot")]).Should().BeNull("a crash or a restart is not a power fault");
+        LanHealthDetectors.PoeCycling(Ev(Fabric(port: powered)), [Reboot(1, "PowerLoss")]).Should().BeNull("one power loss alone");
     }
 
+    [Fact]
+    public void PoeCycling_ZeroDrawOnASwitchPoweredPort()
+    {
+        var incidents = new[] { new LinkIncident { Start = T0.AddHours(1), End = T0.AddHours(1), Kind = IncidentKind.Drop, Explained = ExplainReason.DeviceRebooted, ExplainedDetail = "PowerLoss" } };
+        LanHealthDetectors.PoeCycling(Ev(Fabric(port: new PortConfig { PoeMode = "auto" }), s => s.Poe.AddRange([(T0, 9.0), (T0.AddHours(1), 0.0)])), incidents)!
+            .Body.Should().Contain("each time with a link drop, and its PoE draw dropped to 0 W.");
+    }
+
+    [Fact]
+    public void PoeCycling_OnAPortThatSuppliesNoPower_PointsAtTheInjector()
+    {
+        var incidents = Enumerable.Range(0, 2).Select(h => new LinkIncident { Start = T0.AddHours(h), End = T0.AddHours(h), Kind = IncidentKind.Drop, Explained = ExplainReason.DeviceRebooted, ExplainedDetail = "PowerLoss" }).ToList();
+        LanHealthDetectors.PoeCycling(Ev(Fabric(port: new PortConfig { PoeMode = "off" })), incidents)!
+            .Body.Should().EndWith("This port doesn't power it: check its injector or power supply, and the cable.");
+    }
     // ---- Speed-specific flapping ----
 
     [Fact]

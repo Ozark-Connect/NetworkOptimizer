@@ -17,7 +17,7 @@ namespace NetworkOptimizer.Web.Services.Monitoring.LanHealth;
 public sealed class LanHealthEngine
 {
     /// <summary>Bump when the roll-up changes; older rows are recomputed on the next backfill pass.</summary>
-    public const int Version = 12;
+    public const int Version = 13;
 
     internal static readonly TimeSpan RunEvery = TimeSpan.FromMinutes(15);
     internal static readonly TimeSpan Settle = TimeSpan.FromMinutes(5);
@@ -333,7 +333,9 @@ public sealed class LanHealthEngine
     {
         var windows = new List<ExplainWindow>();
         foreach (var r in reboots)
-            windows.Add(new ExplainWindow(r.BootedAt.AddMinutes(-3), r.BootedAt.AddMinutes(3), LanLinkBuilder.Mac(r.DeviceMac), ExplainReason.DeviceRebooted));
+            // The detail carries the reboot's cause (RebootCategory), so PoE Power Cycling counts only power losses.
+            windows.Add(new ExplainWindow(r.BootedAt.AddMinutes(-3), r.BootedAt.AddMinutes(3), LanLinkBuilder.Mac(r.DeviceMac), ExplainReason.DeviceRebooted,
+                string.IsNullOrEmpty(r.Category) ? null : r.Category));
 
         var pad = TimeSpan.FromMinutes(1);
         foreach (var g in events.Where(e => e.EventType == LanPortSnapshotRecorder.StateEventType).GroupBy(e => LanLinkBuilder.Mac(e.DeviceMac)))
