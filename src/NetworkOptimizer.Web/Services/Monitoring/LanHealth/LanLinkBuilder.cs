@@ -216,6 +216,8 @@ public static class LanLinkBuilder
         Anomalies = p.Anomalies,
         Media = p.Media,
         IsLagMember = p.AggregatedBy is > 0 || p.LagIdx is > 0,
+        LinkDebounce = p.LinkDebounceAuto == true ? "Auto" : p.LinkDebounceAuto == false ? (p.LinkDebounceMs is > 0 ? "Manual" : "Off") : null,
+        Eee = p.EeeEnabled,
         LagIdx = p.LagIdx,
     };
 

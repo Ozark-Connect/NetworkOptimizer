@@ -128,6 +128,10 @@ public static class LanHealthDetectors
         var lastChange = incidents.Where(i => i.Explained == ExplainReason.PortProfileChanged).OrderByDescending(i => i.Start).FirstOrDefault();
         if (lastChange != null && drops.Any(d => d.Start > lastChange.Start))
             parts.Add($"Still dropping after the {text.Time(lastChange.Start)} change.");
+        // Debounce delays a link-down report, so a switch that missed drops other sources saw is explained by it.
+        var debounce = ev.Link.UpstreamPort.LinkDebounce;
+        if (debounce is "Auto" or "Manual" && drops.Any(d => d.MissedBy.Contains(LinkSource.SwitchLinkDownCount)))
+            parts.Add($"Link Debounce is {debounce} on this port, so the switch's own drop count can miss short drops.");
 
         var chips = new List<string>();
         if (sameSpeed && seconds is <= 15) chips.Add("Short link drops");
@@ -160,7 +164,19 @@ public static class LanHealthDetectors
             Onset = onset,
             Status = LinkStatus.Flapping,
             NextSteps = steps,
+            EeeTest = ev.Link.UpstreamPort.Eee == true || ev.Link.DownstreamPort?.Eee == true,
+            IdleDrops = MostlyIdle(ev, drops),
         };
+    }
+
+    /// <summary>Whether most drops came in hours the link was idle (under 1 Mbps both ways): EEE's wake from low power.</summary>
+    internal static bool MostlyIdle(LinkEvidence ev, IReadOnlyList<LinkIncident> drops)
+    {
+        if (drops.Count == 0) return false;
+        var hours = ev.Hours.ToDictionary(h => new DateTime(h.Hour.Year, h.Hour.Month, h.Hour.Day, h.Hour.Hour, 0, 0, h.Hour.Kind));
+        var idle = drops.Count(d => hours.TryGetValue(new DateTime(d.Start.Year, d.Start.Month, d.Start.Day, d.Start.Hour, 0, 0, d.Start.Kind), out var h)
+            && (h.MeanInBps ?? 0) < 1_000_000 && (h.MeanOutBps ?? 0) < 1_000_000);
+        return idle * 2 > drops.Count;
     }
 
     /// <summary>lanh-39: swap the upstream port with a neighbor to tell the port from the device.</summary>

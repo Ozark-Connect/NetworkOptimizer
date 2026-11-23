@@ -324,4 +324,25 @@ public class LinkDetectorTests
         LanHealthScorer.UsageProfile(Enumerable.Range(0, 10).Select(H), utc).Should().BeNull("under a day of hours");
         LanHealthScorer.UsageWeight(null, T0.AddHours(3), utc).Should().Be(1.0);
     }
+
+    [Fact]
+    public void LinkDrops_NameDebounceWhenTheSwitchMissedDrops_AndFlagTheEeeTest()
+    {
+        LinkIncident Drop(int h, bool switchMissed)
+        {
+            var i = new LinkIncident { Start = T0.AddHours(h), End = T0.AddHours(h).AddSeconds(3), Kind = IncidentKind.Drop };
+            i.SeenBy.Add(LinkSource.ApKernelLog);
+            if (switchMissed) i.MissedBy.Add(LinkSource.SwitchLinkDownCount);
+            return i;
+        }
+        var port = new PortConfig { LinkDebounce = "Auto", Eee = true };
+        var ev = Ev(Fabric(port: port), s => s.Hours.AddRange(Enumerable.Range(0, 6).Select(i => Hour(i, meanIn: i < 4 ? 50_000 : 400e6))));
+        var f = LanHealthDetectors.LinkDrops(ev, [Drop(1, true), Drop(2, true), Drop(3, false), Drop(5, false)], FindingText.Utc)!;
+        f.Body.Should().Contain("Link Debounce is Auto on this port, so the switch's own drop count can miss short drops.");
+        f.EeeTest.Should().BeTrue();
+        f.IdleDrops.Should().BeTrue("three of four drops came in idle hours");
+        var quiet = LanHealthDetectors.LinkDrops(Ev(Fabric(port: new PortConfig { LinkDebounce = "Off" })), [Drop(1, true), Drop(2, true), Drop(3, true)], FindingText.Utc)!;
+        quiet.Body.Should().NotContain("Link Debounce");
+        quiet.EeeTest.Should().BeFalse();
+    }
 }

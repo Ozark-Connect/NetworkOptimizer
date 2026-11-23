@@ -1035,6 +1035,21 @@ public class SwitchPort
     [JsonConverter(typeof(FlexibleNullableBoolConverter))]
     public bool? StpPortMode { get; set; }
 
+    /// <summary>Link Debounce set to Auto (UniFi Network's default).</summary>
+    [JsonPropertyName("link_debounce_auto")]
+    [JsonConverter(typeof(FlexibleNullableBoolConverter))]
+    public bool? LinkDebounceAuto { get; set; }
+
+    /// <summary>Link Debounce in ms when set to Manual; 0 with Auto off is Off.</summary>
+    [JsonPropertyName("link_debounce")]
+    [JsonConverter(typeof(FlexibleIntConverter))]
+    public int? LinkDebounceMs { get; set; }
+
+    /// <summary>Energy Efficient Ethernet (EEE) on the port.</summary>
+    [JsonPropertyName("eee_enabled")]
+    [JsonConverter(typeof(FlexibleNullableBoolConverter))]
+    public bool? EeeEnabled { get; set; }
+
     /// <summary>The device last seen on the port, with when the port last linked to it.</summary>
     [JsonPropertyName("last_connection")]
     [JsonConverter(typeof(FlexibleObjectConverter<PortLastConnection>))]

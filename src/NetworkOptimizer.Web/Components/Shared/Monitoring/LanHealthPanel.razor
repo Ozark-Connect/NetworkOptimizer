@@ -645,7 +645,8 @@ else
         var swapPort = l.Findings.Any(f => f.Detector == Detectors.LinkDrops && f.NextSteps.Count > 0)
             && link.Kind == LinkKind.FabricWired && link.Upstream.PortIdx is int ? link.Upstream.PortIdx : null;
         var change = l.Incidents.Where(i => i.Explained == ExplainReason.PortProfileChanged && !string.IsNullOrEmpty(i.ExplainedDetail)).OrderByDescending(i => i.Start).FirstOrDefault();
-        @if (swapPort != null || change != null)
+        var eee = l.Findings.FirstOrDefault(f => f.Detector == Detectors.LinkDrops && f.EeeTest);
+        @if (swapPort != null || change != null || eee != null)
         {
             <div class="card">
                 <div class="card-header"><h2 class="card-title">Next Steps</h2></div>
@@ -661,6 +662,14 @@ else
                                 <li>Drops stay on Port @sp: the @(link.Upstream.IsGateway ? "gateway" : "switch") port.</li>
                                 <li>Drops follow @link.Downstream.DeviceName: the @(link.Downstream.IsAccessPoint ? "AP" : link.Downstream.IsSwitch ? "switch" : "device") or its cable.</li>
                             </ul>
+                        </div>
+                    }
+                    @if (eee != null)
+                    {
+                        <div class="lan-health-step">
+                            <div class="detail-label">EEE test</div>
+                            <div class="lan-health-step-action"><strong>Energy Efficient Ethernet (EEE)</strong> is on for this port. Turn it off and see if the drops stop.</div>
+                            @if (eee.IdleDrops) {<div class="lan-health-sub">Most of the drops came while the link was idle.</div>}
                         </div>
                     }
                     @if (change != null)

@@ -218,6 +218,10 @@ public sealed class PortConfig
     public int? Anomalies { get; init; }
     public string? Media { get; init; }
     public bool IsLagMember { get; init; }
+    /// <summary>Link Debounce as UniFi Network shows it: "Off", "Auto", or "Manual"; null when the port does not report it.</summary>
+    public string? LinkDebounce { get; init; }
+    /// <summary>Energy Efficient Ethernet (EEE) on the port.</summary>
+    public bool? Eee { get; init; }
     public int? LagIdx { get; init; }
 }
 
@@ -351,6 +355,9 @@ public sealed class LinkFinding
     public LinkStatus? Status { get; init; }
     /// <summary>Next steps to show on the link page.</summary>
     public List<string> NextSteps { get; init; } = [];
+    /// <summary>Link drops with EEE on at either end: test with it off. <see cref="IdleDrops"/>: most drops came while the link was idle.</summary>
+    public bool EeeTest { get; init; }
+    public bool IdleDrops { get; init; }
 }
 
 /// <summary>The Links table's status pill (lanh-21).</summary>
