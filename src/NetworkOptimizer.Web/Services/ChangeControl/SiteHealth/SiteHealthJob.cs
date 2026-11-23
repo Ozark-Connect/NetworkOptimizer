@@ -65,6 +65,12 @@ public sealed class SiteHealthJob
     /// <summary>Raised after a run rescores the provisional hours, so open health lines can redraw.</summary>
     public event Action? Scored;
 
+    /// <summary>
+    /// LAN Health's own impairment per hour, which replaces the Fabric loss and port error inputs for
+    /// every hour LAN Health has rolled up. Hours before LAN Health keep the inputs they were scored with.
+    /// </summary>
+    public Func<DateTime, DateTime, CancellationToken, Task<IReadOnlyDictionary<DateTime, (double Impairment, string? Worst)>>>? LanHours { get; set; }
+
     /// <summary>Stored hours plus any provisional hour not stored yet, ordered by hour.</summary>
     public static List<SiteHealthHour> WithProvisional(IEnumerable<SiteHealthHour> stored, IReadOnlyList<SiteHealthHour> provisional)
     {
@@ -153,6 +159,12 @@ public sealed class SiteHealthJob
             ? influx.QueryDeviceCpuAsync(gatewayMac, from, to, fine, ct)
             : Task.FromResult<IReadOnlyList<(DateTime Time, double Value)>>([]);
         await Task.WhenAll(lossTask, satisfactionTask, wirelessTask, wiredTask, fabricTask, portsTask, ratesTask, cpuTask);
+        IReadOnlyDictionary<DateTime, (double Impairment, string? Worst)> lanHours = new Dictionary<DateTime, (double, string?)>();
+        if (LanHours != null)
+        {
+            try { lanHours = await LanHours(from, to, ct); }
+            catch (Exception ex) when (ex is not OperationCanceledException) { _logger.LogDebug(ex, "Site Health: LAN Health hours unavailable for {Site}", _slug); }
+        }
 
         // Access latency is ISP Health's access floor over the pool's access hops: the lowest RTT at
         // each window, the lowest-median hop where fewer than two report.
@@ -201,6 +213,8 @@ public sealed class SiteHealthJob
             var inputs = BuildInputs(hour, end, lossPool, firstHopFine, load, windowLoad, satisfactionTask.Result, wirelessTask.Result,
                 wiredTask.Result, fabricTask.Result, portsTask.Result, cpu, alerts, rollout, fabricDevices, topology, gatewayMacs, primaryKey,
                 Baseline(history.Concat(result), hour), gatewaySeries, gatewayBucket, isp.Options);
+            if (lanHours.TryGetValue(hour, out var lan))
+                inputs = inputs.WithLanHealth(lan.Impairment, lan.Worst);
             result.Add(SiteHealthScorer.Score(inputs, profile, DateTime.UtcNow));
         }
         return result;

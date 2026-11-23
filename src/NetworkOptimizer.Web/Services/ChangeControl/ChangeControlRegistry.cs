@@ -284,10 +284,15 @@ public sealed class ChangeControlRegistry : BackgroundService, ISiteScopedRegist
             _sp.GetRequiredService<ILoggerFactory>().CreateLogger($"SiteHealth[{slug}]"));
         _health[slug] = health;
         health.Scored += () => HealthScored?.Invoke(slug);
+        var lanHealth = _sp.GetService<Monitoring.LanHealth.LanHealthRegistry>()?.GetFor(slug);
+        if (lanHealth != null)
+            health.LanHours = (from, to, ct) => Monitoring.LanHealth.LanHealthSiteHours.ReadAsync(lanHealth, from, to, ct);
         engine.OnTick = async ct =>
         {
             await coordinator.TickAsync(ct);
             await console.TickAsync(ct);
+            // Before Site Health, so the hour it scores already has its LAN row.
+            if (lanHealth != null) await lanHealth.TickAsync(ct);
             await health.TickAsync(ct);
         };
         return engine;

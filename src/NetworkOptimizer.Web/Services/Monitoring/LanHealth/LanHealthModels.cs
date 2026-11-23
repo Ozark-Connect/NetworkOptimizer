@@ -100,6 +100,8 @@ public enum ExplainReason
     DeviceRebooted,
     FirmwareRolloutWave,
     DeviceAsleep,
+    /// <summary>The device was provisioning or adopting (a state window).</summary>
+    DeviceProvisioning,
 }
 
 /// <summary>A span that explains link events on the devices it covers.</summary>

@@ -41,18 +41,22 @@ public class RolloutHealthGate : IRolloutHealthGate
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly ILogger<RolloutHealthGate> _logger;
     private readonly string _siteSlug;
+    private readonly Monitoring.LanHealth.LanHealthRegistry? _lanHealth;
 
     /// <param name="scopeFactory">DI scope factory.</param>
     /// <param name="logger">Logger.</param>
     /// <param name="siteSlug">Site to evaluate.</param>
+    /// <param name="lanHealth">LAN Health, whose out-of-character fabric links also hold a start.</param>
     public RolloutHealthGate(
         IServiceScopeFactory scopeFactory,
         ILogger<RolloutHealthGate> logger,
-        string siteSlug = SiteManagementService.DefaultSiteSlug)
+        string siteSlug = SiteManagementService.DefaultSiteSlug,
+        Monitoring.LanHealth.LanHealthRegistry? lanHealth = null)
     {
         _scopeFactory = scopeFactory;
         _logger = logger;
         _siteSlug = string.IsNullOrEmpty(siteSlug) ? SiteManagementService.DefaultSiteSlug : siteSlug;
+        _lanHealth = lanHealth;
     }
 
     /// <inheritdoc />
@@ -66,7 +70,11 @@ public class RolloutHealthGate : IRolloutHealthGate
                 scope.ServiceProvider, FirmwareRolloutRepositoryAccessor.SystemActor);
 
             var alerts = scope.ServiceProvider.GetRequiredService<IAlertRepository>();
-            return Judge(await alerts.GetActiveAlertsAsync(cancellationToken), openedSince);
+            var verdict = Judge(await alerts.GetActiveAlertsAsync(cancellationToken), openedSince);
+            if (!verdict.Healthy || _lanHealth == null) return verdict;
+            // One more input to the same gate: a fabric link far below its own usual.
+            var links = await _lanHealth.GetFor(_siteSlug).GetOutOfCharacterFabricLinksAsync(cancellationToken);
+            return JudgeLan(links.Select(l => (l.Link.Name, l.Score)).ToList());
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -75,6 +83,20 @@ public class RolloutHealthGate : IRolloutHealthGate
             _logger.LogWarning(ex, "Could not read active alerts for the rollout health gate on site {Site}", _siteSlug);
             return RolloutHealthVerdict.Ok();
         }
+    }
+
+    /// <summary>
+    /// The verdict over LAN Health's out-of-character fabric links: blocked by any, worst first in
+    /// the reason. Muted links count; excluded access ports never reach here.
+    /// </summary>
+    /// <param name="unhealthy">Fabric links well below their own usual score.</param>
+    public static RolloutHealthVerdict JudgeLan(IReadOnlyList<(string Name, double Score)> unhealthy)
+    {
+        if (unhealthy.Count == 0) return RolloutHealthVerdict.Ok();
+        var worst = unhealthy.OrderBy(l => l.Score).First();
+        return RolloutHealthVerdict.Blocked(unhealthy.Count == 1
+            ? $"LAN Health shows {worst.Name} at {worst.Score:0}, well below its usual"
+            : $"LAN Health shows {unhealthy.Count} fabric links well below their usual (including {worst.Name} at {worst.Score:0})");
     }
 
     /// <summary>
