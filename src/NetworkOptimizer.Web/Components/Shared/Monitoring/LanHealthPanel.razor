@@ -371,7 +371,6 @@ else
         var link = l.Link;
         var drops = l.Incidents.Where(i => i.Kind is IncidentKind.Drop or IncidentKind.Relink && !i.IsExplained).ToList();
         var secs = drops.Select(i => i.DownSeconds).OfType<double>().ToList();
-        var signature = l.Findings.FirstOrDefault(f => f.Detector == Detectors.LinkDrops)?.Chips.FirstOrDefault(c => !c.StartsWith("Fabric") && c != "Access");
         <div class="lan-health-link-head">
             <div>
                 <h2 class="lan-health-link-title">@link.Name</h2>
@@ -406,11 +405,13 @@ else
                     <div class="stat-label">Last Issue</div>
                 </div>
             }
-            <div class="monitoring-stat-card">
-                <div class="stat-value lan-health-tile-text">@(signature ?? "--")</div>
-                <div class="stat-label">Signature</div>
-                @if (signature != null && secs.Count > 0) {<div class="lan-health-sub">same speed back, about @Math.Round(ChangeControlMedian(secs)) s</div>}
-            </div>
+            @if (secs.Count > 0)
+            {
+                <div class="monitoring-stat-card">
+                    <div class="stat-value">@($"{Math.Max(1, Math.Round(secs.Average())):0} s")</div>
+                    <div class="stat-label">Avg. Drop Duration</div>
+                </div>
+            }
         </div>
 
         @if (link.Kind != LinkKind.FabricMesh && link.Kind != LinkKind.FabricMeshMlo)
@@ -432,7 +433,8 @@ else
                     </div>
                     @if (Asymmetry(l) is { } a)
                     {
-                        <p class="lan-health-footer">Errors only on the @a.End's receive side: the @a.Other-to-@a.End direction is the one damaged.</p>
+                        @* Only where the errors were counted: a CRC at one end fits the cable, that port, or the far transmitter alike. *@
+                        <p class="lan-health-footer">Receive errors only at @a.End: @($"{a.Count:0}") there, 0 at @a.Other.</p>
                     }
                 </div>
             </div>
@@ -556,10 +558,10 @@ else
         return $"None ({end.DeviceName} keeps no count)";
     }
 
-    private static (string End, string Other)? Asymmetry(LinkHealth l)
+    private static (string End, string Other, double Count)? Asymmetry(LinkHealth l)
     {
-        if (l.ErrorsDownstreamRx > 0 && l.ErrorsUpstreamRx <= 0) return (l.Link.Downstream.DeviceName, l.Link.Upstream.DeviceName);
-        if (l.ErrorsUpstreamRx > 0 && l.ErrorsDownstreamRx <= 0 && l.Link.Downstream.IsUniFi) return (l.Link.Upstream.DeviceName, l.Link.Downstream.DeviceName);
+        if (l.ErrorsDownstreamRx > 0 && l.ErrorsUpstreamRx <= 0) return (l.Link.Downstream.DeviceName, l.Link.Upstream.DeviceName, l.ErrorsDownstreamRx);
+        if (l.ErrorsUpstreamRx > 0 && l.ErrorsDownstreamRx <= 0 && l.Link.Downstream.IsUniFi) return (l.Link.Upstream.DeviceName, l.Link.Downstream.DeviceName, l.ErrorsUpstreamRx);
         return null;
     }
 

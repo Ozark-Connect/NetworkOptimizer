@@ -206,7 +206,7 @@ public static class LanHealthDetectors
         // lanh-31 carries the asymmetry sentence.
         var body = $"{errors:0} receive errors in {text.Range} on a link that never dropped"
             + (perMillion is double pm ? $" ({pm:0.###} per million packets)" : "") + "."
-            + (asym is { } a ? $" Errors only on the {a.End}'s receive side: the {a.Other}-to-{a.End} direction is the one damaged." : "")
+            + (asym is { } a ? $" Receive errors only at {a.End}, none at {a.Other}." : "")
             + " A steady error rate is a marginal channel: cable, termination, keystone, or length.";
         return new LinkFinding
         {
