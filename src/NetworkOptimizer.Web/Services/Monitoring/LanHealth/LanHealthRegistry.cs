@@ -46,7 +46,7 @@ public sealed class LanHealthRegistry : ISiteScopedRegistry
         // the main site, and the gate's open-alert seed (read from this site) never sees them after a restart.
         var bus = _sp.GetService<NetworkOptimizer.Alerts.Events.IAlertEventBus>();
         var alerts = new LanHealthAlertEvaluator(bus == null ? null : new SiteAlertEventBus(bus, slug),
-            loggers.CreateLogger($"LanHealthAlerts[{slug}]"), slug, _sp.GetService<IServiceScopeFactory>());
+            loggers.CreateLogger($"LanHealthAlerts[{slug}]"), slug, _sp.GetService<IServiceScopeFactory>(), _sp.GetService<LanLinkFaults>());
         var suppression = _sp.GetService<Firmware.RolloutSuppressionRegistry>();
         engine.Refreshed += report =>
         {

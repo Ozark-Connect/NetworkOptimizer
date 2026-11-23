@@ -869,6 +869,7 @@ builder.Services.AddMutatingService<ISfpModulePollService, SfpModulePollService>
 // terms as monitoring collection (default always runs; non-default sites start/stop on site
 // enable/disable), and its reconcile tick also starts plans whose scheduled time has come.
 builder.Services.AddSingleton<NetworkOptimizer.Web.Services.Firmware.RolloutSuppressionRegistry>();
+builder.Services.AddSingleton<NetworkOptimizer.Web.Services.Monitoring.LanHealth.LanLinkFaults>();
 builder.Services.AddSiteScopedRegistry<NetworkOptimizer.Web.Services.Firmware.FirmwareRolloutRegistry>();
 builder.Services.AddHostedService(sp =>
     sp.GetRequiredService<NetworkOptimizer.Web.Services.Firmware.FirmwareRolloutRegistry>());

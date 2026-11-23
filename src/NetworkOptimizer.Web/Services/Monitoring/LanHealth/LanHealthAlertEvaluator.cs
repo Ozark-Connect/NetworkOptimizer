@@ -54,8 +54,11 @@ public sealed class LanHealthAlertEvaluator
     private readonly OpenAlertSeed _seed;
     private bool _seeded;
 
-    public LanHealthAlertEvaluator(IAlertEventBus? bus, ILogger logger, string slug, IServiceScopeFactory? scopes)
+    private readonly LanLinkFaults? _faults;
+
+    public LanHealthAlertEvaluator(IAlertEventBus? bus, ILogger logger, string slug, IServiceScopeFactory? scopes, LanLinkFaults? faults = null)
     {
+        _faults = faults;
         _bus = bus;
         _logger = logger;
         _slug = slug;
@@ -95,6 +98,9 @@ public sealed class LanHealthAlertEvaluator
                 var t = gate.Observe(raise, clear, now, Sustain);
                 if (t == GateTransition.Opened && finding != null) await PublishAsync(type, link, finding, ct);
                 else if (t == GateTransition.Closed) await RecoverAsync(type, link, ct);
+                // A flapping or erroring link explains loss to the device behind it: its target's loss alert stays quiet.
+                if (type is Flapping or Errors && t is GateTransition.Opened or GateTransition.Closed)
+                    _faults?.Set(_slug, link.Link.Downstream.DeviceMac, t == GateTransition.Opened);
             }
         }
     }

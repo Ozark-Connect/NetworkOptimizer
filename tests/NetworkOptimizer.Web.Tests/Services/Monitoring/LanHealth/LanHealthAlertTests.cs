@@ -162,4 +162,19 @@ public class LanHealthAlertTests
         LanHealthEngine.StateWindows([State(0, "Provisioning"), State(1, "Offline")], T0.AddHours(1)).Single().End
             .Should().Be(T0.AddMinutes(2), "going offline ends the provisioning stretch");
     }
+
+    [Fact]
+    public async Task AnOpenFlappingAlert_MarksTheDeviceBehindIt_UntilItRecovers()
+    {
+        var faults = new LanLinkFaults();
+        var e = new LanHealthAlertEvaluator(new CapturingBus(), NullLogger.Instance, "default", null, faults);
+        await e.EvaluateAsync(Report(Link("l1", classes: "Link Flapping")), None, T0);
+        faults.Has("default", "aa:bb:cc:00:00:03").Should().BeFalse("not sustained yet");
+        await e.EvaluateAsync(Report(Link("l1", classes: "Link Flapping")), None, T0.AddMinutes(6));
+        faults.Has("default", "AA:BB:CC:00:00:03").Should().BeTrue();
+        faults.Has("other-site", "aa:bb:cc:00:00:03").Should().BeFalse();
+        await e.EvaluateAsync(Report(Link("l1")), None, T0.AddMinutes(10));
+        await e.EvaluateAsync(Report(Link("l1")), None, T0.AddMinutes(16));
+        faults.Has("default", "aa:bb:cc:00:00:03").Should().BeFalse("recovered");
+    }
 }
