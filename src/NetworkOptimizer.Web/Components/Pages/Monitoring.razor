@@ -477,7 +477,7 @@
     @* ──────────────── Tab: LAN Health ──────────────── *@
     @if (_activeTab == "lan-health" && _monitoringReady)
     {
-        <LanHealthPanel LinkId="@LinkParam" SiteName="@SiteCtx.Slug" />
+        <LanHealthPanel LinkId="@LinkParam" SiteName="@_siteName" />
     }
 
     @* ──────────────── Tab: Network Performance ──────────────── *@
@@ -2965,6 +2965,9 @@
     /// Loads this site's agent so the Collection status can report it. Best-effort: a registry that
     /// will not answer leaves the agent line off rather than taking the Setup tab down with it.
     /// </summary>
+    // The site's display name, for LAN Health's site line; never the slug.
+    private string _siteName = "";
+
     private async Task LoadSiteAgentAsync()
     {
         try
@@ -2972,6 +2975,7 @@
             var site = (await SiteManagement.GetSitesAsync())
                 .FirstOrDefault(x => string.Equals(x.Slug, SiteCtx.Slug, StringComparison.OrdinalIgnoreCase));
             if (site == null) return;
+            _siteName = site.Name;
             _siteAgent = (await AgentEnrollment.GetAgentsForSiteAsync(site.Id))
                 .Where(a => a.Enabled)
                 .OrderByDescending(a => a.LastSeenAt)

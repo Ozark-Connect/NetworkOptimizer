@@ -23,7 +23,10 @@ else
 {
     var r = _report;
     <div class="lan-health-toolbar">
-        <span class="lan-health-site-line">@SiteName · @Pluralize(r.FabricLinks, "fabric link") · @Pluralize(r.AccessPorts, "access port")</span>
+        @* Counts only from a connected console: a disconnected one reads as zero links. *@
+        <span class="lan-health-site-line">@string.Join(" · ", new[] { SiteName,
+            ConnectionService.IsConnected ? Pluralize(r.FabricLinks, "fabric link") : "",
+            ConnectionService.IsConnected ? Pluralize(r.AccessPorts, "access port") : "" }.Where(s => !string.IsNullOrEmpty(s)))</span>
         @RangeSelector
     </div>
 
