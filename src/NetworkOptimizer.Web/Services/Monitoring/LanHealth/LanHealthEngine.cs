@@ -17,7 +17,7 @@ namespace NetworkOptimizer.Web.Services.Monitoring.LanHealth;
 public sealed class LanHealthEngine
 {
     /// <summary>Bump when the roll-up changes; older rows are recomputed on the next backfill pass.</summary>
-    public const int Version = 13;
+    public const int Version = 14;
 
     internal static readonly TimeSpan RunEvery = TimeSpan.FromMinutes(15);
     internal static readonly TimeSpan Settle = TimeSpan.FromMinutes(5);
@@ -337,22 +337,7 @@ public sealed class LanHealthEngine
             windows.Add(new ExplainWindow(r.BootedAt.AddMinutes(-3), r.BootedAt.AddMinutes(3), LanLinkBuilder.Mac(r.DeviceMac), ExplainReason.DeviceRebooted,
                 string.IsNullOrEmpty(r.Category) ? null : r.Category));
 
-        var pad = TimeSpan.FromMinutes(1);
-        foreach (var g in events.Where(e => e.EventType == LanPortSnapshotRecorder.StateEventType).GroupBy(e => LanLinkBuilder.Mac(e.DeviceMac)))
-        {
-            DateTime? start = null;
-            string? state = null;
-            foreach (var e in g.OrderBy(e => e.Time))
-            {
-                if (e.NewValue is "Online")
-                {
-                    if (start is DateTime s) windows.Add(new ExplainWindow(s - pad, e.Time + pad, g.Key, Reason(state), state));
-                    start = null;
-                }
-                else { start ??= e.Time; state = e.NewValue; }
-            }
-            if (start is DateTime open) windows.Add(new ExplainWindow(open - pad, to + pad, g.Key, Reason(state), state));
-        }
+        windows.AddRange(StateWindows(events, to));
         // The AP's own provision re-up explains the relink beside it.
         foreach (var e in events.Where(e => e.EventType == ApAgentLinkEventSink.EventTypes.UplinkReconfigure))
             windows.Add(new ExplainWindow(e.Time.AddSeconds(-30), e.Time.AddSeconds(30), LanLinkBuilder.Mac(e.DeviceMac), ExplainReason.ManualLinkReset, "provision"));
@@ -445,11 +430,33 @@ public sealed class LanHealthEngine
         }
         return windows;
 
-        static ExplainReason Reason(string? state) => state switch
+    }
+
+    /// <summary>Device states that explain a relink: the console is changing the device. Offline and error states never do.</summary>
+    internal static readonly HashSet<string> ExplainingStates = ["Pending", "Upgrading", "Provisioning", "Adopting", "Deleting"];
+
+    /// <summary>
+    /// A window per stretch a device spent in an <see cref="ExplainingStates"/> state, from the recorder's state
+    /// events. Any other state (Online, Offline, an error) closes the stretch: a device knocked offline by a
+    /// flapping uplink must not have those drops explained away.
+    /// </summary>
+    internal static IEnumerable<ExplainWindow> StateWindows(IEnumerable<MonitoringInfluxClient.LanEventPoint> events, DateTime to)
+    {
+        var pad = TimeSpan.FromMinutes(1);
+        foreach (var g in events.Where(e => e.EventType == LanPortSnapshotRecorder.StateEventType).GroupBy(e => LanLinkBuilder.Mac(e.DeviceMac)))
         {
-            "Upgrading" => ExplainReason.DeviceUpgrading,
-            _ => ExplainReason.DeviceProvisioning,
-        };
+            DateTime? start = null;
+            string? state = null;
+            foreach (var e in g.OrderBy(e => e.Time))
+            {
+                if (e.NewValue is { } v && ExplainingStates.Contains(v)) { start ??= e.Time; state = v; continue; }
+                if (start is DateTime s) yield return new ExplainWindow(s - pad, e.Time + pad, g.Key, Reason(state), state);
+                start = null;
+            }
+            if (start is DateTime open) yield return new ExplainWindow(open - pad, to + pad, g.Key, Reason(state), state);
+        }
+
+        static ExplainReason Reason(string? state) => state == "Upgrading" ? ExplainReason.DeviceUpgrading : ExplainReason.DeviceProvisioning;
     }
 
     private readonly HashSet<(string, int, DateTime)> _anomaliesSeen = [];

@@ -130,4 +130,19 @@ public class LanHealthAlertTests
         LanHealthAlertEvaluator.Pairs.Should().HaveCount(5).And.ContainKeys(
             LanHealthAlertEvaluator.Flapping, LanHealthAlertEvaluator.SpeedDegraded, LanHealthAlertEvaluator.Errors,
             LanHealthAlertEvaluator.Storm, LanHealthAlertEvaluator.Utilization);
+
+    [Fact]
+    public void DeviceStates_OnlyInBetweenStatesExplainDrops()
+    {
+        NetworkOptimizer.Storage.Services.MonitoringInfluxClient.LanEventPoint State(int min, string state) =>
+            new(T0.AddMinutes(min), "aa:bb:cc:00:00:03", LanPortSnapshotRecorder.StateEventType, null, null, state, null);
+        var w = LanHealthEngine.StateWindows([State(0, "Provisioning"), State(2, "Online"), State(10, "Offline"), State(20, "Online"), State(30, "Upgrading")], T0.AddHours(1)).ToList();
+        w.Should().HaveCount(2, "Offline opens no window");
+        w[0].Reason.Should().Be(ExplainReason.DeviceProvisioning);
+        w[0].End.Should().Be(T0.AddMinutes(3));
+        w[1].Reason.Should().Be(ExplainReason.DeviceUpgrading);
+        w[1].End.Should().Be(T0.AddHours(1).AddMinutes(1), "still upgrading at the hour's end");
+        LanHealthEngine.StateWindows([State(0, "Provisioning"), State(1, "Offline")], T0.AddHours(1)).Single().End
+            .Should().Be(T0.AddMinutes(2), "going offline ends the provisioning stretch");
+    }
 }
