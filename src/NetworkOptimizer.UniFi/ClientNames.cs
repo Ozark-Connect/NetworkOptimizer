@@ -40,7 +40,7 @@ public static class ClientNames
 
     /// <summary><see cref="Choose"/> for a stat/sta or rest/user client, with UniFi's display name when the caller has it.</summary>
     public static string? For(Models.UniFiClientResponse client, string? displayName = null, bool hostnameFallback = true) =>
-        Choose(displayName, client.Name, client.UnifiDeviceInfoFromUcore?.Name, client.Hostname, client.IsUniFiDevice, hostnameFallback);
+        Choose(displayName ?? client.DisplayName, client.Name, client.UnifiDeviceInfoFromUcore?.Name, client.Hostname, client.IsUniFiDevice, hostnameFallback);
 
     /// <summary><see cref="Choose"/> for a v2 active or history client, which carries its own display name.</summary>
     public static string? For(Models.UniFiClientDetailResponse client, bool hostnameFallback = true) =>
