@@ -332,6 +332,14 @@ public class UniFiClientResponse
     public bool IsUniFiDevice => UniFiProductLine != null;
 
     /// <summary>
+    /// The console's own name for the client (v2 active clients' display_name). stat/sta does not send it:
+    /// <see cref="UniFiApiClient.GetClientsAsync"/> attaches it.
+    /// </summary>
+    [JsonPropertyName("display_name")]
+    [JsonConverter(typeof(FlexibleScalarStringConverter))]
+    public string? DisplayName { get; set; }
+
+    /// <summary>
     /// A UniFi Protect device (camera, AI Key, SuperLink). UniFi Protect owns its name, so it is never
     /// renamed through UniFi Network. Some consoles mark it on the client, others only in the ucore block.
     /// </summary>

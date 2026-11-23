@@ -56,4 +56,12 @@ public class ClientNamesTests
     {
         ClientNames.Choose(null, "[Cam] Chicken Coop", null, "cam-dogs", isUniFiDevice: true).Should().Be("[Cam] Chicken Coop");
     }
-}
+
+    [Fact]
+    public void StaClient_UsesTheDisplayNameAttachedToIt()
+    {
+        // stat/sta has no display_name; GetClientsAsync attaches UniFi's auto name, which wins over the hostname.
+        var phone = new Models.UniFiClientResponse { Mac = "aa:bb:cc:dd:ee:03", Hostname = "iPhone", DisplayName = "iPhone fa:b1" };
+        ClientNames.For(phone).Should().Be("iPhone fa:b1");
+        ClientNames.For(phone, "Explicit").Should().Be("Explicit");
+    }}
