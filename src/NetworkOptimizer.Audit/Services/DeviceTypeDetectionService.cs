@@ -113,7 +113,7 @@ public class DeviceTypeDetectionService
         var clientResponse = new UniFiClientResponse
         {
             Mac = client.Mac ?? string.Empty,
-            Name = client.DisplayName ?? client.Name ?? string.Empty,
+            Name = UniFi.ClientNames.For(client, hostnameFallback: false) ?? string.Empty,
             Hostname = client.Hostname ?? string.Empty,
             Oui = client.Oui ?? string.Empty,
             DevCat = client.Fingerprint?.DevCat,
