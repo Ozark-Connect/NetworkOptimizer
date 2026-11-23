@@ -8,8 +8,7 @@
 @inject IJSRuntime JS
 @inject Microsoft.AspNetCore.Mvc.ViewFeatures.IFileVersionProvider FileVersionProvider
 @inject ILogger<LanHealthPanel> Logger
-@inject SiteContextService SiteContext
-@inject SiteTunnelRouting TunnelRouting
+@inject UniFiConnectionService ConnectionService
 
 <div class="lan-health">
 @if (_report == null)
@@ -175,15 +174,27 @@ else
             try { await InvokeAsync(async () => { await LoadAsync(); StateHasChanged(); }); }
             catch { /* the circuit is gone */ }
         }, null, TimeSpan.FromSeconds(60), TimeSpan.FromSeconds(60));
+        ConnectionService.OnConnectionChanged += OnConnectionChanged;
+    }
+
+    // Fires off the dispatcher. Reload on reconnect so a page opened while the console was down fills in.
+    private async void OnConnectionChanged()
+    {
+        try
+        {
+            await InvokeAsync(async () =>
+            {
+                if (ConnectionService.IsConnected) await LoadAsync();
+                StateHasChanged();
+            });
+        }
+        catch { /* the circuit is gone */ }
     }
 
     private async Task LoadAsync()
     {
         try
         {
-            _agentOffline = !SiteContext.IsDefault
-                && await TunnelRouting.IsViaAgentAsync(SiteContext.Slug)
-                && !TunnelRouting.IsAgentOnline(SiteContext.Slug);
             _report = await LanHealth.GetReportAsync(_hours, DisplayTime.Zone, DisplayTime.Format);
             _loadedLink = LinkId;
             _link = string.IsNullOrEmpty(LinkId) ? null : _report.Links.FirstOrDefault(l => l.Link.Id == LinkId);
@@ -323,6 +334,7 @@ else
 
     public async ValueTask DisposeAsync()
     {
+        ConnectionService.OnConnectionChanged -= OnConnectionChanged;
         _timer?.Dispose();
         if (_charts != null)
         {
@@ -339,8 +351,6 @@ else
 @code {
     private string _exclusionScope = "port";
     private string? _exclusionError;
-    // An agent site's links come from the console through its Agent: with the Agent down, a missing link is unknown, not gone.
-    private bool _agentOffline;
 
     private RenderFragment LinkPage => __builder =>
     {
@@ -348,9 +358,11 @@ else
         <a class="back-link" href="@LanHealthLinks.Tab()">&larr; LAN Health</a>
         @if (l == null)
         {
-            <div class="empty-state"><p>@(_agentOffline
-                ? "This site's LAN Health runs through its On-Site Agent, which isn't connected right now."
-                : "This link is no longer on the site.")</p></div>
+            @* With the console disconnected the link is unknown, not gone: Monitoring's ConsoleConnectionBanner says why. *@
+            @if (ConnectionService.IsConnected)
+            {
+                <div class="empty-state"><p>This link is no longer on the site.</p></div>
+            }
             return;
         }
         var link = l.Link;
