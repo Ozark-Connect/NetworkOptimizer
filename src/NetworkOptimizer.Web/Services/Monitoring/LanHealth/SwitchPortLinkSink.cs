@@ -56,18 +56,27 @@ public sealed class SwitchPortLinkSink
         foreach (var c in batch.Counters)
         {
             var at = DateTimeOffset.FromUnixTimeMilliseconds(c.TimestampUnixMs).UtcDateTime;
-            var fields = new List<KeyValuePair<string, object>>
-            {
-                new(InfluxFieldNames.ChipRxCrcErrors, c.RxCrcErrors),
-                new(InfluxFieldNames.ChipTxCrcErrors, c.TxCrcErrors),
-                new(InfluxFieldNames.ChipLateCollisions, c.LateCollisions),
-                new(InfluxFieldNames.ChipOutDiscards, c.OutDiscards),
-                new(InfluxFieldNames.ChipRxPauseFrames, c.RxPauseFrames),
-                new(InfluxFieldNames.LinkUp, c.Up),
-            };
-            if (c.SpeedMbps > 0) fields.Add(new(InfluxFieldNames.LinkSpeedMbps, (long)c.SpeedMbps));
-            _ = influx.WritePortSnapshotAsync(mac, c.IfName, PortIdFor(c.IfName), fields, at);
+            _ = influx.WritePortSnapshotAsync(mac, c.IfName, PortIdFor(c.IfName), CounterFields(c), at);
         }
         return true;
+    }
+
+    /// <summary>
+    /// One chip port's fields, all chip_*: the chip's port N is ethN only on some gateways, so the console's
+    /// link_speed_mbps / link_up under the same name would let another port's reading stand in for it.
+    /// </summary>
+    internal static List<KeyValuePair<string, object>> CounterFields(SwitchPortCounters c)
+    {
+        var fields = new List<KeyValuePair<string, object>>
+        {
+            new(InfluxFieldNames.ChipRxCrcErrors, c.RxCrcErrors),
+            new(InfluxFieldNames.ChipTxCrcErrors, c.TxCrcErrors),
+            new(InfluxFieldNames.ChipLateCollisions, c.LateCollisions),
+            new(InfluxFieldNames.ChipOutDiscards, c.OutDiscards),
+            new(InfluxFieldNames.ChipRxPauseFrames, c.RxPauseFrames),
+            new(InfluxFieldNames.ChipLinkUp, c.Up),
+        };
+        if (c.SpeedMbps > 0) fields.Add(new(InfluxFieldNames.ChipLinkSpeedMbps, (long)c.SpeedMbps));
+        return fields;
     }
 }

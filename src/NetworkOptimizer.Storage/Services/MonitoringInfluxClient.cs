@@ -2915,6 +2915,24 @@ from(bucket: {FluxLiteral.Quote(_bucket)})
     /// was recorded. Negotiated speed cannot read higher than the link really reached, so the
     /// maximum is what the port is capable of with its current partner.
     /// </summary>
+    internal static string MaxLinkSpeedFlux(string? _bucket, string deviceMac, string ifName, DateTime from, DateTime to) =>
+        $@"
+from(bucket: {FluxLiteral.Quote(_bucket)})
+  |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
+  |> filter(fn: (r) => r._measurement == ""interface_counters"")
+  |> filter(fn: (r) => r.device_mac == {FluxLiteral.Quote(NormalizeMac(deviceMac))})
+  |> filter(fn: (r) => r.if_name == {FluxLiteral.Quote(ifName)})
+  |> filter(fn: (r) => r._field == {FluxLiteral.Quote(InfluxFieldNames.LinkSpeedMbps)})
+{NotChipSeries}
+  |> max()
+";
+
+    /// <summary>
+    /// Flux that drops the gateway switch chip's series (port_id swchip:*). Before the chip had its own fields
+    /// the agent wrote its speed as link_speed_mbps under an ethN name that is another port on some gateways.
+    /// </summary>
+    internal const string NotChipSeries = "  |> filter(fn: (r) => not exists r.port_id or r.port_id !~ /^swchip:/)";
+
     public async Task<int?> QueryMaxLinkSpeedAsync(
         string deviceMac,
         string ifName,
@@ -2923,15 +2941,7 @@ from(bucket: {FluxLiteral.Quote(_bucket)})
         CancellationToken ct = default)
     {
         if (!IsConfigured) return null;
-        var flux = $@"
-from(bucket: {FluxLiteral.Quote(_bucket)})
-  |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
-  |> filter(fn: (r) => r._measurement == ""interface_counters"")
-  |> filter(fn: (r) => r.device_mac == {FluxLiteral.Quote(NormalizeMac(deviceMac))})
-  |> filter(fn: (r) => r.if_name == {FluxLiteral.Quote(ifName)})
-  |> filter(fn: (r) => r._field == {FluxLiteral.Quote(InfluxFieldNames.LinkSpeedMbps)})
-  |> max()
-";
+        var flux = MaxLinkSpeedFlux(_bucket, deviceMac, ifName, from, to);
         int? max = null;
         await foreach (var record in QueryFluxAsync(flux, ct))
         {
@@ -2939,6 +2949,18 @@ from(bucket: {FluxLiteral.Quote(_bucket)})
         }
         return max;
     }
+
+    internal static string LinkSpeedWindowsFlux(string? _bucket, string deviceMac, string ifName, DateTime from, DateTime to, TimeSpan window) =>
+        $@"
+from(bucket: {FluxLiteral.Quote(_bucket)})
+  |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
+  |> filter(fn: (r) => r._measurement == ""interface_counters"")
+  |> filter(fn: (r) => r.device_mac == {FluxLiteral.Quote(NormalizeMac(deviceMac))})
+  |> filter(fn: (r) => r.if_name == {FluxLiteral.Quote(ifName)})
+  |> filter(fn: (r) => r._field == {FluxLiteral.Quote(InfluxFieldNames.LinkSpeedMbps)})
+{NotChipSeries}
+  |> aggregateWindow(every: {ToFluxDuration(window)}, fn: min, createEmpty: false)
+";
 
     /// <summary>
     /// One port's console-reported link speed over a window, as the slowest speed in each
@@ -2954,15 +2976,7 @@ from(bucket: {FluxLiteral.Quote(_bucket)})
         CancellationToken ct = default)
     {
         if (!IsConfigured) return Array.Empty<(DateTime, int)>();
-        var flux = $@"
-from(bucket: {FluxLiteral.Quote(_bucket)})
-  |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
-  |> filter(fn: (r) => r._measurement == ""interface_counters"")
-  |> filter(fn: (r) => r.device_mac == {FluxLiteral.Quote(NormalizeMac(deviceMac))})
-  |> filter(fn: (r) => r.if_name == {FluxLiteral.Quote(ifName)})
-  |> filter(fn: (r) => r._field == {FluxLiteral.Quote(InfluxFieldNames.LinkSpeedMbps)})
-  |> aggregateWindow(every: {ToFluxDuration(window)}, fn: min, createEmpty: false)
-";
+        var flux = LinkSpeedWindowsFlux(_bucket, deviceMac, ifName, from, to, window);
         var results = new List<(DateTime Time, int MinMbps)>();
         await foreach (var record in QueryFluxAsync(flux, ct))
         {
@@ -2972,6 +2986,16 @@ from(bucket: {FluxLiteral.Quote(_bucket)})
         results.Sort((a, b) => a.Time.CompareTo(b.Time));
         return results;
     }
+
+    internal static string InterfaceRatesRawFlux(string? _bucket, string mac, DateTime from, DateTime to) =>
+        $@"
+from(bucket: {FluxLiteral.Quote(_bucket)})
+  |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
+  |> filter(fn: (r) => r._measurement == ""interface_counters"")
+  |> filter(fn: (r) => r.device_mac == {FluxLiteral.Quote(mac)})
+  |> filter(fn: (r) => r._field == ""rate_in_bps"" or r._field == ""rate_out_bps"" or r._field == ""speed_bps"" or r._field == {FluxLiteral.Quote(InfluxFieldNames.LinkSpeedMbps)})
+{NotChipSeries}
+";
 
     /// <summary>
     /// Raw interface rate query for a single device - no aggregateWindow, no pivot.
@@ -2987,13 +3011,7 @@ from(bucket: {FluxLiteral.Quote(_bucket)})
     {
         if (!IsConfigured) return Array.Empty<InterfaceRatePoint>();
         var mac = NormalizeMac(deviceMac);
-        var flux = $@"
-from(bucket: {FluxLiteral.Quote(_bucket)})
-  |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
-  |> filter(fn: (r) => r._measurement == ""interface_counters"")
-  |> filter(fn: (r) => r.device_mac == {FluxLiteral.Quote(mac)})
-  |> filter(fn: (r) => r._field == ""rate_in_bps"" or r._field == ""rate_out_bps"" or r._field == ""speed_bps"" or r._field == {FluxLiteral.Quote(InfluxFieldNames.LinkSpeedMbps)})
-";
+        var flux = InterfaceRatesRawFlux(_bucket, mac, from, to);
         var rateIn = new Dictionary<(string ifName, long ticks), double>();
         var rateOut = new Dictionary<(string ifName, long ticks), double>();
         var speeds = new Dictionary<(string ifName, long ticks), long>();

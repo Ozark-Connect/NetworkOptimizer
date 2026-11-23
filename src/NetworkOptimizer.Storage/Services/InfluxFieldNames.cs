@@ -87,6 +87,15 @@ public static class InfluxFieldNames
     /// <summary>Gateway switch chip transmit CRC errors (On-Site Agent, swconfig).</summary>
     public const string ChipTxCrcErrors = "chip_tx_crc_errors";
 
+    /// <summary>
+    /// Gateway switch chip link speed (On-Site Agent, swconfig). Its own field, never <see cref="LinkSpeedMbps"/>:
+    /// the chip's port N is ethN only on some gateways, so a chip speed under an ethN name can be another port's.
+    /// </summary>
+    public const string ChipLinkSpeedMbps = "chip_link_speed_mbps";
+
+    /// <summary>Gateway switch chip link state (On-Site Agent, swconfig); its own field for the same reason.</summary>
+    public const string ChipLinkUp = "chip_link_up";
+
     /// <summary>Gateway switch chip transmit discards on the port itself (On-Site Agent, swconfig).</summary>
     public const string ChipOutDiscards = "chip_out_discards";
 

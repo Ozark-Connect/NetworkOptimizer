@@ -13,6 +13,25 @@ namespace NetworkOptimizer.Web.Services.Monitoring.LanHealth;
 /// </summary>
 public static class LanHealthEvidenceBuilder
 {
+    private static bool IsChip(PortFieldStats r) => r.PortId.StartsWith("swchip:", StringComparison.Ordinal);
+
+    /// <summary>
+    /// The hour's slowest and fastest console link speed, from the upstream end or else the downstream one.
+    /// Chip rows never count: a chip speed under an ethN name can be another port's.
+    /// </summary>
+    internal static (double? Min, double? Max) ConsoleSpeedRange(EndSeries up, EndSeries down)
+    {
+        static (double? Min, double? Max) Of(EndSeries s)
+        {
+            var rows = s.Rows.Where(r => r.Field == InfluxFieldNames.LinkSpeedMbps && !IsChip(r)).ToList();
+            return (rows.Select(r => r.Min).OfType<double>().DefaultIfEmpty().Min() is var mn && rows.Any(r => r.Min != null) ? mn : null,
+                    rows.Select(r => r.Max).OfType<double>().DefaultIfEmpty().Max() is var mx && rows.Any(r => r.Max != null) ? mx : null);
+        }
+        var u = Of(up);
+        var d = Of(down);
+        return (u.Min ?? d.Min, u.Max ?? d.Max);
+    }
+
     /// <summary>An access port down at least this long in an hour is a client asleep or off, not a flap.</summary>
     internal static readonly TimeSpan AsleepAfter = TimeSpan.FromMinutes(2);
 
@@ -21,7 +40,7 @@ public static class LanHealthEvidenceBuilder
     [
         "errors_in", "errors_out", "discards_in", "discards_out", "ucast_pkts_in", "ucast_pkts_out",
         "bcast_pkts_in", "mcast_pkts_in", "rate_in_bps", "rate_out_bps", "oper_status",
-        InfluxFieldNames.LastChange, InfluxFieldNames.LinkSpeedMbps, InfluxFieldNames.LinkDownCount,
+        InfluxFieldNames.LastChange, InfluxFieldNames.LinkSpeedMbps, InfluxFieldNames.ChipLinkSpeedMbps, InfluxFieldNames.LinkDownCount,
         InfluxFieldNames.StpStateChangeCount, InfluxFieldNames.PortRxErrors, InfluxFieldNames.PortTxErrors,
         InfluxFieldNames.PortRxDropped, InfluxFieldNames.PortTxDropped, InfluxFieldNames.PortRxPackets,
         InfluxFieldNames.PortTxPackets, InfluxFieldNames.PortRxBroadcast, InfluxFieldNames.PortRxMulticast,
@@ -189,7 +208,8 @@ public static class LanHealthEvidenceBuilder
         if (apAgentHere && link.Kind == LinkKind.FabricWired) observers.Add(new(LinkSource.ApKernelLog, hour, CountsDrops: true, CountsErrors: false));
         // swconfig port N is ethN only where verified; a port whose chip speed disagrees with the port
         // table's is not this port, and its readings are dropped.
-        var chipSpeed = up.Rows.Where(r => r.PortId.StartsWith("swchip:", StringComparison.Ordinal) && r.Field == InfluxFieldNames.LinkSpeedMbps)
+        // chip_link_speed_mbps; link_speed_mbps on a swchip series is what the agent wrote before the chip had its own fields.
+        var chipSpeed = up.Rows.Where(r => IsChip(r) && (r.Field == InfluxFieldNames.ChipLinkSpeedMbps || r.Field == InfluxFieldNames.LinkSpeedMbps))
             .Select(r => r.Max).OfType<double>().DefaultIfEmpty(0).Max();
         var chipHere = up.Rows.Any(r => r.PortId.StartsWith("swchip:", StringComparison.Ordinal))
             && (chipSpeed <= 0 || link.SpeedMbps is not int ls || (int)chipSpeed == ls);
@@ -264,8 +284,7 @@ public static class LanHealthEvidenceBuilder
             events.Add(new LinkEvent(from, to, LinkEventType.DiscardBurst, LinkSource.SnmpCounters, LinkSide.Upstream, Count: (upTxDiscards ?? 0) + (downTxDiscards ?? 0)));
 
         // Speed: a change within the hour.
-        var speedMin = up.Min(InfluxFieldNames.LinkSpeedMbps) ?? down.Min(InfluxFieldNames.LinkSpeedMbps);
-        var speedMax = up.Max(InfluxFieldNames.LinkSpeedMbps) ?? down.Max(InfluxFieldNames.LinkSpeedMbps);
+        var (speedMin, speedMax) = ConsoleSpeedRange(up, down);
         if (speedMin is double smin && speedMax is double smax && smin > 0 && smin != smax)
             events.Add(new LinkEvent(from, to, LinkEventType.SpeedChange, LinkSource.PortTableState, LinkSide.Upstream, SpeedMbps: (int)smin));
 
