@@ -102,19 +102,15 @@ public class LanHealthInputsTests
     // ---- Port Insights ----
 
     [Fact]
-    public void PortInsights_ReadEitherShapeAndEitherClock()
+    public void PortInsights_ReadUniFisCurrentScoresPerPort()
     {
-        var arr = JsonDocument.Parse("""[{"device_mac":"AA:BB:CC:00:00:02","port_idx":5,"timestamp":1763900000,"anomaly":"link_flap"},{"mac":"x"}]""").RootElement;
-        var a = LanHealthPortInsights.Parse(arr).Single();
-        a.DeviceMac.Should().Be(Sw);
-        a.PortIdx.Should().Be(5);
-        a.At.Should().Be(DateTimeOffset.FromUnixTimeSeconds(1763900000).UtcDateTime);
-        a.Kind.Should().Be("link_flap");
-        var wrapped = JsonDocument.Parse("""{"data":[{"mac":"aa:bb:cc:00:00:02","port":3,"time":1763900000000}]}""").RootElement;
-        LanHealthPortInsights.Parse(wrapped).Single().At.Should().Be(DateTimeOffset.FromUnixTimeMilliseconds(1763900000000).UtcDateTime);
-        LanHealthPortInsights.Parse(JsonDocument.Parse("""{"meta":{}}""").RootElement).Should().BeEmpty();
+        // As a UniFi Network 11.1 console returned it, 2026-11-23.
+        var real = JsonDocument.Parse("""[{"mac":"1C:0B:8B:08:C5:A4","port_anomalies":[{"port_idx":9,"score":[{"anomaly_category":"CABLE_POWER","anomaly_score":70}],"unit_id":null}]}]""").RootElement;
+        var a = LanHealthPortInsights.Parse(real).Single();
+        a.Should().Be(new LanHealthPortInsights.Anomaly("1c:0b:8b:08:c5:a4", 9, "CABLE_POWER", 70));
+        LanHealthPortInsights.Parse(JsonDocument.Parse("[]").RootElement).Should().BeEmpty();
+        LanHealthPortInsights.Parse(JsonDocument.Parse("""{"data":[{"mac":"x","port_anomalies":"none"}]}""").RootElement).Should().BeEmpty();
     }
-
     // ---- Stored incidents ----
 
     [Fact]

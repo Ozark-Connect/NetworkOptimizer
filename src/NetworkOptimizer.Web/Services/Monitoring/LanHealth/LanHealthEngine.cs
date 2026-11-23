@@ -287,7 +287,7 @@ public sealed class LanHealthEngine
         // Wired clients by the port they sit on, named as the links name it ("Switch A Port 3").
         var portName = devices.Where(d => !string.IsNullOrEmpty(d.Mac)).GroupBy(d => LanLinkBuilder.Mac(d.Mac)).ToDictionary(g => g.Key, g => g.First().Name ?? g.Key);
         MacMoves.Observe(_topologyAt, clients.Where(c => c.IsWired && c.SwPort is > 0 && !string.IsNullOrEmpty(c.SwMac))
-            .Select(c => (c.Mac, NetworkOptimizer.UniFi.ClientNames.For(c), $"{portName.GetValueOrDefault(LanLinkBuilder.Mac(c.SwMac)) ?? c.SwMac} Port {c.SwPort}")));
+            .Select(c => (c.Mac, NetworkOptimizer.UniFi.ClientNames.For(c) ?? c.Mac, $"{portName.GetValueOrDefault(LanLinkBuilder.Mac(c.SwMac)) ?? c.SwMac} Port {c.SwPort}")));
         return _topology;
     }
 
@@ -466,7 +466,7 @@ public sealed class LanHealthEngine
         static ExplainReason Reason(string? state) => state == "Upgrading" ? ExplainReason.DeviceUpgrading : ExplainReason.DeviceProvisioning;
     }
 
-    private readonly HashSet<(string, int, DateTime)> _anomaliesSeen = [];
+    private readonly HashSet<(string, int, string)> _anomaliesSeen = [];
 
     /// <summary>Whether Port Insights answered at the last poll (it then counts as an observer, even with nothing to say).</summary>
     public bool PortInsightsAvailable { get; private set; }
@@ -481,12 +481,16 @@ public sealed class LanHealthEngine
             PortInsightsAvailable = doc != null;
             if (doc == null) return;
             var influx = _influx();
-            foreach (var a in LanHealthPortInsights.Parse(doc.RootElement))
-            {
-                if (!_anomaliesSeen.Add((a.DeviceMac, a.PortIdx, a.At))) continue;
+            var now = DateTime.UtcNow;
+            // Scores are current state: an anomaly is written when it appears, and again if it clears and returns.
+            var current = LanHealthPortInsights.Parse(doc.RootElement).ToList();
+            var keys = current.Select(a => (a.DeviceMac, a.PortIdx, a.Kind)).ToHashSet();
+            foreach (var a in current.Where(a => !_anomaliesSeen.Contains((a.DeviceMac, a.PortIdx, a.Kind))))
                 _ = influx.WriteEventAsync(a.DeviceMac, LanHealthPortInsights.EventType, "info", a.Kind,
-                    a.PortIdx.ToString(System.Globalization.CultureInfo.InvariantCulture), null, null, a.At);
-            }
+                    a.PortIdx.ToString(System.Globalization.CultureInfo.InvariantCulture), null,
+                    a.Score?.ToString(System.Globalization.CultureInfo.InvariantCulture), now);
+            _anomaliesSeen.Clear();
+            _anomaliesSeen.UnionWith(keys);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
