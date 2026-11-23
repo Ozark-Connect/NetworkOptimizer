@@ -360,6 +360,14 @@ public sealed class HealthCheckRunner
             return;
         }
 
+        // A device inside a restart or rollout window (its own, or an upstream one that took it dark)
+        // fails its check because of that; a remedy then would restart it a second time.
+        if (_suppression.IsInRolloutWindow(_siteSlug, check.DeviceMac, now))
+        {
+            _logger.LogInformation("Health check {Check} on {Device}: holding the remedy, the device is in a planned restart", check.Name, device.Name);
+            return;
+        }
+
         if (status.LastRemedyAt is { } last && now - last < TimeSpan.FromSeconds(Math.Max(60, check.RemedyCooldownSeconds)))
             return;
 

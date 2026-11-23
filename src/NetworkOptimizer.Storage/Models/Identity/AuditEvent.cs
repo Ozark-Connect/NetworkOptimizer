@@ -165,6 +165,12 @@ public static class AuditActions
     /// <summary>A health check ran its remedy on a device (restart, kill, reboot). System actor.</summary>
     public const string HealthCheckRemedyRun = "health_check.remedy.run";
 
+    // Device restart (Dashboard Device Status)
+    public const string DeviceRestartRequested = "device_restart.requested";
+    public const string DeviceRestartCancelled = "device_restart.cancelled";
+    /// <summary>The executor sent a restart or PoE power-cycle, skipped one already done, moved one, or gave up. System actor.</summary>
+    public const string DeviceRestartRun = "device_restart.run";
+
     /// <summary>A cellular modem's radio was power-cycled to force a fresh tower selection.</summary>
     public const string CellularRadioReset = "cellular_radio.reset";
     public const string DbRestored = "db.restored";

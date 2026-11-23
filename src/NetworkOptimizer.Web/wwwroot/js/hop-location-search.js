@@ -3,41 +3,8 @@
 
 const GEOCODE_URL = 'https://nominatim.openstreetmap.org/search';
 
-let placed = null;
-
-/**
- * Pins the editor below its button with fixed positioning, so the table's scroll box does not clip
- * it, and keeps it there on scroll and resize. A phone's bottom sheet (app.css) is left alone.
- * @param {HTMLElement} pop
- * @param {HTMLElement} anchor
- */
-export function place(pop, anchor) {
-    release();
-    if (!pop || !anchor) return;
-    const update = () => {
-        if (window.matchMedia('(max-width: 768px)').matches) {
-            pop.style.position = pop.style.top = pop.style.left = '';
-            return;
-        }
-        const r = anchor.getBoundingClientRect();
-        const width = pop.offsetWidth;
-        pop.style.position = 'fixed';
-        pop.style.top = `${r.bottom + 8}px`;
-        pop.style.left = `${Math.max(16, Math.min(r.right - width + 40, window.innerWidth - width - 16))}px`;
-    };
-    update();
-    window.addEventListener('scroll', update, true);
-    window.addEventListener('resize', update);
-    placed = update;
-}
-
-/** Stops following the button: call when the editor closes. */
-export function release() {
-    if (!placed) return;
-    window.removeEventListener('scroll', placed, true);
-    window.removeEventListener('resize', placed);
-    placed = null;
-}
+// The fixed placement is shared with the device restart sheet.
+export { place, release } from './fixed-popover.js?v=1';
 
 /**
  * Cities, towns, and villages matching a query.

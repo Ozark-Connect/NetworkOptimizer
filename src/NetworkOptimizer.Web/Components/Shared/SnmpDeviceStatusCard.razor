@@ -558,6 +558,32 @@
         StateHasChanged();
     }
 
+    /// <summary>
+    /// Opens the device's row with a new Health Check, its remedy set to reboot the device: the
+    /// Dashboard restart sheet links here for a device that keeps needing a restart.
+    /// </summary>
+    /// <returns>False when the device is not in this card's list.</returns>
+    public async Task<bool> OpenHealthCheckAsync(string mac)
+    {
+        var key = NormalizeMac(mac);
+        var device = Devices.FirstOrDefault(d => NormalizeMac(d.Mac) == key);
+        if (device == null) return false;
+
+        _collapsed = false;
+        _expandedDeviceMac = device.Mac;
+        _showAddForm = false;
+        _testResult = null;
+        await LoadCustomOids(device.Mac);
+        await LoadHealthChecks(device.Mac);
+        await ShowCheckForm(device);
+        if (_editCheck != null && HealthCheckRemedies.SupportedOn(HealthCheckRemedy.RebootDevice, device.DeviceType))
+            _editCheck.Remedy = HealthCheckRemedy.RebootDevice;
+        StateHasChanged();
+        return true;
+
+        static string NormalizeMac(string? m) => (m ?? "").Replace("-", ":").ToLowerInvariant();
+    }
+
     private async Task ToggleDevice(string mac)
     {
         if (_expandedDeviceMac == mac)

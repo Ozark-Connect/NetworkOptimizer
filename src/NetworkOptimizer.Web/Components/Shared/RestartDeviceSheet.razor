@@ -1,0 +1,376 @@
+@using NetworkOptimizer.Core.Enums
+@using NetworkOptimizer.Storage.Models
+@using NetworkOptimizer.Web.Services
+@using NetworkOptimizer.Web.Services.DeviceRestart
+@using NetworkOptimizer.Web.Services.Firmware
+@inject IDeviceRestartService Restarts
+@inject IDisplayTimeZone DisplayTime
+@inject IJSRuntime JS
+@inject Microsoft.AspNetCore.Mvc.ViewFeatures.IFileVersionProvider FileVersionProvider
+@inject ILogger<RestartDeviceSheet> Logger
+@implements IAsyncDisposable
+
+@* Restart one device, opened from the restart button on its Device Status card. A popover over the
+   button on desktop, the Live Traffic bottom sheet on a phone (app.css, lt-fpop). *@
+<div class="lt-fpop-backdrop" @onclick="CloseAsync"></div>
+<div @ref="_pop" class="lt-fpop device-restart-pop" tabindex="-1" role="dialog" aria-label="@($"Restart {Name}")" @onkeydown="OnKeyAsync">
+    <div class="lt-fpop-grab" aria-hidden="true"></div>
+    <div class="lt-fpop-head">
+        <span class="lt-fpop-title">Restart</span>
+        <span class="device-restart-name">@Name</span>
+    </div>
+
+    @if (_state == null)
+    {
+        <div class="lt-fpop-empty"><span class="spinner spinner-sm"></span></div>
+    }
+    else if (_state.Error != null)
+    {
+        <div class="alert alert-danger">@_state.Error</div>
+    }
+    else if (_state.Pending is { } pending && !_changing)
+    {
+        <div class="device-detail">
+            <span class="detail-label">@(pending.Status == DeviceRestartStatus.Waiting ? "Waiting" : pending.Status == DeviceRestartStatus.Running ? "Restarting" : "Scheduled for")</span>
+            <span class="detail-value">@When(pending.DueAtUtc)</span>
+        </div>
+        @if (pending.Reason is { Length: > 0 } reason)
+        {
+            <small class="form-help">@reason</small>
+        }
+        <small class="form-help">@PendingDetail(pending)</small>
+        <div class="action-buttons form-footer">
+            <button type="button" class="btn btn-danger" @onclick="CancelRestartAsync" disabled="@(_busy || pending.Status == DeviceRestartStatus.Running)">Cancel Restart</button>
+            <button type="button" class="btn btn-contrast" @onclick="() => _changing = true" disabled="@_busy">Change</button>
+        </div>
+        @if (_error != null)
+        {
+            <div class="alert alert-danger">@_error</div>
+        }
+        @HealthCheckLink()
+    }
+    else
+    {
+        @if (_state.Lockout is { } lockout)
+        {
+            <div class="alert alert-warning">@lockout A scheduled restart waits until it clears.</div>
+        }
+        @if (!_state.IsOnline)
+        {
+            <div class="alert alert-warning">@Name is offline: SSH and the UniFi Console cannot reach it.</div>
+        }
+        @if (Impact() is { } impact)
+        {
+            <p class="form-help">@impact</p>
+        }
+        @if (_state.Type == DeviceType.Gateway)
+        {
+            <div class="alert alert-warning">Internet access stops for the whole site.</div>
+        }
+
+        <form @onsubmit="CommitAsync" @onsubmit:preventDefault>
+        <div class="radio-group">
+            <label class="radio-label">
+                <input type="radio" @ref="_nowOption" name="restart-mode-@_id" checked="@(_mode == DeviceRestartMode.Now)" disabled="@(!NowAllowed)"
+                       @onchange="() => SetMode(DeviceRestartMode.Now)" />
+                <span>Restart now</span>
+            </label>
+            <label class="radio-label">
+                <input type="radio" @ref="_atOption" name="restart-mode-@_id" checked="@(_mode == DeviceRestartMode.At)" @onchange="() => SetMode(DeviceRestartMode.At)" />
+                <span>Schedule restart</span>
+            </label>
+            @if (_mode == DeviceRestartMode.At)
+            {
+                <div class="form-group">
+                    <input type="datetime-local" class="form-control" aria-label="Restart time" min="@MinTime"
+                           @bind="_atLocal" @bind:event="oninput" />
+                    @if (AtValid && SiteAside(PickedUtc) is { Length: > 0 } aside)
+                    {
+                        <small class="form-help">@When(PickedUtc)@aside</small>
+                    }
+                </div>
+            }
+            <label class="radio-label">
+                <input type="radio" name="restart-mode-@_id" checked="@(_mode == DeviceRestartMode.Quiet)" @onchange="() => SetMode(DeviceRestartMode.Quiet)" />
+                <span>Restart when quiet</span>
+            </label>
+            @if (_mode == DeviceRestartMode.Quiet)
+            {
+                @if (_quiet == null)
+                {
+                    <small class="form-help"><span class="spinner spinner-sm"></span></small>
+                }
+                else
+                {
+                    <small class="form-help">@When(_quiet.StartUtc)@SiteAside(_quiet.StartUtc) · @_quiet.Basis</small>
+                }
+            }
+        </div>
+
+        @if (_state.PoePort is { } port)
+        {
+            <label class="checkbox-label">
+                <input type="checkbox" checked="@(_powerCycle || !_state.IsOnline)" disabled="@(!_state.IsOnline)"
+                       @onchange="e => _powerCycle = e.Value is true" />
+                <span>Power-cycle PoE port @port.PortIdx on @port.SwitchName@(_state.IsOnline ? " instead" : "")</span>
+            </label>
+            @if (_state.IsOnline)
+            {
+                <small class="form-help">Cuts its power, so it boots cold.</small>
+            }
+        }
+
+        <small class="form-help">@MethodLine()</small>
+
+        <div class="action-buttons form-footer">
+            <button type="submit" class="btn btn-primary" disabled="@(!CanCommit)">
+                @(_mode == DeviceRestartMode.Now ? "Restart" : "Schedule")
+            </button>
+            <button type="button" class="btn btn-contrast" @onclick="CloseAsync">Cancel</button>
+        </div>
+        </form>
+        @if (_error != null)
+        {
+            <div class="alert alert-danger">@_error</div>
+        }
+        @HealthCheckLink()
+    }
+</div>
+
+@code {
+    /// <summary>The device's MAC.</summary>
+    [Parameter, EditorRequired] public string Mac { get; set; } = "";
+
+    /// <summary>The device's name, shown before its state loads.</summary>
+    [Parameter, EditorRequired] public string Name { get; set; } = "";
+
+    /// <summary>The button that opened the sheet; the desktop popover sits over it.</summary>
+    [Parameter] public ElementReference Anchor { get; set; }
+
+    /// <summary>Called when the sheet closes, committed or not.</summary>
+    [Parameter] public EventCallback OnClose { get; set; }
+
+    /// <summary>Called after a restart is requested or cancelled.</summary>
+    [Parameter] public EventCallback OnChanged { get; set; }
+
+    /// <summary>A restarted device this many times in 30 days gets the Health Check suggestion in full color.</summary>
+    private const int RecurringRestarts = 2;
+
+    private readonly string _id = Guid.NewGuid().ToString("N")[..8];
+    private IJSObjectReference? _module;
+    private ElementReference _pop, _nowOption, _atOption;
+    private bool _placed;
+    private DeviceRestartSheetState? _state;
+    private DeviceRestartQuietHour? _quiet;
+    private bool _quietLoading;
+    private DeviceRestartMode _mode = DeviceRestartMode.Now;
+    private DateTime _atLocal;
+    private bool _powerCycle;
+    private bool _changing;
+    private bool _busy;
+    private string? _error;
+
+    private bool NowAllowed => _state is { Lockout: null } s && (s.IsOnline || s.PoePort != null);
+    private string MinTime => DisplayTime.Now.ToString("yyyy-MM-ddTHH:mm");
+    private bool AtValid => _atLocal > DisplayTime.Now;
+    private DateTime PickedUtc => DisplayTime.ToUtc(_atLocal);
+
+    private bool CanCommit => !_busy && _state != null && _mode switch
+    {
+        DeviceRestartMode.Now => NowAllowed,
+        DeviceRestartMode.At => AtValid,
+        _ => _quiet != null,
+    };
+
+    protected override async Task OnInitializedAsync()
+    {
+        _atLocal = DisplayTime.Now.AddHours(1).Date.AddHours(DisplayTime.Now.AddHours(1).Hour);
+        try
+        {
+            _state = await Restarts.GetSheetAsync(Mac);
+            // A device that cannot restart now opens on the quiet hour, which waits out the lockout.
+            if (!NowAllowed) SetMode(DeviceRestartMode.Quiet);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Could not load the restart sheet for {Mac}", Mac);
+            _state = new DeviceRestartSheetState { Mac = Mac, Error = "Could not read the device. Try again in a moment." };
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        // Placed once the state is in, so the popover measures its real height.
+        if (_placed || _state == null) return;
+        _placed = true;
+        try
+        {
+            _module ??= await JS.InvokeAsync<IJSObjectReference>(
+                "import", FileVersionProvider.AddFileVersionToPath("", "/js/fixed-popover.js"));
+            await _module.InvokeVoidAsync("place", _pop, Anchor, new { above = true });
+            // The first option that can be chosen; the dialog itself when there is no option list.
+            var options = _state.Error == null && (_state.Pending == null || _changing);
+            await (options ? (NowAllowed ? _nowOption : _atOption) : _pop).FocusAsync();
+        }
+        catch (Exception ex) when (ex is JSDisconnectedException or TaskCanceledException or InvalidOperationException)
+        {
+            // The sheet closed or the circuit went away before it drew.
+        }
+    }
+
+    private void SetMode(DeviceRestartMode mode)
+    {
+        _mode = mode;
+        _error = null;
+        if (mode == DeviceRestartMode.Quiet && _quiet == null && !_quietLoading)
+            _ = LoadQuietAsync();
+    }
+
+    private async Task LoadQuietAsync()
+    {
+        _quietLoading = true;
+        try
+        {
+            _quiet = await Restarts.ProposeQuietAsync(Mac);
+            if (_quiet == null) _error = "No quiet hour could be found for this device right now.";
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Could not propose a quiet hour for {Mac}", Mac);
+            _error = "No quiet hour could be found for this device right now.";
+        }
+        finally
+        {
+            _quietLoading = false;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private async Task CommitAsync()
+    {
+        if (!CanCommit || _state == null) return;
+        _busy = true;
+        _error = null;
+        try
+        {
+            var result = await Restarts.RequestAsync(Mac, _mode, _mode == DeviceRestartMode.At ? PickedUtc : null,
+                _state.PoePort != null && (_powerCycle || !_state.IsOnline));
+            if (!result.Ok)
+            {
+                _error = result.Error;
+                return;
+            }
+            await OnChanged.InvokeAsync();
+            await CloseAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Could not request a restart of {Mac}", Mac);
+            _error = "The restart could not be saved. Try again.";
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task CancelRestartAsync()
+    {
+        _busy = true;
+        _error = null;
+        try
+        {
+            var result = await Restarts.CancelAsync(Mac);
+            if (!result.Ok)
+            {
+                _error = result.Error;
+                return;
+            }
+            await OnChanged.InvokeAsync();
+            await CloseAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Could not cancel the restart of {Mac}", Mac);
+            _error = "The restart could not be cancelled. Try again.";
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private Task CloseAsync() => OnClose.InvokeAsync();
+
+    private async Task OnKeyAsync(KeyboardEventArgs e)
+    {
+        switch (e.Key)
+        {
+            case "Escape":
+                await CloseAsync();
+                break;
+
+        }
+    }
+
+    private string When(DateTime utc) =>
+        DateTime.SpecifyKind(utc, DateTimeKind.Utc).ToLocalTime(DisplayTime).ToString(DisplayTime.Format.WeekdayDayTime, DisplayFormat.Culture);
+
+    private string SiteAside(DateTime utc) => RolloutScopeCopy.SiteAside(_state?.TimeZoneId, utc, DisplayTime.Zone, DisplayTime.Format);
+
+    /// <summary>What else goes down with it; null for a device with nothing below it.</summary>
+    private string? Impact()
+    {
+        if (_state == null || (_state.DevicesBelow == 0 && _state.Type != DeviceType.Gateway)) return null;
+        var devices = _state.DevicesBelow == 1 ? "1 device" : $"{_state.DevicesBelow} devices";
+        return _state.ClientsAffected is int clients
+            ? $"Also drops {devices} and {TimeFormatHelper.Pluralize(clients, "client")} while it restarts."
+            : $"Also drops {devices} while it restarts.";
+    }
+
+    private string MethodLine()
+    {
+        if (_state?.PoePort is { } port && (_powerCycle || !_state.IsOnline))
+            return $"Power-cycles PoE port {port.PortIdx} on {port.SwitchName}";
+        return _state?.HasSsh == true ? "Uses SSH" : "Uses the UniFi Console (SSH not set up)";
+    }
+
+    private string PendingDetail(DeviceRestartPending p)
+    {
+        var parts = new List<string>
+        {
+            p.Mode switch { DeviceRestartMode.Quiet => "When quiet", DeviceRestartMode.At => "At a set time", _ => "Now" },
+        };
+        if (!string.IsNullOrEmpty(p.RequestedBy)) parts.Add($"requested by {p.RequestedBy}");
+        if (p.RequestedMethod == DeviceRestartMethod.PoeCycle) parts.Add("PoE power-cycle");
+        if (!string.IsNullOrEmpty(p.RunsWith)) parts.Add($"runs with {p.RunsWith}");
+        return string.Join(" · ", parts);
+    }
+
+    private RenderFragment HealthCheckLink() => __builder =>
+    {
+        var recurring = _state?.RestartsLast30Days >= RecurringRestarts;
+        var href = $"/monitoring?tab=setup&expand=devices&device={Uri.EscapeDataString(Mac)}&hc=new";
+        <a class="device-restart-hc @(recurring ? "is-recurring" : null)" href="@href">
+            @if (recurring)
+            {
+                <text>Restarted @_state!.RestartsLast30Days times in 30 days. Set up a Health Check with a Remedy to do it when it is needed</text>
+            }
+            else
+            {
+                <text>Restarting this often? Set up a Health Check with a Remedy</text>
+            }
+        </a>
+    };
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_module == null) return;
+        try
+        {
+            await _module.InvokeVoidAsync("release", _pop);
+            await _module.DisposeAsync();
+        }
+        catch (JSDisconnectedException) { }
+    }
+}

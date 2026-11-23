@@ -2868,6 +2868,11 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         if (startable < 0)
             return;
 
+        // A device restart from the Dashboard is taking devices down: the wave waits for it, and the
+        // restart executor in turn locks out while this rollout runs, so the two never overlap.
+        if (_suppression.IsRestartActive(_siteSlug, DateTime.UtcNow))
+            return;
+
         var wave = startable;
         var waveSteps = pending.Where(s => s.Wave == wave).ToList();
 

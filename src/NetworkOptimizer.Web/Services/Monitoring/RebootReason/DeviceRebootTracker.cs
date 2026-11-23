@@ -451,6 +451,17 @@ public class DeviceRebootTracker
     }
 
     /// <summary>
+    /// Records that Network Optimizer is about to restart or power-cycle the device, the same way a
+    /// UniFi Network restart event is recorded: an unexpected-looking boot near it (a PoE power cut
+    /// reads as power loss) is corrected to a commanded restart credited to <paramref name="by"/>.
+    /// </summary>
+    public void ExpectCommandedRestart(string deviceMac, string by)
+    {
+        if (string.IsNullOrWhiteSpace(deviceMac)) return;
+        _commandedRestarts[Normalize(deviceMac)] = new CommandedRestartEvent("network-optimizer", by, DateTime.UtcNow);
+    }
+
+    /// <summary>
     /// Check whether a recently recorded UniFi restart event explains this boot, and if so
     /// override an unexpected probe result with CommandedReboot. Called from the probe path
     /// after it resolves.

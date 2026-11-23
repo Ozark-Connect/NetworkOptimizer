@@ -2281,6 +2281,116 @@ a.stat-card-link:active {
     border-left-color: var(--danger-color);
 }
 
+/* A Device Status card is a div holding its link and its restart button side by side, so the link
+   carries the padding: the whole card stays clickable. */
+.device-card:has(> .device-card-link) {
+    padding: 0;
+}
+
+.device-card > .device-card-link {
+    display: block;
+    padding: 12px;
+    color: inherit;
+    text-decoration: none;
+}
+
+.device-card:has(> .device-card-link:hover) {
+    border-left-color: var(--primary-color);
+}
+
+/* The restart button takes the bottom-right corner. A card ending in a value row gives it a strip of
+   its own; one ending in the left-aligned live stats keeps them clear of it instead. */
+.device-card:has(> .device-restart-btn) {
+    position: relative;
+}
+
+.device-card:has(> .device-restart-btn) > .device-card-link {
+    padding-bottom: 38px;
+}
+
+.device-card:has(> .device-restart-btn) > .device-card-link:has(> .device-body > .device-live-stats:last-child):not(:has(> .device-upgrade-bar)) {
+    padding-bottom: 12px;
+}
+
+.device-card:has(> .device-restart-btn) .device-body > .device-live-stats:last-child {
+    padding-right: 34px;
+}
+
+.device-restart-btn {
+    position: absolute;
+    right: 8px;
+    bottom: 8px;
+    width: 26px;
+    height: 26px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    border: 1px solid transparent;
+    border-radius: var(--border-radius);
+    background: transparent;
+    color: var(--text-muted);
+    cursor: pointer;
+}
+
+.device-restart-btn .line-icon {
+    width: 16px;
+    height: 16px;
+}
+
+.device-restart-btn:hover,
+.device-restart-btn:focus-visible,
+.device-restart-btn.is-open {
+    color: var(--text-primary);
+    background: var(--bg-tertiary);
+    border-color: var(--border-strong);
+}
+
+.device-restart-btn.is-open {
+    color: var(--primary-light);
+}
+
+/* A Viewer sees the badge, not a control. */
+.device-restart-btn.is-readonly,
+.device-restart-btn.is-readonly:hover {
+    cursor: default;
+    color: var(--text-muted);
+    background: transparent;
+    border-color: transparent;
+}
+
+.device-restart-badge {
+    position: absolute;
+    top: -3px;
+    right: -3px;
+    width: 12px;
+    height: 12px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    border: 1.5px solid var(--bg-inset);
+    color: var(--bg-inset);
+}
+
+.device-restart-btn .device-restart-badge .line-icon {
+    width: 9px;
+    height: 9px;
+    stroke-width: 2.6;
+}
+
+.device-restart-badge.is-scheduled {
+    background: var(--info-color);
+}
+
+.device-restart-badge.is-waiting {
+    background: var(--warning-color);
+}
+
+.device-restart-badge.is-failed {
+    background: var(--danger-color);
+}
+
 .device-header,
 .ap-header {
     display: flex;
@@ -27164,6 +27274,76 @@ body:has(.top-bar-hidden) .btn-fit {
     .lt-fpop-item {
         padding: 9px 4px;
         font-size: 0.9rem;
+    }
+}
+
+/* The Device Status restart sheet: an lt-fpop popover over its button on desktop (placed by
+   fixed-popover.js), the bottom sheet above on a phone. */
+.device-restart-pop,
+.device-restart-pop > form {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.device-restart-pop .lt-fpop-head {
+    margin-bottom: 0;
+}
+
+.device-restart-name {
+    flex: 1 1 auto;
+    min-width: 0;
+    text-align: right;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 0.875rem;
+    font-weight: 600;
+}
+
+.device-restart-pop .alert {
+    margin: 0;
+    padding: 8px 10px;
+    font-size: 0.8rem;
+    line-height: 1.4;
+}
+
+.device-restart-pop .form-help {
+    margin-top: 0;
+}
+
+.device-restart-pop .radio-group {
+    gap: 8px;
+}
+
+/* A time or a quiet-hour proposal sits under its own option. */
+.device-restart-pop .radio-group > .form-help,
+.device-restart-pop .radio-group > .form-group {
+    margin: -4px 0 0 1.5rem;
+}
+
+.device-restart-pop .checkbox-label + .form-help {
+    margin: -6px 0 0 1.5rem;
+}
+
+.device-restart-hc {
+    display: block;
+    padding-top: 9px;
+    border-top: 1px solid var(--border-color);
+    font-size: 0.75rem;
+    line-height: 1.4;
+    color: var(--text-secondary);
+    text-decoration: none;
+}
+
+.device-restart-hc:hover,
+.device-restart-hc.is-recurring {
+    color: var(--primary-light);
+}
+
+@media (min-width: 769px) {
+    .device-restart-pop {
+        width: 320px;
     }
 }
 

@@ -27,6 +27,10 @@ an On-Site Agent, AP Telemetry, InfluxDB, or HTTPS.
   - Each recent speed test opens its result, expanded, on its page
 - **Device Status** - every device's IP, model, firmware, uptime, clients, and ping
   - Restart reason on hover: firmware, commanded, power loss, hang, panic, or watchdog (Device SSH)
+  - Restart a device now, at a set time, or at its next quiet hour (Site Admin)
+  - Power-cycle a PoE-powered device's switch port instead, or when it hangs (Site Admin)
+  - Restarts close together run once each, top of the uplink tree first
+  - Restarts wait out firmware upgrades, provisioning, Firmware Rollout, and Change Control
 - **Live View** - the 2D or 3D map embedded on the Dashboard
 - Access network cards, with paging across several devices:
   - **Cable Modem Stats (DOCSIS)** - channels, power, SNR, correctable and uncorrectable errors
