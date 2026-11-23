@@ -322,11 +322,40 @@ public class SideEffectAttributionTests
     // --- Shape limits ------------------------------------------------------------------------------------------
 
     [Fact]
-    public void OtherCollections_WithTheSameShape_AreNotInferred()
+    public void PortProfile_LosingARemovedNetwork_FollowsTheRemove()
+    {
+        // A network removed in UniFi Network: its port profile exclusions change with no AUDIT event (11.1.58, 2026-11-23).
+        var profile = Updated("portconf", "pc-1", "[Trunk] Main 10 GbE", new FieldChange("excluded_networkconf_ids", Ids(TestIot), Ids()));
+
+        ChangeAttributor.SideEffectCause(profile, [NetEvent(TestIot, "REMOVED_ENTITY")], Now).Should().NotBeNull();
+    }
+
+    [Fact]
+    public void PortProfile_ExclusionWithNoNetworkCreatedOrRemoved_IsNotInferred()
     {
         var profile = Updated("portconf", "pc-1", "[Trunk] Main 10 GbE", new FieldChange("excluded_networkconf_ids", Ids(), Ids(TestIot)));
 
-        ChangeAttributor.SideEffectCause(profile, [NetEvent(TestIot, "GENERATED")], Now).Should().BeNull("port profiles get their own AUDIT events");
+        ChangeAttributor.SideEffectCause(profile, [NetEvent(TestIot, "MADE_CHANGES_ONE_SETTING_OBJECT", setting: "name")], Now).Should().BeNull();
+    }
+
+    [Fact]
+    public void PortProfile_WithAnotherFieldChanged_IsNotInferred()
+    {
+        var profile = Updated("portconf", "pc-1", "[Trunk] Main 10 GbE",
+            new FieldChange("excluded_networkconf_ids", Ids(TestIot), Ids()), new FieldChange("poe_mode", JsonValue.Create("auto"), JsonValue.Create("off")));
+
+        ChangeAttributor.SideEffectCause(profile, [NetEvent(TestIot, "REMOVED_ENTITY")], Now).Should().BeNull();
+    }
+
+    [Fact]
+    public void Switch_GainingAVlanOnlyNetwork_FollowsItsCreate_RealSection()
+    {
+        // A VLAN Only Network (Passthrough VLANs) logs its create under NETWORK_VLAN_ONLY (11.1.58, 2026-11-23).
+        var device = Switch(PortExclusion(1, [Home], [Home, TestIot]));
+
+        var groups = ChangeAttributor.Attribute([device], [NetEvent(TestIot, "GENERATED", section: "NETWORK_VLAN_ONLY")], [], Now, false);
+
+        ShouldBeAlex(groups, device);
     }
 
     [Fact]
