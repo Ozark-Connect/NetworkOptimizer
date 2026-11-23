@@ -29,10 +29,12 @@ export function renderHistory(elId, points, cutoverMs, use24h) {
         annotations,
     };
     const existing = charts.get(elId);
-    if (existing) {
+    // The link page replaces the element; a chart bound to the old one would update off-screen.
+    if (existing && existing.el === el) {
         existing.updateOptions(opts, true, false);
         return;
     }
+    if (existing) { existing.destroy(); charts.delete(elId); }
     const chart = new ApexCharts(el, opts);
     charts.set(elId, chart);
     chart.render();

@@ -42,7 +42,7 @@ else
                     <div class="lan-health-score-row"><span class="detail-label">Explained</span>
                         @if (r.Explained > 0)
                         {
-                            <button class="detail-value lan-health-explained-toggle" @onclick="() => _showExplained = !_showExplained">@r.Explained</button>
+                            <button class="detail-value lan-health-explained-toggle" @onclick="ShowExplainedTab">@r.Explained</button>
                         }
                         else
                         {
@@ -58,46 +58,24 @@ else
         </div>
     </div>
 
-    @if (_showExplained && r.Explained > 0)
-    {
-        var explained = r.Links.SelectMany(l => l.Incidents.Where(i => i.IsExplained).Select(i => (Link: l.Link, Incident: i)))
-            .OrderByDescending(x => x.Incident.Start).ToList();
-        var shownExplained = explained.Take(_explainedShown).ToList();
-        <div class="card lan-health-explained">
-            <div class="card-header"><h2 class="card-title">Explained (@RangeLabel)</h2></div>
-            <div class="card-body">
-                <div class="table-responsive">
-                    <table class="data-table">
-                        <thead><tr><th>Time</th><th>Link</th><th>Event</th><th>Why</th></tr></thead>
-                        <tbody>
-                            @foreach (var x in shownExplained)
-                            {
-                                <tr class="lan-health-row-link" @onclick="() => OpenLink(x.Link.Id)">
-                                    <td class="col-time">@TimeFormatHelper.FormatLocalDateTime(x.Incident.Start, DisplayTime.Zone, DisplayTime.Format)</td>
-                                    <td>@x.Link.Name</td>
-                                    <td>@EventLabel(x.Incident)</td>
-                                    <td>@(x.Incident.Explained is ExplainReason er ? Reason(er, x.Incident.ExplainedDetail) : "")</td>
-                                </tr>
-                            }
-                        </tbody>
-                    </table>
-                </div>
-                @if (explained.Count > shownExplained.Count)
-                {
-                    <div class="lan-health-more">
-                        <button class="btn btn-secondary btn-sm" @onclick="() => _explainedShown += LinksPage">Show more</button>
-                    </div>
-                }
-            </div>
-        </div>
-    }
-
     var findings = r.Findings.Take(30).ToList();
-    @if (findings.Count > 0)
+    @if (findings.Count > 0 || r.Explained > 0)
     {
         <div class="card isp-health-card lan-health-findings">
-            <div class="card-header"><h2 class="card-title">Findings</h2></div>
+            <div class="card-header">
+                @* Two halves of one answer: what is wrong, and what looked wrong but is explained. *@
+                <div class="filter-tabs">
+                    <button class="tab @(_showExplained ? "" : "active")" @onclick="() => _showExplained = false">Findings</button>
+                    <button class="tab @(_showExplained ? "active" : "")" @onclick="() => _showExplained = true">Explained (@r.Explained)</button>
+                </div>
+            </div>
             <div class="card-body">
+                @if (!_showExplained)
+                {
+                    @if (findings.Count == 0)
+                    {
+                        <div class="empty-state"><p>No findings in this window.</p></div>
+                    }
                 @foreach (var f in findings)
                 {
                     <div class="issue-item @IssueClass(f.Severity)">
@@ -119,10 +97,38 @@ else
                         </div>
                     </div>
                 }
+                }
+                else
+                {
+                    var explained = r.Links.SelectMany(l => l.Incidents.Where(i => i.IsExplained).Select(i => (Link: l.Link, Incident: i)))
+                        .OrderByDescending(x => x.Incident.Start).ToList();
+                    var shownExplained = explained.Take(_explainedShown).ToList();
+                    <div class="table-responsive">
+                        <table class="data-table">
+                            <thead><tr><th>Time</th><th>Link</th><th>Event</th><th>Why</th></tr></thead>
+                            <tbody>
+                                @foreach (var x in shownExplained)
+                                {
+                                    <tr class="lan-health-row-link" @onclick="() => OpenLink(x.Link.Id)">
+                                        <td class="col-time">@TimeFormatHelper.FormatLocalDateTime(x.Incident.Start, DisplayTime.Zone, DisplayTime.Format)</td>
+                                        <td>@x.Link.Name</td>
+                                        <td>@EventLabel(x.Incident)</td>
+                                        <td>@(x.Incident.Explained is ExplainReason er ? Reason(er, x.Incident.ExplainedDetail) : "")</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                    @if (explained.Count > shownExplained.Count)
+                    {
+                        <div class="lan-health-more">
+                            <button class="btn btn-secondary btn-sm" @onclick="() => _explainedShown += LinksPage">Show more</button>
+                        </div>
+                    }
+                }
             </div>
         </div>
     }
-
     <div class="card lan-health-links" data-tour="lan-health-links">
         <div class="card-header">
             <h2 class="card-title">Links</h2>
@@ -210,12 +216,14 @@ else
     private System.Threading.Timer? _timer;
     private IJSObjectReference? _charts;
     private bool _historyDirty = true;
+    private bool _scrollTop;
     private string? _loadedLink;
 
     private string RangeLabel => LanHealthEngine.RangeLabel(_hours);
 
     protected override async Task OnParametersSetAsync()
     {
+        if (_loadedLink != LinkId && !string.IsNullOrEmpty(LinkId)) _scrollTop = true;
         if (_report == null || _loadedLink != LinkId) await LoadAsync();
     }
 
@@ -262,6 +270,12 @@ else
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
+        // Opening a link starts at its top, wherever the list was scrolled.
+        if (_scrollTop)
+        {
+            _scrollTop = false;
+            try { await JS.InvokeVoidAsync("scrollTo", 0, 0); } catch (JSDisconnectedException) { }
+        }
         if (!_historyDirty || _report == null || !string.IsNullOrEmpty(LinkId)) return;
         _historyDirty = false;
         try
@@ -284,6 +298,13 @@ else
     }
 
     private void OpenLink(string linkId) => NavigationManager.NavigateTo(LanHealthLinks.Link(linkId));
+
+    private async Task ShowExplainedTab()
+    {
+        _showExplained = true;
+        try { await JS.InvokeVoidAsync("eval", "document.querySelector('.lan-health-findings')?.scrollIntoView({behavior:'smooth',block:'start'})"); }
+        catch (JSDisconnectedException) { }
+    }
 
     private RenderFragment RangeSelector => __builder =>
     {
