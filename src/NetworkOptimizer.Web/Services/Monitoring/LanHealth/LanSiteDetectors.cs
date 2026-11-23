@@ -1,6 +1,7 @@
 using System.Text.Json;
 using NetworkOptimizer.Core;
 using NetworkOptimizer.Core.Enums;
+using NetworkOptimizer.Core.Helpers;
 using NetworkOptimizer.Diagnostics.Analyzers;
 using NetworkOptimizer.UniFi.Models;
 
@@ -66,17 +67,17 @@ public static class LanSiteDetectors
 
     private static LinkFinding Site(int detector, string cls, string subject, string body, FindingSeverity severity = FindingSeverity.Info,
         string linkId = "", double points = 0, LinkStatus? status = null, params string[] chips) => new()
-        {
-            Detector = detector,
-            LinkId = linkId,
-            Severity = severity,
-            Class = cls,
-            Title = $"{cls}: {subject}",
-            Body = body,
-            Chips = chips.ToList(),
-            Points = points,
-            Status = status,
-        };
+    {
+        Detector = detector,
+        LinkId = linkId,
+        Severity = severity,
+        Class = cls,
+        Title = $"{cls}: {subject}",
+        Body = body,
+        Chips = chips.ToList(),
+        Points = points,
+        Status = status,
+    };
 
     // ---- 9 Loop: a storm on several ports at once, with STP changes ----
     internal static IEnumerable<LinkFinding> Loop(SiteEvidence s)
@@ -309,13 +310,12 @@ public static class LanSiteDetectors
     {
         foreach (var l in s.Links.Where(l => l.Link.Kind == LinkKind.FabricWired && l.Link.SpeedMbps is > 0))
         {
-            // Wired links only: a mesh backhaul's speed is a radio PHY rate, not a capacity to bottleneck on.
-            var below = s.Links.Where(c => c.Link.Kind == LinkKind.FabricWired && c.Link.Upstream.DeviceMac == l.Link.Downstream.DeviceMac && c.Link.SpeedMbps is > 0).ToList();
+            var below = s.Links.Where(c => c.Link.IsFabric && c.Link.Upstream.DeviceMac == l.Link.Downstream.DeviceMac && c.Link.SpeedMbps is > 0).ToList();
             var fastest = below.Select(c => c.Link.SpeedMbps!.Value).DefaultIfEmpty(0).Max();
             if (fastest <= l.Link.SpeedMbps) continue;
             var peak = s.Evidence.TryGetValue(l.Link.Id, out var ev) ? ev.Hours.Select(h => LanHealthDetectors.Utilization(l.Link, h)).DefaultIfEmpty(0).Max() : 0;
             yield return Site(Detectors.BottleneckUplink, "Bottleneck Uplink", l.Link.Name,
-                $"{l.Link.Downstream.DeviceName} uplinks at {DisplayFormatters.FormatLinkSpeed(l.Link.SpeedMbps!.Value)} while a link downstream of it runs at {DisplayFormatters.FormatLinkSpeed(fastest)}"
+                $"{l.Link.Downstream.DeviceName} uplinks at {DisplayFormatters.FormatLinkSpeed(l.Link.SpeedMbps!.Value)} while a link below it runs at {DisplayFormatters.FormatLinkSpeed(fastest)}"
                 + (peak > 0 ? $". Its busiest hour reached {peak * 100:0}% of the uplink." : "."),
                 linkId: l.Link.Id, chips: "Capacity");
         }
