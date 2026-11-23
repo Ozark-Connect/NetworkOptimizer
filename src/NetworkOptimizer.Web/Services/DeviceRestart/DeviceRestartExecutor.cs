@@ -358,8 +358,7 @@ public sealed class DeviceRestartExecutor : BackgroundService, ISiteScopedRegist
         var client = reader.Connection.Client;
         request.Attempts++;
 
-        var by = string.IsNullOrEmpty(request.RequestedByName) ? "Network Optimizer" : $"Network Optimizer, for {request.RequestedByName}";
-        _reboots.GetFor(slug).ExpectCommandedRestart(request.DeviceMac, by);
+        ExpectBoots(slug, request, node, topology, method == DeviceRestartMethod.PoeCycle ? poe : null, now);
         RefreshWindows(slug, request, topology);
 
         string? error = null;
@@ -429,6 +428,27 @@ public sealed class DeviceRestartExecutor : BackgroundService, ISiteScopedRegist
         request.StatusReason = error;
         request.DueAtUtc = now + RestartRules.RetryDelay;
         _logger.LogWarning("Device restart {Site}: {Device} attempt {Attempt} failed: {Error}", slug, node.Name, request.Attempts, error);
+    }
+
+    /// <summary>
+    /// Tells the reboot tracker what is about to boot and why, so each boot's one record names
+    /// Network Optimizer, who asked, and how: the device itself, and anything below it that loses
+    /// power with it (an AP on a restarted switch's PoE).
+    /// </summary>
+    private void ExpectBoots(string slug, DeviceRestartRequest request, RestartNode node, RestartTopology topology, PoePort? poe, DateTime now)
+    {
+        var tracker = _reboots.GetFor(slug);
+        var forWhom = string.IsNullOrEmpty(request.RequestedByName) ? "" : $", for {request.RequestedByName}";
+        var until = now + RestartRules.OfflineBudget(node.Type) + TimeSpan.FromMinutes(2);
+
+        tracker.ExpectPlannedRestart(request.DeviceMac, poe != null
+            ? new PlannedRestart(RebootCategory.PowerCycle,
+                $"Power-cycled by Network Optimizer{forWhom} (PoE port {poe.PortIdx} on {poe.SwitchName})", now, until)
+            : new PlannedRestart(RebootCategory.CommandedReboot, $"Restarted by Network Optimizer{forWhom}", now, until));
+
+        foreach (var below in topology.Subtree(request.DeviceMac))
+            tracker.ExpectPlannedRestart(below.Mac, new PlannedRestart(RebootCategory.PowerCycle,
+                $"Lost power when Network Optimizer restarted {node.Name}{forWhom}", now, until, LostPowerOnly: true));
     }
 
     /// <summary>After a command: done once the device booted after it and is Online; retried once its budget runs out.</summary>

@@ -104,6 +104,16 @@ public static class RebootClassifier
 }
 
 /// <summary>
+/// A restart Network Optimizer is about to cause, with the reason text the boot gets.
+/// </summary>
+/// <param name="Category"><see cref="RebootCategory.CommandedReboot"/> or <see cref="RebootCategory.PowerCycle"/>.</param>
+/// <param name="Detail">Who and how, e.g. "Restarted by Network Optimizer, for admin".</param>
+/// <param name="At">When the command went out.</param>
+/// <param name="Until">The latest boot it explains.</param>
+/// <param name="LostPowerOnly">True for a device below the restarted one: only a power-loss boot is ours.</param>
+public sealed record PlannedRestart(RebootCategory Category, string Detail, DateTime At, DateTime Until, bool LostPowerOnly = false);
+
+/// <summary>
 /// A resolved reboot reason for one device boot.
 /// </summary>
 /// <param name="Category">Classification used for icon and colour choices.</param>
