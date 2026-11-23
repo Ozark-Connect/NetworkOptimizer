@@ -20811,6 +20811,7 @@ tr.stats-row-filtered {
 .lan-health .lan-health-tile-text { font-size: 1rem; }
 .lan-health .lan-health-back { display: flex; align-items: center; gap: 1.25rem; margin-bottom: 1rem; }
 .lan-health .lan-health-back .btn { display: inline-flex; align-items: center; gap: 0.35rem; }
+.lan-health .lan-health-timeline-chart { margin-bottom: 1rem; }
 .lan-health .lan-health-steps { display: flex; flex-direction: column; gap: 1rem; font-size: 0.875rem; }
 .lan-health .lan-health-step { display: flex; flex-direction: column; gap: 0.25rem; }
 .lan-health .lan-health-step-action { color: var(--text-primary); font-weight: 600; }

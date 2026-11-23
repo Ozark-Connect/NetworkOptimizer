@@ -216,6 +216,38 @@ else
     private System.Threading.Timer? _timer;
     private IJSObjectReference? _charts;
     private bool _historyDirty = true;
+    private bool _timelineDirty = true;
+
+    /// <summary>The link's events per bucket (sized to the range) and its Change Control changes, for the Timeline chart.</summary>
+    private async Task RenderTimelineAsync(LinkHealth l)
+    {
+        if (_report == null) return;
+        try
+        {
+            _charts ??= await JS.InvokeAsync<IJSObjectReference>("import", FileVersionProvider.AddFileVersionToPath("/", "/js/lan-health-charts.js"));
+            var bucket = TimeSpan.FromHours(_hours <= 24 ? 1 : _hours <= 48 ? 2 : _hours <= 168 ? 6 : 24);
+            var from = DateTime.SpecifyKind(_report.From, DateTimeKind.Utc);
+            var to = DateTime.SpecifyKind(_report.To, DateTimeKind.Utc);
+            var events = l.Incidents.Where(i => i.Kind is IncidentKind.Drop or IncidentKind.Relink or IncidentKind.Outage or IncidentKind.LossBurst).ToList();
+            var buckets = new List<object>();
+            for (var t = from; t < to; t += bucket)
+            {
+                var inBucket = events.Where(i => i.Start >= t && i.Start < t + bucket).ToList();
+                buckets.Add(new
+                {
+                    t = new DateTimeOffset(t).ToUnixTimeMilliseconds(),
+                    drops = (int)inBucket.Where(i => !i.IsExplained).Sum(i => i.Count),
+                    explained = (int)inBucket.Where(i => i.IsExplained).Sum(i => i.Count),
+                });
+            }
+            var changes = l.Incidents.Where(i => i.Explained == ExplainReason.PortProfileChanged)
+                .Select(i => new DateTimeOffset(DateTime.SpecifyKind(i.Start, DateTimeKind.Utc)).ToUnixTimeMilliseconds()).Distinct().ToList();
+            await _charts.InvokeVoidAsync("renderTimeline", "lan-health-timeline", buckets, changes, (long)bucket.TotalMilliseconds,
+                DisplayTime.Format.Clock == ClockStyle.TwentyFourHour);
+        }
+        catch (JSDisconnectedException) { }
+        catch (Exception ex) { Logger.LogDebug(ex, "LAN Health timeline chart failed"); }
+    }
     private bool _scrollToLink;
     private bool _restoreTab;
     private string? _loadedLink;
@@ -267,6 +299,7 @@ else
             _loadedLink = LinkId;
             _link = string.IsNullOrEmpty(LinkId) ? null : _report.Links.FirstOrDefault(l => l.Link.Id == LinkId);
             _historyDirty = true;
+            _timelineDirty = true;
         }
         catch (Exception ex)
         {
@@ -289,6 +322,11 @@ else
         {
             _restoreTab = false;
             try { await JS.InvokeVoidAsync("noTabScroll.restore", "lan-health"); } catch (JSDisconnectedException) { }
+        }
+        if (_timelineDirty && _link != null && !string.IsNullOrEmpty(LinkId))
+        {
+            _timelineDirty = false;
+            await RenderTimelineAsync(_link);
         }
         if (!_historyDirty || _report == null || !string.IsNullOrEmpty(LinkId)) return;
         _historyDirty = false;
@@ -483,7 +521,7 @@ else
                 <div class="monitoring-stat-card">
                     <div class="stat-value lan-health-tile-text">@TimeFormatHelper.FormatLocalDateTime(on, DisplayTime.Zone, DisplayTime.Format)</div>
                     <div class="stat-label">Unhealthy Since</div>
-                    @if (l.CleanDaysBefore is int days) {<div class="lan-health-sub">None in the @days days before</div>}
+                    @if (l.CleanDaysBefore is int days) {<div class="lan-health-sub">After @days clean days</div>}
                 </div>
             }
             else if (lastIssue is DateTime le)
@@ -555,6 +593,7 @@ else
             <div class="card-header"><h2 class="card-title">Timeline (@RangeLabel)</h2></div>
             <div class="card-body">
                 @{ var timeline = l.Incidents.Where(i => i.Kind != IncidentKind.DiscardBurst).OrderByDescending(i => i.Start).Take(200).ToList(); }
+                @if (timeline.Count > 0) {<div id="lan-health-timeline" class="lan-health-timeline-chart"></div>}
                 @if (timeline.Count == 0)
                 {
                     <div class="empty-state"><p>Nothing happened on this link in this window.</p></div>
