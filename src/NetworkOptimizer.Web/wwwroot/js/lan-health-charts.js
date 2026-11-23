@@ -53,7 +53,7 @@ export function renderTimeline(elId, buckets, changesMs, bucketMs, use24h) {
         chart: { type: 'bar', stacked: true, height: 160, background: 'transparent', toolbar: { show: false }, zoom: { enabled: false },
             animations: { enabled: false }, parentHeightOffset: 0 },
         theme: { mode: 'dark' },
-        series: [{ name: 'Unexplained', data: drops }, { name: 'Explained', data: explained }],
+        series: [{ name: 'Drops', data: drops }, { name: 'Explained', data: explained }],
         colors: ['#ef5858', '#9ca3af'],
         plotOptions: { bar: { columnWidth: '80%' } },
         grid: { borderColor: '#374151', strokeDashArray: 3 },
