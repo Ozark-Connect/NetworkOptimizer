@@ -101,8 +101,35 @@ public sealed class LanHealthAlertEvaluator
                 // A flapping or erroring link explains loss to the device behind it: its target's loss alert stays quiet.
                 if (type is Flapping or Errors && t is GateTransition.Opened or GateTransition.Closed)
                     _faults?.Set(_slug, link.Link.Downstream.DeviceMac, t == GateTransition.Opened);
+                // The fault opened after a device on the link was upgraded: tie it to the rollout as a possible regression.
+                if (type is Flapping or Errors && t == GateTransition.Opened && finding != null && link.UpgradeSuspect is { } u
+                    && _regressionsRaised.Add((link.Link.Id, u.StepId)))
+                    await PublishRegressionAsync(link, finding, u, ct);
             }
         }
+    }
+
+    private readonly HashSet<(string Link, int Step)> _regressionsRaised = [];
+
+    private async Task PublishRegressionAsync(LinkHealth link, LinkFinding f, UpgradeSuspect u, CancellationToken ct)
+    {
+        var from = NetworkOptimizer.Core.Helpers.FirmwareVersionFormat.ShortOrNull(u.FromVersion) ?? "its previous firmware";
+        var to = NetworkOptimizer.Core.Helpers.FirmwareVersionFormat.ShortOrNull(u.ToVersion) ?? "its new firmware";
+        var what = f.Class == "Link Flapping" ? "started dropping" : "started showing receive errors";
+        await _bus!.PublishAsync(new AlertEvent
+        {
+            EventType = Firmware.RolloutAlerts.LinkRegression,
+            Source = "rollout",
+            Severity = AlertSeverity.Warning,
+            Title = $"Link Problems After Upgrade: {link.Link.Name}{_siteSuffix}",
+            Message = $"{link.Link.Name} {what} after {u.DeviceName} went from {from} to {to}, and it was clean before. Power cycle {u.DeviceName} first; if that doesn't help, roll back.",
+            DeviceId = link.Link.Upstream.DeviceMac,
+            DeviceName = link.Link.Name,
+            CorrelationKey = link.Link.Id,
+            SourceUrl = LanHealthLinks.Link(link.Link.Id),
+            Context = new Dictionary<string, string> { ["link_id"] = link.Link.Id, ["step_id"] = u.StepId.ToString(CultureInfo.InvariantCulture) },
+        }, ct);
+        _logger.LogInformation("Published possible firmware regression for {Link} after {Device} (site {Site})", link.Link.Name, u.DeviceName, _slug);
     }
 
     private SustainGate Gate(string type, string link)

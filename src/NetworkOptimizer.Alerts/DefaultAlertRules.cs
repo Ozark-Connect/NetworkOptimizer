@@ -1097,6 +1097,15 @@ public static class DefaultAlertRules
         },
         new AlertRule
         {
+            Name = "Firmware Rollout: Link Problems After Upgrade",
+            IsEnabled = true,
+            EventTypePattern = "rollout.link_regression",
+            Source = "rollout",
+            MinSeverity = AlertSeverity.Warning,
+            CooldownSeconds = 0
+        },
+        new AlertRule
+        {
             Name = "Firmware Rollout: Lighter After Upgrade",
             IsEnabled = false,
             EventTypePattern = "rollout.resource_improvement",

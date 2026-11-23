@@ -25,6 +25,25 @@ public static class LanHealthReportBuilder
         return level;
     }
 
+    /// <summary>How long after an upgrade a link's new trouble still points at it.</summary>
+    public static readonly TimeSpan UpgradeSuspectWindow = TimeSpan.FromDays(7);
+
+    /// <summary>
+    /// The upgrade a link's trouble started after: a rollout step on either device of the link that came back
+    /// before the link's current run of drops or errors began, within <see cref="UpgradeSuspectWindow"/>, with the
+    /// link clean for at least a day before the upgrade (the alert says so).
+    /// </summary>
+    public static UpgradeSuspect? UpgradeSuspectFor(LinkHealth l, IEnumerable<NetworkOptimizer.Storage.Models.FirmwareRolloutStep> steps)
+    {
+        if (l.Onset is not DateTime onset || !l.Findings.Any(f => f.Detector is Detectors.LinkDrops or Detectors.StableLinkErrors or Detectors.ErrorAsymmetry)) return null;
+        var step = steps
+            .Where(s => s.BackAt is DateTime back && back <= onset && onset - back <= UpgradeSuspectWindow
+                && l.CleanDaysBefore is int clean && clean >= (onset - back).TotalDays + 1
+                && (LanLinkBuilder.Mac(s.DeviceMac) == l.Link.Upstream.DeviceMac || LanLinkBuilder.Mac(s.DeviceMac) == l.Link.Downstream.DeviceMac))
+            .OrderByDescending(s => s.BackAt).FirstOrDefault();
+        return step == null ? null : new UpgradeSuspect(step.Id, step.DeviceName, step.FromVersion, step.ToVersion, DateTime.SpecifyKind(step.BackAt!.Value, DateTimeKind.Utc));
+    }
+
     /// <summary>How far back a wired link's speed history goes, as Config Optimizer's WAN check.</summary>
     public static readonly TimeSpan SpeedHistoryLookback = TimeSpan.FromDays(30);
 

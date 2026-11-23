@@ -620,6 +620,17 @@ public sealed class LanHealthEngine
             // Optics reads the modules now: the live report only, since a stored past hour has no reading of its own.
             await SfpAsync(topology, ct), await SpeedHistoryAsync(db, topology, ct));
         AddTestSuggestions(report, topology, tests);
+        try
+        {
+            var since = DateTime.UtcNow - LanHealthReportBuilder.UpgradeSuspectWindow - TimeSpan.FromDays(2);
+            var steps = await db.FirmwareRolloutSteps.AsNoTracking().Where(s => s.BackAt != null && s.BackAt >= since).ToListAsync(ct);
+            if (steps.Count > 0)
+                foreach (var l in report.Links) l.UpgradeSuspect = LanHealthReportBuilder.UpgradeSuspectFor(l, steps);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogDebug(ex, "LAN Health: rollout steps unavailable for {Site}", _slug);
+        }
         foreach (var note in LanHealthPortInsights.Notes(report.Links, PortAnomalies, topology.Devices))
         {
             report.Links.First(l => l.Link.Id == note.LinkId).Findings.Add(note);
@@ -651,7 +662,7 @@ public sealed class LanHealthEngine
         if (_speedHistory is { } c && DateTime.UtcNow - c.At < TimeSpan.FromHours(1)) return c.ByLink;
         var since = DateTime.UtcNow - LanHealthReportBuilder.SpeedHistoryLookback;
         var rows = await db.LanHealthLinkHours.AsNoTracking()
-            .Where(r => r.HourStart >= since && r.Kind == (int)LinkKind.FabricWired && r.SpeedMinMbps != null)
+            .Where(r => r.HourStart >= since && r.Kind == (int)LinkKind.FabricWired && r.SpeedMinMbps > 0)
             .Select(r => new { r.LinkId, r.HourStart, r.SpeedMinMbps }).ToListAsync(ct);
         var byLink = LanHealthReportBuilder.SpeedHistories(topology.Links,
             rows.Select(r => (r.LinkId, DateTime.SpecifyKind(r.HourStart, DateTimeKind.Utc), r.SpeedMinMbps!.Value)));

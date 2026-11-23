@@ -177,4 +177,47 @@ public class LanHealthAlertTests
         await e.EvaluateAsync(Report(Link("l1")), None, T0.AddMinutes(16));
         faults.Has("default", "aa:bb:cc:00:00:03").Should().BeFalse("recovered");
     }
+
+    private static NetworkOptimizer.Storage.Models.FirmwareRolloutStep Step(int id, string mac, DateTime back) =>
+        new() { Id = id, DeviceMac = mac, DeviceName = "Switch A", FromVersion = "7.1.26.15869", ToVersion = "7.2.10.16000", BackAt = back };
+
+    private static LinkHealth Troubled(DateTime onset, int detector = Detectors.LinkDrops, int clean = 14)
+    {
+        var l = Link("l1");
+        l.Findings.Add(new LinkFinding { LinkId = "l1", Class = "Link Flapping", Title = "Link Flapping: x", Body = "b", Detector = detector });
+        l.Onset = onset;
+        l.CleanDaysBefore = clean;
+        return l;
+    }
+
+    [Fact]
+    public void UpgradeSuspect_IsAnUpgradeOfEitherEnd_ThatTheTroubleStartedAfter_WithinAWeek()
+    {
+        var steps = new[] { Step(1, "AA:BB:CC:00:00:02", T0.AddDays(-2)), Step(2, "aa:bb:cc:00:00:99", T0.AddDays(-1)) };
+        LanHealthReportBuilder.UpgradeSuspectFor(Troubled(T0), steps)!.StepId.Should().Be(1, "the other step is not on this link");
+        LanHealthReportBuilder.UpgradeSuspectFor(Troubled(T0.AddDays(-3)), steps).Should().BeNull("the trouble predates the upgrade");
+        LanHealthReportBuilder.UpgradeSuspectFor(Troubled(T0.AddDays(6)), steps).Should().BeNull("more than a week after");
+        LanHealthReportBuilder.UpgradeSuspectFor(Troubled(T0, Detectors.SpeedDownshift), steps).Should().BeNull("only drops and errors");
+        LanHealthReportBuilder.UpgradeSuspectFor(Troubled(T0, clean: 2), steps).Should().BeNull("trouble 3 days before the onset is before the upgrade: not clean before");
+        LanHealthReportBuilder.UpgradeSuspectFor(Troubled(T0, clean: 3), steps).Should().NotBeNull("clean a day before the upgrade");
+    }
+
+    [Fact]
+    public async Task AFaultAfterAnUpgrade_RaisesOneRegressionAlert_SayingPowerCycleFirst()
+    {
+        var bus = new CapturingBus();
+        var e = Evaluator(bus);
+        LinkHealth L() { var l = Troubled(T0); l.UpgradeSuspect = new UpgradeSuspect(1, "Switch A", "7.1.26.15869", "7.2.10.16000", T0.AddDays(-1)); return l; }
+        await e.EvaluateAsync(Report(L()), None, T0);
+        await e.EvaluateAsync(Report(L()), None, T0.AddMinutes(6));
+        var r = bus.Published.Single(a => a.EventType == NetworkOptimizer.Web.Services.Firmware.RolloutAlerts.LinkRegression);
+        r.Message.Should().Be("Switch A Port 3 to AP 1 started dropping after Switch A went from 7.1.26 to 7.2.10, and it was clean before. Power cycle Switch A first; if that doesn't help, roll back.");
+        r.Severity.Should().Be(AlertSeverity.Warning);
+        // Recovers and comes back: the same upgrade is not blamed twice.
+        await e.EvaluateAsync(Report(Link("l1")), None, T0.AddMinutes(10));
+        await e.EvaluateAsync(Report(Link("l1")), None, T0.AddMinutes(16));
+        await e.EvaluateAsync(Report(L()), None, T0.AddMinutes(20));
+        await e.EvaluateAsync(Report(L()), None, T0.AddMinutes(26));
+        bus.Published.Count(a => a.EventType == NetworkOptimizer.Web.Services.Firmware.RolloutAlerts.LinkRegression).Should().Be(1);
+    }
 }

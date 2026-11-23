@@ -112,6 +112,9 @@ public enum ExplainReason
     BackhaulChannelChange,
 }
 
+/// <summary>A rollout step a link's trouble started after: the upgraded device, its versions, and when it came back.</summary>
+public sealed record UpgradeSuspect(int StepId, string DeviceName, string? FromVersion, string? ToVersion, DateTime BackAt);
+
 /// <summary>A span that explains link events on the devices it covers.</summary>
 public sealed record ExplainWindow(DateTime Start, DateTime End, string DeviceMac, ExplainReason Reason, string? Detail = null)
 {
@@ -393,6 +396,8 @@ public sealed class LinkHealth
     public List<LinkIncident> Incidents { get; init; } = [];
     public List<LinkFinding> Findings { get; init; } = [];
     public List<SourceCoverage> Coverage { get; init; } = [];
+    /// <summary>A Firmware Rollout upgrade of a device on this link that the link's current run of trouble started after.</summary>
+    public UpgradeSuspect? UpgradeSuspect { get; set; }
     /// <summary>The fabric probe target for the link's downstream device, for the jump to Network Performance.</summary>
     public string? ProbeTargetId { get; set; }
     public int Drops => (int)Incidents.Where(i => !i.IsExplained && i.Kind is IncidentKind.Drop or IncidentKind.Relink).Sum(i => i.Count);

@@ -2769,7 +2769,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
                     RolloutAlerts.ResourceRegression,
                     AlertSeverity.Warning,
                     $"Heavier After Upgrade: {step.DeviceName}{_siteSuffix}",
-                    $"{step.DeviceName} ({step.Model}) went from {ShortVersion(step.FromVersion) ?? "its previous firmware"} to {ShortVersion(step.ToVersion) ?? "its new firmware"} and is working harder since. {comparison.Detail} Worth a look, or a roll back.",
+                    $"{step.DeviceName} ({step.Model}) went from {ShortVersion(step.FromVersion) ?? "its previous firmware"} to {ShortVersion(step.ToVersion) ?? "its new firmware"} and is working harder since. {comparison.Detail} Power cycle it first; if that doesn't help, roll back.",
                     step.DeviceMac, step.DeviceName, cancellationToken);
             }
             else if (comparison.Verdict == ResourceComparisonVerdict.Improvement)
