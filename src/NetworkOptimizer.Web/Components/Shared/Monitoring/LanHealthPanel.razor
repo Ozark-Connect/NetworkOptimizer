@@ -443,7 +443,10 @@ else
     private RenderFragment LinkPage => __builder =>
     {
         var l = _link;
-        <a id="lan-health-link-top" class="back-link" href="@LanHealthLinks.Tab()">&larr; LAN Health</a>
+        @* The drill-down back button, as Threat Intelligence's IP, port, and protocol details have it. *@
+        <div id="lan-health-link-top" class="lan-health-back">
+            <button class="btn btn-secondary btn-sm" @onclick="() => NavigationManager.NavigateTo(LanHealthLinks.Tab())"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5M12 19l-7-7 7-7"/></svg> LAN Health</button>
+        </div>
         @if (l == null)
         {
             @* With the console disconnected the link is unknown, not gone: Monitoring's ConsoleConnectionBanner says why. *@
