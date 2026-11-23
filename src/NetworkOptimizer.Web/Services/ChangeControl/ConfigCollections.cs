@@ -500,7 +500,8 @@ public static class ConfigCollections
                 {
                     CreatePath = "rest/networkconf", UpdatePath = "rest/networkconf/{id}", DeletePath = "rest/networkconf/{id}", Proven = true,
                 },
-                AuditSections = ["NETWORK_LOCAL", "NETWORK_WAN", "NETWORK_VPN_SERVER", "NETWORK_VPN_CLIENT"],
+                // NETWORK_VLAN_ONLY: a VLAN Only Network's create and remove (main, Network 11.1.58, 2026-11-23).
+                AuditSections = ["NETWORK_LOCAL", "NETWORK_WAN", "NETWORK_VPN_SERVER", "NETWORK_VPN_CLIENT", "NETWORK_VLAN_ONLY"],
                 AuditCollectionNames = ["networkconf"], AuditInput = true,
                 TagsForField = (_, f) => Tags(f, ("mdns", ServiceTags.Mdns), ("igmp", ServiceTags.Mdns), ("multicast", ServiceTags.Mdns),
                     ("dhcpd_dns", ServiceTags.DnsPolicy), ("dhcp", ServiceTags.Dhcp)),

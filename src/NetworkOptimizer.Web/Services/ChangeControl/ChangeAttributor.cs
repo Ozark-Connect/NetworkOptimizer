@@ -31,8 +31,11 @@ public static class ChangeAttributor
     /// <summary>How far apart a journal write and its AUDIT event may be.</summary>
     public static readonly TimeSpan JournalSlack = TimeSpan.FromMinutes(3);
 
-    /// <summary>How long after a Network app version change unattributed changes count as likely UniFi.</summary>
-    public static readonly TimeSpan UpgradeWindow = TimeSpan.FromMinutes(60);
+    /// <summary>
+    /// How long after a Network app version change unattributed changes count as likely UniFi. The migration runs before
+    /// the app answers, so the first snapshots after it see its rewrites; an hour credited the admin's own edits to it.
+    /// </summary>
+    public static readonly TimeSpan UpgradeWindow = TimeSpan.FromMinutes(10);
 
     /// <summary>How long after a device's firmware changes its own unattributed changes count as likely UniFi.</summary>
     public static readonly TimeSpan DeviceUpgradeWindow = TimeSpan.FromMinutes(20);
@@ -250,12 +253,14 @@ public static class ChangeAttributor
         new(@"^port_overrides\[port_idx=\d+\]\.excluded_networkconf_ids$", System.Text.RegularExpressions.RegexOptions.CultureInvariant);
 
     /// <summary>
-    /// The AUDIT event behind a change UniFi writes with no event of its own (UDR7, Network 11, 2026-10-30), held to two shapes:
+    /// The AUDIT event behind a change UniFi writes with no event of its own (UDR7, Network 11, 2026-10-30), held to three shapes:
     /// <list type="bullet">
     /// <item>A zone whose only change is its networks: each network added or removed has a network event in the window
     /// that moves it (created, removed, or its zone changed: see <see cref="MovesZone"/>).</item>
     /// <item>A device whose only changes are port <c>excluded_networkconf_ids</c> lists: each network added or removed was
-    /// created or removed in the window. UniFi logs the same edit on port profiles, not on devices.</item>
+    /// created or removed in the window.</item>
+    /// <item>A port profile whose only change is its <c>excluded_networkconf_ids</c>, held to the same rule. UniFi logs it
+    /// sometimes (as "Network Application"), and not when a network is removed (main, 11.1.58, 2026-11-23).</item>
     /// </list>
     /// Every network must be accounted for, all by one actor; anything else stays unattributed. Returns the newest such event.
     /// </summary>
@@ -263,7 +268,8 @@ public static class ChangeAttributor
     {
         if (obj.Action != ConfigChangeAction.Updated || obj.Fields.Count == 0) return null;
         var zone = obj.Collection == "firewall_zone" && obj.Fields.All(f => f.Path == "network_ids");
-        var device = obj.Collection == "device" && obj.Fields.All(f => PortExclusionPath.IsMatch(f.Path));
+        var device = (obj.Collection == "device" && obj.Fields.All(f => PortExclusionPath.IsMatch(f.Path)))
+            || (obj.Collection == "portconf" && obj.Fields.All(f => f.Path == "excluded_networkconf_ids"));
         if (!zone && !device) return null;
 
         var changed = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
