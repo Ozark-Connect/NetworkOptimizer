@@ -50,8 +50,7 @@ public static class LanSiteDetectors
         f.AddRange(StpConfig(s));
         f.AddRange(Lacp(s));
         f.AddRange(NativeVlanMismatch(s));
-        f.AddRange(LinkConfigConsistency(s));
-        f.AddRange(MtuOnPath(s));
+        f.AddRange(LinkConfig(s));
         f.AddRange(MulticastHygiene(s));
         f.AddRange(Bottleneck(s));
         f.AddRange(HairpinLoad(s));
@@ -237,23 +236,41 @@ public static class LanSiteDetectors
     }
 
     // ---- Flow Control / Jumbo Frames consistency (Config Optimizer's checks, called) ----
-    internal static IEnumerable<LinkFinding> LinkConfigConsistency(SiteEvidence s)
+    /// <summary>
+    /// Config Optimizer's Jumbo Frames and Flow Control checks plus the per-link jumbo comparison, one
+    /// finding per cause: a device's "Jumbo Frames Disabled" result folds into the link findings it
+    /// causes, as their fix, instead of showing beside them.
+    /// </summary>
+    internal static List<LinkFinding> LinkConfig(SiteEvidence s)
     {
-        if (s.Devices.Count == 0) yield break;
-        List<Diagnostics.Models.PerformanceIssue> issues;
+        var config = ConfigOptimizerIssues(s);
+        var disabled = config.Where(i => i.Title.StartsWith("Jumbo Frames Disabled on ", StringComparison.Ordinal) && i.DeviceName != null)
+            .GroupBy(i => i.DeviceName!).ToDictionary(g => g.Key, g => g.First());
+        var links = MtuOnPath(s, disabled).ToList();
+        var folded = links.SelectMany(f => disabled.Keys.Where(d => f.Body.Contains(d, StringComparison.Ordinal))).ToHashSet();
+        var result = config
+            .Where(i => !(i.DeviceName != null && folded.Contains(i.DeviceName) && disabled.ContainsKey(i.DeviceName)))
+            .Select(i => Site(Detectors.MtuMismatch, i.Title.Contains("Jumbo", StringComparison.OrdinalIgnoreCase) ? "Jumbo Frames" : "Flow Control",
+                i.DeviceName ?? "site", $"{i.Description} {i.Recommendation}".Trim(), chips: "Config"))
+            .ToList();
+        result.AddRange(links);
+        return result;
+    }
+
+    private static List<Diagnostics.Models.PerformanceIssue> ConfigOptimizerIssues(SiteEvidence s)
+    {
+        if (s.Devices.Count == 0) return [];
         try
         {
             var analyzer = new PerformanceAnalyzer(new NetworkOptimizer.Audit.Services.DeviceTypeDetectionService());
-            issues = analyzer.AnalyzeLinkConfig(s.Devices.ToList(), s.Networks.ToList(), s.Clients.ToList(), s.Settings, s.PortProfiles.ToList());
+            return analyzer.AnalyzeLinkConfig(s.Devices.ToList(), s.Networks.ToList(), s.Clients.ToList(), s.Settings, s.PortProfiles.ToList());
         }
-        catch (Exception) { yield break; }
-        foreach (var i in issues)
-            yield return Site(Detectors.MtuMismatch, i.Title.Contains("Jumbo", StringComparison.OrdinalIgnoreCase) ? "Jumbo Frames" : "Flow Control",
-                i.DeviceName ?? "site", $"{i.Description} {i.Recommendation}".Trim(), chips: "Config");
+        catch (Exception) { return []; }
     }
 
     // ---- 22 MTU / jumbo on a path: jumbo on some hops only ----
-    internal static IEnumerable<LinkFinding> MtuOnPath(SiteEvidence s)
+    internal static IEnumerable<LinkFinding> MtuOnPath(SiteEvidence s,
+        IReadOnlyDictionary<string, Diagnostics.Models.PerformanceIssue>? disabledByDevice = null)
     {
         // Compared only where both devices report a jumbo frame setting: an AP's port reads jumbo off
         // with no setting to change, so a mismatch there would suggest something nobody can enable.
@@ -263,8 +280,12 @@ public static class LanSiteDetectors
             var up = l.Link.UpstreamPort.Jumbo;
             var down = l.Link.DownstreamPort?.Jumbo;
             if (up == null || down == null || up == down) continue;
-            yield return Site(Detectors.MtuMismatch, "Jumbo Frames Mismatch", l.Link.Name,
-                $"Jumbo frames are {(up == true ? "on" : "off")} on {l.Link.Upstream.DeviceName} and {(down == true ? "on" : "off")} on {l.Link.Downstream.DeviceName}, so large frames get dropped on this link.",
+            var body = $"Jumbo frames are {(up == true ? "on" : "off")} on {l.Link.Upstream.DeviceName} and {(down == true ? "on" : "off")} on {l.Link.Downstream.DeviceName}, so large frames get dropped on this link.";
+            // The cause, when Config Optimizer found it: that device is off the global setting.
+            var cause = disabledByDevice == null ? null
+                : disabledByDevice.GetValueOrDefault(l.Link.Upstream.DeviceName) ?? disabledByDevice.GetValueOrDefault(l.Link.Downstream.DeviceName);
+            if (cause != null) body += $" {cause.Description} {cause.Recommendation}";
+            yield return Site(Detectors.MtuMismatch, "Jumbo Frames Mismatch", l.Link.Name, body.Trim(),
                 FindingSeverity.Warning, l.Link.Id, chips: "MTU");
         }
     }

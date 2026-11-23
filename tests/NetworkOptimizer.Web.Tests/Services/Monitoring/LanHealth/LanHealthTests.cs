@@ -266,6 +266,16 @@ public class LanHealthTests
         // Today's APs report no jumboframe_enabled; one that gains the setting is compared like a switch.
         LanSiteDetectors.MtuOnPath(new SiteEvidence { Links = [Health(false)] }).Should().BeEmpty();
         LanSiteDetectors.MtuOnPath(new SiteEvidence { Links = [Health(true)] }).Should().ContainSingle();
+
+        // Config Optimizer's "disabled on this device" result becomes the link finding's cause and fix.
+        var cause = new NetworkOptimizer.Diagnostics.Models.PerformanceIssue
+        {
+            Title = "Jumbo Frames Disabled on Device B", Description = "Device B is off the global setting.",
+            Recommendation = "Turn it on for Device B.", DeviceName = "Device B",
+        };
+        var f = LanSiteDetectors.MtuOnPath(new SiteEvidence { Links = [Health(true)] },
+            new Dictionary<string, NetworkOptimizer.Diagnostics.Models.PerformanceIssue> { ["Device B"] = cause }).Single();
+        f.Body.Should().EndWith("Device B is off the global setting. Turn it on for Device B.");
     }
 
     [Fact]
