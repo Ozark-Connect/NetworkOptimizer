@@ -183,14 +183,12 @@ public sealed class LanHealthEngine
         // client that is offline now (a sleeping PC), its name from the console's client history.
         IReadOnlyDictionary<string, string> displayNames = new Dictionary<string, string>();
         List<UniFiClientDetailResponse> history = [];
-        List<UniFiClientResponse> known = [];
         try
         {
             displayNames = await NetworkOptimizer.UniFi.ClientDisplayNameCache.GetAsync(client);
-            // The LAN map's lookback and order: 90 days of history for the console's own names, then a
-            // user-set alias from rest/user wins.
+            // Offline clients are named from the console's client history through ClientNames, as Live
+            // Traffic names them; 90 days, the LAN map's lookback.
             history = await client.GetClientHistoryAsync(OfflineNameLookbackHours, ct);
-            known = await client.GetAllKnownClientsAsync(ct);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -200,8 +198,6 @@ public sealed class LanHealthEngine
             .GroupBy(h => LanLinkBuilder.Mac(h.Mac))
             .Select(g => (g.Key, Name: NetworkOptimizer.UniFi.ClientNames.For(g.First())))
             .Where(x => x.Name != null).ToDictionary(x => x.Key, x => x.Name!);
-        foreach (var k in known.Where(k => !string.IsNullOrEmpty(k.Mac) && !string.IsNullOrWhiteSpace(k.Name)))
-            offlineNames[LanLinkBuilder.Mac(k.Mac)] = k.Name!.Trim();
         var portClients = clients.Select(c => new LanLinkBuilder.PortClient(LanLinkBuilder.Mac(c.Mac),
             NetworkOptimizer.UniFi.ClientNames.Choose(displayNames.GetValueOrDefault(c.Mac.ToLowerInvariant()), c.Name, c.UnifiDeviceInfoFromUcore?.Name,
                 c.Hostname, c.IsUniFiDevice) ?? offlineNames.GetValueOrDefault(LanLinkBuilder.Mac(c.Mac)) ?? LanLinkBuilder.Mac(c.Mac),
