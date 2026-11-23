@@ -120,4 +120,17 @@ public class LanLinkBuilderTests
     [Fact]
     public void TheConduit_HasNoPortTableEntry_SoNeverScores() =>
         LanHealthPorts.IsScored(null, "eth6", isGateway: true).Should().BeFalse("a gateway's 10G conduit to its switch chip is not a port_table port");
+
+    [Fact]
+    public void Exclusions_ApplyByPortProfileDeviceOrAllAccess()
+    {
+        var access = Build().First(l => l.Id == LanLinkBuilder.AccessId(Gw, 3));
+        NetworkOptimizer.Storage.Models.LanHealthExclusion X(string scope, string key) => new() { Scope = scope, Key = key, Level = 1 };
+        LanHealthReportBuilder.Applies(access, X("port", access.Id)).Should().BeTrue();
+        LanHealthReportBuilder.Applies(access, X("device", Gw)).Should().BeTrue("the upstream device");
+        LanHealthReportBuilder.Applies(access, X("device", Pc)).Should().BeTrue("the client on it");
+        LanHealthReportBuilder.Applies(access, X("access-all", "")).Should().BeTrue();
+        LanHealthReportBuilder.Applies(access, X("port", "other")).Should().BeFalse();
+        LanHealthReportBuilder.Applies(access, X("profile", "p1")).Should().BeFalse("the port has no profile");
+    }
 }

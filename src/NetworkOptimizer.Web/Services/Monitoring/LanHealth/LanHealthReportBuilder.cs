@@ -18,23 +18,23 @@ public static class LanHealthReportBuilder
         ExclusionLevel? level = null;
         void Take(int l) { var e = (ExclusionLevel)l; if (level == null || e > level) level = e; }
         foreach (var x in exclusions)
-        {
-            var hit = x.Scope switch
-            {
-                "port" => x.Key == link.Id,
-                "device" => string.Equals(x.Key, link.Upstream.DeviceMac, StringComparison.OrdinalIgnoreCase)
-                    || string.Equals(x.Key, link.Downstream.DeviceMac, StringComparison.OrdinalIgnoreCase),
-                "profile" => !string.IsNullOrEmpty(link.UpstreamPort.PortProfileId) && x.Key == link.UpstreamPort.PortProfileId,
-                "access-all" => link.Kind == LinkKind.Access,
-                _ => false,
-            };
-            if (hit) Take(x.Level);
-        }
+            if (Applies(link, x)) Take(x.Level);
         if (scoreFabricOnly && link.Kind == LinkKind.Access) Take((int)ExclusionLevel.ExcludeFromScore);
         // Fabric links can be muted but never excluded: a fabric fault hits everyone behind it.
         if (link.IsFabric && level == ExclusionLevel.ExcludeFromScore) level = ExclusionLevel.MuteAlerts;
         return level;
     }
+
+    /// <summary>Whether an exclusion covers the link: its port, its port profile, either device, or every access port.</summary>
+    public static bool Applies(LinkRecord link, LanHealthExclusion x) => x.Scope switch
+    {
+        "port" => x.Key == link.Id,
+        "device" => string.Equals(x.Key, link.Upstream.DeviceMac, StringComparison.OrdinalIgnoreCase)
+            || string.Equals(x.Key, link.Downstream.DeviceMac, StringComparison.OrdinalIgnoreCase),
+        "profile" => !string.IsNullOrEmpty(link.UpstreamPort.PortProfileId) && x.Key == link.UpstreamPort.PortProfileId,
+        "access-all" => link.Kind == LinkKind.Access,
+        _ => false,
+    };
 
     /// <summary>One link's evidence over a window, from its stored hours.</summary>
     public static LinkEvidence EvidenceFromRows(LinkRecord link, IReadOnlyList<LanHealthLinkHour> rows, IReadOnlyList<LanHealthLinkHour> baseline,

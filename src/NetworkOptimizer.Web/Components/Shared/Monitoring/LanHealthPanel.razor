@@ -837,7 +837,9 @@ else
         _exclusionError = null;
         try
         {
-            await LanHealth.RemoveExclusionAsync(_exclusionScope, ExclusionKey(link));
+            // Every exclusion that covers this link, whatever scope it was set at: the selector resets to the port.
+            foreach (var x in (await LanHealth.GetExclusionsAsync()).Where(x => LanHealthReportBuilder.Applies(link, x)))
+                await LanHealth.RemoveExclusionAsync(x.Scope, x.Key);
             await LoadAsync();
         }
         catch (Exception ex) { _exclusionError = ex.Message; }

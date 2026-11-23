@@ -754,8 +754,33 @@ public sealed class LanHealthEngine
             .Where(r => r.HourStart >= from && r.HourStart < to && r.Name != null && names.Contains(r.Name))
             .Select(r => new { r.HourStart, r.Name, r.LinkId }).ToListAsync(ct);
         var idOf = ids.GroupBy(r => (r.HourStart, r.Name)).ToDictionary(g => g.Key, g => g.First().LinkId);
-        return hours.ToDictionary(h => DateTime.SpecifyKind(h.HourStart, DateTimeKind.Utc),
+        var result = hours.ToDictionary(h => DateTime.SpecifyKind(h.HourStart, DateTimeKind.Utc),
             h => (h.HourImpairment!.Value, h.Worst, h.Worst != null ? idOf.GetValueOrDefault((h.HourStart, (string?)h.Worst)) : null));
+
+        // Hours not stored yet (the one in progress, and the last closed one until the tick stores it) are
+        // computed live, as the LAN Health page shows them: Site Health's provisional hour would otherwise
+        // read no LAN impairment at all.
+        var now = DateTime.UtcNow;
+        var live = LiveHoursFor(now, result.ContainsKey(FloorHour(now).AddHours(-1))).Where(h => h >= from && h < to && !result.ContainsKey(h)).ToList();
+        if (live.Count > 0 && await GetTopologyAsync(ct) is { Links.Count: > 0 } topology)
+        {
+            try
+            {
+                var report = await GetReportAsync(48, TimeZoneInfo.Utc, DisplayFormat.Fallback, ct);
+                var rows = await LiveHoursAsync(topology, live, ct);
+                foreach (var h in live)
+                {
+                    var (impairment, worst) = LanHealthReportBuilder.HourImpairment(rows.Where(r => r.HourStart == h).ToList(), topology.Links,
+                        topology.Exclusions, topology.ScoreFabricOnly, report.Findings);
+                    result[h] = (Math.Round(impairment, 4), worst, worst == null ? null : topology.Links.FirstOrDefault(l => l.Name == worst)?.Id);
+                }
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                _logger.LogDebug(ex, "LAN Health: live hours for Site Health failed for {Site}", _slug);
+            }
+        }
+        return result;
     }
 
     /// <summary>When each stored LAN Health hour in [from, to) was last computed, so Site Health can redo hours scored before it.</summary>
