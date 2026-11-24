@@ -32,7 +32,8 @@
             </p>
         }
 
-        <div class="form-group">
+        @* data-autosave: Activate commits the key, so it is not an unsaved card edit. *@
+        <div class="form-group" data-autosave>
             <label class="form-label">License Key</label>
             <input type="text" class="form-control" @bind="_enteredKey" @bind:event="oninput"
                    placeholder="NO-XXXXX-XXXXX-XXXXX-XXXXX-XXXXX-XXXXX"
