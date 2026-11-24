@@ -24,6 +24,8 @@ public static class LinkEventAligner
     internal static readonly TimeSpan DropMaxDown = TimeSpan.FromSeconds(60);
     internal static readonly TimeSpan ErrorAttachWindow = TimeSpan.FromSeconds(60);
     internal static readonly TimeSpan AdminChangeWindow = TimeSpan.FromMinutes(2);
+    /// <summary>How far apart an outage's down and its up may sit and still be one outage.</summary>
+    internal static readonly TimeSpan OutageMaxPair = TimeSpan.FromMinutes(30);
 
     /// <summary>A source that covers this link, and the spans it was actually reporting.</summary>
     public sealed record Observer(LinkSource Source, IReadOnlyList<(DateTime Start, DateTime End)> Observing, bool CountsDrops, bool CountsErrors);
@@ -73,17 +75,18 @@ public static class LinkEventAligner
             else if (loss) i.Kind = IncidentKind.LossBurst;
         }
 
-        // A down followed by its up in a separate anchor (more than MergeGap apart, under a minute) is one drop.
+        // A down followed by its up in a separate anchor (more than MergeGap apart) is one incident: a drop under a
+        // minute, else an outage with its downtime (a reboot), rather than an outage plus an up-only relink.
         for (var k = 0; k + 1 < incidents.Count; k++)
         {
             var a = incidents[k];
             var b = incidents[k + 1];
             if (a.Kind == IncidentKind.Outage && !a.HasUp() && b.Events.Any(e => e.Type == LinkEventType.LinkUp) && !b.HasDown()
-                && b.Start - a.Start <= DropMaxDown)
+                && b.Start - a.Start <= OutageMaxPair)
             {
                 foreach (var e in b.Events) { a.Events.Add(e); a.SeenBy.Add(e.Source); }
                 a.End = b.End;
-                a.Kind = IncidentKind.Drop;
+                if (b.Start - a.Start <= DropMaxDown) a.Kind = IncidentKind.Drop;
                 a.SpeedAfterMbps = b.SpeedAfterMbps;
                 incidents.RemoveAt(k + 1);
             }

@@ -831,6 +831,7 @@ else
         IncidentKind.Drop when i.DownSeconds is double s => $"Drop, {Math.Max(1, Math.Round(s)):0} s",
         IncidentKind.Drop => "Relink",
         IncidentKind.Relink => i.Count > 1 ? $"Relink x{i.Count:0}" : "Relink",
+        IncidentKind.Outage when i.DownSeconds is double s => $"Outage, {TimeFormatHelper.FormatDurationCompact(TimeSpan.FromSeconds(s))}",
         IncidentKind.Outage => "Outage",
         IncidentKind.SpeedChange => "Speed change",
         IncidentKind.ErrorBurst => "Error burst",

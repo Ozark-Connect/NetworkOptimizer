@@ -150,6 +150,23 @@ public class LanHealthTests
     }
 
     [Fact]
+    public void Aligner_DownThenUpMinutesLater_IsOneOutageWithItsDowntime()
+    {
+        var t = new DateTime(2026, 1, 1, 10, 0, 0, DateTimeKind.Utc);
+        var events = new List<LinkEvent>
+        {
+            new(t, t.AddSeconds(1), LinkEventType.LinkDown, LinkSource.ApKernelLog, LinkSide.Downstream),
+            new(t.AddSeconds(150), t.AddSeconds(151), LinkEventType.LinkUp, LinkSource.ApKernelLog, LinkSide.Downstream, SpeedMbps: 1000),
+        };
+
+        var incidents = LinkEventAligner.Align(events, [], [], new HashSet<string> { ApMac });
+
+        incidents.Should().ContainSingle();
+        incidents[0].Kind.Should().Be(IncidentKind.Outage);
+        incidents[0].DownSeconds.Should().BeApproximately(150, 1);
+    }
+
+    [Fact]
     public void Aligner_ErrorsAfterDropAttach_AndRebootExplains()
     {
         var t = new DateTime(2026, 1, 1, 10, 0, 0, DateTimeKind.Utc);
