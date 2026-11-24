@@ -9,7 +9,9 @@
 @inject AddressBarState AddressBar
 @implements IDisposable
 
-@if (_enabled && _sites.Count > 0)
+@* One site has nothing to switch to: multi-site stays on for its agents, so the switcher hides itself.
+   Counted from configured sites (enabled, reachable), never from which ones are online. *@
+@if (_enabled && _sites.Count > 1)
 {
     <div class="site-switcher" @onkeydown="HandleKeyDown">
         <button type="button" class="site-switcher-trigger" @onclick="ToggleDropdown" @onclick:stopPropagation="true">
