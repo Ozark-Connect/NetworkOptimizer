@@ -290,8 +290,20 @@ public sealed class LanHealthEngine
         _topologyAt = DateTime.UtcNow;
         // Wired clients by the port they sit on, named as the links name it ("Switch A Port 3").
         var portName = devices.Where(d => !string.IsNullOrEmpty(d.Mac)).GroupBy(d => LanLinkBuilder.Mac(d.Mac)).ToDictionary(g => g.Key, g => g.First().Name ?? g.Key);
+        string PortLabel(string mac, int port) => $"{portName.GetValueOrDefault(LanLinkBuilder.Mac(mac)) ?? mac} Port {port}";
+        var uplinkPath = new Dictionary<string, IReadOnlyCollection<string>>();
+        IReadOnlyCollection<string> UplinkPath(string switchMac)
+        {
+            var key = LanLinkBuilder.Mac(switchMac);
+            if (uplinkPath.TryGetValue(key, out var known)) return known;
+            var path = new HashSet<string>();
+            var seen = new HashSet<string>();
+            for (var m = key; seen.Add(m) && downstreamToLink.TryGetValue(m, out var up); m = LanLinkBuilder.Mac(up.Upstream.DeviceMac))
+                if (up.Upstream.PortIdx is int p) path.Add(PortLabel(up.Upstream.DeviceMac, p));
+            return uplinkPath[key] = path;
+        }
         MacMoves.Observe(_topologyAt, clients.Where(c => c.IsWired && c.SwPort is > 0 && !string.IsNullOrEmpty(c.SwMac))
-            .Select(c => (c.Mac, NetworkOptimizer.UniFi.ClientNames.For(c) ?? c.Mac, $"{portName.GetValueOrDefault(LanLinkBuilder.Mac(c.SwMac)) ?? c.SwMac} Port {c.SwPort}")));
+            .Select(c => (c.Mac, NetworkOptimizer.UniFi.ClientNames.For(c) ?? c.Mac, PortLabel(c.SwMac!, c.SwPort!.Value), UplinkPath(c.SwMac!))));
         return _topology;
     }
 
