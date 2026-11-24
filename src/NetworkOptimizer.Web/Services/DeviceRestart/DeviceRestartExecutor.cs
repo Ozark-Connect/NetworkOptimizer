@@ -341,7 +341,7 @@ public sealed class DeviceRestartExecutor : BackgroundService, ISiteScopedRegist
             var proposal = await reader.ProposeQuietAsync(topology, devices, request.DeviceMac, ct);
             request.DueAtUtc = proposal.StartUtc;
             request.QuietBasis = proposal.Basis;
-            Audit(reader.SiteSlug, request, AuditOutcomes.Success, "moved", $"The lockout outlasted the quiet hour; moved to {proposal.StartUtc:u}.");
+            Audit(reader.SiteSlug, request, AuditOutcomes.Success, "moved", $"The lockout outlasted the quiet hour; moved to {proposal.StartUtc:yyyy-MM-dd HH:mm} UTC.");
             _logger.LogInformation("Device restart {Site}: {Device} moved to the next quiet hour, {At:u}", reader.SiteSlug, request.DeviceName, proposal.StartUtc);
             return;
         }

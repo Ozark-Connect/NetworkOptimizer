@@ -74,6 +74,16 @@ public sealed class PlanCoordinator
     /// <summary>Mutes device offline and reboot alerts for a few minutes from now (a zone write re-provisions the gateway).</summary>
     public Action? QuietDevices { get; set; }
 
+    /// <summary>The clock alert text and stored report notes are written on; null writes UTC, labeled.</summary>
+    public NetworkOptimizer.Alerts.Interfaces.INotificationTimeZoneResolver? NotificationClock { get; set; }
+
+    private async Task<string> AlertTimeAsync(DateTime utc, CancellationToken ct)
+    {
+        var zone = NotificationClock != null ? await NotificationClock.ResolveAsync(Slug, ct) : TimeZoneInfo.Utc;
+        var format = NotificationClock != null ? await NotificationClock.ResolveFormatAsync(Slug, ct) : DisplayFormat.Fallback;
+        return TimeFormatHelper.FormatLabeledDateTime(utc, zone, format);
+    }
+
     // A gateway provisions for about two minutes after a zone write (grounding.md 2026-10-23); it is not in state 5 at once.
     internal static TimeSpan ZoneSettleFirstWait = TimeSpan.FromSeconds(20);
     internal static TimeSpan ZoneSettlePoll = TimeSpan.FromSeconds(15);
@@ -305,7 +315,7 @@ public sealed class PlanCoordinator
         plan.Status = plan.ScheduledFor != null ? ConfigPlanStatus.Scheduled : ConfigPlanStatus.Approved;
         await _engine.Repositories.UseAsync((r, c) => r.UpdatePlanAsync(plan, c), ct);
         await Publish(ChangeAlerts.PlanApproved, AlertSeverity.Info, $"Plan approved: {plan.Name}",
-            $"Approved by {by}." + (plan.ScheduledFor is { } at ? $" Scheduled for {at:u}." : plan.ApplyOnApproval ? " Applying now." : ""), plan.Id, ct);
+            $"Approved by {by}." + (plan.ScheduledFor is { } at ? $" Scheduled for {await AlertTimeAsync(at, ct)}." : plan.ApplyOnApproval ? " Applying now." : ""), plan.Id, ct);
         if (plan.ApplyOnApproval && plan.ScheduledFor == null)
         {
             // The gate audited the approval; the apply it starts needs its own row.
@@ -1064,7 +1074,7 @@ public sealed class PlanCoordinator
         var rolloutDoc = new RolloutPlanDocument();
         rolloutDoc.Notes.Add($"Change Control plan: {plan.Name}");
         foreach (var s in incidents)
-            rolloutDoc.Notes.Add($"Incident after{(s.IsWan ? " (WAN)" : "")}: {s.Incident.Title} ({s.Incident.FirstTriggeredAt:u})");
+            rolloutDoc.Notes.Add($"Incident after{(s.IsWan ? " (WAN)" : "")}: {s.Incident.Title} ({await AlertTimeAsync(s.Incident.FirstTriggeredAt, ct)})");
         var report = RolloutReportBuilder.Build(rolloutPlan, rolloutDoc, steps, DateTime.UtcNow);
         foreach (var row in report.Rows) row.Outcome = "Applied";
         plan.ReportJson = JsonSerializer.Serialize(report);

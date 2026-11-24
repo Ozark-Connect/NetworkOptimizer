@@ -48,6 +48,7 @@ public class AgentConnectionAlertMonitor : BackgroundService
     private readonly AgentOnGatewayDetector _onGateway;
     private readonly SiteTunnelRouting _tunnelRouting;
     private readonly IServiceScopeFactory? _scopes;
+    private readonly NetworkOptimizer.Alerts.Interfaces.INotificationTimeZoneResolver? _notificationClock;
 
     private const string OfflineEventType = "agent.offline";
     private const string ReconnectedEventType = "agent.reconnected";
@@ -63,9 +64,11 @@ public class AgentConnectionAlertMonitor : BackgroundService
         AgentOnGatewayDetector onGateway,
         SiteTunnelRouting tunnelRouting,
         ILogger<AgentConnectionAlertMonitor> logger,
-        IServiceScopeFactory? scopes = null)
+        IServiceScopeFactory? scopes = null,
+        NetworkOptimizer.Alerts.Interfaces.INotificationTimeZoneResolver? notificationClock = null)
     {
         _scopes = scopes;
+        _notificationClock = notificationClock;
         _mainDbFactory = mainDbFactory;
         _tunnelRegistry = tunnelRegistry;
         _alertBus = alertBus;
@@ -73,6 +76,14 @@ public class AgentConnectionAlertMonitor : BackgroundService
         _onGateway = onGateway;
         _tunnelRouting = tunnelRouting;
         _logger = logger;
+    }
+
+    /// <summary>A time in alert text: the site's notification clock, labeled with its zone (UTC without a clock).</summary>
+    private async Task<string> AlertTimeAsync(DateTime utc, string slug, CancellationToken ct)
+    {
+        var zone = _notificationClock != null ? await _notificationClock.ResolveAsync(slug, ct) : TimeZoneInfo.Utc;
+        var format = _notificationClock != null ? await _notificationClock.ResolveFormatAsync(slug, ct) : DisplayFormat.Fallback;
+        return TimeFormatHelper.FormatLabeledDateTime(utc, zone, format);
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -175,8 +186,8 @@ public class AgentConnectionAlertMonitor : BackgroundService
             if (!state.Alerted && now - state.OfflineSince >= OfflineThreshold)
             {
                 state.Alerted = true;
-                var lastSeen = agent.LastSeenAt.HasValue
-                    ? $"Last seen {agent.LastSeenAt:u}."
+                var lastSeen = agent.LastSeenAt is { } seenAt
+                    ? $"Last seen {await AlertTimeAsync(seenAt, entry.Slug, ct)}."
                     : "";
                 var minutes = (int)OfflineThreshold.TotalMinutes;
 
