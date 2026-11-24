@@ -333,9 +333,7 @@ public static class LanHealthEvidenceBuilder
                 i.MissedBy.Remove(LinkSource.PortInsights);
             }
 
-        double? lossPct = probed.Count > 0 && probed.Any(x.Probes.ContainsKey)
-            ? probed.Where(x.Probes.ContainsKey).Average(t => x.Probes[t].MeanLoss)
-            : null;
+        var lossPct = ProbeLossPct(probed, x, explain);
         var rtts = probed.Where(x.Probes.ContainsKey).Select(t => x.Probes[t].RttMs).OfType<double>().ToList();
         double? rttMs = rtts.Count > 0 ? rtts.Average() : null;
         var mesh = MeshFor(link, x);
@@ -471,6 +469,26 @@ public static class LanHealthEvidenceBuilder
 
     /// <summary>A mesh re-association's outage, for the timeline: the child rescans and rejoins in a few seconds.</summary>
     internal const double MeshReassociationSeconds = 5;
+
+    /// <summary>
+    /// The probed targets' mean loss over the hour, leaving out samples inside an explain window for the target's
+    /// device (an upgrade, a reboot, a rollout wave): a device going dark on purpose is not a lossy link. Over all
+    /// samples taken, so a sample left out counts as clean; the window is minutes of an hour.
+    /// </summary>
+    internal static double? ProbeLossPct(IReadOnlyList<string> probed, HourInputs x, IReadOnlyList<ExplainWindow> explain)
+    {
+        var counted = probed.Where(t => x.Probes.TryGetValue(t, out var p) && p.Samples > 0).ToList();
+        if (counted.Count == 0) return null;
+        return counted.Average(t =>
+        {
+            var mac = x.TargetDevices.TryGetValue(t, out var m) ? m : "";
+            var lost = x.Loss.Where(p => p.TargetId == t && !explain.Any(w =>
+                    (w.DeviceMac.Length == 0 || string.Equals(w.DeviceMac, mac, StringComparison.OrdinalIgnoreCase))
+                    && p.Time >= w.Start && p.Time <= w.End))
+                .Sum(p => p.LossPercent);
+            return lost / x.Probes[t].Samples;
+        });
+    }
 
     /// <summary>The hour had drops, and every one of them is explained.</summary>
     internal static bool AllDropsExplained(IReadOnlyList<LinkIncident> incidents)

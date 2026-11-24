@@ -156,6 +156,28 @@ public class MeshBackhaulTests
     }
 
     [Fact]
+    public void ProbeLoss_LeavesOutSamplesInsideAnExplainWindow()
+    {
+        // 600 samples in the hour; 12 lost while the AP rebooted for its upgrade, 3 lost later on their own.
+        var upgrade = Hour.AddMinutes(30);
+        var loss = Enumerable.Range(0, 12).Select(i => new MonitoringInfluxClient.ProbeLossPoint(upgrade.AddSeconds(i * 5), "fabric-ap", 100))
+            .Concat(Enumerable.Range(0, 3).Select(i => new MonitoringInfluxClient.ProbeLossPoint(Hour.AddMinutes(50).AddSeconds(i * 5), "fabric-ap", 100)))
+            .ToList();
+        var x = new LanHealthEvidenceBuilder.HourInputs
+        {
+            Hour = Hour,
+            Loss = loss,
+            Probes = new Dictionary<string, (int, double, double?)> { ["fabric-ap"] = (600, 2.5, 1.0) },
+            TargetDevices = new Dictionary<string, string> { ["fabric-ap"] = ChildMac },
+        };
+        var window = new ExplainWindow(upgrade.AddMinutes(-2), upgrade.AddMinutes(6), ChildMac, ExplainReason.FirmwareRolloutWave);
+
+        LanHealthEvidenceBuilder.ProbeLossPct(["fabric-ap"], x, []).Should().BeApproximately(2.5, 0.01);
+        LanHealthEvidenceBuilder.ProbeLossPct(["fabric-ap"], x, [window]).Should().BeApproximately(0.5, 0.01,
+            "only the 3 samples lost outside the upgrade count");
+    }
+
+    [Fact]
     public void StpChanges_InAnHourOfExplainedDropsOnly_AreExplained()
     {
         LinkIncident Drop(ExplainReason? why) => new() { Kind = IncidentKind.Drop, Explained = why };
