@@ -1,6 +1,6 @@
 // Pins an lt-fpop popover to the button that opened it with fixed positioning, so a parent's
 // overflow (a card, a table's scroll box) does not clip it, and keeps it there on scroll and resize.
-// A phone's bottom sheet (app.css) is left alone.
+// A phone's bottom sheet (app.css) is left alone. watch() animates any lt-fpop's height changes.
 
 const placed = new Map();
 
@@ -17,6 +17,7 @@ export function place(pop, anchor, opts) {
     const update = () => {
         if (window.matchMedia('(max-width: 768px)').matches) {
             pop.style.position = pop.style.top = pop.style.left = '';
+            delete pop.dataset.placedAbove;
             return;
         }
         const r = anchor.getBoundingClientRect();
@@ -24,7 +25,9 @@ export function place(pop, anchor, opts) {
         const height = pop.offsetHeight;
         pop.style.position = 'fixed';
         const fitsAbove = r.top - height - 8 >= 8;
-        pop.style.top = above && fitsAbove ? `${r.top - height - 8}px` : `${r.bottom + 8}px`;
+        const isAbove = above && fitsAbove;
+        pop.style.top = isAbove ? `${r.top - height - 8}px` : `${r.bottom + 8}px`;
+        if (isAbove) pop.dataset.placedAbove = ''; else delete pop.dataset.placedAbove;
         pop.style.left = `${Math.max(16, Math.min(r.right - width + (above ? 0 : 40), window.innerWidth - width - 16))}px`;
     };
     update();
@@ -37,8 +40,9 @@ const watched = new Map();
 
 /**
  * Animates the popover's height whenever its content changes it (loading to loaded, an option that adds a
- * field), on a phone's bottom sheet and a desktop popover alike, and re-pins a placed popover at its new
- * height. Call once, when the popover first renders.
+ * field, a filter list narrowing), on a phone's bottom sheet and a desktop popover alike, and re-pins a
+ * placed popover at its new height. Works on an unplaced popover too (Live Traffic's filter editor, which
+ * hangs under its chip). Call once, when the popover first renders.
  */
 export function watch(pop) {
     if (!pop || watched.has(pop) || typeof ResizeObserver === 'undefined') return;
@@ -51,17 +55,44 @@ export function watch(pop) {
         placed.get(pop)?.();
         const from = prev;
         prev = next;
-        if (!from || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+        // Not while hidden awaiting its first placement: place() would measure it mid-animation.
+        if (!from || getComputedStyle(pop).visibility === 'hidden'
+            || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
         animating = true;
-        // Runs before paint, so the new height never shows unanimated.
-        const a = pop.animate([{ height: `${from}px`, overflow: 'hidden' }, { height: `${next}px`, overflow: 'hidden' }],
-            { duration: 180, easing: 'ease-out' });
+        // Runs before paint, so the new height never shows unanimated. Grows away from its button: a
+        // popover pinned above it keeps its bottom edge there (top moves with the height); one below, or a
+        // phone's bottom sheet, keeps the edge it is anchored by.
+        const keyframes = [{ height: `${from}px`, overflow: 'hidden' }, { height: `${next}px`, overflow: 'hidden' }];
+        if ('placedAbove' in pop.dataset) {
+            const top = parseFloat(pop.style.top);
+            keyframes[0].top = `${top + next - from}px`;
+            keyframes[1].top = `${top}px`;
+        }
+        const a = pop.animate(keyframes, { duration: 180, easing: 'ease-out' });
         const done = () => { animating = false; prev = pop.offsetHeight; };
         a.onfinish = done;
         a.oncancel = done;
     });
     ro.observe(pop);
     watched.set(pop, ro);
+}
+
+/**
+ * Plays the popover out before it is removed: a phone's bottom sheet slides down from wherever a drag left
+ * it, with its scrim fading; a desktop popover fades. Resolves when done, so the caller removes it then.
+ */
+export function dismiss(pop) {
+    if (!pop || !pop.isConnected || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return Promise.resolve();
+    const sheet = window.matchMedia('(max-width: 768px)').matches;
+    const from = getComputedStyle(pop).transform;
+    const a = pop.animate(sheet
+        ? [{ transform: from === 'none' ? 'translateY(0)' : from }, { transform: 'translateY(100%)' }]
+        : [{ opacity: 1 }, { opacity: 0, transform: 'translateY(6px)' }],
+        { duration: sheet ? 200 : 120, easing: 'ease-in', fill: 'forwards' });
+    const backdrop = pop.previousElementSibling;
+    if (sheet && backdrop && backdrop.classList.contains('lt-fpop-backdrop'))
+        backdrop.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 200, easing: 'ease-in', fill: 'forwards' });
+    return a.finished.then(() => undefined, () => undefined);
 }
 
 function unplace(pop) {

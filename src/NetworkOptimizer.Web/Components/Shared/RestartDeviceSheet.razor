@@ -13,7 +13,7 @@
 @* Restart one device, opened from the restart button on its Device Status card. A popover over the
    button on desktop, the Live Traffic bottom sheet on a phone (app.css, lt-fpop). *@
 <div class="lt-fpop-backdrop" @onclick="CloseAsync"></div>
-<div @ref="_pop" class="lt-fpop device-restart-pop" tabindex="-1" role="dialog" aria-label="@($"Restart {Name}")" @onkeydown="OnKeyAsync">
+<div @ref="_pop" class="lt-fpop lt-fpop-animated device-restart-pop"tabindex="-1" role="dialog" aria-label="@($"Restart {Name}")" @onkeydown="OnKeyAsync">
     <div class="lt-fpop-grab" aria-hidden="true"></div>
     <div class="lt-fpop-head">
         <span class="lt-fpop-title">Restart</span>
@@ -312,7 +312,23 @@
         }
     }
 
-    private Task CloseAsync() => OnClose.InvokeAsync();
+    private bool _closing;
+
+    /// <summary>Every way out (outside, X, Cancel, Esc, a swipe, a commit) plays the sheet out first.</summary>
+    private async Task CloseAsync()
+    {
+        if (_closing) return;
+        _closing = true;
+        try
+        {
+            if (_module != null) await _module.InvokeVoidAsync("dismiss", _pop);
+        }
+        catch (Exception ex) when (ex is JSDisconnectedException or TaskCanceledException or InvalidOperationException)
+        {
+            // Closes regardless.
+        }
+        await OnClose.InvokeAsync();
+    }
 
     private async Task OnKeyAsync(KeyboardEventArgs e)
     {

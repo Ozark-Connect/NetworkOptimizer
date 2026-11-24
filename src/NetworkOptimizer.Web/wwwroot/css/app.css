@@ -27317,36 +27317,37 @@ body:has(.top-bar-hidden) .btn-fit {
     color: var(--text-primary);
 }
 
-/* Desktop: hidden until fixed-popover.js pins it, so it never flashes at its host's corner first, then
-   fades in. A phone's bottom sheet slides up. Height changes animate in fixed-popover.js (watch). */
+/* An animated lt-fpop (the restart sheet, Live Traffic's filter editor): a desktop popover fades in, a
+   phone's bottom sheet slides up. Height changes animate in fixed-popover.js (watch). */
 @media (min-width: 769px) {
+    .lt-fpop-animated {
+        animation: lt-fpop-in 0.16s ease-out;
+    }
+
+    /* Hidden until fixed-popover.js pins it, so it never flashes at its host's corner first; it fades in once pinned. */
     .device-restart-pop:not([style*="fixed"]) {
         visibility: hidden;
-    }
-
-    .device-restart-pop[style*="fixed"] {
-        animation: device-restart-pop-in 0.16s ease-out;
-    }
-}
-
-@media (max-width: 768px) {
-    .device-restart-pop {
-        animation: device-restart-sheet-up 0.22s ease-out;
-    }
-}
-
-@media (prefers-reduced-motion: reduce) {
-    .device-restart-pop,
-    .device-restart-pop[style*="fixed"] {
         animation: none;
     }
 }
 
-@keyframes device-restart-pop-in {
+@media (max-width: 768px) {
+    .lt-fpop-animated {
+        animation: lt-fpop-sheet-up 0.22s ease-out;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .lt-fpop-animated {
+        animation: none !important;
+    }
+}
+
+@keyframes lt-fpop-in {
     from { opacity: 0; transform: translateY(6px); }
 }
 
-@keyframes device-restart-sheet-up {
+@keyframes lt-fpop-sheet-up {
     from { transform: translateY(100%); }
 }
 
@@ -27443,6 +27444,13 @@ body:has(.top-bar-hidden) .btn-fit {
 @media (min-width: 769px) {
     .device-restart-pop {
         width: 320px;
+    }
+}
+
+/* The sheet's last line, clear of the phone's bottom edge. */
+@media (max-width: 768px) {
+    .device-restart-hc {
+        padding-bottom: 6px;
     }
 }
 
