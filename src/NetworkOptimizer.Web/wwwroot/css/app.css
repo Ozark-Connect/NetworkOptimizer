@@ -20871,7 +20871,10 @@ tr.stats-row-filtered {
     flex-wrap: wrap;
 }
 .lan-health .lan-health-score-rows { flex: 1 1 160px; display: flex; flex-direction: column; gap: 0.5rem; }
-.lan-health .lan-health-score-row { display: flex; justify-content: space-between; gap: 1rem; }
+.lan-health .lan-health-score-row { display: flex; justify-content: space-between; gap: 1rem; font-size: 0.875rem; }@media (max-width: 768px) {
+    /* The Device Status cards' label and value size. */
+    .lan-health .lan-health-score-row { font-size: 0.8125rem; }
+}
 .lan-health .lan-health-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; margin-top: 0.5rem; }
 .lan-health .lan-health-chip {
     padding: 0.125rem 0.5rem;
