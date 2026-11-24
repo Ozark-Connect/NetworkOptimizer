@@ -446,11 +446,11 @@ public sealed class SettingsSearchProvider : IAppSearchProvider
         Entry("multisite", "Multi-Site", "multi-site",
             "Multi-Site Management",
             ["Sites", "site management", "agents"],
-            ["enable multi-site management", "add agent", "new token", "enrollment token",
+            ["enable multi-site management", "enable multi-site / agent management", "enable agent management", "add agent", "new token", "enrollment token",
              "set up agent", "update agent", "upgrade agent", "switch to site", "rename site", "site users",
              "site configuration", "unifi console through the agent tunnel", "ssh via agent",
              "lan speed test server", "client speed test target override", "agent collects for this site",
-             "multi-wan vantage", "disable multi-site management", "on-site agent", "disable site", "remove site",
+             "multi-wan vantage", "disable multi-site management", "disable multi-site / agent management", "on-site agent", "disable site", "remove site",
              "delete site"], Reach.MultiSite),
 
         Entry("multisite", "Multi-Site", "trusted-sources-matrix",

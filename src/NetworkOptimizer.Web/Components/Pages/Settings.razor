@@ -3788,7 +3788,7 @@
                     <div class="form-group">
                         <label class="checkbox-label">
                             <input type="checkbox" checked="@_multiSiteEnabled" @onchange="OnMultiSiteEnabledChanged" />
-                            <span>Enable multi-site management</span>
+                            <span>Enable multi-site / agent management</span>
                         </label>
                     </div>
                 </AdminOnly>
@@ -3808,7 +3808,7 @@
                         {
                             <text>
                                 One agent on the UniFi gateway covers them all: turn on
-                                <strong>Enable multi-site management</strong> above to add it.
+                                <strong>Enable multi-site / agent management</strong> above to add it.
                             </text>
                         }
                         else if (_hintSiteHasGatewayAgent)
@@ -4274,15 +4274,19 @@
 
                 <AdminOnly>
                 <details class="setup-guide multisite-disable">
-                    <summary>Disable multi-site management</summary>
+                    <summary>Disable multi-site / agent management</summary>
                     <div class="setup-guide-content">
                         <div class="alert alert-warning">
-                            Multi-site management is enabled with @_sites.Count sites. Turning it off hides every
+                            Multi-site management is enabled with @TimeFormatHelper.Pluralize(_sites.Count, "site"). Turning it off hides every
                             managed site and returns to single-site mode (no site data is deleted). Do this from the
                             main site, and only on purpose.
+                            @if (EnrolledAgentCount > 0)
+                            {
+                                <strong>@EnrolledAgentWarning</strong>
+                            }
                         </div>
                         <button type="button" class="btn btn-danger btn-sm" @onclick="DisableMultiSiteAsync">
-                            Disable multi-site management
+                            Disable multi-site / agent management
                         </button>
                     </div>
                 </details>
@@ -4842,11 +4846,18 @@
 
     private async Task<bool> ConfirmDisableMultiSiteAsync()
     {
-        var count = _sites.Count;
+        var agents = EnrolledAgentCount > 0 ? EnrolledAgentWarning + " " : "";
         return await JS.InvokeAsync<bool>("confirm",
-            $"Disable multi-site management? This hides all {count} site(s) and returns to single-site mode. " +
-            "No site data is deleted and you can re-enable it later. Continue?");
+            $"Disable multi-site / agent management? This hides {TimeFormatHelper.Pluralize(_sites.Count, "site")} and returns to single-site mode. " +
+            agents + "No site data is deleted and you can re-enable it later. Continue?");
     }
+
+    // Agents keep running with multi-site off; only their management UI (Upgrade, Configuration) goes away.
+    private int EnrolledAgentCount => _agentsBySite.Values.Sum(list => list.Count(a => a.EnrolledAt != null));
+
+    private string EnrolledAgentWarning => EnrolledAgentCount == 1
+        ? "An On-Site Agent is enrolled. It keeps running, but you cannot upgrade or configure it until this is turned back on."
+        : $"{EnrolledAgentCount} On-Site Agents are enrolled. They keep running, but you cannot upgrade or configure them until this is turned back on.";
 
     private async Task RefreshSites()
     {
