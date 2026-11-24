@@ -74,8 +74,14 @@ let resultAnchor = null;       // the floating button it sits beside
 let resultTimer = 0;
 
 function messages(card) {
+    const row = saveRow(card);
     const seen = new Map();
-    for (const el of card.querySelectorAll(`${SUCCESS}, ${PROBLEM}`)) seen.set(el, el.textContent.trim());
+    for (const el of card.querySelectorAll(`${SUCCESS}, ${PROBLEM}`)) {
+        // A save reports under its own buttons. A notice above them (Satellite Imagery's licensing warning, a list's
+        // failed download) is standing text, not this save's result.
+        if (row && !(row.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING)) continue;
+        seen.set(el, el.textContent.trim());
+    }
     return seen;
 }
 
