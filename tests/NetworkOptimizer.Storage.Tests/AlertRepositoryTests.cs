@@ -109,6 +109,20 @@ public class AlertRepositoryTests : IDisposable
     }
 
     [Fact]
+    public async Task ResolveOpenAlertsAnyDeviceAsync_ClosesAcknowledgedToo()
+    {
+        var acknowledged = await SeedAlertAsync("rollout.started", null, AlertStatus.Acknowledged);
+        var active = await SeedAlertAsync("rollout.started", null);
+        var alreadyResolved = await SeedAlertAsync("rollout.started", null, AlertStatus.Resolved);
+
+        var resolved = await _repository.ResolveOpenAlertsAnyDeviceAsync(["rollout.started"]);
+
+        resolved.Select(a => a.Id).Should().BeEquivalentTo(new[] { acknowledged.Id, active.Id });
+        using var verify = CreateContext();
+        (await verify.AlertHistory.AsNoTracking().SingleAsync(a => a.Id == alreadyResolved.Id)).ResolvedAt.Should().BeNull();
+    }
+
+    [Fact]
     public async Task ResolveActiveAlertsAsync_StampsResolvedAt()
     {
         var before = DateTime.UtcNow;
