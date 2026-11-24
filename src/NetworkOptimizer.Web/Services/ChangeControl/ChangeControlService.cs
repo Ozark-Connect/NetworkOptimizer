@@ -72,7 +72,7 @@ public sealed partial class ChangeControlService : IChangeControlService
     {
         var zone = await SiteZoneAsync(ct);
         var format = _siteClock == null ? DisplayFormat.Fallback : await _siteClock.ResolveFormatAsync(_site.Slug, ct);
-        return $"{TimeFormatHelper.FormatLocalDateTime(utc, zone, format)} {DateTimeUtilities.ZoneAbbreviation(zone, utc)}";
+        return TimeFormatHelper.FormatLabeledDateTime(utc, zone, format);
     }
 
     private ChangeControlSiteEngine Engine => _registry.GetFor(_site.Slug);

@@ -42,7 +42,7 @@ public class DiscordDeliveryChannel : IAlertDeliveryChannel
             fields.Add(new { name = "Value", value = $"{alertEvent.MetricValue}{(alertEvent.ThresholdValue.HasValue ? $" / {alertEvent.ThresholdValue}" : "")}", inline = true });
 
         foreach (var ctx in alertEvent.Context)
-            fields.Add(new { name = ctx.Key, value = ctx.Value, inline = true });
+            fields.Add(new { name = ctx.Key, value = TimestampFormatter.ContextValue(ctx.Value, timeZone, format), inline = true });
 
         if (!string.IsNullOrEmpty(alertEvent.SourceUrl))
             fields.Add(new { name = "View", value = alertEvent.SourceUrl, inline = true });

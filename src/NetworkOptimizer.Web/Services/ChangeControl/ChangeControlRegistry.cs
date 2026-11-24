@@ -274,6 +274,7 @@ public sealed class ChangeControlRegistry : BackgroundService, ISiteScopedRegist
         };
         if (_sp.GetService<RolloutSuppressionRegistry>() is { } suppression)
             coordinator.QuietDevices = () => suppression.RefreshDevicesQuiet(slug, DateTime.UtcNow);
+        coordinator.NotificationClock = _sp.GetService<NetworkOptimizer.Alerts.Interfaces.INotificationTimeZoneResolver>();
         _coordinators[slug] = coordinator;
         var console = new ConsoleWatch(engine, _sp.GetRequiredService<IConfigBlobStore>(), _sp.GetService<NetworkOptimizer.Alerts.Events.IAlertEventBus>(),
             _sp.GetRequiredService<ILoggerFactory>().CreateLogger($"ChangeControlConsole[{slug}]"));
