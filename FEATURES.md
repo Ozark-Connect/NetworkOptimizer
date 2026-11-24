@@ -26,6 +26,7 @@ an On-Site Agent, AP Telemetry, InfluxDB, or HTTPS.
 - **WAN Speed Test**, **LAN Speed Test**, and **Wi-Fi Optimizer** summary cards
   - Each recent speed test opens its result, expanded, on its page
 - **Device Status** - every device's IP, model, firmware, uptime, clients, and ping
+  - Filter by name, type (also AP, router, Wi-Fi, and other common words), IP, model, firmware, or MAC; a tab for each device type on the site (desktop)
   - Restart reason on hover: firmware, commanded, power cycle, power loss, hang, panic, or watchdog (Device SSH)
   - Restart a device now, at a set time, or at its quietest hour in the next 24 hours (Site Admin)
   - Power-cycle a PoE-powered device's switch port instead, or when it hangs (Site Admin)

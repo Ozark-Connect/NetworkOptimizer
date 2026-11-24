@@ -2256,6 +2256,65 @@ a.stat-card-link:active {
     gap: 12px;
 }
 
+/* Device Status: the search and type tabs share the title row, and wrap under it on a half-width card. */
+.device-status-header {
+    flex-wrap: wrap;
+    gap: 0.5rem 1rem;
+}
+
+.device-status-filters {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 0.5rem 0.75rem;
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.lt-search.device-status-search {
+    flex: 0 1 340px;
+    min-width: 200px;
+}
+
+/* Level with the tabs beside it. */
+.device-status-search .form-control {
+    padding-top: 0.45rem;
+    padding-bottom: 0.45rem;
+}
+
+.device-type-tabs {
+    flex-wrap: wrap;
+}
+
+.device-type-count {
+    margin-left: 0.4rem;
+    color: var(--text-muted);
+    font-variant-numeric: tabular-nums;
+}
+
+.time-btn.active .device-type-count {
+    color: rgba(255, 255, 255, 0.7);
+}
+
+/* Too narrow for one row (a half-width card, a phone): the search spans the card under the title, the tabs under it. */
+#device-status {
+    container-type: inline-size;
+}
+
+@container (max-width: 860px) {
+    .device-status-filters {
+        flex: 1 1 100%;
+        justify-content: flex-start;
+    }
+
+    .lt-search.device-status-search {
+        flex: 1 1 100%;
+        min-width: 0;
+        max-width: none;
+    }
+}
+
 /* Device Card */
 .device-card {
     background: var(--bg-inset);

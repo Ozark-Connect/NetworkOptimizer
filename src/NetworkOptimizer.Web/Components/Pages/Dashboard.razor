@@ -246,6 +246,34 @@
     private int _threatCount24h;
     private List<ThreatTrendPoint> _threatTrend = [];
     private List<Services.DeviceInfo> devices = new();
+
+    /// <summary>The Device Status card's search text and type tab (null is All).</summary>
+    private string _deviceSearch = "";
+    private NetworkOptimizer.Core.Enums.DeviceType? _deviceTypeFilter;
+
+    /// <summary>
+    /// The type tab in force. A tab whose type has left the site reads as All, so a refresh never
+    /// strands the card on an empty list with no tab lit.
+    /// </summary>
+    private NetworkOptimizer.Core.Enums.DeviceType? EffectiveTypeFilter =>
+        _deviceTypeFilter is { } t && devices.Any(d => d.Type == t) ? t : null;
+
+    /// <summary>The devices the card's search and type tab leave.</summary>
+    private List<Services.DeviceInfo> VisibleDevices
+    {
+        get
+        {
+            var type = EffectiveTypeFilter;
+            return devices.Where(d => DeviceStatusFilter.Matches(d, type, _deviceSearch)).ToList();
+        }
+    }
+
+    private void OnDeviceSearchKey(KeyboardEventArgs e)
+    {
+        if (e.Key == "Escape")
+            _deviceSearch = "";
+    }
+
     private List<Iperf3Result> _recentSpeedTests = new();
     /// <summary>The site's tailnet, which names a Tailscale device that has no device name of its own.</summary>
     private TailnetSnapshot _tailnet = TailnetSnapshot.Empty;
@@ -819,9 +847,40 @@
 
     private RenderFragment RenderDeviceStatus => __builder =>
     {
+        var shown = VisibleDevices;
         <div class="card" id="device-status">
-            <div class="card-header">
+            <div class="card-header device-status-header">
                 <h2 class="card-title">Device Status</h2>
+                @if (!_loading && devices.Count > 0)
+                {
+                    var types = DeviceStatusFilter.PresentTypes(devices);
+                    <div class="device-status-filters">
+                        <div class="lt-search device-status-search @(string.IsNullOrWhiteSpace(_deviceSearch) ? "" : "is-active")">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7" /><line x1="21" y1="21" x2="16.65" y2="16.65" /></svg>
+                            <input class="form-control" placeholder="Filter by name, type, IP, model, or firmware" aria-label="Filter devices"
+                                   @bind="_deviceSearch" @bind:event="oninput" @onkeydown="OnDeviceSearchKey" />
+                            <span class="lt-search-hint" aria-hidden="true">Name, type, IP, model, or firmware</span>
+                            @if (!string.IsNullOrWhiteSpace(_deviceSearch))
+                            {
+                                <button type="button" class="lt-x lt-search-clear" aria-label="Clear the filter" data-tooltip="Clear the filter" @onclick='() => _deviceSearch = ""'>×</button>
+                            }
+                        </div>
+                        @* One type has nothing to narrow to. Hidden on mobile, where the search alone
+                           fits the header and a type word ("AP", "switch") does the same job. *@
+                        @if (types.Count > 1)
+                        {
+                            <div class="time-range-selector device-type-tabs hide-mobile">
+                                @foreach (var (type, count) in types)
+                                {
+                                    <button class="time-btn @(EffectiveTypeFilter == type ? "active" : "")"
+                                            @onclick="() => _deviceTypeFilter = type">@NetworkOptimizer.Core.Enums.DeviceTypeExtensions.ToDisplayName(type)<span class="device-type-count">@count</span></button>
+                                }
+                                <button class="time-btn @(EffectiveTypeFilter == null ? "active" : "")"
+                                        @onclick="() => _deviceTypeFilter = null">All</button>
+                            </div>
+                        }
+                    </div>
+                }
             </div>
             <div class="card-body">
                 @if (_loading)
@@ -837,12 +896,18 @@
                         <p>No devices found. Connect to your UniFi Console to see devices.</p>
                     </div>
                 }
+                else if (shown.Count == 0)
+                {
+                    <div class="empty-state">
+                        <p>No devices match.</p>
+                    </div>
+                }
                 else
                 {
                     <div class="device-grid">
-                        @for (var i = 0; i < devices.Count; i++)
+                        @for (var i = 0; i < shown.Count; i++)
                         {
-                            var device = devices[i];
+                            var device = shown[i];
                             <DeviceCard Device="@device" FallbackImageUrl="@_clientIcons.DeviceCatalogUrlFor(device.Mac)"
                                         ShowRestart="@(!string.IsNullOrEmpty(device.Mac))" Restart="@RestartBadgeFor(device)"
                                         TourAnchor="@(i == 0)" OnRestartChanged="LoadRestartBadgesAsync" />
