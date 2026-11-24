@@ -3781,8 +3781,8 @@
             @if (_multiSiteLoaded && !_multiSiteEnabled)
             {
                 <p class="section-description">
-                    Multi-WAN monitoring needs this on as well: its agent enrolls here, including on
-                    the main site.
+                    Gateway Agent capabilities and multi-WAN monitoring need this on as well: agent(s)
+                    get set up here, even for single sites.
                 </p>
                 <AdminOnly>
                     <div class="form-group">
@@ -4081,7 +4081,7 @@
                                                         {
                                                             <p class="site-config-empty">
                                                                 @(site.IsDefault
-                                                                    ? "This site is monitored directly by this server. Add an agent only if this server runs off-site."
+                                                                    ? "This site is monitored directly by this server. Add a gateway agent here for extended capabilities, or if this server runs away from the actual site."
                                                                     : "No On-Site Agent for this site yet. Set one up to reach it without a VPN.")
                                                             </p>
                                                             <div class="site-agent-actions">
@@ -4495,6 +4495,33 @@
         _hintSiteHasGatewayAgent = SiteHasGatewayAgent(site.Id);
     }
 
+    private bool _singleSiteAutoOpened;
+
+    /// <summary>
+    /// With one site there is no row to choose, so its Configuration (where its agents live) opens on
+    /// arriving at the tab or turning multi-site on. Once per visit: a reader who closes it keeps it closed.
+    /// </summary>
+    private async Task AutoOpenSingleSiteConfigurationAsync()
+    {
+        if (_activeTab != "multisite")
+        {
+            _singleSiteAutoOpened = false;
+            return;
+        }
+
+        if (_singleSiteAutoOpened || !_multiSiteEnabled || _sites.Count != 1
+            || _expandedSiteId != null || _usersSiteId != null || !string.IsNullOrWhiteSpace(ConfigureSiteParam))
+            return;
+
+        _singleSiteAutoOpened = true;
+        var site = _sites[0];
+        if (AuthState is null
+            || !(await Authz.AuthorizeAsync((await AuthState).User, site.Slug, Policies.SiteAdmin)).Succeeded)
+            return;
+
+        await ToggleAgents(site.Id);
+    }
+
     /// <summary>The card's Configuration link: opens the current site's panel in place.</summary>
     private async Task OpenHintSiteConfigurationAsync()
     {
@@ -4713,7 +4740,7 @@
     // Multi-Site
     private RenderFragment MultiSiteTabButton => @<button class="wifi-view-tab @(_activeTab == "multisite" ? "active" : "")"
                                                           @onclick="@(() => SetActiveTab("multisite"))">
-        Multi-Site
+        Multi-Site / Agents
     </button>;
 
     private bool _multiSiteEnabled = false;
@@ -5896,6 +5923,8 @@
                     "0 0 var(--border-radius-lg) var(--border-radius-lg)");
             }
         }
+
+        await AutoOpenSingleSiteConfigurationAsync();
 
         // Landing on ?tab=auditlog does not go through SetActiveTab, which is what asks the deferred
         // panel to load - a deep link (the guided tour is one) would have shown the empty state on a

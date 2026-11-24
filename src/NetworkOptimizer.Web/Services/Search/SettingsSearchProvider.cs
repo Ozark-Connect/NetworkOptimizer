@@ -443,24 +443,29 @@ public sealed class SettingsSearchProvider : IAppSearchProvider
             ["audit events", "actor", "action", "target", "category", "outcome", "success",
              "denied", "failure", "export csv", "export json", "filter", "site id"], Reach.InstanceWide),
 
-        Entry("multisite", "Multi-Site", "multi-site",
+        // Every On-Site Agent is set up here, a single site's included, so the agent's names are
+        // aliases: other cards list "on-site agent" as a keyword and would otherwise tie and win.
+        Entry("multisite", "Multi-Site / Agents", "multi-site",
             "Multi-Site Management",
-            ["Sites", "site management", "agents"],
+            ["Sites", "site management", "agents", "On-Site Agent", "On-Gateway Agent", "Gateway Agent"],
             ["enable multi-site management", "enable multi-site / agent management", "enable agent management", "add agent", "new token", "enrollment token",
              "set up agent", "update agent", "upgrade agent", "switch to site", "rename site", "site users",
              "site configuration", "unifi console through the agent tunnel", "ssh via agent",
              "lan speed test server", "client speed test target override", "agent collects for this site",
              "multi-wan vantage", "disable multi-site management", "disable multi-site / agent management", "on-site agent", "disable site", "remove site",
-             "delete site"], Reach.MultiSite),
+             "delete site", "onsite agent", "on gateway agent", "agent on the gateway", "install agent", "agent install",
+             "install command", "enroll agent", "agent token", "run it for me", "linux agent", "docker agent", "mac agent",
+             "macos agent", "agent status", "agent offline", "agent online", "agent version", "multi-wan", "multi wan",
+             "dual wan", "second wan", "wan vantage", "remote site"], Reach.MultiSite),
 
-        Entry("multisite", "Multi-Site", "trusted-sources-matrix",
+        Entry("multisite", "Multi-Site / Agents", "trusted-sources-matrix",
             "Trusted Sources",
             ["trusted sites", "site allowlist"],
             ["which sites trust", "site wan addresses", "port forward", "network list", "address group"], Reach.MultiSite),
 
-        Entry("multisite", "Multi-Site", "site-agent-setup",
+        Entry("multisite", "Multi-Site / Agents", "site-agent-setup",
             "Add a site",
-            ["new site", "site setup wizard"],
+            ["new site", "site setup wizard", "add site"],
             ["create site", "connect unifi console", "set up an agent", "create agent token",
              "no agent needed", "skip for now", "site id"], Reach.MultiSiteEnabledAdmin),
     ];
