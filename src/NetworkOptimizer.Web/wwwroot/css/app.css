@@ -27434,9 +27434,9 @@ body:has(.top-bar-hidden) .btn-fit {
     margin: -6px 0 0 1.5rem;
 }
 
-/* The PoE option reads at the size of the restart options above it. */
+/* The PoE option is a long, secondary line: a step under the restart options above it. */
 .device-restart-pop .checkbox-label {
-    font-size: 0.875rem;
+    font-size: 0.8rem;
 }
 
 .device-restart-hc {
