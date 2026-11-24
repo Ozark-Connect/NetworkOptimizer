@@ -1904,7 +1904,7 @@ public partial class AuditService : IAuditScanService
         }
     }
 
-    /// <summary>The page that fixes a finding: the site's agents in Settings - Multi-Site for an agent upgrade.</summary>
+    /// <summary>The page that fixes a finding: the site's agents in Settings - Multi-Site / Agents for an agent upgrade.</summary>
     internal static string? ActionHrefFor(Audit.Models.AuditIssue issue, string? siteSlug) =>
         issue.Metadata?.TryGetValue(Audit.Analyzers.GatewayFirewallAnalyzer.ActionKey, out var action) == true
         && Audit.Analyzers.GatewayFirewallAnalyzer.UpgradeAgentAction.Equals(action?.ToString(), StringComparison.Ordinal)

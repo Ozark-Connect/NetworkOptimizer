@@ -87,7 +87,7 @@ auditing, or SNMP. The full when-and-why, including a capability table, is in th
 To create an agent container, run on the **Proxmox VE host**. It builds a small
 Debian LXC with its own MAC address and runs the standard agent installer inside
 it. Generate the enrollment token first in the server's web UI under
-**Settings > Multi-Site > (site) > Agents > Set up agent**:
+**Settings > Multi-Site / Agents > (site) > Agents > Set up agent**:
 
 ```bash
 bash -c "$(curl -fsSL https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main/scripts/proxmox/install-agent.sh)"

@@ -13,7 +13,7 @@ public class MessageLinkerTests
 {
     private const string NoAgent =
         "WAN speed tests on a managed site run from its on-site agent, and this site has none online. " +
-        "Set up the site's agent under Settings > Multi-Site to enable them.";
+        "Set up the site's agent under Settings > Multi-Site / Agents to enable them.";
 
     private const string AgentOffline =
         "This site connects through its on-site agent, which isn't online. WAN speed tests can resume when it reconnects.";
@@ -24,10 +24,10 @@ public class MessageLinkerTests
     [Fact]
     public void CaseA_NoAgent_LinksTheWholeBreadcrumbToTheSite()
     {
-        var linked = MessageLinker.Split(NoAgent, "Settings > Multi-Site", "/settings?tab=multisite&configure=branch-office");
+        var linked = MessageLinker.Split(NoAgent, "Settings > Multi-Site / Agents", "/settings?tab=multisite&configure=branch-office");
 
         linked.HasLink.Should().BeTrue();
-        linked.LinkText.Should().Be("Settings > Multi-Site");
+        linked.LinkText.Should().Be("Settings > Multi-Site / Agents");
         linked.Href.Should().Be("/settings?tab=multisite&configure=branch-office");
         (linked.Before + linked.LinkText + linked.After).Should().Be(NoAgent);
     }
@@ -67,7 +67,7 @@ public class MessageLinkerTests
     [InlineData("")]
     public void NoHrefMeansNoLink(string? href)
     {
-        var linked = MessageLinker.Split(NoAgent, "Settings > Multi-Site", href);
+        var linked = MessageLinker.Split(NoAgent, "Settings > Multi-Site / Agents", href);
 
         linked.HasLink.Should().BeFalse();
         linked.Before.Should().Be(NoAgent);
@@ -78,7 +78,7 @@ public class MessageLinkerTests
     [InlineData("")]
     public void AnEmptyMessageStaysEmpty(string? message)
     {
-        var linked = MessageLinker.Split(message, "Settings > Multi-Site", "/settings?tab=multisite");
+        var linked = MessageLinker.Split(message, "Settings > Multi-Site / Agents", "/settings?tab=multisite");
 
         linked.HasLink.Should().BeFalse();
         linked.Before.Should().Be(message);
@@ -91,7 +91,7 @@ public class MessageLinkerTests
         // nothing else, so anything lost here is lost on screen.
         foreach (var (message, phrase, href) in new[]
                  {
-                     (NoAgent, "Settings > Multi-Site", "/settings?tab=multisite&configure=x"),
+                     (NoAgent, "Settings > Multi-Site / Agents", "/settings?tab=multisite&configure=x"),
                      (NoGatewaySsh, "Settings, under the Connection tab", "/settings#gateway-ssh"),
                      (AgentOffline, "Settings", (string?)null),
                      (NoAgent, "not present", "/settings"),

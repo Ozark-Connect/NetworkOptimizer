@@ -330,7 +330,7 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
 
     /// <summary>Returned to a console Save while the site is marked as having no UniFi Console.</summary>
     private const string NoConsoleConnectMessage =
-        "This site is set up without a Console. Change that in Settings - Multi-Site to connect one.";
+        "This site is set up without a Console. Change that in Settings - Multi-Site / Agents to connect one.";
 
     /// <summary>Per-site setting key: the UniFi Console's display name (system.name).</summary>
     public const string ConsoleNameKey = "console.name";
@@ -736,7 +736,7 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
     private volatile bool _hasNoConsole;
 
     /// <summary>
-    /// True when Settings - Multi-Site marks this (default) site as having no UniFi Console. Nothing
+    /// True when Settings - Multi-Site / Agents marks this (default) site as having no UniFi Console. Nothing
     /// connects or retries while set, and <see cref="IsConnected"/> stays false: callers that treat
     /// "not connected" as a problem check this first.
     /// </summary>
@@ -744,7 +744,7 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
 
     /// <summary>
     /// The flag off the default site's row, honored only while multi-site is on: the setting lives
-    /// in Settings - Multi-Site, so with multi-site off it could not be cleared.
+    /// in Settings - Multi-Site / Agents, so with multi-site off it could not be cleared.
     /// </summary>
     private async Task<bool> ReadHasNoConsoleAsync()
     {

@@ -129,6 +129,6 @@ whole agent, so certificate checking is off for its other calls home too.
 ## 6. Verify
 
 Load the app. No "Reconnecting..." banner means the connection is working. For agents, the site
-shows Online in **Settings - Multi-Site**. A tunnel that drops on the same interval every time is a
+shows Online in **Settings - Multi-Site / Agents**. A tunnel that drops on the same interval every time is a
 proxy timeout, not the network. A tunnel that never comes up, with the agent logging
 `Tunnel error: ... Cancelled` while the app works, is port 8043 unreachable from Zoraxy.
