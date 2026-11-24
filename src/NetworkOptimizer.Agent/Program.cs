@@ -23,7 +23,7 @@ if (!File.Exists(configPath))
           "enrollmentToken": "noa_...",
           "ignoreSslErrors": false
         }
-        Generate the enrollment token in Settings > Multi-Site > Agents.
+        Generate the enrollment token in Settings > Multi-Site / Agents > (site) > Agents.
         """);
     return 1;
 }
