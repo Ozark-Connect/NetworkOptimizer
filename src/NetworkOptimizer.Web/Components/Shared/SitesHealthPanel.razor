@@ -164,21 +164,29 @@
     protected override async Task OnInitializedAsync()
     {
         ChangeNotifier.SitesChanged += OnSitesChanged;
-        if (!await SiteManagement.IsMultiSiteEnabledAsync()) return;
         _more = await UserPreferences.GetAsync(ViewPreference) != "less";
         await LoadAsync();
-        // Health moves hourly; reachability and agents can change any minute.
-        _poll = new Timer(async _ =>
-        {
-            try { await InvokeAsync(async () => { await LoadAsync(); StateHasChanged(); }); }
-            catch { /* prevent timer death */ }
-        }, null, TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(30));
     }
 
+    // Also the SitesChanged path, so the panel appears without a reload once multi-site is on and a
+    // second site exists, and goes away when multi-site is turned off.
     private async Task LoadAsync()
     {
         try
         {
+            if (!await SiteManagement.IsMultiSiteEnabledAsync())
+            {
+                _sites = null;
+                return;
+            }
+
+            // Health moves hourly; reachability and agents can change any minute.
+            _poll ??= new Timer(async _ =>
+            {
+                try { await InvokeAsync(async () => { await LoadAsync(); StateHasChanged(); }); }
+                catch { /* prevent timer death */ }
+            }, null, TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(30));
+
             _sites = await Fleet.GetSiteHealthAsync();
             _agents = await AgentEnrollment.GetAllAgentsAsync();
         }
