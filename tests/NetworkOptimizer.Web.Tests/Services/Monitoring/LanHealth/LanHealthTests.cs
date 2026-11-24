@@ -208,8 +208,11 @@ public class LanHealthTests
         built.Row.DropsExplained.Should().Be(2);
     }
 
-    /// <summary>One wake in an hour, seen by link_down_count, ifLastChange and ifOperStatus; the port was down for <paramref name="downShare"/> of it.</summary>
-    private static LanHealthEvidenceBuilder.LinkHour OneRelinkHour(double downShare)
+    /// <summary>
+    /// <paramref name="relinks"/> relinks in an hour, seen by link_down_count, ifLastChange and ifOperStatus; the port was down for
+    /// <paramref name="downShare"/> of it.
+    /// </summary>
+    private static LanHealthEvidenceBuilder.LinkHour OneRelinkHour(double downShare, int relinks = 1)
     {
         var link = new LinkRecord
         {
@@ -220,7 +223,7 @@ public class LanHealthTests
         var hour = new DateTime(2026, 1, 1, 7, 0, 0, DateTimeKind.Utc);
         var ports = new[]
         {
-            new PortFieldStats(hour, SwitchMac, "Port 7", "pt:7", "link_down_count", 127, 128, 127, 128, null),
+            new PortFieldStats(hour, SwitchMac, "Port 7", "pt:7", "link_down_count", 127, 127 + relinks, 127, 127 + relinks, null),
             new PortFieldStats(hour, SwitchMac, "Port 7", "0/7", "last_change", 215_993_300, 216_505_900, 215_993_300, 216_505_900, null),
             new PortFieldStats(hour, SwitchMac, "Port 7", "0/7", "oper_status", 1, 1, 1, 2, 1 + downShare),
             // Busy hours either side of the sleep: the idle-traffic check does not apply.
@@ -241,6 +244,34 @@ public class LanHealthTests
         built.Row.Relinks.Should().Be(1);
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void Aligner_CountersThatDisagree_CountTheMostAnyOneSaw(bool biggerFirst)
+    {
+        var from = new DateTime(2026, 1, 1, 7, 0, 0, DateTimeKind.Utc);
+        var downCount = new LinkEvent(from, from.AddHours(1), LinkEventType.Relink, LinkSource.SwitchLinkDownCount, LinkSide.Upstream, Count: 3);
+        var lastChange = new LinkEvent(from, from.AddHours(1), LinkEventType.Relink, LinkSource.SnmpLastChange, LinkSide.Upstream);
+        var incidents = LinkEventAligner.Align(biggerFirst ? [downCount, lastChange] : [lastChange, downCount], [], [], new HashSet<string> { SwitchMac });
+        incidents.Where(i => i.Kind == IncidentKind.Relink).Sum(i => i.Count).Should().Be(3);
+    }
+
+    [Fact]
+    public void Aligner_PreciseDropAndCounters_AreOneDrop()
+    {
+        var t = new DateTime(2026, 1, 1, 7, 20, 0, DateTimeKind.Utc);
+        var hour = new DateTime(2026, 1, 1, 7, 0, 0, DateTimeKind.Utc);
+        var events = new List<LinkEvent>
+        {
+            new(t, t.AddSeconds(1), LinkEventType.LinkDown, LinkSource.ApKernelLog, LinkSide.Downstream),
+            new(t.AddSeconds(3), t.AddSeconds(4), LinkEventType.LinkUp, LinkSource.ApKernelLog, LinkSide.Downstream, SpeedMbps: 1000),
+            new(hour, hour.AddHours(1), LinkEventType.Relink, LinkSource.SwitchLinkDownCount, LinkSide.Upstream),
+            new(hour, hour.AddHours(1), LinkEventType.Relink, LinkSource.SnmpLastChange, LinkSide.Upstream),
+        };
+        var incidents = LinkEventAligner.Align(events, [], [], new HashSet<string> { ApMac });
+        incidents.Should().ContainSingle().Which.Kind.Should().Be(IncidentKind.Drop);
+    }
+
     [Fact]
     public void AccessPort_DownForMinutesInsideTheHour_IsSleep()
     {
@@ -249,6 +280,15 @@ public class LanHealthTests
         built.Incidents.Should().ContainSingle().Which.Explained.Should().Be(ExplainReason.DeviceAsleep);
         built.Row.Relinks.Should().Be(0);
         built.Row.DropsExplained.Should().Be(1);
+    }
+
+    [Fact]
+    public void AccessPort_ManyShortFlapsAddingUpToMinutes_AreNotSleep()
+    {
+        // Ten flaps of 15 s: 150 s down in the hour, but seconds each.
+        var built = OneRelinkHour(150.0 / 3600, relinks: 10);
+        built.Incidents.Should().NotContain(i => i.Explained == ExplainReason.DeviceAsleep);
+        built.Row.Relinks.Should().Be(10);
     }
 
     [Theory]

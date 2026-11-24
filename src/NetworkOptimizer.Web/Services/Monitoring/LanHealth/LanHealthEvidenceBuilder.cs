@@ -309,9 +309,12 @@ public static class LanHealthEvidenceBuilder
         if (link.Kind == LinkKind.Access && (meanIn ?? 0) < 2_000 && (meanOut ?? 0) < 20_000)
             explain.Add(new ExplainWindow(from, to, link.Upstream.DeviceMac, ExplainReason.DeviceAsleep));
         // Down for minutes is a client asleep or powered off; a flap is down for seconds. ifOperStatus is
-        // 1 up / 2 down, so the hour's mean less 1 is the share of it spent down.
+        // 1 up / 2 down, so the hour's mean less 1 is the share of it spent down. Per relink, so many short
+        // flaps that add up to minutes still read as flapping.
+        var downSeconds = ((up.Mean("oper_status") ?? 1) - 1) * 3600;
+        var relinks = Math.Max(1, up.Rise(InfluxFieldNames.LinkDownCount) ?? 1);
         if (link.Kind == LinkKind.Access && up.Has("oper_status")
-            && ((up.Mean("oper_status") ?? 1) - 1 >= AsleepAfter.TotalSeconds / 3600
+            && (downSeconds / relinks >= AsleepAfter.TotalSeconds
                 || (up.First("oper_status") ?? 1) >= 2 || (up.Last("oper_status") ?? 1) >= 2))
             explain.Add(new ExplainWindow(from, to, link.Upstream.DeviceMac, ExplainReason.DeviceAsleep));
         // A 10/100 relink on an access port is the sleep signature too.

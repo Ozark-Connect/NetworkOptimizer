@@ -49,6 +49,43 @@ public class MacMoveTrackerTests
     }
 
     [Fact]
+    public void UplinkPath_WalksEveryWiredUplinkToTheGateway()
+    {
+        // Gateway Port 4 -> Core, Core Port 9 -> Office (wired); Office -> Shed is mesh, so it has no port.
+        static LinkRecord Link(string upMac, string upName, int? port, string downMac, LinkKind kind = LinkKind.FabricWired) => new()
+        {
+            Kind = kind,
+            Upstream = new LinkEnd { DeviceMac = upMac, DeviceName = upName, PortIdx = port },
+            Downstream = new LinkEnd { DeviceMac = downMac },
+        };
+        var links = new Dictionary<string, LinkRecord>
+        {
+            ["aa:bb:cc:00:00:02"] = Link("aa:bb:cc:00:00:01", "Gateway", 4, "aa:bb:cc:00:00:02"),
+            ["aa:bb:cc:00:00:03"] = Link("aa:bb:cc:00:00:02", "Core", 9, "aa:bb:cc:00:00:03"),
+            ["aa:bb:cc:00:00:04"] = Link("aa:bb:cc:00:00:03", "Office", null, "aa:bb:cc:00:00:04", LinkKind.FabricMesh),
+        };
+        var names = new Dictionary<string, string> { ["aa:bb:cc:00:00:01"] = "Gateway", ["aa:bb:cc:00:00:02"] = "Core", ["aa:bb:cc:00:00:03"] = "Office" };
+        string Label(string mac, int port) => $"{names[mac]} Port {port}";
+
+        MacMoveTracker.UplinkPath("AA:BB:CC:00:00:03", links, Label).Should().BeEquivalentTo(["Core Port 9", "Gateway Port 4"]);
+        MacMoveTracker.UplinkPath("aa:bb:cc:00:00:04", links, Label).Should().BeEquivalentTo(["Core Port 9", "Gateway Port 4"]);
+        MacMoveTracker.UplinkPath("aa:bb:cc:00:00:01", links, Label).Should().BeEmpty("the gateway has nothing above it");
+    }
+
+    [Fact]
+    public void UplinkPath_StopsOnALoopInTheTopology()
+    {
+        static LinkRecord Link(string up, string down) => new()
+        {
+            Kind = LinkKind.FabricWired,
+            Upstream = new LinkEnd { DeviceMac = up, PortIdx = 1 },
+            Downstream = new LinkEnd { DeviceMac = down },
+        };
+        var links = new Dictionary<string, LinkRecord> { ["a"] = Link("b", "a"), ["b"] = Link("a", "b") };
+        MacMoveTracker.UplinkPath("a", links, (m, p) => $"{m} Port {p}").Should().BeEquivalentTo(["a Port 1", "b Port 1"]);
+    }
+
+    [Fact]
     public void AFirstSightingOnTheUplinkSettlesOnTheAccessPortWithoutAMove()
     {
         var t = new MacMoveTracker();

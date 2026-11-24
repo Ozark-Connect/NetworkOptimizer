@@ -38,6 +38,20 @@ public sealed class MacMoveTracker
         }
     }
 
+    /// <summary>
+    /// Every wired uplink port above <paramref name="switchMac"/>, up to the gateway, by <paramref name="label"/>
+    /// (device mac, port). A mesh hop has no port and adds nothing.
+    /// </summary>
+    internal static IReadOnlyCollection<string> UplinkPath(string switchMac, IReadOnlyDictionary<string, LinkRecord> downstreamToLink,
+        Func<string, int, string> label)
+    {
+        var path = new HashSet<string>();
+        var seen = new HashSet<string>();
+        for (var m = LanLinkBuilder.Mac(switchMac); seen.Add(m) && downstreamToLink.TryGetValue(m, out var up); m = LanLinkBuilder.Mac(up.Upstream.DeviceMac))
+            if (up.Upstream.PortIdx is int p) path.Add(label(up.Upstream.DeviceMac, p));
+        return path;
+    }
+
     /// <summary>Per client with moves since <paramref name="from"/>: its name, how many, and the ports it moved between.</summary>
     public List<(string Mac, string Name, int Moves, IReadOnlyList<string> Ports)> Since(DateTime from)
     {
