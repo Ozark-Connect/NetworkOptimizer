@@ -207,6 +207,8 @@ public class DnsSecurityAnalyzer
 
         // Generate issues based on findings (includes async WAN DNS validation)
         await GenerateAuditIssuesAsync(result, networks, zoneLookup);
+        if (coverageNetworks != null)
+            AddResolverNetworkHint(result, coverageNetworks);
         if (!allowGuestPublicDns && coverageNetworks != null)
             AddGuestSettingHint(result, coverageNetworks.Where(n => IsGuestOrHotspot(n, zoneLookup)).Select(n => n.Name).ToHashSet(StringComparer.OrdinalIgnoreCase));
 
@@ -1118,10 +1120,59 @@ public class DnsSecurityAnalyzer
                 _ => [],
             };
             if (!named.Any(guests.Contains)) continue;
-            issue.Metadata ??= new Dictionary<string, object>();
-            issue.Metadata["configurable_setting"] = issue.Metadata.TryGetValue("configurable_setting", out var other) && other?.ToString() is { Length: > 0 } text
-                ? $"{text}. {GuestSettingHint}"
-                : GuestSettingHint;
+            AppendSettingHint(issue, GuestSettingHint);
+        }
+    }
+
+    /// <summary>Adds a sentence to the finding's Settings hint, after any hint it already carries.</summary>
+    private static void AppendSettingHint(AuditIssue issue, string hint)
+    {
+        issue.Metadata ??= new Dictionary<string, object>();
+        issue.Metadata["configurable_setting"] = issue.Metadata.TryGetValue("configurable_setting", out var other) && other?.ToString() is { Length: > 0 } text
+            ? $"{text.TrimEnd('.')}. {hint}"
+            : hint;
+    }
+
+    /// <summary>
+    /// Points a port 53 coverage finding at the ways to leave a LAN DNS server's own lookups alone, when a network it
+    /// names holds that server: a source exclusion in the rule, or, for a network of only DNS servers, its VLAN in
+    /// Excluded VLANs. Never excluded on its own: other devices on that network could then bypass the server unseen.
+    /// </summary>
+    private static void AddResolverNetworkHint(DnsSecurityResult result, List<NetworkInfo> networks)
+    {
+        var excluded = result.ExcludedFromCoverageNetworks.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        networks = networks.Where(n => !excluded.Contains(n.Name)).ToList();
+        var gateways = networks.Select(n => n.Gateway).Where(g => !string.IsNullOrEmpty(g)).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var resolverIps = result.ThirdPartyDnsServers.Select(t => t.DnsServerIp)
+            .Concat(networks.SelectMany(n => n.DnsServers ?? []))
+            .Where(ip => !string.IsNullOrEmpty(ip) && !gateways.Contains(ip))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        if (resolverIps.Count == 0) return;
+
+        // Network name -> (network, the DNS server IPs inside its subnet)
+        var holders = networks
+            .Select(n => (Network: n, Ips: resolverIps.Where(ip => NetworkUtilities.IsIpInSubnet(ip, n.Subnet)).ToList()))
+            .Where(h => h.Ips.Count > 0)
+            .ToDictionary(h => h.Network.Name, StringComparer.OrdinalIgnoreCase);
+        if (holders.Count == 0) return;
+
+        foreach (var issue in result.Issues)
+        {
+            if (issue.Type is not (IssueTypes.DnsNo53Block or IssueTypes.Dns53PartialCoverage or IssueTypes.DnsDnatPartialCoverage))
+                continue;
+            var named = (IEnumerable<string>?)NamedNetworks(issue, result) ?? networks.Select(n => n.Name);
+            var hit = named.Where(holders.ContainsKey).Distinct(StringComparer.OrdinalIgnoreCase).Select(n => holders[n]).ToList();
+            if (hit.Count == 0) continue;
+
+            var one = hit.Count == 1;
+            var where = string.Join(", ", hit.Select(h => $"{h.Network.Name} ({string.Join(", ", h.Ips)})"));
+            var vlans = string.Join(", ", hit.Select(h => h.Network.VlanId));
+            var hint = $"{where} {(one ? "holds your DNS server" : "hold your DNS servers")}. To leave a server's own lookups alone, " +
+                       "exclude it from the source of your port 53 DNAT or block rule. " +
+                       $"If {(one ? "that network holds" : "those networks hold")} only DNS servers, you can instead add {(one ? "VLAN" : "VLANs")} {vlans} " +
+                       "to DNAT DNS Coverage: Excluded VLANs in Settings → Audit Settings.";
+            AppendSettingHint(issue, hint);
         }
     }
 

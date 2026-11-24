@@ -2787,14 +2787,22 @@
 
             <div class="form-group" style="margin-top: 1.5rem;">
                 <label class="form-label">Unused port grace period (days)</label>
-                <input type="number" class="form-control" @bind="unusedPortInactivityDays" @bind:event="oninput" min="1" max="365" style="width: 120px;" />
+                <input type="number" class="form-control" @bind="unusedPortInactivityDays" @bind:event="oninput" @bind:after="() => auditFieldErrors.Remove(AuditSettingsValidation.UnusedPortDaysKey)" min="1" max="365" style="width: 120px;" />
                 <small class="form-help">Days to wait after a device disconnects before flagging an unnamed port for disabling. Default: 15 days.</small>
+                @if (auditFieldErrors.TryGetValue(AuditSettingsValidation.UnusedPortDaysKey, out var unusedPortDaysError))
+                {
+                    <div class="form-error">@unusedPortDaysError</div>
+                }
             </div>
 
             <div class="form-group">
                 <label class="form-label">Named port grace period (days)</label>
-                <input type="number" class="form-control" @bind="namedPortInactivityDays" @bind:event="oninput" min="1" max="365" style="width: 120px;" />
+                <input type="number" class="form-control" @bind="namedPortInactivityDays" @bind:event="oninput" @bind:after="() => auditFieldErrors.Remove(AuditSettingsValidation.NamedPortDaysKey)" min="1" max="365" style="width: 120px;" />
                 <small class="form-help">Days to wait for ports with custom names (like "Printer" or "Camera"). Longer grace period since these devices may be intentionally offline. Default: 45 days.</small>
+                @if (auditFieldErrors.TryGetValue(AuditSettingsValidation.NamedPortDaysKey, out var namedPortDaysError))
+                {
+                    <div class="form-error">@namedPortDaysError</div>
+                }
             </div>
 
             <div class="form-group" style="margin-top: 1.5rem;">
@@ -2819,20 +2827,32 @@
 
             <div class="form-group" style="margin-top: 1.5rem;">
                 <label class="form-label">DNAT DNS Coverage: Excluded VLANs (optional)</label>
-                <input type="text" class="form-control" @bind="dnatExcludedVlans" @bind:event="oninput" placeholder="e.g., 100, 200" style="width: 240px;" />
+                <input type="text" class="form-control" @bind="dnatExcludedVlans" @bind:event="oninput" @bind:after="() => auditFieldErrors.Remove(AuditSettingsValidation.DnatExcludedVlansKey)" placeholder="e.g., 100, 200" style="width: 240px;" />
                 <small class="form-help">Comma-separated VLAN IDs to exclude from DNAT DNS coverage checks. Use this for networks that intentionally bypass DNS redirection (e.g., management VLANs).</small>
+                @if (auditFieldErrors.TryGetValue(AuditSettingsValidation.DnatExcludedVlansKey, out var dnatExcludedVlansError))
+                {
+                    <div class="form-error">@dnatExcludedVlansError</div>
+                }
             </div>
 
             <div class="form-group" style="margin-top: 1.5rem;">
                 <label class="form-label">Trusted DNS Redirect Targets (optional)</label>
-                <input type="text" class="form-control" @bind="trustedDnsRedirectTargets" @bind:event="oninput" placeholder="e.g., 10.0.100.248" style="width: 320px;" />
+                <input type="text" class="form-control" @bind="trustedDnsRedirectTargets" @bind:event="oninput" @bind:after="() => auditFieldErrors.Remove(AuditSettingsValidation.TrustedDnsRedirectTargetsKey)" placeholder="e.g., 10.0.100.248" style="width: 320px;" />
                 <small class="form-help">Comma-separated IPs to accept as valid DNAT translated targets. Use for DNS VIPs (keepalived, HAProxy) or anycast addresses that are not in your LAN DNS configuration.</small>
+                @if (auditFieldErrors.TryGetValue(AuditSettingsValidation.TrustedDnsRedirectTargetsKey, out var trustedDnsRedirectTargetsError))
+                {
+                    <div class="form-error">@trustedDnsRedirectTargetsError</div>
+                }
             </div>
 
             <div class="form-group" style="margin-top: 1.5rem;">
                 <label class="form-label">Third-Party DNS Management (optional)</label>
-                <input type="text" class="form-control" @bind="piholeManagementEndpoint" @bind:event="oninput" placeholder="Port number or URL" style="width: 240px;" />
+                <input type="text" class="form-control" @bind="piholeManagementEndpoint" @bind:event="oninput" @bind:after="() => auditFieldErrors.Remove(AuditSettingsValidation.DnsManagementEndpointKey)" placeholder="Port number or URL" style="width: 240px;" />
                 <small class="form-help">Custom port (e.g., 5380 or 8080) or full URL (e.g., https://dns.local) for the admin interface. Leave empty to auto-probe common Pi-hole, AdGuard Home, and Technitium DNS ports on each detected resolver IP.</small>
+                @if (auditFieldErrors.TryGetValue(AuditSettingsValidation.DnsManagementEndpointKey, out var dnsManagementEndpointError))
+                {
+                    <div class="form-error">@dnsManagementEndpointError</div>
+                }
             </div>
 
             <div class="action-buttons">
@@ -5758,6 +5778,7 @@
     private string dnatExcludedVlans = "";
     private string? piholeManagementEndpoint;
     private string trustedDnsRedirectTargets = "";
+    private readonly Dictionary<string, string> auditFieldErrors = new();
     private bool allowGuestPublicDns = false;
     private int unusedPortInactivityDays = 15;
     private int namedPortInactivityDays = 45;
@@ -8947,21 +8968,11 @@
 
         try
         {
-            // Validate DNS endpoint: must be empty, a port number, or a valid absolute URL
             var endpoint = piholeManagementEndpoint?.Trim();
-            if (!string.IsNullOrEmpty(endpoint) &&
-                !(int.TryParse(endpoint, out var validPort) && validPort > 0 && validPort <= 65535) &&
-                !Uri.TryCreate(endpoint, UriKind.Absolute, out _))
-            {
-                auditSettingsMessage = "Invalid DNS endpoint. Enter a port number (e.g., 8080) or full URL (e.g., https://pihole.local).";
-                auditSettingsMessageClass = "danger";
-                savingAuditSettings = false;
-                return;
-            }
             pdfTopSourcesRows = Math.Clamp(pdfTopSourcesRows, 1, NetworkOptimizer.Reports.ThreatSummaryData.MaxRows);
             pdfCategoryRows = Math.Clamp(pdfCategoryRows, 1, NetworkOptimizer.Reports.ThreatSummaryData.MaxRows);
 
-            await SiteSettingsAdmin.SaveAuditOptionsAsync(new Dictionary<string, string?>
+            var values = new Dictionary<string, string?>
             {
                 ["audit:allowAppleStreamingOnMainNetwork"] = allowAppleStreamingOnMainNetwork.ToString().ToLower(),
                 ["audit:allowAllStreamingOnMainNetwork"] = allowAllStreamingOnMainNetwork.ToString().ToLower(),
@@ -8977,7 +8988,23 @@
                 ["audit:namedPortInactivityDays"] = namedPortInactivityDays.ToString(),
                 [ThreatReportRows.TopSourcesSettingKey] = pdfTopSourcesRows.ToString(),
                 [ThreatReportRows.CategoryRowsSettingKey] = pdfCategoryRows.ToString(),
-            });
+            };
+
+            // Each error shows under its field; the line by the button says why nothing saved.
+            auditFieldErrors.Clear();
+            foreach (var (key, value) in values)
+            {
+                if (AuditSettingsValidation.ErrorFor(key, value) is { } error)
+                    auditFieldErrors[key] = error;
+            }
+            if (auditFieldErrors.Count > 0)
+            {
+                auditSettingsMessage = "Fix the errors before saving.";
+                auditSettingsMessageClass = "danger";
+                return;
+            }
+
+            await SiteSettingsAdmin.SaveAuditOptionsAsync(values);
 
             auditSettingsMessage = "Audit settings saved successfully";
             auditSettingsMessageClass = "success";
