@@ -808,7 +808,7 @@
 
     private const string NoAgentReason =
         "WAN speed tests on a managed site run from its On-Site Agent, and this site has none online. " +
-        "Set up the site's Agent under Settings > Multi-Site to enable them.";
+        "Set up the site's Agent under Settings > Multi-Site / Agents to enable them.";
 
     // Progress interpolation for smooth bar during long phases
     private DateTime _interpStart;
@@ -1135,7 +1135,7 @@
             _gatewaySettingsHref = _siteAgentOffline
                 ? null
                 : $"/settings?tab=multisite&configure={SiteContext.Slug}";
-            _gatewaySettingsLinkText = _siteAgentOffline ? null : "Settings > Multi-Site";
+            _gatewaySettingsLinkText = _siteAgentOffline ? null : "Settings > Multi-Site / Agents";
         }
         else
         {

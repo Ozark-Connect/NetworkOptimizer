@@ -9222,7 +9222,7 @@ a.path-hop.hop-clickable:hover {
     margin-top: 0.75rem;
 }
 
-/* Settings - Multi-Site: a site's Automatic Blocking in its Configuration panel */
+/* Settings - Multi-Site / Agents: a site's Automatic Blocking in its Configuration panel */
 .site-blocking .site-blocking-mode {
     display: flex;
     align-items: center;

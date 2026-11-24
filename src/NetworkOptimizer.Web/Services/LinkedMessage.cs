@@ -15,7 +15,7 @@ public readonly record struct LinkedMessage(string? Before, string? LinkText, st
 
 /// <summary>
 /// Turns a phrase inside a message into a link. The caller names the phrase, which is what lets a
-/// whole breadcrumb ("Settings &gt; Multi-Site") be the link rather than the bare word "Settings",
+/// whole breadcrumb ("Settings &gt; Multi-Site / Agents") be the link rather than the bare word "Settings",
 /// and lets two messages on one surface link different phrases to different places.
 /// </summary>
 public static class MessageLinker

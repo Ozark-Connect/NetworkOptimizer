@@ -187,7 +187,7 @@ is what the setup one-liner already writes:
 - Load the app. No "Reconnecting..." banner means the WebSocket is working.
 - Check the speed test protocol: `curl -v https://speedtest.example.com 2>&1 | grep ALPN` must show
   `http/1.1`. The same command against the app hostname shows `h2`.
-- For agents, the site shows Online in **Settings - Multi-Site**. A tunnel that drops on the same
+- For agents, the site shows Online in **Settings - Multi-Site / Agents**. A tunnel that drops on the same
   interval every time is a proxy timeout, not the network. The agent log then repeats a buffered
   backlog that never drains.
 - A tunnel that never comes up is usually port 8043 blocked between NPM and the app. The agent logs
