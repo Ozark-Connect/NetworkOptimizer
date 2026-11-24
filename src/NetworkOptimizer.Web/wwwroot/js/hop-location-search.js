@@ -4,7 +4,7 @@
 const GEOCODE_URL = 'https://nominatim.openstreetmap.org/search';
 
 // The fixed placement is shared with the device restart sheet.
-export { place, release } from './fixed-popover.js?v=3';
+export { place, release } from './fixed-popover.js?v=4';
 
 /**
  * Cities, towns, and villages matching a query.

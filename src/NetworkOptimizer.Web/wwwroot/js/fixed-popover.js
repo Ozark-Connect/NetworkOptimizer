@@ -81,8 +81,13 @@ export function watch(pop) {
  * Plays the popover out before it is removed: a phone's bottom sheet slides down from wherever a drag left
  * it, with its scrim fading; a desktop popover fades. Resolves when done, so the caller removes it then.
  */
-export function dismiss(pop) {
+export function dismiss(pop, kind) {
     if (!pop || !pop.isConnected || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return Promise.resolve();
+    // A dropdown menu (Live Traffic's + Filter) folds back up toward its button on every screen.
+    if (kind === 'menu') {
+        return pop.animate([{ opacity: 1, transform: 'none' }, { opacity: 0, transform: 'translateY(-4px) scale(0.97)' }],
+            { duration: 110, easing: 'ease-in', fill: 'forwards' }).finished.then(() => undefined, () => undefined);
+    }
     const sheet = window.matchMedia('(max-width: 768px)').matches;
     const from = getComputedStyle(pop).transform;
     const a = pop.animate(sheet

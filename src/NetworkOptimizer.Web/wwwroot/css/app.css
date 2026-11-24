@@ -27208,6 +27208,18 @@ body:has(.top-bar-hidden) .btn-fit {
 .lt-fmenu {
     width: 190px;
     padding: 6px;
+    transform-origin: top left;
+    animation: lt-fmenu-in 0.14s ease-out;
+}
+
+@keyframes lt-fmenu-in {
+    from { opacity: 0; transform: translateY(-4px) scale(0.97); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .lt-fmenu {
+        animation: none;
+    }
 }
 
 .lt-fmenu button {
@@ -27321,7 +27333,7 @@ body:has(.top-bar-hidden) .btn-fit {
    phone's bottom sheet slides up. Height changes animate in fixed-popover.js (watch). */
 @media (min-width: 769px) {
     .lt-fpop-animated {
-        animation: lt-fpop-in 0.16s ease-out;
+        animation: lt-fpop-in 0.1s ease-out;
     }
 
     /* Hidden until fixed-popover.js pins it, so it never flashes at its host's corner first; it fades in once pinned. */
@@ -27343,8 +27355,9 @@ body:has(.top-bar-hidden) .btn-fit {
     }
 }
 
+/* Starts partly visible and short: from transparent, the first frames show nothing and read as a delay. */
 @keyframes lt-fpop-in {
-    from { opacity: 0; transform: translateY(6px); }
+    from { opacity: 0.4; transform: translateY(4px); }
 }
 
 @keyframes lt-fpop-sheet-up {
