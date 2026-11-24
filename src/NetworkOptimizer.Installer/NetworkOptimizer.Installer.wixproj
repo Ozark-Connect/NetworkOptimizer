@@ -46,16 +46,17 @@
   </ItemGroup>
 
   <!-- Download nginx before build. Keyed on a per-version marker, not nginx.exe, so a version
-       bump replaces an already-staged older nginx. Keep on the nginx.org stable line. -->
+       bump replaces an already-staged older nginx. Keep on the nginx.org stable line.
+       Never BeforeTargets="Build": that runs after WiX compiles, so the MSI ships the old nginx. -->
   <PropertyGroup>
     <NginxVersion>1.30.7</NginxVersion>
   </PropertyGroup>
-  <Target Name="DownloadNginx" BeforeTargets="Build" Condition="!Exists('$(SpeedTestDir)nginx\nginx-$(NginxVersion).version')">
+  <Target Name="DownloadNginx" BeforeTargets="CoreCompile" Condition="!Exists('$(SpeedTestDir)nginx\nginx-$(NginxVersion).version')">
     <Exec Command="powershell -ExecutionPolicy Bypass -File &quot;$(SpeedTestDir)Download-Nginx.ps1&quot; -Version $(NginxVersion)" />
   </Target>
 
   <!-- Download iperf3 before build -->
-  <Target Name="DownloadIperf3" BeforeTargets="Build" Condition="!Exists('$(Iperf3Dir)iperf3.exe')">
+  <Target Name="DownloadIperf3" BeforeTargets="CoreCompile" Condition="!Exists('$(Iperf3Dir)iperf3.exe')">
     <Exec Command="powershell -ExecutionPolicy Bypass -File &quot;$(Iperf3Dir)Download-Iperf3.ps1&quot;" />
   </Target>
 
