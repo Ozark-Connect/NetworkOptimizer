@@ -6062,6 +6062,8 @@
         savingIperf3Settings = true;
         iperf3Message = "";
         StateHasChanged();
+        // Sends the busy render first, so a save that finishes in one render still shows the floating Save its result.
+        await Task.Yield();
 
         try
         {
@@ -9618,6 +9620,8 @@
         savingThreatSettings = true;
         threatSettingsMessage = "";
         StateHasChanged();
+        // Sends the busy render first, so a save that finishes in one render still shows the floating Save its result.
+        await Task.Yield();
 
         try
         {
