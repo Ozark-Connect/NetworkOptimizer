@@ -2191,10 +2191,10 @@ window.fpEditor = {
 
     // Map toolbox under the zoom control: Pan / Select, Draw Layout / Undo, APs / Planned APs.
     // C# pushes its state (setToolboxState); the mode buttons call the toolbar's own toggles.
-    // TODO: the toolbar's duplicate buttons go once users know this toolbox, with a tour step that
-    // points here (see TODO.md "Signal Map: retire the toolbar buttons the map toolbox replaced").
     // Select makes a plain drag draw the selection box: the marquee's capture-phase handler stops
     // the drag before Leaflet can pan, so map dragging itself stays on.
+    // TODO: the toolbar's duplicate buttons go once users know this toolbox, with a tour step that
+    // points here (see TODO.md "Signal Map: retire the toolbar buttons the map toolbox replaced").
     _toolboxState: { editable: false, floor: false, mode: 'view', apLabel: 'Place APs', planLabel: 'Add Planned APs' },
 
     _toolIcons: {
