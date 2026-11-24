@@ -49,7 +49,7 @@ public class SponsorshipService : ISponsorshipService
         ("Still free. Still no VC funding. Still powered by coffee and spite.", "Fund the spite"),
 
         // Level 6: 31-40 uses - stats flex
-        ("850,000 lines of code. 18,500 tests. One guy on 2 acres in Arkansas. Still cheaper than UI Ground shipping.", "Buy him lunch"),
+        ("678,000 lines of code. 18,500 tests. One guy on 2 acres in Arkansas. Still cheaper than UI Ground shipping.", "Buy him lunch"),
 
         // Level 7: 41-50 uses - former employer dig
         ("You've used this more than some employers used my code. Just saying.", "Money me"),
