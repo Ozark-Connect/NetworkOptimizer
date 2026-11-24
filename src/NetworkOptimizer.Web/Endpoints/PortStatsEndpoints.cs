@@ -204,7 +204,7 @@ public static class PortStatsEndpoints
     /// <summary>
     /// Each PoE port's draw now, keyed (device MAC, port number), from the console's port table: the number
     /// UniFi Network shows, for every switch and gateway whether SNMP reads it or not. Empty when the console
-    /// is not answering.
+    /// is not answering. A port with PoE turned off (<c>poe_mode</c> "off") is left out, so it reads as no PoE.
     /// </summary>
     private static async Task<Dictionary<(string Mac, int Port), double>> LivePoeAsync(UniFiConnectionService connection, CancellationToken ct)
     {
@@ -215,6 +215,7 @@ public static class PortStatsEndpoints
             foreach (var device in await client.GetDevicesAsync(ct))
                 foreach (var port in device.PortTable ?? [])
                     if (port.PortPoe && port.PortIdx > 0
+                        && !string.Equals(port.PoeMode, "off", StringComparison.OrdinalIgnoreCase)
                         && double.TryParse(port.PoePower, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var w))
                         poe[(Norm(device.Mac ?? ""), port.PortIdx)] = w;
         }

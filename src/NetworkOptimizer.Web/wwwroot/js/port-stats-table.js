@@ -181,8 +181,8 @@ function clientCell(p) {
     return escapeHtml(label);
 }
 
-// A PoE port's draw now, as UniFi Network shows it; '-' on a port that cannot source PoE or draws nothing.
-const fmtWatts = v => v == null || Number(v) < 0.05 ? '-' : `${Number(v).toFixed(1)} W`;
+// A PoE port's draw now, as UniFi Network shows it; '-' on a port that cannot source PoE.
+const fmtWatts = v => v == null ? '-' : `${Number(v).toFixed(1)} W`;
 
 const POE_COLUMN = { header: 'PoE', format: fmtWatts };
 
