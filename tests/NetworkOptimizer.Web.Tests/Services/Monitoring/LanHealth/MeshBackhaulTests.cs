@@ -156,6 +156,15 @@ public class MeshBackhaulTests
     }
 
     [Fact]
+    public void StpChanges_InAnHourOfExplainedDropsOnly_AreExplained()
+    {
+        LinkIncident Drop(ExplainReason? why) => new() { Kind = IncidentKind.Drop, Explained = why };
+        LanHealthEvidenceBuilder.AllDropsExplained([Drop(ExplainReason.DeviceUpgrading), Drop(ExplainReason.DeviceRebooted)]).Should().BeTrue();
+        LanHealthEvidenceBuilder.AllDropsExplained([Drop(ExplainReason.DeviceUpgrading), Drop(null)]).Should().BeFalse("one unexplained drop keeps the hour's STP changes");
+        LanHealthEvidenceBuilder.AllDropsExplained([]).Should().BeFalse("STP changes with no drop at all are churn");
+    }
+
+    [Fact]
     public void Reassociation_IsOneRelinkNotTwo()
     {
         var link = Mesh();

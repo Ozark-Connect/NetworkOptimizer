@@ -367,7 +367,9 @@ public static class LanHealthEvidenceBuilder
             UpTxPackets = up.Rise("ucast_pkts_out", InfluxFieldNames.PortTxPackets),
             DownTxPackets = down.Rise("ucast_pkts_out", InfluxFieldNames.PortTxPackets),
             LateCollisions = up.Rise(InfluxFieldNames.ChipLateCollisions),
-            StpChanges = up.Rise(InfluxFieldNames.StpStateChangeCount),
+            // A port re-converges each time its link drops, so an hour whose drops are all explained (an upgrade, a reboot)
+            // has explained STP changes too.
+            StpChanges = AllDropsExplained(incidents) ? 0 : up.Rise(InfluxFieldNames.StpStateChangeCount),
             UpErrorsBlind = upErrorsBlind,
             UpLinkDownCount = up.Max(InfluxFieldNames.LinkDownCount),
             DownLinkDownCount = down.Max(InfluxFieldNames.LinkDownCount),
@@ -469,6 +471,13 @@ public static class LanHealthEvidenceBuilder
 
     /// <summary>A mesh re-association's outage, for the timeline: the child rescans and rejoins in a few seconds.</summary>
     internal const double MeshReassociationSeconds = 5;
+
+    /// <summary>The hour had drops, and every one of them is explained.</summary>
+    internal static bool AllDropsExplained(IReadOnlyList<LinkIncident> incidents)
+    {
+        var drops = incidents.Where(i => i.Kind is IncidentKind.Drop or IncidentKind.Relink or IncidentKind.Outage).ToList();
+        return drops.Count > 0 && drops.All(i => i.IsExplained);
+    }
 
     /// <summary>A since-association counter's rise over the hour: last minus first, or the last alone when it reset.</summary>
     internal static double? CounterRise(double? first, double? last) =>
