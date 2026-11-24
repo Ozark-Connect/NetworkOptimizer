@@ -338,8 +338,37 @@ public partial class AuditService : IAuditScanService
     /// <summary>
     /// Check if an issue has been dismissed
     /// </summary>
-    public bool IsIssueDismissed(AuditIssue issue) =>
-        DismissedIssuesCache.ContainsKey(GetIssueKey(issue));
+    public bool IsIssueDismissed(AuditIssue issue)
+    {
+        var cache = DismissedIssuesCache;
+        if (cache.ContainsKey(GetIssueKey(issue))) return true;
+        return ClientName(issue) is { } name && cache.Keys.Any(k => KeyCoversClient(k, issue.Title, name));
+    }
+
+    /// <summary>
+    /// The finding's client, when one acknowledgement should cover it on any AP, any band, and offline: a client with
+    /// a name of its own. Null for one known only by its type ("Smart TV"), a wired port finding, or anything else;
+    /// those match on <see cref="GetIssueKey"/> alone.
+    /// </summary>
+    internal static string? ClientName(AuditIssue issue)
+    {
+        const string offline = " (offline)";
+        if (!issue.ClientNamed || !string.IsNullOrEmpty(issue.Port)) return null;
+        if (!string.IsNullOrEmpty(issue.ClientName)) return issue.ClientName;
+        return issue.DeviceName is { } d && d.EndsWith(offline, StringComparison.Ordinal) ? d[..^offline.Length] : null;
+    }
+
+    /// <summary>
+    /// Whether a stored key acknowledges this client's finding: the same title, no port, and the client's name alone,
+    /// on an AP ("[TV] Den on [AP] Den (5 GHz)"), or offline. Keys saved per AP and band before this keep working.
+    /// </summary>
+    internal static bool KeyCoversClient(string key, string title, string name)
+    {
+        var parts = key.Split('|');
+        if (parts.Length < 3 || parts[0] != title || parts[2].Length > 0) return false;
+        var device = parts[1];
+        return device == name || device == $"{name} (offline)" || device.StartsWith($"{name} on ", StringComparison.Ordinal);
+    }
 
     /// <summary>
     /// Get active (non-dismissed) issues (synchronous - may not include dismissed filter if not yet loaded)
@@ -375,7 +404,15 @@ public partial class AuditService : IAuditScanService
     /// </summary>
     public async Task RestoreIssueAsync(AuditIssue issue)
     {
-        var key = GetIssueKey(issue);
+        // Every key that hides it: an older acknowledgement for another AP or band hides a named client too.
+        var name = ClientName(issue);
+        var keys = DismissedIssuesCache.Keys.Where(k => k == GetIssueKey(issue) || (name != null && KeyCoversClient(k, issue.Title, name))).ToList();
+        foreach (var key in keys)
+            await RestoreKeyAsync(key);
+    }
+
+    private async Task RestoreKeyAsync(string key)
+    {
         if (DismissedIssuesCache.TryRemove(key, out _))
         {
             try
@@ -1955,6 +1992,7 @@ public partial class AuditService : IAuditScanService
                 // Wireless-specific fields
                 IsWireless = issue.IsWireless,
                 ClientName = issue.ClientName,
+                ClientNamed = issue.ClientNamed,
                 ClientMac = issue.ClientMac,
                 AccessPoint = issue.AccessPoint,
                 WifiBand = issue.WifiBand,
@@ -2670,6 +2708,8 @@ public class AuditIssue
     public int? RecommendedVlan { get; set; }
     public bool IsWireless { get; set; }
     public string? ClientName { get; set; }
+    /// <summary>The finding's client has a name of its own, so one acknowledgement covers it on any AP, any band, and offline.</summary>
+    public bool ClientNamed { get; set; }
     public string? ClientMac { get; set; }
     public string? AccessPoint { get; set; }
     public string? WifiBand { get; set; }
