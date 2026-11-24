@@ -200,10 +200,11 @@
                     @* Latency Chart *@
                     @if (_activeTab == "latency")
                     {
-                        <div class="wan-chart-container">
+                        <div class="wan-chart-container chart-opens-results">
                             <ApexChart @ref="_latencyChart" TItem="ChartPoint"
                                        Options="_latencyChartOptions"
-                                       Height="@("250px")">
+                                       Height="@("250px")"
+                                       OnClick="OnChartClicked">
                                 @foreach (var series in _chartSeries)
                                 {
                                     <ApexPointSeries TItem="ChartPoint"
@@ -221,10 +222,11 @@
                     @* Jitter Chart *@
                     @if (_activeTab == "jitter")
                     {
-                        <div class="wan-chart-container">
+                        <div class="wan-chart-container chart-opens-results">
                             <ApexChart @ref="_jitterChart" TItem="ChartPoint"
                                        Options="_jitterChartOptions"
-                                       Height="@("250px")">
+                                       Height="@("250px")"
+                                       OnClick="OnChartClicked">
                                 @foreach (var series in _chartSeries)
                                 {
                                     <ApexPointSeries TItem="ChartPoint"
