@@ -9,6 +9,8 @@
 @inject Microsoft.AspNetCore.Mvc.ViewFeatures.IFileVersionProvider FileVersionProvider
 @inject ILogger<LanHealthPanel> Logger
 @inject UniFiConnectionService ConnectionService
+@inject NetworkOptimizer.Web.Services.DeviceRestart.IDeviceRestartService DeviceRestarts
+@using NetworkOptimizer.Web.Services.DeviceRestart
 
 <div class="lan-health">
 @if (_report == null)
@@ -155,7 +157,7 @@ else
                             @foreach (var l in shown)
                             {
                                 <tr class="lan-health-row @(l.Exclusion == ExclusionLevel.ExcludeFromScore ? "lan-health-excluded" : "")" @onclick="() => OpenLink(l.Link.Id)">
-                                    <td><div>@l.Link.Upstream.DeviceName @l.Link.Upstream.Label</div><div class="lan-health-sub">to @l.Link.Downstream.DeviceName</div></td>
+                                    <td><div>@l.Link.UpstreamName</div><div class="lan-health-sub">to @l.Link.Downstream.DeviceName</div></td>
                                     <td>@KindLabel(l.Link.Kind)</td>
                                     <td><div>@SpeedLabel(l.Link)</div>@if (l.Link.Forced) {<div class="lan-health-sub">Forced</div>}</td>
                                     <td class="@ScoreClass(l.Score)">@FormatScore(l.Score)</td>
@@ -249,8 +251,7 @@ else
             }
             var changes = l.Incidents.Where(i => i.Explained == ExplainReason.PortProfileChanged)
                 .Select(i => new DateTimeOffset(DateTime.SpecifyKind(i.Start, DateTimeKind.Utc)).ToUnixTimeMilliseconds()).Distinct().ToList();
-            await _charts.InvokeVoidAsync("renderTimeline", "lan-health-timeline", buckets, changes, (long)bucket.TotalMilliseconds,
-                DisplayTime.Format.Clock == ClockStyle.TwentyFourHour);
+            await _charts.InvokeVoidAsync("renderTimeline", "lan-health-timeline", buckets, changes);
         }
         catch (JSDisconnectedException) { }
         catch (Exception ex) { Logger.LogDebug(ex, "LAN Health timeline chart failed"); }
@@ -305,6 +306,7 @@ else
             _report = await LanHealth.GetReportAsync(_hours, DisplayTime.Zone, DisplayTime.Format);
             _loadedLink = LinkId;
             _link = string.IsNullOrEmpty(LinkId) ? null : _report.Links.FirstOrDefault(l => l.Link.Id == LinkId);
+            if (_link != null) await LoadRestartBadgesAsync();
             _historyDirty = true;
             _timelineDirty = true;
         }
@@ -344,7 +346,7 @@ else
             long? cutover = _report.CutoverAt is DateTime c ? new DateTimeOffset(DateTime.SpecifyKind(c, DateTimeKind.Utc)).ToUnixTimeMilliseconds() : null;
             // Only marked when the history reaches back past it; before that every hour is LAN Health's.
             if (points.Count > 0 && cutover <= points[0].t) cutover = null;
-            await _charts.InvokeVoidAsync("renderHistory", "lan-health-history", points, cutover, DisplayTime.Format.Clock == ClockStyle.TwentyFourHour);
+            await _charts.InvokeVoidAsync("renderHistory", "lan-health-history", points, cutover);
         }
         catch (JSDisconnectedException) { }
         catch (Exception ex) { Logger.LogDebug(ex, "LAN Health history chart failed"); }
@@ -485,15 +487,63 @@ else
     private string _exclusionScope = "port";
     private string? _exclusionError;
 
-    private RenderFragment LinkPage => __builder =>
+    private IReadOnlyDictionary<string, DeviceRestartBadge> _restartBadges = new Dictionary<string, DeviceRestartBadge>();
+
+    /// <summary>Each device's open or recently failed restart, for the badge on the link page's restart buttons.</summary>
+    private async Task LoadRestartBadgesAsync()
     {
-        var l = _link;
-        @* The drill-down back button, as Threat Intelligence's IP, port, and protocol details have it. *@
+        try
+        {
+            _restartBadges = await DeviceRestarts.GetBadgesAsync();
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // The badges are a hint; the buttons render without them.
+            _restartBadges = new Dictionary<string, DeviceRestartBadge>();
+        }
+    }
+
+    /// <summary>The drill-down back button, as Threat Intelligence's IP, port, and protocol details have it.</summary>
+    private RenderFragment BackButton => __builder =>
+    {
         <div id="lan-health-link-top" class="lan-health-back">
             <button class="btn btn-secondary btn-sm" @onclick="() => NavigationManager.NavigateTo(LanHealthLinks.Tab())"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5M12 19l-7-7 7-7"/></svg> LAN Health</button>
         </div>
-        @if (l == null)
+    };
+
+    /// <summary>One end of the link: the device's icon with its restart button, its name, and its port.</summary>
+    private RenderFragment LinkEndView(LinkEnd end) => __builder =>
+    {
+        <div class="lan-health-end">
+            <div class="lan-health-end-icon">
+                @if (end.IsUniFi)
+                {
+                    <DeviceIcon Model="@end.Model" Size="xl" />
+                    @if (!string.IsNullOrEmpty(end.DeviceMac))
+                    {
+                        <DeviceRestartButton Mac="@end.DeviceMac" Name="@end.DeviceName" OnChanged="LoadRestartBadgesAsync"
+                                             Restart="@_restartBadges.GetValueOrDefault(NetworkOptimizer.Web.Services.Firmware.MacNormalizer.Normalize(end.DeviceMac))" />
+                    }
+                }
+                else
+                {
+                    <AppIcon Name="computer" />
+                }
+            </div>
+            <div class="lan-health-end-name">@end.DeviceName</div>
+            @if (end.PortIdx is int p)
+            {
+                <div class="lan-health-sub">Port @p</div>
+            }
+        </div>
+    };
+
+    private RenderFragment LinkPage => __builder =>
+    {
+        var l = _link;
+        if (l == null)
         {
+            @BackButton
             @* With the console disconnected the link is unknown, not gone: Monitoring's ConsoleConnectionBanner says why. *@
             @if (ConnectionService.IsConnected)
             {
@@ -504,10 +554,17 @@ else
         var link = l.Link;
         var drops = l.Incidents.Where(i => i.Kind is IncidentKind.Drop or IncidentKind.Relink && !i.IsExplained).ToList();
         var secs = drops.Select(i => i.DownSeconds).OfType<double>().ToList();
+        @* A grid: the ends span the back button's row and the title's, beside both. *@
         <div class="lan-health-link-head">
-            <div>
+            @BackButton
+            <div class="lan-health-link-name">
                 <h2 class="lan-health-link-title">@link.Name</h2>
                 <div class="lan-health-sub">@Subtitle(link, l)</div>
+            </div>
+            <div class="lan-health-link-ends">
+                @LinkEndView(link.Upstream)
+                <div class="lan-health-end-line @(link.Kind is LinkKind.FabricMesh or LinkKind.FabricMeshMlo ? "is-mesh" : null)"></div>
+                @LinkEndView(link.Downstream)
             </div>
             <div class="lan-health-link-head-right">
                 <span class="status-badge @StatusClass(l.Status)">@StatusLabel(l.Status)</span>
@@ -554,13 +611,13 @@ else
                 <div class="card-body">
                     <div class="table-responsive">
                         <table class="data-table lan-health-ends">
-                            <thead><tr><th></th><th>@link.Upstream.DeviceName @link.Upstream.Label</th><th>@link.Downstream.DeviceName</th></tr></thead>
+                            <thead><tr><th></th><th>@link.UpstreamName</th><th>@link.Downstream.DeviceName</th></tr></thead>
                             <tbody>
                                 <tr><td>Link drops recorded</td><td>@DropCount(link.Upstream, l.UpLinkDownCount, null)</td><td>@DropCount(link.Downstream, l.DownLinkDownCount, l.DownCarrierChanges)</td></tr>
                                 <tr><td>Receive errors</td><td>@($"{l.ErrorsUpstreamRx:0}")</td><td>@(link.Downstream.IsUniFi ? $"{l.ErrorsDownstreamRx:0}" : "--")</td></tr>
                                 <tr><td>Transmit discards</td><td>@($"{l.DiscardsUpstreamTx:N0}")</td><td>@(link.Downstream.IsUniFi ? $"{l.DiscardsDownstreamTx:N0}" : "--")</td></tr>
                                 <tr><td>Speed / negotiation</td><td>@SpeedLabel(link), @(link.Forced ? "forced" : "auto")</td><td>@(link.DownstreamPort != null ? $"{SpeedLabel(link)}, {(link.DownstreamPort.Autoneg ? "auto" : "forced")}" : "--")</td></tr>
-                                <tr><td>Power</td><td>@(l.PoeWatts is double w && w > 0 ? $"{w:0.#} W PoE" : "No PoE")</td><td>--</td></tr>
+                                <tr><td>Power</td><td>@PowerText(l)</td><td>--</td></tr>
                             </tbody>
                         </table>
                     </div>
@@ -719,6 +776,13 @@ else
         </SiteAdminOnly>
     };
 
+    /// <summary>The draw now, as UniFi Network shows it, and the hour's peak when it sits a watt or more above.</summary>
+    private static string PowerText(LinkHealth l)
+    {
+        if (l.PoeWatts is not double w || w <= 0) return l.PoePeakWatts is double p && p > 0 ? $"No PoE now (peak {p:0.#} W)" : "No PoE";
+        return l.PoePeakWatts is double peak && peak - w >= 1 ? $"{w:0.#} W PoE (peak {peak:0.#} W)" : $"{w:0.#} W PoE";
+    }
+
     private string Subtitle(LinkRecord link, LinkHealth l)
     {
         // lanh-23: "{kind} · {speed}, forced · {power} · {count} {device kind} behind it".
@@ -773,6 +837,7 @@ else
         IncidentKind.Drop when i.DownSeconds is double s => $"Drop, {Math.Max(1, Math.Round(s)):0} s",
         IncidentKind.Drop => "Relink",
         IncidentKind.Relink => i.Count > 1 ? $"Relink x{i.Count:0}" : "Relink",
+        IncidentKind.Outage when i.DownSeconds is double s => $"Outage, {TimeFormatHelper.FormatDurationCompact(TimeSpan.FromSeconds(s))}",
         IncidentKind.Outage => "Outage",
         IncidentKind.SpeedChange => "Speed change",
         IncidentKind.ErrorBurst => "Error burst",

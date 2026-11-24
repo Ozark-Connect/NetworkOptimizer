@@ -88,6 +88,12 @@ public class DeviceRebootTracker
 
     private record CommandedRestartEvent(string EventKey, string? AdminName, DateTime ReceivedAt);
 
+    // Restarts Network Optimizer itself is about to cause, by device.
+    private readonly ConcurrentDictionary<string, PlannedRestart> _plannedRestarts = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>A boot this long before the command still counts: uptime is read in whole seconds and clocks differ.</summary>
+    private static readonly TimeSpan PlannedBootSlack = TimeSpan.FromSeconds(30);
+
     /// <summary>
     /// Caps concurrent probes for this site. Uptime samples arrive for every device in one pass, so
     /// a first run - or any classifier bump, which re-probes the fleet - would otherwise open an SSH
@@ -428,10 +434,14 @@ public class DeviceRebootTracker
 
         if (!_records.TryGetValue(mac, out var record)) return;
 
-        // Role 1: fallback when probe has not resolved yet.
+        // Role 1: fallback when probe has not resolved yet. A restart Network Optimizer sent through
+        // the console arrives here too, credited to its API user, so its own record wins.
         if (record.Reason == null)
         {
-            await StoreAsync(mac, record.BootedAt, parsedEvent, DeviceType.Unknown);
+            var fallback = TakePlannedRestart(mac, record.BootedAt) is { } planned
+                ? ApplyPlannedRestart(parsedEvent, planned) ?? parsedEvent
+                : parsedEvent;
+            await StoreAsync(mac, record.BootedAt, fallback, DeviceType.Unknown);
             return;
         }
 
@@ -448,6 +458,47 @@ public class DeviceRebootTracker
                 record.Reason.Category, overridden.Category, mac);
             await StoreAsync(mac, record.BootedAt, overridden, DeviceType.Unknown);
         }
+    }
+
+    /// <summary>
+    /// Records that Network Optimizer is about to restart or power-cycle the device (or cut the power
+    /// to it, as a switch restart does to the APs it powers). A boot inside the window takes this
+    /// as its reason, so the one reboot record says who did it and how, instead of a second mark.
+    /// </summary>
+    /// <param name="deviceMac">The device that will boot.</param>
+    /// <param name="restart">What is coming, and the reason text it gets.</param>
+    public void ExpectPlannedRestart(string deviceMac, PlannedRestart restart)
+    {
+        if (string.IsNullOrWhiteSpace(deviceMac)) return;
+        _plannedRestarts[Normalize(deviceMac)] = restart;
+    }
+
+    /// <summary>The planned restart that explains a boot at <paramref name="bootedAt"/>, taken once.</summary>
+    private PlannedRestart? TakePlannedRestart(string mac, DateTime bootedAt)
+    {
+        if (!_plannedRestarts.TryGetValue(mac, out var planned)) return null;
+        if (bootedAt < planned.At - PlannedBootSlack || bootedAt > planned.Until) return null;
+        _plannedRestarts.TryRemove(mac, out _);
+        return planned;
+    }
+
+    /// <summary>
+    /// The probe's reason, given the planned restart that explains the boot. A firmware upgrade that
+    /// landed on the same boot keeps its own reason; a cut-power child only takes it over an
+    /// unexpected-looking result, since a child that booted cleanly booted for its own reason.
+    /// </summary>
+    internal static DeviceRebootReason? ApplyPlannedRestart(DeviceRebootReason? probed, PlannedRestart planned)
+    {
+        if (probed?.Category == RebootCategory.FirmwareUpgrade) return null;
+        if (planned.LostPowerOnly && probed is { IsUnexpected: false }) return null;
+
+        var source = probed?.Source ?? RebootReasonSource.UniFiEvent;
+        if (planned.Category == RebootCategory.PowerCycle)
+            return new DeviceRebootReason(RebootCategory.PowerCycle, "Power cycled", planned.Detail, source);
+        return probed is { IsUnexpected: true }
+            ? new DeviceRebootReason(RebootCategory.CommandedReboot, "Restarted",
+                $"{planned.Detail} (shutdown was not clean: {probed.Summary.ToLowerInvariant()})", source)
+            : new DeviceRebootReason(RebootCategory.CommandedReboot, "Restarted", planned.Detail, source);
     }
 
     /// <summary>
@@ -590,6 +641,13 @@ public class DeviceRebootTracker
                     "Overriding {OldCategory} with CommandedReboot for {Device} ({Mac}): UniFi Network event within window",
                     reason.Category, deviceName ?? "unknown", mac);
                 reason = overridden;
+            }
+
+            // Network Optimizer's own restart: the same record, with who asked and how.
+            if (TakePlannedRestart(mac, bootedAt) is { } planned && ApplyPlannedRestart(reason, planned) is { } ours)
+            {
+                _logger.LogInformation("Reboot of {Device} ({Mac}) was Network Optimizer's: {Detail}", deviceName ?? "unknown", mac, ours.Detail);
+                reason = ours;
             }
 
             // The boot may have rolled over while the probe ran; only store against the boot we probed.

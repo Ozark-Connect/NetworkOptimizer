@@ -302,9 +302,12 @@ public sealed class LinkRecord
     public bool IsMesh => Kind is LinkKind.FabricMesh or LinkKind.FabricMeshMlo;
 
     /// <summary>"Gateway A Port 3 to AP 1": the upstream device and port number, then the device on the far side.</summary>
-    public string Name => IsMesh || Upstream.PortIdx == null
-        ? $"{Upstream.DeviceName} to {Downstream.DeviceName}"
-        : $"{Upstream.DeviceName} {Upstream.Label} to {Downstream.DeviceName}";
+    public string Name => $"{UpstreamName} to {Downstream.DeviceName}";
+
+    /// <summary>"Gateway A Port 3", or the device alone where there is no port (a mesh radio), so the name never repeats.</summary>
+    public string UpstreamName => IsMesh || Upstream.PortIdx == null
+        ? Upstream.DeviceName
+        : $"{Upstream.DeviceName} {Upstream.Label}";
 
     /// <summary>The end-device side or downstream UniFi device's MAC, used to tie probes and agent events to the link.</summary>
     public string DownstreamMac => Downstream.DeviceMac;
@@ -417,7 +420,10 @@ public sealed class LinkHealth
     public double? UpLinkDownCount { get; set; }
     public double? DownLinkDownCount { get; set; }
     public double? DownCarrierChanges { get; set; }
+    /// <summary>The port's PoE draw now, as UniFi Network shows it; the latest hour's peak when the port table has none.</summary>
     public double? PoeWatts { get; set; }
+    /// <summary>The highest draw sampled in the latest hour with a reading (a boot draws more).</summary>
+    public double? PoePeakWatts { get; set; }
 }
 
 /// <summary>The site's LAN Health over a window: the score card, the findings, and every link.</summary>

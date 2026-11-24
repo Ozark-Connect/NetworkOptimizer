@@ -21,6 +21,7 @@ using NetworkOptimizer.Web.Services;
 using NetworkOptimizer.Web.Services.Authorization;
 using NetworkOptimizer.Web.Services.CableModemProviders;
 using NetworkOptimizer.Web.Services.CellularModemProviders;
+using NetworkOptimizer.Web.Services.DeviceRestart;
 using NetworkOptimizer.Web.Services.Gates;
 using NetworkOptimizer.Web.Services.Identity;
 using NetworkOptimizer.Web.Services.Licensing;
@@ -888,6 +889,12 @@ builder.Services.AddMutatingService<NetworkOptimizer.Web.Services.Firmware.IFirm
         sp.GetRequiredService<NetworkOptimizer.Web.Services.Firmware.FirmwareRolloutRegistry>().GetFor(slug),
         ActivatorUtilities.CreateInstance<NetworkOptimizer.Web.Services.Firmware.FirmwareCommandClient>(sp, slug));
 });
+// Device restart (Dashboard Device Status): one executor runs every site's requests, root first,
+// and the page-facing service writes them through the gate.
+builder.Services.AddSingleton<PoeDrawMemory>();
+builder.Services.AddSiteScopedRegistry<DeviceRestartExecutor>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<DeviceRestartExecutor>());
+builder.Services.AddMutatingService<IDeviceRestartService, DeviceRestartService>();
 // Change Control: config snapshots, change detection, plans. One engine per site.
 builder.Services.AddChangeControl();
 builder.Services.AddMutatingService<IChangeControlService, ChangeControlService>();

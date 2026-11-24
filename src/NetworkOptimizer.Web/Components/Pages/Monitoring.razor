@@ -2176,6 +2176,10 @@
     [SupplyParameterFromQuery(Name = "expand")]
     public string? ExpandParam { get; set; }
 
+    /// <summary>"new" with <c>device</c> on Setup: opens that device's Health Check editor (the Dashboard restart sheet's link).</summary>
+    [SupplyParameterFromQuery(Name = "hc")]
+    public string? HealthCheckParam { get; set; }
+
     [SupplyParameterFromQuery(Name = "mifip")]
     public string? MiTargetParam { get; set; }
 
@@ -3021,6 +3025,7 @@
     private IReadOnlyList<SnmpDeviceStatus> _snmpDeviceStatuses = Array.Empty<SnmpDeviceStatus>();
     private SnmpDeviceStatusCard? _snmpDeviceCard;
     private bool _pendingExpandSnmpCard;
+    private string? _pendingHealthCheckFor;
     private MonitoringInterfacesCard? _miCard;
     private bool _pendingExpandMiCard;
 
@@ -3382,6 +3387,8 @@
             {
                 _pendingExpandSnmpCard = true;
                 _thresholdExpandApplied = true;
+                if (string.Equals(HealthCheckParam, "new", StringComparison.OrdinalIgnoreCase) && !string.IsNullOrEmpty(DeviceParam))
+                    _pendingHealthCheckFor = DeviceParam;
             }
             else if (_activeTab == "sfp" && ExpandParam == "sfp-thresholds")
             {
@@ -6267,6 +6274,13 @@
             _pendingExpandSnmpCard = false;
             _snmpDeviceCard.Expand();
             await ScrollToSnmpDevicesAsync();
+        }
+
+        // The device list loads after the card does, so the editor opens on the first pass that finds the device.
+        if (_pendingHealthCheckFor != null && _activeTab == "setup" && _snmpDeviceCard != null
+            && await _snmpDeviceCard.OpenHealthCheckAsync(_pendingHealthCheckFor))
+        {
+            _pendingHealthCheckFor = null;
         }
 
         // Auto-expand the Monitoring Interfaces card when deep-linked from a monitor

@@ -3928,6 +3928,48 @@ public partial class UniFiApiClient : IDisposable
     }
 
     /// <summary>
+    /// POST cmd/devmgr {"cmd":"restart","reboot_type":"soft"} - restart a device, as UniFi Network's
+    /// Restart action does. Accepted means the console took the command; the caller confirms the
+    /// restart from the device's uptime or state afterwards.
+    /// </summary>
+    /// <param name="mac">Device MAC in any separator form; sent lowercase-colonized.</param>
+    [VendorSpecific("UniFi", "cmd/devmgr restart")]
+    public Task<bool> RestartDeviceAsync(string mac, CancellationToken cancellationToken = default) =>
+        SendDevmgrAsync(UniFiDeviceRestartCommand.BuildRestartBody(mac), "restart", cancellationToken);
+
+    /// <summary>
+    /// POST cmd/devmgr {"cmd":"power-cycle"} - cut and restore PoE on one switch port, which boots
+    /// whatever that port powers. Accepted means the console took the command.
+    /// </summary>
+    /// <param name="switchMac">The switch that powers the port.</param>
+    /// <param name="portIdx">The port's <c>port_idx</c>.</param>
+    [VendorSpecific("UniFi", "cmd/devmgr power-cycle")]
+    public Task<bool> PowerCyclePortAsync(string switchMac, int portIdx, CancellationToken cancellationToken = default) =>
+        SendDevmgrAsync(UniFiDeviceRestartCommand.BuildPowerCycleBody(switchMac, portIdx), "power-cycle", cancellationToken);
+
+    private async Task<bool> SendDevmgrAsync(Dictionary<string, object?> body, string label, CancellationToken cancellationToken)
+    {
+        // Mutative: a NoPermission 403 is a real failure (insufficient role), so it surfaces.
+        var response = await ExecuteApiCallAsync<UniFiApiResponse<object>>(
+            () =>
+            {
+                var content = new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json");
+                return _httpClient!.PostAsync(BuildApiPath("cmd/devmgr"), content, cancellationToken);
+            },
+            cancellationToken,
+            throwOnPermissionError: true);
+
+        if (UniFiDeviceUpgradeCommand.IsAccepted(response))
+        {
+            _logger.LogInformation("Console accepted a {Command} command for {Mac}", label, body["mac"]);
+            return true;
+        }
+
+        _logger.LogWarning("Console refused the {Command} command for {Mac}", label, body["mac"]);
+        return false;
+    }
+
+    /// <summary>
     /// POST cmd/devmgr {"cmd":"upgrade-external"} - upgrade or revert a device to an arbitrary
     /// firmware image URL.
     /// <para>

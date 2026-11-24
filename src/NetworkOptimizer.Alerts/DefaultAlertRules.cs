@@ -615,6 +615,15 @@ public static class DefaultAlertRules
             MinSeverity = AlertSeverity.Info,
             CooldownSeconds = 300
         },
+        new AlertRule
+        {
+            Name = "Device: Restart Failed",
+            IsEnabled = true,
+            EventTypePattern = "device.restart_failed",
+            Source = "device",
+            MinSeverity = AlertSeverity.Warning,
+            CooldownSeconds = 0 // one alert per failed request
+        },
 
         // --- Gateway health (enabled - always available when monitoring is active) ---
         new AlertRule

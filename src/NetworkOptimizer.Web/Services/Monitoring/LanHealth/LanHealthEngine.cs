@@ -435,6 +435,30 @@ public sealed class LanHealthEngine
         {
             _logger.LogDebug(ex, "LAN Health: rollout lookup failed for {Site}", _slug);
         }
+
+        // Device Restart: the restarted device and everything below it, from the first command until it is back.
+        // A boot's own reboot point is only ±3 minutes, and only on the device itself.
+        try
+        {
+            await using var db = await _db(ct);
+            var restarts = await db.DeviceRestartRequests.AsNoTracking()
+                .Where(r => r.StartedAt != null && r.StartedAt < to && (r.CompletedAt == null || r.CompletedAt >= from.AddMinutes(-10)))
+                .ToListAsync(ct);
+            foreach (var r in restarts)
+            {
+                var start = r.StartedAt!.Value.AddMinutes(-1);
+                var end = (r.CompletedAt ?? to).AddMinutes(5);
+                var detail = r.Method == DeviceRestartMethod.PoeCycle
+                    ? nameof(Monitoring.RebootReason.RebootCategory.PowerCycle)
+                    : nameof(Monitoring.RebootReason.RebootCategory.CommandedReboot);
+                foreach (var mac in Below(LanLinkBuilder.Mac(r.DeviceMac), topology))
+                    windows.Add(new ExplainWindow(start, end, mac, ExplainReason.DeviceRebooted, detail));
+            }
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogDebug(ex, "LAN Health: device restart lookup failed for {Site}", _slug);
+        }
         return windows;
 
     }

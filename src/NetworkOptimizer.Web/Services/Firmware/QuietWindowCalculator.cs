@@ -64,8 +64,10 @@ public static class QuietWindowCalculator
     /// <param name="nowLocal">Now, in the site's zone.</param>
     /// <param name="minLead">Least notice the window must leave.</param>
     /// <param name="avoidMondayMorning">Skip every start <see cref="HitsMondayGuard"/> rejects.</param>
+    /// <param name="horizon">Only starts within this span of now; null searches the whole week.</param>
     public static QuietWindowProposal FindBest(
-        double[] busy168, int durationSeconds, DateTime nowLocal, TimeSpan minLead, bool avoidMondayMorning = false)
+        double[] busy168, int durationSeconds, DateTime nowLocal, TimeSpan minLead, bool avoidMondayMorning = false,
+        TimeSpan? horizon = null)
     {
         if (busy168.Length != BucketsPerWeek)
             throw new ArgumentException($"Fingerprint must have {BucketsPerWeek} buckets", nameof(busy168));
@@ -79,8 +81,9 @@ public static class QuietWindowCalculator
         {
             if (avoidMondayMorning && HitsMondayGuard(start, durationSeconds)) continue;
 
-            var score = WindowScore(busy168, start, durationBuckets, DaytimePenalty);
             var startTime = NextOccurrence((DayOfWeek)(start / 24), start % 24, nowLocal, minLead);
+            if (horizon is TimeSpan h && startTime > nowLocal + h) continue;
+            var score = WindowScore(busy168, start, durationBuckets, DaytimePenalty);
             if (score < bestScore - 1e-9 ||
                 (Math.Abs(score - bestScore) <= 1e-9 && best >= 0 && startTime < bestStart))
             {
@@ -90,9 +93,9 @@ public static class QuietWindowCalculator
             }
         }
 
-        // Only a rollout of most of a week has no start clear of the guard; it still needs a window.
+        // Only a rollout of most of a week, or a horizon inside the guard, has no start clear of it; it still needs a window.
         if (best < 0)
-            return FindBest(busy168, durationSeconds, nowLocal, minLead, avoidMondayMorning: false);
+            return FindBest(busy168, durationSeconds, nowLocal, minLead, avoidMondayMorning: false, horizon);
 
         var busyMean = MeanBusy(busy168, best, durationBuckets);
         return new QuietWindowProposal
@@ -103,6 +106,27 @@ public static class QuietWindowCalculator
             BusyScore = busyMean,
             UsedFallback = false,
             Basis = "4 weeks of usage history",
+        };
+    }
+
+    /// <summary>Default overnight start within the next day when no usable history exists.</summary>
+    public static QuietWindowProposal FallbackWithinDay(SiteUsageProfile profile, DateTime nowLocal, TimeSpan minLead)
+    {
+        var (hour, basis) = profile == SiteUsageProfile.Business
+            ? (4, "business-profile default (early morning)")
+            : (3, "home-profile default (overnight)");
+        var earliest = nowLocal + minLead;
+        var start = new DateTime(earliest.Year, earliest.Month, earliest.Day, hour, 0, 0, earliest.Kind);
+        if (start < earliest) start = start.AddDays(1);
+
+        return new QuietWindowProposal
+        {
+            Day = start.DayOfWeek,
+            Hour = hour,
+            StartLocal = start,
+            BusyScore = 0,
+            UsedFallback = true,
+            Basis = basis,
         };
     }
 

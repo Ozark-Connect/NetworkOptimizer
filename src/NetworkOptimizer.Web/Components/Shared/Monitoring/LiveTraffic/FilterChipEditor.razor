@@ -3,9 +3,12 @@
    bottom sheet on a phone (app.css). *@
 @using NetworkOptimizer.Web.Services.Monitoring.LiveTraffic
 @using NetworkOptimizer.Core.Helpers
+@inject IJSRuntime JS
+@inject Microsoft.AspNetCore.Mvc.ViewFeatures.IFileVersionProvider FileVersionProvider
+@implements IAsyncDisposable
 
 <div class="lt-fpop-backdrop" @onclick="CloseAsync"></div>
-<div class="lt-fpop" role="dialog" aria-label="@($"Filter by {Label}")" @onkeydown="OnKeyAsync">
+<div @ref="_pop" class="lt-fpop lt-fpop-animated" role="dialog" aria-label="@($"Filter by {Label}")" @onkeydown="OnKeyAsync">
     <div class="lt-fpop-grab" aria-hidden="true"></div>
     <div class="lt-fpop-head">
         <span class="lt-fpop-title">@Label</span>
@@ -122,11 +125,34 @@
         return items;
     }
 
+    private ElementReference _pop;
+    private IJSObjectReference? _module;
+    private bool _closing;
+
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (!firstRender) return;
         try { await _input.FocusAsync(); }
         catch (Exception) { /* the editor closed before it drew */ }
+        try
+        {
+            _module = await JS.InvokeAsync<IJSObjectReference>(
+                "import", FileVersionProvider.AddFileVersionToPath("", "/js/fixed-popover.js"));
+            // Animates the height as the values load and as the search narrows them.
+            await _module.InvokeVoidAsync("watch", _pop);
+        }
+        catch (Exception ex) when (ex is JSDisconnectedException or TaskCanceledException or InvalidOperationException) { }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_module == null) return;
+        try
+        {
+            await _module.InvokeVoidAsync("release", _pop);
+            await _module.DisposeAsync();
+        }
+        catch (JSDisconnectedException) { }
     }
 
     private void SearchChanged() => _highlight = _search.Trim().Length > 0 ? 0 : -1;
@@ -163,5 +189,16 @@
 
     private Task ClearAsync() => OnClearMany.InvokeAsync(ToClear());
 
-    private Task CloseAsync() => OnClose.InvokeAsync();
+    /// <summary>Done, Esc, outside, or a swipe: the editor plays out first.</summary>
+    private async Task CloseAsync()
+    {
+        if (_closing) return;
+        _closing = true;
+        try
+        {
+            if (_module != null) await _module.InvokeVoidAsync("dismiss", _pop);
+        }
+        catch (Exception ex) when (ex is JSDisconnectedException or TaskCanceledException or InvalidOperationException) { }
+        await OnClose.InvokeAsync();
+    }
 }

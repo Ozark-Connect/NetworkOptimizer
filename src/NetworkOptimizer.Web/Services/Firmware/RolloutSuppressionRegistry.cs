@@ -35,6 +35,7 @@ public class RolloutSuppressionRegistry
     private readonly ConcurrentDictionary<string, DateTime> _osCyclingAt = new();
     private readonly ConcurrentDictionary<string, DateTime> _siteActiveAt = new();
     private readonly ConcurrentDictionary<string, DateTime> _devicesQuietAt = new();
+    private readonly ConcurrentDictionary<string, DateTime> _restartActiveAt = new();
 
     /// <summary>
     /// Mutes every device's offline and reboot alerts on a site for <see cref="WindowFreshness"/> from now: a Change Control
@@ -77,6 +78,20 @@ public class RolloutSuppressionRegistry
     /// </summary>
     public void RefreshSiteActive(string siteSlug, DateTime observedAt) =>
         _siteActiveAt[NormalizeSite(siteSlug)] = observedAt.ToUniversalTime();
+
+    /// <summary>
+    /// Marks the site as having a device restart in flight (Dashboard Device Status). The rollout
+    /// holds its next wave while this is fresh.
+    /// </summary>
+    public void RefreshRestartActive(string siteSlug, DateTime observedAt) =>
+        _restartActiveAt[NormalizeSite(siteSlug)] = observedAt.ToUniversalTime();
+
+    /// <summary>Ends the site's restart window once the restart settles.</summary>
+    public void ClearRestartActive(string siteSlug) => _restartActiveAt.TryRemove(NormalizeSite(siteSlug), out _);
+
+    /// <summary>Whether a device restart is in flight on this site.</summary>
+    public bool IsRestartActive(string siteSlug, DateTime now) =>
+        _restartActiveAt.TryGetValue(NormalizeSite(siteSlug), out var at) && now.ToUniversalTime() - at <= WindowFreshness;
 
     /// <summary>Whether any rollout activity is happening on this site.</summary>
     public bool IsSiteActiveRollout(string siteSlug, DateTime now)

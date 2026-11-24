@@ -2281,6 +2281,121 @@ a.stat-card-link:active {
     border-left-color: var(--danger-color);
 }
 
+/* A Device Status card is a div holding its link and its restart button side by side, so the link
+   carries the padding: the whole card stays clickable. */
+.device-card:has(> .device-card-link) {
+    padding: 0;
+}
+
+.device-card > .device-card-link {
+    display: block;
+    padding: 12px;
+    color: inherit;
+    text-decoration: none;
+}
+
+.device-card:has(> .device-card-link:hover) {
+    border-left-color: var(--primary-color);
+}
+
+/* The restart button takes the bottom-right corner. A card ending in a value row gives it a strip of
+   its own; one ending in the left-aligned live stats keeps them clear of it instead. */
+.device-card:has(> .device-restart-btn) {
+    position: relative;
+}
+
+.device-card:has(> .device-restart-btn) > .device-card-link {
+    padding-bottom: 38px;
+}
+
+.device-card:has(> .device-restart-btn) > .device-card-link:has(> .device-body > .device-live-stats:last-child):not(:has(> .device-upgrade-bar)) {
+    padding-bottom: 12px;
+}
+
+.device-card:has(> .device-restart-btn) .device-body > .device-live-stats:last-child {
+    padding-right: 34px;
+}
+
+.device-card > .device-restart-btn {
+    position: absolute;
+    right: 8px;
+    bottom: 8px;
+}
+
+.device-restart-btn {
+    position: relative;
+    flex: none;
+    width: 26px;
+    height: 26px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    border: 1px solid transparent;
+    border-radius: var(--border-radius);
+    background: transparent;
+    color: var(--text-muted);
+    cursor: pointer;
+}
+
+.device-restart-btn .line-icon {
+    width: 16px;
+    height: 16px;
+}
+
+.device-restart-btn:hover,
+.device-restart-btn:focus-visible,
+.device-restart-btn.is-open {
+    color: var(--text-primary);
+    background: var(--bg-tertiary);
+    border-color: var(--border-strong);
+}
+
+.device-restart-btn.is-open {
+    color: var(--primary-light);
+}
+
+/* A Viewer sees the badge, not a control. */
+.device-restart-btn.is-readonly,
+.device-restart-btn.is-readonly:hover {
+    cursor: default;
+    color: var(--text-muted);
+    background: transparent;
+    border-color: transparent;
+}
+
+.device-restart-badge {
+    position: absolute;
+    top: -3px;
+    right: -3px;
+    width: 12px;
+    height: 12px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    border: 1.5px solid var(--bg-inset);
+    color: var(--bg-inset);
+}
+
+.device-restart-btn .device-restart-badge .line-icon {
+    width: 9px;
+    height: 9px;
+    stroke-width: 2.6;
+}
+
+.device-restart-badge.is-scheduled {
+    background: var(--info-color);
+}
+
+.device-restart-badge.is-waiting {
+    background: var(--warning-color);
+}
+
+.device-restart-badge.is-failed {
+    background: var(--danger-color);
+}
+
 .device-header,
 .ap-header {
     display: flex;
@@ -20756,7 +20871,10 @@ tr.stats-row-filtered {
     flex-wrap: wrap;
 }
 .lan-health .lan-health-score-rows { flex: 1 1 160px; display: flex; flex-direction: column; gap: 0.5rem; }
-.lan-health .lan-health-score-row { display: flex; justify-content: space-between; gap: 1rem; }
+.lan-health .lan-health-score-row { display: flex; justify-content: space-between; gap: 1rem; font-size: 0.875rem; }@media (max-width: 768px) {
+    /* The Device Status cards' label and value size. */
+    .lan-health .lan-health-score-row { font-size: 0.8125rem; }
+}
 .lan-health .lan-health-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; margin-top: 0.5rem; }
 .lan-health .lan-health-chip {
     padding: 0.125rem 0.5rem;
@@ -20797,15 +20915,31 @@ tr.stats-row-filtered {
 .lan-health .lan-health-link-name { font-weight: 600; }
 .lan-health .lan-health-link-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.5rem; margin-top: 0.5rem; }
 .lan-health .lan-health-link-grid > div { display: flex; flex-direction: column; }
+/* Back button over the title on the left, the range on the title's row at the right, and the two ends
+   spanning both rows between them. */
 .lan-health .lan-health-link-head {
-    display: flex;
-    justify-content: space-between;
-    align-items: flex-start;
-    gap: 1rem;
-    flex-wrap: wrap;
-    margin: 0.5rem 0 1rem;
+    display: grid;
+    grid-template-columns: minmax(0, max-content) minmax(0, 1fr) max-content;
+    grid-template-areas: "back ends ." "name ends right";
+    column-gap: 1.5rem;
+    row-gap: 1.5rem;
+    margin-bottom: 1rem;
 }
-.lan-health .lan-health-link-head-right { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; }
+.lan-health .lan-health-link-head > .lan-health-back { grid-area: back; margin-bottom: 0; }
+.lan-health .lan-health-link-name { grid-area: name; min-width: 0; }
+.lan-health .lan-health-link-head-right { grid-area: right; align-self: start; display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; }
+/* Each device's icon with its restart button, its name under it, and its port. */
+.lan-health .lan-health-link-ends { grid-area: ends; align-self: center; display: flex; align-items: flex-start; justify-content: center; gap: 0.75rem; min-width: 0; }
+.lan-health .lan-health-end { flex: 0 1 auto; display: flex; flex-direction: column; align-items: center; gap: 0.25rem; max-width: 18rem; min-width: 0; text-align: center; }
+.lan-health .lan-health-end-icon { position: relative; display: flex; align-items: center; justify-content: center; width: 48px; height: 48px; color: var(--text-muted); }
+.lan-health .lan-health-end-icon > .line-icon { width: 36px; height: 36px; }
+.lan-health .lan-health-end-icon > .device-restart-btn { position: absolute; left: calc(100% + 0.35rem); bottom: 0; }
+.lan-health .lan-health-end-name { font-size: 0.875rem; font-weight: 600; color: var(--text-primary); overflow-wrap: break-word; }
+.lan-health .lan-health-end-line { flex: 1 1 2rem; min-width: 2rem; max-width: 8rem; margin-top: 24px; border-top: 2px solid var(--border-strong); }
+.lan-health .lan-health-end-line.is-mesh { border-top-style: dashed; }
+@media (max-width: 768px) {
+    .lan-health .lan-health-link-head { grid-template-columns: minmax(0, 1fr); grid-template-areas: "back" "name" "right" "ends"; row-gap: 1rem; }
+}
 .lan-health .lan-health-link-title { margin: 0 0 0.25rem; font-size: 1.25rem; }
 .lan-health .lan-health-tiles { margin-bottom: 1rem; }
 .lan-health .lan-health-tile-text { font-size: 1rem; }
@@ -27077,6 +27211,18 @@ body:has(.top-bar-hidden) .btn-fit {
 .lt-fmenu {
     width: 190px;
     padding: 6px;
+    transform-origin: top left;
+    animation: lt-fmenu-in 0.14s ease-out;
+}
+
+@keyframes lt-fmenu-in {
+    from { opacity: 0; transform: translateY(-4px) scale(0.97); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .lt-fmenu {
+        animation: none;
+    }
 }
 
 .lt-fmenu button {
@@ -27164,6 +27310,163 @@ body:has(.top-bar-hidden) .btn-fit {
     .lt-fpop-item {
         padding: 9px 4px;
         font-size: 0.9rem;
+    }
+}
+
+/* The Device Status restart sheet: an lt-fpop popover over its button on desktop (placed by
+   fixed-popover.js), the bottom sheet above on a phone. */
+.device-restart-pop,
+.device-restart-pop > form {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.device-restart-pop .lt-fpop-head {
+    margin-bottom: 0;
+}
+
+/* It renders inside its button's host (a card, LAN Health's centered link end): inherit nothing from it. */
+.device-restart-pop {
+    text-align: left;
+    color: var(--text-primary);
+}
+
+/* An animated lt-fpop (the restart sheet, Live Traffic's filter editor): a desktop popover fades in, a
+   phone's bottom sheet slides up. Height changes animate in fixed-popover.js (watch). */
+@media (min-width: 769px) {
+    .lt-fpop-animated {
+        animation: lt-fpop-in 0.1s ease-out;
+    }
+
+    /* Hidden until fixed-popover.js pins it, so it never flashes at its host's corner first; it fades in once pinned. */
+    .device-restart-pop:not([style*="fixed"]) {
+        visibility: hidden;
+        animation: none;
+    }
+}
+
+@media (max-width: 768px) {
+    .lt-fpop-animated {
+        animation: lt-fpop-sheet-up 0.22s ease-out;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .lt-fpop-animated {
+        animation: none !important;
+    }
+}
+
+/* Starts partly visible and short: from transparent, the first frames show nothing and read as a delay. */
+@keyframes lt-fpop-in {
+    from { opacity: 0.4; transform: translateY(4px); }
+}
+
+@keyframes lt-fpop-sheet-up {
+    from { transform: translateY(100%); }
+}
+
+/* Custom Apps' close button, in the header's flow rather than pinned to a corner. */
+.device-restart-close {
+    flex: none;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    margin: -4px -4px -4px 0;
+    padding: 0;
+    border: none;
+    border-radius: var(--border-radius-lg);
+    background: transparent;
+    color: var(--text-secondary);
+    cursor: pointer;
+}
+
+.device-restart-close:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+}
+
+.device-restart-close svg {
+    width: 18px;
+    height: 18px;
+}
+
+/* A phone's bottom sheet closes by swipe or the backdrop. */
+@media (max-width: 768px) {
+    .device-restart-close {
+        display: none;
+    }
+}
+
+.device-restart-name {
+    flex: 1 1 auto;
+    min-width: 0;
+    text-align: right;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 0.875rem;
+    font-weight: 600;
+}
+
+.device-restart-pop .alert {
+    margin: 0;
+    padding: 8px 10px;
+    font-size: 0.8rem;
+    line-height: 1.4;
+}
+
+.device-restart-pop .form-help {
+    margin-top: 0;
+}
+
+.device-restart-pop .radio-group {
+    gap: 8px;
+}
+
+/* A time or a quiet-hour proposal sits under its own option. */
+.device-restart-pop .radio-group > .form-help,
+.device-restart-pop .radio-group > .form-group {
+    margin: -4px 0 0 1.5rem;
+}
+
+.device-restart-pop .checkbox-label + .form-help {
+    margin: -6px 0 0 1.5rem;
+}
+
+/* The PoE option is a long, secondary line: a step under the restart options above it. */
+.device-restart-pop .checkbox-label {
+    font-size: 0.8rem;
+}
+
+.device-restart-hc {
+    display: block;
+    padding-top: 9px;
+    border-top: 1px solid var(--border-color);
+    font-size: 0.75rem;
+    line-height: 1.4;
+    color: var(--text-secondary);
+    text-decoration: none;
+}
+
+.device-restart-hc:hover,
+.device-restart-hc.is-recurring {
+    color: var(--primary-light);
+}
+
+@media (min-width: 769px) {
+    .device-restart-pop {
+        width: 320px;
+    }
+}
+
+/* The sheet's last line, clear of the phone's bottom edge. */
+@media (max-width: 768px) {
+    .device-restart-hc {
+        padding-bottom: 6px;
     }
 }
 

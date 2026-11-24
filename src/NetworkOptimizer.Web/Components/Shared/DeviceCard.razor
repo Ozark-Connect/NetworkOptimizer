@@ -1,7 +1,10 @@
 @if (Device != null)
 {
     var deviceHref = $"/monitoring?tab=devices&device={Uri.EscapeDataString(Device.Mac ?? "")}";
-    <a href="@deviceHref" class="device-card device-card-link device-@Device.StatusInfo.CssClass">
+    @* The card is a div holding the link and the restart button side by side: a button inside the
+       link would be invalid markup, and its click would follow the link. *@
+    <div class="device-card device-@Device.StatusInfo.CssClass">
+    <a href="@deviceHref" class="device-card-link">
         <div class="device-header">
             <div class="device-icon">
                 @{
@@ -115,6 +118,11 @@
             </div>
         }
     </a>
+    @if (ShowRestart)
+    {
+        <DeviceRestartButton Mac="@(Device.Mac ?? "")" Name="@Device.Name" Restart="@Restart" TourAnchor="@TourAnchor" OnChanged="OnRestartChanged" />
+    }
+    </div>
 }
 
 <style>
@@ -143,15 +151,6 @@
 
     .device-emoji {
         font-size: 2rem;
-    }
-
-    .device-card-link {
-        text-decoration: none;
-        color: inherit;
-        display: block;
-    }
-    .device-card-link:hover {
-        border-color: var(--primary-color);
     }
 
     /* Readouts in the display face; the address and the firmware version are identifiers. */
@@ -234,6 +233,8 @@
 </style>
 
 @using NetworkOptimizer.Web.Services
+@using NetworkOptimizer.Web.Services.DeviceRestart
+@using NetworkOptimizer.Storage.Models
 @using NetworkOptimizer.Core.Enums
 @inject IWebHostEnvironment Environment
 
@@ -244,6 +245,22 @@
     /// <summary>The image to show when the app bundles none for the model (UniFi Network's icon for it).</summary>
     [Parameter]
     public string? FallbackImageUrl { get; set; }
+
+    /// <summary>True to show the restart button (Site Admin) or its read-only badge (everyone else).</summary>
+    [Parameter]
+    public bool ShowRestart { get; set; }
+
+    /// <summary>The device's open or recently failed restart, or null.</summary>
+    [Parameter]
+    public DeviceRestartBadge? Restart { get; set; }
+
+    /// <summary>Puts the guided tour's anchor on this card's restart button (the first card only).</summary>
+    [Parameter]
+    public bool TourAnchor { get; set; }
+
+    /// <summary>Raised after a restart is requested or cancelled, so the page re-reads the badges.</summary>
+    [Parameter]
+    public EventCallback OnRestartChanged { get; set; }
 
     private bool HasLiveData => Device != null
         && (Device.LiveRateInBps.HasValue

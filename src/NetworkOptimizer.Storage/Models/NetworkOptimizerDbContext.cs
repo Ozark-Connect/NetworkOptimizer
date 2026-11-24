@@ -87,6 +87,7 @@ public class NetworkOptimizerDbContext : DbContext
     public DbSet<MonitoringInterface> MonitoringInterfaces { get; set; }
     public DbSet<CustomOidConfiguration> CustomOidConfigurations { get; set; }
     public DbSet<HealthCheckDefinition> HealthCheckDefinitions { get; set; }
+    public DbSet<DeviceRestartRequest> DeviceRestartRequests { get; set; }
     public DbSet<ApAgentDeployment> ApAgentDeployments { get; set; }
     public DbSet<ApAgentEventCursor> ApAgentEventCursors { get; set; }
     public DbSet<DeviceSshRoute> DeviceSshRoutes { get; set; }
@@ -764,6 +765,16 @@ public class NetworkOptimizerDbContext : DbContext
             entity.ToTable("HealthCheckDefinitions");
             entity.HasIndex(e => e.DeviceMac);
             entity.HasIndex(e => new { e.DeviceMac, e.FieldName }).IsUnique();
+        });
+
+        modelBuilder.Entity<DeviceRestartRequest>(entity =>
+        {
+            entity.ToTable("DeviceRestartRequests");
+            entity.HasIndex(e => e.DeviceMac);
+            entity.HasIndex(e => new { e.Status, e.DueAtUtc });
+            // The executor and a user's cancel can write the same row; the later write must not win blind.
+            entity.Property(e => e.Status).IsConcurrencyToken();
+            entity.Ignore(e => e.IsOpen);
         });
 
         // ApChannelOutcome configuration (channel recommendation outcome memory)

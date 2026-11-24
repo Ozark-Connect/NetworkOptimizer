@@ -1125,10 +1125,31 @@
     private IReadOnlySet<string> SelectedValues((LiveTrafficField Field, bool Exclude) key) =>
         _filters.Where(f => f.Field == key.Field && f.Exclude == key.Exclude).Select(f => f.Value).ToHashSet(StringComparer.OrdinalIgnoreCase);
 
-    private void ToggleFieldMenu()
+    private async Task ToggleFieldMenu()
     {
-        _fieldMenu = !_fieldMenu;
+        if (_fieldMenu)
+        {
+            await CloseFieldMenuAsync();
+            return;
+        }
+        _fieldMenu = true;
         _editor = null;
+    }
+
+    private ElementReference _fieldMenuEl;
+    private IJSObjectReference? _popover;
+
+    /// <summary>Folds the + Filter menu away, then removes it.</summary>
+    private async Task CloseFieldMenuAsync()
+    {
+        if (!_fieldMenu) return;
+        try
+        {
+            _popover ??= await JS.InvokeAsync<IJSObjectReference>("import", FileVersionProvider.AddFileVersionToPath("", "/js/fixed-popover.js"));
+            await _popover.InvokeVoidAsync("dismiss", _fieldMenuEl, "menu");
+        }
+        catch (Exception ex) when (ex is JSDisconnectedException or TaskCanceledException or InvalidOperationException) { }
+        _fieldMenu = false;
     }
 
     /// <summary>Opens the chip's editor, and asks for its field's values at once rather than on the next tick.</summary>
@@ -1218,8 +1239,8 @@
                 <button type="button" class="lt-add-filter" aria-haspopup="menu" data-reveals=".lt-fmenu" aria-expanded="@(_fieldMenu ? "true" : "false")" @onclick="ToggleFieldMenu">+ Filter</button>
                 @if (_fieldMenu)
                 {
-                    <div class="lt-fpop-backdrop" @onclick="() => _fieldMenu = false"></div>
-                    <div class="lt-fmenu" role="menu">
+                    <div class="lt-fpop-backdrop" @onclick="CloseFieldMenuAsync"></div>
+                    <div @ref="_fieldMenuEl" class="lt-fmenu" role="menu">
                         @foreach (var (pick, icon) in EditableFields)
                         {
                             <button type="button" role="menuitem" @onclick="() => OpenEditor(pick, false, fromAdd: true)"><i class="@icon"></i>@FieldLabel(pick)</button>
@@ -1704,5 +1725,7 @@
             catch { /* circuit going away */ }
         }
         _selfRef?.Dispose();
+        try { _ = _popover?.DisposeAsync().AsTask(); }
+        catch { /* circuit going away */ }
     }
 }
