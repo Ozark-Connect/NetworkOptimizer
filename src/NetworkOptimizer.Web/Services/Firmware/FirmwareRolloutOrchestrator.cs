@@ -3096,6 +3096,14 @@ public class FirmwareRolloutOrchestrator : BackgroundService
 
         await HoldApAgentAsync(step, cancellationToken);
 
+        // Open the alert windows before the command, not after: the SSH install holds this pass while
+        // the device flashes and reboots, so a window opened on return is opened too late.
+        if (settings.SuppressStandardAlerts)
+        {
+            _suppression.RefreshSiteActive(_siteSlug, Now);
+            await OpenStepWindowsAsync(step, byMac, cancellationToken);
+        }
+
         // The image this plan committed to, captured on this device's own channel. Only used when it
         // names the version this step is for - the catalog is matched by model code, so a
         // disagreement means the entry is not this step's build and the URL cannot be trusted.
@@ -3158,6 +3166,7 @@ public class FirmwareRolloutOrchestrator : BackgroundService
 
         if (!result.IsOk)
         {
+            CloseStepWindows(step);
             await FailStepAsync(document, steps, step,
                 $"The upgrade could not be started: {result.Message ?? "no path accepted the command"}",
                 cancellationToken);
@@ -3169,8 +3178,12 @@ public class FirmwareRolloutOrchestrator : BackgroundService
         _commandWaitSince.TryRemove(step.Id, out _);
         await PersistStepAsync(step, cancellationToken);
 
+        // Refreshed again on return: an SSH install can hold the pass for minutes.
         if (settings.SuppressStandardAlerts)
+        {
+            _suppression.RefreshSiteActive(_siteSlug, Now);
             await OpenStepWindowsAsync(step, byMac, cancellationToken);
+        }
 
         _logger.LogInformation(
             "Commanded {Device} ({Model}) on site {Site} to upgrade to {Version}",
