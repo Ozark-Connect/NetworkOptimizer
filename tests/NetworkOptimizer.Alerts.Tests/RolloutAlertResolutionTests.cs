@@ -23,8 +23,9 @@ public class RolloutAlertResolutionTests
 
     public RolloutAlertResolutionTests()
     {
+        // A finished rollout closes its Started alert even once acknowledged: the open-alerts path, not active-only.
         _repository
-            .Setup(r => r.ResolveActiveAlertsAnyDeviceAsync(
+            .Setup(r => r.ResolveOpenAlertsAnyDeviceAsync(
                 It.IsAny<IReadOnlyCollection<string>>(), It.IsAny<CancellationToken>()))
             .Callback<IReadOnlyCollection<string>, CancellationToken>(
                 (types, _) => _anyDeviceResolveCalls.Add(types.ToArray()))
@@ -82,5 +83,6 @@ public class RolloutAlertResolutionTests
 
         _anyDeviceResolveCalls.Should().ContainSingle();
         _anyDeviceResolveCalls[0].Should().Equal("rollout.started");
+        _repository.Verify(r => r.ResolveActiveAlertsAnyDeviceAsync(It.IsAny<IReadOnlyCollection<string>>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 }
