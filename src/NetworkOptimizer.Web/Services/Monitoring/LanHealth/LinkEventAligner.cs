@@ -92,19 +92,21 @@ public static class LinkEventAligner
             }
         }
 
-        // Imprecise relinks attach to the precise drops they overlap, up to their count.
+        // Imprecise relinks attach to the precise drops they overlap, up to their count, then to another source's
+        // imprecise relink over the same window: two counters that each saw one relink in the hour saw the same one.
         foreach (var e in faults.Where(e => !e.Precise && e.Type is LinkEventType.Relink or LinkEventType.LinkDown or LinkEventType.LinkUp))
         {
             var remaining = (int)Math.Round(e.Count);
-            foreach (var i in incidents.Where(i => i.Kind is IncidentKind.Drop or IncidentKind.Outage or IncidentKind.LossBurst
-                         && !i.SeenBy.Contains(e.Source) && i.Start <= e.End && i.End >= e.Start))
+            foreach (var i in incidents.Where(i => i.Kind is IncidentKind.Drop or IncidentKind.Outage or IncidentKind.LossBurst or IncidentKind.Relink
+                         && !i.SeenBy.Contains(e.Source) && i.Start <= e.End && i.End >= e.Start)
+                         .OrderBy(i => i.Kind == IncidentKind.Relink).ToList())
             {
                 if (remaining <= 0) break;
                 i.Events.Add(e);
                 i.SeenBy.Add(e.Source);
                 // A probe loss burst that a counter confirms was a drop.
                 if (i.Kind == IncidentKind.LossBurst) i.Kind = IncidentKind.Drop;
-                remaining--;
+                remaining -= i.Kind == IncidentKind.Relink ? (int)Math.Round(i.Count) : 1;
             }
             if (remaining > 0)
             {

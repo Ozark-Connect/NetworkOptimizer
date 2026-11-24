@@ -47,7 +47,8 @@ from(bucket: {FluxLiteral.Quote(_bucket)})
             }
             return values;
         }
-        var rateFields = fields.Where(f => f is "rate_in_bps" or "rate_out_bps").ToList();
+        // oper_status's mean is the share of the hour a port spent down: LAN Health's sleep check reads it.
+        var rateFields = fields.Where(f => f is "rate_in_bps" or "rate_out_bps" or "oper_status").ToList();
         var first = Agg("first");
         var last = Agg("last");
         var min = Agg("min");

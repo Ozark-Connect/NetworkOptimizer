@@ -208,6 +208,49 @@ public class LanHealthTests
         built.Row.DropsExplained.Should().Be(2);
     }
 
+    /// <summary>One wake in an hour, seen by link_down_count, ifLastChange and ifOperStatus; the port was down for <paramref name="downShare"/> of it.</summary>
+    private static LanHealthEvidenceBuilder.LinkHour OneRelinkHour(double downShare)
+    {
+        var link = new LinkRecord
+        {
+            Id = $"{SwitchMac}|7-access", Kind = LinkKind.Access,
+            Upstream = new LinkEnd { DeviceMac = SwitchMac, DeviceName = "Switch A", DeviceType = DeviceType.Switch, PortIdx = 7 },
+            Downstream = new LinkEnd { DeviceMac = "", DeviceName = "PC", IsUniFi = false },
+        };
+        var hour = new DateTime(2026, 1, 1, 7, 0, 0, DateTimeKind.Utc);
+        var ports = new[]
+        {
+            new PortFieldStats(hour, SwitchMac, "Port 7", "pt:7", "link_down_count", 127, 128, 127, 128, null),
+            new PortFieldStats(hour, SwitchMac, "Port 7", "0/7", "last_change", 215_993_300, 216_505_900, 215_993_300, 216_505_900, null),
+            new PortFieldStats(hour, SwitchMac, "Port 7", "0/7", "oper_status", 1, 1, 1, 2, 1 + downShare),
+            // Busy hours either side of the sleep: the idle-traffic check does not apply.
+            new PortFieldStats(hour, SwitchMac, "Port 7", "0/7", "rate_in_bps", 0, 0, 0, 5_000_000, 18_000),
+            new PortFieldStats(hour, SwitchMac, "Port 7", "0/7", "rate_out_bps", 0, 0, 0, 50_000_000, 540_000),
+        };
+        return LanHealthEvidenceBuilder.BuildHour(link, new LanHealthEvidenceBuilder.HourInputs { Hour = hour, Ports = ports },
+            new Dictionary<string, LinkRecord>(), new Dictionary<string, HashSet<string>>(), 1);
+    }
+
+    [Fact]
+    public void AccessPort_ThreeCountersOneRelink_IsOneIncident()
+    {
+        // Down for about 10 s: a real relink, not sleep, and counted once however many counters saw it.
+        var built = OneRelinkHour(10.0 / 3600);
+        built.Incidents.Should().ContainSingle(i => i.Kind == IncidentKind.Relink && i.Count == 1 && i.Explained == null);
+        built.Incidents.Single().SeenBy.Should().BeEquivalentTo([LinkSource.SwitchLinkDownCount, LinkSource.SnmpLastChange, LinkSource.SnmpOperStatus]);
+        built.Row.Relinks.Should().Be(1);
+    }
+
+    [Fact]
+    public void AccessPort_DownForMinutesInsideTheHour_IsSleep()
+    {
+        // A PC asleep 16 minutes, down and back up inside one hour.
+        var built = OneRelinkHour(16.0 / 60);
+        built.Incidents.Should().ContainSingle().Which.Explained.Should().Be(ExplainReason.DeviceAsleep);
+        built.Row.Relinks.Should().Be(0);
+        built.Row.DropsExplained.Should().Be(1);
+    }
+
     [Theory]
     [InlineData(1048623, 1000)]
     [InlineData(1048687, 2500)]
