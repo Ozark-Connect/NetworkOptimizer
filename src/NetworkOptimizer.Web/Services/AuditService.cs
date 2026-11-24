@@ -2470,7 +2470,7 @@ public partial class AuditService : IAuditScanService
         var ids = new List<int>();
         foreach (var part in commaSeparated.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
         {
-            if (int.TryParse(part, out var vlanId) && vlanId > 0 && vlanId <= 4094)
+            if (AuditSettingsValidation.TryParseVlanId(part, out var vlanId))
                 ids.Add(vlanId);
         }
         return ids.Count > 0 ? ids : null;
@@ -2485,7 +2485,7 @@ public partial class AuditService : IAuditScanService
         if (string.IsNullOrWhiteSpace(raw))
             return null;
         var ips = new List<string>();
-        foreach (var part in raw.Split(new[] { ',', ';', '\n', '\r', ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries))
+        foreach (var part in raw.Split(AuditSettingsValidation.IpListSeparators, StringSplitOptions.RemoveEmptyEntries))
         {
             var trimmed = part.Trim();
             if (System.Net.IPAddress.TryParse(trimmed, out var parsed))
