@@ -131,6 +131,7 @@ public abstract class WirelessAuditRuleBase : IWirelessAuditRule
             RecommendedAction = recommendedAction,
             ClientMac = client.Mac,
             ClientName = client.DisplayName,
+            ClientNamed = UniFi.ClientNames.For(client.Client) is not null,
             AccessPoint = client.AccessPointName,
             WifiBand = client.WifiBand,
             IsWireless = true,
