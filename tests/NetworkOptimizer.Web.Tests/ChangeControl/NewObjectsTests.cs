@@ -69,6 +69,18 @@ public class NewObjectsTests
     }
 
     [Fact]
+    public void Network_LeavesOutTheLanDefaultsUniFiRewritesOnCreate()
+    {
+        // Network 11.1's lan/defaults, as main returns them: UniFi drops dhcpdv6_enabled and stores mdns_enabled false.
+        var defaults = NewObjects.ParseDefaults("""{"purpose":"corporate","dhcpd_leasetime":86400,"dhcpdv6_enabled":false,"dhcpdv6_leasetime":86400,"mdns_enabled":true,"igmp_snooping":false}""");
+
+        var item = NewObjects.Yaml(ConfigCollections.Get("networkconf")!, Site(), defaults);
+
+        item.Should().NotContain("mdns_enabled").And.NotContain("dhcpdv6_enabled:");
+        item.Should().Contain("dhcpdv6_leasetime: 86400").And.Contain("igmp_snooping: false");
+    }
+
+    [Fact]
     public void Policy_AnyMatch_CarriesNoSpecificMatchType()
     {
         // UniFi's own defaults, as the main site returns them: ANY with matching_target_type SPECIFIC, which it drops on create.
